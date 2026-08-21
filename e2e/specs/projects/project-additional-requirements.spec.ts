@@ -13,6 +13,7 @@ import { test, expect, type Locator, type Response } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 /**
@@ -1007,58 +1008,42 @@ test.describe('プロジェクト管理 追加要件', () => {
     test('すべてのAPIエンドポイントがOpenAPI仕様書に文書化されている (project-management/REQ-14.7)', async ({
       page,
     }) => {
-      // OpenAPI仕様書へのアクセスを試行
-      // フロントエンド経由（プロキシ）またはバックエンド直接
-      const baseUrl = process.env.BASE_URL || 'http://localhost:5174';
-      const backendUrl = process.env.BACKEND_URL || 'http://localhost:3100';
+      // REQ-14.7 は「すべてのAPIをAPI仕様書に文書化する」ことを定める。
+      // 仕様書は backend が Swagger UI として配信しており（backend/src/app.ts の
+      // `swaggerUi.setup(swaggerSpec)`）、仕様(JSON)は初期化スクリプト
+      // `/docs/swagger-ui-init.js` の `swaggerDoc` にそのまま埋め込まれている。
+      //
+      // 以前は `${BASE_URL}/api/docs-json` と `${BACKEND_URL}/api-docs-json` を順に試し、
+      // どちらも存在しない（実測 404）ため**常に**代替経路へ落ちていた。
+      // 代替経路は「プロジェクトAPIが呼べる」ことしか見ておらず、
+      // 文書化を一度も検証していなかった。実在する配信元を直接取得し、無条件に主張する。
+      const specResponse = await page.request.get(`${API_BASE_URL}/docs/swagger-ui-init.js`, {
+        timeout: getTimeout(15000),
+      });
+      expect(
+        specResponse.ok(),
+        `API仕様書が配信されている (status=${specResponse.status()})`
+      ).toBeTruthy();
 
-      let response;
-      let swaggerSpec;
+      const initScript = await specResponse.text();
+      const swaggerDocMatch = initScript.match(
+        /"swaggerDoc":\s*(\{[\s\S]*?\}),\n\s*"customOptions":/
+      );
+      assertPresent(swaggerDocMatch, 'Swagger UI 初期化スクリプトに埋め込まれたAPI仕様(JSON)');
+      const swaggerDocJson = swaggerDocMatch[1];
+      assertPrepared(swaggerDocJson, 'API仕様(JSON)の本文');
+      const swaggerSpec = JSON.parse(swaggerDocJson) as {
+        paths?: Record<string, unknown>;
+      };
 
-      // 1. フロントエンド経由でAPI仕様にアクセスを試行
-      try {
-        response = await page.request.get(`${baseUrl}/api/docs-json`, { timeout: 5000 });
-        if (response.ok()) {
-          swaggerSpec = await response.json();
-        }
-      } catch {
-        // フロントエンド経由でアクセスできない場合は無視
-      }
-
-      // 2. バックエンド直接アクセスを試行
-      if (!swaggerSpec) {
-        try {
-          response = await page.request.get(`${backendUrl}/api-docs-json`, { timeout: 5000 });
-          if (response?.ok()) {
-            swaggerSpec = await response.json();
-          }
-        } catch {
-          // バックエンドにも直接アクセスできない場合
-        }
-      }
-
-      // 3. API仕様が取得できた場合、プロジェクトエンドポイントを検証
-      if (swaggerSpec) {
-        expect(swaggerSpec.paths).toBeDefined();
-        const projectPaths = Object.keys(swaggerSpec.paths || {}).filter((path) =>
-          path.includes('/api/projects')
-        );
-        expect(projectPaths.length).toBeGreaterThan(0);
-      } else {
-        // E2E環境でOpenAPI仕様にアクセスできない場合、
-        // 実際のAPI呼び出しが動作していることで代替検証
-        await loginAsUser(page, 'REGULAR_USER');
-        await page.goto('/projects');
-        await page.waitForLoadState('networkidle');
-
-        // プロジェクトAPIが動作していることを確認
-        const projectResponse = await page.request.get(`${baseUrl}/api/projects`, {
-          headers: {
-            Authorization: `Bearer ${await page.evaluate(() => localStorage.getItem('accessToken'))}`,
-          },
-        });
-        expect(projectResponse.ok()).toBe(true);
-      }
+      expect(swaggerSpec.paths, 'API仕様書に paths が含まれている').toBeDefined();
+      const projectPaths = Object.keys(swaggerSpec.paths ?? {}).filter((path) =>
+        path.includes('/api/projects')
+      );
+      expect(
+        projectPaths.length,
+        'REQ-14.7: プロジェクトAPIのエンドポイントがAPI仕様書に文書化されている'
+      ).toBeGreaterThan(0);
     });
   });
 

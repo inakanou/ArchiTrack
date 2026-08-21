@@ -342,11 +342,31 @@ test.describe('受領見積書 明細行の並び順と上下移動（REQ-37 残
           await cb.check({ force: true }).catch(() => undefined);
         }
       }
+      // 保存ボタンは「未保存の変更があるとき」だけ活性になる（`ItemSelectionPanel` の
+      // `disabled={isSaving || !hasUnsavedChanges}`）。既に同一選択が永続化済みなら不活性である。
+      // 「見えていれば押す」を分岐で書くと、押さなかった回に前提が成立したかどうかを誰も確かめない
+      // （しかも不活性のまま押そうとすると待機切れになる）。押下の条件を繰り返しの見出しへ移し、
+      // 繰り返しの後で前提そのもの（未保存の変更が残っていないこと）を無条件に主張する。
       const saveBtn = page.getByTestId('save-selection-button');
-      if (await saveBtn.isVisible().catch(() => false)) {
+      await expect(saveBtn, '項目選択の保存ボタンが表示されていない').toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      // 保存は最大1回で足りる。上限は保存が効かない実装退行で押し続けないための歯止め。
+      const MAX_SAVE_ATTEMPTS = 2;
+      for (
+        let attempt = 0;
+        attempt < MAX_SAVE_ATTEMPTS && (await saveBtn.isEnabled());
+        attempt += 1
+      ) {
         await saveBtn.click();
         await expect(page.getByText('保存しました')).toBeVisible({ timeout: getTimeout(10000) });
       }
+
+      await expect(
+        saveBtn,
+        '項目選択が永続化されていない（未保存の変更が残っている）'
+      ).toBeDisabled({ timeout: getTimeout(10000) });
 
       await openCreateDialog(page, requestId);
 

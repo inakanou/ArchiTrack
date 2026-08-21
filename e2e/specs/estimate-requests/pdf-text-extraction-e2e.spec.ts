@@ -33,6 +33,30 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
+ * PDFの抽出経路を pdfjs-dist に固定する。
+ *
+ * `OcrDataExtractor` は PDF に対してまず Claude Vision を試し、失敗した場合にだけ
+ * pdfjs-dist のハイブリッド抽出へ落ちる（REQ-24.2 / REQ-25.1）。
+ * Requirement 17 は pdfjs-dist 経路の要件であり、
+ * Claude Vision の可用性で結果が揺れると「検出できたら検証する」形になってしまう。
+ * Claude Vision を利用不可（503）に固定して、常に pdfjs-dist 経路を通す。
+ *
+ * @param page Playwright のページ（画面遷移の前に呼ぶこと）
+ */
+async function forcePdfjsExtractionPath(page: import('@playwright/test').Page): Promise<void> {
+  await page.route('**/api/claude-vision/extract', (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: 'テスト用に固定した利用不可',
+        errorType: 'service_unavailable',
+      }),
+    })
+  );
+}
+
+/**
  * PDFテキスト抽出ハイブリッドアプローチのE2Eテスト
  *
  * テストフロー:
@@ -333,6 +357,12 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
 
     await loginAsUser(page, 'ADMIN_USER');
 
+    // REQ-17.5 は「PDFテキスト抽出の結果」から一括取り込みボタンを提供する要件である。
+    // Claude Vision が使える環境では抽出経路がそちらへ逸れ、検出件数が定まらないため
+    // 「ボタンが出たら検証する」形になり主張が一度も実行されない回が生じる。
+    // REQ-25.1 のフォールバックを固定して pdfjs 経路（REQ-17.1, REQ-17.3）を必ず通す。
+    await forcePdfjsExtractionPath(page);
+
     // 見積依頼詳細画面に遷移
     await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
     await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
@@ -352,35 +382,35 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(pdfPath);
 
-    // テキスト抽出完了を待機
-    await expect(
-      page
-        .locator('[data-testid="ocr-extracted-text"]')
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-        .first()
-    ).toBeVisible({ timeout: getTimeout(60000) });
+    // テキスト抽出完了を待機（テキスト入りPDFなので抽出は必ず成立する）
+    await expect(page.locator('[data-testid="ocr-extracted-text"]')).toBeVisible({
+      timeout: getTimeout(60000),
+    });
 
-    // 一括取り込みボタンが表示された場合のみ検証（データが検出された場合）
+    // REQ-17.5: 抽出結果から一括取り込みボタンが提供される
     const importButton = page.locator('[data-testid="ocr-import-button"]');
-    if (await isVisibleWithin(importButton, 5000)) {
-      // 一括取り込みボタンをクリック
-      await importButton.click();
+    await expect(importButton).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 取り込み成功メッセージが表示される
-      await expect(page.locator('[data-testid="ocr-import-success"]')).toBeVisible({
-        timeout: getTimeout(5000),
-      });
+    // 一括取り込みボタンをクリック
+    await importButton.click();
 
-      // 確認・修正メッセージが表示される
-      await expect(page.getByText(/内容を確認し、必要に応じて修正してください/i)).toBeVisible({
-        timeout: getTimeout(5000),
-      });
+    // 取り込み成功メッセージが表示される
+    await expect(page.locator('[data-testid="ocr-import-success"]')).toBeVisible({
+      timeout: getTimeout(5000),
+    });
 
-      // 明細行テーブルにデータが入力されていることを確認
-      // (最低1行以上の名称フィールドに値が設定されている)
-      const lineItemTable = page.locator('form table');
-      await expect(lineItemTable).toBeVisible({ timeout: getTimeout(5000) });
-    }
+    // 確認・修正メッセージが表示される
+    await expect(page.getByText(/内容を確認し、必要に応じて修正してください/i)).toBeVisible({
+      timeout: getTimeout(5000),
+    });
+
+    // REQ-17.5: 明細行テーブルに抽出データが転記されている
+    const lineItemTable = page.locator('form table');
+    await expect(lineItemTable).toBeVisible({ timeout: getTimeout(5000) });
+    await expect(
+      page.getByRole('textbox', { name: '行1 名称' }),
+      'REQ-17.5: 一括取り込み後も明細行の名称が空のままである'
+    ).not.toHaveValue('');
   });
 
   // ============================================================================
@@ -425,46 +455,47 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
         .first()
     ).toBeVisible({ timeout: getTimeout(15000) });
 
-    // ページナビゲーションが表示されるまで待機（2ページPDFの場合のみ表示）
-    // react-pdfのロード完了後にナビゲーションUIが表示される
+    // ページナビゲーションが表示されるまで待機
+    // アップロードした `test-text-pdf.pdf` は 2 ページ（/Count 2）であるため、
+    // REQ-17.6 のページナビゲーションは必ず表示される。
+    // 以前は「表示された場合のみ検証」で包んでいたため、
+    // ナビゲーションが出なくなっても REQ-17.6 の主張が一つも実行されなかった。
     const nextButton = page.getByRole('button', { name: '次へ' });
     const prevButton = page.getByRole('button', { name: '前へ' });
+    await expect(nextButton).toBeVisible({ timeout: getTimeout(10000) });
 
-    // ページナビゲーションが表示された場合のみ検証
-    if (await isVisibleWithin(nextButton, getTimeout(10000))) {
-      // 「ページ 1 / 2」テキストが表示される
-      await expect(page.getByText(/ページ 1 \/ 2/)).toBeVisible({
-        timeout: getTimeout(5000),
-      });
+    // 「ページ 1 / 2」テキストが表示される
+    await expect(page.getByText(/ページ 1 \/ 2/)).toBeVisible({
+      timeout: getTimeout(5000),
+    });
 
-      // 「前へ」ボタンが非活性（1ページ目）
-      await expect(prevButton).toBeDisabled();
+    // 「前へ」ボタンが非活性（1ページ目）
+    await expect(prevButton).toBeDisabled();
 
-      // 「次へ」ボタンが活性
-      await expect(nextButton).toBeEnabled();
+    // 「次へ」ボタンが活性
+    await expect(nextButton).toBeEnabled();
 
-      // 「次へ」をクリック
-      await nextButton.click();
+    // 「次へ」をクリック
+    await nextButton.click();
 
-      // ページ表示が更新される
-      await expect(page.getByText(/ページ 2 \/ 2/)).toBeVisible({
-        timeout: getTimeout(5000),
-      });
+    // ページ表示が更新される
+    await expect(page.getByText(/ページ 2 \/ 2/)).toBeVisible({
+      timeout: getTimeout(5000),
+    });
 
-      // 最終ページなので「次へ」が非活性
-      await expect(nextButton).toBeDisabled();
+    // 最終ページなので「次へ」が非活性
+    await expect(nextButton).toBeDisabled();
 
-      // 「前へ」ボタンが活性
-      await expect(prevButton).toBeEnabled();
+    // 「前へ」ボタンが活性
+    await expect(prevButton).toBeEnabled();
 
-      // 「前へ」をクリック
-      await prevButton.click();
+    // 「前へ」をクリック
+    await prevButton.click();
 
-      // 1ページ目に戻る
-      await expect(page.getByText(/ページ 1 \/ 2/)).toBeVisible({
-        timeout: getTimeout(5000),
-      });
-    }
+    // 1ページ目に戻る
+    await expect(page.getByText(/ページ 1 \/ 2/)).toBeVisible({
+      timeout: getTimeout(5000),
+    });
   });
 
   // ============================================================================

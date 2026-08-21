@@ -558,28 +558,33 @@ test.describe('REQ-28: Excelデータパース', () => {
     const opened = await openImportDialog(page);
     expect(opened).toBeTruthy();
 
-    // PDF をアップロード（OCRで処理が走る）
+    // REQ-28.3/28.5 が対象とするのは「抽出された列にマッピング先を表示する」ことであり、
+    // 抽出の手段（PDF OCR か Excel パースか）ではない。PDF は Claude Vision
+    // （ANTHROPIC_API_KEY 依存）を経由するため、以前は「プレビューが出れば主張し、
+    // 出なければエラー表示が出ていることだけを確かめる」分岐になっており、
+    // OCR が使えない環境ではマッピング先の判定が一度も実行されなかった。
+    // クライアントサイドで決定論的に解析される Excel の資材を用い、無条件に主張する
+    // （REQ-32.6・REQ-42.4 の検証と同じ手口）。
     const fileInput = page.getByLabel('ファイルを選択');
-    await fileInput.setInputFiles(TEST_PDF);
+    await fileInput.setInputFiles(TEST_XLSX);
 
-    // OCR完了を待つか、エラー表示を確認（最大30秒）
+    // REQ-28.4: 抽出結果はプレビューテーブルとして表示される
     const previewTable = page.locator('table').first();
-    const errorAlert = page.locator('[role="alert"]').first();
+    await expect(previewTable, 'REQ-28.4: 抽出結果のプレビューテーブルが表示されない').toBeVisible({
+      timeout: getTimeout(45000),
+    });
 
-    const previewVisible = await previewTable
-      .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-      .then(() => true)
-      .catch(() => false);
-    const errorVisible = await isVisibleWithin(errorAlert, getTimeout(2000));
-
-    if (previewVisible) {
-      // ドロップダウン（マッピング先 select）が存在
-      const mappingSelect = page.locator('select[aria-label*="のマッピング先"]').first();
-      await expect(mappingSelect).toBeVisible({ timeout: getTimeout(5000) });
-    } else {
-      // エラー時はエラーまたはリトライボタンが表示されている
-      expect(errorVisible, 'エラー時はエラー表示が出ている').toBeTruthy();
-    }
+    // REQ-28.3/28.5: 列ごとにマッピング先のドロップダウンが表示される
+    const mappingSelects = page.locator('select[aria-label*="のマッピング先"]');
+    await expect(
+      mappingSelects.first(),
+      'REQ-28.5: マッピング先のドロップダウンが表示されない'
+    ).toBeVisible({ timeout: getTimeout(5000) });
+    // 資材のヘッダーは「工種・名称・規格・数量・単位」の5列である
+    await expect(
+      mappingSelects,
+      'REQ-28.3: 抽出された全列にマッピング先が用意されない'
+    ).toHaveCount(5);
   });
 
   /**
@@ -650,28 +655,24 @@ test.describe('REQ-28: Excelデータパース', () => {
     const opened = await openImportDialog(page);
     expect(opened).toBeTruthy();
 
+    // REQ-28.7 はプレビューテーブルが選択可能であることを対象とする。プレビューが
+    // 出なければ判定できないため、抽出が決定論的に成立する Excel の資材を用いる
+    // （PDF OCR は ANTHROPIC_API_KEY 依存で、以前はエラー表示だけを見て抜けていた）。
     const fileInput = page.getByLabel('ファイルを選択');
-    await fileInput.setInputFiles(TEST_PDF);
+    await fileInput.setInputFiles(TEST_XLSX);
 
     const previewTable = page.locator('table').first();
-    const previewVisible = await previewTable
-      .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-      .then(() => true)
-      .catch(() => false);
+    await expect(previewTable, '前提: 抽出結果のプレビューテーブルが表示される').toBeVisible({
+      timeout: getTimeout(45000),
+    });
 
-    if (previewVisible) {
-      // 親要素のuser-select検証
-      const wrapper = page.locator('div').filter({ has: previewTable }).last();
-      const userSelect = await wrapper
-        .evaluate((el: HTMLElement) => getComputedStyle(el).userSelect)
-        .catch(() => '');
-      // user-select が text または 親が auto/text どちらでも選択可能
-      expect(['text', 'auto', '']).toContain(userSelect);
-    } else {
-      // エラー時はエラー表示
-      const errorAlert = page.locator('[role="alert"]').first();
-      await expect(errorAlert).toBeVisible({ timeout: getTimeout(5000) });
-    }
+    // 親要素のuser-select検証
+    const wrapper = page.locator('div').filter({ has: previewTable }).last();
+    const userSelect = await wrapper.evaluate((el: HTMLElement) => getComputedStyle(el).userSelect);
+    // user-select が text または 親が auto/text どちらでも選択可能
+    expect(['text', 'auto'], 'REQ-28.7: プレビューがテキスト選択不可になっている').toContain(
+      userSelect
+    );
   });
 });
 
@@ -726,26 +727,25 @@ test.describe('REQ-31: 抽出結果から数量項目への一括取り込み', 
     const opened = await openImportDialog(page);
     expect(opened).toBeTruthy();
 
+    // REQ-31.2 は「一括取り込みを押すと取り込み先グループ選択UIを表示する」ことを対象と
+    // する。以前は「一括取り込みが出れば押して主張し、出なければリトライの表示だけを
+    // 確かめる」分岐で、OCR が使えない環境では選択UIの判定が実行されなかった。
+    // 抽出が決定論的に成立する Excel の資材を用い、無条件に主張する。
     const fileInput = page.getByLabel('ファイルを選択');
-    await fileInput.setInputFiles(TEST_PDF);
+    await fileInput.setInputFiles(TEST_XLSX);
 
     const importBtn = page.getByRole('button', { name: '一括取り込み' });
-    const importBtnVisible = await importBtn
-      .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-      .then(() => true)
-      .catch(() => false);
+    await expect(importBtn, 'REQ-31.1: 抽出完了後に一括取り込みボタンが表示されない').toBeVisible({
+      timeout: getTimeout(45000),
+    });
 
-    if (importBtnVisible) {
-      await importBtn.click();
-      // グループ選択UIが表示される
-      const groupSelector = page.getByRole('heading', { name: '取り込み先グループを選択' });
-      await expect(groupSelector).toBeVisible({ timeout: getTimeout(5000) });
-    } else {
-      // OCRが失敗した場合はリトライが表示される
-      await expect(page.getByRole('button', { name: 'リトライ' })).toBeVisible({
-        timeout: getTimeout(5000),
-      });
-    }
+    await importBtn.click();
+
+    // グループ選択UIが表示される
+    const groupSelector = page.getByRole('heading', { name: '取り込み先グループを選択' });
+    await expect(groupSelector, 'REQ-31.2: 取り込み先グループ選択UIが表示されない').toBeVisible({
+      timeout: getTimeout(5000),
+    });
   });
 
   /**
@@ -793,18 +793,17 @@ test.describe('REQ-31: 抽出結果から数量項目への一括取り込み', 
 
     // 利用可能な最初のグループ選択ボタン（ダイアログ内に限定し、項目数表記 "(N項目)"
     // を含む実グループ選択ボタンのみをマッチさせる）
+    // 取り込み先グループは beforeAll で1件作成し保存済みである（サーバー側に存在する）。
+    // 以前は「候補が見えなければキャンセルして戻る」形で、前提が崩れると
+    // REQ-31.3〜31.9 の検証が丸ごと消えていた。前提を無条件に主張する。
     const groupButton = dialog
       .locator('button')
       .filter({ hasText: /\(\d+項目\)/ })
       .first();
-    if (!(await isVisibleWithin(groupButton, getTimeout(3000)))) {
-      // グループが存在しない場合はキャンセル
-      const cancelBtn = dialog.getByRole('button', { name: 'キャンセル' }).last();
-      if (await isVisibleWithin(cancelBtn, getTimeout(2000))) {
-        await cancelBtn.click();
-      }
-      return;
-    }
+    await expect(
+      groupButton,
+      '前提: 事前準備で作成した取り込み先グループが選択候補に表示される'
+    ).toBeVisible({ timeout: getTimeout(10000) });
 
     await groupButton.click();
     await page.waitForLoadState('networkidle');
@@ -947,44 +946,40 @@ test.describe('REQ-32: フィールドマッピング調整', () => {
     const opened = await openImportDialog(page);
     expect(opened).toBeTruthy();
 
+    // REQ-32.1/32.2 は抽出済みの列に対する挙動であり、抽出手段を問わない。
+    // 以前は PDF OCR が失敗すると「エラーかリトライが出ている」ことだけを確かめて
+    // 選択肢の判定を飛ばしていた。決定論的に解析される Excel の資材を用いる。
     const fileInput = page.getByLabel('ファイルを選択');
-    await fileInput.setInputFiles(TEST_PDF);
+    await fileInput.setInputFiles(TEST_XLSX);
 
     const previewTable = page.locator('table').first();
-    const previewVisible = await previewTable
-      .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-      .then(() => true)
-      .catch(() => false);
+    await expect(previewTable, '前提: 抽出結果のプレビューテーブルが表示される').toBeVisible({
+      timeout: getTimeout(45000),
+    });
 
-    if (previewVisible) {
-      // ドロップダウン（select aria-label*="マッピング先"）の確認
-      const select = page.locator('select[aria-label*="のマッピング先"]').first();
-      await expect(select).toBeVisible({ timeout: getTimeout(5000) });
+    // ドロップダウン（select aria-label*="マッピング先"）の確認
+    const select = page.locator('select[aria-label*="のマッピング先"]').first();
+    await expect(select, 'REQ-32.1: マッピング先ドロップダウンが表示されない').toBeVisible({
+      timeout: getTimeout(5000),
+    });
 
-      // 選択肢に必須項目が含まれる
-      const options = await select.locator('option').allTextContents();
-      const expected = [
-        '大項目',
-        '中項目',
-        '小項目',
-        '任意分類',
-        '工種',
-        '名称',
-        '規格',
-        '数量',
-        '単位',
-        '備考',
-        '取り込まない',
-      ];
-      for (const exp of expected) {
-        expect(options).toContain(exp);
-      }
-    } else {
-      // OCR失敗時はエラーまたはリトライが表示
-      const errorOrRetry = page
-        .locator('[role="alert"]')
-        .or(page.getByRole('button', { name: 'リトライ' }));
-      await expect(errorOrRetry.first()).toBeVisible({ timeout: getTimeout(5000) });
+    // 選択肢に必須項目が含まれる
+    const options = await select.locator('option').allTextContents();
+    const expected = [
+      '大項目',
+      '中項目',
+      '小項目',
+      '任意分類',
+      '工種',
+      '名称',
+      '規格',
+      '数量',
+      '単位',
+      '備考',
+      '取り込まない',
+    ];
+    for (const exp of expected) {
+      expect(options, `REQ-32.2: マッピング先の選択肢に「${exp}」が無い`).toContain(exp);
     }
   });
 
@@ -1001,55 +996,38 @@ test.describe('REQ-32: フィールドマッピング調整', () => {
     const opened = await openImportDialog(page);
     expect(opened).toBeTruthy();
 
+    // REQ-32.3/32.5 の検証対象は「マッピング先を変更でき、即座に反映される」ことである。
+    // 以前は PDF OCR の結果を Promise.race で観測し、select が出なければ
+    // 「リトライ・一括取り込み・アラートのいずれかが出ている」ことだけを確かめていた。
+    // これでは変更の判定が一度も実行されない。決定論的に列が抽出される Excel を用いる。
     const fileInput = page.getByLabel('ファイルを選択');
-    await fileInput.setInputFiles(TEST_PDF);
+    await fileInput.setInputFiles(TEST_XLSX);
 
-    // OCR完了 or エラー（リトライ表示）を待機。プレビューテーブルが空のヘッダで描画される
-    // （0列抽出）と Playwright 上は hidden 扱いになるため、select の出現を直接待機する。
     const dialog = page.getByRole('dialog');
     const firstSelect = dialog.locator('select[aria-label*="のマッピング先"]').first();
-    const retryBtn = dialog.getByRole('button', { name: 'リトライ' });
-    // 0列抽出（select が出ない）でも処理が完了した証跡として、抽出後アラート/一括取り込みを許容
-    const importBtn = dialog.getByRole('button', { name: '一括取り込み' });
-    const alertInDialog = dialog.locator('[role="alert"]').first();
+    await expect(firstSelect, '前提: マッピング先の選択欄が表示される').toBeVisible({
+      timeout: getTimeout(45000),
+    });
 
-    const observed = await Promise.race([
-      firstSelect
-        .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-        .then(() => 'select')
-        .catch(() => null),
-      retryBtn
-        .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-        .then(() => 'retry')
-        .catch(() => null),
-      importBtn
-        .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-        .then(() => 'import')
-        .catch(() => null),
-      alertInDialog
-        .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-        .then(() => 'alert')
-        .catch(() => null),
-    ]);
+    // 資材の先頭列は「工種」であり、自動推定は 'workType' を選ぶ（REQ-32.4）。
+    // 変更が反映されることを見るため、別の値へ切り替えてから戻す。
+    await firstSelect.selectOption('skip');
+    await expect(firstSelect, 'REQ-32.3: マッピング先の変更が即座に反映されない').toHaveValue(
+      'skip'
+    );
 
-    if (observed === 'select') {
-      // value 'workType' を選択
-      await firstSelect.selectOption('workType');
-      expect(await firstSelect.inputValue()).toBe('workType');
-    } else {
-      // OCRが失敗 / 抽出列ゼロ等で select が現れないケース。
-      // REQ-32.3/32.5 の検証対象（マッピング先変更）を実行できないため、
-      // 処理完了の証跡（リトライ・一括取り込み・アラート等のいずれか）の表示で許容する。
-      expect(observed, '処理完了またはエラー状態のいずれかが観測される').not.toBeNull();
-    }
+    await firstSelect.selectOption('workType');
+    await expect(firstSelect, 'REQ-32.5: マッピング先をユーザーが変更できない').toHaveValue(
+      'workType'
+    );
   });
 
   /**
    * @requirement quantity-table-generation/REQ-32.4: 自動推定
    *
    * autoDetectFieldMapping により、キーワードマッチでマッピングが自動推定される。
-   * E2Eではプレビュー表示時に何らかの初期値（'skip' or 推定値）が select に
-   * 設定されていることを検証する。
+   * 資材 import-items.xlsx のヘッダーは「工種・名称・規格・数量・単位」であり、
+   * field-mapping.ts の MAPPING_RULES により推定結果は一意に定まる。
    */
   test('プレビュー表示時にマッピング先が自動推定される (REQ-32.4)', async ({ page }) => {
     const navigated = await navigateToQuantityTableEdit(page);
@@ -1058,43 +1036,30 @@ test.describe('REQ-32: フィールドマッピング調整', () => {
     const opened = await openImportDialog(page);
     expect(opened).toBeTruthy();
 
+    // 以前は PDF OCR の結果を観測し、select が出なければ「処理完了の証跡が何か出ている」
+    // ことだけを確かめていた。また select が出た場合も「値が空でない」だけを見ており、
+    // 未推定を表す 'skip' でも成立した。すなわち自動推定を一度も確かめていない。
+    // 決定論的に列が抽出される Excel を用い、列ごとの推定結果を名指しで主張する。
     const fileInput = page.getByLabel('ファイルを選択');
-    await fileInput.setInputFiles(TEST_PDF);
+    await fileInput.setInputFiles(TEST_XLSX);
 
-    // 0列抽出の場合は table が hidden 扱いとなるため、select の出現を直接待機する。
-    // 失敗 / 0列抽出時は処理完了の証跡（リトライ・一括取り込み・アラート）をフォールバックとして許容。
     const dialog = page.getByRole('dialog');
-    const firstSelect = dialog.locator('select[aria-label*="のマッピング先"]').first();
-    const retryBtn = dialog.getByRole('button', { name: 'リトライ' });
-    const importBtn = dialog.getByRole('button', { name: '一括取り込み' });
-    const alertInDialog = dialog.locator('[role="alert"]').first();
+    const expectedMapping: Array<[string, string]> = [
+      ['工種', 'workType'],
+      ['名称', 'name'],
+      ['規格', 'specification'],
+      ['数量', 'quantity'],
+      ['単位', 'unit'],
+    ];
 
-    const observed = await Promise.race([
-      firstSelect
-        .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-        .then(() => 'select')
-        .catch(() => null),
-      retryBtn
-        .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-        .then(() => 'retry')
-        .catch(() => null),
-      importBtn
-        .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-        .then(() => 'import')
-        .catch(() => null),
-      alertInDialog
-        .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-        .then(() => 'alert')
-        .catch(() => null),
-    ]);
-
-    if (observed === 'select') {
-      const value = await firstSelect.inputValue();
-      expect(value, 'select に自動推定された値（または skip）が設定されている').toBeTruthy();
-    } else {
-      // OCR 失敗 / 0列抽出により select が現れない場合は自動推定を直接検証できないため、
-      // 処理完了の証跡（リトライ・一括取り込み・アラート）の表示で許容する。
-      expect(observed, '処理完了またはエラー状態のいずれかが観測される').not.toBeNull();
+    for (const [header, target] of expectedMapping) {
+      const select = dialog.locator(`select[aria-label="${header}のマッピング先"]`);
+      await expect(select, `前提: 列「${header}」のマッピング先の選択欄が表示される`).toBeVisible({
+        timeout: getTimeout(45000),
+      });
+      await expect(select, `REQ-32.4: 列「${header}」のマッピング先が自動推定されない`).toHaveValue(
+        target
+      );
     }
   });
 
@@ -1332,27 +1297,26 @@ test.describe('REQ-34: インポートダイアログのインラインプレビ
     const opened = await openImportDialog(page);
     expect(opened).toBeTruthy();
 
+    // REQ-34.3 は「処理完了時にテーブル形式で表示する」ことを対象とする。
+    // 以前は PDF OCR が失敗すると「エラーかリトライが出ている」ことだけを確かめており、
+    // テーブル形式の判定は実行されなかった。決定論的に解析される Excel を用いる。
     const fileInput = page.getByLabel('ファイルを選択');
-    await fileInput.setInputFiles(TEST_PDF);
+    await fileInput.setInputFiles(TEST_XLSX);
 
     const previewTable = page.locator('table').first();
-    const visible = await previewTable
-      .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-      .then(() => true)
-      .catch(() => false);
+    await expect(previewTable, 'REQ-34.3: プレビューがテーブル形式で表示されない').toBeVisible({
+      timeout: getTimeout(45000),
+    });
 
-    if (visible) {
-      // table 要素が thead と tbody を含む
-      await expect(previewTable.locator('thead')).toBeVisible();
-    } else {
-      // OCR失敗時はエラーまたはリトライが表示
-      await expect(
-        page
-          .locator('[role="alert"]')
-          .first()
-          .or(page.getByRole('button', { name: 'リトライ' }))
-      ).toBeVisible({ timeout: getTimeout(5000) });
-    }
+    // table 要素が thead と tbody を含む
+    await expect(
+      previewTable.locator('thead'),
+      'REQ-34.3: プレビューテーブルにヘッダー行が無い'
+    ).toBeVisible();
+    await expect(
+      previewTable.locator('tbody'),
+      'REQ-34.3: プレビューテーブルにデータ行が無い'
+    ).toBeVisible();
   });
 
   /**

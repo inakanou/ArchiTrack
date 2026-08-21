@@ -96,21 +96,42 @@ async function expectNoThumbnailOverlap(photoList: Locator, context: string): Pr
 }
 
 /**
- * 数量グループの写真プレースホルダー（写真未紐付け）または「写真を変更」ボタンから
- * 写真選択ダイアログを開き、photo-list を返す。
+ * 写真ダイアログを開く導線。REQ-39.1（写真選択）と REQ-39.2（写真変更）で入口が異なる。
+ *
+ * `QuantityGroupCard` は `group.surveyImage` の有無で排他的に描き分ける
+ * （写真なし: `image-placeholder-*` / 写真あり: 「写真を変更」ボタン）。
+ * どちらが出ているかを観測して分岐すると、期待した入口が消えた場合に
+ * もう一方の入口へ黙って流れ、REQ-39.1 と REQ-39.2 の区別が失われる。
+ * 呼び出し側がどちらの入口を検証しているかを渡し、その入口の存在を無条件に主張する。
  */
-async function openPhotoDialog(page: Page): Promise<Locator> {
-  const changePhotoButton = page.getByRole('button', { name: '写真を変更' }).first();
-  const placeholder = page.locator('[data-testid^="image-placeholder-"]').first();
+const PHOTO_DIALOG_ENTRIES = {
+  /** 写真未紐付けの数量グループから開く（REQ-39.1 写真選択ダイアログ） */
+  select: {
+    label: 'REQ-39.1: 写真未紐付けの数量グループに写真選択のプレースホルダーが表示される',
+    locate: (page: Page): Locator => page.locator('[data-testid^="image-placeholder-"]').first(),
+  },
+  /** 写真紐付け済みの数量グループから開く（REQ-39.2 写真変更ダイアログ） */
+  change: {
+    label: 'REQ-39.2: 写真紐付け済みの数量グループに「写真を変更」ボタンが表示される',
+    locate: (page: Page): Locator => page.getByRole('button', { name: '写真を変更' }).first(),
+  },
+} as const;
 
-  if (await isVisibleWithin(changePhotoButton, getTimeout(3000))) {
-    await changePhotoButton.click();
-  } else {
-    await expect(placeholder, '写真選択用UIが存在する必要がある').toBeVisible({
-      timeout: getTimeout(8000),
-    });
-    await placeholder.click();
-  }
+/**
+ * 指定した入口から写真ダイアログを開き、photo-list を返す。
+ *
+ * @param page Playwright のページ（数量表の編集画面に居ること）
+ * @param entry どちらの入口から開くか（`'select'` = 写真未紐付け / `'change'` = 紐付け済み）
+ * @throws 指定した入口が表示されない・ダイアログが開かない・写真が揃わない場合
+ */
+async function openPhotoDialog(
+  page: Page,
+  entry: keyof typeof PHOTO_DIALOG_ENTRIES
+): Promise<Locator> {
+  const { label, locate } = PHOTO_DIALOG_ENTRIES[entry];
+  const trigger = locate(page);
+  await expect(trigger, label).toBeVisible({ timeout: getTimeout(8000) });
+  await trigger.click();
 
   const dialog = page.getByRole('dialog').first();
   await expect(dialog).toBeVisible({ timeout: getTimeout(5000) });
@@ -290,7 +311,7 @@ test.describe('REQ-39: 写真選択・変更ダイアログの写真一覧が重
     await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
     await page.waitForLoadState('networkidle');
 
-    const photoList = await openPhotoDialog(page);
+    const photoList = await openPhotoDialog(page, 'select');
     await expectNoThumbnailOverlap(photoList, '写真選択ダイアログ（通常幅）');
   });
 
@@ -307,7 +328,7 @@ test.describe('REQ-39: 写真選択・変更ダイアログの写真一覧が重
     await page.waitForLoadState('networkidle');
 
     // 1回目: 写真選択ダイアログを開いて1枚選択（紐づけ）
-    const firstPhotoList = await openPhotoDialog(page);
+    const firstPhotoList = await openPhotoDialog(page, 'select');
     const firstItem = firstPhotoList.locator('[data-testid^="photo-item-"]').first();
     await expect(firstItem).toBeVisible({ timeout: getTimeout(8000) });
     await firstItem.click();
@@ -317,7 +338,7 @@ test.describe('REQ-39: 写真選択・変更ダイアログの写真一覧が重
     });
 
     // 2回目: 写真変更ダイアログ（別の写真を選択する経路）を開いて重なりを再検証
-    const changedPhotoList = await openPhotoDialog(page);
+    const changedPhotoList = await openPhotoDialog(page, 'change');
     await expectNoThumbnailOverlap(changedPhotoList, '写真変更ダイアログ');
   });
 
@@ -339,7 +360,7 @@ test.describe('REQ-39: 写真選択・変更ダイアログの写真一覧が重
     await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
     await page.waitForLoadState('networkidle');
 
-    const photoList = await openPhotoDialog(page);
+    const photoList = await openPhotoDialog(page, 'select');
     await expectNoThumbnailOverlap(photoList, '写真選択ダイアログ（狭幅 375px）');
   });
 });

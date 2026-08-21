@@ -130,33 +130,10 @@ test.describe('セッション管理機能', () => {
    * @requirement user-authentication/REQ-8.3 デバイス毎の独立セッション管理
    */
   test('個別デバイスログアウトボタンが表示される', async ({ page }) => {
-    // セッション情報がAPIから読み込まれるまで待機（リトライロジック付き）
-    let sessionLoaded = false;
-    for (let retry = 0; retry < 5; retry++) {
-      try {
-        await expect(page.getByText(/現在のデバイス/i)).toBeVisible({
-          timeout: getTimeout(10000),
-        });
-        sessionLoaded = true;
-        break;
-      } catch {
-        if (retry < 4) {
-          await page.reload({ waitUntil: 'networkidle' });
-
-          // ログインページにリダイレクトされた場合は再ログイン
-          if (page.url().includes('/login')) {
-            await loginAsUser(page, 'REGULAR_USER');
-            await page.goto('/sessions');
-            await page.waitForLoadState('networkidle', { timeout: getTimeout(30000) });
-          }
-
-          await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
-            timeout: getTimeout(10000),
-          });
-        }
-      }
-    }
-    expect(sessionLoaded).toBe(true);
+    // 要件8.1: ログインでセッションが永続化されるため、ログイン直後は必ず1件以上のセッションがある。
+    // 「表示されなければリロードして再ログインする」復旧は、セッションが1件も返らない欠陥を
+    // 黙って埋め合わせてしまうため置かない。`toBeVisible` の待機自体が再試行を担う。
+    await expect(page.getByText(/現在のデバイス/i)).toBeVisible({ timeout: getTimeout(30000) });
 
     // ログアウトボタンが表示される（現在のデバイス以外）
     const logoutButtons = page.getByRole('button', { name: /ログアウト/i });
@@ -167,37 +144,10 @@ test.describe('セッション管理機能', () => {
    * @requirement user-authentication/REQ-8.4 対象デバイスのみのセッション削除
    */
   test('個別デバイスログアウトができる', async ({ page }) => {
-    // セッション情報がAPIから読み込まれるまで待機（リトライロジック付き）
-    let sessionLoaded = false;
-    const maxRetries = 5;
-    for (let retry = 0; retry < maxRetries; retry++) {
-      try {
-        await expect(page.getByText(/現在のデバイス/i)).toBeVisible({
-          timeout: getTimeout(15000),
-        });
-        sessionLoaded = true;
-        break;
-      } catch {
-        if (retry < maxRetries - 1) {
-          // ページをリロードして再試行
-          await page.reload({ waitUntil: 'networkidle' });
-
-          // ログインページにリダイレクトされた場合は再ログイン
-          if (page.url().includes('/login')) {
-            await loginAsUser(page, 'REGULAR_USER');
-            await page.goto('/sessions');
-            await page.waitForLoadState('networkidle', { timeout: getTimeout(30000) });
-          }
-
-          await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
-            timeout: getTimeout(15000),
-          });
-          // ローディング完了を待機
-          await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
-        }
-      }
-    }
-    expect(sessionLoaded).toBe(true);
+    // 要件8.1: ログイン直後は必ずセッションが1件以上あるため、無条件に主張する。
+    // 観測して再ログインする復旧は、セッションが返らない欠陥を隠したうえで
+    // 「何回目の試行を検証したのか」も読めなくしていた。
+    await expect(page.getByText(/現在のデバイス/i)).toBeVisible({ timeout: getTimeout(30000) });
 
     // 個別デバイスのログアウトボタンが表示されるまで待機
     const logoutButton = page.getByRole('button', { name: /^ログアウト$/i }).first();
@@ -241,11 +191,10 @@ test.describe('セッション管理機能', () => {
     // ページをリロードしてセッション状態をリフレッシュ
     await page.reload({ waitUntil: 'networkidle' });
 
-    // ログインページにリダイレクトされた場合は再ログイン
-    if (page.url().includes('/login')) {
-      await loginAsUser(page, 'REGULAR_USER');
-      await page.goto('/sessions', { waitUntil: 'networkidle' });
-    }
+    // リロードで認証が失われないことは要件8.1（セッションの永続化）そのものである。
+    // 従来はログインページへ落ちていたら黙って再ログインしていたため、
+    // セッションが永続化されていなくても検証は緑のまま通っていた。
+    await expect(page).not.toHaveURL(/\/login/);
 
     // セッション管理ページが表示されるまで待機
     await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
@@ -256,46 +205,17 @@ test.describe('セッション管理機能', () => {
     await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
 
     // セッションデータの読み込み完了を待機
-    await waitForSessionDataLoaded(page, {
+    const sessionDataLoaded = await waitForSessionDataLoaded(page, {
       timeout: getTimeout(30000),
       maxRetries: 7,
     });
+    expect(sessionDataLoaded, 'セッション情報を読み込めていない（要件8.1）').toBe(true);
 
-    // 全デバイスログアウトボタンが表示されるのをリトライ付きで待機
+    // 要件8.5: 全デバイスログアウトボタンが提供される。
+    // 表示されなければリロードして再ログインする復旧は置かない
+    // （ボタンが出ない欠陥をそのまま隠すため）。待機は `toBeVisible` が担う。
     const logoutAllButton = page.getByRole('button', { name: /全デバイスからログアウト/i });
-    let buttonVisible = false;
-    const maxRetries = 7;
-    for (let retry = 0; retry < maxRetries; retry++) {
-      try {
-        await expect(logoutAllButton).toBeVisible({ timeout: getTimeout(15000) });
-        buttonVisible = true;
-        break;
-      } catch {
-        if (retry < maxRetries - 1) {
-          // ページをリロードして再試行
-          await page.reload({ waitUntil: 'networkidle' });
-
-          // ログインページにリダイレクトされた場合は再ログイン
-          if (page.url().includes('/login')) {
-            await loginAsUser(page, 'REGULAR_USER');
-            await page.goto('/sessions');
-            await page.waitForLoadState('networkidle', { timeout: getTimeout(30000) });
-          }
-
-          await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
-            timeout: getTimeout(15000),
-          });
-          // ローディング完了を待機
-          await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
-          // セッションデータ再読み込み
-          await waitForSessionDataLoaded(page, {
-            timeout: getTimeout(30000),
-            maxRetries: 3,
-          });
-        }
-      }
-    }
-    expect(buttonVisible).toBe(true);
+    await expect(logoutAllButton).toBeVisible({ timeout: getTimeout(30000) });
 
     await logoutAllButton.click();
 

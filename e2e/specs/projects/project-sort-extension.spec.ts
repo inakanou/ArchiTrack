@@ -148,17 +148,14 @@ test.describe('プロジェクト一覧のソート拡張 (Task 25.4)', () => {
     let salesPersonSortButton = page.getByRole('button', { name: /営業担当者でソート/i });
     await expect(salesPersonSortButton).toBeVisible({ timeout: getTimeout(10000) });
 
-    // 現在のURLをチェックして、すでにソートが適用されている場合はリセット
-    const currentUrl = page.url();
-    if (currentUrl.includes('sort=') || currentUrl.includes('order=')) {
-      // ソートが適用されている場合、クエリパラメータをクリアしてリロード
-      await page.goto('/projects');
-      await page.waitForLoadState('networkidle');
-      await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
-      // ボタンを再取得
-      salesPersonSortButton = page.getByRole('button', { name: /営業担当者でソート/i });
-      await expect(salesPersonSortButton).toBeVisible({ timeout: getTimeout(10000) });
-    }
+    // 直前にクエリパラメータ無しで '/projects' を開いており、
+    // ProjectListPage の buildSearchParams は既定値の sort / order をURLへ書き出さない
+    // （frontend/src/pages/ProjectListPage.tsx）。したがってソートは未適用のはずである。
+    // 「適用されていたら開き直す」という復旧分岐は、既定の並び順が退行して
+    // URL にソートが残るようになっても静かに吸収し、
+    // 以降の昇順・降順の切り替えを別の初期状態で検証してしまう。無条件に主張する。
+    await expect(page, '前提: ソート未適用の状態から始める').not.toHaveURL(/[?&]sort=/);
+    await expect(page, '前提: 並び順未指定の状態から始める').not.toHaveURL(/[?&]order=/);
 
     // DOMが安定するまで待機
     await page.waitForTimeout(500);

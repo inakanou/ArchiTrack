@@ -16,6 +16,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { openEditPageWithSingleItemRow } from '../../helpers/quantity-table-preconditions';
 
 let testProjectId: string | null = null;
 let createdQuantityTableId: string | null = null;
@@ -244,66 +245,91 @@ test.describe('REQ-25: 画面スクロールバー表示', () => {
   /**
    * @requirement quantity-table-generation/REQ-25.5: 横スクロール操作可能
    *
-   * 横スクロール可能な状態でscrollX操作を行うと、scrollX値が変化する。
+   * REQ-25.5 は「水平スクロールバーが表示されている状態で」横方向へスクロールできることを
+   * 定めている。従来は前提の成否を観測して `if (scrollWidth > clientWidth)` で分岐しており、
+   * 空の数量表（事前準備は数量グループを持たない数量表を作る）では前提が成立せず、
+   * else 側の `scrollX === scrollX`（常に成立）だけが実行されて REQ-25.5 の主張は
+   * 一度も行われなかった。前提を観測せず、数量グループと数量項目行を作って確定させる。
+   *
+   * 数量項目の表示領域は REQ-41 で `itemTableWrapper`（`item-table-scroll-*`）に
+   * 限定された水平スクロール領域であり、requirements.md の Requirement 37 の記述
+   * 「表領域の水平スクロールバー（Requirement 25 と整合）」がこれを明示している。
+   * 列幅の合計（QUANTITY_ITEM_GRID_COLUMNS = 1168px）は 600px のビューポートを必ず超えるため、
+   * 「水平スクロールバーが表示されている状態」が決定的に成立する。
    */
-  test('水平スクロール可能な状態でwindow.scrollByにより横スクロールできる (REQ-25.5)', async ({
+  test('水平スクロールバーが表示されている状態で表領域を横スクロールできる (REQ-25.5)', async ({
     page,
   }) => {
-    const navigated = await navigateToQuantityTableEdit(page);
-    expect(navigated).toBeTruthy();
+    await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
     await page.setViewportSize({ width: 600, height: 800 });
-    await page.waitForLoadState('networkidle');
 
-    // スクロール前のscrollX
-    const scrollXBefore = await page.evaluate(() => window.scrollX);
+    const itemTableScroll = page.locator('[data-testid^="item-table-scroll-"]').first();
+    await expect(itemTableScroll, '前提: 数量項目の表示領域が表示される').toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
-    // 横スクロールを試行
-    await page.evaluate(() => window.scrollBy(200, 0));
-    await page.waitForLoadState('networkidle');
+    // 前提（REQ-25.1）: 表示領域がビューポート幅を超え、水平スクロールバーが表示される
+    await expect
+      .poll(() => itemTableScroll.evaluate((el) => el.scrollWidth - el.clientWidth), {
+        message: 'REQ-25.1: 数量項目の表示領域がビューポート幅を超え水平スクロールが可能になる',
+        timeout: getTimeout(10000),
+      })
+      .toBeGreaterThan(0);
 
-    const scrollXAfter = await page.evaluate(() => window.scrollX);
+    const scrollLeftBefore = await itemTableScroll.evaluate((el) => el.scrollLeft);
 
-    const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
-    const clientWidth = await page.evaluate(() => document.documentElement.clientWidth);
+    // 横スクロール操作
+    await itemTableScroll.evaluate((el) => {
+      el.scrollLeft += 200;
+    });
 
-    if (scrollWidth > clientWidth) {
-      // 実際に横スクロール可能な状態の場合
-      expect(scrollXAfter, '横スクロール可能領域があれば scrollX が増加する').toBeGreaterThan(
-        scrollXBefore
-      );
-    } else {
-      // 横スクロール不要の場合は scrollX は0で変化しない
-      expect(scrollXAfter).toBe(scrollXBefore);
-    }
+    await expect
+      .poll(() => itemTableScroll.evaluate((el) => el.scrollLeft), {
+        message: 'REQ-25.5: 水平スクロール操作で表領域が横方向にスクロールする',
+        timeout: getTimeout(10000),
+      })
+      .toBeGreaterThan(scrollLeftBefore);
   });
 
   /**
    * @requirement quantity-table-generation/REQ-25.6: 縦スクロール操作可能
+   *
+   * REQ-25.6 の前提「垂直スクロールバーが表示されている状態」も観測せずに確定させる。
+   * 垂直スクロールは `itemTableWrapper` が `overflowY: hidden` でページ側へ委ねており
+   * （QuantityGroupCard の Task 58.2 の注記）、スクロールの主体は window である。
+   * 数量グループ1件（写真領域・タイトル行・項目行・追加ボタン）を持つ編集画面は
+   * 高さ 400px のビューポートに収まらないため、前提が決定的に成立する。
    */
-  test('垂直スクロール可能な状態でwindow.scrollByにより縦スクロールできる (REQ-25.6)', async ({
+  test('垂直スクロールバーが表示されている状態で縦スクロールできる (REQ-25.6)', async ({
     page,
   }) => {
-    const navigated = await navigateToQuantityTableEdit(page);
-    expect(navigated).toBeTruthy();
+    await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
     await page.setViewportSize({ width: 1280, height: 400 });
-    await page.waitForLoadState('networkidle');
+
+    // 前提（REQ-25.2）: コンテンツがビューポート高さを超え、垂直スクロールバーが表示される
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () => document.documentElement.scrollHeight - document.documentElement.clientHeight
+          ),
+        {
+          message: 'REQ-25.2: コンテンツがビューポート高さを超え垂直スクロールが可能になる',
+          timeout: getTimeout(10000),
+        }
+      )
+      .toBeGreaterThan(0);
 
     const scrollYBefore = await page.evaluate(() => window.scrollY);
     await page.evaluate(() => window.scrollBy(0, 200));
-    await page.waitForLoadState('networkidle');
-    const scrollYAfter = await page.evaluate(() => window.scrollY);
 
-    const scrollHeight = await page.evaluate(() => document.documentElement.scrollHeight);
-    const clientHeight = await page.evaluate(() => document.documentElement.clientHeight);
-
-    if (scrollHeight > clientHeight) {
-      expect(scrollYAfter, '縦スクロール可能領域があれば scrollY が増加する').toBeGreaterThan(
-        scrollYBefore
-      );
-    } else {
-      expect(scrollYAfter).toBe(scrollYBefore);
-    }
+    await expect
+      .poll(() => page.evaluate(() => window.scrollY), {
+        message: 'REQ-25.6: 縦スクロール操作で画面が縦方向にスクロールする',
+        timeout: getTimeout(10000),
+      })
+      .toBeGreaterThan(scrollYBefore);
   });
 });

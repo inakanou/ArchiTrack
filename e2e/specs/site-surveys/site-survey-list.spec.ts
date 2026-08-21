@@ -14,6 +14,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { assertPrepared } from '../../helpers/preconditions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
@@ -466,20 +467,19 @@ test.describe('現場調査一覧・検索', () => {
       }
 
       // プロジェクトを削除
-      if (createdProjectId) {
-        await page.goto(`/projects/${createdProjectId}`);
-        await page.waitForLoadState('networkidle');
+      assertPrepared(createdProjectId, '事前準備で作成したプロジェクトのID');
+      await page.goto(`/projects/${createdProjectId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: 5000 });
-        await deleteButton.click();
-        const confirmButton = page
-          .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i });
-        await expect(confirmButton).toBeVisible({ timeout: 5000 });
-        await confirmButton.click();
-        await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
-      }
+      const projectDeleteButton = page.getByRole('button', { name: /削除/i }).first();
+      await expect(projectDeleteButton).toBeVisible({ timeout: 5000 });
+      await projectDeleteButton.click();
+      const projectConfirmButton = page
+        .getByTestId('focus-manager-overlay')
+        .getByRole('button', { name: /^削除$/i });
+      await expect(projectConfirmButton).toBeVisible({ timeout: 5000 });
+      await projectConfirmButton.click();
+      await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
     });
   });
 });

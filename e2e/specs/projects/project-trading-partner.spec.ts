@@ -11,6 +11,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { toObservableApiPath } from '../../helpers/api-request-observer';
 import { seedProject } from '../../helpers/project-list-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 
 /**
  * プロジェクト取引先連携のE2Eテスト
@@ -523,6 +524,13 @@ test.describe('プロジェクト取引先連携', () => {
    * 後処理: テストで作成したデータを削除
    */
   test.afterAll(async ({ browser }) => {
+    // 後始末の対象は本ファイルのテストが作成したものである。
+    // ID が無いまま静かに後始末を飛ばすと、作成が壊れていても後始末は素通りしてしまう。
+    // 以降の try は後始末の失敗を握り潰すため、前提の主張はその外側に置き、
+    // 前提が崩れていればこの afterAll フックの失敗として現れるようにする。
+    assertPrepared(createdProjectId, '本ファイルで作成したプロジェクトのID');
+    assertPrepared(createdTradingPartnerId, '本ファイルで作成した取引先のID');
+
     const context = await browser.newContext();
     const page = await context.newPage();
 
@@ -531,51 +539,50 @@ test.describe('プロジェクト取引先連携', () => {
       await loginAsUser(page, 'ADMIN_USER');
 
       // 作成したプロジェクトを削除
-      if (createdProjectId) {
-        await page.goto(`/projects/${createdProjectId}`);
-        await page.waitForLoadState('networkidle');
+      await page.goto(`/projects/${createdProjectId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i });
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
+      const projectDeleteButton = page.getByRole('button', { name: /削除/i });
+      await expect(projectDeleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await projectDeleteButton.click();
 
-        // 削除確認ダイアログで削除を確認
-        await expect(page.getByText(/プロジェクトの削除/i)).toBeVisible({
-          timeout: getTimeout(10000),
-        });
+      // 削除確認ダイアログで削除を確認
+      await expect(page.getByText(/プロジェクトの削除/i)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-        await page
-          .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i })
-          .click();
+      await page
+        .getByTestId('focus-manager-overlay')
+        .getByRole('button', { name: /^削除$/i })
+        .click();
 
-        // 削除成功を確認
-        await expect(page).toHaveURL(/\/projects$/, { timeout: getTimeout(15000) });
-      }
+      // 削除成功を確認
+      await expect(page).toHaveURL(/\/projects$/, { timeout: getTimeout(15000) });
 
       // 作成した取引先を削除
-      if (createdTradingPartnerId) {
-        await page.goto(`/trading-partners/${createdTradingPartnerId}`);
-        await page.waitForLoadState('networkidle');
+      await page.goto(`/trading-partners/${createdTradingPartnerId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i });
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
+      const partnerDeleteButton = page.getByRole('button', { name: /削除/i });
+      await expect(partnerDeleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await partnerDeleteButton.click();
 
-        // 削除確認ダイアログで削除を確認
-        const confirmDialog = page.getByText(/削除しますか|取引先の削除/i);
-        await expect(confirmDialog).toBeVisible({ timeout: getTimeout(10000) });
+      // 削除確認ダイアログで削除を確認
+      // 削除確認ダイアログの見出しで一意に指す。
+      // `getByText(/削除しますか|取引先の削除/i)` は見出し（取引先の削除）と説明文
+      // （…を削除しますか？）の双方に当たり、strict mode で必ず落ちる。
+      const confirmDialog = page.getByRole('heading', { name: '取引先の削除' });
+      await expect(confirmDialog).toBeVisible({ timeout: getTimeout(10000) });
 
-        // ダイアログ内の削除ボタンをクリック
-        const dialogDeleteButton = page
-          .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i });
-        await expect(dialogDeleteButton).toBeVisible({ timeout: getTimeout(5000) });
-        await dialogDeleteButton.click();
-        await expect(page).toHaveURL(/\/trading-partners$/, {
-          timeout: getTimeout(15000),
-        });
-      }
+      // ダイアログ内の削除ボタンをクリック
+      const dialogDeleteButton = page
+        .getByTestId('focus-manager-overlay')
+        .getByRole('button', { name: /^削除$/i });
+      await expect(dialogDeleteButton).toBeVisible({ timeout: getTimeout(5000) });
+      await dialogDeleteButton.click();
+      await expect(page).toHaveURL(/\/trading-partners$/, {
+        timeout: getTimeout(15000),
+      });
     } catch (error) {
       console.error('Cleanup failed:', error);
     } finally {

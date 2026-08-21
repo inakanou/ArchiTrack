@@ -16,6 +16,7 @@ import { test, expect, type Page, type Response } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { assertPrepared } from '../../helpers/preconditions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 test.describe('プロジェクト詳細画面 - セクション表示とAPI効率化', () => {
@@ -104,6 +105,101 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
     await page.goto(`/projects/${projectId}`);
     await page.waitForLoadState('networkidle');
     await expect(page.getByText(/基本情報/i)).toBeVisible({ timeout: getTimeout(15000) });
+  }
+
+  /**
+   * 内訳書を1件持つプロジェクトを API で用意するヘルパー
+   *
+   * REQ-26.10 は「作成済み内訳書へのリンクをリスト表示する」ことを定める。
+   * 内訳書が1件も無ければリンクの主張は一つも実行できないため、
+   * 「内訳書があれば…無ければ空状態を…」と観測して分岐するのではなく、
+   * 前提そのものをテストが作る。
+   * 空状態（REQ-25.6 / REQ-26.4 / REQ-26.5）を主張する他のテストの前提を壊さないよう、
+   * 共有の `testProjectId` とは別のプロジェクトを用いる。
+   *
+   * @param page Playwrightのページ（`loginAsUser` 済みであること）
+   * @param label 作成するデータの名称に含める識別子
+   * @returns 作成したプロジェクトのIDと内訳書名
+   */
+  async function seedProjectWithItemizedStatement(
+    page: Page,
+    label: string
+  ): Promise<{ projectId: string; statementName: string }> {
+    const accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+    assertPrepared(accessToken, '認証トークン');
+    const headers = { Authorization: `Bearer ${accessToken}` };
+    const stamp = Date.now();
+
+    const assignableRes = await page.request.get(`${API_BASE_URL}/api/users/assignable`, {
+      headers,
+    });
+    expect(
+      assignableRes.ok(),
+      `前提: 担当者候補を取得できる (status=${assignableRes.status()})`
+    ).toBeTruthy();
+    const assignableUsers = (await assignableRes.json()) as Array<{ id: string }>;
+    const salesPersonId = assignableUsers[0]?.id;
+    assertPrepared(salesPersonId, '担当者候補のID');
+
+    const projectRes = await page.request.post(`${API_BASE_URL}/api/projects`, {
+      headers,
+      data: { name: `${label}_${stamp}`, salesPersonId },
+    });
+    expect(
+      projectRes.ok(),
+      `前提: プロジェクトが作成される (status=${projectRes.status()})`
+    ).toBeTruthy();
+    const project = (await projectRes.json()) as { id: string };
+    assertPrepared(project.id, '作成したプロジェクトのID');
+
+    const quantityTableRes = await page.request.post(
+      `${API_BASE_URL}/api/projects/${project.id}/quantity-tables`,
+      { headers, data: { name: `${label}数量表_${stamp}` } }
+    );
+    expect(
+      quantityTableRes.ok(),
+      `前提: 数量表が作成される (status=${quantityTableRes.status()})`
+    ).toBeTruthy();
+    const quantityTable = (await quantityTableRes.json()) as { id: string };
+    assertPrepared(quantityTable.id, '作成した数量表のID');
+
+    const groupRes = await page.request.post(
+      `${API_BASE_URL}/api/quantity-tables/${quantityTable.id}/groups`,
+      { headers, data: { name: `${label}グループ`, displayOrder: 0 } }
+    );
+    expect(
+      groupRes.ok(),
+      `前提: 数量グループが作成される (status=${groupRes.status()})`
+    ).toBeTruthy();
+    const group = (await groupRes.json()) as { id: string };
+    assertPrepared(group.id, '作成した数量グループのID');
+
+    const itemRes = await page.request.post(
+      `${API_BASE_URL}/api/quantity-groups/${group.id}/items`,
+      {
+        headers,
+        data: {
+          workType: '内装工事',
+          name: `${label}項目`,
+          specification: '標準',
+          unit: 'm2',
+          quantity: 10,
+        },
+      }
+    );
+    expect(itemRes.ok(), `前提: 数量項目が作成される (status=${itemRes.status()})`).toBeTruthy();
+
+    const statementName = `${label}内訳書_${stamp}`;
+    const statementRes = await page.request.post(
+      `${API_BASE_URL}/api/projects/${project.id}/itemized-statements`,
+      { headers, data: { name: statementName, quantityTableId: quantityTable.id } }
+    );
+    expect(
+      statementRes.ok(),
+      `前提: 内訳書が作成される (status=${statementRes.status()})`
+    ).toBeTruthy();
+
+    return { projectId: project.id, statementName };
   }
 
   // ============================================================================
@@ -531,36 +627,31 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      if (!testProjectId) {
-        testProjectId = await createTestProject(page);
-      }
+      // REQ-26.10 の主題は「作成済み内訳書へのリンク」である。
+      // 内訳書が1件も無い状態では検証すべきリンクが存在しないため、前提を自分で用意する。
+      const { projectId, statementName } = await seedProjectWithItemizedStatement(
+        page,
+        'REQ-26.10リンク'
+      );
 
-      await navigateToProjectDetail(page, testProjectId);
+      await navigateToProjectDetail(page, projectId);
 
       // 内訳書セクション
       const isSection = page.getByTestId('itemized-statement-section');
       await expect(isSection).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 内訳書が存在する場合はリンクがリスト表示される
-      // 存在しない場合は空状態メッセージが表示される
-      // いずれの場合でもセクションが表示されていればこの要件は満たされる
-      const hasStatements = await isSection
-        .getByRole('link', { name: /詳細/i })
-        .first()
-        .isVisible()
-        .catch(() => false);
-      if (hasStatements) {
-        // 内訳書へのリンクが表示されていることを確認
-        const statementLinks = isSection.getByRole('link', { name: /詳細/i });
-        const count = await statementLinks.count();
-        expect(count).toBeGreaterThanOrEqual(1);
-      } else {
-        // 内訳書がない場合は空状態メッセージまたは「まず数量表を作成してください」が表示される
-        const emptyMessage = isSection.getByText(
-          /内訳書はまだありません|まず数量表を作成してください|まだ作成されていません/i
-        );
-        await expect(emptyMessage).toBeVisible({ timeout: getTimeout(5000) });
-      }
+      // REQ-26.10: 作成済み内訳書へのリンクがリスト表示される
+      // （ItemizedStatementSectionCard の StatementCard は
+      //   aria-label="<内訳書名>の内訳書詳細を見る" のリンクを描画する）
+      const statementLink = isSection.getByRole('link', {
+        name: `${statementName}の内訳書詳細を見る`,
+      });
+      await expect(statementLink).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(statementLink).toHaveAttribute('href', /\/itemized-statements\/[0-9a-f-]+$/);
+
+      // 一覧として並ぶこと（リンクが1件以上存在する）
+      const statementLinks = isSection.getByRole('link', { name: /の内訳書詳細を見る$/ });
+      expect(await statementLinks.count()).toBeGreaterThanOrEqual(1);
     });
   });
 

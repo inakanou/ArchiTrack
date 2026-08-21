@@ -1519,21 +1519,30 @@ test.describe('受領見積書・ステータス管理機能', () => {
         await clickSaveSelectionButton(page);
       }
 
+      // 前提（選択項目が0件である）を無条件に主張する
+      await expect(
+        page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]:checked'),
+        '前提: 内訳書項目が1件も選択されていない'
+      ).toHaveCount(0);
+
       // 受領見積書登録ボタンをクリック
       await page.getByRole('button', { name: /受領見積書登録/i }).click();
       await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
       // 転記ボタンをクリック
+      // REQ-15.1 のとおり「項目選択から転記」ボタンは常に表示される
+      // （`ReceivedQuotationForm` は `selectedItems` が配列である限り必ず描画するため、
+      // 選択が0件でも空配列が渡り、ボタンは消えない）。
+      // 以前は「表示されていればクリックする」という関門で包んでいたため、
+      // ボタンが消えた場合にエラーメッセージの主張が一つも実行されなかった。
       const transcriptionButton = page.getByTestId('transcription-button');
-      // 選択項目が0件の場合、転記ボタンが表示されない可能性がある
-      if (await transcriptionButton.isVisible()) {
-        await transcriptionButton.click();
+      await expect(transcriptionButton).toBeVisible({ timeout: getTimeout(10000) });
+      await transcriptionButton.click();
 
-        // エラーメッセージが表示される
-        await expect(page.getByText(/選択された項目がありません/i)).toBeVisible({
-          timeout: getTimeout(5000),
-        });
-      }
+      // 選択項目が0件のときはエラーメッセージが表示される
+      await expect(page.getByText(/選択された項目がありません/i)).toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
       // キャンセルしてフォームを閉じる
       await page.getByRole('button', { name: /キャンセル/i }).click();

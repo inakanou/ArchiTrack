@@ -101,14 +101,10 @@ test.describe('セキュリティテスト', () => {
       timeout: getTimeout(15000),
     });
 
-    // 認証状態を確認（ログインページにリダイレクトされていないか）
-    if (page.url().includes('/login')) {
-      await loginAsUser(page, 'REGULAR_USER');
-      await page.goto('/profile', { waitUntil: 'networkidle' });
-      await expect(page.getByRole('heading', { name: /プロフィール/i })).toBeVisible({
-        timeout: getTimeout(15000),
-      });
-    }
+    // 認証状態を無条件に主張する。直前でプロフィール画面のヘッダーが見えているため
+    // ログイン画面へ落ちていないはずだが、「落ちていたら黙って再ログインする」形では
+    // 認証が維持されない欠陥をそのまま埋め合わせてしまう。
+    await expect(page).not.toHaveURL(/\/login/);
 
     // XSS ペイロードを含む表示名を設定
     const xssPayload = '<script>alert("XSS")</script>';
@@ -207,21 +203,26 @@ test.describe('セキュリティテスト', () => {
     const email = 'user@example.com';
     const wrongPassword = 'WrongPassword123!';
 
-    // 5回連続でログイン失敗
-    for (let i = 0; i < 5; i++) {
+    const submitWrongPassword = async () => {
       await page.getByLabel(/メールアドレス/i).fill(email);
       await page.locator('input#password').fill(wrongPassword);
       await page.getByRole('button', { name: /ログイン/i }).click();
+    };
 
-      if (i < 4) {
-        await expect(
-          page.getByText(/メールアドレスまたはパスワードが正しくありません/i)
-        ).toBeVisible();
-        await page.reload();
-      }
+    // 1〜4回目の失敗: 認証エラーのみが表示され、まだロックされない。
+    // 添字で分岐して最終回だけ扱いを変える形は、周回ごとに何が主張されるのかを
+    // 読めなくするため、ロックが起きる5回目をループの外へ出す。
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      await submitWrongPassword();
+      await expect(
+        page.getByText(/メールアドレスまたはパスワードが正しくありません/i),
+        `${attempt}回目の失敗で認証エラーが表示されない`
+      ).toBeVisible();
+      await page.reload();
     }
 
-    // 5回目の失敗後、アカウントロックメッセージが表示される
+    // 要件4.6: 5回目の失敗でアカウントロックメッセージが表示される
+    await submitWrongPassword();
     await expect(
       page.getByText(/アカウントがロックされています.*\d+分後に再試行できます/i)
     ).toBeVisible();

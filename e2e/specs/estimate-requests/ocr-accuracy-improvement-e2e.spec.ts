@@ -28,7 +28,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
+import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { assertPrepared } from '../../helpers/preconditions';
 import { seedEstimateRequest } from '../../helpers/estimate-request-preconditions';
@@ -195,86 +195,78 @@ test.describe('スキャンPDF OCR精度改善 (Task 48.1)', () => {
     await fileInput.setInputFiles(pdfPath);
 
     // OCR処理完了を待機
-    await expect(
-      page
-        .locator('[data-testid="ocr-extracted-text"]')
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-        .first()
-    ).toBeVisible({ timeout: getTimeout(90000) });
-
-    // テキスト抽出が成功した場合のみ一括取り込みテストを実行
+    // 本ファイル冒頭の REQ-19.1 / REQ-19.6 の検証と同じく、`test-file.pdf` に対しては
+    // 抽出結果が必ず表示される。以前は「抽出できたら」「取り込みボタンが出たら」の
+    // 二重の関門で包んでいたため、抽出が失敗した回は REQ-20.x の主張が一つも実行されなかった。
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-    const hasResult = await isVisibleWithin(extractedText, 3000);
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(90000) });
+    await expect(page.locator('[data-testid="ocr-error-message"]')).toHaveCount(0);
 
-    if (hasResult) {
-      // 一括取り込みボタンが表示された場合
-      const importButton = page.locator('[data-testid="ocr-import-button"]');
-      if (await isVisibleWithin(importButton, 5000)) {
-        // 一括取り込みボタンをクリック
-        await importButton.click();
+    // 抽出が成立していれば構造化データも得られるため、一括取り込みボタンは必ず表示される
+    const importButton = page.locator('[data-testid="ocr-import-button"]');
+    await expect(importButton).toBeVisible({ timeout: getTimeout(10000) });
 
-        // 取り込み完了を待機
-        await expect(page.locator('[data-testid="ocr-import-success"]')).toBeVisible({
-          timeout: getTimeout(10000),
-        });
+    // 一括取り込みボタンをクリック
+    await importButton.click();
 
-        // 明細行の名称フィールドを全て取得して検証
-        // ゴミ行フィルタ（REQ-20.1, 20.2）と集計行除外（REQ-20.3）が適用されていることを確認
-        const nameInputs = page.locator('input[data-field="name"]');
-        const nameCount = await nameInputs.count();
+    // 取り込み完了を待機
+    await expect(page.locator('[data-testid="ocr-import-success"]')).toBeVisible({
+      timeout: getTimeout(10000),
+    });
 
-        // ゴミデータパターン（記号のみ、罫線文字、極端に短い文字列）
-        const garbagePatterns = [
-          /^[\|\-\s_=+]+$/, // 罫線文字のみ（|, -, _, =, + のみで構成）
-          /^[^\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FFa-zA-Z0-9]+$/, // 漢字/ひらがな/カタカナ/英数字を含まない
-        ];
+    // 明細行の名称フィールドを全て取得して検証
+    // ゴミ行フィルタ（REQ-20.1, 20.2）と集計行除外（REQ-20.3）が適用されていることを確認
+    const nameInputs = page.locator('input[data-field="name"]');
+    const nameCount = await nameInputs.count();
 
-        // 集計行キーワード
-        const summaryKeywords = [
-          '合計',
-          '小計',
-          '直接工事費',
-          '諸経費',
-          '一般管理費',
-          '値引き',
-          '消費税',
-        ];
+    // ゴミデータパターン（記号のみ、罫線文字、極端に短い文字列）
+    const garbagePatterns = [
+      /^[\|\-\s_=+]+$/, // 罫線文字のみ（|, -, _, =, + のみで構成）
+      /^[^\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FFa-zA-Z0-9]+$/, // 漢字/ひらがな/カタカナ/英数字を含まない
+    ];
 
-        // 空欄の行は取り込み結果ではない（初期化された空行）ため検査対象にならない。
-        // 除外を繰り返しの内側で `continue` して行うと、母集団から黙って要素が抜け、
-        // 全行が空欄でも 1 件も主張せずに緑で終わる。除外は母集団を作る時点で明示し、
-        // 残った件数を無条件に主張する。
-        const nameValues: string[] = [];
-        for (let i = 0; i < nameCount; i++) {
-          nameValues.push(await nameInputs.nth(i).inputValue());
-        }
-        const importedNames = nameValues.filter((value) => value.trim() !== '');
+    // 集計行キーワード
+    const summaryKeywords = [
+      '合計',
+      '小計',
+      '直接工事費',
+      '諸経費',
+      '一般管理費',
+      '値引き',
+      '消費税',
+    ];
+
+    // 空欄の行は取り込み結果ではない（初期化された空行）ため検査対象にならない。
+    // 除外を繰り返しの内側で `continue` して行うと、母集団から黙って要素が抜け、
+    // 全行が空欄でも 1 件も主張せずに緑で終わる。除外は母集団を作る時点で明示し、
+    // 残った件数を無条件に主張する。
+    const nameValues: string[] = [];
+    for (let i = 0; i < nameCount; i++) {
+      nameValues.push(await nameInputs.nth(i).inputValue());
+    }
+    const importedNames = nameValues.filter((value) => value.trim() !== '');
+    expect(
+      importedNames.length,
+      '一括取り込み後に名称が入った明細行が1件も無い（ゴミ行フィルタ・集計行除外を検査できていない）'
+    ).toBeGreaterThan(0);
+
+    for (const nameValue of importedNames) {
+      // ゴミ行フィルタの確認（REQ-20.1）: 記号のみの行が含まれていない
+      for (const pattern of garbagePatterns) {
         expect(
-          importedNames.length,
-          '一括取り込み後に名称が入った明細行が1件も無い（ゴミ行フィルタ・集計行除外を検査できていない）'
-        ).toBeGreaterThan(0);
+          pattern.test(nameValue),
+          `明細行の名称「${nameValue}」がゴミ行パターン ${pattern} にマッチしました`
+        ).toBe(false);
+      }
 
-        for (const nameValue of importedNames) {
-          // ゴミ行フィルタの確認（REQ-20.1）: 記号のみの行が含まれていない
-          for (const pattern of garbagePatterns) {
-            expect(
-              pattern.test(nameValue),
-              `明細行の名称「${nameValue}」がゴミ行パターン ${pattern} にマッチしました`
-            ).toBe(false);
-          }
-
-          // 集計行除外の確認（REQ-20.3）: 集計キーワードを含む行が含まれていない
-          for (const keyword of summaryKeywords) {
-            expect(
-              nameValue.includes(keyword),
-              `明細行の名称「${nameValue}」に集計キーワード「${keyword}」が含まれています`
-            ).toBe(false);
-          }
-        }
+      // 集計行除外の確認（REQ-20.3）: 集計キーワードを含む行が含まれていない
+      for (const keyword of summaryKeywords) {
+        expect(
+          nameValue.includes(keyword),
+          `明細行の名称「${nameValue}」に集計キーワード「${keyword}」が含まれています`
+        ).toBe(false);
       }
     }
-    // テキスト抽出に失敗した場合はテスト自体をスキップしない
-    // （OCR処理のエラーハンドリングが正常に動作していることも確認対象）
   });
 
   // ============================================================================

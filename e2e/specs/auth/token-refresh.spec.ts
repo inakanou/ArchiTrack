@@ -229,23 +229,24 @@ test.describe('トークンリフレッシュ機能', () => {
       const token2 = await page2.evaluate(() => localStorage.getItem('refreshToken'));
       expect(token2).toBeTruthy();
 
+      // 両タブを閉じるのは本テストの `finally` だけであり、この時点では必ず開いている。
+      // 「開いていれば確認する」形は、タブが落ちた場合に要件16.11 の検証を
+      // 一件も実行しないまま緑になるため、前提として無条件に主張する。
+      expect(page1.isClosed(), 'タブ1が閉じている（要件16.11 の同期を確認できない）').toBe(false);
+      expect(page2.isClosed(), 'タブ2が閉じている（要件16.11 の同期を確認できない）').toBe(false);
+
       // 要件16.11: 両方のタブが同じlocalStorageを参照しているため、
       // トークンは常に同期されている（最新のトークンローテーション結果を共有）
-      // タブ1がまだ開いているか確認してからトークンを取得
-      if (!page1.isClosed()) {
-        const token1Final = await page1.evaluate(() => localStorage.getItem('refreshToken'));
-        expect(token1Final).toBe(token2);
+      const token1Final = await page1.evaluate(() => localStorage.getItem('refreshToken'));
+      expect(token1Final).toBe(token2);
 
-        // タブ1でダッシュボードに移動して認証が有効であることを確認
-        await page1.goto('/dashboard');
-        await expect(page1.getByTestId('dashboard')).toBeVisible({ timeout: getTimeout(10000) });
-      }
+      // タブ1でダッシュボードに移動して認証が有効であることを確認
+      await page1.goto('/dashboard');
+      await expect(page1.getByTestId('dashboard')).toBeVisible({ timeout: getTimeout(10000) });
 
       // タブ2でもダッシュボードに移動して認証が有効であることを確認
-      if (!page2.isClosed()) {
-        await page2.goto('/dashboard');
-        await expect(page2.getByTestId('dashboard')).toBeVisible({ timeout: getTimeout(10000) });
-      }
+      await page2.goto('/dashboard');
+      await expect(page2.getByTestId('dashboard')).toBeVisible({ timeout: getTimeout(10000) });
     } finally {
       // クリーンアップ（ページが開いている場合のみ閉じる）
       if (!page1.isClosed()) {

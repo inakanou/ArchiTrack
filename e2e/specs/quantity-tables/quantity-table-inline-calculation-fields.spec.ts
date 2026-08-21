@@ -29,6 +29,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPresent } from '../../helpers/preconditions';
 
 /**
  * 計算用フィールドの行内水平配置 E2E テスト
@@ -423,33 +424,56 @@ test.describe('REQ-37: 計算用フィールドの行内水平配置', () => {
       const pitchLengthInput = itemRow.getByLabel(/ピッチ長/);
       await expect(pitchLengthInput).toHaveCount(1, { timeout: getTimeout(5000) });
 
-      // ページ全体（document.documentElement）の水平スクロールが可能な状態である
-      // ことを scrollWidth > clientWidth で確認（REQ-25 の表領域 overflow:visible 維持と整合）
-      const beforeScroll = await page.evaluate(() => ({
-        scrollWidth: document.documentElement.scrollWidth,
-        clientWidth: document.documentElement.clientWidth,
-        scrollX: window.scrollX,
-      }));
+      // REQ-37.6 が指す水平スクロールの主体は「表領域の水平スクロールバー
+      // （Requirement 25 と整合）」であり、Task 58.1 (REQ-41) 以降は QuantityGroupCard の
+      // itemTableWrapper（data-testid="item-table-scroll-*"、overflowX: auto）である。
+      // ページ全体（document.documentElement）を測る形では、はみ出しがラッパーに
+      // 吸収されて `scrollWidth > clientWidth` が成立せず、else 側の「そのまま可視である」
+      // という REQ-37.6 と無関係な主張だけが実行されていた。
+      //
+      // 前提は観測せずに確定させる。メイン行の列幅合計（QUANTITY_ITEM_GRID_COLUMNS）は
+      // 1168px であり、ピッチ用フィールドはその右側に展開されるため、
+      // 幅 800px のビューポートでは必ずはみ出す。
+      const itemTableScroll = page.locator('[data-testid^="item-table-scroll-"]').first();
+      await expect(itemTableScroll, '前提: 数量項目の表領域が表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-      // ピッチモードでフィールドが行内に展開された結果、scrollWidth >= clientWidth が成立すること
-      expect(beforeScroll.scrollWidth).toBeGreaterThanOrEqual(beforeScroll.clientWidth);
+      await expect
+        .poll(() => itemTableScroll.evaluate((el) => el.scrollWidth - el.clientWidth), {
+          message:
+            'REQ-37.6: ピッチモードの計算用フィールド群が表示領域の右端を超えてはみ出している',
+          timeout: getTimeout(10000),
+        })
+        .toBeGreaterThan(0);
 
-      if (beforeScroll.scrollWidth > beforeScroll.clientWidth) {
-        // 横スクロール可能な状態であれば、ページ全体を右へスクロールしてピッチ長入力を
-        // ビュー内に表示できることを確認する
-        await pitchLengthInput.scrollIntoViewIfNeeded();
-        await page.waitForLoadState('networkidle');
+      // 右方向へスクロールしてピッチ長入力を閲覧できることを確認する
+      await pitchLengthInput.scrollIntoViewIfNeeded();
 
-        // スクロール後、ピッチ長入力がビューポート内に表示される
-        await expect(pitchLengthInput).toBeVisible({ timeout: getTimeout(5000) });
+      await expect
+        .poll(() => itemTableScroll.evaluate((el) => el.scrollLeft), {
+          message: 'REQ-37.6: 右方向へのスクロールではみ出した計算用フィールド群まで到達できる',
+          timeout: getTimeout(10000),
+        })
+        .toBeGreaterThan(0);
 
-        const afterScroll = await page.evaluate(() => window.scrollX);
-        // ページ全体の水平スクロール（scrollX > 0 または不変だが要素は visible）が機能している
-        expect(afterScroll).toBeGreaterThanOrEqual(beforeScroll.scrollX);
-      } else {
-        // クライアント幅が十分でビューポート内に収まる場合は、そのまま可視であること
-        await expect(pitchLengthInput).toBeVisible({ timeout: getTimeout(5000) });
-      }
+      await expect(
+        pitchLengthInput,
+        'REQ-37.6: スクロール後にピッチ長入力が表示される'
+      ).toBeVisible({ timeout: getTimeout(5000) });
+
+      // スクロール後はピッチ長入力の左端がビューポート（幅 800px）の内側に入る。
+      // スクロール前は 1168px より右にあり、この主張は成立しない。
+      const pitchLengthBox = await pitchLengthInput.boundingBox();
+      assertPresent(pitchLengthBox, 'ピッチ長入力の境界ボックス');
+      expect(
+        pitchLengthBox.x,
+        'REQ-37.6: スクロール後のピッチ長入力はビューポートの左端より右にある'
+      ).toBeGreaterThanOrEqual(0);
+      expect(
+        pitchLengthBox.x,
+        'REQ-37.6: スクロール後のピッチ長入力はビューポート内（幅800px）に入る'
+      ).toBeLessThan(800);
     });
   });
 });

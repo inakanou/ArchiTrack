@@ -240,24 +240,27 @@ test.describe('ステータス別件数・終端ステータス除外・デフ�
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
       // フィルタクリア
-      const clearButton = page.getByRole('button', { name: /クリア/ });
-      if (await clearButton.isVisible()) {
-        // クリアボタンをクリックしてAPIレスポンスを待機
-        const apiPromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/projects') &&
-            !response.url().includes('status-counts') &&
-            response.status() === 200,
-          { timeout: getTimeout(15000) }
-        );
+      // 「フィルタをクリア」ボタンは ProjectSearchFilter が常に描画する（条件付きではない）。
+      // 「表示されていれば」で包むと、ボタンが描画されなくなった時点で
+      // 終端ステータスの再除外という要件の検証が一つも実行されないまま緑になる。
+      const clearButton = page.getByRole('button', { name: 'フィルタをクリア' });
+      await expect(clearButton).toBeVisible({ timeout: getTimeout(10000) });
 
-        await clearButton.click();
-        const response = await apiPromise;
-        const url = response.url();
+      // クリアボタンをクリックしてAPIレスポンスを待機
+      const apiPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/projects') &&
+          !response.url().includes('status-counts') &&
+          response.status() === 200,
+        { timeout: getTimeout(15000) }
+      );
 
-        // excludeTerminalStatuses=true が再び含まれる
-        expect(url).toContain('excludeTerminalStatuses=true');
-      }
+      await clearButton.click();
+      const response = await apiPromise;
+      const url = response.url();
+
+      // excludeTerminalStatuses=true が再び含まれる
+      expect(url).toContain('excludeTerminalStatuses=true');
     });
 
     /**

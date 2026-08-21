@@ -64,7 +64,11 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import ExcelJS from 'exceljs';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
-import { assertPresent } from '../../helpers/preconditions';
+import { assertPrepared, assertPresent } from '../../helpers/preconditions';
+import {
+  requireItemizedStatementFilterClearButton,
+  requireItemizedStatementFilterInput,
+} from '../../helpers/itemized-statement-preconditions';
 
 /**
  * 内訳書CRUD機能のE2Eテスト
@@ -72,6 +76,12 @@ import { assertPresent } from '../../helpers/preconditions';
 test.describe('内訳書CRUD操作', () => {
   // 並列実行を無効化（データベースの競合を防ぐ）
   test.describe.configure({ mode: 'serial' });
+
+  /** 事前準備で作成する唯一の数量項目の名称（フィルタで除外できることを確認するために用いる） */
+  const SEEDED_ITEM_NAME = '名称1';
+
+  /** どの内訳項目にも一致しないフィルタ値（フィルタ結果を0件にするために用いる） */
+  const NO_MATCH_FILTER_VALUE = '存在しないパターン12345';
 
   // テストで作成したリソースのIDを保存
   let testProjectId: string | null = null;
@@ -197,7 +207,7 @@ test.describe('内訳書CRUD操作', () => {
         data: {
           customCategory: '任意分類1',
           workType: '工種1',
-          name: '名称1',
+          name: SEEDED_ITEM_NAME,
           specification: '規格1',
           unit: 'm2',
           quantity: 100,
@@ -382,6 +392,7 @@ test.describe('内訳書CRUD操作', () => {
 
     /**
      * @requirement itemized-statement-generation/REQ-6.1: The 内訳書詳細画面 shall フィルタ入力エリアを提供する
+     * @requirement itemized-statement-generation/REQ-6.6: The フィルタ shall クリアボタンで全フィルタを一括解除できる
      */
     test('フィルタリング機能が動作する (itemized-statement-generation/REQ-6.1)', async ({
       page,
@@ -392,22 +403,19 @@ test.describe('内訳書CRUD操作', () => {
       await page.goto(`/itemized-statements/${createdItemizedStatementId}`);
       await page.waitForLoadState('networkidle');
 
-      // フィルタ入力欄に入力（任意分類フィルタ）
-      const filterInput = page.locator('input[id="filter-customCategory"]');
-      if (await filterInput.isVisible()) {
-        await filterInput.fill('任意分類');
-        await page.waitForLoadState('networkidle');
-      }
+      // REQ-6.1: 事前準備で内訳項目を1件作成しているため、フィルタ入力エリアは必ず提供される。
+      // 以前は「表示されていれば入力する」という関門で包んでいたため、
+      // フィルタエリアが消えても REQ-6.1 / REQ-6.6 の主張が一つも実行されなかった。
+      const filterInput = await requireItemizedStatementFilterInput(page, 'customCategory');
+      await filterInput.fill('任意分類');
+      await expect(filterInput).toHaveValue('任意分類');
 
-      // フィルタクリアボタン (Req 6.6)
-      const clearButton = page.getByRole('button', { name: /クリア/i });
-      if (await clearButton.isVisible()) {
-        await clearButton.click();
-        await page.waitForLoadState('networkidle');
+      // REQ-6.6: フィルタクリアボタンで全フィルタが一括解除される
+      const clearButton = await requireItemizedStatementFilterClearButton(page);
+      await clearButton.click();
 
-        // フィルタがクリアされる
-        await expect(filterInput).toHaveValue('');
-      }
+      // フィルタがクリアされる
+      await expect(filterInput).toHaveValue('');
     });
 
     /**
@@ -979,7 +987,10 @@ test.describe('内訳書CRUD操作', () => {
    * 数量表なし時のボタン無効化テスト (Req 1.8)
    */
   test.describe('数量表なし時のボタン無効化', () => {
-    test('プロジェクトに数量表が存在しない場合は新規作成ボタンが無効化される (Req 1.8)', async ({
+    /**
+     * @requirement itemized-statement-generation/REQ-1.8: When プロジェクトに数量表が存在しない場合, the 内訳書セクション shall 「まず数量表を作成してください」メッセージを表示し新規作成ボタンを非表示とする
+     */
+    test('プロジェクトに数量表が存在しない場合は新規作成ボタンが非表示となる (itemized-statement-generation/REQ-1.8)', async ({
       page,
       request,
     }) => {
@@ -1023,33 +1034,34 @@ test.describe('内訳書CRUD操作', () => {
       const itemizedStatementSection = page.getByTestId('itemized-statement-section');
       await expect(itemizedStatementSection).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 新規作成ボタンが無効化またはクリック時にメッセージが表示されることを確認
-      // 空状態ではフォームを開いた際に「数量表がありません」メッセージが表示される
-      const createButton = itemizedStatementSection.getByRole('link', { name: /新規作成/i });
-      if (await createButton.isVisible()) {
-        await createButton.click();
-        // 数量表がない旨のメッセージが表示される
-        await expect(
-          itemizedStatementSection.getByText(/数量表がありません|先に数量表を作成/i)
-        ).toBeVisible({ timeout: getTimeout(5000) });
-      }
+      // REQ-1.8: 数量表が存在しないプロジェクトを作ったので、新規作成ボタンは必ず非表示である。
+      // 以前は「新規作成ボタンが見えていれば押してメッセージを確認する」という関門で包んでいたため、
+      // 要件どおり非表示のとき（＝正常時）も、要件に反して表示されたときも、何も主張しないまま緑になっていた。
+      await expect(
+        itemizedStatementSection.getByRole('link', { name: /新規作成/i }),
+        'REQ-1.8: 数量表が無いプロジェクトで内訳書の新規作成ボタンが表示されている'
+      ).toHaveCount(0);
+
+      // REQ-1.8: 「まず数量表を作成してください」メッセージを表示する
+      await expect(itemizedStatementSection.getByText('まず数量表を作成してください')).toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
       // クリーンアップ：作成したプロジェクトを削除
-      if (emptyProjectId) {
-        const baseUrl = API_BASE_URL;
-        const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
-          data: {
-            email: 'user@example.com',
-            password: 'Password123!',
-          },
-        });
-        const loginBody = await loginResponse.json();
-        const accessToken = loginBody.accessToken;
+      assertPrepared(emptyProjectId, '数量表なし検証用に作成したプロジェクトのID');
+      const baseUrl = API_BASE_URL;
+      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
+        data: {
+          email: 'user@example.com',
+          password: 'Password123!',
+        },
+      });
+      const loginBody = await loginResponse.json();
+      const accessToken = loginBody.accessToken;
 
-        await request.delete(`${baseUrl}/api/projects/${emptyProjectId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-      }
+      await request.delete(`${baseUrl}/api/projects/${emptyProjectId}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
     });
   });
 
@@ -1363,16 +1375,19 @@ test.describe('内訳書CRUD操作', () => {
       await page.waitForLoadState('networkidle');
 
       // 存在しない値でフィルタ
-      const customCategoryFilter = page.locator('input[id="filter-customCategory"]');
-      if (await customCategoryFilter.isVisible()) {
-        await customCategoryFilter.fill('存在しない値_XXXXXX');
-        await page.waitForTimeout(500);
+      // 事前準備で内訳項目を1件作成しているため、フィルタ入力欄は必ず提供される。
+      // 以前は「表示されていれば入力する」という関門で包んでいたため、
+      // フィルタが提供されないときは REQ-6.5 の主張が実行されなかった。
+      const customCategoryFilter = await requireItemizedStatementFilterInput(
+        page,
+        'customCategory'
+      );
+      await customCategoryFilter.fill('存在しない値_XXXXXX');
 
-        // 「該当する項目はありません」メッセージを確認
-        await expect(page.getByText(/該当する項目はありません/i)).toBeVisible({
-          timeout: getTimeout(5000),
-        });
-      }
+      // REQ-6.5: 「該当する項目はありません」メッセージを確認
+      await expect(page.getByText('該当する項目はありません')).toBeVisible({
+        timeout: getTimeout(5000),
+      });
     });
   });
 
@@ -2060,20 +2075,18 @@ test.describe('内訳書CRUD操作', () => {
 
       // 1ページ目に50件の項目が表示されていることを確認
       const rows = page.locator('tbody tr');
-      const rowCount = await rows.count();
-      expect(rowCount).toBe(50);
+      await expect(rows).toHaveCount(50);
 
       // 2ページ目に移動
+      // 60件（＝2ページ）を用意しているため「次へ」ボタンは必ず表示される。
+      // 以前は「表示されていれば押す」という関門で包んでいたため、
+      // ページ送りができない状態でも2ページ目の件数の主張が実行されなかった。
       const nextPageButton = pagination.getByRole('button', { name: /次/i });
-      if (await nextPageButton.isVisible()) {
-        await nextPageButton.click();
-        await page.waitForLoadState('networkidle');
+      await expect(nextPageButton).toBeVisible({ timeout: getTimeout(5000) });
+      await nextPageButton.click();
 
-        // 2ページ目に10件の項目が表示されていることを確認
-        const rowsPage2 = page.locator('tbody tr');
-        const rowCountPage2 = await rowsPage2.count();
-        expect(rowCountPage2).toBe(10);
-      }
+      // 2ページ目に10件の項目が表示されていることを確認
+      await expect(rows).toHaveCount(10);
 
       // クリーンアップ
       const isDetailResponse = await request.get(`${baseUrl}/api/itemized-statements/${is.id}`, {
@@ -2287,15 +2300,17 @@ test.describe('内訳書CRUD操作', () => {
       await page.waitForLoadState('networkidle');
 
       // 内訳書カードのリンクをクリック
+      // 事前準備で内訳書を作成しているため、一覧には必ず行が描画される。
+      // 以前は「リンクが見えていれば押す」という関門で包んでいたため、
+      // 一覧が空になっても REQ-26.7 の遷移の主張が実行されなかった。
       const statementLink = page.getByRole('link', { name: /内訳書詳細を見る/i }).first();
-      if (await statementLink.isVisible()) {
-        await statementLink.click();
+      await expect(statementLink).toBeVisible({ timeout: getTimeout(10000) });
+      await statementLink.click();
 
-        // 詳細画面に遷移したことを確認
-        await expect(page).toHaveURL(/\/itemized-statements\/[0-9a-f-]+/, {
-          timeout: getTimeout(10000),
-        });
-      }
+      // 詳細画面に遷移したことを確認
+      await expect(page).toHaveURL(/\/itemized-statements\/[0-9a-f-]+/, {
+        timeout: getTimeout(10000),
+      });
     });
 
     /**
@@ -2806,39 +2821,49 @@ test.describe('内訳書CRUD操作', () => {
       await page.goto(`/itemized-statements/${createdItemizedStatementId}`);
       await page.waitForLoadState('networkidle');
 
-      // テーブルの行数を取得（フィルタ前）
-      const rowsBeforeFilter = await page.locator('tbody tr').count();
+      // フィルタ前は事前準備で作成した1件が表示されている
+      await expect(page.locator('tbody tr')).toHaveCount(1);
 
       // 名称でフィルタリング（存在しないパターンを使用して0件にする）
-      const filterInput = page.getByPlaceholder('名称でフィルタ');
-      if (await filterInput.isVisible()) {
-        await filterInput.fill('存在しないパターン12345');
-        await page.waitForTimeout(500);
+      // 以前はここを `getByPlaceholder('名称でフィルタ')` で探していたが、実装の
+      // プレースホルダは「名称で絞り込み」であり、この関門は一度も真にならなかった。
+      // すなわち REQ-13.6 の主張は一度も実行されていない。前提を無条件に主張する形へ改める。
+      const filterInput = await requireItemizedStatementFilterInput(page, 'name');
+      await filterInput.fill(NO_MATCH_FILTER_VALUE);
 
-        // フィルタ後の行数を確認（0件またはフィルタ前より少ない）
-        const rowsAfterFilter = await page.locator('tbody tr').count();
-        expect(rowsAfterFilter).toBeLessThanOrEqual(rowsBeforeFilter);
+      // フィルタ結果が0件であることを確認（表そのものが描画されなくなる）
+      await expect(page.getByText('該当する項目はありません')).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await expect(page.locator('tbody tr')).toHaveCount(0);
 
-        // Excelダウンロードを実行
-        const downloadPromise = page.waitForEvent('download');
-        const excelButton = page.getByRole('button', { name: /Excelダウンロード/i });
-        await excelButton.click();
+      // Excelダウンロードを実行
+      const downloadPromise = page.waitForEvent('download');
+      const excelButton = page.getByRole('button', { name: /Excelダウンロード/i });
+      await excelButton.click();
 
-        const download = await downloadPromise;
-        const filePath = await download.path();
+      const download = await downloadPromise;
+      const filePath = await download.path();
+      expect(filePath).toBeTruthy();
 
-        // ExcelJSでファイルを読み込む
-        const workbook = new ExcelJS.Workbook();
-        await workbook.xlsx.readFile(filePath!);
-        const worksheet = workbook.worksheets[0];
-        expect(worksheet).toBeTruthy();
-        if (!worksheet) return;
+      // ExcelJSでファイルを読み込む
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.readFile(filePath!);
+      const worksheet = workbook.worksheets[0];
+      assertPresent(worksheet, 'Excelファイルの先頭ワークシート');
 
-        // フィルタ結果が0件の場合、Excelにはヘッダー行のみ（または空行）
-        // ヘッダー行は1行目なので、データ行数はrowCount - 1
-        const excelDataRowCount = worksheet.rowCount - 1;
-        expect(excelDataRowCount).toBeLessThanOrEqual(rowsAfterFilter);
-      }
+      // REQ-13.6: フィルタ結果は0件なので、ヘッダー行より後にデータ行があってはならない
+      expect(
+        worksheet.rowCount,
+        'REQ-13.6: フィルタ結果0件のExcelにデータ行が出力されている'
+      ).toBeLessThanOrEqual(1);
+
+      // REQ-13.6: フィルタで除外した項目がExcelに現れてはならない
+      const exportedCellValues = JSON.stringify(worksheet.getSheetValues());
+      expect(
+        exportedCellValues,
+        'REQ-13.6: フィルタで除外した項目がExcelに出力されている'
+      ).not.toContain(SEEDED_ITEM_NAME);
     });
 
     /**
@@ -2857,33 +2882,44 @@ test.describe('内訳書CRUD操作', () => {
       await page.waitForLoadState('networkidle');
 
       // 名称でフィルタリング（存在しないパターンを使用して0件にする）
-      const filterInput = page.getByPlaceholder('名称でフィルタ');
-      if (await filterInput.isVisible()) {
-        await filterInput.fill('存在しないパターン12345');
-        await page.waitForTimeout(500);
+      // 以前はここを `getByPlaceholder('名称でフィルタ')` で探していたが、実装の
+      // プレースホルダは「名称で絞り込み」であり、この関門は一度も真にならなかった。
+      // すなわち REQ-14.5 の主張は一度も実行されていない。前提を無条件に主張する形へ改める。
+      const filterInput = await requireItemizedStatementFilterInput(page, 'name');
+      await filterInput.fill(NO_MATCH_FILTER_VALUE);
 
-        // フィルタ後の行数を確認
-        const rowsAfterFilter = await page.locator('tbody tr').count();
+      // フィルタ結果が0件であることを確認（表そのものが描画されなくなる）
+      await expect(page.getByText('該当する項目はありません')).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await expect(page.locator('tbody tr')).toHaveCount(0);
 
-        // クリップボードにコピーを実行
-        const copyButton = page.getByRole('button', { name: /クリップボードにコピー/i });
-        await copyButton.click();
+      // クリップボードにコピーを実行
+      const copyButton = page.getByRole('button', { name: /クリップボードにコピー/i });
+      await copyButton.click();
 
-        await expect(page.getByText(/クリップボードにコピーしました/i)).toBeVisible({
-          timeout: getTimeout(10000),
-        });
+      await expect(page.getByText(/クリップボードにコピーしました/i)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-        // クリップボードの内容を読み取る
-        const clipboardText = await page.evaluate(async () => {
-          return await navigator.clipboard.readText();
-        });
+      // クリップボードの内容を読み取る
+      const clipboardText = await page.evaluate(async () => {
+        return await navigator.clipboard.readText();
+      });
 
-        // 行数を確認（ヘッダー行 + データ行）
-        const lines = clipboardText.split('\n').filter((line) => line.trim() !== '');
-        const clipboardDataRowCount = lines.length - 1; // ヘッダー行を除く
+      // REQ-14.5: フィルタ結果は0件なので、ヘッダー行以外のデータ行があってはならない
+      const lines = clipboardText.split('\n').filter((line) => line.trim() !== '');
+      const clipboardDataRowCount = lines.length - 1; // ヘッダー行を除く
+      expect(
+        clipboardDataRowCount,
+        'REQ-14.5: フィルタ結果0件なのにクリップボードへデータ行がコピーされている'
+      ).toBe(0);
 
-        expect(clipboardDataRowCount).toBeLessThanOrEqual(rowsAfterFilter);
-      }
+      // REQ-14.5: フィルタで除外した項目がクリップボードに現れてはならない
+      expect(
+        clipboardText,
+        'REQ-14.5: フィルタで除外した項目がクリップボードにコピーされている'
+      ).not.toContain(SEEDED_ITEM_NAME);
     });
   });
 

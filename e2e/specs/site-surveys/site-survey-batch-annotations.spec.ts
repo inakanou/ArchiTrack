@@ -526,21 +526,19 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
   // ============================================================================
 
   test('テストデータのクリーンアップ', async () => {
-    if (createdSurveyId) {
-      const deleteResponse = await sharedPage.request.delete(
-        `${API_BASE_URL}/api/site-surveys/${createdSurveyId}`,
-        { headers: getAuthHeaders() }
-      );
-      // 200/204: 削除成功, 403: 権限不足（通常ユーザー）, 404: 既に削除済み
-      expect([200, 204, 403, 404]).toContain(deleteResponse.status());
-    }
+    assertPrepared(createdSurveyId, '事前準備で作成した現場調査のID');
+    const surveyDeleteResponse = await sharedPage.request.delete(
+      `${API_BASE_URL}/api/site-surveys/${createdSurveyId}`,
+      { headers: getAuthHeaders() }
+    );
+    // 200/204: 削除成功, 403: 権限不足（通常ユーザー）, 404: 既に削除済み
+    expect([200, 204, 403, 404]).toContain(surveyDeleteResponse.status());
 
-    if (createdProjectId) {
-      const deleteResponse = await sharedPage.request.delete(
-        `${API_BASE_URL}/api/projects/${createdProjectId}`,
-        { headers: getAuthHeaders() }
-      );
-      expect([200, 204, 403, 404]).toContain(deleteResponse.status());
-    }
+    assertPrepared(createdProjectId, '事前準備で作成したプロジェクトのID');
+    const projectDeleteResponse = await sharedPage.request.delete(
+      `${API_BASE_URL}/api/projects/${createdProjectId}`,
+      { headers: getAuthHeaders() }
+    );
+    expect([200, 204, 403, 404]).toContain(projectDeleteResponse.status());
   });
 });

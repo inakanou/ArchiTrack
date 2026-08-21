@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { cleanDatabase, cleanDatabaseAndRestoreTestData } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { getTimeout } from '../../helpers/wait-helpers';
-import { assertPresent } from '../../helpers/preconditions';
+import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import { API_BASE_URL } from '../../config';
 
 /**
@@ -175,35 +175,30 @@ test.describe('セキュリティ対策', () => {
         password: 'AdminPass123!',
       },
     });
-    const { accessToken } = await loginResponse.json();
+    expect(loginResponse.status()).toBe(200);
+    const { accessToken } = (await loginResponse.json()) as { accessToken: string };
+    assertPrepared(accessToken, '正規ログインで取得したアクセストークン');
 
-    // JWTトークンはheader.payload.signatureの形式
-    // 署名部分を確実に改ざんする
+    // 要件5.8: アクセストークンは EdDSA 署名の JWT であり、必ず
+    // header.payload.signature の3部構成になる。形式は観測して分岐する対象ではなく、
+    // 崩れていればこの地点で失敗させるべき前提である。
+    // 従来の `if (parts.length === 3) { … } else { … }` は、
+    // 「トークンが JWT ですらない」欠陥を別経路の検証で埋め合わせて緑にしていた。
     const parts = accessToken.split('.');
-    if (parts.length === 3) {
-      // 署名部分を完全に異なる値に置き換える
-      const tamperedSignature = 'invalid_signature_that_will_definitely_fail_verification';
-      const tamperedToken = `${parts[0]}.${parts[1]}.${tamperedSignature}`;
+    expect(parts, 'アクセストークンが header.payload.signature の3部構成でない').toHaveLength(3);
 
-      const response = await request.get(`${API_BASE_URL}/api/v1/users`, {
-        headers: {
-          Authorization: `Bearer ${tamperedToken}`,
-        },
-      });
+    // 署名部分を完全に異なる値に置き換える
+    const tamperedSignature = 'invalid_signature_that_will_definitely_fail_verification';
+    const tamperedToken = `${parts[0]}.${parts[1]}.${tamperedSignature}`;
 
-      expect(response.status()).toBe(401);
-    } else {
-      // トークン形式が想定外の場合、元の方法で試行
-      const tamperedToken = accessToken.slice(0, -10) + 'XXXXXXXXXX';
+    // 要件5.5: 改ざんされたトークンによるアクセスは拒否される
+    const response = await request.get(`${API_BASE_URL}/api/v1/users`, {
+      headers: {
+        Authorization: `Bearer ${tamperedToken}`,
+      },
+    });
 
-      const response = await request.get(`${API_BASE_URL}/api/v1/users`, {
-        headers: {
-          Authorization: `Bearer ${tamperedToken}`,
-        },
-      });
-
-      expect(response.status()).toBe(401);
-    }
+    expect(response.status()).toBe(401);
   });
 
   /**

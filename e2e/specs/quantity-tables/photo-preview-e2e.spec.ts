@@ -191,22 +191,22 @@ test.describe('REQ-20: 写真プレビューダイアログでの注釈付き写
     const navigated = await navigateToQuantityTableEdit(page);
     expect(navigated, '数量表編集画面に到達できる必要がある').toBeTruthy();
 
-    // 紐付け画像表示ボタン（role=button, name=紐付け画像を表示）を探す
+    // 事前準備が写真を紐づけたグループを保存しているため、表示ボタンは必ず現れる。
+    // 「ボタンが無ければ編集画面が見えていることだけ確かめる」形では、写真の紐づけが
+    // 壊れた瞬間に REQ-20.1 の検証が消え、編集画面の表示という別の主張へすり替わる。
     const imageButton = page.getByRole('button', { name: '紐付け画像を表示' }).first();
-    const imageButtonVisible = await isVisibleWithin(imageButton, getTimeout(5000));
+    await expect(imageButton, '前提: 紐付け画像の表示ボタンが表示される').toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
-    if (imageButtonVisible) {
-      await imageButton.click();
+    await imageButton.click();
 
-      // プレビューダイアログが表示される
-      const previewDialog = page.getByRole('dialog', { name: '写真プレビュー' });
-      await expect(previewDialog).toBeVisible({ timeout: getTimeout(5000) });
-    } else {
-      // 写真紐付けされたグループがない場合、編集画面のみ表示確認
-      await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible({
-        timeout: getTimeout(5000),
-      });
-    }
+    // プレビューダイアログが表示される
+    const previewDialog = page.getByRole('dialog', { name: '写真プレビュー' });
+    await expect(
+      previewDialog,
+      'REQ-20.1: 紐付け画像のクリックで写真プレビューダイアログが表示される'
+    ).toBeVisible({ timeout: getTimeout(5000) });
   });
 
   /**

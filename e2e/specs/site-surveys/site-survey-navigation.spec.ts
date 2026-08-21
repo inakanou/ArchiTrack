@@ -15,8 +15,9 @@ import { test, expect } from '@playwright/test';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
+import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -354,18 +355,17 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       const breadcrumb = page.getByRole('navigation', { name: /パンくず|breadcrumb/i });
       const projectLink = breadcrumb.getByRole('link', { name: projectName });
 
-      const projectLinkVisible = await isVisibleWithin(projectLink, 5000);
-      if (projectLinkVisible) {
-        await projectLink.click();
+      // REQ-2.10 はブレッドクラムの各項目をクリックすると対応する画面へ遷移すると定めており、
+      // 詳細画面のプロジェクト項目は `buildSiteSurveyDetailBreadcrumb` が
+      // `path: /projects/{projectId}` を与えるため必ずリンクとして描画される。
+      // 「リンクでなければテキストの表示だけ確かめる」経路は要件違反を緑にするため置かない。
+      await expect(projectLink).toBeVisible({ timeout: getTimeout(10000) });
+      await projectLink.click();
 
-        // プロジェクト詳細ページに遷移することを確認
-        await expect(page).toHaveURL(new RegExp(`/projects/${createdProjectId}`), {
-          timeout: getTimeout(10000),
-        });
-      } else {
-        // プロジェクト名がリンクでない場合、テキストとして表示されているか確認
-        await expect(breadcrumb.getByText(projectName)).toBeVisible();
-      }
+      // プロジェクト詳細ページに遷移することを確認
+      await expect(page).toHaveURL(new RegExp(`/projects/${createdProjectId}`), {
+        timeout: getTimeout(10000),
+      });
     });
 
     test('現場調査一覧画面にブレッドクラムが表示される (site-survey/REQ-2.5)', async ({ page }) => {
@@ -397,35 +397,35 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       await loginAsUser(page, 'ADMIN_USER');
 
       // 現場調査を削除
-      if (createdSurveyId) {
-        await page.goto(`/site-surveys/${createdSurveyId}`);
-        await page.waitForLoadState('networkidle');
+      // 前提が用意されていなければ削除すべき対象も無い。黙って戻ると
+      // 「後片付けした」ことになり、前提の生成が壊れたことが記録に残らない。
+      assertPrepared(createdSurveyId, '事前準備で作成した現場調査のID');
+      await page.goto(`/site-surveys/${createdSurveyId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        // 削除確認ダイアログが表示されるのを待機
-        const confirmButton = page.getByRole('button', { name: '削除する' });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await page.waitForURL(/\/site-surveys$|\/projects\//, { timeout: getTimeout(15000) });
-      }
+      const deleteButton = page.getByRole('button', { name: /削除/i }).first();
+      await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await deleteButton.click();
+      // 削除確認ダイアログが表示されるのを待機
+      const confirmButton = page.getByRole('button', { name: '削除する' });
+      await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await confirmButton.click();
+      await page.waitForURL(/\/site-surveys$|\/projects\//, { timeout: getTimeout(15000) });
 
       // プロジェクトを削除
-      if (createdProjectId) {
-        await page.goto(`/projects/${createdProjectId}`);
-        await page.waitForLoadState('networkidle');
+      assertPrepared(createdProjectId, '事前準備で作成したプロジェクトのID');
+      await page.goto(`/projects/${createdProjectId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        const confirmButton = page
-          .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
-      }
+      const projectDeleteButton = page.getByRole('button', { name: /削除/i }).first();
+      await expect(projectDeleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await projectDeleteButton.click();
+      const projectConfirmButton = page
+        .getByTestId('focus-manager-overlay')
+        .getByRole('button', { name: /^削除$/i });
+      await expect(projectConfirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await projectConfirmButton.click();
+      await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
     });
   });
 });

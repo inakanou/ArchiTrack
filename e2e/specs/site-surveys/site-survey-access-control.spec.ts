@@ -17,6 +17,7 @@ import { test, expect } from '@playwright/test';
 import { API_BASE_URL } from '../../config';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { TEST_USERS } from '../../helpers/test-users';
+import { assertPrepared } from '../../helpers/preconditions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -611,34 +612,32 @@ test.describe('現場調査アクセス制御', () => {
 
       await loginAsUser(page, 'ADMIN_USER');
 
-      if (createdSurveyId) {
-        await page.goto(`/site-surveys/${createdSurveyId}`);
-        await page.waitForLoadState('networkidle');
+      assertPrepared(createdSurveyId, '事前準備で作成した現場調査のID');
+      await page.goto(`/site-surveys/${createdSurveyId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        // 確認ダイアログの「削除する」ボタンを正確に指定
-        const confirmButton = page.getByRole('button', { name: '削除する' });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await page.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
-      }
+      const surveyDeleteButton = page.getByRole('button', { name: /削除/i }).first();
+      await expect(surveyDeleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await surveyDeleteButton.click();
+      // 確認ダイアログの「削除する」ボタンを正確に指定
+      const surveyConfirmButton = page.getByRole('button', { name: '削除する' });
+      await expect(surveyConfirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await surveyConfirmButton.click();
+      await page.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
 
-      if (createdProjectId) {
-        await page.goto(`/projects/${createdProjectId}`);
-        await page.waitForLoadState('networkidle');
+      assertPrepared(createdProjectId, '事前準備で作成したプロジェクトのID');
+      await page.goto(`/projects/${createdProjectId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        const confirmButton = page
-          .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
-      }
+      const projectDeleteButton = page.getByRole('button', { name: /削除/i }).first();
+      await expect(projectDeleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await projectDeleteButton.click();
+      const projectConfirmButton = page
+        .getByTestId('focus-manager-overlay')
+        .getByRole('button', { name: /^削除$/i });
+      await expect(projectConfirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await projectConfirmButton.click();
+      await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
     });
   });
 });

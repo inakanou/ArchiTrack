@@ -179,38 +179,36 @@ test.describe('現場調査注釈エディタ', () => {
       await loginAsUser(cleanupPage, 'ADMIN_USER');
 
       // 現場調査を削除
-      if (createdSurveyId) {
-        await cleanupPage.goto(`/site-surveys/${createdSurveyId}`);
-        await cleanupPage.waitForLoadState('networkidle');
+      assertPrepared(createdSurveyId, '事前準備で作成した現場調査のID');
+      await cleanupPage.goto(`/site-surveys/${createdSurveyId}`);
+      await cleanupPage.waitForLoadState('networkidle');
 
-        const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: 5000 });
-        await deleteButton.click();
-        // ダイアログ内の確認ボタンを選択（focus-manager-overlayまたはダイアログ要素内）
-        const dialog = cleanupPage
-          .getByTestId('focus-manager-overlay')
-          .or(cleanupPage.getByRole('dialog'));
-        const confirmButton = dialog.getByRole('button', { name: /^削除する$/i });
-        await expect(confirmButton).toBeVisible({ timeout: 5000 });
-        await confirmButton.click();
-        await cleanupPage.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
-      }
+      const surveyDeleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
+      await expect(surveyDeleteButton).toBeVisible({ timeout: 5000 });
+      await surveyDeleteButton.click();
+      // ダイアログ内の確認ボタンを選択（focus-manager-overlayまたはダイアログ要素内）
+      const dialog = cleanupPage
+        .getByTestId('focus-manager-overlay')
+        .or(cleanupPage.getByRole('dialog'));
+      const surveyConfirmButton = dialog.getByRole('button', { name: /^削除する$/i });
+      await expect(surveyConfirmButton).toBeVisible({ timeout: 5000 });
+      await surveyConfirmButton.click();
+      await cleanupPage.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
 
       // プロジェクトを削除
-      if (createdProjectId) {
-        await cleanupPage.goto(`/projects/${createdProjectId}`);
-        await cleanupPage.waitForLoadState('networkidle');
+      assertPrepared(createdProjectId, '事前準備で作成したプロジェクトのID');
+      await cleanupPage.goto(`/projects/${createdProjectId}`);
+      await cleanupPage.waitForLoadState('networkidle');
 
-        const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: 5000 });
-        await deleteButton.click();
-        const confirmButton = cleanupPage
-          .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i });
-        await expect(confirmButton).toBeVisible({ timeout: 5000 });
-        await confirmButton.click();
-        await cleanupPage.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
-      }
+      const projectDeleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
+      await expect(projectDeleteButton).toBeVisible({ timeout: 5000 });
+      await projectDeleteButton.click();
+      const projectConfirmButton = cleanupPage
+        .getByTestId('focus-manager-overlay')
+        .getByRole('button', { name: /^削除$/i });
+      await expect(projectConfirmButton).toBeVisible({ timeout: 5000 });
+      await projectConfirmButton.click();
+      await cleanupPage.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
     } finally {
       await cleanupPage.close();
       await cleanupContext.close();

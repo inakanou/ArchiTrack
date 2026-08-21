@@ -27,6 +27,12 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
+import {
+  addQuantityGroup,
+  addQuantityItemRows,
+  createTestQuantityTable,
+} from '../../helpers/quantity-table-preconditions';
 
 let testProjectId: string | null = null;
 let createdQuantityTableId: string | null = null;
@@ -357,10 +363,16 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
         { timeout: getTimeout(10000) }
       );
 
-      // 元の並び順
+      // 元の並び順（事前準備がグループごとに固有の名前を付けている）
       const beforeFirstName = (
         await groupCards.first().locator('h3').first().textContent()
       )?.trim();
+      const beforeSecondName = (
+        await groupCards.nth(1).locator('h3').first().textContent()
+      )?.trim();
+      // 名前が取れていなければ入れ替えを判定できない。空も含めてここで失敗させる。
+      assertPrepared(beforeFirstName, '1番目の数量グループの表示名');
+      assertPrepared(beforeSecondName, '2番目の数量グループの表示名');
 
       // 1番目のグループの「下へ移動」をクリック
       const firstSortButtons = groupCards
@@ -369,27 +381,26 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
         .first();
       const downButton = firstSortButtons.getByRole('button', { name: '下へ移動' });
 
-      if (await downButton.isEnabled().catch(() => false)) {
-        await downButton.click();
-        await page.waitForLoadState('networkidle');
+      // グループが2件ある以上、1番目の「下へ移動」は必ず活性である（REQ-23.6 が
+      // 無効化するのは最下位のグループだけ）。以前は活性を観測して分岐しており、
+      // 無効になっていれば並び替えの判定が丸ごと消えていた。
+      await expect(
+        downButton,
+        'REQ-23.4: 1番目のグループの「下へ移動」が無効になっている'
+      ).toBeEnabled({ timeout: getTimeout(5000) });
 
-        // 並び順が変更された
-        const afterFirstName = (
-          await groupCards.first().locator('h3').first().textContent()
-        )?.trim();
-        expect(afterFirstName, '下へ移動後、1番目のグループ名が変わる').not.toBe(beforeFirstName);
+      await downButton.click();
 
-        // 元に戻す
-        const restoreUpButton = groupCards
-          .nth(1)
-          .locator('[data-testid="sort-order-buttons"]')
-          .first()
-          .getByRole('button', { name: '上へ移動' });
-        if (await restoreUpButton.isEnabled().catch(() => false)) {
-          await restoreUpButton.click();
-          await page.waitForLoadState('networkidle');
-        }
-      }
+      // 並び順が入れ替わる（REQ-23.7）。並び替えはクライアントドラフトを更新する
+      // （REQ-42.1）ため、画面上の順序で判定し、後続テストは開き直しで元の順序に戻る。
+      await expect(
+        groupCards.first().locator('h3').first(),
+        'REQ-23.7: 下へ移動しても1番目のグループが入れ替わらない'
+      ).toHaveText(beforeSecondName, { timeout: getTimeout(10000) });
+      await expect(
+        groupCards.nth(1).locator('h3').first(),
+        'REQ-23.7: 下へ移動した1番目のグループが2番目に来ない'
+      ).toHaveText(beforeFirstName, { timeout: getTimeout(10000) });
     });
 
     /**
@@ -398,39 +409,30 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
     test('グループが1つしか存在しない場合、両方のボタンが無効化される (REQ-23.8)', async ({
       page,
     }) => {
-      const navigated = await navigateToQuantityTableEdit(page);
-      expect(navigated).toBeTruthy();
+      // 以前はグループ数を観測し「1件なら両方無効・複数なら最上位と最下位が無効・
+      // 0件なら編集画面が出ていること」の三分岐で判定していた。共有の数量表は事前準備で
+      // 2件のグループを持つため、REQ-23.8（1件のとき両方無効）は一度も実行されていない。
+      // 本判定が要求する「グループが1件だけ」の状態を専用の数量表として自分で用意する。
+      assertPrepared(testProjectId, '事前準備で作成したプロジェクトのID');
+      await createTestQuantityTable(page, testProjectId, 'REQ23_8_単一グループ');
+      await addQuantityGroup(page);
 
       const groupCards = page.locator('[data-testid="quantity-group-card"]');
-      const count = await groupCards.count();
+      await expect(groupCards, '前提: 数量グループが1件だけ存在する').toHaveCount(1, {
+        timeout: getTimeout(10000),
+      });
 
-      if (count === 1) {
-        const sortButtons = groupCards
-          .first()
-          .locator('[data-testid="sort-order-buttons"]')
-          .first();
-        await expect(sortButtons).toBeVisible({ timeout: getTimeout(5000) });
+      const sortButtons = groupCards.first().locator('[data-testid="sort-order-buttons"]').first();
+      await expect(sortButtons).toBeVisible({ timeout: getTimeout(5000) });
 
-        const upButton = sortButtons.getByRole('button', { name: '上へ移動' });
-        const downButton = sortButtons.getByRole('button', { name: '下へ移動' });
-        await expect(upButton).toBeDisabled();
-        await expect(downButton).toBeDisabled();
-      } else if (count > 1) {
-        // 1つではない場合は最上位の上ボタン、最下位の下ボタンが無効
-        const firstSortButtons = groupCards
-          .first()
-          .locator('[data-testid="sort-order-buttons"]')
-          .first();
-        const lastSortButtons = groupCards
-          .last()
-          .locator('[data-testid="sort-order-buttons"]')
-          .first();
-        await expect(firstSortButtons.getByRole('button', { name: '上へ移動' })).toBeDisabled();
-        await expect(lastSortButtons.getByRole('button', { name: '下へ移動' })).toBeDisabled();
-      } else {
-        // グループが0個の場合は編集画面のみ検証
-        await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-      }
+      await expect(
+        sortButtons.getByRole('button', { name: '上へ移動' }),
+        'REQ-23.8: グループが1件のとき「上へ移動」が無効になっていない'
+      ).toBeDisabled();
+      await expect(
+        sortButtons.getByRole('button', { name: '下へ移動' }),
+        'REQ-23.8: グループが1件のとき「下へ移動」が無効になっていない'
+      ).toBeDisabled();
     });
   });
 
@@ -574,6 +576,8 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       // input の id 属性で入れ替えを判定する。
       const beforeFirstInputId = await itemRows.first().locator('input').first().getAttribute('id');
       expect(beforeFirstInputId, '項目行の入力に id 属性が存在する').toBeTruthy();
+      const beforeSecondInputId = await itemRows.nth(1).locator('input').first().getAttribute('id');
+      expect(beforeSecondInputId, '2番目の項目行の入力に id 属性が存在する').toBeTruthy();
 
       const firstActionButton = itemRows.first().getByRole('button', { name: 'アクション' });
       await firstActionButton.click();
@@ -581,34 +585,28 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       const menu = page.getByRole('menu');
       await expect(menu).toBeVisible({ timeout: getTimeout(3000) });
 
+      // 項目が2件ある以上、1番目の「下へ移動」は必ず活性である（REQ-24.6 が無効化するのは
+      // 最下位の項目だけ）。以前は活性を観測して分岐しており、無効になっていれば
+      // メニューを閉じるだけで並び替えの判定が丸ごと消えていた。
       const moveDownItem = menu.getByRole('menuitem', { name: /下へ移動/ });
-      if (await moveDownItem.isEnabled().catch(() => false)) {
-        await moveDownItem.click();
-        await page.waitForLoadState('networkidle');
+      await expect(
+        moveDownItem,
+        'REQ-24.4: 1番目の項目の「下へ移動」が無効になっている'
+      ).toBeEnabled({ timeout: getTimeout(3000) });
 
-        // 並び順が変わったことを検証
-        const afterFirstInputId = await itemRows
-          .first()
-          .locator('input')
-          .first()
-          .getAttribute('id');
-        expect(afterFirstInputId, '下へ移動後、1番目の項目を識別する id が変わる').not.toBe(
-          beforeFirstInputId
-        );
+      await moveDownItem.click();
 
-        // 元に戻す
-        const restoreAction = itemRows.nth(1).getByRole('button', { name: 'アクション' });
-        await restoreAction.click();
-        const restoreMenu = page.getByRole('menu');
-        const restoreUp = restoreMenu.getByRole('menuitem', { name: /上へ移動/ });
-        if (await restoreUp.isEnabled().catch(() => false)) {
-          await restoreUp.click();
-          await page.waitForLoadState('networkidle');
-        }
-      } else {
-        // disabledの場合、メニューを閉じる
-        await page.locator('body').click({ position: { x: 5, y: 5 } });
-      }
+      // 並び順が入れ替わったことを検証（REQ-24.7）。並び替えはクライアントドラフトを
+      // 更新する（REQ-42.1）ため、後続テストは開き直しで元の順序に戻る。
+      await expect
+        .poll(async () => await itemRows.first().locator('input').first().getAttribute('id'), {
+          timeout: getTimeout(10000),
+        })
+        .toBe(beforeSecondInputId);
+      expect(
+        await itemRows.nth(1).locator('input').first().getAttribute('id'),
+        'REQ-24.7: 下へ移動した項目が2番目に来ない'
+      ).toBe(beforeFirstInputId);
     });
 
     /**
@@ -617,52 +615,36 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
     test('項目が1つのみのグループでは両方の移動メニューが無効化される (REQ-24.8)', async ({
       page,
     }) => {
-      const navigated = await navigateToQuantityTableEdit(page);
-      expect(navigated).toBeTruthy();
+      // 以前は「項目数が1のグループを探し、見つかれば主張する。見つからなければ
+      // 先頭項目の『上へ移動』が無効であることで代替する。項目が0件なら編集画面の表示だけ
+      // 見る」という形だった。共有の数量表は1つ目のグループに2件・2つ目のグループに0件を
+      // 持つため、項目数1のグループは存在せず、REQ-24.8 は一度も実行されていない。
+      // 本判定が要求する「グループに項目が1件だけ」の状態を専用の数量表として用意する。
+      assertPrepared(testProjectId, '事前準備で作成したプロジェクトのID');
+      await createTestQuantityTable(page, testProjectId, 'REQ24_8_単一項目');
+      const groupCard = await addQuantityGroup(page);
+      const items = await addQuantityItemRows(groupCard, 1);
 
-      // 項目数が 1 のグループを検索
-      const groupCards = page.locator('[data-testid="quantity-group-card"]');
-      const groupCount = await groupCards.count();
+      await expect(items, '前提: 数量項目が1件だけ存在する').toHaveCount(1, {
+        timeout: getTimeout(10000),
+      });
 
-      let foundSingleItemGroup = false;
-      for (let i = 0; i < groupCount; i++) {
-        const group = groupCards.nth(i);
-        const items = group.locator('[data-testid="quantity-item-row"]');
-        const itemCount = await items.count();
-        if (itemCount === 1) {
-          foundSingleItemGroup = true;
-          const actionButton = items.first().getByRole('button', { name: 'アクション' });
-          await actionButton.click();
+      const actionButton = items.first().getByRole('button', { name: 'アクション' });
+      await actionButton.click();
 
-          const menu = page.getByRole('menu');
-          await expect(menu).toBeVisible({ timeout: getTimeout(3000) });
+      const menu = page.getByRole('menu');
+      await expect(menu).toBeVisible({ timeout: getTimeout(3000) });
 
-          const upItem = menu.getByRole('menuitem', { name: /上へ移動/ });
-          const downItem = menu.getByRole('menuitem', { name: /下へ移動/ });
-          await expect(upItem).toBeDisabled();
-          await expect(downItem).toBeDisabled();
+      await expect(
+        menu.getByRole('menuitem', { name: /上へ移動/ }),
+        'REQ-24.8: 項目が1件のとき「上へ移動」が無効になっていない'
+      ).toBeDisabled();
+      await expect(
+        menu.getByRole('menuitem', { name: /下へ移動/ }),
+        'REQ-24.8: 項目が1件のとき「下へ移動」が無効になっていない'
+      ).toBeDisabled();
 
-          await page.locator('body').click({ position: { x: 5, y: 5 } });
-          break;
-        }
-      }
-
-      if (!foundSingleItemGroup) {
-        // 1項目グループがない場合、最上位/最下位での無効化を代替検証
-        const allItems = page.locator('[data-testid="quantity-item-row"]');
-        const totalCount = await allItems.count();
-        if (totalCount > 0) {
-          const actionButton = allItems.first().getByRole('button', { name: 'アクション' });
-          await actionButton.click();
-          const menu = page.getByRole('menu');
-          await expect(menu).toBeVisible({ timeout: getTimeout(3000) });
-          const moveUp = menu.getByRole('menuitem', { name: /上へ移動/ });
-          await expect(moveUp).toBeDisabled();
-          await page.locator('body').click({ position: { x: 5, y: 5 } });
-        } else {
-          await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-        }
-      }
+      await page.locator('body').click({ position: { x: 5, y: 5 } });
     });
   });
 });

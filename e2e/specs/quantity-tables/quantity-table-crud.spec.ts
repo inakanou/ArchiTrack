@@ -320,20 +320,25 @@ test.describe('数量表CRUD操作', () => {
       await expect(createLink).toBeVisible({ timeout: getTimeout(5000) });
       await createLink.click();
 
-      // 数量表新規作成画面またはダイアログに遷移/表示されることを確認（必須）
-      const dialog = page.getByRole('dialog');
-      const isDialogVisible = await isVisibleWithin(dialog, 3000);
-
-      if (isDialogVisible) {
-        // ダイアログ形式の場合、名称入力欄が表示される
-        const nameInput = dialog.getByLabel(/名称|数量表名/);
-        await expect(nameInput).toBeVisible({ timeout: getTimeout(5000) });
-      } else {
-        // ページ遷移形式の場合、新規作成画面URLに遷移
-        await expect(page).toHaveURL(new RegExp(`/projects/${testProjectId}/quantity-tables/new`), {
-          timeout: getTimeout(10000),
-        });
-      }
+      // project-management/REQ-25.7 は遷移先を「数量表新規作成画面
+      // （/projects/{projectId}/quantity-tables/new）」と定めており、実装も
+      // routes.tsx:259 の QuantityTableCreatePage（画面）である。ダイアログの実装は無い。
+      // 以前は「ダイアログが出れば名称欄・出なければURL」の分岐で、どちらでも通っていた。
+      // 遷移先の画面を無条件に主張する。
+      await expect(
+        page,
+        'project-management/REQ-25.7: 新規作成リンクから数量表新規作成画面へ遷移しない'
+      ).toHaveURL(new RegExp(`/projects/${testProjectId}/quantity-tables/new$`), {
+        timeout: getTimeout(10000),
+      });
+      await expect(
+        page.getByRole('dialog'),
+        'project-management/REQ-25.7: 新規作成はダイアログではなく画面遷移で提供される'
+      ).toHaveCount(0);
+      await expect(
+        page.getByRole('textbox', { name: /数量表名|名称/ }),
+        'project-management/REQ-25.7: 新規作成画面に数量表名の入力欄が表示されない'
+      ).toBeVisible({ timeout: getTimeout(5000) });
     });
   });
 
@@ -345,7 +350,7 @@ test.describe('数量表CRUD操作', () => {
    * REQ-2: 数量表の作成・管理
    */
   test.describe('数量表新規作成フロー', () => {
-    test('新規作成ダイアログで名称入力して作成できる (quantity-table-generation/REQ-2.1, REQ-2.2)', async ({
+    test('新規作成画面で名称入力して作成できる (quantity-table-generation/REQ-2.1, REQ-2.2)', async ({
       page,
     }) => {
       if (!testProjectId) {
@@ -373,32 +378,31 @@ test.describe('数量表CRUD操作', () => {
 
       await createLink.click();
 
-      // 新規作成ダイアログまたはページが表示される
-      const dialog = page.getByRole('dialog');
-      const isDialogVisible = await isVisibleWithin(dialog, 3000);
+      // 数量表名の入力は独立した新規作成画面で行う。REQ-12.3 が
+      // 「数量表新規作成画面を表示する」ときのパンくずを定めており、
+      // project-management/REQ-25.7 も遷移先を画面（/quantity-tables/new）と定める。
+      // 実装（routes.tsx:259 / QuantityTableCreatePage）にダイアログの経路は無い。
+      // 以前は「ダイアログ または ページ」の分岐で、どちらでも通っていた。
+      await expect(page, 'REQ-2.1: 数量表名を入力する新規作成画面へ遷移しない').toHaveURL(
+        /\/quantity-tables\/new$/,
+        { timeout: getTimeout(10000) }
+      );
+      const nameInput = page.getByRole('textbox', { name: /数量表名|名称/ });
+      await expect(nameInput, 'REQ-2.1: 数量表名の入力欄が表示されない').toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      // REQ-2.1: 数量表名フィールドにデフォルト値「数量表」を設定する
+      await expect(nameInput, 'REQ-2.1: 数量表名の既定値が「数量表」ではない').toHaveValue(
+        '数量表'
+      );
+      await nameInput.fill('E2Eテスト用数量表');
 
-      if (isDialogVisible) {
-        // ダイアログが表示された場合 - REQ-2.1
-        const nameInput = dialog.getByLabel(/名称|数量表名/);
-        await expect(nameInput).toBeVisible();
-        await nameInput.fill('E2Eテスト用数量表');
-
-        // 作成ボタンをクリック - REQ-2.2
-        const submitButton = dialog.getByRole('button', { name: /作成|保存/ });
-        await submitButton.click();
-
-        // ダイアログが閉じることを確認
-        await expect(dialog).not.toBeVisible({ timeout: getTimeout(5000) });
-      } else {
-        // 新規作成ページに遷移した場合
-        await expect(page).toHaveURL(/\/quantity-tables\/new/);
-        const nameInput = page.getByLabel(/名称|数量表名/);
-        await expect(nameInput).toBeVisible();
-        await nameInput.fill('E2Eテスト用数量表');
-
-        const submitButton = page.getByRole('button', { name: /作成|保存/ });
-        await submitButton.click();
-      }
+      // 作成を確定する - REQ-2.2
+      const submitButton = page.getByRole('button', { name: /^作成$/ });
+      await expect(submitButton, 'REQ-2.2: 作成ボタンが表示されない').toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await submitButton.click();
 
       // 編集画面に遷移することを確認 - REQ-2.2
       await page.waitForURL(/\/quantity-tables\/[^/]+\/edit/, { timeout: getTimeout(10000) });
@@ -1385,30 +1389,24 @@ test.describe('数量表CRUD操作', () => {
       }
 
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      await page.waitForLoadState('networkidle');
 
-      // 数量項目が表示されることを確認（必須）
-      const itemRow = page.getByTestId('quantity-item-row').first();
+      // REQ-5.2 は「入力値を即座に反映する」ことを求める。以前は「入力欄があれば入力して
+      // 主張し、無ければ行に何か文字があることを確認する」分岐で、表示モードの側は
+      // 常に成立していた。数量項目の行は `EditableQuantityItemRow` が常に入力欄として
+      // 描画する（表示モードの実装は無い）ため、入力欄を無条件に主張する。
+      // 前提（グループ1件・項目1行）は自分で作る。
+      const itemRow = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
       await expect(itemRow).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 入力フィールドまたは表示セルが存在することを確認
-      // 現在の実装では表示モードのため、セル内のテキストを確認
-      const majorCategoryInput = page.getByLabel(/大項目/).first();
-      const majorCategoryCell = itemRow.getByRole('cell').first();
+      const majorCategoryInput = itemRow.getByLabel('大項目', { exact: true });
+      await expect(majorCategoryInput, 'REQ-5.2: 大項目の入力欄が表示されない').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-      const hasInput = await isVisibleWithin(majorCategoryInput, 2000);
-
-      if (hasInput) {
-        // 編集可能な入力フィールドがある場合
-        await majorCategoryInput.fill('建築工事');
-        await expect(majorCategoryInput).toHaveValue('建築工事');
-      } else {
-        // 表示モードの場合、項目行にデータが表示されていることを確認
-        await expect(majorCategoryCell).toBeVisible();
-        // 項目行が存在し、何らかのコンテンツがあることを確認
-        expect(await itemRow.textContent()).toBeTruthy();
-      }
+      await majorCategoryInput.fill('建築工事');
+      await expect(majorCategoryInput, 'REQ-5.2: 入力値が即座に反映されない').toHaveValue(
+        '建築工事'
+      );
     });
 
     test('数量項目を削除できる (quantity-table-generation/REQ-5.4)', async ({ page }) => {
@@ -1419,37 +1417,36 @@ test.describe('数量表CRUD操作', () => {
       }
 
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      await page.waitForLoadState('networkidle');
 
-      // 項目行が表示されることを確認（必須）
-      const itemRow = page.getByTestId('quantity-item-row').first();
+      // 削除の前後を数えるには「削除できる行がある」ことが前提になる。
+      // 再訪した編集画面の行数は先行するテストの保存状況で変わるため、自分で作る。
+      const itemRow = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
       await expect(itemRow).toBeVisible({ timeout: getTimeout(5000) });
 
-      const initialRowCount = await page.getByTestId('quantity-item-row').count();
+      const itemRows = page.getByTestId('quantity-item-row');
+      const initialRowCount = await itemRows.count();
 
       // アクションメニューを開いて削除を実行（REQ-36: アクションメニューに統合）
       const actionButton = itemRow.getByRole('button', { name: /アクション/ });
       await expect(actionButton).toBeVisible({ timeout: 3000 });
       await actionButton.click();
 
-      // ドロップダウンメニュー内の削除ボタンをクリック
-      const deleteMenuItem = page.getByRole('menuitem', { name: /削除/ });
+      // ドロップダウンメニュー内の削除ボタンをクリック（メニューは body 直下へ描画される）
+      const deleteMenuItem = page.getByRole('menu').getByRole('menuitem', { name: /削除/ });
       await expect(deleteMenuItem).toBeVisible({ timeout: 3000 });
       await deleteMenuItem.click();
 
-      // 確認ダイアログが表示されれば確認ボタンをクリック
-      // 注意: ダイアログ内のボタンのみを探す（行の削除ボタンと混同しないため）
-      const confirmDialog = page.getByRole('dialog');
-      const hasDialog = await isVisibleWithin(confirmDialog, 2000);
-      if (hasDialog) {
-        const confirmButton = confirmDialog.getByRole('button', { name: /^削除$|確認|はい/ });
-        await confirmButton.click();
-        await expect(confirmDialog).not.toBeVisible({ timeout: 3000 });
-      }
+      // REQ-5.4 は数量項目の削除に確認ダイアログを要求しない（確認を求めるのは
+      // 数量表 REQ-2.4 と数量グループ REQ-4.5 である）。実装も
+      // QuantityTableEditPage.handleDeleteItem が確認を挟まずドラフトから削除する。
+      // 以前は「ダイアログが出れば確認を押す」分岐で、出ない実態では何も起きていなかった。
+      await expect(
+        page.getByRole('dialog'),
+        'REQ-5.4: 数量項目の削除に確認ダイアログは介在しない'
+      ).toHaveCount(0);
 
       // 行が削除されたことを確認（必須）
-      await expect(page.getByTestId('quantity-item-row')).toHaveCount(initialRowCount - 1, {
+      await expect(itemRows, 'REQ-5.4: 数量項目が削除されない').toHaveCount(initialRowCount - 1, {
         timeout: 5000,
       });
     });
@@ -1464,43 +1461,14 @@ test.describe('数量表CRUD操作', () => {
       }
 
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      await page.waitForLoadState('networkidle');
-      // エラーアラートが表示されている場合は、ページをリロードしてリセット
-      const errorAlert = page.getByRole('alert').first();
-      if (await isVisibleWithin(errorAlert, 1000)) {
-        await page.reload();
-        await page.waitForLoadState('networkidle');
-      }
 
-      // 既存の項目行を取得（またはグループがある場合）
-      const groups = page.getByTestId('quantity-group');
-      const groupCount = await groups.count();
-
-      if (groupCount === 0) {
-        // グループがない場合は追加
-        const addGroupButton = page.getByRole('button', { name: /グループを追加/ });
-        await expect(addGroupButton).toBeVisible({ timeout: getTimeout(5000) });
-        await addGroupButton.click();
-        await page.waitForLoadState('networkidle');
-        // 追加後にAPIの完了を待つ
-        await page.waitForTimeout(500);
-      }
-
-      // 新しい項目を追加（デフォルト値が設定される）
-      const addItemButton = page.getByRole('button', { name: /項目を追加/ }).first();
-      await expect(addItemButton).toBeVisible({ timeout: getTimeout(5000) });
-      await addItemButton.click();
-      // API呼び出しの完了を待つ
-      await page.waitForLoadState('networkidle');
-      await page.waitForTimeout(500);
-
-      // 項目行が表示されることを確認（必須）
-      const itemRows = page.getByTestId('quantity-item-row');
-      await expect(itemRows.first()).toBeVisible({ timeout: getTimeout(10000) });
-
-      // 最後に追加された項目行を取得
-      const lastItemRow = itemRows.last();
+      // 以前は「グループが0件なら追加する」分岐で前提を用意していたが、参照していた
+      // testid は `quantity-group`（実在するのは `quantity-group-card`）であり、
+      // 件数は常に0で分岐は常に発火していた。すなわち観測は前提の有無を見ていない。
+      // 併せて「エラーアラートが出ていればリロードする」後始末も置かれていたが、
+      // 編集画面を開き直せば前のテストのアラートは残らない（残るなら欠陥として出すべき）。
+      // 前提（グループ1件・項目1行）を無条件に作る。
+      const lastItemRow = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
       await expect(lastItemRow).toBeVisible({ timeout: getTimeout(5000) });
 
       // 名称フィールドをクリアして必須フィールドを空にする
@@ -1554,36 +1522,12 @@ test.describe('数量表CRUD操作', () => {
       }
 
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      await page.waitForLoadState('networkidle');
 
-      // 既存の項目行、またはグループ内に項目がない場合は追加
-      const groups = page.getByTestId('quantity-group');
-      const groupCount = await groups.count();
-
-      if (groupCount === 0) {
-        // グループがない場合は追加
-        const addGroupButton = page.getByRole('button', { name: /グループを追加/ });
-        await expect(addGroupButton).toBeVisible({ timeout: getTimeout(5000) });
-        await addGroupButton.click();
-        await page.waitForLoadState('networkidle');
-        await page.waitForTimeout(500);
-      }
-
-      // 項目がない場合は追加
-      let itemRows = page.getByTestId('quantity-item-row');
-      const itemCount = await itemRows.count();
-      if (itemCount === 0) {
-        const addItemButton = page.getByRole('button', { name: /項目を追加/ }).first();
-        await expect(addItemButton).toBeVisible({ timeout: getTimeout(5000) });
-        await addItemButton.click();
-        await page.waitForLoadState('networkidle');
-        await page.waitForTimeout(500);
-      }
-
-      // 数量項目行が表示されることを確認（必須）
-      itemRows = page.getByTestId('quantity-item-row');
-      const firstItemRow = itemRows.first();
+      // 以前は「グループが0件なら追加」「項目が0件なら追加」の二段の観測で前提を用意して
+      // いたが、前者が参照する testid `quantity-group` は実在せず（実在するのは
+      // `quantity-group-card`）常に0件、後者は先行テストの保存状況で発火が変わる。
+      // 前提（グループ1件・項目1行）を無条件に作り、その行を対象に主張する。
+      const firstItemRow = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
       await expect(firstItemRow).toBeVisible({ timeout: getTimeout(5000) });
 
       // 計算方法は選択欄として描画される（`EditableQuantityItemRow`）。
@@ -1650,41 +1594,31 @@ test.describe('数量表CRUD操作', () => {
       }
 
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      await page.waitForLoadState('networkidle');
 
-      // 項目がない場合は先に追加（削除テストの後に項目がない可能性があるため）
-      let itemRow = page.getByTestId('quantity-item-row').first();
-      const hasItem = await isVisibleWithin(itemRow, 2000);
-      if (!hasItem) {
-        // 項目を追加
-        const addItemButton = page.getByRole('button', { name: /項目を追加/ }).first();
-        await expect(addItemButton).toBeVisible({ timeout: getTimeout(5000) });
-        await addItemButton.click();
-        await page.waitForLoadState('networkidle');
-        // 追加後に再度項目を取得
-        itemRow = page.getByTestId('quantity-item-row').first();
-      }
-
-      // 項目行が表示されることを確認（必須）
+      // 以前は「項目行が見えなければ追加する」観測で前提を用意していた。
+      // 見えるかどうかは先行テスト（削除・保存）の結果次第で、コピー元の行が
+      // どのグループの何行目かも定まらない。前提を無条件に作る。
+      const itemRow = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
       await expect(itemRow).toBeVisible({ timeout: getTimeout(5000) });
 
-      const initialRowCount = await page.getByTestId('quantity-item-row').count();
+      const itemRows = page.getByTestId('quantity-item-row');
+      const initialRowCount = await itemRows.count();
 
       // アクションメニューボタンが表示されることを確認（必須）
       const moreButton = itemRow.getByLabel(/アクション|メニュー|その他/);
       await expect(moreButton).toBeVisible({ timeout: 3000 });
       await moreButton.click();
 
-      // コピーオプションが表示されることを確認（必須）
-      const copyOption = page.getByRole('menuitem', { name: /コピー|複製/ });
+      // コピーオプションが表示されることを確認（必須。メニューは body 直下へ描画される）
+      const copyOption = page.getByRole('menu').getByRole('menuitem', { name: /コピー|複製/ });
       await expect(copyOption).toBeVisible({ timeout: 3000 });
       await copyOption.click();
 
       // 新しい行が追加されたことを確認（必須）
-      await expect(page.getByTestId('quantity-item-row')).toHaveCount(initialRowCount + 1, {
-        timeout: 5000,
-      });
+      await expect(itemRows, 'REQ-6.1: コピー操作で行が複製されない').toHaveCount(
+        initialRowCount + 1,
+        { timeout: 5000 }
+      );
     });
 
     test('数量項目移動時にUI表示される (quantity-table-generation/REQ-6.2)', async ({ page }) => {
@@ -1695,21 +1629,10 @@ test.describe('数量表CRUD操作', () => {
       }
 
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      await page.waitForLoadState('networkidle');
 
-      // 項目がない場合は先に追加
-      let itemRow = page.getByTestId('quantity-item-row').first();
-      const hasItem = await isVisibleWithin(itemRow, 2000);
-      if (!hasItem) {
-        const addItemButton = page.getByRole('button', { name: /項目を追加/ }).first();
-        await expect(addItemButton).toBeVisible({ timeout: getTimeout(5000) });
-        await addItemButton.click();
-        await page.waitForLoadState('networkidle');
-        itemRow = page.getByTestId('quantity-item-row').first();
-      }
-
-      // 項目行が表示されることを確認（必須）
+      // 前提（グループ1件・項目1行）を無条件に作る。以前の「行が見えなければ追加する」
+      // 観測は、先行テストの保存状況で発火が変わり前提を保証していなかった。
+      const itemRow = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
       await expect(itemRow).toBeVisible({ timeout: getTimeout(5000) });
 
       // アクションメニューボタンが表示されることを確認（必須）
@@ -1719,7 +1642,13 @@ test.describe('数量表CRUD操作', () => {
 
       // メニューが開いたことを確認（必須）
       const menu = page.getByRole('menu');
-      await expect(menu).toBeVisible({ timeout: 3000 });
+      await expect(menu, 'REQ-6.2: 移動を含むアクションメニューが表示されない').toBeVisible({
+        timeout: 3000,
+      });
+      await expect(
+        menu.getByRole('menuitem', { name: '別グループに移動' }),
+        'REQ-6.2: アクションメニューに移動先選択UIを開く導線が無い'
+      ).toBeVisible({ timeout: 3000 });
     });
 
     test('同一数量グループ内で項目の位置を移動できる (quantity-table-generation/REQ-6.3)', async ({
@@ -2966,79 +2895,49 @@ test.describe('数量表CRUD操作', () => {
       }
 
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      await page.waitForLoadState('networkidle');
 
-      // 計算方法セレクトボックスを面積・体積モードに設定
-      const calcMethodSelect = page.getByLabel(/計算方法/).first();
-      await expect(calcMethodSelect).toBeVisible({ timeout: getTimeout(5000) });
+      // 以前は「計算元の数量が 0 か NaN なら寸法を入れてみる」「それでも駄目なら 100 と
+      // みなす」という観測の連鎖で基準値を決め、最後に「基準値が正なら2倍・そうでなければ
+      // 初期値が正なら2倍・どちらでもなければ 0 以上」の三分岐で判定していた。
+      // 最後の枝は恒真であり、計算元が用意できていない場合は何も確かめずに通る。
+      // 計算元（幅10×奥行き10＝100）を自分で入力し、期待値を定数として主張する。
+      const itemRow = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
+
+      const calcMethodSelect = itemRow.getByLabel(/計算方法/);
+      await expect(calcMethodSelect, '前提: 計算方法の選択欄が表示される').toBeVisible({
+        timeout: getTimeout(5000),
+      });
       await calcMethodSelect.selectOption({ value: 'AREA_VOLUME' });
-      await page.waitForTimeout(500);
 
-      // 調整係数フィールドが表示されることを確認（必須）
-      const adjustmentField = page.getByLabel(/調整係数|coefficient/i).first();
-      await expect(adjustmentField).toBeVisible({ timeout: getTimeout(5000) });
+      const widthField = itemRow.getByLabel('幅（W）', { exact: true });
+      const depthField = itemRow.getByLabel('奥行き（D）', { exact: true });
+      const adjustmentField = itemRow.getByLabel('調整係数', { exact: true });
+      const quantityField = itemRow.locator('input[id$="-quantity"]');
 
-      // 数量フィールドを取得
-      const quantityField = page.locator('input[id$="-quantity"]').first();
-      await expect(quantityField).toBeVisible({ timeout: 3000 });
+      await expect(adjustmentField, 'REQ-9.1: 調整係数フィールドが表示されない').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await expect(quantityField, '前提: 数量欄が表示される').toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
-      // 現在の数量を取得
-      let initialQuantity = await quantityField.inputValue();
-      let initialValue = parseFloat(initialQuantity);
-
-      // 数量が0または無効な場合、寸法を設定して計算可能にする
-      if (isNaN(initialValue) || initialValue === 0) {
-        const widthField = page.getByLabel(/幅|Width/i).first();
-        const depthField = page.getByLabel(/奥行|Depth/i).first();
-
-        if (await isVisibleWithin(widthField, 1000)) {
-          await widthField.fill('10');
-        }
-        if (await isVisibleWithin(depthField, 1000)) {
-          await depthField.fill('10');
-        }
-        await page.keyboard.press('Tab');
-        await page.waitForTimeout(500);
-
-        // 再度数量を取得
-        initialQuantity = await quantityField.inputValue();
-        initialValue = parseFloat(initialQuantity);
-
-        // まだ0の場合は100をデフォルト値として使用
-        if (isNaN(initialValue) || initialValue === 0) {
-          initialValue = 100;
-        }
-      }
-
-      // 調整係数を最初に1に設定して基準を確立
+      // 計算元を確定させる（幅10 × 奥行き10 = 100）
+      await widthField.fill('10');
+      await depthField.fill('10');
       await adjustmentField.fill('1');
-      await page.keyboard.press('Tab');
-      await page.waitForTimeout(300);
+      await adjustmentField.blur();
+      await expect(quantityField, '前提: 調整係数1.00のとき計算結果が数量になる').toHaveValue(
+        '100.00',
+        { timeout: getTimeout(5000) }
+      );
 
-      // 基準数量を取得
-      const baseQuantity = await quantityField.inputValue();
-      const baseValue = parseFloat(baseQuantity);
-
-      // 調整係数を2.0に変更
+      // REQ-9.2: 調整係数を2にすると計算結果に調整係数を乗算した値が数量になる
       await adjustmentField.fill('2');
-      await page.keyboard.press('Tab');
-      await page.waitForTimeout(500);
-
-      // 数量が調整係数倍になることを確認（必須）
-      const updatedQuantity = await quantityField.inputValue();
-      const updatedValue = parseFloat(updatedQuantity);
-
-      // 数量が調整係数を反映していることを確認
-      // 基準値の2倍になっているか確認
-      if (!isNaN(baseValue) && baseValue > 0) {
-        expect(updatedValue).toBeCloseTo(baseValue * 2, 0);
-      } else if (!isNaN(initialValue) && initialValue > 0) {
-        expect(updatedValue).toBeCloseTo(initialValue * 2, 0);
-      } else {
-        // どちらも無効な場合、調整係数の変更後の値が0より大きいことを確認
-        expect(updatedValue).toBeGreaterThanOrEqual(0);
-      }
+      await adjustmentField.blur();
+      await expect(
+        quantityField,
+        'REQ-9.2: 調整係数を2.00にしても数量に乗算が反映されない'
+      ).toHaveValue('200.00', { timeout: getTimeout(5000) });
     });
 
     test('調整係数に0以下の値を入力すると警告が表示される (quantity-table-generation/REQ-9.3)', async ({
@@ -3421,7 +3320,7 @@ test.describe('数量表CRUD操作', () => {
       ).toBeVisible({ timeout: getTimeout(3000) });
     });
 
-    test('計算元または調整係数変更時に丸め処理を適用した最終数量が再計算される (quantity-table-generation/REQ-10.5)', async ({
+    test('丸め設定を指定すると調整係数適用後の値が切り上げられる (quantity-table-generation/REQ-10.2)', async ({
       page,
     }) => {
       if (!createdQuantityTableId) {
@@ -3431,71 +3330,41 @@ test.describe('数量表CRUD操作', () => {
       }
 
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      await page.waitForLoadState('networkidle');
 
-      // 新しい項目を追加して初期状態からテスト
-      const addItemButton = page.getByRole('button', { name: /項目を追加|新規項目/ });
-      if (await isVisibleWithin(addItemButton, 3000)) {
-        await addItemButton.click();
-        await page.waitForTimeout(500);
-      }
+      // 以前は「項目追加ボタンが見えたら押す」「長さ欄があれば入れる」「最後の欄を nth で
+      // 拾う」という観測の連鎖のうえに、「計算値が正なら10の倍数・そうでなければ文字列が
+      // 空でない」の二分岐で判定していた。後者は恒真であり、計算元が入らなければ
+      // 丸め処理を一度も確かめない。前提を自分で作り、期待値を定数として主張する。
+      // 幅5 × 奥行き3 = 15 → 調整係数1.00 → 丸め設定10 で切り上げ → 20.00。
+      // なお本テストの名称・タグは REQ-10.5（数値以外の入力の拒否）を指していたが、
+      // 検証内容は REQ-10.2（指定単位での切り上げ）であるため要件番号を実態へ合わせた。
+      // REQ-10.5 は直前のテストが検証している。
+      const itemRow = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
-      // 最後の計算方法セレクトボックスを使用
-      const calcMethodSelects = page.getByLabel(/計算方法/);
-      const count = await calcMethodSelects.count();
-      const calcMethodSelect = calcMethodSelects.nth(count > 0 ? count - 1 : 0);
-      await expect(calcMethodSelect).toBeVisible({ timeout: getTimeout(5000) });
+      const calcMethodSelect = itemRow.getByLabel(/計算方法/);
+      await expect(calcMethodSelect, '前提: 計算方法の選択欄が表示される').toBeVisible({
+        timeout: getTimeout(5000),
+      });
       await calcMethodSelect.selectOption({ value: 'AREA_VOLUME' });
-      await page.waitForTimeout(500);
 
-      // 最後の丸め設定を5に設定
-      const roundingFields = page.getByLabel(/丸め設定|rounding/i);
-      const roundingCount = await roundingFields.count();
-      const roundingField = roundingFields.nth(roundingCount > 0 ? roundingCount - 1 : 0);
-      await expect(roundingField).toBeVisible({ timeout: getTimeout(5000) });
+      const roundingField = itemRow.getByLabel('丸め設定', { exact: true });
+      const widthField = itemRow.getByLabel('幅（W）', { exact: true });
+      const depthField = itemRow.getByLabel('奥行き（D）', { exact: true });
+      const quantityField = itemRow.locator('input[id$="-quantity"]');
+
+      await expect(roundingField, 'REQ-10.1: 丸め設定フィールドが表示されない').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+
       await roundingField.fill('10');
-      await page.keyboard.press('Tab');
-      await page.waitForTimeout(300);
-
-      // 計算用フィールドに値を入力
-      const widthFields = page.getByLabel(/幅|W/i);
-      const widthField = widthFields.first();
-      await expect(widthField).toBeVisible({ timeout: 3000 });
       await widthField.fill('5');
-      await page.keyboard.press('Tab');
+      await depthField.fill('3');
+      await depthField.blur();
 
-      const lengthFields = page.getByLabel(/長さ|L/i);
-      if ((await lengthFields.count()) > 0) {
-        const lengthField = lengthFields.first();
-        if (await isVisibleWithin(lengthField, 2000)) {
-          await lengthField.fill('3');
-          await page.keyboard.press('Tab');
-        }
-      }
-
-      await page.waitForTimeout(500);
-
-      // 最後の数量フィールドを確認
-      const quantityFields = page.locator('input[id$="-quantity"]');
-      const qCount = await quantityFields.count();
-      const quantityField = quantityFields.nth(qCount > 0 ? qCount - 1 : 0);
-      await expect(quantityField).toBeVisible({ timeout: 3000 });
-
-      // 現在の数量値を取得（面積・体積モードで計算された値）
-      const currentQuantity = await quantityField.inputValue();
-      const currentValue = parseFloat(currentQuantity);
-
-      // 要件確認：丸め処理が適用されて計算されていること
-      // 丸め設定が10なので、計算結果は10の倍数であるか、
-      // または丸め処理が実行されていること（正の値があること）を確認
-      if (!isNaN(currentValue) && currentValue > 0) {
-        // 丸め処理が適用されていることを確認（10の倍数）
-        expect(currentValue % 10).toBe(0);
-      } else {
-        // 少なくとも数量フィールドに値が表示されていることを確認
-        expect(currentQuantity).toBeTruthy();
-      }
+      await expect(
+        quantityField,
+        'REQ-10.2: 丸め設定10の切り上げが最終数量に反映されない'
+      ).toHaveValue('20.00', { timeout: getTimeout(5000) });
     });
 
     /**

@@ -17,6 +17,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 
 /**
  * TradingPartnerSelectコンポーネントのひらがな・カタカナ検索E2Eテスト
@@ -528,6 +529,12 @@ test.describe('TradingPartnerSelectのかな検索 (Task 34.1)', () => {
    * 後処理: テストで作成したデータを削除
    */
   test.afterAll(async ({ browser }) => {
+    // 後始末の対象は本ファイルの事前準備テストが作成した取引先である。
+    // ID が無いまま静かに後始末を飛ばすと、作成が壊れていても後始末は素通りしてしまう。
+    // 以降の try は後始末の失敗を握り潰すため、前提の主張はその外側に置き、
+    // 前提が崩れていればこの afterAll フックの失敗として現れるようにする。
+    assertPrepared(createdTradingPartnerId, '事前準備テストで作成した取引先のID');
+
     const context = await browser.newContext();
     const page = await context.newPage();
 
@@ -536,28 +543,29 @@ test.describe('TradingPartnerSelectのかな検索 (Task 34.1)', () => {
       await loginAsUser(page, 'ADMIN_USER');
 
       // 作成した取引先を削除
-      if (createdTradingPartnerId) {
-        await page.goto(`/trading-partners/${createdTradingPartnerId}`);
-        await page.waitForLoadState('networkidle');
+      await page.goto(`/trading-partners/${createdTradingPartnerId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i });
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
+      const deleteButton = page.getByRole('button', { name: /削除/i });
+      await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await deleteButton.click();
 
-        // 削除確認ダイアログで削除を確認
-        const confirmDialog = page.getByText(/削除しますか|取引先の削除/i);
-        await expect(confirmDialog).toBeVisible({ timeout: getTimeout(10000) });
+      // 削除確認ダイアログで削除を確認
+      // 削除確認ダイアログの見出しで一意に指す。
+      // `getByText(/削除しますか|取引先の削除/i)` は見出し（取引先の削除）と説明文
+      // （…を削除しますか？）の双方に当たり、strict mode で必ず落ちる。
+      const confirmDialog = page.getByRole('heading', { name: '取引先の削除' });
+      await expect(confirmDialog).toBeVisible({ timeout: getTimeout(10000) });
 
-        // ダイアログ内の削除ボタンをクリック
-        const dialogDeleteButton = page
-          .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i });
-        await expect(dialogDeleteButton).toBeVisible({ timeout: getTimeout(5000) });
-        await dialogDeleteButton.click();
-        await expect(page).toHaveURL(/\/trading-partners$/, {
-          timeout: getTimeout(15000),
-        });
-      }
+      // ダイアログ内の削除ボタンをクリック
+      const dialogDeleteButton = page
+        .getByTestId('focus-manager-overlay')
+        .getByRole('button', { name: /^削除$/i });
+      await expect(dialogDeleteButton).toBeVisible({ timeout: getTimeout(5000) });
+      await dialogDeleteButton.click();
+      await expect(page).toHaveURL(/\/trading-partners$/, {
+        timeout: getTimeout(15000),
+      });
     } catch (error) {
       console.error('Cleanup failed:', error);
     } finally {

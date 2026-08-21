@@ -307,22 +307,23 @@ export async function waitForSessionDataLoaded(
         return false;
       }
 
+      // 周回ごとに、セッション管理画面が描けていることを無条件に主張する。
+      // 従来はこの主張を「エラーが出ていた場合の再試行の準備」の内側に置いていたため、
+      // エラーが出ない周回では一度も確かめられていなかった。
+      await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
       // APIエラーが発生していないかチェック
       const hasError = await page.getByText(/セッション情報を取得できませんでした/i).isVisible();
       if (hasError) {
-        // エラー状態の場合はリトライ（再ログインが必要な場合がある）
-        if (retry < maxRetries - 1) {
-          await page.reload({ waitUntil: 'networkidle' });
-          // リロード後にログインページにリダイレクトされた場合
-          if (page.url().includes('/login')) {
-            return false;
-          }
-          await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
-            timeout: getTimeout(15000),
-          });
-          continue;
+        // 最終周回でエラーが残っているなら、これ以上の再試行は無い
+        if (retry === maxRetries - 1) {
+          return false;
         }
-        return false;
+        // エラー状態の場合はリトライ（再ログインが必要な場合がある）
+        await page.reload({ waitUntil: 'networkidle' });
+        continue;
       }
 
       // セッションデータまたは空状態メッセージのいずれかが表示されるまで待機
@@ -347,21 +348,25 @@ export async function waitForSessionDataLoaded(
         return false;
       }
 
-      if (retry < maxRetries - 1) {
-        try {
-          // ページがまだ開いている場合のみリロード
-          if (!page.isClosed()) {
-            await page.reload({ waitUntil: 'networkidle' });
+      // 最終周回では再試行の準備をしない
+      if (retry === maxRetries - 1) {
+        return false;
+      }
+      // ページが閉じていればリロードできない
+      if (page.isClosed()) {
+        return false;
+      }
 
-            // セッション管理ページのヘッダーが表示されるまで待機
-            await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
-              timeout: getTimeout(15000),
-            });
-          }
-        } catch {
-          // リロードに失敗した場合は終了
-          return false;
-        }
+      try {
+        await page.reload({ waitUntil: 'networkidle' });
+
+        // 再試行の前提として、セッション管理画面が描けていることを無条件に主張する
+        await expect(page.getByRole('heading', { name: /セッション管理/i })).toBeVisible({
+          timeout: getTimeout(15000),
+        });
+      } catch {
+        // リロードに失敗した場合は終了
+        return false;
       }
     }
   }

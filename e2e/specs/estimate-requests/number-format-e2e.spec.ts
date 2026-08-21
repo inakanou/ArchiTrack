@@ -21,7 +21,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
+import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
@@ -561,38 +561,34 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
       await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
       await page.waitForLoadState('networkidle');
 
-      // 編集ボタンをクリック（準備3で作成したデータを編集）
-      const editButton = page.getByRole('button', { name: /編集/i }).first();
-      if (await isVisibleWithin(editButton, getTimeout(5000))) {
-        await editButton.click();
+      // 編集ボタンをクリック
+      // REQ-18.2 の検証（同一 describe・serial 実行）が受領見積書を1件登録済みであるため、
+      // 受領見積書一覧の編集ボタンは必ず存在する。
+      // 以前は「編集ボタンが見えなければ登録画面で検証する」という全域分岐であったが、
+      // else 側は登録画面の検証であり REQ-18.4（編集画面）の主張になっていなかった。
+      const quotationList = page.getByRole('list', { name: /受領見積書一覧/i });
+      await expect(quotationList).toBeVisible({ timeout: getTimeout(10000) });
+      const editButton = quotationList.getByRole('button', { name: /編集/i }).first();
+      await expect(editButton).toBeVisible({ timeout: getTimeout(5000) });
+      await editButton.click();
 
-        // 編集フォームが表示される
-        await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
+      // 編集フォームが表示される
+      await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
-        // 行1の単価フィールド
-        const unitPriceInput = page.getByRole('textbox', { name: /行1 単価/i });
-        await expect(unitPriceInput).toBeVisible({ timeout: getTimeout(5000) });
+      // 行1の単価フィールド
+      const unitPriceInput = page.getByRole('textbox', { name: /行1 単価/i });
+      await expect(unitPriceInput).toBeVisible({ timeout: getTimeout(5000) });
 
-        // REQ-18.4: 編集画面の単価は常に整数表示（小数点を含まない）
-        const currentValue = await unitPriceInput.inputValue();
-        expect(currentValue).not.toContain('.');
+      // REQ-18.4: 編集画面の単価は常に整数表示（小数点を含まない）
+      const currentValue = await unitPriceInput.inputValue();
+      expect(currentValue).not.toContain('.');
 
-        // 小数値を入力して整数化されることを確認
-        await unitPriceInput.fill('3456.8');
-        await page.getByRole('textbox', { name: /行1 数量/i }).click();
+      // 小数値を入力して整数化されることを確認
+      await unitPriceInput.fill('3456.8');
+      await page.getByRole('textbox', { name: /行1 数量/i }).click();
 
-        // 四捨五入で整数表示: '3456.8' -> '3457'
-        await expect(unitPriceInput).toHaveValue('3457', { timeout: getTimeout(5000) });
-      } else {
-        // 編集対象がない場合、登録画面で検証
-        await page.getByRole('button', { name: /受領見積書登録/i }).click();
-        await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
-
-        const unitPriceInput = page.getByRole('textbox', { name: /行1 単価/i });
-        await unitPriceInput.fill('3456.8');
-        await page.getByRole('textbox', { name: /行1 数量/i }).click();
-        await expect(unitPriceInput).toHaveValue('3457', { timeout: getTimeout(5000) });
-      }
+      // 四捨五入で整数表示: '3456.8' -> '3457'
+      await expect(unitPriceInput).toHaveValue('3457', { timeout: getTimeout(5000) });
     });
 
     /**
@@ -608,38 +604,30 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
       await page.waitForLoadState('networkidle');
 
       // 編集ボタンをクリック
-      const editButton = page.getByRole('button', { name: /編集/i }).first();
-      if (await isVisibleWithin(editButton, getTimeout(5000))) {
-        await editButton.click();
+      // REQ-18.2 の検証（同一 describe・serial 実行）が受領見積書を1件登録済みであるため、
+      // 受領見積書一覧の編集ボタンは必ず存在する。
+      // 以前は「編集ボタンが見えなければ登録画面で検証する」という全域分岐であったが、
+      // else 側は登録画面の検証であり REQ-18.6（編集画面）の主張になっていなかった。
+      const quotationList = page.getByRole('list', { name: /受領見積書一覧/i });
+      await expect(quotationList).toBeVisible({ timeout: getTimeout(10000) });
+      const editButton = quotationList.getByRole('button', { name: /編集/i }).first();
+      await expect(editButton).toBeVisible({ timeout: getTimeout(5000) });
+      await editButton.click();
 
-        // 編集フォームが表示される
-        await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
+      // 編集フォームが表示される
+      await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
-        // 行1の数量と単価を入力して金額を計算
-        const quantityInput = page.getByRole('textbox', { name: /行1 数量/i });
-        const unitPriceInput = page.getByRole('textbox', { name: /行1 単価/i });
+      // 行1の数量と単価を入力して金額を計算
+      const quantityInput = page.getByRole('textbox', { name: /行1 数量/i });
+      const unitPriceInput = page.getByRole('textbox', { name: /行1 単価/i });
 
-        await quantityInput.fill('3.50');
-        await unitPriceInput.fill('1500');
-        await page.getByRole('textbox', { name: /行1 名称/i }).click();
+      await quantityInput.fill('3.50');
+      await unitPriceInput.fill('1500');
+      await page.getByRole('textbox', { name: /行1 名称/i }).click();
 
-        // 金額: 3.50 * 1500 = 5250（整数）
-        // 金額が整数で表示されることを確認（カンマ区切りの整数表示: 5,250）
-        await expect(page.getByText('5,250').first()).toBeVisible({ timeout: getTimeout(5000) });
-      } else {
-        // 編集対象がない場合、登録画面で検証
-        await page.getByRole('button', { name: /受領見積書登録/i }).click();
-        await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
-
-        const quantityInput = page.getByRole('textbox', { name: /行1 数量/i });
-        const unitPriceInput = page.getByRole('textbox', { name: /行1 単価/i });
-
-        await quantityInput.fill('3.50');
-        await unitPriceInput.fill('1500');
-        await page.getByRole('textbox', { name: /行1 名称/i }).click();
-
-        await expect(page.getByText('5,250').first()).toBeVisible({ timeout: getTimeout(5000) });
-      }
+      // 金額: 3.50 * 1500 = 5250（整数）
+      // 金額が整数で表示されることを確認（カンマ区切りの整数表示: 5,250）
+      await expect(page.getByText('5,250').first()).toBeVisible({ timeout: getTimeout(5000) });
     });
 
     /**

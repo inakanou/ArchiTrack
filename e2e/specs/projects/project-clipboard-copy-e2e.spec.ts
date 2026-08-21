@@ -20,6 +20,7 @@ import { test, expect, type Page, type Response } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 
 test.describe('プロジェクト基本情報のクリップボードコピー機能', () => {
   test.describe.configure({ mode: 'serial' });
@@ -66,12 +67,19 @@ test.describe('プロジェクト基本情報のクリップボードコピー�
   }
 
   /**
-   * テスト用プロジェクトを作成（顧客選択あり/なしを切替可能）
+   * 新規プロジェクト作成フォームを開き、顧客名以外の項目を入力する
+   *
+   * 顧客の有無は呼び出し側が決める。以前は
+   * `createTestProject(page, { tradingPartnerName?, siteAddress? })` の一本にまとめ、
+   * 内側で `if (options.tradingPartnerName)` として候補選択の主張ごと包んでいた。
+   * 前提を用意する手順の中に「実行されないかもしれない主張」が混ざる形は、
+   * 顧客選択が壊れても素通りする経路と見分けがつかない。手順を分けて、
+   * どの手順もその場で必ず実行・主張されるようにした。
+   *
+   * @param page Playwrightのページ（`loginAsUser` 済みであること）
+   * @param siteAddress 現場住所（コピー対象の検証に用いる）
    */
-  async function createTestProject(
-    page: Page,
-    options: { tradingPartnerName?: string; siteAddress?: string }
-  ): Promise<string> {
+  async function openNewProjectForm(page: Page, siteAddress: string): Promise<void> {
     await expect(page.getByRole('button', { name: /Test User/i })).toBeVisible({
       timeout: getTimeout(15000),
     });
@@ -93,22 +101,33 @@ test.describe('プロジェクト基本情報のクリップボードコピー�
 
     const projectName = `クリップボードテスト_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     await page.getByLabel(/プロジェクト名/i).fill(projectName);
-
-    if (options.tradingPartnerName) {
-      // 顧客名 (combobox) に名前の一部を入力して候補から選択
-      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
-      await tradingPartnerInput.fill(options.tradingPartnerName.substring(0, 8));
-      const optionItem = page.getByText(options.tradingPartnerName, { exact: true }).first();
-      await expect(optionItem).toBeVisible({ timeout: getTimeout(10000) });
-      await optionItem.click();
-    }
-
-    if (options.siteAddress) {
-      await page.getByLabel(/現場住所/i).fill(options.siteAddress);
-    }
+    await page.getByLabel(/現場住所/i).fill(siteAddress);
 
     await selectFirstRealOption(salesPersonSelect, '営業担当者');
+  }
 
+  /**
+   * 作成フォームの顧客名欄で、指定した取引先を候補から選択する
+   *
+   * @param page Playwrightのページ（作成フォームを開いていること）
+   * @param tradingPartnerName 選択する取引先の名称
+   */
+  async function selectTradingPartnerOption(page: Page, tradingPartnerName: string): Promise<void> {
+    // 顧客名 (combobox) に名前の一部を入力して候補から選択
+    const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
+    await tradingPartnerInput.fill(tradingPartnerName.substring(0, 8));
+    const optionItem = page.getByText(tradingPartnerName, { exact: true }).first();
+    await expect(optionItem).toBeVisible({ timeout: getTimeout(10000) });
+    await optionItem.click();
+  }
+
+  /**
+   * 作成フォームを送信し、作成されたプロジェクトのIDを返す
+   *
+   * @param page Playwrightのページ（作成フォームを入力済みであること）
+   * @returns 作成したプロジェクトのID
+   */
+  async function submitNewProjectForm(page: Page): Promise<string> {
     const createPromise = page.waitForResponse(
       (response: Response) =>
         response.url().includes('/api/projects') &&
@@ -123,7 +142,9 @@ test.describe('プロジェクト基本情報のクリップボードコピー�
     await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
     const url = page.url();
     const match = url.match(/\/projects\/([0-9a-f-]+)$/);
-    return match?.[1] ?? '';
+    const projectId = match?.[1] ?? '';
+    assertPrepared(projectId, '作成したプロジェクトのID');
+    return projectId;
   }
 
   test('事前準備: 顧客付き/顧客なしのテストプロジェクトを作成', async ({ page }) => {
@@ -131,16 +152,14 @@ test.describe('プロジェクト基本情報のクリップボードコピー�
 
     createdTradingPartnerName = await createTradingPartnerForTest(page);
 
-    testProjectIdWithCustomer = await createTestProject(page, {
-      tradingPartnerName: createdTradingPartnerName,
-      siteAddress: siteAddressWithCustomer,
-    });
-    expect(testProjectIdWithCustomer).toBeTruthy();
+    // 顧客付きのプロジェクト
+    await openNewProjectForm(page, siteAddressWithCustomer);
+    await selectTradingPartnerOption(page, createdTradingPartnerName);
+    testProjectIdWithCustomer = await submitNewProjectForm(page);
 
-    testProjectIdWithoutCustomer = await createTestProject(page, {
-      siteAddress: siteAddressWithoutCustomer,
-    });
-    expect(testProjectIdWithoutCustomer).toBeTruthy();
+    // 顧客なしのプロジェクト
+    await openNewProjectForm(page, siteAddressWithoutCustomer);
+    testProjectIdWithoutCustomer = await submitNewProjectForm(page);
   });
 
   /**

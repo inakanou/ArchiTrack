@@ -36,8 +36,19 @@ const SECOND_PHOTO_COMMENT = 'REQ21: 2枚目の写真コメント（型枠建込
  * REQ-21.1（選択した写真のコメントを取得）と REQ-21.4（別の写真へ変更するとコメントが
  * 更新される）は「内容の異なるコメントを持つ写真が2枚以上ある」ことを前提とする。
  * 同じ文字列では「更新された」のか「変わっていない」のかを区別できないため2種類用意する。
+ *
+ * 3枚目はコメントを付けない（null）。REQ-21.3（コメント非存在時にエリアを空白にする）は
+ * 「コメントの無い写真」が無ければ検証できず、従来は「コメント表示エリアが見えていれば
+ * 中身が文字列であること」を確かめるだけで、コメントの有無にかかわらず常に成立していた。
  */
-const PHOTO_COMMENTS: readonly (string | null)[] = [FIRST_PHOTO_COMMENT, SECOND_PHOTO_COMMENT];
+const PHOTO_COMMENTS: readonly (string | null)[] = [
+  FIRST_PHOTO_COMMENT,
+  SECOND_PHOTO_COMMENT,
+  null,
+];
+
+/** コメントを付けない写真の位置（写真選択ダイアログでの 0 起点の並び。REQ-21.3 の前提） */
+const PHOTO_INDEX_WITHOUT_COMMENT = 2;
 
 /**
  * 数量表編集画面へ遷移する。
@@ -270,26 +281,63 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
   /**
    * @requirement quantity-table-generation/REQ-21.3: コメント非存在時に空白
    *
-   * コメントが存在しない場合、コメント表示エリアは空白（テキスト無し）
-   * のままにする。
+   * コメントが存在しない場合、コメント表示エリアは空白（テキスト無し）のままにする。
+   *
+   * 以前は「コメント表示エリアが見えていれば中身の型が文字列であること」を確かめる形で、
+   * `typeof text === 'string'` は常に成立し、見えなければ編集画面の表示という別の主張へ
+   * 落ちていた。すなわち「コメントが無いときに空白である」ことを一度も確かめていない。
+   *
+   * 前提は探さずに作る。事前準備はコメントを付けない写真（3枚目）まで登録しているので、
+   * 写真変更ダイアログでそこへ切り替え、コメントありからコメントなしへ移ったときに
+   * エリアが空白になることを無条件に主張する。変更はドラフトのみで保存しないため
+   * （REQ-42）、後続テストの前提（1枚目の写真が紐づいている）は壊れない。
    */
   test('コメント無しの写真ではコメントエリアが空白で表示される (REQ-21.3)', async ({ page }) => {
     const navigated = await navigateToQuantityTableEdit(page);
     expect(navigated).toBeTruthy();
 
-    const commentArea = page.locator('[data-testid="photo-comment-display"]').first();
-    const visible = await isVisibleWithin(commentArea, getTimeout(5000));
+    const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
+    await expect(groupCard, '前提: 数量グループが表示される').toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
-    if (visible) {
-      // コメントテキスト（中身）を取得
-      const text = (await commentArea.textContent()) ?? '';
-      // コメントが空 or 非空のいずれかは正当（実装上、空ならエリア空白）
-      // 仕様: コメントnull時はテキストなし。テキストがある場合は文字列として有効
-      // 「空のコメントエリア」状態でも要素は存在する
-      expect(typeof text).toBe('string');
-    } else {
-      await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-    }
+    const commentArea = groupCard.locator('[data-testid="photo-comment-display"]');
+    await expect(commentArea, '前提: 変更前は1枚目の写真のコメントが表示されている').toHaveText(
+      FIRST_PHOTO_COMMENT,
+      { timeout: getTimeout(15000) }
+    );
+
+    const changeButton = groupCard.getByRole('button', { name: '写真を変更' });
+    await expect(changeButton, '前提: 写真変更ボタンが表示される').toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await changeButton.click();
+
+    const dialog = page.getByRole('dialog', { name: '写真を選択' });
+    await expect(dialog, '前提: 写真変更ダイアログが開く').toBeVisible({
+      timeout: getTimeout(10000),
+    });
+
+    const photoWithoutComment = dialog
+      .locator('[data-testid^="photo-item-"]')
+      .nth(PHOTO_INDEX_WITHOUT_COMMENT);
+    await expect(photoWithoutComment, '前提: コメントの無い写真が選択候補に表示される').toBeVisible(
+      { timeout: getTimeout(20000) }
+    );
+    await photoWithoutComment.click();
+    await expect(dialog, '前提: 写真の選択でダイアログが閉じる').not.toBeVisible({
+      timeout: getTimeout(10000),
+    });
+
+    // REQ-21.3: コメントの無い写真へ変えるとコメント表示エリアは空白になる。
+    // 要素そのものは残る（PhotoCommentDisplay は常に描画し、中身だけを空にする）。
+    await expect(commentArea, 'REQ-21.3: コメント表示エリアそのものは残る').toBeAttached({
+      timeout: getTimeout(10000),
+    });
+    await expect(
+      commentArea,
+      'REQ-21.3: コメントの無い写真ではコメント表示エリアが空白になる'
+    ).toBeEmpty({ timeout: getTimeout(10000) });
   });
 
   /**

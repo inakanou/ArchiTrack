@@ -14,6 +14,7 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 
 /**
  * 現場調査CRUD機能のE2Eテスト
@@ -262,38 +263,31 @@ test.describe('現場調査CRUD操作', () => {
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 存在しないプロジェクトIDで現場調査作成画面にアクセス
-      const nonExistentProjectId = '00000000-0000-0000-0000-000000000000';
+      // 存在しないプロジェクトIDで現場調査作成画面にアクセスする。
+      // backend の `projectIdParamSchema` は版・変種まで見る UUID の正規表現
+      // （`[1-5]` / `[89ab]`）で検査するため、nil UUID（すべて 0）は
+      // 「存在しない」ではなく「形式が不正」として 400 で弾かれ、REQ-1.7 の
+      // 「プロジェクトが存在しない場合」を通らない。版 4・変種 8 の整った UUID を用いる。
+      const nonExistentProjectId = '00000000-0000-4000-8000-000000000000';
       await page.goto(`/projects/${nonExistentProjectId}/site-surveys/new`);
       await page.waitForLoadState('networkidle');
 
-      // エラーメッセージが表示されるか、適切なエラー画面に遷移することを確認
-      const errorMessage = page.getByText(
-        /プロジェクトが見つかりません|プロジェクトが存在しません|404|Not Found|エラー/i
+      // REQ-1.7 は「プロジェクトが存在しない間は現場調査の作成を許可しない」と定めている。
+      // SiteSurveyCreatePage はプロジェクト取得に失敗すると role="alert" だけを描画し、
+      // 作成フォームを一切描画しない（frontend/src/pages/SiteSurveyCreatePage.tsx の
+      // `if (!project || !projectId)` 分岐）。バックエンドは 404 の detail に
+      // `Project not found: <id>` を返す（backend/src/errors/projectError.ts）。
+      // 「エラーが出ていなければフォームの有無を見る」観測による分岐は、
+      // 作成できてしまう欠陥をそのまま緑にするため置かない。
+      const errorAlert = page.getByRole('alert').first();
+      await expect(errorAlert).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(errorAlert).toContainText(
+        /プロジェクトが見つかりません|プロジェクトの取得に失敗しました|Project not found/i
       );
-      const errorVisible = await isVisibleWithin(errorMessage, getTimeout(10000));
 
-      // フォームが表示されていないことも確認（フォームが表示されていたら作成できてしまう可能性がある）
-      if (!errorVisible) {
-        // エラーが明示的に表示されていない場合は、作成フォームが表示されていないことを確認
-        const createButton = page.getByRole('button', { name: /^作成$/i });
-        const createButtonVisible = await createButton.isVisible().catch(() => false);
-        // フォームが表示されていない、または作成ボタンがないことを確認
-        if (createButtonVisible) {
-          // 仮にフォームが表示されている場合、作成を試みても失敗することを確認
-          await page.getByLabel(/調査名/i).fill('テスト現場調査');
-          await page.getByLabel(/調査日/i).fill(new Date().toISOString().split('T')[0]!);
-          await createButton.click();
-
-          // APIエラーが発生することを確認
-          await expect(page.getByText(/プロジェクトが見つかりません|エラー|失敗/i)).toBeVisible({
-            timeout: getTimeout(10000),
-          });
-        }
-      } else {
-        // エラーメッセージが表示されていることを確認
-        expect(errorVisible).toBe(true);
-      }
+      // 作成の手段が無いこと（作成フォームが描画されていないこと）を主張する
+      await expect(page.getByRole('button', { name: /^作成$/i })).toHaveCount(0);
+      await expect(page.getByLabel(/調査名/i)).toHaveCount(0);
     });
   });
 
@@ -447,87 +441,15 @@ test.describe('現場調査CRUD操作', () => {
      * @requirement site-survey/REQ-1.5
      */
     test('同時編集による競合時にエラーが表示される', async ({ page, context }) => {
-      // このテストは自己完結型 - 事前にcreatedSurveyIdが設定されていない場合でも動作する
-      let testSurveyId = createdSurveyId;
-      let testProjectId = createdProjectId;
+      // 本ファイルは直列実行であり、事前準備がプロジェクトを、
+      // 「現場調査を作成できる」が現場調査を作っている。前提が崩れたときに
+      // このテスト内でデータを作り直すと、前提の生成が壊れたことが記録に残らないまま
+      // 別のデータで緑になる。前提はここで無条件に主張する。
+      assertPrepared(createdProjectId, '事前準備で作成したプロジェクトのID');
+      assertPrepared(createdSurveyId, '事前準備で作成した現場調査のID');
+      const testSurveyId = createdSurveyId;
 
       await loginAsUser(page, 'REGULAR_USER');
-
-      // 事前準備テストが実行されていない場合は、このテスト内でデータを作成
-      if (!testProjectId) {
-        // プロジェクトを作成
-        await page.goto('/projects');
-        await page.waitForLoadState('networkidle');
-
-        const createProjectButton = page.getByRole('button', { name: /新規作成/i });
-        await expect(createProjectButton).toBeVisible({ timeout: getTimeout(10000) });
-        await createProjectButton.click();
-
-        await expect(page).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
-        await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
-          timeout: getTimeout(15000),
-        });
-
-        const projectName = `競合テスト用プロジェクト_${Date.now()}`;
-        await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
-
-        const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-        await selectFirstRealOption(salesPersonSelect, '営業担当者');
-
-        const createProjectPromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/projects') &&
-            response.request().method() === 'POST' &&
-            response.status() === 201,
-          { timeout: getTimeout(30000) }
-        );
-
-        await page.getByRole('button', { name: /^作成$/i }).click();
-        await createProjectPromise;
-
-        await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
-        const projectUrl = page.url();
-        const projectMatch = projectUrl.match(/\/projects\/([0-9a-f-]+)$/);
-        testProjectId = projectMatch?.[1] ?? null;
-      }
-
-      if (!testSurveyId) {
-        // 現場調査を作成
-        await page.goto(`/projects/${testProjectId}/site-surveys/new`);
-        await page.waitForLoadState('networkidle');
-
-        await expect(page.getByLabel(/調査名/i)).toBeVisible({ timeout: getTimeout(10000) });
-
-        const surveyName = `競合テスト用現場調査_${Date.now()}`;
-        const surveyDate = new Date().toISOString().split('T')[0];
-
-        await page.getByLabel(/調査名/i).fill(surveyName);
-        await page.getByLabel(/調査日/i).fill(surveyDate!);
-        await page.getByLabel(/メモ/i).fill('競合テスト用メモ');
-
-        const createSurveyPromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/') &&
-            response.url().includes('site-surveys') &&
-            response.request().method() === 'POST',
-          { timeout: getTimeout(30000) }
-        );
-
-        await page.getByRole('button', { name: /^作成$/i }).click();
-        await createSurveyPromise;
-
-        await expect(page).toHaveURL(/\/site-surveys\/[0-9a-f-]+$/, {
-          timeout: getTimeout(15000),
-        });
-
-        const surveyUrl = page.url();
-        const surveyMatch = surveyUrl.match(/\/site-surveys\/([0-9a-f-]+)$/);
-        testSurveyId = surveyMatch?.[1] ?? null;
-      }
-
-      if (!testSurveyId) {
-        throw new Error('テスト用現場調査の作成に失敗しました');
-      }
 
       // 1つ目のブラウザコンテキストで編集ページを開く
       await page.goto(`/site-surveys/${testSurveyId}/edit`);

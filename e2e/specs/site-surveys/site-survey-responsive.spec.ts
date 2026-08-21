@@ -24,6 +24,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 
 /**
  * タッチ操作の当たり判定の下限（論理ピクセル）。
@@ -1274,33 +1275,33 @@ test.describe('現場調査レスポンシブ対応', () => {
 
       await loginAsUser(page, 'ADMIN_USER');
 
-      if (createdSurveyId) {
-        await page.goto(`/site-surveys/${createdSurveyId}`);
-        await page.waitForLoadState('networkidle');
+      // 前提が用意されていなければ削除すべき対象も無い。黙って戻ると
+      // 「後片付けした」ことになり、前提の生成が壊れたことが記録に残らない。
+      assertPrepared(createdSurveyId, '事前準備で作成した現場調査のID');
+      await page.goto(`/site-surveys/${createdSurveyId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        const confirmButton = page.getByRole('button', { name: '削除する' });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await page.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
-      }
+      const deleteButton = page.getByRole('button', { name: /削除/i }).first();
+      await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await deleteButton.click();
+      const confirmButton = page.getByRole('button', { name: '削除する' });
+      await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await confirmButton.click();
+      await page.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
 
-      if (createdProjectId) {
-        await page.goto(`/projects/${createdProjectId}`);
-        await page.waitForLoadState('networkidle');
+      assertPrepared(createdProjectId, '事前準備で作成したプロジェクトのID');
+      await page.goto(`/projects/${createdProjectId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        const confirmButton = page
-          .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
-      }
+      const projectDeleteButton = page.getByRole('button', { name: /削除/i }).first();
+      await expect(projectDeleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await projectDeleteButton.click();
+      const projectConfirmButton = page
+        .getByTestId('focus-manager-overlay')
+        .getByRole('button', { name: /^削除$/i });
+      await expect(projectConfirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await projectConfirmButton.click();
+      await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
     });
   });
 });

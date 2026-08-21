@@ -400,6 +400,22 @@ test.describe('帳票出力（ファイル分割・表紙・未保存の反映�
   };
 
   /**
+   * 未保存の告知（56.4）について、呼び出し側が指定する期待ごとの主張。
+   *
+   * `if (options.expectUnsavedNotice) { … } else { … }` の形は、真偽の指定を取り違えても
+   * どちらかの主張が成立してしまい、取り違えが検出されない。期待を名前で選ばせ、
+   * 選ばれた主張が必ず一つ実行される形にする（どちらの経路も主張を持つ）。
+   */
+  const UNSAVED_NOTICE_ASSERTIONS = {
+    /** 未保存の変更があるため告知が出ている */
+    shown: (notice: Locator): Promise<void> =>
+      expect(notice, '未保存の内容が出力される旨が画面に示されない（56.4）').toBeVisible(),
+    /** 未保存の変更が無いため告知が出ていない */
+    hidden: (notice: Locator): Promise<void> =>
+      expect(notice, '未保存の変更が無いのに告知が出ている（56.4）').toHaveCount(0),
+  } as const;
+
+  /**
    * 出力ダイアログを開き、対象行タイプと形式を選んで出力し、全ダウンロードを集める
    *
    * ダウンロードは行タイプの数だけ逐次発生する（32.3）。イベントの発火順が
@@ -410,7 +426,7 @@ test.describe('帳票出力（ファイル分割・表紙・未保存の反映�
     options: {
       format: 'pdf' | 'xlsx';
       lineTypes: readonly ('ESTIMATE' | 'EXECUTION' | 'VENDOR')[];
-      expectUnsavedNotice: boolean;
+      unsavedNotice: keyof typeof UNSAVED_NOTICE_ASSERTIONS;
     }
   ): Promise<{ fileNames: string[]; filePaths: string[] }> => {
     const downloads: { fileName: string; path: () => Promise<string> }[] = [];
@@ -429,11 +445,7 @@ test.describe('帳票出力（ファイル分割・表紙・未保存の反映�
 
       // 未保存の変更が帳票に載ることの告知（56.4）
       const notice = page.getByTestId('estimate-export-unsaved-notice');
-      if (options.expectUnsavedNotice) {
-        await expect(notice, '未保存の内容が出力される旨が画面に示されない（56.4）').toBeVisible();
-      } else {
-        await expect(notice, '未保存の変更が無いのに告知が出ている（56.4）').toHaveCount(0);
-      }
+      await UNSAVED_NOTICE_ASSERTIONS[options.unsavedNotice](notice);
 
       for (const lineType of ['ESTIMATE', 'EXECUTION', 'VENDOR'] as const) {
         const checkbox = page.locator(`input[type="checkbox"][value="${lineType}"]`);
@@ -580,7 +592,7 @@ test.describe('帳票出力（ファイル分割・表紙・未保存の反映�
         // 3行タイプすべてを選ぶ。50.12 は「実行金額**または**業者金額」なので
         // 片方だけでは要件の半分が無検証のまま残る
         lineTypes: ['ESTIMATE', 'EXECUTION', 'VENDOR'],
-        expectUnsavedNotice: false,
+        unsavedNotice: 'hidden',
       });
 
       // 32.2 / 32.3: 行タイプごとに1ファイルを「見積 → 実行 → 業者」の順で逐次ダウンロードする
@@ -778,7 +790,7 @@ test.describe('帳票出力（ファイル分割・表紙・未保存の反映�
       const { fileNames, filePaths } = await exportAndCollectDownloads(page, {
         format: 'xlsx',
         lineTypes: ['ESTIMATE'],
-        expectUnsavedNotice: true,
+        unsavedNotice: 'shown',
       });
       expect(fileNames).toEqual([`${ESTIMATE_NAME}_見積.xlsx`]);
 
@@ -896,7 +908,7 @@ test.describe('帳票出力（ファイル分割・表紙・未保存の反映�
       const { fileNames, filePaths } = await exportAndCollectDownloads(page, {
         format: 'pdf',
         lineTypes: ['ESTIMATE', 'EXECUTION'],
-        expectUnsavedNotice: true,
+        unsavedNotice: 'shown',
       });
       expect(fileNames).toEqual([`${ESTIMATE_NAME}_見積.pdf`, `${ESTIMATE_NAME}_実行.pdf`]);
 

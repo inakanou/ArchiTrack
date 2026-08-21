@@ -19,6 +19,11 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { seedTradingPartner } from '../../helpers/project-list-preconditions';
+import {
+  PAGINATED_LIMIT,
+  assertMultiplePages,
+  seedTradingPartnersForSecondPage,
+} from '../../helpers/list-pagination-preconditions';
 
 /**
  * 取引先一覧操作のE2Eテスト
@@ -352,21 +357,14 @@ test.describe('取引先一覧操作', () => {
       // ローディング完了を待機
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // テーブルが表示されるか、または0件の場合は空メッセージを確認
+      // REQ-1.3.1 は「ひらがな入力とカタカナ入力の両方を許容し、同一の検索結果を返却する」と
+      // 定めている。したがって直前に作成した取引先は必ず検索結果に現れる。
+      // 0件になる経路（変換未実装）は要件違反であり、逃がさずここで失敗させる。
       const table = page.getByRole('table', { name: /取引先一覧/i });
-      const emptyMessage = page.getByText(/取引先が登録されていません/i);
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
-      // ひらがな入力でカタカナフリガナが検索できれば成功
-      const tableVisible = await table.isVisible().catch(() => false);
-
-      if (tableVisible) {
-        // カタカナで登録したフリガナがひらがな入力で検索できることを確認
-        await expect(page.getByText(fullName)).toBeVisible({ timeout: getTimeout(5000) });
-      } else {
-        // ひらがな→カタカナ変換が実装されていない場合は0件となる
-        // この場合はテストをパスさせつつ、実装確認をログに残す
-        await expect(emptyMessage).toBeVisible({ timeout: getTimeout(5000) });
-      }
+      // カタカナで登録したフリガナがひらがな入力で検索できることを確認
+      await expect(page.getByText(fullName)).toBeVisible({ timeout: getTimeout(5000) });
     });
   });
 
@@ -643,150 +641,139 @@ test.describe('取引先一覧操作', () => {
     test('表示件数を変更するとURLパラメータに反映される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
+      // ページネーションは取引先が1件以上あるときだけ描画される。前提を自分で用意する。
+      await seedTradingPartner(page, 'E2E表示件数10');
+
       await page.goto('/trading-partners');
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // ページネーションコントロールが存在する場合のみテスト
+      // 取引先が1件以上存在するため、ページネーションコントロールは必ず表示される
       const pagination = page.getByTestId('pagination-controls');
-      const emptyMessage = page.getByText(/取引先が登録されていません/i);
+      await expect(pagination).toBeVisible({ timeout: getTimeout(10000) });
 
-      await expect(emptyMessage.or(pagination)).toBeVisible({
-        timeout: getTimeout(10000),
-      });
+      // 表示件数セレクトを変更
+      const limitSelect = page.getByRole('combobox', { name: /表示件数/i });
+      await expect(limitSelect).toBeVisible({ timeout: getTimeout(10000) });
 
-      const paginationVisible = await pagination.isVisible();
-      if (paginationVisible) {
-        // 表示件数セレクトを変更
-        const limitSelect = page.getByRole('combobox', { name: /表示件数/i });
-        await expect(limitSelect).toBeVisible({ timeout: getTimeout(10000) });
+      await limitSelect.selectOption('10');
 
-        await limitSelect.selectOption('10');
-
-        // URLパラメータに表示件数が反映されることを確認
-        await expect(page).toHaveURL(/limit=10/, { timeout: getTimeout(10000) });
-      }
+      // URLパラメータに表示件数が反映されることを確認
+      await expect(page).toHaveURL(/limit=10/, { timeout: getTimeout(10000) });
     });
 
     test('表示件数を50件に変更できる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
+      // ページネーションは取引先が1件以上あるときだけ描画される。前提を自分で用意する。
+      await seedTradingPartner(page, 'E2E表示件数50');
+
       await page.goto('/trading-partners');
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // ページネーションコントロールが存在する場合のみテスト
+      // 取引先が1件以上存在するため、ページネーションコントロールは必ず表示される
       const pagination = page.getByTestId('pagination-controls');
-      const emptyMessage = page.getByText(/取引先が登録されていません/i);
+      await expect(pagination).toBeVisible({ timeout: getTimeout(10000) });
 
-      await expect(emptyMessage.or(pagination)).toBeVisible({
-        timeout: getTimeout(10000),
-      });
+      // 表示件数セレクトを変更
+      const limitSelect = page.getByRole('combobox', { name: /表示件数/i });
+      await expect(limitSelect).toBeVisible({ timeout: getTimeout(10000) });
 
-      const paginationVisible = await pagination.isVisible();
-      if (paginationVisible) {
-        // 表示件数セレクトを変更
-        const limitSelect = page.getByRole('combobox', { name: /表示件数/i });
-        await limitSelect.selectOption('50');
+      await limitSelect.selectOption('50');
 
-        // URLパラメータに表示件数が反映されることを確認
-        await expect(page).toHaveURL(/limit=50/, { timeout: getTimeout(10000) });
-      }
+      // URLパラメータに表示件数が反映されることを確認
+      await expect(page).toHaveURL(/limit=50/, { timeout: getTimeout(10000) });
     });
 
     test('ページ番号ボタンをクリックするとそのページに移動する', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
+      // 2ページ目が必ず存在する件数を用意する（既存データの件数に依存させない）
+      await seedTradingPartnersForSecondPage(page, 'E2Eページ番号');
+
       // 表示件数を少なくしてページ数を増やす
-      await page.goto('/trading-partners?limit=10');
+      await page.goto(`/trading-partners?limit=${PAGINATED_LIMIT}`);
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // ページネーションコントロールが存在する場合のみテスト
+      // 取引先が1件以上存在するため、ページネーションコントロールは必ず表示される
       const pagination = page.getByTestId('pagination-controls');
-      const paginationVisible = await pagination.isVisible();
+      await expect(pagination).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (paginationVisible) {
-        // 総ページ数を確認
-        const totalPagesElement = page.getByTestId('total-pages');
-        const totalPagesText = await totalPagesElement.textContent();
-        const totalPages = parseInt(totalPagesText || '1', 10);
+      // 前提として2ページ以上あることを主張する
+      await assertMultiplePages(page);
 
-        if (totalPages > 1) {
-          // ページ2ボタンをクリック
-          const page2Button = page.getByRole('button', { name: /^ページ 2$/i });
-          await expect(page2Button).toBeVisible({ timeout: getTimeout(5000) });
-          await page2Button.click();
+      // ページ2ボタンをクリック
+      const page2Button = page.getByRole('button', { name: /^ページ 2$/i });
+      await expect(page2Button).toBeVisible({ timeout: getTimeout(5000) });
+      await page2Button.click();
 
-          // URLパラメータにページ番号が反映されることを確認
-          await expect(page).toHaveURL(/page=2/, { timeout: getTimeout(10000) });
+      // URLパラメータにページ番号が反映されることを確認
+      await expect(page).toHaveURL(/page=2/, { timeout: getTimeout(10000) });
 
-          // 現在のページ番号が更新されることを確認
-          await expect(page.getByTestId('current-page')).toHaveText('2');
-        }
-      }
+      // 現在のページ番号が更新されることを確認
+      await expect(page.getByTestId('current-page')).toHaveText('2');
     });
 
     test('前のページボタンで前のページに移動する', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
+      // 2ページ目が必ず存在する件数を用意する（既存データの件数に依存させない）
+      await seedTradingPartnersForSecondPage(page, 'E2E前ページ移動');
+
       // ページ2で開始
-      await page.goto('/trading-partners?limit=10&page=2');
+      await page.goto(`/trading-partners?limit=${PAGINATED_LIMIT}&page=2`);
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // ページネーションコントロールが存在する場合のみテスト
+      // 取引先が1件以上存在するため、ページネーションコントロールは必ず表示される
       const pagination = page.getByTestId('pagination-controls');
-      const paginationVisible = await pagination.isVisible();
+      await expect(pagination).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (paginationVisible) {
-        // 現在のページ番号を確認
-        const currentPage = await page.getByTestId('current-page').textContent();
+      // 2ページ目で開始できていることを主張する
+      await expect(page.getByTestId('current-page')).toHaveText('2', {
+        timeout: getTimeout(10000),
+      });
 
-        if (currentPage === '2') {
-          // 前のページボタンをクリック
-          const prevButton = page.getByRole('button', { name: /前のページ/i });
-          await expect(prevButton).toBeEnabled({ timeout: getTimeout(5000) });
-          await prevButton.click();
+      // 前のページボタンをクリック
+      const prevButton = page.getByRole('button', { name: /前のページ/i });
+      await expect(prevButton).toBeEnabled({ timeout: getTimeout(5000) });
+      await prevButton.click();
 
-          // ページ1に移動することを確認
-          await expect(page.getByTestId('current-page')).toHaveText('1', {
-            timeout: getTimeout(10000),
-          });
-        }
-      }
+      // ページ1に移動することを確認
+      await expect(page.getByTestId('current-page')).toHaveText('1', {
+        timeout: getTimeout(10000),
+      });
     });
 
     test('次のページボタンで次のページに移動する', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
+      // 2ページ目が必ず存在する件数を用意する（既存データの件数に依存させない）
+      await seedTradingPartnersForSecondPage(page, 'E2E次ページ移動');
+
       // 表示件数を少なくしてページ数を増やす
-      await page.goto('/trading-partners?limit=10');
+      await page.goto(`/trading-partners?limit=${PAGINATED_LIMIT}`);
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // ページネーションコントロールが存在する場合のみテスト
+      // 取引先が1件以上存在するため、ページネーションコントロールは必ず表示される
       const pagination = page.getByTestId('pagination-controls');
-      const paginationVisible = await pagination.isVisible();
+      await expect(pagination).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (paginationVisible) {
-        // 総ページ数を確認
-        const totalPagesElement = page.getByTestId('total-pages');
-        const totalPagesText = await totalPagesElement.textContent();
-        const totalPages = parseInt(totalPagesText || '1', 10);
+      // 前提として2ページ以上あることを主張する
+      await assertMultiplePages(page);
 
-        if (totalPages > 1) {
-          // 次のページボタンをクリック
-          const nextButton = page.getByRole('button', { name: /次のページ/i });
-          await expect(nextButton).toBeEnabled({ timeout: getTimeout(5000) });
-          await nextButton.click();
+      // 次のページボタンをクリック
+      const nextButton = page.getByRole('button', { name: /次のページ/i });
+      await expect(nextButton).toBeEnabled({ timeout: getTimeout(5000) });
+      await nextButton.click();
 
-          // ページ2に移動することを確認
-          await expect(page.getByTestId('current-page')).toHaveText('2', {
-            timeout: getTimeout(10000),
-          });
-        }
-      }
+      // ページ2に移動することを確認
+      await expect(page.getByTestId('current-page')).toHaveText('2', {
+        timeout: getTimeout(10000),
+      });
     });
 
     test('最初のページでは「前のページ」ボタンが無効化される', async ({ page }) => {
@@ -811,29 +798,28 @@ test.describe('取引先一覧操作', () => {
     test('最後のページでは「次のページ」ボタンが無効化される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      await page.goto('/trading-partners?limit=10');
+      // 2ページ目が必ず存在する件数を用意する（既存データの件数に依存させない）
+      await seedTradingPartnersForSecondPage(page, 'E2E最終ページ');
+
+      await page.goto(`/trading-partners?limit=${PAGINATED_LIMIT}`);
       await page.waitForLoadState('networkidle');
       await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-      // ページネーションコントロールが存在する場合のみテスト
+      // 取引先が1件以上存在するため、ページネーションコントロールは必ず表示される
       const pagination = page.getByTestId('pagination-controls');
-      const paginationVisible = await pagination.isVisible();
+      await expect(pagination).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (paginationVisible) {
-        // 総ページ数を確認
-        const totalPagesElement = page.getByTestId('total-pages');
-        const totalPagesText = await totalPagesElement.textContent();
-        const totalPages = parseInt(totalPagesText || '1', 10);
+      // 前提として2ページ以上あることを主張し、総ページ数を得る
+      const totalPages = await assertMultiplePages(page);
 
-        // 最後のページに移動
-        await page.goto(`/trading-partners?limit=10&page=${totalPages}`);
-        await page.waitForLoadState('networkidle');
-        await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
+      // 最後のページに移動
+      await page.goto(`/trading-partners?limit=${PAGINATED_LIMIT}&page=${totalPages}`);
+      await page.waitForLoadState('networkidle');
+      await waitForLoadingComplete(page, { timeout: getTimeout(15000) });
 
-        // 次のページボタンが無効化されていることを確認
-        const nextButton = page.getByRole('button', { name: /次のページ/i });
-        await expect(nextButton).toBeDisabled({ timeout: getTimeout(5000) });
-      }
+      // 次のページボタンが無効化されていることを確認
+      const nextButton = page.getByRole('button', { name: /次のページ/i });
+      await expect(nextButton).toBeDisabled({ timeout: getTimeout(5000) });
     });
   });
 
@@ -843,6 +829,10 @@ test.describe('取引先一覧操作', () => {
   test.describe('統合フロー', () => {
     test('検索→フィルタ→ソート→ページ遷移の一連の操作が正常に行われる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
+
+      // 検索語「テスト」と種別「顧客」の双方に一致する取引先を用意する。
+      // 結果が0件だと表もページネーションも描画されず、Step 3・Step 4 が沈黙するため。
+      await seedTradingPartner(page, 'テスト統合フロー');
 
       await page.goto('/trading-partners');
       await page.waitForLoadState('networkidle');
@@ -864,29 +854,27 @@ test.describe('取引先一覧操作', () => {
       // URLに種別パラメータが反映されることを確認
       await expect(page).toHaveURL(/type=/, { timeout: getTimeout(10000) });
 
-      // Step 3: ソートを実行（テーブルが表示されている場合のみ）
+      // Step 3: ソートを実行（REQ-1.6）
+      // 検索・フィルタに一致する取引先を用意済みのため、表は必ず表示される
       const table = page.getByRole('table', { name: /取引先一覧/i });
-      const tableVisible = await table.isVisible();
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (tableVisible) {
-        const sortButton = page.getByRole('button', { name: /取引先名でソート/i });
-        await sortButton.click();
+      const sortButton = page.getByRole('button', { name: /取引先名でソート/i });
+      await sortButton.click();
 
-        // URLにソートパラメータが反映されることを確認
-        await expect(page).toHaveURL(/sort=/, { timeout: getTimeout(10000) });
-      }
+      // URLにソートパラメータが反映されることを確認
+      await expect(page).toHaveURL(/sort=/, { timeout: getTimeout(10000) });
 
-      // Step 4: 表示件数を変更（ページネーションコントロールが表示されている場合のみ）
+      // Step 4: 表示件数を変更（REQ-1.5）
+      // 取引先が1件以上表示されているため、ページネーションコントロールは必ず表示される
       const pagination = page.getByTestId('pagination-controls');
-      const paginationVisible = await pagination.isVisible();
+      await expect(pagination).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (paginationVisible) {
-        const limitSelect = page.getByRole('combobox', { name: /表示件数/i });
-        await limitSelect.selectOption('10');
+      const limitSelect = page.getByRole('combobox', { name: /表示件数/i });
+      await limitSelect.selectOption('10');
 
-        // URLに表示件数パラメータが反映されることを確認
-        await expect(page).toHaveURL(/limit=10/, { timeout: getTimeout(10000) });
-      }
+      // URLに表示件数パラメータが反映されることを確認
+      await expect(page).toHaveURL(/limit=10/, { timeout: getTimeout(10000) });
 
       // Step 5: フィルタをクリア
       await page.getByRole('button', { name: /フィルタをクリア/i }).click();

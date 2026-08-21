@@ -13,7 +13,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
-import { assertPresent } from '../../helpers/preconditions';
+import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 
 /**
  * プロジェクト管理パンくずナビゲーション表示E2Eテスト
@@ -462,6 +462,9 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
 
       const pageTitle = page.locator('h1');
       const expectedProjectName = await pageTitle.textContent();
+      // 詳細ページの見出しはプロジェクト名である。取れなければパンくずの
+      // プロジェクト名リンクを特定できず、以降の検証が成立しないためここで失敗させる。
+      assertPrepared(expectedProjectName, 'プロジェクト詳細ページの見出し（プロジェクト名）');
 
       // 編集ページに遷移
       await page.goto(`/projects/${project.id}/edit`);
@@ -472,29 +475,27 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
 
       // プロジェクト名リンクをクリック
-      if (expectedProjectName) {
-        const projectNameLink = breadcrumb.getByRole('link', { name: expectedProjectName });
-        await expect(projectNameLink).toBeVisible({ timeout: getTimeout(10000) });
-        await projectNameLink.click();
+      const projectNameLink = breadcrumb.getByRole('link', { name: expectedProjectName });
+      await expect(projectNameLink).toBeVisible({ timeout: getTimeout(10000) });
+      await projectNameLink.click();
 
-        // 詳細ページへ遷移したことを確認（正規表現でIDパターンを検証）
-        await page.waitForURL(
-          (url) => {
-            const pathname = url.pathname;
-            return pathname.match(/\/projects\/[^/]+$/) !== null && !pathname.includes('/edit');
-          },
-          { timeout: getTimeout(15000) }
-        );
-        await page.waitForLoadState('networkidle');
+      // 詳細ページへ遷移したことを確認（正規表現でIDパターンを検証）
+      await page.waitForURL(
+        (url) => {
+          const pathname = url.pathname;
+          return pathname.match(/\/projects\/[^/]+$/) !== null && !pathname.includes('/edit');
+        },
+        { timeout: getTimeout(15000) }
+      );
+      await page.waitForLoadState('networkidle');
 
-        // 遷移後も適切なパンくずが表示されることを確認
-        const newBreadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
-        await expect(newBreadcrumb).toBeVisible({ timeout: getTimeout(10000) });
+      // 遷移後も適切なパンくずが表示されることを確認
+      const newBreadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
+      await expect(newBreadcrumb).toBeVisible({ timeout: getTimeout(10000) });
 
-        // 現在ページがプロジェクト名になっていることを確認
-        const currentPage = newBreadcrumb.locator('[aria-current="page"]');
-        await expect(currentPage).toContainText('テスト案件');
-      }
+      // 現在ページがプロジェクト名になっていることを確認
+      const currentPage = newBreadcrumb.locator('[aria-current="page"]');
+      await expect(currentPage).toContainText('テスト案件');
     });
 
     /**

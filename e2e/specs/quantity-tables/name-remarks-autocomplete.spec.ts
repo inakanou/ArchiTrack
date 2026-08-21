@@ -78,73 +78,69 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
     test('名称フィールドにフォーカスした際にオートコンプリート候補がドロップダウン表示される', async ({
       page,
     }) => {
-      assertPrepared(createdQuantityTableId, '事前準備で作成した数量表のID');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      // 数量表を作った直後の編集画面には数量グループも数量項目も無く、名称の入力欄は
+      // そもそも描画されない。以前は「項目追加ボタンが見えたら押す」「名称欄が見えたら
+      // 属性を確かめる」という観測で包まれており、欄が出なければ何も主張せず緑になった。
+      // 前提（グループ1件・項目1行）を無条件に作る（同ファイルの REQ-7.4 と同じ形）。
+      await openQuantityTableEdit(page, createdQuantityTableId);
+      const groupCard = await addQuantityGroup(page);
+      const itemRows = await addQuantityItemRows(groupCard, 1);
 
-      await page.waitForLoadState('networkidle');
+      // 名称フィールド（comboboxロールを持つ）
+      const nameField = itemRows.first().locator('input[id$="-name"][role="combobox"]');
+      await expect(nameField, 'REQ-7.1: 名称欄が補完対象として描画される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-      // 数量項目追加ボタンをクリック
-      const addItemButton = page.getByRole('button', { name: /項目を追加|新規項目/i });
-      if (await addItemButton.isVisible()) {
-        await addItemButton.click();
-        await page.waitForTimeout(500);
-      }
+      // 名称フィールドにフォーカス
+      await nameField.click();
 
-      // 名称フィールドを探す（comboboxロールを持つ）
-      const nameField = page.locator('input[id$="-name"][role="combobox"]').first();
-      if (await isVisibleWithin(nameField, getTimeout(5000))) {
-        // 名称フィールドにフォーカス
-        await nameField.click();
-
-        // aria-autocomplete属性が設定されていることを確認
-        const ariaAutocomplete = await nameField.getAttribute('aria-autocomplete');
-        expect(ariaAutocomplete).toBe('list');
-
-        // role="combobox"が設定されていることを確認
-        const role = await nameField.getAttribute('role');
-        expect(role).toBe('combobox');
-      }
+      // REQ-7.3: 補完候補をドロップダウン表示する欄として提示される
+      await expect(nameField, 'REQ-7.3: 名称欄に aria-autocomplete="list" が無い').toHaveAttribute(
+        'aria-autocomplete',
+        'list'
+      );
+      await expect(nameField, 'REQ-7.3: 名称欄が combobox として提示されない').toHaveAttribute(
+        'role',
+        'combobox'
+      );
     });
 
     test('名称フィールドでテキスト入力時に候補がフィルタリングされる', async ({ page }) => {
-      assertPrepared(createdQuantityTableId, '事前準備で作成した数量表のID');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      // 以前は「名称欄が見えたら入力する」観測で包まれており、欄が描画されなければ
+      // REQ-7.2 の判定（入力中に個別エンドポイントを呼ばない）が実行されなかった。
+      // 前提（グループ1件・項目1行）を無条件に作る。
+      await openQuantityTableEdit(page, createdQuantityTableId);
+      const groupCard = await addQuantityGroup(page);
+      const itemRows = await addQuantityItemRows(groupCard, 1);
 
-      await page.waitForLoadState('networkidle');
+      const nameField = itemRows.first().locator('input[id$="-name"][role="combobox"]');
+      await expect(nameField, 'REQ-7.1: 名称欄が補完対象として描画される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-      // 名称フィールドを探す
-      const nameField = page.locator('input[id$="-name"][role="combobox"]').first();
-      if (await isVisibleWithin(nameField, getTimeout(5000))) {
-        // 名称フィールドに入力
-        await nameField.fill('テスト');
-        await page.waitForTimeout(300);
+      // 入力中のAPIリクエストを監視する（監視は入力の前に始めること）
+      const apiCalls: string[] = [];
+      page.on('request', (request) => {
+        if (
+          request.url().includes('/autocomplete') &&
+          !request.url().includes('/autocomplete-candidates')
+        ) {
+          apiCalls.push(request.url());
+        }
+      });
 
-        // フィルタリングされた候補リストまたは候補なしの状態を確認
-        // APIリクエストが発生しないことの確認（ネットワーク監視）
-        const apiCalls: string[] = [];
-        page.on('request', (request) => {
-          if (
-            request.url().includes('/autocomplete') &&
-            !request.url().includes('/autocomplete-candidates')
-          ) {
-            apiCalls.push(request.url());
-          }
-        });
+      await nameField.fill('テスト');
+      await expect(nameField, '名称欄へ入力が反映される').toHaveValue('テスト');
+      await nameField.fill('テスト追加');
+      await expect(nameField, '名称欄へ追加入力が反映される').toHaveValue('テスト追加');
 
-        await nameField.fill('テスト追加');
-        await page.waitForTimeout(500);
-
-        // 入力中にautocomplete（個別）エンドポイントが呼ばれないことを確認
-        expect(apiCalls.length).toBe(0);
-      }
+      // REQ-7.2: テキスト入力中に候補取得のAPIリクエストを発行しない
+      expect(apiCalls, 'REQ-7.2: 入力中に候補取得APIが呼ばれた').toHaveLength(0);
     });
   });
 
@@ -156,29 +152,32 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
     test('備考フィールドにフォーカスした際にオートコンプリート候補がドロップダウン表示される', async ({
       page,
     }) => {
-      assertPrepared(createdQuantityTableId, '事前準備で作成した数量表のID');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      // 名称欄と同じく、前提（グループ1件・項目1行）を無条件に作ってから判定する。
+      // 「備考欄が見えたら属性を確かめる」形では、欄が描画されない限り何も主張しない。
+      await openQuantityTableEdit(page, createdQuantityTableId);
+      const groupCard = await addQuantityGroup(page);
+      const itemRows = await addQuantityItemRows(groupCard, 1);
 
-      await page.waitForLoadState('networkidle');
+      // 備考フィールド（comboboxロールを持つ）
+      const remarksField = itemRows.first().locator('input[id$="-remarks"][role="combobox"]');
+      await expect(remarksField, 'REQ-7.1: 備考欄が補完対象として描画される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-      // 備考フィールドを探す（comboboxロールを持つ）
-      const remarksField = page.locator('input[id$="-remarks"][role="combobox"]').first();
-      if (await isVisibleWithin(remarksField, getTimeout(5000))) {
-        // 備考フィールドにフォーカス
-        await remarksField.click();
+      // 備考フィールドにフォーカス
+      await remarksField.click();
 
-        // aria-autocomplete属性が設定されていることを確認
-        const ariaAutocomplete = await remarksField.getAttribute('aria-autocomplete');
-        expect(ariaAutocomplete).toBe('list');
-
-        // role="combobox"が設定されていることを確認
-        const role = await remarksField.getAttribute('role');
-        expect(role).toBe('combobox');
-      }
+      // REQ-7.3: 補完候補をドロップダウン表示する欄として提示される
+      await expect(
+        remarksField,
+        'REQ-7.3: 備考欄に aria-autocomplete="list" が無い'
+      ).toHaveAttribute('aria-autocomplete', 'list');
+      await expect(remarksField, 'REQ-7.3: 備考欄が combobox として提示されない').toHaveAttribute(
+        'role',
+        'combobox'
+      );
     });
   });
 

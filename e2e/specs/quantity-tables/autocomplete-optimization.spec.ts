@@ -21,7 +21,7 @@
 
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
+import { getTimeout } from '../../helpers/wait-helpers';
 import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import {
   createTestProject,
@@ -258,45 +258,43 @@ test.describe('オートコンプリート最適化', () => {
 
   test.describe('REQ-7.4: 候補選択時の自動入力', () => {
     test('候補をクリックするとフィールドに値が自動入力される', async ({ page }) => {
-      assertPrepared(createdQuantityTableId, '事前準備で作成した数量表のID');
-
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 数量表編集画面に遷移
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      // 以前は「項目追加ボタンが見えたら押す」「入力欄が見えたら入力する」「一覧が出たら
+      // 候補を探す」「候補が見えたら押す」の四重の観測で包まれており、どこか一つでも
+      // 満たされなければ REQ-7.4 の判定は一つも実行されずに緑になった。
+      // 前提（グループ1件・項目1行）は補助で作り、判定は同ファイルの REQ-7.5 と同じく
+      // 一連の操作を一つの再試行単位へ閉じ込める（遅延クローズ対策。readSuggestions 参照）。
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
+      const majorCategoryInput = row.getByRole('combobox', { name: '大項目', exact: true });
+      await expect(majorCategoryInput, 'REQ-7.3: 大項目の入力欄が表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-      await page.waitForLoadState('networkidle');
+      // REQ-7.5: blur で確定値を候補値リストへ追加する
+      await registerCandidate(majorCategoryInput, '建築工事');
 
-      // 数量項目を追加
-      const addItemButton = page.getByRole('button', { name: /項目を追加|新規項目/i });
-      if (await addItemButton.isVisible()) {
-        await addItemButton.click();
-        await page.waitForTimeout(500);
-      }
-
-      // 大項目フィールドで入力を開始
-      const majorCategoryInput = page.getByRole('combobox', { name: /大項目/i }).first();
-      if (await majorCategoryInput.isVisible()) {
-        // まず値を入力してblurで候補に追加
-        await majorCategoryInput.fill('建築工事');
-        await majorCategoryInput.blur();
-        await page.waitForTimeout(200);
-
-        // 入力をクリアして再度入力（前方一致フィルタリング）
+      const listbox = page.getByRole('listbox');
+      await expect(async () => {
+        // REQ-7.3: 前方一致する候補がドロップダウン表示される
+        await majorCategoryInput.fill(REOPEN_SENTINEL);
         await majorCategoryInput.fill('建');
-        await page.waitForTimeout(200);
+        await expect(listbox).toBeVisible({ timeout: getTimeout(1000) });
 
-        // 候補リストが表示された場合、候補をクリック
-        const listbox = page.getByRole('listbox');
-        if (await isVisibleWithin(listbox, 2000)) {
-          const option = page.getByRole('option', { name: /建築工事/ });
-          if (await option.isVisible()) {
-            await option.click();
-            // 値が入力されたことを確認
-            await expect(majorCategoryInput).toHaveValue('建築工事');
-          }
-        }
-      }
+        const option = listbox.getByRole('option', { name: '建築工事', exact: true });
+        await expect(option, '前方一致する候補が一覧に現れる').toBeVisible({
+          timeout: getTimeout(1000),
+        });
+
+        // REQ-7.4: 候補を選択すると値がフィールドへ自動入力される
+        await option.click();
+        await expect(majorCategoryInput, 'REQ-7.4: 選択した候補が入力される').toHaveValue(
+          '建築工事',
+          { timeout: getTimeout(1000) }
+        );
+      }, 'REQ-7.4: 候補をクリックすると値が自動入力される').toPass({
+        timeout: getTimeout(15000),
+      });
     });
   });
 
@@ -443,8 +441,6 @@ test.describe('オートコンプリート最適化', () => {
 
   test.describe('候補取得エラー時のgraceful degradation', () => {
     test('候補取得エラー時に数量表編集機能自体は正常に動作する', async ({ page }) => {
-      assertPrepared(createdQuantityTableId, '事前準備で作成した数量表のID');
-
       await loginAsUser(page, 'REGULAR_USER');
 
       // autocomplete-candidatesリクエストをインターセプトしてエラーを返す
@@ -456,27 +452,22 @@ test.describe('オートコンプリート最適化', () => {
         });
       });
 
-      // 数量表編集画面に遷移
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      // 以前は「項目追加ボタンが見えたら押す」「入力欄が見えたら入力する」の二重の観測で
+      // 包まれていた。候補取得が 500 を返す状況で編集機能が壊れる（＝ボタンや入力欄が
+      // 出ない）と、まさに検証したい退行の場合に何も主張せず緑になる。
+      // グループ追加・項目追加・欄の表示までを補助で無条件に主張する。
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
+      const majorCategoryInput = row.getByRole('combobox', { name: '大項目', exact: true });
+      await expect(
+        majorCategoryInput,
+        'REQ-7.1: 候補取得が失敗しても大項目の入力欄は表示される'
+      ).toBeVisible({ timeout: getTimeout(10000) });
 
-      await page.waitForLoadState('networkidle');
-
-      // 数量表編集画面自体が表示されていることを確認
-      // （エラーでもページ全体がクラッシュしないこと）
-      const addItemButton = page.getByRole('button', { name: /項目を追加|新規項目/i });
-      if (await isVisibleWithin(addItemButton, getTimeout(10000))) {
-        // 項目追加が可能であることを確認
-        await addItemButton.click();
-        await page.waitForTimeout(500);
-
-        // 入力フィールドが正常に表示されていることを確認
-        const majorCategoryInput = page.getByRole('combobox', { name: /大項目/i });
-        if (await majorCategoryInput.isVisible()) {
-          // テキスト入力が可能であることを確認
-          await majorCategoryInput.fill('手入力テスト');
-          await expect(majorCategoryInput).toHaveValue('手入力テスト');
-        }
-      }
+      // テキスト入力が可能であることを確認
+      await majorCategoryInput.fill('手入力テスト');
+      await expect(majorCategoryInput, 'REQ-7.1: 候補取得が失敗しても手入力は行える').toHaveValue(
+        '手入力テスト'
+      );
 
       // ルートインターセプトを解除
       await page.unroute('**/autocomplete-candidates');

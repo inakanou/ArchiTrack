@@ -4,6 +4,12 @@ import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/
 import { createAllTestUsers } from '../../fixtures/auth.fixtures';
 import { loginAsUser, loginWithCredentials } from '../../helpers/auth-actions';
 import { getTimeout, waitForApiResponse } from '../../helpers/wait-helpers';
+import {
+  assertProfilePageAuthenticated,
+  expectPasswordChangeSucceeded,
+  openProfilePage,
+  submitPasswordChange,
+} from '../../helpers/profile-preconditions';
 
 /**
  * プロフィール管理機能のE2Eテスト
@@ -11,6 +17,11 @@ import { getTimeout, waitForApiResponse } from '../../helpers/wait-helpers';
  * @requirement user-authentication/REQ-9 プロフィール管理
  * @requirement user-authentication/REQ-14 プロフィール画面のUI/UX
  */
+
+/**
+ * パスワード変更系のテストで用いるユーザー（他のテストへ影響させないため REGULAR_USER_2 を使う）
+ */
+const USER2_EMAIL = 'user2@example.com';
 
 // ===== パスワードを変更しないテスト =====
 // これらのテストはパスワードを変更しないため、同じセッションで実行可能
@@ -379,132 +390,20 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
    * @requirement user-authentication/REQ-14.7 @requirement user-authentication/REQ-14.8
    */
   test('パスワードを変更できる', async ({ page }) => {
-    // ログイン
+    // ログイン。`loginAsUser` はアクセストークンとリフレッシュトークンが
+    // localStorage に載るまで待ってから戻るため、以降の要求には必ず認証が載る。
     await loginAsUser(page, 'REGULAR_USER');
-    await page.goto('/profile');
 
-    // CI環境での安定性向上のため、ページロード完了とフィールド表示をリトライ付きで待機
-    let profileLoaded = false;
-    for (let retry = 0; retry < 5; retry++) {
-      await page.waitForLoadState('networkidle');
-      try {
-        await expect(page.locator('input#currentPassword')).toBeVisible({
-          timeout: getTimeout(10000),
-        });
-        profileLoaded = true;
-        break;
-      } catch {
-        if (retry < 4) {
-          // ログインページにリダイレクトされた場合は再ログイン
-          if (page.url().includes('/login')) {
-            await loginAsUser(page, 'REGULAR_USER');
-          }
-          await page.goto('/profile');
-        }
-      }
-    }
-    expect(profileLoaded).toBe(true);
+    // 前提（認証が効いた状態でプロフィール画面が開けていること）を無条件に主張する。
+    // 従来はここで MISSING_TOKEN の表示を観測して黙って再ログイン・再入力していたため、
+    // 認証が壊れていても検証は緑のまま通り、何回目の試行が主張されたのかも読めなかった。
+    await openProfilePage(page, 'user@example.com');
 
-    // MISSING_TOKENエラーが表示されている場合は再ログインして再試行
-    const missingTokenError = page.getByText(/MISSING_TOKEN/i);
-    if ((await missingTokenError.count()) > 0) {
-      await page.evaluate(() => {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-      });
-      await loginAsUser(page, 'REGULAR_USER');
-      await page.goto('/profile', { waitUntil: 'networkidle' });
-      await expect(page.locator('input#currentPassword')).toBeVisible({
-        timeout: getTimeout(20000),
-      });
-    }
+    // 要件7.4 / 要件14.7: 現在のパスワードを添えて変更を要求し、確認ダイアログを経て確定する
+    await submitPasswordChange(page, 'Password123!', 'SecureTest123!@#');
 
-    // パスワードフィールドに入力
-    await page.locator('input#currentPassword').fill('Password123!');
-    await page.locator('input#newPassword').fill('SecureTest123!@#');
-    await page.locator('input#confirmPassword').fill('SecureTest123!@#');
-
-    // パスワード変更ボタンをクリック
-    await page.getByRole('button', { name: /パスワードを変更/i }).click();
-
-    // MISSING_TOKENエラーが表示された場合は再ログインして再試行
-    await page.waitForTimeout(500);
-    const errorAfterClick = page.getByText(/MISSING_TOKEN/i);
-    if ((await errorAfterClick.count()) > 0) {
-      await page.evaluate(() => {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-      });
-      await loginAsUser(page, 'REGULAR_USER');
-      await page.goto('/profile', { waitUntil: 'networkidle' });
-      await expect(page.locator('input#currentPassword')).toBeVisible({
-        timeout: getTimeout(20000),
-      });
-      await page.locator('input#currentPassword').fill('Password123!');
-      await page.locator('input#newPassword').fill('SecureTest123!@#');
-      await page.locator('input#confirmPassword').fill('SecureTest123!@#');
-      await page.getByRole('button', { name: /パスワードを変更/i }).click();
-    }
-
-    // 確認ダイアログが表示される（タイムアウト追加）
-    await expect(page.getByText(/全デバイスからログアウトされます/i)).toBeVisible({
-      timeout: getTimeout(10000),
-    });
-
-    // 確認ボタンをクリック
-    await page.getByRole('button', { name: /はい、変更する/i }).click();
-
-    // 成功メッセージまたはリダイレクトを待機（CI環境では応答が遅い場合がある）
-    let success = false;
-    for (let i = 0; i < 60; i++) {
-      if (page.url().includes('/login')) {
-        success = true;
-        break;
-      }
-      const successMessage = page.getByText(/パスワードを変更しました/i);
-      if ((await successMessage.count()) > 0) {
-        success = true;
-        break;
-      }
-      // MISSING_TOKENエラーが表示された場合は再試行
-      const authError = page.getByText(/MISSING_TOKEN/i);
-      if ((await authError.count()) > 0) {
-        // 再ログインして再試行
-        await page.evaluate(() => {
-          localStorage.removeItem('accessToken');
-          localStorage.removeItem('refreshToken');
-        });
-        await loginAsUser(page, 'REGULAR_USER');
-        await page.goto('/profile', { waitUntil: 'networkidle' });
-        await expect(page.locator('input#currentPassword')).toBeVisible({
-          timeout: getTimeout(20000),
-        });
-        await page.locator('input#currentPassword').fill('Password123!');
-        await page.locator('input#newPassword').fill('SecureTest123!@#');
-        await page.locator('input#confirmPassword').fill('SecureTest123!@#');
-        await page.getByRole('button', { name: /パスワードを変更/i }).click();
-        await page.waitForTimeout(500);
-        const confirmBtn = page.getByRole('button', { name: /はい、変更する/i });
-        if ((await confirmBtn.count()) > 0 && (await confirmBtn.isVisible())) {
-          await confirmBtn.click();
-        }
-        continue;
-      }
-      await page.waitForTimeout(500);
-    }
-    expect(success).toBe(true);
-
-    // ログインページにリダイレクトされる（UIが自動でリダイレクト）
-    // すでにログインページにいる場合はスキップ
-    if (!page.url().includes('/login')) {
-      try {
-        await page.waitForURL(/\/login/, { timeout: getTimeout(10000) });
-      } catch {
-        // リダイレクトがタイムアウトした場合は手動でログインページに移動
-        await page.goto('/login');
-      }
-    }
-    await expect(page).toHaveURL(/\/login/);
+    // 要件14.8: 成功メッセージが表示され、ログイン画面へ自動的にリダイレクトされる
+    await expectPasswordChangeSucceeded(page);
   });
 
   /**
@@ -516,29 +415,7 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
   test('過去3回に使用したパスワードは再利用できない', async ({ page }) => {
     // ログイン（REGULAR_USER_2を使用して他のテストに影響しないようにする）
     await loginAsUser(page, 'REGULAR_USER_2');
-    await page.goto('/profile');
-
-    // CI環境での安定性向上のため、ページロード完了とフィールド表示をリトライ付きで待機
-    let profileLoaded = false;
-    for (let retry = 0; retry < 5; retry++) {
-      await page.waitForLoadState('networkidle');
-      try {
-        await expect(page.locator('input#currentPassword')).toBeVisible({
-          timeout: getTimeout(10000),
-        });
-        profileLoaded = true;
-        break;
-      } catch {
-        if (retry < 4) {
-          // ログインページにリダイレクトされた場合は再ログイン
-          if (page.url().includes('/login')) {
-            await loginAsUser(page, 'REGULAR_USER_2');
-          }
-          await page.goto('/profile');
-        }
-      }
-    }
-    expect(profileLoaded).toBe(true);
+    await openProfilePage(page, USER2_EMAIL);
 
     // 現在のパスワード: SecurePass456!
 
@@ -549,227 +426,30 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
     const password2 = `Yj8lOq3wR${uniqueSuffix}B!`;
     const password3 = `Zh7kPr4xS${uniqueSuffix}C!`;
 
-    // ヘルパー関数: パスワード変更後の再ログイン処理
+    /**
+     * パスワードを変更し、新しいパスワードで再ログインしてプロフィール画面へ戻る。
+     *
+     * 従来はこの手順の各所に「MISSING_TOKEN が出ていたら再ログインしてやり直す」
+     * という観測による復旧が挟まっていた。復旧は要件が崩れた状態を黙って埋め合わせるため、
+     * 認証が壊れても検証は緑のまま通る。前提を無条件に主張する形へ改めている。
+     */
     const changePasswordAndLogin = async (currentPwd: string, newPwd: string) => {
-      // プロフィールページのヘッダーが表示されているか確認（ロード完了まで待機）
-      let headingVisible = false;
-      try {
-        await page.getByRole('heading', { name: /プロフィール/i }).waitFor({
-          state: 'visible',
-          timeout: getTimeout(5000),
-        });
-        headingVisible = true;
-      } catch {
-        headingVisible = false;
-      }
+      await assertProfilePageAuthenticated(page, USER2_EMAIL);
 
-      if (!headingVisible || page.url().includes('/login')) {
-        // 認証状態が失われている場合は再ログイン
-        // トークンをクリアして確実にログインページにアクセス
-        await page.evaluate(() => {
-          localStorage.removeItem('accessToken');
-          localStorage.removeItem('refreshToken');
-        });
+      // 要件14.7: 確認ダイアログを経てパスワード変更を確定する
+      await submitPasswordChange(page, currentPwd, newPwd);
 
-        // ログインページに移動（loginWithCredentialsは内部でgotoを呼ぶので直接呼ぶ）
-        await loginWithCredentials(page, 'user2@example.com', currentPwd);
-        await page.goto('/profile', { waitUntil: 'networkidle' });
-        // プロフィールページの読み込み完了を待機
-        await expect(page.locator('input#currentPassword')).toBeVisible({
-          timeout: getTimeout(20000),
-        });
-      }
+      // 要件14.8: 成功メッセージの表示とログイン画面への自動リダイレクト
+      await expectPasswordChangeSucceeded(page);
 
-      // フォームフィールドが表示されるまで待機
-      await expect(page.locator('input#currentPassword')).toBeVisible({
-        timeout: getTimeout(15000),
-      });
-
-      // MISSING_TOKENエラーが表示されている場合は再ログインして再試行
-      const missingTokenError = page.getByText(/MISSING_TOKEN/i);
-      if ((await missingTokenError.count()) > 0) {
-        // トークンをクリアして再ログイン
-        await page.evaluate(() => {
-          localStorage.removeItem('accessToken');
-          localStorage.removeItem('refreshToken');
-        });
-        await loginWithCredentials(page, 'user2@example.com', currentPwd);
-        await page.goto('/profile', { waitUntil: 'networkidle' });
-        await expect(page.locator('input#currentPassword')).toBeVisible({
-          timeout: getTimeout(20000),
-        });
-      }
-
-      await page.locator('input#currentPassword').fill(currentPwd);
-      await page.locator('input#newPassword').fill(newPwd);
-      await page.locator('input#confirmPassword').fill(newPwd);
-
-      // パスワード変更ボタンをクリック
-      const changePasswordBtn = page.getByRole('button', { name: /パスワードを変更/i });
-      await expect(changePasswordBtn).toBeEnabled({ timeout: getTimeout(5000) });
-      await changePasswordBtn.click();
-
-      // MISSING_TOKENエラーが表示された場合は再ログインして再試行
-      await page.waitForTimeout(500);
-      const errorAfterClick = page.getByText(/MISSING_TOKEN/i);
-      if ((await errorAfterClick.count()) > 0) {
-        // トークンをクリアして再ログイン
-        await page.evaluate(() => {
-          localStorage.removeItem('accessToken');
-          localStorage.removeItem('refreshToken');
-        });
-        await loginWithCredentials(page, 'user2@example.com', currentPwd);
-        await page.goto('/profile', { waitUntil: 'networkidle' });
-        await expect(page.locator('input#currentPassword')).toBeVisible({
-          timeout: getTimeout(20000),
-        });
-        // フォームに再入力してボタンをクリック
-        await page.locator('input#currentPassword').fill(currentPwd);
-        await page.locator('input#newPassword').fill(newPwd);
-        await page.locator('input#confirmPassword').fill(newPwd);
-        await page.getByRole('button', { name: /パスワードを変更/i }).click();
-      }
-
-      // 確認ダイアログが表示されるのを待つ（表示されない場合はフォーム再入力・再クリックをリトライ）
-      let dialogVisible = false;
-      for (let dialogRetry = 0; dialogRetry < 3; dialogRetry++) {
-        const confirmBtn = page.getByRole('button', { name: /はい、変更する/i });
-        try {
-          await expect(confirmBtn).toBeVisible({ timeout: getTimeout(5000) });
-          dialogVisible = true;
-          break;
-        } catch {
-          // ダイアログが表示されない場合、フォームの入力状態をクリアして再入力
-          await page.locator('input#currentPassword').fill('');
-          await page.locator('input#newPassword').fill('');
-          await page.locator('input#confirmPassword').fill('');
-          await page.waitForTimeout(300);
-          await page.locator('input#currentPassword').fill(currentPwd);
-          await page.locator('input#newPassword').fill(newPwd);
-          await page.locator('input#confirmPassword').fill(newPwd);
-          await page.getByRole('button', { name: /パスワードを変更/i }).click();
-        }
-      }
-      expect(dialogVisible).toBe(true);
-
-      // 確認ボタンをクリック
-      await page.getByRole('button', { name: /はい、変更する/i }).click();
-
-      // パスワード変更後の状態を待機（成功メッセージ、エラーメッセージ、またはリダイレクト）
-      let passwordChangeSucceeded = false;
-      for (let i = 0; i < 60; i++) {
-        // ログインページにリダイレクトされた場合は成功
-        if (page.url().includes('/login')) {
-          passwordChangeSucceeded = true;
-          break;
-        }
-
-        // 成功メッセージが表示されているか確認
-        const successMessage = page.getByText(/パスワードを変更しました/i);
-        if ((await successMessage.count()) > 0) {
-          passwordChangeSucceeded = true;
-          // リダイレクトを待つ
-          try {
-            await page.waitForURL(/\/login/, { timeout: getTimeout(10000) });
-          } catch {
-            // リダイレクトがタイムアウトした場合は手動でログインページに移動
-            await page.goto('/login');
-          }
-          break;
-        }
-
-        // MISSING_TOKENエラーが表示された場合は再試行が必要
-        const missingTokenMsg = page.getByText(/MISSING_TOKEN/i);
-        if ((await missingTokenMsg.count()) > 0) {
-          // 再ログインして再試行
-          await page.evaluate(() => {
-            localStorage.removeItem('accessToken');
-            localStorage.removeItem('refreshToken');
-          });
-          await loginWithCredentials(page, 'user2@example.com', currentPwd);
-          await page.goto('/profile', { waitUntil: 'networkidle' });
-          await expect(page.locator('input#currentPassword')).toBeVisible({
-            timeout: getTimeout(20000),
-          });
-          // フォームに再入力して再試行
-          await page.locator('input#currentPassword').fill(currentPwd);
-          await page.locator('input#newPassword').fill(newPwd);
-          await page.locator('input#confirmPassword').fill(newPwd);
-          await page.getByRole('button', { name: /パスワードを変更/i }).click();
-          await page.waitForTimeout(500);
-          // 確認ダイアログが表示されたらクリック
-          const confirmBtn = page.getByRole('button', { name: /はい、変更する/i });
-          if ((await confirmBtn.count()) > 0 && (await confirmBtn.isVisible())) {
-            await confirmBtn.click();
-          }
-          continue;
-        }
-
-        await page.waitForTimeout(500);
-      }
-
-      // パスワード変更が成功していない場合はテスト失敗
-      expect(passwordChangeSucceeded).toBe(true);
-
-      // パスワード変更後はセッションが無効化されるが、ローカルストレージにトークンが残っている場合がある
-      // トークンをクリアして、ログインページにアクセスできるようにする
+      // 要件7.5: パスワード変更で既存のリフレッシュトークンは無効化される。
+      // 残っているトークンを捨ててから、新しいパスワードで再ログインする。
       await page.evaluate(() => {
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');
       });
-
-      // ログインページに遷移（トークンクリア後）
-      await page.goto('/login', { waitUntil: 'networkidle' });
-
-      // ログインフォームが表示されるまで待機
-      await expect(page.getByLabel(/メールアドレス/i)).toBeVisible({ timeout: getTimeout(15000) });
-
-      // 新しいパスワードで再ログイン
-      // loginWithCredentialsはpage.goto('/login')を呼ぶので、すでにログインページにいる場合は直接フィールドを操作
-      await page.getByLabel(/メールアドレス/i).fill('user2@example.com');
-      await page.locator('input#password').fill(newPwd);
-
-      // ログインAPIのレスポンスを待機しながらログインボタンをクリック
-      await waitForApiResponse(
-        page,
-        async () => {
-          await page.getByRole('button', { name: /ログイン/i }).click();
-        },
-        /\/api\/v1\/auth\/login/,
-        { timeout: getTimeout(30000), expectedStatus: 200 }
-      );
-
-      // ダッシュボードへのリダイレクトを待機
-      await page.waitForURL((url) => !url.pathname.includes('/login'), {
-        timeout: getTimeout(15000),
-      });
-      await page.waitForLoadState('networkidle');
-
-      // トークンがローカルストレージに保存されるのを待機
-      await page.waitForFunction(() => localStorage.getItem('accessToken') !== null, {
-        timeout: getTimeout(10000),
-      });
-
-      // プロフィールページに遷移
-      await page.goto('/profile');
-
-      // AuthContextの初期化完了を待機
-      await page.waitForLoadState('networkidle');
-
-      // 認証が失われている場合は再試行
-      if (page.url().includes('/login')) {
-        await loginWithCredentials(page, 'user2@example.com', newPwd);
-        await page.goto('/profile');
-        await page.waitForLoadState('networkidle');
-      }
-
-      // プロフィールページが完全にロードされるのを待つ
-      await expect(page.getByLabel(/メールアドレス/i)).toHaveValue('user2@example.com', {
-        timeout: getTimeout(15000),
-      });
-      await expect(page.locator('input#currentPassword')).toBeVisible({
-        timeout: getTimeout(15000),
-      });
+      await loginWithCredentials(page, USER2_EMAIL, newPwd);
+      await openProfilePage(page, USER2_EMAIL);
     };
 
     // 1回目のパスワード変更
@@ -782,18 +462,9 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
     await changePasswordAndLogin(password2, password3);
 
     // 4回目のパスワード変更: 過去のパスワード（password1）を再利用しようとする
-    await page.locator('input#currentPassword').fill(password3);
-    await page.locator('input#newPassword').fill(password1);
-    await page.locator('input#confirmPassword').fill(password1);
-    await page.getByRole('button', { name: /パスワードを変更/i }).click();
+    await submitPasswordChange(page, password3, password1);
 
-    // 確認ダイアログが表示されるのを待つ
-    await expect(page.getByRole('button', { name: /はい、変更する/i })).toBeVisible({
-      timeout: getTimeout(5000),
-    });
-    await page.getByRole('button', { name: /はい、変更する/i }).click();
-
-    // サーバー側でパスワード履歴チェックが行われ、エラーメッセージが表示される
+    // 要件7.7: サーバー側でパスワード履歴チェックが行われ、エラーメッセージが表示される
     // バックエンドから英語メッセージが返される（2種類のメッセージに対応）
     // "Password has been used recently. Please choose a different password" または
     // "Password was used in recent history"

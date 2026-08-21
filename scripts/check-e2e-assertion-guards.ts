@@ -129,6 +129,12 @@
  *     債務は呼び出し側がその値をどう扱うかにあり、呼び出し側の分岐は従来どおり検出される。
  *     テスト本体の中の値を伴わない `return;` は真正の沈黙脱出として検出したまま残す。
  *     詳細は valueProducingExitExclusion を参照。
+ *   - 再試行の成功時に関数ごと抜ける `return`（Task 115.127 段7・計画の D1 群）
+ *     繰り返しの内側で観測が成立したときに `return` し、繰り返しが尽きた直後に無条件の
+ *     `throw` がある形。結末は「成立したので抜ける」か「上限まで成立せず落ちる」の二つだけで、
+ *     素通りする経路が無い。`throw` より後の文は到達しないため飛び越す検証も存在しない。
+ *     繰り返しの後に `throw` が無い形は真正の沈黙脱出として従来どおり検出する。
+ *     詳細は retryExhaustionFailureExclusion を参照。
  *   - どの経路でも throw か無条件の主張に到達する分岐（Task 115.127 段3・計画の B 群）
  *     `else` を持ち、then / else の双方の到達しうる終端がすべて throw か無条件の主張であり、
  *     かつ内側に throw を含む分岐。素通りする経路が構造上存在しない。
@@ -830,6 +836,77 @@ export function valueProducingExitExclusion(node: ts.Node): string | undefined {
   return '値を作る補助が値を返す分岐（検証からの脱出ではない）';
 }
 
+/** 節点を囲む最も内側の繰り返し（関数の境界に達したら `undefined`） */
+function enclosingIteration(node: ts.Node): ts.IterationStatement | undefined {
+  for (let n: ts.Node | undefined = node.parent; n; n = n.parent) {
+    if (ts.isIterationStatement(n, /* lookInLabeledStatements */ false)) return n;
+    if (ts.isFunctionLike(n)) return undefined;
+  }
+  return undefined;
+}
+
+/**
+ * 繰り返しが尽きたときに、直後の無条件の `throw` で必ず失敗するか。
+ *
+ * `throw` が握り潰されうる形（繰り返しから関数の境界までの間に `try` が挟まる形）は
+ * 偽を返す。関門が実際に落ちることを構造で確かめられない以上、検出を残す側へ倒す。
+ */
+function loopExhaustionThrows(loop: ts.IterationStatement): boolean {
+  for (let n: ts.Node | undefined = loop.parent; n; n = n.parent) {
+    if (ts.isFunctionLike(n)) break;
+    if (ts.isTryStatement(n)) return false;
+  }
+  const parent = loop.parent;
+  if (!parent || !ts.isBlock(parent)) return false;
+  const index = parent.statements.indexOf(loop as ts.Statement);
+  if (index < 0) return false;
+  for (const s of parent.statements.slice(index + 1)) {
+    if (ts.isThrowStatement(s)) return true;
+    // 繰り返しを抜けた先に別の脱出があるなら、素通りする経路が残る
+    if (ts.isReturnStatement(s)) return false;
+  }
+  return false;
+}
+
+/**
+ * 【検出器の規則による対象外 (4)】再試行の成功時に抜ける分岐か（計画の D1 群）。
+ *
+ * 計画 §6 の除外条件 (1)「条件が偽なら直後に throw / 無条件の主張で落ちる（再試行の待機）」に
+ * 構造上必ず該当する形だけを外す。`escapesCheckedLoop` が `break` / `continue` について
+ * 行っている判定を、**関数ごと抜ける `return`** について行うものである。
+ *
+ * 次のすべてを満たす場合に限る。**識別子の綴りは一切見ない。**
+ *   (a) `else` を持たない `if` 文であり、その内側に **expect が一つも無い**
+ *       （主張を包む分岐は「再試行の待機」ではなく検証の無効化であるため、ここで落ちる）。
+ *   (b) then 節が沈黙して抜ける形であり、その終端が **値を伴わない `return`** である。
+ *   (c) その分岐が繰り返しの内側にある。
+ *   (d) その繰り返しが尽きた直後に**無条件の `throw`** がある（握り潰されうる形は除く）。
+ *
+ * **なぜこれが「抑止」ではないか**: この形の関数は「観測が成立したので抜ける」か
+ * 「上限まで成立しなかったので落ちる」の二つの結末しか持たない。素通りする経路が無い。
+ * また `throw` より後に書かれた文は到達しないため、`return` が飛び越す検証も存在しない。
+ *
+ * 実例（`e2e/helpers/api-readiness.ts` の疎通待ち、
+ * `e2e/specs/auth/invitations.spec.ts` の招待一覧の読み込み待ち）。
+ * **繰り返しの後に `throw` が無い形**（上限に達しても黙って戻る形）は真正の沈黙脱出であり、
+ * 本規則には当たらず従来どおり検出される。
+ */
+export function retryExhaustionFailureExclusion(node: ts.Node): string | undefined {
+  if (!ts.isIfStatement(node)) return undefined;
+  if (node.elseStatement) return undefined;
+  if (containsAssertion(node)) return undefined;
+  if (!isSilentExit(node.thenStatement)) return undefined;
+  const list = ts.isBlock(node.thenStatement)
+    ? [...node.thenStatement.statements]
+    : [node.thenStatement];
+  const terminal = list[list.length - 1];
+  if (!terminal || !ts.isReturnStatement(terminal) || terminal.expression) return undefined;
+  const loop = enclosingIteration(node);
+  if (!loop) return undefined;
+  if (!loopExhaustionThrows(loop)) return undefined;
+  return '再試行の成功時に抜ける分岐（繰り返しが尽きれば直後の throw で必ず失敗する）';
+}
+
 /**
  * 検出器の規則による対象外。該当する場合は理由を返す。
  *
@@ -841,7 +918,8 @@ export function ruleBasedExclusion(node: ts.Node): string | undefined {
   return (
     predicateImplementationExclusion(node) ??
     guaranteedFailureExclusion(node) ??
-    valueProducingExitExclusion(node)
+    valueProducingExitExclusion(node) ??
+    retryExhaustionFailureExclusion(node)
   );
 }
 

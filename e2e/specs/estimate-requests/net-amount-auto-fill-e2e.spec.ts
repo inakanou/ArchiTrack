@@ -168,15 +168,34 @@ test.describe('受領見積書 NET金額自動入力（REQ-34）', () => {
     }
 
     // 保存ボタン
-    // 既に同一選択状態が永続化済みの場合（前テストで保存済み）、ボタンは disabled のまま表示される。
-    // isVisible は disabled でも true を返すため、isEnabled も併せて判定して空打ちを避ける。
+    // 保存ボタンは「未保存の変更があるとき」だけ活性になる（`ItemSelectionPanel` の
+    // `disabled={isSaving || !hasUnsavedChanges}`）。既に同一選択が永続化済みなら
+    // 最初から不活性であり、押す必要がない。
+    // 「活性なら押す」を分岐で書くと、押さなかった回に前提が成立したかどうかを誰も確かめない。
+    // 押下の条件を繰り返しの見出しへ移し、繰り返しの後で前提そのものを無条件に主張する。
     const saveButton = page.getByTestId('save-selection-button');
-    const visible = await saveButton.isVisible().catch(() => false);
-    const enabled = await saveButton.isEnabled().catch(() => false);
-    if (visible && enabled) {
+    await expect(saveButton, '項目選択の保存ボタンが表示されていない').toBeVisible({
+      timeout: getTimeout(10000),
+    });
+
+    // 保存は最大1回で足りる（保存が成功すれば未保存の変更は無くなる）。
+    // 上限を設けているのは、保存が効かない実装退行で無限に押し続けないためである。
+    const MAX_SAVE_ATTEMPTS = 2;
+    for (
+      let attempt = 0;
+      attempt < MAX_SAVE_ATTEMPTS && (await saveButton.isEnabled());
+      attempt += 1
+    ) {
       await saveButton.click();
       await expect(page.getByText('保存しました')).toBeVisible({ timeout: getTimeout(10000) });
     }
+
+    // 前提の成立を無条件に主張する:
+    // 未保存の変更が残っていない（＝選択状態が永続化されている）
+    await expect(
+      saveButton,
+      '項目選択が永続化されていない（未保存の変更が残っている）'
+    ).toBeDisabled({ timeout: getTimeout(10000) });
   }
 
   // ==========================================================================
@@ -292,17 +311,26 @@ test.describe('受領見積書 NET金額自動入力（REQ-34）', () => {
       await expect(netInput).toHaveValue('99999');
 
       // 項目選択から転記を実行
+      // `selectAllItemsAndSave` が選択の永続化を無条件に主張済みであるため、
+      // 「項目選択から転記」ボタンは必ず表示される。
+      // 以前は「転記ボタンが見えていれば転記する」という関門で包んでいたため、
+      // 転記が一度も行われないまま REQ-34.3 の主張（既存値の保持）が成立していた。
       const transcriptionButton = page.getByTestId('transcription-button');
-      if (await transcriptionButton.isVisible().catch(() => false)) {
-        await transcriptionButton.click();
-        const confirmButton = page.getByTestId('transcription-confirm-button');
-        if (await isVisibleWithin(confirmButton, getTimeout(3000))) {
-          await confirmButton.click();
-        }
-        await expect(page.getByTestId('transcription-message')).toBeVisible({
-          timeout: getTimeout(10000),
-        });
+      await expect(transcriptionButton, '項目選択から転記ボタンが表示されていない').toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await transcriptionButton.click();
+
+      // 既存データの上書き確認ダイアログが出る場合は確定する
+      const confirmButton = page.getByTestId('transcription-confirm-button');
+      if (await isVisibleWithin(confirmButton, getTimeout(3000))) {
+        await confirmButton.click();
       }
+
+      // 転記が実行されたことを主張してから、既存値が保たれているかを見る
+      await expect(page.getByTestId('transcription-message')).toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
       // REQ-34.3: 転記後も既存値（99999）が保持される
       await expect(netInput).toHaveValue('99999');

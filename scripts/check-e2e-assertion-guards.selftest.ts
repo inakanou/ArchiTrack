@@ -853,6 +853,103 @@ const VOCABULARY_RULES: Case[] = [
 ];
 
 // ============================================================================
+// 115.127 段7: 再試行の成功時に関数ごと抜ける形（retryExhaustionFailureExclusion）
+//
+// 規則で対象外にする以上、**その規則が守っている境界**を両側から固定する。
+// 守られていない防護は防護ではない（Task 115.128）。
+// 「捕捉してはならない書き方」を 1 件、規則の各条件が効いていることを示す
+// 「捕捉しなければならない書き方」を 3 件（throw が無い／分岐が主張を包む／
+// throw が握り潰されうる）登録する。
+// ============================================================================
+
+const RETRY_EXHAUSTION: Case[] = [
+  {
+    name: '段7-1 再試行の成功時 return ＋繰り返し直後の無条件 throw は検出しない',
+    // 実例 e2e/specs/auth/invitations.spec.ts:51。
+    // 結末は「成立したので抜ける」か「上限まで成立せず throw で落ちる」の二つだけで、
+    // 素通りする経路が無い。throw より後の文は到達しないため飛び越す検証も存在しない。
+    source: [
+      'async function loadInvitationPage(page: Page): Promise<void> {',
+      '  let lastError: Error | null = null;',
+      '  for (let attempt = 0; attempt < 3; attempt++) {',
+      "    await page.goto('/invitations');",
+      '    const errorAlert = page.getByText(/招待一覧を取得できませんでした/i);',
+      '    const hasError = (await errorAlert.count()) > 0 && (await errorAlert.isVisible());',
+      '    if (!hasError) {',
+      '      return;',
+      '    }',
+      "    lastError = new Error('招待一覧の取得に失敗しました');",
+      '  }',
+      "  throw lastError ?? new Error('招待画面のロードに失敗しました');",
+      '}',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T1-conditional-expect', 'T4-response-field-gate', 'T5-observed-result-gate'],
+  },
+  {
+    name: '段7-2 繰り返しの後に throw が無ければ検出する（上限に達しても黙って戻る）',
+    // 規則の条件 (d)。上限まで成立しなかったときに何も起きないなら真正の沈黙脱出であり、
+    // 呼び出し側は前提が崩れたまま先へ進む。
+    source: [
+      'async function loadInvitationPage(page: Page): Promise<void> {',
+      '  for (let attempt = 0; attempt < 3; attempt++) {',
+      "    await page.goto('/invitations');",
+      '    const errorAlert = page.getByText(/招待一覧を取得できませんでした/i);',
+      '    const hasError = (await errorAlert.count()) > 0 && (await errorAlert.isVisible());',
+      '    if (!hasError) {',
+      '      return;',
+      '    }',
+      '  }',
+      '}',
+    ].join('\n'),
+    expected: ['T5-observed-result-gate'],
+  },
+  {
+    name: '段7-3 分岐の内側に expect があれば検出する（主張を包む分岐は再試行の待機ではない）',
+    // 規則の条件 (a)。繰り返しの後に throw があっても、観測が偽の周回では主張が実行されない。
+    // 「上限まで一度も成立しない」場合にだけ落ちる形は、主張が飛ぶことを止めていない。
+    source: [
+      'async function loadInvitationPage(page: Page): Promise<void> {',
+      '  for (let attempt = 0; attempt < 3; attempt++) {',
+      "    await page.goto('/invitations');",
+      '    const errorAlert = page.getByText(/招待一覧を取得できませんでした/i);',
+      '    const hasError = (await errorAlert.count()) > 0 && (await errorAlert.isVisible());',
+      '    if (!hasError) {',
+      "      await expect(page.getByRole('table')).toBeVisible();",
+      '      return;',
+      '    }',
+      '  }',
+      "  throw new Error('招待画面のロードに失敗しました');",
+      '}',
+    ].join('\n'),
+    expected: ['T5-observed-result-gate'],
+  },
+  {
+    name: '段7-4 繰り返しと関数の境界の間に try が挟まれば検出する（throw が握り潰されうる）',
+    // 規則の条件 (d) の但し書き。throw が捕捉されれば関数は黙って戻り、
+    // 「上限まで成立しなかった」ことが呼び出し側に伝わらない。
+    source: [
+      'async function loadInvitationPage(page: Page): Promise<void> {',
+      '  try {',
+      '    for (let attempt = 0; attempt < 3; attempt++) {',
+      "      await page.goto('/invitations');",
+      '      const errorAlert = page.getByText(/招待一覧を取得できませんでした/i);',
+      '      const hasError = (await errorAlert.count()) > 0 && (await errorAlert.isVisible());',
+      '      if (!hasError) {',
+      '        return;',
+      '      }',
+      '    }',
+      "    throw new Error('招待画面のロードに失敗しました');",
+      '  } catch {',
+      "    console.warn('招待画面のロードに失敗しましたが続行します');",
+      '  }',
+      '}',
+    ].join('\n'),
+    expected: ['T5-observed-result-gate'],
+  },
+];
+
+// ============================================================================
 // 実行
 // ============================================================================
 
@@ -899,6 +996,7 @@ function main(): void {
     { title: '115.137 観測の語彙と沈黙脱出の見極め', cases: OBSERVATION_VOCABULARY },
     { title: '115.137 探索・再試行の定型を負債として数えない', cases: LOOP_ESCAPE },
     { title: '115.137 語彙の二つの規則と走査対象', cases: VOCABULARY_RULES },
+    { title: '115.127 段7 再試行の成功時に抜ける形の境界', cases: RETRY_EXHAUSTION },
   ];
 
   console.log('🔍 検証無効化の検出規則 自己検査 (scripts/check-e2e-assertion-guards.selftest.ts)');

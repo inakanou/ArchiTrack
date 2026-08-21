@@ -11,7 +11,7 @@
  * @module e2e/specs/estimate-requests/structured-data-ocr-e2e.spec
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
@@ -22,6 +22,57 @@ import { selectFirstRealOption } from '../../helpers/form-preconditions';
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/**
+ * Claude Vision の抽出結果として固定で返す明細行
+ *
+ * REQ-13.10 の一括取り込みボタンは「構造化データが1件以上検出された」ときにだけ現れる
+ * （`OcrDataExtractor.tsx` の `parsedLineItems.length > 0`）。
+ * 実画像のOCR結果に依存させると検出件数が定まらず、
+ * 「検出できたら検証する」という沈黙する関門を書かざるを得なくなる。
+ * 抽出結果を固定すれば、REQ-13.10〜13.13 を無条件に主張できる。
+ */
+const STUBBED_EXTRACTED_LINE_ITEMS = [
+  {
+    customCategory: null,
+    workType: '土工',
+    name: '掘削工',
+    specification: 'バックホウ',
+    unit: 'm3',
+    quantity: 100.5,
+    unitPrice: 2500,
+    amount: 251250,
+    remarks: null,
+  },
+  {
+    customCategory: null,
+    workType: '土工',
+    name: '埋戻し',
+    specification: null,
+    unit: 'm3',
+    quantity: 50,
+    unitPrice: 1500,
+    amount: 75000,
+    remarks: '再利用土',
+  },
+] as const;
+
+/**
+ * 画像アップロード時のOCR抽出結果を {@link STUBBED_EXTRACTED_LINE_ITEMS} に固定する。
+ *
+ * 画面遷移の前に呼ぶこと。
+ *
+ * @param page Playwright のページ
+ */
+async function stubExtractionResult(page: Page): Promise<void> {
+  await page.route('**/api/claude-vision/extract', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ lineItems: STUBBED_EXTRACTED_LINE_ITEMS, pageCount: 1 }),
+    })
+  );
+}
 
 /**
  * 受領見積書フォームを確実に初期状態で開く
@@ -716,16 +767,15 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
      * @requirement estimate-request/REQ-13.11
      * @requirement estimate-request/REQ-13.12
      * 一括取り込みボタンによる明細行自動入力と金額自動計算の確認
-     * Note: 一括取り込みはデータが検出された場合のみ表示される
-     *       E2E環境ではOCR処理完了を保証できないため、処理開始を確認後、
-     *       一括取り込みボタンが表示された場合のみ動作を検証
      */
-    test('REQ-13.10/11/12: 一括取り込みボタンで明細行にデータが入力される（データ検出時）', async ({
-      page,
-    }) => {
+    test('REQ-13.10/11/12: 一括取り込みボタンで明細行にデータが入力される', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
+
+      // 検出件数を実画像のOCR結果に委ねると「検出できたら検証する」形になり、
+      // REQ-13.10〜13.12 の主張が一度も実行されない回が生じる。抽出結果を固定する。
+      await stubExtractionResult(page);
 
       await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
       await page.waitForLoadState('networkidle');
@@ -737,38 +787,46 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
       const fileInput = page.locator('input[type="file"]');
       await fileInput.setInputFiles(testFilePath);
 
-      // OCR処理が開始されることを確認（処理中・完了・エラーのいずれか）
-      await expect(
-        page
-          .locator('[data-testid="ocr-progress-indicator"]')
-          .or(page.locator('[data-testid="ocr-extracted-text"]'))
-          .or(page.locator('[data-testid="ocr-error-message"]'))
-          .first()
-      ).toBeVisible({ timeout: getTimeout(60000) });
-
-      // 一括取り込みボタンが表示された場合のみテスト（OCR完了かつデータ検出時）
+      // REQ-13.10: 抽出結果から一括取り込みボタンが表示される
       const importButton = page.locator('[data-testid="ocr-import-button"]');
-      if (await isVisibleWithin(importButton, 5000)) {
-        await importButton.click();
+      await expect(importButton).toBeVisible({ timeout: getTimeout(60000) });
+      await expect(page.getByText('2件のデータが検出されました')).toBeVisible();
 
-        // 取り込み成功メッセージが表示される
-        await expect(page.locator('[data-testid="ocr-import-success"]')).toBeVisible({
-          timeout: getTimeout(5000),
-        });
-      }
+      await importButton.click();
+
+      // 取り込み成功メッセージが表示される
+      await expect(page.locator('[data-testid="ocr-import-success"]')).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+
+      // REQ-13.11: 工種・名称・規格・単位・数量・単価が各明細行のフィールドに自動入力される
+      await expect(page.getByRole('textbox', { name: '行1 名称' })).toHaveValue('掘削工');
+      await expect(page.getByRole('textbox', { name: '行1 工種' })).toHaveValue('土工');
+      await expect(page.getByRole('textbox', { name: '行1 規格' })).toHaveValue('バックホウ');
+      await expect(page.getByRole('textbox', { name: '行1 単位' })).toHaveValue('m3');
+      await expect(page.getByRole('textbox', { name: '行1 数量' })).toHaveValue('100.50');
+      await expect(page.getByRole('textbox', { name: '行1 単価' })).toHaveValue('2500');
+      await expect(page.getByRole('textbox', { name: '行2 名称' })).toHaveValue('埋戻し');
+
+      // REQ-13.12: 取り込まれた各行の金額が自動計算される（数量 × 単価）
+      const amountCells = page.locator('[data-testid="line-item-amount"]');
+      await expect(amountCells.nth(0)).toHaveText('251,250');
+      await expect(amountCells.nth(1)).toHaveText('75,000');
     });
 
     /**
      * @requirement estimate-request/REQ-13.13
      * 取り込み結果の確認・修正メッセージ表示の確認
-     * Note: E2E環境ではOCR処理完了を保証できないため、処理開始を確認後、
-     *       一括取り込みボタンが表示された場合のみ動作を検証
      */
     test('REQ-13.13: 一括取り込み後に確認・修正メッセージが表示される', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
 
+      // 一括取り込みボタンは構造化データが検出されたときにだけ現れる。
+      // 検出件数を実画像のOCR結果に委ねると REQ-13.13 の主張が一度も実行されない回が生じる。
+      await stubExtractionResult(page);
+
       await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
       await page.waitForLoadState('networkidle');
 
@@ -779,25 +837,16 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
       const fileInput = page.locator('input[type="file"]');
       await fileInput.setInputFiles(testFilePath);
 
-      // OCR処理が開始されることを確認（処理中・完了・エラーのいずれか）
-      await expect(
-        page
-          .locator('[data-testid="ocr-progress-indicator"]')
-          .or(page.locator('[data-testid="ocr-extracted-text"]'))
-          .or(page.locator('[data-testid="ocr-error-message"]'))
-          .first()
-      ).toBeVisible({ timeout: getTimeout(60000) });
-
-      // 一括取り込みボタンが表示された場合（OCR完了かつデータ検出時）
+      // 抽出結果を固定しているため、一括取り込みボタンは必ず表示される
       const importButton = page.locator('[data-testid="ocr-import-button"]');
-      if (await isVisibleWithin(importButton, 5000)) {
-        await importButton.click();
+      await expect(importButton).toBeVisible({ timeout: getTimeout(60000) });
 
-        // 確認・修正メッセージが表示される
-        await expect(page.getByText(/内容を確認し、必要に応じて修正してください/i)).toBeVisible({
-          timeout: getTimeout(5000),
-        });
-      }
+      await importButton.click();
+
+      // REQ-13.13: 確認・修正を促すメッセージが表示される
+      await expect(page.getByText(/内容を確認し、必要に応じて修正してください/i)).toBeVisible({
+        timeout: getTimeout(5000),
+      });
     });
 
     /**

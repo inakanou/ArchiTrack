@@ -656,43 +656,42 @@ test.describe('取引先データインテグリティ', () => {
       await page.goto(`/trading-partners/${partnerId}`);
       await page.waitForLoadState('networkidle');
 
-      // 削除ボタンが表示されないか、無効化されていることを確認
+      // 削除ボタンは権限によらず描画される
+      // （TradingPartnerDetailView は onDelete を無条件に配線している）。
+      // 「表示されていれば」で包むと、権限制御そのものの検証が黙って消えるため無条件に主張する。
       const deleteButton = page.getByRole('button', { name: /削除/i });
-      const isVisible = await deleteButton.isVisible().catch(() => false);
+      await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (isVisible) {
-        // ボタンが表示されている場合は、クリックしても削除できないことを確認
-        await deleteButton.click();
+      // ボタンが表示されている以上、クリックしても削除できないことを確認する
+      await deleteButton.click();
 
-        // 確認ダイアログが表示された場合
-        const confirmDialog = page.getByText(/取引先の削除/i);
-        const dialogVisible = await confirmDialog.isVisible().catch(() => false);
+      // 確認ダイアログは isOpen によって無条件に描画される（TradingPartnerDeleteDialog）。
+      // 「ダイアログが出ていれば」で包むと、ダイアログが出なくなった時点で
+      // REQ-7.2 / REQ-7.3 の検証が一つも実行されないまま緑になる。
+      const confirmDialog = page.getByText(/取引先の削除/i);
+      await expect(confirmDialog).toBeVisible({ timeout: getTimeout(10000) });
 
-        if (dialogVisible) {
-          const deletePromise = page.waitForResponse(
-            (response) =>
-              response.url().includes(`/api/trading-partners/${partnerId}`) &&
-              response.request().method() === 'DELETE',
-            { timeout: getTimeout(10000) }
-          );
+      const deletePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes(`/api/trading-partners/${partnerId}`) &&
+          response.request().method() === 'DELETE',
+        { timeout: getTimeout(10000) }
+      );
 
-          await page
-            .getByTestId('focus-manager-overlay')
-            .getByRole('button', { name: /^削除$/i })
-            .click()
-            .catch(() => {});
+      // REQ-7.2: 削除操作に対して権限チェックが実行される
+      await page
+        .getByTestId('focus-manager-overlay')
+        .getByRole('button', { name: /^削除$/i })
+        .click();
 
-          // REQ-7.3: 確認ダイアログで削除を確定した以上、削除APIは必ず呼び出される。
-          // 以前は応答を取り逃がした場合に null へ畳んで主張ごと飛ばしていたため、
-          // 削除要求が送られなくなっても緑のままだった。応答の到達自体を主張する。
-          const deleteResponse = await deletePromise;
-          expect(
-            deleteResponse.status(),
-            'REQ-7.3: 削除権限を持たないユーザーの削除要求は 403 になる'
-          ).toBe(403);
-        }
-      }
-      // 削除ボタンが表示されない場合は、権限制御が正しく動作している
+      // REQ-7.3: 確認ダイアログで削除を確定した以上、削除APIは必ず呼び出される。
+      // 以前は応答を取り逃がした場合に null へ畳んで主張ごと飛ばしていたため、
+      // 削除要求が送られなくなっても緑のままだった。応答の到達自体を主張する。
+      const deleteResponse = await deletePromise;
+      expect(
+        deleteResponse.status(),
+        'REQ-7.3: 削除権限を持たないユーザーの削除要求は 403 になる'
+      ).toBe(403);
     });
   });
 });

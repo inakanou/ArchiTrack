@@ -13,6 +13,13 @@
  * すなわち `isSelect` は常に偽で、分岐は一度も発火していない。
  * それでも残っていると、実装がセレクトボックスへ退行した瞬間に REQ-16 の検証が
  * 丸ごと消えて緑になる。前提が崩れたら失敗するよう、分岐そのものを除いた。
+ *
+ * ## 残っていた全域分岐も除いたこと（Task 115.127 段7・G群）
+ *
+ * REQ-16.11 のテストだけは `if (isSelect) { … } else { … }` の全域分岐として残っていた。
+ * 沈黙はしないが、実装がセレクトボックスへ退行すると REQ-16.11 の検証が
+ * 「選択肢が1件以上ある」という別物へすり替わる。実装形態は観測して分岐せず、
+ * `<input>` であることを無条件に主張してから本来の検証を行う形へ改めた。
  */
 
 import { test, expect } from '@playwright/test';
@@ -70,33 +77,36 @@ test.describe('取引先オートコンプリート連携', () => {
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
+      // REQ-16.10 は「候補をクリックすると選択された顧客を設定する」ことを定める。
+      // 「-- 選択なし --」以外の候補が無いと主張が一つも実行されないため、
+      // クリック対象となる取引先をテスト自身が用意する。
+      const partner = await seedTradingPartner(page, 'E2E候補クリック');
+
       await page.goto('/projects/new');
       await page.waitForLoadState('networkidle');
 
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
+      await expect(tradingPartnerInput).toBeVisible({ timeout: getTimeout(10000) });
 
-      // コンボボックス（オートコンプリート）の場合
-      // まずフィールドをクリックしてオプションを表示
-      await tradingPartnerInput.click();
+      // 用意した取引先だけが候補に残るよう、その名称で絞り込む
+      await tradingPartnerInput.fill(partner.name);
 
       // オートコンプリート候補が表示されるまで待機
-      const autocompleteList = page.getByRole('listbox');
+      const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
       await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 「-- 選択なし --」以外の実際の取引先オプションを探す
-      const options = autocompleteList.getByRole('option');
-      const optionCount = await options.count();
+      // 用意した取引先が候補として並ぶ（「-- 選択なし --」以外の実在の候補）
+      const seededOption = autocompleteList
+        .locator('[role="option"]')
+        .filter({ hasText: partner.name });
+      await expect(seededOption).toHaveCount(1);
 
-      // 2番目以降のオプション（実際の取引先）がある場合はそれを選択
-      if (optionCount > 1) {
-        const realOption = options.nth(1);
-        await realOption.click();
+      // REQ-1.4 / REQ-16.10: マウスで候補をクリックすると選択された顧客が設定される
+      await seededOption.click();
 
-        // 取引先フィールドに選択した値（の一部）が反映されることを確認
-        // オートコンプリートは表示形式が異なる場合があるため、空でないことを確認
-        const inputValue = await tradingPartnerInput.inputValue();
-        expect(inputValue).toBeTruthy();
-      }
+      // 取引先フィールドに、クリックした候補の取引先名が反映されることを確認
+      // （部課・代表者名を持たない取引先のため、表示形式は「名前」のみとなる）
+      await expect(tradingPartnerInput).toHaveValue(partner.name, { timeout: getTimeout(5000) });
     });
 
     /**
@@ -257,51 +267,47 @@ test.describe('取引先オートコンプリート連携', () => {
       const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
       await expect(tradingPartnerInput).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 取引先フィールドがセレクトボックスかオートコンプリートかを確認
-      const isSelect = await tradingPartnerInput.evaluate((el) => el.tagName === 'SELECT');
+      // REQ-16.1 が定めるオートコンプリート併用UIは <input role="combobox"> で実装されている
+      // （frontend/src/components/projects/TradingPartnerSelect.tsx）。
+      // 「セレクトボックスなら別の検証、そうでなければ本来の検証」という全域分岐は、
+      // 実装がセレクトボックスへ退行した瞬間に REQ-16.11 の検証を別物へすり替えてしまう。
+      // 実装形態は観測して分岐するのではなく、ここで無条件に主張する。
+      const tagName = await tradingPartnerInput.evaluate((el) => el.tagName);
+      expect(tagName, 'REQ-16.1: 顧客名フィールドはオートコンプリート併用の入力欄である').toBe(
+        'INPUT'
+      );
 
-      if (isSelect) {
-        // セレクトボックスであれば自由入力は不可（要件を満たす）
-        expect(isSelect).toBe(true);
+      // 自由入力テキストは値として保存されず、フィルタリング用にのみ使用される。
+      // 入力後にフォーカスを外すと、選択されていない場合は入力がクリアされる。
 
-        // 選択肢として取引先マスタの候補が表示されることを確認
-        const options = await tradingPartnerInput.locator('option').all();
-        // 少なくともプレースホルダーオプションが存在
-        expect(options.length).toBeGreaterThan(0);
-      } else {
-        // オートコンプリート実装の場合:
-        // 自由入力テキストは値として保存されず、フィルタリング用にのみ使用される
-        // 入力後にフォーカスを外すと、選択されていない場合は入力がクリアされる
+      // 存在しない取引先名を入力
+      await tradingPartnerInput.fill('存在しない任意テキスト');
 
-        // 存在しない取引先名を入力
-        await tradingPartnerInput.fill('存在しない任意テキスト');
+      // 入力中はテキストが表示される
+      await expect(tradingPartnerInput).toHaveValue('存在しない任意テキスト');
 
-        // 入力中はテキストが表示される
-        await expect(tradingPartnerInput).toHaveValue('存在しない任意テキスト');
+      // ドロップダウンが表示され、候補がないことを確認。
+      // TradingPartnerSelect は入力で isOpen になり、一致が無い場合も一覧自体は開く
+      // （filteredPartners.length === 0 のとき「該当する取引先がありません」を表示する）。
+      // 以前は「一覧が見えていたら」という関門で包んでいたため、
+      // 一覧が開かなくなっても候補数の主張が実行されず緑のままだった。
+      const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
 
-        // ドロップダウンが表示され、候補がないことを確認。
-        // TradingPartnerSelect は入力で isOpen になり、一致が無い場合も一覧自体は開く
-        // （filteredPartners.length === 0 のとき「該当する取引先がありません」を表示する）。
-        // 以前は「一覧が見えていたら」という関門で包んでいたため、
-        // 一覧が開かなくなっても候補数の主張が実行されず緑のままだった。
-        const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
-        await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
+      // 一致する候補がないこと（選択できるのは「-- 選択なし --」の高々1件）
+      const options = await autocompleteList.locator('[role="option"]').all();
+      expect(options.length).toBeLessThanOrEqual(1);
 
-        // 一致する候補がないこと（選択できるのは「-- 選択なし --」の高々1件）
-        const options = await autocompleteList.locator('[role="option"]').all();
-        expect(options.length).toBeLessThanOrEqual(1);
+      // フォーカスを外す（別のフィールドをクリック）
+      await page.getByLabel(/プロジェクト名/i).click();
 
-        // フォーカスを外す（別のフィールドをクリック）
-        await page.getByLabel(/プロジェクト名/i).click();
+      // オートコンプリートは自由入力を値として保持しないため、
+      // 選択されなかった場合は入力がクリアされる（空になるか、プレースホルダーが表示される）
+      const inputValue = await tradingPartnerInput.inputValue();
 
-        // オートコンプリートは自由入力を値として保持しないため、
-        // 選択されなかった場合は入力がクリアされる（空になるか、プレースホルダーが表示される）
-        const inputValue = await tradingPartnerInput.inputValue();
-
-        // 自由入力テキストが値として保持されていないことを確認
-        // （空文字列、または元のプレースホルダーに戻る）
-        expect(inputValue).not.toBe('存在しない任意テキスト');
-      }
+      // REQ-16.11: 自由入力テキストが値として保持されていないことを確認
+      // （空文字列、または元のプレースホルダーに戻る）
+      expect(inputValue).not.toBe('存在しない任意テキスト');
     });
 
     /**

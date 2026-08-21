@@ -15,12 +15,80 @@
  * @module e2e/specs/quantity-tables/quantity-table-copy.spec
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared, assertPresent } from '../../helpers/preconditions';
+
+/** REQ-17.4 の独立性検証でコピー先だけに追加する数量項目の工種 */
+const INDEPENDENCE_WORK_TYPE = '独立性テスト工種';
+/** REQ-17.4 の独立性検証でコピー先だけに追加する数量項目の名称 */
+const INDEPENDENCE_ITEM_NAME = '独立性テスト名称';
+
+/** API から取得した数量表のうち、コピーの一致（REQ-17.2）と独立性（REQ-17.4）の検証に使う部分 */
+type QuantityTableSnapshot = {
+  name: string;
+  groups: Array<{ name: string; displayOrder: number; items: Array<{ name: string }> }>;
+};
+
+/** 取得結果。失敗を null に畳まず、理由を持ち帰って失敗メッセージに出す */
+type SnapshotResult = { data?: QuantityTableSnapshot; error?: string };
+
+/**
+ * 数量表をブラウザコンテキストの apiClient 経由で取得する。取得できなければその場で失敗する。
+ *
+ * `page.request` は Playwright の baseURL（配信サーバ）へ送られてしまうため、
+ * バックエンドの URL を保持する `window.__apiClient`（`frontend/src/api/client.ts` が
+ * 常時公開）を用いる。
+ *
+ * 従来は取得に失敗すると `null` を返し、呼び出し側が UI 経由の弱い検証へ落ちていた。
+ * 「取得できなかった」と「コピーが正しい／独立している」は別物であり、前者を後者として
+ * 黙って扱っていたため、取得が壊れた瞬間に REQ-17.2 / REQ-17.4 の検証が消える。
+ *
+ * @param page Playwright のページ（ログイン済みであること）
+ * @param quantityTableId 取得対象の数量表ID
+ * @param label 失敗メッセージに用いる対象の呼び名（例: `'元'` / `'コピー先'`）
+ * @throws IDが未設定・apiClient が無い・API 呼び出しが失敗した場合
+ */
+async function readQuantityTableSnapshot(
+  page: Page,
+  quantityTableId: string | null,
+  label: string
+): Promise<QuantityTableSnapshot> {
+  assertPrepared(quantityTableId, `${label}の数量表のID`);
+
+  const result = (await page.evaluate(async (id) => {
+    const client = (
+      window as unknown as {
+        __apiClient?: { get: (path: string) => Promise<unknown> };
+      }
+    ).__apiClient;
+    if (!client) {
+      return { error: 'ブラウザコンテキストに __apiClient が公開されていない' };
+    }
+    try {
+      return { data: await client.get(`/api/quantity-tables/${id}`) };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : String(error) };
+    }
+  }, quantityTableId)) as SnapshotResult;
+
+  expect(result.error ?? null, `前提: ${label}の数量表をAPIで取得できる`).toBeNull();
+  assertPresent(result.data, `${label}の数量表のAPI応答`);
+  return result.data;
+}
+
+/** 数量表に含まれる数量項目の総数を数える */
+function countItems(snapshot: QuantityTableSnapshot): number {
+  return snapshot.groups.reduce((acc, group) => acc + group.items.length, 0);
+}
+
+/** 数量表に含まれる数量項目の名称を列挙する */
+function itemNames(snapshot: QuantityTableSnapshot): string[] {
+  return snapshot.groups.flatMap((group) => group.items.map((item) => item.name));
+}
 
 /**
  * 数量表コピー機能のE2Eテスト
@@ -267,65 +335,42 @@ test.describe('数量表コピー機能', () => {
 
       // ブラウザコンテキスト内のapiClientを使用してAPI経由でデータを取得
       // （page.requestはPlaywrightのbaseURLに送信されるため、バックエンドURLを持つapiClientを使用）
-      const apiData = await page.evaluate(
-        async ({ sourceId, copiedId }) => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const client = (window as any).__apiClient;
-          if (!client) return null;
-          try {
-            const [source, copied] = await Promise.all([
-              client.get(`/api/quantity-tables/${sourceId}`),
-              client.get(`/api/quantity-tables/${copiedId}`),
-            ]);
-            return { source, copied };
-          } catch {
-            return null;
-          }
-        },
-        {
-          sourceId: sourceQuantityTableId!,
-          copiedId: copiedQuantityTableId!,
-        }
+      //
+      // 取得に失敗しても null を返して UI 経由の弱い検証（名称の表示のみ）へ落ちる形だったため、
+      // REQ-17.2 が定めるグループ・項目の一致は取得が失敗した瞬間に検証されなくなっていた。
+      // 取得の失敗はその場で失敗させる（readQuantityTableSnapshot）。
+      const sourceData = await readQuantityTableSnapshot(page, sourceQuantityTableId, '元');
+      const copiedData = await readQuantityTableSnapshot(page, copiedQuantityTableId, 'コピー先');
+
+      // グループ数が一致
+      expect(copiedData.groups.length, 'REQ-17.2: コピー先のグループ数が元と一致する').toBe(
+        sourceData.groups.length
       );
 
-      if (apiData) {
-        const { source: sourceData, copied: copiedData } = apiData;
+      // 各グループの名前と表示順序が一致
+      for (const sourceGroup of sourceData.groups) {
+        const copiedGroup = copiedData.groups.find(
+          (g) => g.displayOrder === sourceGroup.displayOrder
+        );
 
-        // グループ数が一致
-        expect(copiedData.groups.length).toBe(sourceData.groups.length);
+        // REQ-17.2: 元のグループはすべて同じ表示順でコピーされる。
+        // 見つからないまま黙って次のグループへ進むと、コピー漏れが検出されない。
+        assertPresent(
+          copiedGroup,
+          `コピー先の displayOrder=${sourceGroup.displayOrder} に対応するグループ`
+        );
+        expect(copiedGroup.name, 'REQ-17.2: グループ名がコピーされる').toBe(sourceGroup.name);
 
-        // 各グループの名前と表示順序が一致
-        for (let i = 0; i < sourceData.groups.length; i++) {
-          const sourceGroup = sourceData.groups[i];
-          const copiedGroup = copiedData.groups.find(
-            (g: { displayOrder: number }) => g.displayOrder === sourceGroup.displayOrder
-          );
-
-          // REQ-17.2: 元のグループはすべて同じ表示順でコピーされる。
-          // 見つからないまま黙って次のグループへ進むと、コピー漏れが検出されない。
-          assertPresent(
-            copiedGroup,
-            `コピー先の displayOrder=${sourceGroup.displayOrder} に対応するグループ`
-          );
-          expect(copiedGroup.name).toBe(sourceGroup.name);
-
-          // 各グループ内の項目数が一致
-          expect(copiedGroup.items.length).toBe(sourceGroup.items.length);
-        }
-
-        // 数量表名はコピー時に指定した名前であること
-        expect(copiedData.name).toBe('コピーテスト数量表');
-      } else {
-        // APIアクセスが失敗した場合はUI経由で検証
-        // コピー先の数量表編集画面に移動
-        await page.goto(`/projects/${testProjectId}/quantity-tables/${copiedQuantityTableId}`);
-        await page.waitForLoadState('networkidle');
-
-        // 数量表名が正しいことを確認
-        await expect(page.getByText('コピーテスト数量表')).toBeVisible({
-          timeout: getTimeout(10000),
-        });
+        // 各グループ内の項目数が一致
+        expect(copiedGroup.items.length, 'REQ-17.2: グループ内の項目数が一致する').toBe(
+          sourceGroup.items.length
+        );
       }
+
+      // 数量表名はコピー時に指定した名前であること
+      expect(copiedData.name, 'REQ-17.1: コピー時に指定した数量表名が保存される').toBe(
+        'コピーテスト数量表'
+      );
     });
 
     /**
@@ -415,97 +460,95 @@ test.describe('数量表コピー機能', () => {
 
       // 元の数量表の現在の状態をAPI経由で取得（変更前の状態を記録）
       // ブラウザコンテキスト内のapiClientを使用
-      const sourceBeforeData = await page.evaluate(async (sourceId) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const client = (window as any).__apiClient;
-        if (!client) return null;
-        try {
-          return await client.get(`/api/quantity-tables/${sourceId}`);
-        } catch {
-          return null;
-        }
-      }, sourceQuantityTableId!);
+      const sourceBeforeData = await readQuantityTableSnapshot(page, sourceQuantityTableId, '元');
 
-      let sourceGroupCountBefore: number | null = null;
-      let sourceItemCountBefore: number | null = null;
-
-      if (sourceBeforeData) {
-        sourceGroupCountBefore = sourceBeforeData.groups?.length ?? null;
-        sourceItemCountBefore =
-          sourceBeforeData.groups?.reduce(
-            (acc: number, g: { items: unknown[] }) => acc + (g.items?.length ?? 0),
-            0
-          ) ?? null;
-      }
+      const sourceGroupCountBefore = sourceBeforeData.groups.length;
+      const sourceItemCountBefore = countItems(sourceBeforeData);
 
       // コピー先の数量表編集画面に移動
       await page.goto(`/projects/${testProjectId}/quantity-tables/${copiedQuantityTableId}`);
       await page.waitForLoadState('networkidle');
 
-      // コピー先の数量表に項目を追加する
+      // コピー先の数量表に項目を追加する。
+      // 「操作できるものがあれば操作する」形では、追加も入力も起きないまま
+      // 「元が変わっていない」を主張することになり、独立性を確かめたことにならない。
+      // 追加・入力・保存はいずれも無条件に行い、成立するまで待つ。
+      const itemRows = page.getByTestId('quantity-item-row');
+      const itemRowsBefore = await itemRows.count();
+
       const addItemButton = page
         .getByRole('button', { name: /行追加|項目追加|項目を追加/i })
         .first();
+      await expect(addItemButton, '前提: コピー先に項目追加の操作が提供される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await addItemButton.click();
+      await expect(itemRows, '前提: コピー先に数量項目が1行増える').toHaveCount(
+        itemRowsBefore + 1,
+        { timeout: getTimeout(10000) }
+      );
 
-      if (await isVisibleWithin(addItemButton, getTimeout(5000))) {
-        await addItemButton.click();
-        await page.waitForTimeout(1000);
+      // 追加された項目に値を入力（行スコープの id 属性 suffix セレクタで特定する）
+      const addedRow = itemRows.nth(itemRowsBefore);
+      const addedWorkTypeInput = addedRow.locator('input[id$="-workType"]').first();
+      await expect(addedWorkTypeInput, '前提: 追加した行の工種欄が表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await addedWorkTypeInput.fill(INDEPENDENCE_WORK_TYPE);
+      await addedWorkTypeInput.blur();
 
-        // 追加された項目に値を入力（placeholderで特定）
-        const lastWorkTypeInput = page.getByPlaceholder('工種を入力').last();
-        if (await isVisibleWithin(lastWorkTypeInput, 3000)) {
-          await lastWorkTypeInput.fill('独立性テスト工種');
-        }
+      const addedNameInput = addedRow.locator('input[id$="-name"]').first();
+      await expect(addedNameInput, '前提: 追加した行の名称欄が表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await addedNameInput.fill(INDEPENDENCE_ITEM_NAME);
+      await addedNameInput.blur();
 
-        const lastNameInput = page.getByPlaceholder('名称を入力').last();
-        if (await isVisibleWithin(lastNameInput, 3000)) {
-          await lastNameInput.fill('独立性テスト名称');
-          await lastNameInput.blur();
-        }
+      // REQ-42.5 移行: 編集はドラフトのため、明示保存してコピー先へ実際に永続化する。
+      // これにより「コピー先への永続的変更が元に影響しない（REQ-17.4 独立性）」を実検証する。
+      await saveQuantityTableDraft(page);
 
-        // REQ-42.5 移行: 編集はドラフトのため、明示保存してコピー先へ実際に永続化する。
-        // これにより「コピー先への永続的変更が元に影響しない（REQ-17.4 独立性）」を実検証する。
-        await saveQuantityTableDraft(page);
-      }
+      // 肯定側の対照: コピー先には実際に項目が増えている。
+      // これを先に確かめておかないと、以降の「元は変わっていない」は
+      // 「そもそも何も変えていない」でも成立してしまう。
+      const copiedAfterData = await readQuantityTableSnapshot(
+        page,
+        copiedQuantityTableId,
+        'コピー先'
+      );
+      expect(
+        itemNames(copiedAfterData),
+        '前提: コピー先に追加した数量項目が永続化されている'
+      ).toContain(INDEPENDENCE_ITEM_NAME);
 
-      // 元の数量表のデータが変更されていないことをAPI経由で確認
-      const sourceAfterData = await page.evaluate(async (sourceId) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const client = (window as any).__apiClient;
-        if (!client) return null;
-        try {
-          return await client.get(`/api/quantity-tables/${sourceId}`);
-        } catch {
-          return null;
-        }
-      }, sourceQuantityTableId!);
+      // 元の数量表のデータが変更されていないことをAPI経由で確認。
+      // 取得できなければ UI 経由の弱い検証（工種名が見えないこと）へ落ちる形だったが、
+      // 「取得できなかった」と「独立している」は別物であり、前者を黙って後者として扱っていた。
+      // 取得の失敗はその場で失敗させ、REQ-17.4 の主張は無条件に行う。
+      const sourceAfterData = await readQuantityTableSnapshot(page, sourceQuantityTableId, '元');
 
-      if (sourceAfterData && sourceGroupCountBefore !== null) {
-        const sourceGroupCountAfter = sourceAfterData.groups?.length ?? 0;
-        const sourceItemCountAfter =
-          sourceAfterData.groups?.reduce(
-            (acc: number, g: { items: unknown[] }) => acc + (g.items?.length ?? 0),
-            0
-          ) ?? 0;
+      // 元の数量表のグループ数が変わっていないこと
+      expect(
+        sourceAfterData.groups.length,
+        'REQ-17.4: コピー先への変更後も元の数量表のグループ数は変わらない'
+      ).toBe(sourceGroupCountBefore);
 
-        // 元の数量表のグループ数が変わっていないこと
-        expect(sourceGroupCountAfter).toBe(sourceGroupCountBefore);
+      // 元の数量表の項目数が変わっていないこと
+      expect(
+        countItems(sourceAfterData),
+        'REQ-17.4: コピー先への変更後も元の数量表の項目数は変わらない'
+      ).toBe(sourceItemCountBefore);
 
-        // 元の数量表の項目数が変わっていないこと
-        assertPresent(sourceItemCountBefore, 'コピー前に数えた元の数量表の項目数');
-        expect(sourceItemCountAfter).toBe(sourceItemCountBefore);
+      // 元の数量表名が変わっていないこと
+      expect(sourceAfterData.name, 'REQ-17.4: コピー先への変更後も元の数量表名は変わらない').toBe(
+        'コピー元数量表'
+      );
 
-        // 元の数量表名が変わっていないこと
-        expect(sourceAfterData.name).toBe('コピー元数量表');
-      } else {
-        // APIが利用できない場合はUI経由で検証
-        await page.goto(`/projects/${testProjectId}/quantity-tables/${sourceQuantityTableId}`);
-        await page.waitForLoadState('networkidle');
-
-        // 元の数量表に「独立性テスト工種」が存在しないことを確認
-        const independenceTestText = page.getByText('独立性テスト工種');
-        await expect(independenceTestText).not.toBeVisible({ timeout: getTimeout(5000) });
-      }
+      // 元の数量表にコピー先で追加した項目が現れないこと
+      expect(
+        itemNames(sourceAfterData),
+        'REQ-17.4: コピー先で追加した数量項目は元の数量表に現れない'
+      ).not.toContain(INDEPENDENCE_ITEM_NAME);
     });
   });
 

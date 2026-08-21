@@ -20,9 +20,10 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
+import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPresent } from '../../helpers/preconditions';
 
 /**
  * 保存ボタンをクリックして保存完了を待機するヘルパー
@@ -3222,22 +3223,23 @@ test.describe('見積依頼機能', () => {
         }
       }
 
-      if (emptyTableValue) {
-        await quantityTableSelect.selectOption(emptyTableValue);
-        await page.waitForTimeout(500);
+      // 直前で空の数量表を作成しているため、選択肢は必ず見つかる。
+      // 以前は `if (emptyTableValue) { … } else { expect(emptyTableValue).toBeTruthy(); }` と
+      // 書いていたが、値の絞り込みと失敗の主張が分かれており、else 側を消しても型検査が通った。
+      // 主張と絞り込みを一つの呼び出しへ畳む。
+      assertPresent(emptyTableValue, 'REQ-4.18 検証用に作成した空の数量表の選択肢');
 
-        await page.getByRole('button', { name: /^作成$/i }).click();
+      await quantityTableSelect.selectOption(emptyTableValue);
+      await expect(quantityTableSelect).toHaveValue(emptyTableValue);
 
-        // 項目がない数量表選択時のエラーメッセージが表示される
-        await expect(
-          page.getByText(/選択された数量表に項目がありません|項目がありません/i)
-        ).toBeVisible({
-          timeout: getTimeout(10000),
-        });
-      } else {
-        // 数量表が見つからない場合はテスト失敗
-        expect(emptyTableValue).toBeTruthy();
-      }
+      await page.getByRole('button', { name: /^作成$/i }).click();
+
+      // 項目がない数量表選択時のエラーメッセージが表示される
+      await expect(
+        page.getByText(/選択された数量表に項目がありません|項目がありません/i)
+      ).toBeVisible({
+        timeout: getTimeout(10000),
+      });
     });
 
     /**
@@ -3427,19 +3429,18 @@ test.describe('見積依頼機能', () => {
 
       // 「内訳書を本文に含める」チェックボックスが非表示（Req 39.8）
       // 見積依頼文パネルを開いてもチェックボックスが現れないことを確認
+      // 「見積依頼文を表示」ボタンは REQ-5.1 のとおり常に描画される
+      // （`EstimateRequestDetailPage` のアクションカードで無条件にレンダリングされる）。
+      // 以前は「ボタンが見えなければパネルを開かずに判定する」という全域分岐であったが、
+      // else 側はパネルを開かないため「展開後も非表示である」ことを確かめていなかった。
       const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
-      if (await isVisibleWithin(showTextButton, getTimeout(3000))) {
-        await showTextButton.click();
-        // パネル展開後も「内訳書を本文に含める」は非表示
-        await expect(page.getByLabel(/内訳書を本文に含める/i)).not.toBeVisible({
-          timeout: getTimeout(5000),
-        });
-      } else {
-        // 「見積依頼文を表示」ボタンが存在しない場合でも、最低限のチェックは行う
-        await expect(page.getByLabel(/内訳書を本文に含める/i)).not.toBeVisible({
-          timeout: getTimeout(3000),
-        });
-      }
+      await expect(showTextButton).toBeVisible({ timeout: getTimeout(10000) });
+      await showTextButton.click();
+
+      // パネル展開後も「内訳書を本文に含める」は非表示
+      await expect(page.getByLabel(/内訳書を本文に含める/i)).not.toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
       // 参照内訳書表示が「-」（Req 39.7 関連 / 一覧含む全体方針）
       // 基本情報カード内の「参照内訳書」ラベルに対応する値が「-」
@@ -3703,17 +3704,16 @@ test.describe('見積依頼機能', () => {
       await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
       await checkboxes.first().click();
 
-      // FAX 方法の場合は FAX ラジオを選択
-      if (method === 'FAX') {
-        const faxRadio = page.getByRole('radio', { name: /FAX/i });
-        await faxRadio.click();
-        await expect(faxRadio).toBeChecked({ timeout: getTimeout(5000) });
-      } else {
-        // メール方法（デフォルト）の確認
-        await expect(page.getByRole('radio', { name: /メール/i })).toBeChecked({
-          timeout: getTimeout(10000),
-        });
-      }
+      // 見積依頼方法のラジオを明示的に選択する。
+      // 以前は `if (method === 'FAX') { 選択して確認 } else { 既定の確認だけ }` と
+      // 経路ごとに手順が違ったため、経路によって行われる検証が食い違っていた。
+      // どちらの方法でも「選ぶ → 選ばれている」を同じ手順で行う
+      // （メールは既定で選択済みだが、明示的に選び直しても状態は変わらない）。
+      const methodRadio = page.getByRole('radio', {
+        name: method === 'FAX' ? /FAX/i : /メール/i,
+      });
+      await methodRadio.click();
+      await expect(methodRadio).toBeChecked({ timeout: getTimeout(10000) });
 
       // 保存ボタンで項目選択・見積依頼方法をサーバーに永続化（Task 30改修）
       await clickSaveSelectionButton(page);

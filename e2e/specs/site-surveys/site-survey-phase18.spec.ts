@@ -17,8 +17,9 @@ import { test, expect } from '@playwright/test';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
+import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -618,42 +619,18 @@ test.describe('現場調査 Phase 18 追加要件', () => {
       const photoPanel = page.locator('[aria-label="写真管理パネル"]');
       await expect(photoPanel).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 画像をクリックしてビューア/エディタを開く
+      // 画像をクリックしてビューア/エディタを開く。
+      // 本ファイルは直列実行であり、事前準備が1枚アップロードし、
+      // 直前の「削除確認後に画像が削除される」が1枚追加して1枚削除している。
+      // したがってこの時点の写真は必ず1枚である。
+      // 「無ければアップロードし直す」復旧経路は、写真が失われた欠陥を隠して緑にするため置かない。
+      const photoPanelItems = page.locator('[data-testid="photo-panel-item"]');
+      await expect(photoPanelItems).toHaveCount(1, { timeout: getTimeout(10000) });
+
       const imageButton = page.locator('[data-testid="photo-image-button"]').first();
-      const hasImages = await isVisibleWithin(imageButton, 5000);
+      await expect(imageButton).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (!hasImages) {
-        // 前のテストで画像が削除された可能性があるため、新しい画像をアップロード
-        let fileInput = page.locator('input[type="file"]').first();
-        const fileInputCount = await fileInput.count();
-        if (fileInputCount === 0) {
-          const uploadButton = page.getByRole('button', { name: /画像を追加|アップロード/i });
-          await expect(uploadButton).toBeVisible({ timeout: getTimeout(5000) });
-          await uploadButton.click();
-          fileInput = page.locator('input[type="file"]').first();
-        }
-
-        const testImagePath = path.join(__dirname, '../../fixtures/test-image.jpg');
-        const uploadPromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/site-surveys/') &&
-            response.url().includes('/images') &&
-            response.request().method() === 'POST',
-          { timeout: getTimeout(60000) }
-        );
-
-        await fileInput.setInputFiles(testImagePath);
-        await uploadPromise;
-
-        await page.reload();
-        await page.waitForLoadState('networkidle');
-      }
-
-      // 画像ボタンを再取得
-      const imageButtonAfterUpload = page.locator('[data-testid="photo-image-button"]').first();
-      await expect(imageButtonAfterUpload).toBeVisible({ timeout: getTimeout(10000) });
-
-      await imageButtonAfterUpload.click();
+      await imageButton.click();
 
       // ビューアページに遷移
       await expect(page).toHaveURL(
@@ -697,34 +674,34 @@ test.describe('現場調査 Phase 18 追加要件', () => {
       await loginAsUser(page, 'ADMIN_USER');
 
       // 現場調査を削除
-      if (createdSurveyId) {
-        await page.goto(`/site-surveys/${createdSurveyId}`);
-        await page.waitForLoadState('networkidle');
+      // 前提が用意されていなければ削除すべき対象も無い。黙って戻ると
+      // 「後片付けした」ことになり、前提の生成が壊れたことが記録に残らない。
+      assertPrepared(createdSurveyId, '事前準備で作成した現場調査のID');
+      await page.goto(`/site-surveys/${createdSurveyId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /^削除$/ }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        const confirmButton = page.getByRole('button', { name: '削除する' });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await page.waitForURL(/\/site-surveys$|\/projects\//, { timeout: getTimeout(15000) });
-      }
+      const deleteButton = page.getByRole('button', { name: /^削除$/ }).first();
+      await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await deleteButton.click();
+      const confirmButton = page.getByRole('button', { name: '削除する' });
+      await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await confirmButton.click();
+      await page.waitForURL(/\/site-surveys$|\/projects\//, { timeout: getTimeout(15000) });
 
       // プロジェクトを削除
-      if (createdProjectId) {
-        await page.goto(`/projects/${createdProjectId}`);
-        await page.waitForLoadState('networkidle');
+      assertPrepared(createdProjectId, '事前準備で作成したプロジェクトのID');
+      await page.goto(`/projects/${createdProjectId}`);
+      await page.waitForLoadState('networkidle');
 
-        const deleteButton = page.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        const confirmButton = page
-          .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
-      }
+      const projectDeleteButton = page.getByRole('button', { name: /削除/i }).first();
+      await expect(projectDeleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await projectDeleteButton.click();
+      const projectConfirmButton = page
+        .getByTestId('focus-manager-overlay')
+        .getByRole('button', { name: /^削除$/i });
+      await expect(projectConfirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await projectConfirmButton.click();
+      await page.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
     });
   });
 });

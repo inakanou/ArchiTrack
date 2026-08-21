@@ -21,6 +21,8 @@ import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
+import { seedProject } from '../../helpers/project-list-preconditions';
 
 /**
  * プロジェクトCRUD機能のE2Eテスト
@@ -398,46 +400,14 @@ test.describe('プロジェクトCRUD操作', () => {
       // 一般ユーザーでログイン（編集は一般ユーザーでも可能）
       await loginAsUser(page, 'REGULAR_USER');
 
-      // テスト用プロジェクトが存在しない場合は作成
-      if (!createdProjectId) {
-        await page.goto('/projects');
-        await page.waitForLoadState('networkidle');
-
-        await page.getByRole('button', { name: /新規作成/i }).click();
-        await expect(page).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
-
-        // ユーザー一覧の読み込み完了を待機（複数のUserSelectがあるため.first()を使用）
-        await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
-          timeout: getTimeout(15000),
-        });
-
-        const projectName = `編集テスト用プロジェクト_${Date.now()}`;
-        await page.getByLabel(/プロジェクト名/i).fill(projectName);
-
-        // 営業担当者を確認・選択
-        const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-        await selectFirstRealOption(salesPersonSelect, '営業担当者');
-
-        const createPromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/projects') &&
-            response.request().method() === 'POST' &&
-            response.status() === 201,
-          { timeout: getTimeout(30000) }
-        );
-
-        await page.getByRole('button', { name: /^作成$/i }).click();
-        await createPromise;
-
-        // URLからプロジェクトIDを取得
-        await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
-        const url = page.url();
-        const match = url.match(/\/projects\/([0-9a-f-]+)$/);
-        createdProjectId = match?.[1] ?? null;
-      }
+      // 編集対象のプロジェクトを前提として無条件に用意する。
+      // 「先行テストが ID を残していれば使い、無ければ画面から作る」という復旧分岐は、
+      // 先行テストが壊れたときに何を編集しているのかが定まらず、
+      // 前提の崩れが REQ-8.x の失敗として現れないため置かない。
+      const editTargetProjectId = (await seedProject(page, '編集テスト用プロジェクト')).id;
 
       // 詳細ページに移動
-      await page.goto(`/projects/${createdProjectId}`);
+      await page.goto(`/projects/${editTargetProjectId}`);
       await page.waitForLoadState('networkidle');
 
       // 「編集」ボタンをクリック
@@ -460,7 +430,7 @@ test.describe('プロジェクトCRUD操作', () => {
       // APIレスポンスを待機しながら保存ボタンをクリック
       const updatePromise = page.waitForResponse(
         (response) =>
-          response.url().includes(`/api/projects/${createdProjectId}`) &&
+          response.url().includes(`/api/projects/${editTargetProjectId}`) &&
           response.request().method() === 'PUT' &&
           response.status() === 200,
         { timeout: getTimeout(30000) }
@@ -736,61 +706,19 @@ test.describe('プロジェクトCRUD操作', () => {
       page,
       context,
     }) => {
-      // テスト用プロジェクトが存在しない場合は一般ユーザーで作成
-      let testProjectId = createdProjectId;
-      if (!testProjectId) {
-        await loginAsUser(page, 'REGULAR_USER');
+      // 削除対象のプロジェクトを前提として無条件に用意する。
+      // 先行テストが残した ID を再利用する復旧分岐は、先行テストが壊れたときに
+      // 「どのプロジェクトの削除をキャンセルしたのか」が定まらないため置かない。
+      await loginAsUser(page, 'REGULAR_USER');
+      const testProjectId = (await seedProject(page, 'キャンセルテスト')).id;
 
-        await page.goto('/projects');
-        await page.waitForLoadState('networkidle');
+      // 管理者ユーザーに切り替え（削除ボタンを表示するため）
+      await context.clearCookies();
+      await page.evaluate(() => {
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('accessToken');
+      });
 
-        // ユーザーAPI応答待機を開始してからボタンをクリック
-        const usersApiPromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/users/assignable') &&
-            response.request().method() === 'GET' &&
-            response.status() === 200,
-          { timeout: getTimeout(30000) }
-        );
-
-        await page.getByRole('button', { name: /新規作成/i }).click();
-        await expect(page).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
-
-        // ユーザー一覧APIの応答を待機
-        await usersApiPromise;
-        await page.waitForTimeout(500);
-
-        await page.getByLabel(/プロジェクト名/i).fill(`キャンセルテスト_${Date.now()}`);
-
-        // 営業担当者を確認・選択
-        const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-        await selectFirstRealOption(salesPersonSelect, '営業担当者');
-
-        const createPromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/projects') &&
-            response.request().method() === 'POST' &&
-            response.status() === 201,
-          { timeout: getTimeout(30000) }
-        );
-
-        await page.getByRole('button', { name: /^作成$/i }).click();
-        await createPromise;
-
-        await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
-        const url = page.url();
-        const match = url.match(/\/projects\/([0-9a-f-]+)$/);
-        testProjectId = match?.[1] ?? null;
-
-        // 管理者ユーザーに切り替え
-        await context.clearCookies();
-        await page.evaluate(() => {
-          localStorage.removeItem('refreshToken');
-          localStorage.removeItem('accessToken');
-        });
-      }
-
-      // 管理者ユーザーでログイン（削除ボタンを表示するため）
       await loginAsUser(page, 'ADMIN_USER');
 
       // 詳細ページに移動
@@ -858,6 +786,15 @@ test.describe('プロジェクトCRUD操作', () => {
 
       await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
 
+      // URLからプロジェクトIDを取得する。
+      // ここで取らずに再ログインの後で取ると、ログインは /dashboard へ遷移するため
+      // 詳細URLは失われ、ID が取れなくなる。
+      // 直前に作成したプロジェクトの詳細URLに居るため、IDは必ず取れる。
+      // 取れない場合は前提が崩れているのでここで失敗させる。
+      const match = page.url().match(/\/projects\/([0-9a-f-]+)$/);
+      const relatedTestProjectId = match?.[1] ?? null;
+      assertPrepared(relatedTestProjectId, '作成した関連データ検証用プロジェクトのID');
+
       // 管理者ユーザーに切り替え
       await context.clearCookies();
       await page.evaluate(() => {
@@ -867,26 +804,19 @@ test.describe('プロジェクトCRUD操作', () => {
 
       await loginAsUser(page, 'ADMIN_USER');
 
-      // URLからプロジェクトIDを取得
-      const url = page.url();
-      const match = url.match(/\/projects\/([0-9a-f-]+)$/);
-      const relatedTestProjectId = match?.[1] ?? null;
+      await page.goto(`/projects/${relatedTestProjectId}`);
+      await page.waitForLoadState('networkidle');
 
-      if (relatedTestProjectId) {
-        await page.goto(`/projects/${relatedTestProjectId}`);
-        await page.waitForLoadState('networkidle');
+      // 削除ボタンをクリック
+      await page.getByRole('button', { name: /削除/i }).click();
 
-        // 削除ボタンをクリック
-        await page.getByRole('button', { name: /削除/i }).click();
+      // 削除確認ダイアログが表示されることを確認
+      await expect(page.getByText(/プロジェクトの削除/i)).toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-        // 削除確認ダイアログが表示されることを確認
-        await expect(page.getByText(/プロジェクトの削除/i)).toBeVisible({
-          timeout: getTimeout(10000),
-        });
-
-        // 削除確認ダイアログが表示されたらキャンセルする
-        await page.getByRole('button', { name: /キャンセル/i }).click();
-      }
+      // 削除確認ダイアログが表示されたらキャンセルする
+      await page.getByRole('button', { name: /キャンセル/i }).click();
     });
   });
 });

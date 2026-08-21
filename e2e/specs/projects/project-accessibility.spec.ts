@@ -20,7 +20,7 @@ import { cleanDatabase } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
-import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { seedProject } from '../../helpers/project-list-preconditions';
 
 /**
  * プロジェクト管理機能のアクセシビリティテスト
@@ -102,40 +102,10 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
     test('プロジェクト詳細画面がWCAG 2.1 AA基準を満たす', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      // テスト用プロジェクトが存在しない場合は作成
-      if (!testProjectId) {
-        await page.goto('/projects/new');
-        await page.waitForLoadState('networkidle');
-
-        // ユーザー一覧の読み込み完了を待機
-        await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
-          timeout: getTimeout(15000),
-        });
-
-        const projectName = `アクセシビリティテスト_${Date.now()}`;
-        await page.getByLabel(/プロジェクト名/i).fill(projectName);
-
-        // 営業担当者を確認・選択
-        const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-        await selectFirstRealOption(salesPersonSelect, '営業担当者');
-
-        const createPromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/projects') &&
-            response.request().method() === 'POST' &&
-            response.status() === 201,
-          { timeout: getTimeout(30000) }
-        );
-
-        await page.getByRole('button', { name: /^作成$/i }).click();
-        await createPromise;
-
-        // URLからプロジェクトIDを取得
-        await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
-        const url = page.url();
-        const match = url.match(/\/projects\/([0-9a-f-]+)$/);
-        testProjectId = match?.[1] ?? null;
-      }
+      // 検証対象のプロジェクトを前提として無条件に用意する。
+      // 「無ければ画面から作る」条件分岐は、前提の生成が壊れても静かに素通りする経路になり、
+      // 失敗が前提の崩れた地点ではなく後段の検証に現れるため置かない。
+      testProjectId = (await seedProject(page, 'アクセシビリティテスト')).id;
 
       // 詳細ページに移動
       await page.goto(`/projects/${testProjectId}`);
@@ -161,40 +131,10 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
     test('プロジェクト編集画面がWCAG 2.1 AA基準を満たす', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      // テスト用プロジェクトが存在しない場合は作成
-      if (!testProjectId) {
-        await page.goto('/projects/new');
-        await page.waitForLoadState('networkidle');
-
-        // ユーザー一覧の読み込み完了を待機
-        await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
-          timeout: getTimeout(15000),
-        });
-
-        const projectName = `アクセシビリティ編集テスト_${Date.now()}`;
-        await page.getByLabel(/プロジェクト名/i).fill(projectName);
-
-        // 営業担当者を確認・選択
-        const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-        await selectFirstRealOption(salesPersonSelect, '営業担当者');
-
-        const createPromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/projects') &&
-            response.request().method() === 'POST' &&
-            response.status() === 201,
-          { timeout: getTimeout(30000) }
-        );
-
-        await page.getByRole('button', { name: /^作成$/i }).click();
-        await createPromise;
-
-        // URLからプロジェクトIDを取得
-        await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
-        const url = page.url();
-        const match = url.match(/\/projects\/([0-9a-f-]+)$/);
-        testProjectId = match?.[1] ?? null;
-      }
+      // 検証対象のプロジェクトを前提として無条件に用意する。
+      // 「無ければ画面から作る」条件分岐は、前提の生成が壊れても静かに素通りする経路になり、
+      // 失敗が前提の崩れた地点ではなく後段の検証に現れるため置かない。
+      testProjectId = (await seedProject(page, 'アクセシビリティ編集テスト')).id;
 
       // 詳細ページに移動して編集ボタンをクリック
       await page.goto(`/projects/${testProjectId}`);
@@ -316,37 +256,10 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       // 一般ユーザーでプロジェクトを作成
       await loginAsUser(page, 'REGULAR_USER');
 
-      if (!testProjectId) {
-        await page.goto('/projects/new');
-        await page.waitForLoadState('networkidle');
-
-        // ユーザー一覧の読み込み完了を待機
-        await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
-          timeout: getTimeout(15000),
-        });
-
-        const projectName = `Escapeテスト_${Date.now()}`;
-        await page.getByLabel(/プロジェクト名/i).fill(projectName);
-
-        const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-        await selectFirstRealOption(salesPersonSelect, '営業担当者');
-
-        const createPromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/projects') &&
-            response.request().method() === 'POST' &&
-            response.status() === 201,
-          { timeout: getTimeout(30000) }
-        );
-
-        await page.getByRole('button', { name: /^作成$/i }).click();
-        await createPromise;
-
-        await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
-        const url = page.url();
-        const match = url.match(/\/projects\/([0-9a-f-]+)$/);
-        testProjectId = match?.[1] ?? null;
-      }
+      // 検証対象のプロジェクトを前提として無条件に用意する。
+      // 「無ければ画面から作る」条件分岐は、前提の生成が壊れても静かに素通りする経路になり、
+      // 失敗が前提の崩れた地点ではなく後段の検証に現れるため置かない。
+      testProjectId = (await seedProject(page, 'Escapeテスト')).id;
 
       // 管理者ユーザーに切り替え（削除ボタンを表示するため）
       await context.clearCookies();

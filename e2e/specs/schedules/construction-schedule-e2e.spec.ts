@@ -454,19 +454,21 @@ test.describe('工程表機能 E2Eテスト', () => {
       const firstCheckbox = page.locator('[data-testid^="export-target-"]').first();
       await expect(firstCheckbox).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 現在のチェック状態を取得
-      const wasChecked = await firstCheckbox.isChecked();
+      // 現在の状態を観測して「トグル後はこうなるはず」と分岐する形は、初期状態が変われば
+      // 主張する内容も入れ替わり、どちらの向きも検証されないまま通りうる。
+      // 既知の状態（チェック済み。既定値であることは直前のテストが主張している）へ揃えてから
+      // 外し、外れたことを無条件に主張する。
+      // `check()` は既にチェック済みなら何もしないため、既定の状態を壊さない。
+      await firstCheckbox.check();
+      await expect(firstCheckbox, '前提: 出力対象をチェック済みの状態に揃える').toBeChecked({
+        timeout: getTimeout(5000),
+      });
 
-      // チェック状態をトグル
-      await firstCheckbox.click();
-      const toggledState = !wasChecked;
-
-      // トグル後の状態が反映されていることを確認
-      if (toggledState) {
-        await expect(firstCheckbox).toBeChecked({ timeout: getTimeout(5000) });
-      } else {
-        await expect(firstCheckbox).not.toBeChecked({ timeout: getTimeout(5000) });
-      }
+      // チェックを外す
+      await firstCheckbox.uncheck();
+      await expect(firstCheckbox, 'REQ-9.5: 出力対象のチェックを外せる').not.toBeChecked({
+        timeout: getTimeout(5000),
+      });
 
       // 保存ボタンをクリック
       await page.getByTestId('save-button').click();
@@ -480,16 +482,18 @@ test.describe('工程表機能 E2Eテスト', () => {
       // ページをリロードして永続化を検証
       await page.reload({ waitUntil: 'networkidle' });
 
-      // リロード後のチェック状態が保存した状態と一致すること
+      // リロード後のチェック状態が保存した状態（未チェック）と一致すること
       const reloadedCheckbox = page.locator('[data-testid^="export-target-"]').first();
-      if (toggledState) {
-        await expect(reloadedCheckbox).toBeChecked({ timeout: getTimeout(10000) });
-      } else {
-        await expect(reloadedCheckbox).not.toBeChecked({ timeout: getTimeout(10000) });
-      }
+      await expect(
+        reloadedCheckbox,
+        'REQ-9.5: 保存した「出力対象から外した」状態がリロード後も保持される'
+      ).not.toBeChecked({ timeout: getTimeout(10000) });
 
-      // テストデータのクリーンアップ: 元の状態に戻す
-      await reloadedCheckbox.click();
+      // テストデータのクリーンアップ: 既定の状態（チェック済み）へ戻す
+      await reloadedCheckbox.check();
+      await expect(reloadedCheckbox, '後始末: 出力対象を既定のチェック済みへ戻す').toBeChecked({
+        timeout: getTimeout(5000),
+      });
       await page.getByTestId('save-button').click();
       await page.waitForResponse(
         (response) => response.url().includes('/schedules') && response.status() === 200,

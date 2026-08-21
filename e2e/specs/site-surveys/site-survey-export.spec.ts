@@ -15,6 +15,7 @@ import { fileURLToPath } from 'url';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -163,38 +164,38 @@ test.describe('現場調査エクスポート機能', () => {
       await loginAsUser(cleanupPage, 'ADMIN_USER');
 
       // 現場調査を削除
-      if (createdSurveyId) {
-        await cleanupPage.goto(`/site-surveys/${createdSurveyId}`);
-        await cleanupPage.waitForLoadState('networkidle');
+      // 前提が用意されていなければ削除すべき対象も無い。黙って戻ると
+      // 「後片付けした」ことになり、前提の生成が壊れたことが記録に残らない。
+      assertPrepared(createdSurveyId, '事前準備で作成した現場調査のID');
+      await cleanupPage.goto(`/site-surveys/${createdSurveyId}`);
+      await cleanupPage.waitForLoadState('networkidle');
 
-        const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        // ダイアログ内の確認ボタンを選択（focus-manager-overlayまたはダイアログ要素内）
-        const dialog = cleanupPage
-          .getByTestId('focus-manager-overlay')
-          .or(cleanupPage.getByRole('dialog'));
-        const confirmButton = dialog.getByRole('button', { name: /^削除する$/i });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await cleanupPage.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
-      }
+      const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
+      await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await deleteButton.click();
+      // ダイアログ内の確認ボタンを選択（focus-manager-overlayまたはダイアログ要素内）
+      const dialog = cleanupPage
+        .getByTestId('focus-manager-overlay')
+        .or(cleanupPage.getByRole('dialog'));
+      const confirmButton = dialog.getByRole('button', { name: /^削除する$/i });
+      await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await confirmButton.click();
+      await cleanupPage.waitForURL(/\/site-surveys$/, { timeout: getTimeout(15000) });
 
       // プロジェクトを削除
-      if (createdProjectId) {
-        await cleanupPage.goto(`/projects/${createdProjectId}`);
-        await cleanupPage.waitForLoadState('networkidle');
+      assertPrepared(createdProjectId, '事前準備で作成したプロジェクトのID');
+      await cleanupPage.goto(`/projects/${createdProjectId}`);
+      await cleanupPage.waitForLoadState('networkidle');
 
-        const deleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
-        await expect(deleteButton).toBeVisible({ timeout: getTimeout(10000) });
-        await deleteButton.click();
-        const confirmButton = cleanupPage
-          .getByTestId('focus-manager-overlay')
-          .getByRole('button', { name: /^削除$/i });
-        await expect(confirmButton).toBeVisible({ timeout: getTimeout(5000) });
-        await confirmButton.click();
-        await cleanupPage.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
-      }
+      const projectDeleteButton = cleanupPage.getByRole('button', { name: /削除/i }).first();
+      await expect(projectDeleteButton).toBeVisible({ timeout: getTimeout(10000) });
+      await projectDeleteButton.click();
+      const projectConfirmButton = cleanupPage
+        .getByTestId('focus-manager-overlay')
+        .getByRole('button', { name: /^削除$/i });
+      await expect(projectConfirmButton).toBeVisible({ timeout: getTimeout(5000) });
+      await projectConfirmButton.click();
+      await cleanupPage.waitForURL(/\/projects$/, { timeout: getTimeout(15000) });
     } finally {
       await cleanupPage.close();
       await cleanupContext.close();
@@ -235,24 +236,10 @@ test.describe('現場調査エクスポート機能', () => {
 
       await expect(includeInReportCheckbox).toBeVisible({ timeout: getTimeout(5000) });
 
-      // まず、チェックをオフにする（初期状態を統一）
-      if (await includeInReportCheckbox.isChecked()) {
-        // チェックボックスをクリックしてオフにする
-        await includeInReportCheckbox.click();
-        // 保存ボタンをクリック（手動保存方式）
-        const saveButton1 = page.getByRole('button', { name: /^保存$|^保存中/ });
-        await expect(saveButton1).toBeVisible({ timeout: getTimeout(5000) });
-        const responsePromise1 = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/site-surveys/images') &&
-            response.request().method() === 'PATCH',
-          { timeout: getTimeout(15000) }
-        );
-        await saveButton1.click();
-        await responsePromise1;
-      }
-
-      // チェックがオフであることを確認
+      // 報告書出力フラグの初期値は OFF である（Prisma スキーマの
+      // site_survey_image.includeInReport は @default(false)）。本テストは直列実行の
+      // 先頭であり beforeAll で新規にアップロードした写真1枚だけを扱うため、
+      // 初期状態を観測して整えるのではなく無条件に主張する。
       await expect(includeInReportCheckbox).not.toBeChecked();
 
       // チェックボックスをクリックしてオンにする
@@ -436,34 +423,34 @@ test.describe('現場調査エクスポート機能', () => {
         timeout: getTimeout(15000),
       });
 
-      // まず全ての画像の報告書出力フラグをオフにする
+      // 前提「報告書出力対象が0件」を無条件に用意する。本ファイルは直列実行であり、
+      // beforeAll がアップロードする写真は1枚、直前のテスト（REQ-10.8）が
+      // その1枚のフラグを ON にして保存している。したがって OFF への変更は必ず発生する。
       const checkboxes = page.locator(
         '[data-testid="photo-panel-item"] input[type="checkbox"][aria-label="報告書に含める"]'
       );
-      const checkboxCount = await checkboxes.count();
+      await expect(checkboxes).toHaveCount(1);
 
-      let anyChecked = false;
-      for (let i = 0; i < checkboxCount; i++) {
-        const checkbox = checkboxes.nth(i);
-        if (await checkbox.isChecked()) {
-          await checkbox.click();
-          anyChecked = true;
-        }
-      }
+      const checkbox = checkboxes.first();
+      await expect(checkbox).toBeChecked();
 
-      // 変更があれば保存ボタンをクリック（手動保存方式 Task 33.1）
-      if (anyChecked) {
-        const responsePromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/site-surveys/images') &&
-            response.request().method() === 'PATCH',
-          { timeout: getTimeout(15000) }
-        );
-        const saveButton = page.getByRole('button', { name: /^保存$/ });
-        await expect(saveButton).toBeVisible({ timeout: getTimeout(5000) });
-        await saveButton.click();
-        await responsePromise;
-      }
+      const responsePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/site-surveys/images') &&
+          response.request().method() === 'PATCH',
+        { timeout: getTimeout(15000) }
+      );
+      await checkbox.click();
+      await expect(checkbox).not.toBeChecked();
+
+      // 保存ボタンをクリック（手動保存方式 Task 33.1）
+      const saveButton = page.getByRole('button', { name: /^保存$/ });
+      await expect(saveButton).toBeEnabled({ timeout: getTimeout(5000) });
+      await saveButton.click();
+      await responsePromise;
+
+      // 保存後も OFF のままであること（＝出力対象が0件であること）を主張する
+      await expect(checkbox).not.toBeChecked();
 
       // 調査報告書出力ボタンをクリック
       const pdfButton = page.getByRole('button', { name: /調査報告書出力|PDF/i });
@@ -505,21 +492,28 @@ test.describe('現場調査エクスポート機能', () => {
       // 画像がアップロードされていることを確認（beforeAllでアップロード済み）
       await expect(checkbox).toBeVisible({ timeout: getTimeout(15000) });
 
-      if (!(await checkbox.isChecked())) {
-        await checkbox.click();
+      // 直前のテスト（REQ-11.1 の「出力対象がない場合」）が唯一の写真のフラグを
+      // OFF にして保存しているため、ここでは必ず ON への変更が発生する。
+      // 観測して分岐せず、OFF であることを主張してから ON にする。
+      await expect(checkbox).not.toBeChecked();
 
-        // 保存ボタンをクリック（手動保存方式 Task 33.1）
-        const responsePromise = page.waitForResponse(
-          (response) =>
-            response.url().includes('/api/site-surveys/images') &&
-            response.request().method() === 'PATCH',
-          { timeout: getTimeout(15000) }
-        );
-        const saveButton = page.getByRole('button', { name: /^保存$/ });
-        await expect(saveButton).toBeVisible({ timeout: getTimeout(5000) });
-        await saveButton.click();
-        await responsePromise;
-      }
+      const responsePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/site-surveys/images') &&
+          response.request().method() === 'PATCH',
+        { timeout: getTimeout(15000) }
+      );
+      await checkbox.click();
+      await expect(checkbox).toBeChecked();
+
+      // 保存ボタンをクリック（手動保存方式 Task 33.1）
+      const saveButton = page.getByRole('button', { name: /^保存$/ });
+      await expect(saveButton).toBeEnabled({ timeout: getTimeout(5000) });
+      await saveButton.click();
+      await responsePromise;
+
+      // 保存後も ON であること（＝出力対象が1件あること）を主張する
+      await expect(checkbox).toBeChecked();
 
       // ダウンロードイベントを待機
       const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(120000) });

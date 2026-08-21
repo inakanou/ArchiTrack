@@ -9,12 +9,12 @@
     "reduction は削減の目標と計画文書の所在。実行のたびに残り件数を出力する（合否には用いない）。",
     "件数が増える方向の更新は既定で拒否する。記録が必要な場合のみ --allow-increase を付けること。"
   ],
-  "generatedTotal": 191,
+  "generatedTotal": 0,
   "allowedTotal": 0,
   "reduction": {
     "doc": ".kiro/specs/site-survey/e2e-assertion-guard-reduction-plan.md",
     "$comment": "目標は計画の「段」ごとに進める。合否には用いず、残り件数の出力にのみ用いる（Task 115.93）。",
-    "stage": "段 7: 復旧・再試行の分岐（F 群）・全域分岐（G 群）・再試行ループ（D1 群）と、残る沈黙脱出（D2 1 件）の解消。出口は generatedTotal が 0（残るのは「どこで失敗するか」を明記した e2e-guard-allow のみ）",
+    "stage": "段 7 完了: F 群（復旧・再試行の分岐）122 件・G 群（全域分岐）42 件・D2（沈黙脱出）1 件を 0 にした。generatedTotal 191 → 0、e2e-guard-allow 0（リポジトリ全体で 1 件も残っていない）。以後は「新規の検証無効化を 0 件で維持する」段階であり、件数が増える方向の更新は既定で拒否される",
     "targets": {
       "T1-conditional-expect": 0,
       "T2-ignored-timeout": 0,
@@ -25,239 +25,22 @@
     },
     "allowedTarget": 0,
     "$change": [
-      "Task 115.127 段6 の是正: 393 → 191 件（減少 202）。E 群（観測結果で主張を包むだけ・出ても出なくても通る形）171 件を 0 にした。",
-      "型別は T1 61 → 51、T4 3 → 0、T5 329 → 140。T2 / T3 / T6 は段2・段5・段1 で解消済みのまま 0 である。",
-      "分類（npm run classify:e2e-guards）は E 171 → 0、F 168 → 143、G 49 → 43、D1 4、D2 1 で合計 191。",
-      "E 以外の群も減っているのは債務の移動ではなく、上流の是正が下流の関門を不要にしたためである。",
-      "（前提を作らないまま「あれば検証する」と書いていた箇所は、前提を作る形にすると復旧分岐そのものが消える）",
-      "減少は 56 ファイルにわたる。E 群は一括置換できる定型ではなく、要件ごとの判断を要した。",
-      "主な畳み先は assertPresent / assertPrepared（型絞り込みと主張の一体化）、",
-      "e2e/helpers/project-list-preconditions.ts の seedProject / seedTradingPartner（段6 で新設）、",
-      "openEditPageWithSingleItemRow（数量表の項目行の前提）である。",
-      "無条件の主張へ改めた結果、これまで一度も落ちなかった検証が 7 箇所で赤くなった。うち 5 箇所は検証側の誤りで是正し、",
-      "2 件は production の欠陥だった（site-survey/REQ-4.6 の圧縮下限割れ・site-survey/REQ-3.1 のページネーション未実装）。",
-      "production の 2 件は要件どおりの主張を残したまま test.fail() のラチェットへ計上し、",
-      "requirement-exclusions.json の pending-implementation へ登録した（8 件 → 10 件）。被覆済みとは数えていない。",
-      "変更した 53 spec 882 件の実ブラウザ実測は 873 passed / 9 expected-failure（ラチェット）/ 0 skipped で、",
-      "Playwright の総合判定は PASSED（終了コード 0）である。詳細は reduction.doc が指す計画文書の §4.4。",
-      "targets は段7 の出口条件（全型 0）へ進めた。allowedTarget は 0 のままである。"
+      "Task 115.127 段7 の是正: 191 → 0 件（減少 191）。F 122 / G 42 / D2 1 を 0 にした。",
+      "型別は T1 51 → 0、T5 140 → 0。T2 / T3 / T4 / T6 は段1・段2・段5・段6 で解消済みのまま 0 である。",
+      "分類（npm run classify:e2e-guards）は A/B/C/D1/D2/E/F/G のすべてが 0、合計 0 で検出件数と一致する。",
+      "落とし先の内訳は是正 165 件・検出器の規則による対象外化 0 件・e2e-guard-allow 0 件である。",
+      "段7 では新しい除外規則を足していない。段6 の前提（Task 115.137）で入れた retryExhaustionFailureExclusion に",
+      "自己検査が付いていなかったため、これを補った（Task 115.128 が起票した「守られていない防護」の是正）。",
+      "自己検査は 45 → 49 件。捕捉してはならない書き方 1 件と、捕捉しなければならない書き方 3 件",
+      "（繰り返しの後に throw が無い／分岐の内側に expect がある／繰り返しと関数の境界の間に try が挟まる）を登録した。",
+      "既存の除外注釈 1 件（site-survey-annotation-tools.spec.ts）は検出器の規則で対象外になっており何も抑止していなかったため、",
+      "規則が変わったときに黙って抑止へ転じないよう通常の注記へ改めた。allowedTotal は 0 のままである。",
+      "変更した 64 spec 1080 件の実ブラウザ実測は 1 巡目 1036 passed / 6 failed / 38 did not run（56.5分）。",
+      "6 件のうち 3 件は検証側の誤り（無条件化で露見）、3 件は ADMIN_USER のログインが一時的に 401 になった巻き添えで、",
+      "是正のうえ再実行した 8 spec 87 件は failed 0 / skipped 0 である。production の未実装は 0 件で、",
+      "pending-implementation への追加登録は無い。詳細は reduction.doc が指す計画文書の §4.5。"
     ]
   },
   "allowedFiles": {},
-  "files": {
-    "e2e/helpers/wait-helpers.ts": {
-      "T1-conditional-expect": 3,
-      "T5-observed-result-gate": 1
-    },
-    "e2e/specs/api/health.spec.ts": {
-      "T5-observed-result-gate": 1
-    },
-    "e2e/specs/api/jwks.spec.ts": {
-      "T5-observed-result-gate": 1
-    },
-    "e2e/specs/auth/invitations.spec.ts": {
-      "T5-observed-result-gate": 1
-    },
-    "e2e/specs/auth/password-reset.spec.ts": {
-      "T5-observed-result-gate": 1
-    },
-    "e2e/specs/auth/profile.spec.ts": {
-      "T5-observed-result-gate": 7
-    },
-    "e2e/specs/auth/security-accessibility.spec.ts": {
-      "T1-conditional-expect": 2
-    },
-    "e2e/specs/auth/sessions.spec.ts": {
-      "T1-conditional-expect": 3
-    },
-    "e2e/specs/auth/token-refresh.spec.ts": {
-      "T5-observed-result-gate": 2
-    },
-    "e2e/specs/estimate-requests/estimate-request-e2e.spec.ts": {
-      "T1-conditional-expect": 1,
-      "T5-observed-result-gate": 2
-    },
-    "e2e/specs/estimate-requests/lineitem-sort-order-e2e.spec.ts": {
-      "T5-observed-result-gate": 1
-    },
-    "e2e/specs/estimate-requests/net-amount-auto-fill-e2e.spec.ts": {
-      "T5-observed-result-gate": 2
-    },
-    "e2e/specs/estimate-requests/number-format-e2e.spec.ts": {
-      "T5-observed-result-gate": 2
-    },
-    "e2e/specs/estimate-requests/ocr-accuracy-improvement-e2e.spec.ts": {
-      "T5-observed-result-gate": 2
-    },
-    "e2e/specs/estimate-requests/ocr-retry-e2e.spec.ts": {
-      "T5-observed-result-gate": 4
-    },
-    "e2e/specs/estimate-requests/pdf-text-extraction-e2e.spec.ts": {
-      "T5-observed-result-gate": 2
-    },
-    "e2e/specs/estimate-requests/received-quotation-status-e2e.spec.ts": {
-      "T5-observed-result-gate": 1
-    },
-    "e2e/specs/estimate-requests/structured-data-ocr-e2e.spec.ts": {
-      "T5-observed-result-gate": 2
-    },
-    "e2e/specs/estimate/estimate-report-export-e2e.spec.ts": {
-      "T1-conditional-expect": 1
-    },
-    "e2e/specs/integration/database.spec.ts": {
-      "T5-observed-result-gate": 1
-    },
-    "e2e/specs/itemized-statements/itemized-statement-crud.spec.ts": {
-      "T5-observed-result-gate": 7
-    },
-    "e2e/specs/projects/project-accessibility.spec.ts": {
-      "T1-conditional-expect": 3
-    },
-    "e2e/specs/projects/project-additional-requirements.spec.ts": {
-      "T5-observed-result-gate": 1
-    },
-    "e2e/specs/projects/project-autocomplete.spec.ts": {
-      "T5-observed-result-gate": 2
-    },
-    "e2e/specs/projects/project-breadcrumb.spec.ts": {
-      "T5-observed-result-gate": 1
-    },
-    "e2e/specs/projects/project-clipboard-copy-e2e.spec.ts": {
-      "T1-conditional-expect": 1
-    },
-    "e2e/specs/projects/project-crud.spec.ts": {
-      "T1-conditional-expect": 3
-    },
-    "e2e/specs/projects/project-detail-sections.spec.ts": {
-      "T5-observed-result-gate": 1
-    },
-    "e2e/specs/projects/project-list-operations.spec.ts": {
-      "T5-observed-result-gate": 5
-    },
-    "e2e/specs/projects/project-sort-extension.spec.ts": {
-      "T1-conditional-expect": 1
-    },
-    "e2e/specs/projects/project-status-counts-and-defaults.spec.ts": {
-      "T5-observed-result-gate": 1
-    },
-    "e2e/specs/projects/project-trading-partner.spec.ts": {
-      "T5-observed-result-gate": 2
-    },
-    "e2e/specs/projects/trading-partner-select-kana.spec.ts": {
-      "T5-observed-result-gate": 1
-    },
-    "e2e/specs/quantity-tables/autocomplete-optimization.spec.ts": {
-      "T5-observed-result-gate": 5
-    },
-    "e2e/specs/quantity-tables/group-sort-e2e.spec.ts": {
-      "T1-conditional-expect": 1,
-      "T5-observed-result-gate": 6
-    },
-    "e2e/specs/quantity-tables/import-e2e.spec.ts": {
-      "T5-observed-result-gate": 8
-    },
-    "e2e/specs/quantity-tables/name-remarks-autocomplete.spec.ts": {
-      "T5-observed-result-gate": 3
-    },
-    "e2e/specs/quantity-tables/photo-comment-e2e.spec.ts": {
-      "T5-observed-result-gate": 1
-    },
-    "e2e/specs/quantity-tables/photo-preview-e2e.spec.ts": {
-      "T5-observed-result-gate": 1
-    },
-    "e2e/specs/quantity-tables/photo-select-overlap-e2e.spec.ts": {
-      "T5-observed-result-gate": 1
-    },
-    "e2e/specs/quantity-tables/quantity-table-copy.spec.ts": {
-      "T5-observed-result-gate": 2
-    },
-    "e2e/specs/quantity-tables/quantity-table-crud.spec.ts": {
-      "T5-observed-result-gate": 12
-    },
-    "e2e/specs/quantity-tables/quantity-table-inline-calculation-fields.spec.ts": {
-      "T5-observed-result-gate": 1
-    },
-    "e2e/specs/quantity-tables/quantity-table-phase9.spec.ts": {
-      "T5-observed-result-gate": 13
-    },
-    "e2e/specs/quantity-tables/scrollbar-e2e.spec.ts": {
-      "T5-observed-result-gate": 2
-    },
-    "e2e/specs/quantity-tables/title-row-optimization.spec.ts": {
-      "T5-observed-result-gate": 1
-    },
-    "e2e/specs/schedules/construction-schedule-e2e.spec.ts": {
-      "T5-observed-result-gate": 2
-    },
-    "e2e/specs/security/security-measures.spec.ts": {
-      "T5-observed-result-gate": 1
-    },
-    "e2e/specs/site-surveys/site-survey-access-control.spec.ts": {
-      "T1-conditional-expect": 2
-    },
-    "e2e/specs/site-surveys/site-survey-annotation-tools.spec.ts": {
-      "T1-conditional-expect": 2
-    },
-    "e2e/specs/site-surveys/site-survey-annotations.spec.ts": {
-      "T5-observed-result-gate": 2
-    },
-    "e2e/specs/site-surveys/site-survey-batch-annotations.spec.ts": {
-      "T5-observed-result-gate": 2
-    },
-    "e2e/specs/site-surveys/site-survey-breadcrumb.spec.ts": {
-      "T1-conditional-expect": 2
-    },
-    "e2e/specs/site-surveys/site-survey-crud.spec.ts": {
-      "T1-conditional-expect": 2,
-      "T5-observed-result-gate": 2
-    },
-    "e2e/specs/site-surveys/site-survey-drawing-selection-prevention.spec.ts": {
-      "T1-conditional-expect": 2
-    },
-    "e2e/specs/site-surveys/site-survey-export.spec.ts": {
-      "T1-conditional-expect": 1,
-      "T5-observed-result-gate": 4
-    },
-    "e2e/specs/site-surveys/site-survey-image-breadcrumb-e2e.spec.ts": {
-      "T1-conditional-expect": 2
-    },
-    "e2e/specs/site-surveys/site-survey-image-order.spec.ts": {
-      "T1-conditional-expect": 2
-    },
-    "e2e/specs/site-surveys/site-survey-images.spec.ts": {
-      "T1-conditional-expect": 2
-    },
-    "e2e/specs/site-surveys/site-survey-list.spec.ts": {
-      "T1-conditional-expect": 1
-    },
-    "e2e/specs/site-surveys/site-survey-navigation.spec.ts": {
-      "T1-conditional-expect": 2,
-      "T5-observed-result-gate": 1
-    },
-    "e2e/specs/site-surveys/site-survey-performance.spec.ts": {
-      "T1-conditional-expect": 2
-    },
-    "e2e/specs/site-surveys/site-survey-phase18.spec.ts": {
-      "T1-conditional-expect": 2,
-      "T5-observed-result-gate": 2
-    },
-    "e2e/specs/site-surveys/site-survey-responsive.spec.ts": {
-      "T1-conditional-expect": 2
-    },
-    "e2e/specs/site-surveys/site-survey-upload-validation-e2e.spec.ts": {
-      "T1-conditional-expect": 2
-    },
-    "e2e/specs/site-surveys/site-survey-upload-validation.spec.ts": {
-      "T1-conditional-expect": 2
-    },
-    "e2e/specs/site-surveys/site-survey-viewer.spec.ts": {
-      "T1-conditional-expect": 2
-    },
-    "e2e/specs/trading-partners/trading-partner-data-integrity.spec.ts": {
-      "T5-observed-result-gate": 2
-    },
-    "e2e/specs/trading-partners/trading-partner-list-operations.spec.ts": {
-      "T5-observed-result-gate": 12
-    }
-  }
+  "files": {}
 }
