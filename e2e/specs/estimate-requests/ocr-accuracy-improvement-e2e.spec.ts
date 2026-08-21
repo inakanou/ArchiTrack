@@ -140,24 +140,22 @@ test.describe('スキャンPDF OCR精度改善 (Task 48.1)', () => {
         .or(page.locator('[data-testid="ocr-error-message"]'))
     ).toBeVisible({ timeout: getTimeout(90000) });
 
-    // 結果またはエラーのいずれかが表示されていることを確認
+    // OCR が完了したことを確認する。
+    // 以前は「結果またはエラー」の論理和で判定していたが、エラーを許す側があるため
+    // OCR が壊れて常に失敗しても通ってしまう。本テストの主題は抽出結果の品質であり、
+    // 直前の待機で結果かエラーのいずれかが出るまで待っている。抽出が成功したことを主張する。
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
     const errorMessage = page.locator('[data-testid="ocr-error-message"]');
 
-    const hasResult = await isVisibleWithin(extractedText, 3000);
-    const hasError = await isVisibleWithin(errorMessage, 3000);
+    await expect(errorMessage).toHaveCount(0);
+    await expect(extractedText).toBeVisible();
 
-    // OCR処理が実行された証拠（結果またはエラーのいずれか）
-    expect(hasResult || hasError).toBeTruthy();
-
-    // テキスト抽出が成功した場合、画像前処理パイプラインが適用されていることの間接的確認
+    // 画像前処理パイプラインが適用されていることの間接的確認
     // （Canvas描画スケール4.0での高解像度化 + 罫線除去により、テキスト抽出結果の品質が向上）
-    if (hasResult) {
-      const textContent = await extractedText.textContent();
-      // 抽出テキストが空でないことを確認（画像前処理が正常に動作した証拠）
-      expect(textContent).toBeTruthy();
-      expect(textContent!.length).toBeGreaterThan(0);
-    }
+    // 抽出が成功したことを上で確定させたので、内容の判定は分岐で包まない。
+    const textContent = await extractedText.textContent();
+    expect(textContent).toBeTruthy();
+    expect(textContent!.length).toBeGreaterThan(0);
   });
 
   // ============================================================================

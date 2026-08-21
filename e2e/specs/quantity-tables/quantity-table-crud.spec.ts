@@ -37,6 +37,7 @@ import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
+import { openEditPageWithSingleItemRow } from '../../helpers/quantity-table-preconditions';
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -352,21 +353,21 @@ test.describe('数量表CRUD操作', () => {
       await page.waitForLoadState('networkidle');
 
       const quantityTableSection = page.getByTestId('quantity-table-section');
-      // 新規作成リンク（数量表がない場合）またはボタンを探す
+
+      // 数量表セクションの新規作成の導線は、空状態でもヘッダでも常に Link で描画される
+      // （QuantityTableSectionCard の EmptyState / headerActions）。ボタンの実装は無い。
+      // 以前は「リンク または ボタン」の論理和で判定していたため、リンクが失われて
+      // ボタンだけになっても、逆に両方失われる以外は気づけない形だった。
       const createLink = quantityTableSection.getByRole('link', { name: /新規作成/ });
-      const createButton = quantityTableSection.getByRole('button', { name: /新規作成|追加/ });
+      await expect(createLink, '数量表セクションに新規作成リンクが無い').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await expect(
+        quantityTableSection.getByRole('button', { name: /新規作成|追加/ }),
+        '新規作成はリンクで提供される（ボタンの実装は無い）'
+      ).toHaveCount(0);
 
-      // 新規作成リンクまたはボタンのいずれかが表示されることを確認（必須）
-      const hasLink = await isVisibleWithin(createLink, 3000);
-      const hasButton = await isVisibleWithin(createButton, 1000);
-
-      expect(hasLink || hasButton).toBeTruthy();
-
-      if (hasLink) {
-        await createLink.click();
-      } else {
-        await createButton.click();
-      }
+      await createLink.click();
 
       // 新規作成ダイアログまたはページが表示される
       const dialog = page.getByRole('dialog');
@@ -673,20 +674,25 @@ test.describe('数量表CRUD操作', () => {
       }
 
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      await page.waitForLoadState('networkidle');
 
-      // 数量グループセクション、テーブル、または空状態のいずれかが表示される（必須）
+      // REQ-3.2 は「数量グループ一覧と各グループ内の数量項目を階層的に表示する」ことを求める。
+      // 以前は編集画面を開いて「グループ一覧 または 表 または 空状態」のいずれかが出ることを
+      // 主張していた。編集はクライアント下書きのみを更新するため、再訪した編集画面は常に
+      // グループ0件＝空状態であり、判定は空状態だけで必ず成立していた。
+      // すなわち階層表示を一度も確かめていない。前提（グループ1件・項目1行）を自分で作る。
+      const itemRow = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
+
       const groupSection = page.getByTestId('quantity-group-section');
-      const table = page.getByRole('table');
-      const emptyState = page.getByText(/グループがありません/);
+      await expect(groupSection, '数量グループ一覧が表示されない').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await expect(page.getByText(/グループがありません/)).toHaveCount(0);
 
-      const hasGroupSection = await isVisibleWithin(groupSection, 5000);
-      const hasTable = await isVisibleWithin(table, 3000);
-      const hasEmptyState = await isVisibleWithin(emptyState, 3000);
-
-      // いずれかが表示されている必要がある（必須検証）
-      expect(hasGroupSection || hasTable || hasEmptyState).toBeTruthy();
+      // グループの内側に数量項目の行が入れ子で表示される（階層表示）
+      const groupCard = groupSection.locator('[data-testid="quantity-group-card"]').first();
+      await expect(groupCard).toBeVisible();
+      await expect(groupCard.locator('[data-testid="quantity-item-row"]')).toHaveCount(1);
+      await expect(itemRow).toBeVisible();
     });
   });
 
@@ -1510,14 +1516,19 @@ test.describe('数量表CRUD操作', () => {
       // REQ-5.3: 該当フィールドをハイライトし、エラーメッセージを表示する
       // 名称欄の必須エラーだけを指す（`/必須/` では同じ行の工種・単位のエラーにも一致し、
       // strict mode 違反で判定そのものが成立しなかった）
-      const errorMessage = lastItemRow.getByText('名称は必須です');
-      const errorField = lastItemRow.locator('[aria-invalid="true"]');
-
-      const hasErrorMessage = await isVisibleWithin(errorMessage, 5000);
-      const hasErrorField = await isVisibleWithin(errorField.first(), 3000);
-
-      // エラー表示が行われること（必須）
-      expect(hasErrorMessage || hasErrorField).toBeTruthy();
+      // AutocompleteInput は error を受け取ると aria-invalid="true" を付け、同時に
+      // role="alert" のメッセージを描画する（AutocompleteInput / FieldValidationTooltip）。
+      // 実装は両方を同時に与えるため、論理和では片方が失われても気づけない。
+      // ハイライトとメッセージの双方を主張する（REQ-5.3 が求めるのはその両方である）。
+      await expect(lastItemRow.getByText('名称は必須です'), '名称の必須エラーが出ない').toBeVisible(
+        {
+          timeout: getTimeout(5000),
+        }
+      );
+      await expect(nameInput, '名称欄がエラーとしてハイライトされない').toHaveAttribute(
+        'aria-invalid',
+        'true'
+      );
     });
 
     /**
@@ -1600,23 +1611,29 @@ test.describe('数量表CRUD操作', () => {
       const roundingUnitInput = firstItemRow.getByLabel(/丸め設定/i);
       const roundingUnitCell = firstItemRow.locator('[data-field="roundingUnit"]');
 
-      // 調整係数が非表示であることを確認（必須検証）
-      const hasAdjustmentInput = await isVisibleWithin(adjustmentFactorInput, 2000);
-      const hasAdjustmentCell = await isVisibleWithin(adjustmentFactorCell, 2000);
-
-      // 丸め設定が非表示であることを確認（必須検証）
-      const hasRoundingInput = await isVisibleWithin(roundingUnitInput, 2000);
-      const hasRoundingCell = await isVisibleWithin(roundingUnitCell, 2000);
-
-      // REQ-5.5: 計算方法が「標準」の場合、両フィールドともメイン行に表示されないこと
-      expect(
-        hasAdjustmentInput || hasAdjustmentCell,
+      // REQ-5.5: 計算方法が「標準」の場合、両フィールドともメイン行に表示されないこと。
+      // 不在の主張だけでは、欄そのものが（別の理由で）存在しない場合と区別できない。
+      // 「標準では出ない」ことと「標準以外では出る」ことを続けて主張し、
+      // 不在が計算方法によるものであることを確定させる。
+      await expect(
+        adjustmentFactorInput,
         '計算方法が「標準」の場合、調整係数はメイン行に表示されてはいけません'
-      ).toBeFalsy();
-      expect(
-        hasRoundingInput || hasRoundingCell,
+      ).toHaveCount(0);
+      await expect(adjustmentFactorCell).toHaveCount(0);
+      await expect(
+        roundingUnitInput,
         '計算方法が「標準」の場合、丸め設定はメイン行に表示されてはいけません'
-      ).toBeFalsy();
+      ).toHaveCount(0);
+      await expect(roundingUnitCell).toHaveCount(0);
+
+      // 対照: 計算方法を「面積・体積」にすると同じ行に両フィールドが現れる（REQ-9.1 / REQ-10.1）
+      await calculationMethodSelect.selectOption('AREA_VOLUME');
+      await expect(adjustmentFactorInput, '計算方法を変えても調整係数が現れない').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await expect(roundingUnitInput, '計算方法を変えても丸め設定が現れない').toBeVisible({
+        timeout: getTimeout(5000),
+      });
     });
   });
 
@@ -2453,12 +2470,16 @@ test.describe('数量表CRUD操作', () => {
       // ピッチモードに変更
       await calcMethodSelect.selectOption({ value: 'PITCH' });
 
-      // 範囲長またはピッチ長フィールドが表示されることを確認（必須）
-      const rangeField = page.getByLabel(/範囲長|range/i).first();
-      const pitchField = page.getByLabel(/ピッチ長|pitch/i).first();
-      const hasRangeField = await isVisibleWithin(rangeField, 3000);
-      const hasPitchField = await isVisibleWithin(pitchField, 3000);
-      expect(hasRangeField || hasPitchField).toBeTruthy();
+      // REQ-8.8: ピッチでは「範囲長」「端長1」「端長2」「ピッチ長」…をこの順序で表示する。
+      // 以前は「範囲長 または ピッチ長」の論理和だったため、片方が欠けても通っていた。
+      // 実装（CalculationFields の PITCH_FIELDS）は必須4欄を同時に描画する。
+      // ラベルには必須印（*）が続くため部分一致で参照する。
+      for (const label of ['範囲長', '端長1', '端長2', 'ピッチ長']) {
+        await expect(
+          page.getByLabel(label).first(),
+          `ピッチモードで「${label}」の計算用列が表示されない`
+        ).toBeVisible({ timeout: getTimeout(3000) });
+      }
     });
 
     test('面積・体積モードで計算用列に値を入力すると数量が自動計算される (quantity-table-generation/REQ-8.6)', async ({
@@ -2622,18 +2643,35 @@ test.describe('数量表CRUD操作', () => {
       // 警告メッセージまたはエラー表示が行われること（必須）
       // REQ-8.3: 負の値警告メッセージは role="alert" で表示される
       const warningAlert = page.locator('[role="alert"]').filter({ hasText: /負の値/ });
-      const errorField = page.locator('[aria-invalid="true"]');
 
-      const hasWarningAlert = await isVisibleWithin(warningAlert, 5000);
-      const hasErrorField = await isVisibleWithin(errorField.first(), 2000);
-
-      // 警告が表示されること（必須）
-      expect(hasWarningAlert || hasErrorField).toBeTruthy();
+      // 実装（EditableQuantityItemRow）は負の値のとき aria-invalid を立て、同時に
+      // role="alert" の警告文を描画する。論理和では片方が失われても気づけないため、
+      // 双方を主張する。ハイライトは数量欄そのものに対して確かめる
+      // （画面全体の [aria-invalid="true"] は必須欄の未入力にも一致してしまう）。
+      await expect(warningAlert, 'REQ-8.3: 負の値の警告が表示されない').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await expect(quantityField, 'REQ-8.3: 数量欄がハイライトされない').toHaveAttribute(
+        'aria-invalid',
+        'true'
+      );
     });
 
     test('標準モードで数値以外を入力するとエラーメッセージが表示される (quantity-table-generation/REQ-8.4)', async ({
       page,
     }) => {
+      // REQ-8.4（数値以外の入力を拒否しエラーメッセージを表示する）は未実装である。
+      // 数量欄は素の input で、blur 時に parseFloat が NaN なら 0 に置き換えるだけで
+      // 直前の確定値は失われ、エラーメッセージも出ない（EditableQuantityItemRow）。
+      // 要件を実装した QuantityInput は存在するが、どこからも参照されていない。
+      // 本テストの主張は要件どおりだが、実装が要件を満たしていないため落ちる。
+      // 前提条件による自動無効化ではなく、本体は毎回すべて実行される。
+      // 実装されると本テストは通り、この注釈により「落ちるはずが通った」として
+      // 赤くなるため、注釈の撤去を強制するラチェットとして機能する。
+      // 直列実行のため、素の失敗を残すと後続の検証と後片付けが実行されなくなる。
+
+      test.fail();
+
       if (!createdQuantityTableId) {
         throw new Error(
           'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
@@ -2651,30 +2689,36 @@ test.describe('数量表CRUD操作', () => {
       // 標準モードに設定
       await calcMethodSelect.selectOption({ value: 'STANDARD' });
 
-      // 数量フィールドを取得して現在値を記録
       const quantityField = page.locator('input[id$="-quantity"]').first();
       await expect(quantityField).toBeVisible({ timeout: 3000 });
-      const initialValue = await quantityField.inputValue();
 
-      // 数量フィールドをクリックしてフォーカス
+      // 既定値（0.00）と衝突しない値を先に置く。既定値のままだと「拒否された」のか
+      // 「既定値に戻された」のかを区別できない（Task 115.126 の基準）。
       await quantityField.click();
+      await quantityField.fill('12.34');
+      await page.keyboard.press('Tab');
+      await expect(quantityField).toHaveValue('12.34');
 
-      // キーボードで数値以外を入力（HTML5 number inputはブラウザレベルで拒否する）
+      // 数値以外を入力する
+      await quantityField.click();
       await page.keyboard.type('abc');
       await page.keyboard.press('Tab');
 
-      // 入力後の値を取得
-      const fieldValue = await quantityField.inputValue();
-
-      // HTML5 number inputは数値以外を受け付けないため、値が変わらないことを確認
-      // （ブラウザによる入力拒否が要件を満たす）
-      const wasRejected =
-        fieldValue === initialValue || fieldValue === '' || !fieldValue.includes('abc');
-
-      // 入力が拒否されていること（必須）
-      // 注: HTML5 input[type=number]はブラウザレベルで非数値を拒否するため、
-      // アプリケーション側でのエラーメッセージ表示は不要
-      expect(wasRejected).toBeTruthy();
+      // REQ-8.4: 数値以外の文字が入力された場合は入力を拒否しエラーメッセージを表示する。
+      // 以前は `値が元と同じ || 空 || 'abc' を含まない` の論理和で判定していた。
+      // 第三項は入力欄が非数値を保持しない限り常に真であり、恒真であった。
+      // 「拒否」は直前の確定値が保たれることであり、それとエラーメッセージの双方を主張する。
+      await expect(
+        quantityField,
+        'REQ-8.4: 数値以外の入力が拒否されず、直前の確定値が失われた'
+      ).toHaveValue('12.34');
+      await expect(
+        page
+          .getByRole('alert')
+          .filter({ hasText: /数値|数字/ })
+          .first(),
+        'REQ-8.4: 数値以外の入力に対するエラーメッセージが表示されない'
+      ).toBeVisible({ timeout: getTimeout(3000) });
     });
 
     test('面積・体積モードで計算用列未入力時にエラーが表示される (quantity-table-generation/REQ-8.7)', async ({
@@ -2717,11 +2761,9 @@ test.describe('数量表CRUD操作', () => {
       const secondQuantityField = quantityFields.nth(1);
       const quantityValue = await secondQuantityField.inputValue();
 
-      // 数量が0であること（計算用列未入力のため）を確認
-      // これは正常な動作 - 未入力時は0になる（小数2桁表示で0.00の場合も含む）
-      expect(
-        quantityValue === '0' || quantityValue === '0.00' || quantityValue === ''
-      ).toBeTruthy();
+      // 計算用列が未入力なら数量は 0 のまま、REQ-14.2 により小数2桁で表示される。
+      // 以前は '0' / '0.00' / '' の論理和だったため、書式が崩れても空になっても通っていた。
+      expect(quantityValue).toBe('0.00');
     });
 
     test('ピッチモードで自動計算が行われる (quantity-table-generation/REQ-8.9)', async ({
@@ -2820,10 +2862,10 @@ test.describe('数量表CRUD操作', () => {
       const secondQuantityField = quantityFields.nth(1);
       const quantityValue = await secondQuantityField.inputValue();
 
-      // 数量が0であること（必須項目未入力のため計算不可）を確認（小数2桁表示で0.00の場合も含む）
-      expect(
-        quantityValue === '0' || quantityValue === '0.00' || quantityValue === ''
-      ).toBeTruthy();
+      // 必須項目（ピッチ長など）が未入力なら計算できず、数量は 0 のまま
+      // REQ-14.2 の小数2桁で表示される。
+      // 以前は '0' / '0.00' / '' の論理和だったため、書式が崩れても空になっても通っていた。
+      expect(quantityValue).toBe('0.00');
     });
 
     test('計算用列の値変更時に数量が自動再計算される (quantity-table-generation/REQ-8.11)', async ({
@@ -3024,24 +3066,42 @@ test.describe('数量表CRUD操作', () => {
       const adjustmentField = page.getByLabel(/調整係数|coefficient/i).first();
       await expect(adjustmentField).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 0以下の値を入力
+      // 0以下の値を入力する。警告は入力中に出て、blur で既定値へ自動補正されると消える
+      // （CalculationFields の AdjustmentField: warningCondition v<=0 / handleBlur の既定値補正）。
+      // 以前は Tab を押した後に判定していたため、警告は既に消えていた。それでも
+      // 「警告文 または 画面のどこかの aria-invalid」の論理和は、無関係な必須欄の
+      // aria-invalid だけで常に成立し、警告の有無を一度も確かめていなかった。
+      await adjustmentField.click();
       await adjustmentField.fill('0');
+
+      await expect(
+        page.getByRole('alert').filter({ hasText: '0以下の値は使用できません' }).first(),
+        'REQ-9.3: 調整係数に0以下を入力しても警告が表示されない'
+      ).toBeVisible({ timeout: getTimeout(3000) });
+      await expect(adjustmentField, '調整係数の欄がハイライトされない').toHaveAttribute(
+        'aria-invalid',
+        'true'
+      );
+
+      // blur すると既定値 1.00 に自動補正される（REQ-9.4）
       await page.keyboard.press('Tab');
-
-      // 警告メッセージが表示されること（必須）
-      const warningMessage = page.getByText(/0以下|正の値|warning|確認/i);
-      const errorField = page.locator('[aria-invalid="true"], .warning, .is-warning');
-
-      const hasWarning = await isVisibleWithin(warningMessage, 3000);
-      const hasErrorField = await isVisibleWithin(errorField.first(), 2000);
-
-      // 警告が表示されること（必須）
-      expect(hasWarning || hasErrorField).toBeTruthy();
+      await expect(adjustmentField).toHaveValue('1.00');
     });
 
-    test('調整係数に数値以外を入力するとエラーが表示される (quantity-table-generation/REQ-9.4)', async ({
+    test('調整係数に数値以外を入力するとエラーが表示される (quantity-table-generation/REQ-9.5)', async ({
       page,
     }) => {
+      // REQ-9.5（数値以外の入力を拒否しエラーメッセージを表示する）は未実装である。
+      // 調整係数の欄は blur 時に既定値 1.00 へ置き換えるだけで、直前の確定値は失われ、
+      // エラーメッセージも出ない（CalculationFields の AdjustmentField）。
+      // 本テストの主張は要件どおりだが、実装が要件を満たしていないため落ちる。
+      // 前提条件による自動無効化ではなく、本体は毎回すべて実行される。
+      // 実装されると本テストは通り、この注釈により「落ちるはずが通った」として
+      // 赤くなるため、注釈の撤去を強制するラチェットとして機能する。
+      // 直列実行のため、素の失敗を残すと後続の検証と後片付けが実行されなくなる。
+
+      test.fail();
+
       if (!createdQuantityTableId) {
         throw new Error(
           'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
@@ -3062,25 +3122,32 @@ test.describe('数量表CRUD操作', () => {
       const adjustmentField = page.getByLabel(/調整係数|coefficient/i).first();
       await expect(adjustmentField).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 現在の値を取得
-      const initialValue = await adjustmentField.inputValue();
-
-      // フィールドをクリックしてフォーカス
+      // 既定値（1.00）と衝突しない値を先に置く。既定値のままだと「拒否された」のか
+      // 「既定値に戻された」のかを区別できない（Task 115.126 の基準）。
       await adjustmentField.click();
+      await adjustmentField.fill('2.50');
+      await page.keyboard.press('Tab');
+      await expect(adjustmentField).toHaveValue('2.50');
 
-      // キーボードで数値以外を入力（HTML5 number inputはブラウザレベルで拒否する）
+      // 数値以外を入力する
+      await adjustmentField.click();
       await page.keyboard.type('abc');
       await page.keyboard.press('Tab');
 
-      // 入力後の値を取得
-      const fieldValue = await adjustmentField.inputValue();
-
-      // HTML5 number inputは数値以外を受け付けないため、値が変わらないことを確認
-      const wasRejected =
-        fieldValue === initialValue || fieldValue === '' || !fieldValue.includes('abc');
-
-      // 入力が拒否されていること（必須）
-      expect(wasRejected).toBeTruthy();
+      // REQ-9.5: 数値以外の文字が入力された場合は入力を拒否しエラーメッセージを表示する。
+      // 以前は `値が元と同じ || 空 || 'abc' を含まない` の論理和で、第三項は恒真だった。
+      // 「拒否」は直前の確定値が保たれることであり、それとエラーメッセージの双方を主張する。
+      await expect(
+        adjustmentField,
+        'REQ-9.5: 数値以外の入力が拒否されず、直前の確定値が失われた'
+      ).toHaveValue('2.50');
+      await expect(
+        page
+          .getByRole('alert')
+          .filter({ hasText: /数値|数字/ })
+          .first(),
+        'REQ-9.5: 数値以外の入力に対するエラーメッセージが表示されない'
+      ).toBeVisible({ timeout: getTimeout(3000) });
     });
 
     test('計算元変更時に調整係数を適用した数量が自動再計算される (quantity-table-generation/REQ-9.5)', async ({
@@ -3293,9 +3360,20 @@ test.describe('数量表CRUD操作', () => {
       expect(correctedValue).toBe('0.01');
     });
 
-    test('丸め設定に数値以外を入力するとエラーが表示される (quantity-table-generation/REQ-10.4)', async ({
+    test('丸め設定に数値以外を入力するとエラーが表示される (quantity-table-generation/REQ-10.5)', async ({
       page,
     }) => {
+      // REQ-10.5（数値以外の入力を拒否しエラーメッセージを表示する）は未実装である。
+      // 丸め設定の欄は blur 時に既定値 0.01 へ置き換えるだけで、直前の確定値は失われ、
+      // エラーメッセージも出ない（CalculationFields の AdjustmentField）。
+      // 本テストの主張は要件どおりだが、実装が要件を満たしていないため落ちる。
+      // 前提条件による自動無効化ではなく、本体は毎回すべて実行される。
+      // 実装されると本テストは通り、この注釈により「落ちるはずが通った」として
+      // 赤くなるため、注釈の撤去を強制するラチェットとして機能する。
+      // 直列実行のため、素の失敗を残すと後続の検証と後片付けが実行されなくなる。
+
+      test.fail();
+
       if (!createdQuantityTableId) {
         throw new Error(
           'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
@@ -3316,28 +3394,33 @@ test.describe('数量表CRUD操作', () => {
       const roundingField = page.getByLabel(/丸め設定|rounding/i).first();
       await expect(roundingField).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 初期値を取得
-      const initialValue = await roundingField.inputValue();
+      // 既定値（0.01）と衝突しない値を先に置く。既定値のままだと「拒否された」のか
+      // 「既定値に戻された」のかを区別できない（Task 115.126 の基準）。
+      await roundingField.click();
+      await roundingField.fill('0.25');
+      await page.keyboard.press('Tab');
+      await expect(roundingField).toHaveValue('0.25');
 
-      // 数値以外を入力（HTML5 number inputはブラウザレベルで拒否するため、keyboard.typeを使用）
+      // 数値以外を入力する
       await roundingField.click();
       await page.keyboard.type('abc');
       await page.keyboard.press('Tab');
 
-      // HTML5 number inputは数値以外を受け付けないため、値が変わらないことを確認
-      const fieldValue = await roundingField.inputValue();
-
-      // エラーメッセージまたは入力拒否が行われること（必須）
-      const errorMessage = page.getByText(/数値|数字|入力|error|エラー/i);
-      const errorField = page.locator('[aria-invalid="true"], .error, .is-invalid');
-
-      const hasError = await isVisibleWithin(errorMessage.first(), 2000);
-      const hasErrorField = await isVisibleWithin(errorField.first(), 2000);
-      const wasRejected =
-        fieldValue === initialValue || fieldValue === '' || !fieldValue.includes('abc');
-
-      // エラー表示または入力拒否が行われること（必須）
-      expect(hasError || hasErrorField || wasRejected).toBeTruthy();
+      // REQ-10.5: 数値以外の文字が入力された場合は入力を拒否しエラーメッセージを表示する。
+      // 以前は「エラー文 または 画面のどこかの aria-invalid または 入力拒否」の論理和で、
+      // 最後の項の `!fieldValue.includes('abc')` は恒真、二番目は無関係な必須欄の
+      // aria-invalid で常に成立していた。要件が定める二つを個別に主張する。
+      await expect(
+        roundingField,
+        'REQ-10.5: 数値以外の入力が拒否されず、直前の確定値が失われた'
+      ).toHaveValue('0.25');
+      await expect(
+        page
+          .getByRole('alert')
+          .filter({ hasText: /数値|数字/ })
+          .first(),
+        'REQ-10.5: 数値以外の入力に対するエラーメッセージが表示されない'
+      ).toBeVisible({ timeout: getTimeout(3000) });
     });
 
     test('計算元または調整係数変更時に丸め処理を適用した最終数量が再計算される (quantity-table-generation/REQ-10.5)', async ({
@@ -3938,22 +4021,22 @@ test.describe('数量表CRUD操作', () => {
       await calcMethodSelect.selectOption({ value: 'AREA_VOLUME' });
       await page.waitForTimeout(500);
 
-      // 高さフィールドを取得（通常はオプショナル）
+      // 高さフィールドは面積・体積モードで必ず描画される。表示されたときだけ判定する形は、
+      // 欄が消えたときに黙って通ってしまう。無条件に主張する。
       const heightField = page.getByLabel(/高さ|H/i).first();
+      await expect(heightField, '面積・体積モードで高さの欄が表示されない').toBeVisible({
+        timeout: getTimeout(3000),
+      });
 
-      if (await isVisibleWithin(heightField, 3000)) {
-        // フィールドをクリア
-        await heightField.clear();
-        await page.keyboard.press('Tab');
-        await page.waitForTimeout(300);
+      // フィールドをクリア
+      await heightField.clear();
+      await page.keyboard.press('Tab');
+      await page.waitForTimeout(300);
 
-        // フィールドの値を確認
-        const displayedValue = await heightField.inputValue();
-
-        // 空白または「0.00」以外の空の状態であることを確認
-        // 空白フィールドは空文字または空白を許容
-        expect(displayedValue === '' || displayedValue.trim() === '').toBeTruthy();
-      }
+      // REQ-14.4: 寸法フィールドが空白の場合は小数2桁の表示を行わず空白のまま表示する。
+      // 以前は `x === '' || x.trim() === ''` で、右辺は左辺が偽のときも空白文字列で真になり、
+      // 判定が実質「空白のみか」に緩んでいた。空文字そのものを主張する。
+      expect(await heightField.inputValue()).toBe('');
     });
 
     /**
@@ -4012,6 +4095,17 @@ test.describe('数量表CRUD操作', () => {
     test('数量フィールドに範囲外の値を入力するとエラーが表示される (quantity-table-generation/REQ-15.1)', async ({
       page,
     }) => {
+      // REQ-15.1（入力可能範囲外の値にエラーメッセージを表示する）は未実装である。
+      // 数量欄に範囲の検証は無く、99999999 がそのまま受け付けられる。
+      // 範囲検証（validateNumericRange）は箇所数の欄にしか適用されていない。
+      // 本テストの主張は要件どおりだが、実装が要件を満たしていないため落ちる。
+      // 前提条件による自動無効化ではなく、本体は毎回すべて実行される。
+      // 実装されると本テストは通り、この注釈により「落ちるはずが通った」として
+      // 赤くなるため、注釈の撤去を強制するラチェットとして機能する。
+      // 直列実行のため、素の失敗を残すと後続の検証と後片付けが実行されなくなる。
+
+      test.fail();
+
       if (!createdQuantityTableId) {
         throw new Error(
           'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
@@ -4031,18 +4125,22 @@ test.describe('数量表CRUD操作', () => {
       await page.keyboard.press('Tab');
       await page.waitForTimeout(300);
 
-      // エラーメッセージまたはフィールドのエラー状態を確認
-      const errorMessage = page.getByText(/範囲|上限|下限|error|エラー/i);
-      const errorField = page.locator('[aria-invalid="true"]');
-
-      const hasError = await isVisibleWithin(errorMessage.first(), 3000);
-      const hasErrorField = await isVisibleWithin(errorField.first(), 2000);
-
-      // エラー表示が行われること、または値が範囲内に制限されていること
-      const fieldValue = await quantityField.inputValue();
-      const isValueLimited = parseFloat(fieldValue) <= 9999999.99;
-
-      expect(hasError || hasErrorField || isValueLimited).toBeTruthy();
+      // REQ-15.1: 入力可能範囲（-999999.99〜9999999.99）外の値にはエラーメッセージを表示し、
+      // 範囲内の値の入力を求める。
+      // 以前は「エラー文 または 画面のどこかの aria-invalid または 値が上限以下」の論理和で、
+      // 二番目は無関係な必須欄の aria-invalid で常に成立していた（実測: エラー文は出ず、
+      // 値は 99999999.00 のまま受け付けられている）。要件が定める提示を主張する。
+      await expect(
+        quantityField,
+        'REQ-15.1: 範囲外の数量がそのまま受け付けられている'
+      ).not.toHaveValue('99999999.00');
+      await expect(
+        page
+          .getByRole('alert')
+          .filter({ hasText: /範囲|上限|下限/ })
+          .first(),
+        'REQ-15.1: 範囲外の数量に対するエラーメッセージが表示されない'
+      ).toBeVisible({ timeout: getTimeout(3000) });
     });
 
     /**
@@ -4093,6 +4191,16 @@ test.describe('数量表CRUD操作', () => {
     test('寸法フィールドに範囲外の値を入力するとエラーが表示される (quantity-table-generation/REQ-15.3)', async ({
       page,
     }) => {
+      // REQ-15.3（入力可能範囲外の値にエラーメッセージを表示する）は未実装である。
+      // 寸法欄に範囲の検証は無く、-1 がそのまま受け付けられる。
+      // 本テストの主張は要件どおりだが、実装が要件を満たしていないため落ちる。
+      // 前提条件による自動無効化ではなく、本体は毎回すべて実行される。
+      // 実装されると本テストは通り、この注釈により「落ちるはずが通った」として
+      // 赤くなるため、注釈の撤去を強制するラチェットとして機能する。
+      // 直列実行のため、素の失敗を残すと後続の検証と後片付けが実行されなくなる。
+
+      test.fail();
+
       if (!createdQuantityTableId) {
         throw new Error(
           'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
@@ -4118,19 +4226,22 @@ test.describe('数量表CRUD操作', () => {
       await page.keyboard.press('Tab');
       await page.waitForTimeout(300);
 
-      // エラーメッセージまたはフィールドのエラー状態を確認
-      const errorMessage = page.getByText(/範囲|正の値|0より大きい|error|エラー/i);
-      const errorField = page.locator('[aria-invalid="true"]');
-
-      const hasError = await isVisibleWithin(errorMessage.first(), 3000);
-      const hasErrorField = await isVisibleWithin(errorField.first(), 2000);
-
-      // エラー表示が行われること、または値が範囲内に制限されていること
-      const fieldValue = await widthField.inputValue();
-      const isValueLimited =
-        fieldValue === '' || parseFloat(fieldValue) >= 0.01 || parseFloat(fieldValue) === 0;
-
-      expect(hasError || hasErrorField || isValueLimited).toBeTruthy();
+      // REQ-15.3: 寸法フィールドの入力可能範囲（0.01〜9999999.99）外の値には
+      // エラーメッセージを表示し、範囲内の値の入力を求める。
+      // 以前は「エラー文 または 画面のどこかの aria-invalid または 値が範囲内」の論理和で、
+      // 二番目は無関係な必須欄の aria-invalid で常に成立していた（実測: エラー文は出ず、
+      // 値は -1.00 のまま受け付けられている）。要件が定める提示を主張する。
+      await expect(
+        widthField,
+        'REQ-15.3: 範囲外の寸法がそのまま受け付けられている'
+      ).not.toHaveValue('-1.00');
+      await expect(
+        page
+          .getByRole('alert')
+          .filter({ hasText: /範囲|正の値|0より大きい/ })
+          .first(),
+        'REQ-15.3: 範囲外の寸法に対するエラーメッセージが表示されない'
+      ).toBeVisible({ timeout: getTimeout(3000) });
     });
   });
 
@@ -4336,29 +4447,32 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // 名称フィールド（必須）を空にしてエラーを発生させる（REQ-11.2: 整合性チェック）
+      // 名称フィールド（必須）を空にしてエラーを発生させる（REQ-11.2: 整合性チェック）。
+      // 欄が一つも無ければ操作も判定も空振りするため、供給を無条件に主張する。
       const nameInputs = page.locator('input[id$="-name"]');
-      const count = await nameInputs.count();
-      if (count > 0) {
-        // 最初の項目の名称を空に変更
-        const firstInput = nameInputs.first();
-        // focus→select all→delete で確実にクリア（Reactのイベントが発火するように）
-        await firstInput.click();
-        await firstInput.selectText();
-        await page.keyboard.press('Backspace');
-        await page.keyboard.press('Tab'); // blurをトリガー
-        await page.waitForTimeout(500);
-      }
+      await expect(nameInputs.first(), '前提: 数量項目の名称欄が存在する').toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
-      // バリデーションエラーが表示されることを確認（blur時に表示される）
-      const errorMessage = page.getByText(/名称は必須です/i).first();
-      const errorField = page.locator('[aria-invalid="true"]').first();
+      const firstInput = nameInputs.first();
+      // focus→select all→delete で確実にクリア（Reactのイベントが発火するように）
+      await firstInput.click();
+      await firstInput.selectText();
+      await page.keyboard.press('Backspace');
+      await page.keyboard.press('Tab'); // blurをトリガー
 
-      const hasError = await isVisibleWithin(errorMessage, 3000);
-      const hasErrorField = await isVisibleWithin(errorField, 2000);
-
-      // バリデーションエラーが表示されること（保存が中断されることを示す）（必須）
-      expect(hasError || hasErrorField).toBeTruthy();
+      // バリデーションエラーが表示されること（保存が中断されることを示す）。
+      // 実装（AutocompleteInput）はメッセージとハイライトを同時に与えるため、
+      // 論理和では片方が失われても気づけない。ハイライトは当該の欄について確かめる
+      // （画面全体の [aria-invalid="true"] は他行の未入力にも一致してしまう）。
+      await expect(
+        page.getByText(/名称は必須です/i).first(),
+        'REQ-11.2: 名称の必須エラーが表示されない'
+      ).toBeVisible({ timeout: getTimeout(3000) });
+      await expect(firstInput, 'REQ-11.2: 名称欄がハイライトされない').toHaveAttribute(
+        'aria-invalid',
+        'true'
+      );
     });
 
     test('計算方法と入力値の不整合検出時にエラーが表示される (quantity-table-generation/REQ-11.3)', async ({
@@ -4385,21 +4499,33 @@ test.describe('数量表CRUD操作', () => {
       const count = await roundingInputs.count();
       expect(count).toBeGreaterThan(0);
       const lastInput = roundingInputs.nth(count - 1);
+      await lastInput.click();
       await lastInput.fill('-1');
+
+      // REQ-11.3: 不整合はエラー箇所を明示して修正を求める。
+      // 提示は入力中に行われ、blur で既定値へ自動補正されると消える
+      // （CalculationFields の AdjustmentField）。以前は Tab を押した後に
+      // 「エラー文 または 画面のどこかの aria-invalid または 任意の alert」の論理和で
+      // 判定していたため、無関係な必須欄の状態だけで常に成立していた。
+      // 当該の欄について、明示（メッセージ）と箇所の特定（ハイライト）を主張する。
+      await expect(
+        page.getByRole('alert').filter({ hasText: '0以下の値は使用できません' }).first(),
+        'REQ-11.3: 丸め設定の不整合が明示されない'
+      ).toBeVisible({ timeout: getTimeout(3000) });
+      await expect(lastInput, 'REQ-11.3: 不整合の箇所がハイライトされない').toHaveAttribute(
+        'aria-invalid',
+        'true'
+      );
+
+      // blur しても負の値は既定値へ置き換えられない（自動補正は 0 と空白のときだけである。
+      // CalculationFields の AdjustmentField.handleBlur）。すなわち不整合は残り、
+      // ハイライトも消えない。黙って書き換えられていないことを主張する。
       await page.keyboard.press('Tab');
-      await page.waitForTimeout(500);
-
-      // エラーメッセージまたはエラーフィールドが表示されることを確認
-      const errorMessage = page.getByText(/エラー|不整合|0以下|警告|使用できません/i);
-      const errorField = page.locator('[aria-invalid="true"], .error, .is-invalid');
-      const warningAlert = page.getByRole('alert');
-
-      const hasError = await isVisibleWithin(errorMessage.first(), 3000);
-      const hasErrorField = await isVisibleWithin(errorField.first(), 2000);
-      const hasWarning = await isVisibleWithin(warningAlert.first(), 2000);
-
-      // エラー表示が行われること（フィールドレベルのバリデーション）
-      expect(hasError || hasErrorField || hasWarning).toBeTruthy();
+      await expect(lastInput, '不整合の値が黙って書き換えられている').toHaveValue('-1.00');
+      await expect(lastInput, '不整合の箇所のハイライトが消えている').toHaveAttribute(
+        'aria-invalid',
+        'true'
+      );
     });
 
     test('不整合がある場合に警告メッセージと問題箇所がハイライト表示される (quantity-table-generation/REQ-11.4)', async ({
@@ -4424,35 +4550,29 @@ test.describe('数量表CRUD操作', () => {
       // 丸め設定を0に変更して不整合を発生させる（REQ-10.3の警告表示をテスト）
       // 注意: blur時に自動補正されるため、blur前に警告を確認する
       const roundingInputs = page.getByLabel(/丸め/);
+      // 欄が一つも無ければ操作も判定も空振りする。供給を無条件に主張する。
       const count = await roundingInputs.count();
-      let hasWarning = false;
-      let hasHighlight = false;
+      expect(count, '前提: 丸め設定の欄が存在する').toBeGreaterThan(0);
 
-      if (count > 0) {
-        const lastInput = roundingInputs.nth(count - 1);
-        // 入力フィールドをクリックしてフォーカス
-        await lastInput.click();
-        await lastInput.fill('0');
-        // blur前に警告を確認（入力中に警告が表示される）
-        await page.waitForTimeout(300);
+      const lastInput = roundingInputs.nth(count - 1);
+      await lastInput.click();
+      await lastInput.fill('0');
 
-        // 警告メッセージの確認（blur前）
-        const warningMessage = page.getByText(/0以下.*使用できません/i);
-        hasWarning = await isVisibleWithin(warningMessage.first(), 2000);
+      // REQ-11.4: 不整合がある場合は警告メッセージを表示し、問題箇所をハイライトする。
+      // 実装（AdjustmentField）は入力中に両方を同時に与えるため、論理和では片方が
+      // 失われても気づけない。双方を個別に主張する（blur 前の状態で確かめる）。
+      await expect(
+        page.getByText(/0以下.*使用できません/i).first(),
+        'REQ-11.4: 不整合の警告メッセージが表示されない'
+      ).toBeVisible({ timeout: getTimeout(2000) });
+      await expect(lastInput, 'REQ-11.4: 問題箇所がハイライトされない').toHaveAttribute(
+        'aria-invalid',
+        'true'
+      );
 
-        // aria-invalidの確認（blur前）
-        hasHighlight = await lastInput
-          .getAttribute('aria-invalid')
-          .then((val) => val === 'true')
-          .catch(() => false);
-
-        // blurをトリガー（自動補正が行われる）
-        await page.keyboard.press('Tab');
-        await page.waitForTimeout(300);
-      }
-
-      // 警告またはハイライトが表示されたこと（blur前の状態）（必須）
-      expect(hasWarning || hasHighlight).toBeTruthy();
+      // blurをトリガー（自動補正が行われる）
+      await page.keyboard.press('Tab');
+      await expect(lastInput).toHaveValue('0.01');
     });
   });
 
@@ -4519,27 +4639,19 @@ test.describe('数量表CRUD操作', () => {
       // ローディングが終わるまで待機
       await page.waitForTimeout(1000);
 
-      // パンくずナビゲーションが表示される（必須）
-      // aria-label="breadcrumb" で設定されているnavを検索
+      // REQ-12.3: 数量表新規作成画面に
+      // 「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 数量表一覧 > 新規作成」を表示する。
+      // 以前は `nav[aria-label="breadcrumb"]` と `getByRole('navigation', {name:/breadcrumb/i})` の
+      // 論理和で判定していたが、この二つは同じ要素を別の書き方で指しているだけであり、
+      // 一方が偽なら他方も偽になる。さらに内容の判定は「プロジェクト または 新規作成」の
+      // 論理和で、片方の欠落を検出できなかった。要素と内容の双方を直接主張する。
       const breadcrumb = page.locator('nav[aria-label="breadcrumb"]');
-      const hasBreadcrumb = await isVisibleWithin(breadcrumb, 5000);
+      await expect(breadcrumb, 'パンくずナビゲーションが表示されない').toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
-      // 代替：getByRoleで検索
-      const breadcrumbNav = page.getByRole('navigation', { name: /breadcrumb/i });
-      const hasBreadcrumbNav = await isVisibleWithin(breadcrumbNav, 3000);
-
-      // パンくずナビゲーションが何らかの形で存在することを確認
-      expect(hasBreadcrumb || hasBreadcrumbNav).toBeTruthy();
-
-      // パンくず内のコンテンツを確認（少なくとも「プロジェクト」と「新規作成」がある）
-      if (hasBreadcrumb) {
-        const hasProjectText = await isVisibleWithin(
-          breadcrumb.getByText(/プロジェクト/).first(),
-          2000
-        );
-        const hasNewText = await isVisibleWithin(breadcrumb.getByText(/新規作成/).first(), 2000);
-        expect(hasProjectText || hasNewText).toBeTruthy();
-      }
+      await expect(breadcrumb).toContainText('プロジェクト');
+      await expect(breadcrumb).toContainText('新規作成');
     });
 
     test('パンくず項目をクリックして遷移できる (quantity-table-generation/REQ-12.4)', async ({
@@ -4585,13 +4697,14 @@ test.describe('数量表CRUD操作', () => {
       const lastItem = breadcrumb.locator('li').last();
       await expect(lastItem).toBeVisible({ timeout: 3000 });
 
-      // 最後の項目はリンクでないか、aria-current属性を持つ
-      const hasAriaCurrent = await lastItem.getAttribute('aria-current');
-      const link = lastItem.getByRole('link');
-      const isLink = await isVisibleWithin(link, 1000);
-
-      // 最後の項目がリンクでない、またはaria-current="page"を持つ（必須）
-      expect(!isLink || hasAriaCurrent === 'page').toBeTruthy();
+      // REQ-12.5: 現在の画面を示す項目はクリック不可（非リンク）として表示する。
+      // 以前は「リンクでない、または aria-current="page" を持つ」の論理和で判定していたが、
+      // 実装は現在地をリンクにしないだけで aria-current を付けない。すなわち右辺は
+      // 決して真にならず、左辺だけで成立する形であった。要件が定める非リンクを主張する。
+      await expect(
+        lastItem.getByRole('link'),
+        'REQ-12.5: 現在の画面を示すパンくず項目がリンクになっている'
+      ).toHaveCount(0);
     });
   });
 

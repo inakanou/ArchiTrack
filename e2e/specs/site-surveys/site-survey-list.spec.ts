@@ -9,10 +9,16 @@
  * - REQ-3.5: サムネイル画像（代表画像）を表示
  */
 
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 test.describe('現場調査一覧・検索', () => {
   test.describe.configure({ mode: 'serial' });
@@ -261,41 +267,25 @@ test.describe('現場調査一覧・検索', () => {
       await page.goto(`/projects/${createdProjectId}/site-surveys`);
       await page.waitForLoadState('networkidle');
 
-      // ソートヘッダーまたはソートボタンを探す
-      const sortByDate = page.getByRole('button', { name: /調査日/i });
-      const sortHeader = page.getByRole('columnheader', { name: /調査日/i });
-      // ソート項目セレクトを取得（複数ある場合はfirst()）
+      // REQ-3.4: 並び替えを変更すると調査日・作成日・更新日でソートした結果を表示する。
+      // 並び替えの選択欄は一覧画面に常に描画される（SiteSurveyListPage）。表のヘッダは
+      // 画面幅により現れたり消えたりするが、この欄は幅に依らない。
+      // 以前は「ボタン または 列見出し または 選択欄」の論理和で判定し、そのうえで
+      // どれを使うかで分岐していた。三つのうち一つでも残れば通るため、
+      // 並び替えの手段が失われたことを検出できなかった。
+      // 同ファイルの「作成日でソートができる」と同じく、選択欄そのものを主張する。
       const sortSelect = page.getByLabel(/ソート項目/i);
+      await expect(sortSelect, '並び替えの選択欄が表示されない').toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
-      const hasSortByDate = await isVisibleWithin(sortByDate, 3000);
-      const hasSortHeader = await isVisibleWithin(sortHeader, 3000);
-      const hasSortSelect = await isVisibleWithin(sortSelect, 3000);
-
-      // 少なくとも1つのソート機能が必須
-      expect(hasSortByDate || hasSortHeader || hasSortSelect).toBeTruthy();
-
-      // ソートを実行。画面幅により提供される操作手段が異なるため分岐するが、直前の主張で
-      // 少なくとも一つが存在することを確定させており、分岐は全域である。どの経路でも
-      // 並び替えは必ず実行される。
-      // e2e-guard-allow: 検証ではなく操作手段の変種の吸収（直前の主張で分岐が全域であることを確定済み）
-      if (hasSortHeader) {
-        await sortHeader.click();
-        // e2e-guard-allow: 同上（変種の吸収であり、いずれかの経路が必ず実行される）
-      } else if (hasSortByDate) {
-        await sortByDate.click();
-      } else {
-        // 直前の主張により、ここに来るのは並び替えの選択欄が存在する場合に限られる。
-        // 分岐を全域にして、いずれの経路でも必ず並び替えが実行されるようにする（Task 115.92）
-        const options = await sortSelect.locator('option').allTextContents();
-        const dateOption = options.find((opt) => opt.includes('調査日'));
-        // 候補が無い場合に何もせず素通りすると、並び替えを行わないまま後段の
-        // 判定へ進み、失敗地点がずれる。候補の供給を無条件に主張する（Task 115.92）
-        expect(
-          dateOption,
-          `ソート項目に調査日の候補が無い（候補: ${options.join(' / ')}）`
-        ).toBeTruthy();
-        await sortSelect.selectOption({ label: dateOption! });
-      }
+      const options = await sortSelect.locator('option').allTextContents();
+      const dateOption = options.find((opt) => opt.includes('調査日'));
+      expect(
+        dateOption,
+        `ソート項目に調査日の候補が無い（候補: ${options.join(' / ')}）`
+      ).toBeTruthy();
+      await sortSelect.selectOption({ label: dateOption! });
 
       await page.waitForLoadState('networkidle');
 
@@ -334,9 +324,16 @@ test.describe('現場調査一覧・検索', () => {
    * @requirement site-survey/REQ-3.5
    */
   test.describe('サムネイル表示', () => {
-    test('一覧画面でサムネイル画像エリアが表示される (site-survey/REQ-3.5)', async ({ page }) => {
+    test('画像を登録していない現場調査の行にはプレースホルダーが表示される (site-survey/REQ-3.5)', async ({
+      page,
+    }) => {
       if (!createdProjectId) {
         throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
+      }
+      if (createdSurveyIds.length < 2) {
+        throw new Error(
+          '現場調査が2件以上作成されていません。事前準備テストが正しく実行されていません。'
+        );
       }
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -344,20 +341,88 @@ test.describe('現場調査一覧・検索', () => {
       await page.goto(`/projects/${createdProjectId}/site-surveys`);
       await page.waitForLoadState('networkidle');
 
-      // サムネイル画像要素またはプレースホルダーを探す
-      const thumbnail = page.locator(
-        '[data-testid="survey-thumbnail"], .survey-thumbnail, .thumbnail, .survey-item img'
-      );
-      const placeholder = page.locator(
-        '.thumbnail-placeholder, .no-image, [aria-label*="画像なし"]'
-      );
+      // 2件目の現場調査には本ファイルのどのテストも画像を登録しない。
+      // そのため代表画像は存在せず、サムネイル欄にはプレースホルダーが描画される
+      // （SiteSurveyListTable: 代表画像が無い場合の thumbnail-placeholder）。
+      // 以前は画面全体を対象に「サムネイル または プレースホルダー」の論理和で
+      // 判定していたが、前者が現れる経路が無いため判定はプレースホルダーだけで
+      // 常に成立していた。判定を当該行に限定し、代表画像が無いことも併せて主張する。
+      const withoutImageRow = page.getByTestId(`survey-row-${createdSurveyIds[1]}`);
+      await expect(withoutImageRow, '画像を登録していない現場調査の行が一覧に無い').toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await expect(
+        withoutImageRow.getByTestId('thumbnail-placeholder'),
+        '画像の無い現場調査にサムネイルのプレースホルダーが表示されない'
+      ).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(
+        withoutImageRow.locator('img'),
+        '画像を登録していないのに代表画像が描画されている'
+      ).toHaveCount(0);
+    });
 
-      const hasThumbnail = await isVisibleWithin(thumbnail.first(), 3000);
-      const hasPlaceholder = await isVisibleWithin(placeholder.first(), 3000);
+    test('画像を登録した現場調査の行に代表画像が表示される (site-survey/REQ-3.5)', async ({
+      page,
+    }) => {
+      if (!createdProjectId) {
+        throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
+      }
+      if (createdSurveyIds.length === 0) {
+        throw new Error('現場調査が作成されていません。事前準備テストが正しく実行されていません。');
+      }
 
-      // サムネイル要素かプレースホルダーのどちらかが存在することを確認
-      // 画像がない場合はプレースホルダーが表示される
-      expect(hasThumbnail || hasPlaceholder).toBeTruthy();
+      const targetSurveyId = createdSurveyIds[0];
+      const targetSurveyName = surveyNames[0];
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // REQ-3.5 の本体（代表画像の表示）を確かめるための前提を実際に作る。
+      // 手順は site-survey-performance.spec.ts の画像アップロードと同じで、
+      // 現場調査詳細画面のファイル入力へ画像を1枚渡し、登録APIの成功応答を待つ。
+      await page.goto(`/site-surveys/${targetSurveyId}`);
+      await page.waitForLoadState('networkidle');
+
+      const testImagePath = path.join(__dirname, '../../fixtures/test-image.jpg');
+      expect(fs.existsSync(testImagePath), 'テスト用画像ファイルが存在しない').toBeTruthy();
+
+      const fileInput = page.locator('input[type="file"]').first();
+      await expect(fileInput, '現場調査詳細画面にファイル入力が無い').toBeAttached({
+        timeout: getTimeout(15000),
+      });
+
+      // オリジンは環境（CI／ローカル）で食い違うためパスで判定する。
+      const uploadResponsePromise = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname.includes('/images') &&
+          response.request().method() === 'POST',
+        { timeout: getTimeout(60000) }
+      );
+      await fileInput.setInputFiles(testImagePath);
+      const uploadResponse = await uploadResponsePromise;
+      expect(uploadResponse.ok(), '画像の登録APIが成功応答を返さない').toBeTruthy();
+
+      // 一覧画面に戻り、当該現場調査の行に代表画像が実際に描画されることを確かめる。
+      // 代表画像は先頭画像から作られ（site-survey.service の thumbnailImageId /
+      // thumbnailOriginalPath / thumbnailUrl）、SiteSurveyListTable は
+      // alt="<調査名>のサムネイル" の img を描画する
+      // （注釈が保存されている場合は同じ接頭辞に「（注釈付き）」が付く）。
+      await page.goto(`/projects/${createdProjectId}/site-surveys`);
+      await page.waitForLoadState('networkidle');
+
+      const targetRow = page.getByTestId(`survey-row-${targetSurveyId}`);
+      await expect(targetRow, '画像を登録した現場調査の行が一覧に無い').toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      const thumbnail = targetRow.locator(`img[alt^="${targetSurveyName}のサムネイル"]`);
+      await expect(
+        thumbnail,
+        '画像を登録した現場調査の行に代表画像（サムネイル）が表示されない'
+      ).toBeVisible({ timeout: getTimeout(20000) });
+      await expect(
+        targetRow.getByTestId('thumbnail-placeholder'),
+        '代表画像があるのにプレースホルダーが描画されている'
+      ).toHaveCount(0);
     });
   });
 

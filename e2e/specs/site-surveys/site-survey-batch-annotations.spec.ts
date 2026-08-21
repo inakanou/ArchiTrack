@@ -298,9 +298,17 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
     const batchData = await batchResponse.json();
     expect(batchData).toHaveProperty('annotations');
 
-    // 存在しないimageIDに対してnullまたは空のデータが返却されることを確認
-    const nonExistentAnnotation = batchData.annotations[nonExistentImageId];
-    expect(nonExistentAnnotation === null || nonExistentAnnotation === undefined).toBeTruthy();
+    // REQ-18.4: 存在しない画像IDに対しては空の注釈データを返す。
+    // 実装（annotation.service.ts findByImageIds）は要求された全IDについて鍵を作り、
+    // 該当が無ければ null を入れる。鍵ごと欠落させるのではない。
+    // 以前の `=== null || === undefined` は、鍵が消えても（undefined になっても）真であり、
+    // 「空のデータを返す」ことと「何も返さない」ことを区別できなかった。
+    // 実在するIDの鍵が返っていることと併せて主張する（不在の主張だけでは何も言えない）。
+    expect(Object.keys(batchData.annotations)).toContain(nonExistentImageId);
+    expect(batchData.annotations[nonExistentImageId]).toBeNull();
+    for (const existingId of imageIds) {
+      expect(Object.keys(batchData.annotations)).toContain(existingId);
+    }
   });
 
   /**
@@ -351,16 +359,17 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
       }
     );
 
-    // エラーステータスが返却されること
-    expect(noSurveyIdResponse.ok()).toBeFalsy();
+    // REQ-18.7: バッチ注釈取得が失敗したときはエラーメッセージを返す。
+    // 入力検証の失敗は 400 の RFC7807 形式で返り、後方互換のため message も併記される
+    // （apiError.ts の toProblemDetails）。
+    // 以前は `'message' in b || 'error' in b || 'errors' in b` の論理和を、
+    // 本文が取れたときにだけ判定していた。本文の取得に失敗すれば判定ごと消え、
+    // 論理和はどれか一つ残れば成立する。返る形そのものを主張する。
+    expect(noSurveyIdResponse.status()).toBe(400);
 
-    const errorBody = await noSurveyIdResponse.json().catch(() => null);
-
-    // エラーレスポンスにメッセージが含まれていることを確認
-    if (errorBody) {
-      const hasMessage = 'message' in errorBody || 'error' in errorBody || 'errors' in errorBody;
-      expect(hasMessage).toBeTruthy();
-    }
+    const errorBody = (await noSurveyIdResponse.json()) as Record<string, unknown>;
+    expect(errorBody.message, 'エラー応答に message が無い').toBeTruthy();
+    expect(errorBody.detail, 'エラー応答に detail が無い').toBeTruthy();
 
     // 不正なリクエストボディ（imageIdsなし）
     const noImageIdsResponse = await sharedPage.request.post(
@@ -373,14 +382,11 @@ test.describe('現場調査 バッチ注釈取得（要件18）', () => {
       }
     );
 
-    expect(noImageIdsResponse.ok()).toBeFalsy();
+    expect(noImageIdsResponse.status()).toBe(400);
 
-    const errorBody2 = await noImageIdsResponse.json().catch(() => null);
-    if (errorBody2) {
-      const hasMessage2 =
-        'message' in errorBody2 || 'error' in errorBody2 || 'errors' in errorBody2;
-      expect(hasMessage2).toBeTruthy();
-    }
+    const errorBody2 = (await noImageIdsResponse.json()) as Record<string, unknown>;
+    expect(errorBody2.message, 'エラー応答に message が無い').toBeTruthy();
+    expect(errorBody2.detail, 'エラー応答に detail が無い').toBeTruthy();
   });
 
   /**

@@ -11,7 +11,7 @@
 
 import { test, expect, type Page, type Response } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 /**
@@ -464,31 +464,29 @@ test.describe('プロジェクト詳細画面', () => {
       await page.goto(`/projects/${testProjectId}`);
       await page.waitForLoadState('networkidle');
 
-      // 見積依頼セクションの存在を確認（見積書機能は見積依頼として実装されている）
+      // 見積依頼セクションの見出しは件数に依らず常に描画される
+      // （ProjectDetailPage が EstimateRequestSectionCard を無条件に置く）。
+      // 以前はセクションの有無で判定を包み、無い場合の枝に `expect(true).toBe(true)` を
+      // 置いていた。セクションが消えても緑になる形であり、何も確かめていなかった。
       const estimateRequestSection = page.getByRole('heading', { name: /見積依頼/i });
-      const estimateRequestSectionVisible = await estimateRequestSection
-        .isVisible()
-        .catch(() => false);
+      await expect(estimateRequestSection).toBeVisible({ timeout: getTimeout(10000) });
 
-      if (estimateRequestSectionVisible) {
-        // 見積依頼セクションが存在する場合、「すべて見る」リンクで一覧に遷移できることを確認
-        const viewAllLink = page
-          .locator('section')
-          .filter({ has: page.getByRole('heading', { name: /見積依頼/i }) })
-          .getByRole('link', { name: /すべて見る/i });
+      // 見積依頼画面への導線は件数で姿を変える。1件以上なら「すべて見る」、
+      // 0件なら空状態の「新規作成」が描画される（EstimateRequestSectionCard）。
+      // どちらの経路でも見積依頼の画面へ遷移することを主張する。
+      const section = page
+        .locator('section')
+        .filter({ has: page.getByRole('heading', { name: /見積依頼/i }) });
+      const viewAllLink = section.getByRole('link', { name: /すべて見る/i });
+      const createLink = section.getByRole('link', { name: /新規作成/i });
 
-        const linkVisible = await viewAllLink.isVisible().catch(() => false);
-        if (linkVisible) {
-          await viewAllLink.click();
-          await expect(page).toHaveURL(/estimate-requests/, { timeout: getTimeout(10000) });
-        } else {
-          // 「すべて見る」リンクがない場合でも、セクションが存在すれば要件を満たす
-          expect(estimateRequestSectionVisible).toBe(true);
-        }
+      if (await isVisibleWithin(viewAllLink, getTimeout(3000))) {
+        await viewAllLink.click();
       } else {
-        // 見積依頼セクションがない場合は機能無効状態としてテスト成功
-        expect(true).toBe(true);
+        await createLink.click();
       }
+
+      await expect(page).toHaveURL(/estimate-requests/, { timeout: getTimeout(10000) });
     });
 
     /**

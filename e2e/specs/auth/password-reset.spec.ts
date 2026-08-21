@@ -682,11 +682,14 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
       expect(email.subject).toContain('パスワードリセット');
 
       // メール本文からリセットトークンを抽出
-      const resetToken = extractResetTokenFromEmail(email.text || email.html);
-      expect(resetToken).toBeTruthy();
+      // 変数名は同ファイル内の固定文字列のトークン（`const resetToken = 'valid-ui-test-token'` 等）と
+      // 衝突させない。名前が同じだと、抽出結果ではなく固定文字列を主題と誤って読み取れてしまう。
+      const tokenFromEmail = extractResetTokenFromEmail(email.text || email.html);
+      expect(tokenFromEmail, 'リセットメールからトークンを抽出できない').not.toBeNull();
+      expect(String(tokenFromEmail)).toMatch(/^[A-Za-z0-9_-]{16,}$/);
 
       // Step 5: リセットURLにアクセス
-      await page.goto(`/password-reset?token=${resetToken}`);
+      await page.goto(`/password-reset?token=${tokenFromEmail}`);
 
       // トークン検証が完了するまで待機
       await expect(page.locator('input#password')).toBeEnabled({ timeout: getTimeout(10000) });

@@ -224,20 +224,24 @@ test.describe('取引先ナビゲーション・画面遷移', () => {
       await page.goto('/');
       await page.waitForLoadState('networkidle');
 
-      // カードの位置を確認
-      const projectCard = page.getByTestId('quick-link-projects');
-      const tradingPartnerCard = page.getByTestId('quick-link-trading-partners');
+      // REQ-12.8: 「取引先管理」カードは「プロジェクト管理」カードの次に配置される。
+      // 以前は座標を取れた場合にだけ「右にある または 下にある」を判定していた。
+      // グリッドの折り返し方によってどちらかが成り立つため、間に別のカードが割り込んでも
+      // 検出できず、座標が取れなければ判定ごと消えていた。
+      // 「次に配置」の観測点は並び順そのものである。クイックアクセスのカード群の
+      // 並びを取り、取引先管理がプロジェクト管理の直後にあることを主張する。
+      const quickLinkIds = await page
+        .locator('[data-testid^="quick-link-"]')
+        .evaluateAll((elements) => elements.map((el) => el.getAttribute('data-testid')));
 
-      const projectBox = await projectCard.boundingBox();
-      const tradingPartnerBox = await tradingPartnerCard.boundingBox();
+      const projectIndex = quickLinkIds.indexOf('quick-link-projects');
+      const tradingPartnerIndex = quickLinkIds.indexOf('quick-link-trading-partners');
 
-      // 取引先管理カードがプロジェクト管理カードの右または下にあることを確認
-      if (projectBox && tradingPartnerBox) {
-        // グリッドレイアウトのため、右側または下に配置される
-        const isRightOf = tradingPartnerBox.x > projectBox.x;
-        const isBelow = tradingPartnerBox.y > projectBox.y + projectBox.height - 10; // 若干のマージン
-        expect(isRightOf || isBelow).toBe(true);
-      }
+      expect(projectIndex, 'プロジェクト管理カードが見つからない').toBeGreaterThanOrEqual(0);
+      expect(
+        tradingPartnerIndex,
+        `取引先管理カードがプロジェクト管理カードの次に無い（並び: ${quickLinkIds.join(' / ')}）`
+      ).toBe(projectIndex + 1);
     });
   });
 

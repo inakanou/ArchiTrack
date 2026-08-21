@@ -246,9 +246,13 @@ test.describe('プロジェクト詳細画面 - 実行予算セクション', ()
     expect(response.status()).toBe(200);
     const body = await response.json();
 
-    // 実行予算セクションがnullまたはオブジェクト形式であること
-    const budget = body.sections.executionBudget;
-    expect(budget === null || typeof budget === 'object').toBe(true);
+    // REQ-41.4: 実行予算の取得が失敗しても detail-summary は応答を返し、他セクションを
+    // 巻き添えにしない。実装は Promise.allSettled で受け、失敗時も未作成時も当該セクションを
+    // null にする（projects.routes.ts）。
+    // 以前の `budget === null || typeof budget === 'object'` は typeof null === 'object' のため
+    // どちらの経路でも真であり、鍵が消えても数値が入っても気づけない主張だった。
+    // 観測点は「鍵が欠落せずに存在すること」である。
+    expect(Object.keys(body.sections)).toContain('executionBudget');
 
     // 他のセクションも正常に返却される（独立して動作する）
     expect(body.sections.siteSurveys).toBeDefined();

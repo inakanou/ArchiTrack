@@ -25,6 +25,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../helpers/auth-actions';
 import { getTimeout } from '../helpers/wait-helpers';
 import { selectFirstRealOption } from '../helpers/form-preconditions';
+import { API_BASE_URL } from '../config';
 
 /**
  * テスト用プロジェクトを作成する共通関数
@@ -790,27 +791,39 @@ test.describe('ステータス遷移', () => {
       const project = await createTestProject(page);
       await page.waitForLoadState('networkidle');
 
-      // 不許可な遷移をAPIで直接試行（準備中 → 完了 は許可されていない）
-      const response = await page.request.patch(`/api/projects/${project.id}/status`, {
-        data: { status: 'COMPLETED' },
-      });
+      // 不許可な遷移をAPIで直接試行（準備中 → 完了 は許可されていない）。
+      //
+      // 以前は相対URLで `page.request.patch('/api/…')` を呼んでいた。相対URLはページの
+      // 基準URL（フロントの配信元）に解決されるため、要求はAPIではなく配信サーバへ届き、
+      // 本文の無い 4xx が返っていた。その結果「4xx である」は常に成立し、続く本文の判定は
+      // 本文が空のため一度も実行されず、さらに try/catch が主張の失敗ごと握り潰していた。
+      // APIの基準URLと認可ヘッダを明示し、要件どおりの拒否が返ることを主張する。
+      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      expect(accessToken, '前提: アクセストークンが取得できる').toBeTruthy();
 
-      // エラーレスポンス（4xx）が返されることを確認
-      // 400 (Bad Request), 403 (Forbidden), 422 (Unprocessable Entity) のいずれか
-      const statusCode = response.status();
-      expect(statusCode >= 400 && statusCode < 500).toBe(true);
-
-      // エラーレスポンスの内容を確認（レスポンスボディがある場合）
-      try {
-        const responseText = await response.text();
-        if (responseText) {
-          const responseData = JSON.parse(responseText);
-          expect(responseData.error || responseData.message || responseData.errors).toBeTruthy();
+      const response = await page.request.patch(
+        `${API_BASE_URL}/api/projects/${project.id}/status`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: { status: 'COMPLETED' },
         }
-      } catch {
-        // レスポンスボディがない場合やJSONでない場合は、ステータスコードのみで検証
-        // ステータスコードが4xxであることは既に確認済み
-      }
+      );
+
+      // REQ-10.9: 許可されていない遷移は拒否される。
+      // 実装は InvalidStatusTransitionError を 422 の RFC7807 形式で返す
+      // （projects.routes.ts）。遷移元・遷移先も本文に含まれる。
+      expect(response.status()).toBe(422);
+
+      const responseData = (await response.json()) as {
+        detail?: string;
+        code?: string;
+        fromStatus?: string;
+        toStatus?: string;
+      };
+      expect(responseData.detail, 'エラー本文に説明が含まれない').toBeTruthy();
+      expect(responseData.code, 'エラー本文にコードが含まれない').toBeTruthy();
+      expect(responseData.fromStatus).toBe('PREPARING');
+      expect(responseData.toStatus).toBe('COMPLETED');
     });
   });
 

@@ -396,15 +396,15 @@ test.describe('管理者招待機能', () => {
     // 確認ボタンをクリック
     await page.getByRole('button', { name: /はい、取り消します/i }).click();
 
-    // 招待一覧から削除されているまたはステータスが「revoked」/「取り消し済み」になっている
-    // (実装によって異なる場合があるため、両方をチェック)
-    await expect(async () => {
-      const isDeleted = (await invitationRow.count()) === 0;
-      const isCancelled = isDeleted
-        ? true
-        : await invitationRow.locator('text=/revoked|取り消し済み|Cancelled/i').isVisible();
-      expect(isDeleted || isCancelled).toBe(true);
-    }).toPass({ timeout: getTimeout(10000) });
+    // 要件13.8: 未使用の招待を取り消すと招待は無効化される。
+    // 実装は行を消さずに残し、状態表示を「取り消し済み」へ変える。
+    // 以前は「行が消えた」との論理和で判定していたが、行が消える経路は実装に無く、
+    // 消えた場合を真とする側は取り消しが反映されなくても成立し得た。
+    // 行が残り続けることと、その行が取り消し済みを示すことの双方を主張する。
+    await expect(invitationRow).toHaveCount(1);
+    await expect(invitationRow.locator('text=/revoked|取り消し済み|Cancelled/i')).toBeVisible({
+      timeout: getTimeout(10000),
+    });
   });
 
   /**

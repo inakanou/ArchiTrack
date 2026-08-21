@@ -241,34 +241,26 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
         .first()
     ).toBeVisible({ timeout: getTimeout(60000) });
 
-    // テキスト抽出結果が表示された場合の検証
+    // テキスト抽出結果の検証。抽出が表示されたときだけ判定していると、
+    // エラー表示で終わっても通ってしまう。テキストPDFは抽出が成功する経路であるため
+    // 分岐で包まずに主張する。
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-    if (await isVisibleWithin(extractedText, 3000)) {
-      // テキストが抽出されていることを確認
-      const textContent = await extractedText.textContent();
-      expect(textContent).toBeTruthy();
-      expect(textContent!.length).toBeGreaterThan(0);
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(10000) });
 
-      // テキストPDFの場合、Tesseract Workerの初期化リクエストが発生していないことを確認
-      // （テキスト抽出にOCRは不要）
-      const hasTesseractWorkerInit = tesseractRequests.some(
-        (url) => url.includes('tesseract-worker') || url.includes('tesseract-core')
-      );
-      // テキストPDFではTesseractワーカーが初期化されないことが期待される
-      // ただし事前にロードされている場合もあるため、ログで確認
-      if (hasTesseractWorkerInit) {
-        // Tesseractワーカーがロードされていても、実際のOCR処理が呼ばれていないことを
-        // コンソールログから確認（「pdfjs-dist text extraction」等のログ）
-        const hasPdfjsExtraction = consoleMessages.some(
-          (msg) =>
-            msg.includes('pdfjs') ||
-            msg.includes('text extraction') ||
-            msg.includes('getTextContent')
-        );
-        // pdfjs-distによるテキスト抽出が行われていること
-        expect(hasPdfjsExtraction || textContent!.length > 0).toBeTruthy();
-      }
-    }
+    const textContent = await extractedText.textContent();
+    expect(textContent).toBeTruthy();
+    expect(textContent!.length).toBeGreaterThan(0);
+
+    // テキストPDFの場合、Tesseract Workerの初期化リクエストが発生しない
+    // （テキスト抽出にOCRは不要）。
+    // 以前はワーカーが初期化された場合にのみ
+    // `hasPdfjsExtraction || textContent!.length > 0` を判定していたが、右辺は直前で
+    // 0 より大きいことを確定させた値であり常に真である。つまりワーカーの初期化有無を
+    // 一度も確かめていなかった。初期化されたリクエストが無いことを直接主張する。
+    const tesseractWorkerRequests = tesseractRequests.filter(
+      (url) => url.includes('tesseract-worker') || url.includes('tesseract-core')
+    );
+    expect(tesseractWorkerRequests, 'テキストPDFではTesseractワーカーは初期化されない').toEqual([]);
   });
 
   // ============================================================================
@@ -323,15 +315,14 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
         .or(page.locator('[data-testid="ocr-error-message"]'))
     ).toBeVisible({ timeout: getTimeout(90000) });
 
-    // 結果またはエラーが表示されることでCanvas→OCRパスが実行されたことを確認
+    // Canvas→OCR パスが実行され、抽出結果が表示されたことを確認する。
+    // 以前は「結果またはエラー」の論理和で判定していたが、エラーを許す側があるため
+    // OCR が常に失敗しても通ってしまう。実装は本スキャンPDFに対して抽出結果を返す。
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
     const errorMessage = page.locator('[data-testid="ocr-error-message"]');
 
-    const hasResult = await isVisibleWithin(extractedText, 3000);
-    const hasError = await isVisibleWithin(errorMessage, 3000);
-
-    // いずれかの結果が表示されていることを確認（OCR処理が実行された証拠）
-    expect(hasResult || hasError).toBeTruthy();
+    await expect(errorMessage).toHaveCount(0);
+    await expect(extractedText).toBeVisible();
   });
 
   // ============================================================================

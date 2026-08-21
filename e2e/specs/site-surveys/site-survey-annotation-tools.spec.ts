@@ -40,7 +40,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
+import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
@@ -446,41 +446,33 @@ test.describe('現場調査注釈ツール', () => {
       await dimensionTool.click();
       await expect(dimensionTool).toHaveAttribute('aria-pressed', 'true');
 
-      // カスタマイズオプションを探す
-      const colorPicker = page.locator(
-        '[data-testid="color-picker"], .color-picker, input[type="color"]'
-      );
-      const lineWidth = page.locator(
-        '[data-testid="line-width"], .line-width-selector, input[name*="width"]'
-      );
-      const styleOptions = page.locator('[data-testid="style-options"], .style-panel');
+      // REQ-6.7: 寸法線の色・線の太さをカスタマイズ可能にする。
+      // AnnotationToolbar の StylePanel は描画ツール選択中に必ず描画され、
+      // テキスト以外のツールでは線の色（color-picker）と線の太さ（line-width）を同時に出す。
+      // 以前は「色 または 太さ または パネル」の論理和で、どれか一つが残っていれば通った。
+      const styleOptions = page.getByTestId('style-options');
+      await expect(styleOptions, 'スタイルパネルが表示されない').toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
-      const hasColorPicker = await colorPicker.isVisible();
-      const hasLineWidth = await lineWidth.isVisible();
-      const hasStyleOptions = await styleOptions.isVisible();
+      const colorPicker = styleOptions.getByTestId('color-picker');
+      const lineWidth = styleOptions.getByTestId('line-width');
+      await expect(colorPicker, '寸法線の色を選ぶ欄が無い').toBeVisible();
+      await expect(lineWidth, '寸法線の太さを指定する欄が無い').toBeVisible();
 
-      expect(hasColorPicker || hasLineWidth || hasStyleOptions).toBeTruthy();
+      // 「カスタマイズ可能」は表示だけでは満たされない。変更が保持されることまで確かめる。
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await colorPicker.evaluate((el: any) => {
+        el.value = '#ff0000';
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      await expect(colorPicker).toHaveValue('#ff0000');
 
-      // カスタマイズオプションを変更
-      if (hasColorPicker) {
-        const colorInput = colorPicker.first();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await colorInput.evaluate((el: any) => {
-          el.value = '#ff0000';
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-        });
-      }
-
-      if (hasLineWidth) {
-        const widthInput = lineWidth.first();
-        await widthInput.click();
-        await widthInput.press('Control+a');
-        await widthInput.type('3');
-      }
-
-      // 操作が完了したことを確認
-      await expect(page.locator('body')).toBeVisible();
+      await lineWidth.click();
+      await lineWidth.press('Control+a');
+      await lineWidth.type('3');
+      await expect(lineWidth).toHaveValue('3');
     });
   });
 
@@ -918,15 +910,18 @@ test.describe('現場調査注釈ツール', () => {
       await rectTool.click();
       await expect(rectTool).toHaveAttribute('aria-pressed', 'true');
 
-      // 塗りつぶし色オプションが表示されることを確認
-      const fillColorPicker = page.locator('[data-testid="fill-color-picker"]');
-      const hasFillColor = await fillColorPicker.isVisible();
-
-      // スタイルオプションが利用可能であることを確認
-      const styleOptions = page.locator('[data-testid="style-options"]');
-      const hasStyleOptions = await styleOptions.isVisible();
-
-      expect(hasFillColor || hasStyleOptions).toBeTruthy();
+      // 四角形などの図形ツールでは塗りつぶし色の欄がスタイルパネル内に描画される
+      // （AnnotationToolbar の showFillOptions）。
+      // 以前は「塗りつぶし色 または スタイルパネル」の論理和で、塗りつぶし色が
+      // 失われてもパネルさえあれば通る形だった。本テストの主題は塗りつぶし色である。
+      const styleOptions = page.getByTestId('style-options');
+      await expect(styleOptions, 'スタイルパネルが表示されない').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await expect(
+        styleOptions.getByTestId('fill-color-picker'),
+        '図形ツールで塗りつぶし色の欄が表示されない'
+      ).toBeVisible();
     });
 
     test('図形の色・線の太さ・塗りつぶしをカスタマイズできる (site-survey/REQ-7.10)', async ({
@@ -947,34 +942,26 @@ test.describe('現場調査注釈ツール', () => {
       await rectTool.click();
       await expect(rectTool).toHaveAttribute('aria-pressed', 'true');
 
-      // スタイルオプションパネルが表示されることを確認
-      const styleOptions = page.locator('[data-testid="style-options"]');
-      const hasStyleOptions = await styleOptions.isVisible();
+      // REQ-7.10: 図形の色・線の太さ・塗りつぶしをカスタマイズ可能にする。
+      // 四角形ツールでは三つの欄が同時に描画される（AnnotationToolbar の StylePanel）。
+      // 以前は「いずれか一つ」の論理和だったため、三つのうち二つが失われても通っていた。
+      const styleOptions = page.getByTestId('style-options');
+      await expect(styleOptions, 'スタイルパネルが表示されない').toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
-      // 色ピッカーが表示されることを確認
-      const colorPicker = page.locator('[data-testid="color-picker"]');
-      const hasColorPicker = await colorPicker.isVisible();
+      const colorPicker = styleOptions.getByTestId('color-picker');
+      const lineWidth = styleOptions.getByTestId('line-width');
+      const fillColorPicker = styleOptions.getByTestId('fill-color-picker');
+      await expect(colorPicker, '線の色の欄が無い').toBeVisible();
+      await expect(lineWidth, '線の太さの欄が無い').toBeVisible();
+      await expect(fillColorPicker, '塗りつぶし色の欄が無い').toBeVisible();
 
-      // 線の太さ入力が表示されることを確認
-      const lineWidth = page.locator('[data-testid="line-width"]');
-      const hasLineWidth = await lineWidth.isVisible();
-
-      // 塗りつぶし色ピッカーが表示されることを確認
-      const fillColorPicker = page.locator('[data-testid="fill-color-picker"]');
-      const hasFillColor = await fillColorPicker.isVisible();
-
-      // 少なくとも一つのスタイルオプションが利用可能であることを確認
-      expect(hasStyleOptions || hasColorPicker || hasLineWidth || hasFillColor).toBeTruthy();
-
-      // 値を変更可能かテスト
-      if (hasLineWidth) {
-        await lineWidth.click();
-        await lineWidth.press('Control+a');
-        await lineWidth.type('5');
-      }
-
-      // 操作が完了したことを確認
-      await expect(page.locator('body')).toBeVisible();
+      // 「カスタマイズ可能」は表示だけでは満たされない。変更が保持されることまで確かめる。
+      await lineWidth.click();
+      await lineWidth.press('Control+a');
+      await lineWidth.type('5');
+      await expect(lineWidth).toHaveValue('5');
     });
   });
 
@@ -1032,16 +1019,15 @@ test.describe('現場調査注釈ツール', () => {
       await textTool.click();
       await expect(textTool).toHaveAttribute('aria-pressed', 'true');
 
-      // テキストツール用のスタイルオプション（色、フォントサイズ）が表示されることを確認
-      const colorPicker = page.locator('[data-testid="color-picker"]');
-      const fontSize = page.locator('[data-testid="font-size"]');
-      const styleOptions = page.locator('[data-testid="style-options"]');
-
-      const hasColorPicker = await colorPicker.isVisible();
-      const hasFontSize = await fontSize.isVisible();
-      const hasStyleOptions = await styleOptions.isVisible();
-
-      expect(hasColorPicker || hasFontSize || hasStyleOptions).toBeTruthy();
+      // テキストツールでは文字色（color-picker）とサイズ（font-size）が
+      // スタイルパネル内に同時に描画される（AnnotationToolbar の showFontOptions）。
+      // 以前は三つの論理和で、色やサイズが失われてもパネルさえあれば通っていた。
+      const styleOptions = page.getByTestId('style-options');
+      await expect(styleOptions, 'スタイルパネルが表示されない').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await expect(styleOptions.getByTestId('color-picker'), '文字色の欄が無い').toBeVisible();
+      await expect(styleOptions.getByTestId('font-size'), 'フォントサイズの欄が無い').toBeVisible();
     });
 
     test('テキストツールでダブルクリック操作ができる (site-survey/REQ-8.3)', async ({ page }) => {
@@ -1110,18 +1096,25 @@ test.describe('現場調査注釈ツール', () => {
       await textTool.click();
       await expect(textTool).toHaveAttribute('aria-pressed', 'true');
 
-      // スタイルオプションパネルが表示されることを確認
-      const styleOptions = page.locator('[data-testid="style-options"]');
-      const hasStyleOptions = await styleOptions.isVisible();
+      // REQ-8.5 のうちフォントサイズと文字色は実装されており、テキストツール選択時に
+      // 同時に描画される。以前は三つの論理和で、片方が失われても通っていた。
+      // 変更が保持されることまで確かめる（「カスタマイズできる」は表示だけでは満たされない）。
+      // なお REQ-8.5 が併せて求める「背景色」のカスタマイズは実装に存在せず、
+      // 本テストの表題（フォントサイズ・色）の範囲外であるため主張しない。別タスクとする。
+      const styleOptions = page.getByTestId('style-options');
+      await expect(styleOptions, 'スタイルパネルが表示されない').toBeVisible({
+        timeout: getTimeout(5000),
+      });
 
-      // フォントサイズオプションを探す
-      const fontSizeOption = page.locator('[data-testid="font-size"]');
-      const textColorOption = page.locator('[data-testid="color-picker"]');
+      const fontSizeOption = styleOptions.getByTestId('font-size');
+      const textColorOption = styleOptions.getByTestId('color-picker');
+      await expect(fontSizeOption, 'フォントサイズの欄が無い').toBeVisible();
+      await expect(textColorOption, '文字色の欄が無い').toBeVisible();
 
-      const hasFontSizeOption = await fontSizeOption.isVisible();
-      const hasTextColorOption = await textColorOption.isVisible();
-
-      expect(hasStyleOptions || hasFontSizeOption || hasTextColorOption).toBeTruthy();
+      await fontSizeOption.click();
+      await fontSizeOption.press('Control+a');
+      await fontSizeOption.type('24');
+      await expect(fontSizeOption).toHaveValue('24');
     });
 
     test('テキストツールのキーボード入力ができる (site-survey/REQ-8.6)', async ({ page }) => {
@@ -1279,6 +1272,17 @@ test.describe('現場調査注釈ツール', () => {
     test('未保存の変更がある状態で画面を離れようとすると確認ダイアログが表示される (site-survey/REQ-9.3)', async ({
       page,
     }) => {
+      // REQ-9.3（未保存の変更があるときの離脱確認ダイアログ）は未実装である。
+      // AnnotationEditor に beforeunload もナビゲーションガードも無い
+      // （見積依頼側の useUnsavedChangesGuard に相当する結線が無い）。
+      // 本テストの主張は要件どおりだが、実装が要件を満たしていないため落ちる。
+      // 前提条件による自動無効化ではなく、本体は毎回すべて実行される。
+      // 実装されると本テストは通り、この注釈により「落ちるはずが通った」として
+      // 赤くなるため、注釈の撤去を強制するラチェットとして機能する。
+      // 直列実行のため、素の失敗を残すと後続の検証と後片付けが実行されなくなる。
+
+      test.fail();
+
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -1309,10 +1313,15 @@ test.describe('現場調査注釈ツール', () => {
       // ページ遷移を試みる
       await page.goto('/');
 
-      // ダイアログが表示されたか、またはページ遷移が完了したことを確認
-      // ブラウザやアプリの実装によってダイアログが表示されない場合もある
-      // いずれの場合もページ遷移は完了する
-      expect(dialogShown || page.url().includes('/')).toBeTruthy();
+      // REQ-9.3: 注釈を編集中に画面を離れようとしたとき、未保存の変更があれば
+      // 確認ダイアログを表示する。
+      // 以前は「ダイアログが出た、または URL が '/' を含む」の論理和だった。
+      // 後者はあらゆる URL で真になるため、確認ダイアログの有無を一度も確かめていない。
+      // 要件が求める確認ダイアログそのものを主張する。
+      expect(
+        dialogShown,
+        'REQ-9.3: 未保存の注釈があるまま画面を離れようとしても確認ダイアログが表示されない'
+      ).toBe(true);
     });
 
     test('保存中はインジケーターが表示される (site-survey/REQ-9.4)', async ({ page }) => {
@@ -1467,22 +1476,19 @@ test.describe('現場調査注釈ツール', () => {
       // ルートモックを解除
       await page.unroute('**/api/site-surveys/images/*/annotations');
 
-      // リトライボタンまたは保存ボタンが有効になっていることを確認
-      const retryButton = page.getByRole('button', { name: /リトライ|再試行|retry/i });
+      // REQ-9.5: 保存に失敗したらエラーメッセージを表示してリトライを促す。
+      // 実装に専用のリトライボタンは無く、保存ボタンが有効なまま残ることで再試行の
+      // 手段が提供される（AnnotationToolbar）。
+      // 以前は「リトライボタン または 保存ボタン」の論理和で、保存ボタンは失敗の有無に
+      // かかわらず常に在るため、再試行できるかどうかを確かめていなかった。
       const saveButtonAfterError = page.getByRole('button', { name: /保存/i });
-
-      const hasRetryButton = await isVisibleWithin(retryButton, 3000);
-      const hasSaveButton = await isVisibleWithin(saveButtonAfterError, 3000);
-
-      // リトライボタンまたは保存ボタンが利用可能であることを確認
-      expect(hasRetryButton || hasSaveButton).toBeTruthy();
-
-      // リトライ/保存ボタンが有効な状態であることを確認
-      if (hasRetryButton) {
-        await expect(retryButton).not.toBeDisabled();
-      } else if (hasSaveButton) {
-        await expect(saveButtonAfterError).not.toBeDisabled();
-      }
+      await expect(saveButtonAfterError, '保存失敗後に保存ボタンが消えている').toBeVisible({
+        timeout: getTimeout(3000),
+      });
+      await expect(
+        saveButtonAfterError,
+        'REQ-9.5: 保存失敗後に再試行できない（保存ボタンが無効のまま）'
+      ).toBeEnabled();
     });
   });
 
@@ -1894,6 +1900,17 @@ test.describe('現場調査注釈ツール', () => {
     test('注釈データを保存すると操作履歴がクリアされる (site-survey/REQ-13.5)', async ({
       page,
     }) => {
+      // REQ-13.5（保存時に操作履歴をクリアする）は未実装である。
+      // UndoManager.clear() / useUndoState.clearOnSave は存在するが、
+      // AnnotationEditor の保存処理から呼ばれていない（見積書側のみ結線済み）。
+      // 本テストの主張は要件どおりだが、実装が要件を満たしていないため落ちる。
+      // 前提条件による自動無効化ではなく、本体は毎回すべて実行される。
+      // 実装されると本テストは通り、この注釈により「落ちるはずが通った」として
+      // 赤くなるため、注釈の撤去を強制するラチェットとして機能する。
+      // 直列実行のため、素の失敗を残すと後続の検証と後片付けが実行されなくなる。
+
+      test.fail();
+
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -1926,12 +1943,15 @@ test.describe('現場調査注釈ツール', () => {
       await saveButton.click();
       await page.waitForTimeout(2000);
 
-      // 保存後のUndoボタンの状態を確認
+      // REQ-13.5: 注釈データを保存すると操作履歴をクリアする。
+      // 以前は `typeof isUndoEnabled === 'boolean'` を主張していた。真偽値の型は必ず
+      // 真であり、保存後の状態を一切確かめていない恒真の判定だった。
+      // 履歴がクリアされていれば Undo は行えない。要件が定める結果を主張する。
       const undoButton = page.getByRole('button', { name: /元に戻す|undo|取り消し/i });
-      const isUndoEnabled = await undoButton.isEnabled();
-
-      // 保存後は操作履歴がクリアされてUndoが無効になっている（または実装によっては有効のまま）
-      expect(typeof isUndoEnabled === 'boolean').toBeTruthy();
+      await expect(
+        undoButton,
+        'REQ-13.5: 保存しても操作履歴がクリアされず Undo が有効なまま'
+      ).toBeDisabled();
     });
   });
 

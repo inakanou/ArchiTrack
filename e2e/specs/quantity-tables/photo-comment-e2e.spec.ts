@@ -16,9 +16,28 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
+import {
+  attachPhotoToGroup,
+  seedSurveyPhotosWithComments,
+} from '../../helpers/quantity-table-preconditions';
 
 let testProjectId: string | null = null;
 let createdQuantityTableId: string | null = null;
+
+/** 1枚目の写真に付けるコメント（紐づいた写真のコメント取得の判定に用いる。REQ-21.1） */
+const FIRST_PHOTO_COMMENT = 'REQ21: 1枚目の写真コメント（基礎配筋の状況）';
+/** 2枚目の写真に付けるコメント（写真変更後の更新の判定に用いる。REQ-21.4） */
+const SECOND_PHOTO_COMMENT = 'REQ21: 2枚目の写真コメント（型枠建込の状況）';
+
+/**
+ * 事前準備で現場調査へ登録する写真ごとのコメント。
+ *
+ * REQ-21.1（選択した写真のコメントを取得）と REQ-21.4（別の写真へ変更するとコメントが
+ * 更新される）は「内容の異なるコメントを持つ写真が2枚以上ある」ことを前提とする。
+ * 同じ文字列では「更新された」のか「変わっていない」のかを区別できないため2種類用意する。
+ */
+const PHOTO_COMMENTS: readonly (string | null)[] = [FIRST_PHOTO_COMMENT, SECOND_PHOTO_COMMENT];
 
 /**
  * 数量表編集画面へ遷移する。
@@ -69,12 +88,18 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
   });
 
   /**
-   * 事前準備: テスト用プロジェクト・数量表・グループを作成
+   * 事前準備: テスト用プロジェクト・コメント付き現場調査写真・数量表・グループを作成
    *
-   * REQ-21 のテストはグループの存在を前提とするため、独立して実行できるよう
-   * 事前にプロジェクト・数量表・グループ1件を作成する。写真未紐付けでも
-   * 写真選択UIのプレースホルダー経路と、コメント表示エリアの存在/非表示
-   * （REQ-21.1〜21.5）を検証可能となる。
+   * REQ-21 は「数量グループに紐づいた写真のコメントを表示する」ことを求めるため、
+   * 前提は「グループがある」だけでは足りず、**コメントの付いた写真が紐づいたグループ**
+   * でなければならない。前提が無いまま検証すると、コメント表示エリアは現れる経路を
+   * 持たず、判定はプレースホルダーの有無だけで常に成立してしまう。
+   *
+   * そこで前提を探すのではなく作る（Task 115.127 段0 の基準）。共通の補助
+   * `e2e/helpers/quantity-table-preconditions.ts` の `seedSurveyPhotosWithComments`
+   * （現場調査を作り、写真をアップロードし、コメントを設定するところまで主張する）と
+   * `attachPhotoToGroup`（数量グループへ写真を紐づけ、サムネイルの表示まで主張する）を
+   * 用いる。いずれも前提が成立しなければその場で失敗するため、自動無効化は起きない。
    */
   test.describe('事前準備', () => {
     test('テスト用プロジェクトを作成する', async ({ page }) => {
@@ -111,7 +136,12 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
       expect(testProjectId).toBeTruthy();
     });
 
-    test('テスト用数量表とグループを作成する', async ({ page }) => {
+    test('コメントを付けた現場調査写真を作成する', async ({ page }) => {
+      assertPrepared(testProjectId, '事前準備で作成したプロジェクトのID');
+      await seedSurveyPhotosWithComments(page, testProjectId, 'REQ21_現場調査', PHOTO_COMMENTS);
+    });
+
+    test('テスト用数量表と写真を紐づけたグループを作成する', async ({ page }) => {
       if (!testProjectId) {
         throw new Error(
           'testProjectIdが未設定です。プロジェクト作成テストが正しく実行されていません。'
@@ -153,6 +183,10 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
       const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
       await expect(groupCard).toBeVisible({ timeout: getTimeout(10000) });
 
+      // 事前準備で作った1枚目の写真（コメントあり）を紐づける。
+      // これにより後続の各テストは「コメントの付いた写真が紐づいたグループ」を前提にできる。
+      await attachPhotoToGroup(page, groupCard, 0);
+
       // REQ-42.5: 後続テストが再ナビゲートで参照できるよう明示保存して永続化する。
       await saveQuantityTableDraft(page);
     });
@@ -161,34 +195,38 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
   /**
    * @requirement quantity-table-generation/REQ-21.1: 写真選択時にコメント取得
    *
-   * 写真が紐づいた数量グループでは、写真コメント表示エリアがDOM上に存在する。
-   * （PhotoCommentDisplayは写真紐付け時にQuantityGroupCard内に必ず描画される）
+   * 事前準備が「コメントの付いた1枚目の写真を紐づけた数量グループ」を保存している。
+   * 編集画面を開き直したとき、当該写真に対して記録されたコメントが取得され、
+   * その文字列そのものが表示される。
+   *
+   * 以前は「コメント表示エリア または プレースホルダー」の論理和で判定していた。
+   * 写真を紐づけていない前提ではコメント表示エリアが現れる経路が無いため、判定は
+   * プレースホルダーだけで常に成立し、コメントの表示を一度も確かめていなかった。
    */
-  test('写真が紐づいたグループでコメント表示エリアが存在する (REQ-21.1)', async ({ page }) => {
+  test('写真を紐づけた数量グループに当該写真のコメントが表示される (REQ-21.1)', async ({
+    page,
+  }) => {
     const navigated = await navigateToQuantityTableEdit(page);
     expect(navigated).toBeTruthy();
 
-    // 数量グループカードが少なくとも1つ存在する
+    // 事前準備が数量グループを1件作って保存しているため、グループの存在は無条件に主張する。
     const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
-    const hasGroup = await isVisibleWithin(groupCard, getTimeout(5000));
+    await expect(groupCard, '前提: 数量グループが表示される').toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await expect(
+      groupCard.getByRole('button', { name: '写真を変更' }),
+      '前提: 事前準備の写真がグループに紐づいている'
+    ).toBeVisible({ timeout: getTimeout(15000) });
 
-    if (!hasGroup) {
-      // グループがない場合はテストの前提が成立しないが、編集画面の存在は検証する
-      await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-      return;
-    }
-
-    // コメント表示エリアまたはプレースホルダーのいずれかが存在することを検証
-    const commentArea = page.locator('[data-testid="photo-comment-display"]').first();
-    const placeholder = page.locator('[data-testid^="image-placeholder-"]').first();
-
-    const commentVisible = await isVisibleWithin(commentArea, getTimeout(3000));
-    const placeholderVisible = await isVisibleWithin(placeholder, getTimeout(3000));
-
-    expect(
-      commentVisible || placeholderVisible,
-      '写真コメント表示エリアまたは写真プレースホルダーが必ず表示される'
-    ).toBeTruthy();
+    const commentArea = groupCard.locator('[data-testid="photo-comment-display"]');
+    await expect(commentArea, 'REQ-21.1: コメント表示エリアが表示されない').toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await expect(
+      commentArea,
+      'REQ-21.1: 紐づいた写真に記録されたコメントが表示されない'
+    ).toHaveText(FIRST_PHOTO_COMMENT, { timeout: getTimeout(15000) });
   });
 
   /**
@@ -256,64 +294,58 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
   /**
    * @requirement quantity-table-generation/REQ-21.4: 写真変更時にコメント更新
    *
-   * 写真変更ダイアログで別の写真に変更すると、コメント表示エリアは
-   * その写真に対応した状態へと更新される。E2Eではダイアログを開いて
-   * 別画像を選択する前後で、コメント表示エリアが破棄されず存在し続けることを検証。
+   * 事前準備が紐づけた1枚目の写真（コメントあり）から、写真変更ダイアログで
+   * 2枚目の写真（別のコメントあり）へ変更すると、コメント表示は変更後の写真の
+   * コメントへ更新される。
+   *
+   * 変更は数量表のドラフトのみを更新し保存しない（REQ-42）ため、後続テストが
+   * 開き直したときの前提（1枚目の写真が紐づいている）は壊れない。
+   *
+   * 以前は「コメント表示エリア または 写真領域」の論理和で操作後の存在だけを見ていた。
+   * 写真の無いプロジェクトではコメント表示エリアが現れる経路が無く、判定は写真領域
+   * だけで常に成立し、コメントの更新を一度も確かめていなかった。
    */
-  test('写真変更ダイアログ操作後もコメント表示エリアが存在する (REQ-21.4)', async ({ page }) => {
+  test('写真変更ダイアログで別の写真に変更するとコメント表示が更新される (REQ-21.4)', async ({
+    page,
+  }) => {
     const navigated = await navigateToQuantityTableEdit(page);
     expect(navigated).toBeTruthy();
 
-    // 写真変更ボタン or プレースホルダーから選択ダイアログを開く
-    const changeButton = page.getByRole('button', { name: '写真を変更' }).first();
-    const placeholder = page.locator('[data-testid^="image-placeholder-"]').first();
+    const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
+    await expect(groupCard, '前提: 数量グループが表示される').toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
-    const changeButtonVisible = await isVisibleWithin(changeButton, getTimeout(3000));
-    const placeholderVisible = await isVisibleWithin(placeholder, getTimeout(3000));
+    const commentArea = groupCard.locator('[data-testid="photo-comment-display"]');
+    await expect(commentArea, '前提: 変更前は1枚目の写真のコメントが表示されている').toHaveText(
+      FIRST_PHOTO_COMMENT,
+      { timeout: getTimeout(15000) }
+    );
 
-    if (!changeButtonVisible && !placeholderVisible) {
-      await expect(page.locator('[data-testid="quantity-table-edit-area"]')).toBeVisible();
-      return;
-    }
+    const changeButton = groupCard.getByRole('button', { name: '写真を変更' });
+    await expect(changeButton, '前提: 写真変更ボタンが表示される').toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await changeButton.click();
 
-    if (changeButtonVisible) {
-      await changeButton.click();
-    } else {
-      await placeholder.click();
-    }
+    const dialog = page.getByRole('dialog', { name: '写真を選択' });
+    await expect(dialog, '写真変更ダイアログが開かない').toBeVisible({
+      timeout: getTimeout(10000),
+    });
 
-    const dialog = page.getByRole('dialog').first();
-    await expect(dialog).toBeVisible({ timeout: getTimeout(5000) });
+    const secondPhoto = dialog.locator('[data-testid^="photo-item-"]').nth(1);
+    await expect(secondPhoto, '前提: 2枚目の写真が選択候補に表示される').toBeVisible({
+      timeout: getTimeout(20000),
+    });
+    await secondPhoto.click();
+    await expect(dialog, '写真の選択でダイアログが閉じない').not.toBeVisible({
+      timeout: getTimeout(10000),
+    });
 
-    // 写真選択を試行
-    const photoItem = dialog.locator('[data-testid^="photo-item-"]').first();
-    if (await isVisibleWithin(photoItem, getTimeout(5000))) {
-      await photoItem.click();
-      await page.waitForLoadState('networkidle');
-      await expect(dialog).not.toBeVisible({ timeout: getTimeout(10000) });
-    } else {
-      // 写真がない場合はダイアログを閉じる
-      const closeBtn = dialog.getByRole('button', { name: 'ダイアログを閉じる' }).first();
-      if (await isVisibleWithin(closeBtn, getTimeout(2000))) {
-        await closeBtn.click();
-      } else {
-        await page.keyboard.press('Escape');
-      }
-      await expect(dialog).not.toBeVisible({ timeout: getTimeout(5000) });
-    }
-
-    // 操作後、コメント表示エリアまたは写真関連UIが画面に存在することを検証
-    const commentAreaAfter = page.locator('[data-testid="photo-comment-display"]').first();
-    const placeholderAfter = page.locator('[data-testid^="image-placeholder-"]').first();
-
-    const stillThere =
-      (await isVisibleWithin(commentAreaAfter, getTimeout(3000))) ||
-      (await isVisibleWithin(placeholderAfter, getTimeout(3000)));
-
-    expect(
-      stillThere,
-      '写真変更ダイアログ操作後もコメント領域または写真領域が表示される'
-    ).toBeTruthy();
+    await expect(commentArea, 'REQ-21.4: 変更後の写真のコメントへ表示が更新されない').toHaveText(
+      SECOND_PHOTO_COMMENT,
+      { timeout: getTimeout(15000) }
+    );
   });
 
   /**

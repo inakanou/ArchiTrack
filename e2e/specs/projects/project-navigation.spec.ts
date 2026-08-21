@@ -7,7 +7,7 @@
 
 import { test, expect, type Page, type Response } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
+import { getTimeout } from '../../helpers/wait-helpers';
 import { TEST_USERS } from '../../helpers/test-users';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
@@ -371,6 +371,17 @@ test.describe('プロジェクト管理ナビゲーション', () => {
     test('存在しないプロジェクトIDにアクセス時にエラーメッセージと戻るリンクを表示 (project-management/REQ-21.13)', async ({
       page,
     }) => {
+      // REQ-21.13 のうち「プロジェクト一覧への戻るリンク」は未実装である。
+      // ProjectDetailPage のエラー表示は再試行ボタンだけを置く
+      // （取引先詳細が使う ResourceNotFound のような戻る導線が無い）。
+      // 本テストの主張は要件どおりだが、実装が要件を満たしていないため落ちる。
+      // 前提条件による自動無効化ではなく、本体は毎回すべて実行される。
+      // 実装されると本テストは通り、この注釈により「落ちるはずが通った」として
+      // 赤くなるため、注釈の撤去を強制するラチェットとして機能する。
+      // 直列実行のため、素の失敗を残すと後続の検証と後片付けが実行されなくなる。
+
+      test.fail();
+
       await loginAsUser(page, 'REGULAR_USER');
 
       // 存在しないUUID
@@ -383,15 +394,18 @@ test.describe('プロジェクト管理ナビゲーション', () => {
       );
       await expect(errorMessage).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 戻る手段の確認（リンクまたは再試行ボタン）
+      // REQ-21.13 はエラーメッセージの表示に加えて「プロジェクト一覧への戻るリンク」を
+      // 提供することを求めている。
+      // 以前は「戻るリンク または 再試行ボタン」の論理和で判定していた。
+      // 実装（ProjectDetailPage のエラー表示）が置くのは再試行ボタンだけで、
+      // 戻るリンクは存在しない。論理和は再試行ボタンだけで成立するため、
+      // 要件のうち戻るリンクの部分を一度も確かめていなかった。
+      // 要件が求める戻るリンクそのものを主張する。
       const backLink = page.getByRole('link', { name: /一覧に戻る|プロジェクト一覧/i });
-      const retryButton = page.getByRole('button', { name: /再試行/i });
-
-      const hasBackLink = await isVisibleWithin(backLink, 3000);
-      const hasRetryButton = await isVisibleWithin(retryButton, 3000);
-
-      // 少なくとも1つのナビゲーション手段があることを確認
-      expect(hasBackLink || hasRetryButton).toBeTruthy();
+      await expect(
+        backLink,
+        'REQ-21.13: 存在しないプロジェクトIDのエラー画面にプロジェクト一覧への戻るリンクが無い'
+      ).toBeVisible({ timeout: getTimeout(3000) });
     });
   });
 

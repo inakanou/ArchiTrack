@@ -465,26 +465,30 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       await page.goto('/projects');
       await page.waitForLoadState('networkidle');
 
-      // 新規作成ボタンにフォーカス
+      // 新規作成ボタン
       const createButton = page.getByRole('button', { name: /新規作成/i });
       await expect(createButton).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 新規作成ボタンは focus:ring-2（box-shadow）でフォーカスを示し、
+      // outline は focus:outline-none で消される（ProjectListPage.tsx）。
+      // 加えて未フォーカスでも shadow-lg が掛かっているため、「outline か box-shadow の
+      // いずれかが none でない」は**フォーカスしていなくても真**であり、
+      // フォーカス表示の有無を一切確かめていなかった。
+      // フォーカス前後で見た目が変わることを主張する。
+      const readBoxShadow = async (): Promise<string> =>
+        createButton.evaluate(
+          (el): string => el.ownerDocument.defaultView!.getComputedStyle(el).boxShadow
+        );
+
+      const boxShadowBeforeFocus = await readBoxShadow();
       await createButton.focus();
+      await expect(createButton).toBeFocused();
+      const boxShadowAfterFocus = await readBoxShadow();
 
-      // ボタンのフォーカス状態を確認
-      // focus:ring-2 クラスによるリング効果またはoutlineを確認
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const outline = await createButton.evaluate((el: any): string => {
-        return el.ownerDocument.defaultView.getComputedStyle(el).outline;
-      });
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const boxShadow = await createButton.evaluate((el: any): string => {
-        return el.ownerDocument.defaultView.getComputedStyle(el).boxShadow;
-      });
-
-      // outlineまたはbox-shadowのいずれかが設定されていることを確認
-      const hasVisualFocusIndicator = outline !== 'none' || boxShadow !== 'none';
-      expect(hasVisualFocusIndicator).toBe(true);
+      expect(boxShadowAfterFocus, 'フォーカスしても box-shadow が変化しない').not.toBe(
+        boxShadowBeforeFocus
+      );
+      expect(boxShadowAfterFocus).not.toBe('none');
     });
   });
 

@@ -509,10 +509,18 @@ test.describe('現場調査画像管理', () => {
       expect(responseData.images).toBeDefined();
       expect(responseData.images.length).toBeGreaterThan(0);
 
-      // 最初の画像にthumbnailUrlまたはthumbnailPathが存在することを確認
+      // REQ-4.4: アップロード完了時にサムネイルを自動生成する。
+      // 実装は原本とは別のオブジェクト（`_thumb_` を含むパス）を保存し
+      // （image-upload.service.ts）、詳細取得ではそれを署名付きURL（thumbnailUrl）にして返す。
+      // 以前は `thumbnailUrl || thumbnailPath` を主題にしていたが、thumbnailPath は
+      // 非NULLの必須項目であり常に真である。すなわちサムネイルの生成を確かめていなかった。
+      // 生成されたこと（原本と別のパス）と、表示に使えること（署名付きURL）を主張する。
       const firstImage = responseData.images[0];
-      const hasThumbnail = firstImage.thumbnailUrl || firstImage.thumbnailPath;
-      expect(hasThumbnail).toBeTruthy();
+      expect(firstImage.thumbnailPath, 'サムネイルのパスが無い').toBeTruthy();
+      expect(firstImage.thumbnailPath, 'サムネイルが原本と同じオブジェクトを指している').not.toBe(
+        firstImage.originalPath
+      );
+      expect(firstImage.thumbnailUrl, 'サムネイルの署名付きURLが返らない').toBeTruthy();
     });
 
     /**

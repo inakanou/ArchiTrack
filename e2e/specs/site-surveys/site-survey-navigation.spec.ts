@@ -168,11 +168,17 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
       const surveyTab = page.getByRole('tab', { name: /現場調査/i });
       const surveySection = page.getByRole('heading', { name: '現場調査', exact: true });
 
-      const hasLink = await isVisibleWithin(surveyLink, 5000);
-      const hasTab = await surveyTab.isVisible().catch(() => false);
-      const hasSection = await surveySection.isVisible().catch(() => false);
-
-      expect(hasLink || hasTab || hasSection).toBeTruthy();
+      // project-management/REQ-24.1: プロジェクト詳細に現場調査のセクションを表示する。
+      // 実装は見出し「現場調査」と一覧への導線（リンク）を同時に置く。タブの実装は無い。
+      // 以前は「リンク または タブ または 見出し」の論理和で、タブは決して現れない一方、
+      // 残る二つはどちらか一方が残れば通る形だった。実装が備える二つを個別に主張する。
+      await expect(surveySection, 'プロジェクト詳細に現場調査の見出しが無い').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await expect(surveyLink, 'プロジェクト詳細に現場調査への導線が無い').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await expect(surveyTab, '現場調査はタブではなくセクションで提供される').toHaveCount(0);
     });
 
     test('現場調査タブをクリックすると一覧が表示される (project-management/REQ-24.2)', async ({
@@ -316,11 +322,15 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
 
       // 現場調査関連のテキストが含まれることを確認
       // リンクまたは現在のページ要素を確認（複数の場合はfirst()を使用）
-      const surveyTextElement = breadcrumb.getByText(/現場調査/i).first();
-      const surveyNameElement = breadcrumb.getByText(surveyName).first();
-      const hasSurveyText = await surveyTextElement.isVisible().catch(() => false);
-      const hasSurveyName = await surveyNameElement.isVisible().catch(() => false);
-      expect(hasSurveyText || hasSurveyName).toBeTruthy();
+      // REQ-2.7: 現場調査詳細のブレッドクラムは
+      // 「… > プロジェクト > 現場調査一覧 > 現場調査」を表示する。
+      // すなわち「現場調査一覧」の階層と、当該現場調査の名称の双方が現れる。
+      // 以前は「『現場調査』を含む要素 または 調査名の要素」の論理和で、
+      // 前者は「現場調査一覧」にも一致するため常に成立し、調査名の欠落を検出できなかった。
+      await expect(breadcrumb, 'ブレッドクラムに現場調査一覧の階層が無い').toContainText(
+        '現場調査'
+      );
+      await expect(breadcrumb, 'ブレッドクラムに現場調査名が無い').toContainText(surveyName);
     });
 
     /**

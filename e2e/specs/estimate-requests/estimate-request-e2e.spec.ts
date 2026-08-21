@@ -2639,8 +2639,16 @@ test.describe('見積依頼機能', () => {
 
       const responseData = await response.json();
 
-      // バージョン情報が含まれていることを確認（楽観的排他制御）
-      expect(responseData.version !== undefined || responseData.updatedAt).toBeTruthy();
+      // REQ-8.5: 楽観的排他制御。EstimateRequest に version 列は存在せず、更新・削除は
+      // 期待する updatedAt との突き合わせで競合を検出し 409 を返す
+      // （estimate-request.service.ts / estimate-requests.routes.ts）。
+      // したがって排他制御の拠り所は updatedAt であり、「version または updatedAt」の
+      // 論理和は version が無くても成立するため何も確かめていなかった。
+      // 作成応答が排他制御に使える更新時刻を返すことを主張する。
+      // 競合時に 409 が返ることは session-expired-protection-extra-e2e.spec.ts で検証している。
+      expect(responseData.version, 'version 列は存在しないはず').toBeUndefined();
+      expect(responseData.updatedAt, '作成応答に updatedAt が含まれない').toBeTruthy();
+      expect(Date.parse(responseData.updatedAt)).toBeGreaterThan(0);
     });
   });
 
@@ -2666,16 +2674,15 @@ test.describe('見積依頼機能', () => {
         timeout: getTimeout(15000),
       });
 
-      // ページネーションUIが存在するか確認（ページ情報またはページネーションボタン）
-      // データが少ない場合でもページネーションコントロールの存在を確認
-      const paginationArea = page.locator('[aria-label*="ページ"]').or(page.getByText(/ページ/i));
-      const hasPagination = (await paginationArea.count()) > 0;
+      // REQ-2.6: 一覧表示にページネーションを提供する。
+      // 以前は「ページネーションがある、または『見積依頼はまだありません』が出ている」の
+      // 論理和で判定していた。空状態を許す側があるため、ページネーションが失われても
+      // 通ってしまう。要件が求めているのはページネーションの提供そのものである。
+      // 本テストは事前準備で見積依頼を作成済みの一覧を開いているため、空状態にはならない。
+      await expect(page.getByText(/見積依頼はまだありません/i)).toHaveCount(0);
 
-      // ページネーション機能が実装されていればUIが存在するはず
-      // データが10件未満でページネーションが表示されない場合も許容
-      expect(hasPagination || (await page.getByText(/見積依頼はまだありません/i).count()) > 0).toBe(
-        true
-      );
+      const paginationArea = page.locator('[aria-label*="ページ"]').or(page.getByText(/ページ/i));
+      expect(await paginationArea.count()).toBeGreaterThan(0);
     });
   });
 

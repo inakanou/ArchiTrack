@@ -2,14 +2,24 @@
  * @fileoverview 現場調査非機能要件のE2Eテスト
  *
  * Requirements coverage (site-survey):
- * - REQ-14.1: 画像一覧の初期表示を2秒以内に完了
- * - REQ-14.2: 注釈の描画・編集操作を60fps以上で応答
- * - REQ-14.3: 画像アップロード処理を5秒以内に完了（300KB以下の場合）
- * - REQ-14.6: 全ての通信をHTTPS/TLSで暗号化
- * - REQ-14.8: エラー発生時に適切なエラーメッセージを表示
+ * - REQ-16.1: 画像一覧の初期表示を2秒以内に完了
+ * - REQ-16.2: 注釈の描画・編集操作を60fps以上で応答
+ * - REQ-16.3: 画像アップロード処理を5秒以内に完了（300KB以下の場合）
+ * - REQ-16.6: 全ての通信をHTTPS/TLSで暗号化
+ * - REQ-16.8: エラー発生時に適切なエラーメッセージを表示し、Sentryにログを送信する
  *
- * Note: REQ-14.4（同時接続ユーザー100人以上）、REQ-14.5（月間稼働率99.9%）、
- * REQ-14.7（定期バックアップ）はE2Eテストで検証困難なため省略
+ * Note: REQ-16.4（同時接続ユーザー100人以上）、REQ-16.5（月間稼働率99.9%）、
+ * REQ-16.7（定期バックアップ）はE2Eテストで検証困難なため省略
+ *
+ * 本ファイルは以前 REQ-14.x を被覆印として掲げていたが、
+ * .kiro/specs/site-survey/requirements.md の Requirement 14 はアクセス制御であり、
+ * 受入基準は 1〜5 までしか存在しない（REQ-14.6 / REQ-14.8 は存在しない）。
+ * 性能・HTTPS・エラー表示は Requirement 16（非機能要件）の受入基準であるため、
+ * 実際に検証している受入基準の番号へ訂正した。
+ * なお REQ-16.1〜16.8 は e2e/requirement-exclusions.json でE2E対象外として
+ * 代替検証（負荷テスト・監視・単体テスト）が登録されている受入基準である。
+ * 本ファイルの観測は、その代替検証を置き換えるものではなく、
+ * E2E環境で観測できる範囲の裏付けにとどまる。
  */
 
 import path from 'path';
@@ -17,7 +27,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
+import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -101,10 +111,10 @@ test.describe('現場調査非機能要件', () => {
   });
 
   /**
-   * @requirement site-survey/REQ-14.1
+   * @requirement site-survey/REQ-16.1
    */
   test.describe('パフォーマンス - 画像一覧表示', () => {
-    test('画像一覧の初期表示が2秒以内に完了する (site-survey/REQ-14.1)', async ({ page }) => {
+    test('画像一覧の初期表示が2秒以内に完了する (site-survey/REQ-16.1)', async ({ page }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -133,10 +143,10 @@ test.describe('現場調査非機能要件', () => {
   });
 
   /**
-   * @requirement site-survey/REQ-14.3
+   * @requirement site-survey/REQ-16.3
    */
   test.describe('パフォーマンス - 画像アップロード', () => {
-    test('300KB以下の画像アップロードが5秒以内に完了する (site-survey/REQ-14.3)', async ({
+    test('300KB以下の画像アップロードが5秒以内に完了する (site-survey/REQ-16.3)', async ({
       page,
     }) => {
       if (!createdSurveyId) {
@@ -221,10 +231,10 @@ test.describe('現場調査非機能要件', () => {
   });
 
   /**
-   * @requirement site-survey/REQ-14.6
+   * @requirement site-survey/REQ-16.6
    */
   test.describe('セキュリティ - HTTPS通信', () => {
-    test('APIリクエストがHTTPSで行われる (site-survey/REQ-14.6)', async ({ page }) => {
+    test('APIリクエストがHTTPSで行われる (site-survey/REQ-16.6)', async ({ page }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -243,27 +253,25 @@ test.describe('現場調査非機能要件', () => {
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // 本番環境ではHTTPSが必須だが、開発環境ではHTTPも許可
-      // E2Eテストでは通信が行われていることを確認
-      if (requests.length > 0) {
-        // 開発環境でなければHTTPSを確認
-        const isProduction = !requests[0]?.includes('localhost');
-        if (isProduction) {
-          for (const url of requests) {
-            expect(url.startsWith('https://') || url.startsWith('http://localhost')).toBeTruthy();
-          }
-        }
-      }
-
-      await expect(page.locator('body')).toBeVisible();
+      // HTTPS の強制は本E2E環境では観測できない。フロントもAPIも http://localhost で
+      // 提供されており、HTTPS へ寄せるのは本番の配信層（バックエンドの httpsRedirect
+      // ミドルウェア／リバースプロキシ）であるためである。
+      // 以前は「本番環境なら」の入れ子の分岐の内側で
+      // `url.startsWith('https://') || url.startsWith('http://localhost')` を主張していた。
+      // 外側の分岐は localhost では決して真にならず判定は一度も実行されない。
+      // 仮に実行されても、右辺により localhost の平文通信を許すため恒真である。
+      // httpsRedirect ミドルウェアそのものは
+      // backend/src/__tests__/unit/middleware/httpsRedirect.test.ts が検証している。
+      // ここでは観測できることだけを主張する: 詳細画面の表示でAPI通信が実際に発生する。
+      expect(requests.length, '現場調査詳細を開いてもAPI通信が発生していない').toBeGreaterThan(0);
     });
   });
 
   /**
-   * @requirement site-survey/REQ-14.8
+   * @requirement site-survey/REQ-16.8
    */
   test.describe('エラーハンドリング', () => {
-    test('存在しない現場調査にアクセスするとエラーメッセージが表示される (site-survey/REQ-14.8)', async ({
+    test('存在しない現場調査にアクセスするとエラーメッセージが表示される (site-survey/REQ-16.8)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -273,19 +281,18 @@ test.describe('現場調査非機能要件', () => {
       await page.goto(`/site-surveys/${nonExistentId}`);
       await page.waitForLoadState('networkidle');
 
-      // エラーメッセージまたは404ページが表示されることを確認
       const errorMessage = page.getByText(/見つかりません|存在しません|不正|404|not found|エラー/i);
-      const errorPage = page.locator('[data-testid="error-page"], .error-container');
 
-      const hasErrorMessage = await isVisibleWithin(errorMessage, 5000);
-      const hasErrorPage = await errorPage.isVisible();
-      const is404Url = page.url().includes('404');
-
-      // エラー表示があることを確認
-      expect(hasErrorMessage || hasErrorPage || is404Url).toBeTruthy();
+      // 存在しない現場調査を開いたときはエラーメッセージが表示される。
+      // 以前は「エラー文 または 専用エラーページ要素 または 404 への遷移」の論理和で
+      // 判定しており、後ろ二つは実装に無いため判定はエラー文だけで成立していた。
+      // 受入基準が求めているのはエラーメッセージの提示であるため、それだけを主張する。
+      await expect(errorMessage.first(), '存在しない現場調査でエラーが表示されない').toBeVisible({
+        timeout: getTimeout(5000),
+      });
     });
 
-    test('無効なプロジェクトIDで現場調査作成ページにアクセスするとエラーが表示される (site-survey/REQ-14.8)', async ({
+    test('無効なプロジェクトIDで現場調査作成ページにアクセスするとエラーが表示される (site-survey/REQ-16.8)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -297,16 +304,16 @@ test.describe('現場調査非機能要件', () => {
 
       // エラーメッセージまたはリダイレクトを確認
       const errorAlert = page.getByRole('alert');
-      const errorMessage = page.getByText(/見つかりません|存在しません|不正|404|not found|エラー/i);
-      const hasErrorAlert = await isVisibleWithin(errorAlert, 5000);
-      const hasErrorMessage = await errorMessage.isVisible();
-      const isRedirected = !page.url().includes(nonExistentProjectId);
-
-      // エラー表示またはリダイレクトがあることを確認
-      expect(hasErrorAlert || hasErrorMessage || isRedirected).toBeTruthy();
+      // 実装（SiteSurveyCreatePage）はプロジェクトを取得できないとき role="alert" で
+      // エラーを提示する。
+      // 以前は「alert または エラー文 または リダイレクト」の論理和だったため、
+      // どれか一つが残れば通り、提示が失われても気づけなかった。
+      await expect(errorAlert.first(), '無効なプロジェクトIDでエラーが提示されない').toBeVisible({
+        timeout: getTimeout(5000),
+      });
     });
 
-    test('APIエラー発生時にユーザーフレンドリーなメッセージが表示される (site-survey/REQ-14.8)', async ({
+    test('APIエラー発生時にユーザーフレンドリーなメッセージが表示される (site-survey/REQ-16.8)', async ({
       page,
     }) => {
       if (!createdProjectId) {
@@ -329,19 +336,17 @@ test.describe('現場調査非機能要件', () => {
       const validationError = page.getByText(/必須|入力してください|required/i);
       const formError = page.locator('.error-message, [data-testid="form-error"], [role="alert"]');
 
-      const hasValidationError = await isVisibleWithin(validationError, getTimeout(5000));
-      const hasFormError = await formError.isVisible().catch(() => false);
-
-      // HTML5 required属性によるネイティブバリデーション検出
-      const hasHtml5Validation = await page.evaluate(() => {
-        const inputs = document.querySelectorAll(
-          'input[required], select[required], textarea[required]'
-        );
-        return Array.from(inputs).some((input) => !(input as HTMLInputElement).validity.valid);
+      // 必須項目が空のまま送信すると、アプリ側のバリデーションが文言と
+      // role="alert" の両方で提示する。ブラウザのネイティブ検証（HTML5 required）は
+      // 用いていない。
+      // 以前は三項の論理和で、どれか一つが残れば通る形だった。実装が同時に与える
+      // 二つを個別に主張する。
+      await expect(validationError.first(), '必須項目のエラー文言が表示されない').toBeVisible({
+        timeout: getTimeout(5000),
       });
-
-      // カスタムバリデーション、フォームエラー、またはHTML5バリデーションのいずれか
-      expect(hasValidationError || hasFormError || hasHtml5Validation).toBeTruthy();
+      await expect(formError.first(), '必須項目のエラーが alert として提示されない').toBeVisible({
+        timeout: getTimeout(5000),
+      });
     });
   });
 

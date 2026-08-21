@@ -15,7 +15,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout, isVisibleWithin, waitForLoadingComplete } from '../../helpers/wait-helpers';
+import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
 
 /**
  * 取引先エラーハンドリングのE2Eテスト
@@ -347,51 +347,27 @@ test.describe('取引先エラーハンドリング', () => {
       // 作成ボタンをクリック
       await page.getByRole('button', { name: /^作成$/i }).click();
 
-      // ログインページにリダイレクトされることを確認
-      // または認証エラーメッセージが表示されることを確認
-      // 認証エラーの場合、ログインページへのリダイレクトまたはエラーメッセージの表示
-      const loginRedirected = page
-        .waitForURL(/\/login/, { timeout: getTimeout(15000) })
-        .catch(() => false);
-
-      const result = await Promise.race([
-        loginRedirected.then(() => true),
-        new Promise((resolve) => setTimeout(() => resolve(false), 15000)),
-      ]);
-
-      // ログインページにリダイレクトされたか、エラーメッセージが表示されたかを確認
-      if (!result) {
-        // リダイレクトされなかった場合、エラーメッセージを確認
-        // 401エラー時のさまざまなUI表示パターンに対応
-        const errorIndicators = [
-          page.getByText(/ログイン|認証エラー|セッション|再度ログイン|権限がありません/i),
-          page.getByText(/失敗|エラー|error/i),
-          page.getByRole('alert'),
-        ];
-
-        let errorFound = false;
-        for (const indicator of errorIndicators) {
-          if (await isVisibleWithin(indicator, 2000)) {
-            errorFound = true;
-            break;
-          }
-        }
-
-        // エラーが見つからなかった場合、作成が成功していないことを確認
-        // (401エラーにより作成ページに留まっている = 適切にエラー処理されている)
-        if (!errorFound) {
-          // 作成成功時の詳細ページ遷移が発生していないことを確認
-          const currentUrl = page.url();
-          const isStillOnNewPage = currentUrl.includes('/trading-partners/new');
-          const didNotNavigateToDetail = !currentUrl.match(/\/trading-partners\/[0-9a-f-]+$/);
-
-          // 作成フォームに留まっている、または詳細ページに遷移していない = 401が処理された
-          errorFound = isStillOnNewPage || didNotNavigateToDetail;
-        }
-
-        // 何らかのエラー処理が行われたことを確認（401エラーが処理されていること）
-        expect(errorFound).toBeTruthy();
-      }
+      // 操作中に 401 を受けたときの扱いは user-authentication/REQ-30.2・30.3 が
+      // 「リダイレクトを抑制し、モーダルで再認証する」と定めており、
+      // trading-partner-management/REQ-8.3 の「ログインページにリダイレクトする」を
+      // 上書きしている（ProtectedRoute の sessionExpiredDuringOperation →
+      // SessionExpiredModal）。実測でも画面は作成フォームに留まり、
+      // 「セッションの有効期限が切れました」のダイアログが現れる。
+      //
+      // 以前は遷移の有無を Promise.race で観測し、遷移しなかった場合にだけ後段の
+      // 判定へ入る形だった。しかし `waitForURL(...).catch(() => false).then(() => true)` は
+      // 待機が失敗しても true に畳まれるため、後段は一度も実行されない。
+      // その後段も「何らかのエラー表示 または 詳細画面へ遷移していないこと」の論理和で、
+      // 後者は作成画面に留まる限り常に真であり恒真だった。
+      // 実装が採る提示（再認証モーダル）と、作成が成立していないことを主張する。
+      await expect(
+        page.getByRole('dialog').filter({ hasText: 'セッションの有効期限が切れました' }),
+        '401応答がセッション切れとして提示されない'
+      ).toBeVisible({ timeout: getTimeout(15000) });
+      await expect(
+        page,
+        '401応答なのに取引先の詳細画面へ遷移している（作成が成立している）'
+      ).not.toHaveURL(/\/trading-partners\/[0-9a-f-]+$/);
     });
   });
 

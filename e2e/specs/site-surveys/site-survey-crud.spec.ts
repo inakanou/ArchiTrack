@@ -610,17 +610,23 @@ test.describe('現場調査CRUD操作', () => {
       await page.goto(`/projects/${nonExistentProjectId}/site-surveys/new`);
       await page.waitForLoadState('networkidle');
 
-      // エラー表示またはリダイレクトを確認
-      const errorMessage = page.getByText(
-        /プロジェクトが見つかりません|not found|404|存在しません/i
-      );
-      const hasError = await isVisibleWithin(errorMessage, getTimeout(5000));
-      const isRedirected =
-        page.url().includes('/404') ||
-        page.url().includes('/projects') ||
-        !page.url().includes(nonExistentProjectId);
-
-      expect(hasError || isRedirected).toBeTruthy();
+      // REQ-1.6: プロジェクトが存在しない場合、現場調査の作成を許可しない。
+      // 実装（SiteSurveyCreatePage）はプロジェクトを取得できないとき作成フォームを描画せず、
+      // role="alert" でエラーを提示する。
+      // 以前は「エラー文が出た、または リダイレクトされた」の論理和で判定していたが、
+      // リダイレクト判定に含まれる `page.url().includes('/projects')` は、対象URLが
+      // `/projects/{id}/site-surveys/new` である以上つねに真であり恒真だった。
+      // 加えてエラー文の正規表現は実装の文言（「プロジェクトの取得に失敗しました」）に
+      // 一致せず、左辺は一度も成立していない。
+      // 「作成させない」ことの観測点は、エラーの提示と作成フォームの不在である。
+      await expect(
+        page.getByRole('alert').first(),
+        'REQ-1.6: 存在しないプロジェクトでエラーが提示されない'
+      ).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(
+        page.getByLabel(/調査名/i),
+        'REQ-1.6: 存在しないプロジェクトなのに現場調査の作成フォームが描画されている'
+      ).toHaveCount(0);
     });
 
     /**

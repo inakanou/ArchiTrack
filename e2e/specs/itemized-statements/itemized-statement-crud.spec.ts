@@ -1294,13 +1294,14 @@ test.describe('内訳書CRUD操作', () => {
       // （デフォルトソートはUI上で特定のカラムをハイライトしない）
       const columnHeaders = page.locator('th[role="columnheader"]');
       const count = await columnHeaders.count();
+      // 列が一つも取れなければ繰り返しは空振りする。まず列の供給を主張する。
+      expect(count, '内訳書の一覧に列見出しが無い').toBeGreaterThan(0);
 
-      // 初期状態ですべてのカラムがaria-sort="none"であることを確認
+      // 初期状態ですべてのカラムが aria-sort="none" であることを確認。
+      // ItemizedStatementDetailPage は非活性の列にも 'none' を明示するため、
+      // 「none または未設定」の論理和は属性が消えても成立してしまう。値そのものを主張する。
       for (let i = 0; i < count; i++) {
-        const header = columnHeaders.nth(i);
-        const sortAttr = await header.getAttribute('aria-sort');
-        // 初期状態はnoneまたは未設定
-        expect(sortAttr === 'none' || sortAttr === null).toBeTruthy();
+        await expect(columnHeaders.nth(i)).toHaveAttribute('aria-sort', 'none');
       }
     });
   });
@@ -2592,11 +2593,12 @@ test.describe('内訳書CRUD操作', () => {
         const dataRow = worksheet.getRow(2);
         const quantityCell = dataRow.getCell(5); // 5番目のカラム（数量）
 
-        // 数量が数値であることを確認
+        // REQ-13.5: 数量カラムは文字列ではなく数値としてExcelに書き出される。
+        // 以前は値の有無で判定を包んだうえ `typeof x === 'number'` を真偽で主張していたため、
+        // 数量が空でも文字列でも通っていた。値の存在と型の双方を主張する。
         const quantityValue = quantityCell.value;
-        if (quantityValue !== null && quantityValue !== undefined) {
-          expect(typeof quantityValue === 'number').toBe(true);
-        }
+        expect(quantityValue, '数量セルが空である').not.toBeNull();
+        expect(typeof quantityValue).toBe('number');
       }
     });
 

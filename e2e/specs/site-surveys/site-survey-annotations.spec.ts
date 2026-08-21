@@ -178,39 +178,22 @@ test.describe('現場調査注釈エディタ', () => {
     await page.goto(`/site-surveys/${createdSurveyId}`);
     await page.waitForLoadState('networkidle');
 
-    // 画像が存在するか確認
-    const imageElement = page
-      .locator('[data-testid="survey-image"], .survey-image img, .image-item')
-      .first();
-
-    const imageVisible = await isVisibleWithin(imageElement, 3000);
-    if (!imageVisible) {
-      // 画像がない場合は詳細ページが表示されていることを確認
-      // 「画像一覧」または「画像がありません」のテキストで確認
-      const noImageText = page.getByText(/画像がありません|画像一覧/i);
-      await expect(noImageText.first()).toBeVisible();
-      return;
-    }
-
-    // 画像をクリックしてビューアへ遷移
-    await imageElement.click();
-
-    // ビューアページに遷移
-    await expect(page).toHaveURL(new RegExp(`/site-surveys/${createdSurveyId}/images/[0-9a-f-]+`), {
-      timeout: getTimeout(10000),
-    });
-
-    // 注釈エディタのツールバーが表示されることを確認
-    const toolbar = page.locator(
-      '[data-testid="annotation-toolbar"], .annotation-toolbar, [role="toolbar"]'
-    );
-
-    // ツールバーまたは編集モードボタンが表示されることを確認
-    const editButton = page.getByRole('button', { name: /編集|注釈|描画/i });
-    const hasToolbar = await isVisibleWithin(toolbar, 5000);
-    const hasEditButton = await isVisibleWithin(editButton, 5000);
-
-    expect(hasToolbar || hasEditButton).toBeTruthy();
+    // 本ファイルの事前準備は現場調査を作るだけで画像を登録しない。したがって
+    // 画像をクリックして注釈エディタへ進む経路には決して入らず、その先にあった
+    // 「ツールバー または 編集ボタン」の論理和は一度も実行されていなかった
+    // （実行されたとしても、二つのうち一方が残れば通る恒真に近い判定である）。
+    // 実際に通る経路である「画像の無い現場調査の詳細画面」を無条件に主張する。
+    // 注釈エディタのツールバーそのものは、画像を登録したうえで
+    // site-survey-annotation-tools.spec.ts が各ツールについて検証している。
+    // 本ファイルにも画像の前提を用意して編集画面まで進める形にすることは別タスクとする。
+    await expect(
+      page.getByText(/画像がありません|画像一覧/i).first(),
+      '現場調査詳細に画像一覧の領域が表示されない'
+    ).toBeVisible({ timeout: getTimeout(5000) });
+    await expect(
+      page.locator('[data-testid="survey-image"], .survey-image img, .image-item'),
+      '画像を登録していないのに画像要素が描画されている'
+    ).toHaveCount(0);
   });
 
   /**
@@ -302,13 +285,14 @@ test.describe('現場調査注釈エディタ', () => {
     // 一括エクスポート機能の追加により同一正規表現が複数ボタンに一致するため、
     // strict mode violation を避けて先頭要素（調査報告書出力ボタン）を対象とする
     const pdfButton = page.getByRole('button', { name: /PDF|報告書|エクスポート/i }).first();
-    const pdfLink = page.getByRole('link', { name: /PDF|報告書|エクスポート/i }).first();
 
-    const hasPdfButton = await isVisibleWithin(pdfButton, 5000);
-    const hasPdfLink = await isVisibleWithin(pdfLink, 2000);
-
-    // PDF出力機能が存在することを確認
-    expect(hasPdfButton || hasPdfLink).toBeTruthy();
+    // REQ-10.6: 調査報告書の出力はボタンで提供される（リンクの実装は無い）。
+    // 以前は「ボタン または リンク」の論理和で、ボタンが失われても
+    // リンクさえあれば通る形だったが、リンクは決して現れない。
+    // 実装が提供する導線そのものを主張する。
+    await expect(pdfButton, '調査報告書の出力ボタンが表示されない').toBeVisible({
+      timeout: getTimeout(5000),
+    });
   });
 
   /**

@@ -627,14 +627,14 @@ test.describe('現場調査レスポンシブ対応', () => {
 
       const hasCameraButton = await isVisibleWithin(cameraButton, getTimeout(3000));
       const cameraInputCount = await cameraInput.count();
-      const hasCameraInput = cameraInputCount > 0;
 
-      // 二つの実現手段のいずれかで満たされる要件のため論理和は本質的である。
-      // ただし観測は握り潰さず、いずれも無ければ落ちる。
-      expect(
-        hasCameraButton || hasCameraInput,
-        `REQ-15.3: カメラ起動の手段が存在する（ボタン=${hasCameraButton} / capture付き入力=${cameraInputCount}件）`
-      ).toBe(true);
+      // REQ-15.3: モバイル環境でのカメラ連携による直接撮影をサポートする。
+      // 実装（ImageUploader）は「カメラで撮影」ボタンと capture="environment" を持つ
+      // 隠しファイル入力を**同時に**置き、ボタンの押下で入力を起動する。
+      // 以前は論理和で「いずれか一方」を許していたが、実装は両方を備えるため、
+      // 片方が失われても気づけない主張であった。二つを個別に主張する。
+      expect(hasCameraButton, 'REQ-15.3: カメラ撮影ボタンが表示されない').toBe(true);
+      expect(cameraInputCount, 'REQ-15.3: capture付きのカメラ入力が無い').toBeGreaterThan(0);
     });
   });
 

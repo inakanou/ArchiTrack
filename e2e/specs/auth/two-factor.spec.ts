@@ -839,28 +839,28 @@ test.describe('2要素認証機能', () => {
       const backupCodes = await page.getByTestId('backup-code-item').all();
       expect(backupCodes.length).toBeGreaterThan(0);
 
-      // 使用済みコードが視覚的に区別される
-      const usedCode = backupCodes.find(async (code) => {
-        const classList = await code.getAttribute('class');
-        return classList?.includes('used') || classList?.includes('disabled');
+      // 使用済みコードが視覚的に区別される（Profile.tsx は使用済みに class="used disabled" を付け、
+      // 取り消し線・不透明度 0.5・aria-label="使用済み" を同時に与える）。
+      //
+      // 以前は `backupCodes.find(async …)` で使用済みを選び出していたが、
+      // async の述語は常に Promise（真）を返すため、絞り込みは一度も効かず先頭要素を
+      // 掴んでいただけだった。さらに「グレーアウトまたは取り消し線」の論理和は、
+      // 片方が失われても成立してしまう。実装が同時に与える三つを個別に主張する。
+      const usedCodes = page.locator('[data-testid="backup-code-item"].used');
+      await expect(usedCodes.first(), '使用済みのバックアップコードが一件も無い').toBeVisible({
+        timeout: getTimeout(10000),
       });
 
-      if (usedCode) {
-        // グレーアウトまたは取り消し線が適用されている
-        const styles = await usedCode.evaluate((el) => {
-          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-          // @ts-ignore - window is available in browser context
-          return window.getComputedStyle(el);
-        });
-        const hasGrayOut =
-          styles.opacity === '0.5' || styles.color.includes('gray') || styles.color.includes('128');
-        const hasStrikethrough = styles.textDecoration.includes('line-through');
+      const usedCode = usedCodes.first();
+      const usedStyles = await usedCode.evaluate((el) => {
+        const computed = el.ownerDocument.defaultView!.getComputedStyle(el);
+        return { opacity: computed.opacity, textDecoration: computed.textDecoration };
+      });
+      expect(usedStyles.textDecoration).toContain('line-through');
+      expect(usedStyles.opacity).toBe('0.5');
 
-        expect(hasGrayOut || hasStrikethrough).toBe(true);
-
-        // 要件27E.3: aria-label="使用済み"
-        await expect(usedCode).toHaveAttribute('aria-label', /使用済み|used/i);
-      }
+      // 要件27E.3: aria-label="使用済み"
+      await expect(usedCode).toHaveAttribute('aria-label', /使用済み|used/i);
     });
 
     /**

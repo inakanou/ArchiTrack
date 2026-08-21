@@ -579,29 +579,19 @@ test.describe('プロジェクト一覧操作', () => {
       // Reactコンポーネントのリレンダリングを待つ
       await page.waitForLoadState('networkidle');
 
-      // ソートアイコンまたはソート状態の視覚的な表示を確認
-      // ソートボタン内のSVGアイコン、data属性、またはテキストでソート状態を確認
+      // REQ-6.3: ソート中の列見出しにソートアイコンを表示する。
+      // ProjectListTable は現在のソート列にだけ SortIcon（svg）を描画し、同時に
+      // th へ aria-sort を付ける。矢印記号のテキストは実装に存在しない。
+      // 以前の「svg または矢印記号または aria-sort」の論理和は、矢印記号の側が
+      // 決して真にならない一方で他方だけで成立するため、何が壊れても気づけなかった。
+      // 実装が同時に与える二つを個別に主張する。
       const sortIconSvg = sortButton.locator('svg');
+      await expect(sortIconSvg.first(), 'ソート中の列にソートアイコンが無い').toBeVisible({
+        timeout: getTimeout(3000),
+      });
 
-      // SVGアイコンが表示されるまで待機（リレンダリング完了を待つ）
-      const hasSvgIcon = await isVisibleWithin(sortIconSvg.first(), getTimeout(3000));
-
-      // ボタンのテキストまたはaria属性でソート状態を確認
-      const buttonText = await sortButton.textContent();
-      const hasArrowSymbol =
-        buttonText?.includes('▲') ||
-        buttonText?.includes('▼') ||
-        buttonText?.includes('↑') ||
-        buttonText?.includes('↓');
-
-      // th要素のaria-sort属性でソート状態を確認（より信頼性の高い方法）
       const thElement = sortButton.locator('..');
-      const ariaSortValue = await thElement.getAttribute('aria-sort');
-      const hasAriaSortAttribute = ariaSortValue === 'ascending' || ariaSortValue === 'descending';
-
-      // ソートアイコン（SVGまたは矢印記号）またはaria-sort属性が存在することを確認
-      // UIの実装方法によっていずれかが表示される
-      expect(hasSvgIcon || hasArrowSymbol || hasAriaSortAttribute).toBeTruthy();
+      await expect(thElement).toHaveAttribute('aria-sort', 'ascending');
     });
 
     /**

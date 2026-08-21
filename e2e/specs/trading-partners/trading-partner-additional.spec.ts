@@ -15,14 +15,42 @@
  * - 12.28: ログイン後に元のページに遷移
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { TEST_USERS } from '../../helpers/test-users';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 
 /**
  * 取引先管理の追加要件テスト
  */
+
+/**
+ * リダイレクトされたログイン画面で、その画面を離れずにログインする。
+ *
+ * `loginAsUser` は `/login` へ改めて遷移するため、ProtectedRoute が付けた
+ * `redirectUrl` クエリを捨ててしまう。それではログイン後の戻り先（REQ-12.28）を
+ * 確かめられないため、表示されているログイン画面のまま認証する。
+ *
+ * @param page Playwright のページ（ログイン画面にリダイレクト済みであること）
+ */
+async function loginOnRedirectedLoginPage(page: Page): Promise<void> {
+  const user = TEST_USERS.REGULAR_USER;
+
+  const emailInput = page.getByLabel(/メールアドレス/i);
+  await expect(emailInput, '前提: リダイレクト先のログイン画面が表示される').toBeVisible({
+    timeout: getTimeout(15000),
+  });
+  await emailInput.fill(user.email);
+  await page.locator('input#password').fill(user.password);
+  await page.getByRole('button', { name: /ログイン/i }).click();
+
+  await page.waitForURL((url) => !url.pathname.includes('/login'), {
+    timeout: getTimeout(15000),
+  });
+  await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
+}
+
 test.describe('取引先管理の追加要件', () => {
   test.describe.configure({ mode: 'serial' });
 
@@ -773,21 +801,19 @@ test.describe('取引先管理の追加要件', () => {
       // ログインページにリダイレクトされることを確認
       await expect(page).toHaveURL(/\/login/, { timeout: getTimeout(10000) });
 
-      // ログイン実行
-      await loginAsUser(page, 'REGULAR_USER');
+      // REQ-12.28: ログイン後は元のページ（リダイレクト元の取引先ページ）に遷移する。
+      // 以前は `loginAsUser` を呼んでいたが、この補助は `/login` へ改めて遷移するため
+      // ProtectedRoute が付けた `redirectUrl` を捨ててしまい、常に既定の遷移先に着く。
+      // そのうえで「元のページ または ダッシュボード または 取引先一覧」を許していたため、
+      // どこへ遷移しても成立し、要件の戻り先を一度も確かめていなかった
+      // （`/trading-partners` は元のページのURLにも含まれるため、三項目は互いに重なる）。
+      // リダイレクトされたログイン画面のまま認証し、戻り先そのものを主張する。
+      await loginOnRedirectedLoginPage(page);
 
-      // 元のページ（取引先詳細）または一覧にリダイレクトされることを確認
-      // 注: 実装により元のページに戻るか、ダッシュボードに戻るかが異なる場合がある
-      await page.waitForLoadState('networkidle');
-
-      // 元のページまたはダッシュボードに遷移していることを確認
-      const currentUrl = page.url();
-      const isOnOriginalPage = currentUrl.includes(`/trading-partners/${partnerId}`);
-      const isOnDashboard = currentUrl.includes('/dashboard') || currentUrl === '/';
-      const isOnTradingPartnersList = currentUrl.includes('/trading-partners');
-
-      // いずれかのページに遷移していればOK
-      expect(isOnOriginalPage || isOnDashboard || isOnTradingPartnersList).toBe(true);
+      await expect(page, 'REQ-12.28: ログイン後に元の取引先詳細へ戻らない').toHaveURL(
+        new RegExp(`/trading-partners/${partnerId}$`),
+        { timeout: getTimeout(15000) }
+      );
     });
 
     /**
@@ -802,18 +828,15 @@ test.describe('取引先管理の追加要件', () => {
       // ログインページにリダイレクトされることを確認
       await expect(page).toHaveURL(/\/login/, { timeout: getTimeout(10000) });
 
-      // ログイン実行
-      await loginAsUser(page, 'REGULAR_USER');
+      // REQ-12.28: ログイン後は元のページ（取引先一覧）に遷移する。
+      // 以前は `loginAsUser` が `redirectUrl` を捨てるうえ、「元のページ または
+      // ダッシュボード」を許していたため、どこへ遷移しても成立していた。
+      await loginOnRedirectedLoginPage(page);
 
-      // 元のページ（取引先一覧）またはダッシュボードに遷移していることを確認
-      await page.waitForLoadState('networkidle');
-
-      const currentUrl = page.url();
-      const isOnOriginalPage = currentUrl.includes('/trading-partners');
-      const isOnDashboard = currentUrl.includes('/dashboard') || currentUrl === '/';
-
-      // いずれかのページに遷移していればOK
-      expect(isOnOriginalPage || isOnDashboard).toBe(true);
+      await expect(page, 'REQ-12.28: ログイン後に元の取引先一覧へ戻らない').toHaveURL(
+        /\/trading-partners$/,
+        { timeout: getTimeout(15000) }
+      );
     });
   });
 });
