@@ -76,6 +76,10 @@ const createStatefulController = (startZoom: number): StatefulMockController => 
     isPanEnabled: vi.fn<() => boolean>(() => state.zoom >= 1.01),
     // 呼び出し毎にスナップショットを返す（参照共有による誤検出を避ける）。
     getState: vi.fn<() => ViewportState>(() => ({ ...state })),
+    // jsdom の bounding rect は全て 0 のため、実コントローラと同じく変換は恒等になる。
+    toCanvasPoint: vi.fn<(point: ViewportPoint) => ViewportPoint>(
+      (point: ViewportPoint): ViewportPoint => point
+    ),
   };
 };
 

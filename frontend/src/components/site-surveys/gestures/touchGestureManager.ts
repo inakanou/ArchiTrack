@@ -171,6 +171,31 @@ const midpointOf = (a: PointerRecord, b: PointerRecord): ViewportPoint => ({
   y: (a.y + b.y) / 2,
 });
 
+/**
+ * 2点の中点を描画面（canvas 要素の左上を原点とする面）座標で返す（Req 33.3）。
+ *
+ * PointerEvent の clientX/clientY は画面基準だが、ビューポート駆動の受け手である
+ * Fabric の `zoomToPoint` は描画面基準の固定点を期待する。画面座標のまま渡すと、
+ * canvas が画面上端から離れている配置（モバイルのヘッダ＋ツールバー下）では拡大の中心が
+ * 要素オフセットぶん下へずれ、縦方向のパンが可動範囲の下限へ張り付く。
+ *
+ * ズームの基準点もパンに用いる中点移動量も同一の基準（描画面）で扱う。移動量は基準の
+ * 平行移動に対して不変であるため、変換によってパンの挙動は変わらない（要素が CSS で
+ * 拡縮されている場合のみ、同じ比で移動量も正される）。
+ * controller 未注入時（ビューポート駆動を行わない後方互換経路）は変換しない。
+ */
+const drawingSurfaceMidpointOf = (
+  controller: CanvasViewportController | undefined,
+  a: PointerRecord,
+  b: PointerRecord
+): ViewportPoint => {
+  const midpoint = midpointOf(a, b);
+  if (controller === undefined) {
+    return midpoint;
+  }
+  return controller.toCanvasPoint(midpoint);
+};
+
 export const createTouchGestureManager = (): TouchGestureManager => {
   let touchState: TouchState = 'idle';
   const activePointers = new Map<number, PointerRecord>();
@@ -210,7 +235,7 @@ export const createTouchGestureManager = (): TouchGestureManager => {
     }
     pinchStartDistance = distanceBetween(pair.p0, pair.p1);
     pinchStartZoom = controller?.getState().zoom ?? 1;
-    lastMidpoint = midpointOf(pair.p0, pair.p1);
+    lastMidpoint = drawingSurfaceMidpointOf(controller, pair.p0, pair.p1);
   };
 
   /**
@@ -266,7 +291,8 @@ export const createTouchGestureManager = (): TouchGestureManager => {
       if (pair === null) return;
 
       const currentDistance = distanceBetween(pair.p0, pair.p1);
-      const currentMidpoint = midpointOf(pair.p0, pair.p1);
+      // Req 33.3: 拡大の中心は描画面基準へ揃える（画面座標のままでは縦方向にずれる）。
+      const currentMidpoint = drawingSurfaceMidpointOf(controller, pair.p0, pair.p1);
 
       // ピンチ → 中点ズーム（Req 33.2/33.3）。
       // 距離変化が閾値を超えたときのみ、距離比から目標倍率を算出して中点基準でズーム。

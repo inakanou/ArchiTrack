@@ -28,6 +28,7 @@
  *   描画中断・誤選択防止を実タッチ（CDP マルチタッチ）で検証する。
  * @requirement site-survey/REQ-33.1
  * @requirement site-survey/REQ-33.2
+ * @requirement site-survey/REQ-33.3
  * @requirement site-survey/REQ-33.4
  * @requirement site-survey/REQ-33.5
  * @requirement site-survey/REQ-33.6
@@ -1332,13 +1333,17 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
     );
     const panned = await readProbe();
     const movedX = Math.abs(panned.panX - zoomed.panX);
-    // Req 33.4: 2本指中点の移動量（水平 -50px）にパンが最後まで追従すること。
+    const movedY = Math.abs(panned.panY - zoomed.panY);
+    // Req 33.4: 2本指中点の移動量（水平 -50px / 垂直 -50px）にパンが最後まで追従すること。
     // 1 ステップぶん（6.25px）だけ動いて止まる退行を落とすため、「5px より大きい」ではなく
     // 指示した移動量そのものと突き合わせる（旧来の `movedX + movedY > 5` は本主張に含意される）。
-    // 縦方向は clampPan の下限（画像が表示領域を覆う範囲）に既に達しているため 0 になり得る。
-    // 指示量と突き合わせられない理由は拡大中心が画面座標のまま渡されている既存欠陥にあり、
-    // タスク 115.129 で扱う。
+    //
+    // Task 115.129: 縦方向は以前「clampPan の下限に達しているため 0 になり得る」として
+    // 主張を置けなかった。真因は拡大の中心へ画面座標をそのまま渡していたことで、canvas 要素の
+    // 上端オフセットぶん中心が下へずれ、ピンチ直後に既にパン下限へ張り付いていたためである。
+    // 中心を描画面基準へ揃えた今は、縦方向も指示量どおり追従する。
     expect(Math.abs(movedX - 50)).toBeLessThan(2);
+    expect(Math.abs(movedY - 50)).toBeLessThan(2);
   });
 
   /**
@@ -1420,6 +1425,57 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
     assertPresent(firstObjAfter, '2本目の描画後の既存注釈の保存座標');
     expect(Math.abs(firstObjAfter.left - firstObj.left)).toBeLessThan(1);
     expect(Math.abs(firstObjAfter.top - firstObj.top)).toBeLessThan(1);
+  });
+
+  /**
+   * (12) ピンチ拡大の中心が2本指中点に固定される（縦方向を含む）
+   *      Requirement 33.3
+   *
+   * Task 115.129: 編集キャンバスは画面上端からヘッダ/パンくず/ツールバーぶん下にある。
+   * 拡大の中心へ画面基準の座標をそのまま渡すと、その要素オフセットぶん中心が下へずれる。
+   * 「中点を基準に拡大する」が成立していれば、**中点に見えている画像上の位置（scene 座標）は
+   * ピンチ前後で変わらない**。この不変量を実ブラウザの実タッチで検証する。
+   */
+  test('(12) ピンチ拡大の中心が2本指中点に固定される（縦方向を含む） (REQ-33.3)', async () => {
+    await enterEditMode();
+    await resetViewport();
+
+    const box = await getCanvasBox();
+    // 中点はキャンバス中央ではなく上寄り（縦オフセットの誤りが顕在化する位置）に置く。
+    const relMidX = box.width / 2;
+    const relMidY = box.height * 0.35;
+    const midX = box.x + relMidX;
+    const midY = box.y + relMidY;
+
+    const before = await readProbe();
+    expect(before.zoom).toBeCloseTo(1, 1);
+    // 中点（描画面座標）に見えている scene 座標。
+    const sceneBeforeX = (relMidX - before.panX) / before.zoom;
+    const sceneBeforeY = (relMidY - before.panY) / before.zoom;
+
+    // 中点を動かさず指間距離を 40px → 140px（比 3.5）へ広げる。
+    await twoFingerGesture(
+      [
+        { x: midX - 20, y: midY },
+        { x: midX + 20, y: midY },
+      ],
+      [
+        { x: midX - 70, y: midY },
+        { x: midX + 70, y: midY },
+      ]
+    );
+
+    const after = await readProbe();
+    // Req 33.2: 指示した指間距離の比そのものまで拡大していること（途中で止まる退行を落とす）。
+    expect(after.zoom).toBeCloseTo(3.5, 1);
+
+    const sceneAfterX = (relMidX - after.panX) / after.zoom;
+    const sceneAfterY = (relMidY - after.panY) / after.zoom;
+    // Req 33.3: 中点に見えている画像上の位置が拡大前後で保たれる＝中点が拡大の中心である。
+    // 画面座標のまま渡す実装へ戻すと、キャンバス上端オフセット由来で縦に約 42.5（scene 座標）
+    // ずれることを実測済み（Task 115.129 の変異検証）。
+    expect(Math.abs(sceneAfterX - sceneBeforeX)).toBeLessThan(5);
+    expect(Math.abs(sceneAfterY - sceneBeforeY)).toBeLessThan(5);
   });
 });
 

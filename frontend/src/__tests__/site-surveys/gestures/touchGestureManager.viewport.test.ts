@@ -17,10 +17,13 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createTouchGestureManager } from '../../../components/site-surveys/gestures/touchGestureManager';
+import { createCanvasViewportController } from '../../../components/site-surveys/gestures/canvasViewportController';
 import type {
   CanvasViewportController,
+  FabricCanvasLike,
   ViewportPoint,
   ViewportState,
+  ViewportTransform,
 } from '../../../components/site-surveys/gestures/canvasViewportController';
 
 /**
@@ -47,6 +50,7 @@ interface MockController extends CanvasViewportController {
   pan: ReturnType<typeof vi.fn<(dx: number, dy: number) => void>>;
   clampZoom: ReturnType<typeof vi.fn<(zoom: number) => number>>;
   isPanEnabled: ReturnType<typeof vi.fn<() => boolean>>;
+  toCanvasPoint: ReturnType<typeof vi.fn<(point: ViewportPoint) => ViewportPoint>>;
 }
 
 const createMockController = (options: {
@@ -62,7 +66,56 @@ const createMockController = (options: {
     clampPan: vi.fn<() => void>(),
     isPanEnabled: vi.fn<() => boolean>(() => options.panEnabled),
     getState: vi.fn<() => ViewportState>((): ViewportState => state),
+    // jsdom の bounding rect は全て 0 のため、実コントローラと同じく変換は恒等になる。
+    toCanvasPoint: vi.fn<(point: ViewportPoint) => ViewportPoint>(
+      (point: ViewportPoint): ViewportPoint => point
+    ),
   };
+};
+
+/**
+ * Fabric Canvas の最小モック（ジェスチャー検出面 + ビューポート制御面の双方を満たす）。
+ * zoomToPoint は Fabric v7 `StaticCanvas.zoomToPoint` と同等に「指定点を面上で固定して拡大」する。
+ */
+interface FabricLikeCanvas extends FabricCanvasLike {
+  fire: ReturnType<typeof vi.fn>;
+  getElement(): HTMLCanvasElement;
+  upperCanvasEl: HTMLCanvasElement;
+}
+
+const createFabricLikeCanvas = (
+  element: HTMLCanvasElement,
+  width: number,
+  height: number
+): FabricLikeCanvas => {
+  const canvas: FabricLikeCanvas = {
+    fire: vi.fn(),
+    getElement: () => element,
+    upperCanvasEl: element,
+    viewportTransform: [1, 0, 0, 1, 0, 0] as ViewportTransform,
+    getWidth: () => width,
+    getHeight: () => height,
+    getZoom: () => canvas.viewportTransform[0],
+    setViewportTransform: (next: ViewportTransform): void => {
+      canvas.viewportTransform = [...next] as ViewportTransform;
+    },
+    zoomToPoint: (point: ViewportPoint, value: number): void => {
+      const vpt = canvas.viewportTransform;
+      const oldZoom = vpt[0];
+      const sceneX = (point.x - vpt[4]) / oldZoom;
+      const sceneY = (point.y - vpt[5]) / oldZoom;
+      canvas.viewportTransform = [
+        value,
+        0,
+        0,
+        value,
+        point.x - sceneX * value,
+        point.y - sceneY * value,
+      ] as ViewportTransform;
+    },
+    requestRenderAll: vi.fn(),
+  };
+  return canvas;
 };
 
 const dispatchPointer = (
@@ -194,6 +247,107 @@ describe('touchGestureManager - viewport 駆動 (Req 33.2, 33.3, 33.4, 34.7)', (
     ).not.toThrow();
 
     expect(manager.getTouchState()).toBe('two-finger-pinch-pan');
+
+    detach();
+  });
+});
+
+/**
+ * 縦方向にオフセットのある配置（ヘッダ＋ツールバーの下に canvas がある実機相当）で、
+ * 中点ズームの基準が描画面基準へ揃っていることを検証する（Task 115.129, Req 33.3）。
+ *
+ * モックの controller ではなく **実コントローラ** を注入し、Fabric v7 の zoomToPoint と
+ * 同等の算術を持つ canvas モックの viewportTransform を観測する。中点ズームが成立していれば
+ * 「描画面上の中点に見えているシーン座標」はピンチ前後で不変である。画面座標のまま渡すと
+ * 要素オフセットぶん基準が下へずれ、この不変量が崩れる。
+ */
+describe('touchGestureManager - 縦オフセット配置の中点ズーム (Req 33.3)', () => {
+  /** canvas 要素の配置（画面上端から ELEMENT_TOP だけ下にある） */
+  const ELEMENT_LEFT = 12;
+  const ELEMENT_TOP = 220;
+  const CANVAS_WIDTH = 360;
+  const CANVAS_HEIGHT = 300;
+
+  let element: HTMLCanvasElement;
+  let fabricCanvas: FabricLikeCanvas;
+  let controller: CanvasViewportController;
+  const getCurrentTool = (): string => 'rectangle';
+
+  /**
+   * 描画面上の点 y に見えているシーン座標を返す（viewportTransform の逆変換）。
+   */
+  const sceneYAt = (canvasY: number): number => {
+    const vpt = fabricCanvas.viewportTransform;
+    return (canvasY - vpt[5]) / vpt[0];
+  };
+
+  beforeEach(() => {
+    element = document.createElement('canvas');
+    document.body.appendChild(element);
+    // jsdom はレイアウトを行わないため、実配置の bounding rect を明示的に与える。
+    element.getBoundingClientRect = (): DOMRect =>
+      ({
+        x: ELEMENT_LEFT,
+        y: ELEMENT_TOP,
+        left: ELEMENT_LEFT,
+        top: ELEMENT_TOP,
+        right: ELEMENT_LEFT + CANVAS_WIDTH,
+        bottom: ELEMENT_TOP + CANVAS_HEIGHT,
+        width: CANVAS_WIDTH,
+        height: CANVAS_HEIGHT,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    fabricCanvas = createFabricLikeCanvas(element, CANVAS_WIDTH, CANVAS_HEIGHT);
+    controller = createCanvasViewportController(fabricCanvas);
+  });
+
+  afterEach(() => {
+    if (element.parentNode) {
+      element.parentNode.removeChild(element);
+    }
+  });
+
+  it('2本指ピンチの中心が描画面基準へ揃い、中点のシーン座標がピンチ前後で保たれる (Req 33.3)', () => {
+    const manager = createTouchGestureManager();
+    const detach = manager.attach(fabricCanvas as unknown as never, getCurrentTool, {
+      viewportController: controller,
+    });
+
+    // 描画面上の中点＝canvas 中央 (180,150)。画面座標では (192,370)。
+    const midClientX = ELEMENT_LEFT + CANVAS_WIDTH / 2;
+    const midClientY = ELEMENT_TOP + CANVAS_HEIGHT / 2;
+    const sceneYBefore = sceneYAt(CANVAS_HEIGHT / 2);
+
+    // 起点: 指間距離 100（中点固定）
+    dispatchPointer(element, 'pointerdown', {
+      pointerId: 1,
+      clientX: midClientX - 50,
+      clientY: midClientY,
+    });
+    dispatchPointer(element, 'pointerdown', {
+      pointerId: 2,
+      clientX: midClientX + 50,
+      clientY: midClientY,
+    });
+    expect(manager.getTouchState()).toBe('two-finger-pinch-pan');
+
+    // 中点を動かさずに距離を 100 → 200 へ（比 2.0）。
+    dispatchPointer(element, 'pointermove', {
+      pointerId: 1,
+      clientX: midClientX - 100,
+      clientY: midClientY,
+    });
+    dispatchPointer(element, 'pointermove', {
+      pointerId: 2,
+      clientX: midClientX + 100,
+      clientY: midClientY,
+    });
+
+    // Req 33.2: 指示した距離比そのもの（2.0）まで拡大していること。
+    expect(fabricCanvas.getZoom()).toBeCloseTo(2, 5);
+    // Req 33.3: 描画面上の中点に見えているシーン座標が不変＝中点が拡大の中心である。
+    expect(sceneYAt(CANVAS_HEIGHT / 2)).toBeCloseTo(sceneYBefore, 5);
 
     detach();
   });

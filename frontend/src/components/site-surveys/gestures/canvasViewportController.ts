@@ -11,6 +11,9 @@
  *     用いるため、本コントローラの操作は保存 JSON に不連動。
  *   - 中点ズームは Fabric 標準 `zoomToPoint(point, value)` を採用し、指定点（2本指中点）を
  *     画面上で固定したまま拡大/縮小する（直接操作の原則, Req 33.3）。
+ *   - `zoomToPoint` の指定点は **描画面基準**（canvas 要素の左上が原点）である。
+ *     PointerEvent の clientX/clientY（画面基準）を渡す呼び出し側は、必ず `toCanvasPoint`
+ *     で基準を揃えること（Task 115.129）。
  *
  * 依存は `FabricCanvasLike` 最小サーフェスのみ（touchGestureManager の FabricCanvasLike
  * パターンに倣う）。React・Fabric の内部型に過度に結合せず、単体テスト容易性を確保する。
@@ -24,7 +27,10 @@
 import { ZOOM_CONSTANTS, PAN_CONSTANTS } from '../image-viewer.constants';
 
 /**
- * 画面（viewport）座標上の点。2本指中点やズーム基準点に用いる。
+ * 2次元の点。2本指中点やズーム基準点に用いる。
+ *
+ * 座標の基準は用途で異なる: `toCanvasPoint` の入力は画面（client）基準、
+ * その出力および `zoomToPoint`/`pan` が扱う点・移動量は描画面（canvas 要素の左上が原点）基準。
  */
 export interface ViewportPoint {
   x: number;
@@ -69,6 +75,17 @@ export interface FabricCanvasLike {
   zoomToPoint(point: ViewportPoint, value: number): void;
   /** 次フレームで再描画を要求する */
   requestRenderAll(): void;
+  /**
+   * 最前面の upper-canvas（Fabric `SelectableCanvas.upperCanvasEl`）。
+   * 画面（client）座標→描画面座標の変換基準（要素の bounding rect）に用いる。
+   * optional なのは StaticCanvas 系・テストモックとの後方互換のため。
+   */
+  upperCanvasEl?: HTMLCanvasElement;
+  /**
+   * lower-canvas（Fabric `StaticCanvas.getElement()`）。
+   * upper-canvas を持たない場合の変換基準のフォールバック。
+   */
+  getElement?(): HTMLCanvasElement;
 }
 
 /**
@@ -88,6 +105,12 @@ export interface CanvasViewportControllerOptions {
 export interface CanvasViewportController {
   /** 指定した中点を基準にズームする（範囲は clampZoom で制限, Req 33.3/33.9） */
   zoomToPoint(point: ViewportPoint, zoom: number): void;
+  /**
+   * 画面（client）座標を描画面（canvas 要素の左上を原点とする面）座標へ変換する（Req 33.3）。
+   * `zoomToPoint` が期待する基準へ揃えるための変換であり、中点ズームの基準点は必ず本変換を
+   * 通してから渡す。
+   */
+  toCanvasPoint(clientPoint: ViewportPoint): ViewportPoint;
   /** 表示領域を平行移動する。等倍時は抑止する（Req 34.7） */
   pan(dx: number, dy: number): void;
   /** 等倍（zoom=1）へ戻し、パン位置を初期化する（Req 34.4） */
@@ -152,6 +175,36 @@ export const createCanvasViewportController = (
     }
   };
 
+  /**
+   * 画面（client）座標を描画面座標へ変換する（Req 33.3）。
+   *
+   * Fabric の `zoomToPoint(point, value)` は「viewportTransform を掛ける前の面」＝
+   * canvas 要素の左上を原点とする座標を固定点として扱う（StaticCanvas.zoomToPoint が
+   * `point` をそのまま `before` として使う）。したがって PointerEvent の clientX/clientY を
+   * そのまま渡すと、canvas 要素が画面上端から離れている配置（モバイルのヘッダ＋ツールバー等）
+   * では固定点が要素オフセットぶんだけ下（右）へずれる。
+   *
+   * 変換は Fabric 自身の `_getPointerImpl(e, true)`（= getViewportPoint）と同じ算術に揃える:
+   *   要素の bounding rect 原点を引き、論理サイズと表示サイズの比を掛ける。
+   * 比は canvas 要素が CSS で拡縮されていない通常配置では 1 であり、その場合は
+   * 「オフセットを引くだけ」に一致する。
+   *
+   * 要素が取得できない場合（最小モック等）は変換せずそのまま返す。
+   */
+  const toCanvasPoint = (clientPoint: ViewportPoint): ViewportPoint => {
+    const element = canvas.upperCanvasEl ?? canvas.getElement?.();
+    if (element === undefined || typeof element.getBoundingClientRect !== 'function') {
+      return clientPoint;
+    }
+    const rect = element.getBoundingClientRect();
+    const scaleX = rect.width > 0 ? canvas.getWidth() / rect.width : 1;
+    const scaleY = rect.height > 0 ? canvas.getHeight() / rect.height : 1;
+    return {
+      x: (clientPoint.x - rect.left) * scaleX,
+      y: (clientPoint.y - rect.top) * scaleY,
+    };
+  };
+
   const zoomToPoint = (point: ViewportPoint, zoom: number): void => {
     const clamped = clampZoom(zoom);
     // 注釈の保存座標には影響しない（viewportTransform のみ変更）。
@@ -180,6 +233,7 @@ export const createCanvasViewportController = (
 
   return {
     zoomToPoint,
+    toCanvasPoint,
     pan,
     fit,
     clampZoom,
