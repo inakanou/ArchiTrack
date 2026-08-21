@@ -1427,7 +1427,7 @@ interface IImageService {
 
 是正前の当該2ブロックは Responsibilities & Constraints 7項目＋Dependencies 4項目の計11項目で、**実装とそのまま対応が取れていたのは責務欄の第1項（マジックバイトのみによるファイル形式判定）だけ**であった（依存欄の Inbound 行は生成元としては誤りではないが、範囲と用途の記述が実態と食い違っていた）。**なおその第1項も、実質は据え置いたまま文言だけを精密化している**: 判定に使わない対象を「MIMEタイプ」から「ブラウザ提供MIMEタイプ」へ言い換え（実装が返す判定結果のMIMEタイプと、リクエストが申告するMIMEタイプを読み分けられるようにするため）、対応要件を「要件21」から `21.1`・`21.8` へ絞り、備えるメソッド名（`detectMimeTypeByMagicBytes` / `validateMagicBytes` / `validateMimeType` / `validateFile`）を補った。したがって「対応が取れていた」の評価は判定内容についてのものであり、行が無編集であることを意味しない。是正後は Responsibilities & Constraints 5項目＋Dependencies 4項目の計9項目である（`awk '/^#### SurveyImageService$/,/^\*\*Contracts\*\*/' .kiro/specs/site-survey/design.md | grep -c '^- '` の実測値。書く直前に数え直した）。本小節から外した記述の担い手は次のとおりで、いずれも `SurveyImageService` ではない。
 
-- 「300KB超過時の段階的圧縮（250KB〜350KBの範囲に収める）」と「200x200pxサムネイル自動生成」: `ImageProcessorService`（`backend/src/services/image-processor.service.ts`。`TARGET_MIN_SIZE_BYTES` 119 行 / `TARGET_MAX_SIZE_BYTES` 124 行 / `THUMBNAIL_WIDTH` 129 行 / `THUMBNAIL_HEIGHT` 134 行 / `processImage` 293 行）
+- 「300KB超過時の段階的圧縮（350KB以下に収まった時点で打ち切る）」と「200x200pxサムネイル自動生成」: `ImageProcessorService`（`backend/src/services/image-processor.service.ts` の `TARGET_MAX_SIZE_BYTES` / `THUMBNAIL_WIDTH` / `THUMBNAIL_HEIGHT` / `processImage`）
 - 「Cloudflare R2（S3互換API）へのアップロード」: `ImageUploadService.uploadToStorage`（`backend/src/services/image-upload.service.ts:342`）と `BatchUploadService.uploadToS3`（`backend/src/services/batch-upload.service.ts:324`）
 - 「画像表示順序の管理」: `ImageOrderService.updateImageOrder`（`backend/src/services/image-order.service.ts:91`）
 - 「バッチアップロード時は5件ずつキュー処理して順次実行」: `BatchUploadService.BATCH_SIZE = 5`（`backend/src/services/batch-upload.service.ts:114`。分割は同 181 行の `splitIntoBatches`）

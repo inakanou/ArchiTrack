@@ -53,7 +53,7 @@
 3. If 同時選択ファイル数が5件を超える, then the Site Survey Service shall 5件ずつキュー処理して順次アップロードを実行する
 4. When 画像アップロードが完了する, the Site Survey Service shall サムネイルを自動生成する
 5. If アップロードされたファイルが許可された形式でない, then the Site Survey Service shall エラーメッセージを表示してアップロードを拒否する
-6. If ファイルサイズが上限（300KB）を超える, then the Site Survey Service shall 画像サイズと品質を段階的に下げて250KB〜350KBの範囲に圧縮した上で登録する
+6. If ファイルサイズが上限（300KB）を超える, then the Site Survey Service shall 画像サイズと品質を段階的に下げ、350KB以下に収まった時点で圧縮を打ち切って登録する
 7. When ユーザーが画像を削除する, the Site Survey Service shall 画像と関連する注釈データを削除する
 8. If R2ストレージからのオブジェクト削除に失敗する, then the Site Survey Service shall 孤立ファイルとして専用プレフィックス（orphaned/）に移動し、Object Lifecycle Ruleにより7日後に自動削除する
 9. The Site Survey Service shall JPEG、PNG、WEBP形式の画像ファイルをサポートする
