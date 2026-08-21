@@ -37,6 +37,19 @@
  *   - `cond && (await expect(...))` / `cond ?? (await expect(...))`
  *   - `cond ? await expect(...) : undefined`（三項で包む形）
  *   - 観測結果を条件に黙って抜ける形（`if (!observed) { return; }` など）
+ *     後始末や記録が脱出の直前に挟まる形も含む。検証が飛ぶかどうかを決めるのは
+ *     「途中に何が書かれているか」ではなく「主張も失敗もせずに制御が抜けるか」である
+ *     （Task 115.137。詳細は isSilentExit を参照）。
+ *
+ * 観測の語彙:
+ *   条件式が「観測を運ぶか」の判定は、識別子の綴りを含む展開後の文字列に対して行う。
+ *   語彙を語境界だけで一致させると、同じ観測を包んだ補助（`isVisibleWithin` など）が
+ *   一致しなくなる。Task 115.137 で、この取りこぼしにより二百五十六箇所の分類が
+ *   実質 `await` の有無だけに依存していたことが判明した。現在は次の二つで補う。
+ *     - 述語の族（`isX`）と待機の族（`waitForX`）は接頭辞で一致させる
+ *     - `e2e/helpers/` 配下で「真偽を返す」と**構文で判る**関数の名前を自動で取り込む
+ *       （補助が増えるたびに検出器を書き換える運用は、書き換え漏れがそのまま
+ *       静かな無検出になるため。判定は命名ではなく構造で行う）
  *
  * 局所変数の追跡:
  *   検出は「expect や if の直下に書かれた式」だけを見ると容易に迂回できる。
@@ -105,11 +118,28 @@
  *     真偽を返す関数かどうかは**構造**で判定する（戻り値の型注釈、または自らの return が
  *     すべて真偽の値であること）。`isX` / `hasX` のような命名では判定しない。
  *     詳細は predicateImplementationExclusion を参照。
+ *   - 探索・再試行の繰り返しを抜けるだけの `break` / `continue`（Task 115.137 の査読）
+ *     `break` / `continue` は繰り返しを抜けるだけでテストからは抜けない。抜けた先で
+ *     観測の結果が無条件に検査される（主張・throw・必ず落ちる関門）なら検証は飛んでいない。
+ *     **これは削減計画が E 群の是正先として推奨している形そのもの**であり、負債として
+ *     数えてはならない。抜けた先で結果を一切検査しない形は従来どおり検出する。
+ *     詳細は escapesCheckedLoop を参照。
+ *   - 値を作る補助の中の「値を伴う return」（Task 115.137 の査読・計画 §6 の条件 (3) の拡張）
+ *     値を返す関数が値を返す経路を持つのは関数であることそのものであり、検証の放棄ではない。
+ *     債務は呼び出し側がその値をどう扱うかにあり、呼び出し側の分岐は従来どおり検出される。
+ *     テスト本体の中の値を伴わない `return;` は真正の沈黙脱出として検出したまま残す。
+ *     詳細は valueProducingExitExclusion を参照。
  *   - どの経路でも throw か無条件の主張に到達する分岐（Task 115.127 段3・計画の B 群）
  *     `else` を持ち、then / else の双方の到達しうる終端がすべて throw か無条件の主張であり、
  *     かつ内側に throw を含む分岐。素通りする経路が構造上存在しない。
  *     throw を含まない全域分岐（計画の G 群）は「どの経路でも**同等の**検証が実行されるか」
  *     という中身の判断を要するため対象外にしない。詳細は guaranteedFailureExclusion を参照。
+ *
+ * 走査の対象:
+ *   `e2e/specs/` `e2e/helpers/` `e2e/fixtures/` だけを走査する。検出しているのは
+ *   「テストが検証を放棄している構造」であり、Playwright の実行基盤（`e2e/global-setup.ts` /
+ *   `e2e/config.ts` / `e2e/reporters/`）はテストのライフサイクルの外で走るため対象外である。
+ *   除外はファイル名の羅列ではなく置き場所の役割で決める（詳細は SCAN_SUBDIRS を参照）。
  *
  * 検出規則の確認:
  *   scripts/check-e2e-assertion-guards.selftest.ts に、捕捉すべき書き方と
@@ -176,6 +206,26 @@ const ROOT = path.resolve(__dirname, '..');
 const E2E_DIR = path.join(ROOT, 'e2e');
 const BASELINE_PATH = path.join(E2E_DIR, 'assertion-guard-baseline.json');
 const ALLOW_MARKER = 'e2e-guard-allow:';
+
+/**
+ * 走査対象の下位ディレクトリ（Task 115.137 の是正）。
+ *
+ * 検出しているのは「テストが検証を放棄している構造」である。したがって走査してよいのは
+ * **テストの実行中に働くもの**に限る。次の三つがそれに当たる。
+ *   - `e2e/specs/`    テストの本体
+ *   - `e2e/helpers/`  テストから呼ばれ、テストの中で観測・主張を行う補助
+ *   - `e2e/fixtures/` テストから呼ばれる前提の準備（テストの成否に直結する）
+ *
+ * 逆に `e2e/` の直下に置かれるもの（`global-setup.ts` / `config.ts`）と `e2e/reporters/` は
+ * Playwright の**実行基盤**であり、テストのライフサイクルの外で走る。そこにある
+ * `return` / `break` は疎通待ちの成功や進捗表示の分岐であって検証の放棄ではない。
+ * 実基盤を走査した結果、`e2e/global-setup.ts:31`（疎通待ちの成功時 return。枯渇時は throw）と
+ * `e2e/reporters/progress-reporter.ts:74`（再試行の進捗表示）が誤検出されていた。
+ *
+ * 除外はファイル名の羅列ではなく**置き場所の役割**で決める。名前を並べる方式は、
+ * 基盤のファイルが増えるたびに検出器を書き換える運用になり、書き換え漏れが誤検出として残る。
+ */
+const SCAN_SUBDIRS = ['specs', 'helpers', 'fixtures'];
 
 // ============================================================================
 // 型定義
@@ -255,9 +305,137 @@ export const IMMEDIATE_PREDICATES = [
   'isEditable',
 ];
 
-/** 画面・応答からの観測を示す語（条件式の分類に用いる） */
-const OBSERVATION_PATTERN =
-  /\b(isVisible|isHidden|isEnabled|isDisabled|isChecked|isEditable|count|textContent|innerText|inputValue|getAttribute|boundingBox|locator|getByTestId|getByRole|getByText|waitFor|evaluate)\b/;
+/**
+ * 観測を示す語のうち、**接頭辞**で一致させるもの。
+ *
+ * 語境界だけで一致させると、同じ観測を包んだ補助（`isVisibleWithin` など）が
+ * 一致しなくなる（末尾に語が続くため `\bisVisible\b` が成立しない）。
+ * Task 115.137 で、この取りこぼしにより二百五十六箇所の分類が
+ * 実質 `await` の有無だけに依存していたことが判明した。
+ * 述語の族（`isX`）と待機の族（`waitForX`）は、接頭辞が一致する識別子が
+ * 観測以外を指すことは事実上ありえないため、接頭辞一致へ広げる。
+ */
+const OBSERVATION_PREFIX_WORDS = [...IMMEDIATE_PREDICATES, 'waitFor'];
+
+/** 観測を示す語のうち、語境界で一致させるもの（接頭辞へ広げると別語を巻き込むもの） */
+const OBSERVATION_EXACT_WORDS = [
+  'count',
+  'textContent',
+  'innerText',
+  'inputValue',
+  'getAttribute',
+  'boundingBox',
+  'locator',
+  'getByTestId',
+  'getByRole',
+  'getByText',
+  'evaluate',
+];
+
+/** 正規表現の特殊文字を無効化する */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * `e2e/helpers/` 配下で「真偽を返す」と**構文で判る**関数の名前を集める。
+ *
+ * 観測を包んだ補助が増えるたびに検出器を書き換える運用は、書き換え漏れが
+ * そのまま静かな無検出になる（Task 115.137 の再発源）。補助の名前を列挙するのではなく、
+ * 補助の**形**（真偽を返す関数であること）から名前を自動で取り込む。
+ * 判定には述語ヘルパーの判定と同じ `isBooleanReturningFunction` を用いるため、
+ * `isX` / `hasX` のような命名には一切依存しない。
+ */
+export function collectBooleanHelperNames(dir: string = path.join(E2E_DIR, 'helpers')): string[] {
+  const names = new Set<string>();
+  // 取り込み元が失われた場合は黙って空を返さない（Task 115.137）。
+  // 基礎語彙が残るため検出が丸ごと消えることはないが、`await` を条件式の外へ出した書き方は
+  // 静かに無検出へ落ちる。本タスクが解消しようとしている「静かに消える」問題そのものなので、
+  // 取り込みが成立しない場合は検査を失敗させる。
+  if (!fs.existsSync(dir)) {
+    throw new Error(
+      `観測の語彙の取り込み元が見つかりません: ${dir}\n` +
+        '取り込みが成立しないと、補助へ畳んだ観測が静かに無検出になります。'
+    );
+  }
+  for (const file of collectFiles(dir)) {
+    const sourceFile = ts.createSourceFile(
+      file,
+      fs.readFileSync(file, 'utf8'),
+      ts.ScriptTarget.Latest,
+      true
+    );
+    const visit = (node: ts.Node): void => {
+      if (ts.isFunctionDeclaration(node) && node.name && isBooleanReturningFunction(node)) {
+        names.add(node.name.text);
+      }
+      if (
+        ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        node.initializer &&
+        (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)) &&
+        isBooleanReturningFunction(node.initializer)
+      ) {
+        names.add(node.name.text);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+  }
+  if (names.size === 0) {
+    throw new Error(
+      `観測の語彙を取り込めませんでした（真偽を返す関数が一つも見つかりません）: ${dir}\n` +
+        '取り込みが空のまま通すと、補助へ畳んだ観測が静かに無検出になります。'
+    );
+  }
+  return [...names].sort();
+}
+
+/**
+ * 画面・応答からの観測を示す語（条件式の分類に用いる）。
+ *
+ * 自己検査から「接頭辞一致」「自動取り込み」それぞれの寄与を切り分けて確かめられるよう公開する。
+ */
+export function buildObservationPattern(helperNames: string[]): RegExp {
+  const alternatives = [
+    ...OBSERVATION_PREFIX_WORDS.map((word) => `${escapeRegExp(word)}\\w*`),
+    ...OBSERVATION_EXACT_WORDS.map(escapeRegExp),
+    ...helperNames.map(escapeRegExp),
+  ];
+  return new RegExp(`\\b(${alternatives.join('|')})\\b`);
+}
+
+/** 走査が実際に用いている観測の語彙（取り込んだ名前と、そこから組んだ正規表現の対） */
+export interface ObservationVocabulary {
+  /** `e2e/helpers/` から自動で取り込んだ真偽を返す関数の名前 */
+  readonly helperNames: readonly string[];
+  /** 基礎語彙と `helperNames` から組んだ、走査が実際に用いる正規表現 */
+  readonly pattern: RegExp;
+}
+
+let observationVocabulary: ObservationVocabulary | undefined;
+
+/**
+ * 走査が実際に用いる観測の語彙。`e2e/helpers/` の走査結果を取り込むため遅延して組み立てる。
+ * 走査のたびに読み直す必要は無いので一度だけ組む。
+ *
+ * 取り込んだ名前を `pattern` と対で公開するのは、自己検査が「部品が動くこと」ではなく
+ * **走査本体への結線**を主張できるようにするため。部品（`collectBooleanHelperNames` /
+ * `buildObservationPattern`）を個別に呼ぶだけの確認では、両者を繋ぐ一行が失われても
+ * 気づけない。それは本タスクが潰そうとしている「書き換え漏れが静かな無検出になる」形
+ * そのものなので、結線の結果をここから観測できる形にしておく。
+ */
+export function getObservationVocabulary(): ObservationVocabulary {
+  if (!observationVocabulary) {
+    const helperNames = collectBooleanHelperNames();
+    observationVocabulary = { helperNames, pattern: buildObservationPattern(helperNames) };
+  }
+  return observationVocabulary;
+}
+
+export function getObservationPattern(): RegExp {
+  return getObservationVocabulary().pattern;
+}
 
 /** 応答の項目参照を示す語 */
 const RESPONSE_PATTERN = /\b(response|res|body|json|payload|detail|result|data|api)\w*\s*[.?[]/i;
@@ -597,6 +775,61 @@ export function guaranteedFailureExclusion(node: ts.Node): string | undefined {
   return 'どの経路でも throw か無条件の主張に到達する分岐';
 }
 
+/** テスト本体・フックとして渡された関数か（`test('...', async () => {...})` の本体） */
+function isTestBodyFunction(fn: ts.Node): boolean {
+  const parent = fn.parent;
+  if (!parent || !ts.isCallExpression(parent)) return false;
+  if (!parent.arguments.some((a) => a === fn)) return false;
+  const { last, full } = calleeNames(parent);
+  return TEST_BODY_CALLEES.has(full) || TEST_BODY_CALLEES.has(last);
+}
+
+/** 節点を囲む最も内側の関数がテスト本体でない（値を作る補助である）か */
+function insideNonTestFunction(node: ts.Node): boolean {
+  for (let n: ts.Node | undefined = node.parent; n; n = n.parent) {
+    if (ts.isFunctionLike(n)) return !isTestBodyFunction(n);
+  }
+  return false;
+}
+
+/**
+ * 【検出器の規則による対象外 (3)】値を作る補助が値を返す分岐か。
+ *
+ * 計画 §6 の除外条件 (3)「判定そのものを実装している補助の内部」を、真偽以外を返す
+ * 補助（抽出・遷移）まで同じ理屈で広げたものである。
+ *
+ * 次のすべてを満たす場合に限る。**識別子の綴りは一切見ない。**
+ *   (a) `if` 文であり、その内側に **expect が一つも無い**（主張を包む分岐はここで落ちる）。
+ *   (b) then 節が沈黙して抜ける形であり、その終端が **値を伴う `return`** である。
+ *   (c) その分岐を囲む最も内側の関数が**テスト本体ではない**（補助の内部である）。
+ *
+ * **なぜこれが「抑止」ではないか**: 値を返す関数が値を返す経路を持つのは、その関数が
+ * 関数であることそのものである。`return <値>` はテストの流れを放棄しておらず、
+ * 呼び出し側へ結果を渡している。債務は呼び出し側がその値をどう扱うかにあり、
+ * 呼び出し側の `if (await navigateTo...())` は従来どおり検出される（A 群と同じ理屈）。
+ *
+ * テスト本体の中の `return;`（値を伴わない）は、以降の検証が丸ごと実行されない
+ * 真正の沈黙脱出であり、この規則には当たらない
+ * （`e2e/specs/quantity-tables/import-e2e.spec.ts:809` がその実例）。
+ *
+ * Task 115.137 の査読で、沈黙脱出の見極めを広げた結果、補助の中の
+ * `return <値>`（`e2e/specs/auth/password-reset.spec.ts:587` の受信メールの取り出し、
+ * `e2e/specs/quantity-tables/import-e2e.spec.ts:132` の遷移補助）が
+ * 誤検出になっていたため加えた。
+ */
+export function valueProducingExitExclusion(node: ts.Node): string | undefined {
+  if (!ts.isIfStatement(node)) return undefined;
+  if (containsAssertion(node)) return undefined;
+  if (!isSilentExit(node.thenStatement)) return undefined;
+  const list = ts.isBlock(node.thenStatement)
+    ? [...node.thenStatement.statements]
+    : [node.thenStatement];
+  const terminal = list[list.length - 1];
+  if (!terminal || !ts.isReturnStatement(terminal) || !terminal.expression) return undefined;
+  if (!insideNonTestFunction(node)) return undefined;
+  return '値を作る補助が値を返す分岐（検証からの脱出ではない）';
+}
+
 /**
  * 検出器の規則による対象外。該当する場合は理由を返す。
  *
@@ -605,23 +838,155 @@ export function guaranteedFailureExclusion(node: ts.Node): string | undefined {
  * 規則を戻すと自己検査（check-e2e-assertion-guards.selftest.ts）が落ちる。
  */
 export function ruleBasedExclusion(node: ts.Node): string | undefined {
-  return predicateImplementationExclusion(node) ?? guaranteedFailureExclusion(node);
+  return (
+    predicateImplementationExclusion(node) ??
+    guaranteedFailureExclusion(node) ??
+    valueProducingExitExclusion(node)
+  );
 }
 
-/** 分岐の本体が「黙って抜ける」だけか（return / continue / test.skip） */
+/** 制御を分岐の外へ出す文か（return / continue / break / test.skip / test.fixme） */
+function isExitStatement(statement: ts.Statement): boolean {
+  if (ts.isReturnStatement(statement)) return true;
+  if (ts.isContinueStatement(statement)) return true;
+  if (ts.isBreakStatement(statement)) return true;
+  if (ts.isExpressionStatement(statement)) {
+    const text = statement.expression.getText();
+    return text.startsWith('test.skip') || text.startsWith('test.fixme');
+  }
+  return false;
+}
+
+/**
+ * `break` / `continue` が抜ける繰り返し。
+ *
+ * 判定できない形（ラベル付き、`switch` を挟む、関数の境界に達する）では `undefined` を返す。
+ * 判定できない場合は検出を残す側（沈黙脱出として扱う側）へ倒す。
+ */
+function enclosingLoop(statement: ts.BreakOrContinueStatement): ts.IterationStatement | undefined {
+  if (statement.label) return undefined; // ラベル付きは抜ける先を構造だけでは決められない
+  for (let n: ts.Node | undefined = statement.parent; n; n = n.parent) {
+    if (ts.isIterationStatement(n, /* lookInLabeledStatements */ false)) return n;
+    // `switch` の中の `break` は繰り返しではなく `switch` を抜ける
+    if (ts.isSwitchStatement(n) && ts.isBreakStatement(statement)) return undefined;
+    if (ts.isFunctionLike(n)) return undefined;
+  }
+  return undefined;
+}
+
+/** 文（またはブロック）の直下に throw があるか（前提が崩れたら必ず落ちる関門） */
+function throwsDirectly(statement: ts.Statement): boolean {
+  const list = ts.isBlock(statement) ? [...statement.statements] : [statement];
+  return list.some((s) => ts.isThrowStatement(s));
+}
+
+/**
+ * 続く文の並びが「観測の結果を無条件に検査する」か。
+ *
+ * 次のいずれかが並びの中にあれば真とする。
+ *   (a) 無条件の主張（`expect(found).toBe(true)` / `await expect(...).toBeVisible()`）
+ *   (b) 無条件の throw
+ *   (c) `else` を持たない分岐で、その本体が必ず throw する（`if (!found) { throw ... }`）
+ *   (d) `else` を持つ分岐で、どちらの経路も throw か主張に至る
+ */
+function checksOutcome(list: readonly ts.Statement[]): boolean {
+  for (const s of list) {
+    if (ts.isThrowStatement(s)) return true;
+    if (ts.isExpressionStatement(s) && containsAssertion(s)) return true;
+    if (ts.isVariableStatement(s) && containsAssertion(s)) return true;
+    if (ts.isIfStatement(s)) {
+      if (!s.elseStatement) {
+        if (throwsDirectly(s.thenStatement)) return true;
+        continue;
+      }
+      if (alwaysFailsOrAsserts(s.thenStatement) && alwaysFailsOrAsserts(s.elseStatement)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * 【誤検出の抑止】探索・再試行の繰り返しから抜けるだけの `break` / `continue` か。
+ *
+ * `break` / `continue` は**繰り返しを抜けるだけ**であり、テストからは抜けない。
+ * 抜けた先で観測の結果が無条件に検査されていれば、検証は一つも飛んでいない。
+ *
+ *     let found = false;
+ *     for (let i = 0; i < rowCount; i++) {
+ *       const rowText = await rows.nth(i).textContent();
+ *       if (rowText?.includes(TARGET)) {
+ *         found = true;
+ *         break;            // ← 繰り返しを抜けるだけ
+ *       }
+ *     }
+ *     expect(found).toBe(true);   // ← 観測が偽なら必ず失敗する
+ *
+ * **これは削減計画が E 群の是正先として推奨している形そのものである。**
+ * 沈黙脱出の見極めを「本体の終端が脱出であること」へ広げた際、この定型が丸ごと
+ * 誤検出になった（Task 115.137 の査読で判明。誤検出 16 件）。正しい書き方を
+ * 負債として数えてはならないため、繰り返しを抜けた先の検査を見て除く。
+ *
+ * **`isExitStatement` から `break` / `continue` を外す案は採らなかった。**
+ * 実測では、その案でも今日の走査結果は本規則と同じ箇所（誤検出だった三件）しか動かない。
+ * 違いが出るのは将来である。その案は「抜けた先で結果を一切検査しない `break` / `continue`」
+ * （`if (!(await row.isVisible())) continue;` だけで終わる形）まで一律に無検出にするため、
+ * E 群の是正先として推奨した形が劣化したときに検出できない。本規則は劣化した形を残す。
+ */
+function escapesCheckedLoop(statement: ts.Statement): boolean {
+  if (!ts.isBreakStatement(statement) && !ts.isContinueStatement(statement)) return false;
+  const loop = enclosingLoop(statement);
+  if (!loop) return false;
+  const parent = loop.parent;
+  if (!parent || !ts.isBlock(parent)) return false;
+  const index = parent.statements.indexOf(loop as ts.Statement);
+  if (index < 0) return false;
+  return checksOutcome(parent.statements.slice(index + 1));
+}
+
+/**
+ * 分岐の本体が「黙って抜ける」か。
+ *
+ * **「脱出の文だけで構成される」ではなく「脱出で終わり、その途中で主張も失敗もしない」**
+ * を条件とする（Task 115.137）。
+ *
+ * 以前は本体の**すべての文**が脱出であることを求めていた。この形は、脱出の直前に
+ * 後始末や記録が一つでも挟まると成立せず、沈黙して抜ける経路が丸ごと無検出になっていた。
+ * 実例（`e2e/specs/quantity-tables/import-e2e.spec.ts:809`）:
+ *
+ *     if (!(await isVisibleWithin(groupButton, getTimeout(3000)))) {
+ *       const cancelBtn = dialog.getByRole('button', { name: 'キャンセル' }).last();
+ *       if (await isVisibleWithin(cancelBtn, getTimeout(2000))) {
+ *         await cancelBtn.click();   // ← 後始末が挟まるだけで無検出になっていた
+ *       }
+ *       return;                      // ← 以降の検証は丸ごと実行されない
+ *     }
+ *
+ * 検証が飛ぶかどうかを決めるのは「途中に何が書かれているか」ではなく、
+ * 「主張も失敗もせずに制御が抜けるか」である。したがって次を条件とする。
+ *   (a) 本体の終端が脱出の文である（そこで必ず分岐の外へ出る）
+ *   (b) 本体のどこにも主張（expect）が無い
+ *   (c) 本体のどこにも失敗（throw / expect.fail / test.fail）が無い
+ *
+ * (b)(c) があるため、後始末の途中で必ず落ちる形や、抜ける前に主張する形は含まれない。
+ * 終端が脱出でない形（`if (x) return;` で終わる等、素通りする経路が残る形）も含まれない。
+ *
+ * さらに (d) として、終端が `break` / `continue` であり、抜けた繰り返しの後で観測の結果が
+ * 無条件に検査される形を除く（Task 115.137 の査読。詳細は escapesCheckedLoop を参照）。
+ * `break` / `continue` は繰り返しを抜けるだけでテストからは抜けないため、
+ * これを一律に「検証からの脱出」とみなすと、探索・再試行の正しい定型が誤検出になる。
+ */
 export function isSilentExit(statement: ts.Statement): boolean {
   const statements = ts.isBlock(statement) ? [...statement.statements] : [statement];
   if (statements.length === 0) return false;
-  return statements.every((s) => {
-    if (ts.isReturnStatement(s)) return true;
-    if (ts.isContinueStatement(s)) return true;
-    if (ts.isBreakStatement(s)) return true;
-    if (ts.isExpressionStatement(s)) {
-      const text = s.expression.getText();
-      return text.startsWith('test.skip') || text.startsWith('test.fixme');
-    }
-    return false;
-  });
+  const terminal = statements[statements.length - 1]!;
+  if (!isExitStatement(terminal)) return false;
+  // 繰り返しを抜けるだけで、抜けた先で結果が無条件に検査される形は沈黙脱出ではない
+  if (escapesCheckedLoop(terminal)) return false;
+  if (containsAssertion(statement)) return false;
+  if (containsFailure(statement)) return false;
+  return true;
 }
 
 /** 比較の演算子（比較そのものは実質のある検証なので恒真とはみなさない） */
@@ -766,9 +1131,26 @@ export function scanFile(absPath: string): ScanResult {
   return scanSource(path.relative(ROOT, absPath), fs.readFileSync(absPath, 'utf8'));
 }
 
-/** e2e 配下の走査対象ファイル（分類走査から同じ集合を辿るために公開する） */
+/**
+ * e2e 配下の走査対象ファイル（分類走査から同じ集合を辿るために公開する）。
+ *
+ * `SCAN_SUBDIRS` の説明のとおり、テストの実行中に働くものだけを走査する。
+ * 走査対象のディレクトリが失われている場合は**黙って空にせず失敗させる**。
+ * 走査対象が消えれば検出は静かにゼロへ近づき、検査は「通った」ように見えるためである。
+ */
 export function collectE2eFiles(): string[] {
-  return collectFiles(E2E_DIR);
+  const files: string[] = [];
+  for (const name of SCAN_SUBDIRS) {
+    const dir = path.join(E2E_DIR, name);
+    if (!fs.existsSync(dir)) {
+      throw new Error(
+        `走査対象のディレクトリが見つかりません: ${path.relative(ROOT, dir)}\n` +
+          '走査対象が失われると検出は静かに消えます。SCAN_SUBDIRS を実態に合わせてください。'
+      );
+    }
+    collectFiles(dir, files);
+  }
+  return files.sort();
 }
 
 /**
@@ -906,7 +1288,7 @@ export function scanSource(relPath: string, source: string): ScanResult {
   };
 
   const isObservation = (text: string): boolean =>
-    OBSERVATION_PATTERN.test(text) || AWAIT_PATTERN.test(text) || SWALLOW_PATTERN.test(text);
+    getObservationPattern().test(text) || AWAIT_PATTERN.test(text) || SWALLOW_PATTERN.test(text);
 
   /** 条件式の分類（局所変数を挟んだ形も直接記述と同等に扱う） */
   const classifyCondition = (node: ts.Node): GuardType => {
@@ -1146,7 +1528,7 @@ function main(): void {
   const allowIncrease = args.includes('--allow-increase');
   const skipBaseline = args.includes('--no-baseline');
 
-  const files = collectFiles(E2E_DIR);
+  const files = collectE2eFiles();
   const results = files.map(scanFile);
   const findings = results.flatMap((r) => r.findings);
   const allowed = results.flatMap((r) => r.allowed);

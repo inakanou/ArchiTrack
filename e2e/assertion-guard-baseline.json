@@ -9,25 +9,41 @@
     "reduction は削減の目標と計画文書の所在。実行のたびに残り件数を出力する（合否には用いない）。",
     "件数が増える方向の更新は既定で拒否する。記録が必要な場合のみ --allow-increase を付けること。"
   ],
-  "generatedTotal": 398,
-  "allowedTotal": 1,
+  "generatedTotal": 393,
+  "allowedTotal": 0,
   "reduction": {
     "doc": ".kiro/specs/site-survey/e2e-assertion-guard-reduction-plan.md",
     "$comment": "目標は計画の「段」ごとに進める。合否には用いず、残り件数の出力にのみ用いる（Task 115.93）。",
-    "stage": "段 6: 観測結果で主張を包むだけの関門（E 群 171 件）の解消。出口は E 群が 0 かつ generatedTotal ≤ 227",
+    "stage": "段 6: 観測結果で主張を包むだけの関門（E 群 171 件）の解消。出口は E 群が 0 かつ generatedTotal ≤ 222",
     "targets": {
       "T1-conditional-expect": 61,
       "T2-ignored-timeout": 0,
       "T3-tautology": 0,
       "T4-response-field-gate": 3,
-      "T5-observed-result-gate": 334,
+      "T5-observed-result-gate": 329,
       "T6-conditional-skip": 0
     },
-    "allowedTarget": 1
+    "allowedTarget": 0,
+    "$change": [
+      "Task 115.137 の是正（査読の指摘を受けた再是正後）: 398 → 393 件。差し引きは 減少 5 件である。",
+      "内訳は 追加 1 件・削除 6 件。追加は e2e/specs/quantity-tables/import-e2e.spec.ts:809 の真正の沈黙脱出一件のみで、",
+      "沈黙脱出の見極めが「本体のすべての文が脱出であること」を求めていたため、脱出の直前の後始末に隠れて無検出だった。",
+      "このファイル単体では 10 → 11 の増加であり、--allow-increase を付けて正直に記録した（全体は減少）。",
+      "削除 6 件はいずれも検出器の誤検出である。探索・再試行の繰り返しを抜けるだけの break（3 件）と、",
+      "値を作る補助が値を返す return（3 件）で、いずれも検証を放棄せず制御が先へ進む形だった。",
+      "うち 4 件は観測が偽なら繰り返しの外の throw で必ず失敗する。残る 2 件（getCanvasCenter の break。",
+      "site-survey-annotation-tools.spec.ts:492 と site-survey-image-rotation.spec.ts:189）は、",
+      "繰り返しの後の関門が if (!box) throw であるため、box が非 null かつ極小のコンテナ座標へ退避した場合は素通りする。",
+      "それでも座標を返して以降の主張は無条件に実行されるため検証の放棄ではなく、対象外の判定は変わらない。",
+      "一度 418 件と記録した中間の版は、break / continue を「検証からの脱出」と同一視した誤検出 19 件を含んでいた。",
+      "経緯と教訓は reduction.doc が指す計画文書の §4.3 に記録している。",
+      "allowedTarget は 1 → 0。除外注釈で抑えていた一件（site-survey-annotation-tools.spec.ts:536）を",
+      "構造で説明できる規則が吸収したため、注釈に頼る抑止はゼロになった。",
+      "なお当該の注釈は規則による対象外が注釈の判定より先に評価されるため、現在は何の効力も持たない死んだ記述である。",
+      "スペック本体を変更しない制約のため残置している。削除は段7 で判断する。"
+    ]
   },
-  "allowedFiles": {
-    "e2e/specs/site-surveys/site-survey-annotation-tools.spec.ts": 1
-  },
+  "allowedFiles": {},
   "files": {
     "e2e/helpers/quantity-table-actions.ts": {
       "T1-conditional-expect": 1
@@ -195,7 +211,7 @@
       "T5-observed-result-gate": 18
     },
     "e2e/specs/quantity-tables/import-e2e.spec.ts": {
-      "T5-observed-result-gate": 10
+      "T5-observed-result-gate": 11
     },
     "e2e/specs/quantity-tables/name-remarks-autocomplete.spec.ts": {
       "T5-observed-result-gate": 9
@@ -236,12 +252,8 @@
     "e2e/specs/site-surveys/site-survey-access-control.spec.ts": {
       "T1-conditional-expect": 2
     },
-    "e2e/specs/site-surveys/site-survey-annotation-mobile.spec.ts": {
-      "T5-observed-result-gate": 3
-    },
     "e2e/specs/site-surveys/site-survey-annotation-tools.spec.ts": {
-      "T1-conditional-expect": 2,
-      "T5-observed-result-gate": 1
+      "T1-conditional-expect": 2
     },
     "e2e/specs/site-surveys/site-survey-annotations.spec.ts": {
       "T1-conditional-expect": 1,
@@ -271,7 +283,7 @@
       "T1-conditional-expect": 2
     },
     "e2e/specs/site-surveys/site-survey-image-rotation.spec.ts": {
-      "T5-observed-result-gate": 5
+      "T5-observed-result-gate": 3
     },
     "e2e/specs/site-surveys/site-survey-images.spec.ts": {
       "T1-conditional-expect": 2,

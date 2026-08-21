@@ -13,13 +13,30 @@
  * 相反する方向の変更であるため、双方をこの一覧で同時に固定する。
  */
 
-import { scanSource, type GuardType } from './check-e2e-assertion-guards.js';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
+import {
+  buildObservationPattern,
+  collectBooleanHelperNames,
+  collectE2eFiles,
+  getObservationPattern,
+  getObservationVocabulary,
+  scanSource,
+  type GuardType,
+} from './check-e2e-assertion-guards.js';
+
+const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 interface Case {
   /** 何を確かめるか */
   name: string;
   /** 注入する書き方 */
   source: string;
+  /**
+   * 書き方の注入では確かめられない規則の確認（自前で失敗の一覧を返す）。
+   * 指定した場合は走査を行わず、この関数の結果だけを見る。
+   */
+  custom?: () => string[];
   /** 検出されていなければならない型（同じ行に限定しない） */
   expected: GuardType[];
   /** 検出されてはならない型 */
@@ -514,10 +531,333 @@ const RULE_EXCLUSION: Case[] = [
 ];
 
 // ============================================================================
+// 115.137 観測の語彙と沈黙脱出の見極め
+//
+// 段2 で `isVisible({ timeout })` 二百五十六箇所を補助 `isVisibleWithin` へ畳んだ結果、
+// 検出器の観測の語彙（語境界で一致させる `\bisVisible\b`）が補助名に一致しなくなり、
+// これらの分類が実質 `await` の有無だけに依存する状態になっていた。
+// あわせて、沈黙して抜ける分岐の見極めが「本体のすべての文が脱出であること」を
+// 求めていたため、脱出の直前に後始末が一つ挟まるだけで無検出になっていた。
+// 双方を両向き（検出する／検出してはならない）で固定する。
+// ============================================================================
+
+const OBSERVATION_VOCABULARY: Case[] = [
+  {
+    name: '115.137-1 真偽を返す待機の補助で沈黙して抜ける形を検出する（await に依存しない）',
+    // await を条件式の外へ出しても検出が消えないこと。是正前は
+    // `\bisVisible\b` が `isVisibleWithin` に一致せず、await も無いため無検出だった。
+    source: [
+      "test('helper gate without await', async ({ page }) => {",
+      '  const seen = isVisibleWithin(importButton, 3000);',
+      '  if (!seen) {',
+      '    return;',
+      '  }',
+      '  await expect(importButton).toBeVisible();',
+      '});',
+    ].join('\n'),
+    expected: ['T5-observed-result-gate'],
+  },
+  {
+    name: '115.137-2 後始末を挟んで沈黙して抜ける形を検出する（実例 import-e2e.spec.ts:809）',
+    source: [
+      "test('cleanup then silent exit', async ({ page }) => {",
+      "  const dialog = page.getByRole('dialog');",
+      '  if (!(await isVisibleWithin(groupButton, 3000))) {',
+      "    const cancelBtn = dialog.getByRole('button', { name: 'キャンセル' }).last();",
+      '    if (await isVisibleWithin(cancelBtn, 2000)) {',
+      '      await cancelBtn.click();',
+      '    }',
+      '    return;',
+      '  }',
+      '  await expect(dialog).toBeVisible();',
+      '});',
+    ].join('\n'),
+    expected: ['T5-observed-result-gate'],
+  },
+  {
+    name: '115.137-3 後始末をしても抜けない分岐は検出しない（検証へ必ず到達する）',
+    // 115.137-2 と一文字違いの紛らわしい形。脱出しないため後段の主張は必ず実行される。
+    source: [
+      "test('cleanup without exit', async ({ page }) => {",
+      "  const dialog = page.getByRole('dialog');",
+      '  if (await isVisibleWithin(cancelBtn, 2000)) {',
+      '    await cancelBtn.click();',
+      '  }',
+      '  await expect(dialog).toBeVisible();',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T1-conditional-expect', 'T4-response-field-gate', 'T5-observed-result-gate'],
+  },
+  {
+    name: '115.137-4 抜ける前に throw する分岐は検出しない（沈黙しない）',
+    source: [
+      "test('throw before exit', async ({ page }) => {",
+      '  if (!(await isVisibleWithin(importButton, 3000))) {',
+      "    await page.screenshot({ path: 'failure.png' });",
+      "    throw new Error('取り込みボタンが出ない（前提が満たせない）');",
+      '  }',
+      '  await expect(importButton).toBeVisible();',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T1-conditional-expect', 'T4-response-field-gate', 'T5-observed-result-gate'],
+  },
+  {
+    name: '115.137-5 観測の語彙は e2e/helpers の「真偽を返す関数」から自動で取り込む',
+    // 補助が増えるたびに検出器を書き換える運用は、書き換え漏れがそのまま
+    // 静かな無検出になる。名前の一覧を手で持たないことを規則として固定する。
+    source: '',
+    expected: [],
+    custom: (): string[] => {
+      const names = collectBooleanHelperNames();
+      const failures: string[] = [];
+      if (!names.includes('isVisibleWithin')) {
+        failures.push(`isVisibleWithin が取り込まれていない: [${names.join(', ')}]`);
+      }
+      if (names.length === 0) {
+        failures.push('e2e/helpers から真偽を返す関数が一つも取り込まれていない');
+      }
+      return failures;
+    },
+  },
+];
+
+// ============================================================================
+// 115.137 査読の是正: 探索・再試行の定型を負債として数えない
+//
+// 沈黙脱出の見極めを「本体の終端が脱出であること」へ広げた際、`break` / `continue` を
+// 「検証からの脱出」と同一視したため、**削減計画が E 群の是正先として推奨している形**
+// （探索ループ ＋ break ＋ ループ直後の無条件の主張）が丸ごと誤検出になった。
+// 正しい書き方を負債として数えないこと、そして**その形が劣化したら検出すること**の
+// 両向きをここで固定する。これが無かったことが、この回帰を素通しさせた直接の原因である。
+// ============================================================================
+
+const LOOP_ESCAPE: Case[] = [
+  {
+    name: '115.137-6 探索ループ＋break＋ループ直後の無条件の主張は検出しない（推奨する書き方）',
+    // 実例 e2e/specs/projects/project-kana-search.spec.ts:445。
+    // break は繰り返しを抜けるだけでテストからは抜けない。観測が偽なら直後の主張が必ず落ちる。
+    source: [
+      "test('search loop with break', async ({ page }) => {",
+      "  const rows = page.locator('tbody tr');",
+      '  const rowCount = await rows.count();',
+      '  let foundTestProject = false;',
+      '  for (let i = 0; i < rowCount; i++) {',
+      '    const rowText = await rows.nth(i).textContent();',
+      "    if (rowText && rowText.includes('対象')) {",
+      '      foundTestProject = true;',
+      '      break;',
+      '    }',
+      '  }',
+      '  expect(foundTestProject).toBe(true);',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T1-conditional-expect', 'T4-response-field-gate', 'T5-observed-result-gate'],
+  },
+  {
+    name: '115.137-7 再試行ループ＋break＋ループ後に throw する関門は検出しない',
+    // 実例 e2e/specs/project-status-transition.spec.ts:62。
+    // 主張ではなく throw で受ける形も「観測が偽なら必ず落ちる」ことに変わりはない。
+    source: [
+      "test('retry loop with break and throw', async ({ page }) => {",
+      '  let optionsLoaded = false;',
+      '  for (let retry = 0; retry < 3; retry++) {',
+      "    const options = await page.locator('option').all();",
+      '    if (options.length > 1) {',
+      '      optionsLoaded = true;',
+      '      break;',
+      '    }',
+      '  }',
+      '  if (!optionsLoaded) {',
+      "    throw new Error('ユーザー一覧を読み込めませんでした');",
+      '  }',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T1-conditional-expect', 'T4-response-field-gate', 'T5-observed-result-gate'],
+  },
+  {
+    name: '115.137-8 同じ探索ループでも、抜けた先で結果を検査しなければ検出する',
+    // 115.137-6 が「推奨する書き方を数えない」ためのものである以上、
+    // その形が劣化した場合（観測の結果をどこでも受けない）は検出できなければならない。
+    source: [
+      "test('search loop without outcome check', async ({ page }) => {",
+      "  const rows = page.locator('tbody tr');",
+      '  const rowCount = await rows.count();',
+      '  let foundTestProject = false;',
+      '  for (let i = 0; i < rowCount; i++) {',
+      '    const rowText = await rows.nth(i).textContent();',
+      "    if (rowText && rowText.includes('対象')) {",
+      '      foundTestProject = true;',
+      '      break;',
+      '    }',
+      '  }',
+      "  await page.getByRole('button', { name: '閉じる' }).click();",
+      '});',
+    ].join('\n'),
+    expected: ['T5-observed-result-gate'],
+  },
+  {
+    name: '115.137-9 値を作る補助の中の「値を返す return」は検出しない（脱出ではない）',
+    // 実例 e2e/specs/auth/password-reset.spec.ts:587 / import-e2e.spec.ts:132。
+    // 値を返す関数が値を返す経路を持つのは関数であることそのもの。
+    // 債務は呼び出し側がその値をどう扱うかにあり、呼び出し側の分岐は従来どおり検出される。
+    source: [
+      'async function fetchMailBody(url: string): Promise<string | null> {',
+      '  const response = await fetch(url);',
+      '  if (response.ok) {',
+      '    const data = (await response.json()) as { text: string };',
+      '    return data.text;',
+      '  }',
+      '  return null;',
+      '}',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T1-conditional-expect', 'T4-response-field-gate', 'T5-observed-result-gate'],
+  },
+  {
+    name: '115.137-10 テスト本体の中の「値を伴わない return」は検出する（真正の沈黙脱出）',
+    // 115.137-9 と紛らわしい形。こちらは以降の検証が丸ごと実行されない。
+    source: [
+      "test('bare return in test body', async ({ page }) => {",
+      '  if (!(await isVisibleWithin(importButton, 3000))) {',
+      '    await page.screenshot();',
+      '    return;',
+      '  }',
+      '  await expect(importButton).toBeVisible();',
+      '});',
+    ].join('\n'),
+    expected: ['T5-observed-result-gate'],
+  },
+];
+
+// ============================================================================
+// 115.137 査読の是正: 語彙の二つの規則と走査対象を、それぞれ独立に固定する
+//
+// 「語彙を広げた」ことの効き目は、今日の走査結果には現れない（実測で出力は不変）。
+// 効き目が現れるのは `await` を条件式の外へ出す書き換えが入ったときであり、
+// そのときに静かに無検出へ落ちないことを保証するのがこの一群の役目である。
+// 接頭辞一致と自動取り込みは別の規則なので、どちらか一方を戻したら落ちる形を別々に置く。
+// ============================================================================
+
+const VOCABULARY_RULES: Case[] = [
+  {
+    name: '115.137-11 接頭辞一致でしか捉えられない補助（e2e/helpers に無い名前）で検出する',
+    // `isVisibleSoon` は自動取り込みの対象に存在しない。接頭辞一致を語境界一致へ戻すと落ちる。
+    source: [
+      "test('prefix vocabulary', async ({ page }) => {",
+      '  const seen = isVisibleSoon(banner, 3000);',
+      '  if (!seen) {',
+      '    return;',
+      '  }',
+      '  await expect(banner).toBeVisible();',
+      '});',
+    ].join('\n'),
+    expected: ['T5-observed-result-gate'],
+  },
+  {
+    name: '115.137-12 自動取り込みが走査本体の語彙へ結線されている（部品が動くだけでは通さない）',
+    // 今日の `e2e/helpers` が持つ真偽を返す関数は四つとも接頭辞規則で捉えられるため、
+    // 走査結果には自動取り込みの寄与が現れない。寄与が現れるのは接頭辞に当たらない
+    // 補助が追加されたときであり、その経路（構造で拾う→語彙へ載る）をここで固定する。
+    //
+    // 部品（`collectBooleanHelperNames` / `buildObservationPattern`）を個別に呼ぶだけでは
+    // 結線が切れても気づけない（実際、是正前のこの事例は結線を切っても緑のままだった）。
+    // そのため走査本体が用いる語彙 `getObservationVocabulary()` を直接主張する。
+    source: '',
+    expected: [],
+    custom: (): string[] => {
+      const failures: string[] = [];
+
+      // (a) 構造で拾えること。接頭辞規則では捉えられない名前が要るので、
+      //     この検出器自身のソース（`scripts/`）を取り込み元にして確かめる。
+      const scriptNames = collectBooleanHelperNames(SCRIPTS_DIR);
+      const probe = 'if (!containsAssertion(node))';
+      if (!scriptNames.includes('containsAssertion')) {
+        failures.push('真偽を返す関数を構造で拾えていない: containsAssertion が取り込まれない');
+      }
+      if (!buildObservationPattern(scriptNames).test(probe)) {
+        failures.push('自動で取り込んだ名前が観測の語彙に載っていない');
+      }
+      if (buildObservationPattern([]).test(probe)) {
+        failures.push('取り込み無しでも一致してしまい、自動取り込みの寄与を確認できない');
+      }
+
+      // (b) その取り込みが走査本体へ実際に結線されていること。
+      const vocabulary = getObservationVocabulary();
+      const collected = collectBooleanHelperNames();
+      if (collected.length === 0) {
+        failures.push('e2e/helpers から真偽を返す関数を一つも取り込めていない');
+      }
+      if (vocabulary.helperNames.length === 0) {
+        failures.push('走査本体の語彙に取り込み結果が一つも載っていない（結線が切れている）');
+      }
+      const missing = collected.filter((name) => !vocabulary.helperNames.includes(name));
+      if (missing.length > 0) {
+        failures.push(`取り込んだ名前が走査本体の語彙へ届いていない: ${missing.join(', ')}`);
+      }
+      // 名前を保持したまま組み立てへ渡さない書き換えも止める。
+      if (
+        buildObservationPattern([...vocabulary.helperNames]).source !== vocabulary.pattern.source
+      ) {
+        failures.push('走査が用いる正規表現が、取り込んだ名前から組まれていない');
+      }
+      // 語彙から走査への最後の一跳ね。`getObservationPattern` が語彙を迂回して
+      // 別の正規表現を返す書き換えは、上の主張をすべて満たしたまま素通りする。
+      // 参照そのものが同一であることを主張して閉じる。
+      if (getObservationPattern() !== vocabulary.pattern) {
+        failures.push('走査が参照する正規表現が、語彙の持つ正規表現と別物になっている');
+      }
+      return failures;
+    },
+  },
+  {
+    name: '115.137-13 取り込み元が失われた場合は黙って空を返さず検査を失敗させる',
+    source: '',
+    expected: [],
+    custom: (): string[] => {
+      const failures: string[] = [];
+      try {
+        collectBooleanHelperNames(path.join(SCRIPTS_DIR, '__not_exist__'));
+        failures.push('取り込み元が無くても例外にならない（静かに語彙が縮む）');
+      } catch {
+        // 期待どおり
+      }
+      return failures;
+    },
+  },
+  {
+    name: '115.137-14 走査対象はテストとその補助だけ（Playwright の実行基盤を含まない）',
+    // `e2e/global-setup.ts` の疎通待ちや `e2e/reporters/` の進捗表示は通常の制御フローであり、
+    // 検証の放棄ではない。走査対象を置き場所の役割で決めていることを固定する。
+    source: '',
+    expected: [],
+    custom: (): string[] => {
+      const failures: string[] = [];
+      const files = collectE2eFiles().map((f) => f.split(path.sep).join('/'));
+      for (const marker of ['/e2e/global-setup.ts', '/e2e/config.ts', '/e2e/reporters/']) {
+        if (files.some((f) => f.includes(marker))) {
+          failures.push(`実行基盤が走査対象に含まれている: ${marker}`);
+        }
+      }
+      for (const marker of ['/e2e/specs/', '/e2e/helpers/']) {
+        if (!files.some((f) => f.includes(marker))) {
+          failures.push(`走査対象から外れている: ${marker}`);
+        }
+      }
+      return failures;
+    },
+  },
+];
+
+// ============================================================================
 // 実行
 // ============================================================================
 
 function runCase(index: number, testCase: Case): string[] {
+  if (testCase.custom) return testCase.custom();
   const failures: string[] = [];
   const result = scanSource(`selftest/case-${index}.spec.ts`, testCase.source);
   const detected = new Set(result.findings.map((f) => f.type));
@@ -556,6 +896,9 @@ function main(): void {
     { title: '維持すべき検出', cases: MUST_KEEP },
     { title: '115.127 段0 引数なしの飛ばし', cases: BARE_SKIP },
     { title: '115.127 段3 検出器の規則による対象外（A 群・B 群）', cases: RULE_EXCLUSION },
+    { title: '115.137 観測の語彙と沈黙脱出の見極め', cases: OBSERVATION_VOCABULARY },
+    { title: '115.137 探索・再試行の定型を負債として数えない', cases: LOOP_ESCAPE },
+    { title: '115.137 語彙の二つの規則と走査対象', cases: VOCABULARY_RULES },
   ];
 
   console.log('🔍 検証無効化の検出規則 自己検査 (scripts/check-e2e-assertion-guards.selftest.ts)');
