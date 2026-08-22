@@ -75,6 +75,9 @@ test.describe('JWKS Endpoint E2E', () => {
       expect(contentType).toMatch(/application\/json/);
     });
 
+    /**
+     * @requirement user-authentication/REQ-31.1
+     */
     test('RFC 7517準拠: レスポンスがkeysプロパティを持つJWKS形式であること', async ({
       request,
     }) => {
@@ -111,6 +114,9 @@ test.describe('JWKS Endpoint E2E', () => {
       }
     });
 
+    /**
+     * @requirement user-authentication/REQ-31.3
+     */
     test('RFC 7517準拠: 公開鍵にkid (Key ID) が設定されていること', async ({ request }) => {
       const response = await request.get(`${API_BASE_URL}/.well-known/jwks.json`);
       const body: JWKSResponse = await response.json();
@@ -168,6 +174,9 @@ test.describe('JWKS Endpoint E2E', () => {
       }
     });
 
+    /**
+     * @requirement user-authentication/REQ-31.2
+     */
     test('猶予期間中の複数鍵配信: keys配列が空でないこと', async ({ request }) => {
       const response = await request.get(`${API_BASE_URL}/.well-known/jwks.json`);
       const body: JWKSResponse = await response.json();
