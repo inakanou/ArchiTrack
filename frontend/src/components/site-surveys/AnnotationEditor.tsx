@@ -35,6 +35,12 @@
  * @requirement site-survey/REQ-29.7
  * @requirement site-survey/REQ-29.8
  * @requirement site-survey/REQ-30.1
+ * @requirement site-survey/REQ-24.5
+ * @requirement site-survey/REQ-24.10
+ * @requirement site-survey/REQ-25.2
+ * @requirement site-survey/REQ-25.11
+ * @requirement site-survey/REQ-32.5
+ * @requirement site-survey/REQ-32.10
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
@@ -46,10 +52,17 @@ import {
   type TPointerEventInfo,
   type TPointerEvent,
 } from 'fabric';
-import AnnotationToolbar, { type ToolType, type StyleOptions } from './AnnotationToolbar';
+import AnnotationToolbar, {
+  type ToolType,
+  type StyleOptions,
+  type OutlineCapableTool,
+} from './AnnotationToolbar';
 // Task 115.60 (Req 26.1, 26.5): 既定スタイルは一元管理の資材から供給する。
 // 本画面で局所に宣言すると中央の値を影で覆い、実際に描かれる注釈が中央の意図と食い違う。
 import { DEFAULT_STYLE_OPTIONS } from './annotation-toolbar.constants';
+// Task 115.96 (Req 25.2, 32.5): 白アウトラインの幅比率など、切替以外の既定は
+// 一元管理の資材から引く（切替のためにここで別の既定値を持たない）。
+import { ANNOTATION_DEFAULTS } from './annotation-style-tokens';
 // Task 115.73 (Req 32.2): 復元時の表示倍率は座標系ごとに適用先が異なる。
 // 集合体へ複写された線幅は実描画から導出し直す（詳細は annotation-restore-scale.ts）。
 import { resolveRestoredStrokeWidth } from './annotation-restore-scale';
@@ -61,7 +74,7 @@ import { createCircle } from './tools/CircleTool';
 import { createRectangle } from './tools/RectangleTool';
 import { PolygonBuilder, createPolygon } from './tools/PolygonTool';
 import { PolylineBuilder, createPolyline } from './tools/PolylineTool';
-import { DEFAULT_FREEHAND_OPTIONS, createFreehandBrush } from './tools/FreehandTool';
+import { DEFAULT_FREEHAND_OPTIONS, createFreehandBrush, FreehandBrush } from './tools/FreehandTool';
 import { createDimensionLine, type DimensionLine } from './tools/DimensionTool';
 import DimensionValueInput from './tools/DimensionValueInput';
 import { createTextAnnotation } from './tools/TextTool';
@@ -499,6 +512,42 @@ function normalizeImageRotation(rotation: number): number {
     return 0;
   }
   return ((rotation % 360) + 360) % 360;
+}
+
+/**
+ * 白縁取りの有効/無効を切替えられる注釈の最小構造
+ *
+ * 矢印（`Arrow`）と 6 形状（`Rectangle` / `Circle` / `Polygon` / `Polyline` /
+ * `Freehand` / `DimensionLine`）がいずれも実装する。テキストは `setTextOutline` を
+ * 持つ別系統であり、生成時に `textOutline` を渡す経路を使う。
+ */
+interface OutlineToggleableAnnotation {
+  setOutline(next: { enabled: boolean }): void;
+}
+
+/**
+ * 生成直後の注釈へ、当該ツールの白縁取り切替状態を適用する (Req 24.5, 32.5)
+ *
+ * Task 115.96: 道具帯の切替は「以降に描かれる注釈へ適用する描画設定」である。
+ * 既存の注釈へは適用しない（Req 24.9 / 25.10 / 32.9 の後方互換を壊さないため）。
+ *
+ * `setOutline` は canvas へアタッチ済みのとき `object:modified` を発火するため、
+ * 本関数は必ず `canvas.add` の**前**に呼ぶこと。追加後に呼ぶと、注釈の追加と
+ * 白縁取りの適用が二つの取り消し単位として履歴に積まれる。
+ *
+ * 生成の失敗（座標が退化しているなど、ファクトリが `null` を返す場合）は呼び出し側で
+ * 判定する。ここで `null` を受け付けると、生成できていないことを黙って見逃す。
+ *
+ * @param shape 生成直後の注釈
+ * @param tool 生成に使ったツール
+ * @param outlineEnabled ツール別の白縁取り切替状態
+ */
+function applyOutlineEnabled(
+  shape: OutlineToggleableAnnotation,
+  tool: OutlineCapableTool,
+  outlineEnabled: Record<OutlineCapableTool, boolean>
+): void {
+  shape.setOutline({ enabled: outlineEnabled[tool] });
 }
 
 /** 表示へ適用できる回転角度（度） */
@@ -981,6 +1030,9 @@ function AnnotationEditor({
             stroke: styleOptionsRef.current.strokeColor,
             strokeWidth: styleOptionsRef.current.strokeWidth,
             decimate: DEFAULT_FREEHAND_OPTIONS.decimate,
+            // Task 115.96 (Req 32.5): フリーハンドは描画完了時にブラシが形状を組み立てるため、
+            // 切替はブラシの生成オプションとして渡す
+            outlineEnabled: styleOptionsRef.current.outlineEnabled.freehand,
           },
           canvas
         );
@@ -1016,29 +1068,76 @@ function AnnotationEditor({
   }, []);
 
   /**
+   * ツール別の白縁取り切替状態を画面・参照・描画中のブラシへ反映する
+   *
+   * Task 115.96 (Req 24.5, 25.2, 32.5, 24.10, 25.11, 32.10):
+   * 切替の適用と、その取り消し・やり直しで同じ経路を通す。取り消しだけ別経路にすると
+   * 「画面のチェックは戻るがブラシは戻らない」といった片側だけの復元になる。
+   *
+   * @param outlineEnabled 適用するツール別の切替状態
+   */
+  const applyOutlineEnabledSetting = useCallback(
+    (outlineEnabled: Record<OutlineCapableTool, boolean>) => {
+      setState((prev) => ({
+        ...prev,
+        styleOptions: { ...prev.styleOptions, outlineEnabled },
+      }));
+      styleOptionsRef.current = { ...styleOptionsRef.current, outlineEnabled };
+
+      // フリーハンドは描画完了時にブラシが形状を組み立てるため、ブラシ側にも反映する
+      const brush = fabricCanvasRef.current?.freeDrawingBrush;
+      if (brush instanceof FreehandBrush) {
+        brush.setOutlineEnabled(outlineEnabled.freehand);
+      }
+    },
+    []
+  );
+
+  /**
    * スタイル変更ハンドラ
    */
-  const handleStyleChange = useCallback((options: Partial<StyleOptions>) => {
-    setState((prev) => ({
-      ...prev,
-      styleOptions: { ...prev.styleOptions, ...options },
-    }));
-    styleOptionsRef.current = { ...styleOptionsRef.current, ...options };
+  const handleStyleChange = useCallback(
+    (options: Partial<StyleOptions>) => {
+      const { outlineEnabled: nextOutlineEnabled, ...restOptions } = options;
 
-    // フリーハンドモードの場合はブラシの設定も更新
-    if (
-      fabricCanvasRef.current &&
-      activeToolRef.current === 'freehand' &&
-      fabricCanvasRef.current.freeDrawingBrush
-    ) {
-      if (options.strokeColor !== undefined) {
-        fabricCanvasRef.current.freeDrawingBrush.color = options.strokeColor;
+      // Req 24.10 / 25.11 / 32.10: 白縁取りの有効化/無効化の切替は Undo/Redo 履歴に記録する。
+      // 色・線幅・文字サイズの変更は要件が履歴記録を求めていないため従来どおり記録しない。
+      if (nextOutlineEnabled !== undefined) {
+        const previousOutlineEnabled = styleOptionsRef.current.outlineEnabled;
+        applyOutlineEnabledSetting(nextOutlineEnabled);
+        undoManager.pushWithoutExecute({
+          type: 'outline-toggle',
+          execute: () => applyOutlineEnabledSetting(nextOutlineEnabled),
+          undo: () => applyOutlineEnabledSetting(previousOutlineEnabled),
+        });
       }
-      if (options.strokeWidth !== undefined) {
-        fabricCanvasRef.current.freeDrawingBrush.width = options.strokeWidth;
+
+      if (Object.keys(restOptions).length === 0) {
+        return;
       }
-    }
-  }, []);
+
+      setState((prev) => ({
+        ...prev,
+        styleOptions: { ...prev.styleOptions, ...restOptions },
+      }));
+      styleOptionsRef.current = { ...styleOptionsRef.current, ...restOptions };
+
+      // フリーハンドモードの場合はブラシの設定も更新
+      if (
+        fabricCanvasRef.current &&
+        activeToolRef.current === 'freehand' &&
+        fabricCanvasRef.current.freeDrawingBrush
+      ) {
+        if (restOptions.strokeColor !== undefined) {
+          fabricCanvasRef.current.freeDrawingBrush.color = restOptions.strokeColor;
+        }
+        if (restOptions.strokeWidth !== undefined) {
+          fabricCanvasRef.current.freeDrawingBrush.width = restOptions.strokeWidth;
+        }
+      }
+    },
+    [applyOutlineEnabledSetting, undoManager]
+  );
 
   /**
    * 画像を読み込んでCanvasに表示
@@ -1321,6 +1420,12 @@ function AnnotationEditor({
             initialText: 'テキスト',
             fontSize: currentStyle.fontSize,
             fill: currentStyle.strokeColor,
+            // Task 115.96 (Req 25.2): 道具帯の白アウトライン切替を反映する。
+            // 幅比率は一元管理の資材から引く（切替は有効/無効だけを決める）。
+            textOutline: {
+              enabled: currentStyle.outlineEnabled.text,
+              widthRatio: ANNOTATION_DEFAULTS.textOutline.widthRatio,
+            },
           }
         );
         canvas.add(textAnnotation);
@@ -1443,34 +1548,56 @@ function AnnotationEditor({
       }
 
       // ツールに応じてプレビュー図形を作成
+      // Task 115.96 (Req 24.5, 32.5): プレビューにも白縁取り切替を反映する。
+      // 反映しないと、ドラッグ中に見えている姿と確定後の姿が食い違う。
       let previewShape: FabricObject | null = null;
       switch (activeTool) {
-        case 'arrow':
-          previewShape = createArrow(startPoint, endPoint, {
+        case 'arrow': {
+          const previewArrow = createArrow(startPoint, endPoint, {
             stroke: currentStyle.strokeColor,
             strokeWidth: currentStyle.strokeWidth,
           });
+          if (previewArrow) {
+            applyOutlineEnabled(previewArrow, 'arrow', currentStyle.outlineEnabled);
+          }
+          previewShape = previewArrow;
           break;
-        case 'circle':
-          previewShape = createCircle(startPoint, endPoint, {
+        }
+        case 'circle': {
+          const previewCircle = createCircle(startPoint, endPoint, {
             stroke: currentStyle.strokeColor,
             strokeWidth: currentStyle.strokeWidth,
             fill: currentStyle.fillColor || 'transparent',
           });
+          if (previewCircle) {
+            applyOutlineEnabled(previewCircle, 'circle', currentStyle.outlineEnabled);
+          }
+          previewShape = previewCircle;
           break;
-        case 'rectangle':
-          previewShape = createRectangle(startPoint, endPoint, {
+        }
+        case 'rectangle': {
+          const previewRectangle = createRectangle(startPoint, endPoint, {
             stroke: currentStyle.strokeColor,
             strokeWidth: currentStyle.strokeWidth,
             fill: currentStyle.fillColor || 'transparent',
           });
+          if (previewRectangle) {
+            applyOutlineEnabled(previewRectangle, 'rectangle', currentStyle.outlineEnabled);
+          }
+          previewShape = previewRectangle;
           break;
-        case 'dimension':
-          previewShape = createDimensionLine(startPoint, endPoint, {
+        }
+        case 'dimension': {
+          const previewDimension = createDimensionLine(startPoint, endPoint, {
             stroke: currentStyle.strokeColor,
             strokeWidth: currentStyle.strokeWidth,
           });
+          if (previewDimension) {
+            applyOutlineEnabled(previewDimension, 'dimension', currentStyle.outlineEnabled);
+          }
+          previewShape = previewDimension;
           break;
+        }
         default:
           break;
       }
@@ -1538,32 +1665,51 @@ function AnnotationEditor({
       // Task 115.82 (Req 6.2): 寸法線が作成されたときだけ寸法値入力欄を開くための参照
       let createdDimension: DimensionLine | null = null;
       switch (activeTool) {
-        case 'arrow':
-          shape = createArrow(startPoint, endPoint, {
+        case 'arrow': {
+          const arrow = createArrow(startPoint, endPoint, {
             stroke: currentStyle.strokeColor,
             strokeWidth: currentStyle.strokeWidth,
           });
+          // Task 115.96 (Req 24.5): canvas へ載せる前に切替を反映する
+          if (arrow) {
+            applyOutlineEnabled(arrow, 'arrow', currentStyle.outlineEnabled);
+          }
+          shape = arrow;
           break;
-        case 'circle':
-          shape = createCircle(startPoint, endPoint, {
+        }
+        case 'circle': {
+          const circle = createCircle(startPoint, endPoint, {
             stroke: currentStyle.strokeColor,
             strokeWidth: currentStyle.strokeWidth,
             fill: currentStyle.fillColor || 'transparent',
           });
+          if (circle) {
+            applyOutlineEnabled(circle, 'circle', currentStyle.outlineEnabled);
+          }
+          shape = circle;
           break;
-        case 'rectangle':
-          shape = createRectangle(startPoint, endPoint, {
+        }
+        case 'rectangle': {
+          const rectangle = createRectangle(startPoint, endPoint, {
             stroke: currentStyle.strokeColor,
             strokeWidth: currentStyle.strokeWidth,
             fill: currentStyle.fillColor || 'transparent',
           });
+          if (rectangle) {
+            applyOutlineEnabled(rectangle, 'rectangle', currentStyle.outlineEnabled);
+          }
+          shape = rectangle;
           break;
+        }
         case 'dimension': {
           // Task 115.82 (Req 6.2): 作成した寸法線は入力欄の対象として保持する
           const dimension = createDimensionLine(startPoint, endPoint, {
             stroke: currentStyle.strokeColor,
             strokeWidth: currentStyle.strokeWidth,
           });
+          if (dimension) {
+            applyOutlineEnabled(dimension, 'dimension', currentStyle.outlineEnabled);
+          }
           shape = dimension;
           createdDimension = dimension;
           break;
@@ -1618,6 +1764,8 @@ function AnnotationEditor({
           fill: currentStyle.fillColor || 'transparent',
         });
         if (polygon) {
+          // Task 115.96 (Req 32.5): canvas へ載せる前に切替を反映する
+          applyOutlineEnabled(polygon, 'polygon', currentStyle.outlineEnabled);
           canvas.add(polygon);
           canvas.renderAll();
         }
@@ -1634,6 +1782,8 @@ function AnnotationEditor({
           fill: 'transparent',
         });
         if (polyline) {
+          // Task 115.96 (Req 32.5): canvas へ載せる前に切替を反映する
+          applyOutlineEnabled(polyline, 'polyline', currentStyle.outlineEnabled);
           canvas.add(polyline);
           canvas.renderAll();
         }

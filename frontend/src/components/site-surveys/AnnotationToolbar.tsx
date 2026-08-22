@@ -19,6 +19,9 @@
  * @requirement site-survey/REQ-28.6
  * @requirement site-survey/REQ-36.3
  * @requirement site-survey/REQ-36.5
+ * @requirement site-survey/REQ-24.5
+ * @requirement site-survey/REQ-25.2
+ * @requirement site-survey/REQ-32.5
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
@@ -28,13 +31,14 @@ import {
   type ToolType,
   type ToolDefinition,
   type StyleOptions,
+  type OutlineCapableTool,
   TOOL_DEFINITIONS,
   TOOL_ORDER,
   DEFAULT_STYLE_OPTIONS,
 } from './annotation-toolbar.constants';
 
 // 型の再エクスポート（後方互換性のため）
-export type { ToolType, ToolDefinition, StyleOptions };
+export type { ToolType, ToolDefinition, StyleOptions, OutlineCapableTool };
 
 /**
  * AnnotationToolbarのProps
@@ -139,6 +143,12 @@ const STYLES = {
     padding: 0,
     border: '1px solid #d1d5db',
     borderRadius: '4px',
+    cursor: 'pointer',
+  },
+  outlineToggleCheckbox: {
+    width: '18px',
+    height: '18px',
+    margin: 0,
     cursor: 'pointer',
   },
   lineWidthInput: {
@@ -342,10 +352,38 @@ function StylePanel({
     [onStyleChange]
   );
 
+  /**
+   * 白縁取り（テキストは白アウトライン）の有効/無効を切替える (Req 24.5, 25.2, 32.5)
+   *
+   * 切替は当該ツールの描画設定であり、以降に描かれる注釈へ適用される。
+   * 既存の注釈は変更しない（Req 24.9 / 25.10 / 32.9 の後方互換を壊さないため）。
+   */
+  const handleOutlineEnabledChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      // 本パネル自体が選択ツールでは描画されない（下の早期 return）ため、ここへ到達する
+      // `activeTool` は必ず描画ツールである。到達しない分岐を足して黙って何もしないより、
+      // 到達条件を明示して絞り込む。
+      const tool = activeTool as OutlineCapableTool;
+      onStyleChange({
+        outlineEnabled: {
+          ...styleOptions.outlineEnabled,
+          [tool]: e.target.checked,
+        },
+      });
+    },
+    [activeTool, onStyleChange, styleOptions.outlineEnabled]
+  );
+
   // 選択ツールの場合はスタイルパネルを表示しない
   if (!isDrawingTool(activeTool)) {
     return null;
   }
+
+  const outlineTool = activeTool as OutlineCapableTool;
+  // テキストは文字の輪郭に沿うため「白アウトライン」、他の形状は線の外側に付くため「白縁取り」。
+  // 要件も 25.2 だけが「白アウトライン」の語を使う。
+  const outlineLabel = outlineTool === 'text' ? '白アウトライン' : '白縁取り';
+  const outlineEnabled = styleOptions.outlineEnabled[outlineTool];
 
   const showLineOptions = activeTool !== 'text';
   const showFontOptions = activeTool === 'text';
@@ -361,6 +399,24 @@ function StylePanel({
         style={{ ...STYLES.stylePanel, ...(isMobile ? STYLES.stylePanelMobile : {}) }}
         data-testid="style-options"
       >
+        {/* 白縁取り / 白アウトラインの有効・無効 (Req 24.5, 25.2, 32.5) */}
+        <div style={STYLES.styleItem}>
+          <label style={STYLES.styleLabel} htmlFor="annotation-outline-toggle">
+            {outlineLabel}
+          </label>
+          <input
+            id="annotation-outline-toggle"
+            type="checkbox"
+            checked={outlineEnabled}
+            onChange={handleOutlineEnabledChange}
+            disabled={disabled}
+            style={STYLES.outlineToggleCheckbox}
+            data-testid="outline-toggle"
+            name="outlineEnabled"
+            aria-label={outlineLabel}
+          />
+        </div>
+
         {/* 線の色 */}
         {showLineOptions && (
           <div style={STYLES.styleItem}>

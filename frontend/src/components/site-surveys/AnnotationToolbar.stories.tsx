@@ -145,6 +145,7 @@ export const CustomStyle: Story = {
       strokeWidth: 4,
       fillColor: '#ffff00',
       fontSize: 18,
+      outlineEnabled: DEFAULT_STYLE_OPTIONS.outlineEnabled,
     },
     canUndo: true,
     canRedo: true,

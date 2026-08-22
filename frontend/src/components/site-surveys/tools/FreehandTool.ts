@@ -75,6 +75,17 @@ export interface FreehandOptions {
   strokeLineCap: 'butt' | 'round' | 'square';
   /** 線の結合スタイル */
   strokeLineJoin: 'bevel' | 'round' | 'miter';
+  /**
+   * 白縁取りを有効にするか (Req 32.5)
+   *
+   * Task 115.96: 道具帯の白縁取り切替をフリーハンドへ届けるための入口。
+   * フリーハンドは他の 5 形状と違い、描画完了時にブラシ (`FreehandBrush.createPath`)
+   * が `FreehandPath` を組み立てるため、生成後に `setOutline` を呼ぶ隙が無い。
+   * 生成オプションとして受け取り、コンストラクタで反映する。
+   *
+   * 省略時は `ANNOTATION_DEFAULTS.freehandOutline.enabled`（Req 32.11: 有効）。
+   */
+  outlineEnabled?: boolean;
 }
 
 /**
@@ -116,6 +127,8 @@ export const DEFAULT_FREEHAND_OPTIONS: FreehandOptions = {
   decimate: 8,
   strokeLineCap: 'round',
   strokeLineJoin: 'round',
+  // Req 32.11: 初回起動時は白縁取りが有効
+  outlineEnabled: ANNOTATION_DEFAULTS.freehandOutline.enabled,
 };
 
 /**
@@ -197,6 +210,8 @@ export class FreehandPath extends Group {
     // 描画される縁取り線幅が本体線幅の 1.5 倍以上となる比率を全線幅で満たす。
     const outline: ShapeOutlineAttribute = {
       ...ANNOTATION_DEFAULTS.freehandOutline,
+      // Task 115.96 (Req 32.5): 道具帯の切替が無効を指しているときは無効で起動する。
+      enabled: mergedOptions.outlineEnabled ?? ANNOTATION_DEFAULTS.freehandOutline.enabled,
       width: resolveShapeOutlineWidth(mergedOptions.strokeWidth),
     };
 
@@ -739,6 +754,19 @@ export class FreehandBrush extends PencilBrush {
   setDecimate(value: number): void {
     this.decimate = value;
     this._options.decimate = value;
+  }
+
+  /**
+   * 白縁取りの有効/無効を更新する (Req 32.5)
+   *
+   * Task 115.96: 描画中のブラシは `createPath` で `FreehandPath` を組み立てるため、
+   * 以降のストロークへ反映させるにはブラシが保持する生成オプションを更新する必要がある。
+   * ツール選択中に切替えても次の一筆から効くようにする。
+   *
+   * @param enabled 白縁取りを有効にするか
+   */
+  setOutlineEnabled(enabled: boolean): void {
+    this._options.outlineEnabled = enabled;
   }
 
   // ==========================================================================

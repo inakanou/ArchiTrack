@@ -121,7 +121,7 @@
 | 未結線の部品 | 担当要件 | 撤去せず存置する理由（＝結線されていない理由） |
 |---|---|---|
 | `ImageViewer`（`frontend/src/components/site-surveys/ImageViewer.tsx`） | **担当なし**（要件5.1-5.6 / 12 / 20.1 の担当は出荷経路へ付け替え済み。下記「画像ビューアの担当付け替えと閲覧時の表示操作の結線（タスク 115.83）」を参照） | 存置の理由は**設計上の役割ではなく、要件カバレッジの所在**に変わった。要件30.5（`site-survey/REQ-30.5`）と要件33.10（`site-survey/REQ-33.10`）の受入基準カバレッジは、本部品と `ImageViewer.test.tsx` / `ImageViewer.refit.test.tsx` の `@requirement` タグに**しか存在しない**（他の全ファイルを走査して 0 件。実測）。撤去すると当該2件が未カバーになり `scripts/check-requirement-coverage.ts` が失敗する。**先に主張を結線側へ移すまで撤去できない**（`StylePanel` と同型） |
-| `StylePanel`（`frontend/src/components/site-surveys/StylePanel.tsx`）と `style-panel.constants.ts` | 24.5, 25.2, 26.3, 26.4, 26.6, 28.7 | タスク 115.70 の所管。実際に描画されるのは `AnnotationToolbar.tsx` が内包する同名の関数コンポーネントである。ただし **要件26.4 / 26.6 の受入基準カバレッジは本部品の単体検証（`StylePanel.outline-toggle.test.tsx`）にしか存在せず**、結線側に同等の主張が無い。先に主張を結線側へ移すまで撤去できない |
+| `StylePanel`（`frontend/src/components/site-surveys/StylePanel.tsx`）と `style-panel.constants.ts` | 24.5, 25.2, 26.3, 26.4, 26.6, 28.7 | 実際に描画されるのは `AnnotationToolbar.tsx` が内包する同名の関数コンポーネントである。**存置の理由（＝結線側に同等の主張が無いこと）は、タスク 115.70 と 115.96 の二段階で解消した**。115.70 は要件26.4 / 26.6 の主張を `AnnotationEditor`（`styleOptionsRef`）側へ移したが、**移せたのはその二つだけ**で、要件24.5 / 25.2 / 26.3 / 28.7 の主張は本部品側に残っていた。115.96 が白縁取りの切替UI自体を結線側（`AnnotationToolbar.tsx` の `StylePanel` と `annotation-toolbar.constants.ts` の `StyleOptions.outlineEnabled`）へ出荷し、要件24.5 / 25.2 の主張を結線側の単体検証（`AnnotationEditor.outline-toggle.test.tsx`）と E2E（`e2e/specs/site-surveys/site-survey-outline-toggle.spec.ts`）へ置いた。残る要件26.3 は `annotation-style-tokens.ts` とその単体検証、要件28.7 は `AnnotationToolbar.mobile-gap.test.tsx` が結線側で主張している（タスク 115.96 の実測）。したがって**本部品の撤去を阻む受入基準カバレッジはもう無い**。撤去そのものはタスク 115.96 の境界（白縁取りの切替UIと注釈の道具帯）の外であり、別タスクの所管とする |
 
 #### 自動保存・復元基盤の結線（タスク 115.81）
 
@@ -5198,8 +5198,8 @@ Body が Outline より上に描画されることで、矢じり端部も含め
 
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
-| 24.1-24.10 | 矢印の白縁取り表示・属性永続化・後方互換・Undo連携 | ArrowTool (Group refactor), StyleTokens, AnnotationRendererService, StylePanel, registerCustomShapes | `Arrow.setOutline`, `Arrow.toObject/fromObject` 拡張 | 矢印レンダリング |
-| 25.1-25.12 | テキストの白アウトライン・背景色との独立・マルチバイト対応・後方互換 | TextTool (paintFirst), StyleTokens, StylePanel, AnnotationRendererService | `TextAnnotation.setOutline`, `TextAnnotation.toObject/fromObject` 拡張 | - |
+| 24.1-24.10 | 矢印の白縁取り表示・属性永続化・後方互換・Undo連携 | ArrowTool (Group refactor), StyleTokens, AnnotationRendererService, AnnotationToolbar（要件24.5 の切替UI。同名の未結線 `StylePanel.tsx` ではなく、本部品が内包する関数コンポーネントが出荷経路）, AnnotationEditor（要件24.10 の取り消し記録）, registerCustomShapes | `Arrow.setOutline`, `Arrow.toObject/fromObject` 拡張 | 矢印レンダリング |
+| 25.1-25.12 | テキストの白アウトライン・背景色との独立・マルチバイト対応・後方互換 | TextTool (paintFirst), StyleTokens, AnnotationToolbar（要件25.2 の切替UI）, AnnotationEditor（要件25.11 の取り消し記録）, AnnotationRendererService | `TextAnnotation.setOutline`, `TextAnnotation.toObject/fromObject` 拡張 | - |
 | 26.1-26.6 | ツール横断デフォルトスタイルの一元化、セッション内継承、白縁取り初期ON | annotation-style-tokens, AnnotationEditor styleOptionsRef, style-panel.constants, annotation-toolbar.constants, StylePanel, ArrowTool, CircleTool, DimensionTool, FreehandTool, PolygonTool, PolylineTool, RectangleTool, TextTool | `AnnotationToolDefaults` interface | - |
 | 27.1-27.10 | ダブルタップ編集、長押しメニュー、Req8/Req17連携 | touchGestureManager, AnnotationContextMenu, AnnotationEditor, gesture-thresholds | `GestureEvent`, `ContextMenuAction` | ジェスチャー判定フロー |
 | 28.1-28.8 | モバイルツールバー、折返し・スクロール、属性パネル開閉、44px タップ領域 | AnnotationToolbar, StylePanel, AnnotationContextMenu | toolbar layout contract | - |
@@ -5478,13 +5478,24 @@ type ContextMenuAction = 'edit' | 'duplicate' | 'delete';
 | Field | Detail |
 |-------|--------|
 | Intent | モバイル向けレイアウトおよび白縁取りトグルUIを追加 |
-| Requirements | 26.3, 28.1-28.8, 29.1, 29.6 |
+| Requirements | 24.5, 24.10, 25.2, 25.11, 26.3, 28.1-28.8, 29.1, 29.6, 32.5, 32.10 |
 
 **Implementation Notes**
 - `STYLES.toolbar` に `flexWrap: 'wrap'` を追加、同時に `overflowX: 'auto'` を維持（狭小幅で両対応）
 - `button.base.minWidth/minHeight: 44px` に統一（現状 48px だが 44x44 を明示的に設定、Req 28.3）
 - StylePanel は開閉ボタンを設け、初期状態はモバイル幅では閉、デスクトップ幅では開（CSS media query か `matchMedia` で判定）
-- 矢印・テキストの StylePanel に「白縁取り」「白アウトライン」のON/OFFトグルを追加（Req 24.5, 25.2）
+- 描画ツールの StylePanel に「白縁取り」「白アウトライン」のON/OFFトグルを追加（Req 24.5, 25.2, 32.5）。
+  対象は矢印・テキストだけでなく、要件32.5 が挙げる 6 形状（寸法線・円・四角形・多角形・折れ線・
+  フリーハンド）を含む描画ツール全体である。当初の記述は矢印とテキストしか挙げておらず、
+  要件32.5 の切替が設計から抜けていた（タスク 115.96 で是正）。
+  切替の状態は `annotation-toolbar.constants.ts` の `StyleOptions.outlineEnabled`（ツール別の真偽値）に持ち、
+  既定値は `annotation-style-tokens.ts` の `createDefaultOutlineEnabled` が `ANNOTATION_DEFAULTS` から供給する（Req 26.5, 32.13）
+- 切替は「以降に描かれる注釈へ適用する描画設定」である（Req 26.4 が白縁取り有無をツールのスタイルとして扱う）。
+  既存の注釈は変更しない。既存注釈へ波及させると、白縁取り属性を持たずに保存された注釈の
+  従来表現（Req 24.9 / 25.10 / 32.9 の後方互換）を切替の導入で壊すため
+- 切替操作は `AnnotationEditor.handleStyleChange` が `UndoManager.pushWithoutExecute` で
+  取り消し単位として積む（Req 24.10, 25.11, 32.10）。色・線幅・文字サイズの変更は
+  要件が履歴記録を求めていないため積まない
 - タップ領域の妥当性は視覚回帰テスト（Playwright screenshot）で担保
 
 ##### ImageViewer (touch ext)
@@ -5931,7 +5942,7 @@ graph TB
 | 31.17 | 注釈含む時の白縁取り適用 | AnnotationRendererService（既存 enlivenObjects 経路） | - | - |
 | 31.18 | 原本出力時の注釈・回転・サムネイル非反映 | bulkExportService, ExportService.downloadOriginal | original branch | 一括エクスポートフロー |
 | 31.19 | 中間生成物の非残存 | bulkExportService finalize | finalize hook | - |
-| 32.1-32.7, 32.9-32.10 | 6 形状の白縁取り共通仕様（描画・変形・属性永続化・Undo・後方互換） | Rectangle/Circle/Polygon/Polyline/Freehand/Dimension Tools, StyleTokens, registerCustomShapes | `ShapeOutlineAttribute`, 各 Tool の `setOutline/toObject/fromObject` | 6 形状レンダリング構造 |
+| 32.1-32.7, 32.9-32.10 | 6 形状の白縁取り共通仕様（描画・変形・属性永続化・Undo・後方互換） | Rectangle/Circle/Polygon/Polyline/Freehand/Dimension Tools, StyleTokens, AnnotationToolbar（要件32.5 の切替UI）, AnnotationEditor（要件32.10 の取り消し記録）, registerCustomShapes | `ShapeOutlineAttribute`, 各 Tool の `setOutline/toObject/fromObject` | 6 形状レンダリング構造 |
 | 32.8 | 出力経路（サムネイル/PDF/個別/一括）の整合 | AnnotationRendererService, PdfReportService, bulkExportService | 既存 enlivenObjects 経路 | - |
 | 32.11, 32.13 | 既定値・既定スタイル一元管理 | annotation-style-tokens, AnnotationToolbar, FreehandTool | `ANNOTATION_DEFAULTS` 拡張 | - |
 | 32.12 | 寸法値ラベルの白アウトライン（Req 25 同形の `TextOutlineAttribute` を独立属性で保持） | DimensionTool（labelText paintFirst, labelOutline 属性） | `TextOutlineAttribute`, `Dimension.setLabelOutline/getLabelOutline` | 6 形状レンダリング構造 |

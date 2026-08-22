@@ -26,6 +26,7 @@
  *
  * @requirement site-survey/REQ-26.1
  * @requirement site-survey/REQ-26.5
+ * @requirement site-survey/REQ-32.11
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
@@ -286,7 +287,7 @@ const defaultProps = {
  */
 const FIELD_OBSERVERS: Record<
   keyof StyleOptions,
-  { toolLabel: string; testId: string; expected: string }
+  { toolLabel: string; testId: string; expected: string; readAs?: 'value' | 'checked' }
 > = {
   strokeColor: {
     toolLabel: '矢印',
@@ -318,12 +319,24 @@ const FIELD_OBSERVERS: Record<
     testId: 'font-size',
     expected: String(ANNOTATION_DEFAULTS.fontSize),
   },
+  // Task 115.96 (Req 26.3, 32.11): 白縁取りの切替は真偽値のため、入力欄の値ではなく
+  // チェック状態を観測する。矢印ツールで観測するので期待値は矢印の既定。
+  outlineEnabled: {
+    toolLabel: '矢印',
+    testId: 'outline-toggle',
+    expected: String(ANNOTATION_DEFAULTS.arrowOutline.enabled),
+    readAs: 'checked',
+  },
 };
 
 /**
  * 注釈編集画面を描画し、指定ツールを選択したうえで当該入力の表示値を返す
  */
-async function readDefaultStyleValue(toolLabel: string, testId: string): Promise<string> {
+async function readDefaultStyleValue(
+  toolLabel: string,
+  testId: string,
+  readAs: 'value' | 'checked' = 'value'
+): Promise<string> {
   const user = userEvent.setup();
   render(<AnnotationEditor {...defaultProps} />);
 
@@ -333,8 +346,8 @@ async function readDefaultStyleValue(toolLabel: string, testId: string): Promise
 
   await user.click(screen.getByRole('button', { name: toolLabel }));
 
-  const input = await screen.findByTestId(testId);
-  return (input as HTMLInputElement).value;
+  const input = (await screen.findByTestId(testId)) as HTMLInputElement;
+  return readAs === 'checked' ? String(input.checked) : input.value;
 }
 
 describe('AnnotationEditor - 既定スタイルの供給元は一元管理の資材である (Task 115.60)', () => {
@@ -360,8 +373,8 @@ describe('AnnotationEditor - 既定スタイルの供給元は一元管理の資
     }))
   )(
     '$field の初期表示値は一元管理の資材が供給する値と一致する (Req 26.5)',
-    async ({ toolLabel, testId, expected }) => {
-      await expect(readDefaultStyleValue(toolLabel, testId)).resolves.toBe(expected);
+    async ({ toolLabel, testId, expected, readAs }) => {
+      await expect(readDefaultStyleValue(toolLabel, testId, readAs)).resolves.toBe(expected);
     }
   );
 

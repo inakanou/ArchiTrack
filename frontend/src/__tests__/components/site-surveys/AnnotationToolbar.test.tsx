@@ -20,7 +20,10 @@ import userEvent from '@testing-library/user-event';
 import AnnotationToolbar, {
   type ToolType,
 } from '../../../components/site-surveys/AnnotationToolbar';
-import { TOOL_DEFINITIONS } from '../../../components/site-surveys/annotation-toolbar.constants';
+import {
+  TOOL_DEFINITIONS,
+  DEFAULT_STYLE_OPTIONS,
+} from '../../../components/site-surveys/annotation-toolbar.constants';
 
 // ============================================================================
 // テストヘルパー
@@ -523,6 +526,7 @@ describe('AnnotationToolbar', () => {
               strokeWidth: 2,
               fontSize: 16,
               fillColor: 'transparent',
+              outlineEnabled: DEFAULT_STYLE_OPTIONS.outlineEnabled,
             }}
           />
         );
@@ -576,6 +580,7 @@ describe('AnnotationToolbar', () => {
               strokeWidth: 2,
               fontSize: 16,
               fillColor: '#ffffff',
+              outlineEnabled: DEFAULT_STYLE_OPTIONS.outlineEnabled,
             }}
           />
         );
@@ -613,6 +618,7 @@ describe('AnnotationToolbar', () => {
               strokeWidth: 2,
               fontSize: 16,
               fillColor: 'transparent',
+              outlineEnabled: DEFAULT_STYLE_OPTIONS.outlineEnabled,
             }}
           />
         );
@@ -648,6 +654,7 @@ describe('AnnotationToolbar', () => {
               strokeWidth: 2,
               fontSize: 16,
               fillColor: 'transparent',
+              outlineEnabled: DEFAULT_STYLE_OPTIONS.outlineEnabled,
             }}
           />
         );

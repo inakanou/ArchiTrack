@@ -24,9 +24,12 @@
  * @requirement site-survey/REQ-32.2
  * @requirement site-survey/REQ-32.11
  * @requirement site-survey/REQ-32.13
+ * @requirement site-survey/REQ-24.5
+ * @requirement site-survey/REQ-25.2
+ * @requirement site-survey/REQ-32.5
  */
 
-import type { ToolType } from './annotation-toolbar.constants';
+import type { ToolType, OutlineCapableTool } from './annotation-toolbar.constants';
 
 // ============================================================================
 // 型定義
@@ -274,6 +277,30 @@ export const ANNOTATION_DEFAULTS: AnnotationToolDefaults = {
     widthRatio: 0.12,
   },
 };
+
+/**
+ * ツール別の既定白縁取り有無を生成する（Req 26.3 / 26.5 / 32.11 / 32.13）
+ *
+ * Task 115.96: 道具帯のスタイルパネルが持つ白縁取り切替の初期状態は、ツールごとの
+ * 既定値を単一情報源である `ANNOTATION_DEFAULTS` から引く。切替UI側で真偽値を
+ * literal として持つと、一元管理の資材と値が食い違う二つ目の供給元ができるため。
+ *
+ * 呼び出し側が値を変更しても内部状態が壊れないよう、毎回新しいオブジェクトを返す。
+ *
+ * @returns ツール別の白縁取り有効状態
+ */
+export function createDefaultOutlineEnabled(): Record<OutlineCapableTool, boolean> {
+  return {
+    arrow: ANNOTATION_DEFAULTS.arrowOutline.enabled,
+    text: ANNOTATION_DEFAULTS.textOutline.enabled,
+    dimension: ANNOTATION_DEFAULTS.dimensionOutline.enabled,
+    circle: ANNOTATION_DEFAULTS.circleOutline.enabled,
+    rectangle: ANNOTATION_DEFAULTS.rectangleOutline.enabled,
+    polygon: ANNOTATION_DEFAULTS.polygonOutline.enabled,
+    polyline: ANNOTATION_DEFAULTS.polylineOutline.enabled,
+    freehand: ANNOTATION_DEFAULTS.freehandOutline.enabled,
+  };
+}
 
 // ============================================================================
 // API
