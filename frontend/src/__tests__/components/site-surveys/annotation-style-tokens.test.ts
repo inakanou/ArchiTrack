@@ -68,6 +68,32 @@ describe('annotation-style-tokens', () => {
     it('既定塗りつぶしは透明（空文字）である', () => {
       expect(ANNOTATION_DEFAULTS.fill).toBe('');
     });
+
+    /**
+     * Task 115.98 (Req 26.5): 寸法値ラベルの既定スタイルを一元管理の資材へ寄せた。
+     * 既定値は移設前と同一であることを具体値で固定する。
+     */
+    describe('dimensionLabel（寸法値ラベルの既定スタイル / Req 26.5）', () => {
+      it('既定フォントサイズは 12 である', () => {
+        expect(ANNOTATION_DEFAULTS.dimensionLabel.fontSize).toBe(12);
+      });
+
+      it('既定文字色は #000000 である', () => {
+        expect(ANNOTATION_DEFAULTS.dimensionLabel.fontColor).toBe('#000000');
+      });
+
+      it('既定背景色は #ffffff である', () => {
+        expect(ANNOTATION_DEFAULTS.dimensionLabel.backgroundColor).toBe('#ffffff');
+      });
+
+      it('既定文字色は本体色（stroke）とは別の値である（要件26.2 の対象は本体色）', () => {
+        expect(ANNOTATION_DEFAULTS.dimensionLabel.fontColor).not.toBe(ANNOTATION_DEFAULTS.stroke);
+      });
+
+      it('既定フォントサイズはツール横断の既定フォントサイズとは別の値である', () => {
+        expect(ANNOTATION_DEFAULTS.dimensionLabel.fontSize).not.toBe(ANNOTATION_DEFAULTS.fontSize);
+      });
+    });
   });
 
   describe('getToolDefaults', () => {
@@ -89,6 +115,24 @@ describe('annotation-style-tokens', () => {
     it('寸法線ツールの既定値も 3 ピクセル以上の線幅を返す (Req 26.1, 26.5)', () => {
       const defaults = getToolDefaults('dimension');
       expect(defaults.strokeWidth).toBeGreaterThanOrEqual(3);
+    });
+
+    it('寸法線ツールの既定値に寸法値ラベルの既定スタイルが含まれる (Req 26.5)', () => {
+      const defaults = getToolDefaults('dimension');
+
+      expect(defaults.dimensionLabel).toEqual({
+        fontSize: 12,
+        fontColor: '#000000',
+        backgroundColor: '#ffffff',
+      });
+    });
+
+    it('dimensionLabel はコピーで返り、呼び出し側の変更が資材を壊さない (Req 26.5)', () => {
+      const defaults = getToolDefaults('dimension');
+
+      defaults.dimensionLabel.fontColor = '#00ff00';
+
+      expect(ANNOTATION_DEFAULTS.dimensionLabel.fontColor).toBe('#000000');
     });
   });
 

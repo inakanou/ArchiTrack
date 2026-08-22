@@ -367,7 +367,7 @@
 - 追跡表の契約名の抽出: 全追跡表の Interfaces 列を全行から取り出し、バッククォートの有無によらず PascalCase トークンを全件列挙する。**`*API` 形式だけを見てはならない**。`*API` 形式が現れるのは冒頭の総合追跡表だけ（節別の6表はいずれも 0 件。実測）だが、要件24-30 の節別追跡表には `*API` でない契約名（`GestureEvent` / `CursorStrategy` / `HandleSizeStrategy`）があり、`*API` に限ると取りこぼす
 - 実在判定: 各名について `grep -rn --include=*.ts --include=*.tsx -E "^[[:space:]]*(export )?(declare )?(interface|type|class) <名前>\b" backend frontend e2e scripts`（`node_modules` を除く）を実行する。**走査範囲を `backend/src` / `frontend/src` に限ってはならない**。`backend/scripts` 配下の宣言を取りこぼす（`BackfillResult` が該当）
 - 実在判定の誤検出の除去: 上記の式は `import { type <名前>, ... }` の継続行にも一致する。ヒットが import 文だけの名前は**宣言ではない**ため実体なしと判定する。またヒットが `__tests__/` 配下・`*.test.ts` / `*.test.tsx` だけの名前も実装の実体とはみなさない
-- 実体ありと記す行は、**記録した `パス:行番号` を実際に開いて当該行が当該名の宣言であることを目視で照合する**。JSDoc の開始行を宣言行と取り違える誤りが起きるため、grep のヒット数だけで確定してはならない。**行番号は実装ファイルの行の増減で失効する**ため、実装へ行の増減を伴う変更を加えたタスクは、当該ファイルを指す本書の `パス:行` を全件測り直す責任を負う。タスク 115.88 は `backend/src/services/site-survey.service.ts` と `frontend/src/types/site-survey.types.ts` から各2行を削除したため、当該2ファイルを指す本書の 22 件の引用のうち下流にある 11 件を測り直して是正した（本節の `ImageOrderItem` / `ProjectSurveySummary` / `SurveyImageInfo`、決着表の #1 / #19 / #20 / #21 / #22 / #23、`deleteSiteSurvey` と `findById` の引用。加えて相対参照 4 件）。**115.88 以前から誤っていた引用が同2ファイル向けに 3 件ある**: `AnnotationData` の `frontend/src/types/site-survey.types.ts:620`（本節と決着表 #25 / #26 の計3行。実測は HEAD 時点で 463 行、115.88 の削除後で 461 行）、`BatchAnnotationRequest` の同ファイル `:931`（実測 660 行）、`BatchAnnotationResponse` の同ファイル `:921`（実測 650 行）。いずれも 115.88 の変更前から当該行が当該名の宣言ではなく、115.88 の境界「一覧応答の代表画像識別子とその設計記述」の外側であるため是正せず、誤っている事実をここに記録する（`design.md:1101` が指す `design.md:5795` も同種の失効で、実測の該当行は 5934 行である）。**後続タスクの提案**: 本書の `パス:行` を全件測り直す監査タスクを別途起票すること
+- 実体ありと記す行は、**記録した `パス:行番号` を実際に開いて当該行が当該名の宣言であることを目視で照合する**。JSDoc の開始行を宣言行と取り違える誤りが起きるため、grep のヒット数だけで確定してはならない。**行番号は実装ファイルの行の増減で失効する**ため、実装へ行の増減を伴う変更を加えたタスクは、当該ファイルを指す本書の `パス:行` を全件測り直す責任を負う。タスク 115.88 は `backend/src/services/site-survey.service.ts` と `frontend/src/types/site-survey.types.ts` から各2行を削除したため、当該2ファイルを指す本書の 22 件の引用のうち下流にある 11 件を測り直して是正した（本節の `ImageOrderItem` / `ProjectSurveySummary` / `SurveyImageInfo`、決着表の #1 / #19 / #20 / #21 / #22 / #23、`deleteSiteSurvey` と `findById` の引用。加えて相対参照 4 件）。**115.88 以前から誤っていた引用が同2ファイル向けに 3 件ある**: `AnnotationData` の `frontend/src/types/site-survey.types.ts:620`（本節と決着表 #25 / #26 の計3行。実測は HEAD 時点で 463 行、115.88 の削除後で 461 行）、`BatchAnnotationRequest` の同ファイル `:931`（実測 660 行）、`BatchAnnotationResponse` の同ファイル `:921`（実測 650 行）。いずれも 115.88 の変更前から当該行が当該名の宣言ではなく、115.88 の境界「一覧応答の代表画像識別子とその設計記述」の外側であるため是正せず、誤っている事実をここに記録する（`design.md:1101` が指す `design.md:5795` も同種の失効で、実測の該当行は 5934 行である）。タスク 115.98 は `frontend/src/components/site-surveys/annotation-style-tokens.ts` へ 54 行を挿入し（差分は +54 / -0 で正味 +54 行）、`frontend/src/components/site-surveys/tools/DimensionTool.ts` を +13 / -12 で正味 +1 行動かしたため、**本書から当該2ファイルを指す参照を全件測り直し、18 件すべてを是正した**。内訳は annotation-style-tokens.ts 向けが 12 件（`AnnotationToolDefaults` 77→98 が本節の表・上の注・決着表 #43 の計3件、`ArrowOutlineAttribute` 58→61 が本節の表と `ShapeOutlineAttribute` 行の別名注記の計2件、`TextOutlineAttribute` 65→68、`ShapeOutlineAttribute` 42→45、宣言直上の JSDoc 75→96 が上の注と決着表 #43 の計2件、`dimensionOutline` 101→122、`dimensionLabelOutline` 103→124、`ANNOTATION_DEFAULTS` 247→297）、DimensionTool.ts 向けが 6 件（`DimensionLineJSON` 124→121 が上の注と決着表 #40 の計2件、`type` ID の 125→122、`DimensionLine` クラス 293→294、`setOutline` 707→708、`getOutline` 734→735）である。**115.98 以前から誤っていた引用が決着表 #42 に 2 件ある**: `setOutline` の `FreehandTool.ts:371`（実測 386 行）と `getOutline` の同ファイル `398`（実測 413 行）。当該ファイルは 115.98 が触れておらず、115.98 の境界「寸法線ラベルの既定スタイル」の外側であるため是正せず、誤っている事実をここに記録する。**所管タスクの不在**: 本書から本番コードを指す `パス:行` の失効は、115.100 が扱う「本番コードから本書への参照形式」とは**向きが逆**であり 115.100 の所管外である。所管するタスクが存在しなかったため、`tasks.md` に 115.149 として起票した。**後続タスクの提案**: 本書の `パス:行` を全件測り直す監査タスクを別途起票すること
 
 **実装に実体がある契約名**（設計書の記述は実装の型を指す。以下のパスは宣言位置）:
 
@@ -377,9 +377,9 @@
 | `AnnotationData` | `frontend/src/types/site-survey.types.ts:620` |
 | `AnnotationContextMenuProps` | `frontend/src/components/site-surveys/AnnotationContextMenu.tsx:56` |
 | `AnnotationInfo` | `backend/src/services/annotation.service.ts:188` |
-| `AnnotationToolDefaults` | `frontend/src/components/site-surveys/annotation-style-tokens.ts:77` |
+| `AnnotationToolDefaults` | `frontend/src/components/site-surveys/annotation-style-tokens.ts:98` |
 | `ArrowJSON` | `frontend/src/components/site-surveys/tools/ArrowTool.ts:79` |
-| `ArrowOutlineAttribute` | `frontend/src/components/site-surveys/annotation-style-tokens.ts:58` |
+| `ArrowOutlineAttribute` | `frontend/src/components/site-surveys/annotation-style-tokens.ts:61` |
 | `BaseAnnotationOverlayProps` | `frontend/src/components/site-surveys/AnnotationContextMenu.tsx:44` |
 | `ContextMenuAction` | `frontend/src/components/site-surveys/AnnotationContextMenu.tsx:37` |
 | `GesturePayload` | `frontend/src/components/site-surveys/gestures/touchGestureManager.ts:78` |
@@ -407,7 +407,7 @@
 | `SaveAnnotationInput` | `backend/src/services/annotation.service.ts:179` |
 | `SiteSurveySectionCardProps` | `frontend/src/components/projects/SiteSurveySectionCard.tsx:32` |
 | `TextAnnotationJSON` | `frontend/src/components/site-surveys/tools/TextTool.ts:113` |
-| `TextOutlineAttribute` | `frontend/src/components/site-surveys/annotation-style-tokens.ts:65` |
+| `TextOutlineAttribute` | `frontend/src/components/site-surveys/annotation-style-tokens.ts:68` |
 | `TouchGestureManager` | `frontend/src/components/site-surveys/gestures/touchGestureManager.ts:116` |
 | `TouchState` | `frontend/src/components/site-surveys/gestures/touchGestureManager.ts:88` |
 | `SurveyImageInfo` | 同名宣言が4箇所に存在する（`backend/src/services/site-survey.service.ts:70`、`backend/src/services/image-list.service.ts:30`、`backend/src/services/survey-image.service.ts:112`、`frontend/src/types/site-survey.types.ts:54`）。**1:1 の実体ではない**ため、参照時はどの宣言を指すかをパスで明示する |
@@ -441,7 +441,7 @@
 | `PendingUploadPanelProps` | `frontend/src/components/site-surveys/PendingUploadPanel.tsx:43` |
 | `RectangleJSON` | `frontend/src/components/site-surveys/tools/RectangleTool.ts:74` |
 | `SendFormDataOptions` | `frontend/src/api/client.ts:37`（**非エクスポート**のモジュールローカル型。外部から import できない） |
-| `ShapeOutlineAttribute` | `frontend/src/components/site-surveys/annotation-style-tokens.ts:42`。同ファイルの `ArrowOutlineAttribute`（58 行目）は本型の別名 |
+| `ShapeOutlineAttribute` | `frontend/src/components/site-surveys/annotation-style-tokens.ts:45`。同ファイルの `ArrowOutlineAttribute`（61 行目）は本型の別名 |
 | `UploadFailureKind` | `frontend/src/types/upload.types.ts:19` |
 | `UploadOutcome` | `frontend/src/types/upload.types.ts:36` |
 | `UseInViewportOptions` | `frontend/src/hooks/useInViewport.ts:32` |
@@ -465,14 +465,14 @@
 
 **注（追跡表 Interfaces 列の非 `*API` 契約名の行について）**: `GestureEvent` / `CursorStrategy` / `HandleSizeStrategy` の3件は要件24-30 の追跡表（`## Requirements 24-30` 節の追跡表。要件27.1-27.10 行と要件29.1-29.8 行）の Interfaces 列にだけ現れる名前で、設計書内に `interface` / `type` 定義ブロックを持たず、**`backend` / `frontend` / `e2e` / `scripts` の全域で宣言も参照も 0 件**である（タスク 115.74 で実測。`grep -rnw` でも一致なし）。なお `GestureEvent` は WebKit 独自の DOM 型と同名だが、本設計書のそれは touchGestureManager のジェスチャー判定契約を指す名前であり、実装に同名の宣言は無い。 3件の扱いはタスク 115.75 で決着させた（下の「実体を持たない契約名の扱い」の #37-39 を参照）。
 
-**注（上表の最終行について）**: これら4件は要件31-32 節が契約の形を示すために書いた名前で、**同名の宣言は実装に無い**。ただし近い名前の宣言は存在する（`DimensionJSON` に対し `frontend/src/components/site-surveys/tools/DimensionTool.ts:124` の `DimensionLineJSON`、`AnnotationToolDefaultsExt` に対し `frontend/src/components/site-surveys/annotation-style-tokens.ts:77` の `AnnotationToolDefaults`。後者は宣言直上の JSDoc（同ファイル75 行目）が「design.md の `AnnotationToolDefaults` (Req 26) と `AnnotationToolDefaultsExt` (Req 32) を統合」と記す）。**名前が異なる以上これらは同名の実体ではない**ため本表では実体なしとして扱う。同一物とみなして設計書側の名前を改めるか、実装側を設計に合わせるか、抽象契約のまま残すかの判断はタスク 115.75 で行い、**4件とも「抽象契約として残す」で決着した**（下の「実体を持たない契約名の扱い」の #40-43 を参照）。
+**注（上表の最終行について）**: これら4件は要件31-32 節が契約の形を示すために書いた名前で、**同名の宣言は実装に無い**。ただし近い名前の宣言は存在する（`DimensionJSON` に対し `frontend/src/components/site-surveys/tools/DimensionTool.ts:121` の `DimensionLineJSON`、`AnnotationToolDefaultsExt` に対し `frontend/src/components/site-surveys/annotation-style-tokens.ts:98` の `AnnotationToolDefaults`。後者は宣言直上の JSDoc（同ファイル96 行目）が「design.md の `AnnotationToolDefaults` (Req 26) と `AnnotationToolDefaultsExt` (Req 32) を統合」と記す）。**名前が異なる以上これらは同名の実体ではない**ため本表では実体なしとして扱う。同一物とみなして設計書側の名前を改めるか、実装側を設計に合わせるか、抽象契約のまま残すかの判断はタスク 115.75 で行い、**4件とも「抽象契約として残す」で決着した**（下の「実体を持たない契約名の扱い」の #40-43 を参照）。
 
 **警告（規約6 の要点）**: `I*Service` / `I*Manager` 表記は上表の**両方**に現れる。`IAuditLogService` / `IAnnotatedThumbnailService` / `IAutoSaveManager` / `IExportService` / `IUndoManager` は実在し、`ISurveyService` / `IImageService` / `IAnnotationService` / `IImageDeleteService` / `IImageMetadataService` は実在しない。**表記だけで実在を推定してはならない。**
 
 **注**: 追跡表 Interfaces 列には契約名以外に `Breadcrumb`（部品名。`frontend/src/components/common/Breadcrumb.tsx`。規約1 が適用される）、`R2 Lifecycle Rule` / `SignedURL検証` / `localStorage`（外部機構・ブラウザ API を指す説明語）も現れる。要件19 以降の追跡表では加えて次の4種が現れる。いずれも型の契約名ではないため本表の対象外とする。
 
 - **ブラウザ API・DOM 例外名**: `AbortSignal`（31.10-31.12）、`ResizeObserver`（36.4）、`AbortError`（37.19）、`window.confirm`
-- **メソッド修飾名（`型.メソッド` 形式）**: `Arrow.setOutline` / `Arrow.toObject` / `TextAnnotation.setOutline` / `TextAnnotation.toObject` / `Dimension.setLabelOutline`。ドットの前は図形部品のクラス名であり、規約6 の契約名ではなく**規約1 の部品名**として扱う（`Arrow` は `frontend/src/components/site-surveys/tools/ArrowTool.ts:208`、`TextAnnotation` は同ディレクトリの `TextTool.ts:206` に実在。ただし `Dimension` は実装では `DimensionLine`（同 `DimensionTool.ts:293`）であり、`Dimension` という名前のクラスは存在しない）。修飾名そのものは本表へ収録しない
+- **メソッド修飾名（`型.メソッド` 形式）**: `Arrow.setOutline` / `Arrow.toObject` / `TextAnnotation.setOutline` / `TextAnnotation.toObject` / `Dimension.setLabelOutline`。ドットの前は図形部品のクラス名であり、規約6 の契約名ではなく**規約1 の部品名**として扱う（`Arrow` は `frontend/src/components/site-surveys/tools/ArrowTool.ts:208`、`TextAnnotation` は同ディレクトリの `TextTool.ts:206` に実在。ただし `Dimension` は実装では `DimensionLine`（同 `DimensionTool.ts:294`）であり、`Dimension` という名前のクラスは存在しない）。修飾名そのものは本表へ収録しない
 - **関数・ハンドラ・プロパティ名・定数名**: `clampZoom` / `computeFitScale` / `zoomToPoint` / `discardAll` / `onRetry`、`UPLOAD_TIMEOUT_MS` など
 - **バッククォートを伴わない説明句**: `Fabric selection/object:moving`（33.11-33.12）、`既存 Req 14 経路`（31.16）、`各 Tool の setOutline/toObject/fromObject`（32.1-32.10）、`画像一覧レスポンス（URL同梱）`（38.1）、`原本URLのみ検証結果で出し分け`（38.9）。語として `Fabric` / `Req` / `Tool` / `URL` を含むが、いずれも型名ではない
 
@@ -529,10 +529,10 @@
 | 37 | `GestureEvent` | 抽象契約として残す | 実体は `GesturePayload`（`frontend/src/components/site-surveys/gestures/touchGestureManager.ts:78`）。ジェスチャー判定の受け渡し契約という役割は同一。**設計側の名前を `GestureEvent` のまま置くのは、WebKit 独自の DOM 型 `GestureEvent` と同名で紛らわしい**ため、参照時は必ず実体名 `GesturePayload` を併記すること |
 | 38 | `CursorStrategy` | 抽象契約として残す | 型ではなく方式の呼称。実体は定数表と適用関数（`frontend/src/components/site-surveys/annotation-visual-feedback.ts:100` の `TOOL_CURSOR_MAP`、同 126 行の `applyToolCursor`）。要件29 のカーソル切替はこの2つで満たされる |
 | 39 | `HandleSizeStrategy` | 抽象契約として残す | 同じく方式の呼称。実体は `frontend/src/components/site-surveys/annotation-visual-feedback.ts:33`（`TOUCH_HANDLE`）・同 41 行（`MOUSE_HANDLE`）・同 81 行（`configureHandleSizes`）。要件29.4 の指向けハンドル拡大は `touchCornerSize: 44` / `cornerSize: 20`（同 34-35 行）で満たされる。**ただし `TOUCH_HANDLE` / `MOUSE_HANDLE` は `export` されていないモジュール内 `const`** であり、当該ファイルの `export` は `configureHandleSizes`（81 行）・`TOOL_CURSOR_MAP`（100 行）・`applyToolCursor`（126 行）の3つだけである。外部から参照できる窓口は `configureHandleSizes` の呼び出しのみで、サイズ値そのものは他モジュールから読めない |
-| 40 | `DimensionJSON` | 抽象契約として残す | 実体は `DimensionLineJSON`（`frontend/src/components/site-surveys/tools/DimensionTool.ts:124`）。**設計側の名前を実装へ合わせない理由**: 実装はシリアライズの `type` ID を `'dimensionLine'` に維持しており（同 125 行。`classRegistry` の後方互換のため）、`Dimension` / `DimensionLine` の呼び分けは既に本節の注（メソッド修飾名の項）に「`Dimension` は実装では `DimensionLine`」として記録済みである。JSON 型名だけを改名すると同じ物に2つの規約が並立するため、短縮形の扱いに揃えて設計側は `DimensionJSON` のまま残す |
+| 40 | `DimensionJSON` | 抽象契約として残す | 実体は `DimensionLineJSON`（`frontend/src/components/site-surveys/tools/DimensionTool.ts:121`）。**設計側の名前を実装へ合わせない理由**: 実装はシリアライズの `type` ID を `'dimensionLine'` に維持しており（同 122 行。`classRegistry` の後方互換のため）、`Dimension` / `DimensionLine` の呼び分けは既に本節の注（メソッド修飾名の項）に「`Dimension` は実装では `DimensionLine`」として記録済みである。JSON 型名だけを改名すると同じ物に2つの規約が並立するため、短縮形の扱いに揃えて設計側は `DimensionJSON` のまま残す |
 | 41 | `ShapeJSONExt` | 抽象契約として残す | 「6形状共通パターン」を説明するための名前で、実体は各形状の JSON 型が個別に持つ `outline?: ShapeOutlineAttribute` である（`RectangleTool.ts:84`、`CircleTool.ts:84`、`PolygonTool.ts:85`、`PolylineTool.ts:85`、`FreehandTool.ts:99`。いずれも `frontend/src/components/site-surveys/tools/` 配下）。共通の基底型を作らず各型へ同じ任意フィールドを持たせる実装方針であるため、共通型の実体は不要 |
-| 42 | `ShapeOutlineMethods` | 抽象契約として残す | ジェネリック契約であり、各ツールクラスが `implements` 節を持たずに**構造的に**実装している（`setOutline` は `RectangleTool.ts:464` / `CircleTool.ts:489` / `PolygonTool.ts:449` / `PolylineTool.ts:452` / `FreehandTool.ts:371` / `DimensionTool.ts:707`、`getOutline` は同順で 491 / 516 / 476 / 479 / 398 / 734 行）。共有インターフェースを介さずとも6クラス全部にメソッドが揃っているため、宣言の実体は不要 |
-| 43 | `AnnotationToolDefaultsExt` | 抽象契約として残す | **実装は意図的に統合済み**。`AnnotationToolDefaults`（`frontend/src/components/site-surveys/annotation-style-tokens.ts:77`）が拡張分（`rectangleOutline` / `circleOutline` / `polygonOutline` / `polylineOutline` / `freehandOutline` / `dimensionOutline`＝同 101 行 / `dimensionLabelOutline`＝同 103 行）を内包し、宣言直上の JSDoc（同 75 行）が「design.md の `AnnotationToolDefaults` (Req 26) と `AnnotationToolDefaultsExt` (Req 32) を統合」と明記する。既定値の実体は `ANNOTATION_DEFAULTS`（同 247 行） |
+| 42 | `ShapeOutlineMethods` | 抽象契約として残す | ジェネリック契約であり、各ツールクラスが `implements` 節を持たずに**構造的に**実装している（`setOutline` は `RectangleTool.ts:464` / `CircleTool.ts:489` / `PolygonTool.ts:449` / `PolylineTool.ts:452` / `FreehandTool.ts:371` / `DimensionTool.ts:708`、`getOutline` は同順で 491 / 516 / 476 / 479 / 398 / 735 行）。共有インターフェースを介さずとも6クラス全部にメソッドが揃っているため、宣言の実体は不要 |
+| 43 | `AnnotationToolDefaultsExt` | 抽象契約として残す | **実装は意図的に統合済み**。`AnnotationToolDefaults`（`frontend/src/components/site-surveys/annotation-style-tokens.ts:98`）が拡張分（`rectangleOutline` / `circleOutline` / `polygonOutline` / `polylineOutline` / `freehandOutline` / `dimensionOutline`＝同 122 行 / `dimensionLabelOutline`＝同 124 行）を内包し、宣言直上の JSDoc（同 96 行）が「design.md の `AnnotationToolDefaults` (Req 26) と `AnnotationToolDefaultsExt` (Req 32) を統合」と明記する。既定値の実体は `ANNOTATION_DEFAULTS`（同 297 行） |
 
 ##### `I*Service` の非対称の理由（#1-5 の判断根拠）
 
@@ -5358,6 +5358,7 @@ interface AnnotationToolDefaults {
   fill: string;              // 既定塗りつぶし（通常 '' 透明）
   arrowOutline: ArrowOutlineAttribute;   // 矢印の既定白縁取り（enabled: true）
   textOutline: TextOutlineAttribute;     // テキストの既定白アウトライン（enabled: true）
+  dimensionLabel: DimensionLabelStyle;   // 寸法値ラベルの既定スタイル（タスク 115.98 で移設）
 }
 
 export const ANNOTATION_DEFAULTS: AnnotationToolDefaults;
@@ -5369,6 +5370,23 @@ export function getToolDefaults(tool: ToolKind): AnnotationToolDefaults;
 - Validation: 単体テストで `ANNOTATION_DEFAULTS` の各値が視認性要件（Req 26.1-26.2）を満たすことを確認（例: `strokeWidth >= 3`、`arrowOutline.enabled === true`）
 - Risks: セッション内継承（Req 26.4）は既存 `AnnotationEditor.styleOptionsRef` の仕組みをそのまま流用、本トークンは初期値のみ供給
 - 既定線幅（`strokeWidth`）から導かれる白縁取りの既定の見た目は、要件32 節の「既定線幅から導かれる白縁取りの既定値（要件24.2 / 32.2 / 26.5）」に表として記録している。**既定線幅を変更する場合は同表の 2 つの算出（六形状と矢印）を個別に検算すること**
+
+##### 寸法値ラベルの既定スタイルを一元管理へ含める判断（要件26.5）
+
+タスク 115.98 で、`frontend/src/components/site-surveys/tools/DimensionTool.ts` の `DEFAULT_LABEL_STYLE`（寸法値ラベルの既定フォントサイズ・文字色・背景色）を**一元管理の資材へ寄せる**と決めた。実体は `frontend/src/components/site-surveys/annotation-style-tokens.ts` の `ANNOTATION_DEFAULTS.dimensionLabel`（型は同ファイルの `DimensionLabelStyle`）であり、`DEFAULT_LABEL_STYLE` は資材から供給された値の別名として残る。
+
+**「本体色とは別の概念だから一元管理の外へ置く」という従来の理由を採らなかった理由**:
+
+1. その理由が正当化するのは**値を本体色と同じにしないこと**であって、**資材の外に置くこと**ではない。一元管理（要件26.5）が求めるのは値の同一化ではなく供給元の単一化である。同じ判断は既に前例がある。タスク 115.70 は `style-panel.constants.ts` の `DEFAULT_STYLE_OPTIONS.fillColor` を、透明の表現が資材側の `''` とパネル側の `'transparent'` で異なるまま資材へ寄せた。表現や値が本体色と違うことは、資材の外に置く理由にならない。
+2. **同じラベルの属性が既に資材の内側にある**。要件32.12 由来の `ANNOTATION_DEFAULTS.dimensionLabelOutline` は資材にあり、ラベルの白アウトライン線幅は `fontSize × widthRatio` で決まる。移設前はこの一つの算出式が、`fontSize` を `DimensionTool` 側の literal から、`widthRatio` を資材から引いており、**一つの計算が二つの供給元をまたいでいた**。同一の描画対象の既定属性を二箇所に分ける状態は単一情報源の趣旨で正当化できない。
+3. 要件26.5 の文言は「各ツールの既定色」であって「各ツールの既定**本体**色」ではない。寸法線ツールが新規に描く注釈は線部と寸法値ラベルの複合であり、ラベルの既定文字色は**新規注釈の既定色**にあたる。
+
+**既定値そのものは変更していない**（`fontSize: 12` / `fontColor: '#000000'` / `backgroundColor: '#ffffff'`）。移設は供給元の変更のみで、挙動は変わらない。とくに次の 2 点は意図的に本体側と揃えていない。
+
+- `fontColor`（`#000000`）を本体色 `#e53935` へ揃えない。要件26.2 が赤系/橙系を求める対象は「新規矢印・テキスト注釈の初期本体色」であり、寸法値ラベルの文字色はその対象ではない。ラベルは `dimensionLabelOutline` による白アウトラインを伴って描画されるため、黒文字＋白縁で暗/明どちらの背景でも読める。
+- `fontSize`（12）をツール横断の `ANNOTATION_DEFAULTS.fontSize`（16）へ揃えない。寸法値ラベルは寸法線の中央に重ねて描く従属表示であり、テキスト注釈と同じ大きさにすると線を覆う。値の統一は既定の見た目を変える別の判断であり、本タスクでは行わない。
+
+**検証**: 既定値は `annotation-style-tokens.test.ts` と `DimensionTool.label-outline.test.ts` が具体値（12 / `#000000` / `#ffffff`、およびラベル白アウトライン線幅 1.44）で固定する。単一情報源であることは、資材側の値を変えると新規寸法線の `labelText` の `fontSize` / `fill` を主張するテストが落ちることで確認した。
 
 #### Gestures Layer
 
@@ -6354,7 +6372,7 @@ interface AnnotationToolDefaultsExt extends AnnotationToolDefaults {
 
 **要件との関係**: 描画される縁取り線幅が本体線幅の 1.5 倍以上であることを要件24.2（矢印）と要件32.2（六形状）が求める。既定線幅 3 では六形状 3.0 倍・矢印 約2.33 倍でいずれも満たす。選択可能な全線幅（1〜20）での比率充足は別途 `resolveShapeOutlineWidth` / `resolveArrowOutlineWidth` の単体検証が全件で主張しており、本表は既定値の見た目の記録に限る。
 
-**影響を受けない算出**: 要件25 のテキスト白アウトラインと要件32.12 の寸法値ラベル白アウトラインは、片側幅ではなく `fontSize × widthRatio` で算出する。テキストは `ANNOTATION_DEFAULTS.fontSize`（16）× 0.12 = 1.92、寸法値ラベルは `frontend/src/components/site-surveys/tools/DimensionTool.ts` の `DEFAULT_LABEL_STYLE.fontSize`（12）× 0.12 = 1.44 である。**いずれも本体線幅を参照しないため、既定線幅の変更では変化しない。**
+**影響を受けない算出**: 要件25 のテキスト白アウトラインと要件32.12 の寸法値ラベル白アウトラインは、片側幅ではなく `fontSize × widthRatio` で算出する。テキストは `ANNOTATION_DEFAULTS.fontSize`（16）× 0.12 = 1.92、寸法値ラベルは `frontend/src/components/site-surveys/annotation-style-tokens.ts` の `ANNOTATION_DEFAULTS.dimensionLabel.fontSize`（12）× 0.12 = 1.44 である（タスク 115.98 で `DimensionTool.ts` の `DEFAULT_LABEL_STYLE` から供給元を移した。上の「寸法値ラベルの既定スタイルを一元管理へ含める判断（要件26.5）」を参照）。**いずれも本体線幅を参照しないため、既定線幅の変更では変化しない。**
 
 ### Data Models
 

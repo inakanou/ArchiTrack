@@ -50,6 +50,7 @@ import { Path, FabricText, Group, type Canvas } from 'fabric';
 import {
   ANNOTATION_DEFAULTS,
   resolveShapeOutlineWidth,
+  type DimensionLabelStyle,
   type ShapeOutlineAttribute,
   type TextOutlineAttribute,
 } from '../annotation-style-tokens';
@@ -100,15 +101,11 @@ export interface DimensionLineOptions {
 
 /**
  * 寸法線ラベルのスタイルオプション
+ *
+ * Task 115.98 (Req 26.5): 宣言の実体は `annotation-style-tokens.ts` へ移した。
+ * 既存 consumer の import 元を変えないため、ここから再エクスポートする。
  */
-export interface DimensionLabelStyle {
-  /** フォントサイズ */
-  fontSize: number;
-  /** フォント色 */
-  fontColor: string;
-  /** 背景色（Task 82.1 以降は子 labelText の背景描画なし。Task 82.3 のシリアライズ互換のため保持） */
-  backgroundColor: string;
-}
+export type { DimensionLabelStyle };
 
 /**
  * 寸法線のシリアライズ形式
@@ -145,7 +142,6 @@ export interface DimensionLineJSON {
  *
  * Task 64.3: 本体色/線幅は `ANNOTATION_DEFAULTS`（Req 26.5 一元管理トークン）を参照。
  * Req 26.1: 初期線幅は 3px 以上（ANNOTATION_DEFAULTS.strokeWidth）。
- * ラベル用の `DEFAULT_LABEL_STYLE` は本体色とは別の概念のため変更しない。
  */
 export const DEFAULT_DIMENSION_OPTIONS: DimensionLineOptions = {
   stroke: ANNOTATION_DEFAULTS.stroke,
@@ -155,11 +151,16 @@ export const DEFAULT_DIMENSION_OPTIONS: DimensionLineOptions = {
 
 /**
  * デフォルトのラベルスタイル
+ *
+ * Task 115.98 (Req 26.5): 値の出所を `ANNOTATION_DEFAULTS.dimensionLabel` へ寄せた。
+ * 従来は本ファイルが literal を持ち「本体色とは別の概念」を理由に一元管理の外へ置いていたが、
+ * その理由が正当化するのは**本体色と同じ値にしないこと**であって、資材の外に置くことではない。
+ * 同じラベルの白アウトライン（`ANNOTATION_DEFAULTS.dimensionLabelOutline`）は既に資材側にあり、
+ * `_applyLabelOutlineToText` の `fontSize × widthRatio` は二つの供給元をまたいで算出していた。
+ * 本定数は既定値を保持せず、資材から供給された値の別名として残す（値は変えていない）。
  */
 export const DEFAULT_LABEL_STYLE: DimensionLabelStyle = {
-  fontSize: 12,
-  fontColor: '#000000',
-  backgroundColor: '#ffffff',
+  ...ANNOTATION_DEFAULTS.dimensionLabel,
 };
 
 /**

@@ -218,7 +218,10 @@ vi.mock('fabric', () => {
 
 import { Canvas } from 'fabric';
 
-import { DimensionLine } from '../../../../components/site-surveys/tools/DimensionTool';
+import {
+  DimensionLine,
+  DEFAULT_LABEL_STYLE,
+} from '../../../../components/site-surveys/tools/DimensionTool';
 import { ANNOTATION_DEFAULTS } from '../../../../components/site-surveys/annotation-style-tokens';
 
 // ============================================================================
@@ -478,6 +481,64 @@ describe('Dimension labelOutline (Task 82.2 / Req 32.12)', () => {
 
       const [outlineAfter] = getOutlineBodyLabel(dim);
       expect(outlineAfter.strokeWidth).toBe(outlineStrokeWidthBefore);
+    });
+  });
+
+  /**
+   * Task 115.98 (Req 26.5): 寸法値ラベルの既定スタイルを一元管理の資材へ寄せる
+   *
+   * 従来 `DEFAULT_LABEL_STYLE` は `DimensionTool.ts` が literal で持ち、同じラベルの
+   * 白アウトライン（`ANNOTATION_DEFAULTS.dimensionLabelOutline`）だけが資材側にあった。
+   * 供給元を `ANNOTATION_DEFAULTS.dimensionLabel` へ一本化しても**既定値は変わらない**ことを
+   * 具体値で固定する（移設の過程で値がずれる事故を検出するため）。
+   *
+   * @requirement site-survey/REQ-26.5
+   */
+  describe('寸法値ラベルの既定スタイルの供給元（Task 115.98 / Req 26.5）', () => {
+    it('DEFAULT_LABEL_STYLE の既定値は fontSize=12 / fontColor=#000000 / backgroundColor=#ffffff である', () => {
+      expect(DEFAULT_LABEL_STYLE).toEqual({
+        fontSize: 12,
+        fontColor: '#000000',
+        backgroundColor: '#ffffff',
+      });
+    });
+
+    it('DEFAULT_LABEL_STYLE は ANNOTATION_DEFAULTS.dimensionLabel から供給される（単一情報源）', () => {
+      expect(DEFAULT_LABEL_STYLE).toEqual(ANNOTATION_DEFAULTS.dimensionLabel);
+    });
+
+    it('新規寸法線の labelText には資材の既定フォントサイズ 12 が適用される', () => {
+      const dim = new DimensionLine(START, END);
+
+      const label = getLabel(dim);
+
+      expect(label.fontSize).toBe(12);
+    });
+
+    it('新規寸法線の labelText には資材の既定文字色 #000000 が適用される', () => {
+      const dim = new DimensionLine(START, END);
+
+      const label = getLabel(dim);
+
+      expect(label.fill).toBe('#000000');
+    });
+
+    it('新規寸法線の getLabelStyle() は資材の既定と同じ具体値を返す', () => {
+      const dim = new DimensionLine(START, END);
+
+      expect(dim.getLabelStyle()).toEqual({
+        fontSize: 12,
+        fontColor: '#000000',
+        backgroundColor: '#ffffff',
+      });
+    });
+
+    it('ラベル白アウトラインの strokeWidth は既定 fontSize 12 × widthRatio 0.12 = 1.44 である', () => {
+      const dim = new DimensionLine(START, END);
+
+      const label = getLabel(dim);
+
+      expect(label.strokeWidth).toBeCloseTo(1.44, 10);
     });
   });
 });

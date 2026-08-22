@@ -73,6 +73,24 @@ export interface TextOutlineAttribute {
 }
 
 /**
+ * 寸法値ラベルの既定スタイル属性
+ *
+ * Task 115.98 (Req 26.5): 従来は `DimensionTool.ts` の `DEFAULT_LABEL_STYLE` が
+ * 一元管理の外で literal を持っていた。同じラベルの白アウトライン
+ * （`dimensionLabelOutline`）は既に本ファイルにあり、`fontSize × widthRatio` という
+ * 一つの算出式が二つの供給元をまたいでいた。型と既定値の双方を本ファイルへ移し、
+ * 供給元を一つにする。宣言の移設であり既定値そのものは変えない。
+ */
+export interface DimensionLabelStyle {
+  /** フォントサイズ */
+  fontSize: number;
+  /** フォント色 */
+  fontColor: string;
+  /** 背景色（Task 82.1 以降は子 labelText の背景描画なし。Task 82.3 のシリアライズ互換のため保持） */
+  backgroundColor: string;
+}
+
+/**
  * ツール横断の既定スタイル値
  *
  * design.md `AnnotationToolDefaults` (Req 26) と `AnnotationToolDefaultsExt` (Req 32) を統合。
@@ -104,6 +122,8 @@ export interface AnnotationToolDefaults {
   dimensionOutline: ShapeOutlineAttribute;
   /** 寸法値ラベルの既定白アウトライン（Req 32.12, 32.13） */
   dimensionLabelOutline: TextOutlineAttribute;
+  /** 寸法値ラベルの既定スタイル（フォントサイズ・文字色・背景色、Req 26.5） */
+  dimensionLabel: DimensionLabelStyle;
 }
 
 // ============================================================================
@@ -135,6 +155,33 @@ const DEFAULT_FONT_SIZE = 16;
  * 既定塗りつぶし色（透明）
  */
 const DEFAULT_FILL = '';
+
+/**
+ * 寸法値ラベルの既定フォントサイズ（ピクセル）
+ *
+ * Task 115.98: `DimensionTool.ts` の `DEFAULT_LABEL_STYLE.fontSize` が持っていた値を
+ * そのまま移設した。ツール横断の `DEFAULT_FONT_SIZE`（16）とは別値である。寸法値ラベルは
+ * 寸法線の中央に重ねて描く従属表示であり、テキスト注釈と同じ大きさにすると線を覆う。
+ * 値の統一は既定の見た目を変える別の判断であり、本タスクの範囲外とする。
+ */
+const DIMENSION_LABEL_FONT_SIZE = 12;
+
+/**
+ * 寸法値ラベルの既定文字色
+ *
+ * Task 115.98: 本体色（`DEFAULT_STROKE` = 赤系）とは異なる値を維持する。要件26.2 が
+ * 赤系/橙系を求めるのは「新規矢印・テキスト注釈の初期本体色」であり、寸法値ラベルの
+ * 文字色はその対象ではない。ラベルは白アウトライン（`dimensionLabelOutline`）を伴って
+ * 描画されるため、黒文字＋白縁で暗/明どちらの背景でも読める。
+ */
+const DIMENSION_LABEL_FONT_COLOR = '#000000';
+
+/**
+ * 寸法値ラベルの既定背景色
+ *
+ * Task 82.1 以降ラベルの背景は描画しないが、シリアライズ互換のため既定値を保持する。
+ */
+const DIMENSION_LABEL_BACKGROUND_COLOR = '#ffffff';
 
 /**
  * 白縁取りの片側幅を本体線幅から算出する比率
@@ -276,6 +323,12 @@ export const ANNOTATION_DEFAULTS: AnnotationToolDefaults = {
     enabled: true,
     widthRatio: 0.12,
   },
+  // Req 26.5 / Task 115.98: 寸法値ラベルの既定スタイルも本資材が単一の供給元となる
+  dimensionLabel: {
+    fontSize: DIMENSION_LABEL_FONT_SIZE,
+    fontColor: DIMENSION_LABEL_FONT_COLOR,
+    backgroundColor: DIMENSION_LABEL_BACKGROUND_COLOR,
+  },
 };
 
 /**
@@ -330,5 +383,6 @@ export function getToolDefaults(_tool: ToolType): AnnotationToolDefaults {
     freehandOutline: { ...ANNOTATION_DEFAULTS.freehandOutline },
     dimensionOutline: { ...ANNOTATION_DEFAULTS.dimensionOutline },
     dimensionLabelOutline: { ...ANNOTATION_DEFAULTS.dimensionLabelOutline },
+    dimensionLabel: { ...ANNOTATION_DEFAULTS.dimensionLabel },
   };
 }
