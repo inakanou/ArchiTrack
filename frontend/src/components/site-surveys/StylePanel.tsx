@@ -17,9 +17,17 @@
  * 実際に状態を保持する `AnnotationEditor`（`styleOptionsRef`）側へ移した。
  * 検証は `frontend/src/__tests__/components/site-surveys/AnnotationEditor.style-session.test.tsx`。
  *
+ * Task 115.99 (Req 26.5): 色・線幅・フォントサイズの各プリセット配列に、資材
+ * `annotation-style-tokens.ts` が定める既定値が含まれていなかった（線幅の既定 3 と
+ * 本体色の既定 `#e53935` がいずれも並びに無く、既定状態ではどのプリセットも選択状態に
+ * ならなかった）。既定値を literal で並べ直すと第二の供給元になるため、汎用パレットへ
+ * 資材の既定値を合成する形でプリセットを構成する。
+ * 検証は `frontend/src/__tests__/components/site-surveys/StylePanel.default-presets.test.tsx`。
+ *
  * @requirement site-survey/REQ-24.5
  * @requirement site-survey/REQ-25.2
  * @requirement site-survey/REQ-26.3
+ * @requirement site-survey/REQ-26.5
  * @requirement site-survey/REQ-28.7
  * @requirement site-survey/REQ-28.8
  * @requirement site-survey/REQ-29.1
@@ -81,9 +89,14 @@ const isMobileWidth = (): boolean => {
 // ============================================================================
 
 /**
- * プリセットカラー（線色・塗りつぶし色用）
+ * 汎用パレット（線色・塗りつぶし色用）
+ *
+ * Task 115.99: 既定本体色そのものはここに持たない。既定値は
+ * `ANNOTATION_DEFAULTS`（要件26.5 の設定資材）が単一の供給元であり、
+ * ここへ literal を並べ直すと第二の供給元になるため。
+ * `#ff0000` は純赤であって既定本体色 `#e53935` とは別の色である。
  */
-const PRESET_COLORS = [
+const PALETTE_COLORS = [
   '#000000', // 黒
   '#ffffff', // 白
   '#ff0000', // 赤
@@ -97,14 +110,72 @@ const PRESET_COLORS = [
 ];
 
 /**
- * プリセット線の太さ
+ * 汎用の線の太さ候補
  */
-const PRESET_STROKE_WIDTHS = [1, 2, 4, 6, 8];
+const PALETTE_STROKE_WIDTHS = [1, 2, 4, 6, 8];
+
+/**
+ * 汎用のフォントサイズ候補
+ */
+const PALETTE_FONT_SIZES = [12, 14, 16, 18, 24, 32];
+
+/**
+ * 既定の色を汎用パレットへ合成する（Req 26.5）
+ *
+ * Task 115.99: 既定本体色がプリセットの並びに無いと、パネルを既定状態で開いたとき
+ * どのプリセットも選択状態にならない（選択判定は `normalizedStrokeColor === color`）。
+ * 既定値は資材から引き、パレットに無い場合のみ先頭へ加える。既に含まれる場合は
+ * パレットの並びをそのまま保つ。
+ *
+ * @param palette 汎用パレット
+ * @param defaultColor 資材が定める既定色
+ * @returns 既定色を必ず含むプリセット配列
+ */
+function withDefaultColor(palette: readonly string[], defaultColor: string): string[] {
+  const normalized = defaultColor.toLowerCase();
+  const alreadyIncluded = palette.some((color) => color.toLowerCase() === normalized);
+  return alreadyIncluded ? [...palette] : [defaultColor, ...palette];
+}
+
+/**
+ * 既定の数値を汎用候補へ合成する（Req 26.5）
+ *
+ * Task 115.99: 線幅・フォントサイズも色と同じ理由で既定値を含める必要がある。
+ * 数値は大小の並びに意味があるため、加えたうえで昇順に整列する。
+ *
+ * @param palette 汎用候補
+ * @param defaultValue 資材が定める既定値
+ * @returns 既定値を必ず含む昇順のプリセット配列
+ */
+function withDefaultSize(palette: readonly number[], defaultValue: number): number[] {
+  const merged = palette.includes(defaultValue) ? [...palette] : [...palette, defaultValue];
+  return merged.sort((a, b) => a - b);
+}
+
+/**
+ * プリセットカラー（線色・塗りつぶし色用）
+ *
+ * 既定本体色（`ANNOTATION_DEFAULTS.stroke`）を必ず含む。
+ * 塗りつぶしの既定は透明であり、その選択状態は「塗りつぶしなし」ボタンが示す。
+ */
+const PRESET_COLORS = withDefaultColor(PALETTE_COLORS, ANNOTATION_DEFAULTS.stroke);
+
+/**
+ * プリセット線の太さ
+ *
+ * 既定線幅（`ANNOTATION_DEFAULTS.strokeWidth`）を必ず含む。
+ */
+const PRESET_STROKE_WIDTHS = withDefaultSize(
+  PALETTE_STROKE_WIDTHS,
+  ANNOTATION_DEFAULTS.strokeWidth
+);
 
 /**
  * プリセットフォントサイズ
+ *
+ * 既定フォントサイズ（`ANNOTATION_DEFAULTS.fontSize`）を必ず含む。
  */
-const PRESET_FONT_SIZES = [12, 14, 16, 18, 24, 32];
+const PRESET_FONT_SIZES = withDefaultSize(PALETTE_FONT_SIZES, ANNOTATION_DEFAULTS.fontSize);
 
 // ============================================================================
 // スタイル定義
