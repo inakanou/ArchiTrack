@@ -339,6 +339,27 @@ describe('survey-annotations API client', () => {
       expect(result).toBe(mockJsonString);
     });
 
+    // Task 115.102 (Req 9.6): サーバーは Content-Type: application/json で返すため、
+    // `apiClient` は本文を解析した**オブジェクト**を返す。実際の応答の形で JSON 文字列が
+    // 得られることを固定する（従来は型の上でだけ文字列を名乗っており、呼び出す本番コードが
+    // 0 件だったため露見していなかった）。
+    it('応答が解析済みオブジェクトでもJSON文字列を返す', async () => {
+      // Arrange
+      const parsedResponse = {
+        version: '1.0',
+        objects: [{ type: 'arrow', left: 10, top: 20 }],
+      };
+
+      vi.mocked(apiClient.get).mockResolvedValueOnce(parsedResponse);
+
+      // Act
+      const result = await exportAnnotationJson(mockImageId);
+
+      // Assert
+      expect(typeof result).toBe('string');
+      expect(JSON.parse(result)).toEqual(parsedResponse);
+    });
+
     it('画像が見つからない場合、ApiErrorをスロー', async () => {
       // Arrange
       const error = new ApiError(404, '画像が見つかりません。', {

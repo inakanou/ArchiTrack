@@ -22,6 +22,8 @@
  * @requirement site-survey/REQ-24.5
  * @requirement site-survey/REQ-25.2
  * @requirement site-survey/REQ-32.5
+ * @requirement site-survey/REQ-8.5
+ * @requirement site-survey/REQ-8.6
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
@@ -32,13 +34,35 @@ import {
   type ToolDefinition,
   type StyleOptions,
   type OutlineCapableTool,
+  type BalloonStyleType,
   TOOL_DEFINITIONS,
   TOOL_ORDER,
   DEFAULT_STYLE_OPTIONS,
 } from './annotation-toolbar.constants';
 
 // 型の再エクスポート（後方互換性のため）
-export type { ToolType, ToolDefinition, StyleOptions, OutlineCapableTool };
+export type { ToolType, ToolDefinition, StyleOptions, OutlineCapableTool, BalloonStyleType };
+
+/**
+ * 吹き出し形式の選択肢 (Req 8.6)
+ *
+ * 値は `BalloonStyleType` の全要素をちょうど網羅する。
+ */
+const BALLOON_STYLE_CHOICES: ReadonlyArray<{ value: BalloonStyleType; label: string }> = [
+  { value: 'none', label: 'なし' },
+  { value: 'rectangle', label: '四角' },
+  { value: 'rounded', label: '角丸' },
+  { value: 'ellipse', label: '楕円' },
+  { value: 'cloud', label: '雲' },
+];
+
+/**
+ * 背景色を「あり」に切替えた際に用いる初期色 (Req 8.5)
+ *
+ * 背景の既定は透明であり、色そのものを持たない。切替で色が必要になるため、
+ * 最初の 1 回だけこの値を用いる（以降はユーザーが選んだ色を覚える）。
+ */
+const TEXT_BACKGROUND_FALLBACK_COLOR = '#ffffff';
 
 /**
  * AnnotationToolbarのProps
@@ -149,6 +173,15 @@ const STYLES = {
     width: '18px',
     height: '18px',
     margin: 0,
+    cursor: 'pointer',
+  },
+  balloonStyleSelect: {
+    height: '24px',
+    padding: '0 4px',
+    fontSize: '12px',
+    border: '1px solid #d1d5db',
+    borderRadius: '4px',
+    backgroundColor: '#ffffff',
     cursor: 'pointer',
   },
   lineWidthInput: {
@@ -353,6 +386,44 @@ function StylePanel({
   );
 
   /**
+   * テキスト注釈の背景色を選ぶ (Req 8.5)
+   *
+   * 背景の有無は「背景」チェックで切替え、色は色入力で選ぶ。透明は空文字で表すため、
+   * 「あり」へ戻したときに復帰させる色を本コンポーネントが覚えておく。
+   */
+  const [rememberedTextBackgroundColor, setRememberedTextBackgroundColor] = useState<string>(
+    () => styleOptions.textBackgroundColor || TEXT_BACKGROUND_FALLBACK_COLOR
+  );
+
+  const handleTextBackgroundEnabledChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      onStyleChange({
+        textBackgroundColor: e.target.checked ? rememberedTextBackgroundColor : '',
+      });
+    },
+    [onStyleChange, rememberedTextBackgroundColor]
+  );
+
+  const handleTextBackgroundColorChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      // 色を選んだ操作は「背景を付ける」意図であるため、そのまま有効化まで行う
+      setRememberedTextBackgroundColor(e.target.value);
+      onStyleChange({ textBackgroundColor: e.target.value });
+    },
+    [onStyleChange]
+  );
+
+  /**
+   * テキスト注釈の吹き出し形式を選ぶ (Req 8.6)
+   */
+  const handleBalloonStyleChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      onStyleChange({ balloonStyle: e.target.value as BalloonStyleType });
+    },
+    [onStyleChange]
+  );
+
+  /**
    * 白縁取り（テキストは白アウトライン）の有効/無効を切替える (Req 24.5, 25.2, 32.5)
    *
    * 切替は当該ツールの描画設定であり、以降に描かれる注釈へ適用される。
@@ -497,6 +568,59 @@ function StylePanel({
                 name="fontSize"
                 aria-label="フォントサイズ"
               />
+            </div>
+
+            {/* 文字の背景色 (Req 8.5)。透明は空文字で表すため、有無はチェックで切替える */}
+            <div style={STYLES.styleItem}>
+              <label style={STYLES.styleLabel} htmlFor="annotation-text-background-toggle">
+                背景
+              </label>
+              <input
+                id="annotation-text-background-toggle"
+                type="checkbox"
+                checked={styleOptions.textBackgroundColor !== ''}
+                onChange={handleTextBackgroundEnabledChange}
+                disabled={disabled}
+                style={STYLES.outlineToggleCheckbox}
+                data-testid="text-background-toggle"
+                name="textBackgroundEnabled"
+                aria-label="文字の背景色を付ける"
+              />
+            </div>
+            <div style={STYLES.styleItem}>
+              <label style={STYLES.styleLabel}>背景色</label>
+              <input
+                type="color"
+                value={styleOptions.textBackgroundColor || rememberedTextBackgroundColor}
+                onChange={handleTextBackgroundColorChange}
+                disabled={disabled}
+                style={STYLES.colorPicker}
+                data-testid="text-background-color-picker"
+                aria-label="文字の背景色"
+              />
+            </div>
+
+            {/* 吹き出し形式 (Req 8.6) */}
+            <div style={STYLES.styleItem}>
+              <label style={STYLES.styleLabel} htmlFor="annotation-balloon-style">
+                吹き出し
+              </label>
+              <select
+                id="annotation-balloon-style"
+                value={styleOptions.balloonStyle}
+                onChange={handleBalloonStyleChange}
+                disabled={disabled}
+                style={STYLES.balloonStyleSelect}
+                data-testid="balloon-style"
+                name="balloonStyle"
+                aria-label="吹き出し形式"
+              >
+                {BALLOON_STYLE_CHOICES.map((choice) => (
+                  <option key={choice.value} value={choice.value}>
+                    {choice.label}
+                  </option>
+                ))}
+              </select>
             </div>
           </>
         )}

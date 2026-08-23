@@ -526,6 +526,8 @@ describe('AnnotationToolbar', () => {
               strokeWidth: 2,
               fontSize: 16,
               fillColor: 'transparent',
+              textBackgroundColor: DEFAULT_STYLE_OPTIONS.textBackgroundColor,
+              balloonStyle: DEFAULT_STYLE_OPTIONS.balloonStyle,
               outlineEnabled: DEFAULT_STYLE_OPTIONS.outlineEnabled,
             }}
           />
@@ -580,6 +582,8 @@ describe('AnnotationToolbar', () => {
               strokeWidth: 2,
               fontSize: 16,
               fillColor: '#ffffff',
+              textBackgroundColor: DEFAULT_STYLE_OPTIONS.textBackgroundColor,
+              balloonStyle: DEFAULT_STYLE_OPTIONS.balloonStyle,
               outlineEnabled: DEFAULT_STYLE_OPTIONS.outlineEnabled,
             }}
           />
@@ -618,6 +622,8 @@ describe('AnnotationToolbar', () => {
               strokeWidth: 2,
               fontSize: 16,
               fillColor: 'transparent',
+              textBackgroundColor: DEFAULT_STYLE_OPTIONS.textBackgroundColor,
+              balloonStyle: DEFAULT_STYLE_OPTIONS.balloonStyle,
               outlineEnabled: DEFAULT_STYLE_OPTIONS.outlineEnabled,
             }}
           />
@@ -654,6 +660,8 @@ describe('AnnotationToolbar', () => {
               strokeWidth: 2,
               fontSize: 16,
               fillColor: 'transparent',
+              textBackgroundColor: DEFAULT_STYLE_OPTIONS.textBackgroundColor,
+              balloonStyle: DEFAULT_STYLE_OPTIONS.balloonStyle,
               outlineEnabled: DEFAULT_STYLE_OPTIONS.outlineEnabled,
             }}
           />

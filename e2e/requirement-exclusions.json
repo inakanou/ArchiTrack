@@ -2,7 +2,7 @@
   "$schema": "./requirement-exclusions.schema.json",
   "description": "E2Eテスト対象外の受入基準とその代替検証方法を定義",
   "version": "1.0.0",
-  "lastUpdated": "2026-08-21",
+  "lastUpdated": "2026-08-23",
   "exclusions": [
     {
       "id": "REQ-23.3",
@@ -499,19 +499,6 @@
       }
     },
     {
-      "id": "site-survey/REQ-9.3",
-      "requirement": "REQ-9: 注釈データの保存・復元",
-      "title": "未保存変更時の確認ダイアログ",
-      "reason": "ブラウザの beforeunload イベントはE2Eで安定的にテスト困難。統合テストで検証",
-      "category": "fault-tolerance",
-      "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Vitest / React Testing Library",
-        "description": "未保存の変更がある状態で画面離脱時に確認ダイアログが表示されることを確認",
-        "threshold": "confirmation_dialog: displayed"
-      }
-    },
-    {
       "id": "site-survey/REQ-9.4",
       "requirement": "REQ-9: 注釈データの保存・復元",
       "title": "保存中インジケーター表示",
@@ -522,32 +509,6 @@
         "tool": "Vitest / React Testing Library",
         "description": "保存処理中にローディングインジケーターが表示されることを確認",
         "threshold": "loading_indicator: displayed"
-      }
-    },
-    {
-      "id": "site-survey/REQ-9.5",
-      "requirement": "REQ-9: 注釈データの保存・復元",
-      "title": "注釈保存失敗時のエラー表示",
-      "reason": "保存失敗のシミュレーションはE2E範囲外。統合テストで検証",
-      "category": "fault-tolerance",
-      "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Vitest / Mock Service Worker",
-        "description": "注釈データの保存に失敗した場合にエラーメッセージが表示されることを確認",
-        "threshold": "error_message: displayed"
-      }
-    },
-    {
-      "id": "site-survey/REQ-9.6",
-      "requirement": "REQ-9: 注釈データの保存・復元",
-      "title": "注釈データのJSONエクスポート",
-      "reason": "タスク 115.121 の全件監査で根拠を差し替えた。旧根拠「JSONエクスポート機能は現在未実装。実装後に検証方法を決定」は、未充足であること自体を除外の理由にしており根拠として成立しないうえ、実測でも失効している。エクスポート経路は backend/src/routes/annotation.routes.ts に出荷済みで、backend/src/__tests__/unit/routes/annotation.routes.test.ts が supertest で当該ルートを実際に叩いている（application/json と attachment 付き Content-Disposition、画像不在時の404）。現在 E2E から除外する理由は、frontend/src/api/survey-annotations.ts の exportAnnotationJson を呼ぶ本番コードが0件で、画面からエクスポートへ到達する経路が無いことである。この未結線の解消は本タスクの境界外であり後続タスクの所管とする",
-      "category": "infrastructure",
-      "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Vitest / supertest",
-        "description": "注釈エクスポート経路が application/json と attachment 付き Content-Disposition で JSON を返し、対象画像が存在しない場合に404を返すことを確認",
-        "threshold": "http_status: 200 / content_disposition: attachment"
       }
     },
     {
@@ -850,19 +811,6 @@
       }
     },
     {
-      "id": "site-survey/REQ-13.5",
-      "requirement": "REQ-13: Undo/Redo機能",
-      "title": "保存時の履歴クリア",
-      "reason": "保存時の履歴クリア検証はE2E範囲外。統合テストで検証",
-      "category": "infrastructure",
-      "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Vitest / Unit test",
-        "description": "注釈データ保存時に操作履歴がクリアされることを確認",
-        "threshold": "history_clear_on_save: true"
-      }
-    },
-    {
       "id": "site-survey/REQ-6.4",
       "requirement": "REQ-6: 注釈機能 - 寸法線",
       "title": "寸法線のオブジェクト選択",
@@ -964,32 +912,6 @@
         "tool": "Vitest / React Testing Library",
         "description": "フォントサイズを変更できることを確認",
         "threshold": "font_size_change: functional"
-      }
-    },
-    {
-      "id": "site-survey/REQ-8.5",
-      "requirement": "REQ-8: 注釈機能 - コメント（テキスト）",
-      "title": "テキストの背景色設定",
-      "reason": "キャンバス上のスタイル変更はE2E範囲外。統合テストで検証",
-      "category": "infrastructure",
-      "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Vitest / React Testing Library",
-        "description": "テキストの背景色を設定できることを確認",
-        "threshold": "background_color: functional"
-      }
-    },
-    {
-      "id": "site-survey/REQ-8.6",
-      "requirement": "REQ-8: 注釈機能 - コメント（テキスト）",
-      "title": "吹き出し形式のテキスト表示",
-      "reason": "キャンバス上の吹き出し描画はE2E範囲外。統合テストで検証",
-      "category": "infrastructure",
-      "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Vitest / React Testing Library",
-        "description": "吹き出し形式でテキストを表示できることを確認",
-        "threshold": "callout_style: functional"
       }
     },
     {

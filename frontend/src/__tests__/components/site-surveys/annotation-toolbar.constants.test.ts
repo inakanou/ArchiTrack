@@ -70,9 +70,27 @@ describe('annotation-toolbar.constants bridge to annotation-style-tokens', () =>
 
   describe('DEFAULT_STYLE_OPTIONS のフィールド名は既存 consumer との互換性を維持する', () => {
     it('期待されるキーのみが公開されている', () => {
+      // Task 115.102 (Req 8.5, 8.6): 文字注釈の背景色と吹き出し形式を道具帯の設定として追加した。
       expect(Object.keys(DEFAULT_STYLE_OPTIONS).sort()).toEqual(
-        ['fillColor', 'fontSize', 'outlineEnabled', 'strokeColor', 'strokeWidth'].sort()
+        [
+          'balloonStyle',
+          'fillColor',
+          'fontSize',
+          'outlineEnabled',
+          'strokeColor',
+          'strokeWidth',
+          'textBackgroundColor',
+        ].sort()
       );
+    });
+
+    // Task 115.102 (Req 8.5, 8.6): 追加した二項目も独自の literal を持たず、
+    // 一元管理の資材（`ANNOTATION_DEFAULTS`）から供給される。
+    it('文字注釈の背景色と吹き出し形式の既定は一元管理の資材から供給される', () => {
+      expect(DEFAULT_STYLE_OPTIONS.textBackgroundColor).toBe(
+        ANNOTATION_DEFAULTS.textBackgroundColor
+      );
+      expect(DEFAULT_STYLE_OPTIONS.balloonStyle).toBe(ANNOTATION_DEFAULTS.balloonStyle);
     });
   });
 });

@@ -24,7 +24,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { BrowserRouter } from 'react-router-dom';
+import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import SiteSurveyImageViewerPage from '../../pages/SiteSurveyImageViewerPage';
 import * as siteSurveysApi from '../../api/site-surveys';
 import type { SiteSurveyDetail, SurveyImageInfo } from '../../types/site-survey.types';
@@ -99,11 +99,14 @@ function mockMatchMedia(matchMobile: boolean) {
 }
 
 function renderComponent() {
-  return render(
-    <BrowserRouter>
-      <SiteSurveyImageViewerPage />
-    </BrowserRouter>
-  );
+  // Task 115.102 (Req 9.3): 本画面は未保存の離脱を `useBlocker` で捕捉する。
+  // `useBlocker` はデータルーター配下でのみ動作するため、検証も同じ構成で描画する。
+  // `Component` で渡すと再描画のたびに要素が作り直され、同一要素参照による
+  // 再描画の打ち切り（bailout）が起きない。
+  const router = createMemoryRouter([{ path: '/', Component: SiteSurveyImageViewerPage }], {
+    initialEntries: ['/'],
+  });
+  return { ...render(<RouterProvider router={router} />), router };
 }
 
 describe('SiteSurveyImageViewerPage ヘッダー/パンくず重なり・水平はみ出し解消 (REQ-36.6/36.7)', () => {

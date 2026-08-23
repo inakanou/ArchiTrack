@@ -1276,16 +1276,12 @@ test.describe('現場調査注釈ツール', () => {
     test('未保存の変更がある状態で画面を離れようとすると確認ダイアログが表示される (site-survey/REQ-9.3)', async ({
       page,
     }) => {
-      // REQ-9.3（未保存の変更があるときの離脱確認ダイアログ）は未実装である。
-      // AnnotationEditor に beforeunload もナビゲーションガードも無い
-      // （見積依頼側の useUnsavedChangesGuard に相当する結線が無い）。
-      // 本テストの主張は要件どおりだが、実装が要件を満たしていないため落ちる。
-      // 前提条件による自動無効化ではなく、本体は毎回すべて実行される。
-      // 実装されると本テストは通り、この注釈により「落ちるはずが通った」として
-      // 赤くなるため、注釈の撤去を強制するラチェットとして機能する。
-      // 直列実行のため、素の失敗を残すと後続の検証と後片付けが実行されなくなる。
-
-      test.fail();
+      // Task 115.102: 本テストは長らく `test.fail()` を伴うラチェットであった
+      // （REQ-9.3 の離脱確認が未実装で、注釈編集画面に beforeunload もナビゲーション
+      // ガードも無かったため）。同タスクで両方を結線したため、ラチェットを撤去して
+      // 素の主張に戻す。タブクローズ・リロード相当の離脱（`page.goto`）で
+      // ブラウザ標準の確認が出ることを本テストが、アプリ内遷移の確認ダイアログを
+      // `site-survey-annotation-editor-acceptance.spec.ts` の (c) が担う。
 
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -1481,10 +1477,16 @@ test.describe('現場調査注釈ツール', () => {
       await page.unroute('**/api/site-surveys/images/*/annotations');
 
       // REQ-9.5: 保存に失敗したらエラーメッセージを表示してリトライを促す。
-      // 実装に専用のリトライボタンは無く、保存ボタンが有効なまま残ることで再試行の
-      // 手段が提供される（AnnotationToolbar）。
+      // Task 115.102 で誤りの表示に「再試行」の導線を足した。保存の失敗のときだけ現れ、
+      // 押すと同じ保存をやり直す。
       // 以前は「リトライボタン または 保存ボタン」の論理和で、保存ボタンは失敗の有無に
       // かかわらず常に在るため、再試行できるかどうかを確かめていなかった。
+      const retryButton = page.getByTestId('save-retry-button');
+      await expect(retryButton, 'REQ-9.5: 保存失敗時に再試行の導線が現れない').toBeVisible({
+        timeout: getTimeout(3000),
+      });
+      await expect(retryButton, 'REQ-9.5: 再試行の導線が押せない').toBeEnabled();
+
       const saveButtonAfterError = page.getByRole('button', { name: /保存/i });
       await expect(saveButtonAfterError, '保存失敗後に保存ボタンが消えている').toBeVisible({
         timeout: getTimeout(3000),
@@ -1904,16 +1906,12 @@ test.describe('現場調査注釈ツール', () => {
     test('注釈データを保存すると操作履歴がクリアされる (site-survey/REQ-13.5)', async ({
       page,
     }) => {
-      // REQ-13.5（保存時に操作履歴をクリアする）は未実装である。
-      // UndoManager.clear() / useUndoState.clearOnSave は存在するが、
-      // AnnotationEditor の保存処理から呼ばれていない（見積書側のみ結線済み）。
-      // 本テストの主張は要件どおりだが、実装が要件を満たしていないため落ちる。
-      // 前提条件による自動無効化ではなく、本体は毎回すべて実行される。
-      // 実装されると本テストは通り、この注釈により「落ちるはずが通った」として
-      // 赤くなるため、注釈の撤去を強制するラチェットとして機能する。
-      // 直列実行のため、素の失敗を残すと後続の検証と後片付けが実行されなくなる。
-
-      test.fail();
+      // Task 115.102: 本テストは長らく `test.fail()` を伴うラチェットであった
+      // （`UndoManager.clear()` は存在したが、注釈編集画面の保存処理から呼ばれて
+      // いなかった）。同タスクで保存成功の時点に `undoManager.clear()` を結線したため、
+      // ラチェットを撤去して素の主張に戻す。保存後に取り消しが行えないことを本テストが、
+      // 「取り消しを試みても保存済みの注釈が減らない」という事故の筋書きを
+      // `site-survey-annotation-editor-acceptance.spec.ts` の (f) が担う。
 
       await loginAsUser(page, 'REGULAR_USER');
 

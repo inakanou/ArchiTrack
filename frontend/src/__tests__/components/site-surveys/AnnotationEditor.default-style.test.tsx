@@ -319,6 +319,20 @@ const FIELD_OBSERVERS: Record<
     testId: 'font-size',
     expected: String(ANNOTATION_DEFAULTS.fontSize),
   },
+  // Task 115.102 (Req 8.5): 背景の有無は真偽値（透明かどうか）のためチェック状態で観測する。
+  // 既定は透明（空文字）なので未チェックが期待値。
+  textBackgroundColor: {
+    toolLabel: 'テキスト',
+    testId: 'text-background-toggle',
+    expected: String(ANNOTATION_DEFAULTS.textBackgroundColor !== ''),
+    readAs: 'checked',
+  },
+  // Task 115.102 (Req 8.6): 吹き出し形式は選択欄の値として観測する。
+  balloonStyle: {
+    toolLabel: 'テキスト',
+    testId: 'balloon-style',
+    expected: ANNOTATION_DEFAULTS.balloonStyle,
+  },
   // Task 115.96 (Req 26.3, 32.11): 白縁取りの切替は真偽値のため、入力欄の値ではなく
   // チェック状態を観測する。矢印ツールで観測するので期待値は矢印の既定。
   outlineEnabled: {
@@ -346,8 +360,8 @@ async function readDefaultStyleValue(
 
   await user.click(screen.getByRole('button', { name: toolLabel }));
 
-  const input = (await screen.findByTestId(testId)) as HTMLInputElement;
-  return readAs === 'checked' ? String(input.checked) : input.value;
+  const input = (await screen.findByTestId(testId)) as HTMLInputElement | HTMLSelectElement;
+  return readAs === 'checked' ? String((input as HTMLInputElement).checked) : input.value;
 }
 
 describe('AnnotationEditor - 既定スタイルの供給元は一元管理の資材である (Task 115.60)', () => {

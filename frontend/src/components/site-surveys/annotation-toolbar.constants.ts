@@ -17,9 +17,19 @@
  * @requirement site-survey/REQ-24.5
  * @requirement site-survey/REQ-25.2
  * @requirement site-survey/REQ-32.5
+ * @requirement site-survey/REQ-8.5
+ * @requirement site-survey/REQ-8.6
  */
 
-import { ANNOTATION_DEFAULTS, createDefaultOutlineEnabled } from './annotation-style-tokens';
+import {
+  ANNOTATION_DEFAULTS,
+  createDefaultOutlineEnabled,
+  type BalloonStyleType,
+} from './annotation-style-tokens';
+
+// 吹き出し形式の型は資材（`annotation-style-tokens.ts`）が単一の宣言元。
+// 道具帯の consumer が本ファイル経由で参照できるよう再エクスポートする。
+export type { BalloonStyleType };
 
 // ============================================================================
 // 型定義
@@ -73,6 +83,20 @@ export interface StyleOptions {
   fillColor: string;
   /** フォントサイズ（テキスト用） */
   fontSize: number;
+  /**
+   * テキスト注釈の背景色 (Req 8.5)
+   *
+   * 透明は空文字で表す（`fillColor` と同じ表現）。文字色（`strokeColor`）とは独立した
+   * 項目であり、テキストの矩形領域の背後を塗る。
+   */
+  textBackgroundColor: string;
+  /**
+   * テキスト注釈の吹き出し形式 (Req 8.6)
+   *
+   * 描画設定の一部であり、以降に描かれるテキスト注釈へ適用される。
+   * 既存の注釈は変更しない。
+   */
+  balloonStyle: BalloonStyleType;
   /**
    * ツール別の白縁取り（テキストは白アウトライン）の有効/無効 (Req 24.5, 25.2, 32.5)
    *
@@ -174,6 +198,9 @@ export const DEFAULT_STYLE_OPTIONS: StyleOptions = {
   strokeWidth: ANNOTATION_DEFAULTS.strokeWidth,
   fillColor: ANNOTATION_DEFAULTS.fill,
   fontSize: ANNOTATION_DEFAULTS.fontSize,
+  // Req 8.5 / 8.6: 既定は「背景なし」「吹き出しなし」。値は一元管理の資材から供給する。
+  textBackgroundColor: ANNOTATION_DEFAULTS.textBackgroundColor,
+  balloonStyle: ANNOTATION_DEFAULTS.balloonStyle,
   // Req 26.3 / 32.11: 初回選択時は白縁取り/白アウトラインが有効な状態で起動する。
   // 値はツール別に一元管理の資材から供給し、本ファイルは独自の既定値を持たない。
   outlineEnabled: createDefaultOutlineEnabled(),

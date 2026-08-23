@@ -151,7 +151,19 @@ export async function saveAnnotation(
  * URL.revokeObjectURL(url);
  */
 export async function exportAnnotationJson(imageId: string): Promise<string> {
-  return apiClient.get<string>(`/api/site-surveys/images/${imageId}/annotations/export`);
+  const response = await apiClient.get<unknown>(
+    `/api/site-surveys/images/${imageId}/annotations/export`
+  );
+
+  // Task 115.102 (Req 9.6): サーバーは整形済みの JSON 文字列を Content-Type:
+  // application/json で返すため、`apiClient` は本文を解析した**オブジェクト**を返す。
+  // 従来の `apiClient.get<string>` は型の上でだけ文字列を名乗っており、実際に呼び出すと
+  // オブジェクトが返っていた（呼び出す本番コードが 0 件だったため露見していなかった）。
+  // 受け取った形に依らず JSON 文字列を返す契約へ揃える。
+  if (typeof response === 'string') {
+    return response;
+  }
+  return JSON.stringify(response, null, 2);
 }
 
 // ============================================================================

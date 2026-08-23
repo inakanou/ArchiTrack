@@ -217,6 +217,23 @@
 - **代替検証手段に Jest を挙げる項目は、是正前は 124 件あった。**本リポジトリに Jest の依存も設定ファイルも存在せず、`frontend/package.json` と `backend/package.json` はいずれも Vitest を使う（両ファイルとも `vitest` を持ち `jest` を持たない。`frontend/vitest.config.ts` と `backend/vitest.config.ts` が実在する）。**根拠が名指す道具が実在しない。**124 件の内訳は現場調査スペックの項目が **32 件**、他機能スペックの項目が **92 件**であった。**このうち現場調査の 32 件は本タスクの境界内であるため、すべて Vitest へ改めた**（上表の 2 件は根拠ごと差し替え、残る 30 件は道具名の先頭 `Jest` を `Vitest` へ置換し `React Testing Library` / `Supertest` などの併記部分は据え置いた）。**是正後に Jest を挙げる項目は 92 件で、すべて他機能スペックの所管である**（`node -e "const j=require('./e2e/requirement-exclusions.json');const k=j.exclusions.filter(e=>/Jest/.test(e.alternativeVerification.tool));console.log(k.length, k.filter(e=>e.id.startsWith('site-survey/')).length)"` の出力が `92 0`。書く直前の実測）。他機能スペックの項目は本タスクの境界外であるため記録にとどめた。**後続タスクの提案**: 各機能スペックで自機能の項目の道具名を実測へ改めること
 - **要件9.3（未保存変更時の確認ダイアログ）は、検証が本番へ到達するが要件が名指す経路へは到達しない。** 根拠が指す `frontend/src/hooks/useUnsavedChanges.ts` は本番から 5 箇所に結線されており、現場調査ではそのうち `frontend/src/pages/SiteSurveyDetailPage.tsx` が使う。しかし同ページの未保存対象は画像コメントと並び順であり、要件9.3 が名指す「注釈を編集中に画面を離れようとする」経路を担う `AnnotationEditor.tsx` には離脱確認の実装が無い。**「本番へ到達する」と「要件の経路へ到達する」は別の主張である。****後続タスクの提案**: 注釈編集中の離脱確認の有無を要件9.3 に照らして決着させること
 
+#### 注釈編集画面の未実装受入基準の結線（タスク 115.102）
+
+最終検証が「要件が定めながら実装が存在しない受入基準」を注釈編集画面に六つ検出した（要件8.5 / 8.6 / 9.3 / 9.5 / 9.6 / 13.5）。六件はいずれも `e2e/requirement-exclusions.json` で E2E から除外されており、除外の根拠は「キャンバス上の操作は E2E 範囲外」「保存失敗の模擬は E2E 範囲外」等であった。**未充足そのものを除外の理由にしている点で、上のタスク 115.121 が是正した二件と同型である。**本タスクは六件を実装し、受入水準の検証（`e2e/specs/site-surveys/site-survey-annotation-editor-acceptance.spec.ts`）を置いたうえで、当該六件を除外一覧から撤去した。
+
+| 受入基準 | 着手時点の実測 | 決着 |
+|---|---|---|
+| 8.5（文字の背景色） | 道具帯のスタイル設定（`annotation-toolbar.constants.ts` の `StyleOptions`）に背景色の項目そのものが無く、型の水準で選択が不可能だった | 既定値の供給元を `annotation-style-tokens.ts`（`textBackgroundColor`）へ置き、道具帯へ「背景」の有無と「背景色」の入力を追加、`AnnotationEditor` から `createTextAnnotation` の `backgroundColor` へ結線した。透明の表現は道具帯が空文字・テキストツールが `'transparent'` であり、結線点で橋渡しする |
+| 8.6（吹き出し形式） | 形式の宣言（`BalloonStyleType`）と保持・シリアライズは `TextTool.ts` にあったが、編集画面も道具帯も参照せず、**描画に用いる箇所がどこにも無かった**（`_render` の上書きが無く、形式を選んでも見た目が変わらない） | 宣言を資材（`annotation-style-tokens.ts`）へ移して道具帯の設定から参照できるようにし、選択欄を追加、`AnnotationEditor` から結線した。あわせて `TextAnnotation._render` を上書きし、四角・角丸・楕円・雲の輪郭を文字の背後へ描く。**吹き出しは文字の外形より外へ描くため、当該形式が有効な間はオブジェクトキャッシュを使わない**（Fabric のキャッシュ用キャンバスは文字の外形から割り当てられ、外側が切り落とされるため） |
+| 9.3（未保存離脱の確認） | 当該画面の全文に離脱を捕捉する仕組みが存在しなかった（`useUnsavedChanges` は現場調査詳細画面のコメント・並び順にしか結線されていない。タスク 115.121 の観測どおり） | 未保存かどうかの判定を `AnnotationEditor` が持ち（読み込み・復元由来の変更は数えない）、`onDirtyChange` でホスト画面へ通知する。離脱の捕捉はホストの `SiteSurveyImageViewerPage` が担い、アプリ内遷移は `useBlocker` + `UnsavedChangesDialog`、タブクローズ・リロードは `useUnsavedChanges` の `beforeunload` で確認する（`CompanyInfoPage` / `QuantityTableEditPage` と同一の確立済みパターン）。**判定と捕捉を分けたのは、`useBlocker` がデータルーターの経路（ルート要素）でのみ成立する一方、未保存かどうかを知っているのはキャンバスの変更を受け取る注釈エディタだけだからである。**注釈エディタ自身は経路を持たない部品であり、離脱を止める責務を負えない |
+| 9.5（保存失敗時の再試行） | 誤りの表示（`role="alert"`）はあったが、再実行の手段が無かった | 誤りの出所を状態（`saveFailed`）で区別し、保存の失敗のときだけ誤りの表示に「再試行」を添える。再試行は同じ `handleSave` を呼ぶ |
+| 9.6（注釈のJSON書き出し） | 書き出し経路はバックエンドに出荷済みだが、`frontend/src/api/survey-annotations.ts` の `exportAnnotationJson` を呼ぶ本番コードが 0 件だった。**加えて当該関数は実際には動かなかった**: サーバーは `Content-Type: application/json` で返すため `apiClient` は解析済みオブジェクトを返すが、関数は型の上でだけ文字列を名乗っていた（呼び出す本番コードが無かったため露見していなかった） | 関数を「受け取った形に依らず JSON 文字列を返す」契約へ揃え、画像書き出しダイアログ（`ImageExportDialog`）へ「注釈データ(JSON)をダウンロード」の導線を足して `AnnotationEditor` から結線した |
+| 13.5（保存時の履歴破棄） | 履歴を捨てる呼び出しが本番に無かった（`useUndoState.clearOnSave` は存在するが注釈編集画面は `UndoManager` を直に持つ） | `handleSave` の中、注釈保存の応答を得た直後に `undoManager.clear()` を呼ぶ。**合成済みサムネイルの更新可否より前に置く**。注釈本体は既に確定しており、サムネイル更新の失敗で早期 return する経路でも履歴を残してはならないためである |
+
+**13.5 を「呼び出しを足すだけ」で終わらせない理由**: 保存後も履歴が残っていると、保存前の状態へ「元に戻す」ことができ、その状態のまま次に保存すると保存済みの注釈がサーバー上から消える。受入水準の検証はこの筋書き（保存成功 → 取り消し → 再保存）をそのまま辿り、送信された注釈の件数とサーバー上の件数がいずれも減らないことを確かめる。
+
+**除外一覧の撤去**: 上記六件を `e2e/requirement-exclusions.json` から削除した。要件9.3 についてタスク 115.121 が残した申し送り（「注釈編集中の離脱確認の有無を要件9.3 に照らして決着させること」）と、要件9.6 の「画面側の未結線の解消は後続タスクの所管とする」は、いずれも本タスクで決着した。
+
 #### 画像ビューアの担当付け替えと閲覧時の表示操作の結線（タスク 115.83）
 
 タスク 115.64 が「要件33-34 節にフェーズ4 の移行計画があるため設計上の役割が現存する」として存置した `ImageViewer`（`frontend/src/components/site-surveys/ImageViewer.tsx`）について、タスク 115.83 で**要件5 の担当を実態へ付け替えた**。決定の根拠は次の3点である。

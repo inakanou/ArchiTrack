@@ -15,23 +15,27 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import { BrowserRouter } from 'react-router-dom';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import SiteSurveyImageViewerPage from '../../pages/SiteSurveyImageViewerPage';
 import * as siteSurveysApi from '../../api/site-surveys';
 import type { SiteSurveyDetail, SurveyImageInfo } from '../../types/site-survey.types';
 
-// 画像切り替え（imageId 変化）を再現するため、可変のパラメータを参照する
-const routeParams = { id: 'survey-123', imageId: 'img-1' };
+/**
+ * 本画面のルート定義（実ルートと同じ形）
+ *
+ * Task 115.102 (Req 9.3): 本画面は未保存の離脱を `useBlocker` で捕捉するようになった。
+ * `useBlocker` はデータルーター配下でのみ動作するため、`useParams` を差し替えて
+ * `BrowserRouter` で描く従来の構成では成立しない。実ルートと同じ経路を持つ
+ * メモリルーターを用い、画像の切り替えは実際の遷移で起こす。
+ */
+const VIEWER_ROUTE_PATH = '/site-surveys/:id/images/:imageId';
 
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual('react-router-dom');
-  return {
-    ...actual,
-    useParams: () => routeParams,
-    useNavigate: () => vi.fn(),
-  };
-});
+/** 画像 1 枚目の経路 */
+const IMAGE_1_PATH = '/site-surveys/survey-123/images/img-1';
+
+/** 画像 2 枚目の経路 */
+const IMAGE_2_PATH = '/site-surveys/survey-123/images/img-2';
 
 vi.mock('../../api/site-surveys');
 
@@ -123,17 +127,17 @@ const mockSurveyDetail: SiteSurveyDetail = {
   images: mockImages,
 };
 
-const renderPage = () =>
-  render(
-    <BrowserRouter>
-      <SiteSurveyImageViewerPage />
-    </BrowserRouter>
+const renderPage = () => {
+  const router = createMemoryRouter(
+    [{ path: VIEWER_ROUTE_PATH, Component: SiteSurveyImageViewerPage }],
+    { initialEntries: [IMAGE_1_PATH] }
   );
+  return { ...render(<RouterProvider router={router} />), router };
+};
 
 describe('SiteSurveyImageViewerPage - 表示状態の共有 (Req 5.6)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    routeParams.imageId = 'img-1';
     vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
   });
 
@@ -171,7 +175,7 @@ describe('SiteSurveyImageViewerPage - 表示状態の共有 (Req 5.6)', () => {
   });
 
   it('表示する画像が変わったら共有中の表示状態を破棄する', async () => {
-    const { rerender } = renderPage();
+    const { router } = renderPage();
 
     await screen.findByTestId('annotation-editor');
     fireEvent.click(screen.getByTestId('emit-view-state'));
@@ -181,12 +185,9 @@ describe('SiteSurveyImageViewerPage - 表示状態の共有 (Req 5.6)', () => {
     });
 
     // 別画像へ切り替える（保存済み回転の復元を前画像の回転で上書きしてはならない）
-    routeParams.imageId = 'img-2';
-    rerender(
-      <BrowserRouter>
-        <SiteSurveyImageViewerPage />
-      </BrowserRouter>
-    );
+    await act(async () => {
+      await router.navigate(IMAGE_2_PATH);
+    });
 
     await waitFor(() => {
       expect(screen.getByTestId('annotation-editor')).toHaveAttribute('data-initial-zoom', '');

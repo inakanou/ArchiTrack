@@ -85,6 +85,7 @@ import {
   getAnnotation,
   updateAnnotatedThumbnail,
   deleteAnnotatedThumbnail,
+  exportAnnotationJson,
 } from '../../api/survey-annotations';
 import { ApiError } from '../../api/client';
 import { exportImage, downloadFile, downloadOriginalImage } from '../../services/ExportService';
@@ -280,6 +281,13 @@ interface AnnotationEditorState {
   isSaving: boolean;
   /** 保存成功メッセージ */
   saveSuccess: boolean;
+  /**
+   * 直近の誤りが保存の失敗によるものか（Req 9.5）
+   *
+   * Task 115.102: 誤りの表示は以前からあったが、やり直す手段が無かった。
+   * 保存の失敗のときだけ再試行の導線を出すため、誤りの出所を区別する。
+   */
+  saveFailed: boolean;
   /** 背景画像の回転角度 */
   imageRotation: 0 | 90 | 180 | 270;
 }
@@ -321,6 +329,14 @@ export interface AnnotationEditorProps {
   onAnnotationSaved?: (result: { annotatedThumbnailUrl: string | null }) => void;
   /** 画像一覧の強制再取得コールバック（REQ-23.6: サムネイル再生成失敗時の旧状態残留防止） */
   onRequestRefresh?: () => void;
+  /**
+   * 未保存の編集の有無の変化通知（REQ-9.3）
+   *
+   * Task 115.102: 離脱を捕捉する仕組み（`useBlocker` / `beforeunload`）は画面（ルート）側に
+   * 置く必要があるため、未保存かどうかの判定だけを本コンポーネントが担い、離脱の確認は
+   * ホスト画面が行う。読み込み・復元由来の変更は未保存として数えない。
+   */
+  onDirtyChange?: (isDirty: boolean) => void;
 }
 
 // ============================================================================
@@ -445,6 +461,23 @@ const STYLES = {
     color: '#991b1b',
     textAlign: 'center' as const,
     maxWidth: '400px',
+  },
+  // Req 9.5: 保存に失敗したとき、同じ操作をやり直すための導線
+  errorRetryButton: {
+    marginTop: '12px',
+    padding: '8px 20px',
+    border: '1px solid #991b1b',
+    borderRadius: '6px',
+    backgroundColor: '#991b1b',
+    color: '#ffffff',
+    fontSize: '14px',
+    fontWeight: 600,
+    cursor: 'pointer',
+  },
+  errorRetryButtonDisabled: {
+    backgroundColor: '#6b7280',
+    borderColor: '#6b7280',
+    cursor: 'not-allowed',
   },
   savingOverlay: {
     position: 'absolute' as const,
@@ -624,6 +657,7 @@ function AnnotationEditor({
   onAnnotationSaved,
   onRequestRefresh,
   onViewStateChange,
+  onDirtyChange,
 }: AnnotationEditorProps): React.JSX.Element {
   // Toast通知フック（REQ-23.6: サムネイル再生成失敗時のエラー通知用）
   const toast = useToast();
@@ -674,6 +708,7 @@ function AnnotationEditor({
     canRedo: false,
     isSaving: false,
     saveSuccess: false,
+    saveFailed: false,
     imageRotation: 0,
   });
 
@@ -681,6 +716,8 @@ function AnnotationEditor({
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  /** 注釈データ（JSON）のエクスポート処理中フラグ（Task 115.102 / Req 9.6） */
+  const [isExportingAnnotationJson, setIsExportingAnnotationJson] = useState(false);
 
   // Task 72.2 (Req 27.10): 長押し由来コンテキストメニューの表示状態。
   // 実際の描画は Task 72.3 で AnnotationContextMenu コンポーネントをマウントする際に行う。
@@ -753,6 +790,30 @@ function AnnotationEditor({
 
   /** 画像・注釈の読み込みが完了し、以後の変更をユーザー編集として扱ってよいか（Req 15.4） */
   const autoSaveReadyRef = useRef(false);
+
+  // ---------------------------------------------------------------------------
+  // Task 115.102 (Req 9.3): 未保存の編集の有無
+  // ---------------------------------------------------------------------------
+
+  /** 未保存の編集があるか。Fabric のイベントハンドラから読むため参照で持つ。 */
+  const isDirtyRef = useRef(false);
+
+  /** ホストへの通知先。props の同一性に依存させないため参照で追随させる。 */
+  const onDirtyChangeRef = useRef(onDirtyChange);
+  onDirtyChangeRef.current = onDirtyChange;
+
+  /**
+   * 未保存状態を更新し、変化したときだけホストへ通知する（Req 9.3）
+   *
+   * @param next 未保存があるか
+   */
+  const setDirty = useCallback((next: boolean) => {
+    if (isDirtyRef.current === next) {
+      return;
+    }
+    isDirtyRef.current = next;
+    onDirtyChangeRef.current?.(next);
+  }, []);
 
   /** 復元要求（ダイアログで「復元する」が押された）を描画側へ受け渡す参照 */
   const pendingRestoreRef = useRef<AnnotationDraftData | null>(null);
@@ -1148,6 +1209,8 @@ function AnnotationEditor({
       // 取り違えないよう、読み込みの開始時点で自動保存の受付を閉じる。編集モードの
       // 切り替えでは canvas が作り直されて本関数が再実行されるため、初回だけでは足りない。
       autoSaveReadyRef.current = false;
+      // Req 9.3: 画像の読み込みをやり直す時点では、まだユーザーの編集は無い
+      setDirty(false);
       setState((prev) => ({ ...prev, isLoading: true, error: null }));
 
       try {
@@ -1341,7 +1404,7 @@ function AnnotationEditor({
         }
       }
     },
-    [imageId, readOnly]
+    [imageId, readOnly, setDirty]
   );
 
   /**
@@ -1420,6 +1483,14 @@ function AnnotationEditor({
             initialText: 'テキスト',
             fontSize: currentStyle.fontSize,
             fill: currentStyle.strokeColor,
+            // Task 115.102 (Req 8.5): 道具帯で選んだ背景色を反映する。
+            // 道具帯は透明を空文字で表し、テキストツール側は 'transparent' で表すため橋渡しする。
+            backgroundColor:
+              currentStyle.textBackgroundColor === ''
+                ? 'transparent'
+                : currentStyle.textBackgroundColor,
+            // Task 115.102 (Req 8.6): 道具帯で選んだ吹き出し形式を反映する。
+            balloonStyle: currentStyle.balloonStyle,
             // Task 115.96 (Req 25.2): 道具帯の白アウトライン切替を反映する。
             // 幅比率は一元管理の資材から引く（切替は有効/無効だけを決める）。
             textOutline: {
@@ -2587,7 +2658,13 @@ function AnnotationEditor({
 
     // 6. Task 115.83 (Req 5.6): 回転もモード間で共有する表示状態のひとつ
     reportViewState();
-  }, [undoManager, applyImageRotation, reportViewState]);
+
+    // 7. Task 115.102 (Req 9.3): 回転角度は注釈データとして保存される（Req 22.4）ため、
+    //    保存前に画面を離れると失われる。未保存の編集として数える。
+    if (!readOnly) {
+      setDirty(true);
+    }
+  }, [undoManager, applyImageRotation, reportViewState, readOnly, setDirty]);
 
   /**
    * Task 115.83 (Req 5.4): 閲覧モードの単一ポインタ・ドラッグによるパン操作。
@@ -2666,7 +2743,13 @@ function AnnotationEditor({
     const canvas = fabricCanvasRef.current;
 
     // 保存中状態に設定
-    setState((prev) => ({ ...prev, isSaving: true, error: null, saveSuccess: false }));
+    setState((prev) => ({
+      ...prev,
+      isSaving: true,
+      error: null,
+      saveSuccess: false,
+      saveFailed: false,
+    }));
 
     try {
       // 注釈データを構築（キャンバス寸法と回転角度を含める - PDF/サムネイルでのスケール変換・回転用）
@@ -2675,6 +2758,16 @@ function AnnotationEditor({
 
       // APIを呼び出して保存
       const saveResponse = await saveAnnotation(imageId, { data: annotationData });
+
+      // Task 115.102 (Req 13.5): 保存が成功した時点で操作履歴を捨てる。
+      // 保存後も履歴が残っていると、保存前の状態へ「元に戻す」ことができてしまい、
+      // その状態のまま次に保存すると、保存済みの注釈がサーバー上から消える。
+      // 合成済みサムネイルの更新可否より前に置く。注釈本体は既に確定しており、
+      // サムネイル更新の失敗で早期 return する経路でも履歴を残してはならないため。
+      undoManager.clear();
+
+      // Task 115.102 (Req 9.3): サーバーへ確定したので未保存の編集は無くなる
+      setDirty(false);
 
       // Task 115.1: 合成済み画像は注釈付きサムネイル（annotatedThumbnailPath）へ保存する。
       // 通常サムネイルはアップロード時の素の画像として不変。
@@ -2796,9 +2889,11 @@ function AnnotationEditor({
       }
 
       console.error('注釈の保存に失敗しました:', err);
+      // Req 9.5: 誤りを伝えたうえで、同じ操作をやり直す導線（再試行）を出す
       setState((prev) => ({
         ...prev,
         isSaving: false,
+        saveFailed: true,
         error: err instanceof Error ? err.message : '注釈の保存に失敗しました',
       }));
     }
@@ -2810,6 +2905,8 @@ function AnnotationEditor({
     toast,
     buildAnnotationData,
     autoSaveManager,
+    undoManager,
+    setDirty,
   ]);
 
   // ---------------------------------------------------------------------------
@@ -2888,6 +2985,8 @@ function AnnotationEditor({
       if (!autoSaveReadyRef.current) {
         return;
       }
+      // Req 9.3: 読み込み・復元由来ではないキャンバス変更は未保存の編集である
+      setDirty(true);
       autoSaveManager.saveToLocal(imageId, surveyId, buildAnnotationData(canvas));
     };
 
@@ -2900,7 +2999,7 @@ function AnnotationEditor({
       canvas.off('object:modified', scheduleAutoSave);
       canvas.off('object:removed', scheduleAutoSave);
     };
-  }, [fabricCanvas, readOnly, imageId, surveyId, autoSaveManager, buildAnnotationData]);
+  }, [fabricCanvas, readOnly, imageId, surveyId, autoSaveManager, buildAnnotationData, setDirty]);
 
   /**
    * Req 15.5: 復元確定後にローカル下書きをキャンバスへ適用する
@@ -2941,12 +3040,16 @@ function AnnotationEditor({
         );
       }
       canvas.renderAll();
+      // Req 9.3: 復元した下書きはサーバーへ未確定の編集である
+      if (!readOnly) {
+        setDirty(true);
+      }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [restoreRequestId, state.isLoading, readOnly]);
+  }, [restoreRequestId, state.isLoading, readOnly, setDirty]);
 
   /**
    * アンマウント時に保留中の自動保存タイマーを破棄する
@@ -3074,6 +3177,39 @@ function AnnotationEditor({
       setIsDownloading(false);
     }
   }, [imageInfo?.originalUrl, imageInfo?.fileName]);
+
+  /**
+   * 注釈データを JSON 形式でエクスポートする（Task 115.102 / Req 9.6）
+   *
+   * 保存済みの注釈データをサーバーから取得し、JSON ファイルとしてダウンロードさせる。
+   * 画像の書き出し（Req 12）とは別の導線であり、注釈そのものの受け渡しに用いる。
+   * 保存前の編集内容ではなくサーバー上の確定内容を出す（要件9.6 の対象は「注釈データ」）。
+   */
+  const handleExportAnnotationJson = useCallback(async () => {
+    setIsExportingAnnotationJson(true);
+
+    try {
+      const jsonString = await exportAnnotationJson(imageId);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const baseName = imageInfo?.fileName?.replace(/\.[^/.]+$/, '') || `annotation_${imageId}`;
+      downloadFile(blob, `${baseName}_annotations.json`);
+      setIsExportDialogOpen(false);
+    } catch (err) {
+      console.error('注釈データのエクスポートに失敗しました:', err);
+      const isNotFound = err instanceof ApiError && err.statusCode === 404;
+      setState((prev) => ({
+        ...prev,
+        saveFailed: false,
+        error: isNotFound
+          ? '保存された注釈データがありません。先に保存してください。'
+          : err instanceof Error
+            ? err.message
+            : '注釈データのエクスポートに失敗しました',
+      }));
+    } finally {
+      setIsExportingAnnotationJson(false);
+    }
+  }, [imageId, imageInfo?.fileName]);
 
   /**
    * エクスポートダイアログを閉じる
@@ -3256,6 +3392,24 @@ function AnnotationEditor({
             <div style={STYLES.errorContainer}>
               <div role="alert" style={STYLES.errorMessage}>
                 {state.error}
+                {/* Task 115.102 (Req 9.5): 保存に失敗したときは再実行の手段を添える。
+                    誤りの表示だけでは、ユーザーはもう一度保存する導線を持てない。 */}
+                {!readOnly && state.saveFailed && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={handleSave}
+                      disabled={state.isSaving}
+                      style={{
+                        ...STYLES.errorRetryButton,
+                        ...(state.isSaving ? STYLES.errorRetryButtonDisabled : {}),
+                      }}
+                      data-testid="save-retry-button"
+                    >
+                      再試行
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -3302,8 +3456,10 @@ function AnnotationEditor({
           onExport={handleExportWithOptions}
           onClose={handleCloseExportDialog}
           onDownloadOriginal={handleDownloadOriginal}
+          onExportAnnotationJson={handleExportAnnotationJson}
           exporting={isExporting}
           downloading={isDownloading}
+          exportingAnnotationJson={isExportingAnnotationJson}
         />
       )}
 

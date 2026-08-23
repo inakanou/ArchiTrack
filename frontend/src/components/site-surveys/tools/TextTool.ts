@@ -35,9 +35,18 @@
 
 import { IText, type Canvas as FabricCanvas } from 'fabric';
 
-import { ANNOTATION_DEFAULTS, type TextOutlineAttribute } from '../annotation-style-tokens';
+import {
+  ANNOTATION_DEFAULTS,
+  type TextOutlineAttribute,
+  type BalloonStyleType,
+} from '../annotation-style-tokens';
 
 export type { TextOutlineAttribute };
+
+// Task 115.102 (Req 8.6): 吹き出し形式の宣言元は資材（`annotation-style-tokens.ts`）へ移した。
+// 道具帯のスタイル設定が同じ型を参照する必要があり、本ファイルに置くと循環参照になるため。
+// 既存 consumer の import 元を変えないよう再エクスポートする。
+export type { BalloonStyleType };
 
 // ============================================================================
 // 型定義
@@ -50,12 +59,6 @@ export interface Point {
   x: number;
   y: number;
 }
-
-/**
- * 吹き出しスタイルの種類
- * Task 16.3: 吹き出し形式
- */
-export type BalloonStyleType = 'none' | 'rectangle' | 'rounded' | 'ellipse' | 'cloud';
 
 /**
  * 吹き出しオプション
@@ -157,7 +160,8 @@ export const BALLOON_STYLES = {
  * Task 16.3: 吹き出し形式
  */
 export const DEFAULT_BALLOON_OPTIONS: Required<BalloonOptions> = {
-  style: 'none',
+  // Task 115.102 (Req 8.6): 既定の形式は一元管理の資材から供給する
+  style: ANNOTATION_DEFAULTS.balloonStyle,
   backgroundColor: '#ffffff',
   strokeColor: '#000000',
   strokeWidth: 1,
@@ -176,6 +180,30 @@ const TEXT_OUTLINE_WIDTH_RATIO_MAX = 0.2;
  * 白アウトラインストロークの色（固定値、Req 25.4）
  */
 const TEXT_OUTLINE_STROKE_COLOR = '#ffffff';
+
+/**
+ * 角丸吹き出しの角半径の上限（論理ピクセル）
+ *
+ * Task 115.102 (Req 8.6): 実際の半径は吹き出しの高さの半分を超えないよう抑える。
+ */
+const BALLOON_CORNER_RADIUS = 12;
+
+/**
+ * 楕円吹き出しが文字の矩形を内包するために半径へ掛ける係数
+ *
+ * 幅 w・高さ h の矩形を内包する楕円の半径は (w/2)*sqrt(2), (h/2)*sqrt(2)。
+ */
+const BALLOON_ELLIPSE_RADIUS_FACTOR = Math.SQRT2;
+
+/**
+ * 雲形吹き出しの外周に並べる円弧の 1 個あたりの目標の弧長（論理ピクセル）
+ */
+const BALLOON_CLOUD_BUMP_PITCH = 24;
+
+/**
+ * 雲形吹き出しの円弧の半径が外周の目標弧長に対して占める割合
+ */
+const BALLOON_CLOUD_BUMP_RADIUS_RATIO = 0.62;
 
 /**
  * デフォルトのテキストオプション
@@ -211,7 +239,7 @@ export class TextAnnotation extends IText {
   private _canvas: FabricCanvas | null = null;
 
   /** 吹き出しスタイル（Task 16.3） */
-  private _balloonStyle: BalloonStyleType = 'none';
+  private _balloonStyle: BalloonStyleType = DEFAULT_BALLOON_OPTIONS.style;
 
   /** 吹き出し背景色 */
   private _balloonBackgroundColor: string = DEFAULT_BALLOON_OPTIONS.backgroundColor;
@@ -350,6 +378,7 @@ export class TextAnnotation extends IText {
     if (mergedOptions.balloonStyle) {
       this._balloonStyle = mergedOptions.balloonStyle;
     }
+    this._applyBalloonCachingPolicy();
   }
 
   // ==========================================================================
@@ -488,6 +517,8 @@ export class TextAnnotation extends IText {
    */
   setBalloonStyle(style: BalloonStyleType): void {
     this._balloonStyle = style;
+    this._applyBalloonCachingPolicy();
+    this.set('dirty', true);
   }
 
   /**
@@ -578,6 +609,198 @@ export class TextAnnotation extends IText {
     if (options.padding !== undefined) {
       this._balloonPadding = options.padding;
     }
+  }
+
+  // ==========================================================================
+  // 吹き出しの描画（Task 115.102 / Req 8.6）
+  // ==========================================================================
+
+  /**
+   * 吹き出しの有無に応じてオブジェクトキャッシュの利用可否を決める
+   *
+   * Fabric はキャッシュ用の内部キャンバスを文字の外形（`width` / `height`）から
+   * 割り当てる。吹き出しは文字の外形より外側（`padding` の分だけ）へ描くため、
+   * キャッシュ有効のままでは縁が切り落とされる。吹き出しが無い場合は従来どおり
+   * キャッシュを使い、既存の描画性能を変えない。
+   */
+  private _applyBalloonCachingPolicy(): void {
+    this.objectCaching = this._balloonStyle === 'none';
+  }
+
+  /**
+   * 吹き出しの外形を現在の文字寸法から算出する
+   *
+   * `_render` の座標系は文字の中心が原点であるため、左上は負値になる。
+   *
+   * @returns 吹き出しの左上座標と幅・高さ
+   */
+  private _getBalloonBounds(): { x: number; y: number; width: number; height: number } {
+    const padding = this._balloonPadding;
+    const width = this.width + padding * 2;
+    const height = this.height + padding * 2;
+    return { x: -width / 2, y: -height / 2, width, height };
+  }
+
+  /**
+   * 吹き出しの輪郭を現在のパスとして組み立てる
+   *
+   * @param ctx 描画コンテキスト
+   */
+  private _traceBalloonPath(ctx: CanvasRenderingContext2D): void {
+    const { x, y, width, height } = this._getBalloonBounds();
+
+    switch (this._balloonStyle) {
+      case 'rectangle':
+        ctx.rect(x, y, width, height);
+        return;
+
+      case 'rounded': {
+        const radius = Math.max(0, Math.min(BALLOON_CORNER_RADIUS, width / 2, height / 2));
+        ctx.moveTo(x + radius, y);
+        ctx.lineTo(x + width - radius, y);
+        ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+        ctx.lineTo(x + width, y + height - radius);
+        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+        ctx.lineTo(x + radius, y + height);
+        ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+        ctx.lineTo(x, y + radius);
+        ctx.quadraticCurveTo(x, y, x + radius, y);
+        ctx.closePath();
+        return;
+      }
+
+      case 'ellipse': {
+        // 文字の矩形を内包する楕円（半径に sqrt(2) を掛ける）
+        ctx.ellipse(
+          0,
+          0,
+          (width / 2) * BALLOON_ELLIPSE_RADIUS_FACTOR,
+          (height / 2) * BALLOON_ELLIPSE_RADIUS_FACTOR,
+          0,
+          0,
+          Math.PI * 2
+        );
+        return;
+      }
+
+      case 'cloud': {
+        this._traceCloudBalloonPath(ctx, x, y, width, height);
+        return;
+      }
+
+      /* istanbul ignore next -- @preserve 'none' は呼び出し側で除外済み（防御的分岐） */
+      default:
+        return;
+    }
+  }
+
+  /**
+   * 雲形の輪郭（外周に沿って半円を並べた形）を組み立てる
+   *
+   * @param ctx 描画コンテキスト
+   * @param x 左上 X
+   * @param y 左上 Y
+   * @param width 幅
+   * @param height 高さ
+   */
+  private _traceCloudBalloonPath(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    width: number,
+    height: number
+  ): void {
+    // 各辺に並べる膨らみの個数は辺長から求める（最低 1 個）
+    const horizontalBumps = Math.max(1, Math.round(width / BALLOON_CLOUD_BUMP_PITCH));
+    const verticalBumps = Math.max(1, Math.round(height / BALLOON_CLOUD_BUMP_PITCH));
+    const horizontalStep = width / horizontalBumps;
+    const verticalStep = height / verticalBumps;
+
+    ctx.moveTo(x, y);
+    for (let i = 0; i < horizontalBumps; i++) {
+      const from = x + horizontalStep * i;
+      ctx.arc(
+        from + horizontalStep / 2,
+        y,
+        horizontalStep * BALLOON_CLOUD_BUMP_RADIUS_RATIO,
+        Math.PI,
+        0,
+        false
+      );
+    }
+    for (let i = 0; i < verticalBumps; i++) {
+      const from = y + verticalStep * i;
+      ctx.arc(
+        x + width,
+        from + verticalStep / 2,
+        verticalStep * BALLOON_CLOUD_BUMP_RADIUS_RATIO,
+        -Math.PI / 2,
+        Math.PI / 2,
+        false
+      );
+    }
+    for (let i = horizontalBumps; i > 0; i--) {
+      const from = x + horizontalStep * i;
+      ctx.arc(
+        from - horizontalStep / 2,
+        y + height,
+        horizontalStep * BALLOON_CLOUD_BUMP_RADIUS_RATIO,
+        0,
+        Math.PI,
+        false
+      );
+    }
+    for (let i = verticalBumps; i > 0; i--) {
+      const from = y + verticalStep * i;
+      ctx.arc(
+        x,
+        from - verticalStep / 2,
+        verticalStep * BALLOON_CLOUD_BUMP_RADIUS_RATIO,
+        Math.PI / 2,
+        (Math.PI * 3) / 2,
+        false
+      );
+    }
+    ctx.closePath();
+  }
+
+  /**
+   * 吹き出しを文字の背後へ描画する（Req 8.6）
+   *
+   * 形式が 'none' のときは何も描かない（従来の見た目を保つ）。
+   *
+   * @param ctx 描画コンテキスト
+   */
+  private _renderBalloon(ctx: CanvasRenderingContext2D): void {
+    if (this._balloonStyle === 'none') {
+      return;
+    }
+
+    ctx.save();
+    ctx.beginPath();
+    this._traceBalloonPath(ctx);
+    ctx.fillStyle = this._balloonBackgroundColor;
+    ctx.fill();
+    if (this._balloonStrokeWidth > 0 && this._balloonStrokeColor) {
+      ctx.lineWidth = this._balloonStrokeWidth;
+      ctx.strokeStyle = this._balloonStrokeColor;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  /**
+   * 文字本体の描画の前に吹き出しを描く（Req 8.6）
+   *
+   * Fabric は `render()` の中で `_renderBackground()`（Req 8.5 の背景色）に続いて
+   * 本メソッドを呼ぶ。吹き出しは文字の直下に来るため、両方を指定した場合は
+   * 吹き出しが背景色の上に重なる。
+   *
+   * @param ctx 描画コンテキスト
+   */
+  override _render(ctx: CanvasRenderingContext2D): void {
+    this._renderBalloon(ctx);
+    super._render(ctx);
   }
 
   // ==========================================================================

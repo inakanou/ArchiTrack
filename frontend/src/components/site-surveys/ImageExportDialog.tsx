@@ -16,7 +16,9 @@
  * 内部 state は新しい ExportSettings 型で管理し、
  * onExport 呼び出し時に旧 ExportOptions 型へ変換する。
  *
- * @see requirements.md - 要件12.1, 12.2, 12.3, 12.4, 31.4
+ * @see requirements.md - 要件9.6, 12.1, 12.2, 12.3, 12.4, 31.4
+ *
+ * @requirement site-survey/REQ-9.6
  */
 
 import React, { useState, useId, useEffect, useCallback } from 'react';
@@ -75,6 +77,14 @@ export interface ImageExportDialogProps {
   onDownloadOriginal?: () => void;
   /** ダウンロード処理中フラグ（Task 29.2） */
   downloading?: boolean;
+  /**
+   * 注釈データ（JSON）のエクスポート時のコールバック（Task 115.102 / Req 9.6）
+   *
+   * 省略時は当該ボタンを表示しない（従来の呼び出し元との後方互換）。
+   */
+  onExportAnnotationJson?: () => void;
+  /** 注釈データ（JSON）エクスポート処理中フラグ（Req 9.6） */
+  exportingAnnotationJson?: boolean;
 }
 
 // ============================================================================
@@ -252,6 +262,8 @@ const ImageExportDialog: React.FC<ImageExportDialogProps> = ({
   exporting = false,
   onDownloadOriginal,
   downloading = false,
+  onExportAnnotationJson,
+  exportingAnnotationJson = false,
 }) => {
   // フォーム状態（新型 ExportSettings で一元管理）
   const [settings, setSettings] = useState<ExportSettings>({
@@ -263,10 +275,11 @@ const ImageExportDialog: React.FC<ImageExportDialogProps> = ({
   // ホバー状態
   const [cancelHovered, setCancelHovered] = useState(false);
   const [exportHovered, setExportHovered] = useState(false);
+  const [annotationJsonHovered, setAnnotationJsonHovered] = useState(false);
   const [downloadOriginalHovered, setDownloadOriginalHovered] = useState(false);
 
   // 処理中状態の統合（エクスポートまたはダウンロード中）
-  const isProcessing = exporting || downloading;
+  const isProcessing = exporting || downloading || exportingAnnotationJson;
 
   // アクセシビリティ用ID
   const titleId = useId();
@@ -396,6 +409,36 @@ const ImageExportDialog: React.FC<ImageExportDialogProps> = ({
                   onMouseLeave={() => setDownloadOriginalHovered(false)}
                 >
                   元画像をダウンロード
+                </button>
+              </div>
+            )}
+
+            {/* 注釈データ（JSON）エクスポート（Task 115.102 / Req 9.6）。
+                注釈データそのものを JSON 形式で取り出す導線。画像の書き出しとは別物であり、
+                注釈の受け渡し・バックアップに用いる。
+                表示名を「〜をダウンロード」としているのは、本ダイアログでは「エクスポート」を
+                主操作（画像の書き出し）の一語として用いており、副次の取り出しは
+                「元画像をダウンロード」と同じ語で揃える方が読み手に混同が無いためである。 */}
+            {onExportAnnotationJson && (
+              <div style={styles.downloadSection}>
+                <button
+                  type="button"
+                  onClick={onExportAnnotationJson}
+                  disabled={isProcessing}
+                  data-testid="export-annotation-json-button"
+                  style={{
+                    ...styles.button,
+                    ...styles.downloadOriginalButton,
+                    ...(isProcessing
+                      ? styles.downloadOriginalButtonDisabled
+                      : annotationJsonHovered
+                        ? styles.downloadOriginalButtonHover
+                        : {}),
+                  }}
+                  onMouseEnter={() => setAnnotationJsonHovered(true)}
+                  onMouseLeave={() => setAnnotationJsonHovered(false)}
+                >
+                  注釈データ(JSON)をダウンロード
                 </button>
               </div>
             )}

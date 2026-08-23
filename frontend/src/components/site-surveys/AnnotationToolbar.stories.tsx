@@ -145,6 +145,8 @@ export const CustomStyle: Story = {
       strokeWidth: 4,
       fillColor: '#ffff00',
       fontSize: 18,
+      textBackgroundColor: DEFAULT_STYLE_OPTIONS.textBackgroundColor,
+      balloonStyle: DEFAULT_STYLE_OPTIONS.balloonStyle,
       outlineEnabled: DEFAULT_STYLE_OPTIONS.outlineEnabled,
     },
     canUndo: true,

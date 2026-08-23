@@ -10,7 +10,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import { BrowserRouter } from 'react-router-dom';
+import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import SiteSurveyImageViewerPage from '../../pages/SiteSurveyImageViewerPage';
 import * as siteSurveysApi from '../../api/site-surveys';
 import { ApiError } from '../../api/client';
@@ -102,11 +102,12 @@ const mockSurveyDetail: SiteSurveyDetail = {
 
 // テストユーティリティ
 function renderComponent() {
-  return render(
-    <BrowserRouter>
-      <SiteSurveyImageViewerPage />
-    </BrowserRouter>
-  );
+  // Task 115.102 (Req 9.3): 本画面は未保存の離脱を `useBlocker` で捕捉する。
+  // `useBlocker` はデータルーター配下でのみ動作するため、検証も同じ構成で描画する。
+  const router = createMemoryRouter([{ path: '/', Component: SiteSurveyImageViewerPage }], {
+    initialEntries: ['/'],
+  });
+  return render(<RouterProvider router={router} />);
 }
 
 describe('SiteSurveyImageViewerPage', () => {

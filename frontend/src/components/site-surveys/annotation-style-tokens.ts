@@ -27,6 +27,8 @@
  * @requirement site-survey/REQ-24.5
  * @requirement site-survey/REQ-25.2
  * @requirement site-survey/REQ-32.5
+ * @requirement site-survey/REQ-8.5
+ * @requirement site-survey/REQ-8.6
  */
 
 import type { ToolType, OutlineCapableTool } from './annotation-toolbar.constants';
@@ -61,6 +63,16 @@ export interface ShapeOutlineAttribute {
  * 破壊変更にはならない。
  */
 export type ArrowOutlineAttribute = ShapeOutlineAttribute;
+
+/**
+ * 吹き出しの形式（Req 8.6）
+ *
+ * Task 115.102: 従来この宣言は `tools/TextTool.ts` にあったが、道具帯のスタイル設定
+ * （`annotation-toolbar.constants.ts` の `StyleOptions`）が形式を保持するには、資材側に
+ * 型が無いと参照できない。`TextTool.ts` は本ファイルを import しているため、逆向きの
+ * import は循環参照になる。宣言を資材へ移し、`TextTool.ts` は再エクスポートで受ける。
+ */
+export type BalloonStyleType = 'none' | 'rectangle' | 'rounded' | 'ellipse' | 'cloud';
 
 /**
  * テキストの白アウトライン属性
@@ -104,6 +116,14 @@ export interface AnnotationToolDefaults {
   strokeWidth: number;
   /** 既定フォントサイズ */
   fontSize: number;
+  /**
+   * テキスト注釈の既定背景色（Req 8.5）
+   *
+   * 透明は空文字で表す（`fill` と同じ表現）。
+   */
+  textBackgroundColor: string;
+  /** テキスト注釈の既定の吹き出し形式（Req 8.6） */
+  balloonStyle: BalloonStyleType;
   /** 既定塗りつぶし（通常 '' 透明） */
   fill: string;
   /** 矢印の既定白縁取り（enabled: true） */
@@ -157,6 +177,21 @@ const DEFAULT_FONT_SIZE = 16;
  * 既定塗りつぶし色（透明）
  */
 const DEFAULT_FILL = '';
+
+/**
+ * テキスト注釈の既定背景色（透明）
+ *
+ * Req 8.5: 背景色は選択できることが要件であり、既定は従来どおり背景なし
+ * （`DEFAULT_TEXT_OPTIONS.backgroundColor = 'transparent'` と同じ意味）。
+ */
+const DEFAULT_TEXT_BACKGROUND_COLOR = '';
+
+/**
+ * テキスト注釈の既定の吹き出し形式（吹き出しなし）
+ *
+ * Req 8.6: 形式は選択できることが要件であり、既定は従来どおり吹き出しを付けない。
+ */
+const DEFAULT_BALLOON_STYLE: BalloonStyleType = 'none';
 
 /**
  * 寸法値ラベルの既定フォントサイズ（ピクセル）
@@ -305,6 +340,8 @@ export const ANNOTATION_DEFAULTS: AnnotationToolDefaults = {
   strokeWidth: DEFAULT_STROKE_WIDTH,
   fontSize: DEFAULT_FONT_SIZE,
   fill: DEFAULT_FILL,
+  textBackgroundColor: DEFAULT_TEXT_BACKGROUND_COLOR,
+  balloonStyle: DEFAULT_BALLOON_STYLE,
   arrowOutline: {
     enabled: true,
     color: '#ffffff',
@@ -380,6 +417,8 @@ export function getToolDefaults(_tool: ToolType): AnnotationToolDefaults {
     strokeWidth: ANNOTATION_DEFAULTS.strokeWidth,
     fontSize: ANNOTATION_DEFAULTS.fontSize,
     fill: ANNOTATION_DEFAULTS.fill,
+    textBackgroundColor: ANNOTATION_DEFAULTS.textBackgroundColor,
+    balloonStyle: ANNOTATION_DEFAULTS.balloonStyle,
     arrowOutline: { ...ANNOTATION_DEFAULTS.arrowOutline },
     textOutline: { ...ANNOTATION_DEFAULTS.textOutline },
     rectangleOutline: { ...ANNOTATION_DEFAULTS.rectangleOutline },

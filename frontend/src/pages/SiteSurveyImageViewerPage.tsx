@@ -10,14 +10,18 @@
  * - 5.3: 画像の回転
  * - 5.4: パン操作（表示領域移動）
  * - 5.6: 表示状態を注釈編集モードと共有
+ * - 9.3: 注釈を編集中に画面を離れようとしたとき、未保存の変更があれば確認ダイアログを表示する
  *
+ * @requirement site-survey/REQ-9.3
  * @requirement site-survey/REQ-36.4
  * @requirement site-survey/REQ-36.6
  * @requirement site-survey/REQ-36.7
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useBlocker } from 'react-router-dom';
+import useUnsavedChanges from '../hooks/useUnsavedChanges';
+import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
 import useMediaQuery from '../hooks/useMediaQuery';
 import { MEDIA_QUERIES } from '../utils/responsive';
 import { getSiteSurvey } from '../api/site-surveys';
@@ -198,6 +202,39 @@ export default function SiteSurveyImageViewerPage() {
   const [error, setError] = useState<string | null>(null);
   const [isNotFound, setIsNotFound] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
+
+  // ==========================================================================
+  // Task 115.102 (REQ-9.3): 未保存の注釈編集がある状態での離脱確認
+  //
+  // 注釈編集画面には離脱を捕捉する仕組みが一切無く、描いた注釈は保存せずに画面を離れると
+  // 黙って失われていた。既存の確立済みパターン（CompanyInfoPage / QuantityTableEditPage 等）に
+  // 合わせ、アプリ内遷移は `useBlocker` + `UnsavedChangesDialog`、タブクローズ/リロードは
+  // `useUnsavedChanges` の beforeunload で捕捉する。
+  //
+  // 未保存かどうかの判定は注釈エディタ側が持つ（読み込み・復元由来の変更を除いた
+  // ユーザー編集の有無）。本画面はその通知を受けて離脱を止める役だけを担う。
+  // ==========================================================================
+  const [hasUnsavedAnnotationChanges, setHasUnsavedAnnotationChanges] = useState(false);
+
+  // タブクローズ/リロード時のブラウザ標準確認（REQ-9.3）
+  //
+  // `useUnsavedChanges` は自前の dirty 状態を持ち、`beforeunload` の登録条件は
+  // 「`enabled` かつ内部の dirty」である。`enabled` だけを渡しても内部の dirty は
+  // 初期値 false のままで登録されない（`EstimateDetailPage` が同じ注意書きを残している）。
+  // 未保存判定の正は注釈エディタ側であるため、`setDirty` で追従させる。
+  const { setDirty: setUnsavedGuardDirty } = useUnsavedChanges();
+
+  useEffect(() => {
+    setUnsavedGuardDirty(hasUnsavedAnnotationChanges);
+  }, [hasUnsavedAnnotationChanges, setUnsavedGuardDirty]);
+
+  // アプリ内ナビゲーションのブロック（REQ-9.3）
+  const blocker = useBlocker(hasUnsavedAnnotationChanges);
+
+  // 表示対象の画像が変われば、前の画像の未保存状態は引き継がない
+  useEffect(() => {
+    setHasUnsavedAnnotationChanges(false);
+  }, [imageId]);
 
   // 表示状態（REQ-5.6: ズーム・回転・位置を注釈編集モードと共有する）
   //
@@ -404,6 +441,7 @@ export default function SiteSurveyImageViewerPage() {
             imageInfo={image}
             onAnnotationSaved={handleAnnotationSaved}
             onRequestRefresh={fetchData}
+            onDirtyChange={setHasUnsavedAnnotationChanges}
           />
         </div>
       ) : (
@@ -414,6 +452,13 @@ export default function SiteSurveyImageViewerPage() {
           </div>
         </div>
       )}
+
+      {/* REQ-9.3: 未保存の注釈編集がある状態でのアプリ内遷移を確認する */}
+      <UnsavedChangesDialog
+        isOpen={blocker.state === 'blocked'}
+        onLeave={() => blocker.proceed?.()}
+        onStay={() => blocker.reset?.()}
+      />
 
       <style>
         {`
