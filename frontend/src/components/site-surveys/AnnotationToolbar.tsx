@@ -89,6 +89,17 @@ export interface AnnotationToolbarProps {
   onRedo?: () => void;
   /** 保存操作のコールバック */
   onSave?: () => void;
+  /**
+   * 保存だけを抑止するフラグ（Task 115.105 / Req 15.6）
+   *
+   * 通信断のようにサーバー保存だけが成立しない状況で用いる。
+   * `disabled` と異なり描画ツールやエクスポートは操作可能なまま保つ。
+   * また `disabled` 属性ではなく `aria-disabled` で表すため押下自体は成立し、
+   * 押下時には呼び出し側（AnnotationEditor.handleSave）が理由を提示して抑止する。
+   */
+  saveDisabled?: boolean;
+  /** 保存が抑止されているときにボタンへ添える理由（title 用） */
+  saveDisabledReason?: string;
   /** エクスポート操作のコールバック */
   onExport?: () => void;
   /** Undoが可能かどうか */
@@ -763,6 +774,8 @@ function AnnotationToolbar({
   onUndo,
   onRedo,
   onSave,
+  saveDisabled = false,
+  saveDisabledReason,
   onExport,
   canUndo = true,
   canRedo = true,
@@ -964,17 +977,23 @@ function AnnotationToolbar({
         <div style={STYLES.separator} />
 
         {/* 保存ボタン */}
+        {/* Task 115.105 (Req 15.6): 通信が切れている間はサーバー保存だけを抑止する。
+            描画やエクスポートは手元で完結するため操作可能なまま残す。
+            抑止は `disabled` ではなく `aria-disabled` で表す。押下自体は成立させ、
+            押下時に抑止の理由（オフラインである旨）を提示するため。 */}
         <button
           type="button"
           style={{
             ...STYLES.actionButton,
             ...STYLES.actionButtonPrimary,
-            ...(disabled ? STYLES.actionButtonDisabled : {}),
+            ...(disabled || saveDisabled ? STYLES.actionButtonDisabled : {}),
           }}
           onClick={onSave}
           disabled={disabled}
+          aria-disabled={disabled || saveDisabled}
           aria-label="保存"
-          title="保存"
+          title={saveDisabled && saveDisabledReason ? saveDisabledReason : '保存'}
+          data-testid="annotation-save-button"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"

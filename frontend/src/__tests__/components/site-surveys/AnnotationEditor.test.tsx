@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
-import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, waitFor, cleanup, fireEvent } from '@testing-library/react';
 
 // act警告とエラーログを抑制
 const originalConsoleError = console.error;
@@ -3578,6 +3578,132 @@ describe('AnnotationEditor', () => {
         expect(mockCanvasInstance.setDimensions).toHaveBeenCalledWith(SWAPPED_SIZE);
         expect(appliedAngles()).not.toContain(45);
       });
+    });
+  });
+});
+
+// ============================================================================
+// Task 115.105 (Req 15.6): 通信断時の警告と保存抑止
+//
+// 要件15.6「ネットワーク接続が切断される場合は警告を表示し保存操作をブロックする」を
+// 注釈エディタの結線として検証する。design.md「ネットワーク状態管理フロー」の
+// Key Decisions に従い、抑止の対象は**サーバー保存**であり localStorage への
+// 自動保存は継続する。
+// ============================================================================
+
+describe('AnnotationEditor - 通信断時の警告と保存抑止 (Req 15.6)', () => {
+  /** navigator.onLine を差し替える（jsdom の既定は true） */
+  function setNavigatorOnLine(value: boolean): void {
+    Object.defineProperty(window.navigator, 'onLine', {
+      configurable: true,
+      get: () => value,
+    });
+  }
+
+  /** 通信断を発生させる（既定＝オンラインではない位置へ状態を動かす） */
+  function goOffline(): void {
+    setNavigatorOnLine(false);
+    fireEvent(window, new Event('offline'));
+  }
+
+  /** 通信復帰を発生させる */
+  function goOnline(): void {
+    setNavigatorOnLine(true);
+    fireEvent(window, new Event('online'));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setNavigatorOnLine(true);
+    mockCanvasInstance.getObjects.mockReturnValue([]);
+  });
+
+  afterEach(() => {
+    cleanup();
+    setNavigatorOnLine(true);
+    vi.clearAllMocks();
+  });
+
+  it('通信が切れると警告を表示し、保存ボタンへ抑止を示す', async () => {
+    render(<AnnotationEditor {...defaultProps} />);
+
+    await waitFor(() => {
+      expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+    });
+
+    // 既定（オンライン）では警告は無く、保存は抑止されていない
+    expect(screen.queryByTestId('offline-warning')).not.toBeInTheDocument();
+    expect(screen.getByTestId('annotation-save-button')).toHaveAttribute('aria-disabled', 'false');
+
+    goOffline();
+
+    // 警告の表示（要件15.6 前半）
+    const warning = await screen.findByTestId('offline-warning');
+    expect(warning).toHaveTextContent('ネットワーク接続がありません');
+    // 保存の抑止が UI に現れる（要件15.6 後半）
+    await waitFor(() => {
+      expect(screen.getByTestId('annotation-save-button')).toHaveAttribute('aria-disabled', 'true');
+    });
+  });
+
+  it('通信が切れている間は保存を実行せず、理由を提示する', async () => {
+    const user = (await import('@testing-library/user-event')).default.setup();
+    const mockSaveAnnotation = vi.mocked(
+      (await import('../../../api/survey-annotations')).saveAnnotation
+    );
+
+    render(<AnnotationEditor {...defaultProps} />);
+
+    await waitFor(() => {
+      expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+    });
+
+    goOffline();
+    await screen.findByTestId('offline-warning');
+
+    await user.click(screen.getByTestId('annotation-save-button'));
+
+    // サーバー保存が発生しないこと（保存操作のブロック）
+    expect(mockSaveAnnotation).not.toHaveBeenCalled();
+    // 抑止された理由がエディタのエラー表示として現れること
+    expect(await screen.findByTestId('annotation-save-error')).toHaveTextContent(
+      'ネットワーク接続がありません。保存操作は接続復帰後に行えます。'
+    );
+  });
+
+  it('通信が復帰すると保存が実行できる', async () => {
+    const user = (await import('@testing-library/user-event')).default.setup();
+    const mockSaveAnnotation = vi.mocked(
+      (await import('../../../api/survey-annotations')).saveAnnotation
+    );
+    mockSaveAnnotation.mockResolvedValue({
+      id: 'test-annotation',
+      imageId: 'test-image-id',
+      data: { version: '1.0', objects: [] },
+      version: '1.0',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    render(<AnnotationEditor {...defaultProps} />);
+
+    await waitFor(() => {
+      expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
+    });
+
+    goOffline();
+    await screen.findByTestId('offline-warning');
+
+    goOnline();
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('offline-warning')).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId('annotation-save-button'));
+
+    await waitFor(() => {
+      expect(mockSaveAnnotation).toHaveBeenCalled();
     });
   });
 });

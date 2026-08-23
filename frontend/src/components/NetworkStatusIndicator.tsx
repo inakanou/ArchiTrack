@@ -124,6 +124,7 @@ export function NetworkStatusIndicator({
       <div
         role="alert"
         aria-live="polite"
+        data-testid="offline-warning"
         className={`flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-800 ${className}`}
       >
         {/* 警告アイコン */}
@@ -153,6 +154,7 @@ export function NetworkStatusIndicator({
       <div
         role="status"
         aria-live="polite"
+        data-testid="network-reconnected-notice"
         className={`flex items-center gap-3 rounded-lg border border-green-300 bg-green-50 p-4 text-green-800 ${className}`}
       >
         {/* チェックアイコン */}

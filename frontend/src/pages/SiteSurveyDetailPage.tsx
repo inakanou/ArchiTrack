@@ -37,6 +37,11 @@ import {
 import { isUnsupportedFormatMessage } from '../utils/upload-failure';
 import { logger } from '../utils/logger';
 import { useSiteSurveyPermission } from '../hooks/useSiteSurveyPermission';
+// Task 115.105 (Req 15.6): 通信断の告知とサーバー保存の抑止。
+// design.md「ネットワーク状態管理フロー」の Key Decisions に従い、
+// 切断中は警告を出したうえで写真メタデータ・順序の一括保存を実行しない。
+import NetworkStatusIndicator from '../components/NetworkStatusIndicator';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import useMediaQuery from '../hooks/useMediaQuery';
 import { MEDIA_QUERIES } from '../utils/responsive';
@@ -375,6 +380,16 @@ export default function SiteSurveyDetailPage() {
   // 権限チェック (Requirement 12.2)
   const { canEdit, canDelete } = useSiteSurveyPermission();
 
+  // Task 115.105 (Req 15.6): 通信状態の購読。
+  // 切断中は写真メタデータ・順序の一括保存（サーバー保存）を抑止する。
+  const { canSave: canSaveToServer, warningMessage: offlineWarningMessage } = useNetworkStatus();
+  const isServerSaveBlocked = !canSaveToServer;
+  // handleSaveMetadata は多くの箇所へ渡るため、購読値の変化で同一性を壊さないよう ref 経由で読む。
+  const isServerSaveBlockedRef = useRef(isServerSaveBlocked);
+  isServerSaveBlockedRef.current = isServerSaveBlocked;
+  const offlineWarningMessageRef = useRef(offlineWarningMessage);
+  offlineWarningMessageRef.current = offlineWarningMessage;
+
   // モバイル幅判定 (Task 100.2, Requirement 35.2): 固定幅の支配を解消するため、
   // ページコンテナの maxWidth/padding をモバイル幅で切り替える。
   const isMobile = useMediaQuery(MEDIA_QUERIES.isMobile);
@@ -552,6 +567,13 @@ export default function SiteSurveyDetailPage() {
     const hasOrderChanges = pendingOrderRef.current !== null;
 
     if (!hasMetadataChanges && !hasOrderChanges) return;
+
+    // Task 115.105 (Req 15.6): 通信が切れている間はサーバーへの一括保存を実行しない。
+    // 未保存の変更はそのまま保持し、復帰後に改めて保存できるようにする。
+    if (isServerSaveBlockedRef.current) {
+      setError(offlineWarningMessageRef.current);
+      return;
+    }
 
     setIsSavingMetadata(true);
     setError(null);
@@ -983,6 +1005,11 @@ export default function SiteSurveyDetailPage() {
         <Breadcrumb items={breadcrumbItems} />
       </div>
 
+      {/* Task 115.105 (Req 15.6): 通信断の告知。復帰時は復帰通知を出す。 */}
+      <div style={{ marginBottom: '16px' }}>
+        <NetworkStatusIndicator showReconnected />
+      </div>
+
       {/* 基本情報表示 (Requirement 12.2: 権限に基づくボタン表示制御) */}
       <SiteSurveyDetailInfo
         survey={survey}
@@ -1046,6 +1073,7 @@ export default function SiteSurveyDetailPage() {
         {error && (
           <div
             role="alert"
+            data-testid="site-survey-detail-error"
             style={{
               backgroundColor: '#fef2f2',
               border: '1px solid #fecaca',
@@ -1073,6 +1101,8 @@ export default function SiteSurveyDetailPage() {
           onSave={canEdit ? handleSaveMetadata : undefined}
           isDirty={isDirty}
           isSaving={isSavingMetadata}
+          saveBlocked={isServerSaveBlocked}
+          saveBlockedReason={offlineWarningMessage ?? undefined}
           onDelete={canDelete ? handleImageDelete : undefined}
           selectedImageIds={selectedImageIds}
           onSelectionChange={handleSelectionChange}

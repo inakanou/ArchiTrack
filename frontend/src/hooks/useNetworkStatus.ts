@@ -71,7 +71,8 @@ export interface UseNetworkStatusReturn {
 /**
  * オフライン時の警告メッセージ
  */
-const OFFLINE_WARNING_MESSAGE = 'ネットワーク接続がありません。保存操作は接続復帰後に行えます。';
+export const OFFLINE_WARNING_MESSAGE =
+  'ネットワーク接続がありません。保存操作は接続復帰後に行えます。';
 
 /**
  * ネットワーク状態を監視するカスタムフック

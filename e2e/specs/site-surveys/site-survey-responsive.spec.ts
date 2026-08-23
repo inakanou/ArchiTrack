@@ -8,8 +8,9 @@
  * - REQ-15.4: 一定間隔（30秒）で自動保存を実行
  * - REQ-15.5: ブラウザのlocalStorageから未保存の編集状態を復元
  * - REQ-15.6: ネットワーク接続が切断された場合の警告と保存ブロック
- *   （現場調査の配下に未実装。タスク 115.105 が所管。本ファイルでは test.fail() を付けた
- *   既知失敗として計上しており、被覆済みではない）
+ *   （タスク 115.105 で現場調査へ結線済み。抑止の対象はサーバー保存であり、
+ *   localStorage への自動保存は design.md「ネットワーク状態管理フロー」の Key Decisions
+ *   のとおり継続する）
  * - REQ-15.7: QuotaExceededError時のLRU戦略による古いキャッシュ削除
  * - REQ-15.8: QuotaExceededErrorリトライ失敗時の警告表示
  * - REQ-15.9: プライベートブラウジングモードでの自動保存無効化
@@ -760,93 +761,192 @@ test.describe('現場調査レスポンシブ対応', () => {
    * @requirement site-survey/REQ-15.6
    */
   test.describe('ネットワーク状態', () => {
-    test('オフライン時に警告が表示される (site-survey/REQ-15.6)', async ({ page, context }) => {
-      // 要件15.6 の通信断の告知は現場調査の配下に未実装である（タスク 115.105 が所管）。
-      // 前提条件による自動無効化ではなく、本体は毎回すべて実行される。
-      // 115.105 が実装すると本テストは通り、この注釈により「落ちるはずが通った」として
-      // 赤くなるため、注釈の撤去を強制するラチェットとして機能する。
-      // 直列実行のため、ここで素の失敗を残すと後続の受入検証11件と後片付けが実行されなくなる。
-      test.fail();
+    /** 通信断で告知される文言 */
+    const OFFLINE_MESSAGE = 'ネットワーク接続がありません。保存操作は接続復帰後に行えます。';
 
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
+    /**
+     * 指定した判定に一致するリクエストを、パス基準で記録する観測器を仕掛ける
+     *
+     * オリジンは CI とローカルで食い違うため、`new URL(...).pathname` だけで判定する。
+     */
+    function observeRequests(
+      page: PlaywrightPage,
+      matches: (pathname: string, method: string) => boolean
+    ): { readonly seen: string[]; stop: () => void } {
+      const seen: string[] = [];
+      const listener = (request: import('@playwright/test').Request) => {
+        const pathname = new URL(request.url()).pathname;
+        const method = request.method();
+        if (matches(pathname, method)) {
+          seen.push(`${method} ${pathname}`);
+        }
+      };
+      page.on('request', listener);
+      return {
+        seen,
+        stop: () => page.off('request', listener),
+      };
+    }
+
+    test('通信が切れると警告を表示し、復帰すると告知が解除される (site-survey/REQ-15.6)', async ({
+      page,
+      context,
+    }) => {
+      assertPrepared(createdSurveyId, 'createdSurveyId');
 
       await loginAsUser(page, 'REGULAR_USER');
 
       await page.goto(`/site-surveys/${createdSurveyId}`);
       await page.waitForLoadState('networkidle');
 
-      // オフラインモードをシミュレート
+      const offlineWarning = page.getByTestId('offline-warning');
+
+      // 既定（オンライン）では告知が無い状態から始める
+      await expect(offlineWarning).toBeHidden();
+
       await context.setOffline(true);
-
-      // オフライン警告が表示されるまで待機
-      const offlineWarning = page.locator(
-        '[data-testid="offline-warning"], .offline-indicator, [role="alert"]'
-      );
-      const offlineText = page.getByText(/オフライン|接続.*切断|ネットワーク.*エラー|offline/i);
-
-      // 通信断の告知はいずれかの表現で現れれば足りるため論理和は本質的である。
-      // 固定時間待機ではなく、いずれかが現れることを条件として待つ。
-      const offlineNotice = offlineWarning.or(offlineText).first();
-      let noticeError: unknown = null;
       try {
-        await expect(offlineNotice).toBeVisible({ timeout: getTimeout(10000) });
-      } catch (error) {
-        noticeError = error;
+        // 要件15.6 前半: 通信が切れたら警告を表示する
+        await expect(offlineWarning).toBeVisible({ timeout: getTimeout(15000) });
+        await expect(offlineWarning).toContainText(OFFLINE_MESSAGE);
       } finally {
-        // 主張の成否によらずオンラインへ戻し、後続テストへ状態を持ち越さない
         await context.setOffline(false);
       }
 
-      // 観測した結果そのものを主張する。
-      // 従来は `|| true` を論理和しており、告知が皆無でも恒久的に緑だった。
-      expect(noticeError, 'REQ-15.6: 通信が切れた際に告知が表示される').toBeNull();
+      // 復帰すると警告が消え、復帰した旨が告知される
+      await expect(offlineWarning).toBeHidden({ timeout: getTimeout(15000) });
+      await expect(page.getByTestId('network-reconnected-notice')).toContainText(
+        'ネットワーク接続が復帰しました'
+      );
     });
 
-    test('オフライン時に保存操作がブロックされる (site-survey/REQ-15.6)', async ({
+    test('通信が切れている間は現場調査の更新が抑止され、復帰後に保存できる (site-survey/REQ-15.6)', async ({
       page,
       context,
     }) => {
-      // 要件15.6 の保存抑止は現場調査の配下に未実装である（タスク 115.105 が所管）。
-      // 上のテストと同じ理由で落ちるはずの検証として明示する。本体は毎回すべて実行される。
-      test.fail();
-
-      if (!createdSurveyId) {
-        throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
-      }
+      assertPrepared(createdSurveyId, 'createdSurveyId');
+      const surveyId = createdSurveyId as string;
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 編集ページにアクセス
-      await page.goto(`/site-surveys/${createdSurveyId}/edit`);
+      await page.goto(`/site-surveys/${surveyId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // オフラインモードをシミュレート
+      const nameField = page.getByLabel(/調査名/i);
+      await expect(nameField).toBeVisible({ timeout: getTimeout(15000) });
+      const updatedName = `通信断テスト_${Date.now()}`;
+      await nameField.fill(updatedName);
+
+      // 現場調査の更新（PUT /api/site-surveys/{id}）だけをパス基準で観測する。
+      // 注釈保存（/api/site-surveys/images/...）と取り違えないよう完全一致で判定する。
+      const updateRequests = observeRequests(
+        page,
+        (pathname, method) => method === 'PUT' && pathname === `/api/site-surveys/${surveyId}`
+      );
+
+      const saveButton = page.getByRole('button', { name: '保存' });
+      const offlineWarning = page.getByTestId('offline-warning');
+
       await context.setOffline(true);
-
-      // 保存ボタンをクリック
-      const saveButton = page.getByRole('button', { name: /保存|更新/i });
-      let blockError: unknown = null;
       try {
-        // 保存操作の手段があること自体を無条件に主張する
-        await expect(saveButton).toBeVisible({ timeout: getTimeout(5000) });
-        await saveButton.click();
+        await expect(offlineWarning).toBeVisible({ timeout: getTimeout(15000) });
 
-        // 保存が抑止された旨が示されることを条件として待つ
-        const errorMessage = page.getByText(/保存.*失敗|エラー|オフライン|接続/i);
-        await expect(errorMessage).toBeVisible({ timeout: getTimeout(10000) });
-      } catch (error) {
-        blockError = error;
+        // 保存の抑止が操作手段に現れる（aria-disabled）
+        await expect(saveButton).toBeDisabled({ timeout: getTimeout(15000) });
+
+        // 押下自体は成立するため、押しても保存が走らないことまで確かめる
+        await saveButton.click({ force: true });
+
+        // 押下に対して抑止の理由が返る（この観測が済むまで待ってから送信有無を判定する）
+        await expect(page.getByTestId('site-survey-form-save-blocked')).toContainText(
+          OFFLINE_MESSAGE,
+          { timeout: getTimeout(15000) }
+        );
+
+        // 要件15.6 後半: サーバーへの保存操作が発生していない
+        expect(updateRequests.seen, '通信断中に現場調査の更新要求が送られてはならない').toEqual([]);
+
+        // 編集画面から遷移していない（保存成功時の詳細画面遷移が起きていない）
+        expect(new URL(page.url()).pathname).toBe(`/site-surveys/${surveyId}/edit`);
       } finally {
         await context.setOffline(false);
       }
 
-      // 観測した結果そのものを主張する。
-      // 従来は `|| true` を論理和し、さらに保存ボタンが無い場合は判定ごと素通りしていた。
-      expect(blockError, 'REQ-15.6: 通信が切れた状態では保存が抑止され告知される').toBeNull();
+      // 復帰後は同じ操作で保存が成立する（上の「送られない」主張が恒真でないことを示す）
+      await expect(offlineWarning).toBeHidden({ timeout: getTimeout(15000) });
+      await expect(saveButton).toBeEnabled({ timeout: getTimeout(15000) });
 
-      await expect(page.locator('body')).toBeVisible();
+      const updateResponse = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === `/api/site-surveys/${surveyId}` &&
+          response.request().method() === 'PUT',
+        { timeout: getTimeout(30000) }
+      );
+      await saveButton.click();
+      const response = await updateResponse;
+      expect(response.status()).toBe(200);
+
+      updateRequests.stop();
+      expect(updateRequests.seen.length).toBeGreaterThan(0);
+
+      await expect(page).toHaveURL(new RegExp(`/site-surveys/${surveyId}$`), {
+        timeout: getTimeout(30000),
+      });
+    });
+
+    test('通信が切れている間は注釈の保存が抑止され、復帰後に保存できる (site-survey/REQ-15.6)', async ({
+      page,
+      context,
+    }) => {
+      test.setTimeout(180_000);
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const imageId = await openAnnotationEditor(page);
+      await clearDrafts(page);
+      await drawRectangleAnnotation(page);
+
+      const annotationPath = `/api/site-surveys/images/${imageId}/annotations`;
+      const saveRequests = observeRequests(
+        page,
+        (pathname, method) => method === 'PUT' && pathname === annotationPath
+      );
+
+      const saveButton = page.getByTestId('annotation-save-button');
+      const offlineWarning = page.getByTestId('offline-warning');
+
+      await context.setOffline(true);
+      try {
+        await expect(offlineWarning).toBeVisible({ timeout: getTimeout(15000) });
+        await expect(saveButton).toBeDisabled({ timeout: getTimeout(15000) });
+
+        await saveButton.click({ force: true });
+
+        await expect(page.getByTestId('annotation-save-error')).toContainText(OFFLINE_MESSAGE, {
+          timeout: getTimeout(15000),
+        });
+
+        expect(saveRequests.seen, '通信断中に注釈の保存要求が送られてはならない').toEqual([]);
+      } finally {
+        await context.setOffline(false);
+      }
+
+      // 復帰後は同じ操作で保存が成立する
+      await expect(offlineWarning).toBeHidden({ timeout: getTimeout(15000) });
+      await expect(saveButton).toBeEnabled({ timeout: getTimeout(15000) });
+
+      const saveResponse = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === annotationPath &&
+          response.request().method() === 'PUT',
+        { timeout: getTimeout(30000) }
+      );
+      await saveButton.click();
+      const response = await saveResponse;
+      expect(response.status()).toBeLessThan(400);
+
+      saveRequests.stop();
+      expect(saveRequests.seen.length).toBeGreaterThan(0);
     });
   });
 

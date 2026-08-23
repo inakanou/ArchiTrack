@@ -56,6 +56,14 @@ export interface PhotoManagementPanelProps {
   isDirty?: boolean;
   /** 保存中かどうか（Task 33.1: 手動保存方式） */
   isSaving?: boolean;
+  /**
+   * サーバー保存が抑止されているか（Task 115.105 / Req 15.6）
+   *
+   * 通信断のようにサーバー保存だけが成立しない状況で true を渡す。
+   */
+  saveBlocked?: boolean;
+  /** 保存が抑止されている理由（ボタンの title 用） */
+  saveBlockedReason?: string;
   /** 画像削除時のハンドラ（Task 34: 画像削除機能） */
   onDelete?: (imageId: string) => Promise<void>;
   /** 順序変更ボタンを表示するか */
@@ -930,6 +938,8 @@ export function PhotoManagementPanel({
   onSave,
   isDirty = false,
   isSaving = false,
+  saveBlocked = false,
+  saveBlockedReason,
   onDelete,
   showOrderButtons = true,
   selectedImageIds,
@@ -1260,15 +1270,20 @@ export function PhotoManagementPanel({
               </div>
             )}
           </div>
+          {/* Task 115.105 (Req 15.6): 通信断の間はサーバーへの一括保存を抑止する。
+              抑止は `aria-disabled` で表し、押下時に呼び出し側が理由を提示する。 */}
           <button
             type="button"
             onClick={onSave}
             disabled={!isDirty || isSaving}
+            aria-disabled={!isDirty || isSaving || saveBlocked}
+            title={saveBlocked && saveBlockedReason ? saveBlockedReason : undefined}
             style={{
               ...styles.saveButton,
-              ...(!isDirty || isSaving ? styles.saveButtonDisabled : {}),
+              ...(!isDirty || isSaving || saveBlocked ? styles.saveButtonDisabled : {}),
             }}
             aria-busy={isSaving}
+            data-testid="photo-management-save-button"
           >
             {isSaving ? '保存中...' : '保存'}
           </button>

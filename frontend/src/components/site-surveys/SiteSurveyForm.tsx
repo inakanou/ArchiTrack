@@ -18,6 +18,11 @@
  */
 
 import { useState, useCallback, useId, FormEvent, ChangeEvent, FocusEvent } from 'react';
+// Task 115.105 (Req 15.6): 通信断の告知とサーバー保存の抑止。
+// design.md「ネットワーク状態管理フロー」の Key Decisions に従い、
+// 切断中は警告を出したうえで現場調査の作成・更新（サーバー保存）を実行しない。
+import NetworkStatusIndicator from '../NetworkStatusIndicator';
+import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 
 // ============================================================================
 // 型定義
@@ -137,6 +142,12 @@ function SiteSurveyForm({
 }: SiteSurveyFormProps) {
   // _submitError は将来の拡張用に受け取るが、現在は使用しない
   void _submitError;
+
+  // Task 115.105 (Req 15.6): 通信状態の購読。切断中はサーバー保存を抑止する。
+  const { canSave: canSaveToServer, warningMessage: offlineWarningMessage } = useNetworkStatus();
+  const isServerSaveBlocked = !canSaveToServer;
+  /** 通信断で保存を抑止したことを押下時に伝える文言 */
+  const [saveBlockedNotice, setSaveBlockedNotice] = useState<string | null>(null);
   // フォームの値
   const [name, setName] = useState(initialData?.name ?? '');
   const [surveyDate, setSurveyDate] = useState(initialData?.surveyDate ?? getTodayDate());
@@ -255,6 +266,15 @@ function SiteSurveyForm({
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
+    // Task 115.105 (Req 15.6): 通信が切れている間はサーバーへの保存を実行しない。
+    // aria-disabled は押下自体を止めないため、押下時に理由を提示して抑止する。
+    if (isServerSaveBlocked) {
+      setSaveBlockedNotice(offlineWarningMessage);
+      return;
+    }
+
+    setSaveBlockedNotice(null);
+
     // 全フィールドをタッチ済みにする
     setTouched({
       name: true,
@@ -308,6 +328,11 @@ function SiteSurveyForm({
 
   return (
     <form id={formId} onSubmit={handleSubmit} role="form" style={{ maxWidth: '600px' }}>
+      {/* Task 115.105 (Req 15.6): 通信断の告知 */}
+      <div style={{ marginBottom: '1rem' }}>
+        <NetworkStatusIndicator showReconnected />
+      </div>
+
       {/* 調査名 */}
       <div style={{ marginBottom: '1rem' }}>
         <label
@@ -522,6 +547,22 @@ function SiteSurveyForm({
         )}
       </div>
 
+      {/* Task 115.105 (Req 15.6): 押下時に保存を抑止した理由を示す */}
+      {saveBlockedNotice && (
+        <p
+          role="alert"
+          aria-live="polite"
+          data-testid="site-survey-form-save-blocked"
+          style={{
+            marginBottom: '0.75rem',
+            fontSize: '0.875rem',
+            color: STYLES.colors.error,
+          }}
+        >
+          {saveBlockedNotice}
+        </p>
+      )}
+
       {/* ボタン */}
       <div
         style={{
@@ -549,15 +590,18 @@ function SiteSurveyForm({
         <button
           type="submit"
           disabled={isSubmitting}
+          aria-disabled={isSubmitting || isServerSaveBlocked}
+          title={isServerSaveBlocked && offlineWarningMessage ? offlineWarningMessage : undefined}
           style={{
             padding: '0.75rem 1.5rem',
-            backgroundColor: isSubmitting ? STYLES.colors.disabled : STYLES.colors.primary,
+            backgroundColor:
+              isSubmitting || isServerSaveBlocked ? STYLES.colors.disabled : STYLES.colors.primary,
             color: STYLES.colors.white,
             border: 'none',
             borderRadius: STYLES.borderRadius,
             fontSize: '1rem',
             fontWeight: 600,
-            cursor: isSubmitting ? 'not-allowed' : 'pointer',
+            cursor: isSubmitting || isServerSaveBlocked ? 'not-allowed' : 'pointer',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',

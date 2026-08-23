@@ -2474,3 +2474,120 @@ describe('SiteSurveyDetailPage', () => {
     });
   });
 });
+
+// ============================================================================
+// Task 115.105 (Req 15.6): 通信断時の警告と保存抑止
+//
+// 要件15.6「ネットワーク接続が切断される場合は警告を表示し保存操作をブロックする」を
+// 現場調査詳細（写真メタデータ・順序の一括保存）の結線として検証する。
+// ============================================================================
+
+describe('SiteSurveyDetailPage - 通信断時の警告と保存抑止 (Req 15.6)', () => {
+  /** navigator.onLine を差し替える（jsdom の既定は true） */
+  function setNavigatorOnLine(value: boolean): void {
+    Object.defineProperty(window.navigator, 'onLine', {
+      configurable: true,
+      get: () => value,
+    });
+  }
+
+  function goOffline(): void {
+    setNavigatorOnLine(false);
+    fireEvent(window, new Event('offline'));
+  }
+
+  function goOnline(): void {
+    setNavigatorOnLine(true);
+    fireEvent(window, new Event('online'));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRouteSurveyId = 'survey-123';
+    mockLocationKey = 'default';
+    setNavigatorOnLine(true);
+    vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue(
+      mockPermission
+    );
+    vi.mocked(useMediaQuery).mockReturnValue(false);
+    vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
+    vi.mocked(surveyImagesApi.updateImageMetadataBatch).mockResolvedValue([]);
+    mockUseUnsavedChanges.isDirty = true;
+  });
+
+  afterEach(() => {
+    setNavigatorOnLine(true);
+    mockUseUnsavedChanges.isDirty = false;
+  });
+
+  /** 詳細画面を表示し、写真管理パネルの描画完了まで待つ */
+  async function renderDetail(): Promise<void> {
+    renderComponent();
+    await waitFor(() => {
+      expect(screen.getByRole('region', { name: '写真管理パネル' })).toBeInTheDocument();
+    });
+  }
+
+  it('通信が切れると警告を表示し、保存ボタンへ抑止を示す', async () => {
+    await renderDetail();
+
+    // 既定（オンライン）では警告は無く、保存は抑止されていない
+    expect(screen.queryByTestId('offline-warning')).not.toBeInTheDocument();
+    expect(screen.getByTestId('photo-management-save-button')).toHaveAttribute(
+      'aria-disabled',
+      'false'
+    );
+
+    goOffline();
+
+    const warning = await screen.findByTestId('offline-warning');
+    expect(warning).toHaveTextContent('ネットワーク接続がありません');
+    await waitFor(() => {
+      expect(screen.getByTestId('photo-management-save-button')).toHaveAttribute(
+        'aria-disabled',
+        'true'
+      );
+    });
+  });
+
+  it('通信が切れている間は写真メタデータの一括保存を実行せず、理由を提示する', async () => {
+    await renderDetail();
+
+    // 未保存の変更を作る（保存の前提条件を満たす）
+    const checkboxes = screen.getAllByRole('checkbox', { name: '報告書に含める' });
+    fireEvent.click(checkboxes[0] as HTMLElement);
+
+    goOffline();
+    await screen.findByTestId('offline-warning');
+
+    fireEvent.click(screen.getByTestId('photo-management-save-button'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('site-survey-detail-error')).toHaveTextContent(
+        'ネットワーク接続がありません。保存操作は接続復帰後に行えます。'
+      );
+    });
+    expect(surveyImagesApi.updateImageMetadataBatch).not.toHaveBeenCalled();
+  });
+
+  it('通信が復帰すると写真メタデータの一括保存を実行できる', async () => {
+    await renderDetail();
+
+    const checkboxes = screen.getAllByRole('checkbox', { name: '報告書に含める' });
+    fireEvent.click(checkboxes[0] as HTMLElement);
+
+    goOffline();
+    await screen.findByTestId('offline-warning');
+
+    goOnline();
+    await waitFor(() => {
+      expect(screen.queryByTestId('offline-warning')).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('photo-management-save-button'));
+
+    await waitFor(() => {
+      expect(surveyImagesApi.updateImageMetadataBatch).toHaveBeenCalled();
+    });
+  });
+});

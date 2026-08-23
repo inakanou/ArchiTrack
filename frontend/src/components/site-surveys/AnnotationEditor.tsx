@@ -118,6 +118,12 @@ import { useAnnotationRestoration } from '../../hooks/useAnnotationRestoration';
 import RestoreAnnotationDialog from '../site-survey/RestoreAnnotationDialog';
 import StorageWarningBanner from './StorageWarningBanner';
 import type { StorageWarningType } from './StorageWarningBanner';
+// Task 115.105 (Req 15.6): 通信断の告知とサーバー保存の抑止。
+// design.md「ネットワーク状態管理フロー」の Key Decisions が
+// 「ネットワーク切断時は警告を表示し、サーバー保存をブロック」「localStorage への一時保存は継続」
+// と定めるため、告知は NetworkStatusIndicator、抑止は useNetworkStatus の canSave が担う。
+import NetworkStatusIndicator from '../NetworkStatusIndicator';
+import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import useElementSize from '../../hooks/useElementSize';
 import useMediaQuery from '../../hooks/useMediaQuery';
 import { MEDIA_QUERIES } from '../../utils/responsive';
@@ -401,6 +407,12 @@ const STYLES = {
     backgroundColor: '#ffffff',
     zIndex: 21,
   },
+  // Task 115.105 (Req 15.6): 通信状態の告知帯。ストレージ警告帯と同じくツールバーの直上に置く。
+  networkStatusContainer: {
+    padding: '8px',
+    backgroundColor: '#ffffff',
+    zIndex: 21,
+  },
   container: {
     position: 'relative' as const,
     flex: 1,
@@ -667,6 +679,11 @@ function AnnotationEditor({
 }: AnnotationEditorProps): React.JSX.Element {
   // Toast通知フック（REQ-23.6: サムネイル再生成失敗時のエラー通知用）
   const toast = useToast();
+
+  // Task 115.105 (Req 15.6): 通信状態の購読。
+  // canSave はサーバー保存の可否のみを表す。localStorage への自動保存は切断中も継続する。
+  const { canSave: canSaveToServer, warningMessage: offlineWarningMessage } = useNetworkStatus();
+  const isServerSaveBlocked = !canSaveToServer;
   // DOM参照 - Canvas要素を動的に挿入するコンテナ
   const canvasWrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -2766,6 +2783,20 @@ function AnnotationEditor({
   const handleSave = useCallback(async () => {
     if (!fabricCanvasRef.current || state.isSaving) return;
 
+    // Task 115.105 (Req 15.6): 通信が切れている間はサーバー保存を実行しない。
+    // ボタンの無効化だけでは、無効化されない導線（保存失敗後の再試行、ストレージ警告帯の
+    // 「今すぐ保存」）から到達しうるため、実行側でも抑止して理由を提示する。
+    if (isServerSaveBlocked) {
+      setState((prev) => ({
+        ...prev,
+        isSaving: false,
+        saveSuccess: false,
+        saveFailed: false,
+        error: offlineWarningMessage,
+      }));
+      return;
+    }
+
     const canvas = fabricCanvasRef.current;
 
     // 保存中状態に設定
@@ -2926,6 +2957,8 @@ function AnnotationEditor({
   }, [
     imageId,
     state.isSaving,
+    isServerSaveBlocked,
+    offlineWarningMessage,
     onAnnotationSaved,
     onRequestRefresh,
     toast,
@@ -3324,6 +3357,14 @@ function AnnotationEditor({
 
       {/* 全体ラッパー */}
       <div style={STYLES.wrapper}>
+        {/* Task 115.105 (Req 15.6): 通信断の告知。切断中は警告を、復帰時は復帰通知を出す。
+            閲覧のみのときは保存操作自体が無いため出さない。 */}
+        {!readOnly && (
+          <div style={STYLES.networkStatusContainer}>
+            <NetworkStatusIndicator showReconnected />
+          </div>
+        )}
+
         {/* Task 115.81 (Req 15.8, 15.9): ストレージ警告帯。
             - quota-exceeded: 自動保存に失敗したので手動の「今すぐ保存」を促す（15.8）
             - private-browsing: 自動保存を無効化し手動保存のみで動作することを伝える（15.9） */}
@@ -3357,6 +3398,8 @@ function AnnotationEditor({
               onUndo={handleUndo}
               onRedo={handleRedo}
               onSave={handleSave}
+              saveDisabled={isServerSaveBlocked}
+              saveDisabledReason={offlineWarningMessage ?? undefined}
               onExport={handleExport}
               canUndo={state.canUndo}
               canRedo={state.canRedo}
@@ -3418,7 +3461,7 @@ function AnnotationEditor({
           {/* エラー表示 */}
           {state.error && (
             <div style={STYLES.errorContainer}>
-              <div role="alert" style={STYLES.errorMessage}>
+              <div role="alert" style={STYLES.errorMessage} data-testid="annotation-save-error">
                 {state.error}
                 {/* Task 115.102 (Req 9.5): 保存に失敗したときは再実行の手段を添える。
                     誤りの表示だけでは、ユーザーはもう一度保存する導線を持てない。 */}
@@ -3428,9 +3471,14 @@ function AnnotationEditor({
                       type="button"
                       onClick={handleSave}
                       disabled={state.isSaving}
+                      /* Task 115.105 (Req 15.6): 通信断中は押下を成立させたうえで
+                         handleSave が理由を提示して抑止する（aria-disabled で状態を伝える） */
+                      aria-disabled={state.isSaving || isServerSaveBlocked}
                       style={{
                         ...STYLES.errorRetryButton,
-                        ...(state.isSaving ? STYLES.errorRetryButtonDisabled : {}),
+                        ...(state.isSaving || isServerSaveBlocked
+                          ? STYLES.errorRetryButtonDisabled
+                          : {}),
                       }}
                       data-testid="save-retry-button"
                     >
