@@ -311,7 +311,17 @@ describe('AnnotatedImageThumbnail', () => {
       expect(activeObserverCount()).toBe(0);
     });
 
-    it('実寸が0の場合は観測せず最初から表示元URLを設定する', async () => {
+    /**
+     * 実寸が正の値でないときは寸法属性を与えない（`reservationSize`）。
+     *
+     * 零をそのまま属性に書くと「大きさが零である」という指定になり、呼び出し側が `style`
+     * で与えた CSS 寸法と食い違う記述が要素へ残る。実寸が未知であることは属性を付けない
+     * ことで表す。既存の「交差前も実寸で表示領域を確保する」は正の値の側だけを固定して
+     * いるため、こちらで零・未指定の側を固定する。
+     *
+     * @requirement site-survey/REQ-38.8
+     */
+    it('実寸が0のときは width / height 属性を持たない (site-survey/REQ-38.8)', () => {
       vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue(null);
 
       render(
@@ -320,16 +330,16 @@ describe('AnnotatedImageThumbnail', () => {
           alt="テスト画像"
           loading="lazy"
           preferThumbnail
+          style={{ width: '80px', height: '80px' }}
         />
       );
 
-      await waitFor(() => {
-        expect(screen.getByRole('img')).toHaveAttribute('src', mockImage.thumbnailUrl);
-      });
-      expect(activeObserverCount()).toBe(0);
+      const img = screen.getByRole('img');
+      expect(img).not.toHaveAttribute('width');
+      expect(img).not.toHaveAttribute('height');
     });
 
-    it('実寸が指定されていない場合は観測せず最初から表示元URLを設定する（後方互換）', async () => {
+    it('実寸が指定されていないときも width / height 属性を持たない', () => {
       vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue(null);
 
       render(
@@ -338,13 +348,93 @@ describe('AnnotatedImageThumbnail', () => {
           alt="テスト画像"
           loading="lazy"
           preferThumbnail
+          style={{ width: '80px', height: '80px' }}
         />
       );
+
+      const img = screen.getByRole('img');
+      expect(img).not.toHaveAttribute('width');
+      expect(img).not.toHaveAttribute('height');
+    });
+
+    /**
+     * 実寸は表示領域の確保手段のひとつにすぎない。一覧系の呼び出し側は代表画像の実寸を
+     * 応答から受け取らず、表示領域を CSS の固定寸法で確保している。実寸の有無で観測を
+     * 打ち切ると、それらの経路では表示領域外の画像も一斉に取得され 38.6 / 38.8 が成立
+     * しない（タスク 115.106）。
+     *
+     * @requirement site-survey/REQ-38.6
+     * @requirement site-survey/REQ-38.8
+     */
+    it('実寸が0でも表示領域へ入るまで表示元URLを設定せず注釈取得APIも呼ばない (site-survey/REQ-38.6, site-survey/REQ-38.8)', () => {
+      vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue(null);
+
+      render(
+        <AnnotatedImageThumbnail
+          image={{ ...mockImage, width: 0, height: 0 }}
+          alt="テスト画像"
+          loading="lazy"
+          preferThumbnail
+          style={{ width: '80px', height: '80px' }}
+        />
+      );
+
+      expect(screen.getByRole('img')).not.toHaveAttribute('src');
+      expect(surveyAnnotationsApi.getAnnotation).not.toHaveBeenCalled();
+      expect(activeObserverCount()).toBe(1);
+    });
+
+    /**
+     * @requirement site-survey/REQ-38.8
+     */
+    it('実寸が0でも表示領域へ入れば表示元URLが設定される (site-survey/REQ-38.8)', async () => {
+      vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue(null);
+
+      render(
+        <AnnotatedImageThumbnail
+          image={{ ...mockImage, width: 0, height: 0 }}
+          alt="テスト画像"
+          loading="lazy"
+          preferThumbnail
+          style={{ width: '80px', height: '80px' }}
+        />
+      );
+
+      act(() => {
+        triggerAllIntersections(true);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByRole('img')).toHaveAttribute('src', mockImage.thumbnailUrl);
+      });
+    });
+
+    /**
+     * @requirement site-survey/REQ-38.8
+     */
+    it('実寸が指定されていない場合も表示領域へ入るまで取得しない (site-survey/REQ-38.8)', async () => {
+      vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue(null);
+
+      render(
+        <AnnotatedImageThumbnail
+          image={{ id: 'image-999', thumbnailUrl: 'https://example.com/no-size.jpg' }}
+          alt="テスト画像"
+          loading="lazy"
+          preferThumbnail
+          style={{ width: '80px', height: '80px' }}
+        />
+      );
+
+      expect(screen.getByRole('img')).not.toHaveAttribute('src');
+      expect(activeObserverCount()).toBe(1);
+
+      act(() => {
+        triggerAllIntersections(true);
+      });
 
       await waitFor(() => {
         expect(screen.getByRole('img')).toHaveAttribute('src', 'https://example.com/no-size.jpg');
       });
-      expect(activeObserverCount()).toBe(0);
     });
   });
 

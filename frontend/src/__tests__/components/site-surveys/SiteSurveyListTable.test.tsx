@@ -9,7 +9,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, act } from '@testing-library/react';
+import { triggerAllIntersections } from '../../../test-support/intersection-observer';
 import userEvent from '@testing-library/user-event';
 import SiteSurveyListTable from '../../../components/site-surveys/SiteSurveyListTable';
 import type {
@@ -205,6 +206,13 @@ describe('SiteSurveyListTable', () => {
       ];
 
       render(<SiteSurveyListTable {...defaultProps} surveys={surveysWithRepresentative} />);
+
+      // 退避経路は表示領域へ入るまで表示元を設定しない（site-survey/REQ-38.6, 38.8）。
+      // ここで確かめたいのは表示元が原本かサムネイルかであるため、表示領域到達を
+      // 発火してから判定する
+      act(() => {
+        triggerAllIntersections(true);
+      });
 
       const row = screen.getByTestId('survey-row-survey-1');
       const img = within(row).getByRole('img');

@@ -48,8 +48,9 @@ export interface AnnotatedImageInput {
   /**
    * 画像の実寸（ピクセル）
    *
-   * 未読込の状態でも表示領域を確保するために用いる。値が正でない場合、要素が高さを
-   * 失って一斉に交差判定されるため、表示領域の観測を行わず即時取得へ縮退する。
+   * 未読込の状態でも表示領域を確保するために用いる。省略した場合や値が正でない場合は
+   * `width` / `height` 属性を付けないため、表示領域の確保は呼び出し側が `style` で与える
+   * 寸法に委ねられる。実寸の有無は表示領域の観測の要否には関与しない。
    */
   width?: number;
   height?: number;
@@ -89,6 +90,23 @@ export interface AnnotatedImageThumbnailProps {
 }
 
 // ============================================================================
+// 内部ヘルパ
+// ============================================================================
+
+/**
+ * 表示領域の確保に用いる寸法属性の値を返す
+ *
+ * 正の値のときだけ `width` / `height` 属性を与える。零や負の値をそのまま属性にすると
+ * 「大きさが零である」という指定になり、呼び出し側が `style` で与えた寸法と食い違う
+ * 記述が要素へ残る。実寸が未知であることは属性を付けないことで表す。
+ *
+ * @param value - 呼び出し側から渡された実寸（ピクセル）
+ */
+function reservationSize(value: number | undefined): number | undefined {
+  return typeof value === 'number' && value > 0 ? value : undefined;
+}
+
+// ============================================================================
 // コンポーネント
 // ============================================================================
 
@@ -124,13 +142,17 @@ export function AnnotatedImageThumbnail({
   // 拡大表示ではサムネイル解像度では不足するため、従来通りクライアントサイドで合成する。
   const serverRenderedUrl = preferThumbnail ? (image.annotatedThumbnailUrl ?? null) : null;
 
-  // 表示領域の観測を行う条件。
-  // - 即時取得（loading='eager'）は拡大表示・単一画像表示の意図であり観測しない。
-  // - 実寸が正の値でない場合、未読込の要素が高さを失って全件が同時に交差判定されるため、
-  //   観測しても遅延読み込みが成立しない。取得抑止を諦めて即時取得へ縮退する。
-  const hasIntrinsicSize = (image.width ?? 0) > 0 && (image.height ?? 0) > 0;
+  // 表示領域の観測を行う条件は、即時取得（loading='eager'）でないことのみとする。
+  // 即時取得は拡大表示・単一画像表示の意図であり、観測すると表示が遅れるだけになる。
+  //
+  // 実寸の有無は観測の要否に用いない。実寸は表示領域を確保する手段のひとつにすぎず、
+  // 呼び出し側が CSS で固定寸法を与えていれば未読込でも要素は潰れない。実寸が無いことを
+  // 理由に観測を打ち切ると、代表画像の実寸を応答から受け取らない一覧系の呼び出し側では
+  // 表示領域外の画像まで一斉に取得され、Requirement 38.6 / 38.8 が成立しなくなる。
+  // 実寸も CSS 寸法も無く要素が潰れる場合は、全件が同時に交差判定されて即時取得と同じ
+  // 結果になるため、観測を続けても不利益はない（タスク 115.106）。
   const { ref: imageRef, isInViewport } = useInViewport<HTMLImageElement>({
-    enabled: loading === 'lazy' && hasIntrinsicSize,
+    enabled: loading === 'lazy',
   });
 
   /**
@@ -360,8 +382,8 @@ export function AnnotatedImageThumbnail({
     <img
       ref={imageRef}
       src={isInViewport ? (renderedUrl ?? serverRenderedUrl ?? originalImageUrl) : undefined}
-      width={image.width}
-      height={image.height}
+      width={reservationSize(image.width)}
+      height={reservationSize(image.height)}
       alt={alt}
       style={{
         ...style,

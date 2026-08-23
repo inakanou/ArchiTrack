@@ -10,7 +10,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, act } from '@testing-library/react';
+import { triggerAllIntersections } from '../test-support/intersection-observer';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import QuantityTableEditPage from './QuantityTableEditPage';
@@ -386,11 +387,19 @@ describe('QuantityTableEditPage', () => {
 
         renderWithRouter();
 
+        // 表題部の写真は表示領域へ入るまで表示元を設定しない。ここで確かめたいのは
+        // 表示元が原寸画像かサムネイルかであるため、表示領域到達を発火してから判定する
+        await waitFor(() => {
+          expect(screen.getByAltText('photo1.jpg')).toBeInTheDocument();
+        });
+        act(() => {
+          triggerAllIntersections(true);
+        });
+
         // 表題部は縮小表示のため、原寸画像ではなくサムネイルを使用する
         // （数量グループ数に比例した原寸画像のダウンロードを避ける）
         await waitFor(() => {
           const thumbnail = screen.getByAltText('photo1.jpg');
-          expect(thumbnail).toBeInTheDocument();
           expect(thumbnail).toHaveAttribute('src', '/images/thumb-1.jpg');
         });
       });

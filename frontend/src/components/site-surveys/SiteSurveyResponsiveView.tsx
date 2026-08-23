@@ -194,18 +194,23 @@ function GridItemThumbnail({ survey }: { survey: SiteSurveyInfo }) {
       thumbnailUrl: survey.thumbnailUrl,
     };
 
+    // 高さを持つ枠で包む。この経路の表示元URLは表示領域へ入るまで設定されないため、
+    // 枠が無いと未読込の要素が潰れて代表画像が一斉に交差判定される（Requirement 38.6, 38.8）。
+    // 枠の寸法は同関数の他の分岐（合成済みサムネイル・通常サムネイル）と揃える。
     return (
-      <AnnotatedImageThumbnail
-        image={imageInfo}
-        alt={`${survey.name}のサムネイル`}
-        style={{
-          width: '100%',
-          height: '100%',
-          objectFit: 'cover',
-        }}
-        loading="lazy"
-        preferThumbnail
-      />
+      <div className="w-full h-32 sm:h-36 md:h-40">
+        <AnnotatedImageThumbnail
+          image={imageInfo}
+          alt={`${survey.name}のサムネイル`}
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+          }}
+          loading="lazy"
+          preferThumbnail
+        />
+      </div>
     );
   }
 
