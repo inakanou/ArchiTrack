@@ -108,7 +108,7 @@ vi.mock('../../../api/survey-annotations', () => ({
   }),
 }));
 
-// useToastのモック（Task 62.2: ThumbnailRegenerationError通知用）
+// useToastのモック（合成済みサムネイル更新失敗の通知用。Task 115.107）
 const mockToast = {
   toasts: [],
   addToast: vi.fn(),
@@ -1664,11 +1664,8 @@ describe('AnnotationEditor', () => {
         const { saveAnnotation, updateAnnotatedThumbnail } =
           await import('../../../api/survey-annotations');
 
-        // 注釈保存の応答が旧経路の表示元を返しても、失敗時にそれを最新として通知しないこと
-        vi.mocked(saveAnnotation).mockResolvedValue({
-          ...mockAnnotationInfo,
-          annotatedThumbnailUrl: 'https://example.com/stale-thumbnail.jpg',
-        });
+        // 合成済みサムネイル更新が失敗した場合、旧状態を最新として通知しないこと
+        vi.mocked(saveAnnotation).mockResolvedValue(mockAnnotationInfo);
         vi.mocked(updateAnnotatedThumbnail).mockRejectedValue(new Error('サムネイル更新失敗'));
 
         withSingleAnnotation();
@@ -1694,10 +1691,10 @@ describe('AnnotationEditor', () => {
         await waitFor(() => {
           expect(mockOnRequestRefresh).toHaveBeenCalled();
         });
-        expect(mockOnAnnotationSaved).toHaveBeenCalledWith({ annotatedThumbnailUrl: null });
-        expect(mockOnAnnotationSaved).not.toHaveBeenCalledWith({
-          annotatedThumbnailUrl: 'https://example.com/stale-thumbnail.jpg',
-        });
+        // 表示元の通知は1度だけで、その値は空である。第2の供給源が復活すれば
+        // 回数か値のいずれかで落ちる（Task 115.107）
+        expect(mockOnAnnotationSaved).toHaveBeenCalledTimes(1);
+        expect(mockOnAnnotationSaved).toHaveBeenNthCalledWith(1, { annotatedThumbnailUrl: null });
       });
 
       it('合成済みサムネイルの更新が完了するまで保存完了とみなさない (Req 23.4)', async () => {
@@ -1963,10 +1960,7 @@ describe('AnnotationEditor', () => {
         const user = (await import('@testing-library/user-event')).default.setup();
         const { saveAnnotation, updateAnnotatedThumbnail, deleteAnnotatedThumbnail } =
           await import('../../../api/survey-annotations');
-        vi.mocked(saveAnnotation).mockResolvedValue({
-          ...mockAnnotationInfo,
-          annotatedThumbnailUrl: 'https://example.com/stale-thumbnail.jpg',
-        });
+        vi.mocked(saveAnnotation).mockResolvedValue(mockAnnotationInfo);
 
         mockCanvasInstance.getObjects.mockReturnValue([]);
 
@@ -1982,11 +1976,9 @@ describe('AnnotationEditor', () => {
 
         // 表示は素のサムネイルへ退避するため、合成済みの表示元は空として通知される
         await waitFor(() => {
-          expect(mockOnAnnotationSaved).toHaveBeenCalledWith({ annotatedThumbnailUrl: null });
+          expect(mockOnAnnotationSaved).toHaveBeenCalledTimes(1);
         });
-        expect(mockOnAnnotationSaved).not.toHaveBeenCalledWith({
-          annotatedThumbnailUrl: 'https://example.com/stale-thumbnail.jpg',
-        });
+        expect(mockOnAnnotationSaved).toHaveBeenNthCalledWith(1, { annotatedThumbnailUrl: null });
       });
 
       it('回転を一周させて0度へ戻した保存では合成済みサムネイルを残さない (Req 22.8, 23.2)', async () => {
@@ -2124,16 +2116,17 @@ describe('AnnotationEditor', () => {
 
     it('保存成功時にonAnnotationSavedコールバックがannotatedThumbnailUrlと共に呼ばれる (REQ-23.5)', async () => {
       const user = (await import('@testing-library/user-event')).default.setup();
-      const mockSaveAnnotation = vi.mocked(
-        (await import('../../../api/survey-annotations')).saveAnnotation
-      );
+      const { saveAnnotation, updateAnnotatedThumbnail } =
+        await import('../../../api/survey-annotations');
       const mockOnAnnotationSaved = vi.fn();
 
-      const mockResponseWithThumbnail = {
-        ...mockAnnotationInfo,
+      // Task 115.107: 表示元URLの供給源は合成済みサムネイルの更新経路だけである
+      vi.mocked(saveAnnotation).mockResolvedValue(mockAnnotationInfo);
+      vi.mocked(updateAnnotatedThumbnail).mockResolvedValue({
+        success: true,
+        annotatedThumbnailPath: 'annotated-thumbnails/new.jpg',
         annotatedThumbnailUrl: 'https://example.com/new-thumbnail.jpg',
-      };
-      mockSaveAnnotation.mockResolvedValue(mockResponseWithThumbnail);
+      });
 
       withSingleAnnotation();
 
@@ -2186,11 +2179,8 @@ describe('AnnotationEditor', () => {
         await import('../../../api/survey-annotations');
       const mockOnAnnotationSaved = vi.fn();
 
-      // 注釈保存の応答は旧経路（サーバ側生成）の値。合成済み更新の応答が優先される
-      vi.mocked(saveAnnotation).mockResolvedValue({
-        ...mockAnnotationInfo,
-        annotatedThumbnailUrl: 'https://example.com/stale-thumbnail.jpg',
-      });
+      // 表示元を決めるのは合成済みサムネイル更新の応答だけである（Task 115.107）
+      vi.mocked(saveAnnotation).mockResolvedValue(mockAnnotationInfo);
       vi.mocked(updateAnnotatedThumbnail).mockResolvedValueOnce({
         success: true,
         annotatedThumbnailPath: 'annotated-thumbnails/img.1700000000000.jpg',
@@ -2208,14 +2198,13 @@ describe('AnnotationEditor', () => {
       const saveButton = screen.getByRole('button', { name: /保存/i });
       await user.click(saveButton);
 
+      // 表示元を決めるのは合成済みサムネイル更新の応答だけである。通知は1度だけで、
+      // その値は当該応答の表示元と一致する（Task 115.107）
       await waitFor(() => {
-        expect(mockOnAnnotationSaved).toHaveBeenCalledWith({
-          annotatedThumbnailUrl: 'https://signed.example.com/annotated.jpg?sig=test',
-        });
+        expect(mockOnAnnotationSaved).toHaveBeenCalledTimes(1);
       });
-      // 旧経路の値で上書き通知しないこと
-      expect(mockOnAnnotationSaved).not.toHaveBeenCalledWith({
-        annotatedThumbnailUrl: 'https://example.com/stale-thumbnail.jpg',
+      expect(mockOnAnnotationSaved).toHaveBeenNthCalledWith(1, {
+        annotatedThumbnailUrl: 'https://signed.example.com/annotated.jpg?sig=test',
       });
     });
 
@@ -2254,11 +2243,7 @@ describe('AnnotationEditor', () => {
         (await import('../../../api/survey-annotations')).saveAnnotation
       );
 
-      const mockResponseWithThumbnail = {
-        ...mockAnnotationInfo,
-        annotatedThumbnailUrl: 'https://example.com/new-thumbnail.jpg',
-      };
-      mockSaveAnnotation.mockResolvedValue(mockResponseWithThumbnail);
+      mockSaveAnnotation.mockResolvedValue(mockAnnotationInfo);
 
       mockCanvasInstance.getObjects.mockReturnValue([]);
 
@@ -2279,149 +2264,18 @@ describe('AnnotationEditor', () => {
     });
 
     // ========================================================================
-    // Task 62.2: ThumbnailRegenerationError 受信時のエラー通知テスト (Req 23.6)
+    // Task 115.107: サーバー側のサムネイル再生成は撤去済み。注釈保存の失敗は
+    // 通常のエラー表示（state.error）へ一本化される。合成済みサムネイル更新の
+    // 失敗（クライアント合成の経路）は「保存とサムネイル更新の連動」節で検証する。
     // ========================================================================
-    describe('ThumbnailRegenerationError 受信時のエラー通知 (Task 62.2, Req 23.6)', () => {
-      it('THUMBNAIL_REGENERATION_FAILED エラー時にエラー Toast が表示される', async () => {
-        const user = (await import('@testing-library/user-event')).default.setup();
-        const { ApiError } = await import('../../../api/client');
-        const mockSaveAnnotation = vi.mocked(
-          (await import('../../../api/survey-annotations')).saveAnnotation
-        );
-
-        // THUMBNAIL_REGENERATION_FAILED エラーをシミュレート
-        const thumbnailError = new ApiError(500, 'サムネイル再生成に失敗しました', {
-          code: 'THUMBNAIL_REGENERATION_FAILED',
-          status: 500,
-          detail:
-            '注釈の保存には成功しましたが、サムネイルの再生成に失敗しました。画面を再読み込みしてください。',
-        });
-        mockSaveAnnotation.mockRejectedValue(thumbnailError);
-
-        mockCanvasInstance.getObjects.mockReturnValue([]);
-        mockToast.error.mockClear();
-
-        render(<AnnotationEditor {...defaultProps} />);
-
-        await waitFor(() => {
-          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
-        });
-
-        const saveButton = screen.getByRole('button', { name: /保存/i });
-        await user.click(saveButton);
-
-        // エラー Toast が表示されること
-        await waitFor(() => {
-          expect(mockToast.error).toHaveBeenCalledWith(
-            '注釈は保存されましたがサムネイル再生成に失敗しました。画面を再読み込みしてください。',
-            expect.objectContaining({ duration: 8000 })
-          );
-        });
-      });
-
-      it('THUMBNAIL_REGENERATION_FAILED エラー時に通常のエラー表示（state.error）が設定されない', async () => {
-        const user = (await import('@testing-library/user-event')).default.setup();
-        const { ApiError } = await import('../../../api/client');
-        const mockSaveAnnotation = vi.mocked(
-          (await import('../../../api/survey-annotations')).saveAnnotation
-        );
-
-        const thumbnailError = new ApiError(500, 'サムネイル再生成に失敗しました', {
-          code: 'THUMBNAIL_REGENERATION_FAILED',
-          status: 500,
-        });
-        mockSaveAnnotation.mockRejectedValue(thumbnailError);
-
-        mockCanvasInstance.getObjects.mockReturnValue([]);
-
-        render(<AnnotationEditor {...defaultProps} />);
-
-        await waitFor(() => {
-          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
-        });
-
-        const saveButton = screen.getByRole('button', { name: /保存/i });
-        await user.click(saveButton);
-
-        // Toast 表示を待つ
-        await waitFor(() => {
-          expect(mockToast.error).toHaveBeenCalled();
-        });
-
-        // state.error によるエラー表示（role="alert"）は表示されないこと
-        // （注釈保存自体は成功しているため）
-        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-      });
-
-      it('THUMBNAIL_REGENERATION_FAILED エラー時に onAnnotationSaved が null の annotatedThumbnailUrl で呼ばれる', async () => {
-        const user = (await import('@testing-library/user-event')).default.setup();
-        const { ApiError } = await import('../../../api/client');
-        const mockSaveAnnotation = vi.mocked(
-          (await import('../../../api/survey-annotations')).saveAnnotation
-        );
-
-        const thumbnailError = new ApiError(500, 'サムネイル再生成に失敗しました', {
-          code: 'THUMBNAIL_REGENERATION_FAILED',
-          status: 500,
-        });
-        mockSaveAnnotation.mockRejectedValue(thumbnailError);
-
-        mockCanvasInstance.getObjects.mockReturnValue([]);
-
-        const mockOnAnnotationSaved = vi.fn();
-        render(<AnnotationEditor {...defaultProps} onAnnotationSaved={mockOnAnnotationSaved} />);
-
-        await waitFor(() => {
-          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
-        });
-
-        const saveButton = screen.getByRole('button', { name: /保存/i });
-        await user.click(saveButton);
-
-        await waitFor(() => {
-          expect(mockOnAnnotationSaved).toHaveBeenCalledWith({
-            annotatedThumbnailUrl: null,
-          });
-        });
-      });
-
-      it('THUMBNAIL_REGENERATION_FAILED エラー時に onRequestRefresh コールバックが呼ばれる', async () => {
-        const user = (await import('@testing-library/user-event')).default.setup();
-        const { ApiError } = await import('../../../api/client');
-        const mockSaveAnnotation = vi.mocked(
-          (await import('../../../api/survey-annotations')).saveAnnotation
-        );
-
-        const thumbnailError = new ApiError(500, 'サムネイル再生成に失敗しました', {
-          code: 'THUMBNAIL_REGENERATION_FAILED',
-          status: 500,
-        });
-        mockSaveAnnotation.mockRejectedValue(thumbnailError);
-
-        mockCanvasInstance.getObjects.mockReturnValue([]);
-
-        const mockOnRequestRefresh = vi.fn();
-        render(<AnnotationEditor {...defaultProps} onRequestRefresh={mockOnRequestRefresh} />);
-
-        await waitFor(() => {
-          expect(mockCanvasInstance.setDimensions).toHaveBeenCalled();
-        });
-
-        const saveButton = screen.getByRole('button', { name: /保存/i });
-        await user.click(saveButton);
-
-        await waitFor(() => {
-          expect(mockOnRequestRefresh).toHaveBeenCalled();
-        });
-      });
-
+    describe('保存エラー時の扱い (Task 115.107, Req 9.5)', () => {
       it('通常の保存エラー時は従来通りstate.errorにエラーメッセージが設定される', async () => {
         const user = (await import('@testing-library/user-event')).default.setup();
         const mockSaveAnnotation = vi.mocked(
           (await import('../../../api/survey-annotations')).saveAnnotation
         );
 
-        // 通常のエラー（THUMBNAIL_REGENERATION_FAILED ではない）
+        // 注釈保存そのものの失敗
         mockSaveAnnotation.mockRejectedValue(new Error('保存に失敗'));
 
         mockCanvasInstance.getObjects.mockReturnValue([]);

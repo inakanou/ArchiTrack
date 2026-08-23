@@ -2838,7 +2838,9 @@ function AnnotationEditor({
       const hasRotation = normalizeImageRotation(annotationData.imageRotation ?? 0) !== 0;
       const requiresAnnotatedThumbnail = objects.length > 0 || hasRotation;
 
-      let annotatedThumbnailUrl: string | null = saveResponse.annotatedThumbnailUrl ?? null;
+      // Task 115.107: 合成済みサムネイルの表示元は、この直後の合成済みサムネイル更新
+      // （クライアント合成）だけが決める。注釈保存の応答は表示元を持たない。
+      let annotatedThumbnailUrl: string | null = null;
       try {
         if (requiresAnnotatedThumbnail) {
           // キャンバスを画像としてエクスポート（JPEG形式、品質0.9）
@@ -2848,8 +2850,7 @@ function AnnotationEditor({
             multiplier: 1,
           });
           const thumbnailResponse = await updateAnnotatedThumbnail(imageId, imageData);
-          // 更新後の表示元を優先する（サーバ側生成の旧経路の値で上書きしない）
-          annotatedThumbnailUrl = thumbnailResponse.annotatedThumbnailUrl ?? annotatedThumbnailUrl;
+          annotatedThumbnailUrl = thumbnailResponse.annotatedThumbnailUrl ?? null;
         } else {
           // 既存の合成済みサムネイルを残さない。既に無い場合も成功する（冪等）
           await deleteAnnotatedThumbnail(imageId);
@@ -2860,7 +2861,7 @@ function AnnotationEditor({
         // 更新に失敗した場合は保存完了（saveSuccess）とみなさない。
         // Task 115.3: 取り消し（存在しない状態への収束）も同じく表示の最新化であるため、
         // 失敗時の扱いは更新と同一とする。
-        // REQ-23.6: 失敗を握り潰さず、サーバ側再生成失敗と同一のエラー提示・再取得要求を行う。
+        // REQ-23.6: 失敗を握り潰さず、エラー提示と再取得要求を行う。
         // なお注釈本体は既に保存済みであるため、注釈保存の契約（保存成功）は巻き戻さない。
         console.error('合成済みサムネイルの更新に失敗しました:', thumbnailErr);
 
@@ -2913,38 +2914,6 @@ function AnnotationEditor({
         setState((prev) => ({ ...prev, saveSuccess: false }));
       }, 3000);
     } catch (err) {
-      // REQ-23.6: THUMBNAIL_REGENERATION_FAILED エラーの判定
-      // 注釈保存自体は成功しているが、サムネイル再生成のみ失敗したケース
-      if (
-        err instanceof ApiError &&
-        err.response &&
-        typeof err.response === 'object' &&
-        (err.response as Record<string, unknown>).code === 'THUMBNAIL_REGENERATION_FAILED'
-      ) {
-        console.warn('サムネイル再生成に失敗しました:', err);
-
-        // 保存中状態を解除（注釈保存自体は成功しているのでエラー状態にしない）
-        setState((prev) => ({ ...prev, isSaving: false }));
-
-        // エラー Toast を表示
-        toast.error(
-          '注釈は保存されましたがサムネイル再生成に失敗しました。画面を再読み込みしてください。',
-          { duration: 8000 }
-        );
-
-        // onAnnotationSaved を null で通知（サムネイルURLは取得できなかった）
-        if (onAnnotationSaved) {
-          onAnnotationSaved({ annotatedThumbnailUrl: null });
-        }
-
-        // 画像一覧を強制再取得して旧状態残留を防止
-        if (onRequestRefresh) {
-          onRequestRefresh();
-        }
-
-        return;
-      }
-
       console.error('注釈の保存に失敗しました:', err);
       // Req 9.5: 誤りを伝えたうえで、同じ操作をやり直す導線（再試行）を出す
       setState((prev) => ({

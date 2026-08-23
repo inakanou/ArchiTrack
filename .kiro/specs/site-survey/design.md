@@ -384,7 +384,7 @@
 - 追跡表の契約名の抽出: 全追跡表の Interfaces 列を全行から取り出し、バッククォートの有無によらず PascalCase トークンを全件列挙する。**`*API` 形式だけを見てはならない**。`*API` 形式が現れるのは冒頭の総合追跡表だけ（節別の6表はいずれも 0 件。実測）だが、要件24-30 の節別追跡表には `*API` でない契約名（`GestureEvent` / `CursorStrategy` / `HandleSizeStrategy`）があり、`*API` に限ると取りこぼす
 - 実在判定: 各名について `grep -rn --include=*.ts --include=*.tsx -E "^[[:space:]]*(export )?(declare )?(interface|type|class) <名前>\b" backend frontend e2e scripts`（`node_modules` を除く）を実行する。**走査範囲を `backend/src` / `frontend/src` に限ってはならない**。`backend/scripts` 配下の宣言を取りこぼす（`BackfillResult` が該当）
 - 実在判定の誤検出の除去: 上記の式は `import { type <名前>, ... }` の継続行にも一致する。ヒットが import 文だけの名前は**宣言ではない**ため実体なしと判定する。またヒットが `__tests__/` 配下・`*.test.ts` / `*.test.tsx` だけの名前も実装の実体とはみなさない
-- 実体ありと記す行は、**記録した `パス:行番号` を実際に開いて当該行が当該名の宣言であることを目視で照合する**。JSDoc の開始行を宣言行と取り違える誤りが起きるため、grep のヒット数だけで確定してはならない。**行番号は実装ファイルの行の増減で失効する**ため、実装へ行の増減を伴う変更を加えたタスクは、当該ファイルを指す本書の `パス:行` を全件測り直す責任を負う。タスク 115.88 は `backend/src/services/site-survey.service.ts` と `frontend/src/types/site-survey.types.ts` から各2行を削除したため、当該2ファイルを指す本書の 22 件の引用のうち下流にある 11 件を測り直して是正した（本節の `ImageOrderItem` / `ProjectSurveySummary` / `SurveyImageInfo`、決着表の #1 / #19 / #20 / #21 / #22 / #23、`deleteSiteSurvey` と `findById` の引用。加えて相対参照 4 件）。**115.88 以前から誤っていた引用が同2ファイル向けに 3 件ある**: `AnnotationData` の `frontend/src/types/site-survey.types.ts:620`（本節と決着表 #25 / #26 の計3行。実測は HEAD 時点で 463 行、115.88 の削除後で 461 行）、`BatchAnnotationRequest` の同ファイル `:931`（実測 660 行）、`BatchAnnotationResponse` の同ファイル `:921`（実測 650 行）。いずれも 115.88 の変更前から当該行が当該名の宣言ではなく、115.88 の境界「一覧応答の代表画像識別子とその設計記述」の外側であるため是正せず、誤っている事実をここに記録する（`design.md:1101` が指す `design.md:5795` も同種の失効で、実測の該当行は 5934 行である）。タスク 115.98 は `frontend/src/components/site-surveys/annotation-style-tokens.ts` へ 54 行を挿入し（差分は +54 / -0 で正味 +54 行）、`frontend/src/components/site-surveys/tools/DimensionTool.ts` を +13 / -12 で正味 +1 行動かしたため、**本書から当該2ファイルを指す参照を全件測り直し、18 件すべてを是正した**。内訳は annotation-style-tokens.ts 向けが 12 件（`AnnotationToolDefaults` 77→98 が本節の表・上の注・決着表 #43 の計3件、`ArrowOutlineAttribute` 58→61 が本節の表と `ShapeOutlineAttribute` 行の別名注記の計2件、`TextOutlineAttribute` 65→68、`ShapeOutlineAttribute` 42→45、宣言直上の JSDoc 75→96 が上の注と決着表 #43 の計2件、`dimensionOutline` 101→122、`dimensionLabelOutline` 103→124、`ANNOTATION_DEFAULTS` 247→297）、DimensionTool.ts 向けが 6 件（`DimensionLineJSON` 124→121 が上の注と決着表 #40 の計2件、`type` ID の 125→122、`DimensionLine` クラス 293→294、`setOutline` 707→708、`getOutline` 734→735）である。**115.98 以前から誤っていた引用が決着表 #42 に 2 件ある**: `setOutline` の `FreehandTool.ts:371`（実測 386 行）と `getOutline` の同ファイル `398`（実測 413 行）。当該ファイルは 115.98 が触れておらず、115.98 の境界「寸法線ラベルの既定スタイル」の外側であるため是正せず、誤っている事実をここに記録する。**所管タスクの不在**: 本書から本番コードを指す `パス:行` の失効は、115.100 が扱う「本番コードから本書への参照形式」とは**向きが逆**であり 115.100 の所管外である。所管するタスクが存在しなかったため、`tasks.md` に 115.149 として起票した。**後続タスクの提案**: 本書の `パス:行` を全件測り直す監査タスクを別途起票すること
+- 実体ありと記す行は、**記録した `パス:行番号` を実際に開いて当該行が当該名の宣言であることを目視で照合する**。JSDoc の開始行を宣言行と取り違える誤りが起きるため、grep のヒット数だけで確定してはならない。**行番号は実装ファイルの行の増減で失効する**ため、実装へ行の増減を伴う変更を加えたタスクは、当該ファイルを指す本書の `パス:行` を全件測り直す責任を負う。タスク 115.88 は `backend/src/services/site-survey.service.ts` と `frontend/src/types/site-survey.types.ts` から各2行を削除したため、当該2ファイルを指す本書の 22 件の引用のうち下流にある 11 件を測り直して是正した（本節の `ImageOrderItem` / `ProjectSurveySummary` / `SurveyImageInfo`、決着表の #1 / #19 / #20 / #21 / #22 / #23、`deleteSiteSurvey` と `findById` の引用。加えて相対参照 4 件）。**115.88 以前から誤っていた引用が同2ファイル向けに 3 件ある**: `AnnotationData` の `frontend/src/types/site-survey.types.ts:620`（本節と決着表 #25 / #26 の計3行。実測は HEAD 時点で 463 行、115.88 の削除後で 461 行）、`BatchAnnotationRequest` の同ファイル `:931`（実測 658 行。タスク 115.107 が同ファイルから2行を削除したため 660 行から移動）、`BatchAnnotationResponse` の同ファイル `:921`（実測 648 行。同上）。いずれも 115.88 の変更前から当該行が当該名の宣言ではなく、115.88 の境界「一覧応答の代表画像識別子とその設計記述」の外側であるため是正せず、誤っている事実をここに記録する（`design.md:1101` が指す `design.md:5795` も同種の失効で、実測の該当行は 5934 行である）。タスク 115.98 は `frontend/src/components/site-surveys/annotation-style-tokens.ts` へ 54 行を挿入し（差分は +54 / -0 で正味 +54 行）、`frontend/src/components/site-surveys/tools/DimensionTool.ts` を +13 / -12 で正味 +1 行動かしたため、**本書から当該2ファイルを指す参照を全件測り直し、18 件すべてを是正した**。内訳は annotation-style-tokens.ts 向けが 12 件（`AnnotationToolDefaults` 77→98 が本節の表・上の注・決着表 #43 の計3件、`ArrowOutlineAttribute` 58→61 が本節の表と `ShapeOutlineAttribute` 行の別名注記の計2件、`TextOutlineAttribute` 65→68、`ShapeOutlineAttribute` 42→45、宣言直上の JSDoc 75→96 が上の注と決着表 #43 の計2件、`dimensionOutline` 101→122、`dimensionLabelOutline` 103→124、`ANNOTATION_DEFAULTS` 247→297）、DimensionTool.ts 向けが 6 件（`DimensionLineJSON` 124→121 が上の注と決着表 #40 の計2件、`type` ID の 125→122、`DimensionLine` クラス 293→294、`setOutline` 707→708、`getOutline` 734→735）である。**115.98 以前から誤っていた引用が決着表 #42 に 2 件ある**: `setOutline` の `FreehandTool.ts:371`（実測 386 行）と `getOutline` の同ファイル `398`（実測 413 行）。当該ファイルは 115.98 が触れておらず、115.98 の境界「寸法線ラベルの既定スタイル」の外側であるため是正せず、誤っている事実をここに記録する。タスク 115.107 は4ファイルの行を減らしたため（`backend/src/services/annotation.service.ts` が正味 −46 行、`backend/src/routes/annotation.routes.ts` が −44 行、`frontend/src/types/site-survey.types.ts` が −2 行、`frontend/src/components/site-surveys/AnnotationEditor.tsx` が −31 行）、**当該4ファイルを指す本書の参照を全件測り直した**。是正は 14 件である。内訳は annotation.service.ts 向けが 5 件（`AnnotationInfo` 188→178、`FabricSerializedObject` 128→118、`SaveAnnotationInput` 179→169、`AnnotationService` クラス 226→208 が決着表 #3 と「`I*Service` の非対称の理由」の #3 行の計2件）、annotation.routes.ts 向けが 7 件（`new AnnotationService` 43→41 が同じく2件、`GET /:imageId/annotations` 101→99、`PUT /:imageId/annotations` 210→208、`GET /:imageId/annotations/export` 348→304、`POST /annotations/batch` 450→406、決着表 #24 の応答生成 256→230）、site-survey.types.ts 向けが 2 件（上記の既知誤り引用に添えた実測値 `BatchAnnotationRequest` 660→658、`BatchAnnotationResponse` 650→648）である。**測り直しても動かなかった参照**は、site-survey.types.ts の `SurveyImageInfo`:54 / `CreateSiteSurveyInput`:189 / `UpdateSiteSurveyInput`:201 / `ImageOrderItem`:392（いずれも当該行が当該名の宣言であることを開いて照合済み。削除位置が 495 行であるためこれらは動かない）と、AnnotationEditor.tsx を指す全参照（変更位置が 2841 行以降のため動かない）である。**115.107 以前から誤っていた引用が AnnotationEditor.tsx 向けにある**: 本節の表の `AnnotationEditorState`（記載 252 / 実測 273）、決着表 #33 の `AnnotationEditorState.error`（記載 256 / 実測 277）と #30 の `styleOptions`（記載 260 / 実測 281）、要件33-36 節の `options.scenePoint`（記載 810 / 887 / 1054、実測は 1465 / 1556 / 1745）、`selectable=false`（記載 516-523 / 実測 1302 ほか）、フィット算術（記載 667-710 と 678 / 実測は 1279 付近の `Math.min` 一般化）、エクスポート失敗時の `error` 設定箇所（記載 2608 / 実測 3122 付近）である。いずれも 115.107 の変更前から当該行が当該名を指しておらず、115.107 の境界「注釈経路の依存注入とサーバ側再生成の分岐」の外側であるため是正せず、誤っている事実をここに記録する（全件の測り直しは 115.149 の所管）。**所管タスクの不在**: 本書から本番コードを指す `パス:行` の失効は、115.100 が扱う「本番コードから本書への参照形式」とは**向きが逆**であり 115.100 の所管外である。所管するタスクが存在しなかったため、`tasks.md` に 115.149 として起票した。**後続タスクの提案**: 本書の `パス:行` を全件測り直す監査タスクを別途起票すること
 
 **実装に実体がある契約名**（設計書の記述は実装の型を指す。以下のパスは宣言位置）:
 
@@ -393,7 +393,7 @@
 | `AnnotatedImageWithComment` | `frontend/src/services/export/PdfReportService.ts:118` |
 | `AnnotationData` | `frontend/src/types/site-survey.types.ts:620` |
 | `AnnotationContextMenuProps` | `frontend/src/components/site-surveys/AnnotationContextMenu.tsx:56` |
-| `AnnotationInfo` | `backend/src/services/annotation.service.ts:188` |
+| `AnnotationInfo` | `backend/src/services/annotation.service.ts:178` |
 | `AnnotationToolDefaults` | `frontend/src/components/site-surveys/annotation-style-tokens.ts:98` |
 | `ArrowJSON` | `frontend/src/components/site-surveys/tools/ArrowTool.ts:79` |
 | `ArrowOutlineAttribute` | `frontend/src/components/site-surveys/annotation-style-tokens.ts:61` |
@@ -408,8 +408,7 @@
 | `BatchUploadResult` | `backend/src/services/batch-upload.service.ts:85` |
 | `CacheEntry` | `frontend/src/services/AutoSaveManager.ts:128` |
 | `ExportImageOptions` | `frontend/src/services/ExportService.ts:23` |
-| `FabricSerializedObject` | `backend/src/services/annotation.service.ts:128` |
-| `IAnnotatedThumbnailService` | `backend/src/services/annotation.service.ts:106` |
+| `FabricSerializedObject` | `backend/src/services/annotation.service.ts:118` |
 | `IAuditLogService` | `backend/src/types/audit-log.types.ts:10` |
 | `IAutoSaveManager` | `frontend/src/services/AutoSaveManager.ts:170` |
 | `IExportService` | `frontend/src/services/ExportService.ts:40` |
@@ -421,7 +420,7 @@
 | `LocalStorageData` | `frontend/src/services/AutoSaveManager.ts:60` |
 | `PhotoManagementPanelProps` | `frontend/src/components/site-surveys/PhotoManagementPanel.tsx:38` |
 | `ProjectSurveySummary` | `backend/src/services/site-survey.service.ts:162` |
-| `SaveAnnotationInput` | `backend/src/services/annotation.service.ts:179` |
+| `SaveAnnotationInput` | `backend/src/services/annotation.service.ts:169` |
 | `SiteSurveySectionCardProps` | `frontend/src/components/projects/SiteSurveySectionCard.tsx:32` |
 | `TextAnnotationJSON` | `frontend/src/components/site-surveys/tools/TextTool.ts:113` |
 | `TextOutlineAttribute` | `frontend/src/components/site-surveys/annotation-style-tokens.ts:68` |
@@ -469,11 +468,11 @@
 | `SiteSurveyServiceDependencies` | `backend/src/services/site-survey.service.ts:40`（タスク 115.76 で設計側の名前と項目を実体へ合わせ、下の「実体を持たない契約名」表から移した） |
 | `SurveyImageServiceDependencies` | `backend/src/services/survey-image.service.ts:131`（同上） |
 
-**実装に実体を持たない契約名（設計上の抽象契約）**: 以下は本設計書が契約の形を示すために定義した名前であり、**同名の宣言が実装のどこにも存在しない**（各名について上記 grep が `backend` / `frontend` / `e2e` / `scripts` の全域で 0 件）。実装時に同名の型を作る義務はなく、これらの名前を実装のエクスポート名として引用してはならない。**下表の全行はタスク 115.74 で走査範囲を全域へ広げたうえで再確認済みである**（範囲を広げても新たに実体が見つかった行は無い）。 **タスク 115.75 の時点では下表は43行あり、その全行について実装するのか設計から落とすのか抽象契約として残すのかの判断を一件ずつ決着させた**（後述の「実体を持たない契約名の扱い」。判別可能にしたことと乖離が無いことは別の主張であるため、判断を省いてはならない）。**その後タスク 115.76 で、依存注入契約の2件（旧 `SurveyServiceDependencies` / 旧 `ImageServiceDependencies`）を設計側の名前も項目も実装の実体へ合わせたため、当該2件は上の「実装に実体がある契約名」表へ移り、下表は現在41行である**。
+**実装に実体を持たない契約名（設計上の抽象契約）**: 以下は本設計書が契約の形を示すために定義した名前であり、**同名の宣言が実装のどこにも存在しない**（各名について上記 grep が `backend` / `frontend` / `e2e` / `scripts` の全域で 0 件）。実装時に同名の型を作る義務はなく、これらの名前を実装のエクスポート名として引用してはならない。**下表の全行はタスク 115.74 で走査範囲を全域へ広げたうえで再確認済みである**（範囲を広げても新たに実体が見つかった行は無い）。 **タスク 115.75 の時点では下表は43行あり、その全行について実装するのか設計から落とすのか抽象契約として残すのかの判断を一件ずつ決着させた**（後述の「実体を持たない契約名の扱い」。判別可能にしたことと乖離が無いことは別の主張であるため、判断を省いてはならない）。**その後タスク 115.76 で、依存注入契約の2件（旧 `SurveyServiceDependencies` / 旧 `ImageServiceDependencies`）を設計側の名前も項目も実装の実体へ合わせたため、当該2件は上の「実装に実体がある契約名」表へ移った（この時点で41行）。さらにタスク 115.107 で `IAnnotatedThumbnailService` の宣言を撤去したため同名は上表から下表へ移り、下表は現在42行である**（41 − 0 + 1 = 42）。
 
 | 種別 | 契約名 |
 |---|---|
-| サービス契約（`I*`） | `ISurveyService`、`IImageService`、`IAnnotationService`、`IImageDeleteService`、`IImageMetadataService` |
+| サービス契約（`I*`） | `ISurveyService`、`IImageService`、`IAnnotationService`、`IImageDeleteService`、`IImageMetadataService`、`IAnnotatedThumbnailService`（**タスク 115.107 で宣言を撤去したため本表へ移った**。下の「`I*Service` の非対称の理由」の改訂注記を参照） |
 | API 契約（追跡表 Interfaces 列） | `SurveyAPI`、`SurveyListAPI`、`ImageAPI`、`ImageDeleteAPI`、`ImageMetadataAPI`、`ImageOrderAPI`、`AnnotationAPI`、`AnnotationBatchAPI`、`ExportAPI`、`ThumbnailAPI` |
 | DTO・入出力契約 | `SurveyInfo`、`SurveyDetail`、`PaginatedSurveys`、`SurveyFilter`、`CreateSurveyInput`、`UpdateSurveyInput`、`SaveAnnotationResponse`、`AnnotationDataV1`、`AnnotationSaveDataV1`、`AutoSaveConfig`、`ExportPdfOptions`、`PdfReportLayoutConfig`、`ToolOptions`、`OrderChangeHandlers`、`PendingOrderRef` |
 | 画面状態契約（`*State`） | `ImageExportDialogState`、`PhotoManagementState`、`SiteSurveyDetailPageState`、`SiteSurveySectionCardState` |
@@ -484,7 +483,7 @@
 
 **注（上表の最終行について）**: これら4件は要件31-32 節が契約の形を示すために書いた名前で、**同名の宣言は実装に無い**。ただし近い名前の宣言は存在する（`DimensionJSON` に対し `frontend/src/components/site-surveys/tools/DimensionTool.ts:121` の `DimensionLineJSON`、`AnnotationToolDefaultsExt` に対し `frontend/src/components/site-surveys/annotation-style-tokens.ts:98` の `AnnotationToolDefaults`。後者は宣言直上の JSDoc（同ファイル96 行目）が「design.md の `AnnotationToolDefaults` (Req 26) と `AnnotationToolDefaultsExt` (Req 32) を統合」と記す）。**名前が異なる以上これらは同名の実体ではない**ため本表では実体なしとして扱う。同一物とみなして設計書側の名前を改めるか、実装側を設計に合わせるか、抽象契約のまま残すかの判断はタスク 115.75 で行い、**4件とも「抽象契約として残す」で決着した**（下の「実体を持たない契約名の扱い」の #40-43 を参照）。
 
-**警告（規約6 の要点）**: `I*Service` / `I*Manager` 表記は上表の**両方**に現れる。`IAuditLogService` / `IAnnotatedThumbnailService` / `IAutoSaveManager` / `IExportService` / `IUndoManager` は実在し、`ISurveyService` / `IImageService` / `IAnnotationService` / `IImageDeleteService` / `IImageMetadataService` は実在しない。**表記だけで実在を推定してはならない。**
+**警告（規約6 の要点）**: `I*Service` / `I*Manager` 表記は上表の**両方**に現れる。`IAuditLogService` / `IAutoSaveManager` / `IExportService` / `IUndoManager` は実在し、`ISurveyService` / `IImageService` / `IAnnotationService` / `IImageDeleteService` / `IImageMetadataService` / `IAnnotatedThumbnailService` は実在しない。**表記だけで実在を推定してはならない。**
 
 **注**: 追跡表 Interfaces 列には契約名以外に `Breadcrumb`（部品名。`frontend/src/components/common/Breadcrumb.tsx`。規約1 が適用される）、`R2 Lifecycle Rule` / `SignedURL検証` / `localStorage`（外部機構・ブラウザ API を指す説明語）も現れる。要件19 以降の追跡表では加えて次の4種が現れる。いずれも型の契約名ではないため本表の対象外とする。
 
@@ -497,7 +496,7 @@
 
 #### 実体を持たない契約名の扱い（タスク 115.75 の決着とタスク 115.76 の是正）
 
-本節の「実装に実体を持たない契約名（設計上の抽象契約）」表がタスク 115.75 の時点で持っていた**43行**について、一件ずつ「実装する / 設計から落とす / 抽象契約として残す」のいずれかへ決着させた結果を示す。**うち #6 / #7 の2件はタスク 115.76 で設計側を実態へ合わせた結果、実体を持つ契約名になったため上の表へ移った**が、経緯を追えるよう決着表の行番号は 115.75 当時のまま据え置く（本節を参照する他の記述の #番号を無効化しないため）。したがって決着表は43行、「実装に実体を持たない契約名」表は現在41行であり、差の2件が #6 / #7 である。判断は名前の見た目ではなく、**各契約名が設計書中で担当する要件と役割を読み、実装側に近い名前・同等の役割を持つ実体があるかを `grep` で確かめ、実体ありと記した行は当該ファイルの当該行を開いて照合**して行った。
+本節の「実装に実体を持たない契約名（設計上の抽象契約）」表がタスク 115.75 の時点で持っていた**43行**について、一件ずつ「実装する / 設計から落とす / 抽象契約として残す」のいずれかへ決着させた結果を示す。**うち #6 / #7 の2件はタスク 115.76 で設計側を実態へ合わせた結果、実体を持つ契約名になったため上の表へ移った**が、経緯を追えるよう決着表の行番号は 115.75 当時のまま据え置く（本節を参照する他の記述の #番号を無効化しないため）。したがって決着表は43行、「実装に実体を持たない契約名」表は現在42行である。差は #6 / #7 の2件が同表から抜けたことと、タスク 115.107 で宣言を撤去した `IAnnotatedThumbnailService` の1件が同表へ加わったことで説明される（43 − 2 + 1 = 42）。**`IAnnotatedThumbnailService` は決着表には無い**。同名を持つ実装が一度は存在した点で 115.75 当時の43件とは性質が異なるため、決着表の行番号を動かさずに本節の改訂注記で扱いを記録する。判断は名前の見た目ではなく、**各契約名が設計書中で担当する要件と役割を読み、実装側に近い名前・同等の役割を持つ実体があるかを `grep` で確かめ、実体ありと記した行は当該ファイルの当該行を開いて照合**して行った。
 
 **結論**: タスク 115.75 では43件すべてを**抽象契約として残す**と決着させた。その後タスク 115.76 で #6 / #7 の2件を設計側の名前・項目とも実装の実体へ合わせたため、**現在は41件が抽象契約、2件（#6 / #7）が実体を持つ契約名**である。実装のエクスポート名として新たに設けるべきものは無い。**ただし「実体を持たない」ことと「役割が実装されていない」ことは別であり、43件のいずれについても、下表に記した実装側の機構が同等の役割を果たしていることを確認した**（役割の担い手が皆無の行は無い）。
 
@@ -509,7 +508,7 @@
 |---|---|---|---|
 | 1 | `ISurveyService` | 抽象契約として残す | 実体は具象クラス `SiteSurveyService`（`backend/src/services/site-survey.service.ts:182`）。ルータが直接 `new` する（`backend/src/routes/site-surveys.routes.ts:50`、`backend/src/routes/survey-images.routes.ts:67`、`backend/src/routes/projects.routes.ts:77`）。下の「`I*Service` の非対称の理由」を参照 |
 | 2 | `IImageService` | 抽象契約として残す | **単一の実装クラスは存在せず、6メソッドが5つの具象クラスへ分解されている**（`upload`→`ImageUploadService.upload`＝`backend/src/services/image-upload.service.ts:149`、`uploadBatch`→同 246 行と `BatchUploadService.uploadBatch`＝`backend/src/services/batch-upload.service.ts:142`、`findBySurveyId`→`ImageListService.findBySurveyId`＝`backend/src/services/image-list.service.ts:93`、`updateOrder`→`ImageOrderService.updateImageOrder`＝`backend/src/services/image-order.service.ts:91`、`getSignedUrl`→`SignedUrlService.generateSignedUrl`＝`backend/src/services/signed-url.service.ts:99`、`validateSignedUrl`→同 162 行の `validateSignedUrlAccess`。**メソッド名と第1引数の意味の食い違いはタスク 115.111 で解消済み**で、本書の宣言ブロックは実装どおり `validateSignedUrlAccess(imageId, userId)` と書く。引数の個数は当初から2で一致していた）。**同名に見える `SurveyImageService`（`backend/src/services/survey-image.service.ts:175`）は `IImageService` の実装ではない**：公開メソッドは `validateFile` / `sanitizeFileName` / `getStoragePath` / `detectMimeTypeByMagicBytes` 等のみで、上記6メソッドとの重複は 0 件である。同クラスを `new` する箇所は、`__tests__` 配下とカバレッジ生成物（`backend/coverage/`）を除いた本番コードでは**3箇所**である（`grep -rn "new SurveyImageService" backend frontend e2e scripts` で集計）。うち本番リクエスト経路は `backend/src/routes/survey-images.routes.ts:99` と `backend/src/routes/construction-photo-images.routes.ts:112` の2箇所で、残る1箇所は保守スクリプト `backend/scripts/restore-plain-thumbnails.ts:454`（`createRestoreRuntimeDependencies` 内。注釈が焼き込まれた通常サムネイルの是正用であり、リクエスト経路からは呼ばれない）である。下の「`I*Service` の非対称の理由」の #2 の項を参照 |
-| 3 | `IAnnotationService` | 抽象契約として残す | 実体は `AnnotationService`（`backend/src/services/annotation.service.ts:226`）。`backend/src/routes/annotation.routes.ts:43` で直接 `new` |
+| 3 | `IAnnotationService` | 抽象契約として残す | 実体は `AnnotationService`（`backend/src/services/annotation.service.ts:208`）。`backend/src/routes/annotation.routes.ts:41` で直接 `new` |
 | 4 | `IImageDeleteService` | 抽象契約として残す | 実体は `ImageDeleteService`（`backend/src/services/image-delete.service.ts:97`）。`backend/src/routes/survey-images.routes.ts:116` で直接 `new` |
 | 5 | `IImageMetadataService` | 抽象契約として残す | 実体は `ImageMetadataService`（`backend/src/services/image-metadata.service.ts:111`）。`backend/src/routes/survey-images.routes.ts:135` で直接 `new` |
 | 6 | 旧 `SurveyServiceDependencies` → 現 `SiteSurveyServiceDependencies` | **タスク 115.76 で設計を実態へ合わせた（実体あり）** | 実体は `SiteSurveyServiceDependencies`（`backend/src/services/site-survey.service.ts:40`）。115.75 時点の設計は名前が `Site` 接頭辞を欠くうえ、項目に `imageService: IImageService` を含んでいたが、**実装は `prisma` / `auditLogService` の2項目のみ**で、`SiteSurveyService` は画像サービスをまったく注入されていない（`grep -n "imageService\|ImageService" backend/src/services/site-survey.service.ts` が 0 件。論理削除は `SiteSurvey.deletedAt` の更新のみで関連画像は同 473-475 行のコメントどおり親の削除フィルタで除外される）。115.76 で設計側の名前を `SiteSurveyServiceDependencies` へ、項目を実装の2項目へ改めた |
@@ -520,9 +519,9 @@
 | 11 | `ImageDeleteAPI` | 抽象契約として残す | `backend/src/routes/survey-images.routes.ts` の `DELETE /:imageId`（724 行） |
 | 12 | `ImageMetadataAPI` | 抽象契約として残す | `backend/src/routes/survey-images.routes.ts` の `PATCH /:imageId`（824 行）と `PATCH /batch`（632 行） |
 | 13 | `ImageOrderAPI` | 抽象契約として残す | `backend/src/routes/survey-images.routes.ts` の `PUT /order`（515 行） |
-| 14 | `AnnotationAPI` | 抽象契約として残す | `backend/src/routes/annotation.routes.ts` の `GET /:imageId/annotations`（101 行）と `PUT /:imageId/annotations`（210 行）。マウントは `backend/src/app.ts:342` |
-| 15 | `AnnotationBatchAPI` | 抽象契約として残す | `backend/src/routes/annotation.routes.ts` の `POST /annotations/batch`（450 行）。マウントは `backend/src/app.ts:344` |
-| 16 | `ExportAPI` | 抽象契約として残す | **要件11-12 のエクスポートに対応する HTTP エンドポイントは存在しない**。本設計書自身が「画像エクスポートおよびPDF生成はクライアントサイドで実行（Fabric.js toDataURL + jsPDF）」と明記しており、実体はクライアント側の `PdfReportService`（`frontend/src/services/export/PdfReportService.ts:238`）と `ExportService`（`frontend/src/services/ExportService.ts:95`。`IExportService` を `implements` する）。名前が `*API` であっても HTTP 契約とは限らない。なお注釈JSON のエクスポートだけは `GET /:imageId/annotations/export`（`backend/src/routes/annotation.routes.ts:348`）に実体がある |
+| 14 | `AnnotationAPI` | 抽象契約として残す | `backend/src/routes/annotation.routes.ts` の `GET /:imageId/annotations`（99 行）と `PUT /:imageId/annotations`（208 行）。マウントは `backend/src/app.ts:342` |
+| 15 | `AnnotationBatchAPI` | 抽象契約として残す | `backend/src/routes/annotation.routes.ts` の `POST /annotations/batch`（406 行）。マウントは `backend/src/app.ts:344` |
+| 16 | `ExportAPI` | 抽象契約として残す | **要件11-12 のエクスポートに対応する HTTP エンドポイントは存在しない**。本設計書自身が「画像エクスポートおよびPDF生成はクライアントサイドで実行（Fabric.js toDataURL + jsPDF）」と明記しており、実体はクライアント側の `PdfReportService`（`frontend/src/services/export/PdfReportService.ts:238`）と `ExportService`（`frontend/src/services/ExportService.ts:95`。`IExportService` を `implements` する）。名前が `*API` であっても HTTP 契約とは限らない。なお注釈JSON のエクスポートだけは `GET /:imageId/annotations/export`（`backend/src/routes/annotation.routes.ts:304`）に実体がある |
 | 17 | `ThumbnailAPI` | 抽象契約として残す | `backend/src/routes/survey-images.routes.ts` の `PATCH /:imageId/annotated-thumbnail`（947 行）と `DELETE /:imageId/annotated-thumbnail`（1134 行） |
 | 18 | `SurveyInfo` | 抽象契約として残す | 実体は `SiteSurveyInfo`（`backend/src/services/site-survey.service.ts:48`）。`Site` 接頭辞の有無だけが異なる短縮形 |
 | 19 | `SurveyDetail` | 抽象契約として残す | 実体は `SiteSurveyDetail`（`backend/src/services/site-survey.service.ts:98`。`SiteSurveyInfo` を継承）。フロント側の受け皿も同名（`frontend/src/pages/SiteSurveyDetailPage.tsx:336` の `useState<SiteSurveyDetail \| null>`） |
@@ -530,7 +529,7 @@
 | 21 | `SurveyFilter` | 抽象契約として残す | 実体は `SiteSurveyFilter`（`backend/src/services/site-survey.service.ts:106`） |
 | 22 | `CreateSurveyInput` | 抽象契約として残す | 実体は `CreateSiteSurveyInput`（backend は Zod 由来の `backend/src/schemas/site-survey.schema.ts:83`、frontend は `frontend/src/types/site-survey.types.ts:189`） |
 | 23 | `UpdateSurveyInput` | 抽象契約として残す | 実体は `UpdateSiteSurveyInput`（`backend/src/schemas/site-survey.schema.ts:107`、`frontend/src/types/site-survey.types.ts:201`） |
-| 24 | `SaveAnnotationResponse` | 抽象契約として残す | 応答の形を説明するためだけの名前。実装はルータがオブジェクトリテラルを直接返しており型宣言を置いていない（`backend/src/routes/annotation.routes.ts:256` の `res.json({ ...annotation, annotatedThumbnailUrl })`）。**入れ子と平坦の食い違いはタスク 115.111 で解消済み**（設計の宣言を平坦な形へ書き直した） |
+| 24 | `SaveAnnotationResponse` | 抽象契約として残す | 応答の形を説明するためだけの名前。実装はルータが `AnnotationInfo` をそのまま返しており型宣言を置いていない（`backend/src/routes/annotation.routes.ts:230` の `res.json(annotation)`）。**入れ子と平坦の食い違いはタスク 115.111 で解消済み**（設計の宣言を平坦な形へ書き直した）。**タスク 115.107 で `annotatedThumbnailUrl` を応答から撤去した**ため、当該項目は本契約に含まれない（「Requirement 23」節の「変更4: SaveAnnotation レスポンスに annotatedThumbnailUrl を含める」の改訂注記を参照） |
 | 25 | `AnnotationDataV1` | 抽象契約として残す | 実体は `AnnotationData`（`frontend/src/types/site-survey.types.ts:620`、`frontend/src/services/AutoSaveManager.ts:38`）。`V1` は型名ではなく `version` フィールドの値（`'1.0'`）を指す版名である。実装側も対応を明記している（`frontend/src/services/AutoSaveManager.ts:36` の JSDoc `@see design.md - AnnotationDataV1`）。**タスク 115.81 で、`AutoSaveManager` 側の宣言は `frontend/src/types/site-survey.types.ts` の同名型と同じ形（`version` は任意、`canvasWidth` / `canvasHeight` / `imageRotation` を持つ）へそろえた**。形が違うとサーバー保存とローカル自動保存で同じ注釈データを受け渡せないためである |
 | 26 | `AnnotationSaveDataV1` | 抽象契約として残す | 同上。要件31-32 節が「既存」として再掲した同一物であり、`canvasWidth` / `canvasHeight` / `imageRotation` を含む形は `frontend/src/types/site-survey.types.ts:620` の `AnnotationData` が満たす |
 | 27 | `AutoSaveConfig` | 抽象契約として残す | 実体は `AutoSaveManagerOptions`（`frontend/src/services/AutoSaveManager.ts:95`）。設計の `autoSaveIntervalMs` / `maxCacheSize` / `maxCachedImages` / `privateBrowsingMode.disableAutoSave` は、それぞれ `autoSaveIntervalMs` / `maxCacheSizeBytes` / `maxCachedImages` / `disableAutoSave` に対応する（間隔の項目名は、タスク 115.119 で発火条件を一定間隔へ改めた際に実装側を `debounceInterval` から `autoSaveIntervalMs` へ改名したため、現在は設計と同名である） |
@@ -553,9 +552,15 @@
 
 ##### `I*Service` の非対称の理由（#1-5 の判断根拠）
 
-`IAuditLogService` / `IAnnotatedThumbnailService` は実在し、`ISurveyService` 以下5件は実在しない。**この非対称は単一の規則では説明できない**。とくに「他サービスへ注入される側だけにインターフェースを置く」という規則は #2 で成立しないため採らない（後述）。以下、5件それぞれの実測値と個別の根拠を示す。
+> **改訂（タスク 115.107）**: 本節は当初 `IAuditLogService` と `IAnnotatedThumbnailService` の2件を「実在する側」の対照として挙げていた。**`IAnnotatedThumbnailService` は 115.107 で宣言ごと撤去したため、現在は実在しない。** 撤去の理由は、当該契約の唯一の注入点（`AnnotationServiceDependencies.annotatedThumbnailService`）が本番の結線で一度も注入されず、唯一の実装 `AnnotatedThumbnailService` も 115.6 で構築時に失敗する形へ封鎖されていたため、契約も注入点も到達不能だったことである（詳細は「Requirement 23」節の冒頭の改訂注記）。
+>
+> **この撤去は本節の結論を強めるものであり、覆すものではない。** 当初の対照は「単一の実装クラスがあり、かつ差し替えが実際に要求される」ことを実在の条件としていたが、`IAnnotatedThumbnailService` はそのうち後者（差し替えが実際に要求される）を満たしていなかった。**任意依存であること自体は実在の根拠にならない**。現在「実在する側」の対照は `IAuditLogService` の1件である。
+>
+> **`IAnnotatedThumbnailService` の扱い**: 名前は「Requirement 20」節の「変更3: AnnotatedThumbnailService（バックエンド）」の封鎖済みの記録の中にだけ残る（`interface IAnnotatedThumbnailService` の定義ブロック）。当該節は「当初設計の記録であり現行の実体ではない」と明記しているため、**抽象契約として残す**（実装側に同名の型を作る義務は無い）。
 
-**実在する側（対照）**: `IAuditLogService`（`backend/src/types/audit-log.types.ts:10`）は `SiteSurveyServiceDependencies.auditLogService`（`backend/src/services/site-survey.service.ts:42`）ほか多数のサービスの依存項目の型であり、`AuditLogService`（`backend/src/services/audit-log.service.ts:25`）が `implements` する。`IAnnotatedThumbnailService`（`backend/src/services/annotation.service.ts:106`）は `AnnotationServiceDependencies.annotatedThumbnailService`（同 119 行）の型で、**任意依存**（`?`）であり注入の有無で挙動が変わる。いずれも「単一の実装クラスがあり、かつ差し替えが実際に要求される」点で共通する。
+`IAuditLogService` は実在し、`ISurveyService` 以下5件は実在しない。**この非対称は単一の規則では説明できない**。とくに「他サービスへ注入される側だけにインターフェースを置く」という規則は #2 で成立しないため採らない（後述）。以下、5件それぞれの実測値と個別の根拠を示す。
+
+**実在する側（対照）**: `IAuditLogService`（`backend/src/types/audit-log.types.ts:10`）は `SiteSurveyServiceDependencies.auditLogService`（`backend/src/services/site-survey.service.ts:42`）ほか多数のサービスの依存項目の型であり、`AuditLogService`（`backend/src/services/audit-log.service.ts:25`）が `implements` する。「単一の実装クラスがあり、かつ差し替えが実際に要求される」ことが実在の条件である。
 
 **実測値（`grep -rnw` を `backend` / `frontend` / `e2e` / `scripts` の全域に対して実行し、`__tests__` 配下を除いた本番コードで集計）**:
 
@@ -563,7 +568,7 @@
 |---|---|---|---|---|
 | 1 | `ISurveyService` | `SiteSurveyService` | **0 件**（`backend/src/services/` 配下で当該クラスを参照するのは自ファイル `site-survey.service.ts:182` のみ） | ルータが末端で `new` するだけ（`site-surveys.routes.ts:50`、`survey-images.routes.ts:67`、`projects.routes.ts:77`）。差し替え先が無いためインターフェースの実体を要しない |
 | 2 | `IImageService` | **単一の対応クラスが無い**（6メソッドが `ImageUploadService` / `BatchUploadService` / `ImageListService` / `ImageOrderService` / `SignedUrlService` の5クラスへ分解済み。決着表 #2 参照） | **他の4件と違い 0 件ではない**。ただし注入されているのは `IImageService` の実装ではなく同名系の別クラス `SurveyImageService` で、**3 件**（`batch-upload.service.ts:101`、`image-upload.service.ts:103`、`construction-photo-image.service.ts:147`） | 下の「#2 を『残す』と判断した根拠」を参照 |
-| 3 | `IAnnotationService` | `AnnotationService` | **0 件**（`backend/src/services/` 配下の参照は自ファイル `annotation.service.ts:226` のみ） | `annotation.routes.ts:43` で末端 `new`。差し替え先が無い |
+| 3 | `IAnnotationService` | `AnnotationService` | **0 件**（`backend/src/services/` 配下の参照は自ファイル `annotation.service.ts:208` のみ） | `annotation.routes.ts:41` で末端 `new`。差し替え先が無い |
 | 4 | `IImageDeleteService` | `ImageDeleteService` | **0 件**（自ファイル `image-delete.service.ts:97` のみ） | `survey-images.routes.ts:116` で末端 `new`。差し替え先が無い |
 | 5 | `IImageMetadataService` | `ImageMetadataService` | **0 件**（自ファイル `image-metadata.service.ts:111` 以外の参照は同ファイル内の静的定数参照のみ） | `survey-images.routes.ts:135` で末端 `new`。差し替え先が無い |
 
@@ -584,7 +589,7 @@
 
 | 契約名 | 設計をどう書き直したか | 実装を正とした根拠 |
 |---|---|---|
-| `SaveAnnotationResponse` | 入れ子の `{ annotation; annotatedThumbnailUrl }` を、`AnnotationInfo` を展開した**平坦**な形へ改めた（「変更4: SaveAnnotation レスポンスに annotatedThumbnailUrl を含める」節の宣言ブロック） | ルータは `res.json({ ...annotation, annotatedThumbnailUrl })` で平坦に返す（`backend/src/routes/annotation.routes.ts`）。受け側の `saveAnnotation` は戻り値を `AnnotationInfo` として受け（`frontend/src/api/survey-annotations.ts`）、その `AnnotationInfo` は `annotatedThumbnailUrl?: string \| null` を**同じ階層に**宣言済みである（`frontend/src/types/site-survey.types.ts`）。要件23.5 が求めるのは再生成後のサムネイル表示を最新へ更新することであって応答の入れ子構造ではない。入れ子化は要件の裏付けが無いまま送受信の両側を壊す変更になるため採らない |
+| `SaveAnnotationResponse` | 入れ子の `{ annotation; annotatedThumbnailUrl }` を、`AnnotationInfo` を展開した**平坦**な形へ改めた（「変更4: SaveAnnotation レスポンスに annotatedThumbnailUrl を含める」節の宣言ブロック） | **［以下の2文はタスク 115.111 執筆時点の状態の記録であって現存の主張ではない］** ルータは `res.json({ ...annotation, annotatedThumbnailUrl })` で平坦に返す（`backend/src/routes/annotation.routes.ts`）。受け側の `saveAnnotation` は戻り値を `AnnotationInfo` として受け（`frontend/src/api/survey-annotations.ts`）、その `AnnotationInfo` は `annotatedThumbnailUrl?: string \| null` を**同じ階層に**宣言済みである（`frontend/src/types/site-survey.types.ts`）。**［タスク 115.107 による撤去。現行の実測値］** ルータは `backend/src/routes/annotation.routes.ts:230` の `res.json(annotation)` で `AnnotationInfo` をそのまま返し、`annotatedThumbnailUrl` を**付けない**。`frontend/src/types/site-survey.types.ts` の `AnnotationInfo` は当該項目を**持たない**（`saveAnnotation` が戻り値を `AnnotationInfo` として受ける点は現在も変わらない）。**平坦であるという 115.111 の決着自体は現在も成立する**（入れ子の `annotation` フィールドは無い）。撤去の経緯は「変更4: SaveAnnotation レスポンスに annotatedThumbnailUrl を含める」節の改訂注記を参照。要件23.5 が求めるのは再生成後のサムネイル表示を最新へ更新することであって応答の入れ子構造ではない。入れ子化は要件の裏付けが無いまま送受信の両側を壊す変更になるため採らない |
 | `ExportPdfOptions` | `title?` / `includeMetadata` / `imageQuality` を、`includeCoverPage?` / `includeInfoSection?` / `includeImages?` / `includePageNumbers?` の4項目へ差し替えた（`IExportService` の Service Interface 節） | 実体 `PdfReportOptions`（`frontend/src/services/export/PdfReportService.ts`）が上記4項目であり、`PdfExportService` の `PdfExportOptions` もこれを `extends` して進捗コールバックとファイル名を足す（`frontend/src/services/export/PdfExportService.ts`）。要件11 の受入基準9項目（`awk '/^### Requirement 11:/{f=1;next} /^### Requirement 12:/{f=0} f' .kiro/specs/site-survey/requirements.md \| grep -cE '^[0-9]+\. '` の結果が 9）のいずれも、表題の差し替え・メタデータ有無・画像品質の指定を求めていない。画像品質の選択可能性を定めるのは個別画像エクスポートの要件12.3 であり、対応する契約は同じ節の `ExportImageOptions` である。したがって設計側の3項目には要件の裏付けが無い |
 | `PendingOrderRef` | `current: Map<string, number> \| null` を `current: ImageOrderItem[] \| null` へ改め、同じ節の `handleOrderChange` / `handleSaveMetadata` の例も配列を保持する実装どおりに書き直した（`SiteSurveyDetailPage` の State Management 節） | 保持した値はそのまま `updateSurveyImageOrder(surveyId, imageOrders: ImageOrderItem[])`（`frontend/src/api/survey-images.ts`）へ渡され、画像削除時の順序詰め直しも配列の `filter` と `map` で行う（`frontend/src/pages/SiteSurveyDetailPage.tsx` の `pendingOrderRef`）。Map で保持すると送信直前に必ず配列へ変換する処理が要る。要件4.11-4.13 と要件10.5-10.7 は順序変更を即時保存せず未保存状態にすることだけを定めており、保持形式を定めていない |
 | `IImageService.validateSignedUrl` | 宣言を `validateSignedUrlAccess(imageId: string, userId: string): Promise<boolean>` へ改め、第1引数が画像 ID である理由をコメントで併記した（`IImageService` 宣言ブロック） | 実装は `SignedUrlService.validateSignedUrlAccess(imageId, userId)` で、画像 ID から現場調査・プロジェクトを引いて関係者か admin ロールかを判定する（`backend/src/services/signed-url.service.ts`）。呼び出し元は同クラスの `getSignedUrlWithValidation` であり、**権限を確かめてから署名付き URL をその場で発行する**流れであるため、アプリケーションが署名付き URL 文字列を受け取って検証する経路はそもそも存在しない。要件14.4 が求める「有効期限とアクセス権限の検証」のうち、有効期限はストレージが署名へ埋め込んで強制し（`generateSignedUrl` の `expiresIn`）、アクセス権限を本メソッドが担う分担であり、実装は要件を満たしている |
@@ -1074,14 +1079,17 @@ sequenceDiagram
 | **22.6** | **回転操作のUndo/Redo履歴記録** | **AnnotationEditor, UndoManager** | - | - |
 | **22.7** | **回転ボタンを既存ツールバーに配置** | **AnnotationEditor** | - | - |
 | **22.8** | **累積回転角度（0/90/180/270度）の管理** | **AnnotationEditor** | - | - |
-| **23.1** | **注釈追加・編集・削除保存時のサムネイル再生成** | **AnnotationService, AnnotatedThumbnailService** | **AnnotationAPI** | **サムネイル同期再生成フロー** |
-| **23.2** | **画像回転保存時のサムネイル再生成** | **AnnotationService, AnnotatedThumbnailService** | **AnnotationAPI** | **サムネイル同期再生成フロー** |
-| **23.3** | **回転+注釈編集併用時の最終状態サムネイル再生成** | **AnnotationService, AnnotatedThumbnailService** | **AnnotationAPI** | **サムネイル同期再生成フロー** |
-| **23.4** | **保存処理のサムネイル再生成完了保証（同期化）** | **AnnotationService** | **AnnotationAPI** | **サムネイル同期再生成フロー** |
-| **23.5** | **再生成後の詳細・一覧画面サムネイル表示更新** | **PhotoManagementPanel, SiteSurveyListTable, SiteSurveyListCard, SiteSurveyDetailPage** | **AnnotationAPI, ThumbnailAPI** | - |
-| **23.6** | **サムネイル再生成失敗時のエラー通知と旧状態残留防止** | **AnnotationService, AnnotatedThumbnailService, AnnotationEditor** | **AnnotationAPI** | - |
-| **23.7** | **再オープン時のサムネイル一致保証** | **AnnotatedThumbnailService, survey-images.routes.ts** | **ImageAPI** | - |
-| **23.8** | **冪等なサムネイル再生成処理（既存サムネイル破損防止）** | **AnnotatedThumbnailService** | - | - |
+| **23.1** | **注釈追加・編集・削除保存時のサムネイル再生成** | **AnnotationEditor, survey-images.routes.ts** | **ThumbnailAPI** | - |
+| **23.2** | **画像回転保存時のサムネイル再生成** | **AnnotationEditor, survey-images.routes.ts** | **ThumbnailAPI** | - |
+| **23.3** | **回転+注釈編集併用時の最終状態サムネイル再生成** | **AnnotationEditor, survey-images.routes.ts** | **ThumbnailAPI** | - |
+| **23.4** | **保存処理のサムネイル再生成完了保証** | **AnnotationEditor** | **ThumbnailAPI** | - |
+| **23.5** | **再生成後の詳細・一覧画面サムネイル表示更新** | **AnnotationEditor, PhotoManagementPanel, SiteSurveyListTable, SiteSurveyListCard, SiteSurveyDetailPage** | **ThumbnailAPI, SurveyAPI, SurveyListAPI, ImageAPI** | - |
+| **23.6** | **サムネイル再生成失敗時のエラー通知と旧状態残留防止** | **AnnotationEditor** | **ThumbnailAPI** | - |
+| **23.7** | **再オープン時のサムネイル一致保証** | **survey-images.routes.ts** | **ImageAPI** | - |
+| **23.8** | **冪等なサムネイル再生成処理（既存サムネイル破損防止）** | **survey-images.routes.ts** | **ThumbnailAPI** | - |
+
+> **改訂（タスク 115.107）**: 要件23 の 23.1-23.4 / 23.6-23.8 行は、当初 `AnnotationService` / `AnnotatedThumbnailService` によるサーバー側の同期再生成を担当としていた。当該経路は本番へ結線されないまま到達不能であり、115.107 で撤去した。担当は合成を行う `AnnotationEditor` と、その受け口である `survey-images.routes.ts` の `PATCH` / `DELETE /:imageId/annotated-thumbnail`（`ThumbnailAPI`）である。「サムネイル同期再生成フロー」節は当初設計の記録として残っているため、Flows 列からは外した。
+> **23.5 行の Interfaces 列から `AnnotationAPI` を外した理由**: 注釈保存の応答（`AnnotationAPI`）はもはや合成済みサムネイルの表示元URLを供給しない（115.107 で撤去）。23.5 の「表示を最新へ更新する」は、更新直後の表示元を返す `ThumbnailAPI`（`PATCH` の応答を `AnnotationEditor` が `onAnnotationSaved` で親へ渡す）と、再取得時に表示元を供給する現場調査詳細取得（`SurveyAPI`）・一覧取得（`SurveyListAPI`）・画像一覧取得（`ImageAPI`）で満たされる。合成の起点である `AnnotationEditor` を Components 列へ加えた。
 
 ### 部品の自己申告と追跡表の突き合わせ（タスク 115.113）
 
@@ -1186,7 +1194,7 @@ sequenceDiagram
 |-----------|--------------|--------|--------------|------------------|-----------|
 | SiteSurveyService | Backend/Service | 現場調査CRUD操作 | 1, 2, 3 | PrismaClient (P0), AuditLogService (P1) | Service, API |
 | SurveyImageService | Backend/Service | マジックバイト判定・ファイル名サニタイズ・保存先パス算出 | 4.5, 4.9, 21 | PrismaClient (P1), StorageProvider (P1) | Service, API |
-| AnnotationService | Backend/Service | 注釈データ管理 | 6, 7, 8, 9, 18, 20.4 | PrismaClient (P0), AnnotatedThumbnailService (P1) | Service, API |
+| AnnotationService | Backend/Service | 注釈データ管理 | 6, 7, 8, 9, 18 | PrismaClient (P0) | Service, API |
 | **ImageMetadataService** | Backend/Service | 画像メタデータ管理 | 10 | PrismaClient (P0) | Service, API |
 | **ImageDeleteService** | Backend/Service | 画像削除処理、孤立ファイル処理 | 4.7, 4.8, 10.10, 10.11 | PrismaClient (P0), Cloudflare R2 (P0) | Service, API |
 | ExportService | Frontend/Service | エクスポート処理 | 11, 12 | jsPDF (P0), Fabric.js (P0) | State |
@@ -4138,6 +4146,8 @@ function generateSvgFromAnnotation(
 
 ### 変更4: AnnotationService.save()の拡張
 
+> **撤去済み（115.107）。以下は当初設計の記録であり、現行の実体ではない。** `AnnotationService.save` はサムネイル生成サービスを保持せず、注釈データの確定のみを行う。要件20.4 の生成契機は画像編集画面（クライアント）の合成と `PATCH` / `DELETE /api/site-surveys/images/:imageId/annotated-thumbnail` である。詳細は「Requirement 23」節の冒頭の改訂注記を参照。
+
 **対象ファイル**: `backend/src/services/annotation.service.ts`
 
 注釈保存成功後にAnnotatedThumbnailServiceを呼び出す:
@@ -4700,15 +4710,36 @@ if (rotation !== 0) {
 
 ## Requirement 23: 画像編集画面での変更に伴うサムネイル再生成の確実化
 
+> **改訂（タスク 115.107）: サーバー側での同期再生成は撤去した。以下の「概要」「現状の問題分析（根本原因）」「Boundary Commitments」の一部・変更1 / 変更2 / 変更4 / 変更5・「サムネイル同期再生成フロー」は、いずれも本節を書いた時点の記録であって現存の主張ではない。**
+>
+> **撤去した対象**（いずれも本番から到達不能だった）:
+> - `AnnotationServiceDependencies.annotatedThumbnailService`（任意依存）と、その型 `IAnnotatedThumbnailService`
+> - `AnnotationService.save` の中でサムネイル再生成を同期実行していた分岐
+> - `AnnotationInfo.annotatedThumbnailPath`（当該分岐でのみ設定されていた項目）
+> - `ThumbnailRegenerationError` / `THUMBNAIL_REGENERATION_FAILED`（`backend/src/services/errors.ts` ごと）
+> - `annotation.routes.ts` の 500 応答（`THUMBNAIL_REGENERATION_FAILED`）と、保存応答へ `annotatedThumbnailUrl` を付ける処理
+> - `AnnotationInfo.annotatedThumbnailUrl`（フロントエンドの型）と `AnnotationEditor` の当該 500 応答を前提とした扱い
+>
+> **撤去した理由**: 任意依存は本番の結線（`annotation.routes.ts` の `new AnnotationService({ prisma })`）で一度も注入されておらず、分岐も失敗応答もフロントエンド側の扱いも到達しなかった。加えて唯一の実装 `AnnotatedThumbnailService` はタスク 115.6 で構築時に失敗する形へ封鎖されており、注入すれば注釈保存が必ず 500 になる。すなわち「渡して到達可能にする」道は、封鎖の根拠である4つの欠陥（`SERVER_SIDE_ANNOTATED_THUMBNAIL_DISABLED_REASON`）を解消しない限り選べない。要件23 の各受入基準は、下記の**クライアント合成の経路**で既に満たされている。
+>
+> **現行の実体（要件23 を満たす経路）**:
+> - 合成は画像編集画面（`AnnotationEditor`）がキャンバスから行う。注釈または回転がある場合は `PATCH /api/site-surveys/images/:imageId/annotated-thumbnail`（`updateAnnotatedThumbnail`）へ、いずれも無い場合は `DELETE` 同パス（`deleteAnnotatedThumbnail`）へ送る
+> - **23.4**: 上記の更新（または取り消し）が成功するまで保存完了（`saveSuccess`）としない。注釈保存の応答だけでは保存完了としない
+> - **23.6**: 更新が失敗した場合はエラー Toast を出し、`onAnnotationSaved` へ `annotatedThumbnailUrl: null` を渡し、`onRequestRefresh` で画像一覧を再取得して旧状態の残留を防ぐ
+> - **23.8**: 冪等性は `PATCH` 経路（タイムスタンプ付き新キーへ保存 → DB 切替 → 旧キーの best-effort 削除）と、既に空でも成功する `DELETE` 経路が担う。いずれも `backend/src/routes/survey-images.routes.ts`
+> - 再導入を機械的に検知する仕掛け: `backend/src/__tests__/unit/routes/annotation.routes.server-thumbnail-wiring.test.ts`
+
 ### 概要
 
-画像編集画面（注釈エディタ / 編集モード）で行った変更（注釈の追加・編集・削除、および画像回転）を保存した際に、`annotatedThumbnailPath` が変更後の最終状態で **確実に** 再生成されるようにする。現状、注釈保存レスポンスとサムネイル再生成は非同期の fire-and-forget パターンで分離されており、以下の不具合が発生している。
+画像編集画面（注釈エディタ / 編集モード）で行った変更（注釈の追加・編集・削除、および画像回転）を保存した際に、`annotatedThumbnailPath` が変更後の最終状態で **確実に** 再生成されるようにする。**［以下1文は本節を書いた時点の状態の記録であって現存の主張ではない］** 現状、注釈保存レスポンスとサムネイル再生成は非同期の fire-and-forget パターンで分離されており、以下の不具合が発生している。**［現行: 合成の実行主体は画像編集画面（クライアント）であり、`AnnotationService.save` はサムネイル再生成に一切関与しない。上記の改訂注記を参照］**
 
 ### 現状の問題分析（根本原因）
 
+> **本小節は本節を書いた時点の記録であって現存の主張ではない（115.107）。** 以下に「現行実装（抜粋）」として示すコードは `backend/src/services/annotation.service.ts` に**もう存在しない**。当該の fire-and-forget は先にタスク 60.3 で同期化され、その同期化された分岐ごとタスク 115.107 で撤去された。列挙する4つの不具合は、いずれもサーバー側再生成を前提とした当時の分析である。
+
 **対象ファイル**: `backend/src/services/annotation.service.ts`
 
-現行実装（抜粋）:
+本節を書いた時点の実装（抜粋。**現存しない**）:
 ```typescript
 // 注釈付きサムネイル生成（非同期、失敗しても注釈保存は成功）
 if (this.annotatedThumbnailService) {
@@ -4730,10 +4761,10 @@ return result; // ← サムネイル生成完了を待たずにレスポンス�
 
 ### Boundary Commitments
 
-**This spec owns**:
-- `AnnotationService.save` 実行パスにおけるサムネイル再生成のタイミング同期化
-- `AnnotatedThumbnailService.generateAnnotatedThumbnail` の冪等性・エラーハンドリング
-- 再生成失敗時のクライアントへのエラー伝播経路
+**This spec owns**（**先頭3項目はタスク 115.107 で担い手が変わった。括弧内が現行**）:
+- ~~`AnnotationService.save` 実行パスにおけるサムネイル再生成のタイミング同期化~~ → 画像編集画面（`AnnotationEditor`）が合成済みサムネイルの更新完了まで保存完了としないこと（23.4）
+- ~~`AnnotatedThumbnailService.generateAnnotatedThumbnail` の冪等性・エラーハンドリング~~ → `PATCH` / `DELETE /api/site-surveys/images/:imageId/annotated-thumbnail`（`backend/src/routes/survey-images.routes.ts`）の冪等性・エラーハンドリング（23.8）
+- ~~再生成失敗時のクライアントへのエラー伝播経路~~ → 合成済みサムネイル更新の失敗を画像編集画面が自ら扱う経路（Toast・再取得要求。23.6）
 - フロントエンド側で保存完了後に最新サムネイル URL を取得する導線
 
 **This spec does NOT own**:
@@ -4742,6 +4773,8 @@ return result; // ← サムネイル生成完了を待たずにレスポンス�
 - サムネイル生成アルゴリズム（SVG 合成 + Sharp、Req 20 既存設計を流用）
 
 ### 変更1: AnnotationService.save の同期化
+
+> **撤去済み（115.107）。以下は当初設計の記録であり、現行の実体ではない。** `AnnotationService.save` は注釈データの確定のみを行い、サムネイル再生成には一切関与しない。
 
 **対象ファイル**: `backend/src/services/annotation.service.ts`
 
@@ -4784,7 +4817,9 @@ async save(input: SaveAnnotationInput): Promise<AnnotationInfo> {
 
 ### 変更2: ThumbnailRegenerationError クラス追加
 
-**対象ファイル**: `backend/src/services/errors.ts`（新規または既存エラー定義ファイル）
+> **撤去済み（115.107）。以下は当初設計の記録であり、現行の実体ではない。** `backend/src/services/errors.ts` は当該クラスのみを持つファイルだったため、ファイルごと撤去した。**このパスはもう実在しない。**
+
+**対象ファイル**: `backend/src/services/errors.ts`（新規または既存エラー定義ファイル。**現在は実在しない**）
 
 ```typescript
 /**
@@ -4801,6 +4836,8 @@ export class ThumbnailRegenerationError extends Error {
 ```
 
 ### 変更3: AnnotatedThumbnailService の冪等性保証
+
+> **封鎖済み（115.6）。以下は当初設計の記録であり、現行の実体ではない。** サーバー側描画は封鎖され、合成と永続化の実装本体は撤去されている。ここに記したアトミック置き換えの方針（タイムスタンプ付き新キー → DB 切替 → 旧キーの best-effort 削除）は、**クライアント合成の受け口である `PATCH /api/site-surveys/images/:imageId/annotated-thumbnail`（`backend/src/routes/survey-images.routes.ts`）が引き継いでいる**。要件23.8 はそちらで満たされる。
 
 **対象ファイル**: `backend/src/services/annotated-thumbnail.service.ts`
 
@@ -4861,6 +4898,8 @@ async generateAnnotatedThumbnail(
 
 ### 変更4: SaveAnnotation レスポンスに annotatedThumbnailUrl を含める
 
+> **撤去済み（115.107）。以下は当初設計の記録であり、現行の実体ではない。** 注釈保存の応答は `AnnotationInfo` をそのまま返し、`annotatedThumbnailUrl` を持たない。表示元URLを返すのは合成済みサムネイルの更新経路（`PATCH` / `DELETE /api/site-surveys/images/:imageId/annotated-thumbnail`）だけである。
+
 **対象ファイル**: `backend/src/routes/annotation.routes.ts`
 
 注釈保存レスポンスに最新の `annotatedThumbnailPath` から生成した署名付き URL を含める。フロントエンドはこの URL を受け取ることで、追加の API 呼び出しなしに最新サムネイルを表示できる（AC5）。
@@ -4874,6 +4913,8 @@ type SaveAnnotationResponse = AnnotationInfo & {
 ```
 
 ### 変更5: フロントエンドのサムネイル反映
+
+> **撤去済み（115.107）。以下は当初設計の記録であり、現行の実体ではない。** 保存ハンドラは `frontend/src/components/site-surveys/AnnotationEditor.tsx` にあり、`isThumbnailRegenerationError` 相当の判定も `THUMBNAIL_REGENERATION_FAILED` の受信処理も持たない。合成済みサムネイル更新の失敗（クライアント合成の経路）に対して Toast 表示と再取得要求を行う。
 
 **対象ファイル**: `frontend/src/pages/SiteSurveyImageViewerPage.tsx`（または該当する保存ハンドラ）
 
@@ -4906,6 +4947,8 @@ async function handleSave() {
 **AC5/AC7 対応**: 現場調査詳細画面・一覧画面のサムネイル表示は TanStack Query のキャッシュ無効化で最新状態に同期する。再オープン時は API 経由で最新 `annotatedThumbnailPath` を取得するため、保存時点で DB が更新されていれば自動的に一致が保証される。
 
 ### サムネイル同期再生成フロー
+
+> **撤去済み（115.107）。以下は当初設計の記録であり、現行の実体ではない。** 現行では `AnnotationService` から `AnnotatedThumbnailService` への呼び出しは存在せず、注釈保存の応答も `annotatedThumbnailUrl` を含まない。合成済みサムネイルの更新は、注釈保存とは別の要求（`PATCH` / `DELETE /api/site-surveys/images/:imageId/annotated-thumbnail`）としてクライアントから送られる。
 
 ```mermaid
 sequenceDiagram
@@ -4940,22 +4983,30 @@ sequenceDiagram
 
 ### テスト戦略
 
-**バックエンド単体テスト** (`annotation.service.test.ts`):
-- `save`: サムネイル再生成が成功した場合にレスポンスに新 `annotatedThumbnailPath` が含まれること (23.1, 23.4)
-- `save`: 注釈データに `imageRotation` のみ変更がある場合でもサムネイル再生成が呼ばれること (23.2)
-- `save`: 回転と注釈編集の両方を含む保存でサムネイル再生成が最終状態で呼ばれること (23.3)
-- `save`: サムネイル再生成が失敗した場合に `ThumbnailRegenerationError` を throw すること (23.6)
-- `save`: サムネイル再生成は同期的に完了してから return すること（fire-and-forget でないことの検証） (23.4)
+> **改訂（115.107）**: サーバー側での同期再生成を撤去したため、下記のうち当初計画していた
+> `annotation.service.test.ts` の再生成関連5件と `annotated-thumbnail.service.test.ts` の冪等性4件、
+> およびフロントエンドの `ThumbnailRegenerationError` 受信1件は成立しない。現行の検証対象を示す。
 
-**バックエンド単体テスト** (`annotated-thumbnail.service.test.ts`):
-- `generateAnnotatedThumbnail`: 既存サムネイルがある状態で再生成しても新しい path が返却され、旧 path とは異なること (23.8)
-- `generateAnnotatedThumbnail`: R2 PUT 失敗時は DB 更新を行わないこと (23.8)
-- `generateAnnotatedThumbnail`: DB 更新成功後に旧サムネイル削除が非同期 best-effort で実行されること (23.8)
-- `generateAnnotatedThumbnail`: 連続呼び出しで既存サムネイルが破損しないこと（冪等性） (23.8)
+**バックエンド単体テスト** (`annotation.routes.server-thumbnail-wiring.test.ts`):
+- 本番の結線が `AnnotationService` へ渡す依存が永続化のみであること（サーバー側再生成の再導入の検知）
+- `annotation.service.ts` がサムネイル生成の依存も分岐も持たないこと
+- `annotation.routes.ts` がサムネイル再生成の失敗応答（`THUMBNAIL_REGENERATION_FAILED`）を持たないこと
 
-**フロントエンド単体テスト**:
-- 保存成功時にレスポンスの `annotatedThumbnailUrl` で画像一覧キャッシュが更新されること (23.5)
-- `ThumbnailRegenerationError` 受信時にエラー Toast を表示し画像一覧を再取得すること (23.6)
+**バックエンド単体テスト** (`annotation.routes.test.ts`):
+- 注釈保存の応答が `annotatedThumbnailUrl` を含まず、署名付きURLの生成も行わないこと
+
+**バックエンド単体テスト** (`survey-images.annotated-thumbnail.routes.test.ts`):
+- `PATCH`: 旧い合成済みサムネイルのキーは新キー保存と DB 更新の完了後に削除すること (23.1)
+- `PATCH`: 新キーの保存に失敗した場合は DB を更新せず旧い表示元を残すこと (23.1)
+- `PATCH`: 同一内容の保存を繰り返しても表示元は常に有効な実体を指すこと（冪等性） (23.8)
+- `DELETE`: 既に合成済みサムネイルが無い場合も成功し何も変更しないこと（冪等性） (23.8)
+- 更新と取り消しを往復しても表示元が有効なまま保たれること (23.8)
+
+**フロントエンド単体テスト** (`AnnotationEditor.test.tsx`):
+- 合成済みサムネイル更新の応答が返す表示元で `onAnnotationSaved` を呼ぶこと (23.5)
+- 合成済みサムネイル更新が失敗した場合に保存完了とみなさないこと (23.4)
+- 同失敗時にエラー Toast を表示し、`onRequestRefresh` で画像一覧の再取得を要求すること (23.6)
+- 注釈も回転も無い保存では合成済みサムネイルを残さないこと (23.8)
 
 **E2E テスト**:
 - 注釈追加 → 保存 → 詳細画面で新サムネイルが表示されること (23.1, 23.5)
@@ -4970,14 +5021,16 @@ sequenceDiagram
 
 | ファイル | 種別 | 責務 |
 |---------|------|------|
-| `backend/src/services/annotation.service.ts` | 変更 | `save` メソッドのサムネイル再生成を await 同期化、エラー伝播 |
-| `backend/src/services/annotated-thumbnail.service.ts` | 変更 | `generateAnnotatedThumbnail` の冪等化（タイムスタンプキー＋旧削除） |
-| `backend/src/services/errors.ts` | 変更 または 新規 | `ThumbnailRegenerationError` クラス追加 |
-| `backend/src/routes/annotation.routes.ts` | 変更 | 保存レスポンスに `annotatedThumbnailUrl` を含める、エラーハンドリング追加 |
-| `frontend/src/pages/SiteSurveyImageViewerPage.tsx` | 変更 | 保存成功時のキャッシュ更新、エラー時の再取得 |
-| `backend/src/__tests__/unit/services/annotation.service.test.ts` | 変更 | Req 23 AC のテストケース追加 |
-| `backend/src/__tests__/unit/services/annotated-thumbnail.service.test.ts` | 変更 | 冪等性・アトミック置き換えのテストケース追加 |
+| `backend/src/services/annotation.service.ts` | 変更 | 注釈データの確定のみ（115.107 でサムネイル再生成の分岐を撤去） |
+| `backend/src/services/annotated-thumbnail.service.ts` | 変更 | サーバー側描画は封鎖済み（115.6）。冪等化の方針は `survey-images.routes.ts` が引き継ぐ |
+| `backend/src/routes/survey-images.routes.ts` | 変更 | `PATCH` / `DELETE /:imageId/annotated-thumbnail`（クライアント合成の受け口。冪等な置き換えと取り消し） |
+| `backend/src/routes/annotation.routes.ts` | 変更 | 注釈保存の応答は `AnnotationInfo` のみ（115.107 で `annotatedThumbnailUrl` と 500 応答を撤去） |
+| `frontend/src/components/site-surveys/AnnotationEditor.tsx` | 変更 | 保存後の合成・更新（または取り消し）、失敗時の Toast と再取得要求 |
+| `backend/src/__tests__/unit/routes/annotation.routes.server-thumbnail-wiring.test.ts` | 新規 | サーバー側再生成が再導入されないことの機械的な検知 |
+| `backend/src/__tests__/unit/routes/survey-images.annotated-thumbnail.routes.test.ts` | 新規 | 冪等な置き換え・取り消しのテストケース |
 | `e2e/specs/site-survey-thumbnail-regeneration.spec.ts` | 新規 | Req 23 の E2E シナリオ |
+
+> **タスク 115.107 による撤去**: 当初計画にあった `backend/src/services/errors.ts`（`ThumbnailRegenerationError` のみを持つファイル）は**撤去し、パスも実在しない**。当初計画が保存ハンドラの所在としていた `frontend/src/pages/SiteSurveyImageViewerPage.tsx`（実在する）は、注釈の保存処理そのものは持たず `onAnnotationSaved` の受け手にとどまるため、上表の行を実際の保存ハンドラである `AnnotationEditor.tsx` へ改めた。
 
 ---
 
@@ -7526,7 +7579,7 @@ DBマイグレーション不要。フロントエンドのみの変更であり
 > **注記（本節の宣言は Requirement 38 の観点である）**: 下記2項目は Requirement 38 の作業としては対象外のままだが、**Requirement 20.4 / 23 の権限のもとで実際に改変された**（サーバー側描画器の封鎖＝115.6、注釈保存時の派生列の維持＝115.13）。当該の所有は下記「Requirements 20 / 22 / 23 の Boundary Commitments」に記録する。
 
 - `AnnotatedThumbnailService.generateAnnotatedThumbnail` の生成ロジックそのもの（Requirement 20.4 / 23 が所管）。本節はこれを**呼び出す**のみで、生成結果の内容には関与しない
-- `AnnotationService.save` の同期生成フローと `ThumbnailRegenerationError` の扱い（Requirement 23 が所管）。トランザクション外での生成失敗により注釈のみが永続化される経路は本節では是正せず、その状態が起こり得る前提で設計する
+- 合成済みサムネイルの更新経路（`PATCH` / `DELETE /api/site-surveys/images/:imageId/annotated-thumbnail`）とその失敗の扱い（Requirement 23 が所管）。注釈の保存とサムネイルの更新は別々の要求であるため、注釈のみが永続化されサムネイルが更新されない状態は起こり得る。本節ではこれを是正せず、その状態が起こり得る前提で設計する（**タスク 115.107 改訂**: 当初は `AnnotationService.save` の同期生成フローと `ThumbnailRegenerationError` を挙げていたが、いずれも撤去済み）
 - `hasAnnotations` の導出規則。`image-list.service.ts` と `quantity-table.service.ts:466-469` の双方が「注釈レコードの存在」で一致しており、本節では変更しない
 - `SignedUrlService.validateSignedUrlAccess` の判定基準（プロジェクト関係者・admin ロール）。本節は実行単位のみを変更し、判定基準は変更しない
 - サムネイル・注釈付きサムネイルが原本画像と異なり権限検証を経ずに生成される既存の非対称性。本節はこれを**維持**する。是正するか否かは Requirement 14 の所管であり、本節では判断しない
@@ -7555,7 +7608,7 @@ DBマイグレーション不要。フロントエンドのみの変更であり
 - **Build vs Adopt（Adopt）**: 表示領域観測は `LazyImage.tsx:153-184` の `IntersectionObserver` 実装を `hooks/useInViewport.ts` へ抽出して採用する。新規ライブラリを追加しない。
 - **Build vs Adopt（Rejected）**: `hooks/useLazyLoadGroups.ts` は観測対象が「追加読み込みのトリガー要素」であり、要素単位の表示判定には使えない。かつ import 実績がない。採用しない。
 - **Build vs Adopt（Rejected）**: フォールバック経路を `getBatchAnnotations`（Requirement 18 で新設）へ寄せる案。1画面1リクエストへ収まるが、38.3 の「画像一覧の取得1回と表示対象の画像そのものの取得のみ」に文字通り反する。またレガシー注釈にサムネイルが無いという根本原因を残し、`AnnotatedImageThumbnail` が親から注釈データを受け取る新たな結線を全呼び出し側へ強いる。採用しない。
-- **38.2 / 38.3 の充足機構は表示領域による限定である（設計レビューでの是正）**。当初は「合成済みサムネイルの欠落はレガシーデータに限られる」という不変条件に依拠し、バックフィルで解消する設計としていた。しかし `annotation.service.ts:237-258` の `$transaction` は注釈をコミットした**後**に `:262-281` でサムネイル生成を行い、失敗時に `ThumbnailRegenerationError` を投げる。**注釈のみが永続化されサムネイルが無い状態が正常系の障害で新規に発生し得る**ため、この不変条件は成立しない。したがって 38.2 / 38.3 は「フォールバックを起こさせないこと」ではなく「フォールバックを含む一切の画像関連取得が表示領域に入った画像に限られること」（38.8 の機構）によって満たす。登録写真の枚数ではなく同時に表示される画像数が上限となり、データ状態に依存しない。
+- **38.2 / 38.3 の充足機構は表示領域による限定である（設計レビューでの是正）**。当初は「合成済みサムネイルの欠落はレガシーデータに限られる」という不変条件に依拠し、バックフィルで解消する設計としていた。しかし注釈の保存（`PUT /api/site-surveys/images/:imageId/annotations`）と合成済みサムネイルの更新（`PATCH` / `DELETE /api/site-surveys/images/:imageId/annotated-thumbnail`）は**別々の要求**であり、前者が成功した後に後者が失敗し得る。**注釈のみが永続化されサムネイルが無い状態が正常系の障害で新規に発生し得る**ため、この不変条件は成立しない。（**タスク 115.107 改訂**: 当初は `annotation.service.ts` の `$transaction` 直後のサーバー側再生成と `ThumbnailRegenerationError` を根拠に挙げていた。当該経路は撤去したが、二要求に分かれる現行の経路でも同じ状態が生じるため、結論は変わらない。）したがって 38.2 / 38.3 は「フォールバックを起こさせないこと」ではなく「フォールバックを含む一切の画像関連取得が表示領域に入った画像に限られること」（38.8 の機構）によって満たす。登録写真の枚数ではなく同時に表示される画像数が上限となり、データ状態に依存しない。
 - **Simplification（設計レビューでの撤回）**: `hasAnnotations` の導出を「注釈オブジェクトが1件以上」へ変更する案は採用しない。上記のとおり 38.2 / 38.3 は表示領域による限定で満たされるため、空注釈レコードによる余分な取得も表示領域内の数件に収まり、変更の必要がない。加えて `quantity-table.service.ts:466-469` は同じ `hasAnnotations` を `annotation: { select: { id: true } }` から導出しており、重い `data` を意図的に取得していない。導出規則を「オブジェクト数」へ集約するとこの最適化を壊すか、スキーマへ派生列を追加する必要が生じる。**両 producer とも「注釈レコードの存在」で一致させたまま据え置く**ことで、producer 間の意味の分岐も発生しない。
 - **バックフィルの位置づけ（115.6 で改訂）**: 上記により、バックフィルは 38.2 / 38.3 の充足条件ではなくなる。当初はデータ品質改善として任意実施で残す方針だったが、当該バックフィルが用いるサーバー側描画器に注釈が一切描かれない欠陥が判明したため、**実行できない状態に封鎖した**。集計のみの指定を含めて起動を拒否し、理由を実行時に伝える。合成済みサムネイルの欠落は、表示領域による取得の限定（38.8）によって枚数非依存に保たれるため、封鎖しても 38.2 / 38.3 は満たされる。
 - **Simplification**: 未使用の `LazyImage.tsx`（303行）と付随する stories を削除する。**本節を書いた時点**では `frontend/src/components/site-surveys/index.ts` の 31, 47行からバレル再エクスポートされていたが、利用側の import は0件であった（**このバレルはタスク 115.85 で撤去済み**。上の「参照されないまとめ出力と検証専用の判定の撤去（タスク 115.85）」を参照。ここに書いたファイル名は**執筆時点の状態の記録**であって現存の主張ではなく、呼称規約5 が禁じる「実在しないファイル名を実ファイル名として書くこと」には当たらない）。観測ロジックを `useInViewport` へ移設したうえで残置すると、遅延読み込みの実装が2つ並存し必ず片方が陳腐化する。削除に伴いバレルの再エクスポートも除去した。
@@ -7817,7 +7870,7 @@ sequenceDiagram
 |---|---|---|
 | `IntersectionObserver` が実行環境に存在しない | 観測を行わず全画像を取得する。表示は成立し、取得抑止のみ失われる | 38.8 の縮退。表示破綻より劣化を選ぶ |
 | 合成済みサムネイルの署名付きURL生成に失敗 | 当該URLを `null` とし、クライアント合成へフォールバックする | 38.6 |
-| 注釈保存後のサムネイル生成に失敗（`ThumbnailRegenerationError`） | 注釈は永続化済み・サムネイルは欠落したまま残る。当該画像は以後クライアント合成で表示される | Requirement 23 の所管。本節はこの状態が恒常的に起こり得る前提で 38.2 / 38.3 を設計する |
+| 注釈保存後の合成済みサムネイル更新に失敗（`PATCH` / `DELETE /:imageId/annotated-thumbnail`） | 注釈は永続化済み・サムネイルは旧状態または欠落のまま残る。当該画像は以後クライアント合成で表示される | Requirement 23 の所管。本節はこの状態が恒常的に起こり得る前提で 38.2 / 38.3 を設計する（**タスク 115.107 改訂**: 当初の `ThumbnailRegenerationError` は撤去済み） |
 | ~~バックフィル中の個別画像の失敗~~（115.6 で封鎖。当該バックフィルは起動できない） | ~~`failures` へ記録し処理を継続~~ | 38.6 |
 | 画像一覧取得時の権限検証が false | 原本画像URLのみ `null`。サムネイルは現行どおり返す | 38.9（判定結果を変更しない） |
 

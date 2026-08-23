@@ -3141,39 +3141,39 @@
       "id": "site-survey/REQ-23.4",
       "requirement": "site-survey/REQ-23: 画像編集画面での変更に伴うサムネイル再生成の確実化",
       "title": "サムネイル再生成処理の完了保証（同期化）",
-      "reason": "保存処理の同期完了保証はバックエンド内部のトランザクション制御であり、E2Eテストでは検証困難。統合テストでAPIレスポンスタイミングを検証",
+      "reason": "保存完了とサムネイル更新完了の連動は画像編集画面の保存処理の内部順序であり、E2Eからは「保存完了」の内部判定を観測できない。フロントエンド単体テストで、合成済みサムネイルの更新（PATCH /api/site-surveys/images/:imageId/annotated-thumbnail）が失敗した場合に保存完了とみなさないことを検証する。サーバー側での同期再生成はタスク 115.107 で撤去済みであり、注釈保存の応答には合成済みサムネイルの表示元URLが含まれない",
       "category": "integration-test",
       "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Vitest / Supertest",
-        "description": "注釈保存APIレスポンスにサムネイルURLが含まれ、同期的に返却されることを検証",
-        "threshold": "response.annotatedThumbnailUrl !== null"
+        "method": "unit-test",
+        "tool": "Vitest / React Testing Library",
+        "description": "合成済みサムネイルの更新が失敗した場合に保存成功表示を出さず、エラー通知と画像一覧の再取得要求を行うことを検証",
+        "threshold": "saveSuccess: false かつ onRequestRefresh: called"
       }
     },
     {
       "id": "site-survey/REQ-23.6",
       "requirement": "site-survey/REQ-23: 画像編集画面での変更に伴うサムネイル再生成の確実化",
       "title": "サムネイル再生成失敗時のエラー処理",
-      "reason": "サムネイル再生成失敗はストレージ障害等の異常系であり、E2Eテストで意図的に発生させることが困難。統合テストでエラーハンドリングを検証",
+      "reason": "合成済みサムネイルの更新失敗はストレージ障害等の異常系であり、E2Eテストで意図的に発生させることが困難。フロントエンド単体テストでエラー処理を検証する。サーバー側の再生成失敗応答（THUMBNAIL_REGENERATION_FAILED）はタスク 115.107 で撤去済みであり、現在は合成済みサムネイル更新の失敗だけが対象である",
       "category": "fault-tolerance",
       "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Vitest / Supertest",
-        "description": "サムネイル生成処理のモックを使用し、失敗時にthumbnailRegenerationErrorイベントが発行されることを検証",
-        "threshold": "error_event: emitted"
+        "method": "unit-test",
+        "tool": "Vitest / React Testing Library",
+        "description": "合成済みサムネイル更新APIのモックを失敗させ、エラーToastの表示と画像一覧の強制再取得が行われることを検証",
+        "threshold": "toast.error: called かつ onRequestRefresh: called"
       }
     },
     {
       "id": "site-survey/REQ-23.8",
       "requirement": "site-survey/REQ-23: 画像編集画面での変更に伴うサムネイル再生成の確実化",
       "title": "サムネイル再生成の冪等性",
-      "reason": "変更なし保存時の冪等性はバックエンド内部ロジックであり、E2Eテストでは既存サムネイルの破損有無を正確に検証困難。統合テストで冪等性を検証",
+      "reason": "冪等性は合成済みサムネイルの更新・取り消し経路（PATCH / DELETE /api/site-surveys/images/:imageId/annotated-thumbnail）の内部ロジックであり、E2Eでは既存サムネイルの破損有無を正確に検証困難。バックエンド単体テストで冪等性を検証する",
       "category": "integration-test",
       "alternativeVerification": {
-        "method": "integration-test",
+        "method": "unit-test",
         "tool": "Vitest / Supertest",
-        "description": "変更なし保存操作後にサムネイルURLが同一であることを検証",
-        "threshold": "thumbnail_url: unchanged"
+        "description": "同一内容の保存や取り消しを繰り返しても表示元が常に有効な実体を指し、既に合成済みサムネイルが無い場合の取り消しも成功することを検証",
+        "threshold": "annotatedThumbnailPath: 常に有効な実体を指す"
       }
     },
     {

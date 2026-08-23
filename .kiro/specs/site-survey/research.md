@@ -811,7 +811,7 @@ ImageViewer のズーム/パン/タッチ処理を AnnotationEditor 内へ移植
 |---|---|---|
 | 画像一覧取得 | `backend/src/services/image-list.service.ts` `findBySurveyIdWithUrls` | AC1・AC4 の実体。詳細取得（`site-surveys.routes.ts` GET `/:id`）と一覧取得（`survey-images.routes.ts` GET `/`）の両方が使用 |
 | 署名付きURL生成・権限検証 | `backend/src/services/signed-url.service.ts` | AC9 の実体。`validateSignedUrlAccess`（画像単位）と `validateSurveyAccess`（現場調査単位）を持つ |
-| 注釈付きサムネイル生成 | `backend/src/services/annotation.service.ts` `save` → `AnnotatedThumbnailService.generateAnnotatedThumbnail` | AC5 の供給源。注釈保存時に**サーバー側で同期生成**し、失敗時は `ThumbnailRegenerationError` で保存自体を500にする（Requirement 20.4 / 23.1-23.4） |
+| 注釈付きサムネイル生成 | `backend/src/services/annotation.service.ts` `save` → `AnnotatedThumbnailService.generateAnnotatedThumbnail` | AC5 の供給源。注釈保存時に**サーバー側で同期生成**し、失敗時は `ThumbnailRegenerationError` で保存自体を500にする（Requirement 20.4 / 23.1-23.4）。**［本行は執筆時点の記録である。タスク 115.6 でサーバー側描画を封鎖し、タスク 115.107 で `AnnotationService.save` の当該分岐・`ThumbnailRegenerationError`・注釈保存応答の `annotatedThumbnailUrl` を撤去した。現行の供給源はクライアント合成（`PATCH` / `DELETE /api/site-surveys/images/:imageId/annotated-thumbnail`）である。design.md「Requirement 23」節の冒頭の改訂注記を参照］** |
 | サムネイル表示 | `frontend/src/components/site-surveys/AnnotatedImageThumbnail.tsx` | AC2・AC5〜AC7 の実体。`preferThumbnail` 指定時にサーバー生成サムネイルを優先し、注釈取得APIとクライアント合成を省略 |
 | 詳細画面の写真一覧 | `frontend/src/components/site-surveys/PhotoManagementPanel.tsx` | 全画像を一括描画（ページング・仮想化なし） |
 | 未使用の遅延読み込み部品 | `frontend/src/components/site-surveys/LazyImage.tsx`（303行、`IntersectionObserver` + `rootMargin` 実装済み） | **どこからも import されていない**。AC8 の再利用候補 |
@@ -915,7 +915,7 @@ ImageViewer のズーム/パン/タッチ処理を AnnotationEditor 内へ移植
 
 `/kiro-validate-design` で3件のCritical Issueを検出し NO-GO 判定とした。ユーザー承認のうえ requirements.md と design.md へ是正を反映した。
 
-1. **依拠する不変条件が実運用で破れる（NO-GO要因）**: 設計は「非空の注釈 ⇒ `annotatedThumbnailPath` 非null」を前提に 38.2 / 38.3 を満たすとしていた。しかし `annotation.service.ts:237-258` の `$transaction` は注釈をコミットした**後**に `:262-281` でサムネイル生成を行い、失敗時に `ThumbnailRegenerationError` を投げる。注釈のみが永続化されサムネイルが欠落する状態が**正常系の障害で新規に発生し得る**ため、欠落をレガシーデータ限定とする前提が成立しない。要件充足がデータ状態に依存し、回帰テストで固定できなかった。
+1. **依拠する不変条件が実運用で破れる（NO-GO要因）**: 設計は「非空の注釈 ⇒ `annotatedThumbnailPath` 非null」を前提に 38.2 / 38.3 を満たすとしていた。しかし `annotation.service.ts:237-258` の `$transaction` は注釈をコミットした**後**に `:262-281` でサムネイル生成を行い、失敗時に `ThumbnailRegenerationError` を投げる。注釈のみが永続化されサムネイルが欠落する状態が**正常系の障害で新規に発生し得る**ため、欠落をレガシーデータ限定とする前提が成立しない。要件充足がデータ状態に依存し、回帰テストで固定できなかった。**［タスク 115.107 注記: 当該のサーバー側再生成と `ThumbnailRegenerationError` は撤去済み。ただし注釈の保存と合成済みサムネイルの更新が別々の要求に分かれた現行の経路でも同じ状態が生じるため、この NO-GO 判断の結論は変わらない］**
    → **是正（案a: 要件の緩和を採用）**。38.2 を「登録写真の枚数に比例した追加リクエストを発生させない」、38.3 を「画像一覧の取得1回と、表示領域に入った画像に対する取得のみに限定する」へ改め、38.6 に「代替手段のための取得も表示領域に入った画像に限る」を追加した。充足機構を「フォールバックを起こさせないこと」から「フォールバックを含む一切の取得が表示領域に入った画像に限られること」（38.8 の機構）へ移した。上限が登録枚数ではなく同時表示数となり、データ状態に依存しなくなる。
    → 案b（サムネイル生成を注釈保存と同一トランザクションへ）は画像処理でDB接続を長時間占有し 38.4 と衝突するため不採用。案c（バックフィルの定期実行）は運用負担を恒久化するため不採用。
 
