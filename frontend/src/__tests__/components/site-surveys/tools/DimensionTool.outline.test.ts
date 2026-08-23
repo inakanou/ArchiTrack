@@ -338,7 +338,9 @@ describe('Dimension (Group + 線部白縁取り)', () => {
 
       const [outline, body] = getOutlineBodyLabel(dim);
       expect(body.strokeWidth).toBe(3);
-      expect(outline.strokeWidth).toBe(3 + ANNOTATION_DEFAULTS.dimensionOutline.width * 2);
+      // Task 115.101 (Req 32.2): 期待値は資材の算出を再実行せず具体値で書く。
+      // 既定線幅 3 に対する片側幅は 3（切り上げ）であり、描画される縁取り線幅は 3 + 3 * 2 = 9。
+      expect(outline.strokeWidth).toBe(3 + 3 * 2);
     });
 
     it('白縁取り線幅は本体線幅の 1.5 倍以上である（既定）', () => {

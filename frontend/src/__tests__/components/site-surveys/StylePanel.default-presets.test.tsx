@@ -48,10 +48,14 @@ function isActivePreset(button: HTMLElement): boolean {
 
 /**
  * data-testid の接頭辞から数値プリセットの並びを読み取る
+ *
+ * Task 115.101: 接頭辞のみの正規表現は同じ接頭辞を持つラッパー要素
+ * （`stroke-width-preset-container` / `font-size-preset-container`）にも一致し、
+ * 並びへ `NaN` が混入していた。終端を数字で固定して数値プリセットだけを拾う。
  */
 function readNumericPresets(prefix: string): number[] {
   return screen
-    .getAllByTestId(new RegExp(`^${prefix}`))
+    .getAllByTestId(new RegExp(`^${prefix}\\d+$`))
     .map((button) => Number(button.getAttribute('data-testid')?.slice(prefix.length)));
 }
 
@@ -80,6 +84,9 @@ describe('StylePanel プリセットと既定値の整合 (Req 26.5)', () => {
       render(<StylePanel {...defaultProps} />);
 
       const widths = readNumericPresets('stroke-width-preset-');
+      // Task 115.101: 読み出しがラッパー要素を拾うと NaN が混入し、並びの主張が崩れる
+      expect(widths.length).toBeGreaterThan(0);
+      expect(widths.every((width) => Number.isFinite(width))).toBe(true);
       expect(widths).toEqual([...widths].sort((a, b) => a - b));
     });
 

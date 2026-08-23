@@ -147,7 +147,6 @@ import {
   TextAnnotation,
   createTextAnnotation,
 } from '../../../../components/site-surveys/tools/TextTool';
-import { ANNOTATION_DEFAULTS } from '../../../../components/site-surveys/annotation-style-tokens';
 
 describe('TextAnnotation 白アウトライン（Task 66.1）', () => {
   beforeEach(() => {
@@ -179,12 +178,11 @@ describe('TextAnnotation 白アウトライン（Task 66.1）', () => {
   });
 
   describe('strokeWidth の算出（Req 25.1）', () => {
-    it('strokeWidth は fontSize * widthRatio（既定 0.12）で算出される', () => {
+    it('strokeWidth は既定 fontSize 16 × widthRatio 0.12 = 1.92 である', () => {
       const text = new TextAnnotation({ x: 10, y: 20 }, { initialText: 'Hello' });
-      const expected = ANNOTATION_DEFAULTS.fontSize * ANNOTATION_DEFAULTS.textOutline.widthRatio;
-      // 既定: 16 * 0.12 = 1.92
-      expect(expected).toBeCloseTo(1.92, 5);
-      expect((text as unknown as { strokeWidth?: number }).strokeWidth).toBeCloseTo(expected, 5);
+      // Task 115.101: 期待値は本番の算出（fontSize × widthRatio）を再実行せず具体値で固定する
+      expect((text as unknown as { fontSize?: number }).fontSize).toBe(16);
+      expect((text as unknown as { strokeWidth?: number }).strokeWidth).toBeCloseTo(1.92, 5);
     });
 
     it('fontSize を指定した場合、strokeWidth は指定 fontSize * 0.12 になる', () => {
@@ -237,10 +235,8 @@ describe('TextAnnotation 白アウトライン（Task 66.1）', () => {
       expect(asAny.stroke).toBe('#ffffff');
       expect(asAny.strokeUniform).toBe(true);
       expect(asAny.splitByGrapheme).toBe(true);
-      expect(asAny.strokeWidth).toBeCloseTo(
-        ANNOTATION_DEFAULTS.fontSize * ANNOTATION_DEFAULTS.textOutline.widthRatio,
-        5
-      );
+      // Task 115.101: 既定 fontSize 16 × widthRatio 0.12 = 1.92 を具体値で固定する
+      expect(asAny.strokeWidth).toBeCloseTo(1.92, 5);
     });
   });
 });

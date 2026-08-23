@@ -303,12 +303,14 @@ describe('Dimension labelOutline (Task 82.2 / Req 32.12)', () => {
       expect(label.strokeUniform).toBe(true);
     });
 
-    it('labelText の strokeWidth は fontSize * labelOutline.widthRatio である', () => {
+    it('labelText の strokeWidth は既定 fontSize 12 × widthRatio 0.12 = 1.44 である', () => {
       const dim = new DimensionLine(START, END);
 
       const label = getLabel(dim);
-      const expected = (label.fontSize ?? 0) * ANNOTATION_DEFAULTS.dimensionLabelOutline.widthRatio;
-      expect(label.strokeWidth).toBe(expected);
+      // Task 115.101: 期待値は本番の算出（fontSize × widthRatio）を再実行せず具体値で固定する。
+      // 算出を両辺で走らせると中央の既定値が変わっても両辺が同時に動き主張が落ちない。
+      expect(label.fontSize).toBe(12);
+      expect(label.strokeWidth).toBeCloseTo(1.44, 10);
     });
   });
 
@@ -368,8 +370,9 @@ describe('Dimension labelOutline (Task 82.2 / Req 32.12)', () => {
       dim.setLabelOutline({ enabled: true, widthRatio: 0.15 });
 
       const label = getLabel(dim);
-      const expected = (label.fontSize ?? 0) * 0.15;
-      expect(label.strokeWidth).toBe(expected);
+      // Task 115.101: 既定 fontSize 12 × 0.15 = 1.8 を具体値で固定する
+      expect(label.fontSize).toBe(12);
+      expect(label.strokeWidth).toBeCloseTo(1.8, 10);
       expect(dim.getLabelOutline()!.widthRatio).toBe(0.15);
     });
 
@@ -392,8 +395,9 @@ describe('Dimension labelOutline (Task 82.2 / Req 32.12)', () => {
       dim.setDimensionWithLabel(canvas, '200', 'mm');
 
       const label = getLabel(dim);
-      const expected = (label.fontSize ?? 0) * ANNOTATION_DEFAULTS.dimensionLabelOutline.widthRatio;
-      expect(label.strokeWidth).toBe(expected);
+      // Task 115.101: 既定 fontSize 12 × widthRatio 0.12 = 1.44 を具体値で固定する
+      expect(label.fontSize).toBe(12);
+      expect(label.strokeWidth).toBeCloseTo(1.44, 10);
     });
 
     it('setDimensionWithLabel でフォントサイズも変更された場合、strokeWidth = 新fontSize * widthRatio で再計算される', () => {
@@ -403,8 +407,9 @@ describe('Dimension labelOutline (Task 82.2 / Req 32.12)', () => {
       dim.setDimensionWithLabel(canvas, '200', 'mm', { fontSize: 24 });
 
       const label = getLabel(dim);
-      const expected = 24 * ANNOTATION_DEFAULTS.dimensionLabelOutline.widthRatio;
-      expect(label.strokeWidth).toBe(expected);
+      // Task 115.101: fontSize 24 × 既定 widthRatio 0.12 = 2.88 を具体値で固定する
+      expect(label.fontSize).toBe(24);
+      expect(label.strokeWidth).toBeCloseTo(2.88, 10);
     });
 
     it('setLabelStyle({fontSize}) でも labelText.strokeWidth が再計算される', () => {
@@ -413,8 +418,9 @@ describe('Dimension labelOutline (Task 82.2 / Req 32.12)', () => {
       dim.setLabelStyle({ fontSize: 20 });
 
       const label = getLabel(dim);
-      const expected = 20 * ANNOTATION_DEFAULTS.dimensionLabelOutline.widthRatio;
-      expect(label.strokeWidth).toBe(expected);
+      // Task 115.101: fontSize 20 × 既定 widthRatio 0.12 = 2.4 を具体値で固定する
+      expect(label.fontSize).toBe(20);
+      expect(label.strokeWidth).toBeCloseTo(2.4, 10);
     });
 
     it('labelOutline.enabled=false のとき setDimensionWithLabel しても strokeWidth は 0 のまま', () => {

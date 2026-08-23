@@ -217,10 +217,11 @@ describe('annotation-style-tokens', () => {
      * @requirement site-survey/REQ-32.13
      */
     describe('Task 75.2: 既定値の境界条件検証', () => {
-      // bodyStrokeWidth は ANNOTATION_DEFAULTS.strokeWidth（= 3）を意味する
-      // 閾値 = bodyStrokeWidth * 0.75 = 2.25
-      const bodyStrokeWidth = ANNOTATION_DEFAULTS.strokeWidth;
-      const minOutlineWidth = bodyStrokeWidth * 0.75;
+      // Task 115.101: 閾値を資材の値から算出すると、既定線幅が変わったとき閾値も同時に
+      // 動いて主張が落ちない。既定線幅 3 とその 0.75 倍 2.25 を具体値で置き、
+      // 前提そのものは下の「閾値計算の前提」で資材と突き合わせる。
+      const bodyStrokeWidth = 3;
+      const minOutlineWidth = 2.25;
 
       it.each(shapeOutlineKeys)('%s は enabled === true である（境界検証）(Req 32.11)', (key) => {
         const outline = ANNOTATION_DEFAULTS[key] as ShapeOutlineAttribute;
@@ -248,10 +249,11 @@ describe('annotation-style-tokens', () => {
         expect(ANNOTATION_DEFAULTS.dimensionLabelOutline.widthRatio).toBeLessThanOrEqual(0.2);
       });
 
-      it('閾値計算の前提（bodyStrokeWidth = ANNOTATION_DEFAULTS.strokeWidth = 3）が保たれている', () => {
-        // 将来 strokeWidth が変更された場合に上記境界テストの基準も再評価すべきことを明示
-        expect(bodyStrokeWidth).toBe(3);
-        expect(minOutlineWidth).toBeCloseTo(2.25, 10);
+      it('閾値計算の前提（ANNOTATION_DEFAULTS.strokeWidth = 3）が保たれている', () => {
+        // 将来 strokeWidth が変更された場合に上記境界テストの基準（2.25 = 3 × 0.75）も
+        // 再評価すべきことを明示する。閾値は具体値で置いているため、ここでは資材の既定線幅が
+        // 前提から動いていないことだけを主張する（両辺で同じ算出を走らせない）。
+        expect(ANNOTATION_DEFAULTS.strokeWidth).toBe(bodyStrokeWidth);
       });
     });
   });
@@ -284,19 +286,19 @@ describe('annotation-style-tokens', () => {
       expect(resolveShapeOutlineWidth(1)).toBe(2);
     });
 
-    it('既定線幅 3 に対する算出値は既定の縁取り幅と一致する', () => {
-      expect(resolveShapeOutlineWidth(ANNOTATION_DEFAULTS.strokeWidth)).toBe(
-        ANNOTATION_DEFAULTS.rectangleOutline.width
-      );
+    it('既定線幅 3 に対する算出値は既定の縁取り幅 3 と一致する', () => {
+      // Task 115.101: 既定値 `rectangleOutline.width` は `resolveShapeOutlineWidth(既定線幅)` で
+      // 定義されている。両辺に同じ算出を置くと何を変えても通る恒真になるため具体値で固定する。
+      expect(resolveShapeOutlineWidth(3)).toBe(3);
+      expect(ANNOTATION_DEFAULTS.rectangleOutline.width).toBe(3);
     });
 
-    it('非数・非正の本体線幅は既定線幅にフォールバックする', () => {
-      expect(resolveShapeOutlineWidth(0)).toBe(
-        resolveShapeOutlineWidth(ANNOTATION_DEFAULTS.strokeWidth)
-      );
-      expect(resolveShapeOutlineWidth(Number.NaN)).toBe(
-        resolveShapeOutlineWidth(ANNOTATION_DEFAULTS.strokeWidth)
-      );
+    it('非数・非正の本体線幅は既定線幅 3 の算出値 3 にフォールバックする', () => {
+      // Task 115.101: 両辺で同じ算出を走らせると恒真になるため、既定線幅 3 から導かれる
+      // 具体値 3 を期待値に置く。
+      expect(resolveShapeOutlineWidth(0)).toBe(3);
+      expect(resolveShapeOutlineWidth(-1)).toBe(3);
+      expect(resolveShapeOutlineWidth(Number.NaN)).toBe(3);
     });
   });
 
@@ -336,19 +338,18 @@ describe('annotation-style-tokens', () => {
     });
 
     it('既定線幅 3 に対する算出値は既定の矢印縁取り幅と一致する（既定の見た目を変えない）', () => {
-      expect(resolveArrowOutlineWidth(ANNOTATION_DEFAULTS.strokeWidth)).toBe(
-        ANNOTATION_DEFAULTS.arrowOutline.width
-      );
+      // Task 115.101: 既定値 `arrowOutline.width` は `resolveArrowOutlineWidth(既定線幅)` で
+      // 定義されている。両辺に同じ算出を置くと恒真になるため具体値で固定する。
+      expect(resolveArrowOutlineWidth(3)).toBe(2);
       expect(ANNOTATION_DEFAULTS.arrowOutline.width).toBe(2);
     });
 
-    it('非数・非正の本体線幅は既定線幅にフォールバックする', () => {
-      expect(resolveArrowOutlineWidth(0)).toBe(
-        resolveArrowOutlineWidth(ANNOTATION_DEFAULTS.strokeWidth)
-      );
-      expect(resolveArrowOutlineWidth(Number.NaN)).toBe(
-        resolveArrowOutlineWidth(ANNOTATION_DEFAULTS.strokeWidth)
-      );
+    it('非数・非正の本体線幅は既定線幅 3 の算出値 2 にフォールバックする', () => {
+      // Task 115.101: 両辺で同じ算出を走らせると恒真になるため、既定線幅 3 から導かれる
+      // 具体値 2 を期待値に置く。
+      expect(resolveArrowOutlineWidth(0)).toBe(2);
+      expect(resolveArrowOutlineWidth(-1)).toBe(2);
+      expect(resolveArrowOutlineWidth(Number.NaN)).toBe(2);
     });
   });
 

@@ -276,8 +276,10 @@ describe('Arrow (Group + 白縁取り)', () => {
 
       const [outline, body] = getOutlineAndBody(arrow);
       expect(body.strokeWidth).toBe(3);
-      // outline width = ANNOTATION_DEFAULTS.arrowOutline.width (=2) × 2 + body strokeWidth (3) = 7
-      expect(outline.strokeWidth).toBe(3 + ANNOTATION_DEFAULTS.arrowOutline.width * 2);
+      // Task 115.101 (Req 24.2): 期待値は資材の算出を再実行せず具体値で書く。
+      // 既定線幅 3 に対する矢印の片側幅は 2（四捨五入。六形状の 3 とは異なる）であり、
+      // 描画される縁取り線幅は 3 + 2 * 2 = 7。
+      expect(outline.strokeWidth).toBe(3 + 2 * 2);
       expect((outline.strokeWidth ?? 0) / (body.strokeWidth ?? 1)).toBeGreaterThanOrEqual(1.5);
     });
 
