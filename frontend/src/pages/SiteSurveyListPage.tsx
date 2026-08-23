@@ -12,6 +12,7 @@
  * - 2.6: ブレッドクラムで「プロジェクト名 > 現場調査一覧 > 現場調査名」の階層を表示する
  * - 2.7: ユーザーがブレッドクラムの各項目をクリックすると対応する画面に遷移する
  * - 12.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
+ * - 3.1: 当該プロジェクトに紐付く現場調査をページネーション付きで表示する
  */
 
 import { useState, useEffect, useCallback, type ChangeEvent, type FormEvent } from 'react';
@@ -28,11 +29,19 @@ import type {
   SiteSurveyFilter,
 } from '../types/site-survey.types';
 import SiteSurveyResponsiveView from '../components/site-surveys/SiteSurveyResponsiveView';
+import PaginationUI from '../components/projects/PaginationUI';
 import { logger } from '../utils/logger';
 
 // ============================================================================
 // 定数定義
 // ============================================================================
+
+/**
+ * 1ページあたりの既定表示件数
+ *
+ * `getSiteSurveys` の既定値および一覧APIの既定値（20件）と揃える。
+ */
+const DEFAULT_PAGE_SIZE = 20;
 
 const STYLES = {
   container: {
@@ -222,6 +231,10 @@ export default function SiteSurveyListPage() {
   const [sortField, setSortField] = useState<SiteSurveySortableField>('surveyDate');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
+  // ページ送り状態 (Requirement 3.1)
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
+
   /**
    * データ取得
    */
@@ -235,8 +248,9 @@ export default function SiteSurveyListPage() {
       const [projectData, surveysData] = await Promise.all([
         getProject(projectId),
         getSiteSurveys(projectId, {
-          page: 1,
-          limit: 50,
+          // Requirement 3.1: 取得条件は画面が保持するページ番号・表示件数に従う
+          page,
+          limit,
           filter,
           sort: sortField,
           order: sortOrder,
@@ -260,7 +274,7 @@ export default function SiteSurveyListPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [projectId, filter, sortField, sortOrder]);
+  }, [projectId, filter, sortField, sortOrder, page, limit]);
 
   // 初回読み込みとフィルター・ソート変更時の再取得
   useEffect(() => {
@@ -272,6 +286,8 @@ export default function SiteSurveyListPage() {
    */
   const handleSort = useCallback(
     (field: SiteSurveySortableField) => {
+      // 並び替えが変わると件数の割り付けも変わるため、先頭ページへ戻す (Requirement 3.1)
+      setPage(1);
       if (field === sortField) {
         // 同じフィールドの場合は順序を反転
         setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
@@ -290,6 +306,8 @@ export default function SiteSurveyListPage() {
   const handleSearchSubmit = useCallback(
     (e: FormEvent) => {
       e.preventDefault();
+      // 絞り込みが変わると総件数が変わるため、先頭ページへ戻す (Requirement 3.1)
+      setPage(1);
       setFilter((prev) => ({ ...prev, search: searchInput || undefined }));
     },
     [searchInput]
@@ -300,11 +318,13 @@ export default function SiteSurveyListPage() {
    */
   const handleDateFromChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
+    setPage(1);
     setFilter((prev) => ({ ...prev, surveyDateFrom: value || undefined }));
   }, []);
 
   const handleDateToChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
+    setPage(1);
     setFilter((prev) => ({ ...prev, surveyDateTo: value || undefined }));
   }, []);
 
@@ -313,6 +333,7 @@ export default function SiteSurveyListPage() {
    */
   const handleSortFieldChange = useCallback((e: ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value as SiteSurveySortableField;
+    setPage(1);
     setSortField(value);
   }, []);
 
@@ -321,6 +342,7 @@ export default function SiteSurveyListPage() {
    */
   const handleSortOrderChange = useCallback((e: ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value as 'asc' | 'desc';
+    setPage(1);
     setSortOrder(value);
   }, []);
 
@@ -332,6 +354,24 @@ export default function SiteSurveyListPage() {
     setSearchInput('');
     setSortField('surveyDate');
     setSortOrder('desc');
+    setPage(1);
+  }, []);
+
+  /**
+   * ページ変更ハンドラ (Requirement 3.1)
+   */
+  const handlePageChange = useCallback((nextPage: number) => {
+    setPage(nextPage);
+  }, []);
+
+  /**
+   * 表示件数変更ハンドラ (Requirement 3.1)
+   *
+   * 表示件数が変わるとページの割り付けが変わるため、先頭ページへ戻す。
+   */
+  const handleLimitChange = useCallback((nextLimit: number) => {
+    setLimit(nextLimit);
+    setPage(1);
   }, []);
 
   /**
@@ -480,13 +520,29 @@ export default function SiteSurveyListPage() {
 
       {/* コンテンツ */}
       {siteSurveys && siteSurveys.data.length > 0 ? (
-        <SiteSurveyResponsiveView
-          surveys={siteSurveys.data}
-          sortField={sortField}
-          sortOrder={sortOrder}
-          onSort={handleSort}
-          onRowClick={handleRowClick}
-        />
+        <>
+          <SiteSurveyResponsiveView
+            surveys={siteSurveys.data}
+            sortField={sortField}
+            sortOrder={sortOrder}
+            onSort={handleSort}
+            onRowClick={handleRowClick}
+          />
+          {/*
+            ページ送り (Requirement 3.1)
+
+            表示は `PaginationUI`（プロジェクト一覧で先行して用意された部品）を
+            そのまま使う。ページ番号・表示件数・総件数のみを扱う汎用の操作面であり、
+            現場調査向けに作り直しても同一の見た目・操作になるため、複製せず共有する。
+            渡す `pagination` は `SiteSurveyPaginationInfo` で、`PaginationInfo` と
+            同一の構造（page / limit / total / totalPages）である。
+          */}
+          <PaginationUI
+            pagination={siteSurveys.pagination}
+            onPageChange={handlePageChange}
+            onLimitChange={handleLimitChange}
+          />
+        </>
       ) : (
         <div style={STYLES.emptyState}>
           <p style={STYLES.emptyStateTitle}>現場調査がありません</p>

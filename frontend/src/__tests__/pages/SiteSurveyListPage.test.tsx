@@ -629,6 +629,149 @@ describe('SiteSurveyListPage', () => {
     });
   });
 
+  describe('ページ送り (Requirement 3.1)', () => {
+    /** 総件数がページ上限を超える一覧。ページ送りの操作要素が出る前提を作る */
+    const mockPagedSiteSurveys = {
+      data: mockSiteSurveys.data,
+      pagination: { page: 1, limit: 20, total: 45, totalPages: 3 },
+    };
+
+    it('一覧の取得は固定値ではなく画面が保持するページ番号と表示件数を用いること', async () => {
+      renderWithRouter('/projects/project-123/site-surveys');
+
+      await waitFor(() => {
+        expect(siteSurveysApi.getSiteSurveys).toHaveBeenCalledWith(
+          'project-123',
+          expect.objectContaining({ page: 1, limit: 20 })
+        );
+      });
+    });
+
+    it('総件数がページ上限を超えるときページ送りの操作要素が表示されること', async () => {
+      vi.mocked(siteSurveysApi.getSiteSurveys).mockResolvedValue(mockPagedSiteSurveys);
+
+      renderWithRouter('/projects/project-123/site-surveys');
+
+      await waitFor(() => {
+        expect(screen.getByRole('navigation', { name: 'ページネーション' })).toBeInTheDocument();
+      });
+
+      const pagination = screen.getByRole('navigation', { name: 'ページネーション' });
+      expect(pagination).toHaveTextContent('45');
+      expect(pagination).toHaveTextContent('1-20件');
+    });
+
+    it('「次のページ」を押すと次のページ番号で一覧を取得し直すこと', async () => {
+      const user = userEvent.setup({ delay: null });
+      vi.mocked(siteSurveysApi.getSiteSurveys).mockResolvedValue(mockPagedSiteSurveys);
+
+      renderWithRouter('/projects/project-123/site-surveys');
+
+      await waitFor(() => {
+        expect(screen.getByRole('navigation', { name: 'ページネーション' })).toBeInTheDocument();
+      });
+
+      vi.mocked(siteSurveysApi.getSiteSurveys).mockClear();
+      await user.click(screen.getByRole('button', { name: '次のページ' }));
+
+      await waitFor(() => {
+        expect(siteSurveysApi.getSiteSurveys).toHaveBeenCalledWith(
+          'project-123',
+          expect.objectContaining({ page: 2, limit: 20 })
+        );
+      });
+    });
+
+    it('ページ番号を直接選ぶとそのページで一覧を取得し直すこと', async () => {
+      const user = userEvent.setup({ delay: null });
+      vi.mocked(siteSurveysApi.getSiteSurveys).mockResolvedValue(mockPagedSiteSurveys);
+
+      renderWithRouter('/projects/project-123/site-surveys');
+
+      await waitFor(() => {
+        expect(screen.getByRole('navigation', { name: 'ページネーション' })).toBeInTheDocument();
+      });
+
+      vi.mocked(siteSurveysApi.getSiteSurveys).mockClear();
+      await user.click(screen.getByRole('button', { name: 'ページ 3' }));
+
+      await waitFor(() => {
+        expect(siteSurveysApi.getSiteSurveys).toHaveBeenCalledWith(
+          'project-123',
+          expect.objectContaining({ page: 3 })
+        );
+      });
+    });
+
+    it('表示件数を変えると新しい件数かつ先頭ページで取得し直すこと', async () => {
+      const user = userEvent.setup({ delay: null });
+      vi.mocked(siteSurveysApi.getSiteSurveys).mockResolvedValue(mockPagedSiteSurveys);
+
+      renderWithRouter('/projects/project-123/site-surveys');
+
+      await waitFor(() => {
+        expect(screen.getByRole('navigation', { name: 'ページネーション' })).toBeInTheDocument();
+      });
+
+      // 先に 2 ページ目へ送る。先頭ページのまま表示件数だけを変えると、
+      // 「先頭ページへ戻す」挙動を取り除いても主張が成立してしまうため、
+      // 戻す先と戻す前が実際に異なる状態を作ってから確かめる。
+      await user.click(screen.getByRole('button', { name: '次のページ' }));
+      await waitFor(() => {
+        expect(siteSurveysApi.getSiteSurveys).toHaveBeenCalledWith(
+          'project-123',
+          expect.objectContaining({ page: 2 })
+        );
+      });
+
+      vi.mocked(siteSurveysApi.getSiteSurveys).mockClear();
+      await user.selectOptions(screen.getByLabelText('表示件数'), '50');
+
+      await waitFor(() => {
+        expect(siteSurveysApi.getSiteSurveys).toHaveBeenCalledWith(
+          'project-123',
+          expect.objectContaining({ page: 1, limit: 50 })
+        );
+      });
+      // 2 ページ目のまま新しい表示件数で取り直していないこと
+      expect(siteSurveysApi.getSiteSurveys).not.toHaveBeenCalledWith(
+        'project-123',
+        expect.objectContaining({ page: 2, limit: 50 })
+      );
+    });
+
+    it('検索条件を変えるとページ番号が先頭に戻ること', async () => {
+      const user = userEvent.setup({ delay: null });
+      vi.mocked(siteSurveysApi.getSiteSurveys).mockResolvedValue(mockPagedSiteSurveys);
+
+      renderWithRouter('/projects/project-123/site-surveys');
+
+      await waitFor(() => {
+        expect(screen.getByRole('navigation', { name: 'ページネーション' })).toBeInTheDocument();
+      });
+
+      // 2ページ目へ送ってから検索する
+      await user.click(screen.getByRole('button', { name: '次のページ' }));
+      await waitFor(() => {
+        expect(siteSurveysApi.getSiteSurveys).toHaveBeenCalledWith(
+          'project-123',
+          expect.objectContaining({ page: 2 })
+        );
+      });
+
+      vi.mocked(siteSurveysApi.getSiteSurveys).mockClear();
+      await user.type(screen.getByRole('searchbox', { name: '検索' }), '調査A');
+      await user.click(screen.getByRole('button', { name: '検索' }));
+
+      await waitFor(() => {
+        expect(siteSurveysApi.getSiteSurveys).toHaveBeenCalledWith(
+          'project-123',
+          expect.objectContaining({ page: 1, filter: { search: '調査A' } })
+        );
+      });
+    });
+  });
+
   describe('プロジェクトが取得できない場合', () => {
     it('APIがnullを返した場合はnullを返す', async () => {
       // getProjectがnullを返すようにモック（projectが存在しない場合）

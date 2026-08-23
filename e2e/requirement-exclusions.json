@@ -720,19 +720,6 @@
       }
     },
     {
-      "id": "site-survey/REQ-3.1",
-      "requirement": "site-survey/REQ-3: 現場調査一覧・検索",
-      "title": "現場調査一覧をページネーション付きで表示する",
-      "reason": "一覧の取得はページ指定で行うが、ページ操作の UI が production に存在しない。frontend/src/pages/SiteSurveyListPage.tsx:236-241 は getSiteSurveys へ `page: 1, limit: 50` を固定で渡すだけで、ページ番号を変える状態も操作も持たない。描画側の frontend/src/components/site-surveys/SiteSurveyResponsiveView.tsx / SiteSurveyListTable.tsx / SiteSurveyListCard.tsx のいずれにもページ送りの導線・総件数・ページ番号の表示が無い。E2E 側は e2e/specs/site-surveys/site-survey-list.spec.ts の「現場調査一覧がページネーション付きで表示される (site-survey/REQ-3.1)」に test.fail() のラチェットを置いており、本体は毎回すべて実行される。ページネーションが実装されると当該テストが通り「落ちるはずが通った」として赤くなるため、ラチェットの撤去と本除外の削除が強制される",
-      "category": "pending-implementation",
-      "alternativeVerification": {
-        "method": "e2e-test",
-        "tool": "Playwright (test.fail() ラチェット)",
-        "description": "e2e/specs/site-surveys/site-survey-list.spec.ts の当該テストは要件どおりの主張（一覧画面にページネーションが表示されること）を残したまま test.fail() で既知失敗として計上している。SiteSurveyListPage にページ操作の UI を実装したのち、ラチェットを外して被覆済みへ移す",
-        "threshold": "pagination_control: visible"
-      }
-    },
-    {
       "id": "site-survey/REQ-4.6",
       "requirement": "site-survey/REQ-4: 画像アップロード・管理",
       "title": "ファイルサイズ上限（300KB）超過時に250KB〜350KBの範囲へ圧縮して登録する",
@@ -3452,13 +3439,13 @@
     }
   },
   "summary": {
-    "totalExclusions": 276,
+    "totalExclusions": 275,
     "byCategory": {
       "data-integrity": 40,
       "fault-tolerance": 19,
       "infrastructure": 105,
       "integration-test": 68,
-      "pending-implementation": 13,
+      "pending-implementation": 12,
       "performance": 25,
       "removed-from-spec": 1,
       "security": 5

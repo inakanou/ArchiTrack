@@ -17,6 +17,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { assertPrepared } from '../../helpers/preconditions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { API_BASE_URL } from '../../config';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -120,18 +121,6 @@ test.describe('現場調査一覧・検索', () => {
     test('現場調査一覧がページネーション付きで表示される (site-survey/REQ-3.1)', async ({
       page,
     }) => {
-      // REQ-3.1 が定める「ページネーション付きで表示する」うち、ページ操作の UI が
-      // production に存在しない。frontend/src/pages/SiteSurveyListPage.tsx:238-239 は
-      // `page: 1, limit: 50` を固定で要求するだけで、描画側の
-      // SiteSurveyResponsiveView / SiteSurveyListTable / SiteSurveyListCard の
-      // いずれにもページ送りの導線が無い（総件数もページ番号も描画しない）。
-      // 本テストの主張は要件どおりだが、実装が要件を満たしていないため落ちる。
-      // 前提条件による自動無効化ではなく、本体は毎回すべて実行される。
-      // ページネーションが実装されると本テストは通り、この注釈により
-      // 「落ちるはずが通った」として赤くなるため、撤去を強制するラチェットになる。
-      // 直列実行のため、素の失敗を残すと後続の検証と後片付けが実行されなくなる。
-      test.fail();
-
       if (!createdProjectId) {
         throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -155,13 +144,228 @@ test.describe('現場調査一覧・検索', () => {
       // 従来は「ページネーションが無ければ、作成した調査名の件数が 0 より大きいこと」を
       // 主張していた。これはテスト側の配列の長さを見ているだけで画面を検証しておらず、
       // ページネーションが無い状態を無条件に許していた。要件どおりの主張へ改める。
-      const paginationElement = page.locator(
-        '[data-testid="pagination"], .pagination, [role="navigation"][aria-label*="ページ"]'
+      const pagination = page.getByRole('navigation', { name: 'ページネーション' });
+      await expect(pagination, 'REQ-3.1: 現場調査一覧にページネーションが表示されない').toBeVisible(
+        { timeout: getTimeout(5000) }
       );
+
+      // 総件数・現在ページ・総ページ数が画面に出る（件数の固定値ではなく取得結果に従う）
       await expect(
-        paginationElement.first(),
-        'REQ-3.1: 現場調査一覧にページネーションが表示されない'
-      ).toBeVisible({ timeout: getTimeout(5000) });
+        pagination.getByTestId('total-count'),
+        'REQ-3.1: 総件数が表示されない'
+      ).toHaveText(String(surveyNames.length));
+      await expect(pagination.getByTestId('current-page')).toHaveText('1');
+      await expect(pagination.getByTestId('total-pages')).toHaveText('1');
+
+      // ページを送る操作要素そのものが存在する
+      await expect(pagination.getByRole('button', { name: '次のページ' })).toBeVisible();
+      await expect(pagination.getByRole('button', { name: '前のページ' })).toBeVisible();
+    });
+  });
+
+  /**
+   * ページ送りの操作（REQ-3.1）
+   *
+   * 「ページネーション付きで表示する」は、操作要素が描かれるだけでは満たされない。
+   * ページを送ったときに *別の* 現場調査が表示されて初めて要件を満たす。
+   * そこで表示件数を超える件数の現場調査を専用のプロジェクトに用意し、
+   *   (1) 総件数・総ページ数が取得結果に従って描かれること
+   *   (2) 1 ページ目に表示件数ちょうどの現場調査が並ぶこと
+   *   (3) 「次のページ」で 2 ページ目を要求し、1 ページ目と重ならない残りが出ること
+   * を確かめる。要求そのものも `page` クエリで観測し、画面表示だけの見せかけを排する。
+   * 既存の検索・日付フィルタ・並び替えの検証は件数の前提を持つため、
+   * それらとはプロジェクトを分けて干渉させない。
+   *
+   * @requirement site-survey/REQ-3.1
+   */
+  test.describe('ページ送り', () => {
+    /** 表示件数 10 件で 2 ページに割れる件数 */
+    const PAGING_SURVEY_COUNT = 11;
+    /** ページ送りの検証で選ぶ表示件数 */
+    const PAGING_PAGE_SIZE = 10;
+
+    let pagingProjectId: string | null = null;
+    const pagingSurveyIds: string[] = [];
+
+    /**
+     * 一覧に並ぶ現場調査の ID を、描画されている行から取り出す。
+     */
+    async function readVisibleSurveyIds(page: import('@playwright/test').Page): Promise<string[]> {
+      const rows = page.locator('[data-testid^="survey-row-"]');
+      await expect(rows.first()).toBeVisible({ timeout: getTimeout(10000) });
+      const testIds = await rows.evaluateAll((elements) =>
+        elements.map((element) => element.getAttribute('data-testid') ?? '')
+      );
+      return testIds.map((testId) => testId.replace('survey-row-', ''));
+    }
+
+    test('事前準備: 表示件数を超える件数の現場調査を用意する', async ({ page }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto('/projects');
+      await page.waitForLoadState('networkidle');
+      await page.getByRole('button', { name: /新規作成/i }).click();
+      await expect(page).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      const projectName = `ページ送りテスト用プロジェクト_${Date.now()}`;
+      await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
+      const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
+
+      const createProjectPromise = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname.endsWith('/api/projects') &&
+          response.request().method() === 'POST' &&
+          response.status() === 201,
+        { timeout: getTimeout(30000) }
+      );
+      await page.getByRole('button', { name: /^作成$/i }).click();
+      await createProjectPromise;
+
+      await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
+      pagingProjectId = page.url().match(/\/projects\/([0-9a-f-]+)$/)?.[1] ?? null;
+      expect(pagingProjectId, 'ページ送り用プロジェクトが作成されていない').toBeTruthy();
+
+      // 現場調査は API で直接作る（画面経由だと 11 件で著しく時間がかかる）。
+      // 調査日を 1 日ずつずらし、既定の並び（調査日の新しい順）を一意に定める。
+      const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+      for (let i = 0; i < PAGING_SURVEY_COUNT; i++) {
+        const surveyDate = new Date(Date.UTC(2024, 0, 1 + i)).toISOString().split('T')[0]!;
+        const response = await page.request.post(
+          `${API_BASE_URL}/api/projects/${pagingProjectId}/site-surveys`,
+          {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            data: {
+              name: `ページ送りテスト調査${String(i + 1).padStart(2, '0')}_${Date.now()}`,
+              surveyDate,
+            },
+          }
+        );
+        expect(
+          response.status(),
+          `ページ送り用の現場調査の作成に失敗した: ${await response.text()}`
+        ).toBe(201);
+        const body = (await response.json()) as { id?: string };
+        expect(body.id, '現場調査の作成応答に id が含まれない').toBeTruthy();
+        pagingSurveyIds.push(body.id!);
+      }
+
+      expect(pagingSurveyIds).toHaveLength(PAGING_SURVEY_COUNT);
+    });
+
+    test('表示件数を超える現場調査はページに分けて表示される (site-survey/REQ-3.1)', async ({
+      page,
+    }) => {
+      expect(pagingProjectId, '事前準備が実行されていない').toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/projects/${pagingProjectId}/site-surveys`);
+      await page.waitForLoadState('networkidle');
+
+      const pagination = page.getByRole('navigation', { name: 'ページネーション' });
+      await expect(pagination, 'ページ送りの操作要素が無い').toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await expect(pagination.getByTestId('total-count')).toHaveText(String(PAGING_SURVEY_COUNT));
+
+      // 表示件数を 10 件へ変える。オリジンは環境で食い違うためパスとクエリで観測する。
+      const limitRequest = page.waitForRequest(
+        (request) => {
+          const url = new URL(request.url());
+          return (
+            url.pathname.endsWith(`/api/projects/${pagingProjectId}/site-surveys`) &&
+            url.searchParams.get('limit') === String(PAGING_PAGE_SIZE) &&
+            url.searchParams.get('page') === '1'
+          );
+        },
+        { timeout: getTimeout(30000) }
+      );
+      await pagination.getByLabel('表示件数').selectOption(String(PAGING_PAGE_SIZE));
+      await limitRequest;
+
+      await expect(pagination.getByTestId('total-pages')).toHaveText('2');
+      await expect(pagination.getByTestId('current-page')).toHaveText('1');
+
+      // 1 ページ目は表示件数ちょうど
+      const firstPageIds = await readVisibleSurveyIds(page);
+      expect(
+        firstPageIds,
+        `1 ページ目の件数が表示件数と一致しない: ${firstPageIds.length}`
+      ).toHaveLength(PAGING_PAGE_SIZE);
+
+      // 「次のページ」で 2 ページ目を要求する
+      const nextPageRequest = page.waitForRequest(
+        (request) => {
+          const url = new URL(request.url());
+          return (
+            url.pathname.endsWith(`/api/projects/${pagingProjectId}/site-surveys`) &&
+            url.searchParams.get('page') === '2'
+          );
+        },
+        { timeout: getTimeout(30000) }
+      );
+      await pagination.getByRole('button', { name: '次のページ' }).click();
+      await nextPageRequest;
+
+      await expect(pagination.getByTestId('current-page')).toHaveText('2');
+
+      // 2 ページ目は残りだけが並び、1 ページ目と 1 件も重ならない
+      await expect
+        .poll(async () => (await readVisibleSurveyIds(page)).length, {
+          timeout: getTimeout(15000),
+        })
+        .toBe(PAGING_SURVEY_COUNT - PAGING_PAGE_SIZE);
+      const secondPageIds = await readVisibleSurveyIds(page);
+      for (const id of secondPageIds) {
+        expect(firstPageIds, '2 ページ目に 1 ページ目と同じ現場調査が並んでいる').not.toContain(id);
+      }
+      expect(
+        new Set([...firstPageIds, ...secondPageIds]).size,
+        'ページを送っても全件に到達できない'
+      ).toBe(PAGING_SURVEY_COUNT);
+
+      // 「前のページ」で 1 ページ目へ戻れる
+      await pagination.getByRole('button', { name: '前のページ' }).click();
+      await expect(pagination.getByTestId('current-page')).toHaveText('1');
+      await expect
+        .poll(async () => (await readVisibleSurveyIds(page)).length, {
+          timeout: getTimeout(15000),
+        })
+        .toBe(PAGING_PAGE_SIZE);
+
+      // 2 ページ目を見ている最中に表示件数を変えたら、先頭ページから取り直す。
+      // 先頭ページのまま表示件数だけを変えても「先頭へ戻す」挙動は観測できないため、
+      // 戻す前と戻す先が実際に異なる状態を作ってから確かめる。
+      await pagination.getByRole('button', { name: '次のページ' }).click();
+      await expect(pagination.getByTestId('current-page')).toHaveText('2');
+
+      const resetRequest = page.waitForRequest(
+        (request) => {
+          const url = new URL(request.url());
+          return (
+            url.pathname.endsWith(`/api/projects/${pagingProjectId}/site-surveys`) &&
+            url.searchParams.get('limit') === String(PAGING_SURVEY_COUNT + 9) &&
+            url.searchParams.get('page') === '1'
+          );
+        },
+        { timeout: getTimeout(30000) }
+      );
+      await pagination.getByLabel('表示件数').selectOption(String(PAGING_SURVEY_COUNT + 9));
+      await resetRequest;
+
+      await expect(
+        pagination.getByTestId('current-page'),
+        '表示件数を変えても 2 ページ目のままになっている'
+      ).toHaveText('1');
+      await expect(pagination.getByTestId('total-pages')).toHaveText('1');
+      await expect
+        .poll(async () => (await readVisibleSurveyIds(page)).length, {
+          timeout: getTimeout(15000),
+        })
+        .toBe(PAGING_SURVEY_COUNT);
     });
   });
 

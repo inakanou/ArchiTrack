@@ -6189,6 +6189,7 @@ type PartialFailureChoice = 'download-partial' | 'cancel';
 **Implementation Notes**
 - `promise` の進捗購読は `bulkExportService` 内で外部にイベントを発する設計とし、本ダイアログは `useEffect` で subscribe
 - 部分失敗発生時は「N 件失敗。成功分（M 件）のみダウンロードしますか？」のサブダイアログで `PartialFailureChoice` を取得
+- 部分失敗サブダイアログは件数の案内に加えて `BulkExportResult.failures` を 1 件ずつ列挙する（要件31.13）。各行は `imageName` と、`reason`（`render` / `fetch` / `unknown`）を利用者向け日本語へ写した文言を示し、`message` があれば補足として添える。写し替えは本ダイアログ内の `failureReasonLabel` が担う。件数だけでは「どの画像がどの理由で失敗したか」を知る手段が画面に無く、要件31.13 を満たさないため（タスク 115.103）
 - キャンセル時は確認サブダイアログを挟まず即時中断（誤操作影響は小、再実行容易）
 
 ##### PhotoManagementPanel (ext)

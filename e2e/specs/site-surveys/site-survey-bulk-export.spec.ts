@@ -11,6 +11,7 @@
  * - 31.10: 進行中の進捗状況（件数・割合）を可視化する
  * - 31.11: 進行中の処理をキャンセル可能にする
  * - 31.12: キャンセル時は処理を中断し ZIP を生成しない
+ * - 31.13: 一部の画像が失敗したとき、どの画像がどの理由で失敗したかを通知する
  *
  * Task 115.48（AI運用7原則 第3原則）:
  *   本 spec は以前 `E2E_SURVEY_ID` / `E2E_IMAGE_IDS` の有無で `test.skip` する構成であり、
@@ -50,6 +51,7 @@
  * @requirement site-survey/REQ-31.10
  * @requirement site-survey/REQ-31.11
  * @requirement site-survey/REQ-31.12
+ * @requirement site-survey/REQ-31.13
  */
 
 import path from 'path';
@@ -104,6 +106,34 @@ function readZipEntryNames(buffer: Buffer): string[] {
   }
 
   return names;
+}
+
+/**
+ * 画像一覧 API の応答から画像の配列を取り出す。
+ *
+ * 応答の包み方（配列そのもの / `data` / `data.images`）に依存せず取り出す。
+ * 想定外の形なら空配列を返し、呼び出し側の件数の主張で失敗させる。
+ */
+function extractImageList(body: unknown): Array<{
+  id: string;
+  fileName: string;
+  originalUrl?: string | null;
+}> {
+  const candidates: unknown[] = [];
+  if (Array.isArray(body)) {
+    candidates.push(body);
+  } else if (body && typeof body === 'object') {
+    const record = body as Record<string, unknown>;
+    candidates.push(record.images);
+    const data = record.data;
+    if (Array.isArray(data)) {
+      candidates.push(data);
+    } else if (data && typeof data === 'object') {
+      candidates.push((data as Record<string, unknown>).images);
+    }
+  }
+  const found = candidates.find((candidate) => Array.isArray(candidate));
+  return (found as Array<{ id: string; fileName: string; originalUrl?: string | null }>) ?? [];
 }
 
 test.describe('現場調査画像の一括エクスポート', () => {
@@ -474,6 +504,113 @@ test.describe('現場調査画像の一括エクスポート', () => {
     const downloadPath = await download.path();
     const entryNames = readZipEntryNames(fs.readFileSync(downloadPath));
     expect(entryNames).toHaveLength(selectedIds.length);
+  });
+
+  /**
+   * (f) 一部の画像が失敗したとき、どの画像がどの理由で失敗したかが画面に出る
+   *     Requirement 31.13
+   *
+   * 失敗の件数だけでは、利用者はどの写真を撮り直すべきかも、再実行で直る失敗かも
+   * 判断できない。要件31.13 は「どの画像が」「どの理由で」失敗したかの明示を求める。
+   *
+   * 検証は 3 枚のうち 1 枚だけを失敗させて行う。対象は画像一覧 API が返す原本の
+   * 保存先パスで特定し、そのパスへの応答だけを 500 に置き換える。オリジンは環境
+   * （CI／ローカル）で食い違うため、判定はパスのみで行う。
+   *
+   * 画像本体の取得は他の検証で既に成功しているため、同一の閲覧文脈のままだと
+   * ブラウザのキャッシュから返り、差し替えた応答が使われない可能性がある。
+   * そこで本検証は専用の閲覧文脈（新しい context）で行う。
+   */
+  test('(f) 一部が失敗したとき失敗した画像と理由が画像ごとに提示される', async ({ browser }) => {
+    const failureContext = await browser.newContext();
+    const failurePage = await failureContext.newPage();
+
+    try {
+      await loginAsUser(failurePage, 'REGULAR_USER');
+      const accessToken = await failurePage.evaluate(() => localStorage.getItem('accessToken'));
+
+      // 画像一覧から「どの画像を失敗させるか」を決める。
+      const listResponse = await failurePage.request.get(
+        `${API_BASE_URL}/api/site-surveys/${createdSurveyId}/images`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      expect(
+        listResponse.ok(),
+        `画像一覧の取得に失敗した: ${await listResponse.text()}`
+      ).toBeTruthy();
+      const listBody = (await listResponse.json()) as unknown;
+      const images = extractImageList(listBody);
+      expect(
+        images.length,
+        `画像一覧が想定の件数で返らない: ${JSON.stringify(listBody).slice(0, 300)}`
+      ).toBe(FIXTURE_IMAGE_COUNT);
+
+      const targetImage = images[1]!;
+      expect(targetImage.fileName, '失敗させる画像のファイル名が得られない').toBeTruthy();
+      expect(targetImage.originalUrl, '失敗させる画像の原本URLが得られない').toBeTruthy();
+      const targetPath = new URL(targetImage.originalUrl!).pathname;
+      const survivingNames = images
+        .filter((image) => image.id !== targetImage.id)
+        .map((image) => image.fileName);
+
+      // 対象画像の原本だけを 500 応答へ差し替える（他の 2 枚は素通し）。
+      let interceptedCount = 0;
+      await failurePage.route(
+        (url) => url.pathname === targetPath,
+        async (route: Route) => {
+          interceptedCount += 1;
+          await route.fulfill({ status: 500, body: 'forced failure for REQ-31.13' });
+        }
+      );
+
+      await failurePage.goto(`/site-surveys/${createdSurveyId}`);
+      await failurePage.waitForLoadState('networkidle');
+
+      await failurePage.getByTestId('bulk-export-all-button').click();
+      const settingsDialog = failurePage.getByRole('dialog', { name: '全件一括エクスポート' });
+      await expect(settingsDialog).toBeVisible({ timeout: getTimeout(10000) });
+      await settingsDialog.getByRole('button', { name: '開始' }).click();
+
+      // 部分失敗の案内（alertdialog）が出る
+      const partialDialog = failurePage.getByRole('alertdialog');
+      await expect(partialDialog, '部分失敗の案内が表示されない').toBeVisible({
+        timeout: getTimeout(120000),
+      });
+
+      // 差し替えた応答が実際に使われたこと（＝検証が素通りしていないこと）
+      expect(interceptedCount, '失敗させる画像への要求が観測されていない').toBeGreaterThan(0);
+
+      // Requirement 31.13: どの画像が失敗したか
+      const failureList = partialDialog.getByTestId('bulk-export-failure-list');
+      await expect(failureList, '失敗した画像の一覧が表示されない').toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await expect(
+        failureList.getByRole('listitem'),
+        '失敗した画像の件数と一覧の件数が一致しない'
+      ).toHaveCount(1);
+
+      const failureItem = partialDialog.getByTestId(`bulk-export-failure-${targetImage.id}`);
+      await expect(failureItem, '失敗した画像が一覧に現れない').toBeVisible();
+      await expect(failureItem).toContainText(targetImage.fileName);
+      // Requirement 31.13: どの理由で失敗したか
+      await expect(failureItem, '失敗の理由が示されていない').toContainText('失敗しました');
+
+      // 成功した画像は失敗一覧に現れない
+      for (const name of survivingNames) {
+        await expect(
+          failureList,
+          `成功した画像 ${name} が失敗一覧に混ざっている`
+        ).not.toContainText(name);
+      }
+
+      // 後始末: 中止を選び、ZIP を受け取らずに閉じる
+      await partialDialog.getByRole('button', { name: '中止' }).click();
+      await expect(partialDialog).toBeHidden({ timeout: getTimeout(15000) });
+    } finally {
+      await failurePage.close();
+      await failureContext.close();
+    }
   });
 
   /**
