@@ -6,7 +6,7 @@
  *
  * # Props 設計の補足
  *
- * design.md L5296-5320 では Props を `{ open, promise, controller, onClose(result) }`
+ * design.md「BulkExportProgressDialog」では Props を `{ open, promise, controller, onClose(result) }`
  * と定義しているが、本実装では「進捗情報」を親（呼び出し元の BulkExportDialog 等）が
  * `bulkExportService.execute(input, onProgress, signal)` の `onProgress` で受け取って
  * state 管理し、本ダイアログには `progress: BulkExportProgress | null` として渡す
@@ -28,7 +28,7 @@
  * @requirement site-survey/REQ-31.11 進行中処理のキャンセル可能性
  * @requirement site-survey/REQ-31.13 部分失敗の明示
  * @requirement site-survey/REQ-31.14 成功分のみダウンロードと中止の選択
- * @see .kiro/specs/site-survey/design.md BulkExportProgressDialog (5296-5320)
+ * @see .kiro/specs/site-survey/design.md `##### BulkExportProgressDialog`
  */
 
 import React, { useEffect, useId, useState } from 'react';
@@ -41,7 +41,7 @@ import type { BulkExportProgress, BulkExportResult } from '../../services/export
 /**
  * 部分失敗時のユーザー選択
  *
- * design.md L5313 の `PartialFailureChoice` と一致させる。
+ * design.md「BulkExportProgressDialog」の `PartialFailureChoice` と一致させる。
  */
 export type PartialFailureChoice = 'download-partial' | 'cancel';
 

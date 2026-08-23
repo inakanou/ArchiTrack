@@ -556,7 +556,10 @@ export default function QuantityTableEditPage() {
   // - タブクローズ/リロード: 既存 useUnsavedChanges の beforeunload ハンドラを
   //   enabled: isDirty で有効化し標準確認を表示する（REQ-43.2）。
   // 既存 CompanyInfoPage / ItemizedStatementDetailPage / SiteSurveyDetailPage の
-  // 確立済みパターンに準拠（design.md L166, L2129-2140）。
+  // 確立済みパターンに準拠（design.md「Architecture Pattern & Boundary Map」の
+  // 「追加コンポーネント（REQ-43, 44）」、および
+  // 「クライアントサイド編集・明示保存・離脱ガード・固定ヘッダー（REQ-42〜45）」配下の
+  // 「UnsavedChangesBadge / 離脱ガード / 固定ヘッダー（REQ-43, 44, 45）」）。
   // ==========================================================================
   const isDirty = editState.isDirty;
 

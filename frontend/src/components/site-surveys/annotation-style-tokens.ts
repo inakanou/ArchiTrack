@@ -54,7 +54,9 @@ export interface ShapeOutlineAttribute {
 /**
  * 矢印の白縁取り属性
  *
- * design.md 5485 行の指針に従い、`ShapeOutlineAttribute` の型エイリアスとして定義。
+ * design.md「Requirements 31-32」の「Modified Files（主要変更点サマリー）」が示す
+ * 「`ArrowOutlineAttribute` は同型を維持（型エイリアス化で重複排除可）」に従い、
+ * `ShapeOutlineAttribute` の型エイリアスとして定義。
  * 既存 `ArrowTool` の import 元は `ShapeOutlineAttribute` と同一の構造を受け取るため
  * 破壊変更にはならない。
  */
@@ -186,10 +188,12 @@ const DIMENSION_LABEL_BACKGROUND_COLOR = '#ffffff';
 /**
  * 白縁取りの片側幅を本体線幅から算出する比率
  *
- * design.md 5427 行（6 形状）/ 4496 行（矢印）: 「片側幅。本体 strokeWidth * 0.75 を推奨既定」。
+ * design.md「Service Interface（5 ツール共通形）」（6 形状）と「Service Interface (Arrow)」（矢印）:
+ * 「片側幅。本体 strokeWidth * 0.75 を推奨既定」。
  * 矢印と 6 形状で同一の推奨既定が示されているため、比率は一つの定数として共有する。
  *
- * 「本体線幅の 1.5 倍以上」は描画される縁取り線幅の総幅を指す（design.md 5563 行の検証条件
+ * 「本体線幅の 1.5 倍以上」は描画される縁取り線幅の総幅を指す
+ * （design.md「AnnotationStyleTokens (ext)」の Validation が示す検証条件
  * `width >= bodyStrokeWidth * 0.75` に従う）。片側幅そのものを 1.5 倍と解すると、設計が示す
  * 推奨既定 0.75 倍が恒久的に要件違反となるため。
  */
@@ -212,7 +216,8 @@ const MIN_SHAPE_OUTLINE_WIDTH = 2;
  * 加算では本体線幅 13 以上で 1.5 倍を下回っていた。
  *
  * 本体線幅に比例させることで、描画される白縁取り線幅
- * （design.md 5407 行: `outlineShape.strokeWidth = bodyStrokeWidth + outlineWidth * 2`）は
+ * （design.md「Rectangle / Circle / Polygon / Polyline / Freehand（Group 化、共通仕様）」の
+ * `outlineShape.strokeWidth = bodyStrokeWidth + outlineWidth * 2`）は
  * 本体線幅の 2.5 倍となり、選択可能な全線幅で 1.5 倍以上を満たす。
  *
  * @param bodyStrokeWidth 本体線幅（論理ピクセル）
@@ -248,7 +253,8 @@ const MIN_ARROW_OUTLINE_WIDTH = 1;
  * 9 以上で下回っていた（6 形状の 13 より早く破綻していた）。
  *
  * 本体線幅に比例させることで、描画される白縁取り線幅
- * （design.md 4478 行: `outlinePath.strokeWidth = bodyStrokeWidth + outlineWidth * 2`）は
+ * （design.md「Arrow (Group)」の
+ * `outlinePath.strokeWidth = bodyStrokeWidth + outlineWidth * 2`）は
  * 概ね本体線幅の 2.5 倍となり、選択可能な全線幅で 1.5 倍以上を満たす。
  *
  * 丸めは 6 形状の `Math.ceil` ではなく矢印従来の `Math.round`、下限も 2 ではなく 1 を維持する。

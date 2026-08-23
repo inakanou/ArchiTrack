@@ -357,7 +357,7 @@ export type SaveEstimateDraftItemType = 'STANDARD' | 'DISCOUNT' | 'NOTE';
 /**
  * 一括保存リクエストの明細行
  *
- * design.md `##### estimate-draft.service` の `SaveEstimateLine`（4313-4323）と同一。
+ * design.md `##### estimate-draft.service` の API Contract にある `SaveEstimateLine` と同一。
  * 9フィールドはすべて **null 許容だが省略不可** で、空欄も `null` を明示送信する。
  * キーを落としたペイロードはバックエンドで 400 になる。
  */
@@ -379,7 +379,7 @@ export interface SaveEstimateDraftLine {
 /**
  * 一括保存リクエストの見積項目（再帰）
  *
- * design.md `SaveEstimateItemNode`（4305-4311）と同一。
+ * design.md `##### estimate-draft.service` の API Contract にある `SaveEstimateItemNode` と同一。
  * 既存項目は `id` ＋ `tempId: null`、新規項目は `id: null` ＋ `tempId` を送る。
  * `children` は省略不可で、子を持たない項目も空配列を明示送信する。
  */
@@ -408,7 +408,7 @@ export interface SaveEstimateDraftReportFields {
 /**
  * 明細の一括保存リクエスト
  *
- * design.md `SaveEstimateDraftRequest`（4297-4303）と同一。
+ * design.md `##### estimate-draft.service` の API Contract にある `SaveEstimateDraftRequest` と同一。
  */
 export interface SaveEstimateDraftRequest {
   /** 楽観ロックの基準時刻（ISO8601）。直前に取得した見積書の `updatedAt` */

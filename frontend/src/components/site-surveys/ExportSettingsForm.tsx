@@ -9,7 +9,7 @@
  * Task 83.1: ExportSettingsForm の切り出し
  * 既存 ImageExportDialog.tsx 内の選択ロジックを独立化したもの。
  *
- * @see design.md - ExportSettingsForm (5247-5269)
+ * @see design.md - `##### ExportSettingsForm`
  * @see requirements.md - 要件31.4
  */
 

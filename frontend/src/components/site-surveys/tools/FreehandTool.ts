@@ -149,7 +149,7 @@ const MIN_POINT_COUNT = 2;
  * の 2 つの子 Path を持つ。
  *
  * 開放形状のため両 Path の `fill` は `'transparent'` を維持する
- * （design.md 5347 行: 「開放形状 2 種（Polyline/Freehand）は両 path とも fill 未使用」）。
+ * （design.md「Rectangle / Circle / Polygon / Polyline / Freehand（Group 化、共通仕様）」: 「開放形状 2 種（Polyline/Freehand）は両 path とも `fill` 未使用」）。
  *
  * `type === 'freehand'` は維持（classRegistry 後方互換）。
  *
@@ -220,7 +220,7 @@ export class FreehandPath extends Group {
     // 親 Group が位置決めし、子は path で形状を保持することで
     // 移動・リサイズ・回転・パスデータ変更時に同期する（Req 32.4）。
     //
-    // 開放形状のため fill は 'transparent'（design.md 5347 行）。
+    // 開放形状のため fill は 'transparent'（design.md「Rectangle / Circle / Polygon / Polyline / Freehand（Group 化、共通仕様）」）。
     const outlinePath = new Path(pathData, {
       stroke: outline.color,
       strokeWidth: mergedOptions.strokeWidth + outline.width * 2,
@@ -238,7 +238,7 @@ export class FreehandPath extends Group {
     });
 
     // 本体 Path を生成
-    // 開放形状のため fill は 'transparent'（design.md 5347 行）。
+    // 開放形状のため fill は 'transparent'（design.md「Rectangle / Circle / Polygon / Polyline / Freehand（Group 化、共通仕様）」）。
     // 既存 FreehandOptions の `fill` は API 上維持するが、実描画では使用しない。
     const bodyPath = new Path(pathData, {
       stroke: mergedOptions.stroke,
@@ -337,7 +337,7 @@ export class FreehandPath extends Group {
    *
    * Task 81.1: フリーハンドは開放形状のため実描画では fill は使用しないが、
    * 既存 API 互換のために Group プロパティのみ更新する。
-   * 両子 Path の fill は 'transparent' のまま維持する（design.md 5347 行）。
+   * 両子 Path の fill は 'transparent' のまま維持する（design.md「Rectangle / Circle / Polygon / Polyline / Freehand（Group 化、共通仕様）」）。
    */
   setFill(color: string): void {
     this.fill = color;
@@ -452,7 +452,7 @@ export class FreehandPath extends Group {
    * - 必須フィールド（pathData 文字列・stroke/strokeWidth/fill）欠落や
    *   null/undefined 受領時は安全な既定値（最小限の水平線パス、stroke 黒、strokeWidth 2、
    *   fill 'transparent'）で復元し、console.warn を送出する（防御的フォールバック）。
-   *   フリーハンドは開放形状のため fill 既定は 'transparent' を採用（design.md 5347 行）。
+   *   フリーハンドは開放形状のため fill 既定は 'transparent' を採用（design.md「Rectangle / Circle / Polygon / Polyline / Freehand（Group 化、共通仕様）」）。
    *
    * @param object シリアライズされたJSONオブジェクト（null/undefined/不正値を許容）
    * @returns 復元されたFreehandPathインスタンス

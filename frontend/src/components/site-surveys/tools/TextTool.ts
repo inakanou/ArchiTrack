@@ -610,7 +610,8 @@ export class TextAnnotation extends IText {
     const mergedEnabled = next.enabled ?? this._textOutline.enabled;
     const mergedWidthRatio = next.widthRatio ?? this._textOutline.widthRatio;
 
-    // widthRatio を [0.10, 0.20] にクランプ（design.md 4497）
+    // widthRatio を [0.10, 0.20] にクランプ
+    // （design.md「Service Interface (TextAnnotation)」の `TextOutlineAttribute.widthRatio` の許容範囲）
     const clampedWidthRatio = Math.min(
       TEXT_OUTLINE_WIDTH_RATIO_MAX,
       Math.max(TEXT_OUTLINE_WIDTH_RATIO_MIN, mergedWidthRatio)

@@ -42,7 +42,8 @@ export interface EstimateRequestTextPanelProps {
    *   内訳書未紐付け時はチェックボックスを非表示とする
    * - 本コンポーネントはチェックボックス本体を保有しないため、現状は条件レンダリングの
    *   対象がないが、将来このパネル内に「内訳書を本文に含める」要素が移設された場合の
-   *   ガード経路として props 契約を提供する（design.md 5576-5586）
+   *   ガード経路として props 契約を提供する
+   *   （design.md「EstimateRequestTextPanel（改訂）」の §Implementation Notes）
    */
   showIncludeBreakdownToggle?: boolean;
   /**

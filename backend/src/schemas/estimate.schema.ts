@@ -329,7 +329,9 @@ export const SAVE_ESTIMATE_VALIDATION_MESSAGES = {
  * その利用経路（明細操作系6経路）を撤去したため現在は参照されていない。
  * 注記行を受け付けるのは本スキーマのみ。
  *
- * 申し送り: design.md 4376 の「`NOTE` 項目は `name` 以外は NULL とする」は本スキーマでは
+ * 申し送り: design.md「物理データモデル（マイグレーション2件）」の
+ * `add_estimate_item_note_type` が定める「`NOTE` 項目は `EstimateItemLine` を `ESTIMATE` の1件のみ持ち、
+ * `name` 以外は NULL とする」は本スキーマでは
  * 未検証。本スキーマが担保するのは「子を持たない」「見積金額行1件のみ」までであり、
  * 規格・単位・数量・単価・金額を NULL に正規化する責務は差分適用側（タスク 52.4）に委ねる。
  */
@@ -341,7 +343,7 @@ export const saveItemTypeSchema = z.enum(['STANDARD', 'DISCOUNT', 'NOTE']);
  * 数量・単価・金額は精度欠落を避けるため10進数文字列で受け取る
  * （design.md「estimate-draft.service」の `SaveEstimateLine`）。
  *
- * 各フィールドは design.md 4313-4323 の `SaveEstimateLine` に合わせ
+ * 各フィールドは design.md「estimate-draft.service」の API Contract にある `SaveEstimateLine` に合わせ
  * **null 許容だが省略不可**とする。本APIはフル状態同期であり、省略を許すと
  * 「キーの欠落＝null 上書き」となって既存行の名称・数量を意図せず消す経路が生まれる。
  */
@@ -379,7 +381,8 @@ export const saveEstimateLineSchema = z.object({
  * 構造上の制約（循環参照・重複・種別ごとの制約）は
  * {@link saveEstimateDraftSchema} のツリー走査でまとめて検証する。
  *
- * design.md 4305-4311 の `SaveEstimateItemNode` に合わせ、`id` / `tempId` は
+ * design.md「estimate-draft.service」の API Contract にある `SaveEstimateItemNode` に合わせ、
+ * `id` / `tempId` は
  * **null 許容だが省略不可**、`children` は**省略不可**とする（葉は空配列を明示送信する）。
  */
 export const saveEstimateItemNodeSchema = z.object({
@@ -577,7 +580,8 @@ function validateSaveEstimateItemTree(
 export const saveEstimateDraftSchema = z
   .object({
     expectedUpdatedAt: isoDateTimeSchema,
-    // design.md 4297 の `SaveEstimateDraftRequest` に合わせ省略不可とする。
+    // design.md「estimate-draft.service」の API Contract にある `SaveEstimateDraftRequest` に
+    // 合わせ省略不可とする。
     // 本APIはフル状態同期のため、省略を許すと保存済みの提出日・有効期限・別途工事
     // （54.1〜54.3）を null / 空配列で静かに上書き消去する経路が生まれる
     reportFields: saveEstimateReportFieldsSchema,

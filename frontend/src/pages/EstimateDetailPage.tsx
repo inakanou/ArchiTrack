@@ -498,7 +498,8 @@ function toDecimalPayloadValue(value: string | null | undefined): string | null 
 /**
  * 編集中のツリーを一括保存のリクエスト形式へ変換する
  *
- * ワイヤ契約（design.md `SaveEstimateItemNode` / `SaveEstimateLine`、4305-4324）は
+ * ワイヤ契約（design.md `##### estimate-draft.service` の API Contract にある
+ * `SaveEstimateItemNode` / `SaveEstimateLine`）は
  * **null 許容だが省略不可**のため、子を持たない項目も `children: []` を、
  * 空欄のセルも `null` を明示的に載せる。キーを落とすと 400 になる。
  *

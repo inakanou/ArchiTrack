@@ -2066,7 +2066,8 @@ function AnnotationEditor({
       canvasElementRef.current = canvasElement;
 
       // Canvasを初期化（サイズを初期化時に指定）
-      // Task 72.1 / design.md §4611: enablePointerEvents を有効化し、
+      // Task 72.1 / design.md「touchGestureManager」の Service Interface の Risks / Decisions
+      // （`enablePointerEvents: true` を初手から採用する）: enablePointerEvents を有効化し、
       // touchGestureManager が PointerEvent ベースで多指ジェスチャーを厳密判定できるようにする
       canvas = new FabricCanvas(canvasElement, {
         selection: false, // 背景画像が選択されないように

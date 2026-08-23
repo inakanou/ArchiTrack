@@ -29,7 +29,7 @@
  * - 47.8: キー操作による行操作はサーバーへの保存を伴わずに画面上の明細を更新する
  * - 48.1, 48.2: 取り消し・やり直しをキー操作から実行する（Task 54.8）
  *
- * Design: design.md `##### estimateKeymap`（:4086-4120）
+ * Design: design.md `##### estimateKeymap`
  *
  * 取り消し・やり直し（48.1, 48.2 / Task 54.8）は `onUndo` / `onRedo` として
  * 受け取り、解決できたキーは `preventDefault` する。画面にはこれ以外の取り消し

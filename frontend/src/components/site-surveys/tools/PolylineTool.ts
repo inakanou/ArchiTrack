@@ -119,7 +119,7 @@ const MIN_POINT_COUNT = 2;
  * の 2 つの子 Polyline を持つ。
  *
  * 開放形状のため両 Polyline の `fill` は `'transparent'` を維持する
- * （design.md 5347 行: 「開放形状 2 種（Polyline/Freehand）は両 path とも fill 未使用」）。
+ * （design.md「Rectangle / Circle / Polygon / Polyline / Freehand（Group 化、共通仕様）」: 「開放形状 2 種（Polyline/Freehand）は両 path とも `fill` 未使用」）。
  *
  * `type === 'polylineShape'` は維持（classRegistry 後方互換）。
  *
@@ -185,7 +185,7 @@ export class PolylineShape extends Group {
     // 親 Group が位置決めし、子は points で形状を保持することで
     // 移動・リサイズ・回転・頂点編集時に同期する（Req 32.4）。
     //
-    // 開放形状のため fill は 'transparent'（design.md 5347 行）。
+    // 開放形状のため fill は 'transparent'（design.md「Rectangle / Circle / Polygon / Polyline / Freehand（Group 化、共通仕様）」）。
     const outlinePolyline = new Polyline(pointsCopy, {
       stroke: outline.color,
       strokeWidth: mergedOptions.strokeWidth + outline.width * 2,
@@ -203,7 +203,7 @@ export class PolylineShape extends Group {
     });
 
     // 本体 Polyline を生成
-    // 開放形状のため fill は 'transparent'（design.md 5347 行）。
+    // 開放形状のため fill は 'transparent'（design.md「Rectangle / Circle / Polygon / Polyline / Freehand（Group 化、共通仕様）」）。
     // 既存 PolylineOptions の `fill` は API 上維持するが、実描画では使用しない。
     const bodyPolyline = new Polyline(pointsCopy, {
       stroke: mergedOptions.stroke,
@@ -403,7 +403,7 @@ export class PolylineShape extends Group {
    *
    * Task 80.1: 折れ線は開放形状のため実描画では fill は使用しないが、
    * 既存 API 互換のために Group プロパティのみ更新する。
-   * 両子 Polyline の fill は 'transparent' のまま維持する（design.md 5347 行）。
+   * 両子 Polyline の fill は 'transparent' のまま維持する（design.md「Rectangle / Circle / Polygon / Polyline / Freehand（Group 化、共通仕様）」）。
    */
   setFill(color: string): void {
     this.fill = color;
@@ -516,7 +516,7 @@ export class PolylineShape extends Group {
    * - 必須フィールド（points 配列・各点の x/y・stroke/strokeWidth/fill）欠落や
    *   null/undefined 受領時は安全な既定値（最低 2 点の水平線、stroke 黒、strokeWidth 2、
    *   fill 'transparent'）で復元し、console.warn を送出する（防御的フォールバック）。
-   *   折れ線は開放形状のため fill 既定は 'transparent' を採用（design.md 5347 行）。
+   *   折れ線は開放形状のため fill 既定は 'transparent' を採用（design.md「Rectangle / Circle / Polygon / Polyline / Freehand（Group 化、共通仕様）」）。
    *
    * @param object シリアライズされたJSONオブジェクト（null/undefined/不正値を許容）
    * @returns 復元されたPolylineShapeインスタンス

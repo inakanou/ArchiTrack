@@ -135,6 +135,44 @@ jobs:
           echo ""
           npm run check:e2e-guards
 
+  design-reference-format:
+    name: Design Reference Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # 検出器そのものの退行を先に検知する（検出器が壊れたまま本検査が通ることを防ぐ）
+      - name: Check detector self-test
+        run: |
+          echo "========================================="
+          echo "Design Reference Detector Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Fixtures: scripts/check-design-reference-format.selftest.ts"
+          echo ""
+          npm run check:design-refs:selftest
+
+      - name: Check design document references
+        run: |
+          echo "========================================="
+          echo "Design Reference Format Check"
+          echo "========================================="
+          echo ""
+          echo "This check validates that production code never points at the"
+          echo "design document by line number. Line numbers drift on every"
+          echo "revision; references must name the section title and the symbol."
+          echo ""
+          npm run check:design-refs
+
   typecheck:
     name: TypeScript Type Check
     runs-on: ubuntu-latest

@@ -18,7 +18,7 @@
  * @requirement site-survey/REQ-31.13 部分失敗集約（個別画像 reject を捕捉し継続）
  * @requirement site-survey/REQ-31.18 原本そのまま分岐（annotationMode = 'original-only'）
  * @requirement site-survey/REQ-31.19 完了/キャンセル時の中間生成物解放
- * @see .kiro/specs/site-survey/design.md bulkExportService (5135-5215)
+ * @see .kiro/specs/site-survey/design.md `##### bulkExportService`
  */
 
 import JSZip from 'jszip';
@@ -28,7 +28,7 @@ import { buildEntryName, buildZipFileName } from './zip-naming';
 import type { SurveyImageInfo } from '../../types/site-survey.types';
 
 // ============================================================================
-// 型定義（design.md 5161-5206 行に準拠）
+// 型定義（design.md「bulkExportService」の §Service Interface に準拠）
 // ============================================================================
 
 /**
@@ -196,7 +196,8 @@ function extractErrorMessage(error: unknown): string {
 /**
  * R2 オリジナル画像 URL から Blob を取得する（`annotationMode === 'original-only'` 用）
  *
- * 設計（design.md L5155）の "`ExportService.downloadOriginal(image)` 相当の R2 fetch のみ実行" を
+ * 設計（design.md「bulkExportService」の §Responsibilities & Constraints）の
+ * "`ExportService.downloadOriginal(image)` 相当の R2 fetch のみ実行" を
  * 担う内部ヘルパー。`ExportService.downloadOriginalImage` は DOM ダウンロードまで実行してしまうため、
  * bulk 経路では fetch + blob() のみを行う等価実装をここに切り出す。
  *

@@ -159,7 +159,7 @@ export function calculateTotalAmount(items: LineItemFormData[]): number {
  * 空の明細行を生成する
  *
  * 改訂4 (Task 78.1): sortOrder 引数を受け取れるように拡張。
- * - design.md「LineItemEditor 改訂4」§Type Changes (4655-4669) に準拠する。
+ * - design.md「LineItemEditor - 改訂4（並び順保持・並び替え・アクションメニュー集約）」の §Type Changes に準拠する。
  * - 既存呼び出し箇所との後方互換性のため引数はオプショナル（デフォルト 0）。
  *   実際の運用では handleAddRow / convertToLineItemFormData 等から
  *   明示的な値（末尾 sortOrder + 1 や配列 index 等）が渡される（Task 78.3 / 79.3 で改訂）。
@@ -186,7 +186,7 @@ export function createEmptyLineItem(sortOrder: number = 0): LineItemFormData {
 /**
  * sortOrder を 0,1,2,... の連続値に再採番する純粋関数
  *
- * 改訂4 (Task 78.1): design.md「LineItemEditor 改訂4」§Type Changes (4672-4675) に準拠。
+ * 改訂4 (Task 78.1): design.md「LineItemEditor - 改訂4（並び順保持・並び替え・アクションメニュー集約）」の §Type Changes（`reassignSortOrder`）に準拠。
  * 上下移動・行追加・行削除後に呼び出して並び順の連続性を維持する。
  *
  * Requirements: 37.16
@@ -201,7 +201,7 @@ export function reassignSortOrder(items: LineItemFormData[]): LineItemFormData[]
 /**
  * sortOrder 昇順でソートする純粋関数
  *
- * 改訂4 (Task 78.1): design.md「LineItemEditor 改訂4」§Type Changes (4677-4680) に準拠。
+ * 改訂4 (Task 78.1): design.md「LineItemEditor - 改訂4（並び順保持・並び替え・アクションメニュー集約）」の §Type Changes（`sortBySortOrder`）に準拠。
  * サーバー応答変換時および表示時に呼び出して表示順を確定する。
  *
  * Requirements: 37.2, 37.3
@@ -217,7 +217,8 @@ export function sortBySortOrder(items: LineItemFormData[]): LineItemFormData[] {
  * サーバー応答などで sortOrder が NULL/undefined の明細行を、
  * 配列インデックスから補完する防御的ヘルパー関数
  *
- * 改訂4 (Task 78.1): design.md「LineItemEditor 改訂4」§Implementation Notes (4722) に準拠。
+ * 改訂4 (Task 78.1): design.md「LineItemEditor - 改訂4（並び順保持・並び替え・アクションメニュー集約）」の §Implementation Notes にある
+ * Migration（sortOrder が NULL のレコードを配列インデックス順に補完する）に準拠。
  * 既存データに sort_order が NULL のレコードが残存している場合に備えた
  * フロントエンド側の防御として用意する。
  *
@@ -433,7 +434,8 @@ export function LineItemEditor({
   // --------------------------------------------------------------------------
   // 表示用ソート（task 78.3 / Req 37.2, 37.3）
   // --------------------------------------------------------------------------
-  // design.md 4677-4680, 4719: lineItems は常に sortOrder 順で表示・操作する。
+  // design.md「LineItemEditor - 改訂4（並び順保持・並び替え・アクションメニュー集約）」の §Type Changes（`sortBySortOrder`）と
+  // §Implementation Notes（Integration）: lineItems は常に sortOrder 順で表示・操作する。
   // render 直前で sortBySortOrder を一度だけ適用し、その結果を表示・各種ハンドラ
   // のインデックス基準として共通利用することで、表示順 (=DOM 順) とデータ順を
   // 一致させる。これにより Req 37.17（並び替え後も Tab 順次移動が表示順序に
@@ -449,7 +451,8 @@ export function LineItemEditor({
   // --------------------------------------------------------------------------
   // 明細行の追加（task 78.3 / Req 37.15）
   // --------------------------------------------------------------------------
-  // design.md 4702-4709: 新規行の sortOrder は既存最大値 + 1（空配列時は 0）。
+  // design.md「LineItemEditor - 改訂4（並び順保持・並び替え・アクションメニュー集約）」の §並び替え操作:
+  // 新規行の sortOrder は既存最大値 + 1（空配列時は 0）。
 
   const handleAddLine = useCallback(() => {
     const nextSortOrder =
@@ -461,7 +464,8 @@ export function LineItemEditor({
   // --------------------------------------------------------------------------
   // 明細行の削除（task 78.3 / Req 11 AC 17, 37.6）
   // --------------------------------------------------------------------------
-  // design.md 4711-4715: 削除後に reassignSortOrder で 0,1,2,... の連続性を維持する。
+  // design.md「LineItemEditor - 改訂4（並び順保持・並び替え・アクションメニュー集約）」の §並び替え操作:
+  // 削除後に reassignSortOrder で 0,1,2,... の連続性を維持する。
 
   const handleDeleteLine = useCallback(
     (id: string) => {
@@ -474,7 +478,8 @@ export function LineItemEditor({
   // --------------------------------------------------------------------------
   // 明細行の上に移動 / 下に移動（task 78.3 / Req 37.7, 37.8）
   // --------------------------------------------------------------------------
-  // design.md 4683-4700: 表示順 (sortedItems) における隣接要素とスワップし、
+  // design.md「LineItemEditor - 改訂4（並び順保持・並び替え・アクションメニュー集約）」の §並び替え操作:
+  // 表示順 (sortedItems) における隣接要素とスワップし、
   // reassignSortOrder で 0,1,2,... の連続値に再採番する。
   // rowIndex は表示順インデックス（=sortedItems の index）を受け取る。
 
@@ -803,7 +808,8 @@ export function LineItemEditor({
               </td>
 
               {/* 操作（アクションメニュー） - task 78.3 / Req 37.4-37.6 */}
-              {/* design.md 4724: 既存の行内削除ボタンと同じ列（行末）に配置し、列幅は変更しない。
+              {/* design.md「LineItemEditor - 改訂4（並び順保持・並び替え・アクションメニュー集約）」の §Implementation Notes（Visual）:
+                  既存の行内削除ボタンと同じ列（行末）に配置し、列幅は変更しない。
                   Req 11 AC 19（1 行のみのとき削除を非活性化）の責務は LineItemEditor 側で扱い、
                   deleteDisabled を介してメニュー内の削除項目を非活性化する。 */}
               <td style={{ ...styles.td, ...styles.tdAction }}>
@@ -853,8 +859,8 @@ export function LineItemEditor({
 // ============================================================================
 // LineItemActionMenu サブコンポーネント
 // ============================================================================
-// design.md「LineItemActionMenu - 新規（明細行アクションメニュー）」(4559-4609)
-// および design.md「Components and Interfaces - 改訂」(4375) に基づき、
+// design.md「LineItemActionMenu - 新規（明細行アクションメニュー）」および
+// design.md「Components and Interfaces - 改訂（Requirements 36-38）」の部品表に基づき、
 // 同ファイル内のサブコンポーネントとして定義する。
 //
 // Requirements: 37.4, 37.5, 37.9, 37.10, 37.11
@@ -863,13 +869,15 @@ export function LineItemEditor({
 /**
  * 明細行アクションメニューの Props
  *
- * design.md「LineItemActionMenu §Component Interface」(4582-4598) に準拠。
+ * design.md「LineItemActionMenu - 新規（明細行アクションメニュー）」の §Component Interface に準拠。
  *
- * 注: design.md 4588-4589 の `isOnly` コメントには「上下と削除を非活性にする」
+ * 注: design.md「LineItemActionMenu - 新規（明細行アクションメニュー）」の §Component Interface にある
+ * `isOnly` のコメントには「上下と削除を非活性にする」
  * とあるが、Req 11 AC 19（行が1行のみのとき削除ボタンを非活性化する）の
  * 責務は LineItemEditor 側で扱い、本コンポーネントは isOnly=true 時に
  * 「上に移動」「下に移動」のみを非活性化する（task 78.2 指示書および
- * design.md 4375 の Req Coverage 37.4-37.5, 37.9-37.11 と整合）。
+ * design.md「Components and Interfaces - 改訂（Requirements 36-38）」の部品表が
+ * LineItemActionMenu に与える Req Coverage 37.4-37.5, 37.9-37.11 と整合）。
  */
 export interface LineItemActionMenuProps {
   /** 該当行が先頭行かどうか（上に移動を非活性にする） */
@@ -963,7 +971,7 @@ const actionMenuStyles = {
 /**
  * 明細行アクションメニュー
  *
- * design.md 4559-4609 に基づき、明細行ごとに「上に移動」「下に移動」「削除」
+ * design.md「LineItemActionMenu - 新規（明細行アクションメニュー）」に基づき、明細行ごとに「上に移動」「下に移動」「削除」
  * を集約したポップオーバー型のアクションメニューを提供する。
  *
  * 主な責務:
@@ -1004,7 +1012,8 @@ export function LineItemActionMenu({
   const moveDownRef = useRef<HTMLButtonElement>(null);
   const deleteRef = useRef<HTMLButtonElement>(null);
 
-  // disabled 状態の判定（design.md 4571: isFirst/isLast/isOnly による上下移動の非活性）
+  // disabled 状態の判定（design.md「LineItemActionMenu - 新規（明細行アクションメニュー）」の
+  // §Responsibilities & Constraints: isFirst/isLast/isOnly による上下移動の非活性）
   const moveUpDisabled = disabled || isFirst || isOnly;
   const moveDownDisabled = disabled || isLast || isOnly;
   // task 78.3: 削除メニュー項目は親（LineItemEditor）から渡される
@@ -1026,7 +1035,8 @@ export function LineItemActionMenu({
     setIsOpen((prev) => !prev);
   }, [disabled]);
 
-  // メニュー外クリックでクローズ（design.md 4606: document level click listener）
+  // メニュー外クリックでクローズ（design.md「LineItemActionMenu - 新規（明細行アクションメニュー）」の
+  // §Implementation Notes: document level の click リスナ）
   useEffect(() => {
     if (!isOpen) return undefined;
 
@@ -1044,7 +1054,8 @@ export function LineItemActionMenu({
     };
   }, [isOpen]);
 
-  // Escape キーでクローズしてトグルボタンへフォーカスを戻す（design.md 4609）
+  // Escape キーでクローズしてトグルボタンへフォーカスを戻す
+  // （design.md「LineItemActionMenu - 新規（明細行アクションメニュー）」の §Implementation Notes の A11y）
   useEffect(() => {
     if (!isOpen) return undefined;
 
@@ -1061,7 +1072,8 @@ export function LineItemActionMenu({
     };
   }, [isOpen, closeMenuAndRestoreFocus]);
 
-  // メニュー展開時に最初の有効項目にフォーカス（design.md 4609）
+  // メニュー展開時に最初の有効項目にフォーカス
+  // （design.md「LineItemActionMenu - 新規（明細行アクションメニュー）」の §Implementation Notes の A11y）
   useEffect(() => {
     if (!isOpen) return;
     // 上→下→削除の順で最初に活性な項目にフォーカス

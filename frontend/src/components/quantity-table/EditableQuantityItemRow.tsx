@@ -98,7 +98,8 @@ const styles = {
   // Task 51.2: whiteSpace: nowrap で計算用フィールド群が行内幅不足で折り返さないようにし、
   // 行高さ 37px を維持する（REQ-37.1 同一行水平配置 / REQ-37.3 行高さ不変）。
   // overflow は指定しない（visible 既定を維持）。表領域 overflow はページ全体スクロールに委ねる
-  // （REQ-37.6 / design.md L1519）。
+  // （REQ-37.6 / design.md「計算用フィールドの行内水平配置（REQ-37）」の
+  // 「表領域は `overflow-x: visible` を維持し、ページ全体（REQ-25）の水平スクロールで閲覧する」）。
   actionCellInlineWrapper: {
     display: 'flex',
     flexDirection: 'row' as const,

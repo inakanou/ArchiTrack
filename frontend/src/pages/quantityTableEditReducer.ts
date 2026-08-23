@@ -20,7 +20,8 @@
  * - 42.6: 保存操作前は永続化目的のサーバーアクセスを発生させない（reducer は純粋）
  * - 42.8: 保存完了時にサーバー最新データでスナップショット/ドラフトを同期し isDirty=false
  *
- * Design: design.md L1062-1131（State Management）, L2150（File Structure Plan）
+ * Design: design.md「QuantityTableEditPage」の §State Management、
+ * および「File Structure Plan（REQ-42〜45）」
  *
  * @module pages/quantityTableEditReducer
  */
@@ -54,7 +55,7 @@ const GROUP_COPY_SUFFIX = 'のコピー';
 const GROUP_NAME_MAX_WIDTH = 50;
 
 // ============================================================================
-// 型定義（design.md L1068-1119 準拠）
+// 型定義（design.md「QuantityTableEditPage」の §State Management に準拠）
 // ============================================================================
 
 /**

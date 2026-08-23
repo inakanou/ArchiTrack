@@ -681,7 +681,8 @@ export function ReceivedQuotationForm({
   // 保存リトライ用フック（Req 38.1, 38.6, 38.7）
   const { setPendingSave, clearPendingSave } = usePendingSaveAfterReauth();
 
-  // 初期スナップショット（design.md 4905-4911: ダイアログ open 時に確定）
+  // 初期スナップショット（design.md「ReceivedQuotationForm - 改訂4（保存リトライ・未保存変更ガード）」の
+  // §Implementation Notes「isDirty 判定」: ダイアログ open 時に確定）
   // mount 時に現行 state を初期スナップショットとして保持し、
   // initialData 切替（編集対象切替）時のみ再確定する。
   const buildInitialSnapshot = useCallback((): FormSnapshot => {
@@ -701,7 +702,8 @@ export function ReceivedQuotationForm({
 
   const [snapshot, setSnapshot] = useState<FormSnapshot>(() => buildInitialSnapshot());
 
-  // 初期スナップショット確定タイミング（design.md 4909）
+  // 初期スナップショット確定タイミング（design.md「ReceivedQuotationForm - 改訂4（保存リトライ・未保存変更ガード）」の
+  // §Implementation Notes「isDirty 判定」の「初期スナップショット確定タイミング」）
   // ダイアログ open 相当のキー（initialData の id 変化 = 編集対象切替）でスナップショットをリセット。
   // 新規作成モードでは initialData=undefined のためマウント時の初期値で確定済み。
   const initialDataId = initialData?.id ?? null;
@@ -712,7 +714,8 @@ export function ReceivedQuotationForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialDataId]);
 
-  // isDirty 算出（design.md 4910: useMemo で再評価コスト抑制）
+  // isDirty 算出（design.md「ReceivedQuotationForm - 改訂4（保存リトライ・未保存変更ガード）」の
+  // §Implementation Notes「isDirty 判定」の「算出」: useMemo で再評価コスト抑制）
   const isDirty = useMemo(
     () =>
       isFormDirty(
@@ -781,7 +784,9 @@ export function ReceivedQuotationForm({
 
     try {
       await onSubmit(data);
-      // 保存成功（design.md 4871-4874, 4911）: snapshot を最新化し isDirty=false に戻す。
+      // 保存成功（design.md「ReceivedQuotationForm - 改訂4（保存リトライ・未保存変更ガード）」の §保存ハンドラ（リトライ対応）と
+      // §Implementation Notes「isDirty 判定」の「保存成功時のリセット」）:
+      // snapshot を最新化し isDirty=false に戻す。
       // ダイアログクローズ動作は親 (onSubmit 内 setShowQuotationForm(false)) で行われるが、
       // クローズ前に未保存変更ガードが誤発火しないよう snapshot を即時同期する。
       clearPendingSave();

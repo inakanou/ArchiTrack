@@ -733,6 +733,39 @@ echo "✅ E2E assertion guard check passed"
 echo ""
 
 # ============================================================================
+# 設計文書への行番号参照チェック
+# ============================================================================
+# 本番コードの注釈が設計文書を行番号で指す形の再発を検知する
+# - 設計文書は追記・改訂で行数が変わるため、行番号の参照は原理的に維持できない
+#   （タスク 115.71 のレビューで、参照先が全く別の内容を指す状態が判明した）
+# - 節の題とシンボル名で指す形へ改めること
+# - 走査対象は frontend/src / backend/src の本番コード（テストコードは対象外）
+# ============================================================================
+
+echo "🔍 Checking design document references in production code..."
+npm run check:design-refs:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Design reference detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:design-refs:selftest"
+  exit 1
+fi
+npm run check:design-refs
+if [ $? -ne 0 ]; then
+  echo "❌ Design reference format check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 設計文書の該当箇所を開き、その内容を含む節の題を確認してください"
+  echo "  2. 行番号ではなく『節の題』と『シンボル名』で指す形へ書き換えてください"
+  echo ""
+  echo "詳細確認: npm run check:design-refs:verbose"
+  exit 1
+fi
+
+echo "✅ Design reference format check passed"
+echo ""
+
+# ============================================================================
 # CI環境変数整合性チェック（E2Eテスト実行の前提条件）
 # ============================================================================
 # ベストプラクティス: pre-pushを「正」としてCIとの整合性を検証
