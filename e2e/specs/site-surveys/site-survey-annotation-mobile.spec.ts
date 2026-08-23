@@ -8,6 +8,8 @@
  * - 25.1, 25.7, 25.8: テキスト注釈の白アウトライン表示と永続化
  * - 27.1, 27.2, 27.3: ダブルタップで編集、長押しでコンテキストメニュー
  * - 28.1, 28.5: モバイルツールバーの全ツールへのタップ到達性
+ * - 28.8: 選択中ツールの再タップによる詳細属性パネルの開閉
+ * - 29.6: ツール項目の長押しによるツールヒント（名称・短い説明）表示
  *
  * 実行要件: `npm run test:docker` で architrack-test 環境を起動してから
  *   `npx playwright test site-survey-annotation-mobile --project=mobile`
@@ -23,6 +25,11 @@
  * @requirement site-survey/REQ-27.3
  * @requirement site-survey/REQ-28.1
  * @requirement site-survey/REQ-28.5
+ *
+ * Task 115.104: 選択中ツールの再タップによる詳細属性パネルの開閉（28.8）と、
+ *   ツール項目の長押しによるツールヒント表示（29.6）を実タッチで検証する。
+ * @requirement site-survey/REQ-28.8
+ * @requirement site-survey/REQ-29.6
  *
  * Task 98.1: 編集モードでのピンチズーム後の正確描画・2本指パン・等倍時パン抑止、
  *   描画中断・誤選択防止を実タッチ（CDP マルチタッチ）で検証する。
@@ -57,7 +64,12 @@ import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 // ダブルタップ判定の閾値は本番の一元管理された定数を直接参照する。
 // テスト側に数値を複製すると、閾値が変わったときに検証だけが古い前提で緑になる。
-import { DOUBLE_TAP_MS } from '../../../frontend/src/components/site-surveys/gestures/gesture-thresholds';
+import {
+  DOUBLE_TAP_MS,
+  LONG_PRESS_MS,
+} from '../../../frontend/src/components/site-surveys/gestures/gesture-thresholds';
+// ツール名と短い説明は本番の定義をそのまま参照する（文言の複製を持たない）。
+import { TOOL_DEFINITIONS } from '../../../frontend/src/components/site-surveys/annotation-toolbar.constants';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPresent } from '../../helpers/preconditions';
 
@@ -89,8 +101,14 @@ const MOBILE_VIEWPORT = { width: 375, height: 667 };
 // 見ており、`page.mouse` では発火しない）。Task 98.1 / 98.2 と同じく CDP
 // `Input.dispatchTouchEvent` で実タッチを模擬する。
 
-/** 長押しの保持時間。実装の閾値（LONG_PRESS_MS = 500ms）を超える保持を与える。 */
+/** 長押しの保持時間。実装の閾値（LONG_PRESS_MS）を超える保持を与える。 */
 const LONG_PRESS_HOLD_MS = 800;
+
+/**
+ * 「閾値に届く前は出ない」を観測するための保持時間（Req 29.6）。
+ * 本番の閾値から一定の余裕を引いて求めるため、閾値の変更に自動で追随する。
+ */
+const BEFORE_LONG_PRESS_WAIT_MS = Math.max(0, LONG_PRESS_MS - 200);
 
 /** 直前のタップをダブルタップ判定から失効させる待ち時間（本番の閾値を確実に超える）。 */
 const DOUBLE_TAP_EXPIRY_MS = DOUBLE_TAP_MS + 200;
@@ -345,7 +363,11 @@ test.describe('モバイル Viewport 注釈機能', () => {
   async function selectTool(label: string): Promise<void> {
     const tool = sharedPage.getByRole('button', { name: label, exact: true });
     await expect(tool).toBeVisible({ timeout: getTimeout(10000) });
-    await tool.tap();
+    // Req 28.8: 選択中ツールを再び押すと詳細属性パネルの開閉になる。本ヘルパーの意図は
+    // 「当該ツールを選択状態にする」ことなので、既に選択済みなら押さない。
+    if ((await tool.getAttribute('aria-pressed')) !== 'true') {
+      await tool.tap();
+    }
     await expect(tool).toHaveAttribute('aria-pressed', 'true');
   }
 
@@ -844,6 +866,107 @@ test.describe('モバイル Viewport 注釈機能', () => {
       })
       .toBe(countBeforeMenu - 1);
   });
+
+  /**
+   * (g) 選択中ツールの再タップで詳細属性パネルを開閉する
+   *     Requirement 28.8
+   *
+   * Task 115.104: 道具帯には再タップを通知する口（`onActiveToolReTap`）が以前から
+   * あったが、編集画面がそれを渡していなかったため要件28.8 は成立していなかった。
+   * 主張は「属性パネルが実際に画面から消える／戻る」で置く。
+   */
+  test('(g) 選択中ツールを再タップすると詳細属性パネルが開閉する (REQ-28.8)', async () => {
+    await enterEditMode();
+
+    const arrowTool = sharedPage.getByRole('button', { name: '矢印', exact: true });
+    const stylePanel = sharedPage.getByTestId('style-options');
+
+    // 前提: 描画ツールを選ぶと属性パネルが出ている（既定の状態）
+    await selectTool('矢印');
+    await expect(stylePanel, '矢印ツール選択直後に属性パネルが出ていない').toBeVisible({
+      timeout: getTimeout(5000),
+    });
+
+    // 1 回目の再タップ: 閉じる（既定でない状態へ移す）
+    await arrowTool.tap();
+    await expect(stylePanel, '再タップで属性パネルが閉じない').toBeHidden({
+      timeout: getTimeout(5000),
+    });
+    // 選択状態は維持される
+    await expect(arrowTool, '再タップで選択状態が外れた').toHaveAttribute('aria-pressed', 'true');
+
+    // 2 回目の再タップ: 開く
+    await arrowTool.tap();
+    await expect(stylePanel, '再々タップで属性パネルが戻らない').toBeVisible({
+      timeout: getTimeout(5000),
+    });
+
+    // 戻ったパネルは操作できる（表示だけの張りぼてではない）
+    await expect(
+      stylePanel.getByTestId('line-width'),
+      '戻った属性パネルに線の太さの入力が無い'
+    ).toBeVisible();
+  });
+
+  /**
+   * (h) ツール項目の長押しでツールヒント（名称・短い説明）を表示する
+   *     Requirement 29.6
+   *
+   * Task 115.104: 従来は `title` 属性のみで、指操作では説明に到達できなかった。
+   * 判定時間はテスト側に数値を複製せず本番の閾値（LONG_PRESS_MS）を参照し、
+   * 「閾値前は出ない」「閾値を越えると出る」の両方を実測した経過時間つきで確かめる。
+   */
+  test('(h) ツール項目を長押しすると名称と短い説明のツールヒントが出る (REQ-29.6)', async () => {
+    await enterEditMode();
+
+    const dimensionTool = sharedPage.getByRole('button', { name: '寸法線', exact: true });
+    await expect(dimensionTool).toBeVisible({ timeout: getTimeout(10000) });
+    const buttonBox = await dimensionTool.boundingBox();
+    expect(buttonBox, '寸法線ツールのタップ領域が取得できない').not.toBeNull();
+    const pressPoint = {
+      x: buttonBox!.x + buttonBox!.width / 2,
+      y: buttonBox!.y + buttonBox!.height / 2,
+    };
+
+    const tooltip = sharedPage.getByTestId('tool-tooltip-dimension');
+
+    // 押していない間は出ていない（表示の契機が長押しであることを示す）
+    await expect(tooltip, '長押しの前からツールヒントが出ている').toHaveCount(0);
+
+    await dispatchTouch('touchStart', [{ x: pressPoint.x, y: pressPoint.y, id: 0 }]);
+    const pressedAt = Date.now();
+
+    // 閾値に届く前は出ない
+    await sharedPage.waitForTimeout(BEFORE_LONG_PRESS_WAIT_MS);
+    await expect(tooltip, '閾値に届く前にツールヒントが出た').toHaveCount(0);
+    const elapsedBefore = Date.now() - pressedAt;
+    expect(
+      elapsedBefore,
+      `早期観測が長押し閾値(${LONG_PRESS_MS}ms)を越えており「閾値前は出ない」を確かめられていない`
+    ).toBeLessThan(LONG_PRESS_MS);
+
+    // 閾値を越えて保持すると出る
+    await sharedPage.waitForTimeout(LONG_PRESS_HOLD_MS);
+    const elapsedHold = Date.now() - pressedAt;
+    expect(
+      elapsedHold,
+      `保持時間が長押し閾値(${LONG_PRESS_MS}ms)に届いていない`
+    ).toBeGreaterThanOrEqual(LONG_PRESS_MS);
+
+    await expect(tooltip, '長押ししてもツールヒントが出ない').toBeVisible({
+      timeout: getTimeout(5000),
+    });
+    await expect(tooltip, 'ツールヒントに名称が無い').toContainText(
+      TOOL_DEFINITIONS.dimension.label
+    );
+    await expect(tooltip, 'ツールヒントに短い説明が無い').toContainText(
+      TOOL_DEFINITIONS.dimension.description
+    );
+
+    // 指を離すと消える
+    await releaseTouch();
+    await expect(tooltip, '指を離してもツールヒントが残っている').toHaveCount(0);
+  });
 });
 
 // ============================================================================
@@ -1064,7 +1187,11 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
   async function selectTool(name: RegExp): Promise<void> {
     const tool = sharedPage.getByRole('button', { name });
     await expect(tool).toBeVisible({ timeout: getTimeout(5000) });
-    await tool.tap();
+    // Req 28.8: 選択中ツールを再び押すと詳細属性パネルの開閉になる。本ヘルパーの意図は
+    // 「当該ツールを選択状態にする」ことなので、既に選択済みなら押さない。
+    if ((await tool.getAttribute('aria-pressed')) !== 'true') {
+      await tool.tap();
+    }
     await expect(tool).toHaveAttribute('aria-pressed', 'true');
   }
 
@@ -1704,7 +1831,11 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
   async function selectTool(name: RegExp): Promise<void> {
     const tool = sharedPage.getByRole('button', { name });
     await expect(tool).toBeVisible({ timeout: getTimeout(5000) });
-    await tool.tap();
+    // Req 28.8: 選択中ツールを再び押すと詳細属性パネルの開閉になる。本ヘルパーの意図は
+    // 「当該ツールを選択状態にする」ことなので、既に選択済みなら押さない。
+    if ((await tool.getAttribute('aria-pressed')) !== 'true') {
+      await tool.tap();
+    }
     await expect(tool).toHaveAttribute('aria-pressed', 'true');
   }
 

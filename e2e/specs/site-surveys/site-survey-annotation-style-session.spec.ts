@@ -183,7 +183,11 @@ test.describe('注釈スタイルのセッション引継ぎ', () => {
   async function selectTool(label: string): Promise<void> {
     const tool = sharedPage.getByRole('button', { name: label, exact: true });
     await expect(tool).toBeVisible({ timeout: getTimeout(10000) });
-    await tool.click();
+    // Req 28.8: 選択中ツールを再び押すと詳細属性パネルの開閉になる。本ヘルパーの意図は
+    // 「当該ツールを選択状態にする」ことなので、既に選択済みなら押さない。
+    if ((await tool.getAttribute('aria-pressed')) !== 'true') {
+      await tool.click();
+    }
     await expect(tool).toHaveAttribute('aria-pressed', 'true');
   }
 

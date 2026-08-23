@@ -23,7 +23,18 @@ const { mockSetCoords, mockSet } = vi.hoisted(() => {
 });
 
 // Fabric.jsのモック - Pathクラスを継承可能にする
-vi.mock('fabric', () => {
+//
+// Task 115.104 (Req 6.5): `_updateGeometry` が Group の外接矩形と子のローカル座標を
+// 再計算するようになったため、幾何演算は `fabric-geometry-mock` が実際に計算して供給する。
+vi.mock('fabric', async () => {
+  const {
+    MockPoint,
+    mockFabricUtil,
+    applyPathBounds,
+    relativeCenterOf,
+    acoordsOf,
+    layoutGroupChildren,
+  } = await import('../../helpers/fabric-geometry-mock');
   // FabricTextモック
   class MockFabricText {
     text: string;
@@ -37,6 +48,9 @@ vi.mock('fabric', () => {
     selectable?: boolean;
     evented?: boolean;
 
+    originX?: string;
+    originY?: string;
+
     constructor(text: string, options?: Record<string, unknown>) {
       this.text = text;
       this.width = text.length * 7; // 概算幅
@@ -44,6 +58,18 @@ vi.mock('fabric', () => {
       if (options) {
         Object.assign(this, options);
       }
+    }
+
+    getRelativeCenterPoint() {
+      return relativeCenterOf(this);
+    }
+
+    calcACoords() {
+      return acoordsOf(this);
+    }
+
+    setCoords(): void {
+      mockSetCoords();
     }
 
     set(options: Record<string, unknown> | string, value?: unknown): this {
@@ -99,6 +125,14 @@ vi.mock('fabric', () => {
     lockMovementX: boolean;
     lockMovementY: boolean;
 
+    left?: number;
+    top?: number;
+    width?: number;
+    height?: number;
+    originX?: string;
+    originY?: string;
+    pathOffset?: InstanceType<typeof MockPoint>;
+
     constructor(pathData?: string, options?: Record<string, unknown>) {
       this.path = pathData || '';
       this.hasControls = true;
@@ -108,10 +142,19 @@ vi.mock('fabric', () => {
       if (options) {
         Object.assign(this, options);
       }
+      applyPathBounds(this, this.path, true);
     }
 
     setCoords(): void {
       mockSetCoords();
+    }
+
+    getRelativeCenterPoint() {
+      return relativeCenterOf(this);
+    }
+
+    calcACoords() {
+      return acoordsOf(this);
     }
 
     toObject(): Record<string, unknown> {
@@ -128,8 +171,9 @@ vi.mock('fabric', () => {
       return this;
     }
 
-    _setPath(pathData: string): void {
+    _setPath(pathData: string, adjustPosition?: boolean): void {
       this.path = pathData;
+      applyPathBounds(this, pathData, adjustPosition);
     }
   }
 
@@ -169,6 +213,10 @@ vi.mock('fabric', () => {
     lockMovementY: boolean;
     subTargetCheck: boolean;
 
+    dirty?: boolean;
+    originX?: string;
+    originY?: string;
+
     constructor(objects?: unknown[], options?: Record<string, unknown>) {
       this._objects = objects ? [...objects] : [];
       this.hasControls = true;
@@ -179,10 +227,33 @@ vi.mock('fabric', () => {
       if (options) {
         Object.assign(this, options);
       }
+      layoutGroupChildren(this, this._objects as Parameters<typeof layoutGroupChildren>[1]);
     }
 
     setCoords(): void {
       mockSetCoords();
+    }
+
+    getRelativeCenterPoint() {
+      return relativeCenterOf(this);
+    }
+
+    setPositionByOrigin(point: { x: number; y: number }): void {
+      this.left = point.x - (this.width ?? 0) / 2;
+      this.top = point.y - (this.height ?? 0) / 2;
+    }
+
+    calcOwnMatrix(): [number, number, number, number, number, number] {
+      const center = relativeCenterOf(this);
+      return [1, 0, 0, 1, center.x, center.y];
+    }
+
+    calcTransformMatrix(): [number, number, number, number, number, number] {
+      return this.calcOwnMatrix();
+    }
+
+    getViewportTransform(): [number, number, number, number, number, number] {
+      return [1, 0, 0, 1, 0, 0];
     }
 
     set(options: Record<string, unknown> | string, value?: unknown): this {
@@ -200,12 +271,24 @@ vi.mock('fabric', () => {
     }
   }
 
+  // Fabric `Control` の代替（端点ハンドル生成でのみ用いる）
+  class MockControl {
+    constructor(options?: Record<string, unknown>) {
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+  }
+
   return {
     Path: MockPath,
     FabricText: MockFabricText,
     Rect: MockRect,
     Group: MockGroup,
     Canvas: MockCanvas,
+    Control: MockControl,
+    Point: MockPoint,
+    util: mockFabricUtil,
   };
 });
 

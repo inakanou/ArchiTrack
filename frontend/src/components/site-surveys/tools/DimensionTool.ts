@@ -45,7 +45,18 @@
  * @requirement site-survey/REQ-32.4
  */
 
-import { Path, FabricText, Group, type Canvas } from 'fabric';
+import {
+  Path,
+  FabricText,
+  Group,
+  Control,
+  Point as FabricPoint,
+  util,
+  type Canvas,
+  type TMat2D,
+  type Transform,
+  type TPointerEvent,
+} from 'fabric';
 
 import {
   ANNOTATION_DEFAULTS,
@@ -167,6 +178,53 @@ export const DEFAULT_LABEL_STYLE: DimensionLabelStyle = {
  * 寸法線を作成する最小距離（ピクセル）
  */
 const MIN_DIMENSION_DISTANCE = 5;
+
+/**
+ * 端点ハンドル（Fabric Control）のキー（Task 115.104 / Req 6.5）
+ *
+ * `InteractiveFabricObject.findControl` は `oCoords` を**逆順**に走査するため、
+ * 既定のスケール用ハンドルより後ろに登録した本ハンドルが重なり合う位置で優先される。
+ */
+export const DIMENSION_ENDPOINT_CONTROL_KEYS = {
+  start: 'dimensionStart',
+  end: 'dimensionEnd',
+} as const;
+
+/**
+ * 端点ハンドルの Fabric Control を生成する（Task 115.104 / Req 6.5）
+ *
+ * - `positionHandler`: 端点のパス空間座標をシーン座標へ写し、さらにビューポート変換を
+ *   適用して返す（Fabric はコントロール座標をビューポート平面で扱う）。
+ * - `actionHandler`: ポインタのシーン座標をパス空間へ引き戻し、対応する端点を更新する。
+ *   `setStartPoint` / `setEndPoint` がジオメトリ再構成とグループ外接矩形の再計算を担う。
+ */
+function createDimensionEndpointControl(which: 'start' | 'end'): Control {
+  return new Control({
+    actionName: 'modifyDimensionEndpoint',
+    cursorStyle: 'crosshair',
+    positionHandler: (
+      _dim: FabricPoint,
+      _finalMatrix: TMat2D,
+      fabricObject: unknown
+    ): FabricPoint => {
+      const dimension = fabricObject as DimensionLine;
+      const scene = dimension.pathPointToScenePoint(
+        which === 'start' ? dimension.startPoint : dimension.endPoint
+      );
+      return scene.transform(dimension.getViewportTransform());
+    },
+    actionHandler: (_eventData: TPointerEvent, transform: Transform, x: number, y: number) => {
+      const dimension = transform.target as DimensionLine;
+      const next = dimension.scenePointToPathPoint(new FabricPoint(x, y));
+      if (which === 'start') {
+        dimension.setStartPoint(next);
+      } else {
+        dimension.setEndPoint(next);
+      }
+      return true;
+    },
+  });
+}
 
 // ============================================================================
 // ヘルパー関数
@@ -476,6 +534,13 @@ export class DimensionLine extends Group {
     this.stroke = mergedOptions.stroke;
     this.strokeWidth = mergedOptions.strokeWidth;
 
+    // 端点ハンドル（Task 115.104 / Req 6.5）を既定ハンドルの後ろへ登録する
+    this.controls = {
+      ...this.controls,
+      [DIMENSION_ENDPOINT_CONTROL_KEYS.start]: createDimensionEndpointControl('start'),
+      [DIMENSION_ENDPOINT_CONTROL_KEYS.end]: createDimensionEndpointControl('end'),
+    };
+
     // カスタムデータを初期化
     this.customData = {
       dimensionValue: '',
@@ -595,11 +660,78 @@ export class DimensionLine extends Group {
     this._updateGeometry();
   }
 
+  // ==========================================================================
+  // パス空間とシーン座標の対応（Task 115.104 / Req 6.5）
+  // ==========================================================================
+
+  /**
+   * 子要素が並ぶ「パス空間」の原点を、グループのローカル座標系で表した点。
+   *
+   * `_startPoint` / `_endPoint` は生成時のシーン座標をそのまま保持する一方、Group の子は
+   * グループ中心を原点とするローカル座標で並ぶ。両者の差（＝グループ中心のパス空間座標）が
+   * 本メソッドの戻り値であり、`ローカル = パス空間 - 本値` が常に成り立つ。
+   *
+   * 本体線は生成時に `_setPath(pathData, true)` で「中心 = pathOffset」に置かれるため、
+   * `pathOffset - 相対中心` がそのまま原点になる。
+   */
+  private _pathSpaceOrigin(): FabricPoint {
+    return this._bodyLine.pathOffset.subtract(this._bodyLine.getRelativeCenterPoint());
+  }
+
+  /**
+   * 子要素の外接矩形をパス空間（＝この呼出し時点の子の座標系）で求める。
+   *
+   * `calcACoords()` は親（グループ）相対の座標を返すため、子を一時的にパス空間座標へ
+   * 置いた直後に呼ぶことで、パス空間での外接矩形が得られる。
+   */
+  private _calcChildrenBoundingBox(): { center: FabricPoint; width: number; height: number } {
+    const points: FabricPoint[] = [];
+    for (const child of [this._outlineLine, this._bodyLine, this._labelText]) {
+      const { tl, tr, br, bl } = child.calcACoords();
+      points.push(tl, tr, br, bl);
+    }
+    const bbox = util.makeBoundingBoxFromPoints(points);
+    return {
+      center: new FabricPoint(bbox.left + bbox.width / 2, bbox.top + bbox.height / 2),
+      width: bbox.width,
+      height: bbox.height,
+    };
+  }
+
+  /**
+   * パス空間の点をシーン座標へ写す（Task 115.104 / Req 6.5）
+   */
+  pathPointToScenePoint(point: Point): FabricPoint {
+    const local = new FabricPoint(point.x, point.y).subtract(this._pathSpaceOrigin());
+    return local.transform(this.calcTransformMatrix());
+  }
+
+  /**
+   * シーン座標の点をパス空間へ引き戻す（Task 115.104 / Req 6.5）
+   */
+  scenePointToPathPoint(point: FabricPoint): Point {
+    const local = point.transform(util.invertTransform(this.calcTransformMatrix()));
+    const origin = this._pathSpaceOrigin();
+    return { x: local.x + origin.x, y: local.y + origin.y };
+  }
+
   /**
    * ジオメトリを更新（端点変更時）
    *
    * Task 82.1 (Req 32.4): outlineLine と bodyLine の双方に同一 path data を適用する。
    * labelText 位置も中央に追従する。
+   *
+   * Task 115.104 (Req 6.5): Task 82.1 で `Path` 継承から `Group` 継承へ移った際、本処理は
+   * 「子へ絶対座標のパスを流し込むだけ」のまま残っていた。Group の子はグループ中心を原点と
+   * するローカル座標で並ぶうえ、グループ自身の `width` / `height` / `left` / `top` は子の
+   * 変形では追随しない。そのため端点を動かしても外接矩形・当たり判定・ハンドル位置が
+   * 生成時のまま固まり、ラベルはローカル座標系に絶対座標が書き込まれてずれていた。
+   * 端点操作を本番へ結線するにあたり、以下の順で整合させる:
+   *
+   * 1. 変更前のパス空間原点とグループ中心を控える
+   * 2. 子を**パス空間の絶対座標**で再構成する
+   * 3. 子の外接矩形から新しいパス空間原点と大きさを求め、子をローカル座標へ移す
+   * 4. 原点の移動量だけグループ中心をずらし、**動いていない点がシーン上で動かない**ようにする
    */
   private _updateGeometry(): void {
     // 角度と距離を再計算
@@ -609,13 +741,30 @@ export class DimensionLine extends Group {
     // 新しいパスデータを生成
     const pathData = generateDimensionLinePath(this._startPoint, this._endPoint, this._capLength);
 
-    // 両方の子 Path を更新（Fabric.js v6/v7 の内部 API）
-    this._outlineLine._setPath(pathData);
-    this._bodyLine._setPath(pathData);
+    // 1. 変更前の対応関係を控える
+    const originBefore = this._pathSpaceOrigin();
+    const centerBefore = this.getRelativeCenterPoint();
 
-    // labelText の中央位置を更新
+    // 2. 子をパス空間の絶対座標で再構成する（第2引数 true で中心を pathOffset へ合わせる）
+    this._outlineLine._setPath(pathData, true);
+    this._bodyLine._setPath(pathData, true);
     const centerPos = this._calculateCenterPosition();
     this._labelText.set({ left: centerPos.x, top: centerPos.y });
+
+    // 3. パス空間での外接矩形から新しい原点を得て、子をローカル座標へ移す
+    const bbox = this._calcChildrenBoundingBox();
+    const originAfter = bbox.center;
+    for (const child of [this._outlineLine, this._bodyLine, this._labelText]) {
+      child.set({ left: child.left - originAfter.x, top: child.top - originAfter.y });
+      child.setCoords();
+    }
+    this.set({ width: bbox.width, height: bbox.height });
+
+    // 4. 原点の移動分だけグループ中心をずらす（回転・拡大は保ったまま写す）
+    const shift = originAfter.subtract(originBefore).transform(this.calcOwnMatrix(), true);
+    this.setPositionByOrigin(centerBefore.add(shift), 'center', 'center');
+
+    this.dirty = true;
 
     // 座標を更新
     this.setCoords();

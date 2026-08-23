@@ -368,7 +368,20 @@ test.describe('現場調査注釈ツール', () => {
       await expect(dimensionTool).toHaveAttribute('aria-pressed', 'false');
     });
 
-    test('キャンバス上でマウス操作ができる (site-survey/REQ-6.5)', async ({ page }) => {
+    /**
+     * Task 115.104 (site-survey/REQ-6.5)
+     *
+     * 旧テストは「マウス操作をしても例外が起きない」ことしか見ておらず、
+     * `body` が見えることを主張していた。これは寸法線が一切変化しなくても通る。
+     * 端点をつまんで動かす手段（`DimensionLine` の端点ハンドル）は実装されていたが
+     * 本番から一度も呼ばれておらず、要件6.5 はこの主張のもとで未実装のまま緑だった。
+     *
+     * 本テストは出荷経路（描画 → 選択 → 端点ハンドルをマウスでドラッグ）を通し、
+     * 掴んだ端点だけが落とした場所へ移り、もう一方が動かないことを実測で確かめる。
+     */
+    test('寸法線の端点をドラッグすると寸法線の位置が調整される (site-survey/REQ-6.5)', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -378,22 +391,82 @@ test.describe('現場調査注釈ツール', () => {
         );
       }
 
-      // 寸法線ツールを選択
+      // 寸法線を 1 本描く（出荷経路）
       const dimensionTool = page.getByRole('button', { name: /寸法線/i });
-      await expect(dimensionTool).toBeVisible({ timeout: 5000 });
+      await expect(dimensionTool).toBeVisible({ timeout: getTimeout(5000) });
       await dimensionTool.click();
       await expect(dimensionTool).toHaveAttribute('aria-pressed', 'true');
 
-      // キャンバス上でマウス操作
-      const center = await getCanvasCenter(page);
-      await page.mouse.click(center.x - 60, center.y);
-      await page.mouse.click(center.x + 60, center.y);
+      const box = await getUpperCanvasBox(page);
+      await performDrag(
+        page,
+        box.x + box.width * 0.2,
+        box.y + box.height * 0.3,
+        box.x + box.width * 0.7,
+        box.y + box.height * 0.3
+      );
 
-      // ドラッグ操作
-      await performDrag(page, center.x, center.y, center.x + 30, center.y);
+      // 寸法値入力欄は端点操作の前に閉じる（値は本テストの対象ではない）
+      const valueInput = page.getByRole('dialog', { name: '寸法値入力' });
+      await expect(valueInput).toBeVisible({ timeout: getTimeout(5000) });
+      await valueInput.getByRole('button', { name: 'キャンセル' }).click();
+      await expect(valueInput).toHaveCount(0);
 
-      // 操作が完了したことを確認（エラーが発生しないこと）
-      await expect(page.locator('body')).toBeVisible();
+      // 選択ツールへ切替えて寸法線を選択する（端点ハンドルは選択中にだけ現れる）
+      const selectTool = page.getByRole('button', { name: /選択/i });
+      await selectTool.click();
+      await expect(selectTool).toHaveAttribute('aria-pressed', 'true');
+      await selectDimensionOnCanvas(page);
+
+      const before = await readDimensionHandles(page);
+      expect(before.startHandle, '始点の端点ハンドルが現れていない').not.toBeNull();
+      expect(before.endHandle, '終点の端点ハンドルが現れていない').not.toBeNull();
+
+      // 端点ハンドルの座標は描画面の現在位置を基準に求める（入力欄の開閉で
+      // レイアウトが動いた場合に、描画時の box を使い回すと座標がずれるため）。
+      const canvasBox = await getUpperCanvasBox(page);
+
+      // 終点ハンドルを下方向へドラッグする
+      const dragBy = { x: 0, y: Math.round(canvasBox.height * 0.3) };
+      const fromX = canvasBox.x + before.endHandle!.x;
+      const fromY = canvasBox.y + before.endHandle!.y;
+      const toX = fromX + dragBy.x;
+      const toY = fromY + dragBy.y;
+      await performDrag(page, fromX, fromY, toX, toY);
+
+      const after = await readDimensionHandles(page);
+      expect(after.endHandle, 'ドラッグ後に終点の端点ハンドルが消えた').not.toBeNull();
+      expect(after.startHandle, 'ドラッグ後に始点の端点ハンドルが消えた').not.toBeNull();
+
+      // 掴んだ終点は落とした場所へ移る（描画面内の座標で比較する）
+      const handleTolerancePx = 4;
+      expect(
+        Math.abs(after.endHandle!.x - (toX - canvasBox.x)),
+        '終点が落とした場所の x へ来ていない'
+      ).toBeLessThanOrEqual(handleTolerancePx);
+      expect(
+        Math.abs(after.endHandle!.y - (toY - canvasBox.y)),
+        '終点が落とした場所の y へ来ていない'
+      ).toBeLessThanOrEqual(handleTolerancePx);
+
+      // 実際に動いたことを確かめる（落とした場所が元の位置と十分離れている前提の固定）
+      expect(
+        Math.abs(after.endHandle!.y - before.endHandle!.y),
+        '終点が縦方向へ動いていない'
+      ).toBeGreaterThan(handleTolerancePx * 4);
+
+      // 掴んでいない始点は動かない
+      expect(
+        Math.abs(after.startHandle!.x - before.startHandle!.x),
+        '掴んでいない始点の x が動いた'
+      ).toBeLessThanOrEqual(handleTolerancePx);
+      expect(
+        Math.abs(after.startHandle!.y - before.startHandle!.y),
+        '掴んでいない始点の y が動いた'
+      ).toBeLessThanOrEqual(handleTolerancePx);
+
+      // 寸法線は 1 本のまま（端点操作が新しい注釈を生んでいない）
+      expect(await getCanvasObjectCount(page), '端点操作で注釈の本数が変わった').toBe(1);
     });
 
     test('キーボードショートカット（Delete/Backspace/Escape）が機能する (site-survey/REQ-6.6)', async ({
@@ -561,6 +634,112 @@ test.describe('現場調査注釈ツール', () => {
     await page.mouse.down();
     await page.mouse.move(endX, endY, { steps: 10 });
     await page.mouse.up();
+  }
+
+  /**
+   * キャンバス上の寸法線を選択状態にする（Task 115.104, REQ-6.5）
+   *
+   * 端点ハンドルは選択中の注釈にしか現れないため、端点操作の前提として必要になる。
+   * 対象の中心をクリックしても線の細さ次第で当たらないことがあるので、
+   * 本番の選択 API（`setActiveObject`）ではなく Fabric の当たり判定を通す
+   * 「線上の点をクリックする」経路を使い、選択されたことを実測で確かめる。
+   */
+  async function selectDimensionOnCanvas(page: import('@playwright/test').Page): Promise<void> {
+    const box = await getUpperCanvasBox(page);
+    const target = await page.evaluate(() => {
+      const canvas = (
+        window as unknown as {
+          __fabricCanvas?: {
+            getObjects(): Array<{ type?: string }>;
+          } | null;
+        }
+      ).__fabricCanvas;
+      if (!canvas) {
+        throw new Error('window.__fabricCanvas が公開されていません');
+      }
+      const dimension = canvas.getObjects().find((obj) => obj.type === 'dimensionLine') as
+        | {
+            startPoint: { x: number; y: number };
+            endPoint: { x: number; y: number };
+            pathPointToScenePoint(point: { x: number; y: number }): { x: number; y: number };
+            getViewportTransform(): [number, number, number, number, number, number];
+          }
+        | undefined;
+      if (!dimension) {
+        throw new Error('寸法線オブジェクトがキャンバス上に見つかりません');
+      }
+      const start = dimension.pathPointToScenePoint(dimension.startPoint);
+      const end = dimension.pathPointToScenePoint(dimension.endPoint);
+      const vpt = dimension.getViewportTransform();
+      const midScene = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+      return {
+        x: vpt[0] * midScene.x + vpt[2] * midScene.y + vpt[4],
+        y: vpt[1] * midScene.x + vpt[3] * midScene.y + vpt[5],
+      };
+    });
+
+    await page.mouse.click(box.x + target.x, box.y + target.y);
+
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const canvas = (
+              window as unknown as {
+                __fabricCanvas?: { getActiveObject(): { type?: string } | null } | null;
+              }
+            ).__fabricCanvas;
+            return canvas?.getActiveObject()?.type ?? null;
+          }),
+        {
+          timeout: getTimeout(5000),
+          message: '寸法線を選択状態にできませんでした',
+        }
+      )
+      .toBe('dimensionLine');
+  }
+
+  /**
+   * 選択中の寸法線に描かれている端点ハンドルの位置を読み出す（Task 115.104, REQ-6.5）
+   *
+   * 返す座標は描画面（`.upper-canvas`）の左上を原点とするピクセル値であり、
+   * 描画面の bounding box を足せばそのままマウス操作の座標になる。
+   */
+  async function readDimensionHandles(page: import('@playwright/test').Page): Promise<{
+    startHandle: { x: number; y: number } | null;
+    endHandle: { x: number; y: number } | null;
+  }> {
+    return await page.evaluate(() => {
+      const canvas = (
+        window as unknown as {
+          __fabricCanvas?: {
+            getObjects(): Array<{ type?: string }>;
+          } | null;
+        }
+      ).__fabricCanvas;
+      if (!canvas) {
+        throw new Error('window.__fabricCanvas が公開されていません');
+      }
+      const dimension = canvas.getObjects().find((obj) => obj.type === 'dimensionLine') as
+        | {
+            setCoords(): void;
+            oCoords?: Record<string, { x: number; y: number }>;
+          }
+        | undefined;
+      if (!dimension) {
+        throw new Error('寸法線オブジェクトがキャンバス上に見つかりません');
+      }
+      dimension.setCoords();
+      const coords = dimension.oCoords ?? {};
+      const read = (key: string): { x: number; y: number } | null => {
+        const point = coords[key];
+        return point ? { x: point.x, y: point.y } : null;
+      };
+      return {
+        startHandle: read('dimensionStart'),
+        endHandle: read('dimensionEnd'),
+      };
+    });
   }
 
   /**

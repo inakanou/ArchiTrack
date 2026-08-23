@@ -29,7 +29,20 @@ const { mockSetCoords, mockSet } = vi.hoisted(() => {
 });
 
 // Fabric.jsのモック（DimensionTool.outline.test.ts と同形）
-vi.mock('fabric', () => {
+vi.mock('fabric', async () => {
+  // Task 115.104 (Req 6.5): 寸法線が端点ハンドル（Fabric `Control`）を持つようになったため、
+  // 幾何演算とハンドル生成に必要な最小の代替を `fabric-geometry-mock` から取り込む。
+  const { MockPoint, mockFabricUtil } = await import('../../../helpers/fabric-geometry-mock');
+
+  /** Fabric `Control` の代替（端点ハンドル生成でのみ用いる） */
+  class MockControl {
+    constructor(options?: Record<string, unknown>) {
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+  }
+
   class MockPath {
     path: string;
     stroke?: string;
@@ -213,6 +226,9 @@ vi.mock('fabric', () => {
     Rect: MockRect,
     Group: MockGroup,
     Canvas: MockCanvas,
+    Control: MockControl,
+    Point: MockPoint,
+    util: mockFabricUtil,
   };
 });
 

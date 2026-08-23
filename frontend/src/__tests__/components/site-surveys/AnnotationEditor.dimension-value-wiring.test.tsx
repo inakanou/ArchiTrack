@@ -191,7 +191,20 @@ vi.mock('../../../components/site-surveys/annotation-visual-feedback', () => ({
   },
 }));
 
-vi.mock('fabric', () => {
+vi.mock('fabric', async () => {
+  // Task 115.104 (Req 6.5): 寸法線が端点ハンドル（Fabric `Control`）を持つようになったため、
+  // 幾何演算とハンドル生成に必要な最小の代替を `fabric-geometry-mock` から取り込む。
+  const { MockPoint, mockFabricUtil } = await import('../../helpers/fabric-geometry-mock');
+
+  /** Fabric `Control` の代替（端点ハンドル生成でのみ用いる） */
+  class MockControl {
+    constructor(options?: Record<string, unknown>) {
+      if (options) {
+        Object.assign(this, options);
+      }
+    }
+  }
+
   function MockCanvas() {
     return mockCanvasInstance;
   }
@@ -260,7 +273,13 @@ vi.mock('fabric', () => {
     Group: MockGroup,
     PencilBrush: MockPencilBrush,
     classRegistry: { setClass: vi.fn(), getClass: vi.fn() },
-    util: { enlivenObjects: vi.fn(() => Promise.resolve([] as unknown[])) },
+    util: {
+      enlivenObjects: vi.fn(() => Promise.resolve([] as unknown[])),
+      makeBoundingBoxFromPoints: mockFabricUtil.makeBoundingBoxFromPoints,
+      invertTransform: mockFabricUtil.invertTransform,
+    },
+    Control: MockControl,
+    Point: MockPoint,
   };
 });
 

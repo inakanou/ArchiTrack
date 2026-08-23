@@ -290,6 +290,12 @@ interface AnnotationEditorState {
   saveFailed: boolean;
   /** 背景画像の回転角度 */
   imageRotation: 0 | 90 | 180 | 270;
+  /**
+   * 詳細属性パネル（スタイルパネル）を開いているか（Req 28.8）
+   *
+   * 選択中ツールの再タップで反転する。ツールを切替えたときは開いた状態へ戻す。
+   */
+  isStylePanelVisible: boolean;
 }
 
 /**
@@ -710,6 +716,7 @@ function AnnotationEditor({
     saveSuccess: false,
     saveFailed: false,
     imageRotation: 0,
+    isStylePanelVisible: true,
   });
 
   // エクスポートダイアログの状態管理（REQ-12.2, 12.3, 12.4）
@@ -1050,7 +1057,15 @@ function AnnotationEditor({
    */
   const handleToolChange = useCallback((tool: ToolType) => {
     // ツールを変更
-    setState((prev) => ({ ...prev, activeTool: tool }));
+    //
+    // Task 115.104 (Req 28.8): 別のツールへ切替えたときは、そのツールの詳細属性パネルを
+    // 開いた状態で見せる。開閉のトグルは「選択中ツールの再タップ」だけの責務であり、
+    // 同じツールが再び渡された場合は開閉状態をそのまま保つ。
+    setState((prev) => ({
+      ...prev,
+      activeTool: tool,
+      isStylePanelVisible: prev.activeTool === tool ? prev.isStylePanelVisible : true,
+    }));
     activeToolRef.current = tool;
 
     // Task 115.82 (Req 6.2): 未確定の寸法値入力欄はツール切替で閉じる
@@ -2012,6 +2027,17 @@ function AnnotationEditor({
    */
   const handleContextMenuClose = useCallback(() => {
     setContextMenu({ visible: false, position: null, targetObject: null });
+  }, []);
+
+  /**
+   * Task 115.104 (Req 28.8): 選択中ツールの再タップで詳細属性パネルを開閉する
+   *
+   * `AnnotationToolbar` は「現在選択中のツールがもう一度押された」ことだけを通知する。
+   * 開閉の状態を持つのは編集画面側であり、ここでトグルする。ツールの選択状態は
+   * `handleToolChange` が従来どおり同じツールで更新するため維持される。
+   */
+  const handleActiveToolReTap = useCallback(() => {
+    setState((prev) => ({ ...prev, isStylePanelVisible: !prev.isStylePanelVisible }));
   }, []);
 
   /**
@@ -3323,6 +3349,8 @@ function AnnotationEditor({
             <AnnotationToolbar
               activeTool={state.activeTool}
               onToolChange={handleToolChange}
+              onActiveToolReTap={handleActiveToolReTap}
+              stylePanelVisible={state.isStylePanelVisible}
               disabled={state.isLoading || state.isSaving}
               styleOptions={state.styleOptions}
               onStyleChange={handleStyleChange}

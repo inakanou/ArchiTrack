@@ -24,10 +24,15 @@
  * @requirement site-survey/REQ-32.5
  * @requirement site-survey/REQ-8.5
  * @requirement site-survey/REQ-8.6
+ * @requirement site-survey/REQ-28.8
+ * @requirement site-survey/REQ-29.6
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import useMediaQuery from '../../hooks/useMediaQuery';
+// 長押しの判定時間は本番の一元管理された閾値を参照する（Req 27.6 と同一値）。
+import { LONG_PRESS_MS } from './gestures/gesture-thresholds';
 import { MEDIA_QUERIES } from '../../utils/responsive';
 import {
   type ToolType,
@@ -100,6 +105,13 @@ export interface AnnotationToolbarProps {
    * 省略時は発火しない（後方互換: 再タップは従来通り `onToolChange` のみ発火）。
    */
   onActiveToolReTap?: () => void;
+  /**
+   * 詳細属性パネル（StylePanel）を表示するか (Req 28.8)
+   *
+   * 親（AnnotationEditor）が `onActiveToolReTap` と対で与える開閉状態。
+   * 省略時は従来どおり常に表示する（後方互換）。
+   */
+  stylePanelVisible?: boolean;
 }
 
 // ============================================================================
@@ -282,7 +294,37 @@ const STYLES = {
     fontWeight: 500,
     whiteSpace: 'nowrap' as const,
   },
+  // ツールヒント (Req 29.6)。ツールバーは `overflowX: 'auto'` を持つため、
+  // 内側に絶対配置するとはみ出した分が切り取られる。body 直下へ Portal で描き、
+  // `position: 'fixed'` でボタンの位置に合わせる。
+  tooltip: {
+    position: 'fixed' as const,
+    zIndex: 2000,
+    transform: 'translateX(-50%)',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '2px',
+    maxWidth: '220px',
+    padding: '6px 10px',
+    borderRadius: '6px',
+    backgroundColor: '#1f2937',
+    color: '#ffffff',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)',
+    pointerEvents: 'none' as const,
+  },
+  tooltipTitle: {
+    fontSize: '12px',
+    fontWeight: 600,
+    whiteSpace: 'nowrap' as const,
+  },
+  tooltipDescription: {
+    fontSize: '11px',
+    lineHeight: 1.4,
+  },
 };
+
+/** ツールヒントをボタンの下に置くときの間隔（ピクセル, Req 29.6） */
+const TOOLTIP_GAP_PX = 8;
 
 // ============================================================================
 // コンポーネント
@@ -305,15 +347,62 @@ function ToolButton({ tool, isActive, disabled, onClick }: ToolButtonProps): Rea
     ...(disabled ? STYLES.button.disabled : {}),
   };
 
+  // ------------------------------------------------------------------
+  // 長押しによるツールヒント表示 (Task 115.104 / Req 29.6)
+  //
+  // `title` 属性はマウスホバーでしか現れず、指で操作する現場端末では説明に到達できない。
+  // 押し当てたまま `LONG_PRESS_MS` 経過したらヒントを出し、指を離す・外れる・
+  // ブラウザが操作を打ち切った時点で消す。判定時間はタッチ操作の一元管理された閾値を使う。
+  // ------------------------------------------------------------------
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [tooltipPosition, setTooltipPosition] = useState<{ left: number; top: number } | null>(
+    null
+  );
+  const tooltipId = `annotation-tool-tooltip-${tool.id}`;
+
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimerRef.current !== null) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+
+  const handlePointerDown = useCallback(() => {
+    cancelLongPress();
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTimerRef.current = null;
+      const rect = buttonRef.current?.getBoundingClientRect();
+      setTooltipPosition({
+        left: rect ? rect.left + rect.width / 2 : 0,
+        top: rect ? rect.bottom + TOOLTIP_GAP_PX : 0,
+      });
+    }, LONG_PRESS_MS);
+  }, [cancelLongPress]);
+
+  const hideTooltip = useCallback(() => {
+    cancelLongPress();
+    setTooltipPosition(null);
+  }, [cancelLongPress]);
+
+  // アンマウント時にタイマーを残さない
+  useEffect(() => cancelLongPress, [cancelLongPress]);
+
   return (
     <button
       type="button"
+      ref={buttonRef}
       style={buttonStyle}
       onClick={onClick}
+      onPointerDown={handlePointerDown}
+      onPointerUp={hideTooltip}
+      onPointerCancel={hideTooltip}
+      onPointerLeave={hideTooltip}
       disabled={disabled}
       title={tool.description}
       aria-label={tool.label}
       aria-pressed={isActive}
+      aria-describedby={tooltipPosition !== null ? tooltipId : undefined}
       data-active={isActive ? 'true' : 'false'}
       data-tool={tool.id}
     >
@@ -331,6 +420,24 @@ function ToolButton({ tool, isActive, disabled, onClick }: ToolButtonProps): Rea
         <path d={tool.icon} />
       </svg>
       <span style={STYLES.label}>{tool.label}</span>
+      {tooltipPosition !== null &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            role="tooltip"
+            id={tooltipId}
+            data-testid={`tool-tooltip-${tool.id}`}
+            style={{
+              ...STYLES.tooltip,
+              left: `${tooltipPosition.left}px`,
+              top: `${tooltipPosition.top}px`,
+            }}
+          >
+            <span style={STYLES.tooltipTitle}>{tool.label}</span>
+            <span style={STYLES.tooltipDescription}>{tool.description}</span>
+          </div>,
+          document.body
+        )}
     </button>
   );
 }
@@ -352,6 +459,8 @@ interface StylePanelProps {
   disabled: boolean;
   /** モバイル幅か（単段化時の flexShrink 抑止に使用, Req 36.5） */
   isMobile: boolean;
+  /** 開閉状態 (Req 28.8)。false のとき描画しない */
+  visible: boolean;
 }
 
 function StylePanel({
@@ -360,6 +469,7 @@ function StylePanel({
   onStyleChange,
   disabled,
   isMobile,
+  visible,
 }: StylePanelProps): React.JSX.Element | null {
   // スタイル変更ハンドラ（Hooksは条件分岐の前に呼び出す必要がある）
   const handleStrokeColorChange = useCallback(
@@ -447,6 +557,11 @@ function StylePanel({
 
   // 選択ツールの場合はスタイルパネルを表示しない
   if (!isDrawingTool(activeTool)) {
+    return null;
+  }
+
+  // Req 28.8: 選択中ツールの再タップで閉じられている間は描画しない
+  if (!visible) {
     return null;
   }
 
@@ -653,6 +768,7 @@ function AnnotationToolbar({
   canRedo = true,
   onRotate,
   onActiveToolReTap,
+  stylePanelVisible = true,
 }: AnnotationToolbarProps): React.JSX.Element {
   /**
    * Req 28.4: 端末回転 (orientation) 時のレイアウト再構成。
@@ -744,6 +860,7 @@ function AnnotationToolbar({
         onStyleChange={handleStyleChange}
         disabled={disabled}
         isMobile={isMobile}
+        visible={stylePanelVisible}
       />
 
       {/* アクションボタン */}
