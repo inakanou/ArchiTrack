@@ -23,10 +23,14 @@
  *   - 10.4: 0または空白が入力されると「0.01」が自動設定される
  *   - 10.8: 標準計算時は丸め設定フィールドを表示しない
  * - REQ-13: テキストフィールドの入力制御
- *   - 13.1: 大項目は上限ちょうど（全角25文字/幅50）を受け付け、上限超過（全角26文字/幅52）の
+ *   - 13.1（一部）: 大項目は上限ちょうど（全角25文字/幅50）を受け付け、上限超過（全角26文字/幅52）の
+ *     入力は受け付けず直前の確定値のままとなる。判定しているのは大項目のみで、
+ *     REQ-13.1 が同じ上限を課す中項目・小項目・任意分類・名称・規格・計算方法・備考は
+ *     本ファイルでは判定していない
+ *   - 13.2: 工種は上限ちょうど（全角8文字/幅16）を受け付け、上限超過（全角9文字/幅18）の
  *     入力は受け付けず直前の確定値のままとなる
- *   - 13.2: 工種は上限ちょうど（全角8文字/幅16）を受け付ける
- *   - 13.3: 単位は上限ちょうど（全角3文字/幅6）を受け付ける
+ *   - 13.3: 単位は上限ちょうど（全角3文字/幅6）を受け付け、上限超過（全角4文字/幅8）の
+ *     入力は受け付けず直前の確定値のままとなる
  * - REQ-14: 数値フィールドの表示書式
  *   - 14.2: 調整係数・丸め設定・数量を小数2桁で表示する
  *   - 14.3: 寸法フィールドは数値入力時に小数2桁で表示する
@@ -44,8 +48,18 @@
  *   行わない。値の制限もエラー表示も画面に現れないため観測できる結果が無い。
  *   恒真の判定（「制限されている または エラーが出ている」）を置くことは禁止されているため、
  *   判定を置かずここに未検証として記す。実装は別タスクとして起票する。
+ * - REQ-13.1 / 13.2 / 13.3 の入力防止のうち、日本語入力（IME）の変換中から確定に至る経路。
+ *   実装（AutocompleteInput）は変換中の幅判定を行わず compositionend の確定値で判定するが、
+ *   Playwright の `fill()` は変換イベントを発生させないため、本ファイルの判定は
+ *   確定入力の経路のみを通る。変換経路は単体テスト側の担当であり、ここでは主張しない。
  * - REQ-13.4（左寄せ）、REQ-14.1 / 14.5（右寄せ）、REQ-14.6 / 14.7 および
  *   REQ-15.4 / 15.5（箇所数フィールド）。本ファイルの対象外。
+ *
+ * Task 115.131 (site-survey): 13.2（工種）/ 13.3（単位）へ 13.1 と同型の「上限超過の入力を
+ * 受け付けない」判定を足し、被覆表記を実際の判定内容へ揃えた。上限は欄ごとの仕様
+ * （`FIELD_CONSTRAINTS`）から `AutocompleteInput` が決めるため、大項目と同じ機序が
+ * 工種・単位にも働く。あわせて検証名「文字数超過時にエラーメッセージが表示される」を、
+ * 中身（入力拒否で直前値が保たれる）に合う名前へ改めた。
  *
  * Task 115.127 段1: 前提の生成を共通の補助へ寄せ、`test.skip(!testProjectId, …)` 21 件を除いた。
  * 各テストが実際に必要とするのは数量表IDであり、`openEditPageWithSingleItemRow` が無条件に主張する。
@@ -146,13 +160,16 @@ test.describe('フィールド仕様', () => {
       await majorCategoryInput.fill(validText);
       await expect(majorCategoryInput, '全角25文字はそのまま保持される').toHaveValue(validText);
 
-      // 上限を超えた場合の挙動（入力の拒否）は「文字数超過時に…」のテストで検証する。
+      // 上限を超えた場合の挙動（入力の拒否）は
+      // 「13.1: 大項目フィールドは上限を超える入力を受け付けず直前の確定値が保たれる」で検証する。
       // REQ-13.1 は「超える入力を防止する」であってエラーメッセージの表示を求めておらず、
       // 実装（AutocompleteInput）も文字数のエラーメッセージを持たない。ここで
       // 「エラーが表示されていない」を主張しても存在しない要素の不在を見るだけで何も確かめられない。
     });
 
-    test('13.2: 工種フィールドに全角8文字まで入力できる', async ({ page }) => {
+    test('13.2: 工種フィールドは全角8文字までを受け付け、超える入力を受け付けない', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
@@ -168,11 +185,25 @@ test.describe('フィールド仕様', () => {
       await workTypeInput.fill(validText);
       await expect(workTypeInput, '全角8文字はそのまま保持される').toHaveValue(validText);
 
-      // 上限超過時の挙動は 13.1 と同じ「入力の拒否」であり、実装は文字数の
-      // エラーメッセージを持たない。エラー非表示の主張は何も確かめられないため置かない。
+      // REQ-13.2: 上限を超える入力（全角9文字＝幅18）は防止される。13.1（大項目）と同型であり、
+      // 実装（AutocompleteInput.handleInputChange）は上限超過の値を親へ通知せず、
+      // controlled input の表示が直前の確定値へ戻る。上限は欄ごとの仕様
+      // （FIELD_CONSTRAINTS.workType = 全角8文字/半角16文字）から決まる。
+      // エラーメッセージは持たない仕様のため、観測できる結果は
+      // 「値が直前の確定値のままであること」ただ一つである。
+      const overLimitText = '漢'.repeat(9); // 幅18
+      await workTypeInput.fill(overLimitText);
+      await workTypeInput.blur();
+
+      await expect(
+        workTypeInput,
+        '上限を超える入力は受け付けられず直前の全角8文字が保たれる'
+      ).toHaveValue(validText);
     });
 
-    test('13.3: 単位フィールドに全角3文字まで入力できる', async ({ page }) => {
+    test('13.3: 単位フィールドは全角3文字までを受け付け、超える入力を受け付けない', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
@@ -188,11 +219,25 @@ test.describe('フィールド仕様', () => {
       await unitInput.fill(validText);
       await expect(unitInput, '全角3文字はそのまま保持される').toHaveValue(validText);
 
-      // 上限超過時の挙動は 13.1 と同じ「入力の拒否」であり、実装は文字数の
-      // エラーメッセージを持たない。エラー非表示の主張は何も確かめられないため置かない。
+      // REQ-13.3: 上限を超える入力（全角4文字＝幅8）は防止される。13.1（大項目）と同型であり、
+      // 実装（AutocompleteInput.handleInputChange）は上限超過の値を親へ通知せず、
+      // controlled input の表示が直前の確定値へ戻る。上限は欄ごとの仕様
+      // （FIELD_CONSTRAINTS.unit = 全角3文字/半角6文字）から決まる。
+      // エラーメッセージは持たない仕様のため、観測できる結果は
+      // 「値が直前の確定値のままであること」ただ一つである。
+      const overLimitText = '平米台数'; // 幅8
+      await unitInput.fill(overLimitText);
+      await unitInput.blur();
+
+      await expect(
+        unitInput,
+        '上限を超える入力は受け付けられず直前の全角3文字が保たれる'
+      ).toHaveValue(validText);
     });
 
-    test('文字数超過時にエラーメッセージが表示される', async ({ page }) => {
+    test('13.1: 大項目フィールドは上限を超える入力を受け付けず直前の確定値が保たれる', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
