@@ -7,6 +7,7 @@
  * - 32.5: 寸法線・円・四角形・多角形・折れ線・フリーハンドの描画設定を切り替えるとき、
  *         白縁取りの有効/無効をユーザーが任意に切替可能にする
  * - 24.10 / 25.11 / 32.10: 白縁取り（白アウトライン）の切替を Undo/Redo 履歴に記録する
+ * - 15.2: タッチデバイスで操作するとき、タッチ操作に最適化された注釈ツールを提供する
  *
  * Task 115.96:
  *   切替UIは、本番の描画経路から一度も参照されていない `StylePanel.tsx` にしか存在せず
@@ -22,6 +23,13 @@
  *   (c) 切替を無効にして置いたテキストは白アウトライン無しで作られる（Req 25.2）
  *   (d) 切替は Undo/Redo 履歴に記録される（Req 24.10, 25.11, 32.10）
  *   (e) 無効にして描いた注釈は保存・リロード後も無効のまま復元される（Req 24.7, 25.8, 32.7）
+ *   (f) 切替のタップ領域が同じ属性パネルの他の操作要素より小さくない（Req 15.2）
+ *
+ * Task 115.148:
+ *   切替のタップ領域は 18x18 論理ピクセルで、隣接する色の選択（32x24）・線幅の入力
+ *   （60x24）より小さかった。現場のスマートフォン操作では隣より小さい操作要素が押し間違いを
+ *   招く。(f) はこの相対関係を実ブラウザの実測で固定する。要件28.3 の 44x44 は援用しない
+ *   （理由は (f) の直上に記す）。
  *
  * @requirement site-survey/REQ-24.5
  * @requirement site-survey/REQ-25.2
@@ -29,6 +37,7 @@
  * @requirement site-survey/REQ-24.10
  * @requirement site-survey/REQ-25.11
  * @requirement site-survey/REQ-32.10
+ * @requirement site-survey/REQ-15.2
  */
 
 import path from 'path';
@@ -53,6 +62,20 @@ interface OutlineToolDefinition {
   readonly objectType: string;
   /** 当該ツールの確定操作 */
   readonly gesture: 'drag' | 'polygon' | 'polyline' | 'freehand' | 'click';
+  /**
+   * 当該ツールの属性パネルに並ぶ「切替以外」の操作要素の個数（(f) の数える範囲の宣言）
+   *
+   * 対象は `data-testid="style-options"` 配下の `input` / `select` のうち
+   * `type="checkbox"` でないもの。色・塗りつぶし・文字色・背景色（color）、線幅・
+   * フォントサイズ（number）、吹き出し（select）が該当する。
+   */
+  readonly nonToggleControlCount: number;
+  /**
+   * 当該ツールの属性パネルに並ぶ切替（`type="checkbox"`）の個数（(f) の数える範囲の宣言）
+   *
+   * テキストだけは白アウトラインの切替に加えて文字の背景の切替を持つため 2 個になる。
+   */
+  readonly toggleControlCount: number;
 }
 
 /**
@@ -63,28 +86,69 @@ interface OutlineToolDefinition {
  * 対象外であり、切替も出ない。
  */
 const OUTLINE_TOOLS: ReadonlyArray<OutlineToolDefinition> = [
-  { toolLabel: '矢印', toggleLabel: '白縁取り', objectType: 'arrow', gesture: 'drag' },
-  { toolLabel: '寸法線', toggleLabel: '白縁取り', objectType: 'dimensionLine', gesture: 'drag' },
-  { toolLabel: '円', toggleLabel: '白縁取り', objectType: 'circleShape', gesture: 'drag' },
-  { toolLabel: '四角形', toggleLabel: '白縁取り', objectType: 'rectangleShape', gesture: 'drag' },
-  { toolLabel: '多角形', toggleLabel: '白縁取り', objectType: 'polygonShape', gesture: 'polygon' },
+  {
+    toolLabel: '矢印',
+    toggleLabel: '白縁取り',
+    objectType: 'arrow',
+    gesture: 'drag',
+    nonToggleControlCount: 2,
+    toggleControlCount: 1,
+  },
+  {
+    toolLabel: '寸法線',
+    toggleLabel: '白縁取り',
+    objectType: 'dimensionLine',
+    gesture: 'drag',
+    nonToggleControlCount: 2,
+    toggleControlCount: 1,
+  },
+  {
+    toolLabel: '円',
+    toggleLabel: '白縁取り',
+    objectType: 'circleShape',
+    gesture: 'drag',
+    nonToggleControlCount: 3,
+    toggleControlCount: 1,
+  },
+  {
+    toolLabel: '四角形',
+    toggleLabel: '白縁取り',
+    objectType: 'rectangleShape',
+    gesture: 'drag',
+    nonToggleControlCount: 3,
+    toggleControlCount: 1,
+  },
+  {
+    toolLabel: '多角形',
+    toggleLabel: '白縁取り',
+    objectType: 'polygonShape',
+    gesture: 'polygon',
+    nonToggleControlCount: 3,
+    toggleControlCount: 1,
+  },
   {
     toolLabel: '折れ線',
     toggleLabel: '白縁取り',
     objectType: 'polylineShape',
     gesture: 'polyline',
+    nonToggleControlCount: 2,
+    toggleControlCount: 1,
   },
   {
     toolLabel: 'フリーハンド',
     toggleLabel: '白縁取り',
     objectType: 'freehand',
     gesture: 'freehand',
+    nonToggleControlCount: 2,
+    toggleControlCount: 1,
   },
   {
     toolLabel: 'テキスト',
     toggleLabel: '白アウトライン',
     objectType: 'textAnnotation',
     gesture: 'click',
+    nonToggleControlCount: 4,
+    toggleControlCount: 2,
   },
 ] as const;
 
@@ -651,5 +715,98 @@ test.describe('白縁取り切替UI', () => {
     expect(restored.hasAttribute, '復元後に白縁取り属性が失われている').toBe(true);
     expect(restored.enabled, '無効にして保存した白縁取りが有効で復元されている').toBe(false);
     expect(restored.renderedOutlineOpacity, '復元後に縁取り線が描かれている').toBe(0);
+  });
+
+  /**
+   * (f) 切替のタップ領域が、同じ属性パネルに並ぶ他の操作要素より小さくない
+   *     Requirement 15.2（タッチ操作に最適化された注釈ツールを提供する）
+   *
+   * 要件15.2 は数値基準を持たない。したがって本検証は 44x44 のような絶対値を持ち込まず、
+   * 「同じ属性パネルに並ぶ切替以外の操作要素より小さくない」という相対関係だけを主張する。
+   *
+   * 要件28.3 の 44x44 を援用しない理由: 28.3 は「モバイル幅ツールバーの各項目」を対象と
+   * 書いているが、本スペックでは道具のボタンにだけ適用して運用されている（Task 70.1
+   * 「各ボタンの minWidth/minHeight を 44 論理ピクセルに統一」。`AnnotationToolbar.tsx` の
+   * `STYLES.button.base` だけが 44 を持つ）。同ファイルの `STYLES` が定める寸法では、
+   * 色（32x24）・線幅（60x24）・吹き出し（高さ24）・アクションボタン（padding 6px 12px の
+   * 高さ）はいずれも 44 に届かない。
+   *
+   * なお 28.3 の原文は「各項目」であり、文言のうえでは切替も対象である。条文から外れて
+   * いるのはむしろ現行の「道具のボタン限定」という狭め方のほうで、切替へ 44 を課すこと
+   * 自体は条文どおりの適用にあたる。それでも本検証が 44 を援用しないのは、同格の隣接を
+   * 据え置いたまま切替だけを 44 にすると、適用範囲の決着（後続タスク 115.170）を先取り
+   * してしまうためである。ここでは相対関係だけを主張する。
+   *
+   * 数える範囲（先に宣言する）: `data-testid="style-options"` 配下の `input` と `select`
+   * の全て。これを `type="checkbox"` の切替と、それ以外の操作要素に二分する。ツールごとの
+   * 個数は `OutlineToolDefinition.nonToggleControlCount` / `toggleControlCount` として
+   * 上の表に宣言してあり、実測がそれと一致することを先に確かめる（要素を数え漏らした
+   * まま比較が通ることを防ぐ）。
+   *
+   * 主張の対象は白縁取りの切替だけでなくパネル内の切替全部である。片方だけを広げると、
+   * 隣り合う切替どうしで同じ欠陥（隣より小さい操作要素）が再発するため。
+   */
+  test('(f) 切替のタップ領域が同じ属性パネルの他の操作要素より小さくない (site-survey/REQ-15.2)', async () => {
+    await enterEditMode();
+
+    for (const tool of OUTLINE_TOOLS) {
+      await selectTool(tool.toolLabel);
+      await expect(outlineToggle(), `${tool.toolLabel}: 切替が道具帯に無い`).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      const controls = await sharedPage
+        .getByTestId('style-options')
+        .locator('input, select')
+        .evaluateAll((elements) =>
+          elements.map((element) => {
+            const rect = element.getBoundingClientRect();
+            return {
+              testId: element.getAttribute('data-testid') ?? '',
+              label: element.getAttribute('aria-label') ?? '',
+              isToggle:
+                element.tagName === 'INPUT' && (element as HTMLInputElement).type === 'checkbox',
+              width: rect.width,
+              height: rect.height,
+            };
+          })
+        );
+
+      const toggles = controls.filter((control) => control.isToggle);
+      const others = controls.filter((control) => !control.isToggle);
+
+      expect(
+        toggles.map((control) => control.testId),
+        `${tool.toolLabel}: 属性パネルの切替の個数が宣言と一致しない`
+      ).toHaveLength(tool.toggleControlCount);
+      expect(
+        others.map((control) => control.testId),
+        `${tool.toolLabel}: 属性パネルの切替以外の操作要素の個数が宣言と一致しない`
+      ).toHaveLength(tool.nonToggleControlCount);
+      expect(
+        toggles.map((control) => control.testId),
+        `${tool.toolLabel}: 白縁取りの切替が数える範囲に入っていない`
+      ).toContain('outline-toggle');
+
+      const minWidth = Math.min(...others.map((control) => control.width));
+      const minHeight = Math.min(...others.map((control) => control.height));
+      const minArea = Math.min(...others.map((control) => control.width * control.height));
+
+      for (const toggle of toggles) {
+        const name = `${tool.toolLabel}: 切替「${toggle.label}」`;
+        expect(
+          toggle.width,
+          `${name}の幅が隣接要素の最小 ${minWidth} を下回る`
+        ).toBeGreaterThanOrEqual(minWidth);
+        expect(
+          toggle.height,
+          `${name}の高さが隣接要素の最小 ${minHeight} を下回る`
+        ).toBeGreaterThanOrEqual(minHeight);
+        expect(
+          toggle.width * toggle.height,
+          `${name}の面積が隣接要素の最小 ${minArea} を下回る`
+        ).toBeGreaterThanOrEqual(minArea);
+      }
+    }
   });
 });
