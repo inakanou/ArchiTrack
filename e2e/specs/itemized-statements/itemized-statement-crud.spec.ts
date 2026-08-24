@@ -2737,8 +2737,10 @@ test.describe('内訳書CRUD操作', () => {
       const lines = clipboardText.split('\n');
       expect(lines.length).toBeGreaterThan(0);
 
+      // 空文字のヘッダ行は REQ-14.3 を満たさないため、空文字を弾く側の主張を用いる。
+      // `assertPresent` は null / undefined だけを弾くため、空文字を後段へ通してしまう。
       const headerLine = lines[0];
-      assertPresent(headerLine, 'クリップボードのヘッダ行');
+      assertPrepared(headerLine, 'クリップボードのヘッダ行');
 
       const expectedHeaders = ['任意分類', '工種', '名称', '規格', '数量', '単位'];
 
