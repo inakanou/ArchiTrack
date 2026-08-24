@@ -749,8 +749,8 @@ private buildOrderBy(sort: SortInput): Prisma.ProjectOrderByWithRelationInput {
 - 以下のファイルで既に変更済み
 
 **実装済みファイル**:
-1. `frontend/src/components/projects/TradingPartnerSelect.tsx` (362行目): `<label>顧客名</label>`
-2. `frontend/src/pages/ProjectDetailPage.tsx` (520行目): `<div style={styles.fieldLabel}>顧客名</div>`
+1. `frontend/src/components/projects/TradingPartnerSelect.tsx` の `<label>顧客名</label>`
+2. `frontend/src/pages/ProjectDetailPage.tsx` の `<div style={styles.fieldLabel}>顧客名</div>`
 3. `frontend/src/components/projects/TradingPartnerSelect.tsx`: `aria-label="顧客名"`
 
 **注記**: `aria-label="取引先候補"`など候補リストに関するラベルはそのまま維持（内部的な取引先マスタを指すため）
@@ -767,7 +767,7 @@ private buildOrderBy(sort: SortInput): Prisma.ProjectOrderByWithRelationInput {
 - 取引先管理機能（`trading-partner.service.ts`）と同じパターンを適用
 
 **実装済みファイル**:
-- `backend/src/services/project.service.ts`（300-324行目）
+- `backend/src/services/project.service.ts` の検索条件組み立て箇所
 
 **実装済みの検索ロジック**:
 ```typescript
@@ -802,7 +802,7 @@ if (filter.search) {
 
 **影響ファイル**:
 1. `frontend/src/utils/kana-converter.ts`（新規作成）
-2. `frontend/src/components/projects/TradingPartnerSelect.tsx`（96-106行目を修正）
+2. `frontend/src/components/projects/TradingPartnerSelect.tsx` の `matchesSearchQuery` 関数を修正
 
 **新規ファイル: `frontend/src/utils/kana-converter.ts`**:
 ```typescript
@@ -857,7 +857,7 @@ export function toHiragana(str: string): string {
 
 **TradingPartnerSelect.tsx の変更**:
 
-現在の`matchesSearchQuery`関数（96-106行目）:
+現在の`matchesSearchQuery`関数（`frontend/src/components/projects/TradingPartnerSelect.tsx`）:
 ```typescript
 function matchesSearchQuery(partner: TradingPartnerInfo, query: string): boolean {
   const lowerQuery = query.toLowerCase();
@@ -3151,7 +3151,7 @@ enum TransitionType {
 
 ### 現状のAPI呼び出し構成
 
-`frontend/src/pages/ProjectDetailPage.tsx`（行325-415）の`fetchProject`関数における実際の呼び出し構成:
+`frontend/src/pages/ProjectDetailPage.tsx` の `fetchProject` 関数における実際の呼び出し構成:
 
 ```
 ProjectDetailPage 初期表示:
@@ -3497,13 +3497,13 @@ async function getProjectSections(projectId: string) {
 **変更内容**: 以下のJSXブロックを削除する。
 
 ```tsx
-// 削除対象（行507-509）:
+// 削除対象（`styles.backLink` を用いる `<Link to="/projects">` ブロック）:
 <Link to="/projects" style={styles.backLink}>
   ← 一覧に戻る
 </Link>
 ```
 
-また、不要になった `styles.backLink` のスタイル定義（行136-144）も削除する。
+また、不要になった `styles.backLink` のスタイル定義も削除する。
 
 ---
 

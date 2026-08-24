@@ -5485,7 +5485,7 @@ if (request.includeBreakdownInBody && selectedItems.length > 0) { // 旧: includ
 **Component 変更（差分）**
 
 ```typescript
-// 1. 必須マーカーを削除（line 520 付近）
+// 1. 必須マーカーを削除（`itemizedStatementId` の `<label>` ブロック）
 <label htmlFor="itemizedStatementId" style={styles.label}>
   内訳書 <span style={styles.helperText}>（任意）</span> {/* 旧: <span style={styles.required}>*</span> */}
 </label>
@@ -5548,7 +5548,7 @@ const input: CreateEstimateRequestInput = {
 | Requirements | 39.6, 39.12 |
 
 **Implementation Notes**
-- 単一行修正: `{request.itemizedStatementName ?? '-'}`（line 312 付近）
+- 単一行修正: `{request.itemizedStatementName ?? '-'}`（一覧の参照内訳書名セル）
 - Accessibility: 表示文字列が `-` でも既存のセル構造で問題なし
 - Test impact: `e2e` 側で「内訳書なしの見積依頼が一覧に表示され、参照内訳書名列が `-` であること」を 1 ケース追加
 
@@ -5570,7 +5570,7 @@ const input: CreateEstimateRequestInput = {
   - 「保存」ボタン（method/name の更新は通常通り可能、Req 39.10）
   - 受領見積書セクション（Req 39.11）
   - ステータス遷移ボタン（既存挙動維持、Req 39 範囲外）
-- 「参照内訳書」表示行: `{request.itemizedStatementName ?? '-'}`（line 1071-1072 付近）
+- 「参照内訳書」表示行: `{request.itemizedStatementName ?? '-'}`（詳細画面の参照内訳書セクション）
 - Layout: 項目選択セクション非表示時は、レイアウト崩れを避けるため上部の見積依頼方法／保存ボタンと受領見積書セクションが詰まる形になる。既存のフルワイドレイアウト（Req 27）配下でも自然な詰まりとなり追加の調整不要
 
 #### EstimateRequestTextPanel（改訂）
@@ -5593,7 +5593,7 @@ const input: CreateEstimateRequestInput = {
 | Requirements | 39.12 |
 
 **Implementation Notes**
-- 単一ブロックガード: `{request.itemizedStatementName !== null && <div>...</div>}`（line 410-414 付近）
+- 単一ブロックガード: `{request.itemizedStatementName !== null && <div>...</div>}`（編集画面の内訳書読み取り専用ブロック）
 - 編集画面では内訳書を新規付与しない（R-39-4 で確定、Out of Boundary）
 
 ### Data Models（追記7）
@@ -5724,7 +5724,7 @@ const input: CreateEstimateRequestInput = {
 - `ReceivedQuotationForm.tsx` のローカル state `isOcrSectionExpanded: boolean`（初期値 `true`）と setter
 - セクションヘッダ用の新規 styles（`ocrSectionHeader`, `ocrSectionTitle`, `ocrSectionChevron`, `ocrSectionHeaderFocus`）
 - OCR セクション本体ラッパーへの表示制御（`hidden` HTML 属性）の適用
-- `ChevronIcon` ローカルコンポーネント（`EstimateItemTable.tsx:150-165` のパターンを踏襲）
+- `ChevronIcon` ローカルコンポーネント（`EstimateItemTable.tsx` のパターンを踏襲）
 
 #### スコープ外（Out of Boundary）
 
@@ -5793,7 +5793,7 @@ graph TB
   - ブラウザ標準でクリック・Enter・Space キーの操作を自動受理（Req 40 AC 4-5）
   - スクリーンリーダー対応（role="button" 暗黙）
   - フォーカス状態の視覚化は **`useState<boolean>` ベースのフォーカス state**（`onFocus`/`onBlur` で切り替え）でインライン style に明示的な `outline` / `boxShadow` を適用する方式を採用（design review 2026-05-11 Critical Issue 1 対応、Req 40 AC 16）。OS デフォルトのフォーカスリングは環境依存（ブラウザ・OS テーマ・アクセシビリティ設定）でテストでも検証困難なため不採用
-  - 既存パターン（`EstimateItemTable.tsx:268-275`）と整合
+  - 既存パターン（`EstimateItemTable.tsx`）と整合
 - **属性**:
   - `aria-expanded={isOcrSectionExpanded}` — トグル状態を明示
   - `aria-controls="received-quotation-ocr-section-body"` — 関連付ける body 要素の id を参照
@@ -5801,7 +5801,7 @@ graph TB
 
 #### ChevronIcon ローカル定義（R-40-3 確定）
 
-`EstimateItemTable.tsx:150-165` の `ChevronIcon` パターンを `ReceivedQuotationForm.tsx` 内にローカル定義する。
+`EstimateItemTable.tsx` の `ChevronIcon` パターンを `ReceivedQuotationForm.tsx` 内にローカル定義する。
 
 ```typescript
 function OcrChevronIcon({ isExpanded }: { isExpanded: boolean }): JSX.Element {
@@ -5820,7 +5820,7 @@ function OcrChevronIcon({ isExpanded }: { isExpanded: boolean }): JSX.Element {
 #### State 管理
 
 - 新規 state: `const [isOcrSectionExpanded, setIsOcrSectionExpanded] = useState<boolean>(true);`
-- 配置: `ReceivedQuotationForm.tsx` の他のローカル state（行 575-905 付近）と同じスコープ
+- 配置: `ReceivedQuotationForm.tsx` の他のローカル state（コンポーネント本体先頭の `useState` 群）と同じスコープ
 - 初期値: `true`（Req 40 AC 8-9）
 - リセット契機: ダイアログ unmount 時（ダイアログを閉じて再度開くと初期値に戻る、Req 40 AC 10）
 - セッション切れ時の保護: 不要（ダイアログが unmount されない限り state は保持される、Req 40 Revalidation Triggers / R-40-5 確定）
@@ -5901,7 +5901,7 @@ const handleOcrHeaderBlur = useCallback(() => {
 
 ##### JSX 変更（既存 OCR セクションラッパー）
 
-変更前（`ReceivedQuotationForm.tsx:1168-1196` 付近、模式表現）:
+変更前（`ReceivedQuotationForm.tsx` 付近、模式表現）:
 
 ```tsx
 {showOcrCondition && (
@@ -6139,7 +6139,7 @@ function OcrChevronIcon({ isExpanded }: { isExpanded: boolean }): JSX.Element {
 - `react`（既存）— `EstimateRequestTextPanel` 内の追加 state なし（純粋に props と派生値で制御可能）
 - 既存型 `EstimateRequestText`（`recipient` / `subject` / `body` / `recipientError?`）— 読み取り専用で参照
 - 既存型 `EstimateRequestMethod`（`'EMAIL' | 'FAX'`）— props 経由で受領
-- ブラウザ標準 API（`URLSearchParams`, `encodeURIComponent`, `window.location`, `window.open`）— 既存の利用パターン（`api/estimate-requests.ts`, `EstimateRequestDetailPage.tsx:884`）と整合
+- ブラウザ標準 API（`URLSearchParams`, `encodeURIComponent`, `window.location`, `window.open`）— 既存の利用パターン（`api/estimate-requests.ts`, `EstimateRequestDetailPage.tsx`）と整合
 
 #### 再評価が必要なトリガー（Revalidation Triggers）
 
@@ -6197,7 +6197,7 @@ const mailDisabledReason = (() => {
   - ブラウザ版 Gmail を OS/ブラウザの既定メールハンドラに設定済みの環境では、この経路でも Gmail が開く（Req 41 の「ブラウザの Gmail も含む」を `mailto` 経路でも満たす）
   - **無効化時の扱い**: アンカーは `disabled` 属性を持てないため、`canLaunchMail === false` のときは `<a>` を描画せず `<button disabled>`（同一スタイル）を描画する条件分岐とする。これにより Req 41 AC 9/10 の無効化表示を実現
 - **「Gmail で開く」（compose）**: `window.open(buildGmailComposeUrl(...), '_blank', 'noopener,noreferrer')` を採用
-  - 理由: ブラウザ版 Gmail の新規作成画面を新規タブで確実に開く。`noopener,noreferrer` で被参照元の漏洩を防止（`EstimateRequestDetailPage.tsx:884` の既存 `window.open` 方針と整合）。`vi.spyOn(window, 'open')` でユニットテスト容易（`EstimateRequestDetailPage.test.tsx:809` の既存パターン）
+  - 理由: ブラウザ版 Gmail の新規作成画面を新規タブで確実に開く。`noopener,noreferrer` で被参照元の漏洩を防止（`EstimateRequestDetailPage.tsx` の既存 `window.open` 方針と整合）。`vi.spyOn(window, 'open')` でユニットテスト容易（`EstimateRequestDetailPage.test.tsx:809` の既存パターン）
 
 #### URL ビルダー契約（R-41-2 確定 / build-vs-adopt: RFC 6068 mailto + Gmail compose URL を採用）
 
@@ -6412,7 +6412,7 @@ mailDisabledReason: {
 
 **Requirements**: 41.8, 41.9, 41.10（活性条件判定に必要な method を供給）
 
-変更箇所（`EstimateRequestDetailPage.tsx:1199-1205`）:
+変更箇所（`EstimateRequestDetailPage.tsx`）:
 
 ```tsx
 {showTextPanel && (

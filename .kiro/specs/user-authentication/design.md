@@ -4517,7 +4517,7 @@ tokenRefreshCallback が存在する？
            → ApiError をスロー
 ```
 
-**変更箇所（`client.ts` 200-214行付近）:**
+**変更箇所（`client.ts` の該当箇所）:**
 
 ```typescript
 } catch (refreshError) {

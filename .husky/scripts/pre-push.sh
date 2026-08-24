@@ -818,6 +818,40 @@ echo "✅ Design reference format check passed"
 echo ""
 
 # ============================================================================
+# 本番コードへの行番号参照チェック（上のチェックの対偶）
+# ============================================================================
+# 設計文書が本番コードを `パス:行` で指す形の再発を検知する
+# - 本番コードは改修で行数が変わるため、行番号の参照は原理的に維持できない
+#   （タスク 115.149 の実測で、実体対照表 69 件のうち 16 件が失効していた）
+# - パス（行番号なし）とシンボル名で指す形へ改めること
+# - 走査対象は .kiro/specs/*/design.md（テストコードを指す参照は対象外）
+# ============================================================================
+
+echo "🔍 Checking production code references in design documents..."
+npm run check:design-code-refs:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Design-to-code reference detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:design-code-refs:selftest"
+  exit 1
+fi
+npm run check:design-code-refs
+if [ $? -ne 0 ]; then
+  echo "❌ Design-to-code reference format check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 設計文書の該当箇所を開き、その行番号が指していた宣言の名前を確認してください"
+  echo "  2. 行番号を消し、『パス』と『シンボル名』で指す形へ書き換えてください"
+  echo "     例: \`frontend/src/types/site-survey.types.ts\` の \`AnnotationData\`"
+  echo ""
+  echo "詳細確認: npm run check:design-code-refs:verbose"
+  exit 1
+fi
+
+echo "✅ Design-to-code reference format check passed"
+echo ""
+
+# ============================================================================
 # E2E画面内自前判定チェック（E2Eテスト実行の前提条件）
 # ============================================================================
 # 画面の中で本番の判定を自前で書き起こし、その書き起こしへ主張する構造を検知する

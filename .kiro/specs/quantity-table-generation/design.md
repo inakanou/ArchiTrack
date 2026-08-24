@@ -67,12 +67,12 @@
 - `frontend/src/hooks/useMemoizedCalculation.ts`（import 元ゼロのデッドコード。PITCH ロジックが `calculation-engine.ts` と乖離しているが、参照されないため実害なし。COUNT 対応も削除も行わない）
 - `frontend/src/components/quantity-table/FieldValidatedItemRow.tsx`（**本体以外からの import がゼロのデッドコード**。`CalculationMethodSelect` / `CalculationFields` の呼び出しと `!== 'STANDARD'` ガードを多数持つため一見 COUNT 対応が必要に見えるが、実際にレンダリングされる行コンポーネントは `EditableQuantityItemRow`（編集）と `QuantityItemRow`（閲覧）のみである。**COUNT 対応は行わない**）
 - 数量表インポート（REQ-27〜34）への「箇所数」マッピング
-- `field-validation.ts:191,218` の `NUMERIC_FIELD_RANGES` / `validateNumericRange` 重複定義の統合
+- `field-validation.ts` の `NUMERIC_FIELD_RANGES` / `validateNumericRange` 重複定義の統合
 - REQ-36 で定義したメニュー項目の構成・活性制御・各操作の動作（REQ-46 は表示のみを扱う）
 
 ### Allowed Dependencies
 
-- `react-dom` の `createPortal`（`AutocompleteInput.tsx:20` で既に採用済み。新規依存の追加はない）
+- `react-dom` の `createPortal`（`AutocompleteInput.tsx` で既に採用済み。新規依存の追加はない）
 - Prisma enum `CalculationMethod` と `quantity_items.calculationParams`（JSON カラム）。**カラム追加は行わない**
 - `PUT /api/quantity-tables/:id/save`（saveDraft）。「箇所数」の永続化はこの既存経路のみを使う。新規エンドポイントは追加しない
 - 既存の `QuantityValidationService` / `calculation-engine`（フロント・バックエンド双方）
@@ -273,30 +273,30 @@ e2e/specs/quantity-tables/
 
 | ファイル | 変更内容 |
 |---|---|
-| `backend/prisma/schema.prisma:559-563` | enum `CalculationMethod` に `COUNT` を追加 |
-| `backend/src/schemas/quantity-table.schema.ts:106` | `CALCULATION_METHODS` に `'COUNT'` を追加 |
-| `backend/src/schemas/quantity-table.schema.ts:284-317` | `countParamsSchema` を新設。**形状推測の `z.union` を廃止し、`calculationMethod` を判別子としてスキーマを選ぶ方式へ変更**（REQ-48。詳細は「計算方法切替時のパラメータ整合」節） |
-| `backend/src/routes/quantity-items.routes.ts:26-27,62,67` | 直接の変更は不要（`createQuantityItemSchema` / `updateQuantityItemSchema` を参照しているため、スキーマ側の判別子化が自動的に適用される）。**適用されていることを統合テストで確認する** |
-| `backend/src/routes/quantity-tables.routes.ts:173` | ハードコードされた `z.enum([...])` を `CALCULATION_METHODS` 参照へ置換（再発防止）。値の追加漏れで保存が 400 になるのを防ぐ |
-| `backend/src/services/quantity-validation.service.ts:24,121-133` | `CalculationMethodType` に `'COUNT'` を追加。switch に `case 'COUNT'` と `validateCountMode()` を追加。**未知モードを素通りさせないよう `default` 節を追加** |
-| `backend/src/services/calculation-engine.ts:24-31,203-221` | enum に `COUNT`、`CountParams` 型、`calculateCount()`、`generateCountFormula()`、switch case を追加 |
-| `backend/src/services/quantity-table.service.ts:234,287,1194` | 3箇所のリテラル直書きユニオン型に `'COUNT'` を追加 |
+| `backend/prisma/schema.prisma` の `enum CalculationMethod` | enum `CalculationMethod` に `COUNT` を追加 |
+| `backend/src/schemas/quantity-table.schema.ts` | `CALCULATION_METHODS` に `'COUNT'` を追加 |
+| `backend/src/schemas/quantity-table.schema.ts` | `countParamsSchema` を新設。**形状推測の `z.union` を廃止し、`calculationMethod` を判別子としてスキーマを選ぶ方式へ変更**（REQ-48。詳細は「計算方法切替時のパラメータ整合」節） |
+| `backend/src/routes/quantity-items.routes.ts` | 直接の変更は不要（`createQuantityItemSchema` / `updateQuantityItemSchema` を参照しているため、スキーマ側の判別子化が自動的に適用される）。**適用されていることを統合テストで確認する** |
+| `backend/src/routes/quantity-tables.routes.ts` | ハードコードされた `z.enum([...])` を `CALCULATION_METHODS` 参照へ置換（再発防止）。値の追加漏れで保存が 400 になるのを防ぐ |
+| `backend/src/services/quantity-validation.service.ts` | `CalculationMethodType` に `'COUNT'` を追加。switch に `case 'COUNT'` と `validateCountMode()` を追加。**未知モードを素通りさせないよう `default` 節を追加** |
+| `backend/src/services/calculation-engine.ts` | enum に `COUNT`、`CountParams` 型、`calculateCount()`、`generateCountFormula()`、switch case を追加 |
+| `backend/src/services/quantity-table.service.ts` | 3箇所のリテラル直書きユニオン型に `'COUNT'` を追加 |
 
 **Frontend**
 
 | ファイル | 変更内容 |
 |---|---|
-| `frontend/src/types/quantity-edit.types.ts:22,27-49` | `CalculationMethod` に `'COUNT'` を追加、`CountParams` インターフェースを新設。**ここが型の起点**であり、Record 化した箇所の漏れをコンパイラが検出する |
-| `frontend/src/types/quantity-table.types.ts:276,281-291` | 重複ユニオン型と `CalculationParams` 合成型に追随 |
-| `frontend/src/api/quantity-tables.ts:437` | ユニオン型に追随 |
-| `frontend/src/utils/calculation-engine.ts:140-175,222-241,293-329` | `calculateCount()`、`generateCountFormula()`、switch case を追加 |
-| `frontend/src/utils/numeric-range-validation.ts:24,29-36,55-76,89-103` | `NumericRangeFieldType` に `'count'` を追加。`RangeConfig` を `integer?: boolean` で拡張。`validateNumericRange` に整数チェックを追加 |
-| `frontend/src/components/quantity-table/CalculationFields.tsx:44-52,58-78,178-272,440` | `FieldDefinition` に `integer?: boolean` を追加。`COUNT_FIELDS` を新設。**三項演算子を `Record<Exclude<CalculationMethod,'STANDARD'>, FieldDefinition[]>` へ置換**。`NumberInputField` の blur 整形を `toFixed(2)` 固定から整数分岐へ |
-| `frontend/src/components/quantity-table/CalculationMethodSelect.tsx:45-49` | ローカルの `CALCULATION_METHOD_OPTIONS` を撤去し、新設の `utils/calculation-method.ts` から import |
-| `frontend/src/components/quantity-table/EditableQuantityItemRow.tsx:292-312` | **`handleCalculationMethodChange` で `resetParamsForMethod()` を適用**し、切替後の計算方法で使用しないパラメータキーを破棄する（REQ-48 AC1, AC2, AC7） |
-| `frontend/src/pages/quantityTableEditReducer.ts:84,272,319,364,712` | `CalculationMethod` 型に追随。新規項目のデフォルトは `STANDARD` のまま。計算方法変更のドラフト反映は既存の `onUpdate` 経路をそのまま使う |
-| `frontend/src/pages/QuantityTableEditPage.tsx:1177-1182` | **ネスト三項のラベル変換を `CALCULATION_METHOD_LABELS` 参照へ置換**（放置すると PDF に「ピッチ」と誤表示される） |
-| `frontend/src/hooks/useQuantityTableSave.ts:298-316` | `checkIntegrity` に COUNT の分岐を追加（計算パラメータ未設定の警告） |
+| `frontend/src/types/quantity-edit.types.ts` | `CalculationMethod` に `'COUNT'` を追加、`CountParams` インターフェースを新設。**ここが型の起点**であり、Record 化した箇所の漏れをコンパイラが検出する |
+| `frontend/src/types/quantity-table.types.ts` | 重複ユニオン型と `CalculationParams` 合成型に追随 |
+| `frontend/src/api/quantity-tables.ts` | ユニオン型に追随 |
+| `frontend/src/utils/calculation-engine.ts` | `calculateCount()`、`generateCountFormula()`、switch case を追加 |
+| `frontend/src/utils/numeric-range-validation.ts` | `NumericRangeFieldType` に `'count'` を追加。`RangeConfig` を `integer?: boolean` で拡張。`validateNumericRange` に整数チェックを追加 |
+| `frontend/src/components/quantity-table/CalculationFields.tsx` | `FieldDefinition` に `integer?: boolean` を追加。`COUNT_FIELDS` を新設。**三項演算子を `Record<Exclude<CalculationMethod,'STANDARD'>, FieldDefinition[]>` へ置換**。`NumberInputField` の blur 整形を `toFixed(2)` 固定から整数分岐へ |
+| `frontend/src/components/quantity-table/CalculationMethodSelect.tsx` | ローカルの `CALCULATION_METHOD_OPTIONS` を撤去し、新設の `utils/calculation-method.ts` から import |
+| `frontend/src/components/quantity-table/EditableQuantityItemRow.tsx` | **`handleCalculationMethodChange` で `resetParamsForMethod()` を適用**し、切替後の計算方法で使用しないパラメータキーを破棄する（REQ-48 AC1, AC2, AC7） |
+| `frontend/src/pages/quantityTableEditReducer.ts` | `CalculationMethod` 型に追随。新規項目のデフォルトは `STANDARD` のまま。計算方法変更のドラフト反映は既存の `onUpdate` 経路をそのまま使う |
+| `frontend/src/pages/QuantityTableEditPage.tsx` | **ネスト三項のラベル変換を `CALCULATION_METHOD_LABELS` 参照へ置換**（放置すると PDF に「ピッチ」と誤表示される） |
+| `frontend/src/hooks/useQuantityTableSave.ts` | `checkIntegrity` に COUNT の分岐を追加（計算パラメータ未設定の警告） |
 | `frontend/src/components/quantity-table/CalculationFields.stories.tsx` | **既存**。COUNT のストーリーを追加 |
 | `frontend/src/components/quantity-table/CalculationMethodSelect.stories.tsx` | **既存**。選択肢に「箇所数」が増えることへの追随 |
 | `frontend/src/components/quantity-table/EditableQuantityItemRow.stories.tsx` | **既存**。COUNT の行ストーリーを追加 |
@@ -366,7 +366,7 @@ sequenceDiagram
     M->>M: isOpen = false → Portal をアンマウント
 ```
 
-`scroll` を **capture フェーズ**で購読するのが要点である。`itemTableWrapper` のスクロールイベントは `window` までバブルしないため、capture: true を指定しない限り水平スクロールに追従できない（`AutocompleteInput.tsx:219-232` が同じ理由で同じ実装を採っている）。
+`scroll` を **capture フェーズ**で購読するのが要点である。`itemTableWrapper` のスクロールイベントは `window` までバブルしないため、capture: true を指定しない限り水平スクロールに追従できない（`AutocompleteInput.tsx` が同じ理由で同じ実装を採っている）。
 
 ### 数量計算フロー（面積・体積モード）
 
@@ -835,7 +835,7 @@ sequenceDiagram
 
 **フィールド順序**: 箇所数 → 長さ → 重量 → 調整係数 → 丸め設定
 
-**書式上の注意**: 既存の `NumberInputField`（`CalculationFields.tsx:178-272`）は blur 時に `numValue.toFixed(2)` を**無条件で適用**しており、数量表内に整数専用フィールドの前例が1つも存在しない。本設計では `FieldDefinition` と `NumberInputField` に `integer?: boolean` を追加し、`integer` が真のときのみ `parseInt` による整数整形と `inputMode="numeric"` を適用する。これにより既存の小数フィールドの挙動は一切変わらない。
+**書式上の注意**: 既存の `NumberInputField`（`CalculationFields.tsx`）は blur 時に `numValue.toFixed(2)` を**無条件で適用**しており、数量表内に整数専用フィールドの前例が1つも存在しない。本設計では `FieldDefinition` と `NumberInputField` に `integer?: boolean` を追加し、`integer` が真のときのみ `parseInt` による整数整形と `inputMode="numeric"` を適用する。これにより既存の小数フィールドの挙動は一切変わらない。
 
 ## Components and Interfaces
 
@@ -1907,8 +1907,8 @@ interface QuantityItemActionMenuProps {
 
 | ファイル | 変更内容 |
 |---------|---------|
-| `frontend/src/components/quantity-table/EditableQuantityItemRow.tsx` | `calculationFieldsRow` 別行 div（L602-616）を削除し、メイン行（L396-600）の操作セルの直右側に `<CalculationFields>` を inline 配置。行高さ 37px を維持するため `flex-direction: row` + 縦パディング縮小 |
-| `frontend/src/components/quantity-table/CalculationFields.tsx` | `container` / `fieldsGrid`（L85-95）を縦ペア grid から水平 flex（label + input ペアの連続配置）に変更。各 NumberInputField / AdjustmentField のラベル高さを 14px、入力高さを 22px に統一 |
+| `frontend/src/components/quantity-table/EditableQuantityItemRow.tsx` | `calculationFieldsRow` 別行 div を削除し、メイン行（`itemRow`）の操作セルの直右側に `<CalculationFields>` を inline 配置。行高さ 37px を維持するため `flex-direction: row` + 縦パディング縮小 |
+| `frontend/src/components/quantity-table/CalculationFields.tsx` | `container` / `fieldsGrid` を縦ペア grid から水平 flex（label + input ペアの連続配置）に変更。各 NumberInputField / AdjustmentField のラベル高さを 14px、入力高さを 22px に統一 |
 | `frontend/src/components/quantity-table/gridConstants.ts` | 計算用フィールド領域は Grid 内列ではなく Grid 外の inline 領域として扱う方針を定数コメントに記載 |
 | `frontend/src/components/quantity-table/QuantityGroupTitleRow.tsx` | 計算用フィールド専用タイトル列は追加しない（REQ-18 整合）。タイトル行はメイン列のみ |
 
@@ -2078,11 +2078,11 @@ interface QuantityGroupCardProps {
 
 | ファイル | 変更内容 |
 |---------|---------|
-| `frontend/src/components/quantity-table/QuantityGroupCard.tsx` | 表題部の並替ボタン（L631-643）と削除ボタン（L646-656）の間に「コピー」ボタンを追加。`onCopyGroup` / `isCopying` プロップを追加し、isCopying 中は disabled + スピナー表示 |
+| `frontend/src/components/quantity-table/QuantityGroupCard.tsx` | 表題部の並替ボタン（`onMoveUp` / `onMoveDown`）と削除ボタン（`onDelete`）の間に「コピー」ボタンを追加。`onCopyGroup` / `isCopying` プロップを追加し、isCopying 中は disabled + スピナー表示 |
 | `frontend/src/pages/QuantityTableEditPage.tsx` | `handleCopyGroup(groupId)` ハンドラを追加し `QuantityGroupCard` に配線。API 成功時に複製先グループをローカルステートに反映し、元グループの直下に挿入 |
 | `frontend/src/api/quantity-groups.ts`（新規 or 既存 API クライアントに追記） | `copyQuantityGroup(groupId): Promise<QuantityGroupInfo>` を追加（`POST /api/quantity-groups/:id/copy` を呼び出し） |
-| `backend/src/routes/quantity-groups.routes.ts` | `POST /:id/copy` ルートを追加（既存ファイル L127-700 に追記）。権限ミドルウェア `requirePermission('quantity_table:create')` を適用 |
-| `backend/src/services/quantity-group.service.ts` | `copy(groupId, actorId): Promise<QuantityGroupInfo>` メソッドを追加。`quantity-table.service.ts:910-1014` の copy パターンを参考に縮小実装 |
+| `backend/src/routes/quantity-groups.routes.ts` | `POST /:id/copy` ルートを追加（既存ファイルへ追記）。権限ミドルウェア `requirePermission('quantity_table:create')` を適用 |
+| `backend/src/services/quantity-group.service.ts` | `copy(groupId, actorId): Promise<QuantityGroupInfo>` メソッドを追加。`quantity-table.service.ts` の copy パターンを参考に縮小実装 |
 | `backend/src/schemas/quantity-table.schema.ts`（または分離ファイル） | リクエストボディは空のため新規スキーマ不要（ルート側で空オブジェクト許容） |
 
 **Implementation Notes**
@@ -2423,7 +2423,7 @@ interface SaveDraftItemInput {
 
 対処は CSS では成立しない。祖先に `overflow` が設定されている限り、子孫の `absolute` 要素は必ずクリップされるためである（`overflow: visible` へ戻すと REQ-41 の水平スクロールが壊れる）。**描画ツリーそのものをスクロール領域の外へ出す（Portal）以外に解はない。**
 
-**採用パターン（Build vs. Adopt）**: 同一画面の `AutocompleteInput.tsx:115-130, 186-232, 433-479` が、**まったく同一の根本原因**（`itemTableWrapper` の overflow による候補リストのクリップ）を Portal 化で解決済みである（PR #647 / `e6d7edd`、実装コメントに「REQ-41 回帰」として経緯が記録されている）。本設計はこの検証済みパターンをそのまま踏襲し、新しい抽象は導入しない。
+**採用パターン（Build vs. Adopt）**: 同一画面の `AutocompleteInput.tsx` が、**まったく同一の根本原因**（`itemTableWrapper` の overflow による候補リストのクリップ）を Portal 化で解決済みである（PR #647 / `e6d7edd`、実装コメントに「REQ-41 回帰」として経緯が記録されている）。本設計はこの検証済みパターンをそのまま踏襲し、新しい抽象は導入しない。
 
 ##### State Management
 
@@ -2434,9 +2434,9 @@ interface SaveDraftItemInput {
 
 **Implementation Notes**
 
-- 描画: `createPortal(<div role="menu" style={{ ...styles.dropdown, top: dropdownRect.top, left: dropdownRect.left }} />, document.body)`。`styles.dropdown` は `position: 'fixed'`, `zIndex: 1000`（`QuantityTableEditPage.tsx:70-73` の sticky ヘッダーが `zIndex: 50` のため、これを上回る必要がある — REQ-46 AC7）
-- **閉じ判定の方式変更（重要）**: 現行は `QuantityItemActionMenu.tsx:175-183` と `EditableQuantityItemRow.tsx:417-424` が**二重に `onBlur` → `onClose`** を張り、`relatedTarget` が自要素の内側かで判定している。Portal 化すると DOM ツリーが分離するため **`relatedTarget` の内外判定が成立しなくなり、この方式は必ず壊れる**。`document.addEventListener('mousedown', ...)` + `containerRef.contains(target)` によるアウトサイドクリック判定＋Escape キーへ移行し、`EditableQuantityItemRow` 側の二重 `onBlur` は撤去する。参照実装は `estimate-requests/LineItemEditor.tsx:1020-1041`
-- Portal 先のメニュー項目クリックでボタンの blur が先行しないよう、項目には `onMouseDown={(e) => e.preventDefault()}` を付与する（`AutocompleteInput.tsx:468` と同じ理由）
+- 描画: `createPortal(<div role="menu" style={{ ...styles.dropdown, top: dropdownRect.top, left: dropdownRect.left }} />, document.body)`。`styles.dropdown` は `position: 'fixed'`, `zIndex: 1000`（`QuantityTableEditPage.tsx` の sticky ヘッダーが `zIndex: 50` のため、これを上回る必要がある — REQ-46 AC7）
+- **閉じ判定の方式変更（重要）**: 現行は `QuantityItemActionMenu.tsx` と `EditableQuantityItemRow.tsx` が**二重に `onBlur` → `onClose`** を張り、`relatedTarget` が自要素の内側かで判定している。Portal 化すると DOM ツリーが分離するため **`relatedTarget` の内外判定が成立しなくなり、この方式は必ず壊れる**。`document.addEventListener('mousedown', ...)` + `containerRef.contains(target)` によるアウトサイドクリック判定＋Escape キーへ移行し、`EditableQuantityItemRow` 側の二重 `onBlur` は撤去する。参照実装は `estimate-requests/LineItemEditor.tsx`
+- Portal 先のメニュー項目クリックでボタンの blur が先行しないよう、項目には `onMouseDown={(e) => e.preventDefault()}` を付与する（`AutocompleteInput.tsx` と同じ理由）
 - Risks: 閉じ挙動（REQ-36 AC9 / REQ-46 AC8）のデグレが最大のリスク。単体テストで outside-click / Escape / 項目選択後クローズの3経路を固定する
 
 ### 計算方法「箇所数」（REQ-47）
@@ -2448,7 +2448,7 @@ interface SaveDraftItemInput {
 | Intent | 計算方法の表示順・表示ラベル・選択肢を単一情報源として提供し、値の追加漏れを型エラーとして検出させる |
 | Requirements | 47.1, 47.17 |
 
-**新設の根拠（Generalization）**: 計算方法のラベルは現在2箇所に独立して存在し、いずれも**型エラーを出さずに壊れる**。`CalculationMethodSelect.tsx:45-49` の `CALCULATION_METHOD_OPTIONS` は配列のため値の追加を型的に強制されず、`QuantityTableEditPage.tsx:1177-1182` のネスト三項は最終 else が `'ピッチ'` 固定のため、**新方式が PDF 上で「ピッチ」と誤表示される**（`QuantityTablePdfExportService.ts:37` は `calculationMethod: string` を受けるだけなので型でも検出されない）。`Record<CalculationMethod, string>` へ集約すれば、ユニオン型に値を足した時点で両方がコンパイルエラーになる。
+**新設の根拠（Generalization）**: 計算方法のラベルは現在2箇所に独立して存在し、いずれも**型エラーを出さずに壊れる**。`CalculationMethodSelect.tsx` の `CALCULATION_METHOD_OPTIONS` は配列のため値の追加を型的に強制されず、`QuantityTableEditPage.tsx` のネスト三項は最終 else が `'ピッチ'` 固定のため、**新方式が PDF 上で「ピッチ」と誤表示される**（`QuantityTablePdfExportService.ts` は `calculationMethod: string` を受けるだけなので型でも検出されない）。`Record<CalculationMethod, string>` へ集約すれば、ユニオン型に値を足した時点で両方がコンパイルエラーになる。
 
 ##### Service Interface
 
@@ -2494,7 +2494,7 @@ export const CALCULATION_METHOD_OPTIONS: readonly CalculationMethodOption[] =
 
 **Responsibilities & Constraints**
 
-- 「箇所数」はピッチの**箇所数算出部分のみ**を手入力に置き換えたものである。調整係数の適用と丸め処理は `calculate()` の共通経路（`frontend/src/utils/calculation-engine.ts:184-255`）を通るため、REQ-47 AC7（ピッチと同一の挙動）は**構造的に保証される**（分岐は `rawValue` の算出方法のみ）。
+- 「箇所数」はピッチの**箇所数算出部分のみ**を手入力に置き換えたものである。調整係数の適用と丸め処理は `calculate()` の共通経路（`frontend/src/utils/calculation-engine.ts`）を通るため、REQ-47 AC7（ピッチと同一の挙動）は**構造的に保証される**（分岐は `rawValue` の算出方法のみ）。
 - 数量を確定するのはフロントエンドのみである（backend の `CalculationEngine` はプロダクションコードから未 import）。ただし既存のユニットテスト資産と実装の対称性を維持するため、backend 側にも同一ロジックを追加する。
 
 ##### Service Interface
@@ -2527,7 +2527,7 @@ export function calculateCount(params: CountParams): {
 **Implementation Notes**
 
 - 計算式文字列: `generateCountFormula()` は `5 x 2.5 x 1.5 = 18.75` の形式で生成する（既存 `generatePitchFormula()` の書式に揃える。同関数は `toFixed` を使わず素の値を埋め込むため、小数2桁で揃えない。小数2桁は入力フィールドの**表示整形**の話であり、計算式文字列とは別物）
-- switch 分岐: `frontend/src/utils/calculation-engine.ts:222-241` と `backend/src/services/calculation-engine.ts:203-221` の双方に `case COUNT` を追加する
+- switch 分岐: `frontend/src/utils/calculation-engine.ts` と `backend/src/services/calculation-engine.ts` の双方に `case COUNT` を追加する
 
 #### CalculationFields（フィールド定義の Record 化と整数入力）
 
@@ -2538,7 +2538,7 @@ export function calculateCount(params: CountParams): {
 
 **Responsibilities & Constraints**
 
-- 現行の `CalculationFields.tsx:440` は `method === 'AREA_VOLUME' ? AREA_VOLUME_FIELDS : PITCH_FIELDS` という**二値の三項演算子**であり、第4の計算方法を追加すると **`STANDARD` 以外はすべて `PITCH_FIELDS` に無言でフォールバックする**。`Record` 化は「足すだけでは直らない」ため必須の変更である。
+- 現行の `CalculationFields.tsx` は `method === 'AREA_VOLUME' ? AREA_VOLUME_FIELDS : PITCH_FIELDS` という**二値の三項演算子**であり、第4の計算方法を追加すると **`STANDARD` 以外はすべて `PITCH_FIELDS` に無言でフォールバックする**。`Record` 化は「足すだけでは直らない」ため必須の変更である。
 
 ##### Service Interface
 
@@ -2568,7 +2568,7 @@ const FIELDS_BY_METHOD: Record<Exclude<CalculationMethod, 'STANDARD'>, FieldDefi
 
 **Implementation Notes**
 
-- `NumberInputField`（同ファイル内のローカルサブコンポーネント、`:178-272`）に `integer?: boolean` を追加する。**`toFixed(2)` は blur 時だけでなく、`useState` の初期値（`:197`）と props 同期時（`:205`）の計3箇所で無条件に適用されている**。3箇所すべてを整数分岐にしないと、保存・再読み込み後に箇所数が「5.00」と表示され REQ-47 AC15 / REQ-14 AC6 を満たさない。`integer` が真のときのみ `String(parseInt(raw, 10))` で整形し、`inputMode` を `"numeric"` にする。既存の小数フィールドの挙動は変更しない
+- `NumberInputField`（`frontend/src/components/quantity-table/CalculationFields.tsx` 内のローカルサブコンポーネント）に `integer?: boolean` を追加する。**`toFixed(2)` は blur 時だけでなく、`useState` の初期値と props 同期時の計3箇所で無条件に適用されている**。3箇所すべてを整数分岐にしないと、保存・再読み込み後に箇所数が「5.00」と表示され REQ-47 AC15 / REQ-14 AC6 を満たさない。`integer` が真のときのみ `String(parseInt(raw, 10))` で整形し、`inputMode` を `"numeric"` にする。既存の小数フィールドの挙動は変更しない
 - `resetParamsForMethod()` と `PARAM_KEYS_BY_METHOD` はいずれも `utils/calculation-method.ts`（CalculationMethodRegistry）に置き、`EditableQuantityItemRow` は消費するのみとする（単体テストの対象を1箇所に定める）
 - Validation: 整数以外・範囲外は入力を拒否しエラー表示（REQ-47 AC10, AC11）
 - Risks: `toFixed(2)` の分岐を誤ると既存の面積・体積／ピッチの表示書式が壊れる。`CalculationFields.test.tsx` で既存2方式の書式を回帰テストとして固定する
@@ -2581,10 +2581,10 @@ const FIELDS_BY_METHOD: Record<Exclude<CalculationMethod, 'STANDARD'>, FieldDefi
 
 **問題の連鎖**:
 
-1. `EditableQuantityItemRow.tsx:292-312` の `handleCalculationMethodChange` は `calculationMethod` を差し替えるだけで、**`calculationParams` をクリアしない**
-2. `CalculationFields.tsx:402-408` の `handleFieldChange` は `{ ...params, [fieldKey]: value }` と**既存キーを spread する**
+1. `EditableQuantityItemRow.tsx` の `handleCalculationMethodChange` は `calculationMethod` を差し替えるだけで、**`calculationParams` をクリアしない**
+2. `CalculationFields.tsx` の `handleFieldChange` は `{ ...params, [fieldKey]: value }` と**既存キーを spread する**
 3. 結果、「ピッチ」→「箇所数」へ切り替えて箇所数を入力すると、`calculationParams` は `{rangeLength, endLength1, endLength2, pitchLength, count}` という**混合状態**になる
-4. `quantity-table.schema.ts:305-317` の `calculationParamsSchema` は素の `z.union` であり、**パラメータの形状から計算方法を推測する**。`pitchParamsSchema` は必須4キーが揃っているため**正当にマッチし、`count` を strip する**
+4. `quantity-table.schema.ts` の `calculationParamsSchema` は素の `z.union` であり、**パラメータの形状から計算方法を推測する**。`pitchParamsSchema` は必須4キーが揃っているため**正当にマッチし、`count` を strip する**
 
 **実測結果**（プロジェクトの zod で再現）:
 
@@ -2637,7 +2637,7 @@ const withCalculationParams = <T extends z.ZodTypeAny>(itemSchema: T) =>
   });
 ```
 
-- 適用先: `createQuantityItemSchema` / `updateQuantityItemSchema`（`quantity-items.routes.ts` が参照）および `saveDraftItemSchema`（`quantity-tables.routes.ts:162-180`）
+- 適用先: `createQuantityItemSchema` / `updateQuantityItemSchema`（`quantity-items.routes.ts` が参照）および `saveDraftItemSchema`（`quantity-tables.routes.ts`）
 - Invariants: 永続化される `calculationParams` は、必ずその行の `calculationMethod` に対応するキーのみを持つ
 
 **(B) frontend: 計算方法切替時に有効キーのみを残す**
@@ -2667,13 +2667,13 @@ function resetParamsForMethod(
 ```
 
 - 切替直後は新方式の必須パラメータが未入力になるため、`calculate()` は例外を投げ、既存の `catch` により数量は更新されない（REQ-48 AC7）。旧パラメータを流用した誤った数量が表示されることはない
-- リセット処理の置き場: `handleCalculationMethodChange`（`EditableQuantityItemRow.tsx:292-312`）。ドラフト状態への反映は既存の `onUpdate` 経路（`quantityTableEditReducer.ts`）を通る
+- リセット処理の置き場: `handleCalculationMethodChange`（`EditableQuantityItemRow.tsx`）。ドラフト状態への反映は既存の `onUpdate` 経路（`quantityTableEditReducer.ts`）を通る
 
 **Implementation Notes**
 
 - **回帰テスト必須**: `quantity-table.schema.test.ts` に、混合状態のパラメータ（ピッチ4キー＋`count`）を `calculationMethod: 'COUNT'` で検証すると `count` が保持され、ピッチのキーが破棄されることを確認するテストを追加する。同様に `calculationMethod: 'AREA_VOLUME'` で `width` が保持されることも確認する（既存バグの回帰テスト）
-- `quantity-tables.routes.ts:173` の一括保存スキーマは `CALCULATION_METHODS` を参照せず `z.enum(['STANDARD','AREA_VOLUME','PITCH'])` を**ハードコード**している。ここを更新しないと「箇所数」の保存が 400 で失敗する。再発防止のため `CALCULATION_METHODS` 参照へ置換する
-- `quantity-validation.service.ts:121-133` の switch には **`default` 節が無く、未知モードが無検証で `isValid: true` を返す**。`case 'COUNT'` と `validateCountMode()` を追加すると同時に、`default` 節で明示的にバリデーションエラーを返すよう変更し、将来の追加漏れを fail-fast にする
+- `quantity-tables.routes.ts` の一括保存スキーマは `CALCULATION_METHODS` を参照せず `z.enum(['STANDARD','AREA_VOLUME','PITCH'])` を**ハードコード**している。ここを更新しないと「箇所数」の保存が 400 で失敗する。再発防止のため `CALCULATION_METHODS` 参照へ置換する
+- `quantity-validation.service.ts` の switch には **`default` 節が無く、未知モードが無検証で `isValid: true` を返す**。`case 'COUNT'` と `validateCountMode()` を追加すると同時に、`default` 節で明示的にバリデーションエラーを返すよう変更し、将来の追加漏れを fail-fast にする
 - 既存の `calculationParamsSchema`（形状推測の union）は、(A) の導入後は**参照元が無くなる**。削除するか、後方互換のためにエクスポートを残す場合は「新規コードでは使用しない」旨をコメントで明記する
 
 ## Data Models
@@ -3103,7 +3103,7 @@ enum CalculationMethod {
 
 **Impact（既存前提の是正）**: 本要件が対象とする経路のうち2点は是正済みである。
 
-1. 数量グループ表題部が縮小表示に原本画像を読み込んでいた（`QuantityGroupCard.tsx:832`）。**是正済み**。サムネイルを渡し `preferThumbnail` を指定する。
+1. 数量グループ表題部が縮小表示に原本画像を読み込んでいた（`QuantityGroupCard.tsx`）。**是正済み**。サムネイルを渡し `preferThumbnail` を指定する。
 2. 数量表詳細APIが `annotatedThumbnailUrl` を署名付きURLへ変換せず `/api/storage/<path>` の内部パスのまま返していた（`quantity-tables.routes.ts` の `enrichQuantityTableSignedUrls`）。当該パスは配信されないため、合成済みサムネイルは表示に使えずクライアント合成へ退行していた。**是正済み**。
 
 残る差分は、拡大表示が原本を取得しないこと（49.7）、表示領域外の取得抑止（49.8）、写真選択ダイアログの一括取得（49.9）である。
@@ -3164,11 +3164,11 @@ enum CalculationMethod {
 ### 設計合成（Design Decisions）
 
 - **Generalization**: 49.2・49.3・49.8 はいずれも「表示元の選択と取得タイミング」という単一の関心であり、共有コンポーネント `AnnotatedImageThumbnail` が既に所管している。数量表側で独自の遅延読み込みを実装せず、**同コンポーネントが観測を成立させるために必要な入力（実寸）を供給する**ことに作業を絞る。
-- **Build vs Adopt（Adopt）**: 拡大表示の注釈反映は、注釈ビューア（`QuantityTableEditPage.tsx:1814-1826`）が既に採っている「原本画像＋クライアント合成」方式を採用する。`PhotoPreviewDialog` の `annotatedThumbnailUrl || originalUrl` は、合成済みサムネイル（縮小解像度）を拡大表示に用いるため 49.7 を満たさない。
+- **Build vs Adopt（Adopt）**: 拡大表示の注釈反映は、注釈ビューア（`QuantityTableEditPage.tsx`）が既に採っている「原本画像＋クライアント合成」方式を採用する。`PhotoPreviewDialog` の `annotatedThumbnailUrl || originalUrl` は、合成済みサムネイル（縮小解像度）を拡大表示に用いるため 49.7 を満たさない。
 - **Build vs Adopt（Adopt）**: 新規エンドポイントの権限検証と署名付きURL生成は `SignedUrlService` / `ImageListService` の既存規約を採用する。プロジェクト単位の権限判定は `SignedUrlService` が内部に持つプロジェクト判定を公開して用い、判定基準を複製しない。
 - **Simplification**: 写真一覧の取得を「現場調査一覧の取得 → 各現場調査の詳細取得」の2段構えから、1エンドポイントの1リクエストへ置き換える。中間の現場調査詳細は写真収集のためだけに取得されており、他の情報は使われていない。
-- **選択対象を注釈付き写真のみへ絞る（設計レビューでの是正）**: Requirement 4.3 / 19.2 は選択対象を「同一プロジェクトの注釈付き現場写真一覧（注釈エディタで編集済みの画像）」と定めているが、現行実装（`QuantityTableEditPage.tsx:1715-1740`）は絞り込みを行わず全写真を描画し、注釈ありにバッジを付けるのみである。**要件どおりサーバー側で注釈付きのみへ絞る**ことにより、応答件数と通信量が要件の範囲へ収まり、上限到達の可能性も大きく下がる。要件を変更せず実装を要件へ寄せる方向であり、変更範囲が最小となる。
-- **Simplification（設計レビューでの是正）**: 一覧が返す表示用の署名付きURLを1件あたり1本（`displayUrl`）に統一する。当初は `thumbnailUrl` / `annotatedThumbnailUrl` / `originalUrl` の3本を返す設計だったが、R2 実装（`r2-storage.provider.ts:188`）の SigV4 presigned URL は1本あたり数百バイト規模であり、件数に比例して応答が肥大する。Requirement 49 の Objective は「件数**と通信量**」を対象としており、件数削減と引き換えに通信量を増やす設計は目的の半分しか満たさない。優先順位の解決をサーバー側へ寄せることで、呼び出し側の分岐も不要になる。
+- **選択対象を注釈付き写真のみへ絞る（設計レビューでの是正）**: Requirement 4.3 / 19.2 は選択対象を「同一プロジェクトの注釈付き現場写真一覧（注釈エディタで編集済みの画像）」と定めているが、現行実装（`QuantityTableEditPage.tsx`）は絞り込みを行わず全写真を描画し、注釈ありにバッジを付けるのみである。**要件どおりサーバー側で注釈付きのみへ絞る**ことにより、応答件数と通信量が要件の範囲へ収まり、上限到達の可能性も大きく下がる。要件を変更せず実装を要件へ寄せる方向であり、変更範囲が最小となる。
+- **Simplification（設計レビューでの是正）**: 一覧が返す表示用の署名付きURLを1件あたり1本（`displayUrl`）に統一する。当初は `thumbnailUrl` / `annotatedThumbnailUrl` / `originalUrl` の3本を返す設計だったが、R2 実装（`r2-storage.provider.ts`）の SigV4 presigned URL は1本あたり数百バイト規模であり、件数に比例して応答が肥大する。Requirement 49 の Objective は「件数**と通信量**」を対象としており、件数削減と引き換えに通信量を増やす設計は目的の半分しか満たさない。優先順位の解決をサーバー側へ寄せることで、呼び出し側の分岐も不要になる。
 - **Simplification**: 上限は件数のみで表現し、ページングを導入しない。注釈付きのみへ絞ったことで想定件数が大きく下がるため、既定200・最大500とする。現行実装は現場調査を先頭100件までしか見ておらず既に暗黙の上限がある。上限を応答で明示することで、暗黙の切り捨てを可視化する。
 - **Rejected**: 数量表側で `useInViewport` を直接使い `QuantityGroupCard` の描画自体を遅延させる案。遅延読み込みの実装が2箇所に分かれ、同じ問題への対処が重複する。design.md の境界（取得タイミングは共有コンポーネントの所管）にも反する。
 - **Rejected**: 既存の現場調査一覧APIへ `includeImages` クエリを追加する案。同APIは一覧表示用に代表画像1枚のURLのみを返す設計であり、全画像を返す責務を持ち込むと応答形状が用途によって変わる。

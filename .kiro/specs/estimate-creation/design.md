@@ -2381,7 +2381,7 @@ function buildTargetOptions(items: EstimateItemHierarchy[], depth: number = 0): 
 | Requirements | 31.1, 31.2 |
 
 **現状分析**:
-- 既存のNetAllocationDialogは受領見積書の合計金額とNET金額の表示を実装済み（コード行377, 399-417に確認済み）
+- 既存のNetAllocationDialogは受領見積書の合計金額とNET金額の表示を実装済み（`quotationTotalAmount` の表示部と NET 金額の表示部で確認済み）
 - `quotationTotalAmount`と受領見積書入力値のNET金額が表示されている
 
 **変更点**:
@@ -2534,7 +2534,7 @@ const LINE_TYPE_COLUMNS = {
 | Requirements | 33.1, 33.2, 33.3 |
 
 **現状分析**:
-- NetAllocationDialog（`frontend/src/components/estimate/NetAllocationDialog.tsx`）は案分対象行をチェックボックス付きリストで表示（Line 319-353）
+- NetAllocationDialog（`frontend/src/components/estimate/NetAllocationDialog.tsx`）は案分対象行をチェックボックス付きリストで表示（`selectedLineIds` を持つチェックボックスリスト）
 - 現在は個別行の金額のみ表示し、合計金額の表示がない
 - `targetLines`はuseMemoで業者名によりフィルタ済み
 - `excludeLineIds`で除外行を管理
@@ -2586,7 +2586,7 @@ const selectedLinesTotal = useMemo(() => {
 | Requirements | 31.1, 31.2 |
 
 **現状分析**:
-- NetAllocationDialog（Line 356-419）は受領見積書の合計金額とNET金額を横並び（grid 2列）で表示
+- NetAllocationDialog（`frontend/src/components/estimate/NetAllocationDialog.tsx`）の金額表示部は受領見積書の合計金額とNET金額を横並び（grid 2列）で表示
 - `gridTemplateColumns: hasNetAmount ? 'repeat(2, 1fr)' : '1fr'` で制御
 
 **変更点**:
@@ -2623,12 +2623,12 @@ const selectedLinesTotal = useMemo(() => {
 **根本原因**:
 
 1. **追加・削除が保存されない（REQ-34.1, 34.2, 34.4）**:
-   - `EstimateDetailPage.tsx`の`onSave`コールバック（Line 419-457）が`change.type === 'update'`のみ処理
+   - `EstimateDetailPage.tsx`の`onSave`コールバックが`change.type === 'update'`のみ処理
    - `change.type === 'add'`（新規追加）と`change.type === 'delete'`（削除）が完全に無視されている
    - フロントエンドAPI（`frontend/src/api/estimates.ts`）に見積項目の個別作成・削除関数が存在しない
 
 2. **編集内容が保存されない（REQ-34.3）**:
-   - `useEstimateEditor.ts`の`updateLine`メソッド（Line 504-549）で、`recordChange`呼び出し時にReactの`items`ステートのクロージャ参照がステール（古い状態）
+   - `useEstimateEditor.ts`の`updateLine`メソッドで、`recordChange`呼び出し時にReactの`items`ステートのクロージャ参照がステール（古い状態）
    - `setItems`はコールバック形式で最新の`prevItems`を使用するが、`recordChange`に渡す`item`は`findItemById(items, itemId)`で取得しており、`items`はクロージャ内の古い値
    - 結果として、変更データが常に1つ前の編集状態で記録される
 
@@ -2805,10 +2805,10 @@ const updateLine = useCallback(
 | Requirements | 35.1, 35.2, 35.3 |
 
 **現状分析**:
-- `TransferQuotationDialog.tsx`（Line 366-372）のドロップダウンは `{q.name} ({formatAmount(q.totalAmount)})` 形式で表示
+- `TransferQuotationDialog.tsx` のドロップダウンは `{q.name} ({formatAmount(q.totalAmount)})` 形式で表示
 - `ReceivedQuotationInfo`には`name`（見積書名）と`totalAmount`（合計金額）があるが、協力業者名（`tradingPartnerName`）は含まれていない
-- `findByProjectId`（`received-quotation.service.ts` Line 511-532）は`estimateRequest`をincludeしていないため、`tradingPartnerName`が取得できない
-- 明細行のチェックボックスはデフォルトで未選択状態（Line 240: `useState<string[]>([])`）
+- `findByProjectId`（`received-quotation.service.ts`）は`estimateRequest`をincludeしていないため、`tradingPartnerName`が取得できない
+- 明細行のチェックボックスはデフォルトで未選択状態（`useState<string[]>([])` の初期値）
 
 **変更点**:
 
@@ -2914,7 +2914,7 @@ const handleQuotationChange = useCallback(
 **現状分析**:
 - `NetAllocationDialog.tsx`は対象業者選択時に業者金額行一覧を表示
 - NET金額入力フィールドは手入力のみ
-- `ReceivedQuotationInfo`には`netAmount`フィールドが存在する（`received-quotations.ts` Line 80）
+- `ReceivedQuotationInfo`には`netAmount`フィールドが存在する（`received-quotations.ts`）
 - ダイアログは`getReceivedQuotationsByProject`で受領見積書一覧を取得済み
 
 **変更点**:
@@ -3088,7 +3088,7 @@ function hasLineData(line: EstimateItemLine): boolean {
 | Requirements | 39.1-39.9 |
 
 **現状分析**:
-- `EstimateDetailPage.tsx`（Line 788-825）のサマリーパネルは以下を表示:
+- `EstimateDetailPage.tsx` のサマリーパネルは以下を表示:
   - 見積金額合計、実行金額合計、業者金額合計、利益率、値引率
 - REQ-39では値引額・利益額を追加し、表示順序を変更する
 - 現在の利益率計算式は「見積金額合計÷実行金額合計」だが、REQ-39.8では「利益額÷見積金額合計」に変更
@@ -3490,8 +3490,8 @@ async function addDiscountItem(
 #### 1. 単一行項目の不変条件（REQ-41.3）
 
 - **不変条件**: `itemType === 'DISCOUNT'` の `EstimateItem` は **ESTIMATE 行をちょうど1行のみ** 保持し、EXECUTION/VENDOR 行を持たない。
-- **全行走査コードは行欠落を許容する**: `EstimateItemRow` の `LINE_TYPE_ORDER.map(type => lines.find(...))`（現行 379-383行付近）は `undefined` を生むため、フィルタ前に `undefined` を除外する（`sortedLines.filter((line): line is EstimateItemLineEdit => line !== undefined)`）。値引き行は ESTIMATE 行のみを描画する。
-- **再計算時の行再合成を禁止**: `useEstimateEditor` の階層再計算（現行 356-390行付近で3行を再構築する処理）および編集・保存処理は、`DISCOUNT` 項目に対して EXECUTION/VENDOR 行を新規生成してはならない。階層再計算は親項目（子を持つ STANDARD 項目）のみを対象とし、値引き行はルートのリーフ項目として行構成を維持する。
+- **全行走査コードは行欠落を許容する**: `EstimateItemRow` の `LINE_TYPE_ORDER.map(type => lines.find(...))`（`frontend/src/components/estimate/EstimateItemRow.tsx` の `sortedLines` 生成箇所）は `undefined` を生むため、フィルタ前に `undefined` を除外する（`sortedLines.filter((line): line is EstimateItemLineEdit => line !== undefined)`）。値引き行は ESTIMATE 行のみを描画する。
+- **再計算時の行再合成を禁止**: `useEstimateEditor` の階層再計算（`frontend/src/hooks/useEstimateEditor.ts` の3行を再構築する処理）および編集・保存処理は、`DISCOUNT` 項目に対して EXECUTION/VENDOR 行を新規生成してはならない。階層再計算は親項目（子を持つ STANDARD 項目）のみを対象とし、値引き行はルートのリーフ項目として行構成を維持する。
 - **保存往復の保証**: 追加→保存→再読込の往復後も DISCOUNT 項目が ESTIMATE 1行のままであること（REQ-34 整合）を Integration/E2E で検証する。
 
 #### 2. バッチ保存での itemType 伝播（REQ-41.2, REQ-34.3）
@@ -3579,11 +3579,11 @@ async function addDiscountItem(
 
 | 観点 | 現状 | 本改訂での扱い |
 |---|---|---|
-| 編集状態 | `useEstimateEditor.ts`(871行) の `useState` ＋ `pendingChanges: Map`。純粋関数でない | 純粋 reducer へ置換。Undo/Redo の前提を満たす |
-| 保存 | 追加は直列POST、削除は個別DELETE、更新は `PUT /items/batch`。`updatedAt` を読み捨て（`estimates.routes.ts:1021`） | 単一の保存エンドポイントへ集約 |
-| 並び順 | クライアントが採番。`moveItem` は再採番しない（`estimate-item.service.ts:494-539`） | サーバーが受領配列順で再採番 |
-| 更新クエリ | ループUPDATE（`:584-588`, `:631-654`）で明細100件=最大300UPDATE | 一括UPDATEへ |
-| 転記系 | 5経路がサーバー書き込み＋`Estimate.updatedAt` 更新 | 計算のみ／書き込みなしへ。`POST /:id/calculate-overhead`（`:1701`）が同型の先例 |
+| 編集状態 | `useEstimateEditor.ts`（当時 871 行のファイル）の `useState` ＋ `pendingChanges: Map`。純粋関数でない | 純粋 reducer へ置換。Undo/Redo の前提を満たす |
+| 保存 | 追加は直列POST、削除は個別DELETE、更新は `PUT /items/batch`。`updatedAt` を読み捨て（`estimates.routes.ts`） | 単一の保存エンドポイントへ集約 |
+| 並び順 | クライアントが採番。`moveItem` は再採番しない（`estimate-item.service.ts`） | サーバーが受領配列順で再採番 |
+| 更新クエリ | ループUPDATE（`backend/src/services/estimate-item.service.ts` の `reorderItems` / `batchUpdateItems`）で明細100件=最大300UPDATE | 一括UPDATEへ |
+| 転記系 | 5経路がサーバー書き込み＋`Estimate.updatedAt` 更新 | 計算のみ／書き込みなしへ。`POST /:id/calculate-overhead`（`backend/src/routes/estimates.routes.ts`）が同型の先例 |
 | 帳票 | バックエンド `estimate-export.service.ts`。**日本語フォント未埋め込み**、A4縦、5列、罫線なし | フロントエンドへ移設。既存4サービスを再利用 |
 | 階層 | `parentId` 隣接リストのみ。`level`/`path` なし | 維持。深さ・経路はクライアント算出＋メモ化 |
 
@@ -3694,7 +3694,7 @@ graph TB
 | Frontend 帳票(PDF) | `jspdf ^4.0.0` ＋ 既存 `PdfFontService` | 日本語埋め込みと罫線描画 | Noto Sans JP（バイナリ 2,255,812 bytes）は既存資産。追加調達なし |
 | Frontend 帳票(Excel) | `xlsx@0.20.3`（SheetJS） | 表計算出力 | **セル単位の罫線を書き出せない**ため 52.14 により罫線は対象外 |
 | Frontend 計算 | `decimal.js` | 案分・利益率・集計 | クライアント・サーバー双方で既に使用中 |
-| Backend 保存 | Prisma 7 `$transaction` | 差分適用・一括UPDATE | `quantity-table.service.ts:945` と同方式 |
+| Backend 保存 | Prisma 7 `$transaction` | 差分適用・一括UPDATE | `quantity-table.service.ts` と同方式 |
 | Data | PostgreSQL | `Estimate` 3列追加、`EstimateItemType` に `NOTE` 追加 | マイグレーション2件 |
 
 #### Dependency Direction（違反は実装レビューでエラー扱い）
@@ -3750,8 +3750,8 @@ prisma/migrations/
 
 #### Modified Files
 
-- `frontend/src/pages/EstimateDetailPage.tsx` — 即時API＋全件再取得の5経路（`:673`, `:723`, `:789`, `:843`, `:886`）を撤去し reducer ディスパッチへ置換。保存は1回のみ、保存後の `fetchData()` を撤去（`:801-805`）
-- `frontend/src/hooks/useEstimateEditor.ts` — `pendingChanges: Map` を廃止し reducer へ委譲。ドラッグ操作の非永続化（`:768-769`）を解消
+- `frontend/src/pages/EstimateDetailPage.tsx` — 即時API＋全件再取得の5経路を撤去し reducer ディスパッチへ置換。保存は1回のみ、保存後の `fetchData()` を撤去
+- `frontend/src/hooks/useEstimateEditor.ts` — `pendingChanges: Map` を廃止し reducer へ委譲。ドラッグ操作の非永続化を解消
 - `frontend/src/components/estimate/EstimateItemRow.tsx` — 注記行（`NOTE`）の描画分岐、範囲選択のハイライト
 - `frontend/src/api/estimates.ts` — `saveEstimateDraft` 追加、旧12関数の撤去
 - `backend/src/routes/estimates.routes.ts` — `PUT /:id/save` 追加。**撤去は段階ごとに分ける。代替実装が存在しないままエンドポイントを消してはならない**
@@ -4081,7 +4081,7 @@ type OverwriteOption = 'all' | 'empty_only' | 'unit_price_only';
 - Preconditions: `rows` は編集中ツリーから収集した値であること（保存済みの値を渡してはならない）
 - Postconditions: `roundMoney` は絶対値で小数第1位を四捨五入し符号を保持する（REQ-41対応節と同一規則）。比率算出時は合計ゼロを 0 として扱う。数量ゼロまたは未設定時は案分金額を単価とする
 - Invariants: `DISCOUNT` と `NOTE` の行は案分・利益率の対象に含めない（41.9, 55.4）
-- Implementation Notes: 現行のプレビュー実装（`NetAllocationDialog.tsx:234-259`）とサーバー実装（`estimates.routes.ts:1403-1461`）を本関数に統合する。移行時は両実装の出力一致を単体テストで固定してから差し替える
+- Implementation Notes: 現行のプレビュー実装（`NetAllocationDialog.tsx`）とサーバー実装（`estimates.routes.ts`）を本関数に統合する。移行時は両実装の出力一致を単体テストで固定してから差し替える
 
 ##### estimateKeymap
 
@@ -4115,7 +4115,7 @@ interface EstimateKeymap {
 
 - Implementation Notes:
   - **ブラウザ標準と衝突するキーは採用しない**（47.4）。参照モデルの F1（ヘルプ）等は使わず、階層移動は `Alt+↑` / `Alt+↓`、行挿入は `Alt+Insert`、範囲選択は `Shift+↑↓` を基準とする。確定値は本設計の実装時に `entries` として固定し、`EstimateKeymapHelp` が同じ定義を表示する（47.3）
-  - `resolve` はセル文字入力中（`cellEditing`）では行操作コマンドを返さない（47.5）。判定には既存 `isTextInputElement`（`useUndoKeyboardShortcuts.ts:45`）と同じロジックを共通ユーティリティとして切り出して用いる
+  - `resolve` はセル文字入力中（`cellEditing`）では行操作コマンドを返さない（47.5）。判定には既存 `isTextInputElement`（`useUndoKeyboardShortcuts.ts`）と同じロジックを共通ユーティリティとして切り出して用いる
   - `undo` / `redo` は既存の Ctrl/Cmd+Z、Ctrl/Cmd+Shift+Z、Ctrl+Y と同一割当を維持する
 
 #### Frontend Hooks
@@ -4246,7 +4246,7 @@ interface EstimatePdfExportService {
 - Preconditions: 日本語フォントの登録に成功していること
 - Postconditions: 生成失敗時はファイルを1つも返さず例外を投げる（**部分成功でダウンロードを始めない**）
 - Implementation Notes:
-  - `PdfFontService.initialize(doc)` を用い、**失敗時は helvetica へフォールバックせず例外にする**（10.8）。既存 `PdfReportService` のフォールバック挙動（`:725-728`, `:790-794`）は踏襲しない
+  - `PdfFontService.initialize(doc)` を用い、**失敗時は helvetica へフォールバックせず例外にする**（10.8）。既存 `PdfReportService` のフォールバック挙動（`frontend/src/services/export/PdfReportService.ts` の `generateSurveyReport` / `generateReport` が `initializePdfFonts` の失敗を捕らえて `doc.setFont('helvetica')` する箇所）は踏襲しない
   - 罫線は `QuantityTablePdfExportService` と同じ `doc.rect` / `doc.line` 方式を用いる（コードは共有せず方式を踏襲）
   - ダウンロードは既存 `PdfExportService.downloadPdf` を**ファイル数分呼び出す**（逐次ダウンロード、32.3）。zip 化は行わない
   - 表紙の描画は `ReportFileSpec.hasCoverPage === true` のファイルのみで実行する。実行金額・業者金額のファイルでは表紙描画をスキップする（51.16, 50.12）
@@ -4329,8 +4329,8 @@ interface SaveEstimateLine {
 - Invariants: 保存後の `displayOrder` は各兄弟スコープで 0 起点の連番
 
 **Implementation Notes**
-- Integration: 設計は `quantity-table.service.ts:945-1107` の `saveDraft` を参照元とするが、**コードは共有せず見積書用に独立実装する**（数量表への波及を避ける）
-- Validation: 配列長上限（明細総数）をスキーマで設ける。現行 `batchUpdateItemsSchema` に上限がない問題（`estimate.schema.ts:228-249`）を再発させない
+- Integration: 設計は `quantity-table.service.ts` の `saveDraft` を参照元とするが、**コードは共有せず見積書用に独立実装する**（数量表への波及を避ける）
+- Validation: 配列長上限（明細総数）をスキーマで設ける。現行 `batchUpdateItemsSchema` に上限がない問題（`estimate.schema.ts`）を再発させない
 - Transaction limits: `$transaction` に `timeout: 15000ms` / `maxWait: 5000ms` を明示する（Prisma 既定の 5000ms / 2000ms では上限件数で余裕が足りないため）。超過時は Prisma が `P2028` を投げ、全ロールバックのうえ「保存されていないこと」と原因が分かる 500 応答へ変換する（42.3）
 - Risks（解消済み。Task 57.6）: 明細件数が多い見積書での一括UPDATEの実行計画は実測で確認済み。上限は 2000 項目（＝6000明細行）を据え置く。上限いっぱいの最悪経路（全件新規）でトランザクション本体を計測した独立3ラン（各 n=20、ローカルDB）の観測最悪値は 4244 / 3919 / 3593ms、Task 57.2 の2ラン（3513 / 2733ms）と合わせて最悪 4244ms で、Prisma 既定 5000ms に対する余裕は 1.18 倍しかなかった。発行クエリ数は件数に依らず有界（新規経路10文、分割で最大+3）で `UPDATE` は常に2文のため、件数上限の引き下げではなく制限時間の明示（上記 Transaction limits）で対処する。上限を引き上げる場合は同じ最悪経路で再計測すること
 
