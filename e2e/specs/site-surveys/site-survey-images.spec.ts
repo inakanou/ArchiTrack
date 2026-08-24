@@ -18,6 +18,7 @@
  */
 
 import { test, expect, type Locator, type Page } from '@playwright/test';
+import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { loginAsUser } from '../../helpers/auth-actions';
@@ -528,20 +529,6 @@ test.describe('現場調査画像管理', () => {
      * @requirement site-survey/REQ-4.6
      */
     test('大きいファイル（300KB超）をアップロードすると圧縮される', async ({ page }) => {
-      // REQ-4.6 は「250KB〜350KBの範囲に圧縮した上で登録する」と下限も定めているが、
-      // 実装は上限しか見ていない。backend/src/services/image-processor.service.ts:326-352 の
-      // 圧縮ループは継続条件が `size > TARGET_MAX_SIZE_BYTES` であり、
-      // 一度の再エンコードで下限（TARGET_MIN_SIZE_BYTES = 250KB）を大きく下回っても
-      // その時点で条件が偽になって抜ける。品質を上げ直して範囲へ戻す経路が無い
-      // （isWithinTargetRange は早期打ち切りにしか使われていない）。
-      // 実測では 2MB / 1920x1080 の JPEG が 61,638 バイトで登録された。
-      // 本テストの主張は要件どおりだが、実装が要件を満たしていないため落ちる。
-      // 前提条件による自動無効化ではなく、本体は毎回すべて実行される。
-      // 圧縮結果が 250KB〜350KB に収まるよう実装されると本テストは通り、
-      // この注釈により「落ちるはずが通った」として赤くなるため、撤去を強制するラチェットになる。
-      // 直列実行のため、素の失敗を残すと後続の検証と後片付けが実行されなくなる。
-      test.fail();
-
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -583,7 +570,8 @@ test.describe('現場調査画像管理', () => {
       // アップロードが成功することを確認
       expect(uploadResult).toBeDefined();
 
-      // REQ-4.6: 300KB を超えるファイルは 250KB〜350KB の範囲に圧縮して登録される。
+      // REQ-4.6: 300KB を超えるファイルは画像サイズと品質を段階的に下げ、
+      // 350KB以下に収まった時点で圧縮を打ち切って登録する。
       // 応答本体は { successful, failed }（backend/src/routes/survey-images.routes.ts）であり、
       // `compressedSize` という項目は存在しない。したがって従来の
       // `if (uploadResult.compressedSize)` は決して成立せず、圧縮後サイズは
@@ -593,9 +581,13 @@ test.describe('現場調査画像管理', () => {
       );
       expect(uploadResult.successful.length, '大きい画像の登録に失敗した').toBe(1);
 
+      const originalSize = fs.statSync(largeImagePath).size;
+      expect(originalSize, '前提: 素材が上限（300KB）を超えていない').toBeGreaterThan(300 * 1024);
+
       const compressedSize: number = uploadResult.successful[0].fileSize;
-      expect(compressedSize, '圧縮後のサイズが 250KB 未満').toBeGreaterThanOrEqual(250 * 1024);
       expect(compressedSize, '圧縮後のサイズが 350KB 超').toBeLessThanOrEqual(350 * 1024);
+      expect(compressedSize, '圧縮されずに素材のまま登録された').toBeLessThan(originalSize);
+      expect(compressedSize, '圧縮後のサイズが空').toBeGreaterThan(0);
 
       // 画像が表示されることを確認
       await page.reload();

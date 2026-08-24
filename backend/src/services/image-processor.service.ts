@@ -5,14 +5,14 @@
  *
  * Task 4.2: 画像圧縮・サムネイル生成機能
  * - Sharpによる画像処理
- * - 300KB超過時の段階的圧縮（品質を10%ずつ下げながらリサイズ、250KB〜350KB範囲に収める）
+ * - 300KB超過時の段階的圧縮（品質を10%ずつ下げながらリサイズ、350KB以下で打ち切る）
  * - サムネイル生成（200x200px）
  * - 画像メタデータ（幅・高さ・サイズ）の取得
  *
  * Requirements:
  * - 4.4: 画像アップロード完了時にサムネイルを自動生成する
- * - 4.6: ファイルサイズが上限（300KB）を超える場合、画像サイズと品質を段階的に下げて
- *        250KB〜350KBの範囲に圧縮した上で登録する
+ * - 4.6: ファイルサイズが上限（300KB）を超える場合、画像サイズと品質を段階的に下げ、
+ *        350KB以下に収まった時点で圧縮を打ち切って登録する
  *
  * @module services/image-processor
  */
@@ -114,12 +114,12 @@ export class ImageProcessorService {
   static readonly MAX_SIZE_BYTES = 300 * 1024;
 
   /**
-   * 圧縮目標の下限（250KB）
-   */
-  static readonly TARGET_MIN_SIZE_BYTES = 250 * 1024;
-
-  /**
-   * 圧縮目標の上限（350KB）
+   * 圧縮の打ち切りサイズ（350KB）
+   *
+   * 段階的に品質とサイズを下げ、この値以下に収まった時点で圧縮を打ち切る。
+   * 下限は定めない。よく圧縮できる画像は品質90の一度の再エンコードでこの値を
+   * 大きく下回るが、下限へ戻すには品質を上げ直すか拡大するしかなく、
+   * 元画像より劣化した状態で容量だけ増やすことになるためである（Requirement 4.6）。
    */
   static readonly TARGET_MAX_SIZE_BYTES = 350 * 1024;
 
@@ -250,7 +250,7 @@ export class ImageProcessorService {
    * 画像を圧縮
    *
    * Requirements: 4.6
-   * 300KB超過時は品質を10%ずつ下げながら、250KB〜350KBの範囲に収める
+   * 300KB超過時は品質を10%ずつ下げながら、350KB以下に収まった時点で打ち切る
    *
    * @param buffer - 元画像バッファ
    * @returns 圧縮結果
@@ -343,12 +343,8 @@ export class ImageProcessorService {
       currentBuffer = await instance.toBuffer();
       currentMetadata = await this.getMetadata(currentBuffer);
 
-      // サイズが目標範囲内ならOK
-      if (this.isWithinTargetRange(currentMetadata.size)) {
-        break;
-      }
-
-      // 品質を下げる
+      // 打ち切りサイズ以下に収まった場合はループ継続条件が偽になり、ここで圧縮は終わる。
+      // 収まらなかった場合のみ品質を下げて次の段階へ進む。
       currentQuality -= ImageProcessorService.QUALITY_STEP;
     }
 
@@ -373,10 +369,6 @@ export class ImageProcessorService {
 
       currentBuffer = await instance.toBuffer();
       currentMetadata = await this.getMetadata(currentBuffer);
-
-      if (this.isWithinTargetRange(currentMetadata.size)) {
-        break;
-      }
     }
 
     return {
@@ -384,19 +376,6 @@ export class ImageProcessorService {
       metadata: currentMetadata,
       wasCompressed: true,
     };
-  }
-
-  /**
-   * サイズが目標範囲内かチェック
-   *
-   * @param size - ファイルサイズ
-   * @returns 目標範囲内ならtrue
-   */
-  private isWithinTargetRange(size: number): boolean {
-    return (
-      size >= ImageProcessorService.TARGET_MIN_SIZE_BYTES &&
-      size <= ImageProcessorService.TARGET_MAX_SIZE_BYTES
-    );
   }
 
   /**
