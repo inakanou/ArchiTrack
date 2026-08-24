@@ -686,6 +686,43 @@ release_memory "統合テスト"
 # - カバレッジ不足の場合、E2Eテストを実行せずに早期失敗
 # ============================================================================
 
+# ============================================================================
+# 除外定義の形式検査（要件カバレッジ検査の前提条件）
+# ============================================================================
+# 除外は被覆率の分母から受入基準を外す。定義が壊れていれば被覆の主張は空洞化する。
+# e2e/requirement-exclusions.json は長らく無検査のキャストだけで読まれ、$schema は
+# 存在しないファイルを指していた（タスク 115.144）。スキーマを実在させて適合を確かめる。
+# 検証器が壊れたまま本検査が「合格」を出すことを防ぐため、自己検査を先に走らせる。
+# ============================================================================
+
+echo "🔍 Checking requirement exclusions schema self-test..."
+npm run check:req-exclusions:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Requirement exclusions schema self-test failed. Push aborted."
+  echo ""
+  echo "   除外定義の形式検査そのものが壊れています。この状態では適合の判定は信用できません。"
+  echo "   固定資料: scripts/check-requirement-exclusions.selftest.ts"
+  echo ""
+  exit 1
+fi
+
+echo "📐 Checking requirement exclusions against schema..."
+npm run check:req-exclusions
+if [ $? -ne 0 ]; then
+  echo "❌ Requirement exclusions schema check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. e2e/requirement-exclusions.schema.json の必須項目・書式に合わせてください"
+  echo "  2. 分類を増やす場合は categories にも定義を加えてください"
+  echo "  3. 除外を増減した場合は summary の集計も合わせてください"
+  echo ""
+  echo "詳細確認: npm run check:req-exclusions:verbose"
+  exit 1
+fi
+
+echo "✅ Requirement exclusions schema check passed"
+echo ""
+
 echo "🔍 Checking requirement coverage self-test (reachability judgement)..."
 npm run check:req-coverage:selftest
 if [ $? -ne 0 ]; then

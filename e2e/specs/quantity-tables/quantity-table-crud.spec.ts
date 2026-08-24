@@ -3047,7 +3047,16 @@ test.describe('数量表CRUD操作', () => {
       ).toBeVisible({ timeout: getTimeout(3000) });
     });
 
-    test('計算元変更時に調整係数を適用した数量が自動再計算される (quantity-table-generation/REQ-9.5)', async ({
+    /**
+     * @requirement quantity-table-generation/REQ-9.6
+     * 調整係数が設定されている状態で、計算元の値変更時に
+     * 調整係数を適用した数量を自動再計算する
+     */
+    // 本テストの名称・タグは長く REQ-9.5（数値以外の入力の拒否）を指していたが、
+    // 検証内容は計算元（幅）の変更に対する自動再計算であり、意味の上では REQ-9.6 である。
+    // Task 115.127 段5 で REQ-9.5 の正しい主張（直前のテスト）が別に加わったため、
+    // 同一番号を異なる意味の二件が名乗る状態になっていた。要件番号を実態へ合わせる。
+    test('計算元変更時に調整係数を適用した数量が自動再計算される (quantity-table-generation/REQ-9.6)', async ({
       page,
     }) => {
       if (!createdQuantityTableId) {

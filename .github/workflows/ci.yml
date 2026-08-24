@@ -105,6 +105,45 @@ jobs:
           echo ""
           npm run check:req-coverage
 
+  requirement-exclusions-schema:
+    name: Requirement Exclusions Schema Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # 検証器そのものの退行を先に検知する（検証器が壊れたまま本検査が通ることを防ぐ）
+      - name: Check validator self-test
+        run: |
+          echo "========================================="
+          echo "Requirement Exclusions Validator Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Fixtures: scripts/check-requirement-exclusions.selftest.ts"
+          echo ""
+          npm run check:req-exclusions:selftest
+
+      - name: Check requirement exclusions against schema
+        run: |
+          echo "========================================="
+          echo "Requirement Exclusions Schema Check"
+          echo "========================================="
+          echo ""
+          echo "Exclusions remove acceptance criteria from the coverage denominator."
+          echo "A malformed definition hollows out the coverage claim, so the file is"
+          echo "validated against e2e/requirement-exclusions.schema.json - the schema its"
+          echo "own \$schema field points at."
+          echo ""
+          npm run check:req-exclusions
+
   e2e-assertion-guard:
     name: E2E Assertion Guard Check
     runs-on: ubuntu-latest
@@ -662,7 +701,7 @@ jobs:
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test-unit, build, test-storybook, test-integration, security, requirement-coverage, e2e-assertion-guard, e2e-in-page-selfjudgement]
+    needs: [lint, typecheck, test-unit, build, test-storybook, test-integration, security, requirement-coverage, requirement-exclusions-schema, e2e-assertion-guard, e2e-in-page-selfjudgement]
     if: always()
     steps:
       - name: Check status
@@ -682,6 +721,7 @@ jobs:
              [[ "$integration_ok" != "true" ]] || \
              [[ "${{ needs.security.result }}" != "success" ]] || \
              [[ "${{ needs.requirement-coverage.result }}" != "success" ]] || \
+             [[ "${{ needs.requirement-exclusions-schema.result }}" != "success" ]] || \
              [[ "${{ needs.e2e-assertion-guard.result }}" != "success" ]] || \
              [[ "${{ needs.e2e-in-page-selfjudgement.result }}" != "success" ]]; then
             echo "❌ CI check failed:"
@@ -693,6 +733,7 @@ jobs:
             echo "   - Integration Tests: ${{ needs.test-integration.result }}"
             echo "   - Security: ${{ needs.security.result }}"
             echo "   - Requirement Coverage: ${{ needs.requirement-coverage.result }}"
+            echo "   - Requirement Exclusions Schema: ${{ needs.requirement-exclusions-schema.result }}"
             echo "   - E2E Assertion Guard: ${{ needs.e2e-assertion-guard.result }}"
             echo "   - E2E In-Page Self-Judgement: ${{ needs.e2e-in-page-selfjudgement.result }}"
             exit 1
