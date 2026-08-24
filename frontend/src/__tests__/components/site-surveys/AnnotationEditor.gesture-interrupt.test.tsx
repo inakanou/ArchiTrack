@@ -15,11 +15,20 @@
  * - 33.6: 拡大表示中の1本指描画を拡大後の座標系へ正しく反映する（options.scenePoint 使用）
  * - 33.7: マルチタッチ後に1本指描画へ戻ると直前のビュー状態を維持して再開する
  * - 30.1: 2本指タッチで進行中の描画を中断しピンチズーム/パンへ遷移する
+ * - 30.5: 描画ツール使用中にマルチタッチが発生しても Requirement 17（描画ツール使用中の
+ *         オブジェクト選択防止）の仕様を維持する
+ *
+ * Task 115.146 (Req 30.5): 従来この受入基準の `@requirement` タグは、本番から参照されない
+ * `ImageViewer` の単体検証にしか付いておらず、しかも同ファイルは描画ツールを持たないため
+ * 選択防止を一度も主張していなかった（タグだけが存在した）。出荷経路である
+ * `AnnotationEditor` で、マルチタッチ割り込みの前後を通じて選択防止が維持されることを
+ * 主張し直す（`ImageViewer` は 115.146 で撤去）。
  *
  * @requirement site-survey/REQ-33.5
  * @requirement site-survey/REQ-33.6
  * @requirement site-survey/REQ-33.7
  * @requirement site-survey/REQ-30.1
+ * @requirement site-survey/REQ-30.5
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
@@ -74,7 +83,7 @@ const {
     off: vi.fn(),
     setViewportTransform: vi.fn(),
     zoomToPoint: vi.fn(),
-    getObjects: vi.fn(() => []),
+    getObjects: vi.fn((): unknown[] => []),
     requestRenderAll: vi.fn(),
     getActiveObject: vi.fn((): unknown => null),
     discardActiveObject: vi.fn(),
@@ -287,6 +296,9 @@ describe('AnnotationEditor - 2本指検出時の描画中断と座標整合 (Tas
     gestureState.value = 'idle';
     mockCanvasInstance.isDrawingMode = false;
     mockCanvasInstance.freeDrawingBrush = null;
+    mockCanvasInstance.selection = false;
+    // getObjects は個別テストで差し替えるため、既定（空）へ戻す
+    mockCanvasInstance.getObjects.mockReturnValue([]);
   });
 
   afterEach(() => {
@@ -398,6 +410,71 @@ describe('AnnotationEditor - 2本指検出時の描画中断と座標整合 (Tas
       // ポーリング間隔（150ms）を十分に超えて待機しても false のまま
       await new Promise((resolve) => setTimeout(resolve, 250));
       expect(mockCanvasInstance.isDrawingMode).toBe(false);
+    });
+  });
+
+  // ==========================================================================
+  // Task 115.146 (Req 30.5): マルチタッチ割り込み中もオブジェクト選択防止（Req 17）を維持する
+  //
+  // 要件17.6 は「描画ツール使用中は Fabric.js のオブジェクト選択機能を完全に無効化する」と
+  // 定め、要件30.5 は「描画ツール使用中にマルチタッチが発生してもその仕様を維持する」と
+  // 定める。実装上は `canvas.selection` と各注釈の `selectable` / `evented` がツール切替で
+  // 決まり、マルチタッチ割り込み（onGestureStart）とその復帰は描画モードだけを操作する。
+  //
+  // 検出できる壊し方の例: 割り込みや復帰の経路で `canvas.selection` を true へ戻す／
+  // 注釈を選択可能へ戻す。いずれも下の主張が落ちる。
+  // ==========================================================================
+  describe('マルチタッチ割り込み中の選択防止の維持 (Req 30.5 / Req 17 と整合)', () => {
+    it('描画ツール使用中は割り込みの前後を通じて canvas と既存注釈の選択が無効のままである', async () => {
+      // 既存注釈を 1 件置き、選択可否の変化を観測できるようにする
+      const existingAnnotation = {
+        selectable: true,
+        evented: true,
+        set(options: Record<string, unknown>): void {
+          Object.assign(this, options);
+        },
+      };
+      mockCanvasInstance.getObjects.mockReturnValue([existingAnnotation]);
+
+      render(<AnnotationEditor {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('zoom-controls')).toBeInTheDocument();
+      });
+
+      // 前提: 選択ツールでは選択が有効（＝以下の false が既定値の写しではないこと）
+      expect(mockCanvasInstance.selection).toBe(true);
+
+      // 描画ツール（フリーハンド）へ切替 → Req 17.6 により選択を完全に無効化
+      fireEvent.click(screen.getByRole('button', { name: 'フリーハンド' }));
+      expect(mockCanvasInstance.selection).toBe(false);
+      expect(existingAnnotation.selectable).toBe(false);
+      expect(existingAnnotation.evented).toBe(false);
+
+      const onGestureStart = getInjectedOnGestureStart();
+
+      // 2本目の指が入りピンチズーム/パンへ遷移（描画は中断される）
+      gestureState.value = 'two-finger-pinch-pan';
+      act(() => {
+        onGestureStart();
+      });
+      expect(mockCanvasInstance.isDrawingMode).toBe(false);
+
+      // Req 30.5: 割り込み中も選択防止は維持される
+      expect(mockCanvasInstance.selection).toBe(false);
+      expect(existingAnnotation.selectable).toBe(false);
+      expect(existingAnnotation.evented).toBe(false);
+
+      // 全指離脱 → 描画モードが復帰する
+      gestureState.value = 'idle';
+      await waitFor(() => {
+        expect(mockCanvasInstance.isDrawingMode).toBe(true);
+      });
+
+      // Req 30.5: 復帰後も描画ツールのままである以上、選択防止は維持される
+      expect(mockCanvasInstance.selection).toBe(false);
+      expect(existingAnnotation.selectable).toBe(false);
+      expect(existingAnnotation.evented).toBe(false);
     });
   });
 });

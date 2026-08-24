@@ -120,8 +120,14 @@
 
 | 未結線の部品 | 担当要件 | 撤去せず存置する理由（＝結線されていない理由） |
 |---|---|---|
-| `ImageViewer`（`frontend/src/components/site-surveys/ImageViewer.tsx`） | **担当なし**（要件5.1-5.6 / 12 / 20.1 の担当は出荷経路へ付け替え済み。下記「画像ビューアの担当付け替えと閲覧時の表示操作の結線（タスク 115.83）」を参照） | 存置の理由は**設計上の役割ではなく、要件カバレッジの所在**に変わった。要件30.5（`site-survey/REQ-30.5`）と要件33.10（`site-survey/REQ-33.10`）の受入基準カバレッジは、本部品と `ImageViewer.test.tsx` / `ImageViewer.refit.test.tsx` の `@requirement` タグに**しか存在しない**（他の全ファイルを走査して 0 件。実測）。撤去すると当該2件が未カバーになり `scripts/check-requirement-coverage.ts` が失敗する。**先に主張を結線側へ移すまで撤去できない**（`StylePanel` と同型） |
 | `StylePanel`（`frontend/src/components/site-surveys/StylePanel.tsx`）と `style-panel.constants.ts` | 24.5, 25.2, 26.3, 26.4, 26.6, 28.7 | 実際に描画されるのは `AnnotationToolbar.tsx` が内包する同名の関数コンポーネントである。**存置の理由（＝結線側に同等の主張が無いこと）は、タスク 115.70 と 115.96 の二段階で解消した**。115.70 は要件26.4 / 26.6 の主張を `AnnotationEditor`（`styleOptionsRef`）側へ移したが、**移せたのはその二つだけ**で、要件24.5 / 25.2 / 26.3 / 28.7 の主張は本部品側に残っていた。115.96 が白縁取りの切替UI自体を結線側（`AnnotationToolbar.tsx` の `StylePanel` と `annotation-toolbar.constants.ts` の `StyleOptions.outlineEnabled`）へ出荷し、要件24.5 / 25.2 の主張を結線側の単体検証（`AnnotationEditor.outline-toggle.test.tsx`）と E2E（`e2e/specs/site-surveys/site-survey-outline-toggle.spec.ts`）へ置いた。残る要件26.3 は `annotation-style-tokens.ts` とその単体検証、要件28.7 は `AnnotationToolbar.mobile-gap.test.tsx` が結線側で主張している（タスク 115.96 の実測）。したがって**本部品の撤去を阻む受入基準カバレッジはもう無い**。撤去そのものはタスク 115.96 の境界（白縁取りの切替UIと注釈の道具帯）の外であり、別タスクの所管とする |
+
+**`ImageViewer` はタスク 115.146 で撤去した（上表から行を落とした）。** 本表は 115.146 の直前まで `ImageViewer`（`frontend/src/components/site-surveys/ImageViewer.tsx`）を「要件30.5 / 33.10 の受入基準カバレッジの所在であるため、主張を結線側へ移すまで撤去できない」として掲げていた。115.146 はその前提条件を先に満たしたうえで撤去した。
+
+- **主張の移管先**: 要件33.10（編集モードと閲覧モードのジェスチャー操作体系の一貫性）は `frontend/src/__tests__/components/site-surveys/AnnotationEditor.gesture-attach.test.tsx` へ移した。本番の閲覧モードは `SiteSurveyImageViewerPage` が `AnnotationEditor` を `readOnly` で描画したものであるため、「同一の `touchGestureManager` が同一の `canvasViewportController` 契約で両モードとも attach される」ことを主張する。要件30.5（描画ツール使用中にマルチタッチが起きても要件17 の選択防止を維持する）は `AnnotationEditor.gesture-interrupt.test.tsx` へ移し、割り込みの前後で `canvas.selection` と既存注釈の `selectable` / `evented` が無効のままであることを主張する
+- **旧タグは主張を伴っていなかった**: 撤去した `ImageViewer.test.tsx` は要件30.5 のタグを持っていたが、同部品は描画ツールを持たないため選択防止を一度も検証していなかった。**タグだけが存在した状態**であり、移管は「番号の付け替え」ではなく主張の新設である。両主張とも変異（閲覧モードで attach しない／割り込み時に選択を有効化する）で赤くなることを確認した
+- **撤去の効果**: `scripts/check-requirement-coverage.ts` の「本番の経路から到達しない受入基準」は 27 件から 25 件へ減り、site-survey の該当は 0 件になった。本番到達を加味した被覆率は 99.0% から 99.1% へ改善した
+- **要件33-36 節などの波ごとの設計記述、および過去の是正の経緯を記録した節に残る `ImageViewer` の言及は書き換えていない。** それらは当時の設計判断・実測の記録であり、現在の部品構成を述べる箇所ではないためである（撤去後は、そこに書かれた `ImageViewer.tsx` を対象とする `grep` 等の実測値は再現しない）。現在の部品構成については本節・`### Component Summary`・「契約名の実在対照表」が権威である
 
 #### 自動保存・復元基盤の結線（タスク 115.81）
 
@@ -235,6 +241,8 @@
 **除外一覧の撤去**: 上記六件を `e2e/requirement-exclusions.json` から削除した。要件9.3 についてタスク 115.121 が残した申し送り（「注釈編集中の離脱確認の有無を要件9.3 に照らして決着させること」）と、要件9.6 の「画面側の未結線の解消は後続タスクの所管とする」は、いずれも本タスクで決着した。
 
 #### 画像ビューアの担当付け替えと閲覧時の表示操作の結線（タスク 115.83）
+
+**追記（タスク 115.146）**: 本節が担当を付け替えた `ImageViewer` は、その後タスク 115.146 で**ファイルごと撤去した**。以下は撤去前の記述であり、当時の判断の記録として残す。
 
 タスク 115.64 が「要件33-34 節にフェーズ4 の移行計画があるため設計上の役割が現存する」として存置した `ImageViewer`（`frontend/src/components/site-surveys/ImageViewer.tsx`）について、タスク 115.83 で**要件5 の担当を実態へ付け替えた**。決定の根拠は次の3点である。
 
@@ -416,7 +424,6 @@
 | `IText` | Fabric.js の標準クラス（外部ライブラリ。本リポジトリでは宣言せず `fabric` から import する） |
 | `ImageExportDialogProps` | `frontend/src/components/site-surveys/ImageExportDialog.tsx:63` |
 | `ImageOrderItem` | `frontend/src/types/site-survey.types.ts:392` |
-| `ImageViewerProps` | `frontend/src/components/site-surveys/ImageViewer.tsx:96` |
 | `LocalStorageData` | `frontend/src/services/AutoSaveManager.ts:60` |
 | `PhotoManagementPanelProps` | `frontend/src/components/site-surveys/PhotoManagementPanel.tsx:38` |
 | `ProjectSurveySummary` | `backend/src/services/site-survey.service.ts:162` |
@@ -434,7 +441,6 @@
 | `UploadImageInput` | `backend/src/services/survey-image.service.ts:103` |
 | `UseUnsavedChangesResult` | `frontend/src/hooks/useUnsavedChanges.ts:51` |
 | `AnnotationEditorState` | `frontend/src/components/site-surveys/AnnotationEditor.tsx:252`（**非エクスポート**のモジュールローカル型。外部から import できない） |
-| `ImageViewerState` | `frontend/src/components/site-surveys/ImageViewer.tsx:62`（**非エクスポート**のモジュールローカル型。外部から import できない） |
 | `AnnotatedImageInput` | `frontend/src/components/site-surveys/AnnotatedImageThumbnail.tsx:28` |
 | `AnnotationMode` | 同名宣言が2箇所に存在する（`frontend/src/components/site-surveys/ExportSettingsForm.tsx:38`、`frontend/src/services/export/bulkExportService.ts:53`）。値集合は同一だが**1:1 の実体ではない**ため、参照時はどの宣言を指すかをパスで明示する |
 | `BackfillResult` | `backend/scripts/backfill-annotated-thumbnails.ts:50`（**`backend/src` の外**にある。実在判定の走査範囲を `backend/scripts` まで広げないと取りこぼす） |
@@ -468,7 +474,7 @@
 | `SiteSurveyServiceDependencies` | `backend/src/services/site-survey.service.ts:40`（タスク 115.76 で設計側の名前と項目を実体へ合わせ、下の「実体を持たない契約名」表から移した） |
 | `SurveyImageServiceDependencies` | `backend/src/services/survey-image.service.ts:131`（同上） |
 
-**実装に実体を持たない契約名（設計上の抽象契約）**: 以下は本設計書が契約の形を示すために定義した名前であり、**同名の宣言が実装のどこにも存在しない**（各名について上記 grep が `backend` / `frontend` / `e2e` / `scripts` の全域で 0 件）。実装時に同名の型を作る義務はなく、これらの名前を実装のエクスポート名として引用してはならない。**下表の全行はタスク 115.74 で走査範囲を全域へ広げたうえで再確認済みである**（範囲を広げても新たに実体が見つかった行は無い）。 **タスク 115.75 の時点では下表は43行あり、その全行について実装するのか設計から落とすのか抽象契約として残すのかの判断を一件ずつ決着させた**（後述の「実体を持たない契約名の扱い」。判別可能にしたことと乖離が無いことは別の主張であるため、判断を省いてはならない）。**その後タスク 115.76 で、依存注入契約の2件（旧 `SurveyServiceDependencies` / 旧 `ImageServiceDependencies`）を設計側の名前も項目も実装の実体へ合わせたため、当該2件は上の「実装に実体がある契約名」表へ移った（この時点で41行）。さらにタスク 115.107 で `IAnnotatedThumbnailService` の宣言を撤去したため同名は上表から下表へ移り、下表は現在42行である**（41 − 0 + 1 = 42）。
+**実装に実体を持たない契約名（設計上の抽象契約）**: 以下は本設計書が契約の形を示すために定義した名前であり、**同名の宣言が実装のどこにも存在しない**（各名について上記 grep が `backend` / `frontend` / `e2e` / `scripts` の全域で 0 件）。実装時に同名の型を作る義務はなく、これらの名前を実装のエクスポート名として引用してはならない。**下表の全行はタスク 115.74 で走査範囲を全域へ広げたうえで再確認済みである**（範囲を広げても新たに実体が見つかった行は無い）。 **タスク 115.75 の時点では下表は43行あり、その全行について実装するのか設計から落とすのか抽象契約として残すのかの判断を一件ずつ決着させた**（後述の「実体を持たない契約名の扱い」。判別可能にしたことと乖離が無いことは別の主張であるため、判断を省いてはならない）。**その後タスク 115.76 で、依存注入契約の2件（旧 `SurveyServiceDependencies` / 旧 `ImageServiceDependencies`）を設計側の名前も項目も実装の実体へ合わせたため、当該2件は上の「実装に実体がある契約名」表へ移った（この時点で41行）。さらにタスク 115.107 で `IAnnotatedThumbnailService` の宣言を撤去したため同名は上表から下表へ移り、42行になった（41 − 0 + 1 = 42）。**さらにタスク 115.146 で `frontend/src/components/site-surveys/ImageViewer.tsx` を撤去したため、`ImageViewerProps` / `ImageViewerState` の2件が上表から下表へ移り、下表は現在44行である**（42 + 2 = 44）。
 
 | 種別 | 契約名 |
 |---|---|
@@ -478,10 +484,11 @@
 | 画面状態契約（`*State`） | `ImageExportDialogState`、`PhotoManagementState`、`SiteSurveyDetailPageState`、`SiteSurveySectionCardState` |
 | 追跡表 Interfaces 列の非 `*API` 契約名（要件24-30） | `GestureEvent`、`CursorStrategy`、`HandleSizeStrategy` |
 | 図形シリアライズ・型拡張契約（要件31 以降） | `DimensionJSON`、`ShapeJSONExt`、`ShapeOutlineMethods`、`AnnotationToolDefaultsExt` |
+| 撤去済み部品の契約（タスク 115.146） | `ImageViewerProps`、`ImageViewerState`（本書「#### ImageViewer」が定義する。**実装は撤去済み**であり同名の宣言はどこにも存在しない） |
 
 **注（追跡表 Interfaces 列の非 `*API` 契約名の行について）**: `GestureEvent` / `CursorStrategy` / `HandleSizeStrategy` の3件は要件24-30 の追跡表（`## Requirements 24-30` 節の追跡表。要件27.1-27.10 行と要件29.1-29.8 行）の Interfaces 列にだけ現れる名前で、設計書内に `interface` / `type` 定義ブロックを持たず、**`backend` / `frontend` / `e2e` / `scripts` の全域で宣言も参照も 0 件**である（タスク 115.74 で実測。`grep -rnw` でも一致なし）。なお `GestureEvent` は WebKit 独自の DOM 型と同名だが、本設計書のそれは touchGestureManager のジェスチャー判定契約を指す名前であり、実装に同名の宣言は無い。 3件の扱いはタスク 115.75 で決着させた（下の「実体を持たない契約名の扱い」の #37-39 を参照）。
 
-**注（上表の最終行について）**: これら4件は要件31-32 節が契約の形を示すために書いた名前で、**同名の宣言は実装に無い**。ただし近い名前の宣言は存在する（`DimensionJSON` に対し `frontend/src/components/site-surveys/tools/DimensionTool.ts:121` の `DimensionLineJSON`、`AnnotationToolDefaultsExt` に対し `frontend/src/components/site-surveys/annotation-style-tokens.ts:98` の `AnnotationToolDefaults`。後者は宣言直上の JSDoc（同ファイル96 行目）が「design.md の `AnnotationToolDefaults` (Req 26) と `AnnotationToolDefaultsExt` (Req 32) を統合」と記す）。**名前が異なる以上これらは同名の実体ではない**ため本表では実体なしとして扱う。同一物とみなして設計書側の名前を改めるか、実装側を設計に合わせるか、抽象契約のまま残すかの判断はタスク 115.75 で行い、**4件とも「抽象契約として残す」で決着した**（下の「実体を持たない契約名の扱い」の #40-43 を参照）。
+**注（`図形シリアライズ・型拡張契約（要件31 以降）` の行について）**: これら4件は要件31-32 節が契約の形を示すために書いた名前で、**同名の宣言は実装に無い**。ただし近い名前の宣言は存在する（`DimensionJSON` に対し `frontend/src/components/site-surveys/tools/DimensionTool.ts:121` の `DimensionLineJSON`、`AnnotationToolDefaultsExt` に対し `frontend/src/components/site-surveys/annotation-style-tokens.ts:98` の `AnnotationToolDefaults`。後者は宣言直上の JSDoc（同ファイル96 行目）が「design.md の `AnnotationToolDefaults` (Req 26) と `AnnotationToolDefaultsExt` (Req 32) を統合」と記す）。**名前が異なる以上これらは同名の実体ではない**ため本表では実体なしとして扱う。同一物とみなして設計書側の名前を改めるか、実装側を設計に合わせるか、抽象契約のまま残すかの判断はタスク 115.75 で行い、**4件とも「抽象契約として残す」で決着した**（下の「実体を持たない契約名の扱い」の #40-43 を参照）。
 
 **警告（規約6 の要点）**: `I*Service` / `I*Manager` 表記は上表の**両方**に現れる。`IAuditLogService` / `IAutoSaveManager` / `IExportService` / `IUndoManager` は実在し、`ISurveyService` / `IImageService` / `IAnnotationService` / `IImageDeleteService` / `IImageMetadataService` / `IAnnotatedThumbnailService` は実在しない。**表記だけで実在を推定してはならない。**
 
@@ -636,7 +643,6 @@ graph TB
         SiteSurveySectionCard[SiteSurveySectionCard]
         SiteSurveyListPage[SiteSurveyListPage]
         SiteSurveyDetailPage[SiteSurveyDetailPage]
-        ImageViewer[ImageViewer]
         AnnotationEditor[AnnotationEditor]
         CanvasEngine[Fabric.js Canvas]
         PhotoManagementPanel[PhotoManagementPanel]
@@ -666,7 +672,6 @@ graph TB
     SiteSurveySectionCard --> SurveyRoutes
     SiteSurveyListPage --> SurveyRoutes
     SiteSurveyDetailPage --> SurveyRoutes
-    ImageViewer --> SurveyRoutes
     AnnotationEditor --> CanvasEngine
     AnnotationEditor --> SurveyRoutes
     PhotoManagementPanel --> SurveyRoutes
@@ -969,13 +974,13 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant User
-    participant ImageViewer
+    participant AnnotationEditor
     participant ImageExportDialog
     participant AnnotationRendererService
     participant FabricCanvas
 
-    User->>ImageViewer: エクスポートボタン押下
-    ImageViewer->>ImageExportDialog: ダイアログ表示
+    User->>AnnotationEditor: エクスポートボタン押下
+    AnnotationEditor->>ImageExportDialog: ダイアログ表示
     ImageExportDialog-->>User: オプション選択（形式、品質、注釈含む/含まない）
 
     User->>ImageExportDialog: エクスポート実行
@@ -1042,7 +1047,7 @@ sequenceDiagram
 | **10.10** | **ページ離脱時確認ダイアログ** | **useUnsavedChanges** | - | - |
 | **10.11, 10.12** | **画像削除（確認ダイアログ付き）** | **PhotoManagementPanel, ImageDeleteService** | **ImageDeleteAPI** | **画像削除フロー** |
 | **11.1-11.8** | **調査報告書PDF出力** | **PdfReportService, AnnotationRendererService, SiteSurveyDetailInfo** | **ExportAPI** | **PDF報告書生成フロー** |
-| **12.1-12.5** | **個別画像エクスポート** | **ImageExportDialog, AnnotationRendererService, ImageViewer** | **ExportAPI** | **個別画像エクスポートフロー** |
+| **12.1-12.5** | **個別画像エクスポート** | **ImageExportDialog, AnnotationRendererService, AnnotationEditor** | **ExportAPI** | **個別画像エクスポートフロー** |
 | 13.1-13.5 | Undo/Redo | UndoManager | - | 注釈編集フロー |
 | 14.1-14.5 | アクセス制御 | AuthMiddleware, RBACService, SignedUrlService | SignedURL検証 | - |
 | 15.1-15.6 | レスポンシブ・自動保存 | AutoSaveManager, localStorage | - | ネットワーク状態管理フロー |
@@ -1186,6 +1191,8 @@ sequenceDiagram
   1. **「未結線部品の扱い」の `ImageViewer` 行（担当要件欄）** — より強い矛盾。当該欄は「**担当なし**（要件5.1-5.6 / **12** / 20.1 の担当は出荷経路へ付け替え済み）」と記し、**要件12 を名指しで付け替え済みと断定している**。要件12.1 の担当として `ImageViewer` を追跡表へ加えた本節の是正と正面から食い違う。上の「要件12.1 は本区分に含めず、追跡表へ追加した」の第2点に判断根拠を記した。**後続タスクの提案**: 当該欄を「要件12.1 の担当（要件5.1-5.6 の担当は 115.83 で付け替え済み）」の形へ改めるタスクを別途起票すること
   2. **`### Component Summary` の `~~ImageViewer~~（未結線）` 行（Req Coverage 欄）** — 弱い矛盾。当該欄は「**担当なし**（要件5 の担当は上記へ付け替え済み。タスク 115.83）」と記す。括弧の但し書きは付け替えの対象を要件5 に限っているが、欄の断定は「担当なし」であり、字面が食い違う。**後続タスクの提案**: 当該行の Req Coverage 欄を「12.1（要件5 の担当は 115.83 で付け替え済み）」の形へ改めるタスクを別途起票すること
 
+  **追記（タスク 115.146）**: 上記2箇所の矛盾は、`ImageViewer` の撤去により解消した。「未結線部品の扱い」の当該行は表から落とし（撤去の経緯は同節の追記に記録）、`### Component Summary` の行は「撤去済み」へ改めた。あわせて要件12.1-12.5 の追跡表の担当を、実際に `ImageExportDialog` を描画している `AnnotationEditor` へ改めた（本書 `#### ImageExportDialog` の Inbound 記述と一致する）。したがって上の実測値（`grep -cE '^\|.*担当なし'` の出力が `2`）は当時の値であり、現在は当該2欄とも存在しない。**上の記録は当時の判断の記録として書き換えず残す。**
+
 ## Components and Interfaces
 
 ### Component Summary
@@ -1207,7 +1214,7 @@ sequenceDiagram
 | **DimensionValueInput** | Frontend/Component | 寸法線描画後の寸法値・単位の入力欄 | 6.2, 6.3 | - | State |
 | **SiteSurveyImageViewerPage** | **Frontend/Page** | **画像ビューア/エディタ画面。閲覧⇄編集の切替と表示状態の保持** | **5.1, 5.6, 2.8, 2.9, 2.12, 20.1** | **SurveyAPI (P0), AnnotationEditor (P0)** | **State** |
 | **ZoomControls** | **Frontend/Component** | **ズーム/フィット/回転の操作手段と倍率表示** | **5.2, 5.3, 34.1-34.3, 34.5, 34.6, 34.8** | **useCanvasViewport (P0)** | - |
-| ~~ImageViewer~~（未結線） | Frontend/Component | 画像表示・操作 | **担当なし**（要件5 の担当は上記へ付け替え済み。タスク 115.83） | Fabric.js (P0) | State |
+| ~~ImageViewer~~（撤去済み） | Frontend/Component | 画像表示・操作 | 撤去済み（**タスク 115.146 でファイルごと撤去**。要件5 の担当は 115.83 で `SiteSurveyImageViewerPage` + `AnnotationEditor` へ付け替え済み、要件12.1 の担当は `AnnotationEditor`） | Fabric.js (P0) | State |
 | **ImageExportDialog** | Frontend/Component | 個別画像エクスポートUI | 12 | AnnotationRendererService (P0) | State |
 | UndoManager | Frontend/Utility | 操作履歴管理 | 13 | - | State |
 | AutoSaveManager | Frontend/Service | 自動保存・状態復元・QuotaExceeded対応 | 15, 15.7-15.10 | localStorage (P0) | State |
@@ -2842,6 +2849,25 @@ interface ToolOptions {
 - 選択ツールでは`evented: true`、`selectable: true` → 従来通りオブジェクト選択可能
 
 #### ImageViewer
+
+**本部品はタスク 115.146 で撤去した。** 本番から一度も参照されておらず（`SiteSurveyImageViewerPage` は当初から `AnnotationEditor` を用いている）、要件5 の担当はタスク 115.83 で出荷経路へ付け替え済みだった。以下は撤去前の設計記述であり、`ImageViewerState` / `ImageViewerProps` は**実装に実体を持たない抽象契約**として扱う（上の「実装に実体を持たない契約名」表を参照）。
+
+**記録（撤去が残した「存在しないファイルへの導線」。後続タスク 115.169 で解消する）**: 撤去により、**本番コード（`frontend/src` / `backend/src` の `.ts` / `.tsx` からテストコードを除いたもの）の注釈が、存在しない `frontend/src/components/site-surveys/ImageViewer.tsx` ないし部品 `ImageViewer` を現存物として指したまま**残った。これらは 115.146 の境界（本番未参照の画像ビューア部品）の外にある他部品の注釈であるため、115.146 では**書き換えず記録のみ**とし、後続タスク **`115.169`「撤去済み部品を現存物として指す本番コードの参照を解消する」**（`tasks.md`）へ引き渡す。実測値は次のとおり（`grep -rn "ImageViewer" --include=*.ts --include=*.tsx frontend/src backend/src` の結果から、テストコードと実在する `ConstructionPhotoImageViewer` / `ConstructionPhotoImageViewerPage` / `SiteSurveyImageViewerPage` の各行を除いたもの）。
+
+| ファイル | 行 | 件数 |
+|---|---|---|
+| `frontend/src/components/construction-photos/ConstructionPhotoImageViewer.tsx` | 19、70、249、283 | 4 |
+| `frontend/src/components/site-surveys/gestures/canvasViewportController.ts` | 5、130 | 2 |
+| `frontend/src/components/site-surveys/gestures/touchGestureManager.ts` | 20 | 1 |
+| `frontend/src/components/site-surveys/gestures/gesture-thresholds.ts` | 20 | 1 |
+| `frontend/src/components/site-surveys/AnnotationEditor.tsx` | 2721 | 1 |
+| `frontend/src/utils/imageFitScale.ts` | 5 | 1 |
+
+**合計10箇所（6ファイル）。** うち `frontend/src/utils/imageFitScale.ts:5`（現行のフィット算術の出所を「AnnotationEditor / ImageViewer」と記す）は 115.146 のレビュー時の指摘（9箇所）には含まれておらず、本記録を書くための再測で見つかった1件である。**したがって 115.169 の対象は9箇所ではなく10箇所とする。** 行番号は本記録の測定時点の値であり以降の編集でずれうるため、115.169 は行番号ではなく名前（`ImageViewer`）で再測すること。
+
+なお本設計書の歴史記録（本節、「未結線部品の扱い」の追記、`### Component Summary` の取り消し線行、`##### ImageViewer (touch ext)`）が `ImageViewer` を指すのは**書き換えずに残すと明示的に判断した保存**であり、上の10箇所とは別物である。
+
+**記録（撤去に伴う型の孤児化とその処置）**: 撤去前、`frontend/src/components/site-surveys/image-viewer.constants.ts` が公開する `ImageViewerViewState` / `ImageViewerRef` の利用者は `ImageViewer.tsx` と `ImageViewer.test.tsx` だけであった。撤去後は利用者0（互いを参照し合うだけの閉じた孤児）となる一方、同ファイル自体は `canvasViewportController` / `gesture-thresholds` / `useCanvasViewport` / `ConstructionPhotoImageViewer` 経由で本番から到達するため、**`check:req-coverage` のモジュール単位の到達判定ではこの孤児を検出できない**。「死蔵の整理」を掲げたタスクが検出不能な死蔵を残すことになるため、**115.146 の是正で当該2型を撤去した**（`git grep -n "ImageViewerViewState\|ImageViewerRef"` で宣言ファイル自身の4行以外に一致0件であることを再確認したうえで撤去）。同ファイルの `ZOOM_CONSTANTS` / `ROTATION_CONSTANTS` / `RotationAngle` / `PAN_CONSTANTS` / `TOUCH_CONSTANTS` は本番に利用者があるため残す。型のみの撤去であり、撤去前後で `vite build` の生成物はバイト同一である。
 
 | Field | Detail |
 |-------|--------|

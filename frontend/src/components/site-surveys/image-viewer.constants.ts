@@ -60,32 +60,3 @@ export const TOUCH_CONSTANTS = {
   /** ピンチズームの感度係数 */
   PINCH_ZOOM_FACTOR: 0.01,
 } as const;
-
-// ============================================================================
-// 型定義
-// ============================================================================
-
-/**
- * 外部公開用の表示状態（注釈エディタとの共有用）
- * Requirements: 5.6 - 画像の表示状態（ズーム・回転・位置）を注釈編集モードと共有する
- */
-export interface ImageViewerViewState {
-  /** 現在のズーム倍率 */
-  zoom: number;
-  /** 現在の回転角度（度） */
-  rotation: RotationAngle;
-  /** パン位置X */
-  panX: number;
-  /** パン位置Y */
-  panY: number;
-}
-
-/**
- * ImageViewerのref経由で公開するメソッド
- */
-export interface ImageViewerRef {
-  /** 現在の表示状態を取得 */
-  getViewState: () => ImageViewerViewState;
-  /** 表示状態を設定 */
-  setViewState: (state: Partial<ImageViewerViewState>) => void;
-}

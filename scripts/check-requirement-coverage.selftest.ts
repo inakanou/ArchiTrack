@@ -550,8 +550,14 @@ function checkRealRepositoryIsScanned(): string[] {
  *
  * 仮想リポジトリだけでは、実際の取り込みの書き方（別名・遅延読み込み・再輸出）に
  * 追随できていない劣化を検出できない。ここでは本スペックが実際に踏んだ二例
- * （115.146 の画像ビューア、115.130 の欄検証つき行）を死側に、
+ * （115.130 の欄検証つき行、フックを一段挟んで死んでいるキーボード操作の補助）を死側に、
  * 実際に描画される注釈編集画面を生側に置く。
+ *
+ * 当初の死側の一例は 115.146 の画像ビューア（`frontend/src/components/site-surveys/ImageViewer.tsx`）
+ * だったが、**当該タスクがその死コード自体を撤去したため固定点として使えなくなった**。
+ * 代わりに `frontend/src/utils/keyboard-navigation.ts` を置く。こちらは
+ * `frontend/src/hooks/useKeyboardNavigation.ts` からのみ取り込まれ、そのフックがどこからも
+ * 使われていない**二段の死**であり、直接の取り込み元の有無だけを見る実装では死と判定できない。
  */
 function checkKnownDeadAndLiveModules(): string[] {
   const failures: string[] = [];
@@ -559,7 +565,7 @@ function checkKnownDeadAndLiveModules(): string[] {
   const reachable = computeReachableModules(graph);
 
   const mustBeDead = [
-    'frontend/src/components/site-surveys/ImageViewer.tsx',
+    'frontend/src/utils/keyboard-navigation.ts',
     'frontend/src/components/quantity-table/FieldValidatedItemRow.tsx',
   ];
   const mustBeLive = [

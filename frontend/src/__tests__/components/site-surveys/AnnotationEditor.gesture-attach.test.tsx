@@ -11,6 +11,13 @@
  * - 29.4, 29.5: タッチ/マウスでハンドルサイズ切替
  * - 30.1: 2本指入力時の描画中断（attach 経由）
  *
+ * Task 115.146 (Req 33.10): 閲覧モードと編集モードのジェスチャー操作体系の一貫性を、
+ * 本番の出荷経路（`SiteSurveyImageViewerPage` → `AnnotationEditor`）で主張する。
+ * 閲覧モードは `readOnly` の `AnnotationEditor` であり、編集モードと同一の
+ * `touchGestureManager` を同一の `canvasViewportController` 契約で attach する。
+ * この主張は従来、本番から参照されない `ImageViewer` の単体検証にしか存在せず、
+ * 出荷される画面については一度も検証されていなかった（`ImageViewer` は 115.146 で撤去）。
+ *
  * Boundary: AnnotationEditor (ext)
  *
  * @requirement site-survey/REQ-27.1
@@ -18,6 +25,7 @@
  * @requirement site-survey/REQ-29.4
  * @requirement site-survey/REQ-29.5
  * @requirement site-survey/REQ-30.1
+ * @requirement site-survey/REQ-33.10
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
@@ -106,7 +114,10 @@ const {
 
   // touchGestureManager のモック
   const detachSpy = vi.fn();
-  const attachSpy = vi.fn((_canvas: unknown, _getCurrentTool: () => string) => detachSpy);
+  // attach は (canvas, getCurrentTool, options?) の 3 引数。options（viewportController 等）も捕捉する。
+  const attachSpy = vi.fn(
+    (_canvas: unknown, _getCurrentTool: () => string, _options?: unknown) => detachSpy
+  );
   const createTouchGestureManagerSpy = vi.fn(() => ({
     attach: attachSpy,
     getTouchState: vi.fn(() => 'idle'),
@@ -400,6 +411,89 @@ describe('AnnotationEditor - touchGestureManager 統合 (Task 72.1)', () => {
       await waitFor(() => {
         expect(configureHandleSizesSpy).toHaveBeenCalledTimes(1);
       });
+    });
+  });
+
+  // ==========================================================================
+  // Task 115.146 (Req 33.10): 閲覧モードと編集モードのジェスチャー操作体系の一貫性
+  //
+  // 要件33.10 は「注釈編集モードと閲覧モードとの間でズーム・パンのタッチジェスチャー
+  // 操作体系を一貫させる」と定める。本番の閲覧モードは `SiteSurveyImageViewerPage` が
+  // `AnnotationEditor` を `readOnly` で描画したものであり、一貫性は
+  // 「同一のジェスチャー管理器が、同一のビューポート制御契約で、両モードとも
+  // attach される」ことで成立する。
+  //
+  // 検出できる壊し方の例: 閲覧モードで attach を行わない／別のジェスチャー経路を使う／
+  // 閲覧モードだけ `viewportController` を注入しない。いずれも下の主張が落ちる。
+  // ==========================================================================
+  describe('閲覧モードと編集モードのジェスチャー操作体系の一貫性 (Req 33.10)', () => {
+    /** canvasViewportController が公開するビューポート制御の契約（同モジュールの型定義と同順）。 */
+    const VIEWPORT_CONTROLLER_CONTRACT = [
+      'zoomToPoint',
+      'toCanvasPoint',
+      'pan',
+      'fit',
+      'clampZoom',
+      'clampPan',
+      'isPanEnabled',
+      'getState',
+    ] as const;
+
+    /** 直近の attach 呼出しから (canvas, getCurrentTool, options) を取り出す。 */
+    const readLastAttachCall = (): {
+      canvas: unknown;
+      getCurrentTool: () => string;
+      viewportController: Record<string, unknown>;
+    } => {
+      const calls = attachSpy.mock.calls;
+      const lastCall = calls[calls.length - 1];
+      expect(lastCall).toBeDefined();
+      const options = lastCall![2] as { viewportController?: unknown } | undefined;
+      expect(options).toBeDefined();
+      expect(options!.viewportController).toBeDefined();
+      return {
+        canvas: lastCall![0],
+        getCurrentTool: lastCall![1] as () => string,
+        viewportController: options!.viewportController as Record<string, unknown>,
+      };
+    };
+
+    it('閲覧のみの状態でも編集モードと同一のジェスチャー管理器・ビューポート制御が attach される', async () => {
+      // --- 編集モード ---
+      const editView = render(<AnnotationEditor {...defaultProps} />);
+      await waitFor(() => {
+        expect(attachSpy).toHaveBeenCalledTimes(1);
+      });
+      const editAttach = readLastAttachCall();
+      expect(createTouchGestureManagerSpy).toHaveBeenCalledTimes(1);
+      expect(editAttach.canvas).toBe(mockCanvasInstance);
+      editView.unmount();
+
+      attachSpy.mockClear();
+      createTouchGestureManagerSpy.mockClear();
+
+      // --- 閲覧モード（readOnly） ---
+      render(<AnnotationEditor {...defaultProps} readOnly />);
+      await waitFor(() => {
+        expect(attachSpy).toHaveBeenCalledTimes(1);
+      });
+      const viewAttach = readLastAttachCall();
+
+      // 同一のジェスチャー管理器（touchGestureManager）を経由する
+      expect(createTouchGestureManagerSpy).toHaveBeenCalledTimes(1);
+      expect(viewAttach.canvas).toBe(mockCanvasInstance);
+      // ツール状態の問い合わせ口も両モードで同じ形（閲覧の既定は選択ツール）
+      expect(typeof viewAttach.getCurrentTool).toBe('function');
+      expect(viewAttach.getCurrentTool()).toBe(editAttach.getCurrentTool());
+
+      // 同一のビューポート制御契約（canvasViewportController）で駆動される
+      for (const method of VIEWPORT_CONTROLLER_CONTRACT) {
+        expect(typeof editAttach.viewportController[method]).toBe('function');
+        expect(typeof viewAttach.viewportController[method]).toBe('function');
+      }
+      expect(Object.keys(viewAttach.viewportController).sort()).toEqual(
+        Object.keys(editAttach.viewportController).sort()
+      );
     });
   });
 });
