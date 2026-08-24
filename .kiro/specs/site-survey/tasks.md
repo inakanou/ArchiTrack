@@ -4183,7 +4183,7 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - _Depends: 115.127_
   - _Boundary: 数量表E2EのREQ-23/24/25の未検証分_
 
-- [ ] 115.134 (P) 補完のE2Eが観測条件で自らを空にしている構造を解消する
+- [x] 115.134 (P) 補完のE2Eが観測条件で自らを空にしている構造を解消する
   - 115.127 段1 で `test.skip(!testProjectId, …)` を除いた結果、`e2e/specs/quantity-tables/autocomplete-optimization.spec.ts` と `e2e/specs/quantity-tables/name-remarks-autocomplete.spec.ts` の**判定本体がほぼ全て `if (await x.isVisible())` の内側にある**ことが露見した
   - 実測は autocomplete-optimization が観測条件二十三箇所に対し `expect(` 十七箇所である。欄が描画されなければ一つも主張せずに緑になる
   - 数量項目の行は `openEditPageWithSingleItemRow`（`e2e/helpers/quantity-table-preconditions.ts`）が無条件に用意できる。欄の取得は画面全体ではなく行スコープで行い、観測条件ではなく `expect(...).toBeVisible()` で主張すること
@@ -4665,3 +4665,13 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
 - **失敗するとワーカーが再生成され module 変数が失われる（115.133）**: 変異版で RED を取る際、`describe` 外に置いた `testProjectId` / `createdQuantityTableId` がテスト失敗後のワーカー再生成で失われ、後続テストが前提生成で落ちて検証が無効になる。**変異検証は事前準備の `describe` ごと複製し `--retries=0` で回すこと。**
 - **【要処置・115.133 のレビューが検出】** `e2e/specs/quantity-tables/group-sort-e2e.spec.ts:600-637` の REQ-24.1 / 24.2 は行の `textContent()` を比較するが、同ファイル `readItemNames` の docblock 自身が「項目行のテキストは入力欄の値を含まない」と述べており、**並び順の入れ替わりを検出できない恐れがある**。115.133 では未編集・起票文の未検証列挙にも含まれないため境界外とした。別タスクとして起票すること。
 - **【要処置・115.133 のレビューが検出】** `.kiro/specs/quantity-table-generation/design.md:2212` は列幅合計を「≈1264px」と書くが、`gridConstants.ts` の 12 列を実加算すると **1168px** であり、design 側が陳腐化している。設計文書の実値の追随を別タスクで所管すること。
+
+- **被覆一覧のヘッダは括弧の直後にコロンが要る（115.134）**: docblock を `Requirements coverage (quantity-table-generation / Requirement 7: 入力支援・オートコンプリート):` と書いた結果、`scripts/check-requirement-coverage.ts:463-466` のパターン4 `Requirements\s*(?:coverage\s*)?\((feature)\):` に一致せず、直後の `- REQ-7.x:` 一覧が機能名へ紐づかなくなった。REQ-7.6/7.7 が被覆源を失い `check:req-coverage` に FAILED が1本増える。**検査は「未カバー」としか言わず原因がヘッダ表記だと分からない。** 注記は括弧の外へ置くこと。
+- **恒真は「セレクタで絞った属性をそのまま主張する」形でも紛れ込む（115.134）**: 旧版は `input[id$="-name"][role="combobox"]` で絞り込んでから `role` が `combobox` であることを主張していた。絞り込み条件を主張しても何も確かめていない。**セレクタから当該条件を外してから主張すること。**
+- **監視対象の実在を確かめないと「発行されない」の主張は恒真になる（115.134）**: 旧版は `/api/autocomplete/major-categories` 等の個別エンドポイントへのリクエストが0件であることを主張していたが、補完ルートは `router.get('/autocomplete-candidates')` の1本のみ（`backend/src/routes/autocomplete.routes.ts:131`）で、監視対象は最初から存在しなかった。**「呼ばれないこと」の主張は、呼ばれ得る対象を監視しているかを先に確かめること。**
+- **`toPass` の内側に無期限の待ちを置くと再試行が一度も回らない（115.134）**: `AutocompleteInput.tsx:424-427` の 150ms 遅延クローズで一覧が消えた周回の `option.click()` / `textContent()` が既定 `actionTimeout`（`playwright.config.ts:107`、ローカル15秒/CI30秒）まで待ち、これが `toPass` の予算（`getTimeout(15000)` は CI倍率2で同値）と**同一長**のため一周で予算を使い切る。再試行の形をしていながら一度も開き直せず、要件の名前で落ちて原因を取り違える。**再試行単位の内側の待ちは予算より十分短く区切ること。予算を延ばすのは原因を隠す。**
+- **flaky はリトライ依存の通過であり「全件 passed」ではない（115.134）**: レビュアーと検証エージェントの実行では flaky 0 だったものが親の実行で再現した。断続的な不安定性は実行ごとに現れ方が変わる。**受入判定は `--retries=0` で行うこと。** 既定設定の EXIT=0 はリトライ後の結果であり、初回で落ちるかを隠す。
+- **前提の失敗が要件の失敗として現れる構造を作らない（115.134）**: 候補登録の成立を主張しないまま REQ-7.4 の再試行へ入ると、登録が失敗した場合に「REQ-7.4: 候補をクリックすると値が自動入力される」の名前で落ちる。**前提は「前提: …」の名前で別に主張し、崩れたら前提の名前で落ちるようにすること。**
+- **【要処置・115.134 のレビューが検出】** `e2e/specs/quantity-tables/name-remarks-autocomplete.spec.ts:14-18` の「**本ファイルが判定していないもの**」節が `- REQ-7.1（…）と REQ-7.7（…）:` と箇条書きのため、`scripts/check-requirement-coverage.ts:522` のリスト正規表現に一致し、**「判定していない」と宣言した要件が被覆源として機械的に採取される**。現時点は兄弟ファイルが実判定しており穴は無く HEAD でも同状態のため退行ではないが、兄弟が失われた場合に偽の被覆源が残る。**箇条書きの `-` を外す1行修正で済む。別タスクとして起票すること。**
+- **【要処置・115.134 のレビューが検出】** `e2e/specs/quantity-tables/autocomplete-optimization.spec.ts:141` の `expect(inputText, …).not.toBe(REOPEN_SENTINEL)` は現行の全呼び出し値に対し**恒真**であり、かつ `toPass` の内側にあるため将来破れた際は15秒再試行してから表面化する。補助の契約を守る防御的ガードの意図は読めるが、恒真の解消を主旨とする本系列の中に恒真が残っている。
+- **【要処置・115.134 で判明】** `e2e/specs/estimate-requests/*.spec.ts` 3件と `e2e/specs/company-info/company-info-api.spec.ts` 2件も、被覆ヘッダが `scripts/check-requirement-coverage.ts` のパターン4に一致しない表記である（いずれも HEAD 由来で 115.134 の変更範囲外）。**同じ機序で被覆源が黙って失われている可能性があり、別タスクで確認すること。**
