@@ -672,7 +672,7 @@ export class Arrow extends Group {
       // Req 24.9: outline 未定義の旧データは白縁取り無しの従来表現で復元
       //   既存の ANNOTATION_DEFAULTS.arrowOutline（enabled=true）を無効化し、
       //   outlinePath.opacity=0 + width=0 で「白縁取り無し」状態にする。
-      arrow.setOutline({ enabled: false, color: '#ffffff', width: 0 });
+      arrow.setOutline({ enabled: false, color: ANNOTATION_DEFAULTS.outlineColor, width: 0 });
     }
 
     return Promise.resolve(arrow);

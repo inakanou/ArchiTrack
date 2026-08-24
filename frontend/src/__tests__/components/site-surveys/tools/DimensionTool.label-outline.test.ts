@@ -563,4 +563,57 @@ describe('Dimension labelOutline (Task 82.2 / Req 32.12)', () => {
       expect(label.strokeWidth).toBeCloseTo(1.44, 10);
     });
   });
+
+  /**
+   * Task 115.150 (Req 26.5): ラベル白アウトラインの色の供給元を資材へ一本化する
+   *
+   * 従来、ラベル白アウトラインの線幅は `fontSize × widthRatio` で決まり、両因子とも資材
+   * （`ANNOTATION_DEFAULTS.dimensionLabel.fontSize` / `dimensionLabelOutline.widthRatio`）から
+   * 供給されていたのに、**同じ算出式が適用する色だけが `DimensionTool.ts` の literal** だった。
+   * 供給元を `ANNOTATION_DEFAULTS.outlineColor` へ一本化する。
+   *
+   * 既定値は従来と同じ `#ffffff` であり描画結果は変わらない。単一情報源であることは
+   * 資材の値を変異させて追随を実測することで示す（値の一致だけでは literal でも通るため）。
+   *
+   * @requirement site-survey/REQ-26.5
+   */
+  describe('ラベル白アウトラインの色の供給元（Task 115.150 / Req 26.5）', () => {
+    const ORIGINAL_OUTLINE_COLOR = ANNOTATION_DEFAULTS.outlineColor;
+
+    afterEach(() => {
+      ANNOTATION_DEFAULTS.outlineColor = ORIGINAL_OUTLINE_COLOR;
+    });
+
+    it('新規寸法線の labelText の stroke は従来と同じ #ffffff である（挙動不変）', () => {
+      const dim = new DimensionLine(START, END);
+
+      expect(getLabel(dim).stroke).toBe('#ffffff');
+    });
+
+    it('資材の outlineColor を変えると新規寸法線の labelText の stroke が追随する', () => {
+      ANNOTATION_DEFAULTS.outlineColor = '#00ff00';
+
+      const dim = new DimensionLine(START, END);
+
+      expect(getLabel(dim).stroke).toBe('#00ff00');
+    });
+
+    it('資材の outlineColor を変えると setLabelOutline の再適用でも stroke が追随する', () => {
+      const dim = new DimensionLine(START, END);
+
+      ANNOTATION_DEFAULTS.outlineColor = '#00ff00';
+      dim.setLabelOutline({ widthRatio: 0.15 });
+
+      expect(getLabel(dim).stroke).toBe('#00ff00');
+    });
+
+    it('無効化した場合は色に関わらず stroke が空文字になる（Req 32.12 既存挙動）', () => {
+      ANNOTATION_DEFAULTS.outlineColor = '#00ff00';
+      const dim = new DimensionLine(START, END);
+
+      dim.setLabelOutline({ enabled: false });
+
+      expect(getLabel(dim).stroke).toBe('');
+    });
+  });
 });

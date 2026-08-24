@@ -147,6 +147,7 @@ import {
   TextAnnotation,
   createTextAnnotation,
 } from '../../../../components/site-surveys/tools/TextTool';
+import { ANNOTATION_DEFAULTS } from '../../../../components/site-surveys/annotation-style-tokens';
 
 describe('TextAnnotation 白アウトライン（Task 66.1）', () => {
   beforeEach(() => {
@@ -237,6 +238,52 @@ describe('TextAnnotation 白アウトライン（Task 66.1）', () => {
       expect(asAny.splitByGrapheme).toBe(true);
       // Task 115.101: 既定 fontSize 16 × widthRatio 0.12 = 1.92 を具体値で固定する
       expect(asAny.strokeWidth).toBeCloseTo(1.92, 5);
+    });
+  });
+
+  /**
+   * Task 115.150 (Req 26.5): 白アウトラインの色の供給元を資材へ一本化する
+   *
+   * 従来 `TextTool.ts` は白アウトラインの色をコンストラクタでは literal、再適用経路では
+   * モジュール内 const（`TEXT_OUTLINE_STROKE_COLOR`）から供給しており、いずれも一元管理の
+   * 資材の外にあった。供給元を `ANNOTATION_DEFAULTS.outlineColor` へ一本化する。
+   *
+   * 既定値は従来と同じ `#ffffff` であり描画結果は変わらない。単一情報源であることは
+   * 資材の値を変異させて追随を実測することで示す（値の一致だけでは literal でも通るため）。
+   *
+   * @requirement site-survey/REQ-26.5
+   */
+  describe('白アウトラインの色の供給元（Task 115.150 / Req 26.5）', () => {
+    const ORIGINAL_OUTLINE_COLOR = ANNOTATION_DEFAULTS.outlineColor;
+
+    afterEach(() => {
+      ANNOTATION_DEFAULTS.outlineColor = ORIGINAL_OUTLINE_COLOR;
+    });
+
+    it('資材の outlineColor を変えると新規テキストの stroke が追随する（コンストラクタ経路）', () => {
+      ANNOTATION_DEFAULTS.outlineColor = '#00ff00';
+
+      const text = new TextAnnotation({ x: 10, y: 20 }, { initialText: 'Hello' });
+
+      expect((text as unknown as { stroke?: string }).stroke).toBe('#00ff00');
+    });
+
+    it('資材の outlineColor を変えると setTextOutline の再適用でも stroke が追随する', () => {
+      const text = new TextAnnotation({ x: 10, y: 20 }, { initialText: 'Hello' });
+
+      ANNOTATION_DEFAULTS.outlineColor = '#00ff00';
+      text.setTextOutline({ widthRatio: 0.15 });
+
+      expect((text as unknown as { stroke?: string }).stroke).toBe('#00ff00');
+    });
+
+    it('無効化した場合は色に関わらず stroke が空文字になる（Req 25.2 既存挙動）', () => {
+      ANNOTATION_DEFAULTS.outlineColor = '#00ff00';
+      const text = new TextAnnotation({ x: 10, y: 20 }, { initialText: 'Hello' });
+
+      text.setTextOutline({ enabled: false });
+
+      expect((text as unknown as { stroke?: string }).stroke).toBe('');
     });
   });
 });

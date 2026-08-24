@@ -177,11 +177,6 @@ const TEXT_OUTLINE_WIDTH_RATIO_MIN = 0.1;
 const TEXT_OUTLINE_WIDTH_RATIO_MAX = 0.2;
 
 /**
- * 白アウトラインストロークの色（固定値、Req 25.4）
- */
-const TEXT_OUTLINE_STROKE_COLOR = '#ffffff';
-
-/**
  * 角丸吹き出しの角半径の上限（論理ピクセル）
  *
  * Task 115.102 (Req 8.6): 実際の半径は吹き出しの高さの半分を超えないよう抑える。
@@ -258,7 +253,8 @@ export class TextAnnotation extends IText {
    *
    * 既定値は `ANNOTATION_DEFAULTS.textOutline` に従う。
    * 本タスクでは内部状態の保持と `getTextOutline()` による参照のみを提供する。
-   * 有効時、コンストラクタで IText に `paintFirst: 'stroke'`・`stroke: '#ffffff'`・
+   * 有効時、コンストラクタで IText に `paintFirst: 'stroke'`・
+   * `stroke: ANNOTATION_DEFAULTS.outlineColor`（既定 `#ffffff`、Req 25.4 により常に白）・
    * `strokeWidth = fontSize * widthRatio`・`strokeUniform: true` を適用する。
    */
   private _textOutline: TextOutlineAttribute = {
@@ -350,7 +346,8 @@ export class TextAnnotation extends IText {
     // backgroundColor は上で既に設定済みで、ここでは上書きしないため独立制御が保たれる（Req 25.3）。
     if (resolvedTextOutline.enabled) {
       iTextOptions.paintFirst = 'stroke';
-      iTextOptions.stroke = '#ffffff';
+      // Task 115.150 (Req 26.5): 白アウトラインの色は一元管理の資材から供給する
+      iTextOptions.stroke = ANNOTATION_DEFAULTS.outlineColor;
       iTextOptions.strokeWidth = mergedOptions.fontSize * resolvedTextOutline.widthRatio;
       iTextOptions.strokeUniform = true;
     }
@@ -860,7 +857,8 @@ export class TextAnnotation extends IText {
   /**
    * 現在の `_textOutline` 状態と `fontSize` を元に IText 側の描画属性を再適用する
    *
-   * - enabled=true: `paintFirst='stroke'`, `stroke='#ffffff'`,
+   * - enabled=true: `paintFirst='stroke'`,
+   *   `stroke=ANNOTATION_DEFAULTS.outlineColor`（既定 `#ffffff`）,
    *   `strokeWidth = fontSize * widthRatio`, `strokeUniform=true`
    * - enabled=false: `stroke=''`, `strokeWidth=0`（無効化）
    *
@@ -875,7 +873,8 @@ export class TextAnnotation extends IText {
       if (this._textOutline.enabled) {
         super.set({
           paintFirst: 'stroke',
-          stroke: TEXT_OUTLINE_STROKE_COLOR,
+          // Task 115.150 (Req 26.5): 色の供給元はコンストラクタ経路と同じ資材である
+          stroke: ANNOTATION_DEFAULTS.outlineColor,
           strokeWidth: this.fontSize * this._textOutline.widthRatio,
           strokeUniform: true,
         });

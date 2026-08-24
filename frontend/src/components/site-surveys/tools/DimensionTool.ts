@@ -30,7 +30,8 @@
  * - `outline.enabled = false` のときは `outlineLine.opacity = 0`（構造は維持）。labelText には影響しない
  *
  * Task 82.2 設計メモ:
- * - `labelText` に `paintFirst='stroke'`, `stroke='#ffffff'`,
+ * - `labelText` に `paintFirst='stroke'`,
+ *   `stroke=ANNOTATION_DEFAULTS.outlineColor`（既定 `#ffffff`）,
  *   `strokeWidth = fontSize * labelOutline.widthRatio`, `strokeUniform=true` を適用
  * - `_labelOutline` 内部状態 + `setLabelOutline()` / `getLabelOutline()` API を追加
  * - `outline`（線部）と `labelOutline`（ラベル部）は互いに独立に状態遷移する
@@ -444,7 +445,7 @@ export class DimensionLine extends Group {
 
     // 外側 Path（白縁取り）を生成
     // Task 82.1 (Req 32.1, 32.2): outlineLine.strokeWidth = bodyStrokeWidth + outline.width * 2
-    //   outlineLine.stroke = '#ffffff'
+    //   outlineLine.stroke = outline.color（資材 ANNOTATION_DEFAULTS.outlineColor 由来の白）
     const outlineLine = new Path(pathData, {
       stroke: outline.color,
       strokeWidth: mergedOptions.strokeWidth + outline.width * 2,
@@ -495,7 +496,8 @@ export class DimensionLine extends Group {
     };
     if (labelOutline.enabled) {
       labelTextOptions.paintFirst = 'stroke';
-      labelTextOptions.stroke = '#ffffff';
+      // Task 115.150 (Req 26.5): 白アウトラインの色は一元管理の資材から供給する
+      labelTextOptions.stroke = ANNOTATION_DEFAULTS.outlineColor;
       labelTextOptions.strokeWidth = DEFAULT_LABEL_STYLE.fontSize * labelOutline.widthRatio;
       labelTextOptions.strokeUniform = true;
     }
@@ -893,7 +895,8 @@ export class DimensionLine extends Group {
    * ラベル白アウトライン属性を部分更新
    *
    * Task 82.2 (Req 32.12):
-   * - enabled=true のとき labelText に `paintFirst='stroke'`, `stroke='#ffffff'`,
+   * - enabled=true のとき labelText に `paintFirst='stroke'`,
+   *   `stroke=ANNOTATION_DEFAULTS.outlineColor`（既定 `#ffffff`）,
    *   `strokeWidth = fontSize * widthRatio`, `strokeUniform=true` を適用する
    * - enabled=false のとき labelText の `stroke=''`, `strokeWidth=0` で無効化する
    * - 線部の `outline` 属性とは独立に状態遷移する（互いに影響しない）
@@ -928,7 +931,7 @@ export class DimensionLine extends Group {
    * 現在の `_labelOutline` 状態と labelText.fontSize を元に labelText の描画属性を再適用する
    *
    * Task 82.2 (Req 32.12): `setLabelOutline` および フォントサイズ/寸法値変更時に呼び出される集約処理。
-   * - enabled=true: paintFirst='stroke', stroke='#ffffff',
+   * - enabled=true: paintFirst='stroke', stroke=ANNOTATION_DEFAULTS.outlineColor（既定 #ffffff）,
    *   strokeWidth = fontSize * widthRatio, strokeUniform=true
    * - enabled=false: stroke='', strokeWidth=0
    */
@@ -937,7 +940,8 @@ export class DimensionLine extends Group {
     if (this._labelOutline.enabled) {
       this._labelText.set({
         paintFirst: 'stroke',
-        stroke: '#ffffff',
+        // Task 115.150 (Req 26.5): 色の供給元はコンストラクタ経路と同じ資材である
+        stroke: ANNOTATION_DEFAULTS.outlineColor,
         strokeWidth: fontSize * this._labelOutline.widthRatio,
         strokeUniform: true,
       });

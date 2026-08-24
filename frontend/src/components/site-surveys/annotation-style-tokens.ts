@@ -126,6 +126,15 @@ export interface AnnotationToolDefaults {
   balloonStyle: BalloonStyleType;
   /** 既定塗りつぶし（通常 '' 透明） */
   fill: string;
+  /**
+   * 白縁取り/白アウトラインの色（ツール横断で共通、Req 26.5）
+   *
+   * Task 115.150: 矢印・六形状は `ShapeOutlineAttribute.color` として資材から色を引くのに、
+   * テキストと寸法値ラベルの白アウトライン色だけが各ツールの literal だった。要件24.3 /
+   * 25.4 が定めるとおり本体色を変えても白のまま維持される固定色であり、部位ごとに違える
+   * 余地が無い。全経路の供給元を本項目へ一本化する。
+   */
+  outlineColor: string;
   /** 矢印の既定白縁取り（enabled: true） */
   arrowOutline: ArrowOutlineAttribute;
   /** テキストの既定白アウトライン（enabled: true） */
@@ -219,6 +228,16 @@ const DIMENSION_LABEL_FONT_COLOR = '#000000';
  * Task 82.1 以降ラベルの背景は描画しないが、シリアライズ互換のため既定値を保持する。
  */
 const DIMENSION_LABEL_BACKGROUND_COLOR = '#ffffff';
+
+/**
+ * 白縁取り/白アウトラインの色（白、固定）
+ *
+ * Req 24.3 / 25.4: 本体色を変更しても縁取り部分の色は常に白のまま維持する。
+ * Task 115.150 (Req 26.5): 従来この白は矢印・六形状では資材（`ShapeOutlineAttribute.color`）、
+ * テキストと寸法値ラベルでは各ツールの literal と、二系統から供給されていた。本定数を
+ * 唯一の供給元とし、`ANNOTATION_DEFAULTS.outlineColor` として公開する。
+ */
+const OUTLINE_COLOR = '#ffffff';
 
 /**
  * 白縁取りの片側幅を本体線幅から算出する比率
@@ -327,7 +346,7 @@ const DEFAULT_SHAPE_OUTLINE_WIDTH = resolveShapeOutlineWidth(DEFAULT_STROKE_WIDT
 function makeDefaultShapeOutline(): ShapeOutlineAttribute {
   return {
     enabled: true,
-    color: '#ffffff',
+    color: OUTLINE_COLOR,
     width: DEFAULT_SHAPE_OUTLINE_WIDTH,
   };
 }
@@ -342,9 +361,11 @@ export const ANNOTATION_DEFAULTS: AnnotationToolDefaults = {
   fill: DEFAULT_FILL,
   textBackgroundColor: DEFAULT_TEXT_BACKGROUND_COLOR,
   balloonStyle: DEFAULT_BALLOON_STYLE,
+  // Req 26.5 / Task 115.150: 白縁取り・白アウトラインの色は全経路が本項目を参照する
+  outlineColor: OUTLINE_COLOR,
   arrowOutline: {
     enabled: true,
-    color: '#ffffff',
+    color: OUTLINE_COLOR,
     // Task 115.59 (Req 24.2): 既定線幅に対する算出値（round(3 * 0.75) = 2、下限 1px）。
     // 実際の片側幅は本体線幅から都度算出する（resolveArrowOutlineWidth）。
     width: resolveArrowOutlineWidth(DEFAULT_STROKE_WIDTH),
@@ -417,6 +438,7 @@ export function getToolDefaults(_tool: ToolType): AnnotationToolDefaults {
     strokeWidth: ANNOTATION_DEFAULTS.strokeWidth,
     fontSize: ANNOTATION_DEFAULTS.fontSize,
     fill: ANNOTATION_DEFAULTS.fill,
+    outlineColor: ANNOTATION_DEFAULTS.outlineColor,
     textBackgroundColor: ANNOTATION_DEFAULTS.textBackgroundColor,
     balloonStyle: ANNOTATION_DEFAULTS.balloonStyle,
     arrowOutline: { ...ANNOTATION_DEFAULTS.arrowOutline },

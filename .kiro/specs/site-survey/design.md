@@ -5437,7 +5437,7 @@ class TextAnnotation extends IText {
 ```
 
 - Preconditions: `fontSize > 0`、`widthRatio ∈ [0, 1]`
-- Postconditions: `paintFirst === 'stroke'`（enabled 時）、`stroke` は `'#ffffff'` または `''`
+- Postconditions: `paintFirst === 'stroke'`（enabled 時）、`stroke` は `ANNOTATION_DEFAULTS.outlineColor`（既定 `'#ffffff'`）または `''`
 - Invariants: `textOutline.widthRatio` 変更時 `strokeWidth = fontSize * widthRatio` を即時反映
 
 **Implementation Notes**
@@ -5462,6 +5462,7 @@ interface AnnotationToolDefaults {
   strokeWidth: number;       // 既定線幅（3px 以上）
   fontSize: number;          // 既定フォントサイズ
   fill: string;              // 既定塗りつぶし（通常 '' 透明）
+  outlineColor: string;      // 白縁取り/白アウトラインの色（タスク 115.150 で追加。全部位共通の白）
   arrowOutline: ArrowOutlineAttribute;   // 矢印の既定白縁取り（enabled: true）
   textOutline: TextOutlineAttribute;     // テキストの既定白アウトライン（enabled: true）
   dimensionLabel: DimensionLabelStyle;   // 寸法値ラベルの既定スタイル（タスク 115.98 で移設）
@@ -5493,6 +5494,49 @@ export function getToolDefaults(tool: ToolKind): AnnotationToolDefaults;
 - `fontSize`（12）をツール横断の `ANNOTATION_DEFAULTS.fontSize`（16）へ揃えない。寸法値ラベルは寸法線の中央に重ねて描く従属表示であり、テキスト注釈と同じ大きさにすると線を覆う。値の統一は既定の見た目を変える別の判断であり、本タスクでは行わない。
 
 **検証**: 既定値は `annotation-style-tokens.test.ts` と `DimensionTool.label-outline.test.ts` が具体値（12 / `#000000` / `#ffffff`、およびラベル白アウトライン線幅 1.44）で固定する。単一情報源であることは、資材側の値を変えると新規寸法線の `labelText` の `fontSize` / `fill` を主張するテストが落ちることで確認した。
+
+##### 白アウトラインの色を一元管理へ含める判断（要件26.5）
+
+タスク 115.150 で、白縁取り／白アウトラインの色を**要件26.5 の一元管理の対象に含める**と決めた。実体は `frontend/src/components/site-surveys/annotation-style-tokens.ts` の `ANNOTATION_DEFAULTS.outlineColor`（値は `#ffffff`）であり、矢印と六形状の既定白縁取り（`arrowOutline.color` および各 `{shape}Outline.color`）も同じ供給元から作る。
+
+**含めると判断した理由**:
+
+1. 要件26.5 が列挙するのは「既定色・既定線幅・既定白縁取り**有無**」であり、縁取りの色そのものは字面に無い。しかしタスク 115.98 が確立したとおり、一元管理が求めるのは値の同一化ではなく**供給元の単一化**であって、「本体色とは別の概念だから資材の外に置く」という形の理由は成り立たない。白縁取りの色は、新規注釈を描くときにツールが与える既定の色の一つである。
+2. **同じ算出式の中で色だけが取り残されていた**。テキストと寸法値ラベルの白アウトライン線幅は `fontSize × widthRatio` で決まり、タスク 115.98 の後は両因子とも資材から供給されていたのに、同じ描画属性を設定する呼び出しが渡す `stroke` だけが literal だった。これは 115.98 が「一つの計算が二つの供給元をまたいでいた」として是正した状態と同型である。
+3. **同じ白でも矢印は資材、テキストと寸法値ラベルは literal という非対称**があった。`ShapeOutlineAttribute` は `color` を持ち `ANNOTATION_DEFAULTS` から供給されるのに、`TextOutlineAttribute` には色の項目そのものが無い。同一の白を二系統から供給する状態は単一情報源の趣旨で正当化できない。
+
+**注釈ごとの属性の形は変えていない**。`TextOutlineAttribute` に `color` を足していない。要件24.3 と要件25.4 が「本体色を変更しても縁取り部分の色は常に白のまま維持する」と定めており、色は**部位ごと・注釈ごとに違える余地の無い固定値**である。永続化の対象として要件24.6 と要件25.7 が挙げるのも「有効／無効・幅」であって色ではない。したがって色はツール横断の既定値として資材に一箇所置き、注釈ごとの属性には広げない。
+
+**`ShapeOutlineAttribute.color` は残す**。根拠は要件の字面ではなく**実装の JSON 形式**である。要件24.6 と要件32.6 が永続化対象として挙げるのは「有効/無効・縁取り幅」であり、要件24.7 と要件32.7 が復元対象として挙げるのも「保存された白縁取り属性」であって、どちらも色を列挙していない。しかし実装の `toObject` は `ShapeOutlineAttribute` を丸ごと出力し、`fromObject` はそれを丸ごと `setOutline` へ渡すため、保存済みデータには色が含まれ、復元経路がそれを読む。この項目の撤去は永続化形式の変更であって本タスクの境界外である。現在は**その既定値も `ANNOTATION_DEFAULTS.outlineColor` から作られる**ため、供給元は一つに揃っている。
+
+**既定値そのものは変更していない**（`#ffffff`）。変更は供給元のみであり、描画結果は変わらない。
+
+**適用範囲（タスク 115.150 時点の実測）**: 本節が主張する範囲は三層に分かれる。全称否定（「白アウトラインの色を渡す literal はもう存在しない」）は主張しない。
+
+**(A) 機械保証**: 供給元が一つであることは試験が保証する。資材の `outlineColor` を別の色へ変異させると、テキストと寸法値ラベルの `stroke`、および旧データ復元時の `outline.color` を主張する試験が落ちる（下の「検証」を参照）。保証が及ぶのはこれらの試験が触れる経路に限られ、literal が新たに書き加えられた経路までは覆わない。
+
+**(B) 人手走査（その1）**: 再現コマンドは `grep -rn "#ffffff" frontend/src/components/site-surveys/tools/` であり、実測の出力は 9 件である。改修前に白アウトラインの色を本番で渡していた経路は十箇所あった。内訳は `tools/TextTool.ts` のコンストラクタと `_applyOutlineToIText`、`tools/DimensionTool.ts` のコンストラクタと `_applyLabelOutlineToText`、および旧データ復元時に白縁取りを無効化する `fromObject` 内の `setOutline` 呼び出しであり、後者は `ArrowTool.ts` と `RectangleTool.ts` と `CircleTool.ts` と `PolygonTool.ts` と `PolylineTool.ts` と `FreehandTool.ts` に一つずつある。全件を `ANNOTATION_DEFAULTS.outlineColor` の参照へ改めた。改修後に残る 9 件は次の二区分で全件を覆う。
+
+- **本番の値が 4 件**。`tools/TextTool.ts` の `DEFAULT_BALLOON_OPTIONS.backgroundColor` が 1 件——要件8.6 の吹き出し背景色の既定であり、Fabric の `backgroundColor` を埋める値であって `stroke` ではないため、白アウトラインの色ではない。`tools/DimensionValueInput.tsx` が 3 件——React のインラインスタイルの `backgroundColor` が 2 件と `color` が 1 件で、寸法値を打ち込む DOM オーバーレイの見た目を決める値である。Fabric の描画属性ではなく、`setOutline` にも `stroke` にも渡らないため、白アウトラインの色ではない。
+- **資材を指すことを述べた JSDoc 注釈が 5 件**。`tools/TextTool.ts` に 2 件、`tools/DimensionTool.ts` に 3 件あり、いずれも `ANNOTATION_DEFAULTS.outlineColor` の既定値を説明する文である。実行される値ではない。
+
+**(B) 人手走査（その2）**: 第二の再現コマンドは `grep -rniE "#fff([^f]|$)|#FFFFFF|white" frontend/src/components/site-surveys/` であり、実測の出力は 105 件である。次の九区分は相互排他で、合計は 105 件となり出力全体を覆う。
+
+- 非色の CSS プロパティ `whiteSpace` / `white-space`（`nowrap`・`pre-wrap` 等）が 9 件。色ですらない。
+- Tailwind のクラス名（`bg-white` / `text-white` の類）が 10 件。`SiteSurveyResponsiveView.tsx` と `SiteSurveyListTable.tsx` と `SiteSurveyListCard.tsx` にある画面の地色と文字色である。
+- 白ではない値が 2 件。`PendingUploadPanel.tsx` の `#fffbeb` と `StylePanel.stories.tsx` の `#fff3e0` で、正規表現の `#fff` に前方一致しただけである。
+- WCAG のコントラスト比を述べた注釈が 12 件。
+- 資材を指すことを述べた JSDoc 注釈が 5 件。その1で数えた 5 件と同一である。
+- `annotation-style-tokens.ts` の資材定義が 2 件。本タスクの単一供給元である `OUTLINE_COLOR` と、寸法値ラベル背景の `DIMENSION_LABEL_BACKGROUND_COLOR` である。
+- Fabric の非アウトライン描画属性が 1 件。その1で数えた `DEFAULT_BALLOON_OPTIONS.backgroundColor` と同一である。
+- テキスト背景の代替値と塗りつぶし色ピッカーの初期表示と色パレットの白見本が 4 件。`AnnotationToolbar.tsx` の `TEXT_BACKGROUND_FALLBACK_COLOR` と `fillColor` の既定表示、`StylePanel.tsx` の白見本と色ピッカーの初期表示である。
+- 残る 60 件は画面 DOM の背景色と文字色。React のインラインスタイル、`SiteSurveyForm.tsx` の `STYLES.colors` に置いた白トークンの定義と参照、および `2px solid white` の枠線である。
+
+この 105 件のいずれも白アウトラインの色を渡す経路ではない。すなわち当該経路は `tools/` の外に無かった。白縁取りの有効/無効を切り替える `AnnotationEditor` の呼び出しも `setOutline({ enabled })` の形であり、色を渡さない。
+
+**(C) 未走査の残余**: 上の二つのコマンドは `#ffffff` と `#fff` と `white` の**字面**しか見ない。したがって次は走査していない。第一に、白の別表記である。`rgba` 形式で白を書いた行が `AnnotationEditor.tsx` に 1 件あるが（DOM オーバーレイの背景であって描画属性ではない）、第二のコマンドの 105 件には含まれない。`hsl` 形式は実測で無かった。第二に、実行時に組み立てられる色文字列や、props・API 応答から流れ込む値である。字面が無いため grep では原理的に捕まえられない。第三に、`frontend/src/components/site-surveys/` の外である。**保証はここに書いた (A) と (B) の範囲までであり、(C) は保証しない。**
+
+**検証**: 供給元が一つであることは、試験中に資材の `outlineColor` を別の色へ変異させ、テキストと寸法値ラベルの `stroke`、および旧データ復元時の `outline.color` が追随することで実測した（`TextTool.outline.test.ts`、`DimensionTool.label-outline.test.ts`、各ツールの `*.serialization.test.ts`）。**値の一致だけを主張する検証は literal のままでも通るため採らない。** 既定値が従来と同じ `#ffffff` であること、および無効時に `stroke` が空文字になる既存挙動は、`annotation-style-tokens.test.ts` と各ツールの試験が具体値で固定する。
 
 #### Gestures Layer
 
@@ -6375,8 +6419,8 @@ class Rectangle extends Group implements ShapeOutlineMethods<RectangleJSON> {
 
 **Responsibilities & Constraints**
 - Group 子: `outlineLine`（白・幅広）+ `bodyLine`（本体色）+ `labelText`（FabricText with paintFirst）
-- 線の白縁取り: 5 ツール共通仕様と同形。`outline: ShapeOutlineAttribute` を保持し、`outlineLine.strokeWidth = bodyStrokeWidth + outline.width * 2`、`outlineLine.stroke = '#ffffff'`
-- ラベルの白アウトライン: `labelOutline: TextOutlineAttribute` を**独立属性として保持**（Req 25 と同形）。`labelText.paintFirst = 'stroke'`、`labelText.stroke = '#ffffff'`、`labelText.strokeWidth = labelText.fontSize * labelOutline.widthRatio`、`labelText.strokeUniform = true`
+- 線の白縁取り: 5 ツール共通仕様と同形。`outline: ShapeOutlineAttribute` を保持し、`outlineLine.strokeWidth = bodyStrokeWidth + outline.width * 2`、`outlineLine.stroke = outline.color`（既定 `'#ffffff'`）
+- ラベルの白アウトライン: `labelOutline: TextOutlineAttribute` を**独立属性として保持**（Req 25 と同形）。`labelText.paintFirst = 'stroke'`、`labelText.stroke = ANNOTATION_DEFAULTS.outlineColor`（既定 `'#ffffff'`。タスク 115.150 で literal から資材へ移した）、`labelText.strokeWidth = labelText.fontSize * labelOutline.widthRatio`、`labelText.strokeUniform = true`
 - `outline.enabled = false` のとき: `outlineLine.opacity = 0`。`labelText` には影響しない
 - `labelOutline.enabled = false` のとき: `labelText.stroke = ''`。`outlineLine` には影響しない
 - 寸法値変更時 `labelText` の `set('text', newValue)` 後、`strokeWidth = fontSize * labelOutline.widthRatio` を再計算

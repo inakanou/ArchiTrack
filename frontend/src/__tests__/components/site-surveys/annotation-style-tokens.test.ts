@@ -435,4 +435,42 @@ describe('annotation-style-tokens', () => {
       expect(ANNOTATION_DEFAULTS.dimensionLabelOutline.widthRatio).toBe(0.12);
     });
   });
+
+  /**
+   * Task 115.150 (Req 26.5): 白アウトラインの色の供給元を資材へ一本化する
+   *
+   * 従来 `TextOutlineAttribute` は `enabled` と `widthRatio` しか持たず、白アウトラインの
+   * 色は `TextTool.ts` / `DimensionTool.ts` の literal が供給していた。一方で矢印・六形状の
+   * 白縁取り色（`ShapeOutlineAttribute.color`）は資材にあり、**同じ白でも供給元が二系統**に
+   * 分かれていた。資材に `outlineColor` を置き、全経路の供給元を一つにする。
+   *
+   * 既定値は従来と同じ `#ffffff` であり、描画結果は変わらない。
+   *
+   * @requirement site-survey/REQ-26.5
+   */
+  describe('白アウトラインの色の供給元（Task 115.150 / Req 26.5）', () => {
+    const outlineColorKeys = [
+      'arrowOutline',
+      'rectangleOutline',
+      'circleOutline',
+      'polygonOutline',
+      'polylineOutline',
+      'freehandOutline',
+      'dimensionOutline',
+    ] as const;
+
+    it('資材は白アウトラインの色を単一の項目 outlineColor として持つ', () => {
+      expect(ANNOTATION_DEFAULTS.outlineColor).toBe('#ffffff');
+    });
+
+    it.each(outlineColorKeys)('%s.color は資材の outlineColor と同一の供給元である', (key) => {
+      const outline = ANNOTATION_DEFAULTS[key] as ShapeOutlineAttribute;
+      expect(outline.color).toBe(ANNOTATION_DEFAULTS.outlineColor);
+    });
+
+    it('getToolDefaults の戻り値にも outlineColor が含まれる', () => {
+      expect(getToolDefaults('text').outlineColor).toBe('#ffffff');
+      expect(getToolDefaults('dimension').outlineColor).toBe(ANNOTATION_DEFAULTS.outlineColor);
+    });
+  });
 });
