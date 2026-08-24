@@ -37,6 +37,8 @@ import QuantityGroupCard from '../components/quantity-table/QuantityGroupCard';
 import ItemCopyMoveDialog from '../components/quantity-table/ItemCopyMoveDialog';
 import UnsavedChangesBadge from '../components/quantity-table/UnsavedChangesBadge';
 import { AnnotatedImageThumbnail } from '../components/site-surveys/AnnotatedImageThumbnail';
+// 集合体へ複写された線幅は実描画から導出し直す（詳細は annotation-restore-scale.ts）。
+import { resolveRestoredStrokeWidth } from '../components/site-surveys/annotation-restore-scale';
 import { useAutocompleteCandidateStore } from '../hooks/useAutocompleteCandidateStore';
 // PDF出力サービスは日本語フォント資産（約3MB）へ静的に到達するため、
 // 値としては静的 import せず出力実行時に動的読み込みする（初期チャンクからの分離）
@@ -1290,8 +1292,20 @@ export default function QuantityTableEditPage() {
                   scaleX: (fabricObj.scaleX ?? 1) * scaleX,
                   scaleY: (fabricObj.scaleY ?? 1) * scaleY,
                 });
+                // ストローク幅の解決（Task 115.110, Req 32.2, 32.8）
+                // 復元処理（AnnotationEditor）および他の書き出し経路と同じ方式へ揃える。
+                // 集合体（Group）の注釈は実描画を子が保持し、表示倍率は上の scaleX / scaleY
+                // 経由で子へ伝搬する。集合体自身の strokeWidth は子から複写された後方互換用の
+                // 値であり、ここへ重ねて倍率を掛けると複写元（実描画）と座標系が食い違う。
+                const avgScale = (scaleX + scaleY) / 2;
                 if (fabricObj.strokeWidth) {
-                  fabricObj.set({ strokeWidth: fabricObj.strokeWidth * ((scaleX + scaleY) / 2) });
+                  fabricObj.set({
+                    strokeWidth: resolveRestoredStrokeWidth(
+                      fabricObj,
+                      fabricObj.strokeWidth,
+                      avgScale
+                    ),
+                  });
                 }
               }
               fabricCanvas.add(fabricObj);

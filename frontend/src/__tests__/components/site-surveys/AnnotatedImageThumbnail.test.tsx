@@ -557,6 +557,120 @@ describe('AnnotatedImageThumbnail', () => {
     });
   });
 
+  describe('表示倍率の適用先（Task 115.110 / site-survey/REQ-32.2）', () => {
+    /**
+     * 集合体（Group）として復元された注釈のモック
+     *
+     * 本番（七形状の構築処理）と同じく、子は `[outline*, body*]` の順で、
+     * 集合体自身へ本体線幅を複写している。`getObjects()` は Fabric Group の契約。
+     */
+    function createMockGroupShape(bodyStrokeWidth: number, outlineWidthPx: number) {
+      const childOutline = { type: 'path', strokeWidth: bodyStrokeWidth + outlineWidthPx * 2 };
+      const childBody = { type: 'path', strokeWidth: bodyStrokeWidth };
+      const children = [childOutline, childBody];
+      const shape: Record<string, unknown> & {
+        childOutline: { strokeWidth: number };
+        childBody: { strokeWidth: number };
+      } = {
+        type: 'arrow',
+        left: 100,
+        top: 50,
+        scaleX: 1,
+        scaleY: 1,
+        strokeWidth: bodyStrokeWidth,
+        getObjects: () => children,
+        childOutline,
+        childBody,
+        set(this: Record<string, unknown>, options: Record<string, unknown>) {
+          Object.assign(this, options);
+          return this;
+        },
+      };
+      return shape;
+    }
+
+    beforeEach(() => {
+      // 保存時 1000x500 に対し描画時 400x400 → scaleX = 0.4, scaleY = 0.8（非等倍）
+      vi.spyOn(HTMLImageElement.prototype, 'width', 'get').mockReturnValue(400);
+      vi.spyOn(HTMLImageElement.prototype, 'height', 'get').mockReturnValue(400);
+    });
+
+    it('集合体注釈の複写線幅は実描画の本体線幅と同じ座標系に保たれる', async () => {
+      vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue({
+        id: 'annotation-1',
+        imageId: mockImage.id,
+        data: {
+          objects: [{ type: 'arrow', left: 100, top: 50 }],
+          canvasWidth: 1000,
+          canvasHeight: 500,
+        },
+        version: '1.0',
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 保存済みJSONの素の形をそのまま渡す
+      } as any);
+
+      const shape = createMockGroupShape(4, 3);
+      const { util } = await import('fabric');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Fabric の複雑な型を満たさないモック
+      vi.mocked(util.enlivenObjects).mockResolvedValueOnce([shape as any]);
+
+      renderRevealed(<AnnotatedImageThumbnail image={mockImage} alt="テスト画像" />);
+
+      await waitFor(() => {
+        expect(shape.scaleX).toBeCloseTo(0.4, 10);
+      });
+      expect(shape.scaleY).toBeCloseTo(0.8, 10);
+      // 実描画（子）の線幅は入力値のまま。ここで分母を固定する
+      expect(shape.childBody.strokeWidth).toBe(4);
+      expect(shape.childOutline.strokeWidth).toBe(10);
+      // 複写値は実描画の本体線幅と一致する（平均倍率 0.6 を重ねて掛けない）
+      expect(shape.strokeWidth).toBe(shape.childBody.strokeWidth);
+      expect(shape.strokeWidth).toBe(4);
+    });
+
+    it('自身の線で描かれるテキスト注釈の線幅には従来どおり平均倍率が掛かる', async () => {
+      vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue({
+        id: 'annotation-1',
+        imageId: mockImage.id,
+        data: {
+          objects: [{ type: 'textAnnotation', left: 100, top: 50 }],
+          canvasWidth: 1000,
+          canvasHeight: 500,
+        },
+        version: '1.0',
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 保存済みJSONの素の形をそのまま渡す
+      } as any);
+
+      const initialStrokeWidth = 24 * 0.12;
+      const textObj: Record<string, unknown> = {
+        type: 'textAnnotation',
+        left: 100,
+        top: 50,
+        scaleX: 1,
+        scaleY: 1,
+        strokeWidth: initialStrokeWidth,
+        strokeUniform: true,
+        set(this: Record<string, unknown>, options: Record<string, unknown>) {
+          Object.assign(this, options);
+          return this;
+        },
+      };
+      const { util } = await import('fabric');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Fabric の複雑な型を満たさないモック
+      vi.mocked(util.enlivenObjects).mockResolvedValueOnce([textObj as any]);
+
+      renderRevealed(<AnnotatedImageThumbnail image={mockImage} alt="テスト画像" />);
+
+      await waitFor(() => {
+        expect(textObj.scaleX).toBeCloseTo(0.4, 10);
+      });
+      expect(textObj.strokeWidth).toBeCloseTo(initialStrokeWidth * 0.6, 10);
+    });
+  });
+
   describe('フォールバック画像URL', () => {
     it('mediumUrlがない場合はoriginalUrlを使用する', async () => {
       vi.mocked(surveyAnnotationsApi.getAnnotation).mockResolvedValue(null);

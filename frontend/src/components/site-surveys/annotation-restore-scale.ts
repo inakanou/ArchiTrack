@@ -1,10 +1,30 @@
 /**
  * @fileoverview 保存済み注釈の復元時に、表示倍率の適用先を座標系ごとに揃えるための導出
  *
- * Task 115.73 (Req 32.2)
+ * Task 115.73 (Req 32.2) — 注釈編集画面の復元処理
+ * Task 115.110 (Req 32.2) — 書き出し・合成経路。同形の欠陥は資材の分かれている数だけ
+ * 存在していた。
  *
- * 注釈編集画面の復元処理は、保存時と現在のキャンバス寸法が異なる場合に表示倍率を適用する。
- * 適用先は次の 2 系統に分かれ、混同すると同一オブジェクト内で座標系が食い違う。
+ * 本モジュールへ適用先を揃えた箇所は、`frontend/src` を全域走査した結果 6 箇所である
+ * （特定ファイル内の出現数ではない）。内訳は次のとおり。
+ * - 復元処理 1: `AnnotationEditor.tsx` の共有ヘルパー `addRestoredAnnotationObjects`
+ *   （サーバー保存済みの復元と下書きの復元の両方がこれを通る）
+ * - 書き出し・合成 5: `services/export/AnnotationRendererService.ts` の `renderImage` /
+ *   `renderImageForReport` / `renderImagesForReport`、`AnnotatedImageThumbnail.tsx` の
+ *   クライアント合成、`pages/QuantityTableEditPage.tsx` の `renderAnnotatedImageToDataUrl`
+ *   （数量表PDF出力。要件 32.8 が PDF を同列に挙げる対象）
+ *
+ * 走査コマンドと出力は design.md「Requirements 24-30」§File Structure Plan の
+ * `AnnotationRendererService` 項に記録した。要旨は次の 2 本で、
+ * - 適用先: `grep -rn "resolveRestoredStrokeWidth" frontend/src --include=*.ts --include=*.tsx | grep -v __tests__`
+ * - 残存確認: `grep -rnE "strokeWidth[^;]*\*[^;]*(scaleX|scaleY|avgScale|averageScale|displayScale|zoom|Zoom|multiplier|Multiplier)" frontend/src --include=*.ts --include=*.tsx | grep -v __tests__`
+ * 後者の出力が空であることを確認している。これは走査した範囲での結論であって
+ * 「他に無いことの証明」ではないため、新たな書き出し経路を足す際は本モジュールを
+ * 経由させ、後者の出力が空のままであることを確認すること。
+ *
+ * 保存済み注釈を実体化して載せる処理は、保存時と現在のキャンバス寸法が異なる場合に
+ * 表示倍率を適用する。適用先は次の 2 系統に分かれ、混同すると同一オブジェクト内で
+ * 座標系が食い違う。
  *
  * 1. 集合体（Group）として復元される注釈（矢印・寸法線・円・四角形・多角形・折れ線・
  *    フリーハンド）
@@ -27,6 +47,11 @@
  *
  * 本モジュールは 1 の系統について「複写された線幅を実描画から導出し直す」責務のみを持つ。
  * Fabric へは依存せず、集合体が公開する `getObjects()` の構造だけを見る。
+ *
+ * なお「集合体化した矢印では集合体本体に線幅が存在しないため対象外」という前提は事実に
+ * 反する（Task 115.110 で訂正）。七形状（Arrow / Dimension / Circle / Rectangle /
+ * Polygon / Polyline / Freehand）の構築処理はいずれも本体線幅を集合体自身へ複写している。
+ * 複写を持たないのは、複写以前に保存されたレガシー構造だけである。
  */
 
 /**

@@ -16,6 +16,8 @@ import type { AnnotationInfo } from '../../types/site-survey.types';
 import { logger } from '../../utils/logger';
 // カスタムシェイプをFabric.jsクラスレジストリに登録
 import './tools/registerCustomShapes';
+// 集合体へ複写された線幅は実描画から導出し直す（詳細は annotation-restore-scale.ts）。
+import { resolveRestoredStrokeWidth } from './annotation-restore-scale';
 
 // ============================================================================
 // 型定義
@@ -291,10 +293,16 @@ export function AnnotatedImageThumbnail({
               scaleY: (fabricObj.scaleY ?? 1) * scaleY,
             });
 
-            // ストローク幅もスケール（平均スケールを使用）
+            // ストローク幅の解決（Task 115.110, Req 32.2）
+            // 復元処理（AnnotationEditor）と同じ方式へ揃える。集合体（Group）の注釈は
+            // 実描画を子が保持し、表示倍率は上の scaleX / scaleY 経由で子へ伝搬する。
+            // 集合体自身の strokeWidth は子から複写された後方互換用の値であり、ここへ
+            // 重ねて倍率を掛けると複写元（実描画）と座標系が食い違う。
             const avgScale = (scaleX + scaleY) / 2;
             if (fabricObj.strokeWidth) {
-              fabricObj.set({ strokeWidth: fabricObj.strokeWidth * avgScale });
+              fabricObj.set({
+                strokeWidth: resolveRestoredStrokeWidth(fabricObj, fabricObj.strokeWidth, avgScale),
+              });
             }
           }
 
