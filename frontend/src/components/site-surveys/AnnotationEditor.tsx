@@ -1994,7 +1994,13 @@ function AnnotationEditor({
     }
 
     // controller に新メソッドを足さず、現在ズームを見て拡大↔全体表示を排他に切り替える。
-    const tapPoint = { x: payload.clientX, y: payload.clientY };
+    //
+    // Task 115.145 (Req 33.8): 拡大の基準点は描画面（canvas 要素の左上が原点）基準で渡す。
+    // GesturePayload の clientX/clientY は画面基準であり、そのまま渡すと canvas 要素が画面
+    // 上端から離れている配置（モバイルのヘッダ＋パンくず＋ツールバー下）では拡大の中心が
+    // 要素オフセットぶん下（右）へずれる。115.129 が2本指ピンチ経路へ入れた変換と同一の
+    // `toCanvasPoint` を通し、ダブルタップ経路でも基準を揃える。
+    const tapPoint = controller.toCanvasPoint({ x: payload.clientX, y: payload.clientY });
     if (controller.getState().zoom <= 1 + DOUBLE_TAP_ZOOM_EPSILON) {
       controller.zoomToPoint(tapPoint, DOUBLE_TAP_ZOOM_SCALE);
     } else {

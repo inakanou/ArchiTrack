@@ -1967,9 +1967,18 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
   });
 
   /**
-   * (5) 空き領域ダブルタップで拡大⇄全体表示がトグルする（Req 33.8 / 27.1 調停）
+   * (5) 空き領域ダブルタップで拡大⇄全体表示がトグルし、拡大の中心がタップ位置に固定される
+   *     （Req 33.8 / 27.1 調停）
+   *
+   * Task 115.145: 編集キャンバスは画面上端からヘッダ/パンくず/ツールバーぶん下にある。
+   * 拡大の基準点へ画面基準の座標をそのまま渡すと、その要素オフセットぶん中心が下（右）へ
+   * ずれる。「タップ点を中心に拡大する」が成立していれば、**タップ点に見えている画像上の
+   * 位置（scene 座標）は拡大の前後で変わらない**。この不変量を実ブラウザの実タッチで
+   * 検証する（115.129 が 2 本指ピンチ経路へ置いた形と同一）。
+   * タップ点はキャンバス中央ではなく上寄りに置き、縦オフセットの誤りが可動範囲の
+   * クランプに吸収されない位置で観測する。
    */
-  test('(5) 空き領域ダブルタップで拡大/全体表示をトグルする (REQ-33.8)', async () => {
+  test('(5) 空き領域ダブルタップで拡大/全体表示をトグルし拡大の中心がタップ点に固定される (REQ-33.8)', async () => {
     await enterEditMode();
     await recalcOffset();
     // ダブルタップ調停は対象有無で分岐するため、選択ツールで空き領域を確実化する
@@ -1979,12 +1988,19 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
     await resetViewport();
 
     const box = await getCanvasBox();
-    const cx = box.x + box.width / 2;
-    const cy = box.y + box.height / 2;
+    // 描画面（canvas 要素の左上が原点）基準でのタップ位置。
+    const relTapX = box.width / 2;
+    const relTapY = box.height * 0.35;
+    const cx = box.x + relTapX;
+    const cy = box.y + relTapY;
 
     const atFit = await readProbe();
     expect(atFit.zoom).toBeCloseTo(1, 1);
     expect(atFit.objectCount).toBe(0); // 空き領域（注釈なし）
+
+    // タップ点（描画面座標）に見えている scene 座標。
+    const sceneBeforeX = (relTapX - atFit.panX) / atFit.zoom;
+    const sceneBeforeY = (relTapY - atFit.panY) / atFit.zoom;
 
     // 1回目: 等倍 → 拡大
     await doubleTapAt(cx, cy);
@@ -1992,6 +2008,21 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
     expect(zoomedIn.zoom).toBeGreaterThan(1.5);
     // ダブルタップズームは新規注釈を作らない（描画誤発火しない）
     expect(zoomedIn.objectCount).toBe(0);
+
+    // Req 33.8 は「拡大表示と全体表示をトグルする」までを定め、拡大の中心には触れていない。
+    // ここで主張する「タップ点に見えている画像上の位置が拡大の前後で保たれる（＝タップ点が
+    // 拡大の中心である）」は、要件原文の言い換えではなく、33.8 の実装が用いる
+    // `canvasViewportController.zoomToPoint` の明文契約（同ファイル冒頭「指定点は描画面基準
+    // であり、clientX/clientY を渡す呼び出し側は必ず toCanvasPoint で基準を揃えること」）と、
+    // design.md の直接操作の原則から導いた受入水準である。
+    // 画面座標のまま渡す実装では、基準点が canvas 要素の原点ぶん（左 box.x / 上 box.y）
+    // ずれた点になり、ずれ量は `オフセット × (1 - 1/2)` になる。Task 115.145 の変異検証で
+    // 実測したずれは縦 50.8 / 横 28.0（いずれも scene 座標）であり、許容差 5 に対して
+    // 10 倍・5.6 倍の余裕がある。
+    const sceneAfterX = (relTapX - zoomedIn.panX) / zoomedIn.zoom;
+    const sceneAfterY = (relTapY - zoomedIn.panY) / zoomedIn.zoom;
+    expect(Math.abs(sceneAfterX - sceneBeforeX)).toBeLessThan(5);
+    expect(Math.abs(sceneAfterY - sceneBeforeY)).toBeLessThan(5);
 
     // 2回目: 拡大中 → 全体表示（fit）へ戻る
     await doubleTapAt(cx, cy);

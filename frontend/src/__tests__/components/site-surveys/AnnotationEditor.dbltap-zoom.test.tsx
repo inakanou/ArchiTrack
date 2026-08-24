@@ -7,6 +7,13 @@
  *   - 空き領域（対象なし） かつ 等倍（≒1） → controller.zoomToPoint(タップ点, 2)（Req 33.8）
  *   - 空き領域 かつ 拡大中（zoom>1） → controller.fit()（Req 33.8）
  *
+ * Task 115.145 (Req 33.8): 拡大の基準点は **描画面（canvas 要素の左上が原点）基準** である。
+ * GesturePayload の clientX/clientY は画面基準なので、`controller.toCanvasPoint` を通してから
+ * `zoomToPoint` へ渡さなければ、canvas が画面上端から離れている配置で中心が下（右）へずれる。
+ * 本テストの controller スパイは実装（canvasViewportController.toCanvasPoint）と同じ意味論で
+ * 要素オフセット `CANVAS_ELEMENT_OFFSET` を引く変換を持ち、`zoomToPoint` の引数が変換後の値で
+ * あることを主張する。画面座標のまま渡す実装へ戻すと当該主張が落ちる。
+ *
  * 重要（round 1 修正）: 実運用の custom:dbltap payload は target を持たない（touchGestureManager の
  * buildPayload は {pointerType, clientX, clientY, currentTool} のみ。Fabric の canvas.fire は
  * カスタムイベントに target を付与しない）。本テストは payload に合成 target を注入せず、
@@ -55,6 +62,7 @@ const {
   configureHandleSizesSpy,
   controllerSpy,
   setMockZoom,
+  CANVAS_ELEMENT_OFFSET,
 } = vi.hoisted(() => {
   const registeredHandlers = new Map<string, (...args: unknown[]) => void>();
 
@@ -130,8 +138,18 @@ const {
   const setMockZoom = (z: number): void => {
     mockZoom = z;
   };
+  // Task 115.145: 画面座標 → 描画面座標の変換で引かれる canvas 要素のオフセット。
+  // 実配置の値ではなく、変換の有無が確実に顕在化する十分大きな値を選んでいる
+  // （E2E の実測ずれ 50.8 から逆算される実オフセットは縦およそ 101.6）。
+  const CANVAS_ELEMENT_OFFSET = { left: 12, top: 220 };
+
   const controllerSpy = {
     zoomToPoint: vi.fn(),
+    // canvasViewportController.toCanvasPoint と同じ意味論（要素の bounding rect 原点を引く）。
+    toCanvasPoint: vi.fn((point: { x: number; y: number }) => ({
+      x: point.x - CANVAS_ELEMENT_OFFSET.left,
+      y: point.y - CANVAS_ELEMENT_OFFSET.top,
+    })),
     pan: vi.fn(),
     fit: vi.fn(),
     clampZoom: vi.fn((z: number) => z),
@@ -147,6 +165,7 @@ const {
     configureHandleSizesSpy,
     controllerSpy,
     setMockZoom,
+    CANVAS_ELEMENT_OFFSET,
   };
 });
 
@@ -374,7 +393,7 @@ describe('AnnotationEditor - ダブルタップ用途調停 (Task 96.3, Req 27.1
     expect(controllerSpy.fit).not.toHaveBeenCalled();
   });
 
-  it('空き領域 dbltap で等倍時は controller.zoomToPoint(タップ点, 2) が呼ばれる (Req 33.8)', async () => {
+  it('空き領域 dbltap で等倍時は controller.zoomToPoint(描画面基準のタップ点, 2) が呼ばれる (Req 33.8)', async () => {
     setMockZoom(1);
     render(<AnnotationEditor {...defaultProps} />);
     await waitFor(() => {
@@ -391,8 +410,15 @@ describe('AnnotationEditor - ダブルタップ用途調停 (Task 96.3, Req 27.1
       currentTool: 'select',
     });
 
+    // Task 115.145: 画面座標のタップ点は必ず toCanvasPoint を通してから基準点として渡す。
+    expect(controllerSpy.toCanvasPoint).toHaveBeenCalledWith({ x: 150, y: 250 });
     expect(controllerSpy.zoomToPoint).toHaveBeenCalledTimes(1);
-    expect(controllerSpy.zoomToPoint).toHaveBeenCalledWith({ x: 150, y: 250 }, 2);
+    // 期待値は要素オフセット（left 12 / top 220）を引いた描画面座標。画面座標のまま
+    // （{x:150,y:250}）渡す実装では、縦に 220 ずれた点を中心に拡大するため落ちる。
+    expect(controllerSpy.zoomToPoint).toHaveBeenCalledWith(
+      { x: 150 - CANVAS_ELEMENT_OFFSET.left, y: 250 - CANVAS_ELEMENT_OFFSET.top },
+      2
+    );
     expect(controllerSpy.fit).not.toHaveBeenCalled();
   });
 
@@ -430,13 +456,17 @@ describe('AnnotationEditor - ダブルタップ用途調停 (Task 96.3, Req 27.1
 
     dbltapHandler({
       pointerType: 'touch',
-      clientX: 10,
-      clientY: 20,
+      clientX: 60,
+      clientY: 240,
       currentTool: 'select',
     });
 
     expect(controllerSpy.zoomToPoint).toHaveBeenCalledTimes(1);
-    expect(controllerSpy.zoomToPoint).toHaveBeenCalledWith({ x: 10, y: 20 }, 2);
+    // Task 115.145: この経路でも基準点は描画面座標（要素オフセットを引いた値）である。
+    expect(controllerSpy.zoomToPoint).toHaveBeenCalledWith(
+      { x: 60 - CANVAS_ELEMENT_OFFSET.left, y: 240 - CANVAS_ELEMENT_OFFSET.top },
+      2
+    );
   });
 
   it('テキスト以外の注釈（rectangle）上の dbltap では編集もズームも行わない', async () => {
