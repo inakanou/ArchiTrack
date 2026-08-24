@@ -18,6 +18,11 @@ import { API_BASE_URL } from '../../config';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import {
+  startOcrProgressIndicatorWatch,
+  waitForOcrProgressIndicator,
+  hasOcrProgressIndicatorAppeared,
+} from '../../helpers/ocr-observations';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -706,22 +711,27 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
 
       await openReceivedQuotationForm(page);
 
+      // REQ-13.5 / REQ-13.7 の主張の準備。
+      // 以前は「インジケーター **または** 抽出結果 **または** エラー表示」の選言で
+      // 判定していたため、OCR が失敗しても成立し、かつ本要件が定めるインジケーターを
+      // 一度も検査していなかった。DOM 変更と同期に出現を記録する形へ改める。
+      // 本要件が定めるのは「処理を自動的に開始すること」と「実行中に表示すること」までであり、
+      // 抽出の成否は REQ-13.8（成功）と REQ-13.14（失敗）が別に定めているため、
+      // ここで完了の姿を主張することはしない。
+      await startOcrProgressIndicatorWatch(page);
+
       // 画像ファイルをアップロード
       const testFilePath = path.resolve(__dirname, '../../fixtures/test-image.png');
       const fileInput = page.locator('input[type="file"]');
       await fileInput.setInputFiles(testFilePath);
 
-      // OCR処理が開始され、進行中インジケーターが表示される
-      // Note: OCRの初期化やプログレスバーが表示されることを確認
-      // テスト画像が小さいため処理が早く終わる可能性があるので、
-      // 処理中または完了のいずれかを確認
-      await expect(
-        page
-          .locator('[data-testid="ocr-progress-indicator"]')
-          .or(page.locator('[data-testid="ocr-extracted-text"]'))
-          .or(page.locator('[data-testid="ocr-error-message"]'))
-          .first()
-      ).toBeVisible({ timeout: getTimeout(60000) });
+      // REQ-13.5 / REQ-13.7: アップロードだけで OCR 処理が始まり、
+      // 実行中であることを示すインジケーターが表示される
+      await waitForOcrProgressIndicator(page, getTimeout(60000));
+      expect(
+        await hasOcrProgressIndicatorAppeared(page),
+        '画像アップロード後にOCR処理中インジケーターが一度も表示されなかった'
+      ).toBe(true);
     });
 
     /**

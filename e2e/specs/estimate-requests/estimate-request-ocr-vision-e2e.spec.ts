@@ -2,7 +2,10 @@
  * @fileoverview 見積依頼OCR・Claude Vision API関連のE2Eテスト
  *
  * Requirements coverage (estimate-request):
- * - REQ-19.1: CANVAS_RENDER_SCALEを4.0に引き上げ
+ * （REQ-19.1 は Task 115.135 の是正で被覆表記から外した。本ファイルは描画スケールを
+ *   一切観測しておらず、現行の e2e/fixtures は2件ともテキスト入りPDFで
+ *   スキャンPDFフォールバック経路へ到達しないため。`e2e/requirement-exclusions.json` へ
+ *   integration-test 区分で登録済みで、解消は後続タスク 115.157 が担う）
  * - REQ-19.2: グレースケール変換適用
  * - REQ-19.3: 大津の二値化適用
  * - REQ-19.4: 水平線除去処理適用
@@ -442,7 +445,14 @@ test.describe('OCR画像前処理パイプライン', () => {
   });
 
   /**
-   * @requirement estimate-request/REQ-19.1
+   * 115.135 の是正: 従前は `@requirement` で REQ-19.1（Canvas 描画スケールを 2.0 から 4.0 へ
+   * 引き上げる）を付けていたが、本検証はアップロード領域の可視性しか見ておらず描画スケールを
+   * 一切観測していない。加えて現行の `e2e/fixtures` の PDF は 2 件ともテキスト入りであり、
+   * スキャンPDFフォールバック経路（Canvas 描画）へ到達しない。被覆済みと数えさせないため
+   * タグを外し `e2e/requirement-exclusions.json` へ integration-test 区分で登録した。
+   * E2E での被覆は後続タスク **115.157**「画像のみのPDFを用意しOCRフォールバック経路の
+   * 被覆を実際に回復する」で回復し、同タスクが当該除外を解消する。
+   *
    * @requirement estimate-request/REQ-19.2
    * @requirement estimate-request/REQ-19.3
    * @requirement estimate-request/REQ-19.4

@@ -29,6 +29,10 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { assertPrepared } from '../../helpers/preconditions';
 import { seedEstimateRequest } from '../../helpers/estimate-request-preconditions';
+import {
+  startOcrProgressIndicatorWatch,
+  hasOcrProgressIndicatorAppeared,
+} from '../../helpers/ocr-observations';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
 
@@ -266,16 +270,26 @@ test.describe('OCR再実行・リトライ機能', () => {
     // 「OCR実行」ボタンをクリック
     const ocrButton = page.getByRole('button', { name: /OCR実行/i });
     await expect(ocrButton).toBeVisible({ timeout: getTimeout(10000) });
+
+    // REQ-16.3 の主張の準備。テキスト入り PDF の抽出は瞬時に終わるため、
+    // 処理中の一瞬は Playwright の定期的な問い合わせでは取り逃がしうる。
+    // 以前はそれを「インジケーター **または** 結果 **または** エラー」の選言で回避しており、
+    // OCR が失敗しても成立し、かつインジケーターを一度も検査していなかった。
+    // DOM 変更と同期に出現を記録する形へ改める。
+    await startOcrProgressIndicatorWatch(page);
+
     await ocrButton.click();
 
-    // OCR処理中のインジケーターが表示される（REQ-16.3）
-    // OCRは時間がかかるため、処理中インジケーターまたは結果/エラーのいずれかが表示されることを確認
-    await expect(
-      page
-        .locator('[data-testid="ocr-progress-indicator"]')
-        .or(page.locator('[data-testid="ocr-extracted-text"]'))
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-    ).toBeVisible({ timeout: getTimeout(60000) });
+    // REQ-16.2: 既存ファイルに対して OCR 処理が開始され、抽出結果に到達する
+    const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(60000) });
+    await expect(page.locator('[data-testid="ocr-error-message"]')).toHaveCount(0);
+
+    // REQ-16.3: 処理中であることを示すインジケーターが表示された
+    expect(
+      await hasOcrProgressIndicatorAppeared(page),
+      'OCR処理中インジケーターが一度も表示されなかった'
+    ).toBe(true);
   });
 
   /**
@@ -463,13 +477,12 @@ test.describe('OCR再実行・リトライ機能', () => {
 
     // PDFアップロード時、OCRが自動実行されテキスト抽出結果が表示される
     // （Excelの場合はデータパースが実行される仕様: REQ-16.7）
-    // autoStart=trueなので進捗インジケーターまたは結果/エラーが表示される
-    await expect(
-      page
-        .locator('[data-testid="ocr-progress-indicator"]')
-        .or(page.locator('[data-testid="ocr-extracted-text"]'))
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-    ).toBeVisible({ timeout: getTimeout(30000) });
+    // 以前は「インジケーターまたは結果またはエラー」の選言で完了を判定していたため、
+    // OCR が失敗しても後続の主張へ進んでいた。抽出の成立を無条件に主張する。
+    await expect(page.locator('[data-testid="ocr-extracted-text"]')).toBeVisible({
+      timeout: getTimeout(60000),
+    });
+    await expect(page.locator('[data-testid="ocr-error-message"]')).toHaveCount(0);
 
     // PDFの場合はOCRとして処理されたことを確認（データパースボタンは表示されない）
     const dataParseButton = page.getByRole('button', { name: /データパース実行/i });
@@ -649,12 +662,12 @@ test.describe('OCR再実行・リトライ機能', () => {
     // OCR実行ボタンをクリック
     await ocrButton.click();
 
-    // OCR処理完了を待機（結果またはエラー）
+    // OCR処理の完了を待機する。以前は「結果またはエラー」の選言で待っていたため、
+    // OCR が失敗しても観測器の判定へ進んでいた。REQ-16.4 の検証と同じく
+    // 既存ファイルは抽出が成立する経路であるため、成功のみを主張する。
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
-    const errorMessage = page.locator('[data-testid="ocr-error-message"]');
-    await expect(extractedText.or(errorMessage)).toBeVisible({
-      timeout: getTimeout(60000),
-    });
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(60000) });
+    await expect(page.locator('[data-testid="ocr-error-message"]')).toHaveCount(0);
 
     // MutationObserverの結果を取得して検証
     const observerResults = await page.evaluate(() => {

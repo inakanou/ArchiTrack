@@ -1,24 +1,28 @@
 /**
- * @fileoverview スキャンPDF OCR精度改善の統合確認E2Eテスト
+ * @fileoverview OCR抽出結果のゴミ行フィルタ・集計行除外の統合確認E2Eテスト
  *
- * Task 48.1: スキャンPDF OCR精度改善の統合確認テスト
+ * Task 48.1: スキャンPDF OCR精度改善（要件19・要件20）の統合確認テスト
  *
  * Requirements coverage (estimate-request):
- * - 19.1: Canvas描画スケールを2.0から4.0に引き上げる
- * - 19.6: 画像前処理パイプライン（グレースケール→大津の二値化→水平線除去→垂直線除去）
- * - 19.8: 既存のPDFテキスト抽出フローとの互換性を維持する
  * - 20.1: 漢字・ひらがな・カタカナ・英数字を含まない行をゴミ行として除外
  * - 20.2: 文字数が極端に少ない行（2文字以下）をゴミ行として除外
  * - 20.3: 集計行キーワードを含む行を除外
  * - 20.5: ゴミ行フィルタと集計行除外の適用位置
  *
+ * Task 115.135 の是正: 本ファイルが用いる `e2e/fixtures` の PDF は 2 件ともテキスト入りで
+ * あり、スキャンPDFフォールバック経路（Canvas描画→画像前処理→Tesseract）へ到達しない。
+ * したがって要件19の受入基準 19.1 / 19.6 / 19.8 は本ファイルでは検査できない。
+ * 被覆済みと数えさせないため当該 3 件の `@requirement` タグを外し、
+ * `e2e/requirement-exclusions.json` へ integration-test 区分で登録した。
+ * E2E での被覆は後続タスク **115.157**「画像のみのPDFを用意しOCRフォールバック経路の
+ * 被覆を実際に回復する」で回復し、同タスクが当該除外を解消する。
+ *
  * テストフロー:
  * 1. テスト用前提データ(プロジェクト、取引先、内訳書、見積依頼)をAPI経由で作成
- * 2. スキャンPDFアップロード後のOCR処理完了を確認
+ * 2. テキスト入りPDFアップロード後に抽出結果の表示へ到達することを確認
  * 3. 一括取り込み後の明細行にゴミデータが含まれないことを確認
  * 4. ゴミ行フィルタ・集計行除外が適用されていることを確認
- * 5. OCR処理全体が30秒のタイムアウト内に完了することを確認
- * 6. テストデータをクリーンアップ
+ * 5. テストデータをクリーンアップ
  *
  * Task 115.127 段1: 前提の生成を `seedEstimateRequest`（`estimate-request-preconditions`）へ寄せ、
  * `test.skip(!createdEstimateRequestId, …)` 3 件を `assertPrepared` へ改めた。
@@ -40,9 +44,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
- * スキャンPDF OCR精度改善の統合確認E2Eテスト
+ * OCR抽出結果のゴミ行フィルタ・集計行除外の統合確認E2Eテスト
  */
-test.describe('スキャンPDF OCR精度改善 (Task 48.1)', () => {
+test.describe('OCR抽出結果の精度改善 (Task 48.1)', () => {
   // 並列実行を無効化（データベースの競合を防ぐ）
   test.describe.configure({ mode: 'serial' });
 
@@ -85,17 +89,28 @@ test.describe('スキャンPDF OCR精度改善 (Task 48.1)', () => {
   });
 
   // ============================================================================
-  // 19.1, 19.6: スキャンPDF OCR処理と画像前処理パイプラインの間接的確認
+  // テキスト入りPDFの抽出成立の確認
+  // （要件19のスキャンPDFフォールバック経路の被覆ではない。理由は直下の注記）
   // ============================================================================
 
   /**
-   * @requirement estimate-request/REQ-19.1
-   * @requirement estimate-request/REQ-19.6
-   * @requirement estimate-request/REQ-19.8
+   * 注意（site-survey タスク 115.135 の実測）: 入力に用いる `e2e/fixtures/test-file.pdf` は
+   * `/Font` と 7 個のテキスト描画演算子を持ち `/Image` を持たない**テキスト入り PDF** である。
+   * 抽出される文字数は 97 で `frontend/src/components/estimate-requests/pdf-text-extractor.ts`
+   * の閾値 50 を超えるため `isTextPdf=true` が確定し、`extractPdfWithOcrFallback` へ
+   * **一度も入らない**。したがって REQ-19.1（Canvas 描画スケール 4.0）・REQ-19.6（画像前処理
+   * パイプライン）・REQ-19.8（前処理を含む OCR 全体の 30 秒タイムアウト）は本検証では
+   * 検査できない。
+   *
+   * 115.135 の是正: 到達しない受入基準を被覆済みと数えさせないため、当該 3 件の
+   * `@requirement` タグを外し `e2e/requirement-exclusions.json` へ integration-test 区分で
+   * 登録した。E2E での被覆は後続タスク **115.157**「画像のみのPDFを用意しOCR
+   * フォールバック経路の被覆を実際に回復する」で回復し、同タスクが当該除外を解消する。
+   *
+   * 本検証に残る主張は「テキスト入り PDF から抽出結果の表示へ到達し、
+   * エラー表示にならないこと」である。
    */
-  test('スキャンPDFアップロード後にOCR処理が完了しテキスト抽出結果が表示される (REQ-19.1, REQ-19.6, REQ-19.8)', async ({
-    page,
-  }) => {
+  test('テキスト入りPDFアップロード後に抽出が完了し結果が表示される', async ({ page }) => {
     assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
 
     await loginAsUser(page, 'ADMIN_USER');
@@ -114,44 +129,23 @@ test.describe('スキャンPDF OCR精度改善 (Task 48.1)', () => {
     // フォームが表示されるまで待機
     await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
-    // スキャンPDF（画像のみ）をアップロード
-    // test-file.pdf はスキャンPDF（画像のみ）として使用
     const pdfPath = path.resolve(__dirname, '../../fixtures/test-file.pdf');
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(pdfPath);
 
-    // OCR処理の開始を確認（処理中インジケーター、結果、またはエラーのいずれか）
-    // 画像前処理パイプライン（グレースケール→二値化→罫線除去）とCanvas描画スケール4.0が
-    // 適用されていることは、OCR処理が正常に完了することで間接的に確認される
-    await expect(
-      page
-        .locator('[data-testid="ocr-progress-indicator"]')
-        .or(page.locator('[data-testid="ocr-extracted-text"]'))
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-        .first()
-    ).toBeVisible({ timeout: getTimeout(60000) });
-
-    // OCR処理完了を待機（結果またはエラー）
-    // OCR処理全体が30秒のタイムアウト内に完了することの確認
-    // タイムアウト（30秒）+ マージン（30秒）= 最大60秒で完了を待つ
-    await expect(
-      page
-        .locator('[data-testid="ocr-extracted-text"]')
-        .or(page.locator('[data-testid="ocr-error-message"]'))
-    ).toBeVisible({ timeout: getTimeout(90000) });
-
-    // OCR が完了したことを確認する。
-    // 以前は「結果またはエラー」の論理和で判定していたが、エラーを許す側があるため
-    // OCR が壊れて常に失敗しても通ってしまう。本テストの主題は抽出結果の品質であり、
-    // 直前の待機で結果かエラーのいずれかが出るまで待っている。抽出が成功したことを主張する。
+    // 抽出が完了し結果が表示されたことを主張する。
+    // 以前は「インジケーター **または** 結果 **または** エラー」および
+    // 「結果 **または** エラー」の二段の選言で完了を待っており、いずれも
+    // **抽出が失敗しても成立する**判定であった。抽出の成立だけを無条件に主張する。
+    // 待ち時間の上限は Claude Vision 試行（REQ-24.2）を含むパイプライン全体に対するもので、
+    // pdfjs-dist 側の 30 秒のタイムアウト（REQ-17.8）はそのうちの一部である。
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
     const errorMessage = page.locator('[data-testid="ocr-error-message"]');
 
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(90000) });
     await expect(errorMessage).toHaveCount(0);
-    await expect(extractedText).toBeVisible();
 
-    // 画像前処理パイプラインが適用されていることの間接的確認
-    // （Canvas描画スケール4.0での高解像度化 + 罫線除去により、テキスト抽出結果の品質が向上）
+    // 抽出テキストが空でないことを確認する。
     // 抽出が成功したことを上で確定させたので、内容の判定は分岐で包まない。
     const textContent = await extractedText.textContent();
     expect(textContent).toBeTruthy();
@@ -189,13 +183,12 @@ test.describe('スキャンPDF OCR精度改善 (Task 48.1)', () => {
     // フォームが表示されるまで待機
     await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
-    // スキャンPDFをアップロード
     const pdfPath = path.resolve(__dirname, '../../fixtures/test-file.pdf');
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(pdfPath);
 
     // OCR処理完了を待機
-    // 本ファイル冒頭の REQ-19.1 / REQ-19.6 の検証と同じく、`test-file.pdf` に対しては
+    // 本ファイル冒頭のテキスト入りPDFの検証と同じく、`test-file.pdf` に対しては
     // 抽出結果が必ず表示される。以前は「抽出できたら」「取り込みボタンが出たら」の
     // 二重の関門で包んでいたため、抽出が失敗した回は REQ-20.x の主張が一つも実行されなかった。
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
@@ -270,13 +263,23 @@ test.describe('スキャンPDF OCR精度改善 (Task 48.1)', () => {
   });
 
   // ============================================================================
-  // 19.8: 既存PDFテキスト抽出フローとの互換性確認
+  // 既存PDFテキスト抽出フローとの互換性確認
+  // （REQ-19.8 の被覆ではない。理由は直下の注記）
   // ============================================================================
 
   /**
-   * @requirement estimate-request/REQ-19.8
+   * 115.135 の是正: 従前は `@requirement` で REQ-19.8 を付けていたが、
+   * REQ-19.8 の受入基準は「画像前処理を含む OCR 処理全体のタイムアウトを既存の 30 秒から
+   * 維持する」であり、本検証はタイムアウトを一つも計測していない。加えて入力の
+   * `e2e/fixtures/test-text-pdf.pdf` はテキスト入り PDF であり、画像前処理パイプラインを
+   * 含む経路へ到達しない。被覆済みと数えさせないためタグを外し
+   * `e2e/requirement-exclusions.json` へ登録した。E2E での被覆は後続タスク **115.157** で
+   * 回復し、同タスクが当該除外を解消する。
+   *
+   * 本検証に残る主張は「テキスト入り PDF では従来どおり pdfjs-dist の直接抽出で
+   * 抽出結果の表示へ到達し、エラー表示にならないこと」である。
    */
-  test('テキストPDFでは従来通りpdfjs-dist直接テキスト抽出が実行される（互換性確認） (REQ-19.8)', async ({
+  test('テキストPDFでは従来通りpdfjs-dist直接テキスト抽出が実行される（互換性確認）', async ({
     page,
   }) => {
     assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');
@@ -303,8 +306,7 @@ test.describe('スキャンPDF OCR精度改善 (Task 48.1)', () => {
     await fileInput.setInputFiles(pdfPath);
 
     // テキスト入り PDF からは必ずテキストが抽出され、エラー表示にはならない。
-    // 画像前処理パイプラインはスキャンPDFフォールバック時のみ適用されるため、
-    // テキストPDFでは従来通りの動作（pdfjs-dist直接抽出）が維持されていることの確認になる
+    // これは pdfjs-dist の直接抽出という従来の経路が維持されていることの確認である。
     const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
     await expect(extractedText).toBeVisible({ timeout: getTimeout(60000) });
     await expect(page.locator('[data-testid="ocr-error-message"]')).toHaveCount(0);
