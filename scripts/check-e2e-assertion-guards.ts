@@ -51,8 +51,17 @@
  *                           正当性は「真偽を**呼び出し側が**どう扱うかは依然として関門である」
  *                           ことに依拠している。戻り値を捨てる呼び出しは、その依拠を
  *                           呼び出し側で空洞にする（Task 115.141）
+ *   T10 settled-type-assertion    型が構文で確定した値に対する型の主張
+ *                           `const text = (await area.textContent()) ?? ''; expect(typeof text).toBe('string')`
+ *                           のように、主題の実行時の型が**構文だけで一つに定まる**にもかかわらず
+ *                           その型を主張する形。既定値 `?? ''` が null を文字列へ潰しているため、
+ *                           画面に何が出ていても（コメントが有っても無くても）成立する。
+ *                           T3 は `expect(typeof x === 'string').toBeTruthy()` を恒真として数えるが、
+ *                           **真偽以外の matcher に載せ替えた同じ主張**（`expect(typeof x).toBe('string')`）は
+ *                           `matcherArgIsBoolean` の関門で外れて無検出になっていた（Task 115.143）。
+ *                           ただし T3 と同じ広さでは数えない。詳細は下の「限界」を参照
  *
- * 分類の優先順位: T3 > T4 > T5 > T1（T2 と T6 と T7 と T8 と T9 は別軸のため重複して計上する）
+ * 分類の優先順位: T3 > T4 > T5 > T1（T2 と T6 と T7 と T8 と T9 と T10 は別軸のため重複して計上する）
  *
  * 検証を包む形（T1 / T4 / T5 の入口）:
  *   - `if (cond) { await expect(...) }`
@@ -212,6 +221,47 @@
  *     `await createProject(page)` のように値を返す関数の結果を捨てる形は対象外である。
  *     値を返す関数の値は「前提の成否」を表すとは限らず、構文だけでは区別できない。
  *     実測では、名前を解決できた式文の呼び出し 5969 箇所のうち真偽を返すものは 5 箇所である。
+ *   - 実行時の型が構文だけでは定まらない主題に対する型の主張（T10 の限界。Task 115.143）
+ *     `expect(typeof body.sections.estimates.totalCount).toBe('number')` のように、
+ *     主題が `await response.json()` 由来の項目参照である形は**対象外**とする。
+ *     静的な型が何であれ、応答に当該の項目が無ければ `typeof` は `'undefined'` になり
+ *     主張は落ちる。すなわち実質のある実行時の検査であって恒真ではない。
+ *     実測では e2e 配下の `expect(typeof …)` は 32 箇所あり（走査時点）、
+ *     その内訳は応答の JSON の項目参照 29・exceljs のセルの値 1・JWK の項目参照 2 で、
+ *     **いずれも型が構文で定まらない**。T3 と同じ広さ（`typeof` を見た時点で恒真とみなす）
+ *     へ広げると、この 32 箇所がそのまま過検出として現れる。とりわけ
+ *     `itemized-statements/itemized-statement-crud.spec.ts` の REQ-13.5 は、
+ *     Task 115.127 段5 が「値の有無で包んだうえ真偽で主張していた」形を**この形へ是正した**
+ *     ものであり、広い規則はその是正を欠陥として数え返すことになる。
+ *     したがって T10 は「構文だけで型が一つに定まる」場合に限って数える。
+ *     広い規則で何件出るかは**実測**である（判定の関門を `typeof` を見た時点へ一時的に
+ *     差し替えて 208 ファイルを走査したところ検出は 32 件で、ファイル別の内訳は
+ *     上に数えた 32 箇所と一致した）。
+ *   - 呼び出しの表を**メソッド名だけ**で引くこと（T10 の**過検出**方向の限界。Task 115.143）
+ *     `SETTLED_RETURN_TYPES` は受け手を見ずメソッド名だけで引く。したがって Playwright の
+ *     locator 以外の対象が同名のメソッド（独自の `count()` など）を持ち、その戻り値が
+ *     表の型と異なる場合は偽陽性になりうる。現時点のリポジトリ内にこの形は 0 件である
+ *     （`expect(typeof …)` の 32 箇所はいずれも項目参照であって呼び出しではない）。
+ *   - 既定値を伴わない観測の型の主張（T10 の**見逃し側**の限界。Task 115.143）
+ *     `const text = await area.textContent(); expect(typeof text).toBe('string')` は、
+ *     `textContent()` の戻り値の型が `string | null` であるため型の集合が
+ *     `{'string', 'object'}` となり、T10 は検出しない。Playwright の locator は
+ *     要素が無ければ待機の末に例外を投げるため実際には null を返さず、この形も
+ *     実質は恒真である。構文だけではそこまで決められないため、見逃す側へ倒している。
+ *   - 戻り値の型を表に持たない呼び出し（T10 の限界。Task 115.143）
+ *     主題の出どころが `SETTLED_RETURN_TYPES` に無い呼び出し・関数・項目参照である場合は
+ *     「判らない」として検出しない。表は Playwright の文字列／数値を返す少数の
+ *     アクセサだけを持つ。**表を持つ方式は、対象の API が増えるたびに書き換えを要し、
+ *     書き換え漏れがそのまま静かな無検出になる**という負債を抱える。これは
+ *     「過検出は主張を消す圧力になる」ため見逃す側へ倒すという方針の帰結であり、
+ *     型検査器（`ts.Program`）を持ち込めば表なしで判定できるが、走査 208 ファイルに
+ *     対して型検査器を構築する費用を検出一つのために払う判断は取っていない。
+ *   - 再代入される名前・同名の宣言が複数ある名前（T10 の限界。Task 115.143）
+ *     `let text = ''; text = await …;` のように後から代入される名前、および同一ファイルに
+ *     同名の宣言が複数ある名前は、どの値が主題か構文だけでは決められないため検出しない。
+ *   - 否定を挟む型の主張（T10 の限界。Task 115.143）
+ *     `expect(typeof x).not.toBe('string')` は「その型ではない」ことの主張であり、
+ *     型が確定していれば**常に落ちる**（恒偽）。恒真の検出とは別の話であるため対象外とする。
  *   - 判定・抽出の実装そのものである分岐（Task 115.127 段3・計画の A 群）
  *     真偽を返す関数、またはブラウザ側で評価される関数（`evaluate` 族）の内側で、
  *     **expect を一つも含まず** then 節が脱出だけの分岐。述語は false を返す経路を必ず持ち、
@@ -361,7 +411,8 @@ export type GuardType =
   | 'T6-conditional-skip'
   | 'T7-excluded-absence'
   | 'T8-ambiguous-absence'
-  | 'T9-discarded-predicate-result';
+  | 'T9-discarded-predicate-result'
+  | 'T10-settled-type-assertion';
 
 export interface Finding {
   file: string;
@@ -420,6 +471,7 @@ const GUARD_TYPES: GuardType[] = [
   'T7-excluded-absence',
   'T8-ambiguous-absence',
   'T9-discarded-predicate-result',
+  'T10-settled-type-assertion',
 ];
 
 /** 即時判定であり timeout 指定が無視される Playwright の述語メソッド */
@@ -1519,6 +1571,43 @@ function replacementRemovesNeedle(
 }
 
 // ============================================================================
+// 型が構文で確定した値に対する型の主張（T10。Task 115.143）
+// ============================================================================
+
+/**
+ * 実行時の型の主張を受け取る matcher。
+ *
+ * `expect(typeof x).toBe('string')` の形だけを見る。`not` を挟む形は「その型ではない」
+ * という別の主張（型が確定していれば恒偽）であるため対象外とする。
+ */
+const TYPE_EQUALITY_MATCHERS = new Set(['toBe', 'toEqual', 'toStrictEqual']);
+
+/**
+ * 戻り値の実行時の型が構文だけで判る呼び出し。
+ *
+ * ここに無い呼び出しは「判らない」として扱い、検出しない（見逃す側へ倒す）。
+ * `null` は `typeof` では `'object'` として観測されるが、既定値（`?? ''`）で
+ * 潰されるかどうかを見分けるために内部では `'null'` のまま持ち、判定の直前に
+ * `'object'` へ写す。
+ */
+const SETTLED_RETURN_TYPES: Record<string, readonly string[] | undefined> = {
+  // Playwright: 要素の中身が無ければ null を返す
+  textContent: ['string', 'null'],
+  getAttribute: ['string', 'null'],
+  // Playwright: 常に文字列を返す
+  innerText: ['string'],
+  innerHTML: ['string'],
+  inputValue: ['string'],
+  // Playwright: 常に数値を返す
+  count: ['number'],
+};
+
+/** `typeof` で観測される綴りへ写す（`null` は `'object'` として現れる） */
+function toObservedTypeName(name: string): string {
+  return name === 'null' ? 'object' : name;
+}
+
+// ============================================================================
 // 不在と観測の失敗を区別しない主張（T8。Task 115.140）
 // ============================================================================
 
@@ -1876,6 +1965,78 @@ export function scanSource(relPath: string, source: string): ScanResult {
     return `${name} は真偽を返す（e2e/helpers の宣言）`;
   };
 
+  /**
+   * 式の実行時の型として現れうるものの集合（T10。Task 115.143）。
+   *
+   * 構文だけで決められない場合は `undefined` を返し、検出しない。集合は
+   * **過大に見積もる方向**へ倒す。判定は「集合がちょうど一つで、主張された型に
+   * 一致する」ときにのみ成立するため、過大な見積もりは見逃しにはなっても
+   * 過検出にはならない。
+   *
+   * 辿るのは次の形に限る。
+   *   - リテラル・テンプレートリテラル・`null` / `undefined`
+   *   - `await` / `!` / `as`（いずれも実行時の値を変えない）
+   *   - 既定値・論理和（`A ?? B` / `A || B`。左辺から `null` / `undefined` を落として合併）
+   *   - `SETTLED_RETURN_TYPES` に載る呼び出し
+   *   - 再代入されず、同一ファイルに宣言が一つだけある名前（その初期化子へ辿る）
+   */
+  const runtimeTypesOf = (expr: ts.Expression, depth = 0): Set<string> | undefined => {
+    if (depth > RESOLVE_DEPTH_LIMIT) return undefined;
+    const inner = unwrapParentheses(expr);
+    if (ts.isAwaitExpression(inner)) return runtimeTypesOf(inner.expression, depth);
+    if (ts.isNonNullExpression(inner)) return runtimeTypesOf(inner.expression, depth);
+    if (ts.isAsExpression(inner)) return runtimeTypesOf(inner.expression, depth);
+    if (ts.isStringLiteralLike(inner) || ts.isTemplateExpression(inner)) {
+      return new Set(['string']);
+    }
+    if (ts.isNumericLiteral(inner)) return new Set(['number']);
+    if (inner.kind === ts.SyntaxKind.TrueKeyword || inner.kind === ts.SyntaxKind.FalseKeyword) {
+      return new Set(['boolean']);
+    }
+    if (inner.kind === ts.SyntaxKind.NullKeyword) return new Set(['null']);
+    if (ts.isIdentifier(inner) && inner.text === 'undefined') return new Set(['undefined']);
+    if (ts.isBinaryExpression(inner)) {
+      const kind = inner.operatorToken.kind;
+      if (kind !== ts.SyntaxKind.QuestionQuestionToken && kind !== ts.SyntaxKind.BarBarToken) {
+        return undefined;
+      }
+      const left = runtimeTypesOf(inner.left, depth);
+      const right = runtimeTypesOf(inner.right, depth);
+      if (!left || !right) return undefined;
+      const merged = new Set(right);
+      for (const name of left) {
+        if (name !== 'null' && name !== 'undefined') merged.add(name);
+      }
+      return merged;
+    }
+    if (ts.isCallExpression(inner) && ts.isPropertyAccessExpression(inner.expression)) {
+      const known = SETTLED_RETURN_TYPES[inner.expression.name.text];
+      return known ? new Set(known) : undefined;
+    }
+    if (ts.isIdentifier(inner) && !reassigned.has(inner.text)) {
+      const values = declTable.get(inner.text) ?? [];
+      // 同名の宣言が複数あるときはどれが主題か決められないため諦める
+      if (values.length !== 1) return undefined;
+      return runtimeTypesOf(values[0]!, depth + 1);
+    }
+    return undefined;
+  };
+
+  /**
+   * 型が構文で確定した値に対する型の主張か（T10。Task 115.143）。
+   *
+   * 該当する場合は理由を、しない場合は `undefined` を返す。
+   */
+  const assertsSettledType = (subject: ts.Expression, asserted: string): string | undefined => {
+    const inner = unwrapParentheses(subject);
+    if (!ts.isTypeOfExpression(inner)) return undefined;
+    const types = runtimeTypesOf(inner.expression);
+    if (!types || types.size === 0) return undefined;
+    const observed = new Set([...types].map(toObservedTypeName));
+    if (observed.size !== 1 || !observed.has(asserted)) return undefined;
+    return `typeof の主題は構文上 '${asserted}' にしかなり得ない`;
+  };
+
   const isObservation = (text: string): boolean =>
     getObservationPattern().test(text) || AWAIT_PATTERN.test(text) || SWALLOW_PATTERN.test(text);
 
@@ -1966,6 +2127,33 @@ export function scanSource(relPath: string, source: string): ScanResult {
                 node.arguments[0]!.kind === ts.SyntaxKind.FalseKeyword));
           if (subject && matcherArgIsBoolean && isVacuousSubject(subject)) {
             push(node, 'T3-tautology', receiver);
+          }
+        }
+      }
+    }
+
+    // --- T10: 型が構文で確定した値に対する型の主張（Task 115.143） ---
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      if (TYPE_EQUALITY_MATCHERS.has(node.expression.name.text)) {
+        let receiver: ts.Node = node.expression.expression;
+        let negated = false;
+        while (ts.isPropertyAccessExpression(receiver)) {
+          if (receiver.name.text === 'not') negated = true;
+          receiver = receiver.expression;
+        }
+        const asserted = node.arguments[0];
+        if (
+          !negated &&
+          node.arguments.length === 1 &&
+          asserted &&
+          ts.isStringLiteralLike(asserted) &&
+          ts.isCallExpression(receiver) &&
+          ts.isIdentifier(receiver.expression) &&
+          receiver.expression.text === 'expect'
+        ) {
+          const subject = receiver.arguments[0];
+          if (subject && assertsSettledType(subject, asserted.text)) {
+            push(node, 'T10-settled-type-assertion', receiver);
           }
         }
       }

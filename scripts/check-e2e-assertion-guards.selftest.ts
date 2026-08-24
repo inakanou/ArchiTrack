@@ -1706,6 +1706,149 @@ const DISCARDED_PREDICATE_RESULT: Case[] = [
 ];
 
 // ============================================================================
+// 115.143 型が構文で確定した値に対する型の主張（T10）
+// ============================================================================
+// `expect(typeof x).toBe('string')` は、主題の実行時の型が構文だけで一つに定まるなら
+// 画面が何を表示していても成立する。T3 は同じ主張を真偽の matcher に載せた形
+// （`expect(typeof x === 'string').toBeTruthy()`）だけを数えており、matcher を
+// 載せ替えた形が無検出になっていた。
+//
+// 一方で「typeof を見たら恒真」と広く数えると、応答の JSON の項目に対する
+// 実質のある実行時の検査（項目が無ければ 'undefined' になって落ちる）まで巻き込む。
+// 両方向を固定する。
+// ============================================================================
+
+const SETTLED_TYPE_ASSERTION: Case[] = [
+  {
+    name: '115.143-1 既定値で型を固めた観測に対する型の主張（実例 photo-comment 是正前）',
+    source: [
+      "test('comment', async ({ page }) => {",
+      '  const commentArea = page.locator(\'[data-testid="photo-comment-display"]\').first();',
+      "  const text = (await commentArea.textContent()) ?? '';",
+      "  expect(typeof text).toBe('string');",
+      '});',
+    ].join('\n'),
+    expected: ['T10-settled-type-assertion'],
+  },
+  {
+    name: '115.143-2 是正後の「空であること」の主張は検出しない',
+    source: [
+      "test('comment', async ({ page }) => {",
+      '  const commentArea = page.locator(\'[data-testid="photo-comment-display"]\');',
+      '  await expect(commentArea).toBeAttached();',
+      '  await expect(commentArea).toBeEmpty();',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T10-settled-type-assertion'],
+  },
+  {
+    name: '115.143-3 応答の JSON の項目に対する型の主張は検出しない（項目が無ければ落ちる）',
+    source: [
+      "test('sections', async ({ request }) => {",
+      "  const response = await request.get('/api/projects/1');",
+      '  const body = await response.json();',
+      "  expect(typeof body.sections.estimates.totalCount).toBe('number');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T10-settled-type-assertion'],
+  },
+  {
+    name: '115.143-4 変数を挟まず直接書いた形も検出する',
+    source: [
+      "test('comment', async ({ page }) => {",
+      "  expect(typeof ((await page.locator('.c').textContent()) ?? '')).toBe('string');",
+      '});',
+    ].join('\n'),
+    expected: ['T10-settled-type-assertion'],
+  },
+  {
+    name: '115.143-5 既定値の無い観測は検出しない（string | null のため型が定まらない）',
+    source: [
+      "test('comment', async ({ page }) => {",
+      "  const text = await page.locator('.c').textContent();",
+      "  expect(typeof text).toBe('string');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T10-settled-type-assertion'],
+  },
+  {
+    name: '115.143-6 否定を挟む型の主張は検出しない（恒偽であって恒真ではない）',
+    source: [
+      "test('comment', async ({ page }) => {",
+      "  const text = (await page.locator('.c').textContent()) ?? '';",
+      "  expect(typeof text).not.toBe('string');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T10-settled-type-assertion'],
+  },
+  {
+    name: '115.143-7 主張された型が確定した型と食い違う形は検出しない（落ちうる主張）',
+    source: [
+      "test('comment', async ({ page }) => {",
+      "  const text = (await page.locator('.c').textContent()) ?? '';",
+      "  expect(typeof text).toBe('number');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T10-settled-type-assertion'],
+  },
+  {
+    name: '115.143-8 toEqual に載せ替えた同じ主張も検出する',
+    source: [
+      "test('comment', async ({ page }) => {",
+      "  const text = (await page.locator('.c').textContent()) ?? '';",
+      "  expect(typeof text).toEqual('string');",
+      '});',
+    ].join('\n'),
+    expected: ['T10-settled-type-assertion'],
+  },
+  {
+    name: '115.143-9 リテラルそのものに対する型の主張も検出する',
+    source: ["test('literal', async () => {", "  expect(typeof 'x').toBe('string');", '});'].join(
+      '\n'
+    ),
+    expected: ['T10-settled-type-assertion'],
+  },
+  {
+    name: '115.143-10 後から代入される名前は辿らない（見逃す側へ倒した限界）',
+    source: [
+      "test('comment', async ({ page }) => {",
+      "  let text = '';",
+      "  text = (await page.locator('.c').textContent()) ?? '';",
+      "  expect(typeof text).toBe('string');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T10-settled-type-assertion'],
+  },
+  {
+    name: '115.143-11 戻り値の型を表に持たない呼び出しは検出しない（表の限界）',
+    source: [
+      "test('comment', async ({ page }) => {",
+      "  const value = (await readCommentText(page)) ?? '';",
+      "  expect(typeof value).toBe('string');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T10-settled-type-assertion'],
+  },
+  {
+    name: '115.143-12 真偽の matcher に載せた同じ主張は従来どおり T3 として検出する',
+    source: [
+      "test('comment', async ({ page }) => {",
+      "  const text = (await page.locator('.c').textContent()) ?? '';",
+      "  expect(typeof text === 'string').toBeTruthy();",
+      '});',
+    ].join('\n'),
+    expected: ['T3-tautology'],
+  },
+];
+
+// ============================================================================
 // 実行
 // ============================================================================
 
@@ -1759,6 +1902,10 @@ function main(): void {
     {
       title: '115.141 真偽を返す関数の結果を式文として捨てる形',
       cases: DISCARDED_PREDICATE_RESULT,
+    },
+    {
+      title: '115.143 型が構文で確定した値に対する型の主張',
+      cases: SETTLED_TYPE_ASSERTION,
     },
   ];
 

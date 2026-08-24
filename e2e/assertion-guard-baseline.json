@@ -24,7 +24,8 @@
       "T6-conditional-skip": 0,
       "T7-excluded-absence": 0,
       "T8-ambiguous-absence": 0,
-      "T9-discarded-predicate-result": 0
+      "T9-discarded-predicate-result": 0,
+      "T10-settled-type-assertion": 0
     },
     "allowedTarget": 0,
     "$change": [
