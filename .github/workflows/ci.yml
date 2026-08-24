@@ -79,6 +79,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check requirement coverage self-test
+        run: |
+          echo "========================================="
+          echo "Requirement Coverage Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Verifies that the production-reachability judgement itself is intact."
+          echo "Fixtures: scripts/check-requirement-coverage.selftest.ts"
+          echo ""
+          npm run check:req-coverage:selftest
+
       - name: Check requirement coverage
         run: |
           echo "========================================="
@@ -87,7 +98,8 @@ jobs:
           echo ""
           echo "This check validates that:"
           echo "  1. All E2E-applicable acceptance criteria are covered by tests"
-          echo "  2. Excluded requirements have defined alternative verification methods"
+          echo "  2. Each tagged verification reaches production from a real entry point"
+          echo "  3. Excluded requirements have defined alternative verification methods"
           echo ""
           echo "Exclusion list: e2e/requirement-exclusions.json"
           echo ""

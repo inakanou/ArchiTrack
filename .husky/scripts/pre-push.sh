@@ -679,9 +679,23 @@ release_memory "統合テスト"
 # ============================================================================
 # ベストプラクティス: E2Eテスト実行前に要件カバレッジを検証
 # - E2E対象の受入基準が100%カバーされていることを確認
-# - 除外リスト（e2e/requirement-exclusions.json）の要件は代替検証方法で対応
+# - 番号を持つ検証が本番の経路（index.html の入口 / サーバ起動 / 投入処理）から
+#   到達する本番シンボルを参照していることを確認（未結線コードに番号を付ける形を塞ぐ）
+# - 除外リスト（e2e/requirement-exclusions.json）は被覆ではなく分母外である。
+#   二重登録・記述欠落・要件に存在しない項目は失敗、代替検証の不在は --strict で失敗
 # - カバレッジ不足の場合、E2Eテストを実行せずに早期失敗
 # ============================================================================
+
+echo "🔍 Checking requirement coverage self-test (reachability judgement)..."
+npm run check:req-coverage:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Requirement coverage self-test failed. Push aborted."
+  echo ""
+  echo "   本番到達性の判定が壊れています。この状態では被覆の検査結果は信用できません。"
+  echo "   固定資料: scripts/check-requirement-coverage.selftest.ts"
+  echo ""
+  exit 1
+fi
 
 echo "📋 Checking requirement coverage (prerequisite for E2E tests)..."
 echo "   This ensures all E2E-applicable acceptance criteria are covered."
@@ -695,6 +709,7 @@ if [ $? -ne 0 ]; then
   echo "  1. 未カバー受入基準に対応するE2Eテストを作成してください"
   echo "  2. テストに @REQ-N.M タグを追加してください"
   echo "  3. E2E対象外の場合は e2e/requirement-exclusions.json に追加してください"
+  echo "  4. 番号を付けた検証が本番未参照の部品だけを見ている場合は、本番へ結線するか死コードを撤去してください"
   echo ""
   echo "詳細確認: npm run check:req-coverage:verbose"
   exit 1

@@ -12,15 +12,23 @@
  *   2. 各機能の要件定義書から全要件IDと受入基準を抽出
  *   3. コードおよびテストファイルから @requirement タグを抽出
  *   4. 除外リスト（E2E対象外要件）を読み込み
- *   5. 機能別および全体でカバレッジ率を計算
- *   6. 閾値未満の場合は exit 1（CI/CDで失敗させる）
+ *   5. 本番の入口から取り込みを辿り、番号を持つ検証が本番の経路を通るかを判定
+ *   6. 除外一覧を監査する（除外は「被覆あり」ではない）
+ *   7. 機能別および全体でカバレッジ率を計算
+ *   8. 閾値未満、または到達しない被覆源しか持たない受入基準があれば exit 1
  *
  * オプション:
  *   --verbose      詳細出力
  *   --json         JSON形式で出力
  *   --threshold=N  カバレッジ閾値（デフォルト: 100%）
- *   --strict       除外リストにない未カバー要件があれば失敗
+ *   --strict       除外リストにない未カバー要件、および掲げた代替検証が実在しない除外があれば失敗
  *   --feature=NAME 特定機能のみチェック
+ *
+ * 本番到達性:
+ *   番号が付いているだけでは被覆と数えない。番号を持つ検証が参照する本番のシンボルが、
+ *   本番の入口（frontend/src/main.tsx / backend/src/index.ts / backend/prisma/seed.ts）から
+ *   取り込みを辿って到達する場合のみ被覆源とする。判定規則の固定資料は
+ *   scripts/check-requirement-coverage.selftest.ts にある。
  *
  * タグ形式:
  *   - @requirement feature-name/REQ-4       要件4全体
@@ -32,11 +40,14 @@
  *
  * 除外リスト:
  *   e2e/requirement-exclusions.json に定義されたE2E対象外の受入基準は
- *   カバレッジ計算から除外されます。
+ *   カバレッジ計算の分母から外れます。外れるだけであり、被覆済みではありません。
+ *   二重登録・代替検証の記述欠落・要件定義書に存在しない項目は失敗、
+ *   リポジトリ内の自動検証を掲げながらその検証が実在しない項目は --strict で失敗します。
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 
 // ============================================================================
 // 型定義
@@ -543,6 +554,622 @@ function extractTestCoverage(dirs: string[], featureNames: string[]): TestCovera
 }
 
 // ============================================================================
+// 本番到達性（production reachability）
+// ============================================================================
+//
+// 被覆の検査は長らく「要件の番号を持つ検証ファイルが存在するか」だけを見ていた。
+// そのため次の三つの経路で「満点なのに実装が無い」が成立していた。
+//
+//   1. 未結線コード（本番の経路から一度も参照されない部品）に番号を付ける
+//   2. 本番を通らない検証（恒真式・画面内で判定を自前に書き起こす形）に番号を付ける
+//   3. 除外一覧へ載せる（除外は分母から外れるだけで、被覆ではない）
+//
+// ここでは 1 を機械的に塞ぐ。すなわち「番号を持つ検証が参照する本番のシンボルが、
+// 本番の経路（index.html が読み込む入口 / サーバの起動入口 / 投入処理の入口）から
+// 辿れるか」を判定する。2 は姉妹の検査（check:e2e-guards / check:e2e-selfjudge）が
+// 扱うため、ここでは重複して実装しない。3 は auditExclusions が扱う。
+//
+// 判定はモジュール単位である。関数単位の到達性は静的に決められないが、
+// 「モジュールごと死んでいる」形（本スペックが 115.130 / 115.146 で二度踏んだ形）は
+// モジュール単位で確実に捕捉できる。
+
+/** 走査対象とする本番ソースの根 */
+export const PRODUCTION_ROOTS: readonly string[] = ['frontend/src', 'backend/src'];
+
+/**
+ * 本番の経路の起点
+ *
+ * - `frontend/src/main.tsx`: frontend/index.html が読み込む唯一の入口
+ * - `backend/src/index.ts`: backend/package.json の `main` / `start` が起動する入口
+ * - `backend/prisma/seed.ts`: 配備時に実行される投入処理の入口（`src` の外にある）
+ */
+export const PRODUCTION_ENTRY_POINTS: readonly string[] = [
+  'frontend/src/main.tsx',
+  'backend/src/index.ts',
+  'backend/prisma/seed.ts',
+];
+
+/** 拡張子を省いた取り込みを解決する際に試す順序 */
+const MODULE_EXTENSIONS: readonly string[] = ['.ts', '.tsx', '.js', '.jsx'];
+
+/** frontend/vite.config.ts の `resolve.alias` に対応する */
+const PATH_ALIASES: ReadonlyArray<{ prefix: string; target: string }> = [
+  { prefix: '@/', target: 'frontend/src/' },
+];
+
+/** リポジトリ内の自動検証を代替検証として掲げているかの判定に使う語 */
+const IN_REPO_VERIFICATION_TOOL =
+  /(vitest|jest|playwright|supertest|react testing library|\brtl\b|storybook)/i;
+
+export type CoverageSourceKind = 'e2e' | 'production' | 'verification' | 'unknown';
+
+export type ReachabilityReason =
+  /** E2E は本番のビルドを実ブラウザで駆動するため、本番の経路そのものである */
+  | 'e2e-drives-production'
+  /** 本番ファイルであり、入口から取り込みを辿って到達する */
+  | 'production-reachable'
+  /** 本番ファイルだが、入口からどう辿っても到達しない（死コード） */
+  | 'production-unreachable'
+  /** 検証ファイルであり、その検証対象が入口から到達する */
+  | 'verification-subject-reachable'
+  /** 検証ファイルだが、その検証対象が入口から到達しない（死コードの検証） */
+  | 'verification-subject-unreachable'
+  /** 検証ファイルだが、本番のシンボルを一つも参照していない */
+  | 'verification-no-production-reference'
+  /** 走査対象の外にあり、到達性を判定できない */
+  | 'source-not-scanned';
+
+export interface SourceReachability {
+  /** 番号を持つファイル（リポジトリ相対・POSIX 表記） */
+  file: string;
+  kind: CoverageSourceKind;
+  /** 被覆源として数えてよいか */
+  reachable: boolean;
+  reason: ReachabilityReason;
+  /** 検証ファイルの場合、到達性の判定に用いた本番モジュール */
+  subjects: string[];
+}
+
+export interface CriterionReachability {
+  id: string;
+  sources: SourceReachability[];
+  /** 到達する被覆源が一つ以上あるか */
+  reachable: boolean;
+}
+
+export interface ModuleGraph {
+  /** 走査したモジュール（リポジトリ相対・POSIX 表記） */
+  modules: Set<string>;
+  /** モジュール → そのモジュールが取り込む第一者モジュール */
+  imports: Map<string, Set<string>>;
+  /** 実在した入口（解決できなかった入口はここに現れない） */
+  entryPoints: string[];
+}
+
+/** OS 依存の区切りを POSIX 表記へ揃える */
+export function toPosixPath(filePath: string): string {
+  return filePath.split(path.sep).join('/').replace(/^\.\//, '');
+}
+
+/** 型宣言のみのファイル（実行時の経路を持たない） */
+export function isTypeDeclarationFile(filePath: string): boolean {
+  return /\.d\.ts$/.test(toPosixPath(filePath));
+}
+
+/**
+ * 検証・物語・補助のためのファイル（本番の経路には乗らない）
+ *
+ * ここに該当するファイルからの取り込みは、到達性の根拠として数えない。
+ * 数えてしまうと「テストが取り込んでいるから生きている」という循環が成立し、
+ * 死コードが永久に検出できなくなる。
+ */
+export function isVerificationFile(filePath: string): boolean {
+  const file = toPosixPath(filePath);
+  return (
+    /(^|\/)__tests__(\/|$)/.test(file) ||
+    /(^|\/)__mocks__(\/|$)/.test(file) ||
+    /(^|\/)test-support(\/|$)/.test(file) ||
+    /(^|\/)test-utils(\/|\.)/.test(file) ||
+    /\.(test|spec|stories)\.[cm]?[jt]sx?$/.test(file)
+  );
+}
+
+/** 行・ブロックのコメントを空白へ潰す（コメント内の `from '...'` を辺にしないため） */
+export function stripComments(source: string): string {
+  let out = '';
+  let i = 0;
+  while (i < source.length) {
+    const two = source.slice(i, i + 2);
+    if (two === '//') {
+      const end = source.indexOf('\n', i);
+      const stop = end === -1 ? source.length : end;
+      out += ' '.repeat(stop - i);
+      i = stop;
+      continue;
+    }
+    if (two === '/*') {
+      const end = source.indexOf('*/', i + 2);
+      const stop = end === -1 ? source.length : end + 2;
+      for (let k = i; k < stop; k++) out += source[k] === '\n' ? '\n' : ' ';
+      i = stop;
+      continue;
+    }
+    out += source[i];
+    i += 1;
+  }
+  return out;
+}
+
+/**
+ * 取り込み指定子を抽出する
+ *
+ * 静的な取り込み・型のみの取り込み・名前空間・既定・再輸出・副作用のみ・動的取り込みを
+ * すべて拾う。抽出漏れは「黙って死コード扱い」を生むため、自己検査で形ごとに固定する。
+ */
+export function extractImportSpecifiers(source: string): string[] {
+  const masked = stripComments(source);
+  const specifiers: string[] = [];
+  const regex = /(?:\bimport\b|\bexport\b)\s*\(?\s*(?:[^'"();]*?\bfrom\s*)?['"]([^'"\n]+)['"]/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(masked)) !== null) {
+    if (match[1]) specifiers.push(match[1]);
+  }
+  return specifiers;
+}
+
+/**
+ * 取り込み指定子を走査済みモジュールへ解決する
+ *
+ * 相対指定と `@/` 別名のみを解決する。パッケージ名は第一者のモジュールではないため
+ * 解決しない（`null` を返す）。
+ */
+export function resolveImport(
+  specifier: string,
+  fromFile: string,
+  modules: ReadonlySet<string>
+): string | null {
+  let base: string | null = null;
+
+  const alias = PATH_ALIASES.find((entry) => specifier.startsWith(entry.prefix));
+  if (alias) {
+    base = alias.target + specifier.slice(alias.prefix.length);
+  } else if (specifier.startsWith('./') || specifier.startsWith('../')) {
+    base = path.posix.normalize(
+      path.posix.join(path.posix.dirname(toPosixPath(fromFile)), specifier)
+    );
+  } else {
+    return null;
+  }
+
+  if (modules.has(base)) return base;
+
+  // ESM の `.js` 指定は TypeScript の原本を指す
+  const stripped = base.replace(/\.(js|jsx|mjs|cjs)$/, '');
+  if (stripped !== base && modules.has(stripped)) return stripped;
+
+  for (const candidate of [stripped, base]) {
+    for (const ext of MODULE_EXTENSIONS) {
+      if (modules.has(candidate + ext)) return candidate + ext;
+    }
+    for (const ext of MODULE_EXTENSIONS) {
+      if (modules.has(`${candidate}/index${ext}`)) return `${candidate}/index${ext}`;
+    }
+  }
+
+  return null;
+}
+
+export interface ModuleGraphOptions {
+  baseDir?: string;
+  roots?: readonly string[];
+  entryPoints?: readonly string[];
+}
+
+/** 本番ソースの取り込み関係を組み立てる */
+export function buildModuleGraph(options: ModuleGraphOptions = {}): ModuleGraph {
+  const baseDir = options.baseDir ?? process.cwd();
+  const roots = options.roots ?? PRODUCTION_ROOTS;
+  const entryPoints = options.entryPoints ?? PRODUCTION_ENTRY_POINTS;
+
+  const modules = new Set<string>();
+  for (const root of roots) {
+    for (const file of findFiles(path.join(baseDir, root), /\.(ts|tsx)$/)) {
+      modules.add(toPosixPath(path.relative(baseDir, file)));
+    }
+  }
+  for (const entry of entryPoints) {
+    const absolute = path.join(baseDir, entry);
+    if (fs.existsSync(absolute)) modules.add(toPosixPath(entry));
+  }
+
+  const imports = new Map<string, Set<string>>();
+  for (const module of modules) {
+    const deps = new Set<string>();
+    const source = fs.readFileSync(path.join(baseDir, module), 'utf-8');
+    for (const specifier of extractImportSpecifiers(source)) {
+      const resolved = resolveImport(specifier, module, modules);
+      if (resolved && resolved !== module) deps.add(resolved);
+    }
+    imports.set(module, deps);
+  }
+
+  return {
+    modules,
+    imports,
+    entryPoints: entryPoints.map(toPosixPath).filter((entry) => modules.has(entry)),
+  };
+}
+
+/**
+ * 入口から取り込みを辿って到達するモジュールを求める
+ *
+ * 検証ファイルは経路に含めない。含めると「テストが取り込んでいるから生きている」
+ * という循環が成立し、死コードが検出できなくなる。
+ */
+export function computeReachableModules(graph: ModuleGraph): Set<string> {
+  const reachable = new Set<string>();
+  const stack = graph.entryPoints.filter((entry) => !isVerificationFile(entry));
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (current === undefined || reachable.has(current)) continue;
+    if (!graph.modules.has(current)) continue;
+    reachable.add(current);
+    for (const dep of graph.imports.get(current) ?? []) {
+      if (!isVerificationFile(dep)) stack.push(dep);
+    }
+  }
+
+  return reachable;
+}
+
+/** `AnnotationEditor.viewport.test.tsx` → `AnnotationEditor` */
+function subjectToken(filePath: string): string {
+  const base = path.posix.basename(toPosixPath(filePath)).replace(/\.[cm]?[jt]sx?$/, '');
+  return base.split('.')[0] ?? base;
+}
+
+/**
+ * 被覆源のファイル一つを、本番の経路から到達するかで分類する
+ *
+ * - `e2e/` 配下: 本番のビルドを実ブラウザで駆動するため到達とみなす
+ * - 本番ファイル: 入口から辿れるか
+ * - 検証ファイル: その検証対象（同名の本番モジュール。無ければ取り込む本番モジュール全体）が
+ *   入口から辿れるか
+ */
+export function classifyCoverageSource(
+  file: string,
+  graph: ModuleGraph,
+  reachable: ReadonlySet<string>
+): SourceReachability {
+  const target = toPosixPath(file);
+
+  if (target.startsWith('e2e/')) {
+    return {
+      file: target,
+      kind: 'e2e',
+      reachable: true,
+      reason: 'e2e-drives-production',
+      subjects: [],
+    };
+  }
+
+  if (!graph.modules.has(target)) {
+    return {
+      file: target,
+      kind: 'unknown',
+      reachable: false,
+      reason: 'source-not-scanned',
+      subjects: [],
+    };
+  }
+
+  if (!isVerificationFile(target)) {
+    const isReachable = reachable.has(target);
+    return {
+      file: target,
+      kind: 'production',
+      reachable: isReachable,
+      reason: isReachable ? 'production-reachable' : 'production-unreachable',
+      subjects: [],
+    };
+  }
+
+  const deps = Array.from(graph.imports.get(target) ?? []).filter(
+    (dep) => !isVerificationFile(dep) && !isTypeDeclarationFile(dep)
+  );
+  const token = subjectToken(target);
+  const named = deps.filter((dep) => subjectToken(dep) === token);
+  const subjects = named.length > 0 ? named : deps;
+
+  if (subjects.length === 0) {
+    return {
+      file: target,
+      kind: 'verification',
+      reachable: false,
+      reason: 'verification-no-production-reference',
+      subjects: [],
+    };
+  }
+
+  const isReachable = subjects.some((subject) => reachable.has(subject));
+  return {
+    file: target,
+    kind: 'verification',
+    reachable: isReachable,
+    reason: isReachable ? 'verification-subject-reachable' : 'verification-subject-unreachable',
+    subjects: subjects.sort(),
+  };
+}
+
+/** 受入基準ごとに、被覆源が本番の経路から到達するかを集約する */
+export function analyzeCriterionReachability(
+  testCoverage: TestCoverage[],
+  graph: ModuleGraph,
+  reachable: ReadonlySet<string>
+): Map<string, CriterionReachability> {
+  const cache = new Map<string, SourceReachability>();
+  const classify = (file: string): SourceReachability => {
+    const cached = cache.get(file);
+    if (cached) return cached;
+    const verdict = classifyCoverageSource(file, graph, reachable);
+    cache.set(file, verdict);
+    return verdict;
+  };
+
+  const byCriterion = new Map<string, CriterionReachability>();
+  for (const tc of testCoverage) {
+    const verdict = classify(tc.file);
+    for (const acId of tc.acceptanceCriteria) {
+      const entry = byCriterion.get(acId) ?? { id: acId, sources: [], reachable: false };
+      entry.sources.push(verdict);
+      entry.reachable = entry.reachable || verdict.reachable;
+      byCriterion.set(acId, entry);
+    }
+  }
+
+  return byCriterion;
+}
+
+// ============================================================================
+// 除外一覧の監査
+// ============================================================================
+//
+// 除外は「被覆あり」ではない。分母から外れるだけであり、要件が満たされている根拠には
+// ならない。従前の検査は除外を無条件に受け入れ、合格の文言で「代替検証方法で対応」と
+// 述べていたため、除外一覧そのものが偽の緑の供給源になっていた。
+
+export type ExclusionVerdict =
+  /** 同じ受入基準が二重に登録されている */
+  | 'duplicate'
+  /** 代替検証の記述が欠けている */
+  | 'malformed'
+  /** 要件定義書に存在しない受入基準を指している */
+  | 'stale'
+  /** 実装が無いことを明示している（method: none）。被覆ではなく未達の明示 */
+  | 'pending'
+  /** 代替検証がリポジトリの外にある（負荷試験・監視・手作業など） */
+  | 'external'
+  /** リポジトリ内の自動検証を掲げており、到達する検証が実在する */
+  | 'in-repo-verified'
+  /** リポジトリ内の自動検証を掲げているが、到達する検証が存在しない */
+  | 'in-repo-unverified';
+
+export interface ExclusionAuditEntry {
+  id: string;
+  category: string;
+  verdict: ExclusionVerdict;
+  tool: string;
+}
+
+export interface ExclusionAudit {
+  entries: ExclusionAuditEntry[];
+  byVerdict: Record<ExclusionVerdict, number>;
+}
+
+/** 除外一覧の各項目を監査する */
+export function auditExclusions(
+  exclusions: ExclusionEntry[],
+  knownAcceptanceCriteriaIds: ReadonlySet<string>,
+  reachabilityByCriterion: ReadonlyMap<string, CriterionReachability>
+): ExclusionAudit {
+  const entries: ExclusionAuditEntry[] = [];
+  const seen = new Set<string>();
+
+  for (const exclusion of exclusions) {
+    const id = normalizeExclusionId(exclusion.id);
+    const alternative = exclusion.alternativeVerification;
+    const tool = alternative?.tool ?? '';
+    const method = alternative?.method ?? '';
+
+    let verdict: ExclusionVerdict;
+    if (seen.has(id)) {
+      verdict = 'duplicate';
+    } else if (!alternative || method.trim() === '' || tool.trim() === '') {
+      verdict = 'malformed';
+    } else if (!knownAcceptanceCriteriaIds.has(id)) {
+      verdict = 'stale';
+    } else if (method === 'none') {
+      verdict = 'pending';
+    } else if (!IN_REPO_VERIFICATION_TOOL.test(tool)) {
+      verdict = 'external';
+    } else if (reachabilityByCriterion.get(id)?.reachable === true) {
+      verdict = 'in-repo-verified';
+    } else {
+      verdict = 'in-repo-unverified';
+    }
+
+    seen.add(id);
+    entries.push({ id, category: exclusion.category, verdict, tool });
+  }
+
+  const byVerdict: Record<ExclusionVerdict, number> = {
+    duplicate: 0,
+    malformed: 0,
+    stale: 0,
+    pending: 0,
+    external: 0,
+    'in-repo-verified': 0,
+    'in-repo-unverified': 0,
+  };
+  for (const entry of entries) byVerdict[entry.verdict] += 1;
+
+  return { entries, byVerdict };
+}
+
+/**
+ * 監査対象の除外を、実際に走査した機能へ絞る
+ *
+ * `--feature` で機能を絞った場合、対象外の機能の除外まで「要件定義書に存在しない」と
+ * 誤断してしまう。走査していない機能の除外は監査の対象にしない。
+ */
+export function selectExclusionsForFeatures(
+  exclusions: ExclusionEntry[],
+  featureNames: readonly string[]
+): ExclusionEntry[] {
+  const analyzed = new Set(featureNames);
+  return exclusions.filter((exclusion) => {
+    const featureName = normalizeExclusionId(exclusion.id).split('/')[0];
+    return featureName !== undefined && analyzed.has(featureName);
+  });
+}
+
+/** 旧形式（`REQ-N.M`）の除外 ID を機能名付きへ揃える */
+export function normalizeExclusionId(id: string): string {
+  return id.includes('/') ? id : `user-authentication/${id}`;
+}
+
+// ============================================================================
+// 到達性を加味した被覆の集計
+// ============================================================================
+
+export interface ReachabilityReport {
+  /** 入口から到達したモジュール数 */
+  reachableModuleCount: number;
+  /** 走査した本番モジュール数（型宣言と検証ファイルを除く） */
+  productionModuleCount: number;
+  /** 本番の経路から到達しない本番モジュール */
+  unreachableProductionModules: string[];
+  /** 適用対象のうち、番号は付いているが到達する被覆源が無い受入基準 */
+  unreachableCoveredCriteria: CriterionReachability[];
+  /** 適用対象のうち、到達する被覆源を持つ受入基準の数 */
+  applicableReachableCoveredCount: number;
+  /** 適用対象数（除外を分母から外した数。従前と同じ） */
+  applicableCount: number;
+  /** 到達性を加味した被覆率（適用対象に対して） */
+  applicableReachableCoveragePercent: number;
+  /** 除外を分母へ戻した被覆率（除外は被覆ではない、を数字で示す） */
+  totalReachableCoveragePercent: number;
+  exclusionAudit: ExclusionAudit;
+}
+
+/** 除外一覧の ID 集合を機能名付きへ揃えて返す */
+export function buildExcludedIdSet(exclusions: ExclusionsFile | null): Set<string> {
+  const ids = new Set<string>();
+  if (!exclusions) return ids;
+  for (const exclusion of exclusions.exclusions) {
+    ids.add(normalizeExclusionId(exclusion.id));
+  }
+  return ids;
+}
+
+/** 到達性を加味した集計を作る */
+export function buildReachabilityReport(
+  allAcceptanceCriteria: AcceptanceCriteria[],
+  excludedIds: ReadonlySet<string>,
+  graph: ModuleGraph,
+  reachableModules: ReadonlySet<string>,
+  byCriterion: ReadonlyMap<string, CriterionReachability>,
+  exclusionAudit: ExclusionAudit
+): ReachabilityReport {
+  const productionModules = Array.from(graph.modules).filter(
+    (module) => !isVerificationFile(module) && !isTypeDeclarationFile(module)
+  );
+  const unreachableProductionModules = productionModules
+    .filter((module) => !reachableModules.has(module))
+    .sort();
+
+  const applicable = allAcceptanceCriteria.filter((ac) => !excludedIds.has(ac.id));
+  const unreachableCoveredCriteria: CriterionReachability[] = [];
+  let applicableReachableCoveredCount = 0;
+
+  for (const ac of applicable) {
+    const entry = byCriterion.get(ac.id);
+    if (!entry) continue; // 番号が一つも付いていない＝従前の未被覆として別に報告される
+    if (entry.reachable) {
+      applicableReachableCoveredCount += 1;
+    } else {
+      unreachableCoveredCriteria.push(entry);
+    }
+  }
+
+  let totalReachableCovered = 0;
+  for (const ac of allAcceptanceCriteria) {
+    if (byCriterion.get(ac.id)?.reachable === true) totalReachableCovered += 1;
+  }
+
+  return {
+    reachableModuleCount: reachableModules.size,
+    productionModuleCount: productionModules.length,
+    unreachableProductionModules,
+    unreachableCoveredCriteria: unreachableCoveredCriteria.sort((a, b) => a.id.localeCompare(b.id)),
+    applicableReachableCoveredCount,
+    applicableCount: applicable.length,
+    applicableReachableCoveragePercent:
+      applicable.length > 0 ? (applicableReachableCoveredCount / applicable.length) * 100 : 0,
+    totalReachableCoveragePercent:
+      allAcceptanceCriteria.length > 0
+        ? (totalReachableCovered / allAcceptanceCriteria.length) * 100
+        : 0,
+    exclusionAudit,
+  };
+}
+
+/** 到達性と除外の監査から、検査全体の合否を決める */
+export interface ReachabilityVerdict {
+  ok: boolean;
+  strictOk: boolean;
+  reasons: string[];
+  strictReasons: string[];
+}
+
+export function evaluateReachability(
+  report: ReachabilityReport,
+  threshold: number
+): ReachabilityVerdict {
+  const reasons: string[] = [];
+  const strictReasons: string[] = [];
+
+  if (report.reachableModuleCount === 0) {
+    reasons.push('本番の経路から到達するモジュールが 0 件です（走査が壊れています）');
+  }
+  if (report.unreachableCoveredCriteria.length > 0) {
+    reasons.push(
+      `番号は付いているが本番の経路から到達しない受入基準が${report.unreachableCoveredCriteria.length}件あります`
+    );
+  }
+  if (report.applicableReachableCoveragePercent < threshold) {
+    reasons.push(
+      `本番到達を加味した適用対象の被覆率が閾値(${threshold}%)未満です（${report.applicableReachableCoveragePercent.toFixed(1)}%）`
+    );
+  }
+
+  const audit = report.exclusionAudit.byVerdict;
+  if (audit.duplicate > 0) reasons.push(`除外一覧に二重登録が${audit.duplicate}件あります`);
+  if (audit.malformed > 0) reasons.push(`代替検証の記述を欠く除外が${audit.malformed}件あります`);
+  if (audit.stale > 0) {
+    reasons.push(`要件定義書に存在しない受入基準を指す除外が${audit.stale}件あります`);
+  }
+  if (audit['in-repo-unverified'] > 0) {
+    strictReasons.push(
+      `リポジトリ内の自動検証を代替検証として掲げているが、本番の経路へ到達する検証が存在しない除外が${audit['in-repo-unverified']}件あります`
+    );
+  }
+
+  return { ok: reasons.length === 0, strictOk: strictReasons.length === 0, reasons, strictReasons };
+}
+
+// ============================================================================
 // カバレッジ計算
 // ============================================================================
 
@@ -583,17 +1210,10 @@ function calculateCoverage(
   const excludedEntries: ExclusionEntry[] = [];
 
   if (exclusions) {
-    for (const excl of exclusions.exclusions) {
-      // 除外リストのIDが旧形式（REQ-N.M）の場合、全機能に適用
-      // 新形式（feature-name/REQ-N.M）の場合はそのまま使用
-      if (excl.id.includes('/')) {
-        excludedIds.add(excl.id);
-      } else {
-        // 旧形式の場合、user-authentication機能にマッピング（後方互換性）
-        excludedIds.add(`user-authentication/${excl.id}`);
-      }
-      excludedEntries.push(excl);
+    for (const id of buildExcludedIdSet(exclusions)) {
+      excludedIds.add(id);
     }
+    excludedEntries.push(...exclusions.exclusions);
   }
 
   // 機能別カバレッジ計算
@@ -698,7 +1318,11 @@ function calculateCoverage(
 /**
  * コンソールにレポートを出力
  */
-function printReport(result: CoverageResult, options: Options): void {
+function printReport(
+  result: CoverageResult,
+  options: Options,
+  reachability: ReachabilityReport
+): void {
   const { verbose, threshold } = options;
 
   console.log('');
@@ -757,6 +1381,21 @@ function printReport(result: CoverageResult, options: Options): void {
   console.log(`    閾値:         ${threshold}%`);
   console.log('');
 
+  console.log('  【本番到達性（番号を持つ検証が本番の経路を通るか）】');
+  console.log(
+    `    本番モジュール: ${reachability.productionModuleCount}（到達 ${reachability.reachableModuleCount} / 未到達 ${reachability.unreachableProductionModules.length}）`
+  );
+  console.log(
+    `    到達被覆:     ${reachability.applicableReachableCoveredCount}/${reachability.applicableCount} (${reachability.applicableReachableCoveragePercent.toFixed(1)}%)`
+  );
+  console.log(
+    `    到達しない被覆源のみの受入基準: ${reachability.unreachableCoveredCriteria.length}件`
+  );
+  console.log(
+    `    除外を分母へ戻した到達被覆率: ${reachability.totalReachableCoveragePercent.toFixed(1)}%（除外は被覆ではない）`
+  );
+  console.log('');
+
   // プログレスバー
   const barWidth = 40;
   const filledWidth = Math.round((result.applicableCoveragePercent / 100) * barWidth);
@@ -767,7 +1406,7 @@ function printReport(result: CoverageResult, options: Options): void {
 
   // 除外された受入基準
   if (result.excludedAcceptanceCriteria.length > 0) {
-    console.log('  📋 E2E対象外受入基準（代替検証方法あり）:');
+    console.log('  📋 E2E対象外として除外した受入基準（被覆ではない。分母から外しているだけ）:');
 
     const byCategory = new Map<string, ExclusionEntry[]>();
     for (const excl of result.excludedAcceptanceCriteria) {
@@ -782,6 +1421,49 @@ function printReport(result: CoverageResult, options: Options): void {
         console.log(`       - ${entry.id}: ${entry.title}`);
         if (verbose) {
           console.log(`         代替検証: ${entry.alternativeVerification.method}`);
+        }
+      }
+    }
+    console.log('');
+  }
+
+  const audit = reachability.exclusionAudit;
+  console.log('  🧾 除外一覧の監査:');
+  console.log(`     二重登録:                 ${audit.byVerdict.duplicate}件`);
+  console.log(`     代替検証の記述欠落:       ${audit.byVerdict.malformed}件`);
+  console.log(`     要件に存在しない受入基準: ${audit.byVerdict.stale}件`);
+  console.log(`     未実装の明示(method:none): ${audit.byVerdict.pending}件`);
+  console.log(`     リポジトリ外の代替検証:   ${audit.byVerdict.external}件`);
+  console.log(`     リポジトリ内検証あり:     ${audit.byVerdict['in-repo-verified']}件`);
+  console.log(
+    `     リポジトリ内検証を掲げるが不在: ${audit.byVerdict['in-repo-unverified']}件（--strict で失敗）`
+  );
+  if (verbose) {
+    for (const entry of audit.entries.filter((e) => e.verdict === 'in-repo-unverified')) {
+      console.log(`       - ${entry.id}: ${entry.tool}`);
+    }
+  }
+  console.log('');
+
+  // 番号は付いているが本番の経路から到達しない受入基準
+  if (reachability.unreachableCoveredCriteria.length > 0) {
+    console.log('  ⛔ 番号は付いているが本番の経路から到達しない受入基準（被覆と数えない）:');
+    const groupedByFeature = new Map<string, CriterionReachability[]>();
+    for (const entry of reachability.unreachableCoveredCriteria) {
+      const featureName = entry.id.split('/')[0] ?? '(不明)';
+      const list = groupedByFeature.get(featureName) ?? [];
+      list.push(entry);
+      groupedByFeature.set(featureName, list);
+    }
+    for (const [featureName, entries] of groupedByFeature) {
+      console.log(`\n     [${featureName}] (${entries.length}件)`);
+      for (const entry of entries) {
+        console.log(`       - ${entry.id}`);
+        for (const source of entry.sources) {
+          console.log(`           ${source.file} → ${source.reason}`);
+          if (verbose && source.subjects.length > 0) {
+            console.log(`             参照した本番モジュール: ${source.subjects.join(', ')}`);
+          }
         }
       }
     }
@@ -855,7 +1537,11 @@ function printReport(result: CoverageResult, options: Options): void {
 /**
  * JSON形式でレポートを出力
  */
-function printJsonReport(result: CoverageResult, options: Options): void {
+function printJsonReport(
+  result: CoverageResult,
+  options: Options,
+  reachability: ReachabilityReport
+): void {
   const output = {
     features: result.features.map((f) => ({
       name: f.name,
@@ -900,6 +1586,34 @@ function printJsonReport(result: CoverageResult, options: Options): void {
         threshold: options.threshold,
         passed: result.applicableCoveragePercent >= options.threshold,
       },
+    },
+    productionReachability: {
+      productionModules: reachability.productionModuleCount,
+      reachableModules: reachability.reachableModuleCount,
+      unreachableProductionModules: reachability.unreachableProductionModules,
+      applicableReachableCovered: reachability.applicableReachableCoveredCount,
+      applicableTotal: reachability.applicableCount,
+      applicableReachableCoveragePercent: parseFloat(
+        reachability.applicableReachableCoveragePercent.toFixed(2)
+      ),
+      totalReachableCoveragePercent: parseFloat(
+        reachability.totalReachableCoveragePercent.toFixed(2)
+      ),
+      unreachableCoveredAcceptanceCriteria: reachability.unreachableCoveredCriteria.map(
+        (entry) => ({
+          id: entry.id,
+          sources: entry.sources.map((source) => ({
+            file: source.file,
+            kind: source.kind,
+            reason: source.reason,
+            subjects: source.subjects,
+          })),
+        })
+      ),
+    },
+    exclusionAudit: {
+      byVerdict: reachability.exclusionAudit.byVerdict,
+      entries: reachability.exclusionAudit.entries,
     },
     coveredRequirements: result.coveredRequirements,
     uncoveredRequirements: result.uncoveredRequirements.map((r) => ({
@@ -960,15 +1674,35 @@ function main(): void {
   // 5. カバレッジを計算
   const result = calculateCoverage(features, testCoverage, exclusions);
 
-  // 6. レポート出力
+  // 6. 本番到達性を判定（番号を持つ検証が本番の経路を通るか）
+  const graph = buildModuleGraph();
+  const reachableModules = computeReachableModules(graph);
+  const byCriterion = analyzeCriterionReachability(testCoverage, graph, reachableModules);
+  const excludedIds = buildExcludedIdSet(exclusions);
+  const exclusionAudit = auditExclusions(
+    selectExclusionsForFeatures(exclusions ? exclusions.exclusions : [], featureNames),
+    new Set(result.allAcceptanceCriteria.map((ac) => ac.id)),
+    byCriterion
+  );
+  const reachability = buildReachabilityReport(
+    result.allAcceptanceCriteria,
+    excludedIds,
+    graph,
+    reachableModules,
+    byCriterion,
+    exclusionAudit
+  );
+  const reachabilityVerdict = evaluateReachability(reachability, options.threshold);
+
+  // 7. レポート出力
   if (options.json) {
-    printJsonReport(result, options);
+    printJsonReport(result, options, reachability);
   } else {
-    printReport(result, options);
+    printReport(result, options, reachability);
   }
 
-  // 7. 閾値チェック
-  const passed = result.applicableCoveragePercent >= options.threshold;
+  // 8. 閾値チェック
+  const passed = result.applicableCoveragePercent >= options.threshold && reachabilityVerdict.ok;
 
   const uncoveredNotExcluded = result.uncoveredAcceptanceCriteria.filter(
     (ac) =>
@@ -977,18 +1711,27 @@ function main(): void {
         return exclId === ac.id;
       })
   );
-  const strictPassed = !options.strict || uncoveredNotExcluded.length === 0;
+  const strictPassed =
+    !options.strict || (uncoveredNotExcluded.length === 0 && reachabilityVerdict.strictOk);
 
   if (!passed || !strictPassed) {
     if (!options.json) {
       console.log('');
-      if (!passed) {
+      if (result.applicableCoveragePercent < options.threshold) {
         console.log(`❌ FAILED: E2E適用対象のカバレッジが閾値(${options.threshold}%)未満です`);
       }
-      if (!strictPassed) {
+      for (const reason of reachabilityVerdict.reasons) {
+        console.log(`❌ FAILED: ${reason}`);
+      }
+      if (options.strict && uncoveredNotExcluded.length > 0) {
         console.log(
           `❌ FAILED: 除外リストにない未カバー要件が${uncoveredNotExcluded.length}件あります`
         );
+      }
+      if (options.strict) {
+        for (const reason of reachabilityVerdict.strictReasons) {
+          console.log(`❌ FAILED: ${reason}`);
+        }
       }
       console.log('');
       console.log('対応方法:');
@@ -997,6 +1740,12 @@ function main(): void {
         '  2. コードまたはテストに @requirement feature-name/REQ-N.M タグを追加してください'
       );
       console.log('  3. E2E対象外の場合は e2e/requirement-exclusions.json に追加してください');
+      console.log(
+        '  4. 番号を付けた検証が本番未参照の部品だけを見ている場合は、本番へ結線するか、死コードを撤去してください'
+      );
+      console.log(
+        '     （当該の受入基準は未実装であることが露見した状態です。採点を緑へ戻すためだけの番号を付け直さないこと）'
+      );
       console.log('');
       console.log('例:');
       console.log('  /**');
@@ -1011,10 +1760,10 @@ function main(): void {
   } else {
     if (!options.json) {
       console.log('');
-      console.log('✅ PASSED: E2E適用対象のカバレッジが閾値を満たしています');
+      console.log('✅ PASSED: E2E適用対象の受入基準は、本番の経路を通る検証で閾値を満たしています');
       if (result.excludedAcceptanceCriteriaCount > 0) {
         console.log(
-          `   (${result.excludedAcceptanceCriteriaCount}件の除外要件は代替検証方法で対応)`
+          `   (除外 ${result.excludedAcceptanceCriteriaCount}件は被覆ではなく分母外です。うち ${exclusionAudit.byVerdict['in-repo-unverified']}件は掲げた代替検証が実在しません)`
         );
       }
       console.log('');
@@ -1023,4 +1772,6 @@ function main(): void {
   }
 }
 
-main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main();
+}
