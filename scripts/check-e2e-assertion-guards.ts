@@ -41,8 +41,18 @@
  *                           ときの双方で同じ空値を返す形。主張は前者を述べているつもりで、
  *                           後者でも成立する。**不在の主張は、対象が存在することを別に
  *                           確かめない限り何も主張していない**（Task 115.140）
+ *   T9 discarded-predicate-result  真偽を返す関数の結果を式文として捨てる
+ *                           `await ensureImageExists(page, id);` のように、真偽を返す
+ *                           前提の補助を呼び、**戻り値を一切見ていない**形。
+ *                           直後に無条件の主張があれば沈黙はしないが、前提が崩れたときの
+ *                           失敗は前提の地点ではなく後段に現れ、前提の崩れなのか
+ *                           検証対象の欠陥なのかを判別できなくなる。
+ *                           さらに `predicateImplementationExclusion`（段3 が加えた除外）の
+ *                           正当性は「真偽を**呼び出し側が**どう扱うかは依然として関門である」
+ *                           ことに依拠している。戻り値を捨てる呼び出しは、その依拠を
+ *                           呼び出し側で空洞にする（Task 115.141）
  *
- * 分類の優先順位: T3 > T4 > T5 > T1（T2 と T6 と T7 と T8 は別軸のため重複して計上する）
+ * 分類の優先順位: T3 > T4 > T5 > T1（T2 と T6 と T7 と T8 と T9 は別軸のため重複して計上する）
  *
  * 検証を包む形（T1 / T4 / T5 の入口）:
  *   - `if (cond) { await expect(...) }`
@@ -168,6 +178,40 @@
  *     実測して得たのは「同じ改変を当てて e2e 配下 208 ファイルを走査しても新たな検出は
  *     0 件」という結果の方であり（Task 115.140 で実測。査読者が独立に再現）、
  *     過検出の実例そのものはリポジトリ内に観測していない。
+ *   - ブラウザ側で評価される関数の内側で結果を捨てる呼び出し（T9 の限界。Task 115.141）
+ *     `page.evaluate(() => { ... dispatch(handle, 'dragstart'); ... })` のように、
+ *     ブラウザ側で評価される関数の内側で真偽を返す関数を呼び、結果を捨てる形は対象外とする。
+ *     DOM の API は真偽を返すものが多く（`dispatchEvent` は「既定動作が抑止されなかったか」を
+ *     返す）、その真偽が前提の成否を表しているとは限らない。ブラウザ側の観測は最終的に
+ *     `evaluate` の戻り値として呼び出し側へ渡り、そこで主張されるかどうかが関門である。
+ *     除外の考え方は `predicateImplementationExclusion` のブラウザ側評価経路と同じである。
+ *     実測では e2e 配下の該当は 3 箇所（`site-survey-images.spec.ts` の drag 系イベントの送出）
+ *     であり、いずれも `dragOverDefaultPrevented` / `dropDefaultPrevented` として
+ *     意味のある戻り値だけを別に受けて呼び出し側で主張している。
+ *   - 名前を解決できない呼び出し（T9 の限界。Task 115.141）
+ *     被呼び出しが識別子でない形（`obj.method()` / `arr[0]()`）、および同一ファイルにも
+ *     名前付きの取り込みにも宣言が見つからない名前（既定取り込み・名前空間取り込みを含む）は
+ *     対象外とする。真偽を返すかを構文だけでは決められないためである。
+ *     実測（走査対象の e2e 配下 208 ファイル）では、結果を捨てる呼び出しの式文は 28726 箇所あり、
+ *     内訳は識別子の被呼び出し 6005 / 項目参照 `obj.m()` 22720 / その他 1 である。
+ *     識別子の 6005 のうち名前を解決できないものは 36 箇所。項目参照 22720 のうち
+ *     Playwright の即時判定（`isVisible` 等）の結果を捨てるものは 0 箇所であり、
+ *     この限界により現時点で見逃している該当は観測されていない。
+ *   - 同一ファイルに同名の宣言が複数あり、真偽を返すものと返さないものが混在する形
+ *     （T9 の限界。Task 115.141）どれが呼ばれるかを構文だけでは決められないため
+ *     対象外とする。数え切れない側は検出しない。
+ *   - 取り込んだ名前の同名衝突（T9 の**過検出**方向の限界。Task 115.141）
+ *     名前付きで取り込んだ識別子は、`e2e/helpers/` から集めた「真偽を返す関数の名前」との
+ *     **名前の一致**で判定する。取り込み元のファイルまでは辿らないため、`e2e/helpers/` の
+ *     ある補助と同名の別の関数を他所から取り込んで結果を捨てている場合は偽陽性になる。
+ *     現時点のリポジトリ内にこの形は 0 件である（走査で確認）。
+ *     逆に、同一ファイルで宣言された名前は取り込みより優先して解決する。この優先を
+ *     置かないと、`navigateToQuantityTableEdit` のように**複数の spec が同名で別々に
+ *     宣言している**関数が名前の一致だけで巻き込まれ、3 件の偽陽性が生じる（Task 115.141 で実測）。
+ *   - 真偽以外を返す関数の結果を捨てる形（T9 の限界。Task 115.141）
+ *     `await createProject(page)` のように値を返す関数の結果を捨てる形は対象外である。
+ *     値を返す関数の値は「前提の成否」を表すとは限らず、構文だけでは区別できない。
+ *     実測では、名前を解決できた式文の呼び出し 5969 箇所のうち真偽を返すものは 5 箇所である。
  *   - 判定・抽出の実装そのものである分岐（Task 115.127 段3・計画の A 群）
  *     真偽を返す関数、またはブラウザ側で評価される関数（`evaluate` 族）の内側で、
  *     **expect を一つも含まず** then 節が脱出だけの分岐。述語は false を返す経路を必ず持ち、
@@ -316,7 +360,8 @@ export type GuardType =
   | 'T5-observed-result-gate'
   | 'T6-conditional-skip'
   | 'T7-excluded-absence'
-  | 'T8-ambiguous-absence';
+  | 'T8-ambiguous-absence'
+  | 'T9-discarded-predicate-result';
 
 export interface Finding {
   file: string;
@@ -374,6 +419,7 @@ const GUARD_TYPES: GuardType[] = [
   'T6-conditional-skip',
   'T7-excluded-absence',
   'T8-ambiguous-absence',
+  'T9-discarded-predicate-result',
 ];
 
 /** 即時判定であり timeout 指定が無視される Playwright の述語メソッド */
@@ -757,6 +803,26 @@ function booleanPredicateContext(node: ts.Node): string | undefined {
     if (isBooleanReturningFunction(current)) return '述語:名前に束ねた関数';
   }
   return undefined;
+}
+
+/**
+ * ブラウザ側で評価される関数の内側か（`page.evaluate(() => { ... })` の本体。T9。Task 115.141）。
+ *
+ * ブラウザ側の DOM の API は真偽を返すものが多く（`dispatchEvent` は「既定動作が抑止され
+ * なかったか」を返す）、その真偽が前提の成否を表しているとは限らない。ブラウザ側の観測は
+ * 最終的に `evaluate` の戻り値として呼び出し側へ渡り、そこで主張されるかどうかが関門である。
+ * 除外の考え方は `predicateImplementationExclusion` のブラウザ側評価経路と同じである。
+ */
+function insideBrowserEvaluatedFunction(node: ts.Node): boolean {
+  for (let current: ts.Node | undefined = node.parent; current; current = current.parent) {
+    if (!ts.isFunctionLike(current)) continue;
+    const parent = current.parent;
+    if (parent && ts.isCallExpression(parent) && parent.arguments.some((a) => a === current)) {
+      const { last } = calleeNames(parent);
+      if (EVALUATE_CALLEES.has(last)) return true;
+    }
+  }
+  return false;
 }
 
 /** 当該の分岐が自ら持つ return 文（入れ子の関数の内側は辿らない） */
@@ -1557,8 +1623,17 @@ export function scanSource(relPath: string, source: string): ScanResult {
   const assignTable = new Map<string, ts.Expression[]>();
   /** 後から代入される名前（宣言時の値を主題の判断に用いない） */
   const reassigned = new Set<string>();
-  /** 同一ファイルで宣言された関数（名前 → 実体。同名は併合する。T8 の主題の追跡に用いる） */
+  /** 同一ファイルで宣言された関数（名前 → 実体。同名は併合する。T8 / T9 の追跡に用いる） */
   const localFunctions = new Map<string, ts.FunctionLikeDeclaration[]>();
+  /** 名前付きで取り込んだ識別子（T9 で `e2e/helpers/` 由来の補助を見分けるために用いる） */
+  const namedImports = new Set<string>();
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement)) continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (bindings && ts.isNamedImports(bindings)) {
+      for (const element of bindings.elements) namedImports.add(element.name.text);
+    }
+  }
   {
     const register = (
       table: Map<string, ts.Expression[]>,
@@ -1769,6 +1844,38 @@ export function scanSource(relPath: string, source: string): ScanResult {
     return undefined;
   };
 
+  /**
+   * 真偽を返す関数の結果を式文として捨てているか（T9。Task 115.141）。
+   *
+   * 該当する場合は理由を、しない場合は `undefined` を返す。**識別子の綴りは一切見ない。**
+   * 真偽を返すかは `isBooleanReturningFunction`（戻り値の型注釈、または自らの return が
+   * すべて真偽の値であること）で構造から判定する。
+   *
+   * 名前の解決は次の順で行う。
+   *   (1) 同一ファイルの宣言。同名の宣言がすべて真偽を返す場合に限って該当とする
+   *       （混在する形はどれが呼ばれるか決められないため諦める）。
+   *   (2) 名前付きで取り込んだ識別子であり、かつ `e2e/helpers/` から集めた
+   *       「真偽を返す関数の名前」に一致する場合。
+   * (1) を (2) より先に見るのは、複数の spec が同名で別々に宣言している関数を
+   * 名前の一致だけで巻き込まないためである（Task 115.141 で実測。3 件の偽陽性）。
+   */
+  const discardsPredicateResult = (statement: ts.ExpressionStatement): string | undefined => {
+    let expression = unwrapParentheses(statement.expression);
+    if (ts.isAwaitExpression(expression)) expression = unwrapParentheses(expression.expression);
+    if (ts.isVoidExpression(expression)) expression = unwrapParentheses(expression.expression);
+    if (!ts.isCallExpression(expression)) return undefined;
+    if (!ts.isIdentifier(expression.expression)) return undefined;
+    const name = expression.expression.text;
+    const declarations = localFunctions.get(name);
+    if (declarations && declarations.length > 0) {
+      if (!declarations.every((fn) => isBooleanReturningFunction(fn))) return undefined;
+      return `${name} は真偽を返す（同一ファイルの宣言）`;
+    }
+    if (!namedImports.has(name)) return undefined;
+    if (!getObservationVocabulary().helperNames.includes(name)) return undefined;
+    return `${name} は真偽を返す（e2e/helpers の宣言）`;
+  };
+
   const isObservation = (text: string): boolean =>
     getObservationPattern().test(text) || AWAIT_PATTERN.test(text) || SWALLOW_PATTERN.test(text);
 
@@ -1911,6 +2018,13 @@ export function scanSource(relPath: string, source: string): ScanResult {
             push(node, 'T8-ambiguous-absence', receiver);
           }
         }
+      }
+    }
+
+    // --- T9: 真偽を返す関数の結果を式文として捨てる形（Task 115.141） ---
+    if (ts.isExpressionStatement(node) && !insideBrowserEvaluatedFunction(node)) {
+      if (discardsPredicateResult(node)) {
+        push(node, 'T9-discarded-predicate-result');
       }
     }
 

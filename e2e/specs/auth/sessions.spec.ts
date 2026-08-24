@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { assertPrepared } from '../../helpers/preconditions';
 import {
   waitForSessionDataLoaded,
   waitForLoadingComplete,
@@ -84,10 +85,13 @@ test.describe('セッション管理機能', () => {
         await page.goto('/sessions');
         await page.waitForLoadState('networkidle', { timeout: getTimeout(30000) });
         await waitForLoadingComplete(page, { timeout: getTimeout(30000) });
-        await waitForSessionDataLoaded(page, {
+        // 再ログイン後の読み込みも前提である。戻り値を捨てると、前提が崩れたときの失敗は
+        // 前提の地点ではなく各テストの操作段階に現れる（Task 115.141）。
+        const reloadedAfterRelogin = await waitForSessionDataLoaded(page, {
           timeout: getTimeout(30000),
           maxRetries: 3,
         });
+        assertPrepared(reloadedAfterRelogin, '再ログイン後のセッション管理画面の読み込み');
       }
     }
 

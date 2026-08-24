@@ -1515,6 +1515,197 @@ const AMBIGUOUS_ABSENCE: Case[] = [
 ];
 
 // ============================================================================
+// 115.141: 真偽を返す関数の結果を式文として捨てる形（T9）
+//
+// 真偽を返す前提の補助を呼び、戻り値を一切見ない形は、前提が崩れたときの失敗を
+// 前提の地点ではなく後段へ持ち越す。さらに predicateImplementationExclusion
+// （段3 が加えた除外）の正当性は「真偽を呼び出し側がどう扱うかは関門である」ことに
+// 依拠しており、戻り値を捨てる呼び出しはその依拠を呼び出し側で空洞にする。
+// 両方向（検出する例・検出してはならない例）を固定する。
+//
+// 取り込みの経路を確かめる例では、`e2e/helpers/` から実際に集めた名前を用いる。
+// 名前を書き写すと補助の改名で静かに無検出へ落ちるためである。
+// ============================================================================
+
+/** `e2e/helpers/` から実際に集めた「真偽を返す関数」の名前（取り込み経路の確認に用いる） */
+const HELPER_BOOLEAN_NAME = collectBooleanHelperNames()[0]!;
+
+const DISCARDED_PREDICATE_RESULT: Case[] = [
+  {
+    name: '115.141-1 同一ファイルの真偽を返す補助の結果を捨てる（実例 site-survey-viewer）',
+    source: [
+      'async function ensureImageExists(page, id): Promise<boolean> {',
+      '  const count = await page.locator(".img").count();',
+      '  if (count > 0) {',
+      '    return true;',
+      '  }',
+      '  return false;',
+      '}',
+      "test('viewer', async ({ page }) => {",
+      '  await ensureImageExists(page, id);',
+      '  await expect(page.locator(".img").first()).toBeVisible();',
+      '});',
+    ].join('\n'),
+    expected: ['T9-discarded-predicate-result'],
+  },
+  {
+    name: '115.141-2 戻り値を主張で受ける是正後の形は検出しない',
+    source: [
+      'async function ensureImageExists(page, id): Promise<boolean> {',
+      '  const count = await page.locator(".img").count();',
+      '  if (count > 0) {',
+      '    return true;',
+      '  }',
+      '  return false;',
+      '}',
+      "test('viewer', async ({ page }) => {",
+      '  const prepared = await ensureImageExists(page, id);',
+      "  assertPrepared(prepared, '画像の前提');",
+      '  await expect(page.locator(".img").first()).toBeVisible();',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T9-discarded-predicate-result'],
+  },
+  {
+    name: '115.141-3 取り込んだ真偽を返す補助の結果を捨てる（実例 sessions）',
+    source: [
+      `import { ${HELPER_BOOLEAN_NAME} } from '../../helpers/wait-helpers';`,
+      "test('sessions', async ({ page }) => {",
+      `  await ${HELPER_BOOLEAN_NAME}(page);`,
+      '  await expect(page.getByText(/現在のデバイス/)).toBeVisible();',
+      '});',
+    ].join('\n'),
+    expected: ['T9-discarded-predicate-result'],
+  },
+  {
+    name: '115.141-4 取り込みも宣言も無い名前は検出しない（真偽を返すか決められない）',
+    source: [
+      "test('sessions', async ({ page }) => {",
+      `  await ${HELPER_BOOLEAN_NAME}(page);`,
+      '  await expect(page.getByText(/現在のデバイス/)).toBeVisible();',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T9-discarded-predicate-result'],
+  },
+  {
+    name: '115.141-5 同一ファイルの宣言は取り込みより優先する（同名の別物を巻き込まない）',
+    source: [
+      `import { ${HELPER_BOOLEAN_NAME} } from '../../helpers/wait-helpers';`,
+      `async function ${HELPER_BOOLEAN_NAME}Local(page): Promise<void> {`,
+      '  await page.goto("/");',
+      '}',
+      `async function ${HELPER_BOOLEAN_NAME}(page): Promise<void> {`,
+      '  await page.goto("/");',
+      '}',
+      "test('navigate', async ({ page }) => {",
+      `  await ${HELPER_BOOLEAN_NAME}(page);`,
+      '  await expect(page.getByRole("heading")).toBeVisible();',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T9-discarded-predicate-result'],
+  },
+  {
+    name: '115.141-6 真偽を返さない補助の結果を捨てる形は検出しない',
+    source: [
+      'async function navigateToEdit(page): Promise<void> {',
+      '  await page.goto("/edit");',
+      '}',
+      "test('edit', async ({ page }) => {",
+      '  await navigateToEdit(page);',
+      '  await expect(page.getByRole("heading")).toBeVisible();',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T9-discarded-predicate-result'],
+  },
+  {
+    name: '115.141-7 ブラウザ側で評価される関数の内側は検出しない（実例 site-survey-images の drag 送出）',
+    source: [
+      "test('drag', async ({ page }) => {",
+      '  const observed = await page.evaluate(() => {',
+      '    const dispatch = (element, type): boolean => {',
+      '      return !element.dispatchEvent(new DragEvent(type));',
+      '    };',
+      "    dispatch(document.body, 'dragstart');",
+      "    const overPrevented = dispatch(document.body, 'dragover');",
+      '    return { overPrevented };',
+      '  });',
+      '  expect(observed.overPrevented).toBe(true);',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T9-discarded-predicate-result'],
+  },
+  {
+    name: '115.141-8 同名の宣言で真偽と非真偽が混在する形は検出しない（どれが呼ばれるか決められない）',
+    source: [
+      'async function ensureReady(page): Promise<boolean> {',
+      '  return (await page.locator(".x").count()) > 0;',
+      '}',
+      'async function outer(page) {',
+      '  async function ensureReady(page2): Promise<void> {',
+      '    await page2.goto("/");',
+      '  }',
+      '  await ensureReady(page);',
+      '}',
+      "test('ready', async ({ page }) => {",
+      '  await ensureReady(page);',
+      '  await expect(page.locator(".x").first()).toBeVisible();',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T9-discarded-predicate-result'],
+  },
+  {
+    name: '115.141-9 型注釈が無くても return がすべて真偽なら検出する（命名にも注釈にも依らない）',
+    source: [
+      'async function prepareThing(page) {',
+      '  const count = await page.locator(".x").count();',
+      '  if (count > 0) {',
+      '    return true;',
+      '  }',
+      '  return false;',
+      '}',
+      "test('thing', async ({ page }) => {",
+      '  await prepareThing(page);',
+      '  await expect(page.locator(".x").first()).toBeVisible();',
+      '});',
+    ].join('\n'),
+    expected: ['T9-discarded-predicate-result'],
+  },
+  {
+    name: '115.141-10 void 演算子で明示的に捨てる形も検出する',
+    source: [
+      'const ensureReady = async (page): Promise<boolean> => {',
+      '  return (await page.locator(".x").count()) > 0;',
+      '};',
+      "test('ready', async ({ page }) => {",
+      '  void ensureReady(page);',
+      '  await expect(page.locator(".x").first()).toBeVisible();',
+      '});',
+    ].join('\n'),
+    expected: ['T9-discarded-predicate-result'],
+  },
+  {
+    name: '115.141-11 変数で受けるだけの形は検出しない（未使用は型検査・lint の領分。T9 の限界）',
+    source: [
+      'async function ensureReady(page): Promise<boolean> {',
+      '  return (await page.locator(".x").count()) > 0;',
+      '}',
+      "test('ready', async ({ page }) => {",
+      '  const ready = await ensureReady(page);',
+      '  await expect(page.locator(".x").first()).toBeVisible();',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T9-discarded-predicate-result'],
+  },
+];
+
+// ============================================================================
 // 実行
 // ============================================================================
 
@@ -1565,6 +1756,10 @@ function main(): void {
     { title: '115.128 抑止一覧を守る二つの関門', cases: BASELINE_GUARDS },
     { title: '115.139 抽出で除外したものの不在を主張する形', cases: EXCLUDED_ABSENCE },
     { title: '115.140 不在と観測の失敗を区別しない主張', cases: AMBIGUOUS_ABSENCE },
+    {
+      title: '115.141 真偽を返す関数の結果を式文として捨てる形',
+      cases: DISCARDED_PREDICATE_RESULT,
+    },
   ];
 
   console.log('🔍 検証無効化の検出規則 自己検査 (scripts/check-e2e-assertion-guards.selftest.ts)');

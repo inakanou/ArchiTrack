@@ -412,7 +412,13 @@ test.describe('現場調査画像ビューア', () => {
     await page.goto(`/site-surveys/${createdSurveyId}`);
     await page.waitForLoadState('networkidle');
 
-    await ensureImageExists(page, createdSurveyId);
+    // 前提の成否を主張で受ける（Task 115.141）。
+    // `ensureImageExists` は真偽を返す前提の補助であり、検出器はこの補助の内側の
+    // 「値を決める分岐」を対象外にしている。その除外の正当性は「真偽を呼び出し側が
+    // どう扱うかは依然として関門である」ことに依拠する。戻り値を捨てると、その依拠が
+    // 呼び出し側で空洞になり、前提が崩れたときの失敗は前提の地点ではなく後段に現れる。
+    const imagePrepared = await ensureImageExists(page, createdSurveyId);
+    assertPrepared(imagePrepared, '画像ビューアの前提として用意した現場調査の画像');
 
     const imageElement = page.locator('[aria-label="写真管理パネル"] button:has(img)').first();
     await expect(imageElement).toBeVisible({ timeout: getTimeout(10000) });
