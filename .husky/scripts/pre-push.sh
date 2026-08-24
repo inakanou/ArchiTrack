@@ -766,6 +766,39 @@ echo "✅ Design reference format check passed"
 echo ""
 
 # ============================================================================
+# E2E画面内自前判定チェック（E2Eテスト実行の前提条件）
+# ============================================================================
+# 画面の中で本番の判定を自前で書き起こし、その書き起こしへ主張する構造を検知する
+# - R1: 引数を取らず画面の状態へ触れないまま返した値へ主張する形
+# - R2: 同じスクリプトの中で自分が書いた鍵だけを読み返した値へ主張する形
+# - いずれも返り値が呼び出し側で消費される場合に限る（主張の無い呼び出しは対象外）
+# - 既存の check:e2e-guards は恒真式と条件包みを見るため、この形は素通りする
+# ============================================================================
+
+echo "🔍 Checking for in-page self-judgement in E2E..."
+npm run check:e2e-selfjudge:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ In-page self-judgement detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:e2e-selfjudge:selftest"
+  exit 1
+fi
+npm run check:e2e-selfjudge
+if [ $? -ne 0 ]; then
+  echo "❌ E2E in-page self-judgement check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 本番の経路を通る観測（画面の描画・本番が置いた値・APIの応答）へ主張を向けてください"
+  echo "  2. 要件が未実装であることが露見した場合は、検証を失敗したまま残して起票してください"
+  echo ""
+  echo "詳細確認: npm run check:e2e-selfjudge:verbose"
+  exit 1
+fi
+
+echo "✅ E2E in-page self-judgement check passed"
+echo ""
+
+# ============================================================================
 # CI環境変数整合性チェック（E2Eテスト実行の前提条件）
 # ============================================================================
 # ベストプラクティス: pre-pushを「正」としてCIとの整合性を検証

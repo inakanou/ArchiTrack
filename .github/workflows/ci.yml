@@ -173,6 +173,44 @@ jobs:
           echo ""
           npm run check:design-refs
 
+  e2e-in-page-selfjudgement:
+    name: E2E In-Page Self-Judgement Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # 検出器そのものの退行を先に検知する（検出器が壊れたまま本検査が通ることを防ぐ）
+      - name: Check detector self-test
+        run: |
+          echo "========================================="
+          echo "E2E In-Page Self-Judgement Detector Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Fixtures: scripts/check-e2e-in-page-selfjudgement.selftest.ts"
+          echo ""
+          npm run check:e2e-selfjudge:selftest
+
+      - name: Check in-page self-judgement
+        run: |
+          echo "========================================="
+          echo "E2E In-Page Self-Judgement Check"
+          echo "========================================="
+          echo ""
+          echo "This check validates that no E2E test re-implements a production"
+          echo "decision inside the page and then asserts on its own transcription."
+          echo "Such a test never executes production code, yet counts as coverage."
+          echo ""
+          npm run check:e2e-selfjudge
+
   typecheck:
     name: TypeScript Type Check
     runs-on: ubuntu-latest
@@ -612,7 +650,7 @@ jobs:
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test-unit, build, test-storybook, test-integration, security, requirement-coverage, e2e-assertion-guard]
+    needs: [lint, typecheck, test-unit, build, test-storybook, test-integration, security, requirement-coverage, e2e-assertion-guard, e2e-in-page-selfjudgement]
     if: always()
     steps:
       - name: Check status
@@ -632,7 +670,8 @@ jobs:
              [[ "$integration_ok" != "true" ]] || \
              [[ "${{ needs.security.result }}" != "success" ]] || \
              [[ "${{ needs.requirement-coverage.result }}" != "success" ]] || \
-             [[ "${{ needs.e2e-assertion-guard.result }}" != "success" ]]; then
+             [[ "${{ needs.e2e-assertion-guard.result }}" != "success" ]] || \
+             [[ "${{ needs.e2e-in-page-selfjudgement.result }}" != "success" ]]; then
             echo "❌ CI check failed:"
             echo "   - Lint: ${{ needs.lint.result }}"
             echo "   - TypeCheck: ${{ needs.typecheck.result }}"
@@ -643,6 +682,7 @@ jobs:
             echo "   - Security: ${{ needs.security.result }}"
             echo "   - Requirement Coverage: ${{ needs.requirement-coverage.result }}"
             echo "   - E2E Assertion Guard: ${{ needs.e2e-assertion-guard.result }}"
+            echo "   - E2E In-Page Self-Judgement: ${{ needs.e2e-in-page-selfjudgement.result }}"
             exit 1
           fi
           echo "✅ All CI checks passed successfully"
