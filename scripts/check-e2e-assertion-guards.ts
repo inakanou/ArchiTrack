@@ -29,8 +29,14 @@
  *                           条件式を渡す形と効果が同一であり、無条件に呼ぶ形は検証そのものの放棄である
  *                           （Task 115.127 段0）。
  *                           第一引数が文字列（タイトル）や関数（実行条件の宣言）の形は対象外
+ *   T7 excluded-absence     抽出で除外したものの不在を主張する
+ *                           `expect(text.match(/[\d,]+/)![0]).not.toContain('.')` — 抜き出しの
+ *                           正規表現が小数点を受理しないため、抽出後の文字列に小数点が
+ *                           現れることが原理的に無い。したがってこの主張は決して失敗しない。
+ *                           T3 が「真偽を直接主張する形」だけを対象とするのに対し、こちらは
+ *                           **主題の作り方**が結論を先取りしている形である（Task 115.139）
  *
- * 分類の優先順位: T3 > T4 > T5 > T1（T2 と T6 は別軸のため重複して計上する）
+ * 分類の優先順位: T3 > T4 > T5 > T1（T2 と T6 と T7 は別軸のため重複して計上する）
  *
  * 検証を包む形（T1 / T4 / T5 の入口）:
  *   - `if (cond) { await expect(...) }`
@@ -110,6 +116,14 @@
  *     いずれも条件分岐・例外処理・コールバックの内側でのみ真を代入している
  *     （無条件に真を代入する箇所は 0 件）。真偽のリテラルの代入まで辿ると、
  *     この 34 箇所がそのまま過検出として戻る。
+ *   - 一致しうる文字の上界が定まらない正規表現からの抽出（T7 の限界。Task 115.139）
+ *     `.` / `\S` / `\D` / `\W` / 否定文字クラス / 後方参照 / コードポイント表記を含む
+ *     正規表現は、一致した文字列に何が現れうるかを構文だけでは決められない。
+ *     判定を諦めた側は検出しない（過検出は主張を消す圧力になるため、
+ *     「解析できない＝欠陥ではない」側へ倒す）。
+ *   - 正規表現を needle に取る不在の主張（`expect(x).not.toMatch(/\./)`）
+ *     needle が言語である場合の包含判定を要するため対象外とする。
+ *     不在の主張の needle は文字列リテラルの形（`not.toContain`）だけを見る。
  *   - 判定・抽出の実装そのものである分岐（Task 115.127 段3・計画の A 群）
  *     真偽を返す関数、またはブラウザ側で評価される関数（`evaluate` 族）の内側で、
  *     **expect を一つも含まず** then 節が脱出だけの分岐。述語は false を返す経路を必ず持ち、
@@ -256,7 +270,8 @@ export type GuardType =
   | 'T3-tautology'
   | 'T4-response-field-gate'
   | 'T5-observed-result-gate'
-  | 'T6-conditional-skip';
+  | 'T6-conditional-skip'
+  | 'T7-excluded-absence';
 
 export interface Finding {
   file: string;
@@ -312,6 +327,7 @@ const GUARD_TYPES: GuardType[] = [
   'T4-response-field-gate',
   'T5-observed-result-gate',
   'T6-conditional-skip',
+  'T7-excluded-absence',
 ];
 
 /** 即時判定であり timeout 指定が無視される Playwright の述語メソッド */
@@ -1222,6 +1238,174 @@ export function scanFile(absPath: string): ScanResult {
   return scanSource(path.relative(ROOT, absPath), fs.readFileSync(absPath, 'utf8'));
 }
 
+// ============================================================================
+// 抽出で除外したものの不在を主張する形（T7。Task 115.139）
+// ============================================================================
+
+/** 正規表現の拡張表記のうち、そのまま一文字を表すもの */
+const REGEX_ESCAPE_LITERALS: Record<string, string> = {
+  n: '\n',
+  t: '\t',
+  r: '\r',
+  f: '\f',
+  v: '\v',
+  '0': '\0',
+};
+
+/**
+ * 正規表現に一致した文字列に現れうる文字の**上界**を、原子ごとの判定の一覧として作る。
+ *
+ * 一致した文字列は、原子が受理した文字だけで構成される。したがって上界に無い文字は
+ * 一致した文字列に現れ得ない。上界が定まらない書き方（`.` / `\S` / `\D` / `\W` /
+ * 否定文字クラス / 後方参照 / コードポイント表記）に出会った時点で `undefined` を返し、
+ * 判定を諦める。諦めた側は検出しない（過検出は主張を消す圧力になるため）。
+ *
+ * 先読み・後読みの中身も原子として数える。実際には文字を消費しないため上界としては
+ * 過大だが、過大な上界は「含み得ない」の結論を弱めるだけで、誤検出の方向には働かない。
+ */
+function regexCharTests(pattern: string): Array<(ch: string) => boolean> | undefined {
+  const tests: Array<(ch: string) => boolean> = [];
+  const literal = (ch: string): void => {
+    tests.push((c) => c === ch);
+  };
+  let i = 0;
+  let inClass = false;
+  /** 文字クラスの範囲指定（`a-z`）の始端 */
+  let previous: string | undefined;
+
+  while (i < pattern.length) {
+    const ch = pattern[i]!;
+
+    if (ch === '\\') {
+      const next = pattern[i + 1];
+      if (next === undefined) return undefined;
+      i += 2;
+      if (next === 'd') {
+        tests.push((c) => c >= '0' && c <= '9');
+        previous = undefined;
+        continue;
+      }
+      if (next === 'w') {
+        tests.push((c) => /[A-Za-z0-9_]/.test(c));
+        previous = undefined;
+        continue;
+      }
+      if (next === 's') {
+        tests.push((c) => /\s/.test(c));
+        previous = undefined;
+        continue;
+      }
+      // 否定の族・コードポイント表記・後方参照は上界が定まらない
+      if ('DWSuxpPk'.includes(next) || (next >= '1' && next <= '9')) return undefined;
+      if ((next === 'b' || next === 'B') && !inClass) {
+        // 語境界は文字を消費しない
+        previous = undefined;
+        continue;
+      }
+      const value = REGEX_ESCAPE_LITERALS[next] ?? (next === 'b' ? '\b' : next);
+      literal(value);
+      previous = value;
+      continue;
+    }
+
+    if (inClass) {
+      if (ch === ']') {
+        inClass = false;
+        previous = undefined;
+        i += 1;
+        continue;
+      }
+      const to = pattern[i + 1];
+      if (ch === '-' && previous !== undefined && to !== undefined && to !== ']') {
+        if (to === '\\') return undefined;
+        const from = previous;
+        tests.push((c) => c >= from && c <= to);
+        previous = undefined;
+        i += 2;
+        continue;
+      }
+      literal(ch);
+      previous = ch;
+      i += 1;
+      continue;
+    }
+
+    if (ch === '[') {
+      if (pattern[i + 1] === '^') return undefined;
+      inClass = true;
+      previous = undefined;
+      i += 1;
+      continue;
+    }
+    if (ch === '.') return undefined;
+    if (ch === '(') {
+      const group = /^\((\?:|\?=|\?!|\?<=|\?<!|\?<[A-Za-z_$][\w$]*>)?/.exec(pattern.slice(i));
+      i += group?.[0].length ?? 1;
+      previous = undefined;
+      continue;
+    }
+    if (ch === '{') {
+      const quantifier = /^\{\d+(,\d*)?\}/.exec(pattern.slice(i));
+      if (quantifier) {
+        i += quantifier[0].length;
+        previous = undefined;
+        continue;
+      }
+      literal(ch);
+      previous = ch;
+      i += 1;
+      continue;
+    }
+    if (')|^$*+?'.includes(ch)) {
+      previous = undefined;
+      i += 1;
+      continue;
+    }
+    literal(ch);
+    previous = ch;
+    i += 1;
+  }
+
+  if (inClass) return undefined;
+  return tests;
+}
+
+/**
+ * 正規表現に一致した文字列が `needle` を含み得ないか。
+ *
+ * `needle` の文字のうち一つでも上界に含まれないものがあれば、
+ * 一致した文字列が `needle` を部分文字列として含むことはあり得ない。
+ */
+function regexCannotYield(pattern: string, needle: string): boolean {
+  if (needle === '') return false;
+  const tests = regexCharTests(pattern);
+  if (!tests) return false;
+  return [...needle].some((ch) => !tests.some((test) => test(ch)));
+}
+
+/** 正規表現リテラルの本体と修飾子（正規表現リテラルでなければ `undefined`） */
+function regexLiteralParts(node: ts.Node): { pattern: string; flags: string } | undefined {
+  if (!ts.isRegularExpressionLiteral(node)) return undefined;
+  const text = node.getText();
+  const end = text.lastIndexOf('/');
+  if (end <= 0) return undefined;
+  return { pattern: text.slice(1, end), flags: text.slice(end + 1) };
+}
+
+/** その置換が `needle` を残らず取り除くか（`.replace(/\./g, '')` の形） */
+function replacementRemovesNeedle(
+  parts: { pattern: string; flags: string },
+  replacement: string,
+  needle: string
+): boolean {
+  if (replacement !== '' || !parts.flags.includes('g')) return false;
+  try {
+    return needle.replace(new RegExp(parts.pattern, parts.flags), '') === '';
+  } catch {
+    return false;
+  }
+}
+
 /**
  * e2e 配下の走査対象ファイル（分類走査から同じ集合を辿るために公開する）。
  *
@@ -1378,6 +1562,63 @@ export function scanSource(relPath: string, source: string): ScanResult {
     return false;
   };
 
+  /**
+   * 「抽出で除外したものの不在を主張する」形か（第八の型。Task 115.139）。
+   *
+   * 主張の主題が正規表現による抜き出しに由来し、その正規表現が `needle` を含む
+   * 文字列を一致させ得ないなら、抽出後の文字列に `needle` が現れることは原理的に無い。
+   * すなわち「`needle` を含まない」という主張は、画面が何を表示していても成立する。
+   *
+   *   const matched = text.match(/[\d,]+/);            // 小数点を受理しない抜き出し
+   *   expect(matched![0].replace(/,/g, '')).not.toContain('.');  // 決して失敗しない
+   *
+   * 抜き出しから主張までの間に挟まる形のうち、`needle` を作り出さないと構文で判る
+   * ものだけを遡る（要素参照・`trim` 族・`needle` の文字を含まない文字列への置換）。
+   * `needle` を残らず取り除く置換（`.replace(/\./g, '')`）も同じ形として扱う。
+   * 除去そのものが主張の結論を先取りしているためである。
+   */
+  const assertsExcludedAbsence = (expr: ts.Expression, needle: string, depth = 0): boolean => {
+    if (depth > RESOLVE_DEPTH_LIMIT) return false;
+    const node = unwrapParentheses(expr);
+    if (ts.isNonNullExpression(node) || ts.isAwaitExpression(node)) {
+      return assertsExcludedAbsence(node.expression, needle, depth + 1);
+    }
+    if (ts.isElementAccessExpression(node)) {
+      return assertsExcludedAbsence(node.expression, needle, depth + 1);
+    }
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const name = node.expression.name.text;
+      const target = node.expression.expression;
+      const first = node.arguments[0] ? unwrapParentheses(node.arguments[0]!) : undefined;
+      if ((name === 'match' || name === 'matchAll') && first) {
+        const parts = regexLiteralParts(first);
+        return parts !== undefined && regexCannotYield(parts.pattern, needle);
+      }
+      if (name === 'exec') {
+        const parts = regexLiteralParts(unwrapParentheses(target));
+        return parts !== undefined && regexCannotYield(parts.pattern, needle);
+      }
+      if (name === 'replace' || name === 'replaceAll') {
+        const replacement = node.arguments[1];
+        if (!replacement || !ts.isStringLiteralLike(replacement)) return false;
+        const parts = first ? regexLiteralParts(first) : undefined;
+        if (parts && replacementRemovesNeedle(parts, replacement.text, needle)) return true;
+        // 置換が needle を作り出しうる場合は、抜き出しの出どころへ遡らない
+        if ([...needle].some((ch) => replacement.text.includes(ch))) return false;
+        return assertsExcludedAbsence(target, needle, depth + 1);
+      }
+      if (name === 'trim' || name === 'trimStart' || name === 'trimEnd') {
+        return assertsExcludedAbsence(target, needle, depth + 1);
+      }
+      return false;
+    }
+    if (ts.isIdentifier(node) && !reassigned.has(node.text)) {
+      const values = declTable.get(node.text) ?? [];
+      return values.length === 1 && assertsExcludedAbsence(values[0]!, needle, depth + 1);
+    }
+    return false;
+  };
+
   const isObservation = (text: string): boolean =>
     getObservationPattern().test(text) || AWAIT_PATTERN.test(text) || SWALLOW_PATTERN.test(text);
 
@@ -1468,6 +1709,32 @@ export function scanSource(relPath: string, source: string): ScanResult {
                 node.arguments[0]!.kind === ts.SyntaxKind.FalseKeyword));
           if (subject && matcherArgIsBoolean && isVacuousSubject(subject)) {
             push(node, 'T3-tautology', receiver);
+          }
+        }
+      }
+    }
+
+    // --- T7: 抽出で除外したものの不在を主張する（第八の型。Task 115.139） ---
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      if (node.expression.name.text === 'toContain') {
+        let receiver: ts.Node = node.expression.expression;
+        let negated = false;
+        while (ts.isPropertyAccessExpression(receiver)) {
+          if (receiver.name.text === 'not') negated = true;
+          receiver = receiver.expression;
+        }
+        const needleArg = node.arguments[0];
+        if (
+          negated &&
+          ts.isCallExpression(receiver) &&
+          ts.isIdentifier(receiver.expression) &&
+          receiver.expression.text === 'expect' &&
+          needleArg &&
+          ts.isStringLiteralLike(needleArg)
+        ) {
+          const subject = receiver.arguments[0];
+          if (subject && assertsExcludedAbsence(subject, needleArg.text)) {
+            push(node, 'T7-excluded-absence', receiver);
           }
         }
       }

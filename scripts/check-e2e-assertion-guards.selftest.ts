@@ -1267,6 +1267,85 @@ const BASELINE_GUARDS: Case[] = [
 ];
 
 // ============================================================================
+// 115.139: 抽出で除外したものの不在を主張する形（第八の型）
+//
+// 抜き出しの正規表現が needle を受理しないなら、抽出後の文字列に needle が
+// 現れることは原理的に無い。そのうえで「needle が無いこと」を主張しても
+// 決して失敗しない。両方向（検出する例・検出してはならない例）を固定する。
+// ============================================================================
+
+const EXCLUDED_ABSENCE: Case[] = [
+  {
+    name: '115.139-1 小数点を受理しない抜き出しの直後に小数点の不在を主張する（実例 number-format-e2e）',
+    source: [
+      "test('total', async ({ page }) => {",
+      "  const totalText = (await page.locator('[data-testid=\"total-amount\"]').textContent()) ?? '';",
+      '  const numberMatch = totalText.match(/[\\d,]+/);',
+      "  expect(numberMatch![0].replace(/,/g, '')).not.toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: ['T7-excluded-absence'],
+  },
+  {
+    name: '115.139-2 needle を残らず取り除く置換の直後に不在を主張する',
+    source: [
+      "test('strip', async ({ page }) => {",
+      "  const text = (await page.locator('#total').textContent()) ?? '';",
+      "  const digits = text.replace(/\\./g, '');",
+      "  expect(digits).not.toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: ['T7-excluded-absence'],
+  },
+  {
+    name: '115.139-3 抜き出しを小数点まで広げた形は検出しない（是正後の形）',
+    source: [
+      "test('total fixed', async ({ page }) => {",
+      "  const totalText = (await page.locator('[data-testid=\"total-amount\"]').textContent()) ?? '';",
+      '  const numberMatch = totalText.match(/[\\d,]+(?:\\.\\d+)?/);',
+      "  expect(numberMatch![0].replace(/,/g, '')).not.toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T7-excluded-absence'],
+  },
+  {
+    name: '115.139-4 抽出を経ない不在の主張は検出しない（画面の値をそのまま見る）',
+    source: [
+      "test('raw value', async ({ page }) => {",
+      "  const value = await page.locator('#unit-price').inputValue();",
+      "  expect(value).not.toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T7-excluded-absence'],
+  },
+  {
+    name: '115.139-5 needle と無関係な文字だけを取り除く置換は検出しない（実質のある主張）',
+    source: [
+      "test('strip commas', async ({ page }) => {",
+      "  const text = (await page.locator('#amount').textContent()) ?? '';",
+      "  expect(text.replace(/[,円]/g, '')).not.toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T7-excluded-absence'],
+  },
+  {
+    name: '115.139-6 受理しうる文字の上界が定まらない抜き出しは検出しない（解析できない側へ倒す）',
+    source: [
+      "test('unbounded', async ({ page }) => {",
+      "  const text = (await page.locator('#amount').textContent()) ?? '';",
+      '  const matched = text.match(/\\S+/);',
+      "  expect(matched![0]).not.toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T7-excluded-absence'],
+  },
+];
+
+// ============================================================================
 // 実行
 // ============================================================================
 
@@ -1315,6 +1394,7 @@ function main(): void {
     { title: '115.137 語彙の二つの規則と走査対象', cases: VOCABULARY_RULES },
     { title: '115.127 段7 再試行の成功時に抜ける形の境界', cases: RETRY_EXHAUSTION },
     { title: '115.128 抑止一覧を守る二つの関門', cases: BASELINE_GUARDS },
+    { title: '115.139 抽出で除外したものの不在を主張する形', cases: EXCLUDED_ABSENCE },
   ];
 
   console.log('🔍 検証無効化の検出規則 自己検査 (scripts/check-e2e-assertion-guards.selftest.ts)');

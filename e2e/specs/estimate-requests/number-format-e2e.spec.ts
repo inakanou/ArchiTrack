@@ -797,7 +797,11 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
 
       const totalText = await totalArea.textContent();
       assertPresent(totalText, '合計金額エリアのテキスト');
-      const numberMatch = totalText.match(/[\d,]+/);
+      // 抜き出しは小数点を含む形で行う。`[\d,]+` だけで抜き出すと、抽出後の文字列に
+      // 小数点が現れることが原理的に無く、直後の「小数点が無い」主張が構造上
+      // 決して失敗しない（抽出で除外したものの不在を主張する形。Task 115.139）。
+      // 小数を含む表示（例: `2,500.50`）まで抜き出したうえで、小数点が無いことを主張する
+      const numberMatch = totalText.match(/[\d,]+(?:\.\d+)?/);
       assertPresent(numberMatch, '合計金額エリアに含まれる数値');
       // カンマ区切りを除去して整数であることを確認
       expect(numberMatch[0].replace(/,/g, '')).not.toContain('.');
