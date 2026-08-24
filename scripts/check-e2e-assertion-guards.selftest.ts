@@ -1346,6 +1346,175 @@ const EXCLUDED_ABSENCE: Case[] = [
 ];
 
 // ============================================================================
+// 115.140: 不在と観測の失敗を区別しない主張（T8）
+//
+// 補助が「対象が不在」と「そもそも観測できなかった」の双方で同じ空値を返すなら、
+// その空値に対する不在の主張は、どちらで成立したのかを区別しない。
+// 両方向（検出する例・検出してはならない例）を固定する。
+// ============================================================================
+
+const AMBIGUOUS_ABSENCE: Case[] = [
+  {
+    name: '115.140-1 空値の経路が二つある補助の戻り値へ不在を主張する（実例 drawing-selection-prevention）',
+    source: [
+      'async function getActiveObject(page) {',
+      '  return await page.evaluate(() => {',
+      '    const canvas = window.__fabricCanvas;',
+      '    if (!canvas) {',
+      '      return null;',
+      '    }',
+      '    const active = canvas.getActiveObject();',
+      '    if (!active) {',
+      '      return null;',
+      '    }',
+      "    return { type: active.type ?? 'unknown' };",
+      '  });',
+      '}',
+      "test('no selection', async ({ page }) => {",
+      '  const activeObj = await getActiveObject(page);',
+      '  expect(activeObj).toBeNull();',
+      '});',
+    ].join('\n'),
+    expected: ['T8-ambiguous-absence'],
+  },
+  {
+    name: '115.140-2 局所変数を挟まず直接主題に書いた形も検出する',
+    source: [
+      'async function getActiveObject(page) {',
+      '  return await page.evaluate(() => {',
+      '    const canvas = window.__fabricCanvas;',
+      '    if (!canvas) {',
+      '      return null;',
+      '    }',
+      '    const active = canvas.getActiveObject();',
+      '    if (!active) {',
+      '      return null;',
+      '    }',
+      '    return { type: active.type };',
+      '  });',
+      '}',
+      "test('no selection', async ({ page }) => {",
+      '  expect(await getActiveObject(page)).toBeNull();',
+      '});',
+    ].join('\n'),
+    expected: ['T8-ambiguous-absence'],
+  },
+  {
+    name: '115.140-3 undefined を空値とする主張も同じ形として検出する',
+    source: [
+      'async function readRecord(page) {',
+      '  return await page.evaluate(() => {',
+      '    const store = window.__store;',
+      '    if (!store) {',
+      '      return undefined;',
+      '    }',
+      '    const hit = store.find();',
+      '    if (!hit) {',
+      '      return undefined;',
+      '    }',
+      '    return hit;',
+      '  });',
+      '}',
+      "test('no record', async ({ page }) => {",
+      '  const record = await readRecord(page);',
+      '  expect(record).toBeUndefined();',
+      '});',
+    ].join('\n'),
+    expected: ['T8-ambiguous-absence'],
+  },
+  {
+    name: '115.140-4 観測できない経路を失敗させた形は検出しない（是正後の形）',
+    source: [
+      'async function getActiveObject(page) {',
+      '  return await page.evaluate(() => {',
+      '    const canvas = window.__fabricCanvas;',
+      '    if (!canvas) {',
+      "      throw new Error('描画面が取得できない');",
+      '    }',
+      '    const active = canvas.getActiveObject();',
+      '    if (!active) {',
+      '      return null;',
+      '    }',
+      '    return { type: active.type };',
+      '  });',
+      '}',
+      "test('no selection', async ({ page }) => {",
+      '  const activeObj = await getActiveObject(page);',
+      '  expect(activeObj).toBeNull();',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T8-ambiguous-absence'],
+  },
+  {
+    name: '115.140-5 空値の経路が一つだけの補助は検出しない（不在の条件が一つに定まる）',
+    source: [
+      'async function readDraft(page, key) {',
+      '  return await page.evaluate((k) => localStorage.getItem(k), key);',
+      '}',
+      "test('no draft', async ({ page }) => {",
+      "  expect(await readDraft(page, 'k')).toBeNull();",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T8-ambiguous-absence'],
+  },
+  {
+    name: '115.140-6 存在を主張する形は検出しない（不在の主張ではない）',
+    source: [
+      'async function getActiveObject(page) {',
+      '  return await page.evaluate(() => {',
+      '    const canvas = window.__fabricCanvas;',
+      '    if (!canvas) {',
+      '      return null;',
+      '    }',
+      '    const active = canvas.getActiveObject();',
+      '    if (!active) {',
+      '      return null;',
+      '    }',
+      '    return { type: active.type };',
+      '  });',
+      '}',
+      "test('selected', async ({ page }) => {",
+      '  const activeObj = await getActiveObject(page);',
+      '  expect(activeObj).not.toBeNull();',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T8-ambiguous-absence'],
+  },
+  {
+    name: '115.140-7 同名の補助が複数宣言されている形は検出しない（どれが呼ばれるか決められない）',
+    source: [
+      'async function probe(page) {',
+      '  return await page.evaluate(() => {',
+      '    const canvas = window.__fabricCanvas;',
+      '    if (!canvas) {',
+      '      return null;',
+      '    }',
+      '    if (!canvas.getActiveObject()) {',
+      '      return null;',
+      '    }',
+      '    return { type: 1 };',
+      '  });',
+      '}',
+      'async function outer(page) {',
+      '  async function probe(page2) {',
+      '    return await page2.evaluate(() => null);',
+      '  }',
+      '  return await probe(page);',
+      '}',
+      "test('no selection', async ({ page }) => {",
+      '  const found = await probe(page);',
+      '  expect(found).toBeNull();',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T8-ambiguous-absence'],
+  },
+];
+
+// ============================================================================
 // 実行
 // ============================================================================
 
@@ -1395,6 +1564,7 @@ function main(): void {
     { title: '115.127 段7 再試行の成功時に抜ける形の境界', cases: RETRY_EXHAUSTION },
     { title: '115.128 抑止一覧を守る二つの関門', cases: BASELINE_GUARDS },
     { title: '115.139 抽出で除外したものの不在を主張する形', cases: EXCLUDED_ABSENCE },
+    { title: '115.140 不在と観測の失敗を区別しない主張', cases: AMBIGUOUS_ABSENCE },
   ];
 
   console.log('🔍 検証無効化の検出規則 自己検査 (scripts/check-e2e-assertion-guards.selftest.ts)');

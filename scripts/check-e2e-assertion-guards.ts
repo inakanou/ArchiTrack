@@ -35,8 +35,14 @@
  *                           現れることが原理的に無い。したがってこの主張は決して失敗しない。
  *                           T3 が「真偽を直接主張する形」だけを対象とするのに対し、こちらは
  *                           **主題の作り方**が結論を先取りしている形である（Task 115.139）
+ *   T8 ambiguous-absence   不在と観測の失敗を区別しない主張
+ *                           `const a = await getActiveObject(page); expect(a).toBeNull();` で、
+ *                           `getActiveObject` が「対象が不在」のときと「そもそも観測できなかった」
+ *                           ときの双方で同じ空値を返す形。主張は前者を述べているつもりで、
+ *                           後者でも成立する。**不在の主張は、対象が存在することを別に
+ *                           確かめない限り何も主張していない**（Task 115.140）
  *
- * 分類の優先順位: T3 > T4 > T5 > T1（T2 と T6 と T7 は別軸のため重複して計上する）
+ * 分類の優先順位: T3 > T4 > T5 > T1（T2 と T6 と T7 と T8 は別軸のため重複して計上する）
  *
  * 検証を包む形（T1 / T4 / T5 の入口）:
  *   - `if (cond) { await expect(...) }`
@@ -124,6 +130,44 @@
  *   - 正規表現を needle に取る不在の主張（`expect(x).not.toMatch(/\./)`）
  *     needle が言語である場合の包含判定を要するため対象外とする。
  *     不在の主張の needle は文字列リテラルの形（`not.toContain`）だけを見る。
+ *   - 不在の主張のうち、主題が補助の呼び出しでない形（T8 の限界。Task 115.140）
+ *     `expect(probe.activeType).toBeNull()` のように主題が項目参照である形、
+ *     `expect(await page.evaluate(...)).toBeNull()` のようにその場で書き下した形、
+ *     同名の補助が複数宣言されている形は、空値が返る経路を構文だけで数え切れないため
+ *     対象外とする。数え切れない側は検出しない（過検出は主張を消す圧力になるため）。
+ *     同名の宣言が併合される表を辿るため、補助の外と内で同じ名前を使うと
+ *     （`const record = await readRecord(page)` と補助の内側の `const record = ...`）
+ *     出どころが一つに定まらず検出されない。これも数え切れない側の限界である。
+ *     同じ理由で `await expect.poll(() => readRecord(page)).toBeNull()` の形も母集団に
+ *     入らない（受け手が `expect(...)` の呼び出しではないため）。Task 115.140 の是正で
+ *     この形が2件生じたが、いずれも主題の補助が空値を返す経路は一本であり
+ *     （観測の失敗は throw させる）、母集団に入れても該当しない。
+ *   - 空値を返す経路が一つだけの補助（T8 の限界。Task 115.140）
+ *     `return localStorage.getItem(k)` のように空値の出どころが一つなら、
+ *     主張はその条件を確かに指しており、観測の失敗と取り違えようが無い。
+ *     ただし `return active ? {...} : null` のように**三項で空値を作る形**は
+ *     `return` 文として数えないため、二つ目の経路があっても数え落とす。
+ *   - 二経路とも真正の不在である補助（T8 の**過検出**方向の限界。Task 115.140）
+ *     ここまでの二つは見逃し側の限界だが、T8 には過検出側の限界もある。
+ *     `if (rows.length === 0) return null; if (!hit) return null;` のように、
+ *     空値を返す経路が二つあっても**そのどちらもが「対象が実在しない」という真正の不在**
+ *     である補助を、T8 は該当と判定する。T8 が構文で数えるのは経路の本数だけであり、
+ *     各経路が「対象の不在」なのか「観測そのものの失敗」なのかまでは区別しないためである。
+ *     この形が現れれば偽陽性になる。Task 115.140 の査読で自作の例により確認したうえで、
+ *     現時点のリポジトリ内の該当（偽陽性）は 0 件であることを走査で確かめている。
+ *   - ブラウザ側で評価される関数の早期脱出のうち、真偽以外を返す形（Task 115.140）
+ *     `predicateImplementationExclusion` のブラウザ側評価経路は、戻り値が真偽でなくても
+ *     早期脱出を対象外にする。これは意図した設計である。**同じ形は
+ *     `valueProducingExitExclusion`（値を作る補助が値を返す分岐）にも該当するため、
+ *     この経路だけへ「戻り値が真偽であること」を課しても検出は一件も増えない**
+ *     （Task 115.140 で実測）。値を返す関数が値を返す経路を持つのは関数であることそのもので、
+ *     債務は呼び出し側がその値をどう扱うかにある。呼び出し側の債務は T8 が受け持つ。
+ *     この経路へ真偽を課すと、`if (!el) return;`（値を伴わない脱出）だけが新たに
+ *     検出対象へ移る。それが「値を返す形と同じく呼び出し側の債務であるから過検出になる」
+ *     というのは**構造から導いた設計上の帰結**であって、実測した事実ではない。
+ *     実測して得たのは「同じ改変を当てて e2e 配下 208 ファイルを走査しても新たな検出は
+ *     0 件」という結果の方であり（Task 115.140 で実測。査読者が独立に再現）、
+ *     過検出の実例そのものはリポジトリ内に観測していない。
  *   - 判定・抽出の実装そのものである分岐（Task 115.127 段3・計画の A 群）
  *     真偽を返す関数、またはブラウザ側で評価される関数（`evaluate` 族）の内側で、
  *     **expect を一つも含まず** then 節が脱出だけの分岐。述語は false を返す経路を必ず持ち、
@@ -271,7 +315,8 @@ export type GuardType =
   | 'T4-response-field-gate'
   | 'T5-observed-result-gate'
   | 'T6-conditional-skip'
-  | 'T7-excluded-absence';
+  | 'T7-excluded-absence'
+  | 'T8-ambiguous-absence';
 
 export interface Finding {
   file: string;
@@ -328,6 +373,7 @@ const GUARD_TYPES: GuardType[] = [
   'T5-observed-result-gate',
   'T6-conditional-skip',
   'T7-excluded-absence',
+  'T8-ambiguous-absence',
 ];
 
 /** 即時判定であり timeout 指定が無視される Playwright の述語メソッド */
@@ -1406,6 +1452,53 @@ function replacementRemovesNeedle(
   }
 }
 
+// ============================================================================
+// 不在と観測の失敗を区別しない主張（T8。Task 115.140）
+// ============================================================================
+
+/** 不在を主張する matcher と、その主張が指す「不在の値」 */
+export type AbsenceKind = 'null' | 'undefined';
+
+const ABSENCE_MATCHERS: Record<string, AbsenceKind | undefined> = {
+  toBeNull: 'null',
+  toBeUndefined: 'undefined',
+};
+
+/** その `return` が当該の不在の値を返すか（`return null` / `return undefined` / `return;`） */
+function returnsAbsentValue(node: ts.ReturnStatement, kind: AbsenceKind): boolean {
+  if (!node.expression) return kind === 'undefined';
+  const inner = unwrapParentheses(node.expression);
+  if (kind === 'null') return inner.kind === ts.SyntaxKind.NullKeyword;
+  if (ts.isIdentifier(inner)) return inner.text === 'undefined';
+  return ts.isVoidExpression(inner);
+}
+
+/**
+ * 補助の内側で当該の不在の値を返す経路。
+ *
+ * **入れ子の関数の内側も数える。** `return await page.evaluate(() => { ... })` の形では、
+ * ブラウザ側で評価される関数が返した空値がそのまま補助の戻り値として呼び出し側へ届く。
+ * 外側の `return` だけを数えると、まさに本型が対象とする形（観測できなかった場合の空値）を
+ * 数え落とす。
+ */
+function absentReturnPaths(
+  fn: ts.FunctionLikeDeclaration,
+  kind: AbsenceKind
+): ts.ReturnStatement[] {
+  const found: ts.ReturnStatement[] = [];
+  const body = fn.body;
+  if (!body) return found;
+  if (!ts.isBlock(body)) {
+    return found;
+  }
+  const visit = (n: ts.Node): void => {
+    if (ts.isReturnStatement(n) && returnsAbsentValue(n, kind)) found.push(n);
+    ts.forEachChild(n, visit);
+  };
+  visit(body);
+  return found;
+}
+
 /**
  * e2e 配下の走査対象ファイル（分類走査から同じ集合を辿るために公開する）。
  *
@@ -1464,6 +1557,8 @@ export function scanSource(relPath: string, source: string): ScanResult {
   const assignTable = new Map<string, ts.Expression[]>();
   /** 後から代入される名前（宣言時の値を主題の判断に用いない） */
   const reassigned = new Set<string>();
+  /** 同一ファイルで宣言された関数（名前 → 実体。同名は併合する。T8 の主題の追跡に用いる） */
+  const localFunctions = new Map<string, ts.FunctionLikeDeclaration[]>();
   {
     const register = (
       table: Map<string, ts.Expression[]>,
@@ -1484,9 +1579,25 @@ export function scanSource(relPath: string, source: string): ScanResult {
         registerBinding(element.name, expression);
       }
     };
+    const registerFunction = (name: string, fn: ts.FunctionLikeDeclaration): void => {
+      const list = localFunctions.get(name) ?? [];
+      list.push(fn);
+      localFunctions.set(name, list);
+    };
     const collect = (n: ts.Node): void => {
       if (ts.isVariableDeclaration(n) && n.initializer) {
         registerBinding(n.name, n.initializer);
+      }
+      if (ts.isFunctionDeclaration(n) && n.name) {
+        registerFunction(n.name.text, n);
+      }
+      if (
+        ts.isVariableDeclaration(n) &&
+        ts.isIdentifier(n.name) &&
+        n.initializer &&
+        (ts.isArrowFunction(n.initializer) || ts.isFunctionExpression(n.initializer))
+      ) {
+        registerFunction(n.name.text, n.initializer);
       }
       if (ts.isBinaryExpression(n) && isAssignmentOperator(n.operatorToken.kind)) {
         const target = unwrapParentheses(n.left);
@@ -1619,6 +1730,45 @@ export function scanSource(relPath: string, source: string): ScanResult {
     return false;
   };
 
+  /**
+   * 不在の主張の主題が「観測の失敗」と区別できないか（T8。Task 115.140）。
+   *
+   * 主題が同一ファイルで宣言された補助の呼び出しであり、その補助が**当該の不在の値を
+   * 二つ以上の経路で返す**場合に該当する。経路が一つなら、その値が返る条件は一つに定まり、
+   * 主張はその条件を確かに指している。二つ以上あるとき、主張は「対象が不在である」経路と
+   * 「そもそも観測できなかった」経路のどちらで成立したのかを区別しない。
+   *
+   * **識別子の綴りは一切見ない。** 補助の名前・変数の名前は判定に用いない。
+   */
+  const ambiguousAbsence = (
+    subject: ts.Expression,
+    kind: AbsenceKind,
+    depth = 0
+  ): string | undefined => {
+    if (depth > RESOLVE_DEPTH_LIMIT) return undefined;
+    let inner = unwrapParentheses(subject);
+    if (ts.isAwaitExpression(inner)) inner = unwrapParentheses(inner.expression);
+    if (ts.isCallExpression(inner) && ts.isIdentifier(inner.expression)) {
+      const name = inner.expression.text;
+      const fns = localFunctions.get(name);
+      // 同名の宣言が複数ある場合、どれが呼ばれるかを構文だけでは決められないため諦める
+      if (!fns || fns.length !== 1) return undefined;
+      const paths = absentReturnPaths(fns[0]!, kind);
+      if (paths.length < 2) return undefined;
+      return `${name} が ${kind} を ${paths.length} 通りの経路で返す`;
+    }
+    if (ts.isIdentifier(inner) && !reassigned.has(inner.text)) {
+      const values = declTable.get(inner.text) ?? [];
+      if (values.length === 0) return undefined;
+      const reasons = values.map((v) => ambiguousAbsence(v, kind, depth + 1));
+      const first = reasons[0];
+      if (first === undefined) return undefined;
+      // 同名の宣言が複数あるときは、すべてが同じ補助を指す場合に限る
+      return reasons.every((r) => r === first) ? first : undefined;
+    }
+    return undefined;
+  };
+
   const isObservation = (text: string): boolean =>
     getObservationPattern().test(text) || AWAIT_PATTERN.test(text) || SWALLOW_PATTERN.test(text);
 
@@ -1735,6 +1885,30 @@ export function scanSource(relPath: string, source: string): ScanResult {
           const subject = receiver.arguments[0];
           if (subject && assertsExcludedAbsence(subject, needleArg.text)) {
             push(node, 'T7-excluded-absence', receiver);
+          }
+        }
+      }
+    }
+
+    // --- T8: 不在と観測の失敗を区別しない主張（Task 115.140） ---
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const kind = ABSENCE_MATCHERS[node.expression.name.text];
+      if (kind) {
+        let receiver: ts.Node = node.expression.expression;
+        let negated = false;
+        while (ts.isPropertyAccessExpression(receiver)) {
+          if (receiver.name.text === 'not') negated = true;
+          receiver = receiver.expression;
+        }
+        if (
+          !negated &&
+          ts.isCallExpression(receiver) &&
+          ts.isIdentifier(receiver.expression) &&
+          receiver.expression.text === 'expect'
+        ) {
+          const subject = receiver.arguments[0];
+          if (subject && ambiguousAbsence(subject, kind)) {
+            push(node, 'T8-ambiguous-absence', receiver);
           }
         }
       }

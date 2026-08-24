@@ -17,7 +17,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { assertPrepared } from '../../helpers/preconditions';
+import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
@@ -284,6 +284,12 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
   /**
    * Fabric.jsキャンバスのアクティブ（選択中）オブジェクトを取得するヘルパー関数
    * 選択中のオブジェクトがない場合は null を返す
+   *
+   * 注（Task 115.140）: 描画面（`window.__fabricCanvas`）が取得できない場合は null を返さず、
+   * その場で失敗させる。null を返すと「選択されていないこと」の主張が、描画面が不在でも
+   * 成立してしまい、何も主張しない検証になるためである。空値を返す経路が
+   * 「対象が不在」と「そもそも観測できなかった」の二つに分かれている限り、
+   * 不在の主張はそのどちらで成立したのかを区別できない。
    */
   async function getActiveObject(
     page: import('@playwright/test').Page
@@ -292,7 +298,10 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const canvas = (window as any).__fabricCanvas;
       if (!canvas) {
-        return null;
+        throw new Error(
+          'Fabric.js キャンバス（window.__fabricCanvas）が取得できない。' +
+            '選択状態を観測できないため、ここで失敗させる'
+        );
       }
       const active = canvas.getActiveObject();
       if (!active) {
@@ -392,16 +401,34 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
     // 初期オブジェクト（四角形）を描画
     const { center } = await drawInitialRectangle(page);
 
-    // 選択ツールに切り替え→オブジェクトの選択を解除
+    // 選択ツールに切り替え
     const selectTool = page.getByRole('button', { name: /選択/i });
     await selectTool.click();
+    await expect(selectTool).toHaveAttribute('aria-pressed', 'true');
+
+    // 前提: キャンバス中央には「選択されうる既存オブジェクト」が実在する（Task 115.140）。
+    // これを確かめずに後段の「選択されない」を主張すると、対象が不在でも主張が成立する。
+    await page.mouse.click(center.x, center.y);
+    await expect
+      .poll(() => getActiveObject(page), {
+        message:
+          '選択ツールならキャンバス中央のオブジェクトが選択される（後段の不在の主張の対象が実在すること）',
+        timeout: getTimeout(5000),
+      })
+      .not.toBeNull();
+
     // キャンバスの端をクリックして選択解除
     const upperCanvas = page.locator('.upper-canvas');
     const box = await upperCanvas.boundingBox();
-    if (box) {
-      await page.mouse.click(box.x + 5, box.y + 5);
-    }
-    await page.waitForTimeout(200);
+    assertPresent(box, '注釈キャンバス（.upper-canvas）の境界ボックス');
+    await page.mouse.click(box.x + 5, box.y + 5);
+    await expect
+      .poll(() => getActiveObject(page), {
+        message:
+          '端をクリックすれば選択が解除される（後段の不在の主張の起点を固定待機で仮定せずに確かめる）',
+        timeout: getTimeout(5000),
+      })
+      .toBeNull();
 
     // 円ツールに切り替え（描画ツール）
     const circleTool = page.getByRole('button', { name: /円/i });
@@ -438,6 +465,33 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
 
     // 初期オブジェクトを描画
     const { center } = await drawInitialRectangle(page);
+
+    // 前提: キャンバス中央には「選択されうる既存オブジェクト」が実在する（Task 115.140）。
+    // これを確かめずに後段の「選択されない」を主張すると、対象が不在でも主張が成立する。
+    const selectTool = page.getByRole('button', { name: /選択/i });
+    await selectTool.click();
+    await expect(selectTool).toHaveAttribute('aria-pressed', 'true');
+    await page.mouse.click(center.x, center.y);
+    await expect
+      .poll(() => getActiveObject(page), {
+        message:
+          '選択ツールならキャンバス中央のオブジェクトが選択される（後段の不在の主張の対象が実在すること）',
+        timeout: getTimeout(5000),
+      })
+      .not.toBeNull();
+
+    // 選択を解除してから描画ツールの検証に入る
+    const upperCanvas = page.locator('.upper-canvas');
+    const box = await upperCanvas.boundingBox();
+    assertPresent(box, '注釈キャンバス（.upper-canvas）の境界ボックス');
+    await page.mouse.click(box.x + 5, box.y + 5);
+    await expect
+      .poll(() => getActiveObject(page), {
+        message:
+          '端をクリックすれば選択が解除される（後段の不在の主張の起点を固定待機で仮定せずに確かめる）',
+        timeout: getTimeout(5000),
+      })
+      .toBeNull();
 
     // 複数の描画ツールで選択が無効化されていることを確認
     const drawingToolNames = [/矢印/i, /円/i, /四角形/i, /フリーハンド/i];
