@@ -49,8 +49,28 @@ import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
 const RUN_ID = Date.now();
 
-/** メニュー項目数（上へ移動・下へ移動・コピー・削除。REQ-36 の構成を維持する） */
-const MENU_ITEM_COUNT = 4;
+/**
+ * メニューに必ず存在する操作項目のラベル。
+ *
+ * 内訳は REQ-36.2 が規定する「上へ移動」「下へ移動」「削除」と、
+ * REQ-36.8 が「既存の操作項目（コピー・移動等）と統合して表示する」と定めた
+ * 「コピー」（REQ-6.1）「別グループに移動」（REQ-6.2, 6.4）である。
+ *
+ * 項目「数」を数える形を採らないのは、REQ-36.8 が項目の追加統合を明示的に許しており、
+ * 実装が正当に項目を増やすたびに検証側が陳腐化するためである（実際に
+ * 「別グループに移動」の追加で件数の前提が陳腐化して赤化した）。
+ * REQ-46.1 の関心は「メニュー内の全ての操作項目を視認可能な状態で表示する」ことであり、
+ * 個々の項目の実在を主張する形の方が要件に忠実で、かつどの項目が欠けたかが判別できる。
+ * 「全ての操作項目が切り取られていない」ことは、実際に描画された項目集合すべてに対して
+ * ヒットテストを行うことで主張する（expectMenuItemsFullyRendered）。
+ */
+const REQUIRED_MENU_ITEM_LABELS = [
+  '上へ移動',
+  '下へ移動',
+  'コピー',
+  '別グループに移動',
+  '削除',
+] as const;
 
 /** 幾何比較の許容誤差（px）。サブピクセル丸めを吸収する */
 const TOLERANCE = 1.5;
@@ -239,6 +259,11 @@ async function expectMenuPortaledToBody(page: Page, context: string): Promise<vo
 /**
  * メニューの全項目が実際に画面上へ描画され、切り取られても覆われてもいないことを検証する。
  *
+ * まず REQ-36 が規定する操作項目（REQUIRED_MENU_ITEM_LABELS）がそれぞれ実在することを
+ * 主張する。項目が欠けたまま「描画された項目はすべて見えている」とだけ言うと、
+ * 主張が空虚になりうるためである。そのうえで、実際に描画された項目集合すべてについて
+ * 切り取り・被覆がないことを確認する（REQ-46.1「全ての操作項目を視認可能な状態で表示する」）。
+ *
  * `getBoundingClientRect` は祖先の overflow による切り取りを反映しない（クリップされていても
  * 矩形を返す）ため、矩形だけでは不十分である。矩形上の各点で `document.elementFromPoint` を
  * 実行し、最前面要素がメニュー項目自身（またはその子孫）であることを確認する。
@@ -283,10 +308,17 @@ async function expectMenuItemsFullyRendered(page: Page, context: string): Promis
     });
   });
 
-  expect(
-    probes.length,
-    `${context}: メニュー項目は ${MENU_ITEM_COUNT} 件（上へ移動・下へ移動・コピー・削除）である必要がある`
-  ).toBe(MENU_ITEM_COUNT);
+  // REQ-36.2 / 36.8 / 46.10: メニューの操作項目構成が維持されていること。
+  // 件数ではなく個々の項目の実在を主張する（項目の追加統合は REQ-36.8 が許容するため）。
+  const renderedLabels = probes.map((probe) => probe.text);
+  for (const label of REQUIRED_MENU_ITEM_LABELS) {
+    expect(
+      renderedLabels.filter((text) => text.includes(label)).length,
+      `${context}: メニューに操作項目「${label}」が1件だけ存在する必要がある` +
+        `（REQ-36.2 / REQ-36.8、REQ-46.10 により本要件の表示修正で構成を変えない）。` +
+        `実際に描画された項目=${JSON.stringify(renderedLabels)}`
+    ).toBe(1);
+  }
 
   for (const probe of probes) {
     expect(
