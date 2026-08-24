@@ -527,16 +527,8 @@ test.describe('REQ-28: Excelデータパース', () => {
     const progressbar = page.locator('[role="progressbar"]');
     const errorAlert = page.locator('[role="alert"]');
     const eitherVisible = await Promise.race([
-      progressbar
-        .first()
-        .waitFor({ state: 'visible', timeout: getTimeout(10000) })
-        .then(() => true)
-        .catch(() => false),
-      errorAlert
-        .first()
-        .waitFor({ state: 'visible', timeout: getTimeout(10000) })
-        .then(() => true)
-        .catch(() => false),
+      isVisibleWithin(progressbar.first(), getTimeout(10000)),
+      isVisibleWithin(errorAlert.first(), getTimeout(10000)),
     ]);
 
     expect(eitherVisible, 'Excel処理開始の証跡（プログレスまたはエラー）が表示される').toBeTruthy();

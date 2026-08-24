@@ -69,7 +69,7 @@
 
 import { test, expect, type Locator } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { assertPrepared } from '../../helpers/preconditions';
 import {
   createTestProject,
@@ -707,10 +707,7 @@ test.describe('フィールド仕様', () => {
 
         // 確認ダイアログが表示されるのを待つ
         const dialog = page.getByRole('dialog');
-        const dialogVisible = await dialog
-          .waitFor({ state: 'visible', timeout: getTimeout(5000) })
-          .then(() => true)
-          .catch(() => false);
+        const dialogVisible = await isVisibleWithin(dialog, getTimeout(5000));
 
         if (dialogVisible) {
           // 確認ダイアログ内の削除確定ボタンをクリック

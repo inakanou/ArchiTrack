@@ -1,6 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import { TEST_USERS } from '../../helpers/test-users';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 
 /**
  * E2Eテスト: 認証状態初期化時のUIチラつき防止
@@ -28,18 +28,28 @@ async function isOnLoginPage(page: Page): Promise<boolean> {
   if (count === 0) return false;
 
   // フォームが存在する場合、実際に表示されているかチェック（タイムアウト緩和）
-  try {
-    await loginForm.first().waitFor({ state: 'visible', timeout: getTimeout(500) });
-    return true;
-  } catch {
-    // タイムアウトした場合、フォームは表示されていない
-    return false;
-  }
+  return isVisibleWithin(loginForm.first(), getTimeout(500));
 }
 
 /**
  * ヘルパー関数: 保護されたページの存在をチェック
  * 待機ロジックを追加してより安定したチェックを実現
+ *
+ * この関数だけは共有の補助 `isVisibleWithin` へ寄せられない。理由は以下のとおり:
+ * - 呼び出し元の一つが、本ファイルの検証
+ *   `should display login page without showing protected content for unauthenticated users`
+ *   に置かれた `page.on('framenavigated', async …)` という
+ *   **投げっぱなしのリスナ**であり、テスト本体の終了後に届いた遷移通知でも起動する
+ * - そのときこの待機は中断され、`TimeoutError` ではない拒否
+ *   （`locator.waitFor: Test ended.`）がリスナの外へ漏れる。
+ *   `isVisibleWithin` は `TimeoutError` 以外を再送出する契約のため、当該検証が落ちる
+ * - 現在の `catch {}` は待機切れではなく実質「テスト終了による中断」を飲んでおり、
+ *   握り潰しで覆っている状態である（テスト終了以外の失敗も同時に飲む点で不健全）
+ *
+ * 根治はリスナの寿命管理であり、後続タスク **115.160**
+ * （`.kiro/specs/site-survey/tasks.md`「投げっぱなしのリスナから呼ばれる待機が
+ * テスト終了で漏れる状態を解消する」）が担う。
+ * 115.160 の完了時にこの `try/catch` を `isVisibleWithin` へ寄せ、本コメントを撤去すること。
  */
 async function isOnProtectedPage(page: Page): Promise<boolean> {
   // ダッシュボードまたは保護されたコンテンツの存在を確認
@@ -51,6 +61,7 @@ async function isOnProtectedPage(page: Page): Promise<boolean> {
     await protectedContent.first().waitFor({ state: 'visible', timeout: getTimeout(500) });
     return true;
   } catch {
+    // 115.160 まで据え置き: ここは待機切れに加えテスト終了の中断も飲んでいる
     return false;
   }
 }
