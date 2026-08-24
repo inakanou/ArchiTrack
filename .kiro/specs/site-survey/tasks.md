@@ -4166,7 +4166,7 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - _Depends: 115.126_
   - _Boundary: 数量表の欄指定E2Eの被覆表記と検証名_
 
-- [ ] 115.132 (P) 存在しない目印に依存して常に素通りするE2Eを是正する
+- [x] 115.132 (P) 存在しない目印に依存して常に素通りするE2Eを是正する
   - 115.127 段0 のレビューで判明した。`e2e/specs/quantity-tables/quantity-table-phase9.spec.ts`（七箇所）と `e2e/specs/quantity-tables/group-rename-e2e.spec.ts`（一箇所）が `[data-testid="project-card"]` を参照するが、実装の目印は `project-card-{id}` であり**一度も一致しない**
   - phase9 は一致しない観測を `if` の条件に用いるため、全ての検証が判定を一つも実行しないまま緑になる。115.127 段0 で是正した三ファイルと**同一の機序**である
   - 前提は `e2e/helpers/quantity-table-preconditions.ts` の補助で自ら作る形へ改めること。複製した遷移補助を各ファイルで個別に直すと再発する
@@ -4649,3 +4649,9 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
 - **記録の「未実装」は現在形のまま陳腐化する（115.131 のレビューが確定させた）**: 115.31 / 115.33 の本文と Implementation Notes（本ファイル 3244 行付近・4420 行付近）は「幅の検証を持つ部品は本番の描画経路から一度も参照されていない」と現在形で書かれているが、**115.33 は `[x]` であり幅の防止は既に結線済み**である。レビューが `QuantityGroupCard.tsx:1081` → `EditableQuantityItemRow.tsx:543 / :646` → `AutocompleteInput.tsx:234, 311-316, 344-346` の連鎖を実読し、`maxWidth` prop がファイル全体に一箇所も無いため `field-validation.ts` の `FIELD_CONSTRAINTS`（工種 16 / 単位 6）が効くことを確認した。**一方 `FieldValidatedItemRow.tsx` の死コード性（115.130）は今も正しい。** 是正が済んだ記述は完了と同時に時制を改めること。
 - **`fill()` は変換イベントを発火しない（115.131 のレビューが Playwright で実測）**: `fill()` も `keyboard.insertText` も `beforeinput` / `input` を `isComposing=false` で出すだけで composition 系イベントを一切出さない。したがって IME 変換確定の経路は E2E では通らず、`QuantityItemFieldMaxWidth.test.tsx` が単体で担う。厳密には CDP `Input.imeSetComposition` で起こす余地はあるため、**「E2E では不可能」と断定せず「担当層はここ」と書くこと。**
 - **RED の性質を取り違えないこと（115.131）**: 実装が提示した「反対仮説（超過入力がそのまま保持される）を置いたら失敗した」出力は、**production が拒否していることの実証**であって**新設判定が壊れたら落ちることの実証ではない**。後者はレビューが `AutocompleteInput.acceptsWidth` を常時 true へ変異させ、本番ビルドを `--force-recreate` で作り直して三件とも落ちることを実測して確かめた。**E2E のフロントは本番ビルドなので、production を変異させる検証には再ビルドが要る。**
+
+- **起票文は先行タスクの成果で陳腐化する（115.132）**: 起票が名指しした「phase9 の七箇所」は 115.127（コミット `a6da29d`）で既に解消されており、残っていたのは group-rename のコード 1 件と docblock の 2 件だけだった。実装は phase9 を**無変更のまま「既に是正済み」と報告**し、レビューが `git log` で裏を取った。**着手時に起票文の前提を実測で確かめること。作業をでっち上げないこと。**
+- **到達不能な複製は「常に緑」ではなく「再拡散の温床」（115.132）**: group-rename の壊れた目印は `mode: 'serial'` により前提が必ず ID を設定するため一度も通らない死んだ経路で、是正前も全件 passed だった。したがって RED は原理的に取れない。**害は素通りではなく、壊れた遷移補助が各ファイルへ複製されて広がることにある。目印だけを直すと複製が温存される。**
+- **判定を弱める方向の変異は必ず生き残る（115.132 のレビューが自ら踏んだ）**: 上限の主張を `toBeLessThanOrEqual(50)` から `(10)` へ変える変異は設計上必ず survive する。**変異は要件が失敗する方向（上限超過が通る方向）へ加えること。**
+- **削除の是非は `expect` を全件追跡して判断する（115.132）**: 144 行の削除に対し、レビューが削除された `expect` 七件の移管先を一件ずつ `quantity-table-preconditions.ts` の行番号まで特定した。グループ追加の判定は `toBeVisible()` から `toHaveCount(before + 1)` へ**強化**されていた。撤去された後処理は `expect` を一件も持たなかった。**テストの削除は「不正直の解消」を装った主張の消失でありうる。**
+- **【要処置・115.132 のレビューが検出】** `e2e/specs/quantity-tables/group-rename-e2e.spec.ts:13-15` の docblock が「このUIフローは他の数量表E2E（`quantity-table-phase10.spec.ts` / `photo-comment-display.spec.ts`）にも複製されており」と**現在形**で書くが、当該二ファイルは 115.127 で是正済みで既にこのフローを持たない。今も複製を保持するのは `import-e2e` / `photo-comment-e2e` / `photo-preview-e2e` / `group-sort-e2e` / `scrollbar-e2e` / `photo-change-dialog-e2e`（いずれも目印は正しい前方一致で結果を `expect(navigated).toBeTruthy()` で主張するため偽の緑ではない）。**過去形へ改めるか、残存箇所を別タスクとして起票すること。**

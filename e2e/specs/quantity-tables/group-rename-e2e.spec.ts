@@ -1,6 +1,21 @@
 /**
  * @fileoverview 数量グループ名前変更 E2Eテスト (REQ-22)
  *
+ * ## 前提の用意（Task 115.132）
+ *
+ * 以前の遷移補助は、事前準備で得たIDが使えない場合に「プロジェクト一覧の先頭カード →
+ * 詳細 → 数量表一覧 → 先頭の数量表カード」を辿るUIフローを持っていた。
+ * この経路が参照していたプロジェクトカードの目印は、テスト側が識別子を持たない固定値を
+ * 指す一方で実装はカードごとに識別子を付した値を出しており、**一度も一致しない**。
+ * 一致しない観測は失敗ではなく沈黙として現れるため、辿り着けないことを偽で返し、
+ * 呼び出し側がその偽を見て検証を諦める形は AI運用7原則 第3原則に抵触する。
+ *
+ * さらにこのUIフローは他の数量表E2E（`quantity-table-phase10.spec.ts` /
+ * `photo-comment-display.spec.ts`）にも複製されており、目印だけを直す是正は
+ * 複製の温存になる。本ファイルは前提（プロジェクト・数量表・数量グループ1件）を
+ * 共通の補助 `e2e/helpers/quantity-table-preconditions.ts` で**自ら作り**、
+ * 作れなければその場で失敗する。探す経路は持たない。
+ *
  * Requirements coverage:
  * - @requirement quantity-table-generation/REQ-22.1: グループ名クリックで編集モード
  * - @requirement quantity-table-generation/REQ-22.2: 編集確定で即座に反映
@@ -13,53 +28,17 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
+import { getTimeout } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
-import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import {
+  addQuantityGroup,
+  createTestProject,
+  createTestQuantityTable,
+  openQuantityTableEdit,
+} from '../../helpers/quantity-table-preconditions';
 
-let testProjectId: string | null = null;
-let createdQuantityTableId: string | null = null;
-
-/**
- * 数量表編集画面へ遷移する。
- *
- * 事前準備で作成した tableId が利用できる場合は直接遷移し、
- * それ以外は /projects → 詳細 → 一覧 → カード のUIフローでナビゲートする。
- */
-async function navigateToQuantityTableEdit(page: Page): Promise<boolean> {
-  if (createdQuantityTableId) {
-    await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-    await page.waitForLoadState('networkidle');
-    const editArea = page.locator('[data-testid="quantity-table-edit-area"]');
-    return await isVisibleWithin(editArea, getTimeout(10000));
-  }
-
-  await page.goto('/projects');
-  await page.waitForLoadState('networkidle');
-
-  const projectCard = page.locator('[data-testid="project-card"]').first();
-  if (!(await isVisibleWithin(projectCard, getTimeout(5000)))) {
-    return false;
-  }
-  await projectCard.click();
-  await page.waitForLoadState('networkidle');
-
-  const quantityTableLink = page.getByText('すべて見る').first();
-  if (!(await isVisibleWithin(quantityTableLink, getTimeout(5000)))) {
-    return false;
-  }
-  await quantityTableLink.click();
-  await page.waitForLoadState('networkidle');
-
-  const tableCard = page.locator('[data-testid="quantity-table-card"]').first();
-  if (!(await isVisibleWithin(tableCard, getTimeout(5000)))) {
-    return false;
-  }
-  await tableCard.click();
-  await page.waitForLoadState('networkidle');
-
-  return true;
-}
+/** 事前準備で作成した数量表のID（数量グループ1件を持つ） */
+let preparedQuantityTableId: string | null = null;
 
 /**
  * 最初の数量グループカードを返す。
@@ -85,86 +64,22 @@ test.describe('REQ-22: 数量グループの名前変更', () => {
   });
 
   /**
-   * 事前準備: テスト用プロジェクト・数量表・グループを作成
+   * 事前準備: テスト用プロジェクト・数量表・グループを作成する。
    *
    * REQ-22 のテストはグループの存在を前提とするため、独立して実行できるよう
-   * 事前にプロジェクト・数量表・グループ1件を作成する。
+   * 事前にプロジェクト・数量表・グループ1件を作成する。生成の各段は補助の内側で
+   * 主張されており、いずれかが崩れればこの事前準備が失敗する。
    */
   test.describe('事前準備', () => {
-    test('テスト用プロジェクトを作成する', async ({ page }) => {
-      await page.goto('/projects');
-      await page.waitForLoadState('networkidle');
-
-      await page.getByRole('button', { name: /新規作成/i }).click();
-      await expect(page).toHaveURL(/\/projects\/new/, { timeout: getTimeout(10000) });
-
-      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
-        timeout: getTimeout(15000),
-      });
-
-      const projectName = `REQ22_PJ_${Date.now()}`;
-      await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
-
-      const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
-      await selectFirstRealOption(salesPersonSelect, '営業担当者');
-
-      const createProjectPromise = page.waitForResponse(
-        (response) =>
-          response.url().includes('/api/projects') &&
-          response.request().method() === 'POST' &&
-          response.status() === 201,
-        { timeout: getTimeout(30000) }
-      );
-
-      await page.getByRole('button', { name: /^作成$/i }).click();
-      await createProjectPromise;
-
-      await page.waitForURL(/\/projects\/[0-9a-f-]+$/);
-      const projectMatch = page.url().match(/\/projects\/([0-9a-f-]+)$/);
-      testProjectId = projectMatch?.[1] ?? null;
-      expect(testProjectId).toBeTruthy();
-    });
-
-    test('テスト用数量表とグループを作成する', async ({ page }) => {
-      if (!testProjectId) {
-        throw new Error(
-          'testProjectIdが未設定です。プロジェクト作成テストが正しく実行されていません。'
-        );
-      }
-
-      await page.goto(`/projects/${testProjectId}/quantity-tables`);
-      await page.waitForLoadState('networkidle');
-
-      const createButton = page.getByRole('link', { name: /新規作成/i });
-      await expect(createButton).toBeVisible({ timeout: getTimeout(10000) });
-      await createButton.click();
-
-      const nameInput = page.getByRole('textbox', { name: /数量表名/i });
-      await expect(nameInput).toBeVisible({ timeout: getTimeout(5000) });
-      await nameInput.clear();
-      await nameInput.fill(`REQ22_数量表_${Date.now()}`);
-
-      const createConfirmButton = page.getByRole('button', { name: /^作成$/i });
-      await createConfirmButton.click();
-
-      await page.waitForURL(/\/quantity-tables\/[0-9a-f-]+\/edit$/, {
-        timeout: getTimeout(15000),
-      });
-      const tableMatch = page.url().match(/\/quantity-tables\/([0-9a-f-]+)\/edit$/);
-      createdQuantityTableId = tableMatch?.[1] ?? null;
-      expect(createdQuantityTableId).toBeTruthy();
+    test('数量グループを1件持つ数量表を作成する', async ({ page }) => {
+      const projectId = await createTestProject(page, 'REQ22_PJ');
+      const quantityTable = await createTestQuantityTable(page, projectId, 'REQ22_数量表');
+      preparedQuantityTableId = quantityTable.id;
 
       // グループを1つ追加（REQ-22 のテストはグループの存在を前提）。
       // REQ-42 移行: グループ追加はクライアントドラフトのみを更新するため、
-      // 永続化 API（POST /groups）は発火しない。カードの出現のみを待機する。
-      const addGroupButton = page
-        .getByRole('button', { name: /グループ追加|グループを追加/i })
-        .first();
-      await expect(addGroupButton).toBeVisible({ timeout: getTimeout(10000) });
-      await addGroupButton.click();
-
-      const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
-      await expect(groupCard).toBeVisible({ timeout: getTimeout(10000) });
+      // 永続化 API（POST /groups）は発火しない。カードの出現は補助が主張する。
+      await addQuantityGroup(page);
 
       // REQ-42.5: 後続テストが別ナビゲーションでグループを参照できるよう明示保存して永続化する。
       await saveQuantityTableDraft(page);
@@ -175,8 +90,7 @@ test.describe('REQ-22: 数量グループの名前変更', () => {
    * @requirement quantity-table-generation/REQ-22.1: グループ名クリックで編集モード
    */
   test('グループ名クリックで編集用inputが表示される (REQ-22.1)', async ({ page }) => {
-    const navigated = await navigateToQuantityTableEdit(page);
-    expect(navigated).toBeTruthy();
+    await openQuantityTableEdit(page, preparedQuantityTableId);
 
     const groupCard = await requireFirstGroupCard(page);
 
@@ -194,13 +108,11 @@ test.describe('REQ-22: 数量グループの名前変更', () => {
    * @requirement quantity-table-generation/REQ-22.2: 編集確定で即座に反映
    */
   test('編集後Enterで新しい名前が即座に反映される (REQ-22.2)', async ({ page }) => {
-    const navigated = await navigateToQuantityTableEdit(page);
-    expect(navigated).toBeTruthy();
+    await openQuantityTableEdit(page, preparedQuantityTableId);
 
     const groupCard = await requireFirstGroupCard(page);
 
     const groupName = groupCard.locator('h3').first();
-    const originalName = (await groupName.textContent()) ?? '';
 
     await groupName.click();
     const editInput = groupCard.getByLabel('グループ名を編集');
@@ -217,23 +129,15 @@ test.describe('REQ-22: 数量グループの名前変更', () => {
       timeout: getTimeout(8000),
     });
 
-    // 元の名前に戻す
-    if (originalName && originalName !== newName) {
-      await updatedHeading.click();
-      const restoreInput = groupCard.getByLabel('グループ名を編集');
-      if (await isVisibleWithin(restoreInput, getTimeout(3000))) {
-        await restoreInput.fill(originalName);
-        await restoreInput.press('Enter');
-      }
-    }
+    // 名前の変更はクライアントドラフトのみを更新し、本テストは保存しない（REQ-22.2 注記 / REQ-42）。
+    // 後続テストは編集画面を開き直すため、永続化された元の名前から始まる。元へ戻す操作は不要である。
   });
 
   /**
    * @requirement quantity-table-generation/REQ-22.3: 空白名でエラー表示
    */
   test('空白のグループ名で確定時にエラーメッセージが表示される (REQ-22.3)', async ({ page }) => {
-    const navigated = await navigateToQuantityTableEdit(page);
-    expect(navigated).toBeTruthy();
+    await openQuantityTableEdit(page, preparedQuantityTableId);
 
     const groupCard = await requireFirstGroupCard(page);
 
@@ -258,8 +162,7 @@ test.describe('REQ-22: 数量グループの名前変更', () => {
    * @requirement quantity-table-generation/REQ-22.4: 最大文字数（全角25/半角50）
    */
   test('最大50半角文字までは入力できる (REQ-22.4)', async ({ page }) => {
-    const navigated = await navigateToQuantityTableEdit(page);
-    expect(navigated).toBeTruthy();
+    await openQuantityTableEdit(page, preparedQuantityTableId);
 
     const groupCard = await requireFirstGroupCard(page);
 
@@ -282,8 +185,7 @@ test.describe('REQ-22: 数量グループの名前変更', () => {
    * @requirement quantity-table-generation/REQ-22.5: 最大文字数超過の入力防止
    */
   test('最大文字数を超える入力は防止される (REQ-22.5)', async ({ page }) => {
-    const navigated = await navigateToQuantityTableEdit(page);
-    expect(navigated).toBeTruthy();
+    await openQuantityTableEdit(page, preparedQuantityTableId);
 
     const groupCard = await requireFirstGroupCard(page);
 
