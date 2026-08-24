@@ -9,58 +9,41 @@
  * - @requirement quantity-table-generation/REQ-25.5: 横スクロール操作可能
  * - @requirement quantity-table-generation/REQ-25.6: 縦スクロール操作可能
  *
+ * REQ-25.3 は垂直方向のみを主張する。水平方向を主張しないのは、承認済みの仕様が
+ * 数量項目の表の常時溢れを受け入れており、**前件が成立しないため主張対象が存在しない**
+ * からである（未検証の放置ではない）。根拠は次の三点。
+ * - REQ-37 配置概要（`.kiro/specs/quantity-table-generation/requirements.md:586`）:
+ *   「表全体は画面右側にはみ出すことを許容し、ユーザーは表領域の水平スクロールバー
+ *   （Requirement 25）で右へスクロールして閲覧する」
+ * - REQ-37 AC6（同 `:594`）: 計算用フィールド群がはみ出す場合に表領域の水平スクロールバーを
+ *   「Requirement 25 と整合」して表示する
+ * - `.kiro/specs/quantity-table-generation/design.md:2212`: 数量項目テーブルはグリッド列幅
+ *   合計が「常にビューポートを超える」ため水平スクロールが発生する
+ * 実測もこれと整合する。数量グループ1件・数量項目1行の編集画面を幅 2560 / 1920 / 1440 /
+ * 1280px で開くと、表示領域（`item-table-scroll-*`）はいずれも `scrollWidth` 1194px /
+ * `clientWidth` 1182px（超過 12px）であり、表が収まりきる幅は存在しない。
+ *
  * @module e2e/specs/quantity-tables/scrollbar-e2e.spec
  */
 
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
+import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { openEditPageWithSingleItemRow } from '../../helpers/quantity-table-preconditions';
 
+/**
+ * REQ-25.1 の比較で用いるビューポート幅。
+ *
+ * 広い側（1280px）は数量表編集画面の内容幅の上限と同じで、表示領域の可視幅が
+ * 内容幅にもっとも近づく。狭い側（600px）は列幅の合計（1168px）を大きく下回り、
+ * REQ-25.1 の前件が決定的に成立する。
+ */
+const WIDE_VIEWPORT_WIDTH = 1280;
+const NARROW_VIEWPORT_WIDTH = 600;
+
 let testProjectId: string | null = null;
 let createdQuantityTableId: string | null = null;
-
-/**
- * 数量表編集画面へ遷移する。
- *
- * 事前準備で作成した tableId が利用できる場合は直接遷移し、
- * それ以外は /projects → 詳細 → 一覧 → カード のUIフローでナビゲートする。
- */
-async function navigateToQuantityTableEdit(page: Page): Promise<boolean> {
-  if (createdQuantityTableId) {
-    await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-    await page.waitForLoadState('networkidle');
-    const editArea = page.locator('[data-testid="quantity-table-edit-area"]');
-    return await isVisibleWithin(editArea, getTimeout(10000));
-  }
-
-  await page.goto('/projects');
-  await page.waitForLoadState('networkidle');
-
-  const projectCard = page.locator('[data-testid^="project-card-"]').first();
-  if (!(await isVisibleWithin(projectCard, getTimeout(5000)))) {
-    return false;
-  }
-  await projectCard.click();
-  await page.waitForLoadState('networkidle');
-
-  const quantityTableLink = page.getByText('すべて見る').first();
-  if (!(await isVisibleWithin(quantityTableLink, getTimeout(5000)))) {
-    return false;
-  }
-  await quantityTableLink.click();
-  await page.waitForLoadState('networkidle');
-
-  const tableCard = page.locator('[data-testid="quantity-table-card"]').first();
-  if (!(await isVisibleWithin(tableCard, getTimeout(5000)))) {
-    return false;
-  }
-  await tableCard.click();
-  await page.waitForLoadState('networkidle');
-
-  return true;
-}
 
 test.describe('REQ-25: 画面スクロールバー表示', () => {
   test.describe.configure({ mode: 'serial' });
@@ -74,8 +57,11 @@ test.describe('REQ-25: 画面スクロールバー表示', () => {
    *
    * REQ-25 のスクロールバー検証はビューポートと数量表編集画面の表示領域の
    * 関係を検証するため、独立して実行できるようにプロジェクト・数量表 1件を作成する。
-   * 数量項目グループの有無に関わらずスクロールバー挙動はブラウザの仕様で成立するため、
-   * 空の数量表のみを用意する。
+   *
+   * ここで用意するのは空の数量表までである。REQ-25 の主語は「数量項目の表示領域」で
+   * あり、数量グループも数量項目も無い画面には表示領域そのものが存在しない。
+   * 表示領域を要する各検証は `openEditPageWithSingleItemRow` で数量グループ1件・
+   * 数量項目1行をその場で作り、前提が用意できなければ補助の内側で失敗する。
    */
   test.describe('事前準備', () => {
     test('テスト用プロジェクトを作成する', async ({ page }) => {
@@ -146,100 +132,195 @@ test.describe('REQ-25: 画面スクロールバー表示', () => {
   /**
    * @requirement quantity-table-generation/REQ-25.1: 横幅超過時の水平スクロールバー
    *
-   * 数量項目の表示領域がビューポートの横幅を超えた場合、ブラウザによって水平スクロールが
-   * 可能になる（document.documentElementのscrollWidth > clientWidth）。
+   * 従来の判定は空の数量表を開き、文書の `scrollWidth >= clientWidth` を主張していた。
+   * `scrollWidth` は定義上 `clientWidth` を下回らないため、この不等式はどのような画面でも
+   * 成立する**恒真**であり（コメント自身が「仮にデータが少なくても成立」と書いていた）、
+   * REQ-25.1 を一度も検証していなかった。
+   *
+   * 水平スクロールは REQ-41 で数量項目の表示領域（`itemTableWrapper` =
+   * `item-table-scroll-*`、`overflowX: auto`）に限定されており、判定先はこの要素である。
+   *
+   * ただし判定先を改めるだけでは足りない。**「超過量が 0 を上回る」ことは REQ-25.1 の前件
+   * （表示領域がビューポートの横幅を超える場合）に依存しない。** 実測では幅 2560 / 1920 /
+   * 1440 / 1280px のいずれでも表示領域は `scrollWidth` 1194px / `clientWidth` 1182px であり、
+   * 12px の超過が常に残る。溢れているかどうかだけを見ても、ビューポートを狭めた効果は
+   * 何も示せない。
+   *
+   * そこで広いビューポート（1280px）と狭いビューポート（600px）の両方で超過量を実測し、
+   * 狭めた側が有意に大きいことを主張する。表示領域の可視幅はビューポート幅に追従するため、
+   * 680px 狭めれば隠れる量もほぼ同じだけ増える（実測 12px → 660px、増分 648px）。
+   * 内側余白がビューポート幅に応じて変わる分を吸収するため、下限は縮小幅の半分に置く。
+   *
+   * `scrollLeft` を動かせることで「水平スクロールバーが表示されている」を捉える案は採らな
+   * かった。12px の超過が常に残る以上、広いビューポートでも `scrollLeft` は動いてしまい、
+   * やはり前件に依存しないためである（横スクロール操作そのものは REQ-25.5 が主張する）。
    */
-  test('小さいビューポート時に水平スクロールが可能になる (REQ-25.1)', async ({ page }) => {
-    const navigated = await navigateToQuantityTableEdit(page);
-    expect(navigated).toBeTruthy();
+  test('ビューポートを狭めると表示領域の横方向の超過量が増える (REQ-25.1)', async ({ page }) => {
+    await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
-    // ビューポートを狭く設定
-    await page.setViewportSize({ width: 600, height: 800 });
-    await page.waitForLoadState('networkidle');
+    const itemTableScroll = page.locator('[data-testid^="item-table-scroll-"]').first();
+    await expect(itemTableScroll, '前提: 数量項目の表示領域が表示される').toBeVisible({
+      timeout: getTimeout(15000),
+    });
 
-    // ドキュメントの横スクロール可能性を検証
-    const scrollInfo = await page.evaluate(() => ({
-      scrollWidth: document.documentElement.scrollWidth,
-      clientWidth: document.documentElement.clientWidth,
-    }));
+    const visibleWidth = () => itemTableScroll.evaluate((el) => el.clientWidth);
+    const contentWidth = () => itemTableScroll.evaluate((el) => el.scrollWidth);
+    const horizontalOverflow = () =>
+      itemTableScroll.evaluate((el) => el.scrollWidth - el.clientWidth);
 
-    // 数量項目テーブルは多数の列を持つため、600px幅では超える可能性が高い
-    // 仮にデータが少なくても scrollWidth >= clientWidth は成立
-    expect(scrollInfo.scrollWidth, '横スクロール可能な状態にある').toBeGreaterThanOrEqual(
-      scrollInfo.clientWidth
-    );
+    // 広い側。ここでは要件を主張せず、比較の基準となる超過量を読むだけである。
+    await page.setViewportSize({ width: WIDE_VIEWPORT_WIDTH, height: 800 });
+    await expect
+      .poll(visibleWidth, {
+        message: '前提: 広いビューポートの寸法が表示領域の可視幅へ反映される',
+        timeout: getTimeout(10000),
+      })
+      .toBeGreaterThan(NARROW_VIEWPORT_WIDTH);
+    const overflowAtWide = await horizontalOverflow();
+
+    // 狭い側。REQ-25.1 の前件が成立する状態である。
+    await page.setViewportSize({ width: NARROW_VIEWPORT_WIDTH, height: 800 });
+    await expect
+      .poll(visibleWidth, {
+        message: '前提: 狭いビューポートの寸法が表示領域の可視幅へ反映される',
+        timeout: getTimeout(10000),
+      })
+      .toBeLessThanOrEqual(NARROW_VIEWPORT_WIDTH);
+
+    // 前件: 表示領域の内容幅がビューポートの横幅を超える。内容幅は列幅の合計で決まり
+    // ビューポート幅に依らない（実測 1194px）ため、この主張は狭い側でのみ成立する。
+    expect(
+      await contentWidth(),
+      'REQ-25.1 の前件: 表示領域の内容幅がビューポートの横幅を超える'
+    ).toBeGreaterThan(NARROW_VIEWPORT_WIDTH);
+
+    const overflowAtNarrow = await horizontalOverflow();
+    expect(
+      overflowAtNarrow - overflowAtWide,
+      'REQ-25.1: ビューポートの横幅を超えた分だけ表示領域の水平スクロール量が増えない'
+    ).toBeGreaterThanOrEqual((WIDE_VIEWPORT_WIDTH - NARROW_VIEWPORT_WIDTH) / 2);
   });
 
   /**
    * @requirement quantity-table-generation/REQ-25.2: 縦幅超過時の垂直スクロールバー
+   *
+   * 従来の判定は空の数量表を開いて
+   * `expect(scrollHeight).toBeGreaterThanOrEqual(clientHeight)` を主張していたが、
+   * `scrollHeight` は定義上 `clientHeight` を下回らないため、この不等式は
+   * どのような画面でも成立する**恒真**であり、REQ-25.2 を一度も検証していなかった。
+   *
+   * 垂直方向は数量項目の表示領域（`item-table-scroll-*`）が `overflowY: hidden` で
+   * ページ側へ委ねる実装であり（`QuantityGroupCard` の `itemTableWrapper`）、
+   * スクロールの主体は文書（`document.documentElement` / `window`）である。
+   * 判定先を文書に取り、数量グループ1件・数量項目1行を用意したうえで高さ 400px の
+   * ビューポートを与え、超過量が 0 を上回ることを主張する。
    */
-  test('縦に長いコンテンツで垂直スクロールが可能になる (REQ-25.2)', async ({ page }) => {
-    const navigated = await navigateToQuantityTableEdit(page);
-    expect(navigated).toBeTruthy();
+  test('数量項目の表示領域が縦幅を超えると垂直スクロールバーが表示される (REQ-25.2)', async ({
+    page,
+  }) => {
+    await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
-    // ビューポートを縦に小さく設定
     await page.setViewportSize({ width: 1280, height: 400 });
-    await page.waitForLoadState('networkidle');
 
-    const scrollInfo = await page.evaluate(() => ({
-      scrollHeight: document.documentElement.scrollHeight,
-      clientHeight: document.documentElement.clientHeight,
-    }));
-
-    // 編集画面のヘッダー＋コンテンツは400pxより通常は大きい
-    expect(scrollInfo.scrollHeight, '垂直スクロール可能な状態にある').toBeGreaterThanOrEqual(
-      scrollInfo.clientHeight
-    );
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () => document.documentElement.scrollHeight - document.documentElement.clientHeight
+          ),
+        {
+          message: 'REQ-25.2: 表示領域がビューポート縦幅を超えても垂直スクロールが生じない',
+          timeout: getTimeout(10000),
+        }
+      )
+      .toBeGreaterThan(0);
   });
 
   /**
    * @requirement quantity-table-generation/REQ-25.3: ビューポート内収納時はスクロールバーが非表示
    *
-   * 大きなビューポートで全体が収まる場合、横スクロールが発生しない（scrollWidth ≦ clientWidth）。
+   * 従来の判定は空の数量表を 2560x1440 で開き、文書の横方向の超過量が 50px 以下で
+   * あることを主張していた。数量項目の表示領域を持たない画面を見ており、また 50px の
+   * 許容は「収まっている」と「わずかに溢れている」を区別しない。
+   *
+   * REQ-25.2 と対になる状態（収まっている side）を、同じ判定先（文書の垂直方向）で
+   * 主張する。数量グループ1件・数量項目1行を持つ編集画面の内容高さは実測 642px で
+   * あるため、高さ 900px のビューポートでは超過量が 0 になる（＝垂直スクロールバーが
+   * 表示されない）。REQ-25.2 の判定は同じ内容を高さ 400px で 0 超と主張しており、
+   * 両者は同じ画面の同じ量に対する相反する主張であるため、どちらかを恒真にできない。
+   *
+   * 水平方向は主張しない。承認済みの仕様（REQ-37 配置概要・REQ-37 AC6・design.md:2212）が
+   * 数量項目の表の常時溢れを受け入れており、「表示領域がビューポート内に収まっている」
+   * という前件が成立しないためである。詳細と実測はファイル冒頭の注記を参照。
    */
-  test('十分大きいビューポートでは水平スクロールが発生しない (REQ-25.3)', async ({ page }) => {
-    const navigated = await navigateToQuantityTableEdit(page);
-    expect(navigated).toBeTruthy();
+  test('表示領域がビューポート内に収まる場合は垂直スクロールバーが表示されない (REQ-25.3)', async ({
+    page,
+  }) => {
+    await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
-    // 十分に大きいビューポート
-    await page.setViewportSize({ width: 2560, height: 1440 });
-    await page.waitForLoadState('networkidle');
+    await page.setViewportSize({ width: 1280, height: 900 });
 
-    const scrollInfo = await page.evaluate(() => ({
-      scrollWidth: document.documentElement.scrollWidth,
-      clientWidth: document.documentElement.clientWidth,
-    }));
-
-    // 大きなビューポートでは横スクロールが発生しないか、誤差程度
-    // scrollWidth が clientWidth を大きく超えないことを許容範囲で検証
-    const horizontalOverflow = scrollInfo.scrollWidth - scrollInfo.clientWidth;
-    expect(
-      horizontalOverflow,
-      '十分なビューポート幅では横スクロールが顕著に発生しない'
-    ).toBeLessThanOrEqual(50);
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () => document.documentElement.scrollHeight - document.documentElement.clientHeight
+          ),
+        {
+          message: 'REQ-25.3: 表示領域が収まっているのに垂直スクロールバーが表示される',
+          timeout: getTimeout(10000),
+        }
+      )
+      .toBe(0);
   });
 
   /**
    * @requirement quantity-table-generation/REQ-25.4: ウィンドウリサイズ時の動的更新
    *
-   * ビューポートサイズを動的に変更すると、scrollWidth/clientWidth の関係が動的に変化する。
+   * 従来の判定はリサイズ前後の `clientWidth` を比較して「縮小後は小さくなる」ことを
+   * 主張していた。これはビューポートが縮んだことの確認であり、
+   * **スクロールバーの表示・非表示が更新されること**は一度も検証していなかった。
+   *
+   * 垂直スクロールの主体はページ（文書）である（数量項目の表示領域は `overflowY: hidden`
+   * でページ側へ委ねる。`QuantityGroupCard` の `itemTableWrapper`）。文書の縦方向の
+   * 超過量が、高いビューポートでは 0（非表示）、低いビューポートでは 0 超（表示）、
+   * 高さを戻せば再び 0（非表示）へ切り替わることを主張する。
+   * 初期状態を「非表示（0）」に置くため、次の「表示（0 超）」の主張が初期値のまま
+   * 成立して素通りすることはない。
    */
-  test('ビューポートリサイズに応じてスクロール状態が動的に更新される (REQ-25.4)', async ({
+  test('ウィンドウサイズの変更でスクロールバーの表示・非表示が動的に更新される (REQ-25.4)', async ({
     page,
   }) => {
-    const navigated = await navigateToQuantityTableEdit(page);
-    expect(navigated).toBeTruthy();
+    await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
-    // 大きなビューポート → 小さなビューポートにリサイズ
-    await page.setViewportSize({ width: 2000, height: 1200 });
-    await page.waitForLoadState('networkidle');
-    const beforeWide = await page.evaluate(() => document.documentElement.clientWidth);
+    const verticalOverflow = () =>
+      page.evaluate(
+        () => document.documentElement.scrollHeight - document.documentElement.clientHeight
+      );
 
-    await page.setViewportSize({ width: 600, height: 800 });
-    await page.waitForLoadState('networkidle');
-    const afterNarrow = await page.evaluate(() => document.documentElement.clientWidth);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await expect
+      .poll(verticalOverflow, {
+        message: 'REQ-25.4: 高いビューポートで垂直スクロールバーが非表示にならない',
+        timeout: getTimeout(10000),
+      })
+      .toBe(0);
 
-    expect(afterNarrow, 'ビューポート縮小後はclientWidthが小さくなる').toBeLessThan(beforeWide);
+    await page.setViewportSize({ width: 1280, height: 400 });
+    await expect
+      .poll(verticalOverflow, {
+        message: 'REQ-25.4: ウィンドウを低くしても垂直スクロールバーが表示されない',
+        timeout: getTimeout(10000),
+      })
+      .toBeGreaterThan(0);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await expect
+      .poll(verticalOverflow, {
+        message: 'REQ-25.4: ウィンドウを高く戻しても垂直スクロールバーが非表示に戻らない',
+        timeout: getTimeout(10000),
+      })
+      .toBe(0);
   });
 
   /**

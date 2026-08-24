@@ -22,7 +22,7 @@
  * @module e2e/specs/quantity-tables/group-sort-e2e.spec
  */
 
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
@@ -92,6 +92,46 @@ async function navigateToQuantityTableEdit(page: Page): Promise<boolean> {
   await page.waitForLoadState('networkidle');
 
   return true;
+}
+
+/**
+ * 画面に並んでいる数量グループの表示名を、上から順に配列で返す。
+ *
+ * 並び替えの検証は「操作の前後で順序が入れ替わったこと」を主張する必要があり、
+ * 個々のカードを別々に読むと比較の対象が揃わない。件数を引数で確定させ、
+ * 期待する件数ぶんを必ず読むことで、要素が減った場合に短い配列が一致して
+ * 見えることを防ぐ。
+ *
+ * @param groupCards 数量グループのカード（複数一致の Locator）
+ * @param count 読み取る件数（前提として主張済みの件数）
+ * @returns 上から順の表示名
+ */
+async function readGroupNames(groupCards: Locator, count: number): Promise<string[]> {
+  const names: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const text = await groupCards.nth(i).locator('h3').first().textContent();
+    names.push((text ?? '').trim());
+  }
+  return names;
+}
+
+/**
+ * 画面に並んでいる数量項目の名称欄の値を、上から順に配列で返す。
+ *
+ * 項目行のテキストは入力欄の値を含まないため、名称欄（`input[id$="-name"]`）の
+ * 値を読む。事前準備が行ごとに異なる名称を与えているため、これが行の同一性を表す。
+ * 入力欄の id は保存で採番し直されるため、保存を跨ぐ比較には使えない。
+ *
+ * @param itemRows 数量項目の行（複数一致の Locator）
+ * @param count 読み取る件数（前提として主張済みの件数）
+ * @returns 上から順の名称
+ */
+async function readItemNames(itemRows: Locator, count: number): Promise<string[]> {
+  const names: string[] = [];
+  for (let i = 0; i < count; i++) {
+    names.push(await itemRows.nth(i).locator('input[id$="-name"]').first().inputValue());
+  }
+  return names;
 }
 
 test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', () => {
@@ -287,6 +327,10 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
     /**
      * @requirement quantity-table-generation/REQ-23.3: 上へ移動ボタン
      * @requirement quantity-table-generation/REQ-23.4: 下へ移動ボタン
+     *
+     * 本テストが主張するのは REQ-23.3 / 23.4 の起点となる操作要素が存在することだけで
+     * あり、押した結果として順序が変わること（両基準の規範そのもの）は
+     * 「グループの『上へ移動』で…」「グループの『下へ移動』で…」の各テストが主張する。
      */
     test('数量グループに「上へ移動」「下へ移動」ボタンが表示される (REQ-23.3, REQ-23.4)', async ({
       page,
@@ -348,33 +392,35 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
     });
 
     /**
-     * @requirement quantity-table-generation/REQ-23.7: 並び順変更を保存
+     * @requirement quantity-table-generation/REQ-23.4: 下へ移動ボタン
      *
-     * 並び順変更ボタンを押すと displayOrder の更新APIが呼ばれ、変更が即座に反映される。
+     * REQ-23.4 は「『下へ移動』をクリックすると当該グループを1つ下の位置に移動する」ことを
+     * 定めている。従来この判定は REQ-23.7（保存）の名前で書かれており、REQ-23.4 の規範に
+     * 対応する主張がどのテスト名にも現れていなかった。下方向の移動が起きることをここで
+     * 主張する（保存後の永続化は REQ-23.7 の専用テストが受け持つ）。
+     *
+     * 並び替えはクライアントドラフトを更新する（REQ-42.1）ため、後続テストは
+     * 編集画面を開き直した時点で保存済みの順序に戻る。
      */
-    test('グループの並び順変更操作後、画面上の並び順が変わる (REQ-23.7)', async ({ page }) => {
+    test('グループの「下へ移動」で当該グループが1つ下の位置に移動する (REQ-23.4)', async ({
+      page,
+    }) => {
       const navigated = await navigateToQuantityTableEdit(page);
       expect(navigated).toBeTruthy();
 
       const groupCards = page.locator('[data-testid="quantity-group-card"]');
-      // REQ-23.7 の並び替えは2件以上のグループを前提とする。
+      // REQ-23.4 の並び替えは2件以上のグループを前提とする。
       await expect(groupCards, '前提: 並び替えに必要な数量グループが揃っている').toHaveCount(
         PREPARED_GROUP_COUNT,
         { timeout: getTimeout(10000) }
       );
 
-      // 元の並び順（事前準備がグループごとに固有の名前を付けている）
-      const beforeFirstName = (
-        await groupCards.first().locator('h3').first().textContent()
-      )?.trim();
-      const beforeSecondName = (
-        await groupCards.nth(1).locator('h3').first().textContent()
-      )?.trim();
-      // 名前が取れていなければ入れ替えを判定できない。空も含めてここで失敗させる。
-      assertPrepared(beforeFirstName, '1番目の数量グループの表示名');
-      assertPrepared(beforeSecondName, '2番目の数量グループの表示名');
+      const beforeNames = await readGroupNames(groupCards, PREPARED_GROUP_COUNT);
+      // 表示名が重複していると入れ替わりを判定できない。初期値を失敗する側に置く。
+      expect(new Set(beforeNames).size, '前提: 各数量グループの表示名が互いに異なる').toBe(
+        PREPARED_GROUP_COUNT
+      );
 
-      // 1番目のグループの「下へ移動」をクリック
       const firstSortButtons = groupCards
         .first()
         .locator('[data-testid="sort-order-buttons"]')
@@ -386,21 +432,131 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       // 無効になっていれば並び替えの判定が丸ごと消えていた。
       await expect(
         downButton,
-        'REQ-23.4: 1番目のグループの「下へ移動」が無効になっている'
+        'REQ-23.4: 1番目のグループの「下へ移動」が押せる状態にない'
       ).toBeEnabled({ timeout: getTimeout(5000) });
 
       await downButton.click();
 
-      // 並び順が入れ替わる（REQ-23.7）。並び替えはクライアントドラフトを更新する
-      // （REQ-42.1）ため、画面上の順序で判定し、後続テストは開き直しで元の順序に戻る。
+      const expectedNames = [beforeNames[1], beforeNames[0]];
+      await expect
+        .poll(() => readGroupNames(groupCards, PREPARED_GROUP_COUNT), {
+          message: 'REQ-23.4: 「下へ移動」した数量グループが1つ下の位置に来ない',
+          timeout: getTimeout(10000),
+        })
+        .toEqual(expectedNames);
+    });
+
+    /**
+     * @requirement quantity-table-generation/REQ-23.3: 上へ移動ボタン
+     *
+     * REQ-23.3 は「『上へ移動』をクリックすると当該グループを1つ上の位置に移動する」ことを
+     * 定めている。従来の判定はボタンが表示されることしか主張しておらず、押した結果として
+     * 順序が変わることは REQ-23.4（下へ移動）の側でしか観測されていなかった。
+     * 上方向の移動が起きることをここで主張する。
+     *
+     * 並び替えはクライアントドラフトを更新する（REQ-42.1）ため、後続テストは
+     * 編集画面を開き直した時点で保存済みの順序に戻る。
+     */
+    test('グループの「上へ移動」で当該グループが1つ上の位置に移動する (REQ-23.3)', async ({
+      page,
+    }) => {
+      const navigated = await navigateToQuantityTableEdit(page);
+      expect(navigated).toBeTruthy();
+
+      const groupCards = page.locator('[data-testid="quantity-group-card"]');
+      await expect(groupCards, '前提: 並び替えに必要な数量グループが揃っている').toHaveCount(
+        PREPARED_GROUP_COUNT,
+        { timeout: getTimeout(10000) }
+      );
+
+      const beforeNames = await readGroupNames(groupCards, PREPARED_GROUP_COUNT);
+      // 表示名が重複していると入れ替わりを判定できない。初期値を失敗する側に置く。
+      expect(new Set(beforeNames).size, '前提: 各数量グループの表示名が互いに異なる').toBe(
+        PREPARED_GROUP_COUNT
+      );
+
+      const secondSortButtons = groupCards
+        .nth(1)
+        .locator('[data-testid="sort-order-buttons"]')
+        .first();
+      const upButton = secondSortButtons.getByRole('button', { name: '上へ移動' });
+
+      // グループが2件ある以上、2番目の「上へ移動」は必ず活性である（REQ-23.5 が
+      // 無効化するのは最上位のグループだけ）。存在と活性をここで主張してから押す。
       await expect(
-        groupCards.first().locator('h3').first(),
-        'REQ-23.7: 下へ移動しても1番目のグループが入れ替わらない'
-      ).toHaveText(beforeSecondName, { timeout: getTimeout(10000) });
+        upButton,
+        'REQ-23.3: 2番目のグループの「上へ移動」が押せる状態にない'
+      ).toBeEnabled({ timeout: getTimeout(5000) });
+
+      await upButton.click();
+
+      const expectedNames = [beforeNames[1], beforeNames[0]];
+      await expect
+        .poll(() => readGroupNames(groupCards, PREPARED_GROUP_COUNT), {
+          message: 'REQ-23.3: 「上へ移動」した数量グループが1つ上の位置に来ない',
+          timeout: getTimeout(10000),
+        })
+        .toEqual(expectedNames);
+    });
+
+    /**
+     * @requirement quantity-table-generation/REQ-23.7: 並び順変更を保存操作時に永続化
+     *
+     * REQ-23.7 は「変更後の並び順をクライアントサイドの編集状態に反映し、保存操作時に
+     * 永続化する」ことを定めている。従来の判定は前段（編集状態への反映）だけで終わっており、
+     * 保存後の永続化は未検証だった。保存し、再読み込みして、並び順が保たれることを主張する。
+     *
+     * 本テストは共有の数量表の並び順を実際に入れ替えて保存する。同一ファイルの他テストは
+     * 表示名を都度読み直して比較するため、保存後の順序に依存しない。
+     */
+    test('グループの並び順の変更が保存操作で永続化される (REQ-23.7)', async ({ page }) => {
+      const navigated = await navigateToQuantityTableEdit(page);
+      expect(navigated).toBeTruthy();
+
+      const groupCards = page.locator('[data-testid="quantity-group-card"]');
+      await expect(groupCards, '前提: 並び替えに必要な数量グループが揃っている').toHaveCount(
+        PREPARED_GROUP_COUNT,
+        { timeout: getTimeout(10000) }
+      );
+
+      const beforeNames = await readGroupNames(groupCards, PREPARED_GROUP_COUNT);
+      expect(new Set(beforeNames).size, '前提: 各数量グループの表示名が互いに異なる').toBe(
+        PREPARED_GROUP_COUNT
+      );
+
+      const firstSortButtons = groupCards
+        .first()
+        .locator('[data-testid="sort-order-buttons"]')
+        .first();
+      const downButton = firstSortButtons.getByRole('button', { name: '下へ移動' });
       await expect(
-        groupCards.nth(1).locator('h3').first(),
-        'REQ-23.7: 下へ移動した1番目のグループが2番目に来ない'
-      ).toHaveText(beforeFirstName, { timeout: getTimeout(10000) });
+        downButton,
+        'REQ-23.4: 1番目のグループの「下へ移動」が押せる状態にない'
+      ).toBeEnabled({ timeout: getTimeout(5000) });
+
+      await downButton.click();
+
+      const expectedNames = [beforeNames[1], beforeNames[0]];
+      await expect
+        .poll(() => readGroupNames(groupCards, PREPARED_GROUP_COUNT), {
+          message: 'REQ-23.7: 並び順の変更が編集状態へ反映されない',
+          timeout: getTimeout(10000),
+        })
+        .toEqual(expectedNames);
+
+      // REQ-23.7 後段: 保存操作で永続化する（REQ-42.5 の明示保存）
+      await saveQuantityTableDraft(page);
+
+      await page.reload({ waitUntil: 'networkidle' });
+      await expect(groupCards, '再表示後も数量グループの件数は変わらない').toHaveCount(
+        PREPARED_GROUP_COUNT,
+        { timeout: getTimeout(15000) }
+      );
+
+      expect(
+        await readGroupNames(groupCards, PREPARED_GROUP_COUNT),
+        'REQ-23.7: 保存した並び順が再表示後に永続化されていない'
+      ).toEqual(expectedNames);
     });
 
     /**
@@ -475,6 +631,10 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
      * @requirement quantity-table-generation/REQ-24.4: 項目「下へ移動」
      *
      * 数量項目はアクションメニュー内に「上へ移動」「下へ移動」を統合する（REQ-36準拠）。
+     *
+     * 本テストが主張するのは REQ-24.3 / 24.4 の起点となる操作要素が存在することだけで
+     * あり、押した結果として順序が変わること（両基準の規範そのもの）は
+     * 「項目の『上へ移動』で…」「項目の『下へ移動』で…」の各テストが主張する。
      */
     test('数量項目のアクションメニューに「上へ移動」「下へ移動」が含まれる (REQ-24.3, REQ-24.4)', async ({
       page,
@@ -555,29 +715,32 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
     });
 
     /**
-     * @requirement quantity-table-generation/REQ-24.7: 項目並び順変更を保存
+     * @requirement quantity-table-generation/REQ-24.4: 項目「下へ移動」
      *
-     * 項目並び順変更操作後、表示されている順番が変わる。
+     * REQ-24.4 は「『下へ移動』をクリックすると当該項目を同一グループ内で1つ下の位置に
+     * 移動する」ことを定めている。従来この判定は REQ-24.7（保存）の名前で書かれており、
+     * REQ-24.4 の規範に対応する主張がどのテスト名にも現れていなかった。下方向の移動が
+     * 起きることをここで主張する（保存後の永続化は REQ-24.7 の専用テストが受け持つ）。
+     *
+     * 並び替えはクライアントドラフトを更新する（REQ-42.1）ため、後続テストは
+     * 編集画面を開き直した時点で保存済みの順序に戻る。
      */
-    test('項目アクションメニューから「下へ移動」で並び順が変わる (REQ-24.7)', async ({ page }) => {
+    test('項目の「下へ移動」で当該項目が1つ下の位置に移動する (REQ-24.4)', async ({ page }) => {
       const navigated = await navigateToQuantityTableEdit(page);
       expect(navigated).toBeTruthy();
 
       const itemRows = page.locator('[data-testid="quantity-item-row"]');
-      // REQ-24.7 の並び替えは2件以上の数量項目を前提とする。
+      // REQ-24.4 の並び替えは2件以上の数量項目を前提とする。
       await expect(itemRows, '前提: 並び替えに必要な数量項目が揃っている').toHaveCount(
         PREPARED_ITEM_COUNT,
         { timeout: getTimeout(10000) }
       );
 
-      // 各項目の入力 id 属性は `${item.id}-<field>` という構造で、
-      // 項目に紐づく安定識別子として利用できる。
-      // テキスト内容は空のデフォルト値だと両項目で同一になり得るため、
-      // input の id 属性で入れ替えを判定する。
-      const beforeFirstInputId = await itemRows.first().locator('input').first().getAttribute('id');
-      expect(beforeFirstInputId, '項目行の入力に id 属性が存在する').toBeTruthy();
-      const beforeSecondInputId = await itemRows.nth(1).locator('input').first().getAttribute('id');
-      expect(beforeSecondInputId, '2番目の項目行の入力に id 属性が存在する').toBeTruthy();
+      const beforeNames = await readItemNames(itemRows, PREPARED_ITEM_COUNT);
+      // 名称が重複していると入れ替わりを判定できない。初期値を失敗する側に置く。
+      expect(new Set(beforeNames).size, '前提: 各数量項目の名称が互いに異なる').toBe(
+        PREPARED_ITEM_COUNT
+      );
 
       const firstActionButton = itemRows.first().getByRole('button', { name: 'アクション' });
       await firstActionButton.click();
@@ -591,22 +754,136 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       const moveDownItem = menu.getByRole('menuitem', { name: /下へ移動/ });
       await expect(
         moveDownItem,
-        'REQ-24.4: 1番目の項目の「下へ移動」が無効になっている'
+        'REQ-24.4: 1番目の項目の「下へ移動」が押せる状態にない'
       ).toBeEnabled({ timeout: getTimeout(3000) });
 
       await moveDownItem.click();
 
-      // 並び順が入れ替わったことを検証（REQ-24.7）。並び替えはクライアントドラフトを
-      // 更新する（REQ-42.1）ため、後続テストは開き直しで元の順序に戻る。
+      const expectedNames = [beforeNames[1], beforeNames[0]];
       await expect
-        .poll(async () => await itemRows.first().locator('input').first().getAttribute('id'), {
+        .poll(() => readItemNames(itemRows, PREPARED_ITEM_COUNT), {
+          message: 'REQ-24.4: 「下へ移動」した数量項目が1つ下の位置に来ない',
           timeout: getTimeout(10000),
         })
-        .toBe(beforeSecondInputId);
+        .toEqual(expectedNames);
+    });
+
+    /**
+     * @requirement quantity-table-generation/REQ-24.3: 項目「上へ移動」
+     *
+     * REQ-24.3 は「『上へ移動』をクリックすると当該項目を同一グループ内で1つ上の位置に
+     * 移動する」ことを定めている。従来の判定はメニュー項目が表示されることしか主張しておらず、
+     * 上方向の移動が実際に起きることは観測されていなかった。
+     */
+    test('項目の「上へ移動」で当該項目が1つ上の位置に移動する (REQ-24.3)', async ({ page }) => {
+      const navigated = await navigateToQuantityTableEdit(page);
+      expect(navigated).toBeTruthy();
+
+      const itemRows = page.locator('[data-testid="quantity-item-row"]');
+      await expect(itemRows, '前提: 並び替えに必要な数量項目が揃っている').toHaveCount(
+        PREPARED_ITEM_COUNT,
+        { timeout: getTimeout(10000) }
+      );
+
+      const beforeNames = await readItemNames(itemRows, PREPARED_ITEM_COUNT);
+      // 名称が重複していると入れ替わりを判定できない。初期値を失敗する側に置く。
+      expect(new Set(beforeNames).size, '前提: 各数量項目の名称が互いに異なる').toBe(
+        PREPARED_ITEM_COUNT
+      );
+
+      const lastActionButton = itemRows.last().getByRole('button', { name: 'アクション' });
+      await expect(lastActionButton, '最下位項目のアクションメニューが開ける').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await lastActionButton.click();
+
+      const menu = page.getByRole('menu');
+      await expect(menu, 'アクションメニューが表示される').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+
+      // 項目が2件ある以上、最下位の「上へ移動」は必ず活性である（REQ-24.5 が
+      // 無効化するのは最上位の項目だけ）。存在と活性を主張してから押す。
+      const moveUpItem = menu.getByRole('menuitem', { name: /上へ移動/ });
+      await expect(moveUpItem, 'REQ-24.3: 最下位項目の「上へ移動」が押せる状態にない').toBeEnabled({
+        timeout: getTimeout(5000),
+      });
+
+      await moveUpItem.click();
+
+      const expectedNames = [beforeNames[1], beforeNames[0]];
+      await expect
+        .poll(() => readItemNames(itemRows, PREPARED_ITEM_COUNT), {
+          message: 'REQ-24.3: 「上へ移動」した数量項目が1つ上の位置に来ない',
+          timeout: getTimeout(10000),
+        })
+        .toEqual(expectedNames);
+    });
+
+    /**
+     * @requirement quantity-table-generation/REQ-24.7: 項目並び順変更を保存操作時に永続化
+     *
+     * REQ-24.7 は「変更後の並び順をクライアントサイドの編集状態に反映し、保存操作時に
+     * 永続化する」ことを定めている。従来の判定は前段（編集状態への反映）だけで終わっており、
+     * 保存後の永続化は未検証だった。
+     *
+     * 入力欄の id は保存で採番し直されるため、保存を跨ぐ比較には名称欄の値を用いる。
+     */
+    test('項目の並び順の変更が保存操作で永続化される (REQ-24.7)', async ({ page }) => {
+      const navigated = await navigateToQuantityTableEdit(page);
+      expect(navigated).toBeTruthy();
+
+      const itemRows = page.locator('[data-testid="quantity-item-row"]');
+      await expect(itemRows, '前提: 並び替えに必要な数量項目が揃っている').toHaveCount(
+        PREPARED_ITEM_COUNT,
+        { timeout: getTimeout(10000) }
+      );
+
+      const beforeNames = await readItemNames(itemRows, PREPARED_ITEM_COUNT);
+      expect(new Set(beforeNames).size, '前提: 各数量項目の名称が互いに異なる').toBe(
+        PREPARED_ITEM_COUNT
+      );
+
+      const firstActionButton = itemRows.first().getByRole('button', { name: 'アクション' });
+      await expect(firstActionButton, '最上位項目のアクションメニューが開ける').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      await firstActionButton.click();
+
+      const menu = page.getByRole('menu');
+      await expect(menu, 'アクションメニューが表示される').toBeVisible({
+        timeout: getTimeout(5000),
+      });
+
+      const moveDownItem = menu.getByRole('menuitem', { name: /下へ移動/ });
+      await expect(
+        moveDownItem,
+        'REQ-24.4: 最上位項目の「下へ移動」が押せる状態にない'
+      ).toBeEnabled({ timeout: getTimeout(5000) });
+
+      await moveDownItem.click();
+
+      const expectedNames = [beforeNames[1], beforeNames[0]];
+      await expect
+        .poll(() => readItemNames(itemRows, PREPARED_ITEM_COUNT), {
+          message: 'REQ-24.7: 並び順の変更が編集状態へ反映されない',
+          timeout: getTimeout(10000),
+        })
+        .toEqual(expectedNames);
+
+      // REQ-24.7 後段: 保存操作で永続化する（REQ-42.5 の明示保存）
+      await saveQuantityTableDraft(page);
+
+      await page.reload({ waitUntil: 'networkidle' });
+      await expect(itemRows, '再表示後も数量項目の件数は変わらない').toHaveCount(
+        PREPARED_ITEM_COUNT,
+        { timeout: getTimeout(15000) }
+      );
+
       expect(
-        await itemRows.nth(1).locator('input').first().getAttribute('id'),
-        'REQ-24.7: 下へ移動した項目が2番目に来ない'
-      ).toBe(beforeFirstInputId);
+        await readItemNames(itemRows, PREPARED_ITEM_COUNT),
+        'REQ-24.7: 保存した並び順が再表示後に永続化されていない'
+      ).toEqual(expectedNames);
     });
 
     /**
