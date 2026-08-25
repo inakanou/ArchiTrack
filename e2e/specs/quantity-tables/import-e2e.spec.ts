@@ -47,7 +47,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { test, expect, type Page, type Request } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin, labelWhenVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
@@ -597,14 +597,8 @@ test.describe('REQ-28: Excelデータパース', () => {
 
     // 処理完了 or エラーまでを待つ
     const result = await Promise.race([
-      previewTable
-        .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-        .then(() => 'preview')
-        .catch(() => null),
-      errorAlert
-        .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-        .then(() => 'error')
-        .catch(() => null),
+      labelWhenVisibleWithin(previewTable, getTimeout(45000), 'preview'),
+      labelWhenVisibleWithin(errorAlert, getTimeout(45000), 'error'),
     ]);
 
     expect(result, 'プレビューテーブル または エラー表示のいずれかが表示される').not.toBeNull();
@@ -694,14 +688,8 @@ test.describe('REQ-31: 抽出結果から数量項目への一括取り込み', 
     const retryBtn = page.getByRole('button', { name: 'リトライ' });
 
     const result = await Promise.race([
-      importBtn
-        .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-        .then(() => 'import')
-        .catch(() => null),
-      retryBtn
-        .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-        .then(() => 'retry')
-        .catch(() => null),
+      labelWhenVisibleWithin(importBtn, getTimeout(45000), 'import'),
+      labelWhenVisibleWithin(retryBtn, getTimeout(45000), 'retry'),
     ]);
 
     expect(result, '一括取り込みボタンまたはリトライボタンが表示される').not.toBeNull();
@@ -805,16 +793,8 @@ test.describe('REQ-31: 抽出結果から数量項目への一括取り込み', 
     const failMessage = page.getByText(/取り込みに失敗しました/);
 
     const result = await Promise.race([
-      completeMessage
-        .first()
-        .waitFor({ state: 'visible', timeout: getTimeout(15000) })
-        .then(() => 'complete')
-        .catch(() => null),
-      failMessage
-        .first()
-        .waitFor({ state: 'visible', timeout: getTimeout(15000) })
-        .then(() => 'fail')
-        .catch(() => null),
+      labelWhenVisibleWithin(completeMessage.first(), getTimeout(15000), 'complete'),
+      labelWhenVisibleWithin(failMessage.first(), getTimeout(15000), 'fail'),
     ]);
 
     expect(result, '完了メッセージまたは失敗メッセージのいずれかが表示される').not.toBeNull();
@@ -1162,16 +1142,8 @@ test.describe('REQ-33: OCR再実行・リトライ機能', () => {
     const errorAlert = page.locator('[role="alert"]');
 
     const result = await Promise.race([
-      progressbar
-        .first()
-        .waitFor({ state: 'visible', timeout: getTimeout(10000) })
-        .then(() => 'progress')
-        .catch(() => null),
-      errorAlert
-        .first()
-        .waitFor({ state: 'visible', timeout: getTimeout(10000) })
-        .then(() => 'error')
-        .catch(() => null),
+      labelWhenVisibleWithin(progressbar.first(), getTimeout(10000), 'progress'),
+      labelWhenVisibleWithin(errorAlert.first(), getTimeout(10000), 'error'),
     ]);
     expect(result, 'リトライ後にプログレスまたはエラー表示が出る').not.toBeNull();
   });
@@ -1261,15 +1233,15 @@ test.describe('REQ-34: インポートダイアログのインラインプレビ
     const progressbar = page.locator('[role="progressbar"]').first();
     const previewTable = page.locator('table').first();
 
+    // 枝ごとに待機の指定が異なる（プログレスは処理開始直後に出るため 10 秒、
+    // プレビューは OCR の完了を待つため 45 秒）。`Promise.race` は最初に解決した枝が
+    // 勝つため、プログレスが 10 秒で出なければその枝が null で勝つ。これは畳み方に
+    // よらない `Promise.race` の意味そのものであり、待機の指定を揃えると
+    // 「プログレスが出ないまま 45 秒後にプレビューが出る」場合の結論が変わる。
+    // したがって枝ごとの待機の指定を機械的に揃えてはならない。
     const result = await Promise.race([
-      progressbar
-        .waitFor({ state: 'visible', timeout: getTimeout(10000) })
-        .then(() => 'progress')
-        .catch(() => null),
-      previewTable
-        .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-        .then(() => 'preview')
-        .catch(() => null),
+      labelWhenVisibleWithin(progressbar, getTimeout(10000), 'progress'),
+      labelWhenVisibleWithin(previewTable, getTimeout(45000), 'preview'),
     ]);
 
     expect(result, 'プログレスまたはプレビューが表示される').not.toBeNull();
@@ -1342,22 +1314,10 @@ test.describe('REQ-34: インポートダイアログのインラインプレビ
     const alertInDialog = dialog.locator('[role="alert"]').first();
 
     const result = await Promise.race([
-      previewTable
-        .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-        .then(() => 'preview')
-        .catch(() => null),
-      retryBtn
-        .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-        .then(() => 'retry')
-        .catch(() => null),
-      importBtn
-        .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-        .then(() => 'import')
-        .catch(() => null),
-      alertInDialog
-        .waitFor({ state: 'visible', timeout: getTimeout(45000) })
-        .then(() => 'alert')
-        .catch(() => null),
+      labelWhenVisibleWithin(previewTable, getTimeout(45000), 'preview'),
+      labelWhenVisibleWithin(retryBtn, getTimeout(45000), 'retry'),
+      labelWhenVisibleWithin(importBtn, getTimeout(45000), 'import'),
+      labelWhenVisibleWithin(alertInDialog, getTimeout(45000), 'alert'),
     ]);
 
     expect(result).not.toBeNull();
