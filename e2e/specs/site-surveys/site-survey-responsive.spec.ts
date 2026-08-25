@@ -342,29 +342,53 @@ test.describe('現場調査レスポンシブ対応', () => {
   }
 
   /**
-   * LRU の削除対象となる古い下書きを積む
+   * LRU の削除順序を判別できる下書きの母集団を積む（REQ-15.7）
+   *
+   * 要件15.7 が名指しするのは「古いキャッシュを削除する」ことであり、削除の件数ではない。
+   * 古い下書きだけを積むと、本番が古い順に消しても・新しい順に消しても・任意の順に消しても
+   * 同じ結果になるため、**主張が「古い順」を判別できない**。そこで消えてはならないものを
+   * 母集団へ混ぜ、古いものだけが消えて新しいものが残ることを主張できる形にする。
+   *
+   * 積む順序は新しいものを先にする。localStorage の列挙は挿入順であり、savedAt での
+   * 並べ替えを省いた実装（挿入順のまま先頭から消す）でも主張が崩れるようにするためである。
+   *
+   * @param oldCount   消えるはずの古い下書きの件数（本番の削除件数と一致させる）
+   * @param freshCount 残るはずの新しい下書きの件数（1件以上でなければ判別できない）
    */
-  async function seedStaleDrafts(page: PlaywrightPage, count: number): Promise<string[]> {
+  async function seedDraftsForLruOrdering(
+    page: PlaywrightPage,
+    oldCount: number,
+    freshCount: number
+  ): Promise<{ oldKeys: string[]; freshKeys: string[] }> {
     return page.evaluate(
-      ({ prefix, total }) => {
-        const keys: string[] = [];
-        for (let i = 0; i < total; i++) {
-          const key = `${prefix}stale-${i}`;
+      ({ prefix, olds, freshes }) => {
+        const write = (imageId: string, savedAt: string): string => {
+          const key = `${prefix}${imageId}`;
           localStorage.setItem(
             key,
             JSON.stringify({
-              imageId: `stale-${i}`,
-              surveyId: 'stale-survey',
+              imageId,
+              surveyId: 'lru-survey',
               annotationData: { version: '1.0', objects: [] },
-              savedAt: new Date(Date.UTC(2020, 0, i + 1)).toISOString(),
+              savedAt,
               serverUpdatedAt: null,
             })
           );
-          keys.push(key);
+          return key;
+        };
+
+        // 新しいものを先に積む（挿入順＝新しい順）
+        const freshKeys: string[] = [];
+        for (let i = 0; i < freshes; i++) {
+          freshKeys.push(write(`fresh-${i}`, new Date(Date.UTC(2035, 0, i + 1)).toISOString()));
         }
-        return keys;
+        const oldKeys: string[] = [];
+        for (let i = 0; i < olds; i++) {
+          oldKeys.push(write(`stale-${i}`, new Date(Date.UTC(2020, 0, i + 1)).toISOString()));
+        }
+        return { oldKeys, freshKeys };
       },
-      { prefix: ANNOTATION_DRAFT_PREFIX, total: count }
+      { prefix: ANNOTATION_DRAFT_PREFIX, olds: oldCount, freshes: freshCount }
     );
   }
 
@@ -967,8 +991,14 @@ test.describe('現場調査レスポンシブ対応', () => {
       const draftKey = `${ANNOTATION_DRAFT_PREFIX}${imageId}`;
       await clearDrafts(page);
 
-      const staleKeys = await seedStaleDrafts(page, 3);
-      expect(staleKeys.length).toBe(3);
+      // 本番は容量超過時に古い方から3件を削除する（AutoSaveManager.clearOldestEntries(3)）。
+      // 削除件数と同じ3件の古い下書きに加えて、消えてはならない新しい下書きを2件積む。
+      // これにより「古い順」「新しい順」「任意の順」が別の結果になる。
+      const { oldKeys, freshKeys } = await seedDraftsForLruOrdering(page, 3, 2);
+      expect(oldKeys.length).toBe(3);
+      expect(freshKeys.length).toBe(2);
+      // 主張の母集団が空でないこと（積めていない状態では以降の主張が空振りする）
+      expect((await readDraftKeys(page)).sort()).toEqual([...oldKeys, ...freshKeys].sort());
 
       // Chrome / Safari / Edge 形式（code===22, name===QuotaExceededError）を1回だけ注入する
       await injectStorageWriteFailure(page, 'QuotaExceededError', 22, 1);
@@ -982,10 +1012,14 @@ test.describe('現場調査レスポンシブ対応', () => {
       // 1回失敗し、LRU で古いキャッシュを削除したうえでリトライして保存できている
       expect(await readInjectedFailureCount(page)).toBe(1);
       const remainingKeys = await readDraftKeys(page);
-      for (const staleKey of staleKeys) {
-        expect(remainingKeys).not.toContain(staleKey);
-      }
-      expect(remainingKeys).toContain(draftKey);
+      // 古い3件だけが消える
+      expect(remainingKeys.filter((key) => oldKeys.includes(key))).toEqual([]);
+      // 新しい2件は残る（新しい順・任意順で消す実装ではここが崩れる）
+      expect(remainingKeys.filter((key) => freshKeys.includes(key)).sort()).toEqual(
+        [...freshKeys].sort()
+      );
+      // 残存を過不足なく固定する（全件削除・無削除とも区別する）
+      expect(remainingKeys.sort()).toEqual([...freshKeys, draftKey].sort());
 
       // リトライで保存できたので警告帯は出ない
       await expect(page.locator('[data-warning-type="quota-exceeded"]')).toHaveCount(0);
@@ -1039,7 +1073,9 @@ test.describe('現場調査レスポンシブ対応', () => {
       const draftKey = `${ANNOTATION_DRAFT_PREFIX}${imageId}`;
       await clearDrafts(page);
 
-      const staleKeys = await seedStaleDrafts(page, 3);
+      // REQ-15.7 と同じ判別可能な母集団を使う（古い3件＋残るべき新しい2件）
+      const { oldKeys, freshKeys } = await seedDraftsForLruOrdering(page, 3, 2);
+      expect((await readDraftKeys(page)).sort()).toEqual([...oldKeys, ...freshKeys].sort());
       await injectStorageWriteFailure(page, 'NS_ERROR_DOM_QUOTA_REACHED', 1014, 1);
 
       await drawRectangleAnnotation(page);
@@ -1051,9 +1087,8 @@ test.describe('現場調査レスポンシブ対応', () => {
       // name が QuotaExceededError でなくても容量超過として検出され、LRU リトライへ入る
       expect(await readInjectedFailureCount(page)).toBe(1);
       const remainingKeys = await readDraftKeys(page);
-      for (const staleKey of staleKeys) {
-        expect(remainingKeys).not.toContain(staleKey);
-      }
+      // 消えるのは古い3件だけであり、新しい2件と保存できた下書きが残る
+      expect(remainingKeys.sort()).toEqual([...freshKeys, draftKey].sort());
     });
 
     test('Firefox形式のエラーでリトライ後も失敗すると警告を表示する (site-survey/REQ-15.10)', async ({

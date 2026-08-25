@@ -531,14 +531,11 @@ describe('AutoSaveManager', () => {
         expect(entries[2]!.imageId).toBe('image-2'); // 12:10
       });
 
-      it('should evict oldest entry when storage limit is exceeded', () => {
-        // Create a manager with a small max cache size for testing
-        const smallCacheManager = new AutoSaveManager({
-          maxCacheSizeBytes: 1000, // 1KB for testing
-          maxCachedImages: 10,
-        });
-
-        // Create data that will exceed 1KB when all 3 are stored
+      // 要件15.7: 容量の不足で追い出されるのは「古いもの」である
+      //
+      // 件数だけを主張する形（entries.length <= 2）は、何も消えなくても・すべて消えても
+      // 成立するため、削除の有無も順序も判別できない。残るべきものを名指しする。
+      it('should evict only the oldest entry and keep the newer ones when the size limit is exceeded', () => {
         const largeData: AnnotationData = {
           version: '1.0',
           objects: Array(20).fill({
@@ -551,51 +548,88 @@ describe('AutoSaveManager', () => {
           background: '#ffffff',
         };
 
-        // Save multiple entries
-        vi.setSystemTime(new Date('2025-01-01T12:00:00Z'));
-        smallCacheManager.saveToLocal('image-1', 'survey-1', largeData, true);
+        // 上限を「2件は収まり、3件目で1件だけ追い出される」大きさに定める。
+        // 全件が追い出される上限では、古い順に消しても新しい順に消しても同じ結果になり
+        // 削除順序を判別できないためである。1件あたりの実サイズを測ってから決める。
+        const probeManager = new AutoSaveManager();
+        probeManager.saveToLocal('image-probe', 'survey-1', largeData, true);
+        const probeEntry = probeManager.getAllCacheEntries()[0];
+        expect(probeEntry).toBeDefined();
+        const entrySize = probeEntry!.size;
+        expect(entrySize).toBeGreaterThan(0);
+        probeManager.destroy();
+        localStorageMock.clear();
 
+        const smallCacheManager = new AutoSaveManager({
+          maxCacheSizeBytes: Math.floor(entrySize * 2.5),
+          maxCachedImages: 10,
+        });
+
+        // 積む順序と古さの順序をずらす（挿入順のまま消す実装でも主張が崩れるようにする）
         vi.setSystemTime(new Date('2025-01-01T12:05:00Z'));
-        smallCacheManager.saveToLocal('image-2', 'survey-1', largeData, true);
+        smallCacheManager.saveToLocal('image-old-2', 'survey-1', largeData, true);
 
-        // At this point, oldest entries should be evicted
-        // The manager should call ensureStorageSpace before saving
+        vi.setSystemTime(new Date('2025-01-01T12:00:00Z'));
+        smallCacheManager.saveToLocal('image-old-1', 'survey-1', largeData, true);
 
-        // Get current entries
-        const entries = smallCacheManager.getAllCacheEntries();
+        // 2件までは収まるので何も追い出されない（母集団が空でないことを固定する）
+        expect(
+          smallCacheManager
+            .getAllCacheEntries()
+            .map((entry) => entry.imageId)
+            .sort()
+        ).toEqual(['image-old-1', 'image-old-2']);
 
-        // Should have limited entries (some evicted due to size limit)
-        expect(entries.length).toBeLessThanOrEqual(2);
+        vi.setSystemTime(new Date('2025-01-01T12:10:00Z'));
+        smallCacheManager.saveToLocal('image-new-1', 'survey-1', largeData, true);
+
+        // 最も古い1件だけが追い出され、新しい2件が残る
+        expect(
+          smallCacheManager
+            .getAllCacheEntries()
+            .map((entry) => entry.imageId)
+            .sort()
+        ).toEqual(['image-new-1', 'image-old-2']);
 
         smallCacheManager.destroy();
       });
 
-      it('should clear oldest entries to make space for new data', () => {
+      // 要件15.7: 保持件数の上限でも追い出されるのは「古いもの」である
+      //
+      // 従前は `if (entries.length === 2)` で主張を包んでおり、上限が働かなければ主張が
+      // 一つも実行されなかった。件数の上限だけが働く条件（容量は十分）に固定したうえで、
+      // 残るものと消えるものを無条件に名指しする。
+      it('should clear the oldest entry and keep the newer ones when the image count limit is reached', () => {
         const smallCacheManager = new AutoSaveManager({
-          maxCacheSizeBytes: 500,
+          maxCacheSizeBytes: 1024 * 1024, // 容量では追い出さない（件数の上限だけを働かせる）
           maxCachedImages: 2,
         });
+
+        // 積む順序と古さの順序をずらす（挿入順のまま消す実装でも主張が崩れるようにする）
+        vi.setSystemTime(new Date('2025-01-01T12:05:00Z'));
+        smallCacheManager.saveToLocal('image-middle', 'survey-1', mockAnnotationData, true);
 
         vi.setSystemTime(new Date('2025-01-01T12:00:00Z'));
         smallCacheManager.saveToLocal('image-old', 'survey-1', mockAnnotationData, true);
 
-        vi.setSystemTime(new Date('2025-01-01T12:05:00Z'));
-        smallCacheManager.saveToLocal('image-middle', 'survey-1', mockAnnotationData, true);
+        // 上限に達するまでは何も追い出されない
+        expect(
+          smallCacheManager
+            .getAllCacheEntries()
+            .map((entry) => entry.imageId)
+            .sort()
+        ).toEqual(['image-middle', 'image-old']);
 
         vi.setSystemTime(new Date('2025-01-01T12:10:00Z'));
         smallCacheManager.saveToLocal('image-new', 'survey-1', mockAnnotationData, true);
 
-        const entries = smallCacheManager.getAllCacheEntries();
-
-        // Should keep only max 2 images
-        expect(entries.length).toBeLessThanOrEqual(2);
-
-        // If limited to 2, oldest should be evicted
-        const imageIds = entries.map((e) => e.imageId);
-        if (entries.length === 2) {
-          expect(imageIds).not.toContain('image-old');
-          expect(imageIds).toContain('image-new');
-        }
+        // 最も古い1件だけが消え、新しい2件が残る
+        expect(
+          smallCacheManager
+            .getAllCacheEntries()
+            .map((entry) => entry.imageId)
+            .sort()
+        ).toEqual(['image-middle', 'image-new']);
 
         smallCacheManager.destroy();
       });
@@ -671,32 +705,76 @@ describe('AutoSaveManager', () => {
         setItemSpy.mockRestore();
       });
 
-      it('should retry after clearing old entries on QuotaExceededError', () => {
-        // First save some data successfully
-        autoSaveManager.saveToLocal('image-old-1', 'survey-1', mockAnnotationData, true);
-        autoSaveManager.saveToLocal('image-old-2', 'survey-1', mockAnnotationData, true);
+      // 要件15.7: 容量超過のリトライでは「古いものから」削除される
+      //
+      // 古いエントリだけを積むと、古い順に消す実装と任意の順に消す実装が同じ結果になり
+      // 主張が削除順序を判別できない。消えてはならない新しいエントリを母集団へ混ぜる。
+      // 積む順序は新しいものを先にして、savedAt の並べ替えを省いた実装（挿入順で消す）
+      // でも落ちるようにする。
+      it('should delete only the oldest entries and keep newer ones when retrying after QuotaExceededError', () => {
+        // 新しい2件を先に積む（挿入順＝新しい順）
+        vi.setSystemTime(new Date('2025-01-01T12:10:00Z'));
+        autoSaveManager.saveToLocal('image-fresh-1', 'survey-1', mockAnnotationData, true);
+        vi.setSystemTime(new Date('2025-01-01T12:11:00Z'));
+        autoSaveManager.saveToLocal('image-fresh-2', 'survey-1', mockAnnotationData, true);
 
-        // Now mock to throw on first attempt, succeed on retry
-        let callCount = 0;
+        // 本番の削除件数（clearOldestEntries(3)）と同じ3件の古いエントリを積む
+        vi.setSystemTime(new Date('2025-01-01T12:00:00Z'));
+        autoSaveManager.saveToLocal('image-old-1', 'survey-1', mockAnnotationData, true);
+        vi.setSystemTime(new Date('2025-01-01T12:01:00Z'));
+        autoSaveManager.saveToLocal('image-old-2', 'survey-1', mockAnnotationData, true);
+        vi.setSystemTime(new Date('2025-01-01T12:02:00Z'));
+        autoSaveManager.saveToLocal('image-old-3', 'survey-1', mockAnnotationData, true);
+
+        // 母集団が積めていること（空の母集団に対する主張を避ける）
+        expect(
+          autoSaveManager
+            .getAllCacheEntries()
+            .map((entry) => entry.imageId)
+            .sort()
+        ).toEqual(['image-fresh-1', 'image-fresh-2', 'image-old-1', 'image-old-2', 'image-old-3']);
+
+        // 新規保存の1回目だけ QuotaExceededError にする（リトライは成功させる）
+        //
+        // 差し替え前の実装を捕まえてから差し替える。`localStorageMock.setItem` を
+        // 呼び戻すと差し替え後の実装を呼ぶことになり、書き込みが無限再帰して
+        // RangeError となり、リトライは「別の例外で失敗した」状態になる。
+        const writeThrough = localStorageMock.setItem.getMockImplementation();
+        expect(writeThrough).toBeDefined();
+
+        let thrownCount = 0;
         const quotaError = new DOMException('QuotaExceededError', 'QuotaExceededError');
         const setItemSpy = vi
           .spyOn(localStorage, 'setItem')
           .mockImplementation((key: string, value: string) => {
-            callCount++;
-            if (callCount <= 1 && key.includes('image-new')) {
+            if (thrownCount === 0 && key.includes('image-new')) {
+              thrownCount++;
               throw quotaError;
             }
-            // Use the original mock
-            localStorageMock.setItem(key, value);
+            writeThrough!(key, value);
           });
 
-        // This should trigger cleanup and retry
-        autoSaveManager.saveToLocal('image-new', 'survey-1', mockAnnotationData, true);
-
-        // Verify retry happened
-        expect(setItemSpy).toHaveBeenCalled();
+        vi.setSystemTime(new Date('2025-01-01T12:20:00Z'));
+        const result = autoSaveManager.saveToLocalWithResult(
+          'image-new',
+          'survey-1',
+          mockAnnotationData,
+          true
+        );
 
         setItemSpy.mockRestore();
+
+        // 実際に容量超過を1回経て、リトライで保存が成立している
+        expect(thrownCount).toBe(1);
+        expect(result.success).toBe(true);
+
+        // 古い3件だけが消え、新しい2件と保存できた1件が残る
+        expect(
+          autoSaveManager
+            .getAllCacheEntries()
+            .map((entry) => entry.imageId)
+            .sort()
+        ).toEqual(['image-fresh-1', 'image-fresh-2', 'image-new']);
       });
 
       it('should return false from saveToLocal when quota cannot be freed', () => {

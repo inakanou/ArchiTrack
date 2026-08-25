@@ -573,23 +573,54 @@ describe('AnnotationEditor - 未保存データの復元 (Req 15.5)', () => {
 
 describe('AnnotationEditor - QuotaExceededError の扱い (Req 15.7, 15.8, 15.10)', () => {
   /**
-   * LRU 対象になる古い下書きを積む（対象画像とは別IDのエントリ）
+   * LRU の削除順序を判別できる下書きの母集団を積む（対象画像とは別IDのエントリ）
+   *
+   * 要件15.7 が名指しするのは「古いキャッシュを削除する」ことである。古い下書きだけを
+   * 積むと、古い順に消しても新しい順に消しても任意の順に消しても同じ結果になり、主張が
+   * 削除順序を判別できない。消えてはならない新しい下書きを母集団へ混ぜる。
+   *
+   * 積む順序は新しいものを先にする。localStorage の列挙は挿入順であり、savedAt での
+   * 並べ替えを省いた実装（挿入順のまま先頭から消す）でも主張が崩れるようにするためである。
    */
-  function seedOldDrafts(count: number): string[] {
-    const keys: string[] = [];
-    for (let i = 0; i < count; i++) {
-      const key = `${STORAGE_KEY_PREFIX}old-${i}`;
+  function seedDraftsForLruOrdering(
+    oldCount: number,
+    freshCount: number
+  ): { oldKeys: string[]; freshKeys: string[] } {
+    const write = (imageId: string, savedAt: Date): string => {
+      const key = `${STORAGE_KEY_PREFIX}${imageId}`;
       localStorage.setItem(
         key,
         JSON.stringify({
-          imageId: `old-${i}`,
+          imageId,
           surveyId: SURVEY_ID,
           annotationData: { version: '1.0', objects: [] },
-          savedAt: new Date(2020, 0, i + 1).toISOString(),
+          savedAt: savedAt.toISOString(),
           serverUpdatedAt: null,
         })
       );
-      keys.push(key);
+      return key;
+    };
+
+    // 新しいものを先に積む（挿入順＝新しい順）
+    const freshKeys: string[] = [];
+    for (let i = 0; i < freshCount; i++) {
+      freshKeys.push(write(`fresh-${i}`, new Date(2035, 0, i + 1)));
+    }
+    const oldKeys: string[] = [];
+    for (let i = 0; i < oldCount; i++) {
+      oldKeys.push(write(`old-${i}`, new Date(2020, 0, i + 1)));
+    }
+    return { oldKeys, freshKeys };
+  }
+
+  /** localStorage 上の自動保存下書きキーを列挙する */
+  function readDraftKeys(): string[] {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(STORAGE_KEY_PREFIX)) {
+        keys.push(key);
+      }
     }
     return keys;
   }
@@ -597,7 +628,10 @@ describe('AnnotationEditor - QuotaExceededError の扱い (Req 15.7, 15.8, 15.10
   it('QuotaExceededError発生時は古いキャッシュを削除してリトライし保存が成立する (Req 15.7)', async () => {
     await renderEditorAndWaitLoaded();
 
-    const oldKeys = seedOldDrafts(3);
+    // 本番は容量超過時に古い方から3件を削除する（AutoSaveManager.clearOldestEntries(3)）。
+    // 削除件数と同じ3件の古い下書きに加えて、消えてはならない新しい下書きを2件積む。
+    const { oldKeys, freshKeys } = seedDraftsForLruOrdering(3, 2);
+    expect(readDraftKeys().sort()).toEqual([...oldKeys, ...freshKeys].sort());
     const failure = failAnnotationWrites(createStorageError('QuotaExceededError', 22), 1);
 
     canvasObjects.push(createAnnotationStub('rect-1'));
@@ -611,9 +645,9 @@ describe('AnnotationEditor - QuotaExceededError の扱い (Req 15.7, 15.8, 15.10
     // 1回目は失敗し、LRUで古いエントリを削除してからリトライして成功する
     expect(failure.count()).toBe(1);
     expect(localStorage.getItem(DRAFT_KEY)).not.toBeNull();
-    for (const key of oldKeys) {
-      expect(localStorage.getItem(key)).toBeNull();
-    }
+    // 消えるのは古い3件だけであり、新しい2件は残る
+    // （新しい順・任意順で消す実装ではここが崩れる）
+    expect(readDraftKeys().sort()).toEqual([...freshKeys, DRAFT_KEY].sort());
     expect(screen.queryByText('自動保存に失敗しました')).toBeNull();
   });
 
@@ -666,7 +700,9 @@ describe('AnnotationEditor - QuotaExceededError の扱い (Req 15.7, 15.8, 15.10
   it('Firefox形式のエラー（code===1014 / NS_ERROR_DOM_QUOTA_REACHED）も容量超過として扱う (Req 15.10)', async () => {
     await renderEditorAndWaitLoaded();
 
-    const oldKeys = seedOldDrafts(3);
+    // Req 15.7 と同じ判別可能な母集団を使う（古い3件＋残るべき新しい2件）
+    const { oldKeys, freshKeys } = seedDraftsForLruOrdering(3, 2);
+    expect(readDraftKeys().sort()).toEqual([...oldKeys, ...freshKeys].sort());
     const failure = failAnnotationWrites(createStorageError('NS_ERROR_DOM_QUOTA_REACHED', 1014), 1);
 
     canvasObjects.push(createAnnotationStub('rect-1'));
@@ -680,9 +716,8 @@ describe('AnnotationEditor - QuotaExceededError の扱い (Req 15.7, 15.8, 15.10
     expect(failure.count()).toBe(1);
     // 名前が QuotaExceededError でなくても LRU リトライ経路へ入り、保存が成立する
     expect(localStorage.getItem(DRAFT_KEY)).not.toBeNull();
-    for (const key of oldKeys) {
-      expect(localStorage.getItem(key)).toBeNull();
-    }
+    // 消えるのは古い3件だけであり、新しい2件は残る
+    expect(readDraftKeys().sort()).toEqual([...freshKeys, DRAFT_KEY].sort());
   });
 
   it('Firefox形式のエラーでリトライ後も失敗すると警告帯を表示する (Req 15.10)', async () => {
