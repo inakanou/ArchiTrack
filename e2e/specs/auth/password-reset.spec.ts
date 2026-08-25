@@ -4,7 +4,7 @@ import { hashPassword, TEST_USERS } from '../../helpers/test-users';
 import { loginWithCredentials } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL, FRONTEND_BASE_URL } from '../../config';
-import { assertPresent } from '../../helpers/preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 
 /**
  * パスワード管理機能のE2Eテスト
@@ -715,7 +715,7 @@ test.describe('パスワードリセット完全E2Eフロー', () => {
     // 変数名は同ファイル内の固定文字列のトークン（`const resetToken = 'valid-ui-test-token'` 等）と
     // 衝突させない。名前が同じだと、抽出結果ではなく固定文字列を主題と誤って読み取れてしまう。
     const tokenFromEmail = extractResetTokenFromEmail(email.text || email.html);
-    assertPresent(tokenFromEmail, 'リセットメールから抽出したトークン');
+    assertPrepared(tokenFromEmail, 'リセットメールから抽出したトークン');
     expect(tokenFromEmail).toMatch(/^[A-Za-z0-9_-]{16,}$/);
 
     // Step 5: リセットURLにアクセス

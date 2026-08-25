@@ -8,7 +8,7 @@
 import { test, expect, type Page, type Response } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
-import { assertPresent } from '../../helpers/preconditions';
+import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import { TEST_USERS } from '../../helpers/test-users';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
@@ -252,7 +252,7 @@ test.describe('プロジェクト管理ナビゲーション', () => {
 
       await expect(firstCard).toBeVisible({ timeout: getTimeout(10000) });
       const firstCardText = await firstCard.textContent();
-      assertPresent(firstCardText, 'クイックアクセス先頭カードのテキスト');
+      assertPrepared(firstCardText, 'クイックアクセス先頭カードのテキスト');
 
       // 最初のカードが「プロジェクト管理」であることを確認
       expect(firstCardText).toMatch(/プロジェクト管理/i);

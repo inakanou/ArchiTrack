@@ -8,7 +8,7 @@ import {
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { TEST_USERS } from '../../helpers/test-users';
-import { assertPresent } from '../../helpers/preconditions';
+import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import { getTimeout, waitForApiResponse } from '../../helpers/wait-helpers';
 
 /**
@@ -277,7 +277,7 @@ test.describe('2要素認証機能', () => {
       // ダウンロードしたファイルの内容を検証。
       // 保存先が得られなければ要件27D.4 のダウンロード自体が成立していないため、その場で失敗させる。
       const path = await download.path();
-      assertPresent(path, 'ダウンロードしたバックアップコードファイルの保存先');
+      assertPrepared(path, 'ダウンロードしたバックアップコードファイルの保存先');
 
       const fs = await import('fs/promises');
       const content = await fs.readFile(path, 'utf-8');

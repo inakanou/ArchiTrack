@@ -25,7 +25,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
-import { assertPresent } from '../../helpers/preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 import { toObservableApiPath } from '../../helpers/api-request-observer';
 import { seedTradingPartner } from '../../helpers/project-list-preconditions';
 
@@ -413,7 +413,7 @@ test.describe('取引先オートコンプリート連携', () => {
       // 要求が発生すること自体と、その絞り込み条件の双方を無条件に主張する。
       expect(listRequestUrls.length, 'REQ-16.13: 取引先一覧APIが呼び出される').toBeGreaterThan(0);
       const listRequestUrl = listRequestUrls[listRequestUrls.length - 1];
-      assertPresent(listRequestUrl, '取引先一覧APIのリクエストURL');
+      assertPrepared(listRequestUrl, '取引先一覧APIのリクエストURL');
       const requestedTypes = new URL(listRequestUrl).searchParams.get('type');
       expect(requestedTypes, 'REQ-16.13: 取引先一覧APIは顧客種別で絞り込まれる').toBe('CUSTOMER');
 

@@ -23,7 +23,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
-import { assertPresent } from '../../helpers/preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 
 /**
  * 保存ボタンをクリックして保存完了を待機するヘルパー
@@ -3227,7 +3227,7 @@ test.describe('見積依頼機能', () => {
       // 以前は `if (emptyTableValue) { … } else { expect(emptyTableValue).toBeTruthy(); }` と
       // 書いていたが、値の絞り込みと失敗の主張が分かれており、else 側を消しても型検査が通った。
       // 主張と絞り込みを一つの呼び出しへ畳む。
-      assertPresent(emptyTableValue, 'REQ-4.18 検証用に作成した空の数量表の選択肢');
+      assertPrepared(emptyTableValue, 'REQ-4.18 検証用に作成した空の数量表の選択肢');
 
       await quantityTableSelect.selectOption(emptyTableValue);
       await expect(quantityTableSelect).toHaveValue(emptyTableValue);

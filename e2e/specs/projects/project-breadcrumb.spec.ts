@@ -151,7 +151,7 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       const pageTitle = page.locator('h1');
       await expect(pageTitle).toBeVisible({ timeout: getTimeout(10000) });
       const actualProjectName = await pageTitle.textContent();
-      assertPresent(actualProjectName, 'プロジェクト詳細画面の見出し（プロジェクト名）');
+      assertPrepared(actualProjectName, 'プロジェクト詳細画面の見出し（プロジェクト名）');
 
       // REQ-21.15: パンくずの現在ページにプロジェクト名が表示されていることを確認
       // （ProjectDetailPage の h1 は project.name そのものであり、パンくずの末尾と一致する）
@@ -319,7 +319,7 @@ test.describe('プロジェクト管理パンくずナビゲーション表示',
       const pageTitle = page.locator('h1');
       await expect(pageTitle).toBeVisible({ timeout: getTimeout(10000) });
       const expectedProjectName = await pageTitle.textContent();
-      assertPresent(expectedProjectName, 'プロジェクト詳細画面の見出し（プロジェクト名）');
+      assertPrepared(expectedProjectName, 'プロジェクト詳細画面の見出し（プロジェクト名）');
 
       // 編集ページに遷移
       await page.goto(`/projects/${project.id}/edit`);

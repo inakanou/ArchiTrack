@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { cleanDatabase, cleanDatabaseAndRestoreTestData } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { getTimeout } from '../../helpers/wait-helpers';
-import { assertPrepared, assertPresent } from '../../helpers/preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 import { API_BASE_URL } from '../../config';
 
 /**
@@ -88,7 +88,7 @@ test.describe('セキュリティ対策', () => {
     // 要件26.5: トークンを Cookie に保存する際は HttpOnly を設定する。
     // Cookie の有無で包むと、発行そのものが失われても検証が一件も実行されず緑になる。
     const setCookieHeader = response.headers()['set-cookie'];
-    assertPresent(setCookieHeader, 'REQ-26.5: ログイン応答の Set-Cookie ヘッダー');
+    assertPrepared(setCookieHeader, 'REQ-26.5: ログイン応答の Set-Cookie ヘッダー');
 
     // HttpOnly属性が含まれていることを確認
     expect(setCookieHeader.toLowerCase()).toContain('httponly');

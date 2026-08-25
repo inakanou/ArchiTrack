@@ -1159,7 +1159,7 @@ test.describe('内訳書CRUD操作', () => {
       await expect(firstCard).toBeVisible();
       // カード内のテキストに内訳書名、日付、数量表名、項目数が含まれる
       const cardText = await firstCard.textContent();
-      assertPresent(cardText, '内訳書カードのテキスト');
+      assertPrepared(cardText, '内訳書カードのテキスト');
       // 項目数表示（「○項目」形式）
       expect(cardText).toMatch(/\d+項目/);
     });
@@ -2658,7 +2658,7 @@ test.describe('内訳書CRUD操作', () => {
       const dateMatch = suggestedFilename.match(/_(\d{8})\.xlsx$/);
       assertPresent(dateMatch, 'ファイル名の日付部分の照合結果');
       const dateStr = dateMatch[1];
-      assertPresent(dateStr, 'ファイル名の日付部分（YYYYMMDD）');
+      assertPrepared(dateStr, 'ファイル名の日付部分（YYYYMMDD）');
 
       const year = parseInt(dateStr.substring(0, 4));
       const month = parseInt(dateStr.substring(4, 6));
@@ -2750,7 +2750,7 @@ test.describe('内訳書CRUD操作', () => {
 
       expectedHeaders.forEach((header, index) => {
         const column = headerColumns[index];
-        assertPresent(column, `ヘッダ行の列[${index}]`);
+        assertPrepared(column, `ヘッダ行の列[${index}]`);
         expect(column.trim()).toBe(header);
       });
 
@@ -2760,7 +2760,7 @@ test.describe('内訳書CRUD操作', () => {
       // コピー内容がヘッダだけになっても数量の書式の主張が一度も実行されなかった。
       expect(lines.length, 'クリップボードにヘッダ行に続くデータ行が含まれる').toBeGreaterThan(1);
       const dataLine = lines[1];
-      assertPresent(dataLine, 'クリップボードのデータ行');
+      assertPrepared(dataLine, 'クリップボードのデータ行');
       expect(dataLine.trim(), 'クリップボードのデータ行が空でない').not.toBe('');
 
       const dataColumns = dataLine.split('\t');
@@ -2768,7 +2768,7 @@ test.describe('内訳書CRUD操作', () => {
 
       // REQ-14.8: 数量（5番目のカラム）が小数点以下2桁であることを確認
       const quantityColumn = dataColumns[4];
-      assertPresent(quantityColumn, 'データ行の数量カラム');
+      assertPrepared(quantityColumn, 'データ行の数量カラム');
       const quantityStr = quantityColumn.trim();
       // 数量が数値形式であり、小数点以下2桁であることを確認
       expect(quantityStr).toMatch(/^-?\d+\.\d{2}$/);

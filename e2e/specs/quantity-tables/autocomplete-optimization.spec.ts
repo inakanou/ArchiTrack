@@ -52,7 +52,7 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
-import { assertPresent } from '../../helpers/preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
 import {
   createTestProject,
   createTestQuantityTable,
@@ -541,7 +541,7 @@ test.describe('オートコンプリート最適化', () => {
         const selectedText = await selectedOption.textContent({
           timeout: BOUNDED_STEP_TIMEOUT_MS,
         });
-        assertPresent(selectedText, '選択状態になった補完候補の文字列');
+        assertPrepared(selectedText, '選択状態になった補完候補の文字列');
 
         // REQ-7.4: Enter で確定すると選択した候補がフィールドへ自動入力される
         await majorCategoryInput.press('Enter');
