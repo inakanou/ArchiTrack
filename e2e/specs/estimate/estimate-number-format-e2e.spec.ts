@@ -421,9 +421,15 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
     const allocatedValues: number[] = [];
     for (let i = 0; i < 2; i++) {
       const text = (await allocatedCells.nth(i).textContent()) ?? '';
-      expect(text, '案分後金額が表示されていない').toMatch(/^[0-9,]+円$/);
+      // 小数点を受理しないため、この主張が通った時点で小数点が現れていないことは
+      // 確定している。続けて `not.toContain('.')` と書いても先行の主張の含意で
+      // 決して失敗せず、主張として何も足さない（Task 115.163）。
+      // 読点の位置まで縛るのは `[0-9,]+` が `1,2,3円` や `,,,円` も受理し、
+      // 三桁区切りを誰も主張しないままになるためである（REQ-18.12 のカンマ区切り）
+      expect(text, '案分後金額が三桁区切りの整数表示になっていない').toMatch(
+        /^\d{1,3}(?:,\d{3})*円$/
+      );
       const numericPart = text.replace(/[,円]/g, '');
-      expect(numericPart).not.toContain('.');
       allocatedValues.push(Number.parseInt(numericPart, 10));
     }
     // 整数へ丸めた結果の総和がNET金額と一致する（丸めの方向に依存せずに、
@@ -594,8 +600,12 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
     expect(previewCount).toBeGreaterThan(0);
     for (let i = 0; i < previewCount; i++) {
       const text = (await newUnitPriceCells.nth(i).textContent()) ?? '';
-      expect(text, '新しい単価が表示されていない').toMatch(/^[0-9,]+円$/);
-      expect(text.replace(/[,円]/g, '')).not.toContain('.');
+      // 整数表示の主張はこの一つで足りる。小数点を受理しないため、続く
+      // `not.toContain('.')` は先行の主張の含意で決して失敗しない（Task 115.163）。
+      // 読点の位置まで縛って三桁区切りも同時に主張する（REQ-18.12）
+      expect(text, '新しい単価が三桁区切りの整数表示になっていない').toMatch(
+        /^\d{1,3}(?:,\d{3})*円$/
+      );
     }
     // 10001 × 1.03 = 10301.03 が整数へ丸められている
     await expect(newUnitPriceCells.first()).toHaveText('10,301円');
@@ -813,13 +823,11 @@ test.describe('見積書 - 数値表示形式と丸め規則', () => {
     await unitPriceInputs.first().fill('3333');
     await unitPriceInputs.first().blur();
 
-    // 四捨五入の結果が整数であることを確認（同じくガードを撤去。実測では常に "8,333"）
+    // 2.50 * 3333 = 8332.5 → 四捨五入で 8333。綴りを厳密に主張するため、
+    // 小数点の不在も値の一致もこの一つの主張に含まれている。同じ欄を読み直して
+    // `not.toContain('.')` や `toBe(8333)` を重ねても、先行の主張の含意で
+    // 決して失敗せず、主張として何も足さない（Task 115.163）
     await expect(amountFields.first()).toHaveText('8,333', { timeout: getTimeout(10000) });
-    const amountText3 = (await amountFields.first().textContent()) ?? '';
-    // 小数点を含まないこと
-    expect(amountText3.replace(/,/g, '')).not.toContain('.');
-    // 2.50 * 3333 = 8332.5 → 四捨五入で8333
-    expect(Number.parseInt(amountText3.replace(/,/g, ''), 10)).toBe(8333);
   });
 
   // ============================================================================

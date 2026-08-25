@@ -26,7 +26,8 @@
       "T8-ambiguous-absence": 0,
       "T9-discarded-predicate-result": 0,
       "T10-settled-type-assertion": 0,
-      "T11-empty-population-absence": 0
+      "T11-empty-population-absence": 0,
+      "T12-implied-successor": 0
     },
     "allowedTarget": 0,
     "$change": [

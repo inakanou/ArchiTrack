@@ -2013,6 +2013,265 @@ const EMPTY_POPULATION_ABSENCE: Case[] = [
   },
 ];
 
+// ============================================================================
+// 115.163: 先行の主張が含意する後続の主張（T12）
+//
+// 直前の主張が受理する文字列の集合に needle が現れ得ないとき、後続の不在の主張は
+// 先行の主張の含意で決して失敗しない。要件の被覆に穴は空かないが、主張として
+// 何も足していない飾りである。両方向（検出する例・検出してはならない例）を固定する。
+// ============================================================================
+
+const IMPLIED_SUCCESSOR: Case[] = [
+  {
+    name: '115.163-1 錨付きの書式の主張が小数点を排除する（実例 estimate-number-format-e2e の案分後金額）',
+    source: [
+      "test('allocated', async ({ page }) => {",
+      "  const text = (await page.getByTestId('preview-allocated').textContent()) ?? '';",
+      "  expect(text, '案分後金額が表示されていない').toMatch(/^[0-9,]+円$/);",
+      "  const numericPart = text.replace(/[,円]/g, '');",
+      "  expect(numericPart).not.toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: ['T12-implied-successor'],
+  },
+  {
+    name: '115.163-2 是正後（先行の主張だけを残す）は検出しない',
+    source: [
+      "test('allocated fixed', async ({ page }) => {",
+      "  const text = (await page.getByTestId('preview-allocated').textContent()) ?? '';",
+      "  expect(text, '案分後金額が整数の表示になっていない').toMatch(/^[0-9,]+円$/);",
+      "  const numericPart = text.replace(/[,円]/g, '');",
+      '  expect(Number.parseInt(numericPart, 10)).toBe(333);',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    name: '115.163-3 先行が小数点を受理するなら後続は実質を持つ（検出しない）',
+    source: [
+      "test('accepts decimal', async ({ page }) => {",
+      "  const text = (await page.getByTestId('preview-allocated').textContent()) ?? '';",
+      '  expect(text).toMatch(/^[0-9,.]+円$/);',
+      "  expect(text.replace(/[,円]/g, '')).not.toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    name: '115.163-4 錨が無い正規表現は文字列全体を縛らない（検出しない）',
+    source: [
+      "test('unanchored', async ({ page }) => {",
+      "  const text = (await page.getByTestId('preview-allocated').textContent()) ?? '';",
+      '  expect(text).toMatch(/[0-9,]+円/);',
+      "  expect(text.replace(/[,円]/g, '')).not.toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    name: '115.163-5 選択肢の一つでも錨が欠ければ縛れない（検出しない）',
+    source: [
+      "test('one branch unanchored', async ({ page }) => {",
+      "  const text = (await page.getByTestId('preview-allocated').textContent()) ?? '';",
+      '  expect(text).toMatch(/^[0-9,]+円$|[0-9,]+点/);',
+      "  expect(text.replace(/[,円]/g, '')).not.toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    name: '115.163-6 同名の別束縛は対応づけない（隣り合う繰り返しで同じ名前を使う形）',
+    source: [
+      "test('shadowed', async ({ page }) => {",
+      '  for (let i = 0; i < 2; i++) {',
+      "    const text = (await page.getByTestId('preview-allocated').nth(i).textContent()) ?? '';",
+      '    expect(text).toMatch(/^[0-9,]+円$/);',
+      '  }',
+      '  const amountTexts = await page.locator(\'[data-testid="amount-field"]\').allTextContents();',
+      '  expect(amountTexts.length).toBeGreaterThan(0);',
+      '  for (const text of amountTexts) {',
+      "    expect(text.replace(/,/g, '')).not.toContain('.');",
+      '  }',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    name: '115.163-7 綴りを確定させる等値の主張も先行として数える',
+    source: [
+      "test('equality leading', async ({ page }) => {",
+      "  const text = (await page.getByTestId('total-amount').textContent()) ?? '';",
+      "  expect(text).toBe('2,500');",
+      "  expect(text.replace(/,/g, '')).not.toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: ['T12-implied-successor'],
+  },
+  {
+    name: '115.163-8 先行の綴りが needle を含むなら後続は実質を持つ（検出しない）',
+    source: [
+      "test('equality contains needle', async ({ page }) => {",
+      "  const text = (await page.getByTestId('total-amount').textContent()) ?? '';",
+      "  expect(text).toBe('2,500.50');",
+      "  expect(text.replace(/,/g, '')).not.toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    name: '115.163-9 後続より後ろに書かれた主張は先行として数えない',
+    source: [
+      "test('leading comes later', async ({ page }) => {",
+      "  const text = (await page.getByTestId('preview-allocated').textContent()) ?? '';",
+      "  expect(text.replace(/[,円]/g, '')).not.toContain('.');",
+      '  expect(text).toMatch(/^[0-9,]+円$/);',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 実例（estimate-number-format-e2e の locator + `?? ''` + textContent）は、
+    // 「locator を主題とする matcher を数えない」ことと「`??` を遡らない」ことの
+    // **二つ**に同時に救われている。二つを一つのケースで束ねると、片方を緩めても
+    // 落ちないため、どちらの判断も固定できない。よってケースを機構ごとに割る。
+    // 本ケースは後者（`??` を遡らない）だけを単独で固定する。
+    name: '115.163-10 `??` の左辺へは遡らない（先行と後続の名前が繋がらない。意図した見逃し）',
+    source: [
+      "test('nullish coalescing not traversed', async ({ page }) => {",
+      "  const rawText = await page.getByTestId('total-amount').textContent();",
+      "  expect(rawText).toBe('2,500');",
+      "  const amountText = rawText ?? '';",
+      "  expect(amountText.replace(/,/g, '')).not.toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    name: '115.163-11 needle を取り除く置換は T7 が数える（T12 では重ねて数えない）',
+    source: [
+      "test('removal belongs to T7', async ({ page }) => {",
+      "  const text = (await page.getByTestId('preview-allocated').textContent()) ?? '';",
+      '  expect(text).toMatch(/^[0-9,]+円$/);',
+      "  expect(text.replace(/\\./g, '')).not.toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: ['T7-excluded-absence'],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 実在の e2e/specs/estimate/estimate-number-format-e2e.spec.ts:507 を写した形。
+    // 先行は「空でない」としか言っておらず、後続の「小数点を含まない」は実質を持つ。
+    // `collectLanguageFixingAssertions` の `!negated` を外すとこのケースが落ちる
+    // （＝実在の主張を「飾り」と誤って告発し、実のある主張の削除を迫る）。
+    name: '115.163-12 否定を伴う先行は言語を確定させない（実在の 507 行を写した形）',
+    source: [
+      "test('negated leading has no language', async ({ page }) => {",
+      '  const unitPrices = page.locator(\'[data-testid="line-type-EXECUTION"]\').locator(',
+      '    \'input[aria-label="単価"]\'',
+      '  );',
+      '  for (let i = 0; i < 2; i++) {',
+      '    const value = await unitPrices.nth(i).inputValue();',
+      "    expect(value, '案分後の実行金額行の単価が空').not.toBe('');",
+      "    expect(value).not.toContain('.');",
+      '  }',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 115.163-10 から割った片割れ。locator を主題とする matcher（`toHaveText`）を
+    // `LANGUAGE_FIXING_EQUALITY_MATCHERS` へ足す**単独の変異**で落ちる最小形にするため、
+    // 後続の主題を locator の名前そのものに置いている（実在の形では間に
+    // `textContent()` と `??` が挟まり、そちらは 115.163-10 が固定する）。
+    name: '115.163-13 locator を主題とする matcher は言語を確定させる先行として数えない',
+    source: [
+      "test('locator matcher not language fixing', async ({ page }) => {",
+      "  const amountText = page.getByTestId('total-amount');",
+      "  await expect(amountText).toHaveText('2,500');",
+      "  expect(amountText).not.toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // `isFullyAnchored` の `m` の除外を単独で固定する。`m` があると `^`/`$` は
+    // 行頭・行末に一致するため、複数行の文字列では錨が文字列全体を縛らない。
+    name: '115.163-14 `m` 修飾子つきの錨は文字列全体を縛らない（検出しない）',
+    source: [
+      "test('multiline flag', async ({ page }) => {",
+      "  const text = (await page.getByTestId('preview-allocated').textContent()) ?? '';",
+      '  expect(text).toMatch(/^[0-9,]+円$/m);',
+      "  expect(text.replace(/[,円]/g, '')).not.toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // `absenceSubjectRoots` の「置換後の文字列が needle の文字を含むなら遡らない」判定を
+    // 単独で固定する。置換が needle を**生む**なら、先行が何を縛っていようと後続は実質を持つ。
+    name: '115.163-15 needle を生む置換を挟むなら後続は実質を持つ（検出しない）',
+    source: [
+      "test('replacement introduces needle', async ({ page }) => {",
+      "  const text = (await page.getByTestId('preview-allocated').textContent()) ?? '';",
+      '  expect(text).toMatch(/^[0-9,]+円$/);',
+      "  expect(text.replace(/円/g, '.')).not.toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 後から代入される名前は、先行の主張の時点の値と後続の時点の値が同じとは限らない。
+    // この判断は二箇所（`collectLanguageFixingAssertions` の先行の主題、
+    // `absenceSubjectRoots` の後続の根）に**同じ名前**への同じ条件として書かれている。
+    // 先行と後続は綴りが一致する場合にしか対応づかず、`reassigned` は綴りの集合であるため、
+    // 先行側のガードだけを外してもこの形は落ちない（後続側が根を返さない）。実測でも
+    // 先行側だけの除去は 117/117 のまま素通りする。本ケースは「両方を外すと落ちる」
+    // ことで、少なくとも一方が残ることを固定する。後続側だけの除去は 115.163-17 が捕える。
+    name: '115.163-16 後から代入される名前は先行と後続を対応づけない（検出しない）',
+    source: [
+      "test('reassigned subject', async ({ page }) => {",
+      "  let text = (await page.getByTestId('preview-allocated').textContent()) ?? '';",
+      '  expect(text).toMatch(/^[0-9,]+円$/);',
+      "  text = (await page.getByTestId('preview-total').textContent()) ?? '';",
+      "  expect(text.replace(/[,円]/g, '')).not.toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 後から代入される名前は、そこで**遡りを打ち切る**必要もある。打ち切らないと
+    // 「代入される前の出どころ」（ここでは `raw`）まで根に含まれ、その名前に対する
+    // 先行の主張と繋がってしまう。`raw` 自身は再代入されないため、先行の主題に対する
+    // ガード（115.163-16）ではこの形を止められない。すなわち `absenceSubjectRoots`
+    // 側のガードは単独で効いており、外すとこのケースが落ちる。
+    name: '115.163-17 後から代入される名前で遡りを打ち切る（代入前の出どころへ繋げない）',
+    source: [
+      "test('reassigned stops the walk', async ({ page }) => {",
+      "  const raw = (await page.getByTestId('preview-allocated').textContent()) ?? '';",
+      '  expect(raw).toMatch(/^[0-9,]+円$/);',
+      '  let amountText = raw;',
+      "  amountText = (await page.getByTestId('preview-total').textContent()) ?? '';",
+      "  expect(amountText.replace(/[,円]/g, '')).not.toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+];
+
 function main(): void {
   const groups: Array<{ title: string; cases: Case[] }> = [
     { title: '115.24 捕捉できていなかった三つの書き方', cases: MISSED_FORMS },
@@ -2039,6 +2298,10 @@ function main(): void {
     {
       title: '115.162 空の母集団に対する不在の主張',
       cases: EMPTY_POPULATION_ABSENCE,
+    },
+    {
+      title: '115.163 先行の主張が含意する後続の主張',
+      cases: IMPLIED_SUCCESSOR,
     },
   ];
 

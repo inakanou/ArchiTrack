@@ -71,8 +71,18 @@
  *                           T8 が述べた「不在の主張は、対象が存在することを別に確かめない限り
  *                           何も主張していない」を、単一の空値ではなく**集まり**へ広げたものに当たる
  *                           （Task 115.162）
+ *   T12 implied-successor        先行の主張が含意する後続の主張
+ *                           `expect(text).toMatch(/^[0-9,]+円$/);`
+ *                           `expect(text.replace(/[,円]/g, '')).not.toContain('.')` のように、
+ *                           **直前の主張が受理する文字列の集合に needle が現れ得ない**ため、
+ *                           後続の主張が先行の主張の含意で決して失敗しない形。
+ *                           T7 が「**主題の作り方**が結論を先取りしている形」であるのに対し、
+ *                           こちらは「**別の主張**が結論を先取りしている形」である。
+ *                           要件の被覆に穴は空かない（先行の主張が退行を捕まえる）ため
+ *                           実害は小さいが、主張として何も足していない飾りであり、
+ *                           読み手に検証の厚みを誤認させる（Task 115.163）
  *
- * 分類の優先順位: T3 > T4 > T5 > T1（T2 と T6 と T7 と T8 と T9 と T10 と T11 は別軸のため重複して計上する）
+ * 分類の優先順位: T3 > T4 > T5 > T1（T2 と T6 と T7 と T8 と T9 と T10 と T11 と T12 は別軸のため重複して計上する）
  *
  * 検証を包む形（T1 / T4 / T5 の入口）:
  *   - `if (cond) { await expect(...) }`
@@ -304,6 +314,44 @@
  *     `failed.map((f) => f.error ?? '').join(' / ')` は、`failed` に要素があっても
  *     すべての `error` が未定義なら空文字になる。これは母集団の大きさではなく
  *     **既定値が値を潰す**形であり、本型ではなく別の型として扱う。対象外とする。
+ *   - 主題が locator である先行の主張（T12 の**見逃し側**の限界。Task 115.163）
+ *     `await expect(amountFields.first()).toHaveText('8,333');`
+ *     `const t = (await amountFields.first().textContent()) ?? ''; expect(t.replace(/,/g, '')).not.toContain('.')`
+ *     のように、先行が locator に対する主張で、後続がその locator を**読み直した文字列**に
+ *     対する主張である形は**検出しない**。両者を結びつけるには、
+ *     (a) 二つの locator 式が同じ要素を指すことの判定と、
+ *     (b) その間に画面が書き換わっていないことの判定が要る。
+ *     (b) は構文だけでは決められない。実測では
+ *     `estimate/estimate-number-format-e2e.spec.ts` の一つのテストの中で、同じ
+ *     `amountFields.first()` に対する `toHaveText` が `'2,500'` `'3,702'` `'8,333'` と
+ *     三度現れる（間に `fill()` が挟まり表示が変わるため）。どれが後続の時点で
+ *     効いているかを取り違えると、実質のある主張を飾りとして数え上げる**過検出**になる。
+ *     Task 115.163 の探索的な走査は「位置が最も近いものを採る」という当て推量で
+ *     31 対を捨てて成立させたが、この当て推量には健全性の論拠が無いため規則へは入れない。
+ *     検出側へ広げる変異（locator の先行を数え、`??` と `textContent` を遡り、
+ *     解決の深さ上限を 4 から 8 へ上げる）を当てて確かめたところ、自己検査の
+ *     115.163-13（locator の先行）と 115.163-10（`??` の左辺）は落ちる一方、
+ *     是正前のツリー（HEAD）に当てても検出は 2 件のまま増えず、当該 2 箇所は
+ *     **依然として検出されない**。
+ *     先行の主題が識別子でない形（`expect(amountFields.first())`）と、
+ *     抽出（`.match()`）を挟む形が残るためである。すなわち、この型を機械で
+ *     捉え切るには「locator 式の同一性」と「画面の書き換えの追跡」という
+ *     別種の解析が要り、T7 の延長では届かない。**この 2 箇所は Task 115.163 で
+ *     人手により是正済みであり、検出が 0 件であることは「該当が無いこと」を意味しない。**
+ *   - 後から代入される名前・同名の宣言が複数ある名前（T12 の限界。Task 115.163）
+ *     先行の主張の時点の値と後続の時点の値が同じであることを構文だけでは決められない。
+ *     T10 / T11 と同じ理由であり、数え切れない側は検出しない。
+ *   - 錨が構文で確かめられない正規表現（T12 の限界。Task 115.163）
+ *     T7 は「抜き出した部分文字列」の上界を見るため錨を問わないが、T12 は主題の
+ *     文字列**全体**が縛られている必要がある。すべての最上位の選択肢が `^` で始まり
+ *     `$` で終わる形だけを錨付きと見なす。`/^(?:a|b)$/` は錨付きと見なすが、
+ *     `/(?:^a$|^b$)/` のように選択肢を括弧でくくった形は見逃す。`m` 修飾子を伴う形も
+ *     行頭・行末の錨に過ぎないため見逃す側へ倒す。
+ *   - needle を残らず取り除く置換を挟む形（T12 の限界。Task 115.163）
+ *     `expect(text.replace(/\./g, '')).not.toContain('.')` は T7 が数える形であり、
+ *     T12 では遡らない（同じ箇所を二つの型で重ねて数えないため）。
+ *   - 正規表現を needle に取る後続の主張（T12 の限界。Task 115.163）
+ *     T7 / T11 と同じく、needle が言語である形は包含判定を要するため対象外とする。
  *   - 判定・抽出の実装そのものである分岐（Task 115.127 段3・計画の A 群）
  *     真偽を返す関数、またはブラウザ側で評価される関数（`evaluate` 族）の内側で、
  *     **expect を一つも含まず** then 節が脱出だけの分岐。述語は false を返す経路を必ず持ち、
@@ -455,7 +503,8 @@ export type GuardType =
   | 'T8-ambiguous-absence'
   | 'T9-discarded-predicate-result'
   | 'T10-settled-type-assertion'
-  | 'T11-empty-population-absence';
+  | 'T11-empty-population-absence'
+  | 'T12-implied-successor';
 
 export interface Finding {
   file: string;
@@ -516,6 +565,7 @@ const GUARD_TYPES: GuardType[] = [
   'T9-discarded-predicate-result',
   'T10-settled-type-assertion',
   'T11-empty-population-absence',
+  'T12-implied-successor',
 ];
 
 /** 即時判定であり timeout 指定が無視される Playwright の述語メソッド */
@@ -1615,6 +1665,87 @@ function replacementRemovesNeedle(
 }
 
 // ============================================================================
+// 先行の主張が含意する後続の主張（T12。Task 115.163）
+// ============================================================================
+
+/**
+ * 最上位の `|` で分けた選択肢を返す（文字クラス・括弧の内側の `|` では分けない）。
+ */
+function topLevelAlternatives(pattern: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let inClass = false;
+  let current = '';
+  for (let i = 0; i < pattern.length; i += 1) {
+    const ch = pattern[i]!;
+    if (ch === '\\') {
+      current += ch + (pattern[i + 1] ?? '');
+      i += 1;
+      continue;
+    }
+    if (inClass) {
+      if (ch === ']') inClass = false;
+      current += ch;
+      continue;
+    }
+    if (ch === '[') {
+      inClass = true;
+      current += ch;
+      continue;
+    }
+    if (ch === '(') depth += 1;
+    if (ch === ')') depth -= 1;
+    if (ch === '|' && depth === 0) {
+      parts.push(current);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  parts.push(current);
+  return parts;
+}
+
+/**
+ * 正規表現が**すべての選択肢で文字列の両端を錨で留めている**か。
+ *
+ * T7 は「抜き出した部分文字列」に現れうる文字の上界を見るため、錨の有無を問わない。
+ * 一方 T12 は「主題の文字列**全体**」が先行の主張で縛られているかを見る。錨が無ければ
+ * 一致は部分文字列に過ぎず、その外側に何が並んでいても主張は通るため、上界は
+ * 文字列全体の上界にならない。したがって錨の判定が本型では関門になる。
+ *
+ * 判定できない書き方（選択肢を括弧でくくった `/^(?:a|b)$/` 以外の入れ子、`m` 修飾子）は
+ * 錨が無いものとして扱う。数え切れない側は検出しない。
+ */
+function isFullyAnchored(pattern: string, flags: string): boolean {
+  // `m` は行頭・行末に一致するため、文字列全体の錨にならない
+  if (flags.includes('m')) return false;
+  for (const branch of topLevelAlternatives(pattern)) {
+    if (!branch.startsWith('^') || !branch.endsWith('$')) return false;
+    // `\$`（エスケープされたドル記号）は錨ではない
+    let backslashes = 0;
+    for (let i = branch.length - 2; i >= 0 && branch[i] === '\\'; i -= 1) backslashes += 1;
+    if (backslashes % 2 === 1) return false;
+  }
+  return true;
+}
+
+/** 主題の綴りを確定させる等値の matcher（T12。Task 115.163） */
+const LANGUAGE_FIXING_EQUALITY_MATCHERS = new Set(['toBe', 'toEqual', 'toStrictEqual']);
+
+/** 主題の言語を確定させる先行の主張（T12。Task 115.163） */
+interface LanguageFixingAssertion {
+  /** 主張の呼び出し（位置の比較に用いる） */
+  node: ts.CallExpression;
+  /** 主張の主題（識別子に限る） */
+  subject: ts.Identifier;
+  /** その主張が `needle` を含む文字列を受理し得ないか */
+  excludes: (needle: string) => boolean;
+  /** 報告に用いる綴り */
+  label: string;
+}
+
+// ============================================================================
 // 型が構文で確定した値に対する型の主張（T10。Task 115.143）
 // ============================================================================
 
@@ -2168,6 +2299,209 @@ export function scanSource(relPath: string, source: string): ScanResult {
     return innermost ?? sourceFile;
   };
 
+  // --------------------------------------------------------------------------
+  // 先行の主張が含意する後続の主張（T12。Task 115.163）
+  // --------------------------------------------------------------------------
+
+  /**
+   * 名前をその使用位置から最も内側の束縛へ解決する（見つからなければ `undefined`）。
+   *
+   * 綴りの一致だけで先行と後続を対応づけると、**同名の別の束縛**を取り違える。
+   * 実例: `for (let i = ...) { const text = ...; expect(text).toMatch(...) }` の直後に
+   * `for (const text of computedAmounts) { expect(text.replace(...)).not.toContain('.') }`
+   * が並ぶ形では、二つの `text` は別物であり、先行は後続を含意しない
+   * （Task 115.163 の走査で偽陽性 1 件として実測）。
+   */
+  const resolveBinding = (name: string, use: ts.Node): ts.Node | undefined => {
+    const declares = (scope: ts.Node): ts.Node | undefined => {
+      let found: ts.Node | undefined;
+      const scan = (m: ts.Node): void => {
+        if (found) return;
+        if (ts.isFunctionLike(m) && m !== scope) return;
+        if (
+          (ts.isVariableDeclaration(m) || ts.isParameter(m)) &&
+          ts.isIdentifier(m.name) &&
+          m.name.text === name
+        ) {
+          found = m;
+          return;
+        }
+        ts.forEachChild(m, scan);
+      };
+      ts.forEachChild(scope, scan);
+      return found;
+    };
+    for (let n: ts.Node | undefined = use; n; n = n.parent) {
+      if (
+        ts.isBlock(n) ||
+        ts.isSourceFile(n) ||
+        ts.isForStatement(n) ||
+        ts.isForOfStatement(n) ||
+        ts.isForInStatement(n) ||
+        ts.isCaseBlock(n) ||
+        ts.isFunctionLike(n)
+      ) {
+        const found = declares(n);
+        if (found) return found;
+      }
+    }
+    return undefined;
+  };
+
+  /**
+   * 不在の主張の主題が由来する**局所の名前**の一覧（T12。Task 115.163）。
+   *
+   * 主題から出どころへ遡る経路は T7（`assertsExcludedAbsence`）と同じ形に限る。
+   * すなわち `needle` を作り出さないと構文で判るもの（要素参照・`trim` 族・
+   * `needle` の文字を含まない文字列への置換）だけを辿る。
+   * `needle` を残らず取り除く置換は T7 の担当であるため、ここでは辿らない
+   * （同じ箇所を二つの型で重ねて数えないため）。
+   */
+  const absenceSubjectRoots = (expr: ts.Expression, needle: string, depth = 0): ts.Identifier[] => {
+    if (depth > RESOLVE_DEPTH_LIMIT) return [];
+    const node = unwrapParentheses(expr);
+    if (ts.isNonNullExpression(node) || ts.isAwaitExpression(node)) {
+      return absenceSubjectRoots(node.expression, needle, depth + 1);
+    }
+    if (ts.isElementAccessExpression(node)) {
+      return absenceSubjectRoots(node.expression, needle, depth + 1);
+    }
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const name = node.expression.name.text;
+      const target = node.expression.expression;
+      const first = node.arguments[0] ? unwrapParentheses(node.arguments[0]!) : undefined;
+      if (name === 'replace' || name === 'replaceAll') {
+        const replacement = node.arguments[1];
+        if (!replacement || !ts.isStringLiteralLike(replacement)) return [];
+        const parts = first ? regexLiteralParts(first) : undefined;
+        // needle を取り除く置換は T7 が数える形であり、ここでは辿らない
+        if (parts && replacementRemovesNeedle(parts, replacement.text, needle)) return [];
+        if ([...needle].some((ch) => replacement.text.includes(ch))) return [];
+        return absenceSubjectRoots(target, needle, depth + 1);
+      }
+      if (name === 'trim' || name === 'trimStart' || name === 'trimEnd') {
+        return absenceSubjectRoots(target, needle, depth + 1);
+      }
+      return [];
+    }
+    if (ts.isIdentifier(node)) {
+      // 後から代入される名前は、先行の主張の時点の値と後続の時点の値が同じとは限らない。
+      // ここで遡りを**打ち切る**ことで、代入される前の出どころ（`let b = a; b = other;`
+      // の `a`）へも繋がらない。この打ち切りは先行の主題に対する同じ条件では代替できない
+      // （`a` 自身は再代入されないため。Task 115.163 の変異実験で実測）
+      if (reassigned.has(node.text)) return [];
+      const roots = [node];
+      const values = declTable.get(node.text) ?? [];
+      // 同名の宣言が複数あるときはどれが出どころか決められないため遡らない
+      if (values.length === 1) roots.push(...absenceSubjectRoots(values[0]!, needle, depth + 1));
+      return roots;
+    }
+    return [];
+  };
+
+  /**
+   * 主題の言語を確定させる主張を集める（T12。Task 115.163）。
+   *
+   * 主題が**識別子**である形だけを集める。`expect(locator).toHaveText('8,333')` のように
+   * 主題が locator である形は集めない。理由は限界の節を参照（画面の書き換えを
+   * 追わないと、どの主張が後続の時点で効いているかを決められないため）。
+   */
+  const collectLanguageFixingAssertions = (): LanguageFixingAssertion[] => {
+    const collected: LanguageFixingAssertion[] = [];
+    const walk = (n: ts.Node): void => {
+      if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
+        const matcher = n.expression.name.text;
+        let receiver: ts.Node = n.expression.expression;
+        let negated = false;
+        while (ts.isPropertyAccessExpression(receiver)) {
+          if (receiver.name.text === 'not') negated = true;
+          receiver = receiver.expression;
+        }
+        const arg = n.arguments[0] ? unwrapParentheses(n.arguments[0]!) : undefined;
+        if (
+          !negated &&
+          arg &&
+          ts.isCallExpression(receiver) &&
+          ts.isIdentifier(receiver.expression) &&
+          receiver.expression.text === 'expect'
+        ) {
+          const subject = receiver.arguments[0]
+            ? unwrapParentheses(receiver.arguments[0]!)
+            : undefined;
+          // `!reassigned` は `absenceSubjectRoots` 側の同じ条件に包含される（先行と後続は
+          // 綴りが一致する場合にしか対応づかず、`reassigned` は綴りの集合であるため、
+          // ここだけを外しても検出は変わらない。Task 115.163 の変異実験で実測）。
+          // 単独では効かないが、後続側の条件が失われたときの二枚目として残す
+          if (subject && ts.isIdentifier(subject) && !reassigned.has(subject.text)) {
+            if (matcher === 'toMatch') {
+              const parts = regexLiteralParts(arg);
+              if (parts && isFullyAnchored(parts.pattern, parts.flags)) {
+                collected.push({
+                  node: n,
+                  subject,
+                  excludes: (needle) => regexCannotYield(parts.pattern, needle),
+                  label: `toMatch(/${parts.pattern}/${parts.flags})`,
+                });
+              }
+            } else if (
+              LANGUAGE_FIXING_EQUALITY_MATCHERS.has(matcher) &&
+              ts.isStringLiteralLike(arg)
+            ) {
+              const expected = arg.text;
+              collected.push({
+                node: n,
+                subject,
+                excludes: (needle) => !expected.includes(needle),
+                label: `${matcher}(${JSON.stringify(expected)})`,
+              });
+            }
+          }
+        }
+      }
+      ts.forEachChild(n, walk);
+    };
+    walk(sourceFile);
+    return collected;
+  };
+
+  let languageFixingAssertions: LanguageFixingAssertion[] | undefined;
+
+  /**
+   * 先行の主張が後続の不在の主張を含意するか（T12。Task 115.163）。
+   *
+   * 該当する場合は理由を、しない場合は `undefined` を返す。判定は三段である。
+   *
+   *   (1) 後続の主題を、`needle` を作り出さない経路だけ遡って**局所の名前**へ落とす。
+   *   (2) その名前に対する主張が、同じ束縛を主題として**先に**書かれているか。
+   *       束縛の同一性は綴りではなく最も内側の宣言で見る（同名の別束縛を除くため）。
+   *   (3) その先行の主張が受理する文字列の集合に `needle` が現れ得ないか。
+   *       正規表現は T7 と同じ「一致しうる文字の上界」で判定する。ただし本型では
+   *       主題の文字列**全体**が縛られている必要があるため、両端の錨を要求する。
+   */
+  const impliedSuccessor = (
+    assertion: ts.CallExpression,
+    subject: ts.Expression,
+    needle: string
+  ): string | undefined => {
+    if (needle === '') return undefined;
+    const roots = absenceSubjectRoots(subject, needle);
+    if (roots.length === 0) return undefined;
+    languageFixingAssertions ??= collectLanguageFixingAssertions();
+    for (const root of roots) {
+      const rootBinding = resolveBinding(root.text, root);
+      if (!rootBinding) continue;
+      for (const leading of languageFixingAssertions) {
+        if (leading.node === assertion) continue;
+        if (leading.subject.text !== root.text) continue;
+        if (leading.node.getStart() >= assertion.getStart()) continue;
+        if (resolveBinding(leading.subject.text, leading.subject) !== rootBinding) continue;
+        if (!leading.excludes(needle)) continue;
+        return `先行の主張 \`expect(${root.text}).${leading.label}\` が受理する文字列に ${JSON.stringify(needle)} は現れ得ない`;
+      }
+    }
+    return undefined;
+  };
+
   /**
    * 真偽を返す関数の結果を式文として捨てているか（T9。Task 115.141）。
    *
@@ -2415,6 +2749,32 @@ export function scanSource(relPath: string, source: string): ScanResult {
           const subject = receiver.arguments[0];
           if (subject && assertsExcludedAbsence(subject, needleArg.text)) {
             push(node, 'T7-excluded-absence', receiver);
+          }
+        }
+      }
+    }
+
+    // --- T12: 先行の主張が含意する後続の主張（第十三の型。Task 115.163） ---
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      if (node.expression.name.text === 'toContain') {
+        let receiver: ts.Node = node.expression.expression;
+        let negated = false;
+        while (ts.isPropertyAccessExpression(receiver)) {
+          if (receiver.name.text === 'not') negated = true;
+          receiver = receiver.expression;
+        }
+        const needleArg = node.arguments[0];
+        if (
+          negated &&
+          ts.isCallExpression(receiver) &&
+          ts.isIdentifier(receiver.expression) &&
+          receiver.expression.text === 'expect' &&
+          needleArg &&
+          ts.isStringLiteralLike(needleArg)
+        ) {
+          const subject = receiver.arguments[0];
+          if (subject && impliedSuccessor(node, subject, needleArg.text)) {
+            push(node, 'T12-implied-successor', receiver);
           }
         }
       }

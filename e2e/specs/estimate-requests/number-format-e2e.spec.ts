@@ -26,7 +26,6 @@ import { API_BASE_URL } from '../../config';
 import { fileURLToPath } from 'url';
 import * as path from 'path';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
-import { assertPresent } from '../../helpers/preconditions';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -793,18 +792,12 @@ test.describe('受領見積書 - 数値表示形式と丸め規則', () => {
       // REQ-18.12: 合計金額も整数表示（小数第1位で四捨五入・カンマ区切り）である。
       // 行1に 2.50 × 1000 を入力しているので合計は 2,500 に確定する
       await expect(totalArea).toBeVisible({ timeout: getTimeout(5000) });
+      // 合計の綴りを厳密に主張する。小数第1位で四捨五入されず `2,500.50` と出れば
+      // この主張が落ちる。同じ欄を読み直して数値を抜き出し「小数点が無い」ことを
+      // 重ねて主張しても、先行の主張の含意で決して失敗せず、主張として何も足さない
+      // （先行の主張が後続を含意する形。Task 115.163。抜き出しの範囲を小数点まで
+      // 広げた Task 115.139 の是正は、この主張の前では飾りに過ぎなかった）
       await expect(totalArea).toHaveText('2,500', { timeout: getTimeout(5000) });
-
-      const totalText = await totalArea.textContent();
-      assertPresent(totalText, '合計金額エリアのテキスト');
-      // 抜き出しは小数点を含む形で行う。`[\d,]+` だけで抜き出すと、抽出後の文字列に
-      // 小数点が現れることが原理的に無く、直後の「小数点が無い」主張が構造上
-      // 決して失敗しない（抽出で除外したものの不在を主張する形。Task 115.139）。
-      // 小数を含む表示（例: `2,500.50`）まで抜き出したうえで、小数点が無いことを主張する
-      const numberMatch = totalText.match(/[\d,]+(?:\.\d+)?/);
-      assertPresent(numberMatch, '合計金額エリアに含まれる数値');
-      // カンマ区切りを除去して整数であることを確認
-      expect(numberMatch[0].replace(/,/g, '')).not.toContain('.');
     });
   });
 
