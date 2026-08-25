@@ -395,6 +395,123 @@ function checkConsumedIsDetected(): string[] {
 }
 
 /**
+ * 続く呼び出しへ渡す形は捕捉する（検出漏れの禁止。タスク 115.156）
+ *
+ * `await page.evaluate(...).then((v) => expect(v)...)` は、呼び出しそのものは文の位置に
+ * あるが、返り値は続く `.then` の受け手へ渡って主張に使われる。手前だけを後ろ向きに
+ * 読む判定ではこの形を「消費されない」と誤って判定して見逃す。
+ */
+function checkChainedConsumptionIsDetected(): string[] {
+  return checkConsumption(
+    [
+      {
+        label: '文の位置で then へ渡す形',
+        snippet: 'await page.evaluate(() => true).then((v) => expect(v).toBeTruthy());\n',
+      },
+      {
+        label: 'await を伴わずに then へ渡す形',
+        snippet: 'page.evaluate(() => true).then((v) => expect(v).toBeTruthy());\n',
+      },
+      {
+        label: 'then の受け手が識別子の形',
+        snippet: 'await page.evaluate(() => true).then(assertTruthy);\n',
+      },
+      {
+        label: 'catch を挟んでから then へ渡す形（値は連なりを通り抜ける）',
+        snippet:
+          'await page.evaluate(() => true).catch(() => false).then((v) => expect(v).toBeTruthy());\n',
+      },
+      {
+        label: '省略可能連結で then へ渡す形',
+        snippet: 'await page.evaluate(() => true)?.then((v) => expect(v).toBeTruthy());\n',
+      },
+      {
+        label: 'then が改行を跨いで続く形',
+        snippet: [
+          'await page',
+          '  .evaluate(() => true)',
+          '  .then((v) => expect(v).toBeTruthy());',
+          '',
+        ].join('\n'),
+      },
+    ],
+    true
+  );
+}
+
+/**
+ * 続く呼び出しが返り値を受け取らない形は捕捉しない（過検出の禁止。タスク 115.156）
+ *
+ * 消費は検出の必要条件である（scanSource は消費されない呼び出しを読み飛ばす）。したがって
+ * 消費と見なす範囲を広げる変更は、広げすぎると負債ではない書き方へ赤を出す**過検出**の
+ * 方向へ劣化する。見逃しは逆に消費の範囲を**狭めた**ときに生じる。
+ * `.catch` / `.finally` の受け手は解決値を受け取らないため、これらだけが続く形では
+ * 返り値は依然としてどこにも渡っていない。連なりの外にある `.then` を取り違える形、
+ * および画面へ送るスクリプトの内側にある `.then` を取り違える形も併せて固定する。
+ */
+function checkChainedNonConsumptionIsNotDetected(): string[] {
+  return checkConsumption(
+    [
+      {
+        label: 'catch だけが続く形（受け手は解決値を受け取らない）',
+        snippet: 'await page.evaluate(() => true).catch(() => {});\n',
+      },
+      {
+        label: 'finally だけが続く形（受け手は何も受け取らない）',
+        snippet: 'await page.evaluate(() => true).finally(() => {});\n',
+      },
+      {
+        label: 'catch と finally だけが続く形',
+        snippet: 'await page.evaluate(() => true).catch(() => {}).finally(() => {});\n',
+      },
+      {
+        label: '受け手を持たない then',
+        snippet: 'await page.evaluate(() => true).then();\n',
+      },
+      {
+        label: '解決側の受け手が null の then（拒否側だけを受ける形）',
+        snippet: 'await page.evaluate(() => true).then(null, (e) => log(e));\n',
+      },
+      {
+        label: '連なりの外にある別の文の then',
+        snippet: 'await page.evaluate(() => true);\npending.then((v) => expect(v).toBeTruthy());\n',
+      },
+      {
+        label: '画面へ送るスクリプトの内側にある then',
+        snippet: 'await page.evaluate(() => Promise.resolve(true).then((v) => v));\n',
+      },
+      {
+        label: '続くのが呼び出しでない項目参照',
+        snippet: 'await page.evaluate(() => true).then;\n',
+      },
+    ],
+    false
+  );
+}
+
+/**
+ * 表に無いメソッドを挟む連なりは辿らない（見逃す側へ倒す判断の固定。タスク 115.156）
+ *
+ * ヘッダの限界節が宣言しているとおり、`then` / `catch` / `finally` 以外のメソッドを挟む
+ * 連なりは、挟まれたメソッドが解決値をどう扱うかが構文だけでは決められないため、
+ * そこで辿るのをやめる。結果としてこの形は消費と判定せず、検出もしない——
+ * すなわち**見逃す側**へ倒している。この判断が失われる（表に無いメソッドを素通りさせて
+ * 連なりを辿り続ける）と、消費と見なす範囲が広がって過検出の方向へ劣化するため、
+ * ここで非検出として固定する。
+ */
+function checkUnknownChainMethodStopsWalk(): string[] {
+  return checkConsumption(
+    [
+      {
+        label: '表に無いメソッドを挟んでから then へ渡す形',
+        snippet: 'await page.evaluate(() => true).valueOf().then((v) => expect(v).toBeTruthy());\n',
+      },
+    ],
+    false
+  );
+}
+
+/**
  * 正規表現リテラルの中の引用符で、以降のファイル全体の読み取りが壊れないこと
  *
  * 消費の判定はコメントと文字列を潰した写しの上で行う。`/['"]/` のような
@@ -429,6 +546,21 @@ const CONSUMPTION: Case[] = [
     name: '正規表現リテラルの引用符で以降の走査が壊れない',
     expected: null,
     custom: checkRegexLiteralDoesNotBreakScan,
+  },
+  {
+    name: '続く呼び出しへ渡す形は捕捉する（検出漏れの禁止）',
+    expected: null,
+    custom: checkChainedConsumptionIsDetected,
+  },
+  {
+    name: '続く呼び出しが返り値を受け取らない形は捕捉しない（過検出の禁止）',
+    expected: null,
+    custom: checkChainedNonConsumptionIsNotDetected,
+  },
+  {
+    name: '表に無いメソッドを挟む連なりは辿らない（見逃す側へ倒す判断の固定）',
+    expected: null,
+    custom: checkUnknownChainMethodStopsWalk,
   },
 ];
 

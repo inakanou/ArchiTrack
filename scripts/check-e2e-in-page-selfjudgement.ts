@@ -48,8 +48,10 @@
  *   死んだ一行にすぎず、偽の緑ではない。この条件を欠くと本検出器は、負債ではない書き方に対して
  *   赤を出し続ける検査になる。消費とみなすのは代入・宣言・return / yield・
  *   他の呼び出しの引数・括弧で包まれた部分式・プロパティ値や三項の枝・
- *   テンプレート文字列への埋め込みである。判定は isCallResultConsumed が
- *   呼び出しの手前を後ろ向きに読んで行い、scanSource から適用する。
+ *   テンプレート文字列への埋め込み、および**続く呼び出しへ渡す形**（`.then(onFulfilled)`）である。
+ *   判定は isCallResultConsumed が二方向から行う。呼び出しの手前を後ろ向きに読む判定
+ *   （115.108）に、呼び出しの後ろへ続く連なりを前向きに辿る判定（115.156）を足したもので、
+ *   scanSource から適用する。
  *   返り値に意味の無い addInitScript は、この条件により常に対象外となる。
  *
  * 対象外:
@@ -58,6 +60,8 @@
  *   - 画面の状態へ触れる語（document / window / globalThis / localStorage / 本番が置く目印 等）を
  *     含むスクリプト。ただし R2 に当たる読み返しは localStorage を含んでいても検出する。
  *   - 返り値を消費しない呼び出し（文の位置に置かれた `await page.waitForFunction(...)` 等）。
+ *     続く連なりが `.catch` / `.finally` だけの形、および受け手を持たない `.then()` や
+ *     解決側が `null` の `.then(null, f)` も、解決値がどこへも渡らないためここに含まれる。
  *
  * 検出できない形（既知の限界）:
  *   本規則は「テスト自身が書いた値しか見ていないか」を構造から判定する。したがって
@@ -66,6 +70,28 @@
  *   「利用可能」と主張する probe）は捕捉できない。これを機械的に判定するには
  *   「その検証が参照する本番のシンボルが本番の経路から到達するか」を見る必要があり、
  *   タスク 115.109 の所管である。
+ *
+ *   消費の判定の限界（タスク 115.156）:
+ *   - **本タスクで新たに扱えるようになった形**: 呼び出しそのものが文の位置にあっても、
+ *     続く連なりに解決値を受け取る `.then(onFulfilled)` があれば消費と判定する。
+ *     `.catch` / `.finally` を挟んだ先の `.then`、省略可能連結 `?.then(...)`、
+ *     改行を跨ぐ連なりも辿る（連なりを辿る上限は CHAIN_WALK_LIMIT）。
+ *     **この変更で判定が変わった実在の箇所は 0 件である**（`npm run check:e2e-selfjudge` の
+ *     走査対象である e2e 配下 211 ファイル・画面内呼び出し 445 箇所について、
+ *     変更前後の isCallResultConsumed を突き合わせて実測。検出件数も 0 件のまま変化なし）。
+ *     起票時点の「該当は零件」は実測で裏付けられており、本項は理論上の穴を塞いだものである。
+ *   - 省略可能呼び出しの形（`.then?.(cb)`。115.156 の**見逃し側**の限界）
+ *     `?.(` の呼び出し形式は辿らないため、この形は依然として消費と判定しない。
+ *     e2e 配下の該当は 0 件（走査で確認）。
+ *   - `then` / `catch` / `finally` 以外を挟む連なり（115.156 の**見逃し側**の限界）
+ *     `.valueOf().then(...)` のように表に無いメソッドを挟む形は、そこで連なりを辿るのを
+ *     やめるため消費と判定しない。挟まれたメソッドが解決値をどう扱うかは構文だけでは
+ *     決められないため、見逃す側へ倒している。
+ *   - 文の位置にある論理演算子・コンマ演算子の右辺（**過検出**方向の限界）
+ *     `flag && (await page.evaluate(...));` のように値がどこへも渡らない式文でも、
+ *     手前の演算子を見て消費と判定する。演算子の手前が式か文かを区別していないためである。
+ *     これは 115.156 が加えた前向きの判定ではなく、115.108 が置いた後ろ向きの判定に
+ *     元からある性質である。e2e 配下の該当は 0 件（走査で確認）。
  *
  * 第3原則（テストを前提条件で自動的に無効化しない）に従い、走査対象が 0 件のとき、
  * および画面へ送るスクリプトを 1 件も抽出できなかったときは合格にせず失敗する。
@@ -404,6 +430,28 @@ function matchingOpenIndex(masked: string, closeIndex: number): number {
   return -1;
 }
 
+/** from 以降で最初に現れる空白でない文字の位置を返す（無ければ -1） */
+function nextSignificantIndex(masked: string, from: number): number {
+  let index = from;
+  while (index < masked.length && /\s/.test(masked[index]!)) index += 1;
+  return index < masked.length ? index : -1;
+}
+
+/** 開き括弧の位置から、釣り合う閉じ括弧の位置を返す（見つからなければ -1） */
+function matchingCloseIndex(masked: string, openIndex: number): number {
+  let depth = 0;
+  for (let index = openIndex; index < masked.length; index += 1) {
+    const char = masked[index]!;
+    if (char === '(' || char === '[' || char === '{') {
+      depth += 1;
+    } else if (char === ')' || char === ']' || char === '}') {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
 /**
  * `.evaluate` の `.` の位置から、その呼び出し式全体の先頭の位置を返す
  *
@@ -450,17 +498,101 @@ const CONSUMING_KEYWORDS = new Set(['return', 'yield', 'typeof', 'new', 'instanc
 const TRANSPARENT_KEYWORDS = new Set(['await', 'void']);
 
 /**
+ * 続く呼び出しのうち、**解決値を受け手へ渡す**もの
+ *
+ * `.then(onFulfilled)` の第一引数は解決値を受け取る。したがって呼び出しそのものが
+ * 文の位置にあっても、返り値はその受け手へ渡り、そこで主張されうる。
+ */
+const VALUE_RECEIVING_CHAIN_METHODS = new Set(['then']);
+
+/**
+ * 続く呼び出しのうち、**解決値を受け取らないまま連なりを続ける**もの
+ *
+ * `.catch(onRejected)` の受け手は拒否理由を受け取り、`.finally(onFinally)` の受け手は
+ * 何も受け取らない。いずれも解決値には触れないため、これらだけが続く形では
+ * 返り値はどこへも渡っていない。ただし解決値は連なりの先へ通り抜けるため、
+ * この先に `.then` があれば消費である。
+ */
+const VALUE_PASSING_CHAIN_METHODS = new Set(['catch', 'finally']);
+
+/** 続く呼び出しの連なりを辿る上限（病的な入力で走査が止まらないことの担保） */
+const CHAIN_WALK_LIMIT = 16;
+
+/** 受け手が解決値を受け取る形かどうか（`then()` や `then(null, f)` は受け取らない） */
+function hasFulfilledHandler(masked: string, openParenIndex: number): boolean {
+  const args = extractArgumentList(masked, openParenIndex);
+  if (args === null) return false;
+  const first = splitTopLevelArguments(args)[0];
+  if (first === undefined) return false;
+  const normalized = first.trim();
+  if (normalized.length === 0) return false;
+  return normalized !== 'null' && normalized !== 'undefined';
+}
+
+/**
+ * 画面へ送る呼び出しの返り値が、**続く呼び出しへ渡される**かを判定する
+ *
+ * `await page.evaluate(...).then((v) => expect(v).toBeTruthy())` は、呼び出しそのものが
+ * 文の位置にあるため手前を後ろ向きに読む判定では「消費されない」となるが、返り値は
+ * 続く `.then` の受け手へ渡って主張に使われる。この形を消費と認めるための判定である。
+ *
+ * @param masked maskCommentsAndStrings を通した原文の写し
+ * @param dotIndex 呼び出しの `.` の位置（原文と写しで同じ）
+ */
+function isCallResultForwarded(masked: string, dotIndex: number): boolean {
+  const openParen = masked.indexOf('(', dotIndex);
+  if (openParen < 0) return false;
+  let cursor = matchingCloseIndex(masked, openParen);
+  if (cursor < 0) return false;
+
+  for (let step = 0; step < CHAIN_WALK_LIMIT; step += 1) {
+    let index = nextSignificantIndex(masked, cursor + 1);
+    if (index < 0) return false;
+    // `?.` の省略可能連結も一つの連なりとして辿る
+    if (masked[index] === '?' && masked[index + 1] === '.') index += 1;
+    if (masked[index] !== '.') return false;
+
+    const nameStart = nextSignificantIndex(masked, index + 1);
+    if (nameStart < 0 || !isIdentifierChar(masked[nameStart])) return false;
+    let nameEnd = nameStart;
+    while (isIdentifierChar(masked[nameEnd])) nameEnd += 1;
+    const name = masked.slice(nameStart, nameEnd);
+
+    const callParen = nextSignificantIndex(masked, nameEnd);
+    // 呼び出しでない項目参照（`.then` を読むだけ）は値を渡さない
+    if (callParen < 0 || masked[callParen] !== '(') return false;
+    const callClose = matchingCloseIndex(masked, callParen);
+    if (callClose < 0) return false;
+
+    if (VALUE_RECEIVING_CHAIN_METHODS.has(name) && hasFulfilledHandler(masked, callParen)) {
+      return true;
+    }
+    // 表に無いメソッド（`.valueOf()` 等）は解決値の扱いが構文から決まらないため、
+    // ここで辿るのをやめて見逃す側へ倒す。表にある `catch` / `finally` /
+    // 受け手不在の `then` は解決値を通り抜けさせるので連なりを続ける。
+    if (!VALUE_PASSING_CHAIN_METHODS.has(name) && !VALUE_RECEIVING_CHAIN_METHODS.has(name)) {
+      return false;
+    }
+    cursor = callClose;
+  }
+  return false;
+}
+
+/**
  * 画面へ送る呼び出しの返り値が呼び出し側で消費されるかを判定する
  *
- * 消費とみなすのは代入・宣言・`return` / `yield`・他の呼び出しの引数・
- * 括弧で包まれた部分式・プロパティ値や三項の枝・テンプレート文字列への埋め込みである。
- * 文の位置に置かれた `await page.waitForFunction(...)` のように返り値を使わない呼び出しは
- * 消費されていないと判定する。
+ * 判定は二方向から行う。手前を後ろ向きに読む判定で消費とみなすのは代入・宣言・
+ * `return` / `yield`・他の呼び出しの引数・括弧で包まれた部分式・プロパティ値や三項の枝・
+ * テンプレート文字列への埋め込みである。手前が文の位置であっても、**続く呼び出しへ
+ * 返り値が渡る形**（`.then(onFulfilled)`）は消費である（タスク 115.156）。
+ * 文の位置に置かれた `await page.waitForFunction(...)` のように、いずれの方向でも
+ * 返り値がどこへも渡らない呼び出しは消費されていないと判定する。
  *
  * @param masked maskCommentsAndStrings を通した原文の写し
  * @param dotIndex 呼び出しの `.` の位置（原文と写しで同じ）
  */
 export function isCallResultConsumed(masked: string, dotIndex: number): boolean {
+  if (isCallResultForwarded(masked, dotIndex)) return true;
   let start = expressionStartIndex(masked, dotIndex);
   for (;;) {
     const index = previousSignificantIndex(masked, start - 1);
