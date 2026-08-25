@@ -23,6 +23,7 @@ import {
   waitForOcrProgressIndicator,
   hasOcrProgressIndicatorAppeared,
 } from '../../helpers/ocr-observations';
+import { expectPdfPreviewRendered } from '../../helpers/pdf-preview';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -678,14 +679,19 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
       const fileInput = page.locator('input[type="file"]');
       await fileInput.setInputFiles(testFilePath);
 
-      // PDFプレビュー（react-pdf）またはスケルトンが表示される
-      // Note: react-pdfのロードに時間がかかる場合があるため、スケルトンも許容
-      await expect(
-        page
-          .locator('.react-pdf__Document, [data-testid="preview-skeleton"]')
-          .or(page.getByText(/PDFの読み込み/i))
-          .first()
-      ).toBeVisible({ timeout: getTimeout(15000) });
+      // REQ-13.2: PDFビューアでインライン表示されることを主張する（Task 115.158）
+      // 以前は「react-pdf の外枠 **または** 読み込み中の骨組み **または**
+      // `/PDFの読み込み/`」の選言で成立としていた。最後の枝は失敗表示
+      // 「PDFの読み込みに失敗しました」に一致するが、`.or(...).first()` は
+      // **DOM順の先頭の要素がひとつ可視か**を問う形であり、先頭は常に幅0の骨組みである
+      // （実測: `.first()` が掴むのは矩形 0x368 の `preview-skeleton`）。
+      // よってこの枝には到達せず、失敗を成立として受理してはいなかった
+      // （実測: 読み込み失敗の終状態でこの形は 12.5〜15.0 秒の待機切れで赤）。
+      // 閉じた穴は (1) 外枠の可視が読み込みの成否を何も述べないこと、
+      // (2) 外枠の可視からページの canvas の可視までの窓
+      //     （CPU 8 倍抑制の実測で 0.7〜1.4 秒）、の2点である。
+      // 実測値と再現手順は `e2e/helpers/pdf-preview.ts` の冒頭に置いた。
+      await expectPdfPreviewRendered(page);
     });
   });
 

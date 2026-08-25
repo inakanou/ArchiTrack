@@ -22,6 +22,16 @@
  * 画像のみのPDF fixture を用意し、`e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts`
  * で 17.4 と 17.8 の双方を被覆して当該除外を解消した。
  *
+ * Task 115.158: PDFプレビューの成立を「react-pdf の外枠 **または** 読み込み中の骨組み」の
+ * 選言で受理する形を全廃した。`.or(...).first()` は「どれかの枝が満たされれば成立」ではなく
+ * **DOM順の先頭の要素がひとつ可視か**を問う形であり、この画面では先頭が常に幅0の骨組みで
+ * あるため、骨組みの枝も後続の枝も判定に効いていなかった。実際に閉じた穴は
+ * (1) `react-pdf` の外枠は読み込み中も失敗時も描画されるため**外枠の可視は成否を何も述べない**
+ * こと、(2) 外枠の可視からページの canvas の可視までに窓があり（CPU 8 倍抑制の実測で
+ * 0.7〜1.4 秒）、その窓に当たった実行が**描画されていないのに緑**になることの2点である。
+ * 実測値と再現手順は `e2e/helpers/pdf-preview.ts` の冒頭に置いた。
+ * 判定は同ファイルの `expectPdfPreviewRendered` へ寄せる。
+ *
  * @module e2e/specs/estimate-requests/pdf-text-extraction-e2e.spec
  */
 
@@ -31,6 +41,7 @@ import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { assertPrepared } from '../../helpers/preconditions';
 import { seedEstimateRequest } from '../../helpers/estimate-request-preconditions';
+import { expectPdfPreviewRendered } from '../../helpers/pdf-preview';
 import {
   startOcrProgressIndicatorWatch,
   hasOcrProgressIndicatorAppeared,
@@ -449,14 +460,13 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(pdfPath);
 
-    // PDFプレビューが表示されるまで待機
-    // react-pdfのDocumentまたはスケルトンが表示される
-    await expect(
-      page
-        .locator('.react-pdf__Document, .react-pdf__Page')
-        .or(page.locator('[data-testid="preview-skeleton"]'))
-        .first()
-    ).toBeVisible({ timeout: getTimeout(15000) });
+    // PDFプレビューの描画が成立するまで待機（Task 115.158）
+    // 以前は「react-pdf の外枠 **または** 読み込み中の骨組み」の選言で成立としていた。
+    // `.or(...).first()` は DOM順の先頭の要素の可視を問う形であり、先頭は常に幅0の骨組みで
+    // あるため枝は効いていなかったが、外枠の可視が読み込みの成否を述べないこと自体は残る。
+    // 外枠の可視からページの canvas の可視までには窓がある（CPU 8 倍抑制の実測で 0.7〜1.4 秒）。
+    // ページの canvas の可視だけを成立とする形へ改める。
+    await expectPdfPreviewRendered(page);
 
     // ページナビゲーションが表示されるまで待機
     // アップロードした `test-text-pdf.pdf` は 2 ページ（/Count 2）であるため、
@@ -539,16 +549,12 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(pdfPath);
 
-    // PDFプレビューが表示されるまで待機
-    await expect(
-      page
-        .locator('.react-pdf__Document, .react-pdf__Page')
-        .or(page.locator('[data-testid="preview-skeleton"]'))
-        .first()
-    ).toBeVisible({ timeout: getTimeout(15000) });
-
-    // react-pdfのロード完了を十分に待つ
-    await page.waitForTimeout(3000);
+    // PDFプレビューの描画が成立するまで待機（Task 115.158）
+    // 以前は外枠の可視で成立としていたため、外枠が出てから canvas が出るまでの窓
+    // （CPU 8 倍抑制の実測で 0.7〜1.4 秒）に当たると描画前に先へ進んでしまい、
+    // その不確かさを埋めるために固定時間の待機を置いていた。
+    // ページの canvas の可視を主張すればページ数が確定するため、固定時間の待機は不要になる。
+    await expectPdfPreviewRendered(page);
 
     // 1ページPDFなのでナビゲーションボタンが非表示であること
     const nextButton = page.getByRole('button', { name: '次へ' });

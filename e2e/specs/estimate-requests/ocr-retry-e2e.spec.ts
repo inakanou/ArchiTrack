@@ -29,6 +29,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { assertPrepared } from '../../helpers/preconditions';
 import { seedEstimateRequest } from '../../helpers/estimate-request-preconditions';
+import { expectPdfPreviewRendered } from '../../helpers/pdf-preview';
 import {
   startOcrProgressIndicatorWatch,
   hasOcrProgressIndicatorAppeared,
@@ -713,9 +714,13 @@ test.describe('OCR再実行・リトライ機能', () => {
     await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
 
     // ファイルプレビューが表示される（PDFプレビュー）（REQ-16.12）
-    // FileInlinePreviewコンポーネントがreact-pdfでPDFをレンダリングする
-    // react-pdfは .react-pdf__Document > .react-pdf__Page を生成する
-    await expect(page.locator('.react-pdf__Document')).toBeVisible({ timeout: getTimeout(15000) });
+    // Task 115.158: 以前は `.react-pdf__Document` の可視だけを見ていたが、
+    // `react-pdf` は読み込み中も失敗時もこの外枠を描画する
+    // （`react-pdf/src/Document.tsx` の `renderContent()` は内側に `Message` を置くだけ）。
+    // したがって読み込み中のまま終わっても緑になっていた。描画の成立だけを主張する。
+    // 実測: 壊れたPDFの読み込み失敗の終状態（canvas 0 件・失敗表示が可視）で
+    // この形は 21〜27 ミリ秒で緑になった。再現手順は `e2e/helpers/pdf-preview.ts` の冒頭。
+    await expectPdfPreviewRendered(page);
   });
 
   test('テストデータをクリーンアップする', async ({ page }) => {
