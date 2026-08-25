@@ -5,7 +5,8 @@
  * （REQ-19.1 は Task 115.135 の是正で被覆表記から外した。本ファイルは描画スケールを
  *   一切観測しておらず、現行の e2e/fixtures は2件ともテキスト入りPDFで
  *   スキャンPDFフォールバック経路へ到達しないため。`e2e/requirement-exclusions.json` へ
- *   integration-test 区分で登録済みで、解消は後続タスク 115.157 が担う）
+ *   integration-test 区分で登録済みであったが、タスク 115.157 が画像のみのPDF fixture を
+ *   用意して `e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts` で被覆し、当該除外を解消した）
  * - REQ-19.2: グレースケール変換適用
  * - REQ-19.3: 大津の二値化適用
  * - REQ-19.4: 水平線除去処理適用
@@ -450,8 +451,9 @@ test.describe('OCR画像前処理パイプライン', () => {
    * 一切観測していない。加えて現行の `e2e/fixtures` の PDF は 2 件ともテキスト入りであり、
    * スキャンPDFフォールバック経路（Canvas 描画）へ到達しない。被覆済みと数えさせないため
    * タグを外し `e2e/requirement-exclusions.json` へ integration-test 区分で登録した。
-   * E2E での被覆は後続タスク **115.157**「画像のみのPDFを用意しOCRフォールバック経路の
-   * 被覆を実際に回復する」で回復し、同タスクが当該除外を解消する。
+   * タスク **115.157** が画像のみのPDF fixture（`e2e/fixtures/test-scanned-pdf.pdf`）を
+   * 用意し、`e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts` で
+   * 描画スケールを実測して被覆した。当該除外は解消済みである。
    *
    * @requirement estimate-request/REQ-19.2
    * @requirement estimate-request/REQ-19.3

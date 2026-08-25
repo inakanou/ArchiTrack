@@ -18,9 +18,9 @@
  * あわせて、現行の `e2e/fixtures` の PDF は 2 件ともテキスト入りでスキャンPDF
  * フォールバック経路へ到達しないため、17.4（スキャンPDFでCanvas→OCR）と
  * 17.8（30秒タイムアウト）を被覆から外し、`e2e/requirement-exclusions.json` へ
- * integration-test 区分で登録した（理由は各検証の注記）。E2E での被覆は後続タスク
- * **115.157**「画像のみのPDFを用意しOCRフォールバック経路の被覆を実際に回復する」で
- * 回復し、同タスクが当該除外を解消する。
+ * integration-test 区分で登録した（理由は各検証の注記）。その後タスク **115.157** が
+ * 画像のみのPDF fixture を用意し、`e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts`
+ * で 17.4 と 17.8 の双方を被覆して当該除外を解消した。
  *
  * @module e2e/specs/estimate-requests/pdf-text-extraction-e2e.spec
  */
@@ -306,8 +306,9 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
    *
    * 115.135 の是正: 到達しない受入基準を被覆済みと数えさせないため `@requirement` タグを
    * 外し、`e2e/requirement-exclusions.json` へ integration-test 区分で登録した。
-   * E2E での被覆は後続タスク **115.157**「画像のみのPDFを用意しOCRフォールバック経路の
-   * 被覆を実際に回復する」で回復し、同タスクが当該除外を解消する。
+   * タスク **115.157** が画像のみのPDF fixture（`e2e/fixtures/test-scanned-pdf.pdf`）を
+   * 用意し、`e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts` で
+   * 当該経路を被覆した。当該除外は解消済みである。
    *
    * 本検証に残る主張は「テキスト入り PDF から抽出結果の表示へ到達し、
    * エラー表示にならないこと」である。
@@ -576,9 +577,10 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
    * `e2e/requirement-exclusions.json` へ integration-test 区分で登録し、代替検証として
    * `frontend/src/components/estimate-requests/OcrDataExtractor.test.tsx` の
    * 「PDFテキスト抽出のタイムアウト（30秒）が適用される（17.8）」を据えた
-   * （2026-08-24 に単体で実行し 30.1 秒で緑になることを実測）。E2E での被覆の可否は
-   * 後続タスク **115.157**「画像のみのPDFを用意しOCRフォールバック経路の被覆を実際に
-   * 回復する」が判断し、成立すれば同タスクが本除外を解消する。
+   * （2026-08-24 に単体で実行し 30.1 秒で緑になることを実測）。その後タスク **115.157** が
+   * 150 ページの画像のみPDF（`e2e/fixtures/test-scanned-pdf-multipage.pdf`）で
+   * 30 秒の打ち切りを実測し、`e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts`
+   * で被覆した。当該除外は解消済みである。
    *
    * 本検証に残るのは REQ-17.7 の後半、すなわち処理中インジケーターが
    * 実行中にだけ表示され、終端後は残らないことの確認である。

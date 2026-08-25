@@ -14,8 +14,9 @@
  * したがって要件19の受入基準 19.1 / 19.6 / 19.8 は本ファイルでは検査できない。
  * 被覆済みと数えさせないため当該 3 件の `@requirement` タグを外し、
  * `e2e/requirement-exclusions.json` へ integration-test 区分で登録した。
- * E2E での被覆は後続タスク **115.157**「画像のみのPDFを用意しOCRフォールバック経路の
- * 被覆を実際に回復する」で回復し、同タスクが当該除外を解消する。
+ * その後タスク **115.157** が画像のみのPDF fixture を用意し、
+ * `e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts` で
+ * 19.1 / 19.6 / 19.8 を被覆して当該除外を解消した。
  *
  * テストフロー:
  * 1. テスト用前提データ(プロジェクト、取引先、内訳書、見積依頼)をAPI経由で作成
@@ -104,8 +105,9 @@ test.describe('OCR抽出結果の精度改善 (Task 48.1)', () => {
    *
    * 115.135 の是正: 到達しない受入基準を被覆済みと数えさせないため、当該 3 件の
    * `@requirement` タグを外し `e2e/requirement-exclusions.json` へ integration-test 区分で
-   * 登録した。E2E での被覆は後続タスク **115.157**「画像のみのPDFを用意しOCR
-   * フォールバック経路の被覆を実際に回復する」で回復し、同タスクが当該除外を解消する。
+   * 登録した。その後タスク **115.157** が画像のみのPDF fixture を用意し、
+   * `e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts` で
+   * 当該 3 件を被覆して除外を解消した。
    *
    * 本検証に残る主張は「テキスト入り PDF から抽出結果の表示へ到達し、
    * エラー表示にならないこと」である。
@@ -273,8 +275,9 @@ test.describe('OCR抽出結果の精度改善 (Task 48.1)', () => {
    * 維持する」であり、本検証はタイムアウトを一つも計測していない。加えて入力の
    * `e2e/fixtures/test-text-pdf.pdf` はテキスト入り PDF であり、画像前処理パイプラインを
    * 含む経路へ到達しない。被覆済みと数えさせないためタグを外し
-   * `e2e/requirement-exclusions.json` へ登録した。E2E での被覆は後続タスク **115.157** で
-   * 回復し、同タスクが当該除外を解消する。
+   * `e2e/requirement-exclusions.json` へ登録した。その後タスク **115.157** が
+   * `e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts` で
+   * 30 秒の打ち切りを実測して被覆し、当該除外を解消した。
    *
    * 本検証に残る主張は「テキスト入り PDF では従来どおり pdfjs-dist の直接抽出で
    * 抽出結果の表示へ到達し、エラー表示にならないこと」である。
