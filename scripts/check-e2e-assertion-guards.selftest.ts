@@ -1846,6 +1846,68 @@ const SETTLED_TYPE_ASSERTION: Case[] = [
     ].join('\n'),
     expected: ['T3-tautology'],
   },
+  // --------------------------------------------------------------------------
+  // 115.164: T10 の狭め方の境界を単独で固定する（規則を広げる変異への防護）
+  //
+  // 115.143 の非検出側 7 件のうち、最重要の境界（応答の JSON の項目参照は**実質のある
+  // 検査**であって恒真ではない）を単独で固定していたのは 115.143-3 の一件だけであった。
+  // 下の三件は、それぞれ異なる狭め方を**単独で反転させる変異**で落ちることを実測して足した。
+  // --------------------------------------------------------------------------
+  {
+    // 狭め方: `??` の左辺の型が判らなければ全体も「判らない」とする
+    //   （`if (!left || !right) return undefined;`）。
+    // 変異: 左辺が判らないときに空集合として扱い、既定値の型だけで決める。
+    // この形は応答の項目が無ければ 0（number）だが、項目が文字列なら 'string' となって
+    // 落ちる。すなわち既定値を伴っても応答の項目参照は実質のある検査である。
+    name: '115.164-1 応答の JSON の項目に既定値を与えた形は検出しない（既定値だけで型を決めない）',
+    source: [
+      "test('sections', async ({ request }) => {",
+      "  const response = await request.get('/api/projects/1');",
+      '  const body = await response.json();',
+      '  const totalCount = body.sections.estimates.totalCount ?? 0;',
+      "  expect(typeof totalCount).toBe('number');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T10-settled-type-assertion'],
+  },
+  {
+    // 狭め方: `??` の左辺の型のうち null / undefined 以外を右辺へ合併する。
+    // 変異: 左辺を捨てて右辺の型だけを採る。
+    // 既定値の型が観測の型と異なるため型の集合は 2 要素（'string' と 'number'）であり、
+    // 主張は画面に文字が出ていれば落ちる。115.143-5（既定値の無い観測）は `??` を
+    // 通らないため、この合併の側を単独では固定できない。
+    name: '115.164-2 既定値の型が観測の型と異なるなら型は定まらない（集合が 2 要素）',
+    source: [
+      "test('count', async ({ page }) => {",
+      "  const shown = (await page.locator('.c').textContent()) ?? 0;",
+      "  expect(typeof shown).toBe('number');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T10-settled-type-assertion'],
+  },
+  {
+    // 狭め方: 同名の宣言が複数ある名前は、どの値が主題か決められないため辿らない
+    //   （`if (values.length !== 1) return undefined;`）。
+    // 変異: 複数あるとき最初の宣言を採る。
+    // 115.143-10 が固定するのは「後から代入される名前」であり、同名の宣言が複数ある形は
+    // 限界節に書かれていながら自己検査には無かった。
+    name: '115.164-3 同名の宣言が複数ある名前は辿らない（どの値が主題か決められない）',
+    source: [
+      "test('first', async ({ page }) => {",
+      "  const text = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(text.length).toBeGreaterThan(0);',
+      '});',
+      '',
+      "test('second', async ({ page }) => {",
+      "  const text = await page.locator('.b').getAttribute('data-value');",
+      "  expect(typeof text).toBe('string');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T10-settled-type-assertion'],
+  },
 ];
 
 // ============================================================================
@@ -2265,6 +2327,75 @@ const IMPLIED_SUCCESSOR: Case[] = [
       '  let amountText = raw;',
       "  amountText = (await page.getByTestId('preview-total').textContent()) ?? '';",
       "  expect(amountText.replace(/[,円]/g, '')).not.toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  // --------------------------------------------------------------------------
+  // 115.164: 115.163 の査読が挙げた「狭める判断」のうち、実効を持つものを固定する
+  //
+  // 査読は五つの判断を挙げた（後続側の否定の要求／空の needle の番人／同名の宣言が
+  // 複数のときの遡り抑止／自己比較／束縛の解決不能での打ち切り）。2026-08-25 に一つずつ
+  // 単独で反転させて測ったところ、自己検査 118 件はいずれの変異でも全て緑のままであった。
+  // うち三つ（否定の要求・同名の宣言・束縛の解決不能）は自作の例で検出が反転する、
+  // すなわち**実効を持つ**ことを確かめたため、下の三件で固定する。
+  // 残る二つ（空の needle・自己比較）は反転させても検出が動かない。理由は検出器側の
+  // コメントに実測とともに記した（`impliedSuccessor` を参照）。
+  // --------------------------------------------------------------------------
+  {
+    // 狭め方: 後続は**否定を伴う** `toContain` に限る。
+    // 変異: 否定の要求を外す。
+    // 先行が受理しない綴りを肯定で主張する形は「決して失敗しない」のではなく
+    // 「必ず失敗する」形であり、飾りではなく落ちる主張である。数えてはならない。
+    name: '115.164-4 否定を伴わない後続は含意の対象にしない（恒偽であって恒真ではない）',
+    source: [
+      "test('positive successor', async ({ page }) => {",
+      "  const amount = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(amount).toMatch(/^[0-9,]+円$/);',
+      "  expect(amount).toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 狭め方: 中間の名前に同名の宣言が複数あるときは出どころへ遡らない
+    //   （`absenceSubjectRoots` の `values.length === 1`）。
+    // 変異: 複数あるとき最初の宣言を採る。
+    // 一つ目のテストだけなら T12 として検出される形である（115.163-1 と同じ骨格）。
+    // 二つ目のテストが同じ名前を別の値で宣言した時点で、後続の主題がどちらの値から
+    // 来たのかは構文だけでは決められない。
+    name: '115.164-5 同名の宣言が複数ある中間の名前では遡らない（先行と繋げない）',
+    source: [
+      "test('first', async ({ page }) => {",
+      "  const amount = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(amount).toMatch(/^[0-9,]+円$/);',
+      "  const cleaned = amount.replace(/,/g, '');",
+      "  expect(cleaned).not.toContain('.');",
+      '});',
+      '',
+      "test('second', async ({ page }) => {",
+      "  const other = (await page.locator('.b').textContent()) ?? '';",
+      '  const cleaned = other.trim();',
+      '  expect(cleaned.length).toBeGreaterThan(0);',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 狭め方: 主題の名前を束縛へ解決できないときは対応づけない
+    //   （`impliedSuccessor` の `if (!rootBinding) continue;`）。
+    // 変異: この打ち切りを外す。先行も後続も解決できず双方 undefined となって「同じ束縛」と
+    // 見なされ、対応づいてしまう。取り込んだ名前や大域の名前は同じ綴りでも同じ束縛とは限らない。
+    name: '115.164-6 束縛を解決できない名前は先行と後続を対応づけない（取り込んだ名前）',
+    source: [
+      "import { fixedAmountLabel } from '../helpers/labels';",
+      '',
+      "test('imported binding', async () => {",
+      '  expect(fixedAmountLabel).toMatch(/^[0-9,]+円$/);',
+      "  expect(fixedAmountLabel).not.toContain('.');",
       '});',
     ].join('\n'),
     expected: [],

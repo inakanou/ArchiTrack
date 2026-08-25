@@ -136,6 +136,12 @@
  *       同じ式を `const` で書いた場合と扱いを変える理由が無いためである。
  *
  * 検出対象外とした構造（意図的に対象外。再検討時はこの記述を更新すること）:
+ *   **ここに並ぶのは検出器が見ない構造である。したがって、ある型の検出が 0 件であることは
+ *   「その型の欠陥が無いこと」を意味しない。**下記の限界に当たる形は数え上げられておらず、
+ *   人手で是正した箇所も検出器からは見えない（T12 の「主題が locator である先行の主張」が
+ *   その実例で、Task 115.163 が人手で是正した 2 箇所は検出器には現れない）。
+ *   件数を伴う記述には**測定時点**を併記する。時点の無い数値はその項に記した Task の実施時点の
+ *   ものであり、走査対象の増減で動く。再現の手順は各項に記す。
  *   - 論理和による検証のうち、真偽以外の matcher に渡る形（`expect(a || b).toContain(...)` 等）
  *     既定値を与えてから内容を検証する正当な用法と区別できず、誤検出が支配的になるため。
  *     真偽値の matcher（toBeTruthy / toBeFalsy / toBe(true|false)）に渡る形は T3 で検出する。
@@ -170,6 +176,35 @@
  *   - 正規表現を needle に取る不在の主張（`expect(x).not.toMatch(/\./)`）
  *     needle が言語である場合の包含判定を要するため対象外とする。
  *     不在の主張の needle は文字列リテラルの形（`not.toContain`）だけを見る。
+ *   - 抽出から主張までに挟む束縛の数（T7 の**見逃し側**の限界。Task 115.139 / 115.164）
+ *     識別子の解決は共有の上限 `RESOLVE_DEPTH_LIMIT`（現在 4）に縛られる。名前を一つ挟むごとに
+ *     深さが増えるため、**同じ欠陥を文に分けて書くと深さ超過で無検出になる**。実測（2026-08-25）:
+ *
+ *       const matched = text.match(/[\d,]+/);
+ *       expect(matched![0].replace(/,/g, '')).not.toContain('.');   // 検出される（深さ 4）
+ *
+ *       const matched = text.match(/[\d,]+/);
+ *       const raw = matched![0];
+ *       expect(raw.replace(/,/g, '')).not.toContain('.');           // 検出されない（深さ 5）
+ *
+ *     上限は T7 だけのものではなく、局所変数の追跡（T1/T3/T4/T5）・T8・T10・T11・T12 の
+ *     遡りが同じ定数を共有する。上限を上げれば届くが、循環と過剰展開を招くため上げていない。
+ *     現時点で**この上限が隠している該当は無い**: 上限を 12 に差し替えて e2e 配下 210 ファイルを
+ *     走査しても検出は 0 件のままであった（2026-08-25 実測。再現は `RESOLVE_DEPTH_LIMIT` を
+ *     書き換えて `npx tsx scripts/check-e2e-assertion-guards.ts --no-baseline --json`）。
+ *   - 錨付きの置換を「needle を残らず取り除く」と数える（T7 の**過検出**方向の限界。
+ *     Task 115.139 / 115.164）`replacementRemovesNeedle` は、needle 自身を当の正規表現で
+ *     置換した結果が空になるかで判定する。`/\.$/g` は needle `'.'` を空にするため
+ *     「残らず取り除く」と判定されるが、実際に消えるのは**末尾の一つだけ**であり中間の `.` は残る。
+ *     したがって `expect(text.replace(/\.$/g, '')).not.toContain('.')` は実質のある主張だが
+ *     T7 は該当と数える（2026-08-25 に自作の例で実証）。行頭の錨 `/^\./g` でも同じ誤判定が
+ *     起きる（同日に実測）。一方 `/\.{2}/g` のように needle 一つでは一致しない形は
+ *     置換後が空にならないため誤判定にならない（同日に実測）。すなわち誤判定は
+ *     「needle 一つを消せる」が「すべての出現を消すとは限らない」置換で起きる。
+ *     現時点のリポジトリ内にこの形は 0 件である（全型の検出が 0 件であり、
+ *     この形は現れれば T7 として検出されるため。`npm run check:e2e-guards` で再現）。
+ *     同じ判定は T12 の遡り（`absenceSubjectRoots`）でも用いる。そちらでは「T7 が数える形」として
+ *     遡りを打ち切るため、同じ誤判定が**見逃し側**へ働く。
  *   - 不在の主張のうち、主題が補助の呼び出しでない形（T8 の限界。Task 115.140）
  *     `expect(probe.activeType).toBeNull()` のように主題が項目参照である形、
  *     `expect(await page.evaluate(...)).toBeNull()` のようにその場で書き下した形、
@@ -222,11 +257,13 @@
  *     被呼び出しが識別子でない形（`obj.method()` / `arr[0]()`）、および同一ファイルにも
  *     名前付きの取り込みにも宣言が見つからない名前（既定取り込み・名前空間取り込みを含む）は
  *     対象外とする。真偽を返すかを構文だけでは決められないためである。
- *     実測（走査対象の e2e 配下 208 ファイル）では、結果を捨てる呼び出しの式文は 28726 箇所あり、
- *     内訳は識別子の被呼び出し 6005 / 項目参照 `obj.m()` 22720 / その他 1 である。
- *     識別子の 6005 のうち名前を解決できないものは 36 箇所。項目参照 22720 のうち
+ *     実測（2026-08-25。走査対象の e2e 配下 210 ファイル）では、結果を捨てる呼び出しの式文は
+ *     28891 箇所あり、内訳は識別子の被呼び出し 6042 / 項目参照 `obj.m()` 22848 / その他 1 である。
+ *     識別子の 6042 のうち名前を解決できないものは 36 箇所。項目参照 22848 のうち
  *     Playwright の即時判定（`isVisible` 等）の結果を捨てるものは 0 箇所であり、
  *     この限界により現時点で見逃している該当は観測されていない。
+ *     （Task 115.141 の測定時点では 208 ファイル / 28726 / 6005 / 22720 / 1 であった。
+ *     数え直しは走査対象の全ファイルを構文木で数える使い捨ての計測で行った。）
  *   - 同一ファイルに同名の宣言が複数あり、真偽を返すものと返さないものが混在する形
  *     （T9 の限界。Task 115.141）どれが呼ばれるかを構文だけでは決められないため
  *     対象外とする。数え切れない側は検出しない。
@@ -238,19 +275,37 @@
  *     逆に、同一ファイルで宣言された名前は取り込みより優先して解決する。この優先を
  *     置かないと、`navigateToQuantityTableEdit` のように**複数の spec が同名で別々に
  *     宣言している**関数が名前の一致だけで巻き込まれ、3 件の偽陽性が生じる（Task 115.141 で実測）。
+ *   - 同名の束縛が影を作る形（T9 の**過検出**方向の限界。Task 115.141 / 115.164）
+ *     `localFunctions` はファイル全体を走査して**名前で**関数を集めるだけであり、呼び出しの位置から
+ *     見える束縛（スコープ）を見ない。したがって、ファイル直下に真偽を返す補助があり、その名前を
+ *     引数や catch の束縛が**影で覆っている**場所で結果を捨てる呼び出しを書くと、影の側の呼び出しが
+ *     ファイル直下の補助として解決され偽陽性になる。2026-08-25 に自作の二例で実証した
+ *     （`const withCleanup = (hasPendingUpload: () => void) => { hasPendingUpload(); }` の
+ *     引数による影と、`catch (hasPendingUpload) { hasPendingUpload(); }` の catch 束縛による影。
+ *     いずれもファイル直下の `function hasPendingUpload(): boolean` として解決され T9 と数えられた）。
+ *     現時点のリポジトリ内にこの形は 0 件である（全型の検出が 0 件であり、この形は現れれば
+ *     T9 として検出されるため。`npm run check:e2e-guards` で再現）。なお T12 の先行と後続の
+ *     対応づけは同じ取り違えを避けるために綴りではなく束縛（`resolveBinding`）で見ている。
  *   - 真偽以外を返す関数の結果を捨てる形（T9 の限界。Task 115.141）
  *     `await createProject(page)` のように値を返す関数の結果を捨てる形は対象外である。
  *     値を返す関数の値は「前提の成否」を表すとは限らず、構文だけでは区別できない。
- *     実測では、名前を解決できた式文の呼び出し 5969 箇所のうち真偽を返すものは 5 箇所である。
+ *     実測（2026-08-25）では、名前を解決できた式文の呼び出し 6006 箇所のうち真偽を返すものは
+ *     **3 箇所**である（`site-survey-images.spec.ts` の `dispatch` の三つの送出。いずれも
+ *     `page.evaluate` の内側であり、上のブラウザ側評価の除外に当たるため検出はされない）。
+ *     Task 115.141 の限界節はここを「5969 箇所のうち 5 箇所」と記していたが、これは
+ *     **同タスクの是正前に測った値**であり測定時点も併記されていなかった。上の数値へ改めた。
  *   - 実行時の型が構文だけでは定まらない主題に対する型の主張（T10 の限界。Task 115.143）
  *     `expect(typeof body.sections.estimates.totalCount).toBe('number')` のように、
  *     主題が `await response.json()` 由来の項目参照である形は**対象外**とする。
  *     静的な型が何であれ、応答に当該の項目が無ければ `typeof` は `'undefined'` になり
  *     主張は落ちる。すなわち実質のある実行時の検査であって恒真ではない。
- *     実測では e2e 配下の `expect(typeof …)` は 32 箇所あり（走査時点）、
- *     その内訳は応答の JSON の項目参照 29・exceljs のセルの値 1・JWK の項目参照 2 で、
- *     **いずれも型が構文で定まらない**。T3 と同じ広さ（`typeof` を見た時点で恒真とみなす）
- *     へ広げると、この 32 箇所がそのまま過検出として現れる。とりわけ
+ *     実測（Task 115.143 の走査時点。2026-08-25 に数え直しても同じ）では e2e 配下の
+ *     `expect(typeof …)` は 32 箇所あり、その内訳は応答の JSON の項目参照 29・
+ *     exceljs のセルの値 1（`itemized-statement-crud.spec.ts` の `quantityCell.value`）・
+ *     JWK の項目参照 2 で、**いずれも型が構文で定まらない**。
+ *     再現は `grep -rn 'expect(typeof' e2e/specs e2e/helpers e2e/fixtures`。
+ *     T3 と同じ広さ（`typeof` を見た時点で恒真とみなす）へ広げると、
+ *     この 32 箇所がそのまま過検出として現れる。とりわけ
  *     `itemized-statements/itemized-statement-crud.spec.ts` の REQ-13.5 は、
  *     Task 115.127 段5 が「値の有無で包んだうえ真偽で主張していた」形を**この形へ是正した**
  *     ものであり、広い規則はその是正を欠陥として数え返すことになる。
@@ -261,8 +316,14 @@
  *   - 呼び出しの表を**メソッド名だけ**で引くこと（T10 の**過検出**方向の限界。Task 115.143）
  *     `SETTLED_RETURN_TYPES` は受け手を見ずメソッド名だけで引く。したがって Playwright の
  *     locator 以外の対象が同名のメソッド（独自の `count()` など）を持ち、その戻り値が
- *     表の型と異なる場合は偽陽性になりうる。現時点のリポジトリ内にこの形は 0 件である
- *     （`expect(typeof …)` の 32 箇所はいずれも項目参照であって呼び出しではない）。
+ *     表の型と異なる場合は偽陽性になりうる。2026-08-25 に自作の例
+ *     `const total = widget.count(); expect(typeof total).toBe('number');` が T10 として
+ *     数えられることを確認した（`widget` が Playwright の locator であるかを検出器は見ない）。
+ *     現時点のリポジトリ内にこの形は 0 件である（同日の数え直しでも `expect(typeof …)` の
+ *     32 箇所はいずれも項目参照であって呼び出しではない）。
+ *     **表を引く鍵をメソッド名だけに置く限り、この方向の偽陽性は書き換えでは塞げない。**
+ *     塞ぐには受け手の型を知る必要があり、それは下の「戻り値の型を表に持たない呼び出し」で
+ *     述べた型検査器の導入と同じ費用になる。
  *   - 既定値を伴わない観測の型の主張（T10 の**見逃し側**の限界。Task 115.143）
  *     `const text = await area.textContent(); expect(typeof text).toBe('string')` は、
  *     `textContent()` の戻り値の型が `string | null` であるため型の集合が
@@ -424,6 +485,9 @@
  *
  * 抑止一覧（基準）の位置づけ:
  *   基準に載っている件数は「解消済み」ではない。**いま抑止しているだけの既知の欠陥**である。
+ *   逆に、件数が 0 であることも「欠陥が無い」ことを意味しない。0 は**この検出器が見つけて
+ *   いない**という事実に過ぎず、上の「検出対象外とした構造」に当たる形は最初から数えられて
+ *   いない。各型の 0 は限界の記述と併せて読むこと（Task 115.164）。
  *   放置すると「検査は通るのに欠陥は残る」状態が恒久化するため、次の三つを設けている。
  *
  *   (1) 負債の可視化
@@ -2392,7 +2456,8 @@ export function scanSource(relPath: string, source: string): ScanResult {
       if (reassigned.has(node.text)) return [];
       const roots = [node];
       const values = declTable.get(node.text) ?? [];
-      // 同名の宣言が複数あるときはどれが出どころか決められないため遡らない
+      // 同名の宣言が複数あるときはどれが出どころか決められないため遡らない。
+      // **実効を持つ**（自己検査 115.164-5 が固定。Task 115.164 で実測）
       if (values.length === 1) roots.push(...absenceSubjectRoots(values[0]!, needle, depth + 1));
       return roots;
     }
@@ -2483,14 +2548,27 @@ export function scanSource(relPath: string, source: string): ScanResult {
     subject: ts.Expression,
     needle: string
   ): string | undefined => {
+    // 空の needle の番人。**実効は無い**（Task 115.164 で実測）。ここを外しても、
+    // 正規表現の先行は `regexCannotYield` 自身の空の番人で false を返し、等値の先行は
+    // `!expected.includes('')` が常に偽になるため、いずれも該当にならない（自作の二例で確認）。
+    // 走査でもこの枝は踏まれない（2026-08-25。e2e 配下 210 ファイルで本関数の呼び出し 26 回は
+    // すべて非空の needle）。意図の表明として残す。
     if (needle === '') return undefined;
     const roots = absenceSubjectRoots(subject, needle);
     if (roots.length === 0) return undefined;
     languageFixingAssertions ??= collectLanguageFixingAssertions();
     for (const root of roots) {
       const rootBinding = resolveBinding(root.text, root);
+      // 束縛へ解決できない名前（取り込んだ定数・大域の名前）では対応づけを諦める。
+      // 外すと先行も後続も `undefined` となって「同じ束縛」と見なされ、同じ綴りの別物を
+      // 繋いでしまう。**実効を持つ**（自己検査 115.164-6 が固定。Task 115.164 で実測）。
       if (!rootBinding) continue;
       for (const leading of languageFixingAssertions) {
+        // 自己比較。**恒偽である**: 先行として集めるのは否定を伴わない
+        // toMatch / toBe / toEqual / toStrictEqual だけであり、ここへ来る `assertion` は
+        // 否定を伴う toContain である。同じ節点が双方になることはない（仮に同じでも
+        // 直後の位置の比較 `>=` で外れる）。走査でも踏まれない（2026-08-25。e2e 配下で
+        // この内側は 12 回回り、一致は 0 回）。読み手への表明として残す。
         if (leading.node === assertion) continue;
         if (leading.subject.text !== root.text) continue;
         if (leading.node.getStart() >= assertion.getStart()) continue;
@@ -2764,6 +2842,9 @@ export function scanSource(relPath: string, source: string): ScanResult {
           receiver = receiver.expression;
         }
         const needleArg = node.arguments[0];
+        // 後続は**否定を伴う** `toContain` に限る。否定を伴わない形は「決して失敗しない」
+        // のではなく「必ず失敗する」形であり、飾りではない。**実効を持つ**
+        // （自己検査 115.164-4 が固定。Task 115.164 で実測）
         if (
           negated &&
           ts.isCallExpression(receiver) &&
