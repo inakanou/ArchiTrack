@@ -24,6 +24,12 @@
  * 資材の既定値を合成する形でプリセットを構成する。
  * 検証は `frontend/src/__tests__/components/site-surveys/StylePanel.default-presets.test.tsx`。
  *
+ * Task 115.151 (Req 26.5): 上の合成は重複判定を `toLowerCase()` で行い大小を無視する一方、
+ * 選択状態の判定は素の等価比較で大小を区別していた。二系統の正規化が併存していたため、
+ * 資材の既定色の**表記**が変わるだけで（例: `#FF0000` / `#f00`）既定状態の選択が消えるか、
+ * 見分けのつかない色が二枚並ぶ。色の比較は `normalizeColorValue` 一本へ寄せた。
+ * 検証は `frontend/src/__tests__/components/site-surveys/StylePanel.color-normalization.test.tsx`。
+ *
  * @requirement site-survey/REQ-24.5
  * @requirement site-survey/REQ-25.2
  * @requirement site-survey/REQ-26.3
@@ -120,21 +126,65 @@ const PALETTE_STROKE_WIDTHS = [1, 2, 4, 6, 8];
 const PALETTE_FONT_SIZES = [12, 14, 16, 18, 24, 32];
 
 /**
+ * 色の値を比較のための正準形へ正規化する（Req 26.5）
+ *
+ * Task 115.151: 従来はプリセットの合成側が `toLowerCase()` による大小無視の判定を、
+ * 選択状態の判定側が素の等価比較（大小を区別）を、それぞれ別々に行っていた。
+ * 資材 `annotation-style-tokens.ts` の既定色の表記が変わると、合成側が「既に含まれる」
+ * と判断した色を選択判定側が別物と見なし、既定状態でどのプリセットも選択されなくなる。
+ * 色の比較は本関数一本に寄せ、合成・重複排除・選択判定・表示のすべてが同じ正準形を見る。
+ *
+ * 正準形は「3桁記法を6桁へ展開し、小文字へ寄せた形」。`'transparent'` のような
+ * `#` で始まらない値は小文字化のみ行う（`'transparent'` はそのまま `'transparent'`）。
+ *
+ * @param color 正規化前の色（HEX または `'transparent'`）
+ * @returns 比較・表示に用いる正準形
+ */
+function normalizeColorValue(color: string): string {
+  const lowered = color.toLowerCase();
+  if (!lowered.startsWith('#')) return lowered;
+
+  const hex = lowered.slice(1);
+  if (hex.length === 3) {
+    return `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`;
+  }
+  return lowered;
+}
+
+/**
+ * 二つの色が同じ色かを判定する（Req 26.5）
+ *
+ * Task 115.151: 色の等価判定を素の `===` で書くと、比較する両辺の表記が揃っている
+ * という暗黙の前提が実装のあちこちへ散る。判定は必ず本関数を経由させる。
+ */
+function isSameColor(left: string, right: string): boolean {
+  return normalizeColorValue(left) === normalizeColorValue(right);
+}
+
+/**
  * 既定の色を汎用パレットへ合成する（Req 26.5）
  *
  * Task 115.99: 既定本体色がプリセットの並びに無いと、パネルを既定状態で開いたとき
- * どのプリセットも選択状態にならない（選択判定は `normalizedStrokeColor === color`）。
+ * どのプリセットも選択状態にならない（選択判定は `isSameColor(normalizedStrokeColor, color)`）。
  * 既定値は資材から引き、パレットに無い場合のみ先頭へ加える。既に含まれる場合は
  * パレットの並びをそのまま保つ。
  *
+ * Task 115.151: 並び全体を `normalizeColorValue` の正準形で持つ。合成した既定色を
+ * 元の表記のまま置くと、選択判定側の正準形と一致せず選択状態が消える。
+ * 正準形が重なる要素は取り除く（見分けのつかない色が二枚並ぶのを防ぐ。React の
+ * `key` もこの並びの値である）。
+ *
  * @param palette 汎用パレット
  * @param defaultColor 資材が定める既定色
- * @returns 既定色を必ず含むプリセット配列
+ * @returns 既定色を必ず含む、正準形で重複の無いプリセット配列
  */
 function withDefaultColor(palette: readonly string[], defaultColor: string): string[] {
-  const normalized = defaultColor.toLowerCase();
-  const alreadyIncluded = palette.some((color) => color.toLowerCase() === normalized);
-  return alreadyIncluded ? [...palette] : [defaultColor, ...palette];
+  const normalizedDefault = normalizeColorValue(defaultColor);
+  const normalizedPalette = palette.map((color) => normalizeColorValue(color));
+  const merged = normalizedPalette.includes(normalizedDefault)
+    ? normalizedPalette
+    : [normalizedDefault, ...normalizedPalette];
+  return [...new Set(merged)];
 }
 
 /**
@@ -463,25 +513,6 @@ function StylePanel({
     [styleOptions, onStyleChange]
   );
   /**
-   * HEX色コードを正規化（3桁を6桁に変換）
-   */
-  const normalizeHexColor = useCallback((color: string): string => {
-    // 'transparent'の場合はそのまま返す
-    if (color === 'transparent') return color;
-
-    // #で始まる場合
-    if (color.startsWith('#')) {
-      const hex = color.slice(1);
-      // 3桁の場合、6桁に変換
-      if (hex.length === 3) {
-        return `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`;
-      }
-      return color;
-    }
-    return color;
-  }, []);
-
-  /**
    * 線色変更ハンドラ
    */
   const handleStrokeColorChange = useCallback(
@@ -615,9 +646,11 @@ function StylePanel({
   );
 
   // 正規化された色の値
-  const normalizedStrokeColor = normalizeHexColor(styleOptions.strokeColor);
-  const normalizedFillColor = normalizeHexColor(styleOptions.fillColor);
-  const normalizedFontColor = normalizeHexColor(styleOptions.fontColor);
+  // Task 115.151: 表示も選択判定も `normalizeColorValue` の正準形だけを見る
+  const normalizedStrokeColor = normalizeColorValue(styleOptions.strokeColor);
+  const normalizedFillColor = normalizeColorValue(styleOptions.fillColor);
+  const normalizedFontColor = normalizeColorValue(styleOptions.fontColor);
+  const fillIsTransparent = isSameColor(normalizedFillColor, 'transparent');
 
   // 白縁取り / 白アウトラインの現在値（未指定時は既定を採用）
   const arrowOutlineEnabled =
@@ -730,7 +763,9 @@ function StylePanel({
                     style={{
                       ...STYLES.presetButton,
                       backgroundColor: color,
-                      ...(normalizedStrokeColor === color ? STYLES.presetButtonActive : {}),
+                      ...(isSameColor(normalizedStrokeColor, color)
+                        ? STYLES.presetButtonActive
+                        : {}),
                       ...(disabled ? STYLES.disabledStyle : {}),
                     }}
                     aria-label={`線色プリセット ${color}`}
@@ -748,7 +783,7 @@ function StylePanel({
                 <input
                   id="fill-color"
                   type="color"
-                  value={normalizedFillColor === 'transparent' ? '#ffffff' : normalizedFillColor}
+                  value={fillIsTransparent ? '#ffffff' : normalizedFillColor}
                   onChange={handleFillColorChange}
                   disabled={disabled}
                   style={{
@@ -757,7 +792,7 @@ function StylePanel({
                   }}
                 />
                 <span style={STYLES.colorValue}>
-                  {normalizedFillColor === 'transparent' ? 'なし' : normalizedFillColor}
+                  {fillIsTransparent ? 'なし' : normalizedFillColor}
                 </span>
               </div>
               <div
@@ -774,7 +809,7 @@ function StylePanel({
                   title="塗りつぶしなし"
                   style={{
                     ...STYLES.noFillButton,
-                    ...(normalizedFillColor === 'transparent' ? STYLES.presetButtonActive : {}),
+                    ...(fillIsTransparent ? STYLES.presetButtonActive : {}),
                     ...(disabled ? STYLES.disabledStyle : {}),
                   }}
                   aria-label="塗りつぶしなし"
@@ -794,7 +829,7 @@ function StylePanel({
                     style={{
                       ...STYLES.presetButton,
                       backgroundColor: color,
-                      ...(normalizedFillColor === color ? STYLES.presetButtonActive : {}),
+                      ...(isSameColor(normalizedFillColor, color) ? STYLES.presetButtonActive : {}),
                       ...(disabled ? STYLES.disabledStyle : {}),
                     }}
                     aria-label={`塗りつぶしプリセット ${color}`}
