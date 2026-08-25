@@ -1884,6 +1884,135 @@ function runCase(index: number, testCase: Case): string[] {
   return failures;
 }
 
+// ============================================================================
+// 115.162: 空の母集団に対する不在の主張（T11）
+//
+// 母集団から作った値へ不在を主張しながら、母集団が空でないことを別に確かめない形は、
+// 母集団が空なら（連結は空文字、写像は空配列になり）常に成立する。
+// 両方向（検出する例・検出してはならない例）を固定する。
+// ============================================================================
+
+const EMPTY_POPULATION_ABSENCE: Case[] = [
+  {
+    name: '115.162-1 失敗一覧を連結した文字列へ不在を主張する（実例 site-survey-upload-validation-e2e）',
+    source: [
+      "test('upload', async ({ page }) => {",
+      '  const response = await page.waitForResponse(() => true);',
+      '  const body = await response.json();',
+      "  expect(body).toHaveProperty('failed');",
+      '  const failureReasons = (Array.isArray(body.failed) ? body.failed : [])',
+      "    .map((failure) => failure.error ?? '')",
+      "    .join(' / ');",
+      '  expect(failureReasons).not.toMatch(/サポートされていないファイル形式/);',
+      '});',
+    ].join('\n'),
+    expected: ['T11-empty-population-absence'],
+  },
+  {
+    name: '115.162-2 母集団の大きさを固定してから不在を主張する形は検出しない（是正後の形）',
+    source: [
+      "test('upload fixed', async ({ page }) => {",
+      '  const response = await page.waitForResponse(() => true);',
+      '  const body = await response.json();',
+      '  const successful = body.successful;',
+      '  const failed = body.failed;',
+      '  expect(successful.length + failed.length).toBe(1);',
+      "  const failureReasons = failed.map((failure) => failure.error ?? '').join(' / ');",
+      '  expect(failureReasons).not.toMatch(/サポートされていないファイル形式/);',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T11-empty-population-absence'],
+  },
+  {
+    name: '115.162-3 写像で作った配列へ不在を主張する形も同型として検出する',
+    source: [
+      "test('ids', async ({ page }) => {",
+      '  const rows = await fetchRows(page);',
+      '  const ids = rows.map((row) => row.id);',
+      "  expect(ids).not.toContain('deleted-id');",
+      '});',
+    ].join('\n'),
+    expected: ['T11-empty-population-absence'],
+  },
+  {
+    name: '115.162-4 母集団の要素の実在を別に主張していれば検出しない（実例 site-survey-image-request-scaling）',
+    source: [
+      "test('ids guarded', async ({ page }) => {",
+      '  const rows = await fetchRows(page);',
+      '  const head = rows[0];',
+      '  expect(head.id).toBeTruthy();',
+      '  const ids = rows.map((row) => row.id);',
+      "  expect(ids).not.toContain('deleted-id');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T11-empty-population-absence'],
+  },
+  {
+    name: '115.162-5 母集団を経ない不在の主張は検出しない（画面の値をそのまま見る）',
+    source: [
+      "test('raw', async ({ page }) => {",
+      "  const text = (await page.locator('#alert').textContent()) ?? '';",
+      '  expect(text).not.toMatch(/アップロードに失敗/);',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T11-empty-population-absence'],
+  },
+  {
+    name: '115.162-6 空文字にも一致する正規表現は検出しない（母集団が空なら主張は落ちる）',
+    source: [
+      "test('empty matches', async ({ page }) => {",
+      '  const rows = await fetchRows(page);',
+      "  const joined = rows.map((row) => row.label).join(' / ');",
+      '  expect(joined).not.toMatch(/^$/);',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T11-empty-population-absence'],
+  },
+  {
+    name: '115.162-7 綴りが構文で定まらない needle は検出しない（解析できない側へ倒す）',
+    source: [
+      "test('dynamic needle', async ({ page }) => {",
+      '  const rows = await fetchRows(page);',
+      "  const joined = rows.map((row) => row.label).join('');",
+      '  expect(joined).not.toContain(coverOnlyText);',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T11-empty-population-absence'],
+  },
+  {
+    name: '115.162-8 宣言のあとに積んで作る集まりは検出しない（変更の追跡を要するため。意図した限界）',
+    source: [
+      "test('pushed', async ({ page }) => {",
+      '  const headerTexts = [];',
+      "  const count = await page.locator('th').count();",
+      '  for (let i = 0; i < count; i++) {',
+      "    headerTexts.push((await page.locator('th').nth(i).textContent()) ?? '');",
+      '  }',
+      "  expect(headerTexts).not.toContain('ID');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T11-empty-population-absence'],
+  },
+  {
+    name: '115.162-9 否定を伴わない主張だけを母集団の固定として数える（不在の主張は自らを保証しない）',
+    source: [
+      "test('negated guard does not count', async ({ page }) => {",
+      '  const rows = await fetchRows(page);',
+      '  const ids = rows.map((row) => row.id);',
+      "  expect(rows).not.toContain('x');",
+      "  expect(ids).not.toContain('deleted-id');",
+      '});',
+    ].join('\n'),
+    expected: ['T11-empty-population-absence'],
+  },
+];
+
 function main(): void {
   const groups: Array<{ title: string; cases: Case[] }> = [
     { title: '115.24 捕捉できていなかった三つの書き方', cases: MISSED_FORMS },
@@ -1906,6 +2035,10 @@ function main(): void {
     {
       title: '115.143 型が構文で確定した値に対する型の主張',
       cases: SETTLED_TYPE_ASSERTION,
+    },
+    {
+      title: '115.162 空の母集団に対する不在の主張',
+      cases: EMPTY_POPULATION_ABSENCE,
     },
   ];
 

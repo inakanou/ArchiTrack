@@ -60,8 +60,19 @@
  *                           **真偽以外の matcher に載せ替えた同じ主張**（`expect(typeof x).toBe('string')`）は
  *                           `matcherArgIsBoolean` の関門で外れて無検出になっていた（Task 115.143）。
  *                           ただし T3 と同じ広さでは数えない。詳細は下の「限界」を参照
+ *   T11 empty-population-absence  空の母集団に対する不在の主張
+ *                           `const reasons = failed.map((f) => f.error).join(' / ');`
+ *                           `expect(reasons).not.toMatch(/拒否/)` のように、**母集団から作った値**に
+ *                           対して不在を主張しながら、**母集団が空でないことを別に確かめていない**形。
+ *                           母集団が空なら連結の結果は空文字（写像の結果は空配列）となり、
+ *                           不在の主張は画面や API が何を返していても成立する。
+ *                           T7 が「**主題の作り方**が結論を先取りしている形」であるのに対し、
+ *                           こちらは「**主題の元になる集まりが空でありうる**形」である。
+ *                           T8 が述べた「不在の主張は、対象が存在することを別に確かめない限り
+ *                           何も主張していない」を、単一の空値ではなく**集まり**へ広げたものに当たる
+ *                           （Task 115.162）
  *
- * 分類の優先順位: T3 > T4 > T5 > T1（T2 と T6 と T7 と T8 と T9 と T10 は別軸のため重複して計上する）
+ * 分類の優先順位: T3 > T4 > T5 > T1（T2 と T6 と T7 と T8 と T9 と T10 と T11 は別軸のため重複して計上する）
  *
  * 検証を包む形（T1 / T4 / T5 の入口）:
  *   - `if (cond) { await expect(...) }`
@@ -262,6 +273,37 @@
  *   - 否定を挟む型の主張（T10 の限界。Task 115.143）
  *     `expect(typeof x).not.toBe('string')` は「その型ではない」ことの主張であり、
  *     型が確定していれば**常に落ちる**（恒偽）。恒真の検出とは別の話であるため対象外とする。
+ *   - 宣言のあとに積んで作る集まり（T11 の**見逃し側**の限界。Task 115.162）
+ *     `const headerTexts: string[] = []; for (...) headerTexts.push(...)` のように、
+ *     宣言時は空で、あとから繰り返しの中で積んで作る集まりは**対象外**とする。
+ *     主題の値が宣言だけでは定まらず、判定には変更の追跡を要するためである。
+ *     T10 が「再代入される名前を対象外とする」のと同じ理由であり、数え切れない側は検出しない。
+ *     実測では、この形に当たる同型の該当が e2e 配下に 1 件ある
+ *     （`e2e/specs/projects/project-list-columns.spec.ts` の REQ-2.2。表のヘッダから
+ *     `th` の文字列を積み、`expect(headerTexts).not.toContain('ID')` と主張する。
+ *     `th` が一つも取れなければ主張は素通りするが、大きさを固定する主張が無い）。
+ *     Task 115.162 の境界（画像アップロード検証E2E）の外であるため是正していない。
+ *   - 綴りが構文で定まらない needle（T11 の見逃し側の限界。Task 115.162）
+ *     `expect(pages.join('')).not.toContain(coverOnlyText)` のように needle が識別子である形は、
+ *     空の値がその needle を含まないかを構文だけでは決められないため対象外とする。
+ *     実測では e2e 配下に 1 件ある（`estimate/estimate-report-export-e2e.spec.ts`。
+ *     ただしこの箇所は母集団の大きさを別に固定しており、needle を解決できたとしても該当しない）。
+ *   - 母集団の大きさを固定する主張の探索を「名前が現れるか」で行うこと
+ *     （T11 の**見逃し側**の限界。Task 115.162）
+ *     母集団を指す名前が、否定を伴わない `expect(...)` の主題に語として現れれば
+ *     「母集団は別に確かめられている」と見なす。したがって
+ *     `expect(items).toHaveLength(0)` のように**空であることを主張している**場合や、
+ *     大きさと無関係な主張（`expect(items).toBeDefined()`）でも固定済みと見なす。
+ *     広く見積もる方向であり、過検出は主張を消す圧力になるため見逃す側へ倒している。
+ *     実測では、この探索を外すと e2e 配下の検出は 0 件から 6 件へ増え、増えた 4 件は
+ *     いずれも母集団の大きさ・要素の実在を別に主張している箇所であった
+ *     （`admin/rbac.spec.ts` `estimate/estimate-hierarchy-move-e2e.spec.ts`
+ *     `estimate/estimate-hierarchy-reload-save-e2e.spec.ts`
+ *     `site-surveys/site-survey-image-request-scaling.spec.ts`）。
+ *   - 母集団は空でないが要素の値が空である形（T11 の限界。Task 115.162）
+ *     `failed.map((f) => f.error ?? '').join(' / ')` は、`failed` に要素があっても
+ *     すべての `error` が未定義なら空文字になる。これは母集団の大きさではなく
+ *     **既定値が値を潰す**形であり、本型ではなく別の型として扱う。対象外とする。
  *   - 判定・抽出の実装そのものである分岐（Task 115.127 段3・計画の A 群）
  *     真偽を返す関数、またはブラウザ側で評価される関数（`evaluate` 族）の内側で、
  *     **expect を一つも含まず** then 節が脱出だけの分岐。述語は false を返す経路を必ず持ち、
@@ -412,7 +454,8 @@ export type GuardType =
   | 'T7-excluded-absence'
   | 'T8-ambiguous-absence'
   | 'T9-discarded-predicate-result'
-  | 'T10-settled-type-assertion';
+  | 'T10-settled-type-assertion'
+  | 'T11-empty-population-absence';
 
 export interface Finding {
   file: string;
@@ -472,6 +515,7 @@ const GUARD_TYPES: GuardType[] = [
   'T8-ambiguous-absence',
   'T9-discarded-predicate-result',
   'T10-settled-type-assertion',
+  'T11-empty-population-absence',
 ];
 
 /** 即時判定であり timeout 指定が無視される Playwright の述語メソッド */
@@ -1619,6 +1663,31 @@ const ABSENCE_MATCHERS: Record<string, AbsenceKind | undefined> = {
   toBeUndefined: 'undefined',
 };
 
+// ============================================================================
+// 空の母集団に対する不在の主張（T11。Task 115.162）
+// ============================================================================
+
+/**
+ * 集まりから集まりを作る操作。母集団が空なら結果も空である。
+ *
+ * `concat` は引数側に要素があれば空にならないが、**空になりうる**ことが本型の関門であり、
+ * 空にならない形は「母集団の大きさを固定する主張」の探索で外れる。
+ */
+const COLLECTION_PROJECTIONS = new Set(['map', 'filter', 'flatMap', 'slice', 'concat']);
+
+/** 文字列の形を保つ加工。連結の結果が空文字であることを変えない */
+const STRING_PRESERVING = new Set([
+  'trim',
+  'trimStart',
+  'trimEnd',
+  'toLowerCase',
+  'toUpperCase',
+  'normalize',
+]);
+
+/** 空の母集団に対する不在の主張を数える matcher */
+const EMPTY_POPULATION_MATCHERS = new Set(['toContain', 'toMatch']);
+
 /** その `return` が当該の不在の値を返すか（`return null` / `return undefined` / `return;`） */
 function returnsAbsentValue(node: ts.ReturnStatement, kind: AbsenceKind): boolean {
   if (!node.expression) return kind === 'undefined';
@@ -1934,6 +2003,172 @@ export function scanSource(relPath: string, source: string): ScanResult {
   };
 
   /**
+   * 主題が「母集団から作られた値」であるか（T11。Task 115.162）。
+   *
+   * 返すのは次の二つである。
+   *   - `kind`  母集団が空になったときに主題が取る値の種別
+   *             `'string'` = 連結（`join`）で作った文字列。空なら `''`
+   *             `'array'`  = 写像・抽出（`map` / `filter` / `flatMap` / `slice` / `concat`）で
+   *                          作った配列。空なら `[]`
+   *   - `names` 母集団を指す名前の集合。主題から母集団へ遡る途中で**受け手として現れた**
+   *             識別子・項目参照の綴りだけを集める。式の内側に埋もれた識別子は集めない。
+   *             集めすぎると「母集団の大きさを固定した主張」の探索が緩くなり、
+   *             まさに本型が対象とする形を「固定済み」と誤って見なしてしまう。
+   *
+   * 構文だけで決められない形は `undefined` を返し、検出しない（数え切れない側は検出しない）。
+   */
+  const populationOf = (
+    expr: ts.Expression,
+    depth = 0
+  ): { kind: 'string' | 'array'; names: Set<string> } | undefined => {
+    if (depth > RESOLVE_DEPTH_LIMIT) return undefined;
+    const node = unwrapParentheses(expr);
+    if (ts.isNonNullExpression(node) || ts.isAwaitExpression(node) || ts.isAsExpression(node)) {
+      return populationOf(node.expression, depth + 1);
+    }
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const name = node.expression.name.text;
+      const target = unwrapParentheses(node.expression.expression);
+      const inherited = populationOf(target, depth + 1);
+      const names = new Set<string>(inherited?.names ?? []);
+      if (ts.isIdentifier(target) || ts.isPropertyAccessExpression(target)) {
+        names.add(target.getText(sourceFile));
+      }
+      if (name === 'join') return { kind: 'string', names };
+      if (COLLECTION_PROJECTIONS.has(name)) return { kind: 'array', names };
+      // 文字列の形を保つ加工は、連結の結果が空文字であることを変えない
+      if (STRING_PRESERVING.has(name) && inherited?.kind === 'string') return inherited;
+      return undefined;
+    }
+    if (ts.isIdentifier(node) && !reassigned.has(node.text)) {
+      const values = declTable.get(node.text) ?? [];
+      if (values.length === 0) return undefined;
+      const shapes = values.map((value) => populationOf(value, depth + 1));
+      const first = shapes[0];
+      if (!first) return undefined;
+      // 同名の宣言が複数あるときは、すべてが同じ種別・同じ母集団を指す場合に限る
+      const signature = (x: { kind: string; names: Set<string> }): string =>
+        `${x.kind}|${[...x.names].sort().join(',')}`;
+      if (!shapes.every((x) => x !== undefined && signature(x) === signature(first))) {
+        return undefined;
+      }
+      const names = new Set(first.names);
+      names.add(node.text);
+      return { kind: first.kind, names };
+    }
+    return undefined;
+  };
+
+  /**
+   * 母集団が空でも成立する不在の主張か（T11。Task 115.162）。
+   *
+   * 該当する場合は理由を、しない場合は `undefined` を返す。判定は二段である。
+   *
+   *   (1) 母集団が空になったときの値（`''` または `[]`）で、その不在の主張が成立するか。
+   *       `not.toContain` / `not.toMatch` の needle は**実際に空の値へ当てて確かめる**。
+   *       上界を見積もる必要は無い。`/^$/` のように空文字に一致する正規表現なら
+   *       主張は空のときに落ちるため、素通りしない（該当としない）。
+   *   (2) 同じテスト本体の中に、その母集団の大きさを固定する主張が**別に**あるか。
+   *       母集団を指す名前のいずれかが、否定を伴わない `expect(...)` の主題に
+   *       （局所変数を展開したうえで）現れれば、母集団は別に確かめられていると見なす。
+   *       広く見積もる方向であり、見逃す側へ倒している。
+   */
+  const emptyPopulationAbsence = (
+    assertion: ts.CallExpression,
+    subject: ts.Expression,
+    matcher: 'toContain' | 'toMatch',
+    needle: ts.Expression | undefined
+  ): string | undefined => {
+    const population = populationOf(subject);
+    if (!population) return undefined;
+    // toMatch は文字列にしか当たらない。配列の母集団は toContain だけを見る
+    if (population.kind === 'array' && matcher !== 'toContain') return undefined;
+    if (!needle) return undefined;
+
+    const emptyValueLabel = population.kind === 'string' ? "''（空文字）" : '[]（空配列）';
+    if (population.kind === 'string') {
+      if (ts.isRegularExpressionLiteral(needle)) {
+        const parts = regexLiteralParts(needle);
+        if (!parts) return undefined;
+        try {
+          if (new RegExp(parts.pattern, parts.flags).test('')) return undefined;
+        } catch {
+          return undefined;
+        }
+      } else if (ts.isStringLiteralLike(needle)) {
+        if (needle.text === '') return undefined;
+      } else {
+        // 綴りが構文で定まらない needle は諦める
+        return undefined;
+      }
+    }
+    // 配列の母集団は、空配列がどんな needle も含まないため needle を見る必要が無い
+
+    const guardScope = enclosingAssertionScope(assertion);
+    if (fixesPopulationSize(guardScope, population.names, assertion)) return undefined;
+    const names = [...population.names].join(' / ');
+    return `母集団（${names}）が空なら主題は ${emptyValueLabel} となり、この不在の主張は成立する。母集団の大きさを固定する主張が同じテストに無い`;
+  };
+
+  /**
+   * 母集団の大きさを固定する主張が走査範囲にあるか（T11。Task 115.162）。
+   *
+   * 「否定を伴わない `expect(...)` の主題に、母集団を指す名前が語として現れる」ことを見る。
+   * 当の不在の主張そのものは数えない（自分で自分を保証させないため）。
+   */
+  const fixesPopulationSize = (
+    scope: ts.Node,
+    names: Set<string>,
+    self: ts.CallExpression
+  ): boolean => {
+    const patterns = [...names].map(
+      (name) => new RegExp(`(^|[^\\w$])${escapeRegExp(name)}([^\\w$]|$)`)
+    );
+    let found = false;
+    const visit = (n: ts.Node): void => {
+      if (found) return;
+      if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
+        let receiver: ts.Node = n.expression.expression;
+        let negated = false;
+        while (ts.isPropertyAccessExpression(receiver)) {
+          if (receiver.name.text === 'not') negated = true;
+          receiver = receiver.expression;
+        }
+        if (
+          n !== self &&
+          !negated &&
+          ts.isCallExpression(receiver) &&
+          ts.isIdentifier(receiver.expression) &&
+          receiver.expression.text === 'expect'
+        ) {
+          const asserted = receiver.arguments[0];
+          if (asserted) {
+            const text = expandedText(asserted);
+            if (patterns.some((pattern) => pattern.test(text))) {
+              found = true;
+              return;
+            }
+          }
+        }
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(scope);
+    return found;
+  };
+
+  /** 母集団の大きさを固定する主張を探す範囲（テスト本体、無ければ最も内側の関数） */
+  const enclosingAssertionScope = (node: ts.Node): ts.Node => {
+    let innermost: ts.Node | undefined;
+    for (let n: ts.Node | undefined = node.parent; n; n = n.parent) {
+      if (!ts.isFunctionLike(n)) continue;
+      innermost ??= n;
+      if (isTestBodyFunction(n)) return n;
+    }
+    return innermost ?? sourceFile;
+  };
+
+  /**
    * 真偽を返す関数の結果を式文として捨てているか（T9。Task 115.141）。
    *
    * 該当する場合は理由を、しない場合は `undefined` を返す。**識別子の綴りは一切見ない。**
@@ -2180,6 +2415,34 @@ export function scanSource(relPath: string, source: string): ScanResult {
           const subject = receiver.arguments[0];
           if (subject && assertsExcludedAbsence(subject, needleArg.text)) {
             push(node, 'T7-excluded-absence', receiver);
+          }
+        }
+      }
+    }
+
+    // --- T11: 空の母集団に対する不在の主張（第十二の型。Task 115.162） ---
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const matcher = node.expression.name.text;
+      if (EMPTY_POPULATION_MATCHERS.has(matcher)) {
+        let receiver: ts.Node = node.expression.expression;
+        let negated = false;
+        while (ts.isPropertyAccessExpression(receiver)) {
+          if (receiver.name.text === 'not') negated = true;
+          receiver = receiver.expression;
+        }
+        if (
+          negated &&
+          ts.isCallExpression(receiver) &&
+          ts.isIdentifier(receiver.expression) &&
+          receiver.expression.text === 'expect'
+        ) {
+          const subject = receiver.arguments[0];
+          const needle = node.arguments[0] ? unwrapParentheses(node.arguments[0]!) : undefined;
+          if (
+            subject &&
+            emptyPopulationAbsence(node, subject, matcher as 'toContain' | 'toMatch', needle)
+          ) {
+            push(node, 'T11-empty-population-absence', receiver);
           }
         }
       }

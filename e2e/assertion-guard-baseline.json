@@ -25,7 +25,8 @@
       "T7-excluded-absence": 0,
       "T8-ambiguous-absence": 0,
       "T9-discarded-predicate-result": 0,
-      "T10-settled-type-assertion": 0
+      "T10-settled-type-assertion": 0,
+      "T11-empty-population-absence": 0
     },
     "allowedTarget": 0,
     "$change": [
@@ -42,7 +43,11 @@
       "変更した 64 spec 1080 件の実ブラウザ実測は 1 巡目 1036 passed / 6 failed / 38 did not run（56.5分）。",
       "6 件のうち 3 件は検証側の誤り（無条件化で露見）、3 件は ADMIN_USER のログインが一時的に 401 になった巻き添えで、",
       "是正のうえ再実行した 8 spec 87 件は failed 0 / skipped 0 である。production の未実装は 0 件で、",
-      "pending-implementation への追加登録は無い。詳細は reduction.doc が指す計画文書の §4.5。"
+      "pending-implementation への追加登録は無い。詳細は reduction.doc が指す計画文書の §4.5。",
+      "Task 115.162: 第十二の型 T11-empty-population-absence（空の母集団に対する不在の主張）を検出規則へ加えた。",
+      "加えた時点のリポジトリ全体の検出は 0 件（是正前の site-survey-upload-validation-e2e.spec.ts の 2 件は同タスクで是正済み）。",
+      "母集団の大きさを固定する主張の探索を外すと 6 件になり、増える 4 件はいずれも大きさ・要素の実在を別に主張している箇所である。",
+      "同型のうち「宣言のあとに積んで作る集まり」は意図した限界として検出しない。該当 1 件（projects/project-list-columns.spec.ts）は本タスクの境界外のため未是正。"
     ]
   },
   "allowedFiles": {},

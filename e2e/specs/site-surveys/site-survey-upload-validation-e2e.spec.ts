@@ -314,10 +314,22 @@ test.describe('画像アップロードバリデーション (REQ-19.1〜19.16)'
     // 以前は 207 のときにだけ判定していたため、201 でも 207 でも
     // 「マジックバイト判定で拒否されていないこと」は一度も主張されない経路があった。
     const body = await response.json();
-    expect(body).toHaveProperty('successful');
-    expect(body).toHaveProperty('failed');
+    expect(Array.isArray(body.successful), '応答の successful が配列でない').toBe(true);
+    expect(Array.isArray(body.failed), '応答の failed が配列でない').toBe(true);
+    const successful = body.successful as unknown[];
+    const failed = body.failed as { error?: string }[];
 
-    const failureReasons: string = (Array.isArray(body.failed) ? body.failed : [])
+    // 母集団が空でないことを先に固定する（Task 115.162）。
+    // 失敗の理由は失敗の一覧を連結して作る。連結の元が空なら結果は空文字となり、
+    // 「拒否の理由が現れない」という主張は**一件も処理されなかった場合にも成立する**。
+    // アップロードしたのは 1 件であるから、成功と失敗の合計は必ず 1 件でなければならない。
+    // これを先に固定してはじめて、後続の不在の主張が「拒否されなかったこと」を述べる。
+    expect(
+      successful.length + failed.length,
+      'アップロードした1件が成功にも失敗にも現れていない（母集団が空）'
+    ).toBe(1);
+
+    const failureReasons: string = failed
       .map((failure: { error?: string }) => failure.error ?? '')
       .join(' / ');
     expect(
@@ -371,10 +383,22 @@ test.describe('画像アップロードバリデーション (REQ-19.1〜19.16)'
     // 以前は 207 のときにだけ判定していたため、201 でも 207 でも
     // 「マジックバイト判定で拒否されていないこと」は一度も主張されない経路があった。
     const body = await response.json();
-    expect(body).toHaveProperty('successful');
-    expect(body).toHaveProperty('failed');
+    expect(Array.isArray(body.successful), '応答の successful が配列でない').toBe(true);
+    expect(Array.isArray(body.failed), '応答の failed が配列でない').toBe(true);
+    const successful = body.successful as unknown[];
+    const failed = body.failed as { error?: string }[];
 
-    const failureReasons: string = (Array.isArray(body.failed) ? body.failed : [])
+    // 母集団が空でないことを先に固定する（Task 115.162）。
+    // 失敗の理由は失敗の一覧を連結して作る。連結の元が空なら結果は空文字となり、
+    // 「拒否の理由が現れない」という主張は**一件も処理されなかった場合にも成立する**。
+    // アップロードしたのは 1 件であるから、成功と失敗の合計は必ず 1 件でなければならない。
+    // これを先に固定してはじめて、後続の不在の主張が「拒否されなかったこと」を述べる。
+    expect(
+      successful.length + failed.length,
+      'アップロードした1件が成功にも失敗にも現れていない（母集団が空）'
+    ).toBe(1);
+
+    const failureReasons: string = failed
       .map((failure: { error?: string }) => failure.error ?? '')
       .join(' / ');
     expect(
