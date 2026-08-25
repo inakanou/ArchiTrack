@@ -39,6 +39,8 @@
  *   (d) 高さの 30% 以上の連続黒画素が消えている（垂直線除去）を同時に満たすこと。
  *   fixture には除去対象となる長さの罫線を水平・垂直に 1 本ずつ引いてあり、
  *   前処理前の観測では両方が閾値を超えていることを先に確かめる。
+ * - REQ-19.2 / 19.3 / 19.4 / 19.5: 上の (a) / (b) / (c) / (d) がそのまま四段それぞれの
+ *   受入基準の規範である（タスク 115.159 でタグを主張のある本ファイルへ移した）。
  *
  * 観測が経路の有無を弁別できることは、同じ観測をテキスト入りPDFへ当てて
  * フォールバック経路の痕跡が一つも現れないことを確かめる形で示す（本ファイル末尾）。
@@ -421,11 +423,23 @@ test.describe('スキャンPDFのOCRフォールバック経路 (Task 115.157)',
   });
 
   /**
+   * タスク 115.159 の是正: 本検証は従前から前処理の四段（グレースケール・大津の二値化・
+   * 水平線除去・垂直線除去）の結果を画素で主張していたにもかかわらず、`@requirement` は
+   * パイプライン全体を指す REQ-19.6 しか掲げていなかった。四段それぞれの受入基準
+   * （REQ-19.2〜REQ-19.5）のタグは `estimate-request-ocr-vision-e2e.spec.ts` の
+   * 「OCR処理UIが利用可能である」という検証に付いていたが、そちらは画面に何かが
+   * 見えることしか確かめておらず画素を一切観測していない。**主張のある側へタグを移した**。
+   * 下の四つの主張が、それぞれの受入基準の規範に一対一で対応する。
+   *
    * @requirement estimate-request/REQ-17.4
    * @requirement estimate-request/REQ-19.1
+   * @requirement estimate-request/REQ-19.2
+   * @requirement estimate-request/REQ-19.3
+   * @requirement estimate-request/REQ-19.4
+   * @requirement estimate-request/REQ-19.5
    * @requirement estimate-request/REQ-19.6
    */
-  test('画像のみのPDFはスキャンPDFと判定され、Canvas描画スケール4.0と画像前処理パイプラインを経てTesseract OCRが実行される (REQ-17.4, REQ-19.1, REQ-19.6)', async ({
+  test('画像のみのPDFはスキャンPDFと判定され、Canvas描画スケール4.0と画像前処理パイプラインを経てTesseract OCRが実行される (REQ-17.4, REQ-19.1, REQ-19.2, REQ-19.3, REQ-19.4, REQ-19.5, REQ-19.6)', async ({
     page,
   }) => {
     assertPrepared(createdEstimateRequestId, '事前準備で作成した見積依頼のID');

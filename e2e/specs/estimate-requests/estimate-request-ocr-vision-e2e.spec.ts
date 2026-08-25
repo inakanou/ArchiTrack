@@ -7,11 +7,13 @@
  *   スキャンPDFフォールバック経路へ到達しないため。`e2e/requirement-exclusions.json` へ
  *   integration-test 区分で登録済みであったが、タスク 115.157 が画像のみのPDF fixture を
  *   用意して `e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts` で被覆し、当該除外を解消した）
- * - REQ-19.2: グレースケール変換適用
- * - REQ-19.3: 大津の二値化適用
- * - REQ-19.4: 水平線除去処理適用
- * - REQ-19.5: 垂直線除去処理適用
- * - REQ-19.7: 画像前処理に新規外部依存を追加しない
+ * （REQ-19.2〜REQ-19.5 は Task 115.159 の是正で本ファイルの被覆表記から外した。
+ *   本ファイルは前処理後の画素を一切観測しておらず、四段それぞれの規範を判定していない。
+ *   画素を観測している `scanned-pdf-ocr-fallback-e2e.spec.ts` の
+ *   「画像のみのPDFは…Tesseract OCR が実行される」検証へタグを移した）
+ * （REQ-19.7 も同じく Task 115.159 で外した。「画像前処理に新規外部依存関係を追加しない」は
+ *   実行中の画面からは観測できない依存関係の性質であるため、
+ *   `e2e/requirement-exclusions.json` へ infrastructure 区分で登録した）
  * - REQ-20.4: カンマ区切り数値の変換
  * - REQ-20.6: Excel一括取り込み処理の互換性維持
  * - REQ-21.1: Claude Vision APIエンドポイントの提供
@@ -63,10 +65,16 @@
  * @module e2e/specs/estimate-requests/estimate-request-ocr-vision-e2e.spec
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page, type Route } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
+import { fileURLToPath } from 'url';
+import * as path from 'path';
+
+// ESM環境での__dirname代替
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // ============================================================================
 // Claude Vision APIバックエンドテスト
@@ -330,10 +338,224 @@ test.describe('Claude Vision API バックエンドエンドポイント', () =>
 });
 
 // ============================================================================
-// OCR画像前処理パイプライン（フロントエンド検証）
+// フロントエンドのClaude Vision抽出パスとTesseractフォールバックの観測
+//
+// 以下の定数と補助は、タスク 115.159 が「OCRアップロードUIが存在する」ことしか
+// 確かめていなかった検証を、実際の経路を通す検証へ置き換えるために置いた。
+// 観測はいずれも本番が出す通信と本番が描画した DOM だけを見ており、
+// 判定は Node 側の `expect` が行う。
 // ============================================================================
 
-test.describe('OCR画像前処理パイプライン', () => {
+/** 本番 `frontend/src/api/claude-vision.ts` が叩く抽出エンドポイントのパス */
+const CLAUDE_VISION_EXTRACT_PATH = '/api/claude-vision/extract';
+
+/**
+ * 本番 `frontend/src/components/estimate-requests/pdf-text-extractor.ts` の
+ * `CLAUDE_VISION_RENDER_SCALE`。本番の値をテストが再掲することで
+ * 「Claude Vision へ送る画像をこの倍率で描いていること」を外から主張する。
+ * Tesseract 用の描画は `CANVAS_RENDER_SCALE`（4.0）であり、寸法で両者を弁別できる。
+ */
+const EXPECTED_CLAUDE_VISION_RENDER_SCALE = 2.0;
+
+/**
+ * `e2e/fixtures/test-scanned-pdf.pdf` の MediaBox（pt）。
+ * `e2e/fixtures/generate-image-only-pdf.mjs` の PAGE_WIDTH / PAGE_HEIGHT と対。
+ */
+const FIXTURE_PAGE_WIDTH_PT = 350;
+const FIXTURE_PAGE_HEIGHT_PT = 175;
+
+/**
+ * Tesseract.js の資材（worker スクリプト・日本語データ）の取得を見分ける目印。
+ * 配信元のホスト名ではなくパスで見る（CI とローカルで配信元が食い違っても
+ * 観測が全件外れて素通りしないようにするため）。
+ */
+const TESSERACT_WORKER_PATH_MARK = '/tesseract.js@';
+const TESSERACT_LANG_PATH_MARK = '/@tesseract.js-data/jpn/';
+
+/** OCR が読み取れることを主張する語。画像のみPDFの画像の中にしか存在しない。 */
+const OCR_EXPECTED_TOKENS = ['外壁塗装工事', '100', '平米', '5000', '500000'];
+
+/** OCR の経路で観測する通信。判定はしない。 */
+interface OcrRequestTrace {
+  /** 観測の順序（単調増加） */
+  seq: number;
+  kind: 'claude-vision' | 'tesseract-worker' | 'tesseract-lang';
+  /** Claude Vision への要求だけ本体を保持する */
+  postData: string | null;
+}
+
+/**
+ * Claude Vision の抽出要求と Tesseract 資材の取得を、順序つきで記録し始める。
+ *
+ * @param page Playwright のページ
+ * @returns 記録された通信の配列（進行中も追記される）
+ */
+function watchOcrRequests(page: Page): OcrRequestTrace[] {
+  const traces: OcrRequestTrace[] = [];
+  let seq = 0;
+  page.on('request', (request) => {
+    const requestPath = new URL(request.url()).pathname;
+    let kind: OcrRequestTrace['kind'] | null = null;
+    if (request.method() === 'POST' && requestPath.endsWith(CLAUDE_VISION_EXTRACT_PATH)) {
+      kind = 'claude-vision';
+    } else if (requestPath.includes(TESSERACT_WORKER_PATH_MARK)) {
+      kind = 'tesseract-worker';
+    } else if (requestPath.includes(TESSERACT_LANG_PATH_MARK)) {
+      kind = 'tesseract-lang';
+    }
+    if (kind === null) return;
+    seq += 1;
+    traces.push({ seq, kind, postData: kind === 'claude-vision' ? request.postData() : null });
+  });
+  return traces;
+}
+
+/**
+ * Claude Vision の抽出要求に対する応答の状態コードを記録し始める。
+ *
+ * @param page Playwright のページ
+ * @returns 記録された状態コードの配列（進行中も追記される）
+ */
+function watchClaudeVisionResponseStatuses(page: Page): number[] {
+  const statuses: number[] = [];
+  page.on('response', (response) => {
+    if (new URL(response.url()).pathname.endsWith(CLAUDE_VISION_EXTRACT_PATH)) {
+      statuses.push(response.status());
+    }
+  });
+  return statuses;
+}
+
+/** JPEG の画素寸法 */
+interface JpegSize {
+  width: number;
+  height: number;
+}
+
+/**
+ * JPEG のバイト列から画素寸法を読む。
+ *
+ * JPEG は SOI（0xFFD8）で始まり、以降 `0xFF + マーカー + 長さ` の区間が並ぶ。
+ * 寸法は SOF（Start Of Frame。0xC0〜0xCF のうち 0xC4 / 0xC8 / 0xCC を除く）が持つ。
+ *
+ * @param bytes JPEG のバイト列
+ * @returns 画素寸法
+ * @throws SOF が見つからない場合（JPEG として解釈できない場合）
+ */
+function readJpegSize(bytes: Buffer): JpegSize {
+  let offset = 2;
+  while (offset + 9 < bytes.length) {
+    if (bytes[offset] !== 0xff) {
+      offset += 1;
+      continue;
+    }
+    const marker = bytes[offset + 1] as number;
+    // 詰め物の 0xFF、SOI、TEM、RST は長さを持たない
+    if (marker === 0xff) {
+      offset += 1;
+      continue;
+    }
+    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      offset += 2;
+      continue;
+    }
+    const segmentLength = bytes.readUInt16BE(offset + 2);
+    const isStartOfFrame =
+      marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
+    if (isStartOfFrame) {
+      return { height: bytes.readUInt16BE(offset + 5), width: bytes.readUInt16BE(offset + 7) };
+    }
+    offset += 2 + segmentLength;
+  }
+  throw new Error('送信された画像に JPEG の SOF マーカーが無い（JPEG として解釈できない）');
+}
+
+/** 利用者の操作の観測。判定はしない。件数だけを持つ。 */
+interface UserInputObservation {
+  /** ファイル選択が観測されたか */
+  fileSelected: boolean;
+  /** ファイル選択より後に起きた、利用者に由来する入力事象の件数 */
+  trustedInputEventsAfterFileSelect: number;
+}
+
+/**
+ * ファイル選択より後の利用者操作を数える観測を挟む。
+ *
+ * 記録するのは事象の件数だけで、判定はしない。`isTrusted` が真の事象、
+ * すなわち利用者の入力に由来するものだけを数える。
+ *
+ * @param page Playwright のページ
+ */
+async function installUserInputObserver(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const record = { fileSelected: false, trustedInputEventsAfterFileSelect: 0 };
+    (window as unknown as Record<string, unknown>).__ocrUserInput = record;
+
+    const count = (event: Event) => {
+      if (!record.fileSelected) return;
+      if (!event.isTrusted) return;
+      record.trustedInputEventsAfterFileSelect += 1;
+    };
+    for (const type of ['click', 'pointerdown', 'keydown']) {
+      document.addEventListener(type, count, true);
+    }
+
+    document.addEventListener(
+      'change',
+      (event) => {
+        const target = event.target as HTMLInputElement | null;
+        if (target?.type === 'file') record.fileSelected = true;
+      },
+      true
+    );
+  });
+}
+
+/**
+ * 画面側に溜まった利用者操作の観測を回収する。
+ *
+ * @param page Playwright のページ
+ */
+async function collectUserInputObservation(page: Page): Promise<UserInputObservation> {
+  return page.evaluate(
+    () =>
+      (window as unknown as Record<string, unknown>)
+        .__ocrUserInput as unknown as UserInputObservation
+  );
+}
+
+/**
+ * 見積依頼詳細から受領見積書の登録フォームを開き、fixture のファイルを選ぶ。
+ *
+ * @param page Playwright のページ
+ * @param estimateRequestId 見積依頼の識別子
+ * @param fixtureName `e2e/fixtures` 配下のファイル名
+ */
+async function uploadQuotationFixture(
+  page: Page,
+  estimateRequestId: string,
+  fixtureName: string
+): Promise<void> {
+  await page.goto(`/estimate-requests/${estimateRequestId}`);
+  await expect(page.getByTestId('estimate-request-detail-page')).toBeVisible({
+    timeout: getTimeout(15000),
+  });
+
+  const registerButton = page.getByRole('button', { name: /受領見積書登録/i });
+  await expect(registerButton).toBeVisible({ timeout: getTimeout(10000) });
+  await registerButton.click();
+
+  await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
+
+  const fixturePath = path.resolve(__dirname, '../../fixtures', fixtureName);
+  await page.locator('input[type="file"]').setInputFiles(fixturePath);
+}
+
+// ============================================================================
+// フロントエンドのClaude Vision抽出パスとTesseractフォールバック
+// ============================================================================
+
+test.describe('フロントエンドのClaude Vision抽出パスとTesseractフォールバック', () => {
   test.describe.configure({ mode: 'serial' });
 
   let createdProjectId: string | null = null;
@@ -446,54 +668,341 @@ test.describe('OCR画像前処理パイプライン', () => {
   });
 
   /**
-   * 115.135 の是正: 従前は `@requirement` で REQ-19.1（Canvas 描画スケールを 2.0 から 4.0 へ
-   * 引き上げる）を付けていたが、本検証はアップロード領域の可視性しか見ておらず描画スケールを
-   * 一切観測していない。加えて現行の `e2e/fixtures` の PDF は 2 件ともテキスト入りであり、
-   * スキャンPDFフォールバック経路（Canvas 描画）へ到達しない。被覆済みと数えさせないため
-   * タグを外し `e2e/requirement-exclusions.json` へ integration-test 区分で登録した。
-   * タスク **115.157** が画像のみのPDF fixture（`e2e/fixtures/test-scanned-pdf.pdf`）を
-   * 用意し、`e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts` で
-   * 描画スケールを実測して被覆した。当該除外は解消済みである。
+   * ## タスク 115.159 の是正
    *
-   * @requirement estimate-request/REQ-19.2
-   * @requirement estimate-request/REQ-19.3
-   * @requirement estimate-request/REQ-19.4
-   * @requirement estimate-request/REQ-19.5
-   * @requirement estimate-request/REQ-19.7
+   * 従前この位置には「見積依頼詳細画面でOCR処理UIが利用可能である」という検証があり、
+   * REQ-19.2〜19.5 / 19.7 / 24.1〜24.4 / 24.7 / 25.1〜25.6 の**十六件**のタグを掲げていた。
+   * しかし実体は「`ocr-upload-area` **または** 『PDF』**または**『アップロード』**または**
+   * 『受領見積書』のいずれかの文字が見えること」だけであり、十六件のどの受入基準の規範も
+   * 判定していなかった。被覆率の検査はタグだけを見るため、十六件が被覆済みと数えられ続けていた。
+   *
+   * 十六件の処遇は次のとおり（内訳は本ファイル冒頭の被覆表記にも反映してある）。
+   * - REQ-19.2〜19.5（前処理四段）: 画素を観測している
+   *   `scanned-pdf-ocr-fallback-e2e.spec.ts` へタグを移した。
+   * - REQ-19.7（画像前処理に新規外部依存を追加しない）: 実行中の画面からは観測できないため
+   *   タグを外し `e2e/requirement-exclusions.json` へ登録した。
+   * - 残る十件（24.1〜24.4 / 24.7 / 25.1〜25.3 / 25.4〜25.6）: 本検証と直後の二つの検証で
+   *   実際に判定する。
+   *
+   * ## 本検証が判定するもの
+   *
+   * 画像のみのPDF（`e2e/fixtures/test-scanned-pdf.pdf`）を受領見積書として選び、
+   * テスト環境の backend が持たない ANTHROPIC_API_KEY に由来する **実物の 503** を受けて
+   * Tesseract へ退避するまでを、通信の順序・送信された画像・画面の表示で確かめる。
+   * 応答を差し替えないため、REQ-22.3 / REQ-22.6 が定める実際の応答をそのまま刺激に使う。
+   *
+   * - REQ-24.1 / 24.2: 受領見積書のOCRを起動すると
+   *   `/api/claude-vision/extract` への要求がちょうど一件出て、それが Tesseract の資材の
+   *   取得より**先**に起きる（順序を見ずに「両方起きた」だけを言うと、退避が先で
+   *   Claude Vision が後でも成立してしまう）
+   * - REQ-24.3: 送られた画像は1ページのPDFに対して1枚で、寸法が
+   *   350x175pt に対し 700x350、すなわち Canvas 描画スケール 2.0 のページ画像である
+   *   （Tesseract 用の 4.0 なら 1400x700 になるため、この値は両者を弁別する）
+   * - REQ-24.4: その画像が `images[].base64Data` / `mediaType` として Base64 で送られている
+   * - REQ-25.1 / 25.4: 応答が 503 であり、フォールバック通知バナーが本番の文言で現れる
+   * - REQ-25.5: Tesseract の worker と日本語データが取得され、抽出結果に**画像の中にしか
+   *   存在しない語**が現れ、要件20の変換が明細行を生んで一括取り込みボタンが出る
+   * - REQ-25.6: ファイル選択より後、利用者に由来する入力事象が一件も無いまま結果に至る
+   *
    * @requirement estimate-request/REQ-24.1
    * @requirement estimate-request/REQ-24.2
    * @requirement estimate-request/REQ-24.3
    * @requirement estimate-request/REQ-24.4
-   * @requirement estimate-request/REQ-24.7
    * @requirement estimate-request/REQ-25.1
-   * @requirement estimate-request/REQ-25.2
-   * @requirement estimate-request/REQ-25.3
    * @requirement estimate-request/REQ-25.4
    * @requirement estimate-request/REQ-25.5
    * @requirement estimate-request/REQ-25.6
    */
-  test('見積依頼詳細画面でOCR処理UIが利用可能である (estimate-request/REQ-24.1, REQ-24.7)', async ({
+  test('受領見積書のOCRはClaude Visionを先に試行し、503応答で操作なしにTesseractへ退避する (estimate-request/REQ-24.2, REQ-24.3, REQ-25.1, REQ-25.6)', async ({
     page,
   }) => {
+    test.setTimeout(getTimeout(240000));
     expect(createdEstimateRequestId).toBeTruthy();
 
-    await loginAsUser(page, 'REGULAR_USER');
-    await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
-    await page.waitForLoadState('networkidle');
+    const traces = watchOcrRequests(page);
+    const visionStatuses = watchClaudeVisionResponseStatuses(page);
+    await installUserInputObserver(page);
 
-    // 見積依頼詳細画面の表示を確認
-    await expect(page.getByText(/見積依頼/i).first()).toBeVisible({
-      timeout: getTimeout(15000),
+    await loginAsUser(page, 'REGULAR_USER');
+    await uploadQuotationFixture(page, createdEstimateRequestId as string, 'test-scanned-pdf.pdf');
+
+    // 抽出の成立だけを主張する（「結果 または エラー」の選言では何も主張していない）。
+    // 上限は Claude Vision の試行とその失敗後の Tesseract 一巡を合わせた全体に対するもの。
+    const extractedText = page.getByTestId('ocr-extracted-text');
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(120000) });
+    await expect(page.getByTestId('ocr-error-message')).toHaveCount(0);
+
+    // ------------------------------------------------------------------
+    // REQ-24.1 / REQ-24.2: Claude Vision 抽出を先に試行する
+    // ------------------------------------------------------------------
+    const visionRequests = traces.filter((t) => t.kind === 'claude-vision');
+    expect(
+      visionRequests.length,
+      'Claude Vision の抽出エンドポイントへの要求が1件ちょうどではない（抽出パスが通っていないか、再送が起きている）'
+    ).toBe(1);
+
+    const tesseractRequests = traces.filter((t) => t.kind !== 'claude-vision');
+    expect(
+      tesseractRequests.length,
+      'Tesseract の資材が一度も取得されていない（退避経路へ入っていない）'
+    ).toBeGreaterThan(0);
+    expect(
+      visionRequests[0]!.seq,
+      'Tesseract の資材の取得が Claude Vision の試行より先に起きている（先に試行していない）'
+    ).toBeLessThan(Math.min(...tesseractRequests.map((t) => t.seq)));
+
+    // ------------------------------------------------------------------
+    // REQ-24.3 / REQ-24.4: PDFページを Canvas で画像にし Base64 で送る
+    // ------------------------------------------------------------------
+    const requestBody = visionRequests[0]!.postData;
+    expect(requestBody, 'Claude Vision へ送られた本体が観測できていない').toBeTruthy();
+    const payload = JSON.parse(requestBody as string) as {
+      images?: Array<{ base64Data?: string; mediaType?: string }>;
+    };
+    expect(
+      payload.images?.length,
+      '1ページのPDFに対して送られた画像が1枚ではない（ページと画像が対応していない）'
+    ).toBe(1);
+
+    const sentImage = payload.images![0]!;
+    expect(sentImage.mediaType, '送られた画像のメディアタイプが JPEG ではない').toBe('image/jpeg');
+    expect(sentImage.base64Data ?? '', 'Base64 データが空である').not.toBe('');
+
+    const jpegBytes = Buffer.from(sentImage.base64Data as string, 'base64');
+    expect(
+      jpegBytes.subarray(0, 2).toString('hex'),
+      'Base64 を戻した中身が JPEG の SOI で始まっていない（画像になっていない）'
+    ).toBe('ffd8');
+    expect(
+      readJpegSize(jpegBytes),
+      `Canvas 描画スケール ${EXPECTED_CLAUDE_VISION_RENDER_SCALE} のページ画像が送られていない`
+    ).toEqual({
+      width: FIXTURE_PAGE_WIDTH_PT * EXPECTED_CLAUDE_VISION_RENDER_SCALE,
+      height: FIXTURE_PAGE_HEIGHT_PT * EXPECTED_CLAUDE_VISION_RENDER_SCALE,
     });
 
-    // 受領見積書セクションの存在確認
-    // OCRデータ抽出機能（PDF/Excelアップロード）のUI要素を確認
-    const uploadArea = page
-      .locator('[data-testid="ocr-upload-area"]')
-      .or(page.getByText(/PDF/i))
-      .or(page.getByText(/アップロード/i))
-      .or(page.getByText(/受領見積書/i));
-    await expect(uploadArea.first()).toBeVisible({ timeout: getTimeout(10000) });
+    // ------------------------------------------------------------------
+    // REQ-25.1 / REQ-25.4: 503 を受けて退避し、その旨を利用者へ通知する
+    // ------------------------------------------------------------------
+    expect(
+      visionStatuses,
+      'Claude Vision の応答が 503 一件で確定していない（テスト環境に ANTHROPIC_API_KEY があると本検証の前提が崩れる）'
+    ).toEqual([503]);
+
+    const fallbackBanner = page.getByTestId('fallback-warning-banner');
+    await expect(fallbackBanner).toBeVisible();
+    await expect(fallbackBanner).toContainText(
+      'Claude Vision APIが利用できないため、従来のOCR処理で実行しています'
+    );
+
+    // ------------------------------------------------------------------
+    // REQ-25.5: 既存のOCR処理パイプライン（要件17・19・20）が実行される
+    // ------------------------------------------------------------------
+    expect(
+      traces.filter((t) => t.kind === 'tesseract-worker').length,
+      'Tesseract の worker スクリプトが取得されていない'
+    ).toBeGreaterThan(0);
+    expect(
+      traces.filter((t) => t.kind === 'tesseract-lang').length,
+      'Tesseract の日本語データが取得されていない（createWorker("jpn") へ到達していない）'
+    ).toBeGreaterThan(0);
+
+    const textContent = await extractedText.textContent();
+    expect(textContent, '抽出結果の本文が空である').toBeTruthy();
+    const normalizedText = (textContent as string).replace(/\s/g, '');
+    for (const token of OCR_EXPECTED_TOKENS) {
+      expect(
+        normalizedText,
+        `OCR結果に画像内の語「${token}」が現れていない（要件17のOCRが読み取れていない）`
+      ).toContain(token);
+    }
+    // 要件20の変換が明細行を生んだこと（生まなければ一括取り込みの区画は描画されない）
+    await expect(page.getByTestId('ocr-import-button')).toBeVisible();
+
+    // ------------------------------------------------------------------
+    // REQ-25.6: 切り替えは利用者の操作なしに行われる
+    // ------------------------------------------------------------------
+    const userInput = await collectUserInputObservation(page);
+    expect(
+      userInput.fileSelected,
+      'ファイル選択が観測されていない（観測器が働いていないため次の主張が空洞になる）'
+    ).toBe(true);
+    expect(
+      userInput.trustedInputEventsAfterFileSelect,
+      'ファイル選択より後に利用者に由来する入力事象が起きている（自動的な切り替えと言えない）'
+    ).toBe(0);
+  });
+
+  /**
+   * 直前の検証が置いた「ファイル選択より後、利用者に由来する入力事象が0件」という主張が、
+   * 弁別能力を持つことの確認（タスク 115.159）。
+   *
+   * 観測器が数える事象が Playwright の操作でも一度も真にならないのなら、あの 0 は
+   * 「操作しなかったから 0」ではなく「何をしても 0」であり、何も述べていない。
+   * ここでは同じ観測器のもとで**故意に一度クリックし**、件数が増えることを確かめる。
+   *
+   * 受入基準の被覆ではないため `@requirement` は付けない。
+   */
+  test('利用者操作の観測器はファイル選択より後のクリックを数える（観測の弁別能力の確認）', async ({
+    page,
+  }) => {
+    test.setTimeout(getTimeout(120000));
+    expect(createdEstimateRequestId).toBeTruthy();
+
+    await installUserInputObserver(page);
+    await loginAsUser(page, 'REGULAR_USER');
+    await uploadQuotationFixture(page, createdEstimateRequestId as string, 'test-scanned-pdf.pdf');
+
+    const beforeClick = await collectUserInputObservation(page);
+    expect(beforeClick.fileSelected, 'ファイル選択が観測されていない').toBe(true);
+    expect(
+      beforeClick.trustedInputEventsAfterFileSelect,
+      'まだ何も操作していない時点で件数が増えている'
+    ).toBe(0);
+
+    await page.locator('#quotation-name').click();
+
+    await expect
+      .poll(
+        () => collectUserInputObservation(page).then((o) => o.trustedInputEventsAfterFileSelect),
+        {
+          timeout: getTimeout(10000),
+          message:
+            'クリックしても観測器の件数が増えない（直前の検証の「0件」が何も述べていないことになる）',
+        }
+      )
+      .toBeGreaterThan(0);
+  });
+
+  /**
+   * ## 本検証が判定するもの（タスク 115.159）
+   *
+   * Claude Vision の応答を**返さずに滞留させる**。本番 `frontend/src/api/claude-vision.ts` は
+   * `timeout: 60000` / `disableRetry: true` で呼んでおり、`frontend/src/api/client.ts` の
+   * `AbortController` が 60 秒で打ち切って `new ApiError(0, 'Request timeout')` を投げる。
+   * 滞留は刺激であって同期の手段ではない。テスト側に固定時間の待機は書いていない。
+   *
+   * - REQ-24.7: 滞留させている間、すなわち Claude Vision 処理が実行中の間に、
+   *   処理中インジケーターが「Claude Vision APIで解析中...」の相で出ている。
+   *   要求が観測できた後に主張するため、まだ要求が出ていない相を見て通ることはない。
+   * - REQ-25.2: 打ち切りの後にフォールバック通知が現れ、その理由が `Request timeout`
+   *   すなわち時間切れであること、そして Tesseract の日本語データの取得が始まること。
+   *   理由の文言により、直後の検証（エラー応答による退避）と刺激を取り違えない。
+   *
+   * @requirement estimate-request/REQ-24.7
+   * @requirement estimate-request/REQ-25.2
+   */
+  test('Claude Vision処理中は処理中インジケーターを表示し、応答が返らなければ時間切れでTesseractへ退避する (estimate-request/REQ-24.7, REQ-25.2)', async ({
+    page,
+  }) => {
+    test.setTimeout(getTimeout(300000));
+    expect(createdEstimateRequestId).toBeTruthy();
+
+    const traces = watchOcrRequests(page);
+
+    // 応答を返さずに保持する。保持した route は検証の後に破棄する。
+    const heldRoutes: Route[] = [];
+    const holdVisionRoute = (route: Route) => {
+      heldRoutes.push(route);
+    };
+    await page.route(`**${CLAUDE_VISION_EXTRACT_PATH}`, holdVisionRoute);
+
+    await loginAsUser(page, 'REGULAR_USER');
+    await uploadQuotationFixture(page, createdEstimateRequestId as string, 'test-scanned-pdf.pdf');
+
+    // ------------------------------------------------------------------
+    // REQ-24.7: Claude Vision 処理が実行中の間の処理中インジケーター
+    // ------------------------------------------------------------------
+    await expect
+      .poll(() => traces.filter((t) => t.kind === 'claude-vision').length, {
+        timeout: getTimeout(60000),
+        message: 'Claude Vision への要求が観測できない（滞留させる対象が発生していない）',
+      })
+      .toBe(1);
+
+    const progressIndicator = page.getByTestId('ocr-progress-indicator');
+    await expect(progressIndicator).toBeVisible();
+    await expect(progressIndicator).toContainText('Claude Vision APIで解析中');
+    expect(
+      traces.filter((t) => t.kind !== 'claude-vision'),
+      'Claude Vision の応答を待っている間に Tesseract が動いている（先に試行していない）'
+    ).toEqual([]);
+
+    // ------------------------------------------------------------------
+    // REQ-25.2: 時間切れで Tesseract へ退避する
+    // ------------------------------------------------------------------
+    const fallbackBanner = page.getByTestId('fallback-warning-banner');
+    await expect(fallbackBanner).toBeVisible({ timeout: getTimeout(120000) });
+    await expect(fallbackBanner).toContainText(
+      'Claude Vision APIが利用できないため、従来のOCR処理で実行しています'
+    );
+    await expect(fallbackBanner).toContainText('Request timeout');
+
+    await expect
+      .poll(() => traces.filter((t) => t.kind === 'tesseract-lang').length, {
+        timeout: getTimeout(120000),
+        message: 'Tesseract の日本語データの取得が始まらない（退避先で OCR が動いていない）',
+      })
+      .toBeGreaterThan(0);
+
+    await page.unroute(`**${CLAUDE_VISION_EXTRACT_PATH}`, holdVisionRoute);
+    for (const route of heldRoutes) {
+      // 画面側が既に打ち切っている場合、破棄は失敗しうる。観測は済んでいるため後始末に留める
+      await route.abort().catch(() => undefined);
+    }
+  });
+
+  /**
+   * ## 本検証が判定するもの（タスク 115.159）
+   *
+   * Claude Vision の応答を 500 に差し替える。REQ-25.1 の 503（機能無効）とも
+   * REQ-25.2 の時間切れとも異なる刺激であり、`errorType` も `service_unavailable` ではない。
+   * 差し替えた本体の `detail` がフォールバック通知の理由としてそのまま現れることで、
+   * 「この刺激で退避した」ことと「別の刺激で退避した」ことを取り違えない。
+   *
+   * 抽出の完走までは待たない。REQ-25.3 が定めるのは退避が起きることであり、
+   * 退避先で OCR が動き始めたことは Tesseract の日本語データの取得で確定する。
+   *
+   * @requirement estimate-request/REQ-25.3
+   */
+  test('Claude Visionがエラーを返すとTesseractへ自動的に退避する (estimate-request/REQ-25.3)', async ({
+    page,
+  }) => {
+    test.setTimeout(getTimeout(180000));
+    expect(createdEstimateRequestId).toBeTruthy();
+
+    const traces = watchOcrRequests(page);
+
+    const injectedDetail = 'E2Eが注入したClaude Vision内部エラー';
+    await page.route(`**${CLAUDE_VISION_EXTRACT_PATH}`, async (route) => {
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 500, detail: injectedDetail, errorType: 'unknown' }),
+      });
+    });
+
+    await loginAsUser(page, 'REGULAR_USER');
+    await uploadQuotationFixture(page, createdEstimateRequestId as string, 'test-scanned-pdf.pdf');
+
+    const fallbackBanner = page.getByTestId('fallback-warning-banner');
+    await expect(fallbackBanner).toBeVisible({ timeout: getTimeout(60000) });
+    await expect(fallbackBanner).toContainText(
+      'Claude Vision APIが利用できないため、従来のOCR処理で実行しています'
+    );
+    await expect(fallbackBanner).toContainText(injectedDetail);
+
+    expect(
+      traces.filter((t) => t.kind === 'claude-vision').length,
+      'Claude Vision への要求が1件ちょうどではない'
+    ).toBe(1);
+
+    await expect
+      .poll(() => traces.filter((t) => t.kind === 'tesseract-lang').length, {
+        timeout: getTimeout(120000),
+        message: 'Tesseract の日本語データの取得が始まらない（退避先で OCR が動いていない）',
+      })
+      .toBeGreaterThan(0);
   });
 
   /**
