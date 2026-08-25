@@ -161,7 +161,7 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
     await page.waitForLoadState('networkidle');
 
     // 編集モードに入る
-    await page.waitForTimeout(100);
+    // Task 115.165: ここにあった固定待機は、直後の toBeVisible が同じ条件を待つため撤去した
     const editModeButton = page.getByRole('button', { name: /編集モード/i });
     await expect(editModeButton).toBeVisible({ timeout: getTimeout(5000) });
     await editModeButton.click();
@@ -172,9 +172,47 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
       .waitFor({ state: 'visible', timeout: getTimeout(10000) });
 
     // 注釈エディタの初期化を待つ
-    await page.waitForTimeout(100);
+    // Task 115.165: 「この時間で初期化されたはず」と見込む固定待機ではなく、
+    // 本番が描画面を window へ載せた事実そのものを待つ。
+    // 描画面が未初期化のまま先へ進むと getCanvasObjectCount が -1 を返し、
+    // 増分の主張が「-1 → 0」でも成立してしまう。
+    await expect
+      .poll(() => hasFabricCanvas(page), {
+        message: '注釈エディタの描画面（window.__fabricCanvas）が初期化されること',
+        timeout: getTimeout(10000),
+      })
+      .toBe(true);
 
     return true;
+  }
+
+  /**
+   * 注釈エディタの描画面（Fabric.js キャンバス）が初期化済みかを観測するヘルパー
+   *
+   * Task 115.165: 固定待機の置き換え先となる条件。本番（AnnotationEditor）が
+   * 初期化の完了時に `window.__fabricCanvas` を設定することを合図に取る。
+   */
+  async function hasFabricCanvas(page: import('@playwright/test').Page): Promise<boolean> {
+    return await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return Boolean((window as any).__fabricCanvas);
+    });
+  }
+
+  /**
+   * 次の描画フレームが二度描かれるまで待つヘルパー
+   *
+   * Task 115.165: レイアウトが落ち着いたかどうかを見込みの時間で計るのではなく、
+   * ブラウザが実際に描画を終えた合図（requestAnimationFrame）で刻む。
+   * 一度目の rAF はレイアウト確定前に走りうるため二度取る。
+   */
+  async function waitForNextFrames(page: import('@playwright/test').Page): Promise<void> {
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        })
+    );
   }
 
   /**
@@ -197,7 +235,10 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
     let lastBox: { x: number; y: number; width: number; height: number } | null = null;
 
     // boundingBox が Fabric キャンバスの実サイズに一致し、かつ位置が安定するまで最大10秒待機
-    for (let i = 0; i < 20; i++) {
+    // Task 115.165: 刻みは固定時間ではなく描画フレームで取る。回数ではなく期限で区切るため、
+    // 待てる総量は従来（20回 × 200ms）と同じ 10 秒に保ちつつ、落ち着いた時点で即座に抜ける。
+    const deadline = Date.now() + getTimeout(10000);
+    while (Date.now() < deadline) {
       box = await upperCanvas.boundingBox();
       const fabricSize = await page.evaluate(() => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -228,7 +269,7 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
         stableCount = 0;
       }
       lastBox = box;
-      await page.waitForTimeout(200);
+      await waitForNextFrames(page);
     }
 
     if (!box || box.width <= 10 || box.height <= 10) {
@@ -312,6 +353,62 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
   }
 
   /**
+   * 描画面の「選択の受け付け」状態を観測するヘルパー
+   *
+   * Task 115.165: 要件17.6 の無効化そのもの（Fabric キャンバスの `selection` と、
+   * 各オブジェクトの `selectable` / `evented`）を読む。道具帯の `aria-pressed` は
+   * React の状態を映すだけで、描画面へ適用済みであることまでは述べていない。
+   * 不在の主張の手前に置かれていた固定待機は、この適用を確かめずに時間で見込んでいた。
+   *
+   * 描画面が取得できない場合は getActiveObject と同じ理由でその場で失敗させる。
+   */
+  async function getSelectionCapability(page: import('@playwright/test').Page): Promise<{
+    canvasSelection: boolean;
+    selectableObjectCount: number;
+    eventedObjectCount: number;
+  }> {
+    return await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const canvas = (window as any).__fabricCanvas;
+      if (!canvas) {
+        throw new Error(
+          'Fabric.js キャンバス（window.__fabricCanvas）が取得できない。' +
+            '選択の受け付け状態を観測できないため、ここで失敗させる'
+        );
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const objects: any[] = canvas.getObjects();
+      return {
+        canvasSelection: canvas.selection === true,
+        selectableObjectCount: objects.filter((o) => o.selectable === true).length,
+        eventedObjectCount: objects.filter((o) => o.evented === true).length,
+      };
+    });
+  }
+
+  /**
+   * テキスト注釈が編集モードへ入っているかを観測するヘルパー
+   *
+   * Task 115.165: 本番（AnnotationEditor）はテキストツールのクリックで
+   * `enterEditing()` を呼ぶ。キー入力を送る前に必要なのは「300ms 経ったこと」ではなく
+   * 「編集モードへ入ったこと」であるため、その事実を待つ。
+   */
+  async function isEditingText(page: import('@playwright/test').Page): Promise<boolean> {
+    return await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const canvas = (window as any).__fabricCanvas;
+      if (!canvas) {
+        throw new Error(
+          'Fabric.js キャンバス（window.__fabricCanvas）が取得できない。' +
+            'テキストの編集状態を観測できないため、ここで失敗させる'
+        );
+      }
+      const active = canvas.getActiveObject();
+      return Boolean(active && active.isEditing === true);
+    });
+  }
+
+  /**
    * 初期オブジェクト（四角形）を描画して、描画ツールテストの前提条件を整えるヘルパー
    * 描画後にオブジェクト数が増えたことを検証し、キャンバス中心座標を返す
    *
@@ -334,10 +431,16 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
 
     // キャンバス中央付近に四角形を描画
     await performDrag(page, center.x - 40, center.y - 30, center.x + 40, center.y + 30);
-    await page.waitForTimeout(500);
 
-    const objectCountAfter = await getCanvasObjectCount(page);
-    expect(objectCountAfter).toBe(objectCountBefore + 1);
+    // Task 115.165: 「500ms あれば作られたはず」と見込む固定待機ではなく、
+    // 図形が一つ増えた事実そのものを待つ。ここが待ち合わせと主張を兼ねる。
+    await expect
+      .poll(() => getCanvasObjectCount(page), {
+        message: '四角形ツールのドラッグで描画面の図形が一つ増えること',
+        timeout: getTimeout(5000),
+      })
+      .toBe(objectCountBefore + 1);
+    const objectCountAfter = objectCountBefore + 1;
 
     return { center, objectCountAfter };
   }
@@ -371,11 +474,15 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
 
     // 描画した四角形の位置（キャンバス中央）をクリック
     await page.mouse.click(center.x, center.y);
-    await page.waitForTimeout(300);
 
     // 選択ツールでクリックした結果、オブジェクトが選択状態になることを確認
-    const activeObj = await getActiveObject(page);
-    expect(activeObj).not.toBeNull();
+    // Task 115.165: 固定待機を撤去し、選択が成立したことを条件として待つ
+    await expect
+      .poll(() => getActiveObject(page), {
+        message: '選択ツールのクリックでキャンバス中央のオブジェクトが選択されること',
+        timeout: getTimeout(5000),
+      })
+      .not.toBeNull();
   });
 
   // ==========================================================================
@@ -435,16 +542,30 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
     await circleTool.click();
     await expect(circleTool).toHaveAttribute('aria-pressed', 'true');
 
-    // 既存オブジェクト（四角形）の上でマウスダウン
+    // 既存オブジェクト（四角形）の上でマウスダウンし、そのままドラッグへ入る
+    const countBeforeDown = await getCanvasObjectCount(page);
     await page.mouse.move(center.x, center.y);
     await page.mouse.down();
-    await page.waitForTimeout(200);
+    await page.mouse.move(center.x + 30, center.y + 20, { steps: 5 });
+
+    // Task 115.165: 不在の主張の手前にあった固定待機（200ms）を条件待ちへ改める。
+    // 要件17.1 は「選択せず**描画操作を開始**する」ことを述べている。描画操作が始まれば
+    // 本番はプレビュー図形を描画面へ載せるため、その出現を待つことで
+    // 「マウスダウンが処理され、かつ描画として扱われた」ことを確かめたうえで
+    // 「選択されていないこと」を主張できる。時間で落ち着きを見込む必要はない。
+    await expect
+      .poll(() => getCanvasObjectCount(page), {
+        message:
+          '既存オブジェクト上のマウスダウンが描画操作として扱われ、プレビュー図形が描画面へ現れること',
+        timeout: getTimeout(5000),
+      })
+      .toBe(countBeforeDown + 1);
 
     // 描画ツール使用中はオブジェクトが選択されないことを確認
     const activeObj = await getActiveObject(page);
     expect(activeObj).toBeNull();
 
-    // マウスアップして描画操作をキャンセル
+    // マウスアップして描画操作を終える
     await page.mouse.up();
   });
 
@@ -501,9 +622,21 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
       await tool.click();
       await expect(tool).toHaveAttribute('aria-pressed', 'true');
 
+      // Task 115.165: 不在の主張の手前にあった固定待機（200ms）を条件待ちへ改める。
+      // 道具帯の押下表示（aria-pressed）は React の状態を映すだけで、
+      // 描画面へ選択の無効化が適用されたことまでは述べていない。
+      // 要件17.6 が述べる無効化そのもの（キャンバスの selection と
+      // 各オブジェクトの selectable / evented）が適用された事実を待ってからクリックする。
+      await expect
+        .poll(() => getSelectionCapability(page), {
+          message:
+            '描画ツールの選択が描画面へ適用され、既存オブジェクトが選択の対象から外れること（要件17.6）',
+          timeout: getTimeout(5000),
+        })
+        .toEqual({ canvasSelection: false, selectableObjectCount: 0, eventedObjectCount: 0 });
+
       // 既存オブジェクト上をクリック
       await page.mouse.click(center.x, center.y);
-      await page.waitForTimeout(200);
 
       // オブジェクトが選択されていないことを確認
       const activeObj = await getActiveObject(page);
@@ -546,11 +679,15 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
     // 終了点: 既存オブジェクトの中心（既存オブジェクト上）
     // 注: テスト画像が100x100pxのため、キャンバスサイズを超えないよう座標を調整
     await performDrag(page, center.x - 45, center.y - 40, center.x, center.y);
-    await page.waitForTimeout(500);
 
     // 新しい図形が正常に作成されたことを確認（オブジェクト数が1つ増加）
-    const countAfterSecond = await getCanvasObjectCount(page);
-    expect(countAfterSecond).toBe(countAfterFirst + 1);
+    // Task 115.165: 固定待機を撤去し、作成された事実そのものを待つ
+    await expect
+      .poll(() => getCanvasObjectCount(page), {
+        message: '既存オブジェクト上でマウスアップしても新しい図形が一つ作成されること',
+        timeout: getTimeout(5000),
+      })
+      .toBe(countAfterFirst + 1);
   });
 
   // ==========================================================================
@@ -581,22 +718,26 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
     await expect(polygonTool).toHaveAttribute('aria-pressed', 'true');
 
     // 既存オブジェクト上を含む位置に頂点を配置して多角形を描画
+    // Task 115.165: 頂点の間にあった固定待機（200ms）は、何を待つものか特定できなかった。
+    // 頂点の登録は主張の対象ではなく、主張は最後の「図形が一つ増えたこと」だけが担う。
+    // 撤去したうえで通ることを実測（連続5回、および CPU を6倍遅くした状態）で確かめた。
     // 頂点1: 既存オブジェクトの上（オブジェクト上）
     await page.mouse.click(center.x, center.y - 10);
-    await page.waitForTimeout(200);
     // 頂点2: 既存オブジェクトの右下外側
     await page.mouse.click(center.x + 80, center.y + 60);
-    await page.waitForTimeout(200);
     // 頂点3: 既存オブジェクトの左下外側
     await page.mouse.click(center.x - 80, center.y + 60);
-    await page.waitForTimeout(200);
     // ダブルクリックで多角形を閉じる（最初の頂点付近、既存オブジェクト上）
     await page.mouse.dblclick(center.x, center.y - 10);
-    await page.waitForTimeout(500);
 
     // 多角形が正常に作成されたことを確認
-    const countAfterPolygon = await getCanvasObjectCount(page);
-    expect(countAfterPolygon).toBe(countAfterFirst + 1);
+    // Task 115.165: 固定待機を撤去し、作成された事実そのものを待つ
+    await expect
+      .poll(() => getCanvasObjectCount(page), {
+        message: '多角形が一つ作成されること（プレビューは確定時に取り除かれる）',
+        timeout: getTimeout(5000),
+      })
+      .toBe(countAfterFirst + 1);
   });
 
   /**
@@ -624,22 +765,24 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
 
     // 既存オブジェクト上を含む位置に点を配置して折れ線を描画
     // 注: テスト画像が100x100pxのため、キャンバスサイズを超えないよう座標を調整
+    // Task 115.165: 多角形と同じ理由で、点の間の固定待機（200ms）は撤去し、実測で確かめた
     // 点1: 既存オブジェクトの左外側（キャンバス内）
     await page.mouse.click(center.x - 45, center.y);
-    await page.waitForTimeout(200);
     // 点2: 既存オブジェクトの中心（オブジェクト上）
     await page.mouse.click(center.x, center.y);
-    await page.waitForTimeout(200);
     // 点3: 既存オブジェクトの右外側（キャンバス内）
     await page.mouse.click(center.x + 45, center.y);
-    await page.waitForTimeout(200);
     // ダブルクリックで折れ線を終了
     await page.mouse.dblclick(center.x + 45, center.y);
-    await page.waitForTimeout(500);
 
     // 折れ線が正常に作成されたことを確認
-    const countAfterPolyline = await getCanvasObjectCount(page);
-    expect(countAfterPolyline).toBe(countAfterFirst + 1);
+    // Task 115.165: 固定待機を撤去し、作成された事実そのものを待つ
+    await expect
+      .poll(() => getCanvasObjectCount(page), {
+        message: '折れ線が一つ作成されること（プレビューは確定時に取り除かれる）',
+        timeout: getTimeout(5000),
+      })
+      .toBe(countAfterFirst + 1);
   });
 
   // ==========================================================================
@@ -671,16 +814,28 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
 
     // 既存オブジェクト上（四角形の中心）をクリック
     await page.mouse.click(center.x, center.y);
-    await page.waitForTimeout(300);
+
+    // Task 115.165: キー入力の手前で必要なのは「300ms 経ったこと」ではなく
+    // 「本番がテキストを編集モードへ入れたこと」である。その事実を待つ。
+    await expect
+      .poll(() => isEditingText(page), {
+        message: 'テキストツールのクリックでテキスト注釈が編集モードへ入ること',
+        timeout: getTimeout(5000),
+      })
+      .toBe(true);
 
     // テキストを入力
     await page.keyboard.type('テスト注釈');
     await page.keyboard.press('Escape');
-    await page.waitForTimeout(300);
 
     // テキスト注釈が作成されたことを確認（オブジェクト数が1つ増加）
-    const countAfterText = await getCanvasObjectCount(page);
-    expect(countAfterText).toBe(countAfterFirst + 1);
+    // Task 115.165: 固定待機を撤去し、作成された事実そのものを待つ
+    await expect
+      .poll(() => getCanvasObjectCount(page), {
+        message: 'テキスト注釈が一つ作成されること',
+        timeout: getTimeout(5000),
+      })
+      .toBe(countAfterFirst + 1);
   });
 
   // ==========================================================================
