@@ -33,23 +33,10 @@ async function isOnLoginPage(page: Page): Promise<boolean> {
 
 /**
  * ヘルパー関数: 保護されたページの存在をチェック
- * 待機ロジックを追加してより安定したチェックを実現
  *
- * この関数だけは共有の補助 `isVisibleWithin` へ寄せられない。理由は以下のとおり:
- * - 呼び出し元の一つが、本ファイルの検証
- *   `should display login page without showing protected content for unauthenticated users`
- *   に置かれた `page.on('framenavigated', async …)` という
- *   **投げっぱなしのリスナ**であり、テスト本体の終了後に届いた遷移通知でも起動する
- * - そのときこの待機は中断され、`TimeoutError` ではない拒否
- *   （`locator.waitFor: Test ended.`）がリスナの外へ漏れる。
- *   `isVisibleWithin` は `TimeoutError` 以外を再送出する契約のため、当該検証が落ちる
- * - 現在の `catch {}` は待機切れではなく実質「テスト終了による中断」を飲んでおり、
- *   握り潰しで覆っている状態である（テスト終了以外の失敗も同時に飲む点で不健全）
- *
- * 根治はリスナの寿命管理であり、後続タスク **115.160**
- * （`.kiro/specs/site-survey/tasks.md`「投げっぱなしのリスナから呼ばれる待機が
- * テスト終了で漏れる状態を解消する」）が担う。
- * 115.160 の完了時にこの `try/catch` を `isVisibleWithin` へ寄せ、本コメントを撤去すること。
+ * 待機切れ以外の失敗（strict mode 違反、ページ切断など）は共有の補助
+ * `isVisibleWithin` が送出する。呼び出し側はいずれもテスト本体の寿命の内で
+ * 完了を待ち合わせるため、待機がテスト終了で中断されることはない。
  */
 async function isOnProtectedPage(page: Page): Promise<boolean> {
   // ダッシュボードまたは保護されたコンテンツの存在を確認
@@ -57,13 +44,7 @@ async function isOnProtectedPage(page: Page): Promise<boolean> {
     '[data-testid="dashboard"], [data-testid="protected-content"]'
   );
 
-  try {
-    await protectedContent.first().waitFor({ state: 'visible', timeout: getTimeout(500) });
-    return true;
-  } catch {
-    // 115.160 まで据え置き: ここは待機切れに加えテスト終了の中断も飲んでいる
-    return false;
-  }
+  return isVisibleWithin(protectedContent.first(), getTimeout(500));
 }
 
 test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止', () => {
@@ -94,27 +75,57 @@ test.describe('E2E: 要件16A - 認証状態初期化時のUIチラつき防止'
     // ページナビゲーション中のUIチラつきを検出するためのフラグ
     let protectedPageAppeared = false;
 
+    // リスナが始めた判定は投げっぱなしにしない。
+    // 起動ごとの完了を控えておき、本体の主張の前に必ず待ち合わせる。
+    const pendingChecks: Promise<void>[] = [];
+
+    // 判定が待機切れ以外で失敗した場合に備えて控える。
+    // ここで捨てると未処理の拒否になり、どの検証が壊れたか分からなくなる。
+    // 握り潰しではなく、待ち合わせの直後に送出する。
+    const checkFailures: unknown[] = [];
+
     // ページの変化を監視
-    page.on('framenavigated', async () => {
-      if (await isOnProtectedPage(page)) {
-        protectedPageAppeared = true;
-      }
-    });
+    const onFrameNavigated = (): void => {
+      pendingChecks.push(
+        (async () => {
+          if (await isOnProtectedPage(page)) {
+            protectedPageAppeared = true;
+          }
+        })().catch((error: unknown) => {
+          checkFailures.push(error);
+        })
+      );
+    };
+    page.on('framenavigated', onFrameNavigated);
 
-    // 保護されたページにアクセス（未認証ユーザー）
-    await page.goto('/dashboard');
+    try {
+      // 保護されたページにアクセス（未認証ユーザー）
+      await page.goto('/dashboard');
 
-    // ログイン画面にリダイレクトされるまで待機（タイムアウト延長）
-    await page.waitForURL('**/login**', { timeout: getTimeout(10000) });
+      // ログイン画面にリダイレクトされるまで待機（タイムアウト延長）
+      await page.waitForURL('**/login**', { timeout: getTimeout(10000) });
 
-    // ログインフォームが表示されるまで待機（DOM更新完了を確認）
-    await page.waitForSelector('form:has(input[type="email"], input[type="password"])', {
-      state: 'visible',
-      timeout: getTimeout(10000),
-    });
+      // ログインフォームが表示されるまで待機（DOM更新完了を確認）
+      await page.waitForSelector('form:has(input[type="email"], input[type="password"])', {
+        state: 'visible',
+        timeout: getTimeout(10000),
+      });
 
-    // ログイン画面が表示されていることを確認
-    expect(await isOnLoginPage(page)).toBe(true);
+      // ログイン画面が表示されていることを確認
+      expect(await isOnLoginPage(page)).toBe(true);
+    } finally {
+      // 本体の終了前にリスナを外す。以降の遷移通知で新たな判定は始まらない。
+      page.off('framenavigated', onFrameNavigated);
+    }
+
+    // リスナを外したうえで保留中の判定を待ち合わせる。
+    // これによりフラグの読み出しが全判定の完了より後になることが確定し、
+    // 「リスナの判定と本体の主張のどちらが先か不定」というレースが消える。
+    // 同時に、テスト終了で待機が中断される経路そのものが無くなる。
+    await Promise.all(pendingChecks);
+    if (checkFailures.length > 0) {
+      throw checkFailures[0];
+    }
 
     // 保護されたページが一瞬も表示されていないことを確認（チラつき防止）
     expect(protectedPageAppeared).toBe(false);
