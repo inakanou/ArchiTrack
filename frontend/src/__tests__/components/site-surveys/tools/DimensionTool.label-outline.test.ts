@@ -32,7 +32,12 @@ const { mockSetCoords, mockSet } = vi.hoisted(() => {
 vi.mock('fabric', async () => {
   // Task 115.104 (Req 6.5): 寸法線が端点ハンドル（Fabric `Control`）を持つようになったため、
   // 幾何演算とハンドル生成に必要な最小の代替を `fabric-geometry-mock` から取り込む。
-  const { MockPoint, mockFabricUtil } = await import('../../../helpers/fabric-geometry-mock');
+  // Task 115.152 (Req 6.3): 寸法値の設定がパス空間と局所座標の対応（`_pathSpaceOrigin`）を
+  // 参照するようになったため、`Path` の `pathOffset` / `getRelativeCenterPoint` も
+  // 実際に計算して与える。決め打ちの値を返すとモックの都合で常に緑になるため、
+  // Task 115.104 が用意した共有ヘルパーの計算をそのまま用いる。
+  const { MockPoint, mockFabricUtil, applyPathBounds, relativeCenterOf } =
+    await import('../../../helpers/fabric-geometry-mock');
 
   /** Fabric `Control` の代替（端点ハンドル生成でのみ用いる） */
   class MockControl {
@@ -59,6 +64,12 @@ vi.mock('fabric', async () => {
     hasBorders?: boolean;
     objectCaching?: boolean;
 
+    left?: number;
+    top?: number;
+    width?: number;
+    height?: number;
+    pathOffset?: InstanceType<typeof MockPoint>;
+
     constructor(pathData?: string, options?: Record<string, unknown>) {
       this.path = pathData || '';
       this.opacity = 1;
@@ -66,6 +77,11 @@ vi.mock('fabric', async () => {
       if (options) {
         Object.assign(this, options);
       }
+      applyPathBounds(this, this.path, true);
+    }
+
+    getRelativeCenterPoint(): InstanceType<typeof MockPoint> {
+      return relativeCenterOf(this);
     }
 
     set(options: Record<string, unknown> | string, value?: unknown): this {
@@ -82,8 +98,9 @@ vi.mock('fabric', async () => {
       mockSetCoords();
     }
 
-    _setPath(pathData: string): void {
+    _setPath(pathData: string, adjustPosition?: boolean): void {
       this.path = pathData;
+      applyPathBounds(this, pathData, adjustPosition);
     }
 
     toObject(): Record<string, unknown> {
@@ -130,6 +147,10 @@ vi.mock('fabric', async () => {
       }
       mockSet(options, value);
       return this;
+    }
+
+    setCoords(): void {
+      mockSetCoords();
     }
   }
 

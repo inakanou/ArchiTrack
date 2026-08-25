@@ -194,7 +194,11 @@ vi.mock('../../../components/site-surveys/annotation-visual-feedback', () => ({
 vi.mock('fabric', async () => {
   // Task 115.104 (Req 6.5): 寸法線が端点ハンドル（Fabric `Control`）を持つようになったため、
   // 幾何演算とハンドル生成に必要な最小の代替を `fabric-geometry-mock` から取り込む。
-  const { MockPoint, mockFabricUtil } = await import('../../helpers/fabric-geometry-mock');
+  // Task 115.152 (Req 6.3): 寸法値の確定がパス空間と局所座標の対応（`_pathSpaceOrigin`）を
+  // 参照するようになったため、`Path` の `pathOffset` / `getRelativeCenterPoint` も
+  // 実際に計算して与える。共有ヘルパー（Task 115.104）の計算をそのまま用いる。
+  const { MockPoint, mockFabricUtil, applyPathBounds, relativeCenterOf } =
+    await import('../../helpers/fabric-geometry-mock');
 
   /** Fabric `Control` の代替（端点ハンドル生成でのみ用いる） */
   class MockControl {
@@ -220,6 +224,33 @@ vi.mock('fabric', async () => {
     }
     toObject(): Record<string, unknown> {
       return { type: 'mockShape' };
+    }
+  }
+  /**
+   * `Path` の代替。寸法線の子はパス文字列から外接矩形と `pathOffset` を得るので、
+   * 素の入れ物ではなく実際に計算する（Task 115.152 / Req 6.3）。
+   */
+  class MockPath extends MockShape {
+    path: string;
+    left?: number;
+    top?: number;
+    width?: number;
+    height?: number;
+    pathOffset?: InstanceType<typeof MockPoint>;
+
+    constructor(pathData?: string, options?: Record<string, unknown>) {
+      super(undefined, options);
+      this.path = pathData ?? '';
+      applyPathBounds(this, this.path, true);
+    }
+
+    getRelativeCenterPoint(): InstanceType<typeof MockPoint> {
+      return relativeCenterOf(this);
+    }
+
+    _setPath(pathData: string, adjustPosition?: boolean): void {
+      this.path = pathData;
+      applyPathBounds(this, pathData, adjustPosition);
     }
   }
   /** FabricText は第1引数がテキスト本体。寸法値ラベルの観測に必要なので忠実に保持する */
@@ -261,7 +292,7 @@ vi.mock('fabric', async () => {
     Canvas: MockCanvas,
     FabricImage: { fromURL: mockFromURL },
     FabricObject: MockShape,
-    Path: MockShape,
+    Path: MockPath,
     Ellipse: MockShape,
     Rect: MockShape,
     Polygon: MockShape,

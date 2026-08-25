@@ -774,12 +774,35 @@ export class DimensionLine extends Group {
 
   /**
    * 中央位置を計算
+   *
+   * 戻り値は `_startPoint` / `_endPoint` と同じ**パス空間**の座標である。
+   * Group の子へ書き込む際はそのまま使えない（`_placeLabelAtCenter` を用いること）。
    */
   private _calculateCenterPosition(): Point {
     return {
       x: (this._startPoint.x + this._endPoint.x) / 2,
       y: (this._startPoint.y + this._endPoint.y) / 2,
     };
+  }
+
+  /**
+   * ラベルを寸法線の中点へ置く（Task 115.152 / Req 6.3）
+   *
+   * `_calculateCenterPosition()` が返すのは端点と同じ**パス空間**の座標であり、Group の子は
+   * グループ中心を原点とする**局所座標**で並ぶ。両者の差が `_pathSpaceOrigin()` であり、
+   * `局所 = パス空間 - 原点` が常に成り立つ（Task 115.104 が `_updateGeometry` で確立した
+   * 対応関係で、同メソッドの手順 3 が全ての子に対して行っている変換と同一である）。
+   *
+   * 変換を挟まずパス空間の値を直接書き込むと、ラベルだけが原点の分（水平な寸法線
+   * (100,100)-(300,100) では (200,100)）ずれた位置へ跳び、線から離れて描かれる。
+   * 端点をつまんで動かす経路（Req 6.5）は直後に `_updateGeometry` が全ての子を
+   * 書き直すため表面化しないが、寸法値を設定する経路（Req 6.3）では跳んだままになる。
+   */
+  private _placeLabelAtCenter(): void {
+    const centerPos = this._calculateCenterPosition();
+    const origin = this._pathSpaceOrigin();
+    this._labelText.set({ left: centerPos.x - origin.x, top: centerPos.y - origin.y });
+    this._labelText.setCoords();
   }
 
   // ==========================================================================
@@ -1034,8 +1057,8 @@ export class DimensionLine extends Group {
     });
 
     // 中央位置を更新
-    const centerPos = this._calculateCenterPosition();
-    this._labelText.set({ left: centerPos.x, top: centerPos.y });
+    // Task 115.152 (Req 6.3): パス空間の中点を局所座標へ写して書き込む
+    this._placeLabelAtCenter();
 
     // Task 82.2 (Req 32.12): フォントサイズが変わった可能性があるため
     // labelOutline.strokeWidth を fontSize * widthRatio で再計算する。
@@ -1061,10 +1084,11 @@ export class DimensionLine extends Group {
 
   /**
    * ラベル位置を更新（DimensionLine 移動時に呼び出す）
+   *
+   * Task 115.152 (Req 6.3): パス空間の中点を局所座標へ写して書き込む
    */
   updateLabelPosition(): void {
-    const centerPos = this._calculateCenterPosition();
-    this._labelText.set({ left: centerPos.x, top: centerPos.y });
+    this._placeLabelAtCenter();
   }
 
   /**
