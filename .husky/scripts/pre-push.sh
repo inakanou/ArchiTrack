@@ -765,9 +765,17 @@ echo ""
 # - 局所変数を挟んだ形も初期化子を辿って同等に分類する
 # - e2e/assertion-guard-baseline.json の既知件数を超えた場合に失敗
 # - 除外（e2e-guard-allow）が増えた場合、理由の無い除外がある場合も失敗
+# - 検出器の退行は検出器自身の検査でしか捕まらないため、本検査の前に自己検査を走らせる
 # ============================================================================
 
 echo "🔍 Checking for disabled E2E assertions..."
+npm run check:e2e-guards:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ E2E assertion guard detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:e2e-guards:selftest"
+  exit 1
+fi
 npm run check:e2e-guards
 if [ $? -ne 0 ]; then
   echo "❌ E2E assertion guard check failed. Push aborted."
