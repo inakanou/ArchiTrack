@@ -20,6 +20,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
+import { observeDialogs } from '../../helpers/dialog-observer';
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -385,11 +386,11 @@ test.describe('現場調査 Phase 18 追加要件', () => {
         timeout: getTimeout(5000),
       });
 
-      // beforeunloadイベントをリッスン
-      page.on('dialog', async (dialog) => {
-        expect(dialog.type()).toBe('beforeunload');
-        await dialog.accept(); // ダイアログを承認してナビゲーションを続行
-      });
+      // beforeunloadダイアログの観測を開始する（Task 115.178）。
+      // 主張をリスナの中に置くと、その失敗が本体の終了後に届いた場合は誰も観測せず、
+      // 緑のまま素通りする。観測だけをリスナで行い、主張は本体に置く。
+      // 応答は accept（ダイアログを承認してナビゲーションを続行する）。
+      const dialogs = observeDialogs(page);
 
       // ページを離脱しようとする
       // beforeunloadダイアログが表示されると、Playwrightは自動的にナビゲーションを中断する可能性があるため
@@ -403,14 +404,21 @@ test.describe('現場調査 Phase 18 追加要件', () => {
         if (!errorMessage.includes('ERR_ABORTED')) {
           throw error;
         }
+      } finally {
+        // 本体の終了前にリスナを外す。以降の対話で新たな応答は始まらない。
+        dialogs.detach();
       }
 
-      // ダイアログが表示されたか、または未保存インジケーターが消えた（保存せずに離脱した）ことを確認
-      // Note: Playwrightのbeforeunloadダイアログの動作は実装依存
-      const currentUrl = page.url();
-      // ナビゲーションが成功した場合は新しいURLに移動
-      // beforeunloadがキャンセルされた場合は元のURLに留まる
-      expect(currentUrl).toBeTruthy();
+      // 外したうえで保留中の応答を待ち合わせ、控えた失敗を送出する（飲まない）。
+      await dialogs.settle();
+
+      // REQ-10.9: 未保存の変更があるまま画面を離れようとしたとき、確認ダイアログを表示する。
+      // 以前は離脱後の URL が空でないことだけを見ていた。URL はどの経路でも空にならないため、
+      // 確認ダイアログの有無を一度も確かめていなかった。要件が求める確認ダイアログそのものを主張する。
+      expect(
+        dialogs.observed.map((observation) => observation.type),
+        'REQ-10.9: 未保存の変更があるままページを離脱しようとしても beforeunload の確認ダイアログが表示されない'
+      ).toContain('beforeunload');
     });
   });
 

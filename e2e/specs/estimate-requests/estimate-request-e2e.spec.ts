@@ -24,6 +24,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
+import { observeDialogs } from '../../helpers/dialog-observer';
 
 /**
  * 保存ボタンをクリックして保存完了を待機するヘルパー
@@ -3315,20 +3316,28 @@ test.describe('見積依頼機能', () => {
       });
       expect(hasBeforeUnload).toBe(true);
 
-      // dialogイベントリスナーを設定して、ダイアログが表示されることを確認
-      let dialogShown = false;
-      page.on('dialog', async (dialog) => {
-        expect(dialog.type()).toBe('beforeunload');
-        dialogShown = true;
-        // acceptで遷移を許可（dismissだとpage.gotoがERR_ABORTEDになる）
-        await dialog.accept();
-      });
+      // ダイアログの観測を開始する（Task 115.178）。
+      // 主張をリスナの中に置くと、その失敗が本体の終了後に届いた場合は誰も観測せず、
+      // 緑のまま素通りする。観測だけをリスナで行い、主張は本体に置く。
+      // 応答は accept（dismiss だと page.goto が ERR_ABORTED になる）。
+      const dialogs = observeDialogs(page);
 
-      // ページ離脱を試行（別のURLに遷移）
-      await page.goto(`/projects/${createdProjectId}`);
+      try {
+        // ページ離脱を試行（別のURLに遷移）
+        await page.goto(`/projects/${createdProjectId}`);
+      } finally {
+        // 本体の終了前にリスナを外す。以降の対話で新たな応答は始まらない。
+        dialogs.detach();
+      }
+
+      // 外したうえで保留中の応答を待ち合わせ、控えた失敗を送出する（飲まない）。
+      await dialogs.settle();
 
       // beforeunloadダイアログが表示されたことを確認
-      expect(dialogShown).toBe(true);
+      expect(
+        dialogs.observed.map((observation) => observation.type),
+        'REQ-4.20: 未保存の変更があるままページを離脱しようとしても beforeunload の確認ダイアログが表示されない'
+      ).toContain('beforeunload');
     });
   });
 
