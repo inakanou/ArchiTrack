@@ -2829,6 +2829,399 @@ const SWEPT_BRANCHES: Case[] = [
     forbidden: ['T11-empty-population-absence'],
   },
 ];
+// ============================================================================
+// 115.182: 先行が needle の存在を保証する肯定の後続
+//
+// 第十三の型は「先行が needle を**排除する**」場合の否定の後続だけを見ていた。
+// 鏡像である「先行が needle の存在を**保証する**」場合の肯定の後続も、先行が通れば
+// 必ず成立するため飾りである。四つの組み合わせのうち数えるのはこの二つだけである。
+//
+//   先行が排除 × 後続が否定 → 必ず成立（飾り。数える。115.163 群が固定）
+//   先行が排除 × 後続が肯定 → 必ず失敗（恒偽。数えない。115.164-4 が固定）
+//   先行が保証 × 後続が肯定 → 必ず成立（飾り。数える。本群が固定）
+//   先行が保証 × 後続が否定 → 必ず失敗（恒偽。数えない。115.182-6 が固定）
+// ============================================================================
+
+const IMPLIED_PRESENCE: Case[] = [
+  {
+    // 課題文が名指しした形そのもの。先行の正規表現に一致した文字列は必ず `円` で終わる
+    // ため、後続の `toContain('円')` は先行が通れば必ず成立する。
+    name: '115.182-1 先行の正規表現が存在を保証する肯定の後続を検出する',
+    source: [
+      "test('regex guarantees the needle', async ({ page }) => {",
+      "  const amount = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(amount).toMatch(/^[0-9,]+円$/);',
+      "  expect(amount).toContain('円');",
+      '});',
+    ].join('\n'),
+    expected: ['T12-implied-successor'],
+  },
+  {
+    name: '115.182-2 綴りを確定させる等値の先行も存在を保証する',
+    source: [
+      "test('equality guarantees the needle', async ({ page }) => {",
+      "  const text = (await page.getByTestId('total-amount').textContent()) ?? '';",
+      "  expect(text).toBe('2,500円');",
+      "  expect(text).toContain('円');",
+      '});',
+    ].join('\n'),
+    expected: ['T12-implied-successor'],
+  },
+  {
+    // 狭め方: 保証はすべての最上位の選択肢で成り立つ必要がある。
+    // 本ケースは**成り立つ側**であり、選択肢ごとに見る作りが働くことを示す
+    //（115.182-10 が成り立たない側を固定する）。
+    name: '115.182-3 すべての選択肢が needle を必ず含むなら保証される',
+    source: [
+      "test('every alternative guarantees', async ({ page }) => {",
+      "  const code = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(code).toMatch(/^abc[0-9]$|^[0-9]abc$/);',
+      "  expect(code).toContain('abc');",
+      '});',
+    ].join('\n'),
+    expected: ['T12-implied-successor'],
+  },
+  {
+    // 錨は保証の向きでは不要である。部分一致でも、一致した部分が主題の中に現れる以上、
+    // 必ず現れる字面は主題にも必ず現れる。錨の要求は排除の向きにだけ効く（115.181-25）。
+    name: '115.182-4 錨の無い正規表現でも必ず現れる字面は保証される',
+    source: [
+      "test('unanchored still guarantees', async ({ page }) => {",
+      "  const amount = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(amount).toMatch(/円$/);',
+      "  expect(amount).toContain('円');",
+      '});',
+    ].join('\n'),
+    expected: ['T12-implied-successor'],
+  },
+  {
+    // **陰性対照**。先行は `円` を許すだけで要求しない（`'123'` も一致する）。
+    // 後続は実質を持つ主張であり、数えてはならない。
+    name: '115.182-5 先行が needle を許すだけの形は保証にならない（陰性対照）',
+    source: [
+      "test('optional needle is not guaranteed', async ({ page }) => {",
+      "  const amount = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(amount).toMatch(/^[0-9,円]+$/);',
+      "  expect(amount).toContain('円');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 狭め方: 後続が否定を伴うなら、見るのは先行が**排除する**かだけである。
+    // 変異: 否定の有無で見る向きを分けず、いずれかが成り立てば数える。
+    // 先行が存在を保証する needle の不在を主張する形は必ず失敗する恒偽であり、飾りではない。
+    name: '115.182-6 存在を保証する先行に対する否定の後続は数えない（恒偽であって恒真ではない）',
+    source: [
+      "test('negated successor against a guarantee', async ({ page }) => {",
+      "  const amount = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(amount).toMatch(/^[0-9,]+円$/);',
+      "  expect(amount).not.toContain('円');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 狭め方: `i` 修飾子を伴う正規表現では字面の綴りが保証されない。
+    // 変異: `i` の除外を外す。`'1yen'` は先行に一致するが `'YEN'` を含まない。
+    name: '115.182-7 `i` 修飾子を伴う正規表現は綴りを保証しない',
+    source: [
+      "test('case-insensitive does not guarantee spelling', async ({ page }) => {",
+      "  const code = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(code).toMatch(/^[0-9]+YEN$/i);',
+      "  expect(code).toContain('YEN');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 狭め方: 量指定を伴う要素は「ちょうど一つ」ではないため字面の連なりを断つ。
+    // 変異: 量指定を無視して字面を積む。`'123'` は先行に一致するが `'円'` を含まない。
+    name: '115.182-8 量指定を伴う文字は必ず現れる字面として数えない',
+    source: [
+      "test('quantified literal is not mandatory', async ({ page }) => {",
+      "  const amount = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(amount).toMatch(/^[0-9,]+円?$/);',
+      "  expect(amount).toContain('円');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 狭め方: 文字クラスの中身は字面として積まず、字面の連なりを断つ。
+    // 変異: クラスの中身をそのまま字面として積む。`'acd'` は先行に一致するが
+    // `'abcd'` を含まない。
+    name: '115.182-9 文字クラスの中身は必ず現れる字面として数えない',
+    source: [
+      "test('class contents are not literals', async ({ page }) => {",
+      "  const code = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(code).toMatch(/^a[bc]d$/);',
+      "  expect(code).toContain('abcd');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 狭め方: 群は中身ごと読み飛ばし、字面の連なりを断つ。
+    // 変異: 群の括弧だけを読み飛ばして中身を字面として積む。量指定は群の**全体**に
+    // 掛かるのに、括弧を外すと直前の一文字に掛かったものと読み違える。
+    // `'d'` は先行に一致するが `'abc'` を含まない。
+    name: '115.182-10 群の中身は必ず現れる字面として数えない（量指定は群の全体に掛かる）',
+    source: [
+      "test('group contents are not literals', async ({ page }) => {",
+      "  const code = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(code).toMatch(/^(?:abc)?d$/);',
+      "  expect(code).toContain('abc');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 狭め方: 保証はすべての最上位の選択肢で成り立つ必要がある。
+    // 変異: いずれかの選択肢で成り立てば保証と見なす。`'xyz'` は先行に一致するが
+    // `'abc'` を含まない。
+    name: '115.182-11 一つでも needle を欠く選択肢があれば保証されない',
+    source: [
+      "test('one alternative lacks the needle', async ({ page }) => {",
+      "  const code = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(code).toMatch(/^abc$|^xyz$/);',
+      "  expect(code).toContain('abc');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 狭め方: 肯定の後続の主題は**識別子そのもの**に限る（`presenceSubjectRoots`）。
+    // 変異: 否定の向きと同じ遡り（`absenceSubjectRoots`）を使う。要素参照を辿ってしまい、
+    // 一文字だけを取り出した主題にまで先行の保証を及ぼす。`'1,234円'[0]` は `'1'` であり
+    // `'円'` を含まない。加工は needle を**壊しうる**ため、否定の向きの遡りは使えない。
+    name: '115.182-12 肯定の後続の主題が識別子でない形は数えない',
+    source: [
+      "test('successor subject is not a bare identifier', async ({ page }) => {",
+      "  const amount = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(amount).toMatch(/^[0-9,]+円$/);',
+      "  expect(amount[0]).toContain('円');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 狭め方: 後から代入される名前は先行として集めない
+    //   （`collectLanguageFixingAssertions` の `!reassigned.has(subject.text)`）。
+    // 変異: この条件を外す。先行の主張の時点の値と後続の時点の値は同じとは限らない。
+    // **この条件は本群を入れるまで実効を持たなかった**（否定の向きでは後続側の同じ条件に
+    // 包含されていた。Task 115.163 の実測）。肯定の向きは後続側で `reassigned` を見ないため、
+    // ここが唯一の関門になる。
+    name: '115.182-13 後から代入される名前は先行として数えない',
+    source: [
+      "test('reassigned subject', async ({ page }) => {",
+      "  let amount = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(amount).toMatch(/^[0-9,]+円$/);',
+      "  amount = (await page.locator('.b').textContent()) ?? '';",
+      "  expect(amount).toContain('円');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 狭め方: 先行は後続より**前**に書かれていなければならない。
+    // 変異: 位置の比較を外す。
+    name: '115.182-14 後続より後ろに書かれた主張は先行として数えない（肯定の向き）',
+    source: [
+      "test('leading comes later', async ({ page }) => {",
+      "  const amount = (await page.locator('.a').textContent()) ?? '';",
+      "  expect(amount).toContain('円');",
+      '  expect(amount).toMatch(/^[0-9,]+円$/);',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 狭め方: 綴りが同じでも束縛が違えば対応づけない（`resolveBinding` の同一性）。
+    // 変異: 束縛の同一性の比較を外す。二つの `label` は別物であり、先行は後続を含意しない。
+    name: '115.182-15 同名の別の束縛は対応づけない（肯定の向き）',
+    source: [
+      "test('distinct bindings share a spelling', async ({ page }) => {",
+      '  for (let i = 0; i < 2; i++) {',
+      "    const label = (await page.locator('.a').nth(i).textContent()) ?? '';",
+      '    expect(label).toMatch(/^[0-9,]+円$/);',
+      '  }',
+      "  const labels = await page.locator('.b').allTextContents();",
+      '  expect(labels.length).toBeGreaterThan(0);',
+      '  for (const label of labels) {',
+      "    expect(label).toContain('円');",
+      '  }',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 狭め方: 空の needle は数えない（`impliedPresenceSuccessor` の空の番人）。
+    // 変異: この番人を外す。等値の先行は `expected.includes('')` が常に真であり、
+    // 必ず現れる字面はどれも空文字を含むため、あらゆる先行が保証と見なされてしまう。
+    // **この番人は本群を入れるまで実効を持たなかった**（否定の向きでは
+    // `regexCannotYield` と `!expected.includes('')` が常に偽を返すため。Task 115.164 の実測）。
+    name: '115.182-16 空の needle は保証の対象にしない',
+    source: [
+      "test('empty needle', async ({ page }) => {",
+      "  const text = (await page.getByTestId('total-amount').textContent()) ?? '';",
+      "  expect(text).toBe('2,500円');",
+      "  expect(text).toContain('');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 狭め方: 英数字を伴う逃げの記法は**全体**を読み飛ばす。
+    // 変異: `\\` と 1 文字だけを飛ばす（当初の作り）。残った荷 `5186` を字面として積み、
+    // 一致する唯一の文字列 `'円'` に現れない綴りを「必ず現れる」と数えてしまう。
+    // これは**恒偽の後続を飾りとして報せる**向きの誤りである（Task 115.182 のレビュー）。
+    name: '115.182-17 符号で書いた字面の荷を必ず現れる字面として数えない',
+    source: [
+      "test('escape payload is not a literal', async ({ page }) => {",
+      "  const amount = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(amount).toMatch(/^\\u5186$/);',
+      "  expect(amount).toContain('5186');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 狭め方: 名前付き後方参照 `\k<x>` も記法の全体を読み飛ばす。
+    // 変異: `ALPHANUMERIC_ESCAPE` から `k<[^>]*>` の候補を外す。`\k` の 2 文字だけが
+    // 消えて `<x>` が字面として積まれ、一致する `'aab'` に現れない綴りを数えてしまう。
+    name: '115.182-18 名前付き後方参照の名前を必ず現れる字面として数えない',
+    source: [
+      "test('named backreference name is not a literal', async ({ page }) => {",
+      "  const code = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(code).toMatch(/^(?<x>a)\\k<x>b$/);',
+      "  expect(code).toContain('<x>');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 狭め方: `v` 修飾子（集合の記法）を伴う型は数えない。
+    // 変異: `v` の番人を外す。集合の記法は文字クラスの**入れ子**を許すため、走査は
+    // `[[a]` で閉じたと読み違えて `--` を字面として積む。`/^[[a]--[b]]$/v` に一致する
+    // のは `'a'` だけであり、`'--'` を含まない。
+    name: '115.182-19 `v` 修飾子を伴う正規表現は数えない（入れ子の文字クラスを読み違える）',
+    source: [
+      "test('v flag set notation is not counted', async ({ page }) => {",
+      "  const code = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(code).toMatch(/^[[a]--[b]]$/v);',
+      "  expect(code).toContain('--');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+
+  {
+    // 狭め方: `ALPHANUMERIC_ESCAPE` の候補は一つずつ実効を持つ（Task 115.181 の掃討）。
+    // 変異: 候補 `u\{...\}` を外す。`\u` の 2 文字だけが消えて `{1F600}` が字面として
+    // 積まれる。一致するのは `'😀'` だけであり、`'1F600'` を含まない。
+    name: '115.182-20 符号点の指定 `\\u{...}` の荷を必ず現れる字面として数えない',
+    source: [
+      "test('code point escape payload is not a literal', async ({ page }) => {",
+      "  const code = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(code).toMatch(/^\\u{1F600}$/u);',
+      "  expect(code).toContain('1F600');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 変異: 候補 `[pP]\{...\}` を外す。`\p` の 2 文字だけが消えて `{L}` が字面として
+    // 積まれる。`/^\p{L}+$/u` は `'a'` にも一致し、`'{L'` を含まない。
+    name: '115.182-21 素性の指定 `\\p{...}` の荷を必ず現れる字面として数えない',
+    source: [
+      "test('property escape payload is not a literal', async ({ page }) => {",
+      "  const code = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(code).toMatch(/^\\p{L}+$/u);',
+      "  expect(code).toContain('{L');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 変異: 候補 `x[0-9A-Fa-f]{2}` を外す。`\x` の 2 文字だけが消えて `41` が字面として
+    // 積まれる。一致するのは `'A'` だけであり、`'41'` を含まない。
+    name: '115.182-22 符号の指定 `\\xHH` の荷を必ず現れる字面として数えない',
+    source: [
+      "test('hex escape payload is not a literal', async ({ page }) => {",
+      "  const code = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(code).toMatch(/^\\x41$/);',
+      "  expect(code).toContain('41');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 変異: 候補 `c[A-Za-z]` を外す。`\c` の 2 文字だけが消えて `J` が字面として積まれる。
+    // `/^\cJ$/` に一致するのは制御文字（改行）だけであり、`'J'` を含まない。
+    name: '115.182-23 制御文字の指定 `\\cX` の荷を必ず現れる字面として数えない',
+    source: [
+      "test('control escape payload is not a literal', async ({ page }) => {",
+      "  const code = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(code).toMatch(/^\\cJ$/);',
+      "  expect(code).toContain('J');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 変異: 候補 `[0-9]+` を外す。`\1` の 2 文字だけが消えて `0` が字面として積まれる。
+    // `\10` は群が無ければ 8 進の逃げ（後退文字）であり、一致するのは `'a\bb'` である。
+    name: '115.182-24 番号の後方参照 `\\10` の桁を必ず現れる字面として数えない',
+    source: [
+      "test('numeric escape payload is not a literal', async ({ page }) => {",
+      "  const code = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(code).toMatch(/^a\\10b$/);',
+      "  expect(code).toContain('0');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  {
+    // 変異: `regexAlwaysYields` の「対になっていない代用符号を含む needle を数えない」番人だけを
+    // 外すと、この 1 件だけが落ちる（2026-08-27 に実測。182 件中 181 件は緑のまま）。
+    // 走査は UTF-16 の符号単位で進むが `u` 修飾子の量指定は符号点の全体に掛かるため、
+    // `/^a😀?b$/u` では上位の代用符号を積んだ後に連なりを断ち、`'a\ud83d'` が
+    // 残る。しかし `/^a😀?b$/u` は `'ab'` にも一致し、`'ab'` は `'a\ud83d'` を含まない。
+    // 字面の星位文字でなければ再現しない（`\u{1F600}` の逃げの記法は
+    // `ALPHANUMERIC_ESCAPE` が丸ごと読み飛ばすため代用符号が積まれない）。
+    name: '115.182-25 字面の星位文字に量指定が続く形で対を欠いた代用符号を数えない',
+    source: [
+      "test('astral literal with quantifier leaves no mandatory run', async ({ page }) => {",
+      "  const code = (await page.locator('.a').textContent()) ?? '';",
+      '  expect(code).toMatch(/^a😀?b$/u);',
+      "  expect(code).toContain('\\ud83d');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+];
 
 function main(): void {
   const groups: Array<{ title: string; cases: Case[] }> = [
@@ -2864,6 +3257,10 @@ function main(): void {
     {
       title: '115.181 変異の掃討で見つかった実効を持つ枝',
       cases: SWEPT_BRANCHES,
+    },
+    {
+      title: '115.182 先行が needle の存在を保証する肯定の後続',
+      cases: IMPLIED_PRESENCE,
     },
   ];
 

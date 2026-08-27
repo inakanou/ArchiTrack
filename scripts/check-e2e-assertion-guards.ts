@@ -82,7 +82,14 @@
  *                           こちらは「**別の主張**が結論を先取りしている形」である。
  *                           要件の被覆に穴は空かない（先行の主張が退行を捕まえる）ため
  *                           実害は小さいが、主張として何も足していない飾りであり、
- *                           読み手に検証の厚みを誤認させる（Task 115.163）
+ *                           読み手に検証の厚みを誤認させる（Task 115.163）。
+ *                           **含意には向きが二つある**（Task 115.182）。先行が needle を
+ *                           **排除する**なら否定の後続が必ず成立し、先行が needle の存在を
+ *                           **保証する**なら肯定の後続が必ず成立する
+ *                           （`expect(amount).toMatch(/^[0-9,]+円$/);`
+ *                           `expect(amount).toContain('円')`）。残る二つの組み合わせ
+ *                           （排除×肯定・保証×否定）は必ず**失敗する**恒偽の主張であり、
+ *                           飾りではない別種の欠陥であるため数えない
  *
  * 分類の優先順位: T3 > T4 > T5 > T1（T2 と T6 と T7 と T8 と T9 と T10 と T11 と T12 は別軸のため重複して計上する）
  *
@@ -438,12 +445,101 @@
  *   - 後から代入される名前・同名の宣言が複数ある名前（T12 の限界。Task 115.163）
  *     先行の主張の時点の値と後続の時点の値が同じであることを構文だけでは決められない。
  *     T10 / T11 と同じ理由であり、数え切れない側は検出しない。
- *   - 錨が構文で確かめられない正規表現（T12 の限界。Task 115.163）
- *     T7 は「抜き出した部分文字列」の上界を見るため錨を問わないが、T12 は主題の
- *     文字列**全体**が縛られている必要がある。すべての最上位の選択肢が `^` で始まり
+ *   - 錨が構文で確かめられない正規表現（T12 の**排除の向きだけ**の限界。Task 115.163 / 115.182）
+ *     T7 は「抜き出した部分文字列」の上界を見るため錨を問わないが、T12 の**排除の向き**は
+ *     主題の文字列**全体**が縛られている必要がある。すべての最上位の選択肢が `^` で始まり
  *     `$` で終わる形だけを錨付きと見なす。`/^(?:a|b)$/` は錨付きと見なすが、
  *     `/(?:^a$|^b$)/` のように選択肢を括弧でくくった形は見逃す。`m` 修飾子を伴う形も
  *     行頭・行末の錨に過ぎないため見逃す側へ倒す。
+ *     **保証の向きには錨を要求しない（Task 115.182）。** 部分一致であっても、一致した
+ *     部分は主題の中に現れるため、一致した部分に必ず現れる字面は主題にも必ず現れる。
+ *     `expect(amount).toMatch(/円$/)` は `expect(amount).toContain('円')` を含意する。
+ *     排除の向きの錨の要求が失われないことは自己検査 115.163-4 / 115.163-5 /
+ *     115.163-14 / 115.181-25 が固定する（`excludes` から錨の要求を外す変異で
+ *     この 4 件だけが落ちる。2026-08-27 に実測）。
+ *   - 必ず現れる字面を「量指定を伴わない字面の文字」だけで数えること
+ *     （T12 の**保証の向き**の見逃し側の限界。Task 115.182）
+ *     `mandatoryLiteralRuns` は下界を数えるため、断つ側へ倒している。したがって
+ *     **必ず現れるのに数えない**形がある。一要素の文字クラス（`/^[0-9]+[円]$/`）・
+ *     群でくくった字面（`/^[0-9]+(?:円)$/`）・回数を指定した字面（`/^A{2}$/`）は
+ *     いずれも `円` などを必ず生むが、クラス・群・量指定はその位置に何が現れるかを
+ *     一つに定められない場合と区別できないため、まとめて数えない。過検出は実質のある
+ *     主張を消す圧力になるため、見逃す側へ倒した判断である。量指定の判断は自己検査
+ *     115.182-8 が単独で固定する。文字クラスの判断は 115.182-5 と 115.182-9 が固定し、
+ *     括弧だけを無視して中身を連なりに積む変異では 2 件とも落ち、括弧の位置で連なりを
+ *     断つだけの弱い変異では 115.182-5 が落ちる。群の判断は 115.182-10 と 115.182-18 の
+ *     2 件が固定する（いずれも 2026-08-27 に測り直した）。
+ *   - 逃げの記法（T12 の**保証の向き**の限界。**両方向の見逃し**。Task 115.182）
+ *     `\uHHHH` `\u{...}` `\xHH` `\cX` `\p{...}` `\k<x>` `\10` は記法の**全体**を
+ *     読み飛ばす。したがって次の二つは別物であり、両方とも数えない。
+ *       (a) 記法が指す**文字**（`/^\u5186$/` の `円`）は必ず現れるのに数えない。
+ *           上と同じ「見逃す側へ倒した」判断である。
+ *       (b) 記法の**荷の綴り**（`5186` `<x>` `{L}` `41` `J`）は一致した文字列に現れない。
+ *           これを数えるのは**過検出**であり、許されない。
+ *     **(b) は当初 `\` と 1 文字だけを飛ばす作りで実際に起きていた**（`/^\u5186$/` の後の
+ *     `toContain('5186')` を飾りとして報せていた。一致するのは `'円'` だけであるから
+ *     この後続は**必ず失敗する**主張であり、飾りとは正反対である。Task 115.182 の
+ *     レビューで指摘され是正した）。(b) は自己検査 115.182-17 / -18 / -20 / -21 / -22 /
+ *     -23 / -24 が記法ごとに固定する。
+ *   - `v` 修飾子を伴う正規表現（T12 の**保証の向き**の限界。Task 115.182）
+ *     集合の記法は文字クラスの**入れ子**を許すため、`skipCharacterClass` が最初の `]` で
+ *     閉じたと読み違える。`/^[[a]--[b]]$/v` に一致するのは `'a'` だけであるのに、走査は
+ *     `--` を必ず現れる字面として積んでいた。入れ子を正しく読む代わりに、`v` を伴う形は
+ *     まとめて数えない（自己検査 115.182-19 が固定。2026-08-27 に実測）。
+ *   - 字面の星位文字に量指定が続く形（T12 の**保証の向き**の限界。**過検出の芽**。
+ *     Task 115.182 のレビューによる是正。2026-08-27 に実測）
+ *     `mandatoryLiteralRuns` の走査は UTF-16 の**符号単位**で進むが、`u` 修飾子の量指定は
+ *     **符号点の全体**に掛かる。`/^a😀?b$/u` では上位の代用符号を字面として積んだ後、
+ *     下位の代用符号の位置で初めて量指定に気付いて連なりを断つため、`'a\ud83d'` という
+ *     **対になっていない代用符号を末尾に抱えた連なり**が残る。`/^a😀?b$/u` は `'ab'` にも
+ *     一致し、`'ab'` は `'a\ud83d'` を含まない。これは**過検出**であり許されない。後続
+ *     `expect(s).toContain('a\ud83d')` は `'ab'` と `'a😀b'` を選り分ける実質のある主張であり、
+ *     これを飾りと報せることは**実質のある主張を消させる**最も悪い向きの誤りである。
+ *     `regexAlwaysYields` が**対になっていない代用符号を含む needle を数えない**ことで断つ。
+ *     `u` を伴わない形では量指定が下位の代用符号だけに掛かるため連なりは健全であるが、
+ *     この番人は修飾子を問わないためその健全な形も数えなくなる（見逃す側へ倒した副作用）。
+ *     逃げの記法（`\u{1F600}`）では `ALPHANUMERIC_ESCAPE` が記法の全体を読み飛ばすため
+ *     代用符号は積まれず、この形は**字面の**星位文字でなければ再現しない。
+ *     自己検査 115.182-25 が固定する。
+ *   - 一致する文字列が一つも無い正規表現（T12 の**保証の向き**の過検出方向の限界。
+ *     Task 115.182。2026-08-27 に実測）
+ *     `/^a[]b$/`（空の文字クラス）や `/^(?=a)[^a]a$/`（矛盾する先読み）は決して一致しない。
+ *     このとき**先行そのものが恒偽**であり、後続を飾りと報せるのは誤りである。字面の
+ *     下界を数える走査は「一致する文字列が存在するか」を判定しないため、この形は捉え
+ *     られない。旧掃引（35,843 通り）の総当たりでも、一致 0 件となった 11 件のうち 2 件が
+ *     これであった。**広げた掃引（2026-08-27）では検出 26,846 件のうち 5,568 件が一致 0 件で
+ *     あり、その内訳（探索の長さ不足か、そもそも一致しないか）は数え分けていない。**
+ *     ただし先行が必ず失敗するテストは検出以前に赤で落ちるため、実害は検出の誤りに
+ *     とどまる。**是正には別種の解析（充足可能性の判定）が要り、下界の走査では届かない。**
+ *   - `i` 修飾子を伴う正規表現（T12 の**保証の向き**の限界。Task 115.182）
+ *     `/^[0-9]+YEN$/i` は `'1yen'` にも一致するため、字面の綴りが保証されない。
+ *     大文字小文字の違いを吸収した包含判定は行わず、まとめて数えない
+ *     （自己検査 115.182-7 が固定）。
+ *   - 肯定の後続の主題に加工を挟む形（T12 の**保証の向き**の限界。Task 115.182）
+ *     保証の向きの遡り（`presenceSubjectRoots`）は**識別子そのもの**に限る。
+ *     排除の向きの遡り（`absenceSubjectRoots`）が辿ってよいのは「`needle` を
+ *     **作り出さない**加工」であるのに対し、保証の向きが辿ってよいのは
+ *     「`needle` を**壊さない**加工」であり、両者は別物である。要素参照・`trim` 族・
+ *     置換はいずれも `needle` を壊しうる（`'1,234円'[0]` は `'1'`）。したがって
+ *     `expect(amount).toMatch(/^[0-9,]+円$/); expect(amount.trim()).toContain('円')` は
+ *     見逃す。排除の向きの遡りを流用する変異では自己検査 115.182-12 が落ちる。
+ *   - 肯定の後続を `toContain` に限ること（T12 の**保証の向き**の限界。Task 115.182）
+ *     `expect(amount).toMatch(/円$/)` の後の `expect(amount).toMatch(/円/)` のように、
+ *     後続が正規表現を取る形は言語の包含判定を要するため数えない。
+ *     排除の向きの「正規表現を needle に取る後続の主張」と同じ理由である。
+ *   - 保証の向きの検出が 0 件であること（Task 115.182 の実測。2026-08-27 時点）
+ *     規則を入れた時点で e2e 配下の検出は 0 件である。**該当が無いことを意味しない。**
+ *     **数え方を明記する（Task 115.182 のレビューによる是正）。** 走査対象
+ *     （`collectE2eFiles`）を構文木で数えると、`expect(…)` を受け手とする否定を伴わない
+ *     `toContain` の呼び出しは 139 箇所（うち needle が文字列リテラルのものは 60 箇所）で
+ *     ある。`grep` で行を数えると 143 行になるが、これは複数行に跨る呼び出しの継続行と
+ *     注釈の行を別に数えた結果であり、呼び出しの数ではない。
+ *     この 139 箇所に対し、「同じテストの中で、後続より前に書かれた、**同じ綴りの主題**への
+ *     否定を伴わない主張」を束縛の同一性も加工の経路も問わずに広く拾う走査を当てた。
+ *     候補は 24 件で、先行はいずれも `toBeTruthy()`・`toHaveLength()`・**別の** needle の
+ *     `toContain()` であり、後続の needle の存在を保証しない。すなわち現時点で
+ *     **是正すべき箇所は見つからなかった**が、上に挙げた限界に当たる形は
+ *     数え上げられていない。
  *   - needle を残らず取り除く置換を挟む形（T12 の限界。Task 115.163）
  *     `expect(text.replace(/\./g, '')).not.toContain('.')` は T7 が数える形であり、
  *     T12 では遡らない（同じ箇所を二つの型で重ねて数えないため）。
@@ -1844,6 +1940,201 @@ function isFullyAnchored(pattern: string, flags: string): boolean {
   return true;
 }
 
+/** 文字クラス `[...]` の終わりの次の位置（閉じていなければ `-1`） */
+function skipCharacterClass(pattern: string, start: number): number {
+  let i = start + 1;
+  if (pattern[i] === '^') i += 1;
+  if (pattern[i] === ']') i += 1;
+  for (; i < pattern.length; i += 1) {
+    const ch = pattern[i]!;
+    if (ch === '\\') {
+      i += 1;
+      continue;
+    }
+    if (ch === ']') return i + 1;
+  }
+  return -1;
+}
+
+/** 群 `(...)` の終わりの次の位置（閉じていなければ `-1`） */
+function skipGroup(pattern: string, start: number): number {
+  let depth = 0;
+  let i = start;
+  while (i < pattern.length) {
+    const ch = pattern[i]!;
+    if (ch === '\\') {
+      i += 2;
+      continue;
+    }
+    if (ch === '[') {
+      const next = skipCharacterClass(pattern, i);
+      if (next < 0) return -1;
+      i = next;
+      continue;
+    }
+    if (ch === '(') depth += 1;
+    if (ch === ')') {
+      depth -= 1;
+      if (depth === 0) return i + 1;
+    }
+    i += 1;
+  }
+  return -1;
+}
+
+/**
+ * 英数字を伴うエスケープの記法（`mandatoryLiteralRuns` が丸ごと読み飛ばす単位。Task 115.182）。
+ *
+ * 正規表現リテラルが許す形を並べる。符号点 `\u{1F600}` / `\uHHHH` / `\xHH`、
+ * 制御文字 `\cJ`、素性 `\p{L}` `\P{Script=Han}`、名前付き後方参照 `\k<x>`、
+ * 番号の後方参照と 8 進の逃げ `\10`、1 文字の逃げ（`\d` `\b` `\n` など）である。
+ * 長く食う候補を先に置く（`\u{...}` は `\uHHHH` より先、`\k<...>` は 1 文字の逃げより先）。
+ *
+ * 当たらなかった場合は 2 文字だけ進む。英数字が続く限りいずれかの候補（最後の
+ * `[0-9]+` か `[A-Za-z]`）に必ず当たるため、この退避は実際には使われない。
+ */
+const ALPHANUMERIC_ESCAPE =
+  /^\\(?:u\{[0-9A-Fa-f]+\}|u[0-9A-Fa-f]{4}|x[0-9A-Fa-f]{2}|c[A-Za-z]|[pP]\{[^}]*\}|k<[^>]*>|[0-9]+|[A-Za-z])/;
+
+/**
+ * 一致した文字列に**必ずそのまま現れる字面の連なり**を返す（T12。Task 115.182）。
+ *
+ * 「ちょうど一つだけ現れる字面の文字」を隣り合う限り繋いだものを一つの連なりとする。
+ * 上界（`regexCharTests`）とは向きが逆であり、**下界**を数えている。
+ *
+ * 連なりを断つのは次の場合である。いずれも「その位置に何が現れるか」または
+ * 「その要素が現れるか」が構文だけでは一つに定まらないため、字面として積めない。
+ *   - 文字クラス `[...]`・群 `(...)`・`.`・`\d` のような英数字を伴うエスケープ
+ *   - 量指定（`*` `+` `?` `{n,m}`）を伴う要素。`a+b` は `'aab'` にも一致するため、
+ *     `a` と `b` を繋いだ `'ab'` を必ず現れる字面と数えることはできない
+ *   - 錨（`^` `$`）・選択肢の区切り（`|`）・閉じ括弧
+ *
+ * **健全性は測った範囲でしか主張しない（Task 115.182 のレビューによる是正。2026-08-27）。**
+ * 当初ここには「断つ側へ倒しているため返す連なりは必ず健全である」と書いていたが、これは
+ * 実測に支えられない理屈であり、実際に誤りであった。逃げの記法を `\` と 1 文字だけ飛ばす
+ * 作りは、残った荷（`/^\u5186$/` の `5186`）を字面として積み、一致する唯一の文字列 `'円'`
+ * に現れない綴りを「必ず現れる」と数えていた。これは**恒偽の後続を飾りとして報せる**向きの
+ * 誤りであり、必ず失敗する主張を「消してよい」と読ませる最も悪い向きである。
+ *
+ * 現在の健全性は次の実測に支えられている（いずれも 2026-08-27）。
+ *   - 逃げの記法は `ALPHANUMERIC_ESCAPE` で記法の**全体**を読み飛ばす。候補は一つずつ実効を
+ *     持ち、外すとそれぞれ 115.182-17（`\uHHHH`）・115.182-18（`\k<x>`）・115.182-20
+ *     （`\u{...}`）・115.182-21（`\p{...}`）・115.182-22（`\xHH`）・115.182-23（`\cX`）・
+ *     115.182-24（`\10`）が 1 件ずつ落ちる。判断ごと戻すとこの 7 件が落ちる
+ *   - 断つ判断のうち量指定は 115.182-8 が単独で落ちる。**文字クラスの判断は変異の強さで
+ *     落ちる件数が変わる（2026-08-27 に測り直した。当初ここには「115.182-9 が単独で落ちる」
+ *     と書いていたが、そう振る舞う変異は無かった）。** 括弧だけを無視して中身を連なりに
+ *     積む変異では 115.182-5 と 115.182-9 の 2 件が落ち、括弧の位置で連なりを断つだけの
+ *     弱い変異（および `[` を字面として積む変異）では 115.182-5 の 1 件が落ちる。
+ *     群の判断は 115.182-10 と 115.182-18 の 2 件で落ちる（`115.182-18` の型が群を含むため）
+ *   - `v` 修飾子を数えない番人は 115.182-19 が固定する（`regexAlwaysYields`）
+ *   - 対になっていない代用符号を含む needle を数えない番人は 115.182-25 が固定する
+ *     （`regexAlwaysYields`。番人だけを外すと 182 件中この 1 件だけが落ちる）
+ *   - 型・修飾子・needle を機械で組み合わせて数え直した。**旧掃引（35,843 通り・検出 124 件）
+ *     には死角があった。** 星位文字を逃げの記法（`\u{1F600}`）でしか生成せず、**字面の**
+ *     星位文字も、対を欠いた代用符号を含む needle も一度も作らなかったため、上に挙げた
+ *     過検出の形を原理的に踏めなかった。生成器を広げて数え直した結果は次のとおりであり、
+ *     **旧掃引の数字は引き継がない**。
+ *       - 型×修飾子は 97,632 通り（すべて構文が通る）。needle は各連なりの**符号単位**の
+ *         部分文字列（長さ 4 まで）から採るため、needle まで数えた組は 76,944 通り
+ *       - 検出は 26,846 件。うち**反例（一致するのに needle を欠く文字列）は 0 件**である
+ *       - ただし総当たりは 7 記号・長さ 4 までであり、検出のうち 5,568 件は一致する文字列を
+ *         一つも見つけられず**反例の有無を判定できていない**（探索の長さが足りない形と、
+ *         そもそも一致しない形が混ざる。下の限界を参照）
+ *       - 同じ生成器で代用符号の番人だけを外すと検出 76,944 件・反例 6,064 件となる。
+ *         広げた生成器がこの過検出の形を実際に踏むことを、この対比が示している
+ *
+ * 完全ではない（`[円]` のように一要素のクラスは必ず現れるが数えない）。
+ */
+function mandatoryLiteralRuns(pattern: string): string[] {
+  const runs: string[] = [];
+  let current = '';
+  const flush = (): void => {
+    if (current !== '') runs.push(current);
+    current = '';
+  };
+  let i = 0;
+  while (i < pattern.length) {
+    const ch = pattern[i]!;
+    let literal: string | undefined;
+    let next = i + 1;
+    if (ch === '\\') {
+      const escaped = pattern[i + 1];
+      if (escaped === undefined) break;
+      if (/[A-Za-z0-9]/.test(escaped)) {
+        // 英数字を伴うエスケープはクラス（`\d`）・境界（`\b`）・後方参照（`\1` `\k<x>`）・
+        // 符号の指定（`\u5186`）のいずれでもありうる。字面として数えないだけでなく、
+        // **記法の全体**を読み飛ばさなければならない。`\` と 1 文字だけを飛ばすと
+        // 残った荷（`\u5186` の `5186`）を字面として積んでしまい、一致する文字列
+        // （`'円'`）に現れない綴りを「必ず現れる」と数える（Task 115.182 の是正）
+        const sequence = ALPHANUMERIC_ESCAPE.exec(pattern.slice(i));
+        next = i + (sequence ? sequence[0].length : 2);
+      } else {
+        next = i + 2;
+        literal = escaped;
+      }
+    } else if (ch === '[') {
+      next = skipCharacterClass(pattern, i);
+      if (next < 0) break;
+    } else if (ch === '(') {
+      next = skipGroup(pattern, i);
+      if (next < 0) break;
+    } else if (ch === '{') {
+      // 量指定の始まりでない `{` は字面として扱う（量指定なら下の検出で消費される）
+      if (!/^\{\d*(,\d*)?\}/.test(pattern.slice(i))) literal = ch;
+    } else if (!'^$|).'.includes(ch)) {
+      literal = ch;
+    }
+    const quantifier = /^(?:[*+?]|\{\d*(,\d*)?\})\??/.exec(pattern.slice(next));
+    if (quantifier) {
+      flush();
+      i = next + quantifier[0].length;
+      continue;
+    }
+    if (literal === undefined) flush();
+    else current += literal;
+    i = next;
+  }
+  flush();
+  return runs;
+}
+
+/**
+ * 正規表現に一致した文字列が `needle` を**必ず含む**か（T12。Task 115.182）。
+ *
+ * 錨は要らない。部分一致であっても、一致した部分は主題の中に現れるため、
+ * 一致した部分に必ず現れる字面は主題にも必ず現れる（錨は排除の向きだけの関門である）。
+ *
+ * `i` 修飾子を伴う形は字面の綴りが保証されないため数えない
+ * （`/^[0-9]+YEN$/i` は `'1yen'` にも一致し、`'YEN'` を含まない）。
+ *
+ * `v` 修飾子を伴う形も数えない。集合の記法は文字クラスの**入れ子**を許すため、
+ * `skipCharacterClass` が最初の `]` で閉じたと読み違える。`/^[[a]--[b]]$/v` は
+ * `'a'` にしか一致しないのに、走査は `--` を必ず現れる字面として積んでしまう
+ * （2026-08-27 に実測。自己検査 115.182-19 が固定）。
+ *
+ * **対になっていない代用符号を含む needle も数えない（Task 115.182 のレビューによる是正。
+ * 2026-08-27）。** `mandatoryLiteralRuns` の走査は UTF-16 の符号単位で進むが、`u` 修飾子の
+ * 量指定は符号点の**全体**に掛かる。字面の星位文字に量指定が続く `/^a😀?b$/u` では、上位の
+ * 代用符号を字面として積んだ後、下位の代用符号の位置で初めて量指定に気付いて連なりを断つ。
+ * その結果 `'a\ud83d'` という**対になっていない代用符号を末尾に抱えた連なり**が残り、
+ * `'ab'` にも一致するのに `'a\ud83d'` が必ず現れると数えていた。後続
+ * `expect(s).toContain('a\ud83d')` は `'ab'` と `'a😀b'` を選り分ける実質のある主張であり、
+ * これを飾りと報せるのは**実質のある主張を消させる**最も悪い向きの過検出である。
+ * 連なりの端に残る代用符号は必ず対を欠くため、needle 側で対の欠けを見れば断てる
+ * （自己検査 115.182-25 が固定）。
+ */
+function regexAlwaysYields(parts: { pattern: string; flags: string }, needle: string): boolean {
+  if (needle === '') return false;
+  if (parts.flags.includes('i')) return false;
+  if (parts.flags.includes('v')) return false;
+  if (/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(needle))
+    return false;
+  return topLevelAlternatives(parts.pattern).every((branch) =>
+    mandatoryLiteralRuns(branch).some((run) => run.includes(needle))
+  );
+}
+
 /**
  * 主題の綴りを確定させる等値の matcher（T12。Task 115.163）。
  *
@@ -1859,8 +2150,10 @@ interface LanguageFixingAssertion {
   node: ts.CallExpression;
   /** 主張の主題（識別子に限る） */
   subject: ts.Identifier;
-  /** その主張が `needle` を含む文字列を受理し得ないか */
+  /** その主張が `needle` を含む文字列を受理し得ないか（否定の後続を含意する向き） */
   excludes: (needle: string) => boolean;
+  /** その主張が受理する文字列は必ず `needle` を含むか（肯定の後続を含意する向き。Task 115.182） */
+  guarantees: (needle: string) => boolean;
   /** 報告に用いる綴り */
   label: string;
 }
@@ -2619,18 +2912,24 @@ export function scanSource(relPath: string, source: string): ScanResult {
           const subject = receiver.arguments[0]
             ? unwrapParentheses(receiver.arguments[0]!)
             : undefined;
-          // `!reassigned` は `absenceSubjectRoots` 側の同じ条件に包含される（先行と後続は
+          // `!reassigned` は**実効を持つ**（自己検査 `115.182-13` が固定。Task 115.182）。
+          // 否定の向きでは `absenceSubjectRoots` 側の同じ条件に包含されていた（先行と後続は
           // 綴りが一致する場合にしか対応づかず、`reassigned` は綴りの集合であるため、
-          // ここだけを外しても検出は変わらない。Task 115.163 の変異実験で実測）。
-          // 単独では効かないが、後続側の条件が失われたときの二枚目として残す
+          // ここだけを外しても検出は変わらなかった。Task 115.163 の変異実験で実測）。
+          // 肯定の向き（`presenceSubjectRoots`）は後続側で `reassigned` を見ないため、
+          // 後から代入される名前を弾く関門はここだけになった
           if (subject && ts.isIdentifier(subject) && !reassigned.has(subject.text)) {
             if (matcher === 'toMatch') {
               const parts = regexLiteralParts(arg);
-              if (parts && isFullyAnchored(parts.pattern, parts.flags)) {
+              if (parts) {
+                // 錨の要求は**排除の向きにだけ**掛ける（Task 115.182）。
+                // 保証の向きでは錨は要らないため、錨の無い正規表現も集める。
+                const anchored = isFullyAnchored(parts.pattern, parts.flags);
                 collected.push({
                   node: n,
                   subject,
-                  excludes: (needle) => regexCannotYield(parts.pattern, needle),
+                  excludes: (needle) => anchored && regexCannotYield(parts.pattern, needle),
+                  guarantees: (needle) => regexAlwaysYields(parts, needle),
                   label: `toMatch(/${parts.pattern}/${parts.flags})`,
                 });
               }
@@ -2643,6 +2942,7 @@ export function scanSource(relPath: string, source: string): ScanResult {
                 node: n,
                 subject,
                 excludes: (needle) => !expected.includes(needle),
+                guarantees: (needle) => expected.includes(needle),
                 label: `${matcher}(${JSON.stringify(expected)})`,
               });
             }
@@ -2681,6 +2981,22 @@ export function scanSource(relPath: string, source: string): ScanResult {
     // すべて非空の needle）。意図の表明として残す。
     if (needle === '') return undefined;
     const roots = absenceSubjectRoots(subject, needle);
+    const found = findLeadingAssertion(assertion, roots, (leading) => leading.excludes(needle));
+    if (!found) return undefined;
+    return `先行の主張 \`expect(${found.root.text}).${found.leading.label}\` が受理する文字列に ${JSON.stringify(needle)} は現れ得ない`;
+  };
+
+  /**
+   * 後続の主題に対応づく先行の主張を探す（T12。Task 115.163 / 115.182）。
+   *
+   * 否定の向き（先行が排除する）と肯定の向き（先行が保証する）で共通の手順である。
+   * 向きの違いは `accepts` にだけ現れる。
+   */
+  const findLeadingAssertion = (
+    assertion: ts.CallExpression,
+    roots: ts.Identifier[],
+    accepts: (leading: LanguageFixingAssertion) => boolean
+  ): { root: ts.Identifier; leading: LanguageFixingAssertion } | undefined => {
     if (roots.length === 0) return undefined;
     languageFixingAssertions ??= collectLanguageFixingAssertions();
     for (const root of roots) {
@@ -2692,18 +3008,69 @@ export function scanSource(relPath: string, source: string): ScanResult {
       for (const leading of languageFixingAssertions) {
         // 自己比較。**恒偽である**: 先行として集めるのは否定を伴わない
         // toMatch / toBe / toEqual / toStrictEqual だけであり、ここへ来る `assertion` は
-        // 否定を伴う toContain である。同じ節点が双方になることはない（仮に同じでも
+        // toContain である。同じ節点が双方になることはない（仮に同じでも
         // 直後の位置の比較 `>=` で外れる）。走査でも踏まれない（2026-08-25。e2e 配下で
         // この内側は 12 回回り、一致は 0 回）。読み手への表明として残す。
         if (leading.node === assertion) continue;
         if (leading.subject.text !== root.text) continue;
+        // 先行は後続より**前**に書かれていなければならない
+        //（自己検査 115.163-9 / 115.182-14 が固定）
         if (leading.node.getStart() >= assertion.getStart()) continue;
+        // 綴りが同じでも束縛が違えば別物（自己検査 115.163-6 / 115.182-15 が固定）
         if (resolveBinding(leading.subject.text, leading.subject) !== rootBinding) continue;
-        if (!leading.excludes(needle)) continue;
-        return `先行の主張 \`expect(${root.text}).${leading.label}\` が受理する文字列に ${JSON.stringify(needle)} は現れ得ない`;
+        if (!accepts(leading)) continue;
+        return { root, leading };
       }
     }
     return undefined;
+  };
+
+  /**
+   * 肯定の後続の主題が由来する**局所の名前**の一覧（T12。Task 115.182）。
+   *
+   * 否定の向き（`absenceSubjectRoots`）と違い、**識別子そのもの**に限る。
+   * 否定の向きが辿ってよいのは「`needle` を**作り出さない**加工」であるのに対し、
+   * 肯定の向きが辿ってよいのは「`needle` を**壊さない**加工」であり、両者は別物である。
+   * 要素参照・`trim` 族・置換はいずれも `needle` を壊しうるため辿れない
+   *（`'1,234円'[0]` は `'1'` である。自己検査 115.182-12 が固定）。
+   * 括弧・非 null 表明・`await` だけは値を変えないため剥がす。
+   */
+  const presenceSubjectRoots = (expr: ts.Expression, depth = 0): ts.Identifier[] => {
+    if (depth > RESOLVE_DEPTH_LIMIT) return [];
+    const node = unwrapParentheses(expr);
+    if (ts.isNonNullExpression(node) || ts.isAwaitExpression(node)) {
+      return presenceSubjectRoots(node.expression, depth + 1);
+    }
+    // `reassigned` はここでは見ない。先行を集める側の同じ条件が唯一の関門である
+    //（`collectLanguageFixingAssertions` を参照。自己検査 115.182-13 が固定）。
+    // 同じ判断を二枚重ねると、どちらの枝も単独の変異では落ちなくなる
+    return ts.isIdentifier(node) ? [node] : [];
+  };
+
+  /**
+   * 先行の主張が後続の**肯定の**主張を含意するか（T12。Task 115.182）。
+   *
+   * 該当する場合は理由を、しない場合は `undefined` を返す。
+   * `expect(amount).toMatch(/^[0-9,]+円$/)` の直後の `expect(amount).toContain('円')` は、
+   * 先行が通れば必ず成立するため飾りである。否定の向き（`impliedSuccessor`）の鏡像であり、
+   * 違いは「先行が `needle` を排除するか」ではなく「先行が `needle` の存在を保証するか」
+   * を見る点だけである。
+   *
+   * 空の needle の番人は**実効を持つ**（自己検査 115.182-16 が固定）。等値の先行では
+   * `expected.includes('')` が常に真であり、必ず現れる字面はどれも空文字を含むため、
+   * 番人が無いとあらゆる先行が保証と見なされる。否定の向きでは同じ番人が空回りしていた
+   *（Task 115.164 で実測）ことと対照的である。
+   */
+  const impliedPresenceSuccessor = (
+    assertion: ts.CallExpression,
+    subject: ts.Expression,
+    needle: string
+  ): string | undefined => {
+    if (needle === '') return undefined;
+    const roots = presenceSubjectRoots(subject);
+    const found = findLeadingAssertion(assertion, roots, (leading) => leading.guarantees(needle));
+    if (!found) return undefined;
+    return `先行の主張 \`expect(${found.root.text}).${found.leading.label}\` が受理する文字列は必ず ${JSON.stringify(needle)} を含む`;
   };
 
   /**
@@ -2968,11 +3335,14 @@ export function scanSource(relPath: string, source: string): ScanResult {
           receiver = receiver.expression;
         }
         const needleArg = node.arguments[0];
-        // 後続は**否定を伴う** `toContain` に限る。否定を伴わない形は「決して失敗しない」
-        // のではなく「必ず失敗する」形であり、飾りではない。**実効を持つ**
-        // （自己検査 115.164-4 が固定。Task 115.164 で実測）
+        // 否定の有無で**見る向きを分ける**。四つの組み合わせのうち飾りは二つだけである。
+        //   先行が排除 × 後続が否定 → 必ず成立（飾り。数える。自己検査 115.163 群）
+        //   先行が排除 × 後続が肯定 → 必ず失敗（恒偽。数えない。自己検査 115.164-4）
+        //   先行が保証 × 後続が肯定 → 必ず成立（飾り。数える。自己検査 115.182 群）
+        //   先行が保証 × 後続が否定 → 必ず失敗（恒偽。数えない。自己検査 115.182-6）
+        // 恒偽の主張は「決して失敗しない」のではなく「必ず失敗する」形であり、
+        // 飾りではない（別種の欠陥である）。向きを分けずに数えると恒偽まで数えてしまう
         if (
-          negated &&
           ts.isCallExpression(receiver) &&
           ts.isIdentifier(receiver.expression) &&
           receiver.expression.text === 'expect' &&
@@ -2980,7 +3350,12 @@ export function scanSource(relPath: string, source: string): ScanResult {
           ts.isStringLiteralLike(needleArg)
         ) {
           const subject = receiver.arguments[0];
-          if (subject && impliedSuccessor(node, subject, needleArg.text)) {
+          const implied = subject
+            ? negated
+              ? impliedSuccessor(node, subject, needleArg.text)
+              : impliedPresenceSuccessor(node, subject, needleArg.text)
+            : undefined;
+          if (implied) {
             push(node, 'T12-implied-successor', receiver);
           }
         }
