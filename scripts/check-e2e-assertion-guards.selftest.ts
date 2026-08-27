@@ -2491,6 +2491,345 @@ const IMPLIED_SUCCESSOR: Case[] = [
   },
 ];
 
+// ============================================================================
+// 115.181: 変異の掃討で見つかった「実効を持つのに固定されていない枝」
+//
+// 検出規則の狭める向きの判断（定数の集合・関門の条件）を一つずつ変異させ、
+// 自己検査が緑のままである枝を洗い出した（合計 91 変異）。生き残った枝のうち、
+// 検出器へ直に書き方を当てて**実効があると実測できた**ものをここで固定する。
+// 各事例は、対応する枝を外す変異で**その事例だけ**が落ちることを実測している。
+// ============================================================================
+
+/** 応答の失敗一覧を連結し、加工を一つ挟んで不在を主張する形（T11 の `STRING_PRESERVING`） */
+const stringPreservingCase = (call: string): string =>
+  [
+    "test('string preserving', async ({ page }) => {",
+    '  const response = await page.waitForResponse(() => true);',
+    '  const body = await response.json();',
+    `  const reasons = body.failed.map((failure) => failure.error).join(' / ').${call};`,
+    "  expect(reasons).not.toContain('拒否');",
+    '});',
+  ].join('\n');
+
+/** 母集団から集まりを作り、その配列へ不在を主張する形（T11 の `COLLECTION_PROJECTIONS`） */
+const collectionProjectionCase = (call: string): string =>
+  [
+    "test('collection projection', async ({ page }) => {",
+    '  const response = await page.waitForResponse(() => true);',
+    '  const body = await response.json();',
+    `  const items = body.failed.${call};`,
+    "  expect(items).not.toContain('拒否');",
+    '});',
+  ].join('\n');
+
+/** 即時判定に待機を指定する形（T2 の `IMMEDIATE_PREDICATES`） */
+const immediatePredicateCase = (predicate: string): string =>
+  [
+    "test('ignored timeout', async ({ page }) => {",
+    `  const observed = await page.getByRole('dialog').${predicate}({ timeout: 1000 });`,
+    '  if (observed) {',
+    "    await expect(page.getByRole('dialog')).toBeVisible();",
+    '  }',
+    '});',
+  ].join('\n');
+
+const SWEPT_BRANCHES: Case[] = [
+  // --------------------------------------------------------------------------
+  // T11 `STRING_PRESERVING`（本タスクが名指しで受け取った枝）
+  //
+  // 集合を空にする変異でも自己検査は緑のままであった（実測）。つまり六つの綴りは
+  // **一つも固定されていなかった**。綴りごとに、その綴りだけを外す変異で
+  // 当該の事例だけが落ちることを実測している。
+  // --------------------------------------------------------------------------
+  {
+    name: '115.181-1 `trim` を挟んだ連結も母集団から作った値として数える',
+    source: stringPreservingCase('trim()'),
+    expected: ['T11-empty-population-absence'],
+  },
+  {
+    name: '115.181-2 `trimStart` を挟んだ連結も母集団から作った値として数える',
+    source: stringPreservingCase('trimStart()'),
+    expected: ['T11-empty-population-absence'],
+  },
+  {
+    name: '115.181-3 `trimEnd` を挟んだ連結も母集団から作った値として数える',
+    source: stringPreservingCase('trimEnd()'),
+    expected: ['T11-empty-population-absence'],
+  },
+  {
+    name: '115.181-4 `toLowerCase` を挟んだ連結も母集団から作った値として数える',
+    source: stringPreservingCase('toLowerCase()'),
+    expected: ['T11-empty-population-absence'],
+  },
+  {
+    name: '115.181-5 `toUpperCase` を挟んだ連結も母集団から作った値として数える',
+    source: stringPreservingCase('toUpperCase()'),
+    expected: ['T11-empty-population-absence'],
+  },
+  {
+    name: '115.181-6 `normalize` を挟んだ連結も母集団から作った値として数える',
+    source: stringPreservingCase('normalize()'),
+    expected: ['T11-empty-population-absence'],
+  },
+  // --------------------------------------------------------------------------
+  // T11 `COLLECTION_PROJECTIONS`
+  //
+  // `map` だけが固定されていた（`map` を外すと三つの事例が落ちる）。残る四つの綴りは
+  // 外しても自己検査が緑のままであり、いずれも実効を持つ（実測）。
+  // --------------------------------------------------------------------------
+  {
+    name: '115.181-7 `filter` で作った配列も母集団から作った値として数える',
+    source: collectionProjectionCase('filter((failure) => !!failure)'),
+    expected: ['T11-empty-population-absence'],
+  },
+  {
+    name: '115.181-8 `flatMap` で作った配列も母集団から作った値として数える',
+    source: collectionProjectionCase('flatMap((failure) => [failure])'),
+    expected: ['T11-empty-population-absence'],
+  },
+  {
+    name: '115.181-9 `slice` で作った配列も母集団から作った値として数える',
+    source: collectionProjectionCase('slice(0, 3)'),
+    expected: ['T11-empty-population-absence'],
+  },
+  {
+    name: '115.181-10 `concat` で作った配列も母集団から作った値として数える',
+    source: collectionProjectionCase('concat([])'),
+    expected: ['T11-empty-population-absence'],
+  },
+  // --------------------------------------------------------------------------
+  // T12 `LANGUAGE_FIXING_EQUALITY_MATCHERS` / T10 `TYPE_EQUALITY_MATCHERS`
+  //
+  // どちらの集合も `toBe` だけが固定されていた。「三つの等値の matcher を数える」と
+  // 書きながら、外しても落ちない綴りが T12 に二つ、T10 に一つ残っていた。
+  // --------------------------------------------------------------------------
+  {
+    name: '115.181-11 `toEqual` で綴りを確定させる先行も含意の元として数える',
+    source: [
+      "test('toEqual leading', async ({ page }) => {",
+      "  const text = (await page.getByTestId('total-amount').textContent()) ?? '';",
+      "  expect(text).toEqual('2,500');",
+      "  expect(text.replace(/,/g, '')).not.toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: ['T12-implied-successor'],
+  },
+  {
+    name: '115.181-12 `toStrictEqual` で綴りを確定させる先行も含意の元として数える',
+    source: [
+      "test('toStrictEqual leading', async ({ page }) => {",
+      "  const text = (await page.getByTestId('total-amount').textContent()) ?? '';",
+      "  expect(text).toStrictEqual('2,500');",
+      "  expect(text.replace(/,/g, '')).not.toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: ['T12-implied-successor'],
+  },
+  {
+    name: '115.181-13 `toStrictEqual` に載せ替えた型の主張も検出する',
+    source: [
+      "test('toStrictEqual type', async ({ page }) => {",
+      "  const text = (await page.locator('.c').textContent()) ?? '';",
+      "  expect(typeof text).toStrictEqual('string');",
+      '});',
+    ].join('\n'),
+    expected: ['T10-settled-type-assertion'],
+  },
+  // --------------------------------------------------------------------------
+  // T2 `IMMEDIATE_PREDICATES`
+  //
+  // `isVisible` だけが固定されていた。残る五つの述語は外しても自己検査が緑のままで、
+  // いずれも実効を持つ（実測）。事例は T2 だけを主張する。同じ書き方は T5 でも
+  // 検出されるが、そちらは別の事例が固定している。
+  // --------------------------------------------------------------------------
+  {
+    name: '115.181-14 `isHidden` に待機を指定する形も検出する',
+    source: immediatePredicateCase('isHidden'),
+    expected: ['T2-ignored-timeout'],
+  },
+  {
+    name: '115.181-15 `isEnabled` に待機を指定する形も検出する',
+    source: immediatePredicateCase('isEnabled'),
+    expected: ['T2-ignored-timeout'],
+  },
+  {
+    name: '115.181-16 `isDisabled` に待機を指定する形も検出する',
+    source: immediatePredicateCase('isDisabled'),
+    expected: ['T2-ignored-timeout'],
+  },
+  {
+    name: '115.181-17 `isChecked` に待機を指定する形も検出する',
+    source: immediatePredicateCase('isChecked'),
+    expected: ['T2-ignored-timeout'],
+  },
+  {
+    name: '115.181-18 `isEditable` に待機を指定する形も検出する',
+    source: immediatePredicateCase('isEditable'),
+    expected: ['T2-ignored-timeout'],
+  },
+  {
+    // 語彙の寄与を切り分けるため `await` を含まない形を用いる。分類の関門は
+    // 「観測の語彙 **または** `await` **または** 沈黙脱出」であり、`await` を含む形では
+    // `count` を語彙から外しても分類が変わらない（実測。1 件も落ちなかった）。
+    name: '115.181-19 `count` は観測の語彙として実効を持つ（`await` を含まない形で切り分ける）',
+    source: [
+      "test('count without await', async ({ page }) => {",
+      '  const summary = readSummary();',
+      '  if (summary.count === 0) {',
+      '    return;',
+      '  }',
+      "  await expect(page.getByTestId('row').first()).toBeVisible();",
+      '});',
+    ].join('\n'),
+    expected: ['T5-observed-result-gate'],
+  },
+  // --------------------------------------------------------------------------
+  // 関門の条件（外すと検出が広がる向きの判断）
+  //
+  // ここから下は「狭める向きの判断」を外す変異で自己検査が緑のままだったもののうち、
+  // 実効があると実測できた枝である。いずれも陰性対照（検出してはならない形）で固定する。
+  // --------------------------------------------------------------------------
+  {
+    // `slice` を写像として数えるため、`join` で文字列になったあとに `slice` を挟むと
+    // 種別が `array` へ移る。`STRING_PRESERVING` の枝は種別が `string` のときだけ
+    // 遡るため、ここから先へは進まない。**既知の見逃しであり、望ましい挙動ではない。**
+    // `inherited?.kind === 'string'` を外す変異ではこの形が検出へ変わる（実測）。
+    name: '115.181-20 種別が配列へ移った母集団に文字列の加工を挟む形は数えない（既知の限界）',
+    source: [
+      "test('array kind with string preserving', async ({ page }) => {",
+      '  const response = await page.waitForResponse(() => true);',
+      '  const body = await response.json();',
+      "  const reasons = body.failed.map((failure) => failure.error).join(' / ').slice(0, 20).trim();",
+      "  expect(reasons).not.toContain('拒否');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T11-empty-population-absence'],
+  },
+  {
+    // `toMatch` は文字列にしか当たらない。配列の母集団を `toMatch` で見る形は
+    // 実行時に成立しない書き方であり、数えると過検出になる。
+    name: '115.181-21 配列の母集団は `toContain` だけを見る（`toMatch` は文字列にしか当たらない）',
+    source: [
+      "test('array population with toMatch', async ({ page }) => {",
+      '  const response = await page.waitForResponse(() => true);',
+      '  const body = await response.json();',
+      '  const items = body.failed.map((failure) => failure.error);',
+      '  expect(items).not.toMatch(/拒否/);',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T11-empty-population-absence'],
+  },
+  {
+    // 空文字はどんな文字列にも含まれる。母集団が空なら主題は空文字となり、
+    // この主張は**落ちる**。したがって素通りする形ではない。
+    // 115.162-6（空文字に一致する正規表現）の、文字列リテラル版に当たる。
+    name: '115.181-22 空文字の needle は検出しない（母集団が空なら主張は落ちる）',
+    source: [
+      "test('empty needle', async ({ page }) => {",
+      '  const response = await page.waitForResponse(() => true);',
+      '  const body = await response.json();',
+      "  const reasons = body.failed.map((failure) => failure.error).join(' / ');",
+      "  expect(reasons).not.toContain('');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T11-empty-population-absence'],
+  },
+  {
+    // 同名の宣言が別の母集団を指すなら、主題がどちらの値を取るかは構文だけでは
+    // 決められない。数え切れない側は検出しない。
+    name: '115.181-23 同名の宣言が別の母集団を指すなら遡らない（検出しない）',
+    source: [
+      "test('same name different populations', async ({ page }) => {",
+      '  const response = await page.waitForResponse(() => true);',
+      '  const body = await response.json();',
+      '  {',
+      "    const reasons = body.failed.map((failure) => failure.error).join(' / ');",
+      '    expect(reasons).not.toMatch(/拒否/);',
+      '  }',
+      '  {',
+      "    const reasons = body.other.map((failure) => failure.error).join(' / ');",
+      '    expect(reasons).not.toMatch(/拒否/);',
+      '  }',
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T11-empty-population-absence'],
+  },
+  {
+    // 母集団を指す名前は「受け手として現れた識別子・項目参照の綴り」だけを集める。
+    // 呼び出しの結果を綴りとして集めると、免除の探索がその綴りに当たって緩くなる。
+    // 受け手の限定を外す変異ではこの形が無検出へ変わる（実測）。
+    name: '115.181-24 呼び出しの結果は母集団の名前として数えない（免除の探索を緩めない）',
+    source: [
+      "test('call receiver is not a population name', async ({ page }) => {",
+      "  const reasons = readRows(page).map((row) => row.id).join(' / ');",
+      '  expect(readRows(page)).toHaveLength(3);',
+      '  expect(reasons).not.toMatch(/拒否/);',
+      '});',
+    ].join('\n'),
+    expected: ['T11-empty-population-absence'],
+  },
+  {
+    // `\$` はエスケープされたドル記号であり、文字列の終端の錨ではない。
+    // 錨と数えると、末尾に何が続いていても「文字列全体が縛られている」と
+    // 誤って見なすことになる。
+    name: '115.181-25 エスケープされたドル記号は錨として数えない（検出しない）',
+    source: [
+      "test('escaped dollar is not an anchor', async ({ page }) => {",
+      "  const text = (await page.getByTestId('total-amount').textContent()) ?? '';",
+      '  expect(text).toMatch(/^[0-9,]+\\$/);',
+      "  expect(text.replace(/,/g, '')).not.toContain('.');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T12-implied-successor'],
+  },
+  // --------------------------------------------------------------------------
+  // 母集団の大きさを固定する主張の探索の限界（**望ましい挙動ではなく、既知の限界**）
+  //
+  // 探索は「母集団を指す名前が、否定を伴わない `expect(...)` の主題に語として現れるか」
+  // だけを見る。したがって大きさと無関係な主張や、空であることを述べる主張でも
+  // 「固定済み」と見なす。過検出は主張を消す圧力になるため見逃す側へ倒した判断であり
+  // （限界の節に名指しで記載済み）、是正はしない。
+  //
+  // ここで固定するのは**限界そのもの**である。宣言だけあって固定の無い判断は
+  // 次の変更で黙って失われる（Task 115.156）ため、限界を狭める向きの変更が
+  // 「気づかないうちに」入ることを防ぐ。狭めたくなったときはこの二件が落ちるので、
+  // 限界の節の書き換えと対で行うことになる。
+  // --------------------------------------------------------------------------
+  {
+    name: '115.181-26 大きさと無関係な主張でも固定済みと見なす（既知の限界。是正しない）',
+    source: [
+      "test('unrelated assertion counts as fixing', async ({ page }) => {",
+      '  const response = await page.waitForResponse(() => true);',
+      '  const body = await response.json();',
+      '  const ids = body.rows.map((row) => row.id);',
+      '  expect(ids).toBeDefined();',
+      "  expect(ids).not.toContain('deleted-id');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T11-empty-population-absence'],
+  },
+  {
+    name: '115.181-27 空であることの主張でも固定済みと見なす（既知の限界。是正しない）',
+    source: [
+      "test('toHaveLength(0) counts as fixing', async ({ page }) => {",
+      '  const response = await page.waitForResponse(() => true);',
+      '  const body = await response.json();',
+      '  const ids = body.rows.map((row) => row.id);',
+      '  expect(ids).toHaveLength(0);',
+      "  expect(ids).not.toContain('deleted-id');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T11-empty-population-absence'],
+  },
+];
+
 function main(): void {
   const groups: Array<{ title: string; cases: Case[] }> = [
     { title: '115.24 捕捉できていなかった三つの書き方', cases: MISSED_FORMS },
@@ -2521,6 +2860,10 @@ function main(): void {
     {
       title: '115.163 先行の主張が含意する後続の主張',
       cases: IMPLIED_SUCCESSOR,
+    },
+    {
+      title: '115.181 変異の掃討で見つかった実効を持つ枝',
+      cases: SWEPT_BRANCHES,
     },
   ];
 

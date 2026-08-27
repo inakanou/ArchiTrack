@@ -377,6 +377,13 @@
  *     **誤って検出される**。実測では現在のツリーに該当は無い（検出 0 件）。
  *     免除の探索を緩める向きは見逃しを広げる最も危険な向きであるため
  *     （Task 115.162 のレビューが変異で確かめた）、実例が現れるまでは広げない。
+ *   - 種別が配列へ移った母集団に文字列の加工を挟む形（T11 の**見逃し側**の限界。Task 115.181）
+ *     `slice` は文字列にも配列にも生えるが、`COLLECTION_PROJECTIONS` の判定を先に通すため
+ *     種別は常に `array` になる。`STRING_PRESERVING` の枝は種別が `string` のときだけ遡るので、
+ *     `failed.map(…).join(' / ').slice(0, 20).trim()` のように**連結のあとに `slice` を挟み、
+ *     さらに文字列の加工を続ける**形は母集団へ遡れず、見逃す。
+ *     実測では e2e 配下に該当は無い（検出 0 件）が、**検出 0 件は該当が無いことを意味しない**
+ *     （Task 115.164）。`115.181-20` がこの見逃しを陰性対照として固定している。
  *   - 綴りが構文で定まらない needle（T11 の見逃し側の限界。Task 115.162）
  *     `expect(pages.join('')).not.toContain(coverOnlyText)` のように needle が識別子である形は、
  *     空の値がその needle を含まないかを構文だけでは決められないため対象外とする。
@@ -394,6 +401,12 @@
  *     （`admin/rbac.spec.ts` `estimate/estimate-hierarchy-move-e2e.spec.ts`
  *     `estimate/estimate-hierarchy-reload-save-e2e.spec.ts`
  *     `site-surveys/site-survey-image-request-scaling.spec.ts`）。
+ *     **この限界そのものを自己検査が固定している（Task 115.181）。** `115.181-26`
+ *     （`toBeDefined()`）と `115.181-27`（`toHaveLength(0)`）が「検出しない」ことを主張する。
+ *     宣言だけあって固定の無い判断は次の変更で黙って失われる（Task 115.156）ため、
+ *     限界を狭める向きの変更が気づかれずに入ることを防ぐ。狭めるときはこの二件が落ちるので、
+ *     この節の書き換えと対で行うことになる（`toBeDefined` を固定として数えない変異では
+ *     `115.181-26` だけが、`toHaveLength(0)` を数えない変異では `115.181-27` だけが落ちる。実測）。
  *   - 母集団は空でないが要素の値が空である形（T11 の限界。Task 115.162）
  *     `failed.map((f) => f.error ?? '').join(' / ')` は、`failed` に要素があっても
  *     すべての `error` が未定義なら空文字になる。これは母集団の大きさではなく
@@ -655,7 +668,13 @@ const GUARD_TYPES: GuardType[] = [
   'T12-implied-successor',
 ];
 
-/** 即時判定であり timeout 指定が無視される Playwright の述語メソッド */
+/**
+ * 即時判定であり timeout 指定が無視される Playwright の述語メソッド。
+ *
+ * **六つの綴りを自己検査が個別に固定している（Task 115.181）。** それまで固定されていたのは
+ * `isVisible`（`維持5` と `115.137-11` の二件が落ちる）だけであった。現在は綴りごとに、その綴りだけを外す変異で
+ * `115.181-14`〜`115.181-18` のうち当該の 1 件だけが落ちることを実測している。
+ */
 export const IMMEDIATE_PREDICATES = [
   'isVisible',
   'isHidden',
@@ -677,7 +696,15 @@ export const IMMEDIATE_PREDICATES = [
  */
 const OBSERVATION_PREFIX_WORDS = [...IMMEDIATE_PREDICATES, 'waitFor'];
 
-/** 観測を示す語のうち、語境界で一致させるもの（接頭辞へ広げると別語を巻き込むもの） */
+/**
+ * 観測を示す語のうち、語境界で一致させるもの（接頭辞へ広げると別語を巻き込むもの）。
+ *
+ * 分類の関門は「観測の語彙 **または** `await` **または** 沈黙脱出」である。
+ * したがって `await` を伴う書き方では、語彙から一語を外しても分類が変わらない
+ * （`count` を外す変異で自己検査は緑のままであった。Task 115.181 の実測）。
+ * 語彙そのものの寄与は `await` を含まない形でしか切り分けられないため、
+ * `115.181-19` はその形で固定している。
+ */
 const OBSERVATION_EXACT_WORDS = [
   'count',
   'textContent',
@@ -1817,7 +1844,13 @@ function isFullyAnchored(pattern: string, flags: string): boolean {
   return true;
 }
 
-/** 主題の綴りを確定させる等値の matcher（T12。Task 115.163） */
+/**
+ * 主題の綴りを確定させる等値の matcher（T12。Task 115.163）。
+ *
+ * **三つの綴りを自己検査が個別に固定している（Task 115.181）。** それまで固定されていたのは
+ * `toBe`（`115.163-7`）だけで、`toEqual` / `toStrictEqual` は外しても自己検査が緑のままであった。
+ * 現在は `115.181-11` / `115.181-12` が残る二つを固定している。
+ */
 const LANGUAGE_FIXING_EQUALITY_MATCHERS = new Set(['toBe', 'toEqual', 'toStrictEqual']);
 
 /** 主題の言語を確定させる先行の主張（T12。Task 115.163） */
@@ -1841,6 +1874,9 @@ interface LanguageFixingAssertion {
  *
  * `expect(typeof x).toBe('string')` の形だけを見る。`not` を挟む形は「その型ではない」
  * という別の主張（型が確定していれば恒偽）であるため対象外とする。
+ *
+ * **三つの綴りを自己検査が個別に固定している（Task 115.181）。** `toStrictEqual` は
+ * 外しても自己検査が緑のままであったため `115.181-13` を加えた。
  */
 const TYPE_EQUALITY_MATCHERS = new Set(['toBe', 'toEqual', 'toStrictEqual']);
 
@@ -1890,6 +1926,11 @@ const ABSENCE_MATCHERS: Record<string, AbsenceKind | undefined> = {
  *
  * `concat` は引数側に要素があれば空にならないが、**空になりうる**ことが本型の関門であり、
  * 空にならない形は「母集団の大きさを固定する主張」の探索で外れる。
+ *
+ * **五つの綴りを自己検査が個別に固定している（Task 115.181）。** Task 115.162 の時点で
+ * 固定されていたのは `map` だけであった。現在は綴りごとに、その綴りだけを外す変異で
+ * 当該の事例だけが落ちることを実測している（`map` は `115.162-2` / `115.162-3` / `115.162-9` に
+ * 加え、`map` を用いる `115.181-23` の計四件。ほかの四つは `115.181-7`〜`115.181-10`）。
  */
 const COLLECTION_PROJECTIONS = new Set(['map', 'filter', 'flatMap', 'slice', 'concat']);
 
@@ -1907,7 +1948,16 @@ const COLLECTION_PROJECTIONS = new Set(['map', 'filter', 'flatMap', 'slice', 'co
  */
 const COLLECTION_APPENDS = new Set(['push', 'unshift']);
 
-/** 文字列の形を保つ加工。連結の結果が空文字であることを変えない */
+/**
+ * 文字列の形を保つ加工。連結の結果が空文字であることを変えない。
+ *
+ * **六つの綴りを自己検査が個別に固定している（Task 115.181）。** Task 115.162 の時点では
+ * 集合を空にしても自己検査が緑のままであり、この枝は**実効を持つのに一つも
+ * 固定されていなかった**。現在は綴りごとに、その綴りだけを外す変異で
+ * `115.181-1`〜`115.181-6` のうち当該の 1 件だけが落ちることを実測している。
+ *
+ * 遡るのは種別が `string` のときだけである。その限界は下の「限界」を参照。
+ */
 const STRING_PRESERVING = new Set([
   'trim',
   'trimStart',
@@ -2380,6 +2430,12 @@ export function scanSource(relPath: string, source: string): ScanResult {
    *
    * 「否定を伴わない `expect(...)` の主題に、母集団を指す名前が語として現れる」ことを見る。
    * 当の不在の主張そのものは数えない（自分で自分を保証させないため）。
+   *
+   * **`n !== self` は現状では冗長である（Task 115.181 の実測）。** 本型は否定を伴う主張に
+   * しか働かないため（T11 の呼び出し側が `negated` を要求する）、`self` は必ず否定を伴い、
+   * 直後の `!negated` で既に外れる。この条件を外す変異では自己検査 157 件が緑のままであり、
+   * 実効のある書き方も見つからなかった。**意図を残すために保持する**が、
+   * 実効を持つ枝ではないため自己検査には登録していない。
    */
   const fixesPopulationSize = (
     scope: ts.Node,
