@@ -24,6 +24,7 @@ import {
   hasOcrProgressIndicatorAppeared,
 } from '../../helpers/ocr-observations';
 import { expectPdfPreviewRendered } from '../../helpers/pdf-preview';
+import { expectImagePreviewRendered } from '../../helpers/image-preview';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -575,10 +576,14 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
       const fileInput = page.locator('input[type="file"]');
       await fileInput.setInputFiles(testFilePath);
 
-      // プレビューが表示されることを確認
-      await expect(
-        page.locator('img[alt="test-image.png"], [data-testid="preview-skeleton"]').first()
-      ).toBeVisible({ timeout: getTimeout(10000) });
+      // 画像プレビューが表示されたことを主張する（Task 115.175）
+      // 以前は「`img` **または** 読み込み中の骨組み」の合併選択子 + `.first()` だった。
+      // 画像では `img` と骨組みが排他に描かれるため合併候補は常に1件で、
+      // `.first()` は「そのとき存在するほう」を掴む。骨組みは PDF と違って
+      // 幅0に潰れず可視になるため（実測 1166x200）、画像が一切無い終状態で
+      // **8〜11ミリ秒で緑**になっていた。実測値と再現手順は
+      // `e2e/helpers/image-preview.ts` の冒頭に置いた。
+      await expectImagePreviewRendered(page, 'test-image.png');
 
       // 登録
       const createPromise = page.waitForResponse(
@@ -653,9 +658,13 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
       const fileInput = page.locator('input[type="file"]');
       await fileInput.setInputFiles(testFilePath);
 
-      // 画像プレビューが表示される
-      const imagePreview = page.locator('img[alt="test-image.png"]');
-      await expect(imagePreview).toBeVisible({ timeout: getTimeout(10000) });
+      // REQ-13.3: 画像がインライン表示されたことを主張する（Task 115.175）
+      // 以前は素の `img` の可視だけを問うていたが、`FileInlinePreview` は
+      // `<img>` の `onError` を扱わないため復号に失敗しても失敗表示が出ず、
+      // Chromium が描く代替テキストの箱（実測 124x368・`naturalWidth` は 0）が
+      // 可視条件を満たして **6〜7ミリ秒で緑**になっていた。
+      // 実測値と再現手順は `e2e/helpers/image-preview.ts` の冒頭に置いた。
+      await expectImagePreviewRendered(page, 'test-image.png');
     });
 
     /**
