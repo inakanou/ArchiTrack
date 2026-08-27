@@ -70,7 +70,9 @@
  *                           こちらは「**主題の元になる集まりが空でありうる**形」である。
  *                           T8 が述べた「不在の主張は、対象が存在することを別に確かめない限り
  *                           何も主張していない」を、単一の空値ではなく**集まり**へ広げたものに当たる
- *                           （Task 115.162）
+ *                           （Task 115.162）。母集団は宣言と同時に作る形だけでなく、
+ *                           `const texts = []; … texts.push(…)` のように**宣言のあとに積んで作る**形も
+ *                           数える（Task 115.180）
  *   T12 implied-successor        先行の主張が含意する後続の主張
  *                           `expect(text).toMatch(/^[0-9,]+円$/);`
  *                           `expect(text.replace(/[,円]/g, '')).not.toContain('.')` のように、
@@ -344,16 +346,37 @@
  *   - 否定を挟む型の主張（T10 の限界。Task 115.143）
  *     `expect(typeof x).not.toBe('string')` は「その型ではない」ことの主張であり、
  *     型が確定していれば**常に落ちる**（恒偽）。恒真の検出とは別の話であるため対象外とする。
- *   - 宣言のあとに積んで作る集まり（T11 の**見逃し側**の限界。Task 115.162）
+ *   - 宣言のあとに積んで作る集まり（T11 の対象。Task 115.162 の限界を Task 115.180 で解消）
  *     `const headerTexts: string[] = []; for (...) headerTexts.push(...)` のように、
- *     宣言時は空で、あとから繰り返しの中で積んで作る集まりは**対象外**とする。
- *     主題の値が宣言だけでは定まらず、判定には変更の追跡を要するためである。
- *     T10 が「再代入される名前を対象外とする」のと同じ理由であり、数え切れない側は検出しない。
- *     実測では、この形に当たる同型の該当が e2e 配下に 1 件ある
- *     （`e2e/specs/projects/project-list-columns.spec.ts` の REQ-2.2。表のヘッダから
- *     `th` の文字列を積み、`expect(headerTexts).not.toContain('ID')` と主張する。
- *     `th` が一つも取れなければ主張は素通りするが、大きさを固定する主張が無い）。
- *     Task 115.162 の境界（画像アップロード検証E2E）の外であるため是正していない。
+ *     宣言時は空の配列で、あとから `push` / `unshift` で積んで作る集まりは、
+ *     Task 115.162 では「変更の追跡を要する」として対象外としていたが、
+ *     **積み足しの受け手として現れたか**だけを見れば追跡は要らないため、
+ *     Task 115.180 で対象へ加えた。積んだ結果が零件なら空配列のままであり、
+ *     母集団が空になりうる形として本型そのものである。
+ *     実測では、是正前のツリーに対する検出は 1 件
+ *     （`e2e/specs/projects/project-list-columns.spec.ts:266` の REQ-2.2。表のヘッダから
+ *     `th` の文字列を積み、`expect(headerTexts).not.toContain('ID')` と主張していた。
+ *     `th` が一つも取れなければ主張は素通りする）であり、**それ以外に増えた検出は無い**
+ *     （走査 213 ファイルで拡張の前後とも他に 0 件。過検出は観測されていない）。
+ *     当該箇所は Task 115.180 で是正済みで、現在の検出は 0 件である。
+ *   - 積み足しの追跡は識別子の受け手に限ること（T11 の**見逃し側**の限界。Task 115.180）
+ *     積み足しとして数えるのは `push` / `unshift` の**受け手が識別子である**形だけである。
+ *     したがって次の形はいずれも見逃す。
+ *       (a) 項目参照の受け手（`observation.displaySourceKeys.push(...)`）。主題も項目参照となり
+ *           `populationOf` が母集団へ遡れない。実測では e2e 配下に 1 件ある
+ *           （`site-surveys/site-survey-image-request-scaling.spec.ts:630`。ただし当該箇所は
+ *           同じテストの `expect.poll(() => …includes(…)).toBe(true)` で要素の実在を
+ *           別に主張しており、母集団は空になり得ない。是正の要は無い）。
+ *       (b) 添字への代入で積む形（`headerTexts[i] = text`）。
+ *       (c) `Set` / `Map` へ `add` / `set` で積み、あとで展開する形。
+ *     **検出が 0 件であることは「該当が無いこと」を意味しない。**
+ *   - 免除の探索が `expect.poll` を数えないこと（T11 の**過検出側**の限界。Task 115.180）
+ *     母集団の大きさを固定する主張の探索は `expect(...)` の形だけを数え、
+ *     `await expect.poll(() => …).toBe(true)` の形は数えない。したがって
+ *     母集団の実在を `expect.poll` だけで確かめている積んで作る集まりは
+ *     **誤って検出される**。実測では現在のツリーに該当は無い（検出 0 件）。
+ *     免除の探索を緩める向きは見逃しを広げる最も危険な向きであるため
+ *     （Task 115.162 のレビューが変異で確かめた）、実例が現れるまでは広げない。
  *   - 綴りが構文で定まらない needle（T11 の見逃し側の限界。Task 115.162）
  *     `expect(pages.join('')).not.toContain(coverOnlyText)` のように needle が識別子である形は、
  *     空の値がその needle を含まないかを構文だけでは決められないため対象外とする。
@@ -1870,6 +1893,20 @@ const ABSENCE_MATCHERS: Record<string, AbsenceKind | undefined> = {
  */
 const COLLECTION_PROJECTIONS = new Set(['map', 'filter', 'flatMap', 'slice', 'concat']);
 
+/**
+ * 集まりへ要素を積み足す操作（Task 115.180）。
+ *
+ * 受け手が宣言時に空の配列であり、この操作で作られる集まりは
+ * **積んだ結果が零件なら空配列のまま**である。再代入ではないため
+ * `reassigned` では捉えられない。
+ *
+ * **両方の綴りを自己検査が個別に固定している。** `unshift` だけを外す変異では
+ * `115.180-7` のみが、`push` だけを外す変異では `115.180-1` のみが落ちる（いずれも 130 件中 1 件、実測）。
+ * e2e 配下に `unshift` の実例は現在 0 件だが、**検出 0 件は該当が無いことを意味しない**
+ * （Task 115.164）ため、同じ積み足しの形として覆う側へ倒している。
+ */
+const COLLECTION_APPENDS = new Set(['push', 'unshift']);
+
 /** 文字列の形を保つ加工。連結の結果が空文字であることを変えない */
 const STRING_PRESERVING = new Set([
   'trim',
@@ -1976,6 +2013,14 @@ export function scanSource(relPath: string, source: string): ScanResult {
   const assignTable = new Map<string, ts.Expression[]>();
   /** 後から代入される名前（宣言時の値を主題の判断に用いない） */
   const reassigned = new Set<string>();
+  /**
+   * 積み足しの受け手として現れた名前（T11 の「積んで作る集まり」の判断に用いる。Task 115.180）。
+   *
+   * `push` / `unshift` は再代入ではないため `reassigned` には入らない。
+   * 宣言時に空の配列であり、かつこの集合に現れる名前は「宣言のあとに積んで作る集まり」であり、
+   * **積んだ結果が零件なら空配列のまま**である。
+   */
+  const pushedInto = new Set<string>();
   /** 同一ファイルで宣言された関数（名前 → 実体。同名は併合する。T8 / T9 の追跡に用いる） */
   const localFunctions = new Map<string, ts.FunctionLikeDeclaration[]>();
   /** 名前付きで取り込んだ識別子（T9 で `e2e/helpers/` 由来の補助を見分けるために用いる） */
@@ -2026,6 +2071,16 @@ export function scanSource(relPath: string, source: string): ScanResult {
         (ts.isArrowFunction(n.initializer) || ts.isFunctionExpression(n.initializer))
       ) {
         registerFunction(n.name.text, n.initializer);
+      }
+      if (
+        ts.isCallExpression(n) &&
+        ts.isPropertyAccessExpression(n.expression) &&
+        COLLECTION_APPENDS.has(n.expression.name.text)
+      ) {
+        const receiver = unwrapParentheses(n.expression.expression);
+        if (ts.isIdentifier(receiver)) {
+          pushedInto.add(receiver.text);
+        }
       }
       if (ts.isBinaryExpression(n) && isAssignmentOperator(n.operatorToken.kind)) {
         const target = unwrapParentheses(n.left);
@@ -2238,6 +2293,21 @@ export function scanSource(relPath: string, source: string): ScanResult {
     if (ts.isIdentifier(node) && !reassigned.has(node.text)) {
       const values = declTable.get(node.text) ?? [];
       if (values.length === 0) return undefined;
+      // 宣言のあとに積んで作る集まり（Task 115.180）。
+      // 宣言時は空の配列であり、`push` / `unshift` で積んで作る。積んだ結果が零件なら
+      // 空配列のままとなり、不在の主張は素通りする。
+      // **積み足しが一度も現れない名前は数えない。** 空のまま変わらない集まりは
+      // 本型（母集団が空になりうる形）ではなく恒真の別型であり、重ねて数えないためである。
+      if (
+        pushedInto.has(node.text) &&
+        values.every(
+          (value) =>
+            ts.isArrayLiteralExpression(unwrapParentheses(value)) &&
+            (unwrapParentheses(value) as ts.ArrayLiteralExpression).elements.length === 0
+        )
+      ) {
+        return { kind: 'array', names: new Set([node.text]) };
+      }
       const shapes = values.map((value) => populationOf(value, depth + 1));
       const first = shapes[0];
       if (!first) return undefined;

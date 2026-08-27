@@ -2047,7 +2047,7 @@ const EMPTY_POPULATION_ABSENCE: Case[] = [
     forbidden: ['T11-empty-population-absence'],
   },
   {
-    name: '115.162-8 宣言のあとに積んで作る集まりは検出しない（変更の追跡を要するため。意図した限界）',
+    name: '115.180-1 宣言のあとに積んで作る集まりも検出する（実例 projects/project-list-columns）',
     source: [
       "test('pushed', async ({ page }) => {",
       '  const headerTexts = [];',
@@ -2058,8 +2058,96 @@ const EMPTY_POPULATION_ABSENCE: Case[] = [
       "  expect(headerTexts).not.toContain('ID');",
       '});',
     ].join('\n'),
+    expected: ['T11-empty-population-absence'],
+  },
+  {
+    name: '115.180-2 積んで作る集まりでも大きさを先に固定していれば検出しない（是正後の形）',
+    source: [
+      "test('pushed and fixed', async ({ page }) => {",
+      '  const headerTexts = [];',
+      "  const count = await page.locator('th').count();",
+      '  for (let i = 0; i < count; i++) {',
+      "    headerTexts.push((await page.locator('th').nth(i).textContent()) ?? '');",
+      '  }',
+      '  expect(headerTexts).toHaveLength(6);',
+      "  expect(headerTexts).not.toContain('ID');",
+      '});',
+    ].join('\n'),
     expected: [],
     forbidden: ['T11-empty-population-absence'],
+  },
+  {
+    name: '115.180-3 積み足しが一度も現れない空の集まりは検出しない（母集団が空になりうる形ではない）',
+    source: [
+      "test('never pushed', async ({ page }) => {",
+      '  const headerTexts = [];',
+      "  expect(headerTexts).not.toContain('ID');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T11-empty-population-absence'],
+  },
+  {
+    name: '115.180-4 宣言時に要素を持つ集まりは検出しない（積み足しがあっても空にはならない）',
+    source: [
+      "test('non-empty at declaration', async ({ page }) => {",
+      "  const headerTexts = ['プロジェクト名'];",
+      "  headerTexts.push((await page.locator('th').first().textContent()) ?? '');",
+      "  expect(headerTexts).not.toContain('ID');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T11-empty-population-absence'],
+  },
+  {
+    name: '115.180-5 後から代入される名前は検出しない（宣言時の値が主題の値とは限らない）',
+    source: [
+      "test('reassigned', async ({ page }) => {",
+      '  let headerTexts = [];',
+      '  headerTexts = await readHeaderTexts(page);',
+      "  headerTexts.push('末尾');",
+      "  expect(headerTexts).not.toContain('ID');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T11-empty-population-absence'],
+  },
+  {
+    name: '115.180-6 積み足さない操作は積み足しとして数えない（`concat` は受け手を空のまま残す）',
+    // 免除の探索は主題の綴りを宣言の初期化子まで展開するため、`collected.concat(...)` を
+    // 受けた名前を主題にすると**免除の側でも**救われてしまい、この事例は
+    // 積み足しの種別を固定しない（Task 115.163 の教訓）。母集団の名前が
+    // 展開後にも現れない主題で大きさを主張し、機序を一つに絞る。
+    source: [
+      "test('concat leaves the receiver empty', async ({ page }) => {",
+      '  const collected = [];',
+      '  const labels = await readHeaderTexts(page);',
+      '  collected.concat(labels);',
+      '  expect(labels).toHaveLength(6);',
+      "  expect(collected).not.toContain('ID');",
+      '});',
+    ].join('\n'),
+    expected: [],
+    forbidden: ['T11-empty-population-absence'],
+  },
+  {
+    // `push` と対で登録する（Task 115.180 のレビュー）。`COLLECTION_APPENDS` から
+    // `unshift` を外す変異で**この事例だけ**が落ちることを実測しており、
+    // 「push / unshift を対象へ加えた」という記述の両半分が固定されている。
+    // e2e 配下に現在 `unshift` の実例は 0 件だが、**検出 0 件は該当が無いことを
+    // 意味しない**（Task 115.164）ため、同じ積み足しの形として覆う側へ倒す。
+    name: '115.180-7 `unshift` で積んで作る集まりも検出する（`push` と同じ積み足しの形）',
+    source: [
+      "test('unshifted', async ({ page }) => {",
+      '  const headerTexts = [];',
+      "  const count = await page.locator('th').count();",
+      '  for (let i = 0; i < count; i++) {',
+      "    headerTexts.unshift((await page.locator('th').nth(i).textContent()) ?? '');",
+      '  }',
+      "  expect(headerTexts).not.toContain('ID');",
+      '});',
+    ].join('\n'),
+    expected: ['T11-empty-population-absence'],
   },
   {
     name: '115.162-9 否定を伴わない主張だけを母集団の固定として数える（不在の主張は自らを保証しない）',
@@ -2427,7 +2515,7 @@ function main(): void {
       cases: SETTLED_TYPE_ASSERTION,
     },
     {
-      title: '115.162 空の母集団に対する不在の主張',
+      title: '115.162 / 115.180 空の母集団に対する不在の主張',
       cases: EMPTY_POPULATION_ABSENCE,
     },
     {

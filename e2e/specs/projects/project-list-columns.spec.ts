@@ -24,6 +24,15 @@ const PROJECT_WITH_CONSTRUCTION = `${TEST_PREFIX}工事担当者設定済みプ�
 const PROJECT_WITHOUT_CONSTRUCTION = `${TEST_PREFIX}工事担当者未設定プロジェクト`;
 
 /**
+ * 一覧の見出しの列数。
+ *
+ * `frontend/src/components/projects/ProjectListTable.tsx` の `COLUMNS` が持つ 6 列
+ * （プロジェクト名／顧客名／営業担当者／工事担当者／ステータス／更新日）に対応する。
+ * 見出しに対する不在の主張より前に母集団の大きさを固定するために用いる（Task 115.180）。
+ */
+const EXPECTED_HEADER_COLUMN_COUNT = 6;
+
+/**
  * プロジェクト一覧の列構成変更E2Eテスト
  */
 test.describe('プロジェクト一覧の列構成変更 (Task 25.2)', () => {
@@ -261,6 +270,17 @@ test.describe('プロジェクト一覧の列構成変更 (Task 25.2)', () => {
         headerTexts.push(text.trim());
       }
     }
+
+    // 母集団の大きさを先に固定する（Task 115.180）。
+    // 見出しの文字列は `th` を辿って積んで作るため、`th` が一つも取れなければ
+    // `headerTexts` は空配列のままとなり、「ID という見出しが無い」という不在の主張は
+    // **一列も取得できていない場合にも成立する**。
+    // 一覧の見出しは 6 列であり、これを先に固定してはじめて、
+    // 後続の不在の主張が「ID の列が無いこと」を述べる。
+    expect(
+      headerTexts,
+      `一覧の見出しを取得できていない（母集団が空）: ${JSON.stringify(headerTexts)}`
+    ).toHaveLength(EXPECTED_HEADER_COLUMN_COUNT);
 
     // ヘッダーに「ID」のみの列が存在しないことを確認
     expect(headerTexts).not.toContain('ID');
