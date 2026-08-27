@@ -3,12 +3,20 @@
  *
  * Task 34.5: Phase 9のE2Eテストを実装する
  *
- * Requirements coverage:
- * - REQ-12.1-REQ-12.5: パンくずナビゲーション改善
- * - REQ-3.3, REQ-3.4: 注釈付き写真の表示
- * - REQ-19.1-REQ-19.4: 写真変更ダイアログ
- * - REQ-20.1-REQ-20.3: 写真プレビューダイアログ
- * - REQ-21.1-REQ-21.5: 写真コメント表示
+ * ## 被覆の主張について（Task 115.177）
+ *
+ * 従前のヘッダは `Requirements coverage:` として19件の受入基準を範囲記法で掲げていたが、
+ * 機能名が付いていないため被覆の検査（`scripts/check-requirement-coverage.ts`）は
+ * このファイルから受入基準を一件も抽出できていなかった。実際に判定しているのに
+ * 被覆へ数えられない状態である。掲げた19件を一件ずつ確かめ、判定しているものだけを
+ * 各検証の直上に `@requirement` として置き直した（判定は下記の7件）。
+ *
+ * 判定していないため落とした記載（この画面で問うていない、または別ファイルが問う）:
+ * - REQ-12.3（新規作成画面のパンくず）・REQ-12.4（パンくず項目の遷移）: 本ファイルに操作が無い
+ * - REQ-3.3・REQ-3.4（注釈付き画像の表示と折りたたみ）: 画像そのものへの主張が無い
+ * - REQ-19.1〜19.4（写真変更ダイアログ）: 変更ボタンの可視までで、ダイアログを開いていない
+ * - REQ-20.2・REQ-20.3（拡大表示が注釈付き写真であること）: 画像の中身を問うていない
+ * - REQ-21.3（コメント無しは空白）・REQ-21.4（写真変更で更新）: 該当の状況を作っていない
  *
  * @module e2e/specs/quantity-tables/quantity-table-phase9.spec
  */
@@ -50,6 +58,9 @@ test.describe('Phase 9: パンくずナビゲーション改善・注釈付き�
    * 「写真の紐づいた数量グループ」がなければ検証対象そのものが描画されない。
    * 前提を探す形（プロジェクト一覧の先頭カードを辿る）は、当該のプロジェクトに
    * 写真も数量表も無い場合に検証が丸ごと飛ぶ。前提は探さずに作る。
+   *
+   * この準備は受入基準の判定ではなく後続の前提を作るだけなので、意図して
+   * `@requirement` を持たない（Task 115.177）。
    */
   test.describe('事前準備', () => {
     test('コメント付き写真を紐づけた数量グループを作成する', async ({ page }) => {
@@ -72,6 +83,10 @@ test.describe('Phase 9: パンくずナビゲーション改善・注釈付き�
   });
 
   test.describe('REQ-12.1-12.5: パンくずナビゲーション改善', () => {
+    /**
+     * @requirement quantity-table-generation/REQ-12.1: 数量表一覧画面のパンくずナビゲーション
+     * @requirement quantity-table-generation/REQ-12.5: 現在の画面は非リンクで表示する
+     */
     test('数量表一覧画面のパンくずが正しい形式で表示されること', async ({ page }) => {
       // 「プロジェクト一覧の先頭カード」を探す形は、そのプロジェクトに数量表が無ければ
       // 「すべて見る」が描画されず（QuantityTableSectionCard は totalCount > 0 のときだけ出す）、
@@ -121,6 +136,9 @@ test.describe('Phase 9: パンくずナビゲーション改善・注釈付き�
       ).toHaveCount(0);
     });
 
+    /**
+     * @requirement quantity-table-generation/REQ-12.2: 数量表編集画面のパンくずナビゲーション
+     */
     test('数量表編集画面のパンくずが正しい形式で表示されること', async ({ page }) => {
       // 一覧から「先頭の数量表カード」を辿る形は、[data-testid="quantity-table-card"] が
       // production に存在しないため常に偽となり、以下の検証が一度も実行されていなかった。
@@ -143,6 +161,9 @@ test.describe('Phase 9: パンくずナビゲーション改善・注釈付き�
   });
 
   test.describe('REQ-20.1-20.3: 写真プレビューダイアログ', () => {
+    /**
+     * @requirement quantity-table-generation/REQ-20.1: 写真プレビュー操作でダイアログを表示する
+     */
     test('写真クリックでプレビューダイアログが開くこと', async ({ page }) => {
       // 写真が紐づいたグループを持つ数量表は事前準備で作成済み。
       // 「先頭のプロジェクト → 先頭の数量表」を探す形は前提を保証しないため用いない。
@@ -174,6 +195,10 @@ test.describe('Phase 9: パンくずナビゲーション改善・注釈付き�
   });
 
   test.describe('REQ-21.2-21.5: 写真コメント表示', () => {
+    /**
+     * @requirement quantity-table-generation/REQ-21.1: 紐づいた写真のコメントを取得する
+     * @requirement quantity-table-generation/REQ-21.2: コメントが存在する場合は表示する
+     */
     test('写真が紐付けられたグループでコメント表示エリアが存在すること', async ({ page }) => {
       assertPrepared(preparedQuantityTableId, '事前準備で作成した数量表のID');
       await openQuantityTableEdit(page, preparedQuantityTableId);
@@ -193,6 +218,9 @@ test.describe('Phase 9: パンくずナビゲーション改善・注釈付き�
       );
     });
 
+    /**
+     * @requirement quantity-table-generation/REQ-21.5: 折りたたみ時はコメントも非表示にする
+     */
     test('グループ折りたたみ時にコメント表示が非表示になること', async ({ page }) => {
       await openQuantityTableEdit(page, preparedQuantityTableId);
 
@@ -224,6 +252,12 @@ test.describe('Phase 9: パンくずナビゲーション改善・注釈付き�
   });
 
   test.describe('REQ-19.1: 写真変更ボタン', () => {
+    /**
+     * 写真変更ボタンの可視だけを問う検証。REQ-19.1 の規範は「写真変更操作を行うと
+     * 写真変更ダイアログを表示する」であり、ここではダイアログを開いていないため、
+     * 意図して `@requirement` を持たない（Task 115.177）。
+     * ダイアログの判定は photo-change-dialog-e2e.spec.ts が持つ。
+     */
     test('写真変更ボタンが表示されること', async ({ page }) => {
       assertPrepared(preparedQuantityTableId, '事前準備で作成した数量表のID');
       await openQuantityTableEdit(page, preparedQuantityTableId);

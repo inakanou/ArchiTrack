@@ -4,9 +4,21 @@
  * Task 58.1: Claude Vision抽出フローのE2Eテスト
  * Task 58.2: Claude VisionフォールバックのE2Eテスト
  *
- * Requirements coverage (estimate-request):
- * - 24.1, 24.2, 24.5, 24.6, 24.8: Claude Vision抽出フロー
- * - 25.1, 25.4, 25.5, 25.6: Claude Visionフォールバック
+ * ## 被覆の主張について（Task 115.177）
+ *
+ * 従前のヘッダは受入基準を `- 24.1, 24.2, ...` と番号だけで並べていた。この記法は
+ * 被覆の検査（`scripts/check-requirement-coverage.ts`）が読む五つの形のどれにも
+ * 当たらないため、9件を掲げながら抽出は零件だった。実際に判定しているのに
+ * 被覆へ数えられない状態である。掲げた9件を一件ずつ確かめ、判定しているものだけを
+ * 各検証の直上に `@requirement` として置き直した。
+ *
+ * 判定していないため落とした記載:
+ * - REQ-24.8（数値表示形式・丸め規則に従って表示する）: 明細行の件数しか主張しておらず、
+ *   桁や丸めを一切問うていない。書式が崩れても赤にならない
+ * - REQ-25.5（既存のOCR処理パイプラインを実行する）: フォールバックの告知文言しか
+ *   主張しておらず、Tesseract.js の処理が実際に走った痕跡を問うていない
+ *
+ * どちらも estimate-request-ocr-vision-e2e.spec.ts が番号を持つため、被覆の数は動かない。
  *
  * テスト戦略:
  * Playwright APIルートインターセプトを使用してClaude Vision APIレスポンスをモックし、
@@ -62,6 +74,10 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
   // データセットアップ
   // ==========================================================================
 
+  /**
+   * 後続の2件が使う見積依頼を作る。受入基準の判定ではなく前提を作るだけなので、
+   * 意図して `@requirement` を持たない（Task 115.177）。
+   */
   test('準備：テスト用データを作成する', async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
 
@@ -173,6 +189,18 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
   // ==========================================================================
 
   test.describe('Claude Vision抽出フロー（58.1）', () => {
+    /**
+     * @requirement estimate-request/REQ-24.1: OcrDataExtractorのClaude Vision抽出パス
+     *
+     * REQ-24.2は無タグとする（Task 115.177）。REQ-24.2の契機は
+     * 「When ユーザーがPDFファイルに対してOCR処理を開始したとき」であり対象をPDFに限定している。
+     * 一方この検証は後述のとおりダミーPDFではpdfjs-distの解析が失敗するため1x1ピクセルPNGを投入しており、
+     * PDF経路を一度も通らない。PDFに対してVision優先順序が壊れてもこの検証は緑のままであり、
+     * 「その規範が壊れたら赤になるか」を満たさないため、意図的に主張しない。
+     *
+     * @requirement estimate-request/REQ-24.5: 返却された明細行データを抽出結果として表示する
+     * @requirement estimate-request/REQ-24.6: 返却成功時に一括取り込みボタンを表示する
+     */
     test('Claude Vision API成功時に結果表示・一括取り込み・数値フォーマットが動作する', async ({
       page,
     }) => {
@@ -261,9 +289,9 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
         timeout: getTimeout(5000),
       });
 
-      // 明細行の数値フォーマット検証（24.8）
-      // 数量: 小数2桁表示 (100.5 -> 100.50)
-      // 単価: 整数表示 (2500 -> 2500)
+      // 取り込み結果として明細行が2行以上描かれることだけを主張する。
+      // 数量の小数2桁・単価の整数表示（REQ-24.8）はここでは一切問うておらず、
+      // 書式が崩れても赤にならないため、この検証は当該基準の番号を持たない。
       const lineItemAmounts = page.locator('[data-testid="line-item-amount"]');
       const rowCount = await lineItemAmounts.count();
       expect(rowCount).toBeGreaterThanOrEqual(2);
@@ -275,6 +303,11 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
   // ==========================================================================
 
   test.describe('Claude Visionフォールバック（58.2）', () => {
+    /**
+     * @requirement estimate-request/REQ-25.1: 503（機能無効）で自動的にフォールバックする
+     * @requirement estimate-request/REQ-25.4: フォールバック発動を告げるメッセージを表示する
+     * @requirement estimate-request/REQ-25.6: 切り替えをユーザー操作なしで自動的に行う
+     */
     test('Claude Vision API無効時(503)にTesseract.jsフォールバックが発動しバナーが表示される', async ({
       page,
     }) => {
@@ -318,7 +351,9 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
         timeout: getTimeout(30000),
       });
 
-      // バナーテキストの内容を検証（REQ-25.1, 25.5: 従来のOCR処理へのフォールバック）
+      // バナーテキストの内容を検証（REQ-25.1: 従来のOCR処理へのフォールバック）。
+      // 「既存のOCR処理パイプラインを実行する」（REQ-25.5）は告知文言からは言えないため、
+      // この検証は当該基準の番号を持たない。
       await expect(
         page.getByText(/Claude Vision APIが利用できないため、従来のOCR処理で実行しています/)
       ).toBeVisible();
@@ -329,6 +364,10 @@ test.describe('Claude Vision API OCR抽出・フォールバック', () => {
   // クリーンアップ
   // ==========================================================================
 
+  /**
+   * 作成した見積依頼を片付ける。受入基準の判定ではないため、
+   * 意図して `@requirement` を持たない（Task 115.177）。
+   */
   test('テストデータをクリーンアップする', async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
     accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
