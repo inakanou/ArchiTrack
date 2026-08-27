@@ -14,6 +14,11 @@
  * （REQ-19.7 も同じく Task 115.159 で外した。「画像前処理に新規外部依存関係を追加しない」は
  *   実行中の画面からは観測できない依存関係の性質であるため、
  *   `e2e/requirement-exclusions.json` へ infrastructure 区分で登録した）
+ * （REQ-20.4 / 20.6 / 24.5 / 24.6 / 24.8 / 25.7 は Task 115.176 まで、実体が
+ *   「`.or` で束ねた集合の先頭が見えること」ただ一本の検証に掲げられていた。
+ *   実測すると掴んでいたのは見出し `<h2>項目選択</h2>` であり、どの規範も判定していなかった。
+ *   六件とも実行中の画面から判定できたため、除外は増やさず本ファイル末尾の四つの検証で
+ *   判定を書いた。詳細は当該箇所の注記にある）
  * - REQ-20.4: カンマ区切り数値の変換
  * - REQ-20.6: Excel一括取り込み処理の互換性維持
  * - REQ-21.1: Claude Vision APIエンドポイントの提供
@@ -374,6 +379,44 @@ const TESSERACT_LANG_PATH_MARK = '/@tesseract.js-data/jpn/';
 
 /** OCR が読み取れることを主張する語。画像のみPDFの画像の中にしか存在しない。 */
 const OCR_EXPECTED_TOKENS = ['外壁塗装工事', '100', '平米', '5000', '500000'];
+
+/**
+ * Claude Vision が「正常に返却した」ことにする明細行データ（タスク 115.176）。
+ *
+ * テスト環境の backend は ANTHROPIC_API_KEY を持たず REQ-22.3 / REQ-22.6 により 503 で
+ * 確定するため、REQ-24.5 / 24.6 / 24.8 が条件とする「正常に返却されたとき」へは
+ * 応答の差し替えでしか到達できない。値は次の理由で選んだ。
+ * - 名称は画像のOCRからも既存の資材からも生じ得ない語にし、表示が**この応答に由来する**
+ *   ことを弁別できるようにする
+ * - 数量 2.5 / 単価 1234.6 / 999.4 は要件18の形式（小数2桁・四捨五入の切り上がりと
+ *   切り下がり）を通すと表記が変わる値である
+ * - 金額 99999999 は数量×単価と一致しない値である。要件18.5 / 18.9 は数量×単価の
+ *   四捨五入を表示するよう定めるため、この値が画面に出れば規則に従っていないと分かる
+ */
+const INJECTED_VISION_LINE_ITEMS = [
+  {
+    customCategory: '仮設',
+    workType: '塗装工事',
+    name: 'E2E注入_外壁塗装',
+    specification: 'シリコン系',
+    unit: 'm2',
+    quantity: 2.5,
+    unitPrice: 1234.6,
+    amount: 99999999,
+    remarks: '注入した備考',
+  },
+  {
+    customCategory: null,
+    workType: null,
+    name: 'E2E注入_足場',
+    specification: null,
+    unit: '式',
+    quantity: 3,
+    unitPrice: 999.4,
+    amount: null,
+    remarks: null,
+  },
+];
 
 /** OCR の経路で観測する通信。判定はしない。 */
 interface OcrRequestTrace {
@@ -1006,32 +1049,394 @@ test.describe('フロントエンドのClaude Vision抽出パスとTesseractフ�
   });
 
   /**
+   * ## タスク 115.176 の是正
+   *
+   * 従前この位置には「OCR処理結果の構造化データ表示エリアが存在する」という検証があり、
+   * REQ-24.5 / 24.6 / 24.8 / 25.7 / 20.4 / 20.6 の**六件**のタグを掲げていた。
+   * しかし主張は二本（種データの識別子が真であること、と、選択子を四つ `.or` で
+   * 束ねた集合の先頭が見えること）だけであった。
+   *
+   * ### 旧主張が実際に受理していたもの（2026-08-27 実測）
+   *
+   * 見積依頼詳細画面で四つの枝の一致件数を数えると
+   * `structured-data-area` 0 件・`line-items-table` 0 件・`/明細/` 0 件・`/項目/` 3 件で、
+   * 束ねた集合の要素は 3 件。前二つの `data-testid` は**本番のどこにも存在しない**
+   * （`frontend/src` 全体で参照 0 件）。`.or(...).first()` は文書順で先頭の要素を選ぶため
+   * （115.158 が確定し 115.175 が再確認した）、掴んでいたのは見出し `<h2>項目選択</h2>` であった。
+   * 旧検証は受領見積書の登録フォームすら開いておらず、六件のどの受入基準の規範も判定していない。
+   *
+   * ### 六件の処遇（一件ずつ「その受入基準の規範をどの主張が確かめているか」で判断した）
+   *
+   * 六件とも実行中の画面から判定できたため、除外は一件も足していない。
+   * - REQ-24.5 / 24.6 / 24.8: 直下の「Claude Visionが明細行を返すと…」で判定する。
+   * - REQ-25.7: 「Claude VisionとTesseractの両方が失敗すると…」で判定する。
+   * - REQ-20.4: 「OCRテキストのカンマ区切り数値は…」で判定する。
+   * - REQ-20.6: 「Excelデータパースの一括取り込みは…」で判定する。
+   *
+   * なお REQ-26.5〜REQ-26.8（backend のJSON配列パーサーと数値変換）は 115.127 の是正で
+   * 既に `e2e/requirement-exclusions.json` へ登録済みであり、本ファイル冒頭に記載がある。
+   *
+   * ## 本検証が判定するもの
+   *
+   * Claude Vision の応答を**明細行データを持つ 200** に差し替える。テスト環境の backend は
+   * ANTHROPIC_API_KEY を持たず REQ-22.3 / REQ-22.6 により必ず 503 を返すため、
+   * 「正常に返却されたとき」を条件とする三件の受入基準は応答の差し替えでしか到達できない。
+   * 直前までの検証が用いた実物の 503・滞留・500 とは弁別できる刺激であり、
+   * 注入した値そのものが画面に現れることで刺激と観測が対応する。
+   *
+   * - REQ-24.5: 抽出結果の表示が、返却された明細行データ**そのもの**である
+   *   （表示は本番が `JSON.stringify(result.lineItems, null, 2)` で組み立てるため、
+   *   Node 側で解析して注入した配列と一致することを主張する）
+   * - REQ-24.6: 一括取り込みボタンが現れ、検出件数が返却された件数と一致する
+   *   （0 件を返したときにボタンが出ないことは直後の検証で確かめる。したがって
+   *   この主張は「何を返しても出る」ものではない）
+   * - REQ-24.8: 取り込んだ明細行の数量・単価・金額が要件18の形式と丸め規則に従う。
+   *   注入値は 2.5 → `2.50`（18.1）、1234.6 → `1235`（18.3 の切り上がり）、
+   *   999.4 → `999`（18.3 の切り下がり）と形が変わる値を選んだ。金額は
+   *   18.5 / 18.9 により数量×単価の四捨五入であり、注入した金額 99999999 は用いられない
+   *   （2.50×1235=3087.5 → `3,088`、3.00×999 → `2,997`。実測で確認した）。
+   *
    * @requirement estimate-request/REQ-24.5
    * @requirement estimate-request/REQ-24.6
    * @requirement estimate-request/REQ-24.8
-   * @requirement estimate-request/REQ-25.7
-   * @requirement estimate-request/REQ-20.4
-   * @requirement estimate-request/REQ-20.6
-   *
-   * REQ-26.5〜REQ-26.8（backend のJSON配列パーサーと数値変換）は画面表示エリアの
-   * 可視性からは何も分からない。被覆から外して `e2e/requirement-exclusions.json` へ登録した。
    */
-  test('OCR処理結果の構造化データ表示エリアが存在する (estimate-request/REQ-24.5, REQ-24.6)', async ({
+  test('Claude Visionが明細行を返すと返却データを抽出結果として表示し一括取り込みへ渡す (estimate-request/REQ-24.5, REQ-24.6, REQ-24.8)', async ({
     page,
   }) => {
+    test.setTimeout(getTimeout(180000));
+    expect(createdEstimateRequestId).toBeTruthy();
+
+    const traces = watchOcrRequests(page);
+    const visionStatuses = watchClaudeVisionResponseStatuses(page);
+
+    await page.route(`**${CLAUDE_VISION_EXTRACT_PATH}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ lineItems: INJECTED_VISION_LINE_ITEMS, pageCount: 1 }),
+      });
+    });
+
+    await loginAsUser(page, 'REGULAR_USER');
+    await uploadQuotationFixture(page, createdEstimateRequestId as string, 'test-scanned-pdf.pdf');
+
+    // ------------------------------------------------------------------
+    // REQ-24.5: 返却された明細行データを抽出結果として表示する
+    // ------------------------------------------------------------------
+    const extractedText = page.getByTestId('ocr-extracted-text');
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(120000) });
+    await expect(page.getByTestId('ocr-error-message')).toHaveCount(0);
+
+    expect(
+      visionStatuses,
+      'Claude Vision の応答が 200 一件で確定していない（「正常に返却されたとき」の条件が成立していない）'
+    ).toEqual([200]);
+    expect(
+      traces.filter((t) => t.kind === 'claude-vision').length,
+      'Claude Vision への要求が1件ちょうどではない'
+    ).toBe(1);
+    // 成功した以上、退避は起きない。起きていれば表示は Tesseract の結果であり
+    // 「返却されたデータを表示している」ことにならない。
+    // 画面の相（Claude Vision で抽出した旨のバナー）と通信（Tesseract の資材を一件も
+    // 取りに行っていないこと）は観測の系統が別であり、一方が他方を含意しない。
+    // 退避通知バナーの不在は当該バナーとの排他条件から従うため主張しない。
+    await expect(page.getByTestId('claude-vision-info-banner')).toBeVisible();
+    expect(
+      traces.filter((t) => t.kind !== 'claude-vision'),
+      'Claude Vision が成功したのに Tesseract の資材が取得されている'
+    ).toEqual([]);
+
+    // 本文が空であれば次の主張がそのまま落ちるため、空でないことは別に述べない
+    const shownText = await extractedText.textContent();
+    expect(
+      JSON.parse(shownText as string),
+      '抽出結果の表示が返却された明細行データと一致しない'
+    ).toEqual(INJECTED_VISION_LINE_ITEMS);
+
+    // ------------------------------------------------------------------
+    // REQ-24.6: 一括取り込みボタンを表示する
+    // ------------------------------------------------------------------
+    const importButton = page.getByTestId('ocr-import-button');
+    await expect(importButton).toBeVisible();
+    await expect(
+      page.getByText(`${INJECTED_VISION_LINE_ITEMS.length}件のデータが検出されました`)
+    ).toBeVisible();
+
+    // ------------------------------------------------------------------
+    // REQ-24.8: 要件18の数値表示形式・丸め規則に従って表示する
+    // ------------------------------------------------------------------
+    await importButton.click();
+    await expect(page.getByTestId('ocr-import-success')).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+
+    const nameInputs = page.locator('input[data-field="name"]');
+    await expect(
+      nameInputs,
+      '取り込み後の明細行が返却件数と一致しない（以降の主張の母集団が定まらない）'
+    ).toHaveCount(INJECTED_VISION_LINE_ITEMS.length);
+
+    await expect(page.locator('input[data-row="0"][data-field="quantity"]')).toHaveValue('2.50');
+    await expect(page.locator('input[data-row="0"][data-field="unitPrice"]')).toHaveValue('1235');
+    await expect(page.locator('input[data-row="1"][data-field="quantity"]')).toHaveValue('3.00');
+    await expect(page.locator('input[data-row="1"][data-field="unitPrice"]')).toHaveValue('999');
+
+    const amountCells = page.getByTestId('line-item-amount');
+    await expect(amountCells).toHaveCount(INJECTED_VISION_LINE_ITEMS.length);
+    await expect(amountCells.nth(0)).toHaveText('3,088');
+    await expect(amountCells.nth(1)).toHaveText('2,997');
+    // 返却された金額 99999999 をそのまま表示していないこと（母集団は上で2行に固定済み）
+    await expect(page.getByText('99,999,999')).toHaveCount(0);
+  });
+
+  /**
+   * 直前の検証が置いた「一括取り込みボタンが現れる」という主張が、弁別能力を持つことの
+   * 確認（タスク 115.176）。
+   *
+   * REQ-24.6 が求めるのは「明細行データが正常に返却されたとき」にボタンを出すことである。
+   * 応答の中身にかかわらず常にボタンが出るのなら、直前の主張は何も述べていない。
+   * ここでは同じ 200 応答で**明細行を 0 件**にし、抽出結果の表示は現れる一方で
+   * 取り込みボタンが現れないことを確かめる。
+   *
+   * 受入基準の被覆ではないため `@requirement` は付けない。
+   */
+  test('Claude Visionが明細行を0件で返すと一括取り込みボタンは現れない（観測の弁別能力の確認）', async ({
+    page,
+  }) => {
+    test.setTimeout(getTimeout(180000));
+    expect(createdEstimateRequestId).toBeTruthy();
+
+    await page.route(`**${CLAUDE_VISION_EXTRACT_PATH}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ lineItems: [], pageCount: 1 }),
+      });
+    });
+
+    await loginAsUser(page, 'REGULAR_USER');
+    await uploadQuotationFixture(page, createdEstimateRequestId as string, 'test-scanned-pdf.pdf');
+
+    const extractedText = page.getByTestId('ocr-extracted-text');
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(120000) });
+    expect(
+      JSON.parse((await extractedText.textContent()) as string),
+      '明細行0件の応答に対して抽出結果の表示が空配列になっていない'
+    ).toEqual([]);
+    await expect(page.getByTestId('claude-vision-info-banner')).toBeVisible();
+    await expect(
+      page.getByTestId('ocr-import-button'),
+      '明細行が0件でも一括取り込みボタンが出ている（直前の検証の「ボタンが出る」が何も述べていないことになる）'
+    ).toHaveCount(0);
+  });
+
+  /**
+   * ## 本検証が判定するもの（タスク 115.176）
+   *
+   * REQ-25.7 は「Claude Vision抽出と Tesseract.js フォールバックの**両方**が失敗した場合」に
+   * エラーメッセージを表示し手動入力を促すことを求める。両方を失敗させる必要があるため、
+   * 刺激は二つ用意する。
+   *  1. Claude Vision の応答を 500 に差し替える（退避が起きる。REQ-25.3 の刺激と同型）
+   *  2. 退避先の Tesseract が読み込む worker スクリプトの取得を失敗させる
+   *
+   * 同じ資材（`test-scanned-pdf.pdf`）は、遮断しなければ本ファイルの REQ-25.5 の検証で
+   * Tesseract が完走し抽出結果と取り込みボタンに到達する。すなわちここでの失敗は
+   * 遮断に由来し、資材や環境に由来しない。遮断が実際に効いたことは、遮断した要求を
+   * 数えて主張する（数えずに結果だけを見ると、遮断が空振りでも通ってしまう）。
+   *
+   * @requirement estimate-request/REQ-25.7
+   */
+  test('Claude VisionとTesseractの両方が失敗するとエラーを表示し手動入力を促す (estimate-request/REQ-25.7)', async ({
+    page,
+  }) => {
+    test.setTimeout(getTimeout(180000));
+    expect(createdEstimateRequestId).toBeTruthy();
+
+    const traces = watchOcrRequests(page);
+    const visionStatuses = watchClaudeVisionResponseStatuses(page);
+
+    await page.route(`**${CLAUDE_VISION_EXTRACT_PATH}`, async (route) => {
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 500,
+          detail: 'E2Eが注入したClaude Vision内部エラー',
+          errorType: 'unknown',
+        }),
+      });
+    });
+
+    const blockedTesseractRequests: string[] = [];
+    const blockTesseractAsset = async (route: Route) => {
+      blockedTesseractRequests.push(new URL(route.request().url()).pathname);
+      await route.abort('failed');
+    };
+    await page.route(`**${TESSERACT_WORKER_PATH_MARK}**`, blockTesseractAsset);
+    await page.route(`**${TESSERACT_LANG_PATH_MARK}**`, blockTesseractAsset);
+
+    await loginAsUser(page, 'REGULAR_USER');
+    await uploadQuotationFixture(page, createdEstimateRequestId as string, 'test-scanned-pdf.pdf');
+
+    // ------------------------------------------------------------------
+    // 二つの刺激がどちらも到達したこと
+    // ------------------------------------------------------------------
+    const errorMessage = page.getByTestId('ocr-error-message');
+    await expect(errorMessage).toBeVisible({ timeout: getTimeout(120000) });
+
+    expect(visionStatuses, 'Claude Vision の応答が注入した 500 一件で確定していない').toEqual([
+      500,
+    ]);
+    expect(
+      traces.filter((t) => t.kind === 'claude-vision').length,
+      'Claude Vision への要求が1件ちょうどではない'
+    ).toBe(1);
+    expect(
+      blockedTesseractRequests.length,
+      'Tesseract の資材の取得を一度も遮断していない（退避先を失敗させられていない）'
+    ).toBeGreaterThan(0);
+
+    // ------------------------------------------------------------------
+    // REQ-25.7: エラーメッセージを表示し手動入力を促す
+    // ------------------------------------------------------------------
+    await expect(errorMessage).toContainText('OCR処理に失敗しました。手動入力してください');
+    await expect(errorMessage).toContainText('手動で明細行にデータを入力してください。');
+
+    // 抽出は成立していない。成立しているなら「両方が失敗した」ことにならない
+    await expect(page.getByTestId('ocr-extracted-text')).toHaveCount(0);
+    await expect(page.getByTestId('ocr-import-button')).toHaveCount(0);
+  });
+
+  /**
+   * ## 本検証が判定するもの（タスク 115.176）
+   *
+   * REQ-20.4 は「OCRテキスト内のカンマ区切り数値（例: 1,234,567）をカンマ除去して
+   * 数値として認識する」ことを求める。資材 `e2e/fixtures/test-comma-number-pdf.pdf` は
+   * 2 ページのテキスト PDF で、1 ページ目に閾値（空白を除き 50 文字）を満たす英文、
+   * 2 ページ目に `WallPaint  Silicone  m2  100  1,234,567` を持つ。
+   * テスト環境では Claude Vision が 503 を返すため退避し、
+   * `extractPdfHybrid` が pdfjs-dist の直接抽出で当該テキストを取り出す。
+   *
+   * 刺激（カンマ付きの原文）と観測（カンマの無い取り込み結果）が**同じ画面に同時に出る**。
+   * 抽出結果の表示には `1,234,567` がそのまま現れ、そこから変換された明細行には
+   * `1234567` が現れる。`normalizeCommaNumbers` を外せば後者にカンマが残るため、
+   * この主張は本番の当該処理だけを見ている。
+   *
+   * 列への振り分けまでは主張しない。`extractPdfText` はページ内のテキストアイテムを
+   * 単一スペースで連結し、pdfjs 自身も文字列中の連続空白を単一スペースへ畳むため
+   * （2026-08-27 実測。原文の 2 個の空白は抽出後 1 個になる）、
+   * `convertOcrTextToLineItems` の列分割（タブまたは 2 個以上の空白）は
+   * テキスト PDF では成立せず、行全体が名称へ入る。
+   *
+   * @requirement estimate-request/REQ-20.4
+   */
+  test('OCRテキストのカンマ区切り数値はカンマを除いて取り込まれる (estimate-request/REQ-20.4)', async ({
+    page,
+  }) => {
+    test.setTimeout(getTimeout(180000));
     expect(createdEstimateRequestId).toBeTruthy();
 
     await loginAsUser(page, 'REGULAR_USER');
-    await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
-    await page.waitForLoadState('networkidle');
+    await uploadQuotationFixture(
+      page,
+      createdEstimateRequestId as string,
+      'test-comma-number-pdf.pdf'
+    );
 
-    // 構造化データ入力・表示エリアの存在確認
-    const dataArea = page
-      .locator('[data-testid="structured-data-area"]')
-      .or(page.locator('[data-testid="line-items-table"]'))
-      .or(page.getByText(/明細/i))
-      .or(page.getByText(/項目/i));
-    await expect(dataArea.first()).toBeVisible({ timeout: getTimeout(10000) });
+    const extractedText = page.getByTestId('ocr-extracted-text');
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(120000) });
+    await expect(page.getByTestId('ocr-error-message')).toHaveCount(0);
+
+    // 刺激: 抽出されたOCRテキストにカンマ区切り数値が含まれている
+    await expect(
+      extractedText,
+      '抽出テキストにカンマ区切り数値が現れていない（カンマ除去を検査できる原文になっていない）'
+    ).toContainText('WallPaint Silicone m2 100 1,234,567');
+
+    const importButton = page.getByTestId('ocr-import-button');
+    await expect(importButton).toBeVisible();
+    await importButton.click();
+    await expect(page.getByTestId('ocr-import-success')).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+
+    // 観測: 変換後の明細行ではカンマが除かれている（母集団は2行に固定される）
+    const nameInputs = page.locator('input[data-field="name"]');
+    await expect(nameInputs, '取り込まれた明細行が2行ではない').toHaveCount(2);
+    await expect(nameInputs.nth(0)).toHaveValue(
+      'Received quotation table for E2E verification of comma separated numbers'
+    );
+    await expect(nameInputs.nth(1)).toHaveValue('WallPaint Silicone m2 100 1234567');
+  });
+
+  /**
+   * ## 本検証が判定するもの（タスク 115.176）
+   *
+   * REQ-20.6 は「既存のExcelデータパース結果の一括取り込み処理（convertExcelToLineItems）に
+   * 影響を与えない」ことを求める。要件20が加えたのはゴミ行フィルタ（20.1・20.2）と
+   * 集計行除外（20.3）であり、本番ではこの二つを `convertOcrTextToLineItems` の
+   * 行分割直後だけに置いている（20.5）。`convertExcelToLineItems` は両経路の共用であるため、
+   * フィルタを共用側へ置くと Excel の取り込みが痩せる。それが起きていないことを判定する。
+   *
+   * 資材 `e2e/fixtures/test-excel-filter-unaffected.xlsx` は
+   * ヘッダー（名称・規格・単位・数量・単価）と次の 3 行を持つ。
+   *  1. `鋼材 / SS400 / kg / 4 / 250` — 通常の行（Excel 経路が動いていること自体の対照）
+   *  2. `合計調整費 / 調整 / 式 / 1 / 5000` — 集計キーワード「合計」を含む。
+   *     OCRテキスト経路なら 20.3 により落ちる
+   *  3. `鋼` — 名称だけの 1 文字の行。OCRテキスト経路なら 20.2（2文字以下）により落ちる
+   *
+   * 2 と 3 が取り込まれていることが、フィルタが Excel 経路へ及んでいないことの観測である。
+   * OCRテキスト経路で 2 と 3 に相当する行が実際に落ちることは
+   * `ocr-accuracy-improvement-e2e.spec.ts` の REQ-20.1〜20.3 の検証が担う。
+   *
+   * @requirement estimate-request/REQ-20.6
+   */
+  test('Excelデータパースの一括取り込みは要件20のゴミ行・集計行フィルタの影響を受けない (estimate-request/REQ-20.6)', async ({
+    page,
+  }) => {
+    test.setTimeout(getTimeout(120000));
+    expect(createdEstimateRequestId).toBeTruthy();
+
+    await loginAsUser(page, 'REGULAR_USER');
+    await uploadQuotationFixture(
+      page,
+      createdEstimateRequestId as string,
+      'test-excel-filter-unaffected.xlsx'
+    );
+
+    const extractedText = page.getByTestId('ocr-extracted-text');
+    await expect(extractedText).toBeVisible({ timeout: getTimeout(60000) });
+    await expect(page.getByTestId('ocr-error-message')).toHaveCount(0);
+
+    // 刺激: 3行すべてがパース結果として読み取られている
+    expect(
+      await extractedText.textContent(),
+      'Excel のパース結果が資材の3行と一致しない（判定の前提が崩れている）'
+    ).toBe(
+      '名称\t規格\t単位\t数量\t単価\n鋼材\tSS400\tkg\t4\t250\n合計調整費\t調整\t式\t1\t5000\n鋼'
+    );
+
+    const importButton = page.getByTestId('ocr-import-button');
+    await expect(importButton).toBeVisible();
+    await importButton.click();
+    await expect(page.getByTestId('ocr-import-success')).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+
+    // 観測: 3行とも取り込まれている（母集団を件数で固定してから各行を主張する）
+    const nameInputs = page.locator('input[data-field="name"]');
+    await expect(
+      nameInputs,
+      'Excel の3行が取り込まれていない（要件20のフィルタが Excel 経路へ及んでいる）'
+    ).toHaveCount(3);
+    await expect(nameInputs.nth(0)).toHaveValue('鋼材');
+    await expect(nameInputs.nth(1)).toHaveValue('合計調整費');
+    await expect(nameInputs.nth(2)).toHaveValue('鋼');
+
+    // 通常の行の数量・単価も従来どおり取り込まれる
+    // （金額は数量×単価から自動計算される値であり、この二つが定まれば決まるため述べない）
+    await expect(page.locator('input[data-row="0"][data-field="quantity"]')).toHaveValue('4.00');
+    await expect(page.locator('input[data-row="0"][data-field="unitPrice"]')).toHaveValue('250');
   });
 });
 
