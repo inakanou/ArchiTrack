@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { cleanDatabase } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout, waitForApiResponse } from '../../helpers/wait-helpers';
+import { getTimeout, nullWhenTimedOut, waitForApiResponse } from '../../helpers/wait-helpers';
 import AxeBuilder from '@axe-core/playwright';
 
 /**
@@ -156,10 +156,13 @@ test.describe('セキュリティテスト', () => {
     expect(displayedValue).toBe(xssPayload);
 
     // ページにアラートダイアログが表示されていないことを確認
-    const dialogPromise = page
-      .waitForEvent('dialog', { timeout: getTimeout(1000) })
-      .catch(() => null);
-    const dialog = await dialogPromise;
+    // 事象待ちを素手の `catch` で畳むと、待機切れ以外の失敗（述語の送出・切断・
+    // 本体終了による中断）まで「ダイアログは出なかった」に化ける。直下の主張は
+    // 不在を求めているため、その化けは**そのまま合格になる**。
+    // 待機切れのみを畳み、それ以外は送出する共有の補助を通す。
+    const dialog = await nullWhenTimedOut(
+      page.waitForEvent('dialog', { timeout: getTimeout(1000) })
+    );
     expect(dialog).toBeNull();
   });
 

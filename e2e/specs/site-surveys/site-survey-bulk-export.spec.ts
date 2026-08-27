@@ -59,7 +59,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { test, expect, type Page, type BrowserContext, type Route } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, nullWhenTimedOut } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
@@ -456,9 +456,13 @@ test.describe('現場調査画像の一括エクスポート', () => {
     releaseImages();
 
     // Requirement 31.12: ZIP は生成・ダウンロードされない
-    const download = await sharedPage
-      .waitForEvent('download', { timeout: getTimeout(10000) })
-      .catch(() => null);
+    // 事象待ちを素手の `catch` で畳むと、待機切れ以外の失敗（切断・本体終了による
+    // 中断）まで「ダウンロードは起きなかった」に化ける。直下の主張は不在を求めて
+    // いるため、その化けは**そのまま合格になる**。
+    // 待機切れのみを畳み、それ以外は送出する共有の補助を通す。
+    const download = await nullWhenTimedOut(
+      sharedPage.waitForEvent('download', { timeout: getTimeout(10000) })
+    );
     expect(download).toBeNull();
 
     // 進捗ダイアログが閉じる（中断の完了）

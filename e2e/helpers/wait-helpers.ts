@@ -402,6 +402,24 @@ export async function waitForAuthRedirect(
 }
 
 /**
+ * 失敗が「待機切れ」であるかを判別する
+ *
+ * Playwright の待機切れは `TimeoutError` という名前を持つ。待機切れだけを
+ * 「成立しなかった」として畳み、それ以外（strict mode 違反、ページ切断、
+ * 本体終了による中断、述語の送出など）は呼び出し元へ送出するための判別子。
+ *
+ * **この判別を各所で手書きしないこと。** 手書きの `catch` は判別を持たないため、
+ * あらゆる失敗を同じ値へ畳み、受け手の主張が「不在」を求めている場合は
+ * **失敗がそのまま合格へ化ける**。判別は本補助ただ一つに集約する。
+ *
+ * @param error - `catch` が受け取った値
+ * @returns 待機切れなら true
+ */
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'TimeoutError';
+}
+
+/**
  * 指定した待機時間の内に要素が表示されるかを待ち、真偽で返す
  *
  * `locator.isVisible()` へ渡した待機時間の指定は Playwright に無視され、
@@ -425,7 +443,7 @@ export async function isVisibleWithin(locator: Locator, timeout: number): Promis
     await locator.waitFor({ state: 'visible', timeout });
     return true;
   } catch (error) {
-    if (error instanceof Error && error.name === 'TimeoutError') {
+    if (isTimeoutError(error)) {
       return false;
     }
     throw error;
@@ -461,4 +479,43 @@ export async function labelWhenVisibleWithin<TLabel extends string>(
   label: TLabel
 ): Promise<TLabel | null> {
   return (await isVisibleWithin(locator, timeout)) ? label : null;
+}
+
+/**
+ * 事象待ちの結果を返し、**待機切れのときだけ** null へ畳む
+ *
+ * `page.waitForEvent('dialog' | 'download' | 'page', ...)` のような事象待ちを
+ * `.catch(() => null)` と手書きで畳むと、**待機切れ以外の失敗まで null に化ける**。
+ * 述語の送出、ページやコンテキストの切断、本体終了による中断のいずれも、
+ * 「事象が起きなかった」と同じ null になる。
+ *
+ * 畳んだ先の主張が `toBeNull()`（＝**不在の主張**）である場合、この化けは
+ * **失敗をそのまま合格へ変える**。実測（Task 115.179）では、実際にダイアログが
+ * 発火している状況で待機切れ以外の失敗を注入したところ、握り潰しにより
+ * 「ダイアログは出なかった」が成立し、検証は緑のまま通過した。
+ * 主張が `not.toBeNull()` のときは握り潰しが赤を招くため気づけるが、
+ * 不在の主張では**誰も気づけない**。真の原因も出力のどこにも残らない。
+ *
+ * 本補助は `isTimeoutError` を通すため、**待機切れのみ null**、それ以外は送出する。
+ * 解決の時刻は元の事象待ちと同一であるため、待機の意味は変わらない。
+ *
+ * ロケーターの表示を待つ `isVisibleWithin` とは対象が異なる（あちらは `Locator`、
+ * こちらは既に走り始めた事象待ちの `Promise`）ため別の入口を設けているが、
+ * 待機切れの判別は `isTimeoutError` ただ一つを共有する。
+ *
+ * 待機の生成と本補助の適用は**同一の式で行うこと**。生成だけ先に行って後から
+ * 適用すると、その間に生じた却下が未処理として扱われうる。
+ *
+ * @param pending - 走り始めている事象待ちの Promise
+ * @returns 事象が起きればその値、待機切れなら null
+ */
+export async function nullWhenTimedOut<T>(pending: Promise<T>): Promise<T | null> {
+  try {
+    return await pending;
+  } catch (error) {
+    if (isTimeoutError(error)) {
+      return null;
+    }
+    throw error;
+  }
 }
