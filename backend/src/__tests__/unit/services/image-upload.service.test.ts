@@ -106,7 +106,7 @@ describe('ImageUploadService', () => {
         original: {
           buffer: Buffer.from('processed'),
           metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
-          wasCompressed: false,
+          originalExceededSizeLimit: false,
         },
         thumbnail: Buffer.from('thumbnail'),
         metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
@@ -284,7 +284,7 @@ describe('ImageUploadService', () => {
         original: {
           buffer: Buffer.from('processed'),
           metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
-          wasCompressed: false,
+          originalExceededSizeLimit: false,
         },
         thumbnail: Buffer.from('thumbnail'),
         metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
@@ -376,7 +376,7 @@ describe('ImageUploadService', () => {
         original: {
           buffer: Buffer.from('processed'),
           metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
-          wasCompressed: false,
+          originalExceededSizeLimit: false,
         },
         thumbnail: Buffer.from('thumbnail'),
         metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
@@ -424,7 +424,7 @@ describe('ImageUploadService', () => {
         original: {
           buffer: Buffer.from('processed'),
           metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
-          wasCompressed: false,
+          originalExceededSizeLimit: false,
         },
         thumbnail: Buffer.from('thumbnail'),
         metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
@@ -477,7 +477,7 @@ describe('ImageUploadService', () => {
         original: {
           buffer: Buffer.from('processed'),
           metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
-          wasCompressed: false,
+          originalExceededSizeLimit: false,
         },
         thumbnail: Buffer.from('thumbnail'),
         metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
@@ -562,7 +562,7 @@ describe('ImageUploadService', () => {
         original: {
           buffer: Buffer.from('processed'),
           metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
-          wasCompressed: false,
+          originalExceededSizeLimit: false,
         },
         thumbnail: Buffer.from('thumbnail'),
         metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
@@ -631,7 +631,7 @@ describe('ImageUploadService', () => {
         original: {
           buffer: Buffer.from('processed'),
           metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
-          wasCompressed: false,
+          originalExceededSizeLimit: false,
         },
         thumbnail: Buffer.from('thumbnail'),
         metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
@@ -693,7 +693,7 @@ describe('ImageUploadService', () => {
         original: {
           buffer: Buffer.from('processed'),
           metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
-          wasCompressed: false,
+          originalExceededSizeLimit: false,
         },
         thumbnail: Buffer.from('thumbnail'),
         metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
@@ -750,7 +750,7 @@ describe('ImageUploadService', () => {
         original: {
           buffer: Buffer.from('processed'),
           metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },
-          wasCompressed: false,
+          originalExceededSizeLimit: false,
         },
         thumbnail: Buffer.from('thumbnail'),
         metadata: { width: 800, height: 600, size: 1024, format: 'jpeg' },

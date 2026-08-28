@@ -5,7 +5,8 @@
  *
  * Task 4.2: 画像圧縮・サムネイル生成機能
  * - Sharpによる画像処理
- * - 300KB超過時の段階的圧縮（品質を10%ずつ下げながらリサイズ、350KB以下で打ち切る）
+ * - 300KB超過時の段階的圧縮（まず品質を10%ずつ下げ、品質だけで収まらない場合にのみ
+ *   リサイズへ移り、350KB以下に収まった時点で打ち切る）
  * - サムネイル生成（200x200px）
  * - 画像メタデータ（幅・高さ・サイズ）の取得
  *
@@ -46,7 +47,22 @@ export interface ImageMetadata {
 export interface CompressedImage {
   buffer: Buffer;
   metadata: ImageMetadata;
-  wasCompressed: boolean;
+  /**
+   * 元画像が上限（{@link ImageProcessorService.MAX_SIZE_BYTES} = 300KB）を超えており、
+   * 段階的圧縮の経路を通ったことを表す。
+   *
+   * **`true` は再エンコードが行われたことを意味しない。** 300KB超〜350KB以下の入力は
+   * 打ち切りサイズ（350KB）を既に満たしているため圧縮のループが一度も回らず、
+   * `buffer` は入力と同一のまま `true` になる。要件4.6「350KB以下に収まった時点で
+   * 圧縮を打ち切る」に従った結果である（Task 115.171。従前の呼称 `wasCompressed` は
+   * この場合に実態を表していなかった）。
+   *
+   * **`buffer` が打ち切りサイズ以下であることも意味しない。** 品質もリサイズも
+   * 下げ切って収まらなかった場合は 350KB を超えたまま `true` を返す。
+   *
+   * `false` のときは元画像が 300KB以下であり、`buffer` は必ず入力と同一である。
+   */
+  originalExceededSizeLimit: boolean;
 }
 
 /**
@@ -109,7 +125,11 @@ export interface GenerateThumbnailOptions {
  */
 export class ImageProcessorService {
   /**
-   * 最大ファイルサイズ（300KB）
+   * 段階的圧縮を開始する閾値（300KB）
+   *
+   * 要件4.6 の「上限（300KB）」にあたる。**出力サイズの上限ではない。**
+   * 出力の打ち切りは {@link ImageProcessorService.TARGET_MAX_SIZE_BYTES}（350KB）が
+   * 担うため、この値を超える出力は正常に生じうる（Task 115.171）。
    */
   static readonly MAX_SIZE_BYTES = 300 * 1024;
 
@@ -250,7 +270,8 @@ export class ImageProcessorService {
    * 画像を圧縮
    *
    * Requirements: 4.6
-   * 300KB超過時は品質を10%ずつ下げながら、350KB以下に収まった時点で打ち切る
+   * 300KB超過時は品質を10%ずつ下げ、品質だけで収まらない場合にのみリサイズへ移り、
+   * 350KB以下に収まった時点で打ち切る
    *
    * @param buffer - 元画像バッファ
    * @returns 圧縮結果
@@ -265,7 +286,7 @@ export class ImageProcessorService {
         return {
           buffer,
           metadata: originalMetadata,
-          wasCompressed: false,
+          originalExceededSizeLimit: false,
         };
       }
 
@@ -320,7 +341,6 @@ export class ImageProcessorService {
   ): Promise<CompressedImage> {
     let currentBuffer = buffer;
     let currentQuality = 90; // 初期品質
-    let resizeRatio = 1.0;
     let currentMetadata = originalMetadata;
 
     // 品質を段階的に下げて圧縮
@@ -330,12 +350,12 @@ export class ImageProcessorService {
     ) {
       const instance = this.sharp(buffer);
 
-      // リサイズが必要な場合は適用
-      if (resizeRatio < 1.0) {
-        const newWidth = Math.round(originalMetadata.width * resizeRatio);
-        const newHeight = Math.round(originalMetadata.height * resizeRatio);
-        instance.resize(newWidth, newHeight);
-      }
+      // このループはリサイズを行わない。以前あった `if (resizeRatio < 1.0)` は、
+      // `resizeRatio` を下げるのが後段のリサイズのループだけで、そこへ入るのは
+      // このループを抜けたあとであるため恒偽であった（Task 115.171 で撤去）。
+      // `resizeRatio` の宣言は後段のループの直前へ移してある。これにより宣言位置を
+      // 保ったままこの分岐を書き戻すと TDZ で型検査が落ちる。宣言ごと元位置へ戻せば
+      // 型検査は通るが、その場合も恒偽のままで挙動は変わらない。
 
       // 品質設定を適用
       this.applyFormatSettings(instance, originalMetadata.format, currentQuality);
@@ -349,6 +369,7 @@ export class ImageProcessorService {
     }
 
     // 品質だけでは不十分な場合、リサイズを適用
+    let resizeRatio = 1.0;
     while (
       currentMetadata.size > ImageProcessorService.TARGET_MAX_SIZE_BYTES &&
       resizeRatio > ImageProcessorService.MIN_RESIZE_RATIO
@@ -374,7 +395,7 @@ export class ImageProcessorService {
     return {
       buffer: currentBuffer,
       metadata: currentMetadata,
-      wasCompressed: true,
+      originalExceededSizeLimit: true,
     };
   }
 

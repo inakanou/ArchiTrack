@@ -94,7 +94,7 @@ function createMockProcessor() {
       original: {
         buffer: Buffer.from('processed-original'),
         metadata: { width: 800, height: 600, size: 250 * 1024, format: 'jpeg' },
-        wasCompressed: true,
+        originalExceededSizeLimit: true,
       },
       thumbnail: Buffer.from('thumbnail-bytes'),
       metadata: { width: 800, height: 600, size: 250 * 1024, format: 'jpeg' },

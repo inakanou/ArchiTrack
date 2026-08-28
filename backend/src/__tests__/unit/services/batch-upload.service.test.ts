@@ -96,7 +96,7 @@ describe('BatchUploadService', () => {
         original: {
           buffer: createValidJpegBuffer(50 * 1024),
           metadata: { width: 1920, height: 1080, format: 'jpeg', size: 50 * 1024 },
-          wasCompressed: false,
+          originalExceededSizeLimit: false,
         },
         thumbnail: createValidJpegBuffer(10 * 1024),
         metadata: { width: 1920, height: 1080, format: 'jpeg', size: 50 * 1024 },
@@ -221,7 +221,7 @@ describe('BatchUploadService', () => {
             original: {
               buffer: createValidJpegBuffer(50 * 1024),
               metadata: { width: 1920, height: 1080, format: 'jpeg', size: 50 * 1024 },
-              wasCompressed: false,
+              originalExceededSizeLimit: false,
             },
             thumbnail: createValidJpegBuffer(10 * 1024),
             metadata: { width: 1920, height: 1080, format: 'jpeg', size: 50 * 1024 },
@@ -378,7 +378,7 @@ describe('BatchUploadService', () => {
             original: {
               buffer: createValidJpegBuffer(),
               metadata: { width: 1920, height: 1080, format: 'jpeg', size: 50 * 1024 },
-              wasCompressed: false,
+              originalExceededSizeLimit: false,
             },
             thumbnail: createValidJpegBuffer(10 * 1024),
             metadata: { width: 1920, height: 1080, format: 'jpeg', size: 50 * 1024 },
@@ -388,7 +388,7 @@ describe('BatchUploadService', () => {
             original: {
               buffer: createValidJpegBuffer(),
               metadata: { width: 1920, height: 1080, format: 'jpeg', size: 50 * 1024 },
-              wasCompressed: false,
+              originalExceededSizeLimit: false,
             },
             thumbnail: createValidJpegBuffer(10 * 1024),
             metadata: { width: 1920, height: 1080, format: 'jpeg', size: 50 * 1024 },
