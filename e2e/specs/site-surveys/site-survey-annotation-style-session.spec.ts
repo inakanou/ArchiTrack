@@ -36,6 +36,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { getFabricObjectCount } from '../../helpers/fabric-canvas';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -204,13 +205,15 @@ test.describe('注釈スタイルのセッション引継ぎ', () => {
     return sharedPage.getByTestId('style-options').getByTestId('outline-toggle');
   }
 
-  /** Fabric キャンバス上のオブジェクト数を取得する。 */
+  /**
+   * Fabric キャンバス上のオブジェクト数を取得する。
+   *
+   * Task 115.184: 描画面が取得できない場合は負の番兵値を返さず投げる
+   * （`getFabricObjectCount` が担う）。番兵値は実際の件数と同じ `number` に同居し、
+   * 増分の主張が「不在（-1）から零（0）へ」でも成立してしまうためである。
+   */
   async function getObjectCount(): Promise<number> {
-    return await sharedPage.evaluate(() => {
-      const canvas = (window as unknown as { __fabricCanvas?: ProbeCanvas | null }).__fabricCanvas;
-      if (!canvas) return -1;
-      return canvas.getObjects().length;
-    });
+    return await getFabricObjectCount(sharedPage);
   }
 
   /** キャンバス上の全注釈からスタイル状態を読み出す。 */

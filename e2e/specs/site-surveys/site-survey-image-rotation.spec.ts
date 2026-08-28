@@ -21,6 +21,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
+import { waitForFabricCanvas } from '../../helpers/fabric-canvas';
 
 /**
  * PNG のチャンク CRC32 を計算する
@@ -252,7 +253,10 @@ test.describe('現場調査画像回転機能', () => {
       .waitFor({ state: 'visible', timeout: 10000 });
 
     // 注釈エディタの初期化を待つ
-    await page.waitForTimeout(100);
+    // Task 115.184: 注釈オブジェクトの観測は描画面が不在なら投げる。道具帯の可視は
+    // 描画面が載ったことを意味しない（本番は useEffect で window へ載せる）ため、
+    // 「100ms あれば初期化されたはず」と見込まずに載った事実そのものを待つ。
+    await waitForFabricCanvas(page);
 
     return true;
   }
@@ -325,6 +329,12 @@ test.describe('現場調査画像回転機能', () => {
    * 背景画像を除く注釈オブジェクトの位置・サイズを読み出すヘルパー関数
    *
    * 回転の前後で同じ読み出しを行うため、複製せず一つに畳む。
+   *
+   * Task 115.184: 描画面が取得できない場合は空配列を返さず投げる。空配列を返すと
+   * 直下の `countAnnotationObjects` が **不在のときも 0 を返し**、「注釈が何件あるか」の
+   * 観測が「観測できなかった」と「零件だった」で同じ値になる。番兵値と実際の値が
+   * 同居する形（`annotationCount: 0` と同型）であり、件数を根拠にした主張が
+   * 描画面の不在でも成立しうる。
    */
   async function readAnnotationObjects(
     page: import('@playwright/test').Page
@@ -332,7 +342,12 @@ test.describe('現場調査画像回転機能', () => {
     return await page.evaluate(() => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const canvas = (window as any).__fabricCanvas;
-      if (!canvas) return [];
+      if (!canvas) {
+        throw new Error(
+          'Fabric.js キャンバス（window.__fabricCanvas）が取得できない。' +
+            '注釈オブジェクトを観測できないため、ここで失敗させる'
+        );
+      }
       return (
         canvas
           .getObjects()

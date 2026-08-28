@@ -39,6 +39,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { getFabricObjectCount } from '../../helpers/fabric-canvas';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -193,13 +194,15 @@ test.describe('注釈編集画面の受入基準（背景色・吹き出し・�
     return sharedPage.getByTestId('style-options').getByTestId(testId);
   }
 
-  /** Fabric キャンバス上のオブジェクト数を取得する。 */
+  /**
+   * Fabric キャンバス上のオブジェクト数を取得する。
+   *
+   * Task 115.184: 描画面が取得できない場合は負の番兵値を返さず投げる
+   * （`getFabricObjectCount` が担う）。番兵値は実際の件数と同じ `number` に同居し、
+   * 増分の主張が「不在（-1）から零（0）へ」でも成立してしまうためである。
+   */
   async function getObjectCount(): Promise<number> {
-    return await sharedPage.evaluate(() => {
-      const canvas = (window as unknown as { __fabricCanvas?: ProbeCanvas | null }).__fabricCanvas;
-      if (!canvas) return -1;
-      return canvas.getObjects().length;
-    });
+    return await getFabricObjectCount(sharedPage);
   }
 
   /** 指定位置の注釈のシリアライズ結果を読む（総数が期待どおりであることも確かめる）。 */
@@ -222,19 +225,34 @@ test.describe('注釈編集画面の受入基準（背景色・吹き出し・�
    * @param index 対象注釈の位置
    * @param hex 数える色（`#rrggbb`）
    * @param margin 注釈の外形から外側へ広げる論理ピクセル数（吹き出しは外形の外へ描かれる）
+   *
+   * Task 115.184: 数えられなかった事情（描画面が無い／対象の注釈が無い／描画キャンバスが
+   * 取れない／領域が潰れている）は負の番兵値で返さず投げる。番兵値は実際の画素数と同じ
+   * `number` に同居し、観測の失敗を「そういう値が観測できた」として通してしまうためである。
    */
   async function countPaintedPixels(index: number, hex: string, margin = 0): Promise<number> {
     return await sharedPage.evaluate(
       ({ index, hex, margin }) => {
         const canvas = (window as unknown as { __fabricCanvas?: ProbeCanvas | null })
           .__fabricCanvas;
-        if (!canvas) return -1;
+        if (!canvas) {
+          throw new Error(
+            'Fabric.js キャンバス（window.__fabricCanvas）が取得できない。' +
+              '塗られた画素を数えられないため、ここで失敗させる'
+          );
+        }
         const obj = canvas.getObjects()[index];
-        if (!obj) return -2;
+        if (!obj) {
+          throw new Error(`描画面の ${index} 番目に注釈が無い。塗られた画素を数えられない`);
+        }
         const el = canvas.lowerCanvasEl;
-        if (!el) return -3;
+        if (!el) {
+          throw new Error('描画キャンバス（lowerCanvasEl）が取得できない');
+        }
         const ctx = el.getContext('2d');
-        if (!ctx) return -4;
+        if (!ctx) {
+          throw new Error('描画キャンバスの 2d コンテキストが取得できない');
+        }
 
         // 描画キャンバスは端末画素比で拡大されていることがあるため、論理座標との比を取る
         const scaleX = el.width / canvas.getWidth();
@@ -247,7 +265,11 @@ test.describe('注釈編集画面の受入基準（背景色・吹き出し・�
         const bottom = Math.min(el.height, Math.ceil((rect.top + rect.height + margin) * scaleY));
         const width = right - left;
         const height = bottom - top;
-        if (width <= 0 || height <= 0) return -5;
+        if (width <= 0 || height <= 0) {
+          throw new Error(
+            `注釈 ${index} の外形が潰れている（width=${width}, height=${height}）。塗られた画素を数えられない`
+          );
+        }
 
         const target = {
           r: parseInt(hex.slice(1, 3), 16),

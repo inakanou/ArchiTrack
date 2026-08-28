@@ -21,6 +21,7 @@ import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { getFabricObjectCount, waitForFabricCanvas } from '../../helpers/fabric-canvas';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -174,29 +175,11 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
     // 注釈エディタの初期化を待つ
     // Task 115.165: 「この時間で初期化されたはず」と見込む固定待機ではなく、
     // 本番が描画面を window へ載せた事実そのものを待つ。
-    // 描画面が未初期化のまま先へ進むと getCanvasObjectCount が -1 を返し、
-    // 増分の主張が「-1 → 0」でも成立してしまう。
-    await expect
-      .poll(() => hasFabricCanvas(page), {
-        message: '注釈エディタの描画面（window.__fabricCanvas）が初期化されること',
-        timeout: getTimeout(10000),
-      })
-      .toBe(true);
+    // Task 115.184: 件数の観測（getFabricObjectCount）は描画面が不在なら投げる。
+    // 待ち合わせは観測の内側へ隠さず、観測できる状態をここで確立しておく。
+    await waitForFabricCanvas(page);
 
     return true;
-  }
-
-  /**
-   * 注釈エディタの描画面（Fabric.js キャンバス）が初期化済みかを観測するヘルパー
-   *
-   * Task 115.165: 固定待機の置き換え先となる条件。本番（AnnotationEditor）が
-   * 初期化の完了時に `window.__fabricCanvas` を設定することを合図に取る。
-   */
-  async function hasFabricCanvas(page: import('@playwright/test').Page): Promise<boolean> {
-    return await page.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return Boolean((window as any).__fabricCanvas);
-    });
   }
 
   /**
@@ -309,20 +292,6 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
   }
 
   /**
-   * Fabric.jsキャンバスのオブジェクト数を取得するヘルパー関数
-   */
-  async function getCanvasObjectCount(page: import('@playwright/test').Page): Promise<number> {
-    return await page.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const canvas = (window as any).__fabricCanvas;
-      if (!canvas) {
-        return -1;
-      }
-      return canvas.getObjects().length;
-    });
-  }
-
-  /**
    * Fabric.jsキャンバスのアクティブ（選択中）オブジェクトを取得するヘルパー関数
    * 選択中のオブジェクトがない場合は null を返す
    *
@@ -418,7 +387,7 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
   async function drawInitialRectangle(
     page: import('@playwright/test').Page
   ): Promise<{ center: { x: number; y: number }; objectCountAfter: number }> {
-    const objectCountBefore = await getCanvasObjectCount(page);
+    const objectCountBefore = await getFabricObjectCount(page);
 
     // 四角形ツールを選択（このタイミングで toolbar の layout が変わりうる）
     const rectTool = page.getByRole('button', { name: /四角形/i });
@@ -435,7 +404,7 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
     // Task 115.165: 「500ms あれば作られたはず」と見込む固定待機ではなく、
     // 図形が一つ増えた事実そのものを待つ。ここが待ち合わせと主張を兼ねる。
     await expect
-      .poll(() => getCanvasObjectCount(page), {
+      .poll(() => getFabricObjectCount(page), {
         message: '四角形ツールのドラッグで描画面の図形が一つ増えること',
         timeout: getTimeout(5000),
       })
@@ -543,7 +512,7 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
     await expect(circleTool).toHaveAttribute('aria-pressed', 'true');
 
     // 既存オブジェクト（四角形）の上でマウスダウンし、そのままドラッグへ入る
-    const countBeforeDown = await getCanvasObjectCount(page);
+    const countBeforeDown = await getFabricObjectCount(page);
     await page.mouse.move(center.x, center.y);
     await page.mouse.down();
     await page.mouse.move(center.x + 30, center.y + 20, { steps: 5 });
@@ -554,7 +523,7 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
     // 「マウスダウンが処理され、かつ描画として扱われた」ことを確かめたうえで
     // 「選択されていないこと」を主張できる。時間で落ち着きを見込む必要はない。
     await expect
-      .poll(() => getCanvasObjectCount(page), {
+      .poll(() => getFabricObjectCount(page), {
         message:
           '既存オブジェクト上のマウスダウンが描画操作として扱われ、プレビュー図形が描画面へ現れること',
         timeout: getTimeout(5000),
@@ -683,7 +652,7 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
     // 新しい図形が正常に作成されたことを確認（オブジェクト数が1つ増加）
     // Task 115.165: 固定待機を撤去し、作成された事実そのものを待つ
     await expect
-      .poll(() => getCanvasObjectCount(page), {
+      .poll(() => getFabricObjectCount(page), {
         message: '既存オブジェクト上でマウスアップしても新しい図形が一つ作成されること',
         timeout: getTimeout(5000),
       })
@@ -733,7 +702,7 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
     // 多角形が正常に作成されたことを確認
     // Task 115.165: 固定待機を撤去し、作成された事実そのものを待つ
     await expect
-      .poll(() => getCanvasObjectCount(page), {
+      .poll(() => getFabricObjectCount(page), {
         message: '多角形が一つ作成されること（プレビューは確定時に取り除かれる）',
         timeout: getTimeout(5000),
       })
@@ -778,7 +747,7 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
     // 折れ線が正常に作成されたことを確認
     // Task 115.165: 固定待機を撤去し、作成された事実そのものを待つ
     await expect
-      .poll(() => getCanvasObjectCount(page), {
+      .poll(() => getFabricObjectCount(page), {
         message: '折れ線が一つ作成されること（プレビューは確定時に取り除かれる）',
         timeout: getTimeout(5000),
       })
@@ -831,7 +800,7 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
     // テキスト注釈が作成されたことを確認（オブジェクト数が1つ増加）
     // Task 115.165: 固定待機を撤去し、作成された事実そのものを待つ
     await expect
-      .poll(() => getCanvasObjectCount(page), {
+      .poll(() => getFabricObjectCount(page), {
         message: 'テキスト注釈が一つ作成されること',
         timeout: getTimeout(5000),
       })

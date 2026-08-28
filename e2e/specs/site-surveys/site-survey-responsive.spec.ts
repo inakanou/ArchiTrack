@@ -26,6 +26,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
+import { getFabricObjectCount, waitForFabricCanvas } from '../../helpers/fabric-canvas';
 // 自動保存の間隔は本番の一元管理された定数を直接参照する。
 // テスト側に数値を複製すると、間隔が変わったときに検証だけが古い前提のまま緑になる。
 import { DEFAULT_AUTO_SAVE_INTERVAL_MS } from '../../../frontend/src/services/AutoSaveManager';
@@ -233,6 +234,11 @@ test.describe('現場調査レスポンシブ対応', () => {
       timeout: getTimeout(15000),
     });
 
+    // Task 115.184: 件数の観測（getFabricObjectCount）は描画面が不在なら投げる。
+    // 観測できる状態はここで確立する。リロード直後は道具帯より描画面の方が遅れるため、
+    // 道具帯の表示だけでは観測できる状態を意味しない。
+    await waitForFabricCanvas(page);
+
     const match = page.url().match(/\/images\/([0-9a-f-]+)/);
     const imageId = match?.[1];
     if (!imageId) {
@@ -282,18 +288,6 @@ test.describe('現場調査レスポンシブ対応', () => {
   }
 
   /**
-   * キャンバス上のオブジェクト数（背景画像を含む）を返す
-   */
-  async function getCanvasObjectCount(page: PlaywrightPage): Promise<number> {
-    return page.evaluate(() => {
-      const canvas = (
-        window as unknown as { __fabricCanvas?: { getObjects: () => unknown[] } | null }
-      ).__fabricCanvas;
-      return canvas ? canvas.getObjects().length : -1;
-    });
-  }
-
-  /**
    * 四角形ツールで注釈を1件描く（描画が成立したことを確認してから戻る）
    */
   async function drawRectangleAnnotation(page: PlaywrightPage): Promise<void> {
@@ -303,8 +297,9 @@ test.describe('現場調査レスポンシブ対応', () => {
     await expect(rectangleTool).toHaveAttribute('aria-pressed', 'true');
 
     const center = await getCanvasCenter(page);
-    const before = await getCanvasObjectCount(page);
-    expect(before).toBeGreaterThanOrEqual(0);
+    // Task 115.184: 描画面が観測できないことは観測そのものが投げて弾くため、
+    // 番兵値を弾くための下限の主張は不要になった。
+    const before = await getFabricObjectCount(page);
 
     // キャンバス内に収まる幅で描く（画像サイズに依存しないよう実寸から求める）
     const box = await page.locator('.upper-canvas').boundingBox();
@@ -320,7 +315,7 @@ test.describe('現場調査レスポンシブ対応', () => {
     await page.mouse.up();
 
     await expect
-      .poll(() => getCanvasObjectCount(page), { timeout: getTimeout(15000) })
+      .poll(() => getFabricObjectCount(page), { timeout: getTimeout(15000) })
       .toBeGreaterThan(before);
   }
 
@@ -758,7 +753,7 @@ test.describe('現場調査レスポンシブ対応', () => {
         .poll(() => readDraft(page, draftKey), { timeout: 60_000, intervals: [2000] })
         .not.toBeNull();
 
-      const draftedObjectCount = await getCanvasObjectCount(page);
+      const draftedObjectCount = await getFabricObjectCount(page);
 
       // リロード（再訪問）する。サーバーには注釈が保存されていないため、
       // 復元しなければキャンバスは描画前の状態に戻る
@@ -766,7 +761,7 @@ test.describe('現場調査レスポンシブ対応', () => {
       await page.waitForLoadState('networkidle');
       await enterEditMode(page);
 
-      const afterReloadCount = await getCanvasObjectCount(page);
+      const afterReloadCount = await getFabricObjectCount(page);
       expect(afterReloadCount).toBeLessThan(draftedObjectCount);
 
       // 未保存データの復元確認が本番の描画経路から表示される
@@ -779,7 +774,7 @@ test.describe('現場調査レスポンシブ対応', () => {
 
       // 復元により、リロード直後より注釈が増えて自動保存時点の状態へ戻る
       await expect
-        .poll(() => getCanvasObjectCount(page), { timeout: getTimeout(20000) })
+        .poll(() => getFabricObjectCount(page), { timeout: getTimeout(20000) })
         .toBe(draftedObjectCount);
     });
 

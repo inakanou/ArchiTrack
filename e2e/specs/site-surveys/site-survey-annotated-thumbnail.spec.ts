@@ -52,6 +52,7 @@ import zlib from 'zlib';
 import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { waitForFabricCanvas } from '../../helpers/fabric-canvas';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 
@@ -107,9 +108,15 @@ interface DetailImage {
   annotatedThumbnailUrl: string | null;
 }
 
-/** 閲覧モード／編集モードの注釈エディタの状態 */
+/**
+ * 閲覧モード／編集モードの注釈エディタの状態
+ *
+ * Task 115.184: キャンバス未公開を表す `hasCanvas` は持たない。未公開のときは
+ * 観測そのものが投げる。以前は `{ hasCanvas: false, objectTypes: [] }` を返しており、
+ * **注釈の件数（`objectTypes.length`）が「観測できなかった」と「零件だった」で
+ * 同じ 0 になっていた**。
+ */
 interface EditorCanvasState {
-  hasCanvas: boolean;
   /** 注釈オブジェクトの type 一覧（背景画像は含まれない） */
   objectTypes: string[];
   /** 背景画像の回転角度。未読込は null */
@@ -304,11 +311,13 @@ test.describe('注釈付きサムネイル・プレビュー表示', () => {
         }
       ).__fabricCanvas;
       if (!canvas) {
-        return { hasCanvas: false, objectTypes: [], backgroundAngle: null };
+        throw new Error(
+          'Fabric.js キャンバス（window.__fabricCanvas）が取得できない。' +
+            '注釈の一覧を観測できないため、ここで失敗させる'
+        );
       }
       const background = canvas.backgroundImage;
       return {
-        hasCanvas: true,
         objectTypes: canvas.getObjects().map((object) => object.type ?? 'unknown'),
         backgroundAngle: background ? Number(background.angle ?? 0) : null,
       };
@@ -334,6 +343,12 @@ test.describe('注釈付きサムネイル・プレビュー表示', () => {
       timeout: getTimeout(15000),
     });
 
+    // Task 115.184: 描画面の観測（getEditorCanvasState）は不在なら投げる。`expect.poll`
+    // は poller の例外を再試行しないため、poll の手前で観測できる状態を確立しておく。
+    // 本番は useEffect で `window.__fabricCanvas` を載せるので、容器や道具帯の可視は
+    // 描画面が載ったことを意味しない。背景画像の読込待ちは別条件なのでそのまま残す。
+    await waitForFabricCanvas(sharedPage);
+
     // 背景画像の読込前に判定すると、注釈の復元も未了のまま「0件」を読みうる
     await expect
       .poll(async () => (await getEditorCanvasState(sharedPage)).backgroundAngle !== null, {
@@ -350,6 +365,11 @@ test.describe('注釈付きサムネイル・プレビュー表示', () => {
     await expect(sharedPage.getByTestId('annotation-toolbar')).toBeVisible({
       timeout: getTimeout(15000),
     });
+
+    // Task 115.184: 編集モードへの切替は注釈エディタを載せ替えるため、閲覧モードで
+    // 確立した描画面はそのまま使えない。道具帯の可視は描画面が載ったことを意味しない
+    // ので、ここでも観測できる状態を確立し直す。
+    await waitForFabricCanvas(sharedPage);
   }
 
   /** 編集キャンバスの中心座標を取得する */
@@ -382,8 +402,9 @@ test.describe('注釈付きサムネイル・プレビュー表示', () => {
     await expect(arrowTool).toHaveAttribute('aria-pressed', 'true');
 
     const center = await getCanvasCenter();
+    // Task 115.184: 「編集キャンバスが公開されている」ことは観測そのものが投げて
+    // 保証するため、番兵値を弾くための主張は不要になった。
     const before = await getEditorCanvasState(sharedPage);
-    expect(before.hasCanvas, '編集キャンバスが公開されている').toBe(true);
     expect(before.backgroundAngle, '編集キャンバスに背景画像が読み込まれている').not.toBeNull();
 
     await sharedPage.mouse.move(center.x - 100, center.y);
@@ -630,8 +651,9 @@ test.describe('注釈付きサムネイル・プレビュー表示', () => {
   test('プレビュー画面（閲覧モード）が注釈エディタを表示し、注釈保存前は注釈を描かないこと (site-survey/REQ-20.1)', async () => {
     await openPreview();
 
+    // Task 115.184: キャンバスが公開されていることは観測そのものが投げて保証する。
+    // これにより「注釈が存在しない」の主張が、キャンバス不在でも成立する余地が消える。
     const state = await getEditorCanvasState(sharedPage);
-    expect(state.hasCanvas, 'プレビュー画面のキャンバスが公開されている').toBe(true);
     expect(state.objectTypes, '注釈保存前のプレビューには注釈が存在しない').toEqual([]);
   });
 

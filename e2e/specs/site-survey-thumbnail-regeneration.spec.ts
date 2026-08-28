@@ -58,6 +58,7 @@ import zlib from 'zlib';
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../helpers/auth-actions';
 import { getTimeout } from '../helpers/wait-helpers';
+import { waitForFabricCanvas } from '../helpers/fabric-canvas';
 import { API_BASE_URL } from '../config';
 import { selectFirstRealOption } from '../helpers/form-preconditions';
 import { assertPrepared } from '../helpers/preconditions';
@@ -459,6 +460,12 @@ test.describe('サムネイル再生成の実体（注釈と回転の反映）',
     await page
       .locator('[data-testid="annotation-toolbar"]')
       .waitFor({ state: 'visible', timeout: getTimeout(15000) });
+
+    // Task 115.184: 描画面の観測（getEditorCanvasState）は不在なら投げる。`expect.poll`
+    // は poller の例外を再試行しないため、poll の手前で観測できる状態を確立しておく。
+    // 本番は useEffect で `window.__fabricCanvas` を載せるので、容器や道具帯の可視は
+    // 描画面が載ったことを意味しない。背景画像の読込待ちは別条件なのでそのまま残す。
+    await waitForFabricCanvas(page);
   }
 
   /** 編集キャンバスの中心座標を取得する */
@@ -489,12 +496,17 @@ test.describe('サムネイル再生成の実体（注釈と回転の反映）',
    * 注釈の件数（`getObjects()`）と背景画像の回転角度を分けて読む。
    * 描画・回転が実際に反映されたかを保存前に確認するために用いる。
    *
-   * @returns キャンバス未公開時は `hasCanvas: false`。背景画像未読込時は
-   *   `backgroundAngle: null`
+   * Task 115.184: キャンバス未公開は番兵値で返さず投げる。以前は
+   * `{ hasCanvas: false, annotationCount: 0 }` を返していたため、**注釈の件数が
+   * 「観測できなかった」と「零件だった」で同じ 0 になり**、増分や不在の主張が
+   * キャンバス不在のままでも成立しえた。`hasCanvas` の番人を呼び出しごとに
+   * 書き忘れる余地も消す。
+   *
+   * @returns 背景画像未読込時は `backgroundAngle: null`
    */
   function getEditorCanvasState(
     page: Page
-  ): Promise<{ hasCanvas: boolean; annotationCount: number; backgroundAngle: number | null }> {
+  ): Promise<{ annotationCount: number; backgroundAngle: number | null }> {
     return page.evaluate(() => {
       const canvas = (
         window as unknown as {
@@ -505,11 +517,13 @@ test.describe('サムネイル再生成の実体（注釈と回転の反映）',
         }
       ).__fabricCanvas;
       if (!canvas) {
-        return { hasCanvas: false, annotationCount: 0, backgroundAngle: null };
+        throw new Error(
+          'Fabric.js キャンバス（window.__fabricCanvas）が取得できない。' +
+            '注釈の件数を観測できないため、ここで失敗させる'
+        );
       }
       const background = canvas.backgroundImage;
       return {
-        hasCanvas: true,
         annotationCount: canvas.getObjects().length,
         backgroundAngle: background ? Number(background.angle ?? 0) : null,
       };
@@ -538,8 +552,9 @@ test.describe('サムネイル再生成の実体（注釈と回転の反映）',
       })
       .toBe(true);
 
+    // Task 115.184: 「編集キャンバスが公開されている」ことは観測そのものが投げて
+    // 保証するため、番兵値を弾くための主張は不要になった。
     const before = await getEditorCanvasState(page);
-    expect(before.hasCanvas, '編集キャンバスが公開されている').toBe(true);
 
     await page.mouse.move(center.x - 100, center.y);
     await page.mouse.down();

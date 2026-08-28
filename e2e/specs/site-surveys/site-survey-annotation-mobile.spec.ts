@@ -72,6 +72,7 @@ import {
 import { TOOL_DEFINITIONS } from '../../../frontend/src/components/site-surveys/annotation-toolbar.constants';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPresent } from '../../helpers/preconditions';
+import { getFabricObjectCount } from '../../helpers/fabric-canvas';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -371,13 +372,15 @@ test.describe('モバイル Viewport 注釈機能', () => {
     await expect(tool).toHaveAttribute('aria-pressed', 'true');
   }
 
-  /** Fabric キャンバス上のオブジェクト数を取得する。 */
+  /**
+   * Fabric キャンバス上のオブジェクト数を取得する。
+   *
+   * Task 115.184: 描画面が取得できない場合は負の番兵値を返さず投げる
+   * （`getFabricObjectCount` が担う）。番兵値は実際の件数と同じ `number` に同居し、
+   * 増分の主張が「不在（-1）から零（0）へ」でも成立してしまうためである。
+   */
   async function getObjectCount(): Promise<number> {
-    return await sharedPage.evaluate(() => {
-      const c = globalThis.__fabricCanvas;
-      if (!c) return -1;
-      return c.getObjects().length;
-    });
+    return await getFabricObjectCount(sharedPage);
   }
 
   /** 各オブジェクトの type と白縁取り／白アウトライン属性を読み出す。 */
@@ -1106,7 +1109,13 @@ test.describe('編集モードのピンチズーム/2本指パン/描画中断/�
     return await sharedPage.evaluate(() => {
       const c = globalThis.__fabricCanvas;
       if (!c) {
-        return { zoom: -1, panX: 0, panY: 0, objectCount: -1, activeType: null };
+        // Task 115.184: 描画面の不在を負の番兵値で返さない。番兵値は実際の件数・
+        // 倍率と同じ number に同居し、増分の主張が「不在(-1)から零(0)へ」でも
+        // 成立してしまう。
+        throw new Error(
+          'Fabric.js キャンバス（window.__fabricCanvas）が取得できない。' +
+            '描画面の状態を観測できないため、ここで失敗させる'
+        );
       }
       const vpt = c.viewportTransform;
       const active = c.getActiveObject();
@@ -1691,7 +1700,13 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
     return await sharedPage.evaluate(() => {
       const c = globalThis.__fabricCanvas;
       if (!c) {
-        return { zoom: -1, panX: 0, panY: 0, objectCount: -1, activeType: null };
+        // Task 115.184: 描画面の不在を負の番兵値で返さない。番兵値は実際の件数・
+        // 倍率と同じ number に同居し、増分の主張が「不在(-1)から零(0)へ」でも
+        // 成立してしまう。
+        throw new Error(
+          'Fabric.js キャンバス（window.__fabricCanvas）が取得できない。' +
+            '描画面の状態を観測できないため、ここで失敗させる'
+        );
       }
       const vpt = c.viewportTransform;
       const active = c.getActiveObject();

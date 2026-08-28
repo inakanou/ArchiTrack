@@ -44,6 +44,7 @@ import { assertPrepared } from '../../helpers/preconditions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { getFabricObjectCount, waitForFabricCanvas } from '../../helpers/fabric-canvas';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -195,7 +196,10 @@ test.describe('現場調査注釈ツール', () => {
       .waitFor({ state: 'visible', timeout: 10000 });
 
     // 注釈エディタの初期化を待つ
-    await page.waitForTimeout(100);
+    // Task 115.184: 件数の観測（getFabricObjectCount）は描画面が不在なら投げるため、
+    // 「100ms あれば初期化されたはず」と見込むのではなく、本番が描画面を window へ
+    // 載せた事実そのものを待って観測できる状態を確立する。
+    await waitForFabricCanvas(page);
 
     return true;
   }
@@ -466,7 +470,7 @@ test.describe('現場調査注釈ツール', () => {
       ).toBeLessThanOrEqual(handleTolerancePx);
 
       // 寸法線は 1 本のまま（端点操作が新しい注釈を生んでいない）
-      expect(await getCanvasObjectCount(page), '端点操作で注釈の本数が変わった').toBe(1);
+      expect(await getFabricObjectCount(page), '端点操作で注釈の本数が変わった').toBe(1);
     });
 
     test('キーボードショートカット（Delete/Backspace/Escape）が機能する (site-survey/REQ-6.6)', async ({
@@ -775,23 +779,6 @@ test.describe('現場調査注釈ツール', () => {
   }
 
   /**
-   * Fabric.jsキャンバスのオブジェクト数を取得するヘルパー関数
-   *
-   * フロントエンドで window.__fabricCanvas としてキャンバスインスタンスが公開されている必要があります。
-   */
-  async function getCanvasObjectCount(page: import('@playwright/test').Page): Promise<number> {
-    return await page.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const canvas = (window as any).__fabricCanvas;
-      if (!canvas) {
-        return -1; // キャンバスが見つからない場合
-      }
-      // 背景画像を除くオブジェクト数を返す
-      return canvas.getObjects().length;
-    });
-  }
-
-  /**
    * @requirement site-survey/REQ-7.1
    * @requirement site-survey/REQ-7.2
    * @requirement site-survey/REQ-7.3
@@ -825,8 +812,11 @@ test.describe('現場調査注釈ツール', () => {
       await expect(arrowTool).toHaveAttribute('aria-pressed', 'true');
 
       // ドラッグ操作前のオブジェクト数を取得
-      const objectCountBefore = await getCanvasObjectCount(page);
-      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+      // Task 115.184: 以前ここにあった `toBeGreaterThanOrEqual(0)` は、件数取得が
+      // 描画面の不在時に -1 を返していたための番人だった。取得が投げる形になり
+      // 戻り値は常に 0 以上になったため、この主張は決して失敗しない飾りになる。
+      // 描画面が観測できないことは取得そのものが弾く（本ファイル全箇所で撤去）。
+      const objectCountBefore = await getFabricObjectCount(page);
 
       // キャンバス上でドラッグ操作を実行
       const center = await getCanvasCenter(page);
@@ -836,7 +826,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.waitForTimeout(500);
 
       // ドラッグ操作後のオブジェクト数を確認 - 矢印が追加されているはず
-      const objectCountAfter = await getCanvasObjectCount(page);
+      const objectCountAfter = await getFabricObjectCount(page);
 
       expect(objectCountAfter).toBe(objectCountBefore + 1);
     });
@@ -862,15 +852,14 @@ test.describe('現場調査注釈ツール', () => {
       await expect(circleTool).toHaveAttribute('aria-pressed', 'true');
 
       // ドラッグ操作前のオブジェクト数を取得
-      const objectCountBefore = await getCanvasObjectCount(page);
-      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+      const objectCountBefore = await getFabricObjectCount(page);
 
       // キャンバス上でドラッグ操作を実行
       const center = await getCanvasCenter(page);
       await performDrag(page, center.x - 30, center.y - 30, center.x + 30, center.y + 30);
 
       // ドラッグ操作後のオブジェクト数を確認 - 円が追加されているはず
-      const objectCountAfter = await getCanvasObjectCount(page);
+      const objectCountAfter = await getFabricObjectCount(page);
       expect(objectCountAfter).toBe(objectCountBefore + 1);
     });
 
@@ -895,15 +884,14 @@ test.describe('現場調査注釈ツール', () => {
       await expect(rectTool).toHaveAttribute('aria-pressed', 'true');
 
       // ドラッグ操作前のオブジェクト数を取得
-      const objectCountBefore = await getCanvasObjectCount(page);
-      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+      const objectCountBefore = await getFabricObjectCount(page);
 
       // キャンバス上でドラッグ操作を実行
       const center = await getCanvasCenter(page);
       await performDrag(page, center.x - 40, center.y - 30, center.x + 40, center.y + 30);
 
       // ドラッグ操作後のオブジェクト数を確認 - 四角形が追加されているはず
-      const objectCountAfter = await getCanvasObjectCount(page);
+      const objectCountAfter = await getFabricObjectCount(page);
       expect(objectCountAfter).toBe(objectCountBefore + 1);
     });
 
@@ -928,8 +916,7 @@ test.describe('現場調査注釈ツール', () => {
       await expect(polygonTool).toHaveAttribute('aria-pressed', 'true');
 
       // クリック操作前のオブジェクト数を取得
-      const objectCountBefore = await getCanvasObjectCount(page);
-      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+      const objectCountBefore = await getFabricObjectCount(page);
 
       // キャンバス上で複数の頂点をクリック（三角形を描画）
       const center = await getCanvasCenter(page);
@@ -944,7 +931,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.mouse.dblclick(center.x, center.y - 40);
 
       // クリック操作後のオブジェクト数を確認 - 多角形が追加されているはず
-      const objectCountAfter = await getCanvasObjectCount(page);
+      const objectCountAfter = await getFabricObjectCount(page);
       expect(objectCountAfter).toBe(objectCountBefore + 1);
     });
 
@@ -969,8 +956,7 @@ test.describe('現場調査注釈ツール', () => {
       await expect(polylineTool).toHaveAttribute('aria-pressed', 'true');
 
       // クリック操作前のオブジェクト数を取得
-      const objectCountBefore = await getCanvasObjectCount(page);
-      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+      const objectCountBefore = await getFabricObjectCount(page);
 
       // キャンバス上で複数の点をクリック
       const center = await getCanvasCenter(page);
@@ -985,7 +971,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.mouse.dblclick(center.x - 50, center.y);
 
       // クリック操作後のオブジェクト数を確認 - 折れ線が追加されているはず
-      const objectCountAfter = await getCanvasObjectCount(page);
+      const objectCountAfter = await getFabricObjectCount(page);
       expect(objectCountAfter).toBe(objectCountBefore + 1);
     });
 
@@ -1010,8 +996,7 @@ test.describe('現場調査注釈ツール', () => {
       await expect(freehandTool).toHaveAttribute('aria-pressed', 'true');
 
       // ドラッグ操作前のオブジェクト数を取得
-      const objectCountBefore = await getCanvasObjectCount(page);
-      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+      const objectCountBefore = await getFabricObjectCount(page);
 
       // キャンバス上でフリーハンド描画を実行
       const center = await getCanvasCenter(page);
@@ -1026,7 +1011,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.mouse.up();
 
       // ドラッグ操作後のオブジェクト数を確認 - フリーハンド線が追加されているはず
-      const objectCountAfter = await getCanvasObjectCount(page);
+      const objectCountAfter = await getFabricObjectCount(page);
       expect(objectCountAfter).toBe(objectCountBefore + 1);
     });
 
@@ -1874,8 +1859,7 @@ test.describe('現場調査注釈ツール', () => {
       }
 
       // 描画前のオブジェクト数を取得
-      const objectCountBefore = await getCanvasObjectCount(page);
-      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+      const objectCountBefore = await getFabricObjectCount(page);
 
       // 図形を描画
       const rectTool = page.getByRole('button', { name: /四角形/i });
@@ -1897,7 +1881,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.waitForTimeout(500);
 
       // 描画後のオブジェクト数を確認（1つ増えているはず）
-      const objectCountAfterDraw = await getCanvasObjectCount(page);
+      const objectCountAfterDraw = await getFabricObjectCount(page);
       expect(objectCountAfterDraw).toBe(objectCountBefore + 1);
 
       // Undoボタンをクリック
@@ -1907,7 +1891,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.waitForTimeout(300);
 
       // Undo後のオブジェクト数を確認（元に戻っているはず）
-      const objectCountAfterUndo = await getCanvasObjectCount(page);
+      const objectCountAfterUndo = await getFabricObjectCount(page);
       expect(objectCountAfterUndo).toBe(objectCountBefore);
     });
 
@@ -1924,8 +1908,7 @@ test.describe('現場調査注釈ツール', () => {
       }
 
       // 描画前のオブジェクト数を取得
-      const objectCountBefore = await getCanvasObjectCount(page);
-      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+      const objectCountBefore = await getFabricObjectCount(page);
 
       // 図形を描画
       const rectTool = page.getByRole('button', { name: /四角形/i });
@@ -1947,7 +1930,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.waitForTimeout(500);
 
       // 描画後のオブジェクト数を確認
-      const objectCountAfterDraw = await getCanvasObjectCount(page);
+      const objectCountAfterDraw = await getFabricObjectCount(page);
       expect(objectCountAfterDraw).toBe(objectCountBefore + 1);
 
       // Undo
@@ -1957,7 +1940,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.waitForTimeout(300);
 
       // Undo後のオブジェクト数を確認
-      const objectCountAfterUndo = await getCanvasObjectCount(page);
+      const objectCountAfterUndo = await getFabricObjectCount(page);
       expect(objectCountAfterUndo).toBe(objectCountBefore);
 
       // Redo
@@ -1967,7 +1950,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.waitForTimeout(300);
 
       // Redo後のオブジェクト数を確認（再び1つ増えているはず）
-      const objectCountAfterRedo = await getCanvasObjectCount(page);
+      const objectCountAfterRedo = await getFabricObjectCount(page);
       expect(objectCountAfterRedo).toBe(objectCountBefore + 1);
     });
 
@@ -1984,8 +1967,7 @@ test.describe('現場調査注釈ツール', () => {
       }
 
       // 描画前のオブジェクト数を取得
-      const objectCountBefore = await getCanvasObjectCount(page);
-      expect(objectCountBefore).toBeGreaterThanOrEqual(0);
+      const objectCountBefore = await getFabricObjectCount(page);
 
       // 図形を描画
       const rectTool = page.getByRole('button', { name: /四角形/i });
@@ -2007,7 +1989,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.waitForTimeout(500);
 
       // 描画後のオブジェクト数を確認
-      const objectCountAfterDraw = await getCanvasObjectCount(page);
+      const objectCountAfterDraw = await getFabricObjectCount(page);
       expect(objectCountAfterDraw).toBe(objectCountBefore + 1);
 
       // キャンバスコンテナにフォーカス（キーボードイベントを受け取るため）
@@ -2019,7 +2001,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.waitForTimeout(300);
 
       // Undo後のオブジェクト数を確認
-      const objectCountAfterUndo = await getCanvasObjectCount(page);
+      const objectCountAfterUndo = await getFabricObjectCount(page);
       expect(objectCountAfterUndo).toBe(objectCountBefore);
 
       // Ctrl+Shift+ZでRedo
@@ -2027,7 +2009,7 @@ test.describe('現場調査注釈ツール', () => {
       await page.waitForTimeout(300);
 
       // Redo後のオブジェクト数を確認
-      const objectCountAfterRedo = await getCanvasObjectCount(page);
+      const objectCountAfterRedo = await getFabricObjectCount(page);
       expect(objectCountAfterRedo).toBe(objectCountBefore + 1);
     });
 

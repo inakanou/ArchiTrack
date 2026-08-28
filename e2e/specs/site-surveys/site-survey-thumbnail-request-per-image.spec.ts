@@ -54,6 +54,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
+import { getFabricObjectCount, waitForFabricCanvas } from '../../helpers/fabric-canvas';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -259,6 +260,10 @@ test.describe('縮小表示のリクエスト数（1枚あたり1件）', () => 
     await page
       .locator('[data-testid="annotation-toolbar"]')
       .waitFor({ state: 'visible', timeout: getTimeout(15000) });
+
+    // Task 115.184: 件数の観測（getFabricObjectCount）は描画面が不在なら投げる。
+    // 観測できる状態はここで確立する。
+    await waitForFabricCanvas(page);
   }
 
   /**
@@ -281,20 +286,6 @@ test.describe('縮小表示のリクエスト数（1枚あたり1件）', () => 
       throw new Error('編集キャンバスの領域が確保されていません');
     }
     return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-  }
-
-  /**
-   * 編集キャンバス上の注釈オブジェクト数を取得する
-   *
-   * 画像編集画面はキャンバスを `window.__fabricCanvas` として公開している。
-   * 描画操作が実際に注釈を生成したかを、保存前に確認するために用いる。
-   */
-  function getCanvasObjectCount(page: Page): Promise<number> {
-    return page.evaluate(() => {
-      const canvas = (window as unknown as { __fabricCanvas?: { getObjects: () => unknown[] } })
-        .__fabricCanvas;
-      return canvas ? canvas.getObjects().length : -1;
-    });
   }
 
   /**
@@ -455,8 +446,9 @@ test.describe('縮小表示のリクエスト数（1枚あたり1件）', () => 
       await expect(arrowTool).toHaveAttribute('aria-pressed', 'true');
       // 矢印はドラッグで描画する（開始点で押下し、終了点で離す）
       const center = await getCanvasCenter(page);
-      const objectCountBefore = await getCanvasObjectCount(page);
-      expect(objectCountBefore, '編集キャンバスが公開されている').toBeGreaterThanOrEqual(0);
+      // Task 115.184: 「編集キャンバスが公開されている」ことは観測そのものが投げて
+      // 保証するため、番兵値を弾くための下限の主張は不要になった。
+      const objectCountBefore = await getFabricObjectCount(page);
       await page.mouse.move(center.x - 50, center.y - 50);
       await page.mouse.down();
       await page.mouse.move(center.x + 50, center.y + 50, { steps: 10 });
@@ -465,7 +457,7 @@ test.describe('縮小表示のリクエスト数（1枚あたり1件）', () => 
       // 描画が実際に注釈を生成したことを確認してから保存する。生成されていない状態で
       // 保存すると「注釈なし」として扱われ、検証対象の前提が崩れる（Task 115.3）
       await expect
-        .poll(() => getCanvasObjectCount(page), {
+        .poll(() => getFabricObjectCount(page), {
           timeout: getTimeout(10000),
           message: '矢印の描画で注釈オブジェクトが生成されていない',
         })
