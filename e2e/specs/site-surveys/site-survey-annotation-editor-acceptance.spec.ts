@@ -23,7 +23,7 @@
  *     個数で確かめる（設定が形だけ流れて描画へ届かない未結線を検出するため）
  *   - API の観測はオリジンではなくパスで判定する（CI とローカルでオリジンが食い違うため）
  *
- * @requirement site-survey/REQ-8.5
+ * 受入基準 8.5 は除外である（e2e/requirement-exclusions.json）。フォントサイズと文字色は主張するが、受入基準が並べる背景色を主張していないため、被覆印は掲げない。
  * @requirement site-survey/REQ-8.6
  * @requirement site-survey/REQ-9.3
  * @requirement site-survey/REQ-9.5

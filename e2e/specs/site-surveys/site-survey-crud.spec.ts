@@ -522,7 +522,7 @@ test.describe('現場調査CRUD操作', () => {
    */
   test.describe('プロジェクト不存在時の動作', () => {
     /**
-     * @requirement site-survey/REQ-1.6
+     * 受入基準 1.6 は除外である（e2e/requirement-exclusions.json）。同居していた検証は存在しないプロジェクトを扱うもので、同時編集の競合検出を主張していないため、被覆印は掲げない。
      */
     test('存在しないプロジェクトに対する現場調査作成がエラーになる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -552,7 +552,7 @@ test.describe('現場調査CRUD操作', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-1.6
+     * 受入基準 1.6 は除外である（e2e/requirement-exclusions.json）。同居していた検証は存在しないプロジェクトを扱うもので、同時編集の競合検出を主張していないため、被覆印は掲げない。
      */
     test('存在しないプロジェクトへの現場調査作成APIがエラーを返す', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');

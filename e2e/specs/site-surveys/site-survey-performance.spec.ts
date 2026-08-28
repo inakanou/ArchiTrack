@@ -1,13 +1,6 @@
 /**
  * @fileoverview 現場調査非機能要件のE2Eテスト
  *
- * Requirements coverage (site-survey):
- * - REQ-16.1: 画像一覧の初期表示を2秒以内に完了
- * - REQ-16.2: 注釈の描画・編集操作を60fps以上で応答
- * - REQ-16.3: 画像アップロード処理を5秒以内に完了（300KB以下の場合）
- * - REQ-16.6: 全ての通信をHTTPS/TLSで暗号化
- * - REQ-16.8: エラー発生時に適切なエラーメッセージを表示し、Sentryにログを送信する
- *
  * Note: REQ-16.4（同時接続ユーザー100人以上）、REQ-16.5（月間稼働率99.9%）、
  * REQ-16.7（定期バックアップ）はE2Eテストで検証困難なため省略
  *
@@ -20,6 +13,13 @@
  * 代替検証（負荷テスト・監視・単体テスト）が登録されている受入基準である。
  * 本ファイルの観測は、その代替検証を置き換えるものではなく、
  * E2E環境で観測できる範囲の裏付けにとどまる。
+ *
+ * 除外のため被覆印を掲げない受入基準（e2e/requirement-exclusions.json）:
+ *   要件16.1: 本検証が主張する上限は5000ミリ秒であり、受入基準の2秒を主張していない
+ *   要件16.2: 60fps を主張する検証は本ファイルに無い
+ *   要件16.3: 本検証が主張する上限は15000ミリ秒であり、受入基準の5秒を主張していない
+ *   要件16.6: APIリクエストが発生したことしか主張しておらず、HTTPS/TLS による暗号化を主張していない
+ *   要件16.8: エラーメッセージの表示は主張するが、Sentry への送信を主張していない
  */
 
 import path from 'path';
@@ -112,10 +112,10 @@ test.describe('現場調査非機能要件', () => {
   });
 
   /**
-   * @requirement site-survey/REQ-16.1
+   * 受入基準 16.1 は除外である（e2e/requirement-exclusions.json）。本検証が主張する上限は5000ミリ秒であり、受入基準の2秒を主張していないため、被覆印は掲げない。
    */
   test.describe('パフォーマンス - 画像一覧表示', () => {
-    test('画像一覧の初期表示が2秒以内に完了する (site-survey/REQ-16.1)', async ({ page }) => {
+    test('画像一覧の初期表示が2秒以内に完了する', async ({ page }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -144,12 +144,10 @@ test.describe('現場調査非機能要件', () => {
   });
 
   /**
-   * @requirement site-survey/REQ-16.3
+   * 受入基準 16.3 は除外である（e2e/requirement-exclusions.json）。本検証が主張する上限は15000ミリ秒であり、受入基準の5秒を主張していないため、被覆印は掲げない。
    */
   test.describe('パフォーマンス - 画像アップロード', () => {
-    test('300KB以下の画像アップロードが5秒以内に完了する (site-survey/REQ-16.3)', async ({
-      page,
-    }) => {
+    test('300KB以下の画像アップロードが5秒以内に完了する', async ({ page }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -232,10 +230,10 @@ test.describe('現場調査非機能要件', () => {
   });
 
   /**
-   * @requirement site-survey/REQ-16.6
+   * 受入基準 16.6 は除外である（e2e/requirement-exclusions.json）。APIリクエストが発生したことしか主張しておらず、HTTPS/TLS による暗号化を主張していないため、被覆印は掲げない。
    */
   test.describe('セキュリティ - HTTPS通信', () => {
-    test('APIリクエストがHTTPSで行われる (site-survey/REQ-16.6)', async ({ page }) => {
+    test('APIリクエストがHTTPSで行われる', async ({ page }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -269,12 +267,10 @@ test.describe('現場調査非機能要件', () => {
   });
 
   /**
-   * @requirement site-survey/REQ-16.8
+   * 受入基準 16.8 は除外である（e2e/requirement-exclusions.json）。エラーメッセージの表示は主張するが、Sentry への送信を主張していないため、被覆印は掲げない。
    */
   test.describe('エラーハンドリング', () => {
-    test('存在しない現場調査にアクセスするとエラーメッセージが表示される (site-survey/REQ-16.8)', async ({
-      page,
-    }) => {
+    test('存在しない現場調査にアクセスするとエラーメッセージが表示される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // 存在しないIDでアクセス
@@ -293,7 +289,7 @@ test.describe('現場調査非機能要件', () => {
       });
     });
 
-    test('無効なプロジェクトIDで現場調査作成ページにアクセスするとエラーが表示される (site-survey/REQ-16.8)', async ({
+    test('無効なプロジェクトIDで現場調査作成ページにアクセスするとエラーが表示される', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -314,9 +310,7 @@ test.describe('現場調査非機能要件', () => {
       });
     });
 
-    test('APIエラー発生時にユーザーフレンドリーなメッセージが表示される (site-survey/REQ-16.8)', async ({
-      page,
-    }) => {
+    test('APIエラー発生時にユーザーフレンドリーなメッセージが表示される', async ({ page }) => {
       if (!createdProjectId) {
         throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }

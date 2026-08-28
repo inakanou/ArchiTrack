@@ -1052,10 +1052,10 @@ test.describe('プロジェクト管理 追加要件', () => {
    */
   test.describe('エラー回復とフィードバック', () => {
     /**
-     * @requirement project-management/REQ-18.1
+     * 受入基準 18.1 は除外である（e2e/requirement-exclusions.json）。受入基準は「メッセージと再試行ボタン」の連言だが、本検証はメッセージの表示までしか主張しないため、被覆印は掲げない。
      * ネットワークエラー発生時にエラーメッセージと再試行ボタンを表示
      */
-    test('ネットワークエラー発生時に「通信エラーが発生しました」メッセージが表示される (project-management/REQ-18.1)', async ({
+    test('ネットワークエラー発生時に「通信エラーが発生しました」メッセージが表示される', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -1098,12 +1098,10 @@ test.describe('プロジェクト管理 追加要件', () => {
     });
 
     /**
-     * @requirement project-management/REQ-18.2
+     * 受入基準 18.2 は除外である（e2e/requirement-exclusions.json）。再試行ボタンが無ければページの再読込で代替する分岐があり、失敗したリクエストの再実行を主張していないため、被覆印は掲げない。
      * 再試行ボタンをクリックすると失敗したリクエストを再実行
      */
-    test('再試行ボタンをクリックすると失敗したリクエストを再実行する (project-management/REQ-18.2)', async ({
-      page,
-    }) => {
+    test('再試行ボタンをクリックすると失敗したリクエストを再実行する', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // まずプロジェクト一覧に正常にアクセスして、ページが読み込まれることを確認
@@ -1234,13 +1232,10 @@ test.describe('プロジェクト管理 追加要件', () => {
     });
 
     /**
-     * @requirement project-management/REQ-18.6
+     * 受入基準 18.6 は除外である（e2e/requirement-exclusions.json）。受入基準は「リダイレクトとメッセージ」の連言だが、本検証はリダイレクトまでしか主張しないため、被覆印は掲げない。
      * セッション期限切れ時にログインページへリダイレクト
      */
-    test('セッション期限切れ時にログインページにリダイレクトする (project-management/REQ-18.6)', async ({
-      page,
-      context,
-    }) => {
+    test('セッション期限切れ時にログインページにリダイレクトする', async ({ page, context }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // プロジェクト一覧にアクセス

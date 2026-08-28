@@ -461,7 +461,7 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
 
     /**
      * @requirement estimate-request/REQ-11.17
-     * @requirement estimate-request/REQ-11.18
+     * 受入基準 11.18 は除外である（e2e/requirement-exclusions.json）。行の削除と削除ボタンの非活性は主張するが、合計金額の再計算を主張していないため、被覆印は掲げない。
      * 明細行の削除と削除ボタン非活性
      */
     test('REQ-11.17/18: 行削除が機能し、1行のみの場合は削除ボタンが非活性', async ({ page }) => {

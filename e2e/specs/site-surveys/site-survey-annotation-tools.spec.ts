@@ -5,8 +5,6 @@
  * - REQ-6.1: 寸法線ツールの選択
  * - REQ-6.2: 寸法値入力フィールド表示
  * - REQ-6.3: 寸法値入力と表示
- * - REQ-6.4: 寸法線の選択と編集
- * - REQ-6.6: 寸法線の削除
  * - REQ-6.7: 寸法線のカスタマイズ
  * - REQ-7.1: 矢印ツール
  * - REQ-7.2: 円ツール
@@ -18,8 +16,6 @@
  * - REQ-7.10: 図形のカスタマイズ
  * - REQ-8.1: テキストツールの選択
  * - REQ-8.2: テキスト入力と配置
- * - REQ-8.3: テキスト編集モード
- * - REQ-8.5: テキストのカスタマイズ
  * - REQ-8.6: 吹き出し形式
  * - REQ-8.7: マルチバイト文字サポート
  * - REQ-9.1: 注釈データの保存
@@ -33,6 +29,12 @@
  * - REQ-13.1: Undo操作
  * - REQ-13.2: Redo操作
  * - REQ-13.3: キーボードショートカット
+ *
+ * 除外のため被覆印を掲げない受入基準（e2e/requirement-exclusions.json）:
+ *   要件6.4: 道具の選択状態（aria-pressed）だけを主張しており、寸法線のクリック選択を主張していない
+ *   要件6.6: 押鍵の後に本文が可視であることしか主張しておらず、寸法線の除去を主張していない
+ *   要件8.3: 道具の選択状態だけを主張しており、テキストの編集モードへの遷移を主張していない
+ *   要件8.5: フォントサイズと文字色は主張するが、受入基準が並べる背景色を主張していない
  */
 
 import path from 'path';
@@ -208,9 +210,9 @@ test.describe('現場調査注釈ツール', () => {
    * @requirement site-survey/REQ-6.1
    * @requirement site-survey/REQ-6.2
    * @requirement site-survey/REQ-6.3
-   * @requirement site-survey/REQ-6.4
+   * 受入基準 6.4 は除外である（e2e/requirement-exclusions.json）。道具の選択状態（aria-pressed）だけを主張しており、寸法線のクリック選択を主張していないため、被覆印は掲げない。
    * @requirement site-survey/REQ-6.5
-   * @requirement site-survey/REQ-6.6
+   * 受入基準 6.6 は除外である（e2e/requirement-exclusions.json）。押鍵の後に本文が可視であることしか主張しておらず、寸法線の除去を主張していないため、被覆印は掲げない。
    * @requirement site-survey/REQ-6.7
    */
   test.describe('寸法線ツール', () => {
@@ -347,7 +349,7 @@ test.describe('現場調査注釈ツール', () => {
         .toBe('1250 cm');
     });
 
-    test('選択ツールに切り替えて編集モードになる (site-survey/REQ-6.4)', async ({ page }) => {
+    test('選択ツールに切り替えて編集モードになる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -473,9 +475,7 @@ test.describe('現場調査注釈ツール', () => {
       expect(await getFabricObjectCount(page), '端点操作で注釈の本数が変わった').toBe(1);
     });
 
-    test('キーボードショートカット（Delete/Backspace/Escape）が機能する (site-survey/REQ-6.6)', async ({
-      page,
-    }) => {
+    test('キーボードショートカット（Delete/Backspace/Escape）が機能する', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -786,8 +786,8 @@ test.describe('現場調査注釈ツール', () => {
    * @requirement site-survey/REQ-7.5
    * @requirement site-survey/REQ-7.6
    * @requirement site-survey/REQ-7.7
-   * @requirement site-survey/REQ-7.8
-   * @requirement site-survey/REQ-7.9
+   * 受入基準 7.8 は除外である（e2e/requirement-exclusions.json）。道具の選択状態だけを主張しており、図形の位置の移動を主張していないため、被覆印は掲げない。
+   * 受入基準 7.9 は除外である（e2e/requirement-exclusions.json）。塗りつぶし色の欄を主張するもので、ハンドルによる寸法の変更を主張していないため、被覆印は掲げない。
    * @requirement site-survey/REQ-7.10
    */
   test.describe('マーキングツール', () => {
@@ -1039,7 +1039,7 @@ test.describe('現場調査注釈ツール', () => {
       await expect(selectTool).toHaveAttribute('aria-pressed', 'true');
     });
 
-    test('選択ツールでドラッグ操作ができる (site-survey/REQ-7.8)', async ({ page }) => {
+    test('選択ツールでドラッグ操作ができる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -1062,7 +1062,7 @@ test.describe('現場調査注釈ツール', () => {
       await expect(selectTool).toHaveAttribute('aria-pressed', 'true');
     });
 
-    test('塗りつぶし色オプションが図形ツールで利用可能 (site-survey/REQ-7.9)', async ({ page }) => {
+    test('塗りつぶし色オプションが図形ツールで利用可能', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -1136,9 +1136,9 @@ test.describe('現場調査注釈ツール', () => {
   /**
    * @requirement site-survey/REQ-8.1
    * @requirement site-survey/REQ-8.2
-   * @requirement site-survey/REQ-8.3
-   * @requirement site-survey/REQ-8.4
-   * @requirement site-survey/REQ-8.5
+   * 受入基準 8.3 は除外である（e2e/requirement-exclusions.json）。道具の選択状態だけを主張しており、テキストの編集モードへの遷移を主張していないため、被覆印は掲げない。
+   * 受入基準 8.4 は除外である（e2e/requirement-exclusions.json）。道具の切り替えだけを主張しており、テキストの配置位置の移動を主張していないため、被覆印は掲げない。
+   * 受入基準 8.5 は除外である（e2e/requirement-exclusions.json）。フォントサイズと文字色は主張するが、受入基準が並べる背景色を主張していないため、被覆印は掲げない。
    * @requirement site-survey/REQ-8.6
    * @requirement site-survey/REQ-8.7
    */
@@ -1198,7 +1198,7 @@ test.describe('現場調査注釈ツール', () => {
       await expect(styleOptions.getByTestId('font-size'), 'フォントサイズの欄が無い').toBeVisible();
     });
 
-    test('テキストツールでダブルクリック操作ができる (site-survey/REQ-8.3)', async ({ page }) => {
+    test('テキストツールでダブルクリック操作ができる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -1222,7 +1222,7 @@ test.describe('現場調査注釈ツール', () => {
       await expect(textTool).toHaveAttribute('aria-pressed', 'true');
     });
 
-    test('テキストツールからの切り替え操作ができる (site-survey/REQ-8.4)', async ({ page }) => {
+    test('テキストツールからの切り替え操作ができる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -1247,9 +1247,7 @@ test.describe('現場調査注釈ツール', () => {
       await expect(textTool).toHaveAttribute('aria-pressed', 'false');
     });
 
-    test('テキストのフォントサイズ・色をカスタマイズできる (site-survey/REQ-8.5)', async ({
-      page,
-    }) => {
+    test('テキストのフォントサイズ・色をカスタマイズできる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -1345,7 +1343,7 @@ test.describe('現場調査注釈ツール', () => {
    * @requirement site-survey/REQ-9.1
    * @requirement site-survey/REQ-9.2
    * @requirement site-survey/REQ-9.3
-   * @requirement site-survey/REQ-9.4
+   * 受入基準 9.4 は除外である（e2e/requirement-exclusions.json）。道具の選択状態と本文の可視だけを主張しており、保存中インジケーターを主張していないため、被覆印は掲げない。
    * @requirement site-survey/REQ-9.5
    * @requirement site-survey/REQ-9.6
    */
@@ -1488,7 +1486,7 @@ test.describe('現場調査注釈ツール', () => {
       ).toBe(true);
     });
 
-    test('保存中はインジケーターが表示される (site-survey/REQ-9.4)', async ({ page }) => {
+    test('保存中はインジケーターが表示される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -1842,7 +1840,7 @@ test.describe('現場調査注釈ツール', () => {
    * @requirement site-survey/REQ-13.1
    * @requirement site-survey/REQ-13.2
    * @requirement site-survey/REQ-13.3
-   * @requirement site-survey/REQ-13.4
+   * 受入基準 13.4 は除外である（e2e/requirement-exclusions.json）。取り消しの操作は行うが、履歴の上限50件と最古からの削除を主張していないため、被覆印は掲げない。
    * @requirement site-survey/REQ-13.5
    */
   test.describe('Undo/Redo機能', () => {
@@ -2013,7 +2011,7 @@ test.describe('現場調査注釈ツール', () => {
       expect(objectCountAfterRedo).toBe(objectCountBefore + 1);
     });
 
-    test('操作履歴を最大50件まで保持する (site-survey/REQ-13.4)', async ({ page }) => {
+    test('操作履歴を最大50件まで保持する', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);

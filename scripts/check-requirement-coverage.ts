@@ -593,6 +593,29 @@ export function extractHeaderScopedCoverage(
 }
 
 /**
+ * 行内に直接書かれた被覆印（パターン1〜3）の正規表現を組み立てる
+ *
+ * 返す三つは順に「@requirement 形式」「括弧形式」「単独形式」で、
+ * 捕捉群はいずれも 1=機能名 / 2=要件番号 / 3=受入基準の枝番（省略可）である。
+ *
+ * **被覆印の読み手が本ファイルだけではなくなったため、規則をここへ一本化する。**
+ * 除外定義の検査（scripts/check-requirement-exclusions.ts）が「除外と被覆印の同居」を
+ * 見るのに同じ規則を要する。両者が別々に正規表現を持つと、片方だけが読み落とす形が
+ * 生まれ、同居の検査が静かに空振りする。
+ */
+export function buildInlineTagPatterns(featureNames: readonly string[]): [RegExp, RegExp, RegExp] {
+  const featurePattern = featureNames.join('|');
+  return [
+    // パターン1: @requirement feature-name/REQ-N または @requirement feature-name/REQ-N.M
+    new RegExp(`@requirement\\s+(${featurePattern})/REQ-(\\d+[A-E]?)(?:\\.(\\d+))?`, 'g'),
+    // パターン2: (feature-name/REQ-N.M) - 括弧形式
+    new RegExp(`\\((${featurePattern})/REQ-(\\d+[A-E]?)(?:\\.(\\d+))?\\)`, 'g'),
+    // パターン3: feature-name/REQ-N - 単独形式
+    new RegExp(`(?:^|[^/\\w])(${featurePattern})/REQ-(\\d+[A-E]?)(?:\\.(\\d+))?`, 'gm'),
+  ];
+}
+
+/**
  * コードおよびテストファイルから @requirement タグを抽出
  *
  * パターン:
@@ -607,9 +630,6 @@ export function extractHeaderScopedCoverage(
 function extractTestCoverage(dirs: string[], featureNames: string[]): TestCoverage[] {
   const coverage: TestCoverage[] = [];
 
-  // 機能名のパターンを構築
-  const featurePattern = featureNames.join('|');
-
   for (const dir of dirs) {
     const testFiles = findFiles(dir, /\.(ts|tsx|spec\.ts)$/);
 
@@ -618,23 +638,7 @@ function extractTestCoverage(dirs: string[], featureNames: string[]): TestCovera
       const requirements = new Set<string>();
       const acceptanceCriteria = new Set<string>();
 
-      // パターン1: @requirement feature-name/REQ-N または @requirement feature-name/REQ-N.M
-      const regexAtReq = new RegExp(
-        `@requirement\\s+(${featurePattern})/REQ-(\\d+[A-E]?)(?:\\.(\\d+))?`,
-        'g'
-      );
-
-      // パターン2: (feature-name/REQ-N.M) - 括弧形式
-      const regexParen = new RegExp(
-        `\\((${featurePattern})/REQ-(\\d+[A-E]?)(?:\\.(\\d+))?\\)`,
-        'g'
-      );
-
-      // パターン3: feature-name/REQ-N - 単独形式
-      const regexStandalone = new RegExp(
-        `(?:^|[^/\\w])(${featurePattern})/REQ-(\\d+[A-E]?)(?:\\.(\\d+))?`,
-        'gm'
-      );
+      const [regexAtReq, regexParen, regexStandalone] = buildInlineTagPatterns(featureNames);
 
       // パターン1-3の処理
       const processMatch = (

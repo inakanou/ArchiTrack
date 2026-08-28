@@ -2,7 +2,6 @@
  * @fileoverview 現場調査レスポンシブ対応のE2Eテスト
  *
  * Requirements coverage (site-survey):
- * - REQ-15.1: デスクトップ・タブレット・スマートフォンの各画面サイズに対応したUI
  * - REQ-15.2: タッチ操作に最適化された注釈ツールを提供
  * - REQ-15.3: モバイル環境でのカメラ連携による直接撮影
  * - REQ-15.4: 一定間隔（30秒）で自動保存を実行
@@ -15,6 +14,9 @@
  * - REQ-15.8: QuotaExceededErrorリトライ失敗時の警告表示
  * - REQ-15.9: プライベートブラウジングモードでの自動保存無効化
  * - REQ-15.10: クロスブラウザ対応のlocalStorageエラー検出
+ *
+ * 除外のため被覆印を掲げない受入基準（e2e/requirement-exclusions.json）:
+ *   要件15.1: 各画面幅で見出しが可視であることしか主張しておらず、各画面サイズに対応したUIを主張していない
  */
 
 import { test, expect, type Locator } from '@playwright/test';
@@ -475,12 +477,10 @@ test.describe('現場調査レスポンシブ対応', () => {
   }
 
   /**
-   * @requirement site-survey/REQ-15.1
+   * 受入基準 15.1 は除外である（e2e/requirement-exclusions.json）。各画面幅で見出しが可視であることしか主張しておらず、各画面サイズに対応したUIを主張していないため、被覆印は掲げない。
    */
   test.describe('画面サイズ対応', () => {
-    test('デスクトップサイズで現場調査一覧が正しく表示される (site-survey/REQ-15.1)', async ({
-      page,
-    }) => {
+    test('デスクトップサイズで現場調査一覧が正しく表示される', async ({ page }) => {
       if (!createdProjectId) {
         throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -502,9 +502,7 @@ test.describe('現場調査レスポンシブ対応', () => {
       await expect(page.locator('body')).toBeVisible();
     });
 
-    test('タブレットサイズで現場調査一覧が正しく表示される (site-survey/REQ-15.1)', async ({
-      page,
-    }) => {
+    test('タブレットサイズで現場調査一覧が正しく表示される', async ({ page }) => {
       if (!createdProjectId) {
         throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -526,9 +524,7 @@ test.describe('現場調査レスポンシブ対応', () => {
       await expect(page.locator('body')).toBeVisible();
     });
 
-    test('スマートフォンサイズで現場調査一覧が正しく表示される (site-survey/REQ-15.1)', async ({
-      page,
-    }) => {
+    test('スマートフォンサイズで現場調査一覧が正しく表示される', async ({ page }) => {
       if (!createdProjectId) {
         throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -550,9 +546,7 @@ test.describe('現場調査レスポンシブ対応', () => {
       await expect(page.locator('body')).toBeVisible();
     });
 
-    test('スマートフォンサイズで現場調査詳細が正しく表示される (site-survey/REQ-15.1)', async ({
-      page,
-    }) => {
+    test('スマートフォンサイズで現場調査詳細が正しく表示される', async ({ page }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }

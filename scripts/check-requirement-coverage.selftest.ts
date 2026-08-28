@@ -808,6 +808,11 @@ function checkHeaderSectionStopsAtJsDocParagraphBreak(): string[] {
  * 仮想の資料だけでは実装が実データに効いているとは言えない。
  * 是正前に偽の被覆主張を生んでいた実在の2件を名指しで固定する。
  * 当該ファイルや前提の記述が失われたら「前提が失われた」として失敗させる。
+ *
+ * 一件目は当初 `site-survey-performance.spec.ts`（keep: REQ-16.1 / drop: REQ-16.7）であったが、
+ * タスク 115.186 で同ファイルの一覧が掲げていた受入基準がすべて除外との同居として
+ * 取り下げられ、一覧そのものが無くなったため、同じ形（一覧の直後に段落の切れ目を挟んで
+ * 「本ファイルは判定していない」と述べる散文が続く）を持つ実データへ置き換えた。
  */
 const REAL_FALSE_CLAIMS_AFTER_PARAGRAPH_BREAK: ReadonlyArray<{
   file: string;
@@ -817,9 +822,9 @@ const REAL_FALSE_CLAIMS_AFTER_PARAGRAPH_BREAK: ReadonlyArray<{
   drop: string;
 }> = [
   {
-    file: 'e2e/specs/site-surveys/site-survey-performance.spec.ts',
-    keep: 'site-survey/REQ-16.1',
-    drop: 'site-survey/REQ-16.7',
+    file: 'e2e/specs/quantity-tables/name-remarks-autocomplete.spec.ts',
+    keep: 'quantity-table-generation/REQ-7.2',
+    drop: 'quantity-table-generation/REQ-7.1',
   },
   {
     file: 'e2e/specs/quantity-tables/quantity-group-copy.spec.ts',

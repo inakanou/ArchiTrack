@@ -12,6 +12,12 @@
  * - REQ-22.6: 回転操作をUndo/Redo履歴に記録する
  * - REQ-22.7: 注釈エディタの回転ボタンを既存のツールバーに配置する
  * - REQ-22.8: 累積回転角度（0度/90度/180度/270度）を正しく管理する
+ *
+ * Task 115.186（是正）: 受入基準22.3 の除外を取り下げ、被覆印を戻した。従前の除外は
+ * 「Canvas APIのサイズ調整はE2Eでは検証困難」と述べていたが、本ファイルの
+ * 「回転ボタンクリックにより画像が90度回転すること」が、回転の前後でキャンバスの幅と高さが
+ * 入れ替わることを実測値で無条件に主張しており（横長の資材を用いる前提そのものも主張する）、
+ * これは条文が求める「回転後の画像サイズに合わせたキャンバスのサイズ調整」そのものである。
  */
 
 import zlib from 'zlib';
@@ -375,9 +381,12 @@ test.describe('現場調査画像回転機能', () => {
 
   /**
    * @requirement site-survey/REQ-22.1
+   * @requirement site-survey/REQ-22.3
    * @requirement site-survey/REQ-22.7
    */
-  test('回転ボタンクリックにより画像が90度回転すること (REQ-22.1, REQ-22.7)', async ({ page }) => {
+  test('回転ボタンクリックにより画像が90度回転すること (REQ-22.1, REQ-22.3, REQ-22.7)', async ({
+    page,
+  }) => {
     await loginAsUser(page, 'REGULAR_USER');
 
     const success = await navigateToAnnotationEditor(page);

@@ -450,16 +450,14 @@ test.describe('数量表CRUD操作', () => {
     });
 
     /**
-     * @requirement quantity-table-generation/REQ-2.5
+     * 受入基準 2.5 は除外である（e2e/requirement-exclusions.json）。保存ボタンによる永続化を主張するもので、受入基準が求める即座の保存を主張していないため、被覆印は掲げない。
      * @requirement quantity-table-generation/REQ-42.5
      *
      * 数量表名のインライン編集機能をテスト。
      * REQ-42 移行: 名称編集はクライアントドラフトのみを更新し、フォーカスを外しても
      * 即時保存はされない。永続化は「保存」ボタン押下時の PUT /:id/save でのみ行う。
      */
-    test('数量表名を編集し保存するとサーバーに永続化される (quantity-table-generation/REQ-2.5, REQ-42.5)', async ({
-      page,
-    }) => {
+    test('数量表名を編集し保存するとサーバーに永続化される (REQ-42.5)', async ({ page }) => {
       if (!testProjectId || !createdQuantityTableId) {
         throw new Error('事前準備が完了していません。');
       }
@@ -706,7 +704,7 @@ test.describe('数量表CRUD操作', () => {
 
   /**
    * @requirement quantity-table-generation/REQ-4.1
-   * @requirement quantity-table-generation/REQ-4.2
+   * 受入基準 4.2 は除外である（e2e/requirement-exclusions.json）。写真選択のボタンが可視であることしか主張しておらず、写真を選択する機能の提供を主張していないため、被覆印は掲げない。
    * @requirement quantity-table-generation/REQ-4.5
    *
    * REQ-4: 数量グループの作成・管理
@@ -795,9 +793,7 @@ test.describe('数量表CRUD操作', () => {
       await expect(confirmDialog).not.toBeVisible({ timeout: 3000 });
     });
 
-    test('グループ追加時に注釈付き現場調査写真選択機能が提供される (quantity-table-generation/REQ-4.2)', async ({
-      page,
-    }) => {
+    test('グループ追加時に注釈付き現場調査写真選択機能が提供される', async ({ page }) => {
       if (!createdQuantityTableId) {
         throw new Error(
           'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
@@ -1452,9 +1448,10 @@ test.describe('数量表CRUD操作', () => {
       });
     });
 
-    test('必須フィールド未入力時にエラーメッセージが表示される (quantity-table-generation/REQ-5.3)', async ({
-      page,
-    }) => {
+    /**
+     * 受入基準 5.3 は除外である（e2e/requirement-exclusions.json）。名称欄を空にして焦点を外したときのエラーメッセージとハイライトは主張するが、条文が定める契機である「保存の試行」を行っておらず、名称以外の必須フィールド（工種・単位・計算方法・数量）にも触れていないため、被覆印は掲げない。
+     */
+    test('必須フィールド未入力時にエラーメッセージが表示される', async ({ page }) => {
       if (!createdQuantityTableId) {
         throw new Error(
           'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
@@ -1652,9 +1649,10 @@ test.describe('数量表CRUD操作', () => {
       ).toBeVisible({ timeout: 3000 });
     });
 
-    test('同一数量グループ内で項目の位置を移動できる (quantity-table-generation/REQ-6.3)', async ({
-      page,
-    }) => {
+    /**
+     * 受入基準 6.3 は除外である（e2e/requirement-exclusions.json）。「下へ移動」の導線が現れて押せることと、押した後も数量項目の行が可視であることしか主張しておらず、選択した項目が指定位置へ移ったことを主張していないため、被覆印は掲げない。
+     */
+    test('同一数量グループ内で項目の位置を移動できる', async ({ page }) => {
       if (!createdQuantityTableId) {
         throw new Error(
           'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
@@ -1839,9 +1837,10 @@ test.describe('数量表CRUD操作', () => {
       ).toHaveCount(targetItemCountBefore + 1, { timeout: getTimeout(10000) });
     });
 
-    test('複数の数量項目を選択して一括削除・コピー・移動ができる (quantity-table-generation/REQ-6.5)', async ({
-      page,
-    }) => {
+    /**
+     * 受入基準 6.5 は除外である（e2e/requirement-exclusions.json）。2件の数量項目を選択できることと一括操作の導線が可視であることまでしか主張しておらず、選択した全項目に対して削除・コピー・移動が実行されることを主張していないため、被覆印は掲げない。
+     */
+    test('複数の数量項目を選択して一括削除・コピー・移動ができる', async ({ page }) => {
       if (!createdQuantityTableId) {
         throw new Error(
           'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
@@ -2256,7 +2255,16 @@ test.describe('数量表CRUD操作', () => {
       await page.waitForTimeout(500);
     });
 
-    test('オートコンプリート候補が50音順に表示される (quantity-table-generation/REQ-7.5)', async ({
+    /**
+     * 受入基準7.7（同一フィールドで複数の候補があるとき50音順に候補を表示する）を主張する。
+     *
+     * タスク 115.186 の是正: 従前は受入基準7.5（blur 時に入力値を確定値として候補値リストへ
+     * 追加する）を名乗っていたが、本検証が主張しているのは並び順だけであり、blur 時の候補追加は
+     * 一切主張していない。受入基準7.5 は
+     * `e2e/specs/quantity-tables/autocomplete-optimization.spec.ts` の
+     * 「REQ-7.5/7.6: blur時の候補追加」が別途被覆している。
+     */
+    test('オートコンプリート候補が50音順に表示される (quantity-table-generation/REQ-7.7)', async ({
       page,
     }) => {
       if (!createdQuantityTableId) {
@@ -2649,9 +2657,10 @@ test.describe('数量表CRUD操作', () => {
       ).toBeVisible({ timeout: getTimeout(3000) });
     });
 
-    test('面積・体積モードで計算用列未入力時にエラーが表示される (quantity-table-generation/REQ-8.7)', async ({
-      page,
-    }) => {
+    /**
+     * 受入基準 8.7 は除外である（e2e/requirement-exclusions.json）。保存を試行した後に数量が 0.00 のままであることを主張するもので、条文が求めるエラーメッセージの表示も、幅(W)・奥行き(D)・高さ(H)のうち最低1項目の入力を求めることも主張していないため、被覆印は掲げない。
+     */
+    test('面積・体積モードで計算用列未入力時にエラーが表示される', async ({ page }) => {
       if (!createdQuantityTableId) {
         throw new Error(
           'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
@@ -2694,9 +2703,10 @@ test.describe('数量表CRUD操作', () => {
       expect(quantityValue).toBe('0.00');
     });
 
-    test('ピッチモードで自動計算が行われる (quantity-table-generation/REQ-8.9)', async ({
-      page,
-    }) => {
+    /**
+     * 受入基準 8.9 は除外である（e2e/requirement-exclusions.json）。ピッチ計算用の各欄への入力を可視判定で包んだうえで数量が 0 より大きいことしか主張しておらず、ピッチ計算式が定める本数そのものも、任意項目（長さ・重量）を乗算した結果の自動設定も主張していないため、被覆印は掲げない。
+     */
+    test('ピッチモードで自動計算が行われる', async ({ page }) => {
       if (!createdQuantityTableId) {
         throw new Error(
           'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
@@ -2745,9 +2755,10 @@ test.describe('数量表CRUD操作', () => {
       expect(parseFloat(quantityValue)).toBeGreaterThan(0);
     });
 
-    test('ピッチモードで必須項目未入力時にエラーが表示される (quantity-table-generation/REQ-8.10)', async ({
-      page,
-    }) => {
+    /**
+     * 受入基準 8.10 は除外である（e2e/requirement-exclusions.json）。保存を試行した後に数量が 0.00 のままであることを主張するもので、条文が求めるエラーメッセージの表示も必須項目の入力を求めることも主張していないため、被覆印は掲げない。
+     */
+    test('ピッチモードで必須項目未入力時にエラーが表示される', async ({ page }) => {
       if (!createdQuantityTableId) {
         throw new Error(
           'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
@@ -4339,9 +4350,10 @@ test.describe('数量表CRUD操作', () => {
       ).toContain(editMarker);
     });
 
-    test('整合性チェックでエラーが検出されると保存が中断される (quantity-table-generation/REQ-11.2)', async ({
-      page,
-    }) => {
+    /**
+     * 受入基準 11.2 は除外である（e2e/requirement-exclusions.json）。名称欄を空にして焦点を外したときの必須エラーの表示とハイライトを主張するもので、保存の試行そのものを行っておらず、条文が求める保存の中断を主張していないため、被覆印は掲げない。
+     */
+    test('整合性チェックでエラーが検出されると保存が中断される', async ({ page }) => {
       if (!createdQuantityTableId) {
         throw new Error(
           'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'

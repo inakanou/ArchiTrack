@@ -26,6 +26,25 @@
  *      - 指す受入基準が取り消し線（`~~`）で無効化されていないこと
  *      - `requirement` 欄の要件番号と題が要件定義書と一致すること
  *      - `criterionText` が要件定義書の当該受入基準の本文と一字一句一致すること
+ *   5. 除外の宣言と被覆印の同居（タスク 115.186 で追加）
+ *      - 「E2Eでは確かめない」と宣言した受入基準を `e2e/specs` の被覆印が名乗らないこと
+ *      - 例外は未実装を固定するラチェット（`test.fail()`）との同居だけであること
+ *
+ * 同居をなぜ検査するか:
+ *   除外の一件は「E2Eでは確かめない」という宣言である。同じ番号を `e2e/specs` の被覆印が
+ *   名乗っていれば、宣言と実態のどちらかが必ず誤っている。タスク 115.186 の走査では
+ *   86件が同居しており、一件ずつ検証の本文を読んで、E2Eが受入基準を主張していた47件は
+ *   除外を取り下げ、番号を名乗るだけで受入基準を主張していなかった33件は被覆印を
+ *   取り下げ、残る6件は未実装のラチェットとの同居であるため据え置いた。
+ *
+ *   この86件は、タスク 115.167 が報告した83件の**上位集合**である（3件増えたのではない）。
+ *   差は読み取り規則の差であり、115.167 はインラインの被覆印（パターン1〜3）だけを見ていた。
+ *   ヘッダー直下の一覧（パターン5。機能名を冠さない `- REQ-N.M:` の行）からしか
+ *   印が付いていない3件が本走査で加わった:
+ *     - quantity-table-generation/REQ-7.7（e2e/specs/quantity-tables/autocomplete-optimization.spec.ts:16）
+ *     - site-survey/REQ-16.2（e2e/specs/site-surveys/site-survey-performance.spec.ts:6）
+ *     - site-survey/REQ-22.3（e2e/specs/site-surveys/site-survey-image-rotation.spec.ts:9）
+ *   うち REQ-7.7 と REQ-22.3 は条文を実際に主張する検証が在り、除外の側が誤っていた。
  *
  * 識別子と内容の対応をどう機械化したか:
  *   従前この定義は、`id`（番号）と `title` / `reason`（散文）を並べるだけで、両者が
@@ -45,6 +64,14 @@
  *   題が内容を持たない項目の取り違えであった）。散文の食い違いは、逐語複製が
  *   同じ項目の中に並ぶことで読み手に見えるようにするにとどめる。
  *
+ *   同居の検査は `e2e/specs` の被覆印しか見ない。除外が述べるのは「**E2Eでは**確かめない」
+ *   であり、`frontend/src` / `backend/src` の単体検証や本番コードが同じ番号を名乗ることは
+ *   宣言と矛盾しない（掲げた代替検証そのものが単体検証である除外は実在する）。
+ *   逆に、被覆印を掲げていないE2Eが実質的に受入基準を確かめている場合も見つけられない。
+ *   同居の有無は印の有無で決まるためである。またラチェットの判定は
+ *   「当該のテストの区間に `test.fail()` があるか」までであり、
+ *   そのテストの主張が受入基準を本当に確かめているかは見ない。
+ *
  * オプション:
  *   --verbose  違反の詳細（値そのもの）を出力する
  *   --json     JSON 形式で出力する
@@ -63,6 +90,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import {
+  buildInlineTagPatterns,
+  extractHeaderScopedCoverage,
+} from './check-requirement-coverage.js';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(SCRIPTS_DIR, '..');
@@ -73,6 +104,26 @@ export const EXCLUSIONS_PATH = 'e2e/requirement-exclusions.json';
 // 型定義
 // ============================================================================
 
+/**
+ * どの検査が挙げた違反か
+ *
+ * 自己検査の陽性対照が「弾かれたか」ではなく「**狙った検査が**弾いたか」まで見るために置く。
+ * これが無いと、注入した欠陥が別の検査に巻き込まれて弾かれたとき、対照は緑のまま通り、
+ * 狙った検査を丸ごと無効化しても検出漏れに気づけない（タスク 115.186 のレビューが
+ * `checkCriterionCorrespondence` の無効化で実証した遮蔽）。
+ */
+export type ViolationCheck =
+  /** 定義ファイルそのものが読めない */
+  | 'file'
+  /** スキーマの解決とスキーマ適合 */
+  | 'schema'
+  /** スキーマ単体では表せない不変条件 */
+  | 'invariant'
+  /** 識別子と受入基準の内容の対応 */
+  | 'criterion-correspondence'
+  /** 除外の宣言と被覆印の同居 */
+  | 'coverage-tag-coexistence';
+
 export interface Violation {
   /** 違反箇所を指す JSON ポインタ風の経路（例: `exclusions[12].category`） */
   pointer: string;
@@ -80,6 +131,8 @@ export interface Violation {
   message: string;
   /** 実際の値（--verbose で出力する） */
   actual?: string;
+  /** どの検査が挙げたか（`run` が付ける） */
+  check?: ViolationCheck;
 }
 
 export interface CheckResult {
@@ -341,6 +394,26 @@ export function normalizeExclusionId(id: string): string {
 }
 
 /**
+ * `.kiro/specs/` 配下の機能名を集める
+ *
+ * 被覆率側の discoverFeatures は実行位置からの相対で走査するため、任意の根を与えられない。
+ * 被覆印の走査は自己検査から別の根で呼べる必要があるため、ここでは根を引数に取る。
+ * 判定の規則（requirements.md を持つ直下のディレクトリ）は被覆率側と同一である。
+ */
+export function discoverFeatureNames(rootDir = ROOT): string[] {
+  const specsDir = path.resolve(rootDir, SPECS_DIR);
+  if (!fs.existsSync(specsDir)) return [];
+  return fs
+    .readdirSync(specsDir, { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.isDirectory() && fs.existsSync(path.join(specsDir, entry.name, 'requirements.md'))
+    )
+    .map((entry) => entry.name)
+    .sort();
+}
+
+/**
  * 要件定義書から要件の題と受入基準の本文を読み取る
  *
  * 受入基準の切り出し規則は scripts/check-requirement-coverage.ts の extractRequirements と
@@ -521,6 +594,294 @@ export function checkCriterionCorrespondence(document: Json, rootDir = ROOT): Vi
 }
 
 // ============================================================================
+// 除外の宣言と被覆印の同居
+// ============================================================================
+//
+// 除外の一件は「E2Eでは確かめない」という宣言である。ところが `e2e/specs` の被覆印が
+// 同じ番号を名乗っている対が長く放置されていた（タスク 115.167 の走査で 83 件、
+// 115.186 の再測で 86 件）。宣言と実態のどちらかが必ず誤っているため、そのまま残せない。
+//
+// **86 は 83 の上位集合である。3件増えたのではなく、読み取り規則が広がった。** 115.167 は
+// インラインの被覆印（パターン1〜3）だけを走査しており、ヘッダー直下の一覧（パターン5。
+// 機能名を冠さない `- REQ-N.M:` の行）からしか印が付いていない次の3件を数えていなかった:
+//   - quantity-table-generation/REQ-7.7（e2e/specs/quantity-tables/autocomplete-optimization.spec.ts:16）
+//   - site-survey/REQ-16.2（e2e/specs/site-surveys/site-survey-performance.spec.ts:6）
+//   - site-survey/REQ-22.3（e2e/specs/site-surveys/site-survey-image-rotation.spec.ts:9）
+// 本検査は両方の規則で印を読むため、この差は再び現れない。
+//
+// 走査の対象を `e2e/specs` に限るのは範囲の都合ではなく、宣言の内容がそう定めるためである。
+// 除外が述べているのは「**E2Eでは**確かめない」であり、単体検証や本番コードが同じ番号を
+// 名乗ることは宣言と矛盾しない（掲げた代替検証そのものが単体検証である除外は実在する）。
+// 矛盾するのは E2E の被覆印だけである。
+//
+// 唯一の例外は、未実装を固定するラチェット（`test.fail()`）である。この対では
+//   - 除外を消すと、被覆印が静的解析上「被覆済み」を作り、未実装が緑に化ける
+//   - 被覆印を消すと、ラチェットが要件と結び付かなくなる
+// ため、同居していることが正しい。例外は識別子の一覧ではなく **機構**（当該の被覆印を
+// 抱えるテストがラチェットであること）で判定する。番号を並べた許容一覧は置かない。
+
+/** 被覆印が現れた場所 */
+export interface CoverageTagSite {
+  /** リポジトリ相対のパス */
+  file: string;
+  /** 1 始まりの行番号 */
+  line: number;
+  /** 当該の被覆印を抱えるテストが `test.fail()` のラチェットか */
+  ratchet: boolean;
+  /**
+   * 個々のテストに結び付いたか
+   *
+   * ファイル冒頭の一覧や `test.describe` の前書きは、特定のテストではなく
+   * ひとまとまりの宣言であるため `outside-test` になる。
+   */
+  scope: 'test' | 'outside-test';
+}
+
+/** 受入基準の識別子（機能名付きに正規化済み）→ 被覆印の場所 */
+export type CoverageTagIndex = Map<string, CoverageTagSite[]>;
+
+/** 被覆印を探す根。除外の宣言が矛盾しうるのは E2E の被覆印だけである。 */
+export const E2E_SPECS_DIR = 'e2e/specs';
+
+/**
+ * テストの宣言の始まり（`test('題', ...)` / `it('題', ...)` と、その修飾子つきの形）
+ *
+ * 題の文字列を要求するのは `test.fail();` や `test.setTimeout(` と区別するためである。
+ * 修飾子を列挙で限るのは `test.describe(` と区別するためで、こちらは題を持つが
+ * 個々のテストの宣言ではない（下の GROUP_START_REGEX が受け持つ）。
+ */
+const TEST_START_REGEX = /^[ \t]*(?:test|it)(?:\.(?:skip|only|fixme|fail|slow))*\s*\(\s*['"`]/;
+
+/** ラチェット（Playwright の「落ちるはず」の宣言） */
+const RATCHET_REGEX = /\btest\.fail\(\s*\)/;
+
+/** ひとまとまりの宣言（`test.describe('題', ...)` / `describe('題', ...)`） */
+const GROUP_START_REGEX = /^[ \t]*(?:test\.)?describe(?:\.[A-Za-z]+)*\s*\(\s*['"`]/;
+
+/** 註釈と空行だけの行（被覆印がどのテストの前書きかを決めるのに使う） */
+const COMMENT_OR_BLANK_REGEX = /^[ \t]*(?:\/\/|\/\*|\*|$)/;
+
+function listFilesRecursively(dir: string, pattern: RegExp): string[] {
+  const results: string[] = [];
+  if (!fs.existsSync(dir)) return results;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (!['node_modules', 'dist', '.git', 'coverage', 'generated'].includes(entry.name)) {
+        results.push(...listFilesRecursively(full, pattern));
+      }
+    } else if (entry.isFile() && pattern.test(entry.name)) {
+      results.push(full);
+    }
+  }
+  return results;
+}
+
+/** ファイル内の宣言（個々のテストと、ひとまとまりの宣言）の位置 */
+interface Declaration {
+  line: number;
+  kind: 'test' | 'group';
+}
+
+/** ファイルから宣言の位置を集める（走査のたびに数え直さないよう呼び出し側で持ち回る） */
+function collectDeclarations(lines: readonly string[]): Declaration[] {
+  const declarations: Declaration[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? '';
+    if (TEST_START_REGEX.test(line)) declarations.push({ line: i, kind: 'test' });
+    else if (GROUP_START_REGEX.test(line)) declarations.push({ line: i, kind: 'group' });
+  }
+  return declarations;
+}
+
+/**
+ * 被覆印が属するテストを決める
+ *
+ * 被覆印はテスト本体の中（表題の括弧形式）にも、その直前の JSDoc（`@requirement` 形式）にも
+ * 現れる。前者は「直前の宣言」に、後者は「直後の宣言」に属する。両者は
+ * 「印の行から次の宣言までが註釈と空行だけか」で分かれる。
+ *
+ * 属する先が `test.describe` やファイル冒頭であれば、個々のテストではなく
+ * ひとまとまりの宣言であるため null を返す。
+ *
+ * 波括弧の対応で本体の終端を求める方法は採らない。文字列・正規表現・註釈の中の括弧を
+ * 数え違えるためである。宣言から次の宣言の手前までを一つの区間として扱う。
+ *
+ * @returns 属するテストの開始行（0 始まり）。個々のテストに属さなければ null
+ */
+function owningTestStart(
+  lines: readonly string[],
+  declarations: readonly Declaration[],
+  lineIndex: number
+): number | null {
+  const next = declarations.find((declaration) => declaration.line > lineIndex);
+  if (next !== undefined) {
+    let onlyComments = true;
+    for (let i = lineIndex + 1; i < next.line; i += 1) {
+      if (!COMMENT_OR_BLANK_REGEX.test(lines[i] ?? '')) {
+        onlyComments = false;
+        break;
+      }
+    }
+    // 直後の宣言の前書き（JSDoc）である
+    if (onlyComments) return next.kind === 'test' ? next.line : null;
+  }
+
+  let previous: Declaration | null = null;
+  for (const declaration of declarations) {
+    if (declaration.line <= lineIndex) previous = declaration;
+    else break;
+  }
+  return previous?.kind === 'test' ? previous.line : null;
+}
+
+/** テストの区間（開始行から次のテスト宣言の手前まで）にラチェットがあるか */
+function isRatchetTest(lines: readonly string[], testStart: number): boolean {
+  for (let i = testStart; i < lines.length; i += 1) {
+    const line = lines[i] ?? '';
+    if (RATCHET_REGEX.test(line)) return true;
+    if (i > testStart && TEST_START_REGEX.test(line)) return false;
+  }
+  return false;
+}
+
+/**
+ * `e2e/specs` を走査して、受入基準ごとの被覆印の場所を集める
+ *
+ * 被覆印の読み取り規則は被覆率の検査と同一のものを使う（パターン1〜3は
+ * `buildInlineTagPatterns`、ヘッダー直下の一覧は `extractHeaderScopedCoverage`）。
+ * 規則を写し取ると、片方だけが読み落とす形が生まれ、この検査が静かに空振りする。
+ */
+export function scanCoverageTags(rootDir = ROOT): CoverageTagIndex {
+  const index: CoverageTagIndex = new Map();
+  const featureNames = discoverFeatureNames(rootDir);
+  if (featureNames.length === 0) return index;
+
+  const specsDir = path.resolve(rootDir, E2E_SPECS_DIR);
+  for (const file of listFilesRecursively(specsDir, /\.(ts|tsx)$/)) {
+    const content = fs.readFileSync(file, 'utf-8');
+    const lines = content.split('\n');
+    const relative = path.relative(rootDir, file).split(path.sep).join('/');
+
+    /** 各行の開始位置。文字位置から行番号を求めるのに使う。 */
+    const lineStarts: number[] = [0];
+    for (let i = 0; i < content.length; i += 1) {
+      if (content[i] === '\n') lineStarts.push(i + 1);
+    }
+    /** 文字位置 → 行番号（0 始まり） */
+    const lineOf = (offset: number): number => {
+      let low = 0;
+      let high = lineStarts.length - 1;
+      while (low < high) {
+        const mid = Math.ceil((low + high) / 2);
+        if ((lineStarts[mid] as number) <= offset) low = mid;
+        else high = mid - 1;
+      }
+      return low;
+    };
+
+    const declarations = collectDeclarations(lines);
+    const ratchetCache = new Map<number, boolean>();
+    const record = (criterionId: string, offset: number): void => {
+      const lineIndex = lineOf(offset);
+      const owner = owningTestStart(lines, declarations, lineIndex);
+      let ratchet = false;
+      if (owner !== null) {
+        const cached = ratchetCache.get(owner);
+        ratchet = cached ?? isRatchetTest(lines, owner);
+        if (cached === undefined) ratchetCache.set(owner, ratchet);
+      }
+      const sites = index.get(criterionId) ?? [];
+      sites.push({
+        file: relative,
+        line: lineIndex + 1,
+        ratchet,
+        scope: owner === null ? 'outside-test' : 'test',
+      });
+      index.set(criterionId, sites);
+    };
+
+    for (const pattern of buildInlineTagPatterns(featureNames)) {
+      pattern.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(content)) !== null) {
+        if (match[1] && match[2] && match[3]) {
+          record(`${match[1]}/REQ-${match[2]}.${match[3]}`, match.index);
+        }
+      }
+    }
+
+    // ヘッダー直下の一覧（パターン5）。位置は一覧の項目そのものを探して求める。
+    for (const criterionId of extractHeaderScopedCoverage(content, featureNames)
+      .acceptanceCriteria) {
+      const localId = criterionId.slice(criterionId.indexOf('/') + 1);
+      const itemRegex = new RegExp(`[-*]\\s*${localId.replace('.', '\\.')}(?![0-9])`, 'g');
+      const found = itemRegex.exec(content);
+      record(criterionId, found ? found.index : 0);
+    }
+  }
+
+  return index;
+}
+
+/**
+ * 除外の宣言と被覆印の同居を確かめる
+ *
+ * 同居は原則として違反である。唯一許すのは、その番号を名乗る被覆印がすべて
+ * ラチェット（`test.fail()`）のテストに属する場合（ファイル冒頭の一覧は、同じファイルに
+ * その番号のラチェットがあることを条件に許す）である。
+ *
+ * この検査が捕まえないもの（限界を両方向で述べる）:
+ *   - `frontend/src` / `backend/src` の被覆印は見ない。除外が述べるのは
+ *     「**E2Eでは**確かめない」であり、単体検証や本番コードが同じ番号を名乗ることは
+ *     宣言と矛盾しない（掲げた代替検証そのものが単体検証である除外は実在する）。
+ *     現に site-survey/REQ-1.6・REQ-8.5・REQ-16.8 は単体検証と本番コードが番号を
+ *     名乗るが、本検査はこれを違反としない。
+ *   - 逆に、被覆印が付いていない E2E が実質的に受入基準を確かめている場合は見つけられない。
+ *     同居の有無は印の有無で決まるためである。
+ *   - ラチェットの判定は「テストの区間に `test.fail()` があるか」までであり、
+ *     その主張が受入基準を本当に確かめているかは見ない。
+ */
+export function checkCoverageTagCoexistence(
+  document: Json,
+  tagIndex: CoverageTagIndex
+): Violation[] {
+  const violations: Violation[] = [];
+  if (!isPlainObject(document)) return violations;
+
+  const exclusions = Array.isArray(document.exclusions) ? document.exclusions : [];
+  exclusions.forEach((entry, position) => {
+    if (!isPlainObject(entry) || typeof entry.id !== 'string') return;
+    const criterionId = normalizeExclusionId(entry.id);
+    const sites = tagIndex.get(criterionId);
+    if (!sites || sites.length === 0) return;
+
+    const ratchetFiles = new Set(sites.filter((site) => site.ratchet).map((site) => site.file));
+    if (ratchetFiles.size === 0) {
+      violations.push({
+        pointer: `exclusions[${position}].id`,
+        message: `「E2Eでは確かめない」と宣言していますが ${E2E_SPECS_DIR} の被覆印が同じ受入基準を名乗っています（検証が実在するなら除外を取り下げ、名乗るだけなら被覆印を取り下げること）`,
+        actual: `${criterionId} <- ${sites.map((site) => `${site.file}:${site.line}`).join(', ')}`,
+      });
+      return;
+    }
+
+    const stray = sites.filter(
+      (site) => !site.ratchet && !(site.scope === 'outside-test' && ratchetFiles.has(site.file))
+    );
+    if (stray.length > 0) {
+      violations.push({
+        pointer: `exclusions[${position}].id`,
+        message: `ラチェット（test.fail()）以外の被覆印が同じ受入基準を名乗っています（ラチェットとの同居だけが許されます）`,
+        actual: `${criterionId} <- ${stray.map((site) => `${site.file}:${site.line}`).join(', ')}`,
+      });
+    }
+  });
+
+  return violations;
+}
+
+// ============================================================================
 // スキーマ単体では表せない不変条件
 // ============================================================================
 
@@ -628,7 +989,15 @@ export function checkInvariants(document: Json): Violation[] {
 // 実行
 // ============================================================================
 
-export function run(exclusionsPath = EXCLUSIONS_PATH): CheckResult {
+/** 違反にどの検査が挙げたかを刻む（自己検査が狙いどおりの検査を見るために使う） */
+function tagViolations(check: ViolationCheck, violations: Violation[]): Violation[] {
+  return violations.map((violation) => ({ ...violation, check }));
+}
+
+export function run(
+  exclusionsPath = EXCLUSIONS_PATH,
+  tagIndex: CoverageTagIndex = scanCoverageTags()
+): CheckResult {
   const absoluteExclusions = path.resolve(ROOT, exclusionsPath);
 
   if (!fs.existsSync(absoluteExclusions)) {
@@ -638,7 +1007,12 @@ export function run(exclusionsPath = EXCLUSIONS_PATH): CheckResult {
       schemaFile: '(未解決)',
       exclusionCount: 0,
       violations: [
-        { pointer: '(file)', message: '除外定義が見つかりません', actual: exclusionsPath },
+        {
+          pointer: '(file)',
+          message: '除外定義が見つかりません',
+          actual: exclusionsPath,
+          check: 'file',
+        },
       ],
     };
   }
@@ -656,6 +1030,7 @@ export function run(exclusionsPath = EXCLUSIONS_PATH): CheckResult {
           pointer: '(file)',
           message: 'JSON として読めません',
           actual: error instanceof Error ? error.message : String(error),
+          check: 'file',
         },
       ],
     };
@@ -668,7 +1043,9 @@ export function run(exclusionsPath = EXCLUSIONS_PATH): CheckResult {
       file: exclusionsPath,
       schemaFile: '(未解決)',
       exclusionCount: 0,
-      violations: [{ pointer: '$schema', message: 'スキーマへの参照がありません' }],
+      violations: [
+        { pointer: '$schema', message: 'スキーマへの参照がありません', check: 'schema' },
+      ],
     };
   }
 
@@ -684,6 +1061,7 @@ export function run(exclusionsPath = EXCLUSIONS_PATH): CheckResult {
           pointer: '$schema',
           message: '参照先のスキーマがリポジトリに存在しません（ダングリング参照）',
           actual: schemaRef,
+          check: 'schema',
         },
       ],
     };
@@ -702,19 +1080,27 @@ export function run(exclusionsPath = EXCLUSIONS_PATH): CheckResult {
           pointer: '(schema)',
           message: 'スキーマが JSON として読めません',
           actual: error instanceof Error ? error.message : String(error),
+          check: 'schema',
         },
       ],
     };
   }
 
   const violations: Violation[] = [];
+  const schemaViolations: Violation[] = [];
   if (isPlainObject(schema)) {
-    validateAgainstSchema(document, schema, schema, '(root)', violations);
+    validateAgainstSchema(document, schema, schema, '(root)', schemaViolations);
   } else {
-    violations.push({ pointer: '(schema)', message: 'スキーマがオブジェクトではありません' });
+    schemaViolations.push({ pointer: '(schema)', message: 'スキーマがオブジェクトではありません' });
   }
-  violations.push(...checkInvariants(document));
-  violations.push(...checkCriterionCorrespondence(document));
+  violations.push(...tagViolations('schema', schemaViolations));
+  violations.push(...tagViolations('invariant', checkInvariants(document)));
+  violations.push(
+    ...tagViolations('criterion-correspondence', checkCriterionCorrespondence(document))
+  );
+  violations.push(
+    ...tagViolations('coverage-tag-coexistence', checkCoverageTagCoexistence(document, tagIndex))
+  );
 
   const exclusionCount =
     isPlainObject(document) && Array.isArray(document.exclusions) ? document.exclusions.length : 0;

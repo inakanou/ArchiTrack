@@ -46,6 +46,11 @@
  * 在ること自体を前提として主張する `assertCandidateOffered` を要件の主張の手前へ置き、
  * 候補登録の失敗が REQ-7.4 の名前で現れる構造を解消した。
  *
+ * Task 115.186（是正）: 受入基準7.7 の除外を取り下げ、被覆印を戻した。従前の除外は
+ * 「ソート順の検証はユニットテストで検証」と述べていたが、本ファイルの
+ * 「REQ-7.7: 50音順表示」が、逆順で登録した候補が 50音順に並ぶことを実際に主張しており、
+ * `e2e/specs/quantity-tables/quantity-table-crud.spec.ts` にも同じ条文を主張する検証が在る。
+ *
  * @module e2e/specs/quantity-tables/autocomplete-optimization.spec
  */
 

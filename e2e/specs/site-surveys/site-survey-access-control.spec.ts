@@ -5,12 +5,12 @@
  * - REQ-14.1: プロジェクトへのアクセス権を持つユーザーが現場調査を閲覧可能
  * - REQ-14.2: プロジェクトへの編集権限を持つユーザーが現場調査の作成・編集・削除を許可
  * - REQ-14.3: 適切な権限を持たないユーザーの操作拒否とエラーメッセージ表示
- * - REQ-14.4: 画像URLの払い出しがアクセス権限の検証を経ること
- *   （署名付きURLの有効期限そのものは本番の STORAGE_TYPE=r2 前提であり、
- *    STORAGE_TYPE=local のテスト環境では再現できないため検証対象外。詳細は当該テストの説明を参照）
- * - REQ-14.5: 現場調査の操作履歴を監査ログに記録
  * - REQ-38.9: 画面表示の効率化（画像一覧のリクエスト削減）にあたり REQ-14 の
  *   アクセス可否の判定結果を変更しないこと
+ *
+ * 除外のため被覆印を掲げない受入基準（e2e/requirement-exclusions.json）:
+ *   要件14.4: アクセス権限の側は主張するが、署名付きURLの有効期限を主張していない
+ *   要件14.5: APIリクエストが発生したことを主張するもので、監査ログへの記録を主張していない
  */
 
 import { test, expect } from '@playwright/test';
@@ -340,11 +340,11 @@ test.describe('現場調査アクセス制御', () => {
   });
 
   /**
-   * @requirement site-survey/REQ-14.4
+   * 受入基準 14.4 は除外である（e2e/requirement-exclusions.json）。アクセス権限の側は主張するが、署名付きURLの有効期限を主張していないため、被覆印は掲げない。
    */
   test.describe('署名付きURL', () => {
     /**
-     * 画像URLの払い出し契約（site-survey/REQ-14.4）
+     * 画像URLの払い出し契約（要件14.4）
      *
      * 【このテスト環境で検証すること / しないこと】
      * 本番の `STORAGE_TYPE` は `r2`（docs/deployment/environment-variables.md）であり、
@@ -363,10 +363,7 @@ test.describe('現場調査アクセス制御', () => {
      * 検証を経る」ことを検証する。`request` フィクスチャはブラウザコンテキストとは
      * 独立した認証情報を持たないAPIコンテキストであり、未認証状態を再現できる。
      */
-    test('画像URLは認証済みAPI経由でのみ払い出される (site-survey/REQ-14.4)', async ({
-      page,
-      request,
-    }) => {
+    test('画像URLは認証済みAPI経由でのみ払い出される', async ({ page, request }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -407,14 +404,14 @@ test.describe('現場調査アクセス制御', () => {
     });
 
     /**
-     * アクセス権限の検証（site-survey/REQ-14.4）
+     * アクセス権限の検証（要件14.4）
      *
      * 【このテストが引き受ける範囲】
      * REQ-14.4 は「署名付きURLの有効期限とアクセス権限を検証する」と規定する。
      * このうち **有効期限** は本番の `STORAGE_TYPE=r2` に固有の性質であり、
      * `STORAGE_TYPE=local` のテスト環境では `LocalStorageProvider.getSignedUrl` が
      * 署名も期限も伴わない静的配信URLを返すため、E2Eでは原理的に再現できない。
-     * 有効期限側は `e2e/requirement-exclusions.json` の `site-survey/REQ-14.4` に
+     * 有効期限側は `e2e/requirement-exclusions.json` の当該の除外（要件14.4）に
      * E2E対象外として登録済みで、バックエンドの単体・統合テストとセキュリティ監査の所管とする。
      *
      * 一方 **アクセス権限の検証** はストレージ種別に依存しない。原画像URLの払い出しは
@@ -447,7 +444,7 @@ test.describe('現場調査アクセス制御', () => {
      *
      * @requirement site-survey/REQ-38.9
      */
-    test('アクセス権限を持たないユーザーには原画像URLが払い出されない (site-survey/REQ-14.4, site-survey/REQ-38.9)', async ({
+    test('アクセス権限を持たないユーザーには原画像URLが払い出されない (site-survey/REQ-38.9)', async ({
       request,
     }) => {
       if (!createdSurveyId) {
@@ -514,12 +511,10 @@ test.describe('現場調査アクセス制御', () => {
   });
 
   /**
-   * @requirement site-survey/REQ-14.5
+   * 受入基準 14.5 は除外である（e2e/requirement-exclusions.json）。APIリクエストが発生したことを主張するもので、監査ログへの記録を主張していないため、被覆印は掲げない。
    */
   test.describe('監査ログ', () => {
-    test('現場調査の作成操作がAPIリクエストとして記録される (site-survey/REQ-14.5)', async ({
-      page,
-    }) => {
+    test('現場調査の作成操作がAPIリクエストとして記録される', async ({ page }) => {
       if (!createdProjectId) {
         throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -558,9 +553,7 @@ test.describe('現場調査アクセス制御', () => {
       expect(createRequestMade).toBeTruthy();
     });
 
-    test('現場調査の編集操作がAPIリクエストとして記録される (site-survey/REQ-14.5)', async ({
-      page,
-    }) => {
+    test('現場調査の編集操作がAPIリクエストとして記録される', async ({ page }) => {
       if (!createdSurveyId) {
         throw new Error('createdSurveyIdが未設定です。事前準備テストが正しく実行されていません。');
       }

@@ -6,7 +6,6 @@
  * Requirements coverage (site-survey):
  * - REQ-4.1: POST /api/site-surveys/:id/images 画像アップロード
  * - REQ-4.2: 複数画像のバッチアップロード
- * - REQ-4.3: 5件超のキュー処理
  * - REQ-4.4: サムネイル自動生成
  * - REQ-4.6: 300KB超の圧縮
  * - REQ-4.7: DELETE /api/site-surveys/images/:imageId 画像削除
@@ -15,6 +14,9 @@
  * - REQ-4.11: ドラッグアンドドロップで表示順序を変更する（未保存状態になる）
  * - REQ-10.8: 写真一覧を保存された表示順序の通りに表示する
  * - REQ-10.9: 保存ボタンで表示順序をデータベースへ一括保存する
+ *
+ * 除外のため被覆印を掲げない受入基準（e2e/requirement-exclusions.json）:
+ *   要件4.3: 6件のアップロードが完了することは主張するが、5件ずつのキュー処理を主張していない
  */
 
 import { test, expect, type Locator, type Page } from '@playwright/test';
@@ -598,7 +600,7 @@ test.describe('現場調査画像管理', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-4.3
+     * 受入基準 4.3 は除外である（e2e/requirement-exclusions.json）。6件のアップロードが完了することは主張するが、5件ずつのキュー処理を主張していないため、被覆印は掲げない。
      */
     test('5件以上のファイルをアップロードするとキュー処理される', async ({ page }) => {
       if (!createdSurveyId) {

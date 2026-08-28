@@ -394,7 +394,7 @@ test.describe('Phase 10: グループ名変更・並び順管理・スクロー�
     });
 
     /**
-     * @requirement quantity-table-generation/REQ-26.9
+     * 受入基準 26.9 は除外である（e2e/requirement-exclusions.json）。ボタンの無効化は主張するが、処理中であることを示すインジケーターの表示を主張していないため、被覆印は掲げない。
      */
     test('PDF生成中にボタンが無効化される (REQ-26.9)', async ({ page }) => {
       await openPreparedGroups(page);
