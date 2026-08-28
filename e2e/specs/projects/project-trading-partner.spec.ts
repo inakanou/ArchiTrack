@@ -7,7 +7,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, nullWhenTimedOut } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { toObservableApiPath } from '../../helpers/api-request-observer';
 import { seedProject } from '../../helpers/project-list-preconditions';
@@ -178,8 +178,23 @@ test.describe('プロジェクト取引先連携', () => {
       // 短時間で複数文字を入力（連続入力を模す）
       await tradingPartnerInput.type('E2E', { delay: 50 }); // 各文字間50ms
 
-      // デバウンス期間（300ms）を超えて待機し、遅れて発火する要求も観測に含める
-      await page.waitForTimeout(500);
+      // 「一定時間が経てば遅れて発火する要求も出揃っているはず」という前提を置かず、
+      // **不在を否定する事象そのもの**（一覧取得APIの要求）を待つ。
+      // 要求が飛べばその時点で捉えて主張が落ち、飛ばなければ待機切れで null になる。
+      // 待機切れ以外の失敗は `nullWhenTimedOut` が送出するため「起きなかった」に化けない。
+      //
+      // `page.waitForLoadState('networkidle')` は代わりにならない。現在の文書では
+      // 既に networkidle が発火済みで、以降の呼び出しは**即座に解決する**
+      // （Task 115.183 の実測: 0ms）。窓を一切作らないため、遅れて飛ぶ要求を取り逃す。
+      const lateListRequest = await nullWhenTimedOut(
+        page.waitForRequest(
+          (request) =>
+            toObservableApiPath(request.url()) === '/api/trading-partners' &&
+            request.method() === 'GET',
+          { timeout: getTimeout(1000) }
+        )
+      );
+      expect(lateListRequest, 'デバウンス期間の経過後に取引先一覧APIの要求が飛んでいる').toBeNull();
 
       // REQ-22.4: 入力した文字列に部分一致する候補が絞り込まれて表示される。
       // これが無いと「要求が0件」はフィールドが壊れていても成立してしまう。

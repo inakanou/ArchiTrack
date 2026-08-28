@@ -218,8 +218,11 @@ const STORAGE_KEY_PREFIX = 'architrack_annotation_';
  * デフォルトの自動保存間隔（30秒）
  *
  * 要件15.4 が定める「一定間隔（30秒）」そのものである。
+ *
+ * E2E が「間隔を跨いだ観測」を組み立てる際にこの値を参照するため公開している。
+ * 検証側へ数値を複製すると、間隔が変わったときに検証だけが古い前提のまま緑になる。
  */
-const DEFAULT_AUTO_SAVE_INTERVAL_MS = 30000;
+export const DEFAULT_AUTO_SAVE_INTERVAL_MS = 30000;
 
 /**
  * デフォルトの最大キャッシュサイズ（4MB）

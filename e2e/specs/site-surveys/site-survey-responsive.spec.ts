@@ -26,6 +26,28 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
+// 自動保存の間隔は本番の一元管理された定数を直接参照する。
+// テスト側に数値を複製すると、間隔が変わったときに検証だけが古い前提のまま緑になる。
+import { DEFAULT_AUTO_SAVE_INTERVAL_MS } from '../../../frontend/src/services/AutoSaveManager';
+
+/**
+ * 描画から下書きが書き出されるまでに最低限あいているべき時間（ミリ秒）。
+ *
+ * 本番の自動保存間隔そのものではなく、**それより十分に小さい下限**である。
+ * 閾値の複製ではないため、間隔が変わっても「即時保存になっていないか」を捉える性質は失われない。
+ * 実測（Task 115.183）では描画から最初の書き出しまで 29958ms（＝本番の間隔とほぼ一致）で、
+ * 下限に対して約 6 倍の余裕があった。差し替え前の固定待機（5000ms）と検出力は同じである。
+ */
+const AUTO_SAVE_MIN_DELAY_MS = 5000;
+
+/**
+ * 自動保存が無効であることを確かめるための観測時間（ミリ秒）。
+ *
+ * 間隔を確実に跨ぐよう本番の間隔から導く（1.5 倍）。実際に跨いだことは観測直後に実測する。
+ * 実測（Task 115.183）は 45053ms。0.5 倍へ縮める変異では下書きの不在の主張は**通ったまま**
+ * この実測の主張だけが落ちた。固定待機が確かめずに置いていた前提はここに現れている。
+ */
+const PRIVATE_BROWSING_OBSERVATION_MS = Math.ceil(DEFAULT_AUTO_SAVE_INTERVAL_MS * 1.5);
 
 /**
  * タッチ操作の当たり判定の下限（論理ピクセル）。
@@ -679,16 +701,25 @@ test.describe('現場調査レスポンシブ対応', () => {
       const draftKey = `${ANNOTATION_DRAFT_PREFIX}${imageId}`;
       await clearDrafts(page);
 
+      // drawRectangleAnnotation は図形が増えるまでを条件待ちするため、
+      // ここに到達した時点で「保存されるべき未保存の変更」が確実に存在する
+      // （不在の主張の母集団が空にならないことの担保）。
       await drawRectangleAnnotation(page);
+      const drawnAt = performance.now();
 
-      // 即時保存ではないこと（一定間隔での自動保存であること）
-      await page.waitForTimeout(5000);
-      expect(await readDraft(page, draftKey)).toBeNull();
-
-      // 30秒間隔の自動保存が発火し、未保存の編集状態が localStorage へ書き出される
+      // 一定間隔の自動保存が発火し、未保存の編集状態が localStorage へ書き出される。
+      // 以前は「5秒経てばまだ書かれていないはず」という固定待機の前提で不在を主張していたが、
+      // ここでは**最初に書き出された時刻そのもの**を条件待ちで捉え、それが即時ではないことを
+      // 実測で主張する（不在の主張と存在の主張を一つの観測で兼ねる）。
+      // 経過の計測は単調時計で行う（WSL2 では壁時計が単調時計より遅く進むため Date.now は使わない）。
       await expect
-        .poll(() => readDraft(page, draftKey), { timeout: 60_000, intervals: [2000] })
+        .poll(() => readDraft(page, draftKey), { timeout: 90_000, intervals: [250] })
         .not.toBeNull();
+      const firstDraftAfterMs = performance.now() - drawnAt;
+      expect(
+        firstDraftAfterMs,
+        '描画直後に下書きが書き出されており、一定間隔での自動保存になっていない'
+      ).toBeGreaterThanOrEqual(AUTO_SAVE_MIN_DELAY_MS);
 
       const stored = await readDraft(page, draftKey);
       const draft = JSON.parse(stored as string) as {
@@ -1135,9 +1166,19 @@ test.describe('現場調査レスポンシブ対応', () => {
 
       await drawRectangleAnnotation(page);
 
-      // 自動保存の間隔（30秒）を十分に超えても下書きは書き出されない
-      await page.waitForTimeout(45_000);
+      // 自動保存の間隔を十分に超えても下書きは書き出されない。
+      // ここの待機は「状態が落ち着いたはず」という前提ではなく**主題そのもの**である
+      // （間隔を跨がなければ「無効化されている」ことを確かめられない）。代わりに待てる条件は
+      // 存在しないため待機は残し、(1) 待機時間を本番の間隔から導いて数値を複製しない、
+      // (2) 実際に間隔を跨いだことを単調時計で実測する、の二点で前提を検証可能にする。
+      const observationStartedAt = performance.now();
+      await page.waitForTimeout(PRIVATE_BROWSING_OBSERVATION_MS);
       expect(await readDraft(page, draftKey)).toBeNull();
+      const observedMs = performance.now() - observationStartedAt;
+      expect(
+        observedMs,
+        `観測が自動保存の間隔(${DEFAULT_AUTO_SAVE_INTERVAL_MS}ms)を跨いでおらず「自動保存が無効」を確かめられていない`
+      ).toBeGreaterThan(DEFAULT_AUTO_SAVE_INTERVAL_MS);
 
       // 手動保存は従来どおり利用できる
       const savePromise = page.waitForResponse(

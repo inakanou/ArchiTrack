@@ -540,6 +540,10 @@ test.describe('管理者招待機能', () => {
     // 再試行の継続条件はループの見出しに置く。分岐の内側で break すると、
     // 「観測結果で黙って脱出する」形になり、以降の検証が消える経路が生まれるためである。
     // 再試行を使い切ってもエラーが出たままなら、ループ後の無条件の主張で失敗する。
+    // 再試行の間隔は固定時間待機ではなく、次の反復の先頭にある
+    // `goto(waitUntil: 'networkidle')` と入力欄の可視待ちが担う。
+    // 以前は観測の**後ろ**に 500ms の固定待機があったが、`hasError` はその手前で確定しており
+    // 主張の値を一切変えないうえ、最終反復では不在の主張の直前の無意味な遅延になっていた。
     const maxRetries = 3;
     let hasError = true;
     for (let attempt = 0; attempt < maxRetries && hasError; attempt++) {
@@ -558,8 +562,6 @@ test.describe('管理者招待機能', () => {
       const errorAlert = page.getByText(/招待一覧を取得できませんでした/i);
       const errorAlertCount = await errorAlert.count();
       hasError = errorAlertCount > 0 && (await errorAlert.isVisible());
-
-      await page.waitForTimeout(500);
     }
 
     // 再試行を使い切ってもエラーが残っている場合はここで失敗させる（沈黙させない）

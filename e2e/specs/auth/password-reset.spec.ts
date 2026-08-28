@@ -13,6 +13,19 @@ import { assertPrepared } from '../../helpers/preconditions';
  *
  * このテストスイートは、パスワードリセット機能をEnd-to-Endで検証します。
  */
+
+/**
+ * 成功メッセージが最低限表示され続けているべき時間（ミリ秒）。
+ *
+ * 本番の自動非表示までの既定時間（`ToastNotification.tsx` の `toast.duration ?? 5000`）
+ * そのものではなく、**それより十分に小さい下限**である。閾値の複製ではないため、
+ * 本番の既定時間が変わっても「出た瞬間に消えた」を捉える性質は失われない。
+ * 観測の開始点は `toBeVisible` が成立した時点であり、実際の表示開始より後になりうるため、
+ * その分の余裕を見込んでいる。実測（Task 115.183）では消滅までが 5381ms で、下限に対して
+ * 2.7 倍の余裕があった。
+ */
+const SUCCESS_MESSAGE_MIN_VISIBLE_MS = 2000;
+
 test.describe('パスワード管理機能', () => {
   // 並列実行を無効化（データベースクリーンアップの競合を防ぐ）
   test.describe.configure({ mode: 'serial' });
@@ -378,9 +391,17 @@ test.describe('パスワード管理機能', () => {
     );
     await expect(successMessage).toBeVisible();
 
-    // 5秒後にメッセージが非表示になる
-    await page.waitForTimeout(5500);
-    await expect(successMessage).not.toBeVisible();
+    // 自動非表示は「一定時間が経てば消えているはず」という前提を置かず、消えるまでを条件待ちする。
+    // あわせて表示から消滅までの経過を実測し、「出た瞬間に消えた」（＝自動非表示ではなく
+    // 即時消滅）の経路を弾く。固定待機だけの形は、この経路を一切捉えられなかった。
+    // 経過の計測は単調時計で行う（WSL2 では壁時計が単調時計より遅く進むため Date.now は使わない）。
+    const shownAt = performance.now();
+    await expect(successMessage).not.toBeVisible({ timeout: getTimeout(15000) });
+    const hiddenAfterMs = performance.now() - shownAt;
+    expect(
+      hiddenAfterMs,
+      '成功メッセージが表示直後に消えており、一定時間後の自動非表示になっていない'
+    ).toBeGreaterThanOrEqual(SUCCESS_MESSAGE_MIN_VISIBLE_MS);
   });
 
   /**

@@ -934,12 +934,18 @@ test.describe('モバイル Viewport 注釈機能', () => {
     await expect(tooltip, '長押しの前からツールヒントが出ている').toHaveCount(0);
 
     await dispatchTouch('touchStart', [{ x: pressPoint.x, y: pressPoint.y, id: 0 }]);
-    const pressedAt = Date.now();
+    // 経過の計測は単調時計で行う。WSL2 では壁時計（Date.now）が単調時計より遅く進むため、
+    // 壁時計で測ると実経過が閾値を越えていても「閾値未満」と見える。
+    // その場合、下の自己検査は通るのに「閾値前は出ない」を確かめられていない偽の緑になる。
+    const pressedAt = performance.now();
 
-    // 閾値に届く前は出ない
+    // 閾値に届く前は出ない。
+    // ここの待機は「状態が落ち着いたはず」という前提ではなく、**主題そのもの**である。
+    // 要件が定めるのは時間の経過に対する挙動であり、代わりに待てる条件は存在しない。
+    // そのため待機は残し、待機が意図どおりの時点を作れたことを直下で実測して裏づける。
     await sharedPage.waitForTimeout(BEFORE_LONG_PRESS_WAIT_MS);
     await expect(tooltip, '閾値に届く前にツールヒントが出た').toHaveCount(0);
-    const elapsedBefore = Date.now() - pressedAt;
+    const elapsedBefore = performance.now() - pressedAt;
     expect(
       elapsedBefore,
       `早期観測が長押し閾値(${LONG_PRESS_MS}ms)を越えており「閾値前は出ない」を確かめられていない`
@@ -947,7 +953,7 @@ test.describe('モバイル Viewport 注釈機能', () => {
 
     // 閾値を越えて保持すると出る
     await sharedPage.waitForTimeout(LONG_PRESS_HOLD_MS);
-    const elapsedHold = Date.now() - pressedAt;
+    const elapsedHold = performance.now() - pressedAt;
     expect(
       elapsedHold,
       `保持時間が長押し閾値(${LONG_PRESS_MS}ms)に届いていない`
@@ -2048,6 +2054,10 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
     await sharedPage.waitForTimeout(200);
     expect((await readProbe()).objectCount).toBe(1);
 
+    // 「編集を抜けた」を主張する前に、**編集に入っていた**ことを確かめる。
+    // 入っていなければ後段の不在の主張は母集団が空のまま通り、何も述べない恒真式になる。
+    await expect.poll(() => readTextEditing(), { timeout: getTimeout(5000) }).toBe(true);
+
     // 選択ツールへ切替え、空き隅をタップして編集を抜け選択も解除する。
     // テキスト編集突入時の隠し textarea フォーカスでページがスクロールするため
     // （キャンバスが可視下部にあり、ブラウザが入力欄を表示領域へスクロールする）、
@@ -2057,8 +2067,8 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
     await selectTool(/選択/i);
     await recalcOffset();
     await tapAt(box.x + 20, box.y + 20);
-    await sharedPage.waitForTimeout(150);
-    expect(await readTextEditing()).toBe(false);
+    // 「150ms 経てば編集を抜けているはず」という前提を置かず、抜けるまでを条件待ちする。
+    await expect.poll(() => readTextEditing(), { timeout: getTimeout(5000) }).toBe(false);
 
     // テキスト編集の隠し textarea フォーカスで Fabric の内部オフセットが陳腐化し、
     // findTarget が誤判定するため再計算してからテキストの実位置を指す。
@@ -2152,8 +2162,10 @@ test.describe('ダブルタップズーム調停/ズームUI/拡大中の選択�
     const rectClient = await objectCenterClient(0);
 
     await tapAt(rectClient.x, rectClient.y);
-    await sharedPage.waitForTimeout(100);
-    expect((await readProbe()).activeType).not.toBeNull();
+    // 「100ms 経てば選択が反映されているはず」という前提を置かず、選択が入るまでを条件待ちする。
+    await expect
+      .poll(async () => (await readProbe()).activeType, { timeout: getTimeout(5000) })
+      .not.toBeNull();
 
     // 選択ハンドルのタッチターゲットが 44px（Req 29.4）
     const cornerSize = await readActiveTouchCornerSize();

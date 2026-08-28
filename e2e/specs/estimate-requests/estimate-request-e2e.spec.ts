@@ -20,7 +20,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout } from '../../helpers/wait-helpers';
+import { getTimeout, nullWhenTimedOut } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
@@ -2979,18 +2979,30 @@ test.describe('見積依頼機能', () => {
         blockEstimateRequestId = idMatch[1]!;
       }
 
-      // メールラジオがデフォルトで選択されていることを確認
       const emailRadio = page.getByRole('radio', { name: /メール/i });
       const faxRadio = page.getByRole('radio', { name: /FAX/i });
-      await expect(emailRadio).toBeChecked({ timeout: getTimeout(10000) });
 
-      // FAXラジオをクリック（サーバーリクエストが発生しないことを確認）
-      let requestSent = false;
+      // 見積依頼エンドポイントへの通信を**方法で絞り込まずに**記録する。
+      // 絞り込みを観測子の中に置くと、その絞り込み自体が一度も的中しない場合でも
+      // 「送信されていない」が成立し、不在の主張が何も述べない恒真式になる。
+      const estimateRequestCallMethods: string[] = [];
       page.on('request', (request) => {
-        if (request.url().includes('/estimate-requests') && request.method() === 'PUT') {
-          requestSent = true;
+        if (request.url().includes('/estimate-requests')) {
+          estimateRequestCallMethods.push(request.method());
         }
       });
+
+      // 陽性対照: 画面の再読込で観測子が実際に発火することを示す（実測: GET 7件を記録）。
+      // これが無いと、以降の「更新系が無い」は観測子の沈黙と区別できない。
+      await page.reload({ waitUntil: 'networkidle' });
+      expect(
+        estimateRequestCallMethods,
+        '観測子が見積依頼エンドポイントへの通信を一件も捉えていない（不在の主張が空振りする）'
+      ).toContain('GET');
+
+      // メールラジオがデフォルトで選択されていることを確認
+      await expect(emailRadio).toBeChecked({ timeout: getTimeout(10000) });
+      const methodsBeforeClick = estimateRequestCallMethods.length;
 
       await faxRadio.click();
 
@@ -2998,9 +3010,30 @@ test.describe('見積依頼機能', () => {
       await expect(faxRadio).toBeChecked();
       await expect(emailRadio).not.toBeChecked();
 
-      // 短い待機後もサーバーリクエストが発生していないことを確認
-      await page.waitForTimeout(1000);
-      expect(requestSent).toBe(false);
+      // 「1秒待てば送信され終えているはず」という前提を置かず、
+      // **不在を否定する事象そのもの**（更新系の要求）を待つ。
+      // 要求が飛べばその時点で捉えて主張が落ち、飛ばなければ待機切れで null になる。
+      // 待機切れ以外の失敗は `nullWhenTimedOut` が送出するため「起きなかった」に化けない。
+      //
+      // `page.waitForLoadState('networkidle')` は代わりにならない。現在の文書では
+      // 既に networkidle が発火済みで、以降の呼び出しは**即座に解決する**
+      // （Task 115.183 の実測: 0ms）。窓を一切作らないため、遅れて飛ぶ要求を取り逃す。
+      const updateAfterClick = await nullWhenTimedOut(
+        page.waitForRequest(
+          (request) =>
+            request.url().includes('/estimate-requests') &&
+            (request.method() === 'PUT' || request.method() === 'PATCH'),
+          { timeout: getTimeout(1000) }
+        )
+      );
+      expect(updateAfterClick, 'ラジオ押下だけでサーバーへの更新が送信された').toBeNull();
+
+      // 押下より後に更新系（PUT/PATCH）の通信が一件も無い（上の窓の外で飛んだ分も含める）
+      const methodsAfterClick = estimateRequestCallMethods.slice(methodsBeforeClick);
+      expect(
+        methodsAfterClick.filter((method) => method === 'PUT' || method === 'PATCH'),
+        'ラジオ押下だけでサーバーへの更新が送信された'
+      ).toEqual([]);
     });
 
     /**
