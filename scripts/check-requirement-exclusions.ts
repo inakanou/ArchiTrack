@@ -18,9 +18,32 @@
  *   1. `$schema` が指す先が実在すること（ダングリング参照の禁止）
  *   2. 定義がスキーマに適合すること（必須項目・型・書式・未知の項目の禁止）
  *   3. スキーマ単体では表せない不変条件
- *      - 受入基準の識別子が重複しないこと
+ *      - 受入基準の識別子が重複しないこと（機能名の有無で正規化してから比べる）
  *      - 各除外の `category` が `categories` に定義済みであること
  *      - `summary.totalExclusions` と `summary.byCategory` が実際の件数と一致すること
+ *   4. 識別子と内容の対応（タスク 115.167 で追加）
+ *      - `id` が指す受入基準が要件定義書に実在すること
+ *      - 指す受入基準が取り消し線（`~~`）で無効化されていないこと
+ *      - `requirement` 欄の要件番号と題が要件定義書と一致すること
+ *      - `criterionText` が要件定義書の当該受入基準の本文と一字一句一致すること
+ *
+ * 識別子と内容の対応をどう機械化したか:
+ *   従前この定義は、`id`（番号）と `title` / `reason`（散文）を並べるだけで、両者が
+ *   同じ受入基準を指しているかを確かめる手立てを持たなかった。実際、要件定義書へ受入基準を
+ *   一件挿入しただけで番号が一つずれ、除外は別の受入基準を分母から外し続けていた
+ *   （site-survey/REQ-1.5・1.6 など。タスク 115.167 の走査で判明）。
+ *   散文どうしの照合は自然言語の判断になり機械化できないため、対応の担い手を散文から
+ *   **原文の逐語複製**へ移した。各除外は `criterionText` に受入基準の本文をそのまま持ち、
+ *   検査はそれが要件定義書の当該行と完全一致することだけを見る。番号がずれれば複製は
+ *   合わなくなり、検査が落ちる。
+ *
+ * この検査が捕まえないもの（限界を両方向で述べる）:
+ *   `title` / `reason` の散文が `criterionText` と食い違っていても検出しない。両者の
+ *   一致は自然言語の判断であり、語の重なりで測る方式は本リポジトリの実データで
+ *   誤検出が多すぎた（受入基準の前後3件と比べる方式で 266 件中 36 件を候補として挙げ、
+ *   人手で確かめた真の食い違いは 11 件。残る 25 件は「数量表のPDF出力5」のように
+ *   題が内容を持たない項目の取り違えであった）。散文の食い違いは、逐語複製が
+ *   同じ項目の中に並ぶことで読み手に見えるようにするにとどめる。
  *
  * オプション:
  *   --verbose  違反の詳細（値そのもの）を出力する
@@ -287,6 +310,217 @@ export function validateAgainstSchema(
 }
 
 // ============================================================================
+// 要件定義書の取り込み（識別子と内容の対応を照合するため）
+// ============================================================================
+
+export const SPECS_DIR = '.kiro/specs';
+
+/** 機能名を冠さない旧来の識別子が属する機能。被覆率側の normalizeExclusionId と同じ規則。 */
+export const DEFAULT_FEATURE = 'user-authentication';
+
+/** 一つの機能の要件定義書から読み取った目録 */
+export interface RequirementCatalogue {
+  /** 要件定義書が実在したか */
+  present: boolean;
+  /** `REQ-N` → 要件の題 */
+  requirementTitles: Map<string, string>;
+  /** `REQ-N.M` → 受入基準の本文（行頭の番号を除いた残り） */
+  criteria: Map<string, string>;
+}
+
+/**
+ * 旧形式（`REQ-N.M`）の除外 ID を機能名付きへ揃える
+ *
+ * 被覆率側（scripts/check-requirement-coverage.ts の normalizeExclusionId）と同じ規則。
+ * 重複検出をこの正規化の後で行わないと、`REQ-23.3` と `user-authentication/REQ-23.3` の
+ * ように接頭辞だけが違う対が二件として素通りする（被覆率側は同一視するため、
+ * 分母から外れるのは一件で、集計だけが二重に数えられる）。
+ */
+export function normalizeExclusionId(id: string): string {
+  return id.includes('/') ? id : `${DEFAULT_FEATURE}/${id}`;
+}
+
+/**
+ * 要件定義書から要件の題と受入基準の本文を読み取る
+ *
+ * 受入基準の切り出し規則は scripts/check-requirement-coverage.ts の extractRequirements と
+ * 同一にする。被覆率が分母として数える単位と、除外が指す単位がずれると、この照合自体が
+ * 別のものを見ることになる。
+ */
+export function loadRequirementCatalogue(
+  featureName: string,
+  rootDir = ROOT
+): RequirementCatalogue {
+  const filePath = path.join(rootDir, SPECS_DIR, featureName, 'requirements.md');
+  const catalogue: RequirementCatalogue = {
+    present: fs.existsSync(filePath),
+    requirementTitles: new Map(),
+    criteria: new Map(),
+  };
+  if (!catalogue.present) return catalogue;
+
+  const requirementRegexJa = /^###\s*要件(\d+[A-E]?):\s*(.*)$/;
+  const requirementRegexEn = /^###\s*Requirement\s+(\d+[A-E]?):\s*(.*)$/;
+  const acceptanceCriteriaRegex = /^(\d+)\.\s+(.+)$/;
+
+  let currentId: string | null = null;
+  let inAcceptanceCriteria = false;
+
+  for (const line of fs.readFileSync(filePath, 'utf-8').split('\n')) {
+    const requirementMatch = requirementRegexJa.exec(line) ?? requirementRegexEn.exec(line);
+    if (requirementMatch?.[1] !== undefined && requirementMatch[2] !== undefined) {
+      currentId = `REQ-${requirementMatch[1]}`;
+      catalogue.requirementTitles.set(currentId, requirementMatch[2].trim());
+      inAcceptanceCriteria = false;
+      continue;
+    }
+
+    if (
+      line.includes('#### 受入基準') ||
+      line.includes('##### 受入基準') ||
+      line.includes('#### Acceptance Criteria')
+    ) {
+      inAcceptanceCriteria = true;
+      continue;
+    }
+
+    if (line.startsWith('###') && !line.startsWith('#####') && !line.includes('受入基準')) {
+      if (line.startsWith('### 要件') || line.startsWith('### Requirement')) {
+        // 次の反復で要件ヘッダーとして処理する
+      } else if (line.startsWith('####') && !line.startsWith('#####')) {
+        inAcceptanceCriteria = false;
+        continue;
+      }
+    }
+
+    if (currentId !== null && inAcceptanceCriteria) {
+      const criterionMatch = acceptanceCriteriaRegex.exec(line);
+      if (criterionMatch?.[1] !== undefined && criterionMatch[2] !== undefined) {
+        catalogue.criteria.set(`${currentId}.${criterionMatch[1]}`, criterionMatch[2].trim());
+      }
+    }
+  }
+
+  return catalogue;
+}
+
+/**
+ * 識別子と内容の対応を確かめる
+ *
+ * 番号（`id`）と散文（`title` / `reason`）を並べるだけでは、両者が同じ受入基準を
+ * 指しているかを機械で確かめられない。そこで各除外に受入基準の本文の逐語複製
+ * （`criterionText`）を持たせ、それが要件定義書の当該行と完全に一致することを見る。
+ * 番号がずれれば複製が合わなくなるため、ずれは検査で落ちる。
+ */
+export function checkCriterionCorrespondence(document: Json, rootDir = ROOT): Violation[] {
+  const violations: Violation[] = [];
+  if (!isPlainObject(document)) return violations;
+
+  const exclusions = Array.isArray(document.exclusions) ? document.exclusions : [];
+  const catalogues = new Map<string, RequirementCatalogue>();
+
+  exclusions.forEach((entry, index) => {
+    if (!isPlainObject(entry) || typeof entry.id !== 'string') return;
+    const pointer = `exclusions[${index}]`;
+    const normalized = normalizeExclusionId(entry.id);
+    const separator = normalized.indexOf('/');
+    const featureName = normalized.slice(0, separator);
+    const criterionId = normalized.slice(separator + 1);
+    const requirementId = criterionId.slice(0, criterionId.lastIndexOf('.'));
+
+    let catalogue = catalogues.get(featureName);
+    if (!catalogue) {
+      catalogue = loadRequirementCatalogue(featureName, rootDir);
+      catalogues.set(featureName, catalogue);
+    }
+
+    if (!catalogue.present) {
+      violations.push({
+        pointer: `${pointer}.id`,
+        message: `機能 '${featureName}' の要件定義書（${SPECS_DIR}/${featureName}/requirements.md）が存在しません`,
+        actual: entry.id,
+      });
+      return;
+    }
+
+    // requirement 欄（`REQ-N: 題`。機能名を冠する書き方も実在するため許す）
+    if (typeof entry.requirement === 'string') {
+      const declared = entry.requirement.replace(/^[a-z0-9][a-z0-9-]*\//, '');
+      const declaredMatch = /^(REQ-\d+[A-E]?):\s*(.*)$/.exec(declared);
+      if (!declaredMatch?.[1] || declaredMatch[2] === undefined) {
+        violations.push({
+          pointer: `${pointer}.requirement`,
+          message: `'REQ-N: 要件の題' の形ではありません`,
+          actual: entry.requirement,
+        });
+      } else if (declaredMatch[1] !== requirementId) {
+        violations.push({
+          pointer: `${pointer}.requirement`,
+          message: `id の要件番号（${requirementId}）と食い違っています`,
+          actual: entry.requirement,
+        });
+      } else {
+        const actualTitle = catalogue.requirementTitles.get(requirementId);
+        if (actualTitle === undefined) {
+          violations.push({
+            pointer: `${pointer}.id`,
+            message: `要件定義書に ${requirementId} がありません`,
+            actual: entry.id,
+          });
+        } else if (actualTitle !== declaredMatch[2].trim()) {
+          violations.push({
+            pointer: `${pointer}.requirement`,
+            message: `要件の題が要件定義書と一致しません（原文: ${actualTitle}）`,
+            actual: entry.requirement,
+          });
+        }
+      }
+    }
+
+    // id が指す受入基準の実在と、その本文の逐語複製
+    const criterionText = catalogue.criteria.get(criterionId);
+    if (criterionText === undefined) {
+      violations.push({
+        pointer: `${pointer}.id`,
+        message: `要件定義書に該当の受入基準がありません（分母から外す先が存在しない）`,
+        actual: normalized,
+      });
+      return;
+    }
+    // 取り消し線で無効化された受入基準は `removed-from-spec` でのみ指してよい。
+    // 撤廃・移動された受入基準を通常の区分で除外すると、「代わりにこの方法で確かめる」
+    // という約束が、そもそも存在しない受入基準に対して立てられることになる。
+    const removedFromSpec = entry.category === 'removed-from-spec';
+    const struckThrough = criterionText.startsWith('~~');
+    if (struckThrough && !removedFromSpec) {
+      violations.push({
+        pointer: `${pointer}.category`,
+        message: `取り消し線で無効化された受入基準を指しています。区分は 'removed-from-spec' である必要があります（移動先の受入基準があるならその id を指すこと）`,
+        actual: `${normalized}: ${criterionText}`,
+      });
+    }
+    if (!struckThrough && removedFromSpec) {
+      violations.push({
+        pointer: `${pointer}.category`,
+        message: `'removed-from-spec' は要件定義書上で削除表記（~~）となった受入基準に限ります。当該の受入基準は現役です`,
+        actual: `${normalized}: ${criterionText}`,
+      });
+    }
+
+    if (typeof entry.criterionText !== 'string') return; // 欠落はスキーマ側が報告する
+    if (entry.criterionText !== criterionText) {
+      violations.push({
+        pointer: `${pointer}.criterionText`,
+        message: `要件定義書の ${normalized} の本文と一致しません（原文: ${criterionText}）`,
+        actual: entry.criterionText,
+      });
+    }
+  });
+
+  return violations;
+}
+
+// ============================================================================
 // スキーマ単体では表せない不変条件
 // ============================================================================
 
@@ -295,6 +529,8 @@ export function validateAgainstSchema(
  *
  * JSON Schema は「category が categories のキーであること」や「summary の件数が
  * 実際の件数と一致すること」を表せない。ここで明示的に確かめる。
+ *
+ * 識別子と内容の対応（要件定義書との照合）は checkCriterionCorrespondence が扱う。
  */
 export function checkInvariants(document: Json): Violation[] {
   const violations: Violation[] = [];
@@ -304,18 +540,26 @@ export function checkInvariants(document: Json): Violation[] {
   const categories = isPlainObject(document.categories) ? document.categories : {};
 
   // 識別子の重複
-  const seen = new Map<string, number>();
+  //
+  // 生の id で比べると、`REQ-23.3` と `user-authentication/REQ-23.3` のように
+  // 接頭辞だけが違う対を見逃す。被覆率側は normalizeExclusionId で両者を同一視するため、
+  // 分母から外れるのは一件だけで、集計だけが二重に数えられる。同じ正規化を通してから比べる。
+  const seen = new Map<string, { index: number; id: string }>();
   exclusions.forEach((entry, index) => {
     if (!isPlainObject(entry) || typeof entry.id !== 'string') return;
-    const first = seen.get(entry.id);
+    const normalized = normalizeExclusionId(entry.id);
+    const first = seen.get(normalized);
     if (first !== undefined) {
       violations.push({
         pointer: `exclusions[${index}].id`,
-        message: `同じ受入基準が exclusions[${first}] でも除外されています（重複）`,
+        message:
+          first.id === entry.id
+            ? `同じ受入基準が exclusions[${first.index}] でも除外されています（重複）`
+            : `同じ受入基準が exclusions[${first.index}]（${first.id}）でも除外されています（機能名の有無だけが違う重複）`,
         actual: entry.id,
       });
     } else {
-      seen.set(entry.id, index);
+      seen.set(normalized, { index, id: entry.id });
     }
   });
 
@@ -470,6 +714,7 @@ export function run(exclusionsPath = EXCLUSIONS_PATH): CheckResult {
     violations.push({ pointer: '(schema)', message: 'スキーマがオブジェクトではありません' });
   }
   violations.push(...checkInvariants(document));
+  violations.push(...checkCriterionCorrespondence(document));
 
   const exclusionCount =
     isPlainObject(document) && Array.isArray(document.exclusions) ? document.exclusions.length : 0;

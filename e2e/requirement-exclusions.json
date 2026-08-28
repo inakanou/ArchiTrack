@@ -2,12 +2,13 @@
   "$schema": "./requirement-exclusions.schema.json",
   "description": "E2Eテスト対象外の受入基準とその代替検証方法を定義",
   "version": "1.0.0",
-  "lastUpdated": "2026-08-25",
+  "lastUpdated": "2026-08-28",
   "exclusions": [
     {
       "id": "REQ-23.3",
       "requirement": "REQ-23: 非機能要件（パフォーマンス・スケーラビリティ）",
       "title": "レスポンスタイム要件",
+      "criterionText": "WHEN システムが大量の同時ユーザーを処理する THEN Authentication Serviceはレスポンスタイムの劣化率を20%以内に抑えなければならない",
       "reason": "パフォーマンステストはE2Eテストの範囲外。負荷テストツールで検証が必要",
       "category": "performance",
       "alternativeVerification": {
@@ -21,6 +22,7 @@
       "id": "REQ-23.4",
       "requirement": "REQ-23: 非機能要件（パフォーマンス・スケーラビリティ）",
       "title": "キャッシュヒット率要件",
+      "criterionText": "WHEN 権限情報がキャッシュされる THEN Authentication Serviceは90%以上のキャッシュヒット率を維持しなければならない",
       "reason": "Redis統計情報の継続的監視が必要。単発E2Eテストでは検証不可",
       "category": "performance",
       "alternativeVerification": {
@@ -34,6 +36,7 @@
       "id": "REQ-23.5",
       "requirement": "REQ-23: 非機能要件（パフォーマンス・スケーラビリティ）",
       "title": "データベース接続プール管理",
+      "criterionText": "WHEN データベース接続プールを管理する THEN Authentication Serviceは10-50接続の接続プールサイズを維持しなければならない",
       "reason": "接続プール設定はインフラ構成。テストではなく設定レビューで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -47,6 +50,7 @@
       "id": "REQ-23.7",
       "requirement": "REQ-23: 非機能要件（パフォーマンス・スケーラビリティ）",
       "title": "水平スケーリング対応",
+      "criterionText": "WHEN システムが水平スケーリングされる THEN Authentication Serviceはステートレス設計により、複数インスタンス間でセッション共有を可能にしなければならない",
       "reason": "複数インスタンス環境のテストはE2E範囲外。アーキテクチャレビューで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -60,6 +64,7 @@
       "id": "REQ-24.1",
       "requirement": "REQ-24: フォールトトレランス（障害耐性）",
       "title": "データベース接続タイムアウト時の503エラー",
+      "criterionText": "IF データベース接続がタイムアウト以内に確立できない THEN Authentication Serviceは503 Service Unavailableエラーを返さなければならない",
       "reason": "データベース障害シミュレーションはE2E範囲外。カオスエンジニアリングで検証",
       "category": "fault-tolerance",
       "alternativeVerification": {
@@ -73,6 +78,7 @@
       "id": "REQ-24.2",
       "requirement": "REQ-24: フォールトトレランス（障害耐性）",
       "title": "キャッシュ障害時のフォールバック",
+      "criterionText": "IF キャッシュ接続が失敗する THEN Authentication Serviceはデータベースから直接権限情報を取得しなければならない",
       "reason": "Redis障害シミュレーションはE2E範囲外。カオスエンジニアリングで検証",
       "category": "fault-tolerance",
       "alternativeVerification": {
@@ -86,6 +92,7 @@
       "id": "REQ-24.3",
       "requirement": "REQ-24: フォールトトレランス（障害耐性）",
       "title": "メールサービス障害時のキュー保存",
+      "criterionText": "WHEN 外部メールサービスが応答しない THEN Authentication Serviceはメール送信をキューに保存し、最大5回までリトライ（1分、5分、15分、1時間、6時間後）を実行しなければならない",
       "reason": "外部メールサービス障害シミュレーションはE2E範囲外",
       "category": "fault-tolerance",
       "alternativeVerification": {
@@ -99,6 +106,7 @@
       "id": "REQ-24.6",
       "requirement": "REQ-24: フォールトトレランス（障害耐性）",
       "title": "データベース接続リトライ",
+      "criterionText": "WHEN データベース接続がタイムアウトする THEN Authentication Serviceは最大3回までリトライ（1回目: 1秒後、2回目: 2秒後、3回目: 4秒後のエクスポネンシャルバックオフ）を実行しなければならない",
       "reason": "一時的なDB障害のリトライはE2E範囲外。統合テストまたはカオスエンジニアリングで検証",
       "category": "fault-tolerance",
       "alternativeVerification": {
@@ -112,6 +120,7 @@
       "id": "REQ-24.7",
       "requirement": "REQ-24: フォールトトレランス（障害耐性）",
       "title": "キャッシュ障害時の警告ログ",
+      "criterionText": "IF キャッシュ障害時にフォールバック処理が実行される THEN Authentication Serviceは警告ログを記録しなければならない",
       "reason": "ログ出力の検証はE2E範囲外。統合テストでログ内容を検証",
       "category": "fault-tolerance",
       "alternativeVerification": {
@@ -125,6 +134,7 @@
       "id": "REQ-24.8",
       "requirement": "REQ-24: フォールトトレランス（障害耐性）",
       "title": "メール送信不可時のユーザー登録継続",
+      "criterionText": "WHEN 外部サービス（メール送信）が利用不可である THEN Authentication Serviceはユーザー登録・招待処理を非同期キューで処理しなければならない",
       "reason": "外部サービス障害時の挙動はE2E範囲外。統合テストで検証",
       "category": "fault-tolerance",
       "alternativeVerification": {
@@ -138,6 +148,7 @@
       "id": "REQ-24.9",
       "requirement": "REQ-24: フォールトトレランス（障害耐性）",
       "title": "ヘルスチェックエンドポイント",
+      "criterionText": "WHEN サービスが部分的な障害から復旧する THEN Authentication Serviceはヘルスチェックエンドポイントで障害状態を報告しなければならない",
       "reason": "部分障害からの復旧検証はE2E範囲外。ヘルスチェックの存在はAPIテストで確認済み",
       "category": "fault-tolerance",
       "alternativeVerification": {
@@ -151,6 +162,7 @@
       "id": "REQ-25.6",
       "requirement": "REQ-25: データ整合性とトランザクション管理",
       "title": "パスワードリセットのトランザクション",
+      "criterionText": "WHEN パスワードリセット処理が実行される THEN Authentication Serviceはリセットトークン生成、メール送信、ログ記録をトランザクション内で処理しなければならない",
       "reason": "トランザクション境界のテストはE2E範囲外。統合テストでDB状態を検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -164,6 +176,7 @@
       "id": "REQ-25.8",
       "requirement": "REQ-25: データ整合性とトランザクション管理",
       "title": "楽観的ロック競合処理",
+      "criterionText": "IF 楽観的ロック競合が発生する THEN Authentication Serviceはリトライまたはエラーレスポンスを返さなければならない",
       "reason": "同時更新の競合テストはE2E範囲外。統合テストで並行アクセスを検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -177,6 +190,7 @@
       "id": "REQ-26.3",
       "requirement": "REQ-26: セキュリティ対策（脅威モデリング）",
       "title": "CSRFトークン検証",
+      "criterionText": "WHEN 状態を変更するAPIリクエストが送信される THEN Authentication ServiceはCSRFトークンを検証しなければならない",
       "reason": "テスト環境ではCSRF保護が無効化されている。本番環境でのセキュリティ監査で検証",
       "category": "security",
       "alternativeVerification": {
@@ -190,6 +204,7 @@
       "id": "REQ-26.8",
       "requirement": "REQ-26: セキュリティ対策（脅威モデリング）",
       "title": "パスワードリセットトークンの暗号学的安全性",
+      "criterionText": "WHEN パスワードリセットトークンを生成する THEN Authentication Serviceは暗号学的に安全な乱数生成器を使用しなければならない",
       "reason": "トークン生成アルゴリズムの検証はコードレビュー範囲。E2Eでは検証不可",
       "category": "security",
       "alternativeVerification": {
@@ -203,6 +218,7 @@
       "id": "REQ-23.1",
       "requirement": "REQ-23: 非機能要件（パフォーマンス・スケーラビリティ）",
       "title": "ログインAPIレスポンスタイム",
+      "criterionText": "WHEN ログインAPIリクエストが送信される THEN Authentication Serviceは95パーセンタイルで500ms以内にレスポンスを返さなければならない",
       "reason": "APIレスポンスタイムの計測は負荷テストで検証",
       "category": "performance",
       "alternativeVerification": {
@@ -216,6 +232,7 @@
       "id": "REQ-23.2",
       "requirement": "REQ-23: 非機能要件（パフォーマンス・スケーラビリティ）",
       "title": "権限チェックAPIレスポンスタイム",
+      "criterionText": "WHEN 権限チェックAPIが呼び出される THEN Authentication Serviceは99パーセンタイルで100ms以内にレスポンスを返さなければならない",
       "reason": "APIレスポンスタイムの計測は負荷テストで検証",
       "category": "performance",
       "alternativeVerification": {
@@ -229,6 +246,7 @@
       "id": "REQ-23.6",
       "requirement": "REQ-23: 非機能要件（パフォーマンス・スケーラビリティ）",
       "title": "トークンリフレッシュAPIレスポンスタイム",
+      "criterionText": "WHEN トークンリフレッシュAPIが呼び出される THEN Authentication Serviceは95パーセンタイルで300ms以内にレスポンスを返さなければならない",
       "reason": "APIレスポンスタイムの計測は負荷テストで検証",
       "category": "performance",
       "alternativeVerification": {
@@ -242,6 +260,7 @@
       "id": "REQ-23.8",
       "requirement": "REQ-23: 非機能要件（パフォーマンス・スケーラビリティ）",
       "title": "データベースクエリインデックス最適化",
+      "criterionText": "WHEN データベースクエリを実行する THEN Authentication Serviceは適切なインデックスを使用して、クエリ時間を最小限に維持しなければならない",
       "reason": "データベースインデックスの検証はコードレビューとクエリ分析で検証",
       "category": "performance",
       "alternativeVerification": {
@@ -255,6 +274,7 @@
       "id": "REQ-25.1",
       "requirement": "REQ-25: データ整合性とトランザクション管理",
       "title": "ユーザー登録のトランザクション",
+      "criterionText": "WHEN ユーザー登録が実行される THEN Authentication Serviceはユーザー作成、招待トークン無効化、ロール割り当てを単一トランザクション内で処理しなければならない",
       "reason": "トランザクション境界のテストはE2E範囲外。統合テストでDB状態を検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -268,6 +288,7 @@
       "id": "REQ-25.2",
       "requirement": "REQ-25: データ整合性とトランザクション管理",
       "title": "トランザクション失敗時のロールバック",
+      "criterionText": "IF トランザクション内で1つでも処理が失敗する THEN Authentication Serviceは全ての変更をロールバックしなければならない",
       "reason": "トランザクションロールバックのテストはE2E範囲外。統合テストで検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -281,6 +302,7 @@
       "id": "REQ-25.3",
       "requirement": "REQ-25: データ整合性とトランザクション管理",
       "title": "ロール一括割り当てのトランザクション",
+      "criterionText": "WHEN 複数のロールを一括で割り当てる THEN Authentication Serviceはトランザクション内で処理しなければならない",
       "reason": "トランザクション境界のテストはE2E範囲外。統合テストで検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -294,6 +316,7 @@
       "id": "REQ-25.4",
       "requirement": "REQ-25: データ整合性とトランザクション管理",
       "title": "データベース書き込み操作の分離レベル",
+      "criterionText": "WHEN データベース書き込み操作を実行する THEN Authentication ServiceはACID特性を保証しなければならない",
       "reason": "トランザクション分離レベルの検証はE2E範囲外。統合テストで検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -307,6 +330,7 @@
       "id": "REQ-25.5",
       "requirement": "REQ-25: データ整合性とトランザクション管理",
       "title": "監査ログ保存失敗時のロールバック",
+      "criterionText": "IF 監査ログの保存に失敗する THEN Authentication Serviceは元の操作をロールバックしなければならない",
       "reason": "トランザクションロールバックのテストはE2E範囲外。統合テストで検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -320,6 +344,7 @@
       "id": "REQ-25.7",
       "requirement": "REQ-25: データ整合性とトランザクション管理",
       "title": "ロール・権限紐付け変更のトランザクション",
+      "criterionText": "WHEN ロール・権限の紐付けを変更する THEN Authentication Serviceは変更前後の整合性を検証しなければならない",
       "reason": "トランザクション境界のテストはE2E範囲外。統合テストで検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -333,6 +358,7 @@
       "id": "project-management/REQ-18.1",
       "requirement": "REQ-18: エラー回復とフィードバック",
       "title": "ネットワークエラー時のメッセージ表示",
+      "criterionText": "If ネットワークエラーが発生した場合, then the ArchiTrackシステム shall 「通信エラーが発生しました。再試行してください。」というエラーメッセージと再試行ボタンを表示する",
       "reason": "ネットワークエラーのシミュレーションはE2E範囲外。統合テストで検証",
       "category": "fault-tolerance",
       "alternativeVerification": {
@@ -346,6 +372,7 @@
       "id": "project-management/REQ-18.2",
       "requirement": "REQ-18: エラー回復とフィードバック",
       "title": "再試行ボタン機能",
+      "criterionText": "When ユーザーが再試行ボタンをクリックする, the ArchiTrackシステム shall 失敗したリクエストを再実行する",
       "reason": "ネットワークエラー時の再試行機能はE2E範囲外。統合テストで検証",
       "category": "fault-tolerance",
       "alternativeVerification": {
@@ -359,6 +386,7 @@
       "id": "project-management/REQ-18.3",
       "requirement": "REQ-18: エラー回復とフィードバック",
       "title": "サーバーエラー時のメッセージ表示",
+      "criterionText": "If サーバーエラーが発生した場合, then the ArchiTrackシステム shall 「システムエラーが発生しました。しばらくしてからお試しください。」というエラーメッセージを表示する",
       "reason": "サーバーエラーのシミュレーションはE2E範囲外。統合テストで検証",
       "category": "fault-tolerance",
       "alternativeVerification": {
@@ -372,6 +400,7 @@
       "id": "project-management/REQ-18.4",
       "requirement": "REQ-18: エラー回復とフィードバック",
       "title": "操作成功時のトースト通知",
+      "criterionText": "The ArchiTrackシステム shall 操作成功時にトースト通知で成功メッセージを表示する",
       "reason": "トースト通知の検証は他のE2Eテストで包括的にカバー済み",
       "category": "fault-tolerance",
       "alternativeVerification": {
@@ -385,6 +414,7 @@
       "id": "project-management/REQ-18.5",
       "requirement": "REQ-18: エラー回復とフィードバック",
       "title": "操作失敗時のトースト通知",
+      "criterionText": "The ArchiTrackシステム shall 操作失敗時にトースト通知でエラーメッセージを表示する",
       "reason": "トースト通知の検証は他のE2Eテストで包括的にカバー済み",
       "category": "fault-tolerance",
       "alternativeVerification": {
@@ -398,6 +428,7 @@
       "id": "project-management/REQ-18.6",
       "requirement": "REQ-18: エラー回復とフィードバック",
       "title": "セッション期限切れ時のリダイレクト",
+      "criterionText": "If セッションが期限切れの場合, then the ArchiTrackシステム shall ログインページにリダイレクトし、「セッションが期限切れになりました。再度ログインしてください。」というメッセージを表示する",
       "reason": "セッション期限切れのシミュレーションはE2E範囲外。統合テストで検証",
       "category": "fault-tolerance",
       "alternativeVerification": {
@@ -411,6 +442,7 @@
       "id": "project-management/REQ-19.1",
       "requirement": "REQ-19: パフォーマンス",
       "title": "プロジェクト一覧画面の初期表示",
+      "criterionText": "The ArchiTrackシステム shall プロジェクト一覧画面の初期表示を標準的な使用条件下で2秒以内に完了する",
       "reason": "パフォーマンス計測はE2E範囲外。負荷テストで検証",
       "category": "performance",
       "alternativeVerification": {
@@ -424,6 +456,7 @@
       "id": "project-management/REQ-19.2",
       "requirement": "REQ-19: パフォーマンス",
       "title": "プロジェクト詳細画面の初期表示",
+      "criterionText": "The ArchiTrackシステム shall プロジェクト詳細画面の初期表示を標準的な使用条件下で1秒以内に完了する",
       "reason": "パフォーマンス計測はE2E範囲外。負荷テストで検証",
       "category": "performance",
       "alternativeVerification": {
@@ -437,6 +470,7 @@
       "id": "project-management/REQ-19.3",
       "requirement": "REQ-19: パフォーマンス",
       "title": "CRUD操作のAPI応答時間",
+      "criterionText": "The ArchiTrackシステム shall プロジェクト作成・更新・削除操作のAPI応答を標準的な使用条件下で500ミリ秒以内に完了する",
       "reason": "API応答時間計測はE2E範囲外。負荷テストで検証",
       "category": "performance",
       "alternativeVerification": {
@@ -450,6 +484,7 @@
       "id": "project-management/REQ-19.4",
       "requirement": "REQ-19: パフォーマンス",
       "title": "検索・フィルタリング操作の結果表示",
+      "criterionText": "The ArchiTrackシステム shall 検索・フィルタリング操作の結果表示を標準的な使用条件下で1秒以内に完了する",
       "reason": "パフォーマンス計測はE2E範囲外。負荷テストで検証",
       "category": "performance",
       "alternativeVerification": {
@@ -463,6 +498,7 @@
       "id": "project-management/REQ-19.5",
       "requirement": "REQ-19: パフォーマンス",
       "title": "大量データ時のページネーション性能",
+      "criterionText": "The ArchiTrackシステム shall 大量データでもページネーションにより一覧表示のパフォーマンスを維持する",
       "reason": "大量データのパフォーマンス検証はE2E範囲外。負荷テストで検証",
       "category": "performance",
       "alternativeVerification": {
@@ -473,9 +509,10 @@
       }
     },
     {
-      "id": "site-survey/REQ-1.5",
+      "id": "site-survey/REQ-1.6",
       "requirement": "REQ-1: 現場調査CRUD操作",
       "title": "同時編集による競合検出",
+      "criterionText": "If 同時編集による競合が検出される, then the Site Survey Service shall 競合エラーを表示して再読み込みを促す",
       "reason": "並行アクセスによる競合検出はE2E範囲外。統合テストで検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -486,9 +523,10 @@
       }
     },
     {
-      "id": "site-survey/REQ-1.6",
+      "id": "site-survey/REQ-1.7",
       "requirement": "REQ-1: 現場調査CRUD操作",
       "title": "プロジェクト存在チェック",
+      "criterionText": "While プロジェクトが存在しない, the Site Survey Service shall 現場調査の作成を許可しない",
       "reason": "プロジェクト存在チェックはAPIレベルで検証。E2EではUIパスがないため対象外",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -502,6 +540,7 @@
       "id": "site-survey/REQ-9.4",
       "requirement": "REQ-9: 注釈データの保存・復元",
       "title": "保存中インジケーター表示",
+      "criterionText": "While 注釈データ保存中, the Site Survey Service shall 保存中インジケーターを表示する",
       "reason": "保存中インジケーターはUIコンポーネントテストでカバー",
       "category": "fault-tolerance",
       "alternativeVerification": {
@@ -515,6 +554,7 @@
       "id": "site-survey/REQ-14.4",
       "requirement": "REQ-14: アクセス制御",
       "title": "署名付きURLの有効期限とアクセス権限検証",
+      "criterionText": "When 画像URLへのアクセスリクエストがある, the Site Survey Service shall 署名付きURLの有効期限とアクセス権限を検証する",
       "reason": "署名付きURLの検証はセキュリティ監査とAPIテストで検証",
       "category": "security",
       "alternativeVerification": {
@@ -528,6 +568,7 @@
       "id": "site-survey/REQ-14.5",
       "requirement": "REQ-14: アクセス制御",
       "title": "監査ログ記録",
+      "criterionText": "The Site Survey Service shall 現場調査の操作履歴を監査ログに記録する",
       "reason": "監査ログの記録はE2E範囲外。統合テストでDB状態を検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -541,6 +582,7 @@
       "id": "site-survey/REQ-15.1",
       "requirement": "REQ-15: レスポンシブ対応",
       "title": "マルチデバイス対応UI",
+      "criterionText": "The Site Survey Service shall デスクトップ・タブレット・スマートフォンの各画面サイズに対応したUIを提供する",
       "reason": "レスポンシブUIの検証はE2E範囲外。Visual Regressionテストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -554,6 +596,7 @@
       "id": "site-survey/REQ-15.2",
       "requirement": "REQ-15: レスポンシブ対応",
       "title": "タッチ操作に最適化された注釈ツール",
+      "criterionText": "When タッチデバイスで操作する, the Site Survey Service shall タッチ操作に最適化された注釈ツールを提供する",
       "reason": "タッチ操作の検証はE2E範囲外。デバイステストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -567,6 +610,7 @@
       "id": "site-survey/REQ-15.3",
       "requirement": "REQ-15: レスポンシブ対応",
       "title": "モバイル環境でのカメラ連携",
+      "criterionText": "The Site Survey Service shall モバイル環境でのカメラ連携による直接撮影をサポートする",
       "reason": "モバイルカメラ連携はE2E範囲外。デバイステストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -580,6 +624,7 @@
       "id": "site-survey/REQ-16.1",
       "requirement": "REQ-16: 非機能要件",
       "title": "画像一覧の初期表示時間",
+      "criterionText": "The Site Survey Service shall 画像一覧の初期表示を2秒以内に完了する",
       "reason": "パフォーマンス計測はE2E範囲外。負荷テストで検証",
       "category": "performance",
       "alternativeVerification": {
@@ -593,6 +638,7 @@
       "id": "site-survey/REQ-16.2",
       "requirement": "REQ-16: 非機能要件",
       "title": "注釈の描画・編集操作のフレームレート",
+      "criterionText": "The Site Survey Service shall 注釈の描画・編集操作を60fps以上で応答する",
       "reason": "フレームレートの計測はE2E範囲外。パフォーマンステストで検証",
       "category": "performance",
       "alternativeVerification": {
@@ -606,6 +652,7 @@
       "id": "site-survey/REQ-16.3",
       "requirement": "REQ-16: 非機能要件",
       "title": "画像アップロード処理時間",
+      "criterionText": "The Site Survey Service shall 画像アップロード処理を5秒以内に完了する（300KB以下の場合）",
       "reason": "アップロード時間の計測はE2E範囲外。負荷テストで検証",
       "category": "performance",
       "alternativeVerification": {
@@ -619,6 +666,7 @@
       "id": "site-survey/REQ-16.4",
       "requirement": "REQ-16: 非機能要件",
       "title": "同時接続ユーザー数",
+      "criterionText": "The Site Survey Service shall 同時接続ユーザー100人以上をサポートする",
       "reason": "同時接続の検証はE2E範囲外。負荷テストで検証",
       "category": "performance",
       "alternativeVerification": {
@@ -632,6 +680,7 @@
       "id": "site-survey/REQ-16.5",
       "requirement": "REQ-16: 非機能要件",
       "title": "月間稼働率",
+      "criterionText": "The Site Survey Service shall 月間稼働率99.9%の可用性を維持する（計画メンテナンスを除く）",
       "reason": "稼働率の検証はE2E範囲外。モニタリングで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -645,6 +694,7 @@
       "id": "site-survey/REQ-16.6",
       "requirement": "REQ-16: 非機能要件",
       "title": "HTTPS/TLS暗号化",
+      "criterionText": "The Site Survey Service shall 全ての通信をHTTPS/TLSで暗号化する",
       "reason": "通信暗号化の検証はE2E範囲外。設定レビューで検証",
       "category": "security",
       "alternativeVerification": {
@@ -658,6 +708,7 @@
       "id": "site-survey/REQ-16.7",
       "requirement": "REQ-16: 非機能要件",
       "title": "画像データのバックアップ",
+      "criterionText": "The Site Survey Service shall 画像データを定期的にバックアップする",
       "reason": "バックアップの検証はE2E範囲外。インフラ設定レビューで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -671,6 +722,7 @@
       "id": "site-survey/REQ-16.8",
       "requirement": "REQ-16: 非機能要件",
       "title": "エラー時のSentry送信",
+      "criterionText": "The Site Survey Service shall エラー発生時に適切なエラーメッセージを表示し、Sentryにログを送信する",
       "reason": "エラーログ送信の検証はE2E範囲外。送出の宛先VITE_SENTRY_DSNはタスク 115.123 で配備の設定として定義済み（frontend/.env.example、frontend/Dockerfile のビルド引数、docs/deployment 配下の三書）だが、DSNの値は秘密のため版管理下に置かずE2E環境にも設定しない。値が無い環境ではcaptureExceptionが送信せず観測できないため、画面の捕捉処理からSentry境界までを単体検証で確認する",
       "category": "fault-tolerance",
       "alternativeVerification": {
@@ -684,6 +736,7 @@
       "id": "site-survey/REQ-4.3",
       "requirement": "REQ-4: 画像アップロード・管理",
       "title": "5件超過時のキュー処理",
+      "criterionText": "If 同時選択ファイル数が5件を超える, then the Site Survey Service shall 5件ずつキュー処理して順次アップロードを実行する",
       "reason": "キュー処理の内部動作はE2E範囲外。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -697,6 +750,7 @@
       "id": "site-survey/REQ-4.4",
       "requirement": "REQ-4: 画像アップロード・管理",
       "title": "サムネイル自動生成",
+      "criterionText": "When 画像アップロードが完了する, the Site Survey Service shall サムネイルを自動生成する",
       "reason": "サムネイル生成はサーバーサイド処理。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -708,8 +762,9 @@
     },
     {
       "id": "site-survey/REQ-7.8",
-      "requirement": "REQ-7: 注釈機能 - マーキング",
+      "requirement": "REQ-7: 注釈機能 - マーキング（図形）",
       "title": "図形のドラッグ移動",
+      "criterionText": "When ユーザーが選択中の図形をドラッグする, the Site Survey Service shall 図形の位置を移動する",
       "reason": "キャンバス上でのドラッグ操作はE2E範囲外。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -721,8 +776,9 @@
     },
     {
       "id": "site-survey/REQ-7.9",
-      "requirement": "REQ-7: 注釈機能 - マーキング",
+      "requirement": "REQ-7: 注釈機能 - マーキング（図形）",
       "title": "図形のリサイズ操作",
+      "criterionText": "When ユーザーが選択中の図形のハンドルをドラッグする, the Site Survey Service shall 図形のサイズを変更する",
       "reason": "キャンバス上でのリサイズ操作はE2E範囲外。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -734,8 +790,9 @@
     },
     {
       "id": "site-survey/REQ-8.4",
-      "requirement": "REQ-8: 注釈機能 - コメント",
+      "requirement": "REQ-8: 注釈機能 - コメント（テキスト）",
       "title": "テキストのドラッグ移動",
+      "criterionText": "When ユーザーがテキストをドラッグする, the Site Survey Service shall テキストの配置位置を移動する",
       "reason": "キャンバス上でのドラッグ操作はE2E範囲外。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -749,6 +806,7 @@
       "id": "site-survey/REQ-13.4",
       "requirement": "REQ-13: Undo/Redo機能",
       "title": "操作履歴の最大保持数",
+      "criterionText": "The Site Survey Service shall 操作履歴を最大50件まで保持し、超過時は最古の履歴から削除する",
       "reason": "操作履歴の最大保持数検証はE2E範囲外。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -762,6 +820,7 @@
       "id": "site-survey/REQ-6.4",
       "requirement": "REQ-6: 注釈機能 - 寸法線",
       "title": "寸法線のオブジェクト選択",
+      "criterionText": "When ユーザーが既存の寸法線をクリックする, the Site Survey Service shall 寸法線を選択状態にして編集可能にする",
       "reason": "キャンバス上のクリック選択はE2E範囲外。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -775,6 +834,7 @@
       "id": "site-survey/REQ-6.6",
       "requirement": "REQ-6: 注釈機能 - 寸法線",
       "title": "寸法線のDelete削除",
+      "criterionText": "When ユーザーが選択中の寸法線を削除する, the Site Survey Service shall 寸法線を画像から除去する",
       "reason": "キャンバス上のキー操作はE2E範囲外。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -788,6 +848,7 @@
       "id": "site-survey/REQ-6.7",
       "requirement": "REQ-6: 注釈機能 - 寸法線",
       "title": "寸法線の色・線幅変更",
+      "criterionText": "The Site Survey Service shall 寸法線の色・線の太さをカスタマイズ可能にする",
       "reason": "キャンバス上のスタイル変更はE2E範囲外。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -801,6 +862,7 @@
       "id": "site-survey/REQ-7.3",
       "requirement": "REQ-7: 注釈機能 - マーキング（図形）",
       "title": "長方形ツールによる描画",
+      "criterionText": "When ユーザーが四角形ツールを選択してドラッグする, the Site Survey Service shall 長方形を描画する",
       "reason": "キャンバス上のドラッグ描画はE2E範囲外。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -814,6 +876,7 @@
       "id": "site-survey/REQ-7.4",
       "requirement": "REQ-7: 注釈機能 - マーキング（図形）",
       "title": "多角形ツールによる描画",
+      "criterionText": "When ユーザーが多角形ツールを選択して頂点をクリックする, the Site Survey Service shall 多角形を描画する",
       "reason": "キャンバス上のクリック描画はE2E範囲外。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -827,6 +890,7 @@
       "id": "site-survey/REQ-7.5",
       "requirement": "REQ-7: 注釈機能 - マーキング（図形）",
       "title": "折れ線ツールによる描画",
+      "criterionText": "When ユーザーが折れ線ツールを選択して点をクリックする, the Site Survey Service shall 折れ線を描画する",
       "reason": "キャンバス上のクリック描画はE2E範囲外。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -837,9 +901,10 @@
       }
     },
     {
-      "id": "site-survey/REQ-8.2",
+      "id": "site-survey/REQ-8.3",
       "requirement": "REQ-8: 注釈機能 - コメント（テキスト）",
       "title": "テキストのダブルクリック編集",
+      "criterionText": "When ユーザーが既存のテキストをダブルクリックする, the Site Survey Service shall テキストを編集モードにする",
       "reason": "キャンバス上のダブルクリック編集はE2E範囲外。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -850,9 +915,10 @@
       }
     },
     {
-      "id": "site-survey/REQ-8.3",
+      "id": "site-survey/REQ-8.5",
       "requirement": "REQ-8: 注釈機能 - コメント（テキスト）",
-      "title": "テキストのフォントサイズ変更",
+      "title": "テキストのフォントサイズ・色・背景色のカスタマイズ",
+      "criterionText": "The Site Survey Service shall テキストのフォントサイズ・色・背景色をカスタマイズ可能にする",
       "reason": "キャンバス上のスタイル変更はE2E範囲外。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -863,48 +929,10 @@
       }
     },
     {
-      "id": "site-survey/REQ-10.5",
-      "requirement": "REQ-10: 写真一覧管理とPDF出力設定",
-      "title": "高解像度選択時の画像品質",
-      "reason": "画像品質の検証はパフォーマンス/品質テストで検証",
-      "category": "performance",
-      "alternativeVerification": {
-        "method": "visual-regression-test",
-        "tool": "Chromatic / Percy",
-        "description": "高解像度選択時に高品質な画像が出力されることを確認",
-        "threshold": "image_quality: high"
-      }
-    },
-    {
-      "id": "site-survey/REQ-10.6",
-      "requirement": "REQ-10: 写真一覧管理とPDF出力設定",
-      "title": "低解像度選択時のファイルサイズ削減",
-      "reason": "ファイルサイズの検証はパフォーマンステストで検証",
-      "category": "performance",
-      "alternativeVerification": {
-        "method": "performance-test",
-        "tool": "File size measurement",
-        "description": "低解像度選択時にファイルサイズが削減されることを確認",
-        "threshold": "file_size: reduced"
-      }
-    },
-    {
-      "id": "site-survey/REQ-10.7",
-      "requirement": "REQ-10: 写真一覧管理とPDF出力設定",
-      "title": "2回目以降のPDF生成の高速化",
-      "reason": "キャッシュ効果の検証はパフォーマンステストで検証",
-      "category": "performance",
-      "alternativeVerification": {
-        "method": "performance-test",
-        "tool": "Timing measurement",
-        "description": "2回目以降のPDF生成がキャッシュにより高速化されることを確認",
-        "threshold": "cache_speedup: true"
-      }
-    },
-    {
       "id": "site-survey/REQ-13.2",
       "requirement": "REQ-13: Undo/Redo機能",
       "title": "操作のRedo（やり直し）",
+      "criterionText": "When ユーザーがRedo操作を実行する, the Site Survey Service shall 取り消した操作を再実行する",
       "reason": "キャンバス上のRedo操作はE2E範囲外。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -918,6 +946,7 @@
       "id": "site-survey/REQ-13.3",
       "requirement": "REQ-13: Undo/Redo機能",
       "title": "Undo/Redoショートカット",
+      "criterionText": "When ユーザーがキーボードショートカット（Ctrl/Cmd+Z、Ctrl/Cmd+Shift+Z）を押す, the Site Survey Service shall Undo/Redoを実行する",
       "reason": "キャンバス上のキーボードショートカットはE2E範囲外。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -931,19 +960,20 @@
       "id": "quantity-table-generation/REQ-1.3",
       "requirement": "REQ-1: プロジェクト詳細画面の数量表セクション",
       "title": "数量表カードの一覧表示（名称・更新日時・数量項目数）",
-      "reason": "カード詳細表示はUI実装に依存。基本的な表示テストでカバー",
-      "category": "infrastructure",
+      "criterionText": "~~→ project-management/Requirement 25 AC 3 に移動~~",
+      "reason": "要件1の全受入基準が project-management/Requirement 25 へ移動し、要件書上は削除表記となった。本受入基準の内容は project-management/REQ-25.3 が所管する",
+      "category": "removed-from-spec",
       "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Jest / React Testing Library",
-        "description": "数量表カードに名称・更新日時・数量項目数が表示されることを確認",
-        "threshold": "card_content: displayed"
+        "method": "spec-review",
+        "tool": "requirements.md",
+        "description": "requirements.md にて削除表記（~~→ project-management/Requirement 25 AC 3 に移動~~）を維持し、内容の所管が project-management/REQ-25.3 にあることを明示する"
       }
     },
     {
       "id": "quantity-table-generation/REQ-2.5",
       "requirement": "REQ-2: 数量表の作成・管理",
       "title": "数量表名編集の即座保存",
+      "criterionText": "When 数量表一覧画面で数量表名を編集する, the 数量表管理システム shall 変更を即座に保存する",
       "reason": "即座保存の検証はREQ-11.5の自動保存テストでカバー",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -957,6 +987,7 @@
       "id": "quantity-table-generation/REQ-3.3",
       "requirement": "REQ-3: 数量表編集画面の表示",
       "title": "写真紐づけ時のサムネイル表示",
+      "criterionText": "Where 数量グループに写真が紐づけられている場合, the 数量表管理システム shall 該当写真の注釈付き画像（注釈エディタで編集済みの画像）を関連写真表示エリアに表示する",
       "reason": "写真紐づけ機能はUI実装に依存。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -970,6 +1001,7 @@
       "id": "quantity-table-generation/REQ-4.2",
       "requirement": "REQ-4: 数量グループの作成・管理",
       "title": "注釈付き現場調査写真選択機能",
+      "criterionText": "When 数量グループが追加される, the 数量表管理システム shall 同一プロジェクトの注釈付き現場調査写真一覧（注釈エディタで編集済みの画像）から写真を選択する機能を提供する",
       "reason": "写真選択機能はUI実装に依存。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -983,6 +1015,7 @@
       "id": "quantity-table-generation/REQ-4.3",
       "requirement": "REQ-4: 数量グループの作成・管理",
       "title": "写真一覧表示と選択",
+      "criterionText": "When 数量グループ内で写真選択操作を行う, the 数量表管理システム shall 同一プロジェクトの注釈付き現場写真一覧を表示し選択可能にする",
       "reason": "写真一覧モーダルの動作はUI実装に依存。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -996,6 +1029,7 @@
       "id": "quantity-table-generation/REQ-4.4",
       "requirement": "REQ-4: 数量グループの作成・管理",
       "title": "写真と数量項目の関連性表示",
+      "criterionText": "Where 数量グループに写真が紐づけられている状態で, the 数量表管理システム shall 注釈付き写真と数量項目の関連性を視覚的に表示する",
       "reason": "視覚的な関連性表示はUI実装に依存。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1009,6 +1043,7 @@
       "id": "quantity-table-generation/REQ-5.3",
       "requirement": "REQ-5: 数量項目の追加・編集",
       "title": "必須フィールド未入力時のエラー表示",
+      "criterionText": "If 必須フィールド（工種・名称・単位・計算方法・数量）が未入力で保存を試行する, then the 数量表管理システム shall 該当フィールドをハイライトし、エラーメッセージを表示する",
       "reason": "入力バリデーションはユニット/統合テストで検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -1022,6 +1057,7 @@
       "id": "quantity-table-generation/REQ-6.3",
       "requirement": "REQ-6: 数量項目のコピー・移動",
       "title": "同一グループ内の位置移動",
+      "criterionText": "When 移動先として同一数量グループ内の位置が選択される, the 数量表管理システム shall 選択数量項目を指定位置に移動する",
       "reason": "ドラッグ&ドロップ/位置指定操作はUI実装に依存。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1035,6 +1071,7 @@
       "id": "quantity-table-generation/REQ-6.4",
       "requirement": "REQ-6: 数量項目のコピー・移動",
       "title": "別グループへの移動",
+      "criterionText": "If 移動先に別数量グループが選択される, then the 数量表管理システム shall 選択数量項目を移動先数量グループに移動し、元の位置から削除する",
       "reason": "グループ間移動操作はUI実装に依存。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1048,6 +1085,7 @@
       "id": "quantity-table-generation/REQ-6.5",
       "requirement": "REQ-6: 数量項目のコピー・移動",
       "title": "複数項目の一括操作",
+      "criterionText": "When 複数の数量項目を選択して一括操作を行う, the 数量表管理システム shall 選択された全ての項目に対して削除・コピー・移動操作を実行する",
       "reason": "複数選択と一括操作はUI実装に依存。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1058,23 +1096,11 @@
       }
     },
     {
-      "id": "quantity-table-generation/REQ-7.2",
-      "requirement": "REQ-7: 入力支援・オートコンプリート",
-      "title": "中項目フィールドのオートコンプリート",
-      "reason": "REQ-7.1で大項目のオートコンプリートをカバー。中項目は同様の動作",
-      "category": "infrastructure",
-      "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Jest / React Testing Library",
-        "description": "中項目入力時に過去の入力履歴がオートコンプリート候補として表示されることを確認",
-        "threshold": "autocomplete: functional"
-      }
-    },
-    {
       "id": "quantity-table-generation/REQ-7.3",
       "requirement": "REQ-7: 入力支援・オートコンプリート",
-      "title": "その他フィールドのオートコンプリート",
-      "reason": "REQ-7.1で大項目のオートコンプリートをカバー。他フィールドは同様の動作",
+      "title": "対象フィールドのオートコンプリート候補のドロップダウン表示",
+      "criterionText": "When 対象フィールド（大項目・中項目・小項目・任意分類・工種・名称・規格・単位・備考）にフォーカスが当たる, the 数量表管理システム shall クライアントサイドに保持された対応フィールドの候補値リストから候補をドロップダウン表示する。フィールドが空の場合は全候補を表示し、値が入力されている場合は入力内容に前方一致する候補をフィルタリングして表示する",
+      "reason": "フィールドごとの候補表示の網羅は統合テストで検証。従前の理由が挙げていた旧 REQ-7.1「大項目のオートコンプリート」は要件7の再構成で本受入基準へ統合され、参照先が失効していた",
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
@@ -1084,9 +1110,10 @@
       }
     },
     {
-      "id": "quantity-table-generation/REQ-7.5",
+      "id": "quantity-table-generation/REQ-7.7",
       "requirement": "REQ-7: 入力支援・オートコンプリート",
       "title": "オートコンプリート候補の50音順表示",
+      "criterionText": "Where 同一フィールドで複数の候補がある場合, the 数量表管理システム shall 50音順に候補を表示する",
       "reason": "ソート順の検証はユニットテストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1100,6 +1127,7 @@
       "id": "quantity-table-generation/REQ-8.2",
       "requirement": "REQ-8: 計算方法の選択",
       "title": "標準モードでの直接数値入力",
+      "criterionText": "When 計算方法列で「標準」が選択されている状態で数量フィールドに直接数値を入力する, the 数量表管理システム shall 入力された数値を数量として設定する",
       "reason": "入力動作はREQ-5.2のフィールド入力テストでカバー",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1113,6 +1141,7 @@
       "id": "quantity-table-generation/REQ-8.3",
       "requirement": "REQ-8: 計算方法の選択",
       "title": "負の値入力時の警告",
+      "criterionText": "If 計算方法が「標準」で数量フィールドに負の値が入力される, then the 数量表管理システム shall 警告メッセージを表示し、確認を求める",
       "reason": "入力バリデーションはユニット/統合テストで検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -1126,6 +1155,7 @@
       "id": "quantity-table-generation/REQ-8.4",
       "requirement": "REQ-8: 計算方法の選択",
       "title": "非数値入力時のエラー",
+      "criterionText": "If 計算方法が「標準」で数量フィールドに数値以外の文字が入力される, then the 数量表管理システム shall 入力を拒否しエラーメッセージを表示する",
       "reason": "入力バリデーションはユニット/統合テストで検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -1139,6 +1169,7 @@
       "id": "quantity-table-generation/REQ-8.6",
       "requirement": "REQ-8: 計算方法の選択",
       "title": "面積・体積モードでの自動計算",
+      "criterionText": "When 「面積・体積」モードで計算用列に1つ以上の値が入力される, the 数量表管理システム shall 入力された項目のみを掛け算して計算結果を数量として自動設定する",
       "reason": "計算ロジックはユニットテストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1152,6 +1183,7 @@
       "id": "quantity-table-generation/REQ-8.7",
       "requirement": "REQ-8: 計算方法の選択",
       "title": "面積・体積モードで計算用列未入力時のエラー",
+      "criterionText": "If 「面積・体積」モードで計算用列に値が1つも入力されていない状態で保存を試行する, then the 数量表管理システム shall エラーメッセージを表示し、幅(W)・奥行き(D)・高さ(H)のうち最低1項目の入力を求める",
       "reason": "入力バリデーションはユニット/統合テストで検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -1165,6 +1197,7 @@
       "id": "quantity-table-generation/REQ-8.9",
       "requirement": "REQ-8: 計算方法の選択",
       "title": "ピッチ計算式の適用",
+      "criterionText": "When 「ピッチ」モードで必須項目（範囲長・端長1・端長2・ピッチ長）に値が入力される, the 数量表管理システム shall ピッチ計算式に基づいて本数を算出し、任意項目（長さ・重量）が入力されている場合はそれらを乗算した結果を数量として自動設定する",
       "reason": "ピッチ計算ロジックはユニットテストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1178,6 +1211,7 @@
       "id": "quantity-table-generation/REQ-8.10",
       "requirement": "REQ-8: 計算方法の選択",
       "title": "ピッチモードで必須項目未入力時のエラー",
+      "criterionText": "If 「ピッチ」モードで必須項目（範囲長・端長1・端長2・ピッチ長）のいずれかが未入力で保存を試行する, then the 数量表管理システム shall エラーメッセージを表示し、必須項目の入力を求める",
       "reason": "入力バリデーションはユニット/統合テストで検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -1191,6 +1225,7 @@
       "id": "quantity-table-generation/REQ-8.11",
       "requirement": "REQ-8: 計算方法の選択",
       "title": "計算用列変更時の自動再計算",
+      "criterionText": "While 計算方法が「面積・体積」「ピッチ」「箇所数」のいずれかで計算用列に値が設定されている状態で, the 数量表管理システム shall 計算用列の値変更時に数量を自動再計算する",
       "reason": "自動再計算ロジックは統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1203,20 +1238,22 @@
     {
       "id": "quantity-table-generation/REQ-9.3",
       "requirement": "REQ-9: 調整係数",
-      "title": "調整係数0以下入力時の警告",
+      "title": "調整係数の入力可能範囲外の値のエラー",
+      "criterionText": "When 調整係数フィールドに入力可能範囲（-9.99〜9.99）外の値が入力される, the 数量表管理システム shall エラーメッセージを表示し、範囲内の値の入力を求める",
       "reason": "入力バリデーションはユニット/統合テストで検証",
       "category": "data-integrity",
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Jest / React Testing Library",
-        "description": "調整係数に0以下の値を入力時に警告が表示されることを確認",
-        "threshold": "validation_warning: displayed"
+        "description": "調整係数に入力可能範囲（-9.99〜9.99）外の値を入力時にエラーメッセージが表示されることを確認",
+        "threshold": "validation_error: displayed"
       }
     },
     {
-      "id": "quantity-table-generation/REQ-9.4",
+      "id": "quantity-table-generation/REQ-9.5",
       "requirement": "REQ-9: 調整係数",
       "title": "調整係数非数値入力時のエラー",
+      "criterionText": "If 調整係数フィールドに数値以外の文字が入力される, then the 数量表管理システム shall 入力を拒否しエラーメッセージを表示する",
       "reason": "入力バリデーションはユニット/統合テストで検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -1227,15 +1264,16 @@
       }
     },
     {
-      "id": "quantity-table-generation/REQ-9.5",
+      "id": "quantity-table-generation/REQ-9.6",
       "requirement": "REQ-9: 調整係数",
-      "title": "調整係数変更時の自動再計算",
+      "title": "計算元の値変更時の調整係数適用後の自動再計算",
+      "criterionText": "While 調整係数が設定されている状態で, the 数量表管理システム shall 計算元の値変更時に調整係数を適用した数量を自動再計算する",
       "reason": "自動再計算ロジックは統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Jest / React Testing Library",
-        "description": "調整係数変更時に数量が自動的に再計算されることを確認",
+        "description": "計算元の値変更時に調整係数を適用した数量が自動再計算されることを確認",
         "threshold": "auto_recalculation: functional"
       }
     },
@@ -1243,6 +1281,7 @@
       "id": "quantity-table-generation/REQ-10.2",
       "requirement": "REQ-10: 丸め設定",
       "title": "丸め処理の適用",
+      "criterionText": "When 丸め設定フィールドに数値を入力する, the 数量表管理システム shall 調整係数適用後の値を指定された単位で切り上げた値を最終数量として設定する",
       "reason": "丸めロジックはユニットテストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1255,20 +1294,22 @@
     {
       "id": "quantity-table-generation/REQ-10.3",
       "requirement": "REQ-10: 丸め設定",
-      "title": "丸め設定0以下入力時のエラー",
+      "title": "丸め設定の入力可能範囲外の値のエラー",
+      "criterionText": "When 丸め設定フィールドに入力可能範囲（-99.99〜99.99）外の値が入力される, the 数量表管理システム shall エラーメッセージを表示し、範囲内の値の入力を求める",
       "reason": "入力バリデーションはユニット/統合テストで検証",
       "category": "data-integrity",
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Jest / React Testing Library",
-        "description": "丸め設定に0以下の値を入力時にエラーが表示されることを確認",
+        "description": "丸め設定に入力可能範囲（-99.99〜99.99）外の値を入力時にエラーメッセージが表示されることを確認",
         "threshold": "validation_error: displayed"
       }
     },
     {
-      "id": "quantity-table-generation/REQ-10.4",
+      "id": "quantity-table-generation/REQ-10.5",
       "requirement": "REQ-10: 丸め設定",
       "title": "丸め設定非数値入力時のエラー",
+      "criterionText": "If 丸め設定フィールドに数値以外の文字が入力される, then the 数量表管理システム shall 入力を拒否しエラーメッセージを表示する",
       "reason": "入力バリデーションはユニット/統合テストで検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -1279,15 +1320,16 @@
       }
     },
     {
-      "id": "quantity-table-generation/REQ-10.5",
+      "id": "quantity-table-generation/REQ-10.6",
       "requirement": "REQ-10: 丸め設定",
-      "title": "丸め設定変更時の自動再計算",
+      "title": "計算元または調整係数の変更時の丸め処理適用後の自動再計算",
+      "criterionText": "While 丸め設定が適用されている状態で, the 数量表管理システム shall 計算元または調整係数の変更時に丸め処理を適用した最終数量を自動再計算する",
       "reason": "自動再計算ロジックは統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Jest / React Testing Library",
-        "description": "丸め設定変更時に最終数量が自動的に再計算されることを確認",
+        "description": "計算元または調整係数の変更時に丸め処理を適用した最終数量が自動再計算されることを確認",
         "threshold": "auto_recalculation: functional"
       }
     },
@@ -1295,6 +1337,7 @@
       "id": "quantity-table-generation/REQ-11.2",
       "requirement": "REQ-11: 数量表の保存",
       "title": "データ保存時の整合性チェック",
+      "criterionText": "If データ保存時に整合性チェックでエラーが検出される, then the 数量表管理システム shall 保存を中断し、問題箇所の修正を求める",
       "reason": "データ整合性チェックはバックエンド統合テストで検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -1308,6 +1351,7 @@
       "id": "quantity-table-generation/REQ-11.3",
       "requirement": "REQ-11: 数量表の保存",
       "title": "計算方法と入力値の不整合検出",
+      "criterionText": "When 計算方法と入力値の不整合（面積・体積モードで計算用列が未入力等）が検出される, the 数量表管理システム shall エラー箇所を明示し、修正を求める",
       "reason": "不整合検出ロジックはバックエンド統合テストで検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -1321,6 +1365,7 @@
       "id": "quantity-table-generation/REQ-11.4",
       "requirement": "REQ-11: 数量表の保存",
       "title": "不整合がある場合の警告とハイライト",
+      "criterionText": "Where 数量項目に不整合がある場合, the 数量表管理システム shall 警告メッセージを表示し、問題箇所をハイライト表示する",
       "reason": "警告・ハイライト表示はフロントエンド統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1334,6 +1379,7 @@
       "id": "quantity-table-generation/REQ-12.3",
       "requirement": "REQ-12: パンくずナビゲーション",
       "title": "新規作成画面のパンくずナビゲーション",
+      "criterionText": "When 数量表新規作成画面を表示する, the 数量表管理システム shall 「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 数量表一覧 > 新規作成」のパンくずナビゲーションを表示する",
       "reason": "新規作成画面はダイアログで表示されるため、パンくずが表示されない場合あり",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1347,6 +1393,7 @@
       "id": "company-info/REQ-6.9",
       "requirement": "REQ-6: アクセス制御",
       "title": "権限のないユーザーが操作を試みた場合の403エラー",
+      "criterionText": "If 権限のないユーザーが操作を試みた場合, then the 自社情報管理サービス shall 403 Forbiddenエラーを返却する",
       "reason": "権限のないユーザーを作成するテストインフラが不足。APIレベルの権限チェックは統合テストで検証",
       "category": "security",
       "alternativeVerification": {
@@ -1360,6 +1407,7 @@
       "id": "company-info/REQ-9.5",
       "requirement": "REQ-9: API設計",
       "title": "自社情報が存在しない状態でPUTリクエストを受信したとき、新規レコードを作成",
+      "criterionText": "When 自社情報が存在しない状態でPUTリクエストを受信したとき, the 自社情報管理サービス shall 新規レコードを作成する",
       "reason": "API直接呼び出しのテスト。UI経由の保存テスト(REQ-2.2)でカバー",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1373,6 +1421,7 @@
       "id": "company-info/REQ-9.6",
       "requirement": "REQ-9: API設計",
       "title": "自社情報が存在する状態でPUTリクエストを受信したとき、既存レコードを更新",
+      "criterionText": "When 自社情報が存在する状態でPUTリクエストを受信したとき, the 自社情報管理サービス shall 既存レコードを更新する",
       "reason": "API直接呼び出しのテスト。UI経由の更新テスト(REQ-2.3)でカバー",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1386,6 +1435,7 @@
       "id": "company-info/REQ-9.7",
       "requirement": "REQ-9: API設計",
       "title": "APIレスポンスに必要なフィールドを含める",
+      "criterionText": "The 自社情報管理サービス shall APIレスポンスに以下のフィールドを含める: id, companyName, address, representative, phone, fax, email, invoiceRegistrationNumber, version, createdAt, updatedAt",
       "reason": "APIレスポンス構造の検証は統合テストで実施",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1399,6 +1449,7 @@
       "id": "company-info/REQ-9.8",
       "requirement": "REQ-9: API設計",
       "title": "PUTリクエストのボディにversionフィールドを含め、楽観的排他制御を実行",
+      "criterionText": "The 自社情報管理サービス shall PUTリクエストのボディにversionフィールドを含め、楽観的排他制御を実行する",
       "reason": "楽観的排他制御のテストはUI経由(REQ-2.7, 2.8)と競合テストでカバー",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1412,6 +1463,7 @@
       "id": "company-info/REQ-9.9",
       "requirement": "REQ-9: API設計",
       "title": "versionが一致しない場合、409 Conflictエラーを返却",
+      "criterionText": "If versionが一致しない場合, then the 自社情報管理サービス shall 409 Conflictエラーを返却する",
       "reason": "競合検出のテストはUI経由(REQ-2.8)と競合テストでカバー",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1425,6 +1477,7 @@
       "id": "company-info/REQ-9.10",
       "requirement": "REQ-9: API設計",
       "title": "自社情報の削除APIを提供しない",
+      "criterionText": "The 自社情報管理サービス shall 自社情報の削除APIを提供しない",
       "reason": "削除APIの非提供確認は統合テストで実施",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1438,6 +1491,7 @@
       "id": "estimate-creation/REQ-8.2",
       "requirement": "REQ-8: 現場管理費プリセット",
       "title": "現場管理費の単価を手入力で設定可能とする",
+      "criterionText": "The 見積書作成システム shall 現場管理費の単価を手入力で設定可能とする",
       "reason": "単価入力機能のE2Eはエディターの基本操作テストでカバー。詳細な入力検証は統合テストで実施",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1451,6 +1505,7 @@
       "id": "estimate-creation/REQ-8.4",
       "requirement": "REQ-8: 現場管理費プリセット",
       "title": "自動計算パラメータの入力画面を提供する",
+      "criterionText": "Where 自動計算機能が有効な場合, the 見積書作成システム shall 計算に必要なパラメータ（直接工事費、共通仮設費等）の入力画面を提供する",
       "reason": "自動計算機能のパラメータ入力UIは統合テストで検証。国土交通省基準の計算式検証はユニットテストで実施",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1464,6 +1519,7 @@
       "id": "estimate-creation/REQ-8.5",
       "requirement": "REQ-8: 現場管理費プリセット",
       "title": "自動計算結果を手入力で上書き可能とする",
+      "criterionText": "The 見積書作成システム shall 自動計算結果を手入力で上書き可能とする",
       "reason": "計算結果の上書き機能は統合テストで検証。基本的な単価入力はE2E(REQ-7.5-7.6)でカバー",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1477,6 +1533,7 @@
       "id": "estimate-creation/REQ-8.6",
       "requirement": "REQ-8: 現場管理費プリセット",
       "title": "自動計算が処理中の場合、計算中であることを表示する",
+      "criterionText": "While 自動計算が処理中の場合, the 見積書作成システム shall 計算中であることを表示する",
       "reason": "計算中インジケーターの表示は高速なため一瞬で消える場合あり。統合テストでUI状態を検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1490,6 +1547,7 @@
       "id": "estimate-creation/REQ-9.2",
       "requirement": "REQ-9: 一般管理費プリセット",
       "title": "一般管理費の単価を手入力で設定可能とする",
+      "criterionText": "The 見積書作成システム shall 一般管理費の単価を手入力で設定可能とする",
       "reason": "単価入力機能のE2Eはエディターの基本操作テストでカバー。詳細な入力検証は統合テストで実施",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1503,6 +1561,7 @@
       "id": "estimate-creation/REQ-9.4",
       "requirement": "REQ-9: 一般管理費プリセット",
       "title": "自動計算パラメータの入力画面を提供する",
+      "criterionText": "Where 自動計算機能が有効な場合, the 見積書作成システム shall 計算に必要なパラメータ（工事原価等）の入力画面を提供する",
       "reason": "自動計算機能のパラメータ入力UIは統合テストで検証。国土交通省基準の計算式検証はユニットテストで実施",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1516,6 +1575,7 @@
       "id": "estimate-creation/REQ-9.5",
       "requirement": "REQ-9: 一般管理費プリセット",
       "title": "自動計算結果を手入力で上書き可能とする",
+      "criterionText": "The 見積書作成システム shall 自動計算結果を手入力で上書き可能とする",
       "reason": "計算結果の上書き機能は統合テストで検証。基本的な単価入力はE2E(REQ-7.5-7.6)でカバー",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1529,6 +1589,7 @@
       "id": "estimate-creation/REQ-9.6",
       "requirement": "REQ-9: 一般管理費プリセット",
       "title": "自動計算が処理中の場合、計算中であることを表示する",
+      "criterionText": "While 自動計算が処理中の場合, the 見積書作成システム shall 計算中であることを表示する",
       "reason": "計算中インジケーターの表示は高速なため一瞬で消える場合あり。統合テストでUI状態を検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1542,6 +1603,7 @@
       "id": "estimate-request/REQ-11.18",
       "requirement": "REQ-11: 受領見積書登録機能",
       "title": "明細行の削除ボタンクリックで該当行を削除する",
+      "criterionText": "When ユーザーが明細行の削除ボタンをクリックしたとき, the システム shall 該当行を削除し合計金額を再計算する",
       "reason": "明細行操作の詳細UIは統合テストで検証。受領見積書登録の基本フローはE2E(REQ-11.1-11.17)でカバー",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1555,6 +1617,7 @@
       "id": "estimate-request/REQ-11.19",
       "requirement": "REQ-11: 受領見積書登録機能",
       "title": "明細行が1行のみの場合、削除ボタンを非活性にする",
+      "criterionText": "If 明細行が1行のみの場合, then the システム shall 該当行の削除ボタンを非活性にする",
       "reason": "UI状態管理の詳細は統合テストで検証。削除機能のE2EはREQ-11.17でカバー",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1568,6 +1631,7 @@
       "id": "estimate-request/REQ-11.20",
       "requirement": "REQ-11: 受領見積書登録機能",
       "title": "Tabキーによるフィールド間の順次移動をサポートする",
+      "criterionText": "The システム shall Tabキーによるフィールド間の順次移動をサポートする",
       "reason": "キーボードナビゲーションの検証は統合テストで実施。アクセシビリティテストでもカバー",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1581,6 +1645,7 @@
       "id": "estimate-request/REQ-11.21",
       "requirement": "REQ-11: 受領見積書登録機能",
       "title": "最終フィールドでTabキーを押したとき、次の明細行に移動する",
+      "criterionText": "When ユーザーが最終フィールドでTabキーを押したとき, the システム shall 次の明細行の最初のフィールドにフォーカスを移動する",
       "reason": "キーボードナビゲーションの詳細動作は統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1594,6 +1659,7 @@
       "id": "estimate-request/REQ-11.23",
       "requirement": "REQ-11: 受領見積書登録機能",
       "title": "必須項目未入力の場合、バリデーションエラーを表示する",
+      "criterionText": "If 必須項目（受領見積書名、提出日）が未入力の場合, then the システム shall バリデーションエラーを表示する",
       "reason": "バリデーションエラー表示はE2E(REQ-11.10)で部分的にカバー。詳細なバリデーションは統合テストで検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -1607,6 +1673,7 @@
       "id": "estimate-request/REQ-11.25",
       "requirement": "REQ-11: 受領見積書登録機能",
       "title": "1つの見積依頼に対して複数の受領見積書の登録を許可する",
+      "criterionText": "The システム shall 1つの見積依頼に対して複数の受領見積書の登録を許可する",
       "reason": "複数登録機能はE2E(REQ-11.11)でカバー済み。この要件は重複確認のため除外",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1620,6 +1687,7 @@
       "id": "estimate-request/REQ-11.26",
       "requirement": "REQ-11: 受領見積書登録機能",
       "title": "見積依頼詳細画面に登録済み受領見積書の一覧を表示する",
+      "criterionText": "The システム shall 見積依頼詳細画面に登録済み受領見積書の一覧を表示する",
       "reason": "一覧表示はE2E(REQ-11.12)でカバー済み。この要件は重複確認のため除外",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1633,6 +1701,7 @@
       "id": "estimate-request/REQ-11.27",
       "requirement": "REQ-11: 受領見積書登録機能",
       "title": "受領見積書一覧に受領見積書名、提出日、登録日時を表示する",
+      "criterionText": "The システム shall 受領見積書一覧に受領見積書名、提出日、登録日時を表示する",
       "reason": "詳細情報表示はE2E(REQ-11.13)でカバー済み。この要件は重複確認のため除外",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1646,6 +1715,7 @@
       "id": "estimate-request/REQ-11.28",
       "requirement": "REQ-11: 受領見積書登録機能",
       "title": "受領見積書の編集機能を提供する",
+      "criterionText": "The システム shall 受領見積書の編集機能を提供する",
       "reason": "編集機能はE2E(REQ-11.15)でカバー済み。この要件は重複確認のため除外",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1659,6 +1729,7 @@
       "id": "estimate-request/REQ-11.29",
       "requirement": "REQ-11: 受領見積書登録機能",
       "title": "受領見積書の削除機能を提供する",
+      "criterionText": "The システム shall 受領見積書の削除機能を提供する",
       "reason": "削除機能はE2E(REQ-11.16, REQ-11.17)でカバー済み。この要件は重複確認のため除外",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1672,6 +1743,7 @@
       "id": "estimate-request/REQ-11.30",
       "requirement": "REQ-11: 受領見積書登録機能",
       "title": "受領見積書削除時に削除確認ダイアログを表示する",
+      "criterionText": "When ユーザーが受領見積書を削除しようとしたとき, the システム shall 削除確認ダイアログを表示する",
       "reason": "削除確認ダイアログはE2E(REQ-11.17)でカバー済み。この要件は重複確認のため除外",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1685,6 +1757,7 @@
       "id": "estimate-request/REQ-13.1",
       "requirement": "REQ-13: 受領見積書インラインプレビュー・OCR機能",
       "title": "ファイルアップロード時にインラインプレビューを表示する",
+      "criterionText": "When ユーザーがファイルをアップロードしたとき, the システム shall アップロードされたファイルのインラインプレビューを登録フォーム内に表示する",
       "reason": "インラインプレビュー機能は外部ライブラリ依存。UI表示は統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1698,6 +1771,7 @@
       "id": "estimate-request/REQ-13.4",
       "requirement": "REQ-13: 受領見積書インラインプレビュー・OCR機能",
       "title": "Excelファイルをテーブル形式でインライン表示する",
+      "criterionText": "While アップロードファイルがExcel（.xlsx、.xls）のとき, the システム shall 表データをテーブル形式でインライン表示する",
       "reason": "Excelファイルのパースとテーブル表示は外部ライブラリ依存。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1711,6 +1785,7 @@
       "id": "estimate-request/REQ-13.6",
       "requirement": "REQ-13: 受領見積書インラインプレビュー・OCR機能",
       "title": "Excelファイルからデータパースで構造化データを抽出する",
+      "criterionText": "When ユーザーがExcelファイルをアップロードしたとき, the システム shall OCRではなくデータパース（直接データ読み取り）により構造化データを抽出する",
       "reason": "Excelデータパースは外部ライブラリ依存。ユニット/統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1724,6 +1799,7 @@
       "id": "estimate-request/REQ-13.7",
       "requirement": "REQ-13: 受領見積書インラインプレビュー・OCR機能",
       "title": "OCR処理またはデータパース処理中にインジケーターを表示する",
+      "criterionText": "While OCR処理またはデータパース処理が実行中のとき, the システム shall 処理中であることを示すインジケーターを表示する",
       "reason": "処理中インジケーターは高速処理時に一瞬で消える場合あり。統合テストでUI状態を検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1737,6 +1813,7 @@
       "id": "estimate-request/REQ-13.9",
       "requirement": "REQ-13: 受領見積書インラインプレビュー・OCR機能",
       "title": "抽出結果のテキストを選択・コピー可能にする",
+      "criterionText": "The システム shall 抽出結果のテキストをユーザーが選択・コピーできる状態で表示する",
       "reason": "テキスト選択・コピー機能はブラウザ標準機能。アクセシビリティテストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1750,6 +1827,7 @@
       "id": "estimate-request/REQ-13.11",
       "requirement": "REQ-13: 受領見積書インラインプレビュー・OCR機能",
       "title": "一括取り込みボタンで抽出結果を明細行に自動入力する",
+      "criterionText": "When ユーザーが一括取り込みボタンをクリックしたとき, the システム shall 抽出結果を解析し、任意分類・工種・名称・規格・単位・数量・単価を各明細行のフィールドに自動入力する",
       "reason": "一括取り込み機能は複雑なUI連携。統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1763,6 +1841,7 @@
       "id": "estimate-request/REQ-13.12",
       "requirement": "REQ-13: 受領見積書インラインプレビュー・OCR機能",
       "title": "一括取り込み完了時に金額を自動計算する",
+      "criterionText": "When 一括取り込みが完了したとき, the システム shall 取り込まれた各行の金額を自動計算する",
       "reason": "金額自動計算は既存のE2E(REQ-11.9)でカバー。一括取り込み後の計算は統合テストで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1776,6 +1855,7 @@
       "id": "estimate-request/REQ-14.3",
       "requirement": "REQ-14: 受領見積書データ管理",
       "title": "アップロードファイルをファイルストレージに保存し関連付ける",
+      "criterionText": "The システム shall アップロードされたファイルをファイルストレージに保存し、受領見積書と関連付ける",
       "reason": "ファイルストレージ操作はインフラ層。統合テストでDB状態を検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1789,6 +1869,7 @@
       "id": "estimate-request/REQ-14.4",
       "requirement": "REQ-14: 受領見積書データ管理",
       "title": "受領見積書の作成日時と更新日時を記録する",
+      "criterionText": "The システム shall 受領見積書の作成日時と更新日時を記録する",
       "reason": "日時記録はデータ層で自動処理。統合テストでDB状態を検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -1802,6 +1883,7 @@
       "id": "estimate-request/REQ-14.5",
       "requirement": "REQ-14: 受領見積書データ管理",
       "title": "受領見積書の削除時に論理削除を行う",
+      "criterionText": "The システム shall 受領見積書の削除時に論理削除を行う",
       "reason": "論理削除はデータ層の実装詳細。統合テストでDB状態を検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -1815,6 +1897,7 @@
       "id": "estimate-request/REQ-14.6",
       "requirement": "REQ-14: 受領見積書データ管理",
       "title": "楽観的排他制御により同時更新を防止する",
+      "criterionText": "The システム shall 楽観的排他制御により受領見積書の同時更新を防止する",
       "reason": "楽観的排他制御は並行アクセスのテストが必要。統合テストで検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -1828,6 +1911,7 @@
       "id": "estimate-request/REQ-19.7",
       "requirement": "REQ-19: スキャンPDF OCR精度改善（画像前処理パイプライン）",
       "title": "画像前処理に新規外部依存関係を追加しない（Canvas APIのgetImageData/putImageDataのみを使用する）",
+      "criterionText": "The システム shall 画像前処理に新規外部依存関係を追加しない（Canvas APIのgetImageData/putImageDataのみを使用する）",
       "reason": "実行中の画面から観測できる振る舞いではなく、実装が何に依存しているかという構成の性質である。E2Eが観測できるのは本番が呼んだCanvas APIと描画されたDOMだけであり、前処理が外部ライブラリで書き直されても同じ画素が出れば観測は変わらないため、この受入基準の規範を判定できない。タスク115.159で、estimate-request-ocr-vision-e2e.spec.tsの『見積依頼詳細画面でOCR処理UIが利用可能である』が掲げていた十六件のタグのうち唯一の判定不能な一件として外した（当該検証は画面に『PDF』『アップロード』『受領見積書』のいずれかの文字が見えることしか確かめておらず、十六件のどれも判定していなかった）。残る十五件はタグを外さず、四件は主張のあるE2Eへ移し、十一件は本タスクで判定を書いた",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -1840,6 +1924,7 @@
       "id": "estimate-request/REQ-21.5",
       "requirement": "REQ-21: Claude Vision API連携エンドポイント（バックエンド）",
       "title": "Claude APIのレスポンスからJSON形式の表データを抽出する",
+      "criterionText": "The システム shall Claude APIのレスポンスからJSON形式の表データを抽出する",
       "reason": "Claude APIの応答を解釈するbackend内部の振る舞いであり、成立には実在のANTHROPIC_API_KEYが必要。テスト環境のbackendは当該環境変数を持たず、REQ-22.3/REQ-22.6により応答が503で確定するためE2Eから到達できない。タスク115.127 段6の是正でE2E側の@requirementタグごと外し、被覆済みと数えるのをやめた",
       "category": "integration-test",
       "alternativeVerification": {
@@ -1852,6 +1937,7 @@
       "id": "estimate-request/REQ-21.6",
       "requirement": "REQ-21: Claude Vision API連携エンドポイント（バックエンド）",
       "title": "抽出したJSON表データを明細行データ（LineItem[]）形式に変換してフロントエンドに返却する",
+      "criterionText": "The システム shall 抽出したJSON表データを明細行データ（LineItem[]）形式に変換してフロントエンドに返却する",
       "reason": "Claude APIの応答を解釈するbackend内部の振る舞いであり、成立には実在のANTHROPIC_API_KEYが必要。テスト環境のbackendは当該環境変数を持たず、REQ-22.3/REQ-22.6により応答が503で確定するためE2Eから到達できない。タスク115.127 段6の是正でE2E側の@requirementタグごと外し、被覆済みと数えるのをやめた",
       "category": "integration-test",
       "alternativeVerification": {
@@ -1864,6 +1950,7 @@
       "id": "estimate-request/REQ-21.7",
       "requirement": "REQ-21: Claude Vision API連携エンドポイント（バックエンド）",
       "title": "明細行データに任意分類・工種・名称・規格・単位・数量・単価・金額・備考のフィールドを含める",
+      "criterionText": "The システム shall 明細行データに任意分類、工種、名称、規格、単位、数量、単価、金額、備考のフィールドを含める",
       "reason": "Claude APIの応答を解釈するbackend内部の振る舞いであり、成立には実在のANTHROPIC_API_KEYが必要。テスト環境のbackendは当該環境変数を持たず、REQ-22.3/REQ-22.6により応答が503で確定するためE2Eから到達できない。タスク115.127 段6の是正でE2E側の@requirementタグごと外し、被覆済みと数えるのをやめた",
       "category": "integration-test",
       "alternativeVerification": {
@@ -1876,6 +1963,7 @@
       "id": "estimate-request/REQ-23.4",
       "requirement": "REQ-23: Claude Vision APIエラーハンドリング",
       "title": "Claude APIのレスポンスが期待するJSON形式でない場合にパースエラーを返却する",
+      "criterionText": "If Claude APIのレスポンスが期待するJSON形式でない場合, then the システム shall レスポンスパースエラーをフロントエンドに返却する",
       "reason": "Claude APIの応答を解釈するbackend内部の振る舞いであり、成立には実在のANTHROPIC_API_KEYが必要。テスト環境のbackendは当該環境変数を持たず、REQ-22.3/REQ-22.6により応答が503で確定するためE2Eから到達できない。タスク115.127 段6の是正でE2E側の@requirementタグごと外し、被覆済みと数えるのをやめた",
       "category": "integration-test",
       "alternativeVerification": {
@@ -1888,6 +1976,7 @@
       "id": "estimate-request/REQ-26.5",
       "requirement": "REQ-26: Claude Vision構造化データ抽出精度",
       "title": "Claude APIのレスポンスからJSON配列を抽出するパーサーを実装する",
+      "criterionText": "The システム shall Claude APIのレスポンスからJSON配列を抽出するパーサーを実装する",
       "reason": "Claude APIの応答を解釈するbackend内部の振る舞いであり、成立には実在のANTHROPIC_API_KEYが必要。テスト環境のbackendは当該環境変数を持たず、REQ-22.3/REQ-22.6により応答が503で確定するためE2Eから到達できない。タスク115.127 段6の是正でE2E側の@requirementタグごと外し、被覆済みと数えるのをやめた",
       "category": "integration-test",
       "alternativeVerification": {
@@ -1900,6 +1989,7 @@
       "id": "estimate-request/REQ-26.6",
       "requirement": "REQ-26: Claude Vision構造化データ抽出精度",
       "title": "レスポンスにJSON配列が含まれない場合はパースエラーとして処理する",
+      "criterionText": "If Claude APIのレスポンスにJSON配列が含まれない場合, then the システム shall パースエラーとして処理する",
       "reason": "Claude APIの応答を解釈するbackend内部の振る舞いであり、成立には実在のANTHROPIC_API_KEYが必要。テスト環境のbackendは当該環境変数を持たず、REQ-22.3/REQ-22.6により応答が503で確定するためE2Eから到達できない。タスク115.127 段6の是正でE2E側の@requirementタグごと外し、被覆済みと数えるのをやめた",
       "category": "integration-test",
       "alternativeVerification": {
@@ -1912,6 +2002,7 @@
       "id": "estimate-request/REQ-26.7",
       "requirement": "REQ-26: Claude Vision構造化データ抽出精度",
       "title": "抽出された数値データ（数量・単価・金額）をNumber型に変換する",
+      "criterionText": "The システム shall 抽出された数値データ（数量、単価、金額）をNumber型に変換する",
       "reason": "Claude APIの応答を解釈するbackend内部の振る舞いであり、成立には実在のANTHROPIC_API_KEYが必要。テスト環境のbackendは当該環境変数を持たず、REQ-22.3/REQ-22.6により応答が503で確定するためE2Eから到達できない。タスク115.127 段6の是正でE2E側の@requirementタグごと外し、被覆済みと数えるのをやめた",
       "category": "integration-test",
       "alternativeVerification": {
@@ -1924,6 +2015,7 @@
       "id": "estimate-request/REQ-26.8",
       "requirement": "REQ-26: Claude Vision構造化データ抽出精度",
       "title": "カンマ区切り数値（例: 1,234,567）をカンマ除去してNumber型に変換する",
+      "criterionText": "The システム shall カンマ区切り数値（例: 1,234,567）をカンマ除去してNumber型に変換する",
       "reason": "Claude APIの応答を解釈するbackend内部の振る舞いであり、成立には実在のANTHROPIC_API_KEYが必要。テスト環境のbackendは当該環境変数を持たず、REQ-22.3/REQ-22.6により応答が503で確定するためE2Eから到達できない。タスク115.127 段6の是正でE2E側の@requirementタグごと外し、被覆済みと数えるのをやめた",
       "category": "integration-test",
       "alternativeVerification": {
@@ -1936,6 +2028,7 @@
       "id": "project-management/REQ-30.1",
       "requirement": "REQ-30: detail-summary APIの現場調査サムネイル署名付きURL変換",
       "title": "現場調査のthumbnailUrlを署名付きURLに変換して返却する",
+      "criterionText": "When detail-summary APIが現場調査セクションのデータを返却する, the ArchiTrackシステム shall 各現場調査のthumbnailUrlをストレージプロバイダーの署名付きURLに変換して返却する",
       "reason": "バックエンドAPI層の署名付きURL変換処理。E2Eではなくインテグレーションテストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -1948,6 +2041,7 @@
       "id": "project-management/REQ-30.2",
       "requirement": "REQ-30: detail-summary APIの現場調査サムネイル署名付きURL変換",
       "title": "現場調査のthumbnailOriginalUrlを署名付きURLに変換して返却する",
+      "criterionText": "When detail-summary APIが現場調査セクションのデータを返却する, the ArchiTrackシステム shall 各現場調査のthumbnailOriginalUrlをストレージプロバイダーの署名付きURLに変換して返却する",
       "reason": "バックエンドAPI層の署名付きURL変換処理。E2Eではなくインテグレーションテストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -1960,6 +2054,7 @@
       "id": "project-management/REQ-30.3",
       "requirement": "REQ-30: detail-summary APIの現場調査サムネイル署名付きURL変換",
       "title": "ストレージ未設定時にthumbnailUrlとthumbnailOriginalUrlをnullとして返却する",
+      "criterionText": "If ストレージが未設定の場合, then the ArchiTrackシステム shall thumbnailUrlとthumbnailOriginalUrlをnullとして返却する",
       "reason": "バックエンドAPI層の署名付きURL変換処理。E2Eではなくインテグレーションテストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -1972,6 +2067,7 @@
       "id": "project-management/REQ-30.4",
       "requirement": "REQ-30: detail-summary APIの現場調査サムネイル署名付きURL変換",
       "title": "署名付きURL生成失敗時に該当フィールドをnullとし他のデータ返却を妨げない",
+      "criterionText": "If 署名付きURL生成に失敗した場合, then the ArchiTrackシステム shall 該当フィールドをnullとし、他のデータの返却を妨げない",
       "reason": "バックエンドAPI層の署名付きURL変換処理。E2Eではなくインテグレーションテストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -1984,6 +2080,7 @@
       "id": "project-management/REQ-30.5",
       "requirement": "REQ-30: detail-summary APIの現場調査サムネイル署名付きURL変換",
       "title": "既存エンドポイントと同一のURL変換ロジックで実装する",
+      "criterionText": "The ArchiTrackシステム shall detail-summary APIのサムネイルURL変換ロジックを、既存のGET /api/projects/:projectId/site-surveys/latest エンドポイントと同一のロジックで実装する",
       "reason": "バックエンドAPI層の署名付きURL変換処理。E2Eではなくインテグレーションテストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -1996,6 +2093,7 @@
       "id": "site-survey/REQ-21.1",
       "requirement": "REQ-21: 画像アップロード時の拡張子不一致許容",
       "title": "拡張子と実際の画像形式が異なるファイルのアップロード許可",
+      "criterionText": "When ユーザーがファイル拡張子と実際の画像形式（マジックバイト判定結果）が異なるファイルをアップロードする, the Site Survey Service shall マジックバイトによる画像形式判定結果がサポート対象形式（JPEG/PNG/WEBP）であればアップロードを許可する",
       "reason": "マジックバイトによるバイナリレベルの画像形式判定はE2Eでは検証困難。ユニットテスト(survey-image.service.test.ts)でカバー済み",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -2008,6 +2106,7 @@
       "id": "site-survey/REQ-21.2",
       "requirement": "REQ-21: 画像アップロード時の拡張子不一致許容",
       "title": "拡張子.pngで実際はJPEGのファイルアップロード",
+      "criterionText": "When ユーザーが拡張子が`.png`だが実際の画像形式がJPEGであるファイルをアップロードする, the Site Survey Service shall マジックバイトによりJPEGと判定しアップロードを許可する",
       "reason": "マジックバイトによるバイナリレベルの画像形式判定はE2Eでは検証困難。ユニットテストでカバー済み",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -2020,6 +2119,7 @@
       "id": "site-survey/REQ-21.3",
       "requirement": "REQ-21: 画像アップロード時の拡張子不一致許容",
       "title": "拡張子.jpgで実際はPNGのファイルアップロード",
+      "criterionText": "When ユーザーが拡張子が`.jpg`だが実際の画像形式がPNGであるファイルをアップロードする, the Site Survey Service shall マジックバイトによりPNGと判定しアップロードを許可する",
       "reason": "マジックバイトによるバイナリレベルの画像形式判定はE2Eでは検証困難。ユニットテストでカバー済み",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -2032,6 +2132,7 @@
       "id": "site-survey/REQ-21.4",
       "requirement": "REQ-21: 画像アップロード時の拡張子不一致許容",
       "title": "拡張子.jpegで実際はWEBPのファイルアップロード",
+      "criterionText": "When ユーザーが拡張子が`.jpeg`だが実際の画像形式がWEBPであるファイルをアップロードする, the Site Survey Service shall マジックバイトによりWEBPと判定しアップロードを許可する",
       "reason": "マジックバイトによるバイナリレベルの画像形式判定はE2Eでは検証困難。ユニットテストでカバー済み",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -2044,6 +2145,7 @@
       "id": "site-survey/REQ-21.5",
       "requirement": "REQ-21: 画像アップロード時の拡張子不一致許容",
       "title": "画像以外の拡張子で実際はサポート対象形式のファイルアップロード",
+      "criterionText": "When ユーザーが画像ファイル以外の拡張子（例: `.txt`, `.pdf`）だが実際の画像形式がサポート対象であるファイルをアップロードする, the Site Survey Service shall マジックバイトによる画像形式判定結果に基づきアップロードを許可する",
       "reason": "マジックバイトによるバイナリレベルの画像形式判定はE2Eでは検証困難。ユニットテストでカバー済み",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -2056,6 +2158,7 @@
       "id": "site-survey/REQ-21.6",
       "requirement": "REQ-21: 画像アップロード時の拡張子不一致許容",
       "title": "非サポート形式のファイルアップロード拒否",
+      "criterionText": "If マジックバイトによる画像形式判定結果がサポート対象形式（JPEG/PNG/WEBP）のいずれにも該当しない, then the Site Survey Service shall ファイル拡張子に関わらずアップロードを拒否してエラーメッセージを表示する",
       "reason": "マジックバイトによるバイナリレベルの画像形式判定はE2Eでは検証困難。ユニットテストでカバー済み",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -2068,6 +2171,7 @@
       "id": "site-survey/REQ-21.7",
       "requirement": "REQ-21: 画像アップロード時の拡張子不一致許容",
       "title": "Content-Typeをマジックバイト判定結果に基づいて設定",
+      "criterionText": "The Site Survey Service shall アップロードされたファイルのContent-Typeをマジックバイトによる実際の画像形式に基づいて設定する",
       "reason": "Content-Type設定はHTTPレベルの処理でE2Eでの正確な検証が困難。ユニットテストでカバー済み",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -2080,6 +2184,7 @@
       "id": "site-survey/REQ-21.8",
       "requirement": "REQ-21: 画像アップロード時の拡張子不一致許容",
       "title": "拡張子ベースのバリデーションを行わずマジックバイト判定のみ使用",
+      "criterionText": "The Site Survey Service shall 拡張子ベースのバリデーションを行わず、マジックバイトによる画像形式判定のみでファイル形式の可否を決定する",
       "reason": "バリデーション方式の内部実装詳細はE2Eでは検証困難。ユニットテストでカバー済み",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -2092,6 +2197,7 @@
       "id": "site-survey/REQ-22.1",
       "requirement": "REQ-22: 注釈エディタでの画像回転機能",
       "title": "回転ボタンクリックで背景画像を90度単位で回転",
+      "criterionText": "When ユーザーが注釈エディタ（編集モード）で回転ボタンを押す, the Site Survey Service shall 背景画像を90度単位で回転する",
       "reason": "Canvas操作を伴う注釈エディタの回転機能はE2Eでは検証困難。ユニットテスト(AnnotationEditor.test.tsx)でカバー済み",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -2104,6 +2210,7 @@
       "id": "site-survey/REQ-22.2",
       "requirement": "REQ-22: 注釈エディタでの画像回転機能",
       "title": "回転時に注釈オブジェクトの位置・サイズを維持",
+      "criterionText": "When 注釈エディタで画像が回転される, the Site Survey Service shall 描画済みの注釈オブジェクトを回転に追従させず、現在の位置・サイズを維持する",
       "reason": "Canvas上の注釈オブジェクト座標操作はE2Eでは検証困難。ユニットテストでカバー済み",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -2116,6 +2223,7 @@
       "id": "site-survey/REQ-22.3",
       "requirement": "REQ-22: 注釈エディタでの画像回転機能",
       "title": "回転後のキャンバスサイズ調整",
+      "criterionText": "When 注釈エディタで画像が回転される, the Site Survey Service shall 回転後の画像サイズに合わせてキャンバスのサイズを調整する",
       "reason": "Canvas APIのサイズ調整はE2Eでは検証困難。ユニットテストでカバー済み",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -2128,6 +2236,7 @@
       "id": "site-survey/REQ-22.4",
       "requirement": "REQ-22: 注釈エディタでの画像回転機能",
       "title": "回転状態を含む画像データの永続化",
+      "criterionText": "When ユーザーが回転操作後に保存ボタンを押す, the Site Survey Service shall 回転状態を含む画像データを永続化する",
       "reason": "回転状態の保存はAPI経由の永続化処理。ユニットテストでカバー済み",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -2140,6 +2249,7 @@
       "id": "site-survey/REQ-22.5",
       "requirement": "REQ-22: 注釈エディタでの画像回転機能",
       "title": "保存された回転状態の復元表示",
+      "criterionText": "When ユーザーが回転済み画像を再度開く, the Site Survey Service shall 保存された回転状態を復元して表示する",
       "reason": "Canvas上での回転状態復元はE2Eでは検証困難。ユニットテストでカバー済み",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -2152,6 +2262,7 @@
       "id": "site-survey/REQ-22.6",
       "requirement": "REQ-22: 注釈エディタでの画像回転機能",
       "title": "回転操作のUndo/Redo履歴記録",
+      "criterionText": "When ユーザーが回転操作を行う, the Site Survey Service shall 回転操作をUndo/Redo履歴に記録する",
       "reason": "Canvas操作のUndo/Redo履歴はE2Eでは検証困難。ユニットテストでカバー済み",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -2164,6 +2275,7 @@
       "id": "site-survey/REQ-22.7",
       "requirement": "REQ-22: 注釈エディタでの画像回転機能",
       "title": "回転ボタンのツールバー配置",
+      "criterionText": "The Site Survey Service shall 注釈エディタの回転ボタンを既存のツールバーに配置する",
       "reason": "Canvas注釈エディタのツールバー配置はE2Eでは検証困難。ユニットテストでカバー済み",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -2176,6 +2288,7 @@
       "id": "site-survey/REQ-22.8",
       "requirement": "REQ-22: 注釈エディタでの画像回転機能",
       "title": "累積回転角度の正しい管理",
+      "criterionText": "When ユーザーが注釈エディタで複数回回転操作を行う, the Site Survey Service shall 累積回転角度（0度/90度/180度/270度）を正しく管理する",
       "reason": "Canvas上の累積回転角度管理はE2Eでは検証困難。ユニットテストでカバー済み",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -2188,6 +2301,7 @@
       "id": "estimate-creation/REQ-38.2",
       "requirement": "REQ-38: 見積書出力のデフォルト設定と空欄行処理",
       "title": "業者行のみ存在する行の空欄行処理",
+      "criterionText": "When 出力対象の行タイプに値を持たない見積項目が存在する場合, the 見積書作成システム shall 当該行タイプのページから当該項目を省き、後続の項目を繰り上げて出力する",
       "reason": "出力ファイル内の空欄行詰め処理はバックエンドの出力APIで制御されるため、ファイル内容検証は統合テストで実施",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2200,6 +2314,7 @@
       "id": "estimate-creation/REQ-38.3",
       "requirement": "REQ-38: 見積書出力のデフォルト設定と空欄行処理",
       "title": "データが存在する行のみを出力",
+      "criterionText": "The 見積書作成システム shall 出力対象として選択された行タイプにデータが存在する項目のみを出力する",
       "reason": "データが存在する行のみの出力制御はバックエンドAPIロジックで処理されるため統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2212,6 +2327,7 @@
       "id": "estimate-creation/REQ-40.1",
       "requirement": "REQ-40: 見積項目テキストフィールドのコンパクト化",
       "title": "見積項目テキストフィールドのコンパクト化1",
+      "criterionText": "The 見積書作成システム shall 見積項目テーブルのすべての列（名称・規格・単位・数量・単価・金額・備考）のテキストサイズを数量表の対応列と同様の設定にする",
       "reason": "見積項目テキストフィールドのサイズ統一は数量表との視覚的整合確保で、設計レビュー/VRTで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -2224,6 +2340,7 @@
       "id": "estimate-creation/REQ-40.2",
       "requirement": "REQ-40: 見積項目テキストフィールドのコンパクト化",
       "title": "見積項目テキストフィールドのコンパクト化2",
+      "criterionText": "The 見積書作成システム shall 見積項目テーブルのすべての列のパディングを数量表の対応列と同様の設定にする",
       "reason": "パディング統一は数量表との視覚的整合確保で、設計レビュー/VRTで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -2236,6 +2353,7 @@
       "id": "estimate-creation/REQ-40.3",
       "requirement": "REQ-40: 見積項目テキストフィールドのコンパクト化",
       "title": "見積項目テキストフィールドのコンパクト化3",
+      "criterionText": "The 見積書作成システム shall 見積項目テーブルのすべての列のセル内余白を数量表の対応列と同様に最小化する",
       "reason": "セル内余白最小化は数量表との視覚的整合確保で、設計レビュー/VRTで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -2248,6 +2366,7 @@
       "id": "estimate-creation/REQ-40.4",
       "requirement": "REQ-40: 見積項目テキストフィールドのコンパクト化",
       "title": "見積項目テキストフィールドのコンパクト化4",
+      "criterionText": "The 見積書作成システム shall テキストボックスの入力領域を最大化するためにセルの余白・パディングを削減する",
       "reason": "入力領域最大化は視覚的整合の主観的判定を含むため、設計レビュー/VRTで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -2260,6 +2379,7 @@
       "id": "estimate-request/REQ-38.9",
       "requirement": "REQ-38: 受領見積書 - 編集中セッション切れ時の編集状態保護",
       "title": "編集中セッション切れ時の編集状態保護9",
+      "criterionText": "~~削除（design review Issue 1, 2026-04-27）: 既存 `SessionExpiredModal`（user-authentication/REQ-30）はキャンセル UI を持たず Esc キーも無効化されている認証ポリシーであり、本AC は実装不可のため撤廃。再認証モーダルの選択肢は「再認証成功」または「ログイン画面へ移動」の二択とする~~",
       "reason": "design review Issue 1 (2026-04-27) で撤廃済みの受入基準。要件書上は strikethrough で削除表記済みのため E2E テスト不要",
       "category": "removed-from-spec",
       "alternativeVerification": {
@@ -2272,6 +2392,7 @@
       "id": "itemized-statement-generation/REQ-17.10",
       "requirement": "REQ-17: 内訳項目の手動並び替え",
       "title": "手動並び替え10",
+      "criterionText": "When 並び順の保存中にエラーが発生する, the システム shall エラーメッセージを表示し元の並び順を保持する",
       "reason": "楽観的排他制御エラー(409)などのエラーハンドリング詳細は統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2284,6 +2405,7 @@
       "id": "itemized-statement-generation/REQ-17.11",
       "requirement": "REQ-17: 内訳項目の手動並び替え",
       "title": "手動並び替え11",
+      "criterionText": "While 並び順の保存処理中, the システム shall ローディングインジケーターを表示し操作ボタンを無効化する",
       "reason": "保存処理中のローディング状態遷移詳細は統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2296,6 +2418,7 @@
       "id": "itemized-statement-generation/REQ-17.12",
       "requirement": "REQ-17: 内訳項目の手動並び替え",
       "title": "手動並び替え12",
+      "criterionText": "When 並び替え操作が行われた未保存の状態でページを離脱しようとする, the システム shall 確認ダイアログを表示する",
       "reason": "ページ離脱時の確認ダイアログ動作詳細は統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2308,6 +2431,7 @@
       "id": "quantity-table-generation/REQ-26.1",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力1",
+      "criterionText": "When 数量表詳細画面（編集画面）でPDF出力操作を行う, the 数量表管理システム shall 数量表のPDFファイルを生成してダウンロードする",
       "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は1番目の動作を統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2320,6 +2444,7 @@
       "id": "quantity-table-generation/REQ-26.2",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力2",
+      "criterionText": "The 数量表管理システム shall PDFの表紙に「数量表」タイトル、数量表名、工事名（プロジェクト名）、作成日を表示する（現場調査報告書出力機能のPDF表紙レイアウトを参考とする）",
       "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は2番目の動作を統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2332,6 +2457,7 @@
       "id": "quantity-table-generation/REQ-26.3",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力3",
+      "criterionText": "The 数量表管理システム shall 表紙以降のページに数量グループごとのセクションを並び順で表示する",
       "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は3番目の動作を統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2344,6 +2470,7 @@
       "id": "quantity-table-generation/REQ-26.4",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力4",
+      "criterionText": "When 数量グループのセクションを出力する, the 数量表管理システム shall 数量グループ名、紐づけられた注釈付き写真、写真コメント、および数量項目一覧を表示する",
       "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は4番目の動作を統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2356,6 +2483,7 @@
       "id": "quantity-table-generation/REQ-26.5",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力5",
+      "criterionText": "Where 数量グループに写真が紐づけられている場合, the 数量表管理システム shall 注釈付き写真と写真コメントを数量項目一覧の前に配置する",
       "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は5番目の動作を統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2368,6 +2496,7 @@
       "id": "quantity-table-generation/REQ-26.6",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力6",
+      "criterionText": "Where 数量グループに写真が紐づけられていない場合, the 数量表管理システム shall 写真・コメントセクションを省略し、数量項目一覧のみを表示する",
       "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は6番目の動作を統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2380,6 +2509,7 @@
       "id": "quantity-table-generation/REQ-26.7",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力7",
+      "criterionText": "The 数量表管理システム shall 数量項目一覧をテーブル形式（大項目・中項目・小項目・任意分類・工種・名称・規格・計算方法・数量・単位・備考）で出力する",
       "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は7番目の動作を統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2392,6 +2522,7 @@
       "id": "quantity-table-generation/REQ-26.8",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力8",
+      "criterionText": "When 数量項目一覧のテーブルがページをまたぐ場合, the 数量表管理システム shall 改ページ後の新しいページの先頭にテーブルヘッダー（列名）を繰り返し表示する",
       "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は8番目の動作を統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2404,6 +2535,7 @@
       "id": "quantity-table-generation/REQ-26.9",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力9",
+      "criterionText": "While PDF生成処理が実行中の状態で, the 数量表管理システム shall 処理中であることを示すインジケーターを表示し、重複操作を防止する",
       "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は9番目の動作を統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2416,6 +2548,7 @@
       "id": "quantity-table-generation/REQ-26.10",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力10",
+      "criterionText": "If PDF生成中にエラーが発生する, then the 数量表管理システム shall エラーメッセージを表示し、ユーザーに再試行を促す",
       "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は10番目の動作を統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2428,6 +2561,7 @@
       "id": "quantity-table-generation/REQ-26.11",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力11",
+      "criterionText": "The 数量表管理システム shall PDFファイル名を「{数量表名}.pdf」として生成する",
       "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は11番目の動作を統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2440,6 +2574,7 @@
       "id": "quantity-table-generation/REQ-26.12",
       "requirement": "REQ-26: 数量表のPDF出力",
       "title": "数量表のPDF出力12",
+      "criterionText": "The 数量表管理システム shall PDFの各ページにページ番号を表示する（表紙を除く）",
       "reason": "PDF生成 (Canvas描画と外部PDFライブラリ依存) は12番目の動作を統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2452,6 +2587,7 @@
       "id": "quantity-table-generation/REQ-28.1",
       "requirement": "REQ-28: Excelデータパースによる数量項目抽出",
       "title": "Excelデータパースによる数量項目抽出28.1",
+      "criterionText": "When Excelファイルのデータパースが開始されたとき, the 数量表管理システム shall SheetJS（xlsx）ライブラリを使用してExcelデータを直接読み取る",
       "reason": "SheetJS(xlsx)ライブラリでのデータパースは外部ライブラリ依存のため統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2464,6 +2600,7 @@
       "id": "quantity-table-generation/REQ-29.1",
       "requirement": "REQ-29: PDF OCR処理による数量項目抽出",
       "title": "PDF OCR処理による数量項目抽出29.1",
+      "criterionText": "When PDFファイルのOCR処理が開始されたとき, the 数量表管理システム shall pdfjs-distのgetTextContent() APIを使用してPDFからテキストを抽出する",
       "reason": "外部API/ライブラリ依存のため統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2476,6 +2613,7 @@
       "id": "quantity-table-generation/REQ-29.2",
       "requirement": "REQ-29: PDF OCR処理による数量項目抽出",
       "title": "PDF OCR処理による数量項目抽出29.2",
+      "criterionText": "The 数量表管理システム shall PDFの全ページ（1ページ目から最終ページ）を対象にテキスト抽出を行う",
       "reason": "外部API/ライブラリ依存のため統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2488,6 +2626,7 @@
       "id": "quantity-table-generation/REQ-29.3",
       "requirement": "REQ-29: PDF OCR処理による数量項目抽出",
       "title": "PDF OCR処理による数量項目抽出29.3",
+      "criterionText": "When pdfjs-distによるテキスト抽出で十分なテキストが得られた場合（テキストPDF）, the 数量表管理システム shall 抽出テキストをそのまま使用する（Tesseract OCRは実行しない）",
       "reason": "外部API/ライブラリ依存のため統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2500,6 +2639,7 @@
       "id": "quantity-table-generation/REQ-29.4",
       "requirement": "REQ-29: PDF OCR処理による数量項目抽出",
       "title": "PDF OCR処理による数量項目抽出29.4",
+      "criterionText": "When pdfjs-distによるテキスト抽出でテキストがほとんど得られない場合（スキャンPDF）, the 数量表管理システム shall PDFの各ページをCanvas経由で画像に変換し、Tesseract.js OCRを実行する",
       "reason": "外部API/ライブラリ依存のため統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2512,6 +2652,7 @@
       "id": "quantity-table-generation/REQ-29.5",
       "requirement": "REQ-29: PDF OCR処理による数量項目抽出",
       "title": "PDF OCR処理による数量項目抽出29.5",
+      "criterionText": "When スキャンPDFフォールバック時にCanvas描画を行うとき, the 数量表管理システム shall Canvas描画スケールを4.0に設定する",
       "reason": "外部API/ライブラリ依存のため統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2524,6 +2665,7 @@
       "id": "quantity-table-generation/REQ-29.6",
       "requirement": "REQ-29: PDF OCR処理による数量項目抽出",
       "title": "PDF OCR処理による数量項目抽出29.6",
+      "criterionText": "When スキャンPDFフォールバック時に画像前処理を行うとき, the 数量表管理システム shall グレースケール変換 → 大津の二値化 → 水平線除去 → 垂直線除去の画像前処理パイプラインを適用する",
       "reason": "外部API/ライブラリ依存のため統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2536,6 +2678,7 @@
       "id": "quantity-table-generation/REQ-29.7",
       "requirement": "REQ-29: PDF OCR処理による数量項目抽出",
       "title": "PDF OCR処理による数量項目抽出29.7",
+      "criterionText": "When OCR処理が完了したとき, the 数量表管理システム shall 抽出結果をテキストデータおよびプレビューテーブルとして表示する",
       "reason": "外部API/ライブラリ依存のため統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2548,6 +2691,7 @@
       "id": "quantity-table-generation/REQ-29.8",
       "requirement": "REQ-29: PDF OCR処理による数量項目抽出",
       "title": "PDF OCR処理による数量項目抽出29.8",
+      "criterionText": "The 数量表管理システム shall 抽出結果のテキストをユーザーが選択・コピーできる状態で表示する",
       "reason": "外部API/ライブラリ依存のため統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2560,6 +2704,7 @@
       "id": "quantity-table-generation/REQ-29.9",
       "requirement": "REQ-29: PDF OCR処理による数量項目抽出",
       "title": "PDF OCR処理による数量項目抽出29.9",
+      "criterionText": "If OCR処理が失敗した場合, then the 数量表管理システム shall エラーメッセージを表示し手動入力を促す",
       "reason": "外部API/ライブラリ依存のため統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2572,6 +2717,7 @@
       "id": "quantity-table-generation/REQ-29.10",
       "requirement": "REQ-29: PDF OCR処理による数量項目抽出",
       "title": "PDF OCR処理による数量項目抽出29.10",
+      "criterionText": "The 数量表管理システム shall OCR処理のタイムアウトを30秒とする",
       "reason": "外部API/ライブラリ依存のため統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2584,6 +2730,7 @@
       "id": "quantity-table-generation/REQ-30.1",
       "requirement": "REQ-30: Claude Vision API連携による高精度抽出（PDF）",
       "title": "Claude Vision API連携による高精度抽出（PDF）30.1",
+      "criterionText": "When PDFファイルのOCR処理が開始されたとき, the 数量表管理システム shall Claude Vision APIが利用可能な場合はClaude Vision APIを優先的に使用する",
       "reason": "外部API/ライブラリ依存のため統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2596,6 +2743,7 @@
       "id": "quantity-table-generation/REQ-30.2",
       "requirement": "REQ-30: Claude Vision API連携による高精度抽出（PDF）",
       "title": "Claude Vision API連携による高精度抽出（PDF）30.2",
+      "criterionText": "The 数量表管理システム shall PDFの各ページをBase64エンコードされた画像データとしてバックエンドのClaude Vision APIエンドポイントに送信する",
       "reason": "外部API/ライブラリ依存のため統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2608,6 +2756,7 @@
       "id": "quantity-table-generation/REQ-30.3",
       "requirement": "REQ-30: Claude Vision API連携による高精度抽出（PDF）",
       "title": "Claude Vision API連携による高精度抽出（PDF）30.3",
+      "criterionText": "The 数量表管理システム shall Claude APIへのリクエストに数量表の表構造を解析するためのプロンプトを含める",
       "reason": "外部API/ライブラリ依存のため統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2620,6 +2769,7 @@
       "id": "quantity-table-generation/REQ-30.4",
       "requirement": "REQ-30: Claude Vision API連携による高精度抽出（PDF）",
       "title": "Claude Vision API連携による高精度抽出（PDF）30.4",
+      "criterionText": "The 数量表管理システム shall Claude APIのレスポンスからJSON形式の表データを抽出し、数量項目フィールド（大項目・中項目・小項目・任意分類・工種・名称・規格・数量・単位・備考）にマッピングする",
       "reason": "外部API/ライブラリ依存のため統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2632,6 +2782,7 @@
       "id": "quantity-table-generation/REQ-30.5",
       "requirement": "REQ-30: Claude Vision API連携による高精度抽出（PDF）",
       "title": "Claude Vision API連携による高精度抽出（PDF）30.5",
+      "criterionText": "If Claude Vision APIが利用できない場合（ANTHROPIC_API_KEY未設定、HTTP 503等）, then the 数量表管理システム shall フォールバックとしてpdfjs-dist + Tesseract.jsによるOCR処理を実行する",
       "reason": "外部API/ライブラリ依存のため統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2644,6 +2795,7 @@
       "id": "quantity-table-generation/REQ-30.6",
       "requirement": "REQ-30: Claude Vision API連携による高精度抽出（PDF）",
       "title": "Claude Vision API連携による高精度抽出（PDF）30.6",
+      "criterionText": "If Claude Vision APIリクエストがタイムアウトまたはエラーとなった場合, then the 数量表管理システム shall フォールバックとしてpdfjs-dist + Tesseract.jsによるOCR処理を実行する",
       "reason": "外部API/ライブラリ依存のため統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2656,6 +2808,7 @@
       "id": "quantity-table-generation/REQ-30.7",
       "requirement": "REQ-30: Claude Vision API連携による高精度抽出（PDF）",
       "title": "Claude Vision API連携による高精度抽出（PDF）30.7",
+      "criterionText": "The 数量表管理システム shall Claude Vision API使用時もpdfjs-dist + Tesseract.js使用時も、同一のプレビューテーブル形式で抽出結果を表示する",
       "reason": "外部API/ライブラリ依存のため統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2668,6 +2821,7 @@
       "id": "quantity-table-generation/REQ-34.2",
       "requirement": "REQ-34: インポートダイアログのインラインプレビュー",
       "title": "インポートダイアログのインラインプレビュー34.2",
+      "criterionText": "While アップロードファイルがPDFのとき, the 数量表管理システム shall PDFビューアでインライン表示する",
       "reason": "PDFビューア (pdfjs-distライブラリ依存) のレンダリングは統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2680,6 +2834,7 @@
       "id": "quantity-table-generation/REQ-34.4",
       "requirement": "REQ-34: インポートダイアログのインラインプレビュー",
       "title": "インポートダイアログのインラインプレビュー34.4",
+      "criterionText": "While PDFファイルがプレビュー表示されているとき, the 数量表管理システム shall ページナビゲーション機能（前ページ/次ページボタン、現在ページ/総ページ数表示）を提供する",
       "reason": "PDFページナビゲーション (pdfjs-distベース) は統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2692,6 +2847,7 @@
       "id": "construction-schedule/REQ-6.7",
       "requirement": "construction-schedule/REQ-6: ガントチャート形式リアルタイム表示",
       "title": "ガントチャートの入力変更から表示更新までを200ミリ秒以内",
+      "criterionText": "The 工程表管理システム shall ガントチャートの入力変更から表示更新までを200ミリ秒以内に完了する",
       "reason": "UI描画パフォーマンスの計測はE2Eテストの範囲外。パフォーマンスプロファイリングツールで検証が必要",
       "category": "performance",
       "alternativeVerification": {
@@ -2705,6 +2861,7 @@
       "id": "construction-schedule/REQ-7.6",
       "requirement": "construction-schedule/REQ-7: Excel出力",
       "title": "Excel出力処理に失敗する場合のエラーメッセージ",
+      "criterionText": "If Excel出力処理に失敗する, then the 工程表管理システム shall エラーメッセージを表示し、ユーザーに再試行を促す",
       "reason": "Excel出力失敗のシミュレーションはE2E範囲外。統合テストでエラーハンドリングを検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2718,6 +2875,7 @@
       "id": "construction-schedule/REQ-8.6",
       "requirement": "construction-schedule/REQ-8: PDF出力",
       "title": "PDF出力処理に失敗する場合のエラーメッセージ",
+      "criterionText": "If PDF出力処理に失敗する, then the 工程表管理システム shall エラーメッセージを表示し、ユーザーに再試行を促す",
       "reason": "PDF出力失敗のシミュレーションはE2E範囲外。統合テストでエラーハンドリングを検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2731,6 +2889,7 @@
       "id": "construction-schedule/REQ-12.1",
       "requirement": "construction-schedule/REQ-12: 非機能要件",
       "title": "1つの工程表あたり最大200項目までの登録をサポート",
+      "criterionText": "The 工程表管理システム shall 1つの工程表あたり最大200項目までの登録をサポートする",
       "reason": "大量データの登録上限テストはE2Eテストの範囲外。負荷テストで検証が必要",
       "category": "performance",
       "alternativeVerification": {
@@ -2744,6 +2903,7 @@
       "id": "construction-schedule/REQ-12.2",
       "requirement": "construction-schedule/REQ-12: 非機能要件",
       "title": "200項目の工程表に対してガントチャートをスムーズに描画",
+      "criterionText": "The 工程表管理システム shall 200項目の工程表に対してガントチャートをスムーズに描画する（フレーム落ちなく表示更新）",
       "reason": "大量データでの描画パフォーマンステストはE2Eテストの範囲外。パフォーマンスプロファイリングで検証",
       "category": "performance",
       "alternativeVerification": {
@@ -2757,6 +2917,7 @@
       "id": "construction-schedule/REQ-12.3",
       "requirement": "construction-schedule/REQ-12: 非機能要件",
       "title": "Excel出力を30秒以内に完了",
+      "criterionText": "The 工程表管理システム shall Excel出力を30秒以内に完了する",
       "reason": "出力処理時間の計測はE2Eテストの範囲外。パフォーマンステストで検証が必要",
       "category": "performance",
       "alternativeVerification": {
@@ -2770,6 +2931,7 @@
       "id": "construction-schedule/REQ-12.4",
       "requirement": "construction-schedule/REQ-12: 非機能要件",
       "title": "PDF出力を30秒以内に完了",
+      "criterionText": "The 工程表管理システム shall PDF出力を30秒以内に完了する",
       "reason": "出力処理時間の計測はE2Eテストの範囲外。パフォーマンステストで検証が必要",
       "category": "performance",
       "alternativeVerification": {
@@ -2783,6 +2945,7 @@
       "id": "execution-budget-management/REQ-1.5",
       "requirement": "execution-budget-management/REQ-1: 実行予算の作成",
       "title": "プロジェクトに対して実行予算を1つだけ作成可能",
+      "criterionText": "The システム shall プロジェクトに対して実行予算を1つだけ作成可能とする",
       "reason": "1プロジェクト1実行予算のDB制約はバックエンドで実施。UI経由の重複作成は導線上不可で、整合性検証は統合テスト",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -2795,6 +2958,7 @@
       "id": "execution-budget-management/REQ-2.2",
       "requirement": "execution-budget-management/REQ-2: 実行予算の削除",
       "title": "論理削除",
+      "criterionText": "When ユーザーが削除を確定する, the システム shall 実行予算を論理削除する",
       "reason": "論理削除フラグの設定はDB状態確認が必要で、E2Eではなく統合テストで検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -2807,6 +2971,7 @@
       "id": "execution-budget-management/REQ-3.7",
       "requirement": "execution-budget-management/REQ-3: 実行予算項目の一覧表示",
       "title": "親項目の金額列自動集計",
+      "criterionText": "The システム shall 親項目の各金額列（見積金額、実行金額、変更金額、発注金額、累計支出、出来高金額）に子項目の合計値を自動計算して表示する",
       "reason": "親項目への金額自動集計はバックエンド計算ロジック検証で、計算精度は統合テストで実施",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -2819,6 +2984,7 @@
       "id": "execution-budget-management/REQ-4.1",
       "requirement": "execution-budget-management/REQ-4: 実行予算項目の編集",
       "title": "実行単価変更時に実行金額自動計算",
+      "criterionText": "When ユーザーが実行予算項目の実行単価を変更する, the システム shall 実行金額（数量 x 実行単価）を自動計算して更新する",
       "reason": "実行単価変更時の金額自動計算は数値計算精度の検証で、統合テストが適切",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -2831,6 +2997,7 @@
       "id": "execution-budget-management/REQ-4.4",
       "requirement": "execution-budget-management/REQ-4: 実行予算項目の編集",
       "title": "楽観的排他制御",
+      "criterionText": "The システム shall 実行予算の編集に楽観的排他制御を適用する",
       "reason": "楽観的排他制御による競合検出は並行リクエスト環境が必要で、統合テストが適切",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -2843,6 +3010,7 @@
       "id": "execution-budget-management/REQ-4.5",
       "requirement": "execution-budget-management/REQ-4: 実行予算項目の編集",
       "title": "競合エラーメッセージ表示",
+      "criterionText": "If 同時に他のユーザーが同じ実行予算を更新していた場合, the システム shall 競合エラーメッセージを表示し、最新データの再取得を促す",
       "reason": "更新競合エラー(409)の返却は統合テストでシミュレーションが適切",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -2855,6 +3023,7 @@
       "id": "execution-budget-management/REQ-6.8",
       "requirement": "execution-budget-management/REQ-6: 発注の作成と取引先指定",
       "title": "初期ステータス「発注前」",
+      "criterionText": "The システム shall 発注の初期ステータスを「発注前」とする",
       "reason": "初期ステータス「発注前」設定の正確性は統合テストで検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -2867,6 +3036,7 @@
       "id": "execution-budget-management/REQ-8.3",
       "requirement": "execution-budget-management/REQ-8: 発注金額の確定と案分",
       "title": "確定発注金額をチェック項目に案分",
+      "criterionText": "When ステータスが「発注済」に変更された時点で, the システム shall 確定発注金額をチェック済み項目の各実行金額の比率で案分し、各項目の発注金額を算出する",
       "reason": "確定発注金額の案分計算ロジックは統合テストで計算結果を検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2879,6 +3049,7 @@
       "id": "execution-budget-management/REQ-8.4",
       "requirement": "execution-budget-management/REQ-8: 発注金額の確定と案分",
       "title": "端数処理（最大金額項目に加算）",
+      "criterionText": "The システム shall 案分計算において端数（1円未満）が発生した場合、最も金額の大きい項目に端数を加算する",
       "reason": "端数処理(最大金額項目に加算)はDecimal演算精度の検証で、統合テストが適切",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2891,6 +3062,7 @@
       "id": "execution-budget-management/REQ-8.9",
       "requirement": "execution-budget-management/REQ-8: 発注金額の確定と案分",
       "title": "取消時に案分金額クリア",
+      "criterionText": "When ユーザーが発注取消を確定する, the システム shall 案分済みの各項目の発注金額をクリアし、ステータスを「発注取消」に変更する",
       "reason": "発注取消時の案分金額クリアはDB状態変化の確認が必要で、統合テストが適切",
       "category": "integration-test",
       "alternativeVerification": {
@@ -2903,6 +3075,7 @@
       "id": "execution-budget-management/REQ-10.3",
       "requirement": "execution-budget-management/REQ-10: 発注一覧のエクスポート",
       "title": "エクスポートにヘッダー情報含む",
+      "criterionText": "The システム shall エクスポートファイルに発注取引先名、発注日、確定発注金額を含むヘッダー情報を出力する",
       "reason": "Excel/PDF出力ファイルのヘッダー記載はファイル形式の構造検証で、infrastructureレベルで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -2915,6 +3088,7 @@
       "id": "execution-budget-management/REQ-10.4",
       "requirement": "execution-budget-management/REQ-10: 発注一覧のエクスポート",
       "title": "発注済の場合にエクスポートに発注金額列含む",
+      "criterionText": "While 発注ステータスが「発注済」の場合, the システム shall エクスポートファイルに発注金額列を追加して出力する",
       "reason": "発注済時の発注金額列追加はファイル構造条件分岐の検証で、infrastructureレベルで検証",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -2927,6 +3101,7 @@
       "id": "execution-budget-management/REQ-12.2",
       "requirement": "execution-budget-management/REQ-12: 出来高の履歴管理",
       "title": "同一施工日の上書き保存",
+      "criterionText": "The システム shall 同一施工日に対する出来高の上書き保存を可能とする",
       "reason": "同一施工日の上書き保存ロジックはバックエンドの upsert 制御で実施されるため、データ整合性は統合テストで検証",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -2939,6 +3114,7 @@
       "id": "execution-budget-management/REQ-13.2",
       "requirement": "execution-budget-management/REQ-13: 原価管理（支出実績の追跡）",
       "title": "累計支出の自動計算",
+      "criterionText": "When ユーザーが今月の支出を入力する, the システム shall 累計支出（先月までの支出 + 今月の支出）を自動計算して更新する",
       "reason": "累計支出の自動計算は数値計算精度の検証で、統合テストが適切",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -2951,6 +3127,7 @@
       "id": "execution-budget-management/REQ-13.5",
       "requirement": "execution-budget-management/REQ-13: 原価管理（支出実績の追跡）",
       "title": "残予算の自動計算",
+      "criterionText": "The システム shall 各項目の実行金額と累計支出の差額（残予算）を自動計算して表示する",
       "reason": "残予算の自動計算(実行金額-累計支出)は計算精度の検証で、統合テストが適切",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -2963,6 +3140,7 @@
       "id": "execution-budget-management/REQ-13.8",
       "requirement": "execution-budget-management/REQ-13: 原価管理（支出実績の追跡）",
       "title": "出来高対支出比率表示",
+      "criterionText": "The システム shall 出来高金額と累計支出の比率（出来高対支出比率）を表示する",
       "reason": "出来高対支出比率はバックエンド計算とクエリ性能を含み、performanceテストで検証",
       "category": "performance",
       "alternativeVerification": {
@@ -2975,6 +3153,7 @@
       "id": "execution-budget-management/REQ-14.5",
       "requirement": "execution-budget-management/REQ-14: 月次締め処理",
       "title": "重複締め阻止",
+      "criterionText": "If 同一月に対して既に月次締めが実行済みの場合, the システム shall 重複締めを阻止し、当該月は既に締め済みである旨のエラーメッセージを表示する",
       "reason": "重複締め阻止はDB制約の検証で、統合テストが適切",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -2987,6 +3166,7 @@
       "id": "execution-budget-management/REQ-15.4",
       "requirement": "execution-budget-management/REQ-15: 契約変更への対応",
       "title": "発注済み・出来高入力済み項目の保護",
+      "criterionText": "If 変更契約で削除対象となった項目が発注済みまたは出来高入力済みの場合, the システム shall 当該項目を削除せず、「変更削除」ステータスを付与して一覧に残す",
       "reason": "変更削除フラグ(発注済/出来高入力済の保護)はバックエンドロジック検証で統合テストが適切",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -2999,6 +3179,7 @@
       "id": "execution-budget-management/REQ-15.5",
       "requirement": "execution-budget-management/REQ-15: 契約変更への対応",
       "title": "未発注・出来高未入力項目の論理削除",
+      "criterionText": "If 変更契約で削除対象となった項目が未発注かつ出来高未入力の場合, the システム shall 当該項目を論理削除する",
       "reason": "未発注かつ出来高未入力項目の論理削除はDB状態検証で、統合テストが適切",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -3011,6 +3192,7 @@
       "id": "execution-budget-management/REQ-15.8",
       "requirement": "execution-budget-management/REQ-15: 契約変更への対応",
       "title": "変更反映の履歴記録",
+      "criterionText": "The システム shall 変更反映の履歴（適用日時、変更契約名）を記録する",
       "reason": "変更反映の履歴記録はDB保存内容の検証で、統合テストが適切",
       "category": "data-integrity",
       "alternativeVerification": {
@@ -3023,6 +3205,7 @@
       "id": "execution-budget-management/REQ-18.1",
       "requirement": "execution-budget-management/REQ-18: 数値計算の精度と表示",
       "title": "高精度10進数演算（Decimal型）",
+      "criterionText": "The システム shall 金額計算において高精度10進数演算（Decimal型）を使用する",
       "reason": "Decimal型の使用はバックエンド実装の検証。統合テストで計算精度を検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -3036,6 +3219,7 @@
       "id": "execution-budget-management/REQ-18.3",
       "requirement": "execution-budget-management/REQ-18: 数値計算の精度と表示",
       "title": "案分計算の端数処理で合計と差異なし",
+      "criterionText": "The システム shall 案分計算の端数処理において合計金額との差異が発生しないよう調整する",
       "reason": "案分計算の精度はバックエンドロジック。統合テストで計算結果を検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -3049,6 +3233,7 @@
       "id": "execution-budget-management/REQ-19.2",
       "requirement": "execution-budget-management/REQ-19: データの永続化とAPI設計",
       "title": "実行予算CRUD API",
+      "criterionText": "The システム shall 実行予算のCRUD操作にRESTful APIを提供する",
       "reason": "RESTful APIのテストはE2E範囲外。統合テストでAPIエンドポイントを検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -3062,6 +3247,7 @@
       "id": "execution-budget-management/REQ-19.3",
       "requirement": "execution-budget-management/REQ-19: データの永続化とAPI設計",
       "title": "発注データCRUD API",
+      "criterionText": "The システム shall 発注データのCRUD操作にRESTful APIを提供する",
       "reason": "RESTful APIのテストはE2E範囲外。統合テストでAPIエンドポイントを検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -3075,6 +3261,7 @@
       "id": "execution-budget-management/REQ-19.4",
       "requirement": "execution-budget-management/REQ-19: データの永続化とAPI設計",
       "title": "出来高データCRUD API",
+      "criterionText": "The システム shall 出来高データのCRUD操作にRESTful APIを提供する",
       "reason": "RESTful APIのテストはE2E範囲外。統合テストでAPIエンドポイントを検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -3088,6 +3275,7 @@
       "id": "execution-budget-management/REQ-19.5",
       "requirement": "execution-budget-management/REQ-19: データの永続化とAPI設計",
       "title": "原価データCRUD API",
+      "criterionText": "The システム shall 原価（支出実績）データのCRUD操作にRESTful APIを提供する",
       "reason": "RESTful APIのテストはE2E範囲外。統合テストでAPIエンドポイントを検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -3101,6 +3289,7 @@
       "id": "execution-budget-management/REQ-19.6",
       "requirement": "execution-budget-management/REQ-19: データの永続化とAPI設計",
       "title": "月次締めデータCRUD API",
+      "criterionText": "The システム shall 月次締めデータのCRUD操作にRESTful APIを提供する",
       "reason": "RESTful APIのテストはE2E範囲外。統合テストでAPIエンドポイントを検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -3114,6 +3303,7 @@
       "id": "execution-budget-management/REQ-19.7",
       "requirement": "execution-budget-management/REQ-19: データの永続化とAPI設計",
       "title": "ZodスキーマによるAPIバリデーション",
+      "criterionText": "The システム shall API入力値のバリデーションにZodスキーマを使用する",
       "reason": "Zodスキーマバリデーションはバックエンドロジック。統合テストで検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -3127,6 +3317,7 @@
       "id": "execution-budget-management/REQ-19.9",
       "requirement": "execution-budget-management/REQ-19: データの永続化とAPI設計",
       "title": "適切なHTTPステータスコード",
+      "criterionText": "The システム shall APIレスポンスに適切なHTTPステータスコードを返却する",
       "reason": "HTTPステータスコードの検証はE2E範囲外。統合テストでAPIレスポンスを検証",
       "category": "integration-test",
       "alternativeVerification": {
@@ -3140,6 +3331,7 @@
       "id": "site-survey/REQ-23.4",
       "requirement": "site-survey/REQ-23: 画像編集画面での変更に伴うサムネイル再生成の確実化",
       "title": "サムネイル再生成処理の完了保証（同期化）",
+      "criterionText": "When 画像編集画面の保存処理が完了する, the Site Survey Service shall サムネイル再生成処理の完了を保証してから保存完了とみなす",
       "reason": "保存完了とサムネイル更新完了の連動は画像編集画面の保存処理の内部順序であり、E2Eからは「保存完了」の内部判定を観測できない。フロントエンド単体テストで、合成済みサムネイルの更新（PATCH /api/site-surveys/images/:imageId/annotated-thumbnail）が失敗した場合に保存完了とみなさないことを検証する。サーバー側での同期再生成はタスク 115.107 で撤去済みであり、注釈保存の応答には合成済みサムネイルの表示元URLが含まれない",
       "category": "integration-test",
       "alternativeVerification": {
@@ -3153,6 +3345,7 @@
       "id": "site-survey/REQ-23.6",
       "requirement": "site-survey/REQ-23: 画像編集画面での変更に伴うサムネイル再生成の確実化",
       "title": "サムネイル再生成失敗時のエラー処理",
+      "criterionText": "If サムネイル再生成処理に失敗する, then the Site Survey Service shall エラーメッセージを表示し、サムネイルが旧状態のまま残らないよう再試行または明示的なエラー状態を提示する",
       "reason": "合成済みサムネイルの更新失敗はストレージ障害等の異常系であり、E2Eテストで意図的に発生させることが困難。フロントエンド単体テストでエラー処理を検証する。サーバー側の再生成失敗応答（THUMBNAIL_REGENERATION_FAILED）はタスク 115.107 で撤去済みであり、現在は合成済みサムネイル更新の失敗だけが対象である",
       "category": "fault-tolerance",
       "alternativeVerification": {
@@ -3166,6 +3359,7 @@
       "id": "site-survey/REQ-23.8",
       "requirement": "site-survey/REQ-23: 画像編集画面での変更に伴うサムネイル再生成の確実化",
       "title": "サムネイル再生成の冪等性",
+      "criterionText": "The Site Survey Service shall 画像変更を伴わない保存操作（例: 変更なしの保存）でもサムネイル再生成処理が冪等に動作し、既存サムネイルを破損させない",
       "reason": "冪等性は合成済みサムネイルの更新・取り消し経路（PATCH / DELETE /api/site-surveys/images/:imageId/annotated-thumbnail）の内部ロジックであり、E2Eでは既存サムネイルの破損有無を正確に検証困難。バックエンド単体テストで冪等性を検証する",
       "category": "integration-test",
       "alternativeVerification": {
@@ -3179,6 +3373,7 @@
       "id": "site-survey/REQ-29.3",
       "requirement": "site-survey/REQ-29: ツール選択・操作時の視覚フィードバック",
       "title": "描画操作開始時のドラッグ中プレビュー描画",
+      "criterionText": "When ユーザーが描画操作を開始する, the Site Survey Service shall 描画中の仮表示（プレビュー）を画像上に表示する",
       "reason": "Fabric.js 既存のドラッグ中プレビュー描画挙動を維持する要件であり、新規実装は不要。挙動はライブラリレベルで保証されているため、E2Eではなく既存挙動の維持確認で担保",
       "category": "infrastructure",
       "alternativeVerification": {
@@ -3192,6 +3387,7 @@
       "id": "quantity-table-generation/REQ-40.11",
       "requirement": "REQ-40: 現場調査からの数量グループ一括生成",
       "title": "一括生成処理の実行中インジケーター表示・重複実行防止",
+      "criterionText": "While 一括生成処理（写真一覧取得およびグループ生成）が実行中の状態で, the 数量表管理システム shall 処理中であることを示すインジケーターを表示し、重複実行を防止する",
       "reason": "実行中状態(isCreatingFromSurvey)の表示・重複実行防止は実装済み。生成処理は短時間で完了するため実行中状態のE2E検証は不安定。専用E2Eテストは未作成",
       "category": "pending-implementation",
       "alternativeVerification": {
@@ -3205,6 +3401,7 @@
       "id": "quantity-table-generation/REQ-43.2",
       "requirement": "REQ-43: 未保存変更の離脱ガード",
       "title": "ブラウザのタブ/ウィンドウクローズ・リロードに対する標準離脱確認(beforeunload)",
+      "criterionText": "While 数量表編集画面に未保存の変更が存在する状態で, the 数量表管理システム shall ブラウザのタブ/ウィンドウを閉じる操作またはリロード操作に対してブラウザ標準の離脱確認を表示する",
       "reason": "ブラウザ標準の beforeunload ネイティブダイアログは Playwright で安定して検証できない。アプリ内ナビゲーションの離脱ガード(REQ-43.1/43.3/43.4/43.5/43.6)は edit-guard-indicator-sticky-header-e2e でE2E検証済み",
       "category": "integration-test",
       "alternativeVerification": {
@@ -3218,6 +3415,7 @@
       "id": "quantity-table-generation/REQ-42.10",
       "requirement": "REQ-42: クライアントサイド編集と明示保存モデル",
       "title": "参照系データ取得(初回表示・オートコンプリート・写真コメント・現場調査写真一覧・インポート読込)を永続化制約の対象外とする",
+      "criterionText": "The 数量表管理システム shall 参照系データ取得（編集画面初回表示時のデータ読み込み、オートコンプリート候補取得、写真コメント取得、現場調査写真一覧取得、インポート時のファイル読み込み・OCR/データパース処理）を本要件の制約対象外とし、編集内容の永続化とは独立して必要に応じて実行する",
       "reason": "本受入基準は永続化制約の適用範囲外を定義するスコープ規定であり、単独で観測可能な振る舞いを持たない。参照系アクセスが許容されることは client-side-edit-explicit-save-e2e のネットワーク監視(永続化書き込みのみ禁止し参照系GETは許可)で間接的に担保される",
       "category": "integration-test",
       "alternativeVerification": {
@@ -3231,6 +3429,7 @@
       "id": "site-survey/REQ-38.4",
       "requirement": "REQ-38: 写真枚数によらない画面表示の応答性",
       "title": "登録写真の枚数が増加しても画像一覧の取得を初期表示時間内に完了する",
+      "criterionText": "The Site Survey Service shall 登録写真の枚数が増加しても、画像一覧の取得を Requirement 16.1 が定める初期表示時間の範囲内で完了する",
       "reason": "本受入基準は応答時間の計測であり、Playwright のE2Eでは計測値が実行環境の負荷に左右され判定が安定しない。同じ理由で同種の受入基準 site-survey/REQ-16.1（画像一覧の初期表示時間）も既にE2E対象外としている。本ブランチで専用のパフォーマンステストを新設し、そちらで判定する",
       "category": "performance",
       "alternativeVerification": {
@@ -3244,6 +3443,7 @@
       "id": "quantity-table-generation/REQ-49.3",
       "requirement": "REQ-49: 数量グループ数によらない写真表示の効率",
       "title": "数量表編集画面の表示で発生するリクエスト件数を数量グループ数に比例させない",
+      "criterionText": "The 数量表管理システム shall 数量表編集画面の表示で発生するサーバーリクエストの件数を、数量グループ数の増加に比例して増大させない",
       "reason": "件数の観測が成立するには表示領域外グループの取得抑止（REQ-49.8）が前提となる。site-survey タスク 115.106 で実寸判定が撤去され、その前提は共用部品側で満たされるようになった。残る未了は件数がグループ数に比例しないことをE2Eで観測することである。要件49は本ブランチ（site-survey の作業）のコミット 80d617f で quantity-table-generation へ新設された非機能要件であり、実装とE2Eは当該スペックの所管。本ブランチが実装したのは表示元の選択とまとめ取得（REQ-49.1/49.2/49.4/49.5/49.6/49.10）に限られる",
       "category": "pending-implementation",
       "alternativeVerification": {
@@ -3257,6 +3457,7 @@
       "id": "quantity-table-generation/REQ-49.7",
       "requirement": "REQ-49: 数量グループ数によらない写真表示の効率",
       "title": "表題部の写真の拡大表示時に原本画像を取得する",
+      "criterionText": "When ユーザーが表題部の写真を拡大表示する, the 数量表管理システム shall 当該操作の時点で原本画像を取得する",
       "reason": "現在の写真プレビューダイアログ（frontend/src/components/quantity-table/PhotoPreviewDialog.tsx）は表示元を annotatedThumbnailUrl || originalUrl とし、合成済みサムネイルがある場合は拡大表示でも原本を取得しない。本受入基準を満たすには当該ダイアログの表示元規則の変更が必要で、要件49を所管する quantity-table-generation スペックの実装課題である。実装前にE2Eの目印を付けると、満たしていない状態を満たしていると記録することになるため付けない",
       "category": "pending-implementation",
       "alternativeVerification": {
@@ -3270,6 +3471,7 @@
       "id": "quantity-table-generation/REQ-49.8",
       "requirement": "REQ-49: 数量グループ数によらない写真表示の効率",
       "title": "表示領域外の数量グループの写真取得を表示領域に入るまで行わない",
+      "criterionText": "Where 数量グループが表示領域外にある, the 数量表管理システム shall 当該グループの写真の取得を表示領域に入るまで行わない",
       "reason": "site-survey タスク 115.106 で実寸判定が撤去され、共用部品側の取得抑止は数量表画面にも効くようになった。AnnotatedImageThumbnail は loading が eager でない限り表示領域を観測し、QuantityGroupCard の表題部は 640x480 の固定枠で箱を確保するため、実寸の供給を待たずに抑止が働く。残る未了はリクエスト件数がグループ数に比例しないことのE2E観測であり、実装とE2Eは quantity-table-generation スペックの所管",
       "category": "pending-implementation",
       "alternativeVerification": {
@@ -3283,6 +3485,7 @@
       "id": "quantity-table-generation/REQ-49.9",
       "requirement": "REQ-49: 数量グループ数によらない写真表示の効率",
       "title": "写真選択・変更ダイアログの写真一覧を現場調査ごとに分割せずまとめて取得する",
+      "criterionText": "When ユーザーが写真選択ダイアログまたは写真変更ダイアログを開く, the 数量表管理システム shall 選択可能な写真の一覧を、現場調査ごとの個別リクエストに分割せずまとめて取得する",
       "reason": "現在の写真選択ダイアログ（frontend/src/pages/QuantityTableEditPage.tsx の handleSelectImage）はプロジェクトの現場調査一覧を取得した後、現場調査ごとに GET /api/site-surveys/:id を発行する。まとめ取得にはプロジェクト単位で写真一覧を返すAPIの新設が必要で、要件49を所管する quantity-table-generation スペックの実装課題である。実装前にE2Eの目印を付けると、満たしていない状態を満たしていると記録することになるため付けない",
       "category": "pending-implementation",
       "alternativeVerification": {
@@ -3296,6 +3499,7 @@
       "id": "project-management/REQ-21.13",
       "requirement": "project-management/REQ-21: 画面遷移・ナビゲーション",
       "title": "存在しないプロジェクトIDにアクセスした際のエラーメッセージとプロジェクト一覧への戻るリンク",
+      "criterionText": "When ユーザーが存在しないプロジェクトIDにアクセスしたとき, the ArchiTrackシステム shall 「プロジェクトが見つかりません」というエラーメッセージを表示し、プロジェクト一覧への戻るリンクを提供する",
       "reason": "エラーメッセージの表示は実装済みだが、受入基準が求める「プロジェクト一覧への戻るリンク」が production に存在しない。frontend/src/pages/ProjectDetailPage.tsx:616-627 のエラー表示は role=\"alert\" のメッセージと onClick={fetchProject} の「再試行」ボタンだけを描画し、一覧へ戻る導線を持たない（取引先詳細が使う ResourceNotFound のような戻る導線が無い）。E2E 側は e2e/specs/projects/project-navigation.spec.ts:383 に test.fail() のラチェットを置いており、本体は毎回すべて実行される。戻るリンクが実装されると当該テストが通り「落ちるはずが通った」として赤くなるため、ラチェットの撤去と本除外の削除が強制される",
       "category": "pending-implementation",
       "alternativeVerification": {
@@ -3309,6 +3513,7 @@
       "id": "quantity-table-generation/REQ-15.1",
       "requirement": "quantity-table-generation/REQ-15: 数量フィールドの入力制御",
       "title": "数量フィールドの入力可能範囲（-999999.99〜9999999.99）外の値にエラーメッセージを表示する",
+      "criterionText": "When 数量フィールドに入力可能範囲（-999999.99〜9999999.99）外の値が入力される, the 数量表管理システム shall エラーメッセージを表示し、範囲内の値の入力を求める",
       "reason": "数量欄に範囲の検証が production に無い。数量表編集画面が描画する行は frontend/src/components/quantity-table/QuantityGroupCard.tsx:1081 の EditableQuantityItemRow であり、その数量欄の確定処理 frontend/src/components/quantity-table/EditableQuantityItemRow.tsx:290-301 は parseFloat が NaN のとき 0 に置き換えて toFixed(2) で整えるだけで、範囲判定もエラー表示も行わない。範囲検証を組み込んだ行 frontend/src/components/quantity-table/FieldValidatedItemRow.tsx:461（validateNumericRange(value, 'quantity')）は存在するが、frontend/src/components/quantity-table/index.ts から再輸出されておらず、参照は Storybook（FieldValidatedItemRow.stories.tsx）とユニットテストだけで、どの画面からも描画されていない。E2E 側は e2e/specs/quantity-tables/quantity-table-crud.spec.ts:4107 に test.fail() のラチェットを置いており、本体は毎回すべて実行される",
       "category": "pending-implementation",
       "alternativeVerification": {
@@ -3322,6 +3527,7 @@
       "id": "quantity-table-generation/REQ-15.3",
       "requirement": "quantity-table-generation/REQ-15: 数量フィールドの入力制御",
       "title": "寸法・ピッチ・箇所数計算の「長さ」「重量」の入力可能範囲（0.01〜9999999.99）外の値にエラーメッセージを表示する",
+      "criterionText": "When 寸法フィールド、ピッチ計算フィールド、または箇所数計算フィールドの「長さ」「重量」に入力可能範囲（0.01〜9999999.99）外の値が入力される, the 数量表管理システム shall エラーメッセージを表示し、範囲内の値の入力を求める",
       "reason": "寸法系の欄に範囲の検証が production に無い。frontend/src/components/quantity-table/CalculationFields.tsx の欄定義は AREA_VOLUME_FIELDS（96-101行: 幅・奥行き・高さ・重量）、PITCH_FIELDS（106-113行: 範囲長・端長1・端長2・ピッチ長・長さ・重量）、COUNT_FIELDS（120-124行: 箇所数・長さ・重量）であり、rangeFieldType を与えているのは 121 行の「箇所数」だけである。範囲判定は同ファイル 322-328 行のとおり rangeFieldType が与えられた欄でしか実行されないため、寸法・長さ・重量に範囲外の値を入れてもそのまま受け付けられる。E2E 側は e2e/specs/quantity-tables/quantity-table-crud.spec.ts:4202 に test.fail() のラチェットを置いており、本体は毎回すべて実行される",
       "category": "pending-implementation",
       "alternativeVerification": {
@@ -3335,6 +3541,7 @@
       "id": "user-authentication/REQ-31.4",
       "requirement": "user-authentication/REQ-31: 公開鍵の配布（JWKS）とキャッシュ制御",
       "title": "公開鍵配布の応答に Cache-Control ヘッダーを設定する",
+      "criterionText": "WHEN 検証者が公開鍵配布エンドポイントへ要求する THEN Backend Serviceは `Cache-Control` ヘッダーを設定しなければならない",
       "reason": "公開鍵配布エンドポイントが Cache-Control ヘッダーを設定していない。backend/src/routes/jwks.routes.ts は応答に res.json({ keys }) を返すだけで、キャッシュ制御に関する記述が全文に存在しない。要件31 は 2026-08-22 に新設されたもので、従前は E2E の当該検証が観測結果で主張を包む構造（if (cacheControl) { ... }）のため恒久的に緑であり、実装が無いことが表面化していなかった（site-survey の Task 115.127 段6 で顕在化）。E2E 側は e2e/specs/api/jwks.spec.ts の「キャッシュ制御: 適切なCache-Controlヘッダーが設定されていること」に test.fail() のラチェットを置いており、本体は毎回すべて実行される。実装されると当該テストが通り「落ちるはずが通った」として赤くなるため、ラチェットの撤去と本除外の削除が強制される。実装は user-authentication のタスク32.1〜32.3 として起票済み",
       "category": "pending-implementation",
       "alternativeVerification": {
@@ -3347,6 +3554,7 @@
       "id": "user-authentication/REQ-31.5",
       "requirement": "user-authentication/REQ-31: 公開鍵の配布（JWKS）とキャッシュ制御",
       "title": "キャッシュの有効期間を300秒とする",
+      "criterionText": "WHEN `Cache-Control` ヘッダーを設定する THEN Backend Serviceはキャッシュの有効期間を300秒（5分）としなければならない",
       "reason": "公開鍵配布エンドポイントが Cache-Control ヘッダーを設定していない。backend/src/routes/jwks.routes.ts は応答に res.json({ keys }) を返すだけで、キャッシュ制御に関する記述が全文に存在しない。要件31 は 2026-08-22 に新設されたもので、従前は E2E の当該検証が観測結果で主張を包む構造（if (cacheControl) { ... }）のため恒久的に緑であり、実装が無いことが表面化していなかった（site-survey の Task 115.127 段6 で顕在化）。E2E 側は e2e/specs/api/jwks.spec.ts の「キャッシュ制御: 適切なCache-Controlヘッダーが設定されていること」に test.fail() のラチェットを置いており、本体は毎回すべて実行される。実装されると当該テストが通り「落ちるはずが通った」として赤くなるため、ラチェットの撤去と本除外の削除が強制される。実装は user-authentication のタスク32.1〜32.3 として起票済み",
       "category": "pending-implementation",
       "alternativeVerification": {
@@ -3359,6 +3567,7 @@
       "id": "user-authentication/REQ-31.6",
       "requirement": "user-authentication/REQ-31: 公開鍵の配布（JWKS）とキャッシュ制御",
       "title": "キャッシュの有効期間を鍵の入れ替えの猶予期間より十分に短くする",
+      "criterionText": "WHERE キャッシュの有効期間を定める THE Backend Serviceは鍵の入れ替えの猶予期間より十分に短い値を用いなければならない",
       "reason": "公開鍵配布エンドポイントが Cache-Control ヘッダーを設定していない。backend/src/routes/jwks.routes.ts は応答に res.json({ keys }) を返すだけで、キャッシュ制御に関する記述が全文に存在しない。要件31 は 2026-08-22 に新設されたもので、従前は E2E の当該検証が観測結果で主張を包む構造（if (cacheControl) { ... }）のため恒久的に緑であり、実装が無いことが表面化していなかった（site-survey の Task 115.127 段6 で顕在化）。E2E 側は e2e/specs/api/jwks.spec.ts の「キャッシュ制御: 適切なCache-Controlヘッダーが設定されていること」に test.fail() のラチェットを置いており、本体は毎回すべて実行される。実装されると当該テストが通り「落ちるはずが通った」として赤くなるため、ラチェットの撤去と本除外の削除が強制される。実装は user-authentication のタスク32.1〜32.3 として起票済み",
       "category": "pending-implementation",
       "alternativeVerification": {
@@ -3403,17 +3612,17 @@
     }
   },
   "summary": {
-    "totalExclusions": 266,
+    "totalExclusions": 262,
     "byCategory": {
       "data-integrity": 40,
       "fault-tolerance": 16,
-      "infrastructure": 100,
+      "infrastructure": 98,
       "integration-test": 68,
       "pending-implementation": 11,
-      "performance": 25,
-      "removed-from-spec": 1,
+      "performance": 22,
+      "removed-from-spec": 2,
       "security": 5
     },
-    "note": "REQ-26.1, 26.2, 26.4, 26.6, 26.7, 26.10は既にE2Eテスト(security-measures.spec.ts)でカバー済みのため除外リストから削除。site-survey/REQ-6.4-6.7, 7.3-7.5, 8.2-8.6, 10.5-10.7, 11.2-11.3はキャンバス操作・パフォーマンス系のため統合テストで検証。quantity-table-generation/REQ-1.3, 2.5, 3.3, 4.2-4.4, 5.3, 6.3-6.5, 7.2-7.3, 7.5, 8.2-8.11, 9.3-9.5, 10.2-10.5, 11.2-11.4, 12.3は入力バリデーション/計算ロジック/詳細UI操作のため統合テストで検証。quantity-table-generation/REQ-1.4, 1.5, 1.7は画面遷移テストとしてE2E(quantity-table-crud.spec.ts)でカバー済み。estimate-creation/REQ-8.2, 8.4-8.6, 9.2, 9.4-9.6は現場管理費・一般管理費の自動計算機能関連でUI詳細検証は統合テストで実施。estimate-request/REQ-11.18-11.21, 11.23, 11.25-11.30は明細行操作・バリデーション等でE2E(REQ-11.1-11.17)と統合テストで検証。estimate-request/REQ-13.1-13.12はOCR・インラインプレビュー機能で外部ライブラリ依存のため統合テストで検証。estimate-request/REQ-14.3-14.6は受領見積書データ管理（ストレージ・日時記録・論理削除・楽観的排他制御）で統合テストで検証。estimate-request/REQ-29.1-29.19はパンくずナビゲーション改善でE2Eテスト実装予定。project-management/REQ-30.1-30.5はdetail-summary APIの署名付きURL変換でインテグレーションテストで検証。project-management/REQ-33.1-33.9はクリップボードコピー機能でE2Eテスト実装予定。project-management/REQ-34.1-34.2は日時フィールド非表示でE2Eテスト実装予定。project-management/REQ-35.1-35.8はステータス変更履歴表示制限でE2Eテスト実装予定。quantity-table-generation/REQ-19.1-19.4は写真変更ダイアログの注釈付き写真表示でE2Eテスト実装予定。quantity-table-generation/REQ-21.1-21.5は写真選択時のコメント表示でE2Eテスト実装予定。site-survey/REQ-19.1-19.16は画像アップロードバリデーション修正とエラー通知改善でE2Eテスト実装予定。site-survey/REQ-2.8-2.9は画像プレビュー画面のブレッドクラム表示でE2Eテスト実装予定。quantity-table-generation/REQ-20.1-20.3は写真プレビューダイアログの注釈付き写真表示でE2Eテスト実装予定。estimate-creation/REQ-35.1-35.3は受領見積書転記ダイアログ表示改善でE2Eテスト実装予定。estimate-creation/REQ-36.1-36.2はNET金額自動設定でE2Eテスト実装予定。estimate-creation/REQ-37.1-37.2は利益率デフォルト値設定でE2Eテスト実装予定。estimate-creation/REQ-38.1-38.3は見積書出力デフォルト設定と空欄行処理でE2Eテスト実装予定。estimate-creation/REQ-39.1-39.9はサマリーセクション表示項目と順序でE2Eテスト実装予定。estimate-creation/REQ-40.1-40.4は見積項目テキストフィールドコンパクト化でE2Eテスト実装予定。estimate-request/REQ-30.1-30.9は宛先検索選択UI改善でE2Eテスト実装予定。estimate-request/REQ-31.1-31.12はPDFプレビュー拡大縮小機能でE2Eテスト実装予定。estimate-request/REQ-32.1-32.6はダイアログ横幅拡大でE2Eテスト実装予定。estimate-request/REQ-33.1-33.13は明細行テキストボックスサイズ統一でE2Eテスト実装予定。estimate-request/REQ-34.1-34.7はNET金額自動入力でE2Eテスト実装予定。estimate-request/REQ-35.1-35.11は現場調査報告書出力機能でE2Eテスト実装予定。itemized-statement-generation/REQ-16.2-16.4は内訳項目初期ソート順序でE2Eテスト実装予定。itemized-statement-generation/REQ-17.4-17.14は内訳項目手動並び替えでE2Eテスト実装予定。quantity-table-generation/REQ-22.1-22.5は数量グループ名前変更でE2Eテスト実装予定。quantity-table-generation/REQ-23.1-23.8は数量グループ並び順管理でE2Eテスト実装予定。quantity-table-generation/REQ-24.1-24.8は数量項目並び順管理でE2Eテスト実装予定。quantity-table-generation/REQ-25.1-25.6は画面スクロールバー表示でE2Eテスト実装予定。quantity-table-generation/REQ-26.1-26.12は数量表PDF出力でE2Eテスト実装予定。quantity-table-generation/REQ-27.1-27.8は数量表インポート機能（ファイルアップロード・処理起動）でE2Eテスト実装予定。quantity-table-generation/REQ-28.1-28.7はExcelデータパースによる数量項目抽出でE2Eテスト実装予定。quantity-table-generation/REQ-29.1-29.10はPDF OCR処理による数量項目抽出で外部ライブラリ依存のため統合テストで検証。quantity-table-generation/REQ-30.1-30.7はClaude Vision API連携による高精度抽出で外部API依存のため統合テストで検証。quantity-table-generation/REQ-31.1-31.9は抽出結果から数量項目への一括取り込みでE2Eテスト実装予定。quantity-table-generation/REQ-32.1-32.6はインポートプレビューのフィールドマッピング調整でE2Eテスト実装予定。quantity-table-generation/REQ-33.1-33.5はOCR再実行・リトライ機能でE2Eテスト実装予定。quantity-table-generation/REQ-34.1-34.5はインポートダイアログのインラインプレビューでE2Eテスト実装予定。construction-schedule/REQ-6.7, 12.1-12.4はパフォーマンス要件のため負荷テスト・プロファイリングで検証。construction-schedule/REQ-7.6, 8.6はExcel/PDF出力失敗時のエラーハンドリングで統合テストで検証。contract-management/REQ-3.5-3.9, 5.4, 8.9, 10.2-10.8, 11.7, 13.2, 13.4は契約管理UI未実装のためE2Eテスト実装予定。project-management/REQ-40.8-40.10は実行予算セクションUI未実装のためE2Eテスト実装予定。execution-budget-management/REQ-1.1-1.7, 2.1-2.3, 3.1-3.10, 4.1-4.3, 5.1-5.3, 6.1-6.8, 7.1-7.5, 8.1-8.3, 8.5-8.9, 9.1-9.3, 10.1-10.4, 11.1-11.11, 12.1-12.7, 13.1-13.8, 14.1-14.5, 15.1-15.8, 16.1-16.5, 17.2, 17.6, 18.2, 18.4-18.5は実行予算管理UI未実装のためE2Eテスト実装予定。execution-budget-management/REQ-4.4-4.5は楽観的排他制御で統合テストで検証。execution-budget-management/REQ-8.4は案分計算の端数処理で統合テストで検証。execution-budget-management/REQ-18.1, 18.3はDecimal型演算・案分精度で統合テストで検証。execution-budget-management/REQ-19.2-19.7, 19.9はCRUD API・バリデーション・ステータスコードで統合テストで検証。site-survey/REQ-21.1-21.8は画像アップロード時の拡張子不一致許容でマジックバイト判定はバイナリレベル処理のためユニットテストで検証。site-survey/REQ-22.1-22.8は注釈エディタでの画像回転機能でCanvas操作のためユニットテストで検証。site-survey/REQ-23.4は保存処理の同期完了保証でバックエンド内部制御のため統合テストで検証。site-survey/REQ-23.6はサムネイル再生成失敗時のエラー処理で異常系のため統合テストで検証。site-survey/REQ-23.8はサムネイル再生成の冪等性でバックエンド内部ロジックのため統合テストで検証。site-survey/REQ-38.4は画像一覧取得の応答時間の計測でsite-survey/REQ-16.1と同種のためパフォーマンステスト(backend/performance/survey-image-list.perf.ts)で検証。quantity-table-generation/REQ-49.3, 49.7, 49.8, 49.9は要件49（画面表示のリクエスト効率）のうち本ブランチが実装していない範囲で、実装とE2Eはquantity-table-generationスペックの所管。タスク 115.121 の全件監査（2026-08-19）: 除外は実測261件であり、totalExclusions が584・byCategory が旧値のまま陳腐化していたため実測値へ是正した（removed-from-spec の区分は byCategory から欠落していた）。根拠が本番へ到達する検証を指しているかを全件について確かめ、失効していた site-survey/REQ-15.6 と site-survey/REQ-9.6 の2件を実測へ差し替えた。あわせて alternativeVerification.tool が Jest を挙げる項目を精査した。本リポジトリには Jest の依存も設定ファイルも存在せず frontend / backend とも Vitest である（frontend/package.json・backend/package.json とも vitest を持ち jest を持たない）。是正前は124件あり、内訳は現場調査スペック32件・他機能スペック92件であった。うち現場調査の32件は本タスクの境界内であるためすべて Vitest へ改めた（上記2件は根拠ごと差し替え、残る30件は先頭の Jest を Vitest へ置換し併記部分は据え置いた）。是正後に Jest を挙げる項目は92件で、すべて他機能スペックの所管であるため本監査では記録にとどめ、道具名の是正は各機能スペックの後続タスクへ委ねる。タスク 115.127 段5 の是正（2026-08-21）: 恒真の解消で露見した production 未実装のうち、これまで除外に載っていなかった project-management/REQ-21.13・quantity-table-generation/REQ-15.1・quantity-table-generation/REQ-15.3 の3件を pending-implementation として追加した。いずれもE2E側に test.fail() のラチェットを置いており、実装されるとラチェットが赤くなって本除外の削除が強制される。これにより除外は261件から264件、pending-implementation は5件から8件になった。 タスク 115.127 段6 の是正（2026-08-21）: E群（観測結果で主張を包むだけの構造）の解消で露見した production 未実装として、site-survey/REQ-3.1（現場調査一覧のページネーション UI が未実装）を pending-implementation として追加し、site-survey/REQ-4.6（圧縮後サイズが受入基準の下限 250KB を下回る）を infrastructure から pending-implementation へ改めた。REQ-4.6 は従前「統合テストで250KB〜350KB範囲に圧縮されることを確認」としていたが、当該の単体テストは sharp をモックして範囲内のサイズだけを与えており、下限を下回る経路を通していなかったため、根拠が実態を指していなかった。いずれもE2E側に test.fail() のラチェットを置いており、実装されるとラチェットが赤くなって本除外の削除が強制される。これにより除外は264件から265件、pending-implementation は8件から10件になった。 タスク 115.127 段6 の是正・査読 round 4（2026-08-21）: 段6 で `estimate-requests/estimate-request-ocr-vision-e2e.spec.ts` の 200/422 分岐にあった構造主張18件を削除した際、@requirement タグを据え置いたため estimate-request/REQ-21.5・21.6・21.7・23.4・26.5・26.6・26.7・26.8 が「機能が使えないこと」を主張するテストで被覆済みと数えられていた。8件をタグごとE2Eの被覆から外し、外部API（Anthropic）依存として本除外へ登録した（integration-test 区分）。いずれも backend/src/__tests__/unit/services/claude-vision.service.test.ts が Anthropic SDK をモックして検証しており、2026-08-21 に26件すべて緑であることを実測した。これにより除外は265件から273件になった。 タスク 115.104 の是正（2026-08-23）: site-survey/REQ-6.5（寸法線の端点ドラッグ）と site-survey/REQ-29.6（ツールヒント）を除外から削除した。いずれも本タスクで本番へ結線し、E2E（site-survey-annotation-tools.spec.ts / site-survey-annotation-mobile.spec.ts）で被覆したためである。REQ-6.5 は「キャンバス上でのドラッグ操作はE2E範囲外」を理由に infrastructure 区分へ置かれていたが、既存の site-survey-annotation-mobile.spec.ts が CDP の実タッチでドラッグを検証しており根拠が失効していた。REQ-29.6 は「既存の title / aria-label 実装を維持する要件であり新規実装は不要」としていたが、要件本文は「マウスホバーまたは長押しで表示する」であり、title 属性は指操作では表示されないため長押しの経路が未実装だった。これにより除外は 2 件減り、infrastructure も 2 件減らした。 タスク 115.105 の是正（2026-08-23）: site-survey/REQ-15.6（ネットワーク切断時の警告）を除外から削除した。本タスクで現場調査（注釈エディタ・現場調査フォーム・現場調査詳細）へ通信状態を結線し、E2E（site-survey-responsive.spec.ts の「ネットワーク状態」3件）で警告表示・サーバー保存の抑止・復帰後の保存成立を被覆したためである。従前の代替検証 frontend/src/__tests__/components/NetworkStatusIndicator.test.tsx は本番参照0件の部品だけを回しており根拠が本番へ到達していなかった。これにより除外は1件減り、fault-tolerance も1件減らした。 タスク 115.106 の是正（2026-08-23）: 本タスクで `AnnotatedImageThumbnail` の実寸判定（当時の識別子 hasIntrinsicSize）を撤去したことにより、quantity-table-generation/REQ-49.3 と REQ-49.8 の reason が「実寸が供給されないため表示領域観測が働かず、現状は表示領域到達を待たずに取得する」という**事実に反する記述**になったため、現在の本番コードを指す記述へ差し替えた。当該識別子はリポジトリ全体でこの2件の reason にしか残っておらず、存在しないコードを根拠に据えた宙吊りの記録であった。両件の category は `pending-implementation` のまま据え置く。取得抑止の機構は共用部品側で満たされたが、両受入基準が求めるのは「リクエスト件数が数量グループ数に比例しないこと」の観測であり、そのE2Eは未実装で、実装とE2Eの所管は quantity-table-generation スペックにあるためである（本タスクの境界は現場調査一覧であり、数量表画面のE2E追加は所管外）。除外の件数は増減しないため末尾の件数記録は変更していない。実件数266と記載値の既存の乖離にも手を触れていない。 タスク 115.135 の是正（2026-08-24）: 見積依頼のOCR系E2Eから「抽出結果 **または** エラー表示」の選言による完了判定を全廃した際、estimate-request/REQ-17.8（PDFテキスト抽出のタイムアウト30秒）がE2Eから到達できないことが判明したため integration-test 区分で追加した。従前は pdf-text-extraction-e2e.spec.ts がタグを付けていたが、処理を30秒超にするものを一つも持たず選言で終端を受理していたため被覆になっていなかった。代替検証の単体テストは 2026-08-24 に実行し30.1秒で緑であることを実測した。これにより除外は1件増え、integration-test も1件増やした。実件数267と記載値273の既存の乖離には手を触れていない。 タスク 115.135 の是正・査読 round 2（2026-08-24）: REQ-17.8 と同じ欠陥を持ちながらタグを据え置いていた estimate-request/REQ-17.4・REQ-19.1・REQ-19.6・REQ-19.8 の4件を、同じ機構（タグの除去＋除外への登録）で処理した。4件はいずれもスキャンPDFフォールバック経路（extractPdfWithOcrFallback）の内側にしか現れないが、現行の e2e/fixtures は2件ともテキスト入りPDF（test-file.pdf は /Image 0・Tj 7・抽出文字数97、test-text-pdf.pdf は /Image 0・Tj 10・抽出文字数264）で pdf-text-extractor.ts:427-428 の閾値50を超えるため当該経路へ一度も入らない。タグを外したのは ocr-accuracy-improvement-e2e.spec.ts（REQ-19.1 / 19.6 / 19.8 の2箇所）・pdf-text-extraction-e2e.spec.ts（REQ-17.4）・estimate-request-ocr-vision-e2e.spec.ts（REQ-19.1）である。代替検証は 2026-08-24 に実行し extractPdfHybrid.test.ts 15件・OcrDataExtractor.test.tsx 39件がすべて緑であることを実測した。あわせて REQ-17.8 の reason にあった「したがってE2Eからは到達できない」という断定を、実測した範囲（現行の fixture が2件ともテキスト入りであるため到達しない）へ戻した。**5件はいずれも後続タスク site-survey/115.157 で解消する。** これにより除外は273件から277件、integration-test は69件から73件になった。実件数271と記載値277の既存の乖離には手を触れていない。 タスク 115.144 の是正（2026-08-25）: 除外定義の `$schema` が指す先がリポジトリに存在せず、定義が形式検証を受けていなかった。スキーマを実在させ、`npm run check:req-exclusions` として pre-push と CI の関門へ組み込んだ。新規依存は入れず、スキーマが使う語彙のみを解釈する検証器を置き、解釈できない語彙が現れた場合は黙殺せず違反として報告する。この検証器が実データの欠陥を4件検出したため是正した。`summary.totalExclusions` の記載値277は実件数271との乖離であり（過去の注記が「手を触れていない」と記録してきたもの）、本タスクで実測値へ訂正した。`byCategory.infrastructure` 103→99、`fault-tolerance` 18→16 も同様に訂正した。`removed-from-spec` は使われているのに `categories` に未定義であったため定義を追加した。除外の項目そのものは一件も増減していない。 タスク 115.147 の是正（2026-08-25）: 利用者の判断により要件4.6 を「250KB〜350KBの範囲に圧縮」から「350KB以下に収まった時点で圧縮を打ち切る」へ変更したため、site-survey/REQ-4.6 を除外から削除した。下限は出力サイズの制約として原理的に成立せず（よく圧縮できる画像は品質90の一度の再エンコードで下限を大きく下回り、戻すには元画像より劣化させたうえで容量だけ増やすほかない）、下限の本来の意図は処理の制約として表現し直された。実装からは TARGET_MIN_SIZE_BYTES と isWithinTargetRange を撤去し（後者は継続条件が同じことを既に表しており到達しても分岐しない冗長な打ち切りであった）、単体テストは「範囲内の値だけを与える」形をやめ、打ち切りサイズを大きく下回る経路（61,638 バイト）・ちょうど350KB・段階的な品質低下・段階的な縮小の4経路を段階数の主張で検証する形へ改めた。E2E（site-survey-images.spec.ts の「大きいファイル（300KB超）をアップロードすると圧縮される」）は test.fail() のラチェットを外し、350KB以下であることと素材より小さいことを無条件に主張する。これにより除外は271件から270件、pending-implementation は12件から11件になった。 タスク 115.157 の是正（2026-08-25）: 画像のみのPDF fixture を用意し、スキャンPDFのOCRフォールバック経路（extractPdfWithOcrFallback）をE2Eで実際に通したため、estimate-request/REQ-17.4・REQ-17.8・REQ-19.1・REQ-19.6・REQ-19.8 の5件を除外から削除した。従前これらを除外していた理由は「現行の e2e/fixtures が2件ともテキスト入りPDFであり当該経路へ到達しない」ことであり、本タスクでその前提を解消した。fixture は e2e/fixtures/generate-image-only-pdf.mjs が生成する画像のみPDF（e2e/fixtures/test-scanned-pdf.pdf。/Font 0・テキスト描画演算子 0・本番と同じ手順で測った抽出文字数 0 で isTextPdf=false が確定する）と、その150ページ版（e2e/fixtures/test-scanned-pdf-multipage.pdf）である。被覆は e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts が担い、本番が呼ぶ Canvas API（getImageData / putImageData / toBlob）へ観測を挟んで、描画された画素の寸法1400x700（MediaBox 350x175pt に対しスケール4.0。REQ-19.1）、前処理後の画素がグレースケールかつ0/255のみで水平・垂直の罫線が消えていること（REQ-19.6）、Tesseractの言語データが取得されOCR結果に画像内の語が現れること（REQ-17.4）を主張する。REQ-17.8・REQ-19.8 は150ページ版で30秒では終わらない仕事を与え、エラー表示までの実測が25〜45秒に収まることを主張する。主張が本番の欠陥を検出することは、本番を改変した3種のビルド（CANVAS_RENDER_SCALE を 2.0 へ／preprocessImageData の適用を外す／罫線除去2段を外す）でそれぞれ当該の主張が落ちること、および OCR_TIMEOUT_MS を10秒へ変えるとエラー表示までが28.6秒から11.3秒へ移ることを実測して確かめた（本番はいずれも復元済み）。あわせて観測が経路の有無を弁別することを、同じ観測をテキスト入りPDFへ当てて痕跡が一件も現れないことで示している。これにより除外は270件から265件、integration-test は73件から68件になった。 タスク 115.159 の是正（2026-08-25）: estimate-request-ocr-vision-e2e.spec.ts の「見積依頼詳細画面でOCR処理UIが利用可能である」が十六件のタグ（estimate-request/REQ-19.2〜19.5・19.7・24.1〜24.4・24.7・25.1〜25.6）を掲げながら、実体は「`ocr-upload-area` **または**『PDF』**または**『アップロード』**または**『受領見積書』のいずれかの文字が見えること」だけで、十六件のどの受入基準の規範も判定していなかった。一件ずつ処遇を決めた結果、estimate-request/REQ-19.7（画像前処理に新規外部依存関係を追加しない）だけがE2Eから判定できない依存関係の性質であったため infrastructure 区分で追加した。REQ-19.2〜19.5 は前処理後の画素を実際に観測している scanned-pdf-ocr-fallback-e2e.spec.ts へタグを移した（同検証は従前からグレースケール・大津の二値化・水平線除去・垂直線除去の結果を画素で主張していたにもかかわらず、タグはパイプライン全体を指す REQ-19.6 しか掲げていなかった）。残る十一件（24.1〜24.4・24.7・25.1〜25.6）は同ファイルに置いた三つの検証で判定を書いた。これにより除外は265件から266件、infrastructure は99件から100件になった。"
+    "note": "REQ-26.1, 26.2, 26.4, 26.6, 26.7, 26.10は既にE2Eテスト(security-measures.spec.ts)でカバー済みのため除外リストから削除。site-survey/REQ-6.4-6.7, 7.3-7.5, 8.2-8.6, 10.5-10.7, 11.2-11.3はキャンバス操作・パフォーマンス系のため統合テストで検証。quantity-table-generation/REQ-1.3, 2.5, 3.3, 4.2-4.4, 5.3, 6.3-6.5, 7.2-7.3, 7.5, 8.2-8.11, 9.3-9.5, 10.2-10.5, 11.2-11.4, 12.3は入力バリデーション/計算ロジック/詳細UI操作のため統合テストで検証。quantity-table-generation/REQ-1.4, 1.5, 1.7は画面遷移テストとしてE2E(quantity-table-crud.spec.ts)でカバー済み。estimate-creation/REQ-8.2, 8.4-8.6, 9.2, 9.4-9.6は現場管理費・一般管理費の自動計算機能関連でUI詳細検証は統合テストで実施。estimate-request/REQ-11.18-11.21, 11.23, 11.25-11.30は明細行操作・バリデーション等でE2E(REQ-11.1-11.17)と統合テストで検証。estimate-request/REQ-13.1-13.12はOCR・インラインプレビュー機能で外部ライブラリ依存のため統合テストで検証。estimate-request/REQ-14.3-14.6は受領見積書データ管理（ストレージ・日時記録・論理削除・楽観的排他制御）で統合テストで検証。estimate-request/REQ-29.1-29.19はパンくずナビゲーション改善でE2Eテスト実装予定。project-management/REQ-30.1-30.5はdetail-summary APIの署名付きURL変換でインテグレーションテストで検証。project-management/REQ-33.1-33.9はクリップボードコピー機能でE2Eテスト実装予定。project-management/REQ-34.1-34.2は日時フィールド非表示でE2Eテスト実装予定。project-management/REQ-35.1-35.8はステータス変更履歴表示制限でE2Eテスト実装予定。quantity-table-generation/REQ-19.1-19.4は写真変更ダイアログの注釈付き写真表示でE2Eテスト実装予定。quantity-table-generation/REQ-21.1-21.5は写真選択時のコメント表示でE2Eテスト実装予定。site-survey/REQ-19.1-19.16は画像アップロードバリデーション修正とエラー通知改善でE2Eテスト実装予定。site-survey/REQ-2.8-2.9は画像プレビュー画面のブレッドクラム表示でE2Eテスト実装予定。quantity-table-generation/REQ-20.1-20.3は写真プレビューダイアログの注釈付き写真表示でE2Eテスト実装予定。estimate-creation/REQ-35.1-35.3は受領見積書転記ダイアログ表示改善でE2Eテスト実装予定。estimate-creation/REQ-36.1-36.2はNET金額自動設定でE2Eテスト実装予定。estimate-creation/REQ-37.1-37.2は利益率デフォルト値設定でE2Eテスト実装予定。estimate-creation/REQ-38.1-38.3は見積書出力デフォルト設定と空欄行処理でE2Eテスト実装予定。estimate-creation/REQ-39.1-39.9はサマリーセクション表示項目と順序でE2Eテスト実装予定。estimate-creation/REQ-40.1-40.4は見積項目テキストフィールドコンパクト化でE2Eテスト実装予定。estimate-request/REQ-30.1-30.9は宛先検索選択UI改善でE2Eテスト実装予定。estimate-request/REQ-31.1-31.12はPDFプレビュー拡大縮小機能でE2Eテスト実装予定。estimate-request/REQ-32.1-32.6はダイアログ横幅拡大でE2Eテスト実装予定。estimate-request/REQ-33.1-33.13は明細行テキストボックスサイズ統一でE2Eテスト実装予定。estimate-request/REQ-34.1-34.7はNET金額自動入力でE2Eテスト実装予定。estimate-request/REQ-35.1-35.11は現場調査報告書出力機能でE2Eテスト実装予定。itemized-statement-generation/REQ-16.2-16.4は内訳項目初期ソート順序でE2Eテスト実装予定。itemized-statement-generation/REQ-17.4-17.14は内訳項目手動並び替えでE2Eテスト実装予定。quantity-table-generation/REQ-22.1-22.5は数量グループ名前変更でE2Eテスト実装予定。quantity-table-generation/REQ-23.1-23.8は数量グループ並び順管理でE2Eテスト実装予定。quantity-table-generation/REQ-24.1-24.8は数量項目並び順管理でE2Eテスト実装予定。quantity-table-generation/REQ-25.1-25.6は画面スクロールバー表示でE2Eテスト実装予定。quantity-table-generation/REQ-26.1-26.12は数量表PDF出力でE2Eテスト実装予定。quantity-table-generation/REQ-27.1-27.8は数量表インポート機能（ファイルアップロード・処理起動）でE2Eテスト実装予定。quantity-table-generation/REQ-28.1-28.7はExcelデータパースによる数量項目抽出でE2Eテスト実装予定。quantity-table-generation/REQ-29.1-29.10はPDF OCR処理による数量項目抽出で外部ライブラリ依存のため統合テストで検証。quantity-table-generation/REQ-30.1-30.7はClaude Vision API連携による高精度抽出で外部API依存のため統合テストで検証。quantity-table-generation/REQ-31.1-31.9は抽出結果から数量項目への一括取り込みでE2Eテスト実装予定。quantity-table-generation/REQ-32.1-32.6はインポートプレビューのフィールドマッピング調整でE2Eテスト実装予定。quantity-table-generation/REQ-33.1-33.5はOCR再実行・リトライ機能でE2Eテスト実装予定。quantity-table-generation/REQ-34.1-34.5はインポートダイアログのインラインプレビューでE2Eテスト実装予定。construction-schedule/REQ-6.7, 12.1-12.4はパフォーマンス要件のため負荷テスト・プロファイリングで検証。construction-schedule/REQ-7.6, 8.6はExcel/PDF出力失敗時のエラーハンドリングで統合テストで検証。contract-management/REQ-3.5-3.9, 5.4, 8.9, 10.2-10.8, 11.7, 13.2, 13.4は契約管理UI未実装のためE2Eテスト実装予定。project-management/REQ-40.8-40.10は実行予算セクションUI未実装のためE2Eテスト実装予定。execution-budget-management/REQ-1.1-1.7, 2.1-2.3, 3.1-3.10, 4.1-4.3, 5.1-5.3, 6.1-6.8, 7.1-7.5, 8.1-8.3, 8.5-8.9, 9.1-9.3, 10.1-10.4, 11.1-11.11, 12.1-12.7, 13.1-13.8, 14.1-14.5, 15.1-15.8, 16.1-16.5, 17.2, 17.6, 18.2, 18.4-18.5は実行予算管理UI未実装のためE2Eテスト実装予定。execution-budget-management/REQ-4.4-4.5は楽観的排他制御で統合テストで検証。execution-budget-management/REQ-8.4は案分計算の端数処理で統合テストで検証。execution-budget-management/REQ-18.1, 18.3はDecimal型演算・案分精度で統合テストで検証。execution-budget-management/REQ-19.2-19.7, 19.9はCRUD API・バリデーション・ステータスコードで統合テストで検証。site-survey/REQ-21.1-21.8は画像アップロード時の拡張子不一致許容でマジックバイト判定はバイナリレベル処理のためユニットテストで検証。site-survey/REQ-22.1-22.8は注釈エディタでの画像回転機能でCanvas操作のためユニットテストで検証。site-survey/REQ-23.4は保存処理の同期完了保証でバックエンド内部制御のため統合テストで検証。site-survey/REQ-23.6はサムネイル再生成失敗時のエラー処理で異常系のため統合テストで検証。site-survey/REQ-23.8はサムネイル再生成の冪等性でバックエンド内部ロジックのため統合テストで検証。site-survey/REQ-38.4は画像一覧取得の応答時間の計測でsite-survey/REQ-16.1と同種のためパフォーマンステスト(backend/performance/survey-image-list.perf.ts)で検証。quantity-table-generation/REQ-49.3, 49.7, 49.8, 49.9は要件49（画面表示のリクエスト効率）のうち本ブランチが実装していない範囲で、実装とE2Eはquantity-table-generationスペックの所管。タスク 115.121 の全件監査（2026-08-19）: 除外は実測261件であり、totalExclusions が584・byCategory が旧値のまま陳腐化していたため実測値へ是正した（removed-from-spec の区分は byCategory から欠落していた）。根拠が本番へ到達する検証を指しているかを全件について確かめ、失効していた site-survey/REQ-15.6 と site-survey/REQ-9.6 の2件を実測へ差し替えた。あわせて alternativeVerification.tool が Jest を挙げる項目を精査した。本リポジトリには Jest の依存も設定ファイルも存在せず frontend / backend とも Vitest である（frontend/package.json・backend/package.json とも vitest を持ち jest を持たない）。是正前は124件あり、内訳は現場調査スペック32件・他機能スペック92件であった。うち現場調査の32件は本タスクの境界内であるためすべて Vitest へ改めた（上記2件は根拠ごと差し替え、残る30件は先頭の Jest を Vitest へ置換し併記部分は据え置いた）。是正後に Jest を挙げる項目は92件で、すべて他機能スペックの所管であるため本監査では記録にとどめ、道具名の是正は各機能スペックの後続タスクへ委ねる。タスク 115.127 段5 の是正（2026-08-21）: 恒真の解消で露見した production 未実装のうち、これまで除外に載っていなかった project-management/REQ-21.13・quantity-table-generation/REQ-15.1・quantity-table-generation/REQ-15.3 の3件を pending-implementation として追加した。いずれもE2E側に test.fail() のラチェットを置いており、実装されるとラチェットが赤くなって本除外の削除が強制される。これにより除外は261件から264件、pending-implementation は5件から8件になった。 タスク 115.127 段6 の是正（2026-08-21）: E群（観測結果で主張を包むだけの構造）の解消で露見した production 未実装として、site-survey/REQ-3.1（現場調査一覧のページネーション UI が未実装）を pending-implementation として追加し、site-survey/REQ-4.6（圧縮後サイズが受入基準の下限 250KB を下回る）を infrastructure から pending-implementation へ改めた。REQ-4.6 は従前「統合テストで250KB〜350KB範囲に圧縮されることを確認」としていたが、当該の単体テストは sharp をモックして範囲内のサイズだけを与えており、下限を下回る経路を通していなかったため、根拠が実態を指していなかった。いずれもE2E側に test.fail() のラチェットを置いており、実装されるとラチェットが赤くなって本除外の削除が強制される。これにより除外は264件から265件、pending-implementation は8件から10件になった。 タスク 115.127 段6 の是正・査読 round 4（2026-08-21）: 段6 で `estimate-requests/estimate-request-ocr-vision-e2e.spec.ts` の 200/422 分岐にあった構造主張18件を削除した際、@requirement タグを据え置いたため estimate-request/REQ-21.5・21.6・21.7・23.4・26.5・26.6・26.7・26.8 が「機能が使えないこと」を主張するテストで被覆済みと数えられていた。8件をタグごとE2Eの被覆から外し、外部API（Anthropic）依存として本除外へ登録した（integration-test 区分）。いずれも backend/src/__tests__/unit/services/claude-vision.service.test.ts が Anthropic SDK をモックして検証しており、2026-08-21 に26件すべて緑であることを実測した。これにより除外は265件から273件になった。 タスク 115.104 の是正（2026-08-23）: site-survey/REQ-6.5（寸法線の端点ドラッグ）と site-survey/REQ-29.6（ツールヒント）を除外から削除した。いずれも本タスクで本番へ結線し、E2E（site-survey-annotation-tools.spec.ts / site-survey-annotation-mobile.spec.ts）で被覆したためである。REQ-6.5 は「キャンバス上でのドラッグ操作はE2E範囲外」を理由に infrastructure 区分へ置かれていたが、既存の site-survey-annotation-mobile.spec.ts が CDP の実タッチでドラッグを検証しており根拠が失効していた。REQ-29.6 は「既存の title / aria-label 実装を維持する要件であり新規実装は不要」としていたが、要件本文は「マウスホバーまたは長押しで表示する」であり、title 属性は指操作では表示されないため長押しの経路が未実装だった。これにより除外は 2 件減り、infrastructure も 2 件減らした。 タスク 115.105 の是正（2026-08-23）: site-survey/REQ-15.6（ネットワーク切断時の警告）を除外から削除した。本タスクで現場調査（注釈エディタ・現場調査フォーム・現場調査詳細）へ通信状態を結線し、E2E（site-survey-responsive.spec.ts の「ネットワーク状態」3件）で警告表示・サーバー保存の抑止・復帰後の保存成立を被覆したためである。従前の代替検証 frontend/src/__tests__/components/NetworkStatusIndicator.test.tsx は本番参照0件の部品だけを回しており根拠が本番へ到達していなかった。これにより除外は1件減り、fault-tolerance も1件減らした。 タスク 115.106 の是正（2026-08-23）: 本タスクで `AnnotatedImageThumbnail` の実寸判定（当時の識別子 hasIntrinsicSize）を撤去したことにより、quantity-table-generation/REQ-49.3 と REQ-49.8 の reason が「実寸が供給されないため表示領域観測が働かず、現状は表示領域到達を待たずに取得する」という**事実に反する記述**になったため、現在の本番コードを指す記述へ差し替えた。当該識別子はリポジトリ全体でこの2件の reason にしか残っておらず、存在しないコードを根拠に据えた宙吊りの記録であった。両件の category は `pending-implementation` のまま据え置く。取得抑止の機構は共用部品側で満たされたが、両受入基準が求めるのは「リクエスト件数が数量グループ数に比例しないこと」の観測であり、そのE2Eは未実装で、実装とE2Eの所管は quantity-table-generation スペックにあるためである（本タスクの境界は現場調査一覧であり、数量表画面のE2E追加は所管外）。除外の件数は増減しないため末尾の件数記録は変更していない。実件数266と記載値の既存の乖離にも手を触れていない。 タスク 115.135 の是正（2026-08-24）: 見積依頼のOCR系E2Eから「抽出結果 **または** エラー表示」の選言による完了判定を全廃した際、estimate-request/REQ-17.8（PDFテキスト抽出のタイムアウト30秒）がE2Eから到達できないことが判明したため integration-test 区分で追加した。従前は pdf-text-extraction-e2e.spec.ts がタグを付けていたが、処理を30秒超にするものを一つも持たず選言で終端を受理していたため被覆になっていなかった。代替検証の単体テストは 2026-08-24 に実行し30.1秒で緑であることを実測した。これにより除外は1件増え、integration-test も1件増やした。実件数267と記載値273の既存の乖離には手を触れていない。 タスク 115.135 の是正・査読 round 2（2026-08-24）: REQ-17.8 と同じ欠陥を持ちながらタグを据え置いていた estimate-request/REQ-17.4・REQ-19.1・REQ-19.6・REQ-19.8 の4件を、同じ機構（タグの除去＋除外への登録）で処理した。4件はいずれもスキャンPDFフォールバック経路（extractPdfWithOcrFallback）の内側にしか現れないが、現行の e2e/fixtures は2件ともテキスト入りPDF（test-file.pdf は /Image 0・Tj 7・抽出文字数97、test-text-pdf.pdf は /Image 0・Tj 10・抽出文字数264）で pdf-text-extractor.ts:427-428 の閾値50を超えるため当該経路へ一度も入らない。タグを外したのは ocr-accuracy-improvement-e2e.spec.ts（REQ-19.1 / 19.6 / 19.8 の2箇所）・pdf-text-extraction-e2e.spec.ts（REQ-17.4）・estimate-request-ocr-vision-e2e.spec.ts（REQ-19.1）である。代替検証は 2026-08-24 に実行し extractPdfHybrid.test.ts 15件・OcrDataExtractor.test.tsx 39件がすべて緑であることを実測した。あわせて REQ-17.8 の reason にあった「したがってE2Eからは到達できない」という断定を、実測した範囲（現行の fixture が2件ともテキスト入りであるため到達しない）へ戻した。**5件はいずれも後続タスク site-survey/115.157 で解消する。** これにより除外は273件から277件、integration-test は69件から73件になった。実件数271と記載値277の既存の乖離には手を触れていない。 タスク 115.144 の是正（2026-08-25）: 除外定義の `$schema` が指す先がリポジトリに存在せず、定義が形式検証を受けていなかった。スキーマを実在させ、`npm run check:req-exclusions` として pre-push と CI の関門へ組み込んだ。新規依存は入れず、スキーマが使う語彙のみを解釈する検証器を置き、解釈できない語彙が現れた場合は黙殺せず違反として報告する。この検証器が実データの欠陥を4件検出したため是正した。`summary.totalExclusions` の記載値277は実件数271との乖離であり（過去の注記が「手を触れていない」と記録してきたもの）、本タスクで実測値へ訂正した。`byCategory.infrastructure` 103→99、`fault-tolerance` 18→16 も同様に訂正した。`removed-from-spec` は使われているのに `categories` に未定義であったため定義を追加した。除外の項目そのものは一件も増減していない。 タスク 115.147 の是正（2026-08-25）: 利用者の判断により要件4.6 を「250KB〜350KBの範囲に圧縮」から「350KB以下に収まった時点で圧縮を打ち切る」へ変更したため、site-survey/REQ-4.6 を除外から削除した。下限は出力サイズの制約として原理的に成立せず（よく圧縮できる画像は品質90の一度の再エンコードで下限を大きく下回り、戻すには元画像より劣化させたうえで容量だけ増やすほかない）、下限の本来の意図は処理の制約として表現し直された。実装からは TARGET_MIN_SIZE_BYTES と isWithinTargetRange を撤去し（後者は継続条件が同じことを既に表しており到達しても分岐しない冗長な打ち切りであった）、単体テストは「範囲内の値だけを与える」形をやめ、打ち切りサイズを大きく下回る経路（61,638 バイト）・ちょうど350KB・段階的な品質低下・段階的な縮小の4経路を段階数の主張で検証する形へ改めた。E2E（site-survey-images.spec.ts の「大きいファイル（300KB超）をアップロードすると圧縮される」）は test.fail() のラチェットを外し、350KB以下であることと素材より小さいことを無条件に主張する。これにより除外は271件から270件、pending-implementation は12件から11件になった。 タスク 115.157 の是正（2026-08-25）: 画像のみのPDF fixture を用意し、スキャンPDFのOCRフォールバック経路（extractPdfWithOcrFallback）をE2Eで実際に通したため、estimate-request/REQ-17.4・REQ-17.8・REQ-19.1・REQ-19.6・REQ-19.8 の5件を除外から削除した。従前これらを除外していた理由は「現行の e2e/fixtures が2件ともテキスト入りPDFであり当該経路へ到達しない」ことであり、本タスクでその前提を解消した。fixture は e2e/fixtures/generate-image-only-pdf.mjs が生成する画像のみPDF（e2e/fixtures/test-scanned-pdf.pdf。/Font 0・テキスト描画演算子 0・本番と同じ手順で測った抽出文字数 0 で isTextPdf=false が確定する）と、その150ページ版（e2e/fixtures/test-scanned-pdf-multipage.pdf）である。被覆は e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts が担い、本番が呼ぶ Canvas API（getImageData / putImageData / toBlob）へ観測を挟んで、描画された画素の寸法1400x700（MediaBox 350x175pt に対しスケール4.0。REQ-19.1）、前処理後の画素がグレースケールかつ0/255のみで水平・垂直の罫線が消えていること（REQ-19.6）、Tesseractの言語データが取得されOCR結果に画像内の語が現れること（REQ-17.4）を主張する。REQ-17.8・REQ-19.8 は150ページ版で30秒では終わらない仕事を与え、エラー表示までの実測が25〜45秒に収まることを主張する。主張が本番の欠陥を検出することは、本番を改変した3種のビルド（CANVAS_RENDER_SCALE を 2.0 へ／preprocessImageData の適用を外す／罫線除去2段を外す）でそれぞれ当該の主張が落ちること、および OCR_TIMEOUT_MS を10秒へ変えるとエラー表示までが28.6秒から11.3秒へ移ることを実測して確かめた（本番はいずれも復元済み）。あわせて観測が経路の有無を弁別することを、同じ観測をテキスト入りPDFへ当てて痕跡が一件も現れないことで示している。これにより除外は270件から265件、integration-test は73件から68件になった。 タスク 115.159 の是正（2026-08-25）: estimate-request-ocr-vision-e2e.spec.ts の「見積依頼詳細画面でOCR処理UIが利用可能である」が十六件のタグ（estimate-request/REQ-19.2〜19.5・19.7・24.1〜24.4・24.7・25.1〜25.6）を掲げながら、実体は「`ocr-upload-area` **または**『PDF』**または**『アップロード』**または**『受領見積書』のいずれかの文字が見えること」だけで、十六件のどの受入基準の規範も判定していなかった。一件ずつ処遇を決めた結果、estimate-request/REQ-19.7（画像前処理に新規外部依存関係を追加しない）だけがE2Eから判定できない依存関係の性質であったため infrastructure 区分で追加した。REQ-19.2〜19.5 は前処理後の画素を実際に観測している scanned-pdf-ocr-fallback-e2e.spec.ts へタグを移した（同検証は従前からグレースケール・大津の二値化・水平線除去・垂直線除去の結果を画素で主張していたにもかかわらず、タグはパイプライン全体を指す REQ-19.6 しか掲げていなかった）。残る十一件（24.1〜24.4・24.7・25.1〜25.6）は同ファイルに置いた三つの検証で判定を書いた。これにより除外は265件から266件、infrastructure は99件から100件になった。 タスク 115.167 の是正（2026-08-28）: 除外の識別子と、それが指す受入基準の内容の対応を全266件について要件定義書と突き合わせ、13件の食い違いを是正した。番号の付け替えが9件（site-survey/REQ-1.5→1.6・1.6→1.7（要件1へ「調査名のデフォルト値」が挿入されて全体が一つずれたまま据え置かれていた）、site-survey/REQ-8.2→8.3・8.3→8.5（導入時から番号と内容がずれていた）、quantity-table-generation/REQ-7.5→7.7（要件7の再構成で5件から7件へ増えた）、同 REQ-9.4→9.5・9.5→9.6・10.4→10.5・10.5→10.6（導入時から一つずれていた））、題・説明の是正が6件（quantity-table-generation/REQ-9.3・10.3 は「0以下」を挙げていたが原文の受入基準は入力可能範囲外の値であり、「0以下」を述べる受入基準は要件9・要件10のいずれにも存在しない。同 REQ-7.3 の理由が挙げていた旧 REQ-7.1 は要件7の再構成で本受入基準へ統合され参照先が失効していた。site-survey/REQ-7.8・7.9・8.4 の requirement 欄の要件の題が原文と食い違っていた）、除外そのものの取り下げが4件（site-survey/REQ-10.5・10.6・10.7 は「高解像度選択時の画像品質」「低解像度選択時のファイルサイズ削減」「2回目以降のPDF生成の高速化」を述べていたが、これらを述べる受入基準は本スペックの全履歴を通じて一度も存在しない。quantity-table-generation/REQ-7.2 は要件7の再構成で REQ-7.3 へ統合され、同じ受入基準を指す二重の除外になっていた）。quantity-table-generation/REQ-1.3 は要件1の全受入基準が project-management/Requirement 25 へ移動して要件書上は削除表記となっていたため、区分を removed-from-spec へ改めた。これにより除外は266件から262件、infrastructure は100件から98件、performance は25件から22件、removed-from-spec は1件から2件になった。適用対象の分母は2653件から2657件へ増えたが、新たに分母へ戻った9件はいずれもE2Eが番号を付けており、被覆率100%・到達被覆率99.1%・FAILED 2件は変動していない。 あわせて識別子と内容の対応を機械で確かめられるようにした。散文どうしの照合は自然言語の判断になるため、対応の担い手を散文から原文の逐語複製へ移し、各除外に criterionText（受入基準の本文そのまま）を必須で持たせ、要件定義書の当該行との完全一致を npm run check:req-exclusions が検査する。番号がずれれば複製が合わなくなり検査が落ちる。受入基準の実在・取り消し線の受入基準を removed-from-spec 以外で指さないこと・その逆・requirement 欄の要件番号と題の一致も同時に検査する。重複検出は生の識別子ではなく被覆率側と同じ正規化を通した後で行うよう改め、REQ-23.3 と user-authentication/REQ-23.3 のように接頭辞だけが違う対を検出するようにした（実データの機能名を冠さない識別子は25件、正規化後の重複は0件で現時点の実害は無い）。"
   }
 }

@@ -45,7 +45,15 @@
     "exclusion": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "requirement", "title", "reason", "category", "alternativeVerification"],
+      "required": [
+        "id",
+        "requirement",
+        "title",
+        "criterionText",
+        "reason",
+        "category",
+        "alternativeVerification"
+      ],
       "properties": {
         "id": {
           "type": "string",
@@ -54,6 +62,11 @@
         },
         "requirement": { "type": "string", "minLength": 1 },
         "title": { "type": "string", "minLength": 1 },
+        "criterionText": {
+          "type": "string",
+          "minLength": 1,
+          "description": "id が指す受入基準の本文の逐語複製。要件定義書の当該行と一字一句一致することを検査側で照合する。番号と内容の対応を散文（title・reason）ではなく原文の複製で担保するための項目。"
+        },
         "reason": { "type": "string", "minLength": 1 },
         "category": {
           "type": "string",

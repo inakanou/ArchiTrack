@@ -61,6 +61,13 @@ function entryAt(document: Json, index: number): Json {
   return entry;
 }
 
+/** 識別子で除外を取り出す。無ければ前提が崩れているので失敗させる。 */
+function entryById(document: Json, id: string): Json {
+  const found = entries(document).find((entry) => entry.id === id);
+  if (!found) throw new Error(`前提: 除外 ${id} が実物に存在しない`);
+  return found;
+}
+
 /** 除外が掲げる代替検証を取り出す。無ければ前提が崩れているので失敗させる。 */
 function altOf(entry: Json): Json {
   const alternative = entry.alternativeVerification as Json | undefined;
@@ -286,6 +293,103 @@ const MUST_REJECT: Case[] = [
     },
     mustReject: true,
   },
+
+  // --------------------------------------------------------------------
+  // 識別子と内容の対応（タスク 115.167 で追加）
+  //
+  // いずれも 115.167 の着手時点（HEAD）の検証器では一件も検出できなかった。
+  // 実データにあった食い違いは、まさにこれらの形で入り込んでいた。
+  // --------------------------------------------------------------------
+  {
+    name: '接頭辞だけが違う識別子の重複（REQ-N.M と user-authentication/REQ-N.M）',
+    mutate: (d) => {
+      const source = entries(d)[0];
+      if (!source) throw new Error('前提: 除外が実物に存在しない');
+      if ((source.id as string).includes('/')) {
+        throw new Error('前提: 先頭の除外が機能名を冠さない識別子ではない');
+      }
+      const clone = JSON.parse(JSON.stringify(source)) as Json;
+      clone.id = `user-authentication/${source.id as string}`;
+      entries(d).push(clone);
+      summary(d).totalExclusions = entries(d).length;
+      const counts = byCategory(d);
+      counts[clone.category as string] = (counts[clone.category as string] ?? 0) + 1;
+    },
+    mustReject: true,
+  },
+  {
+    name: '要件定義書に存在しない受入基準を指す識別子',
+    mutate: (d) => {
+      entryById(d, 'site-survey/REQ-1.6').id = 'site-survey/REQ-1.99';
+    },
+    mustReject: true,
+  },
+  {
+    name: '識別子を一つずらす（番号と内容の対応が崩れる）',
+    mutate: (d) => {
+      entryById(d, 'quantity-table-generation/REQ-9.5').id = 'quantity-table-generation/REQ-9.4';
+    },
+    mustReject: true,
+  },
+  {
+    name: 'requirement 欄の要件番号が識別子と食い違う',
+    mutate: (d) => {
+      entryById(d, 'site-survey/REQ-1.6').requirement = 'REQ-99: 架空の要件';
+    },
+    mustReject: true,
+  },
+  {
+    name: 'requirement 欄の要件の題が要件定義書と食い違う',
+    mutate: (d) => {
+      entryById(d, 'site-survey/REQ-1.6').requirement = 'REQ-1: まったく別の題';
+    },
+    mustReject: true,
+  },
+  {
+    name: 'criterionText が原文と一文字違う（逐語複製の崩れ）',
+    mutate: (d) => {
+      const entry = entryById(d, 'site-survey/REQ-1.6');
+      entry.criterionText = `${entry.criterionText as string}。`;
+    },
+    mustReject: true,
+  },
+  {
+    name: '取り消し線で無効化された受入基準を removed-from-spec 以外の区分で指す',
+    mutate: (d) => {
+      const entry = entryById(d, 'quantity-table-generation/REQ-1.3');
+      const from = entry.category as string;
+      if (from !== 'removed-from-spec') {
+        throw new Error('前提: 当該の除外が removed-from-spec ではない');
+      }
+      const counts = byCategory(d);
+      counts[from] = (counts[from] ?? 0) - 1;
+      if (counts[from] === 0) {
+        delete counts[from];
+        delete categories(d)[from];
+      }
+      entry.category = 'infrastructure';
+      counts.infrastructure = (counts.infrastructure ?? 0) + 1;
+    },
+    mustReject: true,
+  },
+  {
+    name: '現役の受入基準を removed-from-spec で除外する',
+    mutate: (d) => {
+      const entry = entryById(d, 'site-survey/REQ-1.6');
+      const counts = byCategory(d);
+      counts[entry.category as string] = (counts[entry.category as string] ?? 0) - 1;
+      entry.category = 'removed-from-spec';
+      counts['removed-from-spec'] = (counts['removed-from-spec'] ?? 0) + 1;
+    },
+    mustReject: true,
+  },
+  {
+    name: 'criterionText の欠落（逐語複製を置かずに済ませる）',
+    mutate: (d) => {
+      delete entryAt(d, 0).criterionText;
+    },
+    mustReject: true,
+  },
 ];
 
 // ============================================================================
@@ -305,22 +409,24 @@ const MUST_ACCEPT: Case[] = [
     mustReject: false,
   },
   {
+    // 実物が旧来の形の識別子を含んでいることを前提として明示する。含まなくなれば
+    // この陰性対照は前提の崩壊として失敗し、「旧来の形も通る」という主張が
+    // 何も確かめないまま緑になることを防ぐ。
     name: '機能名を冠さない旧来の識別子（REQ-N.M）',
     mutate: (d) => {
-      const list = entries(d);
-      const target = list.find((entry) => (entry.id as string).includes('/'));
-      if (!target) throw new Error('前提: 機能名を冠した識別子が実物に存在しない');
-      target.id = 'REQ-999.1';
+      const bare = entries(d).filter((entry) => !(entry.id as string).includes('/'));
+      if (bare.length === 0) throw new Error('前提: 機能名を冠さない識別子が実物に存在しない');
     },
     mustReject: false,
   },
   {
+    // 旧来の形の識別子を、同じ受入基準を指す機能名付きの形へ書き換えても通ること。
+    // 指し先が変わらないため criterionText も requirement も据え置きでよい。
     name: '機能名を冠した識別子（feature/REQ-N.M）',
     mutate: (d) => {
-      const list = entries(d);
-      const target = list.find((entry) => !(entry.id as string).includes('/'));
+      const target = entries(d).find((entry) => !(entry.id as string).includes('/'));
       if (!target) throw new Error('前提: 機能名を冠さない識別子が実物に存在しない');
-      target.id = 'site-survey/REQ-999.1';
+      target.id = `user-authentication/${target.id as string}`;
     },
     mustReject: false,
   },
