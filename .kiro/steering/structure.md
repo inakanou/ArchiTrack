@@ -2,7 +2,9 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-08-05（Steering Sync: 見積書作成の行操作・ネスト構造・帳票書式の再設計を反映。UI非依存の `frontend/src/domain/`（estimateEditReducer/estimateTree/estimateCalculations/estimateKeymap）を新設層として追加、`services/export/` の `load*ExportService.ts` 動的import分離、`components/estimate/` の表示・俯瞰・キー割当・帳票入力コンポーネント、backend `estimate-draft.service.ts` 追加と `estimate-export.service.ts` 撤去、`estimates.routes.ts` の経路整理、hooks件数を実測値32に是正）_
+_最終更新: 2026-08-28（Steering Sync: タスク 115.169。撤去・改名に追随していなかった記載を是正（`ImageViewer.tsx`／`ImageViewer.stories.tsx` は 115.146、`LazyImage.tsx`／`LazyImage.stories.tsx` は 112.1 で撤去。`archive.service.test.ts` は `audit-log-archive.service.test.ts` へ改名、`env-validator.test.ts` は `unit/config/env.test.ts` へ移動・改名）。再発は `npm run check:steering-refs` が検知する）_
+
+_2026-08-05（Steering Sync: 見積書作成の行操作・ネスト構造・帳票書式の再設計を反映。UI非依存の `frontend/src/domain/`（estimateEditReducer/estimateTree/estimateCalculations/estimateKeymap）を新設層として追加、`services/export/` の `load*ExportService.ts` 動的import分離、`components/estimate/` の表示・俯瞰・キー割当・帳票入力コンポーネント、backend `estimate-draft.service.ts` 追加と `estimate-export.service.ts` 撤去、`estimates.routes.ts` の経路整理、hooks件数を実測値32に是正）_
 
 _2026-07-29（Steering Sync: 新ドメイン construction-photo（工事写真台帳）を反映。spec カタログ・`ConstructionPhotoSectionCard`・`pages/ConstructionPhoto*`/`ConstructionSignboardListPage`・`components/construction-photos/`・`api/construction-photo*`/`construction-signboards`・backend `services/signboard-*`（SVG描画・sharp合成）・e2e `construction-photos/` を追加）_
 
@@ -482,8 +484,6 @@ frontend/
 │   │       ├── SiteSurveyResponsiveView.tsx # レスポンシブビュー切り替え
 │   │       ├── SiteSurveyDetailInfo.tsx # 現場調査詳細情報表示
 │   │       ├── ImageUploader.tsx    # 画像アップロードUI
-│   │       ├── ImageViewer.tsx      # 画像ビューア（Fabric.js）
-│   │       ├── LazyImage.tsx        # 遅延読み込み画像
 │   │       ├── AnnotationEditor.tsx # 注釈エディタ（Fabric.js）
 │   │       ├── AnnotationToolbar.tsx # 注釈ツールバー（モバイル幅は単段横スクロール（nowrap）で縦占有を抑制）
 │   │       ├── StylePanel.tsx       # スタイル設定パネル
@@ -728,8 +728,6 @@ frontend/
 - `SiteSurveyResponsiveView.stories.tsx` - レスポンシブビュー
 - `SiteSurveyDetailInfo.stories.tsx` - 詳細情報表示
 - `ImageUploader.stories.tsx` - 画像アップロード
-- `ImageViewer.stories.tsx` - 画像ビューア
-- `LazyImage.stories.tsx` - 遅延読み込み画像
 - `AnnotationToolbar.stories.tsx` - 注釈ツールバー
 - `StylePanel.stories.tsx` - スタイル設定パネル
 - `PhotoManagementPanel.stories.tsx` - 写真管理パネル
@@ -878,13 +876,14 @@ backend/
 │   │       │   ├── user-role.service.test.ts # ユーザーロール管理（27テスト）
 │   │       │   ├── rbac.service.test.ts # RBAC統合（21テスト）
 │   │       │   ├── audit-log.service.test.ts # 監査ログ（35テスト）
-│   │       │   ├── archive.service.test.ts # ログアーカイブ（6テスト）
+│   │       │   ├── audit-log-archive.service.test.ts # ログアーカイブ（15テスト）
 │   │       │   ├── email.service.test.ts # メール送信（Bull、14テスト）
 │   │       │   ├── project.service.test.ts # プロジェクト管理
 │   │       │   └── project-status.service.test.ts # プロジェクトステータス遷移
-│   │       └── utils/     # ユーティリティテスト
-│   │           ├── sentry.test.ts  # Sentryエラートラッキング（13テスト）
-│   │           └── env-validator.test.ts # 環境変数バリデーション（14テスト）
+│   │       ├── utils/     # ユーティリティテスト
+│   │       │   └── sentry.test.ts  # Sentryエラートラッキング（13テスト）
+│   │       └── config/    # 設定テスト
+│   │           └── env.test.ts     # 環境変数バリデーション（31テスト）
 │   ├── errors/            # カスタムエラー定義（17ファイル）
 │   │   ├── apiError.ts    # 汎用APIエラークラス
 │   │   ├── projectError.ts # プロジェクト関連エラー

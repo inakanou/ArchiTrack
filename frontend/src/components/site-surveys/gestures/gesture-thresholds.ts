@@ -17,7 +17,8 @@ export const GUIDE_IDLE_MS = 3000;
 /**
  * 2本指ピンチをズームとして扱い始める距離変化の閾値（ピクセル, Req 33.2/33.3）。
  * 微小な指のブレでズームが暴れないようにするヒステリシス。
- * 閲覧モード（ImageViewer.tsx）と同一値を採用するため `TOUCH_CONSTANTS.PINCH_THRESHOLD`
- * を集約し、編集モード（touchGestureManager 経由）と感度を一貫させる（Req 33.10）。
+ * 画像ビューア共通の `image-viewer.constants` にある `TOUCH_CONSTANTS.PINCH_THRESHOLD` を
+ * 単一の出所として集約し、閲覧/編集の両モード（いずれも touchGestureManager 経由）で
+ * 感度を一貫させる（Req 33.10）。
  */
 export const PINCH_DISTANCE_THRESHOLD_PX = TOUCH_CONSTANTS.PINCH_THRESHOLD;

@@ -247,6 +247,28 @@ jobs:
           echo ""
           npm run check:design-code-refs
 
+      - name: Check steering reference detector self-test
+        run: |
+          echo "========================================="
+          echo "Steering Reference Detector Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Fixtures: scripts/check-steering-file-references.selftest.ts"
+          echo ""
+          npm run check:steering-refs:selftest
+
+      - name: Check steering file references
+        run: |
+          echo "========================================="
+          echo "Steering File Reference Check"
+          echo "========================================="
+          echo ""
+          echo "Steering documents describe the CURRENT project structure and are"
+          echo "loaded every session. Entries left behind by a removal or rename"
+          echo "point successors at files that no longer exist."
+          echo ""
+          npm run check:steering-refs
+
   e2e-in-page-selfjudgement:
     name: E2E In-Page Self-Judgement Check
     runs-on: ubuntu-latest

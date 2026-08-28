@@ -17,7 +17,6 @@
  * 設計根拠:
  *   - `enablePointerEvents: true` を前提に、TouchEvent 併用は行わない（Req 30.2 の
  *     3 本指以降の厳密判定のため PointerEvent で一本化）
- *   - ImageViewer.tsx の既存 TouchEvent 処理とは独立（重複発火を避けるため pointer* のみ）
  *   - 閾値は gesture-thresholds.ts に集約（DRY / UX レビュー容易化）
  *
  * @requirement site-survey/REQ-27.1

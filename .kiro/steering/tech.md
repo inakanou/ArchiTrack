@@ -2,7 +2,9 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-08-05（Steering Sync: 見積明細の編集・保存パターン（domain層の純関数への遷移ロジック分離、ツリー全体の差分適用による一括保存 `PUT /api/estimates/:id/save`、IDを維持する更新とtempIdによる親子解決、楽観ロック、Undo/Redo、未保存プレビュー）と帳票生成方針（フロントエンド生成を既定化、レイアウト計算と描画の分離、`load*ExportService.ts` による動的import分離）を追加。backend jspdf の用途から見積書を除外、Prisma client 7.9.1 / @anthropic-ai/sdk 0.106.0 / jsdom 30 / @testing-library/jest-dom 7 へ版数を是正）_
+_最終更新: 2026-08-28（Steering Sync: タスク 115.169。ビューポート制御・two-layer 構成の共有先を実測へ是正（撤去済みの `ImageViewer` ではなく `AnnotationEditor`（閲覧モードは `readOnly` 描画）と `ConstructionPhotoImageViewer`）。`env-validator.test.ts` を `unit/config/env.test.ts` へ、ログアーカイブのテスト件数を実測 15 へ是正。記載ファイルの実在は `npm run check:steering-refs` が検知する）_
+
+_2026-08-05（Steering Sync: 見積明細の編集・保存パターン（domain層の純関数への遷移ロジック分離、ツリー全体の差分適用による一括保存 `PUT /api/estimates/:id/save`、IDを維持する更新とtempIdによる親子解決、楽観ロック、Undo/Redo、未保存プレビュー）と帳票生成方針（フロントエンド生成を既定化、レイアウト計算と描画の分離、`load*ExportService.ts` による動的import分離）を追加。backend jspdf の用途から見積書を除外、Prisma client 7.9.1 / @anthropic-ai/sdk 0.106.0 / jsdom 30 / @testing-library/jest-dom 7 へ版数を是正）_
 
 _2026-07-29（Steering Sync: 工事写真台帳（construction-photo）の技術要素を反映。jspdf/jszip の用途に工事写真台帳を追記、工事看板のサーバサイド合成パターン（構造化テキスト→SVG描画 `signboard-svg.service` → sharp composite `signboard-composite.service` によるオンデマンド看板重畳。クライアント fabric 合成とは別系統のサーバ側合成路）を追加）_
 
@@ -69,7 +71,7 @@ ArchiTrack/
 - `react` ^19.2.3 - UIライブラリ
 - `react-dom` ^19.2.4 - React DOM操作
 - `react-router-dom` ^7.16.0 - React Router v7（ルーティング、7.14.2以下のDoS脆弱性 GHSA-8x6r-g9mw-2r78 対応で7.16.0へ更新）
-- `fabric` ^7.3.1 - Canvas注釈エディタ（現場調査画像編集、Group 化された矢印・タッチジェスチャー対応、2本指ピンチでの中点ズーム/パンとフィットを提供。ビューポート制御は `gestures/canvasViewportController`（純粋ロジック）→ `hooks/useCanvasViewport` → `ZoomControls`（表示専用）の一方向依存で構成し、`ImageViewer`/`AnnotationEditor` が共有する）
+- `fabric` ^7.3.1 - Canvas注釈エディタ（現場調査画像編集、Group 化された矢印・タッチジェスチャー対応、2本指ピンチでの中点ズーム/パンとフィットを提供。ビューポート制御は `gestures/canvasViewportController`（純粋ロジック）→ `hooks/useCanvasViewport` → `ZoomControls`（表示専用）の一方向依存で構成し、`AnnotationEditor`（閲覧モードは `readOnly` 描画）と `ConstructionPhotoImageViewer` が共有する）
 - `jspdf` ^4.0.0 - PDF帳票生成（現場調査報告書、数量表、見積書帳票＝A4横の表紙/内訳書/明細書、工事写真台帳の看板重畳）
 - `xlsx` 0.20.3 - Excelファイル生成（内訳書・見積書・見積依頼エクスポート、SheetJS。npmレジストリではなくSheetJS公式CDNのtarballから取得）
 - `jszip` ^3.10.1 - クライアントサイドZIP生成（現場調査画像・工事写真の一括エクスポート、型定義同梱）
@@ -136,7 +138,7 @@ ArchiTrack/
 - **モバイルの下限値**: 入力系コントロールは `fontSize: 16px` 以上（フォーカス時のモバイルブラウザ自動ズームを抑止）、操作系コントロールのタップ領域は最小 44×44 論理ピクセル（WCAG 2.2 SC 2.5.5 Target Size (Enhanced)）
 - **動的ビューポート高**: モバイルのアドレスバー伸縮に追従させるため `svh` を基準にし、非対応ブラウザ向けに `vh` を先に宣言して `svh` で上書きする「二段宣言」でフォールバックする。React のインライン style オブジェクトは同一プロパティを二重宣言できずこのフォールバックを表現できないため、**この用途に限り** CSS ファイルを併置する（例: `pages/SiteSurveyImageViewerPage.css`）
 - **画像フィット倍率**: `utils/imageFitScale` の `computeFitScale`（純関数・React 非依存）に一元化する。`allowUpscale=false`（既定）は原寸頭打ちでデスクトップの現行挙動を維持し、`allowUpscale=true` は `maxUpscale`（既定 3）までフィット拡大して小画像の過小表示を防ぐ。表示領域の実寸は `hooks/useElementSize`（ResizeObserver、非対応環境では購読せず例外も出さない）で購読し、コンテナ寸法の変化に追従して再フィットする
-- **責務の分離**: 「画像→コンテナのフィット」（`computeFitScale` によるキャンバス寸法算出）と「コンテナ内のズーム/パン」（`gestures/canvasViewportController`）は別レイヤとして扱い、混在させない。`ImageViewer` / `AnnotationEditor` はこの two-layer 構成を共有する
+- **責務の分離**: 「画像→コンテナのフィット」（`computeFitScale` によるキャンバス寸法算出）と「コンテナ内のズーム/パン」（`gestures/canvasViewportController`）は別レイヤとして扱い、混在させない。`AnnotationEditor`（閲覧/編集の両モード）と `ConstructionPhotoImageViewer` はこの two-layer 構成を共有する
 
 ### 帳票生成方針（フロントエンド）
 
@@ -335,11 +337,12 @@ coverage: {
     - `user-role.service.test.ts` - ユーザーロール管理（27テスト）
     - `rbac.service.test.ts` - RBAC統合サービス（21テスト）
     - `audit-log.service.test.ts` - 監査ログ（35テスト）
-    - `audit-log-archive.service.test.ts` - ログアーカイブ（6テスト）
+    - `audit-log-archive.service.test.ts` - ログアーカイブ（15テスト）
     - `email.service.test.ts` - メール送信（Bull非同期キュー、14テスト）
   - `unit/utils/` - ユーティリティテスト（14テスト）
     - `sentry.test.ts` - Sentryユーティリティ（カバレッジ94.11%）
-    - `env-validator.test.ts` - 環境変数バリデーション（14テスト）
+  - `unit/config/` - 設定テスト
+    - `env.test.ts` - 環境変数バリデーション（31テスト）
 - `backend/src/app.ts` - テスト用にindex.tsから分離したExpressアプリ
 
 **テスト合計:** 単体テスト167ファイル + 統合テスト31ファイル

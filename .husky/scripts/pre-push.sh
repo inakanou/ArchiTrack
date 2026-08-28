@@ -860,6 +860,39 @@ echo "✅ Design-to-code reference format check passed"
 echo ""
 
 # ============================================================================
+# steering の実在参照チェック
+# ============================================================================
+# steering が現存物として挙げるファイルが実在しない状態を検知する
+# - .kiro/steering/ は毎セッション読み込まれる「現在の構成」の記述であり、
+#   撤去・改名に追随していない記載は後任を存在しないファイルへ導く
+#   （タスク 115.169 の実測で、撤去済み 7 件が structure.md / tech.md に残っていた）
+# - 走査対象は .kiro/steering/*.md のツリーの葉と先頭逆引用符の箇条書き
+# ============================================================================
+
+echo "🔍 Checking steering file references..."
+npm run check:steering-refs:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Steering reference detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:steering-refs:selftest"
+  exit 1
+fi
+npm run check:steering-refs
+if [ $? -ne 0 ]; then
+  echo "❌ Steering file reference check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 報告されたファイル名が撤去・改名されていないか確認してください"
+  echo "  2. steering の記載を落とすか、移管先のファイル名へ指し直してください"
+  echo ""
+  echo "詳細確認: npm run check:steering-refs:verbose"
+  exit 1
+fi
+
+echo "✅ Steering file reference check passed"
+echo ""
+
+# ============================================================================
 # E2E画面内自前判定チェック（E2Eテスト実行の前提条件）
 # ============================================================================
 # 画面の中で本番の判定を自前で書き起こし、その書き起こしへ主張する構造を検知する

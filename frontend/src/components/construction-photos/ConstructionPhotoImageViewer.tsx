@@ -16,8 +16,9 @@
  *   - `components/site-surveys/ZoomControls`（ズームイン/アウト/全体表示ボタン+倍率バッジ）。
  *   - `utils/imageFitScale`（`computeFitScale`）で表示コンテナに収まるフィット倍率を算出する。
  *   - `components/site-surveys/image-viewer.constants`（`ZOOM_CONSTANTS`/`ROTATION_CONSTANTS`/
- *     `PAN_CONSTANTS`/`RotationAngle`）。回転の正規化（`normalizeRotation`）は ImageViewer.tsx が
- *     未exportのため、90度刻みの小さな純関数として本ファイルに自前実装する。
+ *     `PAN_CONSTANTS`/`RotationAngle`）。回転の正規化（`normalizeRotation`）は同モジュールが
+ *     export しないため、90度刻みの小さな純関数として本ファイルに自前実装する（同等の実装を
+ *     未export で持っていた `ImageViewer.tsx` はタスク 115.146 で撤去済みである）。
  *
  * Requirements: 14.1, 14.2, 14.3, 14.4, 14.5, 14.6
  * @see design.md - 「画像ビューア（閲覧専用）」System Flow / ConstructionPhotoViewerState
@@ -67,8 +68,9 @@ export interface ConstructionPhotoImageViewerProps {
 
 /**
  * 回転角度を 0/90/180/270 のいずれかへ正規化する純関数。
- * ImageViewer.tsx の `normalizeRotation`（未export）を複製せず、90度刻みの小さな
- * 独立実装として本ビューアに持たせる（タスク指示に基づく選択）。
+ * 共有モジュール `image-viewer.constants` は正規化関数を export しないため、90度刻みの
+ * 小さな独立実装として本ビューアに持たせる（複製元だった `ImageViewer.tsx` の未export 実装は
+ * タスク 115.146 の撤去により現存しない）。
  */
 function normalizeRotation(angle: number): RotationAngle {
   const normalized = ((angle % 360) + 360) % 360;
@@ -246,7 +248,7 @@ const STYLES = {
   },
 };
 
-// フォールバック寸法（ImageViewer.tsx と同様、コンテナ実寸が未計測=0のjsdom/初期描画時でも
+// フォールバック寸法（`AnnotationEditor` と同様、コンテナ実寸が未計測=0のjsdom/初期描画時でも
 // パン/ズーム算術が意味を持つように用いる）。
 const FALLBACK_CONTAINER_WIDTH = 800;
 const FALLBACK_CONTAINER_HEIGHT = 600;
@@ -280,7 +282,7 @@ function ConstructionPhotoImageViewer({
 
   // パン位置（design.md ConstructionPhotoViewerState.panX/panY）。
   // useCanvasViewport はズーム倍率のみを購読するため、パンはコントローラ操作後に
-  // controller.getState() から明示的に同期する（ImageViewer.tsx と同一方針）。
+  // controller.getState() から明示的に同期する（`AnnotationEditor` と同一方針）。
   const [pan, setPan] = useState({ x: 0, y: 0 });
 
   // 軽量な FabricCanvasLike アダプタ（scene寸法 = フィット後の画像サイズ）。

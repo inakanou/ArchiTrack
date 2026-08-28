@@ -2,8 +2,9 @@
  * canvasViewportController (Req 33.3, 33.7, 33.9, 34.4, 34.7)
  *
  * Fabric Canvas の「ビューポート制御」（ズーム/パン/中点ズーム/フィット/クランプ）を
- * 単一実装として提供する React 非依存モジュール。閲覧モード（ImageViewer）と編集モード
- * （AnnotationEditor）の双方が同一コントローラを採用し、二重実装を解消する（Req 33.10）。
+ * 単一実装として提供する React 非依存モジュール。閲覧モード（`SiteSurveyImageViewerPage` が
+ * `AnnotationEditor` を `readOnly` で描画したもの）と編集モード（`AnnotationEditor`）の双方が
+ * 同一コントローラを採用し、二重実装を解消する（Req 33.10）。
  *
  * 設計上の重要決定（design.md「座標系の分離」）:
  *   - ズーム/パンは `viewportTransform`（表示変換）のみで実現し、注釈オブジェクトの
@@ -127,7 +128,8 @@ export interface CanvasViewportController {
 
 /**
  * ズーム倍率を ZOOM_CONSTANTS の上下限へクランプする純関数（Req 33.9）。
- * 閲覧モード ImageViewer.tsx の `clampZoom` 算術を抽出・共有する。
+ * かつて閲覧専用ビューア（`ImageViewer.tsx`。タスク 115.146 で撤去）が持っていた `clampZoom`
+ * 算術を抽出したもので、現在は閲覧/編集の両モードが参照する単一実装である。
  */
 const clampZoomValue = (zoom: number): number =>
   Math.max(ZOOM_CONSTANTS.MIN_ZOOM, Math.min(ZOOM_CONSTANTS.MAX_ZOOM, zoom));

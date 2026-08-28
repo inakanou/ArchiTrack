@@ -1,7 +1,10 @@
 /**
  * @fileoverview 画像ビューアの定数と型定義
  *
- * react-refresh/only-export-components 対応のため分離
+ * react-refresh/only-export-components 対応のため、定数・型をコンポーネント本体から切り出した
+ * 共有モジュール。現在の参照元は `gestures/canvasViewportController`・`gestures/gesture-thresholds`・
+ * `hooks/useCanvasViewport`・`construction-photos/ConstructionPhotoImageViewer` である
+ * （切り出し元だった `ImageViewer.tsx` はタスク 115.146 で撤去済みである）。
  */
 
 // ============================================================================
