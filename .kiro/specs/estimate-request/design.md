@@ -5431,7 +5431,7 @@ if (input.includeBreakdownInBody !== undefined) {
 - Integration: `toEstimateRequestInfo()` の戻り値で `itemizedStatementId: request.itemizedStatementId ?? null`、`itemizedStatementName: request.itemizedStatement?.name ?? null` に変更（R-39-2）
 - Integration: `findById` / `findByProjectId` / `findLatestByProjectId` / `update` / `delete` の `include: { itemizedStatement: { select: ... } }` は Prisma の optional relation により null 返却が許容される。Service 側で追加の null チェックは不要（select 句のみ変更不要）
 - Audit log: `delete` の `before.itemizedStatementId` も nullable 反映（既存 `select` ステートメントの結果が `string | null` になるため自動追従）
-- Test impact: `service.test.ts` で `create()` の「内訳書なし」ケース 2 件追加（保存成功＋監査ログ確認、`EstimateRequestItem` 未生成確認）。さらに `update()` のガードに対し「内訳書なしの見積依頼に `includeBreakdownInBody=true` を更新リクエスト → 永続化された値が false で監査ログも false」のテストを 1 件追加
+- Test impact: `backend/src/__tests__/unit/services/estimate-request.service.test.ts` で `create()` の「内訳書なし」ケース 2 件追加（保存成功＋監査ログ確認、`EstimateRequestItem` 未生成確認）。さらに `update()` のガードに対し「内訳書なしの見積依頼に `includeBreakdownInBody=true` を更新リクエスト → 永続化された値が false で監査ログも false」のテストを 1 件追加
 - includeBreakdownInBody（create）: 内訳書なしで作成した見積依頼は `includeBreakdownInBody=false` で固定保存（R-39-3）。ユーザー入力の `true` は無視
 - includeBreakdownInBody（update）: 上記 update() ガード参照。create と同等の制約を適用
 
@@ -5681,7 +5681,7 @@ const input: CreateEstimateRequestInput = {
 | `frontend/src/pages/EstimateRequestDetailPage.tsx` | Modified | `hasItemizedStatement` ガードで項目選択／Excel／参照内訳書／本文含めるチェックを条件レンダリング |
 | `frontend/src/components/estimate-request/EstimateRequestTextPanel.tsx` | Modified | `showIncludeBreakdownToggle` props 追加、チェックボックス条件レンダリング |
 | `frontend/src/pages/EstimateRequestEditPage.tsx` | Modified | 内訳書（読み取り専用）ブロックを `itemizedStatementName !== null` 時のみ表示 |
-| `backend/src/__tests__/integration/routes/estimate-requests.routes.test.ts` | Modified | 内訳書なしでの作成（201）ケース追加、必須前提 422 ケースを削除 |
+| `backend/src/__tests__/integration/estimate-request.api.integration.test.ts` | Modified | 内訳書なしでの作成（201）ケース追加、必須前提 422 ケースを削除 |
 | `backend/src/__tests__/unit/services/estimate-request.service.test.ts` | Modified | `create()` の内訳書なしケース、監査ログ確認、`EstimateRequestItem` 未生成確認のテスト追加 |
 | `frontend/src/components/estimate-request/EstimateRequestForm.test.tsx` | Modified | 必須バリデーションから内訳書部分を削除、内訳書なし送信成功テスト追加 |
 | `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` | Modified | クイックリクエスト作成→詳細表示、一覧の「-」、編集画面の挙動、既存回帰の各 spec 追加・更新 |

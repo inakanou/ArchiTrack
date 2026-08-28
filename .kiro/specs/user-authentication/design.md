@@ -1202,7 +1202,7 @@ async loginHandler(req: Request, res: Response, next: NextFunction) {
 
 **既存ApiErrorクラスとの統合**:
 
-既存のApiErrorクラス（`backend/src/errors/ApiError.ts`）を活用し、エラーハンドリングの一貫性を保ちます。
+既存のApiErrorクラス（`backend/src/errors/apiError.ts`）を活用し、エラーハンドリングの一貫性を保ちます。
 
 ```typescript
 // 既存のApiErrorクラス
@@ -4556,7 +4556,7 @@ if (!isAuthenticated && !sessionExpiredDuringOperation) {
 
 #### 5. SessionExpiredModal の配置
 
-**ファイルパス:** `frontend/src/App.tsx` または `frontend/src/layouts/AuthenticatedLayout.tsx`
+**ファイルパス:** `frontend/src/components/ProtectedLayout.tsx`（当初は `frontend/src/App.tsx` との二択で計画したが、認証済みレイアウトを担う当該コンポーネントへ配置した）
 
 認証済みユーザーのレイアウト内にグローバルに配置する:
 

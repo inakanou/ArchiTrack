@@ -247,6 +247,29 @@ jobs:
           echo ""
           npm run check:design-code-refs
 
+      - name: Check design path reference detector self-test
+        run: |
+          echo "========================================="
+          echo "Design Path Reference Detector Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Fixtures: scripts/check-design-path-references.selftest.ts"
+          echo ""
+          npm run check:design-path-refs:selftest
+
+      - name: Check design document path references
+        run: |
+          echo "========================================="
+          echo "Design Document Path Reference Check"
+          echo "========================================="
+          echo ""
+          echo "The design-to-code format check only inspects HOW a reference is"
+          echo "written. A reference to a path that no longer exists passes it."
+          echo "Design documents may preserve history, so a reference is exempt"
+          echo "only when the same document states that the file is gone."
+          echo ""
+          npm run check:design-path-refs
+
       - name: Check steering reference detector self-test
         run: |
           echo "========================================="

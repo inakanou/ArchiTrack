@@ -860,6 +860,41 @@ echo "✅ Design-to-code reference format check passed"
 echo ""
 
 # ============================================================================
+# 設計文書の実在参照チェック
+# ============================================================================
+# 設計文書が挙げるパス・ファイル名が実在しない状態を検知する
+# - check:design-code-refs は参照の「形式」だけを見るため、実在しないファイルを
+#   指す参照は形式が正しければ通過する（タスク 115.173 の実測で 7 件が残っていた）
+# - 設計文書は歴史記録を保存してよい文書であるため、当該ファイルの不在を述べる行が
+#   同じ文書内にあれば免除する（撤去の記録と失効した参照の区別）
+# - 走査対象は .kiro/specs/*/design.md のバッククォート付きパス・ファイル名
+# ============================================================================
+
+echo "🔍 Checking design document path references..."
+npm run check:design-path-refs:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Design path reference detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:design-path-refs:selftest"
+  exit 1
+fi
+npm run check:design-path-refs
+if [ $? -ne 0 ]; then
+  echo "❌ Design document path reference check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. いま在るものを指している記述なら、実在するパスへ指し直してください"
+  echo "  2. 当時こうしたという記録なら、当該ファイルを名指したうえで不在を述べる行を"
+  echo "     同じ設計文書に一つ置いてください（「撤去済み」「削除」「実在しない」など）"
+  echo ""
+  echo "詳細確認: npm run check:design-path-refs:verbose"
+  exit 1
+fi
+
+echo "✅ Design document path reference check passed"
+echo ""
+
+# ============================================================================
 # steering の実在参照チェック
 # ============================================================================
 # steering が現存物として挙げるファイルが実在しない状態を検知する
