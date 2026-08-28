@@ -69,7 +69,13 @@ import {
   LONG_PRESS_MS,
 } from '../../../frontend/src/components/site-surveys/gestures/gesture-thresholds';
 // ツール名と短い説明は本番の定義をそのまま参照する（文言の複製を持たない）。
-import { TOOL_DEFINITIONS } from '../../../frontend/src/components/site-surveys/annotation-toolbar.constants';
+// 道具の並びも本番の `TOOL_ORDER` を参照する。テスト側に一覧を複製すると、道具が増えたときに
+// 検証だけが古い母集団のまま緑になる。
+import {
+  TOOL_DEFINITIONS,
+  TOOL_ORDER,
+  type ToolType,
+} from '../../../frontend/src/components/site-surveys/annotation-toolbar.constants';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { assertPresent } from '../../helpers/preconditions';
 import { getFabricObjectCount } from '../../helpers/fabric-canvas';
@@ -79,6 +85,62 @@ const __dirname = path.dirname(__filename);
 
 // モバイル Viewport 設定（iPhone SE 相当）
 const MOBILE_VIEWPORT = { width: 375, height: 667 };
+
+// ============================================================================
+// Task 115.170: 要件28.3 の「各項目」の母集団（先に宣言する）
+// ============================================================================
+//
+// 要件28.3 は「モバイル幅ツールバーの**各項目**のタップ領域を最小44x44論理ピクセル以上」と
+// 定める。従前は道具のボタン 9 個だけを測っており、属性パネルの操作要素とアクションボタンは
+// 一度も測っていなかった（Task 115.170 が適用範囲を決着させ、実装を条文へ追随させた）。
+//
+// 「項目」の範囲: ツールバー（`data-testid="annotation-toolbar"`）の内側にある
+// `button` / `input` / `select` の全て。区切り線・見出しの `label`・各種コンテナは
+// **操作の対象ではない**ため含めない。長押しのツールヒントは `document.body` 直下へ Portal で
+// 描かれ `pointerEvents: none` であるため、ツールバーの項目ではない。
+//
+// 見出しを除外してよい根拠: 押下が操作要素へ転送されるのは `htmlFor` を持つ 3 つだけ
+// （白縁取り／白アウトライン・背景・吹き出し）で、残る 6 つ（色・線幅・塗りつぶし・文字色・
+// サイズ・背景色）は `htmlFor` も包含も持たない不活性な文字であり、押下しても何も起きない。
+// 不活性な 6 つにはタップ領域が存在せず、転送される 3 つは既に 44x44 を満たす操作要素の
+// 当たり判定を広げる側にしか働かない。いずれの見出しも、属する項目コンテナは 44x44 以上である。
+
+/** 要件28.3 が定めるタップ領域の下限（論理ピクセル） */
+const MIN_TAP_TARGET_PX = 44;
+
+/** 道具のボタンの個数。本番の並び（`TOOL_ORDER`）から導く。 */
+const TOOL_BUTTON_COUNT = TOOL_ORDER.length;
+
+/** アクションボタンの個数（回転・元に戻す・やり直し・保存・エクスポート） */
+const ACTION_BUTTON_COUNT = 5;
+
+/**
+ * ツールごとに属性パネルへ現れる操作要素の個数
+ *
+ * 内訳（`AnnotationToolbar.tsx` の `StylePanel` の分岐から導出）:
+ * - 選択: 属性パネル自体が描かれない → 0
+ * - 線のみの道具（寸法線・矢印・折れ線・フリーハンド）: 白縁取り切替 + 色 + 線幅 → 3
+ * - 塗りを持つ形状（円・四角形・多角形）: 上記 + 塗りつぶし色 → 4
+ * - テキスト: 白アウトライン切替 + 文字色 + サイズ + 背景切替 + 背景色 + 吹き出し → 6
+ */
+const PANEL_CONTROL_COUNT: Readonly<Record<ToolType, number>> = {
+  select: 0,
+  dimension: 3,
+  arrow: 3,
+  circle: 4,
+  rectangle: 4,
+  polygon: 4,
+  polyline: 3,
+  freehand: 3,
+  text: 6,
+};
+
+/** ツールバーの項目 1 件の実測（実ブラウザの矩形） */
+interface ToolbarItemRect {
+  name: string;
+  width: number;
+  height: number;
+}
 
 // ============================================================================
 // Task 73.1 / 115.48: モバイル Viewport の注釈機能（白縁取り・タッチ操作・ツールバー）
@@ -370,6 +432,31 @@ test.describe('モバイル Viewport 注釈機能', () => {
       await tool.tap();
     }
     await expect(tool).toHaveAttribute('aria-pressed', 'true');
+  }
+
+  /**
+   * ツールバーに現れている「項目」（操作要素）の実測矩形を全件返す（Task 115.170 / Req 28.3）
+   *
+   * 母集団の定義は本ファイル冒頭の宣言に従う。名前は失敗時に「どれが小さいか」を示すため
+   * `data-testid` → `aria-label` → タグ名の順で解決する。
+   */
+  async function readToolbarItems(): Promise<ToolbarItemRect[]> {
+    return await sharedPage
+      .getByTestId('annotation-toolbar')
+      .locator('button, input, select')
+      .evaluateAll((elements) =>
+        elements.map((element) => {
+          const rect = element.getBoundingClientRect();
+          return {
+            name:
+              element.getAttribute('data-testid') ??
+              element.getAttribute('aria-label') ??
+              element.tagName.toLowerCase(),
+            width: rect.width,
+            height: rect.height,
+          };
+        })
+      );
   }
 
   /**
@@ -739,44 +826,81 @@ test.describe('モバイル Viewport 注釈機能', () => {
   });
 
   /**
-   * (d) モバイルツールバーの全ツールが画面幅に収まりタップ可能
+   * (d) モバイルツールバーの各項目が画面幅に収まりタップ可能
    *     Requirement 28.1, 28.3, 28.5
+   *
+   * Task 115.170: 従前この検証は道具のボタン 9 個だけを測っていた。要件28.3 の原文は
+   * 「モバイル幅ツールバーの**各項目**」であり、属性パネルの操作要素（切替・色・線幅・
+   * 文字サイズ・吹き出し）とアクションボタンも対象である。適用範囲の決着に伴い、母集団を
+   * ツールバー内の操作要素の全件へ広げた（母集団の定義は本ファイル冒頭の宣言に従う）。
+   *
+   * 個数を先に突き合わせてから寸法を主張する。全件走査だけでは、項目が描かれていなくても
+   * 空振りで緑になるためである。
    */
-  test('(d) モバイルツールバーの全ツールが画面幅に収まりタップできる (REQ-28.1/28.3/28.5)', async () => {
+  test('(d) モバイルツールバーの各項目が画面幅に収まりタップできる (REQ-28.1/28.3/28.5)', async () => {
     await enterEditMode();
 
-    const toolLabels = [
-      '選択',
-      '寸法線',
-      '矢印',
-      '円',
-      '四角形',
-      '多角形',
-      '折れ線',
-      'フリーハンド',
-      'テキスト',
-    ];
-
-    for (const label of toolLabels) {
+    for (const toolId of TOOL_ORDER) {
+      const label = TOOL_DEFINITIONS[toolId].label;
       const button = sharedPage.getByRole('button', { name: label, exact: true });
       await expect(button).toBeVisible();
 
-      // Req 28.5: 全ツールがタップで選択できる
-      await button.tap();
+      // Req 28.5: 全ツールがタップで選択できる。
+      // Req 28.8: 選択中の道具を再び押すと属性パネルの開閉になるため、既に選択済みなら押さない
+      // （押すとパネルが閉じ、下の母集団から属性パネルの項目が消えてしまう）。
+      if ((await button.getAttribute('aria-pressed')) !== 'true') {
+        await button.tap();
+      }
       await expect(button).toHaveAttribute('aria-pressed', 'true');
 
       const boundingBox = await button.boundingBox();
       expect(boundingBox, `${label} のタップ領域が取得できない`).not.toBeNull();
-      // Req 28.3: タップ領域は 44x44 論理ピクセル以上
-      expect(boundingBox!.width, `${label} の幅が 44px 未満`).toBeGreaterThanOrEqual(44);
-      expect(boundingBox!.height, `${label} の高さが 44px 未満`).toBeGreaterThanOrEqual(44);
-      // Req 28.1: 各項目が画面幅に収まる（横方向のはみ出しがない）
+      // Req 28.1: 道具のボタンが画面幅に収まる（横方向のはみ出しがない）
       expect(boundingBox!.x, `${label} が画面左端からはみ出している`).toBeGreaterThanOrEqual(0);
       expect(
         boundingBox!.x + boundingBox!.width,
         `${label} が画面右端からはみ出している`
       ).toBeLessThanOrEqual(MOBILE_VIEWPORT.width);
+
+      // Req 28.3: ツールバーに現れている「各項目」が 44x44 論理ピクセル以上
+      const items = await readToolbarItems();
+      expect(
+        items.map((item) => item.name),
+        `${label}: ツールバーの項目の個数が宣言と一致しない`
+      ).toHaveLength(TOOL_BUTTON_COUNT + PANEL_CONTROL_COUNT[toolId] + ACTION_BUTTON_COUNT);
+
+      for (const item of items) {
+        expect(
+          item.width,
+          `${label}: 項目「${item.name}」の幅 ${item.width} が ${MIN_TAP_TARGET_PX}px 未満`
+        ).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+        expect(
+          item.height,
+          `${label}: 項目「${item.name}」の高さ ${item.height} が ${MIN_TAP_TARGET_PX}px 未満`
+        ).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+        // Req 28.1: 各項目そのものが画面幅に収まる（到達は Req 28.2 の横スクロールが担う）
+        expect(
+          item.width,
+          `${label}: 項目「${item.name}」の幅が画面幅を超えている`
+        ).toBeLessThanOrEqual(MOBILE_VIEWPORT.width);
+      }
     }
+
+    // Req 28.5: 編集モードの既定ツールは `select` であるため、上のループでは「選択」だけが
+    // 「既に選択済み」に当たり一度も tap されない（既に選択済みの道具を押すと Req 28.8 の
+    // 開閉トグルが働き、属性パネルが閉じて上の母集団が崩れるため、ループ側のガードは外せない）。
+    // ループを抜けた時点では別の道具が選択されているので、ここで「選択」を実際にタップし、
+    // 「全ツールがタップで選択できる」の網羅に穴を残さない。
+    const selectTool = sharedPage.getByRole('button', {
+      name: TOOL_DEFINITIONS.select.label,
+      exact: true,
+    });
+    expect(
+      await selectTool.getAttribute('aria-pressed'),
+      'ループ後も「選択」が選択状態のままで、タップの網羅を回復できない'
+    ).toBe('false');
+    await selectTool.tap();
+    await expect(selectTool).toHaveAttribute('aria-pressed', 'true');
 
     // Req 28.1: ツールバー自体もモバイル幅に収まる
     const toolbarBox = await sharedPage.getByTestId('annotation-toolbar').boundingBox();
@@ -2337,6 +2461,23 @@ test.describe('画像編集モバイル表示領域の最適化・回帰（Task 
     await expect(sharedPage.locator('.upper-canvas')).toBeVisible({ timeout: getTimeout(10000) });
   }
 
+  /**
+   * 指定ツールを選択する（Task 115.170）
+   *
+   * Req 28.8: 選択中の道具を再び押すと属性パネルの開閉になるため、既に選択済みなら押さない。
+   * 押してしまうとパネルが閉じ、「属性パネルを開いた状態のツールバーの高さ」を測れなくなる。
+   */
+  async function selectTool(label: string): Promise<void> {
+    const tool = sharedPage.getByRole('button', { name: label, exact: true });
+    await expect(tool).toBeVisible({ timeout: getTimeout(10000) });
+    if ((await tool.getAttribute('aria-pressed')) !== 'true') {
+      // 本 describe の共有コンテキストは `hasTouch` を持たない（レイアウトの実測が目的で
+      // あり実タッチを要さないため）。したがって選択は click で行う。
+      await tool.click();
+    }
+    await expect(tool).toHaveAttribute('aria-pressed', 'true');
+  }
+
   /** 必須の矩形を返す（null の場合は失敗させる＝サイレント skip しない）。 */
   async function requireBox(selector: string): Promise<Rect> {
     const box = await sharedPage.locator(selector).first().boundingBox();
@@ -2518,6 +2659,68 @@ test.describe('画像編集モバイル表示領域の最適化・回帰（Task 
     expect(availHeight).toBeGreaterThan(0);
     const fillRatio = Math.max(canvasBox.width / availWidth, canvasBox.height / availHeight);
     expect(fillRatio).toBeGreaterThanOrEqual(0.85);
+
+    // ------------------------------------------------------------------
+    // Task 115.170: 属性パネルを開いた最悪の状態でも縦占有が増えていないこと
+    //
+    // 要件28.3 の適用範囲を「各項目」へ広げ、属性パネルの操作要素とアクションボタンも
+    // 44x44 以上にした。縦並び（見出しを上に積む）のままだと 1 項目の高さが
+    // 「見出し + 間隔 + 44」になり、単段ツールバーの高さが道具のボタン 1 行分を超える。
+    // 実装は見出しを横へ置くことでこれを避けている（`STYLES.styleItemMobile`）。
+    // その主張を、項目が最も多いテキストツールを選んだ状態の**実ビューポート**で測る。
+    // ------------------------------------------------------------------
+    const toolbarWithoutPanel = toolbar.height;
+    await selectTool('テキスト');
+    await expect(sharedPage.getByTestId('style-options')).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+
+    const toolbarWithPanel = await requireBox('[data-testid="annotation-toolbar"]');
+    const workAreaWithPanel = await requireBox('[data-testid="annotation-editor-container"]');
+    const editorWithPanel = await requireBox('.survey-image-viewer__editor');
+
+    expect(
+      toolbarWithPanel.height,
+      `属性パネルを開くとツールバーの縦占有が ${toolbarWithoutPanel} から ` +
+        `${toolbarWithPanel.height} へ増えている（Req 36.5）`
+    ).toBeLessThanOrEqual(toolbarWithoutPanel);
+    expect(toolbarWithPanel.height).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+    expect(toolbarWithPanel.height, '属性パネルを開くとツールバーが多段化している').toBeLessThan(
+      88
+    );
+
+    // Req 36.3 / 36.5: 属性パネルを開いた状態でも作業領域の確保が崩れない
+    expect(Math.min(workAreaWithPanel.width, workAreaWithPanel.height)).toBeGreaterThanOrEqual(
+      0.5 * screenShort
+    );
+    expect(workAreaWithPanel.height).toBeGreaterThanOrEqual(0.55 * editorWithPanel.height);
+
+    // Req 36.6: ツールバー内部の横幅が最大になる状態（項目が最も多いテキストツールで属性
+    // パネルを開いた状態）でも、ページ全体の水平スクロールを発生させない。
+    // Task 115.170 で各項目を 44 へ広げた結果、ツールバー内部の `scrollWidth` は 992 から
+    // 1646 へ増えている。(11) は最も狭い状態（選択ツール・パネル無し）でしか測らないため、
+    // 最悪の状態はここで固定する。
+    //
+    // あふれを止めているのは二段の仕組みである（Task 115.170 が変異で実測）:
+    //   - ツールバー自身の `overflowX: 'auto'` — 利用者が横スクロールで全項目へ到達できる
+    //     ようにする（Req 28.2）
+    //   - `SiteSurveyImageViewerPage` の `editorContainer` の `overflow: 'hidden'` —
+    //     ページ幅が広がることを防ぐ（Req 36.6）
+    // 片方だけを外してもページ幅は広がらない（前者だけを外すと後者が切り取る）。両方を外すと
+    // 本主張が赤になる。
+    //
+    // ただし今日の封じ込めは状態に依らないため、両方を外す変異では (11)（狭い状態）も赤に
+    // なる。**本主張は現時点では (11) に包摂されており、単独で赤にできる改変は存在しない。**
+    // 値は、封じ込めが将来「状態依存」になった改変——(11) が緑のまま最悪状態だけが破れる形
+    // ——を捕まえる点にある。単独で赤にできる主張と誤読しないこと。
+    const overflowWithPanel = await sharedPage.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      innerWidth: window.innerWidth,
+    }));
+    expect(
+      overflowWithPanel.scrollWidth,
+      '属性パネルを開いた状態でページ全体に水平スクロールが発生している（Req 36.6）'
+    ).toBeLessThanOrEqual(overflowWithPanel.innerWidth);
   });
 
   /**

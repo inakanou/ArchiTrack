@@ -130,6 +130,17 @@ export interface AnnotationToolbarProps {
 // スタイル定義
 // ============================================================================
 
+/**
+ * タップ領域の下限（論理ピクセル, Req 28.3）
+ *
+ * 要件28.3 の対象は「モバイル幅ツールバーの各項目」である。道具のボタンだけでなく、
+ * 属性パネルの操作要素（切替・色・線幅・文字サイズ・吹き出し）とアクションボタンも含まれる
+ * （適用範囲は Task 115.170 で決着させた。詳細は `mobileTapTarget` の注記を参照）。
+ * 値をここに一つだけ置き、道具のボタン（`button.base`）とモバイル幅の各項目
+ * （`mobileTapTarget`）が同じ数値を参照する。
+ */
+const TAP_TARGET_MIN_PX = 44;
+
 const STYLES = {
   toolbar: {
     display: 'flex',
@@ -180,6 +191,47 @@ const STYLES = {
     alignItems: 'flex-start',
     gap: '2px',
   },
+  // Req 36.5: モバイル幅では見出しを操作要素の「上」ではなく「横」へ置く。
+  //
+  // 各項目を 44 へ広げる（`mobileTapTarget`）と、見出しを積んだ縦並びのままでは
+  // 1 項目の高さが「見出し + 間隔 + 44」になり、道具のボタン（44）より高くなる。
+  // 単段のツールバーの高さは最も高い項目で決まるため、そのままではツールバーの縦占有が
+  // 増え、要件36.5（ツールバーが縦方向の表示領域を過度に占有しない）と衝突する。
+  // 横並びにすると項目の高さは 44 に収まり、道具のボタンの実高（アイコン + 見出し + padding。
+  // 375x667 の実測で 55）を超えないため、ツールバーの高さは変わらない。増えるのは横幅だけ
+  // であり、単段の横スクロール（Req 28.2）が吸収する。
+  //
+  // 実測（375x667。Task 115.170 が E2E で計測）: 本定義を外すとツールバーの高さは
+  // 71 から 85 へ増える。本定義を効かせている限り、属性パネルを開いても 71 のまま変わらない。
+  styleItemMobile: {
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    gap: '6px',
+  },
+  // Req 28.3: モバイル幅ツールバーの「各項目」のタップ領域の下限。
+  //
+  // 適用範囲は Task 115.170 で決着させた。条文の「各項目」を文字どおり読み、道具のボタン
+  // だけでなく属性パネルの操作要素（切替・色・線幅・文字サイズ・吹き出し）とアクション
+  // ボタンにも課す。従前は `button.base` だけが 44 を持ち、色 32x24・線幅 60x24・
+  // 吹き出し 高さ24・アクションボタン 高さ32（実測）と、道具のボタン以外は 44 に届いていな
+  // かった。
+  //
+  // タップ領域を「見た目の寸法そのもの」で確保する（擬似要素や重ね合わせで当たり判定だけを
+  // 広げない）。対象の多くが `input[type=color|number|checkbox]` と `select` という置換要素で
+  // あり、置換要素では `::before` / `::after` が描かれないため当たり判定だけを広げる手が
+  // 使えない。負のマージンで重ねる手は隣の項目と当たり判定が重なり、要件28.7（誤選択しにくい
+  // 間隔）を損なう。見た目＝当たり判定にしておくと、検証が測る矩形（getBoundingClientRect）が
+  // そのまま指の当たる領域になり、「実際には押せない領域を測って緑になる」ことも起きない。
+  //
+  // `width` / `height` を持つ定義（色 32x24 等）と併用する。CSS では `min-width` /
+  // `min-height` が `width` / `height` に優先するため、上書きの順序に依らず 44 が下限になる。
+  // 44 を超える寸法（線幅の入力の幅 60）はそのまま残る。
+  //
+  // デスクトップ幅へは課さない。要件28.3 が対象を「モバイル幅ツールバー」と限っているため。
+  mobileTapTarget: {
+    minWidth: `${TAP_TARGET_MIN_PX}px`,
+    minHeight: `${TAP_TARGET_MIN_PX}px`,
+  },
   styleLabel: {
     fontSize: '10px',
     color: '#525b6a', // WCAG 2.1 AA準拠: 5.5:1 contrast ratio on #f9fafb
@@ -193,22 +245,11 @@ const STYLES = {
     borderRadius: '4px',
     cursor: 'pointer',
   },
-  // Task 115.148: 切替のタップ領域を、同じ属性パネルに並ぶ他の操作要素より小さくしない。
+  // 切替の寸法（デスクトップ幅）。Task 115.148 が 18x18 から隣接要素と同じ 32x24 へ広げた。
+  // 従前は隣接する色の選択（32x24）・線幅の入力（60x24）・吹き出しの選択（高さ 24）の
+  // いずれよりも小さく、隣より小さい操作要素は押し間違いを招いていた。
   //
-  // 従前は 18x18 であり、隣接する色の選択（32x24）・線幅の入力（60x24）・吹き出しの選択
-  // （高さ 24）のいずれよりも小さかった。現場のスマートフォン操作では、隣より小さい操作要素は
-  // 押し間違いを招く。
-  //
-  // 値は 44 ではなく隣接要素と同じ 32x24 とする。要件28.3 の 44x44 は本スペックでは
-  // 道具のボタンにのみ適用されており（Task 70.1「各ボタンの minWidth/minHeight を 44 論理
-  // ピクセルに統一」。`STYLES.button.base` を参照）、色・線幅・吹き出し・アクションボタンは
-  // いずれも 44 を満たしていない。
-  //
-  // なお 28.3 の原文は「各項目」であり、文言のうえでは切替も対象である。条文から外れて
-  // いるのはむしろ現行の「道具のボタン限定」という狭め方のほうで、切替へ 44 を課すこと
-  // 自体は条文どおりの適用にあたる。それでも絶対値を持ち込まないのは、同格の隣接を据え
-  // 置いたまま切替だけを 44 にすると、適用範囲の決着（後続タスク 115.170）を先取りして
-  // しまうためである。ここでは相対関係（隣接より小さくしない）だけを担保する。
+  // モバイル幅ではこの値の上に `mobileTapTarget` が重なり、44x44 まで広がる（Req 28.3）。
   //
   // 本定義は白縁取り（白アウトライン）の切替と文字の背景の切替が共有する。片方だけ広げると
   // 隣り合う切替どうしで同じ欠陥が再発するため、両方へ効かせる。
@@ -286,8 +327,8 @@ const STYLES = {
       alignItems: 'center',
       justifyContent: 'center',
       // Req 28.3 / design.md AnnotationToolbar (ext): 44x44 論理ピクセルに統一
-      minWidth: '44px',
-      minHeight: '44px',
+      minWidth: `${TAP_TARGET_MIN_PX}px`,
+      minHeight: `${TAP_TARGET_MIN_PX}px`,
       padding: '8px',
       border: '1px solid transparent',
       borderRadius: '6px',
@@ -602,6 +643,14 @@ function StylePanel({
   const outlineLabel = outlineTool === 'text' ? '白アウトライン' : '白縁取り';
   const outlineEnabled = styleOptions.outlineEnabled[outlineTool];
 
+  // Req 28.3: モバイル幅では各項目のタップ領域を 44x44 以上にする（Task 115.170 で決着）。
+  // Req 36.5: 44 化でツールバーの段が高くならないよう、見出しを操作要素の横へ置く。
+  const tapTarget = isMobile ? STYLES.mobileTapTarget : {};
+  const itemStyle: React.CSSProperties = {
+    ...STYLES.styleItem,
+    ...(isMobile ? STYLES.styleItemMobile : {}),
+  };
+
   const showLineOptions = activeTool !== 'text';
   const showFontOptions = activeTool === 'text';
   const showFillOptions = ['circle', 'rectangle', 'polygon'].includes(activeTool);
@@ -617,7 +666,7 @@ function StylePanel({
         data-testid="style-options"
       >
         {/* 白縁取り / 白アウトラインの有効・無効 (Req 24.5, 25.2, 32.5) */}
-        <div style={STYLES.styleItem}>
+        <div style={itemStyle}>
           <label style={STYLES.styleLabel} htmlFor="annotation-outline-toggle">
             {outlineLabel}
           </label>
@@ -627,7 +676,7 @@ function StylePanel({
             checked={outlineEnabled}
             onChange={handleOutlineEnabledChange}
             disabled={disabled}
-            style={STYLES.outlineToggleCheckbox}
+            style={{ ...STYLES.outlineToggleCheckbox, ...tapTarget }}
             data-testid="outline-toggle"
             name="outlineEnabled"
             aria-label={outlineLabel}
@@ -636,14 +685,14 @@ function StylePanel({
 
         {/* 線の色 */}
         {showLineOptions && (
-          <div style={STYLES.styleItem}>
+          <div style={itemStyle}>
             <label style={STYLES.styleLabel}>色</label>
             <input
               type="color"
               value={styleOptions.strokeColor}
               onChange={handleStrokeColorChange}
               disabled={disabled}
-              style={STYLES.colorPicker}
+              style={{ ...STYLES.colorPicker, ...tapTarget }}
               data-testid="color-picker"
               aria-label="線の色"
             />
@@ -652,7 +701,7 @@ function StylePanel({
 
         {/* 線の太さ */}
         {showLineOptions && (
-          <div style={STYLES.styleItem}>
+          <div style={itemStyle}>
             <label style={STYLES.styleLabel}>線幅</label>
             <input
               type="number"
@@ -661,7 +710,7 @@ function StylePanel({
               disabled={disabled}
               min={1}
               max={20}
-              style={STYLES.lineWidthInput}
+              style={{ ...STYLES.lineWidthInput, ...tapTarget }}
               data-testid="line-width"
               name="strokeWidth"
               aria-label="線の太さ"
@@ -671,14 +720,14 @@ function StylePanel({
 
         {/* 塗りつぶし色 */}
         {showFillOptions && (
-          <div style={STYLES.styleItem}>
+          <div style={itemStyle}>
             <label style={STYLES.styleLabel}>塗りつぶし</label>
             <input
               type="color"
               value={styleOptions.fillColor || '#ffffff'}
               onChange={handleFillColorChange}
               disabled={disabled}
-              style={STYLES.colorPicker}
+              style={{ ...STYLES.colorPicker, ...tapTarget }}
               data-testid="fill-color-picker"
               aria-label="塗りつぶしの色"
             />
@@ -688,19 +737,19 @@ function StylePanel({
         {/* フォントサイズ（テキスト用） */}
         {showFontOptions && (
           <>
-            <div style={STYLES.styleItem}>
+            <div style={itemStyle}>
               <label style={STYLES.styleLabel}>文字色</label>
               <input
                 type="color"
                 value={styleOptions.strokeColor}
                 onChange={handleStrokeColorChange}
                 disabled={disabled}
-                style={STYLES.colorPicker}
+                style={{ ...STYLES.colorPicker, ...tapTarget }}
                 data-testid="color-picker"
                 aria-label="文字色"
               />
             </div>
-            <div style={STYLES.styleItem}>
+            <div style={itemStyle}>
               <label style={STYLES.styleLabel}>サイズ</label>
               <input
                 type="number"
@@ -709,7 +758,7 @@ function StylePanel({
                 disabled={disabled}
                 min={8}
                 max={72}
-                style={STYLES.lineWidthInput}
+                style={{ ...STYLES.lineWidthInput, ...tapTarget }}
                 data-testid="font-size"
                 name="fontSize"
                 aria-label="フォントサイズ"
@@ -717,7 +766,7 @@ function StylePanel({
             </div>
 
             {/* 文字の背景色 (Req 8.5)。透明は空文字で表すため、有無はチェックで切替える */}
-            <div style={STYLES.styleItem}>
+            <div style={itemStyle}>
               <label style={STYLES.styleLabel} htmlFor="annotation-text-background-toggle">
                 背景
               </label>
@@ -727,27 +776,27 @@ function StylePanel({
                 checked={styleOptions.textBackgroundColor !== ''}
                 onChange={handleTextBackgroundEnabledChange}
                 disabled={disabled}
-                style={STYLES.outlineToggleCheckbox}
+                style={{ ...STYLES.outlineToggleCheckbox, ...tapTarget }}
                 data-testid="text-background-toggle"
                 name="textBackgroundEnabled"
                 aria-label="文字の背景色を付ける"
               />
             </div>
-            <div style={STYLES.styleItem}>
+            <div style={itemStyle}>
               <label style={STYLES.styleLabel}>背景色</label>
               <input
                 type="color"
                 value={styleOptions.textBackgroundColor || rememberedTextBackgroundColor}
                 onChange={handleTextBackgroundColorChange}
                 disabled={disabled}
-                style={STYLES.colorPicker}
+                style={{ ...STYLES.colorPicker, ...tapTarget }}
                 data-testid="text-background-color-picker"
                 aria-label="文字の背景色"
               />
             </div>
 
             {/* 吹き出し形式 (Req 8.6) */}
-            <div style={STYLES.styleItem}>
+            <div style={itemStyle}>
               <label style={STYLES.styleLabel} htmlFor="annotation-balloon-style">
                 吹き出し
               </label>
@@ -756,7 +805,7 @@ function StylePanel({
                 value={styleOptions.balloonStyle}
                 onChange={handleBalloonStyleChange}
                 disabled={disabled}
-                style={STYLES.balloonStyleSelect}
+                style={{ ...STYLES.balloonStyleSelect, ...tapTarget }}
                 data-testid="balloon-style"
                 name="balloonStyle"
                 aria-label="吹き出し形式"
@@ -864,6 +913,10 @@ function AnnotationToolbar({
     [onStyleChange]
   );
 
+  // Req 28.3: モバイル幅ではアクションボタンのタップ領域も 44x44 以上にする
+  // （適用範囲は Task 115.170 で決着。道具のボタンだけでなく「各項目」が対象）。
+  const actionTapTarget = isMobile ? STYLES.mobileTapTarget : {};
+
   return (
     <div
       data-testid="annotation-toolbar"
@@ -910,6 +963,7 @@ function AnnotationToolbar({
             type="button"
             style={{
               ...STYLES.actionButton,
+              ...actionTapTarget,
               ...(disabled ? STYLES.actionButtonDisabled : {}),
             }}
             onClick={onRotate}
@@ -942,6 +996,7 @@ function AnnotationToolbar({
           type="button"
           style={{
             ...STYLES.actionButton,
+            ...actionTapTarget,
             ...(disabled || !canUndo ? STYLES.actionButtonDisabled : {}),
           }}
           onClick={onUndo}
@@ -970,6 +1025,7 @@ function AnnotationToolbar({
           type="button"
           style={{
             ...STYLES.actionButton,
+            ...actionTapTarget,
             ...(disabled || !canRedo ? STYLES.actionButtonDisabled : {}),
           }}
           onClick={onRedo}
@@ -1005,6 +1061,7 @@ function AnnotationToolbar({
           type="button"
           style={{
             ...STYLES.actionButton,
+            ...actionTapTarget,
             ...STYLES.actionButtonPrimary,
             ...(disabled || saveDisabled ? STYLES.actionButtonDisabled : {}),
           }}
@@ -1038,6 +1095,7 @@ function AnnotationToolbar({
           type="button"
           style={{
             ...STYLES.actionButton,
+            ...actionTapTarget,
             ...(disabled ? STYLES.actionButtonDisabled : {}),
           }}
           onClick={onExport}

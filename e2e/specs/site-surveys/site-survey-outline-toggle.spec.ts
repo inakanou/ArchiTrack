@@ -23,13 +23,17 @@
  *   (c) 切替を無効にして置いたテキストは白アウトライン無しで作られる（Req 25.2）
  *   (d) 切替は Undo/Redo 履歴に記録される（Req 24.10, 25.11, 32.10）
  *   (e) 無効にして描いた注釈は保存・リロード後も無効のまま復元される（Req 24.7, 25.8, 32.7）
- *   (f) 切替のタップ領域が同じ属性パネルの他の操作要素より小さくない（Req 15.2）
+ *   (f) 属性パネルの各項目のタップ領域がモバイル幅で 44x44 論理ピクセル以上（Req 28.3, 15.2）
  *
  * Task 115.148:
  *   切替のタップ領域は 18x18 論理ピクセルで、隣接する色の選択（32x24）・線幅の入力
  *   （60x24）より小さかった。現場のスマートフォン操作では隣より小さい操作要素が押し間違いを
- *   招く。(f) はこの相対関係を実ブラウザの実測で固定する。要件28.3 の 44x44 は援用しない
- *   （理由は (f) の直上に記す）。
+ *   招く。当時 (f) は相対関係（隣接要素より小さくない）だけを主張していた。要件28.3 の
+ *   適用範囲が未決着で、絶対値を持ち込むと決着を先取りしてしまうためである。
+ *
+ * Task 115.170:
+ *   要件28.3 の適用範囲を決着させ、条文どおり「モバイル幅ツールバーの各項目」へ 44x44 を
+ *   適用した。決着に伴い (f) の主張を相対関係から絶対値（44x44 以上）へ置き換えた。
  *
  * @requirement site-survey/REQ-24.5
  * @requirement site-survey/REQ-25.2
@@ -38,6 +42,7 @@
  * @requirement site-survey/REQ-25.11
  * @requirement site-survey/REQ-32.10
  * @requirement site-survey/REQ-15.2
+ * @requirement site-survey/REQ-28.3
  */
 
 import path from 'path';
@@ -152,6 +157,15 @@ const OUTLINE_TOOLS: ReadonlyArray<OutlineToolDefinition> = [
     toggleControlCount: 2,
   },
 ] as const;
+
+/**
+ * (f) が用いるモバイル幅（iPhone SE 相当）。要件28.3 の対象は「モバイル幅ツールバー」であり、
+ * デスクトップ幅のままでは条文の対象を測れない。
+ */
+const MOBILE_VIEWPORT = { width: 375, height: 667 };
+
+/** 要件28.3 が定めるタップ領域の下限（論理ピクセル） */
+const MIN_TAP_TARGET_PX = 44;
 
 /** 形状を描き分ける格子（キャンバス相対比率）。互いに重ならないよう割り当てる。 */
 const CELLS: ReadonlyArray<{ x0: number; y0: number; x1: number; y1: number }> = [
@@ -721,94 +735,91 @@ test.describe('白縁取り切替UI', () => {
   });
 
   /**
-   * (f) 切替のタップ領域が、同じ属性パネルに並ぶ他の操作要素より小さくない
+   * (f) 属性パネルの各項目のタップ領域が、モバイル幅で 44x44 論理ピクセル以上である
+   *     Requirement 28.3（モバイル幅ツールバーの各項目のタップ領域）
    *     Requirement 15.2（タッチ操作に最適化された注釈ツールを提供する）
    *
-   * 要件15.2 は数値基準を持たない。したがって本検証は 44x44 のような絶対値を持ち込まず、
-   * 「同じ属性パネルに並ぶ切替以外の操作要素より小さくない」という相対関係だけを主張する。
+   * Task 115.170 で要件28.3 の適用範囲を決着させた。条文の「各項目」は道具のボタンだけを
+   * 指すのではなく、モバイル幅ツールバーに現れる操作要素の全てを指す。属性パネルの操作要素
+   * （切替・色・線幅・文字サイズ・吹き出し）も対象であり、実装をそこへ追随させた。
+   * これに伴い本検証は、Task 115.148 が置いた相対関係（隣接要素より小さくない）の主張を
+   * 絶対値（44x44 以上）の主張へ置き換えた。
    *
-   * 要件28.3 の 44x44 を援用しない理由: 28.3 は「モバイル幅ツールバーの各項目」を対象と
-   * 書いているが、本スペックでは道具のボタンにだけ適用して運用されている（Task 70.1
-   * 「各ボタンの minWidth/minHeight を 44 論理ピクセルに統一」。`AnnotationToolbar.tsx` の
-   * `STYLES.button.base` だけが 44 を持つ）。同ファイルの `STYLES` が定める寸法では、
-   * 色（32x24）・線幅（60x24）・吹き出し（高さ24）・アクションボタン（padding 6px 12px の
-   * 高さ）はいずれも 44 に届かない。
-   *
-   * なお 28.3 の原文は「各項目」であり、文言のうえでは切替も対象である。条文から外れて
-   * いるのはむしろ現行の「道具のボタン限定」という狭め方のほうで、切替へ 44 を課すこと
-   * 自体は条文どおりの適用にあたる。それでも本検証が 44 を援用しないのは、同格の隣接を
-   * 据え置いたまま切替だけを 44 にすると、適用範囲の決着（後続タスク 115.170）を先取り
-   * してしまうためである。ここでは相対関係だけを主張する。
+   * 幅を切替える理由: 本 spec の共有ページはデスクトップ幅（Desktop Chrome の既定）で動く。
+   * 要件28.3 が対象を「モバイル幅ツールバー」と限っているため、本検証だけは実際にモバイル幅
+   * （375x667）へ切替えて測る。測り終えたら元の幅へ戻す。
    *
    * 数える範囲（先に宣言する）: `data-testid="style-options"` 配下の `input` と `select`
-   * の全て。これを `type="checkbox"` の切替と、それ以外の操作要素に二分する。ツールごとの
-   * 個数は `OutlineToolDefinition.nonToggleControlCount` / `toggleControlCount` として
-   * 上の表に宣言してあり、実測がそれと一致することを先に確かめる（要素を数え漏らした
-   * まま比較が通ることを防ぐ）。
+   * の全て。ツールごとの個数は `OutlineToolDefinition.nonToggleControlCount` /
+   * `toggleControlCount` として上の表に宣言してあり、実測がそれと一致することを先に
+   * 確かめる（要素を数え漏らしたまま主張が通ることを防ぐ）。
    *
-   * 主張の対象は白縁取りの切替だけでなくパネル内の切替全部である。片方だけを広げると、
-   * 隣り合う切替どうしで同じ欠陥（隣より小さい操作要素）が再発するため。
+   * 主張の対象は白縁取りの切替だけでなくパネル内の操作要素の全部である。片方だけを広げると、
+   * 隣り合う操作要素どうしで同じ欠陥（隣より小さい操作要素）が再発するため。
    */
-  test('(f) 切替のタップ領域が同じ属性パネルの他の操作要素より小さくない (site-survey/REQ-15.2)', async () => {
+  test('(f) 属性パネルの各項目がモバイル幅で 44x44 以上のタップ領域を持つ (site-survey/REQ-28.3/REQ-15.2)', async () => {
     await enterEditMode();
 
-    for (const tool of OUTLINE_TOOLS) {
-      await selectTool(tool.toolLabel);
-      await expect(outlineToggle(), `${tool.toolLabel}: 切替が道具帯に無い`).toBeVisible({
-        timeout: getTimeout(10000),
-      });
+    const desktopViewport = sharedPage.viewportSize();
+    expect(desktopViewport, '元のビューポート寸法が取得できない').not.toBeNull();
 
-      const controls = await sharedPage
-        .getByTestId('style-options')
-        .locator('input, select')
-        .evaluateAll((elements) =>
-          elements.map((element) => {
-            const rect = element.getBoundingClientRect();
-            return {
-              testId: element.getAttribute('data-testid') ?? '',
-              label: element.getAttribute('aria-label') ?? '',
-              isToggle:
-                element.tagName === 'INPUT' && (element as HTMLInputElement).type === 'checkbox',
-              width: rect.width,
-              height: rect.height,
-            };
-          })
-        );
+    try {
+      await sharedPage.setViewportSize(MOBILE_VIEWPORT);
 
-      const toggles = controls.filter((control) => control.isToggle);
-      const others = controls.filter((control) => !control.isToggle);
+      for (const tool of OUTLINE_TOOLS) {
+        await selectTool(tool.toolLabel);
+        await expect(outlineToggle(), `${tool.toolLabel}: 切替が道具帯に無い`).toBeVisible({
+          timeout: getTimeout(10000),
+        });
 
-      expect(
-        toggles.map((control) => control.testId),
-        `${tool.toolLabel}: 属性パネルの切替の個数が宣言と一致しない`
-      ).toHaveLength(tool.toggleControlCount);
-      expect(
-        others.map((control) => control.testId),
-        `${tool.toolLabel}: 属性パネルの切替以外の操作要素の個数が宣言と一致しない`
-      ).toHaveLength(tool.nonToggleControlCount);
-      expect(
-        toggles.map((control) => control.testId),
-        `${tool.toolLabel}: 白縁取りの切替が数える範囲に入っていない`
-      ).toContain('outline-toggle');
+        const controls = await sharedPage
+          .getByTestId('style-options')
+          .locator('input, select')
+          .evaluateAll((elements) =>
+            elements.map((element) => {
+              const rect = element.getBoundingClientRect();
+              return {
+                testId: element.getAttribute('data-testid') ?? '',
+                label: element.getAttribute('aria-label') ?? '',
+                isToggle:
+                  element.tagName === 'INPUT' && (element as HTMLInputElement).type === 'checkbox',
+                width: rect.width,
+                height: rect.height,
+              };
+            })
+          );
 
-      const minWidth = Math.min(...others.map((control) => control.width));
-      const minHeight = Math.min(...others.map((control) => control.height));
-      const minArea = Math.min(...others.map((control) => control.width * control.height));
+        const toggles = controls.filter((control) => control.isToggle);
+        const others = controls.filter((control) => !control.isToggle);
 
-      for (const toggle of toggles) {
-        const name = `${tool.toolLabel}: 切替「${toggle.label}」`;
         expect(
-          toggle.width,
-          `${name}の幅が隣接要素の最小 ${minWidth} を下回る`
-        ).toBeGreaterThanOrEqual(minWidth);
+          toggles.map((control) => control.testId),
+          `${tool.toolLabel}: 属性パネルの切替の個数が宣言と一致しない`
+        ).toHaveLength(tool.toggleControlCount);
         expect(
-          toggle.height,
-          `${name}の高さが隣接要素の最小 ${minHeight} を下回る`
-        ).toBeGreaterThanOrEqual(minHeight);
+          others.map((control) => control.testId),
+          `${tool.toolLabel}: 属性パネルの切替以外の操作要素の個数が宣言と一致しない`
+        ).toHaveLength(tool.nonToggleControlCount);
         expect(
-          toggle.width * toggle.height,
-          `${name}の面積が隣接要素の最小 ${minArea} を下回る`
-        ).toBeGreaterThanOrEqual(minArea);
+          toggles.map((control) => control.testId),
+          `${tool.toolLabel}: 白縁取りの切替が数える範囲に入っていない`
+        ).toContain('outline-toggle');
+
+        for (const control of controls) {
+          const name = `${tool.toolLabel}: 項目「${control.label || control.testId}」`;
+          expect(
+            control.width,
+            `${name}の幅 ${control.width} が ${MIN_TAP_TARGET_PX}px 未満`
+          ).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+          expect(
+            control.height,
+            `${name}の高さ ${control.height} が ${MIN_TAP_TARGET_PX}px 未満`
+          ).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+        }
+      }
+    } finally {
+      if (desktopViewport) {
+        await sharedPage.setViewportSize(desktopViewport);
       }
     }
   });
