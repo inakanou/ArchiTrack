@@ -38,6 +38,13 @@
  *   - (feature-name/REQ-4.1)                括弧形式（テスト記述内）
  *   - Requirements (feature-name):          ヘッダー形式
  *
+ * ヘッダー形式の及ぶ範囲:
+ *   ヘッダー直下に `- REQ-N.M:` を並べる形（パターン5）は、次のヘッダー・囲む
+ *   ブロックコメントの終端・次の空行・JSDoc 内の段落の切れ目（` *` だけの行）の
+ *   うち最も手前までを一区間とする。
+ *   区間の決め方は resolveHeaderSectionEnd にあり、
+ *   scripts/check-requirement-coverage.selftest.ts が両方向（過大帰属・取りこぼし）を固定する。
+ *
  * 除外リスト:
  *   e2e/requirement-exclusions.json に定義されたE2E対象外の受入基準は
  *   カバレッジ計算の分母から外れます。外れるだけであり、被覆済みではありません。
@@ -238,7 +245,7 @@ function findFiles(dir: string, pattern: RegExp): string[] {
 /**
  * .kiro/specs/配下の機能を自動検出
  */
-function discoverFeatures(): string[] {
+export function discoverFeatures(): string[] {
   const features: string[] = [];
 
   if (!fs.existsSync(SPECS_DIR)) {
@@ -415,6 +422,176 @@ function extractAllFeatures(featureNames: string[]): Feature[] {
 // テストカバレッジ抽出
 // ============================================================================
 
+/** パターン5（ヘッダー直下の要件一覧）が拾った被覆印 */
+export interface HeaderScopedCoverage {
+  /** feature-name/REQ-N */
+  requirements: string[];
+  /** feature-name/REQ-N.M */
+  acceptanceCriteria: string[];
+}
+
+/** パターン4のヘッダー（`Requirements (feature-name):`）の出現位置 */
+interface CoverageHeader {
+  index: number;
+  featureName: string;
+}
+
+/** ヘッダー直下の一覧の各項目（`- REQ-N.M:` / `- REQ-N-REQ-M:`） */
+const HEADER_LIST_ITEM_REGEX =
+  /[-*]\s*REQ-(\d+[A-E]?)(?:\.(\d+))?(?:-REQ-(\d+[A-E]?)(?:\.(\d+))?)?/g;
+
+/**
+ * 区間の切れ目として数えるヘッダー
+ *
+ * **機能名を問わない。** 帰属の側は既知の機能名だけを見るが、区間の切れ目は
+ * 「新しいヘッダーが始まった」という事実だけで決まる。既知の機能名だけを切れ目にすると、
+ * `--feature=NAME` で走らせたときに他機能のヘッダーが切れ目でなくなり、
+ * 過大帰属が絞り込みのときだけ復活する。
+ */
+const ANY_COVERAGE_HEADER_REGEX = /Requirements\s*(?:coverage\s*)?\([A-Za-z0-9_-]+\):/g;
+
+/** パターン4のヘッダー（既知の機能名のみ）を組み立てる */
+function buildHeaderRegex(featureNames: readonly string[]): RegExp {
+  return new RegExp(`Requirements\\s*(?:coverage\\s*)?\\((${featureNames.join('|')})\\):`, 'g');
+}
+
+/**
+ * ヘッダーが属する区間の終端を決める
+ *
+ * 次の四つの上限のうち**最も手前**を採る。
+ *
+ *   1. 次のヘッダーの開始位置 — 別機能のヘッダー配下の一覧を飲み込ませない
+ *   2. ヘッダーを囲む JSDoc / ブロックコメントの終端 — 本体側の記述を飲み込ませない
+ *   3. 次の空行 — 素の本文・行コメントでの段落の切れ目（従来からの上限）
+ *   4. JSDoc 内の段落の切れ目（` *` だけの行） — 一覧の直後に続く散文を飲み込ませない
+ *
+ * 3 だけを見ていた頃は、JSDoc の中の段落の切れ目が空行ではなく ` *` の行であるために
+ * **JSDoc 一枚に複数のヘッダーを並べたファイルで区間が一度も切れず**、
+ * 二番目以降のヘッダー配下の一覧まで先頭の機能へ帰属していた（被覆の過大帰属）。
+ *
+ * 4 は 3 の JSDoc 版である。実データ（被覆ヘッダー 384 件）で 4 を加えて帰属が減るのは
+ * 4 ヘッダーだけであり、**正当な被覆は一件も失われない**。内訳は次のとおり。
+ *
+ *   - `site-survey/REQ-16.7` / `quantity-table-generation/REQ-38.4` — 被覆の集計から落ちる。
+ *     いずれも「E2Eテストで検証困難なため省略」「本スペックには含まない」と
+ *     **検証していないことを明言した散文**であり、落ちるのが正しい
+ *   - `quantity-table-generation/REQ-7.1` — 掲げていたファイル自身が
+ *     「対応する主張は本ファイルに無い」と明記している。同じ番号を
+ *     `autocomplete-optimization.spec.ts` が判定しているため集計は動かない
+ *   - `quantity-table-generation/REQ-47`・`47.15`〜`47.17` — 同じ行が
+ *     `@requirement` 形式（パターン1）でも書かれており、そちらが拾うため集計は動かない
+ *
+ * 実データの事例は自己検査が名指しで固定している。
+ *
+ * @param content ファイル全体の本文
+ * @param headerIndex 当該ヘッダーの開始位置
+ * @param nextHeaderIndex 次のヘッダーの開始位置（無ければ null）
+ */
+export function resolveHeaderSectionEnd(
+  content: string,
+  headerIndex: number,
+  nextHeaderIndex: number | null
+): number {
+  let end = content.length;
+
+  const blankLine = content.indexOf('\n\n', headerIndex + 1);
+  if (blankLine > 0) end = Math.min(end, blankLine);
+
+  if (nextHeaderIndex !== null && nextHeaderIndex > headerIndex) {
+    end = Math.min(end, nextHeaderIndex);
+  }
+
+  const commentEnd = enclosingBlockCommentEnd(content, headerIndex);
+  if (commentEnd !== null) end = Math.min(end, commentEnd);
+
+  const paragraphBreak = jsDocParagraphBreak(content, headerIndex);
+  if (paragraphBreak !== null) end = Math.min(end, paragraphBreak);
+
+  return end;
+}
+
+/**
+ * ヘッダーより後ろにある最初の「JSDoc 内の段落の切れ目」の位置を返す
+ *
+ * 段落の切れ目とは、行の中身が `*` だけ（前後の空白は許す）の行である。
+ * JSDoc ではここが空行の役目を果たす。見つからなければ null を返す。
+ */
+function jsDocParagraphBreak(content: string, headerIndex: number): number | null {
+  const offset = headerIndex + 1;
+  const match = /\n[ \t]*\*[ \t]*(?=\n)/.exec(content.slice(offset));
+  return match ? offset + (match.index as number) : null;
+}
+
+/**
+ * ヘッダーを囲むブロックコメントの終端（`*` と `/` の並び）の位置を返す
+ *
+ * ヘッダーがブロックコメントの中に無ければ null を返す。
+ * 直前のコメント開始（`/` と `*` の並び）を起点に対応する終端を探し、
+ * それがヘッダーより後ろにある場合のみ「囲んでいる」と判定する。
+ * 終端がヘッダーより手前にあるなら、そのコメントは既に閉じており、
+ * ヘッダーはコメントの外にある。
+ */
+function enclosingBlockCommentEnd(content: string, headerIndex: number): number | null {
+  const open = content.lastIndexOf('/*', headerIndex);
+  if (open < 0) return null;
+  const close = content.indexOf('*/', open + 2);
+  if (close < 0 || close < headerIndex) return null;
+  return close;
+}
+
+/**
+ * パターン5: ヘッダー直下の要件一覧から被覆印を拾う
+ */
+export function extractHeaderScopedCoverage(
+  content: string,
+  featureNames: readonly string[]
+): HeaderScopedCoverage {
+  const requirements = new Set<string>();
+  const acceptanceCriteria = new Set<string>();
+
+  if (featureNames.length === 0) {
+    return { requirements: [], acceptanceCriteria: [] };
+  }
+
+  const headers: CoverageHeader[] = [];
+  for (const match of content.matchAll(buildHeaderRegex(featureNames))) {
+    if (match.index !== undefined && match[1]) {
+      headers.push({ index: match.index, featureName: match[1] });
+    }
+  }
+
+  // 切れ目は機能名を問わず、あらゆるヘッダーの出現位置で決める
+  const boundaries: number[] = [];
+  for (const match of content.matchAll(ANY_COVERAGE_HEADER_REGEX)) {
+    if (match.index !== undefined) boundaries.push(match.index);
+  }
+
+  for (const header of headers) {
+    const next = boundaries.find((index) => index > header.index);
+    const sectionEnd = resolveHeaderSectionEnd(content, header.index, next ?? null);
+    const section = content.slice(header.index, sectionEnd);
+
+    HEADER_LIST_ITEM_REGEX.lastIndex = 0;
+    let listMatch: RegExpExecArray | null;
+    while ((listMatch = HEADER_LIST_ITEM_REGEX.exec(section)) !== null) {
+      if (!listMatch[1]) continue;
+      requirements.add(`${header.featureName}/REQ-${listMatch[1]}`);
+      if (listMatch[2]) {
+        acceptanceCriteria.add(`${header.featureName}/REQ-${listMatch[1]}.${listMatch[2]}`);
+      }
+      // 範囲形式 (REQ-1-REQ-5) の処理
+      if (listMatch[3]) {
+        requirements.add(`${header.featureName}/REQ-${listMatch[3]}`);
+      }
+    }
+  }
+
+  return {
+    requirements: Array.from(requirements).sort(),
+    acceptanceCriteria: Array.from(acceptanceCriteria).sort(),
+  };
+}
+
 /**
  * コードおよびテストファイルから @requirement タグを抽出
  *
@@ -459,24 +636,6 @@ function extractTestCoverage(dirs: string[], featureNames: string[]): TestCovera
         'gm'
       );
 
-      // パターン4: Requirements (feature-name): または Requirements coverage (feature-name):
-      const regexHeader = new RegExp(
-        `Requirements\\s*(?:coverage\\s*)?\\((${featurePattern})\\):`,
-        'g'
-      );
-
-      // パターン5: - REQ-N.M: (ヘッダー内の要件リスト形式)
-      // この場合、直前のRequirements (feature-name):から機能名を取得する必要がある
-
-      // ヘッダーから機能名を取得
-      const headerMatches = Array.from(content.matchAll(regexHeader));
-      const headerFeatures = new Map<number, string>();
-      for (const match of headerMatches) {
-        if (match.index !== undefined && match[1]) {
-          headerFeatures.set(match.index, match[1]);
-        }
-      }
-
       // パターン1-3の処理
       const processMatch = (
         match: RegExpMatchArray,
@@ -511,33 +670,13 @@ function extractTestCoverage(dirs: string[], featureNames: string[]): TestCovera
       }
 
       // パターン5: ヘッダー内の要件リスト形式 (- REQ-N.M:)
-      // 各ヘッダーの後のセクションで - REQ-X.Y パターンを検索
-      for (const [headerIndex, featureName] of headerFeatures) {
-        // ヘッダーから次の空行または別のセクションまでを検索
-        const sectionStart = headerIndex;
-        const sectionEnd = content.indexOf('\n\n', sectionStart + 1);
-        const section =
-          sectionEnd > 0 ? content.slice(sectionStart, sectionEnd) : content.slice(sectionStart);
-
-        const reqListRegex = /[-*]\s*REQ-(\d+[A-E]?)(?:\.(\d+))?(?:-REQ-(\d+[A-E]?)(?:\.(\d+))?)?/g;
-        let listMatch;
-        while ((listMatch = reqListRegex.exec(section)) !== null) {
-          if (listMatch[1]) {
-            const reqId = `${featureName}/REQ-${listMatch[1]}`;
-            requirements.add(reqId);
-
-            if (listMatch[2]) {
-              const acId = `${featureName}/REQ-${listMatch[1]}.${listMatch[2]}`;
-              acceptanceCriteria.add(acId);
-            }
-
-            // 範囲形式 (REQ-1-REQ-5) の処理
-            if (listMatch[3]) {
-              const endReq = `${featureName}/REQ-${listMatch[3]}`;
-              requirements.add(endReq);
-            }
-          }
-        }
+      // 区間の決め方は extractHeaderScopedCoverage に切り出してある（自己検査が直接見る）。
+      const headerScoped = extractHeaderScopedCoverage(content, featureNames);
+      for (const reqId of headerScoped.requirements) {
+        requirements.add(reqId);
+      }
+      for (const acId of headerScoped.acceptanceCriteria) {
+        acceptanceCriteria.add(acId);
       }
 
       if (requirements.size > 0 || acceptanceCriteria.size > 0) {

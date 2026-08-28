@@ -25,11 +25,14 @@ import {
   buildModuleGraph,
   classifyCoverageSource,
   computeReachableModules,
+  discoverFeatures,
+  extractHeaderScopedCoverage,
   extractImportSpecifiers,
   isVerificationFile,
   normalizeExclusionId,
   PRODUCTION_ENTRY_POINTS,
   PRODUCTION_ROOTS,
+  resolveHeaderSectionEnd,
   resolveImport,
   selectExclusionsForFeatures,
   toPosixPath,
@@ -593,6 +596,390 @@ function checkKnownDeadAndLiveModules(): string[] {
 }
 
 // ============================================================================
+// パターン5（ヘッダー直下の要件一覧）の区間判定
+// ============================================================================
+//
+// `Requirements (feature-name):` の直下に `- REQ-N.M:` を並べる形（パターン5）は、
+// ヘッダーから「どこまで」を当該機能の一覧と見なすかを決めねばならない。
+// 区間を長く取りすぎると **別機能のヘッダー配下の一覧まで先頭の機能へ帰属し、
+// 被覆を過大に見せる**。短く取りすぎると同一機能の一覧を取りこぼし、被覆を過小に見せる。
+// どちらへ倒れても検査が嘘をつくため、両方向を固定する。
+//
+// 是正前の実装は「ヘッダーから次の空行（`\n\n`）まで」だけを見ていた。
+// JSDoc の中では段落の切れ目が ` *` の行であって空行ではないため、
+// **JSDoc 一枚に複数のヘッダーを並べたファイルでは切れ目が一度も現れず**、
+// 二番目以降のヘッダー配下の一覧まで先頭の機能へ帰属していた。
+// 実データでは `backend/src/utils/seed-helpers.ts` などが該当していた。
+
+/** 自己検査の中で使う、実在する機能名の一部 */
+const SELFTEST_FEATURES = [
+  'site-survey',
+  'quantity-table-generation',
+  'user-authentication',
+] as const;
+
+/**
+ * 陽性対照: JSDoc 一枚に複数のヘッダーが並ぶ形
+ *
+ * 空行を一つも含まないため、是正前の「次の空行まで」では区間が切れず、
+ * 二番目のヘッダー配下の一覧が先頭の機能にも帰属していた。
+ */
+const MULTI_HEADER_JSDOC = [
+  '/**',
+  ' * @fileoverview 陽性対照',
+  ' *',
+  ' * Requirements (site-survey):',
+  ' * - REQ-1.1: 先頭の機能の受入基準',
+  ' *',
+  ' * Requirements coverage (quantity-table-generation):',
+  ' * - REQ-2.2: 別機能の受入基準',
+  ' */',
+  '',
+  'export const value = 1;',
+  '',
+].join('\n');
+
+/**
+ * 陽性対照: 段落の切れ目を挟まずにヘッダーが隣り合う形
+ *
+ * `MULTI_HEADER_JSDOC` は実データ（`backend/src/utils/seed-helpers.ts`）に倣って
+ * 節の間に ` *` を置くため、段落の切れ目の上限だけでも区間が切れてしまう。
+ * それでは「次のヘッダーで切る」上限が効いているかを測れない。
+ * ここでは切れ目を挟まずヘッダーを隣接させ、**次のヘッダーの上限だけが働く**形を作る。
+ */
+const ADJACENT_HEADERS_JSDOC = [
+  '/**',
+  ' * Requirements (site-survey):',
+  ' * - REQ-1.1: 先頭の機能の受入基準',
+  ' * Requirements coverage (quantity-table-generation):',
+  ' * - REQ-2.2: 別機能の受入基準',
+  ' */',
+  '',
+].join('\n');
+
+function checkHeaderSectionStopsAtNextHeader(): string[] {
+  const failures: string[] = [];
+  // 実データに倣った形（節の間に ` *` がある）と、次のヘッダーの上限だけが働く形の両方を見る。
+  const fixtures: ReadonlyArray<{ label: string; source: string }> = [
+    { label: '実データに倣った形', source: MULTI_HEADER_JSDOC },
+    { label: 'ヘッダーが隣接する形', source: ADJACENT_HEADERS_JSDOC },
+  ];
+
+  for (const fixture of fixtures) {
+    const found = extractHeaderScopedCoverage(fixture.source, SELFTEST_FEATURES);
+    const at = `[${fixture.label}] `;
+
+    if (!found.acceptanceCriteria.includes('site-survey/REQ-1.1')) {
+      failures.push(
+        `${at}先頭のヘッダー配下の一覧 site-survey/REQ-1.1 を取りこぼした（区間が短すぎる）`
+      );
+    }
+    if (!found.acceptanceCriteria.includes('quantity-table-generation/REQ-2.2')) {
+      failures.push(
+        `${at}二番目のヘッダー配下の一覧 quantity-table-generation/REQ-2.2 を取りこぼした（区間が短すぎる）`
+      );
+    }
+    if (found.acceptanceCriteria.includes('site-survey/REQ-2.2')) {
+      failures.push(
+        `${at}別機能のヘッダー配下の一覧が先頭の機能へ帰属した（site-survey/REQ-2.2。被覆の過大帰属）`
+      );
+    }
+    if (found.acceptanceCriteria.includes('quantity-table-generation/REQ-1.1')) {
+      failures.push(
+        `${at}先頭のヘッダー配下の一覧が後続の機能へ帰属した（quantity-table-generation/REQ-1.1）`
+      );
+    }
+  }
+  return failures;
+}
+
+/**
+ * 陽性対照: ヘッダーが一つだけで、JSDoc の外に別機能の名前を含む記述が続く形
+ *
+ * 次のヘッダーが無いので「次のヘッダーまで」だけでは切れない。
+ * JSDoc の終端（コメントの閉じ）で切ることでのみ、本体側の記述の混入を防げる。
+ */
+const SINGLE_HEADER_JSDOC_THEN_BODY = [
+  '/**',
+  ' * @fileoverview 陽性対照（JSDoc の終端）',
+  ' *',
+  ' * Requirements (site-survey):',
+  ' * - REQ-3.1: 唯一のヘッダー配下の受入基準',
+  ' */',
+  'export const NOTES = [',
+  "  '- REQ-9.9: これは被覆の主張ではなく本体側の文字列である',",
+  '];',
+  '',
+].join('\n');
+
+function checkHeaderSectionStopsAtJsDocEnd(): string[] {
+  const failures: string[] = [];
+  const found = extractHeaderScopedCoverage(SINGLE_HEADER_JSDOC_THEN_BODY, SELFTEST_FEATURES);
+
+  if (!found.acceptanceCriteria.includes('site-survey/REQ-3.1')) {
+    failures.push('JSDoc 内のヘッダー配下の一覧 site-survey/REQ-3.1 を取りこぼした');
+  }
+  if (found.acceptanceCriteria.includes('site-survey/REQ-9.9')) {
+    failures.push(
+      'JSDoc の終端を越えて本体側の記述まで帰属した（site-survey/REQ-9.9。被覆の過大帰属）'
+    );
+  }
+  return failures;
+}
+
+/**
+ * 陽性対照: 切れ目になるヘッダーの機能名が、帰属の対象に含まれていない形
+ *
+ * `--feature=NAME` は帰属の対象を一機能へ絞る。切れ目まで既知の機能名で決めていると、
+ * 絞り込んだときだけ他機能のヘッダーが切れ目でなくなり、過大帰属が復活する。
+ * 区間の切れ目は機能名を問わずヘッダーの出現だけで決まらねばならない。
+ */
+const HEADER_OF_UNLISTED_FEATURE = [
+  '/**',
+  ' * Requirements (site-survey):',
+  ' * - REQ-6.1: 対象の機能の受入基準',
+  // 段落の切れ目を挟まない。挟むとそちらの上限だけで切れてしまい、
+  // 「ヘッダーが切れ目になるか」を測れなくなる。
+  ' * Requirements (company-info):',
+  ' * - REQ-7.7: 帰属の対象に含まれていない機能の受入基準',
+  ' */',
+  '',
+].join('\n');
+
+function checkUnlistedFeatureHeaderStillEndsSection(): string[] {
+  const failures: string[] = [];
+  // company-info を意図的に渡さない（`--feature=site-survey` に相当する）
+  const found = extractHeaderScopedCoverage(HEADER_OF_UNLISTED_FEATURE, ['site-survey']);
+
+  if (!found.acceptanceCriteria.includes('site-survey/REQ-6.1')) {
+    failures.push('対象の機能の一覧 site-survey/REQ-6.1 を取りこぼした');
+  }
+  if (found.acceptanceCriteria.includes('site-survey/REQ-7.7')) {
+    failures.push(
+      '帰属の対象に含まれない機能のヘッダーが切れ目にならず、site-survey/REQ-7.7 へ帰属した'
+    );
+  }
+  return failures;
+}
+
+/**
+ * 陽性対照: JSDoc 内の段落の切れ目（` *` だけの行）の先に散文が続く形
+ *
+ * JSDoc では ` *` だけの行が空行の役目を果たす。ここで切らないと、
+ * **一覧の直後に置かれた「この受入基準は検証していない」という散文まで被覆主張になる**。
+ * 行頭のコメント記号 `*` が一覧の印と区別されないため、素の散文でも項目として拾われる。
+ *
+ * 実データ（被覆ヘッダー 384 件）でここを切って帰属が減るのは 4 ヘッダーだけで、
+ * **正当な被覆は一件も失われない**。被覆の集計から落ちるのは
+ * `site-survey/REQ-16.7` と `quantity-table-generation/REQ-38.4` の 2 件で、
+ * いずれも「検証困難なため省略」「本スペックには含まない」と明言した散文である。
+ * 残る 2 ヘッダー（`quantity-table-generation/REQ-7.1` と `REQ-47.15`〜`47.17`）は
+ * 他の被覆源やパターン1が同じ番号を拾うため集計は動かない。
+ * 集計が動く 2 件は後段の検査が実データ上で名指しで固定する。
+ */
+const PARAGRAPH_BREAK_THEN_PROSE = [
+  '/**',
+  ' * Requirements coverage (site-survey):',
+  ' * - REQ-4.1: 段落の前（正当な被覆主張）',
+  ' *',
+  ' * Note: REQ-4.2 はE2Eテストで検証困難なため省略',
+  ' */',
+  '',
+].join('\n');
+
+function checkHeaderSectionStopsAtJsDocParagraphBreak(): string[] {
+  const failures: string[] = [];
+  const found = extractHeaderScopedCoverage(PARAGRAPH_BREAK_THEN_PROSE, SELFTEST_FEATURES);
+  if (!found.acceptanceCriteria.includes('site-survey/REQ-4.1')) {
+    failures.push('段落の切れ目より前の一覧 site-survey/REQ-4.1 を取りこぼした（狭めすぎ）');
+  }
+  if (found.acceptanceCriteria.includes('site-survey/REQ-4.2')) {
+    failures.push(
+      '段落の切れ目を越えて散文まで帰属した（site-survey/REQ-4.2。' +
+        '「検証していない」と述べた文が被覆主張になっている）'
+    );
+  }
+  return failures;
+}
+
+/**
+ * 実データの側から、段落の切れ目の先の偽の主張が消えていることを見る
+ *
+ * 仮想の資料だけでは実装が実データに効いているとは言えない。
+ * 是正前に偽の被覆主張を生んでいた実在の2件を名指しで固定する。
+ * 当該ファイルや前提の記述が失われたら「前提が失われた」として失敗させる。
+ */
+const REAL_FALSE_CLAIMS_AFTER_PARAGRAPH_BREAK: ReadonlyArray<{
+  file: string;
+  /** 段落の切れ目より前にあり、拾われねばならない受入基準 */
+  keep: string;
+  /** 段落の切れ目より後の散文にあり、拾ってはならない受入基準 */
+  drop: string;
+}> = [
+  {
+    file: 'e2e/specs/site-surveys/site-survey-performance.spec.ts',
+    keep: 'site-survey/REQ-16.1',
+    drop: 'site-survey/REQ-16.7',
+  },
+  {
+    file: 'e2e/specs/quantity-tables/quantity-group-copy.spec.ts',
+    keep: 'quantity-table-generation/REQ-38.1',
+    drop: 'quantity-table-generation/REQ-38.4',
+  },
+];
+
+function checkRealProseIsNotClaimedAsCoverage(): string[] {
+  const failures: string[] = [];
+  for (const entry of REAL_FALSE_CLAIMS_AFTER_PARAGRAPH_BREAK) {
+    const absolute = path.resolve(entry.file);
+    if (!fs.existsSync(absolute)) {
+      failures.push(`${entry.file} が存在しない（自己検査の前提が失われた）`);
+      continue;
+    }
+    const content = fs.readFileSync(absolute, 'utf8');
+    const found = extractHeaderScopedCoverage(content, discoverFeatures());
+    if (!found.acceptanceCriteria.includes(entry.keep)) {
+      failures.push(
+        `${entry.file}: ${entry.keep} を取りこぼした（自己検査の前提が変わった可能性）`
+      );
+    }
+    if (found.acceptanceCriteria.includes(entry.drop)) {
+      failures.push(
+        `${entry.file}: 段落の切れ目より後の散文から ${entry.drop} が被覆主張として拾われた`
+      );
+    }
+  }
+  return failures;
+}
+
+/**
+ * 従来から効いていた「空行で切る」を残していることの固定
+ *
+ * JSDoc の外（通常のコメントや素の本文）では空行が段落の切れ目である。
+ * 次のヘッダーも JSDoc の終端も無い場合、空行で切れなければ区間はファイル末尾まで延びる。
+ */
+const PLAIN_HEADER_THEN_BLANK_LINE = [
+  '// Requirements (user-authentication):',
+  '// - REQ-5.1: 空行の前',
+  '',
+  '// - REQ-5.2: 空行の後（別の話題）',
+  '',
+].join('\n');
+
+function checkHeaderSectionStillStopsAtBlankLine(): string[] {
+  const failures: string[] = [];
+  const found = extractHeaderScopedCoverage(PLAIN_HEADER_THEN_BLANK_LINE, SELFTEST_FEATURES);
+  if (!found.acceptanceCriteria.includes('user-authentication/REQ-5.1')) {
+    failures.push('空行より前の一覧 user-authentication/REQ-5.1 を取りこぼした');
+  }
+  if (found.acceptanceCriteria.includes('user-authentication/REQ-5.2')) {
+    failures.push('空行を越えて帰属した（user-authentication/REQ-5.2。被覆の過大帰属）');
+  }
+  return failures;
+}
+
+/**
+ * 区間の終端そのものを直接見る
+ *
+ * 上の事例は抽出の結果を見るため、区間の決め方が変わっても結果が同じなら通ってしまう。
+ * ここでは終端の位置そのものを主張し、「次のヘッダー」「JSDoc の終端」「空行」
+ * 「JSDoc 内の段落の切れ目」の**最も手前**が採られることを固定する。
+ * 四つの上限のどれか一つを外す変異が必ず落ちる。
+ */
+function checkSectionEndTakesEarliestBoundary(): string[] {
+  const failures: string[] = [];
+
+  const header = ADJACENT_HEADERS_JSDOC.indexOf('Requirements (site-survey):');
+  const nextHeader = ADJACENT_HEADERS_JSDOC.indexOf(
+    'Requirements coverage (quantity-table-generation):'
+  );
+  if (header < 0 || nextHeader < 0) {
+    return ['自己検査の資料が壊れている（ヘッダーが見つからない）'];
+  }
+  const endWithNext = resolveHeaderSectionEnd(ADJACENT_HEADERS_JSDOC, header, nextHeader);
+  if (endWithNext > nextHeader) {
+    failures.push(
+      `次のヘッダー(${nextHeader})を越えて区間が延びた(${endWithNext})。別機能の一覧を飲み込む`
+    );
+  }
+
+  const single = SINGLE_HEADER_JSDOC_THEN_BODY.indexOf('Requirements (site-survey):');
+  const jsDocEnd = SINGLE_HEADER_JSDOC_THEN_BODY.indexOf('*/');
+  if (single < 0 || jsDocEnd < 0) {
+    return ['自己検査の資料が壊れている（JSDoc の終端が見つからない）'];
+  }
+  const endWithJsDoc = resolveHeaderSectionEnd(SINGLE_HEADER_JSDOC_THEN_BODY, single, null);
+  if (endWithJsDoc > jsDocEnd) {
+    failures.push(
+      `JSDoc の終端(${jsDocEnd})を越えて区間が延びた(${endWithJsDoc})。本体側の記述を飲み込む`
+    );
+  }
+
+  const plain = PLAIN_HEADER_THEN_BLANK_LINE.indexOf('Requirements (user-authentication):');
+  const blank = PLAIN_HEADER_THEN_BLANK_LINE.indexOf('\n\n');
+  if (plain < 0 || blank < 0) {
+    return ['自己検査の資料が壊れている（空行が見つからない）'];
+  }
+  const endWithBlank = resolveHeaderSectionEnd(PLAIN_HEADER_THEN_BLANK_LINE, plain, null);
+  if (endWithBlank > blank) {
+    failures.push(`空行(${blank})を越えて区間が延びた(${endWithBlank})`);
+  }
+
+  const prose = PARAGRAPH_BREAK_THEN_PROSE.indexOf('Requirements coverage (site-survey):');
+  const paragraph = /\n[ \t]*\*[ \t]*(?=\n)/.exec(PARAGRAPH_BREAK_THEN_PROSE);
+  if (prose < 0 || !paragraph) {
+    return ['自己検査の資料が壊れている（段落の切れ目が見つからない）'];
+  }
+  const endWithParagraph = resolveHeaderSectionEnd(PARAGRAPH_BREAK_THEN_PROSE, prose, null);
+  if (endWithParagraph > paragraph.index) {
+    failures.push(
+      `段落の切れ目(${paragraph.index})を越えて区間が延びた(${endWithParagraph})。直後の散文を飲み込む`
+    );
+  }
+
+  return failures;
+}
+
+/**
+ * 実データの側から、過大帰属が残っていないことを見る
+ *
+ * 仮想の資料だけでは「実装が実データに対して効いているか」は言えない。
+ * 是正前に過大帰属していた実在のファイルを名指しで固定する。
+ * 当該ファイルが失われたら前提が失われたとして失敗させる（黙って素通りさせない）。
+ */
+function checkRealFileIsNotOverAttributed(): string[] {
+  const failures: string[] = [];
+  const target = 'backend/src/utils/seed-helpers.ts';
+  const absolute = path.resolve(target);
+  if (!fs.existsSync(absolute)) {
+    return [`${target} が存在しない（自己検査の前提が失われた）`];
+  }
+  const content = fs.readFileSync(absolute, 'utf8');
+  const found = extractHeaderScopedCoverage(content, SELFTEST_FEATURES);
+
+  // 当該ファイルの site-survey のヘッダー配下は `- REQ-12.1, 12.2, 12.3:` の一行である。
+  // 一覧の項目を拾う規則は行頭の `-` / `*` に続く番号しか見ないため、
+  // 読点で並べた 12.2 / 12.3 は元から拾われない（区間判定とは別の限界）。
+  // ここでは区間判定を見るので、拾われる 12.1 だけを前提にする。
+  if (!found.acceptanceCriteria.includes('site-survey/REQ-12.1')) {
+    failures.push(
+      `${target}: site-survey/REQ-12.1 を取りこぼした（自己検査の前提が変わった可能性）`
+    );
+  }
+  // 後続のヘッダー（company-info / estimate-creation …）配下の番号は帰属してはならない。
+  for (const id of ['site-survey/REQ-6.6', 'site-survey/REQ-11']) {
+    if (found.requirements.includes(id) || found.acceptanceCriteria.includes(id)) {
+      failures.push(`${target}: 後続のヘッダー配下の ${id} が site-survey へ帰属した`);
+    }
+  }
+  // 先行のヘッダー配下の番号も帰属してはならない。
+  if (found.acceptanceCriteria.includes('site-survey/REQ-3.1')) {
+    failures.push(`${target}: 先行のヘッダー配下の site-survey/REQ-3.1 が site-survey へ帰属した`);
+  }
+  return failures;
+}
+
+// ============================================================================
 // 実行
 // ============================================================================
 
@@ -616,6 +1003,34 @@ const GROUPS: Array<{ title: string; cases: Case[] }> = [
   {
     title: '受入基準への集約',
     cases: [{ name: '到達する被覆源が一つでもあれば到達とする', run: checkCriterionAggregation }],
+  },
+  {
+    title: 'ヘッダー直下の要件一覧の区間判定',
+    cases: [
+      {
+        name: '次のヘッダーで区間を切る（過大帰属を防ぐ）',
+        run: checkHeaderSectionStopsAtNextHeader,
+      },
+      {
+        name: 'JSDoc の終端で区間を切る（本体側の記述を飲み込まない）',
+        run: checkHeaderSectionStopsAtJsDocEnd,
+      },
+      {
+        name: 'JSDoc 内の段落の切れ目で区間を切る（直後の散文を被覆主張にしない）',
+        run: checkHeaderSectionStopsAtJsDocParagraphBreak,
+      },
+      { name: '空行では従来どおり切る', run: checkHeaderSectionStillStopsAtBlankLine },
+      {
+        name: '帰属の対象外の機能のヘッダーでも区間を切る（--feature 絞り込み時の復活を防ぐ）',
+        run: checkUnlistedFeatureHeaderStillEndsSection,
+      },
+      { name: '区間の終端は四つの上限の最も手前を採る', run: checkSectionEndTakesEarliestBoundary },
+      { name: '実データの過大帰属が解消している', run: checkRealFileIsNotOverAttributed },
+      {
+        name: '実データの散文が被覆主張として拾われない',
+        run: checkRealProseIsNotClaimedAsCoverage,
+      },
+    ],
   },
   {
     title: '除外一覧の監査',
