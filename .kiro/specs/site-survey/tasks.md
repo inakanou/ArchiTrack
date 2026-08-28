@@ -4935,6 +4935,44 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - _Depends: 115.173_
   - _Boundary: 免除機構の面の実測と監視_
 
+- [ ] 115.216 統合検証を分離する環境変数が死んでいる状態を解消する
+  - feature レベル検証（10タスク完了後）の機械検査が検出した。**`RUN_INTEGRATION_TESTS` は死んだ環境変数である**
+  - 実測: `backend/package.json` が `test:integration` で設定している以外、**リポジトリ内のどのテストファイルにも設定にも参照が無い**
+  - このため `npm --prefix backend run test`（= `vitest run`）は**常に統合検証44ファイルを共有のテスト用データベース（`localhost:5433/architrack_test`）へ流す**。分離されていると読める名前がついているのに分離していない
+  - **実害**: 押下前の関門やローカルでの全件実行が、**E2E が使っている最中のデータベースを黙って壊しうる**。feature 検証では、サブエージェントがこれに気付いて隔離した postgres と redis を別ポートに立てて回避した（回避しなければ親が実行中だった E2E 全件を壊していた）
+  - 分離の関門を復活させるか、**名前から誤解を除くこと**。「設定しても何も変わらない環境変数」は、読み手に分離されていると信じさせる分だけ無いより悪い
+  - **同型の死んだ環境変数が他に無いかを走査すること**（`package.json` の各スクリプトが設定する変数のうち、参照されていないもの）
+  - _Boundary: 統合検証の分離の仕組み_
+
+- [ ] 115.217 (P) タップ領域の下限を検証側が複製している状態を解消する
+  - feature レベル検証の境界監査が**同一バッチ内の不整合**として検出した
+  - タスク 115.183 は「検証側へ数値を複製すると、間隔が変わったときに検証だけが古い前提のまま緑になる」として `frontend/src/services/AutoSaveManager.ts` の `DEFAULT_AUTO_SAVE_INTERVAL_MS` を **export した**
+  - **同じバッチのタスク 115.170 は逆をやった**。`frontend/src/components/site-surveys/AnnotationToolbar.tsx` の `TAP_TARGET_MIN_PX = 44` を module 内に留めたまま、`MIN_TAP_TARGET_PX = 44` として**3箇所へ複製**した（`e2e/specs/site-surveys/site-survey-annotation-mobile.spec.ts`、`e2e/specs/site-surveys/site-survey-outline-toggle.spec.ts`、`frontend/src/__tests__/components/site-surveys/AnnotationToolbar.mobile-tap-target.test.tsx`）。**名前も転置している**
+  - **緩和要因**: 44 は要件28.3 の条文が運ぶ WCAG の数値であり、実装が調整する値ではない（自動保存の間隔とは性質が違う）。**この違いが複製を正当化するかを判断すること**
+  - なお `frontend/src/components/site-surveys/PendingUploadPanel.tsx` にも `MIN_TAP_TARGET_PX = 44` が**本バッチ以前から**存在する（要件37系）。**母集団は走査で確定すること**
+  - 複製を残すなら、**なぜ複製してよいかを一箇所に書くこと**。次の担当者が同じ判断を繰り返さないために
+  - _Depends: 115.170_
+  - _Boundary: タップ領域の下限の単一の出所_
+
+- [ ] 115.218 依存の脆弱性で押下前の関門が塞がる状態を解消する（**本スペックの所管外・押下に必須**）
+  - feature レベル検証の機械検査が検出した。**`npm run audit:security` が EXIT=1 で、押下前の関門を塞いでいる**
+  - 実測: backend と root で同一の high が3件。`prisma` → `@prisma/config` → `deepmerge-ts`（「再帰的なオブジェクトグラフの併合でスタックを使い尽くす」）。`fixAvailable` は `prisma` 6.12.0 で **`isSemVerMajor: true`**。frontend は0件
+  - **直近10タスクの由来ではない。** 実測根拠: `git diff --name-only c0caefe~1 70ad0e4 -- '*package-lock.json'` が0件、`package.json` の差分は検査スクリプトの追加のみで依存の変更が無い。**新たに公開された advisory による外部要因**である
+  - **ただし押下はできない。** 対処は (a) `prisma` のメジャー更新、(b) `.security-audit-allowlist.json` へ理由と期限を付けて追加、のいずれか
+  - **許容リストへ逃がす場合は、その判断の根拠と再検討の期限を書くこと。** 過去の記録（`project_brace_expansion_override_breaks_minimatch3`）では、メジャー線別の修正版が出た時点で許容を削除している
+  - _Boundary: 依存の脆弱性の関門_
+
+- [ ] 115.219 更新日時が作成日時より前になる間欠的な欠陥を解消する（**別スペックの所管・押下に必須**）
+  - feature レベル検証の E2E 全件（2322件・1時間44分）が検出した。**再試行で回復した検証が1件ある**
+  - `e2e/specs/trading-partners/trading-partner-data-integrity.spec.ts` の「取引先更新時に更新日時が自動記録される（`trading-partner-management/REQ-11.12`）」
+  - **実測の失敗内容**: `expect(updatedAt).toBeGreaterThanOrEqual(createdAt)` に対し `Expected: >= 1787941668496` / `Received: 1787941668052`。**更新日時が作成日時より 444ms 前**である
+  - **粒度の丸めではない。** 444ms の差は、作成日時と更新日時が**別々の時計から来ている**ことを示す（例: 一方が Prisma の `@default(now())` でデータベース側、他方が `@updatedAt` でクライアント側）。WSL2 では容器間の時計がずれうる（記録: 壁時計が単調時計より約8.6%遅く進む）
+  - **本バッチの10タスクは当該ファイルを一度も触っていない**（実測: `git diff --name-only c0caefe~1 70ad0e4` に `trading-partner-data-integrity.spec.ts` は現れない。触れたのは `e2e/specs/projects/project-trading-partner.spec.ts` のみ）
+  - **押下できない。** `playwright.config.ts` の `failOnFlakyTests` により、再試行で回復しても総合判定は FAILED になる。この設計は正しい——**再試行で回復したという事実は間欠的な欠陥の徴候である**
+  - 追跡の手掛かり: `test-results/2026-08-28_16-48-30-081Z/trading-partners-trading-p-c832d-rtner-management-REQ-11-12--chromium/` に trace・video・スクリーンショットがある
+  - **時計の出所を一つに揃えるか、検証が時計の差を吸収する形にするかを決めること。** 後者を選ぶ場合、**吸収してよい差の上限を根拠とともに決めること**（444ms を無条件に許すと、本当に順序が逆転した欠陥を見逃す）
+  - _Boundary: 作成日時と更新日時の時計の出所_
+
 ## Implementation Notes（Task 115.30-115.52）
 
 - **「注記が言う未実装」を鵜呑みにしないこと**: 115.127 段4 で、八件の検証が「実装がセレクトボックスなので未実装」という注記つきの分岐で守られていたが、実装は入力欄であり**観測は一度も発火していなかった**。危険なのは発火しなかったことではなく、**実装が退行した瞬間に八件が緑のまま何も主張しなくなる**ことである。変異で実測すると、観測が発火する状況では八件が主張を一つも実行せずに通った。
