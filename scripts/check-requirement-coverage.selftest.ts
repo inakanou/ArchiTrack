@@ -27,7 +27,11 @@ import {
   computeReachableModules,
   discoverFeatures,
   extractHeaderScopedCoverage,
+  extractAllFeatures,
   extractImportSpecifiers,
+  extractRequirements,
+  findRetiredCriterionCoverageMarks,
+  isRetiredCriterionText,
   isVerificationFile,
   normalizeExclusionId,
   PRODUCTION_ENTRY_POINTS,
@@ -36,6 +40,7 @@ import {
   resolveImport,
   selectExclusionsForFeatures,
   toPosixPath,
+  type Feature,
   type CriterionReachability,
   type ExclusionVerdict,
   type ModuleGraph,
@@ -985,6 +990,154 @@ function checkRealFileIsNotOverAttributed(): string[] {
 }
 
 // ============================================================================
+// 撤廃された受入基準（取り消し線）の扱い
+// ============================================================================
+//
+// 要件定義書は、撤廃・移管した受入基準を番号ごと残し、本文を取り消し線で潰す。
+// 抽出がこの表記を読まないと、検証を要求されない条文が分母に居座り、
+// その番号を名乗るだけの被覆印が分子にも入る（分子・分母の同時の水増し）。
+
+/** 取り消し線の判定が、狙った形だけを拾う */
+function checkRetiredCriterionPredicate(): string[] {
+  const failures: string[] = [];
+  const retired: Array<[string, string]> = [
+    ['丸ごと潰した形', '~~→ project-management/Requirement 25 AC 3 に移動~~'],
+    ['潰したうえで移管先を添える形', '~~If 旧条文~~ → Requirement 39 AC 5 で更新'],
+    ['行頭に空白がある形', '  ~~撤廃~~'],
+  ];
+  for (const [label, text] of retired) {
+    if (!isRetiredCriterionText(text)) failures.push(`撤廃と判定しなかった: ${label}`);
+  }
+  const live: Array<[string, string]> = [
+    ['現役の条文', 'The システム shall 数量表を表示する'],
+    ['本文の途中に ~~ を含む現役の条文', 'The システム shall ~~旧仕様~~ ではなく新仕様で表示する'],
+    ['空文字', ''],
+  ];
+  for (const [label, text] of live) {
+    if (isRetiredCriterionText(text)) failures.push(`誤って撤廃と判定した: ${label}`);
+  }
+  return failures;
+}
+
+/** 合成の要件定義書で、墓標が分母に入らず、現役の番号が落ちないこと */
+function checkRetiredCriteriaAreNotExtracted(): string[] {
+  const failures: string[] = [];
+  const document = [
+    '### Requirement 1: 全AC移管済みの要件',
+    '',
+    '#### Acceptance Criteria',
+    '1. ~~→ project-management/Requirement 25 AC 1 に移動~~',
+    '2. ~~→ project-management/Requirement 25 AC 2 に移動~~',
+    '',
+    '### Requirement 2: 一部だけ撤廃された要件',
+    '',
+    '#### Acceptance Criteria',
+    '1. ~~→ project-management/Requirement 24 AC 1 に移動~~',
+    '2. The システム shall 現役の振る舞いを行う',
+    '',
+  ].join('\n');
+
+  withFixture({ 'requirements.md': document }, (baseDir) => {
+    const requirements = extractRequirements('probe', path.join(baseDir, 'requirements.md'));
+    const byId = new Map(requirements.map((requirement) => [requirement.id, requirement]));
+
+    const first = byId.get('REQ-1');
+    const second = byId.get('REQ-2');
+    if (!first || !second) {
+      failures.push('要件ヘッダーの抽出そのものが壊れている');
+      return;
+    }
+    if (first.acceptanceCriteria.length !== 0) {
+      failures.push(`全AC撤廃の要件から ${first.acceptanceCriteria.length} 件が分母に入った`);
+    }
+    if (first.retiredAcceptanceCriteria.length !== 2) {
+      failures.push(`撤廃済みの記録が 2 件でない（${first.retiredAcceptanceCriteria.length} 件）`);
+    }
+    const liveIds = second.acceptanceCriteria.map((criterion) => criterion.id);
+    if (liveIds.length !== 1 || liveIds[0] !== 'probe/REQ-2.2') {
+      failures.push(`一部撤廃の要件の分母が現役1件でない（${liveIds.join(', ') || '空'}）`);
+    }
+    // **番号は位置ではなく行頭の数字で決まる。** 墓標を落としても現役の番号がずれない。
+    if (second.retiredAcceptanceCriteria[0]?.id !== 'probe/REQ-2.1') {
+      failures.push('撤廃済みの受入基準が元の番号で記録されていない');
+    }
+  });
+  return failures;
+}
+
+/** 実データ: 墓標が一件も分母に残っていない（母集団の側から数える） */
+function checkRealRetiredCriteriaAreOutOfDenominator(): string[] {
+  const failures: string[] = [];
+  const features = extractAllFeatures(discoverFeatures());
+  let retired = 0;
+  let retiredRequirements = 0;
+  for (const feature of features) {
+    retired += feature.retiredAcceptanceCriteriaCount;
+    retiredRequirements += feature.retiredRequirements.length;
+    for (const requirement of feature.requirements) {
+      for (const criterion of requirement.acceptanceCriteria) {
+        if (isRetiredCriterionText(criterion.text)) {
+          failures.push(`分母に墓標が残っている: ${criterion.id}`);
+        }
+      }
+    }
+    for (const requirement of feature.retiredRequirements) {
+      if (requirement.acceptanceCriteria.length > 0) {
+        failures.push(`現役の受入基準を持つ要件を撤廃扱いにした: ${requirement.fullId}`);
+      }
+    }
+  }
+  // 実データに墓標が一つも無ければ、上の走査は何も確かめていない。前提の崩壊として落とす。
+  if (retired === 0) {
+    failures.push('要件定義書に取り消し線の受入基準が一件も無い（この検査が空振りしている）');
+  }
+  if (retiredRequirements === 0) {
+    failures.push('受入基準がすべて撤廃された要件が一件も無い（この検査が空振りしている）');
+  }
+  return failures;
+}
+
+/** 実データの墓標を名乗る被覆印は挙げ、現役の番号を名乗る被覆印は挙げない */
+function checkRetiredCriterionCoverageMarksAreDetected(): string[] {
+  const failures: string[] = [];
+  const features: Feature[] = extractAllFeatures(discoverFeatures());
+
+  const retiredId = features
+    .flatMap((feature) => feature.retiredRequirements.concat(feature.requirements))
+    .flatMap((requirement) => requirement.retiredAcceptanceCriteria)
+    .map((criterion) => criterion.id)
+    .sort()[0];
+  const liveId = features
+    .flatMap((feature) => feature.requirements)
+    .flatMap((requirement) => requirement.acceptanceCriteria)
+    .map((criterion) => criterion.id)
+    .sort()[0];
+  if (retiredId === undefined || liveId === undefined) {
+    return ['前提: 実データに墓標または現役の受入基準が無い'];
+  }
+
+  const detected = findRetiredCriterionCoverageMarks(features, [
+    { file: 'e2e/specs/probe.spec.ts', requirements: [], acceptanceCriteria: [retiredId, liveId] },
+  ]);
+  if (detected.length !== 1 || detected[0]?.id !== retiredId) {
+    failures.push(
+      `墓標を名乗る被覆印を挙げられていない（挙げた: ${detected.map((m) => m.id).join(', ') || '無し'}）`
+    );
+  }
+  if (detected[0]?.files.join(',') !== 'e2e/specs/probe.spec.ts') {
+    failures.push('被覆印を掲げている場所を報告していない');
+  }
+
+  const clean = findRetiredCriterionCoverageMarks(features, [
+    { file: 'e2e/specs/probe.spec.ts', requirements: [], acceptanceCriteria: [liveId] },
+  ]);
+  if (clean.length !== 0) {
+    failures.push(`現役の番号を名乗る被覆印を誤って挙げた: ${clean.map((m) => m.id).join(', ')}`);
+  }
+  return failures;
+}
+
+// ============================================================================
 // 実行
 // ============================================================================
 
@@ -1034,6 +1187,24 @@ const GROUPS: Array<{ title: string; cases: Case[] }> = [
       {
         name: '実データの散文が被覆主張として拾われない',
         run: checkRealProseIsNotClaimedAsCoverage,
+      },
+    ],
+  },
+  {
+    title: '撤廃された受入基準（取り消し線）の扱い',
+    cases: [
+      { name: '取り消し線の判定が狙った形だけを拾う', run: checkRetiredCriterionPredicate },
+      {
+        name: '墓標を分母に入れず、現役の番号をずらさない',
+        run: checkRetiredCriteriaAreNotExtracted,
+      },
+      {
+        name: '実データの墓標が一件も分母に残っていない',
+        run: checkRealRetiredCriteriaAreOutOfDenominator,
+      },
+      {
+        name: '墓標を名乗る被覆印を挙げ、現役の番号は挙げない',
+        run: checkRetiredCriterionCoverageMarksAreDetected,
       },
     ],
   },

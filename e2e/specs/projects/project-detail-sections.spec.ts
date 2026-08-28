@@ -541,7 +541,6 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
   test.describe('Task 50.3 追加: 内訳書セクション追加テスト', () => {
     /**
      * @requirement project-management/REQ-26.5
-     * @requirement itemized-statement-generation/REQ-3.1
      */
     test('数量表は存在するが内訳書が存在しない場合、「内訳書はまだありません」メッセージが表示される (project-management/REQ-26.5)', async ({
       page,
@@ -591,7 +590,6 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
 
     /**
      * @requirement project-management/REQ-26.9
-     * @requirement itemized-statement-generation/REQ-11.4
      */
     test('内訳書セクションの新規作成ボタンをクリックすると内訳書新規作成画面に遷移する (project-management/REQ-26.9)', async ({
       page,
@@ -620,7 +618,6 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
 
     /**
      * @requirement project-management/REQ-26.10
-     * @requirement itemized-statement-generation/REQ-11.5
      */
     test('内訳書セクションに作成済み内訳書へのリンクがリスト表示される (project-management/REQ-26.10)', async ({
       page,

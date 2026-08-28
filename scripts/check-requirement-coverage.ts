@@ -15,7 +15,9 @@
  *   5. 本番の入口から取り込みを辿り、番号を持つ検証が本番の経路を通るかを判定
  *   6. 除外一覧を監査する（除外は「被覆あり」ではない）
  *   7. 機能別および全体でカバレッジ率を計算
- *   8. 閾値未満、または到達しない被覆源しか持たない受入基準があれば exit 1
+ *   8. 撤廃済み（取り消し線）の受入基準を分母から外し、その番号を名乗る被覆印を挙げる
+ *   9. 閾値未満、到達しない被覆源しか持たない受入基準、撤廃済みの番号を名乗る被覆印が
+ *      あれば exit 1
  *
  * オプション:
  *   --verbose      詳細出力
@@ -45,6 +47,19 @@
  *   区間の決め方は resolveHeaderSectionEnd にあり、
  *   scripts/check-requirement-coverage.selftest.ts が両方向（過大帰属・取りこぼし）を固定する。
  *
+ * 撤廃された受入基準（取り消し線）:
+ *   要件定義書は、撤廃した受入基準や別の要件へ移した受入基準を、番号を保ったまま
+ *   取り消し線（`~~`）で潰して残す。後続の番号をずらさないための表記であり、
+ *   **潰された行はもう条文ではない**。抽出はこれを分母に入れない（isRetiredCriterionText）。
+ *   受入基準がすべて潰された要件は、要件の側も分母から外す。
+ *
+ *   分母から外すだけでは足りない。番号だけが残った墓標を名乗る被覆印が残っていれば、
+ *   読み手には「この検証は当該の条文を確かめている」と見える。
+ *   findRetiredCriterionCoverageMarks がそれを挙げ、本スクリプトは失敗する。
+ *   直し方は除外の追加ではなく、移管先の番号を名乗り直すことである。
+ *
+ *   落とした件数は必ず出力する。**黙って縮む分母は水増しと同じだけ危うい。**
+ *
  * 除外リスト:
  *   e2e/requirement-exclusions.json に定義されたE2E対象外の受入基準は
  *   カバレッジ計算の分母から外れます。外れるだけであり、被覆済みではありません。
@@ -60,7 +75,7 @@ import { fileURLToPath } from 'url';
 // 型定義
 // ============================================================================
 
-interface AcceptanceCriteria {
+export interface AcceptanceCriteria {
   id: string; // user-authentication/REQ-4.1, project-management/REQ-27A.3 など
   featureName: string; // user-authentication, project-management
   requirementId: string; // REQ-4, REQ-27A
@@ -70,23 +85,41 @@ interface AcceptanceCriteria {
   line: number;
 }
 
-interface Requirement {
+export interface Requirement {
   id: string; // REQ-4, REQ-27A など
   fullId: string; // user-authentication/REQ-4
   featureName: string;
   title: string;
   line: number;
   acceptanceCriteria: AcceptanceCriteria[];
+  /**
+   * 要件定義書上で取り消し線により無効化された受入基準
+   *
+   * 分母（`acceptanceCriteria`）には入れない。ここに残すのは、落とした件数を
+   * 出力に出して**分母が黙って縮まないようにする**ためと、除外定義の検査が
+   * 「その番号は撤廃済みである」と具体的に言えるようにするためである。
+   */
+  retiredAcceptanceCriteria: AcceptanceCriteria[];
 }
 
-interface Feature {
+export interface Feature {
   name: string;
   path: string;
+  /** 現役の要件（受入基準がすべて撤廃された要件は含まない） */
   requirements: Requirement[];
   totalAcceptanceCriteria: number;
+  /** 取り消し線で無効化され、分母から外した受入基準の件数 */
+  retiredAcceptanceCriteriaCount: number;
+  /**
+   * 受入基準がすべて撤廃され、現役の受入基準を一つも持たなくなった要件
+   *
+   * 要件の側も分母から外す。外さないと、受入基準を落とした分だけ
+   * 「被覆印の無い要件」が増え、受入基準の水増しを要件の水増しへ移すだけになる。
+   */
+  retiredRequirements: Requirement[];
 }
 
-interface TestCoverage {
+export interface TestCoverage {
   file: string;
   requirements: string[]; // user-authentication/REQ-4, project-management/REQ-27A
   acceptanceCriteria: string[]; // user-authentication/REQ-4.1, project-management/REQ-27A.3
@@ -289,6 +322,25 @@ function loadExclusions(): ExclusionsFile | null {
 // ============================================================================
 
 /**
+ * 受入基準が要件定義書上で無効化（撤廃・移管）されているか
+ *
+ * 要件定義書は、撤廃した受入基準や別の要件へ移した受入基準を、番号を保ったまま
+ * 取り消し線（`~~`）で潰して残す（後続の番号をずらさないための表記である）。
+ * 本文が丸ごと潰されている場合も、原文を潰したうえで移管先を添える場合も、
+ * 先頭が `~~` で始まる点は共通しており、実データ 31 件はすべてこの形である。
+ *
+ * **この判定は「先頭が `~~`」だけを見る。** 本文の途中に `~~` を含むだけの現役の
+ * 受入基準を落とさないためである（実データにその形は無いが、規則を緩めると
+ * 分母が黙って縮む方向に壊れる）。
+ *
+ * 同じ規則を除外定義の検査（scripts/check-requirement-exclusions.ts）も使う。
+ * 両者が別々に規則を持つと、片方だけが撤廃済みの番号を条文として扱い続ける。
+ */
+export function isRetiredCriterionText(text: string): boolean {
+  return text.trimStart().startsWith('~~');
+}
+
+/**
  * 要件定義書から要件IDと受入基準を抽出
  *
  * パターン:
@@ -297,7 +349,7 @@ function loadExclusions(): ExclusionsFile | null {
  *   - ### Requirement N: タイトル → REQ-N (英語形式)
  *   - 番号付きリスト（1. 2. 3. ...）→ 受入基準
  */
-function extractRequirements(featureName: string, filePath: string): Requirement[] {
+export function extractRequirements(featureName: string, filePath: string): Requirement[] {
   const requirements: Requirement[] = [];
 
   if (!fs.existsSync(filePath)) {
@@ -341,6 +393,7 @@ function extractRequirements(featureName: string, filePath: string): Requirement
         title: reqMatch[2].trim(),
         line: i + 1,
         acceptanceCriteria: [],
+        retiredAcceptanceCriteria: [],
       };
       inAcceptanceCriteriaSection = false;
       continue;
@@ -371,15 +424,23 @@ function extractRequirements(featureName: string, filePath: string): Requirement
       const acMatch = acceptanceCriteriaRegex.exec(line);
       if (acMatch && acMatch[1] && acMatch[2]) {
         const number = parseInt(acMatch[1], 10);
-        currentRequirement.acceptanceCriteria.push({
+        const text = acMatch[2].trim();
+        const criterion: AcceptanceCriteria = {
           id: `${featureName}/${currentRequirement.id}.${number}`,
           featureName,
           requirementId: currentRequirement.id,
           fullRequirementId: `${featureName}/${currentRequirement.id}`,
           number,
-          text: acMatch[2].trim(),
+          text,
           line: i + 1,
-        });
+        };
+        // 取り消し線で無効化された受入基準は「番号だけが残った墓標」であり、
+        // 検証を要求される条文ではない。分母に入れると被覆率が水増しされる。
+        if (isRetiredCriterionText(text)) {
+          currentRequirement.retiredAcceptanceCriteria.push(criterion);
+        } else {
+          currentRequirement.acceptanceCriteria.push(criterion);
+        }
       }
     }
   }
@@ -395,23 +456,40 @@ function extractRequirements(featureName: string, filePath: string): Requirement
 /**
  * 全機能の要件を抽出
  */
-function extractAllFeatures(featureNames: string[]): Feature[] {
+export function extractAllFeatures(featureNames: string[]): Feature[] {
   const features: Feature[] = [];
 
   for (const featureName of featureNames) {
     const requirementsPath = path.join(SPECS_DIR, featureName, 'requirements.md');
     const requirements = extractRequirements(featureName, requirementsPath);
 
+    // 受入基準がすべて撤廃された要件（現役 0 件かつ撤廃 1 件以上）は要件ごと分母から外す。
+    // 「受入基準を一つも持たない」だけでは外さない。撤廃された事実が要件定義書に
+    // 書かれていることを条件にし、書式の崩れで要件が黙って消えることを防ぐ。
+    const liveRequirements: Requirement[] = [];
+    const retiredRequirements: Requirement[] = [];
+    for (const req of requirements) {
+      if (req.acceptanceCriteria.length === 0 && req.retiredAcceptanceCriteria.length > 0) {
+        retiredRequirements.push(req);
+      } else {
+        liveRequirements.push(req);
+      }
+    }
+
     let totalAc = 0;
+    let retiredAc = 0;
     for (const req of requirements) {
       totalAc += req.acceptanceCriteria.length;
+      retiredAc += req.retiredAcceptanceCriteria.length;
     }
 
     features.push({
       name: featureName,
       path: requirementsPath,
-      requirements,
+      requirements: liveRequirements,
       totalAcceptanceCriteria: totalAc,
+      retiredAcceptanceCriteriaCount: retiredAc,
+      retiredRequirements,
     });
   }
 
@@ -694,6 +772,67 @@ function extractTestCoverage(dirs: string[], featureNames: string[]): TestCovera
   }
 
   return coverage;
+}
+
+/** 撤廃済みの受入基準を名乗っている被覆印 */
+export interface RetiredCriterionMark {
+  /** feature-name/REQ-N.M */
+  id: string;
+  /** 要件定義書での本文（取り消し線つきの墓標） */
+  text: string;
+  /** その番号を名乗っているファイル（リポジトリ相対、重複なし） */
+  files: string[];
+}
+
+/**
+ * 撤廃済みの受入基準を名乗っている被覆印を探す
+ *
+ * 抽出の側で取り消し線を落としただけでは、分子・分母の水増しは止まるが、
+ * **番号だけが残った墓標を名乗り続ける被覆印**はリポジトリに残る。読み手には
+ * 「この検証は当該の条文を確かめている」と見えるのに、その条文はもう無い。
+ * 撤廃の多くは別要件への移管であり、移管先の番号こそが名乗るべき番号である。
+ *
+ * この検査が捕まえないもの（限界を両方向で述べる）:
+ *   - 要件定義書に**存在しない**番号（撤廃ですらない番号違い）は挙げない。
+ *     本検査の対象は「取り消し線で無効化された受入基準」に限る。実測では
+ *     そのような番号は別に 12 件在るが、成り立ちが異なるため別途扱う。
+ *   - 移管先の番号を名乗り直したとき、その検証が移管先の条文を実際に
+ *     確かめているかは見ない。名乗りの一致までである。
+ */
+export function findRetiredCriterionCoverageMarks(
+  features: readonly Feature[],
+  testCoverage: readonly TestCoverage[]
+): RetiredCriterionMark[] {
+  const retired = new Map<string, string>();
+  for (const feature of features) {
+    for (const requirement of [...feature.requirements, ...feature.retiredRequirements]) {
+      for (const criterion of requirement.retiredAcceptanceCriteria) {
+        retired.set(criterion.id, criterion.text);
+      }
+    }
+  }
+  if (retired.size === 0) return [];
+
+  const files = new Map<string, Set<string>>();
+  for (const coverage of testCoverage) {
+    for (const id of coverage.acceptanceCriteria) {
+      if (!retired.has(id)) continue;
+      let holders = files.get(id);
+      if (!holders) {
+        holders = new Set<string>();
+        files.set(id, holders);
+      }
+      holders.add(coverage.file);
+    }
+  }
+
+  return [...files.entries()]
+    .map(([id, holders]) => ({
+      id,
+      text: retired.get(id) ?? '',
+      files: [...holders].sort(),
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
 }
 
 // ============================================================================
@@ -1464,7 +1603,8 @@ function calculateCoverage(
 function printReport(
   result: CoverageResult,
   options: Options,
-  reachability: ReachabilityReport
+  reachability: ReachabilityReport,
+  retiredMarks: readonly RetiredCriterionMark[]
 ): void {
   const { verbose, threshold } = options;
 
@@ -1476,11 +1616,30 @@ function printReport(
 
   // 検出された機能
   console.log('  📦 検出された機能:');
+  let retiredTotal = 0;
   for (const feature of result.features) {
+    retiredTotal += feature.retiredAcceptanceCriteriaCount;
+    const retiredRequirementNote =
+      feature.retiredRequirements.length > 0
+        ? `・要件 ${feature.retiredRequirements.length}件`
+        : '';
+    const retired =
+      feature.retiredAcceptanceCriteriaCount > 0
+        ? `（撤廃 ${feature.retiredAcceptanceCriteriaCount}件${retiredRequirementNote}は分母外）`
+        : '';
     console.log(
-      `     - ${feature.name}: ${feature.requirements.length}要件, ${feature.totalAcceptanceCriteria}受入基準`
+      `     - ${feature.name}: ${feature.requirements.length}要件, ${feature.totalAcceptanceCriteria}受入基準${retired}`
     );
   }
+  console.log('');
+
+  // 分母から外した件数は必ず出す。黙って縮む分母は水増しと同じだけ危うい。
+  console.log(
+    `  🪦 要件定義書上で撤廃済み（取り消し線）のため分母から外した受入基準: ${retiredTotal}件`
+  );
+  console.log(
+    `     うち被覆印が名乗っているもの: ${retiredMarks.length}件${retiredMarks.length > 0 ? '（要是正）' : ''}`
+  );
   console.log('');
 
   // 機能別カバレッジ
@@ -1683,14 +1842,17 @@ function printReport(
 function printJsonReport(
   result: CoverageResult,
   options: Options,
-  reachability: ReachabilityReport
+  reachability: ReachabilityReport,
+  retiredMarks: readonly RetiredCriterionMark[]
 ): void {
   const output = {
     features: result.features.map((f) => ({
       name: f.name,
       requirementCount: f.requirements.length,
       acceptanceCriteriaCount: f.totalAcceptanceCriteria,
+      retiredAcceptanceCriteriaCount: f.retiredAcceptanceCriteriaCount,
     })),
+    retiredCriterionCoverageMarks: retiredMarks,
     featureCoverage: result.featureCoverage.map((fc) => ({
       featureName: fc.featureName,
       requirements: {
@@ -1817,6 +1979,9 @@ function main(): void {
   // 5. カバレッジを計算
   const result = calculateCoverage(features, testCoverage, exclusions);
 
+  // 5b. 撤廃済み（取り消し線）の受入基準を名乗る被覆印を洗い出す
+  const retiredMarks = findRetiredCriterionCoverageMarks(features, testCoverage);
+
   // 6. 本番到達性を判定（番号を持つ検証が本番の経路を通るか）
   const graph = buildModuleGraph();
   const reachableModules = computeReachableModules(graph);
@@ -1839,13 +2004,16 @@ function main(): void {
 
   // 7. レポート出力
   if (options.json) {
-    printJsonReport(result, options, reachability);
+    printJsonReport(result, options, reachability, retiredMarks);
   } else {
-    printReport(result, options, reachability);
+    printReport(result, options, reachability, retiredMarks);
   }
 
   // 8. 閾値チェック
-  const passed = result.applicableCoveragePercent >= options.threshold && reachabilityVerdict.ok;
+  const passed =
+    result.applicableCoveragePercent >= options.threshold &&
+    reachabilityVerdict.ok &&
+    retiredMarks.length === 0;
 
   const uncoveredNotExcluded = result.uncoveredAcceptanceCriteria.filter(
     (ac) =>
@@ -1866,6 +2034,14 @@ function main(): void {
       for (const reason of reachabilityVerdict.reasons) {
         console.log(`❌ FAILED: ${reason}`);
       }
+      if (retiredMarks.length > 0) {
+        console.log(
+          `❌ FAILED: 要件定義書上で撤廃済み（取り消し線）の受入基準を名乗る被覆印が${retiredMarks.length}件あります`
+        );
+        for (const mark of retiredMarks) {
+          console.log(`     - ${mark.id}: ${mark.files.join(', ')}`);
+        }
+      }
       if (options.strict && uncoveredNotExcluded.length > 0) {
         console.log(
           `❌ FAILED: 除外リストにない未カバー要件が${uncoveredNotExcluded.length}件あります`
@@ -1883,6 +2059,9 @@ function main(): void {
         '  2. コードまたはテストに @requirement feature-name/REQ-N.M タグを追加してください'
       );
       console.log('  3. E2E対象外の場合は e2e/requirement-exclusions.json に追加してください');
+      console.log(
+        '     （撤廃済み・移管済みの受入基準は分母に載りません。除外ではなく、移管先の番号を名乗り直してください）'
+      );
       console.log(
         '  4. 番号を付けた検証が本番未参照の部品だけを見ている場合は、本番へ結線するか、死コードを撤去してください'
       );

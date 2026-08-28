@@ -11,9 +11,8 @@
  * - REQ-1.7: 内訳書名200文字制限
  * - REQ-1.8: 数量表なし時のボタン無効化
  * - REQ-1.9, REQ-1.10: エラーケース（空の数量表、重複名）
- * - REQ-3.3: 内訳書なし時のメッセージ
- * - REQ-3.4: 一覧行の情報表示
- * - REQ-3.5: 内訳書一覧表示（プロジェクト詳細からの遷移）
+ * - 内訳書セクション（旧 Requirement 3・Requirement 11）は project-management/Requirement 26 へ
+ *   移管済み。当該の被覆印は移管先の番号で名乗る（下記の各テストの前書きを参照）
  * - REQ-4.2: カラム順序
  * - REQ-4.3: 数量小数点2桁表示
  * - REQ-4.5: ヘッダー作成日時表示
@@ -34,8 +33,6 @@
  * - REQ-9.2: パンくず形式
  * - REQ-9.3, REQ-9.4: パンくずナビゲーション遷移
  * - REQ-10.4: 楽観的排他制御エラー
- * - REQ-11.4: 作成済み内訳書リンク
- * - REQ-11.5: 一覧画面リンク
  * - REQ-12.1, REQ-12.2, REQ-12.3: ローディング表示
  * - REQ-12.4: ローディング中ボタン無効化
  * - REQ-13.1: Excelダウンロードボタン表示
@@ -1074,10 +1071,6 @@ test.describe('内訳書CRUD操作', () => {
      * @requirement project-management/REQ-26.1: The プロジェクト詳細画面 shall 数量表セクションの下に内訳書セクションを配置する
      * @requirement project-management/REQ-26.2: The 内訳書セクション shall 数量表セクションと同様のカードレイアウトを使用する
      * @requirement project-management/REQ-26.8: The 内訳書セクション shall 新規作成ボタンを表示する
-     * @requirement itemized-statement-generation/REQ-3.1
-     * @requirement itemized-statement-generation/REQ-11.1
-     * @requirement itemized-statement-generation/REQ-11.2
-     * @requirement itemized-statement-generation/REQ-11.3
      */
     test('内訳書が存在しない場合「まだ作成されていません」メッセージが表示される (project-management/REQ-26.1, REQ-11.1, REQ-11.2, REQ-11.3)', async ({
       page,
@@ -1129,7 +1122,6 @@ test.describe('内訳書CRUD操作', () => {
 
     /**
      * @requirement project-management/REQ-26.3: The 内訳書セクション shall 作成済み内訳書を作成日時の降順で一覧表示する
-     * @requirement itemized-statement-generation/REQ-3.2
      */
     test('内訳書一覧の各行に内訳書名、作成日時、数量表名、項目数が表示される (project-management/REQ-26.3)', async ({
       page,
@@ -2232,7 +2224,6 @@ test.describe('内訳書CRUD操作', () => {
     /**
      * @requirement project-management/REQ-26.11: The 内訳書セクション shall 一覧画面へのリンクを表示する
      * @requirement project-management/REQ-26.3: The 内訳書セクション shall 作成済み内訳書を作成日時の降順で一覧表示する
-     * @requirement itemized-statement-generation/REQ-11.6
      */
     test('プロジェクト詳細画面から内訳書一覧画面に遷移できる (project-management/REQ-26.11, REQ-3.2)', async ({
       page,
@@ -2288,7 +2279,6 @@ test.describe('内訳書CRUD操作', () => {
 
     /**
      * @requirement project-management/REQ-26.7: When ユーザーが内訳書行をクリックする, the システム shall 内訳書詳細画面に遷移する
-     * @requirement itemized-statement-generation/REQ-3.6
      */
     test('内訳書行をクリックすると詳細画面に遷移する (project-management/REQ-26.7)', async ({
       page,

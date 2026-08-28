@@ -4,7 +4,8 @@
  * Task 9.5: E2Eテストを実装する
  *
  * Requirements coverage (quantity-table-generation):
- * - REQ-1.1-REQ-1.7: プロジェクト詳細画面の数量表セクション
+ * - プロジェクト詳細画面の数量表セクション（旧 Requirement 1）は
+ *   project-management/Requirement 25 へ移管済み。被覆印は移管先の番号で名乗る
  * - REQ-2.1-REQ-2.5: 数量表の作成・管理
  * - REQ-3.1-REQ-3.4: 数量表編集画面の表示
  * - REQ-4.1-REQ-4.5: 数量グループの作成・管理
@@ -241,8 +242,6 @@ test.describe('数量表CRUD操作', () => {
    * @requirement project-management/REQ-25.1
    * @requirement project-management/REQ-25.2
    * @requirement project-management/REQ-25.6
-   * @requirement quantity-table-generation/REQ-1.2
-   * @requirement quantity-table-generation/REQ-1.6
    *
    * project-management/REQ-25: プロジェクト詳細画面の数量表セクション（数量表なし時）
    */
@@ -506,9 +505,6 @@ test.describe('数量表CRUD操作', () => {
    * @requirement project-management/REQ-25.4
    * @requirement project-management/REQ-25.5
    * @requirement project-management/REQ-25.7
-   * @requirement quantity-table-generation/REQ-1.4
-   * @requirement quantity-table-generation/REQ-1.5
-   * @requirement quantity-table-generation/REQ-1.7
    *
    * project-management/REQ-25: プロジェクト詳細画面の数量表セクション（数量表あり時）
    * 注: これらのテストは数量表作成後に実行する必要がある

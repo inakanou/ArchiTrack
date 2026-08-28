@@ -4,9 +4,10 @@
  * Task 10: E2Eテスト実装
  *
  * Requirements coverage (estimate-request):
- * - REQ-1.1 ~ REQ-1.5: 見積依頼セクション表示
+ * - 見積依頼セクション表示（旧 Requirement 1）は project-management/Requirement 27 へ移管済み。
+ *   本ファイルの被覆印は移管先の番号で名乗る（表題に残る旧番号は移管前の呼称である）
  * - REQ-2.1 ~ REQ-2.7: 見積依頼一覧画面
- * - REQ-3.1 ~ REQ-3.9: 見積依頼新規作成
+ * - REQ-3.1 ~ REQ-3.8: 見積依頼新規作成（旧 AC 9 は Requirement 39 AC 5 へ改訂済み）
  * - REQ-4.1 ~ REQ-4.20: 見積依頼詳細画面 - 項目選択
  * - REQ-5.1 ~ REQ-5.3: 内訳書Excel出力
  * - REQ-6.1 ~ REQ-6.10: 見積依頼文表示
@@ -350,7 +351,6 @@ test.describe('見積依頼機能', () => {
 
     /**
      * @requirement project-management/REQ-27.2
-     * @requirement estimate-request/REQ-1.2
      * 見積依頼セクションに「新規作成」ボタンを表示する
      */
     test('REQ-1.2: 見積依頼セクションに「新規作成」ボタンが表示される', async ({ page }) => {
@@ -371,7 +371,6 @@ test.describe('見積依頼機能', () => {
 
     /**
      * @requirement project-management/REQ-27.3
-     * @requirement estimate-request/REQ-1.3
      * 見積依頼が存在しない場合、セクション右上の「すべて見る」リンクを非表示にする（要件4）
      */
     test('REQ-1.3: 見積依頼がない場合、「すべて見る」リンクが非表示である', async ({ page }) => {
@@ -392,7 +391,6 @@ test.describe('見積依頼機能', () => {
 
     /**
      * @requirement project-management/REQ-27.4
-     * @requirement estimate-request/REQ-1.4
      * 「新規作成」ボタンをクリックしたとき、見積依頼作成画面に遷移する
      */
     test('REQ-1.4: 「新規作成」ボタンをクリックで見積依頼作成画面に遷移する', async ({ page }) => {
@@ -416,7 +414,6 @@ test.describe('見積依頼機能', () => {
 
     /**
      * @requirement project-management/REQ-27.5
-     * @requirement estimate-request/REQ-1.5
      * 見積依頼が存在しない場合、セクション右上の「新規作成」ボタンも非表示である（要件4）
      * 注: 「すべて見る」リンクのクリック遷移テストはREQ-1.8（見積依頼存在時）でカバー
      */
@@ -706,7 +703,6 @@ test.describe('見積依頼機能', () => {
   test.describe('Requirement 1: 見積依頼セクション表示（見積依頼存在時）', () => {
     /**
      * @requirement project-management/REQ-27.6
-     * @requirement estimate-request/REQ-1.6
      * 見積依頼が存在する場合、セクション右上に「新規作成」ボタンと「すべて見る」リンクを表示する
      */
     test('REQ-1.6: 見積依頼が存在する場合、セクション右上に「新規作成」ボタンと「すべて見る」リンクを表示する (project-management/REQ-27.6)', async ({
@@ -735,7 +731,6 @@ test.describe('見積依頼機能', () => {
 
     /**
      * @requirement project-management/REQ-27.7
-     * @requirement estimate-request/REQ-1.7
      * ユーザーが「新規作成」ボタンをクリックしたとき、見積依頼作成画面に遷移する
      */
     test('REQ-1.7: 「新規作成」ボタンをクリックで見積依頼作成画面に遷移する (project-management/REQ-27.7)', async ({
@@ -762,7 +757,6 @@ test.describe('見積依頼機能', () => {
 
     /**
      * @requirement project-management/REQ-27.8
-     * @requirement estimate-request/REQ-1.8
      * ユーザーが「すべて見る」リンクをクリックしたとき、見積依頼一覧画面に遷移する
      */
     test('REQ-1.8: 「すべて見る」リンクをクリックで見積依頼一覧画面に遷移する (project-management/REQ-27.8)', async ({
@@ -1516,9 +1510,10 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 3: 見積依頼新規作成（追加テスト）', () => {
     /**
-     * @requirement estimate-request/REQ-3.9
      * @requirement estimate-request/REQ-39.5
      * @requirement estimate-request/REQ-39.1
+     * 旧 REQ-3.9（内訳書未登録メッセージ）は要件定義書上で取り消し線により撤廃され、
+     * Requirement 39 AC 5 が文言と挙動を引き取った。被覆印は移管先の番号だけで名乗る。
      * Task 85.5: 内訳書任意化に伴うメッセージ更新
      * - メッセージ文言が「内訳書が登録されていません（任意）。」に変更されたことを確認
      * - 内訳書任意化により「作成」ボタンが活性であることを確認

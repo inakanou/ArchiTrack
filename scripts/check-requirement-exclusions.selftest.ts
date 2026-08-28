@@ -26,6 +26,7 @@ import {
   E2E_SPECS_DIR,
   EXCLUSIONS_PATH,
   checkCoverageTagCoexistence,
+  checkCriterionCorrespondence,
   loadRequirementCatalogue,
   run,
   scanCoverageTags,
@@ -127,6 +128,14 @@ const COVERED_PROBE_ID = 'site-survey/REQ-1.1';
 const SHIFT_TARGET_ID = 'site-survey/REQ-29.2';
 
 /**
+ * 取り消し線で無効化された受入基準（墓標）の陽性対照での指し先
+ *
+ * 実データに撤廃済みとして残っている番号を選ぶ。要件定義書からこの表記が消えれば
+ * `pointEntryAtRetired` が前提の崩壊として失敗するため、対照が黙って空振りしない。
+ */
+const RETIRED_PROBE_ID = 'quantity-table-generation/REQ-1.3';
+
+/**
  * 除外の指し先を別の受入基準へ移す（番号と内容の対応は要件定義書から取り直す）
  *
  * id だけを差し替えると requirement / criterionText の照合に引っかかり、
@@ -144,6 +153,31 @@ function pointEntryAt(entry: Json, criterionId: string): void {
   const criterionText = catalogue.criteria.get(localId);
   if (title === undefined || criterionText === undefined) {
     throw new Error(`前提: ${criterionId} が要件定義書に存在しない`);
+  }
+
+  entry.id = criterionId;
+  entry.requirement = `${requirementId}: ${title}`;
+  entry.criterionText = criterionText;
+}
+
+/**
+ * 除外の指し先を、取り消し線で無効化された受入基準へ移す
+ *
+ * `pointEntryAt` と違い、本文は `criteria` ではなく `retiredCriteria` から取る。
+ * 撤廃済みの受入基準は分母に載らないため `criteria` には無い。ここで前提が崩れれば
+ * （実データから墓標が消えれば）例外で落ち、対照が静かに空振りすることはない。
+ */
+function pointEntryAtRetired(entry: Json, criterionId: string): void {
+  const separator = criterionId.indexOf('/');
+  const featureName = criterionId.slice(0, separator);
+  const localId = criterionId.slice(separator + 1);
+  const requirementId = localId.slice(0, localId.lastIndexOf('.'));
+
+  const catalogue = loadRequirementCatalogue(featureName, ROOT);
+  const title = catalogue.requirementTitles.get(requirementId);
+  const criterionText = catalogue.retiredCriteria.get(localId);
+  if (title === undefined || criterionText === undefined) {
+    throw new Error(`前提: ${criterionId} が取り消し線で無効化された受入基準として存在しない`);
   }
 
   entry.id = criterionId;
@@ -460,33 +494,12 @@ const MUST_REJECT: Case[] = [
     expectCheck: 'criterion-correspondence',
   },
   {
-    name: '取り消し線で無効化された受入基準を removed-from-spec 以外の区分で指す',
+    // 撤廃済み（取り消し線）の受入基準は被覆率の分母に載らないため、除外の対象にならない。
+    // 区分を何にしようと、「E2Eでは確かめないが代わりにこう確かめる」という約束の相手が
+    // 存在しない。指し先を実在する墓標へ移して、その一点だけを注入する。
+    name: '取り消し線で無効化された受入基準を除外で指す',
     mutate: (d) => {
-      const entry = entryById(d, 'quantity-table-generation/REQ-1.3');
-      const from = entry.category as string;
-      if (from !== 'removed-from-spec') {
-        throw new Error('前提: 当該の除外が removed-from-spec ではない');
-      }
-      const counts = byCategory(d);
-      counts[from] = (counts[from] ?? 0) - 1;
-      if (counts[from] === 0) {
-        delete counts[from];
-        delete categories(d)[from];
-      }
-      entry.category = 'infrastructure';
-      counts.infrastructure = (counts.infrastructure ?? 0) + 1;
-    },
-    mustReject: true,
-    expectCheck: 'criterion-correspondence',
-  },
-  {
-    name: '現役の受入基準を removed-from-spec で除外する',
-    mutate: (d) => {
-      const entry = entryById(d, 'site-survey/REQ-1.6');
-      const counts = byCategory(d);
-      counts[entry.category as string] = (counts[entry.category as string] ?? 0) - 1;
-      entry.category = 'removed-from-spec';
-      counts['removed-from-spec'] = (counts['removed-from-spec'] ?? 0) + 1;
+      pointEntryAtRetired(entryById(d, 'site-survey/REQ-1.6'), RETIRED_PROBE_ID);
     },
     mustReject: true,
     expectCheck: 'criterion-correspondence',
@@ -655,6 +668,40 @@ const MECHANISM_CASES: MechanismCase[] = [
       ]);
       const violations = checkCoverageTagCoexistence(documentWithIds('REQ-1.1'), index);
       return violations.length === 1 ? [] : [`違反が ${violations.length} 件（1件であるべき）`];
+    },
+  },
+  {
+    // 「撤廃済みの受入基準を指している」ことを、番号違いと**言い分けて**報告するか。
+    // どちらも `criterion-correspondence` として弾かれるため、陽性対照の expectCheck では
+    // 区別が付かない。直し方が正反対（除外を足すのではなく取り下げる）である以上、
+    // 言い分けそのものを機構として固定する。
+    name: '撤廃済みの受入基準を指す除外を、番号違いと言い分けて報告する',
+    run: () => {
+      const failures: string[] = [];
+      const catalogue = loadRequirementCatalogue('quantity-table-generation', ROOT);
+      const retiredText = catalogue.retiredCriteria.get('REQ-1.3');
+      if (retiredText === undefined) {
+        return ['前提: quantity-table-generation/REQ-1.3 が墓標として読めていない'];
+      }
+
+      const retired = checkCriterionCorrespondence({
+        exclusions: [{ id: 'quantity-table-generation/REQ-1.3', criterionText: retiredText }],
+      });
+      if (retired.length !== 1 || !(retired[0]?.message ?? '').includes('取り消し線')) {
+        failures.push(
+          `撤廃済みの指し先を言い分けていない: ${retired.map((v) => v.message).join(' / ') || '違反なし'}`
+        );
+      }
+
+      const absent = checkCriterionCorrespondence({
+        exclusions: [{ id: 'quantity-table-generation/REQ-999.1', criterionText: 'x' }],
+      });
+      if (absent.length !== 1 || (absent[0]?.message ?? '').includes('取り消し線')) {
+        failures.push(
+          `存在しない番号を撤廃済みとして報告した: ${absent.map((v) => v.message).join(' / ') || '違反なし'}`
+        );
+      }
+      return failures;
     },
   },
   {

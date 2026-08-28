@@ -24,6 +24,8 @@
  *   4. 識別子と内容の対応（タスク 115.167 で追加）
  *      - `id` が指す受入基準が要件定義書に実在すること
  *      - 指す受入基準が取り消し線（`~~`）で無効化されていないこと
+ *        （タスク 115.187 で扱いを改めた。撤廃済みの受入基準は被覆率の分母に載らないため、
+ *        区分を `removed-from-spec` に整えるのではなく、除外そのものを取り下げる）
  *      - `requirement` 欄の要件番号と題が要件定義書と一致すること
  *      - `criterionText` が要件定義書の当該受入基準の本文と一字一句一致すること
  *   5. 除外の宣言と被覆印の同居（タスク 115.186 で追加）
@@ -93,6 +95,7 @@ import { fileURLToPath } from 'url';
 import {
   buildInlineTagPatterns,
   extractHeaderScopedCoverage,
+  isRetiredCriterionText,
 } from './check-requirement-coverage.js';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -377,8 +380,17 @@ export interface RequirementCatalogue {
   present: boolean;
   /** `REQ-N` → 要件の題 */
   requirementTitles: Map<string, string>;
-  /** `REQ-N.M` → 受入基準の本文（行頭の番号を除いた残り） */
+  /** `REQ-N.M` → 受入基準の本文（行頭の番号を除いた残り）。撤廃済みのものは含まない */
   criteria: Map<string, string>;
+  /**
+   * `REQ-N.M` → 取り消し線で無効化された受入基準の本文（墓標）
+   *
+   * `criteria` からは外す。被覆率の分母に載らないものを除外で指せてしまうと、
+   * 「E2Eでは確かめないが代わりにこう確かめる」という約束が、そもそも存在しない
+   * 条文に対して立てられる。ここに残すのは、除外がそれを指したときに
+   * 「番号が無い」ではなく「その番号は撤廃済みである」と言えるようにするためである。
+   */
+  retiredCriteria: Map<string, string>;
 }
 
 /**
@@ -429,6 +441,7 @@ export function loadRequirementCatalogue(
     present: fs.existsSync(filePath),
     requirementTitles: new Map(),
     criteria: new Map(),
+    retiredCriteria: new Map(),
   };
   if (!catalogue.present) return catalogue;
 
@@ -469,7 +482,15 @@ export function loadRequirementCatalogue(
     if (currentId !== null && inAcceptanceCriteria) {
       const criterionMatch = acceptanceCriteriaRegex.exec(line);
       if (criterionMatch?.[1] !== undefined && criterionMatch[2] !== undefined) {
-        catalogue.criteria.set(`${currentId}.${criterionMatch[1]}`, criterionMatch[2].trim());
+        const text = criterionMatch[2].trim();
+        const criterionId = `${currentId}.${criterionMatch[1]}`;
+        // 取り消し線の判定は被覆率側と同じ規則を使う（規則を写し取ると、片方だけが
+        // 撤廃済みの番号を条文として扱い続ける）
+        if (isRetiredCriterionText(text)) {
+          catalogue.retiredCriteria.set(criterionId, text);
+        } else {
+          catalogue.criteria.set(criterionId, text);
+        }
       }
     }
   }
@@ -553,31 +574,18 @@ export function checkCriterionCorrespondence(document: Json, rootDir = ROOT): Vi
     // id が指す受入基準の実在と、その本文の逐語複製
     const criterionText = catalogue.criteria.get(criterionId);
     if (criterionText === undefined) {
+      // 撤廃済みの番号を指しているのか、そもそも無い番号を指しているのかを言い分ける。
+      // 前者は「除外を足す」ではなく「除外を消し、移管先の番号を名乗る」が正しい直し方である。
+      const retiredText = catalogue.retiredCriteria.get(criterionId);
       violations.push({
         pointer: `${pointer}.id`,
-        message: `要件定義書に該当の受入基準がありません（分母から外す先が存在しない）`,
-        actual: normalized,
+        message:
+          retiredText === undefined
+            ? `要件定義書に該当の受入基準がありません（分母から外す先が存在しない）`
+            : `取り消し線で無効化された受入基準を指しています。撤廃済みの受入基準は被覆率の分母に載らないため除外の対象になりません（この除外を取り下げ、移管先があるならその番号を名乗ること）`,
+        actual: retiredText === undefined ? normalized : `${normalized}: ${retiredText}`,
       });
       return;
-    }
-    // 取り消し線で無効化された受入基準は `removed-from-spec` でのみ指してよい。
-    // 撤廃・移動された受入基準を通常の区分で除外すると、「代わりにこの方法で確かめる」
-    // という約束が、そもそも存在しない受入基準に対して立てられることになる。
-    const removedFromSpec = entry.category === 'removed-from-spec';
-    const struckThrough = criterionText.startsWith('~~');
-    if (struckThrough && !removedFromSpec) {
-      violations.push({
-        pointer: `${pointer}.category`,
-        message: `取り消し線で無効化された受入基準を指しています。区分は 'removed-from-spec' である必要があります（移動先の受入基準があるならその id を指すこと）`,
-        actual: `${normalized}: ${criterionText}`,
-      });
-    }
-    if (!struckThrough && removedFromSpec) {
-      violations.push({
-        pointer: `${pointer}.category`,
-        message: `'removed-from-spec' は要件定義書上で削除表記（~~）となった受入基準に限ります。当該の受入基準は現役です`,
-        actual: `${normalized}: ${criterionText}`,
-      });
     }
 
     if (typeof entry.criterionText !== 'string') return; // 欠落はスキーマ側が報告する
