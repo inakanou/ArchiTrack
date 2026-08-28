@@ -29,7 +29,10 @@
  * その場の観測で得た文字列も本補助の対象である。空文字が正当な観測値になる対象が
  * 見当たらない一方、空文字のまま後段へ進むと `toHaveText('')` のように
  * 空文字を通す主張へ届いて緑のまま見逃すためである。
- * `assertPresent` は型で文字列を拒むので、文字列の受け皿は本補助だけになる。
+ * `assertPresent` は型で文字列を拒み、`unknown` も拒むので、文字列の受け皿は本補助だけになる。
+ * すり抜けるのは `any` を経由した場合だけである（`assertPresent` の
+ * 「型による強制の限界」節を参照）。`any` は引数の型では原理的に拒めないため、
+ * **その一件については型ではなく対象で判断すること**。
  * 失敗メッセージは「前提が用意されていない」と述べるが、
  * 「後段が拠って立つ前提が成立していない」の意であり、観測値にも当てはまる。
  *
@@ -47,26 +50,25 @@ export function assertPrepared<T>(value: T, label: string): asserts value is Non
 }
 
 /**
- * `assertPresent` が文字列を対象に取れないようにするための拒否印。
+ * `assertPresent` が対象に取れる型の一覧。文字列を含まないことがこの型の役目である。
  *
- * 交差型に混ぜるだけで実体は無い。文字列にはこの属性が無いため、
- * `string` を渡した呼び出しは「この属性が足りない」という型エラーになる。
- * 属性名そのものを是正の指示にしてあるのは、型検査の出力だけで直し方が分かるようにするためである。
- */
-type StringSubjectRejected = {
-  readonly '文字列を対象とする前提には assertPrepared を使うこと': never;
-};
-
-/**
- * `T` が文字列を含まなければ無害な `unknown`、含めば拒否印を返す。
+ * 型引数の**素の制約**として使う。別名そのものを是正の指示にしてあるのは、
+ * 型検査の出力（`… is not assignable to parameter of type '文字列を対象とする前提には_assertPrepared_を使うこと'`）
+ * だけで直し方が分かるようにするためである。
  *
- * `[Extract<…>] extends [never]` とタプルで包むのは、条件型の分配を止めて
- * 「共用体のどこかに文字列が混ざっていれば拒否する」判定にするためである
- * （`string | number | null` のような対象も拒否される）。
+ * ## なぜ条件型ではなく制約なのか（Task 115.185）
+ *
+ * 当初は `T & NonStringSubject<T>`（`[Extract<NonNullable<T>, string>] extends [never] ? … : …`）
+ * という条件型の交差で拒んでいた。しかし**条件型は未解決の型引数に対して必ず遅延評価になり、
+ * 型引数の制約まで見に行かない**。そのため `<T extends number | boolean>` のように
+ * 文字列を除いた制約を書いた汎用の補助の中からでも `TS2345` で落ちていた（実測）。
+ *
+ * 素の制約に置き換えると、型引数の照合は制約どうしの代入可能性で決まるため、
+ * 文字列を除いた制約は素通りする。副産物として `unknown` も拒めるようになる
+ * （`unknown` はこの共用体へ代入できないため）。
  */
-type NonStringSubject<T> = [Extract<NonNullable<T>, string>] extends [never]
-  ? unknown
-  : StringSubjectRejected;
+type 文字列を対象とする前提には_assertPrepared_を使うこと =
+  number | boolean | bigint | symbol | object | null | undefined;
 
 /**
  * 直前に取得した値が存在することを主張する。null / undefined であればその場で失敗する。
@@ -104,19 +106,68 @@ type NonStringSubject<T> = [Extract<NonNullable<T>, string>] extends [never]
  * 空文字のまま後段へ進むと、`toHaveValue('')` や `toHaveText('')` のように
  * 空文字を通してしまう主張へ届き、緑のまま欠陥を見逃すことすらある。
  *
- * そこで引数の型に `NonStringSubject<T>` を交差させ、
+ * そこで型引数の制約を `文字列を対象とする前提には_assertPrepared_を使うこと` とし、
  * **文字列（を含む共用体）を渡した時点で型検査が落ちる**ようにしてある。
  * 文字列を対象とする前提は例外なく `assertPrepared` を使う。
  * 0 や false が正当な値になり得る数値・真偽値は従来どおり本補助の対象である。
+ *
+ * ## 型による強制の限界（Task 115.166 のレビュー指摘 / Task 115.185）
+ *
+ * 拒否は型引数の**素の制約**で効かせている。以下は 115.185 で一件ずつ型検査に掛けて
+ * 確かめた結果である。各事例は `preconditions.type-selftest.ts` に固定してあり、
+ * 挙動が動けば型検査が落ちる。
+ *
+ * ### 拒める（実測）
+ *
+ * - `string` / `string | null` / `string | undefined` の直接渡し
+ * - `string | number | null` や `'a' | null` のように共用体のどこかへ文字列が混ざる対象
+ * - `unknown`。この共用体へ代入できないため拒まれる
+ * - **無制約の型引数** `<T>(v: T | null)` からの呼び出し。`T` は `string` にもなり得るので
+ *   これは誤拒否ではなく**健全な拒否**である。逃げ道は呼び出し側の型引数へ
+ *   文字列を除いた制約を足すこと（`<T extends number | boolean>` など）。
+ *   制約を書けない場合は `assertPrepared` へ退避できる（0 と false も弾く点に注意）
+ *
+ * ### 通る（実測・過剰な拒否をしていないことの対照）
+ *
+ * - `number | null` / `boolean | undefined` / `{ width: number } | null` / `RegExpMatchArray | null`
+ * - `<T extends number | boolean>` や `<T extends object>` のように**文字列を除いた制約**を持つ
+ *   汎用の補助からの呼び出し
+ * - 既存の `assertPresent` 呼び出し 62件（制約へ移行しても一件の改修も要さず全件緑）
+ *
+ * ### すり抜ける（実測・唯一残る限界）
+ *
+ * - `any` を渡した呼び出し。`any` はあらゆる引数型へ代入できるため、
+ *   **引数の型に何を書いても拒めない**。見逃す側へ倒した判断ではなく言語の性質である。
+ *   塞ぐなら型ではなく走査側（`scripts/check-e2e-assertion-guards.ts` の系統）へ持ち出すことになる
+ * - e2e 全体の走査では現時点で該当零件。`any` は e2e 内に十一箇所あるが、
+ *   すべて `page.evaluate` の閲覧側コールバック内にあり、Node 側で動く本補助へは届かない
+ *
+ * ### なぜ条件型ではなく制約なのか（実測）
+ *
+ * 115.166 は `T & NonStringSubject<T>`（`[Extract<NonNullable<T>, string>] extends [never] ? … : …`）
+ * という条件型の交差で拒んでいた。この形は**未解決の型引数に対して必ず遅延評価になり、
+ * 型引数の制約まで見に行かない**。そのため文字列を除いた制約を書いた汎用の補助の中からでも
+ * `TS2345` で落ちた（`<T extends number | boolean>` / `<T extends object>` のいずれも実測で落ちた）。
+ * 拒否印を `label` 側へ移しても、型引数の既定値を制約へ照合させても、
+ * 条件型を使い続ける限りこの誤拒否は消えなかった（後者は宣言自体が `TS2344` で落ちた）。
+ *
+ * 素の制約へ移すと、型引数の照合は制約どうしの代入可能性で決まるため誤拒否は解消する。
+ * 副産物として `unknown` も拒めるようになった。エラーメッセージは
+ * `Argument of type 'string | null' is not assignable to parameter of type
+ * '文字列を対象とする前提には_assertPrepared_を使うこと'.` となり、直し方が出力だけで分かる。
+ *
+ * **限界を狭める変更や、逆に緩める変更は、この節の書き換えと対で行うこと。**
+ * 上記の各事例は自己検査に固定してあり、挙動が動くと当該事例が型検査で落ちる。
+ * 落ちたら合図であって、事例を黙って消すのではなく本節を書き改めること。
  *
  * @param value 直前に取得した値
  * @param label 失敗メッセージに用いる対象の名前（例: `'プレビュー画像の境界ボックス'`）
  * @throws 値が null または undefined である場合
  */
-export function assertPresent<T>(
-  value: T & NonStringSubject<T>,
+export function assertPresent<T extends 文字列を対象とする前提には_assertPrepared_を使うこと>(
+  value: T,
   label: string
-): asserts value is NonNullable<T> & NonStringSubject<T> {
+): asserts value is NonNullable<T> {
   if (value === null || value === undefined) {
     throw new Error(
       `取得できているはずの値が無い: ${label}（値が null / undefined のままである。` +
