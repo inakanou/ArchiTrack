@@ -31,6 +31,9 @@
  *   5. 除外の宣言と被覆印の同居（タスク 115.186 で追加）
  *      - 「E2Eでは確かめない」と宣言した受入基準を `e2e/specs` の被覆印が名乗らないこと
  *      - 例外は未実装を固定するラチェット（`test.fail()`）との同居だけであること
+ *   6. 代替検証が受入基準を覆う範囲（タスク 115.189 で追加）
+ *      - 原文が中黒（`・`）で列挙する要素を、掲げた代替検証がすべて名指ししていること
+ *      - 部分被覆を「除外」と呼ぶと、覆われていない要素がどの指標にも現れなくなる
  *
  * 同居をなぜ検査するか:
  *   除外の一件は「E2Eでは確かめない」という宣言である。同じ番号を `e2e/specs` の被覆印が
@@ -125,7 +128,9 @@ export type ViolationCheck =
   /** 識別子と受入基準の内容の対応 */
   | 'criterion-correspondence'
   /** 除外の宣言と被覆印の同居 */
-  | 'coverage-tag-coexistence';
+  | 'coverage-tag-coexistence'
+  /** 代替検証の説明が原文の列挙を覆う範囲 */
+  | 'alternative-coverage';
 
 export interface Violation {
   /** 違反箇所を指す JSON ポインタ風の経路（例: `exclusions[12].category`） */
@@ -890,6 +895,156 @@ export function checkCoverageTagCoexistence(
 }
 
 // ============================================================================
+// 代替検証の説明が受入基準を覆う範囲
+// ============================================================================
+//
+// 除外の一件は「E2Eでは確かめないが、代わりにこの方法で確かめる」という約束である。
+// ところがその約束が、受入基準が求める内容の**一部しか述べていない**対が実在した
+// （タスク 115.167 の全件照合が二件を報告し、115.189 の走査で母集団を確定した）。
+//
+//   site-survey/REQ-8.5 の原文は「テキストのフォントサイズ・色・背景色をカスタマイズ可能にする」
+//   だが、掲げた代替検証は「フォントサイズを変更できることを確認」だけだった。
+//
+// 除外は受入基準を**丸ごと**分母から外す。約束が原文の一部しか述べていなければ、
+// 述べられていない部分は「E2Eでも確かめず、代わりの方法でも確かめない」まま、
+// どの指標にも現れなくなる。部分被覆を「除外」と呼ぶと、覆われていない部分が消える。
+//
+// 何を機械で決めるか（決められる範囲に限る）:
+//   散文どうしの照合は自然言語の判断であり機械化できない（115.167 が同じ結論に達し、
+//   語の重なりで測る方式は実データで誤検出が多すぎた）。そこで判定の対象を、原文が
+//   **中黒（`・`）で明示的に列挙する要素**だけに限る。列挙は書式で切り出せるため、
+//   「原文が並べた要素を、代替検証が一つも述べていない」ことは機械で決まる。
+//   115.167 が報告した二件は、いずれもこの形である（8.5 の
+//   「フォントサイズ・色・背景色」、quantity-table-generation/REQ-7.3 の
+//   「小項目・任意分類・工種…」に対する「大項目・中項目」の欠落）。
+//
+// この検査が捕まえないもの（限界を両方向で述べる）:
+//   - 中黒の列挙を持たない受入基準は判定しない。「エラーメッセージを表示し、
+//     ユーザーに再試行を促す」のような**連言**（動詞句の並び）は、項目の切り出しが
+//     自然言語の判断になるため機構では決められない。115.189 は全件の人手裁定で
+//     この形を8件見つけて是正したが、**再発は機構では止まらない**
+//     （scripts/exclusion-alternative-verification-adjudication.md に記録）。
+//   - 代替検証が原文の語を**書いている**ことしか見ない。その観測が実在するか、
+//     実際に受入基準を確かめるかは見ない。実在の側は被覆率の検査
+//     （scripts/check-requirement-coverage.ts の auditExclusions が
+//     `in-repo-unverified` として数える）が受け持つ。
+//   - 逆に、列挙の要素を代替検証が述べていても、それが原文と別の意味で使われて
+//     いれば見抜けない（語の一致しか見ないため）。
+//
+// 許容一覧は置かない。例外は「原文に列挙が無い」という**書式で決まる条件**だけである。
+//
+// 母集団の全件裁定（206件を P/Z/F へ分けた記録と、一件ごとの判断の根拠）は
+// scripts/exclusion-alternative-verification-adjudication.md にある。
+// 順序づけのための走査は scripts/scan-exclusion-alternative-coverage.ts にある。
+
+/**
+ * 列挙の項目の境界とみなす文字
+ *
+ * 中黒の左右へ文字を伸ばして項目を切り出すとき、名詞の内側に現れない文字で止める。
+ * 句読点・括弧・記号に加えて、助詞と活用語尾のひらがなを含める。実データ206件で
+ * 測って決めた（この集合が無いと「選択された全ての項目に対して削除・コピー・移動操作」の
+ * 左端が「対して削除」まで伸び、実際には述べられている「削除」を欠落と誤断した）。
+ *
+ * カタカナ・漢字は含めない。「フィルタリング」「奥行き」「読み込み」のように、
+ * ひらがなを含む名詞まで削ってしまうためである（`さ` `き` `み` は境界にしない）。
+ */
+const ENUMERATION_BOUNDARY = new Set([
+  ...'はがをにへとでもやのかられよりまでてし、。，．・ 　()（）「」『』,.:：;；/\\|"\'`＋+=<>《》[]【】',
+] as string[]);
+
+/** 項目の末尾に付く一般名詞。落とした形でも照合する（「移動操作」と「移動」を同一視する） */
+const GENERIC_ELEMENT_SUFFIXES: readonly string[] = [
+  '操作',
+  '処理',
+  '機能',
+  '設定',
+  'データ',
+  '情報',
+  '一覧',
+  '画面',
+  '表示',
+];
+
+/** 短い括弧書きの注記（`(W)` `（D）` など）。項目の切り出しの前に落とす。 */
+const SHORT_PARENTHETICAL = /[(（][A-Za-z0-9]{1,3}[)）]/g;
+
+/**
+ * 受入基準の原文が中黒で明示的に列挙する要素を切り出す
+ *
+ * 中黒を見つけ、その左右へ `ENUMERATION_BOUNDARY` に当たるまで文字を伸ばす。
+ * 出現順を保ち、重複は落とす。列挙が無ければ空配列を返す（＝この検査は何も言わない）。
+ */
+export function extractEnumeratedElements(criterionText: string): string[] {
+  const text = criterionText.replace(SHORT_PARENTHETICAL, '');
+  const elements: string[] = [];
+
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] !== '・') continue;
+
+    let left = index - 1;
+    while (left >= 0 && !ENUMERATION_BOUNDARY.has(text[left] as string)) left -= 1;
+    let right = index + 1;
+    while (right < text.length && !ENUMERATION_BOUNDARY.has(text[right] as string)) right += 1;
+
+    for (const element of [text.slice(left + 1, index), text.slice(index + 1, right)]) {
+      if (element !== '' && !elements.includes(element)) elements.push(element);
+    }
+  }
+
+  return elements;
+}
+
+/** 代替検証の文面が当該の要素を名指ししているか（末尾の一般名詞を落とした形も許す） */
+export function namesElement(element: string, alternativeText: string): boolean {
+  if (alternativeText.includes(element)) return true;
+  for (const suffix of GENERIC_ELEMENT_SUFFIXES) {
+    if (element.endsWith(suffix) && element.length > suffix.length) {
+      return alternativeText.includes(element.slice(0, -suffix.length));
+    }
+  }
+  return false;
+}
+
+/**
+ * 代替検証が原文の列挙を覆っているかを確かめる
+ *
+ * 照合する相手は `alternativeVerification` の全ての文字列（method / tool / description /
+ * threshold）である。要素を閾値の欄で述べている除外が実在するため、説明の欄だけを
+ * 見ると誤検出になる。逆に `title` と `reason` は見ない。この二つは「何を除外したか」の
+ * 説明であって「代わりに何を確かめるか」の約束ではなく、含めると 8.5 のように
+ * 題が原文を写しているだけで約束が欠けている対を見逃す（実測で確認した）。
+ */
+export function checkAlternativeCoverage(document: Json): Violation[] {
+  const violations: Violation[] = [];
+  if (!isPlainObject(document)) return violations;
+
+  const exclusions = Array.isArray(document.exclusions) ? document.exclusions : [];
+  exclusions.forEach((entry, index) => {
+    if (!isPlainObject(entry) || typeof entry.criterionText !== 'string') return;
+    const alternative = entry.alternativeVerification;
+    if (!isPlainObject(alternative)) return; // 欠落はスキーマ側が報告する
+
+    const elements = extractEnumeratedElements(entry.criterionText);
+    if (elements.length === 0) return;
+
+    const alternativeText = Object.values(alternative)
+      .filter((value): value is string => typeof value === 'string')
+      .join('\n');
+
+    const missing = elements.filter((element) => !namesElement(element, alternativeText));
+    if (missing.length === 0) return;
+
+    violations.push({
+      pointer: `exclusions[${index}].alternativeVerification`,
+      message: `原文が列挙する要素のうち ${missing.map((element) => `「${element}」`).join('')} を代替検証が述べていません（除外は受入基準を丸ごと分母から外すため、述べられていない要素はどの指標にも現れなくなります。説明を実態へ広げるか、覆えないなら除外を取り下げること）`,
+      actual: `${typeof entry.id === 'string' ? entry.id : '(id不明)'} 原文の列挙: ${elements.join('・')}`,
+    });
+  });
+
+  return violations;
+}
+
+// ============================================================================
 // スキーマ単体では表せない不変条件
 // ============================================================================
 
@@ -1109,6 +1264,7 @@ export function run(
   violations.push(
     ...tagViolations('coverage-tag-coexistence', checkCoverageTagCoexistence(document, tagIndex))
   );
+  violations.push(...tagViolations('alternative-coverage', checkAlternativeCoverage(document)));
 
   const exclusionCount =
     isPlainObject(document) && Array.isArray(document.exclusions) ? document.exclusions.length : 0;

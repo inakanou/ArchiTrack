@@ -14,8 +14,8 @@
       "alternativeVerification": {
         "method": "load-test",
         "tool": "k6 / Artillery / JMeter",
-        "description": "同時1000ユーザー負荷時のp95レスポンスタイムを計測",
-        "threshold": "p95 < 500ms"
+        "description": "同時1000ユーザー負荷時のp95レスポンスタイムを計測し、低負荷時の基線に対する劣化率が20%以内であることを判定する",
+        "threshold": "p95 < 500ms かつ degradation_rate <= 20%"
       }
     },
     {
@@ -98,7 +98,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Jest / Vitest with mock",
-        "description": "メール送信失敗時のキュー保存をモックを使用した統合テストで検証",
+        "description": "メール送信が失敗したときにキューへ保存し、1分後・5分後・15分後・1時間後・6時間後の最大5回までのリトライが実行されることを、モックを使用した統合テストで検証",
         "threshold": "queue_on_failure: true"
       }
     },
@@ -112,8 +112,8 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Jest / Toxiproxy",
-        "description": "一時的なDB接続失敗時に最大3回リトライすることを確認",
-        "threshold": "max_retries: 3"
+        "description": "一時的なDB接続失敗時に最大3回までリトライし、その間隔が1回目1秒後・2回目2秒後・3回目4秒後のエクスポネンシャルバックオフであることを確認",
+        "threshold": "max_retries: 3, backoff: 1s/2s/4s"
       }
     },
     {
@@ -140,7 +140,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Jest with mock",
-        "description": "メール送信失敗時もユーザー登録が成功することを確認",
+        "description": "外部のメール送信が利用不可のときも、ユーザー登録と招待処理が非同期キューで処理され、ユーザー登録が成功することを確認",
         "threshold": "registration_success: true"
       }
     },
@@ -154,8 +154,8 @@
       "alternativeVerification": {
         "method": "api-test",
         "tool": "curl / httpie",
-        "description": "/health エンドポイントの応答を確認",
-        "threshold": "http_status: 200"
+        "description": "部分的な障害から復旧する際に /health エンドポイントが障害状態を報告することを確認",
+        "threshold": "http_status: 200, degraded_state: reported"
       }
     },
     {
@@ -168,7 +168,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Jest / Prisma",
-        "description": "パスワードリセット時にトークン生成と無効化が同一トランザクションで実行されることを確認",
+        "description": "パスワードリセット時にリセットトークン生成・メール送信・ログ記録が同一トランザクション内で処理されることを確認",
         "threshold": "transaction_atomic: true"
       }
     },
@@ -238,8 +238,8 @@
       "alternativeVerification": {
         "method": "load-test",
         "tool": "k6 / Artillery",
-        "description": "権限チェックAPIの応答時間を計測",
-        "threshold": "p95 < 100ms"
+        "description": "権限チェックAPIの応答時間を計測し、99パーセンタイルが100ms以内であることを判定する",
+        "threshold": "p99 <= 100ms"
       }
     },
     {
@@ -266,7 +266,7 @@
       "alternativeVerification": {
         "method": "code-review",
         "tool": "Prisma Schema / EXPLAIN ANALYZE",
-        "description": "頻繁に実行されるクエリに適切なインデックスが設定されていることを確認",
+        "description": "頻繁に実行されるクエリに適切なインデックスが設定されていること、および EXPLAIN ANALYZE でクエリ時間が最小限に保たれていることを確認",
         "threshold": "index_coverage: appropriate"
       }
     },
@@ -322,7 +322,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Jest / Prisma",
-        "description": "データベース書き込み操作が適切な分離レベル（READ COMMITTED以上）で実行されることを確認",
+        "description": "データベース書き込み操作がACID特性（原子性・一貫性・分離性・永続性）を満たし、適切な分離レベル（READ COMMITTED以上）で実行されることを確認",
         "threshold": "isolation_level: READ_COMMITTED"
       }
     },
@@ -350,7 +350,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Jest / Prisma",
-        "description": "ロール・権限の紐付けを変更する際、変更履歴の記録と変更がトランザクションで原子性が保証されることを確認",
+        "description": "ロール・権限の紐付けを変更する際、変更前後の整合性が検証され、変更履歴の記録と変更がトランザクションで原子性を保証されることを確認",
         "threshold": "transaction_atomic: true"
       }
     },
@@ -364,8 +364,8 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Jest / Mock Service Worker",
-        "description": "ネットワークエラー発生時に適切なエラーメッセージが表示されることを確認",
-        "threshold": "error_message: displayed"
+        "description": "ネットワークエラー発生時に「通信エラーが発生しました。再試行してください。」というエラーメッセージと再試行ボタンの双方が表示されることを確認",
+        "threshold": "error_message: displayed, retry_button: displayed"
       }
     },
     {
@@ -392,7 +392,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Jest / Mock Service Worker",
-        "description": "サーバーエラー（5xx）発生時に適切なエラーメッセージが表示されることを確認",
+        "description": "サーバーエラー（5xx）発生時に「システムエラーが発生しました。しばらくしてからお試しください。」というエラーメッセージが表示されることを確認",
         "threshold": "error_message: displayed"
       }
     },
@@ -406,7 +406,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Jest / Mock",
-        "description": "セッション期限切れ時にログインページにリダイレクトされることを確認",
+        "description": "セッション期限切れ時にログインページへリダイレクトされ、「セッションが期限切れになりました。再度ログインしてください。」というメッセージが表示されることを確認",
         "threshold": "redirect_to_login: true"
       }
     },
@@ -462,8 +462,8 @@
       "alternativeVerification": {
         "method": "security-audit",
         "tool": "API security scanner",
-        "description": "署名付きURLの有効期限切れ時にアクセスが拒否されることを確認",
-        "threshold": "url_expiration: enforced"
+        "description": "署名付きURLの有効期限切れ時にアクセスが拒否されること、および権限を持たない要求に対してアクセス権限の検証が働き拒否されることを確認",
+        "threshold": "url_expiration: enforced, access_control: enforced"
       }
     },
     {
@@ -602,7 +602,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Vitest / utils/sentry モック",
-        "description": "一覧画面・詳細画面の catch 処理と、画像アップロードの失敗二経路（詳細画面の失敗分岐と ImageUploader の捕捉処理）が logger.exception 経由で captureException を呼ぶことを、画面の描画経路から確認する（frontend/src/__tests__/pages/SiteSurveyListPage.error-reporting.test.tsx, frontend/src/__tests__/pages/SiteSurveyDetailPage.error-reporting.test.tsx。タスク 115.84 と 115.122 で結線）",
+        "description": "一覧画面・詳細画面の catch 処理が画面へエラー表示（role=\"alert\"）を出すこと、および画像アップロードの失敗二経路（詳細画面の失敗分岐と ImageUploader の捕捉処理）を含めて logger.exception 経由で captureException を呼ぶことを、画面の描画経路から確認する（frontend/src/__tests__/pages/SiteSurveyListPage.error-reporting.test.tsx, frontend/src/__tests__/pages/SiteSurveyDetailPage.error-reporting.test.tsx。タスク 115.84 と 115.122 で結線、エラー表示の主張は 115.189 で明記）",
         "threshold": "sentry_log: sent"
       }
     },
@@ -616,7 +616,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Vitest / Unit test",
-        "description": "5件超過時に5件ずつキュー処理されることを確認",
+        "description": "5件超過時に5件ずつキュー処理され、順次アップロードが実行されることを確認",
         "threshold": "queue_batch_size: 5"
       }
     },
@@ -672,7 +672,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Vitest / Unit test",
-        "description": "操作履歴が最大50件まで保持されることを確認",
+        "description": "操作履歴が最大50件まで保持され、50件を超えたときは最古の履歴から削除されることを確認",
         "threshold": "max_history: 50"
       }
     },
@@ -686,7 +686,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Vitest / React Testing Library",
-        "description": "クリックで寸法線オブジェクトを選択できることを確認",
+        "description": "クリックで寸法線オブジェクトを選択状態にし、編集可能になることを確認",
         "threshold": "click_select: functional"
       }
     },
@@ -719,20 +719,6 @@
       }
     },
     {
-      "id": "site-survey/REQ-8.5",
-      "requirement": "REQ-8: 注釈機能 - コメント（テキスト）",
-      "title": "テキストのフォントサイズ・色・背景色のカスタマイズ",
-      "criterionText": "The Site Survey Service shall テキストのフォントサイズ・色・背景色をカスタマイズ可能にする",
-      "reason": "キャンバス上のスタイル変更はE2E範囲外。統合テストで検証",
-      "category": "infrastructure",
-      "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Vitest / React Testing Library",
-        "description": "フォントサイズを変更できることを確認",
-        "threshold": "font_size_change: functional"
-      }
-    },
-    {
       "id": "quantity-table-generation/REQ-2.5",
       "requirement": "REQ-2: 数量表の作成・管理",
       "title": "数量表名編集の即座保存",
@@ -756,7 +742,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Jest / React Testing Library",
-        "description": "数量グループ追加時に写真選択機能が提供されることを確認",
+        "description": "数量グループ追加時に、同一プロジェクトの注釈付き現場調査写真一覧（注釈エディタで編集済みの画像）から写真を選択する機能が提供されることを確認",
         "threshold": "photo_selection: available"
       }
     },
@@ -770,7 +756,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Jest / React Testing Library",
-        "description": "必須フィールド未入力時にエラーメッセージとハイライトが表示されることを確認",
+        "description": "必須フィールドである工種・名称・単位・計算方法・数量のいずれかが未入力で保存を試みたとき、該当フィールドのハイライトとエラーメッセージが表示されることを確認",
         "threshold": "validation_error: displayed"
       }
     },
@@ -807,13 +793,13 @@
       "requirement": "REQ-8: 計算方法の選択",
       "title": "非数値入力時のエラー",
       "criterionText": "If 計算方法が「標準」で数量フィールドに数値以外の文字が入力される, then the 数量表管理システム shall 入力を拒否しエラーメッセージを表示する",
-      "reason": "入力バリデーションはユニット/統合テストで検証",
-      "category": "data-integrity",
+      "reason": "要件が未実装。E2Eは要件どおりの主張を test.fail() ラチェットとして残している",
+      "category": "pending-implementation",
       "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Jest / React Testing Library",
-        "description": "数値以外の入力が拒否されエラーメッセージが表示されることを確認",
-        "threshold": "validation_error: displayed"
+        "method": "e2e-test",
+        "tool": "Playwright (test.fail() ラチェット)",
+        "description": "e2e/specs/quantity-tables/quantity-table-crud.spec.ts の「標準モードで数値以外を入力するとエラーメッセージが表示される」は、直前の確定値が保たれること（入力の拒否）とエラーメッセージの表示の双方を要件どおりに主張したまま test.fail() で既知失敗として計上している。数量欄は素の input で blur 時に parseFloat が NaN なら 0 に置き換えるだけであり、入力を拒否もエラー表示もしない（EditableQuantityItemRow）。従前この除外は「Jest / React Testing Library の統合テストで確認」と述べていたが、当該の観測を持つ統合テストは実在しない（2026-08-29 実測）。実装したのちラチェットを外して被覆済みへ移す",
+        "threshold": "quantity_non_numeric_rejected_and_error: displayed"
       }
     },
     {
@@ -826,7 +812,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Jest / React Testing Library",
-        "description": "面積・体積モードで計算用列が未入力の場合にエラーが表示されることを確認",
+        "description": "面積・体積モードで計算用列が未入力の場合にエラーメッセージが表示され、幅・奥行き・高さのうち最低1項目の入力が求められることを確認",
         "threshold": "validation_error: displayed"
       }
     },
@@ -840,7 +826,7 @@
       "alternativeVerification": {
         "method": "unit-test",
         "tool": "Jest",
-        "description": "ピッチ計算式((範囲長 - 端長1 - 端長2) / ピッチ長 + 1)で本数が計算されることを確認",
+        "description": "ピッチ計算式((範囲長 - 端長1 - 端長2) / ピッチ長 + 1)で本数が計算され、任意項目の長さ・重量が入力されている場合はそれらを乗算した結果が数量として自動設定されることを確認",
         "threshold": "calculation: pitch_formula"
       }
     },
@@ -854,7 +840,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Jest / React Testing Library",
-        "description": "ピッチモードで必須項目未入力時にエラーが表示されることを確認",
+        "description": "ピッチモードで必須項目の範囲長・端長1・端長2・ピッチ長のいずれかが未入力のときにエラーメッセージが表示され、必須項目の入力が求められることを確認",
         "threshold": "validation_error: displayed"
       }
     },
@@ -863,13 +849,13 @@
       "requirement": "REQ-9: 調整係数",
       "title": "調整係数非数値入力時のエラー",
       "criterionText": "If 調整係数フィールドに数値以外の文字が入力される, then the 数量表管理システム shall 入力を拒否しエラーメッセージを表示する",
-      "reason": "入力バリデーションはユニット/統合テストで検証",
-      "category": "data-integrity",
+      "reason": "要件が未実装。E2Eは要件どおりの主張を test.fail() ラチェットとして残している",
+      "category": "pending-implementation",
       "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Jest / React Testing Library",
-        "description": "調整係数に数値以外を入力時にエラーが表示されることを確認",
-        "threshold": "validation_error: displayed"
+        "method": "e2e-test",
+        "tool": "Playwright (test.fail() ラチェット)",
+        "description": "e2e/specs/quantity-tables/quantity-table-crud.spec.ts の「調整係数に数値以外を入力するとエラーが表示される」は、直前の確定値が保たれること（入力の拒否）とエラーメッセージの表示の双方を要件どおりに主張したまま test.fail() で既知失敗として計上している。調整係数の欄は blur 時に既定値 1.00 へ置き換えるだけであり、入力を拒否もエラー表示もしない（CalculationFields の AdjustmentField）。従前この除外は「Jest / React Testing Library の統合テストでエラーが表示されることを確認」と述べていたが、frontend/src/components/quantity-table/AdjustmentFactorInput.test.tsx が確かめているのは空文字入力時のエラーと error プロパティの表示であり、数値以外の入力の拒否は確かめていない（2026-08-29 実測）。実装したのちラチェットを外して被覆済みへ移す",
+        "threshold": "adjustment_non_numeric_rejected_and_error: displayed"
       }
     },
     {
@@ -877,13 +863,13 @@
       "requirement": "REQ-10: 丸め設定",
       "title": "丸め設定非数値入力時のエラー",
       "criterionText": "If 丸め設定フィールドに数値以外の文字が入力される, then the 数量表管理システム shall 入力を拒否しエラーメッセージを表示する",
-      "reason": "入力バリデーションはユニット/統合テストで検証",
-      "category": "data-integrity",
+      "reason": "要件が未実装。E2Eは要件どおりの主張を test.fail() ラチェットとして残している",
+      "category": "pending-implementation",
       "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Jest / React Testing Library",
-        "description": "丸め設定に数値以外を入力時にエラーが表示されることを確認",
-        "threshold": "validation_error: displayed"
+        "method": "e2e-test",
+        "tool": "Playwright (test.fail() ラチェット)",
+        "description": "e2e/specs/quantity-tables/quantity-table-crud.spec.ts の「丸め設定に数値以外を入力するとエラーが表示される」は、直前の確定値が保たれること（入力の拒否）とエラーメッセージの表示の双方を要件どおりに主張したまま test.fail() で既知失敗として計上している。丸め設定の欄は blur 時に既定値 0.01 へ置き換えるだけであり、入力を拒否もエラー表示もしない（CalculationFields）。従前この除外は「Jest / React Testing Library の統合テストでエラーが表示されることを確認」と述べていたが、当該の観測を持つ統合テストは実在しない（frontend/src/components/quantity-table/RoundingUnitInput.test.tsx にも無い。2026-08-29 実測）。実装したのちラチェットを外して被覆済みへ移す",
+        "threshold": "rounding_non_numeric_rejected_and_error: displayed"
       }
     },
     {
@@ -896,7 +882,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Jest / Prisma",
-        "description": "保存時に整合性チェックでエラーが検出された場合に保存が中断されることを確認",
+        "description": "保存時に整合性チェックでエラーが検出された場合に保存が中断され、問題箇所の修正が求められることを確認",
         "threshold": "integrity_check: enforced"
       }
     },
@@ -952,7 +938,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Jest / Supertest",
-        "description": "APIレスポンスに必要なフィールド(id, companyName等)が含まれることを確認",
+        "description": "APIレスポンスに id・companyName・address・representative・phone・fax・email・invoiceRegistrationNumber・version・createdAt・updatedAt の11フィールドがすべて含まれることを確認",
         "threshold": "fields: all_required"
       }
     },
@@ -1120,8 +1106,8 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Jest / React Testing Library",
-        "description": "明細行の削除ボタンクリックで該当行が削除されることを確認",
-        "threshold": "row_delete: functional"
+        "description": "明細行の削除ボタンクリックで該当行が削除され、合計金額が再計算されることを確認",
+        "threshold": "row_delete: functional, total_recalculated: true"
       }
     },
     {
@@ -1218,7 +1204,7 @@
       "alternativeVerification": {
         "method": "unit-test",
         "tool": "Jest",
-        "description": "Excelファイルから構造化データ（セル値）が正しく抽出されることを確認",
+        "description": "ExcelファイルからOCRを介さずデータパース（直接データ読み取り）により構造化データ（セル値）が正しく抽出されることを確認",
         "threshold": "data_extraction: functional"
       }
     },
@@ -1470,7 +1456,7 @@
       "alternativeVerification": {
         "method": "unit-test",
         "tool": "Vitest",
-        "description": "backend/src/__tests__/unit/services/survey-image.service.test.tsでマジックバイト判定ロジックを検証済み"
+        "description": "backend/src/__tests__/unit/services/survey-image.service.test.ts で、マジックバイトによる画像形式判定結果がサポート対象形式（JPEG/PNG/WEBP）であれば、拡張子と実際の形式が異なってもアップロードを許可することを検証済み"
       }
     },
     {
@@ -1483,7 +1469,7 @@
       "alternativeVerification": {
         "method": "unit-test",
         "tool": "Vitest",
-        "description": "backend/src/__tests__/unit/services/survey-image.service.test.tsでマジックバイト判定ロジックを検証済み"
+        "description": "backend/src/__tests__/unit/services/survey-image.service.test.ts で、拡張子が `.png` でも実体が JPEG ならマジックバイトにより JPEG と判定してアップロードを許可することを検証済み"
       }
     },
     {
@@ -1496,7 +1482,7 @@
       "alternativeVerification": {
         "method": "unit-test",
         "tool": "Vitest",
-        "description": "backend/src/__tests__/unit/services/survey-image.service.test.tsでマジックバイト判定ロジックを検証済み"
+        "description": "backend/src/__tests__/unit/services/survey-image.service.test.ts で、拡張子が `.jpg` でも実体が PNG ならマジックバイトにより PNG と判定してアップロードを許可することを検証済み"
       }
     },
     {
@@ -1509,7 +1495,7 @@
       "alternativeVerification": {
         "method": "unit-test",
         "tool": "Vitest",
-        "description": "backend/src/__tests__/unit/services/survey-image.service.test.tsでマジックバイト判定ロジックを検証済み"
+        "description": "backend/src/__tests__/unit/services/survey-image.service.test.ts の describe 'validateFile - extension mismatch tolerance (Requirement 21)' が、拡張子や申告MIMEと実体が食い違う場合にマジックバイトの判定結果を返してアップロードを許可することを検証している（`.png`×JPEG、`.jpg`×PNG、`.txt`×JPEG、`text/plain`×WEBP の4事例）。ただし原文が名指しする `.jpeg` 拡張子×WEBP そのものの事例は当該ファイルに無く、最も近いのは `file.txt`×`text/plain`×WEBP である（2026-08-29 実測）"
       }
     },
     {
@@ -1522,7 +1508,7 @@
       "alternativeVerification": {
         "method": "unit-test",
         "tool": "Vitest",
-        "description": "backend/src/__tests__/unit/services/survey-image.service.test.tsでマジックバイト判定ロジックを検証済み"
+        "description": "backend/src/__tests__/unit/services/survey-image.service.test.ts で、画像ファイル以外の拡張子（`.txt` `.pdf` など）でも実体がサポート対象形式なら、マジックバイトの判定結果に基づきアップロードを許可することを検証済み"
       }
     },
     {
@@ -1535,7 +1521,7 @@
       "alternativeVerification": {
         "method": "unit-test",
         "tool": "Vitest",
-        "description": "backend/src/__tests__/unit/services/survey-image.service.test.tsでマジックバイト判定ロジックを検証済み"
+        "description": "backend/src/__tests__/unit/services/survey-image.service.test.ts が、マジックバイトの判定結果がサポート対象形式（JPEG/PNG/WEBP）のいずれにも該当しない場合は拡張子に関わらずアップロードを拒否すること（`UnsupportedImageFormatError` の送出と `code`/`name`）を検証している。エラーメッセージの表示そのものは当該テストでは見ていない（表示はフロントエンド側にあり、この代替検証の範囲外である。2026-08-29 実測）"
       }
     },
     {
@@ -1548,7 +1534,7 @@
       "alternativeVerification": {
         "method": "unit-test",
         "tool": "Vitest",
-        "description": "backend/src/__tests__/unit/services/survey-image.service.test.tsでContent-Type設定を検証済み"
+        "description": "backend/src/__tests__/unit/services/survey-image.service.test.ts で、アップロードされたファイルの Content-Type がマジックバイトによる実際の画像形式に基づいて設定されることを検証済み"
       }
     },
     {
@@ -1561,7 +1547,7 @@
       "alternativeVerification": {
         "method": "unit-test",
         "tool": "Vitest",
-        "description": "backend/src/__tests__/unit/services/survey-image.service.test.tsでバリデーション方式を検証済み"
+        "description": "backend/src/__tests__/unit/services/survey-image.service.test.ts で、拡張子ベースのバリデーションを行わず、マジックバイトによる画像形式判定のみでファイル形式の可否を決定していることを検証済み"
       }
     },
     {
@@ -1600,7 +1586,7 @@
       "alternativeVerification": {
         "method": "visual-regression",
         "tool": "Storybook + Chromatic 等",
-        "description": "スタイルレビューおよび視覚的回帰検証"
+        "description": "見積項目テーブルの名称・規格・単位・数量・単価・金額・備考の各列のテキストサイズが数量表の対応列と同じ設定であることを、スタイルレビューと視覚的回帰検証で確認"
       }
     },
     {
@@ -1639,7 +1625,7 @@
       "alternativeVerification": {
         "method": "visual-regression",
         "tool": "Storybook + Chromatic 等",
-        "description": "スタイルレビューおよび視覚的回帰検証"
+        "description": "テキストボックスの入力領域を最大化するためにセルの余白とパディングが削減されていることを、スタイルレビューと視覚的回帰検証で確認"
       }
     },
     {
@@ -1652,7 +1638,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Vitest + Supertest",
-        "description": "エラー応答とUI状態保持を検証"
+        "description": "並び順の保存でエラーが発生した際に、エラーメッセージが表示され元の並び順が保持されることを検証"
       }
     },
     {
@@ -1717,7 +1703,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Vitest + Canvas/PDF mocking",
-        "description": "PDF生成ロジックを検証"
+        "description": "数量グループのセクションに数量グループ名・紐づけられた注釈付き写真・写真コメント・数量項目一覧が出力されることを、PDF生成の統合テストで検証"
       }
     },
     {
@@ -1743,7 +1729,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Vitest + Canvas/PDF mocking",
-        "description": "PDF生成ロジックを検証"
+        "description": "数量グループに写真が紐づけられていない場合に、写真・コメントセクションを省略して数量項目一覧のみが出力されることを、PDF生成の統合テストで検証"
       }
     },
     {
@@ -1756,7 +1742,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Vitest + Canvas/PDF mocking",
-        "description": "PDF生成ロジックを検証"
+        "description": "数量項目一覧が大項目・中項目・小項目・任意分類・工種・名称・規格・計算方法・数量・単位・備考の各列を持つテーブル形式で出力されることを、PDF生成の統合テストで検証"
       }
     },
     {
@@ -1925,7 +1911,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Vitest",
-        "description": "外部API/ライブラリ依存のため統合テストで検証"
+        "description": "抽出結果のテキストがユーザーによる選択・コピーが可能な状態で表示されることを、統合テストで検証"
       }
     },
     {
@@ -2003,7 +1989,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Vitest",
-        "description": "外部API/ライブラリ依存のため統合テストで検証"
+        "description": "Claude APIのレスポンスから抽出したJSON形式の表データが、大項目・中項目・小項目・任意分類・工種・名称・規格・数量・単位・備考の各数量項目フィールドへマッピングされることを、統合テストで検証"
       }
     },
     {
@@ -2095,7 +2081,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Jest / Vitest with mock",
-        "description": "Excel出力処理が失敗した場合にエラーメッセージが表示されることを確認",
+        "description": "Excel出力処理が失敗した場合にエラーメッセージが表示され、ユーザーに再試行が促されることを確認",
         "threshold": "error_message: displayed"
       }
     },
@@ -2109,7 +2095,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Jest / Vitest with mock",
-        "description": "PDF出力処理が失敗した場合にエラーメッセージが表示されることを確認",
+        "description": "PDF出力処理が失敗した場合にエラーメッセージが表示され、ユーザーに再試行が促されることを確認",
         "threshold": "error_message: displayed"
       }
     },
@@ -2244,7 +2230,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Vitest + Supertest",
-        "description": "楽観的排他制御エラー応答を検証"
+        "description": "他のユーザーが同じ実行予算を同時に更新していた場合に、競合エラーメッセージが表示され、最新データの再取得が促されることを検証"
       }
     },
     {
@@ -2296,7 +2282,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Vitest + Prisma",
-        "description": "案分金額クリアを検証"
+        "description": "発注取消の確定により、案分済みの各項目の発注金額がクリアされ、ステータスが「発注取消」へ変更されることを検証"
       }
     },
     {
@@ -2348,7 +2334,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Vitest",
-        "description": "累計支出の計算ロジックを検証"
+        "description": "今月の支出入力時に累計支出（先月までの支出＋今月の支出）が自動計算され、更新されることを検証"
       }
     },
     {
@@ -2361,7 +2347,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Vitest",
-        "description": "残予算の計算ロジックを検証"
+        "description": "各項目の実行金額と累計支出の差額（残予算）が自動計算され、表示されることを検証"
       }
     },
     {
@@ -2387,7 +2373,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Vitest + Prisma",
-        "description": "重複締め防止のDB状態を検証"
+        "description": "同一月に既に月次締めが実行済みの場合に重複締めが阻止され、当該月は既に締め済みである旨のエラーメッセージが表示されることを検証"
       }
     },
     {
@@ -2400,7 +2386,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Vitest",
-        "description": "変更削除フラグ判定ロジックを検証"
+        "description": "発注済みまたは出来高入力済みの削除対象項目を削除せず、「変更削除」ステータスを付与して一覧に残すことを検証"
       }
     },
     {
@@ -2426,7 +2412,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Vitest + Prisma",
-        "description": "履歴レコード保存を検証"
+        "description": "変更反映の履歴として適用日時と変更契約名が記録されることを検証"
       }
     },
     {
@@ -2649,7 +2635,7 @@
       "alternativeVerification": {
         "method": "e2e-network-monitor",
         "tool": "Playwright",
-        "description": "client-side-edit-explicit-save-e2e.spec.ts で参照系GETを許可しつつ永続化書き込み(POST/PUT/PATCH/DELETE)のみ禁止することをリクエスト監視で確認",
+        "description": "参照系データ取得を本要件の制約対象外として扱うことを確認する。編集画面初回表示のデータ読み込み・オートコンプリート候補取得・写真コメント取得・現場調査写真一覧取得は client-side-edit-explicit-save-e2e.spec.ts が、インポート時のファイル読み込み・OCR/データパース処理は import-e2e.spec.ts が、それぞれ参照系GETを許可しつつ永続化書き込み(POST/PUT/PATCH/DELETE)のみ禁止することをリクエスト監視で確認する",
         "threshold": "reference_reads: allowed"
       }
     },
@@ -2836,13 +2822,13 @@
     }
   },
   "summary": {
-    "totalExclusions": 206,
+    "totalExclusions": 205,
     "byCategory": {
-      "data-integrity": 34,
+      "data-integrity": 31,
       "fault-tolerance": 14,
-      "infrastructure": 57,
+      "infrastructure": 56,
       "integration-test": 66,
-      "pending-implementation": 11,
+      "pending-implementation": 14,
       "performance": 19,
       "security": 5
     },

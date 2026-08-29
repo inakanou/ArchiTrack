@@ -25,9 +25,12 @@ import type {
 import {
   E2E_SPECS_DIR,
   EXCLUSIONS_PATH,
+  checkAlternativeCoverage,
   checkCoverageTagCoexistence,
   checkCriterionCorrespondence,
+  extractEnumeratedElements,
   loadRequirementCatalogue,
+  namesElement,
   run,
   scanCoverageTags,
 } from './check-requirement-exclusions.js';
@@ -219,6 +222,50 @@ function pointEntryAtRetired(entry: Json, criterionId: string): void {
   entry.id = criterionId;
   entry.requirement = `${requirementId}: ${title}`;
   entry.criterionText = criterionText;
+}
+
+/**
+ * 原文が中黒で複数の要素を列挙している除外（代替検証の被覆範囲の対照で使う）
+ *
+ * 変異は「掲げた代替検証から、原文が並べた要素を一つ落とす」形で入れる。
+ * 実データがこの前提（列挙が二つ以上あり、その全てを代替検証が述べている）を
+ * 満たさなくなれば `enumeratedElementsOf` が送出し、対照は静かに空振りせず落ちる。
+ */
+const ENUMERATION_PROBE_ID = 'quantity-table-generation/REQ-26.7';
+
+/** 原文に中黒の列挙が無い除外（列挙が無ければ判定しない、という限界を固定する） */
+const NO_ENUMERATION_PROBE_ID = 'estimate-request/REQ-14.5';
+
+/** 代替検証の全ての文字列（検査が照合する相手と同じ範囲） */
+function alternativeTextOf(entry: Json): string {
+  return Object.values(altOf(entry))
+    .filter((value): value is string => typeof value === 'string')
+    .join('\n');
+}
+
+/**
+ * 除外の原文が列挙する要素を取り出す（前提が崩れていれば送出する）
+ *
+ * `expectEnumerated` が false のときは「列挙を持たない」ことの方を前提として確かめる。
+ */
+function enumeratedElementsOf(entry: Json, expectEnumerated: boolean): string[] {
+  const elements = extractEnumeratedElements(entry.criterionText as string);
+  if (expectEnumerated && elements.length < 2) {
+    throw new Error(`前提: ${entry.id as string} の原文が中黒で二つ以上を列挙していない`);
+  }
+  if (!expectEnumerated && elements.length > 0) {
+    throw new Error(`前提: ${entry.id as string} の原文が中黒の列挙を持ってしまっている`);
+  }
+  if (expectEnumerated) {
+    const text = alternativeTextOf(entry);
+    const unnamed = elements.filter((element) => !namesElement(element, text));
+    if (unnamed.length > 0) {
+      throw new Error(
+        `前提: ${entry.id as string} の代替検証が既に「${unnamed.join('・')}」を述べていない（変異前から違反している）`
+      );
+    }
+  }
+  return elements;
 }
 
 /** 除外を1件取り除き、集計もそれに合わせて整える（壊したい一点だけを壊す） */
@@ -565,6 +612,62 @@ const MUST_REJECT: Case[] = [
     mustReject: true,
     expectCheck: 'coverage-tag-coexistence',
   },
+
+  // --------------------------------------------------------------------
+  // 代替検証が受入基準を覆う範囲（タスク 115.189 で追加）
+  //
+  // 除外は受入基準を丸ごと分母から外す。掲げた代替検証が原文の一部しか述べて
+  // いなければ、述べられていない要素はどの指標にも現れない。実データにあった
+  // 食い違い（site-survey/REQ-8.5 の「色・背景色」の欠落ほか13件）は、
+  // まさにこの形で入り込んでいた。
+  // --------------------------------------------------------------------
+  {
+    // 一要素だけを落とす。除外の他の欄には触れないため、立つ違反はこれだけである。
+    name: '代替検証が原文の列挙のうち一要素を述べていない（部分被覆）',
+    mutate: (d) => {
+      const entry = entryById(d, ENUMERATION_PROBE_ID);
+      const dropped = enumeratedElementsOf(entry, true)[0] as string;
+      const alternative = altOf(entry);
+      for (const [key, value] of Object.entries(alternative)) {
+        if (typeof value === 'string') alternative[key] = value.split(dropped).join('');
+      }
+      if (alternativeTextOf(entry).includes(dropped)) {
+        throw new Error(`変異が効いていない: 「${dropped}」が代替検証に残っている`);
+      }
+    },
+    mustReject: true,
+    expectCheck: 'alternative-coverage',
+  },
+  {
+    name: '代替検証の説明が総称だけで原文の列挙を一つも述べていない',
+    mutate: (d) => {
+      const entry = entryById(d, ENUMERATION_PROBE_ID);
+      enumeratedElementsOf(entry, true);
+      const alternative = altOf(entry);
+      alternative.description = 'PDF生成ロジックを検証';
+      alternative.tool = 'Vitest';
+      delete alternative.threshold;
+    },
+    mustReject: true,
+    expectCheck: 'alternative-coverage',
+  },
+  {
+    // 題（title）が原文を写していても、約束の側が述べていなければ覆えていない。
+    // 実データの site-survey/REQ-8.5 がまさにこの形だった
+    // （題は「フォントサイズ・色・背景色のカスタマイズ」、説明は「フォントサイズ」だけ）。
+    name: '題だけが原文の列挙を写し、代替検証は一要素しか述べていない',
+    mutate: (d) => {
+      const entry = entryById(d, ENUMERATION_PROBE_ID);
+      const elements = enumeratedElementsOf(entry, true);
+      entry.title = elements.join('・');
+      const alternative = altOf(entry);
+      alternative.description = `${elements[0] as string}を検証`;
+      alternative.tool = 'Vitest';
+      delete alternative.threshold;
+    },
+    mustReject: true,
+    expectCheck: 'alternative-coverage',
+  },
 ];
 
 // ============================================================================
@@ -609,6 +712,30 @@ const MUST_ACCEPT: Case[] = [
     name: '除外を1件減らし集計もそろえた定義',
     mutate: (d) => {
       dropOneEntry(d, 0);
+    },
+    mustReject: false,
+  },
+  {
+    // 機構の限界をそのまま固定する。原文が中黒で列挙していなければ、説明が総称でも
+    // この検査は何も言わない（連言「〜を表示し、〜を促す」の部分被覆は機構では決まらない）。
+    // 緩めた覚えのない側を後から緩めると、この陰性対照ではなく陽性対照が落ちる。
+    name: '原文に中黒の列挙が無ければ代替検証の総称を弾かない（機構の限界）',
+    mutate: (d) => {
+      const entry = entryById(d, NO_ENUMERATION_PROBE_ID);
+      enumeratedElementsOf(entry, false);
+      altOf(entry).description = 'ロジックを検証';
+    },
+    mustReject: false,
+  },
+  {
+    // 要素を閾値の欄で述べている除外は実在する。説明の欄だけを見ると誤検出になる。
+    name: '原文の列挙を閾値の欄で述べていても通す',
+    mutate: (d) => {
+      const entry = entryById(d, ENUMERATION_PROBE_ID);
+      const elements = enumeratedElementsOf(entry, true);
+      const alternative = altOf(entry);
+      alternative.description = 'PDF生成ロジックを検証';
+      alternative.threshold = `columns: ${elements.join('・')}`;
     },
     mustReject: false,
   },
@@ -768,6 +895,137 @@ const MECHANISM_CASES: MechanismCase[] = [
         failures.push('ひとまとまりの宣言（ファイル冒頭の一覧など）を一件も判別できていない');
       }
       return failures;
+    },
+  },
+
+  // --------------------------------------------------------------------
+  // 代替検証の被覆範囲の判定そのもの（タスク 115.189）
+  //
+  // 上の陽性対照は `run()` を通すため、列挙の切り出しが壊れて常に空を返しても
+  // 「実物が通る」という陰性対照だけは成立してしまう。切り出しと照合の規則を
+  // 直接固定し、併せて実データで空振りしていないことを主張する。
+  // --------------------------------------------------------------------
+  {
+    name: '中黒の列挙を項目へ切り出す（助詞・活用語尾で止める）',
+    run: () => {
+      const failures: string[] = [];
+      const expectations: Array<{ text: string; expected: string[] }> = [
+        {
+          text: 'The Site Survey Service shall テキストのフォントサイズ・色・背景色をカスタマイズ可能にする',
+          expected: ['フォントサイズ', '色', '背景色'],
+        },
+        {
+          // 短い括弧書きの注記は項目の切り出しの前に落とす
+          text: 'then the 数量表管理システム shall エラーメッセージを表示し、幅(W)・奥行き(D)・高さ(H)のうち最低1項目の入力を求める',
+          expected: ['幅', '奥行き', '高さ'],
+        },
+        {
+          // 活用語尾（し・て）で止めないと左端が「対して削除」まで伸びる
+          text: 'the 数量表管理システム shall 選択された全ての項目に対して削除・コピー・移動操作を実行する',
+          expected: ['削除', 'コピー', '移動操作'],
+        },
+        {
+          text: 'The システム shall 受領見積書の削除時に論理削除を行う',
+          expected: [],
+        },
+      ];
+      for (const { text, expected } of expectations) {
+        const actual = extractEnumeratedElements(text);
+        if (actual.join('|') !== expected.join('|')) {
+          failures.push(`切り出しがずれた: [${actual.join('|')}]（期待 [${expected.join('|')}]）`);
+        }
+      }
+      return failures;
+    },
+  },
+  {
+    name: '末尾の一般名詞を落とした形でも名指しとみなす（移動操作 と 移動）',
+    run: () => {
+      const failures: string[] = [];
+      if (!namesElement('移動操作', '一括削除・コピー・移動が正しく動作することを確認')) {
+        failures.push('「移動操作」を「移動」で名指ししていると判定できていない');
+      }
+      if (namesElement('移動操作', '削除とコピーだけを確認')) {
+        failures.push('述べていない要素を名指しと誤判定した');
+      }
+      return failures;
+    },
+  },
+  {
+    name: '照合する相手は代替検証の全欄であり、題と理由は含めない',
+    run: () => {
+      const failures: string[] = [];
+      const criterionText = 'The システム shall フォントサイズ・色・背景色をカスタマイズ可能にする';
+
+      const inThreshold = checkAlternativeCoverage({
+        exclusions: [
+          {
+            id: 'x/REQ-1.1',
+            criterionText,
+            alternativeVerification: {
+              method: 'unit-test',
+              tool: 'Vitest',
+              description: 'フォントサイズを変更できることを確認',
+              threshold: 'style: 色・背景色',
+            },
+          },
+        ],
+      });
+      if (inThreshold.length !== 0) {
+        failures.push(`閾値の欄で述べた要素を欠落と誤断した（${inThreshold.length}件）`);
+      }
+
+      const inTitleOnly = checkAlternativeCoverage({
+        exclusions: [
+          {
+            id: 'x/REQ-1.1',
+            title: 'フォントサイズ・色・背景色のカスタマイズ',
+            reason: '色と背景色は別途確認する',
+            criterionText,
+            alternativeVerification: {
+              method: 'unit-test',
+              tool: 'Vitest',
+              description: 'フォントサイズを変更できることを確認',
+            },
+          },
+        ],
+      });
+      if (inTitleOnly.length !== 1) {
+        failures.push(
+          `題と理由だけが述べている状態を通した（${inTitleOnly.length}件。1件であるべき）`
+        );
+      }
+
+      const noEnumeration = checkAlternativeCoverage({
+        exclusions: [
+          {
+            id: 'x/REQ-1.2',
+            criterionText: 'The システム shall 受領見積書の削除時に論理削除を行う',
+            alternativeVerification: { method: 'unit-test', tool: 'Vitest', description: '検証' },
+          },
+        ],
+      });
+      if (noEnumeration.length !== 0) {
+        failures.push(`列挙が無い原文に対して ${noEnumeration.length} 件を挙げた`);
+      }
+      return failures;
+    },
+  },
+  {
+    // 判定が実データに当たっていること。列挙を持つ除外が一件も読めていなければ、
+    // この検査は在るだけで何も見ていない。
+    name: '実データに列挙を持つ除外があり判定が空振りしていない',
+    run: () => {
+      const document = JSON.parse(fs.readFileSync(REAL_EXCLUSIONS, 'utf-8')) as Json;
+      const withEnumeration = entries(document).filter(
+        (entry) => extractEnumeratedElements(entry.criterionText as string).length >= 2
+      );
+      if (withEnumeration.length < 10) {
+        return [
+          `中黒で二つ以上を列挙する原文を持つ除外が ${withEnumeration.length} 件しか読めていない（走査が壊れている疑い）`,
+        ];
+      }
+      return [];
     },
   },
 ];
