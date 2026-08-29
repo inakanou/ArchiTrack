@@ -25,15 +25,18 @@ import type {
 import {
   E2E_SPECS_DIR,
   EXCLUSIONS_PATH,
+  SPECS_DIR,
   checkAlternativeCoverage,
   checkCoverageTagCoexistence,
   checkCriterionCorrespondence,
+  discoverFeatureNames,
   extractEnumeratedElements,
   loadRequirementCatalogue,
   namesElement,
   run,
   scanCoverageTags,
 } from './check-requirement-exclusions.js';
+import { extractRequirements } from './check-requirement-coverage.js';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(SCRIPTS_DIR, '..');
@@ -742,6 +745,211 @@ const MUST_ACCEPT: Case[] = [
 ];
 
 // ============================================================================
+// 要件定義書の抽出規則が一箇所にしか無いことを見る（機構の固定・タスク 115.190）
+// ============================================================================
+
+/** 抽出規則を持つ唯一のモジュール */
+const SHARED_SCANNER_BASENAME = 'requirement-document.ts';
+
+/** 抽出規則を「使う」だけであって「持って」はならないスクリプト */
+const EXTRACTION_RULE_CONSUMERS = [
+  'check-requirement-coverage.ts',
+  'check-requirement-exclusions.ts',
+] as const;
+
+/**
+ * 抽出規則そのものを表す断片
+ *
+ * これらが消費側のソースに現れたら、規則の複製が戻っている。散文の中の「受入基準」では
+ * 当たらないよう、引用符ごと・正規表現リテラルごとの形で持つ。
+ */
+const EXTRACTION_RULE_FRAGMENTS = [
+  String.raw`/^###\s*要件(\d+[A-E]?):\s*(.*)$/`,
+  String.raw`/^###\s*Requirement\s+(\d+[A-E]?):\s*(.*)$/`,
+  String.raw`/^(\d+)\.\s+(.+)$/`,
+  String.raw`/^(\d+)[a-z]\.\s+(.+)$/`,
+  "'#### 受入基準'",
+  "'##### 受入基準'",
+  "'#### Acceptance Criteria'",
+  ".startsWith('~~')",
+] as const;
+
+/** 抽出器の出力を、両者で比べられる素の形へ落としたもの */
+interface ExtractionShape {
+  /** `REQ-N.M` の並び（墓標には `(墓標)` を添える） */
+  criteria: string[];
+  /** `REQ-N='題'` の並び */
+  titles: string[];
+  /** 例外になった場合はその文言 */
+  thrown?: string;
+}
+
+function shapeOf(body: () => Omit<ExtractionShape, 'thrown'>): ExtractionShape {
+  try {
+    return body();
+  } catch (error) {
+    return { criteria: [], titles: [], thrown: (error as Error).message };
+  }
+}
+
+/** 同じ要件定義書を、被覆率側と除外側の双方で読む */
+function extractedPairFor(feature: string, rootDir = ROOT): [ExtractionShape, ExtractionShape] {
+  const filePath = path.join(rootDir, SPECS_DIR, feature, 'requirements.md');
+  const fromCoverage = shapeOf(() => {
+    const requirements = extractRequirements(feature, filePath);
+    return {
+      criteria: requirements.flatMap((requirement) => [
+        ...requirement.acceptanceCriteria.map(
+          (criterion) => `${requirement.id}.${criterion.number}`
+        ),
+        ...requirement.retiredAcceptanceCriteria.map(
+          (criterion) => `${requirement.id}.${criterion.number}(墓標)`
+        ),
+      ]),
+      titles: requirements.map((requirement) => `${requirement.id}='${requirement.title}'`),
+    };
+  });
+  const fromExclusions = shapeOf(() => {
+    const catalogue = loadRequirementCatalogue(feature, rootDir);
+    return {
+      criteria: [
+        ...catalogue.criteria.keys(),
+        ...[...catalogue.retiredCriteria.keys()].map((id) => `${id}(墓標)`),
+      ],
+      titles: [...catalogue.requirementTitles.entries()].map(([id, title]) => `${id}='${title}'`),
+    };
+  });
+  return [fromCoverage, fromExclusions];
+}
+
+/** 二つの抽出結果の食い違いを挙げる（順序も含めて比べる） */
+function diffExtraction(
+  label: string,
+  fromCoverage: ExtractionShape,
+  fromExclusions: ExtractionShape
+): string[] {
+  const failures: string[] = [];
+  if (fromCoverage.thrown !== fromExclusions.thrown) {
+    failures.push(
+      `${label}: 例外の有無が食い違う（被覆率側 ${fromCoverage.thrown ?? 'なし'} / 除外側 ${fromExclusions.thrown ?? 'なし'}）`
+    );
+    return failures;
+  }
+  const criteriaDiff = [
+    ...fromCoverage.criteria.filter((id) => !fromExclusions.criteria.includes(id)),
+    ...fromExclusions.criteria.filter((id) => !fromCoverage.criteria.includes(id)),
+  ];
+  if (criteriaDiff.length > 0 || fromCoverage.criteria.length !== fromExclusions.criteria.length) {
+    failures.push(
+      `${label}: 受入基準の集合が食い違う（被覆率側 ${fromCoverage.criteria.length} 件 / 除外側 ${fromExclusions.criteria.length} 件${criteriaDiff.length > 0 ? ` / 片側にしか無い: ${criteriaDiff.slice(0, 5).join(', ')}` : ''}）`
+    );
+  }
+  const titleDiff = [
+    ...fromCoverage.titles.filter((title) => !fromExclusions.titles.includes(title)),
+    ...fromExclusions.titles.filter((title) => !fromCoverage.titles.includes(title)),
+  ];
+  if (titleDiff.length > 0 || fromCoverage.titles.length !== fromExclusions.titles.length) {
+    failures.push(
+      `${label}: 要件の題が食い違う（${titleDiff.slice(0, 5).join(' / ') || '件数のみ'}）`
+    );
+  }
+  return failures;
+}
+
+/** 合成の要件定義書を一時ディレクトリへ置いて、両抽出器へ同じものを与える */
+function withRequirementsDocument(
+  document: string,
+  body: (rootDir: string, feature: string) => void
+): void {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'req-extract-'));
+  try {
+    const feature = 'probe';
+    const dir = path.join(rootDir, SPECS_DIR, feature);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'requirements.md'), document, 'utf-8');
+    body(rootDir, feature);
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * 際どい書式の資料
+ *
+ * いずれもタスク 115.190 で実測した「かつて両抽出器が食い違っていた形」である。
+ * 実データには現れないため、実物を流すだけでは食い違いを検出できない。
+ */
+const EXTRACTION_PROBES: ReadonlyArray<{
+  name: string;
+  document: string;
+  expectCriteria: string[];
+  mustThrow?: boolean;
+}> = [
+  {
+    // かつて: 被覆率側は parseInt で REQ-1.5、除外側は生の文字で REQ-1.05
+    name: '番号のゼロ詰め（05.）は十進で正規化する',
+    document: ['### 要件1: 題', '', '#### 受入基準', '', '1. あ', '05. い', ''].join('\n'),
+    expectCriteria: ['REQ-1.1', 'REQ-1.5'],
+  },
+  {
+    // かつて: 被覆率側は truthy 判定でヘッダーを読み落とし、続く受入基準を直前の要件へ付け替えた
+    name: '題が空の要件ヘッダーも要件として読む',
+    document: [
+      '### 要件1: 題',
+      '',
+      '#### 受入基準',
+      '',
+      '1. あ',
+      '',
+      '### 要件2:',
+      '',
+      '#### 受入基準',
+      '',
+      '1. い',
+      '',
+    ].join('\n'),
+    expectCriteria: ['REQ-1.1', 'REQ-2.1'],
+  },
+  {
+    name: '枝つき番号（1a.）は受入基準として読まない',
+    document: ['### 要件1: 題', '', '#### 受入基準', '', '1. あ', '1a. い', ''].join('\n'),
+    expectCriteria: ['REQ-1.1'],
+  },
+  {
+    name: '取り消し線の受入基準は墓標として分ける',
+    document: ['### 要件1: 題', '', '#### 受入基準', '', '1. ~~あ~~', '2. い', ''].join('\n'),
+    expectCriteria: ['REQ-1.2', 'REQ-1.1(墓標)'],
+  },
+  {
+    // かつて: 被覆率側は二件とも分母へ積み（水増し）、除外側は後勝ちで一件に潰した（黙って欠落）
+    name: '受入基準の番号が重複する要件定義書は赤くする（第3原則）',
+    document: ['### 要件1: 題', '', '#### 受入基準', '', '1. あ', '1. い', ''].join('\n'),
+    expectCriteria: [],
+    mustThrow: true,
+  },
+  {
+    // かつて: 被覆率側は二件の要件として並べ、除外側は題を上書きした
+    name: '要件番号が重複する要件定義書は赤くする（第3原則）',
+    document: [
+      '### 要件1: 題A',
+      '',
+      '#### 受入基準',
+      '',
+      '1. あ',
+      '',
+      '### 要件1: 題B',
+      '',
+      '#### 受入基準',
+      '',
+      '2. い',
+      '',
+    ].join('\n'),
+    expectCriteria: [],
+    mustThrow: true,
+  },
+];
+
+// ============================================================================
 // 同居の判定そのものを見る（機構の固定）
 // ============================================================================
 //
@@ -1026,6 +1234,103 @@ const MECHANISM_CASES: MechanismCase[] = [
         ];
       }
       return [];
+    },
+  },
+  // --------------------------------------------------------------------------
+  // 要件定義書の抽出規則が一箇所にしか無いこと（タスク 115.190）
+  // --------------------------------------------------------------------------
+  //
+  // 除外が指す単位（loadRequirementCatalogue）と被覆率が数える単位
+  // （check-requirement-coverage.ts の extractRequirements）は同一でなければならない。
+  // かつて両者は規則を各自に写し取っており、片方だけを変えても
+  // check:req-exclusions / :selftest / check:req-coverage:selftest / type-check / lint は
+  // すべて通った（タスク 115.190 で実測）。規則は scripts/requirement-document.ts へ
+  // 集約したため、以下の三つで「集約が保たれていること」と「両者の出力が一致すること」を固定する。
+  {
+    name: '抽出規則の複製が二箇所へ戻っていない（共有モジュールが唯一の担い手である）',
+    run: () => {
+      const failures: string[] = [];
+      const shared = fs.readFileSync(path.join(SCRIPTS_DIR, SHARED_SCANNER_BASENAME), 'utf-8');
+      // 前提が崩れたら黙って素通りさせない（AI運用7原則 第3原則）。
+      // 断片が共有モジュールから消えていれば、以下の「消費側に無い」は自明に成り立ってしまう。
+      const missing = EXTRACTION_RULE_FRAGMENTS.filter((fragment) => !shared.includes(fragment));
+      if (missing.length > 0) {
+        return [
+          `共有モジュール ${SHARED_SCANNER_BASENAME} に抽出規則が見当たらない（対照が空振りしている）: ${missing.join(' / ')}`,
+        ];
+      }
+      for (const basename of EXTRACTION_RULE_CONSUMERS) {
+        const source = fs.readFileSync(path.join(SCRIPTS_DIR, basename), 'utf-8');
+        if (!source.includes(`from './${SHARED_SCANNER_BASENAME.replace(/\.ts$/, '.js')}'`)) {
+          failures.push(`${basename} が ${SHARED_SCANNER_BASENAME} を取り込んでいない`);
+        }
+        const copied = EXTRACTION_RULE_FRAGMENTS.filter((fragment) => source.includes(fragment));
+        if (copied.length > 0) {
+          failures.push(`${basename} に抽出規則の複製が戻っている: ${copied.join(' / ')}`);
+        }
+      }
+      return failures;
+    },
+  },
+  {
+    name: '両抽出器が実データで同じ受入基準・同じ題を返す',
+    run: () => {
+      const failures: string[] = [];
+      const features = discoverFeatureNames(ROOT);
+      if (features.length === 0) {
+        return ['機能が一件も見つからない（対照が空振りしている）'];
+      }
+      let compared = 0;
+      for (const feature of features) {
+        const [fromCoverage, fromExclusions] = extractedPairFor(feature);
+        compared += fromCoverage.criteria.length;
+        // 双方が同じ例外を投げる場合、食い違いは無いが実データが読めていない。
+        // 「一致した」で済ませると、要件定義書の番号の重複が黙って通る（AI運用7原則 第3原則）。
+        if (fromCoverage.thrown !== undefined || fromExclusions.thrown !== undefined) {
+          failures.push(
+            `${feature}: 実データの読み取りが例外になった（${fromCoverage.thrown ?? fromExclusions.thrown}）`
+          );
+          continue;
+        }
+        failures.push(...diffExtraction(feature, fromCoverage, fromExclusions));
+      }
+      if (compared === 0) {
+        return ['受入基準が一件も読めていない（対照が空振りしている）'];
+      }
+      return failures;
+    },
+  },
+  {
+    name: '両抽出器が際どい書式でも一致する（ゼロ詰め・空の題・枝つき番号・墓標・重複）',
+    run: () => {
+      const failures: string[] = [];
+      for (const probe of EXTRACTION_PROBES) {
+        withRequirementsDocument(probe.document, (root, feature) => {
+          const [fromCoverage, fromExclusions] = extractedPairFor(feature, root);
+          failures.push(...diffExtraction(probe.name, fromCoverage, fromExclusions));
+          if (probe.mustThrow) {
+            if (!fromCoverage.thrown || !fromExclusions.thrown) {
+              failures.push(
+                `${probe.name}: 番号の重複を黙って通した（被覆率側 thrown=${fromCoverage.thrown} / 除外側 thrown=${fromExclusions.thrown}）`
+              );
+            }
+            return;
+          }
+          if (fromCoverage.thrown ?? fromExclusions.thrown) {
+            failures.push(
+              `${probe.name}: 読めるはずの文書で例外になった（${fromCoverage.thrown ?? fromExclusions.thrown}）`
+            );
+            return;
+          }
+          const actual = fromCoverage.criteria.join(', ');
+          if (actual !== probe.expectCriteria.join(', ')) {
+            failures.push(
+              `${probe.name}: 受入基準が期待と違う（期待 [${probe.expectCriteria.join(', ')}] / 実際 [${actual}]）`
+            );
+          }
+        });
+      }
+      return failures;
     },
   },
 ];

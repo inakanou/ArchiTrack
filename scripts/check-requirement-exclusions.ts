@@ -98,8 +98,8 @@ import { fileURLToPath } from 'url';
 import {
   buildInlineTagPatterns,
   extractHeaderScopedCoverage,
-  isRetiredCriterionText,
 } from './check-requirement-coverage.js';
+import { scanRequirementsDocument } from './requirement-document.js';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(SCRIPTS_DIR, '..');
@@ -433,9 +433,12 @@ export function discoverFeatureNames(rootDir = ROOT): string[] {
 /**
  * 要件定義書から要件の題と受入基準の本文を読み取る
  *
- * 受入基準の切り出し規則は scripts/check-requirement-coverage.ts の extractRequirements と
- * 同一にする。被覆率が分母として数える単位と、除外が指す単位がずれると、この照合自体が
- * 別のものを見ることになる。
+ * **切り出しの規則そのものは持たない。** scripts/requirement-document.ts の
+ * scanRequirementsDocument が唯一の担い手であり、ここは読み取った結果を
+ * 目録（Map）の形へ移し替えるだけである。被覆率側（scripts/check-requirement-coverage.ts の
+ * extractRequirements）も同じ担い手を使う。両者が別々に規則を持つと、被覆率が分母として
+ * 数える単位と除外が指す単位がずれ、この照合自体が別のものを見ることになる。
+ * 二箇所への複製が戻っていないことは自己検査（機構の固定）が機械で確かめる。
  */
 export function loadRequirementCatalogue(
   featureName: string,
@@ -450,53 +453,16 @@ export function loadRequirementCatalogue(
   };
   if (!catalogue.present) return catalogue;
 
-  const requirementRegexJa = /^###\s*要件(\d+[A-E]?):\s*(.*)$/;
-  const requirementRegexEn = /^###\s*Requirement\s+(\d+[A-E]?):\s*(.*)$/;
-  const acceptanceCriteriaRegex = /^(\d+)\.\s+(.+)$/;
-
-  let currentId: string | null = null;
-  let inAcceptanceCriteria = false;
-
-  for (const line of fs.readFileSync(filePath, 'utf-8').split('\n')) {
-    const requirementMatch = requirementRegexJa.exec(line) ?? requirementRegexEn.exec(line);
-    if (requirementMatch?.[1] !== undefined && requirementMatch[2] !== undefined) {
-      currentId = `REQ-${requirementMatch[1]}`;
-      catalogue.requirementTitles.set(currentId, requirementMatch[2].trim());
-      inAcceptanceCriteria = false;
-      continue;
+  for (const requirement of scanRequirementsDocument(
+    fs.readFileSync(filePath, 'utf-8'),
+    filePath
+  )) {
+    catalogue.requirementTitles.set(requirement.id, requirement.title);
+    for (const criterion of requirement.criteria) {
+      catalogue.criteria.set(`${requirement.id}.${criterion.number}`, criterion.text);
     }
-
-    if (
-      line.includes('#### 受入基準') ||
-      line.includes('##### 受入基準') ||
-      line.includes('#### Acceptance Criteria')
-    ) {
-      inAcceptanceCriteria = true;
-      continue;
-    }
-
-    if (line.startsWith('###') && !line.startsWith('#####') && !line.includes('受入基準')) {
-      if (line.startsWith('### 要件') || line.startsWith('### Requirement')) {
-        // 次の反復で要件ヘッダーとして処理する
-      } else if (line.startsWith('####') && !line.startsWith('#####')) {
-        inAcceptanceCriteria = false;
-        continue;
-      }
-    }
-
-    if (currentId !== null && inAcceptanceCriteria) {
-      const criterionMatch = acceptanceCriteriaRegex.exec(line);
-      if (criterionMatch?.[1] !== undefined && criterionMatch[2] !== undefined) {
-        const text = criterionMatch[2].trim();
-        const criterionId = `${currentId}.${criterionMatch[1]}`;
-        // 取り消し線の判定は被覆率側と同じ規則を使う（規則を写し取ると、片方だけが
-        // 撤廃済みの番号を条文として扱い続ける）
-        if (isRetiredCriterionText(text)) {
-          catalogue.retiredCriteria.set(criterionId, text);
-        } else {
-          catalogue.criteria.set(criterionId, text);
-        }
-      }
+    for (const criterion of requirement.retiredCriteria) {
+      catalogue.retiredCriteria.set(`${requirement.id}.${criterion.number}`, criterion.text);
     }
   }
 

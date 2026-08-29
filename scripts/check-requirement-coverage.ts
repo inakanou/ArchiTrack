@@ -70,6 +70,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import {
+  isRetiredCriterionText,
+  scanRequirementsDocument,
+  type ScannedCriterion,
+} from './requirement-document.js';
 
 // ============================================================================
 // 型定義
@@ -337,21 +342,10 @@ function loadExclusions(): ExclusionsFile | null {
 /**
  * 受入基準が要件定義書上で無効化（撤廃・移管）されているか
  *
- * 要件定義書は、撤廃した受入基準や別の要件へ移した受入基準を、番号を保ったまま
- * 取り消し線（`~~`）で潰して残す（後続の番号をずらさないための表記である）。
- * 本文が丸ごと潰されている場合も、原文を潰したうえで移管先を添える場合も、
- * 先頭が `~~` で始まる点は共通しており、実データ 31 件はすべてこの形である。
- *
- * **この判定は「先頭が `~~`」だけを見る。** 本文の途中に `~~` を含むだけの現役の
- * 受入基準を落とさないためである（実データにその形は無いが、規則を緩めると
- * 分母が黙って縮む方向に壊れる）。
- *
- * 同じ規則を除外定義の検査（scripts/check-requirement-exclusions.ts）も使う。
- * 両者が別々に規則を持つと、片方だけが撤廃済みの番号を条文として扱い続ける。
+ * 判定の実体は scripts/requirement-document.ts にある。ここでは既存の呼び手のために
+ * 再輸出するだけである（規則の複製を作らない）。
  */
-export function isRetiredCriterionText(text: string): boolean {
-  return text.trimStart().startsWith('~~');
-}
+export { isRetiredCriterionText };
 
 /**
  * 要件定義書から要件IDと受入基準を抽出
@@ -361,121 +355,42 @@ export function isRetiredCriterionText(text: string): boolean {
  *   - ### 要件NA: タイトル → REQ-NA
  *   - ### Requirement N: タイトル → REQ-N (英語形式)
  *   - 番号付きリスト（1. 2. 3. ...）→ 受入基準
+ *
+ * **切り出しの規則そのものは持たない。** scripts/requirement-document.ts の
+ * scanRequirementsDocument が唯一の担い手であり、ここは読み取った結果を
+ * 本スクリプトの型（Requirement / AcceptanceCriteria）へ移し替えるだけである。
+ * 除外定義の検査（scripts/check-requirement-exclusions.ts の loadRequirementCatalogue）も
+ * 同じ担い手を使う。両者が別々に規則を持つと、被覆率が数える単位と除外が指す単位がずれる。
  */
 export function extractRequirements(featureName: string, filePath: string): Requirement[] {
-  const requirements: Requirement[] = [];
-
   if (!fs.existsSync(filePath)) {
     console.error(`エラー: 要件定義書が見つかりません: ${filePath}`);
-    return requirements;
+    return [];
   }
 
-  const content = fs.readFileSync(filePath, 'utf-8');
-  const lines = content.split('\n');
+  const scanned = scanRequirementsDocument(fs.readFileSync(filePath, 'utf-8'), filePath);
 
-  // 要件ヘッダーパターン: ### 要件N: または ### 要件NA: または ### Requirement N:
-  const requirementRegexJa = /^###\s*要件(\d+[A-E]?):\s*(.*)$/;
-  const requirementRegexEn = /^###\s*Requirement\s+(\d+[A-E]?):\s*(.*)$/;
-
-  // 受入基準パターン: 数字. で始まる行
-  const acceptanceCriteriaRegex = /^(\d+)\.\s+(.+)$/;
-  // 枝つき番号パターン: `1a.` `4b.` のように数字＋英字1文字で始まる行
-  // 分母には入れない（上の規則が読まない）。基底番号だけを記録する。
-  const letteredCriteriaRegex = /^(\d+)[a-z]\.\s+(.+)$/;
-
-  let currentRequirement: Requirement | null = null;
-  let inAcceptanceCriteriaSection = false;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line === undefined) continue;
-
-    // 要件ヘッダーの検出
-    const reqMatchJa = requirementRegexJa.exec(line);
-    const reqMatchEn = requirementRegexEn.exec(line);
-    const reqMatch = reqMatchJa || reqMatchEn;
-
-    if (reqMatch && reqMatch[1] && reqMatch[2]) {
-      // 前の要件を保存
-      if (currentRequirement) {
-        requirements.push(currentRequirement);
-      }
-
-      const reqId = `REQ-${reqMatch[1]}`;
-      currentRequirement = {
-        id: reqId,
-        fullId: `${featureName}/${reqId}`,
-        featureName,
-        title: reqMatch[2].trim(),
-        line: i + 1,
-        acceptanceCriteria: [],
-        retiredAcceptanceCriteria: [],
-        letteredCriterionNumbers: [],
-      };
-      inAcceptanceCriteriaSection = false;
-      continue;
-    }
-
-    // 受入基準セクションの検出
-    if (
-      line.includes('#### 受入基準') ||
-      line.includes('##### 受入基準') ||
-      line.includes('#### Acceptance Criteria')
-    ) {
-      inAcceptanceCriteriaSection = true;
-      continue;
-    }
-
-    // 新しいセクション（###）に入ったら受入基準セクション終了
-    if (line.startsWith('###') && !line.startsWith('#####') && !line.includes('受入基準')) {
-      if (line.startsWith('### 要件') || line.startsWith('### Requirement')) {
-        // 次のループで処理
-      } else if (line.startsWith('####') && !line.startsWith('#####')) {
-        inAcceptanceCriteriaSection = false;
-        continue;
-      }
-    }
-
-    // 受入基準の抽出
-    if (currentRequirement && inAcceptanceCriteriaSection) {
-      const letteredMatch = letteredCriteriaRegex.exec(line);
-      if (letteredMatch && letteredMatch[1]) {
-        const base = parseInt(letteredMatch[1], 10);
-        if (!currentRequirement.letteredCriterionNumbers.includes(base)) {
-          currentRequirement.letteredCriterionNumbers.push(base);
-        }
-        continue;
-      }
-      const acMatch = acceptanceCriteriaRegex.exec(line);
-      if (acMatch && acMatch[1] && acMatch[2]) {
-        const number = parseInt(acMatch[1], 10);
-        const text = acMatch[2].trim();
-        const criterion: AcceptanceCriteria = {
-          id: `${featureName}/${currentRequirement.id}.${number}`,
-          featureName,
-          requirementId: currentRequirement.id,
-          fullRequirementId: `${featureName}/${currentRequirement.id}`,
-          number,
-          text,
-          line: i + 1,
-        };
-        // 取り消し線で無効化された受入基準は「番号だけが残った墓標」であり、
-        // 検証を要求される条文ではない。分母に入れると被覆率が水増しされる。
-        if (isRetiredCriterionText(text)) {
-          currentRequirement.retiredAcceptanceCriteria.push(criterion);
-        } else {
-          currentRequirement.acceptanceCriteria.push(criterion);
-        }
-      }
-    }
-  }
-
-  // 最後の要件を保存
-  if (currentRequirement) {
-    requirements.push(currentRequirement);
-  }
-
-  return requirements;
+  return scanned.map((requirement) => {
+    const toCriterion = (criterion: ScannedCriterion): AcceptanceCriteria => ({
+      id: `${featureName}/${requirement.id}.${criterion.number}`,
+      featureName,
+      requirementId: requirement.id,
+      fullRequirementId: `${featureName}/${requirement.id}`,
+      number: criterion.number,
+      text: criterion.text,
+      line: criterion.line,
+    });
+    return {
+      id: requirement.id,
+      fullId: `${featureName}/${requirement.id}`,
+      featureName,
+      title: requirement.title,
+      line: requirement.line,
+      acceptanceCriteria: requirement.criteria.map(toCriterion),
+      retiredAcceptanceCriteria: requirement.retiredCriteria.map(toCriterion),
+      letteredCriterionNumbers: requirement.letteredCriterionNumbers,
+    };
+  });
 }
 
 /**
