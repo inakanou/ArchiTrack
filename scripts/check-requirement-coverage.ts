@@ -583,6 +583,9 @@ function enclosingBlockCommentEnd(content: string, headerIndex: number): number 
  * 「印の無い行の REQ- も拾う」ことと同義であって、散文と一覧項目を再び混同させる。
  * 一項目につき一つの印を必須とすることで、一覧の書式を一意に保つ。
  *
+ * 一項目が**複数の番号を並べる**こと自体は妨げない。並びは印ではなく識別子欄の側で読む
+ * （`parseHeaderListItemIds`）。印の要求はここで変えない。
+ *
  * @param content ファイル全体の本文
  * @param markerIndex 印の文字の位置（`content` 上の絶対位置）
  */
@@ -595,6 +598,144 @@ export function isCommentSyntaxAsterisk(content: string, markerIndex: number): b
   while (index >= 0 && (content[index] === ' ' || content[index] === '\t')) index--;
 
   return index < 0 || content[index] === '\n';
+}
+
+/**
+ * 一覧項目の識別子欄の文法
+ *
+ * 識別子欄とは、一覧の印の直後から**その行の最初のコロンまで**（コロンが無ければ行末まで）を指す。
+ * ここが識別子の並びだけで出来ている場合に限り、並びの全項目を被覆印として読む。
+ *
+ * 是正前の規則は一項目につき一致が一つで、しかも `REQ-` の接頭辞を必須にしていたため、
+ * 実データの `- REQ-12.1, 12.2, 12.3:` は **12.1 しか拾われず**、
+ * `- 13.1, 13.2, 13.3, 13.4:`（接頭辞なし）は**一件も拾われなかった**（被覆の過小帰属）。
+ *
+ * **散文まで読まないための歯止めが「並びだけで出来ている」の要求である。**
+ * `- 文字数制限（名称200文字、規格500文字）:` のように数値を含む散文は、
+ * 識別子以外の文字が混じるため識別子欄と認めない。したがって 200 / 500 を番号と読み違えない。
+ *
+ * **据え置く書式**（本規則は意図して拾わない。読み落としではない）:
+ *
+ * - 範囲（`REQ-1.1〜1.6` / `REQ-1-REQ-5`）は**並びではない**ため、先頭の識別子だけを読む。
+ *   区間内の番号を勝手に展開すると、書かれていない被覆を主張することになる。
+ *   従来どおり `HEADER_LIST_ITEM_REGEX` が要件番号の範囲（`REQ-N-REQ-M`）の両端を記録する。
+ * - スラッシュ区切りの並び（`- 7.7 / 8.7 / 9.7:`）は識別子欄と認めない。
+ *   区切り記号を増やすほど散文との境目が曖昧になるため、読点（`,` / `、`）に限る。
+ *   拾いたい記述は読点区切りへ書き換えれば読まれる。
+ */
+const ID_LIST_ID_SOURCE = String.raw`(?:REQ-)?\d+[A-E]?(?:\.\d+)?`;
+const ID_LIST_ITEM_SOURCE = String.raw`${ID_LIST_ID_SOURCE}(?:[ \t]*[-–—〜～][ \t]*${ID_LIST_ID_SOURCE})?`;
+const ID_LIST_REGION_REGEX = new RegExp(
+  String.raw`^[ \t]*${ID_LIST_ITEM_SOURCE}(?:[ \t]*[,、][ \t]*${ID_LIST_ITEM_SOURCE})*[ \t]*$`
+);
+const ID_LIST_HEAD_REGEX = new RegExp(String.raw`^[ \t]*(?:REQ-)?(\d+[A-E]?)(?:\.(\d+))?`);
+
+/** 識別子欄から読み取った一項目 */
+export interface HeaderListItemId {
+  /** 要件番号（`12` / `12A`） */
+  requirement: string;
+  /** 受入基準の枝番（無ければ null） */
+  criterion: string | null;
+}
+
+/**
+ * 一覧項目の識別子欄を読み、並びの全項目を返す
+ *
+ * 識別子の並びだけで出来ていない欄（散文が混じる欄）では**空を返す**。
+ * その場合は従来どおり `HEADER_LIST_ITEM_REGEX` の一致だけが被覆印になる。
+ *
+ * @param idRegion 印の直後から最初のコロンまで（コロンが無ければ行末まで）
+ */
+export function parseHeaderListItemIds(idRegion: string): HeaderListItemId[] {
+  if (!ID_LIST_REGION_REGEX.test(idRegion)) return [];
+
+  const ids: HeaderListItemId[] = [];
+  for (const part of idRegion.split(/[,、]/)) {
+    const head = ID_LIST_HEAD_REGEX.exec(part);
+    if (!head || !head[1]) continue;
+    ids.push({ requirement: head[1], criterion: head[2] ?? null });
+  }
+  return ids;
+}
+
+/**
+ * 行の中の一覧の印の位置を返す（印が無ければ null）
+ *
+ * 印は行の**最初の非空白文字**でなければならない。ただしコメント記号は印ではないため
+ * 読み飛ばす。読み飛ばすのは次の二つだけである。
+ *
+ * - JSDoc / ブロックコメントの行頭 `*`（判定は `isCommentSyntaxAsterisk`）
+ * - 行コメントの開始記号 `//`
+ *
+ * `//` を読み飛ばさないと、行の最初の非空白文字が `/` であるという理由だけで
+ * `// - 49.1: …` のような**正当な一覧項目の識別子欄が一切読まれない**。
+ * 実データでは `frontend/src/domain/estimate/estimateEditReducer.test.ts` の
+ * `// Requirements (estimate-creation):` 配下がそれに当たり、過小帰属が残っていた。
+ *
+ * 読み飛ばすのは `//` の二文字だけで、`/**` は二文字目が `*` なので対象外である
+ * （ブロックコメントの開始記号は従来どおり印にならない）。
+ * `// * REQ-9.2:` の `*` は直前に `/` があるため `isCommentSyntaxAsterisk` が false を返し、
+ * これまでどおり印として残る。
+ *
+ * **印を持たない行は一覧項目ではない。** 継続行（` *   REQ-19.1〜19.4 を…` /
+ * `//   19.2, 19.3: …`）や散文（` * REQ-16.7 は検証していない`）を識別子欄として
+ * 読まないための境界であり、115.194 が狭めた過大帰属をここでも壊さない。
+ * `//` を読み飛ばした先の最初の非空白文字が `-` / `*` でなければ、従来どおり印なしである。
+ *
+ * @param content ファイル全体の本文
+ * @param lineStart 当該行の先頭の絶対位置
+ * @param line 当該行の本文（改行を含まない）
+ */
+export function findListItemMarker(
+  content: string,
+  lineStart: number,
+  line: string
+): number | null {
+  for (let index = 0; index < line.length; index++) {
+    const char = line[index];
+    if (char === ' ' || char === '\t') continue;
+    // 行コメントの開始記号は印ではない。二文字まとめて読み飛ばす（`/**` は対象外）
+    if (char === '/' && line[index + 1] === '/') {
+      index += 1;
+      continue;
+    }
+    if (char === '*' && isCommentSyntaxAsterisk(content, lineStart + index)) continue;
+    if (char === '-' || char === '*') return index;
+    return null;
+  }
+  return null;
+}
+
+/**
+ * ヘッダー区間の各行から、識別子欄の並びを読み取る
+ *
+ * `HEADER_LIST_ITEM_REGEX` の一致に**加える**だけで、取り除くことはしない。
+ * 過大帰属の側の規則（行頭のコメント記号・継続行・区間の上限）は一切緩めない。
+ *
+ * @param content ファイル全体の本文
+ * @param sectionStart 区間の先頭の絶対位置（ヘッダーの開始位置）
+ * @param section 区間の本文
+ */
+function collectListItemIds(
+  content: string,
+  sectionStart: number,
+  section: string
+): HeaderListItemId[] {
+  const ids: HeaderListItemId[] = [];
+  let lineStart = sectionStart;
+
+  for (const line of section.split('\n')) {
+    const markerIndex = findListItemMarker(content, lineStart, line);
+    lineStart += line.length + 1;
+    if (markerIndex === null) continue;
+
+    const afterMarker = line.slice(markerIndex + 1);
+    const colonIndex = afterMarker.search(/[:：]/);
+    const idRegion = colonIndex >= 0 ? afterMarker.slice(0, colonIndex) : afterMarker;
+    ids.push(...parseHeaderListItemIds(idRegion));
+  }
+
+  return ids;
 }
 
 /**
@@ -642,6 +783,14 @@ export function extractHeaderScopedCoverage(
       // 範囲形式 (REQ-1-REQ-5) の処理
       if (listMatch[3]) {
         requirements.add(`${header.featureName}/REQ-${listMatch[3]}`);
+      }
+    }
+
+    // 識別子欄を最後まで読む（読点で並べた続き・接頭辞を持たない並び。過小帰属の是正）
+    for (const id of collectListItemIds(content, header.index, section)) {
+      requirements.add(`${header.featureName}/REQ-${id.requirement}`);
+      if (id.criterion) {
+        acceptanceCriteria.add(`${header.featureName}/REQ-${id.requirement}.${id.criterion}`);
       }
     }
   }

@@ -1264,9 +1264,8 @@ function checkRealFileIsNotOverAttributed(): string[] {
   const found = extractHeaderScopedCoverage(content, SELFTEST_FEATURES);
 
   // 当該ファイルの site-survey のヘッダー配下は `- REQ-12.1, 12.2, 12.3:` の一行である。
-  // 一覧の項目を拾う規則は行頭の `-` / `*` に続く番号しか見ないため、
-  // 読点で並べた 12.2 / 12.3 は元から拾われない（区間判定とは別の限界）。
-  // ここでは区間判定を見るので、拾われる 12.1 だけを前提にする。
+  // 読点で並べた 12.2 / 12.3 も識別子欄として読む（115.195 の是正。別の事例で固定する）。
+  // ここで見るのは区間判定なので、先頭の 12.1 だけを前提にする。
   if (!found.acceptanceCriteria.includes('site-survey/REQ-12.1')) {
     failures.push(
       `${target}: site-survey/REQ-12.1 を取りこぼした（自己検査の前提が変わった可能性）`
@@ -1281,6 +1280,249 @@ function checkRealFileIsNotOverAttributed(): string[] {
   // 先行のヘッダー配下の番号も帰属してはならない。
   if (found.acceptanceCriteria.includes('site-survey/REQ-3.1')) {
     failures.push(`${target}: 先行のヘッダー配下の site-survey/REQ-3.1 が site-survey へ帰属した`);
+  }
+  return failures;
+}
+
+// ============================================================================
+// 一覧項目の識別子欄（過小帰属）
+// ============================================================================
+//
+// 115.194 は「印でないものを印と読む」過大帰属を狭めた。ここで固定するのは**逆向き**、
+// 印を持つ正当な一覧項目の**識別子欄を最後まで読まない**ことによる過小帰属である。
+//
+// 是正前の規則は一項目につき一致が一つで、しかも `REQ-` の接頭辞を必須にしていた。
+// このため実データの `- REQ-12.1, 12.2, 12.3:` は 12.1 しか拾われず、
+// `- 13.1, 13.2, 13.3, 13.4:`（接頭辞なし）は一件も拾われなかった。
+//
+// **緩めれば散文の数値を番号と読み違える。** 識別子欄は「印の直後から最初のコロンまでが
+// 識別子の並びだけで出来ていること」を要求し、散文が一文字でも混じれば読まない。
+// 過小（取りこぼし）と過大（散文の数値・印を持たない継続行）の両側を対照で挟む。
+
+/** 陽性対照: 識別子欄の各書式 */
+const ID_LIST_FORMS = [
+  '/**',
+  ' * Requirements coverage (site-survey):',
+  ' * - REQ-14.1: 単独の項目（是正前から拾えていた形）',
+  ' * - REQ-14.2, 14.3: 読点で並べた続き（接頭辞は先頭だけ）',
+  ' * - 14.4, 14.5: 接頭辞を持たない並び',
+  ' * - REQ-14.6, REQ-14.7: 各項目が接頭辞を持つ並び',
+  ' * - 14.8: 接頭辞を持たない単独の項目',
+  ' */',
+  '',
+  '// Requirements coverage (user-authentication):',
+  '// - REQ-20.1: 行コメントの単独の項目',
+  '// - 20.2, 20.3: 行コメントの接頭辞を持たない並び',
+  '// * 20.4, 20.5: 行コメントの中の Markdown 箇条書き',
+  '',
+].join('\n');
+
+function checkIdListEnumeratesEveryItem(): string[] {
+  const failures: string[] = [];
+  const found = extractHeaderScopedCoverage(ID_LIST_FORMS, SELFTEST_FEATURES);
+  for (const branch of ['14.1', '14.2', '14.3', '14.4', '14.5', '14.6', '14.7', '14.8']) {
+    const id = `site-survey/REQ-${branch}`;
+    if (!found.acceptanceCriteria.includes(id)) {
+      failures.push(`識別子欄の項目 ${id} を取りこぼした（被覆の過小帰属）`);
+    }
+  }
+  if (!found.requirements.includes('site-survey/REQ-14')) {
+    failures.push('要件番号 site-survey/REQ-14 が記録されていない');
+  }
+  // 行コメント（`//`）の一覧項目でも同じ規則が成り立つこと。
+  // 印を探す走査が `/` を行の最初の非空白文字として見ると、識別子欄が一切読まれない。
+  for (const branch of ['20.1', '20.2', '20.3', '20.4', '20.5']) {
+    const id = `user-authentication/REQ-${branch}`;
+    if (!found.acceptanceCriteria.includes(id)) {
+      failures.push(`行コメントの識別子欄の項目 ${id} を取りこぼした（被覆の過小帰属）`);
+    }
+  }
+  if (!found.requirements.includes('user-authentication/REQ-20')) {
+    failures.push('要件番号 user-authentication/REQ-20 が記録されていない');
+  }
+  return failures;
+}
+
+/**
+ * 陰性対照: 識別子の並びに見えない箇条書きと、印を持たない継続行
+ *
+ * 数値を含む散文まで識別子と読むと、被覆の過大帰属が別の形で復活する。
+ * 継続行を読む規則は「印の無い行の番号も拾う」ことと同義であり、115.194 の是正を壊す。
+ */
+const PROSE_BULLET_IS_NOT_AN_ID_LIST = [
+  '/**',
+  ' * Requirements coverage (site-survey):',
+  ' * - REQ-15.1: 正当な一覧項目',
+  ' * - 15.2 または 15.3 を満たす: 識別子の並びではない散文の箇条書き',
+  ' * - 文字数制限（名称15.4文字、規格15.5文字）: 数値を含む散文',
+  ' *   15.6, 15.7: 印を持たない継続行',
+  ' */',
+  '',
+  '// Requirements coverage (user-authentication):',
+  '// - REQ-21.1: 行コメントの正当な一覧項目',
+  '//   21.2, 21.3: 行コメントの印を持たない継続行',
+  '',
+].join('\n');
+
+function checkProseBulletIsNotAnIdList(): string[] {
+  const failures: string[] = [];
+  const found = extractHeaderScopedCoverage(PROSE_BULLET_IS_NOT_AN_ID_LIST, SELFTEST_FEATURES);
+
+  if (!found.acceptanceCriteria.includes('site-survey/REQ-15.1')) {
+    failures.push('正当な一覧項目 site-survey/REQ-15.1 を取りこぼした（厳しすぎ）');
+  }
+  for (const branch of ['15.2', '15.3']) {
+    if (found.acceptanceCriteria.includes(`site-survey/REQ-${branch}`)) {
+      failures.push(
+        `識別子の並びではない散文の箇条書きから site-survey/REQ-${branch} を拾った（過大帰属）`
+      );
+    }
+  }
+  for (const branch of ['15.4', '15.5']) {
+    if (found.acceptanceCriteria.includes(`site-survey/REQ-${branch}`)) {
+      failures.push(`散文中の数値を受入基準番号と読んだ（site-survey/REQ-${branch}。過大帰属）`);
+    }
+  }
+  for (const branch of ['15.6', '15.7']) {
+    if (found.acceptanceCriteria.includes(`site-survey/REQ-${branch}`)) {
+      failures.push(
+        `印を持たない継続行から site-survey/REQ-${branch} を拾った（115.194 の是正が壊れている）`
+      );
+    }
+  }
+  if (!found.acceptanceCriteria.includes('user-authentication/REQ-21.1')) {
+    failures.push(
+      '行コメントの正当な一覧項目 user-authentication/REQ-21.1 を取りこぼした（厳しすぎ）'
+    );
+  }
+  for (const branch of ['21.2', '21.3']) {
+    if (found.acceptanceCriteria.includes(`user-authentication/REQ-${branch}`)) {
+      failures.push(
+        `行コメントの印を持たない継続行から user-authentication/REQ-${branch} を拾った` +
+          '（115.194 の是正が壊れている）'
+      );
+    }
+  }
+  return failures;
+}
+
+/** 陰性対照の各行を「印を持つ識別子の並び」の形へ書き換える（見本の側からの変異） */
+function rewriteAsIdListRegion(content: string): string {
+  return content
+    .replace(' * - 15.2 または 15.3 を満たす: ', ' * - 15.2, 15.3: ')
+    .replace(' * - 文字数制限（名称15.4文字、規格15.5文字）: ', ' * - 15.4, 15.5: ')
+    .replace(' *   15.6, 15.7: ', ' * - 15.6, 15.7: ')
+    .replace('//   21.2, 21.3: ', '// - 21.2, 21.3: ');
+}
+
+/**
+ * 機構: 陰性対照が**識別子欄の文法と印の有無にだけ反応する**ことを確かめる
+ *
+ * 15.2〜15.7 と 21.2 / 21.3 が拾われない理由は「識別子の並びでない」「印を持たない」で
+ * なければならない。
+ * 区間が短すぎる・機能名が合っていないなど別の理由で落ちているなら、この対照は空振りである。
+ * 同じ位置を識別子の並びへ書き換えた写しを作り、すべてが現れることを主張する。
+ */
+function checkProseBulletControlActuallyReacts(): string[] {
+  const failures: string[] = [];
+  const mutated = rewriteAsIdListRegion(PROSE_BULLET_IS_NOT_AN_ID_LIST);
+  const expectedRewrites = 4;
+  const rewritten = mutated
+    .split('\n')
+    .filter((line) => /^(?: \*|\/\/) - (?:15|21)\.\d, (?:15|21)\.\d: /.test(line));
+  if (rewritten.length !== expectedRewrites) {
+    failures.push(
+      `見本を書き換えられていない（変異した行 ${rewritten.length}/${expectedRewrites}）。変異が差分を作っていない`
+    );
+    return failures;
+  }
+  const found = extractHeaderScopedCoverage(mutated, SELFTEST_FEATURES);
+  const expectedIds = [
+    'site-survey/REQ-15.2',
+    'site-survey/REQ-15.3',
+    'site-survey/REQ-15.4',
+    'site-survey/REQ-15.5',
+    'site-survey/REQ-15.6',
+    'site-survey/REQ-15.7',
+    'user-authentication/REQ-21.2',
+    'user-authentication/REQ-21.3',
+  ];
+  for (const id of expectedIds) {
+    if (!found.acceptanceCriteria.includes(id)) {
+      failures.push(
+        `識別子の並びへ書き換えても ${id} が現れない（対照が空振りしている。` +
+          '区間の切れ目など、識別子欄の文法以外の理由で落ちている可能性がある）'
+      );
+    }
+  }
+  return failures;
+}
+
+/**
+ * 実データの側から、過小帰属が解消していることを見る
+ *
+ * 仮想の資料だけでは実装が実データに効いているかを言えない。
+ * 是正前に取りこぼしていた実在の記述を名指しで固定し、
+ * 当該の記述が失われたら前提が失われたとして失敗させる（黙って素通りさせない）。
+ */
+function checkRealUnderAttributionIsResolved(): string[] {
+  const failures: string[] = [];
+  const features = ['site-survey', 'contract-management', 'estimate-creation'] as const;
+  const targets: ReadonlyArray<{ file: string; marker: string; expected: readonly string[] }> = [
+    {
+      file: 'backend/src/utils/seed-helpers.ts',
+      marker: '- REQ-12.1, 12.2, 12.3:',
+      expected: ['site-survey/REQ-12.1', 'site-survey/REQ-12.2', 'site-survey/REQ-12.3'],
+    },
+    {
+      file: 'backend/src/__tests__/unit/utils/seed-helpers.test.ts',
+      marker: '- 13.1, 13.2, 13.3, 13.4:',
+      expected: [
+        'contract-management/REQ-13.1',
+        'contract-management/REQ-13.2',
+        'contract-management/REQ-13.3',
+        'contract-management/REQ-13.4',
+      ],
+    },
+    {
+      // 行コメント（`//`）で書かれたヘッダーと一覧。印を探す走査が `//` を読み飛ばさないと
+      // 識別子欄が一切読まれず、接頭辞なしの並びが丸ごと落ちる。
+      file: 'frontend/src/domain/estimate/estimateEditReducer.test.ts',
+      marker: '- 49.1:',
+      expected: [
+        'estimate-creation/REQ-4.6',
+        'estimate-creation/REQ-41.11',
+        'estimate-creation/REQ-49.1',
+        'estimate-creation/REQ-49.2',
+        'estimate-creation/REQ-49.8',
+      ],
+    },
+    {
+      file: 'frontend/src/__tests__/hooks/useUndoKeyboardShortcuts.test.ts',
+      marker: '- 47.5:',
+      expected: ['estimate-creation/REQ-47.5'],
+    },
+  ];
+
+  for (const target of targets) {
+    const absolute = path.resolve(target.file);
+    if (!fs.existsSync(absolute)) {
+      failures.push(`${target.file} が存在しない（自己検査の前提が失われた）`);
+      continue;
+    }
+    const content = fs.readFileSync(absolute, 'utf8');
+    if (!content.includes(target.marker)) {
+      failures.push(
+        `${target.file}: 前提としている記述「${target.marker}」が失われた（対照が空振りしている）`
+      );
+      continue;
+    }
+    const found = extractHeaderScopedCoverage(content, features);
+    for (const id of target.expected) {
+      if (!found.acceptanceCriteria.includes(id)) {
+        failures.push(`${target.file}: ${id} を取りこぼした（被覆の過小帰属）`);
+      }
+    }
   }
   return failures;
 }
@@ -1891,6 +2133,24 @@ const GROUPS: Array<{ title: string; cases: Case[] }> = [
         name: '実データの陰性対照が規則4の除去に実際に反応する（空振りの検出）',
         run: checkRealProseControlsActuallyReact,
       },
+    ],
+  },
+  {
+    title: '一覧項目の識別子欄（過小帰属）',
+    cases: [
+      {
+        name: '読点で並べた続きと接頭辞なしの並びを最後まで読む',
+        run: checkIdListEnumeratesEveryItem,
+      },
+      {
+        name: '識別子の並びでない箇条書きと印を持たない継続行は読まない（過大帰属の側）',
+        run: checkProseBulletIsNotAnIdList,
+      },
+      {
+        name: '陰性対照が識別子欄の文法と印の有無にだけ反応する（空振りの検出）',
+        run: checkProseBulletControlActuallyReacts,
+      },
+      { name: '実データの過小帰属が解消している', run: checkRealUnderAttributionIsResolved },
     ],
   },
   {
