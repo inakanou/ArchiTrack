@@ -521,10 +521,14 @@ test.describe('複合一意制約（取引先名+部課/支店/支社名）', ()
     });
 
     /**
-     * @requirement trading-partner-management/REQ-4.8
-     * 他の取引先と同一名でも異なるbranchNameに変更なら正常に更新できることを検証
+     * @requirement trading-partner-management/REQ-4.5
+     *
+     * タスク 115.188 の是正: 従前は REQ-4.8 を名乗っていたが、受入基準4.8 の原文は「If 別の取引先と重複する取引先名および部課/支店/支社名の組み合わせに変更しようとした場合,
+     * then the 取引先管理サービス shall 「この取引先名と部課/支店/支社名の組み合わせは既に登録されています」
+     * というエラーを表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準4.5（「When ユーザーが変更を保存したとき,
+     * the 取引先管理サービス shall 取引先レコードを更新する」）である。
      */
-    test('他の取引先と同一の取引先名でも異なる部課/支店/支社名に変更なら更新できる (trading-partner-management/REQ-4.8)', async ({
+    test('他の取引先と同一の取引先名でも異なる部課/支店/支社名に変更なら更新できる (trading-partner-management/REQ-4.5)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');

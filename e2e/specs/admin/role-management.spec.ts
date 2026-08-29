@@ -37,7 +37,10 @@ test.describe('動的ロール管理', () => {
    * 要件17.7: 一意のロールIDの生成
    * 要件17.9: デフォルトで空の権限セット
    * 要件22.1: ロール作成・更新・削除時の監査ログ記録
-   * @requirement user-authentication/REQ-17.1 @requirement user-authentication/REQ-17.7 @requirement user-authentication/REQ-17.9
+   * @requirement user-authentication/REQ-17.1 @requirement user-authentication/REQ-17.9
+   *
+   * タスク 115.188 の是正: 従前は REQ-17.7 も名乗っていたが、本区間の表題・本文が述べる内容に対応するのは、
+   * 同じ区間が既に名乗っている受入基準17.1 である。重複する名乗りを取り下げた（REQ-17.7 は本区間の主張と別の事柄を述べている）。
    * @requirement user-authentication/REQ-22.1
    */
   test('管理者は新しいロールを作成できる', async ({ page }) => {
@@ -100,7 +103,12 @@ test.describe('動的ロール管理', () => {
    * 要件17.3: ロール情報の更新と監査ログ記録
    * 要件22.1: ロール作成・更新・削除時の監査ログ記録
    * @requirement user-authentication/REQ-17.3
-   * @requirement user-authentication/REQ-22.1
+   *
+   * タスク 115.188 の是正: 従前は REQ-22.1 を名乗っていたが、受入基準22.1 の原文は「WHEN ロールが作成・更新・削除される
+   * THEN Authentication Serviceは監査ログに記録しなければならない」
+   * である。本区間の表題・本文が述べる内容に対応するのは受入基準17.3（「WHEN システム管理者がロール情報を更新する THEN
+   * Authentication Serviceは変更履歴を監査ログに記録しなければならない」
+   * ）である。
    */
   test('管理者はロール情報を更新できる', async ({ request }) => {
     // 管理者としてログイン
@@ -208,7 +216,12 @@ test.describe('動的ロール管理', () => {
    * 要件17.6: システムロール（admin）の削除拒否
    * 要件22.1: ロール作成・更新・削除時の監査ログ記録
    * @requirement user-authentication/REQ-17.6
-   * @requirement user-authentication/REQ-22.1
+   *
+   * タスク 115.188 の是正: 従前は REQ-22.1 を名乗っていたが、受入基準22.1 の原文は「WHEN ロールが作成・更新・削除される
+   * THEN Authentication Serviceは監査ログに記録しなければならない」
+   * である。本区間の表題・本文が述べる内容に対応するのは受入基準17.6（「IF システム管理者が事前定義ロール（システム管理者）
+   * を削除しようとする THEN Authentication Serviceは削除を拒否しなければならない」
+   * ）である。
    */
   test('システムロールは削除できない', async ({ request }) => {
     // 管理者としてログイン

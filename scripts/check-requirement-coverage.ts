@@ -100,6 +100,19 @@ export interface Requirement {
    * 「その番号は撤廃済みである」と具体的に言えるようにするためである。
    */
   retiredAcceptanceCriteria: AcceptanceCriteria[];
+  /**
+   * `1a.` `4b.` のように英字の枝を持つ番号で書かれた受入基準の、基底となる番号
+   *
+   * 抽出は行頭の `N.` だけを受入基準として読むため、この形の行は**分母に入らない**。
+   * それでも被覆印は `REQ-N.M` としてしか書けず、実際に `project-management/REQ-4.1`
+   * のような印が付いている。ここに基底番号を残すのは、
+   * 「要件定義書に存在しない番号を名乗る被覆印」を挙げる検査が、
+   * **書式のせいで分母に入っていないだけの番号を誤って挙げない**ようにするためである。
+   *
+   * 分母へ入れる是正（抽出規則を枝つき番号まで広げる）は分母を動かすため、
+   * 本スクリプトでは行わない。件数は報告に出す。
+   */
+  letteredCriterionNumbers: number[];
 }
 
 export interface Feature {
@@ -125,7 +138,7 @@ export interface TestCoverage {
   acceptanceCriteria: string[]; // user-authentication/REQ-4.1, project-management/REQ-27A.3
 }
 
-interface ExclusionEntry {
+export interface ExclusionEntry {
   id: string;
   requirement: string;
   title: string;
@@ -139,7 +152,7 @@ interface ExclusionEntry {
   };
 }
 
-interface ExclusionsFile {
+export interface ExclusionsFile {
   exclusions: ExclusionEntry[];
   categories: Record<string, { description: string; verificationPhase: string }>;
   summary: {
@@ -163,7 +176,7 @@ interface FeatureCoverageResult {
   uncoveredAcceptanceCriteria: AcceptanceCriteria[];
 }
 
-interface CoverageResult {
+export interface CoverageResult {
   features: Feature[];
   featureCoverage: FeatureCoverageResult[];
 
@@ -366,6 +379,9 @@ export function extractRequirements(featureName: string, filePath: string): Requ
 
   // 受入基準パターン: 数字. で始まる行
   const acceptanceCriteriaRegex = /^(\d+)\.\s+(.+)$/;
+  // 枝つき番号パターン: `1a.` `4b.` のように数字＋英字1文字で始まる行
+  // 分母には入れない（上の規則が読まない）。基底番号だけを記録する。
+  const letteredCriteriaRegex = /^(\d+)[a-z]\.\s+(.+)$/;
 
   let currentRequirement: Requirement | null = null;
   let inAcceptanceCriteriaSection = false;
@@ -394,6 +410,7 @@ export function extractRequirements(featureName: string, filePath: string): Requ
         line: i + 1,
         acceptanceCriteria: [],
         retiredAcceptanceCriteria: [],
+        letteredCriterionNumbers: [],
       };
       inAcceptanceCriteriaSection = false;
       continue;
@@ -421,6 +438,14 @@ export function extractRequirements(featureName: string, filePath: string): Requ
 
     // 受入基準の抽出
     if (currentRequirement && inAcceptanceCriteriaSection) {
+      const letteredMatch = letteredCriteriaRegex.exec(line);
+      if (letteredMatch && letteredMatch[1]) {
+        const base = parseInt(letteredMatch[1], 10);
+        if (!currentRequirement.letteredCriterionNumbers.includes(base)) {
+          currentRequirement.letteredCriterionNumbers.push(base);
+        }
+        continue;
+      }
       const acMatch = acceptanceCriteriaRegex.exec(line);
       if (acMatch && acMatch[1] && acMatch[2]) {
         const number = parseInt(acMatch[1], 10);
@@ -833,6 +858,419 @@ export function findRetiredCriterionCoverageMarks(
       files: [...holders].sort(),
     }))
     .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+// ============================================================================
+// 被覆印の指し先（名乗る受入基準が実在し、内容が対応するか）
+// ============================================================================
+//
+// 撤廃済みの番号を名乗る被覆印は findRetiredCriterionCoverageMarks が挙げる。
+// ここで扱うのは、それとは**成り立ちの違う**二つの形である。
+//
+//   (i)  指し先が存在しない: 要件定義書のどこにも無い番号を名乗る
+//   (ii) 指し先は存在するが内容が対応しない: 番号は実在するが、その検証が述べる内容が
+//        原文と食い違う
+//
+// (i) は機械で判定できる。(ii) は散文どうしの照合であり一般には機械化できないが、
+// **対応の担い手を散文から原文の逐語複製へ移せている箇所に限れば**判定できる。
+// リポジトリの被覆印の多くは、印のすぐ隣に受入基準の原文を写した一行を持つ。
+// 写しがあるなら、写した条文こそがその区間の名乗るべき条文である。
+
+/** 被覆印を探す根。指し先の是正が及ぶ範囲。 */
+export const E2E_SPECS_ROOT = 'e2e/specs';
+
+/** 被覆印が名乗る受入基準が、要件定義書のどこにも無い */
+export interface UnknownCriterionMark {
+  /** feature-name/REQ-N.M */
+  id: string;
+  /** その番号を名乗っているファイル（リポジトリ相対、重複なし） */
+  files: string[];
+  /** その要件そのものが要件定義書に無いか（要件はあるが受入基準の番号が無い場合は false） */
+  requirementMissing: boolean;
+}
+
+/** 分母に無い番号を名乗る被覆印の内訳（成り立ちの軸で分ける） */
+export interface OutOfDenominatorMarks {
+  /** 取り消し線で撤廃された受入基準を名乗る（findRetiredCriterionCoverageMarks と同じ母集団） */
+  retired: string[];
+  /** `1a.` `4b.` 形式で書かれ、抽出規則が分母に入れていない受入基準を名乗る */
+  lettered: string[];
+  /** 要件定義書のどこにも無い番号を名乗る */
+  unknown: string[];
+}
+
+interface CriterionIndex {
+  /** 分母に入っている受入基準 */
+  live: Set<string>;
+  /** 取り消し線で撤廃された受入基準 */
+  retired: Set<string>;
+  /** `1a.` 形式のため分母に入っていないが、要件定義書に本文がある受入基準 */
+  lettered: Set<string>;
+  /** 現役・撤廃を問わず実在する要件 */
+  requirements: Set<string>;
+}
+
+function buildCriterionIndex(features: readonly Feature[]): CriterionIndex {
+  const live = new Set<string>();
+  const retired = new Set<string>();
+  const lettered = new Set<string>();
+  const requirements = new Set<string>();
+  for (const feature of features) {
+    for (const requirement of [...feature.requirements, ...feature.retiredRequirements]) {
+      requirements.add(requirement.fullId);
+      for (const criterion of requirement.acceptanceCriteria) live.add(criterion.id);
+      for (const criterion of requirement.retiredAcceptanceCriteria) retired.add(criterion.id);
+      for (const number of requirement.letteredCriterionNumbers) {
+        lettered.add(`${requirement.fullId}.${number}`);
+      }
+    }
+  }
+  return { live, retired, lettered, requirements };
+}
+
+/**
+ * 分母に無い受入基準番号を名乗る被覆印を、成り立ちごとに数える
+ *
+ * 走査対象は被覆率が読む全ての根（backend/src・frontend/src・e2e）である。
+ * **件数は 0 件でも無条件に出力する。**黙って合う分子は、水増しと同じだけ危うい。
+ */
+export function collectOutOfDenominatorMarks(
+  features: readonly Feature[],
+  testCoverage: readonly TestCoverage[]
+): OutOfDenominatorMarks {
+  const index = buildCriterionIndex(features);
+  const retired = new Set<string>();
+  const lettered = new Set<string>();
+  const unknown = new Set<string>();
+  for (const coverage of testCoverage) {
+    for (const id of coverage.acceptanceCriteria) {
+      if (index.live.has(id)) continue;
+      if (index.retired.has(id)) retired.add(id);
+      else if (index.lettered.has(id)) lettered.add(id);
+      else unknown.add(id);
+    }
+  }
+  return {
+    retired: [...retired].sort(),
+    lettered: [...lettered].sort(),
+    unknown: [...unknown].sort(),
+  };
+}
+
+/**
+ * 要件定義書に存在しない受入基準番号を名乗る被覆印を挙げる
+ *
+ * 直し方は「番号を名乗り直す」か「被覆印を取り下げる」であり、除外の追加ではない。
+ * 除外は「E2Eでは確かめないが代わりにこう確かめる」という約束であって、
+ * 指し先の無い番号には約束の相手がいない（115.187 が撤廃済みについて確立した判断と同じ）。
+ *
+ * この検査が捕まえないもの（限界を両方向で述べる）:
+ *   - 走査対象は `e2e/specs` に限る。`frontend/src` / `backend/src` の被覆印は挙げない。
+ *     実測では本稿の時点で estimate-creation/REQ-24.1（frontend/src/pages/EstimateDetailPage.tsx）と
+ *     trading-partner-management/REQ-11.13・REQ-11.14（backend/src/__tests__）の 3 件が
+ *     この外に残っている。分子への混入は collectOutOfDenominatorMarks が数え、
+ *     被覆率の計算からは除いてあるため指標は水増しされないが、印そのものは残る。
+ *   - 取り消し線で撤廃された番号は挙げない（findRetiredCriterionCoverageMarks の担当）。
+ *     直し方が「移管先の番号を名乗り直す」に定まる点で成り立ちが違うため、混ぜない。
+ *   - `1a.` `4b.` 形式で書かれた受入基準の基底番号は挙げない。要件定義書に本文があり、
+ *     抽出規則が分母へ入れていないだけだからである。
+ *   - 番号が実在することだけを見る。その検証が当該の条文を確かめているかは見ない
+ *     （そちらは findCriterionTextCopyMismatches が、逐語複製がある区間に限って見る）。
+ */
+export function findUnknownCriterionCoverageMarks(
+  features: readonly Feature[],
+  testCoverage: readonly TestCoverage[],
+  scanRoot: string = E2E_SPECS_ROOT
+): UnknownCriterionMark[] {
+  const index = buildCriterionIndex(features);
+  const files = new Map<string, Set<string>>();
+  for (const coverage of testCoverage) {
+    if (!toPosixPath(coverage.file).startsWith(`${scanRoot}/`)) continue;
+    for (const id of coverage.acceptanceCriteria) {
+      if (index.live.has(id) || index.retired.has(id) || index.lettered.has(id)) continue;
+      let holders = files.get(id);
+      if (!holders) {
+        holders = new Set<string>();
+        files.set(id, holders);
+      }
+      holders.add(toPosixPath(coverage.file));
+    }
+  }
+  return [...files.entries()]
+    .map(([id, holders]) => ({
+      id,
+      files: [...holders].sort(),
+      requirementMissing: !index.requirements.has(id.slice(0, id.lastIndexOf('.'))),
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/**
+ * 逐語複製として使える語句の最小長
+ *
+ * 短い語句（「バリデーションエラーを表示する」など）は複数の条文に等しく当てはまり、
+ * 逐語複製の証拠にならない。実測で 12 文字未満まで許すと、偶然の一致が
+ * 4 件（`e2e/specs` 全体）混じった。12 文字以上かつ「同一機能の他の条文の本文に
+ * 現れない」語句だけを、当該条文を名指す複製として扱う。
+ */
+export const MIN_CRITERION_QUOTE_LENGTH = 12;
+
+/** 受入基準の原文のうち、逐語複製の目印として使う部分（`shall` 以降） */
+export function criterionQuote(text: string): string | null {
+  const index = text.lastIndexOf('shall ');
+  if (index < 0) return null;
+  const quote = text.slice(index + 'shall '.length).trim();
+  return quote.length >= MIN_CRITERION_QUOTE_LENGTH ? quote : null;
+}
+
+/** 逐語複製した条文と、その区間が名乗っている条文が食い違う */
+export interface CriterionTextCopyMismatch {
+  /** 逐語複製されている受入基準 */
+  criterionId: string;
+  /** 複製されている語句 */
+  quote: string;
+  /** 区間のあるファイル（リポジトリ相対・POSIX 表記） */
+  file: string;
+  /** 区間の始まり（1 始まり。テスト・群の宣言行、ファイル前書きなら 1） */
+  line: number;
+  /** その区間が名乗っている受入基準 */
+  claimed: string[];
+}
+
+/**
+ * 区間の散文が、当該の受入基準の番号を明示しているか
+ *
+ * `REQ-14.4` でも素の `14.4` でも認める。前後に数字が続く形（`14.40`）は別番号なので除く。
+ */
+function proseAttributesCriterion(prose: string, criterionId: string): boolean {
+  const local = criterionId.slice(criterionId.lastIndexOf('/') + 1).replace(/^REQ-/, '');
+  const pattern = new RegExp(`(?<![0-9.])${local.replace('.', '\\.')}(?![0-9])`);
+  return pattern.test(prose);
+}
+
+/** テスト・群の宣言（区間の切れ目） */
+const TEST_DECLARATION_REGEX =
+  /^[ \t]*(?:test|it)(?:\.(?:skip|only|fixme|fail|slow))*\s*\(\s*['"`]/;
+const GROUP_DECLARATION_REGEX = /^[ \t]*(?:test\.)?describe(?:\.[A-Za-z]+)*\s*\(\s*['"`]/;
+/** 註釈と空行だけの行（前書きの範囲を決めるのに使う） */
+const COMMENT_OR_BLANK_LINE_REGEX = /^[ \t]*(?:\/\/|\/\*|\*|$)/;
+
+export interface CoverageBlock {
+  /** 宣言行（0 始まり）。ファイル前書きは -1 */
+  declaration: number;
+  claimed: Set<string>;
+}
+
+/**
+ * ファイルを「宣言ごとの区間」に割り、各区間の被覆印と本文を返す
+ *
+ * 区間は「直前に続く註釈の塊（前書き）＋宣言から次の宣言の手前まで」である。
+ * 末尾に続く註釈の塊は**次の宣言の前書き**なので含めない。含めると、隣のテストの
+ * 前書きに書かれた原文の写しを自分のものとして読んでしまう（実測で偽陽性が 109 件出た）。
+ */
+export function splitCoverageBlocks(
+  content: string,
+  featureNames: readonly string[]
+): Array<{ block: CoverageBlock; prose: string }> {
+  const lines = content.split('\n');
+  const declarations: number[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? '';
+    if (TEST_DECLARATION_REGEX.test(line) || GROUP_DECLARATION_REGEX.test(line)) {
+      declarations.push(i);
+    }
+  }
+
+  const lineStarts: number[] = [0];
+  for (let i = 0; i < content.length; i += 1) {
+    if (content[i] === '\n') lineStarts.push(i + 1);
+  }
+  const lineOf = (offset: number): number => {
+    let low = 0;
+    let high = lineStarts.length - 1;
+    while (low < high) {
+      const mid = Math.ceil((low + high) / 2);
+      if ((lineStarts[mid] as number) <= offset) low = mid;
+      else high = mid - 1;
+    }
+    return low;
+  };
+
+  const blocks = new Map<number, CoverageBlock>();
+  const record = (id: string, offset: number): void => {
+    const lineIndex = lineOf(offset);
+    let owner = -1;
+    const next = declarations.find((declaration) => declaration > lineIndex);
+    if (next !== undefined) {
+      let onlyComments = true;
+      for (let i = lineIndex + 1; i < next; i += 1) {
+        if (!COMMENT_OR_BLANK_LINE_REGEX.test(lines[i] ?? '')) {
+          onlyComments = false;
+          break;
+        }
+      }
+      if (onlyComments) owner = next;
+    }
+    if (owner === -1) {
+      let previous = -1;
+      for (const declaration of declarations) {
+        if (declaration <= lineIndex) previous = declaration;
+        else break;
+      }
+      owner = previous;
+    }
+    const block = blocks.get(owner) ?? { declaration: owner, claimed: new Set<string>() };
+    block.claimed.add(id);
+    blocks.set(owner, block);
+  };
+
+  for (const pattern of buildInlineTagPatterns(featureNames)) {
+    pattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(content)) !== null) {
+      if (match[1] && match[2] && match[3]) {
+        record(`${match[1]}/REQ-${match[2]}.${match[3]}`, match.index);
+      }
+    }
+  }
+  for (const id of extractHeaderScopedCoverage(content, featureNames).acceptanceCriteria) {
+    const local = id.slice(id.indexOf('/') + 1);
+    const itemRegex = new RegExp(`[-*]\\s*${local.replace('.', '\\.')}(?![0-9])`, 'g');
+    const found = itemRegex.exec(content);
+    record(id, found ? found.index : 0);
+  }
+
+  return [...blocks.values()].map((block) => {
+    let start = block.declaration >= 0 ? block.declaration : 0;
+    if (block.declaration >= 0) {
+      while (start > 0 && COMMENT_OR_BLANK_LINE_REGEX.test(lines[start - 1] ?? '')) start -= 1;
+    }
+    let end: number;
+    if (block.declaration >= 0) {
+      const next = declarations.find((declaration) => declaration > block.declaration);
+      end = next ?? lines.length;
+    } else {
+      end = declarations[0] ?? lines.length;
+    }
+    while (end - 1 > start && COMMENT_OR_BLANK_LINE_REGEX.test(lines[end - 1] ?? '')) end -= 1;
+    return { block, prose: lines.slice(start, end).join('\n') };
+  });
+}
+
+/**
+ * 受入基準の原文を逐語で複製しているのに、その条文を名乗っていない被覆印を挙げる
+ *
+ * 散文どうしの照合は機械化できない（115.167 の実測では語の重なりで 262 件中 30 件が誤検出）。
+ * 解は照合の精度を上げることではなく、**対応の担い手を散文から原文の逐語複製へ移す**ことである。
+ * 除外定義では各項目に受入基準の本文を持たせる形（criterionText）で実現した。
+ * 被覆印に同じ義務を課すのは規模が違う（`e2e/specs` の被覆印は実測 4438 箇所）ため課さない。
+ * 代わりに、**既に写しがある区間に限って**その写しを担い手として扱う。
+ *
+ * この検査が捕まえないもの（限界を両方向で述べる）:
+ *   - 写しの無い区間は何も確かめない。実測で写しを持つ区間は 1863 中 229（12.3%）であり、
+ *     残り 8 割強は依然として散文の対応のままである。**本検査は網羅ではなく、
+ *     担い手が移っている箇所だけを機械が守る形である。**
+ *   - `shall` を含まない受入基準（実測 2888 件中 388 件。`THEN …しなければならない` 形）は
+ *     目印を取り出せないため対象外である。
+ *   - 語句が 12 文字未満、または同一機能の他の条文の本文にも現れる場合は、
+ *     その条文を名指す証拠にならないため対象外である。
+ *   - 候補はその区間が既に名乗っている機能の条文に限る。別機能の条文を写している場合は
+ *     挙げない（機能をまたぐ語句の一致は偽陽性が多い）。
+ *   - **写した条文の番号が同じ区間の散文に書かれている場合は挙げない。** 書き手はどの条文の
+ *     文言かを分かって引いており、指し先が誤っているのではない。実測でこの形は 2 件あり、
+ *     いずれも「この受入基準は除外である／E2Eでは再現できない。ゆえに被覆印は掲げない」と
+ *     明示的に述べたうえで原文を引用していた（site-survey-access-control.spec.ts の REQ-14.4、
+ *     site-survey-annotation-editor-acceptance.spec.ts の 8.5）。**代償として、番号を添えて
+ *     引用すれば検査は黙る。** 番号の付け替えを伴わない誤りはこの検査では捕まらない。
+ *   - 被覆印そのものが読み取り規則に載らない書き方（`(feature/REQ-1.1, REQ-1.2)` の
+ *     二つ目以降、`(feature/REQ-28.3/REQ-15.2)` のような連結）で書かれている場合、
+ *     番号は散文に現れているため上の免除に入り、挙げない。実測でこの形は 2 件あった
+ *     （execution-budget cost-input の REQ-13.4、site-survey outline-toggle の REQ-15.2)。
+ *     読み取り規則の側の穴であり、本検査の担当ではない。
+ *   - 写した条文を名乗っていても、検証が実際にその条文を確かめているかは見ない。
+ *     115.167 が除外定義について記した抜け道と同じで、**写す元を間違えれば一致してしまう。**
+ */
+export interface CriterionTextCopyReport {
+  /** 被覆印を持つ区間の総数（母集団） */
+  blocks: number;
+  /** そのうち受入基準の原文を写している区間の数（本検査が実際に守っている範囲） */
+  blocksWithCopy: number;
+  /** 写した条文を名乗っていない区間 */
+  mismatches: CriterionTextCopyMismatch[];
+}
+
+/** 逐語複製の食い違い（母集団つき） */
+export function reportCriterionTextCopies(
+  features: readonly Feature[],
+  scanRoot: string = E2E_SPECS_ROOT
+): CriterionTextCopyReport {
+  const featureNames = features.map((feature) => feature.name);
+  /** 機能名 → 語句 → その語句を持つ受入基準 */
+  const quotes = new Map<string, Map<string, string>>();
+  for (const feature of features) {
+    const all: AcceptanceCriteria[] = feature.requirements.flatMap(
+      (requirement) => requirement.acceptanceCriteria
+    );
+    const byQuote = new Map<string, string[]>();
+    for (const criterion of all) {
+      const quote = criterionQuote(criterion.text);
+      if (quote === null) continue;
+      byQuote.set(quote, [...(byQuote.get(quote) ?? []), criterion.id]);
+    }
+    const usable = new Map<string, string>();
+    for (const [quote, ids] of byQuote) {
+      if (ids.length !== 1) continue;
+      // 同じ機能の他の条文の本文に現れる語句は、当該条文を名指さない
+      if (all.some((criterion) => criterion.id !== ids[0] && criterion.text.includes(quote))) {
+        continue;
+      }
+      usable.set(quote, ids[0] as string);
+    }
+    quotes.set(feature.name, usable);
+  }
+
+  const mismatches: CriterionTextCopyMismatch[] = [];
+  let blocks = 0;
+  let blocksWithCopy = 0;
+  for (const file of findFiles(scanRoot, /\.(ts|tsx)$/)) {
+    const content = fs.readFileSync(file, 'utf-8');
+    const relative = toPosixPath(path.relative(process.cwd(), file));
+    for (const { block, prose } of splitCoverageBlocks(content, featureNames)) {
+      blocks += 1;
+      let hasCopy = false;
+      const claimedFeatures = new Set([...block.claimed].map((id) => id.slice(0, id.indexOf('/'))));
+      for (const featureName of claimedFeatures) {
+        for (const [quote, criterionId] of quotes.get(featureName) ?? []) {
+          if (!prose.includes(quote)) continue;
+          hasCopy = true;
+          if (block.claimed.has(criterionId)) continue;
+          // 写した条文の番号が同じ区間の散文にあるなら、書き手は出典を分かって引いている
+          if (proseAttributesCriterion(prose, criterionId)) continue;
+          mismatches.push({
+            criterionId,
+            quote,
+            file: relative,
+            line: Math.max(1, block.declaration + 1),
+            claimed: [...block.claimed].sort(),
+          });
+        }
+      }
+      if (hasCopy) blocksWithCopy += 1;
+    }
+  }
+  mismatches.sort(
+    (a, b) =>
+      a.file.localeCompare(b.file) || a.line - b.line || a.criterionId.localeCompare(b.criterionId)
+  );
+  return { blocks, blocksWithCopy, mismatches };
+}
+
+/** 逐語複製の食い違いだけを取り出す（母集団が要らない呼び出し向け） */
+export function findCriterionTextCopyMismatches(
+  features: readonly Feature[],
+  scanRoot: string = E2E_SPECS_ROOT
+): CriterionTextCopyMismatch[] {
+  return reportCriterionTextCopies(features, scanRoot).mismatches;
 }
 
 // ============================================================================
@@ -1458,7 +1896,7 @@ export function evaluateReachability(
 /**
  * カバレッジを計算
  */
-function calculateCoverage(
+export function calculateCoverage(
   features: Feature[],
   testCoverage: TestCoverage[],
   exclusions: ExclusionsFile | null
@@ -1537,13 +1975,23 @@ function calculateCoverage(
   }
 
   // 全体カバレッジ計算
-  const coveredRequirements = Array.from(coveredReqSet).sort();
+  // 分子は分母との交わりで数える。**被覆印が名乗るだけの番号を分子に入れてはならない。**
+  // 従前は coveredReqSet / coveredAcSet の大きさをそのまま分子にしていたため、
+  // 要件定義書に無い番号・撤廃済みの番号を名乗る印が分子だけを膨らませ、
+  // 「被覆済み + 未被覆 > 総数」が成立していた（実測で受入基準 2695 + 205 > 2888）。
+  const allRequirementIds = new Set(allRequirements.map((requirement) => requirement.fullId));
+  const allCriterionIds = new Set(allAcceptanceCriteria.map((criterion) => criterion.id));
+  const coveredRequirements = Array.from(coveredReqSet)
+    .filter((id) => allRequirementIds.has(id))
+    .sort();
   const uncoveredRequirements = allRequirements.filter((r) => !coveredReqSet.has(r.fullId));
 
   const requirementCoveragePercent =
     allRequirements.length > 0 ? (coveredRequirements.length / allRequirements.length) * 100 : 0;
 
-  const coveredAcceptanceCriteria = Array.from(coveredAcSet).sort();
+  const coveredAcceptanceCriteria = Array.from(coveredAcSet)
+    .filter((id) => allCriterionIds.has(id))
+    .sort();
   const uncoveredAcceptanceCriteria = allAcceptanceCriteria.filter(
     (ac) => !coveredAcSet.has(ac.id)
   );
@@ -1604,9 +2052,13 @@ function printReport(
   result: CoverageResult,
   options: Options,
   reachability: ReachabilityReport,
-  retiredMarks: readonly RetiredCriterionMark[]
+  retiredMarks: readonly RetiredCriterionMark[],
+  outOfDenominator: OutOfDenominatorMarks,
+  unknownMarks: readonly UnknownCriterionMark[],
+  copyReport: CriterionTextCopyReport
 ): void {
   const { verbose, threshold } = options;
+  const copyMismatches = copyReport.mismatches;
 
   console.log('');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -1639,6 +2091,41 @@ function printReport(
   );
   console.log(
     `     うち被覆印が名乗っているもの: ${retiredMarks.length}件${retiredMarks.length > 0 ? '（要是正）' : ''}`
+  );
+  console.log('');
+
+  // 分子の側も同じ理由で必ず出す。分母に無い番号を名乗る被覆印は分子だけを膨らませる
+  // （従前は「被覆済み + 未被覆 > 総受入基準数」が成立していた）。
+  const outOfDenominatorTotal =
+    outOfDenominator.retired.length +
+    outOfDenominator.lettered.length +
+    outOfDenominator.unknown.length;
+  console.log(
+    `  🏷️ 分母に無い受入基準番号を名乗る被覆印: ${outOfDenominatorTotal}件（分子には数えない）`
+  );
+  console.log(`     - 撤廃済み（取り消し線）の番号: ${outOfDenominator.retired.length}件`);
+  console.log(
+    `     - 枝つき番号（'1a.' 形式で抽出規則が分母に入れていない）: ${outOfDenominator.lettered.length}件${
+      outOfDenominator.lettered.length > 0 ? `（${outOfDenominator.lettered.join(', ')}）` : ''
+    }`
+  );
+  console.log(
+    `     - 要件定義書に存在しない番号: ${outOfDenominator.unknown.length}件${
+      outOfDenominator.unknown.length > 0 ? `（${outOfDenominator.unknown.join(', ')}）` : ''
+    }`
+  );
+  console.log(
+    `       うち ${E2E_SPECS_ROOT} 配下にあり本スクリプトが失敗させるもの: ${unknownMarks.length}件`
+  );
+  console.log('');
+
+  // 逐語複製と名乗りの対応も 0 件のときに出す。空振りを黙って見逃さないため。
+  console.log(
+    `  📄 受入基準の原文を逐語複製しながら、その条文を名乗っていない被覆印: ${copyMismatches.length}件`
+  );
+  console.log(
+    `     （検査が守っている範囲: ${E2E_SPECS_ROOT} の被覆印の区間 ${copyReport.blocks}件のうち、` +
+      `原文の写しを持つ ${copyReport.blocksWithCopy}件。残りは散文の対応のままで機械は見ていない）`
   );
   console.log('');
 
@@ -1843,7 +2330,10 @@ function printJsonReport(
   result: CoverageResult,
   options: Options,
   reachability: ReachabilityReport,
-  retiredMarks: readonly RetiredCriterionMark[]
+  retiredMarks: readonly RetiredCriterionMark[],
+  outOfDenominator: OutOfDenominatorMarks,
+  unknownMarks: readonly UnknownCriterionMark[],
+  copyReport: CriterionTextCopyReport
 ): void {
   const output = {
     features: result.features.map((f) => ({
@@ -1853,6 +2343,9 @@ function printJsonReport(
       retiredAcceptanceCriteriaCount: f.retiredAcceptanceCriteriaCount,
     })),
     retiredCriterionCoverageMarks: retiredMarks,
+    outOfDenominatorCoverageMarks: outOfDenominator,
+    unknownCriterionCoverageMarks: unknownMarks,
+    criterionTextCopy: copyReport,
     featureCoverage: result.featureCoverage.map((fc) => ({
       featureName: fc.featureName,
       requirements: {
@@ -1982,6 +2475,14 @@ function main(): void {
   // 5b. 撤廃済み（取り消し線）の受入基準を名乗る被覆印を洗い出す
   const retiredMarks = findRetiredCriterionCoverageMarks(features, testCoverage);
 
+  // 5c. 指し先そのものが誤っている被覆印を洗い出す
+  //     (i) 要件定義書に存在しない番号を名乗る
+  //     (ii) 原文を逐語複製しながら別の条文を名乗る
+  const outOfDenominator = collectOutOfDenominatorMarks(features, testCoverage);
+  const unknownMarks = findUnknownCriterionCoverageMarks(features, testCoverage);
+  const copyReport = reportCriterionTextCopies(features);
+  const copyMismatches = copyReport.mismatches;
+
   // 6. 本番到達性を判定（番号を持つ検証が本番の経路を通るか）
   const graph = buildModuleGraph();
   const reachableModules = computeReachableModules(graph);
@@ -2004,16 +2505,34 @@ function main(): void {
 
   // 7. レポート出力
   if (options.json) {
-    printJsonReport(result, options, reachability, retiredMarks);
+    printJsonReport(
+      result,
+      options,
+      reachability,
+      retiredMarks,
+      outOfDenominator,
+      unknownMarks,
+      copyReport
+    );
   } else {
-    printReport(result, options, reachability, retiredMarks);
+    printReport(
+      result,
+      options,
+      reachability,
+      retiredMarks,
+      outOfDenominator,
+      unknownMarks,
+      copyReport
+    );
   }
 
   // 8. 閾値チェック
   const passed =
     result.applicableCoveragePercent >= options.threshold &&
     reachabilityVerdict.ok &&
-    retiredMarks.length === 0;
+    retiredMarks.length === 0 &&
+    unknownMarks.length === 0 &&
+    copyMismatches.length === 0;
 
   const uncoveredNotExcluded = result.uncoveredAcceptanceCriteria.filter(
     (ac) =>
@@ -2033,6 +2552,28 @@ function main(): void {
       }
       for (const reason of reachabilityVerdict.reasons) {
         console.log(`❌ FAILED: ${reason}`);
+      }
+      if (unknownMarks.length > 0) {
+        console.log(
+          `❌ FAILED: 要件定義書に存在しない受入基準番号を名乗る被覆印が${unknownMarks.length}件あります`
+        );
+        for (const mark of unknownMarks) {
+          const cause = mark.requirementMissing
+            ? '要件そのものが無い'
+            : '当該要件に該当番号の受入基準が無い';
+          console.log(`     - ${mark.id}（${cause}）: ${mark.files.join(', ')}`);
+        }
+      }
+      if (copyMismatches.length > 0) {
+        console.log(
+          `❌ FAILED: 受入基準の原文を逐語複製しながら、その条文を名乗っていない被覆印が${copyMismatches.length}件あります`
+        );
+        for (const mismatch of copyMismatches) {
+          console.log(
+            `     - ${mismatch.file}:${mismatch.line} 複製=${mismatch.criterionId} 名乗り=${mismatch.claimed.join(', ')}`
+          );
+          console.log(`       「${mismatch.quote}」`);
+        }
       }
       if (retiredMarks.length > 0) {
         console.log(

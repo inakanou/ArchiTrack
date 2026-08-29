@@ -146,9 +146,13 @@ test.describe('プロジェクト管理ナビゲーション', () => {
     });
 
     /**
-     * @requirement project-management/REQ-21.3
+     * @requirement project-management/REQ-21.4
+     *
+     * タスク 115.188 の是正: 従前は REQ-21.3 を名乗っていたが、受入基準21.3 は「『プロジェクト』リンクにアイ
+     * コンを付与して視認性を高める」であり、配置を述べるのは受入基準21.4（『プロジェクト』リンクを『ダッシュボード』リンクの次に配
+     * 置する）である。直後のアイコンの検証と名乗りが入れ替わっていた。
      */
-    test('「プロジェクト」リンクが「ダッシュボード」リンクの右側に配置されている (project-management/REQ-21.3)', async ({
+    test('「プロジェクト」リンクが「ダッシュボード」リンクの右側に配置されている (project-management/REQ-21.4)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -173,9 +177,12 @@ test.describe('プロジェクト管理ナビゲーション', () => {
     });
 
     /**
-     * @requirement project-management/REQ-21.4
+     * @requirement project-management/REQ-21.3
+     *
+     * タスク 115.188 の是正: 従前は REQ-21.4 を名乗っていたが、受入基準21.4 はリンクの配置であり、
+     * アイコンの付与を述べるのは受入基準21.3 である。直前の配置の検証と名乗りが入れ替わっていた。
      */
-    test('「プロジェクト」リンクにプロジェクトを表すアイコンが表示される (project-management/REQ-21.4)', async ({
+    test('「プロジェクト」リンクにプロジェクトを表すアイコンが表示される (project-management/REQ-21.3)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -236,9 +243,12 @@ test.describe('プロジェクト管理ナビゲーション', () => {
     });
 
     /**
-     * @requirement project-management/REQ-21.7
+     * @requirement project-management/REQ-21.8
+     *
+     * タスク 115.188 の是正: 本検証の表題・本文が述べる内容は名乗っていた番号の条文と
+     * 対応していなかった。走査で候補を挙げ、原文と突き合わせて名乗り直している。
      */
-    test('「プロジェクト管理」カードがクイックアクセスセクションの先頭に配置されている (project-management/REQ-21.7)', async ({
+    test('「プロジェクト管理」カードがクイックアクセスセクションの先頭に配置されている (project-management/REQ-21.8)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -259,9 +269,12 @@ test.describe('プロジェクト管理ナビゲーション', () => {
     });
 
     /**
-     * @requirement project-management/REQ-21.8
+     * @requirement project-management/REQ-21.7
+     *
+     * タスク 115.188 の是正: 本検証の表題・本文が述べる内容は名乗っていた番号の条文と
+     * 対応していなかった。走査で候補を挙げ、原文と突き合わせて名乗り直している。
      */
-    test('「プロジェクト管理」カードに「工事案件の作成・管理」という説明文が表示される (project-management/REQ-21.8)', async ({
+    test('「プロジェクト管理」カードに「工事案件の作成・管理」という説明文が表示される (project-management/REQ-21.7)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -647,11 +660,13 @@ test.describe('プロジェクト管理ナビゲーション', () => {
     });
 
     /**
-     * @requirement project-management/REQ-21.25
+     * タスク 115.188 の是正: 従前は REQ-21.25 を名乗っていたが、原文 21.25 は
+     * 「プロジェクト管理ページ群を保護し、認証済みユーザーのみアクセスを許可する」であり、
+     * 「一覧に戻る」リンクとは主題が別である。要件21 に「一覧に戻る」リンクの遷移を述べる
+     * 条文は無いため（21.13 は存在しないIDにアクセスした場合の戻るリンクに限る）、
+     * 被覆印を取り下げる。`project-detail.spec.ts` の同種の検証と同じ裁定である。
      */
-    test('詳細ページで「一覧に戻る」リンクをクリック時に一覧ページに遷移 (project-management/REQ-21.25)', async ({
-      page,
-    }) => {
+    test('詳細ページで「一覧に戻る」リンクをクリック時に一覧ページに遷移', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // テスト用プロジェクトを作成
@@ -680,9 +695,12 @@ test.describe('プロジェクト管理ナビゲーション', () => {
    */
   test.describe('認証・認可', () => {
     /**
-     * @requirement project-management/REQ-21.26
+     * @requirement project-management/REQ-21.25
+     *
+     * タスク 115.188 の是正: 群が一律に一つ後ろへずれていた。原文 21.25 は
+     * 「プロジェクト管理ページ群を保護し、認証済みユーザーのみアクセスを許可する」である。
      */
-    test('プロジェクト管理ページがProtectedRouteで保護されている (project-management/REQ-21.26)', async ({
+    test('プロジェクト管理ページがProtectedRouteで保護されている (project-management/REQ-21.25)', async ({
       page,
     }) => {
       // 未認証状態でプロジェクト一覧ページにアクセス
@@ -694,9 +712,12 @@ test.describe('プロジェクト管理ナビゲーション', () => {
     });
 
     /**
-     * @requirement project-management/REQ-21.27
+     * @requirement project-management/REQ-21.26
+     *
+     * タスク 115.188 の是正: 原文 21.26 は「プロジェクト管理ページ群に共通レイアウト
+     * （ナビゲーションヘッダー付き）を適用する」であり、本検証の主題と一致する。
      */
-    test('プロジェクト管理ページにProtectedLayoutが適用されている (project-management/REQ-21.27)', async ({
+    test('プロジェクト管理ページにProtectedLayoutが適用されている (project-management/REQ-21.26)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -723,9 +744,12 @@ test.describe('プロジェクト管理ナビゲーション', () => {
     });
 
     /**
-     * @requirement project-management/REQ-21.28
+     * @requirement project-management/REQ-21.27
+     *
+     * タスク 115.188 の是正: 原文 21.27 は「未認証ユーザーがプロジェクト管理ページに
+     * アクセスした場合、ログインページにリダイレクトする」であり、本検証の主題と一致する。
      */
-    test('未認証ユーザーアクセス時にログインページにリダイレクト (project-management/REQ-21.28)', async ({
+    test('未認証ユーザーアクセス時にログインページにリダイレクト (project-management/REQ-21.27)', async ({
       page,
     }) => {
       // 未認証状態で各ページにアクセスし、ログインページにリダイレクトされることを確認
@@ -741,9 +765,13 @@ test.describe('プロジェクト管理ナビゲーション', () => {
     });
 
     /**
-     * @requirement project-management/REQ-21.29
+     * @requirement project-management/REQ-21.28
+     *
+     * タスク 115.188 の是正: 従前は要件定義書に存在しない REQ-21.29 を名乗っていた。
+     * 要件21の受入基準は28件までであり、本検証が主張する内容は受入基準21.28
+     * （ログイン後、元のページ（リダイレクト元のプロジェクトページ）に遷移する）である。
      */
-    test('ログイン後に元のページに遷移 (project-management/REQ-21.29)', async ({ page }) => {
+    test('ログイン後に元のページに遷移 (project-management/REQ-21.28)', async ({ page }) => {
       // 未認証状態でプロジェクト一覧ページにアクセス
       await page.goto('/projects');
       await page.waitForLoadState('networkidle');

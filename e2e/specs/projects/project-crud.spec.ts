@@ -75,10 +75,14 @@ test.describe('プロジェクトCRUD操作', () => {
     });
 
     /**
-     * @requirement project-management/REQ-1.7
-     * @requirement project-management/REQ-1.8
+     * @requirement project-management/REQ-1.10
+     * @requirement project-management/REQ-1.11
+     *
+     * タスク 115.188 の是正: project-management 要件1 は受入基準が19件へ増えており、
+     * 本ファイルの被覆印は増える前の番号のままで一律にずれていた。表題・本文が述べる
+     * 内容と原文を一件ずつ突き合わせて名乗り直している（受入基準1.10 は必須項目を入力しての保存、1.11 は保存成功時の詳細画面遷移。旧 1.7・1.8 は現行では顧客選択時の住所保持と営業担当者の既定値）。
      */
-    test('フォーム入力→送信→詳細画面遷移が正常に行われる (project-management/REQ-1.7, REQ-1.8)', async ({
+    test('フォーム入力→送信→詳細画面遷移が正常に行われる (project-management/REQ-1.10, REQ-1.11)', async ({
       page,
     }) => {
       // 一般ユーザーでログイン（管理者は営業担当者として選択できないため）
@@ -195,10 +199,14 @@ test.describe('プロジェクトCRUD操作', () => {
     });
 
     /**
-     * @requirement project-management/REQ-1.5
-     * @requirement project-management/REQ-1.6
+     * @requirement project-management/REQ-1.8
+     * @requirement project-management/REQ-1.9
+     *
+     * タスク 115.188 の是正: project-management 要件1 は受入基準が19件へ増えており、
+     * 本ファイルの被覆印は増える前の番号のままで一律にずれていた。表題・本文が述べる
+     * 内容と原文を一件ずつ突き合わせて名乗り直している（受入基準1.8 が営業担当者、1.9 が工事担当者の既定値。旧 1.5・1.6 は現行では取引先IDの設定と現場住所の自動入力）。
      */
-    test('営業担当者・工事担当者フィールドにログインユーザーがデフォルト設定される (project-management/REQ-1.5, REQ-1.6)', async ({
+    test('営業担当者・工事担当者フィールドにログインユーザーがデフォルト設定される (project-management/REQ-1.8, REQ-1.9)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -223,9 +231,13 @@ test.describe('プロジェクトCRUD操作', () => {
     });
 
     /**
-     * @requirement project-management/REQ-1.9
+     * @requirement project-management/REQ-1.12
+     *
+     * タスク 115.188 の是正: project-management 要件1 は受入基準が19件へ増えており、
+     * 本ファイルの被覆印は増える前の番号のままで一律にずれていた。表題・本文が述べる
+     * 内容と原文を一件ずつ突き合わせて名乗り直している（受入基準1.12 が必須項目未入力時の該当フィールドへのエラー表示。旧 1.9 は現行では工事担当者の既定値）。
      */
-    test('必須項目未入力時にバリデーションエラーが表示される (project-management/REQ-1.9)', async ({
+    test('必須項目未入力時にバリデーションエラーが表示される (project-management/REQ-1.12)', async ({
       page,
     }) => {
       // 一般ユーザーでログイン
@@ -245,9 +257,13 @@ test.describe('プロジェクトCRUD操作', () => {
     });
 
     /**
-     * @requirement project-management/REQ-1.10
+     * @requirement project-management/REQ-1.13
+     *
+     * タスク 115.188 の是正: project-management 要件1 は受入基準が19件へ増えており、
+     * 本ファイルの被覆印は増える前の番号のままで一律にずれていた。表題・本文が述べる
+     * 内容と原文を一件ずつ突き合わせて名乗り直している（受入基準1.13 が「プロジェクト名は必須です」の表示。旧 1.10 は現行では必須項目を入力しての保存）。
      */
-    test('プロジェクト名未入力時にバリデーションエラーが表示される (project-management/REQ-1.10)', async ({
+    test('プロジェクト名未入力時にバリデーションエラーが表示される (project-management/REQ-1.13)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -266,9 +282,13 @@ test.describe('プロジェクトCRUD操作', () => {
     });
 
     /**
-     * @requirement project-management/REQ-1.11
+     * @requirement project-management/REQ-1.14
+     *
+     * タスク 115.188 の是正: project-management 要件1 は受入基準が19件へ増えており、
+     * 本ファイルの被覆印は増える前の番号のままで一律にずれていた。表題・本文が述べる
+     * 内容と原文を一件ずつ突き合わせて名乗り直している（受入基準1.14 が255文字超過時のエラー。旧 1.11 は現行では保存成功時の詳細画面遷移）。
      */
-    test('プロジェクト名が255文字を超える場合にバリデーションエラーが表示される (project-management/REQ-1.11)', async ({
+    test('プロジェクト名が255文字を超える場合にバリデーションエラーが表示される (project-management/REQ-1.14)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -289,14 +309,20 @@ test.describe('プロジェクトCRUD操作', () => {
       });
     });
 
-    // Note: REQ-1.12 は「営業担当者未選択時のバリデーション」であり、
-    // 以下のテスト（REQ-1.12）で実施済み。
+    // Note: 「営業担当者未選択時のバリデーション」を述べるのは受入基準1.15 であり、
+    // 直後のテストで実施済み（従前この註釈は 1.12 と書いていたが、原文1.12 は
+    // 「必須項目を入力せずに『作成』ボタンをクリックしたとき入力エラーメッセージを
+    // 該当フィールドに表示する」であり、タスク 115.188 で現況へ改めた）。
     // 取引先（顧客名）は任意フィールドのため、バリデーションテスト不要。
 
     /**
-     * @requirement project-management/REQ-1.12
+     * @requirement project-management/REQ-1.15
+     *
+     * タスク 115.188 の是正: project-management 要件1 は受入基準が19件へ増えており、
+     * 本ファイルの被覆印は増える前の番号のままで一律にずれていた。表題・本文が述べる
+     * 内容と原文を一件ずつ突き合わせて名乗り直している（受入基準1.15 が「営業担当者は必須です」の表示。旧 1.12 は現行では必須項目未入力時の該当フィールドへのエラー表示）。
      */
-    test('営業担当者未選択時にバリデーションエラーが表示される (project-management/REQ-1.12)', async ({
+    test('営業担当者未選択時にバリデーションエラーが表示される (project-management/REQ-1.15)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -329,10 +355,14 @@ test.describe('プロジェクトCRUD操作', () => {
     });
 
     /**
-     * @requirement project-management/REQ-1.13
-     * @requirement project-management/REQ-1.14
+     * @requirement project-management/REQ-1.16
+     * @requirement project-management/REQ-1.17
+     *
+     * タスク 115.188 の是正: project-management 要件1 は受入基準が19件へ増えており、
+     * 本ファイルの被覆印は増える前の番号のままで一律にずれていた。表題・本文が述べる
+     * 内容と原文を一件ずつ突き合わせて名乗り直している（受入基準1.16 が作成日時と作成者の自動記録、1.17 が一意IDの自動付与。旧 1.13・1.14 は現行ではプロジェクト名の必須・文字数のエラー）。
      */
-    test('プロジェクト作成時に作成日時・作成者・IDが自動記録される (project-management/REQ-1.13, REQ-1.14)', async ({
+    test('プロジェクト作成時に作成日時・作成者・IDが自動記録される (project-management/REQ-1.16, REQ-1.17)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -392,9 +422,14 @@ test.describe('プロジェクトCRUD操作', () => {
     /**
      * @requirement project-management/REQ-8.1
      * @requirement project-management/REQ-8.2
-     * @requirement project-management/REQ-8.3
+     * @requirement project-management/REQ-8.7
+     *
+     * タスク 115.188 の是正: 従前は REQ-8.3 を名乗っていたが、受入基準8.3 の原文は「When ユーザーが顧客名フィールドで検索テキストを入力する,
+     * the ArchiTrackシステム shall 取引先管理機能で登録された取引先を検索フィルタリングして表示する」
+     * である。本区間の表題・本文が述べる内容に対応するのは受入基準8.7（「When プロジェクトが正常に更新される, the ArchiTrackシステム
+     * shall 更新日時を自動的に記録し、成功メッセージを表示する」）である。
      */
-    test('編集ボタン→フォーム表示→保存→成功メッセージが正常に行われる (project-management/REQ-8.1, REQ-8.2, REQ-8.3)', async ({
+    test('編集ボタン→フォーム表示→保存→成功メッセージが正常に行われる (project-management/REQ-8.1, REQ-8.2, REQ-8.7)', async ({
       page,
     }) => {
       // 一般ユーザーでログイン（編集は一般ユーザーでも可能）
@@ -501,9 +536,14 @@ test.describe('プロジェクトCRUD操作', () => {
     });
 
     /**
-     * @requirement project-management/REQ-8.4
+     * @requirement project-management/REQ-8.8
+     *
+     * タスク 115.188 の是正: 従前は REQ-8.4 を名乗っていたが、受入基準8.4 は「顧客名フィールドでフリガナを検索
+     * する…ひらがな・カタカナどちらの入力でも取引先候補を検索する」であり、本検証が主張するバリデーションエラーの表示を述べるのは受入
+     * 基準8.8（バリデーションエラーが発生した場合、エラーメッセージを該当フィールドに表示する）
+     * である。
      */
-    test('編集時にバリデーションエラーが発生するとエラーメッセージが表示される (project-management/REQ-8.4)', async ({
+    test('編集時にバリデーションエラーが発生するとエラーメッセージが表示される (project-management/REQ-8.8)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');

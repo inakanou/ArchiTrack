@@ -47,7 +47,10 @@ test.describe('ユーザーへのロール割り当て', () => {
    * 要件20.7: 新ロール割り当て後の次回トークンリフレッシュで権限反映
    * 要件22.3: ユーザーへのロール割り当て・削除時の監査ログ記録
    * 要件22.7: 監査ログに変更前後の値を含める
-   * @requirement user-authentication/REQ-20.1 @requirement user-authentication/REQ-20.5 @requirement user-authentication/REQ-20.7
+   * @requirement user-authentication/REQ-20.1 @requirement user-authentication/REQ-20.5
+   *
+   * タスク 115.188 の是正: 従前は REQ-20.7 も名乗っていたが、本区間の表題・本文が述べる内容に対応するのは、
+   * 同じ区間が既に名乗っている受入基準20.1 である。重複する名乗りを取り下げた（REQ-20.7 は本区間の主張と別の事柄を述べている）。
    * @requirement user-authentication/REQ-22.3 @requirement user-authentication/REQ-22.7
    */
   test('管理者はユーザーにロールを追加できる', async ({ request }) => {

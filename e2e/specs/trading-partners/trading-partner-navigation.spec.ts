@@ -439,9 +439,19 @@ test.describe('取引先ナビゲーション・画面遷移', () => {
    */
   test.describe('パンくずナビゲーション', () => {
     /**
-     * @requirement trading-partner-management/REQ-12.18
+     * @requirement trading-partner-management/REQ-12.14
+     *
+     * タスク 115.188 の是正: 従前は REQ-12.18 を名乗っていたが、本テストは一覧ページでパンくずが**表示される*
+     * *ことだけを主張しており、クリックを行わない。受入基準12.18 は「パンくずナビゲーションの任意の階層をクリックしたとき…該当
+     * ページに遷移する」であり、表示のみを述べるのは受入基準12.14 である。
+     *
+     * 上の群の註釈にある `REQ-12.14:` などの箇条書きは被覆印としては読まれない
+     * （パターン5は `Requirements (feature-name):` ヘッダーの直下の一覧だけを拾う。
+     * 実測: check:req-coverage:json の testFiles で本ファイルが名乗る受入基準に
+     * REQ-12.14 は含まれていなかった）。ゆえに散文の箇条書きは分子に入らず、
+     * 番号を外す必要は無い。名乗りの担い手は `@requirement` に一本化されている。
      */
-    test('一覧画面でパンくず「ダッシュボード > 取引先」が表示される (trading-partner-management/REQ-12.18)', async ({
+    test('一覧画面でパンくず「ダッシュボード > 取引先」が表示される (trading-partner-management/REQ-12.14)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -574,9 +584,12 @@ test.describe('取引先ナビゲーション・画面遷移', () => {
     });
 
     /**
-     * @requirement trading-partner-management/REQ-12.14
+     * @requirement trading-partner-management/REQ-12.18
+     *
+     * タスク 115.188 の是正: 従前は REQ-12.14 を名乗っていたが、受入基準12.14 は取引先一覧ページにパンくず
+     * を「表示する」条文であり、パンくずのクリックによる遷移を述べるのは受入基準12.18 である。
      */
-    test('パンくずの「取引先」リンクをクリックすると一覧ページに遷移する (trading-partner-management/REQ-12.14)', async ({
+    test('パンくずの「取引先」リンクをクリックすると一覧ページに遷移する (trading-partner-management/REQ-12.18)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -596,16 +609,24 @@ test.describe('取引先ナビゲーション・画面遷移', () => {
   /**
    * 画面間遷移のテスト
    *
-   * REQ-12.19: 一覧画面で「新規作成」ボタンをクリック → 新規作成画面
-   * REQ-12.20: 詳細画面で「編集」ボタンをクリック → 編集画面
-   * REQ-12.21: 新規作成画面で作成成功 → 一覧画面
-   * REQ-12.22: 編集画面で更新成功 → 詳細画面
+   * REQ-12.20: 一覧画面で「新規作成」ボタンをクリック → 新規作成画面
+   * REQ-12.21: 詳細画面で「編集」ボタンをクリック → 編集画面
+   * REQ-12.22: 新規作成画面で作成成功 → 一覧画面
+   * REQ-12.23: 編集画面で更新成功 → 詳細画面
+   *
+   * タスク 115.188 の是正: この一覧は原文より一つずつ手前の番号を並べていた
+   * （原文の受入基準19 は一覧から取引先を選択したときの詳細ページ遷移）。
    */
   test.describe('画面間遷移', () => {
     /**
-     * @requirement trading-partner-management/REQ-12.19
+     * @requirement trading-partner-management/REQ-12.20
+     *
+     * タスク 115.188 の是正: 従前は REQ-12.19 を名乗っていたが、受入基準12.19 の原文は「When ユーザーが取引先一覧から取引先を選択したとき,
+     * the 取引先管理サービス shall 取引先詳細ページに遷移する」である。本区間の表題・本文が述べる内容に対応するのは受入基準12.20（「When
+     * ユーザーが取引先一覧で「新規作成」ボタンをクリックしたとき, the 取引先管理サービス shall 取引先新規作成ページに遷移する」
+     * ）である。
      */
-    test('一覧画面の「新規作成」ボタンから新規作成画面に遷移する (trading-partner-management/REQ-12.19)', async ({
+    test('一覧画面の「新規作成」ボタンから新規作成画面に遷移する (trading-partner-management/REQ-12.20)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -625,9 +646,15 @@ test.describe('取引先ナビゲーション・画面遷移', () => {
     });
 
     /**
-     * @requirement trading-partner-management/REQ-12.20
+     * @requirement trading-partner-management/REQ-12.21
+     *
+     * タスク 115.188 の是正: 従前は REQ-12.20 を名乗っていたが、受入基準12.20 の原文は「When ユーザーが取引先一覧で「新規作成」
+     * ボタンをクリックしたとき, the 取引先管理サービス shall 取引先新規作成ページに遷移する」
+     * である。本区間の表題・本文が述べる内容に対応するのは受入基準12.21（「When ユーザーが取引先詳細ページで「編集」
+     * ボタンをクリックしたとき, the 取引先管理サービス shall 取引先編集画面を表示する」
+     * ）である。
      */
-    test('詳細画面の「編集」ボタンから編集画面に遷移する (trading-partner-management/REQ-12.20)', async ({
+    test('詳細画面の「編集」ボタンから編集画面に遷移する (trading-partner-management/REQ-12.21)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -671,9 +698,14 @@ test.describe('取引先ナビゲーション・画面遷移', () => {
     });
 
     /**
-     * @requirement trading-partner-management/REQ-12.21
+     * @requirement trading-partner-management/REQ-12.22
+     *
+     * タスク 115.188 の是正: 従前は REQ-12.21 を名乗っていたが、受入基準12.21 の原文は「When ユーザーが取引先詳細ページで「編集」
+     * ボタンをクリックしたとき, the 取引先管理サービス shall 取引先編集画面を表示する」
+     * である。本区間の表題・本文が述べる内容に対応するのは受入基準12.22（「When 取引先作成に成功したとき, the 取引先管理サービス
+     * shall 取引先一覧ページに遷移する」）である。
      */
-    test('新規作成画面で作成成功後に一覧画面に遷移する (trading-partner-management/REQ-12.21)', async ({
+    test('新規作成画面で作成成功後に一覧画面に遷移する (trading-partner-management/REQ-12.22)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -707,9 +739,14 @@ test.describe('取引先ナビゲーション・画面遷移', () => {
     });
 
     /**
-     * @requirement trading-partner-management/REQ-12.22
+     * @requirement trading-partner-management/REQ-12.23
+     *
+     * タスク 115.188 の是正: 従前は REQ-12.22 を名乗っていたが、受入基準12.22 の原文は「When 取引先作成に成功したとき,
+     * the 取引先管理サービス shall 取引先一覧ページに遷移する」である。本区間の表題・本文が述べる内容に対応するのは受入基準12.23（「When
+     * 取引先更新に成功したとき, the 取引先管理サービス shall 取引先詳細ページに遷移する」
+     * ）である。
      */
-    test('編集画面で更新成功後に詳細画面に遷移する (trading-partner-management/REQ-12.22)', async ({
+    test('編集画面で更新成功後に詳細画面に遷移する (trading-partner-management/REQ-12.23)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -890,13 +927,21 @@ test.describe('取引先ナビゲーション・画面遷移', () => {
   /**
    * 未認証アクセスのテスト
    *
-   * REQ-12.23: 未認証ユーザーが取引先ページにアクセス時、ログインリダイレクト後に元ページに復帰
+   * REQ-12.27: 未認証ユーザーが取引先管理ページにアクセスした場合、ログインページへリダイレクトする
+   * REQ-12.28: ログイン後、元のページ（リダイレクト元の取引先ページ）に遷移する
+   * （タスク 115.188 の是正: 従前この註釈は REQ-12.23 と書いていたが、原文12.23 は
+   *   「取引先更新に成功したとき取引先詳細ページに遷移する」であり主題が別だった）
    */
   test.describe('未認証アクセス', () => {
     /**
-     * @requirement trading-partner-management/REQ-12.23
+     * @requirement trading-partner-management/REQ-12.27
+     *
+     * タスク 115.188 の是正: 従前は REQ-12.23 を名乗っていたが、受入基準12.23 の原文は「When 取引先更新に成功したとき,
+     * the 取引先管理サービス shall 取引先詳細ページに遷移する」である。本区間の表題・本文が述べる内容に対応するのは受入基準12.27（「If
+     * 未認証ユーザーが取引先管理ページにアクセスした場合, then the 取引先管理サービス shall ログインページにリダイレクトする」
+     * ）である。
      */
-    test('未認証状態で取引先一覧ページにアクセスするとログインページにリダイレクトされる (trading-partner-management/REQ-12.23)', async ({
+    test('未認証状態で取引先一覧ページにアクセスするとログインページにリダイレクトされる (trading-partner-management/REQ-12.27)', async ({
       page,
     }) => {
       // 未認証状態でアクセス
@@ -907,9 +952,14 @@ test.describe('取引先ナビゲーション・画面遷移', () => {
     });
 
     /**
-     * @requirement trading-partner-management/REQ-12.23
+     * @requirement trading-partner-management/REQ-12.27
+     *
+     * タスク 115.188 の是正: 従前は REQ-12.23 を名乗っていたが、受入基準12.23 の原文は「When 取引先更新に成功したとき,
+     * the 取引先管理サービス shall 取引先詳細ページに遷移する」である。本区間の表題・本文が述べる内容に対応するのは受入基準12.27（「If
+     * 未認証ユーザーが取引先管理ページにアクセスした場合, then the 取引先管理サービス shall ログインページにリダイレクトする」
+     * ）である。
      */
-    test('未認証状態で取引先新規作成ページにアクセスするとログインページにリダイレクトされる (trading-partner-management/REQ-12.23)', async ({
+    test('未認証状態で取引先新規作成ページにアクセスするとログインページにリダイレクトされる (trading-partner-management/REQ-12.27)', async ({
       page,
     }) => {
       // 未認証状態でアクセス
@@ -920,11 +970,16 @@ test.describe('取引先ナビゲーション・画面遷移', () => {
     });
 
     /**
-     * @requirement trading-partner-management/REQ-12.23
-     * @requirement trading-partner-management/REQ-12.26
      * @requirement trading-partner-management/REQ-12.27
+     * @requirement trading-partner-management/REQ-12.28
+     *
+     * タスク 115.188 の是正: 従前は REQ-12.23 と REQ-12.26 を名乗っていた。原文12.23 は
+     * 「取引先更新に成功したとき取引先詳細ページに遷移する」で、本検証は更新を一度も行わない。
+     * 原文12.26 は「取引先管理ページ群に ProtectedLayout（AppHeader付き）を適用する」で、
+     * 本検証は AppHeader を一度も見ない。12.26 は他に被覆源が無いため未被覆として露出する。
+     * 本検証の主題である「ログイン後に元のページへ復帰する」を述べるのは原文12.28 である。
      */
-    test('ログイン後に元のページに復帰する (trading-partner-management/REQ-12.23, REQ-12.26, REQ-12.27)', async ({
+    test('ログイン後に元のページに復帰する (trading-partner-management/REQ-12.27, REQ-12.28)', async ({
       page,
       context,
     }) => {

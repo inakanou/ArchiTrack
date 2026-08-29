@@ -350,10 +350,16 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement project-management/REQ-27.2
-     * 見積依頼セクションに「新規作成」ボタンを表示する
+     * @requirement project-management/REQ-27.3
+     * 見積依頼が存在しない場合、メッセージの下に「新規作成」ボタンを表示する
+     *
+     * タスク 115.188 の是正: 本ブロックの被覆印は project-management 要件27 へ集約される前の
+     * 番号（estimate-request 要件1 の 1.2〜1.5）をそのまま 27.2〜27.5 に読み替えたもので、
+     * 条文の内容と対応していなかった。表題・本文が述べる内容に合わせて名乗り直している。
      */
-    test('REQ-1.2: 見積依頼セクションに「新規作成」ボタンが表示される', async ({ page }) => {
+    test('REQ-1.2: 見積依頼セクションに「新規作成」ボタンが表示される (project-management/REQ-27.3)', async ({
+      page,
+    }) => {
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -370,10 +376,16 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement project-management/REQ-27.3
-     * 見積依頼が存在しない場合、セクション右上の「すべて見る」リンクを非表示にする（要件4）
+     * @requirement project-management/REQ-27.4
+     * 見積依頼が存在しない場合、セクション右上の「新規作成」ボタンと「すべて見る」リンクを非表示にする
+     *
+     * タスク 115.188 の是正: 本ブロックの被覆印は project-management 要件27 へ集約される前の
+     * 番号（estimate-request 要件1 の 1.2〜1.5）をそのまま 27.2〜27.5 に読み替えたもので、
+     * 条文の内容と対応していなかった。表題・本文が述べる内容に合わせて名乗り直している。
      */
-    test('REQ-1.3: 見積依頼がない場合、「すべて見る」リンクが非表示である', async ({ page }) => {
+    test('REQ-1.3: 見積依頼がない場合、「すべて見る」リンクが非表示である (project-management/REQ-27.4)', async ({
+      page,
+    }) => {
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -390,10 +402,16 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement project-management/REQ-27.4
-     * 「新規作成」ボタンをクリックしたとき、見積依頼作成画面に遷移する
+     * @requirement project-management/REQ-27.7
+     * ユーザーが「新規作成」ボタンをクリックしたとき、見積依頼作成画面に遷移する
+     *
+     * タスク 115.188 の是正: 本ブロックの被覆印は project-management 要件27 へ集約される前の
+     * 番号（estimate-request 要件1 の 1.2〜1.5）をそのまま 27.2〜27.5 に読み替えたもので、
+     * 条文の内容と対応していなかった。表題・本文が述べる内容に合わせて名乗り直している。
      */
-    test('REQ-1.4: 「新規作成」ボタンをクリックで見積依頼作成画面に遷移する', async ({ page }) => {
+    test('REQ-1.4: 「新規作成」ボタンをクリックで見積依頼作成画面に遷移する (project-management/REQ-27.7)', async ({
+      page,
+    }) => {
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -413,9 +431,17 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement project-management/REQ-27.5
-     * 見積依頼が存在しない場合、セクション右上の「新規作成」ボタンも非表示である（要件4）
+     * @requirement project-management/REQ-27.2
+     * @requirement project-management/REQ-27.3
+     * @requirement project-management/REQ-27.4
+     * 見積依頼が存在しない場合、「見積依頼はまだありません」というメッセージとその下の
+     * 「新規作成」ボタンを表示し、セクション右上の「新規作成」ボタンと
+     * 「すべて見る」リンクを非表示にする
      * 注: 「すべて見る」リンクのクリック遷移テストはREQ-1.8（見積依頼存在時）でカバー
+     *
+     * タスク 115.188 の是正: 本ブロックの被覆印は project-management 要件27 へ集約される前の
+     * 番号（estimate-request 要件1 の 1.2〜1.5）をそのまま 27.2〜27.5 に読み替えたもので、
+     * 条文の内容と対応していなかった。表題・本文が述べる内容に合わせて名乗り直している。
      */
     test('REQ-1.5: 見積依頼がない場合、セクション右上の「新規作成」ボタンが非表示である', async ({
       page,
@@ -870,10 +896,15 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-4.6
+     * @requirement estimate-request/REQ-4.10
      * 項目一覧の下に「内訳書を本文に含める」チェックボックスを表示する
+     *
+     * タスク 115.188 の是正: 要件4 に受入基準が追加される前の番号のままだった。
+     * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
      */
-    test('REQ-4.6: 「内訳書を本文に含める」チェックボックスが表示される', async ({ page }) => {
+    test('REQ-4.6→4.10: 「内訳書を本文に含める」チェックボックスが表示される (estimate-request/REQ-4.10)', async ({
+      page,
+    }) => {
       expect(createdProjectId).toBeTruthy();
       expect(createdEstimateRequestId).toBeTruthy();
 
@@ -888,10 +919,15 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-4.8
+     * @requirement estimate-request/REQ-4.12
      * 見積依頼方法としてラジオボタン（メール/FAX）を表示する
+     *
+     * タスク 115.188 の是正: 要件4 に受入基準が追加される前の番号のままだった。
+     * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
      */
-    test('REQ-4.8: 見積依頼方法ラジオボタン（メール/FAX）が表示される', async ({ page }) => {
+    test('REQ-4.8→4.12: 見積依頼方法ラジオボタン（メール/FAX）が表示される (estimate-request/REQ-4.12)', async ({
+      page,
+    }) => {
       expect(createdProjectId).toBeTruthy();
       expect(createdEstimateRequestId).toBeTruthy();
 
@@ -907,10 +943,15 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-4.9
+     * @requirement estimate-request/REQ-4.13
      * 見積依頼方法のデフォルト値をメールとする
+     *
+     * タスク 115.188 の是正: 要件4 に受入基準が追加される前の番号のままだった。
+     * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
      */
-    test('REQ-4.9: 見積依頼方法のデフォルト値がメールである', async ({ page }) => {
+    test('REQ-4.9→4.13: 見積依頼方法のデフォルト値がメールである (estimate-request/REQ-4.13)', async ({
+      page,
+    }) => {
       expect(createdProjectId).toBeTruthy();
       expect(createdEstimateRequestId).toBeTruthy();
 
@@ -1585,7 +1626,11 @@ test.describe('見積依頼機能', () => {
     /**
      * @requirement estimate-request/REQ-4.4
      * @requirement estimate-request/REQ-4.5
+     * @requirement estimate-request/REQ-4.6
+     * @requirement estimate-request/REQ-4.7
      * Task 30改修: チェックボックス変更時はクライアントサイド状態のみ更新し、保存ボタンで一括保存する
+     * タスク 115.188 の追記: 本検証は保存ボタンが表示・活性であること（受入基準4.6）と、
+     * クリックで選択状態がサーバーへ永続化されること（受入基準4.7）を実際に主張している。
      * Task 37.1: 保存ボタン方式E2Eテスト
      */
     test('REQ-4.4, REQ-4.5: チェックボックス変更後に保存ボタンで一括保存される', async ({
@@ -1659,10 +1704,15 @@ test.describe('見積依頼機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-4.7
+     * @requirement estimate-request/REQ-4.11
      * 項目一覧の下にExcel出力ボタンを表示する
+     *
+     * タスク 115.188 の是正: 要件4 に受入基準が追加される前の番号のままだった。
+     * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
      */
-    test('REQ-4.7: Excel出力ボタンが表示される', async ({ page }) => {
+    test('REQ-4.7→4.11: Excel出力ボタンが表示される (estimate-request/REQ-4.11)', async ({
+      page,
+    }) => {
       expect(createdProjectId).toBeTruthy();
       expect(createdTradingPartnerId).toBeTruthy();
       expect(createdItemizedStatementId).toBeTruthy();
@@ -2227,12 +2277,16 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 4: 他の見積依頼との重複表示', () => {
     /**
-     * @requirement estimate-request/REQ-4.10
-     * @requirement estimate-request/REQ-4.11
-     * @requirement estimate-request/REQ-4.12
-     * 他の見積依頼で選択済みの項目の背景色変更と依頼先取引先名表示
+     * @requirement estimate-request/REQ-4.15
+     * @requirement estimate-request/REQ-4.16
+     * @requirement estimate-request/REQ-4.17
+     * 内訳書項目が他の見積依頼で選択済みのとき、該当行の背景色を変更して視覚的に区別し、
+     * 該当行の一番右の列に依頼先取引先名（複数のときはすべての依頼先名）を表示する
+     *
+     * タスク 115.188 の是正: 要件4 に受入基準が追加される前の番号のままだった。
+     * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
      */
-    test('REQ-4.10, REQ-4.11, REQ-4.12: 他の見積依頼で選択済み項目が視覚的に区別される', async ({
+    test('REQ-4.10-4.12→4.15-4.17: 他の見積依頼で選択済み項目が視覚的に区別される (estimate-request/REQ-4.15, REQ-4.16, REQ-4.17)', async ({
       page,
     }) => {
       expect(createdProjectId).toBeTruthy();
@@ -2738,14 +2792,16 @@ test.describe('見積依頼機能', () => {
 
   test.describe('Requirement 4: 内訳書項目なし', () => {
     /**
-     * @requirement estimate-request/REQ-4.13
+     * @requirement estimate-request/REQ-4.18
      * 参照内訳書に項目が存在しない場合、「内訳書に項目がありません」というメッセージを表示する
      *
      * Note: 現在のAPI設計では空の数量表から内訳書を作成することは許可されていない
      * （EmptyQuantityItemsError）。このテストでは、空の数量表を選択した際の
      * フロントエンドバリデーションエラーメッセージを検証する。
      */
-    test('REQ-4.13: 内訳書に項目がない場合のメッセージ表示', async ({ page }) => {
+    test('REQ-4.13→4.18: 内訳書に項目がない場合のメッセージ表示 (estimate-request/REQ-4.18)', async ({
+      page,
+    }) => {
       expect(createdProjectId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');

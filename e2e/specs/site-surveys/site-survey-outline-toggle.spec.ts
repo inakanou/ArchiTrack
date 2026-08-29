@@ -756,6 +756,12 @@ test.describe('白縁取り切替UI', () => {
    *
    * 主張の対象は白縁取りの切替だけでなくパネル内の操作要素の全部である。片方だけを広げると、
    * 隣り合う操作要素どうしで同じ欠陥（隣より小さい操作要素）が再発するため。
+   *
+   * @requirement site-survey/REQ-28.3
+   * @requirement site-survey/REQ-15.2
+   *
+   * タスク 115.188 の追記: 表題の `(site-survey/REQ-28.3/REQ-15.2)` という連結表記は、
+   * 被覆印の読み取り規則が二つ目の番号を拾わないため REQ-15.2 の主張が読まれていなかった。
    */
   test('(f) 属性パネルの各項目がモバイル幅で 44x44 以上のタップ領域を持つ (site-survey/REQ-28.3/REQ-15.2)', async () => {
     await enterEditMode();

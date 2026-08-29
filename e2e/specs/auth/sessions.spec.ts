@@ -112,8 +112,13 @@ test.describe('セッション管理機能', () => {
    * 要件8.2: アクティブユーザーのセッション有効期限延長
    * @requirement user-authentication/REQ-8.1 @requirement user-authentication/REQ-8.2
    * @requirement user-authentication/REQ-28.30 セッション管理リンククリック → セッション管理画面遷移
-   * @requirement user-authentication/REQ-28.31 プロフィール画面表示 → セッション管理リンク表示
    * @requirement user-authentication/REQ-28.34 セッション管理画面表示 → アクティブセッション一覧と他デバイスログアウトボタン表示
+   *
+   * タスク 115.188 の是正: user-authentication の受入基準28.31 を名乗る被覆印を取り下げた。
+   * 原文28.31 は「プロフィール画面が表示されるとき、セッション管理へのリンクを含める」で
+   * あり、主題はプロフィール画面である。本区間は beforeEach で `/sessions` へ直接移動し、
+   * プロフィール画面を一度も開かないため、原文の前件に入らない。付け替え先も要件28 に無い。
+   * 28.31 は `auth/navigation.spec.ts:148` のプロフィール画面の検証が引き続き名乗る。
    */
   test('セッション一覧が正しく表示される', async ({ page }) => {
     // セッション一覧のヘッダー（タイムアウト追加）
@@ -175,7 +180,13 @@ test.describe('セッション管理機能', () => {
   });
 
   /**
-   * @requirement user-authentication/REQ-8.5 全デバイスログアウト機能の提供
+   * @requirement user-authentication/REQ-28.34 全デバイスログアウト機能の提供
+   *
+   * タスク 115.188 の是正: 従前は REQ-8.5 を名乗っていたが、受入基準8.5 の原文は「WHEN 管理者が全デバイスログアウト機能を使用する
+   * THEN Authentication Serviceは全てのセッションを削除しなければならない」
+   * である。本区間の表題・本文が述べる内容に対応するのは受入基準28.34（「WHEN セッション管理画面が表示される THEN Frontend
+   * UIはアクティブなセッション一覧と「他のデバイスからログアウト」ボタンを表示しなければならない」
+   * ）である。
    */
   test('全デバイスログアウトボタンが表示される', async ({ page }) => {
     await expect(page.getByRole('button', { name: /全デバイスからログアウト/i })).toBeVisible({

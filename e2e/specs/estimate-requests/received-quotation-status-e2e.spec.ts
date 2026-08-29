@@ -556,10 +556,16 @@ test.describe('受領見積書・ステータス管理機能', () => {
 
   test.describe('19.2 受領見積書一覧・編集・削除', () => {
     /**
-     * @requirement estimate-request/REQ-11.11
+     * @requirement estimate-request/REQ-11.25
      * 1つの見積依頼に対して複数の受領見積書の登録を許可する
+     *
+     * タスク 115.188 の是正: 要件11 に受入基準が追加される前の番号のままだった。
+     * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
+     * 併せて、同じ内容を「E2Eでは確かめない」と宣言していた除外を取り下げている。
      */
-    test('REQ-11.11: 複数の受領見積書が一覧に表示される', async ({ page }) => {
+    test('REQ-11.11→11.25: 複数の受領見積書が一覧に表示される (estimate-request/REQ-11.25)', async ({
+      page,
+    }) => {
       expect(createdEstimateRequestId).toBeTruthy();
       expect(createdReceivedQuotationId).toBeTruthy();
 
@@ -575,10 +581,16 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-11.12
+     * @requirement estimate-request/REQ-11.26
      * 見積依頼詳細画面に登録済み受領見積書の一覧を表示する
+     *
+     * タスク 115.188 の是正: 要件11 に受入基準が追加される前の番号のままだった。
+     * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
+     * 併せて、同じ内容を「E2Eでは確かめない」と宣言していた除外を取り下げている。
      */
-    test('REQ-11.12: 受領見積書一覧が表示される', async ({ page }) => {
+    test('REQ-11.12→11.26: 受領見積書一覧が表示される (estimate-request/REQ-11.26)', async ({
+      page,
+    }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -593,10 +605,16 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-11.13
-     * 受領見積書名、提出日、登録日時を表示する
+     * @requirement estimate-request/REQ-11.27
+     * 受領見積書一覧に受領見積書名、提出日、登録日時を表示する
+     *
+     * タスク 115.188 の是正: 要件11 に受入基準が追加される前の番号のままだった。
+     * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
+     * 併せて、同じ内容を「E2Eでは確かめない」と宣言していた除外を取り下げている。
      */
-    test('REQ-11.13: 受領見積書の詳細情報が表示される', async ({ page }) => {
+    test('REQ-11.13→11.27: 受領見積書の詳細情報が表示される (estimate-request/REQ-11.27)', async ({
+      page,
+    }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -614,10 +632,13 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-11.14
      * ファイルプレビュー動作確認（ファイルがある場合のみ）
+     *
+     * タスク 115.188 の是正: 従前は REQ-11.14 を名乗っていたが、現行の受入基準11.14 は「フォーム初期表示時
+     * に1行の空の明細行を表示する」であり本検証の内容と対応しない。受領見積書のファイルプレビューボタンを述べる受入基準は要件11 に
+     * 存在しないため、被覆印を取り下げた。
      */
-    test('REQ-11.14: ファイルプレビューボタンが表示される', async ({ page }) => {
+    test('ファイルプレビューボタンが表示される', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -638,10 +659,16 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-11.15
-     * 受領見積書の編集と保存の確認
+     * @requirement estimate-request/REQ-11.28
+     * 受領見積書の編集機能を提供する
+     *
+     * タスク 115.188 の是正: 要件11 に受入基準が追加される前の番号のままだった。
+     * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
+     * 併せて、同じ内容を「E2Eでは確かめない」と宣言していた除外を取り下げている。
      */
-    test('REQ-11.15: 受領見積書を編集できる', async ({ page }) => {
+    test('REQ-11.15→11.28: 受領見積書を編集できる (estimate-request/REQ-11.28)', async ({
+      page,
+    }) => {
       expect(createdEstimateRequestId).toBeTruthy();
       expect(createdReceivedQuotationId).toBeTruthy();
 
@@ -690,10 +717,16 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-11.16
+     * @requirement estimate-request/REQ-11.29
      * 受領見積書の削除機能を提供する
+     *
+     * タスク 115.188 の是正: 要件11 に受入基準が追加される前の番号のままだった。
+     * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
+     * 併せて、同じ内容を「E2Eでは確かめない」と宣言していた除外を取り下げている。
      */
-    test('REQ-11.16: 受領見積書の削除ボタンが表示される', async ({ page }) => {
+    test('REQ-11.16→11.29: 受領見積書の削除ボタンが表示される (estimate-request/REQ-11.29)', async ({
+      page,
+    }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -708,10 +741,16 @@ test.describe('受領見積書・ステータス管理機能', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-11.17
-     * 削除確認ダイアログと削除処理の確認
+     * @requirement estimate-request/REQ-11.30
+     * 受領見積書を削除しようとしたとき、削除確認ダイアログを表示する
+     *
+     * タスク 115.188 の是正: 要件11 に受入基準が追加される前の番号のままだった。
+     * 直上の一行は現行の受入基準の逐語であり、名乗る番号をそれに合わせた。
+     * 併せて、同じ内容を「E2Eでは確かめない」と宣言していた除外を取り下げている。
      */
-    test('REQ-11.17: 削除確認ダイアログが表示され削除APIが成功する', async ({ page }) => {
+    test('REQ-11.17→11.30: 削除確認ダイアログが表示され削除APIが成功する (estimate-request/REQ-11.30)', async ({
+      page,
+    }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -1446,7 +1485,15 @@ test.describe('受領見積書・ステータス管理機能', () => {
 
     /**
      * Task 37.3: 転記後の単価フィールド空欄の確認
-     * @requirement estimate-request/REQ-15.5
+     *
+     * タスク 115.188 の是正: 従前は REQ-15.5 を名乗っていたが、受入基準15.5 は「転記された**行数を含む**
+     * 完了メッセージを表示する」であり、本区間の照合は`/項目を転記しました/` で行数を見ない。
+     * 本区間が主張するのは転記後の単価欄が空欄であること（受入基準15.10）であり、それは同ファイルの「一括転記時に単価フィールドが
+     * 空欄である」が既に正しく名乗っている。ゆえに被覆印を**取り下げる**。
+     *
+     * 行数を確かめる主張は `e2e/specs` に存在しない（実測: 完了メッセージの照合は
+     * 6箇所すべてが `/項目を転記しました/` で、行数に触れない）。
+     * 取り下げにより 15.5 は未被覆として指標に現れる。
      */
     test('転記後の単価フィールドが空欄である', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
@@ -1493,7 +1540,12 @@ test.describe('受領見積書・ステータス管理機能', () => {
 
     /**
      * Task 37.3: 選択項目が0件の場合のエラーメッセージ確認
-     * @requirement estimate-request/REQ-15.6
+     * @requirement estimate-request/REQ-15.7
+     *
+     * タスク 115.188 の是正: 従前は REQ-15.6 を名乗っていたが、受入基準15.6 の原文は「When 一括転記が完了したとき,
+     * the システム shall 転記結果の確認・修正を促すメッセージを表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準15.7（「If
+     * 項目選択セクションで項目が1つも選択されていない場合, then the システム shall 「選択された項目がありません」
+     * というエラーメッセージを表示する」）である。
      */
     test('選択項目が0件の場合にエラーメッセージが表示される', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();

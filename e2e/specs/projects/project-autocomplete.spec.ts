@@ -110,9 +110,15 @@ test.describe('取引先オートコンプリート連携', () => {
     });
 
     /**
-     * @requirement project-management/REQ-16.3
+     * @requirement project-management/REQ-16.2
+     *
+     * タスク 115.188 の是正: 従前は REQ-16.3 を名乗っていたが、受入基準16.3 の原文は「When ユーザーが顧客名フィールドにフリガナを入力する,
+     * the ArchiTrackシステム shall ひらがな・カタカナどちらの入力でも取引先候補を検索する」
+     * である。本区間の表題・本文が述べる内容に対応するのは受入基準16.2（「When ユーザーが顧客名フィールドにテキストを入力する,
+     * the ArchiTrackシステム shall 入力文字列に部分一致する取引先候補をフィルタリング表示する」
+     * ）である。
      */
-    test('入力文字列に前方一致または部分一致する取引先がオートコンプリート候補として表示される (project-management/REQ-16.3)', async ({
+    test('入力文字列に前方一致または部分一致する取引先がオートコンプリート候補として表示される (project-management/REQ-16.2)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');

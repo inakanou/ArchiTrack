@@ -5,7 +5,6 @@
  * 実際のブラウザ操作で要件レベルに検証する。
  *
  * Requirements coverage (estimate-creation):
- * - REQ-12.2: ユーザーが見積項目の表示順序を変更した場合、順序を変更可能とする（↑/↓ボタン）
  * - REQ-12.7: 並び替えを編集セッション中にサーバーへ問い合わせずに行う
  * - REQ-12.8: 順序を変更して保存した場合、画面再読み込み後も変更後の順序で表示する
  * - REQ-42.1: 並び順の変更を1回の保存操作でまとめて確定する
@@ -148,16 +147,21 @@ test.describe('見積項目の並び替えと諸経費の自動計算・追加',
   });
 
   // ============================================================================
-  // REQ-12.2: 見積項目の並び替え（↑/↓ボタン）
+  // 見積項目の並び替え（↑/↓ボタン）
+  //
+  // タスク 115.188 の是正: 従前はこの群の三件と前書きが REQ-12.2 を名乗っていたが、
+  // 受入基準12.2 の原文は「ドラッグ&ドロップで順序を変更可能とする」であり、
+  // 本ファイルに dragTo / mouse.down などのドラッグ&ドロップ操作は一件も無い
+  // （実測: `e2e/specs/estimate` 配下に該当操作を行うファイルは存在しない）。
+  // 前書きは原文の「ドラッグ&ドロップで」を落として「（↑/↓ボタン）」と書き換えていた。
+  // ↑/↓ボタンによる同一階層内移動を述べる受入基準は要件12・要件23 のいずれにも無い。
+  // ゆえに REQ-12.2 の被覆印を**取り下げる**。受入基準12.2 を名乗る検証は他に無く、
+  // 取り下げにより 12.2 は未被覆として指標に現れる。
+  // 並び替えの保存・非同期性は REQ-12.7 / 12.8 / 42.1 / 43.1 が引き続き名乗る。
   // ============================================================================
 
   test.describe('見積項目の並び替え（↑/↓ボタン）', () => {
-    /**
-     * @requirement estimate-creation/REQ-12.2
-     */
-    test('項目未選択時は↑/↓ボタンがdisabledである (estimate-creation/REQ-12.2)', async ({
-      page,
-    }) => {
+    test('項目未選択時は↑/↓ボタンがdisabledである', async ({ page }) => {
       expect(createdEstimateId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -172,12 +176,7 @@ test.describe('見積項目の並び替えと諸経費の自動計算・追加',
       await expect(page.getByTestId('reorder-down-button')).toBeDisabled();
     });
 
-    /**
-     * @requirement estimate-creation/REQ-12.2
-     */
-    test('↑ボタンで選択項目が同一階層内で1つ上に移動する (estimate-creation/REQ-12.2)', async ({
-      page,
-    }) => {
+    test('↑ボタンで選択項目が同一階層内で1つ上に移動する', async ({ page }) => {
       expect(createdEstimateId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -240,12 +239,7 @@ test.describe('見積項目の並び替えと諸経費の自動計算・追加',
       expect(domIds[0]).toBe(targetId);
     });
 
-    /**
-     * @requirement estimate-creation/REQ-12.2
-     */
-    test('↓ボタンで選択項目が同一階層内で1つ下に移動する (estimate-creation/REQ-12.2)', async ({
-      page,
-    }) => {
+    test('↓ボタンで選択項目が同一階層内で1つ下に移動する', async ({ page }) => {
       expect(createdEstimateId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');

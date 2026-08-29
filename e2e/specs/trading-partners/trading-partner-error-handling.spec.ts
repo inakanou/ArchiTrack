@@ -380,9 +380,16 @@ test.describe('取引先エラーハンドリング', () => {
    */
   test.describe('ToastNotificationでのエラー表示', () => {
     /**
-     * @requirement trading-partner-management/REQ-8.4
+     * @requirement trading-partner-management/REQ-2.9
+     *
+     * タスク 115.188 の是正: 従前は REQ-8.4 を名乗っていた。原文8.4 は「エラーメッセージを
+     * 表示するとき ToastNotification を使用する」だが、本検証が確定させるのはその逆の
+     * 「Toast を**使わず**フィールドレベルで表示される」ことである。本検証が実際に主張する
+     * 「取引先名は必須です」の項目内表示を述べるのは原文2.9（必須項目が未入力の場合、
+     * バリデーションエラーメッセージを各項目に表示する）である。
+     * 8.4 は同ファイル 409 行の API エラー時 Toast 検証が引き続き名乗る。
      */
-    test('バリデーションエラー時にToastが表示されない（フィールドレベルエラー表示） (trading-partner-management/REQ-8.4)', async ({
+    test('バリデーションエラー時にToastが表示されない（フィールドレベルエラー表示） (trading-partner-management/REQ-2.9)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');

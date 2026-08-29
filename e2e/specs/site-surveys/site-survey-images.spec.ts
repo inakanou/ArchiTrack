@@ -320,7 +320,13 @@ test.describe('現場調査画像管理', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-4.1
+     * @requirement site-survey/REQ-4.5
+     *
+     * タスク 115.188 の是正: 従前は REQ-4.1 を名乗っていたが、受入基準4.1 の原文は「When ユーザーが画像ファイルを選択してアップロードする,
+     * the Site Survey Service shall 画像をストレージに保存し現場調査に紐付ける」
+     * である。本区間の表題・本文が述べる内容に対応するのは受入基準4.5（「If アップロードされたファイルが許可された形式でない,
+     * then the Site Survey Service shall エラーメッセージを表示してアップロードを拒否する」
+     * ）である。
      */
     test('サポートされていない形式の画像をアップロードするとエラーが表示される', async ({
       page,

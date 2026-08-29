@@ -755,11 +755,13 @@ test.describe('取引先CRUD操作', () => {
     });
 
     /**
-     * @requirement trading-partner-management/REQ-4.4
+     * タスク 115.188 の是正: 従前は REQ-4.4 を名乗っていたが、受入基準4.4 は「支払日として月選択（翌月/翌々月
+     * /3ヶ月後）と日選択…の組み合わせをドロップダウンで提供する」であり、編集のキャンセルとは無関係である。
+     * 要件4 に編集キャンセル時の挙動を述べる受入基準は無い（受入基準は9件まで）。ゆえに被覆印を**取り下げる**。
+     * 受入基準4.4 は `trading-partner-data-integrity.spec.ts` の「編集時に支払日として月
+     * 選択…の組み合わせが提供される」が正しく名乗っており、取り下げによる穴は生じない。
      */
-    test('編集キャンセル時は変更が破棄され詳細ページに戻る (trading-partner-management/REQ-4.4)', async ({
-      page,
-    }) => {
+    test('編集キャンセル時は変更が破棄され詳細ページに戻る', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       if (!createdTradingPartnerId) {

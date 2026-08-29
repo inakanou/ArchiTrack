@@ -346,9 +346,14 @@ test.describe('プロジェクト一覧操作', () => {
    */
   test.describe('フィルタ機能', () => {
     /**
-     * @requirement project-management/REQ-5.6
+     * @requirement project-management/REQ-5.4
+     *
+     * タスク 115.188 の是正: 従前は REQ-5.6 を名乗っていたが、受入基準5.6 の原文は「The ArchiTrackシステム
+     * shall ステータスフィルタに「完了」「中止」「失注」を含むすべてのステータスを選択肢として提供する」
+     * である。本区間の表題・本文が述べる内容に対応するのは受入基準5.4（「The ArchiTrackシステム shall フィルタの選択状態をURLパラメータに反映する」
+     * ）である。
      */
-    test('フィルタの選択状態がURLパラメータに反映される (project-management/REQ-5.6)', async ({
+    test('フィルタの選択状態がURLパラメータに反映される (project-management/REQ-5.4)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -430,9 +435,16 @@ test.describe('プロジェクト一覧操作', () => {
     });
 
     /**
-     * @requirement project-management/REQ-5.5
+     * @requirement project-management/REQ-5.3
+     * @requirement project-management/REQ-5.4
+     * 「フィルタをクリア」で全フィルタが解除され、URLパラメータからも消えることを確かめる
+     *
+     * タスク 115.188 の是正: 本検証の表題・本文が述べる内容は名乗っていた番号の条文と
+     * 対応していなかった。走査で候補を挙げ、原文と突き合わせて名乗り直している。
      */
-    test('フィルタをクリアをクリックするとすべてのフィルタが解除される', async ({ page }) => {
+    test('フィルタをクリアをクリックするとすべてのフィルタが解除される (project-management/REQ-5.3, project-management/REQ-5.4)', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // 複数のフィルタ条件付きでアクセス
@@ -643,9 +655,13 @@ test.describe('プロジェクト一覧操作', () => {
    * REQ-3.1: 1ページあたりのデフォルト表示件数を100件とする
    * REQ-3.3: ページ番号クリックで該当ページのプロジェクトを表示
    * @requirement project-management/REQ-3.1
-   * @requirement project-management/REQ-3.2
    * @requirement project-management/REQ-3.3
    * @requirement project-management/REQ-3.4
+   *
+   * タスク 115.188 の是正: project-management の受入基準3.2 を名乗る被覆印を取り下げた。原文3.2 は
+   * 「**プロジェクト総数がページサイズを超える場合**にページネーションコントロールを
+   * 表示する」だが、配下の検証はいずれも1件だけを用意して表示を主張しており、
+   * 原文の前件（総数がページサイズ100件を超える）に一度も入らない。
    */
   test.describe('ページネーション機能', () => {
     /**
@@ -678,16 +694,21 @@ test.describe('プロジェクト一覧操作', () => {
     });
 
     /**
-     * @requirement project-management/REQ-3.2
      * @requirement project-management/REQ-3.4
+     *
+     * タスク 115.188 の是正: 従前は REQ-3.2 を名乗っていたが、受入基準3.2 の原文は「If プロジェクト総数がページサイズを超える場合,
+     * then the ArchiTrackシステム shall ページネーションコントロールを表示する」
+     * である。本区間の表題・本文が述べる内容に対応するのは受入基準3.4（「The ArchiTrackシステム shall 現在のページ番号、
+     * 総ページ数、総プロジェクト数を表示する」）である。
      */
     test('プロジェクトが存在する場合、ページネーションコントロールが表示される', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      // REQ-3.2 は「プロジェクトが存在する場合」を条件とする。その条件自体を前提として用意し、
-      // 以降の主張を無条件にする（一覧が空のまま素通りすると何も検証されない）。
+      // REQ-3.4 は一覧のページネーション表示（現在のページ番号・総ページ数・総件数）を定める。
+      // 一覧が空だとページネーション自体が描画されず主張が一つも実行されないため、
+      // プロジェクトが存在する状態を前提として自分で用意する。
       await seedProject(page, 'E2Eページネーション表示');
 
       await page.goto('/projects');

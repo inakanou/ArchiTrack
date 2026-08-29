@@ -165,7 +165,11 @@ test.describe('セキュリティ対策', () => {
    * 改ざんされたトークンでのアクセス拒否
    * 要件10.7: トークン生成の暗号学的安全性
    * @requirement user-authentication/REQ-5.5
-   * @requirement user-authentication/REQ-10.7
+   *
+   * タスク 115.188 の是正: 従前は REQ-10.7 を名乗っていたが、受入基準10.7 の原文は「WHEN 招待トークンまたはリセットトークンを生成する
+   * THEN Authentication Serviceは暗号学的に安全なランダム文字列を使用しなければならない」
+   * である。本区間の表題・本文が述べる内容に対応するのは受入基準5.5（「IF アクセストークンが改ざんされている THEN Authentication
+   * Serviceはリクエストを拒否しなければならない」）である。
    */
   test('改ざんされたトークンでアクセスが拒否される', async ({ request }) => {
     // 正規のログインでトークンを取得

@@ -6,16 +6,20 @@
  * Requirements coverage (project-management):
  * @requirement project-management/REQ-40.1: プロジェクト詳細画面の工程表セクションの下に実行予算セクションを表示する
  * @requirement project-management/REQ-40.2: 実行予算セクションにセクションタイトル「実行予算」を表示する
- * @requirement project-management/REQ-40.3: 実行予算が存在する場合、サマリーカードを表示する
- * @requirement project-management/REQ-40.4: カードに契約書名、契約金額、実行金額合計、利益見込額、発注進捗率、作成日時を表示する
- * @requirement project-management/REQ-40.5: カードクリックで実行予算管理画面へ遷移する
  * @requirement project-management/REQ-40.6: 実行予算が存在しない場合「実行予算はまだありません」メッセージと新規作成ボタンを表示する
  * @requirement project-management/REQ-40.7: 新規作成ボタンクリックで実行予算作成画面へ遷移する
  * @requirement project-management/REQ-41.1: detail-summary APIのレスポンスに実行予算セクションデータを含める
- * @requirement project-management/REQ-41.2: 実行予算データにID、契約書名、契約金額、実行金額合計、利益見込額、作成日時を含める
  * @requirement project-management/REQ-41.3: 実行予算が存在しない場合nullを返却する
  * @requirement project-management/REQ-41.4: エラー時にデフォルト値を返却し他のセクションは正常に返却する
  * @requirement project-management/REQ-41.5: 実行予算セクションのデータをPromise.allSettledで並行取得する
+ *
+ * タスク 115.188 の是正: 前書きが名乗っていた REQ-40.3・40.4・40.5・41.2 を取り下げた。
+ * 本ファイルは実行予算を一件も作らず（作成の導線を踏むのは 163 行の「新規作成ボタンで
+ * 実行予算ページに遷移する」までで、実行予算そのものは作られない）、detail-summary の
+ * 検証も `executionBudget` が `null` である側だけを主張する。ゆえに「実行予算が存在する
+ * 場合」を前件に持つ 40.3・40.4・40.5 と、存在する実行予算データの項目を述べる 41.2 は
+ * 一度も前件に入らない。付け替え先も要件40・41 に無いため取り下げであり、
+ * 四件とも本ファイルが唯一の被覆源だったため未被覆として露出する。
  *
  * @module e2e/specs/project-execution-budget-navigation.spec
  */

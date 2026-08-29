@@ -222,7 +222,13 @@ test.describe('現場調査注釈エディタ', () => {
   /**
    * 注釈エディタ機能のテスト
    *
-   * @requirement site-survey/REQ-9.1
+   * @requirement site-survey/REQ-2.4
+   *
+   * タスク 115.188 の是正: 従前は REQ-9.1 を名乗っていたが、受入基準9.1 の原文は「When ユーザーが注釈編集画面で保存ボタンを押す,
+   * the Site Survey Service shall 全ての注釈データをデータベースに保存する」
+   * である。本区間の表題・本文が述べる内容に対応するのは受入基準2.4（「When ユーザーが現場調査詳細画面で画像をクリックする,
+   * the Site Survey Service shall 画像ビューア/注釈エディタを開く」
+   * ）である。
    */
   test('注釈エディタのUIが表示される', async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
@@ -260,9 +266,12 @@ test.describe('現場調査注釈エディタ', () => {
   });
 
   /**
-   * @requirement site-survey/REQ-9.1
+   * @requirement site-survey/REQ-29.1
+   *
+   * タスク 115.188 の是正: 本検証の表題・本文が述べる内容は名乗っていた番号の条文と
+   * 対応していなかった。走査で候補を挙げ、原文と突き合わせて名乗り直している。
    */
-  test('注釈ツールを選択できる', async ({ page }) => {
+  test('注釈ツールを選択できる (site-survey/REQ-29.1)', async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
 
     await page.goto(`/site-surveys/${createdSurveyId}`);
@@ -318,9 +327,12 @@ test.describe('現場調査注釈エディタ', () => {
   /**
    * PDF報告書出力のテスト
    *
-   * @requirement site-survey/REQ-10.6
+   * @requirement site-survey/REQ-11.1
+   *
+   * タスク 115.188 の是正: 本検証の表題・本文が述べる内容は名乗っていた番号の条文と
+   * 対応していなかった。走査で候補を挙げ、原文と突き合わせて名乗り直している。
    */
-  test('PDF出力ボタンが表示される', async ({ page }) => {
+  test('PDF出力ボタンが表示される (site-survey/REQ-11.1)', async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
 
     // 詳細ページに移動
@@ -342,9 +354,15 @@ test.describe('現場調査注釈エディタ', () => {
   });
 
   /**
-   * @requirement site-survey/REQ-10.6
+   * @requirement site-survey/REQ-11.1
+   * @requirement site-survey/REQ-11.8
+   *
+   * タスク 115.188 の是正: 本検証の表題・本文が述べる内容は名乗っていた番号の条文と
+   * 対応していなかった。走査で候補を挙げ、原文と突き合わせて名乗り直している。
    */
-  test('PDF出力をクリックするとダウンロードが開始される', async ({ page }) => {
+  test('PDF出力をクリックするとダウンロードが開始される (site-survey/REQ-11.1, site-survey/REQ-11.8)', async ({
+    page,
+  }) => {
     await loginAsUser(page, 'REGULAR_USER');
 
     await page.goto(`/site-surveys/${createdSurveyId}`);
@@ -377,7 +395,9 @@ test.describe('現場調査注釈エディタ', () => {
   });
 
   /**
-   * @requirement site-survey/REQ-10.6
+   * タスク 115.188 の是正: 従前は REQ-10.6 を名乗っていたが、受入基準10.6 は写真一覧の「上へ移動」
+   * ボタンについての条文であり、調査報告書PDFの出力とは無関係である。報告書PDF生成中の進捗表示を述べる受入基準は要件11 にも
+   * 要件16 にも存在しないため、被覆印は掲げない。
    */
   test('PDF出力中にプログレス表示がされる', async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');

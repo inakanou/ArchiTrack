@@ -112,10 +112,30 @@ function categories(document: Json): Json {
  * `e2e/specs` の被覆印が名乗っており、かつ除外されていない受入基準
  *
  * 同居の陽性対照で「除外の指し先」を移す先として使う。除外に載っていないため、
- * 移しても重複にはならない。実データからこの前提が崩れれば `pointEntryAt` が
- * 前提の崩壊として失敗する。
+ * 移しても重複にはならない。
+ *
+ * タスク 115.188 まで site-survey/REQ-1.1 を使っていたが、同タスクで当該の被覆印を
+ * 取り下げた（名乗っていた三区間はいずれも受入基準1.1 の「調査名欄のデフォルト値」を
+ * 確かめていなかった）ため差し替えた。
+ *
+ * 前提（`e2e/specs` が実際にこの番号を名乗っている）は `assertCoveredByE2E` が
+ * 走査で確かめる。`pointEntryAt` は要件定義書に在ることしか見ないため、前提が崩れても
+ * 変異が「同居を作らない無害な書き換え」に化けて陽性対照が静かに空振りするからである。
  */
-const COVERED_PROBE_ID = 'site-survey/REQ-1.1';
+const COVERED_PROBE_ID = 'site-survey/REQ-1.3';
+
+/**
+ * 被覆印の走査で `criterionId` が実際に名乗られていることを確かめる
+ *
+ * ラチェット（`test.fail()`）だけの被覆印は同居の違反にならないため、
+ * ラチェットでない被覆印が一件以上あることまで見る。
+ */
+function assertCoveredByE2E(criterionId: string): void {
+  const sites = scanCoverageTags().get(criterionId);
+  if (sites === undefined || !sites.some((entry) => !entry.ratchet)) {
+    throw new Error(`前提: ${criterionId} を名乗るラチェットでない被覆印が e2e/specs に無い`);
+  }
+}
 
 /**
  * 識別子を一つずらす陽性対照のずらし先
@@ -126,6 +146,22 @@ const COVERED_PROBE_ID = 'site-survey/REQ-1.1';
  * 検出が別の検査に移るため、この対照が `expectCheck` の不一致として失敗する。
  */
 const SHIFT_TARGET_ID = 'site-survey/REQ-29.2';
+
+/**
+ * 陽性対照の変異元に使う「実在する除外」
+ *
+ * タスク 115.188 まで site-survey/REQ-1.6 を使っていたが、同タスクで当該の除外を
+ * 取り下げたため差し替えた（実物に無い識別子を変異元にすると `entryById` が送出し、
+ * 前提の崩壊として検査が落ちる。黙って読み飛ばす形にはしない）。
+ *
+ * 条件は「実在する除外であり、`e2e/specs` の被覆印がその番号を名乗っていない」こと。
+ * 被覆印が付いていると、指し先をずらす変異で同居の違反が同時に立ち、
+ * どの検査が捕まえたのか分からなくなる。
+ */
+const MUTATION_SOURCE_ID = 'site-survey/REQ-14.4';
+
+/** `MUTATION_SOURCE_ID` の要件番号（requirement 欄の題だけを崩す変異で使う） */
+const MUTATION_SOURCE_REQUIREMENT = 'REQ-14';
 
 /**
  * 取り消し線で無効化された受入基準（墓標）の陽性対照での指し先
@@ -442,9 +478,11 @@ const MUST_REJECT: Case[] = [
     expectCheck: 'invariant',
   },
   {
+    // 変異元は `MUTATION_SOURCE_ID`（実在する除外）。番号だけを実在しない値へ書き換えるので、
+    // 立つ違反は番号と原文の対応だけである。
     name: '要件定義書に存在しない受入基準を指す識別子',
     mutate: (d) => {
-      entryById(d, 'site-survey/REQ-1.6').id = 'site-survey/REQ-1.99';
+      entryById(d, MUTATION_SOURCE_ID).id = 'site-survey/REQ-14.99';
     },
     mustReject: true,
     expectCheck: 'criterion-correspondence',
@@ -471,7 +509,7 @@ const MUST_REJECT: Case[] = [
   {
     name: 'requirement 欄の要件番号が識別子と食い違う',
     mutate: (d) => {
-      entryById(d, 'site-survey/REQ-1.6').requirement = 'REQ-99: 架空の要件';
+      entryById(d, MUTATION_SOURCE_ID).requirement = 'REQ-99: 架空の要件';
     },
     mustReject: true,
     expectCheck: 'criterion-correspondence',
@@ -479,7 +517,8 @@ const MUST_REJECT: Case[] = [
   {
     name: 'requirement 欄の要件の題が要件定義書と食い違う',
     mutate: (d) => {
-      entryById(d, 'site-survey/REQ-1.6').requirement = 'REQ-1: まったく別の題';
+      entryById(d, MUTATION_SOURCE_ID).requirement =
+        `${MUTATION_SOURCE_REQUIREMENT}: まったく別の題`;
     },
     mustReject: true,
     expectCheck: 'criterion-correspondence',
@@ -487,7 +526,7 @@ const MUST_REJECT: Case[] = [
   {
     name: 'criterionText が原文と一文字違う（逐語複製の崩れ）',
     mutate: (d) => {
-      const entry = entryById(d, 'site-survey/REQ-1.6');
+      const entry = entryById(d, MUTATION_SOURCE_ID);
       entry.criterionText = `${entry.criterionText as string}。`;
     },
     mustReject: true,
@@ -499,7 +538,7 @@ const MUST_REJECT: Case[] = [
     // 存在しない。指し先を実在する墓標へ移して、その一点だけを注入する。
     name: '取り消し線で無効化された受入基準を除外で指す',
     mutate: (d) => {
-      pointEntryAtRetired(entryById(d, 'site-survey/REQ-1.6'), RETIRED_PROBE_ID);
+      pointEntryAtRetired(entryById(d, MUTATION_SOURCE_ID), RETIRED_PROBE_ID);
     },
     mustReject: true,
     expectCheck: 'criterion-correspondence',
@@ -520,7 +559,8 @@ const MUST_REJECT: Case[] = [
     // 弾かれることを避ける）。
     name: '除外と被覆タグの同居（E2Eで確かめないと宣言した受入基準を e2e/specs が名乗る）',
     mutate: (d) => {
-      pointEntryAt(entryById(d, 'site-survey/REQ-1.6'), COVERED_PROBE_ID);
+      assertCoveredByE2E(COVERED_PROBE_ID);
+      pointEntryAt(entryById(d, MUTATION_SOURCE_ID), COVERED_PROBE_ID);
     },
     mustReject: true,
     expectCheck: 'coverage-tag-coexistence',

@@ -340,9 +340,14 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
   test.describe('29.1 受領見積書構造化データ入力', () => {
     /**
      * @requirement estimate-request/REQ-11.9
+     * @requirement estimate-request/REQ-11.15
+     * @requirement estimate-request/REQ-11.16
      * 構造化データ入力エリアに明細行フィールドを表示する
+     *
+     * タスク 115.188 の追記: 本検証は明細行の追加ボタンが表示されること（受入基準11.15）と、
+     * 押下で空の明細行が末尾に追加されること（受入基準11.16）も実際に主張している。
      */
-    test('REQ-11.9: 明細行エディタが表示され、行追加ができる', async ({ page }) => {
+    test('REQ-11.9/15/16: 明細行エディタが表示され、行追加ができる', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -384,10 +389,13 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
     });
 
     /**
-     * @requirement estimate-request/REQ-11.13
-     * フォーム初期表示時に1行の空明細行を表示する
+     * @requirement estimate-request/REQ-11.14
+     * フォーム初期表示時に1行の空の明細行を表示する
+     *
+     * タスク 115.188 の是正: 従前は REQ-11.13 を名乗っていたが、受入基準11.13 は金額合計の自動計算・表示を
+     * 述べるものであり、初期表示の空明細行を述べるのは受入基準11.14 である。
      */
-    test('REQ-11.13: 初期表示で1行の空明細行が表示される', async ({ page }) => {
+    test('REQ-11.13→11.14: 初期表示で1行の空明細行が表示される', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -409,7 +417,11 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
      * @requirement estimate-request/REQ-11.10
      * @requirement estimate-request/REQ-11.11
      * @requirement estimate-request/REQ-11.12
+     * @requirement estimate-request/REQ-11.13
      * 数値入力と金額自動計算・合計計算の動作確認
+     *
+     * タスク 115.188 の追記: 本検証は全明細行の金額合計が自動計算されて表示されること
+     * （受入基準11.13）も実際に主張している。
      */
     test('REQ-11.10/11/12: 数量・単価入力で金額が自動計算され、合計も更新される', async ({
       page,

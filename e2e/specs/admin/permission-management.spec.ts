@@ -265,7 +265,13 @@ test.describe('権限管理', () => {
 
   /**
    * 権限には説明が含まれる（データ品質検証）
-   * @requirement user-authentication/REQ-18.7
+   * @requirement user-authentication/REQ-18.3
+   *
+   * タスク 115.188 の是正: 従前は REQ-18.7 を名乗っていたが、受入基準18.7 の原文は「WHEN システム管理者がカスタム権限を作成する
+   * THEN Authentication Serviceは権限の名前、リソースタイプ、アクション、
+   * 説明を保存しなければならない」である。本区間の表題・本文が述べる内容に対応するのは受入基準18.3（「WHEN システム管理者が権限一覧を取得する
+   * THEN Authentication Serviceは全ての権限（リソースタイプ、アクション、
+   * 説明）を返さなければならない」）である。
    */
   test('権限には説明が含まれる', async () => {
     const prisma = getPrismaClient();

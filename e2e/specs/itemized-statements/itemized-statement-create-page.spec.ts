@@ -364,13 +364,19 @@ test.describe('内訳書専用作成画面', () => {
   });
 
   /**
-   * REQ-9.5: 内訳書新規作成画面にパンくずナビゲーションを表示する
+   * REQ-9.2: 内訳書新規作成画面にパンくずナビゲーションを表示する
    */
   test.describe('パンくずナビゲーション', () => {
     /**
-     * @requirement itemized-statement-generation/REQ-9.5
+     * @requirement itemized-statement-generation/REQ-9.2
+     *
+     * タスク 115.188 の是正: 従前は REQ-9.5 を名乗っていた。原文 9.5 は「パンくずの
+     * 『プロジェクト一覧』を**クリックしたとき**プロジェクト一覧画面に遷移する」であり、
+     * 本検証はクリックせず新規作成画面のパンくずが**表示される**ことだけを主張する。
+     * 表示を述べるのは原文 9.2（内訳書新規作成画面のパンくず表示）である。
+     * 9.5 は `itemized-statement-crud.spec.ts:504` のクリック遷移検証が引き続き名乗る。
      */
-    test('内訳書新規作成画面にパンくずナビゲーションが表示される (itemized-statement-generation/REQ-9.5)', async ({
+    test('内訳書新規作成画面にパンくずナビゲーションが表示される (itemized-statement-generation/REQ-9.2)', async ({
       page,
     }) => {
       if (!testProjectId) {
@@ -393,9 +399,15 @@ test.describe('内訳書専用作成画面', () => {
     });
 
     /**
-     * @requirement itemized-statement-generation/REQ-9.6
+     * @requirement itemized-statement-generation/REQ-9.2
+     *
+     * タスク 115.188 の是正: 従前は REQ-9.6 を名乗っていた。原文 9.6 は「パンくずの
+     * 『{プロジェクト名}』を**クリックしたとき**プロジェクト詳細画面に遷移する」であり、
+     * 本検証はクリックせずパンくずの表記形式が**表示される**ことだけを主張する。
+     * 表示を述べるのは原文 9.2 である。9.6 は `itemized-statement-crud.spec.ts:472` の
+     * クリック遷移検証が引き続き名乗る。
      */
-    test('内訳書新規作成画面のパンくずが正しい形式で表示される (itemized-statement-generation/REQ-9.6)', async ({
+    test('内訳書新規作成画面のパンくずが正しい形式で表示される (itemized-statement-generation/REQ-9.2)', async ({
       page,
     }) => {
       if (!testProjectId) {

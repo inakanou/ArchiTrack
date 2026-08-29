@@ -592,12 +592,18 @@ test.describe('工事写真 追加機能フロー', () => {
   });
 
   /**
-   * R17.2（＋R17.1）権限出し分け:
+   * R17.2 権限出し分け:
    * user は削除導線（アルバム削除・写真項目削除）が非表示、編集導線（アルバム編集・アップローダ）は表示。
    * user 自身が所有するプロジェクト/アルバムで検証する（プロジェクトアクセスは所有者/管理者に限定）。
    *
-   * @requirement construction-photo/REQ-17.1
    * @requirement construction-photo/REQ-17.2
+   *
+   * タスク 115.188 の是正: construction-photo の受入基準17.1 を名乗る被覆印を取り下げた。
+   * 原文17.1 は「ユーザーが**編集権限を持たない**間、編集の操作手段を**表示しない**」だが、
+   * 本検証は編集権限を持つ `REGULAR_USER` でログインし、編集導線が**表示される**ことを
+   * 主張している。原文の前件（編集権限を持たない）に一度も入らず、結論も逆である。
+   * 要件17 に「編集権限を持つとき編集導線を表示する」を述べる条文は無いため付け替え先も無い。
+   * 17.1 は本区間が唯一の被覆源だったため、未被覆として露出する。
    */
   test('権限出し分け: user は削除導線が非表示・編集導線は表示される', async ({ page }) => {
     await loginAsUser(page, 'REGULAR_USER');
@@ -767,7 +773,12 @@ test.describe('工事写真 追加機能フロー', () => {
    *
    * @requirement construction-photo/REQ-19.1
    * @requirement construction-photo/REQ-19.2
-   * @requirement construction-photo/REQ-19.4
+   * @requirement construction-photo/REQ-19.1
+   *
+   * タスク 115.188 の是正: 従前は REQ-19.4 を名乗っていたが、受入基準19.4 の原文は「The 工事写真機能
+   * shall ブレッドクラムをモバイルで水平オーバーフローさせず表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準19.1（「While
+   * 画面幅がモバイル相当である, the 工事写真機能 shall 工事写真詳細画面を横スクロールが発生しないレイアウトで表示する」
+   * ）である。
    */
   test('モバイル狭幅で横スクロールなし・写真項目が縦積みで表示される', async ({ page }) => {
     expect(adminAlbumId).toBeTruthy();

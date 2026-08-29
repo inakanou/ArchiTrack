@@ -451,13 +451,13 @@ test.describe('プロジェクト一覧のソート拡張 (Task 25.4)', () => {
   /**
    * aria-sort属性のテスト
    *
-   * REQ-6.3: アクセシビリティ対応のソート状態表示
-   * @requirement project-management/REQ-6.3
-   * @requirement project-management/REQ-20.6
+   * タスク 115.188 の裁定: 被覆印を取り下げる。本検証が主張するのは th の `aria-sort` 属性で
+   * あり、原文 6.3 が述べる「ソート状態をヘッダーにアイコン（昇順: 上矢印、降順: 下矢印）で
+   * 表示する」でも、原文 20.6 が述べる「テーブルヘッダーとデータセルの関連付け」でもない。
+   * 要件6・要件20 に `aria-sort` による状態通知を述べる条文は無いため、付け替え先が無い。
+   * 6.3 は同ファイルのアイコン表示検証（270・329・390 行）が引き続き名乗る。
    */
-  test('ソート時にaria-sort属性が適切に設定されることを確認 (project-management/REQ-6.3)', async ({
-    page,
-  }) => {
+  test('ソート時にaria-sort属性が適切に設定されることを確認', async ({ page }) => {
     // デスクトップサイズを設定（テーブル表示）
     await page.setViewportSize({ width: 1280, height: 720 });
 

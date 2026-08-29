@@ -7,10 +7,14 @@
  * - @requirement quantity-table-generation/REQ-19.3: 写真選択で紐づけ変更
  * - @requirement quantity-table-generation/REQ-19.4: 確定後に関連写真表示エリアを更新
  *
- * Requirements coverage (site-survey):
- * - REQ-115.19 相当の是正: 検証を条件分岐で包まず、前提が満たせない場合は失敗させる。
- *   本ファイルは事前準備で現場調査と写真をシードし、写真の存在を前提として
- *   REQ-19.1〜19.4 を無条件に検証する。
+ * タスク 115.19 相当の是正: 検証を条件分岐で包まず、前提が満たせない場合は失敗させる。
+ * 本ファイルは事前準備で現場調査と写真をシードし、写真の存在を前提として
+ * quantity-table-generation の受入基準 19.1〜19.4 を無条件に検証する。
+ *
+ * タスク 115.188 の是正: 従前はこの記述を `Requirements coverage (site-survey):` の
+ * 見出しの下に置き `REQ-115.19` と書いていたため、被覆印の読み取り規則が
+ * site-survey の受入基準 115.19（実在しない）を名乗る印として拾っていた。
+ * 115.19 はタスク番号であり受入基準番号ではない。
  *
  * @module e2e/specs/quantity-tables/photo-change-dialog-e2e.spec
  */
@@ -240,12 +244,17 @@ test.describe('REQ-19: 写真変更ダイアログでの注釈付き写真表示
   });
 
   /**
-   * @requirement quantity-table-generation/REQ-19.1: 写真変更ボタンと写真変更ダイアログ
+   * @requirement quantity-table-generation/REQ-4.3: 写真変更ボタンと写真変更ダイアログ
+   *
+   * タスク 115.188 の是正: 従前は REQ-19.1 を名乗っていたが、受入基準19.1 の原文は「When 数量グループの写真変更操作を行う,
+   * the 数量表管理システム shall 写真変更ダイアログを表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準4.3（「When
+   * 数量グループ内で写真選択操作を行う, the 数量表管理システム shall 同一プロジェクトの注釈付き現場写真一覧を表示し選択可能にする」
+   * ）である。
    *
    * 写真未紐付けのグループではプレースホルダーから写真選択ダイアログを開ける。
    * 事前準備で作成したグループは写真未紐付けであるため、この経路は必ず成立する。
    */
-  test('写真未紐付けのグループでプレースホルダーから写真選択ダイアログが開く (REQ-19.1)', async ({
+  test('写真未紐付けのグループでプレースホルダーから写真選択ダイアログが開く (REQ-4.3)', async ({
     page,
   }) => {
     await navigateToQuantityTableEdit(page);

@@ -4,7 +4,7 @@
  * Task 30.1: ラベル変更E2Eテスト
  *
  * Requirements:
- * - 8.4: フォームフィールドのラベル
+ * - 1.2 / 8.2: 作成フォーム・編集フォームのフィールド（顧客名を含む）
  * - 16: TradingPartnerSelectコンポーネント
  * - 22: 顧客名表示
  *
@@ -34,14 +34,19 @@ test.describe('プロジェクト「顧客名」ラベル表示', () => {
   });
 
   /**
-   * @requirement project-management/REQ-8.4
+   * @requirement project-management/REQ-1.2
    * @requirement project-management/REQ-16
+   *
+   * タスク 115.188 の是正: 従前は REQ-8.4 を名乗っていたが、受入基準8.4 は「顧客名フィールドでフリガナを検索
+   * する…」であり、フリガナ検索を扱わない本群には当たらない。作成フォームに「顧客名」フィールドを表示することを述べるのは受入基準1
+   * .2（プロジェクト作成フォームに以下の入力フィールドを表示する:プロジェクト名（必須）、顧客名（任意）
+   * 、…）である。
    */
   test.describe('プロジェクト作成画面のラベル確認', () => {
     /**
      * プロジェクト作成画面で「顧客名」ラベルが表示されることを確認
      */
-    test('プロジェクト作成画面で「顧客名」ラベルが表示される (project-management/REQ-8.4, REQ-16)', async ({
+    test('プロジェクト作成画面で「顧客名」ラベルが表示される (project-management/REQ-1.2, REQ-16)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -182,13 +187,18 @@ test.describe('プロジェクト「顧客名」ラベル表示', () => {
   });
 
   /**
-   * @requirement project-management/REQ-8.4
+   * @requirement project-management/REQ-8.2
+   *
+   * タスク 115.188 の是正: 従前は REQ-8.4 を名乗っていたが、受入基準8.4 は「顧客名フィールドでフリガナを検索
+   * する…」であり、フリガナ検索を扱わない本群には当たらない。編集フォームに「顧客名」フィールドを表示することを述べるのは受入基準8
+   * .2（プロジェクト編集フォームに以下の入力フィールドを表示する:プロジェクト名（必須）、顧客名（任意）
+   * 、…）である。
    */
   test.describe('プロジェクト編集画面のラベル確認', () => {
     /**
      * プロジェクト編集画面で「顧客名」ラベルが表示されることを確認
      */
-    test('プロジェクト編集画面で「顧客名」ラベルが表示される (project-management/REQ-8.4)', async ({
+    test('プロジェクト編集画面で「顧客名」ラベルが表示される (project-management/REQ-8.2)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');

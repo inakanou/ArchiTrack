@@ -83,9 +83,11 @@ test.describe('プロジェクト取引先連携', () => {
 
     /**
      * @requirement project-management/REQ-22.1
-     * @requirement project-management/REQ-22.2
+     *
+     * タスク 115.188 の是正: 本検証の表題・本文が述べる内容は名乗っていた番号の条文と
+     * 対応していなかった。走査で候補を挙げ、原文と突き合わせて名乗り直している。
      */
-    test('プロジェクト作成画面で顧客を選択時、取引先種別「顧客」を含む取引先一覧を候補として提供する (project-management/REQ-22.1, REQ-22.2)', async ({
+    test('プロジェクト作成画面で顧客を選択時、取引先種別「顧客」を含む取引先一覧を候補として提供する (project-management/REQ-22.1)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -212,9 +214,12 @@ test.describe('プロジェクト取引先連携', () => {
 
   test.describe('取引先オートコンプリート機能（編集画面）', () => {
     /**
-     * @requirement project-management/REQ-22.3
+     * @requirement project-management/REQ-22.2
+     *
+     * タスク 115.188 の是正: 本検証の表題・本文が述べる内容は名乗っていた番号の条文と
+     * 対応していなかった。走査で候補を挙げ、原文と突き合わせて名乗り直している。
      */
-    test('プロジェクト編集画面で顧客を選択時、取引先種別「顧客」を含む取引先一覧を候補として提供する (project-management/REQ-22.3)', async ({
+    test('プロジェクト編集画面で顧客を選択時、取引先種別「顧客」を含む取引先一覧を候補として提供する (project-management/REQ-22.2)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -372,9 +377,14 @@ test.describe('プロジェクト取引先連携', () => {
 
   test.describe('取引先情報の表示', () => {
     /**
-     * @requirement project-management/REQ-22.6
+     * @requirement project-management/REQ-22.10
+     *
+     * タスク 115.188 の是正: 従前は REQ-22.6 を名乗っていたが、受入基準22.6 の原文は「The ArchiTrackシステム
+     * shall 顧客候補の表示形式を「名前 / 部課・支店・支社名 / 代表者名」の組み合わせとする」
+     * である。本区間の表題・本文が述べる内容に対応するのは受入基準22.10（「While プロジェクトが顧客と紐付いている, the
+     * ArchiTrackシステム shall プロジェクト詳細画面に顧客名を表示する」）である。
      */
-    test('プロジェクトが取引先と紐付いている場合、プロジェクト詳細画面に取引先情報を表示する (project-management/REQ-22.6)', async ({
+    test('プロジェクトが取引先と紐付いている場合、プロジェクト詳細画面に取引先情報を表示する (project-management/REQ-22.10)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');

@@ -231,7 +231,12 @@ test.describe('現場調査画像ビューア', () => {
   });
 
   /**
-   * @requirement site-survey/REQ-4.5
+   * @requirement site-survey/REQ-4.9
+   *
+   * タスク 115.188 の是正: 従前は REQ-4.5 を名乗っていたが、受入基準4.5 の原文は「If アップロードされたファイルが許可された形式でない,
+   * then the Site Survey Service shall エラーメッセージを表示してアップロードを拒否する」
+   * である。本区間の表題・本文が述べる内容に対応するのは受入基準4.9（「The Site Survey Service shall
+   * JPEG、PNG、WEBP形式の画像ファイルをサポートする」）である。
    */
   test.describe('ファイル形式バリデーション', () => {
     test('accept属性でサポート形式が制限されている (site-survey/REQ-4.5)', async ({ page }) => {

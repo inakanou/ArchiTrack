@@ -196,9 +196,13 @@ test.describe('ステータス別件数・終端ステータス除外・デフ�
 
     /**
      * @requirement project-management/REQ-2.8
-     * @requirement project-management/REQ-5.7
+     * @requirement project-management/REQ-5.5
+     *
+     * タスク 115.188 の是正: 従前は要件定義書に存在しない REQ-5.7 を名乗っていた。
+     * 要件5の受入基準は6件までであり、本検証が主張する内容は受入基準5.5
+     * （「完了」「中止」「失注」のいずれかを選択したとき、当該ステータスのプロジェクトを一覧に表示する）である。
      */
-    test('ステータスフィルタで「完了」を選択すると完了ステータスのプロジェクトが表示される (project-management/REQ-2.8, REQ-5.7)', async ({
+    test('ステータスフィルタで「完了」を選択すると完了ステータスのプロジェクトが表示される (project-management/REQ-2.8, REQ-5.5)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -264,9 +268,13 @@ test.describe('ステータス別件数・終端ステータス除外・デフ�
     });
 
     /**
-     * @requirement project-management/REQ-5.8
+     * @requirement project-management/REQ-5.6
+     *
+     * タスク 115.188 の是正: 従前は要件定義書に存在しない REQ-5.8 を名乗っていた。
+     * 本検証の表題は受入基準5.6（ステータスフィルタに「完了」「中止」「失注」を含む
+     * すべてのステータスを選択肢として提供する）の逐語である。
      */
-    test('ステータスフィルタに「完了」「中止」「失注」を含むすべてのステータスが選択肢として存在する (project-management/REQ-5.8)', async ({
+    test('ステータスフィルタに「完了」「中止」「失注」を含むすべてのステータスが選択肢として存在する (project-management/REQ-5.6)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');

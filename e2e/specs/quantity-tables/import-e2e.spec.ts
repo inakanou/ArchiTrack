@@ -10,7 +10,6 @@
  * - @requirement quantity-table-generation/REQ-27.6: PDF OCR自動開始
  * - @requirement quantity-table-generation/REQ-27.7: 処理中インジケーター
  * - @requirement quantity-table-generation/REQ-27.8: 処理中ボタン非活性化
- * - @requirement quantity-table-generation/REQ-28.2: 全シート解析
  * - @requirement quantity-table-generation/REQ-28.3: 列マッピング
  * - @requirement quantity-table-generation/REQ-28.4: プレビューテーブル
  * - @requirement quantity-table-generation/REQ-28.5: マッピング先表示
@@ -496,17 +495,20 @@ test.describe('REQ-28: Excelデータパース', () => {
   });
 
   /**
-   * @requirement quantity-table-generation/REQ-28.2: 全シート解析対象
+   * タスク 115.188 の是正: quantity-table-generation の受入基準28.2 を名乗る被覆印を取り下げる
+   * （ファイル前書きの一覧からも同時に取り下げた）。本区間が主張するのは .xlsx を選んだ
+   * ときに Excel の処理経路が起動することだけで、原文28.2（全シートを解析対象とする）は
+   * 一度も確かめていない。内容に当たるのは原文28.1（SheetJS で直接読み取る）だが、28.1 は
+   * `e2e/requirement-exclusions.json` が「E2Eでは確かめない」と宣言しているため付け替えない。
+   * **付け替え先が除外済みであることは取り下げを妨げない。** 取り下げは同居を作らず、
+   * 28.2 は未被覆として露出する（本区間が唯一の被覆源であった）。
+   * 表題から `(REQ-28.1)` を外し、名乗りと表題の食い違いも解消する。
    *
-   * Excel系の実装は parseExcelFile() で workbook.SheetNames を全シートループする
-   * （excel-parser.ts）。E2Eではダイアログ上で .xlsx 拡張子のファイルを選択した際に
-   * Excel処理パスが起動することを検証する。テキストファイルを .xlsx 拡張子として
-   * 偽装するとSheetJS処理が走り、エラーになる（REQ-28.6 と関連）が、
-   * 「Excelとして処理を開始する」動作は検証できる。
+   * 検証内容: ダイアログ上で .xlsx 拡張子のファイルを選択した際に Excel 処理パスが
+   * 起動すること。テキストファイルを .xlsx 拡張子として偽装するとSheetJS処理が走り、
+   * エラーになるが、「Excelとして処理を開始する」動作は検証できる。
    */
-  test('Excel拡張子(.xlsx)のファイルアップロードでExcel処理パスが起動する (REQ-28.2)', async ({
-    page,
-  }) => {
+  test('Excel拡張子(.xlsx)のファイルアップロードでExcel処理パスが起動する', async ({ page }) => {
     const navigated = await navigateToQuantityTableEdit(page);
     expect(navigated).toBeTruthy();
 
@@ -536,12 +538,17 @@ test.describe('REQ-28: Excelデータパース', () => {
 
   /**
    * @requirement quantity-table-generation/REQ-28.3: 列マッピング機能
-   * @requirement quantity-table-generation/REQ-28.5: マッピング先フィールド表示
+   * @requirement quantity-table-generation/REQ-32.1: マッピング先フィールド表示
+   *
+   * タスク 115.188 の是正: 従前は REQ-28.5 を名乗っていたが、受入基準28.5 の原文は「The 数量表管理システム
+   * shall 抽出結果のプレビューテーブルに各行のマッピング先フィールドを表示する」である。
+   * 本区間の表題・本文が述べる内容に対応するのは受入基準32.1（「The 数量表管理システム shall 抽出結果のプレビューテーブルの各列ヘッダーにマッピング先フィールドのドロップダウンを表示する」
+   * ）である。
    *
    * ImportPreviewTable のヘッダーに「のマッピング先」aria-label の select が含まれる
    * （実際にデータが抽出された場合のみ）。
    */
-  test('プレビューテーブルにマッピング先フィールドのドロップダウン定義が含まれる (REQ-28.3, REQ-28.5)', async ({
+  test('プレビューテーブルにマッピング先フィールドのドロップダウン定義が含まれる (REQ-28.3, REQ-32.1)', async ({
     page,
   }) => {
     const navigated = await navigateToQuantityTableEdit(page);

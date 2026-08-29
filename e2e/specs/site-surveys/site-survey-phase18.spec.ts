@@ -203,9 +203,14 @@ test.describe('現場調査 Phase 18 追加要件', () => {
     });
 
     /**
-     * @requirement project-management/REQ-24.1
+     * @requirement project-management/REQ-24.2
+     *
+     * タスク 115.188 の是正: 本検証の表題・本文が述べる内容は名乗っていた番号の条文と
+     * 対応していなかった。走査で候補を挙げ、原文と突き合わせて名乗り直している。
      */
-    test('「すべて見る」リンクから一覧画面に遷移できる', async ({ page }) => {
+    test('「すべて見る」リンクから一覧画面に遷移できる (project-management/REQ-24.2)', async ({
+      page,
+    }) => {
       if (!createdProjectId) {
         throw new Error('createdProjectIdが未設定です。事前準備テストが正しく実行されていません。');
       }
@@ -268,7 +273,12 @@ test.describe('現場調査 Phase 18 追加要件', () => {
 
   test.describe('写真一覧管理パネルの手動保存 (REQ-10.8, REQ-10.9)', () => {
     /**
-     * @requirement site-survey/REQ-10.8
+     * @requirement site-survey/REQ-10.4
+     *
+     * タスク 115.188 の是正: 従前は REQ-10.8 を名乗っていたが、受入基準10.8 の原文は「The Site Survey
+     * Service shall 写真一覧を保存された表示順序の通りに表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準10.4（「When
+     * ユーザーがコメント入力用テキストエリアにテキストを入力する, the Site Survey Service shall 入力内容を当該写真に紐付ける（未保存状態になる）
+     * 」）である。
      */
     test('コメント入力後に未保存インジケーターが表示される', async ({ page }) => {
       if (!createdSurveyId) {
@@ -298,7 +308,12 @@ test.describe('現場調査 Phase 18 追加要件', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-10.8
+     * @requirement site-survey/REQ-10.9
+     *
+     * タスク 115.188 の是正: 従前は REQ-10.8 を名乗っていたが、受入基準10.8 の原文は「The Site Survey
+     * Service shall 写真一覧を保存された表示順序の通りに表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準10.9（「When
+     * ユーザーが「保存」ボタンをクリックする, the Site Survey Service shall 各写真のコメント、
+     * 報告書出力フラグ、表示順序の状態をデータベースに一括保存する」）である。
      */
     test('保存ボタンで変更を保存できる', async ({ page }) => {
       if (!createdSurveyId) {
@@ -358,9 +373,14 @@ test.describe('現場調査 Phase 18 追加要件', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-10.9
+     * @requirement site-survey/REQ-10.10
+     *
+     * タスク 115.188 の是正: 本検証の表題・本文が述べる内容は名乗っていた番号の条文と
+     * 対応していなかった。走査で候補を挙げ、原文と突き合わせて名乗り直している。
      */
-    test('未保存の変更がある状態でページ離脱時に確認ダイアログが表示される', async ({ page }) => {
+    test('未保存の変更がある状態でページ離脱時に確認ダイアログが表示される (site-survey/REQ-10.10)', async ({
+      page,
+    }) => {
       if (!createdSurveyId || !createdProjectId) {
         throw new Error('createdSurveyIdまたはcreatedProjectIdが未設定です。');
       }
@@ -428,7 +448,13 @@ test.describe('現場調査 Phase 18 追加要件', () => {
 
   test.describe('画像削除機能 (REQ-10.10, REQ-10.11)', () => {
     /**
-     * @requirement site-survey/REQ-10.10
+     * @requirement site-survey/REQ-10.11
+     *
+     * タスク 115.188 の是正: 従前は REQ-10.10 を名乗っていたが、受入基準10.10 の原文は「While 未保存の変更がある状態でユーザーがページを離れようとする,
+     * the Site Survey Service shall 確認ダイアログを表示して変更が失われることを警告する」
+     * である。本区間の表題・本文が述べる内容に対応するのは受入基準10.11（「When ユーザーが写真の削除ボタンをクリックする,
+     * the Site Survey Service shall 確認ダイアログを表示する」）
+     * である。
      */
     test('削除ボタンクリックで確認ダイアログが表示される', async ({ page }) => {
       if (!createdSurveyId) {
@@ -469,7 +495,13 @@ test.describe('現場調査 Phase 18 追加要件', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-10.10
+     * @requirement site-survey/REQ-10.11
+     *
+     * タスク 115.188 の是正: 従前は REQ-10.10 を名乗っていたが、受入基準10.10 の原文は「While 未保存の変更がある状態でユーザーがページを離れようとする,
+     * the Site Survey Service shall 確認ダイアログを表示して変更が失われることを警告する」
+     * である。本区間の表題・本文が述べる内容に対応するのは受入基準10.11（「When ユーザーが写真の削除ボタンをクリックする,
+     * the Site Survey Service shall 確認ダイアログを表示する」）
+     * である。
      */
     test('削除確認ダイアログでキャンセルすると画像は削除されない', async ({ page }) => {
       if (!createdSurveyId) {

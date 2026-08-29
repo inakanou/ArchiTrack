@@ -283,9 +283,20 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
 
   /**
    * @requirement site-survey/REQ-2.5
-   * @requirement site-survey/REQ-2.6
+   * @requirement site-survey/REQ-2.7
+   *
+   * タスク 115.188 の是正: 従前は REQ-2.6 を名乗っていたが、受入基準2.6 の原文は「When ユーザーが現場調査一覧画面を表示する,
+   * the Site Survey Service shall ブレッドクラムに「ダッシュボード > プロジェクト一覧 > プロジェクト
+   * > 現場調査一覧」を表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準2.7（「When ユーザーが現場調査詳細画面を表示する,
+   * the Site Survey Service shall ブレッドクラムに「ダッシュボード > プロジェクト一覧 > プロジェクト
+   * > 現場調査一覧 > 現場調査」を表示する」）である。
    * @requirement site-survey/REQ-2.10
-   * @requirement site-survey/REQ-2.12
+   *
+   * タスク 115.188 の是正: site-survey の受入基準2.12 を名乗る被覆印を取り下げた。原文2.12 は
+   * 「**画像プレビュー画面**において『← 現場調査に戻る』リンクを表示しない」であり、
+   * 主題は画像プレビュー画面である。本区間は現場調査**詳細画面**のブレッドクラムだけを
+   * 扱い、画像プレビュー画面を一度も開かない。付け替え先も要件2 に無い。
+   * 2.12 は `site-survey-breadcrumb.spec.ts:462` の画像プレビュー画面の検証が引き続き名乗る。
    */
   test.describe('ブレッドクラムナビゲーション', () => {
     test('現場調査詳細画面にブレッドクラムが表示される (site-survey/REQ-2.5)', async ({ page }) => {
@@ -335,9 +346,14 @@ test.describe('現場調査画面遷移・ナビゲーション', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-2.7
+     * @requirement site-survey/REQ-2.10
+     *
+     * タスク 115.188 の是正: 従前は REQ-2.7 を名乗っていたが、受入基準2.7 の原文は「When ユーザーが現場調査詳細画面を表示する,
+     * the Site Survey Service shall ブレッドクラムに「ダッシュボード > プロジェクト一覧 > プロジェクト
+     * > 現場調査一覧 > 現場調査」を表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準2.10（「When ユーザーがブレッドクラムの各項目をクリックする,
+     * the Site Survey Service shall 対応する画面に遷移する」）である。
      */
-    test('ブレッドクラムのプロジェクト名をクリックするとプロジェクト詳細に遷移する (site-survey/REQ-2.7)', async ({
+    test('ブレッドクラムのプロジェクト名をクリックするとプロジェクト詳細に遷移する (site-survey/REQ-2.10)', async ({
       page,
     }) => {
       if (!createdProjectId || !createdSurveyId) {

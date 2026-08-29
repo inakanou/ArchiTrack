@@ -214,9 +214,14 @@ test.describe('現場調査エクスポート機能', () => {
     /**
      * @requirement site-survey/REQ-10.1
      * @requirement site-survey/REQ-10.2
-     * @requirement site-survey/REQ-10.8
+     * @requirement site-survey/REQ-10.9
+     *
+     * タスク 115.188 の是正: 従前は REQ-10.8 を名乗っていたが、受入基準10.8 の原文は「The Site Survey
+     * Service shall 写真一覧を保存された表示順序の通りに表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準10.9（「When
+     * ユーザーが「保存」ボタンをクリックする, the Site Survey Service shall 各写真のコメント、
+     * 報告書出力フラグ、表示順序の状態をデータベースに一括保存する」）である。
      */
-    test('写真管理パネルで報告書出力フラグを切り替えられる (site-survey/REQ-10.8)', async ({
+    test('写真管理パネルで報告書出力フラグを切り替えられる (site-survey/REQ-10.9)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -289,9 +294,14 @@ test.describe('現場調査エクスポート機能', () => {
     /**
      * @requirement site-survey/REQ-10.3
      * @requirement site-survey/REQ-10.4
-     * @requirement site-survey/REQ-10.8
+     * @requirement site-survey/REQ-10.9
+     *
+     * タスク 115.188 の是正: 従前は REQ-10.8 を名乗っていたが、受入基準10.8 の原文は「The Site Survey
+     * Service shall 写真一覧を保存された表示順序の通りに表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準10.9（「When
+     * ユーザーが「保存」ボタンをクリックする, the Site Survey Service shall 各写真のコメント、
+     * 報告書出力フラグ、表示順序の状態をデータベースに一括保存する」）である。
      */
-    test('写真管理パネルでコメントを入力・保存できる (site-survey/REQ-10.8)', async ({ page }) => {
+    test('写真管理パネルでコメントを入力・保存できる (site-survey/REQ-10.9)', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       await page.goto(`/site-surveys/${createdSurveyId}`);
@@ -410,7 +420,12 @@ test.describe('現場調査エクスポート機能', () => {
     });
 
     /**
-     * @requirement site-survey/REQ-11.1
+     * @requirement site-survey/REQ-11.2
+     *
+     * タスク 115.188 の是正: 従前は REQ-11.1 を名乗っていたが、受入基準11.1 の原文は「When ユーザーが調査報告書出力ボタンを押す,
+     * the Site Survey Service shall 注釈付き画像一覧を調査結果報告PDFドキュメントとして生成する」
+     * である。本区間の表題・本文が述べる内容に対応するのは受入基準11.2（「The Site Survey Service shall
+     * PDF出力対象として報告書出力フラグがONの写真のみを含める」）である。
      */
     test('報告書出力対象がない場合にエラーが表示される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');

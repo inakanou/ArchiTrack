@@ -416,9 +416,13 @@ test.describe('内訳書CRUD操作', () => {
     });
 
     /**
-     * @requirement itemized-statement-generation/REQ-7.1: The 内訳書詳細画面 shall 削除ボタンを表示する
+     * @requirement itemized-statement-generation/REQ-7.2: The 内訳書詳細画面 shall 削除ボタンを表示する
+     *
+     * タスク 115.188 の是正: 従前は REQ-7.1 を名乗っていたが、受入基準7.1 の原文は「The 内訳書詳細画面 shall
+     * 削除ボタンを表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準7.2（「When ユーザーが削除ボタンをクリックする,
+     * the システム shall 確認ダイアログを表示する」）である。
      */
-    test('削除確認ダイアログが表示される (itemized-statement-generation/REQ-7.1)', async ({
+    test('削除確認ダイアログが表示される (itemized-statement-generation/REQ-7.2)', async ({
       page,
     }) => {
       expect(createdItemizedStatementId, '内訳書が作成されていません').toBeTruthy();
@@ -442,7 +446,7 @@ test.describe('内訳書CRUD操作', () => {
   });
 
   /**
-   * パンくずナビゲーション (Req 9.1, 9.3, 9.4)
+   * パンくずナビゲーション (Req 9.1, 9.5, 9.6)
    */
   test.describe('パンくずナビゲーション', () => {
     /**
@@ -465,7 +469,9 @@ test.describe('内訳書CRUD操作', () => {
       await expect(breadcrumb.getByRole('link', { name: /プロジェクト一覧/i })).toBeVisible();
     });
 
-    test('パンくずからプロジェクト詳細画面に遷移できる (Req 9.3)', async ({ page }) => {
+    test('パンくずからプロジェクト詳細画面に遷移できる (itemized-statement-generation/REQ-9.6)', async ({
+      page,
+    }) => {
       expect(
         createdItemizedStatementId && testProjectId,
         'テストデータが不足しています'
@@ -490,9 +496,12 @@ test.describe('内訳書CRUD操作', () => {
     });
 
     /**
-     * @requirement itemized-statement-generation/REQ-9.4: When ユーザーがパンくずの「プロジェクト一覧」をクリックする, the システム shall プロジェクト一覧画面に遷移する
+     * @requirement itemized-statement-generation/REQ-9.5: When ユーザーがパンくずの「プロジェクト一覧」をクリックする, the システム shall プロジェクト一覧画面に遷移する
+     *
+     * タスク 115.188 の是正: 従前は REQ-9.4 を名乗っていたが、直上に写した原文は受入基準9.5 のものである。
+     * 受入基準9.4 はパンくずの「ダッシュボード」をクリックしたときの遷移であり、本検証は主張していない。
      */
-    test('パンくずからプロジェクト一覧画面に遷移できる (itemized-statement-generation/REQ-9.4)', async ({
+    test('パンくずからプロジェクト一覧画面に遷移できる (itemized-statement-generation/REQ-9.5)', async ({
       page,
     }) => {
       expect(createdItemizedStatementId, '内訳書が作成されていません').toBeTruthy();
@@ -1121,9 +1130,14 @@ test.describe('内訳書CRUD操作', () => {
     });
 
     /**
-     * @requirement project-management/REQ-26.3: The 内訳書セクション shall 作成済み内訳書を作成日時の降順で一覧表示する
+     * @requirement project-management/REQ-26.6: The 内訳書セクション shall 作成済み内訳書を作成日時の降順で一覧表示する
+     *
+     * タスク 115.188 の是正: 従前は REQ-26.3 を名乗っていたが、受入基準26.3 の原文は「The ArchiTrackシステム
+     * shall 内訳書セクションに作成済み内訳書を作成日時の降順で一覧表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準26.6（「The
+     * ArchiTrackシステム shall 内訳書一覧の各行に内訳書名、作成日時、集計元数量表名、
+     * 合計項目数を表示する」）である。
      */
-    test('内訳書一覧の各行に内訳書名、作成日時、数量表名、項目数が表示される (project-management/REQ-26.3)', async ({
+    test('内訳書一覧の各行に内訳書名、作成日時、数量表名、項目数が表示される (project-management/REQ-26.6)', async ({
       page,
     }) => {
       expect(
@@ -1186,9 +1200,15 @@ test.describe('内訳書CRUD操作', () => {
   test.describe('内訳書詳細画面表示', () => {
     /**
      * @requirement itemized-statement-generation/REQ-4.1: The 内訳書詳細画面 shall 集計結果をテーブル形式で表示する
-     * @requirement itemized-statement-generation/REQ-4.4: While 内訳書詳細画面を表示中, the システム shall パンくずナビゲーションでプロジェクト詳細画面への戻りリンクを提供する
+     * @requirement itemized-statement-generation/REQ-4.2: While 内訳書詳細画面を表示中, the システム shall パンくずナビゲーションでプロジェクト詳細画面への戻りリンクを提供する
+     *
+     * タスク 115.188 の是正: 従前は REQ-4.4 を名乗っていたが、受入基準4.4 の原文は「While 内訳書詳細画面を表示中,
+     * the システム shall パンくずナビゲーションで上位階層（ダッシュボード、プロジェクト一覧、
+     * プロジェクト詳細、内訳書一覧）への戻りリンクを提供する」である。本区間の表題・本文が述べる内容に対応するのは受入基準4.2（「The
+     * テーブル shall 「任意分類」「工種」「名称」「規格」「数量」「単位」の順でカラムを表示する」
+     * ）である。
      */
-    test('テーブルカラムが正しい順序で表示される (itemized-statement-generation/REQ-4.1, REQ-4.4)', async ({
+    test('テーブルカラムが正しい順序で表示される (itemized-statement-generation/REQ-4.1, REQ-4.2)', async ({
       page,
     }) => {
       expect(createdItemizedStatementId, '内訳書が作成されていません').toBeTruthy();
@@ -1471,9 +1491,13 @@ test.describe('内訳書CRUD操作', () => {
    */
   test.describe('スナップショット独立性', () => {
     /**
-     * @requirement itemized-statement-generation/REQ-8.3: When 元の数量表が削除される, the 作成済み内訳書 shall 影響を受けない
+     * @requirement itemized-statement-generation/REQ-8.2: When 元の数量表が削除される, the 作成済み内訳書 shall 影響を受けない
+     *
+     * タスク 115.188 の是正: 従前は REQ-8.3 を名乗っていたが、受入基準8.3 の原文は「When 元の数量表が削除される,
+     * the 作成済み内訳書 shall 影響を受けない」である。本区間の表題・本文が述べる内容に対応するのは受入基準8.2（「When
+     * 元の数量表が更新される, the 作成済み内訳書 shall 影響を受けない」）である。
      */
-    test('元の数量表が更新されても作成済み内訳書は影響を受けない (itemized-statement-generation/REQ-8.3)', async ({
+    test('元の数量表が更新されても作成済み内訳書は影響を受けない (itemized-statement-generation/REQ-8.2)', async ({
       page,
       request,
     }) => {
@@ -1586,7 +1610,13 @@ test.describe('内訳書CRUD操作', () => {
 
   /**
    * パンくずナビゲーション形式テスト (Req 9.2)
-   * @requirement itemized-statement-generation/REQ-9.7
+   * @requirement itemized-statement-generation/REQ-9.3
+   *
+   * タスク 115.188 の是正: 従前は REQ-9.7 を名乗っていたが、受入基準9.7 の原文は「When ユーザーがパンくずの「内訳書一覧」
+   * をクリックする（新規作成画面・詳細画面のみ）, the システム shall 内訳書一覧画面に遷移する」
+   * である。本区間の表題・本文が述べる内容に対応するのは受入基準9.3（「The 内訳書詳細画面 shall パンくずナビゲーション「ダッシュボード
+   * > プロジェクト一覧 > {プロジェクト名} > 内訳書一覧 > {内訳書名}」を表示する」
+   * ）である。
    */
   test.describe('パンくずナビゲーション形式', () => {
     test('パンくずが「プロジェクト一覧 > プロジェクト名 > 内訳書 > 内訳書名」形式で表示される (Req 9.2)', async ({
@@ -2223,7 +2253,12 @@ test.describe('内訳書CRUD操作', () => {
   test.describe('内訳書一覧画面', () => {
     /**
      * @requirement project-management/REQ-26.11: The 内訳書セクション shall 一覧画面へのリンクを表示する
-     * @requirement project-management/REQ-26.3: The 内訳書セクション shall 作成済み内訳書を作成日時の降順で一覧表示する
+     * @requirement project-management/REQ-26.11: The 内訳書セクション shall 作成済み内訳書を作成日時の降順で一覧表示する
+     *
+     * タスク 115.188 の是正: 従前は REQ-26.3 を名乗っていたが、受入基準26.3 の原文は「The ArchiTrackシステム
+     * shall 内訳書セクションに作成済み内訳書を作成日時の降順で一覧表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準26.11（「The
+     * ArchiTrackシステム shall 内訳書セクションに一覧画面へのリンクを表示する」
+     * ）である。
      */
     test('プロジェクト詳細画面から内訳書一覧画面に遷移できる (project-management/REQ-26.11, REQ-3.2)', async ({
       page,
@@ -2304,9 +2339,15 @@ test.describe('内訳書CRUD操作', () => {
     });
 
     /**
-     * @requirement project-management/REQ-26.4: When 内訳書が存在しない場合, the 内訳書セクション shall 「内訳書はまだ作成されていません」メッセージを表示する
+     * @requirement project-management/REQ-26.5: When 内訳書が存在しない場合, the 内訳書セクション shall 「内訳書はまだ作成されていません」メッセージを表示する
+     *
+     * タスク 115.188 の是正: 従前は REQ-26.4 を名乗っていたが、受入基準26.4 の原文は「When 数量表が存在しない場合,
+     * the ArchiTrackシステム shall 内訳書セクションに「まず数量表を作成してください」
+     * メッセージを表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準26.5（「When 数量表は存在するが内訳書が存在しない場合,
+     * the ArchiTrackシステム shall 内訳書セクションに「内訳書はまだありません」
+     * メッセージを表示する」）である。
      */
-    test('内訳書が存在しない場合「内訳書はまだ作成されていません」メッセージが表示される (project-management/REQ-26.4)', async ({
+    test('内訳書が存在しない場合「内訳書はまだ作成されていません」メッセージが表示される (project-management/REQ-26.5)', async ({
       page,
       request,
     }) => {
@@ -2496,10 +2537,18 @@ test.describe('内訳書CRUD操作', () => {
     });
 
     /**
-     * @requirement itemized-statement-generation/REQ-13.6: When フィルタが適用されている状態でExcelダウンロードを実行する, the システム shall フィルタ後のデータのみを出力する
-     * @requirement itemized-statement-generation/REQ-14.5: When フィルタが適用されている状態でクリップボードコピーを実行する, the システム shall フィルタ後のデータのみをコピーする
+     * @requirement itemized-statement-generation/REQ-13.1: When フィルタが適用されている状態でExcelダウンロードを実行する, the システム shall フィルタ後のデータのみを出力する
+     *
+     * タスク 115.188 の是正: 従前は REQ-13.6 を名乗っていたが、受入基準13.6 の原文は「When フィルタが適用されている状態でExcelダウンロードを実行する,
+     * the システム shall フィルタ後のデータのみを出力する」である。本区間の表題・本文が述べる内容に対応するのは受入基準13.1（「The
+     * 内訳書詳細画面 shall Excelダウンロードボタンを表示する」）である。
+     * @requirement itemized-statement-generation/REQ-14.1: When フィルタが適用されている状態でクリップボードコピーを実行する, the システム shall フィルタ後のデータのみをコピーする
+     *
+     * タスク 115.188 の是正: 従前は REQ-14.5 を名乗っていたが、受入基準14.5 の原文は「When フィルタが適用されている状態でクリップボードコピーを実行する,
+     * the システム shall フィルタ後のデータのみをコピーする」である。本区間の表題・本文が述べる内容に対応するのは受入基準14.1（「The
+     * 内訳書詳細画面 shall クリップボードにコピーボタンを表示する」）である。
      */
-    test('フィルタ適用後に出力ボタンが有効である (itemized-statement-generation/REQ-13.6, REQ-14.5)', async ({
+    test('フィルタ適用後に出力ボタンが有効である (itemized-statement-generation/REQ-13.1, REQ-14.1)', async ({
       page,
     }) => {
       expect(createdItemizedStatementId, 'テストデータが不足しています').toBeTruthy();

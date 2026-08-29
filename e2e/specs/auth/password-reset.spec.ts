@@ -237,7 +237,10 @@ test.describe('パスワード管理機能', () => {
    * 要件7.2: パスワードリセットフォームのUI/UX（トークン有効時）
    * WHEN 有効なリセットトークンでアクセスする
    * THEN パスワード入力フォームが表示される
-   * @requirement user-authentication/REQ-7.2 @requirement user-authentication/REQ-29.10 @requirement user-authentication/REQ-29.11 @requirement user-authentication/REQ-28.11
+   * @requirement user-authentication/REQ-29.10 @requirement user-authentication/REQ-29.11 @requirement user-authentication/REQ-28.11
+   *
+   * タスク 115.188 の是正: 従前は REQ-7.2 も名乗っていたが、本区間の表題・本文が述べる内容に対応するのは、
+   * 同じ区間が既に名乗っている受入基準29.10 である。重複する名乗りを取り下げた（REQ-7.2 は本区間の主張と別の事柄を述べている）。
    */
   test('有効なトークンでパスワード入力フォームが表示される', async ({ page }) => {
     // リセットトークンを生成

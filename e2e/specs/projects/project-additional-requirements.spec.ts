@@ -91,9 +91,13 @@ test.describe('プロジェクト管理 追加要件', () => {
    */
   test.describe('データバリデーション', () => {
     /**
-     * @requirement project-management/REQ-13.4
+     * @requirement project-management/REQ-13.5
+     *
+     * タスク 115.188 の是正: 従前は REQ-13.4 を名乗っていたが、受入基準13.4 の原文は「The ArchiTrackシステム
+     * shall 営業担当者を必須とする」である。本区間の表題・本文が述べる内容に対応するのは受入基準13.5（「The ArchiTrackシステム
+     * shall 営業担当者の値が管理者以外の有効なユーザーIDであることを検証する」）である。
      */
-    test('営業担当者がadmin以外の有効なユーザーIDであることを検証する (project-management/REQ-13.4)', async ({
+    test('営業担当者がadmin以外の有効なユーザーIDであることを検証する (project-management/REQ-13.5)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -129,9 +133,12 @@ test.describe('プロジェクト管理 追加要件', () => {
     });
 
     /**
-     * @requirement project-management/REQ-13.6
+     * @requirement project-management/REQ-13.7
+     *
+     * タスク 115.188 の是正: 本検証の表題・本文が述べる内容は名乗っていた番号の条文と
+     * 対応していなかった。走査で候補を挙げ、原文と突き合わせて名乗り直している。
      */
-    test('工事担当者が指定された場合、admin以外の有効なユーザーIDであることを検証する (project-management/REQ-13.6)', async ({
+    test('工事担当者が指定された場合、admin以外の有効なユーザーIDであることを検証する (project-management/REQ-13.7)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');

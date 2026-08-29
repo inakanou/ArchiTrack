@@ -7,10 +7,16 @@ import { API_BASE_URL } from '../../config';
  * 監査ログとコンプライアンスのE2Eテスト
  *
  * @requirement user-authentication/REQ-22 監査ログとコンプライアンス
- * @requirement user-authentication/REQ-28.40 監査ログリンククリック → 監査ログ画面遷移
  *
  * このテストスイートは、監査ログの記録・取得機能を
  * End-to-Endで検証します。
+ *
+ * タスク 115.188 の是正: user-authentication の受入基準28.40 を名乗る被覆印を取り下げた。
+ * 原文28.40 は「監査ログリンクがクリックされるとき、監査ログ画面へ遷移する」であり
+ * 主題は画面遷移だが、本ファイルは request フィクスチャだけを使う純粋な API テストで、
+ * `page.` の参照が一件も無い（実測: `grep -c 'page\.' → 0`）。画面遷移を確かめる区間が
+ * 存在しないため付け替え先も無い。28.40 は `auth/navigation.spec.ts:287` と
+ * `navigation/app-header.spec.ts:267` のクリック遷移検証が引き続き名乗る。
  */
 test.describe('監査ログとコンプライアンス', () => {
   test.describe.configure({ mode: 'serial' });
@@ -36,8 +42,13 @@ test.describe('監査ログとコンプライアンス', () => {
   /**
    * 要件22.1: ロール作成時の監査ログ記録
    * 要件10.6: センシティブ操作の監査ログ
-   * @requirement user-authentication/REQ-10.6 @requirement user-authentication/REQ-22.1
-   * @requirement user-authentication/REQ-22.2 権限追加・削除時の監査ログ
+   * @requirement user-authentication/REQ-10.6
+   * @requirement user-authentication/REQ-22.1 ロール作成・更新・削除時の監査ログ
+   *
+   * タスク 115.188 の是正: 従前は REQ-22.2 を名乗っていたが、受入基準22.2 の原文は「WHEN 権限がロールに追加・削除される
+   * THEN Authentication Serviceは監査ログに記録しなければならない」
+   * である。本区間の表題・本文が述べる内容に対応するのは受入基準22.1（「WHEN ロールが作成・更新・削除される THEN Authentication
+   * Serviceは監査ログに記録しなければならない」）である。
    * @requirement user-authentication/REQ-22.6 監査ログ保存失敗時の操作中断
    * @requirement user-authentication/REQ-22.7 監査ログに変更前後の値を含める
    */
@@ -78,8 +89,13 @@ test.describe('監査ログとコンプライアンス', () => {
   /**
    * 要件22.3: ユーザーへのロール割り当て時の監査ログ記録
    * 要件10.6: センシティブ操作の監査ログ
-   * @requirement user-authentication/REQ-10.6 @requirement user-authentication/REQ-22.3
-   * @requirement user-authentication/REQ-22.2 権限追加・削除時の監査ログ
+   * @requirement user-authentication/REQ-10.6
+   * @requirement user-authentication/REQ-22.3 ユーザーへのロール割り当て・削除時の監査ログ
+   *
+   * タスク 115.188 の是正: 従前は REQ-22.2 を名乗っていたが、受入基準22.2 の原文は「WHEN 権限がロールに追加・削除される
+   * THEN Authentication Serviceは監査ログに記録しなければならない」
+   * である。本区間の表題・本文が述べる内容に対応するのは受入基準22.3（「WHEN ユーザーにロールが割り当て・削除される THEN
+   * Authentication Serviceは監査ログに記録しなければならない」）である。
    * @requirement user-authentication/REQ-22.7 監査ログに変更前後の値を含める
    */
   test('ユーザーへのロール割り当て時に監査ログが記録される', async ({ request }) => {
@@ -392,9 +408,14 @@ test.describe('監査ログとコンプライアンス', () => {
   });
 
   /**
-   * 要件22.9: センシティブ操作時のアラート通知
+   * 要件22.3: ユーザーへのロール割り当て・削除時の監査ログ記録
    * 管理者ロール変更などのセンシティブな操作が監査ログに記録される
-   * @requirement user-authentication/REQ-22.9
+   * @requirement user-authentication/REQ-22.3
+   *
+   * タスク 115.188 の是正: 従前は REQ-22.9 を名乗っていたが、受入基準22.9 の原文は「IF センシティブな操作（システム管理者ロールの変更）
+   * が実行される THEN Authentication Serviceはアラート通知を送信しなければならない」
+   * である。本区間の表題・本文が述べる内容に対応するのは受入基準22.3（「WHEN ユーザーにロールが割り当て・削除される THEN
+   * Authentication Serviceは監査ログに記録しなければならない」）である。
    */
   test('センシティブ操作は監査ログに記録される', async ({ request }) => {
     const prisma = getPrismaClient();

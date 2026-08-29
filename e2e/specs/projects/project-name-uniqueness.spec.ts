@@ -45,14 +45,17 @@ test.describe('プロジェクト名一意性チェック（Task 25.1）', () =>
    */
   test.describe('作成画面での重複エラー', () => {
     /**
-     * @requirement project-management/REQ-1.15
-     * @requirement project-management/REQ-1.16
-     * @requirement project-management/REQ-1.17
      * @requirement project-management/REQ-1.18
      * @requirement project-management/REQ-1.19
      * 既存のプロジェクトと同一のプロジェクト名で作成を試みた際のエラーメッセージ表示を検証
+     *
+     * タスク 115.188 の是正: project-management 要件1 は受入基準が19件へ増えており、
+     * 本ファイルの被覆印は増える前の番号のままで一律にずれていた。受入基準1.18 が
+     * 重複時のエラー表示、1.19 が作成時の一意性チェックである。旧 1.15〜1.17 は現行では
+     * 「営業担当者は必須です」の表示・作成日時と作成者の自動記録・一意IDの自動付与であり、
+     * 本検証はいずれも主張しない。
      */
-    test('同一のプロジェクト名で作成するとエラーが表示される (project-management/REQ-1.15, REQ-1.16, REQ-1.17, REQ-1.18, REQ-1.19)', async ({
+    test('同一のプロジェクト名で作成するとエラーが表示される (project-management/REQ-1.18, REQ-1.19)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -139,10 +142,14 @@ test.describe('プロジェクト名一意性チェック（Task 25.1）', () =>
     });
 
     /**
-     * @requirement project-management/REQ-1.15
+     * @requirement project-management/REQ-1.19
      * 重複エラー後にプロジェクト名を変更して正常に保存できることを検証
+     *
+     * タスク 115.188 の是正: 従前は REQ-1.15 を名乗っていたが、受入基準1.15 は「営業担当者が未選択の場合…『
+     * 営業担当者は必須です』」であり、本検証は営業担当者を毎回選択している。名前を変えれば作成できることを述べるのは受入基準1.19（
+     * プロジェクト名の一意性チェックを作成時に実行する）である。
      */
-    test('重複エラー後にプロジェクト名を変更して正常に作成できる (project-management/REQ-1.15)', async ({
+    test('重複エラー後にプロジェクト名を変更して正常に作成できる (project-management/REQ-1.19)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -248,13 +255,17 @@ test.describe('プロジェクト名一意性チェック（Task 25.1）', () =>
    */
   test.describe('編集画面での重複エラー', () => {
     /**
-     * @requirement project-management/REQ-8.7
      * @requirement project-management/REQ-8.8
      * @requirement project-management/REQ-8.11
      * @requirement project-management/REQ-8.12
      * 他のプロジェクトと同一のプロジェクト名に変更しようとした際のエラーメッセージ表示を検証
+     *
+     * タスク 115.188 の是正: 従前は受入基準8.7 も名乗っていたが、8.7 の原文は
+     * 「When プロジェクトが正常に更新される, ... 更新日時を自動的に記録し、成功メッセージを表示する」
+     * であり、本区間は重複時のエラー表示を主張していて前件（正常に更新される）に入らない。
+     * 8.7 は projects/project-crud.spec.ts の更新成功の区間が主張しているため被覆は失われない。
      */
-    test('他のプロジェクトと同一のプロジェクト名に変更するとエラーが表示される (project-management/REQ-8.7, REQ-8.8, REQ-8.11, REQ-8.12)', async ({
+    test('他のプロジェクトと同一のプロジェクト名に変更するとエラーが表示される (project-management/REQ-8.8, REQ-8.11, REQ-8.12)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');

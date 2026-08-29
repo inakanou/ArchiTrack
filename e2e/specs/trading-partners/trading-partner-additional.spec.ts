@@ -359,9 +359,16 @@ test.describe('取引先管理の追加要件', () => {
     });
 
     /**
-     * @requirement trading-partner-management/REQ-8.4
+     * @requirement trading-partner-management/REQ-2.8
+     *
+     * タスク 115.188 の是正: 従前は REQ-8.4 を名乗っていた。原文8.4 の前件は
+     * 「**エラーメッセージ**を表示するとき」であり、本検証が確定させるのはその逆の
+     * 「取引先を作成しました」という**成功**メッセージである。成功メッセージの表示を
+     * 述べるのは原文2.8（作成に成功したとき成功メッセージを表示し一覧ページに遷移する）
+     * である。8.4 は同ファイル 301 行および `trading-partner-error-handling.spec.ts:409`
+     * のエラー表示検証が引き続き名乗る。
      */
-    test('成功メッセージもToastNotificationで表示される (trading-partner-management/REQ-8.4)', async ({
+    test('成功メッセージもToastNotificationで表示される (trading-partner-management/REQ-2.8)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -605,15 +612,22 @@ test.describe('取引先管理の追加要件', () => {
   /**
    * データインテグリティのテスト
    *
-   * REQ-11.7: 電話番号の形式バリデーション
-   * REQ-11.8: FAX番号の形式バリデーション
-   * REQ-11.9: メールアドレスの形式バリデーション
+   * REQ-11.5: 電話番号の形式バリデーション
+   * REQ-11.6: FAX番号の形式バリデーション
+   * REQ-11.7: メールアドレスの形式バリデーション
+   *
+   * タスク 115.188 の是正: この群の三つの名乗りは一律に一つ後ろへずれていた
+   * （原文の要件11は 5=電話番号・6=FAX番号・7=メールアドレス・8=住所の最大文字数・
+   * 9=請求締日）。表題・本文が述べる内容と原文を一件ずつ突き合わせて名乗り直した。
    */
   test.describe('データインテグリティ - 形式バリデーション', () => {
     /**
-     * @requirement trading-partner-management/REQ-11.7
+     * @requirement trading-partner-management/REQ-11.5
+     *
+     * タスク 115.188 の是正: 従前は REQ-11.7 を名乗っていたが、受入基準11.7 は「メールアドレスの形式バリデー
+     * ションを実行する」であり、電話番号の形式バリデーションを述べるのは受入基準11.5 である。
      */
-    test('電話番号の形式が不正な場合にバリデーションエラーが表示される (trading-partner-management/REQ-11.7)', async ({
+    test('電話番号の形式が不正な場合にバリデーションエラーが表示される (trading-partner-management/REQ-11.5)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -633,9 +647,12 @@ test.describe('取引先管理の追加要件', () => {
     });
 
     /**
-     * @requirement trading-partner-management/REQ-11.7
+     * @requirement trading-partner-management/REQ-11.5
+     *
+     * タスク 115.188 の是正: 従前は REQ-11.7 を名乗っていたが、受入基準11.7 は「メールアドレスの形式バリデー
+     * ションを実行する」であり、電話番号の形式バリデーションを述べるのは受入基準11.5 である。
      */
-    test('正しい電話番号形式ではバリデーションエラーが表示されない (trading-partner-management/REQ-11.7)', async ({
+    test('正しい電話番号形式ではバリデーションエラーが表示されない (trading-partner-management/REQ-11.5)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -661,9 +678,12 @@ test.describe('取引先管理の追加要件', () => {
     });
 
     /**
-     * @requirement trading-partner-management/REQ-11.8
+     * @requirement trading-partner-management/REQ-11.6
+     *
+     * タスク 115.188 の是正: 従前は REQ-11.8 を名乗っていたが、受入基準11.8 は「住所の最大文字数を500文字
+     * に制限する」であり、FAX番号の形式バリデーションを述べるのは受入基準11.6 である。
      */
-    test('FAX番号の形式が不正な場合にバリデーションエラーが表示される (trading-partner-management/REQ-11.8)', async ({
+    test('FAX番号の形式が不正な場合にバリデーションエラーが表示される (trading-partner-management/REQ-11.6)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -683,9 +703,12 @@ test.describe('取引先管理の追加要件', () => {
     });
 
     /**
-     * @requirement trading-partner-management/REQ-11.8
+     * @requirement trading-partner-management/REQ-11.6
+     *
+     * タスク 115.188 の是正: 従前は REQ-11.8 を名乗っていたが、受入基準11.8 は「住所の最大文字数を500文字
+     * に制限する」であり、FAX番号の形式バリデーションを述べるのは受入基準11.6 である。
      */
-    test('正しいFAX番号形式ではバリデーションエラーが表示されない (trading-partner-management/REQ-11.8)', async ({
+    test('正しいFAX番号形式ではバリデーションエラーが表示されない (trading-partner-management/REQ-11.6)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -713,9 +736,12 @@ test.describe('取引先管理の追加要件', () => {
     });
 
     /**
-     * @requirement trading-partner-management/REQ-11.9
+     * @requirement trading-partner-management/REQ-11.7
+     *
+     * タスク 115.188 の是正: 従前は REQ-11.9 を名乗っていたが、受入基準11.9 は「請求締日を1〜31の整数値ま
+     * たは『末日』（計32オプション）として管理する」であり、メールアドレスの形式バリデーションを述べるのは受入基準11.7 である。
      */
-    test('メールアドレスの形式が不正な場合にバリデーションエラーが表示される (trading-partner-management/REQ-11.9)', async ({
+    test('メールアドレスの形式が不正な場合にバリデーションエラーが表示される (trading-partner-management/REQ-11.7)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -735,9 +761,12 @@ test.describe('取引先管理の追加要件', () => {
     });
 
     /**
-     * @requirement trading-partner-management/REQ-11.9
+     * @requirement trading-partner-management/REQ-11.7
+     *
+     * タスク 115.188 の是正: 従前は REQ-11.9 を名乗っていたが、受入基準11.9 は「請求締日を1〜31の整数値ま
+     * たは『末日』（計32オプション）として管理する」であり、メールアドレスの形式バリデーションを述べるのは受入基準11.7 である。
      */
-    test('正しいメールアドレス形式ではバリデーションエラーが表示されない (trading-partner-management/REQ-11.9)', async ({
+    test('正しいメールアドレス形式ではバリデーションエラーが表示されない (trading-partner-management/REQ-11.7)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');

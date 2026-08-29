@@ -580,7 +580,12 @@ test.describe('トークンリフレッシュ機能', () => {
   /**
    * リフレッシュトークンのHTTPOnly Cookie検証
    * 要件26.5: トークンをCookieに保存する際にHttpOnly、Secure、SameSite=Strict属性を設定
-   * @requirement user-authentication/REQ-5.4 @requirement user-authentication/REQ-5.5 @requirement user-authentication/REQ-5.6
+   * @requirement user-authentication/REQ-26.5
+   *
+   * タスク 115.188 の是正: 従前は REQ-5.4 / 5.5 / 5.6 を名乗っていたが、
+   * 直上の散文が述べるとおり本検証が主張するのは Cookie の属性であり、保護APIのトークン検証（5.4）
+   * ・改ざんトークンの拒否（5.5）・トークンに含めるユーザー情報（5.6）はいずれも主張していない。
+   * 5.4・5.5 は他の検証が名乗っており、5.6 は本件で被覆が外れる。
    */
   test('リフレッシュトークンがHTTPOnly Cookieで送信される', async ({ page }) => {
     await createTestUser('REGULAR_USER');

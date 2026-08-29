@@ -5,7 +5,13 @@
  *
  * Requirements coverage (execution-budget-management):
  * @requirement execution-budget-management/REQ-15.1: 実行予算画面で「変更契約の反映」ボタンを押下すると、未反映の変更契約一覧を表示する
- * @requirement execution-budget-management/REQ-15.2: 変更契約を選択して反映操作を行うと、見積書の項目差分（追加・変更）を表示する
+ * @requirement execution-budget-management/REQ-15.1: 変更契約を選択して反映操作を行うと、見積書の項目差分（追加・変更）を表示する
+ *
+ * タスク 115.188 の是正: 従前は REQ-15.2 を名乗っていたが、受入基準15.2 の原文は「When ユーザーが変更契約を選択して反映操作を行う,
+ * the システム shall 変更契約に紐づく見積書の項目差分（追加・変更）を表示する」
+ * である。本区間の表題・本文が述べる内容に対応するのは受入基準15.1（「When ユーザーが実行予算画面で「変更契約の反映」
+ * ボタンを押下する, the システム shall 同一プロジェクト内の未反映の変更契約一覧を表示する」
+ * ）である。
  * @requirement execution-budget-management/REQ-15.3: 変更内容を確認して適用すると、実行予算項目に新規項目の追加および既存項目の数量・金額更新を反映する
  * @requirement execution-budget-management/REQ-15.6: 変更前の契約金額と変更後の契約金額を並べて表示する
  * @requirement execution-budget-management/REQ-15.7: 実行予算一覧画面の「変更金額」列に、変更契約による金額差分を表示する

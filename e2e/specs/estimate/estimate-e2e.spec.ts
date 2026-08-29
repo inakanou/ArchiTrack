@@ -792,12 +792,20 @@ test.describe('見積書機能', () => {
     });
 
     /**
-     * @requirement estimate-creation/REQ-5.1
-     * @requirement estimate-creation/REQ-5.2
-     * @requirement estimate-creation/REQ-5.3
      * NET金額案分ダイアログへのアクセスと表示
+     *
+     * タスク 115.188 の是正: 従前は REQ-5.1・5.2・5.3 を名乗っていたが、
+     * 本検証が主張するのは「業者金額を実行金額に転記」ボタンが見えること、クリックでダイアログが開くこと、
+     * その中に「NET金額案分」の語があることだけである。原文の受入基準5.1 は「業者金額行を案分対象として選択状態にする」
+     * 、5.2 は「指定された諸経費行を案分対象から除外する」、5.3 は「除外された諸経費行以外の業者金額行を実行金額行に転記する」
+     * であり、いずれも本検証は確かめていない（ダイアログを開いた直後にキャンセルしている）。要件5 に「案分ダイアログを表示する」
+     * ことだけを述べる受入基準は無い。ゆえに三つの被覆印を**取り下げる**。
+     *
+     * 5.1・5.2 は `frontend/src/__tests__/components/estimate/NetAllocationDialog.test.tsx`
+     * が名乗っているため指標に穴は生じない。5.3 は他に名乗り手が無く、
+     * 取り下げにより未被覆として指標に現れる。
      */
-    test('REQ-5.1-5.3：NET金額計算パネルが表示される', async ({ page }) => {
+    test('NET金額案分ダイアログを開いて閉じられる', async ({ page }) => {
       // 見積書IDが存在しない場合は前提テストが失敗
       expect(createdEstimateId).toBeTruthy();
 
@@ -1008,11 +1016,16 @@ test.describe('見積書機能', () => {
 
   test.describe('タスク15.4: 受領見積書転記', () => {
     /**
-     * @requirement estimate-creation/REQ-4.1
+     * @requirement estimate-creation/REQ-17.5
+     *
+     * タスク 115.188 の是正: 従前は REQ-4.1 を名乗っていたが、受入基準4.1 の原文は「When ユーザーが見積項目行を指定して受領見積書の行を選択した場合,
+     * the 見積書作成システム shall 指定した見積項目行の業者金額行に受領見積書の内容を転記する」
+     * である。本区間の表題・本文が述べる内容に対応するのは受入基準17.5（「The 見積書作成システム shall 転記ボタンのラベルを「受領見積書を業者金額に転記」
+     * と表示する」）である。
      * @requirement estimate-creation/REQ-4.2
      * 転記ダイアログの表示
      */
-    test('REQ-4.1-4.2：転記ダイアログが表示される', async ({ page }) => {
+    test('REQ-17.5-4.2：転記ダイアログが表示される', async ({ page }) => {
       expect(createdEstimateId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');

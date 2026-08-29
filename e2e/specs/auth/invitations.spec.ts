@@ -597,6 +597,11 @@ test.describe('管理者招待機能', () => {
    * WHEN 確認ダイアログが開かれる
    * THEN フォーカストラップを実装し、Escキーで閉じられる
    * @requirement user-authentication/REQ-13.8
+   * @requirement user-authentication/REQ-15.11
+   *
+   * タスク 115.188 の追記: 直上の散文が名指す受入基準15.11（Escキーで閉じられる）は
+   * 本検証が実際に主張しているのに、被覆印は13.8（取り消しボタンで確認ダイアログを表示）
+   * だけを掲げていた。両方を名乗る。
    */
   test('確認ダイアログがEscキーで閉じられる', async ({ page }) => {
     const prisma = getPrismaClient();

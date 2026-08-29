@@ -15,7 +15,6 @@
  * - REQ-7.7: 図形の選択
  * - REQ-7.10: 図形のカスタマイズ
  * - REQ-8.1: テキストツールの選択
- * - REQ-8.2: テキスト入力と配置
  * - REQ-8.6: 吹き出し形式
  * - REQ-8.7: マルチバイト文字サポート
  * - REQ-9.1: 注釈データの保存
@@ -35,6 +34,10 @@
  *   要件6.6: 押鍵の後に本文が可視であることしか主張しておらず、寸法線の除去を主張していない
  *   要件8.3: 道具の選択状態だけを主張しており、テキストの編集モードへの遷移を主張していない
  *   要件8.5: フォントサイズと文字色は主張するが、受入基準が並べる背景色を主張していない
+ *
+ * タスク 115.188 の是正: 上記一覧から要件8.2（テキストを入力して確定すると画像上に配置する）の
+ * 被覆印を取り下げた。本ファイルのテキストツール検証は道具の選択とスタイルパネルの表示までで、
+ * テキストを入力して確定し画像上に配置されることを一度も主張していない。
  */
 
 import path from 'path';
@@ -1135,12 +1138,17 @@ test.describe('現場調査注釈ツール', () => {
 
   /**
    * @requirement site-survey/REQ-8.1
-   * @requirement site-survey/REQ-8.2
-   * 受入基準 8.3 は除外である（e2e/requirement-exclusions.json）。道具の選択状態だけを主張しており、テキストの編集モードへの遷移を主張していないため、被覆印は掲げない。
-   * 受入基準 8.4 は除外である（e2e/requirement-exclusions.json）。道具の切り替えだけを主張しており、テキストの配置位置の移動を主張していないため、被覆印は掲げない。
-   * 受入基準 8.5 は除外である（e2e/requirement-exclusions.json）。フォントサイズと文字色は主張するが、受入基準が並べる背景色を主張していないため、被覆印は掲げない。
    * @requirement site-survey/REQ-8.6
    * @requirement site-survey/REQ-8.7
+   *
+   * タスク 115.188 の是正: site-survey の受入基準8.2 を名乗る被覆印を取り下げた（本区間の註釈と、
+   * 「テキストツール選択時にスタイルオプションが表示される」の表題の双方から）。
+   * 当該検証が述べるのはテキストの文字色・フォントサイズの属性パネルであり、
+   * 原文8.2（テキストを入力して確定すると画像上に配置する）とは主題が別である。
+   * 内容に当たるのは原文8.5 だが、8.5 は `e2e/requirement-exclusions.json` が
+   * 「E2Eでは確かめない」と宣言しているため付け替えない。
+   * **付け替え先が除外済みであることは取り下げを妨げない。** 取り下げは同居を作らず、
+   * 8.2 は未被覆として露出する（本ファイルが唯一の被覆源であった）。
    */
   test.describe('テキストツール', () => {
     test('テキストツールを選択してクリック操作ができる (site-survey/REQ-8.1)', async ({ page }) => {
@@ -1169,9 +1177,7 @@ test.describe('現場調査注釈ツール', () => {
       await expect(textTool).toHaveAttribute('aria-pressed', 'true');
     });
 
-    test('テキストツール選択時にスタイルオプションが表示される (site-survey/REQ-8.2)', async ({
-      page,
-    }) => {
+    test('テキストツール選択時にスタイルオプションが表示される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -1661,14 +1667,21 @@ test.describe('現場調査注釈ツール', () => {
   });
 
   /**
-   * @requirement site-survey/REQ-10.1
-   * @requirement site-survey/REQ-10.2
-   * @requirement site-survey/REQ-10.3
-   * @requirement site-survey/REQ-10.4
-   * @requirement site-survey/REQ-10.5
+   * @requirement site-survey/REQ-12.1
+   * @requirement site-survey/REQ-12.2
+   * @requirement site-survey/REQ-12.3
+   * @requirement site-survey/REQ-12.4
+   * @requirement site-survey/REQ-12.5
+   *
+   * タスク 115.188 の是正: 従前は要件10（写真一覧管理とPDF出力設定）の受入基準を名乗って
+   * いたが、本群が確かめているのは注釈エディタからの個別画像エクスポートであり、
+   * これを定めるのは要件12（個別画像エクスポート）である。要件10 の受入基準10.1〜10.5 は
+   * 現場調査詳細画面の写真一覧（出力フラグ・コメント欄・ドラッグ移動）を述べており、
+   * 本群のどの検証も主張していない。10.1〜10.5 は
+   * site-survey-export.spec.ts / site-survey-image-order.spec.ts が別途被覆している。
    */
   test.describe('エクスポート機能', () => {
-    test('エクスポートボタンを押すと注釈をレンダリングした画像が生成される (site-survey/REQ-10.1)', async ({
+    test('エクスポートボタンを押すと注釈をレンダリングした画像が生成される (site-survey/REQ-12.1)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -1714,7 +1727,7 @@ test.describe('現場調査注釈ツール', () => {
       expect(filename).toMatch(/\.(jpg|jpeg|png|webp)$/i);
     });
 
-    test('JPEG、PNG形式でのエクスポートをサポートする (site-survey/REQ-10.2)', async ({ page }) => {
+    test('JPEG、PNG形式でのエクスポートをサポートする (site-survey/REQ-12.2)', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -1736,7 +1749,7 @@ test.describe('現場調査注釈ツール', () => {
       await expect(page.locator('body')).toBeVisible();
     });
 
-    test('エクスポート画像の解像度（品質）を選択できる (site-survey/REQ-10.3)', async ({
+    test('エクスポート画像の解像度（品質）を選択できる (site-survey/REQ-12.3)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -1760,7 +1773,7 @@ test.describe('現場調査注釈ツール', () => {
       await expect(page.locator('body')).toBeVisible();
     });
 
-    test('注釈なしの元画像もダウンロード可能である (site-survey/REQ-10.4)', async ({ page }) => {
+    test('注釈なしの元画像もダウンロード可能である (site-survey/REQ-12.4)', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       const success = await navigateToAnnotationEditor(page);
@@ -1793,7 +1806,7 @@ test.describe('現場調査注釈ツール', () => {
       await expect(page.locator('body')).toBeVisible();
     });
 
-    test('日本語テキスト注釈を正しくレンダリングしてエクスポートできる (site-survey/REQ-10.5)', async ({
+    test('日本語テキスト注釈を正しくレンダリングしてエクスポートできる (site-survey/REQ-12.5)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');

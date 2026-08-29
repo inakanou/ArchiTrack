@@ -198,9 +198,10 @@ test.describe('ログイン機能', () => {
   /**
    * 要件11.11: Tab キーでフォーカス移動
    * 要件11.3: フォーカス時の視覚的フィードバック
-   * @requirement user-authentication/REQ-11.3 @requirement user-authentication/REQ-11.11
-   * WHEN Tab キーを押す
-   * THEN 論理的な順序でフォーカスが移動する
+   * @requirement user-authentication/REQ-11.11
+   *
+   * タスク 115.188 の是正: 従前は REQ-11.3 も名乗っていたが、本区間の表題・本文が述べる内容に対応するのは、
+   * 同じ区間が既に名乗っている受入基準11.11 である。重複する名乗りを取り下げた（REQ-11.3 は本区間の主張と別の事柄を述べている）。
    */
   test('Tab キーで論理的な順序でフォーカスが移動する', async ({ page }) => {
     await page.goto('/login');

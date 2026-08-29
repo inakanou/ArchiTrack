@@ -30,8 +30,16 @@ import {
   extractAllFeatures,
   extractImportSpecifiers,
   extractRequirements,
+  calculateCoverage,
+  collectOutOfDenominatorMarks,
+  criterionQuote,
+  E2E_SPECS_ROOT,
+  findCriterionTextCopyMismatches,
   findRetiredCriterionCoverageMarks,
+  findUnknownCriterionCoverageMarks,
   isRetiredCriterionText,
+  MIN_CRITERION_QUOTE_LENGTH,
+  reportCriterionTextCopies,
   isVerificationFile,
   normalizeExclusionId,
   PRODUCTION_ENTRY_POINTS,
@@ -1138,6 +1146,393 @@ function checkRetiredCriterionCoverageMarksAreDetected(): string[] {
 }
 
 // ============================================================================
+// 被覆印の指し先（存在しない番号 / 逐語複製との食い違い）
+// ============================================================================
+//
+// 撤廃済みを名乗る形とは**直し方が違う**（撤廃は移管先へ名乗り直す、存在しない番号は
+// 名乗り直すか取り下げる、逐語複製の食い違いは写した条文を名乗る）。
+// 判別子を持たない本自己検査では、言い分けを機構対照として別に置く。
+
+/** 合成の要件定義書で、枝つき番号（`1a.`）が分母に入らず基底番号だけが記録される */
+function checkLetteredCriteriaAreRecorded(): string[] {
+  const failures: string[] = [];
+  const document = [
+    '### Requirement 4: 枝つき番号を持つ要件',
+    '',
+    '#### Acceptance Criteria',
+    '1a. When ユーザーがEnterキーを押す, the システム shall 検索を実行する',
+    '1b. When ユーザーが検索ボタンを押す, the システム shall 検索を実行する',
+    '2. The システム shall 検索結果を表示する',
+    '',
+  ].join('\n');
+  withFixture({ 'requirements.md': document }, (baseDir) => {
+    const requirements = extractRequirements('probe', path.join(baseDir, 'requirements.md'));
+    const requirement = requirements.find((item) => item.id === 'REQ-4');
+    if (!requirement) {
+      failures.push('要件ヘッダーの抽出そのものが壊れている');
+      return;
+    }
+    const ids = requirement.acceptanceCriteria.map((criterion) => criterion.id);
+    if (ids.length !== 1 || ids[0] !== 'probe/REQ-4.2') {
+      failures.push(`枝つき番号が分母に入った、または現役が落ちた（${ids.join(', ') || '空'}）`);
+    }
+    if (requirement.letteredCriterionNumbers.join(',') !== '1') {
+      failures.push(
+        `枝つき番号の基底が記録されていない（${requirement.letteredCriterionNumbers.join(', ') || '空'}）`
+      );
+    }
+  });
+  return failures;
+}
+
+/** 実データ: 枝つき番号が実在する（この免除が空振りしていない） */
+function checkRealLetteredCriteriaExist(): string[] {
+  const features = extractAllFeatures(discoverFeatures());
+  const total = features
+    .flatMap((feature) => feature.requirements)
+    .reduce((sum, requirement) => sum + requirement.letteredCriterionNumbers.length, 0);
+  return total > 0
+    ? []
+    : ['要件定義書に枝つき番号（`1a.` 形式）が一件も無い（枝つき番号の免除が空振りしている）'];
+}
+
+interface ProbeIds {
+  live: string;
+  retired: string;
+  lettered: string;
+  unknown: string;
+}
+
+/** 実データから、現役・墓標・枝つき番号・存在しない番号の代表をひとつずつ取る */
+function probeCriterionIds(features: readonly Feature[]): ProbeIds | string {
+  const live = features
+    .flatMap((feature) => feature.requirements)
+    .flatMap((requirement) => requirement.acceptanceCriteria)
+    .map((criterion) => criterion.id)
+    .sort()[0];
+  const retired = features
+    .flatMap((feature) => feature.retiredRequirements.concat(feature.requirements))
+    .flatMap((requirement) => requirement.retiredAcceptanceCriteria)
+    .map((criterion) => criterion.id)
+    .sort()[0];
+  const lettered = features
+    .flatMap((feature) => feature.requirements)
+    .flatMap((requirement) =>
+      requirement.letteredCriterionNumbers.map((number) => `${requirement.fullId}.${number}`)
+    )
+    .sort()[0];
+  if (live === undefined || retired === undefined || lettered === undefined) {
+    return '前提: 実データに現役・墓標・枝つき番号のいずれかが無い';
+  }
+  return { live, retired, lettered, unknown: `${live.slice(0, live.lastIndexOf('.'))}.99999` };
+}
+
+/** 存在しない番号を名乗る被覆印を挙げ、現役・墓標・枝つき番号・走査対象外は挙げない */
+function checkUnknownCriterionMarksAreDetected(): string[] {
+  const failures: string[] = [];
+  const features: Feature[] = extractAllFeatures(discoverFeatures());
+  const probe = probeCriterionIds(features);
+  if (typeof probe === 'string') return [probe];
+
+  // 陽性: e2e/specs 配下で存在しない番号を名乗る（現役・墓標・枝つき番号は混ぜても挙がらない）
+  const detected = findUnknownCriterionCoverageMarks(features, [
+    {
+      file: `${E2E_SPECS_ROOT}/probe.spec.ts`,
+      requirements: [],
+      acceptanceCriteria: [probe.unknown, probe.live, probe.retired, probe.lettered],
+    },
+  ]);
+  if (detected.length !== 1 || detected[0]?.id !== probe.unknown) {
+    failures.push(
+      `存在しない番号を挙げられていない（挙げた: ${detected.map((mark) => mark.id).join(', ') || '無し'}）`
+    );
+  }
+  if (detected[0]?.files.join(',') !== `${E2E_SPECS_ROOT}/probe.spec.ts`) {
+    failures.push('被覆印を掲げている場所を報告していない');
+  }
+
+  // 陰性: 走査対象の外（本番ソース配下）は挙げない
+  const outsideRoot = findUnknownCriterionCoverageMarks(features, [
+    { file: 'frontend/src/probe.tsx', requirements: [], acceptanceCriteria: [probe.unknown] },
+  ]);
+  if (outsideRoot.length !== 0) {
+    failures.push(`走査対象の外の被覆印を挙げた: ${outsideRoot.map((mark) => mark.id).join(', ')}`);
+  }
+
+  // 機構対照: 墓標と「存在しない番号」を取り違えていない（直し方が違うので混ぜてはならない）
+  const retiredByUnknown = findUnknownCriterionCoverageMarks(features, [
+    {
+      file: `${E2E_SPECS_ROOT}/probe.spec.ts`,
+      requirements: [],
+      acceptanceCriteria: [probe.retired],
+    },
+  ]);
+  if (retiredByUnknown.length !== 0) {
+    failures.push(`墓標を「存在しない番号」として挙げた: ${probe.retired}`);
+  }
+  const unknownByRetired = findRetiredCriterionCoverageMarks(features, [
+    {
+      file: `${E2E_SPECS_ROOT}/probe.spec.ts`,
+      requirements: [],
+      acceptanceCriteria: [probe.unknown],
+    },
+  ]);
+  if (unknownByRetired.length !== 0) {
+    failures.push(`存在しない番号を「墓標」として挙げた: ${probe.unknown}`);
+  }
+  return failures;
+}
+
+/** 分母に無い番号を名乗る被覆印を、成り立ちの軸で取り違えずに数える */
+function checkOutOfDenominatorBreakdown(): string[] {
+  const failures: string[] = [];
+  const features: Feature[] = extractAllFeatures(discoverFeatures());
+  const probe = probeCriterionIds(features);
+  if (typeof probe === 'string') return [probe];
+
+  const marks = collectOutOfDenominatorMarks(features, [
+    {
+      file: `${E2E_SPECS_ROOT}/probe.spec.ts`,
+      requirements: [],
+      acceptanceCriteria: [probe.live, probe.retired, probe.lettered, probe.unknown],
+    },
+  ]);
+  if (marks.retired.join(',') !== probe.retired) {
+    failures.push(`撤廃済みの内訳が誤り: ${marks.retired.join(', ') || '空'}`);
+  }
+  if (marks.lettered.join(',') !== probe.lettered) {
+    failures.push(`枝つき番号の内訳が誤り: ${marks.lettered.join(', ') || '空'}`);
+  }
+  if (marks.unknown.join(',') !== probe.unknown) {
+    failures.push(`存在しない番号の内訳が誤り: ${marks.unknown.join(', ') || '空'}`);
+  }
+  return failures;
+}
+
+/**
+ * 分子が分母との交わりで数えられている
+ *
+ * 分母に無い番号を名乗る被覆印を分子に入れると「被覆済み + 未被覆 > 総数」が成立し、
+ * 被覆率が水増しされる（是正前の実測は 2695 + 205 > 2888）。
+ */
+function checkNumeratorIsIntersectedWithDenominator(): string[] {
+  const failures: string[] = [];
+  const features: Feature[] = extractAllFeatures(discoverFeatures());
+  const probe = probeCriterionIds(features);
+  if (typeof probe === 'string') return [probe];
+
+  const result = calculateCoverage(
+    features,
+    [
+      {
+        file: `${E2E_SPECS_ROOT}/probe.spec.ts`,
+        // 実在する要件と、実在しない要件の双方を名乗らせる。
+        // 実在しない側を入れないと、要件レベルの交わりを外す変異が検出できない。
+        requirements: [
+          probe.live.slice(0, probe.live.lastIndexOf('.')),
+          `${probe.live.slice(0, probe.live.indexOf('/'))}/REQ-99999`,
+        ],
+        acceptanceCriteria: [probe.live, probe.retired, probe.lettered, probe.unknown],
+      },
+    ],
+    null
+  );
+  if (result.coveredRequirementCount !== 1) {
+    failures.push(
+      `要件レベルの分子が分母の外の番号を数えている（1件のはずが ${result.coveredRequirementCount} 件）`
+    );
+  }
+  if (result.coveredAcceptanceCriteriaCount !== 1) {
+    failures.push(
+      `分子が分母の外の番号を数えている（現役1件のはずが ${result.coveredAcceptanceCriteriaCount} 件）`
+    );
+  }
+  if (
+    result.coveredAcceptanceCriteriaCount + result.uncoveredAcceptanceCriteriaCount !==
+    result.totalAcceptanceCriteria
+  ) {
+    failures.push(
+      `被覆済み + 未被覆 が総数と一致しない（${result.coveredAcceptanceCriteriaCount} + ${result.uncoveredAcceptanceCriteriaCount} ≠ ${result.totalAcceptanceCriteria}）`
+    );
+  }
+  if (
+    result.coveredRequirementCount + result.uncoveredRequirementCount !==
+    result.totalRequirements
+  ) {
+    failures.push(
+      `要件レベルでも被覆済み + 未被覆 が総数と一致しない（${result.coveredRequirementCount} + ${result.uncoveredRequirementCount} ≠ ${result.totalRequirements}）`
+    );
+  }
+  return failures;
+}
+
+/** 逐語複製の目印（`shall` 以降）の取り出しが、狙った形だけを拾う */
+function checkCriterionQuote(): string[] {
+  const failures: string[] = [];
+  const quote = criterionQuote('The システム shall 項目一覧の下にExcel出力ボタンを表示する');
+  if (quote !== '項目一覧の下にExcel出力ボタンを表示する') {
+    failures.push(`shall 以降を取り出せていない: ${quote ?? 'null'}`);
+  }
+  if (criterionQuote('WHEN ログインする THEN Serviceはトークンを発行しなければならない') !== null) {
+    failures.push('shall を含まない条文から目印を取り出した');
+  }
+  const short = 'あ'.repeat(MIN_CRITERION_QUOTE_LENGTH - 1);
+  if (criterionQuote(`The システム shall ${short}`) !== null) {
+    failures.push('短すぎる語句を目印として採った');
+  }
+  const long = 'あ'.repeat(MIN_CRITERION_QUOTE_LENGTH);
+  if (criterionQuote(`The システム shall ${long}`) !== long) {
+    failures.push('最小長ちょうどの語句を落とした');
+  }
+  return failures;
+}
+
+/** 探り用の要件定義書（受入基準3件）で逐語複製の検査を回す */
+function runCopyMismatchProbe(spec: string): ReturnType<typeof findCriterionTextCopyMismatches> {
+  const requirements = [
+    '### Requirement 1: 探り用の要件',
+    '',
+    '#### Acceptance Criteria',
+    '1. The システム shall 一覧の下にExcel出力ボタンを表示する',
+    '2. The システム shall 一覧の下に印刷ボタンを表示する',
+    '3. The システム shall 一覧の見出しを固定表示する',
+    '',
+  ].join('\n');
+  let result: ReturnType<typeof findCriterionTextCopyMismatches> = [];
+  withFixture({ 'requirements.md': requirements, 'specs/probe.spec.ts': spec }, (baseDir) => {
+    const extracted = extractRequirements('probe', path.join(baseDir, 'requirements.md'));
+    const features: Feature[] = [
+      {
+        name: 'probe',
+        path: baseDir,
+        requirements: extracted,
+        totalAcceptanceCriteria: extracted.reduce(
+          (sum, requirement) => sum + requirement.acceptanceCriteria.length,
+          0
+        ),
+        retiredAcceptanceCriteriaCount: 0,
+        retiredRequirements: [],
+      },
+    ];
+    result = findCriterionTextCopyMismatches(features, path.join(baseDir, 'specs'));
+  });
+  return result;
+}
+
+/**
+ * 逐語複製の食い違いを、両方向で固定する
+ *
+ * 陽性: 原文を写しながら別の条文を名乗る区間を挙げる
+ * 陰性: 写した条文を名乗っている区間・番号を添えて引用している区間・隣の区間の前書きは挙げない
+ */
+function checkCriterionTextCopyMismatch(): string[] {
+  const failures: string[] = [];
+
+  const positive = runCopyMismatchProbe(
+    [
+      '/**',
+      ' * @requirement probe/REQ-1.1',
+      ' * 一覧の下に印刷ボタンを表示する',
+      ' */',
+      "test('印刷ボタンが表示される', async () => {});",
+      '',
+    ].join('\n')
+  );
+  if (positive.length !== 1 || positive[0]?.criterionId !== 'probe/REQ-1.2') {
+    failures.push(
+      `写した条文との食い違いを挙げられていない（挙げた: ${positive.map((m) => m.criterionId).join(', ') || '無し'}）`
+    );
+  }
+
+  const consistent = runCopyMismatchProbe(
+    [
+      '/**',
+      ' * @requirement probe/REQ-1.2',
+      ' * 一覧の下に印刷ボタンを表示する',
+      ' */',
+      "test('印刷ボタンが表示される', async () => {});",
+      '',
+    ].join('\n')
+  );
+  if (consistent.length !== 0) {
+    failures.push(`一致している区間を挙げた: ${consistent.map((m) => m.criterionId).join(', ')}`);
+  }
+
+  const attributed = runCopyMismatchProbe(
+    [
+      '/**',
+      ' * @requirement probe/REQ-1.1',
+      ' * 受入基準1.2「一覧の下に印刷ボタンを表示する」は本検証の対象外である。',
+      ' */',
+      "test('Excel出力ボタンが表示される', async () => {});",
+      '',
+    ].join('\n')
+  );
+  if (attributed.length !== 0) {
+    failures.push(`番号を添えた引用を挙げた: ${attributed.map((m) => m.criterionId).join(', ')}`);
+  }
+
+  // 隣の宣言の前書きは自分の区間ではない。
+  // 前書き側に番号を書かないのは、出典明示の免除に隠れて対照が空振りするのを防ぐため
+  // （番号を書くと、区間を広げる変異を入れても免除が働いて挙がらなくなる）。
+  const neighbour = runCopyMismatchProbe(
+    [
+      '/**',
+      ' * @requirement probe/REQ-1.1',
+      ' */',
+      "test('Excel出力ボタンが表示される', async () => {});",
+      '',
+      '// 一覧の下に印刷ボタンを表示する',
+      "test('印刷ボタンが表示される', async () => {});",
+      '',
+    ].join('\n')
+  );
+  if (neighbour.length !== 0) {
+    failures.push(
+      `隣の区間の前書きを読み込んだ: ${neighbour.map((m) => m.criterionId).join(', ')}`
+    );
+  }
+
+  return failures;
+}
+
+/**
+ * 実データ: 逐語複製の担い手が実在する（この検査が空振りしていない）
+ *
+ * 食い違いが 0 件であることは、**複製を持つ区間が 0 件でも成立してしまう。**
+ * 母集団の側から数え、目印を取り出せる条文と、実際に写しを持つ区間の双方が
+ * 実在することを確かめる。
+ */
+function checkRealCriterionTextCopiesExist(): string[] {
+  const failures: string[] = [];
+  const features = extractAllFeatures(discoverFeatures());
+  let quotable = 0;
+  for (const feature of features) {
+    for (const requirement of feature.requirements) {
+      for (const criterion of requirement.acceptanceCriteria) {
+        if (criterionQuote(criterion.text) !== null) quotable += 1;
+      }
+    }
+  }
+  if (quotable === 0) {
+    failures.push('目印を取り出せる受入基準が一件も無い（逐語複製の検査が空振りしている）');
+  }
+
+  // 実物の `e2e/specs` に、受入基準の原文を写した区間が現に存在すること。
+  // 存在しなければ、食い違い 0 件は「何も守っていない」ことと区別できない。
+  const report = reportCriterionTextCopies(features);
+  if (report.blocks === 0) {
+    failures.push(`${E2E_SPECS_ROOT} に被覆印を持つ区間が一件も無い（走査そのものが空振り）`);
+  }
+  if (report.blocksWithCopy === 0) {
+    failures.push(
+      `${E2E_SPECS_ROOT} に受入基準の原文を写した被覆印の区間が一件も無い（この検査は何も守っていない）`
+    );
+  }
+  return failures;
+}
+
+// ============================================================================
 // 実行
 // ============================================================================
 
@@ -1205,6 +1600,37 @@ const GROUPS: Array<{ title: string; cases: Case[] }> = [
       {
         name: '墓標を名乗る被覆印を挙げ、現役の番号は挙げない',
         run: checkRetiredCriterionCoverageMarksAreDetected,
+      },
+    ],
+  },
+  {
+    title: '被覆印の指し先（存在しない番号・逐語複製との食い違い）',
+    cases: [
+      {
+        name: '枝つき番号は分母に入らず基底番号だけが記録される',
+        run: checkLetteredCriteriaAreRecorded,
+      },
+      {
+        name: '実データに枝つき番号が実在する（免除が空振りしていない）',
+        run: checkRealLetteredCriteriaExist,
+      },
+      {
+        name: '存在しない番号を挙げ、現役・墓標・枝つき番号・走査対象外は挙げない',
+        run: checkUnknownCriterionMarksAreDetected,
+      },
+      {
+        name: '分母に無い番号を成り立ちの軸で取り違えずに数える',
+        run: checkOutOfDenominatorBreakdown,
+      },
+      {
+        name: '分子を分母との交わりで数える（名乗るだけの番号を分子に入れない）',
+        run: checkNumeratorIsIntersectedWithDenominator,
+      },
+      { name: '逐語複製の目印を狙った形だけ取り出す', run: checkCriterionQuote },
+      { name: '逐語複製との食い違いを両方向で固定する', run: checkCriterionTextCopyMismatch },
+      {
+        name: '実データに逐語複製の担い手が存在する（空振りしていない）',
+        run: checkRealCriterionTextCopiesExist,
       },
     ],
   },

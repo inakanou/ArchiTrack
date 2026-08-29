@@ -314,9 +314,15 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
     });
 
     /**
-     * @requirement project-management/REQ-25.7
+     * @requirement project-management/REQ-25.6
+     *
+     * タスク 115.188 の是正: 従前は REQ-25.7 を名乗っていたが、受入基準25.7 の原文は「When 新規作成ボタンをクリックする,
+     * the ArchiTrackシステム shall 数量表新規作成画面（/projects/{projectId}/quantity-tables/new）
+     * に遷移する」である。本区間の表題・本文が述べる内容に対応するのは受入基準25.6（「Where プロジェクトに数量表が存在しない場合,
+     * the ArchiTrackシステム shall 「数量表はまだありません」メッセージと新規作成ボタンを表示する」
+     * ）である。
      */
-    test('数量表が存在しない場合に新規作成ボタンが表示される (project-management/REQ-25.7)', async ({
+    test('数量表が存在しない場合に新規作成ボタンが表示される (project-management/REQ-25.6)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -828,11 +834,13 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
     });
 
     /**
-     * @requirement project-management/REQ-29.6
+     * タスク 115.188 の是正: 従前は REQ-29.6 を名乗っていたが、受入基準29.6 は「一括取得APIのレスポンス形
+     * 式を、既存の個別APIと互換性のあるデータ構造で提供する」であり、本検証が主張する各セクションの「新規作成」
+     * リンクの表示とは無関係である。本検証は現場調査・数量表・見積依頼・見積書の四セクションにまたがっており、
+     * 単一の受入基準に対応しない（要件24〜28 はセクションごとに分かれている）。ゆえに被覆印を**取り下げる**。
+     * 受入基準29.6 を名乗る検証は他に無く、取り下げにより 29.6 は未被覆として指標に現れる。
      */
-    test('各セクションのリンク・ボタンが正常に動作する (project-management/REQ-29.6)', async ({
-      page,
-    }) => {
+    test('各セクションのリンク・ボタンが正常に動作する', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       if (!testProjectId) {

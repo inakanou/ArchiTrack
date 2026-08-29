@@ -106,7 +106,11 @@ test.describe('Claude Vision API バックエンドエンドポイント', () =>
 
   /**
    * @requirement estimate-request/REQ-21.1
-   * @requirement estimate-request/REQ-21.2
+   *
+   * タスク 115.188 の是正: 従前は REQ-21.2 を名乗っていたが、受入基準21.2 の原文は「The システム shall
+   * APIエンドポイントでBase64エンコードされた画像データを受け取る」である。本区間の表題・本文が述べる内容に対応するのは受入基準21.1（「The
+   * システム shall バックエンドにPDFページ画像を受け取りClaude Vision APIで解析するAPIエンドポイント（POST）
+   * を提供する」）である。
    * @requirement estimate-request/REQ-21.9
    */
   test('Claude Vision APIエンドポイントが存在し認証を要求する (estimate-request/REQ-21.1, REQ-21.9)', async ({
@@ -131,7 +135,13 @@ test.describe('Claude Vision API バックエンドエンドポイント', () =>
    * @requirement estimate-request/REQ-21.2
    * @requirement estimate-request/REQ-21.3
    * @requirement estimate-request/REQ-21.4
-   * @requirement estimate-request/REQ-22.1
+   * @requirement estimate-request/REQ-22.2
+   *
+   * タスク 115.188 の是正: 従前は REQ-22.1 を名乗っていたが、受入基準22.1 の原文は「The システム shall
+   * 環境変数ANTHROPIC_API_KEYからAnthropic APIキーを読み取る」
+   * である。本区間の表題・本文が述べる内容に対応するのは受入基準22.2（「If ANTHROPIC_API_KEYが環境変数に設定されていない場合,
+   * then the システム shall Claude Vision抽出機能を無効化する」
+   * ）である。
    * @requirement estimate-request/REQ-22.6
    * @requirement estimate-request/REQ-26.1
    * @requirement estimate-request/REQ-26.2
@@ -238,7 +248,12 @@ test.describe('Claude Vision API バックエンドエンドポイント', () =>
   // ============================================================================
 
   /**
-   * @requirement estimate-request/REQ-22.2
+   * @requirement estimate-request/REQ-22.4
+   *
+   * タスク 115.188 の是正: 従前は REQ-22.2 を名乗っていたが、受入基準22.2 の原文は「If ANTHROPIC_API_KEYが環境変数に設定されていない場合,
+   * then the システム shall Claude Vision抽出機能を無効化する」
+   * である。本区間の表題・本文が述べる内容に対応するのは受入基準22.4（「The システム shall ANTHROPIC_API_KEYの値をログ出力やAPIレスポンスに含めない」
+   * ）である。
    * @requirement estimate-request/REQ-22.3
    * @requirement estimate-request/REQ-22.4
    * @requirement estimate-request/REQ-22.6
