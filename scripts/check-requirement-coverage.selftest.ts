@@ -782,13 +782,17 @@ function checkUnlistedFeatureHeaderStillEndsSection(): string[] {
  * **一覧の直後に置かれた「この受入基準は検証していない」という散文まで被覆主張になる**。
  * 行頭のコメント記号 `*` が一覧の印と区別されないため、素の散文でも項目として拾われる。
  *
- * 実データ（被覆ヘッダー 384 件）でここを切って帰属が減るのは 4 ヘッダーだけで、
- * **正当な被覆は一件も失われない**。被覆の集計から落ちるのは
- * `site-survey/REQ-16.7` と `quantity-table-generation/REQ-38.4` の 2 件で、
- * いずれも「検証困難なため省略」「本スペックには含まない」と明言した散文である。
- * 残る 2 ヘッダー（`quantity-table-generation/REQ-7.1` と `REQ-47.15`〜`47.17`）は
- * 他の被覆源やパターン1が同じ番号を拾うため集計は動かない。
- * 集計が動く 2 件は後段の検査が実データ上で名指しで固定する。
+ * 実データでここを切って帰属が減るのは、走査した全ファイルのうち 2 ファイルだけで、
+ * **正当な被覆は一件も失われない**（タスク 115.192 で母集団を全件走査して再確定した）。
+ * 落ちるのは `quantity-table-generation/REQ-7.1`（name-remarks-autocomplete.spec.ts）と
+ * `quantity-table-generation/REQ-47.15`〜`47.17`（quantity-count-persistence-e2e.spec.ts）で、
+ * いずれも他の被覆源が同じ番号を拾うため集計は動かない。
+ *
+ * かつては `quantity-table-generation/REQ-38.4`（quantity-group-copy.spec.ts）も母集団に居た。
+ * 「Integration テストへ委譲する。本スペックには含まない」と述べた散文が一覧項目の形をしており、
+ * 規則4だけがそれを被覆主張から除いていた。タスク 115.192 が当該受入基準を実在する E2E で
+ * 被覆し、散文を一覧項目でない形へ書き改めたため、当該ファイルは母集団から外れた。
+ * 後段の実データ対照は、この入れ替わりを取りこぼさないよう機構でも検査する。
  */
 const PARAGRAPH_BREAK_THEN_PROSE = [
   '/**',
@@ -819,32 +823,70 @@ function checkHeaderSectionStopsAtJsDocParagraphBreak(): string[] {
  * 実データの側から、段落の切れ目の先の偽の主張が消えていることを見る
  *
  * 仮想の資料だけでは実装が実データに効いているとは言えない。
- * 是正前に偽の被覆主張を生んでいた実在の2件を名指しで固定する。
+ * 規則4が無ければ偽の被覆主張を生む実在のファイルを名指しで固定する。
  * 当該ファイルや前提の記述が失われたら「前提が失われた」として失敗させる。
  *
  * 一件目は当初 `site-survey-performance.spec.ts`（keep: REQ-16.1 / drop: REQ-16.7）であったが、
  * タスク 115.186 で同ファイルの一覧が掲げていた受入基準がすべて除外との同居として
  * 取り下げられ、一覧そのものが無くなったため、同じ形（一覧の直後に段落の切れ目を挟んで
  * 「本ファイルは判定していない」と述べる散文が続く）を持つ実データへ置き換えた。
+ *
+ * 二件目は当初 `quantity-group-copy.spec.ts`（keep: REQ-38.1 / drop: REQ-38.4）であったが、
+ * タスク 115.192 が REQ-38.4 を実在する E2E で被覆し、委譲を騙る散文を一覧項目でない形へ
+ * 書き改めたため、**規則4の有無にかかわらず REQ-38.4 は拾われなくなった**。
+ * 対照としては空振りであり、点数が満点のままでは検出できなかった。
+ * 母集団（規則4を外すと新たに拾われるファイル）を全件走査して確定した唯一の代替である
+ * `quantity-count-persistence-e2e.spec.ts` へ差し替えた。
+ * 同ファイルは段落の切れ目より前の一覧が `- @requirement …/REQ-47.15:` の形であり、
+ * 一覧項目の印に一致しないため `keep` を持てない。よって `keep` は任意とし、
+ * 「狭めすぎ」の側は `keep` を持つ他の対照と、後段の機構対照が担保する。
  */
 const REAL_FALSE_CLAIMS_AFTER_PARAGRAPH_BREAK: ReadonlyArray<{
   file: string;
-  /** 段落の切れ目より前にあり、拾われねばならない受入基準 */
-  keep: string;
-  /** 段落の切れ目より後の散文にあり、拾ってはならない受入基準 */
-  drop: string;
+  /**
+   * 段落の切れ目より前の一覧にあり、拾われねばならない被覆印（受入基準・要件のどちらでもよい）。
+   * 切れ目より前に一覧項目を持たないファイルもあるため任意とする。
+   */
+  keep?: string;
+  /** 段落の切れ目より後の散文にあり、拾ってはならない被覆印（当該ファイルの全件） */
+  drop: readonly string[];
 }> = [
   {
     file: 'e2e/specs/quantity-tables/name-remarks-autocomplete.spec.ts',
     keep: 'quantity-table-generation/REQ-7.2',
-    drop: 'quantity-table-generation/REQ-7.1',
+    drop: ['quantity-table-generation/REQ-7.1'],
   },
   {
-    file: 'e2e/specs/quantity-tables/quantity-group-copy.spec.ts',
-    keep: 'quantity-table-generation/REQ-38.1',
-    drop: 'quantity-table-generation/REQ-38.4',
+    file: 'e2e/specs/quantity-tables/quantity-count-persistence-e2e.spec.ts',
+    drop: [
+      'quantity-table-generation/REQ-47.15',
+      'quantity-table-generation/REQ-47.16',
+      'quantity-table-generation/REQ-47.17',
+    ],
   },
 ];
+
+/** 被覆印を受入基準・要件のどちらの一覧からでも拾えたかを見る */
+function claimsCoverageOf(found: HeaderScopedCoverageLike, id: string): boolean {
+  return found.acceptanceCriteria.includes(id) || found.requirements.includes(id);
+}
+
+/** `extractHeaderScopedCoverage` の戻り値のうち、対照が見る部分 */
+interface HeaderScopedCoverageLike {
+  requirements: string[];
+  acceptanceCriteria: string[];
+}
+
+/**
+ * 規則4（JSDoc 段落の切れ目）を**本文の側から**無効化した写しを作る
+ *
+ * ` *` だけの行が JSDoc の段落の切れ目である。そこへ文字を足せば切れ目でなくなる。
+ * 抽出器そのものは実物を使うため、区間判定の規則を対照側へ複製しない
+ * （抽出規則の複製は一元化の方針に反する）。
+ */
+function neutralizeJsDocParagraphBreaks(content: string): string {
+  return content.replace(/(\n[ \t]*\*)[ \t]*(?=\n)/g, '$1 .');
+}
 
 function checkRealProseIsNotClaimedAsCoverage(): string[] {
   const failures: string[] = [];
@@ -856,15 +898,70 @@ function checkRealProseIsNotClaimedAsCoverage(): string[] {
     }
     const content = fs.readFileSync(absolute, 'utf8');
     const found = extractHeaderScopedCoverage(content, discoverFeatures());
-    if (!found.acceptanceCriteria.includes(entry.keep)) {
+    if (entry.keep !== undefined && !claimsCoverageOf(found, entry.keep)) {
       failures.push(
         `${entry.file}: ${entry.keep} を取りこぼした（自己検査の前提が変わった可能性）`
       );
     }
-    if (found.acceptanceCriteria.includes(entry.drop)) {
-      failures.push(
-        `${entry.file}: 段落の切れ目より後の散文から ${entry.drop} が被覆主張として拾われた`
-      );
+    for (const drop of entry.drop) {
+      if (claimsCoverageOf(found, drop)) {
+        failures.push(
+          `${entry.file}: 段落の切れ目より後の散文から ${drop} が被覆主張として拾われた`
+        );
+      }
+    }
+  }
+  return failures;
+}
+
+/**
+ * 機構: 実データの陰性対照が規則4の除去に**実際に反応する**ことを確かめる
+ *
+ * タスク 115.192 で、実データ側の是正により対照の一件が「規則4が有っても無くても拾われない」
+ * 状態（＝空振り）へ変質した。前段の検査は空振りでも緑になるため、点数では検出できない。
+ * 実物へ変異（段落の切れ目の無効化）を当て、各 `drop` が本当に規則4だけで抑えられているかを見る。
+ *
+ * 対照の集合そのものが空になったら真空で緑にならないよう、母集団の非空も併せて検査する
+ * （第3原則。対照を空にして緑にする抜け道と同じ穴を作らない）。
+ */
+function checkRealProseControlsActuallyReact(): string[] {
+  const failures: string[] = [];
+
+  if (REAL_FALSE_CLAIMS_AFTER_PARAGRAPH_BREAK.length === 0) {
+    failures.push('実データの陰性対照が一件も無い（対照を空にして緑にする抜け道）');
+  }
+  const totalDrops = REAL_FALSE_CLAIMS_AFTER_PARAGRAPH_BREAK.reduce(
+    (count, entry) => count + entry.drop.length,
+    0
+  );
+  if (totalDrops === 0) {
+    failures.push('拾ってはならない被覆印が一件も無い（drop を空にして緑にする抜け道）');
+  }
+  if (!REAL_FALSE_CLAIMS_AFTER_PARAGRAPH_BREAK.some((entry) => entry.keep !== undefined)) {
+    failures.push('keep を持つ対照が一件も無い（狭めすぎの側を誰も見ていない）');
+  }
+
+  const features = discoverFeatures();
+  for (const entry of REAL_FALSE_CLAIMS_AFTER_PARAGRAPH_BREAK) {
+    const absolute = path.resolve(entry.file);
+    if (!fs.existsSync(absolute)) {
+      failures.push(`${entry.file} が存在しない（自己検査の前提が失われた）`);
+      continue;
+    }
+    const content = fs.readFileSync(absolute, 'utf8');
+    const neutralized = neutralizeJsDocParagraphBreaks(content);
+    if (neutralized === content) {
+      failures.push(`${entry.file}: 段落の切れ目が無く、変異が実物へ差分を作っていない`);
+      continue;
+    }
+    const found = extractHeaderScopedCoverage(neutralized, features);
+    for (const drop of entry.drop) {
+      if (!claimsCoverageOf(found, drop)) {
+        failures.push(
+          `${entry.file}: 規則4を外しても ${drop} が現れない（対照が空振りしている。` +
+            '散文が当該の被覆印を名乗らなくなった可能性がある。母集団を走査し直して差し替えること）'
+        );
+      }
     }
   }
   return failures;
@@ -1582,6 +1679,10 @@ const GROUPS: Array<{ title: string; cases: Case[] }> = [
       {
         name: '実データの散文が被覆主張として拾われない',
         run: checkRealProseIsNotClaimedAsCoverage,
+      },
+      {
+        name: '実データの陰性対照が規則4の除去に実際に反応する（空振りの検出）',
+        run: checkRealProseControlsActuallyReact,
       },
     ],
   },
