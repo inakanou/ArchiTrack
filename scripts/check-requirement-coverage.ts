@@ -1006,7 +1006,14 @@ export interface OutOfDenominatorMarks {
 }
 
 interface CriterionIndex {
-  /** 分母に入っている受入基準 */
+  /**
+   * 分母に入っている受入基準
+   *
+   * **分子を数えるときの分母（calculateCoverage の `allAcceptanceCriteria`）と同一でなければならない。**
+   * 分子は分母との積で数えるため、ここが分母より広いと、その差に落ちた被覆印は
+   * 集計から外れながらどの報告枠にも出ず、幻の番号が黙って消える。
+   * 分母は `Feature.requirements` の受入基準であり、`retiredRequirements` は含まない。
+   */
   live: Set<string>;
   /** 取り消し線で撤廃された受入基準 */
   retired: Set<string>;
@@ -1022,9 +1029,13 @@ function buildCriterionIndex(features: readonly Feature[]): CriterionIndex {
   const lettered = new Set<string>();
   const requirements = new Set<string>();
   for (const feature of features) {
+    // 分母は現役の要件の受入基準に限る。分子を数えるときの母集団と同じ経路から作る。
+    for (const requirement of feature.requirements) {
+      for (const criterion of requirement.acceptanceCriteria) live.add(criterion.id);
+    }
+    // 「実在するが分母に入っていない」ことを言うための索引は、撤廃済みの要件も見る。
     for (const requirement of [...feature.requirements, ...feature.retiredRequirements]) {
       requirements.add(requirement.fullId);
-      for (const criterion of requirement.acceptanceCriteria) live.add(criterion.id);
       for (const criterion of requirement.retiredAcceptanceCriteria) retired.add(criterion.id);
       for (const number of requirement.letteredCriterionNumbers) {
         lettered.add(`${requirement.fullId}.${number}`);
@@ -2148,6 +2159,107 @@ export function calculateCoverage(
 }
 
 // ============================================================================
+// 全体サマリーの数え方の整合
+// ============================================================================
+
+/** 全体サマリーの数え方が壊れていないかの判定 */
+export interface SummaryIntegrityReport {
+  /** 被覆印が名乗ったが分母に無いため分子から外した受入基準番号 */
+  droppedCriterionMarks: string[];
+  /** 被覆印が名乗ったが分母に無いため分子から外した要件番号 */
+  droppedRequirementMarks: string[];
+  /** 分子から外したのに、どの報告枠にも現れない番号 */
+  invisibleMarks: string[];
+  /** 破れている整合。空でなければ検査は落ちる */
+  reasons: string[];
+}
+
+/**
+ * 全体サマリーの数え方の整合を実データに対して確かめる
+ *
+ * 分子は分母との積で数えるため、分母に無い番号を名乗る被覆印は集計から落ちる。
+ * その落とし方が正しいことは、次の二つが同時に成り立つことでしか言えない。
+ *
+ *   1. **恒等式**: 被覆済み + 未被覆 = 総数（要件・受入基準の両方）。
+ *      分子を生のタグ集合で数えると和が総数を超え、表示上の被覆率が実態と食い違う。
+ *   2. **可視性**: 分子から落とした番号は、必ずどこかの報告枠に現れる。
+ *      落とすだけで見せなければ、幻の番号は誰にも気づかれないまま残る。
+ *      落とす側の分母と、見せる側の分母が別々に定義されると、その差に落ちた印は
+ *      集計にも報告にも出ない。逆向き（分母に入っている番号を分母外として挙げる）も
+ *      同じ食い違いの表れなので、両方向を見る。
+ *
+ * **合致していても件数を無条件に出力する。**黙って合う分子は、水増しと同じだけ危うい。
+ */
+export function checkSummaryIntegrity(
+  result: CoverageResult,
+  testCoverage: readonly TestCoverage[],
+  outOfDenominator: OutOfDenominatorMarks
+): SummaryIntegrityReport {
+  const criterionDenominator = new Set(result.allAcceptanceCriteria.map((ac) => ac.id));
+  const requirementDenominator = new Set<string>();
+  for (const feature of result.features) {
+    for (const requirement of feature.requirements) requirementDenominator.add(requirement.fullId);
+  }
+
+  const claimedCriteria = new Set<string>();
+  const claimedRequirements = new Set<string>();
+  for (const coverage of testCoverage) {
+    for (const id of coverage.acceptanceCriteria) claimedCriteria.add(id);
+    for (const id of coverage.requirements) claimedRequirements.add(id);
+  }
+
+  const droppedCriterionMarks = [...claimedCriteria]
+    .filter((id) => !criterionDenominator.has(id))
+    .sort();
+  const droppedRequirementMarks = [...claimedRequirements]
+    .filter((id) => !requirementDenominator.has(id))
+    .sort();
+
+  const shown = new Set<string>([
+    ...outOfDenominator.retired,
+    ...outOfDenominator.lettered,
+    ...outOfDenominator.unknown,
+  ]);
+  // 受入基準は分母外の内訳が受け皿になる。要件だけを名乗る印には受け皿が無いため、
+  // ここで名指さなければ挙げる場所がどこにも無い。
+  const invisibleMarks = [
+    ...droppedCriterionMarks.filter((id) => !shown.has(id)),
+    ...droppedRequirementMarks,
+  ].sort();
+  const contradicted = [...shown].filter((id) => criterionDenominator.has(id)).sort();
+
+  const reasons: string[] = [];
+  if (
+    result.coveredAcceptanceCriteriaCount + result.uncoveredAcceptanceCriteriaCount !==
+    result.totalAcceptanceCriteria
+  ) {
+    reasons.push(
+      `受入基準の 被覆済み + 未被覆 が総数と一致しません（${result.coveredAcceptanceCriteriaCount} + ${result.uncoveredAcceptanceCriteriaCount} ≠ ${result.totalAcceptanceCriteria}）`
+    );
+  }
+  if (
+    result.coveredRequirementCount + result.uncoveredRequirementCount !==
+    result.totalRequirements
+  ) {
+    reasons.push(
+      `要件の 被覆済み + 未被覆 が総数と一致しません（${result.coveredRequirementCount} + ${result.uncoveredRequirementCount} ≠ ${result.totalRequirements}）`
+    );
+  }
+  if (invisibleMarks.length > 0) {
+    reasons.push(
+      `分子から外したのにどの報告枠にも出ていない被覆印が${invisibleMarks.length}件あります: ${invisibleMarks.join(', ')}`
+    );
+  }
+  if (contradicted.length > 0) {
+    reasons.push(
+      `分母に入っている番号を分母外として挙げています（内訳と分母が食い違っています）: ${contradicted.join(', ')}`
+    );
+  }
+
+  return { droppedCriterionMarks, droppedRequirementMarks, invisibleMarks, reasons };
+}
+
+// ============================================================================
 // レポート出力
 // ============================================================================
 
@@ -2161,7 +2273,8 @@ function printReport(
   retiredMarks: readonly RetiredCriterionMark[],
   outOfDenominator: OutOfDenominatorMarks,
   unknownMarks: readonly UnknownCriterionMark[],
-  copyReport: CriterionTextCopyReport
+  copyReport: CriterionTextCopyReport,
+  integrity: SummaryIntegrityReport
 ): void {
   const { verbose, threshold } = options;
   const copyMismatches = copyReport.mismatches;
@@ -2267,6 +2380,23 @@ function printReport(
   console.log(`    カバー済み:   ${result.coveredAcceptanceCriteriaCount}`);
   console.log(`    未カバー:     ${result.uncoveredAcceptanceCriteriaCount}`);
   console.log(`    カバレッジ:   ${result.acceptanceCriteriaCoveragePercent.toFixed(1)}%`);
+  console.log('');
+  // 数え方の整合は、合致していても無条件に出す。黙って合う分子は水増しと同じだけ危うい。
+  const identityMark =
+    result.coveredAcceptanceCriteriaCount + result.uncoveredAcceptanceCriteriaCount ===
+    result.totalAcceptanceCriteria
+      ? '一致'
+      : '不一致';
+  console.log('  🧮 数え方の整合（分子は分母との積で数える）:');
+  console.log(
+    `     被覆 ${result.coveredAcceptanceCriteriaCount} + 未被覆 ${result.uncoveredAcceptanceCriteriaCount} = 総数 ${result.totalAcceptanceCriteria} … ${identityMark}`
+  );
+  console.log(
+    `     分子から外した被覆印: 受入基準 ${integrity.droppedCriterionMarks.length}件・要件 ${integrity.droppedRequirementMarks.length}件（うち報告枠に出ていないもの ${integrity.invisibleMarks.length}件）`
+  );
+  for (const reason of integrity.reasons) {
+    console.log(`     ⚠️ ${reason}`);
+  }
   console.log('');
 
   console.log('  【受入基準レベル（E2E適用対象）】');
@@ -2439,7 +2569,8 @@ function printJsonReport(
   retiredMarks: readonly RetiredCriterionMark[],
   outOfDenominator: OutOfDenominatorMarks,
   unknownMarks: readonly UnknownCriterionMark[],
-  copyReport: CriterionTextCopyReport
+  copyReport: CriterionTextCopyReport,
+  integrity: SummaryIntegrityReport
 ): void {
   const output = {
     features: result.features.map((f) => ({
@@ -2451,6 +2582,7 @@ function printJsonReport(
     retiredCriterionCoverageMarks: retiredMarks,
     outOfDenominatorCoverageMarks: outOfDenominator,
     unknownCriterionCoverageMarks: unknownMarks,
+    summaryIntegrity: integrity,
     criterionTextCopy: copyReport,
     featureCoverage: result.featureCoverage.map((fc) => ({
       featureName: fc.featureName,
@@ -2589,6 +2721,9 @@ function main(): void {
   const copyReport = reportCriterionTextCopies(features);
   const copyMismatches = copyReport.mismatches;
 
+  // 5d. 全体サマリーの数え方の整合（恒等式と、分子から外した番号の可視性）
+  const integrity = checkSummaryIntegrity(result, testCoverage, outOfDenominator);
+
   // 6. 本番到達性を判定（番号を持つ検証が本番の経路を通るか）
   const graph = buildModuleGraph();
   const reachableModules = computeReachableModules(graph);
@@ -2618,7 +2753,8 @@ function main(): void {
       retiredMarks,
       outOfDenominator,
       unknownMarks,
-      copyReport
+      copyReport,
+      integrity
     );
   } else {
     printReport(
@@ -2628,7 +2764,8 @@ function main(): void {
       retiredMarks,
       outOfDenominator,
       unknownMarks,
-      copyReport
+      copyReport,
+      integrity
     );
   }
 
@@ -2638,7 +2775,8 @@ function main(): void {
     reachabilityVerdict.ok &&
     retiredMarks.length === 0 &&
     unknownMarks.length === 0 &&
-    copyMismatches.length === 0;
+    copyMismatches.length === 0 &&
+    integrity.reasons.length === 0;
 
   const uncoveredNotExcluded = result.uncoveredAcceptanceCriteria.filter(
     (ac) =>
@@ -2658,6 +2796,9 @@ function main(): void {
       }
       for (const reason of reachabilityVerdict.reasons) {
         console.log(`❌ FAILED: ${reason}`);
+      }
+      for (const reason of integrity.reasons) {
+        console.log(`❌ FAILED: 全体サマリーの数え方が整合していません — ${reason}`);
       }
       if (unknownMarks.length > 0) {
         console.log(

@@ -31,6 +31,7 @@ import {
   extractImportSpecifiers,
   extractRequirements,
   calculateCoverage,
+  checkSummaryIntegrity,
   collectOutOfDenominatorMarks,
   criterionQuote,
   E2E_SPECS_ROOT,
@@ -49,10 +50,13 @@ import {
   selectExclusionsForFeatures,
   toPosixPath,
   type Feature,
+  type CoverageResult,
   type CriterionReachability,
   type ExclusionVerdict,
   type ModuleGraph,
+  type OutOfDenominatorMarks,
   type ReachabilityReason,
+  type TestCoverage,
 } from './check-requirement-coverage.js';
 
 interface Case {
@@ -1896,6 +1900,275 @@ function checkNumeratorIsIntersectedWithDenominator(): string[] {
   return failures;
 }
 
+/**
+ * 分母の外へ落ちた被覆印は、必ずどこかの報告枠に現れる（黙って消えない）
+ *
+ * 分子は分母との積で数えるため、分母に無い番号を名乗る被覆印は集計から落ちる。
+ * 落とすこと自体は正しいが、**落ちた印がどの報告にも出なければ、幻の番号は
+ * 誰にも気づかれないまま残る**。落とす側（calculateCoverage）と見せる側
+ * （collectOutOfDenominatorMarks）が分母の定義を別々に持つと、両者の差に落ちた印は
+ * 集計にも報告にも現れない。
+ *
+ * ここでは分母の外にある受入基準（`retiredRequirements` に置かれた要件の条文）を
+ * 名乗る被覆印を注入し、集計から外れることと、外れた事実が見えることの両方を固定する。
+ */
+function checkDroppedMarksNeverVanish(): string[] {
+  const failures: string[] = [];
+  const document = [
+    '### Requirement 1: 分母に入る要件',
+    '',
+    '#### Acceptance Criteria',
+    '1. The システム shall 分母に入る振る舞いを行う',
+    '',
+    '### Requirement 2: 分母から外した要件',
+    '',
+    '#### Acceptance Criteria',
+    '1. The システム shall 分母から外した振る舞いを行う',
+    '',
+  ].join('\n');
+
+  withFixture({ 'requirements.md': document }, (baseDir) => {
+    const requirementsPath = path.join(baseDir, 'requirements.md');
+    const requirements = extractRequirements('probe', requirementsPath);
+    const live = requirements.find((requirement) => requirement.id === 'REQ-1');
+    const outside = requirements.find((requirement) => requirement.id === 'REQ-2');
+    if (!live || !outside) {
+      failures.push('前提: 探り用の要件定義書から要件を二件取り出せない');
+      return;
+    }
+    // 分母は `requirements` である。`retiredRequirements` に置いた要件の条文は分母に無い。
+    const feature: Feature = {
+      name: 'probe',
+      path: requirementsPath,
+      requirements: [live],
+      totalAcceptanceCriteria: live.acceptanceCriteria.length,
+      retiredAcceptanceCriteriaCount: 0,
+      retiredRequirements: [outside],
+    };
+    const testCoverage = [
+      {
+        file: `${E2E_SPECS_ROOT}/probe.spec.ts`,
+        requirements: ['probe/REQ-1'],
+        acceptanceCriteria: ['probe/REQ-1.1', 'probe/REQ-2.1'],
+      },
+    ];
+
+    const result = calculateCoverage([feature], testCoverage, null);
+    if (result.totalAcceptanceCriteria !== 1) {
+      failures.push(`前提: 分母が1件でない（${result.totalAcceptanceCriteria}件）`);
+      return;
+    }
+    if (result.coveredAcceptanceCriteriaCount !== 1) {
+      failures.push(
+        `分母の外の番号が分子に入っている（1件のはずが ${result.coveredAcceptanceCriteriaCount} 件）`
+      );
+    }
+
+    const marks = collectOutOfDenominatorMarks([feature], testCoverage);
+    const shown = [...marks.retired, ...marks.lettered, ...marks.unknown];
+    if (!shown.includes('probe/REQ-2.1')) {
+      failures.push(
+        `分子から落とした probe/REQ-2.1 がどの報告枠にも出ていない（出ているのは ${shown.join(', ') || '空'}）`
+      );
+    }
+    if (shown.includes('probe/REQ-1.1')) {
+      failures.push('分母に入っている probe/REQ-1.1 を分母外として挙げた');
+    }
+  });
+  return failures;
+}
+
+/** 全体サマリーの整合検査を回すための、分母1件の探り用機能を作る */
+function summaryIntegrityProbe(
+  baseDir: string,
+  acceptanceCriteria: string[],
+  requirements: string[]
+): { result: CoverageResult; testCoverage: TestCoverage[]; feature: Feature } | string {
+  const document = [
+    '### Requirement 1: 分母に入る要件',
+    '',
+    '#### Acceptance Criteria',
+    '1. The システム shall 分母に入る振る舞いを行う',
+    '',
+  ].join('\n');
+  const requirementsPath = path.join(baseDir, 'requirements.md');
+  fs.writeFileSync(requirementsPath, document, 'utf8');
+  const extracted = extractRequirements('probe', requirementsPath);
+  const live = extracted.find((requirement) => requirement.id === 'REQ-1');
+  if (!live) return '前提: 探り用の要件定義書から要件を取り出せない';
+  const feature: Feature = {
+    name: 'probe',
+    path: requirementsPath,
+    requirements: [live],
+    totalAcceptanceCriteria: live.acceptanceCriteria.length,
+    retiredAcceptanceCriteriaCount: 0,
+    retiredRequirements: [],
+  };
+  const testCoverage: TestCoverage[] = [
+    { file: `${E2E_SPECS_ROOT}/probe.spec.ts`, requirements, acceptanceCriteria },
+  ];
+  return { result: calculateCoverage([feature], testCoverage, null), testCoverage, feature };
+}
+
+/** 空の分母外内訳（見せる側が何も挙げていない状態） */
+const NO_OUT_OF_DENOMINATOR: OutOfDenominatorMarks = { retired: [], lettered: [], unknown: [] };
+
+/**
+ * 全体サマリーの整合検査が、健全な数え方を赤くしない（常時赤の検査を作らない）
+ *
+ * 併せて、落とした番号を実際に挙げていることを確かめる。挙げていなければ
+ * 「落とした印が無い」で緑になるだけの空振りである。
+ */
+function checkSummaryIntegrityAcceptsSoundCounts(): string[] {
+  const failures: string[] = [];
+  withFixture({}, (baseDir) => {
+    const probe = summaryIntegrityProbe(
+      baseDir,
+      ['probe/REQ-1.1', 'probe/REQ-9.9'],
+      ['probe/REQ-1']
+    );
+    if (typeof probe === 'string') {
+      failures.push(probe);
+      return;
+    }
+    const report = checkSummaryIntegrity(probe.result, probe.testCoverage, {
+      retired: [],
+      lettered: [],
+      unknown: ['probe/REQ-9.9'],
+    });
+    if (report.reasons.length > 0) {
+      failures.push(`健全な数え方を赤くした: ${report.reasons.join(' / ')}`);
+    }
+    if (report.droppedCriterionMarks.join(',') !== 'probe/REQ-9.9') {
+      failures.push(
+        `分子から落とした番号を挙げていない（${report.droppedCriterionMarks.join(', ') || '空'}）`
+      );
+    }
+    if (report.invisibleMarks.length > 0) {
+      failures.push(
+        `内訳に出ている番号を「消えた」と誤判定した: ${report.invisibleMarks.join(', ')}`
+      );
+    }
+  });
+  return failures;
+}
+
+/**
+ * 全体サマリーの整合検査が、壊れた数え方を四つの向きで捕まえる
+ *
+ * それぞれ、この検査でしか捕まらない変異である:
+ *   (a) 分子を生のタグ集合で数える（被覆済み + 未被覆 > 総数）
+ *   (b) 要件レベルでも同じ水増しが起きる
+ *   (c) 分母外の内訳が、分子から落とした番号を挙げていない（黙って消える印）
+ *   (d) 内訳が、分母に入っている番号を分母外として挙げている（逆向きの食い違い）
+ */
+function checkSummaryIntegrityRejectsUnsoundCounts(): string[] {
+  const failures: string[] = [];
+  withFixture({}, (baseDir) => {
+    const probe = summaryIntegrityProbe(
+      baseDir,
+      ['probe/REQ-1.1', 'probe/REQ-9.9'],
+      ['probe/REQ-1']
+    );
+    if (typeof probe === 'string') {
+      failures.push(probe);
+      return;
+    }
+    const sound = probe.result;
+
+    // (a) 分子を生のタグ集合で数えた状態を注入する
+    const inflatedCriteria: CoverageResult = {
+      ...sound,
+      coveredAcceptanceCriteriaCount: sound.coveredAcceptanceCriteriaCount + 1,
+    };
+    if (
+      checkSummaryIntegrity(inflatedCriteria, probe.testCoverage, {
+        retired: [],
+        lettered: [],
+        unknown: ['probe/REQ-9.9'],
+      }).reasons.length === 0
+    ) {
+      failures.push('受入基準の 被覆済み + 未被覆 ≠ 総数 を見逃した');
+    }
+
+    // (b) 要件レベルの水増し
+    const inflatedRequirements: CoverageResult = {
+      ...sound,
+      coveredRequirementCount: sound.coveredRequirementCount + 1,
+    };
+    if (
+      checkSummaryIntegrity(inflatedRequirements, probe.testCoverage, {
+        retired: [],
+        lettered: [],
+        unknown: ['probe/REQ-9.9'],
+      }).reasons.length === 0
+    ) {
+      failures.push('要件の 被覆済み + 未被覆 ≠ 総数 を見逃した');
+    }
+
+    // (c) 落とした番号を内訳が挙げていない
+    const vanished = checkSummaryIntegrity(sound, probe.testCoverage, NO_OUT_OF_DENOMINATOR);
+    if (vanished.reasons.length === 0) {
+      failures.push('分子から落とした番号がどの報告枠にも出ていない状態を見逃した');
+    }
+    if (!vanished.invisibleMarks.includes('probe/REQ-9.9')) {
+      failures.push(
+        `黙って消えた番号を名指せていない（${vanished.invisibleMarks.join(', ') || '空'}）`
+      );
+    }
+
+    // (d) 分母に入っている番号を分母外として挙げている
+    const contradicted = checkSummaryIntegrity(sound, probe.testCoverage, {
+      retired: [],
+      lettered: [],
+      unknown: ['probe/REQ-9.9', 'probe/REQ-1.1'],
+    });
+    if (contradicted.reasons.length === 0) {
+      failures.push('分母に入っている番号を分母外として挙げた状態を見逃した');
+    }
+  });
+  return failures;
+}
+
+/**
+ * 要件レベルで分母に無い番号を名乗る被覆印も、黙って消えない
+ *
+ * 分母外の内訳は受入基準の番号しか扱わない。要件だけを名乗る印が分母に無い場合、
+ * 挙げる枠がそもそも無いため、整合検査自身が名指さなければ誰も気づかない。
+ */
+function checkDroppedRequirementMarksNeverVanish(): string[] {
+  const failures: string[] = [];
+  withFixture({}, (baseDir) => {
+    const probe = summaryIntegrityProbe(
+      baseDir,
+      ['probe/REQ-1.1'],
+      ['probe/REQ-1', 'probe/REQ-99']
+    );
+    if (typeof probe === 'string') {
+      failures.push(probe);
+      return;
+    }
+    if (probe.result.coveredRequirementCount !== 1) {
+      failures.push(
+        `分母の外の要件が分子に入っている（1件のはずが ${probe.result.coveredRequirementCount} 件）`
+      );
+    }
+    const report = checkSummaryIntegrity(probe.result, probe.testCoverage, NO_OUT_OF_DENOMINATOR);
+    if (report.droppedRequirementMarks.join(',') !== 'probe/REQ-99') {
+      failures.push(
+        `分子から落とした要件番号を挙げていない（${report.droppedRequirementMarks.join(', ') || '空'}）`
+      );
+    }
+    if (!report.invisibleMarks.includes('probe/REQ-99')) {
+      failures.push('分母に無い要件番号を名乗る被覆印が黙って消えた');
+    }
+    if (report.reasons.length === 0) {
+      failures.push('分母に無い要件番号を名乗る被覆印を見逃した');
+    }
+  });
+  return failures;
+}
+
 /** 逐語複製の目印（`shall` 以降）の取り出しが、狙った形だけを拾う */
 function checkCriterionQuote(): string[] {
   const failures: string[] = [];
@@ -2189,6 +2462,22 @@ const GROUPS: Array<{ title: string; cases: Case[] }> = [
       {
         name: '分母に無い番号を成り立ちの軸で取り違えずに数える',
         run: checkOutOfDenominatorBreakdown,
+      },
+      {
+        name: '分子から落とした被覆印が報告枠から消えない（黙って消える印を作らない）',
+        run: checkDroppedMarksNeverVanish,
+      },
+      {
+        name: '全体サマリーの整合検査が健全な数え方を赤くしない（空振りの検出）',
+        run: checkSummaryIntegrityAcceptsSoundCounts,
+      },
+      {
+        name: '全体サマリーの整合検査が壊れた数え方を四つの向きで捕まえる',
+        run: checkSummaryIntegrityRejectsUnsoundCounts,
+      },
+      {
+        name: '分母に無い要件番号を名乗る被覆印も黙って消えない',
+        run: checkDroppedRequirementMarksNeverVanish,
       },
       {
         name: '分子を分母との交わりで数える（名乗るだけの番号を分子に入れない）',
