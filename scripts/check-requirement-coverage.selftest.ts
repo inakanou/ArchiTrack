@@ -780,7 +780,11 @@ function checkUnlistedFeatureHeaderStillEndsSection(): string[] {
  *
  * JSDoc では ` *` だけの行が空行の役目を果たす。ここで切らないと、
  * **一覧の直後に置かれた「この受入基準は検証していない」という散文まで被覆主張になる**。
- * 行頭のコメント記号 `*` が一覧の印と区別されないため、素の散文でも項目として拾われる。
+ *
+ * 散文の側は `-` の印を持つ形で書く。タスク 115.194 が行頭のコメント記号 `*` を
+ * 一覧の印から外したため、` * REQ-4.2 …` と書くと**規則4の有無にかかわらず拾われず**、
+ * この対照が空振りになる（実データの散文はいずれも `-` の印を持つ形であり、こちらが実像である）。
+ * 空振りでないことは後段の機構対照が実際の変異で確かめる。
  *
  * 実データでここを切って帰属が減るのは、走査した全ファイルのうち 2 ファイルだけで、
  * **正当な被覆は一件も失われない**（タスク 115.192 で母集団を全件走査して再確定した）。
@@ -799,7 +803,8 @@ const PARAGRAPH_BREAK_THEN_PROSE = [
   ' * Requirements coverage (site-survey):',
   ' * - REQ-4.1: 段落の前（正当な被覆主張）',
   ' *',
-  ' * Note: REQ-4.2 はE2Eテストで検証困難なため省略',
+  ' * ## 本ファイルが判定していないもの',
+  ' * - REQ-4.2 はE2Eテストで検証困難なため省略',
   ' */',
   '',
 ].join('\n');
@@ -814,6 +819,32 @@ function checkHeaderSectionStopsAtJsDocParagraphBreak(): string[] {
     failures.push(
       '段落の切れ目を越えて散文まで帰属した（site-survey/REQ-4.2。' +
         '「検証していない」と述べた文が被覆主張になっている）'
+    );
+  }
+  return failures;
+}
+
+/**
+ * 機構: 仮想の資料の陰性対照が規則4の除去に**実際に反応する**ことを確かめる
+ *
+ * `PARAGRAPH_BREAK_THEN_PROSE` の REQ-4.2 が拾われない理由は規則4でなければならない。
+ * 散文の書き方によっては別の規則（タスク 115.194 の「行頭のコメント記号は印ではない」）が
+ * 先に抑えてしまい、**規則4を外しても赤くならない空振りの対照**へ変質する。
+ * 実データ側と同じ流儀で、本文の側から段落の切れ目を潰した写しを作り、
+ * REQ-4.2 が現れることを主張する。
+ */
+function checkParagraphBreakFixtureActuallyReacts(): string[] {
+  const failures: string[] = [];
+  const neutralized = neutralizeJsDocParagraphBreaks(PARAGRAPH_BREAK_THEN_PROSE);
+  if (neutralized === PARAGRAPH_BREAK_THEN_PROSE) {
+    failures.push('見本に段落の切れ目が無く、変異が差分を作っていない');
+    return failures;
+  }
+  const found = extractHeaderScopedCoverage(neutralized, SELFTEST_FEATURES);
+  if (!found.acceptanceCriteria.includes('site-survey/REQ-4.2')) {
+    failures.push(
+      '規則4を外しても site-survey/REQ-4.2 が現れない（対照が空振りしている。' +
+        '散文が一覧項目の形を失っていないか確かめること）'
     );
   }
   return failures;
@@ -963,6 +994,166 @@ function checkRealProseControlsActuallyReact(): string[] {
         );
       }
     }
+  }
+  return failures;
+}
+
+/**
+ * 陰性対照: 行頭のコメント記号 `*` が一覧の印に見える形（タスク 115.194）
+ *
+ * 一覧の印は `[-*]` だが、JSDoc の行は例外なく行頭が `*` である。
+ * そのため印を字面だけで判定すると、
+ *
+ *   - 印を持たない**一覧項目の継続行**（` *   REQ-8.2 を…`）
+ *   - 行頭のコメント記号しか持たない**素の散文**（` * REQ-8.3 は…`）
+ *
+ * まで一覧項目として拾われ、被覆の過大帰属になる。
+ *
+ * **段落の切れ目（規則4）では届かない形である。** ここでは切れ目を一つも置かず、
+ * 正当な一覧項目と同じ段落の中に継続行と散文を並べている。
+ * 規則4を外しても外さなくても結果は変わらず、**この対照でしか捕まらない**。
+ */
+const JSDOC_LINE_PREFIX_IS_NOT_A_LIST_MARKER = [
+  '/**',
+  ' * Requirements coverage (site-survey):',
+  ' * - REQ-8.1: 正当な一覧項目（`-` の印を持つ）',
+  ' *   REQ-8.2 を無条件に検証する（一覧項目の継続行。印を持たない）',
+  ' * REQ-8.3 は本ファイルでは検証していない（行頭のコメント記号は印ではない）',
+  ' * - REQ-8.4: 同じ段落の中の、後続の正当な一覧項目',
+  ' */',
+  '',
+].join('\n');
+
+/**
+ * 陰性対照: ブロックコメントの開始記号 `/**` の `*` が印に見える形
+ *
+ * 開始記号の `*` は行頭の非空白文字そのものではなく、直前に `/` が付く。
+ * 直前に連なる `*` と `/` を読み飛ばしてから行頭かを見なければ、ここが印として拾われる。
+ */
+const BLOCK_COMMENT_OPENER_IS_NOT_A_LIST_MARKER = [
+  '// Requirements (user-authentication):',
+  '// - REQ-11.1: 行コメントの正当な一覧項目',
+  '/** REQ-11.2 はコメントの開始記号の後ろにあるだけで、印を持たない */',
+  '',
+].join('\n');
+
+function checkJsDocLinePrefixIsNotAListMarker(): string[] {
+  const failures: string[] = [];
+
+  const found = extractHeaderScopedCoverage(
+    JSDOC_LINE_PREFIX_IS_NOT_A_LIST_MARKER,
+    SELFTEST_FEATURES
+  );
+  if (!found.acceptanceCriteria.includes('site-survey/REQ-8.1')) {
+    failures.push('`-` の印を持つ正当な一覧項目 site-survey/REQ-8.1 を取りこぼした（厳しすぎ）');
+  }
+  if (!found.acceptanceCriteria.includes('site-survey/REQ-8.4')) {
+    failures.push(
+      '継続行・散文の後ろにある正当な一覧項目 site-survey/REQ-8.4 を取りこぼした（厳しすぎ）'
+    );
+  }
+  if (found.acceptanceCriteria.includes('site-survey/REQ-8.2')) {
+    failures.push(
+      '印を持たない継続行を一覧項目として拾った（site-survey/REQ-8.2。被覆の過大帰属）'
+    );
+  }
+  if (found.acceptanceCriteria.includes('site-survey/REQ-8.3')) {
+    failures.push(
+      '行頭のコメント記号を一覧の印と取り違えた（site-survey/REQ-8.3。' +
+        '「検証していない」と述べた散文が被覆主張になっている）'
+    );
+  }
+
+  const opener = extractHeaderScopedCoverage(
+    BLOCK_COMMENT_OPENER_IS_NOT_A_LIST_MARKER,
+    SELFTEST_FEATURES
+  );
+  if (!opener.acceptanceCriteria.includes('user-authentication/REQ-11.1')) {
+    failures.push('行コメントの正当な一覧項目 user-authentication/REQ-11.1 を取りこぼした');
+  }
+  if (opener.acceptanceCriteria.includes('user-authentication/REQ-11.2')) {
+    failures.push(
+      'ブロックコメントの開始記号を一覧の印と取り違えた（user-authentication/REQ-11.2）'
+    );
+  }
+
+  return failures;
+}
+
+/**
+ * 行頭のコメント記号の直後へ `-` の印を差し込む（見本の側からの変異）
+ *
+ * 抽出規則を対照側へ複製しないため、変異は**本文の側**へ当てる。
+ */
+function insertListMarkerAfterJsDocPrefix(content: string): string {
+  return content.replace(/(\n[ \t]*\*[ \t]*)(?=REQ-)/g, '$1- ');
+}
+
+/**
+ * 機構: 継続行・散文の陰性対照が**印の有無にだけ反応する**ことを確かめる
+ *
+ * REQ-8.2 / REQ-8.3 が拾われない理由は「印を持たないこと」でなければならない。
+ * 区間が短すぎる・機能名が合っていないなど別の理由で拾われていないなら、
+ * この対照は行頭のコメント記号の規則を何も測っていない（空振り）。
+ * 同じ位置へ `-` の印だけを差し込んだ写しを作り、両者が現れることを主張する。
+ */
+function checkListMarkerControlActuallyReacts(): string[] {
+  const failures: string[] = [];
+  const mutated = insertListMarkerAfterJsDocPrefix(JSDOC_LINE_PREFIX_IS_NOT_A_LIST_MARKER);
+  if (mutated === JSDOC_LINE_PREFIX_IS_NOT_A_LIST_MARKER) {
+    failures.push('見本へ印を差し込めておらず、変異が差分を作っていない');
+    return failures;
+  }
+  const found = extractHeaderScopedCoverage(mutated, SELFTEST_FEATURES);
+  for (const id of ['site-survey/REQ-8.2', 'site-survey/REQ-8.3']) {
+    if (!found.acceptanceCriteria.includes(id)) {
+      failures.push(
+        `印を差し込んでも ${id} が現れない（対照が空振りしている。` +
+          '区間の切れ目など、印以外の理由で落ちている可能性がある）'
+      );
+    }
+  }
+  return failures;
+}
+
+/**
+ * 陽性対照: 行頭より後ろに置かれた `*` は従来どおり一覧の印である（厳しすぎの側）
+ *
+ * `*` を一律にコメント記号とみなす（＝規則を厳しくしすぎる）変異は、
+ * 前段の陰性対照では捕まらない。Markdown の箇条書きとして書かれた `*` を
+ * 陽性側から固定し、緩めすぎ・厳しすぎの両側を挟む。
+ */
+const ASTERISK_BULLET_IS_STILL_A_LIST_MARKER = [
+  '/**',
+  ' * Requirements coverage (site-survey):',
+  ' * * REQ-9.1: 行頭のコメント記号より後ろに置いた箇条書き',
+  ' */',
+  '// Requirements (user-authentication):',
+  '// * REQ-9.2: 行コメントの中の箇条書き',
+  '',
+].join('\n');
+
+function checkAsteriskBulletIsStillAListMarker(): string[] {
+  const failures: string[] = [];
+
+  // 空振り防止: `-` の印が紛れていると、`*` が印として働いたことを示せない
+  if (/-\s*REQ-/.test(ASTERISK_BULLET_IS_STILL_A_LIST_MARKER)) {
+    failures.push('見本に `-` の印が混じっており、`*` が印として働いたことを示せない');
+  }
+
+  const found = extractHeaderScopedCoverage(
+    ASTERISK_BULLET_IS_STILL_A_LIST_MARKER,
+    SELFTEST_FEATURES
+  );
+  if (!found.acceptanceCriteria.includes('site-survey/REQ-9.1')) {
+    failures.push(
+      'JSDoc の中の `*` の箇条書きを取りこぼした（site-survey/REQ-9.1。規則が厳しすぎる）'
+    );
+  }
+  if (!found.acceptanceCriteria.includes('user-authentication/REQ-9.2')) {
+    failures.push(
+      '行コメントの中の `*` の箇条書きを取りこぼした（user-authentication/REQ-9.2。規則が厳しすぎる）'
+    );
   }
   return failures;
 }
@@ -1668,6 +1859,22 @@ const GROUPS: Array<{ title: string; cases: Case[] }> = [
       {
         name: 'JSDoc 内の段落の切れ目で区間を切る（直後の散文を被覆主張にしない）',
         run: checkHeaderSectionStopsAtJsDocParagraphBreak,
+      },
+      {
+        name: '段落の切れ目の陰性対照が規則4の除去に実際に反応する（空振りの検出）',
+        run: checkParagraphBreakFixtureActuallyReacts,
+      },
+      {
+        name: '行頭のコメント記号を一覧の印と取り違えない（継続行・散文・開始記号）',
+        run: checkJsDocLinePrefixIsNotAListMarker,
+      },
+      {
+        name: '継続行・散文の陰性対照が印の有無にだけ反応する（空振りの検出）',
+        run: checkListMarkerControlActuallyReacts,
+      },
+      {
+        name: '行頭より後ろの `*` は従来どおり一覧の印である（厳しすぎの側）',
+        run: checkAsteriskBulletIsStillAListMarker,
       },
       { name: '空行では従来どおり切る', run: checkHeaderSectionStillStopsAtBlankLine },
       {

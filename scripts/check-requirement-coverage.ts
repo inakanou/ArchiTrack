@@ -454,7 +454,13 @@ interface CoverageHeader {
   featureName: string;
 }
 
-/** ヘッダー直下の一覧の各項目（`- REQ-N.M:` / `- REQ-N-REQ-M:`） */
+/**
+ * ヘッダー直下の一覧の各項目（`- REQ-N.M:` / `- REQ-N-REQ-M:`）
+ *
+ * 印は `-` か `*` である。`*` を印に含めるのは Markdown の箇条書きに倣うためだが、
+ * **JSDoc の行頭 `*` と字面が同じである**ため、一致だけでは区別が付かない。
+ * 区別は `isCommentSyntaxAsterisk` が担う（後段で一致ごとに除く）。
+ */
 const HEADER_LIST_ITEM_REGEX =
   /[-*]\s*REQ-(\d+[A-E]?)(?:\.(\d+))?(?:-REQ-(\d+[A-E]?)(?:\.(\d+))?)?/g;
 
@@ -558,6 +564,40 @@ function enclosingBlockCommentEnd(content: string, headerIndex: number): number 
 }
 
 /**
+ * 一致した印の `*` が「行頭のコメント記号」かどうかを判定する
+ *
+ * 一覧の印は `[-*]` だが、JSDoc / ブロックコメントの行は例外なく行頭が `*` である。
+ * そのため ` * REQ-16.7 は検証していない` のような**散文**や、
+ * ` *   REQ-19.1〜19.4 を無条件に検証する。` のような**一覧項目の継続行**まで
+ * 「`*` で始まる一覧項目」と読めてしまい、被覆印として拾われていた（過大帰属）。
+ *
+ * 判定は「その `*` が行の最初の非空白文字か」だけで決まる。
+ * `/*` や `/**` の一部である `*` も同じくコメント記号なので、
+ * 直前に連なる `*` と `/` を読み飛ばしてから行頭かどうかを見る。
+ *
+ * **一覧の印としての `*` は失われない。** 行頭のコメント記号より後ろに置かれた
+ * ` * * REQ-1.1:`（JSDoc の中の Markdown 箇条書き）や `// * REQ-1.1:` の `*` は
+ * 行の最初の非空白文字ではないため、これまでどおり印として拾われる。
+ *
+ * **継続行は印として拾わない。** 継続行には印が無く、継続行を拾う規則は
+ * 「印の無い行の REQ- も拾う」ことと同義であって、散文と一覧項目を再び混同させる。
+ * 一項目につき一つの印を必須とすることで、一覧の書式を一意に保つ。
+ *
+ * @param content ファイル全体の本文
+ * @param markerIndex 印の文字の位置（`content` 上の絶対位置）
+ */
+export function isCommentSyntaxAsterisk(content: string, markerIndex: number): boolean {
+  if (content[markerIndex] !== '*') return false;
+
+  let index = markerIndex - 1;
+  while (index >= 0 && content[index] === '*') index--;
+  if (index >= 0 && content[index] === '/') index--;
+  while (index >= 0 && (content[index] === ' ' || content[index] === '\t')) index--;
+
+  return index < 0 || content[index] === '\n';
+}
+
+/**
  * パターン5: ヘッダー直下の要件一覧から被覆印を拾う
  */
 export function extractHeaderScopedCoverage(
@@ -593,6 +633,8 @@ export function extractHeaderScopedCoverage(
     let listMatch: RegExpExecArray | null;
     while ((listMatch = HEADER_LIST_ITEM_REGEX.exec(section)) !== null) {
       if (!listMatch[1]) continue;
+      // 行頭のコメント記号を一覧の印と取り違えない（散文・継続行の過大帰属を防ぐ）
+      if (isCommentSyntaxAsterisk(content, header.index + listMatch.index)) continue;
       requirements.add(`${header.featureName}/REQ-${listMatch[1]}`);
       if (listMatch[2]) {
         acceptanceCriteria.add(`${header.featureName}/REQ-${listMatch[1]}.${listMatch[2]}`);
