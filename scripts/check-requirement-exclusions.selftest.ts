@@ -23,6 +23,7 @@ import type {
   ViolationCheck,
 } from './check-requirement-exclusions.js';
 import {
+  DEFAULT_FEATURE,
   E2E_SPECS_DIR,
   EXCLUSIONS_PATH,
   SPECS_DIR,
@@ -690,24 +691,38 @@ const MUST_ACCEPT: Case[] = [
     mustReject: false,
   },
   {
-    // 実物が旧来の形の識別子を含んでいることを前提として明示する。含まなくなれば
-    // この陰性対照は前提の崩壊として失敗し、「旧来の形も通る」という主張が
-    // 何も確かめないまま緑になることを防ぐ。
-    name: '機能名を冠さない旧来の識別子（REQ-N.M）',
+    // 直後の対照（裸 → 機能名付き）の鏡。既定機能の受入基準を機能名付きで書いている除外を、
+    // 旧来の裸の形へ書き換えても通ること。指し先（正規化後の識別子）は変わらないため
+    // criterionText も requirement も据え置きでよい。
+    //
+    // **この対照が独自に担保するもの**: 実物に無い裸の識別子を**新たに作る**点である。
+    // 裸の綴りが「今そう書かれている分だけの特例」ではなく、既定機能のどの受入基準に
+    // 対しても認められることを固定する。既存分を凍結するラチェット（新規の裸の識別子を
+    // 禁じる締め上げ）を検査へ入れると、実物も他の対照も緑のまま、この対照だけが赤くなる。
+    //
+    // 前提が崩れた場合（機能名付きの識別子が実物から消えた／書き換え先の裸の識別子が
+    // 既に在る）は黙って素通りさせず、例外で赤くする（第3原則）。
+    name: '機能名を冠さない旧来の識別子（feature/REQ-N.M → REQ-N.M）',
     mutate: (d) => {
-      const bare = entries(d).filter((entry) => !(entry.id as string).includes('/'));
-      if (bare.length === 0) throw new Error('前提: 機能名を冠さない識別子が実物に存在しない');
+      const prefix = `${DEFAULT_FEATURE}/`;
+      const target = entries(d).find((entry) => (entry.id as string).startsWith(prefix));
+      if (!target) throw new Error(`前提: '${prefix}' を冠した識別子が実物に存在しない`);
+      const bare = (target.id as string).slice(prefix.length);
+      if (entries(d).some((entry) => entry.id === bare)) {
+        throw new Error(`前提: 裸の識別子 ${bare} が実物に既に在り、書き換えると重複になる`);
+      }
+      target.id = bare;
     },
     mustReject: false,
   },
   {
-    // 旧来の形の識別子を、同じ受入基準を指す機能名付きの形へ書き換えても通ること。
+    // 上の鏡。旧来の形の識別子を、同じ受入基準を指す機能名付きの形へ書き換えても通ること。
     // 指し先が変わらないため criterionText も requirement も据え置きでよい。
-    name: '機能名を冠した識別子（feature/REQ-N.M）',
+    name: '機能名を冠した識別子（REQ-N.M → feature/REQ-N.M）',
     mutate: (d) => {
       const target = entries(d).find((entry) => !(entry.id as string).includes('/'));
       if (!target) throw new Error('前提: 機能名を冠さない識別子が実物に存在しない');
-      target.id = `user-authentication/${target.id as string}`;
+      target.id = `${DEFAULT_FEATURE}/${target.id as string}`;
     },
     mustReject: false,
   },
@@ -970,6 +985,48 @@ function site(overrides: Partial<CoverageTagSite> & { file: string }): CoverageT
 interface MechanismCase {
   name: string;
   run: () => string[];
+}
+
+// ----------------------------------------------------------------------------
+// 対照が「実物をそのまま流すだけ」になっていないかを見る道具（タスク 115.191）
+//
+// 変異を伴わない対照は、先行する『リポジトリの実物』の対照と同じことしか言っておらず、
+// 独自の担保を一切持たない。陰性対照でそれが起きると「緩めすぎていないこと」を見る側の
+// 対照が静かに減り、検査を緩める変更が無言で通る。前提の assert だけを置いて素材を
+// 書き換えない形も同じ空振りである（115.191 以前の「機能名を冠さない旧来の識別子」が
+// これであった）。
+// ----------------------------------------------------------------------------
+
+/** 対照が入力に手を加えると宣言しているか（宣言の有無だけを見る） */
+function declaresMutation(testCase: Case): boolean {
+  return (
+    testCase.mutate !== undefined ||
+    testCase.mutateSchema !== undefined ||
+    testCase.rawDocument !== undefined ||
+    testCase.omitSchema === true
+  );
+}
+
+/** 宣言した変異が実物を実際に変えているか（直列化して前後を比べる） */
+function ineffectiveMutationsOf(testCase: Case): string[] {
+  const failures: string[] = [];
+  if (testCase.mutate) {
+    const document = loadReal();
+    const before = JSON.stringify(document);
+    testCase.mutate(document);
+    if (JSON.stringify(document) === before) {
+      failures.push(`${testCase.name}: mutate が実物を一切変えていない（実物を流すだけの対照）`);
+    }
+  }
+  if (testCase.mutateSchema) {
+    const schema = loadRealSchema();
+    const before = JSON.stringify(schema);
+    testCase.mutateSchema(schema);
+    if (JSON.stringify(schema) === before) {
+      failures.push(`${testCase.name}: mutateSchema がスキーマを一切変えていない`);
+    }
+  }
+  return failures;
 }
 
 const MECHANISM_CASES: MechanismCase[] = [
@@ -1330,6 +1387,39 @@ const MECHANISM_CASES: MechanismCase[] = [
           }
         });
       }
+      return failures;
+    },
+  },
+  {
+    // 「実物をそのまま流すだけ」の対照が紛れ込んでいないことを機械で確かめる
+    // （タスク 115.191）。無変異が許されるのは先頭に置く『リポジトリの実物』
+    // ちょうど一件だけであり、それ以外は実物へ実際に差分を作らなければならない。
+    name: 'すべての対照が実物へ実際に変異を加えている（無変異は実物の対照ちょうど一件）',
+    run: () => {
+      const failures: string[] = [];
+
+      const withoutMutation = MUST_ACCEPT.filter((testCase) => !declaresMutation(testCase));
+      if (withoutMutation.length !== 1) {
+        failures.push(
+          `変異を宣言しない陰性対照が ${withoutMutation.length} 件ある（『リポジトリの実物』ちょうど1件であるべき）: ${withoutMutation.map((testCase) => testCase.name).join(' / ') || 'なし'}`
+        );
+      } else if (withoutMutation[0] !== MUST_ACCEPT[0]) {
+        failures.push(
+          `変異を宣言しない陰性対照が先頭に無い（実際: ${withoutMutation[0]?.name ?? '(不明)'}）`
+        );
+      }
+
+      const rejectWithoutMutation = MUST_REJECT.filter((testCase) => !declaresMutation(testCase));
+      if (rejectWithoutMutation.length > 0) {
+        failures.push(
+          `変異を宣言しない陽性対照がある（壊し方を注入していない）: ${rejectWithoutMutation.map((testCase) => testCase.name).join(' / ')}`
+        );
+      }
+
+      for (const testCase of [...MUST_REJECT, ...MUST_ACCEPT]) {
+        failures.push(...ineffectiveMutationsOf(testCase));
+      }
+
       return failures;
     },
   },
