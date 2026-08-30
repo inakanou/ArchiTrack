@@ -844,10 +844,10 @@ test.describe('内訳書CRUD操作', () => {
       // これはAPIを2回削除呼び出しする代わりに、DBを直接更新してupdatedAtを変更する方法が必要
       // ここでは、page側で削除リクエストをインターセプトして古いupdatedAtを送信する
       await page.route('**/api/itemized-statements/**', async (route) => {
-        const request = route.request();
-        if (request.method() === 'DELETE') {
+        const routedRequest = route.request();
+        if (routedRequest.method() === 'DELETE') {
           // リクエストボディを改変して古いupdatedAtを送信
-          const postData = request.postDataJSON();
+          const postData = routedRequest.postDataJSON();
           if (postData && postData.updatedAt) {
             // 1秒前のタイムスタンプを送信
             const oldDate = new Date(new Date(detailBody.updatedAt).getTime() - 1000);
@@ -1108,10 +1108,10 @@ test.describe('内訳書CRUD操作', () => {
       const meBody = await meResponse.json();
       const userId = meBody.id;
 
-      const projectName = `一覧表示テスト_${Date.now()}`;
+      const emptyProjectName = `一覧表示テスト_${Date.now()}`;
       const createProjectResponse = await request.post(`${baseUrl}/api/projects`, {
         headers: { Authorization: `Bearer ${accessToken}` },
-        data: { name: projectName, salesPersonId: userId },
+        data: { name: emptyProjectName, salesPersonId: userId },
       });
       const newProject = await createProjectResponse.json();
 

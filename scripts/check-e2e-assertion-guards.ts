@@ -2131,7 +2131,7 @@ function regexAlwaysYields(parts: { pattern: string; flags: string }, needle: st
   if (/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(needle))
     return false;
   return topLevelAlternatives(parts.pattern).every((branch) =>
-    mandatoryLiteralRuns(branch).some((run) => run.includes(needle))
+    mandatoryLiteralRuns(branch).some((literalRun) => literalRun.includes(needle))
   );
 }
 

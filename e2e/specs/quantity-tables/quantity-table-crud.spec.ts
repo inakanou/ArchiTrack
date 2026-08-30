@@ -215,10 +215,10 @@ test.describe('数量表CRUD操作', () => {
 
       // アップロードレスポンスのPromiseを先に作成
       const uploadPromise = page.waitForResponse(
-        (response) =>
-          response.url().includes('/api/site-surveys/') &&
-          response.url().includes('/images') &&
-          response.request().method() === 'POST',
+        (uploadResponse) =>
+          uploadResponse.url().includes('/api/site-surveys/') &&
+          uploadResponse.url().includes('/images') &&
+          uploadResponse.request().method() === 'POST',
         { timeout: getTimeout(60000) }
       );
 

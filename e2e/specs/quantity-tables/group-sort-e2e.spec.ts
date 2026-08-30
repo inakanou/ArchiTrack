@@ -272,10 +272,10 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       const itemRows = firstGroupCard.locator('[data-testid="quantity-item-row"]');
       const itemCount = await itemRows.count();
       for (let i = 0; i < itemCount; i++) {
-        const nameInput = itemRows.nth(i).locator('input[id$="-name"]').first();
-        await expect(nameInput).toBeVisible({ timeout: getTimeout(5000) });
-        await nameInput.fill(`REQ24_item_${i + 1}_${groupNameSuffix}`);
-        await nameInput.blur();
+        const itemNameInput = itemRows.nth(i).locator('input[id$="-name"]').first();
+        await expect(itemNameInput).toBeVisible({ timeout: getTimeout(5000) });
+        await itemNameInput.fill(`REQ24_item_${i + 1}_${groupNameSuffix}`);
+        await itemNameInput.blur();
       }
 
       await saveQuantityTableDraft(page);

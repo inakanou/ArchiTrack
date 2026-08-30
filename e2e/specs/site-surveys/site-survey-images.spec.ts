@@ -103,14 +103,14 @@ interface DragAndDropObservation {
  * 呼び出し元で検証できるようにする（site-survey/REQ-4.11）。
  *
  * @param page - 対象ページ
- * @param sourceIndex - ドラッグ元の写真パネルの位置（0起点）
- * @param targetIndex - ドロップ先の写真パネルの位置（0起点）
+ * @param sourcePanelIndex - ドラッグ元の写真パネルの位置（0起点）
+ * @param targetPanelIndex - ドロップ先の写真パネルの位置（0起点）
  * @returns ドラッグ操作の前提に関する観測結果
  */
 async function reorderPhotoByDragAndDrop(
   page: Page,
-  sourceIndex: number,
-  targetIndex: number
+  sourcePanelIndex: number,
+  targetPanelIndex: number
 ): Promise<DragAndDropObservation> {
   return await page.evaluate(
     ({ sourceIndex, targetIndex }) => {
@@ -155,7 +155,7 @@ async function reorderPhotoByDragAndDrop(
         dropDefaultPrevented,
       };
     },
-    { sourceIndex, targetIndex }
+    { sourceIndex: sourcePanelIndex, targetIndex: targetPanelIndex }
   );
 }
 

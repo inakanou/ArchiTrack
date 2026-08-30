@@ -222,15 +222,19 @@ test.describe('注釈編集画面の受入基準（背景色・吹き出し・�
    * 実際に描画キャンバスへ塗られた結果を数えるため、設定がシリアライズにだけ現れて
    * 描画へ届かない状態（未結線）を検出できる。
    *
-   * @param index 対象注釈の位置
-   * @param hex 数える色（`#rrggbb`）
-   * @param margin 注釈の外形から外側へ広げる論理ピクセル数（吹き出しは外形の外へ描かれる）
+   * @param objectIndex 対象注釈の位置
+   * @param colorHex 数える色（`#rrggbb`）
+   * @param marginPx 注釈の外形から外側へ広げる論理ピクセル数（吹き出しは外形の外へ描かれる）
    *
    * Task 115.184: 数えられなかった事情（描画面が無い／対象の注釈が無い／描画キャンバスが
    * 取れない／領域が潰れている）は負の番兵値で返さず投げる。番兵値は実際の画素数と同じ
    * `number` に同居し、観測の失敗を「そういう値が観測できた」として通してしまうためである。
    */
-  async function countPaintedPixels(index: number, hex: string, margin = 0): Promise<number> {
+  async function countPaintedPixels(
+    objectIndex: number,
+    colorHex: string,
+    marginPx = 0
+  ): Promise<number> {
     return await sharedPage.evaluate(
       ({ index, hex, margin }) => {
         const canvas = (window as unknown as { __fabricCanvas?: ProbeCanvas | null })
@@ -286,7 +290,7 @@ test.describe('注釈編集画面の受入基準（背景色・吹き出し・�
         }
         return count;
       },
-      { index, hex, margin }
+      { index: objectIndex, hex: colorHex, margin: marginPx }
     );
   }
 

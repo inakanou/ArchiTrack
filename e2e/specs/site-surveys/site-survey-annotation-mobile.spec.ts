@@ -1144,16 +1144,16 @@ test.describe('モバイル Viewport 注釈機能', () => {
     // 開閉トグルが働き、属性パネルが閉じて上の母集団が崩れるため、ループ側のガードは外せない）。
     // ループを抜けた時点では別の道具が選択されているので、ここで「選択」を実際にタップし、
     // 「全ツールがタップで選択できる」の網羅に穴を残さない。
-    const selectTool = sharedPage.getByRole('button', {
+    const selectToolButton = sharedPage.getByRole('button', {
       name: TOOL_DEFINITIONS.select.label,
       exact: true,
     });
     expect(
-      await selectTool.getAttribute('aria-pressed'),
+      await selectToolButton.getAttribute('aria-pressed'),
       'ループ後も「選択」が選択状態のままで、タップの網羅を回復できない'
     ).toBe('false');
-    await selectTool.tap();
-    await expect(selectTool).toHaveAttribute('aria-pressed', 'true');
+    await selectToolButton.tap();
+    await expect(selectToolButton).toHaveAttribute('aria-pressed', 'true');
 
     // Req 28.1: ツールバー自体もモバイル幅に収まる
     const toolbarBox = await sharedPage.getByTestId('annotation-toolbar').boundingBox();

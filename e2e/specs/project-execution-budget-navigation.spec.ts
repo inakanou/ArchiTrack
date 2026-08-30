@@ -50,10 +50,10 @@ test.describe('プロジェクト詳細画面 - 実行予算セクション', ()
 
   async function apiRequest(
     page: import('@playwright/test').Page,
-    method: string,
-    path: string,
-    token: string,
-    body?: Record<string, unknown>
+    httpMethod: string,
+    apiPath: string,
+    authToken: string,
+    requestBody?: Record<string, unknown>
   ) {
     return page.evaluate(
       async ({
@@ -80,7 +80,13 @@ test.describe('プロジェクト詳細画面 - 実行予算セクション', ()
         if (method === 'DELETE') return { ok: res.ok };
         return res.json();
       },
-      { apiUrl: API_BASE_URL, method, path, token, body }
+      {
+        apiUrl: API_BASE_URL,
+        method: httpMethod,
+        path: apiPath,
+        token: authToken,
+        body: requestBody,
+      }
     );
   }
 

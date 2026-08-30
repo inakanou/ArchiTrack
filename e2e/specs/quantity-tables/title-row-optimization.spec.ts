@@ -142,10 +142,10 @@ test.describe('タイトル行表示最適化', () => {
       const itemRows = page.getByTestId('quantity-item-row');
       const itemCount = await itemRows.count();
       for (let i = 0; i < itemCount; i++) {
-        const nameInput = itemRows.nth(i).locator('input[id$="-name"]').first();
-        await expect(nameInput).toBeVisible({ timeout: getTimeout(5000) });
-        await nameInput.fill(`タイトル行テスト項目${i + 1}`);
-        await nameInput.blur();
+        const itemNameInput = itemRows.nth(i).locator('input[id$="-name"]').first();
+        await expect(itemNameInput).toBeVisible({ timeout: getTimeout(5000) });
+        await itemNameInput.fill(`タイトル行テスト項目${i + 1}`);
+        await itemNameInput.blur();
       }
 
       // REQ-42.5: 後続テストが再ナビゲートで参照できるよう明示保存して永続化する。
