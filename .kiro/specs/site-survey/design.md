@@ -5698,6 +5698,14 @@ type ContextMenuAction = 'edit' | 'duplicate' | 'delete';
   - 実装は `STYLES.mobileTapTarget`（`minWidth` / `minHeight` を `TAP_TARGET_MIN_PX = 44`）を
     モバイル幅（`useMediaQuery(MEDIA_QUERIES.isMobile)`）でのみ各項目へ重ねる。デスクトップ幅は
     据え置く（条文が対象を「モバイル幅ツールバー」と限っているため）
+    - **据え置くことの根拠は要件定義書（`.kiro/specs/site-survey/requirements.md`）の
+      Requirement 28 に注記として残した**（タスク 115.206 で決着。**受入基準は追加していない**）。
+      当該の注記は、測った寸法（WCAG 2.2 の 2.5.8 は満たし 2.5.5 は満たさないという位置づけ）、
+      限るという判断、粗いポインタ（タッチ対応ラップトップ・タブレットの横向き）という
+      残るリスクと再検討の条件を書き分けている。**据え置きの是非を再び論じる前に当該の注記を
+      読むこと。** なお上の「決着時点の実測」は 115.170 当時の記録であり、デスクトップ幅の現在の寸法は
+      当該の注記が持つ（本節の数値を現在の値として読まないこと。モバイル幅の現在値は
+      `STYLES.mobileTapTarget` が 44x44 の下限を課している）
   - **タップ領域は見た目の寸法そのもので確保する**（擬似要素や重ね合わせで当たり判定だけを
     広げない）。対象の多くが置換要素（`input[type=color|number|checkbox]` / `select`）であり
     `::before` / `::after` が描かれないこと、負のマージンで重ねると隣の項目と当たり判定が
