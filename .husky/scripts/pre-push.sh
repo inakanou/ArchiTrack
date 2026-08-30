@@ -928,6 +928,39 @@ echo "✅ Steering file reference check passed"
 echo ""
 
 # ============================================================================
+# steering が現存物として挙げる識別子が実在しない状態を検知する
+# - 115.169 の検査は「ファイル名」を見るが、ファイル名を伴わない識別子
+#   （部品名・関数名・拡張子なしのモジュール経路）の失効は網に掛からない
+#   （タスク 115.198。実測では tech.md の2箇所が撤去済み ImageViewer を
+#   現存の共有先として挙げていた）
+# - 走査対象は .kiro/steering/*.md のインラインコードのうち、
+#   PascalCase の裸の識別子・受け手なしの呼び出し形・拡張子なしのスラッシュ付き経路
+# ============================================================================
+
+echo "🔍 Checking steering identifier references..."
+npm run check:steering-idents:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Steering identifier detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:steering-idents:selftest"
+  exit 1
+fi
+npm run check:steering-idents
+if [ $? -ne 0 ]; then
+  echo "❌ Steering identifier reference check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 報告された識別子が撤去・改名されていないか確認してください"
+  echo "  2. steering の記載を落とすか、移管先の識別子へ指し直してください"
+  echo ""
+  echo "詳細確認: npm run check:steering-idents:verbose"
+  exit 1
+fi
+
+echo "✅ Steering identifier reference check passed"
+echo ""
+
+# ============================================================================
 # E2E画面内自前判定チェック（E2Eテスト実行の前提条件）
 # ============================================================================
 # 画面の中で本番の判定を自前で書き起こし、その書き起こしへ主張する構造を検知する

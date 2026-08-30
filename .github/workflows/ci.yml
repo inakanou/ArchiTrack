@@ -292,6 +292,29 @@ jobs:
           echo ""
           npm run check:steering-refs
 
+      - name: Check steering identifier detector self-test
+        run: |
+          echo "========================================="
+          echo "Steering Identifier Detector Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Fixtures: scripts/check-steering-identifier-references.selftest.ts"
+          echo ""
+          npm run check:steering-idents:selftest
+
+      - name: Check steering identifier references
+        run: |
+          echo "========================================="
+          echo "Steering Identifier Reference Check"
+          echo "========================================="
+          echo ""
+          echo "The file-name check (115.169) cannot see identifiers written"
+          echo "without a file name (component names, function names, extension-less"
+          echo "module paths). Entries left behind by a removal or rename point"
+          echo "successors at parts that no longer exist."
+          echo ""
+          npm run check:steering-idents
+
   e2e-in-page-selfjudgement:
     name: E2E In-Page Self-Judgement Check
     runs-on: ubuntu-latest
