@@ -315,6 +315,31 @@ jobs:
           echo ""
           npm run check:steering-idents
 
+      - name: Check steering test tree detector self-test
+        run: |
+          echo "========================================="
+          echo "Steering Test Tree Detector Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Fixtures: scripts/check-steering-test-tree.selftest.ts"
+          echo ""
+          npm run check:steering-test-tree:selftest
+
+      - name: Check steering test tree enumeration
+        run: |
+          echo "========================================="
+          echo "Steering Test Tree Check"
+          echo "========================================="
+          echo ""
+          echo "The existing steering checks only verify that what is listed"
+          echo "exists. They cannot see the opposite drift: a real test"
+          echo "directory that steering never mentions. This check compares"
+          echo "each marked enumeration against the directories that actually"
+          echo "hold tests, in both directions, and forbids test counts that"
+          echo "cannot be verified without running the whole suite."
+          echo ""
+          npm run check:steering-test-tree
+
   e2e-in-page-selfjudgement:
     name: E2E In-Page Self-Judgement Check
     runs-on: ubuntu-latest

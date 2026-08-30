@@ -2,7 +2,9 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-08-30（Steering Sync: タスク 115.199。実在検査の拡張子の絞りを撤去したことで露わになった失効を是正（`.github/workflows/e2e-tests.yml` は存在せず、E2E は `.github/workflows/ci.yml` の `Integration & E2E Tests` ジョブで走る）。散文中の `e2e/helpers/browser.js` も実体の `browser.ts` へ是正し、起動を `npx tsx` へ改めた（散文は検査の対象外であり、この一件は手で是正した））_
+_最終更新: 2026-08-30（Steering Sync: タスク 115.200。テスト区分の列挙を「網羅」と「代表例」へ書き分け、網羅側だけを印（`<!-- steering:test-dirs <根> -->`）で囲んで `npm run check:steering-test-tree` の検査対象にした。`backend/src/__tests__/`（`unit/` と `integration/`）、`backend/src/__tests__/unit/`（11区分。従来は6区分しか挙げておらず `docs/`／`models/`／`schemas/`／`scripts/`／`types/` が欠落）、`frontend/src/__tests__/`（13区分。従来は2区分）を網羅へ是正。E2Eカテゴリの網羅列挙は `structure.md` の `e2e/` 節へ一本化した。テストの件数・テストファイル数は steering から撤去し、数える手段だけを残した（実測: 3文書に散った数値59個のうち38個が既に陳腐化していた））_
+
+_2026-08-30（Steering Sync: タスク 115.199。実在検査の拡張子の絞りを撤去したことで露わになった失効を是正（`.github/workflows/e2e-tests.yml` は存在せず、E2E は `.github/workflows/ci.yml` の `Integration & E2E Tests` ジョブで走る）。散文中の `e2e/helpers/browser.js` も実体の `browser.ts` へ是正し、起動を `npx tsx` へ改めた（散文は検査の対象外であり、この一件は手で是正した））_
 
 _2026-08-28（Steering Sync: タスク 115.169。ビューポート制御・two-layer 構成の共有先を実測へ是正（撤去済みの `ImageViewer` ではなく `AnnotationEditor`（閲覧モードは `readOnly` 描画）と `ConstructionPhotoImageViewer`）。`env-validator.test.ts` を `unit/config/env.test.ts` へ、ログアーカイブのテスト件数を実測 15 へ是正。記載ファイルの実在は `npm run check:steering-refs` が検知する）_
 
@@ -311,43 +313,70 @@ coverage: {
 ```
 
 **テスト構成:**
-- `backend/src/__tests__/` - テストファイル配置
-  - `unit/errors/` - エラークラステスト（21テスト）
-    - `ApiError.test.ts` - カスタムAPIエラークラスのテスト
-  - `unit/middleware/` - ミドルウェアテスト（91テスト）
-    - `errorHandler.test.ts` - エラーハンドリングミドルウェア（Zod、Prisma、一般エラー）
-    - `httpsRedirect.test.ts` - HTTPS強制リダイレクトとHSTSヘッダー
-    - `validate.test.ts` - Zodバリデーションミドルウェア（body/query/params）
-    - `authenticate.middleware.test.ts` - JWT認証ミドルウェア（10テスト）
-    - `authorize.middleware.test.ts` - 権限チェックミドルウェア（13テスト）
-    - `RedisRateLimitStore.test.ts` - Redisレート制限ストア（14テスト、カバレッジ100%）
-    - `rateLimit.test.ts` - レート制限ミドルウェア（3テスト）
-    - `logger.test.ts` - HTTPロガーミドルウェア（17テスト）
-  - `unit/routes/` - ルートテスト（23テスト）
-    - `admin.routes.test.ts` - 管理者用ルート（ログレベル動的変更）
-    - `jwks.routes.test.ts` - JWKS公開鍵配信エンドポイント（8テスト、カバレッジ100%）
-  - `unit/services/` - サービステスト（324テスト）
-    - `auth.service.test.ts` - 認証統合サービス（24テスト）
-    - `token.service.test.ts` - JWTトークン管理（EdDSA署名、18テスト）
-    - `session.service.test.ts` - セッション管理（19テスト）
-    - `invitation.service.test.ts` - 招待制登録（16テスト）
-    - `password.service.test.ts` - パスワード管理（35テスト）
-    - `two-factor.service.test.ts` - 2FA管理（TOTP + バックアップコード）
-    - `role.service.test.ts` - ロール管理（23テスト）
-    - `permission.service.test.ts` - 権限管理（23テスト）
-    - `role-permission.service.test.ts` - ロール権限紐付け（24テスト）
-    - `user-role.service.test.ts` - ユーザーロール管理（27テスト）
-    - `rbac.service.test.ts` - RBAC統合サービス（21テスト）
-    - `audit-log.service.test.ts` - 監査ログ（35テスト）
-    - `audit-log-archive.service.test.ts` - ログアーカイブ（15テスト）
-    - `email.service.test.ts` - メール送信（Bull非同期キュー、14テスト）
-  - `unit/utils/` - ユーティリティテスト（14テスト）
-    - `sentry.test.ts` - Sentryユーティリティ（カバレッジ94.11%）
-  - `unit/config/` - 設定テスト
-    - `env.test.ts` - 環境変数バリデーション（31テスト）
+
+テストは `backend/src/__tests__/` 以下に置く。**区分（ディレクトリ）の列挙は網羅**であり、
+実体との一致は `npm run check:steering-test-tree` が検査する（印で囲まれていない列挙は代表例）。
+
+<!-- steering:test-dirs backend/src/__tests__ -->
+- `unit/` - 単体テスト（外部依存はモック。既定の `test:unit` が走らせる範囲）
+- `integration/` - 統合テスト（PostgreSQL・Redis を実際に起動して確かめる）
+<!-- /steering:test-dirs -->
+
+<!-- steering:test-dirs backend/src/__tests__/unit -->
+- `unit/config/` - 設定テスト（環境変数バリデーション、ストレージ設定、セキュリティ定数）
+- `unit/docs/` - OpenAPI 仕様生成のテスト
+- `unit/errors/` - カスタムエラークラスのテスト（機能ごとのエラー型を含む）
+- `unit/middleware/` - ミドルウェアのテスト（認証、認可、検証、CSRF、レート制限、ロガー、アップロード）
+- `unit/models/` - Prisma のモデル・マイグレーションのテスト
+- `unit/routes/` - ルートのテスト（supertest で HTTP 経路を通す）
+- `unit/schemas/` - Zod バリデーションスキーマのテスト
+- `unit/scripts/` - 運用スクリプトのテスト（バックフィル、鍵生成）
+- `unit/services/` - サービス層のテスト
+- `unit/types/` - 型定義まわりのテスト
+- `unit/utils/` - ユーティリティのテスト
+<!-- /steering:test-dirs -->
+
+`unit/` 直下には、どの区分にも属さないテストもある。
+
+- `unit/app.test.ts` - Express アプリケーション
+- `unit/health.test.ts` - ヘルスチェック
+
+**代表例**（網羅ではない。全件は各区分のディレクトリを見ること）:
+
+- `unit/errors/ApiError.test.ts` - カスタムAPIエラークラス
+- `unit/middleware/errorHandler.test.ts` - エラーハンドリング（Zod、Prisma、一般エラー）
+- `unit/middleware/httpsRedirect.test.ts` - HTTPS強制リダイレクトとHSTSヘッダー
+- `unit/middleware/validate.test.ts` - Zodバリデーション（body/query/params）
+- `unit/middleware/authenticate.middleware.test.ts` - JWT認証ミドルウェア
+- `unit/middleware/authorize.middleware.test.ts` - 権限チェックミドルウェア
+- `unit/middleware/RedisRateLimitStore.test.ts` - Redisレート制限ストア（カバレッジ100%）
+- `unit/middleware/rateLimit.test.ts` - レート制限ミドルウェア
+- `unit/middleware/logger.test.ts` - HTTPロガーミドルウェア
+- `unit/routes/admin.routes.test.ts` - 管理者用ルート（ログレベル動的変更）
+- `unit/routes/jwks.routes.test.ts` - JWKS公開鍵配信エンドポイント（カバレッジ100%）
+- `unit/services/auth.service.test.ts` - 認証統合サービス
+- `unit/services/token.service.test.ts` - JWTトークン管理（EdDSA署名）
+- `unit/services/session.service.test.ts` - セッション管理
+- `unit/services/invitation.service.test.ts` - 招待制登録
+- `unit/services/password.service.test.ts` - パスワード管理
+- `unit/services/two-factor.service.test.ts` - 2FA管理（TOTP + バックアップコード）
+- `unit/services/role.service.test.ts` - ロール管理
+- `unit/services/permission.service.test.ts` - 権限管理
+- `unit/services/role-permission.service.test.ts` - ロール権限紐付け
+- `unit/services/user-role.service.test.ts` - ユーザーロール管理
+- `unit/services/rbac.service.test.ts` - RBAC統合サービス
+- `unit/services/audit-log.service.test.ts` - 監査ログ
+- `unit/services/audit-log-archive.service.test.ts` - ログアーカイブ
+- `unit/services/email.service.test.ts` - メール送信（Bull非同期キュー）
+- `unit/services/project.service.test.ts` - プロジェクト管理
+- `unit/services/project-status.service.test.ts` - プロジェクトステータス遷移
+- `unit/utils/sentry.test.ts` - Sentryユーティリティ（カバレッジ94.11%）
+- `unit/config/env.test.ts` - 環境変数バリデーション
 - `backend/src/app.ts` - テスト用にindex.tsから分離したExpressアプリ
 
-**テスト合計:** 単体テスト167ファイル + 統合テスト31ファイル
+**件数について:** steering にテストの件数・ファイル数は書かない。数える手段だけを書く
+（`npm --prefix backend run test` の出力が唯一の正確な件数である）。件数を書くと
+記録した瞬間から陳腐化し、しかも正しい数と古い数が見た目で区別できなくなる（タスク 115.200）。
 
 **実行方法:**
 ```bash
@@ -386,11 +415,38 @@ npm --prefix backend run coverage:check  # カバレッジギャップ検出（0
 - `frontend/vitest.setup.ts` - @testing-library/jest-dom グローバルセットアップ
 
 **テスト構成:**
-- `frontend/src/__tests__/` - テストファイル配置
-  - `api/` - APIクライアントテスト
-    - `client.test.ts` - APIクライアント（fetch、エラーハンドリング）
-  - `components/` - Reactコンポーネントテスト
-    - `ErrorBoundary.test.tsx` - エラーバウンダリコンポーネント
+
+frontend のテストは二方式が併存する。`frontend/src/__tests__/` にまとめる方式と、
+対象の隣へ併置する方式（`components/quantity-table/*.test.tsx` など）である。
+**`frontend/src/__tests__/` 直下の区分の列挙は網羅**であり、`npm run check:steering-test-tree`
+が実体との一致を検査する（併置分は対象外。印で囲まれていない列挙は代表例）。
+
+<!-- steering:test-dirs frontend/src/__tests__ -->
+- `accessibility/` - アクセシビリティテスト
+- `api/` - APIクライアントテスト
+- `components/` - Reactコンポーネントテスト
+- `contexts/` - Context Provider のテスト
+- `hooks/` - カスタムフックのテスト
+- `integration/` - 画面をまたぐ結合テスト
+- `pages/` - ページコンポーネントのテスト
+- `performance/` - 描画性能のテスト
+- `routes/` - ルーティングのテスト
+- `services/` - サービス層のテスト
+- `site-surveys/` - 現場調査機能のテスト
+- `types/` - 型定義まわりのテスト
+- `utils/` - ユーティリティのテスト
+<!-- /steering:test-dirs -->
+
+`__tests__/helpers/` はテスト補助であってテストを含まないため、上の区分には入らない。
+`__tests__/` 直下には、どの区分にも属さないテストもある。
+
+- `__tests__/App.test.tsx` - ルートコンポーネント
+- `__tests__/formatters.test.ts` - 表示整形ユーティリティ
+
+**代表例**（網羅ではない）:
+
+- `__tests__/api/client.test.ts` - APIクライアント（fetch、エラーハンドリング）
+- `__tests__/components/ErrorBoundary.test.tsx` - エラーバウンダリコンポーネント
 
 **実行方法:**
 ```bash
@@ -405,7 +461,7 @@ npm --prefix frontend run coverage:check  # カバレッジギャップ検出（
 - APIクライアントテスト（client.test.ts）
 - Reactコンポーネントテスト（ErrorBoundary.test.tsx、LoginForm.test.tsx、RegisterForm.test.tsx等）
 - 認証フローテスト、フォームバリデーションテスト（パスワード複雑性含む）
-- 合計: 339テストファイル（包括的なユニットテスト群）
+- 件数は `npm --prefix frontend run test` の出力で数える（steering には書かない）
 
 **型安全性のベストプラクティス:**
 - `global.fetch` → `globalThis.fetch`: ブラウザ環境の適切な名前空間を使用
@@ -455,21 +511,21 @@ npm --prefix frontend run coverage:check  # カバレッジギャップ検出（
 
 ### テストカテゴリ
 
-- `e2e/specs/api/` - APIエンドポイントのテスト（ヘルスチェック、JWKS）
-- `e2e/specs/ui/` - UIコンポーネントとページのテスト
-- `e2e/specs/integration/` - システム統合テスト
-- `e2e/specs/auth/` - 認証フローテスト（ログイン、登録、2FA、パスワードリセット、招待）
-- `e2e/specs/admin/` - 管理機能テスト（ロール管理、権限管理、RBAC等）
-- `e2e/specs/security/` - セキュリティテスト（CSRF、XSS対策等）
-- `e2e/specs/navigation/` - ナビゲーションテスト（AppHeader、メニュー表示等）
-- `e2e/specs/projects/` - プロジェクト管理テスト（CRUD、ステータス遷移、一覧操作等）
-- `e2e/specs/performance/` - パフォーマンステスト（ページロード時間、プロジェクト操作）
-- `e2e/helpers/` - テストヘルパー・ユーティリティ
-  - `wait-helpers.ts` - CI環境対応の待機ヘルパー（`getTimeout()`パターン）
-  - `auth-actions.ts` - 認証アクション（ログイン、ログアウト、2FA）
-  - `browser.ts` - Claude Code統合ブラウザ操作
-  - `test-users.ts` - テストユーザー定義
-  - `screenshot.ts` - スクリーンショットヘルパー
+`e2e/specs/` のカテゴリ（ディレクトリ）の**網羅列挙は `.kiro/steering/structure.md` の
+`e2e/` 節「テストカテゴリ」にある**。網羅の権威は根ごとに一箇所だけに置く規約であり、
+二箇所に置くと互いに食い違う（`npm run check:steering-test-tree` が重複を失敗にする）。
+
+`e2e/specs/` 直下には、どのカテゴリにも属さない機能横断のスペックも数件ある
+（例: `project-execution-budget-navigation.spec.ts`）。
+
+**テストヘルパーの代表例**（網羅ではない。全件は `e2e/helpers/` を見ること）:
+
+- `wait-helpers.ts` - CI環境対応の待機ヘルパー（`getTimeout()`パターン）
+- `auth-actions.ts` - 認証アクション（ログイン、ログアウト、2FA）
+- `browser.ts` - Claude Code統合ブラウザ操作
+- `test-users.ts` - テストユーザー定義
+- `screenshot.ts` - スクリーンショットヘルパー
+- `preconditions.ts` - 事前条件の生成（各機能の `*-preconditions.ts` が実体を持つ）
 
 ### タイムスタンプ機能
 

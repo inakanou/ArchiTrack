@@ -2,7 +2,9 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-08-30（Steering Sync: タスク 115.199。実在検査の拡張子の絞りを撤去したことで露わになった失効を是正（`App.jsx`／`main.jsx` は実体が `.tsx`、`vite.config.js` は `vite.config.ts`）。「特殊ファイル」は規則の**例示**であって現存の主張ではないため、一般規則と同じくラベルを前置した形へ揃え、拡張子も実態（`index.ts`／`*.test.ts`／`*.spec.ts`）へ是正。同じ理由でE2E/Storybookの命名規則の例示もラベル前置へ揃えた。散文の `errors/ApiError.ts` は実体が `errors/apiError.ts` で大小文字が食い違っていたため是正）_
+_最終更新: 2026-08-30（Steering Sync: タスク 115.200。`e2e/specs/` のテストカテゴリを網羅列挙へ是正し（20区分。従来は19区分で `execution-budget/` が欠落）、印で囲んで `npm run check:steering-test-tree` の検査対象にした。ディレクトリツリーの図は代表例である旨を明記して網羅の重複を解消（backend のテスト木は tech.md、frontend のテスト木も tech.md が権威）。「テスト区分の列挙の規約」節を新設。テストの件数・テストファイル数は撤去し、数える手段だけを残した）_
+
+_2026-08-30（Steering Sync: タスク 115.199。実在検査の拡張子の絞りを撤去したことで露わになった失効を是正（`App.jsx`／`main.jsx` は実体が `.tsx`、`vite.config.js` は `vite.config.ts`）。「特殊ファイル」は規則の**例示**であって現存の主張ではないため、一般規則と同じくラベルを前置した形へ揃え、拡張子も実態（`index.ts`／`*.test.ts`／`*.spec.ts`）へ是正。同じ理由でE2E/Storybookの命名規則の例示もラベル前置へ揃えた。散文の `errors/ApiError.ts` は実体が `errors/apiError.ts` で大小文字が食い違っていたため是正）_
 
 _2026-08-28（Steering Sync: タスク 115.169。撤去・改名に追随していなかった記載を是正（`ImageViewer.tsx`／`ImageViewer.stories.tsx` は 115.146、`LazyImage.tsx`／`LazyImage.stories.tsx` は 112.1 で撤去。`archive.service.test.ts` は `audit-log-archive.service.test.ts` へ改名、`env-validator.test.ts` は `unit/config/env.test.ts` へ移動・改名）。再発は `npm run check:steering-refs` が検知する）_
 
@@ -46,12 +48,10 @@ ArchiTrack/
 │   │   └── structure.md    # プロジェクト構造
 │   └── specs/              # 機能仕様（動的生成）
 ├── e2e/                    # E2Eテスト（Playwright）
-│   ├── specs/              # テスト仕様（カテゴリ分け）
+│   ├── specs/              # テスト仕様（カテゴリ別ディレクトリ。以下は代表例）
 │   │   ├── api/            # APIエンドポイントテスト
-│   │   ├── ui/             # UIコンポーネントテスト
-│   │   ├── integration/    # システム統合テスト
 │   │   ├── auth/           # 認証フローテスト
-│   │   └── performance/    # パフォーマンステスト
+│   │   └── （他のカテゴリは e2e/ 節「テストカテゴリ」に網羅列挙）
 │   ├── helpers/            # テストヘルパー・ユーティリティ
 │   │   ├── wait-helpers.ts # CI環境対応の待機ヘルパー
 │   │   ├── auth-actions.ts # 認証アクション（ログイン、ログアウト）
@@ -288,45 +288,15 @@ Playwright E2Eテスト環境。Claude Codeから直接ブラウザ操作が可�
 
 ```
 e2e/
-├── specs/                 # テスト仕様（カテゴリ分け）
+├── specs/                 # テスト仕様（カテゴリ別ディレクトリ。以下は代表例）
 │   ├── api/              # APIエンドポイントテスト
 │   │   └── *.spec.ts
-│   ├── ui/               # UIコンポーネント・ページテスト
-│   │   └── *.spec.ts
-│   ├── auth/             # 認証フローテスト
-│   │   └── *.spec.ts
-│   ├── admin/            # 管理機能テスト
-│   │   └── *.spec.ts
-│   ├── integration/      # システム統合テスト
-│   │   └── *.spec.ts
-│   ├── performance/      # パフォーマンステスト
-│   │   └── *.spec.ts
-│   ├── security/         # セキュリティテスト
-│   │   └── *.spec.ts
-│   ├── navigation/       # ナビゲーションテスト
-│   │   └── *.spec.ts
-│   ├── projects/         # プロジェクト管理テスト
-│   │   └── *.spec.ts
-│   ├── trading-partners/ # 取引先管理テスト
-│   │   └── *.spec.ts
-│   ├── site-surveys/     # 現場調査テスト（12ファイル）
-│   │   └── *.spec.ts
-│   ├── construction-photos/ # 工事写真台帳テスト（workflow・additional）
+│   ├── site-surveys/     # 現場調査テスト
 │   │   └── *.spec.ts
 │   ├── quantity-tables/  # 数量表テスト
 │   │   └── *.spec.ts
-│   ├── itemized-statements/  # 内訳書テスト
-│   │   └── *.spec.ts
-│   ├── estimate-requests/  # 見積依頼テスト
-│   │   └── *.spec.ts
-│   ├── company-info/       # 自社情報テスト
-│   │   └── *.spec.ts
-│   ├── estimate/           # 見積書テスト
-│   │   └── *.spec.ts
-│   ├── contracts/          # 契約書テスト
-│   │   └── *.spec.ts
-│   └── schedules/          # 工程表テスト
-│       └── *.spec.ts
+│   ├── （他のカテゴリは下記「テストカテゴリ」に網羅列挙）
+│   └── *.spec.ts         # カテゴリに属さない機能横断のスペック
 ├── helpers/              # テストヘルパー・ユーティリティ
 │   ├── wait-helpers.ts   # CI環境対応の待機ヘルパー
 │   ├── auth-actions.ts   # 認証アクション（ログイン、ログアウト）
@@ -342,25 +312,35 @@ e2e/
 
 **テストカテゴリ:**
 
-- `api/` - バックエンドAPIエンドポイントのテスト（ヘルスチェック、JWKS等）
-- `ui/` - フロントエンドUI要素のテスト（コンポーネント表示、ユーザー操作等）
-- `auth/` - 認証フローのE2Eテスト（ログイン、登録、2FA、セッション、セッション期限切れモーダル、招待、パスワードリセット等）
+以下は `e2e/specs/` 直下の**網羅列挙**である（`npm run check:steering-test-tree` が実体との
+一致を検査する。`e2e/specs/` の網羅の権威はここ一箇所だけに置く）。
+
+<!-- steering:test-dirs e2e/specs -->
 - `admin/` - 管理機能テスト（ロール管理、権限管理、RBAC等）
-- `integration/` - システム全体の統合テスト（データベース、Redis、サービス連携等）
-- `performance/` - パフォーマンステスト（ページロード時間、プロジェクト操作のパフォーマンス等）
-- `security/` - セキュリティテスト（CSRF、XSS対策等）
-- `navigation/` - ナビゲーションテスト（AppHeader、メニュー表示等）
-- `projects/` - プロジェクト管理テスト（CRUD、ステータス遷移、一覧操作、アクセシビリティ等）
-- `trading-partners/` - 取引先管理テスト（CRUD、検索・フィルタリング、ナビゲーション、パフォーマンス等）
-- `site-surveys/` - 現場調査テスト（12ファイル: CRUD、一覧、ナビゲーション、画像管理、注釈ツール、ビューア、アクセス制御、レスポンシブ、パフォーマンス、エクスポート、注釈、phase18追加機能）
-- `quantity-tables/` - 数量表テスト（CRUD操作、フィールド仕様、数量表コピー、タイトル行最適化、フォーカス全選択、オートコンプリート最適化、インポート機能）
-- `itemized-statements/` - 内訳書テスト（CRUD操作、ピボット集計、ソート・フィルタリング）
-- `estimate-requests/` - 見積依頼テスト（CRUD操作、項目選択、見積依頼文生成、Excel出力、受領見積書、OCR構造化データ、OCR再実行/リトライ、PDFテキスト抽出、数値表示形式、受領見積書ステータス）
+- `api/` - バックエンドAPIエンドポイントのテスト（ヘルスチェック、JWKS等）
+- `auth/` - 認証フローのE2Eテスト（ログイン、登録、2FA、セッション、セッション期限切れモーダル、招待、パスワードリセット等）
 - `company-info/` - 自社情報テスト（CRUD、アクセス制御、楽観的排他制御）
-- `estimate/` - 見積書テスト（CRUD、階層構造、受領見積書転記、NET金額案分）
+- `construction-photos/` - 工事写真台帳テスト（アルバム、写真登録、看板合成）
 - `contracts/` - 契約書テスト（CRUD操作、新規契約・変更契約、金額自動計算、比較表示、ステータス管理）
+- `estimate/` - 見積書テスト（CRUD、階層構造、受領見積書転記、NET金額案分）
+- `estimate-requests/` - 見積依頼テスト（CRUD操作、項目選択、見積依頼文生成、Excel出力、受領見積書、OCR構造化データ、OCR再実行/リトライ、PDFテキスト抽出、数値表示形式、受領見積書ステータス）
+- `execution-budget/` - 実行予算テスト（予算作成、原価入力、月次締め、実行予算比較）
+- `integration/` - システム全体の統合テスト（データベース、Redis、サービス連携等）
+- `itemized-statements/` - 内訳書テスト（CRUD操作、ピボット集計、ソート・フィルタリング）
+- `navigation/` - ナビゲーションテスト（AppHeader、メニュー表示等）
+- `performance/` - パフォーマンステスト（ページロード時間、プロジェクト操作のパフォーマンス等）
+- `projects/` - プロジェクト管理テスト（CRUD、ステータス遷移、一覧操作、アクセシビリティ等）
+- `quantity-tables/` - 数量表テスト（CRUD操作、フィールド仕様、数量表コピー、タイトル行最適化、フォーカス全選択、オートコンプリート最適化、インポート機能）
 - `schedules/` - 工程表テスト（CRUD操作、ガントチャート表示、エクスポート）
-- `project-execution-budget-navigation.spec.ts` - 実行予算ナビゲーションテスト（ルートレベル配置）
+- `security/` - セキュリティテスト（CSRF、XSS対策等）
+- `site-surveys/` - 現場調査テスト（CRUD、一覧、ナビゲーション、画像管理、注釈ツール、ビューア、アクセス制御、レスポンシブ、パフォーマンス、エクスポート、サムネイル再生成等）
+- `trading-partners/` - 取引先管理テスト（CRUD、検索・フィルタリング、ナビゲーション、パフォーマンス等）
+- `ui/` - フロントエンドUI要素のテスト（コンポーネント表示、ユーザー操作等）
+<!-- /steering:test-dirs -->
+
+カテゴリに属さず `e2e/specs/` 直下に置かれた機能横断のスペックもある（代表例）。
+
+- `project-execution-budget-navigation.spec.ts` - 実行予算ナビゲーションテスト
 
 **テストヘルパー:**
 
@@ -406,7 +386,7 @@ frontend/
 │   ├── preview.ts         # グローバルパラメータ・デコレータ
 │   └── test-runner.ts     # test-runner設定（外部URLモック）
 ├── src/
-│   ├── __tests__/         # 単体テスト
+│   ├── __tests__/         # 単体テスト（以下は代表例。区分の網羅列挙は tech.md「テスト構成」）
 │   │   ├── api/           # APIクライアントテスト
 │   │   │   └── client.test.ts  # APIクライアントテスト（fetch、エラーハンドリング）
 │   │   └── components/    # Reactコンポーネントテスト
@@ -849,43 +829,44 @@ backend/
 ├── prisma/
 │   └── schema.prisma      # Prismaスキーマ定義（データモデル、マイグレーション）
 ├── src/
-│   ├── __tests__/         # 単体テスト（ブランチカバレッジ80%達成✅）
-│   │   └── unit/          # ユニットテスト（167テストファイル）
+│   ├── __tests__/         # テスト（ブランチカバレッジ80%達成✅）
+│   │   ├── integration/   # 統合テスト（PostgreSQL・Redisを実起動）
+│   │   └── unit/          # 単体テスト（以下は代表例。区分の網羅列挙は tech.md「テスト構成」）
 │   │       ├── errors/    # エラークラステスト
 │   │       │   └── ApiError.test.ts  # カスタムAPIエラークラス
 │   │       ├── middleware/  # ミドルウェアテスト
 │   │       │   ├── errorHandler.test.ts        # エラーハンドリング（Zod、Prisma、一般エラー）
 │   │       │   ├── httpsRedirect.test.ts       # HTTPS強制とHSTSヘッダー
 │   │       │   ├── validate.test.ts            # Zodバリデーション（body/query/params）
-│   │       │   ├── authenticate.middleware.test.ts # JWT認証ミドルウェア（10テスト）
-│   │       │   ├── authorize.middleware.test.ts    # 権限チェックミドルウェア（13テスト）
-│   │       │   ├── RedisRateLimitStore.test.ts # Redisレート制限ストア（14テスト）
-│   │       │   ├── rateLimit.test.ts           # レート制限ミドルウェア（3テスト）
-│   │       │   └── logger.test.ts              # HTTPロガーミドルウェア（17テスト）
+│   │       │   ├── authenticate.middleware.test.ts # JWT認証ミドルウェア
+│   │       │   ├── authorize.middleware.test.ts    # 権限チェックミドルウェア
+│   │       │   ├── RedisRateLimitStore.test.ts # Redisレート制限ストア
+│   │       │   ├── rateLimit.test.ts           # レート制限ミドルウェア
+│   │       │   └── logger.test.ts              # HTTPロガーミドルウェア
 │   │       ├── routes/    # ルートテスト
 │   │       │   ├── admin.routes.test.ts  # 管理者ルート（ログレベル動的変更）
-│   │       │   └── jwks.routes.test.ts   # JWKS公開鍵配信（8テスト）
-│   │       ├── services/  # サービステスト（324テスト）
-│   │       │   ├── auth.service.test.ts  # 認証統合（24テスト）
-│   │       │   ├── token.service.test.ts # JWTトークン管理（EdDSA、18テスト）
-│   │       │   ├── session.service.test.ts # セッション管理（19テスト）
-│   │       │   ├── invitation.service.test.ts # 招待制登録（16テスト）
-│   │       │   ├── password.service.test.ts # パスワード管理（35テスト）
+│   │       │   └── jwks.routes.test.ts   # JWKS公開鍵配信
+│   │       ├── services/  # サービステスト
+│   │       │   ├── auth.service.test.ts  # 認証統合
+│   │       │   ├── token.service.test.ts # JWTトークン管理（EdDSA署名）
+│   │       │   ├── session.service.test.ts # セッション管理
+│   │       │   ├── invitation.service.test.ts # 招待制登録
+│   │       │   ├── password.service.test.ts # パスワード管理
 │   │       │   ├── two-factor.service.test.ts # 2FA管理（TOTP + バックアップコード）
-│   │       │   ├── role.service.test.ts # ロール管理（23テスト）
-│   │       │   ├── permission.service.test.ts # 権限管理（23テスト）
-│   │       │   ├── role-permission.service.test.ts # ロール権限紐付け（24テスト）
-│   │       │   ├── user-role.service.test.ts # ユーザーロール管理（27テスト）
-│   │       │   ├── rbac.service.test.ts # RBAC統合（21テスト）
-│   │       │   ├── audit-log.service.test.ts # 監査ログ（35テスト）
-│   │       │   ├── audit-log-archive.service.test.ts # ログアーカイブ（15テスト）
-│   │       │   ├── email.service.test.ts # メール送信（Bull、14テスト）
+│   │       │   ├── role.service.test.ts # ロール管理
+│   │       │   ├── permission.service.test.ts # 権限管理
+│   │       │   ├── role-permission.service.test.ts # ロール権限紐付け
+│   │       │   ├── user-role.service.test.ts # ユーザーロール管理
+│   │       │   ├── rbac.service.test.ts # RBAC統合
+│   │       │   ├── audit-log.service.test.ts # 監査ログ
+│   │       │   ├── audit-log-archive.service.test.ts # ログアーカイブ
+│   │       │   ├── email.service.test.ts # メール送信（Bull非同期キュー）
 │   │       │   ├── project.service.test.ts # プロジェクト管理
 │   │       │   └── project-status.service.test.ts # プロジェクトステータス遷移
 │   │       ├── utils/     # ユーティリティテスト
-│   │       │   └── sentry.test.ts  # Sentryエラートラッキング（13テスト）
+│   │       │   └── sentry.test.ts  # Sentryエラートラッキング
 │   │       └── config/    # 設定テスト
-│   │           └── env.test.ts     # 環境変数バリデーション（31テスト）
+│   │           └── env.test.ts     # 環境変数バリデーション
 │   ├── errors/            # カスタムエラー定義（17ファイル）
 │   │   ├── apiError.ts    # 汎用APIエラークラス
 │   │   ├── projectError.ts # プロジェクト関連エラー
@@ -1434,6 +1415,32 @@ ArchiTrackでは、環境ごとにDocker Composeファイルを分離し、柔�
 - **ストーリー**: `frontend/src/components/*.stories.tsx`（例: `ErrorBoundary.stories.tsx`）
 - **形式**: CSF 3.0（Component Story Format 3.0）で記述
 
+### テスト区分の列挙の規約
+
+steering の列挙は既定で**代表例**である。網羅を主張する列挙だけを、次の三行の形で囲む。
+
+- **開始印**: `<!-- steering:test-dirs <リポジトリ相対の根> -->`
+- **項目**: 行頭を逆引用符で始める箇条書きで、根の直下の名前を `config/` のように書く
+  （読みやすさのため根の名前を一段だけ前置してもよい。例: `unit/config/`）
+- **終了印**: `<!-- /steering:test-dirs -->`
+
+並べると次の形になる（この囲みはコードフェンスの中にあるため、検査は宣言として数えない）。
+
+```
+<!-- steering:test-dirs backend/src/__tests__/unit -->
+（根の直下の区分を、逆引用符付きの箇条書きで並べる）
+<!-- /steering:test-dirs -->
+```
+
+- 印で囲まれた列挙は、その根の直下でテストを含むディレクトリと**過不足なく一致**していなければ
+  ならない。`npm run check:steering-test-tree` が両方向（挙げすぎ・挙げ足りない）を検査する。
+- 印で囲まれていないディレクトリツリーや箇条書きは代表例であり、抜けがあってよい。
+  網羅と紛れないよう「以下は代表例」と書き添える。
+- **網羅の権威は根ごとに一箇所だけ**に置く。同じ根の宣言が二箇所にあると検査が失敗する。
+- **テストの件数・テストファイル数は steering に書かない。** 数える手段（`npm --prefix backend run test`
+  など）を書く。是正時に実測したところ、書かれていた数値 59 個のうち 38 個が既に食い違っており、
+  残る 21 個の正しい数値と見た目で区別できなかった（タスク 115.200）。
+
 ## インポート構成
 
 ### インポート順序
@@ -1611,8 +1618,8 @@ refactor: improve type safety by eliminating any types
 - Statements: 89.46%
 - Functions: 93.43%
 - Lines: 89.42%
-- Backend: 単体テスト167ファイル + 統合テスト31ファイル
-- Frontend: 単体テスト339ファイル
+- 件数は `npm --prefix backend run test` / `npm --prefix frontend run test` の出力で数える
+  （steering にはテストの件数・ファイル数を書かない。タスク 115.200）
 
 ### .gitignore
 

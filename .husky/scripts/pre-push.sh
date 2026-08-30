@@ -961,6 +961,41 @@ echo "✅ Steering identifier reference check passed"
 echo ""
 
 # ============================================================================
+# steering のテスト区分の列挙が実体とずれた状態を検知する
+# - 115.169 / 115.198 / 115.199 の検査はいずれも「挙げたものが実在するか」を見る。
+#   「挙げていないものがある」＝過小の側はどれも見ていなかった
+#   （タスク 115.200。tech.md の unit/utils/ は 8ファイル中1件しか挙げていなかった）
+# - 印（<!-- steering:test-dirs <根> -->）で囲まれた列挙だけを網羅と見なし、
+#   その根の直下でテストを含むディレクトリ集合と過不足なく一致することを要求する
+# - あわせて、steering にテストの件数・テストファイル数を書かない規約を強制する
+#   （是正前の実データは数値59個のうち38個が既に陳腐化していた）
+# ============================================================================
+
+echo "🔍 Checking steering test tree enumeration..."
+npm run check:steering-test-tree:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Steering test tree detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:steering-test-tree:selftest"
+  exit 1
+fi
+npm run check:steering-test-tree
+if [ $? -ne 0 ]; then
+  echo "❌ Steering test tree check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 網羅宣言（印で囲んだ列挙）の中身を実体へ揃えてください"
+  echo "  2. 件数の指摘は数値を落とし、数える手段（npm --prefix backend run test 等）を書いてください"
+  echo "  3. 網羅を主張しない列挙は印で囲まず「代表例」と明記してください"
+  echo ""
+  echo "詳細確認: npm run check:steering-test-tree:verbose"
+  exit 1
+fi
+
+echo "✅ Steering test tree check passed"
+echo ""
+
+# ============================================================================
 # E2E画面内自前判定チェック（E2Eテスト実行の前提条件）
 # ============================================================================
 # 画面の中で本番の判定を自前で書き起こし、その書き起こしへ主張する構造を検知する
