@@ -65,6 +65,7 @@ import {
   MaxImagesExceededError,
   type UploadInput,
 } from '../../../services/image-upload.service.js';
+import { ImageProcessorService } from '../../../services/image-processor.service.js';
 
 describe('ImageUploadService', () => {
   let service: ImageUploadService;
@@ -780,6 +781,69 @@ describe('ImageUploadService', () => {
       // 既存5件 + 新規1件目 = 6, 既存5件 + 新規2件目 = 7
       expect(result.successful[0]!.displayOrder).toBe(6);
       expect(result.successful[1]!.displayOrder).toBe(7);
+    });
+  });
+
+  describe('upload（圧縮しきれない画像の登録 / 要件4.14）', () => {
+    /**
+     * 要件4.14 の「登録する」を保存経路で固定する。
+     * `ImageProcessorService` 側の検証（`image-processor.service.test.ts`）は
+     * 圧縮が打ち切られて 350KB 超の結果が返ることまでしか見ない。
+     *
+     * 本検証が単独で捉える変異: 保存経路へ「圧縮後のサイズが 350KB を超えたら拒否する」
+     * を足す改変（要件4.14 が採らなかった案 (b) の実装）。
+     *
+     * @requirement site-survey/REQ-4.14
+     */
+    it('圧縮後も350KBを超えたままの画像を拒否せず、そのサイズで登録すること', async () => {
+      const surveyId = '123e4567-e89b-12d3-a456-426614174000';
+      // 打ち切りサイズを1バイト超える。下限まで下げても収まらなかった場合の値。
+      // 実装の定数を参照する（自前の数値を持つと定数が動いたとき片方だけ追随しない）
+      const overLimitSize = ImageProcessorService.TARGET_MAX_SIZE_BYTES + 1;
+      const file = {
+        buffer: Buffer.from('huge'),
+        mimetype: 'image/jpeg',
+        originalname: 'huge.jpg',
+        size: 10 * 1024 * 1024,
+      };
+      const input: UploadInput = { surveyId, file };
+
+      mockPrisma.siteSurvey.findUnique.mockResolvedValue({ id: surveyId, deletedAt: null });
+      mockPrisma.surveyImage.count.mockResolvedValue(0);
+      mockSurveyImageService.validateFile.mockReturnValue('image/jpeg');
+      mockSurveyImageService.sanitizeFileName.mockReturnValue('huge.jpg');
+      mockImageProcessorService.processImage.mockResolvedValue({
+        original: {
+          buffer: Buffer.from('compressed-but-still-over'),
+          metadata: { width: 480, height: 270, size: overLimitSize, format: 'jpeg' },
+          originalExceededSizeLimit: true,
+        },
+        thumbnail: Buffer.from('thumbnail'),
+        metadata: { width: 480, height: 270, size: overLimitSize, format: 'jpeg' },
+      });
+      mockS3Client.send.mockResolvedValue({});
+      mockPrisma.surveyImage.create.mockImplementation((args: { data: Record<string, unknown> }) =>
+        Promise.resolve({
+          id: 'img-over-limit',
+          createdAt: new Date(),
+          ...args.data,
+        })
+      );
+
+      // 拒否しない。await が拒否されれば本検証は落ちる
+      const result = await service.upload(input);
+
+      expect(mockPrisma.surveyImage.create, '350KB超のまま登録されていない').toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ fileSize: overLimitSize }),
+        })
+      );
+      expect(result.fileSize, '登録されたサイズが圧縮後のサイズと違う').toBe(overLimitSize);
+      expect(result.fileSize, '前提が崩れている（打ち切りサイズ以下になっている）').toBeGreaterThan(
+        ImageProcessorService.TARGET_MAX_SIZE_BYTES
+      );
+      // 原画像とサムネイルの両方がストレージへ送られている（登録が完了している）
+      expect(mockS3Client.send).toHaveBeenCalledTimes(2);
     });
   });
 

@@ -831,6 +831,63 @@ describe('ImageProcessorService', () => {
       });
     });
 
+    describe('下限まで下げても350KB以下に収まらない場合 (要件4.14 / Task 115.208)', () => {
+      /**
+       * 要件4.6 は「350KB以下に収まった時点で打ち切る」とだけ定めており、
+       * 下げ切っても収まらなかった場合を規定していなかった。要件4.14 は
+       * その欠落を現行の挙動どおりに埋めたものである（挙動は変えていない）。
+       *
+       * 本検証が単独で捉える変異: 収まらない場合に**入力をそのまま返す**改変。
+       * 上の「品質もリサイズも尽きて350KBを超えたままでも true を返す」は
+       * `result.buffer` を見ないため、その改変では緑のままである。
+       *
+       * @requirement site-survey/REQ-4.14
+       */
+      it('圧縮を打ち切り、最後の段階まで圧縮した結果を350KBを超えたまま返す', async () => {
+        // 各段階の結果がいずれも打ち切りサイズを1バイト超える（358,401 バイト）
+        const over = ImageProcessorService.TARGET_MAX_SIZE_BYTES + 1;
+        const input = createTestBuffer(over);
+        const lastStageBuffer = createTestBuffer(1);
+        (mockSharpInstance.metadata as Mock).mockResolvedValue({
+          width: 1920,
+          height: 1080,
+          format: 'jpeg',
+          size: over,
+        });
+        (mockSharpInstance.toBuffer as Mock).mockResolvedValue(lastStageBuffer);
+
+        // 拒否しない。await が拒否されれば本検証は落ちる（要件4.14 は (b)「拒否する」を採らない）
+        const result = await service.compressImage(input);
+
+        expect(result.metadata.size, '打ち切りサイズを超えたまま返っていない').toBe(over);
+        expect(
+          result.metadata.size,
+          '前提が崩れている（358,401 が 350KB 以下になっている）'
+        ).toBeGreaterThan(ImageProcessorService.TARGET_MAX_SIZE_BYTES);
+        expect(result.buffer, '圧縮を打ち切らず入力をそのまま返した').toBe(lastStageBuffer);
+        expect(result.buffer, '入力そのものを返した').not.toBe(input);
+        expect(result.originalExceededSizeLimit).toBe(true);
+        // 段階は使い切る（品質 90→30 の7段階、続いてリサイズ 1/2 → 1/4 の2段階）
+        expect((mockSharpInstance.jpeg as Mock).mock.calls.map((call) => call[0])).toEqual([
+          { quality: 90 },
+          { quality: 80 },
+          { quality: 70 },
+          { quality: 60 },
+          { quality: 50 },
+          { quality: 40 },
+          { quality: 30 },
+          { quality: 30 },
+          { quality: 30 },
+        ]);
+        expect(
+          (mockSharpInstance.resize as Mock).mock.calls.map((call) => [call[0], call[1]])
+        ).toEqual([
+          [960, 540],
+          [480, 270],
+        ]);
+      });
+    });
+
     describe('error handling', () => {
       it('should throw ImageProcessingError when compression fails', async () => {
         const buffer = createTestBuffer(400 * 1024);
