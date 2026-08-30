@@ -7,9 +7,19 @@
  *       （ライブラリ名・命名規則の例示・glob・撤去の記録）を告発しないこと、
  * の両方を、書き方そのものを注入して確かめる。
  *
- * MUST_DETECT の各例は**タスク 115.169 の是正前に steering に実在していた実物**である。
- * 検出器が壊れていれば本検査（0 件）は自明に通ってしまうため、既知の該当を捕まえられる
- * ことを先に固定する（陽性対照）。
+ * MUST_DETECT の各例は**是正前に steering に実在していた実物**である（前七件は
+ * タスク 115.169、続く五件はタスク 115.199）。検出器が壊れていれば本検査（0 件）は自明に
+ * 通ってしまうため、既知の該当を捕まえられることを先に固定する（陽性対照）。
+ * 最後の一件（`errors/ApiError.ts`）だけは、**綴りは実在した実物**だが実物の行は散文の
+ * 形（`- \`名前\`: 説明`）だったため、検出規則が見る形（`- \`名前\` - 説明`）へ写してある。
+ * 実在の照合が**大小文字を区別する**ことを固定するための対で、MUST_NOT_DETECT 側に
+ * 綴りまで一致させた同型の行（`errors/apiError.ts`）を置いてある。
+ *
+ * 見本が実データの形を写しているかは目視に頼らない。`checkSampleClassesCoverRealData` が
+ * `.kiro/steering/*.md` の全行から**実データが実現している類**（規則 × 語の種類）を
+ * 数え上げ、その一つ一つが見本にも現れることを求める。同じ関数が、拡張子を持つ主張が
+ * 拡張子の種類によらず取り出されること（115.199 で絞りを撤去した点）も、実データの上の
+ * 全称命題として固定する。
  *
  * 使用方法:
  *   npx tsx scripts/check-steering-file-references.selftest.ts
@@ -24,10 +34,10 @@ import * as os from 'os';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import {
-  CHECKED_EXTENSIONS,
   collectRepositoryFileNames,
   collectSteeringDocuments,
   EXCLUDED_DIRECTORIES,
+  extensionOf,
   extractClaim,
   run,
   scanDocument,
@@ -110,6 +120,36 @@ const MUST_DETECT: Case[] = [
     line: '    - `env-validator.test.ts` - 環境変数バリデーション（14テスト）',
     expected: true,
   },
+  {
+    name: 'ツリーの葉に .jsx 時代のエントリ（structure.md, 実体は App.tsx。115.199 で是正）',
+    line: '│   │   ├── App.jsx         # メインAppコンポーネント',
+    expected: true,
+  },
+  {
+    name: 'ツリーの葉に .jsx 時代のエントリ（structure.md, 実体は main.tsx。115.199 で是正）',
+    line: '│   │   └── main.jsx        # エントリーポイント',
+    expected: true,
+  },
+  {
+    name: 'ツリーの葉に .js 時代の設定（structure.md, 実体は vite.config.ts。115.199 で是正）',
+    line: '│   ├── vite.config.js      # Vite設定',
+    expected: true,
+  },
+  {
+    name: '箇条書きに存在しないワークフロー（tech.md, 実在は ci.yml のみ。115.199 で是正）',
+    line: '- `.github/workflows/e2e-tests.yml` - CI/CD E2Eテストワークフロー',
+    expected: true,
+  },
+  {
+    name: '命名規則の例示を主張の形で書いた箇条書き（記法違反。ラベル前置へ直させる）',
+    line: '- `index.js` - ディレクトリのエントリーポイント・エクスポート集約',
+    expected: true,
+  },
+  {
+    name: '大小文字だけが食い違う箇条書き（実体は errors/apiError.ts。structure.md の散文にあった綴り）',
+    line: '- `errors/ApiError.ts` - カスタムAPIエラークラス',
+    expected: true,
+  },
 ];
 
 // ============================================================================
@@ -173,8 +213,62 @@ const MUST_NOT_DETECT: Case[] = [
     expected: false,
   },
   {
-    name: '命名規則の特殊ファイル（対象外の拡張子）',
-    line: '- `index.js` - ディレクトリのエントリーポイント・エクスポート集約',
+    name: '命名規則の特殊ファイル（ラベルを前置した例示の形。逆引用符が行頭に来ない）',
+    line: '- **エントリーポイント**: `index.js` - ディレクトリのエクスポート集約',
+    expected: false,
+  },
+  {
+    name: '現に在る設定ファイルの箇条書き（.js を照合対象にしても告発しない）',
+    line: '- `frontend/eslint.config.js` - ESLint設定（Flat Config形式）',
+    expected: false,
+  },
+  {
+    name: '現に在るワークフローの箇条書き（.yml を照合対象にしても告発しない）',
+    line: '- `.github/workflows/ci.yml` - CI/CDワークフロー',
+    expected: false,
+  },
+  {
+    name: '現に在る設定の箇条書き（.json を照合対象にしても告発しない）',
+    line: '- `tsconfig.json` - TypeScript設定（E2Eテスト用、Incremental Build有効）',
+    expected: false,
+  },
+  {
+    name: '現に在るシェルスクリプトのツリーの葉（.sh を照合対象にしても告発しない）',
+    line: '│   ├── docker-entrypoint.sh # Docker起動時依存関係チェック',
+    expected: false,
+  },
+  {
+    name: '拡張子を持たない葉（Dockerfile。拡張子なしは 115.198 の所管との境界）',
+    line: '│   ├── Dockerfile          # 本番環境Dockerイメージ',
+    expected: false,
+  },
+  {
+    name: 'ドットで始まり拡張子を持たない葉（.prettierrc。追跡外の .env を巻き込まない）',
+    line: '│   ├── .prettierrc         # Prettier設定',
+    expected: false,
+  },
+  {
+    name: '拡張子を持たない箇条書き（Git フック名。拡張子なしは 115.198 の所管との境界）',
+    line: '- `commit-msg` - コミットメッセージ検証スクリプト',
+    expected: false,
+  },
+  {
+    name: 'ディレクトリの箇条書き（末尾スラッシュ）',
+    line: '- `.kiro/specs/user-authentication/` - ユーザー認証機能 ✅実装完了',
+    expected: false,
+  },
+  {
+    // 実データのディレクトリ名にドットを含むものは無く（`.kiro/` などは先頭ドットのみで
+    // 拡張子を持たない）、末尾スラッシュの規則は拡張子の規則と重なって働いている。
+    // 規則が**単独で**効いていることを固定するため、ドットを含む名前の合成例を置く。
+    // これが無いと、末尾スラッシュの除外を落とす変異が誰にも捕まらない。
+    name: 'ドットを含むディレクトリのツリーの葉（合成例。末尾スラッシュの規則が単独で効く）',
+    line: '│   ├── generated/prisma.client/ # 生成物ディレクトリ',
+    expected: false,
+  },
+  {
+    name: '大小文字まで一致する箇条書き（上の MUST_DETECT の対照。同じ経路で告発しない）',
+    line: '- `errors/apiError.ts` - カスタムAPIエラークラス',
     expected: false,
   },
 ];
@@ -236,6 +330,18 @@ function checkEndToEndDetection(): string[] {
     // 実在させる側のファイル（basename の照合が「在る」を正しく認めることの対照）
     fs.mkdirSync(path.join(tempRoot, 'frontend', 'src'), { recursive: true });
     fs.writeFileSync(path.join(tempRoot, 'frontend', 'src', 'Present.tsx'), 'export {};\n');
+    fs.writeFileSync(path.join(tempRoot, 'frontend', 'src', 'Present.stories.tsx'), 'export {};\n');
+    /**
+     * 合格側の見本。**実データが持つ二つの規則をどちらも写す**（ツリーの葉と
+     * 行頭逆引用符の箇条書き）。葉だけの見本にすると、箇条書きの規則が主張として
+     * 数えられなくなる変異——本検査の報告が 718 件 → 567 件へ動く変異——を
+     * 「主張 1 件」の期待が素通りさせてしまう（115.197 の教訓）。
+     */
+    const PASSING_DOCUMENT = [
+      '# 構造',
+      '│   ├── Present.tsx        # 在るコンポーネント',
+      '- `Present.stories.tsx` - 在るストーリー',
+    ].join('\n');
     fs.writeFileSync(
       path.join(steeringDir, 'structure.md'),
       [
@@ -269,11 +375,11 @@ function checkEndToEndDetection(): string[] {
     }
 
     // 撤去済みの記載を落とせば合格すること（常時失敗の裏返しを塞ぐ）
-    fs.writeFileSync(
-      path.join(steeringDir, 'structure.md'),
-      ['# 構造', '│   ├── Present.tsx        # 在るコンポーネント'].join('\n')
-    );
+    fs.writeFileSync(path.join(steeringDir, 'structure.md'), PASSING_DOCUMENT);
     const clean = run({ root: tempRoot });
+    if (clean.claims !== 2) {
+      failures.push(`合格側の見本から主張を 2 件取り出せていない（${clean.claims} 件）`);
+    }
     if (clean.findings.length !== 0) {
       failures.push(
         `是正後の材料で該当が残る: ${clean.findings.map((f) => f.reference).join(' / ')}`
@@ -299,6 +405,21 @@ function checkEndToEndDetection(): string[] {
     if (!stderr.includes('合計 1 件 / 1 ファイル（走査 1 ファイル）')) {
       const actual = /合計 .*ファイル）/.exec(stderr)?.[0] ?? '（要約行が無い）';
       failures.push(`報告される件数が期待と違う。実際「${actual}」`);
+    }
+
+    // 合格の側でも、全称命題の台となる主張の件数を報告すること（0 件の合格を見分けられるように）
+    fs.writeFileSync(path.join(steeringDir, 'structure.md'), PASSING_DOCUMENT);
+    const passed = spawnSync(process.execPath, [TSX_CLI, path.join(tempScripts, ENTRY_NAME)], {
+      encoding: 'utf-8',
+      cwd: ROOT,
+    });
+    if (passed.status !== 0) {
+      failures.push(`是正後の材料で終了コードが 0 にならなかった（status=${passed.status}）`);
+    }
+    if (!(passed.stdout ?? '').includes('実在を照合した主張 2 件')) {
+      failures.push(
+        `合格の報告が主張の件数を示していない。実際「${(passed.stdout ?? '').trim()}」`
+      );
     }
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -398,8 +519,19 @@ function checkNoFindingsNarrowing(): string[] {
   const failures: string[] = [];
   const source = readExecutableSource();
 
-  /** ファイル名らしき文字列リテラル（許容リストの実体） */
-  const FILE_NAME_LITERAL = /['"`][A-Za-z0-9_@.-]+\.(?:tsx?|css|stories\.tsx)['"`]/;
+  /**
+   * ファイル名・拡張子らしき文字列リテラル（許容リスト／拡張子の名指しの列挙の実体）。
+   * 115.199 で拡張子の絞りを撤去したため、`.ts` だけでなく**あらゆる拡張子**の
+   * リテラルを疑う。名指しの列挙が本体へ戻ればここで捕まる。
+   */
+  const FILE_NAME_LITERAL = /['"`][A-Za-z0-9_@-][A-Za-z0-9_@.-]*\.[A-Za-z][A-Za-z0-9]{0,9}['"`]/;
+
+  /**
+   * 拡張子そのものの文字列リテラル（`'.ts'`）。主張の抽出と拡張子の判定は
+   * **拡張子の種類を一切知ってはならない**ため、この二つの本体にだけ適用する。
+   * 走査対象の選別（`.md` の steering 文書を選ぶ）は主張の絞りではないので対象外。
+   */
+  const EXTENSION_LITERAL = /['"`]\.[A-Za-z][A-Za-z0-9]{0,9}['"`]/;
 
   const bodies: Array<{ label: string; declaration: string }> = [
     { label: 'extractClaim', declaration: 'export function extractClaim(' },
@@ -433,13 +565,35 @@ function checkNoFindingsNarrowing(): string[] {
     }
   }
 
-  // 拡張子の網が空でないこと（すべてを対象外にして 0 件で合格する形を塞ぐ）
-  if (CHECKED_EXTENSIONS.length === 0) {
-    failures.push('CHECKED_EXTENSIONS が空である（何も照合しない）');
+  // 拡張子の判定にも名指しの列挙が無いこと。`extensionOf` は path の意味だけで決める
+  const extensionStart = source.indexOf('export function extensionOf(');
+  if (extensionStart < 0) {
+    failures.push('extensionOf の宣言が見つからない（改名されている疑い）');
+  } else {
+    const rest = source.slice(extensionStart);
+    const next = rest.slice(1).search(/\nexport (?:function|const) |\nfunction /);
+    const text = next < 0 ? rest : rest.slice(0, next + 1);
+    if (EXTENSION_LITERAL.test(text)) {
+      failures.push(
+        `extensionOf の本体に拡張子の文字列リテラルがある（名指しの列挙の復活）: ` +
+          `${EXTENSION_LITERAL.exec(text)?.[0]}`
+      );
+    }
   }
-  for (const extension of ['.ts', '.tsx']) {
-    if (!CHECKED_EXTENSIONS.includes(extension)) {
-      failures.push(`照合対象の拡張子から ${extension} が外れている`);
+
+  // 主張の抽出も拡張子の種類を知ってはならない
+  const claimStart = source.indexOf('export function extractClaim(');
+  if (claimStart < 0) {
+    failures.push('extractClaim の宣言が見つからない（改名されている疑い）');
+  } else {
+    const rest = source.slice(claimStart);
+    const next = rest.slice(1).search(/\nexport (?:function|const) |\nfunction /);
+    const text = next < 0 ? rest : rest.slice(0, next + 1);
+    if (EXTENSION_LITERAL.test(text)) {
+      failures.push(
+        `extractClaim の本体に拡張子の文字列リテラルがある（名指しの列挙の復活）: ` +
+          `${EXTENSION_LITERAL.exec(text)?.[0]}`
+      );
     }
   }
   return failures;
@@ -474,14 +628,216 @@ function checkDocumentedLimits(): string[] {
     failures.push('限界(b)が崩れている: 散文の言及を主張として扱っている');
   }
 
-  // (c) 対象外の拡張子は照合しない（実在集合を空にしても検出しない）
-  if (extractClaim('│   ├── vite.config.js      # Vite設定') !== null) {
-    failures.push('限界(c)が崩れている: 対象外の拡張子を主張として取り出している');
+  // (c) 拡張子を持たない語は主張として扱わない（115.198 の識別子検査との境界）
+  for (const line of [
+    '│   ├── Dockerfile          # 本番環境Dockerイメージ',
+    '│   ├── .prettierrc         # Prettier設定',
+    '- `commit-msg` - コミットメッセージ検査',
+  ]) {
+    if (extractClaim(line) !== null) {
+      failures.push(
+        `限界(c)が崩れている: 拡張子を持たない語を主張として取り出している（${line.trim()}）`
+      );
+    }
+  }
+
+  // (c') 逆に、拡張子を持つ語は**拡張子の種類によらず**主張として取り出すこと。
+  //      115.199 以前はここが `.ts` / `.tsx` / `.css` に絞られており真の失効を見逃した
+  for (const [line, expected] of [
+    ['│   ├── vite.config.js      # Vite設定', 'vite.config.js'],
+    ['│   │   ├── App.jsx         # メインAppコンポーネント', 'App.jsx'],
+    [
+      '- `.github/workflows/e2e-tests.yml` - CI/CD E2Eテストワークフロー',
+      '.github/workflows/e2e-tests.yml',
+    ],
+    ['│   ├── nginx.conf          # 本番環境nginx設定', 'nginx.conf'],
+    ['│   ├── railway.toml        # Railway デプロイ設定', 'railway.toml'],
+  ] as const) {
+    if (extractClaim(line) !== expected) {
+      failures.push(`限界(c')が崩れている: 拡張子で網を狭めている（${expected} を取り出せない）`);
+    }
+  }
+
+  // (c'') 拡張子の判定そのもの。ドットで始まるだけの名前は拡張子を持たないと見なす
+  for (const [token, expected] of [
+    ['vite.config.ts', '.ts'],
+    ['.github/workflows/ci.yml', '.yml'],
+    ['Dockerfile.dev', '.dev'],
+    ['nginx.conf', '.conf'],
+    ['Dockerfile', null],
+    ['.prettierrc', null],
+    ['.env', null],
+    ['commit-msg', null],
+  ] as const) {
+    if (extensionOf(token) !== expected) {
+      failures.push(
+        `拡張子の判定が違う: ${token} → 期待 ${expected ?? 'null'} / 実際 ${extensionOf(token) ?? 'null'}`
+      );
+    }
   }
 
   // (d) 主張の形そのものは働いている（(a)〜(c) が「常に null」ではないことの対照）
   if (extractClaim('│   ├── ImageViewer.tsx      # 画像ビューア') !== 'ImageViewer.tsx') {
     failures.push('主張の抽出そのものが働いていない（限界の確認が自明に通っている）');
+  }
+  return failures;
+}
+
+/**
+ * 見本が**実データの形を写している**ことを、類の数え上げで確かめる。
+ *
+ * 検出規則が一行に対して下す判断は「どちらの規則に当たるか × その語がどの種類か」で
+ * 決まる。`.kiro/steering/*.md` の全行を走って**実データが実現している類**を数え上げ、
+ * その一つ一つが MUST_DETECT / MUST_NOT_DETECT の見本にも現れていることを求める。
+ * 実データにしか無い類が残っていれば、見本はその形を一度も試していない。
+ */
+function classifyLine(lineText: string): string | null {
+  const tree = /^[\s│]*(?:├──|└──)\s+(\S+)/.exec(lineText);
+  const bullet = /^\s*-\s+`([^`]+)`\s+-\s/.exec(lineText);
+  const rule = tree !== null ? 'tree' : bullet !== null ? 'bullet' : null;
+  const token = (tree ?? bullet)?.[1];
+  if (rule === null || token === undefined) return null;
+  if (token.includes('*')) return `${rule}:glob`;
+  if (token.endsWith('/')) return `${rule}:directory`;
+  // 拡張子の有無は本体の `extensionOf` に**頼らずに**判定する。実装を写して数えると、
+  // 実装が拡張子を落としたときに類そのものが消え、数え上げが自明に通ってしまう
+  if (path.posix.extname(path.posix.basename(token)).length === 0) return `${rule}:no-extension`;
+  return `${rule}:extension`;
+}
+
+function checkSampleClassesCoverRealData(): string[] {
+  const failures: string[] = [];
+  const documents = collectSteeringDocuments(ROOT, STEERING_DIR);
+
+  const byData = new Map<string, string>();
+  const claimExtensions = new Set<string>();
+  let unextracted = 0;
+  for (const relativePath of documents) {
+    const source = fs.readFileSync(path.join(ROOT, relativePath), 'utf-8');
+    source.split(/\r?\n/).forEach((lineText, index) => {
+      const label = classifyLine(lineText);
+      if (label === null) return;
+      if (!byData.has(label)) byData.set(label, `${relativePath}:${index + 1}`);
+      if (!label.endsWith(':extension')) return;
+      // 拡張子を持つ語は、拡張子の種類によらず主張として取り出されなければならない
+      if (extractClaim(lineText) === null) {
+        unextracted += 1;
+        failures.push(
+          `拡張子を持つ主張が取り出せていない: ${relativePath}:${index + 1} ${lineText.trim()}`
+        );
+        return;
+      }
+      claimExtensions.add(
+        path.posix.extname(path.posix.basename(extractClaim(lineText) as string)).toLowerCase()
+      );
+    });
+  }
+
+  const bySamples = new Set<string>();
+  for (const testCase of [...MUST_DETECT, ...MUST_NOT_DETECT]) {
+    const label = classifyLine(testCase.line ?? '');
+    if (label !== null) bySamples.add(label);
+  }
+
+  for (const [label, where] of byData) {
+    if (!bySamples.has(label)) {
+      failures.push(`実データに在る類を見本が写していない: ${label}（例 ${where}）`);
+    }
+  }
+
+  // 数え上げそのものが空振りしていないこと
+  const MINIMUM_CLASSES = 4;
+  if (byData.size < MINIMUM_CLASSES) {
+    failures.push(`実データから数え上げた類が ${byData.size} 種しかない（走査の空振りの疑い）`);
+  }
+  // 拡張子の網が実際に広いこと。`.ts` / `.tsx` / `.css` の三種へ戻せばここで落ちる
+  const MINIMUM_EXTENSIONS = 10;
+  if (claimExtensions.size < MINIMUM_EXTENSIONS) {
+    failures.push(
+      `主張として照合された拡張子が ${claimExtensions.size} 種しかない` +
+        `（${MINIMUM_EXTENSIONS} 種を下回る。拡張子で網を狭めた疑い）: ` +
+        `${[...claimExtensions].sort().join(' ')}`
+    );
+  }
+  if (unextracted > 0) {
+    failures.push(`拡張子を持つのに主張として扱われない記載が ${unextracted} 件ある`);
+  }
+  return failures;
+}
+
+/**
+ * 主張が一件も取れないとき合格にしないこと（第3原則・走査の空振り）。
+ * steering 文書は在るのに検出規則が何も取り出さない状態は、0 件の自明な合格になる。
+ */
+function checkVacuousScanFails(): string[] {
+  const failures: string[] = [];
+  if (!fs.existsSync(TSX_CLI)) {
+    failures.push(`tsx の起動口が見つからない: ${TSX_CLI}（確認できないため合格にしない）`);
+    return failures;
+  }
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'steering-ref-vacuous-'));
+  try {
+    const steeringDir = path.join(tempRoot, STEERING_DIR);
+    fs.mkdirSync(steeringDir, { recursive: true });
+    // 文書は在るが、検出規則に当たる行が一つも無い
+    fs.writeFileSync(
+      path.join(steeringDir, 'structure.md'),
+      ['# 構造', '散文だけの steering。`AnnotationEditor.tsx` は散文中の言及である。'].join('\n')
+    );
+    const result = run({ root: tempRoot });
+    if (result.claims !== 0) {
+      failures.push(`主張が 0 件のはずが ${result.claims} 件と数えられた`);
+    }
+
+    const tempScripts = path.join(tempRoot, 'scripts');
+    fs.mkdirSync(tempScripts, { recursive: true });
+    fs.copyFileSync(ENTRY_PATH, path.join(tempScripts, ENTRY_NAME));
+    const executed = spawnSync(process.execPath, [TSX_CLI, path.join(tempScripts, ENTRY_NAME)], {
+      encoding: 'utf-8',
+      cwd: ROOT,
+    });
+    if (executed.status !== 1) {
+      failures.push(
+        `主張 0 件でも終了コードが 1 にならなかった（status=${executed.status}）。` +
+          `標準出力: ${(executed.stdout ?? '').trim()}`
+      );
+    }
+    if (!(executed.stderr ?? '').includes('実在を照合できる記載が一件もありません')) {
+      failures.push('主張 0 件を「合格」と告げている疑いがある');
+    }
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+  return failures;
+}
+
+/**
+ * 報告される主張の件数が、**独立の実装で**数え直した値と一致すること（件数の詐称を塞ぐ）。
+ *
+ * 本体の `countClaims` を呼んで数え直してはならない。報告側も検査側も同じ関数を通るため、
+ * `countClaims` 自体の誤りが両側で相殺されて見えなくなる（同語反復）。実測でも、
+ * `countClaims` から行頭逆引用符の箇条書きを除く変異を入れると本検査の報告は
+ * 718 件 → 567 件へ動くのに、`countClaims` で数え直す形の確認は緑のままだった。
+ * よってここでは自己検査側の独立実装 `classifyLine` で数え、報告と突き合わせる。
+ */
+function checkClaimCountIsHonest(): string[] {
+  const failures: string[] = [];
+  const documents = collectSteeringDocuments(ROOT, STEERING_DIR);
+  let expected = 0;
+  for (const relativePath of documents) {
+    const source = fs.readFileSync(path.join(ROOT, relativePath), 'utf-8');
+    for (const lineText of source.split(/\r?\n/)) {
+      if (classifyLine(lineText)?.endsWith(':extension') === true) expected += 1;
+    }
+  }
+  const result = run();
+  if (result.claims !== expected) {
+    failures.push(
+      `報告された主張の件数が独立の数え直しと違う（報告 ${result.claims} / 実測 ${expected}）`
+    );
+  }
+  if (expected === 0) {
+    failures.push('リポジトリ本体の steering から主張が一件も取れていない');
   }
   return failures;
 }
@@ -499,6 +855,21 @@ const STRUCTURAL: Case[] = [
     name: '走査対象が 0 件のとき合格にしない（第3原則）',
     expected: false,
     custom: checkEmptyScanFails,
+  },
+  {
+    name: '主張が 0 件のとき合格にしない（走査の空振り）',
+    expected: false,
+    custom: checkVacuousScanFails,
+  },
+  {
+    name: '報告される主張の件数が独立の数え直しと一致する',
+    expected: false,
+    custom: checkClaimCountIsHonest,
+  },
+  {
+    name: '見本が実データの実現する類をすべて写している（拡張子の網の広さを含む）',
+    expected: false,
+    custom: checkSampleClassesCoverRealData,
   },
   {
     name: '検出結果を名指しで逃がす経路が無い（許容リストの名前ではなく機構を見る）',

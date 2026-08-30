@@ -2,7 +2,9 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-08-28（Steering Sync: タスク 115.169。撤去・改名に追随していなかった記載を是正（`ImageViewer.tsx`／`ImageViewer.stories.tsx` は 115.146、`LazyImage.tsx`／`LazyImage.stories.tsx` は 112.1 で撤去。`archive.service.test.ts` は `audit-log-archive.service.test.ts` へ改名、`env-validator.test.ts` は `unit/config/env.test.ts` へ移動・改名）。再発は `npm run check:steering-refs` が検知する）_
+_最終更新: 2026-08-30（Steering Sync: タスク 115.199。実在検査の拡張子の絞りを撤去したことで露わになった失効を是正（`App.jsx`／`main.jsx` は実体が `.tsx`、`vite.config.js` は `vite.config.ts`）。「特殊ファイル」は規則の**例示**であって現存の主張ではないため、一般規則と同じくラベルを前置した形へ揃え、拡張子も実態（`index.ts`／`*.test.ts`／`*.spec.ts`）へ是正。同じ理由でE2E/Storybookの命名規則の例示もラベル前置へ揃えた。散文の `errors/ApiError.ts` は実体が `errors/apiError.ts` で大小文字が食い違っていたため是正）_
+
+_2026-08-28（Steering Sync: タスク 115.169。撤去・改名に追随していなかった記載を是正（`ImageViewer.tsx`／`ImageViewer.stories.tsx` は 115.146、`LazyImage.tsx`／`LazyImage.stories.tsx` は 112.1 で撤去。`archive.service.test.ts` は `audit-log-archive.service.test.ts` へ改名、`env-validator.test.ts` は `unit/config/env.test.ts` へ移動・改名）。再発は `npm run check:steering-refs` が検知する）_
 
 _2026-08-05（Steering Sync: 見積書作成の行操作・ネスト構造・帳票書式の再設計を反映。UI非依存の `frontend/src/domain/`（estimateEditReducer/estimateTree/estimateCalculations/estimateKeymap）を新設層として追加、`services/export/` の `load*ExportService.ts` 動的import分離、`components/estimate/` の表示・俯瞰・キー割当・帳票入力コンポーネント、backend `estimate-draft.service.ts` 追加と `estimate-export.service.ts` 撤去、`estimates.routes.ts` の経路整理、hooks件数を実測値32に是正）_
 
@@ -65,11 +67,11 @@ ArchiTrack/
 │   │   ├── main.ts         # Storybook設定ファイル
 │   │   └── preview.ts      # グローバルパラメータ・デコレータ
 │   ├── src/                # ソースコード
-│   │   ├── App.jsx         # メインAppコンポーネント
-│   │   └── main.jsx        # エントリーポイント
+│   │   ├── App.tsx         # メインAppコンポーネント
+│   │   └── main.tsx        # エントリーポイント
 │   ├── public/             # 公開静的ファイル
 │   ├── package.json        # 依存関係
-│   ├── vite.config.js      # Vite設定
+│   ├── vite.config.ts      # Vite設定
 │   ├── nginx.conf          # 本番環境nginx設定
 │   ├── Dockerfile          # 本番環境Dockerイメージ
 │   ├── Dockerfile.dev      # 開発環境Dockerイメージ
@@ -1103,7 +1105,7 @@ backend/src/
 - `performance/autocannon.d.ts`: autocannonライブラリのカスタム型定義ファイル（TypeScript型安全性）
 - `db.ts`: Prisma 7 Driver Adapter Patternによる接続管理。`@prisma/adapter-pg`と`PrismaPg`を使用し、lazy initializationにより初回アクセス時に接続確立。Prisma Clientは`./generated/prisma/client.js`からインポート
 - `redis.ts`: Redisクライアントのlazy initialization実装。初回アクセス時に接続確立
-- `errors/ApiError.ts`: カスタムAPIエラークラス。BadRequestError、ValidationError等を提供
+- `errors/apiError.ts`: カスタムAPIエラークラス。BadRequestError、ValidationError等を提供
 - `middleware/errorHandler.middleware.ts`: グローバルエラーハンドラー。Zod、Prisma、一般エラーを統一的に処理
 - `middleware/httpsRedirect.middleware.ts`: 本番環境でHTTPSへの強制リダイレクトとHSTSヘッダー設定
 - `middleware/validate.middleware.ts`: Zodスキーマによるリクエストバリデーション（body/query/params）
@@ -1411,23 +1413,26 @@ ArchiTrackでは、環境ごとにDocker Composeファイルを分離し、柔�
 
 ### 特殊ファイル
 
-- `index.js` - ディレクトリのエントリーポイント・エクスポート集約
-- `*.test.js` - ユニットテストファイル
-- `*.spec.js` - E2Eテストファイル（Playwright）またはスペックファイル（BDD）
-- `*.stories.tsx` - Storybookストーリーファイル（コンポーネントバリアント定義）
-- `.env.example` - 環境変数テンプレート
+以下は**規則の例示**であって「このファイルが在る」という主張ではないため、
+一般規則と同じくラベルを前置した形で書く（行頭が逆引用符の箇条書きは現存の主張を表す）。
 
-**E2Eテストファイル命名規則:**
+- **エントリーポイント**: `index.ts` - ディレクトリのエクスポート集約
+- **ユニットテスト**: `*.test.ts` - ユニットテストファイル
+- **E2E/スペック**: `*.spec.ts` - E2Eテストファイル（Playwright）またはスペックファイル（BDD）
+- **Storybook**: `*.stories.tsx` - コンポーネントバリアント定義
+- **環境変数テンプレート**: `.env.example` - コミットする雛形（実値の `.env` は追跡しない）
 
-- `e2e/specs/api/*.spec.ts` - APIエンドポイントテスト（例: `health.spec.ts`）
-- `e2e/specs/ui/*.spec.ts` - UIテスト（例: `homepage.spec.ts`）
-- `e2e/specs/integration/*.spec.ts` - 統合テスト（例: `database.spec.ts`）
-- `e2e/helpers/*.ts` - テストヘルパー関数（例: `browser.ts`）
+**E2Eテストファイル命名規則:**（同じく規則の例示。ラベルを前置する）
 
-**Storybookストーリーファイル命名規則:**
+- **APIテスト**: `e2e/specs/api/*.spec.ts`（例: `health.spec.ts`）
+- **UIテスト**: `e2e/specs/ui/*.spec.ts`（例: `homepage.spec.ts`）
+- **統合テスト**: `e2e/specs/integration/*.spec.ts`（例: `database.spec.ts`）
+- **テストヘルパー**: `e2e/helpers/*.ts`（例: `browser.ts`）
 
-- `frontend/src/components/*.stories.tsx` - コンポーネントのストーリー（例: `ErrorBoundary.stories.tsx`）
-- CSF 3.0（Component Story Format 3.0）形式で記述
+**Storybookストーリーファイル命名規則:**（同じく規則の例示。ラベルを前置する）
+
+- **ストーリー**: `frontend/src/components/*.stories.tsx`（例: `ErrorBoundary.stories.tsx`）
+- **形式**: CSF 3.0（Component Story Format 3.0）で記述
 
 ## インポート構成
 

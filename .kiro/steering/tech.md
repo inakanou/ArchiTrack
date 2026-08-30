@@ -2,7 +2,9 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-08-28（Steering Sync: タスク 115.169。ビューポート制御・two-layer 構成の共有先を実測へ是正（撤去済みの `ImageViewer` ではなく `AnnotationEditor`（閲覧モードは `readOnly` 描画）と `ConstructionPhotoImageViewer`）。`env-validator.test.ts` を `unit/config/env.test.ts` へ、ログアーカイブのテスト件数を実測 15 へ是正。記載ファイルの実在は `npm run check:steering-refs` が検知する）_
+_最終更新: 2026-08-30（Steering Sync: タスク 115.199。実在検査の拡張子の絞りを撤去したことで露わになった失効を是正（`.github/workflows/e2e-tests.yml` は存在せず、E2E は `.github/workflows/ci.yml` の `Integration & E2E Tests` ジョブで走る）。散文中の `e2e/helpers/browser.js` も実体の `browser.ts` へ是正し、起動を `npx tsx` へ改めた（散文は検査の対象外であり、この一件は手で是正した））_
+
+_2026-08-28（Steering Sync: タスク 115.169。ビューポート制御・two-layer 構成の共有先を実測へ是正（撤去済みの `ImageViewer` ではなく `AnnotationEditor`（閲覧モードは `readOnly` 描画）と `ConstructionPhotoImageViewer`）。`env-validator.test.ts` を `unit/config/env.test.ts` へ、ログアーカイブのテスト件数を実測 15 へ是正。記載ファイルの実在は `npm run check:steering-refs` が検知する）_
 
 _2026-08-05（Steering Sync: 見積明細の編集・保存パターン（domain層の純関数への遷移ロジック分離、ツリー全体の差分適用による一括保存 `PUT /api/estimates/:id/save`、IDを維持する更新とtempIdによる親子解決、楽観ロック、Undo/Redo、未保存プレビュー）と帳票生成方針（フロントエンド生成を既定化、レイアウト計算と描画の分離、`load*ExportService.ts` による動的import分離）を追加。backend jspdf の用途から見積書を除外、Prisma client 7.9.1 / @anthropic-ai/sdk 0.106.0 / jsdom 30 / @testing-library/jest-dom 7 へ版数を是正）_
 
@@ -449,7 +451,7 @@ npm --prefix frontend run coverage:check  # カバレッジギャップ検出（
 - `tsconfig.json` - TypeScript設定（E2Eテスト用、Incremental Build有効）
 - `playwright.config.ts` - Playwright設定（WSL2最適化、タイムスタンプ機能）
 - `package.json` - E2Eテスト用依存関係とスクリプト
-- `.github/workflows/e2e-tests.yml` - CI/CD E2Eテストワークフロー
+- `.github/workflows/ci.yml` - CI/CDワークフロー（`Integration & E2E Tests` ジョブでE2Eを実行）
 
 ### テストカテゴリ
 
@@ -520,17 +522,17 @@ await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 
 ### Claude Code統合
 
-`e2e/helpers/browser.js`により、Claude Codeから直接ブラウザ操作が可能：
+`e2e/helpers/browser.ts`により、Claude Codeから直接ブラウザ操作が可能：
 
 ```bash
 # スクリーンショット撮影
-node e2e/helpers/browser.js screenshot http://localhost:5173 screenshot.png
+npx tsx e2e/helpers/browser.ts screenshot http://localhost:5173 screenshot.png
 
 # ページ情報取得
-node e2e/helpers/browser.js info http://localhost:5173
+npx tsx e2e/helpers/browser.ts info http://localhost:5173
 
 # APIテスト
-node e2e/helpers/browser.js api http://localhost:3000/health
+npx tsx e2e/helpers/browser.ts api http://localhost:3000/health
 ```
 
 ## 開発環境
@@ -839,9 +841,9 @@ npx playwright test ui/            # UIテストのみ
 npx playwright test integration/   # 統合テストのみ
 
 # Claude Codeからブラウザ操作
-node e2e/helpers/browser.js screenshot http://localhost:5173 screenshot.png
-node e2e/helpers/browser.js info http://localhost:5173
-node e2e/helpers/browser.js api http://localhost:3000/health
+npx tsx e2e/helpers/browser.ts screenshot http://localhost:5173 screenshot.png
+npx tsx e2e/helpers/browser.ts info http://localhost:5173
+npx tsx e2e/helpers/browser.ts api http://localhost:3000/health
 ```
 
 ### フロントエンド開発ツール
