@@ -81,6 +81,49 @@
  *     （目印の候補は区間が名乗っている機能の条文に限る）。ゲートの出力が
  *     37942 → 56816 バイトへ膨れる（＝大量の偽陽性）
  *
+ * ### 受入条件の書き直し後に閉じた名指しの 3 項目（2026-08-30 に測り直した）
+ *
+ * 走査ではなく**数え上げ**で閉じた。実データを本番の規則へ通し、規則が入力を分割する同値類の
+ * うち実データが実現している類を数え、見本と突き合わせた（変異を当てる前に特定できる）。
+ *
+ *   1. `auditExclusions` の到達性の引き当てが `undefined` になる形
+ *      実測: `in-repo-unverified` は 148 件で、**全件が「写像に項目が無い」形**である
+ *      （`reachable: false` を明示する形は 0 件）。既存の見本 `demo/REQ-1.5` は明示側だけを
+ *      固定していたため、`reachable === true` → `!== false` の変異が無言だった。
+ *      この変異は `--strict` の「リポジトリ内検証を掲げるが不在」を **148 件 → 0 件**にし、
+ *      FAILED 行を一つ消す（＝偽の緑の供給源）。写像に入れない `demo/REQ-1.6` を足して赤化。
+ *   2. `IN_REPO_VERIFICATION_TOOL` の 7 語のうち、実データで**単独一致となる 4 語**
+ *      実測（語の判定へ到達する除外 202 件に対する 一致件数 / 単独一致件数）:
+ *      vitest 98/71・jest 64/24・playwright 10/10・storybook 4/4。
+ *      語の判定へ到達する既存の見本の代替検証はすべて `Vitest / React Testing Library` の形で、
+ *      二語が同居していた（`Vitest` 単独の `demo/REQ-9.9` は stale で語の判定へ到達しない）。
+ *      同居する形しか無いと、一語を落とす変異が残りの語に拾われて無言になる
+ *      （vitest を落としても RTL が拾う）。`demo/REQ-1.6`（`Vitest`）、
+ *      `demo/REQ-1.7`（`Playwright ...`）、`demo/REQ-1.8`（`Storybook ...`）、
+ *      `demo/REQ-1.9`（`Jest / Prisma`）を足し、4 語すべてを単独で担わせて赤化。
+ *      見本が単独一致であること自体は機構で押さえた（tool 文字列から当該の語を抜いた写しを
+ *      同じ判定器へ通し、external へ移ることを主張する）。見本を同居する形へ書き戻すと赤くなる。
+ *   3. `PROSE_BULLET_IS_NOT_AN_ID_LIST` 直前の docstring の記述と実測の食い違い
+ *      「区切りを広げる変異を**どの見本も捕まえない**」と書いていたが、実測では
+ *      文法側（`ID_LIST_REGION_REGEX` の `[,、]` → `[,、/]`）を当てるとこの検査が赤くなる。
+ *      無言なのは分割側（`parseHeaderListItemIds` の `split`）であり、それは上の等価変異 3 番
+ *      として既に記録済みである。docstring を実測に合わせ、この一行が**文法側**を担うと直した。
+ *
+ * ### 残る 3 語は実データ上の等価変異である（同 2026-08-30 の実測）
+ *
+ * `supertest` / `react testing library` / `\brtl\b` は**単独一致が 0 件**であり、実データでは
+ * 常に他の語に同居する形でのみ現れる。したがって一語を落としても判定は動かない:
+ *
+ *   - `supertest`: 一致 19 件 / 単独一致 0 件
+ *   - `react testing library`: 一致 34 件 / 単独一致 0 件
+ *   - `\brtl\b`: 一致 2 件 / 単独一致 0 件
+ *
+ * それぞれを落とす変異について、`check:req-coverage`（37942 バイト）・`--strict`（38189 バイト）・
+ * `--json`（677017 バイト）が HEAD と**バイト単位で一致**することを実測した。
+ * 単独一致となる 4 語の側は、同じ測り方で 3 つの出力すべてが HEAD と食い違う。
+ * この 3 語の見本を足しても実データ上の主張は増えないため、足していない
+ * （実データが単独一致を持つようになった時点で、この記録の件数が実測と合わなくなる）。
+ *
  * ### 是正2巡目で赤化させた 2 件（レビューが非阻害と判断したもの）
  *
  *   - `line: Math.max(1, block.declaration + 1)` の `Math.max` 撤去
@@ -581,6 +624,19 @@ function exclusionOf(
   };
 }
 
+/**
+ * 代替検証の語を**単独で**担う見本の tool 文字列（いずれも実データにある形）
+ *
+ * `IN_REPO_VERIFICATION_TOOL` の 7 語のうち、実データで単独一致となるのは
+ * vitest / jest / playwright / storybook の 4 語である（2026-08-30 の実測。件数は @fileoverview）。
+ * 二語が同居する形（`Vitest / React Testing Library`）しか見本に無いと、
+ * 一語を落とす変異が残りの語に拾われて無言になる。
+ */
+const SOLE_TOOL_VITEST = 'Vitest';
+const SOLE_TOOL_PLAYWRIGHT = 'Playwright (test.fail() ラチェット)';
+const SOLE_TOOL_STORYBOOK = 'Storybook + Chromatic 等';
+const SOLE_TOOL_JEST = 'Jest / Prisma';
+
 function checkExclusionAudit(): string[] {
   const failures: string[] = [];
   const known = new Set([
@@ -589,12 +645,25 @@ function checkExclusionAudit(): string[] {
     'demo/REQ-1.3',
     'demo/REQ-1.4',
     'demo/REQ-1.5',
+    // 到達性の写像に**項目が無い**形。実データの in-repo-unverified 148 件は全件この形である。
+    // 代替検証の語も `Vitest` 単独で、vitest だけが担う形を兼ねる
+    'demo/REQ-1.6',
+    // 代替検証の語が vitest 以外で単独に一致する形（playwright / storybook / jest）
+    'demo/REQ-1.7',
+    'demo/REQ-1.8',
+    'demo/REQ-1.9',
     // 旧形式（機能名を持たない `REQ-N.M`）が揃えられた先。実データに 205 件中 25 件ある
     'user-authentication/REQ-4.1',
   ]);
+  // **`demo/REQ-1.6` を意図して入れていない。** 実データの in-repo-unverified 148 件は
+  // 全件が「写像に項目が無い（`get` が `undefined`）」形であり、`reachable: false` を
+  // 明示する形は 0 件である。`demo/REQ-1.5` は明示側の固定であって、この形を写していない
   const reachability = new Map<string, CriterionReachability>([
     ['demo/REQ-1.4', { id: 'demo/REQ-1.4', sources: [], reachable: true }],
     ['demo/REQ-1.5', { id: 'demo/REQ-1.5', sources: [], reachable: false }],
+    ['demo/REQ-1.7', { id: 'demo/REQ-1.7', sources: [], reachable: true }],
+    ['demo/REQ-1.8', { id: 'demo/REQ-1.8', sources: [], reachable: true }],
+    ['demo/REQ-1.9', { id: 'demo/REQ-1.9', sources: [], reachable: true }],
     [
       'user-authentication/REQ-4.1',
       { id: 'user-authentication/REQ-4.1', sources: [], reachable: true },
@@ -613,6 +682,15 @@ function checkExclusionAudit(): string[] {
       // stale に落ちる。normalizeExclusionId 単体の主張だけでは、それが監査へ
       // 結線されているかを何も言えない（115.197 の走査で、結線を外す変異が無言だった）
       exclusionOf('REQ-4.1', 'unit-test', 'Vitest / React Testing Library'),
+      // 到達性の写像に項目が無い形。`reachable === true` を `!== false` へ緩める変異は、
+      // 明示 `false` の demo/REQ-1.5 では無言のまま、この形だけを in-repo-verified へ倒す
+      // （実データでは --strict の失敗 148 件が 0 件になる＝偽の緑の供給源）
+      exclusionOf('demo/REQ-1.6', 'unit-test', SOLE_TOOL_VITEST),
+      // 代替検証の語を**一語ずつ**単独で担わせる。同居する語（`Vitest / React Testing Library`）
+      // しか無いと、一語を落とす変異が残りの語に拾われて無言になる
+      exclusionOf('demo/REQ-1.7', 'unit-test', SOLE_TOOL_PLAYWRIGHT),
+      exclusionOf('demo/REQ-1.8', 'visual-regression', SOLE_TOOL_STORYBOOK),
+      exclusionOf('demo/REQ-1.9', 'integration-test', SOLE_TOOL_JEST),
       exclusionOf('demo/REQ-1.5', 'unit-test', 'Vitest / React Testing Library'),
     ],
     known,
@@ -627,6 +705,10 @@ function checkExclusionAudit(): string[] {
     ['demo/REQ-1.4', 'in-repo-verified'],
     ['demo/REQ-1.5', 'in-repo-unverified'],
     ['user-authentication/REQ-4.1', 'in-repo-verified'],
+    ['demo/REQ-1.6', 'in-repo-unverified'],
+    ['demo/REQ-1.7', 'in-repo-verified'],
+    ['demo/REQ-1.8', 'in-repo-verified'],
+    ['demo/REQ-1.9', 'in-repo-verified'],
   ];
   for (const [index, [id, verdict]] of expected.entries()) {
     const entry = audit.entries[index];
@@ -634,7 +716,7 @@ function checkExclusionAudit(): string[] {
       failures.push(`${id}: 期待 ${verdict} に対し 実際 ${entry?.verdict ?? '無し'}`);
     }
   }
-  const last = audit.entries[7];
+  const last = audit.entries[expected.length];
   if (!last || last.verdict !== 'duplicate') {
     failures.push(`二重登録を duplicate と判定できなかった（実際: ${last?.verdict ?? '無し'}）`);
   }
@@ -654,10 +736,76 @@ function checkExclusionAudit(): string[] {
   if (normalizeExclusionId('REQ-4.1') !== 'user-authentication/REQ-4.1') {
     failures.push('旧形式の除外 ID を機能名付きへ揃えられなかった');
   }
-  if (audit.byVerdict['in-repo-unverified'] !== 1) {
+  if (audit.byVerdict['in-repo-unverified'] !== 2) {
     failures.push(
-      `in-repo-unverified の集計が 1 ではなく ${audit.byVerdict['in-repo-unverified']} だった`
+      `in-repo-unverified の集計が 2 ではなく ${audit.byVerdict['in-repo-unverified']} だった`
     );
+  }
+  if (audit.byVerdict['in-repo-verified'] !== 5) {
+    failures.push(
+      `in-repo-verified の集計が 5 ではなく ${audit.byVerdict['in-repo-verified']} だった`
+    );
+  }
+  // 語を一つ落とす変異は、単独で担っている項目を in-repo-* から external へ移す。
+  // 集計の側でも押さえておくと、どの語が落ちたかによらず必ず赤くなる
+  if (audit.byVerdict['external'] !== 1) {
+    failures.push(
+      `external の集計が 1 ではなく ${audit.byVerdict['external']} だった` +
+        '（リポジトリ内検証の語を落とすと、その語だけが担う除外が external へ移る）'
+    );
+  }
+
+  // 機構: 写像に項目が無い形の見本が、**到達性の引き当てにだけ反応している**ことを確かめる。
+  // 同じ除外を、到達する項目を持たせた写像で監査し直すと in-repo-verified へ移らねばならない。
+  // 移らないなら、この見本は別の理由（語の不一致・要件定義書に無い番号など）で落ちており、
+  // `reachable` の判定を何も主張していない
+  const reachabilityWithEntry = new Map(reachability);
+  reachabilityWithEntry.set('demo/REQ-1.6', {
+    id: 'demo/REQ-1.6',
+    sources: [],
+    reachable: true,
+  });
+  const flipped = auditExclusions(
+    [exclusionOf('demo/REQ-1.6', 'unit-test', SOLE_TOOL_VITEST)],
+    known,
+    reachabilityWithEntry
+  );
+  if (flipped.entries[0]?.verdict !== 'in-repo-verified') {
+    failures.push(
+      '写像に到達する項目を持たせても demo/REQ-1.6 が in-repo-verified にならない' +
+        `（実際: ${flipped.entries[0]?.verdict ?? '無し'}）。到達性の引き当て以外の理由で落ちている`
+    );
+  }
+
+  // 機構: 語ごとの見本が、**その語だけで**リポジトリ内検証と判定されていることを確かめる。
+  // 語の一覧（`IN_REPO_VERIFICATION_TOOL`）を写さずに済ませるため、tool 文字列から当該の語を
+  // 抜いた写しを同じ判定器へ通し、external へ移ることを主張する。移らないなら、その見本は
+  // 別の語にも一致しており（例: `Vitest / React Testing Library` へ書き戻された形）、
+  // 当該の語を落とす変異に対して無言である
+  const soleWordSamples: ReadonlyArray<{ id: string; tool: string; word: string }> = [
+    { id: 'demo/REQ-1.6', tool: SOLE_TOOL_VITEST, word: 'Vitest' },
+    { id: 'demo/REQ-1.7', tool: SOLE_TOOL_PLAYWRIGHT, word: 'Playwright' },
+    { id: 'demo/REQ-1.8', tool: SOLE_TOOL_STORYBOOK, word: 'Storybook' },
+    { id: 'demo/REQ-1.9', tool: SOLE_TOOL_JEST, word: 'Jest' },
+  ];
+  for (const sample of soleWordSamples) {
+    if (!sample.tool.includes(sample.word)) {
+      failures.push(`見本 ${sample.id} の代替検証に語 ${sample.word} が含まれていない`);
+      continue;
+    }
+    const withoutWord = sample.tool.split(sample.word).join('—');
+    const stripped = auditExclusions(
+      [exclusionOf(sample.id, 'unit-test', withoutWord)],
+      known,
+      reachability
+    );
+    if (stripped.entries[0]?.verdict !== 'external') {
+      failures.push(
+        `見本 ${sample.id} から語 ${sample.word} を抜いても external にならない` +
+          `（実際: ${stripped.entries[0]?.verdict ?? '無し'}）。` +
+          'この見本は他の語にも一致しており、当該の語を落とす変異に対して無言である'
+      );
+    }
   }
 
   // 分母から外す ID 集合も、監査と**同じ規則で**機能名付きへ揃わねばならない。
@@ -1734,7 +1882,12 @@ function checkIdListEnumeratesEveryItem(): string[] {
  * スラッシュ区切りの並び（`- 15.8 / 15.9:`）は**読み落としではなく据え置いた書式**である
  * （`parseHeaderListItemIds` の「据え置く書式」を参照）。区切り記号を増やすほど散文との
  * 境目が曖昧になるため読点に限る、という決めごとが本当に効いていることをここで固定する。
- * この一行が無いと、区切りを広げる変異（`[,、]` → `[,、/]`）を**どの見本も捕まえない**。
+ *
+ * **この一行が担うのは文法側の変異である。** 識別子欄の文法（`ID_LIST_REGION_REGEX`）の
+ * 区切りを広げる変異（`[,、]` → `[,、/]`）を当てると、この検査が赤くなる（実測）。
+ * 一方、分割側（`parseHeaderListItemIds` の `idRegion.split(/[,、]/)`）へ同じ変異を当てても
+ * 無言のままである。前段の文法検査を通過した欄にスラッシュは存在しえないためで、
+ * これは @fileoverview の等価変異 3 番として記録した**前段に包含される等価変異**にあたる。
  */
 const PROSE_BULLET_IS_NOT_AN_ID_LIST = [
   '/**',
