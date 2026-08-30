@@ -52,6 +52,14 @@
  * @requirement site-survey/REQ-34.5
  * @requirement site-survey/REQ-34.6
  * @requirement site-survey/REQ-29.4
+ *
+ * Task 115.201: 要件28.2（項目が画面幅に収まらない場合、折返しまたはスクロール可能な領域と
+ *   して項目全てにアクセス可能にする）の担保は、これまで JSDOM の
+ *   `AnnotationToolbar.mobile.test.tsx` が `overflowX: 'auto'` の**宣言**を見るだけであり、
+ *   実ブラウザで「利用者が実際に到達できること」を確かめるものが無かった。
+ *   指の横スクロール（合成タッチのスクロールジェスチャー）だけで全項目へ到達し、
+ *   到達した項目を指で操作できることを実ブラウザで検証する。
+ * @requirement site-survey/REQ-28.2
  */
 
 import path from 'path';
@@ -77,7 +85,7 @@ import {
   type ToolType,
 } from '../../../frontend/src/components/site-surveys/annotation-toolbar.constants';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
-import { assertPresent } from '../../helpers/preconditions';
+import { assertPresent, assertPrepared } from '../../helpers/preconditions';
 import { getFabricObjectCount } from '../../helpers/fabric-canvas';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -140,6 +148,90 @@ interface ToolbarItemRect {
   name: string;
   width: number;
   height: number;
+}
+
+// ----------------------------------------------------------------------------
+// Task 115.201: 要件28.2「項目全てにアクセス可能」を実ブラウザの到達性で測るための宣言
+// ----------------------------------------------------------------------------
+//
+// 「到達できる」を何で測るか:
+//   Playwright の `tap()` / `scrollIntoViewIfNeeded()` は `overflow: hidden` の箱でさえ
+//   プログラム的にスクロールして成立させる。つまり **`tap()` が成立することは、利用者が
+//   到達できることを意味しない**。両者を跨がないために、本ファイルの要件28.2 の検証は
+//   次の二つだけで構成する。
+//     (1) 位置を変える手段は、実タッチの払い（CDP `Input.dispatchTouchEvent` による
+//         touchStart → touchMove → touchEnd）に限る。これは利用者の指と同じ経路
+//         （ブラウザのジェスチャー認識→スクロール）を通るため、利用者がスクロールできない箱
+//         （`overflow: hidden` や `touch-action: none` を与えられた領域）を動かせない。
+//     (2) 到達の判定は、項目の矩形が**祖先のクリップ矩形と可視ビューポートの共通部分に
+//         完全に収まっている**ことと、その中心点の当たり判定（`elementFromPoint`）が
+//         当該項目自身（またはその子孫）を返すことの両立で行う。前者だけでは切り取られた
+//         描画を見落とし、後者だけでは項目の一部が切れていても通ってしまう。
+//
+// この形は「ツールバー自身がスクロールする」実装に依存しない。折返し（要件28.2 のもう一方の
+// 手段）で全項目が最初から見えているなら、一度もスクロールせずに到達が成立する。
+
+/** 到達性の検証で 1 回のスワイプが動かす距離（論理ピクセル）。画面幅の 6 割。 */
+const TOOLBAR_SWIPE_PX = Math.round(MOBILE_VIEWPORT.width * 0.6);
+
+/** 到達性の検証でスワイプを繰り返す上限。ツールバー内部幅の数倍に相当する。 */
+const MAX_TOOLBAR_SWIPES = 20;
+
+/** スワイプの起点をツールバーの内側の余白（padding: 8px）へ落とす距離 */
+const TOOLBAR_SWIPE_EDGE_INSET_PX = 4;
+
+/** 1 回のスワイプを構成する touchMove の回数 */
+const TOOLBAR_SWIPE_STEPS = 12;
+
+/** touchMove の間隔（約 1 フレーム）。払いの速度と向きをブラウザに認識させるため。 */
+const TOUCH_MOVE_INTERVAL_MS = 16;
+
+/** 指を離す前に終点で止める時間。慣性スクロールを残さないため。 */
+const TOUCH_SETTLE_HOLD_MS = 120;
+
+/** スクロール位置が落ち着くまでに待つフレーム数の上限 */
+const MAX_SETTLE_FRAMES = 30;
+
+/** 矩形の突き合わせに用いる許容誤差（サブピクセル丸めの吸収） */
+const CLIP_EPSILON_PX = 0.5;
+
+/** ツールバーの項目 1 件の到達性の実測（矩形・祖先のクリップ矩形・中心点の当たり判定） */
+interface ToolbarItemReach {
+  name: string;
+  tool: string | null;
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  width: number;
+  height: number;
+  clipLeft: number;
+  clipTop: number;
+  clipRight: number;
+  clipBottom: number;
+  hitsSelf: boolean;
+}
+
+/**
+ * 要件28.2 の「アクセス可能」の判定
+ *
+ * 見えているだけでは足りず（切り取られた領域は描かれない）、当たり判定が通るだけでも
+ * 足りない（項目の一部しか露出していない状態でも中心は当たる）。両方を課す。
+ */
+function toolbarItemAt(items: ToolbarItemReach[], index: number): ToolbarItemReach {
+  const item = items[index];
+  assertPresent(item, `ツールバーの ${index} 番目の項目`);
+  return item;
+}
+
+function isToolbarItemReachable(item: ToolbarItemReach): boolean {
+  return (
+    item.hitsSelf &&
+    item.left >= item.clipLeft - CLIP_EPSILON_PX &&
+    item.right <= item.clipRight + CLIP_EPSILON_PX &&
+    item.top >= item.clipTop - CLIP_EPSILON_PX &&
+    item.bottom <= item.clipBottom + CLIP_EPSILON_PX
+  );
 }
 
 // ============================================================================
@@ -457,6 +549,165 @@ test.describe('モバイル Viewport 注釈機能', () => {
           };
         })
       );
+  }
+
+  /**
+   * ツールバーの項目の到達性を実測する（Task 115.201 / Req 28.2）
+   *
+   * 返すのは実ブラウザの生の測定値だけである（矩形・祖先のクリップ矩形・中心点の当たり判定）。
+   * 「到達できたか」の判定は Node 側の `isToolbarItemReachable` が行い、画面の中で
+   * 本番の判定を書き起こすことはしない。
+   *
+   * 祖先のクリップ矩形は、`overflow` が `visible` でない祖先の矩形と可視ビューポートの
+   * 共通部分として求める。**ツールバー自身も `overflowX: 'auto'` を持つためこの祖先に含まれ、
+   * 横スクロールで外へ出ている項目はクリップ矩形の外として測られる。**
+   */
+  async function readToolbarReach(): Promise<ToolbarItemReach[]> {
+    return await sharedPage.evaluate(() => {
+      const toolbar = document.querySelector('[data-testid="annotation-toolbar"]');
+      if (toolbar === null) {
+        throw new Error('注釈ツールバーが画面に存在しません');
+      }
+      const elements = Array.from(toolbar.querySelectorAll('button, input, select'));
+      if (elements.length === 0) {
+        throw new Error('ツールバーの項目（button / input / select）が一つも存在しません');
+      }
+      return elements.map((element) => {
+        const rect = element.getBoundingClientRect();
+        let clipLeft = 0;
+        let clipTop = 0;
+        let clipRight = window.innerWidth;
+        let clipBottom = window.innerHeight;
+        let ancestor: HTMLElement | null = element.parentElement;
+        while (ancestor !== null) {
+          const style = window.getComputedStyle(ancestor);
+          if (style.overflowX !== 'visible' || style.overflowY !== 'visible') {
+            const box = ancestor.getBoundingClientRect();
+            clipLeft = Math.max(clipLeft, box.left);
+            clipTop = Math.max(clipTop, box.top);
+            clipRight = Math.min(clipRight, box.right);
+            clipBottom = Math.min(clipBottom, box.bottom);
+          }
+          ancestor = ancestor.parentElement;
+        }
+        const topmost = document.elementFromPoint(
+          rect.left + rect.width / 2,
+          rect.top + rect.height / 2
+        );
+        return {
+          name:
+            element.getAttribute('data-testid') ??
+            element.getAttribute('aria-label') ??
+            element.tagName.toLowerCase(),
+          tool: element.getAttribute('data-tool'),
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height,
+          clipLeft,
+          clipTop,
+          clipRight,
+          clipBottom,
+          hitsSelf: topmost !== null && (topmost === element || element.contains(topmost)),
+        };
+      });
+    });
+  }
+
+  /** ツールバーの内部幅と表示幅（要件28.2 の「収まらない」の前提を実測するため） */
+  async function readToolbarExtent(): Promise<{ scrollWidth: number; clientWidth: number }> {
+    return await sharedPage.getByTestId('annotation-toolbar').evaluate((element) => ({
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+    }));
+  }
+
+  /**
+   * 利用者の指と同じ経路で、ツールバーを横方向へスワイプする（Task 115.201 / Req 28.2）
+   *
+   * 実タッチ（CDP `Input.dispatchTouchEvent` の touchStart → touchMove → touchEnd）を
+   * ブラウザへ流し、ブラウザ側のジェスチャー認識にスクロールを起こさせる。これは指で
+   * 画面を払う操作と同じ経路であり、**利用者がスクロールできない箱（`overflow: hidden`）を
+   * 動かせない**。Playwright の `tap()` / `scrollIntoViewIfNeeded()` が使う
+   * プログラム的スクロール（`overflow: hidden` でも成立する）とは経路が異なる。
+   *
+   * CDP `Input.synthesizeScrollGesture` は用いない。本環境で
+   * `gestureSourceType: 'touch'` を指定するとスクロールがまったく起きず
+   * （実測: `scrollLeft` が 0 のまま）、`'default'` を指定すると入力源が指ではなくなるため、
+   * どちらも「利用者の指で到達できる」の検証には使えない。
+   *
+   * 指は「見せたい向き」と逆へ動く。`xDistance` が正のとき、右側にある項目を見せる向きへ
+   * 内容を動かす（＝指は左へ動く）。
+   */
+  async function swipeToolbarHorizontally(xDistance: number): Promise<void> {
+    const box = await sharedPage.getByTestId('annotation-toolbar').boundingBox();
+    expect(box, 'ツールバーの矩形が取得できずスワイプの起点を決められません').not.toBeNull();
+    // 起点はツールバーの内側の余白（padding）に取り、道具や属性の操作要素の上から
+    // 指を降ろさない。払う操作が誤って項目の操作として解釈される余地を残さないため。
+    const y = Math.round(box!.y + TOOLBAR_SWIPE_EDGE_INSET_PX);
+    const centerX = box!.x + box!.width / 2;
+    const from = { x: Math.round(centerX + xDistance / 2), y };
+    const to = { x: Math.round(centerX - xDistance / 2), y };
+
+    await dispatchTouch('touchStart', [{ x: from.x, y: from.y, id: 0 }]);
+    for (let step = 1; step <= TOOLBAR_SWIPE_STEPS; step++) {
+      const ratio = step / TOOLBAR_SWIPE_STEPS;
+      await dispatchTouch('touchMove', [
+        { x: from.x + (to.x - from.x) * ratio, y: from.y + (to.y - from.y) * ratio, id: 0 },
+      ]);
+      // 連続する touchMove を 1 フレーム分だけ離す。ブラウザのジェスチャー認識は
+      // 移動の連なりから速度と向きを決めるため、同一時刻に積み上げると払いにならない。
+      await sharedPage.waitForTimeout(TOUCH_MOVE_INTERVAL_MS);
+    }
+    // 終点で指を止めてから離す。速度を残したまま離すと慣性スクロール（フリング）が続き、
+    // 直後のタップが慣性の停止に消費されて操作として届かなくなる。
+    await dispatchTouch('touchMove', [{ x: to.x, y: to.y, id: 0 }]);
+    await sharedPage.waitForTimeout(TOUCH_SETTLE_HOLD_MS);
+    await dispatchTouch('touchEnd', []);
+
+    await waitForToolbarPositionSettled();
+  }
+
+  /** 1 描画フレーム分の境界まで待つ（固定時間ではなく版面の更新点で待つ） */
+  async function nextFrame(): Promise<void> {
+    await sharedPage.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        })
+    );
+  }
+
+  /**
+   * スクロール位置が落ち着くまで待ち、落ち着いた時点の実測を返す。
+   *
+   * 連続する 2 フレームで先頭項目の左端が一致した時点を「落ち着いた」とみなす。
+   * 固定時間の待機は用いない。
+   */
+  async function waitForToolbarPositionSettled(): Promise<ToolbarItemReach[]> {
+    let items = await readToolbarReach();
+    let signature = positionSignature(items);
+    let previousSignature = Number.NaN;
+    let frames = 0;
+    while (signature !== previousSignature && frames < MAX_SETTLE_FRAMES) {
+      previousSignature = signature;
+      await nextFrame();
+      items = await readToolbarReach();
+      signature = positionSignature(items);
+      frames += 1;
+    }
+    expect(
+      frames,
+      `スワイプ後にツールバーのスクロール位置が ${MAX_SETTLE_FRAMES} フレーム経っても落ち着きません`
+    ).toBeLessThan(MAX_SETTLE_FRAMES);
+    return items;
+  }
+
+  /** 到達性の走査で「位置が動いたか」を見るための指標（先頭項目の左端） */
+  function positionSignature(items: ToolbarItemReach[]): number {
+    return Math.round(toolbarItemAt(items, 0).left * 100);
   }
 
   /**
@@ -1099,6 +1350,173 @@ test.describe('モバイル Viewport 注釈機能', () => {
     // 指を離すと消える
     await releaseTouch();
     await expect(tooltip, '指を離してもツールヒントが残っている').toHaveCount(0);
+  });
+
+  /**
+   * (i) ツールバーの項目全てへ、指の横スクロールだけで到達し、到達した項目を指で操作できる
+   *     Requirement 28.2
+   *
+   * Task 115.201: 要件28.2 の担保はこれまで JSDOM の宣言（`overflowX: 'auto'` が在ること）
+   * だけであり、実ブラウザでの到達性を測るものが無かった。その弱さは変異で実測した。
+   * 宣言を残したままツールバーへ `touch-action: none` を足すと、利用者は指で払えなくなり
+   * 全項目へ到達できなくなるが、`AnnotationToolbar.mobile.test.tsx` は 12 件すべて緑、
+   * (d)・(10)・(11) も緑のままであった（(d) の `tap()` は Playwright の
+   * プログラム的スクロールで位置を作り直すため、指で到達できるかを何も述べていない）。
+   * この改変で赤になるのは本検証だけである。
+   *
+   * HEAD で測り直した実測値（モバイル幅 375 / ツールバーの表示幅 295）:
+   *   - 選択ツール・属性パネル無し: ツールバー内部幅 992
+   *   - テキストツール・属性パネル有り（項目 20 件 = 道具 9 + パネル 6 + アクション 5。
+   *     項目が最も多く内部幅が最大になる状態）: ツールバー内部幅 1646
+   *   - 上記の状態での項目の幅の合計 1132（画面幅 375 を超えるため、折返しか横スクロールの
+   *     いずれかが無ければ全項目へは到達できない）
+   *
+   * 本検証は位置を変える手段を実タッチの払いだけに限る。これはブラウザのジェスチャー認識を
+   * 通るため、利用者がスクロールできない箱（`overflow: hidden` や `touch-action: none`）を
+   * 動かせない。
+   * 到達の判定は「祖先のクリップ矩形と可視ビューポートの共通部分に矩形が完全に収まる」ことと
+   * 「中心点の当たり判定が当該項目自身（またはその子孫）を返す」ことの両立で行う。
+   */
+  test('(i) ツールバー項目全てへ指の横スクロールだけで到達し操作できる (REQ-28.2)', async () => {
+    await enterEditMode();
+
+    // ---- 段1: 画面外にある道具へ指のスクロールだけで到達し、指で操作できる ----
+    //
+    // 要件28.2 の前提（「項目が画面幅に収まらない」）が実際に起きていることは、
+    // 実装が採る手段（折返しか横スクロールか）に依らない形で二つ確かめる。
+    //   - 段1: 最後の道具が初期状態で到達できない（＝一画面に収まっていない）
+    //   - 段2: 項目の幅の合計が画面幅を超える（＝一行には並べられない）
+    // 前提が崩れたときは沈黙して飛ばさず失敗させる。
+    const lastToolId = TOOL_ORDER[TOOL_ORDER.length - 1];
+    assertPrepared(lastToolId, '本番の TOOL_ORDER が持つ最後の道具');
+    const lastToolLabel = TOOL_DEFINITIONS[lastToolId].label;
+
+    let items = await readToolbarReach();
+    const lastToolIndex = items.findIndex((item) => item.tool === lastToolId);
+    expect(
+      lastToolIndex,
+      `道具「${lastToolLabel}」がツールバーに存在しません`
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      isToolbarItemReachable(toolbarItemAt(items, lastToolIndex)),
+      `道具「${lastToolLabel}」が初期状態で既に到達可能であり、スクロールによる到達を` +
+        'この検証で確かめられません（ツールバーが折返しへ変わった可能性があります。' +
+        'その場合は折返しでの到達を測る形へ本検証を作り直すこと）'
+    ).toBe(false);
+
+    let signature = positionSignature(items);
+    let previousSignature = Number.NaN;
+    let swipes = 0;
+    while (
+      !isToolbarItemReachable(toolbarItemAt(items, lastToolIndex)) &&
+      swipes < MAX_TOOLBAR_SWIPES &&
+      signature !== previousSignature
+    ) {
+      previousSignature = signature;
+      await swipeToolbarHorizontally(TOOLBAR_SWIPE_PX);
+      swipes += 1;
+      items = await readToolbarReach();
+      signature = positionSignature(items);
+    }
+
+    const lastTool = toolbarItemAt(items, lastToolIndex);
+    expect(
+      isToolbarItemReachable(lastTool),
+      `指の横スクロール ${swipes} 回でも道具「${lastToolLabel}」へ到達できません` +
+        `（矩形 ${Math.round(lastTool.left)}..${Math.round(lastTool.right)} / ` +
+        `クリップ ${Math.round(lastTool.clipLeft)}..${Math.round(lastTool.clipRight)} / ` +
+        `中心の当たり判定 ${lastTool.hitsSelf ? '成立' : '不成立'}）。` +
+        '利用者がスクロールできない領域へ項目が置かれている疑いがあります'
+    ).toBe(true);
+
+    // 到達した位置を指でタップして操作が成立することまで確かめる。Playwright の `tap()` は
+    // 使わない（プログラム的スクロールで位置を作り直してしまい、到達性を跨いでしまうため）。
+    await tapAt(lastTool.left + lastTool.width / 2, lastTool.top + lastTool.height / 2);
+    const lastToolButton = sharedPage.getByRole('button', { name: lastToolLabel, exact: true });
+    await expect(
+      lastToolButton,
+      `到達した道具「${lastToolLabel}」を指でタップしても選択状態になりません`
+    ).toHaveAttribute('aria-pressed', 'true', { timeout: getTimeout(10000) });
+    await expect(
+      sharedPage.getByTestId('style-options'),
+      '道具の選択に伴う属性パネルが開かず、項目数が最大の状態を作れません'
+    ).toBeVisible({ timeout: getTimeout(10000) });
+
+    // ---- 段2: 項目数が最大の状態で、全項目へ指のスクロールだけで到達できる ----
+    // 指のスクロールで左端まで戻れること自体も「項目全てにアクセス可能」の一部である。
+    items = await readToolbarReach();
+    signature = positionSignature(items);
+    previousSignature = Number.NaN;
+    swipes = 0;
+    while (swipes < MAX_TOOLBAR_SWIPES && signature !== previousSignature) {
+      previousSignature = signature;
+      await swipeToolbarHorizontally(-TOOLBAR_SWIPE_PX);
+      swipes += 1;
+      items = await readToolbarReach();
+      signature = positionSignature(items);
+    }
+
+    // 母集団の個数を先に突き合わせる。全件走査だけでは、項目が描かれていなくても空振りで
+    // 緑になる（母集団の定義は本ファイル冒頭の宣言に従う）。
+    const expectedItemCount =
+      TOOL_BUTTON_COUNT + PANEL_CONTROL_COUNT[lastToolId] + ACTION_BUTTON_COUNT;
+    expect(
+      items.map((item) => item.name),
+      `${lastToolLabel}: ツールバーの項目の個数が宣言と一致しません`
+    ).toHaveLength(expectedItemCount);
+
+    // 一行に収まらないことを寸法から直接示す（レイアウト手段に依存しない前提の確認）。
+    const totalItemWidth = items.reduce((sum, item) => sum + item.width, 0);
+    expect(
+      totalItemWidth,
+      `項目の幅の合計 ${Math.round(totalItemWidth)} が画面幅 ${MOBILE_VIEWPORT.width} 以下であり、` +
+        '折返しもスクロールも要らない状態です（要件28.2 の場合分けに入っていません）'
+    ).toBeGreaterThan(MOBILE_VIEWPORT.width);
+
+    // 失敗時の手掛かりとしてツールバーの内部幅・表示幅を控える（主張には用いない。
+    // 要件28.2 は折返しでの到達も認めており、内部幅が表示幅を超えることを要求しないため）。
+    const extentWithPanel = await readToolbarExtent();
+
+    const reached = new Set<number>();
+    const rememberReached = (scanned: ToolbarItemReach[]): void => {
+      scanned
+        .map((item, index) => ({ item, index }))
+        .filter((entry) => isToolbarItemReachable(entry.item))
+        .forEach((entry) => reached.add(entry.index));
+    };
+
+    rememberReached(items);
+    signature = positionSignature(items);
+    previousSignature = Number.NaN;
+    swipes = 0;
+    while (
+      reached.size < expectedItemCount &&
+      swipes < MAX_TOOLBAR_SWIPES &&
+      signature !== previousSignature
+    ) {
+      previousSignature = signature;
+      await swipeToolbarHorizontally(TOOLBAR_SWIPE_PX);
+      swipes += 1;
+      items = await readToolbarReach();
+      signature = positionSignature(items);
+      rememberReached(items);
+    }
+
+    const unreached = items
+      .map((item, index) => ({ item, index }))
+      .filter((entry) => !reached.has(entry.index))
+      .map(
+        (entry) =>
+          `${entry.item.name}[矩形 ${Math.round(entry.item.left)}..${Math.round(entry.item.right)} / ` +
+          `クリップ ${Math.round(entry.item.clipLeft)}..${Math.round(entry.item.clipRight)} / ` +
+          `中心の当たり判定 ${entry.item.hitsSelf ? '成立' : '不成立'}]`
+      );
+    expect(
+      unreached,
+      `指の横スクロール ${swipes} 回でも到達できない項目が残っています` +
+        `（ツールバー内部幅 ${extentWithPanel.scrollWidth} / 表示幅 ${extentWithPanel.clientWidth}）。` +
+        '折返しもスクロールも与えられていないか、利用者が動かせない領域へ切り取られています'
+    ).toEqual([]);
   });
 });
 
