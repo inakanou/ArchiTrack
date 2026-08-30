@@ -468,7 +468,6 @@ frontend/
 │   │       ├── ImageUploader.tsx    # 画像アップロードUI
 │   │       ├── AnnotationEditor.tsx # 注釈エディタ（Fabric.js）
 │   │       ├── AnnotationToolbar.tsx # 注釈ツールバー（モバイル幅は単段横スクロール（nowrap）で縦占有を抑制）
-│   │       ├── StylePanel.tsx       # スタイル設定パネル
 │   │       ├── PhotoManagementPanel.tsx # 写真管理パネル
 │   │       ├── AnnotatedImageThumbnail.tsx # 注釈付き画像サムネイル
 │   │       ├── ImageExportDialog.tsx # 画像エクスポートダイアログ
@@ -711,7 +710,6 @@ frontend/
 - `SiteSurveyDetailInfo.stories.tsx` - 詳細情報表示
 - `ImageUploader.stories.tsx` - 画像アップロード
 - `AnnotationToolbar.stories.tsx` - 注釈ツールバー
-- `StylePanel.stories.tsx` - スタイル設定パネル
 - `PhotoManagementPanel.stories.tsx` - 写真管理パネル
 - `AnnotatedImageThumbnail.stories.tsx` - 注釈付きサムネイル
 - `ImageExportDialog.stories.tsx` - エクスポートダイアログ

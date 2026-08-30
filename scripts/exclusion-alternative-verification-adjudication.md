@@ -193,6 +193,8 @@ HEAD 母集団 206 = P(是正) 56 + Z(総称) 43 + N(代替検証なしと明示
 （実測: HEAD の `coveredAcceptanceCriteria` に在る）。取り下げで動いたのは分母側だけで、
 適用対象が 2682 → 2683 になり、被覆済み 2655 / 未被覆 233 は変わらない。
 
+**後記（タスク 115.204）**: 本項が根拠として引いた `frontend/src/__tests__/components/site-surveys/StylePanel.test.tsx` と、それが見ていた `frontend/src/components/site-surveys/StylePanel.tsx` は**撤去した**。当該部品は本番の描画経路から参照されておらず、出荷されている属性パネルは `frontend/src/components/site-surveys/AnnotationToolbar.tsx` が内包する同名の関数コンポーネントである（`.kiro/specs/site-survey/design.md` の「未結線部品の扱い」を参照）。**本項の裁定そのものは変わらない**——`site-survey/REQ-8.5` の除外は取り下げ済みであり、取り下げの根拠は上に記したとおり E2E が現に文字色とフォントサイズを観測している事実の側にある。撤去で失われたのは、本番から呼ばれない部品だけを見ていた検証である（撤去の前後で `npm run check:req-coverage` の被覆数は動いていない。実測）。
+
 **これは 115.188 が `scripts/coverage-mark-adjudication.md` §6 で引き継いだ「本番コードの註釈だけが被覆の担い手になっている形」**
 そのものである（`frontend/src` は本タスクの _Boundary_ 外）。E2E の側へ被覆印を足して
 埋めることはしていない。足せば「文字色とフォントサイズは確かめるが背景色は確かめない」
