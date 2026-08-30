@@ -980,7 +980,7 @@ describe('ImageProcessorService', () => {
 
   describe('constants', () => {
     it('should define correct size thresholds', () => {
-      expect(ImageProcessorService.MAX_SIZE_BYTES).toBe(300 * 1024);
+      expect(ImageProcessorService.COMPRESSION_START_THRESHOLD_BYTES).toBe(300 * 1024);
       expect(ImageProcessorService.TARGET_MAX_SIZE_BYTES).toBe(350 * 1024);
     });
 

@@ -50,7 +50,8 @@ export interface CompressedImage {
   buffer: Buffer;
   metadata: ImageMetadata;
   /**
-   * 元画像が上限（{@link ImageProcessorService.MAX_SIZE_BYTES} = 300KB）を超えており、
+   * 元画像が圧縮開始の閾値
+   * （{@link ImageProcessorService.COMPRESSION_START_THRESHOLD_BYTES} = 300KB）を超えており、
    * 段階的圧縮の経路を通ったことを表す。
    *
    * **`true` は再エンコードが行われたことを意味しない。** 300KB超〜350KB以下の入力は
@@ -81,8 +82,8 @@ export interface CompressedImage {
    * 撤去せずに残すのは、**300KB超〜350KB以下の帯ではこの項目以外に分岐の痕跡が
    * 一切残らない**ためである。当該の帯では早期リターンの経路と段階的圧縮の経路が
    * 返す `buffer`・`metadata`・sharp の呼び出し回数がすべて一致するため、この項目を
-   * 外すと {@link ImageProcessorService.MAX_SIZE_BYTES}（300KB）の境界は検証不能に
-   * なる。実測（Task 115.207。件数は当時の値。関連四ファイル＝本サービスと
+   * 外すと {@link ImageProcessorService.COMPRESSION_START_THRESHOLD_BYTES}（300KB）の境界は
+   * 検証不能になる。実測（Task 115.207。件数は当時の値。関連四ファイル＝本サービスと
    * `image-upload` / `batch-upload` / `construction-photo-image` の各単体検証）:
    * 早期リターンの `<=` を `<` へ変異させると、152 件のうち落ちるのはこの項目を見る
    * 2 件の表明だけである（うち 1 件は本タスクで新設した検証。本タスク以前は 151 件中
@@ -162,8 +163,11 @@ export class ImageProcessorService {
    * 要件4.6 の「上限（300KB）」にあたる。**出力サイズの上限ではない。**
    * 出力の打ち切りは {@link ImageProcessorService.TARGET_MAX_SIZE_BYTES}（350KB）が
    * 担うため、この値を超える出力は正常に生じうる（Task 115.171。要件4.14）。
+   *
+   * 従前の呼称 `MAX_SIZE_BYTES` は「最大ファイルサイズ」と読めたが、上記のとおり
+   * 実態は圧縮を開始する閾値であり、名前が実態を表していなかった（Task 115.209 で改名）。
    */
-  static readonly MAX_SIZE_BYTES = 300 * 1024;
+  static readonly COMPRESSION_START_THRESHOLD_BYTES = 300 * 1024;
 
   /**
    * 圧縮の打ち切りサイズ（350KB）
@@ -320,7 +324,7 @@ export class ImageProcessorService {
       const originalMetadata = await this.getMetadata(buffer);
 
       // 300KB以下の場合は圧縮不要
-      if (originalMetadata.size <= ImageProcessorService.MAX_SIZE_BYTES) {
+      if (originalMetadata.size <= ImageProcessorService.COMPRESSION_START_THRESHOLD_BYTES) {
         return {
           buffer,
           metadata: originalMetadata,
