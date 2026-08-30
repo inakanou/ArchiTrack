@@ -751,6 +751,61 @@ describe('ImageProcessorService', () => {
         expect(result.buffer).toBe(buffer);
       });
 
+      it('300KB境界の両側は、この印を除く観測がすべて一致する（本項目が在る理由 / Task 115.207）', async () => {
+        // この項目に本番コードの読み手は一件も無く、要件4.6 の引き金（300KB超）を
+        // 観測できる唯一の点として、検証のためだけに本番の型へ置いている。
+        // その根拠は「印を除くと分岐の痕跡が残らない」ことである。本番でこの分岐が
+        // 観測できるようになれば、この表明が赤くなって置き所の見直しを促す。
+        const observe = async (size: number) => {
+          const instance: SharpInstance = {
+            metadata: vi.fn().mockResolvedValue({
+              width: 1920,
+              height: 1080,
+              format: 'jpeg',
+              size,
+            }),
+            resize: vi.fn().mockReturnThis(),
+            jpeg: vi.fn().mockReturnThis(),
+            png: vi.fn().mockReturnThis(),
+            webp: vi.fn().mockReturnThis(),
+            toBuffer: vi.fn(),
+          };
+          const sharp = vi.fn().mockReturnValue(instance) as unknown as SharpStatic;
+          const buffer = createTestBuffer(size);
+          const result = await new ImageProcessorService(sharp).compressImage(buffer);
+          return {
+            flag: result.originalExceededSizeLimit,
+            metadata: result.metadata,
+            // 印以外に観測できるもの（入力サイズに由来する metadata.size を除く）
+            observableExceptFlag: {
+              returnsInputItself: result.buffer === buffer,
+              sharpCalls: (sharp as unknown as Mock).mock.calls.length,
+              toBufferCalls: (instance.toBuffer as Mock).mock.calls.length,
+              resizeCalls: (instance.resize as Mock).mock.calls.length,
+              jpegCalls: (instance.jpeg as Mock).mock.calls.length,
+              width: result.metadata.width,
+              height: result.metadata.height,
+              format: result.metadata.format,
+            },
+          };
+        };
+
+        const atLimit = await observe(300 * KB); // 経路を通らない側
+        const overLimit = await observe(300 * KB + 1); // 経路を通る側
+
+        expect(atLimit.flag, '300KBちょうどで経路を通っている').toBe(false);
+        expect(overLimit.flag, '300KB+1バイトで経路を通っていない').toBe(true);
+
+        expect(
+          overLimit.observableExceptFlag,
+          '印以外に分岐の痕跡が現れた。本項目を検証のためだけに本番の型へ置く根拠が失効している'
+        ).toEqual(atLimit.observableExceptFlag);
+        expect(
+          overLimit.metadata.size - atLimit.metadata.size,
+          'metadata.size の差が入力サイズの差と一致しない'
+        ).toBe(1);
+      });
+
       it('品質もリサイズも尽きて350KBを超えたままでも true を返す', async () => {
         // `true` は「打ち切りサイズ以下に収まった」ことを意味しない、という但し書きの実測。
         const over = 800 * KB;
