@@ -24,6 +24,7 @@
  *   (d) 切替は Undo/Redo 履歴に記録される（Req 24.10, 25.11, 32.10）
  *   (e) 無効にして描いた注釈は保存・リロード後も無効のまま復元される（Req 24.7, 25.8, 32.7）
  *   (f) 属性パネルの各項目のタップ領域がモバイル幅で 44x44 論理ピクセル以上（Req 28.3, 15.2）
+ *   (g) 属性パネルの見出しを押すと対応する操作要素が働く（Req 28.3）
  *
  * Task 115.148:
  *   切替のタップ領域は 18x18 論理ピクセルで、隣接する色の選択（32x24）・線幅の入力
@@ -34,6 +35,15 @@
  * Task 115.170:
  *   要件28.3 の適用範囲を決着させ、条文どおり「モバイル幅ツールバーの各項目」へ 44x44 を
  *   適用した。決着に伴い (f) の主張を相対関係から絶対値（44x44 以上）へ置き換えた。
+ *
+ * Task 115.202:
+ *   属性パネルの見出し 9 つのうち `htmlFor` を持つのは 3 つだけで、残る 6 つ（色・線幅・
+ *   塗りつぶし・文字色・サイズ・背景色）は押下しても何も起きない不活性な文字だった。
+ *   モバイル幅では見出しが操作要素と同じ 44px の行に横並びで置かれる（`STYLES.styleItemMobile`）
+ *   ため、行の左半分に触れた指が無反応になる。9 つ全てに `htmlFor` を与えたうえで、
+ *   (g) が実ブラウザの押下で「見出しを押すと操作要素が働く」ことを測る。
+ *   `htmlFor` が付いているという宣言は、実ブラウザで押下が転送されることを固定しない
+ *   （Task 115.201 の教訓）。
  *
  * @requirement site-survey/REQ-24.5
  * @requirement site-survey/REQ-25.2
@@ -159,13 +169,64 @@ const OUTLINE_TOOLS: ReadonlyArray<OutlineToolDefinition> = [
 ] as const;
 
 /**
- * (f) が用いるモバイル幅（iPhone SE 相当）。要件28.3 の対象は「モバイル幅ツールバー」であり、
- * デスクトップ幅のままでは条文の対象を測れない。
+ * (f) / (g) が用いるモバイル幅（iPhone SE 相当）。要件28.3 の対象は「モバイル幅ツールバー」で
+ * あり、デスクトップ幅のままでは条文の対象を測れない。(g) がモバイル幅で測るのは、見出しが
+ * 操作要素の**横**（同じ 44px の行の中）へ置かれるのがモバイル幅だけであり、不活性な見出しが
+ * タップ領域を削る形が現れるのもそこだからである。
  */
 const MOBILE_VIEWPORT = { width: 375, height: 667 };
 
 /** 要件28.3 が定めるタップ領域の下限（論理ピクセル） */
 const MIN_TAP_TARGET_PX = 44;
+
+/**
+ * (g) が測る「見出し → 操作要素」の対応（数える範囲の宣言。Task 115.202）
+ *
+ * `AnnotationToolbar.tsx` の `StylePanel` の分岐から導出する。見出しの並び順もそのままで
+ * あることを (g) が先に確かめてから押下する。個数は `OutlineToolDefinition` の
+ * `toggleControlCount + nonToggleControlCount` と一致しなければならない（(g) が突き合わせる）。
+ */
+interface HeadingBinding {
+  /** 見出しに表示されている文字 */
+  readonly heading: string;
+  /** 見出しが指すべき操作要素の `data-testid` */
+  readonly controlTestId: string;
+  /** 当該操作要素が切替（`type="checkbox"`）か */
+  readonly isToggle: boolean;
+}
+
+const LINE_HEADING_BINDINGS: ReadonlyArray<HeadingBinding> = [
+  { heading: '白縁取り', controlTestId: 'outline-toggle', isToggle: true },
+  { heading: '色', controlTestId: 'color-picker', isToggle: false },
+  { heading: '線幅', controlTestId: 'line-width', isToggle: false },
+];
+
+const FILL_HEADING_BINDING: HeadingBinding = {
+  heading: '塗りつぶし',
+  controlTestId: 'fill-color-picker',
+  isToggle: false,
+};
+
+const TEXT_HEADING_BINDINGS: ReadonlyArray<HeadingBinding> = [
+  { heading: '白アウトライン', controlTestId: 'outline-toggle', isToggle: true },
+  { heading: '文字色', controlTestId: 'color-picker', isToggle: false },
+  { heading: 'サイズ', controlTestId: 'font-size', isToggle: false },
+  { heading: '背景', controlTestId: 'text-background-toggle', isToggle: true },
+  { heading: '背景色', controlTestId: 'text-background-color-picker', isToggle: false },
+  { heading: '吹き出し', controlTestId: 'balloon-style', isToggle: false },
+];
+
+/** 道具帯のツールボタン `aria-label` → 当該ツールの属性パネルに並ぶ見出しの対応 */
+const HEADING_BINDINGS: Readonly<Record<string, ReadonlyArray<HeadingBinding>>> = {
+  矢印: LINE_HEADING_BINDINGS,
+  寸法線: LINE_HEADING_BINDINGS,
+  円: [...LINE_HEADING_BINDINGS, FILL_HEADING_BINDING],
+  四角形: [...LINE_HEADING_BINDINGS, FILL_HEADING_BINDING],
+  多角形: [...LINE_HEADING_BINDINGS, FILL_HEADING_BINDING],
+  折れ線: LINE_HEADING_BINDINGS,
+  フリーハンド: LINE_HEADING_BINDINGS,
+  テキスト: TEXT_HEADING_BINDINGS,
+};
 
 /** 形状を描き分ける格子（キャンバス相対比率）。互いに重ならないよう割り当てる。 */
 const CELLS: ReadonlyArray<{ x0: number; y0: number; x1: number; y1: number }> = [
@@ -821,6 +882,137 @@ test.describe('白縁取り切替UI', () => {
             control.height,
             `${name}の高さ ${control.height} が ${MIN_TAP_TARGET_PX}px 未満`
           ).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+        }
+      }
+    } finally {
+      if (desktopViewport) {
+        await sharedPage.setViewportSize(desktopViewport);
+      }
+    }
+  });
+
+  /**
+   * (g) 属性パネルの見出しを押すと、対応する操作要素が働く
+   *     Requirement 28.3（モバイル幅ツールバーの各項目のタップ領域）
+   *
+   * Task 115.202 の是正の受入基準。従前、見出し 9 つのうち押下が転送されるのは `htmlFor` を
+   * 持つ 3 つだけで、残る 6 つ（色・線幅・塗りつぶし・文字色・サイズ・背景色）は押下しても
+   * 何も起きない不活性な文字だった。モバイル幅では見出しが操作要素と同じ 44px の行に横並びで
+   * 置かれるため、行の左半分に触れた指が無反応になっていた。
+   *
+   * **宣言ではなく挙動で測る**（Task 115.201 の教訓「『押せること』は到達性を固定しない」）。
+   * `htmlFor` が付いているという主張は、実ブラウザで押下が実際に転送されることを固定しない。
+   * ここでは実ブラウザで見出しを押し、
+   *   - 焦点が対応する操作要素へ移ること（全 9 種の見出し）
+   *   - 切替（`type="checkbox"`）については、押下で状態が実際に反転すること
+   * を観測する。判定は Node 側で行い、ページ内で真偽を作らない。
+   *
+   * 数える範囲（先に宣言する）: `data-testid="style-options"` 配下の `label` の全て。
+   * ツールごとの見出しと対応先は `HEADING_BINDINGS` に宣言してあり、実測の並びがそれと一致
+   * することを押下より先に確かめる（見出しが消えたまま空振りで緑になることを防ぐ）。
+   * 個数は `OutlineToolDefinition` の `toggleControlCount + nonToggleControlCount`
+   * （(f) が使う宣言）とも突き合わせ、二つの宣言が食い違ったまま両方緑になる経路を塞ぐ。
+   *
+   * 切替は押下で状態が変わるため、観測後に操作要素側を押して元へ戻す。後続の主張が
+   * 本テストの副作用を引き継がないようにするためである。
+   *
+   * @requirement site-survey/REQ-28.3
+   */
+  test('(g) 属性パネルの見出しを押すと対応する操作要素へ焦点が移り切替が反転する (site-survey/REQ-28.3)', async () => {
+    // 8 ツール × 見出し（3〜6 個）の押下と焦点の観測を 1 テストで回すため、既定の 60 秒では
+    // 足りない。固定時間の待機は使わず、上限だけを引き上げる。
+    test.setTimeout(getTimeout(180_000));
+
+    await enterEditMode();
+
+    const desktopViewport = sharedPage.viewportSize();
+    expect(desktopViewport, '元のビューポート寸法が取得できない').not.toBeNull();
+
+    /** ページの焦点を外す（前の見出しの結果が残ったまま緑になることを防ぐ） */
+    const blurActiveElement = async (): Promise<void> => {
+      await sharedPage.evaluate(() => {
+        const active = document.activeElement;
+        if (active instanceof HTMLElement) {
+          active.blur();
+        }
+      });
+    };
+
+    /** 現在焦点のある要素の `data-testid` を Node 側へ取り出す（判定はページ内で行わない） */
+    const focusedTestId = (): Promise<string | null> =>
+      sharedPage.evaluate(() => document.activeElement?.getAttribute('data-testid') ?? null);
+
+    try {
+      await sharedPage.setViewportSize(MOBILE_VIEWPORT);
+
+      for (const tool of OUTLINE_TOOLS) {
+        await selectTool(tool.toolLabel);
+        await expect(outlineToggle(), `${tool.toolLabel}: 切替が道具帯に無い`).toBeVisible({
+          timeout: getTimeout(10000),
+        });
+
+        const bindings = HEADING_BINDINGS[tool.toolLabel];
+        expect(bindings, `${tool.toolLabel}: 見出しの対応が宣言されていない`).toBeDefined();
+
+        // 二つの宣言（(f) の個数と (g) の対応表）が食い違ったまま両方緑になる経路を塞ぐ
+        expect(
+          bindings!.length,
+          `${tool.toolLabel}: 見出しの宣言数が (f) の操作要素の宣言数と一致しない`
+        ).toBe(tool.toggleControlCount + tool.nonToggleControlCount);
+
+        const panel = sharedPage.getByTestId('style-options');
+        const headingTexts = await panel
+          .locator('label')
+          .evaluateAll((elements) => elements.map((element) => element.textContent?.trim() ?? ''));
+        expect(headingTexts, `${tool.toolLabel}: 属性パネルの見出しが宣言と一致しない`).toEqual(
+          bindings!.map((binding) => binding.heading)
+        );
+
+        // 切替の押下前の状態を控える。分岐で主張を包むと（実行されない expect が生まれ）
+        // 空振りが静かに通るため、対象は宣言の filter で先に確定させて無条件に主張する。
+        const toggleBindings = bindings!.filter((binding) => binding.isToggle);
+        expect(
+          toggleBindings.map((binding) => binding.controlTestId),
+          `${tool.toolLabel}: 切替の見出しの宣言数が (f) の切替の宣言数と一致しない`
+        ).toHaveLength(tool.toggleControlCount);
+
+        const checkedBefore = new Map<string, boolean>();
+        for (const binding of toggleBindings) {
+          checkedBefore.set(
+            binding.controlTestId,
+            await panel.getByTestId(binding.controlTestId).isChecked()
+          );
+        }
+
+        // --- 全ての見出しについて、押下が対応する操作要素へ転送されることを測る ---
+        for (const binding of bindings!) {
+          const heading = panel.getByText(binding.heading, { exact: true });
+          const label = `${tool.toolLabel}: 見出し「${binding.heading}」`;
+
+          await blurActiveElement();
+          expect(await focusedTestId(), `${label}: 押下前に焦点が外れていない`).toBeNull();
+
+          await heading.click();
+
+          expect(await focusedTestId(), `${label}を押しても焦点が操作要素へ移らない`).toBe(
+            binding.controlTestId
+          );
+        }
+
+        // --- 切替については、上の押下で状態が実際に反転したことまで測り、元へ戻す ---
+        for (const binding of toggleBindings) {
+          const control = panel.getByTestId(binding.controlTestId);
+          const label = `${tool.toolLabel}: 見出し「${binding.heading}」`;
+          const before = checkedBefore.get(binding.controlTestId)!;
+
+          await expect(control, `${label}を押しても切替が反転しない`).toBeChecked({
+            checked: !before,
+          });
+          // 後続の主張へ副作用を残さないよう、操作要素側を押して元の状態へ戻す
+          await control.click();
+          await expect(control, `${label}: 切替を元の状態へ戻せない`).toBeChecked({
+            checked: before,
+          });
         }
       }
     } finally {

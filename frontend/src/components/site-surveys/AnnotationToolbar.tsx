@@ -232,6 +232,17 @@ const STYLES = {
     minWidth: `${TAP_TARGET_MIN_PX}px`,
     minHeight: `${TAP_TARGET_MIN_PX}px`,
   },
+  // 属性パネルの見出しの体裁。
+  //
+  // Task 115.202: **見出しは必ず `htmlFor` で対応する操作要素へ結び付けること**（項目を足す
+  // ときの規約）。従前は 9 つのうち 3 つしか `htmlFor` を持たず、残る 6 つ（色・線幅・
+  // 塗りつぶし・文字色・サイズ・背景色）は押しても何も起きない不活性な文字だった。
+  // モバイル幅では見出しが操作要素と同じ 44px の行に横並びで置かれる（`styleItemMobile`）
+  // ため、行の左半分に触れた指が無反応になる（要件28.3 のタップ領域を実質的に削る）。
+  // 操作要素側の `aria-label` は accname 仕様上 `<label for>` に優先するため、結び付けても
+  // 読み上げ名は変わらない。検証は
+  // `AnnotationToolbar.style-label-association.test.tsx` と
+  // `site-survey-outline-toggle.spec.ts` の (g)。
   styleLabel: {
     fontSize: '10px',
     color: '#525b6a', // WCAG 2.1 AA準拠: 5.5:1 contrast ratio on #f9fafb
@@ -686,8 +697,11 @@ function StylePanel({
         {/* 線の色 */}
         {showLineOptions && (
           <div style={itemStyle}>
-            <label style={STYLES.styleLabel}>色</label>
+            <label style={STYLES.styleLabel} htmlFor="annotation-stroke-color">
+              色
+            </label>
             <input
+              id="annotation-stroke-color"
               type="color"
               value={styleOptions.strokeColor}
               onChange={handleStrokeColorChange}
@@ -702,8 +716,11 @@ function StylePanel({
         {/* 線の太さ */}
         {showLineOptions && (
           <div style={itemStyle}>
-            <label style={STYLES.styleLabel}>線幅</label>
+            <label style={STYLES.styleLabel} htmlFor="annotation-stroke-width">
+              線幅
+            </label>
             <input
+              id="annotation-stroke-width"
               type="number"
               value={styleOptions.strokeWidth}
               onChange={handleStrokeWidthChange}
@@ -721,8 +738,11 @@ function StylePanel({
         {/* 塗りつぶし色 */}
         {showFillOptions && (
           <div style={itemStyle}>
-            <label style={STYLES.styleLabel}>塗りつぶし</label>
+            <label style={STYLES.styleLabel} htmlFor="annotation-fill-color">
+              塗りつぶし
+            </label>
             <input
+              id="annotation-fill-color"
               type="color"
               value={styleOptions.fillColor || '#ffffff'}
               onChange={handleFillColorChange}
@@ -738,8 +758,11 @@ function StylePanel({
         {showFontOptions && (
           <>
             <div style={itemStyle}>
-              <label style={STYLES.styleLabel}>文字色</label>
+              <label style={STYLES.styleLabel} htmlFor="annotation-text-color">
+                文字色
+              </label>
               <input
+                id="annotation-text-color"
                 type="color"
                 value={styleOptions.strokeColor}
                 onChange={handleStrokeColorChange}
@@ -750,8 +773,11 @@ function StylePanel({
               />
             </div>
             <div style={itemStyle}>
-              <label style={STYLES.styleLabel}>サイズ</label>
+              <label style={STYLES.styleLabel} htmlFor="annotation-font-size">
+                サイズ
+              </label>
               <input
+                id="annotation-font-size"
                 type="number"
                 value={styleOptions.fontSize}
                 onChange={handleFontSizeChange}
@@ -783,8 +809,11 @@ function StylePanel({
               />
             </div>
             <div style={itemStyle}>
-              <label style={STYLES.styleLabel}>背景色</label>
+              <label style={STYLES.styleLabel} htmlFor="annotation-text-background-color">
+                背景色
+              </label>
               <input
+                id="annotation-text-background-color"
                 type="color"
                 value={styleOptions.textBackgroundColor || rememberedTextBackgroundColor}
                 onChange={handleTextBackgroundColorChange}
