@@ -1029,6 +1029,40 @@ echo "✅ E2E in-page self-judgement check passed"
 echo ""
 
 # ============================================================================
+# 反実仮想の引用チェック（記録の信頼性の前提条件）
+# ============================================================================
+# 「この変異を当てれば赤くなる／緑のままである」という反実仮想を、実際に変異を
+# 実行せずに書くと、後任が誤診する（タスク 115.168 / 115.170 / 115.171 で三度発生）
+# - コード注釈の中で、コード上の名前を名指しし、変異の語と検査の判定の語を同じ文に
+#   持つ記述を「反実仮想」として取り出す
+# - 同じ注釈の塊に「実行を述べる語 + 数字」が無ければ失格
+# - 本検査は文面だけを見る。実行そのものは保証しない（限界は本体の注釈に明記）
+# ============================================================================
+
+echo "🔍 Checking counterfactual claims cite an executed mutation..."
+npm run check:cf-evidence:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Counterfactual evidence detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:cf-evidence:selftest"
+  exit 1
+fi
+npm run check:cf-evidence
+if [ $? -ne 0 ]; then
+  echo "❌ Counterfactual evidence check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 記述した変異を実際に当て、落ちた件数・比・日付を同じ注釈へ書いてください"
+  echo "  2. 変異を実行できないなら、反実仮想そのものを書かないでください"
+  echo ""
+  echo "詳細確認: npm run check:cf-evidence:verbose"
+  exit 1
+fi
+
+echo "✅ Counterfactual evidence check passed"
+echo ""
+
+# ============================================================================
 # CI環境変数整合性チェック（E2Eテスト実行の前提条件）
 # ============================================================================
 # ベストプラクティス: pre-pushを「正」としてCIとの整合性を検証

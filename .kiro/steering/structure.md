@@ -45,7 +45,8 @@ ArchiTrack/
 │   ├── steering/           # プロジェクトステアリング
 │   │   ├── product.md      # プロダクト概要
 │   │   ├── tech.md         # 技術スタック
-│   │   └── structure.md    # プロジェクト構造
+│   │   ├── structure.md    # プロジェクト構造
+│   │   └── development-discipline.md # 開発規律（反実仮想の作法など）
 │   └── specs/              # 機能仕様（動的生成）
 ├── e2e/                    # E2Eテスト（Playwright）
 │   ├── specs/              # テスト仕様（カテゴリ別ディレクトリ。以下は代表例）
@@ -207,6 +208,8 @@ git config core.hooksPath .husky
 - `structure.md` - プロジェクト構造・コーディング規約
 
 **カスタムファイル（必要に応じて）:**
+
+- `development-discipline.md` - 開発規律（反実仮想を書く前に変異を実行する作法、全称否定の書き方）
 
 プロジェクト固有のガイドラインを追加可能。
 

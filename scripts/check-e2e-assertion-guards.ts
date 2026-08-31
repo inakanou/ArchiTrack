@@ -2140,7 +2140,8 @@ function regexAlwaysYields(parts: { pattern: string; flags: string }, needle: st
  *
  * **三つの綴りを自己検査が個別に固定している（Task 115.181）。** それまで固定されていたのは
  * `toBe`（`115.163-7`）だけで、`toEqual` / `toStrictEqual` は外しても自己検査が緑のままであった。
- * 現在は `115.181-11` / `115.181-12` が残る二つを固定している。
+ * 現在は `115.181-11` / `115.181-12` が残る二つを固定している。本集合を `['toBe']` へ狭める
+ * 変異を当てると、自己検査 182 件のうちその 2 件が落ちる（2026-08-31 に実測。タスク 115.210）。
  */
 const LANGUAGE_FIXING_EQUALITY_MATCHERS = new Set(['toBe', 'toEqual', 'toStrictEqual']);
 
@@ -2169,7 +2170,9 @@ interface LanguageFixingAssertion {
  * という別の主張（型が確定していれば恒偽）であるため対象外とする。
  *
  * **三つの綴りを自己検査が個別に固定している（Task 115.181）。** `toStrictEqual` は
- * 外しても自己検査が緑のままであったため `115.181-13` を加えた。
+ * 外しても自己検査が緑のままであったため `115.181-13` を加えた。現在は本集合から
+ * `toStrictEqual` を外す変異を当てると、自己検査 182 件のうち `115.181-13` の 1 件が
+ * 落ちる（2026-08-31 に実測。タスク 115.210）。
  */
 const TYPE_EQUALITY_MATCHERS = new Set(['toBe', 'toEqual', 'toStrictEqual']);
 

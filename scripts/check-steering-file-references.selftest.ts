@@ -750,7 +750,8 @@ function checkSampleClassesCoverRealData(): string[] {
   if (byData.size < MINIMUM_CLASSES) {
     failures.push(`実データから数え上げた類が ${byData.size} 種しかない（走査の空振りの疑い）`);
   }
-  // 拡張子の網が実際に広いこと。`.ts` / `.tsx` / `.css` の三種へ戻せばここで落ちる
+  // 拡張子の網が実際に広いこと。主張の抽出を `.ts` / `.tsx` / `.css` の三種へ戻す変異を
+  // 当てると、自己検査 45 件のうち 9 件が落ちる（本確認を含む。2026-08-31 に実測。115.210）
   const MINIMUM_EXTENSIONS = 10;
   if (claimExtensions.size < MINIMUM_EXTENSIONS) {
     failures.push(

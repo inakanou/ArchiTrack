@@ -2319,7 +2319,8 @@ const IMPLIED_SUCCESSOR: Case[] = [
   {
     // 実在の e2e/specs/estimate/estimate-number-format-e2e.spec.ts:507 を写した形。
     // 先行は「空でない」としか言っておらず、後続の「小数点を含まない」は実質を持つ。
-    // `collectLanguageFixingAssertions` の `!negated` を外すとこのケースが落ちる
+    // `collectLanguageFixingAssertions` の `!negated` を外す変異を当てると、自己検査
+    // 182 件のうち本ケース 1 件だけが落ちる（2026-08-31 に実測。タスク 115.210）
     // （＝実在の主張を「飾り」と誤って告発し、実のある主張の削除を迫る）。
     name: '115.163-12 否定を伴う先行は言語を確定させない（実在の 507 行を写した形）',
     source: [
@@ -2406,7 +2407,9 @@ const IMPLIED_SUCCESSOR: Case[] = [
     // 「代入される前の出どころ」（ここでは `raw`）まで根に含まれ、その名前に対する
     // 先行の主張と繋がってしまう。`raw` 自身は再代入されないため、先行の主題に対する
     // ガード（115.163-16）ではこの形を止められない。すなわち `absenceSubjectRoots`
-    // 側のガードは単独で効いており、外すとこのケースが落ちる。
+    // 側のガードは単独で効いている。当該の打ち切り（`reassigned.has(node.text)` の
+    // 早期リターン）を外す変異を当てると、自己検査 182 件のうち本ケース 1 件だけが
+    // 落ちる（2026-08-31 に実測。タスク 115.210）。
     name: '115.163-17 後から代入される名前で遡りを打ち切る（代入前の出どころへ繋げない）',
     source: [
       "test('reassigned stops the walk', async ({ page }) => {",
