@@ -92,9 +92,9 @@ grep -nE '出力(が|は)|[0-9]+ *件' "$D" | grep -vE '20[0-9]{2}-[0-9]{2}-[0-9
 **本規約の適用にあたって本書全体を走査した記録（タスク 115.212。全称否定を三層に分けて書く）。**
 
 1. **機械保証**: **数値の鮮度を保証する関門は存在しない。** 押下前の関門と統合が算入する `npm run check:design-refs` / `npm run check:design-code-refs` / `npm run check:design-path-refs` / `npm run check:cf-evidence` はいずれも参照の**形式**とパスの**実在**を見るだけで、本書が引く件数が現況と一致するかは見ない。機械が現況を保証するのは (b) を採った値——すなわち関門自身の出力——に限られる。
-2. **人手走査**: 走査範囲は `grep -nE '出力(が|は)|[0-9]+ *件' .kiro/specs/site-survey/design.md` が挙げる行であり、その数は **216 件**である（2026-08-31 にリポジトリルートで実測。行数は「N 件」と書く——本書の `check:design-refs` の記録が定めた作法である）。**この網は強調記号の条件を外して広げたものであり、外す理由を書く前に外して数え直した。** 是正の途上まで網は `出力(が|は)|\*\*[0-9]+ *件` であり、「強調記号を伴わない件数は歴史記録の体裁を持つものに限られる」という想定を置いていた。**その条件だけを外して数え直すと、是正着手時の版（`git show b0725c5:.kiro/specs/site-survey/design.md`）に対して 58 件から 192 件へ広がり、増えた 134 件の中に現況とずれた記述が実際に 4 件あった**（`#### 未結線部品の扱い` の「撤去の効果」2 段落、同節の `check:design-path-refs` の免除件数、`### 部品の自己申告と追跡表の突き合わせ（タスク 115.113）` の母集団。いずれも下の是正の一覧に入っている）。**想定は偽であった。** 本書の現在の版に同じ二つの網を掛けると、強調記号を課す網は **68 件**、課さない網は **216 件**である（いずれも 2026-08-31 にリポジトリルートで実測。是正の記述を書き足したぶんだけ両方が増えている。**この二つの値と、下の再現コマンドの数・残余の数は互いに連動するため、文章を確定させたうえで上の囲みの手順により四つをまとめて取り直した。** 一つずつ順に測って書き入れる手順を採ったために、本項の強調記号を課す網の値は三度にわたり古いまま据え置かれていた）。除外の理由を述べる記述も反実仮想であり、当てるべき変異は「その条件だけを外す」ことである（`.kiro/steering/development-discipline.md`）。
+2. **人手走査**: 走査範囲は `grep -nE '出力(が|は)|[0-9]+ *件' .kiro/specs/site-survey/design.md` が挙げる行であり、その数は **216 件**である（タスク 115.212 の提出時点。コミット `b999b2d`。2026-08-31 にリポジトリルートで実測。**タスク 115.213 の提出時点の再実測は 233 件**——同日・同じ起点で上の囲みにより測り直した。増分 17 件は本タスクの編集による差引である（`git diff` の追加側・除去側へ同じ網を掛けると追加側 27・除去側 10 で `27 - 10 = 17`。除去側の大半は同じ箇所の書き換えに伴うものであり、消滅した記述ではない）。行数は「N 件」と書く——本書の `check:design-refs` の記録が定めた作法である）。**この網は強調記号の条件を外して広げたものであり、外す理由を書く前に外して数え直した。** 是正の途上まで網は `出力(が|は)|\*\*[0-9]+ *件` であり、「強調記号を伴わない件数は歴史記録の体裁を持つものに限られる」という想定を置いていた。**その条件だけを外して数え直すと、是正着手時の版（`git show b0725c5:.kiro/specs/site-survey/design.md`）に対して 58 件から 192 件へ広がり、増えた 134 件の中に現況とずれた記述が実際に 4 件あった**（`#### 未結線部品の扱い` の「撤去の効果」2 段落、同節の `check:design-path-refs` の免除件数、`### 部品の自己申告と追跡表の突き合わせ（タスク 115.113）` の母集団。いずれも下の是正の一覧に入っている）。**想定は偽であった。** 本書の現在の版に同じ二つの網を掛けると、強調記号を課す網は **68 件**、課さない網は **216 件**である（いずれもタスク 115.212 の提出時点。コミット `b999b2d`。2026-08-31 にリポジトリルートで実測。**タスク 115.213 の提出時点の再実測は 80 件と 233 件**である。是正の記述を書き足したぶんだけ両方が増えている。**この二つの値と、下の再現コマンドの数・残余の数は互いに連動するため、文章を確定させたうえで上の囲みの手順により四つをまとめて取り直した。** 一つずつ順に測って書き入れる手順を採ったために、本項の強調記号を課す網の値は三度にわたり古いまま据え置かれていた）。除外の理由を述べる記述も反実仮想であり、当てるべき変異は「その条件だけを外す」ことである（`.kiro/steering/development-discipline.md`）。
 
-   **この各行を目視した。** 再現コマンドを同じ行に持つ行は **69 件**あり（`grep -nE '出力(が|は)|[0-9]+ *件' .kiro/specs/site-survey/design.md | grep -cE "\`(grep|node|awk|sed|git|npm|npx|ls|find|wc|test|cat|tr|sort)[^\`]*\`"` の出力が `69`。2026-08-31 に実測。増えた 1 件は本項が残余の判定手順として書き足したコマンドそのものであり、**記録を書き足す行為が件数を動かす**同節 (a) の副作用の実例である）、**この 69 件を一件ずつ開き、逆引用符の中身を機械的に抜き出して、実行できる形のコマンドを全件走らせ直した**（2026-08-31 にリポジトリルートで実行。抜き出したコマンドは 106 本で、散文が道具名だけを引く断片は同じ行の文脈から補って走らせた）。**うち一行は網の過検出でコマンドを持たない**——網は逆引用符の中身の先頭一致だけを見るため、`findBySurveyIdWithUrls` のようにコマンド名で始まる識別子が掛かる（性能上の課題を挙げる行）。**実行の結果、現況とずれていた記述は 4 件あり、いずれも下の是正の一覧へ加えた**（下の 23・24・25・26 番）。**「すべて実行し直した」とだけ書いて実行していなかった差し戻しが三度続いたため、何をどう列挙して走らせたかをここに残す。**コマンドが同じ行に無い値のうち、同じ小節が再現手順を持つものも実行し直した（追跡表の本文行 `rows=166`、「実装に実体を持たない契約名」表の 44、`GestureEvent` / `CursorStrategy` / `HandleSizeStrategy` の非実在、`upload.middleware` の 4、`resolveRestoredStrokeWidth` の 6、`SiteSurveyService` の `imageService|ImageService` の 0、`survey-image.service.ts` の S3 コマンド発行の 0。いずれも現況と一致したため書き換えていない）。
+   **この各行を目視した。** 再現コマンドを同じ行に持つ行は **69 件**あり（タスク 115.212 の提出時点。コミット `b999b2d`。**タスク 115.213 の提出時点の再実測は 81 件**である——同日・同じ起点で上の囲みにより四つをまとめて測り直した。増分 12 件は本タスクの編集による差引であり、同じ網を `git diff` の追加側・除去側へ掛けると追加側 19・除去側 7 で `19 - 7 = 12` である。`grep -nE '出力(が|は)|[0-9]+ *件' .kiro/specs/site-survey/design.md | grep -cE "\`(grep|node|awk|sed|git|npm|npx|ls|find|wc|test|cat|tr|sort)[^\`]*\`"` の出力が `69`。2026-08-31 に実測。増えた 1 件は本項が残余の判定手順として書き足したコマンドそのものであり、**記録を書き足す行為が件数を動かす**同節 (a) の副作用の実例である）、**この 69 件を一件ずつ開き、逆引用符の中身を機械的に抜き出して、実行できる形のコマンドを全件走らせ直した**（2026-08-31 にリポジトリルートで実行。抜き出したコマンドは 106 本で、散文が道具名だけを引く断片は同じ行の文脈から補って走らせた）。**うち一行は網の過検出でコマンドを持たない**——網は逆引用符の中身の先頭一致だけを見るため、`findBySurveyIdWithUrls` のようにコマンド名で始まる識別子が掛かる（性能上の課題を挙げる行）。**実行の結果、現況とずれていた記述は 4 件あり、いずれも下の是正の一覧へ加えた**（下の 23・24・25・26 番）。**「すべて実行し直した」とだけ書いて実行していなかった差し戻しが三度続いたため、何をどう列挙して走らせたかをここに残す。**コマンドが同じ行に無い値のうち、同じ小節が再現手順を持つものも実行し直した（追跡表の本文行 `rows=166`、「実装に実体を持たない契約名」表の 44、`GestureEvent` / `CursorStrategy` / `HandleSizeStrategy` の非実在、`upload.middleware` の 4、`resolveRestoredStrokeWidth` の 6、`SiteSurveyService` の `imageService|ImageService` の 0、`survey-image.service.ts` の S3 コマンド発行の 0。いずれも現況と一致したため書き換えていない）。
 
    **是正した記述は 26 箇所である。** 後任が同じ列挙を辿れるよう一件ずつ挙げる。
 
@@ -127,8 +127,8 @@ grep -nE '出力(が|は)|[0-9]+ *件' "$D" | grep -vE '20[0-9]{2}-[0-9]{2}-[0-9
 
    **実測日だけを添えた（値が動いていなかった）記述は 13 箇所である。** 規約1 の 128 件（内訳 `85` / `43` / `18` / `8`）、除外一覧の要件6.2 / 6.3 の非存在 `0`、`useUnsavedChanges` の `6`、自己申告の誤番号 `10`、`Component Summary` の `3`、`SurveyImageService` の `Sharp` `0` と `Multer` `1`、`new SurveyImageService` の `1`、`fileFilter` の `0`、R2 送出元の `8`、`strokeWidth` の同形の残存確認が空であること、白系 literal の走査その1 の `9`、`I*Service` 4 件の「他サービスへの注入」欄の `0 件`、`#### SiteSurveyService` の「要件1.5 の経路別判定と、その後の遮断」が数える `assertSurveyNotDeleted` と `sendSurveyDeletedProblem` の各 `5`。
 
-   **実測日を添えていない値がなお範囲内に残る。** 本走査が対象としたのは**現況を述べる測定値**であり、次の二つには実測日を添えていない——(i) 本書が仕様として定める規定値（バッチの「5件ずつ」、Undo 履歴の「最大50件」、受入上限の「10件」、対象「0 件」時の非活性など）、(ii) 節名・記録の冒頭文・当該行のいずれかがタスク番号で版を名乗る歴史記録（115.75 / 115.76 / 115.83 / 115.107 / 115.110 / 115.111 / 115.113 / 115.121 / 115.125 / 115.149 / 115.150 / 115.169 / 115.172 ほか。**この列挙は例示であって網羅ではなく**、該当は直前の条件で判定する）。**これは反例を示せば偽になる命題として挙げる**——(i) にも (ii) にも当たらない現況の測定値が上の範囲に一つでも残っていれば、本走査は掃き終えていない。**残余の全件は次のコマンドで挙がる**: `grep -nE '出力(が|は)|[0-9]+ *件' .kiro/specs/site-survey/design.md | grep -vE '20[0-9]{2}-[0-9]{2}-[0-9]{2}'`。その数は **174 件**であり（2026-08-31 にリポジトリルートで実測）、この全件を (i) と (ii) のどちらかへ割り当てた。**実測日を書き足した行はこの網から外れるため、件数は是正のたびに減る。**`check:design-refs` が報告する走査ファイル数と検出 0 件は (b) の形であり、関門の出力そのものであるため本書は数値を持たない。
-3. **未走査の残余**: 上の走査範囲は「出力が」「出力は」「N 件」の三つの綴りだけを網に掛ける。**「N 箇所」「N 行」「N 経路」「N 個」「N ファイル」「N 枚」や `N%` の形の比、および表の欄の内側にある数値は網に掛からない。** これらの綴りを網へ足すと `grep -nE '[0-9]+ *(箇所|行|経路|個|ファイル|枚)|[0-9]+(\.[0-9]+)?%' .kiro/specs/site-survey/design.md` は **127 件**を挙げ、うち **76 件**は上の走査範囲の外である（2026-08-31 にリポジトリルートで実測。是正の記述を書き足したぶんだけ両方が増えている——本項の直下の是正の一覧へ加えた一行が、この網にだけ掛かる綴りを持つ）。**本走査はそこへ手を伸ばしていない。範囲外の各行がどういう性質かも述べない**——外してみるまで理由を書かないという作法に従い、走査していない範囲について性質を断定しない。これは反例を示せば偽になる命題として挙げる——上の三つの綴りに当たらない現況の数値が本書に一つでも見つかれば、本走査は掃き終えていない。**結論は「残存 0」ではなく「(1) と (2) の範囲で 0 件であり、範囲外は保証しない」である。**
+   **実測日を添えていない値がなお範囲内に残る。** 本走査が対象としたのは**現況を述べる測定値**であり、次の二つには実測日を添えていない——(i) 本書が仕様として定める規定値（バッチの「5件ずつ」、Undo 履歴の「最大50件」、受入上限の「10件」、対象「0 件」時の非活性など）、(ii) 節名・記録の冒頭文・当該行のいずれかがタスク番号で版を名乗る歴史記録（115.75 / 115.76 / 115.83 / 115.107 / 115.110 / 115.111 / 115.113 / 115.121 / 115.125 / 115.149 / 115.150 / 115.169 / 115.172 ほか。**この列挙は例示であって網羅ではなく**、該当は直前の条件で判定する）。**これは反例を示せば偽になる命題として挙げる**——(i) にも (ii) にも当たらない現況の測定値が上の範囲に一つでも残っていれば、本走査は掃き終えていない。**残余の全件は次のコマンドで挙がる**: `grep -nE '出力(が|は)|[0-9]+ *件' .kiro/specs/site-survey/design.md | grep -vE '20[0-9]{2}-[0-9]{2}-[0-9]{2}'`。その数は **174 件**であり（タスク 115.212 の提出時点。コミット `b999b2d`。2026-08-31 にリポジトリルートで実測）、**115.212 はこの 174 件の全件を (i) と (ii) のどちらかへ割り当てた。** **タスク 115.213 の提出時点の再実測は 184 件である**（同日・同じ起点で上の囲みにより四つをまとめて測り直した）。増分 10 件は本タスクの編集による差引であり（同じ網を `git diff` の追加側・除去側へ掛けると追加側 14・除去側 4）、**115.212 の割り当ての対象には入っていない**——本節の割り当てが網羅を主張するのは 174 件についてだけである。**実測日を書き足した行はこの網から外れるため、件数は是正のたびに減る。**`check:design-refs` が報告する走査ファイル数と検出 0 件は (b) の形であり、関門の出力そのものであるため本書は数値を持たない。
+3. **未走査の残余**: 上の走査範囲は「出力が」「出力は」「N 件」の三つの綴りだけを網に掛ける。**「N 箇所」「N 行」「N 経路」「N 個」「N ファイル」「N 枚」や `N%` の形の比、および表の欄の内側にある数値は網に掛からない。** これらの綴りを網へ足すと `grep -nE '[0-9]+ *(箇所|行|経路|個|ファイル|枚)|[0-9]+(\.[0-9]+)?%' .kiro/specs/site-survey/design.md` は **127 件**を挙げ、うち **76 件**は上の走査範囲の外である（タスク 115.212 の提出時点。コミット `b999b2d`。**タスク 115.213 の提出時点の再実測は 133 件と 78 件**である。いずれも 2026-08-31 にリポジトリルートで実測。是正の記述を書き足したぶんだけ両方が増えている——本項の直下の是正の一覧へ加えた一行が、この網にだけ掛かる綴りを持つ）。**本走査はそこへ手を伸ばしていない。範囲外の各行がどういう性質かも述べない**——外してみるまで理由を書かないという作法に従い、走査していない範囲について性質を断定しない。これは反例を示せば偽になる命題として挙げる——上の三つの綴りに当たらない現況の数値が本書に一つでも見つかれば、本走査は掃き終えていない。**結論は「残存 0」ではなく「(1) と (2) の範囲で 0 件であり、範囲外は保証しない」である。**
 
 #### 論理名と実体の対応表
 
@@ -149,6 +149,9 @@ grep -nE '出力(が|は)|[0-9]+ *件' "$D" | grep -vE '20[0-9]{2}-[0-9]{2}-[0-9
 | `Uploader`（Mermaid 内のみ） | 短縮形 | `ImageUploader`（`frontend/src/components/site-surveys/ImageUploader.tsx`） |
 | `survey-images`（Mermaid 内のみ） | 短縮形 | `backend/src/routes/survey-images.routes.ts` |
 | `Site Survey API`（Mermaid 内のみ） | 短縮形 | 上記 `SurveyRoutes`（現場調査系ルート群） |
+| `StyleTokens`（Mermaid 内のみ） | 短縮形 | `frontend/src/components/site-surveys/annotation-style-tokens.ts`。**Mermaid の外では実名 `annotation-style-tokens` で呼ぶ**（タスク 115.213 で本文・表・ファイル構成ブロックの表記を実名へ統一した） |
+| `全SiteSurvey画面` | 論理名（集約） | `frontend/src/pages/SiteSurveyCreatePage.tsx`、`frontend/src/pages/SiteSurveyDetailPage.tsx`、`frontend/src/pages/SiteSurveyEditPage.tsx`、`frontend/src/pages/SiteSurveyImageViewerPage.tsx`、`frontend/src/pages/SiteSurveyListPage.tsx` の 5 画面の総称（`git ls-files 'frontend/src/pages/SiteSurvey*.tsx'` が返す全件。2026-08-31 にリポジトリルートで実測）。**「全」を全部品への無条件一致と読んではならない**——画面ではない補助（`frontend/src/utils/siteSurveyBreadcrumb.ts` など）は含まない |
+| `全コンポーネント` | 論理概念（総称） | 実装ファイルを持たない。要件16.1-16.8（非機能要件）が担い手を限定せず本仕様の全部品に掛かることを表す。**特定の実体を指す名前ではないため、実名へ展開してはならない** |
 
 **注**: `ExportService` は論理名ではなく実装がある（`frontend/src/services/ExportService.ts`）。`frontend/src/services/export/` 配下ではない点に注意する。
 
@@ -245,7 +248,7 @@ grep -nE '出力(が|は)|[0-9]+ *件' "$D" | grep -vE '20[0-9]{2}-[0-9]{2}-[0-9
 
 **帰結**: 本タスクが導入した唯一の挙動である**要件15.4 の新しい発火条件は、受入レベルでは区別されていない**。識別力を持つのは、本番の `AnnotationEditor` の描画経路を実際の `AutoSaveManager` とともに通す結線の検証（`frontend/src/__tests__/components/site-surveys/AnnotationEditor.autosave-wiring.test.tsx:429` の `it('描き続けている最中でも一定間隔で自動保存される'`）と、単体の検証（`frontend/src/__tests__/services/AutoSaveManager.test.ts`）だけである。
 
-**後続タスクの提案**: 上記の受入レベルの検証を、**一間隔を超えて描き続けたうえで書き込みが繰り返し起こること**を確かめる形へ拡張するタスクを別途起票すること。**本タスク（115.119）の境界は `AutoSaveManager` の発火条件の実装と、それを見る単体・結線の検証であり、実行時間の上限（当該検証の `test.setTimeout(180_000)`）の見直しを伴う受入検証の再設計は含まないため、ここでは手を入れない。**
+**後続タスクの提案**: 上記の受入レベルの検証を、**一間隔を超えて描き続けたうえで書き込みが繰り返し起こること**を確かめる形へ拡張するタスクを別途起票すること。**本タスク（115.119）の境界は `AutoSaveManager` の発火条件の実装と、それを見る単体・結線の検証であり、実行時間の上限（当該検証の `test.setTimeout(180_000)`）の見直しを伴う受入検証の再設計は含まないため、ここでは手を入れない。** **判定（タスク 115.213）**: 本提案は**後続タスクへ送る**。理由は二つある。(i) 提案は依然として生きている——当該 `test` は現在も描画を一度しか行わない（上の `awk` の出力が `1`。2026-08-31 にリポジトリルートで再実測）。(ii) 是正の対象は `e2e/specs/site-surveys/site-survey-responsive.spec.ts` であって設計文書ではなく、**タスク 115.213 の境界（設計文書に残る未起票の提案）の外にある**。したがって本タスクは判定だけを行い、実装は行わない。起票時の境界は「要件15.4 の受入検証と、その実行時間の上限」である。判定の一覧は下の `## 未起票の提案の台帳（タスク 115.213）` にある。
 
 **名称の是正**: 発火条件が debounce でなくなったため、実装の設定項目 `debounceInterval` と取得子 `getDebounceInterval` をそれぞれ `autoSaveIntervalMs` / `getAutoSaveIntervalMs` へ改名した。既定値の定数も `DEFAULT_AUTO_SAVE_INTERVAL_MS` である。
 
@@ -302,7 +305,7 @@ grep -nE '出力(が|は)|[0-9]+ *件' "$D" | grep -vE '20[0-9]{2}-[0-9]{2}-[0-9
 
 **境界外に残る観測（是正は後続タスクを要する。ただし後に決着した項目があるため、各項に現況を明記する）**:
 
-- **代替検証手段に Jest を挙げる項目は、是正前は 124 件あった。**本リポジトリに Jest の依存も設定ファイルも存在せず、`frontend/package.json` と `backend/package.json` はいずれも Vitest を使う（両ファイルとも `vitest` を持ち `jest` を持たない。`frontend/vitest.config.ts` と `backend/vitest.config.ts` が実在する）。**根拠が名指す道具が実在しない。**124 件の内訳は現場調査スペックの項目が **32 件**、他機能スペックの項目が **92 件**であった。**このうち現場調査の 32 件は本タスクの境界内であるため、すべて Vitest へ改めた**（上表の 2 件は根拠ごと差し替え、残る 30 件は道具名の先頭 `Jest` を `Vitest` へ置換し `React Testing Library` / `Supertest` などの併記部分は据え置いた）。**是正後に Jest を挙げる項目は 92 件で、すべて他機能スペックの所管である**（`node -e "const j=require('./e2e/requirement-exclusions.json');const k=j.exclusions.filter(e=>/Jest/.test(e.alternativeVerification.tool));console.log(k.length, k.filter(e=>e.id.startsWith('site-survey/')).length)"` の出力が `92 0`。書く直前の実測）。他機能スペックの項目は本タスクの境界外であるため記録にとどめた。**この `92 0` は 115.121 時点の実測であり、タスク 115.172 の再実行では `90 0`、タスク 115.212 の再実行（2026-08-31）では `64 0` である**（現場調査の項目が 0 件である点は三度とも変わらない。他機能スペック側の項目の増減で数は動くため、この値を引くときは必ず実測日を添えること）。**後続タスクの提案（タスク 115.172 時点で未起票）**: 各機能スペックで自機能の項目の道具名を実測へ改めること
+- **代替検証手段に Jest を挙げる項目は、是正前は 124 件あった。**本リポジトリに Jest の依存も設定ファイルも存在せず、`frontend/package.json` と `backend/package.json` はいずれも Vitest を使う（両ファイルとも `vitest` を持ち `jest` を持たない。`frontend/vitest.config.ts` と `backend/vitest.config.ts` が実在する）。**根拠が名指す道具が実在しない。**124 件の内訳は現場調査スペックの項目が **32 件**、他機能スペックの項目が **92 件**であった。**このうち現場調査の 32 件は本タスクの境界内であるため、すべて Vitest へ改めた**（上表の 2 件は根拠ごと差し替え、残る 30 件は道具名の先頭 `Jest` を `Vitest` へ置換し `React Testing Library` / `Supertest` などの併記部分は据え置いた）。**是正後に Jest を挙げる項目は 92 件で、すべて他機能スペックの所管である**（`node -e "const j=require('./e2e/requirement-exclusions.json');const k=j.exclusions.filter(e=>/Jest/.test(e.alternativeVerification.tool));console.log(k.length, k.filter(e=>e.id.startsWith('site-survey/')).length)"` の出力が `92 0`。書く直前の実測）。他機能スペックの項目は本タスクの境界外であるため記録にとどめた。**この `92 0` は 115.121 時点の実測であり、タスク 115.172 の再実行では `90 0`、タスク 115.212 の再実行（2026-08-31）では `64 0` である**（現場調査の項目が 0 件である点は三度とも変わらない。他機能スペック側の項目の増減で数は動くため、この値を引くときは必ず実測日を添えること）。**後続タスクの提案（タスク 115.172 時点で未起票）**: 各機能スペックで自機能の項目の道具名を実測へ改めること。 **判定（タスク 115.213）**: 本提案は**後続タスクへ送る**。提案は依然として生きており（同じ `node -e` の出力は 2026-08-31 の再実測で `64 0` のままである）、**現場調査スペックの項目は 0 件で、残る全件が他機能スペックの所管である**。是正先は `e2e/requirement-exclusions.json` と各機能スペックの設計文書であって本書ではないため、**タスク 115.213 の境界の外にある**。本書は現場調査スペックの側では是正を終えており、ここに残るのは他スペックへの申し送りだけである。判定の一覧は下の `## 未起票の提案の台帳（タスク 115.213）` にある
 - **要件9.3（未保存変更時の確認ダイアログ）は、当時、検証が本番へ到達するが要件が名指す経路へは到達しなかった（**タスク 115.102 で決着済み。現在の欠落ではない**）。** 当時の観測は次のとおりであった——根拠が指す `frontend/src/hooks/useUnsavedChanges.ts` は本番から 5 箇所に結線されており、現場調査ではそのうち `frontend/src/pages/SiteSurveyDetailPage.tsx` が使う。しかし同ページの未保存対象は画像コメントと並び順であり、要件9.3 が名指す「注釈を編集中に画面を離れようとする」経路を担う `AnnotationEditor.tsx` には離脱確認の実装が無い。**「本番へ到達する」と「要件の経路へ到達する」は別の主張である。**この読み分け自体は現在も有効な教訓である。**後続タスクの提案とその結末（提案は消化済み）**: 115.121 が残した申し送り「注釈編集中の離脱確認の有無を要件9.3 に照らして決着させること」は、下の `#### 注釈編集画面の未実装受入基準の結線（タスク 115.102）` で決着した。現在は `AnnotationEditor`（`frontend/src/components/site-surveys/AnnotationEditor.tsx`）が未保存判定を持って `onDirtyChange` でホストへ通知し、`frontend/src/pages/SiteSurveyImageViewerPage.tsx` が `useBlocker` と `useUnsavedChanges` の `setDirty` で離脱を止める。**上の「5 箇所」も当時の実測であり、タスク 115.172 の再実測では 6 ファイルである**（`grep -rln "hooks/useUnsavedChanges'" frontend/src --include=*.ts --include=*.tsx | grep -v '\.test\.' | wc -l` の出力が `6`。2026-08-31 に再実測しても `6` で変わらない。`useUnsavedChangesGuard` は別部品であり、名前の前方一致で数えると混入するため上の形で数える）
 
 #### 注釈編集画面の未実装受入基準の結線（タスク 115.102）
@@ -767,7 +770,6 @@ graph TB
     SurveyRoutes --> ImageDeleteService
 
     SiteSurveyService --> PostgreSQL
-    SurveyImageService --> R2
     ImageMetadataService --> PostgreSQL
     ImageDeleteService --> R2
     AnnotationService --> PostgreSQL
@@ -780,7 +782,7 @@ graph TB
 - Domain boundaries: SiteSurveyドメインをProject配下の独立モジュールとして配置
 - Existing patterns preserved: 認証/認可、監査ログ、楽観的排他制御
 - New components rationale:
-  - SurveyImageService: 画像処理と外部ストレージ連携の責務分離
+  - SurveyImageService: マジックバイトによる画像形式の判定、ファイル名のサニタイズ、保存先パスの算出を担うステートレスな補助。**圧縮・サムネイル生成・ストレージへの送信は担わない**（是正後の責務欄は `#### SurveyImageService` にあり、担い手もそこに挙げる。タスク 115.213 で本行を責務欄へ追随させた）
   - AnnotationService: 注釈データの永続化と復元
   - ExportService: PDF/画像エクスポートのビジネスロジック
   - **ImageMetadataService**: 写真コメント・報告書出力フラグの管理（要件10対応）
@@ -1149,7 +1151,7 @@ sequenceDiagram
 | **20.1** | **画像プレビュー画面（閲覧モード）で注釈レンダリング表示** | **SiteSurveyImageViewerPage, AnnotatedImageThumbnail** | **AnnotationAPI** | - |
 | **20.2** | **詳細画面サムネイルに注釈レンダリング表示** | **PhotoManagementPanel, AnnotatedImageThumbnail** | **AnnotationAPI** | - |
 | **20.3** | **一覧画面代表画像サムネイルに注釈レンダリング表示** | **SiteSurveyListPage, SiteSurveyListTable, SiteSurveyListCard, AnnotatedImageThumbnail** | **AnnotationAPI** | - |
-| **20.4** | **注釈保存時にサムネイル画像を生成・更新** | **AnnotationEditor, AnnotatedThumbnailService, SurveyImageService** | **ThumbnailAPI** | **注釈付きサムネイル生成フロー** |
+| **20.4** | **注釈保存時にサムネイル画像を生成・更新** | **AnnotationEditor, AnnotatedThumbnailService** | **ThumbnailAPI** | **注釈付きサムネイル生成フロー** |
 | **21.1** | **拡張子不一致でもマジックバイト判定がサポート対象ならアップロード許可** | **SurveyImageService (validateFile)** | **ImageAPI** | **アップロードフロー** |
 | **21.2** | **拡張子.pngだが実際はJPEGのファイルを許可** | **SurveyImageService (detectMimeTypeByMagicBytes)** | **ImageAPI** | - |
 | **21.3** | **拡張子.jpgだが実際はPNGのファイルを許可** | **SurveyImageService (detectMimeTypeByMagicBytes)** | **ImageAPI** | - |
@@ -1191,7 +1193,7 @@ sequenceDiagram
    - **本書「論理名と実体の対応表」に登録済みの論理名（3件）**: `ShapeTool`（要件7.1-7.10 の行、1行）/ `SurveyRoutes`（要件1.1-1.6・18.1・18.6・18.7 の行、4行）/ `AuthMiddleware`（要件14.1-14.5・18.6 の行、2行）。行数はいずれも書く直前に追跡表7表を走査して数え直した。対応表が定める実体へ展開した
    - **対応表に未登録のまま集合を指している表記（4件）**: `全SiteSurvey画面`（要件2.5 の行）/ `StyleTokens`（要件24.1-24.10・25.1-25.12・32.1-32.7, 32.9-32.10 の行、3行）/ `Rectangle/Circle/Polygon/Polyline/Freehand/Dimension Tools`（要件32.1-32.7, 32.9-32.10 の行）/ `全コンポーネント`（要件16.1-16.8 の行）。いずれも「論理名と実体の対応表」に行が無く、**呼称規約の掲載可否の判定を受けていない**。本走査では便宜上、名称が示す集合へ展開して照合した。とくに `StyleTokens` は**実体を持たない名前**である（`grep -rnw "StyleTokens" frontend/src | wc -l` の出力が `0`。2026-08-31 にリポジトリルートで実測。宣言も参照も0件である。**是正前の本項は語境界を付けない `grep -rn "StyleTokens" frontend/src | wc -l` を挙げて出力を `0` と記していたが、同コマンドの現在の出力は `1` である**——当たるのは `frontend/src/components/site-surveys/annotation-style-tokens.ts` の注釈行が本書の小節名 `AnnotationStyleTokens (ext)` を引用している 1 行だけで、`StyleTokens` はその部分一致である。**主張（実体を持たない名前であること）は変わらないため、数える対象を主張へ合わせて語境界付きの `-w` へ改めた。**実体は `frontend/src/components/site-surveys/annotation-style-tokens.ts` であり、同じ追跡表の要件26.1-26.6・32.11, 32.13 の行は実名 `annotation-style-tokens` を用いている）。照合では `annotation-style-tokens` へ展開した
 
-   **後続タスクの提案**: 上の未登録4件について、「論理名と実体の対応表」へ登録するか実名へ統一するかを決めて適用するタスクを別途起票すること。`StyleTokens` は 1:1 の実体（`annotation-style-tokens`）へ解決できるため、対応表の掲載基準（「1:1 の実体を持たない名前だけを載せる」）に照らすと**実名への統一**が妥当である。**本タスク（115.113）の境界は追跡表の担当行であり、呼称規約の対応表そのものと Mermaid 図・要件24-30 の対照表の表記は含まないため、ここでは手を入れない。**
+   **後続タスクの提案**: 上の未登録4件について、「論理名と実体の対応表」へ登録するか実名へ統一するかを決めて適用するタスクを別途起票すること。`StyleTokens` は 1:1 の実体（`annotation-style-tokens`）へ解決できるため、対応表の掲載基準（「1:1 の実体を持たない名前だけを載せる」）に照らすと**実名への統一**が妥当である。**本タスク（115.113）の境界は追跡表の担当行であり、呼称規約の対応表そのものと Mermaid 図・要件24-30 の対照表の表記は含まないため、ここでは手を入れない。** **判定（タスク 115.213。提案は消化済み）**: 4件を掲載基準へ照らして一件ずつ決めて適用した。`StyleTokens` は 1:1 の実体へ解決できるため**実名 `annotation-style-tokens` へ統一**し（Mermaid のノードID だけは規約4 が許す短縮形として対応表へ登録した）、`Rectangle/Circle/Polygon/Polyline/Freehand/Dimension Tools` は各要素が 1:1 に解決できる列挙であるため**6 ツールの実名へ統一**した（`ShapeTool` の総称では代用できない——同総称は `ArrowTool` を含み `DimensionTool` を含まないため、指す集合が異なる）。`全SiteSurvey画面` は 5 画面の集約、`全コンポーネント` は実装ファイルを持たない総称であり、いずれも 1:1 の実体を持たないため**「論理名と実体の対応表」へ登録**した。判定の一覧は下の `## 未起票の提案の台帳（タスク 115.213）` にある。
 5. **一致しない組（部品×要件番号）を不一致として列挙する**
 
 #### 是正前後の計数（いずれも書く直前に再測した実測値）
@@ -1255,7 +1257,7 @@ sequenceDiagram
 
 上表の**10 件**（`awk '/^\*\*\(2\) 自己申告の番号が誤っている件/,/^要件12 系の/' .kiro/specs/site-survey/design.md | grep -c '^| `'` の出力が `10`。書く直前の実測。2026-08-31 に再実測しても `10` で変わらない）は、**いずれも所管タスクを持たない**。タスク 115.114 の境界は「画像の閲覧部品の注釈が引く要件番号」であり、上の区分(1) に挙げた `ImageViewer` の要件13.2 しか覆わない。
 
-**後続タスクの提案**: 上表10件の実装側の注釈（`ImageUploader` / `SiteSurveyResponsiveView` / `SiteSurveyDetailInfo` / `SiteSurveyDetailPage` / `SiteSurveyListPage` の5ファイル）について、自己申告の要件番号を本文に合う番号へ是正するタスクを別途起票すること。**本タスク（115.113）の境界は設計文書の追跡表であり、実装ファイルの注釈は含まないため、ここでは手を入れない。**
+**後続タスクの提案**: 上表10件の実装側の注釈（`ImageUploader` / `SiteSurveyResponsiveView` / `SiteSurveyDetailInfo` / `SiteSurveyDetailPage` / `SiteSurveyListPage` の5ファイル）について、自己申告の要件番号を本文に合う番号へ是正するタスクを別途起票すること。**本タスク（115.113）の境界は設計文書の追跡表であり、実装ファイルの注釈は含まないため、ここでは手を入れない。** **判定（タスク 115.213）**: 本提案は**後続タスクへ送る**。提案は依然として生きている——上表10件の申告は 5 ファイルにすべて現存する（次のコマンドの出力が `10` である。2026-08-31 にリポジトリルートで実測。**部品と番号の組で数える**——同じ番号が別のファイルにも現れるため、番号だけを網に掛けると 12 を返して上表の 10 と食い違う）: `grep -nE '^ \* - [0-9]+\.[0-9]+: ' frontend/src/components/site-surveys/ImageUploader.tsx frontend/src/components/site-surveys/SiteSurveyResponsiveView.tsx frontend/src/components/site-surveys/SiteSurveyDetailInfo.tsx frontend/src/pages/SiteSurveyDetailPage.tsx frontend/src/pages/SiteSurveyListPage.tsx | grep -cE 'ImageUploader\.tsx:[0-9]+: \* - 13\.3: |SiteSurveyResponsiveView\.tsx:[0-9]+: \* - 13\.1: |SiteSurveyDetailInfo\.tsx:[0-9]+: \* - (10\.6|12\.1|12\.2): |SiteSurveyDetailPage\.tsx:[0-9]+: \* - (2\.6|10\.1|12\.2): |SiteSurveyListPage\.tsx:[0-9]+: \* - (2\.7|12\.2): '`。是正の対象は実装ファイルの注釈であって設計文書ではなく、**タスク 115.213 の境界の外にある**。起票時の境界は「上表 5 ファイルの `Requirements:` ブロックの要件番号」であり、**是正すべき組は上表がすでに一件ずつ挙げているため、後任は再走査を要しない**。判定の一覧は下の `## 未起票の提案の台帳（タスク 115.213）` にある。
 
 **判定の適用範囲についての注記**: 上で宣言した「番号と本文を突き合わせて真偽を機械的に判定する」手続きは、**追加を見送るかどうかの判定にのみ用いており、追加した側の自己申告へは一律には適用していない**。追加先が範囲行（`1.1-1.6` のような行）である場合、番号が同じ要件群の中でずれていても行の担当としては正しいため、本文のずれが虚偽記載にならないからである。実例として `frontend/src/components/site-surveys/SiteSurveyDetailInfo.tsx` は要件1.2 を「現場調査詳細画面を表示する際、現場調査の基本情報と関連する画像一覧を表示する」と申告するが、この本文は `requirements.md` の要件1.3 のものである。追加先は要件1.1-1.6 の行なので担当としては正しい。**同種のずれが他の追加分にも残っている可能性があり、全件の本文照合は行っていない。**
 
@@ -1573,13 +1575,13 @@ interface IImageService {
 
 **要件番号の付け替えを三箇所へ同時に適用した記録（タスク 115.125）**: 付け替えは本小節では閉じないため、次の2箇所も同じ帰属へ合わせた。
 
-- `## Requirements Traceability` 節の `4.1-4.6, 4.9` の行: Components 列を `ImageUploadService (4.1), BatchUploadService (4.2, 4.3), ImageProcessorService (4.4, 4.6), SurveyImageService (4.5, 4.9), ImageUploader` へ改め、番号ごとの担い手を括弧で明示した。**行は分割していない**。タスク 115.113 が記録する追跡表の行数（`rows=166`）を保つためであり、同節の再現手順（表頭7箇所の2行下から `|` で始まらない行の直前まで）で数え直した出力は本タスクの是正後も `166` である。なお同節の `declared_pairs` と `mismatch` は当該タスクの版に対する実測であり、本編集は Components 列に3名を加えたその差分にあたる。`4.8` の行は `ImageDeleteService` を、`4.10` の行は `PhotoManagementPanel` / `SiteSurveyDetailPage` を挙げており、いずれも元から `SurveyImageService` を挙げていないため変更していない。ただし `4.10` の行は表示側の2部品だけを挙げ、順序を永続化して読み出す `ImageOrderService` / `ImageListService` を欠く。**後続タスクの提案**: 当該行へこの2名を加えるタスクを別途起票すること。
+- `## Requirements Traceability` 節の `4.1-4.6, 4.9` の行: Components 列を `ImageUploadService (4.1), BatchUploadService (4.2, 4.3), ImageProcessorService (4.4, 4.6), SurveyImageService (4.5, 4.9), ImageUploader` へ改め、番号ごとの担い手を括弧で明示した。**行は分割していない**。タスク 115.113 が記録する追跡表の行数（`rows=166`）を保つためであり、同節の再現手順（表頭7箇所の2行下から `|` で始まらない行の直前まで）で数え直した出力は本タスクの是正後も `166` である。なお同節の `declared_pairs` と `mismatch` は当該タスクの版に対する実測であり、本編集は Components 列に3名を加えたその差分にあたる。`4.8` の行は `ImageDeleteService` を、`4.10` の行は `PhotoManagementPanel` / `SiteSurveyDetailPage` を挙げており、いずれも元から `SurveyImageService` を挙げていないため変更していない。**後続タスクの提案（タスク 115.213 が発見。未起票）**: ただし `4.10` の行は表示側の2部品だけを挙げ、順序を永続化して読み出す `ImageOrderService` / `ImageListService` を欠く。**是正先**は `## Requirements Traceability` の要件4.10 の行であり、当該行の Components 列へこの2名を加えること。**提案が生きていることの再現コマンド**は次の三つで、いずれも 2026-08-31 にリポジトリルートで実測した——`grep -c 'data: { displayOrder' backend/src/services/image-order.service.ts` の出力が `1`（順序の書き込み）、`grep -c 'orderBy: SURVEY_IMAGE_ORDER_BY' backend/src/services/image-list.service.ts` の出力が `1`（固定順序での読み出し）、`awk -F'|' '/^\| \*\*4\.10\*\* \|/{print $4}' .kiro/specs/site-survey/design.md` の出力が `ImageOrderService` を含まないこと。**タスク 115.213 はこれを実施していない**——同タスクの境界は「設計文書に**残る**未起票の提案」の消化であり、本件は同タスクが新たに発見した追跡表の内容の欠落であって、文書に書かれていた提案ではないためである。追跡表そのものの網羅性は別タスクの所管である（`tasks.md` の 115.228 が「追跡表と受入基準の対応」を境界として未着手で存在する。**同タスクが扱うのは要件番号の列の欠落であって Components 列の欠落ではないため、本件をそのまま同タスクへ含めてよいとは限らない**——起票時に境界を確かめること）。**行を分割せずに列へ加えれば `rows=166` は動かない。**この判定は下の `## 未起票の提案の台帳（タスク 115.213）` にも登録した。
 - `### Component Summary` 節の `SurveyImageService` 行: Intent 列を本小節の `| Intent |` 行に合わせ、Req Coverage 列を `4, 21` から `4.5, 4.9, 21` へ、Key Dependencies 列を `Sharp (P0), Cloudflare R2 (P0), Multer (P0)` から `PrismaClient (P1), StorageProvider (P1)` へ改めた。`Sharp` は本サービスが参照せず（`grep -ci sharp backend/src/services/survey-image.service.ts` の出力が `0`。2026-08-31 に再実測しても `0` で変わらない）、`Multer` の名は同ファイル冒頭の説明コメント1行にしか現れない（`grep -c Multer backend/src/services/survey-image.service.ts` の出力が `1`。2026-08-31 に再実測しても `1` で変わらない）。
 
 **境界外に残る同種の帰属の記録（是正は後続タスクを要する）**: `SurveyImageService` を画像処理そのものの担い手として挙げる記述が、本タスクの境界（本小節の欄・追跡表の当該行・要約表の当該行）の外にも残る。無記録で残さないためここに登録する。
 
-- `## Requirements Traceability` の要件20.4 の行が Components 列に `SurveyImageService` を挙げるが、注釈付きサムネイルを生成する `AnnotatedThumbnailService`（`backend/src/services/annotated-thumbnail.service.ts`）は同クラスを参照しない（`grep -c SurveyImageService backend/src/services/annotated-thumbnail.service.ts` の出力が `0`）。**後続タスクの提案**: 当該行から `SurveyImageService` を外すタスクを別途起票すること。
-- 本小節の外で `SurveyImageService` を挙げる行は、表の行と本小節（`#### SurveyImageService` から `##### Cloudflare R2 設定詳細` の直前まで）を除いて **13箇所**ある（2026-08-31 の再実測。タスク 115.172 の実測は **10箇所**だった。**増えた3箇所は本タスク 115.212 が `#### 実測値の書き方（タスク 115.212）` へ書き足した走査と是正の記録そのものであり、帰属の主張ではない**——記録を書き足す行為が件数を動かすという同節の (a) の副作用が、まさにここで起きている。是正の途中では 11箇所であり、動く参照の固定を同節へ書き足した一手で 13箇所へ動いた）。次のコマンドの出力が `13` である（タスク 115.172 が書く直前に数え直した値は `10` だった。**節の範囲は見出しから導き、行番号で固定しない**——本書の行数は編集のたびに変わるため、行番号で固定した範囲も、本書の行を指す参照も、次の編集で失効する。実際、是正前の本項は範囲と参照先を本書の行番号で書いており、いずれも失効していた）: `awk '/^#### SurveyImageService$/{f=1} /^##### Cloudflare R2 設定詳細$/{f=0} !f' .kiro/specs/site-survey/design.md | grep -c '^[^|]*SurveyImageService'`。うち是正前と同じ帰属を残すのは **4箇所**で、内訳を節名で指すと、`### Architecture Pattern & Boundary Map` の Mermaid 図の辺 `SurveyImageService --> R2`、同節の責務分離の行 `- SurveyImageService: 画像処理と外部ストレージ連携の責務分離`、`#### ImageMetadataService（要件10対応）` の委譲の行、`### Unit Tests` の単体テスト計画の行である。**このうち Mermaid 図の辺 `SurveyImageService --> R2` は、下の Implementation Notes の Risks 欄（R2 へ要求を出す送出元を8件挙げたうえで「本サービスはこの8件に含まれない」と記す）と正面から矛盾する。** Mermaid 図はタスク 115.125 の境界外であるため是正せず、矛盾が残っている事実をここに記録する。残る6箇所（`I*Service` の非対称の理由を述べる小節の注入関係の項と過去の説明の撤回の段落、`### Architecture Pattern & Boundary Map` の Mermaid のノード宣言 `SurveyImageService[SurveyImageService]` と辺 `SurveyRoutes --> SurveyImageService`、`#### SiteSurveyService` の `##### Service Interface` が記す削除済み依存項目、`### Phase 6: 画像アップロード拡張子不一致許容（要件21対応）` のメソッド追加の記録）は注入関係・撤回の記録・Mermaid のノード宣言・ルートからの呼び出し・メソッド追加の記録であり、是正後の責務欄と矛盾しない。**これに 115.212 が `#### 実測値の書き方（タスク 115.212）` へ書き足した走査と是正の記録 3箇所を加えて `4 + 6 + 3 = 13` である。****後続タスクの提案（タスク 115.172 時点で未起票）**: 上の4箇所を是正後の責務欄へ合わせるタスクを別途起票すること。
+- **タスク 115.172 の観測（当時の記録）**: `## Requirements Traceability` の要件20.4 の行が Components 列に `SurveyImageService` を挙げていたが、注釈付きサムネイルを生成する `AnnotatedThumbnailService`（`backend/src/services/annotated-thumbnail.service.ts`）は同クラスを参照しない（`grep -c SurveyImageService backend/src/services/annotated-thumbnail.service.ts` の出力が `0`。2026-08-31 に再実測しても `0` で変わらない）。**判定（タスク 115.213。提案は消化済み）**: 当該行から `SurveyImageService` を外した。同クラスは注釈付きサムネイルの生成経路に現れない——`AnnotatedThumbnailService` が参照しないことに加え、本番で同クラスを生成する 2 箇所（`backend/src/routes/survey-images.routes.ts` と `backend/src/routes/construction-photo-images.routes.ts`）のうち前者は `ImageUploadService` の依存としてのみ渡しており、注釈付きサムネイルの 2 ルートは同クラスを使わない（`grep -n "surveyImageService" backend/src/routes/survey-images.routes.ts` の出力は生成と受け渡しの 2 行だけである。2026-08-31 にリポジトリルートで実測）。判定の一覧は下の `## 未起票の提案の台帳（タスク 115.213）` にある。
+- 本小節の外で `SurveyImageService` を挙げる行は、表の行と本小節（`#### SurveyImageService` から `##### Cloudflare R2 設定詳細` の直前まで）を除いて、タスク 115.212 の提出時点では **13箇所**あった（コミット `b999b2d`。2026-08-31 の再実測。タスク 115.172 の実測は **10箇所**だった。**増えた3箇所は本タスク 115.212 が `#### 実測値の書き方（タスク 115.212）` へ書き足した走査と是正の記録そのものであり、帰属の主張ではない**——記録を書き足す行為が件数を動かすという同節の (a) の副作用が、まさにここで起きている。是正の途中では 11箇所であり、動く参照の固定を同節へ書き足した一手で 13箇所へ動いた）。当時の同コマンドの出力が `13` であった（タスク 115.172 が書く直前に数え直した値は `10` だった。**節の範囲は見出しから導き、行番号で固定しない**——本書の行数は編集のたびに変わるため、行番号で固定した範囲も、本書の行を指す参照も、次の編集で失効する。実際、是正前の本項は範囲と参照先を本書の行番号で書いており、いずれも失効していた）: `awk '/^#### SurveyImageService$/{f=1} /^##### Cloudflare R2 設定詳細$/{f=0} !f' .kiro/specs/site-survey/design.md | grep -c '^[^|]*SurveyImageService'`（**同コマンドの現在の出力は `13` ではない。本項の末尾に記す**）。うち**タスク 115.172 の時点で是正前と同じ帰属を残していたのは 4箇所**で、内訳を節名で指すと、`### Architecture Pattern & Boundary Map` の Mermaid 図の辺 `SurveyImageService --> R2`、同節の責務分離の行、`#### ImageMetadataService（要件10対応）` の委譲の行、`### Unit Tests` の単体テスト計画の行であった。**この 4箇所はタスク 115.213 がすべて是正した（提案は消化済み。下の `## 未起票の提案の台帳（タスク 115.213）` に判定を登録した）。** Mermaid 図の辺は、**どちらの記述が真かを実装を測って決めたうえで**撤去した——`SurveyImageService`（`backend/src/services/survey-image.service.ts`）は R2 へ要求を出す送出を一つも持たず（`grep -cE 'storageProvider\.(upload|delete)|PutObjectCommand|DeleteObjectCommand' backend/src/services/survey-image.service.ts` の出力が `0`。2026-08-31 にリポジトリルートで実測）、下の Implementation Notes の Risks 欄が挙げる送出元の一覧にも含まれない。すなわち真であったのは Risks 欄と是正後の責務欄の側であり、偽であったのは Mermaid 図の辺である。残る3箇所（責務分離の行・委譲の行・単体テスト計画の行）は、いずれも是正後の責務欄の文言へ合わせて書き直した。残る6箇所（`I*Service` の非対称の理由を述べる小節の注入関係の項と過去の説明の撤回の段落、`### Architecture Pattern & Boundary Map` の Mermaid のノード宣言 `SurveyImageService[SurveyImageService]` と辺 `SurveyRoutes --> SurveyImageService`、`#### SiteSurveyService` の `##### Service Interface` が記す削除済み依存項目、`### Phase 6: 画像アップロード拡張子不一致許容（要件21対応）` のメソッド追加の記録）は注入関係・撤回の記録・Mermaid のノード宣言・ルートからの呼び出し・メソッド追加の記録であり、是正後の責務欄と矛盾しない。**この行が数える件数は、上の是正（Mermaid 図の辺の撤去）と、115.212・115.213 が記録として書き足した言及の増減で動く。タスク 115.213 の是正後の実測は 15箇所である**（2026-08-31 にリポジトリルートで上のコマンドを実行した出力が `15`。内訳は、115.213 が責務欄へ追随させた3箇所（責務分離の行・委譲の行・単体テスト計画の行）、上に挙げた「是正後の責務欄と矛盾しない」6箇所、115.212 が書き足した記録3箇所、そして 115.213 が `## 未起票の提案の台帳（タスク 115.213）` へ書き足した3箇所であり、`3 + 6 + 3 + 3 = 15` である。**この値は記録を書き足すたびに動くため、引くときは必ず実測日を添えること**——タスク 115.172 の 10箇所、タスク 115.212 の 13箇所も同じ理由で動いた値である）。
 
 **境界外に残る参照行番号のずれの記録（是正済み。経緯の記録として残す）**: 本小節の Responsibilities & Constraints と Dependencies はタスク 115.112 の境界でありタスク 115.149 の本来の境界の外にあるが、そのうち `backend/src/routes/survey-images.routes.ts` を指す**行番号2件**が、その後の同ファイルへの行追加によりずれていた。**指し先のファイルと記述内容はいずれも正しく、ずれていたのは行番号だけであった。**本記録は当初「下の2件の行番号を現在値へ改めるタスクを別途起票すること」と述べていたが、**測り直しは次の実装変更で再び失効する**——それが本書の `パス:行` を失効させた原因そのものである——ため、115.149 は行番号を現在値へ改めるのではなく、下の2件から**行番号そのものを撤去**し、いつ実行しても現在値が得られる `grep` の形へ改めた（本書の規約「本番コードへの参照はパス（行番号なし）＋シンボル名で指す」に従う）。**したがって現在この2件に行番号は存在せず、起票すべき後続タスクも無い。**ずれが実在した事実と、それを測り直しではなく形式の変更で所管した経緯を、無記録で残さないためここに登録する。
 
@@ -1812,7 +1814,7 @@ Cloudflare R2ダッシュボードまたはAPIで設定:
 - 報告書出力フラグ（includeInReport）の管理
 - **表示順序（displayOrder）の管理**（要件10.9対応: 保存時に順序変更も一括保存）
 - 複数画像の一括更新サポート（メタデータ+順序）
-- 既存のSurveyImageServiceと連携（画像自体の操作はSurveyImageServiceに委譲）
+- 画像実体の操作（アップロード・ストレージへの送信・削除）は担わない。担い手は `ImageUploadService` / `BatchUploadService` / `ImageDeleteService` であり、**本サービスは SurveyImageService を注入も参照もしない**（`grep -c "SurveyImageService" backend/src/services/image-metadata.service.ts` の出力が `0`。2026-08-31 にリポジトリルートで実測。タスク 115.213 で「SurveyImageService へ委譲する」と記していた旧文を是正した）
 
 **Dependencies**
 - Inbound: SurveyRoutes — HTTPリクエスト処理 (P0)
@@ -3545,7 +3547,7 @@ interface FabricSerializedObject {
 ### Unit Tests
 
 - **SiteSurveyService**: CRUD操作、楽観的排他制御、論理削除、プロジェクト連携、**直近N件取得**
-- **SurveyImageService**: 画像圧縮、サムネイル生成、ファイル形式検証、バッチアップロード、**マジックバイトのみによる形式判定（detectMimeTypeByMagicBytes: JPEG/PNG/WEBP各形式の正常判定、未サポート形式の拒否）（21.1-21.8）**、**拡張子不一致ファイルの許可（拡張子.pngで中身JPEG等）（21.2-21.5）**、**Content-Typeのマジックバイト準拠設定（21.7）**
+- **SurveyImageService**: ファイル形式検証、ファイル名サニタイズ、保存先パス算出、**マジックバイトのみによる形式判定（detectMimeTypeByMagicBytes: JPEG/PNG/WEBP各形式の正常判定、未サポート形式の拒否）（21.1-21.8）**、**拡張子不一致ファイルの許可（拡張子.pngで中身JPEG等）（21.2-21.5）**、**Content-Typeのマジックバイト準拠設定（21.7）**（**圧縮・サムネイル生成・バッチアップロードは本サービスの担当ではない**。担い手は `ImageProcessorService` / `BatchUploadService` であり、単体検証も `backend/src/__tests__/unit/services/image-processor.service.test.ts` / `backend/src/__tests__/unit/services/batch-upload.service.test.ts` が持つ。タスク 115.213 で本行を責務欄へ追随させた）
 - **ImageMetadataService**: コメント更新、報告書フラグ更新、**順序更新**、バリデーション、**一括更新（メタデータ+順序）**
 - **ImageDeleteService**: 画像削除、注釈連動削除、R2連携、**孤立ファイルorphaned/移動（4.8）**
 - **AnnotationService**: JSON保存・復元、バージョン管理、エクスポート、**バッチ注釈取得（findByImageIds: 正常系、注釈なし画像、不正imageId、空配列）（18.1, 18.3, 18.4, 18.8）**
@@ -5251,7 +5253,7 @@ graph TB
 **Architecture Integration**:
 - Pattern: 既存 Clean Architecture 層（Component → Tool → Fabric）に、横断責務を持つ `frontend/src/components/site-surveys/gestures/` と `frontend/src/components/site-surveys/annotation-style-tokens.ts`（スタイルトークンはディレクトリではなく単一ファイルである）の薄い横串レイヤを追加
 - Domain boundary: ジェスチャー判定を `ImageViewer`/`AnnotationEditor` からユーティリティへ抽出し、視覚表現（白縁取り/アウトライン）はツール本体の属性拡張で吸収
-- Dependency direction: `Infra (StyleTokens, UndoManager) → Tools → Editor/Viewer Components`。`AnnotationContextMenu` は `AnnotationEditor` から呼ばれるプレゼンテーション層、逆向き依存は禁止
+- Dependency direction: `Infra (annotation-style-tokens, UndoManager) → Tools → Editor/Viewer Components`。`AnnotationContextMenu` は `AnnotationEditor` から呼ばれるプレゼンテーション層、逆向き依存は禁止
 - Steering compliance: TypeScript strict mode、ESLint、Prettier、既存の `hooks/use*.ts` / `services/*Service.ts` パターン
 
 #### Technology Stack
@@ -5286,12 +5288,12 @@ frontend/src/components/site-surveys/
 └── tools/
     ├── ArrowTool.ts                   # 変更: Arrow extends Path → extends Group（白縁取りダブルストローク）
     ├── TextTool.ts                    # 変更: paintFirst: 'stroke'、textOutline 属性
-    ├── CircleTool.ts                  # 変更（軽微）: StyleTokens 参照に置換
-    ├── RectangleTool.ts               # 変更（軽微）: StyleTokens 参照に置換
-    ├── PolygonTool.ts                 # 変更（軽微）: StyleTokens 参照に置換
-    ├── PolylineTool.ts                # 変更（軽微）: StyleTokens 参照に置換
-    ├── FreehandTool.ts                # 変更（軽微）: StyleTokens 参照に置換
-    ├── DimensionTool.ts               # 変更（軽微）: StyleTokens 参照に置換
+    ├── CircleTool.ts                  # 変更（軽微）: annotation-style-tokens 参照に置換
+    ├── RectangleTool.ts               # 変更（軽微）: annotation-style-tokens 参照に置換
+    ├── PolygonTool.ts                 # 変更（軽微）: annotation-style-tokens 参照に置換
+    ├── PolylineTool.ts                # 変更（軽微）: annotation-style-tokens 参照に置換
+    ├── FreehandTool.ts                # 変更（軽微）: annotation-style-tokens 参照に置換
+    ├── DimensionTool.ts               # 変更（軽微）: annotation-style-tokens 参照に置換
     └── registerCustomShapes.ts        # 変更: Arrow Group 版を再登録（type='arrow' を維持）
 
 frontend/src/services/export/
@@ -5390,8 +5392,8 @@ Body が Outline より上に描画されることで、矢じり端部も含め
 
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
-| 24.1-24.10 | 矢印の白縁取り表示・属性永続化・後方互換・Undo連携 | ArrowTool (Group refactor), StyleTokens, AnnotationRendererService, AnnotationToolbar（要件24.5 の切替UI。同名の未結線 `StylePanel.tsx` ではなく、本部品が内包する関数コンポーネントが出荷経路）, AnnotationEditor（要件24.10 の取り消し記録）, registerCustomShapes | `Arrow.setOutline`, `Arrow.toObject/fromObject` 拡張 | 矢印レンダリング |
-| 25.1-25.12 | テキストの白アウトライン・背景色との独立・マルチバイト対応・後方互換 | TextTool (paintFirst), StyleTokens, AnnotationToolbar（要件25.2 の切替UI）, AnnotationEditor（要件25.11 の取り消し記録）, AnnotationRendererService | `TextAnnotation.setOutline`, `TextAnnotation.toObject/fromObject` 拡張 | - |
+| 24.1-24.10 | 矢印の白縁取り表示・属性永続化・後方互換・Undo連携 | ArrowTool (Group refactor), annotation-style-tokens, AnnotationRendererService, AnnotationToolbar（要件24.5 の切替UI。同名の未結線 `StylePanel.tsx` ではなく、本部品が内包する関数コンポーネントが出荷経路）, AnnotationEditor（要件24.10 の取り消し記録）, registerCustomShapes | `Arrow.setOutline`, `Arrow.toObject/fromObject` 拡張 | 矢印レンダリング |
+| 25.1-25.12 | テキストの白アウトライン・背景色との独立・マルチバイト対応・後方互換 | TextTool (paintFirst), annotation-style-tokens, AnnotationToolbar（要件25.2 の切替UI）, AnnotationEditor（要件25.11 の取り消し記録）, AnnotationRendererService | `TextAnnotation.setOutline`, `TextAnnotation.toObject/fromObject` 拡張 | - |
 | 26.1-26.6 | ツール横断デフォルトスタイルの一元化、セッション内継承、白縁取り初期ON | annotation-style-tokens, AnnotationEditor styleOptionsRef, style-panel.constants, annotation-toolbar.constants, StylePanel, ArrowTool, CircleTool, DimensionTool, FreehandTool, PolygonTool, PolylineTool, RectangleTool, TextTool | `AnnotationToolDefaults` interface | - |
 | 27.1-27.10 | ダブルタップ編集、長押しメニュー、Req8/Req17連携 | touchGestureManager, AnnotationContextMenu, AnnotationEditor, gesture-thresholds | `GestureEvent`, `ContextMenuAction` | ジェスチャー判定フロー |
 | 28.1-28.8 | モバイルツールバー、折返し・スクロール、属性パネル開閉、44px タップ領域 | AnnotationToolbar, StylePanel, AnnotationContextMenu | toolbar layout contract | - |
@@ -5404,13 +5406,13 @@ Body が Outline より上に描画されることで、矢じり端部も含め
 
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies (P0/P1) | Contracts |
 |-----------|--------------|--------|--------------|--------------------------|-----------|
-| Arrow (Group) | Tools | 白縁取り付き矢印を Group で表現 | 24.1-24.10 | Fabric Group/Path (P0), StyleTokens (P1) | State, Serialization |
-| TextAnnotation (outline) | Tools | 白アウトライン付きテキスト | 25.1-25.12 | Fabric IText (P0), StyleTokens (P1) | State, Serialization |
+| Arrow (Group) | Tools | 白縁取り付き矢印を Group で表現 | 24.1-24.10 | Fabric Group/Path (P0), annotation-style-tokens (P1) | State, Serialization |
+| TextAnnotation (outline) | Tools | 白アウトライン付きテキスト | 25.1-25.12 | Fabric IText (P0), annotation-style-tokens (P1) | State, Serialization |
 | AnnotationStyleTokens | Infra | ツール横断既定値一元管理 | 26.1-26.6 | - | Config module |
 | touchGestureManager | Gestures | dbltap/longpress/N-finger state machine | 27.1-27.10, 30.1-30.8 | Fabric Canvas (P0), ImageViewer (P0) | Service, State |
 | AnnotationContextMenu | UI | 長押し/右クリックで出るメニュー | 27.2-27.5, 27.7, 27.10 | AnnotationEditor (P0), UndoManager (P1) | UI props |
 | AnnotationGuide | UI | ツール選択後の簡易ガイドオーバーレイ | 29.7-29.8 | AnnotationEditor (P1) | UI props |
-| AnnotationToolbar (ext) | UI | モバイルレイアウト・白縁取りトグル | 26.3, 28.1-28.8, 29.1, 29.6 | StyleTokens (P0) | UI props |
+| AnnotationToolbar (ext) | UI | モバイルレイアウト・白縁取りトグル | 26.3, 28.1-28.8, 29.1, 29.6 | annotation-style-tokens (P0) | UI props |
 | ImageViewer (touch ext) | Viewer | 3本指以上抑止、gestureManager連携 | 30.1-30.8 | touchGestureManager (P0) | Internal |
 | AnnotationEditor (ext) | Editor | gestureManager attach、context menu mount | 24-30 cross-cutting | touchGestureManager (P0), ContextMenu (P1) | Internal |
 
@@ -5432,7 +5434,7 @@ Body が Outline より上に描画されることで、矢じり端部も含め
 
 **Dependencies**
 - Inbound: AnnotationEditor (P0) — ツール選択→新規矢印作成
-- Outbound: Fabric Group/Path (P0), StyleTokens (P1) — 既定 outline 幅
+- Outbound: Fabric Group/Path (P0), annotation-style-tokens (P1) — 既定 outline 幅
 - External: Fabric.js 7.3.1 (P0)
 
 **Contracts**: Service [ ] / API [ ] / Event [ ] / Batch [ ] / State [x]
@@ -5489,7 +5491,7 @@ class Arrow extends Group {
 
 **Dependencies**
 - Inbound: AnnotationEditor — テキストツール選択→テキスト配置
-- Outbound: Fabric IText (P0), StyleTokens (P1)
+- Outbound: Fabric IText (P0), annotation-style-tokens (P1)
 - External: Fabric.js 7.3.1 (P0)
 
 **Contracts**: State [x], Serialization [x]
@@ -6088,7 +6090,7 @@ graph TB
 **Architecture Integration**:
 - Pattern: 既存 3 層エクスポート構造（Dialog → Service → Renderer）に、coordinator `bulkExportService` と進捗 UI を追加。`ExportSettingsForm` を個別/一括で共有することで設定 UI の二重実装を回避
 - 6 形状の白縁取りは Tool 層のみで吸収。Renderer / Editor は無変更（既存 `enlivenObjects` 経路で属性が自動復元）
-- Dependency direction: `Infra (StyleTokens, JSZip) → Tools → Services → ExportUI → DetailPage`。下位レイヤから上位への依存は禁止
+- Dependency direction: `Infra (annotation-style-tokens, JSZip) → Tools → Services → ExportUI → DetailPage`。下位レイヤから上位への依存は禁止
 - Steering compliance: TypeScript strict、ESLint、既存 `services/*Service.ts` パターン、React 19 標準 API、テスト構成
 
 #### Technology Stack
@@ -6255,7 +6257,7 @@ graph TB
 | 31.17 | 注釈含む時の白縁取り適用 | AnnotationRendererService（既存 enlivenObjects 経路） | - | - |
 | 31.18 | 原本出力時の注釈・回転・サムネイル非反映 | bulkExportService, ExportService.downloadOriginal | original branch | 一括エクスポートフロー |
 | 31.19 | 中間生成物の非残存 | bulkExportService finalize | finalize hook | - |
-| 32.1-32.7, 32.9-32.10 | 6 形状の白縁取り共通仕様（描画・変形・属性永続化・Undo・後方互換） | Rectangle/Circle/Polygon/Polyline/Freehand/Dimension Tools, StyleTokens, AnnotationToolbar（要件32.5 の切替UI）, AnnotationEditor（要件32.10 の取り消し記録）, registerCustomShapes | `ShapeOutlineAttribute`, 各 Tool の `setOutline/toObject/fromObject` | 6 形状レンダリング構造 |
+| 32.1-32.7, 32.9-32.10 | 6 形状の白縁取り共通仕様（描画・変形・属性永続化・Undo・後方互換） | RectangleTool, CircleTool, PolygonTool, PolylineTool, FreehandTool, DimensionTool, annotation-style-tokens, AnnotationToolbar（要件32.5 の切替UI）, AnnotationEditor（要件32.10 の取り消し記録）, registerCustomShapes | `ShapeOutlineAttribute`, 各 Tool の `setOutline/toObject/fromObject` | 6 形状レンダリング構造 |
 | 32.8 | 出力経路（サムネイル/PDF/個別/一括）の整合 | AnnotationRendererService, PdfReportService, bulkExportService | 既存 enlivenObjects 経路 | - |
 | 32.11, 32.13 | 既定値・既定スタイル一元管理 | annotation-style-tokens, AnnotationToolbar, FreehandTool | `ANNOTATION_DEFAULTS` 拡張 | - |
 | 32.12 | 寸法値ラベルの白アウトライン（Req 25 同形の `TextOutlineAttribute` を独立属性で保持） | DimensionTool（labelText paintFirst, labelOutline 属性） | `TextOutlineAttribute`, `Dimension.setLabelOutline/getLabelOutline` | 6 形状レンダリング構造 |
@@ -6269,16 +6271,16 @@ graph TB
 |-----------|--------------|--------|--------------|--------------------------|-----------|
 | bulkExportService | Services | 複数画像レンダ→ZIP→DL の coordinator、進捗・キャンセル・部分失敗 | 31.4-31.19 | AnnotationRendererService (P0), ExportService (P0), JSZip (P0) | Service, State |
 | zip-naming | Services | ZIP 内ファイル名規則 | 31.8, 31.9 | - | Pure utility |
-| ExportSettingsForm | UI | 形式・解像度・注釈含む・原本のフォーム本体 | 31.4 | StyleTokens (P1) | UI props |
+| ExportSettingsForm | UI | 形式・解像度・注釈含む・原本のフォーム本体 | 31.4 | annotation-style-tokens (P1) | UI props |
 | BulkExportDialog | UI | 起動 + 設定確定 | 31.1-31.5, 31.15 | ExportSettingsForm (P0), bulkExportService (P0) | UI props |
 | BulkExportProgressDialog | UI | 進捗・キャンセル・部分失敗時の選択肢 | 31.10-31.14 | bulkExportService (P0) | UI props |
 | PhotoManagementPanel (ext) | UI | チェックボックス・選択 state 連携 | 31.2, 31.3 | SiteSurveyDetailPage (P0) | UI props |
-| Rectangle (Group) | Tools | 白縁取り付き矩形 | 32.* (Rect分) | Fabric Group/Rect (P0), StyleTokens (P1) | State, Serialization |
-| Circle (Group) | Tools | 白縁取り付き円/楕円 | 32.* (Ellipse分) | Fabric Group/Ellipse (P0), StyleTokens (P1) | State, Serialization |
-| Polygon (Group) | Tools | 白縁取り付き多角形 | 32.* (Polygon分) | Fabric Group/Polygon (P0), StyleTokens (P1) | State, Serialization |
-| Polyline (Group) | Tools | 白縁取り付き折れ線 | 32.* (Polyline分) | Fabric Group/Polyline (P0), StyleTokens (P1) | State, Serialization |
-| Freehand (Group) | Tools | 白縁取り付きフリーハンド | 32.* (Path分) | Fabric Group/Path (P0), StyleTokens (P1) | State, Serialization |
-| Dimension (Group) | Tools | 線部に `outline`、ラベル部に `labelOutline` の独立2属性。UI は 1 トグルで同期 | 32.* + 32.12 | Fabric Group/Path/IText (P0), StyleTokens (P1) | State, Serialization |
+| Rectangle (Group) | Tools | 白縁取り付き矩形 | 32.* (Rect分) | Fabric Group/Rect (P0), annotation-style-tokens (P1) | State, Serialization |
+| Circle (Group) | Tools | 白縁取り付き円/楕円 | 32.* (Ellipse分) | Fabric Group/Ellipse (P0), annotation-style-tokens (P1) | State, Serialization |
+| Polygon (Group) | Tools | 白縁取り付き多角形 | 32.* (Polygon分) | Fabric Group/Polygon (P0), annotation-style-tokens (P1) | State, Serialization |
+| Polyline (Group) | Tools | 白縁取り付き折れ線 | 32.* (Polyline分) | Fabric Group/Polyline (P0), annotation-style-tokens (P1) | State, Serialization |
+| Freehand (Group) | Tools | 白縁取り付きフリーハンド | 32.* (Path分) | Fabric Group/Path (P0), annotation-style-tokens (P1) | State, Serialization |
+| Dimension (Group) | Tools | 線部に `outline`、ラベル部に `labelOutline` の独立2属性。UI は 1 トグルで同期 | 32.* + 32.12 | Fabric Group/Path/IText (P0), annotation-style-tokens (P1) | State, Serialization |
 | AnnotationStyleTokens (ext) | Infra | `ShapeOutlineAttribute` 共通型と 6 形状向け既定値（Dimension は label 用 `TextOutlineAttribute` も追加） | 32.11, 32.13 | - | Config module |
 
 #### Services Layer
@@ -6503,7 +6505,7 @@ type PartialFailureChoice = 'download-partial' | 'cancel';
 
 **Dependencies**（5 ツール共通）
 - Inbound: AnnotationEditor — ツール選択→新規形状作成、選択ツールでの編集
-- Outbound: Fabric Group + 各基底（Rect/Ellipse/Polygon/Polyline/Path）(P0)、StyleTokens (P1)
+- Outbound: Fabric Group + 各基底（Rect/Ellipse/Polygon/Polyline/Path）(P0)、annotation-style-tokens (P1)
 - External: Fabric.js 7.3.1 (P0)
 
 **Contracts**: State [x], Serialization [x]
@@ -6572,7 +6574,7 @@ class Rectangle extends Group implements ShapeOutlineMethods<RectangleJSON> {
 
 **Dependencies**
 - Inbound: AnnotationEditor — 寸法線ツール選択→2 点クリックで作成
-- Outbound: Fabric Group/Path/IText (P0)、StyleTokens (P1)
+- Outbound: Fabric Group/Path/IText (P0)、annotation-style-tokens (P1)
 - External: Fabric.js 7.3.1 (P0)
 
 **Contracts**: State [x], Serialization [x]
@@ -8167,6 +8169,53 @@ sequenceDiagram
 **ロールバック**: 当該項目は未算出から算出済みへ一方向に進むのみで、既存の値を破壊しない。列そのものは省略可能な項目として追加されるため、追加前のコードとも共存できる。
 
 **観測**: ~~バックフィルの `BackfillResult` をログへ出力する~~（115.6 で封鎖）。欠落は新規にも発生し得るため対象件数は0へ恒久収束せず、この前提のもとで 38.2 / 38.3 は表示領域による取得の限定によって満たす。
+
+## 未起票の提案の台帳（タスク 115.213）
+
+**設計文書へ「別途起票すること」と書いただけの提案は、誰も起票しなければ残り続ける。** タスク 115.172 の走査がこの形の提案を検出し、**同タスクを差し戻したレビュー**が `.kiro/specs/site-survey/tasks.md` を走査して**対応するタスクが一件も存在しない**ことを確かめてタスク 115.213 を起票した（その確認は本タスクの着手時に測り直してある。下の `### 前提の検証（「対応タスクが一件も存在しない」を測り直した）` を参照）。**提案を文書へ書いた行為は、提案の消化ではない。** 本節は各提案について**実施・取り下げ・後続タスクへ送るのいずれかを決めた記録**であり、**次の担当者が同じ提案を再発見して同じ調査を繰り返さないために置く**。
+
+**本節が定める作法**: 設計文書へ後続タスクの提案を書くときは、(1) **是正先**（どのファイルの何を直すのか）と、(2) **提案が生きていることを確かめる再現コマンド**を、提案と同じ場所に書く。**是正先が設計文書の外にあるなら、それを明記する。** 書いた場所と直せる場所が違うことが、提案が滞留する主因である。
+
+### 判定の一覧（いずれも 2026-08-31 にリポジトリルートで実測。コミット `b999b2d` を起点とする）
+
+| # | 提案の要旨 | 是正先 | 判定 | 判定の根拠 |
+|---|---|---|---|---|
+| 1 | Mermaid 図の辺 `SurveyImageService --> R2` が Risks 欄の「本サービスはこの8件に含まれない」と矛盾する | `### Architecture Pattern & Boundary Map` | 実施 | **どちらが真かを実装を測って決めた。** `backend/src/services/survey-image.service.ts` は R2 への送出を一つも持たない（下の再現コマンド 1）。真であったのは Risks 欄と是正後の責務欄であり、偽であったのは Mermaid 図の辺であるため、辺を撤去した |
+| 2 | `## Requirements Traceability` の要件20.4 の行から `SurveyImageService` を外す | `## Requirements Traceability` の要件20.4 の行 | 実施 | 注釈付きサムネイルを生成する `AnnotatedThumbnailService` は同クラスを参照しない（下の再現コマンド 2）。本番で同クラスを生成する 2 ルートのうち、現場調査の側（`backend/src/routes/survey-images.routes.ts`）は `ImageUploadService` の依存として渡すだけであり、他機能の側（`backend/src/routes/construction-photo-images.routes.ts`）は `ConstructionPhotoImageService` の依存と Content-Type 判定用の保持へ渡す。**どちらも注釈付きサムネイルの生成経路には現れない** |
+| 3 | 上記を是正した後の責務欄への追随（4箇所） | `### Architecture Pattern & Boundary Map` の責務分離の行、`#### ImageMetadataService（要件10対応）` の委譲の行、`### Unit Tests` の単体テスト計画の行、および #1 の Mermaid 図の辺 | 実施 | 4箇所のいずれも、是正後の責務欄（「状態を持たない補助であり、圧縮・サムネイル生成・ストレージへの送信……はいずれも担わない」）と矛盾していた。委譲の主張は実装にも無い（下の再現コマンド 3）。単体検証にも圧縮・サムネイル生成・バッチアップロードの主張は無い（下の再現コマンド 4） |
+| 4 | 論理名対応表の未登録4件（`StyleTokens` ほか） | `#### 論理名と実体の対応表` と、当該表記を用いる追跡表・対照表・ファイル構成ブロック・Mermaid 図 | 実施 | 掲載基準（「1:1 の実体を持たない名前だけを載せる」）へ一件ずつ照らした。`StyleTokens` と 6 ツールの列挙は 1:1 に解決できるため**実名へ統一**（Mermaid のノードID だけは規約4 が許す短縮形として登録）、`全SiteSurvey画面`（5 画面の集約）と `全コンポーネント`（実装ファイルを持たない総称）は 1:1 に解決できないため**対応表へ登録**した |
+| 5 | 追跡表10件の実装側注釈の要件番号の是正 | `frontend/src/components/site-surveys/ImageUploader.tsx` ほか 5 ファイルの `Requirements:` ブロック | 後続タスクへ | 提案は生きている（10件すべて現存。`#### 自己申告をそのまま写さなかった 18 件` の再現コマンドで実測）。**是正先が実装ファイルであり、本タスクの境界（設計文書に残る未起票の提案）の外にある。** 是正すべき組は同節の表がすでに一件ずつ挙げているため、後任は再走査を要しない |
+| 6 | タスク 115.119 の受入検証の拡張 | `e2e/specs/site-surveys/site-survey-responsive.spec.ts` の要件15.4 の検証 | 後続タスクへ | 提案は生きている（当該検証は現在も描画を一度しか行わない。`#### 自動保存の発火条件（タスク 115.119）` の再現コマンドで実測）。**是正先が受入検証であり、本タスクの境界の外にある。** 実行時間の上限（`test.setTimeout(180_000)`）の見直しを伴うため、起票時の境界に上限の再設計を含めること |
+| 7 | 他機能スペックの除外一覧の Jest 道具名 | `e2e/requirement-exclusions.json` と各機能スペックの設計文書 | 後続タスクへ | 提案は生きている（下の再現コマンド 5 の出力が `64 0`）。**現場調査スペックの項目は 0 件で、残る全件が他機能スペックの所管である。** 本書の側では是正が済んでおり、ここに残るのは他スペックへの申し送りだけであるため、起票は各機能スペックの側で行う |
+| 8 | `## Requirements Traceability` の要件4.10 の行が順序の担い手 `ImageOrderService` / `ImageListService` を欠く | `## Requirements Traceability` の要件4.10 の行 | 後続タスクへ | **この 1 件はタスク 115.213 の起票文が列挙した 7 件に入っておらず**（起票文は #1〜#7 を挙げる）、**本タスクが新たに発見した追跡表の内容の欠落であって、文書に書かれていた提案ではない。** 同タスクの境界は「設計文書に**残る**未起票の提案」の消化であるため**境界の外にあり、一度加えた列を元へ戻して未起票の提案として登録し直した**。担い手であることは実装で確かめてある（下の再現コマンド 6）。是正先と再現コマンドは `#### SurveyImageService` の `##### Service Interface` の当該項にも同じ形で置いた |
+
+**判定の内訳は実施 4 件・後続タスクへ 4 件・取り下げ 0 件である**（`4 + 4 = 8`。2026-08-31 の判定。**起票文が列挙した 7 件だけで数えると実施 4 件・後続タスクへ 3 件である**——#8 は本タスクが発見した 1 件であり、起票文の 7 件には入らない）。**取り下げが 0 件である理由を記す**——8 件はいずれも、実装または受入検証を測ったうえで「記述が現況と食い違う」または「担い手を欠く」ことを確かめられた。**提案の前提が失われていた件は一つも無かったため、取り下げに当たるものが無い。** **後続タスクへ送った 4 件は、いずれも是正先が本タスクの境界の外にある**（#5 は実装ファイルの注釈、#6 は受入検証、#7 は `e2e/requirement-exclusions.json` と他スペックの設計文書、#8 は本タスクが消化の対象とする「文書に書かれていた提案」に当たらない追跡表の内容の欠落）。**この 4 件は `tasks.md` へ起票されるまで消化されていない。** 本節はその起票の入力（是正先・再現コマンド・起票時の境界）を揃えて置くところまでを担う。
+
+### 再現コマンド（いずれも 2026-08-31 にリポジトリルートで実測）
+
+1. `grep -cE 'storageProvider\.(upload|delete)|PutObjectCommand|DeleteObjectCommand' backend/src/services/survey-image.service.ts` の出力が `0`
+2. `grep -c SurveyImageService backend/src/services/annotated-thumbnail.service.ts` の出力が `0`
+3. `grep -c SurveyImageService backend/src/services/image-metadata.service.ts` の出力が `0`
+4. `grep -oE "^  describe\('[^']*'" backend/src/__tests__/unit/services/survey-image.service.test.ts | wc -l` の出力が `13` で、**その 13 個の名前はいずれも圧縮・サムネイル生成・バッチアップロードを述べない**（`validateFileType` / `sanitizeFileName` / `validateFile (combined validation)` / `ALLOWED_MIME_TYPES constant` / `ALLOWED_EXTENSIONS constant` / `getStoragePath` / `SurveySurveyNotFoundError` / `getter methods` / `validateMagicBytes edge cases` / `sanitizeFileName edge cases` / `detectMimeTypeByMagicBytes (Requirement 21)` / `validateFile - extension mismatch tolerance (Requirement 21)` / `UnsupportedImageFormatError`。**総数を併記するのは、当たりが 0 であることだけでは「対象を読めていない」場合と区別できないためである**——変異として同じパイプラインの引数を実在しないパスへ差し替えて実行すると、出力は同じく `0` になる（2026-08-31 に実測）。総数 `13` はこの取り違えを排除する）
+5. `node -e "const j=require('./e2e/requirement-exclusions.json');const k=j.exclusions.filter(e=>/Jest/.test(e.alternativeVerification.tool));console.log(k.length, k.filter(e=>e.id.startsWith('site-survey/')).length)"` の出力が `64 0`
+6. `grep -c 'data: { displayOrder' backend/src/services/image-order.service.ts` の出力が `1`（順序の書き込み）、`grep -c 'orderBy: SURVEY_IMAGE_ORDER_BY' backend/src/services/image-list.service.ts` の出力が `1`（固定順序での読み出し）
+
+### 前提の検証（「対応タスクが一件も存在しない」を測り直した）
+
+タスク 115.213 の起票文は「レビューが `tasks.md` を走査して対応タスクが一件も存在しないことを確認した」と述べるが、**起票から本タスクの着手までに `tasks.md` は伸びている**ため、実施前に測り直した。走査は次の三つで、いずれも #1〜#7 を担うタスクの記述を返さない（挙がるのは 115.213 自身の起票文と、既に `[x]` の過去タスク、および提案と対象の異なる実装タスクである）。**未着手のタスクで唯一この近傍に当たったのは 115.228（「追跡表が新設した受入基準を拾わない状態を解消する」。境界は「設計文書の追跡表と受入基準の対応」）であり、これは追跡表の要件番号の列の欠落を扱うため #1〜#7 のいずれとも対象が異なる。** ただし上の #8 とは近いため、#8 を起票するときは同タスクとの境界を確かめること。
+
+- `grep -n 'SurveyImageService' .kiro/specs/site-survey/tasks.md`
+- `grep -nE '論理名|StyleTokens|Jest|除外一覧|追跡表|責務欄|Mermaid' .kiro/specs/site-survey/tasks.md`
+- `grep -n '115\.119' .kiro/specs/site-survey/tasks.md`
+
+### 同型の未起票の提案が他スペックの設計文書に無いことの走査（三層に分けて書く）
+
+1. **機械保証**: **無い。** 押下前の関門と統合が算入する検査（`npm run check:design-refs` / `npm run check:design-code-refs` / `npm run check:design-path-refs` / `npm run check:cf-evidence`）はいずれも参照の形式・パスの実在・反実仮想の引用を見るだけで、**設計文書に書かれた提案が起票されているかは見ない。** この形の掃き残しを捕まえる関門は存在しない。
+2. **人手走査**: 走査範囲は次の三つのコマンドが挙げる行であり、対象は `.kiro/specs/` 配下の設計文書 13 ファイルである（`ls .kiro/specs/*/design.md | wc -l` の出力が `13`）。
+   - 網A（提案の定型）: `grep -rncE '別途起票|後続タスクの提案|起票すること' .kiro/specs/*/design.md` — 現場調査スペック以外の 12 ファイルはいずれも `0` である
+   - 網B（義務や見通しを述べる語）: `grep -rnE 'すべきである|を検討する|要検討|TODO|今後の課題|将来的に|望ましい' .kiro/specs/*/design.md` — 現場調査スペック以外で 5 件が挙がる。**5 件すべてを目視した。** 内訳は取引先管理の設計文書 3 件・プロジェクト管理の設計文書 1 件・見積依頼の設計文書 1 件で、**いずれも「将来的に〜可能である」という実現可能性の見通しであって、担い手へ義務を課す提案ではない。** 起票を求める文言（「〜すること」）を伴うものは 0 件である
+   - 網C（申し送りの語）: `grep -rncE '未起票|申し送り|別タスクの所管|後続タスク|別途起票' .kiro/specs/*/design.md` — 現場調査スペック以外では見積作成の設計文書の `1` だけで、これは「research.md の申し送りに対する決定」という**決着済みの判断を載せる見出し**であり、未消化の提案ではない
+3. **未走査の残余**: 上の三つの網は日本語の定型句だけを見る。**「別途対応」「今後検討」「TODO:」以外の言い回し、英語で書かれた提案、表の欄の内側だけに書かれた提案、および `requirements.md` / `tasks.md` / `research.md` に書かれた提案は網に掛からない。** 本走査はそこへ手を伸ばしていない。**これは反例を示せば偽になる命題として挙げる**——上の三つの網に当たらない未起票の提案が他スペックの設計文書に一つでも見つかれば、本走査は掃き終えていない。**結論は「残存 0」ではなく「(1) と (2) の範囲で 0 件であり、範囲外は保証しない」である。**
 
 ## 本スペック発の共有部品と関門（タスク 115.173 の feature 検証で記録）
 
