@@ -218,9 +218,11 @@ jobs:
           echo "Design Reference Format Check"
           echo "========================================="
           echo ""
-          echo "This check validates that production code never points at the"
-          echo "design document by line number. Line numbers drift on every"
-          echo "revision; references must name the section title and the symbol."
+          echo "This check validates that nothing points at a design document"
+          echo "by line number: neither production code (task 115.100) nor a"
+          echo "design document pointing at itself (task 115.211). Line numbers"
+          echo "drift on every revision; references must name the section title"
+          echo "and the symbol."
           echo ""
           npm run check:design-refs
 

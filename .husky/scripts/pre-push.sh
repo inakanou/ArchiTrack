@@ -795,14 +795,18 @@ echo ""
 # ============================================================================
 # 設計文書への行番号参照チェック
 # ============================================================================
-# 本番コードの注釈が設計文書を行番号で指す形の再発を検知する
+# 設計文書を行番号で指す形の再発を、二つの母集団で検知する
 # - 設計文書は追記・改訂で行数が変わるため、行番号の参照は原理的に維持できない
 #   （タスク 115.71 のレビューで、参照先が全く別の内容を指す状態が判明した）
 # - 節の題とシンボル名で指す形へ改めること
-# - 走査対象は frontend/src / backend/src の本番コード（テストコードは対象外）
+# - 走査対象(1): frontend/src / backend/src の本番コード（テストコードは対象外）
+# - 走査対象(2): .kiro/specs/*/design.md 自身（タスク 115.211）
+#   設計文書が自分自身を行番号で指す形は、上の(1)にも check:design-code-refs にも
+#   掛からない死角だった。タスク 115.172 が撤去した 12 件は撤去の時点で全件失効しており
+#   （ずれ幅 27〜51 行）、文書が育つ限り行番号は失効し続ける
 # ============================================================================
 
-echo "🔍 Checking design document references in production code..."
+echo "🔍 Checking design document line references (production code and design docs)..."
 npm run check:design-refs:selftest
 if [ $? -ne 0 ]; then
   echo "❌ Design reference detector self-test failed. Push aborted."
