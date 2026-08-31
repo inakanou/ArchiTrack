@@ -25,13 +25,7 @@
  */
 
 import type { PendingUpload } from '../../types/upload.types';
-
-// ============================================================================
-// 定数
-// ============================================================================
-
-/** 操作要素の最小タップ領域（論理ピクセル） */
-const MIN_TAP_TARGET_PX = 44;
+import { TAP_TARGET_MIN_PX } from './tap-target.constants';
 
 // ============================================================================
 // 型定義
@@ -124,8 +118,13 @@ const styles = {
     marginTop: '12px',
   } as React.CSSProperties,
   button: {
-    minWidth: `${MIN_TAP_TARGET_PX}px`,
-    minHeight: `${MIN_TAP_TARGET_PX}px`,
+    // 操作要素の最小タップ領域。下限の宣言元は `./tap-target.constants`。
+    // **この下限を課す要件は無い。** 本パネルを所管する要件37 はタップ領域の受入基準を
+    // 持たず、要件28.3 の対象は同要件の注記により「モバイル幅ツールバー」に限られる。
+    // ここでの適用は同一画面の操作要素と見え方を揃えるための整合であって、要件の要求では
+    // ない。要件で課すべきと判断する場合は受入基準の追加が先に要る。
+    minWidth: `${TAP_TARGET_MIN_PX}px`,
+    minHeight: `${TAP_TARGET_MIN_PX}px`,
     padding: '8px 16px',
     fontSize: '14px',
     fontWeight: 500,

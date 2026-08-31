@@ -177,7 +177,9 @@ const OUTLINE_TOOLS: ReadonlyArray<OutlineToolDefinition> = [
 const MOBILE_VIEWPORT = { width: 375, height: 667 };
 
 /** 要件28.3 が定めるタップ領域の下限（論理ピクセル） */
-const MIN_TAP_TARGET_PX = 44;
+// 実装から取り込まず 44 を自前で持つ。理由は
+// `frontend/src/components/site-surveys/tap-target.constants.ts` に一箇所だけ書いてある。
+const TAP_TARGET_MIN_PX = 44;
 
 /**
  * (g) が測る「見出し → 操作要素」の対応（数える範囲の宣言。Task 115.202）
@@ -876,12 +878,12 @@ test.describe('白縁取り切替UI', () => {
           const name = `${tool.toolLabel}: 項目「${control.label || control.testId}」`;
           expect(
             control.width,
-            `${name}の幅 ${control.width} が ${MIN_TAP_TARGET_PX}px 未満`
-          ).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+            `${name}の幅 ${control.width} が ${TAP_TARGET_MIN_PX}px 未満`
+          ).toBeGreaterThanOrEqual(TAP_TARGET_MIN_PX);
           expect(
             control.height,
-            `${name}の高さ ${control.height} が ${MIN_TAP_TARGET_PX}px 未満`
-          ).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+            `${name}の高さ ${control.height} が ${TAP_TARGET_MIN_PX}px 未満`
+          ).toBeGreaterThanOrEqual(TAP_TARGET_MIN_PX);
         }
       }
     } finally {

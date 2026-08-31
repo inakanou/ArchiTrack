@@ -14,7 +14,8 @@
  * - 27.3: コンテキストメニュー各項目のタップで対応する操作を実行する
  * - 27.4: メニュー表示中は背景画像への新規描画操作を受け付けない（UI 層では透明オーバーレイで担保）
  * - 27.5: メニュー外タップでコンテキストメニューを閉じる
- * - 28.3: タップ領域は最小 44x44 論理ピクセル以上
+ * - 28.3: タップ領域は最小 44x44 論理ピクセル以上（条文の対象は「モバイル幅ツールバー」で
+ *   あり本メニューを含まない。適用の根拠は design.md の追跡表。`STYLES.button` の注釈を参照）
  *
  * Design: design.md "AnnotationContextMenu" セクション参照
  *
@@ -26,6 +27,7 @@
 
 import React, { useCallback, useEffect, useRef } from 'react';
 import type { FabricObject } from 'fabric';
+import { TAP_TARGET_MIN_PX } from './tap-target.constants';
 
 // ============================================================================
 // 型定義
@@ -64,12 +66,6 @@ export interface AnnotationContextMenuProps extends BaseAnnotationOverlayProps {
 // スタイル定義
 // ============================================================================
 
-/**
- * メニュー各アクションボタンの最小タップ領域（論理ピクセル）。
- * Req 28.3: タップ領域は最小 44x44 論理ピクセル以上。
- */
-const MIN_TAP_TARGET_PX = 44;
-
 const STYLES = {
   overlay: {
     position: 'fixed' as const,
@@ -95,8 +91,12 @@ const STYLES = {
     zIndex: 1001,
   } satisfies React.CSSProperties,
   button: {
-    minWidth: `${MIN_TAP_TARGET_PX}px`,
-    minHeight: `${MIN_TAP_TARGET_PX}px`,
+    // タップ領域の下限。宣言元は `./tap-target.constants`。
+    // 要件28.3 の条文の対象は同要件の注記により「モバイル幅ツールバー」に限られ、本メニュー
+    // は含まない。design.md の追跡表が要件28.1-28.8 の担い手に `AnnotationContextMenu` を
+    // 挙げ「44px タップ領域」を割り当てているため、その割り当てに従って下限を課す。
+    minWidth: `${TAP_TARGET_MIN_PX}px`,
+    minHeight: `${TAP_TARGET_MIN_PX}px`,
     padding: '8px 16px',
     border: '1px solid transparent',
     borderRadius: '6px',

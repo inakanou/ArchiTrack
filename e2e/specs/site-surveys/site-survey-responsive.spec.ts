@@ -64,7 +64,9 @@ const PRIVATE_BROWSING_OBSERVATION_MS = Math.ceil(DEFAULT_AUTO_SAVE_INTERVAL_MS 
  * 768x1024 のためその範囲には入らない。すなわち本判定は要件28.3 が要求するより
  * 厳しい下限をタブレット幅へ適用しており、現時点で実際に満たされている。
  */
-const TOUCH_TARGET_MIN_PX = 44;
+// 実装から取り込まず 44 を自前で持つ。理由は
+// `frontend/src/components/site-surveys/tap-target.constants.ts` に一箇所だけ書いてある。
+const TAP_TARGET_MIN_PX = 44;
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -629,12 +631,12 @@ test.describe('現場調査レスポンシブ対応', () => {
       const box = await toolButtons.first().boundingBox();
       expect(box, 'REQ-15.2: ツールボタンの当たり判定が取得できる').not.toBeNull();
       expect(box!.width, 'REQ-15.2: ツールボタンの幅がタッチ標準を満たす').toBeGreaterThanOrEqual(
-        TOUCH_TARGET_MIN_PX
+        TAP_TARGET_MIN_PX
       );
       expect(
         box!.height,
         'REQ-15.2: ツールボタンの高さがタッチ標準を満たす'
-      ).toBeGreaterThanOrEqual(TOUCH_TARGET_MIN_PX);
+      ).toBeGreaterThanOrEqual(TAP_TARGET_MIN_PX);
 
       // ページが正しく表示されていることを確認
       await expect(page.locator('body')).toBeVisible();

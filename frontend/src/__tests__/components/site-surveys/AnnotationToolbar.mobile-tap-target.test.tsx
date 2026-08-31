@@ -56,7 +56,9 @@ vi.mock('../../../hooks/useMediaQuery', () => ({
 import useMediaQuery from '../../../hooks/useMediaQuery';
 
 /** 要件28.3 が定めるタップ領域の下限（論理ピクセル） */
-const MIN_TAP_TARGET_PX = 44;
+// 実装から取り込まず 44 を自前で持つ。理由は
+// `frontend/src/components/site-surveys/tap-target.constants.ts` に一箇所だけ書いてある。
+const TAP_TARGET_MIN_PX = 44;
 
 const parsePx = (value: string | null): number => {
   if (!value) return Number.NaN;
@@ -154,11 +156,11 @@ describe('AnnotationToolbar - モバイル幅の各項目のタップ領域 (Tas
         expect(
           parsePx(item.style.getPropertyValue('min-width')),
           `${tool}: 項目「${name}」の min-width が 44px 未満`
-        ).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+        ).toBeGreaterThanOrEqual(TAP_TARGET_MIN_PX);
         expect(
           parsePx(item.style.getPropertyValue('min-height')),
           `${tool}: 項目「${name}」の min-height が 44px 未満`
-        ).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+        ).toBeGreaterThanOrEqual(TAP_TARGET_MIN_PX);
       }
     });
 
@@ -169,15 +171,15 @@ describe('AnnotationToolbar - モバイル幅の各項目のタップ領域 (Tas
       // 44 が下限になる。宣言の併存自体は許すが、下限が消えていないことを主張する。
       const colorPicker = screen.getAllByTestId('color-picker')[0]!;
       expect(parsePx(colorPicker.style.getPropertyValue('min-width'))).toBeGreaterThanOrEqual(
-        MIN_TAP_TARGET_PX
+        TAP_TARGET_MIN_PX
       );
       expect(parsePx(colorPicker.style.getPropertyValue('min-height'))).toBeGreaterThanOrEqual(
-        MIN_TAP_TARGET_PX
+        TAP_TARGET_MIN_PX
       );
 
       // 44 を超える寸法（線幅の入力の幅 60）は据え置く（下限は幅を縮めない）
       const fontSize = screen.getByTestId('font-size');
-      expect(parsePx(fontSize.style.getPropertyValue('width'))).toBeGreaterThan(MIN_TAP_TARGET_PX);
+      expect(parsePx(fontSize.style.getPropertyValue('width'))).toBeGreaterThan(TAP_TARGET_MIN_PX);
     });
   });
 

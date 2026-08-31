@@ -24,6 +24,8 @@
 
 import React, { useCallback } from 'react';
 
+import { TAP_TARGET_MIN_PX } from './tap-target.constants';
+
 /**
  * ZoomControls の Props。
  */
@@ -82,8 +84,9 @@ const STYLES = {
     alignItems: 'center',
     justifyContent: 'center',
     // Req 34.5: 44x44 論理ピクセル以上のタップ領域（Req 28.3 と整合）。
-    minWidth: '44px',
-    minHeight: '44px',
+    // 下限の宣言元は `./tap-target.constants`（要件28.3）。
+    minWidth: `${TAP_TARGET_MIN_PX}px`,
+    minHeight: `${TAP_TARGET_MIN_PX}px`,
     padding: '8px',
     border: '1px solid #d1d5db',
     borderRadius: '8px',
@@ -104,7 +107,8 @@ const STYLES = {
     alignItems: 'center',
     justifyContent: 'center',
     minWidth: '56px',
-    height: '44px',
+    // バッジはタップ対象ではないが、`button` と縦に並ぶため高さを下限へ揃える。
+    height: `${TAP_TARGET_MIN_PX}px`,
     padding: '0 8px',
     fontSize: '14px',
     fontWeight: 600,

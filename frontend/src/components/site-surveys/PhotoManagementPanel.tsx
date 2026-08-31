@@ -27,6 +27,7 @@ import type {
 import { AnnotatedImageThumbnail } from './AnnotatedImageThumbnail';
 import useMediaQuery from '../../hooks/useMediaQuery';
 import { MEDIA_QUERIES } from '../../utils/responsive';
+import { TAP_TARGET_MIN_PX } from './tap-target.constants';
 
 // ============================================================================
 // 型定義
@@ -454,22 +455,25 @@ const styles = {
   textareaMobile: {
     fontSize: '16px',
   } as React.CSSProperties,
-  /** Req35.5: 操作系コントロールのタップ領域を44px以上に拡大 */
+  /**
+   * Req35.5: 操作系コントロールのタップ領域を下限まで拡大。
+   * 下限の宣言元は `./tap-target.constants`（要件28.3。Req35.5 が同じ数値を引く）。
+   */
   checkboxMobile: {
-    minWidth: '44px',
-    minHeight: '44px',
+    minWidth: `${TAP_TARGET_MIN_PX}px`,
+    minHeight: `${TAP_TARGET_MIN_PX}px`,
   } as React.CSSProperties,
   orderButtonMobile: {
-    minWidth: '44px',
-    minHeight: '44px',
+    minWidth: `${TAP_TARGET_MIN_PX}px`,
+    minHeight: `${TAP_TARGET_MIN_PX}px`,
   } as React.CSSProperties,
   deleteButtonMobile: {
-    minWidth: '44px',
-    minHeight: '44px',
+    minWidth: `${TAP_TARGET_MIN_PX}px`,
+    minHeight: `${TAP_TARGET_MIN_PX}px`,
   } as React.CSSProperties,
   dragHandleMobile: {
-    minWidth: '44px',
-    minHeight: '44px',
+    minWidth: `${TAP_TARGET_MIN_PX}px`,
+    minHeight: `${TAP_TARGET_MIN_PX}px`,
   } as React.CSSProperties,
 };
 

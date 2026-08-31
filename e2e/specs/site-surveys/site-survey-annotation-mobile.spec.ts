@@ -116,7 +116,9 @@ const MOBILE_VIEWPORT = { width: 375, height: 667 };
 // `site-survey-outline-toggle.spec.ts` の (g) が実ブラウザの押下で測る。
 
 /** 要件28.3 が定めるタップ領域の下限（論理ピクセル） */
-const MIN_TAP_TARGET_PX = 44;
+// 実装から取り込まず 44 を自前で持つ。理由は
+// `frontend/src/components/site-surveys/tap-target.constants.ts` に一箇所だけ書いてある。
+const TAP_TARGET_MIN_PX = 44;
 
 /** 道具のボタンの個数。本番の並び（`TOOL_ORDER`）から導く。 */
 const TOOL_BUTTON_COUNT = TOOL_ORDER.length;
@@ -1125,12 +1127,12 @@ test.describe('モバイル Viewport 注釈機能', () => {
       for (const item of items) {
         expect(
           item.width,
-          `${label}: 項目「${item.name}」の幅 ${item.width} が ${MIN_TAP_TARGET_PX}px 未満`
-        ).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+          `${label}: 項目「${item.name}」の幅 ${item.width} が ${TAP_TARGET_MIN_PX}px 未満`
+        ).toBeGreaterThanOrEqual(TAP_TARGET_MIN_PX);
         expect(
           item.height,
-          `${label}: 項目「${item.name}」の高さ ${item.height} が ${MIN_TAP_TARGET_PX}px 未満`
-        ).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+          `${label}: 項目「${item.name}」の高さ ${item.height} が ${TAP_TARGET_MIN_PX}px 未満`
+        ).toBeGreaterThanOrEqual(TAP_TARGET_MIN_PX);
         // Req 28.1: 各項目そのものが画面幅に収まる（到達は Req 28.2 の横スクロールが担う）
         expect(
           item.width,
@@ -3106,7 +3108,7 @@ test.describe('画像編集モバイル表示領域の最適化・回帰（Task 
       `属性パネルを開くとツールバーの縦占有が ${toolbarWithoutPanel} から ` +
         `${toolbarWithPanel.height} へ増えている（Req 36.5）`
     ).toBeLessThanOrEqual(toolbarWithoutPanel);
-    expect(toolbarWithPanel.height).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+    expect(toolbarWithPanel.height).toBeGreaterThanOrEqual(TAP_TARGET_MIN_PX);
     expect(toolbarWithPanel.height, '属性パネルを開くとツールバーが多段化している').toBeLessThan(
       88
     );
