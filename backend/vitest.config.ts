@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig, configDefaults } from 'vitest/config';
 
 /**
  * CI環境かどうかを判定
@@ -6,11 +6,42 @@ import { defineConfig } from 'vitest/config';
  */
 const isCI = !!process.env.CI;
 
+/**
+ * 検証ファイルの全体。統合検証を含む。
+ * 既定の実行は「全体から統合検証を除いたもの」であり、include を狭めては**いない**。
+ * こうしておくと、`src/` のどこに検証ファイルを置いても既定の実行から漏れない。
+ */
+export const ALL_TEST_FILE_GLOB = 'src/**/*.{test,spec}.ts';
+
+/**
+ * 統合検証の置き場所。
+ *
+ * 統合検証は実データベース（ローカルでは `localhost:5433/architrack_test`）と実 Redis へ
+ * 書き込む。E2E が同じデータベースを使っている最中に既定の実行が混ざると、E2E を壊す。
+ * そのため既定の実行からは**構成として**外し、統合検証は
+ * `vitest.integration.config.ts` を明示した実行でのみ選ぶ。
+ *
+ * 実行時の環境変数による切り替えは使わない。理由は二つある。
+ * 1. 設定しても何も変わらない環境変数（かつての `RUN_INTEGRATION_TESTS`）は、
+ *    読み手に分離を誤信させる分だけ無いより悪い。
+ * 2. 前提条件で検証を自動的に無効化する構成（`describe.skipIf(...)` の類）は、
+ *    本プロジェクトの運用原則が禁じている。無効化ではなく**選択**で分ける。
+ *
+ * この分離が壊れていないことは
+ * `src/__tests__/unit/config/vitest-suite-separation.test.ts` が見張る。
+ */
+export const INTEGRATION_TEST_FILE_GLOB = 'src/__tests__/integration/**/*.{test,spec}.ts';
+
+/** 既定・統合のどちらの実行でも共通して除く物（node_modules / dist など vitest の既定） */
+export const SHARED_TEST_EXCLUDE: readonly string[] = configDefaults.exclude;
+
 export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['src/**/*.{test,spec}.ts'],
+    include: [ALL_TEST_FILE_GLOB],
+    // 統合検証は既定の実行から外す（分離の実体はここ。実行時の環境変数ではない）
+    exclude: [...SHARED_TEST_EXCLUDE, INTEGRATION_TEST_FILE_GLOB],
     // ============================================================================
     // Reporter設定（進捗表示の改善）
     // ============================================================================
