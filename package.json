@@ -42,6 +42,7 @@
     "check:design-path-refs": "npx tsx scripts/check-design-path-references.ts",
     "check:design-path-refs:verbose": "npx tsx scripts/check-design-path-references.ts --verbose",
     "check:design-path-refs:json": "npx tsx scripts/check-design-path-references.ts --json",
+    "check:design-path-refs:update": "npx tsx scripts/check-design-path-references.ts --update-baseline",
     "check:design-path-refs:selftest": "npx tsx scripts/check-design-path-references.selftest.ts",
     "check:steering-refs": "npx tsx scripts/check-steering-file-references.ts",
     "check:steering-refs:verbose": "npx tsx scripts/check-steering-file-references.ts --verbose",

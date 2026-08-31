@@ -31,13 +31,17 @@ import {
   buildFileIndex,
   collectAbsenceDeclarations,
   collectDesignDocuments,
+  compareReach,
   DESIGN_DOC_NAME,
   EXCLUDED_DIRECTORIES,
+  execute,
   extractClaims,
+  loadReachBaseline,
   run,
   scanDocument,
   SPEC_DIR,
   statesAbsence,
+  summariseReach,
   type FileIndex,
 } from './check-design-path-references.js';
 
@@ -370,6 +374,10 @@ function checkNoFindingsNarrowing(): string[] {
     { label: 'scanDocument', declaration: 'export function scanDocument(' },
     { label: 'buildFileIndex', declaration: 'export function buildFileIndex(' },
     { label: 'run', declaration: 'export function run(' },
+    // 面の集計と基準照合も同じ網に入れる（名指しで特定の文書・ファイルを面から外す経路を塞ぐ）
+    { label: 'summariseReach', declaration: 'export function summariseReach(' },
+    { label: 'compareReach', declaration: 'export function compareReach(' },
+    { label: 'execute', declaration: 'export function execute(' },
   ];
 
   for (const body of bodies) {
@@ -392,6 +400,12 @@ function checkNoFindingsNarrowing(): string[] {
       /findings\.(?:filter|slice|splice)\(/.test(text)
     ) {
       failures.push(`${body.label} が findings を間引いている`);
+    }
+    if (
+      (body.label === 'summariseReach' || body.label === 'compareReach') &&
+      /(?:reached|documents|regressions)\.(?:filter|slice|splice)\(/.test(text)
+    ) {
+      failures.push(`${body.label} が面の集計を間引いている`);
     }
   }
 
@@ -521,6 +535,410 @@ function checkDocumentedLimits(): string[] {
   return failures;
 }
 
+// ============================================================================
+// 免除機構の「面」の実測と監視（タスク 115.215）
+// ============================================================================
+
+/** 一時的に標準出力を握る（関門の発火を確かめる間、出力で埋めないため） */
+function withCapturedConsole<T>(body: () => T): { value: T; output: string } {
+  const chunks: string[] = [];
+  const originalLog = console.log;
+  const originalError = console.error;
+  const sink = (...args: unknown[]): void => {
+    chunks.push(args.map((arg) => String(arg)).join(' '));
+  };
+  console.log = sink;
+  console.error = sink;
+  try {
+    return { value: body(), output: chunks.join('\n') };
+  } finally {
+    console.log = originalLog;
+    console.error = originalError;
+  }
+}
+
+/**
+ * 面と免除を併せ持つ使い捨てのリポジトリを作る。
+ * `present.ts` は実在しながら不在の語で名指されている（面 1 件）。
+ * `gone.ts` は実在せず不在の語で名指されている（免除 2 件）。
+ */
+function makeReachFixture(): { root: string; document: string } {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'design-path-refs-reach-'));
+  fs.mkdirSync(path.join(root, 'frontend', 'src'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'frontend', 'src', 'present.ts'), 'export {};\n');
+  const featureDir = path.join(root, SPEC_DIR, 'sample');
+  fs.mkdirSync(featureDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(featureDir, DESIGN_DOC_NAME),
+    [
+      '# Sample',
+      '- 現存の担当は `frontend/src/present.ts` である',
+      '- `frontend/src/present.ts` の旧実装は当時こうだった',
+      '- 閲覧は `frontend/src/gone.ts` が担っていた',
+      '- `frontend/src/gone.ts` は撤去済み',
+      '',
+    ].join('\n')
+  );
+  return { root, document: `${SPEC_DIR}/sample/${DESIGN_DOC_NAME}` };
+}
+
+/**
+ * 面が現に免除へ転じる経路を関門が捕まえること。
+ *
+ * 面に入っているファイルが撤去されると、面は**減り**、同じ文書内の全言及が免除へ移る。
+ * 面だけを見張ると、この向きは「狭まった」という助言に化けて素通りする。
+ * リポジトリ本体で当てた変異（`frontend/src/components/site-surveys/AnnotationEditor.tsx` を
+ * 消すと免除が 123 件から 162 件へ跳ね、面は 162 件から 160 件へ減る。2026-08-31 実測）と
+ * 同じ形を、使い捨ての木の上で固定する。
+ */
+function checkExemptedBaselineGate(): string[] {
+  const failures: string[] = [];
+  const fixture = makeReachFixture();
+  const baselinePath = path.join(fixture.root, 'reach-baseline.json');
+  const options = { root: fixture.root, baselinePath };
+  const documentPath = path.join(fixture.root, fixture.document);
+
+  try {
+    // 前提: 面 1 件・免除 2 件・実在の失格 0 件
+    const scanned = run(options);
+    if (scanned.reach.total !== 1) {
+      failures.push(`前提が崩れている: 面が 1 件でない（${scanned.reach.total}）`);
+    }
+    if (scanned.exemptedCount !== 2) {
+      failures.push(`前提が崩れている: 免除が 2 件でない（${scanned.exemptedCount}）`);
+    }
+    if (scanned.reach.exemptedTotal !== scanned.exemptedCount) {
+      failures.push(
+        `免除の集計が二重に食い違う（${scanned.reach.exemptedTotal} / ${scanned.exemptedCount}）`
+      );
+    }
+    if (scanned.findings.length !== 0) {
+      failures.push(`前提が崩れている: 失格が 0 件でない（${scanned.findings.length}）`);
+    }
+
+    // 現状を基準として記録する
+    const recorded = withCapturedConsole(() =>
+      execute(['--update-baseline', '--allow-increase'], options)
+    );
+    if (recorded.value !== 0) failures.push(`基準を記録できない（exit ${recorded.value}）`);
+    const written = loadReachBaseline(baselinePath);
+    if (written.exemptedTotal !== 2 || written.exempted[fixture.document] !== 2) {
+      failures.push(`免除の基準が実測と合わない（exemptedTotal ${written.exemptedTotal}）`);
+    }
+
+    // 対照: 変異を当てなければ合格する（関門が常時赤ではない）
+    const steady = withCapturedConsole(() => execute([], options));
+    if (steady.value !== 0) failures.push(`変異を当てていないのに落ちる（exit ${steady.value}）`);
+
+    // 変異: 面に入っているファイルを撤去する。面は減り、免除は跳ねる
+    const original = fs.readFileSync(documentPath, 'utf-8');
+    fs.rmSync(path.join(fixture.root, 'frontend', 'src', 'present.ts'));
+    const afterRemoval = run(options);
+    if (afterRemoval.reach.total !== 0) {
+      failures.push(`撤去後に面が残っている（${afterRemoval.reach.total}）`);
+    }
+    if (afterRemoval.exemptedCount !== 4) {
+      failures.push(`撤去で免除が跳ねていない（期待 4 / 実際 ${afterRemoval.exemptedCount}）`);
+    }
+    const removed = withCapturedConsole(() => execute([], options));
+    if (removed.value !== 1) {
+      failures.push(
+        `面が免除へ転じたのに合格した（exit ${removed.value}）。面だけを見張ると素通りする向き`
+      );
+    }
+    if (!removed.output.includes('免除')) {
+      failures.push('免除が増えたことを名指しで報告していない');
+    }
+    fs.writeFileSync(path.join(fixture.root, 'frontend', 'src', 'present.ts'), 'export {};\n');
+    fs.writeFileSync(documentPath, original, 'utf-8');
+
+    // 復元したら元の判定へ戻る（変異の効果が残っていない）
+    const restored = withCapturedConsole(() => execute([], options));
+    if (restored.value !== 0) failures.push(`復元後も落ちる（exit ${restored.value}）`);
+
+    // 免除だけが増える向きも落とす（免除の言及を一つ足す）
+    fs.writeFileSync(documentPath, `${original}- 旧 \`frontend/src/gone.ts\` の話\n`, 'utf-8');
+    const grownExemption = withCapturedConsole(() => execute([], options));
+    if (grownExemption.value !== 1) {
+      failures.push(`免除だけが増えたのに合格した（exit ${grownExemption.value}）`);
+    }
+    fs.writeFileSync(documentPath, original, 'utf-8');
+
+    // 免除の内訳と総数が食い違う基準は照合の前に拒否する
+    fs.writeFileSync(
+      baselinePath,
+      `${JSON.stringify(
+        {
+          documents: { [fixture.document]: 1 },
+          reachTotal: 1,
+          candidateTotal: 2,
+          exempted: { [fixture.document]: 2 },
+          exemptedTotal: 99,
+        },
+        null,
+        2
+      )}\n`,
+      'utf-8'
+    );
+    const tampered = withCapturedConsole(() => execute([], options));
+    if (tampered.value !== 1) {
+      failures.push(`免除の内訳と総数が食い違う基準を受け入れた（exit ${tampered.value}）`);
+    }
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+  return failures;
+}
+
+/**
+ * 面が「いま免除されている件数」とは別物として測られていること。
+ *
+ * 陽性対照（面が立つ形）と陰性対照（立たない形）を対で置く。どちらかが空になると
+ * 「常に 0 件」で自明に通るため、両方の件数を固定する。
+ */
+function checkReachIsMeasured(): string[] {
+  const failures: string[] = [];
+
+  // 陽性: 現存するファイルが、同じ文書の不在を述べる行に名指されている
+  const reached = scanInjected([
+    '- 編集の中核は `frontend/src/components/site-surveys/AnnotationEditor.tsx` である',
+    '- `frontend/src/components/site-surveys/AnnotationEditor.tsx` の寸法線は削除した',
+  ]);
+  if (reached.reach.reached.length !== 1) {
+    failures.push(
+      `現存かつ不在宣言済みの参照が面に入らない（期待 1 / 実際 ${reached.reach.reached.length}）`
+    );
+  }
+  if (reached.exemptedCount !== 0) {
+    failures.push(
+      `面は免除件数ではない（実在するので免除は 0 のはず / 実際 ${reached.exemptedCount}）`
+    );
+  }
+
+  // 陰性: 不在の宣言が無ければ面には入らない（免除も面も 0）
+  const notReached = scanInjected([
+    '- 編集の中核は `frontend/src/components/site-surveys/AnnotationEditor.tsx` である',
+  ]);
+  if (notReached.reach.reached.length !== 0) {
+    failures.push(
+      `宣言が無いのに面に入っている（実際 ${notReached.reach.reached.length}）。面が既定になっている疑い`
+    );
+  }
+  if (notReached.reach.candidates.length !== 1) {
+    failures.push(
+      `候補（面の母数）が取れていない（期待 1 / 実際 ${notReached.reach.candidates.length}）`
+    );
+  }
+
+  // 陰性: 実在しないファイルの宣言は「いま免除されている件数」であって面ではない
+  const exemptedOnly = scanInjected([
+    '- 閲覧は `frontend/src/components/site-surveys/ImageViewer.tsx` が担っていた',
+    '- `frontend/src/components/site-surveys/ImageViewer.tsx` はタスク 115.146 で撤去済み',
+  ]);
+  if (exemptedOnly.reach.reached.length !== 0) {
+    failures.push(
+      `実在しない参照が面に混入している（実際 ${exemptedOnly.reach.reached.length}）。面と免除件数が同一視されている`
+    );
+  }
+  if (exemptedOnly.exemptedCount !== 2) {
+    failures.push(`免除件数の集計が壊れている（期待 2 / 実際 ${exemptedOnly.exemptedCount}）`);
+  }
+
+  // 集計が文書ごとの内訳と整合していること
+  const summary = summariseReach([reached.reach, notReached.reach]);
+  if (summary.total !== 1) failures.push(`面の合計が合わない（期待 1 / 実際 ${summary.total}）`);
+  if (summary.candidateTotal !== 2) {
+    failures.push(`母数の合計が合わない（期待 2 / 実際 ${summary.candidateTotal}）`);
+  }
+  return failures;
+}
+
+/**
+ * リポジトリ本体で面が実際に測られていること。
+ * 面が 0 のまま自明に通る状態（測っていない）と、母数が 0 の状態の両方を塞ぐ。
+ */
+function checkReachOnRealRepository(): string[] {
+  const failures: string[] = [];
+  const result = run();
+  if (result.reach.candidateTotal === 0) {
+    failures.push('候補（面の母数）が 0 件である（面を測っていない）');
+  }
+  if (result.reach.total === 0) {
+    failures.push('面が 0 件である（実データには面が在るため、測れていない疑い）');
+  }
+  if (result.reach.total >= result.reach.candidateTotal) {
+    failures.push(
+      `面が母数以上になっている（面 ${result.reach.total} / 母数 ${result.reach.candidateTotal}）`
+    );
+  }
+  const perDocumentSum = Object.values(result.reach.perDocument).reduce((sum, n) => sum + n, 0);
+  if (perDocumentSum !== result.reach.total) {
+    failures.push(`文書別の内訳と合計が食い違う（${perDocumentSum} / ${result.reach.total}）`);
+  }
+  // 面は免除件数とは別の数である（同一なら片方しか測っていない）
+  if (result.reach.total === result.exemptedCount) {
+    failures.push(
+      `面と免除件数が同一である（${result.reach.total}）。別々に測れているか確認すること`
+    );
+  }
+  return failures;
+}
+
+/** 面の基準が実際の関門として働くこと（増加で落ち、手書き換えを拒み、更新に摩擦がある） */
+function checkReachBaselineGate(): string[] {
+  const failures: string[] = [];
+  const fixture = makeReachFixture();
+  const baselinePath = path.join(fixture.root, 'reach-baseline.json');
+  const options = { root: fixture.root, baselinePath };
+  const writeBaselineFile = (payload: unknown): void => {
+    fs.writeFileSync(baselinePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
+  };
+
+  try {
+    // 前提: この使い捨ての文書は面 1 件・実在の失格 0 件である
+    const scanned = run(options);
+    if (scanned.reach.total !== 1 || scanned.findings.length !== 0) {
+      failures.push(
+        `使い捨ての前提が崩れている（面 ${scanned.reach.total} / 失格 ${scanned.findings.length}）`
+      );
+    }
+
+    // 基準が無い状態は「面 0」として扱う＝増加とみなして落ちる（前提の欠落で素通りしない）
+    const missing = withCapturedConsole(() => execute([], options));
+    if (missing.value !== 1) failures.push(`基準が無いときに合格している（exit ${missing.value}）`);
+
+    // 増加方向の更新は既定で拒否する
+    const refused = withCapturedConsole(() => execute(['--update-baseline'], options));
+    if (refused.value !== 1) {
+      failures.push(`面が増える方向の基準更新を無言で通した（exit ${refused.value}）`);
+    }
+    if (fs.existsSync(baselinePath)) {
+      failures.push('拒否したのに基準を書き出している');
+    }
+
+    // 明示すれば記録できる
+    const recorded = withCapturedConsole(() =>
+      execute(['--update-baseline', '--allow-increase'], options)
+    );
+    if (recorded.value !== 0)
+      failures.push(`--allow-increase で更新できない（exit ${recorded.value}）`);
+    const written = loadReachBaseline(baselinePath);
+    if (written.reachTotal !== 1 || written.documents[fixture.document] !== 1) {
+      failures.push(`基準の書き出しが実測と合わない（reachTotal ${written.reachTotal}）`);
+    }
+
+    // 基準と一致していれば合格する（関門が常時赤ではないことの対照）
+    const matched = withCapturedConsole(() => execute([], options));
+    if (matched.value !== 0) failures.push(`基準と一致しているのに落ちる（exit ${matched.value}）`);
+    if (!matched.output.includes('免除機構の面: 1 件')) {
+      failures.push('合格時に面を開示していない');
+    }
+
+    // 面が増えれば落ちる（もう一つ現存ファイルを不在の語で名指す）
+    const documentPath = path.join(fixture.root, fixture.document);
+    const original = fs.readFileSync(documentPath, 'utf-8');
+    fs.writeFileSync(path.join(fixture.root, 'frontend', 'src', 'second.ts'), 'export {};\n');
+    fs.writeFileSync(
+      documentPath,
+      `${original}- \`frontend/src/second.ts\` はかつて別名だった\n`,
+      'utf-8'
+    );
+    const grown = withCapturedConsole(() => execute([], options));
+    if (grown.value !== 1) failures.push(`面が広がったのに合格した（exit ${grown.value}）`);
+    if (!grown.output.includes(`${fixture.document} [面] 1 → 2`)) {
+      failures.push('面の拡大を名指しで報告していない');
+    }
+    fs.writeFileSync(documentPath, original, 'utf-8');
+    fs.rmSync(path.join(fixture.root, 'frontend', 'src', 'second.ts'));
+
+    // 面が狭まった場合は助言のみ（合格させる）
+    writeBaselineFile({
+      documents: { [fixture.document]: 3 },
+      reachTotal: 3,
+      candidateTotal: 2,
+      exempted: { [fixture.document]: 2 },
+      exemptedTotal: 2,
+    });
+    const shrunk = withCapturedConsole(() => execute([], options));
+    if (shrunk.value !== 0) failures.push(`面が狭まったときに落ちる（exit ${shrunk.value}）`);
+    if (!shrunk.output.includes('狭まっています')) {
+      failures.push('面が狭まったことを報告していない');
+    }
+
+    // 内訳と総数が食い違う基準（手書き換え）は照合の前に拒否する
+    writeBaselineFile({
+      documents: { [fixture.document]: 1 },
+      reachTotal: 99,
+      candidateTotal: 2,
+      exempted: { [fixture.document]: 2 },
+      exemptedTotal: 2,
+    });
+    const tampered = withCapturedConsole(() => execute([], options));
+    if (tampered.value !== 1) {
+      failures.push(`内訳と総数が食い違う基準を受け入れた（exit ${tampered.value}）`);
+    }
+
+    // compareReach 自体の対照（総数が合っていれば inconsistent にしない）
+    const firstDocument = scanned.reach.documents[0];
+    if (firstDocument === undefined) {
+      failures.push('文書ごとの内訳が取れていない（面を測っていない）');
+    } else {
+      const consistent = compareReach(
+        {
+          documents: { [fixture.document]: 1 },
+          reachTotal: 1,
+          candidateTotal: 2,
+          exempted: { [fixture.document]: 2 },
+          exemptedTotal: 2,
+        },
+        summariseReach([firstDocument])
+      );
+      if (consistent.inconsistent) failures.push('整合した基準を手書き換えと判定している');
+      if (consistent.regressions.length !== 0 || consistent.improvements.length !== 0) {
+        failures.push('一致しているのに差分を報告している');
+      }
+    }
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+  return failures;
+}
+
+/** 本体をサブプロセスとして起動し、終了コードと開示される面の件数を突き合わせる */
+function checkReachReportedBySubprocess(): string[] {
+  const failures: string[] = [];
+  if (!fs.existsSync(TSX_CLI)) {
+    return ['tsx の起動口が見つからない（確認できないため合格にしない）'];
+  }
+  const result = spawnSync(process.execPath, [TSX_CLI, ENTRY_PATH], {
+    cwd: ROOT,
+    encoding: 'utf-8',
+    env: { ...process.env },
+  });
+  if (result.status !== 0) {
+    failures.push(`本検査がリポジトリ本体で落ちている（exit ${result.status}）`);
+  }
+  const expected = run().reach;
+  const stdout = result.stdout ?? '';
+  if (!stdout.includes(`免除機構の面: ${expected.total} 件`)) {
+    failures.push(`開示された面の件数が実測（${expected.total} 件）と一致しない`);
+  }
+  if (!stdout.includes(`候補 distinct ${expected.candidateTotal} 件`)) {
+    failures.push(`開示された母数が実測（${expected.candidateTotal} 件）と一致しない`);
+  }
+  // 基準と開示が同じ数を指していること（基準だけが古いまま合格する状態を塞ぐ）
+  const baseline = loadReachBaseline(path.join(SCRIPTS_DIR, 'design-path-exemption-baseline.json'));
+  if (baseline.reachTotal !== expected.total) {
+    failures.push(`基準の面（${baseline.reachTotal} 件）が実測（${expected.total} 件）と食い違う`);
+  }
+  if (baseline.exemptedTotal !== expected.exemptedTotal) {
+    failures.push(
+      `基準の免除（${baseline.exemptedTotal} 件）が実測（${expected.exemptedTotal} 件）と食い違う`
+    );
+  }
+  return failures;
+}
+
 /** 陽性対照そのものが空でないこと（0 件の自明な合格を塞ぐ） */
 function checkPositiveControlsArePresent(): string[] {
   const failures: string[] = [];
@@ -569,6 +987,31 @@ const STRUCTURAL: Case[] = [
     name: '陽性対照が空でない',
     expected: false,
     custom: checkPositiveControlsArePresent,
+  },
+  {
+    name: '免除の面が、いま免除されている件数とは別に測られている',
+    expected: false,
+    custom: checkReachIsMeasured,
+  },
+  {
+    name: 'リポジトリ本体で面が実際に測られている（0 件で自明に通っていない）',
+    expected: false,
+    custom: checkReachOnRealRepository,
+  },
+  {
+    name: '面の基準が関門として働く（増加で落ち、手書き換えを拒み、更新に摩擦がある）',
+    expected: false,
+    custom: checkReachBaselineGate,
+  },
+  {
+    name: '面が免除へ転じる向き（面に入ったファイルの撤去）も関門が捕まえる',
+    expected: false,
+    custom: checkExemptedBaselineGate,
+  },
+  {
+    name: '本体を起動して、開示される面の件数と基準が実測と一致する',
+    expected: false,
+    custom: checkReachReportedBySubprocess,
   },
 ];
 
