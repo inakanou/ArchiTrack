@@ -111,6 +111,9 @@
     "@prisma/client": "^7.8.0"
   },
   "overrides": {
-    "hono": "^4.12.25"
+    "hono": "^4.12.25",
+    "@prisma/config": {
+      "deepmerge-ts": "^8.0.2"
+    }
   }
 }
