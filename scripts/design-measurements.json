@@ -225,6 +225,15 @@
       "note": "未起票の提案の人手走査 網B"
     },
     {
+      "id": "self-report-audit-implementation-files",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "の合成を `sort -u | wc -l` で数える（53件",
+      "command": "( git ls-files 'frontend/src/components/site-surveys/*' 'frontend/src/components/site-survey/*' 'frontend/src/pages/SiteSurvey*.tsx' 'frontend/src/components/projects/SiteSurveySectionCard.tsx' 'frontend/src/utils/siteSurveyBreadcrumb.ts'; grep -rl '@requirement site-survey/REQ-' frontend/src ) | grep -vE '\\.test\\.tsx?$|\\.stories\\.tsx$' | sort -u | wc -l",
+      "expected": "51",
+      "documentRendering": "再実測は 51 件",
+      "note": "部品の自己申告と追跡表の突き合わせ（115.113）が監査した実装ファイルの現況。同じ行が持つ 53 件は 115.113 当時の母集団の記録であり書き換えない。文書の再現手順は brace group ({ ...; ...; }) で書かれているが、READ_ONLY_COMMANDS の先頭語判定が `{` を許さないため、宣言では出力の等しい subshell ( ...; ... ) へ置き換えている（本体注釈の「コマンドを走らせることについて」を見よ）"
+    },
+    {
       "id": "self-reference-emphasised-net",
       "file": ".kiro/specs/site-survey/design.md",
       "anchor": "タスク 115.213 の提出時点の再実測は 80 件と 233 件",
@@ -271,12 +280,12 @@
       "file": ".kiro/specs/site-survey/design.md",
       "anchor": "タスク 115.213 の提出時点の再実測は 184 件である",
       "command": "grep -nE '出力(が|は)|[0-9]+ *件' .kiro/specs/site-survey/design.md | grep -vE '20[0-9]{2}-[0-9]{2}-[0-9]{2}' | wc -l",
-      "expected": "188",
+      "expected": "186",
       "documentFigure": "184",
       "documentRendering": "再実測は 184 件",
       "divergence": {
         "kind": "stale",
-        "reason": "同上。115.213 の提出後の編集で 4 件増えている"
+        "reason": "同上。115.213 の提出後の編集で 2 件増えている（タスク 115.233 が実測日を書き足した 2 行がこの網から外れたため、115.232 の提出時点の 188 から 186 へ減った。文書側の 184 は当時のまま）"
       },
       "note": "自己言及の四値 (4)。実測日を持たない残余"
     }
