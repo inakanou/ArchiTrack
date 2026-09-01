@@ -122,20 +122,28 @@ export const EXCLUSIONS_PATH = 'e2e/requirement-exclusions.json';
  * これが無いと、注入した欠陥が別の検査に巻き込まれて弾かれたとき、対照は緑のまま通り、
  * 狙った検査を丸ごと無効化しても検出漏れに気づけない（タスク 115.186 のレビューが
  * `checkCriterionCorrespondence` の無効化で実証した遮蔽）。
+ *
+ * 型でなく `as const` の配列で持つのは、自己検査が**実行時に語彙を数え上げる**ためである
+ * （タスク 115.222）。陽性対照の下限を「この語彙をすべて名指しすること」に置くと、
+ * 対照群を空にする破壊も 1 件へ削る破壊も機構で赤くなり、なおかつ重複した対照を減らす
+ * 正当な変更は通る。型は配列から導くため、語彙と型が食い違うことはない。
  */
-export type ViolationCheck =
+export const VIOLATION_CHECKS = [
   /** 定義ファイルそのものが読めない */
-  | 'file'
+  'file',
   /** スキーマの解決とスキーマ適合 */
-  | 'schema'
+  'schema',
   /** スキーマ単体では表せない不変条件 */
-  | 'invariant'
+  'invariant',
   /** 識別子と受入基準の内容の対応 */
-  | 'criterion-correspondence'
+  'criterion-correspondence',
   /** 除外の宣言と被覆印の同居 */
-  | 'coverage-tag-coexistence'
+  'coverage-tag-coexistence',
   /** 代替検証の説明が原文の列挙を覆う範囲 */
-  | 'alternative-coverage';
+  'alternative-coverage',
+] as const;
+
+export type ViolationCheck = (typeof VIOLATION_CHECKS)[number];
 
 export interface Violation {
   /** 違反箇所を指す JSON ポインタ風の経路（例: `exclusions[12].category`） */

@@ -26,6 +26,7 @@ import {
   DEFAULT_FEATURE,
   E2E_SPECS_DIR,
   EXCLUSIONS_PATH,
+  VIOLATION_CHECKS,
   checkAlternativeCoverage,
   checkCoverageTagCoexistence,
   checkCriterionCorrespondence,
@@ -1110,6 +1111,29 @@ interface MechanismCase {
 }
 
 // ----------------------------------------------------------------------------
+// 対照の母集団が空でないことを見る道具（タスク 115.222）
+//
+// 母集団を走る対照は、母集団が空になると走査が空回りして緑で通る（真空パス）。
+// これは「何も主張していない」状態であり、前提の崩壊として赤くしなければならない
+// （AI運用7原則 第3原則）。実測（115.222）: `MUST_REJECT` を空にすると自己検査は
+// 63/63 から 26/26 の合格へ落ち、`MUST_ACCEPT` を空にした側だけが 1/56 で赤くなった。
+// 片側しか赤くならない非対称は、同じ文言の関門を全ての母集団へ機械的に置くことで解いた。
+// ----------------------------------------------------------------------------
+
+/** 空になっている母集団を挙げる（走査の前に呼び、空が一つでもあれば走らせない） */
+function emptyPopulationFailures(
+  populations: ReadonlyArray<{ name: string; size: number }>
+): string[] {
+  // 渡す一覧そのものを空にされたら、この関門が何も見ていない。回帰を一段で断つ。
+  if (populations.length === 0) {
+    return ['母集団の一覧そのものが空（関門が何も見ていない）'];
+  }
+  return populations
+    .filter((population) => population.size === 0)
+    .map((population) => `${population.name}が 0 件（対照の母集団が空）`);
+}
+
+// ----------------------------------------------------------------------------
 // 対照が「実物をそのまま流すだけ」になっていないかを見る道具（タスク 115.191）
 //
 // 変異を伴わない対照は、先行する『リポジトリの実物』の対照と同じことしか言っておらず、
@@ -1429,8 +1453,14 @@ const MECHANISM_CASES: MechanismCase[] = [
     name: '抽出規則の複製が二箇所へ戻っていない（共有モジュールが唯一の担い手である）',
     run: () => {
       const failures: string[] = [];
-      const shared = fs.readFileSync(path.join(SCRIPTS_DIR, SHARED_SCANNER_BASENAME), 'utf-8');
       // 前提が崩れたら黙って素通りさせない（AI運用7原則 第3原則）。
+      // 母集団が空なら以下の走査は空回りで緑になる。
+      const empty = emptyPopulationFailures([
+        { name: '抽出規則の断片', size: EXTRACTION_RULE_FRAGMENTS.length },
+        { name: '抽出規則の消費側', size: EXTRACTION_RULE_CONSUMERS.length },
+      ]);
+      if (empty.length > 0) return empty;
+      const shared = fs.readFileSync(path.join(SCRIPTS_DIR, SHARED_SCANNER_BASENAME), 'utf-8');
       // 断片が共有モジュールから消えていれば、以下の「消費側に無い」は自明に成り立ってしまう。
       const missing = EXTRACTION_RULE_FRAGMENTS.filter((fragment) => !shared.includes(fragment));
       if (missing.length > 0) {
@@ -1483,6 +1513,10 @@ const MECHANISM_CASES: MechanismCase[] = [
     name: '両抽出器が際どい書式でも一致する（ゼロ詰め・空の題・枝つき番号・墓標・重複）',
     run: () => {
       const failures: string[] = [];
+      const empty = emptyPopulationFailures([
+        { name: '際どい書式の探り群', size: EXTRACTION_PROBES.length },
+      ]);
+      if (empty.length > 0) return empty;
       for (const probe of EXTRACTION_PROBES) {
         withRequirementsDocument(probe.document, (root, feature) => {
           const [fromCoverage, fromExclusions] = extractedPairFor(feature, root);
@@ -1527,12 +1561,11 @@ const MECHANISM_CASES: MechanismCase[] = [
       const failures: string[] = [];
       // 母集団が空なら以下の走査は空回りで緑になる。前提の崩壊は失敗として挙げる
       // （AI運用7原則 第3原則）。
-      if (DISCOVERY_RULE_FRAGMENTS.length === 0) {
-        return ['探索規則の断片が 0 件（対照の母集団が空）'];
-      }
-      if (DISCOVERY_RULE_CONSUMERS.length === 0) {
-        return ['探索規則の消費側が 0 件（対照の母集団が空）'];
-      }
+      const empty = emptyPopulationFailures([
+        { name: '探索規則の断片', size: DISCOVERY_RULE_FRAGMENTS.length },
+        { name: '探索規則の消費側', size: DISCOVERY_RULE_CONSUMERS.length },
+      ]);
+      if (empty.length > 0) return empty;
       const shared = fs.readFileSync(path.join(SCRIPTS_DIR, SHARED_SCANNER_BASENAME), 'utf-8');
       // 断片が共有モジュールから消えていれば、以下の「消費側に無い」は自明に成り立つ。
       const missing = DISCOVERY_RULE_FRAGMENTS.filter((fragment) => !shared.includes(fragment));
@@ -1579,9 +1612,10 @@ const MECHANISM_CASES: MechanismCase[] = [
     name: '両者の機能名探索が際どい構成でも一致する（doc 無し・直下のファイル・symlink・孫・隠し）',
     run: () => {
       const failures: string[] = [];
-      if (DISCOVERY_PROBES.length === 0) {
-        return ['際どい構成の探り群が 0 件（対照の母集団が空）'];
-      }
+      const empty = emptyPopulationFailures([
+        { name: '際どい構成の探り群', size: DISCOVERY_PROBES.length },
+      ]);
+      if (empty.length > 0) return empty;
       for (const probe of DISCOVERY_PROBES) {
         withSpecsTree(probe, (rootDir) => {
           let fromCoverage: string[];
@@ -1605,6 +1639,53 @@ const MECHANISM_CASES: MechanismCase[] = [
             );
           }
         });
+      }
+      return failures;
+    },
+  },
+  {
+    // 対照群そのものが消える破壊を機構で赤くする（タスク 115.222）。
+    // 115.191 が置いた次の対照は、`MUST_ACCEPT` を空にすると「変異を宣言しない陰性対照が
+    // 0 件ある」で赤くなる一方、`MUST_REJECT` を空にすると走査が空回りして緑で通った
+    // （実測: 63/63 合格 → 26/26 合格。2026-09-01）。母集団が空の検査は何も主張して
+    // いないため、前提の崩壊として赤くする（AI運用7原則 第3原則）。要約行の「陽性対照 0」は
+    // 人が読んだ場合にしか効かない。
+    //
+    // **下限をどこに置くか。** 実測の現況（陽性 37・陰性 7）を下限に貼ると、同じ検査を狙う
+    // 重複した対照を減らす正当な変更まで止まる。一方「空でないこと」だけでは 37 件を 1 件へ
+    // 削る破壊が無言で通る。そこで件数でなく**構造**を下限に置く。
+    //
+    // - 陽性側: 本体が挙げうる検査の語彙（`VIOLATION_CHECKS`）を陽性対照が全て名指しして
+    //   いること。空にする破壊も 1 件へ削る破壊も赤くなり、同じ検査を狙う重複を減らす変更は
+    //   通る。語彙は本体の型の出所そのものなので、検査を増減させれば下限も自動で追随する。
+    // - 陰性側: 語彙に相当するものが無いため構成で置く。無変異の『リポジトリの実物』が
+    //   ちょうど 1 件（次の対照が担う）に加え、**変異を伴う陰性対照が 1 件以上**あること。
+    //   実物 1 件だけへ削る破壊はここで止まる。**限界**: 7 件から 2 件へ削る破壊は止まらない。
+    //   陰性側には下限を導ける語彙が無く、任意の件数を貼るのは根拠が無いためである。
+    name: '対照群の母集団が下限を満たす（陽性は検査の語彙を全て名指し／陰性は変異を伴う対照を持つ）',
+    run: () => {
+      // 語彙が空なら下の「名指ししていない検査」は自明に 0 件になる。関門自身の真空も塞ぐ。
+      const empty = emptyPopulationFailures([
+        { name: '陽性対照', size: MUST_REJECT.length },
+        { name: '陰性対照', size: MUST_ACCEPT.length },
+        { name: '本体が挙げうる検査の語彙', size: VIOLATION_CHECKS.length },
+      ]);
+      if (empty.length > 0) return empty;
+
+      const failures: string[] = [];
+      const named = new Set(
+        MUST_REJECT.map((testCase) => testCase.expectCheck).filter(
+          (check): check is ViolationCheck => check !== undefined
+        )
+      );
+      const unnamed = VIOLATION_CHECKS.filter((check) => !named.has(check));
+      if (unnamed.length > 0) {
+        failures.push(
+          `陽性対照が一件も名指ししていない検査がある（下限割れ）: ${unnamed.join(' / ')}`
+        );
+      }
+      if (!MUST_ACCEPT.some((testCase) => declaresMutation(testCase))) {
+        failures.push('変異を伴う陰性対照が 0 件（実物を流すだけの対照しか残っていない）');
       }
       return failures;
     },
