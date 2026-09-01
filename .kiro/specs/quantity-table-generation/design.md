@@ -64,8 +64,8 @@
 
 - `AutocompleteInput` の Portal 実装（動作中のため変更しない。参照実装として踏襲するのみ）
 - `estimate-requests/LineItemEditor.tsx` の `LineItemActionMenu`（同種のクリップ問題を抱える可能性があるが、本スペックの対象外）
-- `frontend/src/hooks/useMemoizedCalculation.ts`（import 元ゼロのデッドコード。PITCH ロジックが `calculation-engine.ts` と乖離しているが、参照されないため実害なし。COUNT 対応も削除も行わない）
-- `frontend/src/components/quantity-table/FieldValidatedItemRow.tsx`（**本体以外からの import がゼロのデッドコード**。`CalculationMethodSelect` / `CalculationFields` の呼び出しと `!== 'STANDARD'` ガードを多数持つため一見 COUNT 対応が必要に見えるが、実際にレンダリングされる行コンポーネントは `EditableQuantityItemRow`（編集）と `QuantityItemRow`（閲覧）のみである。**COUNT 対応は行わない**）
+- `frontend/src/hooks/useMemoizedCalculation.ts`（import 元ゼロのデッドコード。PITCH ロジックが `calculation-engine.ts` と乖離しているが、参照されないため実害なし。COUNT 対応も削除も行わない。**「import 元ゼロ」は再実測でも真である**——`grep -rlE 'useMemoizedCalculation' frontend/src e2e --include=*.ts --include=*.tsx` の出力から定義ファイル自身を差し引くと 0 件である。タスク 115.234。コミット `6b84be3`。2026-09-02 にリポジトリルートで実測）
+- `frontend/src/components/quantity-table/FieldValidatedItemRow.tsx`（**本番コードからの import がゼロのデッドコード**。テストとストーリーからの import は 4 件あり、「本体以外からの import がゼロ」は本項を書いた時点でも成り立っていなかった——当該のテスト・ストーリー 4 件は、本項を書いたコミット `01b46ca`（2026-07-17）より前に追加されている（3 件が `0ee7c79`（2026-01-16）、`FieldValidatedItemRow.autocomplete.test.tsx` の 1 件が `cf7c165`（2026-02-17）。`git log --diff-filter=A` で一件ずつ確かめた）。再実測は `grep -rlE 'from .*FieldValidatedItemRow' frontend/src e2e` の出力のうち、テスト・ストーリーを除いたものが 0 件、テスト・ストーリーが 4 件である（タスク 115.234。コミット `6b84be3`。2026-09-02 にリポジトリルートで実測）。本項が支えたい主張——実際にレンダリングされる行コンポーネントは 2 つだけ——は本番コードの 0 件の方に依るため、成り立つ。`CalculationMethodSelect` / `CalculationFields` の呼び出しと `!== 'STANDARD'` ガードを多数持つため一見 COUNT 対応が必要に見えるが、実際にレンダリングされる行コンポーネントは `EditableQuantityItemRow`（編集）と `QuantityItemRow`（閲覧）のみである。**COUNT 対応は行わない**）
 - 数量表インポート（REQ-27〜34）への「箇所数」マッピング
 - `field-validation.ts` の `NUMERIC_FIELD_RANGES` / `validateNumericRange` 重複定義の統合
 - REQ-36 で定義したメニュー項目の構成・活性制御・各操作の動作（REQ-46 は表示のみを扱う）
@@ -202,7 +202,7 @@ graph TB
 - 変更コンポーネント（REQ-36）: EditableQuantityItemRow内のアクションセルを再構成。SortOrderButtonsと削除ボタンを個別表示から削除し、アクションメニュー内に「上へ移動」「下へ移動」「削除」を統合。QuantityItemActionMenuを新設
 - 変更コンポーネント（REQ-37）: EditableQuantityItemRow および CalculationFields のレイアウト変更。計算用フィールド群（面積・体積／ピッチ）を「メイン行の下に別行表示」から「メイン行の操作列の右側に同一行で水平配置（ラベル+テキストボックス交互、行高さ不変）」へ変更。`calculationFieldsRow` 別行 div を削除し、`CalculationFields` を inline 配置に書き換え
 - 追加コンポーネント（REQ-38）: QuantityGroupCard表題部にコピーボタンを追加（ダイアログ無し、押下即実行）、QuantityGroupService.copy（同一数量表内へグループ複製、数量項目・写真紐づけを保持）、`POST /api/quantity-groups/:id/copy` ルートを新設
-- 修正コンポーネント（REQ-39）: QuantityTableEditPage 内のインライン写真選択ダイアログ（`photoGrid`/`photoItem` スタイル）のCSSを修正し、写真枚数増加時の重なりを解消。選択・変更とも同一インラインダイアログのため1箇所で両対応。未使用の `PhotoChangeDialog.tsx`（参照は単体テストのみ）は本要件のスコープ外（残置）
+- 修正コンポーネント（REQ-39）: QuantityTableEditPage 内のインライン写真選択ダイアログ（`photoGrid`/`photoItem` スタイル）のCSSを修正し、写真枚数増加時の重なりを解消。選択・変更とも同一インラインダイアログのため1箇所で両対応。未使用の `PhotoChangeDialog.tsx`（参照は単体テストのみ）は本要件のスコープ外（残置）。**「参照は単体テストのみ」は再実測では偽である**——`PhotoChangeDialog.stories.tsx` も同じ部品を参照する。定義ファイル自身を除く参照は 4 ファイルで、内訳は単体テスト 2 件・ストーリー 1 件・`QuantityTableEditPage.test.tsx` の注釈 1 件である。本行が入ったコミット `628fbe9`（2026-06-06）より前の `d0663e6`（2026-02-26）でストーリーが加わっているため、書かれた時点でも偽であった（`git log --diff-filter=A` で一件ずつ確かめた）。(a) に従い記述は残して再実測を併記する。タスク 115.234。コミット `6b84be3`。2026-09-02 にリポジトリルートで実測
 - 追加コンポーネント（REQ-40）: QuantityTableEditPage に「現場調査から一括追加」ボタンと現場調査選択ダイアログ（SurveySelectDialog）を新設、QuantityGroupService.createGroupsFromSurvey（現場調査の全写真の枚数分グループを原子的に生成・写真紐づけ・連番命名）、`POST /api/quantity-tables/:tableId/groups/from-survey` ルートを新設。命名・切り詰めは REQ-38 のグループ名生成ロジックを汎用化して共有
 - 変更コンポーネント（REQ-41）: QuantityGroupCard のレイアウトを再構成。カード全体に掛かっていた `overflowX:'auto'` を数量項目テーブルのラッパーへ限定し、画像・コメント（photoArea）を水平スクロール対象外（カード直下のflex列）へ移動して常時固定表示。折りたたみ・垂直スクロール・REQ-37 の水平展開と両立
 - アーキテクチャ変更（REQ-42）: 編集画面の書き込みパスを「操作即サーバー反映」から「クライアントサイドのドラフト編集 ＋ 保存操作時のフル状態同期」へ転換。バックエンドは `QuantityTableService.saveDraft`（既存 `bulk-save` を全状態同期へ拡張：グループ/項目の作成・更新・削除・並び替え・グループ名・写真紐づけ・数量表名を単一トランザクション＋楽観ロックで差分適用）を新設。フロントは `QuantityTableEditPage` の state を単一 `useReducer` のドラフトモデル（仮IDによる新規行管理、dirty 追跡）へ再設計。従来の useAutoSave および編集画面からの個別ミューテーションAPI呼び出し（group/item の create/update/delete/copy/reorder、from-survey、編集画面での数量表名 PUT）は廃止し、保存操作時の `saveDraft` 一本に集約（個別エンドポイントは一覧画面の数量表名変更 PUT 等を除き編集フローから未使用化）。グループコピー（REQ-38）・現場調査一括生成（REQ-40）はクライアントサイドのドラフト複製/生成（仮ID・同一 surveyImageId 参照）へ移し、保存時に確定。現場調査写真一覧の取得は参照系GETとして許可
@@ -281,6 +281,8 @@ e2e/specs/quantity-tables/
 | `backend/src/services/quantity-validation.service.ts` | `CalculationMethodType` に `'COUNT'` を追加。switch に `case 'COUNT'` と `validateCountMode()` を追加。**未知モードを素通りさせないよう `default` 節を追加** |
 | `backend/src/services/calculation-engine.ts` | enum に `COUNT`、`CountParams` 型、`calculateCount()`、`generateCountFormula()`、switch case を追加 |
 | `backend/src/services/quantity-table.service.ts` | 3箇所のリテラル直書きユニオン型に `'COUNT'` を追加 |
+
+**上の表の `backend/src/services/quantity-table.service.ts` の欄が数える「3箇所」は着手前の計画の記述であり、欄そのものは書き換えない（タスク 115.234。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) が求める併記をここへ置く。完了した計画の欄へ現況を書き入れると、表の主題である「何を変えるか」と食い違うためである）。同じ数え方の再実測は 0 である**——`git show 01b46ca^:backend/src/services/quantity-table.service.ts` へ `STANDARD` と `AREA_VOLUME` を同じ行に持つ行を数える式を掛けると `3`、現況の同ファイルへの同じ式は `0` を返す（2026-09-02 にリポジトリルートで実測）。計画が `CalculationMethodType` への置換として実施され、リテラルの列挙自体が本文から無くなったためである。
 
 **Frontend**
 
@@ -836,6 +838,8 @@ sequenceDiagram
 **フィールド順序**: 箇所数 → 長さ → 重量 → 調整係数 → 丸め設定
 
 **書式上の注意**: 既存の `NumberInputField`（`CalculationFields.tsx`）は blur 時に `numValue.toFixed(2)` を**無条件で適用**しており、数量表内に整数専用フィールドの前例が1つも存在しない。本設計では `FieldDefinition` と `NumberInputField` に `integer?: boolean` を追加し、`integer` が真のときのみ `parseInt` による整数整形と `inputMode="numeric"` を適用する。これにより既存の小数フィールドの挙動は一切変わらない。
+
+**この二つの断言（無条件の適用・整数専用フィールドの前例が 1 つも無いこと）は本節を書いた時点の記録であり書き換えない（タスク 115.234。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う）。再実測ではどちらも偽である**——`CalculationFields.tsx` の整形は `formatFieldValue` に集約され `integer` で分岐するため `toFixed(2)` は無条件ではなく、整数専用フィールドは同ファイルの `COUNT_FIELDS` が持つ `count`（箇所数）の 1 件がある。本節の設計がコミット `01b46ca`（2026-07-17）で実装され、同じコミットに本節の記述も入っているため、記述はそのコミットの時点で既に偽であった（`git log -S` と `git show 01b46ca^` で一件ずつ確かめた）。コミット `6b84be3`。2026-09-02 にリポジトリルートで実測。
 
 ## Components and Interfaces
 
@@ -2110,6 +2114,8 @@ interface QuantityGroupCardProps {
 
 写真一覧は専用コンポーネント `PhotoChangeDialog.tsx` ではなく、`QuantityTableEditPage.tsx` 内のインライン実装（`styles.photoGrid` / `styles.photoItem`、描画は `availablePhotos.map`）で表示される。写真選択（グループ追加時）・写真変更（「別の写真を選択」）とも同一の `handleSelectImage` を経由するため、本インラインダイアログ1箇所の修正で両ダイアログに対応できる。現状 `photoGrid` は `gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))'`、`photoItem` は `aspectRatio: '1'` のみで `grid-auto-rows` が未指定。`overflowY:'auto'` + `flex:1` のコンテナ内で行高さが `aspect-ratio` から正しく確定せず、枚数増加時に行が潰れて写真が重なる。
 
+**この「現状」の記述は本節を書いた時点の記録であり書き換えない（タスク 115.234。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う）。再実測では偽である**——`QuantityTableEditPage.tsx` の `styles.photoGrid` は `gridAutoRows: '150px'` を持ち、`styles.photoItem` も `aspectRatio` ではなく `height: '150px'` と `minHeight: '150px'` を持つ。本節が述べる REQ-39 の修正がコミット `628fbe9`（2026-06-06）で実装され、同じコミットに本節の記述も入っているため、記述はそのコミットの時点で既に偽であった（`git log -S` と `git show 628fbe9^` で一件ずつ確かめた）。コミット `6b84be3`。2026-09-02 にリポジトリルートで実測。
+
 **修正対象コンポーネントと変更内容**
 
 | コンポーネント | 修正内容 |
@@ -2119,7 +2125,7 @@ interface QuantityGroupCardProps {
 **Responsibilities & Constraints**
 
 - 修正対象はレイアウト（CSS）のみ。写真取得方式（`handleSelectImage` の `getSiteSurveys`→`getSiteSurvey` バッチ取得）・注釈付き写真の表示内容・注釈バッジ（REQ-3.3）は変更しない
-- 未使用の `PhotoChangeDialog.tsx`（参照は単体テストのみ）は本要件のスコープ外（残置・削除しない）
+- 未使用の `PhotoChangeDialog.tsx`（参照は単体テストのみ）は本要件のスコープ外（残置・削除しない）。**「参照は単体テストのみ」は再実測では偽である**——ストーリーからも参照される。再実測の内訳は本書 `### Architecture Pattern & Boundary Map` の修正コンポーネント（REQ-39）の行へ併記した（タスク 115.234。2026-09-02 に実測）
 - ビューポート幅が狭い場合も写真が重ならないこと（狭幅でも最低1列で潰れず表示）
 
 **Implementation Notes**
@@ -2450,6 +2456,8 @@ interface SaveDraftItemInput {
 
 **新設の根拠（Generalization）**: 計算方法のラベルは現在2箇所に独立して存在し、いずれも**型エラーを出さずに壊れる**。`CalculationMethodSelect.tsx` の `CALCULATION_METHOD_OPTIONS` は配列のため値の追加を型的に強制されず、`QuantityTableEditPage.tsx` のネスト三項は最終 else が `'ピッチ'` 固定のため、**新方式が PDF 上で「ピッチ」と誤表示される**（`QuantityTablePdfExportService.ts` は `calculationMethod: string` を受けるだけなので型でも検出されない）。`Record<CalculationMethod, string>` へ集約すれば、ユニオン型に値を足した時点で両方がコンパイルエラーになる。
 
+**上の「現在2箇所」は本節を書いた時点（新設前）の記録であり書き換えない（タスク 115.234。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う）。新設は実施済みで、再実測では独立した2箇所は残っていない**——ラベルの定義は `frontend/src/utils/calculation-method.ts` の `CALCULATION_METHOD_LABELS` の一箇所であり、`grep -rlE 'CALCULATION_METHOD_LABELS' frontend/src --include=*.ts --include=*.tsx | grep -vE '\.test\.|\.stories\.|__tests__'` が挙げる非テストのファイルは 3 件（定義 1・消費 2＝`frontend/src/utils/calculation-params-validation.ts` と `frontend/src/pages/QuantityTableEditPage.tsx`）である。`frontend/src/components/quantity-table/CalculationMethodSelect.tsx` は `CALCULATION_METHOD_OPTIONS` を import して消費する（コミット `6b84be3`。2026-09-02 にリポジトリルートで実測）。**この 3 件はテストとストーリーを除いた数であり、除いていない全件は別の値になる。**
+
 ##### Service Interface
 
 ```typescript
@@ -2569,6 +2577,8 @@ const FIELDS_BY_METHOD: Record<Exclude<CalculationMethod, 'STANDARD'>, FieldDefi
 **Implementation Notes**
 
 - `NumberInputField`（`frontend/src/components/quantity-table/CalculationFields.tsx` 内のローカルサブコンポーネント）に `integer?: boolean` を追加する。**`toFixed(2)` は blur 時だけでなく、`useState` の初期値と props 同期時の計3箇所で無条件に適用されている**。3箇所すべてを整数分岐にしないと、保存・再読み込み後に箇所数が「5.00」と表示され REQ-47 AC15 / REQ-14 AC6 を満たさない。`integer` が真のときのみ `String(parseInt(raw, 10))` で整形し、`inputMode` を `"numeric"` にする。既存の小数フィールドの挙動は変更しない
+
+**この「計3箇所で無条件」は本項を書いた時点の記録であり書き換えない（タスク 115.234。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う）。再実測では「無条件」が偽である**——3 経路（`useState` の初期値・props 同期・blur 整形）はいずれも `formatFieldValue` を経由し、`integer` が真のときは `toFixed(2)` を通らない。経路が 3 本であること自体は変わっていない。本項が述べる変更がコミット `01b46ca`（2026-07-17）で実装され、同じコミットに本項の記述も入っているため、記述はそのコミットの時点で既に偽であった（`git log -S` と `git show 01b46ca^` で一件ずつ確かめた）。コミット `6b84be3`。2026-09-02 にリポジトリルートで実測。
 - `resetParamsForMethod()` と `PARAM_KEYS_BY_METHOD` はいずれも `utils/calculation-method.ts`（CalculationMethodRegistry）に置き、`EditableQuantityItemRow` は消費するのみとする（単体テストの対象を1箇所に定める）
 - Validation: 整数以外・範囲外は入力を拒否しエラー表示（REQ-47 AC10, AC11）
 - Risks: `toFixed(2)` の分岐を誤ると既存の面積・体積／ピッチの表示書式が壊れる。`CalculationFields.test.tsx` で既存2方式の書式を回帰テストとして固定する
@@ -2828,6 +2838,8 @@ enum CalculationMethod {
 ### Migration Strategy（REQ-47）
 
 **実測による裏付け**: 既存29マイグレーションに `ALTER TYPE ... ADD VALUE` の前例がゼロであったため、PostgreSQL 15.17（`postgres:15-alpine`、本番と同一イメージ）上で挙動を実測した。
+
+**この二値（29 と ゼロ）は本節を書いた時点の記録であり書き換えない（タスク 115.234。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う）。同じ二つの数え方の再実測は 34 と 2 である**——`ls -d backend/prisma/migrations/*/ | wc -l` の出力が `34`、`grep -rlE 'ALTER TYPE .* ADD VALUE' backend/prisma/migrations | wc -l` の出力が `2`（コミット `6b84be3`。2026-09-02 にリポジトリルートで実測）。前例が 2 件へ増えた内訳は、本節の設計が生んだ当のマイグレーション（`add_calculation_method_count`）と、別機能のマイグレーション（`add_estimate_item_note_type`）である。**上の設計上の帰結は再実測で動かない**——`ADD VALUE` を単文に限るという制約は前例の有無ではなく PostgreSQL の挙動から導いたものであり、その挙動の実測結果（上の表）は再実測の対象に含めていない。
 
 | 検証ケース | 結果 |
 |---|---|

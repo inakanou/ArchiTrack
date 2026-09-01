@@ -35,7 +35,7 @@
 - プロジェクトの一括インポート・エクスポート機能
 - プロジェクトのアーカイブ・復元機能
 
-**注記**: 取引先連携機能（Requirement 22）は本仕様のスコープに含まれ、取引先管理機能（`trading-partner-management`仕様）実装後に`customerName`フィールドから`tradingPartnerId`外部キーへ移行しました（2025-12-12マイグレーション完了）。プロジェクトは取引先テーブルへの外部キー参照により取引先情報を取得します。
+**注記**: 取引先連携機能（Requirement 22）は本仕様のスコープに含まれ、取引先管理機能（`trading-partner-management`仕様）実装後に`customerName`フィールドから`tradingPartnerId`外部キーへ移行しました（2025-12-12マイグレーション完了）。プロジェクトは取引先テーブルへの外部キー参照により取引先情報を取得します。 **この移行は再実測でも真である**——`backend/prisma/schema.prisma` の `Project` は `tradingPartnerId` を持ち、`customerName` を持たない（タスク 115.234。コミット `6b84be3`。2026-09-02 にリポジトリルートで実測。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である）。
 
 ---
 
@@ -2035,7 +2035,7 @@ interface DuplicateProjectNameErrorResponse {
 - Validation: Zodスキーマを使用、`validate.middleware.ts`と連携
 - **409エラー**: プロジェクト名重複時はDuplicateProjectNameErrorResponse形式で返却
 - **status-countsルート配置**: `/api/projects/status-counts`は`/api/projects/:id`より前に定義（Expressルートマッチング順序）
-- **detail-summaryエンドポイント（29.1-29.6）**: `GET /api/projects/:id/detail-summary`で全セクションデータを一括取得。`Promise.allSettled()`で5サービスを並列呼び出し、個別エラー時はデフォルト値にフォールバック。既存サービスメソッド（`findLatestByProjectId`）を再利用
+- **detail-summaryエンドポイント（29.1-29.6）**: `GET /api/projects/:id/detail-summary`で全セクションデータを一括取得。`Promise.allSettled()`で5サービスを並列呼び出し、個別エラー時はデフォルト値にフォールバック。既存サービスメソッド（`findLatestByProjectId`）を再利用 **この「5サービス」は本節を書いた時点の記録であり書き換えない（タスク 115.234。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う）。再実測は 9 である**——`backend/src/routes/projects.routes.ts` の `getProjectSections` が `Promise.allSettled` へ渡す呼び出しは 9 本ある（コミット `6b84be3`。2026-09-02 にリポジトリルートで実測）。`findLatestByProjectId` を再利用しているという記述は現況でも真である。
 - **Swaggerドキュメント更新**: limitデフォルト値を100に変更、excludeTerminalStatusesパラメータを追加、status-countsエンドポイントのドキュメントを追加、detail-summaryエンドポイントのドキュメントを追加
 - Risks: レート制限の設定が必要（既存の`express-rate-limit`を使用）
 
