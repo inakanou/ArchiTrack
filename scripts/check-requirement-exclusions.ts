@@ -99,7 +99,12 @@ import {
   buildInlineTagPatterns,
   extractHeaderScopedCoverage,
 } from './check-requirement-coverage.js';
-import { scanRequirementsDocument } from './requirement-document.js';
+import {
+  SPECS_DIR,
+  discoverFeatureNames as scanFeatureNames,
+  requirementsDocumentPath,
+  scanRequirementsDocument,
+} from './requirement-document.js';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(SCRIPTS_DIR, '..');
@@ -374,8 +379,6 @@ export function validateAgainstSchema(
 // 要件定義書の取り込み（識別子と内容の対応を照合するため）
 // ============================================================================
 
-export const SPECS_DIR = '.kiro/specs';
-
 /** 機能名を冠さない旧来の識別子が属する機能。被覆率側の normalizeExclusionId と同じ規則。 */
 export const DEFAULT_FEATURE = 'user-authentication';
 
@@ -413,21 +416,15 @@ export function normalizeExclusionId(id: string): string {
 /**
  * `.kiro/specs/` 配下の機能名を集める
  *
- * 被覆率側の discoverFeatures は実行位置からの相対で走査するため、任意の根を与えられない。
- * 被覆印の走査は自己検査から別の根で呼べる必要があるため、ここでは根を引数に取る。
- * 判定の規則（requirements.md を持つ直下のディレクトリ）は被覆率側と同一である。
+ * **探索の規則そのものは持たない。** scripts/requirement-document.ts の
+ * discoverFeatureNames が唯一の担い手であり、ここは根の与え方だけを持つ。
+ * 被覆率側の discoverFeatures は実行位置からの相対で走査するため任意の根を与えられないが、
+ * 被覆印の走査は自己検査から別の根で呼べる必要がある。よって既定を実行位置に依らない
+ * リポジトリ根とし、根の差し替えを引数で許す。判定の規則は被覆率側と同一であり、
+ * 複製が二箇所へ戻っていないことは自己検査（機構の固定）が機械で確かめる。
  */
 export function discoverFeatureNames(rootDir = ROOT): string[] {
-  const specsDir = path.resolve(rootDir, SPECS_DIR);
-  if (!fs.existsSync(specsDir)) return [];
-  return fs
-    .readdirSync(specsDir, { withFileTypes: true })
-    .filter(
-      (entry) =>
-        entry.isDirectory() && fs.existsSync(path.join(specsDir, entry.name, 'requirements.md'))
-    )
-    .map((entry) => entry.name)
-    .sort();
+  return scanFeatureNames(rootDir);
 }
 
 /**
@@ -444,7 +441,7 @@ export function loadRequirementCatalogue(
   featureName: string,
   rootDir = ROOT
 ): RequirementCatalogue {
-  const filePath = path.join(rootDir, SPECS_DIR, featureName, 'requirements.md');
+  const filePath = requirementsDocumentPath(rootDir, featureName);
   const catalogue: RequirementCatalogue = {
     present: fs.existsSync(filePath),
     requirementTitles: new Map(),

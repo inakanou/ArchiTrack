@@ -42,7 +42,79 @@
  *
  * 枝つき番号（`1a.` `4b.`）は受入基準として読まない（分母に入れない）。読まないことを
  * 呼び手が知る必要があるため、基底の番号だけを letteredCriterionNumbers に残す。
+ *
+ * ## 機能名の探索も本モジュールが持つ（タスク 115.221）
+ *
+ * 「どのディレクトリが一つの機能か」（`.kiro/specs/` 直下で `requirements.md` を持つもの）は、
+ * 抽出規則と同じく**二つの指標の母集団を同時に決める**規則である。115.190 は抽出規則だけを
+ * ここへ寄せ、探索は二箇所の複製のまま残していた。実測した複製間の差は次の二点であり、
+ * **判定の規則そのものは完全に一致していた**（タスク 115.221 の実測。実データ 13 機能と、
+ * `requirements.md` を持たないディレクトリ・直下のファイル・ディレクトリへの symlink・
+ * 孫階層・隠しディレクトリ・`requirements.md` という名のディレクトリを並べた合成の根の
+ * いずれでも両者の出力は一致した）:
+ *   1. 根の与え方（除外側は引数で任意の根を取り、被覆率側は cwd 相対の裸のパス）
+ *   2. スペックディレクトリ不在時の扱い（除外側は空配列、被覆率側は stderr へ出して exit 1）
+ * どちらも**呼び手の方針**であって探索の規則ではないため、規則だけを本モジュールへ寄せ、
+ * 方針は各呼び手に残す。不在時に空配列を返すのは本モジュールの既定であり、
+ * それを検査の停止条件にするか続行の条件にするかは呼び手が決める。
+ *
+ * 探索はファイルシステムを読む。scanRequirementsDocument が内容だけを受け取る設計
+ * （自己検査が合成の文書を直接与えられるようにするため）は変えていない。探索の側は
+ * 根を引数に取ることで、同じく合成の根を与えられる形にしてある。
  */
+
+import * as fs from 'fs';
+import * as path from 'path';
+
+/** 要件定義書が置かれる根（リポジトリ根からの相対） */
+export const SPECS_DIR = '.kiro/specs';
+
+/** 一つの機能の要件定義書のファイル名 */
+export const REQUIREMENTS_DOCUMENT_BASENAME = 'requirements.md';
+
+/**
+ * 一つの機能の要件定義書の位置
+ *
+ * @param rootDir 根。`'.'` を与えると cwd 相対の素のパス（`.kiro/specs/<機能>/requirements.md`）
+ *                になる。被覆率側は算出結果へこの文字列をそのまま載せるため、
+ *                絶対パスへ均してはならない。
+ */
+export function requirementsDocumentPath(rootDir: string, featureName: string): string {
+  return path.join(rootDir, SPECS_DIR, featureName, REQUIREMENTS_DOCUMENT_BASENAME);
+}
+
+/**
+ * `.kiro/specs/` 直下から機能名を集める
+ *
+ * 一つの機能とは「`.kiro/specs/` の直下にあるディレクトリで、`requirements.md` を持つもの」
+ * である。並びは既定の昇順に揃える。ディレクトリへの symlink は `isDirectory()` が偽である
+ * ため機能として数えない（実測で両複製が一致していた挙動をそのまま引き継ぐ）。
+ *
+ * スペックディレクトリが無い場合は空配列を返す。**呼び手はこれを「機能が無い」と読んで
+ * 黙って素通りさせてはならない**（AI運用7原則 第3原則）。被覆率側は不在を検査の前提の崩壊と
+ * みなして exit 1 で落とす。
+ *
+ * 現状この規範に従っていない呼び手が一つある（既知の例外。タスク 115.221 の境界の外であり、
+ * 挙動は変えていない）: scripts/check-requirement-exclusions.ts の scanCoverageTags は
+ * 機能が 0 件のとき空の被覆印索引を返して続行する。実データでこれが起きれば
+ * scripts/check-requirement-exclusions.selftest.ts の対照
+ * 「実データの走査が空振りしていない（被覆印とラチェットの双方を見つける）」が赤くなるが、
+ * 検査そのものは緑を出しうる。ここに書き留めるのは、規範を満たしたことにするためではなく、
+ * 満たしていない箇所を隠さないためである。
+ */
+export function discoverFeatureNames(rootDir: string): string[] {
+  const specsDir = path.resolve(rootDir, SPECS_DIR);
+  if (!fs.existsSync(specsDir)) return [];
+  return fs
+    .readdirSync(specsDir, { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.isDirectory() &&
+        fs.existsSync(path.join(specsDir, entry.name, REQUIREMENTS_DOCUMENT_BASENAME))
+    )
+    .map((entry) => entry.name)
+    .sort();
+}
 
 /** 一件の受入基準 */
 export interface ScannedCriterion {

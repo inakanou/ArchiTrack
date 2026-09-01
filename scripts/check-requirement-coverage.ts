@@ -71,7 +71,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import {
+  SPECS_DIR,
+  discoverFeatureNames,
   isRetiredCriterionText,
+  requirementsDocumentPath,
   scanRequirementsDocument,
   type ScannedCriterion,
 } from './requirement-document.js';
@@ -224,7 +227,6 @@ interface Options {
 // ============================================================================
 
 const DEFAULT_THRESHOLD = 100;
-const SPECS_DIR = '.kiro/specs';
 const CODE_DIRS = ['backend/src', 'frontend/src', 'e2e'];
 const EXCLUSIONS_PATH = 'e2e/requirement-exclusions.json';
 
@@ -295,27 +297,23 @@ function findFiles(dir: string, pattern: RegExp): string[] {
 
 /**
  * .kiro/specs/配下の機能を自動検出
+ *
+ * **探索の規則そのものは持たない。** scripts/requirement-document.ts の
+ * discoverFeatureNames が唯一の担い手であり、ここは根の与え方（cwd 相対）と、
+ * スペックディレクトリが無いときに検査を止める方針だけを持つ。除外定義の検査
+ * （scripts/check-requirement-exclusions.ts の discoverFeatureNames）も同じ担い手を使う。
+ * 両者が別々に規則を持つと、被覆率が分母に載せる機能と除外が指す機能がずれる。
+ *
+ * 不在時に空配列で続行しない（AI運用7原則 第3原則）。機能が一件も無い状態で被覆率を
+ * 算出すると、分母 0 の 100% が緑として出てしまう。
  */
 export function discoverFeatures(): string[] {
-  const features: string[] = [];
-
   if (!fs.existsSync(SPECS_DIR)) {
     console.error(`エラー: スペックディレクトリが見つかりません: ${SPECS_DIR}`);
     process.exit(1);
   }
 
-  const entries = fs.readdirSync(SPECS_DIR, { withFileTypes: true });
-
-  for (const entry of entries) {
-    if (entry.isDirectory()) {
-      const requirementsPath = path.join(SPECS_DIR, entry.name, 'requirements.md');
-      if (fs.existsSync(requirementsPath)) {
-        features.push(entry.name);
-      }
-    }
-  }
-
-  return features.sort();
+  return discoverFeatureNames('.');
 }
 
 /**
@@ -400,7 +398,7 @@ export function extractAllFeatures(featureNames: string[]): Feature[] {
   const features: Feature[] = [];
 
   for (const featureName of featureNames) {
-    const requirementsPath = path.join(SPECS_DIR, featureName, 'requirements.md');
+    const requirementsPath = requirementsDocumentPath('.', featureName);
     const requirements = extractRequirements(featureName, requirementsPath);
 
     // 受入基準がすべて撤廃された要件（現役 0 件かつ撤廃 1 件以上）は要件ごと分母から外す。

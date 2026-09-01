@@ -26,7 +26,6 @@ import {
   DEFAULT_FEATURE,
   E2E_SPECS_DIR,
   EXCLUSIONS_PATH,
-  SPECS_DIR,
   checkAlternativeCoverage,
   checkCoverageTagCoexistence,
   checkCriterionCorrespondence,
@@ -37,7 +36,12 @@ import {
   run,
   scanCoverageTags,
 } from './check-requirement-exclusions.js';
-import { extractRequirements } from './check-requirement-coverage.js';
+import { discoverFeatures, extractRequirements } from './check-requirement-coverage.js';
+// `SPECS_DIR` は共有モジュールから直に取る。被検査モジュール（check-requirement-exclusions.ts）
+// を経由しても値は同じだが、経由させるためだけの再輸出を被検査側に置くことになる。
+// 本自己検査がこの定数を使うのは合成の根を組み立てるためであり、同一性の主張には使わない。
+// 両モジュールが同じ担い手を取り込んでいることは下の「機構の固定」の対照が別途確かめる。
+import { SPECS_DIR } from './requirement-document.js';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(SCRIPTS_DIR, '..');
@@ -789,6 +793,124 @@ const EXTRACTION_RULE_FRAGMENTS = [
   ".startsWith('~~')",
 ] as const;
 
+// ============================================================================
+// 機能名の探索規則が一箇所にしか無いことを見る（機構の固定・タスク 115.221）
+// ============================================================================
+
+/**
+ * 探索規則を「使う」だけであって「持って」はならないスクリプト
+ *
+ * 抽出規則の消費側と同一である。両者は同じ二つの指標（被覆率の分母と除外が指す単位）の
+ * 母集団を決めており、片方だけが機能を見落とせば、もう片方が分母から外そうとする条文は
+ * そもそも存在しないことになる。
+ */
+const DISCOVERY_RULE_CONSUMERS: readonly string[] = EXTRACTION_RULE_CONSUMERS;
+
+/**
+ * 機能名の探索規則そのものを表す断片
+ *
+ * 「`.kiro/specs` の直下で `requirements.md` を持つディレクトリ」という判定は、この二つの
+ * 文字列リテラルなしには書けない。散文の中の `.kiro/specs/` や requirements.md には
+ * 当たらないよう、引用符ごとの形で持つ。
+ *
+ * この機構には既知の天井がある（115.190 の断片方式から引き継いだ限界であり、
+ * 本タスクで解いたものではない）。消費側が共有モジュールから取り込んだ `SPECS_DIR` /
+ * `REQUIREMENTS_DOCUMENT_BASENAME` を使って探索を書き直すと、ソースに裸の文字列リテラルは
+ * 現れないため、この対照は素通りする。さらにその再複製が挙動まで同一であれば、
+ * 続く二つの対照（実データの一致・際どい構成の一致）も同じ並びを返すため素通りする。
+ * すなわち三つの対照が捕らえるのは「規則が食い違う複製」であって「食い違わない複製」
+ * ではない。複製そのものの禁止は、依然としてレビューが担う。
+ */
+const DISCOVERY_RULE_FRAGMENTS: readonly string[] = ["'.kiro/specs'", "'requirements.md'"];
+
+/** 探索の際どい構成を作る合成の根 */
+interface DiscoveryProbe {
+  name: string;
+  /** `<root>/.kiro/specs` を与えられて構成を作る */
+  build: (specsDir: string, rootDir: string) => void;
+  /** 機能名として返るべき並び */
+  expect: string[];
+}
+
+function writeFeature(specsDir: string, name: string): void {
+  const dir = path.join(specsDir, name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'requirements.md'), '### 要件1: 題\n', 'utf-8');
+}
+
+/**
+ * 際どい構成の一覧
+ *
+ * いずれもタスク 115.221 で二つの複製へ実際に当てて、同じ並びが返ることを実測した形である。
+ */
+const DISCOVERY_PROBES: DiscoveryProbe[] = [
+  {
+    name: 'requirements.md を持たないディレクトリと直下のファイルは機能にしない',
+    build: (specsDir) => {
+      writeFeature(specsDir, 'zeta');
+      writeFeature(specsDir, 'alpha');
+      fs.mkdirSync(path.join(specsDir, 'no-doc'), { recursive: true });
+      fs.writeFileSync(path.join(specsDir, 'loose.md'), 'x', 'utf-8');
+    },
+    expect: ['alpha', 'zeta'],
+  },
+  {
+    name: 'ディレクトリへの symlink は機能にしない（孫階層の要件定義書も同様）',
+    build: (specsDir, rootDir) => {
+      writeFeature(specsDir, 'alpha');
+      const outside = path.join(rootDir, 'outside', 'linked');
+      fs.mkdirSync(outside, { recursive: true });
+      fs.writeFileSync(path.join(outside, 'requirements.md'), '### 要件1: 題\n', 'utf-8');
+      fs.symlinkSync(outside, path.join(specsDir, 'linked'));
+      writeFeature(path.join(specsDir, 'parent'), 'child');
+    },
+    expect: ['alpha'],
+  },
+  {
+    name: '隠しディレクトリでも要件定義書を持てば機能とする',
+    build: (specsDir) => {
+      writeFeature(specsDir, '.hidden');
+      writeFeature(specsDir, 'alpha');
+    },
+    expect: ['.hidden', 'alpha'],
+  },
+];
+
+/** 合成の根を作って両者の探索を走らせる */
+function withSpecsTree(probe: DiscoveryProbe, body: (rootDir: string) => void): void {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'req-discover-'));
+  try {
+    const specsDir = path.join(rootDir, SPECS_DIR);
+    fs.mkdirSync(specsDir, { recursive: true });
+    probe.build(specsDir, rootDir);
+    body(rootDir);
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * 同じ根を、被覆率側と除外側の双方で探索する
+ *
+ * 被覆率側は cwd 相対でしか根を受け取れないため、実行位置を移して呼ぶ（必ず戻す）。
+ * スペックディレクトリが無い根では被覆率側が exit 1 で**プロセスごと落ちる**ため、
+ * 呼ぶ前に実在を確かめて例外にする。不在時の扱い（空配列か停止か）は呼び手の方針であり、
+ * 一致を求める対象ではない。
+ */
+function discoveredPairFor(rootDir: string): [string[], string[]] {
+  if (!fs.existsSync(path.resolve(rootDir, SPECS_DIR))) {
+    throw new Error(`スペックディレクトリが無い根では比べられない: ${rootDir}`);
+  }
+  const fromExclusions = discoverFeatureNames(rootDir);
+  const before = process.cwd();
+  try {
+    process.chdir(rootDir);
+    return [discoverFeatures(), fromExclusions];
+  } finally {
+    process.chdir(before);
+  }
+}
+
 /** 抽出器の出力を、両者で比べられる素の形へ落としたもの */
 interface ExtractionShape {
   /** `REQ-N.M` の並び（墓標には `(墓標)` を添える） */
@@ -1383,6 +1505,103 @@ const MECHANISM_CASES: MechanismCase[] = [
           if (actual !== probe.expectCriteria.join(', ')) {
             failures.push(
               `${probe.name}: 受入基準が期待と違う（期待 [${probe.expectCriteria.join(', ')}] / 実際 [${actual}]）`
+            );
+          }
+        });
+      }
+      return failures;
+    },
+  },
+  // --------------------------------------------------------------------------
+  // 機能名の探索規則が一箇所にしか無いこと（タスク 115.221）
+  // --------------------------------------------------------------------------
+  //
+  // 115.190 は抽出規則（要件と受入基準の単位）を共有モジュールへ寄せたが、機能名の探索は
+  // 二箇所の複製のまま残していた。探索は「どの要件定義書を読むか」を決める規則であり、
+  // 片方だけが機能を見落とせば、被覆率の分母と除外が指す単位は条文の単位が同じでも
+  // ずれる（機能ごと落ちる）。規則は scripts/requirement-document.ts へ集約したため、
+  // 以下の三つで「集約が保たれていること」と「両者の出力が一致すること」を固定する。
+  {
+    name: '機能名の探索規則の複製が二箇所へ戻っていない（共有モジュールが唯一の担い手である）',
+    run: () => {
+      const failures: string[] = [];
+      // 母集団が空なら以下の走査は空回りで緑になる。前提の崩壊は失敗として挙げる
+      // （AI運用7原則 第3原則）。
+      if (DISCOVERY_RULE_FRAGMENTS.length === 0) {
+        return ['探索規則の断片が 0 件（対照の母集団が空）'];
+      }
+      if (DISCOVERY_RULE_CONSUMERS.length === 0) {
+        return ['探索規則の消費側が 0 件（対照の母集団が空）'];
+      }
+      const shared = fs.readFileSync(path.join(SCRIPTS_DIR, SHARED_SCANNER_BASENAME), 'utf-8');
+      // 断片が共有モジュールから消えていれば、以下の「消費側に無い」は自明に成り立つ。
+      const missing = DISCOVERY_RULE_FRAGMENTS.filter((fragment) => !shared.includes(fragment));
+      if (missing.length > 0) {
+        return [
+          `共有モジュール ${SHARED_SCANNER_BASENAME} に探索規則が見当たらない（対照が空振りしている）: ${missing.join(' / ')}`,
+        ];
+      }
+      for (const basename of DISCOVERY_RULE_CONSUMERS) {
+        const source = fs.readFileSync(path.join(SCRIPTS_DIR, basename), 'utf-8');
+        if (!source.includes(`from './${SHARED_SCANNER_BASENAME.replace(/\.ts$/, '.js')}'`)) {
+          failures.push(`${basename} が ${SHARED_SCANNER_BASENAME} を取り込んでいない`);
+        }
+        const copied = DISCOVERY_RULE_FRAGMENTS.filter((fragment) => source.includes(fragment));
+        if (copied.length > 0) {
+          failures.push(`${basename} に探索規則の複製が戻っている: ${copied.join(' / ')}`);
+        }
+      }
+      return failures;
+    },
+  },
+  {
+    name: '両者の機能名探索が実データで同じ機能名を返す',
+    run: () => {
+      let fromCoverage: string[];
+      let fromExclusions: string[];
+      try {
+        [fromCoverage, fromExclusions] = discoveredPairFor(ROOT);
+      } catch (error) {
+        return [`実データの探索が例外になった（${(error as Error).message}）`];
+      }
+      if (fromExclusions.length === 0) {
+        return ['機能が一件も見つからない（対照が空振りしている）'];
+      }
+      if (fromCoverage.join(', ') !== fromExclusions.join(', ')) {
+        return [
+          `実データで機能名が食い違う（被覆率側 [${fromCoverage.join(', ')}] / 除外側 [${fromExclusions.join(', ')}]）`,
+        ];
+      }
+      return [];
+    },
+  },
+  {
+    name: '両者の機能名探索が際どい構成でも一致する（doc 無し・直下のファイル・symlink・孫・隠し）',
+    run: () => {
+      const failures: string[] = [];
+      if (DISCOVERY_PROBES.length === 0) {
+        return ['際どい構成の探り群が 0 件（対照の母集団が空）'];
+      }
+      for (const probe of DISCOVERY_PROBES) {
+        withSpecsTree(probe, (rootDir) => {
+          let fromCoverage: string[];
+          let fromExclusions: string[];
+          try {
+            [fromCoverage, fromExclusions] = discoveredPairFor(rootDir);
+          } catch (error) {
+            failures.push(`${probe.name}: 探索が例外になった（${(error as Error).message}）`);
+            return;
+          }
+          if (fromCoverage.join(', ') !== fromExclusions.join(', ')) {
+            failures.push(
+              `${probe.name}: 機能名が食い違う（被覆率側 [${fromCoverage.join(', ')}] / 除外側 [${fromExclusions.join(', ')}]）`
+            );
+            return;
+          }
+          // 一致していても規則そのものが変わっていれば分母が動く。期待の並びまで見る。
+          if (fromCoverage.join(', ') !== probe.expect.join(', ')) {
+            failures.push(
+              `${probe.name}: 機能名が期待と違う（期待 [${probe.expect.join(', ')}] / 実際 [${fromCoverage.join(', ')}]）`
             );
           }
         });
