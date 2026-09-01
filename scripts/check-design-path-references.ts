@@ -196,6 +196,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { DESIGN_DOC_NAME, SPEC_DIR, collectDesignDocuments } from './design-document.js';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(SCRIPTS_DIR, '..');
@@ -301,8 +302,10 @@ export interface FileIndex {
 // 走査対象の決定
 // ============================================================================
 
-/** 設計文書の置き場所 */
-export const SPEC_DIR = '.kiro/specs';
+// 走査根（`SPEC_DIR` / `DESIGN_DOC_NAME` / `collectDesignDocuments`）は
+// scripts/design-document.ts が唯一の担い手である（タスク 115.231）。本ファイルは使うだけで
+// 持たない。かつては本ファイルが三つとも自前で複製しており、
+// scripts/check-design-code-reference-format.ts の定義との差は共有部品の冒頭に記す。
 
 /**
  * 免除の面の基準の既定の位置。
@@ -312,9 +315,6 @@ export const SPEC_DIR = '.kiro/specs';
  * 差し替えられるのは引数からだけであり、コマンドラインからは指定できない。
  */
 export const DEFAULT_BASELINE_PATH = path.join(SCRIPTS_DIR, 'design-path-exemption-baseline.json');
-
-/** 走査対象の文書名 */
-export const DESIGN_DOC_NAME = 'design.md';
 
 /**
  * リポジトリ走査から外すディレクトリ（すべてビルド生成物・取得物）。
@@ -330,25 +330,6 @@ export const EXCLUDED_DIRECTORIES: ReadonlySet<string> = new Set([
   'playwright-report',
   'test-results',
 ]);
-
-/** `.kiro/specs/<feature>/design.md` を列挙する */
-export function collectDesignDocuments(root: string, specDir: string = SPEC_DIR): string[] {
-  const absoluteSpecDir = path.join(root, specDir);
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(absoluteSpecDir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-  const documents: string[] = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const candidate = path.join(absoluteSpecDir, entry.name, DESIGN_DOC_NAME);
-    if (!fs.existsSync(candidate)) continue;
-    documents.push(`${specDir}/${entry.name}/${DESIGN_DOC_NAME}`);
-  }
-  return documents.sort();
-}
 
 /** リポジトリの実在ファイルを索引する */
 export function buildFileIndex(root: string): FileIndex {

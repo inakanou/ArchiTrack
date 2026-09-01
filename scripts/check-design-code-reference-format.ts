@@ -100,6 +100,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { DESIGN_DOC_NAME, SPEC_DIR, collectDesignDocuments } from './design-document.js';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(SCRIPTS_DIR, '..');
@@ -135,31 +136,11 @@ export interface RunResult {
 // ============================================================================
 // 走査対象の決定
 // ============================================================================
-
-/** 設計文書の置き場所 */
-export const SPEC_DIR = '.kiro/specs';
-
-/** 走査対象の文書名 */
-export const DESIGN_DOC_NAME = 'design.md';
-
-/** `.kiro/specs/<feature>/design.md` を列挙する */
-export function collectDesignDocuments(root: string, specDir: string = SPEC_DIR): string[] {
-  const absoluteSpecDir = path.join(root, specDir);
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(absoluteSpecDir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-  const documents: string[] = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const candidate = path.join(absoluteSpecDir, entry.name, DESIGN_DOC_NAME);
-    if (!fs.existsSync(candidate)) continue;
-    documents.push(path.relative(root, candidate).split(path.sep).join('/'));
-  }
-  return documents.sort();
-}
+//
+// 走査根（`SPEC_DIR` / `DESIGN_DOC_NAME` / `collectDesignDocuments`）は
+// scripts/design-document.ts が唯一の担い手である（タスク 115.231）。本ファイルは使うだけで
+// 持たない。かつては本ファイルが定義し scripts/check-design-path-references.ts が複製を
+// 持っていた——一箇所へ寄せた理由と、複製間で実測した差は共有部品の冒頭に記す。
 
 // ============================================================================
 // 検出規則

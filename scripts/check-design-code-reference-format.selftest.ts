@@ -22,15 +22,16 @@ import * as os from 'os';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import {
-  collectDesignDocuments,
-  DESIGN_DOC_NAME,
   isProductionReference,
   mentionsProductionSource,
   run,
   scanDocument,
   scanLine,
-  SPEC_DIR,
 } from './check-design-code-reference-format.js';
+// 走査根は共有部品から直に取る。被検査モジュール（check-design-code-reference-format.ts）を
+// 経由して取ると、本体が再輸出を続ける限り複製の有無を見分けられない（タスク 115.231。
+// タスク 115.221 が scripts/check-requirement-exclusions.selftest.ts で採った作法と同じ）。
+import { DESIGN_DOC_NAME, SPEC_DIR, collectDesignDocuments } from './design-document.js';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(SCRIPTS_DIR, '..');
@@ -40,6 +41,66 @@ const ENTRY_NAME = 'check-design-code-reference-format.ts';
 const ENTRY_PATH = path.join(SCRIPTS_DIR, ENTRY_NAME);
 
 /**
+ * 走査根（`SPEC_DIR` / `DESIGN_DOC_NAME` / `collectDesignDocuments`）の唯一の担い手
+ * （タスク 115.231）。
+ *
+ * 本体がこれを取り込むため、サブプロセスを起こす対照は同じ場所へ本モジュールを複製する。
+ * その 2 箇所の `fs.copyFileSync` を外す変異を当てると、合成した scripts に本モジュールが
+ * 無いまま起動して `node:internal/modules/cjs/loader` が解決に失敗し、自己検査 72 件中 2 件
+ * （「走査対象が 0 件のとき合格にしない」と「検出結果を返す前に絞り込む経路が無い」）が
+ * 落ちた（2026-09-01 に実測）。
+ *
+ * また `collectDesignDocuments` の本体はここに在るため、**見張りの対象は本体のソースだけ
+ * では足りない**——{@link readWatchedSources} が本体と本モジュールの双方を見る。足りない
+ * 中身（何が空振りに退化するか。素通りではない）は同関数の注釈に実測とともに記す。
+ */
+const SHARED_ROOT_MODULE_NAME = 'design-document.ts';
+const SHARED_ROOT_MODULE_PATH = path.join(SCRIPTS_DIR, SHARED_ROOT_MODULE_NAME);
+
+/** 走査根を「使う」だけであって「持って」はならないスクリプト（タスク 115.231） */
+const SCAN_ROOT_CONSUMERS: readonly string[] = [
+  'check-design-code-reference-format.ts',
+  'check-design-reference-format.ts',
+  'check-design-path-references.ts',
+];
+
+/**
+ * 走査根そのものを表す断片
+ *
+ * これらが消費側のソースに現れたら、規則の複製が戻っている。散文の中の `.kiro/specs` や
+ * design.md には当たらないよう、引用符ごと・宣言ごとの形で持つ。
+ *
+ * **照合は注釈を取り除いたソースに対して行う。** 引用符ごとの形にしても注釈は逃れられない:
+ * 共有部品の冒頭注釈は複製間の差を説明するために `'.kiro/specs'` を逐語で引いており、
+ * 生のソースで照合すると「断片が共有部品に実在する」という空振り検知が**注釈だけで満たされる**。
+ * 実際、共有部品の宣言を `['.kiro', 'specs'].join('/')` へ書き換える変異を当てたところ、
+ * 生のソースで照合する版はこの対照が緑のまま素通りし（自己検査 72/72 緑）、
+ * 注釈を取り除く版では「対照が空振りしている」として落ちた（2026-09-01 に実測）。
+ *
+ * この機構には既知の天井が二つある（いずれもタスク 115.221 の断片方式から引き継いだ限界で
+ * あり、本タスクで解いたものではない）。
+ *
+ * 一つ目。消費側が共有部品から取り込んだ `SPEC_DIR` / `DESIGN_DOC_NAME` を使って列挙を
+ * 書き直すと、ソースに裸の文字列リテラルも `export function collectDesignDocuments(` も
+ * 現れないため、この対照は素通りする。
+ *
+ * 二つ目。`stripComments` の `//.*$` は文字列・正規表現リテラルの中の `//` も注釈の始まりと
+ * 見なすため、`//` を含む行はその後ろが照合の対象から消える。**裸の断片であっても、同じ行の
+ * 手前に `//` を含む文字列を置けば逃れられる。** scripts/check-design-path-references.ts の
+ * 取り込みの直後へ `const SCHEME = 'https://example.invalid'; const LOCAL_SPEC_DIR =
+ * '.kiro/specs'; const LOCAL_DOC = 'design.md';` の一行を足す変異を当てると、自己検査は
+ * 72/72 緑のまま（終了コード 0）であった。同じ行から `const SCHEME = 'https://example.invalid'; `
+ * だけを外すと `check-design-path-references.ts に走査根の複製が戻っている:
+ * '.kiro/specs' / 'design.md'` として 72 件中 1 件が落ちた（いずれも 2026-09-01 に実測）。
+ */
+const SCAN_ROOT_FRAGMENTS: readonly string[] = [
+  "'.kiro/specs'",
+  "'design.md'",
+  'export function collectDesignDocuments(',
+  'const absoluteSpecDir = path.join(root, specDir);',
+];
+
+/**
  * `tsx` の起動口。見つからない場合は「確認できない」であって合格ではないため、
  * 呼び出し側で失敗として扱う（第3原則: 前提が満たせないときに検査を無効化しない）。
  */
@@ -47,10 +108,42 @@ const TSX_CLI = path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 
 /** 注釈を取り除いた本体のソース（実行される部分だけを見るため） */
 function readExecutableSource(): string {
-  return fs
-    .readFileSync(ENTRY_PATH, 'utf-8')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/\/\/.*$/gm, '');
+  return stripComments(fs.readFileSync(ENTRY_PATH, 'utf-8'));
+}
+
+/** 注釈を取り除く */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+}
+
+/**
+ * 見張りの対象となるソース（本体 ＋ 走査根の共有部品）。
+ *
+ * タスク 115.231 で `collectDesignDocuments` の本体を scripts/design-document.ts へ移した。
+ *
+ * (a) 見張りを本体のソースだけへ戻す変異——本関数の中身を `return readExecutableSource();` に
+ * 置き換える——を当てると、走査根には何も手を加えていない時点で既に自己検査 72 件中 1 件が
+ * 落ちる。落ちるのは「検出結果を返す前に絞り込む経路が無い」で、
+ * `collectDesignDocuments の本体を取り出せなかった（宣言が変わった可能性がある）` と
+ * `台帳が挙げる関数が本体に無い: collectDesignDocuments（改名・撤去で見張りが空振りしている）`
+ * の二行を告げる。(b) その状態へさらに走査根の骨抜き（scripts/design-document.ts の走査の輪へ
+ * `if (entry.name === 'site-survey') continue;` を一行）を重ねると 72 件中 2 件へ増える
+ * （いずれも 2026-09-01 に実測）。**測ったこの二つの状態はどちらも赤であり、骨抜きが
+ * 黙って通る形ではない。**
+ *
+ * したがって本関数が在る理由は「無ければ骨抜きが素通りする」ではない。無ければ台帳
+ * {@link EXECUTABLE_FUNCTION_INVENTORY} との双方向の一致と {@link checkNoFindingsNarrowing}
+ * の全行の突き合わせが `collectDesignDocuments` の本体を掴めなくなり、**赤の中身が骨抜きの
+ * 名指しから「見張りが空振りしている」へ入れ替わる**。上の (b) の実測でも失敗行は
+ * 「本体を取り出せなかった」「台帳が挙げる関数が本体に無い」から始まっていた（骨抜きそのもの
+ * は同じ実行で {@link checkRealRepositoryIsScanned} が
+ * `走査対象から落ちている design.md がある: .kiro/specs/site-survey/design.md` として
+ * 名指ししていた。2026-09-01 に実測）。本関数はこの二つの見張りを実際の本体へ当て続ける
+ * ために在る。台帳との双方向の一致もこの結合ソースに対して要求するため、共有部品へ
+ * 見張られない関数を足すこともできない。
+ */
+function readWatchedSources(): string {
+  return `${readExecutableSource()}\n${stripComments(fs.readFileSync(SHARED_ROOT_MODULE_PATH, 'utf-8'))}`;
 }
 
 interface Case {
@@ -449,6 +542,8 @@ function checkEmptyScanFails(): string[] {
     const tempScripts = path.join(tempRoot, 'scripts');
     fs.mkdirSync(tempScripts, { recursive: true });
     fs.copyFileSync(ENTRY_PATH, path.join(tempScripts, ENTRY_NAME));
+    // 本体は走査根を共有部品から取り込むため、同じ場所へ複製しないと起動できない
+    fs.copyFileSync(SHARED_ROOT_MODULE_PATH, path.join(tempScripts, SHARED_ROOT_MODULE_NAME));
     // 走査対象の置き場所は存在するが中身が無い状態にする
     fs.mkdirSync(path.join(tempRoot, SPEC_DIR), { recursive: true });
 
@@ -592,6 +687,9 @@ const EXECUTABLE_FUNCTION_INVENTORY: ReadonlyArray<{
   name: string;
   watch: 'whole-body' | 'identifiers';
 }> = [
+  // 走査根の列挙。本体ではなく共有部品 scripts/design-document.ts に在るため、
+  // 台帳の突き合わせも本体の抽出も readWatchedSources() の結合ソースに対して行う
+  // （タスク 115.231）
   { name: 'collectDesignDocuments', watch: 'whole-body' },
   { name: 'isProductionReference', watch: 'whole-body' },
   { name: 'mentionsProductionSource', watch: 'whole-body' },
@@ -619,7 +717,7 @@ function checkMonitoredFunctionInventory(
   monitored: ReadonlyArray<{ label: string; watch: 'whole-body' | 'identifiers' }>
 ): string[] {
   const failures: string[] = [];
-  const source = readExecutableSource();
+  const source = readWatchedSources();
 
   // 前提が満たせないときは合格ではなく失敗（第3原則）
   if (EXECUTABLE_FUNCTION_INVENTORY.length === 0) {
@@ -766,7 +864,7 @@ function checkMonitoredFunctionInventory(
  */
 function checkNoFindingsNarrowing(): string[] {
   const failures: string[] = [];
-  const source = readExecutableSource();
+  const source = readWatchedSources();
 
   const NARROWING =
     /\.filter\(|\.slice\(|\.splice\(|\.find\(|\.some\(|\.every\(|\.includes\(|new Set|new Map|\bcontinue\b|\bdelete\b/;
@@ -1162,6 +1260,8 @@ function checkReportedCountsAreExact(): string[] {
     const tempScripts = path.join(tempRoot, 'scripts');
     fs.mkdirSync(tempScripts, { recursive: true });
     fs.copyFileSync(ENTRY_PATH, path.join(tempScripts, ENTRY_NAME));
+    // 本体は走査根を共有部品から取り込むため、同じ場所へ複製しないと起動できない
+    fs.copyFileSync(SHARED_ROOT_MODULE_PATH, path.join(tempScripts, SHARED_ROOT_MODULE_NAME));
 
     let expectedFindings = 0;
     FEATURES.forEach((feature, index) => {
@@ -1330,6 +1430,87 @@ function checkRealRepositoryIsScanned(): string[] {
   return failures;
 }
 
+/**
+ * 走査根の複製が戻っていないこと（共有部品が唯一の担い手であること。タスク 115.231）。
+ *
+ * 三つの検査——本検査の本体・scripts/check-design-reference-format.ts・
+ * scripts/check-design-path-references.ts——は同じ設計文書の集合を母集団に取る。
+ * コミット `d1b51c6` では `SPEC_DIR` / `DESIGN_DOC_NAME` / `collectDesignDocuments` が
+ * 本体と scripts/check-design-path-references.ts の二箇所に定義され、
+ * scripts/check-design-reference-format.ts がそのうち一方を借りていた。
+ *
+ * 借用は取り込みの解決に依存するため、相手の移動・改名は型検査に現れる——共有部品
+ * scripts/design-document.ts を design-document.moved.ts へ改名する変異を当てると
+ * `npm run type-check` が 6 ファイルで `error TS2307: Cannot find module
+ * './design-document.js'` を出した（2026-09-01 に実測）。**複製にはこの当たりが無い。**
+ * `d1b51c6` の二つの複製は列挙が返す文字列の作り方 1 行で食い違っていたが、その状態で
+ * `check:design-code-refs` / `check:design-refs` / `check:design-path-refs` の三つとも
+ * 終了コード 0 であった（`d1b51c6` を取り出した作業ツリーで 2026-09-01 に実測。差の中身と
+ * 到達不能性は共有部品 scripts/design-document.ts の冒頭に記す）。
+ *
+ * ここでは (a) 断片が共有部品の**実行される部分**に実在すること（対照が空振りしていないこと）、
+ * (b) 三つの消費側が共有部品を静的に取り込んでいること、(c) 消費側のソースに断片が
+ * 現れないこと、の三つを見る。母集団（断片・消費側）が空なら失敗にする（第3原則）。
+ *
+ * この対照が捕らえるのは**`stripComments` を通した後のソースに断片がそのまま現れる複製**
+ * である。共有部品から取り込んだ `SPEC_DIR` / `DESIGN_DOC_NAME` を使って列挙を書き直す形は
+ * 捕らえない（断片が現れないため）。裸の断片であっても `stripComments` の後で消える書き方は
+ * 逃れる。天井は {@link SCAN_ROOT_FRAGMENTS} の注釈に二つ記す。
+ *
+ * **「本体の走査対象と共有部品の列挙が一致すること」はここに置かない。** 一元化した後の
+ * `run` は `collectDesignDocuments` の戻りを逐語で `scannedFiles` へ載せるため、その突き合わせは
+ * 両辺が同じ値になり**原理的に落ちない**。実際、共有部品へ `if (entry.name === 'site-survey')
+ * continue;` を差し込む変異を当てても、その節を持つ版のこの対照は緑のままであった
+ * （同じ変異で自己検査は 72 件中 2 件が落ちる。落としたのは {@link checkNoFindingsNarrowing} の
+ * 全行の突き合わせと {@link checkRealRepositoryIsScanned} の独立列挙との完全一致である。
+ * 2026-09-01 に実測）。走査対象が実データで正しいことは、`.kiro/specs` を自前で
+ * 読み直す {@link checkRealRepositoryIsScanned} が所管する（タスク 115.229 の教訓:
+ * 一元化のあと、一致を見張っていた対照が恒真になっていないか確かめること）。
+ */
+function checkScanRootIsNotDuplicated(): string[] {
+  const failures: string[] = [];
+
+  // 母集団が空なら以下の走査は空回りで緑になる（第3原則）
+  if (SCAN_ROOT_FRAGMENTS.length === 0) {
+    failures.push('走査根の断片が 0 件（対照の母集団が空）');
+  }
+  if (SCAN_ROOT_CONSUMERS.length === 0) {
+    failures.push('走査根の消費側が 0 件（対照の母集団が空）');
+  }
+  if (failures.length > 0) return failures;
+
+  if (!fs.existsSync(SHARED_ROOT_MODULE_PATH)) {
+    return [`共有部品 ${SHARED_ROOT_MODULE_NAME} が無い（走査根の担い手が失われている）`];
+  }
+  const shared = stripComments(fs.readFileSync(SHARED_ROOT_MODULE_PATH, 'utf-8'));
+  // 断片が共有部品から消えていれば、以下の「消費側に無い」は自明に成り立ってしまう
+  const missing = SCAN_ROOT_FRAGMENTS.filter((fragment) => !shared.includes(fragment));
+  if (missing.length > 0) {
+    return [
+      `共有部品 ${SHARED_ROOT_MODULE_NAME} に走査根が見当たらない（対照が空振りしている）: ${missing.join(' / ')}`,
+    ];
+  }
+
+  const importSpecifier = `from './${SHARED_ROOT_MODULE_NAME.replace(/\.ts$/, '.js')}'`;
+  for (const basename of SCAN_ROOT_CONSUMERS) {
+    const consumerPath = path.join(SCRIPTS_DIR, basename);
+    if (!fs.existsSync(consumerPath)) {
+      failures.push(`消費側 ${basename} が無い（改名・撤去で対照が空振りしている）`);
+      continue;
+    }
+    const source = stripComments(fs.readFileSync(consumerPath, 'utf-8'));
+    if (!source.includes(importSpecifier)) {
+      failures.push(`${basename} が ${SHARED_ROOT_MODULE_NAME} を取り込んでいない`);
+    }
+    const copied = SCAN_ROOT_FRAGMENTS.filter((fragment) => source.includes(fragment));
+    if (copied.length > 0) {
+      failures.push(`${basename} に走査根の複製が戻っている: ${copied.join(' / ')}`);
+    }
+  }
+
+  return failures;
+}
+
 /** 参照先の本番／テストの判別 */
 function checkProductionReferenceClassification(): string[] {
   const failures: string[] = [];
@@ -1465,6 +1646,11 @@ const STRUCTURAL: Case[] = [
     name: 'リポジトリ本体の design.md を実際に列挙できる',
     expected: false,
     custom: checkRealRepositoryIsScanned,
+  },
+  {
+    name: '走査根の複製が戻っていない（共有部品が唯一の担い手である）',
+    expected: false,
+    custom: checkScanRootIsNotDuplicated,
   },
   {
     name: '参照先の本番／テストの判別（本タスクの境界）',

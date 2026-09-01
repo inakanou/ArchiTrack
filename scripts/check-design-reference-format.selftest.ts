@@ -23,9 +23,6 @@ import * as os from 'os';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import {
-  DESIGN_DOC_NAME,
-  SPEC_DIR,
-  collectDesignDocuments,
   collectSourceFiles,
   isTestFile,
   run,
@@ -33,6 +30,10 @@ import {
   scanLine,
   scanSource,
 } from './check-design-reference-format.js';
+// 走査根は共有部品から直に取る。被検査モジュール（check-design-reference-format.ts）を
+// 経由して取ると、本体が再輸出を続ける限り複製の有無を見分けられない（タスク 115.231。
+// タスク 115.221 が scripts/check-requirement-exclusions.selftest.ts で採った作法と同じ）。
+import { DESIGN_DOC_NAME, SPEC_DIR, collectDesignDocuments } from './design-document.js';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(SCRIPTS_DIR, '..');
@@ -41,8 +42,13 @@ const ROOT = path.resolve(SCRIPTS_DIR, '..');
 const ENTRY_NAME = 'check-design-reference-format.ts';
 const ENTRY_PATH = path.join(SCRIPTS_DIR, ENTRY_NAME);
 
-/** 本体が走査根の定義を借りている相手。サブプロセスの起動には同じ場所へ要る */
-const SIBLING_NAME = 'check-design-code-reference-format.ts';
+/**
+ * 本体が走査根を取り込んでいる共有部品。サブプロセスを起こす対照は同じ場所へ複製する。
+ *
+ * その `fs.copyFileSync` を外す変異を当てると自己検査 56 件中 1 件（「検出結果を絞り込む
+ * 経路を持たない（構造 + 起動して件数を突き合わせる）」）が落ちる（2026-09-01 に実測）。
+ */
+const SHARED_ROOT_MODULE_NAME = 'design-document.ts';
 
 /**
  * `tsx` の起動口。見つからない場合は「確認できない」であって合格ではないため、
@@ -1101,7 +1107,10 @@ function checkReportedCountsAreExact(): string[] {
     const tempScripts = path.join(tempRoot, 'scripts');
     fs.mkdirSync(tempScripts, { recursive: true });
     fs.copyFileSync(ENTRY_PATH, path.join(tempScripts, ENTRY_NAME));
-    fs.copyFileSync(path.join(SCRIPTS_DIR, SIBLING_NAME), path.join(tempScripts, SIBLING_NAME));
+    fs.copyFileSync(
+      path.join(SCRIPTS_DIR, SHARED_ROOT_MODULE_NAME),
+      path.join(tempScripts, SHARED_ROOT_MODULE_NAME)
+    );
 
     let expectedFindings = 0;
     FEATURES.forEach((feature, index) => {

@@ -30,20 +30,21 @@ import {
   BARE_NAME_EXTENSIONS,
   buildFileIndex,
   collectAbsenceDeclarations,
-  collectDesignDocuments,
   compareReach,
-  DESIGN_DOC_NAME,
   EXCLUDED_DIRECTORIES,
   execute,
   extractClaims,
   loadReachBaseline,
   run,
   scanDocument,
-  SPEC_DIR,
   statesAbsence,
   summariseReach,
   type FileIndex,
 } from './check-design-path-references.js';
+// 走査根は共有部品から直に取る。被検査モジュール（check-design-path-references.ts）を
+// 経由して取ると、本体が再輸出を続ける限り複製の有無を見分けられない（タスク 115.231。
+// タスク 115.221 が scripts/check-requirement-exclusions.selftest.ts で採った作法と同じ）。
+import { DESIGN_DOC_NAME, SPEC_DIR, collectDesignDocuments } from './design-document.js';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(SCRIPTS_DIR, '..');

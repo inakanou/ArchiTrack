@@ -100,18 +100,16 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import {
-  DESIGN_DOC_NAME,
-  SPEC_DIR,
-  collectDesignDocuments,
-} from './check-design-code-reference-format.js';
+import { DESIGN_DOC_NAME, SPEC_DIR, collectDesignDocuments } from './design-document.js';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(SCRIPTS_DIR, '..');
 
-// 設計文書の母集団は対偶の検査（`check:design-code-refs`）と同一である。
-// 二か所で定義すると走査根がずれるため、定義を借りて再輸出する。
-export { DESIGN_DOC_NAME, SPEC_DIR, collectDesignDocuments };
+// 設計文書の母集団は対偶の検査（`check:design-code-refs`）および実在の検査
+// （`check:design-path-refs`）と同一である。走査根は scripts/design-document.ts が
+// 唯一の担い手であり、本ファイルは使うだけで持たない（タスク 115.231）。
+// かつては scripts/check-design-code-reference-format.ts から借りて再輸出していたが、
+// 借用の連鎖は「誰が定義しているか」を読み手から隠すため、三者とも共有部品を直に取り込む。
 
 // ============================================================================
 // 型定義
