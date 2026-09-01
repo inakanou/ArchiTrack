@@ -34,6 +34,7 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import {
   blockText,
+  collectNetSentences,
   collectSourceFiles,
   countCounterfactuals,
   EXCLUDED_DIRECTORIES,
@@ -916,8 +917,17 @@ function checkNoFindingsNarrowing(): string[] {
   const FILE_NAME_LITERAL = /['"`][A-Za-z0-9_@-][A-Za-z0-9_@.-]*\.[A-Za-z][A-Za-z0-9]{0,9}['"`]/;
 
   const bodies: Array<{ label: string; declaration: string }> = [
+    { label: 'hasBacktickedName', declaration: 'export function hasBacktickedName(' },
+    { label: 'hasMutationWord', declaration: 'export function hasMutationWord(' },
+    { label: 'hasVerdictWord', declaration: 'export function hasVerdictWord(' },
     { label: 'isCounterfactualSentence', declaration: 'export function isCounterfactualSentence(' },
     { label: 'hasExecutionCitation', declaration: 'export function hasExecutionCitation(' },
+    {
+      label: 'collectNetSentencesInSource',
+      declaration: 'export function collectNetSentencesInSource(',
+    },
+    { label: 'findingsFromNetSentences', declaration: 'function findingsFromNetSentences(' },
+    { label: 'countCounterfactuals', declaration: 'export function countCounterfactuals(' },
     { label: 'scanSource', declaration: 'export function scanSource(' },
     { label: 'extractCommentBlocks', declaration: 'export function extractCommentBlocks(' },
     { label: 'run', declaration: 'export function run(' },
@@ -949,12 +959,35 @@ function checkNoFindingsNarrowing(): string[] {
 }
 
 /**
- * 網の広さの三段階を数える出口（`surveyNet`）が、本検査の走査と同じ台を数えていること。
+ * 網の広さの三段階を数える出口（`surveyNet`）と全文の列挙（`listCounterfactualSentences`）が、
+ * 本検査の走査と同じ台を数えていること。
  *
  * 記録に書いた三段階の件数は、この出口が無ければ後任が追試できない
  * （タスク 115.189 の教訓「追試の手段を成果物に残せない実測は記録に書かない」）。
- * 出口が本検査から離れて独自に数え始めると、記録だけが静かにずれるため、
- * 最も狭い段が本検査の母集団と一致することと、段が包含の順に並ぶことを固定する。
+ * 出口が本検査から離れて独自に数え始めると、記録だけが静かにずれる。
+ *
+ * **タスク 115.229 の一本化で、この確認が担う範囲は狭まった。** 三条件を当てるのは
+ * `collectNetSentencesInSource` だけになり、母集団も列挙も最も狭い段も同じ印
+ * （`NetSentence.counterfactual`）を数えるため、**三条件の側の食い違いは構造上起こらない**。
+ * 実測: 一本化の前は判定へ第四の条件（`FIGURE` の同居）を足す変異で母集団 47 対 列挙 52 と
+ * 乖離して本確認が落ちたが、一本化の後は同じ変異で母集団・列挙・最も狭い段がいずれも
+ * 50 で揃い、落ちる 34 件（66 件中）に本確認は含まれない
+ * （2026-09-01 に実測。変異は退避した控えからの書き戻しで復元した）。
+ *
+ * したがって本確認が現に守るのは、構造では担保されない側——走査ファイル数（`run` と
+ * `surveyNet` が別々の繰り返しで数える）、段が空でないこと、`listCounterfactualSentences`
+ * が独自の絞りを足していないこと、段の包含——である。実測: `surveyNet` の走査ファイル数を
+ * 先頭の走査根だけへ狭める変異（`for (const scanDir of scanDirs)` を
+ * `for (const scanDir of scanDirs.slice(0, 1))` へ替える）を当てると、66 件中この 1 件
+ * だけが落ちる（2026-09-01 に実測。変異は退避した控えからの書き戻しで復元した）。
+ *
+ * **列挙との突き合わせは件数ではなく同一性で行う。** 件数だけを見る形では、同じ件数のまま
+ * **別の集合**を返す列挙を通してしまう。実測: `listCounterfactualSentences` の返り値を
+ * `[rows[0], ...rows.slice(0, -1)]` へ替える変異（先頭を重複させ末尾を落とす。返る行は
+ * すべて三条件を満たしたままで件数も 55 のまま）を当てると、件数だけを比べていた従前の形は
+ * 66/66 で緑のまま素通りし、同一性で突き合わせる現在の形は 66 件中この 1 件だけが落ちて
+ * 「列挙が母集団と同じ集合でない（列挙 55 件 / 数え直し 55 件）」と告げる
+ * （いずれも 2026-09-01 に実測。変異は退避した控えからの書き戻しで復元した）。
  */
 function checkNetSurveyMatchesTheCheck(): string[] {
   const failures: string[] = [];
@@ -996,6 +1029,14 @@ function checkNetSurveyMatchesTheCheck(): string[] {
       `列挙の件数が本検査の母集団と一致しない（本検査 ${result.claims} / 列挙 ${listed.length}）`
     );
   }
+  const identity = (row: { file: string; line: number; sentence: string }): string =>
+    `${row.file}:${row.line}:${row.sentence}`;
+  const recounted = collectNetSentences().filter((row) => isCounterfactualSentence(row.sentence));
+  if (listed.map(identity).join(' / ') !== recounted.map(identity).join(' / ')) {
+    failures.push(
+      `列挙が母集団と同じ集合でない（列挙 ${listed.length} 件 / 数え直し ${recounted.length} 件）`
+    );
+  }
   for (const row of listed) {
     if (!isCounterfactualSentence(row.sentence)) {
       failures.push(`列挙に三条件を満たさない文が混ざっている: ${row.file}:${row.line}`);
@@ -1005,6 +1046,74 @@ function checkNetSurveyMatchesTheCheck(): string[] {
       failures.push(`列挙の印が三条件と食い違っている: ${row.file}:${row.line}`);
       break;
     }
+  }
+  return failures;
+}
+
+/**
+ * 見本が駆動する `scanSource` が、本検査 `run` の検出**そのもの**であること。
+ *
+ * 自己検査の大半は `scanSource` へ書き方を注入して検出規則を確かめている。その `scanSource`
+ * が `run` の出す検出と別実装になれば、見本は**使われていない関数**を守ることになる
+ * （タスク 115.227 の型: 確かめている対象が実際に使われているものであること）。
+ * リポジトリ本体は検出 0 件で緑であり、0 対 0 の突き合わせは自明に通ってしまう
+ * （タスク 115.222 の型）ため、該当の在る仮のリポジトリを作り、突き合わせた台が
+ * 空でないことを併せて要求する。
+ *
+ * **開示済みの限界（タスク 115.222 の作法により、記録ではなく検査の在る場所へ書く）**:
+ * 突き合わせるのは 4 文の仮の台の上の**結果**であり、`run` が検出を組み直しても
+ * **その台の上で結果が変わらない再実装は捕まえられない**。実測: `run` の
+ * `findings: findingsFromNetSentences(rows)` を
+ * `rows.filter((row) => row.counterfactual && !row.cited).map(...)` という意味を保つ
+ * 書き直しへ替えても、自己検査は 66/66 で緑のままである。同じ形へ
+ * `&& row.sentence.length > 200` を足して仮の台の上で結果が分かれるようにすると、
+ * 66 件中 2 件（本確認と「走査から報告までが実際に働く」）が落ちる
+ * （いずれも 2026-09-01 に実測。変異は退避した控えからの書き戻しで復元した）。
+ * すなわち本確認が拘束するのは「同じ関数を通ること」ではなく「同じ結果を出すこと」である。
+ */
+function checkSampleSubjectMatchesTheRun(): string[] {
+  const failures: string[] = [];
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cf-evidence-subject-'));
+  try {
+    seedTemporaryRepository(tempRoot);
+    for (const scanDir of SCAN_DIRS) {
+      fs.writeFileSync(
+        path.join(tempRoot, scanDir, 'uncited.ts'),
+        ['// `uncited` を外すと落ちる。', 'export {};', ''].join('\n')
+      );
+      fs.writeFileSync(
+        path.join(tempRoot, scanDir, 'cited.ts'),
+        ['// `cited` を外すと落ちる（1 件。実測）。', 'export {};', ''].join('\n')
+      );
+    }
+
+    const viaRun = run({ root: tempRoot }).findings.map(
+      (finding) => `${finding.file}:${finding.line}:${finding.sentence}`
+    );
+    const viaSamples: string[] = [];
+    for (const scanDir of SCAN_DIRS) {
+      for (const relativePath of collectSourceFiles(tempRoot, scanDir)) {
+        const source = fs.readFileSync(path.join(tempRoot, relativePath), 'utf-8');
+        for (const finding of scanSource(relativePath, source)) {
+          viaSamples.push(`${finding.file}:${finding.line}:${finding.sentence}`);
+        }
+      }
+    }
+
+    if (viaRun.length !== SCAN_DIRS.length || viaSamples.length !== SCAN_DIRS.length) {
+      failures.push(
+        `突き合わせる台が期待と違う（期待 ${SCAN_DIRS.length} / 本検査 ${viaRun.length} / ` +
+          `見本の対象 ${viaSamples.length}）`
+      );
+    }
+    if (viaRun.join(' / ') !== viaSamples.join(' / ')) {
+      failures.push(
+        `見本が駆動する scanSource と本検査の検出が食い違う` +
+          `（本検査 ${viaRun.length} 件 / 見本の対象 ${viaSamples.length} 件）`
+      );
+    }
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
   }
   return failures;
 }
@@ -1081,6 +1190,11 @@ const STRUCTURAL: Case[] = [
     name: '網の広さの三段階と全文の列挙が本検査と同じ台を数える（記録の追試手段）',
     expected: false,
     custom: checkNetSurveyMatchesTheCheck,
+  },
+  {
+    name: '見本が駆動する検出関数が本検査の検出そのものである（対象の同一性）',
+    expected: false,
+    custom: checkSampleSubjectMatchesTheRun,
   },
   {
     name: '陽性・陰性の対照群がいずれも空でない',

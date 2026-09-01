@@ -33,6 +33,10 @@
  * 散文（「包むと緑になるため無条件に主張する」等）が大量に混ざり、(3) だけでは
  * `判定根拠:` の定型（「遷移が壊れれば赤になる」）まで巻き込むためである。
  *
+ * 三条件を実データへ当てる場所は `collectNetSentencesInSource` **一つ**である（タスク 115.229）。
+ * 本検査の母集団・検出・全文の列挙・三段階の集計は、いずれもそこが付けた印を数える。
+ * 一本化の前後で何がどう動いたかの実測は、同関数と `run` の注釈に置いた。
+ *
  * ## 合格の条件
  *
  * 反実仮想の文を含むコメント塊には、**実行の引用**が同居しなければならない。実行の引用とは
@@ -99,16 +103,19 @@
  *     変異は退避した控えからの書き戻しで復元した）。拘束しているのは、この項の三文が
  *     いずれも変異の語も判定の語も持たないことである。
  *
- * (1)（逆引用符の名指し）の要求——`isCounterfactualSentence` 冒頭の `BACKTICKED_NAME` の
- * 判定——を実際に外す変異を当てると、母集団は 35 文から 77 文へ増え、引用を欠く検出は
- * 0 件から 20 件・15 ファイルへ増え、自己検査は 65 件中 5 件が落ちる（2026-08-31 に実測。
- * 変異は退避した控えからの書き戻しで復元した）。増える 42 文には、画面操作の記述
+ * (1)（逆引用符の名指し）の要求——`hasBacktickedName`（タスク 115.229 の一本化の前は
+ * `isCounterfactualSentence` の冒頭）の `BACKTICKED_NAME` の判定——を実際に外す変異
+ * （`BACKTICKED_NAME.test(sentence) || sentence.length >= 0` へ替える）を当てると、母集団は
+ * 55 文から 100 文へ増え、引用を欠く検出は 0 件から 22 件・16 ファイルへ増え、
+ * 自己検査は 66 件中 4 件が落ちる（2026-09-01 に実測。起票時のツリー（走査 1750
+ * ファイル）では 35 文から 77 文・20 件・15 ファイル・5 件であった。変異は退避した控えからの
+ * 書き戻しで復元した）。増える 45 文には、画面操作の記述
  * （「ツールを一度離れて戻すと編集中の目印が落ちる」）、検証の手順（「ページの焦点を外す」）、
  * 方針の記述（「過検出は主張を消す圧力になるため見逃す側へ倒している」）、構造の含意
  * （「将来どの書き込み関数が足されても当該経路から呼ばれれば落ちる」）が混ざる。
- * **名指しの無い反実仮想は本検査の見逃しである**（意図した限界。真の該当も 42 文の中に在るが、
- * それらは名指しを足せば捕まる形であり、名指しを求めない網は誤検出の方が多い）。
- * 落ちた 5 件のうち 3 件は上の三類型を据えた陰性対照である。
+ * **名指しの無い反実仮想は本検査の見逃しである**（意図した限界。真の該当も 45 文の中に
+ * 在るが、それらは名指しを足せば捕まる形であり、名指しを求めない網は誤検出の方が多い）。
+ * 落ちた 4 件のうち 3 件は上の三類型を据えた陰性対照である。
  * 合格の報告は母集団の大きさを出すので、台が空でないことは走らせれば確かめられる。
  *
  * ## 許容リストは置いていない
@@ -428,15 +435,41 @@ export interface VocabularyOverride {
 }
 
 /**
+ * (1) 逆引用符で囲まれたコード上の名前を持つか。
+ *
+ * 三条件はこの三つの述語（{@link hasBacktickedName} / {@link hasMutationWord} /
+ * {@link hasVerdictWord}）だけが実装し、連言は {@link isCounterfactualSentence} だけが組む
+ * （タスク 115.229）。以前は同じ三条件が当該述語と `collectNetSentences` の二箇所にあった。
+ */
+export function hasBacktickedName(sentence: string): boolean {
+  return BACKTICKED_NAME.test(sentence);
+}
+
+/** (2) 仮定した改変を述べる語を持つか */
+export function hasMutationWord(sentence: string, vocabulary: VocabularyOverride = {}): boolean {
+  return includesAny(sentence, vocabulary.mutation ?? MUTATION_VOCABULARY);
+}
+
+/** (3) 検査の実行結果を述べる語を持つか */
+export function hasVerdictWord(sentence: string, vocabulary: VocabularyOverride = {}): boolean {
+  return includesAny(sentence, vocabulary.verdict ?? VERDICT_VOCABULARY);
+}
+
+/**
  * 一つの文が反実仮想か。三つの条件（名指し・変異・判定）をすべて満たすときに限る。
+ *
+ * **三条件の連言を組む唯一の場所**である。全文の列挙・三段階の集計・本検査の母集団は
+ * いずれも {@link collectNetSentencesInSource} を通じてこの述語だけを見る。
  */
 export function isCounterfactualSentence(
   sentence: string,
   vocabulary: VocabularyOverride = {}
 ): boolean {
-  if (!BACKTICKED_NAME.test(sentence)) return false;
-  if (!includesAny(sentence, vocabulary.mutation ?? MUTATION_VOCABULARY)) return false;
-  return includesAny(sentence, vocabulary.verdict ?? VERDICT_VOCABULARY);
+  return (
+    hasBacktickedName(sentence) &&
+    hasMutationWord(sentence, vocabulary) &&
+    hasVerdictWord(sentence, vocabulary)
+  );
 }
 
 /**
@@ -450,60 +483,6 @@ export function hasExecutionCitation(text: string, vocabulary: VocabularyOverrid
 // ============================================================================
 // 走査
 // ============================================================================
-
-/** 一つのソースに含まれる反実仮想の文の数 */
-export function countCounterfactuals(source: string): number {
-  return extractCommentBlocks(source).reduce(
-    (sum, block) =>
-      sum +
-      splitSentences(blockText(block)).filter((sentence) => isCounterfactualSentence(sentence))
-        .length,
-    0
-  );
-}
-
-/** 一つのソースから、引用を欠いた反実仮想の文を検出する */
-export function scanSource(relativePath: string, source: string): CounterfactualFinding[] {
-  const findings: CounterfactualFinding[] = [];
-  for (const block of extractCommentBlocks(source)) {
-    const text = blockText(block);
-    const counterfactuals = splitSentences(text).filter((sentence) =>
-      isCounterfactualSentence(sentence)
-    );
-    if (counterfactuals.length === 0) continue;
-    if (hasExecutionCitation(text)) continue;
-    for (const sentence of counterfactuals) {
-      findings.push({ file: relativePath, line: block.line, sentence });
-    }
-  }
-  return findings;
-}
-
-/** 網の広さの一段分の集計 */
-export interface NetSurveyTier {
-  /** 条件を満たした文の数 */
-  sentences: number;
-  /** それらを含むファイルの数 */
-  files: number;
-  /** うち、実行の引用を持つ塊に属する文の数 */
-  cited: number;
-}
-
-/**
- * 網の広さの三段階。**記録に書いた件数の追試手段を成果物に残すための出口**である
- * （タスク 115.189 の教訓: 追試の手段を残せない実測は記録に書かない）。
- * 本検査が採るのは最も狭い {@link NetSurveyTier} である `allThree` で、
- * その文の数は {@link RunResult.claims} と一致する（自己検査が固定する）。
- */
-export interface NetSurvey {
-  scannedFiles: number;
-  /** (3) 検査の判定を述べる語だけを見る段 */
-  verdictOnly: NetSurveyTier;
-  /** (2)+(3) 変異の語と判定の語を見る段 */
-  mutationAndVerdict: NetSurveyTier;
-  /** (1)+(2)+(3) 名指しを加えた段（本検査が採る形） */
-  allThree: NetSurveyTier;
-}
 
 /**
  * 判定の語を持つ一文と、その文がどの段に属するかの記録。
@@ -524,21 +503,111 @@ export interface NetSentence {
   named: boolean;
   /** (2) 変異の語を持つか */
   mutated: boolean;
+  /**
+   * 三条件をすべて満たすか（{@link isCounterfactualSentence} の判定）。
+   * 本検査の母集団・全文の列挙・三段階の最も狭い段は、いずれもこの印だけを見る。
+   */
+  counterfactual: boolean;
 }
 
 /**
- * 判定の語を持つ文をすべて集める。三段階の集計（{@link surveyNet}）はこの列挙から導く。
+ * 一つのソースから、判定の語を持つ文を三条件の印つきで取り出す。
  *
- * **本検査の母集団（{@link RunResult.claims}）は、ここからは導かれない。** {@link run} は
- * {@link countCounterfactuals} と {@link scanSource} を経て {@link isCounterfactualSentence}
- * で数えており、三条件は本関数と当該述語に**二重に実装されている**。したがって列挙と
- * 母集団の一致は構造ではなく、自己検査 `checkNetSurveyMatchesTheCheck` が固定している。
- * 実測: {@link isCounterfactualSentence} に第四の条件（`FIGURE` の同居）を足す変異を
- * 当てると、母集団は 35 件から 32 件へ動く一方で列挙は 35 文を印字し、両者は現に乖離する。
- * 自己検査は 65 件のうち 34 件が失格となり、その中に当該の確認が含まれる（2026-08-31 に
- * 実測。変異は退避した控えからの書き戻しで復元した）。**この自己検査を外すと、乖離を
- * 見張る者が居なくなる。**
+ * **三条件を実データへ当てる場所はここ一つである**（タスク 115.229）。本検査の母集団
+ * （{@link RunResult.claims}）・検出（{@link scanSource}）・全文の列挙
+ * （{@link listCounterfactualSentences}）・三段階の集計（{@link surveyNet}）は、いずれも
+ * この列挙が付けた印から導かれる。したがって**現在の実装では**列挙と母集団は同じ印を
+ * 数えており、三条件の数え方が二つに分かれていない。**ただし「構造だから将来も分かれない」
+ * とまでは言えない**——再び別々に数え始めれば分かれる。その再発は自己検査
+ * `checkNetSurveyMatchesTheCheck` が列挙と母集団を**件数ではなく同一性で**突き合わせて
+ * 捕まえる（件数だけの突き合わせは同じ件数の別集合を素通りさせる。当てた変異と出力は
+ * 当該の確認の docstring に引いた）。
+ *
+ * 一本化の前（タスク 115.229 の起票時点）は、三条件が {@link isCounterfactualSentence} と
+ * 当時の {@link collectNetSentences} に二重に実装されていた。実測: 当時の
+ * `isCounterfactualSentence` へ第四の条件（`FIGURE` の同居）を足す変異を当てると、母集団は
+ * 52 件から 47 件へ落ちる一方で列挙は 52 文を印字し、両者は現に乖離した。一本化した現在
+ * 同じ変異を当てると、母集団も列挙も 50 件で揃って動く（いずれも 2026-09-01 に実測。
+ * 変異は退避した控えからの書き戻しで復元した）。
  */
+export function collectNetSentencesInSource(relativePath: string, source: string): NetSentence[] {
+  const rows: NetSentence[] = [];
+  for (const block of extractCommentBlocks(source)) {
+    const text = blockText(block);
+    const cited = hasExecutionCitation(text);
+    for (const sentence of splitSentences(text)) {
+      if (!hasVerdictWord(sentence)) continue;
+      rows.push({
+        file: relativePath,
+        line: block.line,
+        sentence,
+        cited,
+        named: hasBacktickedName(sentence),
+        mutated: hasMutationWord(sentence),
+        counterfactual: isCounterfactualSentence(sentence),
+      });
+    }
+  }
+  return rows;
+}
+
+/**
+ * 印つきの列挙から、引用を欠いた反実仮想の文を取り出す。
+ * {@link run} と {@link scanSource} が**同じ実装**を通るようにするためのものである
+ * （見本が駆動する {@link scanSource} が本検査の検出と別物にならないようにする。
+ * タスク 115.227 の型）。
+ */
+function findingsFromNetSentences(rows: readonly NetSentence[]): CounterfactualFinding[] {
+  return rows
+    .filter((row) => row.counterfactual && !row.cited)
+    .map((row) => ({ file: row.file, line: row.line, sentence: row.sentence }));
+}
+
+/**
+ * 一つのソースに含まれる反実仮想の文の数。
+ *
+ * {@link run} は母集団を {@link collectNetSentences} から導くため本関数を経由しない。
+ * 自己検査 `checkClaimCountIsHonest` が、走査の原始的な部品（{@link extractCommentBlocks} /
+ * {@link splitSentences} / {@link isCounterfactualSentence}）で組んだ**独立の数え直し**と
+ * 本関数および {@link RunResult.claims} を突き合わせるための窓口である。
+ */
+export function countCounterfactuals(source: string): number {
+  return collectNetSentencesInSource('', source).filter((row) => row.counterfactual).length;
+}
+
+/** 一つのソースから、引用を欠いた反実仮想の文を検出する */
+export function scanSource(relativePath: string, source: string): CounterfactualFinding[] {
+  return findingsFromNetSentences(collectNetSentencesInSource(relativePath, source));
+}
+
+/** 網の広さの一段分の集計 */
+export interface NetSurveyTier {
+  /** 条件を満たした文の数 */
+  sentences: number;
+  /** それらを含むファイルの数 */
+  files: number;
+  /** うち、実行の引用を持つ塊に属する文の数 */
+  cited: number;
+}
+
+/**
+ * 網の広さの三段階。**記録に書いた件数の追試手段を成果物に残すための出口**である
+ * （タスク 115.189 の教訓: 追試の手段を残せない実測は記録に書かない）。
+ * 本検査が採るのは最も狭い {@link NetSurveyTier} である `allThree` で、その文の数は
+ * {@link RunResult.claims} と一致する。タスク 115.229 以降、両者は同じ列挙が付けた
+ * 同じ印（{@link NetSentence.counterfactual}）を数えるため、一致は構造である。
+ */
+export interface NetSurvey {
+  scannedFiles: number;
+  /** (3) 検査の判定を述べる語だけを見る段 */
+  verdictOnly: NetSurveyTier;
+  /** (2)+(3) 変異の語と判定の語を見る段 */
+  mutationAndVerdict: NetSurveyTier;
+  /** (1)+(2)+(3) 名指しを加えた段（本検査が採る形） */
+  allThree: NetSurveyTier;
+}
+
+/** 走査根の配下のすべてのソースから、判定の語を持つ文を印つきで集める */
 export function collectNetSentences(options: RunOptions = {}): NetSentence[] {
   const root = options.root ?? ROOT;
   const scanDirs = options.scanDirs ?? SCAN_DIRS;
@@ -546,21 +615,7 @@ export function collectNetSentences(options: RunOptions = {}): NetSentence[] {
   for (const scanDir of scanDirs) {
     for (const relativePath of collectSourceFiles(root, scanDir)) {
       const source = fs.readFileSync(path.join(root, relativePath), 'utf-8');
-      for (const block of extractCommentBlocks(source)) {
-        const text = blockText(block);
-        const cited = hasExecutionCitation(text);
-        for (const sentence of splitSentences(text)) {
-          if (!includesAny(sentence, VERDICT_VOCABULARY)) continue;
-          rows.push({
-            file: relativePath,
-            line: block.line,
-            sentence,
-            cited,
-            named: BACKTICKED_NAME.test(sentence),
-            mutated: includesAny(sentence, MUTATION_VOCABULARY),
-          });
-        }
-      }
+      rows.push(...collectNetSentencesInSource(relativePath, source));
     }
   }
   return rows;
@@ -568,7 +623,7 @@ export function collectNetSentences(options: RunOptions = {}): NetSentence[] {
 
 /** 本検査が採る形（三条件をすべて満たす文）だけを取り出す */
 export function listCounterfactualSentences(options: RunOptions = {}): NetSentence[] {
-  return collectNetSentences(options).filter((row) => row.named && row.mutated);
+  return collectNetSentences(options).filter((row) => row.counterfactual);
 }
 
 export function surveyNet(options: RunOptions = {}): NetSurvey {
@@ -589,7 +644,7 @@ export function surveyNet(options: RunOptions = {}): NetSurvey {
     const matched = [
       tiers.verdictOnly,
       ...(row.mutated ? [tiers.mutationAndVerdict] : []),
-      ...(row.mutated && row.named ? [tiers.allThree] : []),
+      ...(row.counterfactual ? [tiers.allThree] : []),
     ];
     for (const tier of matched) {
       tier.sentences += 1;
@@ -611,27 +666,38 @@ export function surveyNet(options: RunOptions = {}): NetSurvey {
   };
 }
 
+/**
+ * 本検査の母集団と検出を出す。**母集団は {@link collectNetSentences} の列挙から導く**
+ * （タスク 115.229）。
+ *
+ * 一本化の前は本関数が {@link countCounterfactuals} と {@link scanSource} を経由して独自に
+ * 数えており、全文の列挙と母集団は別々の実装で数えられていた。当時、両者の一致を担保して
+ * いたのは構造ではなく自己検査 `checkNetSurveyMatchesTheCheck` 単独である。実測: 列挙の側
+ * だけを狭める変異（当時の `listCounterfactualSentences` の絞りへ `row.sentence.length < 200`
+ * を足す）を当てると、自己検査 65 件のうち落ちるのは当該の 1 件だけで、その 1 件を外すと
+ * 64/64 で緑になり本検査も合格を出した（2026-09-01 に実測。変異は退避した控えからの
+ * 書き戻しで復元した）。
+ */
 export function run(options: RunOptions = {}): RunResult {
   const root = options.root ?? ROOT;
   const scanDirs = options.scanDirs ?? SCAN_DIRS;
 
-  const findings: CounterfactualFinding[] = [];
   const filesByScanDir: Record<string, number> = {};
   let scannedFiles = 0;
-  let claims = 0;
-
   for (const scanDir of scanDirs) {
     const files = collectSourceFiles(root, scanDir);
     filesByScanDir[scanDir] = files.length;
     scannedFiles += files.length;
-    for (const relativePath of files) {
-      const source = fs.readFileSync(path.join(root, relativePath), 'utf-8');
-      claims += countCounterfactuals(source);
-      findings.push(...scanSource(relativePath, source));
-    }
   }
 
-  return { findings, scannedFiles, filesByScanDir, claims };
+  const rows = collectNetSentences({ root, scanDirs });
+
+  return {
+    findings: findingsFromNetSentences(rows),
+    scannedFiles,
+    filesByScanDir,
+    claims: rows.filter((row) => row.counterfactual).length,
+  };
 }
 
 // ============================================================================
