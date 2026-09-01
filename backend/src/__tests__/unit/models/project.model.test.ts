@@ -3,16 +3,23 @@
  *
  * TDD: GREEN Phase - Prismaスキーマで定義したProjectモデルの型検証
  *
+ * 一覧の説明文は要件定義書の原文（`shall` 以降）の逐語複製である。
+ * 番号だけを並べると指し先の当否は読み手にしか確かめられないが、原文を並置すれば
+ * 条文が繰り上がったときに字面の食い違いとして現れる。
+ *
  * Requirements (project-management):
- * - REQ-1.14: プロジェクトに一意のIDを自動付与
- * - REQ-1.15: 作成日時と作成者を自動的に記録
- * - REQ-9.7: 削除されたプロジェクトは一覧に表示しない（論理削除）
- * - REQ-13.1: プロジェクト名を必須かつ1〜255文字
- * - REQ-13.2: 顧客名を必須かつ1〜255文字
- * - REQ-13.3: 営業担当者を必須
- * - REQ-13.5: 工事担当者を任意
- * - REQ-13.7: 現場住所を任意かつ最大500文字
- * - REQ-13.8: 概要を任意かつ最大5000文字
+ * - REQ-1.16: 作成日時と作成者を自動的に記録する
+ * - REQ-1.17: プロジェクトに一意のIDを自動付与する
+ * - REQ-9.7: 削除されたプロジェクトは一覧に表示しない
+ * - REQ-13.1: プロジェクト名を必須かつ1〜255文字とする
+ * - REQ-13.4: 営業担当者を必須とする
+ * - REQ-13.6: 工事担当者を任意とする
+ * - REQ-13.8: 現場住所を任意かつ最大500文字とする
+ * - REQ-13.9: 概要を任意かつ最大5000文字とする
+ *
+ * 従前この一覧が掲げていた「顧客名を必須かつ1〜255文字」は、現行の要件定義書に
+ * 対応する条文が無い。顧客名は取引先へ移り、作成・編集フォームでも任意である。
+ * 付け替え先が存在しないため、当該の被覆印は取り下げた。
  */
 
 import { describe, it, expect } from 'vitest';
@@ -60,7 +67,7 @@ describe('Project Model Schema', () => {
 
   describe('Project CreateInput type structure', () => {
     it('should require mandatory fields', () => {
-      // Requirement 13.1, 13.3: 必須フィールドの検証
+      // Requirement 13.1, 13.4: 必須フィールドの検証
       // この型テストはコンパイル時に検証される
       const validInput: Prisma.ProjectCreateInput = {
         name: 'テストプロジェクト',
@@ -72,7 +79,7 @@ describe('Project Model Schema', () => {
     });
 
     it('should allow optional fields', () => {
-      // Requirement 13.5, 13.7, 13.8, 22.1-22.5: 任意フィールドの検証
+      // Requirement 13.6, 13.8, 13.9, 22.1-22.5: 任意フィールドの検証
       const inputWithOptionalFields: Prisma.ProjectCreateInput = {
         name: 'テストプロジェクト',
         tradingPartner: { connect: { id: 'trading-partner-id' } },
@@ -103,7 +110,7 @@ describe('Project Model Schema', () => {
 
   describe('Project fields validation', () => {
     it('should have id field as UUID', () => {
-      // Requirement 1.14: プロジェクトに一意のIDを自動付与
+      // Requirement 1.17: プロジェクトに一意のIDを自動付与する
       // Prismaスキーマで @id @default(uuid()) が設定されていることを型で確認
       const projectSelect: Prisma.ProjectSelect = {
         id: true,
@@ -112,7 +119,7 @@ describe('Project Model Schema', () => {
     });
 
     it('should have createdAt and createdById fields', () => {
-      // Requirement 1.15: 作成日時と作成者を自動的に記録
+      // Requirement 1.16: 作成日時と作成者を自動的に記録する
       const projectSelect: Prisma.ProjectSelect = {
         createdAt: true,
         createdById: true,
