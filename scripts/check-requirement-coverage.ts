@@ -478,6 +478,119 @@ function buildHeaderRegex(featureNames: readonly string[]): RegExp {
 }
 
 /**
+ * 行頭のコメント記号と空白（`/**` / `/*` / `*` / `//`）
+ *
+ * 読み飛ばす対象は `findListItemMarker` が一覧の印について読み飛ばすものと同じである。
+ * コメント記号は文章の一部ではなく、行の中身が始まる前の飾りだからである。
+ */
+const LINE_LEADING_COMMENT_SYNTAX_REGEX = /^[ \t]*(?:\/\*+|\*|\/\/)?[ \t]*/;
+
+/** ヘッダーが宣言として置かれた位置にあるか（行の中身の先頭であるか） */
+const DECLARATION_PREFIX_REGEX = /^[ \t]*(?:\/\*+|\*|\/\/)?[ \t]*$/;
+
+/**
+ * コードフェンスの区切り行か（コメント記号を読み飛ばした先が ``` で始まるか）
+ *
+ * **行の中身の先頭でしか見ない。** 見本を行の途中で開く形（` * 例: ```ts `）は開きとしても
+ * 閉じとしても数えない。この形の直後の行に行頭でヘッダーの字面が置かれると、
+ * `isDeclaredCoverageHeader` の二条件のどちらにも掛からず宣言と読まれる（引用の取りこぼし。
+ * 向きは過大帰属）。塞いでいないのは、行の途中のバッククォートを見本の開きと読む規則が
+ * 逆向きの取りこぼし——正当なヘッダーを引用と誤読して落とす過小帰属——を新たに作るためである。
+ *
+ * 実データでの出現: 行の途中に ``` を持つ行は 5 行（3 ファイル）あり、いずれも見本ではなく
+ * コードの文字列である。当該 3 ファイルはヘッダーの字面を一件も持たないため、この抜けで
+ * 宣言と誤読されるヘッダーは零件である（走査対象は `CODE_DIRS`、2026-09-01 実測。
+ * 数え直しは同じ走査を `backend/src` / `frontend/src` / `e2e` へ当てて行う）。
+ *
+ * @param line 当該行の本文（改行を含まない）
+ */
+function isCodeFenceDelimiterLine(line: string): boolean {
+  return /^`{3,}/.test(line.replace(LINE_LEADING_COMMENT_SYNTAX_REGEX, ''));
+}
+
+/**
+ * ヘッダーが属するコメントの塊の先頭位置を返す（フェンスの開閉を数える範囲）
+ *
+ * 塊は次のいずれかである。
+ *
+ *   1. ヘッダーを囲むブロックコメント（直前の `/*` から。終端がヘッダーより後ろにある場合のみ）
+ *   2. ヘッダーの直前に連なる行コメント（`//` の連なりの先頭から）
+ *
+ * どちらでもないならヘッダーの行の先頭を返す（塊の外にフェンスは無いものとして扱う）。
+ *
+ * **なぜ全文で数えないか。** フェンスの開閉を全文の偶奇で数えると、塊の外にある閉じ忘れの
+ * フェンス一つが、それ以降の**すべての**ヘッダーを宣言でないと判定させる。落ちる先は
+ * 帰属の側と切れ目の側の両方であり、被覆の無言の過小計上と、切れ目を失った区間の
+ * 過大帰属を同時に生む。数える範囲を塊へ閉じ込めれば、この依存は規則としてでなく
+ * **構造として**消える（塊の外のフェンスは読まれない）。
+ */
+function enclosingCommentBlockStart(content: string, lineStart: number): number {
+  const blockOpen = content.lastIndexOf('/*', lineStart);
+  if (blockOpen >= 0) {
+    const blockClose = content.indexOf('*/', blockOpen + 2);
+    if (blockClose < 0 || blockClose >= lineStart) return blockOpen;
+  }
+
+  let start = lineStart;
+  while (start > 0) {
+    const previousStart = content.lastIndexOf('\n', start - 2) + 1;
+    if (!/^[ \t]*\/\//.test(content.slice(previousStart, start - 1))) break;
+    start = previousStart;
+  }
+  return start;
+}
+
+/**
+ * ヘッダーの字面が**宣言**であって**引用**ではないことを判定する（タスク 115.226）
+ *
+ * ヘッダーの字面は散文の中で引用されうる。「従前はこの記述を
+ * `Requirements (feature-name):` の見出しの下に置いていた」のように、
+ * **過去の書き方を説明するため**に字面を引く記述が実データに在る。これを宣言と読むと、
+ * 幻のヘッダーが母集団に混ざり、その配下の散文が被覆印として拾われうる。
+ * 115.194 が一覧項目の側で塞いだ「字面と意味の取り違え」の、ヘッダー側の同型である。
+ *
+ * 宣言と認める条件は次の二つを**両方**満たすことである。
+ *
+ * 1. **行の中身の先頭にある。** 行頭からヘッダーまでが空白とコメント記号だけで出来ている。
+ *    散文の途中に現れる字面（`従前はこの記述を \`Requirements …\` の…`）は宣言ではない。
+ *    バッククォートはコメント記号ではないため、行頭に置かれた引用（`` * `Requirements …` ``）も
+ *    この条件で落ちる。
+ * 2. **コードフェンスの内側にない。** フェンスで囲った見本の中の字面は、行の中身の先頭に
+ *    あっても引用である。条件 1 だけでは覆えないため独立に見る。
+ *
+ * 二つは互いを覆わない。`isCodeFenceDelimiterLine` の走査だけを外すと自己検査 63 件のうち
+ * 3 件が落ち、`DECLARATION_PREFIX_REGEX` の判定だけを外しても同じく 3 件が落ちる
+ * （落ちる中身は前者がフェンスの内側の一件、後者がバッククォートの二件で別物である）。
+ * いずれも 2026-09-01 に `npm run check:req-coverage:selftest` で実測した。
+ *
+ * 二つの条件が**引用のすべてを覆うわけではない**。見本を行の途中で開く形は
+ * どちらにも掛からない（抜けの中身と実データでの件数は `isCodeFenceDelimiterLine` に書いた）。
+ *
+ * **フェンスの開閉はヘッダーが属するコメントの塊の中だけで数える**
+ * （`enclosingCommentBlockStart`）。全文で数えると、無関係な塊にある閉じ忘れのフェンス一つが
+ * それ以降のヘッダーをすべて落とし、帰属（`extractHeaderScopedCoverage` のヘッダー収集）と
+ * 切れ目（同じく境界収集）の両方から無言で消す。範囲を塊へ閉じ込めることでこの依存は
+ * 構造として消える。走査の起点を `enclosingCommentBlockStart(content, lineStart)` から `0`
+ * （全文）へ戻すと、自己検査 63 件のうち `checkQuotedHeaderIsNotDetected` の 1 件が
+ * 「閉じ忘れのフェンスを別の塊に持つ写しで site-survey/REQ-3.1 を取りこぼした」を挙げて
+ * 赤くなる（2026-09-01 に `npm run check:req-coverage:selftest` で実測）。
+ *
+ * @param content ファイル全体の本文
+ * @param headerIndex 当該ヘッダーの開始位置
+ */
+export function isDeclaredCoverageHeader(content: string, headerIndex: number): boolean {
+  const lineStart = content.lastIndexOf('\n', headerIndex - 1) + 1;
+  if (!DECLARATION_PREFIX_REGEX.test(content.slice(lineStart, headerIndex))) return false;
+
+  let insideFence = false;
+  const blockStart = enclosingCommentBlockStart(content, lineStart);
+  for (const line of content.slice(blockStart, lineStart).split('\n')) {
+    if (isCodeFenceDelimiterLine(line)) insideFence = !insideFence;
+  }
+  return !insideFence;
+}
+
+/**
  * ヘッダーが属する区間の終端を決める
  *
  * 次の四つの上限のうち**最も手前**を採る。
@@ -748,9 +861,12 @@ export function extractHeaderScopedCoverage(
     return { requirements: [], acceptanceCriteria: [] };
   }
 
+  // 引用された字面は宣言ではない（isDeclaredCoverageHeader）。帰属の側と切れ目の側の
+  // 両方で除く。片方だけで除くと、幻のヘッダーが切れ目としてだけ生き残り、
+  // 正当なヘッダーの区間を途中で断ち切る（過小帰属）。
   const headers: CoverageHeader[] = [];
   for (const match of content.matchAll(buildHeaderRegex(featureNames))) {
-    if (match.index !== undefined && match[1]) {
+    if (match.index !== undefined && match[1] && isDeclaredCoverageHeader(content, match.index)) {
       headers.push({ index: match.index, featureName: match[1] });
     }
   }
@@ -758,7 +874,9 @@ export function extractHeaderScopedCoverage(
   // 切れ目は機能名を問わず、あらゆるヘッダーの出現位置で決める
   const boundaries: number[] = [];
   for (const match of content.matchAll(ANY_COVERAGE_HEADER_REGEX)) {
-    if (match.index !== undefined) boundaries.push(match.index);
+    if (match.index !== undefined && isDeclaredCoverageHeader(content, match.index)) {
+      boundaries.push(match.index);
+    }
   }
 
   for (const header of headers) {

@@ -192,6 +192,7 @@ import {
   findCriterionTextCopyMismatches,
   findRetiredCriterionCoverageMarks,
   findUnknownCriterionCoverageMarks,
+  isDeclaredCoverageHeader,
   isRetiredCriterionText,
   MIN_CRITERION_QUOTE_LENGTH,
   reportCriterionTextCopies,
@@ -2458,6 +2459,155 @@ function checkRealLetteredRequirementMarkExists(): string[] {
   return failures;
 }
 
+/**
+ * 引用されたヘッダーの字面は宣言ではない（タスク 115.226）
+ *
+ * 一枚の JSDoc に、**宣言として置かれたヘッダー一つ**と、**引用された字面三つ**を並べる。
+ * 引用の形は互いに異なる三通りで、いずれも実データに現れうる形である。
+ *
+ *   1. 散文の途中にバッククォートで引く（実データが持っていた形）
+ *   2. 行頭にバッククォートで引く
+ *   3. コードフェンスで囲った見本の中に置く
+ *
+ * 三つとも配下に一覧項目を伴う。**引用が宣言と読まれれば、その一覧項目が被覆印になる**。
+ * 是正前はまさにそう読まれていた。正当な宣言の側（`REQ-3.1`）は拾われねばならず、
+ * 引用の側（`REQ-4.1` / `REQ-5.1` / `REQ-6.1`）は拾われてはならない——両側を一枚で固定する。
+ *
+ * **この資料の分離は区間の規則4（JSDoc 内の段落の切れ目）にも半分寄り掛かっている。**
+ * 引用の三つは宣言のヘッダーより後ろに置かれているため、規則4 が無ければ宣言の区間が
+ * 段落の切れ目を越えて伸び、引用の配下の一覧項目まで飲み込む。実際、
+ * `resolveHeaderSectionEnd` から規則4（`jsDocParagraphBreak` の上限）を外すと
+ * 自己検査 63 件のうち 5 件が赤くなり、対をなす `checkQuotedHeaderIsNotDetected` は
+ * その一つとして `REQ-4.1` / `REQ-5.1` / `REQ-6.1` の三つすべてを挙げる
+ * （2026-09-01 に `npm run check:req-coverage:selftest` で実測。タスク 115.226）。
+ * 規則4 を触る者は、本資料が赤くなったとき**引用の判定が壊れたとは限らない**ことを知ること。
+ */
+const QUOTED_HEADER_IS_NOT_A_DECLARATION = [
+  '/**',
+  ' * Requirements (site-survey):',
+  ' * - REQ-3.1: 宣言として置かれたヘッダーの配下（拾われねばならない）',
+  ' *',
+  ' * 従前はこの記述を `Requirements (site-survey):` の見出しの下に置いていた。',
+  ' * - REQ-4.1: 散文の途中に引用された字面の配下（拾われてはならない）',
+  ' *',
+  ' * `Requirements coverage (site-survey):`',
+  ' * - REQ-5.1: 行頭に引用された字面の配下（拾われてはならない）',
+  ' *',
+  ' * ```',
+  ' * Requirements (site-survey):',
+  ' * - REQ-6.1: コードフェンスで囲った見本の配下（拾われてはならない）',
+  ' * ```',
+  ' */',
+  '',
+].join('\n');
+
+/** 引用の三形と、それぞれが運ぶ拾われてはならない受入基準 */
+const QUOTED_HEADER_FORMS: ReadonlyArray<{ label: string; absent: string }> = [
+  { label: '散文の途中のバッククォート', absent: 'site-survey/REQ-4.1' },
+  { label: '行頭のバッククォート', absent: 'site-survey/REQ-5.1' },
+  { label: 'コードフェンスの内側', absent: 'site-survey/REQ-6.1' },
+];
+
+/**
+ * 機構: 引用された字面をヘッダーと読まず、宣言されたヘッダーは落とさない
+ *
+ * 両側を一つの資料で見る。片側だけを見る検査は、規則を厳しくしすぎた是正
+ * （正当なヘッダーまで落とす形）を緑で通してしまう。
+ *
+ * さらに、資料の前へ**閉じ忘れのフェンスだけを持つ別のコメントの塊**を足した写しでも
+ * 同じ四つの判定が保たれることを課す。フェンスの開閉をファイル全文の偶奇で数える実装は、
+ * ここで塊を跨いで状態が漏れ、宣言の側（`site-survey/REQ-3.1`）を無言で落とす。
+ * `isDeclaredCoverageHeader` の走査の起点を `enclosingCommentBlockStart(content, lineStart)`
+ * から `0` へ戻すと、自己検査 63 件のうち本検査 1 件だけが赤くなり、
+ * 「site-survey/REQ-3.1 を取りこぼした」と「site-survey/REQ-6.1 が拾われた」の
+ * 両向きを同時に挙げる（2026-09-01 実測。タスク 115.226）。
+ */
+function checkQuotedHeaderIsNotDetected(): string[] {
+  const failures: string[] = [];
+
+  // 第3原則: 引用の形が一件も登録されていないなら、検査は何も述べていない
+  if (QUOTED_HEADER_FORMS.length === 0) {
+    return ['引用の形が一件も登録されていない（対照群が空。検査が空振りしている）'];
+  }
+
+  const found = extractHeaderScopedCoverage(QUOTED_HEADER_IS_NOT_A_DECLARATION, SELFTEST_FEATURES);
+
+  if (!found.acceptanceCriteria.includes('site-survey/REQ-3.1')) {
+    failures.push(
+      '宣言として置かれたヘッダーの配下 site-survey/REQ-3.1 を取りこぼした' +
+        '（引用を除く規則が正当なヘッダーまで落としている）'
+    );
+  }
+  for (const { label, absent } of QUOTED_HEADER_FORMS) {
+    if (found.acceptanceCriteria.includes(absent)) {
+      failures.push(`${label}で引かれた字面をヘッダーと読んだ（${absent} が被覆印になっている）`);
+    }
+  }
+
+  // 機構: フェンスの開閉はヘッダーが属するコメントの塊の中だけで数える
+  // （`enclosingCommentBlockStart`）。塊の外の閉じ忘れに依らないなら、無関係な塊へ
+  // 閉じ忘れのフェンスを足しても四つの判定は一つも動かない。全文の偶奇で数える実装へ
+  // 戻すと、宣言の側（REQ-3.1）が無言で落ちる——帰属と切れ目の両方から消えるため、
+  // 被覆の過小計上と、切れ目を失った区間の過大帰属が同時に起きる。
+  const unclosedFenceInAnotherBlock = ['/**', ' * ```', ' * 閉じ忘れた見本', ' */', ''].join('\n');
+  const afterUnclosedFence = extractHeaderScopedCoverage(
+    unclosedFenceInAnotherBlock + QUOTED_HEADER_IS_NOT_A_DECLARATION,
+    SELFTEST_FEATURES
+  );
+  if (!afterUnclosedFence.acceptanceCriteria.includes('site-survey/REQ-3.1')) {
+    failures.push(
+      '閉じ忘れのフェンスを別の塊に持つ写しで site-survey/REQ-3.1 を取りこぼした' +
+        '（フェンスの開閉を全文の偶奇で数えている。塊の外の閉じ忘れ一つが以降のヘッダーを' +
+        'すべて落とす）'
+    );
+  }
+  for (const { label, absent } of QUOTED_HEADER_FORMS) {
+    if (afterUnclosedFence.acceptanceCriteria.includes(absent)) {
+      failures.push(
+        `${label}: 閉じ忘れのフェンスを別の塊に持つ写しで ${absent} が拾われた` +
+          '（塊を跨いでフェンスの状態が漏れている）'
+      );
+    }
+  }
+
+  return failures;
+}
+
+/**
+ * 機構: 引用の判定そのものが両向きに働くことを確かめる
+ *
+ * `checkQuotedHeaderIsNotDetected` は抽出の結果を見るため、一覧項目の側の規則
+ * （印の判定・識別子欄の文法）が先に抑えていても緑になりうる。ここは
+ * `isDeclaredCoverageHeader` を直接呼び、資料の中の四つの字面それぞれについて
+ * 宣言か引用かの判定を突き合わせる。判定が一律 true / 一律 false へ退化すれば赤くなる。
+ */
+function checkDeclaredHeaderPredicateIsTwoSided(): string[] {
+  const failures: string[] = [];
+  const content = QUOTED_HEADER_IS_NOT_A_DECLARATION;
+  const occurrences: number[] = [];
+  const pattern = /Requirements\s*(?:coverage\s*)?\(site-survey\):/g;
+  for (const match of content.matchAll(pattern)) {
+    if (match.index !== undefined) occurrences.push(match.index);
+  }
+
+  // 資料は宣言 1 件と引用 3 件を持つ。数が合わなければ資料か規則が変質している
+  if (occurrences.length !== 4) {
+    return [`資料の中のヘッダーの字面が 4 件でなく ${occurrences.length} 件（資料が変質している）`];
+  }
+
+  const verdicts = occurrences.map((index) => isDeclaredCoverageHeader(content, index));
+  const expected = [true, false, false, false];
+  for (let index = 0; index < expected.length; index++) {
+    if (verdicts[index] !== expected[index]) {
+      const line = content.slice(0, occurrences[index]).split('\n').length;
+      failures.push(
+        `資料の ${line} 行目の字面の判定が ${verdicts[index]} である（期待は ${expected[index]}）`
+      );
+    }
+  }
+  return failures;
+}
+
 // ============================================================================
 // 合成対照の陰性側が空振りしていないことの機構（タスク 115.224）
 // ============================================================================
@@ -2479,8 +2629,12 @@ function checkRealLetteredRequirementMarkExists(): string[] {
  * - `shape`: 一覧の印（`findListItemMarker`）か識別子欄の文法
  *   （`parseHeaderListItemIds`）が抑えている。位置を最も緩くしても拾われてはならない。
  *   拾われるなら、抑えていたのは位置であって主張が誤っている。
+ * - `quotation`: ヘッダーの字面が引用であって宣言でない（`isDeclaredCoverageHeader`）ため、
+ *   そもそも区間が始まらない。区間が無いので `boundary` の探索（位置を緩める写し）は
+ *   意味を成さず、代わりに **引用を解いた写し**（`unquote`）で番号が現れることを課す。
+ *   現れないなら、抑えていたのは引用ではなく別の規則であり主張が誤っている（タスク 115.226）。
  */
-type NegativeControlSuppressor = 'boundary' | 'shape';
+type NegativeControlSuppressor = 'boundary' | 'shape' | 'quotation';
 
 /** 陰性対照の一件（資料 × 拾われてはならない番号を運ぶ一行） */
 interface SyntheticNegativeControl {
@@ -2500,6 +2654,13 @@ interface SyntheticNegativeControl {
   absentRequirements?: readonly string[];
   /** 何が抑えていると述べるか */
   suppressedBy: NegativeControlSuppressor;
+  /**
+   * 引用を解く逐語の置換（`suppressedBy: 'quotation'` の件だけが持つ）
+   *
+   * `from` は資料に**ちょうど一度**現れねばならない。二度以上現れる置換は、どの引用を
+   * 解いたのかが定まらず、対照の主張が曖昧になる。
+   */
+  unquote?: { from: string; to: string };
 }
 
 /**
@@ -2697,6 +2858,45 @@ const SYNTHETIC_NEGATIVE_CONTROLS: readonly SyntheticNegativeControl[] = [
     absentCriteria: ['user-authentication/REQ-17.1', 'user-authentication/REQ-18.1'],
     suppressedBy: 'shape',
   },
+  {
+    fixtureName: 'QUOTED_HEADER_IS_NOT_A_DECLARATION',
+    fixture: QUOTED_HEADER_IS_NOT_A_DECLARATION,
+    features: SELFTEST_FEATURES,
+    header: ' * 従前はこの記述を `Requirements (site-survey):` の見出しの下に置いていた。',
+    carrier: ' * - REQ-4.1: 散文の途中に引用された字面の配下（拾われてはならない）',
+    absentCriteria: ['site-survey/REQ-4.1'],
+    suppressedBy: 'quotation',
+    unquote: {
+      from: ' * 従前はこの記述を `Requirements (site-survey):` の見出しの下に置いていた。',
+      to: ' * Requirements (site-survey):',
+    },
+  },
+  {
+    fixtureName: 'QUOTED_HEADER_IS_NOT_A_DECLARATION',
+    fixture: QUOTED_HEADER_IS_NOT_A_DECLARATION,
+    features: SELFTEST_FEATURES,
+    header: ' * `Requirements coverage (site-survey):`',
+    carrier: ' * - REQ-5.1: 行頭に引用された字面の配下（拾われてはならない）',
+    absentCriteria: ['site-survey/REQ-5.1'],
+    suppressedBy: 'quotation',
+    unquote: {
+      from: ' * `Requirements coverage (site-survey):`',
+      to: ' * Requirements coverage (site-survey):',
+    },
+  },
+  {
+    fixtureName: 'QUOTED_HEADER_IS_NOT_A_DECLARATION',
+    fixture: QUOTED_HEADER_IS_NOT_A_DECLARATION,
+    features: SELFTEST_FEATURES,
+    header: ' * ```\n * Requirements (site-survey):',
+    carrier: ' * - REQ-6.1: コードフェンスで囲った見本の配下（拾われてはならない）',
+    absentCriteria: ['site-survey/REQ-6.1'],
+    suppressedBy: 'quotation',
+    unquote: {
+      from: ' * ```\n * Requirements (site-survey):',
+      to: ' * Requirements (site-survey):',
+    },
+  },
 ];
 
 /**
@@ -2736,13 +2936,15 @@ function relocateCarrierUnderHeader(control: SyntheticNegativeControl): string {
  * 位置ではなく形であり、上限を外しても対照は赤くならない）。
  * `shape` と述べた件は写しでも**現れてはならない**（現れるなら、抑えていたのは位置である）。
  *
- * 2026-09-01 に実測した。登録は 20 件（資料 12 件）である。
+ * 2026-09-01 に実測した。登録は 23 件（資料 13 件）である。
  * `HEADER_OF_UNLISTED_FEATURE` の一覧項目を ` * Note: REQ-7.7 は…` の散文へ書き換えると、
  * 対をなす `checkUnlistedFeatureHeaderStillEndsSection` は**緑のまま**で、
- * 自己検査 61 件のうち本検査 1 件だけが赤くなる（115.224 が述べた空振りそのものである）。
- * `suppressedBy` を取り違える変異も両向きで赤くなる——`site-survey/REQ-8.3` の件を
- * `boundary` へ、`site-survey/REQ-4.2` の件を `shape` へ変えると、いずれも 1 件が落ちる。
- * 本体から規則4（段落の切れ目）を外すと 61 件のうち 4 件が赤くなり、本検査もその一つである。
+ * 自己検査 63 件のうち本検査 1 件だけが赤くなる（115.224 が述べた空振りそのものである）。
+ * `suppressedBy` を取り違える変異も三種のいずれの向きでも赤くなる——`site-survey/REQ-8.3` の件を
+ * `boundary` へ、`site-survey/REQ-4.2` の件を `shape` へ、`site-survey/REQ-4.1` の件を
+ * `shape` へ、`user-authentication/REQ-17.1` の件を `quotation` へ変えると、
+ * いずれも 1 件が落ちる（末尾の二つは 2026-09-01 に実測。タスク 115.226）。
+ * 本体から規則4（段落の切れ目）を外すと 63 件のうち 5 件が赤くなり、本検査もその一つである。
  */
 function checkSyntheticNegativeControlsAreNotVacuous(): string[] {
   const failures: string[] = [];
@@ -2783,6 +2985,38 @@ function checkSyntheticNegativeControlsAreNotVacuous(): string[] {
       }
     }
 
+    // 引用が抑えている件は、区間が始まらないため位置を緩める写しが意味を成さない。
+    // 引用を解いた写しで番号が現れることを課す（現れなければ抑えていたのは引用ではない）
+    if (control.suppressedBy === 'quotation') {
+      const unquote = control.unquote;
+      if (!unquote) {
+        failures.push(`${at}: 引用を解く置換が登録されていない（対照の主張を確かめられない）`);
+        continue;
+      }
+      if (control.fixture.split(unquote.from).length !== 2) {
+        failures.push(`${at}: 引用を解く置換の元が資料にちょうど一度現れない（登録が曖昧）`);
+        continue;
+      }
+      const unquoted = extractHeaderScopedCoverage(
+        control.fixture.replace(unquote.from, unquote.to),
+        control.features
+      );
+      for (const id of criteria) {
+        if (!unquoted.acceptanceCriteria.includes(id)) {
+          failures.push(
+            `${at}: 引用を解いても ${id} が現れない（対照が空振りしている。` +
+              '抑えていたのは引用ではなく一覧項目の形か区間の上限である）'
+          );
+        }
+      }
+      for (const id of requirements) {
+        if (!unquoted.requirements.includes(id)) {
+          failures.push(`${at}: 引用を解いても ${id} が現れない（対照が空振りしている）`);
+        }
+      }
+      continue;
+    }
+
     const probe = relocateCarrierUnderHeader(control);
     const headerIndex = probe.indexOf('Requirements');
     if (headerIndex < 0) {
@@ -2792,6 +3026,15 @@ function checkSyntheticNegativeControlsAreNotVacuous(): string[] {
     // 写しに上限が残っていると「位置を最も緩くした」と言えない
     if (resolveHeaderSectionEnd(probe, headerIndex, null) !== probe.length) {
       failures.push(`${at}: 探索用の写しに区間の上限が残っている（位置を緩められていない）`);
+      continue;
+    }
+    // ヘッダーが宣言と認められなければ区間が始まらず、写しは何も測らない。
+    // `quotation` の件を `boundary` / `shape` と取り違えて登録すると必ずここで落ちる
+    if (!isDeclaredCoverageHeader(probe, headerIndex)) {
+      failures.push(
+        `${at}: 探索用の写しのヘッダーが宣言と認められない（引用された字面である。` +
+          '抑えているのは位置でも形でもないため `quotation` へ分類すること）'
+      );
       continue;
     }
 
@@ -2831,7 +3074,7 @@ function checkSyntheticNegativeControlsAreNotVacuous(): string[] {
  * 拾うのは**ファイル直下に置かれた** `const NAME = [ … ].join('\n');` の形だけである。
  * 関数の中で組み立てる資料は拾えない——これは本検査の限界であり、報告ではなくここへ書き残す。
  * 区間判定と一覧項目の合成対照（`extractHeaderScopedCoverage` へ渡す資料）は
- * 2026-09-01 の実測で 15 件すべてがこの形であり、限界に当たる資料は零件である。
+ * 2026-09-01 の実測で 16 件すべてがこの形であり、限界に当たる資料は零件である。
  */
 function collectTopLevelFixtureNames(source: string): string[] {
   const names: string[] = [];
@@ -2856,9 +3099,9 @@ function collectTopLevelFixtureNames(source: string): string[] {
  * 115.224 と同じ空振りのまま静かに増える。ここで本自己検査の本文を走査し、
  * `SYNTHETIC_NEGATIVE_CONTROLS` にも `POSITIVE_ONLY_FIXTURES` にも無い資料を失格にする。
  *
- * 2026-09-01 に実測した。走査は資料 15 件を数え、うち 12 件が陰性側、3 件が陽性のみである。
+ * 2026-09-01 に実測した。走査は資料 16 件を数え、うち 13 件が陰性側、3 件が陽性のみである。
  * `SELFTEST_FEATURES` のような資料でない定数は `].join('\n');` の形を持たないため拾わない。
- * `SYNTHETIC_NEGATIVE_CONTROLS` を空にすると未分類 12 件を挙げて赤くなり、走査の正規表現を
+ * `SYNTHETIC_NEGATIVE_CONTROLS` を空にすると未分類 13 件を挙げて赤くなり、走査の正規表現を
  * `= \[` から `= \{` へ変えると「一件も数えられない」で赤くなる（いずれも実測）。
  *
  * **見ているのは資料の粒度であって行の粒度ではない。** 既に登録済みの資料へ陰性の主張を
@@ -4264,6 +4507,14 @@ const GROUPS: Array<{ title: string; cases: Case[] }> = [
       {
         name: '実データに枝つき要件番号の被覆印が実在し拾われている',
         run: checkRealLetteredRequirementMarkExists,
+      },
+      {
+        name: '引用された字面をヘッダーと読まず、宣言されたヘッダーは落とさない',
+        run: checkQuotedHeaderIsNotDetected,
+      },
+      {
+        name: '宣言か引用かの判定が両向きに働く（一律の退化を検出）',
+        run: checkDeclaredHeaderPredicateIsTwoSided,
       },
     ],
   },
