@@ -939,6 +939,42 @@ echo "✅ Design document path reference check passed"
 echo ""
 
 # ============================================================================
+# 設計文書の実測値の鮮度チェック
+# ============================================================================
+# 設計文書が引く件数が現況と一致しない状態を検知する（タスク 115.232）
+# - check:design-refs は参照の形式、check:design-path-refs はパスの実在しか見ないため、
+#   本書が引く「N 件」が古くなっても、どの関門にも掛からなかった
+# - scripts/design-measurements.json が {file, anchor, command, expected} を宣言し、
+#   リポジトリルートで各コマンドを走らせて突き合わせる
+# - 宣言と現況の一致だけでなく、宣言した字面が文書の当該行に在ることも見る（双方向）
+# - 実行時間は約 1.2 秒（2026-09-02 に実測。自己検査は約 2.2 秒。いずれも npm 経由で計測）
+# ============================================================================
+
+echo "🔍 Checking design document measurement freshness..."
+npm run check:design-measurement-freshness:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Design measurement freshness detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:design-measurement-freshness:selftest"
+  exit 1
+fi
+npm run check:design-measurement-freshness
+if [ $? -ne 0 ]; then
+  echo "❌ Design document measurement freshness check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 現況が動いたなら、設計文書の数値と宣言の expected を同時に測り直してください"
+  echo "  2. 文書側だけが古いなら documentFigure と divergence を宣言してください"
+  echo "     （DECLARED_STALE_DOCUMENT_FIGURES も同時に動かすこと）"
+  echo ""
+  echo "詳細確認: npm run check:design-measurement-freshness:verbose"
+  exit 1
+fi
+
+echo "✅ Design document measurement freshness check passed"
+echo ""
+
+# ============================================================================
 # steering の実在参照チェック
 # ============================================================================
 # steering が現存物として挙げるファイルが実在しない状態を検知する

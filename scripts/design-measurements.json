@@ -1,0 +1,284 @@
+{
+  "$comment": [
+    "設計文書が引く実測値の鮮度を機械で見るための宣言（タスク 115.232）。",
+    "書式・意味・限界の説明はすべて scripts/check-design-measurement-freshness.ts の注釈にある。",
+    "設計文書へ説明を書き足すと、設計文書が自分自身を数える値が動いて再発サイクルが再起動するため、",
+    "説明は検査本体の側に置く（タスク 115.212 / 115.213 が三度と一度差し戻された形）。"
+  ],
+  "entries": [
+    {
+      "id": "design-documents-scanned",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "配下の設計文書 13 ファイルである",
+      "command": "ls .kiro/specs/*/design.md | wc -l",
+      "expected": "13",
+      "documentRendering": "設計文書 13 ファイル",
+      "note": "未起票の提案の走査が対象とする設計文書の数"
+    },
+    {
+      "id": "nonexistent-paths-by-git-index",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "を権威にすると非実在は",
+      "command": "grep -oE \"$(printf '\\140')[A-Za-z0-9_.@-]+(/[A-Za-z0-9_.@-]+)+/?$(printf '\\140')\" .kiro/specs/site-survey/design.md | tr -d \"$(printf '\\140')\" | sed 's:/$::' | sort -u | awk -F/ 'NR==FNR{f[$0]=1;n=split($0,a,\"/\");p=\"\";for(i=1;i<n;i++){p=(i==1?a[1]:p\"/\"a[i]);d[p]=1}top[a[1]]=1;next} ($1 in top)&&!($0 in f)&&!($0 in d)' <(git ls-files) - | wc -l",
+      "expected": "16",
+      "documentRendering": "権威にすると非実在は **16 件**",
+      "note": "版管理の一覧を実在の権威にした非実在パスの数。実ディスクを権威にする対の値は作業ツリーの状態に依存するため宣言しない（本体注釈の「宣言に入れなかった値」を見よ）"
+    },
+    {
+      "id": "requirement-exclusions-total",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**現況は除外 205 件、うち現場調査スペックの項目 33 件である**",
+      "command": "node -e \"console.log(require('./e2e/requirement-exclusions.json').exclusions.length)\"",
+      "expected": "205",
+      "documentRendering": "現況は除外 205 件",
+      "note": "除外一覧の全件。同じ行が持つ 261 件は 115.121 が監査した当時の母集団の記録であり書き換えない"
+    },
+    {
+      "id": "requirement-exclusions-site-survey",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**現況は除外 205 件、うち現場調査スペックの項目 33 件である**",
+      "command": "node -e \"console.log(require('./e2e/requirement-exclusions.json').exclusions.filter(e=>e.id.startsWith('site-survey/')).length)\"",
+      "expected": "33",
+      "documentRendering": "現場調査スペックの項目 33 件である",
+      "note": "除外一覧のうち現場調査スペックの項目"
+    },
+    {
+      "id": "network-status-indicator-production-refs",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "現在の本番参照は **3 件**である",
+      "command": "grep -rln \"NetworkStatusIndicator\" frontend/src --include=*.ts --include=*.tsx | grep -v __tests__ | grep -v '\\.test\\.' | grep -v '\\.stories\\.' | grep -v 'NetworkStatusIndicator.tsx' | wc -l",
+      "expected": "3",
+      "documentRendering": "**3 件**",
+      "note": "要件15.6 の結線（タスク 115.105）が生きていること"
+    },
+    {
+      "id": "export-annotation-json-production-refs",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "現在の本番参照は **1 件**である",
+      "command": "grep -rln \"exportAnnotationJson\" frontend/src --include=*.ts --include=*.tsx | grep -v __tests__ | grep -v '\\.test\\.' | grep -v '\\.stories\\.' | grep -v 'survey-annotations.ts' | wc -l",
+      "expected": "1",
+      "documentRendering": "**1 件**",
+      "note": "要件9.6 の結線（コミット 1c308a8）が生きていること"
+    },
+    {
+      "id": "traceability-table-headers",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "が返す 7 箇所を表頭とし",
+      "command": "grep -cE '^\\| *Requirement \\| *Summary \\| *Components \\|' .kiro/specs/site-survey/design.md || test $? -eq 1",
+      "expected": "7",
+      "note": "本書の追跡表の数。表を増減させると動く"
+    },
+    {
+      "id": "mislabeled-self-report-rows",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "上表の**10 件**",
+      "command": "awk '/^\\*\\*\\(2\\) 自己申告の番号が誤っている件/,/^要件12 系の/' .kiro/specs/site-survey/design.md | grep -c '^| `' || test $? -eq 1",
+      "expected": "10",
+      "documentRendering": "上表の**10 件**",
+      "note": "自己申告の番号が誤っている表の行数"
+    },
+    {
+      "id": "unowned-contradiction-columns",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "の再実測は `0` である",
+      "command": "grep -cE '^\\|.*担当なし' .kiro/specs/site-survey/design.md || test $? -eq 1",
+      "expected": "0",
+      "note": "ImageViewer の撤去で解消した矛盾の欄。当時の値 2 は同じ節に記録として残る"
+    },
+    {
+      "id": "component-summary-sections",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "^#{3,4} Component Summary",
+      "command": "grep -cE '^#{3,4} Component Summary' .kiro/specs/site-survey/design.md || test $? -eq 1",
+      "expected": "3",
+      "documentRendering": "の出力が `3`",
+      "note": "本書が持つ Component Summary の節の数"
+    },
+    {
+      "id": "sharp-in-survey-image-service",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "は 0 件。`sharp` を保持するのは",
+      "command": "grep -ci sharp backend/src/services/survey-image.service.ts || test $? -eq 1",
+      "expected": "0",
+      "documentRendering": "は 0 件",
+      "note": "SurveyImageService が Sharp を保持しないこと"
+    },
+    {
+      "id": "new-survey-image-service-sites",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "での生成は `new SurveyImageService` の1箇所だけである",
+      "command": "grep -c \"new SurveyImageService\" backend/src/routes/survey-images.routes.ts || test $? -eq 1",
+      "expected": "1",
+      "documentRendering": "の出力が `1`",
+      "note": "生成箇所が一つであること"
+    },
+    {
+      "id": "multer-file-filter",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "grep -c fileFilter backend/src/routes/survey-images.routes.ts",
+      "command": "grep -c fileFilter backend/src/routes/survey-images.routes.ts || test $? -eq 1",
+      "expected": "0",
+      "documentRendering": "の出力が `0`",
+      "note": "multer 構成が fileFilter を持たないこと"
+    },
+    {
+      "id": "r2-request-emitters",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "R2へ要求を出す送出元を含むファイルは **8件**",
+      "command": "grep -rlnE 'storageProvider\\.(upload|delete)|PutObjectCommand|DeleteObjectCommand' backend/src --include=*.ts | grep -v __tests__ | wc -l",
+      "expected": "8",
+      "documentRendering": "**8件**",
+      "note": "R2 へ要求を出す送出元を含む本番ファイルの数"
+    },
+    {
+      "id": "white-outline-literals-in-tools",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "実測の出力は 9 件である",
+      "command": "grep -rn \"#ffffff\" frontend/src/components/site-surveys/tools/ | wc -l",
+      "expected": "9",
+      "documentRendering": "実測の出力は 9 件",
+      "note": "白アウトラインの literal の走査（その1）"
+    },
+    {
+      "id": "white-literals-in-site-surveys",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "再実測では出力は 94 件であり",
+      "command": "grep -rniE \"#fff([^f]|$)|#FFFFFF|white\" frontend/src/components/site-surveys/ | wc -l",
+      "expected": "94",
+      "note": "白系 literal の走査（その2）の現況。同じ行が持つ 105 件は 115.150 時点の母集団の記録であり書き換えない"
+    },
+    {
+      "id": "resolve-restored-stroke-width-call-sites",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "全域を走査した結果",
+      "command": "grep -rn \"resolveRestoredStrokeWidth\" frontend/src --include=*.ts --include=*.tsx | grep -v __tests__ | grep -vE \"^[^:]+:[0-9]+: *(//|\\*|/\\*)\" | grep -vE \"(import |export (const|function))\" | wc -l",
+      "expected": "6",
+      "documentRendering": "**6 箇所**",
+      "note": "文書が数える適用先。文書側は grep 出力から宣言・import・コメント行を人手で差し引いた数として書かれているが、その差し引きは grep -vE の 2 段で再現でき、残る 6 行は文書が列挙する 6 箇所（AnnotationEditor.tsx / AnnotatedImageThumbnail.tsx / QuantityTableEditPage.tsx / AnnotationRendererService.ts × 3）と一致する（2026-09-01 に実測）"
+    },
+    {
+      "id": "storage-provider-calls-in-survey-image-service",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "1. `grep -cE 'storageProvider",
+      "command": "grep -cE 'storageProvider\\.(upload|delete)|PutObjectCommand|DeleteObjectCommand' backend/src/services/survey-image.service.ts || test $? -eq 1",
+      "expected": "0",
+      "note": "未起票の提案の台帳 #1 の再現コマンド"
+    },
+    {
+      "id": "survey-image-service-in-annotated-thumbnail",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "2. `grep -c SurveyImageService backend/src/services/annotated-thumbnail.service.ts`",
+      "command": "grep -c SurveyImageService backend/src/services/annotated-thumbnail.service.ts || test $? -eq 1",
+      "expected": "0",
+      "note": "未起票の提案の台帳 #2 の再現コマンド"
+    },
+    {
+      "id": "survey-image-service-in-image-metadata",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "3. `grep -c SurveyImageService backend/src/services/image-metadata.service.ts`",
+      "command": "grep -c SurveyImageService backend/src/services/image-metadata.service.ts || test $? -eq 1",
+      "expected": "0",
+      "note": "未起票の提案の台帳 #3 の再現コマンド"
+    },
+    {
+      "id": "survey-image-service-test-describes",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "backend/src/__tests__/unit/services/survey-image.service.test.ts | wc -l` の出力が `13`",
+      "command": "grep -oE \"^  describe\\('[^']*'\" backend/src/__tests__/unit/services/survey-image.service.test.ts | wc -l",
+      "expected": "13",
+      "documentRendering": "の出力が `13`",
+      "note": "未起票の提案の台帳 #4 の再現コマンド"
+    },
+    {
+      "id": "jest-alternative-verification-exclusions",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "5. `node -e \"const j=require",
+      "command": "node -e \"const j=require('./e2e/requirement-exclusions.json');const k=j.exclusions.filter(e=>/Jest/.test(e.alternativeVerification.tool));console.log(k.length, k.filter(e=>e.id.startsWith('site-survey/')).length)\"",
+      "expected": "64 0",
+      "note": "未起票の提案の台帳 #7 の再現コマンド。数字二つを空白で連ねた出力"
+    },
+    {
+      "id": "image-order-display-order-writes",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "6. `grep -c 'data: { displayOrder'",
+      "command": "grep -c 'data: { displayOrder' backend/src/services/image-order.service.ts || test $? -eq 1",
+      "expected": "1",
+      "documentRendering": "の出力が `1`（順序の書き込み）",
+      "note": "未起票の提案の台帳 #8 の再現コマンド（順序の書き込み）"
+    },
+    {
+      "id": "image-list-fixed-order-reads",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "6. `grep -c 'data: { displayOrder'",
+      "command": "grep -c 'orderBy: SURVEY_IMAGE_ORDER_BY' backend/src/services/image-list.service.ts || test $? -eq 1",
+      "expected": "1",
+      "documentRendering": "の出力が `1`（固定順序での読み出し）",
+      "note": "未起票の提案の台帳 #8 の再現コマンド（固定順序での読み出し）"
+    },
+    {
+      "id": "unticketed-proposal-net-b",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "現場調査スペック以外で 5 件が挙がる",
+      "command": "grep -rnE 'すべきである|を検討する|要検討|TODO|今後の課題|将来的に|望ましい' .kiro/specs/*/design.md | grep -v 'site-survey' | wc -l",
+      "expected": "5",
+      "documentRendering": "5 件が挙がる",
+      "note": "未起票の提案の人手走査 網B"
+    },
+    {
+      "id": "self-reference-emphasised-net",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "タスク 115.213 の提出時点の再実測は 80 件と 233 件",
+      "command": "grep -cE '出力(が|は)|\\*\\*[0-9]+ *件' .kiro/specs/site-survey/design.md || test $? -eq 1",
+      "expected": "81",
+      "documentFigure": "80",
+      "documentRendering": "再実測は 80 件",
+      "divergence": {
+        "kind": "stale",
+        "reason": "115.213 の提出後に本書を編集したタスクが四値を測り直さなかったため、文書側が 1 件古い。本タスクは関門を置くところまでを境界とし、文書側の書き換えは行わない（書き足しが四値を再び動かす形を避ける）"
+      },
+      "note": "自己言及の四値 (1)。強調記号を課す網"
+    },
+    {
+      "id": "self-reference-plain-net",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "タスク 115.213 の提出時点の再実測は 80 件と 233 件",
+      "command": "grep -cE '出力(が|は)|[0-9]+ *件' .kiro/specs/site-survey/design.md || test $? -eq 1",
+      "expected": "240",
+      "documentFigure": "233",
+      "documentRendering": "80 件と 233 件",
+      "divergence": {
+        "kind": "stale",
+        "reason": "同上。115.213 の提出後の編集で 7 件増えている"
+      },
+      "note": "自己言及の四値 (2)。強調記号を課さない網"
+    },
+    {
+      "id": "self-reference-command-bearing-lines",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "タスク 115.213 の提出時点の再実測は 81 件",
+      "command": "grep -nE '出力(が|は)|[0-9]+ *件' .kiro/specs/site-survey/design.md | grep -cE '`(grep|node|awk|sed|git|npm|npx|ls|find|wc|test|cat|tr|sort)[^`]*`' || test $? -eq 1",
+      "expected": "84",
+      "documentFigure": "81",
+      "documentRendering": "再実測は 81 件",
+      "divergence": {
+        "kind": "stale",
+        "reason": "同上。115.213 の提出後の編集で 3 件増えている"
+      },
+      "note": "自己言及の四値 (3)。再現コマンドを同じ行に持つ行"
+    },
+    {
+      "id": "self-reference-undated-residue",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "タスク 115.213 の提出時点の再実測は 184 件である",
+      "command": "grep -nE '出力(が|は)|[0-9]+ *件' .kiro/specs/site-survey/design.md | grep -vE '20[0-9]{2}-[0-9]{2}-[0-9]{2}' | wc -l",
+      "expected": "188",
+      "documentFigure": "184",
+      "documentRendering": "再実測は 184 件",
+      "divergence": {
+        "kind": "stale",
+        "reason": "同上。115.213 の提出後の編集で 4 件増えている"
+      },
+      "note": "自己言及の四値 (4)。実測日を持たない残余"
+    }
+  ]
+}
