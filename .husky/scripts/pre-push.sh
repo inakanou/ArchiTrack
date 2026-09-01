@@ -830,6 +830,46 @@ echo "✅ Design reference format check passed"
 echo ""
 
 # ============================================================================
+# 追跡表の受入基準の網羅チェック（タスク 115.228）
+# ============================================================================
+# 設計文書の Requirements Traceability 表が、要件定義書の受入基準を取りこぼしていないかを見る
+# - タスク 115.208 が site-survey の要件4 へ受入基準14 を新設したとき、追跡表の該当行は
+#   `4.1-4.6, 4.9` のままで 4.14 を含まなかった。この漏れは既存のどの検査にも掛からなかった
+#   （check:design-refs は参照の形式、check:design-path-refs はパスの実在しか見ない）
+# - 判定は「機能ごとに宣言した状態から悪化していないこと」（scripts の FEATURE_POLICIES）
+# - 受入基準を新設したのに追跡表へ番号を足していない場合に落ちる
+# - 検出器が壊れたまま「合格」を出すことを防ぐため、本検査の前に自己検査を走らせる
+# ============================================================================
+
+echo "🔍 Checking traceability table coverage self-test..."
+npm run check:trace-coverage:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Traceability coverage detector self-test failed. Push aborted."
+  echo ""
+  echo "   追跡表の網羅の検出規則そのものが壊れています。この状態では判定は信用できません。"
+  echo "   固定資料: scripts/check-traceability-coverage.selftest.ts"
+  echo ""
+  exit 1
+fi
+npm run check:trace-coverage
+if [ $? -ne 0 ]; then
+  echo "❌ Traceability table coverage check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 受入基準を新設したなら design.md の追跡表の Requirement 列へ番号を加えてください"
+  echo "     （併合行なら \`4.1-4.6, 4.9, 4.14\` のように列へ足せば行数は動きません）"
+  echo "  2. 受入基準を撤廃したなら追跡表の側の番号も落としてください"
+  echo "  3. 行を起こせない事情があるなら scripts/check-traceability-coverage.ts の"
+  echo "     FEATURE_POLICIES へ理由と併せて宣言してください"
+  echo ""
+  echo "詳細確認: npm run check:trace-coverage:verbose"
+  exit 1
+fi
+
+echo "✅ Traceability table coverage check passed"
+echo ""
+
+# ============================================================================
 # 本番コードへの行番号参照チェック（上のチェックの対偶）
 # ============================================================================
 # 設計文書が本番コードを `パス:行` で指す形の再発を検知する

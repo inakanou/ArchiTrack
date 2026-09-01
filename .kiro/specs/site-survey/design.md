@@ -1103,7 +1103,7 @@ sequenceDiagram
 | **2.11** | **一覧画面タイトルを「現場調査一覧」に変更** | **SiteSurveyListPage** | - | - |
 | **2.12** | **画像プレビュー画面から「← 現場調査に戻る」リンクを削除** | **SiteSurveyImageViewerPage** | - | - |
 | 3.1-3.5 | 一覧・検索 | SiteSurveyListPage, SiteSurveyService, SiteSurveyListCard, SiteSurveyListTable | SurveyListAPI | - |
-| 4.1-4.6, 4.9 | 画像アップロード・管理 | ImageUploadService (4.1), BatchUploadService (4.2, 4.3), ImageProcessorService (4.4, 4.6), SurveyImageService (4.5, 4.9), ImageUploader | ImageAPI | アップロードフロー |
+| 4.1-4.6, 4.9, 4.14 | 画像アップロード・管理 | ImageUploadService (4.1), BatchUploadService (4.2, 4.3), ImageProcessorService (4.4, 4.6, 4.14), SurveyImageService (4.5, 4.9), ImageUploader | ImageAPI | アップロードフロー |
 | **4.7** | **画像削除** | **ImageDeleteService, PhotoManagementPanel** | **ImageDeleteAPI** | **画像削除フロー** |
 | **4.8** | **R2孤立ファイル処理** | **ImageDeleteService** | **R2 Lifecycle Rule** | **R2孤立ファイル処理フロー** |
 | **4.10** | **画像一覧の固定表示順序** | **PhotoManagementPanel, SiteSurveyDetailPage** | **ImageAPI** | - |
@@ -1276,6 +1276,49 @@ sequenceDiagram
   2. **`### Component Summary` の `~~ImageViewer~~（未結線）` 行（Req Coverage 欄）** — 弱い矛盾。当該欄は「**担当なし**（要件5 の担当は上記へ付け替え済み。タスク 115.83）」と記す。括弧の但し書きは付け替えの対象を要件5 に限っているが、欄の断定は「担当なし」であり、字面が食い違う。**後続タスクの提案**: 当該行の Req Coverage 欄を「12.1（要件5 の担当は 115.83 で付け替え済み）」の形へ改めるタスクを別途起票すること
 
   **追記（タスク 115.146）**: 上記2箇所の矛盾は、`ImageViewer` の撤去により解消した。「未結線部品の扱い」の当該行は表から落とし（撤去の経緯は同節の追記に記録）、`### Component Summary` の行は「撤去済み」へ改めた。あわせて要件12.1-12.5 の追跡表の担当を、実際に `ImageExportDialog` を描画している `AnnotationEditor` へ改めた（本書 `#### ImageExportDialog` の Inbound 記述と一致する）。したがって上の実測値（`grep -cE '^\|.*担当なし'` の出力が `2`）は当時の値であり、現在は当該2欄とも存在しない（**同コマンドの 2026-08-31 の再実測は `0` である**）。**上の記録は当時の判断の記録として書き換えず残す。**
+
+### 追跡表の受入基準の網羅（タスク 115.228）
+
+タスク 115.208 は要件4 へ**受入基準14** を新設したが、`## Requirements Traceability` の該当行は `| 4.1-4.6, 4.9 |` のままで **4.14 を含んでいなかった**。本節はその是正と、同型の漏れを機械で捕まえられるかの判定を記録する。
+
+#### 是正の内容
+
+当該行の Requirement 列を `4.1-4.6, 4.9, 4.14` へ、Components 列の `ImageProcessorService (4.4, 4.6)` を `ImageProcessorService (4.4, 4.6, 4.14)` へ改めた。**行は分割していない。**
+
+- **なぜ行を起こさないか**: 受入基準14 は受入基準6（「350KB以下に収まった時点で圧縮を打ち切って登録する」）の補集合——収まらなかった場合——を同じ文型で定めるものであり、**受入基準6 と同じ担い手** `ImageProcessorService` が担う。同じ表の中で、受入基準6 は登録まで述べていながら `ImageProcessorService` だけを挙げている。**表自身のこの前例に合わせた。**
+- **行数は動かない**: `### 部品の自己申告と追跡表の突き合わせ（タスク 115.113）` が定める再現手順（表頭7箇所の2行下から `|` で始まらない行の直前まで）で数え直した出力は、是正の前後とも `166` である（2026-09-01 にリポジトリルートで実測）。
+- **要件4 の後追いの受入基準が個別行を持つこと（4.7・4.8・4.10〜4.13）は、行を起こす義務を課さない**——それらはいずれも `ImageUploadService` / `BatchUploadService` / `ImageProcessorService` / `SurveyImageService` のどれとも異なる担い手（`ImageDeleteService` / `PhotoManagementPanel`）を持つ。4.14 は担い手が既存行の中に在る点で異なる。
+
+#### 「追跡表が受入基準を漏らしていない」は機械で検査できるか——**できる**
+
+タスク 115.197 の作法により、「走査して漏れが無いことを示せ」は終端しない受入条件である。そこで問うべきは**有限集合上の全称命題として書けるか**であり、書ける。
+
+- **有限集合**: 各機能の `requirements.md` が挙げる**現役の**受入基準（取り消し線で撤廃されたものは分母外）。抽出規則は `scripts/requirement-document.ts` の `scanRequirementsDocument` が一元的に持つ。
+- **述語**: その番号が、同じ機能の `design.md` の追跡表いずれかの Requirement 列に（範囲と列挙を展開したうえで）現れること。
+- **終端性**: 受入基準の数 × 追跡表の本文行の数の有限の照合である。
+
+**述語は今日成立していない。** `npm run check:trace-coverage` の要約行の実測は「機能 13 件 / 追跡表の本文行 856 行 / 現役の受入基準 2889 件 / 欠落 641 件 / 死語 55 件 / 読めない表記 25 件」である（2026-09-01 にリポジトリルートで実測）。**したがって「4.14 を足したので追跡表は完全になった」とは書けない。**
+
+#### 本機能に残る 24 件の欠落と 1 件の死語（4.14 の是正後の実測）
+
+再現は `npx tsx scripts/check-traceability-coverage.ts --survey` の `site-survey` の行である（2026-09-01 にリポジトリルートで実測）。
+
+| 区分 | 件数 | 内訳 | なぜ本タスクで是正しないか |
+|---|---|---|---|
+| 併合行からの脱落 | 2 | 要件1 の行が `1.1-1.6` で 1.7 を含まない / 要件11 の行が `11.1-11.8` で 11.9 を含まない | 担い手が既存行の中に在るかを確かめていない。4.14 のように「同じ担い手の補集合」と言える根拠を実装で測る必要がある |
+| 行そのものが無い要件 | 22 | 要件17（描画ツール使用中のオブジェクト選択防止。6 件）/ 要件19（画像アップロードバリデーション修正とエラー通知改善。16 件） | 行を起こすには Components / Interfaces / Flows 列の確定を要する。**それは「追跡表と受入基準の対応」ではなく設計内容の決定であり、本タスクの境界の外にある** |
+| 死語 | 1 | 総合追跡表に `**2.1**` の行が残るが、要件2.1 は project-management/Requirement 24 AC 1 へ移り取り消し線で潰されている | 行を撤去するか移管先を注記するかの判断が二つの機能にまたがる |
+
+**これらは無記録では残さない。** `scripts/check-traceability-coverage.ts` の `FEATURE_POLICIES` が `site-survey` を `mode: 'exact'` として宣言し、上の 24 件と 1 件を理由付きで列挙する。**新たな漏れが増えれば赤くなり、宣言した漏れが解消されたのに宣言が残っていても赤くなる**（双方向）。
+
+#### 機械の関門（タスク 115.228 が新設）
+
+- **検査**: `npm run check:trace-coverage`（自己検査は `npm run check:trace-coverage:selftest`、実測値の印字は `npm run check:trace-coverage:survey`）。押下前の関門に算入した。
+- **なぜ既存の検査では捕まらなかったか**: `check:design-refs` は参照の**形式**（行番号で指していないか）、`check:design-code-refs` はその対偶、`check:design-path-refs` はパスの**実在**しか見ない。**追跡表の網羅を見る検査は存在しなかった。**
+- **見ないこと**: Components / Interfaces / Flows 列の中身は見ない。受入基準が**正しい行**に載っているかも見ない（番号がどこかの行に現れれば述語は真になる）。要件4.10 の行が `ImageOrderService` / `ImageListService` を欠く件（下の台帳 #8）は本検査の対象外である。
+
+**後続タスクの提案**: 上表の 24 件と 1 件を消化するタスクを別途起票すること。**是正先**は `## Requirements Traceability` の要件1 の行・要件11 の行・要件2.1 の行と、要件17・要件19 の行の新設である。**提案が生きていることの再現コマンド**は `npx tsx scripts/check-traceability-coverage.ts --survey` の `site-survey` の行が `missing=24 orphans=1` を出すことであり、消化されれば `scripts/check-traceability-coverage.ts` の `FEATURE_POLICIES` の宣言を削る側の失敗として機械が要求する。**他機能の欠落 617 件・死語 54 件も同じ検査が数えているが、いずれも当該機能の所管である。**
+
 
 ## Components and Interfaces
 
