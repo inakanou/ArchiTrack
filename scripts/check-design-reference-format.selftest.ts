@@ -505,6 +505,216 @@ function extractFunctionBody(source: string, declaration: string): string | null
 }
 
 /**
+ * 抽出（`DECLARATION`）が本体から拾える関数宣言の一覧と、絞り込みの検査がそれを
+ * どう見張るかの台帳（タスク 115.230）。拾う綴りと、拾えずに素通りする書き方は
+ * 後述する。
+ *
+ * `checkNoFindingsNarrowing` の `bodies` は「見張る側」の宣言である。**見張る側だけを
+ * 置くと、そこから 1 本抜けても何も起きない。** タスク 115.230 が是正したのがこれで、
+ * 行単位の検出の中核である `collectReferences` は `bodies` に無く、冒頭へ
+ * `if (lineText.includes('画像削除')) return [];` を足しても自己検査は 56/56 緑のまま
+ * 素通りした（2026-09-01 に実測）。
+ *
+ * そこで台帳を**二つ目の宣言**として置き、次の三者が双方向で一致することを要求する。
+ *
+ *   (a) 本体のソースに実在し、かつ抽出（`DECLARATION`）の綴りに合う関数宣言
+ *   (b) 本台帳
+ *   (c) `checkNoFindingsNarrowing` の `bodies` のラベルと見張り方
+ *
+ * これにより、`bodies` からの取り落としも、台帳に載る関数の改名・撤去も失敗になる。
+ *
+ * **新設**をどこまで失敗にできるかは、抽出（`DECLARATION`）が拾う綴りで決まる。拾うのは
+ * 「注釈を取り除いた本体で、**行頭**から `export` / `default` / `async` を任意に前置した
+ * `function` ＋名前＋`(` または `<`」という綴りだけである（差し戻し1回目で `export` /
+ * `async` を、2回目で `default` と `<` を足した）。**この綴りに合う宣言の新設は失敗になる。**
+ * 合わない書き方は**この抽出では**捕らえない（最上位の束縛の禁止形が別に捕らえる形は
+ * 下に挙げる）。どちらも下に実測を挙げる。網羅の主張はしない——
+ * 「関数を書けるすべての形」は数え上げられないため、測った形だけを名指しで書く。
+ *
+ * 是正の前後で、次の五形をそれぞれ本体の最上位（`const invokedPath =` の直前）へ足して
+ * 実測した（2026-09-01。是正前は五形とも自己検査 56/56 緑・兄弟 71/71 緑で素通りしていた）。
+ *
+ *   - `export async function sneakA(lineText: string): Promise<string[]> { ... }` を足す →
+ *     自己検査 56 件中 1 件が落ちる。「本体に台帳へ載っていない関数がある: sneakA」
+ *     （兄弟でも 71 件中 1 件、同じ文言）
+ *   - `const sneakB = function (lineText: string): string[] { ... };` を足す →
+ *     自己検査 56 件中 1 件が落ちる。「最上位に関数を値として束ねる宣言がある
+ *     （アロー関数・関数式）」（兄弟でも 71 件中 1 件、同じ文言）
+ *   - `= (` の直後で改行する複数行のアロー（`const sneakC = (` / `  lineText: string` /
+ *     `): string[] => { ... };`）を足す → 自己検査 56 件中 1 件が落ちる。文言は上と同じ
+ *     （兄弟でも 71 件中 1 件）
+ *   - `export default function sneakF(lineText: string): string[] { ... }` を足す →
+ *     自己検査 56 件中 1 件が落ちる。「本体に台帳へ載っていない関数がある: sneakF」
+ *     （兄弟でも 71 件中 1 件、同じ文言）。差し戻し2回目の指摘で `default ` を足すまでは
+ *     `(?:export )?` に合わず 56/56 緑だった
+ *   - `function sneakG<T>(value: T): T[] { ... }` を足す → 自己検査 56 件中 1 件が落ちる。
+ *     「本体に台帳へ載っていない関数がある: sneakG」（兄弟でも 71 件中 1 件、同じ文言）。
+ *     差し戻し2回目の指摘で `\s*\(` を `\s*[<(]` へ広げるまでは緑だった
+ *
+ * **捕らえない範囲**（上の綴りに合わない書き方。網羅ではなく、実際に測った形の列挙である）。
+ * いずれも 2026-09-01 に本体の最上位へ足して実測し、自己検査 56/56 緑・兄弟 71/71 緑の
+ * ままだった。
+ *
+ *   - モジュール最上位での**再代入**で既存の関数を包み直す形。宣言でも束縛でもない。
+ *     実際に検出を落とすところまで測った値は `checkNoFindingsNarrowing` の注釈に記す
+ *   - 最上位のクラスの静的メソッド
+ *     `class SneakClass { static sneakD(lineText: string): string[] { ... } }`。
+ *     行頭が `function` ではない
+ *   - 分割代入の束縛 `const { sneakE } = { sneakE: function (...) { ... } };`。
+ *     最上位の禁止形は `const` の次に識別子を要求するため、`{` で始まる形は外れる
+ *   - 文としての名前付き即時実行 `(function sneakH(): void { ... })();`。行頭が `(` である
+ *
+ * これらは `_Boundary: 絞り込みの検査が監視する関数の範囲_` の外であり、本タスクでは塞がない。
+ *
+ * **取り違える範囲**（綴りだけを見ることの代償。いずれも 2026-09-01 に実測）。
+ *
+ *   - 捕らえた形（本体の `const invokedPath =` の直前へ足して 2026-09-01 に実測。いずれも
+ *     自己検査 56 件中 1 件・兄弟 71 件中 1 件が落ち、文言はすべて「最上位に関数を値として
+ *     束ねる宣言がある（アロー関数・関数式）。台帳へ載る function 宣言で書くこと」である）。
+ *     `const sneakB = function (` の関数式、`const sneakC = (` で改行する複数行のアロー、
+ *     `const sneakX = (a: string,` で改行する複数行のアロー、
+ *     `const sneakY = (0, (l: string): string[] => [l]);` のカンマ演算子、
+ *     `const sneakY2 = (0, function (l: string): string[] { return [l]; });`、
+ *     `const sneakY3 = (0,` で改行するカンマ演算子、
+ *     `const sneakYstr = ('x', (l: string): string[] => [l]);`、
+ *     `const sneakZ = (0, scanLine);` の参照束縛、
+ *     `const sneakW = ('' === '' ? (l: string): string[] => [l]` で始まる三項
+ *     （第一項が `1 ?` の数値・`` `x` ? `` のテンプレートリテラルの形も同じ）
+ *   - 残す偽陽性: `\(` の枝は `= (` を関数の始まりと見なすため、関数でない括弧も落とす。
+ *     `const answerOffset = (1 + 2) * 3;`、`const joined = ('a' + 'b');`、
+ *     ``const tagged = (`a` + `b`);``、`const defaults = ({ limit: 3, offset: 0 });` は
+ *     同じ位置へ足すと自己検査 56 件中 1 件・兄弟 71 件中 1 件が落ちる（2026-09-01 に実測）。
+ *     文言は上と同じで、これらの行についての診断としては事実に反する。**赤へ倒れる向き**
+ *     であり、実在する関数束縛の取り落としを隠す向きには働かないため、塞がずここに記す。
+ *     最上位の `const` は `= (` を避けて書けば足りる
+ *   - 塞がない選択の根拠: `\(` の枝を ``\((?!\s*[\d'"`])`` へ絞ると
+ *     `const answerOffset = (1 + 2) * 3;` は自己検査 56/56 緑・兄弟 71/71 緑になる。だが
+ *     同じ絞りの下で、上の `sneakY` / `sneakY2` / `sneakY3` / `sneakYstr` / `sneakW` /
+ *     第一項が数値の三項 / 第一項がテンプレートリテラルの三項 / `sneakZ` の八形すべてが
+ *     自己検査 56/56 緑・兄弟 71/71 緑で素通りした（2026-09-01 に、絞った状態で八形を
+ *     同じ位置へ足して実測）。**偽陽性は赤で気付けるが、素通りは黙って通る。**
+ *     この検査は最上位に絞り込みを隠す場所を作らせないためにあるので、赤へ倒れる誤りを
+ *     残し、緑へ倒れる誤りを増やす絞り込みは入れない
+ *   - 幻の宣言: 抽出は構文ではなく行頭の綴りを見るため、テンプレートリテラルの中で列 0 に
+ *     `function 名(` が現れると実在の宣言として読む。そのようなリテラルを足すと自己検査
+ *     56 件中 1 件が落ち「本体に台帳へ載っていない関数がある: phantom」となる
+ *     （兄弟でも 71 件中 1 件、同じ文言）。**赤へ倒れる向き**であり、実在する関数の
+ *     取り落としを隠す方向には働かないため、塞がずここに記す
+ *
+ * `watch` は見張りの強さである。
+ *   - `'whole-body'`: 本体の空でない全行を許可形と突き合わせる。逃がしを差し込む余地が無い
+ *   - `'identifiers'`: 特定の識別子に触れる文だけを見る。`main` のみに許す。理由は
+ *     報告の文面（日本語の長文）を全行固定すると文言の改訂で毎回落ちるためで、
+ *     `main` の早期終了・件数の詐称は `checkReportedCountsAreExact` が
+ *     サブプロセスの終了コードと報告件数で捕らえる
+ */
+const EXECUTABLE_FUNCTION_INVENTORY: ReadonlyArray<{
+  name: string;
+  watch: 'whole-body' | 'identifiers';
+}> = [
+  { name: 'isTestFile', watch: 'whole-body' },
+  { name: 'collectSourceFiles', watch: 'whole-body' },
+  { name: 'isBareHttpStatusCode', watch: 'whole-body' },
+  { name: 'collectReferences', watch: 'whole-body' },
+  { name: 'scanLine', watch: 'whole-body' },
+  { name: 'scanDesignDocumentLine', watch: 'whole-body' },
+  { name: 'scanSource', watch: 'whole-body' },
+  { name: 'run', watch: 'whole-body' },
+  { name: 'main', watch: 'identifiers' },
+];
+
+/**
+ * 台帳・本体・`bodies` の三者が双方向で一致すること（タスク 115.230）。
+ *
+ * 片方向（`bodies` が挙げる関数が本体に在る）だけでは、本体に新しい関数を足して
+ * そこへ逃がしを置く手が残る。両方向を要求する。
+ */
+function checkMonitoredFunctionInventory(
+  monitored: ReadonlyArray<{ label: string; watch: 'whole-body' | 'identifiers' }>
+): string[] {
+  const failures: string[] = [];
+  const source = readExecutableSource();
+
+  // 前提が満たせないときは合格ではなく失敗（第3原則）
+  if (EXECUTABLE_FUNCTION_INVENTORY.length === 0) {
+    failures.push('関数の台帳が空である。監視対象が無い状態を合格にしてはならない');
+  }
+  if (monitored.length === 0) {
+    failures.push('絞り込みの検査が本体を一つも見張っていない');
+  }
+
+  const declared: string[] = [];
+  const DECLARATION =
+    /^(?:export )?(?:default )?(?:async )?function ([A-Za-z_$][A-Za-z0-9_$]*)\s*[<(]/gm;
+  let match: RegExpExecArray | null;
+  while ((match = DECLARATION.exec(source)) !== null) {
+    const name = match[1];
+    if (name !== undefined) declared.push(name);
+  }
+  if (declared.length === 0) {
+    failures.push('本体から関数宣言を一件も取り出せなかった（抽出が壊れている）');
+  }
+
+  for (const name of declared) {
+    if (!EXECUTABLE_FUNCTION_INVENTORY.some((entry) => entry.name === name)) {
+      failures.push(`本体に台帳へ載っていない関数がある: ${name}（見張るか台帳を更新すること）`);
+    }
+  }
+  for (const entry of EXECUTABLE_FUNCTION_INVENTORY) {
+    if (!declared.includes(entry.name)) {
+      failures.push(
+        `台帳が挙げる関数が本体に無い: ${entry.name}（改名・撤去で見張りが空振りしている）`
+      );
+    }
+    const rule = monitored.find((item) => item.label === entry.name);
+    if (rule === undefined) {
+      failures.push(`台帳の関数が絞り込みの検査で見張られていない: ${entry.name}`);
+      continue;
+    }
+    if (rule.watch !== entry.watch) {
+      failures.push(
+        `見張りの強さが台帳と食い違う: ${entry.name}（台帳 ${entry.watch} / 実際 ${rule.watch}）`
+      );
+    }
+  }
+  for (const rule of monitored) {
+    if (!EXECUTABLE_FUNCTION_INVENTORY.some((entry) => entry.name === rule.label)) {
+      failures.push(`見張っている本体が台帳に無い: ${rule.label}`);
+    }
+  }
+
+  // 規則表の `reject` は台帳に載る名前付き関数でなければならない。
+  // 無名関数を直に書けるようにすると、台帳にも `bodies` にも載らない場所が生まれる
+  const REJECT = /\breject:\s*([^,\n]+)/g;
+  while ((match = REJECT.exec(source)) !== null) {
+    const value = match[1]?.trim() ?? '';
+    if (!EXECUTABLE_FUNCTION_INVENTORY.some((entry) => entry.name === value)) {
+      failures.push(`規則表の reject が台帳の名前付き関数でない: ${value}`);
+    }
+  }
+
+  // 最上位で関数を値として束ねる形（アロー関数・関数式）は上の関数宣言の抽出に掛からない
+  // ため、置くこと自体を禁じる。`= (` の直後で改行する複数行のアローも `\(` の枝で捕らえる。
+  // この枝は `= (` を関数の始まりと見なすため、`const defaults = ({ limit: 3, offset: 0 });`
+  // のような関数でない括弧も落とす（偽陽性。赤へ倒れる向きなので塞がない。実測は台帳に記す）。
+  // 掛からない形として、最上位での再代入・クラスの静的メソッド・分割代入の束縛・文としての
+  // 名前付き即時実行を実測した（網羅ではない）。いずれも本タスクの境界の外である。
+  // 実測値と当てた変異は台帳 EXECUTABLE_FUNCTION_INVENTORY と
+  // `checkNoFindingsNarrowing` の注釈に記す
+  if (
+    /^(?:export )?(?:const|let|var) [A-Za-z_$][A-Za-z0-9_$]*(?::[^=\n]*)? = (?:async )?(?:function\b|\(|[A-Za-z_$][A-Za-z0-9_$]*\s*(?::[^=\n]*)?=>)/m.test(
+      source
+    )
+  ) {
+    failures.push(
+      '最上位に関数を値として束ねる宣言がある（アロー関数・関数式）。台帳へ載る function 宣言で書くこと'
+    );
+  }
+
+  return failures;
+}
+
+/**
  * 検出結果を返す前に**絞り込む経路が無い**こと（タスク 115.211。差し戻し1回目の是正）。
  *
  * 当初はこの検査を「`.kiro/specs/` を含む文字列リテラルが無いこと」と
@@ -515,29 +725,62 @@ function extractFunctionBody(source: string, declaration: string): string | null
  * 本自己検査を名前とリテラルだけを見る旧版へ戻すと、**自己検査は 55 件すべて緑**で
  * 素通りした。名前を持たない間引きは名前では捕まらない。
  * 強化後の現在の形では、同じ 1 行の変異で自己検査は 56 件中 1 件が落ち、
- * その内訳は (a) `run` の本体に `.includes(` がある、(b) 起動した本体の報告が
+ * その内訳は (a) `run` の本体に想定外の文がある、(b) `run` の本体に `.includes(` がある、
+ * (c) 起動した本体の報告が
  * 「合計 8 件 / 8 ファイル（走査 本番コード 2 ファイル、設計文書 6 ファイル）」の期待に対し
  * 「合計 7 件 / 7 ファイル（走査 本番コード 2 ファイル、設計文書 5 ファイル）」である、
- * (c) 報告に `site-survey` の該当が現れない、(d) 該当が無い材料で設計文書の走査件数 6 を
- * 告げていない、の 4 件である（2026-08-31 に実測）。
+ * (d) 報告に `site-survey` の該当が現れない、(e) 該当が無い材料で設計文書の走査件数 6 を
+ * 告げていない、の 5 件である（タスク 115.230 で `run` を全行の突き合わせへ変えたため
+ * (a) が増え、当初の 4 件から 5 件になった。2026-09-01 に測り直した）。
  *
  * 兄弟の `check-design-code-reference-format.selftest.ts` の `checkNoFindingsNarrowing`
  * が確立した作法へ揃える。見るのは名前ではなく、**走査対象と `findings` に対して
  * 何をしているか**である。間引きは検出のどこでもできるため、対象を
  * 「走査対象の決定」「検出」「集計」「報告と終了コード」の全段へ広げる。
  *
- * - `collectSourceFiles` の本体で走査対象一覧に触れる文を、列挙と返却だけに限定する
- * - `run` の本体で `findings` / 走査済み一覧に触れる文を、積み上げと返却だけに限定する
- * - `scanSource` の本体も同様に、積み上げと返却だけに限定する
- * - `main` の本体で `result` に触れる文を、判定と出力だけに限定する
+ * **見張る範囲を広げたのがタスク 115.230 である。** 当初は
+ * `collectSourceFiles` / `run` / `scanSource` / `main` の 4 本だけを見ており、
+ * **行単位の検出の中核である `collectReferences` が入っていなかった。** その冒頭へ
+ * `if (lineText.includes('画像削除')) return [];` を足すと、自己検査は 56/56 緑・
+ * 本検査も緑で素通りした（2026-09-01 に実測）。同じ 1 行を現在の形に当てると
+ * 自己検査は 56 件中 1 件が落ち、内訳は
+ * 「collectReferences が検出結果／走査対象へ想定外の操作をしている」の 1 件である
+ * （2026-09-01 に実測）。
+ *
+ * **見張る範囲は、抽出（`DECLARATION`）が本体から拾える関数宣言——注釈を取り除いた本体の
+ * 行頭から `export` / `default` / `async` を任意に前置した `function` ＋名前＋
+ * `(` または `<` ——であり、台帳 `EXECUTABLE_FUNCTION_INVENTORY` と双方向で一致させる。**
+ * その綴りの範囲で、取り落とし・改名・撤去・新設が失敗になる。当てた五形と、綴りに合わず
+ * 緑のままだった形（最上位の再代入・クラスの静的メソッド・分割代入の束縛・文としての
+ * 名前付き即時実行）の実測は台帳の注釈に挙げる。関数の外——モジュール最上位——は
+ * 範囲に含まない。下の「捕らえない範囲」を見よ。
+ *
+ * - `main` を除く全関数を `watched: 'whole-body'` で見る。**本体の空でない全行**を
+ *   許可形と突き合わせるため、逃がしを差し込める行が残らない
+ * - `main` だけは `result` に触れる文に限って見る。報告の日本語の長文を全行固定すると
+ *   文言の改訂で毎回落ちるためで、`main` の早期終了・件数の詐称は
+ *   `checkReportedCountsAreExact` が終了コードと報告件数で捕らえる
  * - 絞り込みに使える操作（`filter` / `slice` / `splice` / `find` / `some` / `includes` /
- *   `Set` / `Map` / `continue` / `delete`）が `run` / `scanSource` の本体に現れないこと
- *   （`collectSourceFiles` と `main` は正当な `continue` / `Map` を持つため、
- *   一律禁止ではなく上の限定で見る）
+ *   `Set` / `Map` / `continue` / `delete`）が `run` / `scanSource` /
+ *   `scanLine` / `scanDesignDocumentLine` の本体に現れないこと
+ *   （`collectSourceFiles` / `collectReferences` / `main` は正当な `continue` / `filter` /
+ *   `Set` を持つため、一律禁止ではなく上の全行の突き合わせで見る）
  * - 許容リストの読み込み口になる JSON 読み出しが本体に無いこと
  * - 走査から返却までを実際に通し、`run` の件数が `scanSource` の総和と一致すること
  * - **本体をサブプロセスとして起動し、報告される件数が期待値と一致すること**
  *   （checkReportedCountsAreExact）。書き方に依存しない挙動の検査である。
+ * - 見張る本体が 0 件なら失敗にする（空の母集団を合格にしない。第3原則）
+ * - **捕らえない範囲（本タスクの境界の外）**: 見張るのは関数の中であって、モジュール
+ *   最上位での**再代入**は見ていない。`const invokedPath =` の直前へ
+ *   `const __origScanSource = scanSource;` と、`__origScanSource` の結果から
+ *   `画像削除` を含む検出だけを `filter` で落として返す `scanSource = function (...) {...};`
+ *   を足すと、`scanSource` は実際に検出を落とす——同じ一行に対し包む前は 1 件、
+ *   包んだ後は 0 件、対照の行は前後とも 1 件——にもかかわらず、自己検査は 56/56 緑の
+ *   ままである（2026-09-01 に実測）。`_Boundary: 絞り込みの検査が監視する関数の範囲_`
+ *   の外であるため本タスクでは塞がず、後続として起票する。最上位で捕らえない形はこの
+ *   再代入だけではない。クラスの静的メソッド・分割代入の束縛・文としての名前付き即時実行も
+ *   2026-09-01 に実測して自己検査 56/56 緑（兄弟 71/71 緑）であり、綴りと実測値は台帳
+ *   `EXECUTABLE_FUNCTION_INVENTORY` の注釈に挙げる（網羅の主張ではない）
  */
 function checkNoFindingsNarrowing(): string[] {
   const failures: string[] = [];
@@ -547,66 +790,192 @@ function checkNoFindingsNarrowing(): string[] {
     /\.filter\(|\.slice\(|\.splice\(|\.find\(|\.some\(|\.every\(|\.includes\(|new Set|new Map|\bcontinue\b|\bdelete\b/;
 
   interface BodyRule {
-    /** 関数名（診断用） */
+    /** 関数名（台帳 EXECUTABLE_FUNCTION_INVENTORY と同じ綴りにすること） */
     label: string;
     /** 本体を取り出す宣言 */
     declaration: string;
-    /** どの識別子に触れる文を見るか */
-    watched: RegExp;
+    /**
+     * 本体のどの文を見るか。
+     * - `'whole-body'`: 空でない全行を `allowed` と突き合わせる（逃がしの差し込み口を残さない）
+     * - 正規表現: その識別子に触れる文だけを見る。`main` にだけ許す（理由は台帳に書いた）
+     */
+    watched: 'whole-body' | RegExp;
     /** 許す文の形 */
     allowed: RegExp[];
-    /** 本体全体に対する一律禁止（正当な `continue` を持つ関数には課さない） */
+    /** 本体全体に対する一律禁止（正当な `continue` / `filter` を持つ関数には課さない） */
     forbidAllNarrowing: boolean;
   }
 
   const bodies: BodyRule[] = [
     {
+      label: 'isTestFile',
+      declaration: 'export function isTestFile(',
+      watched: 'whole-body',
+      allowed: [
+        /^const normalized = relativePath\.split\(path\.sep\)\.join\('\/'\);$/,
+        /^if \(TEST_FILE_PATTERN\.test\(normalized\)\) return true;$/,
+        /^const segments = normalized\.split\('\/'\);$/,
+        /^return segments\.some\(\(segment\) => EXCLUDED_DIR_NAMES\.has\(segment\)\);$/,
+        /^\}$/,
+      ],
+      forbidAllNarrowing: false,
+    },
+    {
       label: 'collectSourceFiles',
       declaration: 'export function collectSourceFiles(',
-      watched: /\bfiles\b|\bentries\b|\bentry\b|\brelativePath\b|\babsolutePath\b/,
+      watched: 'whole-body',
       allowed: [
         /^const files: string\[\] = \[\];$/,
+        /^const walk = \(absoluteDir: string\): void => \{$/,
         /^let entries: fs\.Dirent\[\];$/,
+        /^try \{$/,
         /^entries = fs\.readdirSync\(absoluteDir, \{ withFileTypes: true \}\);$/,
+        /^\} catch \{$/,
+        /^return;$/,
+        /^\}$/,
         /^for \(const entry of entries\) \{$/,
         /^const absolutePath = path\.join\(absoluteDir, entry\.name\);$/,
         /^if \(entry\.isDirectory\(\)\) \{$/,
         /^if \(EXCLUDED_DIR_NAMES\.has\(entry\.name\)\) continue;$/,
         /^walk\(absolutePath\);$/,
+        /^continue;$/,
         /^if \(!entry\.isFile\(\)\) continue;$/,
         /^if \(!SOURCE_EXTENSIONS\.includes\(path\.extname\(entry\.name\)\)\) continue;$/,
         /^const relativePath = path\.relative\(root, absolutePath\)\.split\(path\.sep\)\.join\('\/'\);$/,
         /^if \(isTestFile\(relativePath\)\) continue;$/,
         /^files\.push\(relativePath\);$/,
+        /^\};$/,
+        /^for \(const dir of sourceDirs\) \{$/,
+        /^walk\(path\.join\(root, dir\)\);$/,
         /^return files\.sort\(\);$/,
       ],
       forbidAllNarrowing: false,
     },
     {
-      label: 'run',
-      declaration: 'export function run(',
-      watched: /\bfindings\b|\bscannedFiles\b|\bscannedDesignDocuments\b/,
+      label: 'isBareHttpStatusCode',
+      declaration: 'function isBareHttpStatusCode(',
+      watched: 'whole-body',
       allowed: [
-        /^const findings: DesignRefFinding\[\] = \[\];$/,
-        /^const scannedFiles: string\[\] = \[\];$/,
-        /^const scannedDesignDocuments: string\[\] = \[\];$/,
-        /^scannedFiles\.push\(relativePath\);$/,
-        /^scannedDesignDocuments\.push\(relativePath\);$/,
-        /^findings\.push\(\.\.\.scanSource\(relativePath, source, '(production|design)'\)\);$/,
-        /^findings,$/,
-        /^scannedFileCount: scannedFiles\.length,$/,
-        /^scannedDesignDocuments,$/,
+        /^const inner = matched\.replace\(\/\^\[\(（\]\\s\*\/, ''\)\.replace\(\/\\s\*\[\)）\]\$\/, ''\);$/,
+        /^if \(\/\^\[:L\]\/i\.test\(inner\)\) return false;$/,
+        /^if \(!\/\^\\d\{3\}\$\/\.test\(inner\)\) return false;$/,
+        /^return HTTP_STATUS_CODES\.has\(Number\(inner\)\);$/,
+        /^\}$/,
+      ],
+      forbidAllNarrowing: false,
+    },
+    {
+      // 行単位の検出の中核（タスク 115.230 で見張りへ加えた）
+      label: 'collectReferences',
+      declaration: 'function collectReferences(',
+      watched: 'whole-body',
+      allowed: [
+        /^lineText: string,$/,
+        /^mention: RegExp,$/,
+        /^extraRules: ReadonlyArray<Rule> = \[\]$/,
+        /^\): string\[\] \{$/,
+        /^if \(!mention\.test\(lineText\)\) return \[\];$/,
+        /^const spans: Span\[\] = \[\];$/,
+        /^for \(const \{ pattern, reject \} of \[\.\.\.LINE_REFERENCE_PATTERNS, \.\.\.extraRules\]\) \{$/,
+        /^pattern\.lastIndex = 0;$/,
+        /^let match: RegExpExecArray \| null;$/,
+        /^while \(\(match = pattern\.exec\(lineText\)\) !== null\) \{$/,
+        /^const start = match\.index;$/,
+        /^const end = start \+ match\[0\]\.length;$/,
+        /^if \(end === start\) break;$/,
+        /^if \(reject\?\.\(match\[0\]\)\) continue;$/,
+        /^spans\.push\(\{ start, end, text: match\[0\]\.trim\(\) \}\);$/,
+        /^\}$/,
+        /^const outermost = spans\.filter\($/,
+        /^\(span\) =>$/,
+        /^!spans\.some\($/,
+        /^\(other\) =>$/,
+        /^other !== span &&$/,
+        /^other\.start <= span\.start &&$/,
+        /^other\.end >= span\.end &&$/,
+        /^other\.end - other\.start > span\.end - span\.start$/,
+        /^\)$/,
+        /^\);$/,
+        /^const seen = new Set<string>\(\);$/,
+        /^const references: string\[\] = \[\];$/,
+        /^for \(const span of outermost\.sort\(\(a, b\) => a\.start - b\.start\)\) \{$/,
+        /^if \(seen\.has\(span\.text\)\) continue;$/,
+        /^seen\.add\(span\.text\);$/,
+        /^references\.push\(span\.text\);$/,
+        /^return references;$/,
+      ],
+      forbidAllNarrowing: false,
+    },
+    {
+      label: 'scanLine',
+      declaration: 'export function scanLine(',
+      watched: 'whole-body',
+      allowed: [/^return collectReferences\(lineText, DESIGN_DOC_MENTION\);$/, /^\}$/],
+      forbidAllNarrowing: true,
+    },
+    {
+      label: 'scanDesignDocumentLine',
+      declaration: 'export function scanDesignDocumentLine(',
+      watched: 'whole-body',
+      allowed: [
+        /^return collectReferences\(lineText, DESIGN_SELF_MENTION, DESIGN_SELF_REFERENCE_PATTERNS\);$/,
+        /^\}$/,
       ],
       forbidAllNarrowing: true,
     },
     {
       label: 'scanSource',
       declaration: 'export function scanSource(',
-      watched: /\bfindings\b/,
+      watched: 'whole-body',
       allowed: [
+        /^relativePath: string,$/,
+        /^source: string,$/,
+        /^kind: FindingKind = 'production'$/,
+        /^\): DesignRefFinding\[\] \{$/,
+        /^const scan = kind === 'design' \? scanDesignDocumentLine : scanLine;$/,
         /^const findings: DesignRefFinding\[\] = \[\];$/,
+        /^const lines = source\.split\(\/\\r\?\\n\/\);$/,
+        /^lines\.forEach\(\(lineText, index\) => \{$/,
+        /^const references = scan\(lineText\);$/,
+        /^if \(references\.length === 0\) return;$/,
         /^findings\.push\(\{$/,
+        /^kind,$/,
+        /^file: relativePath,$/,
+        /^line: index \+ 1,$/,
+        /^reference: references\.join\(' \/ '\),$/,
+        /^snippet: lineText\.trim\(\),$/,
+        /^\}\);$/,
         /^return findings;$/,
+        /^\}$/,
+      ],
+      forbidAllNarrowing: true,
+    },
+    {
+      label: 'run',
+      declaration: 'export function run(',
+      watched: 'whole-body',
+      allowed: [
+        /^const root = options\.root \?\? ROOT;$/,
+        /^const sourceDirs = options\.sourceDirs \?\? PRODUCTION_SOURCE_DIRS;$/,
+        /^const specDir = options\.specDir \?\? SPEC_DIR;$/,
+        /^const findings: DesignRefFinding\[\] = \[\];$/,
+        /^const scannedFiles: string\[\] = \[\];$/,
+        /^const scannedDesignDocuments: string\[\] = \[\];$/,
+        /^for \(const relativePath of collectSourceFiles\(root, sourceDirs\)\) \{$/,
+        /^const source = fs\.readFileSync\(path\.join\(root, relativePath\), 'utf-8'\);$/,
+        /^scannedFiles\.push\(relativePath\);$/,
+        /^findings\.push\(\.\.\.scanSource\(relativePath, source, 'production'\)\);$/,
+        /^\}$/,
+        /^for \(const relativePath of collectDesignDocuments\(root, specDir\)\) \{$/,
+        /^scannedDesignDocuments\.push\(relativePath\);$/,
+        /^findings\.push\(\.\.\.scanSource\(relativePath, source, 'design'\)\);$/,
+        /^return \{$/,
+        /^findings,$/,
+        /^scannedFileCount: scannedFiles\.length,$/,
+        /^scannedDirs: sourceDirs,$/,
+        /^scannedDesignDocuments,$/,
+        /^specDir,$/,
+        /^\};$/,
       ],
       forbidAllNarrowing: true,
     },
@@ -644,7 +1013,8 @@ function checkNoFindingsNarrowing(): string[] {
     }
     for (const rawLine of body.split('\n').slice(1)) {
       const line = rawLine.trim();
-      if (!watched.test(line)) continue;
+      if (line.length === 0) continue;
+      if (watched !== 'whole-body' && !watched.test(line)) continue;
       if (allowed.some((pattern) => pattern.test(line))) continue;
       failures.push(`${label} が検出結果／走査対象へ想定外の操作をしている: ${line}`);
     }
@@ -658,6 +1028,17 @@ function checkNoFindingsNarrowing(): string[] {
     failures.push('本体が JSON を読んでいる。許容リストの読み込み経路になりうる');
   }
 
+  if (bodies.length === 0) {
+    failures.push('見張る本体が一つも宣言されていない（空の母集団を合格にしてはならない）');
+  }
+  failures.push(
+    ...checkMonitoredFunctionInventory(
+      bodies.map(({ label, watched }) => ({
+        label,
+        watch: watched === 'whole-body' ? ('whole-body' as const) : ('identifiers' as const),
+      }))
+    )
+  );
   failures.push(...checkReportedCountsAreExact());
   return failures;
 }
