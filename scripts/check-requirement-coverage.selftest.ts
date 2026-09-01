@@ -1528,6 +1528,163 @@ function checkRealProseControlsActuallyReact(): string[] {
   return failures;
 }
 
+// ============================================================================
+// 説明文が挙げる実例の実在（タスク 115.223）
+// ============================================================================
+
+/** 被覆の抽出器の本体。説明文の検査対象 */
+const EXTRACTOR_SOURCE_PATH = 'scripts/check-requirement-coverage.ts';
+
+/** 本自己検査それ自体。実データの名指しを一元に持つ側 */
+const SELFTEST_SOURCE_PATH = 'scripts/check-requirement-coverage.selftest.ts';
+
+/** 実データの名指しを持つ定数の名前。抽出器の説明文はここを指す */
+const REAL_CLAIMS_AUTHORITY_NAME = 'REAL_FALSE_CLAIMS_AFTER_PARAGRAPH_BREAK';
+
+/** 本検査それ自体の名前。抽出器の説明文が「守り手」として名乗る */
+const DOC_GUARD_NAME = 'checkExtractorDocCitesNoPerishableExample';
+
+/** 説明文を取り出す起点（この宣言の直前の JSDoc を見る） */
+const EXTRACTOR_DOC_ANCHOR = 'export function resolveHeaderSectionEnd(';
+
+/**
+ * 説明文に置いてはならない「実データとともに陳腐化する形」
+ *
+ * `probe` は当該の形の**架空の見本**である。regexp が壊れて何にも一致しなくなると禁止が
+ * 黙って効かなくなるため、見本に一致することを毎回確かめる（規則の空振りの検出）。
+ * 見本に実在の番号・実測値を使わないのは、見本自体が「いまの実データはこうである」と
+ * 読まれる余地を残さないためである（本検査が禁じているのと同じ陳腐化を持ち込まない）。
+ */
+const PERISHABLE_CITATION_PATTERNS: ReadonlyArray<{
+  label: string;
+  pattern: RegExp;
+  probe: string;
+}> = [
+  {
+    label: '要件・受入基準の番号',
+    pattern: /REQ-\d+/,
+    probe: '`feature-name/REQ-1.2` — 被覆の集計から落ちる',
+  },
+  {
+    label: '実データの件数',
+    pattern: /\d+\s*件/,
+    probe: '実データ（被覆ヘッダー 999 件）で',
+  },
+];
+
+/**
+ * 宣言の直前に置かれた JSDoc を取り出す
+ *
+ * 見つからなければ null を返す。宣言と JSDoc の間に他の記述が挟まる場合も「直前の JSDoc
+ * ではない」として null を返し、無関係なコメントを検査対象と取り違えないようにする。
+ */
+function extractJsDocAbove(source: string, anchor: string): string | null {
+  const anchorIndex = source.indexOf(anchor);
+  if (anchorIndex < 0) return null;
+  const close = source.lastIndexOf('*/', anchorIndex);
+  if (close < 0) return null;
+  const open = source.lastIndexOf('/**', close);
+  if (open < 0) return null;
+  if (source.slice(close + 2, anchorIndex).trim().length > 0) return null;
+  return source.slice(open, close + 2);
+}
+
+/**
+ * 抽出器の説明文が、実データとともに陳腐化する実例を挙げていないことを見る
+ *
+ * かつて `resolveHeaderSectionEnd` の JSDoc は、規則4が落とす被覆印を具体の番号で列挙して
+ * いた。実データの側が動いた結果、挙げた番号は**どちらも列挙が述べる状態を失った**が、
+ * 説明文は誰にも咎められないまま残った。説明文の実例は、実例であるがゆえに陳腐化する。
+ *
+ * 処遇は「実例を機械で確かめる」ではなく「実例を説明文から無くす」を採った。実データの
+ * 名指しは `REAL_FALSE_CLAIMS_AFTER_PARAGRAPH_BREAK` が既に一元に持ち、実在と非空振りの
+ * 双方を機械で確かめている。同じ列挙を説明文へ写すと、同期する機構の無い二重帳簿になる。
+ *
+ * よってここでは三つを見る。
+ *
+ *   1. 説明文そのものが取り出せること（関数名が変わった・JSDoc が消えたら失格。
+ *      対象が無いことを「合格」にしない——第3原則）
+ *   2. 説明文が陳腐化する形（番号・件数）を一つも挙げていないこと
+ *   3. 説明文が名乗る先——実データの名指しを持つ定数と、実例を禁じている本検査——が
+ *      いずれも実在し、定数が空でないこと（`check-design-path-references.ts` が設計文書の
+ *      パスに対して行っている「挙げた先の実在」の検査と同じ趣旨）
+ *
+ * **守れない範囲を明記する。** 見るのは `resolveHeaderSectionEnd` の JSDoc 一つだけであり、
+ * 同ファイルの他の説明文（例えば走査対象の限界を述べる箇所）が挙げる実例は見ていない。
+ * 陳腐化する形として挙げているのも番号と件数の二つだけで、ファイル名・割合・日付は
+ * 素通りする。禁止を広げるときは `PERISHABLE_CITATION_PATTERNS` へ足す。
+ */
+function checkExtractorDocCitesNoPerishableExample(): string[] {
+  const failures: string[] = [];
+
+  if (PERISHABLE_CITATION_PATTERNS.length === 0) {
+    failures.push('陳腐化する形が一件も登録されていない（規則を空にして緑にする抜け道）');
+  }
+  for (const { label, pattern, probe } of PERISHABLE_CITATION_PATTERNS) {
+    if (!pattern.test(probe)) {
+      failures.push(`${label}: 見本「${probe}」に一致しない（規則が空振りしている）`);
+    }
+  }
+
+  const extractorPath = path.resolve(EXTRACTOR_SOURCE_PATH);
+  if (!fs.existsSync(extractorPath)) {
+    failures.push(`${EXTRACTOR_SOURCE_PATH} が存在しない（検査対象が失われた）`);
+    return failures;
+  }
+  const doc = extractJsDocAbove(fs.readFileSync(extractorPath, 'utf8'), EXTRACTOR_DOC_ANCHOR);
+  if (doc === null) {
+    failures.push(
+      `${EXTRACTOR_SOURCE_PATH}: \`${EXTRACTOR_DOC_ANCHOR}\` の直前の JSDoc を取り出せない` +
+        '（宣言の綴りが変わったか説明文が失われた。前提が崩れたので合格にしない）'
+    );
+    return failures;
+  }
+
+  for (const { label, pattern } of PERISHABLE_CITATION_PATTERNS) {
+    const hit = pattern.exec(doc);
+    if (hit !== null) {
+      failures.push(
+        `${EXTRACTOR_SOURCE_PATH} の説明文が${label}「${hit[0]}」を挙げている。` +
+          `実例は実データとともに陳腐化するため、${REAL_CLAIMS_AUTHORITY_NAME} へ移すこと`
+      );
+    }
+  }
+
+  if (!doc.includes(REAL_CLAIMS_AUTHORITY_NAME)) {
+    failures.push(
+      `${EXTRACTOR_SOURCE_PATH} の説明文が指し先 ${REAL_CLAIMS_AUTHORITY_NAME} を名乗っていない` +
+        '（実データの名指しへの導線が失われている）'
+    );
+  }
+
+  if (!doc.includes(DOC_GUARD_NAME)) {
+    failures.push(
+      `${EXTRACTOR_SOURCE_PATH} の説明文が守り手 ${DOC_GUARD_NAME} を名乗っていない` +
+        '（実例を禁じているのが誰かを後任が辿れない）'
+    );
+  }
+
+  const selftestPath = path.resolve(SELFTEST_SOURCE_PATH);
+  if (!fs.existsSync(selftestPath)) {
+    failures.push(`${SELFTEST_SOURCE_PATH} が存在しない（指し先の実在を確かめられない）`);
+  } else {
+    const selftestSource = fs.readFileSync(selftestPath, 'utf8');
+    for (const name of [`const ${REAL_CLAIMS_AUTHORITY_NAME}`, `function ${DOC_GUARD_NAME}(`]) {
+      if (!selftestSource.includes(name)) {
+        failures.push(
+          `${SELFTEST_SOURCE_PATH} に \`${name}\` が無い（説明文が実在しない名前を指している）`
+        );
+      }
+    }
+  }
+
+  if (REAL_FALSE_CLAIMS_AFTER_PARAGRAPH_BREAK.length === 0) {
+    failures.push(`${REAL_CLAIMS_AUTHORITY_NAME} が空である（指し先はあるが中身が無い）`);
+  }
+
+  return failures;
+}
+
 /**
  * 陰性対照: 行頭のコメント記号 `*` が一覧の印に見える形（タスク 115.194）
  *
@@ -3617,6 +3774,10 @@ const GROUPS: Array<{ title: string; cases: Case[] }> = [
       {
         name: '実データの陰性対照が規則4の除去に実際に反応する（空振りの検出）',
         run: checkRealProseControlsActuallyReact,
+      },
+      {
+        name: '抽出器の説明文が陳腐化する実例を挙げず、指し先が実在する',
+        run: checkExtractorDocCitesNoPerishableExample,
       },
     ],
   },
