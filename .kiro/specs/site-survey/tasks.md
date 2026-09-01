@@ -5478,6 +5478,25 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - _Depends: 115.234_
   - _Boundary: 併記の再現コマンドの逐語化_
 
+- [ ] 115.275 `.kiro/steering/structure.md` の実測値のドリフトを解消する（**115.235 が実測し境界外として送った**）
+  - 115.235 は `development-discipline.md` の一節に成果を限定したため、同じ steering 文書群に残る乖離は報告に留めた
+  - **実測（115.235 の実装とレビューが独立に再導出。2026-09-02、GNU grep 3.11 / GNU find。コミット `46f1138`）**: `structure.md` のディレクトリ注記十六件のうち**十件が現況とずれている**
+  - 一覧（文書の値 → 現況）: `quantity-table-import/` 8 → **14**、`quantity-table/` 22 → **68**、`itemized-statement/` 6 → **7**、`schedule/` 10 → **15**、`frontend/src/utils/` 22 → **37**、Storybook のストーリー 132 → **157**、`frontend/src/api/` 20 → **23**、`frontend/src/hooks/` 32 → **41**、`backend/src/routes/` 34 → **37**、`backend/src/schemas/` 14 → **16**、`backend/src/utils/` 8 → **12**
+  - **一致していたのは五件**（`tools/` 11、`gestures/` 3、`contract/` 5、`backend/src/errors/` 17、チェック項目 245）
+  - **既存の関門は掛からない。** `npm run check:steering-test-tree` の件数規約は「テスト」を含む行だけを見るため、ディレクトリ注記の件数は網の外である
+  - 是正は 115.212 の規約 (a)/(b) に従うこと。**現況を述べる注記であれば書き換え、歴史記録であれば当時の値を残して併記する**——一件ずつ判断すること
+  - **十六件が母集団を尽くすとは主張されていない。** 走査範囲を自分でコマンドで宣言し直すこと
+  - _Depends: 115.235_
+  - _Boundary: structure.md の実測値の追随_
+
+- [ ] 115.276 (P) steering の実測値に鮮度の関門が無い状態を判断する（**115.235 が変異で実証**）
+  - **実測（115.235 の実装とレビューが独立に再現。2026-09-02）**: 是正した免除件数を旧値へ戻す変異を当てても、`check:steering-refs` / `check:steering-idents` / `check:steering-test-tree` / `check:design-measurement-freshness` / `check:design-path-refs` の**五つがすべて終了コード 0 のまま**である
+  - `check:design-measurement-freshness` の対象文書は `site-survey/design.md` の一件のみで、宣言三十件すべてが同文書を指す（要約行が「対象文書 1 件」と印字する）
+  - 同関門の宣言へ steering 文書を加えれば規約 (b)（機械へ追随させる）で再発を塞げる。**ただし steering を触った押下が本スペックの数値の測り直しで止まる形になりうる**
+  - **115.273（十二件の設計文書を走査する値が関門の外にある）と同型の判断である。** 作法を揃えるか、両者を一つの判断として扱うかを決めること
+  - _Depends: 115.235, 115.232_
+  - _Boundary: steering の実測値の鮮度_
+
 ## Implementation Notes（Task 115.30-115.52）
 
 - **「注記が言う未実装」を鵜呑みにしないこと**: 115.127 段4 で、八件の検証が「実装がセレクトボックスなので未実装」という注記つきの分岐で守られていたが、実装は入力欄であり**観測は一度も発火していなかった**。危険なのは発火しなかったことではなく、**実装が退行した瞬間に八件が緑のまま何も主張しなくなる**ことである。変異で実測すると、観測が発火する状況では八件が主張を一つも実行せずに通った。
