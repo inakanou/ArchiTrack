@@ -2459,6 +2459,449 @@ function checkRealLetteredRequirementMarkExists(): string[] {
 }
 
 // ============================================================================
+// 合成対照の陰性側が空振りしていないことの機構（タスク 115.224）
+// ============================================================================
+//
+// 陰性対照は「この番号は拾われない」と述べる。**静かな空振りが成立するのは陰性側だけ**で
+// あり（115.191）、拾われない理由が主張した規則と別のところにあっても点数は満点のまま通る。
+// 115.192 は実データの側で、115.194 は合成の側で、同じ空振りを一件ずつ手で見つけて塞いだ。
+//
+// ここに置くのは一件ずつの是正ではなく**組で見る網**である。陰性側の資料をすべて登録し、
+// 「何が抑えているか」の主張を機械で確かめる。資料を新しく足した者は分類を迫られる
+// （`checkEverySyntheticFixtureIsClassified` が未分類を失敗にする）。
+
+/**
+ * 陰性対照が「何によって抑えられている」と述べているか
+ *
+ * - `boundary`: 区間の上限（`resolveHeaderSectionEnd` の四つの上限）が抑えている。
+ *   番号を運ぶ行そのものは**拾われうる形**でなければならない。拾われえない形なら、
+ *   上限を外しても番号は現れず、対照は何も測っていない（115.224 の起票理由）。
+ * - `shape`: 一覧の印（`findListItemMarker`）か識別子欄の文法
+ *   （`parseHeaderListItemIds`）が抑えている。位置を最も緩くしても拾われてはならない。
+ *   拾われるなら、抑えていたのは位置であって主張が誤っている。
+ */
+type NegativeControlSuppressor = 'boundary' | 'shape';
+
+/** 陰性対照の一件（資料 × 拾われてはならない番号を運ぶ一行） */
+interface SyntheticNegativeControl {
+  /** 資料の定数名。分類の走査（`checkEverySyntheticFixtureIsClassified`）と照合する */
+  fixtureName: string;
+  /** 資料そのもの */
+  fixture: string;
+  /** 抽出へ渡す機能名。`--feature` の絞り込みを再現する事例があるため事例ごとに持つ */
+  features: readonly string[];
+  /** 拾われてはならない番号を運ぶ行。資料に逐語で存在しなければならない */
+  carrier: string;
+  /** 探索の写しで起点にするヘッダー行。当該番号の機能を名乗るもの */
+  header: string;
+  /** 拾われてはならない受入基準 */
+  absentCriteria?: readonly string[];
+  /** 拾われてはならない要件番号 */
+  absentRequirements?: readonly string[];
+  /** 何が抑えていると述べるか */
+  suppressedBy: NegativeControlSuppressor;
+}
+
+/**
+ * 陰性側の合成対照の全件
+ *
+ * 一つの資料が複数の行で別々のことを述べている場合は、**行ごとに一件**とする。
+ * 行を一つにまとめると、どれか一行が拾われうる形でありさえすれば通ってしまい、
+ * 残りの行の空振りが隠れる。
+ */
+const SYNTHETIC_NEGATIVE_CONTROLS: readonly SyntheticNegativeControl[] = [
+  {
+    fixtureName: 'MULTI_HEADER_JSDOC',
+    fixture: MULTI_HEADER_JSDOC,
+    features: SELFTEST_FEATURES,
+    header: ' * Requirements (site-survey):',
+    carrier: ' * - REQ-2.2: 別機能の受入基準',
+    absentCriteria: ['site-survey/REQ-2.2'],
+    suppressedBy: 'boundary',
+  },
+  {
+    fixtureName: 'MULTI_HEADER_JSDOC',
+    fixture: MULTI_HEADER_JSDOC,
+    features: SELFTEST_FEATURES,
+    header: ' * Requirements coverage (quantity-table-generation):',
+    carrier: ' * - REQ-1.1: 先頭の機能の受入基準',
+    absentCriteria: ['quantity-table-generation/REQ-1.1'],
+    suppressedBy: 'boundary',
+  },
+  {
+    fixtureName: 'ADJACENT_HEADERS_JSDOC',
+    fixture: ADJACENT_HEADERS_JSDOC,
+    features: SELFTEST_FEATURES,
+    header: ' * Requirements (site-survey):',
+    carrier: ' * - REQ-2.2: 別機能の受入基準',
+    absentCriteria: ['site-survey/REQ-2.2'],
+    suppressedBy: 'boundary',
+  },
+  {
+    fixtureName: 'ADJACENT_HEADERS_JSDOC',
+    fixture: ADJACENT_HEADERS_JSDOC,
+    features: SELFTEST_FEATURES,
+    header: ' * Requirements coverage (quantity-table-generation):',
+    carrier: ' * - REQ-1.1: 先頭の機能の受入基準',
+    absentCriteria: ['quantity-table-generation/REQ-1.1'],
+    suppressedBy: 'boundary',
+  },
+  {
+    fixtureName: 'SINGLE_HEADER_JSDOC_THEN_BODY',
+    fixture: SINGLE_HEADER_JSDOC_THEN_BODY,
+    features: SELFTEST_FEATURES,
+    header: ' * Requirements (site-survey):',
+    carrier: "  '- REQ-9.9: これは被覆の主張ではなく本体側の文字列である',",
+    absentCriteria: ['site-survey/REQ-9.9'],
+    suppressedBy: 'boundary',
+  },
+  {
+    fixtureName: 'PRECEDING_BLOCK_COMMENT_THEN_HEADER',
+    fixture: PRECEDING_BLOCK_COMMENT_THEN_HEADER,
+    features: SELFTEST_FEATURES,
+    header: ' * Requirements (site-survey):',
+    carrier: "export const NOTES = ['- REQ-23.9: これは被覆の主張ではなく本体側の文字列である'];",
+    absentCriteria: ['site-survey/REQ-23.9'],
+    suppressedBy: 'boundary',
+  },
+  {
+    fixtureName: 'HEADER_OF_UNLISTED_FEATURE',
+    fixture: HEADER_OF_UNLISTED_FEATURE,
+    // `--feature=site-survey` に相当する。対照の側と同じ絞り込みで測る
+    features: ['site-survey'],
+    header: ' * Requirements (site-survey):',
+    carrier: ' * - REQ-7.7: 帰属の対象に含まれていない機能の受入基準',
+    absentCriteria: ['site-survey/REQ-7.7'],
+    suppressedBy: 'boundary',
+  },
+  {
+    fixtureName: 'PARAGRAPH_BREAK_THEN_PROSE',
+    fixture: PARAGRAPH_BREAK_THEN_PROSE,
+    features: SELFTEST_FEATURES,
+    header: ' * Requirements coverage (site-survey):',
+    carrier: ' * - REQ-4.2 はE2Eテストで検証困難なため省略',
+    absentCriteria: ['site-survey/REQ-4.2'],
+    suppressedBy: 'boundary',
+  },
+  {
+    fixtureName: 'PLAIN_HEADER_THEN_BLANK_LINE',
+    fixture: PLAIN_HEADER_THEN_BLANK_LINE,
+    features: SELFTEST_FEATURES,
+    header: '// Requirements (user-authentication):',
+    carrier: '// - REQ-5.2: 空行の後（別の話題）',
+    absentCriteria: ['user-authentication/REQ-5.2'],
+    suppressedBy: 'boundary',
+  },
+  {
+    fixtureName: 'JSDOC_LINE_PREFIX_IS_NOT_A_LIST_MARKER',
+    fixture: JSDOC_LINE_PREFIX_IS_NOT_A_LIST_MARKER,
+    features: SELFTEST_FEATURES,
+    header: ' * Requirements coverage (site-survey):',
+    carrier: ' *   REQ-8.2 を無条件に検証する（一覧項目の継続行。印を持たない）',
+    absentCriteria: ['site-survey/REQ-8.2'],
+    suppressedBy: 'shape',
+  },
+  {
+    fixtureName: 'JSDOC_LINE_PREFIX_IS_NOT_A_LIST_MARKER',
+    fixture: JSDOC_LINE_PREFIX_IS_NOT_A_LIST_MARKER,
+    features: SELFTEST_FEATURES,
+    header: ' * Requirements coverage (site-survey):',
+    carrier: ' * REQ-8.3 は本ファイルでは検証していない（行頭のコメント記号は印ではない）',
+    absentCriteria: ['site-survey/REQ-8.3'],
+    suppressedBy: 'shape',
+  },
+  {
+    fixtureName: 'BLOCK_COMMENT_OPENER_IS_NOT_A_LIST_MARKER',
+    fixture: BLOCK_COMMENT_OPENER_IS_NOT_A_LIST_MARKER,
+    features: SELFTEST_FEATURES,
+    header: '// Requirements (user-authentication):',
+    carrier: '/** REQ-11.2 はコメントの開始記号の後ろにあるだけで、印を持たない */',
+    absentCriteria: ['user-authentication/REQ-11.2'],
+    suppressedBy: 'shape',
+  },
+  {
+    fixtureName: 'PROSE_BULLET_IS_NOT_AN_ID_LIST',
+    fixture: PROSE_BULLET_IS_NOT_AN_ID_LIST,
+    features: SELFTEST_FEATURES,
+    header: ' * Requirements coverage (site-survey):',
+    carrier: ' * - 15.2 または 15.3 を満たす: 識別子の並びではない散文の箇条書き',
+    absentCriteria: ['site-survey/REQ-15.2', 'site-survey/REQ-15.3'],
+    suppressedBy: 'shape',
+  },
+  {
+    fixtureName: 'PROSE_BULLET_IS_NOT_AN_ID_LIST',
+    fixture: PROSE_BULLET_IS_NOT_AN_ID_LIST,
+    features: SELFTEST_FEATURES,
+    header: ' * Requirements coverage (site-survey):',
+    carrier: ' * - 文字数制限（名称15.4文字、規格15.5文字）: 数値を含む散文',
+    absentCriteria: ['site-survey/REQ-15.4', 'site-survey/REQ-15.5'],
+    suppressedBy: 'shape',
+  },
+  {
+    fixtureName: 'PROSE_BULLET_IS_NOT_AN_ID_LIST',
+    fixture: PROSE_BULLET_IS_NOT_AN_ID_LIST,
+    features: SELFTEST_FEATURES,
+    header: ' * Requirements coverage (site-survey):',
+    carrier: ' *   15.6, 15.7: 印を持たない継続行',
+    absentCriteria: ['site-survey/REQ-15.6', 'site-survey/REQ-15.7'],
+    suppressedBy: 'shape',
+  },
+  {
+    fixtureName: 'PROSE_BULLET_IS_NOT_AN_ID_LIST',
+    fixture: PROSE_BULLET_IS_NOT_AN_ID_LIST,
+    features: SELFTEST_FEATURES,
+    header: ' * Requirements coverage (site-survey):',
+    carrier: ' * - 15.8 / 15.9: スラッシュ区切りの並び（据え置く書式。識別子欄と認めない）',
+    absentCriteria: ['site-survey/REQ-15.8', 'site-survey/REQ-15.9'],
+    suppressedBy: 'shape',
+  },
+  {
+    fixtureName: 'PROSE_BULLET_IS_NOT_AN_ID_LIST',
+    fixture: PROSE_BULLET_IS_NOT_AN_ID_LIST,
+    features: SELFTEST_FEATURES,
+    header: '// Requirements coverage (user-authentication):',
+    carrier: '//   21.2, 21.3: 行コメントの印を持たない継続行',
+    absentCriteria: ['user-authentication/REQ-21.2', 'user-authentication/REQ-21.3'],
+    suppressedBy: 'shape',
+  },
+  {
+    fixtureName: 'NUMBER_RANGE_IS_NOT_EXPANDED',
+    fixture: NUMBER_RANGE_IS_NOT_EXPANDED,
+    features: SELFTEST_FEATURES,
+    header: ' * Requirements coverage (site-survey):',
+    carrier: ' * - REQ-17-REQ-19: 要件番号の範囲（両端を記録し、間は展開しない）',
+    absentRequirements: ['site-survey/REQ-18'],
+    suppressedBy: 'shape',
+  },
+  {
+    fixtureName: 'NUMBER_RANGE_IS_NOT_EXPANDED',
+    fixture: NUMBER_RANGE_IS_NOT_EXPANDED,
+    features: SELFTEST_FEATURES,
+    header: ' * Requirements coverage (site-survey):',
+    carrier: ' * - REQ-22.1〜22.6: 受入基準の範囲（先頭だけを読む）',
+    absentCriteria: [
+      'site-survey/REQ-22.2',
+      'site-survey/REQ-22.3',
+      'site-survey/REQ-22.4',
+      'site-survey/REQ-22.5',
+      'site-survey/REQ-22.6',
+    ],
+    suppressedBy: 'shape',
+  },
+  {
+    fixtureName: 'IDS_WITHOUT_BRANCH_ARE_NOT_CRITERIA',
+    fixture: IDS_WITHOUT_BRANCH_ARE_NOT_CRITERIA,
+    features: SELFTEST_FEATURES,
+    header: ' * Requirements coverage (user-authentication):',
+    carrier: ' * - REQ-17, REQ-18: 枝番を持たない並び',
+    absentCriteria: ['user-authentication/REQ-17.1', 'user-authentication/REQ-18.1'],
+    suppressedBy: 'shape',
+  },
+];
+
+/**
+ * 陽性側だけを述べる資料（陰性の主張を持たないため登録の対象外）
+ *
+ * 分類の走査はここに挙がっていない資料を未分類として失敗させる。
+ * 「陰性の主張を持たない」は目視の判断であるため、**理由を併記して残す**。
+ */
+const POSITIVE_ONLY_FIXTURES: ReadonlyArray<{ name: string; reason: string }> = [
+  { name: 'ID_LIST_FORMS', reason: '識別子欄の各書式を拾えることだけを言う（陽性のみ）' },
+  {
+    name: 'ASTERISK_BULLET_IS_STILL_A_LIST_MARKER',
+    reason: '`*` の箇条書きを拾えることだけを言う（厳しすぎの側の陽性のみ）',
+  },
+  {
+    name: 'LETTERED_REQUIREMENT_NUMBER',
+    reason: '枝つき要件番号を基底番号へ丸めないことだけを言う（陽性のみ）',
+  },
+];
+
+/**
+ * 位置の抑えを取り払った写しを作る
+ *
+ * ヘッダー行と当該行だけを隣接させる。行の**バイトは資料のまま**なので形は保たれ、
+ * 区間の上限（次のヘッダー・コメントの終端・空行・段落の切れ目）はどれも存在しなくなる。
+ * 上限が本当に消えていることは `resolveHeaderSectionEnd` で確かめる（後段の検査）。
+ */
+function relocateCarrierUnderHeader(control: SyntheticNegativeControl): string {
+  return [control.header, control.carrier].join('\n');
+}
+
+/**
+ * 機構: 陰性側の合成対照が空振りしていないことを組で確かめる
+ *
+ * 各件について、位置の抑えを取り払った写しへ抽出を当てる。
+ * `boundary` と述べた件は写しで番号が**現れねばならない**（現れないなら、抑えていたのは
+ * 位置ではなく形であり、上限を外しても対照は赤くならない）。
+ * `shape` と述べた件は写しでも**現れてはならない**（現れるなら、抑えていたのは位置である）。
+ *
+ * 2026-09-01 に実測した。登録は 20 件（資料 12 件）である。
+ * `HEADER_OF_UNLISTED_FEATURE` の一覧項目を ` * Note: REQ-7.7 は…` の散文へ書き換えると、
+ * 対をなす `checkUnlistedFeatureHeaderStillEndsSection` は**緑のまま**で、
+ * 自己検査 61 件のうち本検査 1 件だけが赤くなる（115.224 が述べた空振りそのものである）。
+ * `suppressedBy` を取り違える変異も両向きで赤くなる——`site-survey/REQ-8.3` の件を
+ * `boundary` へ、`site-survey/REQ-4.2` の件を `shape` へ変えると、いずれも 1 件が落ちる。
+ * 本体から規則4（段落の切れ目）を外すと 61 件のうち 4 件が赤くなり、本検査もその一つである。
+ */
+function checkSyntheticNegativeControlsAreNotVacuous(): string[] {
+  const failures: string[] = [];
+
+  // 第3原則: 対照群が空なら失格。空で緑になる抜け道を残さない
+  if (SYNTHETIC_NEGATIVE_CONTROLS.length === 0) {
+    return ['陰性側の合成対照が一件も登録されていない（対照群が空。検査が空振りしている）'];
+  }
+
+  for (const control of SYNTHETIC_NEGATIVE_CONTROLS) {
+    const at = `${control.fixtureName} / ${control.carrier.trim()}`;
+    const criteria = control.absentCriteria ?? [];
+    const requirements = control.absentRequirements ?? [];
+
+    if (criteria.length === 0 && requirements.length === 0) {
+      failures.push(`${at}: 拾われてはならない番号が一件も登録されていない（事例が空振り）`);
+      continue;
+    }
+    if (!control.fixture.includes(control.carrier)) {
+      failures.push(`${at}: 当該行が資料に逐語で存在しない（登録が資料から遅れている）`);
+      continue;
+    }
+    if (!control.fixture.includes(control.header)) {
+      failures.push(`${at}: ヘッダー行が資料に逐語で存在しない（登録が資料から遅れている）`);
+      continue;
+    }
+
+    // 資料そのものでは拾われないこと（対照の主張の写し。登録のずれを検出する）
+    const asIs = extractHeaderScopedCoverage(control.fixture, control.features);
+    for (const id of criteria) {
+      if (asIs.acceptanceCriteria.includes(id)) {
+        failures.push(`${at}: 資料から ${id} が拾われている（陰性の主張が既に崩れている）`);
+      }
+    }
+    for (const id of requirements) {
+      if (asIs.requirements.includes(id)) {
+        failures.push(`${at}: 資料から ${id} が拾われている（陰性の主張が既に崩れている）`);
+      }
+    }
+
+    const probe = relocateCarrierUnderHeader(control);
+    const headerIndex = probe.indexOf('Requirements');
+    if (headerIndex < 0) {
+      failures.push(`${at}: 探索用の写しにヘッダーが無い`);
+      continue;
+    }
+    // 写しに上限が残っていると「位置を最も緩くした」と言えない
+    if (resolveHeaderSectionEnd(probe, headerIndex, null) !== probe.length) {
+      failures.push(`${at}: 探索用の写しに区間の上限が残っている（位置を緩められていない）`);
+      continue;
+    }
+
+    const relocated = extractHeaderScopedCoverage(probe, control.features);
+    for (const id of criteria) {
+      const appeared = relocated.acceptanceCriteria.includes(id);
+      if (control.suppressedBy === 'boundary' && !appeared) {
+        failures.push(
+          `${at}: 位置の上限を取り払っても ${id} が現れない（対照が空振りしている。` +
+            '当該行が一覧項目の形をしていない可能性がある）'
+        );
+      }
+      if (control.suppressedBy === 'shape' && appeared) {
+        failures.push(
+          `${at}: 位置の上限を取り払うと ${id} が現れる（抑えていたのは形ではなく位置である。` +
+            '分類が誤っている）'
+        );
+      }
+    }
+    for (const id of requirements) {
+      const appeared = relocated.requirements.includes(id);
+      if (control.suppressedBy === 'boundary' && !appeared) {
+        failures.push(`${at}: 位置の上限を取り払っても ${id} が現れない（対照が空振りしている）`);
+      }
+      if (control.suppressedBy === 'shape' && appeared) {
+        failures.push(`${at}: 位置の上限を取り払うと ${id} が現れる（分類が誤っている）`);
+      }
+    }
+  }
+
+  return failures;
+}
+
+/**
+ * 資料の宣言を本自己検査の本文から数え上げる
+ *
+ * 拾うのは**ファイル直下に置かれた** `const NAME = [ … ].join('\n');` の形だけである。
+ * 関数の中で組み立てる資料は拾えない——これは本検査の限界であり、報告ではなくここへ書き残す。
+ * 区間判定と一覧項目の合成対照（`extractHeaderScopedCoverage` へ渡す資料）は
+ * 2026-09-01 の実測で 15 件すべてがこの形であり、限界に当たる資料は零件である。
+ */
+function collectTopLevelFixtureNames(source: string): string[] {
+  const names: string[] = [];
+  const lines = source.split('\n');
+  for (let index = 0; index < lines.length; index++) {
+    const declaration = /^const ([A-Z][A-Z0-9_]*) = \[$/.exec(lines[index] ?? '');
+    if (!declaration || !declaration[1]) continue;
+    for (let scan = index + 1; scan < lines.length; scan++) {
+      const line = lines[scan] ?? '';
+      if (!line.startsWith(']')) continue;
+      if (line === "].join('\\n');") names.push(declaration[1]);
+      break;
+    }
+  }
+  return names;
+}
+
+/**
+ * 機構: 資料を足した者に分類を迫る（未分類の資料を残させない）
+ *
+ * 陰性側の網は登録した件しか見ない。登録を任意にすると、次に足される資料が
+ * 115.224 と同じ空振りのまま静かに増える。ここで本自己検査の本文を走査し、
+ * `SYNTHETIC_NEGATIVE_CONTROLS` にも `POSITIVE_ONLY_FIXTURES` にも無い資料を失格にする。
+ *
+ * 2026-09-01 に実測した。走査は資料 15 件を数え、うち 12 件が陰性側、3 件が陽性のみである。
+ * `SELFTEST_FEATURES` のような資料でない定数は `].join('\n');` の形を持たないため拾わない。
+ * `SYNTHETIC_NEGATIVE_CONTROLS` を空にすると未分類 12 件を挙げて赤くなり、走査の正規表現を
+ * `= \[` から `= \{` へ変えると「一件も数えられない」で赤くなる（いずれも実測）。
+ *
+ * **見ているのは資料の粒度であって行の粒度ではない。** 既に登録済みの資料へ陰性の主張を
+ * 述べる行を**足しただけ**の場合、その行は登録を迫られない。ここが本検査の残りの限界で
+ * あり、行の粒度まで導く語彙（どの行がどの番号を運ぶか）を抽出器が公開していないため
+ * 現状では機械で導けない。塞ぐなら行ごとの探索を別途起こすこと。
+ */
+function checkEverySyntheticFixtureIsClassified(): string[] {
+  const failures: string[] = [];
+
+  const absolute = path.resolve(SELFTEST_SOURCE_PATH);
+  if (!fs.existsSync(absolute)) {
+    return [`${SELFTEST_SOURCE_PATH} が存在しない（自己検査の前提が失われた）`];
+  }
+  const names = collectTopLevelFixtureNames(fs.readFileSync(absolute, 'utf8'));
+
+  // 第3原則: 走査が一件も拾えないなら、規則が壊れている。緑で通してはならない
+  if (names.length === 0) {
+    return [`${SELFTEST_SOURCE_PATH}: 資料の宣言を一件も数えられない（走査の規則が壊れている）`];
+  }
+
+  const registered = new Set(SYNTHETIC_NEGATIVE_CONTROLS.map((control) => control.fixtureName));
+  const positiveOnly = new Set(POSITIVE_ONLY_FIXTURES.map((entry) => entry.name));
+
+  for (const name of names) {
+    if (!registered.has(name) && !positiveOnly.has(name)) {
+      failures.push(
+        `${name}: 分類されていない資料である。陰性の主張を持つなら ` +
+          '`SYNTHETIC_NEGATIVE_CONTROLS` へ、陽性だけなら `POSITIVE_ONLY_FIXTURES` へ理由を' +
+          '添えて登録すること'
+      );
+    }
+  }
+  // 走査が拾えない名前が登録側に残っていれば、資料の改名か撤去に登録が追いついていない
+  for (const name of [...registered, ...positiveOnly]) {
+    if (!names.includes(name)) {
+      failures.push(`${name}: 登録されているが資料の宣言が見つからない（改名か撤去に未追随）`);
+    }
+  }
+  return failures;
+}
+
+// ============================================================================
 // 撤廃された受入基準（取り消し線）の扱い
 // ============================================================================
 //
@@ -3821,6 +4264,19 @@ const GROUPS: Array<{ title: string; cases: Case[] }> = [
       {
         name: '実データに枝つき要件番号の被覆印が実在し拾われている',
         run: checkRealLetteredRequirementMarkExists,
+      },
+    ],
+  },
+  {
+    title: '合成対照の陰性側の非空振り（組で見る網）',
+    cases: [
+      {
+        name: '陰性側の合成対照が主張どおりの機構で抑えられている（空振りの検出）',
+        run: checkSyntheticNegativeControlsAreNotVacuous,
+      },
+      {
+        name: '資料がすべて陰性側か陽性のみへ分類されている（未分類を残さない）',
+        run: checkEverySyntheticFixtureIsClassified,
       },
     ],
   },
