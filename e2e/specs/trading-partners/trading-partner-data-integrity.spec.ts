@@ -548,7 +548,12 @@ test.describe('取引先データインテグリティ', () => {
       expect(updatedData.updatedAt).toBeDefined();
       expect(new Date(updatedData.updatedAt).getTime()).toBeGreaterThan(0);
 
-      // 更新日時が作成日時より後であることを確認
+      // 更新日時が作成日時より後であることを確認。
+      // この順序は壁時計の単調性には依存しない。作成日時と更新日時はどちらも
+      // 同じプロセスの壁時計から採られるが、その壁時計は時刻同期で後ろへ跳びうる
+      // （本検証は 2026-08-28 の全件実行で 444ms の逆転を起こした）。
+      // 順序は backend/src/utils/timestamps.ts の resolveUpdatedAt が
+      // 書き込み時に成立させている。
       expect(new Date(updatedData.updatedAt).getTime()).toBeGreaterThanOrEqual(
         new Date(originalCreatedAt).getTime()
       );
