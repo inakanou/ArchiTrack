@@ -227,7 +227,20 @@ interface Options {
 // ============================================================================
 
 const DEFAULT_THRESHOLD = 100;
-const CODE_DIRS = ['backend/src', 'frontend/src', 'e2e'];
+
+/**
+ * 被覆印を探す走査根
+ *
+ * ここから一つ落ちると、その根の下にある被覆印が**丸ごと数えられなくなり**、被覆が静かに
+ * 縮む。`findFiles` は存在しない根に対して黙って空を返すため、綴りを誤った根も同じく無言で
+ * ある。自己検査（`checkEveryCodeScanRootContributes`）が「どの根も外すと被覆集合が真に
+ * 縮む」ことと、根が実在することを課すため、**export を外すとその主張が届かなくなる**。
+ *
+ * `main()` は根を選ばない。走査根は `extractTestCoverage` の既定引数としてのみ与えられ、
+ * その既定が本定数であることを自己検査が原文から照合する
+ * （`checkScanRootsAreTheOnesMainUses`）。
+ */
+export const CODE_DIRS: readonly string[] = ['backend/src', 'frontend/src', 'e2e'];
 const EXCLUSIONS_PATH = 'e2e/requirement-exclusions.json';
 
 // ============================================================================
@@ -949,8 +962,14 @@ export function buildInlineTagPatterns(featureNames: readonly string[]): [RegExp
  *   - (feature-name/REQ-N.M)
  *   - Requirements (feature-name):
  *   - Requirements coverage (feature-name):
+ *
+ * 走査根 `dirs` は既定で `CODE_DIRS` である。`main()` は根を渡さない——渡せるようにすると、
+ * 本番の走査根が定数と食い違ったまま自己検査だけが定数を見て緑になりうる。
  */
-function extractTestCoverage(dirs: string[], featureNames: string[]): TestCoverage[] {
+export function extractTestCoverage(
+  featureNames: string[],
+  dirs: readonly string[] = CODE_DIRS
+): TestCoverage[] {
   const coverage: TestCoverage[] = [];
 
   for (const dir of dirs) {
@@ -2819,7 +2838,7 @@ function main(): void {
   const exclusions = loadExclusions();
 
   // 4. コードおよびテストからカバレッジを抽出
-  const testCoverage = extractTestCoverage(CODE_DIRS, featureNames);
+  const testCoverage = extractTestCoverage(featureNames);
 
   // 5. カバレッジを計算
   const result = calculateCoverage(features, testCoverage, exclusions);

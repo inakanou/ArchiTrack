@@ -178,12 +178,14 @@ import {
   buildModuleGraph,
   buildReachabilityReport,
   classifyCoverageSource,
+  CODE_DIRS,
   computeReachableModules,
   discoverFeatures,
   extractHeaderScopedCoverage,
   extractAllFeatures,
   extractImportSpecifiers,
   extractRequirements,
+  extractTestCoverage,
   calculateCoverage,
   checkSummaryIntegrity,
   collectOutOfDenominatorMarks,
@@ -1086,6 +1088,269 @@ function checkEveryProductionEntryPointContributes(): string[] {
       );
     }
   }
+  return failures;
+}
+
+/**
+ * 与えた走査根だけで被覆される受入基準の集合を求める（実物の走査根一覧は書き換えない）
+ *
+ * `extractTestCoverage` はファイル単位の被覆印を返すだけなので、根の寄与を測るには
+ * 全ファイル分を畳んで集合にする必要がある。既定引数を明示的に上書きして呼ぶことで、
+ * **実物の `CODE_DIRS` を一切壊さずに**「その根を外した世界」を測れる。
+ */
+function collectCriteriaForRoots(featureNames: string[], dirs: readonly string[]): Set<string> {
+  const criteria = new Set<string>();
+  for (const entry of extractTestCoverage(featureNames, dirs)) {
+    for (const id of entry.acceptanceCriteria) criteria.add(id);
+  }
+  return criteria;
+}
+
+interface CodeScanRootWitness {
+  /** `CODE_DIRS` に現れる走査根 */
+  root: string;
+  /** その根の下からしか被覆されない受入基準の番号（この根の寄与を名指しで固定する） */
+  witness: string;
+}
+
+/**
+ * 走査根ごとの固定点
+ *
+ * `CODE_DIRS` から根を落とす変異は、`CODE_DIRS` だけを見る検査では捕まらない
+ * （残った根について「外すと縮む」を測り直すだけで緑になる）。本一覧は
+ * **`CODE_DIRS` の外に置いた第二の宣言**であり、両者の一致を課すことで
+ * 根の増減そのものを赤くする。
+ *
+ * `witness` は 2026-09-01 に実測して選んだ。いずれも当該の根の下の複数のファイルが
+ * 名乗っており（backend/src 6 件・frontend/src 21 件・e2e 5 件）、一枚のファイルの
+ * 移動では消えない。消えた場合は本検査が名指しで赤くなるため、別の固定点へ差し替えること。
+ */
+const CODE_SCAN_ROOT_WITNESSES: readonly CodeScanRootWitness[] = [
+  { root: 'backend/src', witness: 'estimate-creation/REQ-11.6' },
+  { root: 'frontend/src', witness: 'site-survey/REQ-26.5' },
+  { root: 'e2e', witness: 'user-authentication/REQ-28.37' },
+];
+
+/**
+ * 被覆印の走査根がどれも遊んでいない（外すと被覆集合が真に縮む）
+ *
+ * 被覆率は `CODE_DIRS` の下だけを読む。根が一つ落ちると、その下の被覆印が丸ごと数えられ
+ * なくなり、被覆が静かに縮む。`findFiles` は存在しない根に対して黙って空を返すため、
+ * 綴りを誤った根・撤去されたディレクトリを指す根もまた無言である。
+ *
+ * `checkEveryProductionEntryPointContributes`（本番の経路の起点に対する同型の主張）と
+ * 同じ作法で、二つの向きから挟む。
+ *
+ *   1. **根ごとの固定点を名指しで置く。** `CODE_SCAN_ROOT_WITNESSES` は `CODE_DIRS` の
+ *      外に置いた第二の宣言であり、両者の一致を課す。これにより
+ *      **根を落とす変異そのもの**が赤くなる（`CODE_DIRS` だけを見る主張では捕まらない）。
+ *      各固定点は当該の根からしか被覆されないことを毎回測り直す。
+ *   2. **どの根も外すと被覆集合が真に縮む。** 縮まない根は、他の根から完全に覆われる
+ *      冗長な根であり、「外しても何も起きない＝外されても誰も気づかない」状態である。
+ *      固定点を持たない根（将来増える根も含む）を、機構の側で拾う。
+ *
+ * 母集団が空の場合（固定点が零件・走査根が零件・機能が零件・被覆印が零件）は失格にする。
+ * 空の繰り返しは「どの根も縮む」を恒真にするため、緑で通す抜け道になる（第3原則）。
+ *
+ * 2026-09-01 に実測した。`CODE_DIRS` から `backend/src` を落とすと自己検査 65 件のうち
+ * 1 件（本検査）が「固定点が登録されている backend/src が走査根の一覧に無い」で落ちる。
+ * `frontend/src` を落とす変異・`e2e` を落とす変異でも同じ 1 件が落ちる。
+ * 是正前（65 件のうち本検査と次の検査を欠く 63 件）は同じ三つの変異のいずれでも
+ * 自己検査は 63/63 緑のままで、本ゲートの出力だけが 38082 バイトから
+ * それぞれ 52030 / 99947 / 316123 バイトへ動いた（construction-photo の受入基準は
+ * 143/145 から 109/145・97/145・93/145 へ）。
+ * `CODE_SCAN_ROOT_WITNESSES` を空にすると「対照群が空」で 1 件が、`CODE_DIRS` を空にすると
+ * 「母集団が空」で 1 件が落ちる。`backend/src` の固定点を frontend/src 側の番号
+ * （`site-survey/REQ-26.5`）へ差し替えると「backend/src 以外の根からも被覆されるように
+ * なった」で 1 件が、実在しない番号（`user-authentication/REQ-99.99`）へ差し替えると
+ * 「被覆印として一件も拾われない」で 1 件が落ちる。`backend/src` を `backend/srcs` と
+ * 綴り誤ると 3 つの失敗（未登録・一覧に無い・実在しない）を挙げて 1 件が落ちる。
+ */
+function checkEveryCodeScanRootContributes(): string[] {
+  const failures: string[] = [];
+
+  // 第3原則: 対照群が空なら、以下の繰り返しは一度も回らずに緑になる
+  if (CODE_SCAN_ROOT_WITNESSES.length === 0) {
+    return ['走査根の固定点が一件も登録されていない（対照群が空。検査が空振りしている）'];
+  }
+  if (CODE_DIRS.length === 0) {
+    return ['被覆印の走査根が一件も登録されていない（母集団が空。被覆はすべて 0 になる）'];
+  }
+
+  // 1a. 固定点の一覧と走査根の一覧が一致する（根の増減を赤くする）
+  const registered = CODE_SCAN_ROOT_WITNESSES.map((entry) => entry.root);
+  for (const root of CODE_DIRS) {
+    if (!registered.includes(root)) {
+      failures.push(
+        `走査根 ${root} に固定点が登録されていない。` +
+          '`CODE_SCAN_ROOT_WITNESSES` へ、その根からしか被覆されない受入基準を登録すること'
+      );
+    }
+  }
+  for (const root of registered) {
+    if (!CODE_DIRS.includes(root)) {
+      failures.push(
+        `固定点が登録されている ${root} が走査根の一覧に無い。` +
+          '走査根を落としたのなら、その下の被覆印は数えられなくなっている'
+      );
+    }
+  }
+
+  const featureNames = discoverFeatures();
+  if (featureNames.length === 0) {
+    return ['機能を一件も検出できない（自己検査の前提が失われた）'];
+  }
+
+  const full = collectCriteriaForRoots(featureNames, CODE_DIRS);
+  if (full.size === 0) {
+    return [
+      '走査根をすべて与えても被覆印が一件も拾えない（走査が壊れている。以下の「外すと縮む」は' +
+        '測る対象を失っている）',
+    ];
+  }
+
+  const withoutRoot = new Map<string, Set<string>>();
+  for (const root of CODE_DIRS) {
+    if (!fs.existsSync(path.resolve(root))) {
+      failures.push(
+        `走査根 ${root} が実在しない（findFiles は黙って空を返すため、この根は何も読んでいない）`
+      );
+      continue;
+    }
+    withoutRoot.set(
+      root,
+      collectCriteriaForRoots(
+        featureNames,
+        CODE_DIRS.filter((dir) => dir !== root)
+      )
+    );
+  }
+
+  // 1b. 各固定点が、当該の根からしか被覆されていない
+  for (const entry of CODE_SCAN_ROOT_WITNESSES) {
+    const without = withoutRoot.get(entry.root);
+    if (!without) continue; // 実在しない根は上で既に失格にしている
+    if (!full.has(entry.witness)) {
+      failures.push(
+        `${entry.witness} が被覆印として一件も拾われない（${entry.root} の固定点が失効した）。` +
+          '別の固定点へ差し替えること'
+      );
+      continue;
+    }
+    if (without.has(entry.witness)) {
+      failures.push(
+        `${entry.witness} が ${entry.root} 以外の根からも被覆されるようになった。` +
+          'この根の寄与を測る固定点として使えないため、別の固定点へ差し替えること'
+      );
+    }
+  }
+
+  // 2. どの根も遊んでいない（外すと被覆集合が真に縮む）
+  for (const [root, without] of withoutRoot) {
+    if (without.size >= full.size) {
+      failures.push(
+        `走査根 ${root} を外しても被覆する受入基準が減らない` +
+          `（${full.size} → ${without.size}）。` +
+          '他の根から完全に覆われる根であり、走査根の一覧に置く意味が失われている'
+      );
+    }
+  }
+  return failures;
+}
+
+/** 走査根の一覧を持つ定数の名前。原文の照合はこの名前で行う */
+const SCAN_ROOTS_NAME = 'CODE_DIRS';
+
+/** 走査根を受け取る抽出器の名前。原文の照合はこの名前で行う */
+const COVERAGE_EXTRACTOR_NAME = 'extractTestCoverage';
+
+/**
+ * 自己検査が測っている走査根が、本検査が実際に読む走査根と同一である
+ *
+ * `checkEveryCodeScanRootContributes` は `CODE_DIRS` を測る。しかし本検査（`main()`）が
+ * 別の一覧を使うようになれば、**測っている対象と読まれている対象が食い違ったまま**
+ * 自己検査だけが緑になる。対照そのものの主題が失われる形であり、対照の登録が誤っている
+ * のと同じ病である。
+ *
+ * 構造の側で塞ぐ: 走査根は `extractTestCoverage` の既定引数としてのみ与えられ、
+ * 呼び出し側は根を渡さない。ここではその構造を原文から照合する。
+ *
+ *   1. 宣言が export された `CODE_DIRS` であり、字面の並びが読み込んだ値と一致する
+ *   2. 抽出器の既定引数が `CODE_DIRS` である
+ *   3. 抽出器の呼び出しが一つ以上あり、そのいずれも根の一覧を渡していない
+ *
+ * 2026-09-01 に実測した。`main()` の呼び出しを `extractTestCoverage(featureNames,
+ * ['frontend/src', 'e2e'])` へ変える変異（`CODE_DIRS` は三件のまま）では、
+ * `checkEveryCodeScanRootContributes` は**緑のまま**で、自己検査 65 件のうち本検査 1 件
+ * だけが落ちる。既定引数を `CODE_DIRS` から字面のリテラルへ変える変異でも同じ 1 件が
+ * 落ちる。`CODE_DIRS` の `export` を外すと、自己検査は取り込みに失敗して
+ * 「does not provide an export named 'CODE_DIRS'」で終了する（終了コード 1・件数は出ない）。
+ */
+function checkScanRootsAreTheOnesMainUses(): string[] {
+  const failures: string[] = [];
+
+  const absolute = path.resolve(EXTRACTOR_SOURCE_PATH);
+  if (!fs.existsSync(absolute)) {
+    return [`${EXTRACTOR_SOURCE_PATH} が存在しない（自己検査の前提が失われた）`];
+  }
+  const source = fs.readFileSync(absolute, 'utf8');
+
+  // 1. 宣言そのものを原文から読み、読み込んだ値と字面を突き合わせる
+  const declaration = new RegExp(
+    String.raw`export const ${SCAN_ROOTS_NAME}: readonly string\[\] = \[([^\]]*)\];`
+  ).exec(source);
+  if (!declaration) {
+    failures.push(
+      `${EXTRACTOR_SOURCE_PATH}: export された ${SCAN_ROOTS_NAME} の宣言が見つからない` +
+        '（改名か非公開化により、自己検査が測る対象が失われている）'
+    );
+  } else {
+    const declared = Array.from((declaration[1] ?? '').matchAll(/'([^']*)'/g), (m) => m[1] ?? '');
+    if (declared.join('|') !== CODE_DIRS.join('|')) {
+      failures.push(
+        `${EXTRACTOR_SOURCE_PATH}: 宣言の字面 [${declared.join(', ')}] と読み込んだ値 ` +
+          `[${CODE_DIRS.join(', ')}] が食い違う（別の値へ差し替えられている）`
+      );
+    }
+  }
+
+  // 2. 抽出器の既定引数が走査根の定数である
+  const signature = new RegExp(
+    String.raw`export function ${COVERAGE_EXTRACTOR_NAME}\(([^)]*)\)`
+  ).exec(source);
+  if (!signature) {
+    failures.push(`${EXTRACTOR_SOURCE_PATH}: export された ${COVERAGE_EXTRACTOR_NAME} が無い`);
+  } else if (
+    !new RegExp(String.raw`=\s*${SCAN_ROOTS_NAME}\s*$`).test((signature[1] ?? '').trim())
+  ) {
+    failures.push(
+      `${EXTRACTOR_SOURCE_PATH}: ${COVERAGE_EXTRACTOR_NAME} の既定の走査根が ` +
+        `${SCAN_ROOTS_NAME} でない（署名: ${(signature[1] ?? '').replace(/\s+/g, ' ').trim()}）`
+    );
+  }
+
+  // 3. 呼び出し側は根を渡さない（渡せる形が残ると、本番の根が定数と食い違いうる）
+  const calls = Array.from(
+    source.matchAll(
+      new RegExp(String.raw`(?<!function )${COVERAGE_EXTRACTOR_NAME}\(([^)]*)\)`, 'g')
+    )
+  );
+  if (calls.length === 0) {
+    failures.push(
+      `${EXTRACTOR_SOURCE_PATH}: ${COVERAGE_EXTRACTOR_NAME} の呼び出しが一つも無い` +
+        '（被覆の走査が本検査から切り離されている）'
+    );
+  }
+  for (const call of calls) {
+    const args = (call[1] ?? '').replace(/\s+/g, ' ').trim();
+    if (args.includes(',')) {
+      failures.push(
+        `${EXTRACTOR_SOURCE_PATH}: ${COVERAGE_EXTRACTOR_NAME}(${args}) が走査根を明示している。` +
+          `既定引数（${SCAN_ROOTS_NAME}）以外の根を通す経路を残さないこと`
+      );
+    }
+  }
+
   return failures;
 }
 
@@ -4643,6 +4908,14 @@ const GROUPS: Array<{ title: string; cases: Case[] }> = [
       {
         name: '本番の経路の起点がどれも遊んでいない（外すと到達が真に縮む）',
         run: checkEveryProductionEntryPointContributes,
+      },
+      {
+        name: '被覆印の走査根がどれも遊んでいない（外すと被覆が真に縮む）',
+        run: checkEveryCodeScanRootContributes,
+      },
+      {
+        name: '自己検査が測る走査根が本検査の読む走査根と同一である',
+        run: checkScanRootsAreTheOnesMainUses,
       },
     ],
   },
