@@ -442,6 +442,12 @@ test.describe('見積依頼機能', () => {
      * タスク 115.188 の是正: 本ブロックの被覆印は project-management 要件27 へ集約される前の
      * 番号（estimate-request 要件1 の 1.2〜1.5）をそのまま 27.2〜27.5 に読み替えたもので、
      * 条文の内容と対応していなかった。表題・本文が述べる内容に合わせて名乗り直している。
+     *
+     * タスク 115.220 の是正: 表題は「セクション右上の『新規作成』ボタンが非表示である」と
+     * 名乗りながら、本文が確かめていたのは空状態の「新規作成」リンクの表示と
+     * 「すべて見る」リンクの非表示だけで、右上のボタンの非表示は一度も見ていなかった。
+     * 右上のボタンだけが持つアクセシブル名（`EstimateRequestSectionCard.tsx` の
+     * `aria-label="見積依頼を新規作成"`）を exact で指し、空状態のリンクと区別して確かめる。
      */
     test('REQ-1.5: 見積依頼がない場合、セクション右上の「新規作成」ボタンが非表示である', async ({
       page,
@@ -462,6 +468,13 @@ test.describe('見積依頼機能', () => {
         .filter({ hasText: /見積依頼はまだありません/ })
         .getByRole('link', { name: /新規作成/i });
       await expect(emptyStateNewButton).toBeVisible();
+
+      // しかしセクション右上の「新規作成」ボタンは非表示
+      const headerNewButton = section.getByRole('link', {
+        name: '見積依頼を新規作成',
+        exact: true,
+      });
+      await expect(headerNewButton).not.toBeVisible();
 
       // しかしセクション右上の「すべて見る」リンクは非表示
       const headerAllLink = section.getByRole('link', { name: /すべて見る|見積依頼一覧/i });

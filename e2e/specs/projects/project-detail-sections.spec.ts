@@ -448,6 +448,18 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
 
     /**
      * @requirement project-management/REQ-27.4
+     *
+     * 原文（`.kiro/specs/project-management/requirements.md` 要件27 の 4）は
+     * 「セクション右上の『新規作成』ボタン**と**『すべて見る』リンクを非表示にする」であり、
+     * 二つの規範を連言で述べる。タスク 115.220 の是正までは本区間も含め当該IDを名乗る三件が
+     * 「すべて見る」リンクの非表示しか主張しておらず、右上の「新規作成」ボタンの非表示を
+     * 確かめる検証は一件も無かった。
+     *
+     * 右上のボタンと空状態のリンクはいずれも表記が「新規作成」で遷移先も同じ
+     * （`/projects/:id/estimate-requests/new`）ため、`name: /新規作成/i` では区別できない。
+     * 本区間は右上のボタンだけが持つアクセシブル名
+     * （`EstimateRequestSectionCard.tsx` の `aria-label="見積依頼を新規作成"`）を
+     * `exact: true` で指して区別する。
      */
     test('見積依頼が存在しない場合、セクション右上の「新規作成」ボタンと「すべて見る」リンクが非表示である (project-management/REQ-27.4)', async ({
       page,
@@ -468,6 +480,22 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
       await expect(erSection.getByText(/見積依頼はまだありません/i)).toBeVisible({
         timeout: getTimeout(5000),
       });
+
+      // 空状態のメッセージ下の「新規作成」リンクは表示される（REQ-27.3）。
+      // 右上のボタンだけが `aria-label="見積依頼を新規作成"` を持つため、
+      // その名前を exact で指せば空状態のリンクと取り違えない。
+      const emptyStateCreateLink = erSection.getByRole('link', {
+        name: '新規作成',
+        exact: true,
+      });
+      await expect(emptyStateCreateLink).toBeVisible({ timeout: getTimeout(5000) });
+
+      // セクション右上の「新規作成」ボタンが非表示であることを確認
+      const headerCreateButton = erSection.getByRole('link', {
+        name: '見積依頼を新規作成',
+        exact: true,
+      });
+      await expect(headerCreateButton).not.toBeVisible({ timeout: getTimeout(3000) });
 
       // 「すべて見る」リンクが非表示であることを確認
       const viewAllLink = erSection.getByRole('link', { name: /すべて見る/i });
