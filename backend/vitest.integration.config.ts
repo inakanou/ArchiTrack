@@ -20,7 +20,7 @@ import baseConfig, { INTEGRATION_TEST_FILE_GLOB, SHARED_TEST_EXCLUDE } from './v
  *
  *   npm run test:integration            # = vitest run --config vitest.integration.config.ts
  *   npm run test:integration:coverage
- *   npm run test:all                    # 既定 + 統合の両方
+ *   npm run test:all                    # 既定 + 統合の両方（逐次。既定側が落ちても統合側は走る）
  *
  * 事前に test compose の postgres / redis を起動しておくこと。
  */
