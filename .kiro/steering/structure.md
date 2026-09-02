@@ -2,7 +2,9 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-08-30（Steering Sync: タスク 115.200。`e2e/specs/` のテストカテゴリを網羅列挙へ是正し（20区分。従来は19区分で `execution-budget/` が欠落）、印で囲んで `npm run check:steering-test-tree` の検査対象にした。ディレクトリツリーの図は代表例である旨を明記して網羅の重複を解消（backend のテスト木は tech.md、frontend のテスト木も tech.md が権威）。「テスト区分の列挙の規約」節を新設。テストの件数・テストファイル数は撤去し、数える手段だけを残した）_
+_最終更新: 2026-09-02（Steering Sync: タスク 115.243。「テストの件数は書かず数える手段を書く」規約が名指していた `npm --prefix backend run test` が、タスク 115.216 の分離以降は既定側しか数えないため、手段ごとに何を選ぶかを併記する形へ是正した（backend は既定の実行・`test:integration`・`test:all`、frontend は `test` が全件）。併せて「数える手段を書くときは、その手段が何を選ぶかまで書く」——数値を撤去しても手段の指し先が変われば記述は同じように偽になる——を「テスト区分の列挙の規約」へ加えた）_
+
+_2026-08-30（Steering Sync: タスク 115.200。`e2e/specs/` のテストカテゴリを網羅列挙へ是正し（20区分。従来は19区分で `execution-budget/` が欠落）、印で囲んで `npm run check:steering-test-tree` の検査対象にした。ディレクトリツリーの図は代表例である旨を明記して網羅の重複を解消（backend のテスト木は tech.md、frontend のテスト木も tech.md が権威）。「テスト区分の列挙の規約」節を新設。テストの件数・テストファイル数は撤去し、数える手段だけを残した）_
 
 _2026-08-30（Steering Sync: タスク 115.199。実在検査の拡張子の絞りを撤去したことで露わになった失効を是正（`App.jsx`／`main.jsx` は実体が `.tsx`、`vite.config.js` は `vite.config.ts`）。「特殊ファイル」は規則の**例示**であって現存の主張ではないため、一般規則と同じくラベルを前置した形へ揃え、拡張子も実態（`index.ts`／`*.test.ts`／`*.spec.ts`）へ是正。同じ理由でE2E/Storybookの命名規則の例示もラベル前置へ揃えた。散文の `errors/ApiError.ts` は実体が `errors/apiError.ts` で大小文字が食い違っていたため是正）_
 
@@ -1438,9 +1440,16 @@ steering の列挙は既定で**代表例**である。網羅を主張する列�
 - 印で囲まれていないディレクトリツリーや箇条書きは代表例であり、抜けがあってよい。
   網羅と紛れないよう「以下は代表例」と書き添える。
 - **網羅の権威は根ごとに一箇所だけ**に置く。同じ根の宣言が二箇所にあると検査が失敗する。
-- **テストの件数・テストファイル数は steering に書かない。** 数える手段（`npm --prefix backend run test`
-  など）を書く。是正時に実測したところ、書かれていた数値 59 個のうち 38 個が既に食い違っており、
-  残る 21 個の正しい数値と見た目で区別できなかった（タスク 115.200）。
+- **テストの件数・テストファイル数は steering に書かない。** 数える手段を書く。是正時に実測した
+  ところ、書かれていた数値 59 個のうち 38 個が既に食い違っており、残る 21 個の正しい数値と
+  見た目で区別できなかった（タスク 115.200）。
+- **数える手段を書くときは、その手段が何を選ぶかまで書く。** backend は
+  `npm --prefix backend run test` が既定の実行（統合検証を除く）、
+  `npm --prefix backend run test:integration` が統合検証、
+  `npm --prefix backend run test:all` が両方であり、frontend は
+  `npm --prefix frontend run test` が全件である。手段だけを名指して選ぶ範囲を書かないと、
+  区分が分かれた時点（backend はタスク 115.216）で**手段の名前は残ったまま意味が変わる**。
+  数値を撤去しても、手段の指し先が変われば記述は同じように偽になる（タスク 115.243）。
 
 ## インポート構成
 
@@ -1619,8 +1628,12 @@ refactor: improve type safety by eliminating any types
 - Statements: 89.46%
 - Functions: 93.43%
 - Lines: 89.42%
-- 件数は `npm --prefix backend run test` / `npm --prefix frontend run test` の出力で数える
-  （steering にはテストの件数・ファイル数を書かない。タスク 115.200）
+- 件数は次の出力で数える（steering にはテストの件数・ファイル数を書かない。タスク 115.200）
+  - backend の既定の実行（統合検証を除く）: `npm --prefix backend run test`
+  - backend の統合検証: `npm --prefix backend run test:integration`
+  - backend の既定＋統合: `npm --prefix backend run test:all`
+  - frontend の全件: `npm --prefix frontend run test`
+  - 上の内訳はタスク 115.216 が統合検証を既定の実行から外したことによる（タスク 115.243）
 
 ### .gitignore
 

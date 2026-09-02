@@ -6,7 +6,9 @@ ArchiTrackは、建設プロジェクトの管理・積算業務を効率化す�
 
 Claude Codeを活用したKiro-style Spec Driven Development（スペック駆動開発）で開発されており、スラッシュコマンド、フック、エージェント機能を統合した体系的な開発ワークフローを実現しています。
 
-_最終更新: 2026-08-30（Steering Sync: タスク 115.200。単体テスト・統合テストのファイル数（Backend 167／Frontend 405／統合 35）はいずれも実測（186／527／45）と食い違っていたため撤去し、数える手段へ置き換えた）_
+_最終更新: 2026-09-02（Steering Sync: タスク 115.243。「件数は `npm --prefix backend run test` / `npm --prefix frontend run test` で数える」が、タスク 115.216 の分離以降は backend 側で既定しか数えないため、`structure.md` と同じく手段ごとに何を選ぶかを併記する形へ是正した。`structure.md` 側だけを是正すると同じ構文が二様に併存するため同時に揃えた）_
+
+_2026-08-30（Steering Sync: タスク 115.200。単体テスト・統合テストのファイル数（Backend 167／Frontend 405／統合 35）はいずれも実測（186／527／45）と食い違っていたため撤去し、数える手段へ置き換えた）_
 
 _2026-08-05（Steering Sync: 見積書作成の行操作・ネスト構造・帳票書式の再設計を反映。明細編集のクライアント完結・一括保存、範囲選択、階層表示モード（ツリー／ドリルダウン）、俯瞰パネル、キーボード操作、取り消し／やり直し、注記行、帳票用入力項目、フロントエンド生成のA4横帳票（表紙・内訳書・明細書）と未保存プレビュー）_
 
@@ -88,7 +90,7 @@ _2026-06-04（Steering Sync: 数量表のクライアントサイド編集・明
 - **同期テスト実行**: すべてのテスト（単体・統合・E2E）を同期実行し、完了を待ってから次の処理へ進行（Shift-Left原則）
 - **タイムアウト保護**: E2Eテストに10分（Git hooks）/30分（CI/CD）のタイムアウト設定でハングアップを防止
 - **包括的なテスト環境**:
-  - **単体テスト**: Vitest + supertest/React Testing Library（**Backend はブランチカバレッジ80%達成✅**。件数は `npm --prefix backend run test` / `npm --prefix frontend run test` で数える）
+  - **単体テスト**: Vitest + supertest/React Testing Library（**Backend はブランチカバレッジ80%達成✅**。件数は backend の既定の実行が `npm --prefix backend run test`、backend の統合検証が `npm --prefix backend run test:integration`、両方が `npm --prefix backend run test:all`、frontend の全件が `npm --prefix frontend run test` の出力で数える）
   - **要件カバレッジチェック**: 仕様に基づく100%テストカバレッジ検証（E2Eテスト）
   - **統合テスト**: Backend `src/__tests__/integration/`（API統合、データベース、認証フロー）
   - **E2Eテスト**: Playwright + TypeScriptによるブラウザ自動化テスト、タイムスタンプ付き結果管理

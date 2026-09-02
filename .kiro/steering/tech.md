@@ -2,7 +2,9 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-08-30（Steering Sync: タスク 115.200。テスト区分の列挙を「網羅」と「代表例」へ書き分け、網羅側だけを印（`<!-- steering:test-dirs <根> -->`）で囲んで `npm run check:steering-test-tree` の検査対象にした。`backend/src/__tests__/`（`unit/` と `integration/`）、`backend/src/__tests__/unit/`（11区分。従来は6区分しか挙げておらず `docs/`／`models/`／`schemas/`／`scripts/`／`types/` が欠落）、`frontend/src/__tests__/`（13区分。従来は2区分）を網羅へ是正。E2Eカテゴリの網羅列挙は `structure.md` の `e2e/` 節へ一本化した。テストの件数・テストファイル数は steering から撤去し、数える手段だけを残した（実測: 3文書に散った数値59個のうち38個が既に陳腐化していた））_
+_最終更新: 2026-09-02（Steering Sync: タスク 115.243。タスク 115.216 が統合検証を既定の実行から構成として外した結果、`npm --prefix backend run test` に付いていた註「全テスト実行」が偽になっていたため、既定の実行（統合検証を除く）・`test:integration`（統合検証のみ）・`test:all`（両方）を書き分けた。`coverage:check` の註「0%カバレッジファイル検出」も実体——直前のカバレッジ実行が残した結果を読み、低カバレッジのファイルを段階別に報告する——へ是正。frontend の `test` は全件を選ぶことを実測で確かめたうえで、その旨を註に明示した。`test:all` が `&&` 連結で前半の失敗により後半を飛ばす件は注記に留め、繋ぎ方の判断はタスク 115.245 へ送る）_
+
+_2026-08-30（Steering Sync: タスク 115.200。テスト区分の列挙を「網羅」と「代表例」へ書き分け、網羅側だけを印（`<!-- steering:test-dirs <根> -->`）で囲んで `npm run check:steering-test-tree` の検査対象にした。`backend/src/__tests__/`（`unit/` と `integration/`）、`backend/src/__tests__/unit/`（11区分。従来は6区分しか挙げておらず `docs/`／`models/`／`schemas/`／`scripts/`／`types/` が欠落）、`frontend/src/__tests__/`（13区分。従来は2区分）を網羅へ是正。E2Eカテゴリの網羅列挙は `structure.md` の `e2e/` 節へ一本化した。テストの件数・テストファイル数は steering から撤去し、数える手段だけを残した（実測: 3文書に散った数値59個のうち38個が既に陳腐化していた））_
 
 _2026-08-30（Steering Sync: タスク 115.199。実在検査の拡張子の絞りを撤去したことで露わになった失効を是正（`.github/workflows/e2e-tests.yml` は存在せず、E2E は `.github/workflows/ci.yml` の `Integration & E2E Tests` ジョブで走る）。散文中の `e2e/helpers/browser.js` も実体の `browser.ts` へ是正し、起動を `npx tsx` へ改めた（散文は検査の対象外であり、この一件は手で是正した））_
 
@@ -374,20 +376,33 @@ coverage: {
 - `unit/config/env.test.ts` - 環境変数バリデーション
 - `backend/src/app.ts` - テスト用にindex.tsから分離したExpressアプリ
 
-**件数について:** steering にテストの件数・ファイル数は書かない。数える手段だけを書く
-（`npm --prefix backend run test` の出力が唯一の正確な件数である）。件数を書くと
+**件数について:** steering にテストの件数・ファイル数は書かない。数える手段だけを書く。件数を書くと
 記録した瞬間から陳腐化し、しかも正しい数と古い数が見た目で区別できなくなる（タスク 115.200）。
+
+backend では**数える手段が一つではない**。タスク 115.216 が統合検証を既定の実行から構成として
+外したため、`npm --prefix backend run test` の出力は**既定側の数であって全部の数ではない**。
+既定側は `npm --prefix backend run test`、統合検証は `npm --prefix backend run test:integration`、
+両方を合わせた数は `npm --prefix backend run test:all` の出力で数える（タスク 115.243）。
 
 **実行方法:**
 ```bash
-npm --prefix backend run test        # 全テスト実行
-npm --prefix backend run test:watch  # ウォッチモード
-npm --prefix backend run test:ui     # UIモード
-npm --prefix backend run test:coverage  # カバレッジレポート（閾値チェック付き）
-npm --prefix backend run test:unit   # ユニットテストのみ
-npm --prefix backend run test:unit:coverage  # ユニットテストカバレッジ
-npm --prefix backend run coverage:check  # カバレッジギャップ検出（0%カバレッジファイル検出）
+# 既定の実行。src/ 配下の検証ファイルのうち統合検証を除いたものを回す
+npm --prefix backend run test
+# 統合検証だけを回す（実データベースと実 Redis を要する。test compose を先に起動しておく）
+npm --prefix backend run test:integration
+# 既定 → 統合の順に両方を回す
+npm --prefix backend run test:all
+npm --prefix backend run test:watch  # ウォッチモード（選ぶ範囲は既定の実行と同じ）
+npm --prefix backend run test:ui     # UIモード（選ぶ範囲は既定の実行と同じ）
+npm --prefix backend run test:coverage  # カバレッジレポート（閾値チェック付き。選ぶ範囲は既定の実行と同じ）
+npm --prefix backend run test:integration:coverage  # 統合検証のカバレッジ
+npm --prefix backend run test:unit   # src/__tests__/unit/ 配下だけを回す
+npm --prefix backend run test:unit:coverage  # 同じ範囲のカバレッジ
+npm --prefix backend run coverage:check  # 直前のカバレッジ実行が残した結果を読み、低カバレッジのファイルを段階別に報告する
 ```
+
+`test:all` は既定側と統合側を `&&` で繋いだものであり、**既定側が落ちると統合側は走らない**。
+この繋ぎ方を改めるかどうかはタスク 115.245 で判断する。
 
 **カバレッジ改善履歴:**
 - 2025-11-03: Statements 79.6%→92.64%, Branches 69.5%→86.7%, Functions 76.59%→88.67%, Lines 80.47%→92.83%
@@ -450,11 +465,11 @@ frontend のテストは二方式が併存する。`frontend/src/__tests__/` に
 
 **実行方法:**
 ```bash
-npm --prefix frontend run test        # 全テスト実行
+npm --prefix frontend run test        # 全テスト実行（frontend には既定の実行から外す検証区分が無い）
 npm --prefix frontend run test:watch  # ウォッチモード
 npm --prefix frontend run test:ui     # UIモード
 npm --prefix frontend run test:coverage  # カバレッジレポート
-npm --prefix frontend run coverage:check  # カバレッジギャップ検出（0%カバレッジファイル検出）
+npm --prefix frontend run coverage:check  # 直前のカバレッジ実行が残した結果を読み、低カバレッジのファイルを段階別に報告する
 ```
 
 **テストカバレッジ:**
@@ -853,19 +868,24 @@ cd backend && npx prettier --write "src/**/*.js"
 ### 単体テスト（Vitest）
 
 ```bash
-# Backend単体テスト
-npm --prefix backend run test        # 全テスト実行
+# Backend単体テスト（既定の実行。統合検証は含まれない）
+npm --prefix backend run test
 npm --prefix backend run test:watch  # ウォッチモード
 npm --prefix backend run test:ui     # UIモード
 npm --prefix backend run test:coverage  # カバレッジレポート
 
+# Backend統合検証（実データベース・実 Redis を要する。既定の実行では選ばれない）
+npm --prefix backend run test:integration
+# Backend の既定＋統合を続けて回す
+npm --prefix backend run test:all
+
 # Frontend単体テスト
-npm --prefix frontend run test        # 全テスト実行
+npm --prefix frontend run test        # 全テスト実行（frontend には既定の実行から外す検証区分が無い）
 npm --prefix frontend run test:watch  # ウォッチモード
 npm --prefix frontend run test:ui     # UIモード
 npm --prefix frontend run test:coverage  # カバレッジレポート
 
-# 全ての単体テストを実行（Backend + Frontend）
+# Backend の既定の実行と Frontend の全件（backend の統合検証は含まれない）
 npm --prefix backend run test && npm --prefix frontend run test
 ```
 
