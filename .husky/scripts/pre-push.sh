@@ -870,6 +870,48 @@ echo "✅ Traceability table coverage check passed"
 echo ""
 
 # ============================================================================
+# 追跡表と部品別の自己申告の突き合わせ（タスク 115.247）
+# ============================================================================
+# 同じ設計文書の中で、担い手の要件が二様に書かれていないかを見る
+# - タスク 115.217 のレビューが site-survey の design.md に、追跡表の行は
+#   AnnotationContextMenu へ要件28 を割り当てる一方、同じ章の Component Summary の行と
+#   詳細節の Requirements 欄は要件27 しか挙げていない食い違いを見つけた
+# - 上の check:trace-coverage は追跡表の Requirement 列しか見ない（Components 列の中身は
+#   対象外だと自身の限界に明記している）。この面を見る検査はリポジトリに無かった
+# - 判定は「機能ごとに宣言した状態から悪化していないこと」（FEATURE_POLICIES）
+# - 検出器が壊れたまま「合格」を出すことを防ぐため、本検査の前に自己検査を走らせる
+# ============================================================================
+
+echo "🔍 Checking design component requirement consistency self-test..."
+npm run check:design-component-reqs:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Design component requirement detector self-test failed. Push aborted."
+  echo ""
+  echo "   突き合わせの検出規則そのものが壊れています。この状態では判定は信用できません。"
+  echo "   固定資料: scripts/check-design-component-requirements.selftest.ts"
+  echo ""
+  exit 1
+fi
+npm run check:design-component-reqs
+if [ $? -ne 0 ]; then
+  echo "❌ Design component requirement consistency check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. どちらが正かを決めてください（要件定義書の条文へ当たること）"
+  echo "  2. 追跡表が正なら、部品表の Req Coverage 欄と詳細節の Requirements 欄へ番号を足す"
+  echo "  3. 部品別の自己申告が正なら、追跡表の Components 列から当該部品を外し、"
+  echo "     再び割り当て直さないための注記を添える（タスク 115.246 の先例）"
+  echo "  4. 是正できない事情があるなら scripts/check-design-component-requirements.ts の"
+  echo "     FEATURE_POLICIES へ理由と併せて宣言してください"
+  echo ""
+  echo "詳細確認: npm run check:design-component-reqs:verbose"
+  exit 1
+fi
+
+echo "✅ Design component requirement consistency check passed"
+echo ""
+
+# ============================================================================
 # 本番コードへの行番号参照チェック（上のチェックの対偶）
 # ============================================================================
 # 設計文書が本番コードを `パス:行` で指す形の再発を検知する

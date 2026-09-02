@@ -1389,22 +1389,22 @@ sequenceDiagram
 |-----------|--------------|--------|--------------|------------------|-----------|
 | SiteSurveyService | Backend/Service | 現場調査CRUD操作 | 1, 2, 3 | PrismaClient (P0), AuditLogService (P1) | Service, API |
 | SurveyImageService | Backend/Service | マジックバイト判定・ファイル名サニタイズ・保存先パス算出 | 4.5, 4.9, 21 | PrismaClient (P1), StorageProvider (P1) | Service, API |
-| AnnotationService | Backend/Service | 注釈データ管理 | 6, 7, 8, 9, 18 | PrismaClient (P0) | Service, API |
+| AnnotationService | Backend/Service | 注釈データ管理 | 6, 7, 8, 9, 18, 22.4 | PrismaClient (P0) | Service, API |
 | **ImageMetadataService** | Backend/Service | 画像メタデータ管理 | 10 | PrismaClient (P0) | Service, API |
 | **ImageDeleteService** | Backend/Service | 画像削除処理、孤立ファイル処理 | 4.7, 4.8, 10.10, 10.11 | PrismaClient (P0), Cloudflare R2 (P0) | Service, API |
 | ExportService | Frontend/Service | エクスポート処理 | 11, 12 | jsPDF (P0), Fabric.js (P0) | State |
 | SurveyRoutes | Backend/Routes | APIエンドポイント | 1-12, 14, 18, 20 | All Services (P0) | API |
 | **SiteSurveySectionCard** | Frontend/Component | プロジェクト詳細画面の現場調査セクション | 2.1 | SurveyAPI (P0) | State |
 | SiteSurveyListPage | Frontend/Page | 一覧表示（タイトル「現場調査一覧」） | 2, 3, 20.3 | SurveyAPI (P0) | State |
-| SiteSurveyDetailPage | Frontend/Page | 詳細・編集・順序変更 | 1, 4.10-4.13, **5.1**, 9, 10, 11, 20.2 | SurveyAPI (P0), ImageAPI (P0), useUnsavedChanges (P0) | State |
-| **PhotoManagementPanel** | Frontend/Component | フルサイズ写真一覧管理UI（移動ボタン付き） | 4.10-4.13, 10 | ImageMetadataAPI (P0), useUnsavedChanges (P0) | State |
-| AnnotationEditor | Frontend/Component | 注釈編集UI、**閲覧モードの画像表示・操作** | **5.2-5.4, 5.6**, 6, 7, 8, 9, 13, 22 | Fabric.js (P0), UndoManager (P0), useUnsavedChanges (P0), **useCanvasViewport (P0)** | State |
+| SiteSurveyDetailPage | Frontend/Page | 詳細・編集・順序変更 | 1, 2.3, 2.4, 2.7, 4.10-4.13, **5.1**, 9, 10, 11, 20.2 | SurveyAPI (P0), ImageAPI (P0), useUnsavedChanges (P0) | State |
+| **PhotoManagementPanel** | Frontend/Component | フルサイズ写真一覧管理UI（移動ボタン付き） | 4.10-4.13, 10, 20.2 | ImageMetadataAPI (P0), useUnsavedChanges (P0) | State |
+| AnnotationEditor | Frontend/Component | 注釈編集UI、**閲覧モードの画像表示・操作** | **5.2-5.4, 5.6**, 6, 7, 8, 9, 12, 13, 20.4, 22 | Fabric.js (P0), UndoManager (P0), useUnsavedChanges (P0), **useCanvasViewport (P0)** | State |
 | **DimensionValueInput** | Frontend/Component | 寸法線描画後の寸法値・単位の入力欄 | 6.2, 6.3 | - | State |
 | **SiteSurveyImageViewerPage** | **Frontend/Page** | **画像ビューア/エディタ画面。閲覧⇄編集の切替と表示状態の保持** | **5.1, 5.6, 2.8, 2.9, 2.12, 20.1** | **SurveyAPI (P0), AnnotationEditor (P0)** | **State** |
 | **ZoomControls** | **Frontend/Component** | **ズーム/フィット/回転の操作手段と倍率表示** | **5.2, 5.3, 34.1-34.3, 34.5, 34.6, 34.8** | **useCanvasViewport (P0)** | - |
 | ~~ImageViewer~~（撤去済み） | Frontend/Component | 画像表示・操作 | 撤去済み（**タスク 115.146 でファイルごと撤去**。要件5 の担当は 115.83 で `SiteSurveyImageViewerPage` + `AnnotationEditor` へ付け替え済み、要件12.1 の担当は `AnnotationEditor`） | Fabric.js (P0) | State |
 | **ImageExportDialog** | Frontend/Component | 個別画像エクスポートUI | 12 | AnnotationRendererService (P0) | State |
-| UndoManager | Frontend/Utility | 操作履歴管理 | 13 | - | State |
+| UndoManager | Frontend/Utility | 操作履歴管理 | 13, 22.6 | - | State |
 | AutoSaveManager | Frontend/Service | 自動保存・状態復元・QuotaExceeded対応 | 15, 15.7-15.10 | localStorage (P0) | State |
 | **useAnnotationRestoration** | Frontend/Hook | ローカル下書きとサーバー保存済み注釈を比較し復元確認の要否を決める | 15.5 | AutoSaveManager (P0) | State |
 | **RestoreAnnotationDialog** | Frontend/Component | 未保存の下書きを復元するか破棄するかの確認ダイアログ | 15.5 | - | State |
@@ -1419,6 +1419,19 @@ sequenceDiagram
 本タスクでは、本書の結線記録が名指しした部品のうち**どの `Component Summary` にも行が無かった 5 件**を本表へ追加した。内訳は、「自動保存・復元基盤の結線（タスク 115.81）」の表から `useAnnotationRestoration` / `RestoreAnnotationDialog` / `StorageWarningBanner` / `storage-error.ts` の 4 件と、「寸法値入力欄の結線（タスク 115.82）」の `DimensionValueInput` の 1 件である（4 + 1 = 5）。
 追加しなかったもの: `ZoomControls` はタスク 115.83 が本表へ収録済みであり、`AnnotationContextMenu` と `touchGestureManager` は「Requirements 24-30」節の表に行を持つ。
 追加行の Req Coverage 欄は結線記録の表の担当要件欄をそのまま写した。Key Dependencies 欄は各実装ファイルの `^import` 行に現れる本リポジトリ内のモジュールだけを挙げ、該当が無いものは `-` とした。
+
+**追跡表が割り当てた要件を部品が自認していなかった件の是正（タスク 115.247）**: タスク 115.246 は追跡表の行が `AnnotationContextMenu` へ要件28 を割り当てる一方、同部品の `Component Summary` の行と詳細節の `Requirements` 欄はいずれも要件27 しか挙げていない食い違いを決着させた。**同型が本書に他にも在った。** 機械の走査（`npm run check:design-component-reqs`。判定器は `scripts/check-design-component-requirements.ts`）で、部品と要件番号の組を **7 件**（6 つの部品にまたがる）検出し、いずれも**追跡表の側を正**として部品別の自己申告へ番号を足した。
+
+| 部品 | 追跡表が割り当てていた要件 | 追随させた欄 | 追跡表を正とした根拠 |
+|------|------------------------------|--------------|------------------------|
+| `SiteSurveyDetailPage` | 2.3-2.4（画面遷移）、2.7（詳細画面ブレッドクラム） | `Component Summary` | 条文が名指すのは詳細画面そのものである |
+| `PhotoManagementPanel` | 20.2（詳細画面サムネイルの注釈表示） | `Component Summary` | 同じ行が併記する `AnnotatedImageThumbnail` を描画するのは本部品であり、同じ要件を `SiteSurveyDetailPage` の欄は既に自認していた |
+| `AnnotationEditor` | 12.1-12.5（個別画像エクスポート）、20.4（注釈保存時のサムネイル生成） | `Component Summary` と `#### AnnotationEditor` の欄 | 12.1-12.5 の担い手を本部品へ改めたのはタスク 115.146 の明示の判断である（本書「未結線部品の扱い」の追記を参照）。20.4 はサーバ側合成が封鎖され画像編集画面が合成を担う（`#### AnnotatedThumbnailService` の封鎖の注記を参照） |
+| `AnnotationService` | 22.4（回転状態を含む画像データの永続化） | `Component Summary` と `#### AnnotationService` の欄 | 回転状態は注釈データの一部として永続化され、その担い手は本サービスである |
+| `UndoManager` | 22.6（回転操作の取り消し・やり直しの履歴記録） | `Component Summary` と `#### UndoManager` の欄 | 履歴の記録は本部品の役割であり、要件22 の章に部品別の欄は無い |
+| `bulkExportService` | 32.8（出力経路の整合） | 「Requirements 31-32」の `Component Summary` と `##### bulkExportService` の欄 | 当該行が名指す四つの出力経路のうち「一括」の担い手は本部品である |
+
+**この突き合わせが見ている面と、見ていない面**: 判定は**同じ章の中**で行い、粒度は**要件の上位番号**である（追跡表の併合行は複数の部品を併記するため、受入基準の粒度では「どの基準をどの部品が担うか」が書式から決まらない）。**逆向き——部品の自己申告が挙げる要件を、同じ章の追跡表のどの行もその部品へ割り当てていない形（担い手の欠落）——は見ていない**。それは本書の `## 未起票の提案の台帳（タスク 115.213）` の #8 の所管である。追跡表が受入基準を網羅しているかは `npm run check:trace-coverage`（タスク 115.228）の所管であり、本検査は Requirement 列を書き換えないため同検査の判定は動かない。
 
 ### Backend / Service Layer
 
@@ -2006,7 +2019,7 @@ const batchUpdateImageMetadataSchema = z.array(z.object({
 | Field | Detail |
 |-------|--------|
 | Intent | 注釈データ（寸法線、マーキング、コメント）の永続化と復元を管理 |
-| Requirements | 6.1-6.7, 7.1-7.10, 8.1-8.7, 9.1-9.6, 18.1, 18.3, 18.4, 18.8 |
+| Requirements | 6.1-6.7, 7.1-7.10, 8.1-8.7, 9.1-9.6, 18.1, 18.3, 18.4, 18.8, 22.4 |
 
 **Responsibilities & Constraints**
 - Fabric.js JSON形式の注釈データを保存・復元
@@ -2964,7 +2977,7 @@ interface ImageExportDialogProps {
 | Field | Detail |
 |-------|--------|
 | Intent | 画像上での注釈編集インターフェースを提供 |
-| Requirements | 6.1-6.7, 7.1-7.10, 8.1-8.7, 9.1-9.6, 13.1-13.5, 17.1-17.6, 22.1-22.8 |
+| Requirements | 6.1-6.7, 7.1-7.10, 8.1-8.7, 9.1-9.6, 12.1-12.5, 13.1-13.5, 17.1-17.6, 20.4, 22.1-22.8 |
 
 **Responsibilities & Constraints**
 - Fabric.jsキャンバスの初期化と管理
@@ -3114,7 +3127,7 @@ interface ImageViewerProps {
 | Field | Detail |
 |-------|--------|
 | Intent | 注釈編集操作のUndo/Redo履歴を管理 |
-| Requirements | 13.1, 13.2, 13.3, 13.4, 13.5 |
+| Requirements | 13.1, 13.2, 13.3, 13.4, 13.5, 22.6 |
 
 **Responsibilities & Constraints**
 - コマンドパターンによる操作履歴管理
@@ -6383,7 +6396,7 @@ graph TB
 
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies (P0/P1) | Contracts |
 |-----------|--------------|--------|--------------|--------------------------|-----------|
-| bulkExportService | Services | 複数画像レンダ→ZIP→DL の coordinator、進捗・キャンセル・部分失敗 | 31.4-31.19 | AnnotationRendererService (P0), ExportService (P0), JSZip (P0) | Service, State |
+| bulkExportService | Services | 複数画像レンダ→ZIP→DL の coordinator、進捗・キャンセル・部分失敗 | 31.4-31.19, 32.8 | AnnotationRendererService (P0), ExportService (P0), JSZip (P0) | Service, State |
 | zip-naming | Services | ZIP 内ファイル名規則 | 31.8, 31.9 | - | Pure utility |
 | ExportSettingsForm | UI | 形式・解像度・注釈含む・原本のフォーム本体 | 31.4 | annotation-style-tokens (P1) | UI props |
 | BulkExportDialog | UI | 起動 + 設定確定 | 31.1-31.5, 31.15 | ExportSettingsForm (P0), bulkExportService (P0) | UI props |
@@ -6404,7 +6417,7 @@ graph TB
 | Field | Detail |
 |-------|--------|
 | Intent | 複数画像を Req 12 と同一の単一画像レンダリングを順次適用して JSZip に格納、進捗 callback とキャンセルを提供する coordinator |
-| Requirements | 31.4, 31.5, 31.6, 31.7, 31.10, 31.11, 31.12, 31.13, 31.14, 31.16, 31.17, 31.18, 31.19 |
+| Requirements | 31.4, 31.5, 31.6, 31.7, 31.10, 31.11, 31.12, 31.13, 31.14, 31.16, 31.17, 31.18, 31.19, 32.8 |
 
 **Responsibilities & Constraints**
 - 入力: `images: SurveyImageMetadata[]`、`settings: ExportSettings`、`onProgress: (done, total, failedSoFar) => void`、`signal: AbortSignal`
