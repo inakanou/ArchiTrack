@@ -345,6 +345,27 @@ _Boundary_ 外（`frontend/src`）なので §6 へ引き継ぐ。**
 - `trading-partners/trading-partner-composite-unique.spec.ts:271` — tpm/2.11: 主題は取引先名と部課名の組み合わせの一意性で、重複時のエラー表示を確かめている。未観測は大文字小文字・空白の正規化。
 - `company-info/company-info-api.spec.ts:56,81` — company-info/6.7・6.8: 原文は「閲覧/保存に権限を要求する」という無条件の規範であり、主題は同じ。権限を持つ側で 200 と保存成功を確かめており、未観測は権限を欠く側の応答。
 
+**追加登録（タスク 115.250。2026-09-03）。以下の一件は §3（本タスクで是正した被覆印）にも §4 にも
+登録されず、§6 の引き継ぎ項目としてのみ扱われていた。** 115.220 が `project-management/REQ-27.4` の
+三件のうち二件へ観測を足して条文を決着させたとき、残る一件は「表題と本文が食い違っていない」という
+理由で手が入らず、その結果 §4 の母集団にも §6 の未決項目にも属さないままになっていた。
+**この「§3 にも §4 にも無く §6 にだけ在った」ことの実測（HEAD 版に当てたコマンドと出力）は
+§6 の当該項目の末尾に置いた。**
+
+- `estimate-requests/estimate-request-e2e.spec.ts:386` — pm/27.4: 主題は「見積依頼が存在しない場合の
+  セクション右上の表示」で原文（要件27 の 4）と同じであり、区間は右上の「すべて見る」リンクの
+  `not.toBeVisible()` を実際に確かめている。未観測は原文が連言で並べるもう一方——右上の
+  「新規作成」ボタンの非表示——と、前件（見積依頼が 0 件であること）の確定。
+  - **区間は行番号ではなく表題の逐語で指す**:
+    `REQ-1.3: 見積依頼がない場合、「すべて見る」リンクが非表示である (project-management/REQ-27.4)`。
+    §4 の行番号は 115.188 当時のものであり、その後の編集でずれている。**同じ §4.4 の項目
+    `estimate-requests/estimate-request-e2e.spec.ts:1537,2965,3598` が実例で、115.220 が同ファイルへ
+    観測を足した分だけ一律に 13 行ずれ、三件はいま `:1550`・`:2978`・`:3611` にある**（2026-09-03 に実測。
+    下のコマンドは 4 行を出す。四行目の `:3668` は §4 が挙げていない二つ目の er/39.12 の被覆印であり、
+    ずれの実測とは別の事柄である。
+    `npx tsx scripts/scan-coverage-mark-correspondence.ts --tsv | awk -F'\t' '$1=="e2e/specs/estimate-requests/estimate-request-e2e.spec.ts" && $3 ~ /REQ-(10[.]3|10[.]4|39[.]12)$/ {print $2, $3}'`）。
+    行番号の一律の追随は本項目の _Boundary_ 外であり、直していない。
+
 ### 4.5 散文の言及が被覆印として読まれている（読み取り規則の側の穴）
 
 区間の本文にある解説コメントの中の要件ID が、パターン3（機能名つきの単独形式）に一致して
@@ -485,6 +506,80 @@ _Boundary_ 外（`frontend/src`）なので §6 へ引き継ぐ。**
       見ていなかった区間に、右上のボタンの `not.toBeVisible()` を足した。
     - 同ファイルの「REQ-1.3」の区間（「すべて見る」のみを主張する）は**手を入れていない**。
       表題と本文が食い違っておらず、条文自体は上の二件が全体を観測するため被覆済みである。
+
+  **タスク 115.250 で残りを決着させた（2026-09-03）。§4.4 へ追加登録した。**
+
+  - **手を入れなかった「REQ-1.3」の区間は、被覆印としては §4（B: 主題は同じで規範の一部が未観測）
+    の母集団に属する。** §4 の分類は被覆印**一件ごとの性質**（主題が同じか・原文の規範の一部が
+    未観測か）で決まるのであって、名乗る受入基準が他の被覆印によって全体を観測されているか
+    どうかでは決まらない（§2）。当該区間は右上の「すべて見る」リンクの非表示しか主張せず、
+    原文が連言で並べる「新規作成」ボタンの非表示にも前件（0 件であること）の確定にも触れない。
+    ゆえに B であり、**§4.4 へ登録した**。
+  - **「§4 の母集団から意図的に除く」とは書かない。** 除くと §4 の母集団が「B の被覆印」ではなく
+    「B の被覆印のうち、名乗る条文が他の被覆印で全体観測されていないもの」という、どこにも
+    書かれていない規則へ静かに変わる。しかも §4 が将来どちらへ決着しても（一律に取り下げる／
+    観測を足す）本件だけが手当ての対象から外れる。**115.220 が「先に取り下げると §4 の決着と
+    逆向きになりうる」として観測の追加を採ったのと同じ理由で、母集団から外す道を採らない。**
+  - **受入基準 `project-management/REQ-27.4` の被覆の判定は動かない。** 本件は被覆印の帳簿の
+    是正であって、`check:req-coverage` の分子にも分母にも触れない。三件はいずれも被覆印のまま
+    である（取り下げていない）。
+  - **記録を機械へ載せる道は採らなかった（実測つきで開示する）。本記録を読む機械は無い。**
+    本記録の名を引くファイルは、**本記録自身（この段落が自分の名を綴るため）を除くと 3 件**で、
+    いずれも散文である
+    （`grep -rl coverage-mark-adjudication --include=*.ts --include=*.js --include=*.json --include=*.md --include=*.yml . | grep -v node_modules` は
+    4 件を出し、その内訳は本記録自身・`.kiro/specs/site-survey/tasks.md`・
+    `scripts/scan-coverage-mark-correspondence.ts`（`@fileoverview` の註釈で裁定の所在を述べるだけ）・
+    `scripts/exclusion-alternative-verification-adjudication.md` である。2026-09-03 に実測）。
+    §4 を丸ごと（本項目の追加登録を含め `## 4.` から `## 5.` の手前まで 140 行。約340件の登録）
+    削除する変異を当てても、`check:design-refs` /
+    `check:design-code-refs` / `check:design-path-refs` / `check:design-measurement-freshness` /
+    `check:steering-refs` / `check:steering-idents` / `check:steering-test-tree` /
+    `check:trace-coverage` / `check:req-exclusions` / `check:cf-evidence` / `check:e2e-guards` /
+    `check:e2e-selfjudge` / `check:design-component-reqs` / `check:dead-script-env` の 14 本と
+    `format:check` は**すべて終了コード 0 のまま**であった（2026-09-03 に実測。変異は事前複製からの
+    `cp` で復元し `sha256sum -c` で照合した）。載せる既存の経路は
+    `scripts/check-design-measurement-freshness.ts` の `GOVERNED_DOCUMENTS` へ本記録を加え
+    `scripts/design-measurements.json` に宣言を置く形**ひとつだけ**である（同自己検査は
+    「実マニフェストの全ての宣言が所管の文書を指している」を課すため、文書の追加なしに宣言は
+    置けない）。**その面を広げてよいかの判断は未決のタスク 115.273 / 115.276 が所管する。**
+    両タスクは「宣言すると他文書を触った押下が本スペックの数値の測り直しで止まる」代償を
+    受け入れるかを未決とし、現況（対象文書 1 件・宣言 30 件がすべて `site-survey/design.md` を
+    指す）を前提に据えている。先取りは当該二件の前提を崩すため、本タスクでは採らない。
+  - **「§3 にも §4 にも無く §6 にだけ在った」ことを HEAD 版で実測した。**
+    `git show HEAD:scripts/coverage-mark-adjudication.md | awk '/^## 3\./,/^## 5\./' | grep -c 'estimate-request-e2e.spec.ts:379'`
+    → **0**、同じ HEAD 版に
+    `awk '/^## 6\./,0' | grep -c 'estimate-request-e2e.spec.ts:379'` を当てると → **1**
+    （2026-09-03 に実測。`:379` は 115.220 の是正で行が動く前の位置で、いまは `:386` である）。
+  - **同型（どの母集団にも属さない B の被覆印）が他に無いかを走査した。走査範囲をコマンドで宣言する。**
+    母集団は **§6 が「決着済み」と述べた項目**に取る。§4 へ登録済みの項目は定義上「どの母集団にも
+    属さない」になりえず、§6 の未決項目は引き継ぎ先が明示されている。取りこぼしが起きうるのは
+    「決着済み」と述べながら §4 へ登録しなかった項目だけである。
+    - `grep -n '^- \*\*.*決着済み' scripts/coverage-mark-adjudication.md` → **1 行**。出力は
+      `- **部分被覆（タスク 115.220 で決着済み。以下の三件の記述は 115.188/115.189 時点の実測）**:`
+      であり、本記録が「決着済み」と述べた §6 の項目は**本項ただ一つ**である（行番号は自己言及で
+      動くため、指し先は見出しの逐語で持つ）。
+    - 本項が挙げる被覆印は三件で、現在位置は
+      `npx tsx scripts/scan-coverage-mark-correspondence.ts --tsv | awk -F'\t' '$3=="project-management/REQ-27.4"'`
+      → `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` の **386 行**・**452 行**と
+      `e2e/specs/projects/project-detail-sections.spec.ts` の **464 行**（2026-09-03 に実測）。
+    - 残る二件が §4 に居ないのは正しい。
+      `awk '/^## 4\./,/^## 5\./' scripts/coverage-mark-adjudication.md | grep -c 'estimate-request-e2e.spec.ts:452\|project-detail-sections.spec.ts:464'`
+      → **0**。両者は 115.220 の是正で連言の両方（「新規作成」ボタンと「すべて見る」リンク）と
+      前件を観測するようになったため B ではなく、§4 に属さないのが正しい。
+      **§4 にも §6 の未決項目にも属さない B は 386 行の一件のみ**であり、それが上の追加登録である。
+    - **この走査は本記録の中で閉じる。** 母集団を「本記録 §6 の『決着済み』項目」に取っているため、
+      他スペックの記録（`scripts/exclusion-alternative-verification-adjudication.md` など）へは
+      波及しない。他記録に同型が居るかは本項目の _Boundary_ 外であり、走査していない。
+  - **§4 が引く指し先の陳腐化を実測で述べる（是正は本項目の _Boundary_ 外。未起票である）。**
+    §4 の本文から `<path>.spec.ts:<行>`（カンマ列は展開）を取り出し、走査の正典と突き合わせる:
+    `comm -23 <(awk '/^## 4\./,/^## 5\./' scripts/coverage-mark-adjudication.md | grep -oE '[A-Za-z0-9_./-]+[.]spec[.]ts:[0-9]+(,[0-9]+)*' | awk -F: '{n=split($2,a,","); for(i=1;i<=n;i++) print $1":"a[i]}' | sort -u) <(npx tsx scripts/scan-coverage-mark-correspondence.ts --tsv | awk -F'\t' '{sub(/^e2e\/specs\//,"",$1); print $1":"$2}' | sort -u)`
+    （bash で実行する）。2026-09-03 の実測で、**§4 が引く指し先は一意 150 件、そのうち 55 件が
+    現在の走査の正典に無い**（左辺の件数は同じ `grep -oE … | awk -F: … | sort -u | wc -l`、
+    差集合の件数は上のコマンドに `| wc -l` を足して得た）。**55 件は行の移動だけではなく、
+    115.188 の是正で取り下げた被覆印や §4.5 が挙げる「散文の言及」も含む**ため、
+    「55 件すべてが行番号のずれ」とは主張しない。ずれが実際に起きている例として確認したのは
+    上の追加登録が挙げる `:1537,2965,3598` → `:1550`・`:2978`・`:3611` の **13 行ずれ**である。
+    **この陳腐化そのものの是正は本項目の _Boundary_ 外であり、タスクとして未起票である。**
   - **変異で赤くなることを実測した**（上と同じ変異を当て、`npm run test:docker:build` 相当の
     `docker compose … up -d --build --force-recreate frontend` でフロントを作り直して実行）:
     `project-detail-sections.spec.ts` は
