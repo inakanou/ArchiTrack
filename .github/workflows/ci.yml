@@ -419,6 +419,44 @@ jobs:
           echo ""
           npm run check:cf-evidence
 
+  dead-script-env:
+    name: Dead Script Env Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # 検出器そのものの退行を先に検知する（検出器が壊れたまま本検査が通ることを防ぐ）
+      - name: Check detector self-test
+        run: |
+          echo "========================================="
+          echo "Dead Script Env Detector Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Fixtures: scripts/check-dead-script-env.selftest.ts"
+          echo ""
+          npm run check:dead-script-env:selftest
+
+      - name: Check dead script env
+        run: |
+          echo "========================================="
+          echo "Dead Script Env Check"
+          echo "========================================="
+          echo ""
+          echo "An npm script that sets VAR=value must have a reader somewhere in the"
+          echo "repository. A variable nobody reads makes the reader believe a switch"
+          echo "is in effect when nothing changes (tasks 115.216 / 115.244)."
+          echo ""
+          npm run check:dead-script-env
+
   typecheck:
     name: TypeScript Type Check
     runs-on: ubuntu-latest
@@ -858,7 +896,7 @@ jobs:
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test-unit, build, test-storybook, test-integration, security, requirement-coverage, requirement-exclusions-schema, e2e-assertion-guard, e2e-in-page-selfjudgement, design-reference-format, counterfactual-evidence]
+    needs: [lint, typecheck, test-unit, build, test-storybook, test-integration, security, requirement-coverage, requirement-exclusions-schema, e2e-assertion-guard, e2e-in-page-selfjudgement, design-reference-format, counterfactual-evidence, dead-script-env]
     if: always()
     steps:
       - name: Check status
@@ -882,7 +920,8 @@ jobs:
              [[ "${{ needs.e2e-assertion-guard.result }}" != "success" ]] || \
              [[ "${{ needs.e2e-in-page-selfjudgement.result }}" != "success" ]] || \
              [[ "${{ needs.design-reference-format.result }}" != "success" ]] || \
-             [[ "${{ needs.counterfactual-evidence.result }}" != "success" ]]; then
+             [[ "${{ needs.counterfactual-evidence.result }}" != "success" ]] || \
+             [[ "${{ needs.dead-script-env.result }}" != "success" ]]; then
             echo "❌ CI check failed:"
             echo "   - Lint: ${{ needs.lint.result }}"
             echo "   - TypeCheck: ${{ needs.typecheck.result }}"
@@ -897,6 +936,7 @@ jobs:
             echo "   - E2E In-Page Self-Judgement: ${{ needs.e2e-in-page-selfjudgement.result }}"
             echo "   - Design Reference Format: ${{ needs.design-reference-format.result }}"
             echo "   - Counterfactual Evidence: ${{ needs.counterfactual-evidence.result }}"
+            echo "   - Dead Script Env: ${{ needs.dead-script-env.result }}"
             exit 1
           fi
           echo "✅ All CI checks passed successfully"

@@ -1143,6 +1143,40 @@ echo "✅ Counterfactual evidence check passed"
 echo ""
 
 # ============================================================================
+# 死んだ環境変数チェック（設定しても何も変わらない環境変数の再発防止）
+# ============================================================================
+# npm スクリプトが `VAR=value` で設定する環境変数に、読む側がリポジトリのどこにも
+# 無い状態を検出する（タスク 115.216 / 115.244）
+# - 定義元は 3 つの package.json（ルート / backend / frontend）
+# - 読み手はリポジトリ全体。コード注釈と行頭 `#` の注釈は照合前に除去する
+# - `const { X } = process.env` の分割代入も読み手として数える
+# - 母集団（設定される環境変数）が空なら合格にしない（第3原則）
+# ============================================================================
+
+echo "🔍 Checking npm scripts do not set unread environment variables..."
+npm run check:dead-script-env:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Dead script env detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:dead-script-env:selftest"
+  exit 1
+fi
+npm run check:dead-script-env
+if [ $? -ne 0 ]; then
+  echo "❌ Dead script env check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 設定した環境変数を読む側を実装するか、設定そのものを撤去してください"
+  echo "  2. 読んでいるのに検出される場合は判定器の限界です。本体の注釈を確認してください"
+  echo ""
+  echo "詳細確認: npm run check:dead-script-env:verbose"
+  exit 1
+fi
+
+echo "✅ Dead script env check passed"
+echo ""
+
+# ============================================================================
 # CI環境変数整合性チェック（E2Eテスト実行の前提条件）
 # ============================================================================
 # ベストプラクティス: pre-pushを「正」としてCIとの整合性を検証

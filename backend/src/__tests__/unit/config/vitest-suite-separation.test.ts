@@ -30,13 +30,16 @@
  * 3. **取りこぼしが無いこと**——実ファイルの上で、二つの設定の `include` / `exclude` が
  *    実在する検証ファイルの全体を過不足なく分割する。地の基準は設定の値ではなく、
  *    本検査が自前で持つ `ON_DISK_TEST_GLOB` である。
- * 4. `backend/package.json` のスクリプトが設定する環境変数に、**誰も読まないもの**が
- *    無いこと（同型の再発の防止）。判定器が壊れていれば 4 は自明に通るため、
- *    既知の該当を注入した陽性対照を併置する。
+ * 4. 分離を環境変数の実行時条件へ戻していないこと。
+ *
+ * 「npm スクリプトが設定する環境変数に読み手がいる」という同型の再発防止は、タスク 115.244 が
+ * `scripts/check-dead-script-env.ts` へ切り出し、押下前の関門と CI へ結線した
+ * （`npm run check:dead-script-env`）。ここに残すと `backend/package.json` しか見られず、
+ * その母集団は実測で空である（節 4 の註を参照）。
  */
 
 import { describe, it, expect } from 'vitest';
-import { globSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { globSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import defaultVitestConfig, {
@@ -48,12 +51,6 @@ import integrationVitestConfig from '../../../../vitest.integration.config.js';
 
 /** `backend/` の絶対パス（起動位置に依らないよう本ファイルからの相対で解決する） */
 const BACKEND_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
-
-/** 参照の走査から外す配下（生成物・依存物） */
-const NON_SOURCE_DIRECTORIES = new Set(['node_modules', 'dist', 'coverage', '.git', 'storage']);
-
-/** 参照の走査から外すファイル（文書は「読み手」ではない。定義元の package.json も除く） */
-const NON_READER_FILES = new Set(['package.json', 'package-lock.json']);
 
 /**
  * 実在する検証ファイルの全体を表す地の基準。
@@ -145,114 +142,26 @@ describe('統合検証の分離（vitest の設定）', () => {
 });
 
 // ============================================================================
-// 4. 死んだ環境変数の再発防止
+// 4. 環境変数の関門へ戻していないこと
 // ============================================================================
-
-/**
- * npm スクリプトの文字列から、コマンドの先頭位置に置かれた `VAR=value` の変数名を取り出す。
- * 先頭・`;` `&&` `||` `|` の直後・`cross-env` / `env` の直後を「コマンドの先頭位置」とみなす。
- */
-export function extractAssignedEnvNames(script: string): string[] {
-  const assignmentRun =
-    /(?:^|[;&|]\s*|\bcross-env\s+|\benv\s+)((?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+)/g;
-  const names: string[] = [];
-
-  let match: RegExpExecArray | null = assignmentRun.exec(script);
-  while (match !== null) {
-    const run = match[1];
-    if (run !== undefined) {
-      for (const assignment of run.trim().split(/\s+/)) {
-        const name = assignment.split('=')[0];
-        if (name !== undefined && name !== '') {
-          names.push(name);
-        }
-      }
-    }
-    match = assignmentRun.exec(script);
-  }
-
-  return names;
-}
-
-/** 走査対象（実行される成果物）の中身を連結して返す。文書は読み手として数えない */
-function readExecutableArtifacts(root: string): string {
-  const chunks: string[] = [];
-
-  const walk = (directory: string): void => {
-    for (const entry of readdirSync(directory)) {
-      if (NON_SOURCE_DIRECTORIES.has(entry)) {
-        continue;
-      }
-      const absolute = path.join(directory, entry);
-      if (statSync(absolute).isDirectory()) {
-        walk(absolute);
-        continue;
-      }
-      if (NON_READER_FILES.has(entry) || entry.endsWith('.md')) {
-        continue;
-      }
-      chunks.push(readFileSync(absolute, 'utf-8'));
-    }
-  };
-
-  walk(root);
-  return chunks.join('\n');
-}
-
-/**
- * `name` を**読む**書き方が `corpus` に現れるか。
- *
- * 綴りが現れるだけでは読み手と数えない。注釈・設定・本検査自身が名前に言及するだけで
- * 「読まれている」と誤判定してしまい、まさに死んだ環境変数を見逃す判定器になるためである。
- * この行を `corpus.includes(name)` へ戻すと、本ファイル 9 件のうち陽性対照の 1 件が落ちる
- * （2026-08-31 に実測。判定器が言及だけの `RUN_INTEGRATION_TESTS` を読み手ありと誤判定する）。
- */
-function isReadSomewhere(name: string, corpus: string): boolean {
-  const readForms = [
-    // TypeScript / JavaScript
-    new RegExp(`process\\.env\\.${name}\\b`),
-    new RegExp(`process\\.env\\[\\s*['"\`]${name}['"\`]\\s*\\]`),
-    // シェル・CI・compose の参照
-    new RegExp(`\\$\\{?${name}\\b`),
-  ];
-
-  return readForms.some((form) => form.test(corpus));
-}
-
-/** `names` のうち、`corpus` のどこからも読まれていないもの（＝死んだ環境変数） */
-export function findDeadEnvNames(names: readonly string[], corpus: string): string[] {
-  return [...new Set(names)].filter((name) => !isReadSomewhere(name, corpus)).sort();
-}
-
-describe('npm スクリプトが設定する環境変数に読み手がいる', () => {
+//
+// 「npm スクリプトが設定する環境変数に読み手がいる」という検査そのものは、タスク 115.244 が
+// `scripts/check-dead-script-env.ts`（自己検査は `scripts/check-dead-script-env.selftest.ts`）
+// へ切り出した。理由は二つある。
+//
+//   1. **適用範囲**: ここに置くと `backend/package.json` しか見られない。実測（2026-09-02）
+//      では、環境変数を設定するスクリプトはルート `package.json` の 4 件（3 変数）だけで、
+//      `backend/package.json` と `frontend/package.json` は 0 件である。つまりここに残した
+//      検査の母集団は**空**であり、何も主張していなかった（AI運用7原則 第3原則）。
+//   2. **判定器**: 注釈の除去・分割代入の認識は切り出し先が持つ。実装を二箇所に置くと
+//      互いに食い違う（115.217 が確立した「実装側は一本化」の切り分け）。
+//
+// ここに残すのは、本ファイルの主題（統合検証の分離）に属する一件だけである——
+// 分離を環境変数の実行時条件へ戻していないこと。
+describe('統合検証の分離を環境変数の関門へ戻していない', () => {
   const backendScripts: Record<string, string> = JSON.parse(
     readFileSync(path.join(BACKEND_ROOT, 'package.json'), 'utf-8')
   ).scripts;
-
-  it('backend/package.json のスクリプトに、誰も読まない環境変数が無い', () => {
-    const assigned = Object.values(backendScripts).flatMap(extractAssignedEnvNames);
-    const corpus = readExecutableArtifacts(BACKEND_ROOT);
-
-    expect(findDeadEnvNames(assigned, corpus)).toEqual([]);
-  });
-
-  it('陽性対照: 死んだ環境変数を注入すれば検出される（判定器が生きていることの確認）', () => {
-    // 是正前に実在した形。`RUN_INTEGRATION_TESTS` は backend のどこからも読まれていなかった
-    const injected = 'RUN_INTEGRATION_TESTS=true vitest run src/__tests__/integration';
-    const assigned = extractAssignedEnvNames(injected);
-    const corpus = readExecutableArtifacts(BACKEND_ROOT);
-
-    expect(assigned).toEqual(['RUN_INTEGRATION_TESTS']);
-    expect(findDeadEnvNames(assigned, corpus)).toEqual(['RUN_INTEGRATION_TESTS']);
-  });
-
-  it('陰性対照: 読み手のいる環境変数は検出されない', () => {
-    const assigned = extractAssignedEnvNames('cross-env NODE_ENV=test vitest run');
-    const corpus = readExecutableArtifacts(BACKEND_ROOT);
-
-    expect(assigned).toEqual(['NODE_ENV']);
-    expect(findDeadEnvNames(assigned, corpus)).toEqual([]);
-  });
 
   it('統合検証は設定ファイルの明示で選ばれる（環境変数の関門に戻していない）', () => {
     expect(backendScripts['test:integration']).toContain('--config vitest.integration.config.ts');
