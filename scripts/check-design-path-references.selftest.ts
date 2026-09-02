@@ -32,10 +32,21 @@
  *   - `reportReach` へ設計文書を名指しで読み飛ばす一行を足す変異、および
  *     `reach.documents` を `.filter(` で間引く変異 → いずれも 1/38 件が赤
  *
- * **残る真空パス（本ファイルの所管外・後続 115.242）**: `STRUCTURAL` や
- * `checkNoFindingsNarrowing` の中の `bodies` といった**対照のレジストリそのものを空にすると
- * 緑で通る**。115.241 が足した制御も同じレジストリに載っているため同じ穴を共有する。
- * 下限を件数で貼るか構造で導くかの判断は 115.222 と作法を揃える必要があり、後続で扱う。
+ * ## 対照レジストリそのものの真空を塞ぐ（タスク 115.242）
+ *
+ * 対照のレジストリを空にすると走査が空回りして緑で通る真空パスがあった。是正前の実測
+ * （2026-09-02。リポジトリルート）: `STRUCTURAL` を空にすると 22/22 緑・EXIT=0、
+ * `checkNoFindingsNarrowing` の中の `bodies` を空にすると 39/39 緑・EXIT=0、
+ * `main` の `groups` を空にすると 0/0 緑・EXIT=0。115.241 が足した制御も同じ穴を共有していた。
+ *
+ * 前提の確認は `reportPreconditions` に置き、`main` の冒頭で対照より先に走らせる。
+ * **守り手を守られる側と同じレジストリへ置かない**ため、そこは配列への登録ではなく
+ * 直列の手続きとして書いてある。呼び出しごと外す経路は `checkPreconditionsAreWired` が
+ * 塞ぎ、総数は `reportPreconditions` が実際に走らせた件数から導く（定数で貼らない）。
+ * 対照そのものが走ることは `corpusExecutionFailures` が前提の側で見る——`STRUCTURAL` に
+ * 居る守り手は、対照の繰り返しを止められると自分ごと黙るためである。
+ * 下限の置き方（導ける側は構造から導き、導けない側は限界を書き残す）は 115.222 と
+ * 作法を揃えた。塞いだ見逃しと残る限界はその節の註を読むこと。
  */
 
 import { spawnSync } from 'child_process';
@@ -65,7 +76,8 @@ import {
 // タスク 115.221 が scripts/check-requirement-exclusions.selftest.ts で採った作法と同じ）。
 import { DESIGN_DOC_NAME, SPEC_DIR, collectDesignDocuments } from './design-document.js';
 
-const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SELFTEST_PATH = fileURLToPath(import.meta.url);
+const SCRIPTS_DIR = path.dirname(SELFTEST_PATH);
 const ROOT = path.resolve(SCRIPTS_DIR, '..');
 
 /** 検査本体。挙動検査ではこれをサブプロセスとして起動する */
@@ -371,6 +383,44 @@ function checkFileIndexIsReal(): string[] {
 }
 
 /**
+ * 名指しの逃がしを見張る本体の関数の一覧（タスク 115.242 で関数の外へ出した）。
+ *
+ * 関数の中に置いていた頃は、この配列を空にすると `checkNoFindingsNarrowing` の走査が
+ * 空回りして緑で通った（実測 2026-09-02: 39/39 緑・EXIT=0）。外へ出したのは、
+ * 空でないことと下限を `reportPreconditions` から測れるようにするためである。
+ *
+ * 下限は件数ではなく**本体の関数の集合**から導く（`watchedBodyCoverageFailures`）。
+ * 本体に関数が増えれば下限も自動で追随し、この一覧を削る変更は赤くなる。
+ */
+const NARROWING_WATCHED_BODIES: ReadonlyArray<{ label: string; declaration: string }> = [
+  { label: 'extractClaims', declaration: 'export function extractClaims(' },
+  { label: 'statesAbsence', declaration: 'export function statesAbsence(' },
+  {
+    label: 'collectAbsenceDeclarations',
+    declaration: 'export function collectAbsenceDeclarations(',
+  },
+  { label: 'scanDocument', declaration: 'export function scanDocument(' },
+  { label: 'buildFileIndex', declaration: 'export function buildFileIndex(' },
+  { label: 'run', declaration: 'export function run(' },
+  // 面の集計と基準照合も同じ網に入れる（名指しで特定の文書・ファイルを面から外す経路を塞ぐ）
+  { label: 'summariseReach', declaration: 'export function summariseReach(' },
+  { label: 'compareReach', declaration: 'export function compareReach(' },
+  { label: 'execute', declaration: 'export function execute(' },
+  // 基準の読み書き・開示・入口も同じ網に入れる（タスク 115.241）。
+  // 115.215 はこの四つを網の外に置いていた。とりわけ `reportReach` は
+  // 「文書 X を開示から隠す」絞り込みが最も自然に入る場所である。
+  { label: 'bundleReachEntities', declaration: 'export function bundleReachEntities(' },
+  { label: 'loadReachBaseline', declaration: 'export function loadReachBaseline(' },
+  { label: 'writeReachBaseline', declaration: 'export function writeReachBaseline(' },
+  { label: 'reportReach', declaration: 'function reportReach(' },
+  { label: 'main', declaration: 'function main(' },
+  // 補助の小関数も例外にしない。下限は本体の関数の集合そのものから導くため、
+  // 「小さいから見ない」という例外を残すと下限が人手の判断に戻る（タスク 115.242）。
+  { label: 'hasExtension', declaration: 'function hasExtension(' },
+  { label: 'reachRatio', declaration: 'function reachRatio(' },
+];
+
+/**
  * 検出結果を名指しで逃がす経路が無いこと（許容リストの名前ではなく機構を見る）。
  *
  * 「`ImageViewer.tsx` だけは見逃す」といった逃がしは、本体のソースに**ファイル名または
@@ -388,31 +438,7 @@ function checkNoFindingsNarrowing(): string[] {
   // `.md` の文字列リテラルを一つも持たないため、この拡張で誤検出は出ない。
   const PATH_LITERAL = /['"][A-Za-z0-9_@./-]*[A-Za-z0-9_@-]+\.(?:tsx?|jsx?|css|ya?ml|sql|md)['"]/;
 
-  const bodies: Array<{ label: string; declaration: string }> = [
-    { label: 'extractClaims', declaration: 'export function extractClaims(' },
-    { label: 'statesAbsence', declaration: 'export function statesAbsence(' },
-    {
-      label: 'collectAbsenceDeclarations',
-      declaration: 'export function collectAbsenceDeclarations(',
-    },
-    { label: 'scanDocument', declaration: 'export function scanDocument(' },
-    { label: 'buildFileIndex', declaration: 'export function buildFileIndex(' },
-    { label: 'run', declaration: 'export function run(' },
-    // 面の集計と基準照合も同じ網に入れる（名指しで特定の文書・ファイルを面から外す経路を塞ぐ）
-    { label: 'summariseReach', declaration: 'export function summariseReach(' },
-    { label: 'compareReach', declaration: 'export function compareReach(' },
-    { label: 'execute', declaration: 'export function execute(' },
-    // 基準の読み書き・開示・入口も同じ網に入れる（タスク 115.241）。
-    // 115.215 はこの四つを網の外に置いていた。とりわけ `reportReach` は
-    // 「文書 X を開示から隠す」絞り込みが最も自然に入る場所である。
-    { label: 'bundleReachEntities', declaration: 'export function bundleReachEntities(' },
-    { label: 'loadReachBaseline', declaration: 'export function loadReachBaseline(' },
-    { label: 'writeReachBaseline', declaration: 'export function writeReachBaseline(' },
-    { label: 'reportReach', declaration: 'function reportReach(' },
-    { label: 'main', declaration: 'function main(' },
-  ];
-
-  for (const body of bodies) {
+  for (const body of NARROWING_WATCHED_BODIES) {
     const start = source.indexOf(body.declaration);
     if (start < 0) {
       failures.push(`${body.label} の宣言が見つからない（改名されている疑い）`);
@@ -1411,11 +1437,332 @@ function checkReachReportedBySubprocess(): string[] {
   return failures;
 }
 
-/** 陽性対照そのものが空でないこと（0 件の自明な合格を塞ぐ） */
-function checkPositiveControlsArePresent(): string[] {
+/**
+ * 前提の確認（`reportPreconditions`）が `main` へ実際に結線されていること（タスク 115.242）。
+ *
+ * ## なぜ「守り手を守る守り手」が要るのか
+ *
+ * 前提の確認は配列への登録ではなく直列の手続きなので、要素を消すだけの真空にはならない。
+ * だが**呼び出しごと消す**、**返り値を捨てて呼ぶだけにする**、**対照より後ろへ移す**という
+ * 三つの経路では、前提が結果に一切効かないまま緑で通る。差し戻し 1 回目のレビューが
+ * 実測した穴（呼び出しブロックの撤去で EXIT=0・確認行 38 件なのに「42/42」と自称）は
+ * これである。ここはその三つを本ファイル自身のソースから読んで塞ぐ。
+ *
+ * ## なぜこの形を選んだか（選ばなかった形で何が守れないか）
+ *
+ * - **採った形**: `function check` 宣言にすること。`structuralWiringFailures` が
+ *   `STRUCTURAL` への結線を強制し、`STRUCTURAL` は `emptyRegistryFailures` と
+ *   `structuralWiringFailures` が空にできない。守り手と守られる側が相互に施錠される。
+ * - **`reportPreconditions` を `GROUPS` の一要素として載せる**: 守り手が守られる側と
+ *   同じレジストリに載るため、`STRUCTURAL` を空にすると守り手ごと消える。115.242 の
+ *   起票文が名指しで禁じた形であり、採らない。
+ * - **前提の件数を定数で貼る（是正前の `PRECONDITION_COUNT`）**: 実行と切り離された数なので、
+ *   前提が一件も走らなくても総数が動かず、開示が偽になる。差し戻しの原因そのもの。
+ * - **サブプロセスで走らせて出力行を数える**: 出力の文言に依存し、文言を変えると静かに
+ *   空振りする。かつ本ファイル内で完結しないため、`STRUCTURAL` による施錠が効かない。
+ *
+ * ## 残る限界
+ *
+ * この関数ごと（宣言と `STRUCTURAL` の要素をまとめて）消す整理は通る。`STRUCTURAL` の
+ * 下限は「宣言されている `check*` を一つ残らず結線していること」であり、宣言が消えれば
+ * 下限も一緒に縮むためである。件数の下限を貼らないという 115.222 の判断の裏返しであり、
+ * ここでは塞がない。
+ */
+function checkPreconditionsAreWired(): string[] {
   const failures: string[] = [];
-  if (MUST_DETECT.length === 0) failures.push('MUST_DETECT が空である');
-  if (MUST_NOT_DETECT.length === 0) failures.push('MUST_NOT_DETECT が空である');
+  const source = stripComments(readOwnSource());
+
+  const mainBody = sliceFunctionBody(source, '\nfunction main(');
+  const mainSliceFailures = bodySliceFailures('main', mainBody);
+  if (mainSliceFailures.length > 0 || mainBody === null) return mainSliceFailures;
+
+  // (a) 呼び出しが在ること／(b) 返り値を受け取っていること
+  const call = /(?:const|let)\s+([A-Za-z0-9_]+)\s*=\s*reportPreconditions\(\)/.exec(mainBody);
+  if (call === null) {
+    failures.push(
+      mainBody.includes('reportPreconditions(')
+        ? 'main が reportPreconditions() の返り値を受け取っていない（呼ぶだけでは前提が結果に効かない）'
+        : 'main に reportPreconditions() の呼び出しが無い（前提の確認が走らない）'
+    );
+    return failures;
+  }
+  const binding = call[1] as string;
+
+  // (c) 対照より前に走ること
+  const loopIndex = mainBody.indexOf(CORPUS_LOOP);
+  if (loopIndex < 0) {
+    failures.push('main に GROUPS を走らせる繰り返しが無い（対照の実行が消えた疑い）');
+  } else if (call.index > loopIndex) {
+    failures.push('reportPreconditions() の呼び出しが対照の実行より後にある（前提を先に断てない）');
+  }
+
+  // (d) 関門の条件が、失敗（`failed > 0`）と前提そのものの真空（`ran === 0`）の両方を見ていること。
+  // 是正前は `failed > 0` の存在だけを `[^)]*` の緩い窓で見ていたため、条件へ ` && false` の
+  // ような無効化を足す余地が残っていた。条件そのものを逐語で固定する（差し戻し 2 回目）。
+  const expectedGate = `${binding}.ran === 0 || ${binding}.failed > 0`;
+  const gateCondition = new RegExp(`if\\s*\\(([^)]*${binding}\\.(?:ran|failed)[^)]*)\\)`).exec(
+    mainBody
+  );
+  if (gateCondition === null) {
+    failures.push(`main に ${binding} を条件にした関門が無い（前提が崩れても止まらない）`);
+  } else {
+    const condition = (gateCondition[1] as string).replace(/\s+/g, ' ').trim();
+    if (condition !== expectedGate) {
+      failures.push(`main の関門の条件が「${expectedGate}」と一致しない（実際:「${condition}」）`);
+    }
+
+    // (e) 関門の `if` **ブロックの中**に `process.exit(1)` が在ること。
+    // 是正前は条件から 600 文字の窓で `process.exit(1)` を探していたため、関門とは無関係な
+    // 後段の `if (failed > 0)` の中の `process.exit(1)`（条件から 533 文字）を拾って
+    // 緑で通していた（差し戻し 2 回目の finding 2。実測で確認した）。窓を廃し、
+    // `sliceBraceBlock` の波括弧の対応で関門のブロックそのものへ範囲を限る。
+    // `process.exitCode = 1` などの別の停止は一致しない（安全側に倒す）。
+    const afterCondition = gateCondition.index + gateCondition[0].length;
+    const openIndex = mainBody.indexOf(OPEN_BRACE, afterCondition);
+    const gateBlock =
+      openIndex >= 0 && mainBody.slice(afterCondition, openIndex).trim() === ''
+        ? sliceBraceBlock(mainBody, afterCondition)
+        : null;
+    if (gateBlock === null) {
+      failures.push('main の関門が波括弧のブロックになっていない（範囲を限れない）');
+    } else if (!gateBlock.includes('process.exit(1)')) {
+      failures.push(
+        'main の関門のブロックの中に process.exit(1) が無い（前提が崩れても止まらない）'
+      );
+    } else {
+      // ブロックの中に在るだけでは足りない。死んだ分岐へ入れれば
+      // 「前提が崩れています」と印字したうえで対照を走らせ EXIT=0 にできる
+      // （自分で当てた変異で実測: `if (Date.now() < 0) process.exit(1);` で 35/35 緑・EXIT=0）。
+      failures.push(...serialStatementFailures(gateBlock, 'process.exit(1);', '関門の停止'));
+    }
+
+    if (loopIndex >= 0 && gateCondition.index > loopIndex) {
+      failures.push('前提の関門が対照の実行より後にある（前提が崩れたまま対照が走る）');
+    }
+  }
+
+  // (f) 総数が実際に走った件数から導かれていること（実行と切り離した定数で総数を偽らせない）
+  if (!new RegExp(`const total = [^;]*${binding}\\.ran`).test(mainBody)) {
+    failures.push(
+      `main の総数が ${binding}.ran から導かれていない（実行と切り離された定数で総数を偽れる）`
+    );
+  }
+
+  failures.push(...preconditionEntryWiringFailures(source));
+  return failures;
+}
+
+/**
+ * `reportPreconditions` の本体が、前提の入口となる `*Failures` を過不足なく一度ずつ
+ * 呼んでいること（タスク 115.242）。
+ *
+ * 下限は件数ではなく**本ファイルが宣言する `*Failures` の集合**から導く。ほかの
+ * `*Failures` の本体から呼ばれているものは補助（`emptyPopulationFailures`）とみなして
+ * 入口から除く。これにより前提を一件消す破壊も、重複して一件足す破壊も赤くなり、
+ * 新しい前提を関数ごと足す正当な追加は緑のまま通る。
+ */
+function preconditionEntryWiringFailures(strippedSource: string): string[] {
+  const declared = [...strippedSource.matchAll(/^function ([A-Za-z0-9]*Failures)\s*\(/gm)].map(
+    (match) => match[1] as string
+  );
+  if (declared.length === 0) {
+    return ['本ファイルに Failures で終わる関数の宣言が一つも無い（下限を導く語彙が消えた）'];
+  }
+  const body = sliceFunctionBody(strippedSource, '\nfunction reportPreconditions(');
+  const sliceFailures = bodySliceFailures('reportPreconditions', body);
+  if (sliceFailures.length > 0 || body === null) return sliceFailures;
+
+  // `reportPreconditions` 以外の関数から呼ばれている `*Failures` は補助とみなし、入口から除く
+  // （`emptyPopulationFailures` や `preconditionEntryWiringFailures` がこれに当たる）。
+  const others = [...strippedSource.matchAll(/^(?:export )?function ([A-Za-z0-9_]+)\s*\(/gm)]
+    .map((match) => match[1] as string)
+    .filter((name) => name !== 'reportPreconditions');
+  const failures: string[] = [];
+  const helpers = new Set<string>();
+  for (const name of others) {
+    const otherBody = sliceFunctionBody(strippedSource, `\nfunction ${name}(`);
+    // 切り出しが壊れた本体を黙って読み飛ばすと、補助の判定が甘くなって入口が消える。
+    failures.push(...bodySliceFailures(name, otherBody));
+    if (otherBody === null) continue;
+    for (const candidate of declared) {
+      if (candidate !== name && otherBody.includes(`${candidate}(`)) helpers.add(candidate);
+    }
+  }
+  const entries = declared.filter((name) => !helpers.has(name));
+  if (entries.length === 0) {
+    failures.push('前提の入口となる関数が一つも無い（前提そのものが空になった）');
+    return failures;
+  }
+
+  for (const name of entries) {
+    const referenced = body.split(`${name}(`).length - 1;
+    if (referenced !== 1) {
+      failures.push(
+        `reportPreconditions が ${name} を ${referenced} 回呼んでいる（過不足なく 1 回であること）`
+      );
+    }
+  }
+  const reportCalls = (body.match(/\breport\(/g) ?? []).length;
+  if (reportCalls !== entries.length) {
+    failures.push(
+      `reportPreconditions の report( の呼び出しが ${reportCalls} 件で、前提の入口 ${entries.length} 件と一致しない`
+    );
+  }
+
+  // 実績を返す変数を、`return` の形そのものから取る。以下の数え上げはすべてこの変数に縛る
+  // （別の器へ集計する `bogus.failed += report(...)` のような形を素通りさせないため）。
+  const returned = /return ([A-Za-z0-9_]+);/.exec(body);
+  if (returned === null) {
+    failures.push('reportPreconditions が実績の記録を返していない（返り値の形が変わった疑い）');
+    return failures;
+  }
+  const tally = returned[1] as string;
+
+  // finding 1（差し戻し 2 回目）: `report(` の件数だけを数えていたため、
+  // `tally.failed +=` を 1 件だけ外す破壊が 43/43 緑で通っていた。**集計を伴う形**を数える。
+  const aggregateToken = `${tally}.failed += report(`;
+  const aggregated = body.split(aggregateToken).length - 1;
+  if (aggregated !== reportCalls) {
+    failures.push(
+      `reportPreconditions の report( ${reportCalls} 件のうち ${tally}.failed へ集計しているのは ${aggregated} 件である（呼ぶだけでは失敗が伝わらない）`
+    );
+  }
+
+  const incrementToken = `${tally}.ran += 1;`;
+  const increments = body.split(incrementToken).length - 1;
+  if (increments !== reportCalls) {
+    failures.push(
+      `reportPreconditions の ${tally}.ran の加算が ${increments} 件で、report( の呼び出し ${reportCalls} 件と一致しない（総数が実行とずれる）`
+    );
+  }
+
+  // 実績へ触れる形が上の二つだけであること（減算や再代入で握り潰す余地を残さない）
+  const touches = body.split(`${tally}.`).length - 1;
+  if (touches !== aggregated + increments) {
+    failures.push(
+      `reportPreconditions が ${tally} に ${touches} 回触れており、集計 ${aggregated} 件と加算 ${increments} 件の合計と一致しない（余計な書き換えがある）`
+    );
+  }
+
+  // finding 3（差し戻し 2 回目）: 件数の三者一致を保ったまま 1 件を死んだ分岐へ入れると、
+  // 43/43 緑のまま 42 件しか走らなかった。各出現が直列の手続きであることを要求する。
+  failures.push(...serialStatementFailures(body, incrementToken, `${tally}.ran の加算`));
+  failures.push(...serialStatementFailures(body, aggregateToken, `${tally}.failed への集計`));
+  return failures;
+}
+
+/** 註を落としたソース（構造だけを見るため。註の中の記述に反応させない） */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+}
+
+// 波括弧そのものを文字リテラルで書くと、この下の走査器が**自分のソースを読むとき**に
+// その文字列の中の波括弧まで数えてしまい、本体の切り出しが壊れる（差し戻し 2 回目の是正中に
+// 実測で踏んだ: `indexOf('{', ...)` を書いた時点で `checkPreconditionsAreWired` の
+// 本体が切り出せなくなった）。一行に開きと閉じを一つずつ置いて釣り合わせ、以後はこの定数を使う。
+const [OPEN_BRACE, CLOSE_BRACE] = ['{', '}'];
+
+/** `fromIndex` 以降の最初の開き波括弧から、対応する閉じ波括弧までの中身を返す */
+function sliceBraceBlock(source: string, fromIndex: number): string | null {
+  const open = source.indexOf(OPEN_BRACE, fromIndex);
+  if (open < 0) return null;
+  let depth = 0;
+  for (let index = open; index < source.length; index += 1) {
+    const character = source[index];
+    if (character === OPEN_BRACE) depth += 1;
+    else if (character === CLOSE_BRACE) {
+      depth -= 1;
+      if (depth === 0) return source.slice(open + 1, index);
+    }
+  }
+  return null;
+}
+
+/**
+ * 切り出した本体が健全であること。`null`（対応が取れない）と、次の宣言まで走り抜けた
+ * 場合（文字列の中の波括弧を数えた疑い）の両方を失敗として挙げる。
+ *
+ * 走り抜けを見るのは、本体が長く出ると後続の関数の呼び出しまで抱き込み、
+ * `preconditionEntryWiringFailures` の「補助」判定が甘くなって入口が消えるためである。
+ */
+function bodySliceFailures(name: string, body: string | null): string[] {
+  if (body === null) return [`${name} の本体を切り出せない（波括弧の対応が崩れている疑い）`];
+  if (body.includes('\nfunction ')) {
+    return [`${name} の本体の切り出しが次の宣言まで届いている（文字列の中の波括弧の疑い）`];
+  }
+  return [];
+}
+
+/** 宣言から関数本体（波括弧の中）を切り出す */
+function sliceFunctionBody(source: string, declaration: string): string | null {
+  const start = source.indexOf(declaration);
+  if (start < 0) return null;
+  return sliceBraceBlock(source, start + declaration.length);
+}
+
+/** `openIndex` の `(` に対応する `)` の位置。見つからなければ -1 */
+function matchingParen(source: string, openIndex: number): number {
+  let depth = 0;
+  for (let index = openIndex; index < source.length; index += 1) {
+    const character = source[index];
+    if (character === '(') depth += 1;
+    else if (character === ')') {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
+/**
+ * 与えたトークンの各出現が、本体の**直列の手続き**として在ることを確かめる（タスク 115.242）。
+ *
+ * 三つを同時に要求する:
+ *   (i) 波括弧の深さが 0（`if` / `for` / `try` のブロックや入れ子の関数へ入れていない）
+ *   (ii) 文の先頭（直前の `;` `{` `}` からそこまでが空白だけ。波括弧を伴わない
+ *        `if (...) tally.failed += report(...)` のような形をここで落とす）
+ *   (iii) トークンが `(` で終わるなら、その呼び出しの閉じ括弧の直後が `;`
+ *        （`report(...) * 0` のように返り値を加工して握り潰す形を落とす）
+ *
+ * (i) だけでは波括弧を伴わない分岐を、(ii) だけでは `try {}` の入れ子を素通りさせる。
+ * 三者を揃えて初めて「構造の下限を保ったまま実行だけ止める」手口を塞げる
+ * （差し戻し 2 回目の finding 3。実測で `if (Date.now() < 0)` を当てて確認した）。
+ */
+function serialStatementFailures(body: string, token: string, label: string): string[] {
+  const failures: string[] = [];
+  let depth = 0;
+  for (let index = 0; index < body.length; index += 1) {
+    const character = body[index];
+    if (character === OPEN_BRACE) {
+      depth += 1;
+      continue;
+    }
+    if (character === CLOSE_BRACE) {
+      depth -= 1;
+      continue;
+    }
+    if (!body.startsWith(token, index)) continue;
+    if (depth !== 0) {
+      failures.push(`${label} が入れ子のブロックの中に在る（直列の手続きでなくなっている）`);
+      continue;
+    }
+    const before = body.slice(0, index);
+    const boundary = Math.max(
+      before.lastIndexOf(';'),
+      before.lastIndexOf(OPEN_BRACE),
+      before.lastIndexOf(CLOSE_BRACE)
+    );
+    if (before.slice(boundary + 1).trim() !== '') {
+      failures.push(`${label} が文の先頭に無い（条件や式の中へ入れられている）`);
+      continue;
+    }
+    if (!token.endsWith('(')) continue;
+    const close = matchingParen(body, index + token.length - 1);
+    const tail = close < 0 ? '' : body.slice(close + 1).trimStart();
+    if (!tail.startsWith(';')) {
+      failures.push(`${label} の文が呼び出しの直後で終わっていない（返り値が加工されている疑い）`);
+    }
+  }
   return failures;
 }
 
@@ -1454,11 +1801,6 @@ const STRUCTURAL: Case[] = [
     name: '開示した限界が、その形でだけ働いている',
     expected: false,
     custom: checkDocumentedLimits,
-  },
-  {
-    name: '陽性対照が空でない',
-    expected: false,
-    custom: checkPositiveControlsArePresent,
   },
   {
     name: '免除の面が、いま免除されている件数とは別に測られている',
@@ -1505,7 +1847,303 @@ const STRUCTURAL: Case[] = [
     expected: false,
     custom: checkReachReportedBySubprocess,
   },
+  {
+    name: '前提の確認が入口へ結線されている（呼び出し・返り値・順序・総数の導出）',
+    expected: false,
+    custom: checkPreconditionsAreWired,
+  },
 ];
+
+/** 実行される対照の一覧。ここから外れたレジストリは走らない（registryWiringFailures が見る） */
+const GROUPS: ReadonlyArray<{ title: string; cases: readonly Case[] }> = [
+  { title: '捕捉しなければならない書き方（115.173 の是正前の実物）', cases: MUST_DETECT },
+  { title: '捕捉してはならない書き方（過検出）', cases: MUST_NOT_DETECT },
+  { title: '走査対象と前提条件', cases: STRUCTURAL },
+];
+
+// ============================================================================
+// 対照レジストリそのものの前提（タスク 115.242）
+// ============================================================================
+//
+// 母集団を走る対照は、母集団が空になると走査が空回りして緑で通る（真空パス）。
+// 何も主張していない状態であり、前提の崩壊として赤くしなければならない
+// （AI運用7原則 第3原則）。是正前の実測（2026-09-02。リポジトリルート）:
+//   - `const STRUCTURAL: Case[] = []` を空にする → 22/22 緑・EXIT=0
+//   - `checkNoFindingsNarrowing` の中の `bodies` を空にする → 39/39 緑・EXIT=0
+//   - `main` の `groups` を空にする → 0/0 緑・EXIT=0
+//
+// **守り手を守られる側と同じレジストリへ置かない。** 以前は「陽性対照が空でない」という
+// 守り手が `STRUCTURAL` の一要素として登録されていたため、`STRUCTURAL` を空にすると
+// 守り手ごと消えた。ここでは前提の確認を配列への登録ではなく `reportPreconditions` の
+// 直列の手続きとして書き、`main` の冒頭で対照より先に走らせる。手続きを消すには
+// 呼び出しそのものを削るしかなく、要素を消すだけの真空にはならない。
+//
+// **呼び出しごと外す経路は `checkPreconditionsAreWired` が塞ぐ**（差し戻し 1 回目の是正）。
+// 直列の手続きにしても、`main` から呼び出しごと消す・返り値を捨てる・対照より後ろへ移す、
+// という三つの経路では前提が結果に効かない。その守り手は `function check` 宣言なので
+// `structuralWiringFailures` が `STRUCTURAL` への結線を強制し、`STRUCTURAL` は
+// `emptyRegistryFailures` と `structuralWiringFailures` が空にできない。相互に施錠される。
+//
+// **総数は実行から導く。** 是正前は `const PRECONDITION_COUNT = 4` を足していたため、
+// 前提が一件も走らなくても総数が動かず「42/42」と自称できた。いまは
+// `reportPreconditions` が実際に走らせた件数（`ran`）を返し、`main` の総数はそこから導く。
+//
+// **下限をどこに置くか（タスク 115.222 と作法を揃える）。** 件数を貼ると、同じことを
+// 見ている重複した対照を減らす正当な変更まで止まる。そこで導ける側は構造から導く:
+//   - `STRUCTURAL`: 本ファイルが宣言する `check*` の検査関数を一つ残らず結線していること。
+//     空にする破壊も 1 件へ削る破壊も赤くなる。語彙は本ファイルの宣言そのものなので、
+//     検査を増減させれば下限も自動で追随する。
+//     **限界（実測 2026-09-02）**: 語彙は行頭の `function check` という宣言の形から取る。
+//     ただし**結線済みの検査をアロー式（`const checkX = () => ...`）へ書き換える破壊は
+//     素通りしない**。`STRUCTURAL` 側の `.name` は残り、宣言側から消えるため
+//     `structuralWiringFailures` の「宣言の無い検査を指している」分岐が赤くなる
+//     （実測: `checkEmptyScanFails` を書き換えて EXIT=1、その 1 行だけが落ちた）。
+//     **素通りするのは、未結線の新しいアロー式検査を足す場合だけである**
+//     （実測: `const checkNeverWired = () => [...]` を足して 43/43 緑・EXIT=0）。
+//     本ファイルの検査関数は全て `function` 宣言で書くこと。
+//   - `NARROWING_WATCHED_BODIES`: 本体が宣言する関数を一つ残らず名指ししていること。
+//     本体に関数が増えれば下限も自動で追随する。**限界**: 同じく行頭の関数宣言の形から
+//     取るため、本体が関数を `const` の式へ書き換えるとその関数は下限から外れる。
+//   - 前提そのものの下限（`reportPreconditions` の中身）: 本ファイルが宣言する
+//     `*Failures` のうち、ほかの `*Failures` から呼ばれていないもの（＝前提の入口）を
+//     過不足なく一度ずつ呼んでいること。前提を一件消す破壊も、重複して一件足す破壊も
+//     赤くなり、前提を関数ごと新設して足す正当な追加は通る。
+//   - `MUST_DETECT` / `MUST_NOT_DETECT`: 下限を導ける語彙が本体側に無いため
+//     「空でないこと」に留める。**限界**: 22 件から 1 件へ削る破壊は止まらない。
+//     根拠の無い件数を貼らないという 115.222 の判断をそのまま引き継ぐ。
+//
+// **差し戻し 2 回目で塞いだ見逃し（いずれも「破壊されているのに緑」だった。実測 2026-09-02）**:
+//   1. `tally.failed +=` を 1 件だけ外す（`report` は呼ぶ）→ 是正前 44/44 相当で緑・EXIT=0。
+//      `report(` の件数しか数えていなかった。いまは**集計を伴う形**（`tally.failed += report(`）
+//      を数え、素の `report(` の件数と一致することを要求する。
+//   2. 前提の関門から `process.exit(1);` を削る → 是正前は緑・EXIT=0。条件から
+//      `[\s\S]{0,600}` の窓で `process.exit(1)` を探していたため、関門とは無関係な後段の
+//      `if (failed > 0)` の中の一致（条件から 533 文字）を拾っていた。いまは窓を廃し、
+//      `sliceBraceBlock` で**関門の `if` ブロックそのもの**へ範囲を限る。
+//   3. 前提 1 件を死んだ分岐へ入れる（`ran += 1` は据え置き）→ 是正前は 44/44 緑・EXIT=0 で
+//      実際には 1 件少なく走っていた。件数の三者一致を保ったまま実行だけ止められた。いまは
+//      `serialStatementFailures` が各出現を**直列の手続き**として要求する。
+//
+// **上と同じ手口で自分で見つけ、あわせて塞いだもの（実測 2026-09-02）**:
+//   - 別の器へ集計する（`bogus.failed += report(...)`）／返り値を加工する（`... * 0`）／
+//     あとから `tally.failed = 0` で打ち消す → 実績を返す変数を `return` の形から取り、
+//     その変数へ触れる回数まで数えることで塞いだ。
+//   - 関門の `process.exit(1)` を死んだ分岐へ入れる → ブロックの中に在るだけでなく、
+//     そこで直列の文であることを要求して塞いだ。
+//   - **対照の繰り返しごと死んだ分岐で包む／関門の直後に `return` を置く。**
+//     これは `STRUCTURAL` に居る `checkPreconditionsAreWired` **自身が黙る**穴だった
+//     （守り手が守られる側の実行にぶら下がっていた）。常に走る前提の側へ
+//     `corpusExecutionFailures` を置いて塞いだ。
+//   - 対照側の集計（`failed += report(testCase.name, runCase(testCase));`）を外す／
+//     死んだ分岐へ入れる → `corpusInnerFailures` で内側の繰り返しまで降りて塞いだ。
+//
+// **是正後も残る限界（いずれも実測 2026-09-02）。**
+// **この一覧が網羅的なのは「`main` の中で前提と対照がどう結線されているか」についてだけである。**
+// 入口そのものの呼び出しを消す形は含まれない（後述の「一覧の外」を読むこと）。
+// その限定のもとで、一覧の中の限界はいずれも「判定する側そのものを書き換える／
+// 宣言ごと消す」一つの形に帰着する:
+//   - **検査関数を宣言ごと（`STRUCTURAL` の要素と一緒に）消す整理は通る。**
+//     `checkPreconditionsAreWired` 自身も例外ではない（実測: 守り手を宣言ごと消して
+//     43/43 緑・EXIT=0）。ただし総数は 44 から 43 へ動くので、開示は偽にならない。
+//     下限を件数で貼らないという判断の裏返しであり、ここでは塞がない。
+//   - **`report` を常に 0 を返す形へ書き換えると、失敗が終了コードへ伝わらない。**
+//     実測（`report` の `return 1` を `return 0` にし、あわせて `MUST_DETECT` を空にした）:
+//     出力には `❌ 対照のレジストリが一つも空でない` が印字されるが EXIT=0 で
+//     「36/36 件の確認に成功しました」と述べる。**出力は動くが終了コードは動かない**粒度の穴。
+//   - **`runCase` を常に空を返す形へ書き換えると、対照の判定そのものが死ぬ。**
+//     実測（あわせて `MUST_DETECT` の先頭を本当に落ちる形にした）: 44/44 緑・EXIT=0。
+//     母集団でも結線でもなく**判定器**の書き換えであり、115.242 の境界の外にある。
+//   - **`serialStatementFailures` を常に空を返す形へ書き換えると、直列性の要求が丸ごと消える。**
+//     実測: 44/44 緑・EXIT=0。守り手を守る守り手を無限には積まない、という線引きの結果である。
+//   - **二箇所を協調させて消す整理は通る。** 実測: `corpusExecutionFailures` の `report(` を
+//     撤去し、同時に対照の繰り返しを死んだ分岐で包むと 43/43 緑・EXIT=0。片方だけなら
+//     どちらも赤い（前者は入口の件数不一致、後者は直列性）。一手ごとに赤くする、が到達点である。
+//
+// **一覧の外（本ファイルの守り手が原理的に見ていない形。実測 2026-09-02）**:
+//   - **入口の呼び出しを消すと、確認が一件も走らないまま緑になる。** 実測: ファイル末尾の
+//     入口の呼び出し（`main` を実行する一行）を削ると**標準出力 0 バイト・標準エラー 0 バイト・
+//     EXIT=0**。`MUST_DETECT` を空にしても検出されない。死んだ分岐へ入れる形
+//     （`if (Date.now() < 0)` で包む）も同じく EXIT=0 で出力ゼロである。
+//     **これは一手であり、判定器の書き換えでも宣言の削除でもない**ため、上の一覧のどの形にも
+//     帰着しない。本ファイルの守り手は `main` の**中**の結線だけを見ており、`main` が
+//     呼ばれること自体は見ていないからである。
+//     これは 115.242 の境界（パス参照検査の自己検査の対照レジストリ）の外であり、本タスクの
+//     差分が持ち込んだものでもない（HEAD 時点でも同じ形）。**塞ぐのは後続タスクで扱う。**
+//     115.242 の起票文が「作法を揃えること」と名指す先例
+//     `scripts/check-requirement-exclusions.selftest.ts` の入口も同じ形であり、
+//     本ファイル固有の欠陥ではない。
+//
+// **開示しておく偽陽性・無害な素通り（差し戻し事由とはならなかったもの。実測 2026-09-02）**:
+//   - 関門の条件を逐語で固定しているため、**意味の等価な書き換えでも赤くなる**。実測:
+//     `preconditions.failed > 0 || preconditions.ran === 0` への順序入れ替えも
+//     `preconditions.ran < 1` への言い換えも EXIT=1。`||` で分割した被演算子の集合一致まで
+//     緩めるのが望ましいが、安全側の誤警報なのでここでは逐語のままにしてある。
+//   - **前提のラベルと判定関数の対応を入れ替える形、`STRUCTURAL` の 2 要素の `custom` を
+//     互いに入れ替える形は素通りする**（実測: どちらも 44/44 緑・EXIT=0）。どちらの判定も
+//     走るため母集団は空にならず、出力の名前が入れ替わるだけで合否は変わらないためである。
+
+/** 本ファイル自身のソース（自分が宣言している検査関数を数えるために読む） */
+function readOwnSource(): string {
+  return fs.readFileSync(SELFTEST_PATH, 'utf-8');
+}
+
+// 対照を走らせる三つの形。`main` の中でこれらが直列に在ることを前提で要求する。
+const CORPUS_LOOP = 'for (const group of GROUPS)';
+const CORPUS_INNER_LOOP = 'for (const testCase of group.cases)';
+const CORPUS_REPORT = 'failed += report(testCase.name, runCase(testCase));';
+
+/** 対照の繰り返しの中身が、一件ずつ集計する直列の手続きであること */
+function corpusInnerFailures(mainBody: string): string[] {
+  const failures: string[] = [];
+  const outerBlock = sliceBraceBlock(mainBody, mainBody.indexOf(CORPUS_LOOP) + CORPUS_LOOP.length);
+  if (outerBlock === null) {
+    return ['対照の繰り返しのブロックを切り出せない（波括弧の対応が崩れている疑い）'];
+  }
+  failures.push(...serialStatementFailures(outerBlock, CORPUS_INNER_LOOP, '対照の内側の繰り返し'));
+  if (!outerBlock.includes(CORPUS_INNER_LOOP)) {
+    failures.push('対照の内側の繰り返しが無い（一件ずつ走らせる形が消えた疑い）');
+    return failures;
+  }
+  const innerBlock = sliceBraceBlock(
+    outerBlock,
+    outerBlock.indexOf(CORPUS_INNER_LOOP) + CORPUS_INNER_LOOP.length
+  );
+  if (innerBlock === null) {
+    return failures.concat('対照の内側の繰り返しのブロックを切り出せない');
+  }
+  const occurrences = innerBlock.split(CORPUS_REPORT).length - 1;
+  if (occurrences !== 1) {
+    failures.push(
+      `対照の集計が ${occurrences} 件である（` +
+        `「${CORPUS_REPORT}」が過不足なく 1 件であること。呼ぶだけでは失敗が終了コードへ伝わらない）`
+    );
+  }
+  failures.push(...serialStatementFailures(innerBlock, CORPUS_REPORT, '対照の集計'));
+  return failures;
+}
+
+/**
+ * `main` が対照へ実際に到達すること（差し戻し 2 回目の自主是正）。
+ *
+ * **これは前提の側に置く。** 対照の繰り返しを死んだ分岐で包むと `STRUCTURAL` が一件も
+ * 走らず、`STRUCTURAL` に居る `checkPreconditionsAreWired` ごと黙る（自分で当てた変異の
+ * 実測: `if (Date.now() < 0)` で包むと 43/43 緑・EXIT=0 のまま対照は 0 件しか走らない。
+ * 関門の直後に `return` を足すと EXIT=0 で出力が総括の行ごと消える）。守り手が
+ * **守られる側の実行にぶら下がっていた**穴であり、常に走る前提の側でしか塞げない。
+ */
+function corpusExecutionFailures(): string[] {
+  const source = stripComments(readOwnSource());
+  const mainBody = sliceFunctionBody(source, '\nfunction main(');
+  const sliceFailures = bodySliceFailures('main', mainBody);
+  if (sliceFailures.length > 0 || mainBody === null) return sliceFailures;
+
+  const failures: string[] = [];
+  if (!mainBody.includes(CORPUS_LOOP)) {
+    failures.push('main に GROUPS を走らせる繰り返しが無い（対照の実行が消えた疑い）');
+  } else {
+    failures.push(...serialStatementFailures(mainBody, CORPUS_LOOP, '対照の繰り返し'));
+    // 繰り返しが直列に在るだけでは足りない。中で一件ずつ集計する形まで降りて確かめる。
+    // 集計（`failed +=`）を落とすと ❌ を印字したまま EXIT=0 になり、死んだ分岐へ入れると
+    // ❌ すら出ない（どちらも自分で当てた変異で実測。前提の側で見た finding 1・3 と同じ手口）。
+    failures.push(...corpusInnerFailures(mainBody));
+  }
+  // `main` は最後まで走り切る手続きである。途中で返る形も 0 での終了も持たない。
+  for (const escape of ['return', 'process.exit(0)']) {
+    if (mainBody.includes(escape)) {
+      failures.push(`main の本体に ${escape} がある（対照へ到達する前に抜ける余地がある）`);
+    }
+  }
+  return failures;
+}
+
+/**
+ * 空になっている母集団を挙げる（対照を走らせる前に呼ぶ）。
+ * `scripts/check-requirement-exclusions.selftest.ts` の同名の道具と同じ作法（タスク 115.222）。
+ */
+function emptyPopulationFailures(
+  populations: ReadonlyArray<{ name: string; size: number }>
+): string[] {
+  // 渡す一覧そのものを空にされたら、この関門が何も見ていない。回帰を一段で断つ。
+  if (populations.length === 0) {
+    return ['母集団の一覧そのものが空（関門が何も見ていない）'];
+  }
+  return populations
+    .filter((population) => population.size === 0)
+    .map((population) => `${population.name}が 0 件（対照の母集団が空）`);
+}
+
+/** 対照のレジストリが一つも空でないこと */
+function emptyRegistryFailures(): string[] {
+  return emptyPopulationFailures([
+    { name: 'MUST_DETECT', size: MUST_DETECT.length },
+    { name: 'MUST_NOT_DETECT', size: MUST_NOT_DETECT.length },
+    { name: 'STRUCTURAL', size: STRUCTURAL.length },
+    { name: 'NARROWING_WATCHED_BODIES', size: NARROWING_WATCHED_BODIES.length },
+  ]);
+}
+
+/** 対照のレジストリが実行される側（GROUPS）へ実際に結線されていること */
+function registryWiringFailures(): string[] {
+  const registries: ReadonlyArray<{ name: string; cases: readonly Case[] }> = [
+    { name: 'MUST_DETECT', cases: MUST_DETECT },
+    { name: 'MUST_NOT_DETECT', cases: MUST_NOT_DETECT },
+    { name: 'STRUCTURAL', cases: STRUCTURAL },
+  ];
+  if (registries.length === 0) {
+    return ['結線を見る一覧そのものが空（関門が何も見ていない）'];
+  }
+  const wired = new Set<readonly Case[]>(GROUPS.map((group) => group.cases));
+  const unwired = registries.filter((registry) => !wired.has(registry.cases));
+  if (unwired.length === 0) return [];
+  return [
+    `実行されない対照レジストリがある（GROUPS から外れている）: ${unwired
+      .map((registry) => registry.name)
+      .join(' / ')}`,
+  ];
+}
+
+/** STRUCTURAL が本ファイルの検査関数を一つ残らず結線していること（構造から導いた下限） */
+function structuralWiringFailures(): string[] {
+  const failures: string[] = [];
+  // 前提の確認そのものは `check` で始めない命名にしてある。だからこの語彙は
+  // 「守られる側の検査関数」だけを拾い、守り手を自分の下限に数え込まない。
+  const declared = [...readOwnSource().matchAll(/^function (check[A-Za-z0-9]*)\s*\(/gm)].map(
+    (match) => match[1] as string
+  );
+  if (declared.length === 0) {
+    return ['本ファイルに check で始まる検査関数の宣言が一つも無い（下限を導く語彙が消えた）'];
+  }
+  const wired = new Set(
+    STRUCTURAL.map((testCase) => testCase.custom?.name).filter(
+      (name): name is string => name !== undefined && name.length > 0
+    )
+  );
+  const unwired = declared.filter((name) => !wired.has(name));
+  if (unwired.length > 0) {
+    failures.push(
+      `STRUCTURAL に結線されていない検査関数がある（下限割れ）: ${unwired.join(' / ')}`
+    );
+  }
+  const unknown = [...wired].filter((name) => !declared.includes(name));
+  if (unknown.length > 0) {
+    failures.push(`STRUCTURAL が本ファイルに宣言の無い検査を指している: ${unknown.join(' / ')}`);
+  }
+  return failures;
+}
+
+/** 絞り込みの監視が本体の関数を一つ残らず名指ししていること（構造から導いた下限） */
+function watchedBodyCoverageFailures(): string[] {
+  const declared = [
+    ...readExecutableSource().matchAll(/^(?:export )?function ([A-Za-z0-9_]+)\s*\(/gm),
+  ].map((match) => match[1] as string);
+  if (declared.length === 0) {
+    return ['本体に関数の宣言が一つも見つからない（下限を導く語彙が消えた）'];
+  }
+  const watched = new Set(NARROWING_WATCHED_BODIES.map((body) => body.label));
+  const unwatched = declared.filter((name) => !watched.has(name));
+  if (unwatched.length === 0) return [];
+  return [`絞り込みの監視から外れている本体の関数がある（下限割れ）: ${unwatched.join(' / ')}`];
+}
 
 // ============================================================================
 // 実行
@@ -1524,32 +2162,78 @@ function runCase(testCase: Case): string[] {
   return [];
 }
 
-function main(): void {
-  const groups: Array<{ title: string; cases: Case[] }> = [
-    { title: '捕捉しなければならない書き方（115.173 の是正前の実物）', cases: MUST_DETECT },
-    { title: '捕捉してはならない書き方（過検出）', cases: MUST_NOT_DETECT },
-    { title: '走査対象と前提条件', cases: STRUCTURAL },
-  ];
+/** 一件の確認の結果を表示し、失敗なら 1 を返す */
+function report(name: string, failures: readonly string[]): number {
+  if (failures.length === 0) {
+    console.log(`  ✅ ${name}`);
+    return 0;
+  }
+  console.log(`  ❌ ${name}`);
+  for (const failure of failures) console.log(`     - ${failure}`);
+  return 1;
+}
 
+/** 前提の確認の実績。`ran` は実際に走らせた確認の件数（総数はここから導く） */
+type PreconditionRun = { ran: number; failed: number };
+
+/**
+ * 前提（対照レジストリそのものの健全性）を確かめる。
+ *
+ * ここは意図して配列への登録ではなく直列の手続きである。守り手を守られる側と同じ
+ * レジストリへ置かないための構造上の要請であり、整理して一覧化してはならない（タスク 115.242）。
+ *
+ * **返すのは失敗数だけではなく、実際に走らせた件数（`ran`）でもある。** 是正前はここを
+ * `const PRECONDITION_COUNT = 4` という定数にしていたため、前提が一件も走らなくても
+ * 総数が動かず「42/42」と自称できた。総数は実行から導くこと（タスク 115.242 の差し戻し）。
+ */
+function reportPreconditions(): PreconditionRun {
+  console.log('\n[前提: 対照レジストリそのもの]');
+  const tally: PreconditionRun = { ran: 0, failed: 0 };
+  // 一件ごとに `ran` を加算する。加算を伴わない確認を足すと `checkPreconditionsAreWired` の
+  // 「report( の件数＝前提の入口の件数」が合わなくなり赤くなる（タスク 115.242）。
+  tally.ran += 1;
+  tally.failed += report('対照のレジストリが一つも空でない', emptyRegistryFailures());
+  tally.ran += 1;
+  tally.failed += report('対照のレジストリが実行に結線されている', registryWiringFailures());
+  tally.ran += 1;
+  tally.failed += report(
+    'STRUCTURAL が本ファイルの検査関数を一つ残らず結線している',
+    structuralWiringFailures()
+  );
+  tally.ran += 1;
+  tally.failed += report(
+    '絞り込みの監視が本体の関数を一つ残らず名指ししている',
+    watchedBodyCoverageFailures()
+  );
+  tally.ran += 1;
+  tally.failed += report('main が対照へ到達する', corpusExecutionFailures());
+  return tally;
+}
+
+function main(): void {
   console.log(
     '🔍 設計文書の実在検査 検出規則 自己検査 (scripts/check-design-path-references.selftest.ts)'
   );
+
+  // 前提が崩れている状態で対照を走らせても、その結果は何も主張していない。先に断つ。
+  // 前提が一件も走らなかった場合（`ran === 0`）も、何も主張していないので同じく断つ。
+  const preconditions = reportPreconditions();
+  if (preconditions.ran === 0 || preconditions.failed > 0) {
+    console.log(
+      `\n❌ ${preconditions.failed}/${preconditions.ran} 件の前提が崩れています（対照は走らせません）`
+    );
+    process.exit(1);
+  }
+
   let failed = 0;
-  for (const group of groups) {
+  for (const group of GROUPS) {
     console.log(`\n[${group.title}]`);
     for (const testCase of group.cases) {
-      const failures = runCase(testCase);
-      if (failures.length === 0) {
-        console.log(`  ✅ ${testCase.name}`);
-      } else {
-        failed += 1;
-        console.log(`  ❌ ${testCase.name}`);
-        for (const failure of failures) console.log(`     - ${failure}`);
-      }
+      failed += report(testCase.name, runCase(testCase));
     }
   }
 
-  const total = groups.reduce((sum, group) => sum + group.cases.length, 0);
+  const total = preconditions.ran + GROUPS.reduce((sum, group) => sum + group.cases.length, 0);
   if (failed > 0) {
     console.log(`\n❌ ${failed}/${total} 件の確認に失敗しました`);
     process.exit(1);
