@@ -44,6 +44,71 @@ import { DEFAULT_AUTO_SAVE_INTERVAL_MS } from '../../../frontend/src/services/Au
 const AUTO_SAVE_MIN_DELAY_MS = 5000;
 
 /**
+ * 要件15.4 の受入検証で観測する自動保存の書き込み回数（タスク 115.237）。
+ *
+ * 「一定間隔で自動保存を実行する」ことを受入レベルで区別するには、**一間隔を超えて
+ * 描き続けたときに書き込みが繰り返し起こること**を見なければならない。1回で足りるのは
+ * 「いつか一度書かれる」ことだけであり、debounce（最後の操作から30秒）でも同じ判定が
+ * 成立してしまう（タスク 115.119 が設計文書に記録した欠落）。
+ *
+ * 3回にするのは、回数を数えるだけでなく**連続する2つの間隔**を比べられるようにするためである。
+ * 2回では間隔が1つしか採れず、「繰り返した」ことは言えても「一定間隔で」を測れない。
+ */
+const AUTO_SAVE_REPEAT_COUNT = 3;
+
+/**
+ * 描き続けるときの操作の間合い（ミリ秒）。
+ *
+ * 本番の間隔から導く（1/10）。**間隔より十分に短い**ことが要点で、
+ * 「編集が続いているあいだ」に当たる状態を作り出す。数値は複製しない。
+ */
+const CONTINUOUS_DRAW_CADENCE_MS = Math.max(1000, Math.floor(DEFAULT_AUTO_SAVE_INTERVAL_MS / 10));
+
+/**
+ * 連続する書き込みのあいだに最低限あいているべき時間（ミリ秒）。タスク 115.237 で導出へ改めた。
+ *
+ * 本番の間隔から導く（1/2）。ここで要るのは**描き続ける間合い（`CONTINUOUS_DRAW_CADENCE_MS`）より
+ * 十分に大きく、実際に空くはずの間隔（＝本番の間隔）より十分に小さい**下限である。
+ *
+ * 以前はこの主張に `AUTO_SAVE_MIN_DELAY_MS`（5000 の据え置き）を流用していた。その形の識別力は
+ * `CONTINUOUS_DRAW_CADENCE_MS < 5000`、すなわち**本番の間隔が 50 秒未満のあいだしか成り立たない**。
+ * 間隔を 50 秒より延ばすと間合いのほうが下限を上回り、**操作のたびに書き込む実装でもこの主張が
+ * 通ってしまう**——本タスクが追うはずの「間隔の変化への追随」がまさに失われる箇所であった。
+ * 導出へ改めたことで、間隔が変わっても下限は間合いと間隔のあいだに留まる。
+ * 下限が間合いを上回っていること自体は、主張の直前に実測して確かめる。
+ */
+const AUTO_SAVE_WRITE_GAP_MIN_MS = Math.floor(DEFAULT_AUTO_SAVE_INTERVAL_MS / 2);
+
+/**
+ * 描き続けながら書き込みを観測する上限時間（ミリ秒）。
+ *
+ * 書き込みは最初の変更を起点に 1・2・3 間隔目で起こるため、必要なのは
+ * `AUTO_SAVE_REPEAT_COUNT` 間隔ぶんである。最初の描画と周期の開始のずれ・
+ * タイマーの遅延を吸収するため 1 間隔ぶんを上乗せする。
+ */
+const CONTINUOUS_DRAW_OBSERVATION_MS = DEFAULT_AUTO_SAVE_INTERVAL_MS * (AUTO_SAVE_REPEAT_COUNT + 1);
+
+/**
+ * 要件15.4 の受入検証の実行時間の上限（ミリ秒）。タスク 115.237 で再設計した。
+ *
+ * 以前は `180_000` という**据え置きの数値**であった。観測に要する時間は本番の自動保存間隔と
+ * 観測する回数から決まるため、間隔が変われば上限も変わらなければならない。据え置きの数値は
+ * その追随ができず、間隔を延ばした瞬間に「上限で落ちる検証」へ変わる。そこで
+ * **観測時間（上の定数から導く）＋ 到達と後片付けの余裕**として導出する形へ改めた。
+ *
+ * 余裕は 60 秒とする。ログイン・画像ビューアへの到達・編集モード・最初の描画に要する時間の実測は
+ * 約 6 秒であり（2026-09-02 実測。本検証の所要 1.6 分＝96 秒から、書き込み 3 回ぶんの観測に
+ * 相当する 90 秒を差し引いた値）、CI 倍率（`getTimeout` の 2 倍）を掛けても十分に収まる。
+ * 観測が上限まで回り切る最悪の場合も実測で確かめてある——書き込みの反復を潰す変異を当てた実行で
+ * 本検証は約 142 秒で判定に達した（2026-09-02 実測。事前準備と合わせた 2.5 分から
+ * 事前準備の 7.3 秒を差し引いた値）。上限まで待ってなお 38 秒の余りがあり、
+ * **主張の失敗として落ちる**（上限で打ち切られて原因が分からなくなる形にはならない）。
+ * 既定の間隔 30 秒・3 回の観測では `30_000 * 4 + 60_000 = 180_000` となり、
+ * 数値としては据え置きの値と一致するが、**間隔に追随する点が異なる**。
+ */
+const AUTO_SAVE_ACCEPTANCE_TIMEOUT_MS = CONTINUOUS_DRAW_OBSERVATION_MS + 60_000;
+
+/**
  * 自動保存が無効であることを確かめるための観測時間（ミリ秒）。
  *
  * 間隔を確実に跨ぐよう本番の間隔から導く（1.5 倍）。実際に跨いだことは観測直後に実測する。
@@ -344,6 +409,60 @@ test.describe('現場調査レスポンシブ対応', () => {
    */
   async function readDraft(page: PlaywrightPage, key: string): Promise<string | null> {
     return page.evaluate((k) => localStorage.getItem(k), key);
+  }
+
+  /**
+   * 下書きキーへの書き込み1件の記録（要件15.4 の反復の観測に使う）
+   *
+   * 時刻は**画面側の単調時計**（`window.performance.now()`）で採る。WSL2 では壁時計が
+   * 単調時計より遅く進むため、下書きの `savedAt`（`Date` 由来）から間隔を導いてはならない。
+   */
+  type DraftWriteRecord = {
+    /** 画面側の単調時計での書き込み時刻（ミリ秒） */
+    atMs: number;
+    /** 書き込まれた本文そのもの（解釈は呼び出し側で行う） */
+    value: string;
+  };
+
+  /**
+   * 指定キーへの書き込みを、発生順に記録し始める（要件15.4）
+   *
+   * 「一定間隔で自動保存される」ことを受入レベルで確かめるには、**書き込みが何回起きたか**を
+   * 数える必要がある。localStorage を外から周期的に読む形では、同じ内容で上書きされた回や、
+   * 読み取りの周期に挟まれた回を取りこぼす。そこで書き込みの入口そのものを観測する。
+   *
+   * 判定は行わない——本文も時刻もそのまま持ち帰り、主張は呼び出し側で行う。
+   */
+  async function startRecordingDraftWrites(page: PlaywrightPage, key: string): Promise<void> {
+    await page.evaluate((draftKey) => {
+      const state = window as unknown as { __draftWrites?: { atMs: number; value: string }[] };
+      state.__draftWrites = [];
+      const original = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (k: string, v: string) {
+        original.call(this, k, v);
+        if (k === draftKey) {
+          state.__draftWrites?.push({ atMs: window.performance.now(), value: v });
+        }
+      };
+    }, key);
+  }
+
+  /**
+   * これまでに記録された下書きへの書き込みを発生順で返す
+   */
+  async function readRecordedDraftWrites(page: PlaywrightPage): Promise<DraftWriteRecord[]> {
+    return page.evaluate(
+      () =>
+        (window as unknown as { __draftWrites?: { atMs: number; value: string }[] })
+          .__draftWrites ?? []
+    );
+  }
+
+  /**
+   * 画面側の単調時計の現在値を返す（記録した書き込み時刻と同じ時計で測るため）
+   */
+  async function readPageMonotonicNowMs(page: PlaywrightPage): Promise<number> {
+    return page.evaluate(() => window.performance.now());
   }
 
   /**
@@ -684,7 +803,8 @@ test.describe('現場調査レスポンシブ対応', () => {
     test('注釈編集中に一定間隔（30秒）で未保存状態がlocalStorageへ自動保存される (site-survey/REQ-15.4)', async ({
       page,
     }) => {
-      test.setTimeout(180_000);
+      // 上限は本番の間隔と観測回数から導く（据え置きの数値ではない。タスク 115.237）
+      test.setTimeout(AUTO_SAVE_ACCEPTANCE_TIMEOUT_MS);
 
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -692,33 +812,117 @@ test.describe('現場調査レスポンシブ対応', () => {
       const draftKey = `${ANNOTATION_DRAFT_PREFIX}${imageId}`;
       await clearDrafts(page);
 
+      // 書き込みの入口そのものを記録し始める。回数を数えるのが主題であるため、
+      // localStorage を外から周期的に読む形（同じ内容の上書きや読み取りの合間の回を
+      // 取りこぼす）では足りない。記録は描画より前に始める。
+      await startRecordingDraftWrites(page, draftKey);
+
       // drawRectangleAnnotation は図形が増えるまでを条件待ちするため、
       // ここに到達した時点で「保存されるべき未保存の変更」が確実に存在する
       // （不在の主張の母集団が空にならないことの担保）。
       await drawRectangleAnnotation(page);
-      const drawnAt = performance.now();
+      const drawAtMs: number[] = [await readPageMonotonicNowMs(page)];
+      const drawingStartedAtMs = drawAtMs[0]!;
 
-      // 一定間隔の自動保存が発火し、未保存の編集状態が localStorage へ書き出される。
-      // 以前は「5秒経てばまだ書かれていないはず」という固定待機の前提で不在を主張していたが、
-      // ここでは**最初に書き出された時刻そのもの**を条件待ちで捉え、それが即時ではないことを
-      // 実測で主張する（不在の主張と存在の主張を一つの観測で兼ねる）。
+      // 一間隔より短い間合いで描き続ける（＝要件15.4 の `While 注釈編集中` に当たる状態）。
+      // タスク 115.119 までのこの検証は描画を一度しか行わず、その形では
+      // debounce（最後の操作から30秒）と一定間隔の区別が付かなかった。
       // 経過の計測は単調時計で行う（WSL2 では壁時計が単調時計より遅く進むため Date.now は使わない）。
-      await expect
-        .poll(() => readDraft(page, draftKey), { timeout: 90_000, intervals: [250] })
-        .not.toBeNull();
-      const firstDraftAfterMs = performance.now() - drawnAt;
+      // 画面側で記録した時刻と突き合わせるため、時計は画面側の単調時計に統一する。
+      let writes = await readRecordedDraftWrites(page);
+      while (
+        writes.length < AUTO_SAVE_REPEAT_COUNT &&
+        (await readPageMonotonicNowMs(page)) - drawingStartedAtMs < CONTINUOUS_DRAW_OBSERVATION_MS
+      ) {
+        const sinceLastDrawMs =
+          (await readPageMonotonicNowMs(page)) - drawAtMs[drawAtMs.length - 1]!;
+        if (sinceLastDrawMs < CONTINUOUS_DRAW_CADENCE_MS) {
+          await page.waitForTimeout(CONTINUOUS_DRAW_CADENCE_MS - sinceLastDrawMs);
+        }
+        await drawRectangleAnnotation(page);
+        drawAtMs.push(await readPageMonotonicNowMs(page));
+        writes = await readRecordedDraftWrites(page);
+      }
+
+      // 前提の実測: 「描き続けた」ことと、それが一間隔を超えたこと。
+      // これを測らないと、書き込みが1回で終わった原因が本番にあるのか
+      // 操作が続かなかったせいなのかを判別できない。
+      const drawingSpanMs = drawAtMs[drawAtMs.length - 1]! - drawingStartedAtMs;
       expect(
-        firstDraftAfterMs,
+        drawingSpanMs,
+        `描画が自動保存の間隔(${DEFAULT_AUTO_SAVE_INTERVAL_MS}ms)を跨いでおらず、` +
+          '「一間隔を超えて描き続けた」ことを確かめられていない'
+      ).toBeGreaterThan(DEFAULT_AUTO_SAVE_INTERVAL_MS);
+
+      // 主題: 描き続けている最中に書き込みが繰り返し起こる
+      expect(
+        writes.length,
+        `一間隔(${DEFAULT_AUTO_SAVE_INTERVAL_MS}ms)を超えて${drawingSpanMs}ms 描き続け、` +
+          `${drawAtMs.length}回の描画を送ったにもかかわらず、下書きへの書き込みが` +
+          `${writes.length}回しか起きていない（一定間隔の自動保存になっていない）`
+      ).toBeGreaterThanOrEqual(AUTO_SAVE_REPEAT_COUNT);
+
+      // 書き込みは操作ごとではなく間隔ごとに起きる（＝描画のたびに書いているのではない）
+      expect(
+        drawAtMs.length,
+        '描画の回数が書き込みの回数を上回っておらず、操作ごとの書き込みと区別できていない'
+      ).toBeGreaterThan(writes.length);
+
+      const firstWriteAfterMs = writes[0]!.atMs - drawingStartedAtMs;
+      expect(
+        firstWriteAfterMs,
         '描画直後に下書きが書き出されており、一定間隔での自動保存になっていない'
       ).toBeGreaterThanOrEqual(AUTO_SAVE_MIN_DELAY_MS);
 
+      const gapsMs = writes.slice(1).map((write, index) => write.atMs - writes[index]!.atMs);
+      expect(
+        gapsMs.length,
+        '書き込みの間隔を採れておらず、間隔についての主張の母集団が空である'
+      ).toBeGreaterThanOrEqual(AUTO_SAVE_REPEAT_COUNT - 1);
+
+      // 下限が「描画の間合い」を上回っていること自体を主張する。ここが崩れると
+      // （本番の間隔を大きく延ばした場合など）以下の主張は静かに識別力を失うため、
+      // 黙って緑になるのではなく赤で知らせる。
+      expect(
+        AUTO_SAVE_WRITE_GAP_MIN_MS,
+        `書き込み間隔の下限(${AUTO_SAVE_WRITE_GAP_MIN_MS}ms)が描画の間合い(${CONTINUOUS_DRAW_CADENCE_MS}ms)を` +
+          '上回っておらず、操作ごとの書き込みと区別できない'
+      ).toBeGreaterThan(CONTINUOUS_DRAW_CADENCE_MS);
+
+      gapsMs.forEach((gapMs, index) => {
+        expect(
+          gapMs,
+          `${index + 2}回目の書き込みが直前から ${gapMs}ms しか空いておらず` +
+            `（下限は本番の間隔から導く ${AUTO_SAVE_WRITE_GAP_MIN_MS}ms）、` +
+            '一定間隔ではなく操作ごとの書き込みになっている'
+        ).toBeGreaterThanOrEqual(AUTO_SAVE_WRITE_GAP_MIN_MS);
+      });
+
+      // 各回の書き込みはその時点までの描画を含む（描き続けている最中の状態が書き出されている）
+      const drafts = writes.map(
+        (write) =>
+          JSON.parse(write.value) as {
+            imageId: string;
+            surveyId: string;
+            savedAt: string;
+            annotationData: { objects: unknown[]; canvasWidth: number; canvasHeight: number };
+          }
+      );
+      drafts.slice(1).forEach((draft, index) => {
+        expect(
+          draft.annotationData.objects.length,
+          `${index + 2}回目の書き込みが直前の回から増えておらず、` +
+            '描き続けている最中の状態を書き出していない'
+        ).toBeGreaterThan(drafts[index]!.annotationData.objects.length);
+      });
+
+      // 記録した書き込みが localStorage の現況と一致する（入口の観測が実体を伴っている）
       const stored = await readDraft(page, draftKey);
-      const draft = JSON.parse(stored as string) as {
-        imageId: string;
-        surveyId: string;
-        savedAt: string;
-        annotationData: { objects: unknown[]; canvasWidth: number; canvasHeight: number };
-      };
+      expect(stored, '記録した最後の書き込みが localStorage に残っていない').toBe(
+        writes[writes.length - 1]!.value
+      );
+
+      const draft = drafts[drafts.length - 1]!;
       expect(draft.imageId).toBe(imageId);
       expect(draft.surveyId).toBe(createdSurveyId);
       expect(draft.annotationData.objects.length).toBeGreaterThan(0);
