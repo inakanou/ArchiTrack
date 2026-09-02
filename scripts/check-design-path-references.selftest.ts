@@ -18,6 +18,24 @@
  *   npm run check:design-path-refs:selftest
  *
  * 検出器が壊れたまま本検査が「合格」を出す状態を防ぐため、CI では本検査の前に走らせる。
+ *
+ * ## 開示と関門の穴に対する制御（タスク 115.241）
+ *
+ * 115.241 が本体へ足した挙動——実体の件数、裸の名前の曖昧性、面の集合による基準の照合、
+ * 失格時の更新の拒否、開示と基準の読み書きに対する絞り込みの監視——には、それぞれ
+ * 変異で殺せる制御を置いた。実測（2026-09-02。リポジトリルート）:
+ *   - `bundleReachEntities` が `reached.length` を返す変異 → 2/38 件が赤
+ *   - 曖昧性の閾値を潰す変異（`matches > 1` を `> 1000000` / `> 0` へ）→ 1 件 / 2 件が赤
+ *   - 失格時の更新拒否を撤去する変異 → 1/38 件が赤
+ *   - `compareReach` の面の比較を件数だけへ戻す変異 → 1/38 件が赤
+ *   - 読めない基準を黙って捨てる変異・`entityTotal` の自己整合を外す変異 → 各 1/38 件が赤
+ *   - `reportReach` へ設計文書を名指しで読み飛ばす一行を足す変異、および
+ *     `reach.documents` を `.filter(` で間引く変異 → いずれも 1/38 件が赤
+ *
+ * **残る真空パス（本ファイルの所管外・後続 115.242）**: `STRUCTURAL` や
+ * `checkNoFindingsNarrowing` の中の `bodies` といった**対照のレジストリそのものを空にすると
+ * 緑で通る**。115.241 が足した制御も同じレジストリに載っているため同じ穴を共有する。
+ * 下限を件数で貼るか構造で導くかの判断は 115.222 と作法を揃える必要があり、後続で扱う。
  */
 
 import { spawnSync } from 'child_process';
@@ -28,6 +46,7 @@ import { fileURLToPath } from 'url';
 import {
   ABSENCE_MARKERS,
   BARE_NAME_EXTENSIONS,
+  bundleReachEntities,
   buildFileIndex,
   collectAbsenceDeclarations,
   compareReach,
@@ -363,7 +382,11 @@ function checkNoFindingsNarrowing(): string[] {
   const source = readExecutableSource();
 
   /** ファイル名・パスらしき文字列リテラル（許容リストの実体） */
-  const PATH_LITERAL = /['"][A-Za-z0-9_@./-]*[A-Za-z0-9_@-]+\.(?:tsx?|jsx?|css|ya?ml|sql)['"]/;
+  // `.md` を含めるのは、面の開示を絞る最も自然な形が
+  // `document.file === '.kiro/specs/<feature>/design.md'` だからである（タスク 115.241）。
+  // 本体は設計文書名を `design-document.ts` の `DESIGN_DOC_NAME` から取り、
+  // `.md` の文字列リテラルを一つも持たないため、この拡張で誤検出は出ない。
+  const PATH_LITERAL = /['"][A-Za-z0-9_@./-]*[A-Za-z0-9_@-]+\.(?:tsx?|jsx?|css|ya?ml|sql|md)['"]/;
 
   const bodies: Array<{ label: string; declaration: string }> = [
     { label: 'extractClaims', declaration: 'export function extractClaims(' },
@@ -379,6 +402,14 @@ function checkNoFindingsNarrowing(): string[] {
     { label: 'summariseReach', declaration: 'export function summariseReach(' },
     { label: 'compareReach', declaration: 'export function compareReach(' },
     { label: 'execute', declaration: 'export function execute(' },
+    // 基準の読み書き・開示・入口も同じ網に入れる（タスク 115.241）。
+    // 115.215 はこの四つを網の外に置いていた。とりわけ `reportReach` は
+    // 「文書 X を開示から隠す」絞り込みが最も自然に入る場所である。
+    { label: 'bundleReachEntities', declaration: 'export function bundleReachEntities(' },
+    { label: 'loadReachBaseline', declaration: 'export function loadReachBaseline(' },
+    { label: 'writeReachBaseline', declaration: 'export function writeReachBaseline(' },
+    { label: 'reportReach', declaration: 'function reportReach(' },
+    { label: 'main', declaration: 'function main(' },
   ];
 
   for (const body of bodies) {
@@ -407,6 +438,13 @@ function checkNoFindingsNarrowing(): string[] {
       /(?:reached|documents|regressions)\.(?:filter|slice|splice)\(/.test(text)
     ) {
       failures.push(`${body.label} が面の集計を間引いている`);
+    }
+    // 開示と基準の書き出しから文書・参照を落とす形（タスク 115.241）
+    if (
+      (body.label === 'reportReach' || body.label === 'writeReachBaseline') &&
+      /(?:reach\.documents|reached|ambiguousBareNames)\.(?:filter|slice|splice)\(/.test(text)
+    ) {
+      failures.push(`${body.label} が開示から文書・参照を落としている`);
     }
   }
 
@@ -785,6 +823,196 @@ function checkReachOnRealRepository(): string[] {
   return failures;
 }
 
+// ============================================================================
+// 実体の件数・裸の名前の曖昧性・更新経路（タスク 115.241）
+// ============================================================================
+
+/**
+ * 面の件数と**実体のファイル数**が別々に測られていること。
+ *
+ * 同じ面の件数（2 件）から実体 1 件と 2 件の双方を導く対で置く。
+ * 片方だけだと「実体＝面の件数」または「実体＝定数」でも通ってしまう。
+ */
+function checkEntityCountIsMeasured(): string[] {
+  const failures: string[] = [];
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'design-path-refs-entity-'));
+  try {
+    fs.mkdirSync(path.join(root, 'frontend', 'src'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'backend'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'frontend', 'src', 'shared.ts'), 'export {};\n');
+    fs.writeFileSync(path.join(root, 'backend', 'shared.ts'), 'export {};\n');
+    const index = buildFileIndex(root);
+    const document = `${SPEC_DIR}/sample/${DESIGN_DOC_NAME}`;
+
+    // 同じファイルを二通りの綴りで名指す: 面 2 件・実体 1 件
+    const twoSpellings = scanDocument(
+      document,
+      [
+        '- 中核は `frontend/src/shared.ts`、略記は `shared.ts` である',
+        '- `frontend/src/shared.ts` の旧実装は当時こうだった',
+      ].join('\n'),
+      index
+    );
+    if (twoSpellings.reach.reached.length !== 2) {
+      failures.push(`前提が崩れている: 面が 2 件でない（${twoSpellings.reach.reached.length}）`);
+    }
+    if (twoSpellings.reach.entities !== 1) {
+      failures.push(
+        `別表記を実体として二重に数えている（期待 1 / 実際 ${twoSpellings.reach.entities}）`
+      );
+    }
+
+    // 同じ basename の別実体を二つ名指す: 面 2 件・実体 2 件
+    const twoEntities = scanDocument(
+      document,
+      [
+        '- 中核は `frontend/src/shared.ts` と `backend/shared.ts` である',
+        '- `frontend/src/shared.ts` と `backend/shared.ts` の旧実装は当時こうだった',
+      ].join('\n'),
+      index
+    );
+    if (twoEntities.reach.reached.length !== 2) {
+      failures.push(`前提が崩れている: 面が 2 件でない（${twoEntities.reach.reached.length}）`);
+    }
+    if (twoEntities.reach.entities !== 2) {
+      failures.push(
+        `basename が同じ別実体を一つに畳んでいる（期待 2 / 実際 ${twoEntities.reach.entities}）`
+      );
+    }
+
+    // 束ねの規則そのものの対照（面が空なら実体も 0）
+    if (bundleReachEntities([], index.nameCounts).entities !== 0) {
+      failures.push('面が空なのに実体が 0 でない');
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  return failures;
+}
+
+/**
+ * 裸の名前だけで面に入る参照の曖昧性が測られ、開示されること。
+ *
+ * 陽性（同名の実在が 2 件）と陰性（1 件）を対で置く。陰性が無いと
+ * 「何でも曖昧と数える」形でも通る。
+ */
+function checkAmbiguousBareNamesAreMeasured(): string[] {
+  const failures: string[] = [];
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'design-path-refs-ambiguous-'));
+  try {
+    fs.mkdirSync(path.join(root, 'frontend', 'src'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'backend'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'frontend', 'src', 'shared.ts'), 'export {};\n');
+    fs.writeFileSync(path.join(root, 'backend', 'shared.ts'), 'export {};\n');
+    fs.writeFileSync(path.join(root, 'frontend', 'src', 'unique.ts'), 'export {};\n');
+    const index = buildFileIndex(root);
+    const document = `${SPEC_DIR}/sample/${DESIGN_DOC_NAME}`;
+
+    if (index.nameCounts.get('shared.ts') !== 2) {
+      failures.push(`実在の重複を索引できていない（${index.nameCounts.get('shared.ts')}）`);
+    }
+    if (index.nameCounts.get('unique.ts') !== 1) {
+      failures.push(`一意な basename の件数が違う（${index.nameCounts.get('unique.ts')}）`);
+    }
+
+    // 陽性: 裸の名前が二つの実在に一致している
+    const ambiguous = scanDocument(
+      document,
+      ['- 中核は `shared.ts` である', '- `shared.ts` の旧実装は当時こうだった'].join('\n'),
+      index
+    );
+    if (ambiguous.reach.ambiguousBareNames.length !== 1) {
+      failures.push(
+        `曖昧な裸の名前を数えていない（期待 1 / 実際 ${ambiguous.reach.ambiguousBareNames.length}）`
+      );
+    } else if (ambiguous.reach.ambiguousBareNames[0]!.matches !== 2) {
+      failures.push(
+        `一致件数が実測と合わない（期待 2 / 実際 ${ambiguous.reach.ambiguousBareNames[0]!.matches}）`
+      );
+    }
+
+    // 陰性: 同名の実在が一つだけなら曖昧ではない
+    const unambiguous = scanDocument(
+      document,
+      ['- 中核は `unique.ts` である', '- `unique.ts` の旧実装は当時こうだった'].join('\n'),
+      index
+    );
+    if (unambiguous.reach.reached.length !== 1) {
+      failures.push(`前提が崩れている: 面が 1 件でない（${unambiguous.reach.reached.length}）`);
+    }
+    if (unambiguous.reach.ambiguousBareNames.length !== 0) {
+      failures.push(
+        `一意な裸の名前を曖昧と数えている（${unambiguous.reach.ambiguousBareNames.length}）`
+      );
+    }
+
+    // 陰性: ルート相対パスは曖昧性の対象ではない（綴りが実体を一意に決める）
+    const qualified = scanDocument(
+      document,
+      [
+        '- 中核は `frontend/src/shared.ts` である',
+        '- `frontend/src/shared.ts` の旧実装は当時こうだった',
+      ].join('\n'),
+      index
+    );
+    if (qualified.reach.ambiguousBareNames.length !== 0) {
+      failures.push(
+        `ルート相対パスを曖昧と数えている（${qualified.reach.ambiguousBareNames.length}）`
+      );
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  return failures;
+}
+
+/**
+ * 実在検査に失格が出ているツリーで基準を更新しないこと（タスク 115.241）。
+ *
+ * 115.215 の形は `result.findings.length > 0` でも `--update-baseline` が 0 を返し、
+ * 失格の赤を出したうえで「基準を更新しました」と成功を報告して基準を書き出していた。
+ */
+function checkUpdateRefusesWhileFailing(): string[] {
+  const failures: string[] = [];
+  const fixture = makeReachFixture();
+  const baselinePath = path.join(fixture.root, 'reach-baseline.json');
+  const options = { root: fixture.root, baselinePath };
+  const documentPath = path.join(fixture.root, fixture.document);
+  const original = fs.readFileSync(documentPath, 'utf-8');
+
+  try {
+    // 対照: 失格が無ければ更新できる（関門が常時赤ではない）
+    const healthy = withCapturedConsole(() =>
+      execute(['--update-baseline', '--allow-increase'], options)
+    );
+    if (healthy.value !== 0) failures.push(`失格が無いのに更新できない（exit ${healthy.value}）`);
+    if (!fs.existsSync(baselinePath)) failures.push('失格が無いのに基準を書き出さない');
+    fs.rmSync(baselinePath, { force: true });
+
+    // 変異: 実在しないパスの現存主張を一行足す
+    fs.writeFileSync(documentPath, `${original}- 無いもの: \`frontend/src/absent.ts\`\n`, 'utf-8');
+    const failing = run(options);
+    if (failing.findings.length !== 1) {
+      failures.push(`変異が効いていない（失格 ${failing.findings.length} 件）`);
+    }
+    const refused = withCapturedConsole(() =>
+      execute(['--update-baseline', '--allow-increase'], options)
+    );
+    if (refused.value !== 1) {
+      failures.push(`失格があるのに基準の更新が成功を報告した（exit ${refused.value}）`);
+    }
+    if (fs.existsSync(baselinePath)) {
+      failures.push('失格があるのに基準を書き出している');
+    }
+    if (!refused.output.includes('実在検査に失格がある状態では免除の面の基準を更新しません')) {
+      failures.push('更新を拒否した理由を報告していない');
+    }
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+  return failures;
+}
+
 /** 面の基準が実際の関門として働くこと（増加で落ち、手書き換えを拒み、更新に摩擦がある） */
 function checkReachBaselineGate(): string[] {
   const failures: string[] = [];
@@ -824,8 +1052,19 @@ function checkReachBaselineGate(): string[] {
     if (recorded.value !== 0)
       failures.push(`--allow-increase で更新できない（exit ${recorded.value}）`);
     const written = loadReachBaseline(baselinePath);
-    if (written.reachTotal !== 1 || written.documents[fixture.document] !== 1) {
+    const writtenReach = written.documents[fixture.document] ?? [];
+    if (written.reachTotal !== 1 || writtenReach.length !== 1) {
       failures.push(`基準の書き出しが実測と合わない（reachTotal ${written.reachTotal}）`);
+    }
+    // 件数だけでなく集合そのものが書き出されていること（タスク 115.241）
+    if (writtenReach[0] !== 'frontend/src/present.ts') {
+      failures.push(`基準が面の集合を持っていない（documents ${JSON.stringify(writtenReach)}）`);
+    }
+    if (written.entityTotal !== 1) {
+      failures.push(`基準が実体の数を持っていない（entityTotal ${written.entityTotal}）`);
+    }
+    if (written.malformedDocuments.length !== 0) {
+      failures.push('書き出した基準を自分で読み戻せない（面の集合として読めない）');
     }
 
     // 基準と一致していれば合格する（関門が常時赤ではないことの対照）
@@ -833,6 +1072,14 @@ function checkReachBaselineGate(): string[] {
     if (matched.value !== 0) failures.push(`基準と一致しているのに落ちる（exit ${matched.value}）`);
     if (!matched.output.includes('免除機構の面: 1 件')) {
       failures.push('合格時に面を開示していない');
+    }
+    // 実体の件数を開示すること（タスク 115.241 の (1)。--json を自分で集計させない）
+    if (!matched.output.includes('実体のファイルは 1 件')) {
+      failures.push('合格時に実体のファイル数を開示していない');
+    }
+    // 母数を関門にしない代わりに、基準記録時の母数と比を並べて開示すること（同 (6)）
+    if (!matched.output.includes(`基準記録時の母数は ${written.candidateTotal} 件`)) {
+      failures.push('基準記録時の母数を開示していない（比の薄まりに信号が無い）');
     }
 
     // 面が増えれば落ちる（もう一つ現存ファイルを不在の語で名指す）
@@ -846,17 +1093,46 @@ function checkReachBaselineGate(): string[] {
     );
     const grown = withCapturedConsole(() => execute([], options));
     if (grown.value !== 1) failures.push(`面が広がったのに合格した（exit ${grown.value}）`);
-    if (!grown.output.includes(`${fixture.document} [面] 1 → 2`)) {
+    if (!grown.output.includes(`${fixture.document} [面] +1 件: frontend/src/second.ts`)) {
       failures.push('面の拡大を名指しで報告していない');
     }
     fs.writeFileSync(documentPath, original, 'utf-8');
     fs.rmSync(path.join(fixture.root, 'frontend', 'src', 'second.ts'));
 
+    // 面の件数が動かない**入れ替え**も落とす（タスク 115.241）。
+    // 115.215 の件数だけの基準では、この変異は exit 0 で素通りしていた。
+    fs.writeFileSync(path.join(fixture.root, 'frontend', 'src', 'swapped.ts'), 'export {};\n');
+    fs.writeFileSync(
+      documentPath,
+      original.split('frontend/src/present.ts').join('frontend/src/swapped.ts'),
+      'utf-8'
+    );
+    const swappedRun = run(options);
+    if (swappedRun.reach.total !== 1) {
+      failures.push(`入れ替えで面の件数が動いてしまい対照にならない（${swappedRun.reach.total}）`);
+    }
+    const swapped = withCapturedConsole(() => execute([], options));
+    if (swapped.value !== 1) {
+      failures.push(`面の入れ替え（件数は不変）が素通りした（exit ${swapped.value}）`);
+    }
+    if (!swapped.output.includes('frontend/src/swapped.ts')) {
+      failures.push('入れ替えで面に入った参照を名指しで報告していない');
+    }
+    fs.writeFileSync(documentPath, original, 'utf-8');
+    fs.rmSync(path.join(fixture.root, 'frontend', 'src', 'swapped.ts'));
+
     // 面が狭まった場合は助言のみ（合格させる）
     writeBaselineFile({
-      documents: { [fixture.document]: 3 },
+      documents: {
+        [fixture.document]: [
+          'frontend/src/absent-a.ts',
+          'frontend/src/absent-b.ts',
+          'frontend/src/present.ts',
+        ],
+      },
       reachTotal: 3,
       candidateTotal: 2,
+      entityTotal: 3,
       exempted: { [fixture.document]: 2 },
       exemptedTotal: 2,
     });
@@ -868,15 +1144,85 @@ function checkReachBaselineGate(): string[] {
 
     // 内訳と総数が食い違う基準（手書き換え）は照合の前に拒否する
     writeBaselineFile({
-      documents: { [fixture.document]: 1 },
+      documents: { [fixture.document]: ['frontend/src/present.ts'] },
       reachTotal: 99,
       candidateTotal: 2,
+      entityTotal: 1,
       exempted: { [fixture.document]: 2 },
       exemptedTotal: 2,
     });
     const tampered = withCapturedConsole(() => execute([], options));
     if (tampered.value !== 1) {
       failures.push(`内訳と総数が食い違う基準を受け入れた（exit ${tampered.value}）`);
+    }
+
+    // 実体の数を手で書き換えた基準も拒否する（タスク 115.241）
+    writeBaselineFile({
+      documents: { [fixture.document]: ['frontend/src/present.ts'] },
+      reachTotal: 1,
+      candidateTotal: 2,
+      entityTotal: 99,
+      exempted: { [fixture.document]: 2 },
+      exemptedTotal: 2,
+    });
+    const tamperedEntities = withCapturedConsole(() => execute([], options));
+    if (tamperedEntities.value !== 1) {
+      failures.push(`実体の数が食い違う基準を受け入れた（exit ${tamperedEntities.value}）`);
+    }
+
+    // 面を件数でしか持たない基準（115.215 の形）は「面 0」と解さず拒否する（タスク 115.241）
+    writeBaselineFile({
+      documents: { [fixture.document]: 1 },
+      reachTotal: 1,
+      candidateTotal: 2,
+      entityTotal: 1,
+      exempted: { [fixture.document]: 2 },
+      exemptedTotal: 2,
+    });
+    const legacyShape = withCapturedConsole(() => execute([], options));
+    if (legacyShape.value !== 1) {
+      failures.push(`面の集合として読めない基準を受け入れた（exit ${legacyShape.value}）`);
+    }
+    if (!legacyShape.output.includes('面の集合として読めない項目')) {
+      failures.push('読めない基準の項目を名指しで報告していない');
+    }
+
+    // 総数がすべて自己整合していても、面の集合として読めない鍵が一つ混ざれば拒否すること。
+    // 上の 115.215 形式の case は `documents` の全鍵が落ちて reachTotal も食い違うため、
+    // `malformedDocuments` の条件を外しても赤いままだった——すなわち当該条件を一度も
+    // 殺していなかった（115.241 のレビューが実測。当該条件を外すと 38/38 緑・EXIT=0）。
+    // ここでは読める鍵を正しい集合で残し、reachTotal / entityTotal / exempted を
+    // 読める側だけで整合させる。落ちる理由が読めない鍵ただ一つになる。
+    // 本 case を置いたうえで同じ条件を外す変異を当てると 1/39 件が赤になる
+    //（2026-09-02 にリポジトリルートで実測。未変異では当該基準に対し EXIT=1）。
+    writeBaselineFile({
+      documents: {
+        [fixture.document]: ['frontend/src/present.ts'],
+        'hand-written-nonsense.md': 999,
+      },
+      reachTotal: 1,
+      candidateTotal: 2,
+      entityTotal: 1,
+      exempted: { [fixture.document]: 2 },
+      exemptedTotal: 2,
+    });
+    const loadedMixed = loadReachBaseline(baselinePath);
+    if (loadedMixed.malformedDocuments.length !== 1) {
+      failures.push(
+        `前提が崩れている: 読めない鍵が 1 件でない（${loadedMixed.malformedDocuments.length}）`
+      );
+    }
+    if ((loadedMixed.documents[fixture.document] ?? []).length !== 1) {
+      failures.push('前提が崩れている: 読める鍵まで落ちている（落ちる理由が一つに絞れない）');
+    }
+    const mixedShape = withCapturedConsole(() => execute([], options));
+    if (mixedShape.value !== 1) {
+      failures.push(
+        `総数は自己整合するが読めない鍵を持つ基準を受け入れた（exit ${mixedShape.value}）`
+      );
+    }
+    if (!mixedShape.output.includes('hand-written-nonsense.md')) {
+      failures.push('読めない鍵を名指しで報告していない');
     }
 
     // compareReach 自体の対照（総数が合っていれば inconsistent にしない）
@@ -886,11 +1232,13 @@ function checkReachBaselineGate(): string[] {
     } else {
       const consistent = compareReach(
         {
-          documents: { [fixture.document]: 1 },
+          documents: { [fixture.document]: ['frontend/src/present.ts'] },
           reachTotal: 1,
           candidateTotal: 2,
+          entityTotal: 1,
           exempted: { [fixture.document]: 2 },
           exemptedTotal: 2,
+          malformedDocuments: [],
         },
         summariseReach([firstDocument])
       );
@@ -901,6 +1249,97 @@ function checkReachBaselineGate(): string[] {
     }
   } finally {
     fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+  return failures;
+}
+
+/**
+ * 開示が「基準の値」と「現況の値」を取り違えていないこと（タスク 115.241 のレビューが要求）。
+ *
+ * 115.241 は母数（`candidateTotal`）を関門にしない判断の代わりに、基準記録時の母数と比を
+ * 並べて出す信号を置いた。ところが対照は基準と現況の母数が一致する使い捨ての木で書かれており、
+ * `baseline.candidateTotal` を `reach.candidateTotal` へ差し替える変異——信号が完全に消え、
+ * 基準時と現況の差が永久に出なくなる変異——を当てても 38/38 緑だった（レビューが実測）。
+ * ここでは**基準の母数を現況と異なる値で書き出し**、出力が基準の側を述べていることを固定する。
+ *
+ * 併せて「別表記の件数」（面 − 実体）も固定する。同じ理由で、定数 0 へ置き換えても
+ * 38/38 緑だった（レビューが実測）。面 2 件・実体 1 件・別表記 1 件の木を用いる。
+ *
+ * 本対照を置いたうえで同じ二つの変異を当て直すと、母数・比の差し替えは 3 件の失敗で
+ * 1/39 件が赤、別表記の定数化は 1 件の失敗で 1/39 件が赤になる
+ *（いずれも 2026-09-02 にリポジトリルートで実測）。
+ */
+function checkReachDisclosureQuotesTheBaseline(): string[] {
+  const failures: string[] = [];
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'design-path-refs-disclosure-'));
+  const document = `${SPEC_DIR}/sample/${DESIGN_DOC_NAME}`;
+  const baselinePath = path.join(root, 'reach-baseline.json');
+  const options = { root, baselinePath };
+  try {
+    fs.mkdirSync(path.join(root, 'frontend', 'src'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'frontend', 'src', 'present.ts'), 'export {};\n');
+    fs.mkdirSync(path.join(root, SPEC_DIR, 'sample'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, document),
+      [
+        '# Sample',
+        '- 中核は `frontend/src/present.ts`、略記は `present.ts` である',
+        '- `frontend/src/present.ts` の旧実装は当時こうだった',
+        '',
+      ].join('\n')
+    );
+
+    // 前提: 面 2 件（二通りの綴り）・実体 1 件・別表記 1 件・候補 2 件
+    const scanned = run(options);
+    if (scanned.reach.total !== 2 || scanned.reach.entityTotal !== 1) {
+      failures.push(
+        `前提が崩れている（面 ${scanned.reach.total} / 実体 ${scanned.reach.entityTotal}）`
+      );
+    }
+    if (scanned.reach.candidateTotal !== 2) {
+      failures.push(`前提が崩れている: 候補が 2 件でない（${scanned.reach.candidateTotal}）`);
+    }
+
+    // 基準の母数だけを現況（2 件）と異なる値で書き出す。母数は合否に用いないため合格するはず
+    const baselineCandidateTotal = 999;
+    fs.writeFileSync(
+      baselinePath,
+      `${JSON.stringify(
+        {
+          documents: { [document]: ['frontend/src/present.ts', 'present.ts'] },
+          reachTotal: 2,
+          candidateTotal: baselineCandidateTotal,
+          entityTotal: 1,
+          exempted: {},
+          exemptedTotal: 0,
+        },
+        null,
+        2
+      )}\n`,
+      'utf-8'
+    );
+
+    const disclosed = withCapturedConsole(() => execute([], options));
+    if (disclosed.value !== 0) {
+      failures.push(`母数だけが違う基準で落ちた（exit ${disclosed.value}）。母数は合否に用いない`);
+    }
+    // (6) の信号: 出力は現況ではなく**基準記録時**の母数と比を述べていること
+    if (!disclosed.output.includes(`基準記録時の母数は ${baselineCandidateTotal} 件`)) {
+      failures.push('開示が基準記録時の母数を述べていない（比の薄まりの信号が消えている）');
+    }
+    if (disclosed.output.includes(`基準記録時の母数は ${scanned.reach.candidateTotal} 件`)) {
+      failures.push('開示が基準記録時と称して現況の母数を述べている');
+    }
+    // 比も基準の側から導かれていること（2 / 999 = 0.2%。現況は 2 / 2 = 100.0%）
+    if (!disclosed.output.includes('（比 0.2%）')) {
+      failures.push('基準記録時の比が基準の母数から導かれていない');
+    }
+    // (1) と対になる別表記の件数（面 2 − 実体 1 = 1）
+    if (!disclosed.output.includes('実体のファイルは 1 件で、残る 1 件は')) {
+      failures.push('別表記の件数が実測と合わない（定数に置き換わっていないか）');
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
   }
   return failures;
 }
@@ -927,6 +1366,28 @@ function checkReachReportedBySubprocess(): string[] {
   if (!stdout.includes(`候補 distinct ${expected.candidateTotal} 件`)) {
     failures.push(`開示された母数が実測（${expected.candidateTotal} 件）と一致しない`);
   }
+  if (!stdout.includes(`実体のファイルは ${expected.entityTotal} 件`)) {
+    failures.push(`開示された実体の数が実測（${expected.entityTotal} 件）と一致しない`);
+  }
+  // 面に入る裸の名前の曖昧性は、開示の文言が実測の向きと一致していること（タスク 115.241）
+  const ambiguous = expected.ambiguousBareNames;
+  if (ambiguous.length === 0) {
+    if (!stdout.includes('同名の実在が 1 件だけである')) {
+      failures.push('曖昧な裸の名前が 0 件のときの開示が実測と一致しない');
+    }
+  } else {
+    if (!stdout.includes(`裸のファイル名のうち ${ambiguous.length} 件は同名の実在が複数ある`)) {
+      failures.push(`開示された曖昧な裸の名前が実測（${ambiguous.length} 件）と一致しない`);
+    }
+    for (const entry of ambiguous) {
+      if (entry.name.includes('/')) {
+        failures.push(`ルート相対パスを曖昧な裸の名前として数えている: ${entry.name}`);
+      }
+      if (entry.matches < 2) {
+        failures.push(`一致が 1 件以下のものを曖昧と数えている: ${entry.name}`);
+      }
+    }
+  }
   // 基準と開示が同じ数を指していること（基準だけが古いまま合格する状態を塞ぐ）
   const baseline = loadReachBaseline(path.join(SCRIPTS_DIR, 'design-path-exemption-baseline.json'));
   if (baseline.reachTotal !== expected.total) {
@@ -935,6 +1396,16 @@ function checkReachReportedBySubprocess(): string[] {
   if (baseline.exemptedTotal !== expected.exemptedTotal) {
     failures.push(
       `基準の免除（${baseline.exemptedTotal} 件）が実測（${expected.exemptedTotal} 件）と食い違う`
+    );
+  }
+  if (baseline.entityTotal !== expected.entityTotal) {
+    failures.push(
+      `基準の実体（${baseline.entityTotal} 件）が実測（${expected.entityTotal} 件）と食い違う`
+    );
+  }
+  if (baseline.malformedDocuments.length !== 0) {
+    failures.push(
+      `リポジトリ本体の基準を面の集合として読めない: ${baseline.malformedDocuments.join(', ')}`
     );
   }
   return failures;
@@ -1008,6 +1479,26 @@ const STRUCTURAL: Case[] = [
     name: '面が免除へ転じる向き（面に入ったファイルの撤去）も関門が捕まえる',
     expected: false,
     custom: checkExemptedBaselineGate,
+  },
+  {
+    name: '実体のファイル数が面の件数とは別に測られている',
+    expected: false,
+    custom: checkEntityCountIsMeasured,
+  },
+  {
+    name: '裸の名前だけで面に入る参照の曖昧性が測られている',
+    expected: false,
+    custom: checkAmbiguousBareNamesAreMeasured,
+  },
+  {
+    name: '実在検査に失格があるツリーでは基準の更新を拒否する',
+    expected: false,
+    custom: checkUpdateRefusesWhileFailing,
+  },
+  {
+    name: '開示が基準記録時の母数・比と別表記の件数を述べている（現況や定数ではない）',
+    expected: false,
+    custom: checkReachDisclosureQuotesTheBaseline,
   },
   {
     name: '本体を起動して、開示される面の件数と基準が実測と一致する',

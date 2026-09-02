@@ -29,6 +29,7 @@
  *   npx tsx scripts/check-design-path-references.ts [--verbose] [--json]
  *   npm run check:design-path-refs
  *   npm run check:design-path-refs:update [-- --allow-increase]   免除の面の基準を書き出す
+ *   npm run check:design-path-refs:selftest                        検出規則と関門の自己検査
  *
  * ## 検出する形（いずれも「このパス／ファイルが在る」と述べている形）
  *
@@ -122,21 +123,79 @@
  *   **面は「参照トークン」単位の distinct で数える——ファイル単位ではない。** 同じファイルが
  *   ルート相対パスと裸のファイル名の両方で名指されていれば **2 件**を占める
  *   （`collectAbsenceDeclarations` がルート相対パスとその basename の双方を宣言集合へ入れ、
- *   `scanDocument` は `claim.reference` を逐語で面へ加えるため）。実測では面 162 件に対し
- *   **実体のファイルは 123 件**であり、39 件は既に数えたファイルの別表記である
- *   （`site-survey/design.md` 単独では面 131 件 / 実体 101 件・別表記 30 件。
- *   `frontend/src/components/site-surveys/AnnotationEditor.tsx` は裸の `AnnotationEditor.tsx`
- *   と併せて 2 件を占める）。**追試の手順**（リポジトリルートで実行）:
- *   `npm run check:design-path-refs:json` の `reach.documents[].reached` を文書ごとに basename で
- *   束ね、束の中のルート相対パスの数（無ければ 1）を合算する——2026-08-31 に実測して
- *   面 162 件 / 実体 123 件。`AnnotationEditor.tsx` が占める 2 件（裸の名前とルート相対パスが
- *   一つずつ）は `npm run check:design-path-refs:verbose | grep -cE '^ +- .*AnnotationEditor\.tsx$'`
- *   の出力が `2` であることで確かめる（2026-08-31 に実測）。
- *   basename だけで素朴に束ねると 121 件になるが、`package.json` と `vitest.config.ts` は
- *   backend / frontend の二つの実体を指すため、実体の数はそれより 2 件多い。
+ *   `scanDocument` は `claim.reference` を逐語で面へ加えるため）。
  *   **したがって出力の「免除機構の面 N 件」を撤去され得るファイル数として読んではならない。**
- *   撤去されたときに無言になる言及の**延べ数**は、さらに面より大きい（上の
- *   `AnnotationEditor.tsx` を消す変異の実測では、面が 2 件減る一方で免除は 39 件増えた）。
+ *   撤去されたときに無言になる言及の**延べ数**は、さらに面より大きい（
+ *   `frontend/src/components/site-surveys/AnnotationEditor.tsx` を消す変異の実測では、
+ *   面が 2 件減る一方で免除は 39 件増えた。2026-08-31 にリポジトリルートで実測）。
+ *   115.215 は実体の数を JSDoc の実測値としてだけ持ち、**追試の手順**として
+ *   `npm run check:design-path-refs:json` の `reach.documents[].reached` を自分で束ねることを
+ *   求めていた。その手順は `bundleReachEntities` として本ファイルに入り、毎回の出力が持つ
+ *   （タスク 115.241。下の節）。
+ *
+ * ## 開示と関門の穴を塞ぐ（タスク 115.241）
+ *
+ *   115.215 のレビューが非ブロッキングとして七つの穴を挙げた。以下は各々の決着である。
+ *   数値はいずれも 2026-09-02 にリポジトリルートで実測した（基点はコミット `106bfda`。
+ *   本タスクは `.kiro/specs/<feature>/design.md` を一行も変えないため、着手前後で面・候補・免除は動かない）:
+ *   面 162 件 / 候補 distinct 592 件（27.4%）/ 実体 123 件 / 免除 123 件。
+ *
+ *   **(1) 実体の件数を毎回の出力に出す。** 115.215 は「自己検査の制御を伴わない計算値を
+ *   関門へ増やす」ことを避けて見送っていた。本タスクは `bundleReachEntities` を置き、
+ *   同時に自己検査へ制御を置いた——面 2 件から実体 1 件（同一ファイルの二通りの綴り）と
+ *   実体 2 件（同じ basename の別実体）の双方を導く対である。`bundleReachEntities` が
+ *   `reached.length` を返す変異を当てると自己検査は 2/38 件で赤くなる（2026-09-02 に実測）。
+ *
+ *   **(2) 裸の名前だけで面に入る参照の曖昧性を開示する。** 裸の名前は basename しか照合せず、
+ *   面から外れるのは同名の一致が**全て**消えたときだけである。実体の束ねはこれを 1 件に畳むため、
+ *   畳んだ分を必ず併記する。実測では面に入る裸の参照のうち 3 件が複数の実在に一致していた——
+ *   `site-survey/design.md` の `index.ts` が 12 件、`quantity-table-generation/design.md` の
+ *   `calculation-engine.ts` が 2 件、`estimate-request/design.md` の
+ *   `EstimateRequestForm.test.tsx` が 2 件である（2026-09-02 に実測）。
+ *   `FileIndex.names` は 1 件以上かどうかしか答えないため、`FileIndex.nameCounts` を足した。
+ *
+ *   **(3) 開示は測った値を述べる形にした。** 115.215 の出力は「面の件数は撤去され得る
+ *   ファイルの数より多い」という**無条件の狭義の不等式**を毎回述べていた。両方の綴りで
+ *   名指されたファイルが一つも無い木では偽になる——面 1 件・実体 1 件だけを持つ使い捨ての木で
+ *   115.215 の版を走らせると、この一文がそのまま出た（2026-09-02 に実測）。
+ *   現在は「実体のファイルは N 件で、残る M 件は既に数えたファイルの別表記である」と
+ *   測った値だけを述べる。
+ *
+ *   **(4) 実在検査に失格があるツリーでは基準を更新しない。** 115.215 の `execute()` は
+ *   `result.findings.length > 0` でも更新経路が `0` を返し、失格の赤を出したうえで
+ *   「基準を更新しました」と成功を報告して書き出していた——失格 1 件を持つ使い捨ての木で
+ *   `--update-baseline --allow-increase` が exit 0 を返し基準ファイルが生成されることを
+ *   実測した（2026-09-02）。落ちている木で測った面を基準へ焼き付ければ、次回以降その面が
+ *   正当な現況として扱われる。現在は更新そのものを拒否する。
+ *
+ *   **(5) 基準は面の集合を持つ。** 115.215 の基準は文書ごとの**件数**だけを持っていたため、
+ *   同一文書内で 1 件が抜け 1 件が入る**入れ替え**はどちらの件数も動かず素通りした——
+ *   面 1 件の使い捨ての木で名指す現存ファイルを別のものへ差し替えると exit 0 のままだった
+ *   （2026-09-02 に実測）。現在は `documents` が参照トークンの配列を持ち、`compareReach` が
+ *   集合の差を取る。同じ変異は exit 1 になる。件数だけを持つ 115.215 形式の基準は
+ *   「面 0」と解さずに拒否する（読めない基準を無言の合格へ落とさないため）。
+ *
+ *   **(6) 母数（`candidateTotal`）は関門にしない——比の開示を基準時と並べる形にした。**
+ *   比そのものを関門にする形は検討したうえで採らなかった。理由は 115.215 と同じである:
+ *   設計文書は編集のたびに候補が増減するため、母数を含む量を関門にすると文章の増減そのものが
+ *   赤を出す。**代わりに信号を置いた**——出力は現在の比と併せて基準記録時の母数と比を出す。
+ *   本タスクの着手時点で、基準の母数は 574 件（比 28.2%）、実測の母数は 592 件（比 27.4%）で
+ *   あり、面が一件も動かないまま比が 0.8 ポイント薄まっていた（2026-09-02 に実測）。
+ *   115.215 の版はこの差を一切出していなかった。**残る限界**: 基準を更新すると母数も
+ *   書き換わるため、薄まりが見えるのは前回の更新からの差だけである。
+ *
+ *   **(7) 開示と基準の読み書きも絞り込みの監視対象に入れた。** 115.215 は
+ *   `loadReachBaseline` / `writeReachBaseline` / `reportReach` / `main` を
+ *   自己検査の `checkNoFindingsNarrowing` の外に置いていた。`reportReach` は
+ *   「文書 X を開示から隠す」絞り込みが最も自然に入る場所である——同関数の文書ごとの
+ *   繰り返しの冒頭へ、設計文書のパスを文字列リテラルで名指して `continue` する一行を
+ *   足す変異を当てても、115.215 の版の自己検査は 35/35 件で緑のままだった
+ *   （2026-09-02 に実測。変異の逐語は自己検査の網に掛からないよう本注釈へは写さない——
+ *   `checkNoFindingsNarrowing` は注釈を除いたソースを見るため掛からないが、
+ *   後任が本注釈の文字列を検索して実体と取り違えることを避ける）。
+ *   自己検査の許容リスト検出は拡張子を `.tsx?` 系に絞っていたため設計文書の `.md` を
+ *   取り逃がしていた。`.md` を網へ足し、`reach.documents` を間引く形も見るようにした。
+ *   同じ二つの変異は現在いずれも自己検査を赤くする（2026-09-02 に実測）。
  *
  * ## 検出しない形（限界。見逃し側。いずれも実測に基づく）
  *
@@ -158,6 +217,9 @@
  *     この絞りを適用しない。
  *   - **裸のファイル名は basename しか照合しない。** ディレクトリの移動は検出しない
  *     （115.169 と同じ判断。字下げや文脈からパスを組み立てると在るファイルを誤って告発する）。
+ *     **免除の面にも同じ曖昧性が及ぶ**——裸の名前で面に入った参照が面から外れるのは、
+ *     同名の実在が全て消えたときだけである。該当は毎回の出力が件数と最大の一致数で開示する
+ *     （タスク 115.241。実測では 3 件・最大 12 件の一致。2026-09-02）。
  *   - **ディレクトリの参照（末尾が `/`、または末尾セグメントに拡張子が無いもの）は照合しない。**
  *     実測では該当 31 件のうち実在しないのは 1 件（`backend/coverage/`）で、それは
  *     `.gitignore` された生成物への正当な言及であった。生成物の有無で結果が変わる検査は
@@ -191,6 +253,8 @@
  *   **実在の判定に許容リストは持たない。** 検出を名指しで逃がす経路そのものを置かない。
  *   `DEFAULT_BASELINE_PATH` の基準は実在の判定には一切関与せず、免除の面と免除件数の
  *   増減だけを見張る（基準が無い場合は「面 0・免除 0」として扱うため、増加として落ちる）。
+ *   基準の `documents` が面の集合として読めない場合も「面 0」とは解さず、照合の前に拒否する
+ *   （タスク 115.241。読めない基準を無言の合格へ落とさないため）。
  */
 
 import * as fs from 'fs';
@@ -241,18 +305,38 @@ export interface DocumentReach {
   reached: string[];
   /** 当該文書から取り出した候補参照（distinct・整列済み）。免除の面の母数 */
   candidates: string[];
+  /**
+   * `reached` を実体のファイルへ束ねた件数（タスク 115.241）。
+   * 面は参照トークン単位であり、同じファイルがルート相対パスと裸のファイル名の
+   * 両方で名指されていれば 2 件を占める。束ね方は `bundleReachEntities` が持つ。
+   */
+  entities: number;
+  /**
+   * 面に入っている裸のファイル名のうち、**同名の実在が複数ある**もの（タスク 115.241）。
+   * この参照が面から外れるのは同名の一致が**全て**消えたときだけであり、
+   * `entities` はこの曖昧性を 1 件として畳んでいる。
+   */
+  ambiguousBareNames: Array<{ name: string; matches: number }>;
   /** 当該文書で**いま免除している**参照の延べ件数（面が現に免除へ転じた分を含む） */
   exempted: number;
 }
 
 /** 免除機構の面（blast radius）の実測 */
 export interface ExemptionReach {
-  /** 文書ごとの面の件数（reached の distinct 件数） */
+  /**
+   * 文書ごとの面の件数（reached の distinct 件数）。
+   * 基準との照合は `documents[].reached` の**集合**で行うため（タスク 115.241）、
+   * この値は `--json` の要約と自己検査の整合確認にだけ使う。
+   */
   perDocument: Record<string, number>;
   /** perDocument の合計 */
   total: number;
   /** 文書ごとの候補 distinct の合計（面の母数） */
   candidateTotal: number;
+  /** 文書ごとの `entities` の合計（面が指す実体のファイル数。タスク 115.241） */
+  entityTotal: number;
+  /** 文書ごとの `ambiguousBareNames` を連ねたもの（タスク 115.241） */
+  ambiguousBareNames: Array<{ file: string; name: string; matches: number }>;
   /** 文書ごとの、いま免除している件数 */
   exemptedPerDocument: Record<string, number>;
   /** exemptedPerDocument の合計（`RunResult.exemptedCount` と一致する） */
@@ -263,16 +347,31 @@ export interface ExemptionReach {
 
 /** 免除の面の基準（`DEFAULT_BASELINE_PATH` に置く） */
 export interface ReachBaseline {
-  /** 文書ごとの面の件数 */
-  documents: Record<string, number>;
-  /** documents の合計。内訳と食い違う基準は手書き換えとみなして拒否する */
+  /**
+   * 文書ごとの面の**集合**（参照トークンの整列済み配列。タスク 115.241）。
+   * 115.215 は件数だけを持っていたため、同一文書内で 1 件が抜け 1 件が入る**入れ替え**は
+   * どちらの件数も動かず素通りしていた。集合で持つことで入れ替えが差分に現れる。
+   */
+  documents: Record<string, readonly string[]>;
+  /** documents の各集合の要素数の合計。内訳と食い違う基準は手書き換えとみなして拒否する */
   reachTotal: number;
   /** 記録時点の母数（合否には用いず、比を示すために持つ） */
   candidateTotal: number;
+  /**
+   * 記録時点の実体のファイル数（タスク 115.241）。`documents` の集合から
+   * `bundleReachEntities` で導けるため、食い違う基準は手書き換えとみなして拒否する。
+   */
+  entityTotal: number;
   /** 文書ごとの、いま免除している件数 */
   exempted: Record<string, number>;
   /** exempted の合計。食い違う基準は手書き換えとみなして拒否する */
   exemptedTotal: number;
+  /**
+   * 面の集合として読めなかった `documents` の鍵（タスク 115.241）。
+   * 115.215 の件数形式の基準や、手で書き換えられた基準がここに落ちる。
+   * 空でなければ照合の前に拒否する——読めない基準を「面 0」と解して合格させないため。
+   */
+  malformedDocuments: string[];
 }
 
 export interface RunResult {
@@ -294,6 +393,12 @@ export interface FileIndex {
   paths: ReadonlySet<string>;
   /** basename の集合 */
   names: ReadonlySet<string>;
+  /**
+   * basename ごとの実在件数。裸のファイル名で面に入る参照が
+   * 「何件の実在に支えられているか」を開示するために持つ（タスク 115.241）。
+   * `names` は 1 件以上かどうかしか答えないため、曖昧性はこちらでしか測れない。
+   */
+  nameCounts: ReadonlyMap<string, number>;
   /** 最上位エントリ名の集合（ディレクトリ・ファイルの双方） */
   topLevelEntries: ReadonlySet<string>;
 }
@@ -335,6 +440,7 @@ export const EXCLUDED_DIRECTORIES: ReadonlySet<string> = new Set([
 export function buildFileIndex(root: string): FileIndex {
   const paths = new Set<string>();
   const names = new Set<string>();
+  const nameCounts = new Map<string, number>();
   const topLevelEntries = new Set<string>();
 
   let rootEntries: fs.Dirent[];
@@ -367,9 +473,10 @@ export function buildFileIndex(root: string): FileIndex {
       }
       paths.add(path.relative(root, absolute).split(path.sep).join('/'));
       names.add(entry.name);
+      nameCounts.set(entry.name, (nameCounts.get(entry.name) ?? 0) + 1);
     }
   }
-  return { paths, names, topLevelEntries };
+  return { paths, names, nameCounts, topLevelEntries };
 }
 
 // ============================================================================
@@ -488,6 +595,41 @@ export function collectAbsenceDeclarations(
   return declared;
 }
 
+/**
+ * 面の参照トークンを**実体のファイル**へ束ねる（タスク 115.241）。
+ *
+ * 束ねの規則は、同じ basename の束の中でルート相対パスを実体として数え、
+ * ルート相対パスが一つも無い束（裸の名前だけで面に入っている束）を 1 と数えることである。
+ * `package.json` のように同じ basename で複数のルート相対パスが面に入っている場合は
+ * その本数だけ数えるため、basename だけで素朴に束ねた値より大きくなる。
+ *
+ * **束ねは曖昧性を畳む。** 裸の名前だけで面に入る束は実体 1 件として数えられるが、
+ * その名前が複数の実在に一致していれば、面から外れるのは一致が**全て**消えたときだけである。
+ * 畳んだ分は `ambiguous` として返し、開示側で必ず併記する。
+ * `ambiguous` は束ではなく**裸の参照そのもの**を単位に数える——ルート相対パスの兄弟が
+ * 同じ束に居ても、裸の言及が複数の実在に支えられている事実は変わらないためである。
+ */
+export function bundleReachEntities(
+  reached: readonly string[],
+  nameCounts: ReadonlyMap<string, number>
+): { entities: number; ambiguous: Array<{ name: string; matches: number }> } {
+  const bundles = new Map<string, number>();
+  const ambiguous: Array<{ name: string; matches: number }> = [];
+  for (const reference of [...reached].sort()) {
+    const base = reference.slice(reference.lastIndexOf('/') + 1);
+    const qualified = reference.includes('/');
+    bundles.set(base, (bundles.get(base) ?? 0) + (qualified ? 1 : 0));
+    if (!qualified) {
+      const matches = nameCounts.get(base) ?? 0;
+      if (matches > 1) ambiguous.push({ name: base, matches });
+    }
+  }
+  let entities = 0;
+  for (const qualifiedCount of bundles.values())
+    entities += qualifiedCount > 0 ? qualifiedCount : 1;
+  return { entities, ambiguous };
+}
+
 /** 一つの設計文書から、実在しないパスの記載を検出する */
 export function scanDocument(
   relativePath: string,
@@ -535,10 +677,14 @@ export function scanDocument(
     }
   });
 
+  const sortedReached = [...reached].sort();
+  const bundled = bundleReachEntities(sortedReached, index.nameCounts);
   const reach: DocumentReach = {
     file: relativePath,
-    reached: [...reached].sort(),
+    reached: sortedReached,
     candidates: [...candidates].sort(),
+    entities: bundled.entities,
+    ambiguousBareNames: bundled.ambiguous,
     exempted: exemptedCount,
   };
 
@@ -553,20 +699,28 @@ export function scanDocument(
 export function summariseReach(documents: readonly DocumentReach[]): ExemptionReach {
   const perDocument: Record<string, number> = {};
   const exemptedPerDocument: Record<string, number> = {};
+  const ambiguousBareNames: Array<{ file: string; name: string; matches: number }> = [];
   let total = 0;
   let candidateTotal = 0;
+  let entityTotal = 0;
   let exemptedTotal = 0;
   for (const document of documents) {
     if (document.reached.length > 0) perDocument[document.file] = document.reached.length;
     if (document.exempted > 0) exemptedPerDocument[document.file] = document.exempted;
     total += document.reached.length;
     candidateTotal += document.candidates.length;
+    entityTotal += document.entities;
     exemptedTotal += document.exempted;
+    for (const entry of document.ambiguousBareNames) {
+      ambiguousBareNames.push({ file: document.file, name: entry.name, matches: entry.matches });
+    }
   }
   return {
     perDocument,
     total,
     candidateTotal,
+    entityTotal,
+    ambiguousBareNames,
     exemptedPerDocument,
     exemptedTotal,
     documents: [...documents],
@@ -579,23 +733,57 @@ export function summariseReach(documents: readonly DocumentReach[]): ExemptionRe
  */
 export function loadReachBaseline(baselinePath: string): ReachBaseline {
   if (!fs.existsSync(baselinePath)) {
-    return { documents: {}, reachTotal: 0, candidateTotal: 0, exempted: {}, exemptedTotal: 0 };
+    return {
+      documents: {},
+      reachTotal: 0,
+      candidateTotal: 0,
+      entityTotal: 0,
+      exempted: {},
+      exemptedTotal: 0,
+      malformedDocuments: [],
+    };
   }
-  const parsed = JSON.parse(fs.readFileSync(baselinePath, 'utf-8')) as Partial<ReachBaseline>;
+  const parsed = JSON.parse(fs.readFileSync(baselinePath, 'utf-8')) as Record<string, unknown>;
+  const documents: Record<string, readonly string[]> = {};
+  const malformedDocuments: string[] = [];
+  const rawDocuments = parsed.documents;
+  if (rawDocuments !== null && typeof rawDocuments === 'object') {
+    for (const [key, value] of Object.entries(rawDocuments as Record<string, unknown>)) {
+      if (Array.isArray(value) && value.every((item) => typeof item === 'string')) {
+        documents[key] = value as string[];
+      } else {
+        malformedDocuments.push(key);
+      }
+    }
+  } else if (rawDocuments !== undefined) {
+    malformedDocuments.push('documents');
+  }
+  const numberOf = (value: unknown): number => (typeof value === 'number' ? value : 0);
+  const countsOf = (value: unknown): Record<string, number> => {
+    const counts: Record<string, number> = {};
+    if (value === null || typeof value !== 'object') return counts;
+    for (const [key, count] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof count === 'number') counts[key] = count;
+    }
+    return counts;
+  };
   return {
-    documents: parsed.documents ?? {},
-    reachTotal: parsed.reachTotal ?? 0,
-    candidateTotal: parsed.candidateTotal ?? 0,
-    exempted: parsed.exempted ?? {},
-    exemptedTotal: parsed.exemptedTotal ?? 0,
+    documents,
+    reachTotal: numberOf(parsed.reachTotal),
+    candidateTotal: numberOf(parsed.candidateTotal),
+    entityTotal: numberOf(parsed.entityTotal),
+    exempted: countsOf(parsed.exempted),
+    exemptedTotal: numberOf(parsed.exemptedTotal),
+    malformedDocuments,
   };
 }
 
 /** 基準を書き出す */
 export function writeReachBaseline(baselinePath: string, reach: ExemptionReach): void {
-  const ordered: Record<string, number> = {};
-  for (const file of Object.keys(reach.perDocument).sort()) {
-    ordered[file] = reach.perDocument[file]!;
+  const ordered: Record<string, readonly string[]> = {};
+  for (const document of [...reach.documents].sort((a, b) => (a.file < b.file ? -1 : 1))) {
+    if (document.reached.length === 0) continue;
+    ordered[document.file] = document.reached;
   }
   const orderedExempted: Record<string, number> = {};
   for (const file of Object.keys(reach.exemptedPerDocument).sort()) {
@@ -604,18 +792,24 @@ export function writeReachBaseline(baselinePath: string, reach: ExemptionReach):
   const payload = {
     $comment: [
       '設計文書の実在検査における「免除機構の面」の基準（scripts/check-design-path-references.ts）。',
-      '面とは、いま実在しながら同じ文書の不在を述べる行に名指されている参照の distinct 件数である。',
+      '面とは、いま実在しながら同じ文書の不在を述べる行に名指されている参照の集合である。',
       'これらのファイルが撤去された瞬間、同じ文書内の全言及が無言で免除へ移る（タスク 115.215）。',
-      '面が基準より増えた場合は検査が失敗する。減った場合は助言のみ（基準の更新を促す）。',
+      'documents は文書ごとの面の集合そのものを持つ（タスク 115.241）。件数だけを持っていた',
+      '115.215 の形では、同一文書内で 1 件が抜け 1 件が入る入れ替えが素通りしていた。',
+      '面に無かった参照が増えた場合は検査が失敗する。減った場合は助言のみ（基準の更新を促す）。',
       '更新は `npm run check:design-path-refs:update`。増える方向の更新は既定で拒否し、',
       '`npm run check:design-path-refs:update -- --allow-increase` の明示を要求する。',
-      'reachTotal は documents の合計。食い違う基準は手書き換えとみなして照合の前に拒否する。',
+      '実在検査に失格が出ているツリーでは更新そのものを拒否する（タスク 115.241）。',
+      'reachTotal は documents の各集合の要素数の合計。entityTotal は documents の集合を',
+      'basename で束ねた実体のファイル数。いずれも documents から導けるため、食い違う基準は',
+      '手書き換えとみなして照合の前に拒否する。documents が集合として読めない場合も拒否する。',
       'candidateTotal は面の母数（候補 distinct の合計）であり、比を示すために持つ。合否には用いない。',
       'exempted / exemptedTotal は「いま免除している件数」。面が現に免除へ転じた分もここに現れる。',
       '面に入っていたファイルを撤去すると面は減り免除は跳ねるため、両方を見張らないと素通りする。',
     ],
     reachTotal: reach.total,
     candidateTotal: reach.candidateTotal,
+    entityTotal: reach.entityTotal,
     exemptedTotal: reach.exemptedTotal,
     documents: ordered,
     exempted: orderedExempted,
@@ -625,40 +819,75 @@ export function writeReachBaseline(baselinePath: string, reach: ExemptionReach):
 
 /** 基準と現状の差 */
 export interface ReachComparison {
-  /** 基準の内訳と総数が食い違っている（手書き換えの疑い） */
+  /** 基準の内訳と総数が食い違っている、または面の集合として読めない（手書き換えの疑い） */
   inconsistent: boolean;
-  /** 面が増えた文書（`<文書> 基準 → 現在`） */
+  /** 面に無かった参照が増えた文書、または免除が増えた文書 */
   regressions: string[];
-  /** 面が減った文書 */
+  /** 面から外れた文書、または免除が減った文書 */
   improvements: string[];
 }
 
-/** 基準と現状を突き合わせる */
+/**
+ * 基準と現状を突き合わせる。
+ *
+ * 面は**集合**で比べる（タスク 115.241）。件数だけで比べていた 115.215 の形は、
+ * 同一文書内で 1 件が抜け 1 件が入る入れ替えを素通りさせていた——どちらの件数も動かないためである。
+ * 免除は延べ件数であり集合を持たないため、従来どおり件数で比べる。
+ */
 export function compareReach(baseline: ReachBaseline, reach: ExemptionReach): ReachComparison {
+  // 基準そのものの自己整合。reachTotal / entityTotal は documents から導けるため、
+  // 食い違いは手書き換えの徴候である（タスク 115.241 が entityTotal を追加）。
+  // 実体は**文書ごとに**束ねる（summariseReach が文書ごとの entities を合算するのと同じ規則）。
   let reachSum = 0;
-  for (const count of Object.values(baseline.documents)) reachSum += count;
+  let baselineEntities = 0;
+  const emptyNameCounts: ReadonlyMap<string, number> = new Map();
+  for (const references of Object.values(baseline.documents)) {
+    reachSum += references.length;
+    baselineEntities += bundleReachEntities(references, emptyNameCounts).entities;
+  }
   let exemptedSum = 0;
   for (const count of Object.values(baseline.exempted)) exemptedSum += count;
 
   const regressions: string[] = [];
   const improvements: string[] = [];
-  const compare = (
-    label: string,
-    before: Record<string, number>,
-    now: Record<string, number>
-  ): void => {
-    for (const file of [...new Set([...Object.keys(before), ...Object.keys(now)])].sort()) {
-      const was = before[file] ?? 0;
-      const is = now[file] ?? 0;
-      if (is > was) regressions.push(`${file} [${label}] ${was} → ${is}`);
-      if (is < was) improvements.push(`${file} [${label}] ${was} → ${is}`);
+
+  // 面: 文書ごとに集合の差を取る。入れ替えは「入った側」が退行として現れる
+  const reachNow: Record<string, readonly string[]> = {};
+  for (const document of reach.documents) {
+    if (document.reached.length > 0) reachNow[document.file] = document.reached;
+  }
+  for (const file of [
+    ...new Set([...Object.keys(baseline.documents), ...Object.keys(reachNow)]),
+  ].sort()) {
+    const was = new Set(baseline.documents[file] ?? []);
+    const is = new Set(reachNow[file] ?? []);
+    const added = [...is].filter((reference) => !was.has(reference)).sort();
+    const removed = [...was].filter((reference) => !is.has(reference)).sort();
+    if (added.length > 0) {
+      regressions.push(`${file} [面] +${added.length} 件: ${added.join(' / ')}`);
     }
-  };
-  compare('面', baseline.documents, reach.perDocument);
-  compare('免除', baseline.exempted, reach.exemptedPerDocument);
+    if (removed.length > 0) {
+      improvements.push(`${file} [面] -${removed.length} 件: ${removed.join(' / ')}`);
+    }
+  }
+
+  // 免除: 延べ件数で比べる
+  const exemptedNow = reach.exemptedPerDocument;
+  for (const file of [
+    ...new Set([...Object.keys(baseline.exempted), ...Object.keys(exemptedNow)]),
+  ].sort()) {
+    const was = baseline.exempted[file] ?? 0;
+    const is = exemptedNow[file] ?? 0;
+    if (is > was) regressions.push(`${file} [免除] ${was} → ${is}`);
+    if (is < was) improvements.push(`${file} [免除] ${was} → ${is}`);
+  }
 
   return {
-    inconsistent: reachSum !== baseline.reachTotal || exemptedSum !== baseline.exemptedTotal,
+    inconsistent:
+      baseline.malformedDocuments.length > 0 ||
+      reachSum !== baseline.reachTotal ||
+      exemptedSum !== baseline.exemptedTotal ||
+      baselineEntities !== baseline.entityTotal,
     regressions,
     improvements,
   };
@@ -695,25 +924,46 @@ export function run(options: RunOptions = {}): RunResult {
 }
 
 /** 面の比（母数が 0 のときは 0%） */
-function reachRatio(reach: ExemptionReach): string {
-  if (reach.candidateTotal === 0) return '0.0%';
-  return `${((reach.total / reach.candidateTotal) * 100).toFixed(1)}%`;
+function reachRatio(total: number, candidateTotal: number): string {
+  if (candidateTotal === 0) return '0.0%';
+  return `${((total / candidateTotal) * 100).toFixed(1)}%`;
 }
 
 /** 免除の面を、合否とは別に常に開示する */
 function reportReach(reach: ExemptionReach, baseline: ReachBaseline, verbose: boolean): void {
   console.log(
     `📐 免除機構の面: ${reach.total} 件 / 候補 distinct ${reach.candidateTotal} 件` +
-      `（${reachRatio(reach)}、基準 ${baseline.reachTotal} 件）`
+      `（${reachRatio(reach.total, reach.candidateTotal)}、基準 ${baseline.reachTotal} 件）`
   );
   console.log(
     '   面とは「いま実在しながら、同じ文書の不在を述べる行に名指されている参照」である。' +
       'そのファイルが撤去された瞬間、同じ文書内の全言及が無言で免除へ移る。'
   );
+  // 数える単位の違いを、無条件の不等式ではなく**測った値**で述べる（タスク 115.241）。
+  // 115.215 は「面の件数は撤去され得るファイルの数より多い」と無条件に書いていたが、
+  // これは狭義の不等式であり、両方の綴りで名指されたファイルが一つも無ければ偽になる。
   console.log(
-    '   数える単位は参照トークンであってファイルではない。' +
-      '同じファイルがルート相対パスと裸のファイル名の両方で名指されていれば 2 件を占めるため、' +
-      '面の件数は撤去され得るファイルの数より多い。'
+    `   数える単位は参照トークンであってファイルではない。実体のファイルは ${reach.entityTotal} 件で、` +
+      `残る ${reach.total - reach.entityTotal} 件は既に数えたファイルの別表記である` +
+      '（同じファイルがルート相対パスと裸のファイル名の両方で名指されている分）。'
+  );
+  // 束ねが畳んだ曖昧性を必ず併記する（タスク 115.241）。
+  if (reach.ambiguousBareNames.length === 0) {
+    console.log('   実体の数え方: 面に入る裸のファイル名は、いずれも同名の実在が 1 件だけである。');
+  } else {
+    const maximum = Math.max(...reach.ambiguousBareNames.map((entry) => entry.matches));
+    console.log(
+      `   実体の数え方: 面に入る裸のファイル名のうち ${reach.ambiguousBareNames.length} 件は` +
+        `同名の実在が複数ある（最大 ${maximum} 件の一致）。実体 ${reach.entityTotal} 件はこれを` +
+        '各 1 件に畳んだ値であり、この参照が面から外れるのは一致が全て消えたときだけである。'
+    );
+  }
+  // 母数は合否に用いない（設計文書の増減そのものが赤を出すため）。用いない以上、
+  // 母数が増えて比が静かに薄まる向きには信号が無い。基準記録時の比を並べて開示する（タスク 115.241）。
+  console.log(
+    `   母数は合否に用いない。基準記録時の母数は ${baseline.candidateTotal} 件` +
+      `（比 ${reachRatio(baseline.reachTotal, baseline.candidateTotal)}）である——` +
+      '現在の比との差は面の増減ではなく設計文書の記述量の増減で動く。'
   );
   console.log(
     `   いま免除している件数: ${reach.exemptedTotal} 件（基準 ${baseline.exemptedTotal} 件）。` +
@@ -723,9 +973,12 @@ function reportReach(reach: ExemptionReach, baseline: ReachBaseline, verbose: bo
   for (const document of reach.documents) {
     if (document.reached.length === 0) continue;
     console.log(
-      `   ${document.file}: 面 ${document.reached.length} 件 / 候補 ${document.candidates.length} 件` +
-        ` / 免除 ${document.exempted} 件`
+      `   ${document.file}: 面 ${document.reached.length} 件 / 実体 ${document.entities} 件` +
+        ` / 候補 ${document.candidates.length} 件 / 免除 ${document.exempted} 件`
     );
+    for (const entry of document.ambiguousBareNames) {
+      console.log(`     ! ${entry.name}: 同名の実在 ${entry.matches} 件（実体 1 件に畳んでいる）`);
+    }
     for (const reference of document.reached) console.log(`     - ${reference}`);
   }
 }
@@ -815,9 +1068,31 @@ export function execute(args: readonly string[], options: RunOptions = {}): numb
   const baseline = loadReachBaseline(baselinePath);
 
   if (update) {
+    // 実在検査に失格が出ているツリーでは基準を書き出さない（タスク 115.241）。
+    // 115.215 の形は findings が在っても 0 を返し、失格の赤を出したうえで
+    // 「✅ 基準を更新しました」と成功を報告していた。落ちているツリーで測った面を
+    // 基準へ焼き付ければ、次回以降その面が正当な現況として扱われる。
+    if (result.findings.length > 0) {
+      console.error('');
+      console.error('❌ 実在検査に失格がある状態では免除の面の基準を更新しません:');
+      console.error(`   失格 ${result.findings.length} 件（内訳は上の一覧）`);
+      console.error('   失格を解消してから更新してください。');
+      return 1;
+    }
     const updateComparison = compareReach(baseline, result.reach);
     // 面は「いま許している射程」であって「広げてよい」の記録ではない。
     // 増える方向の書き出しを無言で通せば、跳ねた面をその場で基準へ吸収して黙らせられる。
+    // 自己整合しない基準は差分を判定できない。基準が無い場合と同じ扱いにする——
+    // すなわち黙って上書きせず `--allow-increase` の明示を要求する（タスク 115.241）。
+    if (updateComparison.inconsistent && !allowIncrease) {
+      console.error('');
+      console.error(
+        '❌ 現在の基準が自己整合していないため、差分を判定できません（手作業での書き換えが疑われます）'
+      );
+      console.error('   内訳と総数を突き合わせるか、作り直す場合のみ次を実行します:');
+      console.error('     npm run check:design-path-refs:update -- --allow-increase');
+      return 1;
+    }
     if (updateComparison.regressions.length > 0 && !allowIncrease) {
       console.error('');
       console.error('❌ 面・免除が増える方向の基準更新は既定で拒否します:');
@@ -851,9 +1126,16 @@ export function execute(args: readonly string[], options: RunOptions = {}): numb
     console.error('');
     console.error('❌ 免除の面の基準の内訳と総数が一致しません（手作業での書き換えが疑われます）');
     console.error(`   documents の合計と reachTotal ${baseline.reachTotal}、`);
+    console.error(`   documents から導いた実体の数と entityTotal ${baseline.entityTotal}、`);
     console.error(
       `   または exempted の合計と exemptedTotal ${baseline.exemptedTotal} が食い違います`
     );
+    if (baseline.malformedDocuments.length > 0) {
+      console.error(
+        `   面の集合として読めない項目: ${baseline.malformedDocuments.join(', ')}` +
+          '（documents は文書ごとに参照トークンの配列を持ちます）'
+      );
+    }
     console.error('   `npm run check:design-path-refs:update` で書き出し直してください。');
     return 1;
   }
@@ -867,11 +1149,12 @@ export function execute(args: readonly string[], options: RunOptions = {}): numb
 
   if (comparison.regressions.length > 0) {
     console.error('');
-    console.error('❌ 免除機構の面、またはいま免除している件数が広がっています:');
+    console.error('❌ 免除機構の面に無かった参照が増えたか、いま免除している件数が広がっています:');
     for (const line of comparison.regressions) console.error(`   ${line}`);
     console.error('');
     console.error('   面が広がると、そのファイルが撤去されたときに文書内の全言及が');
-    console.error('   無言で免除されます（タスク 115.215）。次のいずれかで解消してください。');
+    console.error('   無言で免除されます（タスク 115.215）。件数が同じでも中身が入れ替われば');
+    console.error('   ここに現れます（タスク 115.241）。次のいずれかで解消してください。');
     console.error('     (a) 現存主張の行に不在の語（「削除」「撤去」など）が紛れていないか見直す');
     console.error('     (b) 広がりが妥当なら次で記録する:');
     console.error('         npm run check:design-path-refs:update -- --allow-increase');
