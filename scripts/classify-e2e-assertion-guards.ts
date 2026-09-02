@@ -56,7 +56,9 @@ import {
   guaranteedFailureExclusion,
   isSilentExit,
   predicateImplementationExclusion,
+  resolveUnanchoredAccessibleNames,
   scanFile,
+  type AccessibleNameRef,
   type Finding,
   type GuardType,
 } from './check-e2e-assertion-guards.js';
@@ -397,17 +399,23 @@ export function classify(finding: Finding, node: ts.Node): Classified {
 export function classifyAll(): { classified: Classified[]; gateTotal: number; total: number } {
   const files = collectE2eFiles();
   const classified: Classified[] = [];
+  const nameRefs: AccessibleNameRef[] = [];
   let total = 0;
   let gateTotal = 0;
   for (const file of files) {
     const result = scanFile(file);
     total += result.findings.length;
+    nameRefs.push(...result.accessibleNameRefs);
     result.findings.forEach((finding, index) => {
       if (!GATE_TYPES.includes(finding.type)) return;
       gateTotal += 1;
       classified.push(classify(finding, result.findingNodes[index]!));
     });
   }
+  // T13 は一ファイルでは決まらないため `scanFile` の戻り値には含まれない。
+  // 「検出件数（全型）」が本検査と食い違わないよう、ここで足す（Task 115.251）。
+  // 分類対象（T1 / T4 / T5）ではないため `gateTotal` には入れない。
+  total += resolveUnanchoredAccessibleNames(nameRefs).length;
   return { classified, gateTotal, total };
 }
 

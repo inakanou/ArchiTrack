@@ -469,7 +469,26 @@ test.describe('見積依頼機能', () => {
         .getByRole('link', { name: /新規作成/i });
       await expect(emptyStateNewButton).toBeVisible();
 
-      // しかしセクション右上の「新規作成」ボタンは非表示
+      // しかしセクション右上の「新規作成」ボタンは非表示。
+      // この主張は**一致が零件でも真になる**。名前が実在することの錨は本区間には無く、
+      // 同名を `exact: true` の `toBeVisible()` で指す肯定側——本ファイルの
+      // 「見積依頼が存在する場合」の区間——に置いてある（タスク 115.251）。
+      //
+      // 実行した変異と出力（2026-09-03 に実測。frontend は test 環境で再ビルドし、復元後の
+      // 配信バンドルが `assets/index-D5RUevcK.js` へ戻ることを `sha256sum` で照合した）:
+      //   - M1 `aria-label` の値を `見積依頼をあたらしく作成` へ変える変異を当てても
+      //     **本区間は緑のまま**である（本区間を含む 7 件は 6 passed / 1 failed で、
+      //     落ちたのは肯定側だけであった）。
+      //   - M2 `aria-label` の行そのものを消す変異を当てても、同じく**本区間は緑のまま**である。
+      //   つまり本区間の緑は「右上のボタンが出ていないこと」を保証しない。保証しているのは
+      //   肯定側の完全一致であり、**それが緩められると本区間は静かに空振りへ変わる**。
+      //   - M3 肯定側の locator を `{ name: /新規作成/i }` へ戻す変異を当てると
+      //     `npm run check:e2e-guards` が赤になる（EXIT=1。本区間を `0 → 1` 件として
+      //     名指しする。2026-09-03 に実測）。
+      //   詳細な出力と実行したコマンドは肯定側の区間の注記に置いた。
+      //
+      // 他の区間を表題で引かないのは、表題の末尾の被覆印を散文へ綴ると
+      // `scripts/scan-coverage-mark-correspondence.ts` が拾って帳簿を水増しするためである。
       const headerNewButton = section.getByRole('link', {
         name: '見積依頼を新規作成',
         exact: true,
@@ -759,8 +778,60 @@ test.describe('見積依頼機能', () => {
       const section = page.getByTestId('estimate-request-section');
       await expect(section).toBeVisible({ timeout: getTimeout(10000) });
 
-      // セクションヘッダー内に「新規作成」リンクが表示される
-      const headerNewButton = section.getByRole('link', { name: /新規作成/i });
+      // セクションヘッダー内に「新規作成」リンクが表示される。
+      //
+      // タスク 115.251 の是正: 従前は `{ name: /新規作成/i }` の部分一致で locate していた。
+      // 部分一致は表示文言「新規作成」だけで成立するため、右上のボタンだけが持つ
+      // アクセシブル名（`EstimateRequestSectionCard.tsx` の `aria-label="見積依頼を新規作成"`）を
+      // 別の綴りへ変えても、また消しても、本区間は緑のまま通っていた。
+      // 一方、同じ名前を `not.toBeVisible()` で指す否定側は二件ある。本ファイルの
+      // 「見積依頼がない場合」の区間と、`e2e/specs/projects/project-detail-sections.spec.ts` の
+      // 「見積依頼が存在しない場合」の区間である。どちらも**一致が零件でも真になる**形であり、
+      // `aria-label` を変えれば両方が空振りで緑になる。つまり改名は E2E の誰にも検出されず、
+      // 115.220 が塞いだ穴が静かに再び開く。
+      //
+      // 実行した変異と出力（いずれも 2026-09-03 に実測。frontend は test 環境で再ビルドし、
+      // 変異前と復元後の配信バンドルが `assets/index-D5RUevcK.js`（sha256 e4b9948…）で
+      // 一致することを `sha256sum` で照合した）:
+      //   - M1 `aria-label` の値を `見積依頼をあたらしく作成` へ変える変異
+      //     （配信 `assets/index-B7raFDWN.js`）を当てると本区間は赤になる（7 件が
+      //     6 passed / 1 failed になり、落ちるのは本区間だけである）。
+      //   - M2 `aria-label` の行そのものを消す変異（配信 `assets/index-YHhOgCER.js`）を
+      //     当てても同じで、6 passed / 1 failed になり本区間だけが赤になる。
+      //   - **否定側の二件は M1 でも M2 でも緑のまま**であり、`aria-label` を変えても
+      //     消しても検出されない。
+      //   - 変異前と復元後はいずれも 7 passed / 0 failed である。
+      //   実行したコマンドは次の二つ（後者は否定側の一件を単独で回したもので、いずれの変異でも
+      //   1 passed / 0 failed であった）。
+      //     npm run test:e2e -- e2e/specs/estimate-requests/estimate-request-e2e.spec.ts \
+      //       -g "準備|REQ-1\.5:|REQ-3\.6:|REQ-1\.6:"
+      //     npm run test:e2e -- e2e/specs/projects/project-detail-sections.spec.ts \
+      //       -g "見積依頼が存在しない場合、セクション右上"
+      //
+      // 本区間はアクセシブル名を `exact: true` で完全一致に固定し、改名・削除を
+      // **肯定側の失敗**として表面化させる。否定側二件が依存する名前の錨はここに在る。
+      // 本区間が名乗る受入基準（`.kiro/specs/project-management/requirements.md` の
+      // 要件27 の受入基準6）が求める「セクション右上の『新規作成』ボタン」はこの名前を持つ
+      // 要素そのものであり、完全一致で指すことは条文の観測を狭めない。
+      //
+      // **肯定側の完全一致を緩めると否定側二件は静かに空振りへ変わる。** この関係は散文では
+      // なく機械が拘束する。`npm run check:e2e-guards` の `T13-unanchored-accessible-name` が
+      // 「零件で真になる主張が指すアクセシブル名は、同名を肯定側から指す箇所を e2e 内に
+      // 持たねばならない」を検査する。
+      //   - M3 本区間の locator を是正前の `{ name: /新規作成/i }` へ戻す変異を当てると
+      //     `npm run check:e2e-guards` が赤になる（EXIT=1。否定側の二ファイルを `0 → 1` 件と
+      //     して名指しする。2026-09-03 に実測。変異前と復元後はいずれも EXIT=0 である）。
+      //   走査そのものは `npx tsx scripts/check-e2e-assertion-guards.ts --accessible-names` が
+      //   印字する（走査根・母集団・比較できなかった名前の内訳・未錨の一覧）。
+      //
+      // 注: 上で他の区間を指すときに表題を逐語で引かないのは、表題の末尾の被覆印を散文へ
+      // 綴ると `scripts/scan-coverage-mark-correspondence.ts` が本区間を当該受入基準の
+      // 被覆印として拾い、帳簿を水増しするためである（`scripts/coverage-mark-adjudication.md`
+      // §4.5 が「散文の言及」として挙げる形）。同じ理由で受入基準は原典の節番号表記で述べる。
+      const headerNewButton = section.getByRole('link', {
+        name: '見積依頼を新規作成',
+        exact: true,
+      });
       await expect(headerNewButton).toBeVisible();
 
       // 「すべて見る」リンクが表示される

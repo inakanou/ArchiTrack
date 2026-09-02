@@ -2845,6 +2845,313 @@ const SWEPT_BRANCHES: Case[] = [
 //   先行が保証 × 後続が否定 → 必ず失敗（恒偽。数えない。115.182-6 が固定）
 // ============================================================================
 
+// ============================================================================
+// 115.251: 零件で真になる主張が指すアクセシブル名の錨（T13）
+//
+// T13 は**一ファイルでは決まらない**。錨は別ファイルに在ってよいため、対照は
+// 「走査に載せるファイル群」で与え、検査本体（run）をそのまま呼んで確かめる。
+//
+// 極性は綴りではなく要素の属性 `polarity` に持たせる（Task 115.247 の作法）。
+//   detect … T13 が検出されなければならない書き方
+//   silent … T13 が検出されてはならない書き方
+// ============================================================================
+
+interface NameAnchorControl {
+  /** 何を固定するか */
+  name: string;
+  /** 極性。綴りに依存させない */
+  polarity: 'detect' | 'silent';
+  /** 走査に載せるファイル（ファイル名 → 中身）。二つ以上置けば跨ファイルの解決を確かめられる */
+  files: Record<string, string>;
+  /** detect のとき、検出が現れなければならないファイル名 */
+  expectedIn?: string;
+}
+
+const NAME_ANCHOR_CONTROLS: NameAnchorControl[] = [
+  {
+    name: '115.251-1 錨の無い not.toBeVisible を検出する',
+    polarity: 'detect',
+    expectedIn: 'a.spec.ts',
+    files: {
+      'a.spec.ts': [
+        "test('absent', async ({ page }) => {",
+        "  await expect(page.getByRole('link', { name: '上へ戻る' })).not.toBeVisible();",
+        '});',
+      ].join('\n'),
+    },
+  },
+  {
+    name: '115.251-2 錨の無い toHaveCount(0) を検出する',
+    polarity: 'detect',
+    expectedIn: 'a.spec.ts',
+    files: {
+      'a.spec.ts': [
+        "test('absent', async ({ page }) => {",
+        "  await expect(page.getByRole('button', { name: '上へ戻る' })).toHaveCount(0);",
+        '});',
+      ].join('\n'),
+    },
+  },
+  {
+    name: '115.251-3 錨の無い toBeHidden を検出する',
+    polarity: 'detect',
+    expectedIn: 'a.spec.ts',
+    files: {
+      'a.spec.ts': [
+        "test('absent', async ({ page }) => {",
+        "  await expect(page.getByRole('button', { name: '上へ戻る' })).toBeHidden();",
+        '});',
+      ].join('\n'),
+    },
+  },
+  {
+    name: '115.251-4 錨の無い not.toBeAttached を検出する',
+    polarity: 'detect',
+    expectedIn: 'a.spec.ts',
+    files: {
+      'a.spec.ts': [
+        "test('absent', async ({ page }) => {",
+        "  await expect(page.getByRole('button', { name: '上へ戻る' })).not.toBeAttached();",
+        '});',
+      ].join('\n'),
+    },
+  },
+  {
+    name: '115.251-5 局所変数を経由して指す形も検出する',
+    polarity: 'detect',
+    expectedIn: 'a.spec.ts',
+    files: {
+      'a.spec.ts': [
+        "test('absent', async ({ page }) => {",
+        "  const button = page.getByRole('button', { name: '上へ戻る', exact: true });",
+        '  await expect(button).not.toBeVisible();',
+        '});',
+      ].join('\n'),
+    },
+  },
+  {
+    name: '115.251-6 getByLabel で指す形も検出する',
+    polarity: 'detect',
+    expectedIn: 'a.spec.ts',
+    files: {
+      'a.spec.ts': [
+        "test('absent', async ({ page }) => {",
+        "  await expect(page.getByLabel('上へ戻る')).not.toBeVisible();",
+        '});',
+      ].join('\n'),
+    },
+  },
+  {
+    // 本タスクの主題そのもの。別ファイルの肯定側が完全一致から正規表現へ緩められると、
+    // 否定側は一行も変わっていないのに錨を失う。
+    name: '115.251-7 別ファイルの肯定側が正規表現へ緩むと否定側が錨を失う',
+    polarity: 'detect',
+    expectedIn: 'b.spec.ts',
+    files: {
+      'a.spec.ts': [
+        "test('present', async ({ page }) => {",
+        "  await expect(page.getByRole('link', { name: /戻る/i })).toBeVisible();",
+        '});',
+      ].join('\n'),
+      'b.spec.ts': [
+        "test('absent', async ({ page }) => {",
+        "  await expect(page.getByRole('link', { name: '上へ戻る' })).not.toBeVisible();",
+        '});',
+      ].join('\n'),
+    },
+  },
+  {
+    // 一次実装の誤りをそのまま固定する。同じ綴りの局所変数を同名で畳むと、
+    // 肯定側の使用が否定側の宣言へ解決され、緩める変異を当てても錨が消えない。
+    name: '115.251-8 同名の局所変数を有効範囲ごとに分けて解決する',
+    polarity: 'detect',
+    expectedIn: 'a.spec.ts',
+    files: {
+      'a.spec.ts': [
+        "test('absent', async ({ page }) => {",
+        "  const button = page.getByRole('link', { name: '上へ戻る', exact: true });",
+        '  await expect(button).not.toBeVisible();',
+        '});',
+        '',
+        "test('present', async ({ page }) => {",
+        "  const button = page.getByRole('link', { name: /戻る/i });",
+        '  await expect(button).toBeVisible();',
+        '});',
+      ].join('\n'),
+    },
+  },
+  {
+    name: '115.251-9 同じファイルに完全一致の肯定側が在れば検出しない',
+    polarity: 'silent',
+    files: {
+      'a.spec.ts': [
+        "test('present', async ({ page }) => {",
+        "  await expect(page.getByRole('link', { name: '上へ戻る' })).toBeVisible();",
+        '});',
+        '',
+        "test('absent', async ({ page }) => {",
+        "  await expect(page.getByRole('link', { name: '上へ戻る' })).not.toBeVisible();",
+        '});',
+      ].join('\n'),
+    },
+  },
+  {
+    name: '115.251-10 錨が別ファイルに在っても検出しない（判定は一ファイルで閉じない）',
+    polarity: 'silent',
+    files: {
+      'a.spec.ts': [
+        "test('present', async ({ page }) => {",
+        "  await expect(page.getByRole('link', { name: '上へ戻る' })).toBeVisible();",
+        '});',
+      ].join('\n'),
+      'b.spec.ts': [
+        "test('absent', async ({ page }) => {",
+        "  await expect(page.getByRole('link', { name: '上へ戻る' })).not.toBeVisible();",
+        '});',
+      ].join('\n'),
+    },
+  },
+  {
+    name: '115.251-11 同じ locator を肯定と否定の双方で使う形は錨が在る',
+    polarity: 'silent',
+    files: {
+      'a.spec.ts': [
+        "test('appears then disappears', async ({ page }) => {",
+        "  const row = page.getByRole('link', { name: '上へ戻る' });",
+        '  await expect(row).toBeVisible();',
+        "  await page.getByRole('button', { name: '削除' }).click();",
+        '  await expect(row).not.toBeVisible();',
+        '});',
+      ].join('\n'),
+    },
+  },
+  {
+    name: '115.251-12 操作で指している箇所も錨に数える',
+    polarity: 'silent',
+    files: {
+      'a.spec.ts': [
+        "test('acts then disappears', async ({ page }) => {",
+        "  await page.getByRole('button', { name: '上へ戻る' }).click();",
+        "  await expect(page.getByRole('button', { name: '上へ戻る' })).not.toBeVisible();",
+        '});',
+      ].join('\n'),
+    },
+  },
+  {
+    name: '115.251-13 名前を正規表現で書いた否定側は判定の対象にしない',
+    polarity: 'silent',
+    files: {
+      'a.spec.ts': [
+        "test('absent', async ({ page }) => {",
+        "  await expect(page.getByRole('link', { name: /上へ戻る/i })).not.toBeVisible();",
+        '});',
+      ].join('\n'),
+    },
+  },
+  {
+    name: '115.251-14 零件では真にならない主張は否定側に数えない',
+    polarity: 'silent',
+    files: {
+      'a.spec.ts': [
+        "test('counts', async ({ page }) => {",
+        "  await expect(page.getByRole('link', { name: '上へ戻る' })).toHaveCount(2);",
+        '});',
+      ].join('\n'),
+    },
+  },
+];
+
+/** 対照の走査場所を作る。ファイル群を書き出し、その絶対パスを返す */
+function writeSandboxFiles(dir: string, files: Record<string, string>): string[] {
+  const paths: string[] = [];
+  for (const [name, source] of Object.entries(files)) {
+    const target = path.join(dir, name);
+    fs.writeFileSync(target, `${source}\n`, 'utf8');
+    paths.push(target);
+  }
+  return paths.sort();
+}
+
+function runNameAnchorControl(control: NameAnchorControl): string[] {
+  return withSandbox((dir) => {
+    const failures: string[] = [];
+    const specPaths = writeSandboxFiles(dir, control.files);
+    const { output } = runCheck(['--json'], { collectFiles: () => specPaths });
+    let parsed: { findings: Array<{ file: string; type: GuardType }> };
+    try {
+      parsed = JSON.parse(output) as typeof parsed;
+    } catch {
+      failures.push(`検査の出力を解釈できない: ${output.slice(0, 200)}`);
+      return failures;
+    }
+    const hits = parsed.findings.filter((f) => f.type === 'T13-unanchored-accessible-name');
+    if (control.polarity === 'detect') {
+      if (hits.length === 0) {
+        failures.push('T13 が検出されていない');
+        return failures;
+      }
+      const expected = control.expectedIn;
+      if (expected && !hits.some((f) => f.file.endsWith(expected))) {
+        failures.push(
+          `検出はあるが期待した所在ではない: ${hits.map((f) => f.file).join(', ')}（期待 ${expected}）`
+        );
+      }
+    } else if (hits.length > 0) {
+      failures.push(`T13 が検出されている（過検出）: ${hits.map((f) => f.file).join(', ')}`);
+    }
+    return failures;
+  });
+}
+
+const UNANCHORED_ACCESSIBLE_NAME: Case[] = NAME_ANCHOR_CONTROLS.map((control) => ({
+  name: control.name,
+  source: '',
+  expected: [],
+  custom: (): string[] => runNameAnchorControl(control),
+}));
+
+/**
+ * 対照群そのものが在ることの関門（Task 115.247 の作法）。
+ *
+ * **対照群の配列の外側に置く。** 配列の要素として持つと、配列を空にする変異で
+ * 関門ごと消え、`0/0 件の確認に成功しました` で緑になる（AI運用7原則 第3原則違反）。
+ * 群の非空・総数の下限・極性の両立を確かめる。極性は要素の属性で判定し、
+ * 名前の綴りには依存させない。
+ *
+ * 実行した変異と出力（いずれも 2026-09-03 に実測。変異は退避した控えからの書き戻しで復元し、
+ * `sha256sum -c` で照合した）:
+ *   - `NAME_ANCHOR_CONTROLS` を空の配列へ置き換える変異 … EXIT=1。
+ *     下限 3 件（総数・陽性・陰性）がすべて 0 件として報告された。
+ *   - 対照 14 件の `polarity` をすべて `'detect'` へ替える変異（陰性対照を消す）… EXIT=1。
+ *     「T13 の陰性対照が下限を下回っている: 0 件（下限 4 件）」の 1 件のみが報告された。
+ */
+function nameAnchorControlsArePresent(): string[] {
+  const failures: string[] = [];
+  const detect = NAME_ANCHOR_CONTROLS.filter((c) => c.polarity === 'detect');
+  const silent = NAME_ANCHOR_CONTROLS.filter((c) => c.polarity === 'silent');
+  if (NAME_ANCHOR_CONTROLS.length < 10) {
+    failures.push(
+      `T13 の対照群が下限を下回っている: ${NAME_ANCHOR_CONTROLS.length} 件（下限 10 件）`
+    );
+  }
+  if (detect.length < 4) {
+    failures.push(`T13 の陽性対照が下限を下回っている: ${detect.length} 件（下限 4 件）`);
+  }
+  if (silent.length < 4) {
+    failures.push(`T13 の陰性対照が下限を下回っている: ${silent.length} 件（下限 4 件）`);
+  }
+  if (UNANCHORED_ACCESSIBLE_NAME.length !== NAME_ANCHOR_CONTROLS.length) {
+    failures.push('T13 の対照群と実行する一覧の件数が食い違っている');
+  }
+  // 対照が「走査に載せるファイル」を一つも持たないと、検査は何も読まずに緑になる。
+  for (const control of NAME_ANCHOR_CONTROLS) {
+    if (Object.keys(control.files).length === 0) {
+      failures.push(`T13 の対照がファイルを一つも持たない: ${control.name}`);
+    }
+  }
+  return failures;
+}
+
 const IMPLIED_PRESENCE: Case[] = [
   {
     // 課題文が名指しした形そのもの。先行の正規表現に一致した文字列は必ず `円` で終わる
@@ -3265,7 +3572,19 @@ function main(): void {
       title: '115.182 先行が needle の存在を保証する肯定の後続',
       cases: IMPLIED_PRESENCE,
     },
+    {
+      title: '115.251 零件で真になる主張が指すアクセシブル名の錨',
+      cases: UNANCHORED_ACCESSIBLE_NAME,
+    },
   ];
+
+  // 対照群の配列の外側に置く関門。実行より前に、群そのものが在ることを確かめる。
+  const controlFailures = nameAnchorControlsArePresent();
+  if (controlFailures.length > 0) {
+    console.log('❌ T13 の対照群が要件を満たしていません:');
+    for (const failure of controlFailures) console.log(`   - ${failure}`);
+    process.exit(1);
+  }
 
   console.log('🔍 検証無効化の検出規則 自己検査 (scripts/check-e2e-assertion-guards.selftest.ts)');
   let failed = 0;

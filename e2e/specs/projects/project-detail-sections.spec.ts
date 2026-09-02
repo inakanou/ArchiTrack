@@ -490,7 +490,34 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
       });
       await expect(emptyStateCreateLink).toBeVisible({ timeout: getTimeout(5000) });
 
-      // セクション右上の「新規作成」ボタンが非表示であることを確認
+      // セクション右上の「新規作成」ボタンが非表示であることを確認。
+      // この主張は**一致が零件でも真になる**。名前が実在することの錨は本ファイルには無く、
+      // `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` の
+      // 「見積依頼が存在する場合」の区間が同名を `exact: true` の `toBeVisible()` で
+      // 指している（タスク 115.251）。
+      //
+      // 実行した変異と出力（2026-09-03 に実測。frontend は test 環境で再ビルドし、復元後の
+      // 配信バンドルが `assets/index-D5RUevcK.js` へ戻ることを `sha256sum` で照合した）:
+      //   - M1 `aria-label` の値を `見積依頼をあたらしく作成` へ変える変異を当てても、本区間を
+      //     単独で回すと **1 passed / 0 failed で緑のまま**である（落ちたのは別ファイルの
+      //     肯定側だけであった）。
+      //   - M2 `aria-label` の行そのものを消す変異を当てても、同じく **1 passed / 0 failed で
+      //     緑のまま**である。
+      //   実行したコマンドは
+      //   `npm run test:e2e -- e2e/specs/projects/project-detail-sections.spec.ts -g "見積依頼が存在しない場合、セクション右上"`。
+      //
+      // **このファイルだけを回しても改名は見えない。** したがって本区間の錨は散文ではなく
+      // 機械で拘束する。`npm run check:e2e-guards` の `T13-unanchored-accessible-name` が
+      // 「零件で真になる主張が指すアクセシブル名は、同名を肯定側から指す箇所を e2e 内に
+      // 持たねばならない」を検査する。
+      //   - M3 別ファイルの肯定側の locator を是正前の `{ name: /新規作成/i }` へ戻す変異を
+      //     当てると `npm run check:e2e-guards` が赤になる（EXIT=1。**本ファイルを `0 → 1` 件と
+      //     して名指しする**。2026-09-03 に実測。変異前と復元後はいずれも EXIT=0 である）。
+      //   走査そのものは `npx tsx scripts/check-e2e-assertion-guards.ts --accessible-names` が
+      //   印字する（走査根・母集団・比較できなかった名前の内訳・未錨の一覧）。
+      //
+      // 他の区間を表題で引かないのは、表題の末尾の被覆印を散文へ綴ると
+      // `scripts/scan-coverage-mark-correspondence.ts` が拾って帳簿を水増しするためである。
       const headerCreateButton = erSection.getByRole('link', {
         name: '見積依頼を新規作成',
         exact: true,

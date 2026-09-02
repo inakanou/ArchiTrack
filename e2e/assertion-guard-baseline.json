@@ -9,12 +9,12 @@
     "reduction は削減の目標と計画文書の所在。実行のたびに残り件数を出力する（合否には用いない）。",
     "件数が増える方向の更新は既定で拒否する。記録が必要な場合のみ --allow-increase を付けること。"
   ],
-  "generatedTotal": 0,
+  "generatedTotal": 2,
   "allowedTotal": 0,
   "reduction": {
     "doc": ".kiro/specs/site-survey/e2e-assertion-guard-reduction-plan.md",
     "$comment": "目標は計画の「段」ごとに進める。合否には用いず、残り件数の出力にのみ用いる（Task 115.93）。",
-    "stage": "段 7 完了: F 群（復旧・再試行の分岐）122 件・G 群（全域分岐）42 件・D2（沈黙脱出）1 件を 0 にした。generatedTotal 191 → 0、e2e-guard-allow 0（リポジトリ全体で 1 件も残っていない）。以後は「新規の検証無効化を 0 件で維持する」段階であり、件数が増える方向の更新は既定で拒否される",
+    "stage": "段 7 完了: F 群（復旧・再試行の分岐）122 件・G 群（全域分岐）42 件・D2（沈黙脱出）1 件を 0 にした。generatedTotal 191 → 0、e2e-guard-allow 0（リポジトリ全体で 1 件も残っていない）。以後は「新規の検証無効化を 0 件で維持する」段階であり、件数が増える方向の更新は既定で拒否される。Task 115.251 が第十三の型 T13-unanchored-accessible-name を足したため、**検出器の追加によって露出した既存の欠陥 2 件**を明示の増加として登録している（是正は当該スペックの所管。§8 を参照）",
     "targets": {
       "T1-conditional-expect": 0,
       "T2-ignored-timeout": 0,
@@ -27,7 +27,8 @@
       "T9-discarded-predicate-result": 0,
       "T10-settled-type-assertion": 0,
       "T11-empty-population-absence": 0,
-      "T12-implied-successor": 0
+      "T12-implied-successor": 0,
+      "T13-unanchored-accessible-name": 0
     },
     "allowedTarget": 0,
     "$change": [
@@ -54,9 +55,25 @@
       "自己検査は両方向へ 7 件（115.180-1〜7）を登録し、拡張を撤去する変異と広げる向きの変異 5 種が",
       "それぞれ別の事例を落とすことを実測した。push / unshift の両方を個別に固定しており、",
       "積み足しの操作から unshift だけを外す変異では 115.180-7 のみが、push だけを外す変異では 115.180-1 のみが落ちる（130 件中 1 件、実測）。",
-      "積み足しの追跡は識別子の受け手に限るため、項目参照で積む形・添字で積む形・Set/Map で積む形は見逃す。"
+      "積み足しの追跡は識別子の受け手に限るため、項目参照で積む形・添字で積む形・Set/Map で積む形は見逃す。",
+      "Task 115.251: 第十三の型 T13-unanchored-accessible-name（零件で真になる主張が指すアクセシブル名に錨が無い形）を検出規則へ加えた。",
+      "generatedTotal 0 → 2。**増加はすべて検出器の追加によって露出した既存の欠陥であり、E2E スペックは一行も変更していない**",
+      "（本タスクの差分は e2e/specs/estimate-requests/estimate-request-e2e.spec.ts と",
+      "e2e/specs/projects/project-detail-sections.spec.ts の注記および肯定側 locator の完全一致化のみで、いずれも T13 を増やさない）。",
+      "露出した 2 件はどちらも本タスクの境界外であり、境界外のものを同じタスクで直さない規律に従って手を触れていない。所在と限界は計画文書の §8 に記した。",
+      "T13 は**一ファイルでは決まらない**。錨は別ファイルに在ってよいため、scanSource は参照だけを返し、",
+      "全ファイルを集め終えた resolveUnanchoredAccessibleNames が検出へ変換する。",
+      "走査そのものは `npx tsx scripts/check-e2e-assertion-guards.ts --accessible-names` が印字する（走査根・母集団・除外の内訳・未錨の一覧）。",
+      "自己検査は 182 → 196 件。陽性 8・陰性 6 の対照を置き、対照群を空にする変異・片方の極性を消す変異のいずれでも EXIT=1 になることを実測した。"
     ]
   },
   "allowedFiles": {},
-  "files": {}
+  "files": {
+    "e2e/specs/estimate/estimate-hierarchy-keyboard-e2e.spec.ts": {
+      "T13-unanchored-accessible-name": 1
+    },
+    "e2e/specs/schedules/construction-schedule-e2e.spec.ts": {
+      "T13-unanchored-accessible-name": 1
+    }
+  }
 }

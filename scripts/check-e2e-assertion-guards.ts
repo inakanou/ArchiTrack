@@ -91,6 +91,23 @@
  *                           （排除×肯定・保証×否定）は必ず**失敗する**恒偽の主張であり、
  *                           飾りではない別種の欠陥であるため数えない
  *
+ *   T13 unanchored-accessible-name  零件で真になる主張が、どこにも錨の無いアクセシブル名を指す
+ *                           `await expect(page.getByRole('link', { name: 'X' })).not.toBeVisible()`
+ *                           のように、**一致が零件でも真になる**主張（`not.toBeVisible` /
+ *                           `not.toBeAttached` / `not.toBeInViewport` / `toBeHidden` /
+ *                           `toHaveCount(0)`）が指すアクセシブル名 `X` について、
+ *                           **同じ名前を肯定側から指す箇所が e2e 全体に一つも無い**形。
+ *                           この形では画面側で `X` が改名・削除されても主張は緑のまま通り、
+ *                           「非表示である」という主張が「そもそも観測できていない」へ
+ *                           静かに変質する。T8 が単一の空値について述べた
+ *                           「不在の主張は、対象が存在することを別に確かめない限り
+ *                           何も主張していない」を、**アクセシブル名という別ファイルにも
+ *                           跨がる名前空間**へ広げたものに当たる（Task 115.251）。
+ *                           **判定は一ファイルでは閉じない。** 錨は別のファイルに在ってよく、
+ *                           走査した全ファイルの参照を集め終えてから決まる。したがって
+ *                           `scanSource` は参照（`accessibleNameRefs`）だけを返し、
+ *                           検出そのものは `resolveUnanchoredAccessibleNames` が行う
+ *
  * 分類の優先順位: T3 > T4 > T5 > T1（T2 と T6 と T7 と T8 と T9 と T10 と T11 と T12 は別軸のため重複して計上する）
  *
  * 検証を包む形（T1 / T4 / T5 の入口）:
@@ -700,7 +717,8 @@ export type GuardType =
   | 'T9-discarded-predicate-result'
   | 'T10-settled-type-assertion'
   | 'T11-empty-population-absence'
-  | 'T12-implied-successor';
+  | 'T12-implied-successor'
+  | 'T13-unanchored-accessible-name';
 
 export interface Finding {
   file: string;
@@ -717,6 +735,32 @@ interface AllowEntry {
   snippet: string;
 }
 
+/**
+ * アクセシブル名の参照（T13 の材料）。
+ *
+ * `polarity` は綴りではなく**要素の属性**で持つ（Task 115.247 の作法）。
+ * `vacuous` は「一致が零件でも真になる主張から指した」参照、`anchor` は
+ * 「零件では真にならない位置から指した」参照である。
+ */
+export interface AccessibleNameRef {
+  /** 走査根からの相対パス */
+  file: string;
+  /** 参照の行（`vacuous` は主張の行、`anchor` は locator の行） */
+  line: number;
+  /** アクセシブル名（文字列リテラルとして書かれたものだけを持つ） */
+  name: string;
+  polarity: 'vacuous' | 'anchor';
+  snippet: string;
+}
+
+/** アクセシブル名の走査で比較の対象にできなかった書き方の内訳（限界の開示に用いる） */
+export interface AccessibleNameSkips {
+  /** 正規表現で与えた名前（文字列として比較できない） */
+  regex: number;
+  /** 変数・テンプレート・呼び出しなどで組み立てた名前 */
+  dynamic: number;
+}
+
 export interface ScanResult {
   findings: Finding[];
   allowed: AllowEntry[];
@@ -730,6 +774,16 @@ export interface ScanResult {
    * JSON 出力には含めない（節点は直列化できないため）。
    */
   findingNodes: ts.Node[];
+  /**
+   * アクセシブル名の参照（T13 の材料。検出はここでは行わない）。
+   *
+   * T13 は「同名の錨が **e2e 全体に** 一つも無い」ことを条件とするため、
+   * 一ファイルの走査だけでは決まらない。全ファイルの参照を集めたうえで
+   * `resolveUnanchoredAccessibleNames` が検出へ変換する。
+   */
+  accessibleNameRefs: AccessibleNameRef[];
+  /** 比較の対象にできなかった名前の内訳（限界の開示） */
+  accessibleNameSkips: AccessibleNameSkips;
 }
 
 type Baseline = Record<string, Partial<Record<GuardType, number>>>;
@@ -762,6 +816,7 @@ const GUARD_TYPES: GuardType[] = [
   'T10-settled-type-assertion',
   'T11-empty-population-absence',
   'T12-implied-successor',
+  'T13-unanchored-accessible-name',
 ];
 
 /**
@@ -2323,6 +2378,294 @@ export function collectE2eFiles(): string[] {
   return files.sort();
 }
 
+// ============================================================================
+// T13: 零件で真になる主張が指すアクセシブル名（Task 115.251）
+// ============================================================================
+
+/**
+ * アクセシブル名を**オプションの `name`** で受け取る locator。
+ *
+ * 軸は `aria-label` の綴りではなく**アクセシブル名**である。名前の出どころが
+ * `aria-label` であれ表示文言であれ、Playwright はここへ同じ文字列で現れる。
+ * `aria-label` のリテラルを軸に取ると、表示文言に由来する名前を構造的に取りこぼす。
+ */
+const ACCESSIBLE_NAME_OPTION_QUERIES = new Set(['getByRole']);
+
+/** アクセシブル名を**第一引数**で受け取る locator */
+const ACCESSIBLE_NAME_ARGUMENT_QUERIES = new Set([
+  'getByLabel',
+  'getByAltText',
+  'getByTitle',
+  'getByPlaceholder',
+]);
+
+/** 否定を伴うと一致が零件でも真になる matcher */
+const VACUOUS_WHEN_NEGATED_MATCHERS = new Set(['toBeVisible', 'toBeAttached', 'toBeInViewport']);
+
+/** 否定を伴わずに一致が零件でも真になる matcher */
+const VACUOUS_WHEN_PLAIN_MATCHERS = new Set(['toBeHidden']);
+
+/** 局所変数を辿る深さの上限（T13 の解決） */
+const NAME_RESOLVE_DEPTH_LIMIT = 4;
+
+/** `expect(...)` の matcher 呼び出しから、主題・否定・matcher 名を取り出す */
+interface MatcherCall {
+  subject: ts.Expression;
+  matcher: string;
+  negated: boolean;
+  argumentIsZero: boolean;
+}
+
+function asMatcherCall(node: ts.Node): MatcherCall | undefined {
+  if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression))
+    return undefined;
+  const matcher = node.expression.name.text;
+  let base: ts.Expression = node.expression.expression;
+  const modifiers: string[] = [];
+  while (ts.isPropertyAccessExpression(base)) {
+    modifiers.push(base.name.text);
+    base = base.expression;
+  }
+  const callee = ts.isCallExpression(base) ? base.expression : undefined;
+  const isExpect =
+    (callee !== undefined && ts.isIdentifier(callee) && callee.text === 'expect') ||
+    (callee !== undefined &&
+      ts.isPropertyAccessExpression(callee) &&
+      ts.isIdentifier(callee.expression) &&
+      callee.expression.text === 'expect');
+  if (!isExpect || !ts.isCallExpression(base)) return undefined;
+  const subject = base.arguments[0];
+  if (!subject) return undefined;
+  const first = node.arguments[0];
+  return {
+    subject,
+    matcher,
+    negated: modifiers.includes('not'),
+    argumentIsZero: first !== undefined && ts.isNumericLiteral(first) && first.text === '0',
+  };
+}
+
+function matcherIsVacuousWhenEmpty(call: MatcherCall): boolean {
+  if (call.negated) return VACUOUS_WHEN_NEGATED_MATCHERS.has(call.matcher);
+  if (VACUOUS_WHEN_PLAIN_MATCHERS.has(call.matcher)) return true;
+  return call.matcher === 'toHaveCount' && call.argumentIsZero;
+}
+
+/** 文字列リテラルとして書かれたアクセシブル名を取り出す（正規表現・組み立ては取り出さない） */
+function literalAccessibleName(node: ts.Expression): string | undefined {
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+  return undefined;
+}
+
+/**
+ * アクセシブル名の参照を集める。
+ *
+ * **一ファイルでは検出まで到達しない。** ここが返すのは参照だけであり、
+ * 「錨が一つも無い」の判定は全ファイルを集め終えた
+ * `resolveUnanchoredAccessibleNames` が行う。
+ */
+export function collectAccessibleNameRefs(
+  relPath: string,
+  sourceFile: ts.SourceFile
+): { refs: AccessibleNameRef[]; skips: AccessibleNameSkips } {
+  const skips: AccessibleNameSkips = { regex: 0, dynamic: 0 };
+  const lineOf = (node: ts.Node): number =>
+    sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+  const snippetOf = (node: ts.Node): string =>
+    node.getText(sourceFile).split('\n')[0]!.trim().slice(0, 110);
+
+  // 宣言の初期化子。**同名を併合してはならない。**
+  //
+  // E2E の spec は同じファイルの別の `test(...)` で同じ綴りの locator を宣言する
+  // （`const headerNewButton = …` が肯定側の区間と否定側の区間の双方に在る）。
+  // 同名を一つに畳むと、否定側の宣言が肯定側の使用の解決先になり、
+  // **肯定側を緩める変異を当てても錨が消えない**（Task 115.251 の一次実装で実測した誤り）。
+  // 使用位置を含む有効範囲のうち、使用より前に在る最も近い宣言を選ぶ。
+  interface LocalDeclaration {
+    declaration: ts.VariableDeclaration;
+    initializer: ts.Expression;
+    start: number;
+    scopeStart: number;
+    scopeEnd: number;
+  }
+  const enclosingScope = (node: ts.Node): ts.Node => {
+    let current: ts.Node | undefined = node.parent;
+    while (current) {
+      if (ts.isBlock(current) || ts.isSourceFile(current) || ts.isCaseBlock(current))
+        return current;
+      current = current.parent;
+    }
+    return sourceFile;
+  };
+  const declarationsByName = new Map<string, LocalDeclaration[]>();
+  const collectInitializers = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      const scope = enclosingScope(node);
+      const list = declarationsByName.get(node.name.text) ?? [];
+      list.push({
+        declaration: node,
+        initializer: node.initializer,
+        start: node.getStart(sourceFile),
+        scopeStart: scope.getStart(sourceFile),
+        scopeEnd: scope.getEnd(),
+      });
+      declarationsByName.set(node.name.text, list);
+    }
+    ts.forEachChild(node, collectInitializers);
+  };
+  collectInitializers(sourceFile);
+
+  /**
+   * 識別子の出どころを引く。解決できない場合は何も返さない。
+   *
+   * 解決できないほうへ倒すと、その locator は「主張の主題として現れなかった」扱いになり
+   * 錨に数えられる。**取りこぼす向き（検出が減る向き）であって、偽の検出は作らない。**
+   */
+  const resolveIdentifier = (name: string, usagePos: number): ts.Expression | undefined => {
+    const candidates = declarationsByName.get(name);
+    if (!candidates) return undefined;
+    let best: LocalDeclaration | undefined;
+    for (const candidate of candidates) {
+      if (candidate.start >= usagePos) continue;
+      if (usagePos < candidate.scopeStart || usagePos >= candidate.scopeEnd) continue;
+      if (!best || candidate.start > best.start) best = candidate;
+    }
+    return best?.initializer;
+  };
+
+  /** 名前を持つ locator 呼び出し → その呼び出しが与える名前 */
+  const namesByCall = new Map<ts.CallExpression, string[]>();
+  const namedCalls: ts.CallExpression[] = [];
+  const collectNamedCalls = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const query = node.expression.name.text;
+      const names: string[] = [];
+      if (ACCESSIBLE_NAME_OPTION_QUERIES.has(query)) {
+        const options = node.arguments[1];
+        if (options && ts.isObjectLiteralExpression(options)) {
+          for (const property of options.properties) {
+            if (!ts.isPropertyAssignment(property)) continue;
+            if (property.name.getText(sourceFile) !== 'name') continue;
+            const literal = literalAccessibleName(property.initializer);
+            if (literal !== undefined) names.push(literal);
+            else if (ts.isRegularExpressionLiteral(property.initializer)) skips.regex += 1;
+            else skips.dynamic += 1;
+          }
+        }
+      } else if (ACCESSIBLE_NAME_ARGUMENT_QUERIES.has(query)) {
+        const first = node.arguments[0];
+        if (first) {
+          const literal = literalAccessibleName(first);
+          if (literal !== undefined) names.push(literal);
+          else if (ts.isRegularExpressionLiteral(first)) skips.regex += 1;
+          else skips.dynamic += 1;
+        }
+      }
+      if (names.length > 0) {
+        namesByCall.set(node, names);
+        namedCalls.push(node);
+      }
+    }
+    ts.forEachChild(node, collectNamedCalls);
+  };
+  collectNamedCalls(sourceFile);
+
+  /** 式から辿り着ける「名前を持つ locator 呼び出し」を集める（局所変数を展開する） */
+  const reachableNamedCalls = (expression: ts.Expression): ts.CallExpression[] => {
+    const found: ts.CallExpression[] = [];
+    const seen = new Set<ts.Node>();
+    const walk = (node: ts.Node, depth: number): void => {
+      if (seen.has(node)) return;
+      seen.add(node);
+      if (ts.isCallExpression(node) && namesByCall.has(node)) found.push(node);
+      if (ts.isIdentifier(node) && depth < NAME_RESOLVE_DEPTH_LIMIT) {
+        const initializer = resolveIdentifier(node.text, node.getStart(sourceFile));
+        if (initializer && initializer !== node) walk(initializer, depth + 1);
+      }
+      ts.forEachChild(node, (child) => walk(child, depth));
+    };
+    walk(expression, 0);
+    return found;
+  };
+
+  // 主張ごとに極性を決め、主題から辿れる呼び出しへ配る。
+  // 同じ呼び出しが両方の極性で使われることがある（作った直後に見えることを主張し、
+  // 削除の後に消えることを主張する形）。その場合は錨が在るものとして扱う。
+  const polarityByCall = new Map<ts.CallExpression, { vacuous: boolean; anchor: boolean }>();
+  const refs: AccessibleNameRef[] = [];
+  const visit = (node: ts.Node): void => {
+    const call = asMatcherCall(node);
+    if (call) {
+      const vacuous = matcherIsVacuousWhenEmpty(call);
+      const targets = reachableNamedCalls(call.subject);
+      for (const target of targets) {
+        const flags = polarityByCall.get(target) ?? { vacuous: false, anchor: false };
+        if (vacuous) flags.vacuous = true;
+        else flags.anchor = true;
+        polarityByCall.set(target, flags);
+      }
+      if (vacuous) {
+        for (const target of targets) {
+          for (const name of namesByCall.get(target) ?? []) {
+            refs.push({
+              file: relPath,
+              line: lineOf(node),
+              name,
+              polarity: 'vacuous',
+              snippet: snippetOf(node),
+            });
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+
+  // 主張の主題として一度も現れなかった呼び出し（操作・待機・数え上げなど）は錨に数える。
+  // 錨の要件は「肯定側から指していること」であり、`expect` に限らない。
+  for (const call of namedCalls) {
+    const flags = polarityByCall.get(call);
+    if (flags && !flags.anchor) continue;
+    for (const name of namesByCall.get(call) ?? []) {
+      refs.push({
+        file: relPath,
+        line: lineOf(call),
+        name,
+        polarity: 'anchor',
+        snippet: snippetOf(call),
+      });
+    }
+  }
+
+  return { refs, skips };
+}
+
+/**
+ * 集めた参照を検出へ変換する（全ファイルを集め終えてから呼ぶ）。
+ *
+ * 判定は「零件で真になる主張が指す名前のうち、**同名を肯定側から指す参照が
+ * 一つも無いもの**」である。錨は同じファイルに在る必要はない。
+ */
+export function resolveUnanchoredAccessibleNames(refs: AccessibleNameRef[]): Finding[] {
+  const anchored = new Set<string>();
+  for (const ref of refs) {
+    if (ref.polarity === 'anchor') anchored.add(ref.name);
+  }
+  const findings: Finding[] = [];
+  for (const ref of refs) {
+    if (ref.polarity !== 'vacuous') continue;
+    if (anchored.has(ref.name)) continue;
+    findings.push({
+      file: ref.file,
+      line: ref.line,
+      type: 'T13-unanchored-accessible-name',
+      snippet: ref.snippet,
+    });
+  }
+  return findings.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
+}
+
 /**
  * 走査本体。ファイルの内容そのものを受け取るため、検出規則の確認では
  * 任意の書き方を注入して結果を検証できる（scripts/check-e2e-assertion-guards.selftest.ts）。
@@ -3468,7 +3811,18 @@ export function scanSource(relPath: string, source: string): ScanResult {
   };
 
   visit(sourceFile);
-  return { findings, allowed, invalidAllows, findingNodes };
+  const { refs: accessibleNameRefs, skips: accessibleNameSkips } = collectAccessibleNameRefs(
+    relPath,
+    sourceFile
+  );
+  return {
+    findings,
+    allowed,
+    invalidAllows,
+    findingNodes,
+    accessibleNameRefs,
+    accessibleNameSkips,
+  };
 }
 
 // ============================================================================
@@ -3590,7 +3944,18 @@ export function run(args: string[], options: RunOptions = {}): number {
 
   const files = (options.collectFiles ?? collectE2eFiles)();
   const results = files.map(scanFile);
-  const findings = results.flatMap((r) => r.findings);
+  // T13 だけは一ファイルでは決まらない。錨は別ファイルに在ってよいため、
+  // 全ファイルの参照を集め終えてから検出へ変換する（Task 115.251）。
+  const nameRefs = results.flatMap((r) => r.accessibleNameRefs);
+  const nameSkips = results.reduce(
+    (sum, r) => ({
+      regex: sum.regex + r.accessibleNameSkips.regex,
+      dynamic: sum.dynamic + r.accessibleNameSkips.dynamic,
+    }),
+    { regex: 0, dynamic: 0 }
+  );
+  const unanchoredFindings = resolveUnanchoredAccessibleNames(nameRefs);
+  const findings = [...results.flatMap((r) => r.findings), ...unanchoredFindings];
   const allowed = results.flatMap((r) => r.allowed);
   const invalidAllows = results.flatMap((r) => r.invalidAllows);
   const current = tally(findings);
@@ -3610,6 +3975,43 @@ export function run(args: string[], options: RunOptions = {}): number {
         2
       )
     );
+    return 0;
+  }
+
+  // アクセシブル名の走査そのものを印字する（Task 115.251）。
+  //
+  // 走査根・母集団・除外の内訳・未錨の一覧を出力で宣言する。散文で範囲を述べると
+  // 後から網羅性を確かめる手掛かりが残らない（tasks.md の 115.250 の教訓）。
+  if (args.includes('--accessible-names')) {
+    const vacuous = nameRefs.filter((r) => r.polarity === 'vacuous');
+    const anchors = nameRefs.filter((r) => r.polarity === 'anchor');
+    const anchoredNames = new Set(anchors.map((r) => r.name));
+    const vacuousNames = [...new Set(vacuous.map((r) => r.name))].sort();
+    console.log('🔍 アクセシブル名の錨の走査 (T13-unanchored-accessible-name)');
+    console.log(`   走査ファイル数: ${files.length}`);
+    console.log(
+      `   零件で真になる主張が指す参照: ${vacuous.length} 件 / 相異なる名前 ${vacuousNames.length} 件`
+    );
+    console.log(
+      `   肯定側から指す参照: ${anchors.length} 件 / 相異なる名前 ${anchoredNames.size} 件`
+    );
+    console.log('   比較の対象にできなかった名前（限界の開示）:');
+    console.log(`     正規表現で与えた名前: ${nameSkips.regex} 件`);
+    console.log(`     変数・テンプレート等で組み立てた名前: ${nameSkips.dynamic} 件`);
+    console.log('   （どちらも文字列として突き合わせられないため、錨の有無を判定しない。');
+    console.log(
+      '     肯定側が正規表現へ緩められた場合は、その名前の錨が消えたものとして扱われる）'
+    );
+    console.log('');
+    console.log('   零件で真になる主張が指す名前と錨の有無:');
+    for (const name of vacuousNames) {
+      console.log(`     ${anchoredNames.has(name) ? '錨あり' : '錨なし'}  ${JSON.stringify(name)}`);
+    }
+    console.log('');
+    console.log(`   錨の無い箇所（T13 の検出）: ${unanchoredFindings.length} 件`);
+    for (const finding of unanchoredFindings) {
+      console.log(`     ${finding.file}:${finding.line}  ${finding.snippet}`);
+    }
     return 0;
   }
 

@@ -1593,6 +1593,109 @@ $ npm run check:e2e-guards
 段7 の 165 件は**すべて是正**で片付いたため、新しい注釈は 1 件も置いていない。
 すなわち出口条件が想定していた「どこで失敗するかを明記した `e2e-guard-allow`」の残余は存在しない。
 
+## 8. T13 の追加で露出した既存の欠陥（Task 115.251）
+
+Task 115.251 が第十三の型 `T13-unanchored-accessible-name` を検出規則へ加えた。判定は
+「**一致が零件でも真になる主張**（`not.toBeVisible` / `not.toBeAttached` / `not.toBeInViewport` /
+`toBeHidden` / `toHaveCount(0)`）が指すアクセシブル名について、**同名を肯定側から指す箇所が
+e2e 全体に一つも無い**」である。錨は別ファイルに在ってよいため一ファイルでは決まらず、
+`scanSource` は参照だけを返し、全ファイルを集め終えた `resolveUnanchoredAccessibleNames` が
+検出へ変換する。
+
+**軸はアクセシブル名であり `aria-label` のリテラルではない。** 名前の出どころが `aria-label`
+であれ表示文言であれ、Playwright の locator には同じ文字列で現れる。`aria-label` の綴りを軸に
+取ると、表示文言に由来する名前（`一つ上の階層へ戻る` など）を構造的に取りこぼす。
+
+### 8.1 走査そのもの（コマンドで宣言する）
+
+```
+$ find e2e/specs -name '*.spec.ts' | wc -l
+188
+$ npx tsx scripts/check-e2e-assertion-guards.ts --accessible-names
+🔍 アクセシブル名の錨の走査 (T13-unanchored-accessible-name)
+   走査ファイル数: 214
+   零件で真になる主張が指す参照: 61 件 / 相異なる名前 34 件
+   肯定側から指す参照: 1291 件 / 相異なる名前 262 件
+   比較の対象にできなかった名前（限界の開示）:
+     正規表現で与えた名前: 3064 件
+     変数・テンプレート等で組み立てた名前: 95 件
+   …
+   錨の無い箇所（T13 の検出）: 2 件
+     e2e/specs/estimate/estimate-hierarchy-keyboard-e2e.spec.ts:458  expect(page.getByRole('button', { name: '一つ上の階層へ戻る' })).toHaveCount(0)
+     e2e/specs/schedules/construction-schedule-e2e.spec.ts:702  expect(page.getByRole('link', { name: '削除テスト工程表' })).not.toBeVisible({
+```
+
+走査根が 214 ファイルで `find e2e/specs -name '*.spec.ts'` の 188 と食い違うのは、検査の走査根が
+`e2e/specs` / `e2e/helpers` / `e2e/fixtures` の三つ（`SCAN_SUBDIRS`）であり、拡張子も `.spec.ts`
+に限らないためである。**件数はどちらもコマンドの出力そのものである。**
+
+### 8.2 露出した 2 件（いずれも本タスクの境界外）
+
+| 所在 | 名前 | 出所 |
+|---|---|---|
+| `e2e/specs/estimate/estimate-hierarchy-keyboard-e2e.spec.ts:458` | `一つ上の階層へ戻る` | `frontend/src/components/estimate/EstimateItemDrilldownView.tsx` の表示文言 |
+| `e2e/specs/schedules/construction-schedule-e2e.spec.ts:702` | `削除テスト工程表` | 同テストが作る工程表の名前（`getByLabel('削除テスト工程表を削除')` は別の綴りであり錨にならない） |
+
+どちらも `generatedTotal` 0 → 2 の増加として `--allow-increase` で登録した。**E2E スペックは
+一行も変更していない**（増加は検出器の追加によって露出した既存の欠陥である）。
+是正は当該スペックの所管であり、同じタスクでは直さない。
+
+### 8.3 自己検査と関門の実測
+
+自己検査は 182 → **196** 件（陽性 8・陰性 6 の対照を追加）。極性は要素の属性 `polarity` に
+持たせ、名前の綴りには依存させない。関門 `nameAnchorControlsArePresent` は
+**対照群の配列の外側**（`main()` の中・実行の前）に置いた。実測は次のとおりである（2026-09-03）。
+
+- `NAME_ANCHOR_CONTROLS` を空の配列へ置き換える変異 … EXIT=1（下限 3 件がすべて 0 件として報告される）
+- 対照 14 件の `polarity` をすべて `'detect'` へ替える変異 … EXIT=1（陰性対照の下限のみが報告される）
+- 局所変数の解決を有効範囲ごとに分ける実装を「同名は最初の一つ」へ戻す変異 … 196 件中
+  `115.251-8` の 1 件だけが落ちる
+
+検出器そのものの実効は、`e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` の肯定側の
+locator を是正前の `{ name: /新規作成/i }` へ戻す変異で測った。`npm run check:e2e-guards` は
+EXIT=1 になり、否定側の二ファイル（`estimate-request-e2e.spec.ts` と
+`e2e/specs/projects/project-detail-sections.spec.ts`）を `0 → 1` 件として名指しする（2026-09-03 に実測。
+変異前と復元後はいずれも EXIT=0）。
+
+### 8.4 明記する限界
+
+- **名前が文字列リテラルで書かれた箇所しか突き合わせない。** 正規表現で与えた名前 3064 件と、
+  変数・テンプレート等で組み立てた名前 95 件は、否定側でも肯定側でも判定の対象にしない
+  （数はいずれも `--accessible-names` の出力）。肯定側が正規表現へ緩められた場合は
+  「その名前の錨が消えた」として扱われる——これは検出の側に倒れるため、本検査の主題である。
+- **錨の側に `exact` を要求しない。** Playwright の既定は部分一致であるため、完全一致でない
+  肯定側でも綴りは字面として固定される。`exact` の有無までは拘束しない。
+- **アクセシブル名以外の locator は見ない。** `getByTestId` / CSS セレクタで指す不在の主張は
+  対象外である（アクセシブル名の名前空間に属さない）。
+- **識別子の解決は同一ファイル・深さ 4 まで。** 解決できない場合はその locator を
+  「主張の主題として現れなかった」扱いにするため、**取りこぼす向き（検出が減る向き）へ倒れる。**
+
+### 8.5 旧い軸（`aria-label` のリテラル）が取りこぼす型——コマンドの差分で示す
+
+Task 115.251 の一次実装は `aria-label` のリテラルを軸に走査し、「是正後の残りは 1 件（偽陽性）」
+という**偽の結論**を出した。軸の差はコマンドで示せる。
+
+```
+$ grep -rn 'aria-label="一つ上の階層へ戻る"' frontend/src | wc -l
+0
+$ grep -rno 'aria-label="[^"]*"' frontend/src | wc -l
+391
+$ grep -rn "一つ上の階層へ戻る" frontend/src/components/estimate/EstimateItemDrilldownView.tsx
+23: * 「〜 の子階層を表示」「一つ上の階層へ戻る」という表記を用います。
+391:            一つ上の階層へ戻る
+$ npx tsx scripts/check-e2e-assertion-guards.ts --accessible-names | grep -c '^     錨'
+34
+```
+
+`aria-label` の軸は 391 件を拾うが、`一つ上の階層へ戻る` については **0 件**である。この名前は
+`aria-label` ではなく**要素の表示文言**（`EstimateItemDrilldownView.tsx:391`）から来るためであり、
+`aria-label` を軸に取るかぎり構造的に見えない。アクセシブル名を軸に取る本検査は、否定側から
+指される名前 34 件を出どころによらず同じ土俵に載せる。
+
+なお、この名前を肯定側から指す箇所は e2e に一つも無い（上の `grep -rn "一つ上の階層へ戻る" e2e/`
+の出力 2 行のうち 1 行は日本語のコメントである）。単体側には錨が在る
+（`frontend/src/components/estimate/EstimateItemTable.drilldownMode.test.tsx:285` ほか）。
+
 ## 付録 A: 608 件の分類スクリプト
 
 `npx tsx scripts/check-e2e-assertion-guards.ts --json > /tmp/guards.json` の出力に対し、
