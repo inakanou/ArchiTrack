@@ -2103,6 +2103,58 @@
   - _Depends: 91.2_
   - _Boundary: 除外一覧の代替検証の記述_
 
+## タスク92: 除外一覧が名乗る検証道具名を実体へ揃える
+
+**経緯**: site-survey の Task 115.213 が設計文書に滞留していた未起票の提案を台帳化し、その `### 判定の一覧` の行7「他機能スペックの除外一覧の Jest 道具名」を**後続タスクへ送る**と裁定した。site-survey の Task 115.238 が申し送りを実行して本節を起こした。**所有権は本スペックにある。** site-survey は自機能分 32 件を Task 115.121 で既に Vitest へ改めており、現場調査スペックの所管は 0 件である。
+
+**測った事実**（いずれもコミット `9e63637`、2026-09-02 にリポジトリルートで実測）:
+
+- **本リポジトリに Jest は存在しない。** `find . -name 'jest.config*' -not -path '*/node_modules/*' | wc -l` の出力が `0`。`package.json` / `backend/package.json` / `frontend/package.json` の依存に `jest` は無く、名前に jest を含むのは `frontend/package.json` の `@testing-library/jest-dom`（Vitest から使う照合子の集まりであって走者ではない）だけである
+- **単体・統合の走者は backend / frontend とも Vitest である。** 両者の `npm test` はいずれも `vitest run` であり、`backend/vitest.config.ts` / `backend/vitest.integration.config.ts` / `frontend/vitest.config.ts` が実在する
+- **利用の実測**: `grep -rlE "from ['\"]vitest['\"]" backend/src frontend/src --include=*.ts --include=*.tsx | wc -l` の出力が `757` である。**同じ走査根・同じ glob** で `grep -rlE "from ['\"]@jest/globals['\"]|\bjest\.(fn|mock|spyOn)\(" backend/src frontend/src --include=*.ts --include=*.tsx | wc -l` を測ると出力は `0` である。**総数 `757` を併記するのは、`0` だけでは「走査根を読めていない」場合と区別できないためである**——同じ式を実在しないパスへ当てても出力は同じく `0` になる（2026-09-02 に実測）
+- **提案が生きていること**: `node -e "const j=require('./e2e/requirement-exclusions.json');const k=j.exclusions.filter(e=>/Jest/.test(e.alternativeVerification.tool));console.log(k.length, k.filter(e=>e.id.startsWith('site-survey/')).length)"` の出力が `64 0`（後の `0` が現場調査スペックの分）
+- **機械保証は無い。断定でなく変異で示す**（115.235 の作法）: `e2e/requirement-exclusions.schema.json` は `tool` を `{ "type": "string", "minLength": 1 }` としか定めず、道具の実在を見ない。実在しない道具名 `Kaboomtest 9000 / Nonexistent Runner` へ一件を差し替える変異を当てても `npm run check:req-exclusions` は 205 件を検査して終了コード 0 のままである（2026-09-02 に実測。変異は複製からの書き戻しで復元し、blob ハッシュが `HEAD` と一致することで確かめた）
+
+**是正すると別の関門が赤くなる。着手前に読むこと**: 上の `node -e` の出力 `64 0` は `scripts/design-measurements.json` の宣言 `jest-alternative-verification-exclusions` に固定されており、`.kiro/specs/site-survey/design.md` の台帳の再現コマンド 5 の行と双方向で突き合わされる。**一件でも道具名から Jest を落とすと `npm run check:design-measurement-freshness` が「expected=`64 0` actual=`63 0`」として終了コード 1 で落ちる**（`company-info/REQ-6.9` の道具名を実在しない `Kaboomtest 9000 / Nonexistent Runner` へ差し替える変異を実際に当てて実測。2026-09-02、コミット `9e63637` にリポジトリルートで実測。変異は事前複製からの `cp` で復元し、`git hash-object e2e/requirement-exclusions.json` が `HEAD` の blob `77d4bb8443f19bc5c2de768c866eae1943175a6d` と一致することで確かめた）。宣言の解除と台帳の追随は**現場調査スペックの Task 115.280 が所管する**。
+
+**同じ変異を当てたまま測った他の関門の実測**（走査の範囲は日本語でなくコマンドで宣言する。2026-09-02、コミット `9e63637` にリポジトリルートで実測）: 測ったのは `npm run` に与える名で `check:req-exclusions` / `check:req-exclusions:selftest` / `check:req-coverage` / `check:trace-coverage` / `check:design-refs` / `check:design-code-refs` / `check:design-path-refs` / `check:cf-evidence` / `check:steering-refs` / `check:steering-idents` / `check:steering-test-tree` / `lint` / `type-check` / `format:check` の **14 本**である。**いずれも基線と同じ終了コードのままであった。ただし `check:req-coverage` は基線から既に終了コード 1 であり（到達被覆 2632/2684 = 98.1%、未カバー 215 件）、変異の前後で変わらない**——「14 本が緑のままであった」のではない。**終了コードが動かないことと出力が動かないことも別である**: 14 本のうち 13 本は基線と出力まで一致したが、`check:req-coverage` だけは除外一覧の監査の内訳が「リポジトリ外の代替検証: 32件 / リポジトリ内検証あり: 22件」から「33件 / 21件」へ変わる（差分はこの 2 行のみで、終了コードも被覆率も動かない）。**着手時にはこの 14 本と `check:design-measurement-freshness` を自分で測り直し、実測日とコミットハッシュを添えること**（115.212 の規約）。
+
+**是正先**:
+
+1. `e2e/requirement-exclusions.json` の下表の `alternativeVerification.tool`
+2. 本スペックの設計文書——**ただし実測では該当が 0 件である。** `for f in .kiro/specs/*/design.md; do printf '%s %s\n' "$f" "$(grep -c Jest "$f")"; done` を走らせると、`Jest` を挙げる設計文書は 13 スペックのうち `site-survey` の 1 件（6 箇所）だけで、他の 12 スペックはいずれも `0` である（2026-09-02 に実測）。台帳の行7 は是正先に「各機能スペックの設計文書」を挙げているが、起票の時点で当たりが無い。**この `0` は着手時に測り直すこと**
+
+**本スペックの所管は 12 件で、全件を次に挙げる**（2026-09-02 に実測。抜き取りではない）:
+
+| id | 現在の `alternativeVerification.tool` |
+|---|---|
+| `estimate-request/REQ-11.18` | `Jest / React Testing Library` |
+| `estimate-request/REQ-11.19` | `Jest / React Testing Library` |
+| `estimate-request/REQ-11.20` | `Jest / React Testing Library` |
+| `estimate-request/REQ-11.21` | `Jest / React Testing Library` |
+| `estimate-request/REQ-11.23` | `Jest / React Testing Library` |
+| `estimate-request/REQ-13.1` | `Jest / React Testing Library` |
+| `estimate-request/REQ-13.4` | `Jest / React Testing Library` |
+| `estimate-request/REQ-13.6` | `Jest` |
+| `estimate-request/REQ-14.3` | `Jest / Prisma` |
+| `estimate-request/REQ-14.4` | `Jest / Prisma` |
+| `estimate-request/REQ-14.5` | `Jest / Prisma` |
+| `estimate-request/REQ-14.6` | `Jest / Concurrent requests` |
+
+**タスク91.3 との境界**: 91.3 は `REQ-21.5` / `21.6` / `21.7` / `23.4` / `26.5` / `26.6` / `26.7` / `26.8` の 8 件の `description` へ日次の契約検証を追記するタスクであり、**その 8 件の `tool` は既に `Vitest` である**（上表に一件も現れない。2026-09-02 に実測）。対象集合も編集する欄も重ならない。
+
+- [ ] 92.1 除外一覧の道具名を実体へ揃える
+  - 上表 12 件の `alternativeVerification.tool` から、実在しない `Jest` を取り除く
+  - **先例に揃えること**: site-survey は Task 115.121 で自機能分 32 件を「道具名の先頭 `Jest` を `Vitest` へ置換し、`React Testing Library` / `Supertest` などの併記部分は据え置く」形で是正した。`.kiro/specs/site-survey/design.md` の `**あわせて是正した除外一覧の記述**` に続く項が、その形を逐語で記録している
+  - **併記の `React Testing Library`（`@testing-library/react@^16.3.0`）と `Prisma`（`backend/package.json`）はいずれも実在する**（2026-09-02 に実測）ため据え置いてよい
+  - **`REQ-13.6` は併記を持たない単独の `Jest` である。** 落とすと欄が空になるため、当該受入基準を現に検証している走者を測って書くこと（`minLength: 1` のため空文字は規約違反になる）
+  - **`REQ-14.6` の `Concurrent requests` は道具名ではなく手法の記述である。** 走者名との併記としてそのまま残すか、`description` 側へ寄せるかを判断すること
+  - **道具名だけを機械的に置換して終えないこと。** 除外は受入基準を分母から丸ごと外すため、`description` が約束する代替検証が現に存在するかを一件ずつ確かめること。存在しないなら道具名の是正ではなく除外の取り下げが要る
+  - **JSON の整形は `npm run format:check` では見られない。** リポジトリルートの `format:check` は `prettier --check "e2e/**/*.{js,ts}" "playwright.config.{js,ts}" "scripts/**/*.ts"` であって JSON を含まず、`lint-staged` も `*.{js,ts}` だけを対象とする（2026-09-02 に実測）。`npx prettier --check e2e/requirement-exclusions.json` を直接走らせること（現況は整形済みで終了コード 0。同日に実測）
+  - **検証**: `npm run check:req-exclusions` が緑であること、および上の `node -e` の出力の第一値が本スペックの件数だけ減っていること
+  - _Depends: site-survey スペックの Task 115.280（`64 0` の宣言の解除と台帳の追随）_
+  - _Boundary: 本スペックが所管する除外項目の `alternativeVerification.tool`_
+
 ## Implementation Notes
 
 - フロントエンド E2E（architrack-test の frontend サービス）は nginx 本番ビルドのため、フロントエンド側のコード変更後は `docker compose -p architrack-test ... build frontend` ＋ `up -d --force-recreate frontend` で再ビルドしないと変更が反映されない。Task 86.3 で OCR セクション折りたたみ機能のセレクタが見つからない症状が出たのはこれが原因。`curl http://localhost:5174/assets/index-*.js | grep <新規 data-testid>` で再ビルド済みかを事前確認できる。
