@@ -5508,9 +5508,11 @@ Body が Outline より上に描画されることで、矢じり端部も含め
 | 25.1-25.12 | テキストの白アウトライン・背景色との独立・マルチバイト対応・後方互換 | TextTool (paintFirst), annotation-style-tokens, AnnotationToolbar（要件25.2 の切替UI）, AnnotationEditor（要件25.11 の取り消し記録）, AnnotationRendererService | `TextAnnotation.setOutline`, `TextAnnotation.toObject/fromObject` 拡張 | - |
 | 26.1-26.6 | ツール横断デフォルトスタイルの一元化、セッション内継承、白縁取り初期ON | annotation-style-tokens, AnnotationEditor styleOptionsRef, style-panel.constants, annotation-toolbar.constants, StylePanel, ArrowTool, CircleTool, DimensionTool, FreehandTool, PolygonTool, PolylineTool, RectangleTool, TextTool | `AnnotationToolDefaults` interface | - |
 | 27.1-27.10 | ダブルタップ編集、長押しメニュー、Req8/Req17連携 | touchGestureManager, AnnotationContextMenu, AnnotationEditor, gesture-thresholds | `GestureEvent`, `ContextMenuAction` | ジェスチャー判定フロー |
-| 28.1-28.8 | モバイルツールバー、折返し・スクロール、属性パネル開閉、44px タップ領域 | AnnotationToolbar, StylePanel, AnnotationContextMenu | toolbar layout contract | - |
+| 28.1-28.8 | モバイルツールバー、折返し・スクロール、属性パネル開閉、44px タップ領域 | AnnotationToolbar, StylePanel | toolbar layout contract | - |
 | 29.1-29.8 | ツールハイライト、カーソル、プレビュー、指向けハンドル、ツールヒント、簡易ガイド | AnnotationToolbar, AnnotationGuide, Fabric defaults, AnnotationEditor, StylePanel, annotation-visual-feedback | `CursorStrategy`, `HandleSizeStrategy` | - |
 | 30.1-30.8 | マルチタッチ安全性、3本指抑止、cooldown、Req5/Req17 維持 | touchGestureManager, ImageViewer, AnnotationEditor | `TouchState` enum, state transitions | ジェスチャー判定フロー |
+
+**要件28 の行から `AnnotationContextMenu` を外したことについて**（タスク 115.246 で決着）: 同部品は要件28 の担い手ではない。要件28 は「モバイル向けツールバーレイアウト」であり、受入基準3 の対象は同要件の注記により「モバイル幅ツールバー」に限られる。本表の当該行だけが同部品へ 28.1-28.8 を割り当てていたが、本書の他の二箇所（「Component Summary」の `AnnotationContextMenu` 行と、同部品の詳細節の `Requirements` 欄）はいずれも 27.2-27.5・27.7・27.10 のみを割り当てており、当該行が外れ値だった。同部品が実装でタップ領域の下限を課す根拠は要件28 ではなく、`.kiro/steering/tech.md` の「レスポンシブ・ビューポート方針」が定める「モバイルの下限値」である（requirements.md の要件28 の注記を参照）。**再び 28.x を割り当て直さないこと。**
 
 ### Components and Interfaces
 
@@ -7722,7 +7724,9 @@ export interface PendingUploadPanelProps {
 - 未送信件数、各画像のサムネイル・ファイル名・失敗理由を表示する（37.2）。
 - `kind === 'permanent'` の項目は「再送しても解消しない」旨と理由を併記し、再送対象から除外されていることを示す（37.16, 37.17）。
 - `canRetry === false` のとき再送ボタンを `disabled` で提示する（37.18）。
-- **Implementation Note**: 操作ボタンは 44×44px 以上（tech.md:136）。コンテナは `role="alert"` ではなく `role="status"` とし、Requirement 19 のエラー表示（`role="alert"`）と読み上げ役割を競合させない。スタイルはインライン style オブジェクト（tech.md:137）、モバイル分岐が必要な場合は `MEDIA_QUERIES.isMobile`（tech.md:134）を用いる。
+- **Implementation Note**: 操作ボタンは 44×44px 以上。**この下限の根拠は要件37 ではなく**（同要件はタップ領域の受入基準を持たない）、`tech.md`「レスポンシブ・ビューポート方針」の「モバイルの下限値」が定める横断ルールである（タスク 115.246 で決着。requirements.md の要件28 の注記を参照）。コンテナは `role="alert"` ではなく `role="status"` とし、Requirement 19 のエラー表示（`role="alert"`）と読み上げ役割を競合させない。スタイルはインライン style オブジェクト、モバイル分岐が必要な場合は `tech.md`「レスポンシブ・ビューポート方針」の「ブレークポイントの単一情報源」に従い `MEDIA_QUERIES.isMobile` を用いる。
+  - 本行は当初 `tech.md` の 136 行・137 行・134 行と行番号で引いていたが、タスク 115.246 の実測時点でこの三つはいずれも `tech.md` の Dockerfile・Prettier の設定ファイル一覧に当たっており、**参照先が失われていた**（該当の方針は同ファイルの「レスポンシブ・ビューポート方針」節にある）。よって本行は節名・箇条名で引き直した。**以後も行番号で引かないこと。**
+  - **同形式の参照は本書に 6 件あり、115.246 で全件を突き合わせた結果いずれも参照先が失われていた**（2026-09-02 実測）。本行で是正した 3 件を除く残り 3 件は、`PendingUploadPanel` の設計方針が引くカバレッジ 80%（実際の行はコードスタイルのクォート規約）、単体テストの `globalThis.fetch` 差し替えが引く行（実際は `test:all` の逐次実行の記述）、および E2E の記述が引く行（実際は「主要な依存関係」の見出し）である。**いずれもタップ領域の下限とは無関係のためタスク 115.246 の境界外として手を入れていない。** 行番号参照を検査する機構は存在せず（`check:design-refs` は本番コードから設計文書への参照を、`check:design-code-refs` は設計文書から本番コードへの参照を見るもので、いずれも steering への行番号参照を対象にしない）、陳腐化は自動では検出されない。
 
 #### Components: `ImageUploader`（改修）
 
