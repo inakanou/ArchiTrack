@@ -1660,3 +1660,42 @@
   - **本節が `_Requirements:` を持たないのは意図である。** 本スペックの tasks.md は HEAD（コミット `9e63637`）で `_Requirements:` を 174 件持ち、`_Depends:` と `_Boundary:` はいずれも 0 件である（`git show HEAD:.kiro/specs/project-management/tasks.md | grep -c '_Requirements:'` ほか。2026-09-02 にリポジトリルートで実測）。**本節は受入基準を実装せず、除外一覧の記録の道具名を実体へ揃えるだけである。** 上表の id を `_Requirements:` に挙げると「当該受入基準を本タスクが被覆した」という偽の申告になり、被覆の集計にも入りうるため、依存と境界だけを書く
   - _Depends: site-survey スペックの Task 115.280（`64 0` の宣言の解除と台帳の追随）_
   - _Boundary: 本スペックが所管する除外項目の `alternativeVerification.tool`_
+
+## Task 70: 設計文書に残る「未実装・要対応」の状態記録を歴史として書き分ける
+
+**経緯**: site-survey の Task 115.213 が設計文書に滞留していた未起票の提案を台帳化したが、同タスクが宣言した三つの網（`別途起票|後続タスクの提案|起票すること` ほか）はいずれも「〜すること」型の提案を捕まえる形であり、**状態記録の形は網の外にある**。site-survey の Task 115.240 が状態記録を狙う別の網を掛けて本節の対象を検出し、申し送りを実行して本節を起こした。**所有権は本スペックにある。** これは 115.213 の全称否定を偽にしない——同タスクは範囲をコマンドで宣言し、範囲外は保証しないと明記している。
+
+**測った事実**（いずれもコミット `5176ee4`、2026-09-02 にリポジトリルートで実測）:
+
+- **状態記録の件数**: `grep -cF '未実装・要対応' .kiro/specs/project-management/design.md` の出力が `7`、`grep -cF '**未実装・要対応**' .kiro/specs/project-management/design.md` の出力が `6` である。**起票元（site-survey の Task 115.240 の起票文）が引く「7 箇所」は太字を求めない側の値であり、逐語の `**未実装・要対応**` を数えると 6 である。** 差の 1 件は太字の外に丸括弧で状態を書く行である
+- **内訳の取り出し方**: `grep -nF '未実装・要対応' .kiro/specs/project-management/design.md` で 7 行が出る。うち 1 行が `**ステータス**: ❌ **未実装・要対応**`（`grep -cF` の出力が `1`）、5 行が `**ステータス**: :x: **未実装・要対応**`（同 `5`）、残る 1 行は `**実装状態（2026-02-13更新）**` の箇条の中で丸括弧に入れて状態を書く行である
+- **同型の状態記録がもう 2 行ある**: `### TradingPartnerSelect（取引先選択コンポーネント）` の責務欄に `:x: **クライアントサイドフィルタリング未対応（差分8で対応）**` と `:x: **未実装（差分9で対応）**` がある（`grep -cF ':x: **クライアントサイドフィルタリング未対応（差分8で対応）**' .kiro/specs/project-management/design.md` と `grep -cF ':x: **未実装（差分9で対応）**' .kiro/specs/project-management/design.md` の出力がいずれも `1`）。**これらは `未実装・要対応` の綴りを持たないため上の 7 件には入らない**
+- **6 件の `**ステータス**` 行が指すのは差分8〜差分13 である**。節名は `grep -nE '^### 差分(8|9|1[0-3])' .kiro/specs/project-management/design.md` で取り出せる
+
+**状態記録は現況ではない。6 差分はいずれも実装済みである**（同日・同コミットで実測）:
+
+| 差分 | 状態記録が主張する未実装の内容 | 現況を測るコマンド | 出力 |
+|---|---|---|---|
+| 差分8 | `TradingPartnerSelect` のクライアントサイドかな変換 | `grep -c "from '../../utils/kana-converter'" frontend/src/components/projects/TradingPartnerSelect.tsx` | `1`（`frontend/src/utils/kana-converter.ts` も実在し、`matchesSearchQuery` が `toKatakana` / `toHiragana` を呼ぶ） |
+| 差分9 | `onSelect` コールバックと住所自動入力 | `grep -c 'setSiteAddress(partner.address)' frontend/src/components/projects/ProjectForm.tsx` | `1`（`TradingPartnerSelect.tsx` は `onSelect?.(partner)` を持つ） |
+| 差分10 | `excludeTerminalStatuses` パラメータ | `grep -c excludeTerminalStatuses backend/src/services/project.service.ts backend/src/schemas/project.schema.ts frontend/src/api/projects.ts` | 3 ファイルとも 1 以上 |
+| 差分11 | デフォルト表示件数 100 件 | `grep -c 'const DEFAULT_LIMIT = 100;' frontend/src/pages/ProjectListPage.tsx` | `1`（`backend/src/schemas/project.schema.ts` も `.default(100)` を持つ） |
+| 差分12 | フィルタクリア時のデフォルト復帰 | `grep -c 'handleClearFilters' frontend/src/components/projects/ProjectSearchFilter.tsx` | 1 以上（`status: []` へのリセットを含む） |
+| 差分13 | `GET /api/projects/status-counts` | `grep -c 'async getStatusCounts' backend/src/services/project.service.ts` | `1`（`backend/src/routes/projects.routes.ts` が `'/status-counts'` を登録し、`frontend/src/api/projects.ts` が呼ぶ） |
+
+- **本 tasks.md の側では既に消化済みである**: 差分8 は Task 32.1〜35.1、差分9 は Task 36.1〜38.1、差分10〜13 は Task 39.1〜45.1 が担い、`grep -nE '^- \[[ x]\] (3[2-9]|4[0-5])(\.[0-9]+)? ' .kiro/specs/project-management/tasks.md` で出る行は**すべて `[x]` である**。**設計文書の状態記録だけが当時のまま残っている**
+
+**機械保証は無い。断定でなく変異で示す**（115.235 の作法）: 設計文書の状態記録が現況と一致しているかを見る関門は存在しない。`npm run check:design-refs` / `check:design-code-refs` / `check:design-path-refs` / `check:design-measurement-freshness` はいずれも参照の形式・識別子の実在・パスの実在・宣言済み実測値の追随を見るだけである。**断定でなく変異で示した実測がこれである**（site-survey の Task 115.240 が 2026-09-02、コミット `5176ee4` にリポジトリルートで実行）——本書の `**ステータス**: :x: **未実装・要対応**` の一行（5 行あるうちの先頭）を `**ステータス**: :x: **未実装・要対応（実在しない差分99）**` へ書き換えたうえで上の 4 本に `npm run check:cf-evidence` を加えた **5 本**を走らせたところ、**5 本とも終了コード 0 であり、標準出力も基線と `diff` して一行も違わなかった**。変異は事前複製からの `cp` で復元し、`git hash-object .kiro/specs/project-management/design.md` が `HEAD` の blob `af819ae1372ae92c36d5de55aea7ceea7c1783e0` と一致することで確かめた。
+
+**是正の作法（消さずに書き分けること）**: site-survey の設計文書 `#### 実測値の書き方（タスク 115.212）` の (a) が定める形に揃える——**当時の値（状態記録）を残したうえで、現況の再実測を同じ場所へ並べる**。状態記録を単に「実装済み」へ書き換えると、当時どの範囲が未実装だったかという歴史が失われる。`### 差分8` 〜 `### 差分13` の `**ステータス**` 行と、`### TradingPartnerSelect（取引先選択コンポーネント）` の責務欄の 2 行、`**実装状態（2026-02-13更新）**` の箇条の 1 行が対象である。
+
+**一件を直して「完全になった」と書かないこと**（115.228 の作法）: 本節が挙げるのは上の網が捕まえた 9 行（`未実装・要対応` の 7 行 ＋ 責務欄の 2 行）であり、**網の外の状態記録は保証しない**。走査に使った網は `grep -rncE '未実装|未対応|未着手|未完成|未反映|未接続|未配線' .kiro/specs/project-management/design.md`（出力 `9`）と `grep -rncE '❌|:x:|⚠️|🚧' .kiro/specs/project-management/design.md`（出力 `8`）の二つであり、**網が数え上げる綴りの外にある状態記録は掛からない**——列挙していない日本語の綴り（たとえば「未完了」は上の網の 7 語に無い。同じ走査で取引先管理スペックの `### テスト未完了` が網から漏れた）、英語で書かれた状態記録、記号だけで状態を表す欄（✅ の側だけを書き未の側を空欄にする形）、表のセル内に埋もれた状態記録がそれである。
+
+- [ ] 70.1 「未実装・要対応」の状態記録に現況の再実測を並べる
+  - 対象は上の 9 行である。**削除ではなく、当時の記録を残したまま現況を並べること**
+  - 各行の現況は上表のコマンドで測り直すこと。**本節が引く出力は 2026-09-02・コミット `5176ee4` の実測であり、着手時には陳腐化しうる**
+  - `**実装状態（2026-02-13更新）**` の箇条は既に、取り消し線で囲んだうえで（実装済み）と添える形を 2 件持つ（`grep -cE '^  - ~~.*~~（実装済み）' .kiro/specs/project-management/design.md` の出力が `2`）。**同じ節の中で同じ意味を二通りに書かないこと**——丸括弧の 1 行も同じ形へ揃えるか、揃えない理由を書くこと
+  - **検証**: `grep -cF '未実装・要対応' .kiro/specs/project-management/design.md` の出力が、残した歴史記録の件数と一致すること。`npm run check:design-refs` / `check:design-code-refs` / `check:design-path-refs` / `check:design-measurement-freshness` / `check:cf-evidence` が基線と同じ終了コードであること
+  - **本節が `_Requirements:` を持たないのは意図である。** 本節は受入基準を実装せず、設計文書の状態記録を現況へ追随させるだけである。差分8〜13 が名乗る受入基準番号（1.6, 1.7, 2.7, 2.8, 3.1, 5.5, 5.7, 5.8, 16.3, 22.5, 23.1-23.6）を `_Requirements:` に挙げると「当該受入基準を本タスクが被覆した」という偽の申告になり、被覆の集計にも入りうるため、依存と境界だけを書く
+  - _Depends: site-survey スペックの Task 115.240（状態記録の走査と申し送り）_
+  - _Boundary: 本スペックの設計文書に残る状態記録_

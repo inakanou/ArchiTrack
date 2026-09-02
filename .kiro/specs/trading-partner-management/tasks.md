@@ -540,3 +540,57 @@
 | 12.18, 12.19, 12.20                                                         | 12.3, 12.4, 12.9, 15.4                   |
 | 12.21, 12.22, 12.23                                                         | 12.3, 12.4, 12.5, 15.4                   |
 | 12.24, 12.25, 12.26, 12.27                                                  | 12.6, 15.4                               |
+
+## Task 27: 設計文書末尾の「未実装」「テスト未完了」の状態記録を歴史として書き分ける
+
+**経緯**: site-survey の Task 115.213 が設計文書に滞留していた未起票の提案を台帳化したが、同タスクが宣言した三つの網（`別途起票|後続タスクの提案|起票すること` ほか）はいずれも「〜すること」型の提案を捕まえる形であり、**状態記録の形は網の外にある**。site-survey の Task 115.240 が状態記録を狙う別の網を掛けて本節の対象を検出し、申し送りを実行して本節を起こした。**所有権は本スペックにある。**
+
+**測った事実**（いずれもコミット `5176ee4`、2026-09-02 にリポジトリルートで実測）:
+
+- **状態記録の件数**: `grep -cE '未実装|未対応|未着手|未完成|未反映|未接続|未配線' .kiro/specs/trading-partner-management/design.md` の出力が `5` である。内訳は見出し 1 本（`### 未実装コンポーネント（Requirement 12関連）`。`grep -cF` の出力が `1`）と、`### テスト未完了` の表の `| 未実装 |` を持つ行 4 件（`grep -cF '| 未実装 |' .kiro/specs/trading-partner-management/design.md` の出力が `4`）である。**取り出しは `grep -nE '未実装|未対応|未着手|未完成|未反映|未接続|未配線' .kiro/specs/trading-partner-management/design.md` で行うこと**
+- **見出し `### テスト未完了` は上の網に掛かっていない。** 網は「未完了」の綴りを持たないためである（`grep -cF '### テスト未完了' .kiro/specs/trading-partner-management/design.md` の出力は `1` であり、当該見出しは実在する）。**これは網の盲点の実例である**——本節が挙げる対象は網の出力そのものではなく、網が当てた行の周辺を読んで拾ったものを含む
+- **`### 未実装コンポーネント（Requirement 12関連）` の表が挙げる 8 件は全件が実在する**（同日・同コミットで実測。**抜き取りではなく 8 行すべてを開いた**）:
+
+| 表が挙げる Component | 現況を測るコマンド | 出力 |
+|---|---|---|
+| Breadcrumb（共通） | `test -f frontend/src/components/common/Breadcrumb.tsx` | 終了コード `0` |
+| ResourceNotFound（共通） | `test -f frontend/src/components/common/ResourceNotFound.tsx` | 終了コード `0` |
+| TradingPartnerDetailPage | `test -f frontend/src/pages/TradingPartnerDetailPage.tsx` | 終了コード `0` |
+| TradingPartnerCreatePage | `test -f frontend/src/pages/TradingPartnerCreatePage.tsx` | 終了コード `0` |
+| TradingPartnerEditPage | `test -f frontend/src/pages/TradingPartnerEditPage.tsx` | 終了コード `0` |
+| routes.tsx 拡張 | `grep -c "'/trading-partners'" frontend/src/routes.tsx` | `1`（`/trading-partners/new` と `/trading-partners/:id` も同ファイルにある） |
+| AppHeader 拡張 | `grep -c 'trading-partners' frontend/src/components/Navigation/AppHeader.tsx` | `1` |
+| Dashboard 拡張 | `grep -c 'trading-partners' frontend/src/pages/Dashboard.tsx` | `3` |
+
+- **`### テスト未完了` の表が挙げる 4 件も全件が実在する**（同日・同コミットで実測。**4 行すべてを開いた**）:
+
+| 表の Category | 現況を測るコマンド | 出力 |
+|---|---|---|
+| Unit Tests（KanaConverter） | `test -f backend/src/__tests__/unit/utils/kana-converter.test.ts` と `test -f frontend/src/__tests__/utils/kana-converter.test.ts` | どちらも終了コード `0` |
+| Unit Tests（サービス層かな変換） | `grep -c 'toKatakana\|toHiragana' backend/src/services/trading-partner.service.ts` | `5`（単体検証は `backend/src/__tests__/unit/services/trading-partner.service.test.ts` にある） |
+| Integration Tests（かな変換検索） | `test -f backend/src/__tests__/integration/trading-partner-kana-search.integration.test.ts` | 終了コード `0` |
+| E2E Tests（かな変換検索） | `test -f e2e/specs/trading-partners/trading-partner-kana-search.spec.ts` | 終了コード `0` |
+
+- **本 tasks.md の側では既に消化済みである**: `grep -nE '^- \[ \] (1[6-9]|2[0-6])(\.[0-9]+)? ' .kiro/specs/trading-partner-management/tasks.md` の出力は空であり、Task 16〜26 は**すべて `[x]`** である。**設計文書の状態記録だけが当時のまま残っている**
+- **`### 次のステップ` の Phase 1〜8 も同じ性質の記録である。** ただし **8 つの Phase が上の 2 つの表と一対一に対応するわけではない**。指し先は次のとおり分かれる:
+  - **Phase 5〜7**（共通コンポーネント実装・ページコンポーネント実装・ナビゲーション統合）は `### 未実装コンポーネント（Requirement 12関連）` の 8 行が担い、上の表の実測で全件が実在する
+  - **Phase 8**（テスト実装）は `### テスト未完了` の 4 行が担い、上の表の実測で全件が実在する
+  - **Phase 1〜4**（かな変換ユーティリティ実装・フィールド削除マイグレーション・サービス層更新・フロントエンド更新）は、上の 2 つの表ではなく **Task 16〜26 がすべて `[x]` であること**が担う（Phase 1 = Task 16.1/16.2、Phase 2 = Task 17.1、Phase 3 = Task 18.1/18.2、Phase 4 = Task 19.1〜19.4）
+  - **Phase 2 と Phase 4 は上の 2 つの表のどちらにも対応行を持たない。** 補強の実測は次のとおり（2026-09-02、コミット `5176ee4` にリポジトリルートで実測）——Phase 2 は `ls -d backend/prisma/migrations/*remove_kana_fields*` が `backend/prisma/migrations/20251212105900_remove_kana_fields_from_trading_partner` を返し、`grep -cE 'branchNameKana|representativeNameKana' backend/prisma/schema.prisma` の出力が `0` である。Phase 4 は Task 19.1〜19.4 が `[x]` であることによる
+  - **この節は上の 5 件の網には掛からない**（「未」の綴りを持たない）ため、是正の対象に含めるかを着手時に判断すること
+
+**機械保証は無い。断定でなく変異で示す**（115.235 の作法）: 設計文書の状態記録が現況と一致しているかを見る関門は存在しない。`npm run check:design-refs` / `check:design-code-refs` / `check:design-path-refs` / `check:design-measurement-freshness` はいずれも参照の形式・識別子の実在・パスの実在・宣言済み実測値の追随を見るだけである。**断定でなく変異で示した実測がこれである**（site-survey の Task 115.240 が 2026-09-02、コミット `5176ee4` にリポジトリルートで実行）——`| Unit Tests（KanaConverter） | 未実装 | 新規コンポーネント |` の行を `| Unit Tests（KanaConverter） | 未実装（実在しない部品 NonexistentKanaThing） | 新規コンポーネント |` へ書き換えたうえで上の 4 本に `npm run check:cf-evidence` を加えた **5 本**を走らせたところ、**5 本とも終了コード 0 であり、標準出力も基線と `diff` して一行も違わなかった**。変異は事前複製からの `cp` で復元し、`git hash-object .kiro/specs/trading-partner-management/design.md` が `HEAD` の blob `a377dbbfecd901ec7bb9555e726ad5b627620bd8` と一致することで確かめた。
+
+**是正の作法（消さずに書き分けること）**: site-survey の設計文書 `#### 実測値の書き方（タスク 115.212）` の (a) が定める形に揃える——**当時の値（状態記録）を残したうえで、現況の再実測を同じ場所へ並べる**。表を丸ごと削ると、Requirement 12 の実装がどの範囲を未実装として起票されたかという歴史が失われる。
+
+**一件を直して「完全になった」と書かないこと**（115.228 の作法）: 本節が挙げるのは上の網が捕まえた 5 行に、網の盲点として拾った `### テスト未完了` と `### 次のステップ` を加えたものであり、**網の外の状態記録は保証しない**。走査に使った網は `grep -rncE '未実装|未対応|未着手|未完成|未反映|未接続|未配線' .kiro/specs/trading-partner-management/design.md`（出力 `5`）と `grep -rncE '❌|:x:|⚠️|🚧' .kiro/specs/trading-partner-management/design.md`（出力 `0`）の二つであり、**網が数え上げる綴りの外にある状態記録は掛からない**——列挙していない日本語の綴り（本節が実例として挙げた「未完了」がまさにそれである）、英語で書かれた状態記録、記号だけで状態を表す欄、表のセル内に埋もれた状態記録がそれである。
+
+- [ ] 27.1 「未実装」「テスト未完了」の状態記録に現況の再実測を並べる
+  - 対象は `### 未実装コンポーネント（Requirement 12関連）` の表 8 行と `### テスト未完了` の表 4 行、および二つの見出しである。**削除ではなく、当時の記録を残したまま現況を並べること**
+  - 各行の現況は上表のコマンドで測り直すこと。**本節が引く出力は 2026-09-02・コミット `5176ee4` の実測であり、着手時には陳腐化しうる**
+  - `### 次のステップ` の Phase 1〜8 を同じ扱いにするかを判断し、判断の理由を書くこと
+  - **見出しの語も現況ではない。** `### 未実装コンポーネント` という見出しの下に「全件実装済み」と書く形は読み手を誤らせる。見出しの側も書き分けること
+  - **検証**: `grep -cE '未実装|未対応|未着手|未完成|未反映|未接続|未配線' .kiro/specs/trading-partner-management/design.md` の出力が、残した歴史記録の件数と一致すること。`npm run check:design-refs` / `check:design-code-refs` / `check:design-path-refs` / `check:design-measurement-freshness` / `check:cf-evidence` が基線と同じ終了コードであること
+  - **本節が `_Requirements:` を持たないのは意図である。** 本節は受入基準を実装せず、設計文書の状態記録を現況へ追随させるだけである。表が名乗る受入基準番号（12.1-12.27 ほか）を `_Requirements:` に挙げると「当該受入基準を本タスクが被覆した」という偽の申告になり、被覆の集計にも入りうるため、依存と境界だけを書く
+  - _Depends: site-survey スペックの Task 115.240（状態記録の走査と申し送り）_
+  - _Boundary: 本スペックの設計文書に残る状態記録_

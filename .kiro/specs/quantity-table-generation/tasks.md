@@ -2205,3 +2205,40 @@
 - **入力の拒否は変換中を必ず考慮すること**: 単位欄で「立米」が「りゅう」になる類の破壊は、E2E の入力補助でも単体の変更イベントでも変換を経由しないため構造的に検出できない。変換中の扱いは実装とコードの読みで担保すること。
 - **保存要求の重複検出はグループと項目で集合を分ける**: 別の表の識別子であり、同じ値であっても重複ではない。集合を統合すると正当な要求を誤って拒否する。統合すると失敗する検証が入っている。
 - **補完候補の上限は取得の時点で濾す**: 選択の経路が二つ（クリックと矢印＋確定）あり、いずれも同一の候補配列を参照するため、取得時点が単一の関門になる。
+
+## Task 79: 設計文書の不具合分析に残る状態記録が実在しない実装を指す状態を解消する
+
+**経緯**: site-survey の Task 115.213 が設計文書に滞留していた未起票の提案を台帳化したが、同タスクが宣言した三つの網（`別途起票|後続タスクの提案|起票すること` ほか）はいずれも「〜すること」型の提案を捕まえる形であり、**状態記録の形は網の外にある**。site-survey の Task 115.240 が状態記録を狙う別の網を掛けて本節の対象を検出し、申し送りを実行して本節を起こした。**所有権は本スペックにある。**
+
+**測った事実**（いずれもコミット `5176ee4`、2026-09-02 にリポジトリルートで実測）:
+
+- **状態記録の件数**: `grep -cE '未実装|未対応|未着手|未完成|未反映|未接続|未配線' .kiro/specs/quantity-table-generation/design.md` の出力が `1` である。当たった行は `#### PhotoCommentDisplay修正（REQ-35）` の `**不具合分析**` の箇条 3 で、`grep -cF '3. **写真変更ダイアログでの更新未反映**' .kiro/specs/quantity-table-generation/design.md` の出力が `1` である
+- **同じ箇条の 1 と 2 も同型の状態記録だが、上の網には掛かっていない。** 網が数える 7 語に「未取得」「未伝播」が無いためである（`grep -cF '1. **写真選択時のコメント未取得**' .kiro/specs/quantity-table-generation/design.md` と `grep -cF '2. **初回表示時のコメント未伝播**' .kiro/specs/quantity-table-generation/design.md` の出力はいずれも `1` であり、両行とも実在する）。**これは網の盲点の実例である**——本節が挙げる対象は網の出力そのものではなく、網が当てた行の周辺を読んで拾ったものを含む。取り出しは `grep -nF '**不具合分析**' .kiro/specs/quantity-table-generation/design.md` で節を求め、その直下の 3 箇条を読むこと
+- **この節は `現在の実装では` で始まる。** ``grep -cF '現在の実装では`PhotoCommentDisplay`コンポーネント自体は正しく実装されている' .kiro/specs/quantity-table-generation/design.md`` の出力が `1` である。**「現在」は書かれた時点の現在であって、読まれる時点の現在ではない**
+
+**状態記録は現況ではない。二つの根拠が実装から消えている**（同日・同コミットで実測）:
+
+| 状態記録が名指す実体 | 現況を測るコマンド | 出力 |
+|---|---|---|
+| `linkSurveyImage`（箇条 1 が「レスポンスに含まれる`comment`フィールドをローカルステートに反映していない」と述べる API） | `grep -rn 'linkSurveyImage' frontend/src backend/src e2e` | 当たり `0`（**実装・検証のいずれにも存在しない**） |
+| `PhotoChangeDialog`（箇条 3 が「写真を変更した後……フローが欠落している」と述べる部品） | `grep -rl 'PhotoChangeDialog' frontend/src --include=*.tsx --include=*.ts` | 5 ファイル。内訳は定義ファイル自身 1・単体検証 2・ストーリー 1・`QuantityTableEditPage.test.tsx` の註の中での言及 1 であり、**本番経路からの参照が一つも無い**（表の欄では縦棒を書けないため絞り込みは付けていない。5 行を目視すること） |
+| 箇条 2 が述べるコメントの伝播 | `grep -cF 'PhotoCommentDisplay comment={group.surveyImage.comment ?? null}' frontend/src/components/quantity-table/QuantityGroupCard.tsx` | `1`（伝播は結線済み） |
+
+- **`linkSurveyImage` は本書に 6 回現れ、うち 1 回は逆引用符に囲まれた識別子である**（`grep -cF 'linkSurveyImage' .kiro/specs/quantity-table-generation/design.md` の出力が `6`、``grep -c '`linkSurveyImage`' .kiro/specs/quantity-table-generation/design.md`` の出力が `1`）。**実装側の当たりは `0` である**
+- **本書は同じ `PhotoChangeDialog` について別の場所で矛盾する扱いをしている**: `### Architecture Pattern & Boundary Map` の修正コンポーネント（REQ-39）の行と `#### 写真選択・変更ダイアログのレイアウト修正（REQ-39）` は同部品を「未使用」「残置」と書く（site-survey の Task 115.234 が「参照は単体テストのみ」の側を再実測して併記済み）。**一方で本節の箇条 3 は同部品に修正を要求している。** 同一文書内で同じ部品を「未使用・残置」と「要修正」の両方に置くのは、どちらかが陳腐化している
+
+**機械保証は無い。断定ではなく現況そのもので示す**（115.235 の作法）: **変異を当てるまでもなく、今この時点で証拠が揃っている**——`linkSurveyImage` は本書に逆引用符付きで存在し、実装・検証のいずれにも存在せず、それでも基線（コミット `5176ee4`）で `npm run check:design-refs` / `check:design-code-refs` / `check:design-path-refs` / `check:design-measurement-freshness` / `check:cf-evidence` の**5 本がいずれも終了コード 0 である**（2026-09-02 に実測）。`scripts/check-design-code-reference-format.ts` は**参照の書式**（行番号を伴う参照の形）を見る検査であって識別子の実在は見ない。**設計文書が実在しない識別子を名指しても関門は赤くならない。**
+
+**是正の作法（消さずに書き分けること）**: site-survey の設計文書 `#### 実測値の書き方（タスク 115.212）` の (a) が定める形に揃える——**当時の記述を残したうえで、現況の再実測を同じ場所へ並べる**。不具合分析を丸ごと削ると、REQ-35 がどの症状に対して起票されたかという歴史が失われる。site-survey の Task 115.234 が本書の別の行（「参照は単体テストのみ」）へ既に同じ形の併記を施しているので、**その書式に揃えること**（`grep -nF '**「参照は単体テストのみ」は再実測では偽である**' .kiro/specs/quantity-table-generation/design.md` で取り出せる）。
+
+**一件を直して「完全になった」と書かないこと**（115.228 の作法）: 本節が挙げるのは上の網が捕まえた 1 行に、網の盲点として拾った同じ箇条の 2 件を加えたものである。**網の外の状態記録は保証しない**。走査に使った網は `grep -rncE '未実装|未対応|未着手|未完成|未反映|未接続|未配線' .kiro/specs/quantity-table-generation/design.md`（出力 `1`）、`grep -rncE 'スコープ外|持ち越|先送り|保留|見送' .kiro/specs/quantity-table-generation/design.md`（出力 `4`）、`grep -rncE '❌|:x:|⚠️|🚧' .kiro/specs/quantity-table-generation/design.md`（出力 `0`）の三つであり、**網が数え上げる綴りの外にある状態記録は掛からない**——列挙していない日本語の綴り（本節が実例として挙げた「未取得」「未伝播」、および取引先管理スペックで漏れた「未完了」がそれである）、英語で書かれた状態記録、記号だけで状態を表す欄、表のセル内に埋もれた状態記録がそれである。二つ目の網が当てた 4 件は、site-survey の Task 115.240 が一件ずつ開いて**いずれも「当該要件の境界の宣言」であり消化を待つ持ち越しではない**と判定した（2 件は Task 115.234 が既に再実測を併記済みの `PhotoChangeDialog` の残置、1 件は REQ-47 の取り込みマッピング、1 件は REQ-42 AC10 の参照系API）。
+
+- [ ] 79.1 不具合分析の状態記録に現況の再実測を並べる
+  - 対象は `#### PhotoCommentDisplay修正（REQ-35）` の `**不具合分析**` の 3 箇条と、その直前の `現在の実装では` で始まる段落である。**削除ではなく、当時の記録を残したまま現況を並べること**
+  - **`linkSurveyImage` と `PhotoChangeDialog` の現況を測り直してから書くこと。** 本節が引く出力は 2026-09-02・コミット `5176ee4` の実測であり、着手時には陳腐化しうる
+  - **同一文書内の矛盾も併せて解消すること**: `PhotoChangeDialog` を「未使用・残置」と書く 2 箇所と、本節の箇条 3 が「要修正」と書く 1 箇所は両立しない。どちらが現況かを実装を読んで決め、**判断の根拠をコマンドで書くこと**
+  - **`修正対象コンポーネントと変更内容` の表も同じ扱いの対象である**（`PhotoChangeDialog` の行を持つ）。箇条だけ直して表を残さないこと
+  - **検証**: `grep -rn 'linkSurveyImage' frontend/src backend/src e2e` の出力が空であることを再確認したうえで、本書の当該記述がその事実と矛盾しないこと。`npm run check:design-refs` / `check:design-code-refs` / `check:design-path-refs` / `check:design-measurement-freshness` / `check:cf-evidence` が基線と同じ終了コードであること
+  - **本節が `_Requirements:` を持たないのは意図である。** 本節は受入基準を実装せず、設計文書の状態記録を現況へ追随させるだけである。当該節が名乗る受入基準番号（35.1-35.7）を `_Requirements:` に挙げると「当該受入基準を本タスクが被覆した」という偽の申告になり、被覆の集計にも入りうるため、依存と境界だけを書く
+  - _Depends: site-survey スペックの Task 115.240（状態記録の走査と申し送り）_
+  - _Boundary: 本スペックの設計文書に残る状態記録_

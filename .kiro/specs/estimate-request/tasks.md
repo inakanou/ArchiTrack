@@ -2159,3 +2159,49 @@
 
 - フロントエンド E2E（architrack-test の frontend サービス）は nginx 本番ビルドのため、フロントエンド側のコード変更後は `docker compose -p architrack-test ... build frontend` ＋ `up -d --force-recreate frontend` で再ビルドしないと変更が反映されない。Task 86.3 で OCR セクション折りたたみ機能のセレクタが見つからない症状が出たのはこれが原因。`curl http://localhost:5174/assets/index-*.js | grep <新規 data-testid>` で再ビルド済みかを事前確認できる。
 - Task 90.3（Requirement 41 メーラー転記 E2E）は本実装セッションのサンドボックスに docker テストDB（postgres:5433）が無いため **E2E 実行（グリーン確認）が未実施**。lint + type-check は PASS、スペックのロジック/セレクタ/アサーションはレビューで妥当性確認済み（テスト skip/無効化なし＝第3原則準拠）。MEMORY「見積要件はE2Eで検証必須」に従い、docker テスト環境（`npm run test:docker` 起動 + frontend 再ビルド）で `npm run test:e2e -- estimate-request-e2e` を実行しグリーンを確認する作業が**残タスク**として必要。
+
+## Task 93: 設計文書の持ち越し R-39-1 が未消化のまま被覆済みとして数えられている状態を解消する
+
+**経緯**: site-survey の Task 115.213 が設計文書に滞留していた未起票の提案を台帳化したが、同タスクが宣言した三つの網（`別途起票|後続タスクの提案|起票すること` ほか）はいずれも「〜すること」型の提案を捕まえる形であり、**持ち越しの形は網の外にある**。site-survey の Task 115.240 が持ち越しを狙う別の網を掛けて本節の対象を検出し、申し送りを実行して本節を起こした。**所有権は本スペックにある。**
+
+**本節は他の申し送り先と性質が違う。** site-survey の Task 115.240 が同時に起票した project-management / trading-partner-management / quantity-table-generation の 3 件は「**記録が陳腐化している**（既に消化済みなのに未実装と書かれている）」型であるが、**本件は逆で、記録は今も現況であり、持ち越しの側が消化されていない**。
+
+**測った事実**（いずれもコミット `5176ee4`、2026-09-02 にリポジトリルートで実測）:
+
+- **持ち越しの逐語**: `grep -nF '本要件のスコープ外として持ち越す' .kiro/specs/estimate-request/design.md` で 1 行が出る。同じ行は `grep -cF -- '- **R-39-1（既存ドリフト）**' .kiro/specs/estimate-request/design.md` の出力 `1` の行でもある。**逐語を写さず、この取り出しコマンドで読むこと**
+- **持ち越された内容は Req 6 AC 9 の実装ドリフトである**。受入基準の逐語は `grep -nF '9. While 「内訳書を本文に含める」がチェックされていないとき, the システム shall 本文の【内容】セクションに「添付内訳書の通り」と表示する' .kiro/specs/estimate-request/requirements.md` で取り出せる（出力 `1` 行）
+- **持ち越しは今も現況である。実装は無い**: `grep -rn '添付内訳書の通り' backend/src frontend/src` の当たりが `0` である。**バックエンドにもフロントエンドにも当該文字列を出す経路が一つも無い**
+- **持ち越しの中に未起票の提案が埋まっている**: 同じ行の末尾に、後段で Req 6 AC 9 を実装と整合させる場合は別タスクで `EstimateRequestTextService` の追補設計が要る、という記述がある（逐語の取り出しは ``grep -nF '別タスクで `EstimateRequestTextService` の追補設計が必要' .kiro/specs/estimate-request/design.md`` で行うこと。出力は `1` 行である）。**この形は「別タスク」であって「別途起票」ではないため、115.213 の網A に掛からなかった**——`grep -cE '別途起票|後続タスクの提案|起票すること' .kiro/specs/estimate-request/design.md` の出力は `0` である。**115.213 の全称否定は偽になっていない**（同タスクは範囲をコマンドで宣言し、範囲外は保証しないと明記している）。網の外に別の型が在るというだけである
+
+**未消化であるにもかかわらず、受入基準は被覆済みとして数えられている**（同日・同コミットで実測。**これが本節の核心である**）:
+
+- **E2E は当該受入基準の番号を名乗りながら、受入基準と反対のことを検証している**。`grep -cF '@requirement estimate-request/REQ-6.9' e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` の出力が `1`、`grep -cF "test('REQ-6.9: 「内訳書を本文に含める」未チェック時に「添付内訳書の通り」が表示される'" e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` の出力が `1` である。**しかし同 test は「添付内訳書の通り」を一度も照合しない**——`grep -c 'expect.*添付内訳書の通り' e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` の出力が `0` であり、実際に置かれているのは `grep -cF 'await expect(panel.getByText(/テスト項目1/i)).not.toBeVisible({ timeout: getTimeout(5000) });' e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` の出力 `1` の否定照合と、`grep -cF '// 現在の実装では「添付内訳書の通り」というテキストは表示されない' e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` の出力 `1` の註である。**test 名は「表示される」と名乗り、註は「表示されない」と述べる**
+- **除外一覧にも入っていない**: `node -e "const j=require('./e2e/requirement-exclusions.json');console.log(j.exclusions.filter(e=>e.id==='estimate-request/REQ-6.9').length)"` の出力が `0` である
+- **その結果、被覆の関門は当該受入基準を未カバーとして挙げない**: 基線（コミット `5176ee4`）の `npm run check:req-coverage` の出力に `estimate-request/REQ-6.9` は現れない（当たり `0`。同関門は基線から終了コード 1 であり、未カバー 215 件・到達被覆 2632/2684 = 98.1% を報告するが、**当該受入基準はその 215 件に含まれない**）。`npm run check:trace-coverage` の出力にも現れない（当たり `0`）
+- **`_Requirements:` の側では被覆済みとして申告されている**: `grep -nF '6.9' .kiro/specs/estimate-request/tasks.md` が返す `_Requirements:` 行は 4 本あり、いずれも `6.9` を挙げる（`grep -nE '^  - _Requirements:.*\b6\.9\b' .kiro/specs/estimate-request/tasks.md` で取り出せる）
+
+**機械保証は無い。断定ではなく現況そのもので示す**（115.235 の作法）: **変異を当てるまでもなく、今この時点で証拠が揃っている**——受入基準は実装されておらず、E2E は反対を検証しており、除外一覧にも無く、それでも `check:req-coverage` は当該受入基準を未カバーとして挙げない。**受入基準の番号を名乗る注釈が在れば被覆と数える構造は、注釈と検証内容の一致を見ない。**
+
+**一件を直して「完全になった」と書かないこと**（115.228 の作法）: 本節が挙げるのは網が捕まえた 1 件である。**網の外の持ち越しは保証しない**。走査に使った網は `grep -rncE 'スコープ外|持ち越|先送り|保留|見送' .kiro/specs/estimate-request/design.md`（出力 `14`）、`grep -rncE '未実装|未対応|未着手|未完成|未反映|未接続|未配線' .kiro/specs/estimate-request/design.md`（出力 `0`）、`grep -rncE '❌|:x:|⚠️|🚧' .kiro/specs/estimate-request/design.md`（出力 `0`）の三つである。一つ目の網が当てた 14 件は site-survey の Task 115.240 が**一件ずつ開いた**（抜き取りではない）。内訳は次のとおりで、**消化を待つ持ち越しは R-39-1 の 1 件だけ**である。取り出しは `grep -nE 'スコープ外|持ち越|先送り|保留|見送' .kiro/specs/estimate-request/design.md` で行うこと:
+
+| 分類 | 件数 | 内容 |
+|---|---|---|
+| 消化を待つ持ち越し | 1 | R-39-1（「本要件のスコープ外として持ち越す」と書く行） |
+| 同じ R-39-1 を別の場所から参照する行 | 2 | Req 6 AC 9 の既存ドリフトを本要件のスコープ外と述べる 2 行。**独立した持ち越しではなく R-39-1 と同一の対象を指す** |
+| `#### スコープ外（Out of Boundary）` の見出し | 3 | `grep -cF '#### スコープ外（Out of Boundary）' .kiro/specs/estimate-request/design.md` の出力が `3` |
+| 当該要件の境界の宣言 | 5 | Requirement 29 の対象外・後段の見積書作成機能・ロールバック手順（運用判断）・折りたたみ中の完了通知の既存挙動維持 2 件 |
+| 条件付きの再検討・設計判断 | 2 | 共通 `CollapsibleSection` 抽出は条件成立時に再検討、`MailLauncherButtons` の新規コンポーネント化は過剰のため見送り。**いずれも判断が下されており、担い手を待つ持ち越しではない** |
+| UI の状態語 | 1 | 再認証中の「処理保留中」 |
+
+**網が数え上げる綴りの外にある持ち越しは掛からない**——列挙していない日本語の綴り（「後日」「次フェーズ」など）、英語で書かれた持ち越し、記号だけで状態を表す欄、表のセル内に埋もれた持ち越しがそれである。
+
+- [ ] 93.1 R-39-1 の持ち越しに現況の再実測を並べ、消化の道筋を決める
+  - **まず現況を測り直すこと**。`grep -rn '添付内訳書の通り' backend/src frontend/src` の当たりが今も `0` かを確かめる。**本節が引く出力は 2026-09-02・コミット `5176ee4` の実測であり、着手時には陳腐化しうる**
+  - **持ち越しを消化するか、除外へ移すかを決めること。** どちらであっても「番号を名乗りながら反対を検証する E2E」は残せない
+  - **持ち越しを続ける場合**: 記録は site-survey の設計文書 `#### 実測値の書き方（タスク 115.212）` の (a) が定める形に揃え、**当時の記述を残したうえで現況の再実測を同じ場所へ並べる**。あわせて `e2e/requirement-exclusions.json` へ当該受入基準を登録し、`description` が約束する代替検証が現に存在するかを確かめること。**登録すると `npm run check:req-coverage` の内訳が動く**ため、基線との差分を実出力で示すこと
+  - **持ち越しを消化する場合**: `EstimateRequestTextService` の本文生成に当該表示を加え、E2E の test 名・註・照合を受入基準に合わせて書き直すこと
+  - **E2E の是正は本節と切り離せない。** 現状の test は名前と内容が食い違い、註が実装の欠落を追認している。**test を消して被覆を落とすのではなく、名前と内容と註を一致させること**（第3原則。前提条件で検査を自動的に無効化してはならず、満たされないなら失敗とすること）
+  - **検証**: `npm run check:req-exclusions` / `check:trace-coverage` / `check:req-coverage` の出力を基線と `diff` で突き合わせ、動いた行を実出力で示すこと。`npm run check:design-refs` / `check:design-code-refs` / `check:design-path-refs` / `check:design-measurement-freshness` / `check:cf-evidence` が基線と同じ終了コードであること
+  - **本節が `_Requirements:` を持たないのは意図である。** 本節は消化の道筋を決める起票であり、`6.9` / `39.9` を `_Requirements:` に挙げると「当該受入基準を本タスクが被覆した」という偽の申告になる。**当該受入基準が偽の被覆に数えられていることこそが本節の対象である**ため、同じ形を本節が繰り返してはならない。依存と境界だけを書く
+  - _Depends: site-survey スペックの Task 115.240（持ち越しの走査と申し送り）_
+  - _Boundary: 本スペックの設計文書に残る持ち越し R-39-1 と、その受入基準を名乗る E2E・除外一覧の整合_
