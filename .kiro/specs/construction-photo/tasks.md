@@ -369,3 +369,61 @@
 | 20.9 | 15.1 | 20.20 | 15.2 |
 | 20.10 | 15.1 | 20.21 | 15.3 |
 | 20.11 | 15.2 | | |
+
+## Task 16: タップ領域の下限（44 論理ピクセル）の出所を確定させる
+
+**経緯**: site-survey の Task 115.217 が同スペックのタップ領域の下限を単一の出所へ集約した際、そのレビューが `frontend/src/components/construction-photos/` にも同じ下限の複製があることを**別スペックの所管**として検出した。site-survey の Task 115.249 が「115.217 が確立した切り分けを工事写真へそのまま適用できるか」を判断し、その帰結を本節へ起票した。**所有権は本スペックにある。** site-survey 側は実装コードを一行も変更していない。
+
+**115.217 が確立した切り分け**（理由の全文は `frontend/src/components/site-surveys/tap-target.constants.ts` の冒頭にある）: **実装側は単一の出所へ一本化し、検証側は 44 を自前で持ち続ける**。後者の理由は「44 は外部の権威（WCAG 2.2 SC 2.5.5）が定めた下限であり、実装が調整する値ではない。外部の権威が定めた下限は、実装から独立した立会人が測らなければ検証にならない」である。
+
+**判断（Task 115.249）**: **検証側については適用できる。実装側については、そのままでは適用できない。** 理由は下の実測にある。
+
+**測った事実**（いずれもコミット `b41c93a6`、2026-09-03 にリポジトリルートで実測）:
+
+- **母集団**: `grep -rnE "(^|[^0-9])44([^0-9]|$)" --include=*.ts --include=*.tsx frontend/src/components/construction-photos` の当たりが `29` 行。内訳は `PhotoItemPanel.test.tsx` が 17 行、`PhotoItemPanel.tsx` が 10 行、`ConstructionPhotoImageViewer.tsx` が 2 行である
+- **宣言の箇所**: `grep -rnE "min(Width|Height): *'44px'" --include=*.ts --include=*.tsx frontend/src/components/construction-photos` の当たりが `10` 行。`PhotoItemPanel.tsx` に 8 行（`checkboxMobile` / `orderButtonMobile` / `deleteButtonMobile` / `dragHandleMobile` の四つ）、`ConstructionPhotoImageViewer.tsx` に 2 行（`rotationButton` の一つ）である
+- **本スペックの要件は 44 という数値を一度も綴らない**: `grep -c "44" .kiro/specs/construction-photo/requirements.md` の出力が `0` である。受入基準 19.3 の逐語は「The 工事写真機能 shall 写真項目の操作コントロール（チェックボックス・並び替え・削除・ドラッグハンドル等）をモバイルでもタップ可能な操作領域で表示する」であり、**「タップ可能」とだけ述べて寸法を課さない**（`grep -n "^3\. The 工事写真機能 shall 写真項目の操作コントロール" .kiro/specs/construction-photo/requirements.md` で取り出せる）
+- **したがって 44 の帰属先は本スペックの受入基準ではない**。site-survey の要件28.3 は「最小44x44論理ピクセル以上」と数値を条文で運ぶが、本スペックの 19.3 にはその条文が無い。**帰属先は `.kiro/steering/tech.md` の「レスポンシブ・ビューポート方針」＞「モバイルの下限値」**（操作系コントロールのタップ領域は最小 44×44 論理ピクセル。WCAG 2.2 SC 2.5.5 Target Size (Enhanced)）**という横断ルールである**。同方針は「新規画面・コンポーネントも同じ方針に従う」と明記する。同じ結論を site-survey が自スペック内の二部品について先に出しており（同スペックの Task 115.246。`.kiro/specs/site-survey/requirements.md` の要件28.3 の注記）、**横断的な表示標準を個別要件の受入基準へ複製しないという判断もそこで下されている**
+- **本スペックの設計文書もタップ領域を扱っていない**: `grep -c "44\|タップ" .kiro/specs/construction-photo/design.md` の出力が `0` である。追跡表の `| 19 | 詳細画面モバイル | useMediaQuery, responsive, DetailPage, PhotoItemPanel | - | - |` が担い手を挙げるのみである
+- **10 箇所は均質ではない**。`PhotoItemPanel.tsx` の 8 箇所は `R19.3: 操作系コントロールのタップ領域を44px以上に拡大` の注釈を持ち、`...(isMobile ? styles.checkboxMobile : {})` の形で**モバイル幅でのみ**合成される（`grep -n "isMobile ? styles" frontend/src/components/construction-photos/PhotoItemPanel.tsx`）。一方 `ConstructionPhotoImageViewer.tsx` の 2 箇所は**注釈を持たず、要件番号を名乗らず、`style={STYLES.rotationButton}` として画面幅によらず適用される**（同ビューアは R14 の所管であり、R14 はタップ領域の条項を持たない）
+- **同じビューアの中で、隣り合う操作群が下限を別々の場所から得ている**: `ConstructionPhotoImageViewer.tsx:628` は `components/site-surveys/ZoomControls` を描画し、同部品は `TAP_TARGET_MIN_PX` を `./tap-target.constants` から取り込んでいる（`grep -n "TAP_TARGET_MIN_PX" frontend/src/components/site-surveys/ZoomControls.tsx`）。**つまり工事写真のズーム操作手段の下限は既に site-survey の単一の出所から来ており、同じビューアの中の回転ボタン（同ファイル `:638` / `:662`）だけが `'44px'` を直に綴っている。** しかも `ZoomControls` 側の注釈は `Req 34.5`（site-survey の受入基準）を名乗っており、**本スペックの画面に、本スペックの要件が課していない番号の根拠が持ち込まれている**
+
+**実装側を「そのまま」一本化できない理由**（上の実測から導かれる二点）:
+
+1. **115.217 が作った単一の出所は `components/site-surveys/` に在り、そのモジュール自身が工事写真を射程外と宣言している**（`frontend/src/components/site-surveys/tap-target.constants.ts` 冒頭）。取り込むこと自体は設計制約に反しない——`design.md` の R20 の制約は `components/construction-photos/* → components/site-surveys/*` の一方向のみを許し、既に `ConstructionPhotoImageViewer.tsx` が `image-viewer.constants` と `ZoomControls` を取り込む先例がある。**しかし横断ルール（steering）由来の下限を、一機能のフォルダに置いた定数から借りる形は、出所の名前が根拠を偽って伝える。** `.kiro/steering/tech.md` はブレークポイントの単一情報源を `utils/responsive.ts` と定めており、横断的な下限の置き場所も同じ層が自然である。**置き場所の移設は site-survey スペックの所有物にも触れるため、本スペック単独では決められない**
+2. **10 箇所のうち 2 箇所は帰属が付いていない**。均さずに一本化すると、要件 19.3 の対象ではない回転ボタンが 19.3 の名前で下限を得ているように読める状態を固定してしまう。**帰属の記録が先である**（site-survey が Task 115.246 で先に踏んだ順序と同じ）
+
+**検証側については適用できる**（複製を残す側の理由は工事写真でもそのまま成立する。44 は WCAG が定める外部の下限であり、本スペックの実装が調整する値ではない）。**ただし現状は「複製を残す」以前に、2 箇所について検証が一つも無い**:
+
+- **変異で実測した**（同コミット・同日）。基線は `npm --prefix frontend run test -- --run src/components/construction-photos src/pages/ConstructionPhotoImageViewerPage.test.tsx` が 16 ファイル 208 件すべて緑である
+  - `PhotoItemPanel.tsx` の `minWidth`/`minHeight` を `'44px'` から `'20px'` へ変えて `PhotoItemPanel.test.tsx` だけを走らせると、**37 件中 5 件が落ちる**（落ちるのは `R19.3:` を名乗る 5 件である）。実装を変えれば検証が追随する
+  - **同じ置換を `ConstructionPhotoImageViewer.tsx` の 2 箇所へ当てると、16 ファイル 208 件が全て緑のまま通る。** さらに `grep -rnE "(^|[^0-9])44([^0-9]|$)" e2e/specs/construction-photos` の当たりが `0` 行であり、**E2E にも当該下限を測る主張が一つも無い**
+  - 変異はいずれも `git checkout --` で復元し、`sha256sum -c` で復元を照合した
+- **つまり回転ボタンの下限は、要件にも設計にも根拠が書かれておらず、単体検証にも E2E にも立会人がいない。** 誰かが値を下げても何も赤くならない
+
+**一件を直して「完全になった」と書かないこと**: 本節が挙げるのは上の二本の `grep` が捕まえた範囲だけである。**走査根は `frontend/src/components/construction-photos` と `e2e/specs/construction-photos` の二つであり、その外の工事写真関連ファイル（`frontend/src/pages/ConstructionPhoto*`、共有部品の側）は保証しない。** また `44` という綴りを持たない形で下限を課す実装（`2.75rem` 等）は上の網に掛からない。
+
+- [ ] 16.1 タップ領域の下限の帰属を本スペックの文書へ記録する
+  - **受入基準を足さないこと**。横断的な表示標準を個別要件へ複製すると、標準を改定する際に追随漏れが生じる。site-survey が同じ判断を Task 115.246 で下しており、その注記（`.kiro/specs/site-survey/requirements.md` の要件28.3 の注記）が先例である
+  - 記録すべき内容: (a) 19.3 が課すのは「タップ可能な操作領域」であって数値ではないこと、(b) 実装が採る 44 という値の根拠は `.kiro/steering/tech.md` の「レスポンシブ・ビューポート方針」＞「モバイルの下限値」であること、(c) `ConstructionPhotoImageViewer` の回転ボタンは 19.3 の対象外（R14 の所管であり R14 はタップ領域の条項を持たない）であり、その下限の根拠も同じ横断ルールであること
+  - **着手時に上の実測を取り直すこと。** 本節が引く件数は 2026-09-03・コミット `b41c93a6` の値である
+  - **steering の節名・箇条名への参照は行番号で書かないこと**（改名を検出する機構がリポジトリに無い。site-survey の Task 115.246 のレビューが確認済み）
+  - _Depends: site-survey スペックの Task 115.249（下限の出所の判断と申し送り）_
+  - _Boundary: 本スペックの文書におけるタップ領域の下限の帰属_
+
+- [ ] 16.2 帰属の無い 2 箇所に立会人を置く
+  - 対象は `frontend/src/components/construction-photos/ConstructionPhotoImageViewer.tsx` の `rotationButton` の `minWidth` / `minHeight` である。**現状は変異を当てても 16 ファイル 208 件が緑のまま通る**（上の実測）
+  - **検証側は 44 を自前で綴ること**（site-survey の Task 115.217 が確立した切り分け。理由は `frontend/src/components/site-surveys/tap-target.constants.ts` の冒頭にある）。実装から定数を取り込むと、主張が「実装は実装に等しい」へ弱まる
+  - **是正後は同じ置換の変異を当てて、実際に赤くなることを実測すること**
+  - 既存の `PhotoItemPanel.test.tsx` の 5 件と同じ形（`tapWidth` / `tapHeight` による実寸の下限主張）に揃えること
+  - _Depends: 16.1_
+  - _Boundary: `ConstructionPhotoImageViewer` の回転操作のタップ領域の検証_
+
+- [ ] 16.3 実装側の下限を単一の出所から得る形にするかを決める
+  - **16.1 の後に着手すること。** 帰属が記録されていない状態で一本化すると、要件 19.3 の対象でない箇所まで 19.3 の名前で下限を得ているように読める状態が固定される
+  - 選択肢は三つある。(a) `frontend/src/components/site-surveys/tap-target.constants.ts` を取り込む（設計の R20 制約が許す向きであり、`image-viewer.constants` / `ZoomControls` の取り込みという先例もある。ただし同モジュールは自身を site-survey の所有物と宣言しており、横断ルール由来の下限を一機能のフォルダから借りる形になる）、(b) 横断ルールにふさわしい層（`frontend/src/utils/` — `.kiro/steering/tech.md` がブレークポイントの単一情報源をこの層に定めている）へ移設し、site-survey / 工事写真の双方がそこを参照する、(c) 現状のまま複製を残し、複製してよい理由を一箇所へ書く
+  - **(b) を選ぶ場合は site-survey スペックの所有物（`tap-target.constants.ts` とその参照元 6 ファイル）に触れるため、本スペック単独では決められない。** site-survey 側と調整すること
+  - **どれを選んでも、`ZoomControls` の注釈が本スペックの画面に対して `Req 34.5`（site-survey の受入基準）を名乗っている状態をどう扱うかを併せて決めること**
+  - **`_Requirements:` を持たないのは意図である。** 本節は受入基準を実装せず、実装が既に満たしている下限の出所を整えるだけである。19.3 を挙げると「当該受入基準を本節が被覆した」という偽の申告になり、被覆の集計にも入りうるため、依存と境界だけを書く
+  - _Depends: 16.1_
+  - _Boundary: 工事写真のタップ領域の下限の実装側の出所_
