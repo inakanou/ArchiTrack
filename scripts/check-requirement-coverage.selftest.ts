@@ -196,7 +196,11 @@ import {
   findUnknownCriterionCoverageMarks,
   isDeclaredCoverageHeader,
   isRetiredCriterionText,
+  extractFileCoverage,
   listCoverageScanFiles,
+  listCoverageScanFilesAdmittedBy,
+  COVERAGE_FILE_PATTERN,
+  SCAN_EXCLUDED_DIRECTORIES,
   MIN_CRITERION_QUOTE_LENGTH,
   reportCriterionTextCopies,
   isVerificationFile,
@@ -1557,6 +1561,474 @@ function checkScanRootsAreTheOnesMainUses(): string[] {
           `既定引数（${SCAN_ROOTS_NAME}）以外の根を通す経路を残さないこと`
       );
     }
+  }
+
+  return failures;
+}
+
+/** 走査対象のファイル名の型を持つ定数の名前。原文の照合はこの名前で行う */
+const COVERAGE_PATTERN_NAME = 'COVERAGE_FILE_PATTERN';
+
+/** 除外するディレクトリ名の一覧を持つ定数の名前。原文の照合はこの名前で行う */
+const SCAN_EXCLUSIONS_NAME = 'SCAN_EXCLUDED_DIRECTORIES';
+
+/**
+ * `COVERAGE_FILE_PATTERN` の選択肢を宣言そのものから取り出す
+ *
+ * 選択肢の一覧を自己検査の側へ書き写すと、本体の型を書き換えた日に**写しだけが古いまま**
+ * 緑になる。宣言の原文（`\.(a|b)$` の形）から割って取る。**この形でなくなったら
+ * 割れないことを失格として返す**——黙って「選択肢ゼロ件」にすると、以下の繰り返しが
+ * 一度も回らずに緑になる（第3原則）。
+ */
+function parseCoverageExtensionAlternatives(): { alternatives: string[]; failure: string | null } {
+  const source = COVERAGE_FILE_PATTERN.source;
+  const matched = /^\\\.\(([^)]*)\)\$$/.exec(source);
+  if (!matched || !matched[1]) {
+    return {
+      alternatives: [],
+      failure:
+        `${COVERAGE_PATTERN_NAME} の宣言が \`\\.(選択肢|…)$\` の形でない（原文: ${source}）。` +
+        '選択肢へ割れないため、拡張子ごとの寄与を測れない。形を戻すか、本検査の割り方を改めること',
+    };
+  }
+  const alternatives = matched[1].split('|').filter((piece) => piece.length > 0);
+  if (alternatives.length === 0) {
+    return {
+      alternatives: [],
+      failure: `${COVERAGE_PATTERN_NAME} に選択肢が一件も無い（母集団が空。走査対象は 0 件になる）`,
+    };
+  }
+  return { alternatives, failure: null };
+}
+
+interface CoverageExtensionWitness {
+  /** `COVERAGE_FILE_PATTERN` に現れる選択肢（正規表現の断片。原文のまま写す） */
+  extension: string;
+  /** その選択肢が拾うファイルからしか被覆されない受入基準の番号 */
+  witness: string;
+}
+
+/**
+ * 走査する拡張子ごとの固定点
+ *
+ * `COVERAGE_FILE_PATTERN` から選択肢を落とす変異は、同定数だけを見る主張では捕まらない
+ * （残った選択肢について「落とすと縮む」を測り直すだけで緑になる）。本一覧は
+ * **同定数の外に置いた第二の宣言**であり、両者の一致を課すことで選択肢の増減そのものを
+ * 赤くする（`CODE_SCAN_ROOT_WITNESSES` と同じ作法）。
+ *
+ * `witness` は 2026-09-04 にコミット `d1bb8464` の作業ツリーで実測して選んだ。当該の拡張子の
+ * 複数のファイルが名乗っており（`ts` 側の `site-survey/REQ-32.3` は 12 ファイル、`tsx` 側の
+ * `estimate-creation/REQ-47.3` は 5 ファイル）、一枚の移動や改名では消えない。消えた場合は
+ * 本検査が名指しで赤くなるため、別の固定点へ差し替えること。
+ */
+const COVERAGE_EXTENSION_WITNESSES: readonly CoverageExtensionWitness[] = [
+  { extension: 'ts', witness: 'site-survey/REQ-32.3' },
+  { extension: 'tsx', witness: 'estimate-creation/REQ-47.3' },
+];
+
+/**
+ * 拡張子ごとに、その選択肢だけが拾うファイルを振り分ける
+ *
+ * 母集団は `listCoverageScanFiles`（抽出器と同一の出所）から受け取り、**走査規則を
+ * 自己検査の側へ複製しない**。ここで行うのは、既に集まった一覧を「どの選択肢が拾ったか」で
+ * 割ることだけである。ある選択肢を落とす変異は、その選択肢**だけ**が拾うファイルが
+ * 母集団から消えることと同値であり、他の選択肢に包含される選言はここで空になる。
+ */
+function partitionScanFilesByExclusiveExtension(
+  alternatives: readonly string[]
+): Map<string, string[]> {
+  const exclusive = new Map<string, string[]>();
+  for (const alternative of alternatives) exclusive.set(alternative, []);
+
+  for (const file of listCoverageScanFiles()) {
+    const name = path.basename(file);
+    const matching = alternatives.filter((alternative) =>
+      new RegExp(String.raw`\.(${alternative})$`).test(name)
+    );
+    if (matching.length === 1 && matching[0]) {
+      exclusive.get(matching[0])?.push(file);
+    }
+  }
+  return exclusive;
+}
+
+/**
+ * 走査する拡張子がどれも遊んでいない（落とすと被覆が真に縮む）
+ *
+ * 被覆率が読むのは `CODE_DIRS` の下の、`COVERAGE_FILE_PATTERN` に掛かる名前だけである。
+ * 走査根と同じく、選択肢が一つ落ちるとその拡張子のファイルが丸ごと数えられなくなり、
+ * 被覆が静かに縮む。**根の側（`checkEveryCodeScanRootContributes`）は固めたが、根の下の
+ * どのファイルを読むかを決める選別は無言のままだった**（タスク 115.260）。
+ *
+ * 三つの向きから挟む。
+ *
+ *   1. **選択肢ごとの固定点を名指しで置く。** `COVERAGE_EXTENSION_WITNESSES` を宣言の外に
+ *      置き、両者の一致を課す。選択肢を落とす変異・足す変異そのものが赤くなる。
+ *   2. **どの選択肢も単独で拾うファイルを持つ。** 他の選択肢に包含される選言は
+ *      「落としても何も起きない＝落とされても誰も気づかない」死んだ選言であり、
+ *      固定できるふりだけの検査を生む。是正前の `spec\.ts` がこれであった
+ *      （`ts` に包含され、落としても走査対象は 1729 件のまま動かなかった。2026-09-04 実測）。
+ *   3. **どの選択肢も落とすと被覆集合が真に縮む。** 固定点を持たない選択肢（将来増える
+ *      選択肢も含む）を、機構の側で拾う。
+ *
+ * 併せて、本番の走査が同定数を通っていることを原文から照合する。定数だけを直して
+ * `listCoverageScanFiles` の中の型は元のまま、という食い違いは実データでは現れない。
+ *
+ * 母集団が空の場合（固定点が零件・選択肢が零件・機能が零件・被覆印が零件）は失格にする。
+ * 空の繰り返しは「どの選択肢も縮む」を恒真にするため、緑で通す抜け道になる（第3原則）。
+ *
+ * 2026-09-04 にコミット `d1bb8464` の作業ツリーで実測した。`COVERAGE_FILE_PATTERN` から
+ * `tsx` を落とすと本検査が「固定点が登録されている拡張子 tsx が COVERAGE_FILE_PATTERN に
+ * 無い」を挙げて落ちる。`ts` を落とす変異でも同じ形で落ちる。`spec\.ts` を選言へ戻すと
+ * 「選択肢 spec\.ts が単独で拾うファイルが一件も無い」で落ちる。`listCoverageScanFiles` の
+ * `findFiles(dir, COVERAGE_FILE_PATTERN)` を型の直書き（`/\.(ts|tsx)$/`）へ戻すと
+ * 「COVERAGE_FILE_PATTERN で走査していない」で落ちる。
+ *
+ * **対照自身が空振りしていないことも測った。** `ts` の固定点を tsx 側の番号
+ * （`estimate-creation/REQ-47.3`）へ差し替えると「ts 以外のファイルからも被覆されるように
+ * なった」で落ち、`COVERAGE_EXTENSION_WITNESSES` を空にすると「対照群が空」で落ちる。
+ *
+ * **是正前（本検査を欠く状態）は無言であった。** `tsx` を落としてもゲートの出力だけが
+ * 38167 バイトから 70418 バイトへ動き（construction-photo の受入基準は 143/145 から
+ * 113/145 へ）、自己検査の側で落ちたのは本欄の主題と無関係な「規則4が落とす被覆印の母集団が
+ * 実測と過不足なく一致する」1 件だけであった——同検査の台帳がたまたま `.tsx` のファイルを
+ * 1 件名指ししていた巻き添えであり、拡張子の選別を主題にした検査は一つも無かった。
+ */
+function checkEveryScannedExtensionContributes(): string[] {
+  const failures: string[] = [];
+
+  // 第3原則: 対照群・母集団が空なら、以下の繰り返しは一度も回らずに緑になる
+  if (COVERAGE_EXTENSION_WITNESSES.length === 0) {
+    return ['走査する拡張子の固定点が一件も登録されていない（対照群が空。検査が空振りしている）'];
+  }
+  const { alternatives, failure } = parseCoverageExtensionAlternatives();
+  if (failure) return [failure];
+
+  // 1. 固定点の一覧と選択肢の一覧が一致する（選択肢の増減を赤くする）
+  const registered = COVERAGE_EXTENSION_WITNESSES.map((entry) => entry.extension);
+  for (const alternative of alternatives) {
+    if (!registered.includes(alternative)) {
+      failures.push(
+        `走査する拡張子 ${alternative} に固定点が登録されていない。` +
+          `\`COVERAGE_EXTENSION_WITNESSES\` へ、その拡張子からしか被覆されない受入基準を登録すること`
+      );
+    }
+  }
+  for (const alternative of registered) {
+    if (!alternatives.includes(alternative)) {
+      failures.push(
+        `固定点が登録されている拡張子 ${alternative} が ${COVERAGE_PATTERN_NAME} に無い。` +
+          '選択肢を落としたのなら、その拡張子のファイルはもう読まれていない'
+      );
+    }
+  }
+
+  const scanned = listCoverageScanFiles();
+  if (scanned.length === 0) {
+    return [
+      '走査対象のファイルが一件も無い（母集団が空。以下の「落とすと縮む」は測る対象を失っている）',
+    ];
+  }
+  const exclusive = partitionScanFilesByExclusiveExtension(alternatives);
+
+  // 割り方が宣言と一致していること（どの選択肢にも掛からない走査対象は在りえない）
+  const unmatched = scanned.filter(
+    (file) =>
+      !alternatives.some((alternative) =>
+        new RegExp(String.raw`\.(${alternative})$`).test(path.basename(file))
+      )
+  );
+  if (unmatched.length > 0) {
+    failures.push(
+      `走査対象 ${unmatched.length} 件がどの選択肢にも掛からない（例: ${unmatched[0]}）。` +
+        `${COVERAGE_PATTERN_NAME} の割り方と実際の照合が食い違っている`
+    );
+  }
+
+  // 2. どの選択肢も単独で拾うファイルを持つ（死んだ選言を赤くする）
+  for (const alternative of alternatives) {
+    if ((exclusive.get(alternative) ?? []).length === 0) {
+      failures.push(
+        `選択肢 ${alternative} が単独で拾うファイルが一件も無い（他の選択肢に包含される死んだ選言）。` +
+          '落としても母集団は動かないため、固定できるふりだけの選択肢になっている。撤去すること'
+      );
+    }
+  }
+
+  const featureNames = discoverFeatures();
+  if (featureNames.length === 0) {
+    return ['機能を一件も検出できない（自己検査の前提が失われた）'];
+  }
+  const criteriaOf = (files: readonly string[]): Set<string> => {
+    const criteria = new Set<string>();
+    for (const file of files) {
+      const extracted = extractFileCoverage(fs.readFileSync(file, 'utf-8'), featureNames);
+      for (const id of extracted.acceptanceCriteria) criteria.add(id);
+    }
+    return criteria;
+  };
+  const full = criteriaOf(scanned);
+  if (full.size === 0) {
+    return [
+      '走査対象をすべて与えても被覆印が一件も拾えない（走査が壊れている。以下の「落とすと縮む」は' +
+        '測る対象を失っている）',
+    ];
+  }
+
+  for (const alternative of alternatives) {
+    const dropped = new Set(exclusive.get(alternative) ?? []);
+    const without = criteriaOf(scanned.filter((file) => !dropped.has(file)));
+
+    // 3. 落とすと被覆集合が真に縮む
+    if (without.size >= full.size) {
+      failures.push(
+        `走査する拡張子 ${alternative} を落としても被覆する受入基準が減らない` +
+          `（${full.size} → ${without.size}）。` +
+          `${COVERAGE_PATTERN_NAME} に置く意味が失われている`
+      );
+    }
+
+    // 1b. 固定点が、当該の拡張子からしか被覆されていない
+    const entry = COVERAGE_EXTENSION_WITNESSES.find((item) => item.extension === alternative);
+    if (!entry) continue; // 未登録は上で既に失格にしている
+    if (!full.has(entry.witness)) {
+      failures.push(
+        `${entry.witness} が被覆印として一件も拾われない（拡張子 ${alternative} の固定点が失効した）。` +
+          '別の固定点へ差し替えること'
+      );
+      continue;
+    }
+    if (without.has(entry.witness)) {
+      failures.push(
+        `${entry.witness} が拡張子 ${alternative} 以外のファイルからも被覆されるようになった。` +
+          'この拡張子の寄与を測る固定点として使えないため、別の固定点へ差し替えること'
+      );
+    }
+  }
+
+  // 本番の走査が同定数を通っていることを原文から照合する
+  const absolute = path.resolve(EXTRACTOR_SOURCE_PATH);
+  if (!fs.existsSync(absolute)) {
+    return [`${EXTRACTOR_SOURCE_PATH} が存在しない（自己検査の前提が失われた）`];
+  }
+  const source = fs.readFileSync(absolute, 'utf8');
+  if (!new RegExp(String.raw`findFiles\(dir, ${COVERAGE_PATTERN_NAME}\)`).test(source)) {
+    failures.push(
+      `${EXTRACTOR_SOURCE_PATH}: listCoverageScanFiles が ${COVERAGE_PATTERN_NAME} で走査していない。` +
+        '型を直書きに戻すと、定数だけを直しても本番の母集団は動かない'
+    );
+  }
+
+  return failures;
+}
+
+interface ExcludedDirectoryRecord {
+  /** `SCAN_EXCLUDED_DIRECTORIES` に現れる除外名 */
+  name: string;
+  /**
+   * 実データでの現況
+   *
+   * - `load-bearing`: 外すと走査対象が現に広がる。`witness` にその出所を書く
+   * - `dormant`: 外しても走査対象が一件も増えない（走査根の下に同名のディレクトリが無い）
+   */
+  status: 'load-bearing' | 'dormant';
+  /** `load-bearing` のときだけ書く。外したときに入ってくるファイルが在るディレクトリ */
+  witness?: string;
+  /** その分類を選んだ理由（実測の要約） */
+  note: string;
+}
+
+/**
+ * 除外するディレクトリの台帳
+ *
+ * **走査根・拡張子とは向きが逆である。** 根や拡張子は「落とすと母集団が縮む」向きに効くため
+ * 「外すと縮む」で固定できるが、除外は「外すと母集団が広がる」。広がる側は被覆率を上げも
+ * 下げもしうるが、いずれにせよ検査は緑のまま通り、出力だけが静かに動く。そこで
+ * **一件ずつ現況を分類して宣言し、その分類が実データと合っていることを機械に測らせる。**
+ *
+ * 分類は 2026-09-04 にコミット `d1bb8464` の作業ツリーで、走査根
+ * （`backend/src` / `frontend/src` / `e2e`）に対して実測した。既定の走査対象 1729 件に対し、
+ * `generated` を外すと 1783 件へ 54 件増え、増えた分はすべて `backend/src/generated` の下で
+ * あった。残る四件（`node_modules` / `dist` / `.git` / `coverage`）を外しても 1729 件のまま
+ * 一件も増えない——走査根の下に同名のディレクトリが一つも無いためである
+ * （`find backend/src frontend/src e2e -name <名前>` がいずれも空を返す）。
+ *
+ * **効いていない四件を「外すと広がる」で固定してはならない。** 実データが一件も admit しない
+ * 名前にその主張を貼ると、**決して落ちない検査**になる——本タスクが取り除こうとしている
+ * 空振りそのものである。よって `dormant` として記録し、**その分類の側に強制を与える**
+ * （タスク 115.255 の作法。分類の札を増やすなら、その新値だけが負う強制を機械へ与えること）。
+ * `dormant` と書いた名前が現に効き始めたら本検査は赤くなり、台帳の書き換えを要求する。
+ *
+ * **四件を撤去しない理由。** これらは実データの現況に依存する休眠であって、
+ * `spec\.ts` のような**代数的に死んだ選言ではない**。`frontend/src` の配下に `coverage` ディレクトリが
+ * 生まれた日に、この四件は効き始める。撤去すれば黙って走査対象へ入るため、記録して残す。
+ */
+const EXCLUDED_DIRECTORY_LEDGER: readonly ExcludedDirectoryRecord[] = [
+  {
+    name: 'node_modules',
+    status: 'dormant',
+    note: '走査根の下に同名のディレクトリが無く、外しても走査対象は 1729 件のまま（2026-09-04 実測）',
+  },
+  {
+    name: 'dist',
+    status: 'dormant',
+    note: '走査根の下に同名のディレクトリが無く、外しても走査対象は 1729 件のまま（2026-09-04 実測）',
+  },
+  {
+    name: '.git',
+    status: 'dormant',
+    note: '走査根の下に同名のディレクトリが無く、外しても走査対象は 1729 件のまま（2026-09-04 実測）',
+  },
+  {
+    name: 'coverage',
+    status: 'dormant',
+    note: '走査根の下に同名のディレクトリが無く、外しても走査対象は 1729 件のまま（2026-09-04 実測）',
+  },
+  {
+    name: 'generated',
+    status: 'load-bearing',
+    witness: 'backend/src/generated',
+    note: '外すと Prisma の生成物 54 件が走査対象へ入り 1783 件になる（2026-09-04 実測）',
+  },
+];
+
+/**
+ * 除外するディレクトリが台帳と一致し、効いている名前が現に効いている
+ *
+ * 一件外すと走査対象が広がり、被覆の分子・分母がともに動く。是正前（タスク 115.260）は
+ * それが無言であったため、`SCAN_EXCLUDED_DIRECTORIES` の外に置いた
+ * `EXCLUDED_DIRECTORY_LEDGER` と一致を課す。
+ * **外す変異は台帳との食い違いとして赤くなる**（走査根の固定点と同じ作法。ただし測る向きは
+ * 逆で、「外すと広がる」側を測る）。
+ *
+ *   1. 台帳と `SCAN_EXCLUDED_DIRECTORIES` の名前が両方向で一致する
+ *   2. `load-bearing` と記録した名前は、外すと現にファイルが入ってくる。入ってくる先は
+ *      台帳が名指しした `witness` の下に限られる（別の出所が生えたら書き換えを要求する）
+ *   3. `dormant` と記録した名前は、外しても一件も入ってこない。入ってきたら台帳が古い
+ *   4. `load-bearing` が一件も無い状態を失格にする。全件休眠なら除外の一覧は飾りであり、
+ *      「外すと広がる」を測る対象そのものが無い（第3原則）
+ *   5. 本番の走査が同定数を通っていることを原文から照合する（既定引数の照合）
+ *
+ * 2026-09-04 にコミット `d1bb8464` の作業ツリーで実測した。`SCAN_EXCLUDED_DIRECTORIES` から
+ * `generated` を外すと本検査が「台帳にある除外名 generated が SCAN_EXCLUDED_DIRECTORIES に
+ * 無い」を挙げて落ちる。`node_modules` を外す変異でも同じ形で落ちる。`findFiles` の既定引数を
+ * 直書きの配列へ戻すと「既定の除外一覧が SCAN_EXCLUDED_DIRECTORIES でない」で落ちる。
+ *
+ * **対照自身が空振りしていないことも測った。** 台帳の `generated` を dormant へ書き換えると
+ * 「dormant と記録した generated が現に 54 件を除いている」で落ち、`node_modules` を
+ * load-bearing へ書き換えると「load-bearing と記録した node_modules を外しても走査対象が
+ * 一件も増えない」で落ちる。`EXCLUDED_DIRECTORY_LEDGER` を空にすると「対照群が空」で、
+ * `SCAN_EXCLUDED_DIRECTORIES` を空にすると「母集団が空」で落ちる。
+ *
+ * **是正前（本検査を欠く状態）は無言であった。** `generated` を外しても自己検査は全件緑・
+ * EXIT=0 のままで、ゲートの出力だけが 38167 バイトから 35532 バイトへ動いた——本番モジュールが
+ * 590 件から 644 件へ、到達被覆が 2633/2684（98.1%）から 2646/2684（98.6%）へ、到達しない
+ * 被覆源のみの受入基準が 17 件から 4 件へ、いずれも**生成物を数え入れた分だけ良く見える
+ * 向きに**動いた。
+ */
+function checkExcludedDirectoriesAreLedgered(): string[] {
+  const failures: string[] = [];
+
+  // 第3原則: 台帳・除外の一覧が空なら、以下の繰り返しは一度も回らずに緑になる
+  if (EXCLUDED_DIRECTORY_LEDGER.length === 0) {
+    return ['除外するディレクトリの台帳が空（対照群が空。検査が空振りしている）'];
+  }
+  if (SCAN_EXCLUDED_DIRECTORIES.length === 0) {
+    return [
+      `${SCAN_EXCLUSIONS_NAME} が空（母集団が空。node_modules まで走査対象へ入る状態であり、` +
+        '以下の「外すと広がる」は測る対象を失っている）',
+    ];
+  }
+
+  // 1. 台帳と実物の一致
+  const ledgered = EXCLUDED_DIRECTORY_LEDGER.map((entry) => entry.name);
+  for (const name of SCAN_EXCLUDED_DIRECTORIES) {
+    if (!ledgered.includes(name)) {
+      failures.push(
+        `除外名 ${name} が台帳に無い。\`EXCLUDED_DIRECTORY_LEDGER\` へ、` +
+          '現に効いているか否かを実測して登録すること'
+      );
+    }
+  }
+  for (const name of ledgered) {
+    if (!SCAN_EXCLUDED_DIRECTORIES.includes(name)) {
+      failures.push(
+        `台帳にある除外名 ${name} が ${SCAN_EXCLUSIONS_NAME} に無い。` +
+          '除外を外したのなら、その下のファイルは走査対象へ入っている'
+      );
+    }
+  }
+
+  // 2/3. 分類が実データと合っている
+  for (const entry of EXCLUDED_DIRECTORY_LEDGER) {
+    if (!SCAN_EXCLUDED_DIRECTORIES.includes(entry.name)) continue; // 上で既に失格にしている
+    const admitted = listCoverageScanFilesAdmittedBy(entry.name);
+
+    if (entry.status === 'load-bearing') {
+      if (admitted.length === 0) {
+        failures.push(
+          `load-bearing と記録した除外名 ${entry.name} を外しても走査対象が一件も増えない。` +
+            '台帳を dormant へ改め、その根拠を実測で書き残すこと'
+        );
+        continue;
+      }
+      if (!entry.witness) {
+        failures.push(
+          `load-bearing と記録した除外名 ${entry.name} に witness が無い。` +
+            '入ってくるファイルの出所を名指しすること'
+        );
+        continue;
+      }
+      const witness = toPosixPath(entry.witness);
+      const outside = admitted
+        .map((file) => toPosixPath(path.relative(process.cwd(), path.resolve(file))))
+        .filter((file) => !file.startsWith(`${witness}/`));
+      if (outside.length > 0) {
+        failures.push(
+          `除外名 ${entry.name} を外すと ${witness} の外からも ${outside.length} 件が入ってくる` +
+            `（例: ${outside[0]}）。台帳の witness が現況を写していない`
+        );
+      }
+    } else if (admitted.length > 0) {
+      failures.push(
+        `dormant と記録した除外名 ${entry.name} が現に ${admitted.length} 件を除いている` +
+          `（例: ${toPosixPath(path.relative(process.cwd(), path.resolve(admitted[0] ?? '')))}）。` +
+          '台帳を load-bearing へ改め、witness を名指しすること'
+      );
+    }
+  }
+
+  // 4. 全件休眠を失格にする（測る対象そのものが無い状態）
+  if (!EXCLUDED_DIRECTORY_LEDGER.some((entry) => entry.status === 'load-bearing')) {
+    failures.push(
+      '効いている除外名（load-bearing）が一件も無い。除外の一覧が飾りになっており、' +
+        '「外すと広がる」を測る対象そのものが無い'
+    );
+  }
+
+  // 5. 本番の走査が同定数を通っていることを原文から照合する
+  const absolute = path.resolve(EXTRACTOR_SOURCE_PATH);
+  if (!fs.existsSync(absolute)) {
+    return [`${EXTRACTOR_SOURCE_PATH} が存在しない（自己検査の前提が失われた）`];
+  }
+  const source = fs.readFileSync(absolute, 'utf8');
+  if (
+    !new RegExp(
+      String.raw`excludedDirectories: readonly string\[\] = ${SCAN_EXCLUSIONS_NAME}`
+    ).test(source)
+  ) {
+    failures.push(
+      `${EXTRACTOR_SOURCE_PATH}: findFiles の既定の除外一覧が ${SCAN_EXCLUSIONS_NAME} でない。` +
+        '直書きの配列へ戻すと、定数だけを直しても本番の走査は動かない'
+    );
+  }
+  if (!new RegExp(String.raw`findFiles\(dir, ${COVERAGE_PATTERN_NAME}\)`).test(source)) {
+    failures.push(
+      `${EXTRACTOR_SOURCE_PATH}: listCoverageScanFiles の走査が ` +
+        `findFiles(dir, ${COVERAGE_PATTERN_NAME}) の形でない。` +
+        '除外の一覧を第三引数で明示する形になると、台帳が測っている既定の除外と' +
+        '本番の走査が食い違う'
+    );
   }
 
   return failures;
@@ -6492,6 +6964,14 @@ const GROUPS: Group[] = [
       {
         name: '逐語複製の検査の走査根がどれも遊んでいない（外すと守備範囲が真に縮む）',
         run: checkCriterionTextCopyRootsAreNotIdle,
+      },
+      {
+        name: '走査する拡張子がどれも遊んでいない（落とすと被覆が真に縮む）',
+        run: checkEveryScannedExtensionContributes,
+      },
+      {
+        name: '除外するディレクトリが台帳と一致し、効いている名前が現に効いている',
+        run: checkExcludedDirectoriesAreLedgered,
       },
     ],
   },

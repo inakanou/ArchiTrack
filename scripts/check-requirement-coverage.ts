@@ -288,9 +288,36 @@ function parseArgs(): Options {
 }
 
 /**
- * ディレクトリ内のファイルを再帰的に取得
+ * 走査の途中で降りないディレクトリ名
+ *
+ * 走査根（`CODE_DIRS`）とは**向きが逆の選別**である。根は母集団を狭める側に効き、ここは
+ * 広げる側に効く。この一覧の固定と、各名前が現に何を除いているかの実測は、自己検査
+ * （`checkExcludedDirectoriesAreLedgered`）が本定数の外に置いた台帳
+ * （`EXCLUDED_DIRECTORY_LEDGER`）の側で扱う。**export を外すとその主張が届かなくなる。**
+ *
+ * 現況を本定数の側の散文では述べない——述べると、リポジトリの木が変わった日に散文だけが
+ * 偽になる。台帳は実データを毎回測り直す。
  */
-function findFiles(dir: string, pattern: RegExp): string[] {
+export const SCAN_EXCLUDED_DIRECTORIES: readonly string[] = [
+  'node_modules',
+  'dist',
+  '.git',
+  'coverage',
+  'generated',
+];
+
+/**
+ * ディレクトリ内のファイルを再帰的に取得
+ *
+ * 除外するディレクトリ名は既定で `SCAN_EXCLUDED_DIRECTORIES` である。引数で受けるのは
+ * 「その名前を外した世界」を自己検査が実データ上で測るためであり
+ * （`listCoverageScanFilesAdmittedBy`）、本番の呼び出しはいずれも既定に従う。
+ */
+function findFiles(
+  dir: string,
+  pattern: RegExp,
+  excludedDirectories: readonly string[] = SCAN_EXCLUDED_DIRECTORIES
+): string[] {
   const results: string[] = [];
 
   if (!fs.existsSync(dir)) {
@@ -303,9 +330,9 @@ function findFiles(dir: string, pattern: RegExp): string[] {
     const fullPath = path.join(dir, entry.name);
 
     if (entry.isDirectory()) {
-      // node_modules, dist, .git などを除外
-      if (!['node_modules', 'dist', '.git', 'coverage', 'generated'].includes(entry.name)) {
-        results.push(...findFiles(fullPath, pattern));
+      // 降りない名前は SCAN_EXCLUDED_DIRECTORIES が持つ（台帳が現況を測り直す）
+      if (!excludedDirectories.includes(entry.name)) {
+        results.push(...findFiles(fullPath, pattern, excludedDirectories));
       }
     } else if (entry.isFile() && pattern.test(entry.name)) {
       results.push(fullPath);
@@ -321,8 +348,22 @@ function findFiles(dir: string, pattern: RegExp): string[] {
  * `extractTestCoverage` と、その母集団を測り直す自己検査の**唯一の出所**である。
  * 型を両側に書くと、片方だけが動いたときに「同じ母集団を歩いている」という前提が
  * 黙って崩れる。
+ *
+ * 選択肢が一つ落ちると、その拡張子のファイルが丸ごと数えられなくなり、被覆が静かに縮む。
+ * 是正前（タスク 115.260）はこれが無言であった。自己検査
+ * （`checkEveryScannedExtensionContributes`）が、選択肢のそれぞれについて
+ * 「その選択肢だけが拾うファイルが在る」ことと「落とすと被覆集合が真に縮む」ことを課す。
+ *
+ * **`spec\.ts` はここに置かない。** 従前は `/\.(ts|tsx|spec\.ts)$/` だったが、
+ * `spec\.ts` は `ts` に包含される死んだ選言であった——正規の照合は末尾一致であり、
+ * `foo.spec.ts` は `/\.ts$/` にも掛かる。落としても走査対象は 1729 件のまま動かず、
+ * ゲートの出力も 38167 バイトのまま一字も動かなかった（コミット `d1bb8464`、
+ * 2026-09-04 にリポジトリルートで実測）。**包含は正規表現の代数の帰結であり、
+ * リポジトリの木がどう変わっても覆らない**ため、記録して残すのではなく撤去した。
+ * 撤去後は、上記の自己検査が「単独では一件も拾わない選択肢」を赤くするため、
+ * 同じ形の選言が戻ってきた時点で機械が落とす。
  */
-export const COVERAGE_FILE_PATTERN = /\.(ts|tsx|spec\.ts)$/;
+export const COVERAGE_FILE_PATTERN = /\.(ts|tsx)$/;
 
 /**
  * 被覆印の走査対象となるファイルの一覧（`extractTestCoverage` と同一の母集団）
@@ -336,6 +377,28 @@ export function listCoverageScanFiles(dirs: readonly string[] = CODE_DIRS): stri
     files.push(...findFiles(dir, COVERAGE_FILE_PATTERN));
   }
   return files;
+}
+
+/**
+ * ある除外ディレクトリ名を外したときに新たに走査対象へ入るファイル
+ *
+ * 除外の側は「外すと母集団が広がる」向きの選別であり、根や拡張子と違って
+ * 「落とすと縮む」では測れない。自己検査が台帳の分類（現に効いているか否か）を
+ * 実データで測り直すために要る。**走査規則を自己検査の側へ複製しないため、ここから配る。**
+ */
+export function listCoverageScanFilesAdmittedBy(
+  excludedDirectory: string,
+  dirs: readonly string[] = CODE_DIRS
+): string[] {
+  const baseline = new Set(listCoverageScanFiles(dirs));
+  const relaxed = SCAN_EXCLUDED_DIRECTORIES.filter((name) => name !== excludedDirectory);
+  const admitted: string[] = [];
+  for (const dir of dirs) {
+    for (const file of findFiles(dir, COVERAGE_FILE_PATTERN, relaxed)) {
+      if (!baseline.has(file)) admitted.push(file);
+    }
+  }
+  return admitted;
 }
 
 /**
@@ -999,7 +1062,7 @@ export function buildInlineTagPatterns(featureNames: readonly string[]): [RegExp
 }
 
 /**
- * コードおよびテストファイルから @requirement タグを抽出
+ * 一ファイルの本文から @requirement タグを抽出（走査規則の唯一の担い手）
  *
  * パターン:
  *   - @requirement feature-name/REQ-N
@@ -1009,6 +1072,73 @@ export function buildInlineTagPatterns(featureNames: readonly string[]): [RegExp
  *   - (feature-name/REQ-N.M)
  *   - Requirements (feature-name):
  *   - Requirements coverage (feature-name):
+ *
+ * `extractTestCoverage` から切り出してある。**走査対象の選別（拡張子・除外ディレクトリ）を
+ * 変えた世界を自己検査が測るには、ファイル一覧を自分で分けたうえで、抽出だけを本体と
+ * 同じ規則で行う必要がある。**規則を自己検査の側へ複製すると、片方だけが動いたときに
+ * 「同じ規則で読んでいる」という前提が黙って崩れる（`extractHeaderScopedCoverage` を
+ * 切り出したのと同じ理由）。
+ */
+export function extractFileCoverage(
+  content: string,
+  featureNames: string[]
+): { requirements: Set<string>; acceptanceCriteria: Set<string> } {
+  const requirements = new Set<string>();
+  const acceptanceCriteria = new Set<string>();
+
+  const [regexAtReq, regexParen, regexStandalone] = buildInlineTagPatterns(featureNames);
+
+  // パターン1-3の処理
+  const processMatch = (
+    match: RegExpMatchArray,
+    featureIdx: number,
+    reqIdx: number,
+    acIdx: number
+  ) => {
+    const featureName = match[featureIdx];
+    const reqNum = match[reqIdx];
+    const acNum = match[acIdx];
+
+    if (featureName && reqNum) {
+      const reqId = `${featureName}/REQ-${reqNum}`;
+      requirements.add(reqId);
+
+      if (acNum) {
+        const acId = `${featureName}/REQ-${reqNum}.${acNum}`;
+        acceptanceCriteria.add(acId);
+      }
+    }
+  };
+
+  let match;
+  while ((match = regexAtReq.exec(content)) !== null) {
+    processMatch(match, 1, 2, 3);
+  }
+  while ((match = regexParen.exec(content)) !== null) {
+    processMatch(match, 1, 2, 3);
+  }
+  while ((match = regexStandalone.exec(content)) !== null) {
+    processMatch(match, 1, 2, 3);
+  }
+
+  // パターン5: ヘッダー内の要件リスト形式 (- REQ-N.M:)
+  // 区間の決め方は extractHeaderScopedCoverage に切り出してある（自己検査が直接見る）。
+  const headerScoped = extractHeaderScopedCoverage(content, featureNames);
+  for (const reqId of headerScoped.requirements) {
+    requirements.add(reqId);
+  }
+  for (const acId of headerScoped.acceptanceCriteria) {
+    acceptanceCriteria.add(acId);
+  }
+
+  return { requirements, acceptanceCriteria };
+}
+
+/**
+ * コードおよびテストファイルから @requirement タグを抽出
+ *
+ * 一ファイル分の抽出規則は `extractFileCoverage` が唯一の担い手であり、ここは母集団の
+ * 与え方（走査根 → ファイル一覧）と、空でないものだけを積む形だけを持つ。
  *
  * 走査根 `dirs` は既定で `CODE_DIRS` である。`main()` は根を渡さない——渡せるようにすると、
  * 本番の走査根が定数と食い違ったまま自己検査だけが定数を見て緑になりうる。
@@ -1024,53 +1154,7 @@ export function extractTestCoverage(
 
     for (const file of testFiles) {
       const content = fs.readFileSync(file, 'utf-8');
-      const requirements = new Set<string>();
-      const acceptanceCriteria = new Set<string>();
-
-      const [regexAtReq, regexParen, regexStandalone] = buildInlineTagPatterns(featureNames);
-
-      // パターン1-3の処理
-      const processMatch = (
-        match: RegExpMatchArray,
-        featureIdx: number,
-        reqIdx: number,
-        acIdx: number
-      ) => {
-        const featureName = match[featureIdx];
-        const reqNum = match[reqIdx];
-        const acNum = match[acIdx];
-
-        if (featureName && reqNum) {
-          const reqId = `${featureName}/REQ-${reqNum}`;
-          requirements.add(reqId);
-
-          if (acNum) {
-            const acId = `${featureName}/REQ-${reqNum}.${acNum}`;
-            acceptanceCriteria.add(acId);
-          }
-        }
-      };
-
-      let match;
-      while ((match = regexAtReq.exec(content)) !== null) {
-        processMatch(match, 1, 2, 3);
-      }
-      while ((match = regexParen.exec(content)) !== null) {
-        processMatch(match, 1, 2, 3);
-      }
-      while ((match = regexStandalone.exec(content)) !== null) {
-        processMatch(match, 1, 2, 3);
-      }
-
-      // パターン5: ヘッダー内の要件リスト形式 (- REQ-N.M:)
-      // 区間の決め方は extractHeaderScopedCoverage に切り出してある（自己検査が直接見る）。
-      const headerScoped = extractHeaderScopedCoverage(content, featureNames);
-      for (const reqId of headerScoped.requirements) {
-        requirements.add(reqId);
-      }
-      for (const acId of headerScoped.acceptanceCriteria) {
-        acceptanceCriteria.add(acId);
-      }
+      const { requirements, acceptanceCriteria } = extractFileCoverage(content, featureNames);
 
       if (requirements.size > 0 || acceptanceCriteria.size > 0) {
         coverage.push({
