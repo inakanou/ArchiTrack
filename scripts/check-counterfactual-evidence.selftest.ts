@@ -571,7 +571,7 @@ function checkEmptyScanDirFails(): string[] {
         if (scanDir === droppedDir) continue;
         fs.writeFileSync(
           path.join(tempRoot, scanDir, 'seed.ts'),
-          ['// `foo` を外すと落ちる（1 件。実測）。', 'export {};', ''].join('\n')
+          seedContent(['// `foo` を外すと落ちる（1 件。実測）。', 'export {};', ''])
         );
       }
       const executed = spawnSync(process.execPath, [TSX_CLI, entry], {
@@ -606,7 +606,7 @@ function checkVacuousScanFails(): string[] {
     for (const scanDir of SCAN_DIRS) {
       fs.writeFileSync(
         path.join(tempRoot, scanDir, 'seed.ts'),
-        ['// 反実仮想を含まない普通の注釈。', 'export {};', ''].join('\n')
+        seedContent(['// 反実仮想を含まない普通の注釈。', 'export {};', ''])
       );
     }
     const executed = spawnSync(process.execPath, [TSX_CLI, entry], {
@@ -646,11 +646,11 @@ function checkEndToEndDetection(): string[] {
     for (const scanDir of SCAN_DIRS) {
       fs.writeFileSync(
         path.join(tempRoot, scanDir, 'cited.ts'),
-        ['// `cited` を外すと落ちる（1 件。実測）。', 'export {};', ''].join('\n')
+        seedContent(['// `cited` を外すと落ちる（1 件。実測）。', 'export {};', ''])
       );
     }
     const target = path.join(tempRoot, 'backend/src', 'uncited.ts');
-    fs.writeFileSync(target, ['// `uncited` を外すと落ちる。', 'export {};', ''].join('\n'));
+    fs.writeFileSync(target, seedContent(['// `uncited` を外すと落ちる。', 'export {};', '']));
 
     const result = run({ root: tempRoot });
     const detected = result.findings.map((finding) => `${finding.file}:${finding.line}`);
@@ -668,12 +668,17 @@ function checkEndToEndDetection(): string[] {
     // 生成物に置いた該当を数えないこと（走査の除外が効いていること）。
     // `generated`（版管理外の Prisma 出力）も同じ扱いで、在る環境と無い環境で
     // 走査ファイル数が変わらないことを機構として固定する。
-    for (const artifactName of ['dist', 'generated']) {
+    const artifactNames = ['dist', 'generated'];
+    // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+    if (artifactNames.length === 0) {
+      failures.push('素材 artifactNames が空です（この確認が空振りしています）');
+    }
+    for (const artifactName of artifactNames) {
       const artifactDir = path.join(tempRoot, 'frontend/src', artifactName);
       fs.mkdirSync(artifactDir, { recursive: true });
       fs.writeFileSync(
         path.join(artifactDir, 'artifact.ts'),
-        ['// `artifact` を外すと落ちる。', 'export {};', ''].join('\n')
+        seedContent(['// `artifact` を外すと落ちる。', 'export {};', ''])
       );
       const afterSeed = run({ root: tempRoot });
       if (afterSeed.findings.length !== 1) {
@@ -702,7 +707,7 @@ function checkEndToEndDetection(): string[] {
     // 引用を足せば合格すること（常時失敗の裏返しを塞ぐ）
     fs.writeFileSync(
       target,
-      ['// `uncited` を外すと落ちる（1 件。実測）。', 'export {};', ''].join('\n')
+      seedContent(['// `uncited` を外すと落ちる（1 件。実測）。', 'export {};', ''])
     );
     const passed = spawnSync(process.execPath, [TSX_CLI, entry], { encoding: 'utf-8', cwd: ROOT });
     if (passed.status !== 0) {
@@ -750,13 +755,23 @@ function checkRealRepositoryIsScanned(): string[] {
   // `generated` は版管理外の生成物（Prisma クライアント）であり、**手元には在るが
   // 取得直後の統合には無い**。外さないと報告する走査ファイル数が環境で変わり、
   // 記録した件数を後任が追試したときに合わないため、走査から外す。
-  for (const directory of ['node_modules', 'dist', 'coverage', 'storybook-static', 'generated']) {
+  const mustBeExcluded = ['node_modules', 'dist', 'coverage', 'storybook-static', 'generated'];
+  // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (mustBeExcluded.length === 0) {
+    failures.push('素材 mustBeExcluded が空です（この確認が空振りしています）');
+  }
+  for (const directory of mustBeExcluded) {
     if (!EXCLUDED_DIRECTORIES.has(directory)) {
       failures.push(`ビルド生成物 ${directory} が走査から外れていない`);
     }
   }
   // 逆に、本体のソース木を丸ごと外していないこと
-  for (const directory of ['scripts', 'backend', 'frontend', 'e2e']) {
+  const mustNotBeExcluded = ['scripts', 'backend', 'frontend', 'e2e'];
+  // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (mustNotBeExcluded.length === 0) {
+    failures.push('素材 mustNotBeExcluded が空です（この確認が空振りしています）');
+  }
+  for (const directory of mustNotBeExcluded) {
     if (EXCLUDED_DIRECTORIES.has(directory)) {
       failures.push(`ソース木 ${directory} が走査から外れている`);
     }
@@ -931,6 +946,10 @@ function checkStringLiteralsAreNotRead(): string[] {
       label: 'コード後の注釈',
     },
   ];
+  // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (cases.length === 0) {
+    failures.push('合成素材 cases が空です（この確認が空振りしています）');
+  }
   for (const testCase of cases) {
     const detected = extractCommentBlocks(testCase.line).length > 0;
     if (detected !== testCase.commented) {
@@ -1001,6 +1020,10 @@ function checkNoFindingsNarrowing(): string[] {
       declaration: 'export function listCounterfactualSentences(',
     },
   ];
+  // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (bodies.length === 0) {
+    failures.push('合成素材 bodies が空です（この確認が空振りしています）');
+  }
 
   for (const body of bodies) {
     const start = source.indexOf(body.declaration);
@@ -1072,11 +1095,19 @@ function checkNetSurveyMatchesTheCheck(): string[] {
   if (survey.mutationAndVerdict.sentences > survey.verdictOnly.sentences) {
     failures.push('二条件の段が判定の語だけの段を超えている（包含が壊れている）');
   }
-  for (const [label, tier] of [
+  // 型は `as const` で固めない。固めると要素数が型に焼き付き、直後の空の検査を
+  // `tsc` が「起こりえない比較」と断じてしまう（第3原則の関門が型で消える）。
+  const tiers: readonly (readonly [string, typeof survey.verdictOnly])[] = [
     ['判定の語だけ', survey.verdictOnly],
     ['変異＋判定', survey.mutationAndVerdict],
     ['名指し＋変異＋判定', survey.allThree],
-  ] as const) {
+  ];
+  // **この素材が空になると「段が空でない」という非空振りの主張そのものが消える**
+  // （第3原則。115.252）。素材が空なら以下の照合は一度も回らず、この確認は何も主張しない。
+  if (tiers.length === 0) {
+    failures.push('素材 tiers が空です（段の非空の確認が空振りしています）');
+  }
+  for (const [label, tier] of tiers) {
     if (tier.sentences === 0) failures.push(`段「${label}」が空である（数え方が壊れている疑い）`);
     if (tier.cited > tier.sentences) {
       failures.push(`段「${label}」の引用ありが総数を超えている`);
@@ -1142,11 +1173,11 @@ function checkSampleSubjectMatchesTheRun(): string[] {
     for (const scanDir of SCAN_DIRS) {
       fs.writeFileSync(
         path.join(tempRoot, scanDir, 'uncited.ts'),
-        ['// `uncited` を外すと落ちる。', 'export {};', ''].join('\n')
+        seedContent(['// `uncited` を外すと落ちる。', 'export {};', ''])
       );
       fs.writeFileSync(
         path.join(tempRoot, scanDir, 'cited.ts'),
-        ['// `cited` を外すと落ちる（1 件。実測）。', 'export {};', ''].join('\n')
+        seedContent(['// `cited` を外すと落ちる（1 件。実測）。', 'export {};', ''])
       );
     }
 
@@ -1270,21 +1301,281 @@ const STRUCTURAL: Case[] = [
 // 実行
 // ============================================================================
 
+/**
+ * 仮設リポジトリへ書き込む種を組み立てる（AI運用7原則 第3原則。タスク 115.252 の是正。指摘 (2)）
+ *
+ * 種の中身は、そのあとに続く照合の**前提**である。素材を落として種を空文字にすると、
+ * 「生成物に置いた該当は数えない」「引用を足せば合格する」「列挙と本検査の母集団が一致する」
+ * といった主張は、比べる対象そのものが無くなって恒真になる。**実測（2026-09-03、リポジトリ
+ * ルート）**: 生成物へ置く種の素材を空にして `npx tsx scripts/check-counterfactual-evidence.selftest.ts`
+ * を走らせると **72/72 件の確認に成功しました・EXIT=0** であった。素材の外側に置いたこの
+ * 組み立て器で空を拒み、種を書く全箇所へ一度に効かせる。
+ */
+function seedContent(lines: readonly string[]): string {
+  if (lines.length === 0) {
+    throw new Error('仮設リポジトリの種 seedContent の素材が空です（この確認が空振りしています）');
+  }
+  return lines.join('\n');
+}
+
+/**
+ * 注入するコメント塊が空でないことの関門（AI運用7原則 第3原則。タスク 115.252 の是正。指摘 (2)）
+ *
+ * 本ファイルの見本は `lineComment(...)` / `blockComment(...)` / `[...].join('\n')` で塊を
+ * 組み立てる。素材を落として `source` を空文字にした見本は `scanSource` が findings 0 件を
+ * 返すため、`expected: false` の側の主張がそこで恒真になる。**実測（2026-09-03、リポジトリ
+ * ルート）**: `MUST_NOT_DETECT` の先頭の見本の `source` を `''` にし、この関門を外した状態で
+ * `npx tsx scripts/check-counterfactual-evidence.selftest.ts` を走らせると **72/72 件の確認に
+ * 成功しました・EXIT=0**。同じ状態でこの関門を戻すと **EXIT=1**（当該見本 1 件が赤）。
+ * 変異は退避した控えからの書き戻しで復元し、`sha256sum` で照合した。
+ *
+ * 個々の素材の直前ではなく、**素材の外側にある実行側**（115.247 の作法）へ一度だけ貼って、
+ * `custom` を持たないすべての見本へ効かせる。`custom` を持つ見本は走査を行わないため
+ * `source` を持たなくてよく、`runCase` の早期復帰で外れる。
+ *
+ * **形は真偽を返す述語にする。** 失敗の綴りを返す関数（`string[]` を返す形）にすると、
+ * その `return [...]` の配列リテラルを `[]` へ空化するだけで関門の指摘ごと消える。
+ * 述語＋呼び出し側の直 `failures.push(...)` なら、関門は配列リテラルを一切経由しない。
+ */
+function caseSourceIsEmpty(testCase: Case): boolean {
+  return (testCase.source ?? '').trim() === '';
+}
+
 function runCase(testCase: Case): string[] {
   if (testCase.custom) return testCase.custom();
+  // **関門の結果を配列リテラルへ経由させない。** 是正の一次案は関門を `string[]` を返す関数に
+  // していたが、その戻り値の配列リテラルを `[]` へ空化すると関門の指摘ごと落ちる
+  //（115.252 の候補3 の自己隠蔽が是正そのものに現れる形）。真偽を返す述語にして直に押す。
+  const failures: string[] = [];
+  if (caseSourceIsEmpty(testCase)) {
+    failures.push(
+      `見本「${testCase.name}」の注入する塊 source が空です` +
+        '（素材を空にする変異でこの見本は恒真になります）'
+    );
+  }
   const findings = scanSource('sample/example.ts', testCase.source ?? '');
   const detected = findings.length > 0;
   if (detected && !testCase.expected) {
-    return [`検出されてはならないが検出された: ${findings.map((f) => f.sentence).join(' / ')}`];
+    failures.push(
+      `検出されてはならないが検出された: ${findings.map((f) => f.sentence).join(' / ')}`
+    );
   }
   if (!detected && testCase.expected) {
-    return ['検出されなければならないが検出されなかった'];
+    failures.push('検出されなければならないが検出されなかった');
   }
-  return [];
+  return failures;
+}
+
+interface Group {
+  readonly title: string;
+  readonly cases: readonly Case[];
+}
+
+/**
+ * 見本の極性（タスク 115.252）
+ *
+ * **名前の綴りからも変数名からも導かない**（115.247 の作法）。要素が持つ `expected` 属性——
+ * 「検出されなければならない」か否か——がそのまま極性である。`custom` を持つ要素は機構の
+ * 確認であって検出の対照ではないため、極性を持たない。
+ */
+function polarityOf(one: Case): 'positive' | 'negative' | undefined {
+  if (one.custom !== undefined) return undefined;
+  return one.expected ? 'positive' : 'negative';
+}
+
+/**
+ * 陽性対照・陰性対照の件数の下限（タスク 115.252）
+ *
+ * 2026-09-03 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
+ * `npx tsx scripts/list-control-polarity-floors.ts` が出す値をそのまま置く。
+ *
+ * **総数の下限だけでは片側の消失を捕まえられない。** 陽性対照を削って同じ数だけ陰性対照を
+ * 足せば総数は動かないため、極性ごとに別の下限を貼る。極性は要素の宣言（`expected` ないし
+ * `polarity`）から導き、**名前の綴りからは導かない**（115.247 の作法）。
+ */
+const MINIMUM_POSITIVE_CONTROLS = 36;
+const MINIMUM_NEGATIVE_CONTROLS = 22;
+
+/**
+ * 確認の総数の下限（タスク 115.252）
+ *
+ * 2026-09-03 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
+ * `npx tsx scripts/check-counterfactual-evidence.selftest.ts | tail -1` の出す値をそのまま置く。
+ * **確認を減らす向きの書き換えは差分に現れる。**
+ *
+ * **下限を構造から導く語彙がこの検査には無い**（115.222 は本体の検査種別の直和型から導けた）。
+ * 導けないため件数で貼る。
+ */
+const MINIMUM_TOTAL_CASES = 72;
+
+// ============================================================================
+// 本自己検査群が閉じている範囲と、閉じていない範囲（タスク 115.252。**正典**）
+// ============================================================================
+//
+// タスク 115.252 の候補5 は「配列リテラルを空にできる箇所が残っていないか」を問うた。
+// この問いは**そのままでは閉じない**。本自己検査群は失敗の指摘を一律 `string[]` で表すため、
+// 「配列リテラルを `[]` にする」変異には**主張そのものを削る変異**が含まれ、それは一般に
+// 検出できないからである（主張が無ければ反証も無い）。そこで判定基準を
+// **「空にすると実行側の報告件数が縮むのに EXIT=0 になるか」**——真空パスの有無——へ置いた。
+//
+// 以下は 2026-09-03 にリポジトリルートで**この実装者が取り直した**実測である。値はすべて
+// 併記したコマンドが出したものをそのまま置いた。**限界の記録はここ一箇所に置く**
+// （境界内の 13 ファイルへ散らさない）。各層の主張はコマンドを走らせれば反証できる。
+//
+// ## (A) 機械が保証する層
+//
+// 数値下限（陽性対照・陰性対照・確認の総数）、群ごとの非空、そして構造から導く極性の要求。
+// 下限は現況ちょうど（余裕ゼロ）で貼るため、確認を一件でも削れば当該の自己検査が赤くなる。
+//   for f in scripts/*.selftest.ts; do npx tsx "$f" > /dev/null || echo "赤: $f"; done
+//   npx tsx scripts/list-control-polarity-floors.ts
+// 実測（2026-09-03）: 自己検査 15 本はすべて EXIT=0。件数は順に
+// 72 / 20 / 72 / 30 / 31 / 44 / 56 / 196 / 27 / 65 / 64 / 45 / 41 / 19 / 32。
+// 下限を宣言する 13 本はいずれも余裕 0 であった。下限を宣言しないのは境界外の 2 本
+// （`check-design-path-references.selftest.ts` と `check-requirement-exclusions.selftest.ts`）
+// だけであり、一覧はその 2 本を「下限の宣言なし」として名指しで出す。
+//
+// **「余裕 0」は実効性を意味しない**（限界の開示）。`check-requirement-coverage.selftest.ts`
+// の極性下限は `陽性対照 1/1 ・ 陰性対照 1/1 ・ 総数 65/65` である。総数 65 件の確認のうち
+// **極性を持つ確認は 2 件しかなく**、極性が痩せる向きの変異をこの下限はほぼ捕まえられない。
+// 総数の下限（余裕 0）と、当該ファイルの最上位対照配列 8 件が 8/8 赤であること（下の (B)）で
+// 守られてはいるが、一覧に並ぶ「余裕 0」という体裁を実効性と読まないこと。極性を持つ確認が
+// 2 件しかないのは、極性を宣言する 9 本のうちこの 1 本だけである（他は 9 件〜63 件）。
+//
+// ## (B) 人手で全数を走査した層
+//
+// 走査範囲は日本語ではなくコマンドで宣言する（115.274 / 115.275 の作法）。
+//   npx tsx scripts/scan-control-array-mutations.ts --census
+//   npx tsx scripts/scan-control-array-mutations.ts --mutate-top-level
+// 実測（2026-09-03。対象は `scripts/*.selftest.ts` の 15 ファイル）:
+//   - 非空の配列リテラル（AST の `ArrayLiteralExpression` で要素数 1 以上。深さは問わない）
+//     … 1360 件
+//   - うち全称量化の定義域にあたる**最上位の対照配列**（ソースファイル直下の変数宣言で
+//     初期化子が非空の配列リテラルのもの）… 99 件
+//   - その 99 件を一件ずつ `[]` へ空化した全数変異 … 赤 98 件 / 緑 1 件
+//   - 緑の 1 件は `check-requirement-exclusions.selftest.ts` の `MECHANISM_CASES`（要素 20）で、
+//     空にすると `✅ 自己検査に合格しました（44/44 件: 陽性対照 37 / 陰性対照 7 / 機構 0）` と
+//     出して EXIT=0 になる（基線は 64/64）。**本タスクの境界外**であり、担当は 115.222 である。
+//   - **本タスクの境界内 13 ファイルに属する 85 件は 85/85 が赤**であった。すなわち
+//     この変異作用素で見えるかぎり、境界内に真空パスは残っていない。
+//
+// ## (C) 走査していない残余（この検査が閉じないと明言すること）
+//
+// **主張そのものを削る変異は本検査の対象外である。** `return [...]` が返す失敗の綴りや、
+// 見本が持つ `expected:` の値を消す変異がこれに当たる。対象外にする理由は、**主張の削除が
+// 一般に検出できない**ためであり、「空にできるか」という基準ではこの層を判別できないから
+// である。**「あらゆる検査で緑を残す」とは書かない。それは恒真であり反証できないうえ、
+// 下に置いた自分の実測と食い違う。**
+//   npx tsx scripts/scan-control-array-mutations.ts --mutate-returns
+// 実測（2026-09-03）: `return [...]`（非空の配列リテラルを返す return 文）は 15 ファイルに
+// 132 件あり、一件ずつ `return []` へ空化すると 緑 130 件 / 赤 2 件であった。赤の 2 件は
+// いずれも境界外の `check-requirement-exclusions.selftest.ts` にある、共有モジュールの
+// **唯一担い手性**を見る検査である（`:909` と `:960` の `return`。要素はいずれも 2）。
+// **本タスクの境界内 13 ファイルに属する 105 件は 105/105 が緑**である。
+//
+// この層は件数では閉じられない。閉じるには「失敗の綴りを返す関数が空配列を返さないこと」を
+// 型ないし構造で要求する必要があり、本タスクではそこまで広げていない。もう一つの残余として、
+// `main()` から関門の呼び出しそのものを落とす変異がある。呼び出しの直列性を構造で要求する形は
+// `check-design-path-references.selftest.ts`（115.242）にはあるが、本ファイルを含む境界内の
+// 13 ファイルへは展開していない。**塞がないことと、書かないことは別である**（115.242 の教訓）。
+
+/**
+ * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）
+ *
+ * 是正前の実測（2026-09-03）: `MUST_DETECT` / `MUST_NOT_DETECT` は既存の要素側の確認が捕まえたが、`STRUCTURAL` を空に
+ * すると **58/58 緑・EXIT=0**（守り手自身が `STRUCTURAL` の中に居るため自分を守れない）。
+ * `main()` の中の `groups` を空にすると **0/0 緑・EXIT=0**。
+ *
+ * **この関門は対照群の配列の要素として書かない。** 要素として持つ形——本ファイルの
+ * `STRUCTURAL` に載っていた `checkControlsArePresent()` がまさにそれ——は、**配列ごと空にすると関門も
+ * 一緒に消える**（115.252 の候補3）。`main()` の中、確認の実行より前に、配列の外側から貼る。
+ * 既存の要素側の確認は残してあるが、それは冗長な二重掛けであって関門ではない。
+ *
+ * **限界（塞いでいないこと）**: 総数の下限は現況ちょうどのため 1 件でも削れば赤くなるが、
+ * **削った分だけ別の群へ確認を足せば総数は動かない**。群ごとの下限は「空でないこと」と
+ * 「要求した極性が 1 件以上残ること」までしか課せない（件数を導く語彙が本体に無い。
+ * 115.222 が陰性対照について書き残した限界と同じ形）。
+ *
+ * **もう一つの限界**: `main()` からこの関門の呼び出し自体を落とせば、関門は走らなくなる。
+ * 呼び出しの直列性を構造で要求する形——115.242 が `check-design-path-references.selftest.ts`
+ * に置いた「深さ 0・文の先頭・呼び出し直後の `;`」の三点——は、本タスクでは各ファイルへ
+ * 展開していない。**塞がないことと、書かないことは別である**（115.242 の教訓）。
+ */
+function guardControlsArePresent(groups: readonly Group[]): void {
+  const problems: string[] = [];
+
+  if (groups.length === 0) {
+    problems.push('対照群が一つも登録されていません（この自己検査は何も確かめていません）');
+  }
+  for (const group of groups) {
+    if (group.cases.length === 0) {
+      problems.push(`対照群「${group.title}」が空です（この群は何も確かめていません）`);
+    }
+  }
+
+  // **極性の要求は宣言せず、無条件の規則と数で持つ（タスク 115.252。Critical #2 の一般形）。**
+  // 群ごとに「必要な極性」を配列の属性で設定する形は、関門を配列リテラルで設定する形であり、
+  // その配列を `[]` へ空化すれば要求ごと消える（115.252 の候補3 の自己隠蔽の変種）。
+  //
+  // **無条件の規則の定義域は群ではなく自己検査の全体に取る。** 実測（2026-09-03、リポジトリ
+  // ルート）: 定義域を群に取って「極性を持つ要素がある群は陽性と陰性を各 1 件以上持つ」と
+  // すると、`captured`/`not-captured` に分けた群は構成上どちらか一方の極性しか持たないため
+  // 満たしようがなく、この形を当てた 9 ファイルのうち 7 ファイルが赤くなった。群の極性が
+  // 均質であることは設計であって欠陥ではない。定義域を全体に上げれば規則は無条件のまま立つ。
+  //
+  // **片側が痩せる向きの変異は数で押さえる。** 数は空にできないため、配列リテラルを空化する
+  // 変異作用素に対して構造的に免疫である（下限は現況ちょうど。余裕ゼロ）。
+  const polarities = groups.flatMap((group) => group.cases.map((one) => polarityOf(one)));
+  if (polarities.some((one) => one !== undefined)) {
+    if (!polarities.includes('positive')) {
+      problems.push('陽性対照が 1 件もありません（検出器が何も検出しなくても緑になります）');
+    }
+    if (!polarities.includes('negative')) {
+      problems.push('陰性対照が 1 件もありません（検出器が何にでも反応しても緑になります）');
+    }
+  }
+  const positives = polarities.filter((one) => one === 'positive').length;
+  const negatives = polarities.filter((one) => one === 'negative').length;
+  if (positives < MINIMUM_POSITIVE_CONTROLS) {
+    problems.push(
+      `陽性対照が ${positives} 件しかありません（宣言の下限は ${MINIMUM_POSITIVE_CONTROLS} 件）。` +
+        '陽性対照を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+  if (negatives < MINIMUM_NEGATIVE_CONTROLS) {
+    problems.push(
+      `陰性対照が ${negatives} 件しかありません（宣言の下限は ${MINIMUM_NEGATIVE_CONTROLS} 件）。` +
+        '陰性対照を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+
+  const total = groups.reduce((sum, group) => sum + group.cases.length, 0);
+  if (total < MINIMUM_TOTAL_CASES) {
+    problems.push(
+      `確認の総数が ${total} 件しかありません（宣言の下限は ${MINIMUM_TOTAL_CASES} 件）。` +
+        '確認を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+
+  // 対照の現況を一行で印字する（タスク 115.252）。関門の判定に使うのと同じ変数から出す。
+  // `npx tsx scripts/list-control-polarity-floors.ts` はこの行を読み、下限を貼り直すときの
+  // 元の値にする。一覧の側で数え直さないのは、判定と一覧が別々の真実を持たないためである。
+  console.log(
+    `📋 対照の現況: 陽性対照 ${positives}/${MINIMUM_POSITIVE_CONTROLS} ・ ` +
+      `陰性対照 ${negatives}/${MINIMUM_NEGATIVE_CONTROLS} ・ ` +
+      `総数 ${total}/${MINIMUM_TOTAL_CASES}（現況/宣言の下限）`
+  );
+
+  if (problems.length > 0) {
+    console.log(
+      '\n❌ 自己検査の対照群そのものが欠けています（この状態で出る「合格」は意味を持ちません）'
+    );
+    for (const problem of problems) console.log(`   - ${problem}`);
+    process.exit(1);
+  }
 }
 
 function main(): void {
-  const groups: Array<{ title: string; cases: Case[] }> = [
+  const groups: Group[] = [
     {
       title: '捕捉しなければならない書き方（115.210 の是正前の実物と語彙の見本）',
       cases: MUST_DETECT,
@@ -1299,6 +1590,8 @@ function main(): void {
   console.log(
     '🔍 反実仮想の引用検査 検出規則 自己検査 (scripts/check-counterfactual-evidence.selftest.ts)'
   );
+  // 対照群の配列の外側に置く関門。実行より前に、群そのものが在ることを確かめる。
+  guardControlsArePresent(groups);
   let failed = 0;
   for (const group of groups) {
     console.log(`\n[${group.title}]`);

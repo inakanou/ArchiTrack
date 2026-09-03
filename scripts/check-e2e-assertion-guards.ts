@@ -803,7 +803,14 @@ interface ReductionPlan {
   allowedTarget?: number;
 }
 
-const GUARD_TYPES: GuardType[] = [
+/**
+ * 検出器が持つ検査種別の語彙
+ *
+ * **自己検査から下限を導くために export している**（タスク 115.252。115.222 が
+ * `check-requirement-exclusions.ts` に対して行ったのと同じ作法）。陽性対照が語彙の全種別を
+ * 名指ししていることを自己検査が課すため、**種別が増えれば下限が自動追随する**。
+ */
+export const GUARD_TYPES: GuardType[] = [
   'T1-conditional-expect',
   'T2-ignored-timeout',
   'T3-tautology',

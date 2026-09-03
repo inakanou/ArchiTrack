@@ -410,12 +410,20 @@ function checkTestFilesExcluded(): string[] {
     'frontend/src/__tests__/foo.ts',
     'backend/src/services/__mocks__/foo.ts',
   ];
+  // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (excluded.length === 0) {
+    failures.push('合成素材 excluded が空です（この確認が空振りしています）');
+  }
   for (const relativePath of excluded) {
     if (!isTestFile(relativePath)) {
       failures.push(`テストコードとして除外されていない: ${relativePath}`);
     }
   }
   const included = ['frontend/src/components/Foo.tsx', 'backend/src/schemas/estimate.schema.ts'];
+  // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (included.length === 0) {
+    failures.push('合成素材 included が空です（この確認が空振りしています）');
+  }
   for (const relativePath of included) {
     if (isTestFile(relativePath)) {
       failures.push(`本番コードが誤って除外された: ${relativePath}`);
@@ -1268,6 +1276,10 @@ function checkControlGroupsAreNotEmpty(): string[] {
     ['設計文書の陽性対照', MUST_DETECT_IN_DESIGN],
     ['設計文書の陰性対照', MUST_NOT_DETECT_IN_DESIGN],
   ];
+  // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (groups.length === 0) {
+    failures.push('合成素材 groups が空です（この確認が空振りしています）');
+  }
   for (const [name, cases] of groups) {
     if (cases.length === 0) failures.push(`対照群が空である: ${name}`);
   }
@@ -1335,18 +1347,173 @@ function runCase(testCase: Case): string[] {
   return [];
 }
 
+interface Group {
+  readonly title: string;
+  readonly cases: readonly Case[];
+}
+
+/**
+ * 見本の極性（タスク 115.252）
+ *
+ * **名前の綴りからも変数名からも導かない**（115.247 の作法）。要素が持つ `expected` 属性——
+ * 「検出されなければならない」か否か——がそのまま極性である。`custom` を持つ要素は機構の
+ * 確認であって検出の対照ではないため、極性を持たない。
+ */
+function polarityOf(one: Case): 'positive' | 'negative' | undefined {
+  if (one.custom !== undefined) return undefined;
+  return one.expected ? 'positive' : 'negative';
+}
+
+/**
+ * 陽性対照・陰性対照の件数の下限（タスク 115.252）
+ *
+ * 2026-09-03 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
+ * `npx tsx scripts/list-control-polarity-floors.ts` が出す値をそのまま置く。
+ *
+ * **総数の下限だけでは片側の消失を捕まえられない。** 陽性対照を削って同じ数だけ陰性対照を
+ * 足せば総数は動かないため、極性ごとに別の下限を貼る。極性は要素の宣言（`expected` ないし
+ * `polarity`）から導き、**名前の綴りからは導かない**（115.247 の作法）。
+ */
+const MINIMUM_POSITIVE_CONTROLS = 28;
+const MINIMUM_NEGATIVE_CONTROLS = 20;
+
+/**
+ * 確認の総数の下限（タスク 115.252）
+ *
+ * 2026-09-03 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
+ * `npx tsx scripts/check-design-reference-format.selftest.ts | tail -1` の出す値をそのまま置く。
+ * **確認を減らす向きの書き換えは差分に現れる。**
+ *
+ * **下限を構造から導く語彙がこの検査には無い**（115.222 は本体の検査種別の直和型から導けた）。
+ * 導けないため件数で貼る。
+ */
+const MINIMUM_TOTAL_CASES = 56;
+
+/**
+ * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）
+ *
+ * 是正前の実測（2026-09-03）: 四つの検出の対照群は既存の要素側の確認が捕まえたが、`STRUCTURAL` を空にすると
+ * **48/48 緑・EXIT=0**（守り手自身が `STRUCTURAL` の中に居るため自分を守れない）。
+ * `main()` の中の `groups` を空にすると **0/0 緑・EXIT=0**。
+ *
+ * **この関門は対照群の配列の要素として書かない。** 要素として持つ形——本ファイルの
+ * `STRUCTURAL` に載っていた `checkControlGroupsAreNotEmpty()` がまさにそれ——は、**配列ごと空にすると関門も
+ * 一緒に消える**（115.252 の候補3）。`main()` の中、確認の実行より前に、配列の外側から貼る。
+ * 既存の要素側の確認は残してあるが、それは冗長な二重掛けであって関門ではない。
+ *
+ * **限界（塞いでいないこと）**: 総数の下限は現況ちょうどのため 1 件でも削れば赤くなるが、
+ * **削った分だけ別の群へ確認を足せば総数は動かない**。群ごとの下限は「空でないこと」と
+ * 「要求した極性が 1 件以上残ること」までしか課せない（件数を導く語彙が本体に無い。
+ * 115.222 が陰性対照について書き残した限界と同じ形）。
+ *
+ * **もう一つの限界**: `main()` からこの関門の呼び出し自体を落とせば、関門は走らなくなる。
+ * 呼び出しの直列性を構造で要求する形——115.242 が `check-design-path-references.selftest.ts`
+ * に置いた「深さ 0・文の先頭・呼び出し直後の `;`」の三点——は、本タスクでは各ファイルへ
+ * 展開していない。**塞がないことと、書かないことは別である**（115.242 の教訓）。
+ */
+function guardControlsArePresent(groups: readonly Group[]): void {
+  const problems: string[] = [];
+
+  if (groups.length === 0) {
+    problems.push('対照群が一つも登録されていません（この自己検査は何も確かめていません）');
+  }
+  for (const group of groups) {
+    if (group.cases.length === 0) {
+      problems.push(`対照群「${group.title}」が空です（この群は何も確かめていません）`);
+    }
+  }
+
+  // **極性の要求は宣言せず、無条件の規則と数で持つ（タスク 115.252。Critical #2 の一般形）。**
+  // 群ごとに「必要な極性」を配列の属性で設定する形は、関門を配列リテラルで設定する形であり、
+  // その配列を `[]` へ空化すれば要求ごと消える（115.252 の候補3 の自己隠蔽の変種）。
+  //
+  // **無条件の規則の定義域は群ではなく自己検査の全体に取る。** 実測（2026-09-03、リポジトリ
+  // ルート）: 定義域を群に取って「極性を持つ要素がある群は陽性と陰性を各 1 件以上持つ」と
+  // すると、`captured`/`not-captured` に分けた群は構成上どちらか一方の極性しか持たないため
+  // 満たしようがなく、この形を当てた 9 ファイルのうち 7 ファイルが赤くなった。群の極性が
+  // 均質であることは設計であって欠陥ではない。定義域を全体に上げれば規則は無条件のまま立つ。
+  //
+  // **片側が痩せる向きの変異は数で押さえる。** 数は空にできないため、配列リテラルを空化する
+  // 変異作用素に対して構造的に免疫である（下限は現況ちょうど。余裕ゼロ）。
+  const polarities = groups.flatMap((group) => group.cases.map((one) => polarityOf(one)));
+  if (polarities.some((one) => one !== undefined)) {
+    if (!polarities.includes('positive')) {
+      problems.push('陽性対照が 1 件もありません（検出器が何も検出しなくても緑になります）');
+    }
+    if (!polarities.includes('negative')) {
+      problems.push('陰性対照が 1 件もありません（検出器が何にでも反応しても緑になります）');
+    }
+  }
+  const positives = polarities.filter((one) => one === 'positive').length;
+  const negatives = polarities.filter((one) => one === 'negative').length;
+  if (positives < MINIMUM_POSITIVE_CONTROLS) {
+    problems.push(
+      `陽性対照が ${positives} 件しかありません（宣言の下限は ${MINIMUM_POSITIVE_CONTROLS} 件）。` +
+        '陽性対照を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+  if (negatives < MINIMUM_NEGATIVE_CONTROLS) {
+    problems.push(
+      `陰性対照が ${negatives} 件しかありません（宣言の下限は ${MINIMUM_NEGATIVE_CONTROLS} 件）。` +
+        '陰性対照を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+
+  const total = groups.reduce((sum, group) => sum + group.cases.length, 0);
+  if (total < MINIMUM_TOTAL_CASES) {
+    problems.push(
+      `確認の総数が ${total} 件しかありません（宣言の下限は ${MINIMUM_TOTAL_CASES} 件）。` +
+        '確認を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+
+  // 対照の現況を一行で印字する（タスク 115.252）。関門の判定に使うのと同じ変数から出す。
+  // `npx tsx scripts/list-control-polarity-floors.ts` はこの行を読み、下限を貼り直すときの
+  // 元の値にする。一覧の側で数え直さないのは、判定と一覧が別々の真実を持たないためである。
+  // 本自己検査群が閉じている範囲と閉じていない範囲（三層の記録）は
+  // `scripts/check-counterfactual-evidence.selftest.ts` の
+  // 「本自己検査群が閉じている範囲と、閉じていない範囲」の節に正典を置く（タスク 115.252）。
+  console.log(
+    `📋 対照の現況: 陽性対照 ${positives}/${MINIMUM_POSITIVE_CONTROLS} ・ ` +
+      `陰性対照 ${negatives}/${MINIMUM_NEGATIVE_CONTROLS} ・ ` +
+      `総数 ${total}/${MINIMUM_TOTAL_CASES}（現況/宣言の下限）`
+  );
+
+  if (problems.length > 0) {
+    console.log(
+      '\n❌ 自己検査の対照群そのものが欠けています（この状態で出る「合格」は意味を持ちません）'
+    );
+    for (const problem of problems) console.log(`   - ${problem}`);
+    process.exit(1);
+  }
+}
+
 function main(): void {
-  const groups: Array<{ title: string; cases: Case[] }> = [
-    { title: '本番コード: 捕捉しなければならない書き方', cases: MUST_DETECT },
-    { title: '本番コード: 捕捉してはならない書き方（過検出）', cases: MUST_NOT_DETECT },
-    { title: '設計文書: 捕捉しなければならない書き方', cases: MUST_DETECT_IN_DESIGN },
-    { title: '設計文書: 捕捉してはならない書き方（過検出）', cases: MUST_NOT_DETECT_IN_DESIGN },
+  const groups: Group[] = [
+    {
+      title: '本番コード: 捕捉しなければならない書き方',
+      cases: MUST_DETECT,
+    },
+    {
+      title: '本番コード: 捕捉してはならない書き方（過検出）',
+      cases: MUST_NOT_DETECT,
+    },
+    {
+      title: '設計文書: 捕捉しなければならない書き方',
+      cases: MUST_DETECT_IN_DESIGN,
+    },
+    {
+      title: '設計文書: 捕捉してはならない書き方（過検出）',
+      cases: MUST_NOT_DETECT_IN_DESIGN,
+    },
     { title: '走査対象と前提条件', cases: STRUCTURAL },
   ];
 
   console.log(
     '🔍 設計文書への行番号参照 検出規則 自己検査 (scripts/check-design-reference-format.selftest.ts)'
   );
+  // 対照群の配列の外側に置く関門。実行より前に、群そのものが在ることを確かめる。
+  guardControlsArePresent(groups);
   let failed = 0;
   for (const group of groups) {
     console.log(`\n[${group.title}]`);

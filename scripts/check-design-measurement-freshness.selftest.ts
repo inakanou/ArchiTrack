@@ -61,7 +61,20 @@ const TSX_CLI = path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 
 interface TestCase {
   readonly name: string;
+  /**
+   * 対照の極性（タスク 115.252）
+   *
+   * 陽性（検出器が告発しなければならない側）と陰性（告発してはならない側）の**両方**が残って
+   * いることを `guardControlsArePresent()` が群ごとに確かめるための属性。**名前の綴りからは
+   * 導かない**（115.247 の作法）。極性を持たない機構の確認では省く。
+   */
+  readonly polarity?: 'positive' | 'negative';
   run(): string[];
+}
+
+interface TestGroup {
+  readonly title: string;
+  readonly cases: readonly TestCase[];
 }
 
 function expect(condition: boolean, message: string): string[] {
@@ -96,10 +109,37 @@ function baseEntry(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
   } as ManifestEntry;
 }
 
+/**
+ * 宣言の一覧を判定へ通し、出た指摘の本文だけを取り出す。
+ *
+ * **素材が空のときは判定を通さず止める**（AI運用7原則 第3原則。タスク 115.252 の是正。
+ * 指摘 (2)）。本ファイルの対照はほぼすべて `messagesFor(root, [baseEntry(...)])` の形で
+ * 実引数に配列リテラルを直書きしている。その配列を空にすると `judge` は見るものが無くなり、
+ * 戻りは空配列になる——`countMatching(list, ...) === 0` を求める陰性側の主張はそこで恒真に
+ * なり、対照は何も確かめないまま緑で通る。**実測（2026-09-03、リポジトリルート）**:
+ * 陰性対照の `messagesFor(root, [baseEntry()])` の実引数を `[]` へ空化して
+ * `npx tsx scripts/check-design-measurement-freshness.selftest.ts` を走らせると
+ * **31/31 件の確認に成功しました・EXIT=0** であった。素材の外側に在るこの入口で空を拒み、
+ * 判定を呼ぶ全箇所へ一度に効かせる。
+ */
 function messagesFor(root: string, entries: readonly ManifestEntry[]): string[] {
+  if (entries.length === 0) {
+    throw new Error('判定へ渡す宣言 entries が空です（この確認が空振りしています）');
+  }
   const collected: string[] = [];
   for (const finding of judge(root, entries)) collected.push(finding.message);
   return collected;
+}
+
+/**
+ * 「宣言 0 件」を意図して判定へ渡す唯一の入口（タスク 115.252 の是正。指摘 (2)）
+ *
+ * `messagesFor` は空の素材を拒む。空そのものを対象にする対照——本体が母集団 0 件を
+ * 合格にしないことを固定する `NON_VACUITY`——だけは、意図であることを名前で申告して通す。
+ * **空を許す経路をこの一本に絞る**ので、素材を空にする変異が他の対照で黙って通ることはない。
+ */
+function messagesForEmptyDeclaration(root: string): string[] {
+  return judge(root, []).map((finding) => finding.message);
 }
 
 function countMatching(list: readonly string[], needle: string): number {
@@ -117,6 +157,7 @@ function countMatching(list: readonly string[], needle: string): number {
 const DETECTION: TestCase[] = [
   {
     name: '一致している宣言は告発されない（陰性対照。この対照が空振りなら以下は無意味）',
+    polarity: 'negative',
     run() {
       return withDocument(SAMPLE_DOCUMENT, (root) => {
         const list = messagesFor(root, [baseEntry()]);
@@ -129,6 +170,7 @@ const DETECTION: TestCase[] = [
   },
   {
     name: 'コマンドの出力が expected とずれると、file・anchor・expected・actual を名指しで赤くなる',
+    polarity: 'positive',
     run() {
       return withDocument(SAMPLE_DOCUMENT, (root) => {
         const list = messagesFor(root, [baseEntry({ command: "printf '8'" })]);
@@ -145,6 +187,7 @@ const DETECTION: TestCase[] = [
   },
   {
     name: 'anchor が文書に無ければ赤くなる（文書側が書き換わった形）',
+    polarity: 'positive',
     run() {
       return withDocument(SAMPLE_DOCUMENT, (root) => {
         const list = messagesFor(root, [baseEntry({ anchor: '存在しない錨' })]);
@@ -157,6 +200,7 @@ const DETECTION: TestCase[] = [
   },
   {
     name: 'anchor が二行に当たれば赤くなる（一意でない錨を許さない）',
+    polarity: 'positive',
     run() {
       return withDocument([...SAMPLE_DOCUMENT, '- 基準の行: 写し'], (root) => {
         const list = messagesFor(root, [baseEntry()]);
@@ -169,6 +213,7 @@ const DETECTION: TestCase[] = [
   },
   {
     name: 'file が実在しなければ赤くなる',
+    polarity: 'positive',
     run() {
       return withDocument(SAMPLE_DOCUMENT, (root) => {
         const list = messagesFor(root, [baseEntry({ file: 'missing.md' })]);
@@ -181,6 +226,7 @@ const DETECTION: TestCase[] = [
   },
   {
     name: 'コマンドが失敗したら読み飛ばさず赤くなる（第3原則）',
+    polarity: 'positive',
     run() {
       return withDocument(SAMPLE_DOCUMENT, (root) => {
         const list = messagesFor(root, [baseEntry({ command: 'test 1 -eq 2' })]);
@@ -213,6 +259,7 @@ const DETECTION: TestCase[] = [
   },
   {
     name: 'documentFigure が anchor の行に無ければ赤くなる（宣言だけが新鮮な形）',
+    polarity: 'positive',
     run() {
       return withDocument(SAMPLE_DOCUMENT, (root) => {
         const list = messagesFor(root, [
@@ -231,6 +278,7 @@ const DETECTION: TestCase[] = [
   },
   {
     name: 'documentFigure が expected と異なるのに divergence が無ければ赤くなる',
+    polarity: 'positive',
     run() {
       return withDocument(SAMPLE_DOCUMENT, (root) => {
         const list = messagesFor(root, [baseEntry({ documentFigure: '7', expected: '7' })]);
@@ -252,6 +300,7 @@ const DETECTION: TestCase[] = [
   },
   {
     name: 'divergence が解消しても宣言が残っていれば赤くなる（宣言が対象より長生きしない）',
+    polarity: 'positive',
     run() {
       return withDocument(SAMPLE_DOCUMENT, (root) => {
         const list = messagesFor(root, [
@@ -269,6 +318,7 @@ const DETECTION: TestCase[] = [
   },
   {
     name: 'divergence の reason が空なら赤くなる',
+    polarity: 'positive',
     run() {
       return withDocument(SAMPLE_DOCUMENT, (root) => {
         const list = messagesFor(root, [
@@ -288,6 +338,7 @@ const DETECTION: TestCase[] = [
   },
   {
     name: 'id の重複は赤くなる',
+    polarity: 'positive',
     run() {
       return withDocument(SAMPLE_DOCUMENT, (root) => {
         const list = messagesFor(root, [baseEntry(), baseEntry()]);
@@ -319,6 +370,7 @@ const DETECTION: TestCase[] = [
   },
   {
     name: 'documentRendering が行に二箇所あれば赤くなる（素の数字が別の数値にも当たる形）',
+    polarity: 'positive',
     run() {
       return withDocument(['# 見本', '- 基準の行: 3 の節が 3 つある（出力が `3`）'], (root) => {
         const bare = messagesFor(root, [baseEntry({ command: "printf '3'", expected: '3' })]);
@@ -344,6 +396,7 @@ const DETECTION: TestCase[] = [
   },
   {
     name: 'documentRendering が documentFigure を含まなければ赤くなる（記法と値の切り離し）',
+    polarity: 'positive',
     run() {
       return withDocument(SAMPLE_DOCUMENT, (root) => {
         const list = messagesFor(root, [baseEntry({ documentRendering: '出力は 7 件' })]);
@@ -363,6 +416,7 @@ const DETECTION: TestCase[] = [
   },
   {
     name: 'documentRendering が documentFigure と同じなら赤くなる（既定と同じ宣言を残さない）',
+    polarity: 'positive',
     run() {
       return withDocument(SAMPLE_DOCUMENT, (root) => {
         const list = messagesFor(root, [baseEntry({ documentRendering: '7' })]);
@@ -395,7 +449,7 @@ const NON_VACUITY: TestCase[] = [
     name: '宣言が 0 件なら赤くなる（空を合格にしない）',
     run() {
       return withDocument(SAMPLE_DOCUMENT, (root) => {
-        const list = messagesFor(root, []);
+        const list = messagesForEmptyDeclaration(root);
         return expect(
           countMatching(list, '宣言が 0 件です') === 1,
           `空の宣言が合格している: ${JSON.stringify(list)}`
@@ -1155,7 +1209,12 @@ function checkVerboseDoesNotExecuteRejectedCommand(): string[] {
         ],
       })
     );
-    for (const extra of [[], ['--verbose'], ['--json', '--verbose']]) {
+    const argumentVariants = [[], ['--verbose'], ['--json', '--verbose']];
+    // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+    if (argumentVariants.length === 0) {
+      failures.push('素材 argumentVariants が空です（この確認が空振りしています）');
+    }
+    for (const extra of argumentVariants) {
       const label = extra.length === 0 ? '(既定)' : extra.join(' ');
       const result = spawnSync(
         process.execPath,
@@ -1210,6 +1269,7 @@ const BEHAVIOUR: TestCase[] = [
 const REAL_DATA: TestCase[] = [
   {
     name: '実マニフェストに対して判定が通る（宣言が現況と文書の字面の双方に一致している）',
+    polarity: 'negative',
     run() {
       const { entries, errors } = loadManifest(path.join(ROOT, DEFAULT_MANIFEST_PATH));
       const findings = judge(ROOT, entries);
@@ -1227,6 +1287,7 @@ const REAL_DATA: TestCase[] = [
   },
   {
     name: '実マニフェストの全ての宣言が所管の文書を指している',
+    polarity: 'negative',
     run() {
       const { entries } = loadManifest(path.join(ROOT, DEFAULT_MANIFEST_PATH));
       const failures: string[] = [];
@@ -1240,9 +1301,135 @@ const REAL_DATA: TestCase[] = [
   },
 ];
 
+/**
+ * 陽性対照・陰性対照の件数の下限（タスク 115.252）
+ *
+ * 2026-09-03 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
+ * `npx tsx scripts/list-control-polarity-floors.ts` が出す値をそのまま置く。
+ *
+ * **総数の下限だけでは片側の消失を捕まえられない。** 陽性対照を削って同じ数だけ陰性対照を
+ * 足せば総数は動かないため、極性ごとに別の下限を貼る。極性は要素の宣言（`expected` ないし
+ * `polarity`）から導き、**名前の綴りからは導かない**（115.247 の作法）。
+ */
+const MINIMUM_POSITIVE_CONTROLS = 13;
+const MINIMUM_NEGATIVE_CONTROLS = 3;
+
+/**
+ * 確認の総数の下限（タスク 115.252）
+ *
+ * 2026-09-03 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
+ * `npx tsx scripts/check-design-measurement-freshness.selftest.ts | tail -1` の出す値をそのまま
+ * 置く。**確認を減らす向きの書き換えは差分に現れる。**
+ *
+ * **下限を構造から導く語彙がこの検査には無い**（115.222 は本体の検査種別の直和型から導けた）。
+ * 本体 `check-design-measurement-freshness.ts` の指摘は文字列で組み立てられ、種別の直和型を
+ * 持たない。導けないため件数で貼る。
+ */
+const MINIMUM_TOTAL_CASES = 31;
+
+/**
+ * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）
+ *
+ * 是正前の実測（2026-09-03）: `main()` の中の `groups` を空にすると
+ * `✅ 0/0 件の確認に成功しました` を出して EXIT=0 になった。**母集団が空の検査は何も主張して
+ * いない。**
+ *
+ * **この関門は対照群の配列の要素として書かない。** 要素として持つ形（115.252 の候補3）は配列
+ * ごと空にすると関門も一緒に消える。`main()` の中、確認の実行より前に、配列の外側から貼る。
+ *
+ * **限界（塞いでいないこと）**: 総数の下限は現況ちょうどのため 1 件でも削れば赤くなるが、
+ * **削った分だけ別の群へ確認を足せば総数は動かない**。群ごとの下限は「空でないこと」と
+ * 「要求した極性が 1 件以上残ること」までしか課せない（115.222 が陰性対照について書き残した
+ * 限界と同じ形）。
+ *
+ * **もう一つの限界**: `main()` からこの関門の呼び出し自体を落とせば、関門は走らなくなる。
+ * 呼び出しの直列性を構造で要求する形——115.242 が `check-design-path-references.selftest.ts`
+ * に置いた「深さ 0・文の先頭・呼び出し直後の `;`」の三点——は、本タスクでは各ファイルへ
+ * 展開していない。**塞がないことと、書かないことは別である**（115.242 の教訓）。
+ */
+function guardControlsArePresent(groups: readonly TestGroup[]): void {
+  const problems: string[] = [];
+
+  if (groups.length === 0) {
+    problems.push('対照群が一つも登録されていません（この自己検査は何も確かめていません）');
+  }
+  for (const group of groups) {
+    if (group.cases.length === 0) {
+      problems.push(`対照群「${group.title}」が空です（この群は何も確かめていません）`);
+    }
+  }
+
+  // **極性の要求は宣言せず、無条件の規則と数で持つ（タスク 115.252。Critical #2 の一般形）。**
+  // 群ごとに「必要な極性」を配列の属性で設定する形は、関門を配列リテラルで設定する形であり、
+  // その配列を `[]` へ空化すれば要求ごと消える（115.252 の候補3 の自己隠蔽の変種）。
+  //
+  // **無条件の規則の定義域は群ではなく自己検査の全体に取る。** 実測（2026-09-03、リポジトリ
+  // ルート）: 定義域を群に取って「極性を持つ要素がある群は陽性と陰性を各 1 件以上持つ」と
+  // すると、`captured`/`not-captured` に分けた群は構成上どちらか一方の極性しか持たないため
+  // 満たしようがなく、この形を当てた 9 ファイルのうち 7 ファイルが赤くなった。群の極性が
+  // 均質であることは設計であって欠陥ではない。定義域を全体に上げれば規則は無条件のまま立つ。
+  //
+  // **片側が痩せる向きの変異は数で押さえる。** 数は空にできないため、配列リテラルを空化する
+  // 変異作用素に対して構造的に免疫である（下限は現況ちょうど。余裕ゼロ）。
+  const polarities = groups.flatMap((group) => group.cases.map((one) => one.polarity));
+  if (polarities.some((one) => one !== undefined)) {
+    if (!polarities.includes('positive')) {
+      problems.push('陽性対照が 1 件もありません（検出器が何も検出しなくても緑になります）');
+    }
+    if (!polarities.includes('negative')) {
+      problems.push('陰性対照が 1 件もありません（検出器が何にでも反応しても緑になります）');
+    }
+  }
+  const positives = polarities.filter((one) => one === 'positive').length;
+  const negatives = polarities.filter((one) => one === 'negative').length;
+  if (positives < MINIMUM_POSITIVE_CONTROLS) {
+    problems.push(
+      `陽性対照が ${positives} 件しかありません（宣言の下限は ${MINIMUM_POSITIVE_CONTROLS} 件）。` +
+        '陽性対照を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+  if (negatives < MINIMUM_NEGATIVE_CONTROLS) {
+    problems.push(
+      `陰性対照が ${negatives} 件しかありません（宣言の下限は ${MINIMUM_NEGATIVE_CONTROLS} 件）。` +
+        '陰性対照を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+
+  const total = groups.reduce((sum, group) => sum + group.cases.length, 0);
+  if (total < MINIMUM_TOTAL_CASES) {
+    problems.push(
+      `確認の総数が ${total} 件しかありません（宣言の下限は ${MINIMUM_TOTAL_CASES} 件）。` +
+        '確認を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+
+  // 対照の現況を一行で印字する（タスク 115.252）。関門の判定に使うのと同じ変数から出す。
+  // `npx tsx scripts/list-control-polarity-floors.ts` はこの行を読み、下限を貼り直すときの
+  // 元の値にする。一覧の側で数え直さないのは、判定と一覧が別々の真実を持たないためである。
+  // 本自己検査群が閉じている範囲と閉じていない範囲（三層の記録）は
+  // `scripts/check-counterfactual-evidence.selftest.ts` の
+  // 「本自己検査群が閉じている範囲と、閉じていない範囲」の節に正典を置く（タスク 115.252）。
+  console.log(
+    `📋 対照の現況: 陽性対照 ${positives}/${MINIMUM_POSITIVE_CONTROLS} ・ ` +
+      `陰性対照 ${negatives}/${MINIMUM_NEGATIVE_CONTROLS} ・ ` +
+      `総数 ${total}/${MINIMUM_TOTAL_CASES}（現況/宣言の下限）`
+  );
+
+  if (problems.length > 0) {
+    console.log(
+      '\n❌ 自己検査の対照群そのものが欠けています（この状態で出る「合格」は意味を持ちません）'
+    );
+    for (const problem of problems) console.log(`   - ${problem}`);
+    process.exit(1);
+  }
+}
+
 function main(): void {
-  const groups: { title: string; cases: TestCase[] }[] = [
-    { title: '検出規則（緩める向きと狭めすぎる向き）', cases: DETECTION },
+  const groups: TestGroup[] = [
+    {
+      title: '検出規則（緩める向きと狭めすぎる向き）',
+      cases: DETECTION,
+    },
     { title: '母集団が空なら失敗する', cases: NON_VACUITY },
     { title: 'コマンドの綴りの分割', cases: COMMAND_VOCABULARY },
     { title: '絞り込みの経路を作らせない', cases: NARROWING_GUARD },
@@ -1253,6 +1440,8 @@ function main(): void {
   console.log(
     '🔍 設計文書の実測値の鮮度検査 自己検査 (scripts/check-design-measurement-freshness.selftest.ts)'
   );
+  // 対照群の配列の外側に置く関門。実行より前に、群そのものが在ることを確かめる。
+  guardControlsArePresent(groups);
   let failed = 0;
   for (const group of groups) {
     console.log(`\n[${group.title}]`);

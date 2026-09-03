@@ -220,8 +220,21 @@ import {
 interface Case {
   /** 何を確かめるか */
   name: string;
+  /**
+   * 対照の極性（タスク 115.252）
+   *
+   * 陽性（被覆源として数えなければならない側）と陰性（数えてはならない側）の**両方**が残って
+   * いることを `guardControlsArePresent()` が群ごとに確かめるための属性。**名前の綴りからも
+   * 変数名からも導かない**（115.247 の作法）。極性を持たない機構の確認では省く。
+   */
+  polarity?: 'positive' | 'negative';
   /** 自前で失敗の一覧を返す */
   run: () => string[];
+}
+
+interface Group {
+  readonly title: string;
+  readonly cases: readonly Case[];
 }
 
 // ============================================================================
@@ -231,8 +244,22 @@ interface Case {
 /** 仮想リポジトリの中身（相対パス → 本文） */
 type Fixture = Record<string, string>;
 
+/**
+ * 仮想リポジトリを組み立てて本体へ通す。
+ *
+ * **中身の空いた資料を置かせない**（AI運用7原則 第3原則。タスク 115.252 の是正。指摘 (2)）。
+ * 資料の中身は `[...].join('\n')` で組み立てているものがあり、その素材を空にすると資料は
+ * 空ファイルになる。空ファイルは取り込みを一本も持たないため、「型宣言だけを取り込む検証は
+ * 被覆源に数えない」といった主張が、素材が担う形とは無関係に成立してしまう。
+ * 素材の外側に在るこの入口で空を拒み、仮想リポジトリを組み立てる全箇所へ一度に効かせる。
+ */
 function withFixture<T>(files: Fixture, body: (baseDir: string) => T): T {
   const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'req-coverage-reach-'));
+  for (const [relative, content] of Object.entries(files)) {
+    if (content.trim() === '') {
+      throw new Error(`仮想リポジトリの資料 ${relative} が空です（この確認が空振りしています）`);
+    }
+  }
   try {
     for (const [relative, content] of Object.entries(files)) {
       const absolute = path.join(baseDir, relative);
@@ -354,6 +381,10 @@ function checkReachableForms(): string[] {
         'verification-subject-reachable',
       ],
     ];
+    // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+    if (expectations.length === 0) {
+      failures.push('合成素材 expectations が空です（この確認が空振りしています）');
+    }
     for (const [file, reason] of expectations) {
       const actual = reasonOf(file);
       if (actual !== reason) failures.push(`${file}: 期待 ${reason} に対し 実際 ${actual}`);
@@ -448,6 +479,10 @@ function checkUnreachableForms(): string[] {
       ['frontend/src/__tests__/misc/helper-only.test.tsx', 'verification-no-production-reference'],
       ['frontend/src/__tests__/misc/type-only.test.tsx', 'verification-no-production-reference'],
     ];
+    // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+    if (expectations.length === 0) {
+      failures.push('合成素材 expectations が空です（この確認が空振りしています）');
+    }
     for (const [file, reason] of expectations) {
       const actual = reasonOf(file);
       if (actual !== reason) failures.push(`${file}: 期待 ${reason} に対し 実際 ${actual}`);
@@ -489,10 +524,21 @@ function checkImportFormsAreExtracted(): string[] {
   const specifiers = extractImportSpecifiers(source);
   const expected = ['./a', './b', './c', './d', './e', './f', './g', './h', './i'];
   const failures: string[] = [];
+  // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (expected.length === 0) {
+    failures.push('合成素材 expected が空です（この確認が空振りしています）');
+  }
   for (const want of expected) {
     if (!specifiers.includes(want)) failures.push(`${want} を抽出できなかった`);
   }
-  for (const forbidden of ['./zz', './yy', './xx']) {
+  // 陰性の合成素材。**同じ関数の陽性側だけを塞いでも、こちらが空なら「取り込みでない綴りを
+  // 拾わない」という主張は恒真のまま残る**（第3原則。115.252 の指摘 (1)）。
+  const forbiddenSpecifiers = ['./zz', './yy', './xx'];
+  // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (forbiddenSpecifiers.length === 0) {
+    failures.push('合成素材 forbiddenSpecifiers が空です（この確認が空振りしています）');
+  }
+  for (const forbidden of forbiddenSpecifiers) {
     if (specifiers.includes(forbidden)) failures.push(`${forbidden} を誤って抽出した`);
   }
   return failures;
@@ -515,6 +561,10 @@ function checkSpecifierResolution(): string[] {
     ['./missing', 'frontend/src/App.tsx', null],
   ];
   const failures: string[] = [];
+  // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (cases.length === 0) {
+    failures.push('合成素材 cases が空です（この確認が空振りしています）');
+  }
   for (const [specifier, from, expected] of cases) {
     const actual = resolveImport(specifier, from, modules);
     if (actual !== expected) {
@@ -537,6 +587,10 @@ function checkVerificationFileDetection(): string[] {
     'backend/src/__tests__/unit/x.spec.ts',
     'e2e/specs/site-surveys/x.spec.ts',
   ];
+  // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (mustBeVerification.length === 0) {
+    failures.push('合成素材 mustBeVerification が空です（この確認が空振りしています）');
+  }
   const mustNotBeVerification = [
     'frontend/src/components/X.tsx',
     'frontend/src/utils/testable.ts',
@@ -544,6 +598,10 @@ function checkVerificationFileDetection(): string[] {
     'backend/src/services/x.service.ts',
     'backend/src/utils/protest.ts',
   ];
+  // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (mustNotBeVerification.length === 0) {
+    failures.push('合成素材 mustNotBeVerification が空です（この確認が空振りしています）');
+  }
   for (const file of mustBeVerification) {
     if (!isVerificationFile(file)) failures.push(`${file} を検証ファイルと判定できなかった`);
   }
@@ -791,6 +849,10 @@ function checkExclusionAudit(): string[] {
     { id: 'demo/REQ-1.8', tool: SOLE_TOOL_STORYBOOK, word: 'Storybook' },
     { id: 'demo/REQ-1.9', tool: SOLE_TOOL_JEST, word: 'Jest' },
   ];
+  // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (soleWordSamples.length === 0) {
+    failures.push('合成素材 soleWordSamples が空です（この確認が空振りしています）');
+  }
   for (const sample of soleWordSamples) {
     if (!sample.tool.includes(sample.word)) {
       failures.push(`見本 ${sample.id} の代替検証に語 ${sample.word} が含まれていない`);
@@ -982,12 +1044,20 @@ function checkKnownDeadAndLiveModules(): string[] {
     'frontend/src/utils/keyboard-navigation.ts',
     'frontend/src/components/quantity-table/FieldValidatedItemRow.tsx',
   ];
+  // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (mustBeDead.length === 0) {
+    failures.push('合成素材 mustBeDead が空です（この確認が空振りしています）');
+  }
   const mustBeLive = [
     'frontend/src/components/site-surveys/AnnotationEditor.tsx',
     'frontend/src/pages/SiteSurveyImageViewerPage.tsx',
     'frontend/src/routes.tsx',
     'backend/src/app.ts',
   ];
+  // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (mustBeLive.length === 0) {
+    failures.push('合成素材 mustBeLive が空です（この確認が空振りしています）');
+  }
 
   for (const module of mustBeDead) {
     if (!graph.modules.has(module)) {
@@ -1423,6 +1493,10 @@ function checkHeaderSectionStopsAtNextHeader(): string[] {
     { label: '実データに倣った形', source: MULTI_HEADER_JSDOC },
     { label: 'ヘッダーが隣接する形', source: ADJACENT_HEADERS_JSDOC },
   ];
+  // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (fixtures.length === 0) {
+    failures.push('合成素材 fixtures が空です（この確認が空振りしています）');
+  }
 
   for (const fixture of fixtures) {
     const found = extractHeaderScopedCoverage(fixture.source, SELFTEST_FEATURES);
@@ -1935,7 +2009,15 @@ function checkExtractorDocCitesNoPerishableExample(): string[] {
     failures.push(`${SELFTEST_SOURCE_PATH} が存在しない（指し先の実在を確かめられない）`);
   } else {
     const selftestSource = fs.readFileSync(selftestPath, 'utf8');
-    for (const name of [`const ${REAL_CLAIMS_AUTHORITY_NAME}`, `function ${DOC_GUARD_NAME}(`]) {
+    const requiredDeclarations = [
+      `const ${REAL_CLAIMS_AUTHORITY_NAME}`,
+      `function ${DOC_GUARD_NAME}(`,
+    ];
+    // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+    if (requiredDeclarations.length === 0) {
+      failures.push('素材 requiredDeclarations が空です（この確認が空振りしています）');
+    }
+    for (const name of requiredDeclarations) {
       if (!selftestSource.includes(name)) {
         failures.push(
           `${SELFTEST_SOURCE_PATH} に \`${name}\` が無い（説明文が実在しない名前を指している）`
@@ -2058,7 +2140,12 @@ function checkListMarkerControlActuallyReacts(): string[] {
     return failures;
   }
   const found = extractHeaderScopedCoverage(mutated, SELFTEST_FEATURES);
-  for (const id of ['site-survey/REQ-8.2', 'site-survey/REQ-8.3']) {
+  const expectedIds = ['site-survey/REQ-8.2', 'site-survey/REQ-8.3'];
+  // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (expectedIds.length === 0) {
+    failures.push('素材 expectedIds が空です（この確認が空振りしています）');
+  }
+  for (const id of expectedIds) {
     if (!found.acceptanceCriteria.includes(id)) {
       failures.push(
         `印を差し込んでも ${id} が現れない（対照が空振りしている。` +
@@ -2225,7 +2312,12 @@ function checkRealFileIsNotOverAttributed(): string[] {
     );
   }
   // 後続のヘッダー（company-info / estimate-creation …）配下の番号は帰属してはならない。
-  for (const id of ['site-survey/REQ-6.6', 'site-survey/REQ-11']) {
+  const forbiddenIds = ['site-survey/REQ-6.6', 'site-survey/REQ-11'];
+  // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (forbiddenIds.length === 0) {
+    failures.push('素材 forbiddenIds が空です（この確認が空振りしています）');
+  }
+  for (const id of forbiddenIds) {
     if (found.requirements.includes(id) || found.acceptanceCriteria.includes(id)) {
       failures.push(`${target}: 後続のヘッダー配下の ${id} が site-survey へ帰属した`);
     }
@@ -2273,7 +2365,12 @@ const ID_LIST_FORMS = [
 function checkIdListEnumeratesEveryItem(): string[] {
   const failures: string[] = [];
   const found = extractHeaderScopedCoverage(ID_LIST_FORMS, SELFTEST_FEATURES);
-  for (const branch of ['14.1', '14.2', '14.3', '14.4', '14.5', '14.6', '14.7', '14.8']) {
+  const jsdocBranches = ['14.1', '14.2', '14.3', '14.4', '14.5', '14.6', '14.7', '14.8'];
+  // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (jsdocBranches.length === 0) {
+    failures.push('素材 jsdocBranches が空です（この確認が空振りしています）');
+  }
+  for (const branch of jsdocBranches) {
     const id = `site-survey/REQ-${branch}`;
     if (!found.acceptanceCriteria.includes(id)) {
       failures.push(`識別子欄の項目 ${id} を取りこぼした（被覆の過小帰属）`);
@@ -2284,7 +2381,12 @@ function checkIdListEnumeratesEveryItem(): string[] {
   }
   // 行コメント（`//`）の一覧項目でも同じ規則が成り立つこと。
   // 印を探す走査が `/` を行の最初の非空白文字として見ると、識別子欄が一切読まれない。
-  for (const branch of ['20.1', '20.2', '20.3', '20.4', '20.5']) {
+  const lineCommentBranches = ['20.1', '20.2', '20.3', '20.4', '20.5'];
+  // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (lineCommentBranches.length === 0) {
+    failures.push('素材 lineCommentBranches が空です（この確認が空振りしています）');
+  }
+  for (const branch of lineCommentBranches) {
     const id = `user-authentication/REQ-${branch}`;
     if (!found.acceptanceCriteria.includes(id)) {
       failures.push(`行コメントの識別子欄の項目 ${id} を取りこぼした（被覆の過小帰属）`);
@@ -2335,26 +2437,46 @@ function checkProseBulletIsNotAnIdList(): string[] {
   if (!found.acceptanceCriteria.includes('site-survey/REQ-15.1')) {
     failures.push('正当な一覧項目 site-survey/REQ-15.1 を取りこぼした（厳しすぎ）');
   }
-  for (const branch of ['15.2', '15.3']) {
+  const proseBulletBranches = ['15.2', '15.3'];
+  // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (proseBulletBranches.length === 0) {
+    failures.push('素材 proseBulletBranches が空です（この確認が空振りしています）');
+  }
+  for (const branch of proseBulletBranches) {
     if (found.acceptanceCriteria.includes(`site-survey/REQ-${branch}`)) {
       failures.push(
         `識別子の並びではない散文の箇条書きから site-survey/REQ-${branch} を拾った（過大帰属）`
       );
     }
   }
-  for (const branch of ['15.4', '15.5']) {
+  const proseNumberBranches = ['15.4', '15.5'];
+  // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (proseNumberBranches.length === 0) {
+    failures.push('素材 proseNumberBranches が空です（この確認が空振りしています）');
+  }
+  for (const branch of proseNumberBranches) {
     if (found.acceptanceCriteria.includes(`site-survey/REQ-${branch}`)) {
       failures.push(`散文中の数値を受入基準番号と読んだ（site-survey/REQ-${branch}。過大帰属）`);
     }
   }
-  for (const branch of ['15.6', '15.7']) {
+  const unmarkedContinuationBranches = ['15.6', '15.7'];
+  // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (unmarkedContinuationBranches.length === 0) {
+    failures.push('素材 unmarkedContinuationBranches が空です（この確認が空振りしています）');
+  }
+  for (const branch of unmarkedContinuationBranches) {
     if (found.acceptanceCriteria.includes(`site-survey/REQ-${branch}`)) {
       failures.push(
         `印を持たない継続行から site-survey/REQ-${branch} を拾った（115.194 の是正が壊れている）`
       );
     }
   }
-  for (const branch of ['15.8', '15.9']) {
+  const slashSeparatedBranches = ['15.8', '15.9'];
+  // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (slashSeparatedBranches.length === 0) {
+    failures.push('素材 slashSeparatedBranches が空です（この確認が空振りしています）');
+  }
+  for (const branch of slashSeparatedBranches) {
     if (found.acceptanceCriteria.includes(`site-survey/REQ-${branch}`)) {
       failures.push(
         `スラッシュ区切りの並びから site-survey/REQ-${branch} を拾った（据え置く書式。過大帰属）`
@@ -2366,7 +2488,12 @@ function checkProseBulletIsNotAnIdList(): string[] {
       '行コメントの正当な一覧項目 user-authentication/REQ-21.1 を取りこぼした（厳しすぎ）'
     );
   }
-  for (const branch of ['21.2', '21.3']) {
+  const lineCommentContinuationBranches = ['21.2', '21.3'];
+  // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (lineCommentContinuationBranches.length === 0) {
+    failures.push('素材 lineCommentContinuationBranches が空です（この確認が空振りしています）');
+  }
+  for (const branch of lineCommentContinuationBranches) {
     if (found.acceptanceCriteria.includes(`user-authentication/REQ-${branch}`)) {
       failures.push(
         `行コメントの印を持たない継続行から user-authentication/REQ-${branch} を拾った` +
@@ -2421,6 +2548,10 @@ function checkProseBulletControlActuallyReacts(): string[] {
     'user-authentication/REQ-21.2',
     'user-authentication/REQ-21.3',
   ];
+  // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (expectedIds.length === 0) {
+    failures.push('合成素材 expectedIds が空です（この確認が空振りしています）');
+  }
   for (const id of expectedIds) {
     if (!found.acceptanceCriteria.includes(id)) {
       failures.push(
@@ -2477,6 +2608,10 @@ function checkRealUnderAttributionIsResolved(): string[] {
       expected: ['estimate-creation/REQ-47.5'],
     },
   ];
+  // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (targets.length === 0) {
+    failures.push('合成素材 targets が空です（この確認が空振りしています）');
+  }
 
   for (const target of targets) {
     const absolute = path.resolve(target.file);
@@ -2546,7 +2681,12 @@ function checkNumberRangeRecordsBothEndsOnly(): string[] {
   const failures: string[] = [];
   const found = extractHeaderScopedCoverage(NUMBER_RANGE_IS_NOT_EXPANDED, SELFTEST_FEATURES);
 
-  for (const id of ['site-survey/REQ-17', 'site-survey/REQ-19', 'site-survey/REQ-22']) {
+  const rangeEndIds = ['site-survey/REQ-17', 'site-survey/REQ-19', 'site-survey/REQ-22'];
+  // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (rangeEndIds.length === 0) {
+    failures.push('素材 rangeEndIds が空です（この確認が空振りしています）');
+  }
+  for (const id of rangeEndIds) {
     if (!found.requirements.includes(id)) {
       failures.push(`範囲の端の要件番号 ${id} を取りこぼした（被覆の過小帰属）`);
     }
@@ -2557,7 +2697,12 @@ function checkNumberRangeRecordsBothEndsOnly(): string[] {
   if (found.requirements.includes('site-survey/REQ-18')) {
     failures.push('要件番号の範囲の内側 site-survey/REQ-18 を展開した（書かれていない被覆の主張）');
   }
-  for (const branch of ['22.2', '22.3', '22.4', '22.5', '22.6']) {
+  const rangeInnerBranches = ['22.2', '22.3', '22.4', '22.5', '22.6'];
+  // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (rangeInnerBranches.length === 0) {
+    failures.push('素材 rangeInnerBranches が空です（この確認が空振りしています）');
+  }
+  for (const branch of rangeInnerBranches) {
     if (found.acceptanceCriteria.includes(`site-survey/REQ-${branch}`)) {
       failures.push(
         `受入基準の範囲の内側 site-survey/REQ-${branch} を展開した（書かれていない被覆の主張）`
@@ -2585,7 +2730,12 @@ function checkNumberRangeControlActuallyReacts(): string[] {
   if (!found.requirements.includes('site-survey/REQ-18')) {
     failures.push('読点区切りへ書き換えても site-survey/REQ-18 が現れない（対照が空振りしている）');
   }
-  for (const branch of ['22.2', '22.3', '22.4', '22.5', '22.6']) {
+  const commaSeparatedBranches = ['22.2', '22.3', '22.4', '22.5', '22.6'];
+  // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (commaSeparatedBranches.length === 0) {
+    failures.push('素材 commaSeparatedBranches が空です（この確認が空振りしています）');
+  }
+  for (const branch of commaSeparatedBranches) {
     const id = `site-survey/REQ-${branch}`;
     if (!found.acceptanceCriteria.includes(id)) {
       failures.push(`読点区切りへ書き換えても ${id} が現れない（対照が空振りしている）`);
@@ -2622,7 +2772,12 @@ function checkIdsWithoutBranchClaimNoCriterion(): string[] {
   const failures: string[] = [];
   const found = extractHeaderScopedCoverage(IDS_WITHOUT_BRANCH_ARE_NOT_CRITERIA, SELFTEST_FEATURES);
 
-  for (const id of ['user-authentication/REQ-17', 'user-authentication/REQ-18']) {
+  const branchlessIds = ['user-authentication/REQ-17', 'user-authentication/REQ-18'];
+  // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (branchlessIds.length === 0) {
+    failures.push('素材 branchlessIds が空です（この確認が空振りしています）');
+  }
+  for (const id of branchlessIds) {
     if (!found.requirements.includes(id)) {
       failures.push(
         `枝番を持たない識別子欄から要件番号 ${id} を取りこぼした（被覆の過小帰属。` +
@@ -2630,7 +2785,12 @@ function checkIdsWithoutBranchClaimNoCriterion(): string[] {
       );
     }
   }
-  for (const id of ['user-authentication/REQ-17.1', 'user-authentication/REQ-18.1']) {
+  const forbiddenCriterionIds = ['user-authentication/REQ-17.1', 'user-authentication/REQ-18.1'];
+  // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (forbiddenCriterionIds.length === 0) {
+    failures.push('素材 forbiddenCriterionIds が空です（この確認が空振りしています）');
+  }
+  for (const id of forbiddenCriterionIds) {
     if (found.acceptanceCriteria.includes(id)) {
       failures.push(
         `枝番の書かれていない識別子欄から受入基準 ${id} を名乗った（書かれていない被覆の主張）`
@@ -2683,7 +2843,12 @@ function checkLetteredRequirementNumberIsRecorded(): string[] {
       '枝つき要件番号を基底番号 user-authentication/REQ-27 へ丸めた（実在しない番号を名乗る）'
     );
   }
-  for (const branch of ['27A.1', '27A.2']) {
+  const suffixedBranches = ['27A.1', '27A.2'];
+  // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (suffixedBranches.length === 0) {
+    failures.push('素材 suffixedBranches が空です（この確認が空振りしています）');
+  }
+  for (const branch of suffixedBranches) {
     const id = `user-authentication/REQ-${branch}`;
     if (!found.acceptanceCriteria.includes(id)) {
       failures.push(`識別子欄が枝つき要件番号の並び ${id} を取りこぼした（被覆の過小帰属）`);
@@ -2815,6 +2980,14 @@ function checkQuotedHeaderIsNotDetected(): string[] {
   // 戻すと、宣言の側（REQ-3.1）が無言で落ちる——帰属と切れ目の両方から消えるため、
   // 被覆の過小計上と、切れ目を失った区間の過大帰属が同時に起きる。
   const unclosedFenceInAnotherBlock = ['/**', ' * ```', ' * 閉じ忘れた見本', ' */', ''].join('\n');
+  // 素材が閉じ忘れのフェンスを失うと、以下は「塊の外の閉じ忘れに依らない」ことを一切
+  // 確かめなくなり、直前の確認の写しへ退化する（第3原則。115.252）
+  if (!unclosedFenceInAnotherBlock.includes(' * ```')) {
+    failures.push(
+      '合成素材 unclosedFenceInAnotherBlock が閉じ忘れのフェンスを持ちません' +
+        '（この確認が空振りしています）'
+    );
+  }
   const afterUnclosedFence = extractHeaderScopedCoverage(
     unclosedFenceInAnotherBlock + QUOTED_HEADER_IS_NOT_A_DECLARATION,
     SELFTEST_FEATURES
@@ -2862,6 +3035,14 @@ function checkDeclaredHeaderPredicateIsTwoSided(): string[] {
 
   const verdicts = occurrences.map((index) => isDeclaredCoverageHeader(content, index));
   const expected = [true, false, false, false];
+  // 合成素材が資料と件数で揃わなければ以下の照合は回りきらず、この確認は何も主張しない
+  // （第3原則。115.252）
+  if (expected.length !== occurrences.length) {
+    failures.push(
+      `合成素材 expected が ${expected.length} 件で、資料の ${occurrences.length} 件と` +
+        '揃っていません（この確認が空振りしています）'
+    );
+  }
   for (let index = 0; index < expected.length; index++) {
     if (verdicts[index] !== expected[index]) {
       const line = content.slice(0, occurrences[index]).split('\n').length;
@@ -3401,7 +3582,12 @@ function checkEverySyntheticFixtureIsClassified(): string[] {
     }
   }
   // 走査が拾えない名前が登録側に残っていれば、資料の改名か撤去に登録が追いついていない
-  for (const name of [...registered, ...positiveOnly]) {
+  const allRegisteredNames = [...registered, ...positiveOnly];
+  // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (allRegisteredNames.length === 0) {
+    failures.push('素材 allRegisteredNames が空です（この確認が空振りしています）');
+  }
+  for (const name of allRegisteredNames) {
     if (!names.includes(name)) {
       failures.push(`${name}: 登録されているが資料の宣言が見つからない（改名か撤去に未追随）`);
     }
@@ -3425,6 +3611,10 @@ function checkRetiredCriterionPredicate(): string[] {
     ['潰したうえで移管先を添える形', '~~If 旧条文~~ → Requirement 39 AC 5 で更新'],
     ['行頭に空白がある形', '  ~~撤廃~~'],
   ];
+  // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (retired.length === 0) {
+    failures.push('合成素材 retired が空です（この確認が空振りしています）');
+  }
   for (const [label, text] of retired) {
     if (!isRetiredCriterionText(text)) failures.push(`撤廃と判定しなかった: ${label}`);
   }
@@ -3437,6 +3627,10 @@ function checkRetiredCriterionPredicate(): string[] {
     ['行頭の印が一本だけの現役の条文', '~5秒以内に一覧を再表示する'],
     ['空文字', ''],
   ];
+  // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (live.length === 0) {
+    failures.push('合成素材 live が空です（この確認が空振りしています）');
+  }
   for (const [label, text] of live) {
     if (isRetiredCriterionText(text)) failures.push(`誤って撤廃と判定した: ${label}`);
   }
@@ -3552,9 +3746,15 @@ function checkRetiredCriterionCoverageMarksAreDetected(): string[] {
     failures.push('被覆印を掲げている場所を報告していない');
   }
 
-  const clean = findRetiredCriterionCoverageMarks(features, [
+  // 陰性側の素材。**空にすると `clean` は必ず 0 件になり、「現役の番号は挙げない」という
+  // 主張が恒真になる**（第3原則。115.252）
+  const liveMarks = [
     { file: 'e2e/specs/probe.spec.ts', requirements: [], acceptanceCriteria: [liveId] },
-  ]);
+  ];
+  if (liveMarks.length === 0) {
+    failures.push('素材 liveMarks が空です（この確認が空振りしています）');
+  }
+  const clean = findRetiredCriterionCoverageMarks(features, liveMarks);
   if (clean.length !== 0) {
     failures.push(`現役の番号を名乗る被覆印を誤って挙げた: ${clean.map((m) => m.id).join(', ')}`);
   }
@@ -3668,31 +3868,46 @@ function checkUnknownCriterionMarksAreDetected(): string[] {
   }
 
   // 陰性: 走査対象の外（本番ソース配下）は挙げない
-  const outsideRoot = findUnknownCriterionCoverageMarks(features, [
+  // 陰性の素材。**空にすると挙がるものが無くなり、この主張は恒真になる**（第3原則。115.252）
+  const outsideRootMarks = [
     { file: 'frontend/src/probe.tsx', requirements: [], acceptanceCriteria: [probe.unknown] },
-  ]);
+  ];
+  if (outsideRootMarks.length === 0) {
+    failures.push('素材 outsideRootMarks が空です（この確認が空振りしています）');
+  }
+  const outsideRoot = findUnknownCriterionCoverageMarks(features, outsideRootMarks);
   if (outsideRoot.length !== 0) {
     failures.push(`走査対象の外の被覆印を挙げた: ${outsideRoot.map((mark) => mark.id).join(', ')}`);
   }
 
   // 機構対照: 墓標と「存在しない番号」を取り違えていない（直し方が違うので混ぜてはならない）
-  const retiredByUnknown = findUnknownCriterionCoverageMarks(features, [
+  // 陰性の素材。**空にすると挙がるものが無くなり、この主張は恒真になる**（第3原則。115.252）
+  const retiredMarks = [
     {
       file: `${E2E_SPECS_ROOT}/probe.spec.ts`,
       requirements: [],
       acceptanceCriteria: [probe.retired],
     },
-  ]);
+  ];
+  if (retiredMarks.length === 0) {
+    failures.push('素材 retiredMarks が空です（この確認が空振りしています）');
+  }
+  const retiredByUnknown = findUnknownCriterionCoverageMarks(features, retiredMarks);
   if (retiredByUnknown.length !== 0) {
     failures.push(`墓標を「存在しない番号」として挙げた: ${probe.retired}`);
   }
-  const unknownByRetired = findRetiredCriterionCoverageMarks(features, [
+  // 陰性の素材。**空にすると挙がるものが無くなり、この主張は恒真になる**（第3原則。115.252）
+  const unknownMarks = [
     {
       file: `${E2E_SPECS_ROOT}/probe.spec.ts`,
       requirements: [],
       acceptanceCriteria: [probe.unknown],
     },
-  ]);
+  ];
+  if (unknownMarks.length === 0) {
+    failures.push('素材 unknownMarks が空です（この確認が空振りしています）');
+  }
+  const unknownByRetired = findRetiredCriterionCoverageMarks(features, unknownMarks);
   if (unknownByRetired.length !== 0) {
     failures.push(`存在しない番号を「墓標」として挙げた: ${probe.unknown}`);
   }
@@ -3866,6 +4081,14 @@ function summaryIntegrityProbe(
   acceptanceCriteria: string[],
   requirements: string[]
 ): { result: CoverageResult; testCoverage: TestCoverage[]; feature: Feature } | string {
+  // 素材が空だと被覆印が一つも立たず、集計の整合を問う以下の照合は素材に依らず成立する
+  //（第3原則。115.252）
+  if (acceptanceCriteria.length === 0) {
+    return '合成素材 acceptanceCriteria が空です（この確認が空振りしています）';
+  }
+  if (requirements.length === 0) {
+    return '合成素材 requirements が空です（この確認が空振りしています）';
+  }
   const document = [
     '### Requirement 1: 分母に入る要件',
     '',
@@ -4165,6 +4388,11 @@ function checkDoubleShallCriterionIsAbsent(): string[] {
  * 仮想の資料の側でも数え方を固定しておかないと、母数の水増しが誰にも見えなくなる。
  */
 function runCopyReportProbe(spec: string): ReturnType<typeof reportCriterionTextCopies> {
+  // 探りの検証資料が空だと塊が一つも立たず、「食い違いを挙げない」側の主張は恒真になる
+  //（第3原則。115.252）
+  if (spec.trim() === '') {
+    throw new Error('探り用の検証資料 spec が空です（この確認が空振りしています）');
+  }
   const requirements = [
     '### Requirement 1: 探り用の要件',
     '',
@@ -4215,6 +4443,10 @@ function runCopyMismatchProbe(spec: string): ReturnType<typeof findCriterionText
 
 /** 二つの機能を持つ探り用の資料で、逐語複製の報告を取る */
 function runTwoFeatureCopyReportProbe(spec: string): ReturnType<typeof reportCriterionTextCopies> {
+  // 探りの検証資料が空だと塊が一つも立たず、以下の主張は恒真になる（第3原則。115.252）
+  if (spec.trim() === '') {
+    throw new Error('探り用の検証資料 spec が空です（この確認が空振りしています）');
+  }
   const probeRequirements = [
     '### Requirement 1: 探り用の要件',
     '',
@@ -4230,6 +4462,25 @@ function runTwoFeatureCopyReportProbe(spec: string): ReturnType<typeof reportCri
     '2. The システム shall 隣の機能の一覧に絞り込みの入力欄を置く',
     '',
   ].join('\n');
+
+  // 探りの資料が受入基準を失うと、呼び出し側の「挙げない」側の主張が恒真になる
+  // （第3原則。115.252 の候補5。実測 2026-09-03: `probeRequirements` の中身を空にすると
+  // 65/65 緑・EXIT=0）。前提の崩壊は黙って通さず、ここで止める。
+  //
+  // **関門は自分の素材の配列を持ってはならない**（115.247 の作法。115.252 の候補3 の自己隠蔽
+  // そのもの）。当初この関門を `for (const [label, document] of [['probeRequirements', ...],
+  // ...] as const)` と書いていたが、**その直書き配列を空にするだけで関門ごと黙って消えた**
+  // （実測 2026-09-03: 当該配列を `[] as const` に空化して 65/65 緑・EXIT=0）。素材ごとに直に書く。
+  if (!probeRequirements.includes('#### Acceptance Criteria')) {
+    throw new Error(
+      '探り用の資料 probeRequirements が受入基準を持たない（この対照が空振りしています）'
+    );
+  }
+  if (!neighborRequirements.includes('#### Acceptance Criteria')) {
+    throw new Error(
+      '探り用の資料 neighborRequirements が受入基準を持たない（この対照が空振りしています）'
+    );
+  }
 
   let result: ReturnType<typeof reportCriterionTextCopies> = {
     blocks: 0,
@@ -4426,6 +4677,10 @@ function checkCriterionAttributionIsNumberExact(): string[] {
     ['前に数字が続く番号（11.1）を 1.1 と読まない', ' * 関連する画面番号は 11.1 である。'],
     ['点を任意の一字と読まない（1-1 を 1.1 と読まない）', ' * 画面ID 1-1 の一覧を対象とする。'],
   ];
+  // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (cases.length === 0) {
+    failures.push('合成素材 cases が空です（この確認が空振りしています）');
+  }
   for (const [label, proseLine] of cases) {
     const found = runCopyMismatchProbe(
       [
@@ -4655,14 +4910,22 @@ function checkRealCriterionTextCopiesExist(): string[] {
 // 実行
 // ============================================================================
 
-const GROUPS: Array<{ title: string; cases: Case[] }> = [
+const GROUPS: Group[] = [
   {
     title: '被覆源として数えなければならない形（到達する）',
-    cases: [{ name: '生きた本番モジュールと、その検証', run: checkReachableForms }],
+    cases: [
+      { name: '生きた本番モジュールと、その検証', polarity: 'positive', run: checkReachableForms },
+    ],
   },
   {
     title: '被覆源として数えてはならない形（到達しない）',
-    cases: [{ name: '死んだ本番モジュールと、その検証', run: checkUnreachableForms }],
+    cases: [
+      {
+        name: '死んだ本番モジュールと、その検証',
+        polarity: 'negative',
+        run: checkUnreachableForms,
+      },
+    ],
   },
   {
     title: '取り込みの解析',
@@ -4921,10 +5184,137 @@ const GROUPS: Array<{ title: string; cases: Case[] }> = [
   },
 ];
 
+/**
+ * 陽性対照・陰性対照の件数の下限（タスク 115.252）
+ *
+ * 2026-09-03 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
+ * `npx tsx scripts/list-control-polarity-floors.ts` が出す値をそのまま置く。
+ *
+ * **総数の下限だけでは片側の消失を捕まえられない。** 陽性対照を削って同じ数だけ陰性対照を
+ * 足せば総数は動かないため、極性ごとに別の下限を貼る。極性は要素の宣言（`expected` ないし
+ * `polarity`）から導き、**名前の綴りからは導かない**（115.247 の作法）。
+ */
+const MINIMUM_POSITIVE_CONTROLS = 1;
+const MINIMUM_NEGATIVE_CONTROLS = 1;
+
+/**
+ * 確認の総数の下限（タスク 115.252）
+ *
+ * 2026-09-03 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
+ * `npx tsx scripts/check-requirement-coverage.selftest.ts | tail -1` の出す値をそのまま置く。
+ * **確認を減らす向きの書き換えは差分に現れる。**
+ *
+ * **下限を構造から導く語彙がこの検査には無い**（115.222 は本体の検査種別の直和型から導けた）。
+ * 本体 `check-requirement-coverage.ts` の被覆源の分類（`verification-*`）は 65 件の確認の一部に
+ * しか対応しない。導けないため件数で貼る。
+ */
+const MINIMUM_TOTAL_CASES = 65;
+
+/**
+ * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）
+ *
+ * 是正前の実測（2026-09-03）: `GROUPS` を丸ごと空にすると既存の `total === 0` の関門が働いて
+ * EXIT=1 になるが、**群ごとの `cases` を個別に空にすると素通りした**——case 数 3 件以上の
+ * 先頭 4 群（#3 取り込みの解析・#5 ヘッダー直下の要件一覧の区間判定・#6 一覧項目の識別子欄・
+ * #7 一覧項目の番号の書式）を順に空にして 62/62・50/50・61/61・58/58 いずれも緑・EXIT=0
+ * （115.252 の候補4）。
+ *
+ * **この関門は対照群の配列の要素として書かない。** 要素として持つ形（115.252 の候補3）は配列
+ * ごと空にすると関門も一緒に消える。`main()` の中、確認の実行より前に、配列の外側から貼る。
+ *
+ * **限界（塞いでいないこと）**: 総数の下限は現況ちょうどのため 1 件でも削れば赤くなるが、
+ * **削った分だけ別の群へ確認を足せば総数は動かない**。群ごとの下限は「空でないこと」と
+ * 「要求した極性が 1 件以上残ること」までしか課せない（115.222 が陰性対照について書き残した
+ * 限界と同じ形）。
+ *
+ * **もう一つの限界**: `main()` からこの関門の呼び出し自体を落とせば、関門は走らなくなる。
+ * 呼び出しの直列性を構造で要求する形——115.242 が `check-design-path-references.selftest.ts`
+ * に置いた「深さ 0・文の先頭・呼び出し直後の `;`」の三点——は、本タスクでは各ファイルへ
+ * 展開していない。**塞がないことと、書かないことは別である**（115.242 の教訓）。
+ */
+function guardControlsArePresent(groups: readonly Group[]): void {
+  const problems: string[] = [];
+
+  if (groups.length === 0) {
+    problems.push('対照群が一つも登録されていません（この自己検査は何も確かめていません）');
+  }
+  for (const group of groups) {
+    if (group.cases.length === 0) {
+      problems.push(`対照群「${group.title}」が空です（この群は何も確かめていません）`);
+    }
+  }
+
+  // **極性の要求は宣言せず、無条件の規則と数で持つ（タスク 115.252。Critical #2 の一般形）。**
+  // 群ごとに「必要な極性」を配列の属性で設定する形は、関門を配列リテラルで設定する形であり、
+  // その配列を `[]` へ空化すれば要求ごと消える（115.252 の候補3 の自己隠蔽の変種）。
+  //
+  // **無条件の規則の定義域は群ではなく自己検査の全体に取る。** 実測（2026-09-03、リポジトリ
+  // ルート）: 定義域を群に取って「極性を持つ要素がある群は陽性と陰性を各 1 件以上持つ」と
+  // すると、`captured`/`not-captured` に分けた群は構成上どちらか一方の極性しか持たないため
+  // 満たしようがなく、この形を当てた 9 ファイルのうち 7 ファイルが赤くなった。群の極性が
+  // 均質であることは設計であって欠陥ではない。定義域を全体に上げれば規則は無条件のまま立つ。
+  //
+  // **片側が痩せる向きの変異は数で押さえる。** 数は空にできないため、配列リテラルを空化する
+  // 変異作用素に対して構造的に免疫である（下限は現況ちょうど。余裕ゼロ）。
+  const polarities = groups.flatMap((group) => group.cases.map((one) => one.polarity));
+  if (polarities.some((one) => one !== undefined)) {
+    if (!polarities.includes('positive')) {
+      problems.push('陽性対照が 1 件もありません（検出器が何も検出しなくても緑になります）');
+    }
+    if (!polarities.includes('negative')) {
+      problems.push('陰性対照が 1 件もありません（検出器が何にでも反応しても緑になります）');
+    }
+  }
+  const positives = polarities.filter((one) => one === 'positive').length;
+  const negatives = polarities.filter((one) => one === 'negative').length;
+  if (positives < MINIMUM_POSITIVE_CONTROLS) {
+    problems.push(
+      `陽性対照が ${positives} 件しかありません（宣言の下限は ${MINIMUM_POSITIVE_CONTROLS} 件）。` +
+        '陽性対照を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+  if (negatives < MINIMUM_NEGATIVE_CONTROLS) {
+    problems.push(
+      `陰性対照が ${negatives} 件しかありません（宣言の下限は ${MINIMUM_NEGATIVE_CONTROLS} 件）。` +
+        '陰性対照を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+
+  const total = groups.reduce((sum, group) => sum + group.cases.length, 0);
+  if (total < MINIMUM_TOTAL_CASES) {
+    problems.push(
+      `確認の総数が ${total} 件しかありません（宣言の下限は ${MINIMUM_TOTAL_CASES} 件）。` +
+        '確認を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+
+  // 対照の現況を一行で印字する（タスク 115.252）。関門の判定に使うのと同じ変数から出す。
+  // `npx tsx scripts/list-control-polarity-floors.ts` はこの行を読み、下限を貼り直すときの
+  // 元の値にする。一覧の側で数え直さないのは、判定と一覧が別々の真実を持たないためである。
+  // 本自己検査群が閉じている範囲と閉じていない範囲（三層の記録）は
+  // `scripts/check-counterfactual-evidence.selftest.ts` の
+  // 「本自己検査群が閉じている範囲と、閉じていない範囲」の節に正典を置く（タスク 115.252）。
+  console.log(
+    `📋 対照の現況: 陽性対照 ${positives}/${MINIMUM_POSITIVE_CONTROLS} ・ ` +
+      `陰性対照 ${negatives}/${MINIMUM_NEGATIVE_CONTROLS} ・ ` +
+      `総数 ${total}/${MINIMUM_TOTAL_CASES}（現況/宣言の下限）`
+  );
+
+  if (problems.length > 0) {
+    console.log(
+      '\n❌ 自己検査の対照群そのものが欠けています（この状態で出る「合格」は意味を持ちません）'
+    );
+    for (const problem of problems) console.log(`   - ${problem}`);
+    process.exit(1);
+  }
+}
+
 function main(): void {
   console.log(
     '🔍 要件被覆 本番到達性 判定の自己検査 (scripts/check-requirement-coverage.selftest.ts)'
   );
+  // 対照群の配列の外側に置く関門。実行より前に、群そのものが在ることを確かめる。
+  guardControlsArePresent(GROUPS);
   let failed = 0;
   for (const group of GROUPS) {
     console.log(`\n[${group.title}]`);

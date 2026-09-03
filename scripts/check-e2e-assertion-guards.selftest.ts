@@ -19,6 +19,7 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import {
   DEFAULT_BASELINE_PATH,
+  GUARD_TYPES,
   buildObservationPattern,
   collectBooleanHelperNames,
   collectE2eFiles,
@@ -843,12 +844,22 @@ const VOCABULARY_RULES: Case[] = [
     custom: (): string[] => {
       const failures: string[] = [];
       const files = collectE2eFiles().map((f) => f.split(path.sep).join('/'));
-      for (const marker of ['/e2e/global-setup.ts', '/e2e/config.ts', '/e2e/reporters/']) {
+      const infrastructureMarkers = ['/e2e/global-setup.ts', '/e2e/config.ts', '/e2e/reporters/'];
+      // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+      if (infrastructureMarkers.length === 0) {
+        failures.push('素材 infrastructureMarkers が空です（この確認が空振りしています）');
+      }
+      for (const marker of infrastructureMarkers) {
         if (files.some((f) => f.includes(marker))) {
           failures.push(`実行基盤が走査対象に含まれている: ${marker}`);
         }
       }
-      for (const marker of ['/e2e/specs/', '/e2e/helpers/']) {
+      const scannedMarkers = ['/e2e/specs/', '/e2e/helpers/'];
+      // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+      if (scannedMarkers.length === 0) {
+        failures.push('素材 scannedMarkers が空です（この確認が空振りしています）');
+      }
+      for (const marker of scannedMarkers) {
         if (!files.some((f) => f.includes(marker))) {
           failures.push(`走査対象から外れている: ${marker}`);
         }
@@ -1914,9 +1925,39 @@ const SETTLED_TYPE_ASSERTION: Case[] = [
 // 実行
 // ============================================================================
 
+/**
+ * 注入する書き方が空でないことの関門（AI運用7原則 第3原則。タスク 115.252 の是正。指摘 (2)）
+ *
+ * 本ファイルの対照はほぼすべて `source: [...].join('\n')` の形で書き方を組み立てている。
+ * 素材を落として `source` を空文字にした対照は `scanSource` が findings 0 件を返すため、
+ * 「検出されてはならない」側（`expected: []`）の主張がそこで恒真になる。**実測（2026-09-03、
+ * リポジトリルート）**: `OVER_DETECTIONS` の先頭の対照の `source` の配列を `[].join('\n')` へ
+ * 空化し、この関門を外した状態で `npx tsx scripts/check-e2e-assertion-guards.selftest.ts` を
+ * 走らせると **196/196 件の確認に成功しました・EXIT=0**。同じ空化のままこの関門を戻すと
+ * **1/196 件の確認に失敗しました・EXIT=1**。変異は退避した控えからの書き戻しで復元し、
+ * `sha256sum` で照合した。
+ *
+ * 個々の素材の直前へ貼るのではなく、**素材の外側にある実行側**（115.247 の作法）へ一度だけ
+ * 貼って、`custom` を持たないすべての対照へ効かせる。`custom` を持つ対照は走査を行わないため
+ * `source: ''` が正当であり、`runCase` の早期復帰で外れる。
+ */
+function caseSourceIsEmpty(testCase: Case): boolean {
+  return testCase.source.trim() === '';
+}
+
 function runCase(index: number, testCase: Case): string[] {
   if (testCase.custom) return testCase.custom();
+  // **関門の結果を配列リテラルの初期化子へ流し込まない。** 是正の一次案は
+  // `const failures: string[] = [...guardCaseSourceIsNotEmpty(index, testCase)];` と書いていたが、
+  // **その配列リテラルを `[]` へ空化すると関門の指摘ごと落ちて 196/196 緑・EXIT=0 になった**
+  // （2026-09-03 実測。115.252 の候補3 の自己隠蔽が是正そのものに現れた形）。直に押す。
   const failures: string[] = [];
+  if (caseSourceIsEmpty(testCase)) {
+    failures.push(
+      `注入する書き方 source が空です（case-${index} は何も主張していません。` +
+        '素材を空にする変異でこの対照は恒真になります）'
+    );
+  }
   const result = scanSource(`selftest/case-${index}.spec.ts`, testCase.source);
   const detected = new Set(result.findings.map((f) => f.type));
 
@@ -3072,7 +3113,37 @@ function writeSandboxFiles(dir: string, files: Record<string, string>): string[]
   return paths.sort();
 }
 
+/**
+ * 走査に載せる素材が空でないことの関門（AI運用7原則 第3原則。タスク 115.252 の是正。指摘 (2)）
+ *
+ * `NameAnchorControl.files` の中身は `[...].join('\n')` で組み立てており、`custom` 経由で
+ * 走るため `guardCaseSourceIsNotEmpty` の網には入らない。**素材を空にすると、`silent` 側は
+ * 見るものが無くなって検出 0 件が自明に成立し、`detect` 側は錨を担う相方が消えて別の理由で
+ * 検出が出る。** 素材の外側に在るこの実行側で空を拒む。
+ *
+ * **実測（2026-09-03、リポジトリルート）**: `115.251-7` の `a.spec.ts` の素材を `[].join('\n')`
+ * へ空化してこの関門を外すと `npx tsx scripts/check-e2e-assertion-guards.selftest.ts` は
+ * **196/196 件の確認に成功しました・EXIT=0**、関門を戻すと **EXIT=1**。
+ */
+function guardControlFilesAreNotEmpty(control: NameAnchorControl): string[] {
+  const failures: string[] = [];
+  const names = Object.keys(control.files);
+  if (names.length === 0) {
+    failures.push(`対照「${control.name}」が走査に載せるファイルを一つも持たない`);
+  }
+  for (const name of names) {
+    if ((control.files[name] ?? '').trim() === '') {
+      failures.push(
+        `対照「${control.name}」の素材 ${name} が空です（この対照は何も主張していません）`
+      );
+    }
+  }
+  return failures;
+}
+
 function runNameAnchorControl(control: NameAnchorControl): string[] {
+  const empty = guardControlFilesAreNotEmpty(control);
+  if (empty.length > 0) return empty;
   return withSandbox((dir) => {
     const failures: string[] = [];
     const specPaths = writeSandboxFiles(dir, control.files);
@@ -3533,8 +3604,236 @@ const IMPLIED_PRESENCE: Case[] = [
   },
 ];
 
+interface Group {
+  readonly title: string;
+  readonly cases: readonly Case[];
+}
+
+/**
+ * 報告する確認の総数の下限（タスク 115.252）
+ *
+ * 2026-09-03 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
+ * `npx tsx scripts/check-e2e-assertion-guards.selftest.ts | tail -1` の出す値をそのまま置く。
+ *
+ * **数は空にできない。** 本ファイルの対照はすべて配列リテラルで書かれているため、配列を
+ * `[]` へ空化する変異作用素に対して、母集団の側に置いた関門はいくらでも同型に増える。数値の
+ * 下限だけはこの作用素に構造的に免疫であり、**報告件数が縮む向きの変異を一律に赤くする**。
+ * `guardControlsArePresent()` が課す `GUARD_TYPES` 由来の構造的な下限（種別ごとの陽性対照）
+ * と重ねて掛ける。構造から導ける分はそちらが受け持ち、**導ける語彙が無い「件数そのもの」**を
+ * ここで受け持つ。
+ *
+ * **限界**: 削った分だけ別の群へ確認を足せば総数は動かない。件数を構造から導く語彙は本体側に
+ * 無く、根拠の無い余裕を貼らないという 115.222 の判断を引き継いでいる。
+ */
+const MINIMUM_TOTAL_CASES = 196;
+
+/**
+ * 見本の極性（タスク 115.252）
+ *
+ * **名前の綴りからも変数名からも導かない**（115.247 の作法）。要素が持つ属性がそのまま極性で
+ * ある。`custom` を持つ要素は機構の確認であって検出の対照ではないため極性を持たない。
+ * `expected` が空でなければ陽性（検出されなければならない）、空なら陰性（検出されてはならない）。
+ */
+function polarityOf(one: Case): 'positive' | 'negative' | undefined {
+  if (one.custom !== undefined) return undefined;
+  return one.expected.length > 0 ? 'positive' : 'negative';
+}
+
+/**
+ * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）
+ *
+ * 是正前の実測（2026-09-03）: `MISSED_FORMS` / `OVER_DETECTIONS` / `ASSIGNMENT_BOUNDARY` /
+ * `MUST_KEEP` / `BARE_SKIP` / `RULE_EXCLUSION` / `OBSERVATION_VOCABULARY` / `LOOP_ESCAPE` /
+ * `VOCABULARY_RULES` / `RETRY_EXHAUSTION` / `BASELINE_GUARDS` / `EXCLUDED_ABSENCE` /
+ * `AMBIGUOUS_ABSENCE` / `DISCARDED_PREDICATE_RESULT` / `SETTLED_TYPE_ASSERTION` /
+ * `EMPTY_POPULATION_ABSENCE` / `IMPLIED_SUCCESSOR` / `SWEPT_BRANCHES` / `IMPLIED_PRESENCE` の
+ * **19 個すべて**について、一つを空にしても `✅ N/N 件の確認に成功しました` を出して EXIT=0 に
+ * なった（196 件から 169〜194 件へ縮むだけ）。`main()` の中の `groups` を空にすると
+ * **0/0 緑・EXIT=0**。115.251 が置いた `nameAnchorControlsArePresent()` は
+ * `NAME_ANCHOR_CONTROLS` だけを見ており、他の 19 群と総数は無防備だった。
+ *
+ * **下限は件数でなく構造から導く**（115.222 の作法）。本体の `GUARD_TYPES`——`GuardType` の
+ * 直和型から書き下された検査種別の語彙——の**全種別が陽性対照に名指しされている**ことを課す。
+ * 新しい検査種別は直和型に入らざるを得ないため、**種別が増えれば下限が自動追随する**。
+ * 件数を貼らないので、重複対照を減らす正当な変更は止めない。
+ *
+ * **限界（塞いでいないこと）**: 一種別あたりの陽性対照を 1 件へ削る変異は止まらない。
+ * 陰性対照には語彙に相当するものが無く、「陰性が 1 件以上あること」までしか課せない
+ * （115.222 が同じ限界を書き残している）。群ごとの下限も「空でないこと」までである。
+ * 三種別は注入型の陽性対照を持たない（`TYPES_WITHOUT_INJECTED_POSITIVE_CONTROL`）。
+ *
+ * **後から塞いだ二つ（115.252 の是正。指摘 (5) で (b) 塞ぐ側を選んだ）**:
+ * (i) `GUARD_TYPES` へ種別を足すと同時に免除へも足せば下限を先回りで緩められた経路は、
+ *     `MAXIMUM_EXEMPTIONS` で上限を宣言して塞いだ。
+ * (ii) 本ファイルだけが総数の下限を持たず、`groups` から群の登録を外す変異（196 → 193 緑）が
+ *     通った経路は、`declaredControlArrayCount()` が自分のソースから数える宣言済みの対照群の
+ *     配列の個数を下限として塞いだ。
+ * **いずれも*対照*の件数は貼っていない**ため、「件数を貼らないので重複対照を減らす正当な変更は
+ * 止めない」という既存の設計意図とは衝突しない。貼ったのは*免除*の件数の上限と、*宣言と登録の
+ * 対応*という構造である。両者が衝突する場合は**設計意図（対照の件数を貼らない）を優先する**。
+ * 上限そのものを引き上げる書き換えは可能だが、その変更は差分に現れる。
+ *
+ * **この関門は対照群の配列の要素として書かない。** 要素として持つ形（115.252 の候補3）は配列
+ * ごと空にすると関門も一緒に消える。`main()` の中、確認の実行より前に、配列の外側から貼る。
+ *
+ * **もう一つの限界**: `main()` からこの関門の呼び出し自体を落とせば、関門は走らなくなる。
+ * 呼び出しの直列性を構造で要求する形——115.242 が `check-design-path-references.selftest.ts`
+ * に置いた「深さ 0・文の先頭・呼び出し直後の `;`」の三点——は、本タスクでは各ファイルへ
+ * 展開していない。**塞がないことと、書かないことは別である**（115.242 の教訓）。
+ */
+const TYPES_WITHOUT_INJECTED_POSITIVE_CONTROL: readonly GuardType[] = [
+  // 実測（2026-09-03、リポジトリルート）: 本ファイルで T1 / T4 の綴りが現れるのはすべて
+  //   `forbidden:` の側である。抽出は
+  //   `grep -o "expected: \[[^]]*\]" scripts/check-e2e-assertion-guards.selftest.ts | sort | uniq -c`
+  //   （T1 / T4 / T13 はこの出力に一度も現れない）。
+  //   **注入した書き方で当該型が挙がることを固定した陽性対照が一件も無い**という既存の空白で
+  //   あり、本タスク（115.252、境界は自己検査の対照群の下限）では対照そのものを増やさない。
+  'T1-conditional-expect',
+  'T4-response-field-gate',
+  // T13 は注入型でなく `NAME_ANCHOR_CONTROLS`（陽性 8・陰性 6）が担い、その下限は
+  // `nameAnchorControlsArePresent()` が別途機構で課している（115.251）。
+  'T13-unanchored-accessible-name',
+];
+
+/**
+ * 免除の件数の上限（タスク 115.252 の是正。指摘 (5)）
+ *
+ * 是正前の抜け道: `GUARD_TYPES` へ種別を足すと**同時に**
+ * `TYPES_WITHOUT_INJECTED_POSITIVE_CONTROL` へ足せば、下限は先回りで緩められ 196/196 緑・
+ * EXIT=0 で通った。免除件数に上限が無かったためである。
+ *
+ * **上限を貼ることは「件数を貼らない」という設計意図と衝突しない。** 衝突を避けたかったのは
+ * *対照*の件数であり（重複対照を減らす正当な変更を止めないため）、ここで貼るのは*免除*の
+ * 件数である。対照を減らしても免除は動かない。逆に免除を増やす向きは、下限を緩める向きと
+ * 一致するため、差分で申告させるのが正しい。
+ *
+ * 2026-09-03 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
+ * `npx tsx -e "import('./scripts/check-e2e-assertion-guards.js')"` ではなく、本ファイルの
+ * `TYPES_WITHOUT_INJECTED_POSITIVE_CONTROL` の要素数そのもの。
+ */
+const MAXIMUM_EXEMPTIONS = 3;
+
+/**
+ * 本ファイルが宣言している対照群の配列の数を、自分のソースから数える（タスク 115.252 の是正。
+ * 指摘 (5)）
+ *
+ * 是正前の抜け道: 本ファイルだけが総数の下限を持たないため、`groups` から群の登録を外す変異
+ * （196 → 193 緑）が通った。既存の JSDoc は「一種別あたりの陽性対照を 1 件へ削る変異は
+ * 止まらない」とは書いていたが、**群の登録そのものを外す形**は書いていなかった。
+ *
+ * **これも件数を貼るのではない。** 宣言された対照群の配列は、すべて `groups` へ登録される
+ * べきである、という**構造**を課す。対照の件数には触れないので、重複対照を減らす正当な
+ * 変更は止めない。群ごと不要になったのなら宣言も一緒に消えるため、その向きも止めない。
+ *
+ * 抽出は
+ * `grep -cE '^(export )?const [A-Z][A-Z0-9_]*: (readonly )?(Case\[\]|ReadonlyArray<Case>|Array<Case>) = ' scripts/check-e2e-assertion-guards.selftest.ts`
+ * （2026-09-03 実測 20。`main()` の `groups` の要素数も 20）。
+ *
+ * **限界（塞いでいないこと。115.242 の「塞がないことと書かないことは別」に従い、実測して残す）**:
+ * 走査は綴りで数えているため、宣言の書式を綴りの外へ動かせば数え上げが落ちる。以下はいずれも
+ * 2026-09-03 にリポジトリルートで**当て直して**実測した値である（変異のたびに復元し、
+ * `sha256sum` で照合した）。
+ *
+ * - 型注釈を `Case[]` から `readonly Case[]` へ書き換えたうえで `groups` の登録を外す変異は、
+ *   **是正前は 20 → 19 に落ちて 171/171 緑・EXIT=0**（25 件の確認が黙って消えた）。本是正で
+ *   `(readonly )?` と `ReadonlyArray<Case>` / `Array<Case>` を綴りへ入れて塞いだ。
+ * - **なお塞げていない書式**: 型注釈そのものを外す（`const IMPLIED_PRESENCE = [`）と、走査は
+ *   その宣言を数えず、登録を外しても下限が一緒に下がる。実測 2026-09-03: この形で
+ *   **171/171 緑・EXIT=0**（`tsc --noEmit` は当該宣言の未使用 TS6133 だけを出す）。
+ *   同じ理由で、宣言をインデントの内側へ移す形・`let` で宣言する形も数えられない。
+ *   綴りで数えるかぎり残る限界であり、消すには TypeScript の AST で数える必要がある
+ *   （本タスクの境界は自己検査の対照群の下限であり、検査の実装様式の入れ替えは含まない）。
+ */
+function declaredControlArrayCount(): number {
+  const source = fs.readFileSync(path.join(SCRIPTS_DIR, 'check-e2e-assertion-guards.selftest.ts'), {
+    encoding: 'utf8',
+  });
+  return [
+    ...source.matchAll(
+      /^(?:export )?const [A-Z][A-Z0-9_]*: (?:readonly )?(?:Case\[\]|ReadonlyArray<Case>|Array<Case>) = /gm
+    ),
+  ].length;
+}
+
+function guardControlsArePresent(groups: readonly Group[]): void {
+  const problems: string[] = [];
+
+  if (groups.length === 0) {
+    problems.push('対照群が一つも登録されていません（この自己検査は何も確かめていません）');
+  }
+  for (const group of groups) {
+    if (group.cases.length === 0) {
+      problems.push(`対照群「${group.title}」が空です（この群は何も確かめていません）`);
+    }
+  }
+
+  // 宣言された対照群の配列が `groups` から漏れていないこと（登録を外す変異を塞ぐ）
+  const declaredArrays = declaredControlArrayCount();
+  if (declaredArrays === 0) {
+    problems.push(
+      '自分のソースから対照群の配列を一つも数えられません（走査の綴りが陳腐化しています）'
+    );
+  } else if (groups.length < declaredArrays) {
+    problems.push(
+      `宣言されている対照群の配列は ${declaredArrays} 個ですが、\`groups\` への登録は ` +
+        `${groups.length} 個しかありません。群ごと不要になったのなら宣言も一緒に消すこと。`
+    );
+  }
+
+  // 免除の件数が宣言した上限を超えないこと（下限を先回りで緩める経路を塞ぐ）
+  if (TYPES_WITHOUT_INJECTED_POSITIVE_CONTROL.length > MAXIMUM_EXEMPTIONS) {
+    problems.push(
+      `陽性対照の免除が ${TYPES_WITHOUT_INJECTED_POSITIVE_CONTROL.length} 件あります` +
+        `（宣言の上限は ${MAXIMUM_EXEMPTIONS} 件）。種別を足すと同時に免除も足せば、` +
+        '下限は先回りで緩められる。免除を増やすなら上限も同じ差分で上げること。'
+    );
+  }
+
+  const all = groups.flatMap((group) => [...group.cases]);
+  const named = new Set(
+    all.filter((one) => polarityOf(one) === 'positive').flatMap((one) => one.expected)
+  );
+  const exempt = new Set<GuardType>(TYPES_WITHOUT_INJECTED_POSITIVE_CONTROL);
+  const missing = GUARD_TYPES.filter((type) => !named.has(type) && !exempt.has(type));
+  if (missing.length > 0) {
+    problems.push(
+      `本体の検査種別のうち陽性対照が一件も名指ししていないものがあります: ${missing.join(' / ')}。` +
+        '種別を増やしたなら、その種別を検出する陽性対照も登録すること。'
+    );
+  }
+  // 免除の宣言が置き去りにならないこと。陽性対照が足された種別は宣言から外させる
+  //（宣言が対象より長生きすると、免除が黙って広がる）。
+  const staleExemptions = TYPES_WITHOUT_INJECTED_POSITIVE_CONTROL.filter((type) => named.has(type));
+  if (staleExemptions.length > 0) {
+    problems.push(
+      `免除の宣言が置き去りになっています（陽性対照が既にあります）: ${staleExemptions.join(' / ')}。` +
+        'TYPES_WITHOUT_INJECTED_POSITIVE_CONTROL から外すこと。'
+    );
+  }
+  // 免除は本体の語彙に実在する種別に限る（綴りの陳腐化で免除が空振りするのを防ぐ）。
+  const unknownExemptions = TYPES_WITHOUT_INJECTED_POSITIVE_CONTROL.filter(
+    (type) => !GUARD_TYPES.includes(type)
+  );
+  if (unknownExemptions.length > 0) {
+    problems.push(
+      `免除の宣言が本体の語彙に無い種別を挙げています: ${unknownExemptions.join(' / ')}`
+    );
+  }
+  if (all.every((one) => polarityOf(one) !== 'negative')) {
+    problems.push('陰性対照が 1 件もありません（検出器が何にでも反応しても緑になります）');
+  }
+
+  if (problems.length > 0) {
+    console.log(
+      '\n❌ 自己検査の対照群そのものが欠けています（この状態で出る「合格」は意味を持ちません）'
+    );
+    for (const problem of problems) console.log(`   - ${problem}`);
+    process.exit(1);
+  }
+}
+
 function main(): void {
-  const groups: Array<{ title: string; cases: Case[] }> = [
+  const groups: Group[] = [
     { title: '115.24 捕捉できていなかった三つの書き方', cases: MISSED_FORMS },
     { title: '115.25 過検出（正当な主張は数えない）', cases: OVER_DETECTIONS },
     { title: '115.25 圧縮の境界（代入の右辺の扱い）', cases: ASSIGNMENT_BOUNDARY },
@@ -3579,6 +3878,7 @@ function main(): void {
   ];
 
   // 対照群の配列の外側に置く関門。実行より前に、群そのものが在ることを確かめる。
+  guardControlsArePresent(groups);
   const controlFailures = nameAnchorControlsArePresent();
   if (controlFailures.length > 0) {
     console.log('❌ T13 の対照群が要件を満たしていません:');
@@ -3603,6 +3903,25 @@ function main(): void {
       }
     }
   }
+
+  // **実行ループの外・実行後に置く数値下限（タスク 115.252）。**
+  // 母集団の側（`guardControlsArePresent`）ではなく、**実際に報告した件数**を数えて課す。
+  // 群を空にする変異だけでなく、ループが要素を飛ばす向きの変異も同じ一本で赤くなる。
+  if (index < MINIMUM_TOTAL_CASES) {
+    console.log(
+      `\n❌ 報告した確認は ${index} 件しかありません（宣言の下限は ${MINIMUM_TOTAL_CASES} 件）。` +
+        '確認を削ったのなら下限も同じ差分で下げること。'
+    );
+    process.exit(1);
+  }
+
+  // 対照の現況を一行で印字する（タスク 115.252）。関門の判定に使うのと同じ変数から出す。
+  // `npx tsx scripts/list-control-polarity-floors.ts` はこの行を読み、下限を貼り直すときの
+  // 元の値にする。一覧の側で数え直さないのは、判定と一覧が別々の真実を持たないためである。
+  // 本自己検査群が閉じている範囲と閉じていない範囲（三層の記録）は
+  // `scripts/check-counterfactual-evidence.selftest.ts` の
+  // 「本自己検査群が閉じている範囲と、閉じていない範囲」の節に正典を置く（タスク 115.252）。
+  console.log(`📋 対照の現況: 総数 ${index}/${MINIMUM_TOTAL_CASES}（現況/宣言の下限）`);
 
   const total = groups.reduce((sum, group) => sum + group.cases.length, 0);
   if (failed > 0) {

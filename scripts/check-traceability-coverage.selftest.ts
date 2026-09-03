@@ -59,6 +59,10 @@ function removeRoot(root: string): void {
 function requirementsDocument(
   requirements: readonly { number: string; criteria: readonly string[] }[]
 ): string {
+  // 素材が空だと要件定義書は見出しだけになり、以下の照合は分母を失う（第3原則。115.252）
+  if (requirements.length === 0) {
+    throw new Error('合成素材 requirements が空です（この確認が空振りしています）');
+  }
   const lines: string[] = ['# 要件定義書', ''];
   for (const requirement of requirements) {
     lines.push(`### Requirement ${requirement.number}: 題`, '', '#### Acceptance Criteria');
@@ -70,6 +74,10 @@ function requirementsDocument(
 
 /** 追跡表を一つ持つ設計文書を組み立てる */
 function designDocument(rows: readonly string[]): string {
+  // 素材が空だと追跡表は表頭だけになり、被覆の主張は台を失う（第3原則。115.252）
+  if (rows.length === 0) {
+    throw new Error('合成素材 rows が空です（この確認が空振りしています）');
+  }
   return [
     '# 設計',
     '',
@@ -86,7 +94,20 @@ function designDocument(rows: readonly string[]): string {
 
 interface TestCase {
   readonly name: string;
+  /**
+   * 対照の極性（タスク 115.252）
+   *
+   * 陽性（検出器が挙げなければならない側）と陰性（挙げてはならない側）の**両方**が残って
+   * いることを `guardControlsArePresent()` が群ごとに確かめるための属性。**名前の綴りから
+   * 導かない**（115.247 の作法）。極性を持たない機構の確認では省く。
+   */
+  readonly polarity?: 'positive' | 'negative';
   run(): string[];
+}
+
+interface TestGroup {
+  readonly title: string;
+  readonly cases: readonly TestCase[];
 }
 
 function expect(condition: boolean, message: string): string[] {
@@ -211,11 +232,15 @@ const DETECTION: TestCase[] = [
   {
     name: '空欄と `-` は読めない表記に数えない',
     run() {
-      const { covered, unparsed } = expandRequirementColumn([
-        '|  | 要約 | X | - | - |',
-        '| - | 要約 | X | - | - |',
-      ]);
+      // 陰性の合成素材。**空にすると `unparsed` も `covered` も必ず空になり、この確認は
+      // 「何も入れなければ何も出ない」を言うだけの真空パスになる**（第3原則。115.252）
+      const blankColumnRows = ['|  | 要約 | X | - | - |', '| - | 要約 | X | - | - |'];
+      const { covered, unparsed } = expandRequirementColumn(blankColumnRows);
       return [
+        ...expect(
+          blankColumnRows.length > 0,
+          '合成素材 blankColumnRows が空です（この確認が空振りしています）'
+        ),
         ...expect(unparsed.length === 0, `読めない表記が出た: ${unparsed.join(', ')}`),
         ...expect(covered.size === 0, '空欄から番号を作っている'),
       ];
@@ -279,7 +304,7 @@ const NON_VACUITY: TestCase[] = [
         f: { requirements: requirementsDocument([{ number: '1', criteria: ['a'] }]) },
       });
       try {
-        const { failures } = judge(root, {}, ['f']);
+        const { failures } = judgeNamed(root, {}, ['f']);
         return expect(
           failures.some((failure) => failure.includes('方針の宣言が空です')),
           `空の宣言が通ってしまう: ${JSON.stringify(failures)}`
@@ -303,7 +328,7 @@ const NON_VACUITY: TestCase[] = [
         f: { mode: 'ratchet', maxMissing: 0, maxOrphans: 99, maxUnparsed: 0, reason: 'test' },
       };
       try {
-        const { failures } = judge(root, policies, ['f']);
+        const { failures } = judgeNamed(root, policies, ['f']);
         return expect(
           failures.some((failure) => failure.includes('現役の受入基準が 0 件です')),
           `分母が空でも通ってしまう: ${JSON.stringify(failures)}`
@@ -326,7 +351,7 @@ const NON_VACUITY: TestCase[] = [
         f: { mode: 'ratchet', maxMissing: 99, maxOrphans: 0, maxUnparsed: 0, reason: 'test' },
       };
       try {
-        const { failures } = judge(root, policies, ['f']);
+        const { failures } = judgeNamed(root, policies, ['f']);
         return expect(
           failures.some((failure) => failure.includes('追跡表の本文行が 0 行です')),
           `本文行が 0 行でも通ってしまう: ${JSON.stringify(failures)}`
@@ -356,7 +381,7 @@ const NON_VACUITY: TestCase[] = [
         },
       };
       try {
-        const { failures } = judge(root, policies, ['f']);
+        const { failures } = judgeNamed(root, policies, ['f']);
         return expect(failures.length === 0, `許可があるのに落ちた: ${JSON.stringify(failures)}`);
       } finally {
         removeRoot(root);
@@ -383,7 +408,7 @@ const NON_VACUITY: TestCase[] = [
         },
       };
       try {
-        const { failures } = judge(root, policies, ['f']);
+        const { failures } = judgeNamed(root, policies, ['f']);
         return expect(
           failures.some((failure) => failure.includes('allowNoTraceabilityTable を宣言しています')),
           `置き去りの宣言が通ってしまう: ${JSON.stringify(failures)}`
@@ -417,7 +442,7 @@ const SUBJECT_IDENTITY: TestCase[] = [
         declared: { mode: 'ratchet', maxMissing: 0, maxOrphans: 0, maxUnparsed: 0, reason: 't' },
       };
       try {
-        const { failures } = judge(root, policies, discoverFeatureNames(root));
+        const { failures } = judgeNamed(root, policies, discoverFeatureNames(root));
         return expect(
           failures.some((failure) => failure.includes('undeclared が FEATURE_POLICIES に宣言')),
           `未宣言の機能が黙って検査の外へ落ちる: ${JSON.stringify(failures)}`
@@ -441,7 +466,7 @@ const SUBJECT_IDENTITY: TestCase[] = [
         gone: { mode: 'ratchet', maxMissing: 0, maxOrphans: 0, maxUnparsed: 0, reason: 't' },
       };
       try {
-        const { failures } = judge(root, policies, discoverFeatureNames(root));
+        const { failures } = judgeNamed(root, policies, discoverFeatureNames(root));
         return expect(
           failures.some((failure) => failure.includes('gone が .kiro/specs/ に実在しません')),
           `宣言が対象より長生きしても通る: ${JSON.stringify(failures)}`
@@ -477,11 +502,25 @@ const SUBJECT_IDENTITY: TestCase[] = [
 // (4) 判定の型（exact / ratchet）
 // ---------------------------------------------------------------------------
 
+/**
+ * 一つの機能だけを組み立てて判定へ通す（AI運用7原則 第3原則。タスク 115.252 の是正。指摘 (2)）
+ *
+ * **素材が空なら判定へ通さず止める。** `JUDGEMENT` 群の確認はすべて実引数へ配列リテラルを
+ * 直書きしてこの関数を呼ぶ形で、追跡表の行と受入基準の本文がそのまま判定の台である。
+ * 台を空にすると、`failures.length === 0` を求める陰性側は入力が無いまま成立し、
+ * 陽性側も別の失敗文言へ滑る。素材の外側に在るこの入口で空を拒む。
+ */
 function judgeOneFeature(
   rows: readonly string[],
   criteria: readonly string[],
   policy: FeaturePolicy
 ): string[] {
+  if (rows.length === 0) {
+    throw new Error('合成素材 rows が空です（この確認が空振りしています）');
+  }
+  if (criteria.length === 0) {
+    throw new Error('合成素材 criteria が空です（この確認が空振りしています）');
+  }
   const root = makeSyntheticRoot({
     f: {
       requirements: requirementsDocument([{ number: '1', criteria }]),
@@ -489,15 +528,34 @@ function judgeOneFeature(
     },
   });
   try {
-    return judge(root, { f: policy }, ['f']).failures;
+    return judgeNamed(root, { f: policy }, ['f']).failures;
   } finally {
     removeRoot(root);
   }
 }
 
+/**
+ * 名指しした機能だけを判定へ通す（タスク 115.252 の是正。指摘 (2)）
+ *
+ * 名指しの一覧を空にすると判定は見る機能を失い、以下の照合は素材に依らず成立しうる。
+ * **空を許す経路は「機能が 0 件なら失敗する」対照が直に `judge` を呼ぶ一本だけ**にして、
+ * それ以外はこの入口を通す。
+ */
+function judgeNamed(
+  root: string,
+  policies: Record<string, FeaturePolicy>,
+  names: readonly string[]
+): { failures: string[] } {
+  if (names.length === 0) {
+    throw new Error('判定へ渡す機能名 names が空です（この確認が空振りしています）');
+  }
+  return judge(root, policies, [...names]);
+}
+
 const JUDGEMENT: TestCase[] = [
   {
     name: 'exact: 宣言と一致すれば通る',
+    polarity: 'negative',
     run() {
       const failures = judgeOneFeature(['| 1.1 | a | X | - | - |'], ['a', 'b'], {
         mode: 'exact',
@@ -511,6 +569,7 @@ const JUDGEMENT: TestCase[] = [
   },
   {
     name: 'exact: 宣言に無い新たな欠落があれば失敗する（4.14 の型）',
+    polarity: 'positive',
     run() {
       const failures = judgeOneFeature(['| 1.1 | a | X | - | - |'], ['a', 'b', 'c'], {
         mode: 'exact',
@@ -527,6 +586,7 @@ const JUDGEMENT: TestCase[] = [
   },
   {
     name: 'exact: 解消済みの欠落が宣言に残っていれば失敗する',
+    polarity: 'positive',
     run() {
       const failures = judgeOneFeature(['| 1.1, 1.2 | a | X | - | - |'], ['a', 'b'], {
         mode: 'exact',
@@ -543,6 +603,7 @@ const JUDGEMENT: TestCase[] = [
   },
   {
     name: 'exact: 現役でない番号を追跡表が挙げていれば失敗する',
+    polarity: 'positive',
     run() {
       const failures = judgeOneFeature(['| 1.1, 1.9 | a | X | - | - |'], ['a'], {
         mode: 'exact',
@@ -559,6 +620,7 @@ const JUDGEMENT: TestCase[] = [
   },
   {
     name: 'exact: 撤廃された受入基準は分母に入らず、表に残っていれば死語になる',
+    polarity: 'positive',
     run() {
       const failures = judgeOneFeature(['| 1.1, 1.2 | a | X | - | - |'], ['a', '~~撤廃~~'], {
         mode: 'exact',
@@ -575,6 +637,7 @@ const JUDGEMENT: TestCase[] = [
   },
   {
     name: 'exact: 読めない表記が宣言の上限を超えれば失敗する',
+    polarity: 'positive',
     run() {
       const failures = judgeOneFeature(['| 1.1, 17.x | a | X | - | - |'], ['a'], {
         mode: 'exact',
@@ -591,6 +654,7 @@ const JUDGEMENT: TestCase[] = [
   },
   {
     name: 'ratchet: 上限以下なら通り、超えれば失敗する',
+    polarity: 'negative',
     run() {
       const rows = ['| 1.1 | a | X | - | - |'];
       const withinLimit = judgeOneFeature(rows, ['a', 'b'], {
@@ -622,6 +686,7 @@ const JUDGEMENT: TestCase[] = [
 const REAL_DATA: TestCase[] = [
   {
     name: '表頭の正規表現が実データの設計文書に当たっている',
+    polarity: 'negative',
     run() {
       const failures: string[] = [];
       let featuresWithTables = 0;
@@ -669,6 +734,7 @@ const REAL_DATA: TestCase[] = [
   },
   {
     name: 'site-survey の追跡表から 4.14 を落とすと欠落として挙がる（陽性対照）',
+    polarity: 'positive',
     run() {
       const designPath = path.join(
         REPOSITORY_ROOT,
@@ -724,16 +790,143 @@ const REAL_DATA: TestCase[] = [
   },
 ];
 
+/**
+ * 陽性対照・陰性対照の件数の下限（タスク 115.252）
+ *
+ * 2026-09-03 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
+ * `npx tsx scripts/list-control-polarity-floors.ts` が出す値をそのまま置く。
+ *
+ * **総数の下限だけでは片側の消失を捕まえられない。** 陽性対照を削って同じ数だけ陰性対照を
+ * 足せば総数は動かないため、極性ごとに別の下限を貼る。極性は要素の宣言（`expected` ないし
+ * `polarity`）から導き、**名前の綴りからは導かない**（115.247 の作法）。
+ */
+const MINIMUM_POSITIVE_CONTROLS = 6;
+const MINIMUM_NEGATIVE_CONTROLS = 3;
+
+/**
+ * 確認の総数の下限（タスク 115.252）
+ *
+ * 2026-09-03 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
+ * `npx tsx scripts/check-traceability-coverage.selftest.ts | tail -1` の出す値をそのまま置く。
+ * **確認を減らす向きの書き換えは差分に現れる。**
+ *
+ * **下限を構造から導く語彙がこの検査には無い。** 115.222 は本体の検査種別の直和型から下限を
+ * 導いたが、本体 `check-traceability-coverage.ts` の判定は `exact` / `ratchet` の 2 型しか
+ * 持たず、32 件の確認の大半は型に対応しない。導けないため件数で貼る。
+ */
+const MINIMUM_TOTAL_CASES = 32;
+
+/**
+ * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）
+ *
+ * 是正前の実測（2026-09-03）: `DETECTION` / `NON_VACUITY` / `SUBJECT_IDENTITY` / `JUDGEMENT` /
+ * `REAL_DATA` のいずれを空にしても、また `main()` の中の `groups` を空にしても
+ * `✅ N/N 件の確認に成功しました` を出して EXIT=0 になった（`groups` を空にした場合は
+ * `0/0`）。**母集団が空の検査は何も主張していない。**
+ *
+ * **この関門は対照群の配列の要素として書かない。** 要素として持つ形（115.252 の候補3）は配列
+ * ごと空にすると関門も一緒に消える。`main()` の中、確認の実行より前に、配列の外側から貼る。
+ *
+ * **限界（塞いでいないこと）**: 総数の下限は現況ちょうどのため 1 件でも削れば赤くなるが、
+ * **削った分だけ別の群へ確認を足せば総数は動かない**。群ごとの下限は「空でないこと」までしか
+ * 課せない（件数を導く語彙が本体に無い。115.222 が陰性対照について書き残した限界と同じ形）。
+ *
+ * **もう一つの限界**: `main()` からこの関門の呼び出し自体を落とせば、関門は走らなくなる。
+ * 呼び出しの直列性を構造で要求する形——115.242 が `check-design-path-references.selftest.ts`
+ * に置いた「深さ 0・文の先頭・呼び出し直後の `;`」の三点——は、本タスクでは各ファイルへ
+ * 展開していない。**塞がないことと、書かないことは別である**（115.242 の教訓）。
+ */
+function guardControlsArePresent(groups: readonly TestGroup[]): void {
+  const problems: string[] = [];
+
+  if (groups.length === 0) {
+    problems.push('対照群が一つも登録されていません（この自己検査は何も確かめていません）');
+  }
+  for (const group of groups) {
+    if (group.cases.length === 0) {
+      problems.push(`対照群「${group.title}」が空です（この群は何も確かめていません）`);
+    }
+  }
+
+  // **極性の要求は宣言せず、無条件の規則と数で持つ（タスク 115.252。Critical #2 の一般形）。**
+  // 群ごとに「必要な極性」を配列の属性で設定する形は、関門を配列リテラルで設定する形であり、
+  // その配列を `[]` へ空化すれば要求ごと消える（115.252 の候補3 の自己隠蔽の変種）。
+  //
+  // **無条件の規則の定義域は群ではなく自己検査の全体に取る。** 実測（2026-09-03、リポジトリ
+  // ルート）: 定義域を群に取って「極性を持つ要素がある群は陽性と陰性を各 1 件以上持つ」と
+  // すると、`captured`/`not-captured` に分けた群は構成上どちらか一方の極性しか持たないため
+  // 満たしようがなく、この形を当てた 9 ファイルのうち 7 ファイルが赤くなった。群の極性が
+  // 均質であることは設計であって欠陥ではない。定義域を全体に上げれば規則は無条件のまま立つ。
+  //
+  // **片側が痩せる向きの変異は数で押さえる。** 数は空にできないため、配列リテラルを空化する
+  // 変異作用素に対して構造的に免疫である（下限は現況ちょうど。余裕ゼロ）。
+  const polarities = groups.flatMap((group) => group.cases.map((one) => one.polarity));
+  if (polarities.some((one) => one !== undefined)) {
+    if (!polarities.includes('positive')) {
+      problems.push('陽性対照が 1 件もありません（検出器が何も検出しなくても緑になります）');
+    }
+    if (!polarities.includes('negative')) {
+      problems.push('陰性対照が 1 件もありません（検出器が何にでも反応しても緑になります）');
+    }
+  }
+  const positives = polarities.filter((one) => one === 'positive').length;
+  const negatives = polarities.filter((one) => one === 'negative').length;
+  if (positives < MINIMUM_POSITIVE_CONTROLS) {
+    problems.push(
+      `陽性対照が ${positives} 件しかありません（宣言の下限は ${MINIMUM_POSITIVE_CONTROLS} 件）。` +
+        '陽性対照を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+  if (negatives < MINIMUM_NEGATIVE_CONTROLS) {
+    problems.push(
+      `陰性対照が ${negatives} 件しかありません（宣言の下限は ${MINIMUM_NEGATIVE_CONTROLS} 件）。` +
+        '陰性対照を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+
+  const total = groups.reduce((sum, group) => sum + group.cases.length, 0);
+  if (total < MINIMUM_TOTAL_CASES) {
+    problems.push(
+      `確認の総数が ${total} 件しかありません（宣言の下限は ${MINIMUM_TOTAL_CASES} 件）。` +
+        '確認を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+
+  // 対照の現況を一行で印字する（タスク 115.252）。関門の判定に使うのと同じ変数から出す。
+  // `npx tsx scripts/list-control-polarity-floors.ts` はこの行を読み、下限を貼り直すときの
+  // 元の値にする。一覧の側で数え直さないのは、判定と一覧が別々の真実を持たないためである。
+  // 本自己検査群が閉じている範囲と閉じていない範囲（三層の記録）は
+  // `scripts/check-counterfactual-evidence.selftest.ts` の
+  // 「本自己検査群が閉じている範囲と、閉じていない範囲」の節に正典を置く（タスク 115.252）。
+  console.log(
+    `📋 対照の現況: 陽性対照 ${positives}/${MINIMUM_POSITIVE_CONTROLS} ・ ` +
+      `陰性対照 ${negatives}/${MINIMUM_NEGATIVE_CONTROLS} ・ ` +
+      `総数 ${total}/${MINIMUM_TOTAL_CASES}（現況/宣言の下限）`
+  );
+
+  if (problems.length > 0) {
+    console.log(
+      '\n❌ 自己検査の対照群そのものが欠けています（この状態で出る「合格」は意味を持ちません）'
+    );
+    for (const problem of problems) console.log(`   - ${problem}`);
+    process.exit(1);
+  }
+}
+
 function main(): void {
-  const groups: { title: string; cases: TestCase[] }[] = [
+  const groups: TestGroup[] = [
     { title: '検出規則（Requirement 列の読み方）', cases: DETECTION },
     { title: '母集団が空なら失敗する', cases: NON_VACUITY },
     { title: '宣言と対象の双方向の一致', cases: SUBJECT_IDENTITY },
-    { title: '判定の型（exact / ratchet）', cases: JUDGEMENT },
+    {
+      title: '判定の型（exact / ratchet）',
+      cases: JUDGEMENT,
+    },
     { title: '実データの対照', cases: REAL_DATA },
   ];
 
   console.log('🔍 追跡表の網羅検査 自己検査 (scripts/check-traceability-coverage.selftest.ts)');
+  guardControlsArePresent(groups);
   let failed = 0;
   for (const group of groups) {
     console.log(`\n[${group.title}]`);

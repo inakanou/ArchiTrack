@@ -118,10 +118,28 @@ function designDocument(options: {
   ].join('\n');
 }
 
+/**
+ * 名指しした機能だけを判定へ通す（AI運用7原則 第3原則。タスク 115.252 の是正。指摘 (2)）
+ *
+ * 名指しの一覧を空にすると判定は見る機能を失い、以下の照合は素材に依らず成立しうる。
+ * **空を許す経路は「機能が 0 件なら失敗する」対照が直に `judge` を呼ぶ一本だけ**にして、
+ * それ以外はこの入口を通す。
+ */
+function judgeNamed(
+  root: string,
+  policies: Record<string, FeaturePolicy>,
+  names: readonly string[]
+): { failures: string[] } {
+  if (names.length === 0) {
+    throw new Error('判定へ渡す機能名 names が空です（この確認が空振りしています）');
+  }
+  return judge(root, policies, [...names]);
+}
+
 function judgeOne(design: string, policy: FeaturePolicy): string[] {
   const root = makeSyntheticRoot({ f: design });
   try {
-    return judge(root, { f: policy }, ['f']).failures;
+    return judgeNamed(root, { f: policy }, ['f']).failures;
   } finally {
     removeRoot(root);
   }
@@ -440,7 +458,7 @@ const NON_VACUITY: TestCase[] = [
         }),
       });
       try {
-        const { failures } = judge(root, {}, ['f']);
+        const { failures } = judgeNamed(root, {}, ['f']);
         return expect(
           failures.some((failure) => failure.includes('方針の宣言が空です')),
           `宣言が空でも通ってしまう: ${JSON.stringify(failures)}`
@@ -884,6 +902,14 @@ function guardControlsArePresent(groups: readonly TestGroup[]): void {
       );
     }
   }
+
+  // 対照の現況を一行で印字する（タスク 115.252）。関門の判定に使うのと同じ変数から出す。
+  // `npx tsx scripts/list-control-polarity-floors.ts` はこの行を読み、下限を貼り直すときの
+  // 元の値にする。一覧の側で数え直さないのは、判定と一覧が別々の真実を持たないためである。
+  // 本自己検査群が閉じている範囲と閉じていない範囲（三層の記録）は
+  // `scripts/check-counterfactual-evidence.selftest.ts` の
+  // 「本自己検査群が閉じている範囲と、閉じていない範囲」の節に正典を置く（タスク 115.252）。
+  console.log(`📋 対照の現況: 総数 ${total}/${MINIMUM_TOTAL_CASES}（現況/宣言の下限）`);
 
   if (problems.length > 0) {
     console.log(

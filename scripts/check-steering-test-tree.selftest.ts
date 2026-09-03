@@ -138,6 +138,15 @@ function blockDocument(root: string, entries: string[], extra: string[] = []): s
 
 interface Case {
   name: string;
+  /**
+   * 対照の極性（タスク 115.252）
+   *
+   * 陽性（既知の該当を捕まえる側）と陰性（正当な形を告発しない側）が**両方とも**残って
+   * いることを `guardControlsArePresent()` が確かめるための属性。**名前の綴りから導かない。**
+   * 綴りに依存させると、名前を書き換えただけで極性の判定が変わってしまう（115.247 の作法）。
+   * 機構の確認（走査対象・前提条件）は極性を持たないため省く。
+   */
+  polarity?: 'positive' | 'negative';
   /** true なら「検出されなければならない」 */
   expected: boolean;
   /** 期待する指摘の種別（expected が true のときのみ見る） */
@@ -197,6 +206,24 @@ const NON_COUNT_SAMPLES: Array<{ line: string; why: string }> = [
   },
 ];
 
+/**
+ * 件数の同値類の全体（タスク 115.252）
+ *
+ * 本体 `check-steering-test-tree.ts` が `export` する `CountKind` 直和型から**構造で**導く。
+ * `satisfies Record<CountKind, true>` により、本体が種別を足せば（減らせば）この表が型エラーに
+ * なるため、「陽性対照に全種別の実物がある」ことの下限は件数でなく型が持つ。**種別が増えれば
+ * 下限が自動追随する**（115.222 の作法）。
+ *
+ * **限界**: `tsx` は型を落として実行するので、この表を空にしても実行時は素通りする
+ * （型の違反は `npm run type-check` でしか赤くならない）。実行時の空振りは
+ * `checkRealCountSamplesAreDetected()` の中の明示の主張で別に塞ぐ。
+ */
+const ALL_COUNT_KINDS = Object.keys({
+  'test-count': true,
+  'test-file-count': true,
+  'parenthesized-file-count': true,
+} satisfies Record<CountKind, true>) as readonly CountKind[];
+
 function checkRealCountSamplesAreDetected(): string[] {
   const failures: string[] = [];
   for (const sample of REAL_COUNT_SAMPLES) {
@@ -213,8 +240,11 @@ function checkRealCountSamplesAreDetected(): string[] {
     }
   }
   const kinds = new Set(REAL_COUNT_SAMPLES.map((sample) => sample.kind));
-  const allKinds: CountKind[] = ['test-count', 'test-file-count', 'parenthesized-file-count'];
-  for (const kind of allKinds) {
+  // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (ALL_COUNT_KINDS.length === 0) {
+    failures.push('合成素材 ALL_COUNT_KINDS が空です（この確認が空振りしています）');
+  }
+  for (const kind of ALL_COUNT_KINDS) {
     if (!kinds.has(kind)) failures.push(`陽性対照に ${kind} の実物が無い`);
   }
   return failures;
@@ -222,6 +252,10 @@ function checkRealCountSamplesAreDetected(): string[] {
 
 function checkNonCountSamplesAreNotDetected(): string[] {
   const failures: string[] = [];
+  // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (NON_COUNT_SAMPLES.length === 0) {
+    failures.push('合成素材 NON_COUNT_SAMPLES が空です（この確認が空振りしています）');
+  }
   for (const sample of NON_COUNT_SAMPLES) {
     const annotation = findCountAnnotation(sample.line);
     if (annotation !== null) {
@@ -445,6 +479,7 @@ function checkRealRepositoryIsScanned(): string[] {
 /** 走査が空振りしたときに合格を出さないこと（第3原則） */
 function checkEmptyScanIsNotSuccess(): string[] {
   const failures: string[] = [];
+  // 合成素材が空なら以下の繰り返しは一度も回らず、この確認は何も主張しない（第3原則）
   const cases: Array<{ name: string; result: RunResult }> = [
     {
       name: 'steering 文書が0件',
@@ -496,6 +531,7 @@ function checkEmptyScanIsNotSuccess(): string[] {
       failures.push(`${testCase.name} なのに合格を返した`);
     }
   }
+  if (cases.length === 0) failures.push('空振りの合成素材が 0 件（この確認が空振りしている）');
   const healthy: RunResult = {
     findings: [],
     scannedFiles: ['a.md'],
@@ -621,17 +657,35 @@ function checkBuildArtifactsAreIgnored(): string[] {
     : [`生成物の中のテストを区分として数えている（${kinds.join(', ')}）`];
 }
 
+/**
+ * 合成素材が空でないことの述語（AI運用7原則 第3原則。タスク 115.252 の是正）
+ *
+ * **真偽を返す形にする。** 失敗の綴りを返す形（`return ['合成素材 entries が空です…']`）に
+ * すると、その `return [...]` の配列リテラルを `[]` へ空化するだけで関門の指摘ごと消える。
+ * 述語＋呼び出し側の直 `failures.push(...)` なら、関門は配列リテラルを一切経由しない。
+ */
+function synthesizedEntriesAreEmpty(entries: readonly string[]): boolean {
+  return entries.length === 0;
+}
+
 /** 網羅宣言の重複を失敗にすること（権威の複製を機構で塞ぐ） */
 function checkDuplicateDeclaration(): string[] {
+  const failures: string[] = [];
   const entries = ['- `alpha/` - 一つ目', '- `beta/` - 二つ目', '- `gamma/` - 三つ目'];
+  // 素材が空だと重複させる宣言そのものが「空の網羅宣言」へ退化し、この確認は
+  // 「妥当な宣言を二つ置いた場合」を確かめなくなる（第3原則。115.252）
+  if (synthesizedEntriesAreEmpty(entries)) {
+    failures.push('合成素材 entries が空です（この確認が空振りしています）');
+  }
   const kinds = kindsFor({
     files: THREE_DIRECTORIES,
     steering:
       blockDocument('pkg/__tests__', entries) + '\n' + blockDocument('pkg/__tests__', entries),
   });
-  return kinds.includes('duplicate-declaration')
-    ? []
-    : [`同じ根の宣言が二箇所あっても検出しない（${kinds.join(', ') || '無し'}）`];
+  if (!kinds.includes('duplicate-declaration')) {
+    failures.push(`同じ根の宣言が二箇所あっても検出しない（${kinds.join(', ') || '無し'}）`);
+  }
+  return failures;
 }
 
 /** 空の宣言・終端しない宣言・実在しない根を失敗にすること */
@@ -688,6 +742,11 @@ function checkFencedExampleIsNotADeclaration(): string[] {
     '```',
     '',
   ].join('\n');
+  // 素材が空（またはフェンス内の印を失った）なら、以下の二つの主張は恒真になる
+  // （第3原則。115.252 の候補5。実測 2026-09-03: `fenced` の中身を空にすると 19/19 緑・EXIT=0）
+  if (!fenced.includes('<!-- steering:test-dirs pkg/__tests__ -->')) {
+    failures.push('フェンスの中の印を持たない見本になっている（この確認が空振りしています）');
+  }
   const kinds = kindsFor({ files: THREE_DIRECTORIES, steering: fenced }, ['pkg/__tests__']);
   if (!kinds.includes('missing-declaration')) {
     failures.push('フェンスの中の例を本物の宣言として数えている');
@@ -757,6 +816,13 @@ function checkTestFilePattern(): string[] {
   const failures: string[] = [];
   const positives = ['a.test.ts', 'b.test.tsx', 'c.spec.ts', 'd.spec.tsx', 'e.test.js'];
   const negatives = ['a.ts', 'b.tsx', 'testing.ts', 'spec.ts', 'a.test.md', 'preconditions.ts'];
+  // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (positives.length === 0) {
+    failures.push('合成素材 positives が空です（この確認が空振りしています）');
+  }
+  if (negatives.length === 0) {
+    failures.push('合成素材 negatives が空です（この確認が空振りしています）');
+  }
   for (const name of positives) {
     if (!TEST_FILE_PATTERN.test(name)) failures.push(`テストと認めるべき綴りを外している: ${name}`);
   }
@@ -781,6 +847,8 @@ function checkMarkerSyntax(): string[] {
     '<!-- steering:test-dirs e2e/specs -->',
     '<!--  steering:test-dirs  e2e/specs  -->',
   ];
+  if (accepted.length === 0)
+    failures.push('認めるべき綴りの見本が 0 件（この確認が空振りしている）');
   for (const line of accepted) {
     if (!BLOCK_OPEN_PATTERN.test(line.trim())) failures.push(`開始印として認めない: ${line}`);
   }
@@ -789,6 +857,8 @@ function checkMarkerSyntax(): string[] {
     '<!-- steering:test-dirs -->',
     'steering:test-dirs e2e/specs',
   ];
+  if (rejected.length === 0)
+    failures.push('認めてはならない綴りの見本が 0 件（この確認が空振りしている）');
   for (const line of rejected) {
     if (BLOCK_OPEN_PATTERN.test(line.trim()))
       failures.push(`開始印として認めてはならない: ${line}`);
@@ -806,11 +876,13 @@ function checkMarkerSyntax(): string[] {
 const CASES: Case[] = [
   {
     name: '是正前の実物の件数（三つの同値類）を、それぞれの規則が捕まえる',
+    polarity: 'positive',
     expected: false,
     custom: checkRealCountSamplesAreDetected,
   },
   {
     name: 'テストの数でない件数・カバレッジ率・件数の無い形は告発しない',
+    polarity: 'negative',
     expected: false,
     custom: checkNonCountSamplesAreNotDetected,
   },
@@ -838,6 +910,7 @@ const CASES: Case[] = [
   { name: '走査が空振りしたら合格にしない', expected: false, custom: checkEmptyScanIsNotSuccess },
   {
     name: '印を消して検査を黙らせる経路が塞がっている',
+    polarity: 'positive',
     expected: false,
     custom: checkMarkerRemovalIsDetected,
   },
@@ -848,6 +921,7 @@ const CASES: Case[] = [
   },
   {
     name: 'テストを含まない補助ディレクトリは区分に数えない',
+    polarity: 'negative',
     expected: false,
     custom: checkHelperDirectoryIsNotACategory,
   },
@@ -868,10 +942,16 @@ const CASES: Case[] = [
   },
   {
     name: 'フェンスの中の規約の説明を宣言として数えない',
+    polarity: 'negative',
     expected: false,
     custom: checkFencedExampleIsNotADeclaration,
   },
-  { name: '網羅宣言の中の件数を失敗にする', expected: false, custom: checkCountInsideBlock },
+  {
+    name: '網羅宣言の中の件数を失敗にする',
+    polarity: 'positive',
+    expected: false,
+    custom: checkCountInsideBlock,
+  },
   {
     name: '同期記録の除外が、その形でだけ働いている',
     expected: false,
@@ -881,10 +961,91 @@ const CASES: Case[] = [
   { name: '印の綴りの一致が厳密である', expected: false, custom: checkMarkerSyntax },
 ];
 
+/**
+ * 確認の総数の下限（タスク 115.252）
+ *
+ * 2026-09-03 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
+ * `npx tsx scripts/check-steering-test-tree.selftest.ts | tail -1` の出す値をそのまま置く。
+ * **確認を減らす向きの書き換えは差分に現れる。**
+ *
+ * **下限を構造から導く語彙がこの検査には無い。** 115.222 は本体の検査種別の直和型から陽性
+ * 対照の下限を導いたが、本体 `check-steering-test-tree.ts` の指摘種別（`FindingKind`）は
+ * 3 種しかなく、19 件の確認の大半は種別に対応しない機構の確認である。導けないため件数で貼る。
+ */
+const MINIMUM_TOTAL_CASES = 19;
+
+/**
+ * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）
+ *
+ * 是正前の実測（2026-09-03）: `CASES` を空にすると `✅ 0/0 件の確認に成功しました` を出して
+ * EXIT=0 になった。**母集団が空の検査は何も主張していない。**
+ *
+ * **この関門は `CASES` の要素として書かない。** 要素として持つ形（115.252 の候補3）は配列ごと
+ * 空にすると関門も一緒に消える。`main()` の中、確認の実行より前に、配列の外側から貼る。
+ *
+ * **限界（塞いでいないこと）**: 総数の下限は現況ちょうどのため 1 件でも削れば赤くなるが、
+ * **削った分だけ別の確認を足せば総数は動かない**。極性は陽性・陰性が各 1 件以上残ることまでしか
+ * 課せない（種別ごとの下限を導く語彙が無い。115.222 が陰性対照について書き残した限界と同じ形）。
+ *
+ * **もう一つの限界**: `main()` からこの関門の呼び出し自体を落とせば、関門は走らなくなる。
+ * 呼び出しの直列性を構造で要求する形——115.242 が `check-design-path-references.selftest.ts`
+ * に置いた「深さ 0・文の先頭・呼び出し直後の `;`」の三点——は、本タスクでは各ファイルへ
+ * 展開していない。**塞がないことと、書かないことは別である**（115.242 の教訓）。
+ */
+function guardControlsArePresent(cases: readonly Case[]): void {
+  const problems: string[] = [];
+
+  if (cases.length === 0) {
+    problems.push('対照群 CASES が空です（この自己検査は何も確かめていません）');
+  }
+  if (cases.length < MINIMUM_TOTAL_CASES) {
+    problems.push(
+      `確認の総数が ${cases.length} 件しかありません（宣言の下限は ${MINIMUM_TOTAL_CASES} 件）。` +
+        '確認を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+
+  const positives = cases.filter((one) => one.polarity === 'positive').length;
+  const negatives = cases.filter((one) => one.polarity === 'negative').length;
+  if (positives === 0) {
+    problems.push('陽性対照が 1 件もありません（検出器が何も検出しなくても緑になります）');
+  }
+  if (negatives === 0) {
+    problems.push('陰性対照が 1 件もありません（検出器が何にでも反応しても緑になります）');
+  }
+
+  const withoutImplementation = cases.filter(
+    (one) => one.custom === undefined && one.spec === undefined
+  );
+  if (withoutImplementation.length > 0) {
+    problems.push(
+      `検証の実装を持たない確認が ${withoutImplementation.length} 件あります: ` +
+        withoutImplementation.map((one) => one.name).join(' / ')
+    );
+  }
+
+  // 対照の現況を一行で印字する（タスク 115.252）。関門の判定に使うのと同じ変数から出す。
+  // `npx tsx scripts/list-control-polarity-floors.ts` はこの行を読み、下限を貼り直すときの
+  // 元の値にする。一覧の側で数え直さないのは、判定と一覧が別々の真実を持たないためである。
+  // 本自己検査群が閉じている範囲と閉じていない範囲（三層の記録）は
+  // `scripts/check-counterfactual-evidence.selftest.ts` の
+  // 「本自己検査群が閉じている範囲と、閉じていない範囲」の節に正典を置く（タスク 115.252）。
+  console.log(`📋 対照の現況: 総数 ${cases.length}/${MINIMUM_TOTAL_CASES}（現況/宣言の下限）`);
+
+  if (problems.length > 0) {
+    console.log(
+      '\n❌ 自己検査の対照群そのものが欠けています（この状態で出る「合格」は意味を持ちません）'
+    );
+    for (const problem of problems) console.log(`   - ${problem}`);
+    process.exit(1);
+  }
+}
+
 function main(): void {
   console.log(
     '🔍 steering のテスト区分検査 検出規則 自己検査 (scripts/check-steering-test-tree.selftest.ts)'
   );
+  guardControlsArePresent(CASES);
   let failed = 0;
   for (const testCase of CASES) {
     const failures = testCase.custom ? testCase.custom() : ['検証の実装が無い'];

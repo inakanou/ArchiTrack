@@ -634,7 +634,12 @@ function checkManifestsAreDeclared(): string[] {
       failures.push(`宣言された定義元が実在しない: ${manifest}`);
     }
   }
-  for (const expected of ['package.json', 'backend/package.json', 'frontend/package.json']) {
+  const requiredManifests = ['package.json', 'backend/package.json', 'frontend/package.json'];
+  // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (requiredManifests.length === 0) {
+    failures.push('素材 requiredManifests が空です（この確認が空振りしています）');
+  }
+  for (const expected of requiredManifests) {
     if (!PACKAGE_MANIFESTS.includes(expected)) {
       failures.push(`走査対象に ${expected} が含まれていない（適用範囲の後退）`);
     }
@@ -847,12 +852,20 @@ function checkWiredIntoGates(): string[] {
   // 判定は `hasExecutionLine`（行の trim 後の完全一致）と YAML の構造の取り出しへ移した。
   const failures: string[] = [];
 
+  // 結線を確かめる対象のコマンド。**素材が空なら以下の照合は一度も回らず、pre-push.sh と
+  // ci.yml への結線の主張そのものが消える**（第3原則。115.252。是正前の実測 2026-09-03:
+  // 二つの `for...of` の直書き配列を空にすると 20/20 緑・EXIT=0）。
+  const wiredCommands = [SELFTEST_COMMAND, CHECK_COMMAND];
+  if (wiredCommands.length === 0) {
+    failures.push('素材 wiredCommands が空です（この確認が空振りしています）');
+  }
+
   const prePush = path.join(ROOT, '.husky/scripts/pre-push.sh');
   if (!existsSync(prePush)) {
     failures.push('結線先が実在しない: .husky/scripts/pre-push.sh');
   } else {
     const text = readFileSync(prePush, 'utf-8');
-    for (const command of [SELFTEST_COMMAND, CHECK_COMMAND]) {
+    for (const command of wiredCommands) {
       if (!hasExecutionLine(text, command)) {
         failures.push(
           `.husky/scripts/pre-push.sh に \`${command}\` の実行行が無い（echo の言及・注釈・部分一致は数えない）`
@@ -872,7 +885,7 @@ function checkWiredIntoGates(): string[] {
     if (job === '') {
       failures.push(`.github/workflows/ci.yml の jobs に ${CI_JOB_ID} のジョブが無い`);
     } else {
-      for (const command of [SELFTEST_COMMAND, CHECK_COMMAND]) {
+      for (const command of wiredCommands) {
         if (!hasExecutionLine(job, command)) {
           failures.push(
             `.github/workflows/ci.yml の ${CI_JOB_ID} ジョブに \`${command}\` の実行行が無い`
@@ -905,7 +918,12 @@ function checkWiredIntoGates(): string[] {
     failures.push('結線先が実在しない: package.json');
   } else {
     const text = readFileSync(manifest, 'utf-8');
-    for (const key of ['"check:dead-script-env"', '"check:dead-script-env:selftest"']) {
+    const requiredScriptKeys = ['"check:dead-script-env"', '"check:dead-script-env:selftest"'];
+    // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+    if (requiredScriptKeys.length === 0) {
+      failures.push('素材 requiredScriptKeys が空です（この確認が空振りしています）');
+    }
+    for (const key of requiredScriptKeys) {
       if (!text.includes(key)) {
         failures.push(`package.json に ${key} のスクリプト定義が無い`);
       }
@@ -946,6 +964,10 @@ function checkStripCommentsKeepsCode(): string[] {
       keep: 'const b = 1;',
     },
   ];
+  // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (cases.length === 0) {
+    failures.push('合成素材 cases が空です（この確認が空振りしています）');
+  }
   for (const testCase of cases) {
     if (!stripComments(testCase.source).includes(testCase.keep)) {
       failures.push(`${testCase.label}: 注釈の除去が正当なコードまで落としている`);
@@ -1126,7 +1148,12 @@ function emptyRegistryFailures(): string[] {
 function detectionRegistryWiringFailures(): string[] {
   const failures: string[] = [];
   const registered = GROUPS.flatMap((group) => group.cases).map((entry) => entry.custom.name);
-  for (const driver of ['detectionFailures', 'wiringSampleFailures', 'ciStructureSampleFailures']) {
+  const drivers = ['detectionFailures', 'wiringSampleFailures', 'ciStructureSampleFailures'];
+  // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (drivers.length === 0) {
+    failures.push('素材 drivers が空です（この確認が空振りしています）');
+  }
+  for (const driver of drivers) {
     if (!registered.includes(driver)) {
       failures.push(`対照を回す ${driver} が GROUPS へ結線されていない`);
     }
@@ -1160,6 +1187,22 @@ function report(name: string, failures: readonly string[]): number {
   return 1;
 }
 
+/**
+ * 報告する確認の総数の下限（タスク 115.252）
+ *
+ * 2026-09-03 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
+ * `npx tsx scripts/check-dead-script-env.selftest.ts | tail -1` の出す値をそのまま置く。
+ *
+ * **数は空にできない。** 本ファイルの対照はすべて配列リテラルで書かれているため、配列を
+ * `[]` へ空化する変異作用素に対して、母集団の側に置いた関門はいくらでも同型に増える。数値の
+ * 下限だけはこの作用素に構造的に免疫であり、**報告件数が縮む向きの変異を一律に赤くする**。
+ * `reportPreconditions()` が課す群ごとの非空・極性の要求と重ねて掛ける。
+ *
+ * **限界**: 削った分だけ別の群へ確認を足せば総数は動かない。件数を構造から導く語彙は本体側に
+ * 無く、根拠の無い余裕を貼らないという 115.222 の判断を引き継いでいる。
+ */
+const MINIMUM_TOTAL_CASES = 20;
+
 function main(): void {
   console.log(
     '🔍 死んだ環境変数の検査 判定器 自己検査 (scripts/check-dead-script-env.selftest.ts)'
@@ -1182,6 +1225,24 @@ function main(): void {
   }
 
   console.log('');
+  // **実行ループの外・実行後に置く数値下限（タスク 115.252）。**
+  // 母集団の側ではなく、**実際に報告した件数** `ran` を数えて課す。群を空にする変異だけで
+  // なく、ループが要素を飛ばす向きの変異も同じ一本で赤くなる。
+  if (ran < MINIMUM_TOTAL_CASES) {
+    console.log(
+      `❌ 報告した確認は ${ran} 件しかありません（宣言の下限は ${MINIMUM_TOTAL_CASES} 件）。` +
+        '確認を削ったのなら下限も同じ差分で下げること。'
+    );
+    process.exit(1);
+  }
+  // 対照の現況を一行で印字する（タスク 115.252）。関門の判定に使うのと同じ変数から出す。
+  // `npx tsx scripts/list-control-polarity-floors.ts` はこの行を読み、下限を貼り直すときの
+  // 元の値にする。一覧の側で数え直さないのは、判定と一覧が別々の真実を持たないためである。
+  // 本自己検査群が閉じている範囲と閉じていない範囲（三層の記録）は
+  // `scripts/check-counterfactual-evidence.selftest.ts` の
+  // 「本自己検査群が閉じている範囲と、閉じていない範囲」の節に正典を置く（タスク 115.252）。
+  console.log(`📋 対照の現況: 総数 ${ran}/${MINIMUM_TOTAL_CASES}（現況/宣言の下限）`);
+
   if (failed > 0) {
     console.log(`❌ ${failed}/${ran} 件の確認に失敗しました`);
     process.exit(1);
