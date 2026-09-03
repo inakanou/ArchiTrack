@@ -2410,6 +2410,518 @@ function checkParagraphBreakDocDelegatesPopulation(): string[] {
   return failures;
 }
 
+// ============================================================================
+// 抽出器の限界の記述が挙げる実データの引用（タスク 115.254）
+// ============================================================================
+
+/**
+ * 一本の禁止と、その禁止が捕まえるべき架空の見本
+ *
+ * 見本を規則と**一対一で持つ**。規則の束に対して見本を一つだけ置き「どれかが一致すれば
+ * 良い」とすると、束の中の一本が壊れて何にも一致しなくなっても、他の一本が見本を拾って
+ * 緑のままになる。本タスクが実測した: 束で一つの見本を持つ形のとき
+ * `\d+\s*(?:件|箇所|印|ファイル)` を規則から外しても、同じ束の割合の規則が見本の `12.3%` を
+ * 拾い、自己検査 69 件はすべて緑のままだった。一対一へ改めた後に同じ規則を壊す
+ * （助数詞の `件` を別の字へ替える）と 69 件のうち 1 件が落ちる（2026-09-03 に
+ * `npm run check:req-coverage:selftest` で実測）。
+ */
+interface RealDataCitationPattern {
+  pattern: RegExp;
+  /** この規則**だけ**が捕まえるべき架空の見本 */
+  probe: string;
+}
+
+/**
+ * 一種類の禁止（同じ趣旨の規則の束）
+ *
+ * `entries` の各 `probe` は禁じたい形の**架空の見本**、`counterProbes` は**禁じてはならない
+ * 形**の見本である。前者だけを持つと規則が壊れて何にも一致しなくなったことに気付けず、
+ * 後者だけを持つと規則が広がりすぎて正当な説明まで禁じるようになったことに気付けない
+ * （115.253 が `PROSE_REAL_DATA_CITATION_PATTERNS` で据えた軸を踏襲する）。
+ * `counterProbes` は束の**全ての**規則へ当てる——束の一本だけが広がる形を見逃さないため。
+ */
+interface RealDataCitationRule {
+  label: string;
+  /** 実データから作る規則は毎回組み立てる。静的な規則は固定の配列を返す */
+  entries: (vocabulary: RealDataCitationVocabulary) => readonly RealDataCitationPattern[];
+  counterProbes: readonly string[];
+}
+
+/**
+ * 書式そのものの説明に使うため、禁止から外す架空の受入基準番号
+ *
+ * 限界の記述は被覆印の書式（`REQ-N.M`、`(feature/REQ-1.1, REQ-1.2)` の並び、
+ * `(feature/REQ-1.1/REQ-2.2)` の連結）を説明する義務がある。ところが番号は要件定義書の
+ * 番号付けの都合で若い番号ほど実在しやすく、書式の見本に使う番号もたいてい実在する。
+ * よって**見本用に予約した番号だけを禁止から外す**。予約した番号は実在もするため、
+ * その番号に限っては実データの引用も素通りする——本検査が意図して残す穴であり、
+ * `checkExtractorLimitDocsCiteNoRealData` の限界の節に開示する。
+ */
+const RESERVED_ILLUSTRATION_CRITERION_NUMBERS: readonly string[] = ['1.1', '1.2', '2.2'];
+
+/** 実データから作る禁止の材料 */
+interface RealDataCitationVocabulary {
+  /** 要件定義書が実在する機能の名前 */
+  featureNames: readonly string[];
+  /** 被覆印を現に持つ実在のファイルの名前（ディレクトリを除いた部分） */
+  markedFileNames: readonly string[];
+  /** 要件定義書に実在する受入基準の局所番号（`N.M`）。見本用に予約した番号は除く */
+  criterionNumbers: readonly string[];
+}
+
+/**
+ * 実データから禁止の材料を集める
+ *
+ * 機能名・ファイル名・受入基準の番号を静的な正規表現で書くと、**架空の見本まで禁じてしまう**。
+ * 限界の記述は書式そのものを説明する義務があり、架空の名前と番号は残せなければならない。
+ * 実在する名前・番号だけを禁じ、見本用の番号を `RESERVED_ILLUSTRATION_CRITERION_NUMBERS` で
+ * 予約すれば、その線が引ける。
+ *
+ * ファイル名は走査対象の全件（`listCoverageScanFiles`）ではなく**被覆印を現に持つ**ファイル
+ * （`extractTestCoverage` が返す側）に絞る。陳腐化するのは「この番号がこのファイルに在る」
+ * という引用であり、被覆印を一つも持たないファイルの名前はその引用になりえないためである。
+ * 全件には入口名のような一般名が混じり、実データの引用でない散文まで禁じかねない。
+ * **絞り込みが現に母集団を狭めていることは実例でなく機構で示す**——
+ * `checkExtractorLimitDocsCiteNoRealData` が毎回、絞る前と後の両方を数えて
+ * 「後が前の真部分集合であること」を確かめる。
+ *
+ * 本 JSDoc それ自体も `GUARDED_CITATION_DOCS` に載せて同じ禁止を掛けている。
+ * 対策コードの説明文だけが実データの実例を持てる状態は、本タスクが根絶しようとしている
+ * 欠陥そのものだからである（タスク 115.254 のレビューが差し戻した実例。ここに挙げていた
+ * ファイル名は、絞り込みで除かれる例として**偽**であった——当該ファイルは被覆印を持つため
+ * 絞り込み後にも残る）。
+ */
+function collectRealDataCitationVocabulary(): RealDataCitationVocabulary {
+  const reserved = new Set(RESERVED_ILLUSTRATION_CRITERION_NUMBERS);
+  const criterionNumbers = new Set<string>();
+  for (const feature of extractAllFeatures(discoverFeatures())) {
+    for (const requirement of [...feature.requirements, ...feature.retiredRequirements]) {
+      for (const criterion of [
+        ...requirement.acceptanceCriteria,
+        ...requirement.retiredAcceptanceCriteria,
+      ]) {
+        const local = criterion.id.slice(criterion.id.lastIndexOf('/') + 1).replace(/^REQ-/, '');
+        if (!reserved.has(local)) criterionNumbers.add(local);
+      }
+      for (const number of requirement.letteredCriterionNumbers) {
+        const local = `${requirement.id.replace(/^REQ-/, '')}.${number}`;
+        if (!reserved.has(local)) criterionNumbers.add(local);
+      }
+    }
+  }
+  return {
+    featureNames: discoverFeatures(),
+    markedFileNames: [
+      ...new Set(extractTestCoverage(discoverFeatures()).map((entry) => path.basename(entry.file))),
+    ].sort(),
+    criterionNumbers: [...criterionNumbers].sort(),
+  };
+}
+
+/** 正規表現のメタ文字を素の字面として扱う */
+function escapeForRegExp(literal: string): string {
+  return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * 限界の記述に置いてはならない「実データとともに陳腐化する形」
+ *
+ * 115.223 が `resolveHeaderSectionEnd` の説明文へ課した全面禁止（`REQ-\d+` と `\d+ 件`）は
+ * **ここへは持ち込めない**。限界の記述は被覆印の書式そのものを説明する義務があり、
+ * 全面禁止はその説明ごと禁じる。よって**実データを指す形だけ**を禁じる。
+ */
+const REAL_DATA_CITATION_RULES: readonly RealDataCitationRule[] = [
+  {
+    label: '実在する機能名を冠した被覆印',
+    entries: ({ featureNames }) =>
+      featureNames.map((name) => ({
+        pattern: new RegExp(`${escapeForRegExp(name)}/REQ-\\d`),
+        probe: `${name}/REQ-1.2 が落ちる`,
+      })),
+    counterProbes: [
+      '`(feature/REQ-1.1, REQ-1.2)` の二つ目以降',
+      '`REQ-N.M` としてしか書けず',
+      '被覆印は `REQ-1.1` の形で書く',
+    ],
+  },
+  {
+    label: '被覆印を持つ実在のファイルの名前',
+    entries: ({ markedFileNames }) =>
+      markedFileNames.map((name) => ({
+        pattern: new RegExp(escapeForRegExp(name)),
+        probe: `${name} の被覆印`,
+      })),
+    counterProbes: ['`some-feature.spec.ts` のような検証ファイル', 'requirements.md の受入基準'],
+  },
+  {
+    label: '実データの計数',
+    entries: () => [
+      { pattern: /\d+\s*(?:件|箇所|印|ファイル)/, probe: '写しを持つ区間は 999 件であり' },
+      { pattern: /\d+(?:\.\d+)?\s*%/, probe: '守備範囲は 12.3% にとどまる' },
+    ],
+    counterProbes: [
+      '語句が 12 文字未満、または `1a.` `4b.` の形',
+      'タスク 115.254 が一箇所ずつ決着させた',
+      '件数と全件の列挙つきで毎回印字する',
+    ],
+  },
+  {
+    label: '実測値の引用',
+    entries: () => [
+      { pattern: /実測[^。]{0,60}?\d/, probe: '実測では本稿の時点で 3 つが残っている' },
+    ],
+    counterProbes: ['実測は検査の出力が毎回印字する', '測り直した時点でもなお真であった'],
+  },
+  {
+    // 機能名の接頭辞を落とせば禁止を抜けられる形（`REQ-24.1 が残っている`）を塞ぐ。
+    // 前後に数字が続く形（`115.254` の中の `5.254`）は別の数なので除く——
+    // 抽出器の `proseAttributesCriterion` が番号の同定に使うのと同じ境界の取り方である。
+    label: '実在する受入基準の番号',
+    entries: ({ criterionNumbers }) =>
+      criterionNumbers.map((number) => ({
+        pattern: new RegExp(`(?<![0-9.])${escapeForRegExp(number)}(?![0-9])`),
+        probe: `現況では REQ-${number} がこの外に残っている`,
+      })),
+    counterProbes: [
+      '`(feature/REQ-1.1, REQ-1.2)` の二つ目以降',
+      '`(feature/REQ-1.1/REQ-2.2)` のような連結',
+      '被覆印は `REQ-N.M` としてしか書けず',
+      '`1a.` `4b.` のように英字の枝を持つ番号',
+      'タスク 115.254 のレビューが差し戻した',
+    ],
+  },
+];
+
+/**
+ * 禁止が捕まえ続けなければならない形（能力の側の固定）
+ *
+ * 規則と見本を一対一で照合しても、**規則を丸ごと削る**変異は捕まらない——削ると見本も
+ * 一緒に消えるからである。本台帳を置く前に実測した: 助数詞の規則とその見本を組ごと外すと
+ * 自己検査 69 件はすべて緑のままだった。本台帳を置いた後に同じ変異を当てると 69 件のうち
+ * 1 件が「この外に 3 件が残っている」を捕まえられないとして落ちる（2026-09-03 に
+ * `npm run check:req-coverage:selftest` で実測）。ここは「どの形を捕まえられなければ
+ * ならないか」を規則の実装から独立に固定する。
+ *
+ * 各項目は**その label の規則が**捕まえることを求める。他の規則が偶然拾っても合格にしない。
+ * 実データの名前は毎回の実測から組み立てるため、名前が変わっても陳腐化しない。
+ */
+const MUST_DETECT_CITATIONS: ReadonlyArray<{
+  /** 捕まえる責任を負う規則の label */
+  label: string;
+  text: (vocabulary: RealDataCitationVocabulary) => string;
+}> = [
+  {
+    label: '実在する機能名を冠した被覆印',
+    text: ({ featureNames }) => `実際に ${featureNames[0]}/REQ-1.1 のような番号を名乗っている`,
+  },
+  {
+    label: '被覆印を持つ実在のファイルの名前',
+    text: ({ markedFileNames }) => `${markedFileNames[0]} が名乗っている`,
+  },
+  { label: '実データの計数', text: () => 'この外に 3 件が残っている' },
+  { label: '実データの計数', text: () => '守備範囲は 12.3% にとどまる' },
+  { label: '実測値の引用', text: () => '実測でこの形は 2 つあった' },
+  {
+    // 機能名の接頭辞を落とした書き直し。レビューが「守られている記述へ挿入しても素通りする」
+    // ことを実証した形そのものである（タスク 115.254 の差し戻し 1 回目）
+    label: '実在する受入基準の番号',
+    text: ({ criterionNumbers }) => `現況では REQ-${criterionNumbers[0]} がこの外に残っている`,
+  },
+];
+
+/** 限界の記述の一つ。判断の根拠とともに台帳へ載せる */
+interface GuardedCitationDoc {
+  /** 後任が起票と突き合わせるための名前 */
+  label: string;
+  /** 記述が在るファイル（抽出器の側とは限らない。対策コード自身も対象になる） */
+  sourcePath: string;
+  /** JSDoc を取り出す起点（この宣言の直前の JSDoc を見る） */
+  anchor: string;
+  /** 散文が名乗らなければならない導線（実データの現況を毎回出す側の名前） */
+  mustName: readonly string[];
+  /** なぜ引用を落としたか／どこへ移したか。一箇所ずつの判断を残す */
+  rationale: string;
+}
+
+/**
+ * 実データの引用を落とし、現況の出所への導線だけを残す限界の記述（唯一の出所）
+ *
+ * タスク 115.223 は区間判定の説明文だけを是正し、同じファイルに残る四箇所は報告に留めた。
+ * 本台帳はその四箇所を一件ずつ決着させた結果である。判断は二択（機械で確かめる形へ移すか、
+ * 引用を落とすか）で、いずれを採ったかを `rationale` に書き残す。
+ *
+ * **対策コード自身の説明文も載せる。** 禁止を書く側の散文だけが実データの実例を持てる状態は、
+ * 本タスクが根絶しようとしている欠陥そのものである（タスク 115.254 のレビューが差し戻した）。
+ */
+const GUARDED_CITATION_DOCS: readonly GuardedCitationDoc[] = [
+  {
+    label: '枝つき番号の基底（Requirement.letteredCriterionNumbers）',
+    sourcePath: EXTRACTOR_SOURCE_PATH,
+    anchor: 'letteredCriterionNumbers: number[];',
+    mustName: ['collectOutOfDenominatorMarks'],
+    rationale:
+      '引用を落とした。挙げていた実例は、検査本体が毎回印字する「枝つき番号」の行' +
+      '（collectOutOfDenominatorMarks の lettered）の写しであり、同期する機構の無い二重帳簿' +
+      'だった。現況はその出力が列挙する',
+  },
+  {
+    label: '要件定義書に存在しない番号（findUnknownCriterionCoverageMarks）',
+    sourcePath: EXTRACTOR_SOURCE_PATH,
+    anchor: 'export function findUnknownCriterionCoverageMarks(',
+    mustName: ['collectOutOfDenominatorMarks'],
+    rationale:
+      '引用を落とした。挙げていた三つの被覆印も走査根の外という区分も、検査本体が毎回' +
+      '印字する「要件定義書に存在しない番号」の行と「うち走査根の配下」の行が列挙する。' +
+      '散文はその写しにすぎなかった',
+  },
+  {
+    label: '逐語複製の限界（CriterionTextCopyReport）',
+    sourcePath: EXTRACTOR_SOURCE_PATH,
+    anchor: 'export interface CriterionTextCopyReport {',
+    mustName: ['reportCriterionTextCopies', 'exemptedByProseAttribution'],
+    rationale:
+      '機械で確かめる形へ移した。散文帰属による免除の件数は検査自身が測れるため' +
+      'exemptedByProseAttribution として報告へ足し、毎回印字する。読み取り規則に載らない' +
+      '書き方の件数だけは既存の検出器では測れないため、その一件は引用を落とした',
+  },
+  {
+    label: '禁止の材料の集め方（collectRealDataCitationVocabulary。本自己検査の側）',
+    sourcePath: SELFTEST_SOURCE_PATH,
+    anchor: 'function collectRealDataCitationVocabulary(): RealDataCitationVocabulary {',
+    mustName: ['listCoverageScanFiles', 'extractTestCoverage'],
+    rationale:
+      '引用を落とし、主張を機構へ移した。絞り込みの理由を実在のファイル名で例示していたが、' +
+      'その名前は被覆印を持つため絞り込み後にも残り、例として偽であった（レビューの実測）。' +
+      '実例を落とし、絞る前と後の母集団を毎回数えて真部分集合であることを確かめる形にした',
+  },
+];
+
+/** 本検査それ自体の名前。限界の記述が「守り手」として名乗る */
+const LIMIT_DOC_GUARD_NAME = 'checkExtractorLimitDocsCiteNoRealData';
+
+/**
+ * 抽出器の限界の記述が、実データの名指しと計数を持たず、現況の出所を名乗っている
+ *
+ * 限界の記述（「この検査が捕まえないもの」）は、非空振りを示すために実データの実例を
+ * 引きがちである。引いた実例は実データとともに陳腐化し、陳腐化しても機械は何も言わない。
+ *
+ * 見るのは七つである。
+ *
+ *   1. 台帳・禁止規則・実データから作る材料のいずれも空でないこと（第3原則。空にして
+ *      緑にする抜け道を作らない）
+ *   2. ファイル名の絞り込みが現に母集団を狭めていること——絞る前の名前の集合を数え、
+ *      絞った後がその真部分集合であることを確かめる。絞る理由を散文の実例で述べると、
+ *      挙げた名前が被覆印を得た瞬間に例として偽になる（タスク 115.254 のレビューが
+ *      差し戻した実例）
+ *   3. 各規則が**自分の**見本に一致し、禁じてはならない見本のいずれにも一致しないこと
+ *      （幅を両側から固定する。片側だけでは空振りにも広がりすぎにも気付けない）
+ *   4. `MUST_DETECT_CITATIONS` の各形を、責任を負う規則が捕まえること
+ *      （規則を丸ごと削る変異は 3 では捕まらない。能力の側を独立に固定する）
+ *   5. 各記述が取り出せること（宣言の綴りが変わった・JSDoc が消えたら失格）
+ *   6. 各記述が実データを指す形を一つも挙げていないこと
+ *   7. 各記述が名乗る導線が、その記述と同じファイルに実在すること
+ *
+ * **守れない範囲を明記する。** 見るのは台帳が挙げる記述だけであり、他の JSDoc は見ていない
+ * （そちらへ広げる判断は、`check:cf-evidence` が引用を要求する反実仮想と衝突しないかを
+ * 一箇所ずつ測ってから行うこと。全面禁止は抽出器にも本自己検査にも当てられない）。
+ * 禁じる形にも穴がある。
+ *
+ *   - ファイル名を略した書き方（`some-feature.spec.ts` を `some-feature` と書く形）
+ *   - 実データの日付、`件`・`箇所`・`印`・`ファイル` 以外の助数詞
+ *   - 見本用に予約した番号（`RESERVED_ILLUSTRATION_CRITERION_NUMBERS`）。これらは実在も
+ *     するため、その番号に限っては実データの引用も素通りする。書式の説明を残すための
+ *     意図した穴である
+ *
+ * **機能名の接頭辞を伴わない番号の列挙（`REQ-24.1` の形）は塞いである。** 差し戻しの前は
+ * この形が素通りし、`:1082-1083` から落とした引用を接頭辞なしで書き直すだけで同じ時限装置を
+ * 同じ箇所へ戻せた（レビューが実証。同じ挿入で自己検査 69 件はすべて緑のままだった）。
+ * `実在する受入基準の番号` の規則を足した後に同じ挿入を当てると 69 件のうち 1 件が落ちる
+ * （2026-09-03 に `npm run check:req-coverage:selftest` で実測）。
+ *
+ * 広げるときは `REAL_DATA_CITATION_RULES` と `GUARDED_CITATION_DOCS` へ足す。
+ */
+function checkExtractorLimitDocsCiteNoRealData(): string[] {
+  const failures: string[] = [];
+
+  if (GUARDED_CITATION_DOCS.length === 0) {
+    return ['守る限界の記述が一件も登録されていない（台帳を空にして緑にする抜け道）'];
+  }
+  // 台帳から一件だけ落とす変異は「空でない」では捕まらない。守るべき側の下限を固定する。
+  // とりわけ**禁止を書く側**（本自己検査）の記述が落ちる形は、差し戻しの直接の原因だった
+  for (const required of [EXTRACTOR_SOURCE_PATH, SELFTEST_SOURCE_PATH]) {
+    if (!GUARDED_CITATION_DOCS.some((entry) => entry.sourcePath === required)) {
+      failures.push(
+        `${required} の記述が台帳に一件も無い（禁止を書く側だけが実データの実例を持てる状態を作らない）`
+      );
+    }
+  }
+  if (REAL_DATA_CITATION_RULES.length === 0) {
+    return ['実データを指す形が一件も登録されていない（規則を空にして緑にする抜け道）'];
+  }
+
+  const vocabulary = collectRealDataCitationVocabulary();
+  if (vocabulary.featureNames.length === 0) {
+    failures.push('実在する機能名が一件も集まらない（実データから作る禁止が空振りしている）');
+  }
+  if (vocabulary.markedFileNames.length === 0) {
+    failures.push(
+      '被覆印を持つ実在のファイル名が一件も集まらない（実データから作る禁止が空振りしている）'
+    );
+  }
+  if (vocabulary.criterionNumbers.length === 0) {
+    failures.push(
+      '実在する受入基準の番号が一件も集まらない（実データから作る禁止が空振りしている）'
+    );
+  }
+  if (RESERVED_ILLUSTRATION_CRITERION_NUMBERS.length === 0) {
+    failures.push('書式の見本に使う番号が一件も予約されていない（書式の説明ごと禁じてしまう）');
+  }
+  for (const reserved of RESERVED_ILLUSTRATION_CRITERION_NUMBERS) {
+    if (vocabulary.criterionNumbers.includes(reserved)) {
+      failures.push(
+        `見本用に予約した番号 ${reserved} が禁止の材料に残っている（書式の説明まで禁じてしまう）`
+      );
+    }
+  }
+
+  // ファイル名の絞り込みが現に母集団を狭めていることを、実例でなく数で確かめる
+  // （散文へ「こういう名前が除かれる」と書くと、その名前が被覆印を得た瞬間に偽になる）
+  const scannedFileNames = new Set(listCoverageScanFiles().map((file) => path.basename(file)));
+  if (scannedFileNames.size === 0) {
+    failures.push('走査対象のファイル名が一件も集まらない（絞り込みの照合が対象を失っている）');
+  } else {
+    const outsideScan = vocabulary.markedFileNames.filter((name) => !scannedFileNames.has(name));
+    if (outsideScan.length > 0) {
+      failures.push(
+        `被覆印を持つ名前 ${outsideScan.join(', ')} が走査対象の名前に含まれない` +
+          '（二つの母集団が別の走査規則を歩いている）'
+      );
+    }
+    if (vocabulary.markedFileNames.length >= scannedFileNames.size) {
+      failures.push(
+        `ファイル名の絞り込みが母集団を狭めていない（走査 ${scannedFileNames.size} 名に対し` +
+          `被覆印を持つ ${vocabulary.markedFileNames.length} 名）。` +
+          '絞る理由が失われているので、絞り込みごと見直すこと'
+      );
+    }
+  }
+
+  for (const rule of REAL_DATA_CITATION_RULES) {
+    const entries = rule.entries(vocabulary);
+    if (entries.length === 0) {
+      failures.push(`${rule.label}: 規則が一本も組み立たない（禁止が空振りしている）`);
+      continue;
+    }
+    if (rule.counterProbes.length === 0) {
+      failures.push(`${rule.label}: 禁じてはならない見本が一件も無い（広がりすぎに気付けない）`);
+    }
+    // 見本は規則と一対一で照合する。束のどれかが拾えば良い形にすると、
+    // 束の中の一本が壊れても他の一本が見本を拾って緑のままになる
+    for (const { pattern, probe } of entries) {
+      if (!pattern.test(probe)) {
+        failures.push(
+          `${rule.label}: 規則 ${pattern.source} が禁じたい見本「${probe}」に一致しない` +
+            '（規則が空振りしている）'
+        );
+      }
+      for (const counterProbe of rule.counterProbes) {
+        if (pattern.test(counterProbe)) {
+          failures.push(
+            `${rule.label}: 禁じてはならない見本「${counterProbe}」に ${pattern.source} まで` +
+              '一致する（規則が広すぎる。書式そのものの説明まで禁じてしまう）'
+          );
+        }
+      }
+    }
+  }
+
+  // 規則を丸ごと削る変異は見本の照合では捕まらないため、能力の側を独立に固定する
+  if (MUST_DETECT_CITATIONS.length === 0) {
+    failures.push('捕まえ続けるべき形が一件も登録されていない（能力の固定を空にする抜け道）');
+  }
+  for (const control of MUST_DETECT_CITATIONS) {
+    const rule = REAL_DATA_CITATION_RULES.find((candidate) => candidate.label === control.label);
+    if (!rule) {
+      failures.push(`${control.label}: 責任を負う規則が存在しない（禁止が丸ごと失われている）`);
+      continue;
+    }
+    const text = control.text(vocabulary);
+    if (!rule.entries(vocabulary).some((entry) => entry.pattern.test(text))) {
+      failures.push(`${control.label}: 「${text}」を捕まえられない（この形の禁止が失われている）`);
+    }
+  }
+
+  const sources = new Map<string, string>();
+  for (const relativePath of new Set(GUARDED_CITATION_DOCS.map((entry) => entry.sourcePath))) {
+    const absolute = path.resolve(relativePath);
+    if (!fs.existsSync(absolute)) {
+      failures.push(`${relativePath} が存在しない（検査対象が失われた）`);
+      continue;
+    }
+    sources.set(relativePath, fs.readFileSync(absolute, 'utf8'));
+  }
+
+  for (const entry of GUARDED_CITATION_DOCS) {
+    const source = sources.get(entry.sourcePath);
+    if (source === undefined) continue;
+    if (entry.rationale.trim().length === 0) {
+      failures.push(`${entry.label}: 判断の根拠が空である（一箇所ずつの決着が残っていない）`);
+    }
+    if (entry.mustName.length === 0) {
+      failures.push(`${entry.label}: 名乗るべき導線が一件も無い（現況の出所が辿れない）`);
+    }
+    const doc = extractJsDocAbove(source, entry.anchor);
+    if (doc === null) {
+      failures.push(
+        `${entry.label}: \`${entry.anchor}\` の直前の JSDoc を取り出せない` +
+          '（宣言の綴りが変わったか記述が失われた。前提が崩れたので合格にしない）'
+      );
+      continue;
+    }
+    for (const rule of REAL_DATA_CITATION_RULES) {
+      for (const { pattern } of rule.entries(vocabulary)) {
+        const hit = pattern.exec(doc);
+        if (hit === null) continue;
+        failures.push(
+          `${entry.label}: 限界の記述が${rule.label}「${hit[0]}」を挙げている。` +
+            `実データとともに陳腐化するため、${entry.mustName.join(' / ')} が出す現況へ` +
+            `導線を置いて引用を落とすこと。この箇所の決着: ${entry.rationale}`
+        );
+      }
+    }
+    for (const name of entry.mustName) {
+      if (!doc.includes(name)) {
+        failures.push(
+          `${entry.label}: 限界の記述が導線 ${name} を名乗っていない（現況の出所が辿れない）`
+        );
+      }
+      if (!source.includes(name)) {
+        failures.push(
+          `${entry.label}: ${entry.sourcePath} に ${name} が無い（実在しない名前を指している）`
+        );
+      }
+    }
+    if (!doc.includes(LIMIT_DOC_GUARD_NAME)) {
+      failures.push(
+        `${entry.label}: 限界の記述が守り手 ${LIMIT_DOC_GUARD_NAME} を名乗っていない` +
+          '（実データの引用を禁じているのが誰かを後任が辿れない）'
+      );
+    }
+  }
+
+  const selftestPath = path.resolve(SELFTEST_SOURCE_PATH);
+  if (!fs.existsSync(selftestPath)) {
+    failures.push(`${SELFTEST_SOURCE_PATH} が存在しない（守り手の実在を確かめられない）`);
+  } else if (!fs.readFileSync(selftestPath, 'utf8').includes(`function ${LIMIT_DOC_GUARD_NAME}(`)) {
+    failures.push(
+      `${SELFTEST_SOURCE_PATH} に \`function ${LIMIT_DOC_GUARD_NAME}(\` が無い` +
+        '（限界の記述が実在しない守り手を指している）'
+    );
+  }
+
+  return failures;
+}
+
 /**
  * 陰性対照: 行頭のコメント記号 `*` が一覧の印に見える形（タスク 115.194）
  *
@@ -4791,6 +5303,7 @@ function runCopyReportProbe(spec: string): ReturnType<typeof reportCriterionText
   let result: ReturnType<typeof reportCriterionTextCopies> = {
     blocks: 0,
     blocksWithCopy: 0,
+    exemptedByProseAttribution: 0,
     mismatches: [],
   };
   withFixture({ 'requirements.md': requirements, 'specs/probe.spec.ts': spec }, (baseDir) => {
@@ -4862,6 +5375,7 @@ function runTwoFeatureCopyReportProbe(spec: string): ReturnType<typeof reportCri
   let result: ReturnType<typeof reportCriterionTextCopies> = {
     blocks: 0,
     blocksWithCopy: 0,
+    exemptedByProseAttribution: 0,
     mismatches: [],
   };
   withFixture(
@@ -5074,6 +5588,84 @@ function checkCriterionAttributionIsNumberExact(): string[] {
     if (ids.length !== 1 || ids[0] !== 'probe/REQ-1.1') {
       failures.push(
         `${label}: 写した条文 probe/REQ-1.1 との食い違いを挙げていない（挙げた: ${ids.join(', ') || '無し'}）`
+      );
+    }
+  }
+
+  return failures;
+}
+
+/**
+ * 出典明示で免除した組の数を、免除が働いたときだけ数える（タスク 115.254）
+ *
+ * `exemptedByProseAttribution` は「番号を添えて引用すれば検査は黙る」という免除の口の
+ * 広さを、散文の記述ではなく**検査自身の出力**として出すために置いた。従前は限界の記述が
+ * この件数と実例を散文で挙げており、実データが動いたまま偽になっていた。
+ *
+ * 出力である以上、二つの向きを固定しないと数字が意味を失う。
+ *
+ *   - 免除が働く区間で数えること（無条件に数えない形へ退化すると陽性側が 0 になる）
+ *   - 免除が働かない区間では数えないこと（無条件の加算へ退化すると陰性側が 1 になる）
+ *
+ * どちらの見本も、写す条文（`probe/REQ-1.1` の本文）と名乗る条文（`probe/REQ-1.2`）が
+ * 食い違う形である。違いは**散文が写した条文の番号を挙げているかどうか**だけであり、
+ * 免除の成否がそのまま件数と食い違いの有無に出る。
+ */
+function checkProseAttributionExemptionIsCounted(): string[] {
+  const failures: string[] = [];
+
+  const cases: Array<{
+    label: string;
+    proseLine: string;
+    expectedExempted: number;
+    expectedMismatches: number;
+  }> = [
+    {
+      label: '散文が写した条文の番号を挙げている（免除が働く）',
+      proseLine: ' * 受入基準 1.1 は除外である。ゆえに被覆印は掲げない。',
+      expectedExempted: 1,
+      expectedMismatches: 0,
+    },
+    {
+      label: '散文が写した条文の番号を挙げていない（免除は働かない）',
+      proseLine: ' * 出力の導線をここで確かめる。',
+      expectedExempted: 0,
+      expectedMismatches: 1,
+    },
+  ];
+  // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
+  if (cases.length === 0) {
+    failures.push('合成素材 cases が空です（この確認が空振りしています）');
+  }
+  for (const { label, proseLine, expectedExempted, expectedMismatches } of cases) {
+    const report = runCopyReportProbe(
+      [
+        '/**',
+        ' * @requirement probe/REQ-1.2',
+        proseLine,
+        ' * 一覧の下にExcel出力ボタンを表示する',
+        ' */',
+        "test('Excel出力ボタンが表示される', async () => {});",
+        '',
+      ].join('\n')
+    );
+    if (report.blocksWithCopy !== 1) {
+      failures.push(
+        `${label}: 写しを持つ区間が 1 でない（${report.blocksWithCopy}）。` +
+          '見本が写しとして読まれておらず、この対照は空振りしている'
+      );
+      continue;
+    }
+    if (report.exemptedByProseAttribution !== expectedExempted) {
+      failures.push(
+        `${label}: 出典明示で免除した組の数が ${expectedExempted} でない` +
+          `（${report.exemptedByProseAttribution}）`
+      );
+    }
+    if (report.mismatches.length !== expectedMismatches) {
+      failures.push(
+        `${label}: 食い違いの数が ${expectedMismatches} でない` +
+          `（${report.mismatches.map((m) => m.criterionId).join(', ') || '無し'}）`
       );
     }
   }
@@ -5378,6 +5970,10 @@ const GROUPS: Group[] = [
         name: '段落の切れ目の散文が実データの件数と列挙を持たず台帳を指す',
         run: checkParagraphBreakDocDelegatesPopulation,
       },
+      {
+        name: '抽出器の限界の記述が実データの名指しと計数を持たず現況の出所を指す',
+        run: checkExtractorLimitDocsCiteNoRealData,
+      },
     ],
   },
   {
@@ -5506,6 +6102,10 @@ const GROUPS: Group[] = [
       {
         name: '出典明示の免除が条文の番号だけに反応する（緩みで陽性が消えない）',
         run: checkCriterionAttributionIsNumberExact,
+      },
+      {
+        name: '出典明示で免除した組の数を免除が働いたときだけ数える',
+        run: checkProseAttributionExemptionIsCounted,
       },
       {
         name: '他の条文の本文にも現れる語句は目印にしない',

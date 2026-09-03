@@ -112,10 +112,17 @@ export interface Requirement {
    * `1a.` `4b.` のように英字の枝を持つ番号で書かれた受入基準の、基底となる番号
    *
    * 抽出は行頭の `N.` だけを受入基準として読むため、この形の行は**分母に入らない**。
-   * それでも被覆印は `REQ-N.M` としてしか書けず、実際に `project-management/REQ-4.1`
-   * のような印が付いている。ここに基底番号を残すのは、
-   * 「要件定義書に存在しない番号を名乗る被覆印」を挙げる検査が、
+   * それでも被覆印は `REQ-N.M` としてしか書けず、実データにはその形の印が現に付いている。
+   * ここに基底番号を残すのは、「要件定義書に存在しない番号を名乗る被覆印」を挙げる検査が、
    * **書式のせいで分母に入っていないだけの番号を誤って挙げない**ようにするためである。
+   *
+   * **ここに実データの番号を実例として書かない。** 現況は `collectOutOfDenominatorMarks` の
+   * `lettered` が一元に持ち、検査本体が「枝つき番号」の行として**件数と全件の列挙つきで**
+   * 毎回印字する。散文へ写せば、同期する機構の無い二重帳簿になる（タスク 115.254。
+   * ここが挙げていた実例は測り直した時点でもなお真であったが、真であるうちに落とすのが
+   * 本作法である——タスク 115.223 が確立したとおり、いま真である実例も等しく時限装置である）。
+   * 本記述が実データの名指しと計数を持たないことは、自己検査
+   * `check-requirement-coverage.selftest.ts` の `checkExtractorLimitDocsCiteNoRealData` が守る。
    *
    * 分母へ入れる是正（抽出規則を枝つき番号まで広げる）は分母を動かすため、
    * 本スクリプトでは行わない。件数は報告に出す。
@@ -1239,16 +1246,23 @@ export function collectOutOfDenominatorMarks(
  *
  * この検査が捕まえないもの（限界を両方向で述べる）:
  *   - 走査対象は `e2e/specs` に限る。`frontend/src` / `backend/src` の被覆印は挙げない。
- *     実測では本稿の時点で estimate-creation/REQ-24.1（frontend/src/pages/EstimateDetailPage.tsx）と
- *     trading-partner-management/REQ-11.13・REQ-11.14（backend/src/__tests__）の 3 件が
- *     この外に残っている。分子への混入は collectOutOfDenominatorMarks が数え、
- *     被覆率の計算からは除いてあるため指標は水増しされないが、印そのものは残る。
+ *     分子への混入は collectOutOfDenominatorMarks が数え、被覆率の計算からは除いてあるため
+ *     指標は水増しされないが、印そのものは残る。
  *   - 取り消し線で撤廃された番号は挙げない（findRetiredCriterionCoverageMarks の担当）。
  *     直し方が「移管先の番号を名乗り直す」に定まる点で成り立ちが違うため、混ぜない。
  *   - `1a.` `4b.` 形式で書かれた受入基準の基底番号は挙げない。要件定義書に本文があり、
  *     抽出規則が分母へ入れていないだけだからである。
  *   - 番号が実在することだけを見る。その検証が当該の条文を確かめているかは見ない
  *     （そちらは findCriterionTextCopyMismatches が、逐語複製がある区間に限って見る）。
+ *
+ * **ここに走査根の外に残る番号を実例として書かない。** 現況は collectOutOfDenominatorMarks の
+ * `unknown` が一元に持ち、検査本体が「要件定義書に存在しない番号」の行として件数と全件の
+ * 列挙つきで、続けて「うち走査根の配下にあり本スクリプトが失敗させるもの」の件数とともに
+ * 毎回印字する。散文へ写せばその出力の二重帳簿になり、写した時点から陳腐化する
+ * （タスク 115.254。ここが挙げていた列挙は測り直した時点でもなお真であったが、
+ * いま真である実例も等しく時限装置である）。本記述が実データの名指しと計数を持たないことは、
+ * 自己検査 `check-requirement-coverage.selftest.ts` の
+ * `checkExtractorLimitDocsCiteNoRealData` が守る。
  */
 export function findUnknownCriterionCoverageMarks(
   features: readonly Feature[],
@@ -1433,41 +1447,59 @@ export function splitCoverageBlocks(
 /**
  * 受入基準の原文を逐語で複製しているのに、その条文を名乗っていない被覆印を挙げる
  *
- * 散文どうしの照合は機械化できない（115.167 の実測では語の重なりで 262 件中 30 件が誤検出）。
- * 解は照合の精度を上げることではなく、**対応の担い手を散文から原文の逐語複製へ移す**ことである。
+ * 散文どうしの照合は機械化できない。タスク 115.167 が語の重なりで照合する案を実データへ当て、
+ * 誤検出が多すぎるとして退けている（当時の計数は同タスクの記録に残る）。解は照合の精度を
+ * 上げることではなく、**対応の担い手を散文から原文の逐語複製へ移す**ことである。
  * 除外定義では各項目に受入基準の本文を持たせる形（criterionText）で実現した。
- * 被覆印に同じ義務を課すのは規模が違う（`e2e/specs` の被覆印は実測 4438 箇所）ため課さない。
- * 代わりに、**既に写しがある区間に限って**その写しを担い手として扱う。
+ * 被覆印に同じ義務を課すのは規模が違うため課さない。代わりに、**既に写しがある区間に限って**
+ * その写しを担い手として扱う。
  *
  * この検査が捕まえないもの（限界を両方向で述べる）:
- *   - 写しの無い区間は何も確かめない。実測で写しを持つ区間は 1863 中 229（12.3%）であり、
- *     残り 8 割強は依然として散文の対応のままである。**本検査は網羅ではなく、
- *     担い手が移っている箇所だけを機械が守る形である。**
- *   - `shall` を含まない受入基準（実測 2888 件中 388 件。`THEN …しなければならない` 形）は
- *     目印を取り出せないため対象外である。
- *   - 語句が 12 文字未満、または同一機能の他の条文の本文にも現れる場合は、
- *     その条文を名指す証拠にならないため対象外である。
+ *   - 写しの無い区間は何も確かめない。**本検査は網羅ではなく、担い手が移っている箇所だけを
+ *     機械が守る形である。** 守備範囲の広さは `blocks` と `blocksWithCopy` が測り、
+ *     reportCriterionTextCopies を呼ぶ検査本体が毎回印字する。
+ *   - `shall` を含まない受入基準（`THEN …しなければならない` 形）は目印を取り出せないため
+ *     対象外である（criterionQuote が null を返す）。
+ *   - 語句が MIN_CRITERION_QUOTE_LENGTH 文字未満、または同一機能の他の条文の本文にも
+ *     現れる場合は、その条文を名指す証拠にならないため対象外である。
  *   - 候補はその区間が既に名乗っている機能の条文に限る。別機能の条文を写している場合は
  *     挙げない（機能をまたぐ語句の一致は偽陽性が多い）。
  *   - **写した条文の番号が同じ区間の散文に書かれている場合は挙げない。** 書き手はどの条文の
- *     文言かを分かって引いており、指し先が誤っているのではない。実測でこの形は 2 件あり、
- *     いずれも「この受入基準は除外である／E2Eでは再現できない。ゆえに被覆印は掲げない」と
- *     明示的に述べたうえで原文を引用していた（site-survey-access-control.spec.ts の REQ-14.4、
- *     site-survey-annotation-editor-acceptance.spec.ts の 8.5）。**代償として、番号を添えて
+ *     文言かを分かって引いており、指し先が誤っているのではない。**代償として、番号を添えて
  *     引用すれば検査は黙る。** 番号の付け替えを伴わない誤りはこの検査では捕まらない。
+ *     この免除の口の広さは `exemptedByProseAttribution` が測り、毎回印字する。
  *   - 被覆印そのものが読み取り規則に載らない書き方（`(feature/REQ-1.1, REQ-1.2)` の
- *     二つ目以降、`(feature/REQ-28.3/REQ-15.2)` のような連結）で書かれている場合、
- *     番号は散文に現れているため上の免除に入り、挙げない。実測でこの形は 2 件あった
- *     （execution-budget cost-input の REQ-13.4、site-survey outline-toggle の REQ-15.2)。
- *     読み取り規則の側の穴であり、本検査の担当ではない。
+ *     二つ目以降、`(feature/REQ-1.1/REQ-2.2)` のような連結）で書かれている場合、
+ *     番号は散文に現れているため上の免除に入り、挙げない。読み取り規則の側の穴であり、
+ *     本検査の担当ではない。**この形だけは機械で測る出口が無い**——読み取り規則が読まない
+ *     書き方は、定義上どの母集団にも現れない。件数を知るには検出器を新設する必要がある。
  *   - 写した条文を名乗っていても、検証が実際にその条文を確かめているかは見ない。
  *     115.167 が除外定義について記した抜け道と同じで、**写す元を間違えれば一致してしまう。**
+ *
+ * **ここに実データの実例・計数を書かない。** 上の限界のうち計数を持つものは、いずれも
+ * reportCriterionTextCopies が返す値（`blocks` / `blocksWithCopy` /
+ * `exemptedByProseAttribution`）として毎回測り直され、検査本体が印字する。散文へ写せば
+ * 同期する機構の無い二重帳簿になり、写した時点から陳腐化する（タスク 115.254 の起票理由。
+ * ここが挙げていた免除の件数と名指しは、測り直した時点で既に実データと食い違っていた）。
+ * 本記述が実データの名指しと計数を持たないことは、自己検査
+ * `check-requirement-coverage.selftest.ts` の `checkExtractorLimitDocsCiteNoRealData` が守る。
  */
 export interface CriterionTextCopyReport {
   /** 被覆印を持つ区間の総数（母集団） */
   blocks: number;
   /** そのうち受入基準の原文を写している区間の数（本検査が実際に守っている範囲） */
   blocksWithCopy: number;
+  /**
+   * 写した条文を名乗っていないが、その番号が同じ区間の散文にあるため免除した組の数
+   *
+   * 免除の口の広さそのものである。散文へ数を書くと実データとともに陳腐化するため、
+   * **検査自身の出力として毎回測る**（タスク 115.254）。0 でも印字する——免除が
+   * 空振りしているのか、口が広いのかを黙って見分けられなくしないためである。
+   *
+   * 単位は `blocks` / `blocksWithCopy`（区間）と違い、**区間と条文の組**である。
+   * 一つの区間が複数の条文を写していれば、その分だけ数える。
+   */
+  exemptedByProseAttribution: number;
   /** 写した条文を名乗っていない区間 */
   mismatches: CriterionTextCopyMismatch[];
 }
@@ -1505,6 +1537,7 @@ export function reportCriterionTextCopies(
   const mismatches: CriterionTextCopyMismatch[] = [];
   let blocks = 0;
   let blocksWithCopy = 0;
+  let exemptedByProseAttribution = 0;
   for (const file of findFiles(scanRoot, /\.(ts|tsx)$/)) {
     const content = fs.readFileSync(file, 'utf-8');
     const relative = toPosixPath(path.relative(process.cwd(), file));
@@ -1518,7 +1551,10 @@ export function reportCriterionTextCopies(
           hasCopy = true;
           if (block.claimed.has(criterionId)) continue;
           // 写した条文の番号が同じ区間の散文にあるなら、書き手は出典を分かって引いている
-          if (proseAttributesCriterion(prose, criterionId)) continue;
+          if (proseAttributesCriterion(prose, criterionId)) {
+            exemptedByProseAttribution += 1;
+            continue;
+          }
           mismatches.push({
             criterionId,
             quote,
@@ -1535,7 +1571,7 @@ export function reportCriterionTextCopies(
     (a, b) =>
       a.file.localeCompare(b.file) || a.line - b.line || a.criterionId.localeCompare(b.criterionId)
   );
-  return { blocks, blocksWithCopy, mismatches };
+  return { blocks, blocksWithCopy, exemptedByProseAttribution, mismatches };
 }
 
 /** 逐語複製の食い違いだけを取り出す（母集団が要らない呼び出し向け） */
@@ -2501,6 +2537,12 @@ function printReport(
   console.log(
     `     （検査が守っている範囲: ${E2E_SPECS_ROOT} の被覆印の区間 ${copyReport.blocks}件のうち、` +
       `原文の写しを持つ ${copyReport.blocksWithCopy}件。残りは散文の対応のままで機械は見ていない）`
+  );
+  // 免除の口の広さも 0 のときに出す。散文へ書けば陳腐化するため出力で測る（タスク 115.254）。
+  // 単位は上の行と違う（上は区間、ここは「区間と条文」の組）ので「うち」とは書かない。
+  console.log(
+    `     （別勘定: 写した条文の番号を同じ区間の散文が挙げているため免除した「区間と条文」の組: ` +
+      `${copyReport.exemptedByProseAttribution}組。番号を添えて引用すれば検査は黙る）`
   );
   console.log('');
 
