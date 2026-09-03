@@ -3,10 +3,20 @@
  *
  * TDD: RED Phase - Prismaスキーマで定義する現場調査モデルの型検証
  *
+ * 一覧の説明文は要件定義書の原文（`shall` 以降）の逐語複製である。
+ * 番号だけを並べると指し先の当否は読み手にしか確かめられないが、原文を並置すれば
+ * 条文が繰り上がったときに字面の食い違いとして現れる。
+ * ただし機械が支えるのは**目印として使える長さの原文を持つ行だけ**である。
+ * `shall` 以降が `MIN_CRITERION_QUOTE_LENGTH`（scripts/check-requirement-coverage.ts）に
+ * 満たない条文は、どの条文を名指すかの証拠にならないため検査の対象外であり、その行の
+ * 指し先は依然として読み手が確かめるほかない。
+ * 現に、この一覧は要件1へ条文が一つ挿入された繰り上がりに追随しておらず、
+ * 原文と番号が一段ずれていた（`check:req-coverage` の逐語複製の検査が挙げた）。
+ *
  * Requirements (site-survey):
- * - REQ-1.1: ユーザーが現場調査作成フォームを送信すると、プロジェクトに紐付く新規現場調査レコードを作成する
- * - REQ-1.4: ユーザーが現場調査を削除すると、現場調査と関連する画像データを論理削除する
- * - REQ-1.6: プロジェクトが存在しない場合、現場調査の作成を許可しない
+ * - REQ-1.2: ユーザーが現場調査作成フォームを送信すると、プロジェクトに紐付く新規現場調査レコードを作成する
+ * - REQ-1.5: ユーザーが現場調査を削除すると、現場調査と関連する画像データを論理削除する
+ * - REQ-1.7: プロジェクトが存在しない場合、現場調査の作成を許可しない
  *
  * Models to implement:
  * - SiteSurvey: 現場調査エンティティ（プロジェクトに紐付く）
@@ -20,7 +30,7 @@ import type { Prisma } from '../../../generated/prisma/client.js';
 describe('SiteSurvey Model Schema', () => {
   describe('SiteSurvey CreateInput type structure', () => {
     it('should require mandatory fields (name, surveyDate, project relation)', () => {
-      // Requirement 1.1: プロジェクトに紐付く新規現場調査レコードを作成
+      // Requirement 1.2: プロジェクトに紐付く新規現場調査レコードを作成
       // 必須フィールド: name（現場調査名）、surveyDate（調査日）、project（プロジェクトリレーション）
       const validInput: Prisma.SiteSurveyCreateInput = {
         name: 'テスト現場調査',
@@ -55,7 +65,7 @@ describe('SiteSurvey Model Schema', () => {
     });
 
     it('should have projectId field as foreign key', () => {
-      // Requirement 1.6: プロジェクトとの関連付け（外部キー制約）
+      // Requirement 1.7: プロジェクトとの関連付け（外部キー制約）
       const siteSurveySelect: Prisma.SiteSurveySelect = {
         projectId: true,
         project: true,
@@ -75,7 +85,7 @@ describe('SiteSurvey Model Schema', () => {
     });
 
     it('should have deletedAt field for soft delete', () => {
-      // Requirement 1.4: 論理削除フィールド
+      // Requirement 1.5: 論理削除フィールド
       const siteSurveySelect: Prisma.SiteSurveySelect = {
         deletedAt: true,
       };
@@ -323,7 +333,7 @@ describe('ImageAnnotation Model Schema', () => {
 
 describe('Cascade Delete Behavior', () => {
   it('should cascade delete SiteSurvey when Project is deleted', () => {
-    // Requirement 1.4: プロジェクト削除時、配下の現場調査もカスケード削除
+    // Requirement 1.5: プロジェクト削除時、配下の現場調査もカスケード削除
     // Prismaスキーマで onDelete: Cascade が設定されていることを確認
     // この型テストはリレーションの定義を検証する
     const siteSurveyInclude: Prisma.SiteSurveyInclude = {

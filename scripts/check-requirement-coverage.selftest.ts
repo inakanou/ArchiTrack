@@ -1192,12 +1192,17 @@ interface CodeScanRootWitness {
  * **`CODE_DIRS` の外に置いた第二の宣言**であり、両者の一致を課すことで
  * 根の増減そのものを赤くする。
  *
- * `witness` は 2026-09-01 に実測して選んだ。いずれも当該の根の下の複数のファイルが
- * 名乗っており（backend/src 6 件・frontend/src 21 件・e2e 5 件）、一枚のファイルの
+ * `witness` は 2026-09-03 に実測して選び直した。いずれも当該の根の下の複数のファイルが
+ * 名乗っており（backend/src 5 件・frontend/src 21 件・e2e 5 件）、一枚のファイルの
  * 移動では消えない。消えた場合は本検査が名指しで赤くなるため、別の固定点へ差し替えること。
+ *
+ * backend/src の固定点は従前 `estimate-creation/REQ-11.6` だった。タスク 115.256 で
+ * `frontend/src/pages/EstimateDetailPage.tsx` の被覆印が（原文の逐語複製と食い違っていた
+ * `REQ-11.7` から）`REQ-11.6` へ是正された結果、この番号は frontend/src からも被覆される
+ * ようになり専属でなくなった。本検査がその場で名指しで赤くなったため差し替えた。
  */
 const CODE_SCAN_ROOT_WITNESSES: readonly CodeScanRootWitness[] = [
-  { root: 'backend/src', witness: 'estimate-creation/REQ-11.6' },
+  { root: 'backend/src', witness: 'estimate-creation/REQ-11.5' },
   { root: 'frontend/src', witness: 'site-survey/REQ-26.5' },
   { root: 'e2e', witness: 'user-authentication/REQ-28.37' },
 ];
@@ -1326,6 +1331,138 @@ function checkEveryCodeScanRootContributes(): string[] {
       );
     }
   }
+  return failures;
+}
+
+/** 逐語複製の検査の名前。原文の照合はこの名前で行う */
+const COPY_REPORT_NAME = 'reportCriterionTextCopies';
+
+/** 逐語複製の食い違いだけを取り出す関数の名前。原文の照合はこの名前で行う */
+const COPY_MISMATCH_NAME = 'findCriterionTextCopyMismatches';
+
+/**
+ * 逐語複製の検査の走査根がどれも遊んでいない（外すと守備範囲が真に縮む）
+ *
+ * 逐語複製の検査は長らく `E2E_SPECS_ROOT`（`e2e/specs`）だけを読んでいた。そのため
+ * **`backend/src` と `frontend/src` の被覆印は、原文を写していてもその写しが一度も
+ * 照合されなかった**。「原文を並置すれば条文が繰り上がったときに字面の食い違いとして
+ * 現れる」という単体検証の側の散文は、人が読めば真だが機械は確かめていなかった
+ * （タスク 115.256）。根を `CODE_DIRS` へ広げた時点の実測では、`backend/src` に 5 件・
+ * `frontend/src` に 3 件の食い違いが現れ、いずれも被覆印の番号が条文の繰り上がりに
+ * 追随していない形だった（是正済み）。
+ *
+ * 根を広げただけでは同じ欠陥が場所を変えて残る。**宣言はされたが実際には何も読んでいない
+ * 根**は、読まない検査と区別が付かない。`checkEveryCodeScanRootContributes` と同じ作法で
+ * 両側から挟む。
+ *
+ *   1. 根を一つだけ与えたとき、被覆印を持つ区間と原文の写しを持つ区間が現に存在する
+ *      （その根が単独で守備範囲を持つ）
+ *   2. 根を一つ外すと、全根を与えたときより母集団が真に縮む（他の根に覆われていない）
+ *   3. 根が実在する（`findFiles` は存在しない根に黙って空を返す）
+ *   4. 本検査（`main()`）が読む根が `CODE_DIRS` である——既定引数を原文から照合し、
+ *      呼び出しが根を明示していないことを確かめる。ここを見ないと、定数だけを広げて
+ *      呼び出しは `e2e/specs` のままという食い違いが黙って通る
+ *
+ * 2026-09-03 に実測した。`reportCriterionTextCopies` の既定引数を `[E2E_SPECS_ROOT]` へ
+ * 戻す変異では、`checkEveryCodeScanRootContributes` は緑のままで本検査だけが
+ * 「backend/src を外しても母集団が縮まない」「frontend/src を外しても母集団が縮まない」
+ * 「既定の走査根が CODE_DIRS でない」を挙げて落ちる。`main()` の呼び出しを
+ * `reportCriterionTextCopies(features, ['e2e/specs'])` へ変える変異（既定引数は
+ * `CODE_DIRS` のまま）でも、本検査だけが「走査根を明示している」を挙げて落ちる。
+ */
+function checkCriterionTextCopyRootsAreNotIdle(): string[] {
+  const failures: string[] = [];
+
+  // 第3原則: 根が空なら以下の繰り返しは一度も回らずに緑になる
+  if (CODE_DIRS.length === 0) {
+    return ['逐語複製の検査の走査根が一件も無い（母集団が空。検査は何も読んでいない）'];
+  }
+  const featureNames = discoverFeatures();
+  if (featureNames.length === 0) {
+    return ['機能を一件も検出できない（自己検査の前提が失われた）'];
+  }
+  const features = extractAllFeatures(featureNames);
+  const full = reportCriterionTextCopies(features);
+  if (full.blocks === 0) {
+    return [
+      '走査根をすべて与えても被覆印を持つ区間が一件も無い（走査が壊れている。' +
+        '以下の「外すと縮む」は測る対象を失っている）',
+    ];
+  }
+
+  for (const root of CODE_DIRS) {
+    if (!fs.existsSync(path.resolve(root))) {
+      failures.push(
+        `逐語複製の走査根 ${root} が実在しない（findFiles は黙って空を返すため、この根は何も読んでいない）`
+      );
+      continue;
+    }
+    const only = reportCriterionTextCopies(features, [root]);
+    if (only.blocks === 0) {
+      failures.push(
+        `逐語複製の走査根 ${root} からは被覆印を持つ区間が一件も拾えない` +
+          '（宣言されているだけで、この根は検査に何も寄与していない）'
+      );
+    }
+    if (only.blocksWithCopy === 0) {
+      failures.push(
+        `逐語複製の走査根 ${root} には受入基準の原文を写した区間が一件も無い` +
+          '（この根では検査が何も守っていない）'
+      );
+    }
+    const without = reportCriterionTextCopies(
+      features,
+      CODE_DIRS.filter((dir) => dir !== root)
+    );
+    if (without.blocks >= full.blocks) {
+      failures.push(
+        `逐語複製の走査根 ${root} を外しても母集団が縮まない（${full.blocks} → ${without.blocks}）。` +
+          '他の根から完全に覆われる根であり、走査根の一覧に置く意味が失われている'
+      );
+    }
+  }
+
+  // 4. 本検査が読む根が CODE_DIRS であることを原文から照合する
+  const absolute = path.resolve(EXTRACTOR_SOURCE_PATH);
+  if (!fs.existsSync(absolute)) {
+    return [`${EXTRACTOR_SOURCE_PATH} が存在しない（自己検査の前提が失われた）`];
+  }
+  const source = fs.readFileSync(absolute, 'utf8');
+  for (const name of [COPY_REPORT_NAME, COPY_MISMATCH_NAME]) {
+    const signature = new RegExp(String.raw`export function ${name}\(([^)]*)\)`).exec(source);
+    if (!signature) {
+      failures.push(`${EXTRACTOR_SOURCE_PATH}: export された ${name} が無い`);
+      continue;
+    }
+    const parameters = (signature[1] ?? '').replace(/\s+/g, ' ').trim();
+    if (!new RegExp(String.raw`=\s*${SCAN_ROOTS_NAME}\s*$`).test(parameters)) {
+      failures.push(
+        `${EXTRACTOR_SOURCE_PATH}: ${name} の既定の走査根が ${SCAN_ROOTS_NAME} でない（署名: ${parameters}）`
+      );
+    }
+  }
+  // 呼び出しは根を渡さないか、素通しの引数だけを渡す（別の根を通す経路を残さない）
+  const calls = Array.from(
+    source.matchAll(new RegExp(String.raw`(?<!function )${COPY_REPORT_NAME}\(([^)]*)\)`, 'g'))
+  );
+  if (calls.length === 0) {
+    failures.push(
+      `${EXTRACTOR_SOURCE_PATH}: ${COPY_REPORT_NAME} の呼び出しが一つも無い` +
+        '（逐語複製の検査が本検査から切り離されている）'
+    );
+  }
+  for (const call of calls) {
+    const args = (call[1] ?? '').replace(/\s+/g, ' ').trim();
+    if (!args.includes(',')) continue;
+    const second = args.slice(args.indexOf(',') + 1).trim();
+    if (second !== 'scanRoots') {
+      failures.push(
+        `${EXTRACTOR_SOURCE_PATH}: ${COPY_REPORT_NAME}(${args}) が走査根を明示している。` +
+          `既定引数（${SCAN_ROOTS_NAME}）以外の根を通す経路を残さないこと`
+      );
+    }
+  }
+
   return failures;
 }
 
@@ -5406,7 +5543,7 @@ function runCopyReportProbe(spec: string): ReturnType<typeof reportCriterionText
         retiredRequirements: [],
       },
     ];
-    result = reportCriterionTextCopies(features, path.join(baseDir, 'specs'));
+    result = reportCriterionTextCopies(features, [path.join(baseDir, 'specs')]);
   });
   return result;
 }
@@ -5484,7 +5621,7 @@ function runTwoFeatureCopyReportProbe(spec: string): ReturnType<typeof reportCri
           retiredRequirements: [],
         };
       });
-      result = reportCriterionTextCopies(features, path.join(baseDir, 'specs'));
+      result = reportCriterionTextCopies(features, [path.join(baseDir, 'specs')]);
     }
   );
   return result;
@@ -5939,20 +6076,21 @@ function checkRealCriterionTextCopiesExist(): string[] {
     failures.push('目印を取り出せる受入基準が一件も無い（逐語複製の検査が空振りしている）');
   }
 
-  // 実物の `e2e/specs` に、受入基準の原文を写した区間が現に存在すること。
+  // 実物の走査根（`CODE_DIRS`）に、受入基準の原文を写した区間が現に存在すること。
   // 存在しなければ、食い違い 0 件は「何も守っていない」ことと区別できない。
+  const roots = CODE_DIRS.join(' / ');
   const report = reportCriterionTextCopies(features);
   if (report.blocks === 0) {
-    failures.push(`${E2E_SPECS_ROOT} に被覆印を持つ区間が一件も無い（走査そのものが空振り）`);
+    failures.push(`${roots} に被覆印を持つ区間が一件も無い（走査そのものが空振り）`);
   }
   if (report.blocksWithCopy === 0) {
     failures.push(
-      `${E2E_SPECS_ROOT} に受入基準の原文を写した被覆印の区間が一件も無い（この検査は何も守っていない）`
+      `${roots} に受入基準の原文を写した被覆印の区間が一件も無い（この検査は何も守っていない）`
     );
   }
   if (report.blocksWithCopy >= report.blocks) {
     failures.push(
-      `${E2E_SPECS_ROOT} の被覆印を持つ区間 ${report.blocks} 件のうち ` +
+      `${roots} の被覆印を持つ区間 ${report.blocks} 件のうち ` +
         `${report.blocksWithCopy} 件が原文の写しを持つとされた。` +
         '写しを持たない区間が一件も無いのは実態と合わない（守備範囲が全区間へ水増しされている）'
     );
@@ -6249,6 +6387,10 @@ const GROUPS: Group[] = [
       {
         name: '自己検査が測る走査根が本検査の読む走査根と同一である',
         run: checkScanRootsAreTheOnesMainUses,
+      },
+      {
+        name: '逐語複製の検査の走査根がどれも遊んでいない（外すと守備範囲が真に縮む）',
+        run: checkCriterionTextCopyRootsAreNotIdle,
       },
     ],
   },

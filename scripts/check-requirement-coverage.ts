@@ -1145,7 +1145,13 @@ export function findRetiredCriterionCoverageMarks(
 // リポジトリの被覆印の多くは、印のすぐ隣に受入基準の原文を写した一行を持つ。
 // 写しがあるなら、写した条文こそがその区間の名乗るべき条文である。
 
-/** 被覆印を探す根。指し先の是正が及ぶ範囲。 */
+/**
+ * 存在しない番号を名乗る被覆印について、本スクリプトが失敗させる範囲
+ *
+ * **逐語複製の検査はこの根を使わない。**そちらは `CODE_DIRS`（`backend/src` /
+ * `frontend/src` / `e2e`）の全体を読む（タスク 115.256）。両者を同じ根で括ると、
+ * 片方を広げたときにもう片方が黙って一緒に動く。
+ */
 export const E2E_SPECS_ROOT = 'e2e/specs';
 
 /** 被覆印が名乗る受入基準が、要件定義書のどこにも無い */
@@ -1454,6 +1460,12 @@ export function splitCoverageBlocks(
  * 被覆印に同じ義務を課すのは規模が違うため課さない。代わりに、**既に写しがある区間に限って**
  * その写しを担い手として扱う。
  *
+ * 走査根は `CODE_DIRS` である。**本番実装と単体検証の被覆印もこの検査を受ける**
+ * （タスク 115.256。従前は `e2e/specs` だけを読んでおり、それ以外の根の被覆印は
+ * 逐語複製の検査を一度も受けていなかった）。どの根も遊んでいないこと——外せば守備範囲が
+ * 真に縮むこと——は自己検査 `checkCriterionTextCopyRootsAreNotIdle` が毎回測る。
+ * 現況の守備範囲は本検査が `blocks` / `blocksWithCopy` として毎回印字する。
+ *
  * この検査が捕まえないもの（限界を両方向で述べる）:
  *   - 写しの無い区間は何も確かめない。**本検査は網羅ではなく、担い手が移っている箇所だけを
  *     機械が守る形である。** 守備範囲の広さは `blocks` と `blocksWithCopy` が測り、
@@ -1507,7 +1519,7 @@ export interface CriterionTextCopyReport {
 /** 逐語複製の食い違い（母集団つき） */
 export function reportCriterionTextCopies(
   features: readonly Feature[],
-  scanRoot: string = E2E_SPECS_ROOT
+  scanRoots: readonly string[] = CODE_DIRS
 ): CriterionTextCopyReport {
   const featureNames = features.map((feature) => feature.name);
   /** 機能名 → 語句 → その語句を持つ受入基準 */
@@ -1538,7 +1550,19 @@ export function reportCriterionTextCopies(
   let blocks = 0;
   let blocksWithCopy = 0;
   let exemptedByProseAttribution = 0;
-  for (const file of findFiles(scanRoot, /\.(ts|tsx)$/)) {
+  const seen = new Set<string>();
+  const files: string[] = [];
+  for (const root of scanRoots) {
+    for (const file of findFiles(root, /\.(ts|tsx)$/)) {
+      // 根が入れ子（`e2e` と `e2e/specs`）でも同じファイルを二度数えない。
+      // 二度数えると母数 `blocks` だけが膨らみ、守備範囲の指標が水増しされる。
+      const absolute = path.resolve(file);
+      if (seen.has(absolute)) continue;
+      seen.add(absolute);
+      files.push(file);
+    }
+  }
+  for (const file of files) {
     const content = fs.readFileSync(file, 'utf-8');
     const relative = toPosixPath(path.relative(process.cwd(), file));
     for (const { block, prose } of splitCoverageBlocks(content, featureNames)) {
@@ -1577,9 +1601,9 @@ export function reportCriterionTextCopies(
 /** 逐語複製の食い違いだけを取り出す（母集団が要らない呼び出し向け） */
 export function findCriterionTextCopyMismatches(
   features: readonly Feature[],
-  scanRoot: string = E2E_SPECS_ROOT
+  scanRoots: readonly string[] = CODE_DIRS
 ): CriterionTextCopyMismatch[] {
-  return reportCriterionTextCopies(features, scanRoot).mismatches;
+  return reportCriterionTextCopies(features, scanRoots).mismatches;
 }
 
 // ============================================================================
@@ -2535,7 +2559,7 @@ function printReport(
     `  📄 受入基準の原文を逐語複製しながら、その条文を名乗っていない被覆印: ${copyMismatches.length}件`
   );
   console.log(
-    `     （検査が守っている範囲: ${E2E_SPECS_ROOT} の被覆印の区間 ${copyReport.blocks}件のうち、` +
+    `     （検査が守っている範囲: ${CODE_DIRS.join(' / ')} の被覆印の区間 ${copyReport.blocks}件のうち、` +
       `原文の写しを持つ ${copyReport.blocksWithCopy}件。残りは散文の対応のままで機械は見ていない）`
   );
   // 免除の口の広さも 0 のときに出す。散文へ書けば陳腐化するため出力で測る（タスク 115.254）。
