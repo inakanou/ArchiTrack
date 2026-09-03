@@ -5,15 +5,31 @@
  *
  * Requirements:
  * - 13.1: プロジェクト名は必須かつ1〜255文字
- * - 13.2: 顧客名は必須かつ1〜255文字
- * - 13.3: 営業担当者は必須
- * - 13.4: 営業担当者の値がadmin以外の有効なユーザーIDであることを検証
- * - 13.5: 工事担当者は任意
- * - 13.6: 工事担当者が指定された場合、admin以外の有効なユーザーIDであることを検証
- * - 13.7: 現場住所は任意かつ最大500文字
- * - 13.8: 概要は任意かつ最大5000文字
- * - 13.10: フロントエンドでバリデーションエラーが発生する場合、エラーメッセージを即座に表示
- * - 13.11: バックエンドでバリデーションエラーが発生する場合、400 Bad Requestエラーとエラー詳細を返却
+ * - 13.2: 取引先を任意とする（取引先IDまたは未設定）
+ * - 13.4: 営業担当者は必須
+ * - 13.6: 工事担当者は任意
+ * - 13.8: 現場住所は任意かつ最大500文字
+ * - 13.9: 概要は任意かつ最大5000文字
+ *
+ * 従前この一覧は 13.2 以降が一律に一つ手前へずれていた。顧客名の欄が取引先への参照へ
+ * 移行した際に要件13 へ「取引先を任意とする」が入って以降の番号が繰り上がったが、
+ * 本ファイルの一覧が追随していなかったためである（同じずれを
+ * backend/src/__tests__/unit/models/project.model.test.ts はタスク 115.225 が、
+ * backend/src/schemas/project.schema.ts はタスク 115.257 が是正した）。
+ * 現行の `.kiro/specs/project-management/requirements.md` の要件13 と突き合わせて
+ * 番号を直し、本ファイルが実際に確かめていない条文は一覧から落とした。
+ *
+ * 一覧に挙げていない条文と、その理由:
+ * - 13.3（取引先が指定された場合に取引先マスタに実在することを検証する）:
+ *   本番コードに当該の検証が無いため名乗らない。詳細は
+ *   backend/src/schemas/project.schema.ts の冒頭にある。実在検証を足すのか外部キー制約で
+ *   足りると条文側で認めるのかの決着は、上流のタスク 115.311 が引き取っている
+ * - 13.5 / 13.7（担当者が admin 以外の有効なユーザーであることの検証）:
+ *   スキーマではなくサービス層（ProjectService.validateAssignableUser）の担当であり、
+ *   本ファイルはサービス層を取り込まない
+ * - 13.10（フロントエンドでの即時表示）: フロントエンドの担当であり本ファイルの範囲外
+ * - 13.11（バックエンドのエラーレスポンスとエラー詳細）: 本ファイルは zod の
+ *   `safeParse` の成否と個々のメッセージだけを見ており、HTTP応答の形は確かめない
  */
 
 import { describe, it, expect } from 'vitest';
@@ -87,6 +103,28 @@ describe('project.schema', () => {
       });
     });
 
+    /**
+     * 取引先IDの欄
+     *
+     * @requirement project-management/REQ-13.2: The ArchiTrackシステム shall 取引先を任意とする（取引先IDまたは未設定）
+     *
+     * 本群は当該条文を機構として観測する。取引先IDを与えた場合・`null` を与えた場合・
+     * 欄そのものを省いた場合のいずれも `createProjectSchema` が受理することを主張しており、
+     * 「取引先IDまたは未設定」の双方が通ることが群の主張そのものである。
+     * 観測の対象は本番モジュール backend/src/schemas/project.schema.ts の
+     * `createProjectSchema` の `tradingPartnerId`（`.nullable().optional()`）であり、
+     * 当該スキーマは backend/src/routes/projects.routes.ts が取り込むため本番の経路に乗る。
+     *
+     * 空振りでないことの実測: `createProjectSchema` の `tradingPartnerId` から
+     * `.nullable().optional()` を外すと、本群の「should accept null」と
+     * 「should accept undefined (optional field)」を含む 90件中21件が落ちる
+     * （2026-09-03、コミット a87555f6 の作業ツリーで実測。変異は復元済み）。
+     *
+     * 要件13 の 3（取引先が指定された場合に取引先マスタへ実在することを確かめる条文）は
+     * 本群では名乗らない。本スキーマが課すのは UUID の形式検証だけで、実在確認は
+     * アプリケーション層のどこにも無いためである（根拠は
+     * backend/src/schemas/project.schema.ts の冒頭に詳しい）。
+     */
     describe('tradingPartnerId field', () => {
       it('should accept a valid UUID', () => {
         const result = createProjectSchema.safeParse({
