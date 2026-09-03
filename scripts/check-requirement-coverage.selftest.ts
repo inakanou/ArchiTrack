@@ -196,6 +196,7 @@ import {
   findUnknownCriterionCoverageMarks,
   isDeclaredCoverageHeader,
   isRetiredCriterionText,
+  listCoverageScanFiles,
   MIN_CRITERION_QUOTE_LENGTH,
   reportCriterionTextCopies,
   isVerificationFile,
@@ -1649,24 +1650,30 @@ function checkUnlistedFeatureHeaderStillEndsSection(): string[] {
  * この対照が空振りになる（実データの散文はいずれも `-` の印を持つ形であり、こちらが実像である）。
  * 空振りでないことは後段の機構対照が実際の変異で確かめる。
  *
- * 実データでここを切って帰属が減るのは、走査した全ファイルのうち 2 ファイルだけで、
- * **正当な被覆は一件も失われない**（タスク 115.192 で母集団を全件走査して再確定した）。
- * 落ちるのは `quantity-table-generation/REQ-7.1`（name-remarks-autocomplete.spec.ts）と
- * `quantity-table-generation/REQ-47.15`〜`47.17`（quantity-count-persistence-e2e.spec.ts）で、
- * いずれも他の被覆源が同じ番号を拾うため集計は動かない。
+ * **実データでここを切ると何が落ちるかを、この散文は持たない。** 起票時の散文は母集団の
+ * 大きさと落ちる番号を書き並べていたが、実データが動いても誰も咎めず、**数も、列挙の
+ * 性格づけも偽のまま残った**（タスク 115.253 が実測で検出した。散文が「検証していないと
+ * 述べる散文」とした一群は、実際には見出し配下の正当な一覧項目であった）。
+ * 母集団は `RULE4_DROPPED_MARK_POPULATION` が一元に持ち、
+ * `checkRule4DroppedMarkPopulationIsExact` が毎回の実行で実データへ規則4の無効化変異を
+ * 当て、**過不足なく**突き合わせる。「正当な被覆は一件も失われない」——巻き添えで落ちる
+ * 一覧項目の番号を抽出器の集計が今も持つこと——も同検査が測る。
+ * ここへ数や実データの番号を書き戻すと `checkParagraphBreakDocDelegatesPopulation` が赤くなる。
  *
- * タスク 115.197 が現在の HEAD で測り直した。規則4を撤去する変異で**この検査は単独で赤くなる**
- * （併せて赤くなるのは「区間の終端は四つの上限の最も手前を採る」と
- * 「実データの散文が被覆主張として拾われない」の二件だけである）。
+ * **この検査が空振りでないことも、散文でなく機構が示す。** 規則4を撤去する変異では、
+ * 本検査と、実データの側で母集団を測り直す `checkRule4DroppedMarkPopulationIsExact` が
+ * 揃って赤くなる（2026-09-03 に実測。併せて赤くなる検査は他にもあるが、その一覧こそ
+ * 陳腐化するのでここには書かない）。仮想の資料 `PARAGRAPH_BREAK_THEN_PROSE` の側が
+ * **規則4だけで**抑えられていること——別の規則が先に抑えて対照が空振りへ変質して
+ * いないこと——は `checkParagraphBreakFixtureActuallyReacts` が本文の側から変異を当てて
+ * 確かめる（規則4を撤去してもそちらは緑のままである。見ているのが別の事柄だからである）。
  * 起票時点の懸念は、散文が印を持たない ` * Note: REQ-4.2 …` の形で書かれており
  * どの上限を外しても一致しなかったこと（＝空虚な主張）であったが、
- * 上記のとおり 115.194 の是正で既に解消している。
+ * タスク 115.194 の是正で既に解消している。
  *
- * かつては `quantity-table-generation/REQ-38.4`（quantity-group-copy.spec.ts）も母集団に居た。
- * 「Integration テストへ委譲する。本スペックには含まない」と述べた散文が一覧項目の形をしており、
- * 規則4だけがそれを被覆主張から除いていた。タスク 115.192 が当該受入基準を実在する E2E で
- * 被覆し、散文を一覧項目でない形へ書き改めたため、当該ファイルは母集団から外れた。
- * 後段の実データ対照は、この入れ替わりを取りこぼさないよう機構でも検査する。
+ * 母集団の入れ替わりの経緯（どの実データがいつ出入りしたか）は台帳の側で追う。
+ * 散文へ写すと同期する機構の無い二重帳簿になる（タスク 115.223 が抽出器の説明文について
+ * 下した処遇と同じ）。
  */
 const PARAGRAPH_BREAK_THEN_PROSE = [
   '/**',
@@ -2028,6 +2035,376 @@ function checkExtractorDocCitesNoPerishableExample(): string[] {
 
   if (REAL_FALSE_CLAIMS_AFTER_PARAGRAPH_BREAK.length === 0) {
     failures.push(`${REAL_CLAIMS_AUTHORITY_NAME} が空である（指し先はあるが中身が無い）`);
+  }
+
+  return failures;
+}
+
+// ============================================================================
+// 規則4が落とす被覆印の母集団（タスク 115.253）
+// ============================================================================
+
+/** 規則4を外すと新たに帰属する実データの一件 */
+interface Rule4DroppedMarkEntry {
+  /** リポジトリ根からの相対パス */
+  file: string;
+  /**
+   * 落ちる被覆印の性格
+   *
+   * - `false-claim`: 被覆主張として拾ってはならない形。区間の外へ置くのが意図どおりであり、
+   *   同じファイルは `REAL_FALSE_CLAIMS_AFTER_PARAGRAPH_BREAK` にも陰性対照として載る
+   * - `collateral`: それ自体は正当な一覧項目だが、区間の外にあるため巻き添えになる形。
+   *   同じ番号を抽出器の集計が今も持つこと（集計が動かないこと）を本検査が測る
+   */
+  kind: 'false-claim' | 'collateral';
+  /** 規則4を外すと新たに現れる被覆印の**全件**（過不足なく一致すること） */
+  marks: readonly string[];
+}
+
+/**
+ * 規則4が実データから落とす被覆印の母集団（唯一の出所）
+ *
+ * 散文はこの台帳を指すだけで件数も列挙も持たない。実データは動くため、散文へ書いた
+ * 数と列挙は誰にも咎められないまま偽になる（タスク 115.253 が実測で検出した実害）。
+ *
+ * 本台帳は `checkRule4DroppedMarkPopulationIsExact` が実データへ規則4の無効化変異を
+ * 当てて**過不足なく**突き合わせる。母集団が増えても減っても赤くなるため、
+ * 台帳が黙って陳腐化することはない。
+ */
+const RULE4_DROPPED_MARK_POPULATION: readonly Rule4DroppedMarkEntry[] = [
+  {
+    // `Task 53.7 追加:` / `Task 53.9 追加:` の見出し配下に `- 27.4: …` の形で並ぶ**正当な
+    // 一覧項目**である。散文ではない。段落の切れ目より後に置かれているため巻き添えで落ちる。
+    file: 'frontend/src/pages/EstimateDetailPage.tsx',
+    kind: 'collateral',
+    marks: [
+      'estimate-creation/REQ-27',
+      'estimate-creation/REQ-27.4',
+      'estimate-creation/REQ-27.5',
+      'estimate-creation/REQ-27.6',
+      'estimate-creation/REQ-27.7',
+      'estimate-creation/REQ-42.9',
+      'estimate-creation/REQ-43',
+      'estimate-creation/REQ-43.4',
+      'estimate-creation/REQ-49.5',
+    ],
+  },
+  {
+    // `## 本ファイルが判定していないもの` の配下の散文。拾えば過大帰属になる
+    file: 'e2e/specs/quantity-tables/name-remarks-autocomplete.spec.ts',
+    kind: 'false-claim',
+    marks: ['quantity-table-generation/REQ-7.1'],
+  },
+  {
+    // `検証方針:` の配下の記述。検証の方針を述べる文であって被覆の一覧ではない
+    file: 'e2e/specs/quantity-tables/quantity-count-persistence-e2e.spec.ts',
+    kind: 'false-claim',
+    marks: [
+      'quantity-table-generation/REQ-47',
+      'quantity-table-generation/REQ-47.15',
+      'quantity-table-generation/REQ-47.16',
+      'quantity-table-generation/REQ-47.17',
+    ],
+  },
+];
+
+/** 母集団の台帳の名前。散文はここを指す */
+const RULE4_POPULATION_AUTHORITY_NAME = 'RULE4_DROPPED_MARK_POPULATION';
+
+/** 母集団を実データと突き合わせる検査の名前。散文はここを指す */
+const RULE4_POPULATION_GUARD_NAME = 'checkRule4DroppedMarkPopulationIsExact';
+
+/**
+ * 実データへ規則4の無効化変異を当て、新たに現れる被覆印をファイルごとに測る
+ *
+ * 走査するファイルの母集団は `listCoverageScanFiles`（抽出器と同一の出所）から受け取る。
+ * 走査規則をここへ複製すると、抽出器が読む母集団と自己検査が測る母集団が黙ってずれる。
+ */
+function measureRule4DroppedMarks(): Map<string, string[]> {
+  const features = discoverFeatures();
+  const measured = new Map<string, string[]>();
+
+  for (const file of listCoverageScanFiles()) {
+    const content = fs.readFileSync(file, 'utf-8');
+    const neutralized = neutralizeJsDocParagraphBreaks(content);
+    if (neutralized === content) continue;
+
+    const before = extractHeaderScopedCoverage(content, features);
+    const after = extractHeaderScopedCoverage(neutralized, features);
+    const already = new Set([...before.requirements, ...before.acceptanceCriteria]);
+    const added = Array.from(new Set([...after.requirements, ...after.acceptanceCriteria]))
+      .filter((id) => !already.has(id))
+      .sort();
+    if (added.length > 0) {
+      measured.set(toPosixPath(path.relative(process.cwd(), file)), added);
+    }
+  }
+  return measured;
+}
+
+/**
+ * 規則4が落とす被覆印の母集団が、実データの実測と過不足なく一致する
+ *
+ * かつて「実データでここを切って帰属が減るのは 2 ファイルだけ」と散文が述べていたが、
+ * 実測は三件目を含んでいた。散文は実データと同期する機構を持たないため、
+ * **数と列挙を散文から台帳へ移し、台帳の側を実測と突き合わせる**。
+ *
+ * 見るのは四つである。
+ *
+ *   1. 台帳・各項目の `marks`・分類の両方の値が空でないこと（第3原則。空にして緑にする
+ *      抜け道を作らない。分類が片側だけになると母集団の性格の劣化を誰も見なくなる）
+ *   2. 実測した母集団と台帳が**両方向で**一致すること（登録漏れも、空振りした登録も赤くする）
+ *   3. `collateral`（正当な一覧項目の巻き添え）の被覆印を、抽出器の集計が今も持つこと
+ *      ——「正当な被覆は一件も失われない」を散文でなく機構で支える
+ *   4. 分類が `REAL_FALSE_CLAIMS_AFTER_PARAGRAPH_BREAK` と食い違わないこと
+ *      （二つの台帳が別々に動くと、どちらが正かを誰も決められなくなる）
+ *
+ * **守れない範囲を明記する。** `kind` が実態に合っているか（当該の記述が本当に散文か、
+ * 正当な一覧項目か）は人の判断であり、機械が見るのは陰性対照との整合だけである。
+ * また 3 は「同じ番号を抽出器の集計が持つ」ことしか見ない。その被覆源が当該の受入基準を
+ * 実際に検証しているかは、被覆の検査本体（到達性・逐語複製）の所管である。
+ */
+function checkRule4DroppedMarkPopulationIsExact(): string[] {
+  const failures: string[] = [];
+
+  // 第3原則: 台帳が空なら以下の照合は一度も回らず、この検査は何も主張しない
+  if (RULE4_DROPPED_MARK_POPULATION.length === 0) {
+    return [
+      `${RULE4_POPULATION_AUTHORITY_NAME} が空である（母集団の台帳を空にして緑にする抜け道）`,
+    ];
+  }
+  for (const kind of ['false-claim', 'collateral'] as const) {
+    if (!RULE4_DROPPED_MARK_POPULATION.some((entry) => entry.kind === kind)) {
+      failures.push(
+        `性格 ${kind} の項目が台帳に一件も無い（片側だけの台帳では母集団の性格の劣化を` +
+          '検出できない。実測して該当が本当に消えたのなら、この下限ごと設計し直すこと）'
+      );
+    }
+  }
+  for (const entry of RULE4_DROPPED_MARK_POPULATION) {
+    if (entry.marks.length === 0) {
+      failures.push(
+        `${entry.file}: 落ちる被覆印が一件も登録されていない（marks を空にして緑にする抜け道）`
+      );
+    }
+  }
+
+  const measured = measureRule4DroppedMarks();
+  if (measured.size === 0) {
+    failures.push(
+      '規則4の無効化変異が実データへ被覆印の差を一件も作らない' +
+        '（変異が効いていないか走査が壊れている。母集団の照合は測る対象を失っている）'
+    );
+    return failures;
+  }
+
+  const registered = new Map(RULE4_DROPPED_MARK_POPULATION.map((entry) => [entry.file, entry]));
+  for (const [file, marks] of measured) {
+    const entry = registered.get(file);
+    if (!entry) {
+      failures.push(
+        `${file} は規則4を外すと被覆印が新たに帰属する（${marks.join(', ')}）が、` +
+          `${RULE4_POPULATION_AUTHORITY_NAME} に登録されていない。` +
+          '性格（散文の偽の主張か、正当な一覧項目の巻き添えか）を判断して登録すること'
+      );
+      continue;
+    }
+    for (const id of marks) {
+      if (!entry.marks.includes(id)) {
+        failures.push(`${file}: 実測で新たに現れる ${id} が台帳の marks に無い（登録漏れ）`);
+      }
+    }
+    for (const id of entry.marks) {
+      if (!marks.includes(id)) {
+        failures.push(
+          `${file}: 台帳の ${id} は規則4を外しても現れない（登録が空振りしている。` +
+            '実データが動いたので測り直して差し替えること）'
+        );
+      }
+    }
+  }
+  for (const file of registered.keys()) {
+    if (!measured.has(file)) {
+      failures.push(
+        `${file} は台帳に登録されているが、規則4を外しても被覆印が一件も増えない` +
+          '（対照が空振りしている。母集団を測り直すこと）'
+      );
+    }
+  }
+
+  const aggregate = new Set<string>();
+  for (const entry of extractTestCoverage(discoverFeatures())) {
+    for (const id of entry.requirements) aggregate.add(id);
+    for (const id of entry.acceptanceCriteria) aggregate.add(id);
+  }
+  if (aggregate.size === 0) {
+    failures.push('抽出器の集計が空である（「集計は動かない」の照合が測る対象を失っている）');
+  } else {
+    for (const entry of RULE4_DROPPED_MARK_POPULATION) {
+      if (entry.kind !== 'collateral') continue;
+      for (const id of entry.marks) {
+        if (!aggregate.has(id)) {
+          failures.push(
+            `${entry.file}: 規則4が落とす ${id} を抽出器の集計が持たない。` +
+              '巻き添えで正当な被覆が失われている（当該ファイルの一覧を区間の内側へ移すか、' +
+              '他の被覆源で名乗ること）'
+          );
+        }
+      }
+    }
+  }
+
+  const negativeControlFiles = new Set(
+    REAL_FALSE_CLAIMS_AFTER_PARAGRAPH_BREAK.map((entry) => entry.file)
+  );
+  for (const entry of RULE4_DROPPED_MARK_POPULATION) {
+    const isNegativeControl = negativeControlFiles.has(entry.file);
+    if (entry.kind === 'false-claim' && !isNegativeControl) {
+      failures.push(
+        `${entry.file}: 偽の被覆主張として分類されているが ${REAL_CLAIMS_AUTHORITY_NAME} に` +
+          '陰性対照として載っていない（拾われないことを誰も測っていない）'
+      );
+    }
+    if (entry.kind === 'collateral' && isNegativeControl) {
+      failures.push(
+        `${entry.file}: 巻き添えとして分類されているが ${REAL_CLAIMS_AUTHORITY_NAME} に` +
+          '陰性対照として載っている（正当な一覧項目を「拾ってはならない」と主張している）'
+      );
+    }
+  }
+  for (const file of negativeControlFiles) {
+    if (!registered.has(file)) {
+      failures.push(
+        `${REAL_CLAIMS_AUTHORITY_NAME} の ${file} が ${RULE4_POPULATION_AUTHORITY_NAME} に無い` +
+          '（二つの台帳が食い違っている）'
+      );
+    }
+  }
+
+  return failures;
+}
+
+/** 散文を取り出す起点（この宣言の直前の JSDoc を見る） */
+const PARAGRAPH_BREAK_DOC_ANCHOR = 'const PARAGRAPH_BREAK_THEN_PROSE = [';
+
+/**
+ * 当該の散文に置いてはならない「実データとともに陳腐化する形」
+ *
+ * 115.223 が抽出器の説明文へ課した全面禁止（`REQ-\d+` と `\d+ 件`）は**ここへは持ち込めない**。
+ * この散文は仮想の資料 `PARAGRAPH_BREAK_THEN_PROSE` それ自体の番号（`REQ-4.1` / `REQ-4.2`）を
+ * 説明する義務があり、全面禁止はその説明ごと禁じてしまう。よって**実データを指す形だけ**を
+ * 禁じる。機能名を冠した被覆印（`feature-name/REQ-N`）は実データにしか現れず、
+ * ファイル数・印の数も実データの計数にしか現れない。
+ *
+ * `probe` は禁止したい形の架空の見本、`counterProbe` は**禁じてはならない形**の見本である。
+ * 前者だけを持つと規則が壊れて何にも一致しなくなったことに気付けず、後者だけを持つと
+ * 規則が広がりすぎて正当な説明を禁じるようになったことに気付けない。幅を両側から固定する。
+ */
+const PROSE_REAL_DATA_CITATION_PATTERNS: ReadonlyArray<{
+  label: string;
+  pattern: RegExp;
+  probe: string;
+  counterProbe: string;
+}> = [
+  {
+    label: '実データのファイル数',
+    pattern: /\d+\s*ファイル/,
+    probe: '走査した全ファイルのうち 9 ファイルだけ',
+    counterProbe: 'ファイルの前書きに置かれた一覧',
+  },
+  {
+    label: '実データの被覆印',
+    pattern: /[a-z][a-z0-9-]*\/REQ-\d/,
+    probe: '`feature-name/REQ-1.2` が落ちる',
+    counterProbe: '仮想の資料の REQ-4.2 は拾われない',
+  },
+  {
+    label: '実データの被覆印の件数',
+    pattern: /\d+\s*印/,
+    probe: '落ちるのは 99 印である',
+    counterProbe: '段落の切れ目より後の散文は被覆の印ではない',
+  },
+];
+
+/**
+ * 段落の切れ目の陽性対照の散文が、実データの件数と列挙を持たず、台帳を指している
+ *
+ * 115.223 は抽出器の説明文について「実例を機械で確かめる」ではなく「実例を説明文から
+ * 無くす」を採った。本検査は**同じ処遇をこの散文へ適用する**。ただし禁止の幅は狭い
+ * （`PROSE_REAL_DATA_CITATION_PATTERNS` の理由を参照）。
+ *
+ * 見るのは三つである。
+ *
+ *   1. 散文そのものが取り出せること（見本の名が変わった・JSDoc が消えたら失格。
+ *      対象が無いことを「合格」にしない——第3原則）
+ *   2. 実データを指す形を一つも挙げていないこと
+ *   3. 散文が名乗る先——母集団の台帳と、それを実測と突き合わせる検査——が実在すること
+ *
+ * **守れない範囲を明記する。** 見るのは `PARAGRAPH_BREAK_THEN_PROSE` の直前の JSDoc 一つ
+ * だけであり、同ファイルの他の散文は見ていない。禁じる形も三つだけで、ファイル名・割合・
+ * 日付は素通りする。広げるときは `PROSE_REAL_DATA_CITATION_PATTERNS` へ足す。
+ */
+function checkParagraphBreakDocDelegatesPopulation(): string[] {
+  const failures: string[] = [];
+
+  // 第3原則: 規則が空なら以下の照合は一度も回らない
+  if (PROSE_REAL_DATA_CITATION_PATTERNS.length === 0) {
+    return ['実データを指す形が一件も登録されていない（規則を空にして緑にする抜け道）'];
+  }
+  for (const { label, pattern, probe, counterProbe } of PROSE_REAL_DATA_CITATION_PATTERNS) {
+    if (!pattern.test(probe)) {
+      failures.push(`${label}: 禁じたい見本「${probe}」に一致しない（規則が空振りしている）`);
+    }
+    if (pattern.test(counterProbe)) {
+      failures.push(
+        `${label}: 禁じてはならない見本「${counterProbe}」にまで一致する（規則が広すぎる。` +
+          '仮想の資料それ自体の説明まで禁じてしまう）'
+      );
+    }
+  }
+
+  const selftestPath = path.resolve(SELFTEST_SOURCE_PATH);
+  if (!fs.existsSync(selftestPath)) {
+    failures.push(`${SELFTEST_SOURCE_PATH} が存在しない（検査対象が失われた）`);
+    return failures;
+  }
+  const selftestSource = fs.readFileSync(selftestPath, 'utf8');
+  const doc = extractJsDocAbove(selftestSource, PARAGRAPH_BREAK_DOC_ANCHOR);
+  if (doc === null) {
+    failures.push(
+      `${SELFTEST_SOURCE_PATH}: \`${PARAGRAPH_BREAK_DOC_ANCHOR}\` の直前の JSDoc を取り出せない` +
+        '（宣言の綴りが変わったか散文が失われた。前提が崩れたので合格にしない）'
+    );
+    return failures;
+  }
+
+  for (const { label, pattern } of PROSE_REAL_DATA_CITATION_PATTERNS) {
+    const hit = pattern.exec(doc);
+    if (hit !== null) {
+      failures.push(
+        `${SELFTEST_SOURCE_PATH}: 段落の切れ目の散文が${label}「${hit[0]}」を挙げている。` +
+          `実データとともに陳腐化するため、${RULE4_POPULATION_AUTHORITY_NAME} へ移すこと`
+      );
+    }
+  }
+
+  for (const name of [RULE4_POPULATION_AUTHORITY_NAME, RULE4_POPULATION_GUARD_NAME]) {
+    if (!doc.includes(name)) {
+      failures.push(
+        `${SELFTEST_SOURCE_PATH}: 段落の切れ目の散文が指し先 ${name} を名乗っていない` +
+          '（実データの母集団への導線が失われている）'
+      );
+    }
+  }
+  for (const declaration of [
+    `const ${RULE4_POPULATION_AUTHORITY_NAME}`,
+    `function ${RULE4_POPULATION_GUARD_NAME}(`,
+  ]) {
+    if (!selftestSource.includes(declaration)) {
+      failures.push(
+        `${SELFTEST_SOURCE_PATH} に \`${declaration}\` が無い（散文が実在しない名前を指している）`
+      );
+    }
   }
 
   return failures;
@@ -4992,6 +5369,14 @@ const GROUPS: Group[] = [
       {
         name: '抽出器の説明文が陳腐化する実例を挙げず、指し先が実在する',
         run: checkExtractorDocCitesNoPerishableExample,
+      },
+      {
+        name: '規則4が落とす被覆印の母集団が実測と過不足なく一致する',
+        run: checkRule4DroppedMarkPopulationIsExact,
+      },
+      {
+        name: '段落の切れ目の散文が実データの件数と列挙を持たず台帳を指す',
+        run: checkParagraphBreakDocDelegatesPopulation,
       },
     ],
   },

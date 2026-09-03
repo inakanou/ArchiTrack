@@ -309,6 +309,29 @@ function findFiles(dir: string, pattern: RegExp): string[] {
 }
 
 /**
+ * 被覆印の走査対象となるファイル名の型
+ *
+ * `extractTestCoverage` と、その母集団を測り直す自己検査の**唯一の出所**である。
+ * 型を両側に書くと、片方だけが動いたときに「同じ母集団を歩いている」という前提が
+ * 黙って崩れる。
+ */
+export const COVERAGE_FILE_PATTERN = /\.(ts|tsx|spec\.ts)$/;
+
+/**
+ * 被覆印の走査対象となるファイルの一覧（`extractTestCoverage` と同一の母集団）
+ *
+ * 自己検査が実データへ変異を当てて母集団を測り直すために要る。走査規則（除外する
+ * ディレクトリ・ファイル名の型）を自己検査の側へ複製しないため、ここから配る。
+ */
+export function listCoverageScanFiles(dirs: readonly string[] = CODE_DIRS): string[] {
+  const files: string[] = [];
+  for (const dir of dirs) {
+    files.push(...findFiles(dir, COVERAGE_FILE_PATTERN));
+  }
+  return files;
+}
+
+/**
  * .kiro/specs/配下の機能を自動検出
  *
  * **探索の規則そのものは持たない。** scripts/requirement-document.ts の
@@ -973,7 +996,7 @@ export function extractTestCoverage(
   const coverage: TestCoverage[] = [];
 
   for (const dir of dirs) {
-    const testFiles = findFiles(dir, /\.(ts|tsx|spec\.ts)$/);
+    const testFiles = listCoverageScanFiles([dir]);
 
     for (const file of testFiles) {
       const content = fs.readFileSync(file, 'utf-8');
