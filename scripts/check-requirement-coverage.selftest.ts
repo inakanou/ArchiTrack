@@ -3708,6 +3708,12 @@ function checkIdsWithoutBranchClaimNoCriterion(): string[] {
  * 二つの経路を別々に通す。一行目は識別子欄が散文のため**一覧項目の規則だけ**が読み、
  * 二行目は接頭辞を持たない並びのため**識別子欄だけ**が読む。
  * 一方だけを置くともう一方の経路の変異を捕まえられない。
+ *
+ * **陰性側（`REQ-27` が現れないこと）はここでは述べない。** その主張は
+ * `SYNTHETIC_NEGATIVE_CONTROLS` の `nonexistence` の一件が持つ。併置しておくと、
+ * 非空振りの根拠が「同じ検査に陽性側があるから」という散文の理由付けに留まり、
+ * 資料の札（陽性のみ／陰性側）と実際の主張が食い違う（タスク 115.255）。
+ * この関数が述べるのは陽性側だけであり、名前のとおり陽性対照である。
  */
 const LETTERED_REQUIREMENT_NUMBER = [
   '/**',
@@ -3725,11 +3731,6 @@ function checkLetteredRequirementNumberIsRecorded(): string[] {
   if (!found.requirements.includes('user-authentication/REQ-27A')) {
     failures.push(
       '一覧項目の規則が枝つき要件番号 user-authentication/REQ-27A を取りこぼした（被覆の過小帰属）'
-    );
-  }
-  if (found.requirements.includes('user-authentication/REQ-27')) {
-    failures.push(
-      '枝つき要件番号を基底番号 user-authentication/REQ-27 へ丸めた（実在しない番号を名乗る）'
     );
   }
   const suffixedBranches = ['27A.1', '27A.2'];
@@ -3968,8 +3969,15 @@ function checkDeclaredHeaderPredicateIsTwoSided(): string[] {
  *   そもそも区間が始まらない。区間が無いので `boundary` の探索（位置を緩める写し）は
  *   意味を成さず、代わりに **引用を解いた写し**（`unquote`）で番号が現れることを課す。
  *   現れないなら、抑えていたのは引用ではなく別の規則であり主張が誤っている（タスク 115.226）。
+ * - `nonexistence`: 番号が資料のどこにも書かれていない。位置にも形にも抑えられておらず、
+ *   抽出器が**丸めや捏造で作り出したときだけ**現れる（枝つき要件番号 `REQ-27A` を基底の
+ *   `REQ-27` へ丸める形が実例である）。`boundary` と `shape` はどちらも「資料に在る番号を
+ *   何が抑えているか」を述べる語彙であり、この形を表現できない。空振りの危険はここでも
+ *   同じで、当該行が走査の範囲に入っていなければ「現れない」は何も測らない。ヘッダーと
+ *   当該行だけの写しから**番号が一つでも拾われること**を課し、当該行が現に読まれている
+ *   ことを機械の側で示す（タスク 115.255）。
  */
-type NegativeControlSuppressor = 'boundary' | 'shape' | 'quotation';
+type NegativeControlSuppressor = 'boundary' | 'shape' | 'quotation' | 'nonexistence';
 
 /** 陰性対照の一件（資料 × 拾われてはならない番号を運ぶ一行） */
 interface SyntheticNegativeControl {
@@ -4232,6 +4240,19 @@ const SYNTHETIC_NEGATIVE_CONTROLS: readonly SyntheticNegativeControl[] = [
       to: ' * Requirements (site-survey):',
     },
   },
+  {
+    // 陽性対照 `checkLetteredRequirementNumberIsRecorded` と同じ資料の陰性側である。
+    // 従前はこの主張を当該の陽性対照へ併置し、資料には「陽性のみ」の札を貼っていた
+    // （タスク 115.255 が是正）。非空振りの根拠が併置した陽性側の散文だったため、
+    // 主張をここへ移し、当該行が走査の範囲に入っていることを機械の側で確かめる
+    fixtureName: 'LETTERED_REQUIREMENT_NUMBER',
+    fixture: LETTERED_REQUIREMENT_NUMBER,
+    features: SELFTEST_FEATURES,
+    header: ' * Requirements (user-authentication):',
+    carrier: ' * - REQ-27A（二要素認証）: 識別子欄が散文のため、一覧項目の規則だけが読む',
+    absentRequirements: ['user-authentication/REQ-27'],
+    suppressedBy: 'nonexistence',
+  },
 ];
 
 /**
@@ -4239,16 +4260,19 @@ const SYNTHETIC_NEGATIVE_CONTROLS: readonly SyntheticNegativeControl[] = [
  *
  * 分類の走査はここに挙がっていない資料を未分類として失敗させる。
  * 「陰性の主張を持たない」は目視の判断であるため、**理由を併記して残す**。
+ *
+ * **札の意味は「陰性の主張が一つも無い」である。** 一つでも「この番号は現れない」を
+ * 述べるなら、その主張は `SYNTHETIC_NEGATIVE_CONTROLS` の側へ登録する。従前は
+ * `LETTERED_REQUIREMENT_NUMBER` が陰性の主張を一つ持ちながらここに載っており、
+ * 非空振りの根拠を「同じ検査に陽性側が併置されているから」という散文の理由付けへ
+ * 預けていた（タスク 115.255 が是正。主張は台帳の `nonexistence` の一件が持つ）。
+ * 両方へ載せる二重の分類は `checkEverySyntheticFixtureIsClassified` が失格にする。
  */
 const POSITIVE_ONLY_FIXTURES: ReadonlyArray<{ name: string; reason: string }> = [
   { name: 'ID_LIST_FORMS', reason: '識別子欄の各書式を拾えることだけを言う（陽性のみ）' },
   {
     name: 'ASTERISK_BULLET_IS_STILL_A_LIST_MARKER',
     reason: '`*` の箇条書きを拾えることだけを言う（厳しすぎの側の陽性のみ）',
-  },
-  {
-    name: 'LETTERED_REQUIREMENT_NUMBER',
-    reason: '枝つき要件番号を基底番号へ丸めないことだけを言う（陽性のみ）',
   },
 ];
 
@@ -4271,7 +4295,7 @@ function relocateCarrierUnderHeader(control: SyntheticNegativeControl): string {
  * 位置ではなく形であり、上限を外しても対照は赤くならない）。
  * `shape` と述べた件は写しでも**現れてはならない**（現れるなら、抑えていたのは位置である）。
  *
- * 2026-09-01 に実測した。登録は 23 件（資料 13 件）である。
+ * 2026-09-03 に実測した。登録は 24 件（資料 14 件）である。
  * `HEADER_OF_UNLISTED_FEATURE` の一覧項目を ` * Note: REQ-7.7 は…` の散文へ書き換えると、
  * 対をなす `checkUnlistedFeatureHeaderStillEndsSection` は**緑のまま**で、
  * 自己検査 63 件のうち本検査 1 件だけが赤くなる（115.224 が述べた空振りそのものである）。
@@ -4280,6 +4304,20 @@ function relocateCarrierUnderHeader(control: SyntheticNegativeControl): string {
  * `shape` へ、`user-authentication/REQ-17.1` の件を `quotation` へ変えると、
  * いずれも 1 件が落ちる（末尾の二つは 2026-09-01 に実測。タスク 115.226）。
  * 本体から規則4（段落の切れ目）を外すと 63 件のうち 5 件が赤くなり、本検査もその一つである。
+ *
+ * `nonexistence` は他の三つより強い主張である。位置を緩めても現れないことに加えて、
+ * ヘッダーと当該行だけの写しから**番号が一つでも拾われること**を課し、当該行が走査の
+ * 範囲に入っていることを機械の側で示す（`shape` はこれを課さないため、当該行が一切
+ * 読まれていなくても静かに通る）。2026-09-03 に実測した——`LETTERED_REQUIREMENT_NUMBER`
+ * の件を `boundary` へ変えると 69 件のうち 1 件が、`quotation` へ変えても 1 件が赤くなり、
+ * 拾われてはならない番号を資料に逐語で在る `user-authentication/REQ-27A` へ差し替えても
+ * 1 件が赤くなる。読まれない当該行（`PROSE_BULLET_IS_NOT_AN_ID_LIST` の散文の箇条書き）を
+ * `nonexistence` として登録する変異でも 1 件が赤くなる。
+ *
+ * **守れない範囲を明記する。** `nonexistence` を `shape` へ緩める取り違えは捕まらない
+ * （同じ 2026-09-03 の実測で 69 件すべてが緑のままだった）。`shape` の主張は
+ * `nonexistence` の主張の真部分であるため、緩める向きの変異は既存の照合を一つも破らない。
+ * 逆向き——資料に逐語で在る番号を `nonexistence` と称する形——は上記のとおり捕まる。
  */
 function checkSyntheticNegativeControlsAreNotVacuous(): string[] {
   const failures: string[] = [];
@@ -4374,6 +4412,30 @@ function checkSyntheticNegativeControlsAreNotVacuous(): string[] {
     }
 
     const relocated = extractHeaderScopedCoverage(probe, control.features);
+
+    if (control.suppressedBy === 'nonexistence') {
+      // 「資料に無い番号」の主張は、当該行が走査の範囲に入っていなければ何も測らない。
+      // ヘッダーと当該行だけの写しから番号が一つでも拾われることを課し、当該行が現に
+      // 読まれていることを示す（併置した陽性側の散文へ非空振りの根拠を預けない）
+      if (relocated.requirements.length === 0 && relocated.acceptanceCriteria.length === 0) {
+        failures.push(
+          `${at}: ヘッダーと当該行だけの写しから番号が一つも拾われない` +
+            '（当該行が走査の範囲に入っておらず、実在しない番号の主張が空振りしている）'
+        );
+      }
+      for (const id of [...criteria, ...requirements]) {
+        const local = id.slice(id.lastIndexOf('/') + 1);
+        // 枝つき番号の基底は枝つき番号の前方一致である（`REQ-27` は `REQ-27A` に含まれる）。
+        // 番号の続きが無いことまで見なければ、逐語の存在を取り違える
+        if (new RegExp(`${escapeForRegExp(local)}(?![0-9A-Za-z.])`).test(control.fixture)) {
+          failures.push(
+            `${at}: ${id} の番号が資料に逐語で存在する（抑えているのは非実在ではなく` +
+              '位置か形である。`boundary` か `shape` へ分類し直すこと）'
+          );
+        }
+      }
+    }
+
     for (const id of criteria) {
       const appeared = relocated.acceptanceCriteria.includes(id);
       if (control.suppressedBy === 'boundary' && !appeared) {
@@ -4388,6 +4450,11 @@ function checkSyntheticNegativeControlsAreNotVacuous(): string[] {
             '分類が誤っている）'
         );
       }
+      if (control.suppressedBy === 'nonexistence' && appeared) {
+        failures.push(
+          `${at}: 位置の上限を取り払うと ${id} が現れる（資料に無い番号を抽出器が作り出している）`
+        );
+      }
     }
     for (const id of requirements) {
       const appeared = relocated.requirements.includes(id);
@@ -4396,6 +4463,11 @@ function checkSyntheticNegativeControlsAreNotVacuous(): string[] {
       }
       if (control.suppressedBy === 'shape' && appeared) {
         failures.push(`${at}: 位置の上限を取り払うと ${id} が現れる（分類が誤っている）`);
+      }
+      if (control.suppressedBy === 'nonexistence' && appeared) {
+        failures.push(
+          `${at}: 位置の上限を取り払うと ${id} が現れる（資料に無い番号を抽出器が作り出している）`
+        );
       }
     }
   }
@@ -4434,10 +4506,14 @@ function collectTopLevelFixtureNames(source: string): string[] {
  * 115.224 と同じ空振りのまま静かに増える。ここで本自己検査の本文を走査し、
  * `SYNTHETIC_NEGATIVE_CONTROLS` にも `POSITIVE_ONLY_FIXTURES` にも無い資料を失格にする。
  *
- * 2026-09-01 に実測した。走査は資料 16 件を数え、うち 13 件が陰性側、3 件が陽性のみである。
+ * 2026-09-03 に実測した。走査は資料 16 件を数え、うち 14 件が陰性側、2 件が陽性のみである。
  * `SELFTEST_FEATURES` のような資料でない定数は `].join('\n');` の形を持たないため拾わない。
- * `SYNTHETIC_NEGATIVE_CONTROLS` を空にすると未分類 13 件を挙げて赤くなり、走査の正規表現を
+ * `SYNTHETIC_NEGATIVE_CONTROLS` を空にすると未分類 14 件を挙げて赤くなり、走査の正規表現を
  * `= \[` から `= \{` へ変えると「一件も数えられない」で赤くなる（いずれも実測）。
+ *
+ * **二重の分類も失格にする。** 陰性側に登録された資料が「陽性のみ」の札を同時に持つ状態は、
+ * 札と実際の主張の食い違いである。`LETTERED_REQUIREMENT_NUMBER` を両方へ載せると
+ * 69 件のうち本検査 1 件が赤くなる（2026-09-03 に実測。タスク 115.255）。
  *
  * **見ているのは資料の粒度であって行の粒度ではない。** 既に登録済みの資料へ陰性の主張を
  * 述べる行を**足しただけ**の場合、その行は登録を迫られない。ここが本検査の残りの限界で
@@ -4467,6 +4543,15 @@ function checkEverySyntheticFixtureIsClassified(): string[] {
         `${name}: 分類されていない資料である。陰性の主張を持つなら ` +
           '`SYNTHETIC_NEGATIVE_CONTROLS` へ、陽性だけなら `POSITIVE_ONLY_FIXTURES` へ理由を' +
           '添えて登録すること'
+      );
+    }
+  }
+  // 二重の分類（陰性側の登録と「陽性のみ」の札を同時に持つ）は札と実態の食い違いである。
+  // 115.255 が是正したのは、まさにこの食い違いが静かに成立していた一件である
+  for (const name of positiveOnly) {
+    if (registered.has(name)) {
+      failures.push(
+        `${name}: 陰性側の対照に登録されているのに「陽性のみ」の札も持つ（札と実態が食い違う）`
       );
     }
   }
