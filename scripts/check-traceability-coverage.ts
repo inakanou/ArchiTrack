@@ -49,8 +49,30 @@
  *
  *   - `mode: 'exact'`: 欠落・死語の集合が宣言と**完全に一致**することを求める。新たな漏れも、
  *     解消済みの宣言の置き去りも、どちらも赤くなる。`site-survey` がこの型である。
- *   - `mode: 'ratchet'`: 欠落・死語・読めない表記の件数が宣言した上限を超えないことを求める。
- *     追跡表の内容そのものを書き起こす作業が別タスクを要する機能に用いる。
+ *   - `mode: 'ratchet'`: 欠落・死語・読めない表記の件数が宣言した上限を**超えず、かつ下回らない**
+ *     ことを求める。追跡表の内容そのものを書き起こす作業が別タスクを要する機能に用いる。
+ *
+ * ## 上限に遊びを持たせない（タスク 115.262）
+ *
+ * 115.228 が置いた当初の `ratchet` は上限を**超えない**ことだけを求めた。この形は
+ * **上限を先回りで緩める書き換えを機構が止めない**——タスク 115.228 のレビューが実測し、
+ * タスク 115.262 が現況で追試した。`construction-photo` の `maxMissing` を 145 から 200 へ
+ * 書き換えると、`npm run check:trace-coverage` も `npm run check:trace-coverage:selftest` も
+ * 緑のまま通り（前者は EXIT=0、後者は 32/32 件成功。2026-09-04、コミット `1a673496` の
+ * 作業ツリーで実測）、同機能で最大 55 件の新規の欠落を無言で吸収できた。差分を人が読めば
+ * 見えるが、**機構は止めなかった**。`site-survey` が採る `exact` の逐一列挙にはこの穴が無い。
+ *
+ * 是正は列挙への全面移行ではなく**遊びの禁止**とした。宣言した上限が実測を**上回っていても
+ * 失敗する**（`judgeCeiling`）。二方向を合わせると上限は実測と一致するほかなく、
+ * `exact` が集合について持つ性質——**宣言が現実によって一意に決まる**——を、件数のまま得る。
+ * 列挙への全面移行（`ratchet` の 12 機能を `exact` へ）は 671 件のエントリを要し
+ * （欠落 617 件 + 死語 54 件。2026-09-04 に実測）、かつ `check:design-path-refs` の
+ * `--update-baseline` と同じリポジトリ全域の慣行に触れるため、本タスクの境界
+ * （網羅検査の上限宣言の緩和経路）の外にある。
+ *
+ * **締める向きは妨げない。** 実測が減ったときに求めるのは上限を同じ値まで**下げる**ことだけで
+ * あり、失敗の文面が下げるべき値を名指しする。これは `exact` が「解消済みの欠落が宣言に
+ * 残っています」で求めるものと同じ形である（タスク 115.261）。
  *
  * **母集団が空なら失敗する**（第3原則）。機能が 0 件のとき、宣言された機能の追跡表の本文行が
  * 0 行のとき、現役の受入基準が 0 件のときは、いずれも前提の崩壊として赤くする。
@@ -134,6 +156,11 @@ export type FeaturePolicy =
  * 上限の値は 2026-09-01 に `npx tsx scripts/check-traceability-coverage.ts --survey` で実測した
  * 現況である（`site-survey` の宣言だけは 2026-09-04 のタスク 115.261 が空集合へ縮めた）。
  * **上限を緩める向きの書き換えは、追跡表の網羅が後退したことを意味する。**
+ *
+ * **上限は実測ちょうどでなければならない**（タスク 115.262 の `judgeCeiling`）。遊びを持つ宣言は
+ * その幅ぶんの新たな悪化を無言で吸収するため、上回る向きの書き換えも赤くなる。本宣言の
+ * 12 件の `ratchet` はいずれも遊び 0 であり（欠落・死語・読めない表記の三つとも実測と一致。
+ * 2026-09-04 に実測）、本タスクは既存の上限を一つも動かしていない。
  */
 export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
   'company-info': {
@@ -401,6 +428,27 @@ export interface Judgement {
   readonly measurements: FeatureMeasurement[];
 }
 
+/**
+ * 宣言した上限に遊びが無いことを求める（タスク 115.262）
+ *
+ * `ratchet` の上限は「超えないこと」だけを求める形では、**先回りで緩めた宣言を機構が止めない**。
+ * 上限が実測を上回っていれば、その幅ぶんの新たな悪化が無言で吸収される。ここでは逆向き——
+ * **上限が実測を上回っていれば失敗**——を課す。既存の「上限を超えたら失敗」と合わせると、
+ * 宣言は実測と一致するほかない。
+ *
+ * **締める向きは妨げない。** 実測が減ったときに求めるのは上限を実測と同じ値まで下げることだけで
+ * あり、下げるべき値は失敗の文面が名指しする。実測が増えた側は既存の判定が受け持つため、
+ * ここでは扱わない（同じ食い違いを二度報告しない）。
+ */
+function judgeCeiling(label: string, kind: string, actual: number, ceiling: number): string[] {
+  if (ceiling <= actual) return [];
+  return [
+    `${label}: ${kind}の上限を ${ceiling} 件と宣言していますが実測は ${actual} 件です` +
+      `（遊び ${ceiling - actual} 件）。上限は実測ちょうどに保ってください——` +
+      `遊びを持つ宣言は、その幅ぶんの新たな悪化を無言で吸収します。上限を ${actual} 件へ下げてください。`,
+  ];
+}
+
 function judgeFeature(measurement: FeatureMeasurement, policy: FeaturePolicy): string[] {
   const failures: string[] = [];
   const label = measurement.feature;
@@ -457,6 +505,9 @@ function judgeFeature(measurement: FeatureMeasurement, policy: FeaturePolicy): s
           `（宣言は ${policy.maxUnparsed} 件）: ${[...new Set(measurement.unparsed)].join(', ')}`
       );
     }
+    failures.push(
+      ...judgeCeiling(label, '読めない表記', measurement.unparsed.length, policy.maxUnparsed)
+    );
     return failures;
   }
 
@@ -479,6 +530,17 @@ function judgeFeature(measurement: FeatureMeasurement, policy: FeaturePolicy): s
         `（宣言の上限は ${policy.maxUnparsed} 件）: ${[...new Set(measurement.unparsed)].join(', ')}`
     );
   }
+  // 上限に遊びを持たせない（タスク 115.262）。先回りで緩めた宣言を機構の側で止める。
+  failures.push(
+    ...judgeCeiling(
+      label,
+      '追跡表に現れない受入基準',
+      measurement.missing.length,
+      policy.maxMissing
+    ),
+    ...judgeCeiling(label, '現役でない番号', measurement.orphans.length, policy.maxOrphans),
+    ...judgeCeiling(label, '読めない表記', measurement.unparsed.length, policy.maxUnparsed)
+  );
   return failures;
 }
 
@@ -608,6 +670,10 @@ export function execute(argv: readonly string[], rootDir = process.cwd()): numbe
     console.error('     （併合行なら `4.1-4.6, 4.9, 4.14` のように列へ足せば行数は動きません）');
     console.error('  2. 受入基準を撤廃したなら、追跡表の側の番号も落とす');
     console.error('  3. 行を起こせない事情があるなら、FEATURE_POLICIES へ理由と併せて宣言する');
+    console.error('  4. 上限に遊びがあると言われたなら、上限を実測ちょうどへ下げる');
+    console.error(
+      '     （上限を先回りで緩める書き換えは、その幅ぶんの悪化を無言で吸収するため塞いでいます）'
+    );
     console.error('');
     console.error('詳細確認: npm run check:trace-coverage:verbose');
     return 1;

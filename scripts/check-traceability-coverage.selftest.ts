@@ -7,6 +7,13 @@
  * 落ちる。**母集団が空のまま通る経路を残さないこと**が本自己検査の主目的である
  * （AI運用7原則 第3原則。タスク 115.222 の作法）。
  *
+ * **宣言の上限に遊びが無いことも本自己検査が持つ**（タスク 115.262）。`ratchet` の上限を
+ * 先回りで緩める書き換えは、その幅ぶんの新たな悪化を無言で吸収する。判定の群に遊びを禁じる
+ * 陽性対照を三つ置き、実データの群では `construction-photo` の上限を実測 +55 件へ上げる変異を
+ * 実際に当てて赤くなることを確かめる（是正前は同じ変異で本検査も自己検査も緑のままだった。
+ * 2026-09-04 にコミット `1a673496` の作業ツリーで実測。本検査 EXIT=0 / 自己検査 32/32 件成功）。
+ * 締める向き——実測が減ったときに上限を同じ値まで下げる形——は陰性対照で通ることを固定する。
+ *
  * 併せて**被検体の同一性**を固定する（タスク 115.227 の作法）。本検査が実際に走らせる既定の
  * 対象（`discoverFeatureNames()` × `FEATURE_POLICIES`）と、自己検査が確かめる対象が同じもので
  * あることを、双方向の一致として書く。片方向だけだと、機能が増えたときに黙って検査の外へ落ちる。
@@ -653,6 +660,85 @@ const JUDGEMENT: TestCase[] = [
     },
   },
   {
+    name: 'ratchet: 上限が実測を上回れば失敗する（先回りの緩和を止める。タスク 115.262）',
+    polarity: 'positive',
+    run() {
+      // 欠落は 1 件（`b` が追跡表に無い）。上限を 5 件と先回りで宣言した形。
+      const failures = judgeOneFeature(['| 1.1 | a | X | - | - |'], ['a', 'b'], {
+        mode: 'ratchet',
+        maxMissing: 5,
+        maxOrphans: 0,
+        maxUnparsed: 0,
+        reason: 't',
+      });
+      return expect(
+        failures.some((failure) => failure.includes('遊び 4 件')),
+        `上限を先回りで緩めても通ってしまう: ${JSON.stringify(failures)}`
+      );
+    },
+  },
+  {
+    name: 'ratchet: 死語・読めない表記の上限にも遊びを許さない（タスク 115.262）',
+    polarity: 'positive',
+    run() {
+      // 死語 1 件（`1.9`）・読めない表記 1 件（`17.x`）に対し、上限を 3 件ずつ宣言した形。
+      const failures = judgeOneFeature(['| 1.1, 1.9, 17.x | a | X | - | - |'], ['a'], {
+        mode: 'ratchet',
+        maxMissing: 0,
+        maxOrphans: 3,
+        maxUnparsed: 3,
+        reason: 't',
+      });
+      return [
+        ...expect(
+          failures.some((f) => f.includes('現役でない番号の上限を 3 件')),
+          `死語の上限の遊びを見逃す: ${JSON.stringify(failures)}`
+        ),
+        ...expect(
+          failures.some((f) => f.includes('読めない表記の上限を 3 件')),
+          `読めない表記の上限の遊びを見逃す: ${JSON.stringify(failures)}`
+        ),
+      ];
+    },
+  },
+  {
+    name: 'ratchet: 網羅が前進したとき上限を実測へ下げれば通る（締める向きを妨げない）',
+    polarity: 'negative',
+    run() {
+      // 追跡表が `1.1, 1.2` を挙げ受入基準は 2 件——欠落 0 件。上限を 0 へ下げた宣言は通る。
+      const rows = ['| 1.1, 1.2 | a | X | - | - |'];
+      const tightened = judgeOneFeature(rows, ['a', 'b'], {
+        mode: 'ratchet',
+        maxMissing: 0,
+        maxOrphans: 0,
+        maxUnparsed: 0,
+        reason: 't',
+      });
+      return expect(
+        tightened.length === 0,
+        `上限を締める向きが妨げられている: ${JSON.stringify(tightened)}`
+      );
+    },
+  },
+  {
+    name: 'exact: 読めない表記の上限に遊びがあれば失敗する（タスク 115.262）',
+    polarity: 'positive',
+    run() {
+      // 読めない表記は 0 件。`exact` の側でも上限を先回りで 9 件へ緩める経路を塞ぐ。
+      const failures = judgeOneFeature(['| 1.1 | a | X | - | - |'], ['a'], {
+        mode: 'exact',
+        missing: [],
+        orphans: [],
+        maxUnparsed: 9,
+        reason: 't',
+      });
+      return expect(
+        failures.some((failure) => failure.includes('遊び 9 件')),
+        `exact の maxUnparsed を先回りで緩めても通ってしまう: ${JSON.stringify(failures)}`
+      );
+    },
+  },
+  {
     name: 'ratchet: 上限以下なら通り、超えれば失敗する',
     polarity: 'negative',
     run() {
@@ -775,6 +861,60 @@ const REAL_DATA: TestCase[] = [
     },
   },
   {
+    name: '実データの ratchet の上限は遊び 0 であり、上げると赤くなる（陽性対照。タスク 115.262）',
+    polarity: 'positive',
+    run() {
+      const features = discoverFeatureNames(REPOSITORY_ROOT);
+      const failures: string[] = [];
+
+      // (1) 現況の宣言が実測ちょうどであること。本関門は現況を一つも動かさずに成立する。
+      let ratchetFeatures = 0;
+      for (const feature of features) {
+        const policy = FEATURE_POLICIES[feature];
+        if (policy === undefined || policy.mode !== 'ratchet') continue;
+        ratchetFeatures += 1;
+        const measurement = measureFeature(REPOSITORY_ROOT, feature);
+        failures.push(
+          ...expect(
+            policy.maxMissing === measurement.missing.length &&
+              policy.maxOrphans === measurement.orphans.length &&
+              policy.maxUnparsed === measurement.unparsed.length,
+            `${feature}: 宣言の上限に遊びがある` +
+              `（宣言 ${policy.maxMissing}/${policy.maxOrphans}/${policy.maxUnparsed} ・ ` +
+              `実測 ${measurement.missing.length}/${measurement.orphans.length}/${measurement.unparsed.length}）`
+          )
+        );
+      }
+      failures.push(
+        ...expect(ratchetFeatures > 0, 'ratchet の機能が 0 件（この対照が空振りしている）')
+      );
+
+      // (2) 上限を上げる変異を実データへ当てる。115.228 のレビューが実測した穴そのものである
+      //     （2026-09-04 の現況では `construction-photo` の 145 件を 200 件へ上げる形）。
+      const subject = 'construction-photo';
+      const policy = FEATURE_POLICIES[subject];
+      if (policy === undefined || policy.mode !== 'ratchet') {
+        return [...failures, `${subject} が ratchet でない（この対照が空振りしている）`];
+      }
+      const actual = measureFeature(REPOSITORY_ROOT, subject).missing.length;
+      const loosened: Record<string, FeaturePolicy> = {
+        ...FEATURE_POLICIES,
+        [subject]: { ...policy, maxMissing: actual + 55 },
+      };
+      const loosenedFailures = judgeNamed(REPOSITORY_ROOT, loosened, features).failures;
+      failures.push(
+        ...expect(
+          loosenedFailures.some(
+            (one) => one.startsWith(`${subject}: `) && one.includes('遊び 55 件')
+          ),
+          `${subject} の上限を ${actual} から ${actual + 55} へ上げても通ってしまう: ` +
+            JSON.stringify(loosenedFailures)
+        )
+      );
+      return failures;
+    },
+  },
+  {
     name: '実データに対して既定の対象で判定が通る（宣言が現況と一致している）',
     run() {
       const { failures, measurements } = judge(REPOSITORY_ROOT);
@@ -793,28 +933,30 @@ const REAL_DATA: TestCase[] = [
 /**
  * 陽性対照・陰性対照の件数の下限（タスク 115.252）
  *
- * 2026-09-03 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
- * `npx tsx scripts/list-control-polarity-floors.ts` が出す値をそのまま置く。
+ * 2026-09-04 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
+ * `npx tsx scripts/list-control-polarity-floors.ts` が出す値をそのまま置く
+ * （タスク 115.262 が陽性対照 4 件・陰性対照 1 件を足したぶん、6/3 から 10/4 へ上げた）。
  *
  * **総数の下限だけでは片側の消失を捕まえられない。** 陽性対照を削って同じ数だけ陰性対照を
  * 足せば総数は動かないため、極性ごとに別の下限を貼る。極性は要素の宣言（`expected` ないし
  * `polarity`）から導き、**名前の綴りからは導かない**（115.247 の作法）。
  */
-const MINIMUM_POSITIVE_CONTROLS = 6;
-const MINIMUM_NEGATIVE_CONTROLS = 3;
+const MINIMUM_POSITIVE_CONTROLS = 10;
+const MINIMUM_NEGATIVE_CONTROLS = 4;
 
 /**
  * 確認の総数の下限（タスク 115.252）
  *
- * 2026-09-03 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
- * `npx tsx scripts/check-traceability-coverage.selftest.ts | tail -1` の出す値をそのまま置く。
+ * 2026-09-04 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
+ * `npx tsx scripts/check-traceability-coverage.selftest.ts | tail -1` の出す値をそのまま置く
+ * （タスク 115.262 が 5 件を足したぶん、32 件から 37 件へ上げた）。
  * **確認を減らす向きの書き換えは差分に現れる。**
  *
  * **下限を構造から導く語彙がこの検査には無い。** 115.222 は本体の検査種別の直和型から下限を
  * 導いたが、本体 `check-traceability-coverage.ts` の判定は `exact` / `ratchet` の 2 型しか
- * 持たず、32 件の確認の大半は型に対応しない。導けないため件数で貼る。
+ * 持たず、37 件の確認の大半は型に対応しない。導けないため件数で貼る。
  */
-const MINIMUM_TOTAL_CASES = 32;
+const MINIMUM_TOTAL_CASES = 37;
 
 /**
  * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）
