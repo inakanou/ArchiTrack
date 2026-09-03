@@ -1152,8 +1152,7 @@ sequenceDiagram
 
 | Requirement | Summary | Components | Interfaces | Flows |
 |-------------|---------|------------|------------|-------|
-| 1.1-1.6 | 現場調査CRUD | SiteSurveyService, SurveyRoutes, SiteSurveyForm, SiteSurveyCreatePage, SiteSurveyEditPage, SiteSurveyDetailInfo | SurveyAPI | - |
-| **2.1** | **プロジェクト詳細画面の現場調査セクション** | **SiteSurveySectionCard, ProjectDetailPage** | **SurveyListAPI** | - |
+| 1.1-1.7 | 現場調査CRUD（1.7 はプロジェクト不在時の作成拒否） | SiteSurveyService, SurveyRoutes, SiteSurveyForm, SiteSurveyCreatePage, SiteSurveyEditPage, SiteSurveyDetailInfo | SurveyAPI | - |
 | 2.3-2.4 | 画面遷移（一覧→詳細、詳細→ビューア） | SiteSurveyListPage, SiteSurveyDetailPage, SiteSurveySectionCard, SiteSurveyImageViewerPage | Breadcrumb | - |
 | **2.5** | **全現場調査関連画面にブレッドクラム表示** | **全SiteSurvey画面, siteSurveyBreadcrumb** | **Breadcrumb** | - |
 | **2.6** | **一覧画面ブレッドクラム: ダッシュボード > プロジェクト一覧 > プロジェクト > 現場調査一覧** | **SiteSurveyListPage, siteSurveyBreadcrumb** | **Breadcrumb** | - |
@@ -1192,6 +1191,7 @@ sequenceDiagram
 | **10.10** | **ページ離脱時確認ダイアログ** | **useUnsavedChanges** | - | - |
 | **10.11, 10.12** | **画像削除（確認ダイアログ付き）** | **PhotoManagementPanel, ImageDeleteService** | **ImageDeleteAPI** | **画像削除フロー** |
 | **11.1-11.8** | **調査報告書PDF出力** | **PdfReportService, AnnotationRendererService, SiteSurveyDetailInfo** | **ExportAPI** | **PDF報告書生成フロー** |
+| **11.9** | **報告書PDFのファイル名を「現場調査報告書_YYYYMMDD.pdf」形式とする** | **PdfExportService (generateDefaultFilename), SiteSurveyDetailInfo** | **ExportAPI** | **PDF報告書生成フロー** |
 | **12.1-12.5** | **個別画像エクスポート** | **ImageExportDialog, AnnotationRendererService, AnnotationEditor** | **ExportAPI** | **個別画像エクスポートフロー** |
 | 13.1-13.5 | Undo/Redo | UndoManager | - | 注釈編集フロー |
 | 14.1-14.5 | アクセス制御 | AuthMiddleware, RBACService, SignedUrlService | SignedURL検証 | - |
@@ -1201,6 +1201,7 @@ sequenceDiagram
 | **15.9** | **プライベートブラウジング検出・自動保存無効化** | **AutoSaveManager, StorageWarningBanner** | - | - |
 | **15.10** | **クロスブラウザQuotaExceededError検出** | **AutoSaveManager (isQuotaExceededError)** | - | - |
 | 16.1-16.8 | 非機能要件 | 全コンポーネント | - | - |
+| **17.1-17.6** | **描画ツール使用中はオブジェクト選択を無効化し描画のみを受け付ける（選択ツール時は従来どおり選択可能）** | **AnnotationEditor (handleToolChange)** | - | - |
 | **18.1** | **バッチ注釈取得エンドポイント提供** | **AnnotationService, SurveyRoutes** | **AnnotationBatchAPI** | **PDF報告書生成フロー** |
 | **18.2** | **PDF出力時にバッチAPIを使用** | **AnnotationRendererService, survey-annotations API** | **AnnotationBatchAPI** | **PDF報告書生成フロー** |
 | **18.3** | **全画像の注釈データをまとめて返却** | **AnnotationService** | **AnnotationBatchAPI** | - |
@@ -1209,6 +1210,9 @@ sequenceDiagram
 | **18.6** | **バッチAPI権限検証** | **SurveyRoutes, AuthMiddleware** | **AnnotationBatchAPI** | - |
 | **18.7** | **バッチAPIエラーハンドリング** | **AnnotationRendererService, SurveyRoutes** | **AnnotationBatchAPI** | - |
 | **18.8** | **既存個別APIとのレスポンス互換性** | **AnnotationService** | **AnnotationBatchAPI** | - |
+| **19.1-19.9** | **JPEGを先頭3バイト（FF D8 FF）だけで判定し、PNG・WEBP の検証は従来どおり維持する** | **SurveyImageService (validateJpegMagicBytes, validatePngMagicBytes, validateWebpMagicBytes)** | **ImageAPI** | **アップロードフロー** |
+| **19.10, 19.12** | **バッチアップロードが成功分と失敗分の双方を呼び出し元へ返却する** | **survey-images API** | **BatchUploadResult** | **アップロードフロー** |
+| **19.11, 19.13-19.16** | **部分失敗・全件失敗・拒否理由の通知と、全件成功時の非表示** | **SiteSurveyDetailPage, upload-failure.ts (isUnsupportedFormatMessage)** | - | - |
 | **20.1** | **画像プレビュー画面（閲覧モード）で注釈レンダリング表示** | **SiteSurveyImageViewerPage, AnnotatedImageThumbnail** | **AnnotationAPI** | - |
 | **20.2** | **詳細画面サムネイルに注釈レンダリング表示** | **PhotoManagementPanel, AnnotatedImageThumbnail** | **AnnotationAPI** | - |
 | **20.3** | **一覧画面代表画像サムネイルに注釈レンダリング表示** | **SiteSurveyListPage, SiteSurveyListTable, SiteSurveyListCard, AnnotatedImageThumbnail** | **AnnotationAPI** | - |
@@ -1347,7 +1351,7 @@ sequenceDiagram
 当該行の Requirement 列を `4.1-4.6, 4.9, 4.14` へ、Components 列の `ImageProcessorService (4.4, 4.6)` を `ImageProcessorService (4.4, 4.6, 4.14)` へ改めた。**行は分割していない。**
 
 - **なぜ行を起こさないか**: 受入基準14 は受入基準6（「350KB以下に収まった時点で圧縮を打ち切って登録する」）の補集合——収まらなかった場合——を同じ文型で定めるものであり、**受入基準6 と同じ担い手** `ImageProcessorService` が担う。同じ表の中で、受入基準6 は登録まで述べていながら `ImageProcessorService` だけを挙げている。**表自身のこの前例に合わせた。**
-- **行数は動かない**: `### 部品の自己申告と追跡表の突き合わせ（タスク 115.113）` が定める再現手順（表頭7箇所の2行下から `|` で始まらない行の直前まで）で数え直した出力は、是正の前後とも `166` である（2026-09-01 にリポジトリルートで実測）。
+- **行数は動かない**: `### 部品の自己申告と追跡表の突き合わせ（タスク 115.113）` が定める再現手順（表頭7箇所の2行下から `|` で始まらない行の直前まで）で数え直した出力は、是正の前後とも `166` である（2026-09-01 にリポジトリルートで実測）。（**追記（タスク 115.261）**: 同じ再現手順の出力は現在 `170` である。115.261 が要件11.9・要件17・要件19 の 5 行を起こし、死語の `**2.1**` の 1 行を撤去した差し引きで `166 → 170` へ動いた。2026-09-04 にリポジトリルートで実測）
 - **要件4 の後追いの受入基準が個別行を持つこと（4.7・4.8・4.10〜4.13）は、行を起こす義務を課さない**——それらはいずれも `ImageUploadService` / `BatchUploadService` / `ImageProcessorService` / `SurveyImageService` のどれとも異なる担い手（`ImageDeleteService` / `PhotoManagementPanel`）を持つ。4.14 は担い手が既存行の中に在る点で異なる。
 
 #### 「追跡表が受入基準を漏らしていない」は機械で検査できるか——**できる**
@@ -1361,6 +1365,8 @@ sequenceDiagram
 **述語は今日成立していない。** `npm run check:trace-coverage` の要約行の実測は「機能 13 件 / 追跡表の本文行 856 行 / 現役の受入基準 2889 件 / 欠落 641 件 / 死語 55 件 / 読めない表記 25 件」である（2026-09-01 にリポジトリルートで実測）。**したがって「4.14 を足したので追跡表は完全になった」とは書けない。**
 
 #### 本機能に残る 24 件の欠落と 1 件の死語（4.14 の是正後の実測）
+
+> **追記（タスク 115.261）**: 本項が挙げる 24 件の欠落と 1 件の死語は**すべて解消済み**である。下の `#### 24 件の欠落と 1 件の死語の決着（タスク 115.261）` を参照。本項は 115.228 提出時点の記録として書き換えず残す。
 
 再現は `npx tsx scripts/check-traceability-coverage.ts --survey` の `site-survey` の行である（2026-09-01 にリポジトリルートで実測）。
 
@@ -1378,7 +1384,60 @@ sequenceDiagram
 - **なぜ既存の検査では捕まらなかったか**: `check:design-refs` は参照の**形式**（行番号で指していないか）、`check:design-code-refs` はその対偶、`check:design-path-refs` はパスの**実在**しか見ない。**追跡表の網羅を見る検査は存在しなかった。**
 - **見ないこと**: Components / Interfaces / Flows 列の中身は見ない。受入基準が**正しい行**に載っているかも見ない（番号がどこかの行に現れれば述語は真になる）。要件4.10 の行が `ImageOrderService` / `ImageListService` を欠く件（下の台帳 #8）は本検査の対象外である。
 
-**後続タスクの提案**: 上表の 24 件と 1 件を消化するタスクを別途起票すること。**是正先**は `## Requirements Traceability` の要件1 の行・要件11 の行・要件2.1 の行と、要件17・要件19 の行の新設である。**提案が生きていることの再現コマンド**は `npx tsx scripts/check-traceability-coverage.ts --survey` の `site-survey` の行が `missing=24 orphans=1` を出すことであり、消化されれば `scripts/check-traceability-coverage.ts` の `FEATURE_POLICIES` の宣言を削る側の失敗として機械が要求する。**他機能の欠落 617 件・死語 54 件も同じ検査が数えているが、いずれも当該機能の所管である。**
+**後続タスクの提案（タスク 115.261 で消化済み。下の決着の項を参照）**: 上表の 24 件と 1 件を消化するタスクを別途起票すること。**是正先**は `## Requirements Traceability` の要件1 の行・要件11 の行・要件2.1 の行と、要件17・要件19 の行の新設である。**提案が生きていることの再現コマンド**は `npx tsx scripts/check-traceability-coverage.ts --survey` の `site-survey` の行が `missing=24 orphans=1` を出すことであり、消化されれば `scripts/check-traceability-coverage.ts` の `FEATURE_POLICIES` の宣言を削る側の失敗として機械が要求する。**他機能の欠落 617 件・死語 54 件も同じ検査が数えているが、いずれも当該機能の所管である。**
+
+### 24 件の欠落と 1 件の死語の決着（タスク 115.261）
+
+115.228 が境界外として送った 24 件の欠落と 1 件の死語を、本タスクが全件是正した。**再実測は 115.228 の提出時点（2026-09-01）と同じ `missing=24 orphans=1` であった**（2026-09-04 に `npx tsx scripts/check-traceability-coverage.ts --survey` の `site-survey` の行で実測。115.255〜115.260 の着地では動いていない）。是正後は同じ行が `missing=0 orphans=0` を出す（同日に実測）。
+
+#### 行を起こすか列へ加えるかは、表自身の前例で決めた
+
+115.228 は 4.14 を併合行の列へ足し、その根拠を「**受入基準6 と同じ担い手** `ImageProcessorService` が担う」ことに置いた。同じ表は、担い手が併合行のどの部品とも異なる受入基準（4.7・4.8・4.10〜4.13）には**個別の行**を与えている。**この二つが表自身の前例**であり、本タスクの 2 件はこれで振り分けた。
+
+| 受入基準 | 条文の要旨 | 担い手（実装で確かめた） | 判定 | 前例 |
+|---|---|---|---|---|
+| `REQ-1.7` | プロジェクトが存在しないとき現場調査の作成を許可しない | `SiteSurveyService` の `validateProjectExists` が `ProjectNotFoundForSurveyError` を投げ、`create` がその前段で呼ぶ（`backend/src/services/site-survey.service.ts`）。`SurveyRoutes`（論理名。実体は本書 `#### 論理名と実体の対応表` が持つ）が同エラーを `project-not-found` の応答へ写す | **併合行の列へ吸収**（`1.1-1.6` → `1.1-1.7`） | 4.14 と同型。担い手 `SiteSurveyService` / `SurveyRoutes` は**併合行に既に在る** |
+| `REQ-11.9` | 報告書PDFのファイル名を「現場調査報告書_YYYYMMDD.pdf」形式とする | `PdfExportService` の `generateDefaultFilename` が固定接頭辞と調査日から組み立てる（`frontend/src/services/export/PdfExportService.ts`）。`SiteSurveyDetailInfo` はファイル名を指定せず既定に委ねる（`frontend/src/components/site-surveys/SiteSurveyDetailInfo.tsx`） | **独立行を新設** | 4.7・4.8 と同型。担い手 `PdfExportService` は併合行の `PdfReportService` / `AnnotationRendererService` / `SiteSurveyDetailInfo` の**いずれとも異なる** |
+
+`PdfReportService` と `PdfExportService` は別のファイルの別の実体である（前者は `frontend/src/services/export/PdfReportService.ts`、後者は `frontend/src/services/export/PdfExportService.ts`）。名前が似ているだけで併合行に含まれているとは読まない。
+
+#### 要件17・要件19 の行は、実装を確かめてから起こした
+
+**行が一つも無い状態を埋める作業は、埋めたい欲求が虚偽の担い手を書かせる形（タスク 115.257 が差し戻された形）に最も近い。** そこで各行は、条文が求める振る舞いを現に持つ実体を本番コードで確かめてから書いた。**確かめられなかった条文は一つも無かったため、欠番として残した行は無い。**
+
+| 追跡表の行 | 担い手の実体（本番コード） |
+|---|---|
+| `17.1-17.6` | `AnnotationEditor` の `handleToolChange` が、選択ツール以外では `canvas.selection` を偽にし、既存注釈の `selectable` / `evented` を偽にし、`discardActiveObject()` で選択を捨てる（`frontend/src/components/site-surveys/AnnotationEditor.tsx`）。同ファイルの `mouse:down` / `mouse:up` の各分岐は、描画ツール時に手動のヒットテストを行わない旨を注記して既存オブジェクト上でも描画を継続する |
+| `19.1-19.9` | `SurveyImageService` の `validateJpegMagicBytes` が `MAGIC_BYTES.jpeg` の 3 バイト接頭辞（`0xff, 0xd8, 0xff`）だけを比較し、`validatePngMagicBytes` / `validateWebpMagicBytes` は従来の署名比較のまま残る（`backend/src/services/survey-image.service.ts`） |
+| `19.10, 19.12` | `uploadSurveyImages` が `Promise<BatchUploadResult>` を返し、成功分 `results` と失敗分 `errors` の双方を呼び出し元へ渡す（`frontend/src/api/survey-images.ts`。型は `frontend/src/types/site-survey.types.ts`） |
+| `19.11, 19.13-19.16` | `SiteSurveyDetailPage` の `handleImageUpload` が `errors` の件数で部分失敗・全件失敗の文言を作り分け、`errors` が空なら `setError` を呼ばない（`frontend/src/pages/SiteSurveyDetailPage.tsx`）。拒否理由の分岐（19.14）は `isUnsupportedFormatMessage` に一元化されている（`frontend/src/utils/upload-failure.ts`） |
+
+**Flows 列を `-` とした行がある理由**: 要件17 と 19.11-19.16 に対応する図は `## System Flows` に無い。**在るものだけを挙げ、無い図の名前は作らない。**
+
+#### 死語 `**2.1**` の行は撤去した（移管先の注記ではなく）
+
+要件2.1 は `requirements.md` で取り消し線が引かれ project-management/Requirement 24 AC 1 へ移っている。**表自身の前例は同じ移管の型に既に一つある**——本書 `### 部品の自己申告と追跡表の突き合わせ（タスク 115.113）` は、同様に移管された要件2.2 について「**追跡表に行が無いことが正しい**ため追加しない」と判断している。移管先を注記して行を残す形は本表に前例が無い。**前例のある側を採り、行を撤去した。**
+
+#### 宣言は同じ変更で縮めた
+
+`scripts/check-traceability-coverage.ts` の `FEATURE_POLICIES` の `site-survey` は `mode: 'exact'` のまま、`missing` と `orphans` を**空集合**へ縮めた。同検査は双方向であり、**解消済みの欠落を宣言に残すと赤くなる**。空集合の宣言は、以後に生じる漏れをすべて「新たな欠落」として赤くする。
+
+#### 境界の外に残るもの（無記録では残さない）
+
+本タスクの境界は追跡表の欠落と死語であり、**部品の側の自己申告には手を入れていない**。追跡表が新たに割り当てた要件を、当該部品の自己申告がまだ名乗っていない箇所が残る。
+
+| 箇所 | 追跡表が割り当てた要件 | 自己申告の現況 |
+|---|---|---|
+| `### Component Summary` の `AnnotationEditor` の行 | 要件17 | `5.2-5.4, 5.6`, 6, 7, 8, 9, 12, 13, 20.4, 22 |
+| `### Component Summary` の `SurveyImageService` の行 | 要件19 | `4.5, 4.9, 21` |
+| `### Component Summary` の `SiteSurveyDetailPage` の行 | 要件19 | 1, 2.3, 2.4, 2.7, 4.10-4.13, 5.1, 9, 10, 11, 20.2 |
+| `#### SiteSurveyService` の `Requirements` 欄 | 要件1.7 | `1.1`〜`1.6`（および移管済みの `2.1`） |
+| `### Component Summary` の `SiteSurveySectionCard` の行 | （撤去した `**2.1**` の行が割り当てていた） | `2.1`。移管済みの番号を名乗ったまま残る |
+
+**この 5 箇所は `npm run check:design-component-reqs` では赤くならない。** 同検査は突き合わせを**同じ章の中**で行うが、割り当ての出所である `## Requirements Traceability` は章として部品表を一つも持たず、自己申告の出所である `## Components and Interfaces` は追跡表を一つも持たないため、両者は同じ章に同居しない（`npx tsx scripts/check-design-component-requirements.ts --survey` の `site-survey` の行は本タスクの前後とも `pairs=45` で動かない。2026-09-04 に実測）。**機械が見ないからこそ記録する。**
+
+**後続タスクの提案**: 上表 5 箇所の自己申告を追跡表へ追随させるタスクを別途起票すること。**是正先**は `### Component Summary` の 4 行（`AnnotationEditor` / `SurveyImageService` / `SiteSurveyDetailPage` / `SiteSurveySectionCard`）と `#### SiteSurveyService` の `Requirements` 欄である。追随のさせ方は**タスク 115.247 の前例**（追跡表を正として自己申告へ追随させる）に倣うこと。**提案が生きていることの再現コマンド**は `grep -cE '^\| AnnotationEditor \| Frontend/Component[^|]*\|[^|]*\|[^|]*(^|[^0-9.])17([^0-9.]|$)' .kiro/specs/site-survey/design.md` の出力が `0` であること（`Component Summary` の当該行の Req Coverage 欄が要件17 を名乗っていない）である。行頭に錨を打つのは、本行自身が同じ字面を含むためである。
+
 
 
 ## Components and Interfaces
