@@ -56,7 +56,15 @@ describe('Project Model Schema', () => {
 
   describe('TransitionType Enum', () => {
     it('should have all 4 transition type values defined', () => {
-      // Requirement 10.11: 4種類の遷移種別
+      // 要件10 の 11 が「遷移種別」として定義するのは「順方向遷移」「差し戻し遷移」
+      // 「終端遷移（完了・中止・失注）」の3種類であり、initial は含まれない。
+      // initial はステータス間の遷移ではなく、プロジェクト作成時に fromStatus=null で
+      // 記録される初期履歴の印である（本番で書き込むのは ProjectService.createProject だけ。
+      // 遷移表 STATUS_TRANSITIONS は要素の型を Exclude<TransitionType, 'initial'> とし、
+      // 遷移の判定を担う getTransitionType が initial を返す経路を持たない）。
+      // したがってここで確かめる4値は「要件10 の 11 の3種類 + 履歴の印 initial」であり、
+      // 要件が4種類を定義しているという意味ではない。
+      // Requirement 10.11: forward / backward / terminate の3種類（initial は対象外）
       expect(TransitionType.initial).toBe('initial');
       expect(TransitionType.forward).toBe('forward');
       expect(TransitionType.backward).toBe('backward');
@@ -64,6 +72,7 @@ describe('Project Model Schema', () => {
     });
 
     it('should have exactly 4 transition type values', () => {
+      // 4 は要件の件数ではなく列挙の値数である（上の it の注釈を参照）。
       const transitionTypeValues = Object.values(TransitionType);
       expect(transitionTypeValues).toHaveLength(4);
     });
@@ -83,7 +92,10 @@ describe('Project Model Schema', () => {
     });
 
     it('should allow optional fields', () => {
-      // Requirement 13.6, 13.8, 13.9, 22.1-22.5: 任意フィールドの検証
+      // Requirement 13.2, 13.6, 13.8, 13.9: 任意フィールドの検証
+      // 取引先（tradingPartner）を任意とするのは要件13 の 2 である。従前この行が名乗って
+      // いた 22.1-22.5 は、現行の要件22 では顧客候補のドロップダウン・オートコンプリート
+      // （UI の候補提示）であり、Prisma の任意リレーションの検証とは対応しない。
       const inputWithOptionalFields: Prisma.ProjectCreateInput = {
         name: 'テストプロジェクト',
         tradingPartner: { connect: { id: 'trading-partner-id' } },

@@ -3,6 +3,7 @@
  *
  * Requirements:
  * - 13.1: プロジェクト名は必須かつ1〜255文字
+ * - 13.2: 取引先を任意とする（取引先IDまたは未設定）— tradingPartnerId は nullable かつ optional
  * - 13.4: 営業担当者は必須
  * - 13.5: 営業担当者の値がadmin以外の有効なユーザーIDであることを検証（サービス層で検証）
  * - 13.6: 工事担当者は任意
@@ -10,8 +11,30 @@
  * - 13.8: 現場住所は任意かつ最大500文字
  * - 13.9: 概要は任意かつ最大5000文字
  * - 13.10: フロントエンドでバリデーションエラーが発生する場合、エラーメッセージを即座に表示
- * - 13.11: バックエンドでバリデーションエラーが発生する場合、400 Bad Requestエラーとエラー詳細を返却
- * - 22.1-22.5: 取引先連携（tradingPartnerIdによる外部キー参照）
+ * - 13.11: バックエンドでバリデーションエラーが発生する場合、エラーレスポンスとエラー詳細を返却
+ *   （条文はHTTPステータスを定めていない。実装が 400 を返す箇所は
+ *   backend/src/routes/projects.routes.ts の ProjectValidationError 分岐であり、
+ *   条文の要求ではなく実装の選択である）
+ *
+ * 従前この一覧が掲げていた「22.1-22.5: 取引先連携」は、現行の要件22 の 1〜5 が
+ * 顧客候補のドロップダウン・オートコンプリート（UIの候補提示・部分一致・フリガナ検索）で
+ * あり、本ファイルが担う tradingPartnerId の形式検証とは対応しない。取引先を任意の
+ * 外部キー参照として扱う根拠は要件13 の 2 であるため、そちらへ名乗り直した。
+ *
+ * 上の一覧に要件13 の 3（取引先が指定された場合に取引先IDが有効な取引先マスタのIDで
+ * あることを検証する）を挙げていないのは、本番コードに当該の検証が無いためである。
+ * 本スキーマの tradingPartnerId が課すのは UUID の形式検証だけで
+ * （`.regex(UUID_REGEX, TRADING_PARTNER_ID_INVALID_UUID)`）、取引先マスタに当該IDが
+ * 実在するかは見ていない。サービス層にも実在確認は無く、
+ * `ProjectService.createProject`（backend/src/services/project.service.ts）は
+ * 受け取った値をそのまま `tradingPartnerId: input.tradingPartnerId || null` として
+ * 書き込む。同ファイルが `ProjectValidationError` を投げるのは
+ * `validateAssignableUser` の2箇所だけであり、いずれも担当者ユーザーの実在と
+ * admin 判定であって取引先とは無関係である。作成経路で実在しない取引先IDを弾くのは
+ * `Project.tradingPartner`（backend/prisma/schema.prisma の
+ * `@relation(fields: [tradingPartnerId], references: [id])`）が張る
+ * データベースの外部キー制約だけで、アプリケーション層の検証ではない。
+ * よって要件13 の 3 は事実上未実装であり、本ファイルでは被覆として名乗らない。
  */
 
 import { z } from 'zod';
