@@ -561,6 +561,23 @@ function isCodeFenceDelimiterLine(line: string): boolean {
  *
  * どちらでもないならヘッダーの行の先頭を返す（塊の外にフェンスは無いものとして扱う）。
  *
+ * **終端の無い `/*` は塊の開きと読まない（タスク 115.259）。** 直前の `/*` に対応する
+ * 終端（`*` と `/` の並び）が本文のどこにも無いなら、その `/*` は文字列リテラルや
+ * 正規表現リテラルの中にある——終端の無いブロックコメントは TypeScript の構文誤りであり、
+ * 走査対象は型検査を通ったファイルだからである。これを塊の始まりと読むと、コメントですら
+ * ない行のフェンスまで数えられ、**正当なヘッダーが沈黙のうちに落ちる**
+ * （`const OPENER = '/*';` の後ろに行コメントでフェンス・空行・ヘッダー・一覧項目を
+ * 置いた形が、まさにそう読まれていた）。対応する終端を持たないときは行コメントの連なりの
+ * 走査へ落とす。同じ曖昧さに対して null（安全側）を返す兄弟の `enclosingBlockCommentEnd`
+ * と、これで向きが揃う。
+ *
+ * この形は実データに無い。是正の時点——コミット `4c70e20c`、2026-09-03 に実測——で
+ * 走査根 `CODE_DIRS` のヘッダー 390 件の内訳は「塊の中 379 / 行コメントの連なり 11 /
+ * 裸 0 / 終端の無い開き 0」であり、是正の前後で `npm run check:req-coverage` の出力は
+ * 一字も動かなかった。**是正が実データを動かさないことは、この一点の観測にしか拠って
+ * いない。** 形そのものを機械で固定するのは自己検査の
+ * `checkUnterminatedBlockOpenDoesNotSwallowHeader` である。
+ *
  * **なぜ全文で数えないか。** フェンスの開閉を全文の偶奇で数えると、塊の外にある閉じ忘れの
  * フェンス一つが、それ以降の**すべての**ヘッダーを宣言でないと判定させる。落ちる先は
  * 帰属の側と切れ目の側の両方であり、被覆の無言の過小計上と、切れ目を失った区間の
@@ -571,7 +588,7 @@ function enclosingCommentBlockStart(content: string, lineStart: number): number 
   const blockOpen = content.lastIndexOf('/*', lineStart);
   if (blockOpen >= 0) {
     const blockClose = content.indexOf('*/', blockOpen + 2);
-    if (blockClose < 0 || blockClose >= lineStart) return blockOpen;
+    if (blockClose >= lineStart) return blockOpen;
   }
 
   let start = lineStart;

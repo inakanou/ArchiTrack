@@ -4039,6 +4039,95 @@ function checkQuotedHeaderIsNotDetected(): string[] {
 }
 
 /**
+ * 陽性対照: 文字列リテラル中の**終端の無い** `/*` の後ろに置かれた行コメントのヘッダー
+ *
+ * `const OPENER = '/*';` は TypeScript としてはただの文字列であって、コメントの開きでは
+ * ない（終端の無いブロックコメントは構文誤りであり、型検査を通ったファイルには現れない）。
+ * 塊の始まりをこのリテラルの位置に取ると、コメントですらない行に置いたフェンスまで
+ * 数えられ、正当なヘッダーが宣言でないと判定される。
+ *
+ * ヘッダーの直前は**素の空行**である。行コメントの連なりはそこで切れるため、
+ * 塊の始まりを正しく取れば、フェンスの行は走査の範囲に一度も入らない。
+ */
+const UNTERMINATED_BLOCK_OPEN_BEFORE_HEADER = [
+  "const OPENER = '/*';",
+  '// ```',
+  '// 見本の中身（塊の外にあり、ヘッダーの判定に入ってはならない）',
+  '',
+  '// Requirements (site-survey):',
+  '// - REQ-13.2: 終端の無い開きに影響されず拾われねばならない',
+  '',
+].join('\n');
+
+/**
+ * 機構: 文字列リテラル中の終端の無い `/*` が正当なヘッダーを飲み込まない（タスク 115.259）
+ *
+ * `enclosingCommentBlockStart` の判定 `if (blockClose >= lineStart)` を是正前の
+ * `if (blockClose < 0 || blockClose >= lineStart)` へ戻すと、自己検査 71 件のうち本検査
+ * 1 件だけが赤くなり、「終端の無い `/*` の後ろに置かれたヘッダーの配下
+ * site-survey/REQ-13.2 を取りこぼした」と「リテラルの行の有無で被覆印の集合が変わる」の
+ * 二つを挙げる（2026-09-03 に `npm run check:req-coverage:selftest` で実測）。
+ *
+ * **実データにこの形は無いからこそ、合成で固定する。** 走査根 `CODE_DIRS` のヘッダーの
+ * 分岐の内訳は `enclosingCommentBlockStart` の説明文に実測を添えて書いた。実データが
+ * 一度も通らない分岐は、壊しても本検査の外では誰も赤くならない。
+ */
+function checkUnterminatedBlockOpenDoesNotSwallowHeader(): string[] {
+  const failures: string[] = [];
+  const fixture = UNTERMINATED_BLOCK_OPEN_BEFORE_HEADER;
+  const expected = 'site-survey/REQ-13.2';
+
+  // 第3原則: 資料が前提の三つ（リテラルの行・終端の無い開き・塊の外のフェンス）の
+  // いずれかを失えば、この検査はただのヘッダー抽出の写しへ退化する。空振りは失格にする
+  const literalLine = fixture.split('\n').find((line) => line.includes('OPENER'));
+  if (literalLine === undefined) {
+    return ['資料が文字列リテラルの行を失った（この検査が空振りしている）'];
+  }
+  const blockOpen = fixture.indexOf('/*');
+  if (blockOpen < 0) {
+    return ['資料が `/*` を一つも持たない（この検査が空振りしている）'];
+  }
+  if (fixture.indexOf('*/', blockOpen + 2) >= 0) {
+    return ['資料の `/*` が終端を持つ（終端の無い開きを含まない。この検査が空振りしている）'];
+  }
+  if (!fixture.split('\n').some((line) => /^\/\/ `{3,}/.test(line))) {
+    return [
+      '資料が塊の外のフェンスを失った（誤った起点でもヘッダーが落ちなくなり、空振りしている）',
+    ];
+  }
+
+  const found = extractHeaderScopedCoverage(fixture, SELFTEST_FEATURES);
+  if (!found.acceptanceCriteria.includes(expected)) {
+    failures.push(
+      `終端の無い \`/*\` の後ろに置かれたヘッダーの配下 ${expected} を取りこぼした` +
+        '（文字列リテラル中の `/*` を塊の始まりと読み、塊の外のフェンスまで数えている）'
+    );
+  }
+
+  // 対照: リテラルの行だけを除いた同一の写し。両者の判定が食い違うなら、
+  // ヘッダーの読み取りがコメントですらない一行の有無に依存している
+  const withoutLiteral = fixture
+    .split('\n')
+    .filter((line) => line !== literalLine)
+    .join('\n');
+  const control = extractHeaderScopedCoverage(withoutLiteral, SELFTEST_FEATURES);
+  if (!control.acceptanceCriteria.includes(expected)) {
+    failures.push(
+      `対照（リテラルの行を除いた写し）で ${expected} を取りこぼした（資料そのものが壊れている）`
+    );
+  }
+  const asText = (ids: readonly string[]): string => JSON.stringify([...ids].sort());
+  if (asText(found.acceptanceCriteria) !== asText(control.acceptanceCriteria)) {
+    failures.push(
+      'リテラルの行の有無で被覆印の集合が変わる' +
+        `（有: ${asText(found.acceptanceCriteria)} / 無: ${asText(control.acceptanceCriteria)}）`
+    );
+  }
+
+  return failures;
+}
+
+/**
  * 機構: 引用の判定そのものが両向きに働くことを確かめる
  *
  * `checkQuotedHeaderIsNotDetected` は抽出の結果を見るため、一覧項目の側の規則
@@ -4411,6 +4500,10 @@ const POSITIVE_ONLY_FIXTURES: ReadonlyArray<{ name: string; reason: string }> = 
     name: 'ASTERISK_BULLET_IS_STILL_A_LIST_MARKER',
     reason: '`*` の箇条書きを拾えることだけを言う（厳しすぎの側の陽性のみ）',
   },
+  {
+    name: 'UNTERMINATED_BLOCK_OPEN_BEFORE_HEADER',
+    reason: '終端の無い `/*` の後ろでもヘッダーが拾えることだけを言う（取りこぼしの側の陽性のみ）',
+  },
 ];
 
 /**
@@ -4618,7 +4711,11 @@ function checkSyntheticNegativeControlsAreNotVacuous(): string[] {
  * 拾うのは**ファイル直下に置かれた** `const NAME = [ … ].join('\n');` の形だけである。
  * 関数の中で組み立てる資料は拾えない——これは本検査の限界であり、報告ではなくここへ書き残す。
  * 区間判定と一覧項目の合成対照（`extractHeaderScopedCoverage` へ渡す資料）は
- * 2026-09-01 の実測で 16 件すべてがこの形であり、限界に当たる資料は零件である。
+ * 2026-09-01 の実測で 16 件すべてがこの形であり、限界に当たる資料は零件であった。
+ * タスク 115.259 が資料を一件足した後の再実測（2026-09-03、コミット `4c70e20c` の
+ * 作業ツリー）でも 17 件すべてがこの形である。関数の中で作る**写し**——資料の行を
+ * 入れ替え・削除した派生——は独立の資料と数えない。派生元がこの形で拾われる限り、
+ * 分類を迫る網からは漏れないためである。
  */
 function collectTopLevelFixtureNames(source: string): string[] {
   const names: string[] = [];
@@ -4643,7 +4740,7 @@ function collectTopLevelFixtureNames(source: string): string[] {
  * 115.224 と同じ空振りのまま静かに増える。ここで本自己検査の本文を走査し、
  * `SYNTHETIC_NEGATIVE_CONTROLS` にも `POSITIVE_ONLY_FIXTURES` にも無い資料を失格にする。
  *
- * 2026-09-03 に実測した。走査は資料 16 件を数え、うち 14 件が陰性側、2 件が陽性のみである。
+ * 2026-09-03 に実測した。走査は資料 17 件を数え、うち 14 件が陰性側、3 件が陽性のみである。
  * `SELFTEST_FEATURES` のような資料でない定数は `].join('\n');` の形を持たないため拾わない。
  * `SYNTHETIC_NEGATIVE_CONTROLS` を空にすると未分類 14 件を挙げて赤くなり、走査の正規表現を
  * `= \[` から `= \{` へ変えると「一件も数えられない」で赤くなる（いずれも実測）。
@@ -6247,6 +6344,10 @@ const GROUPS: Group[] = [
       {
         name: '宣言か引用かの判定が両向きに働く（一律の退化を検出）',
         run: checkDeclaredHeaderPredicateIsTwoSided,
+      },
+      {
+        name: '文字列リテラル中の終端の無い `/*` が正当なヘッダーを飲み込まない',
+        run: checkUnterminatedBlockOpenDoesNotSwallowHeader,
       },
     ],
   },
