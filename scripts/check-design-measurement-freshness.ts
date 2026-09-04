@@ -384,7 +384,7 @@ export const GOVERNED_DOCUMENTS: readonly string[] = [
  * 版で固定した記録の側と、8 スペックの進捗で動かない現況の側（現場調査スペックの所管の
  * 件数 `0`）を別の宣言に分け、**動く総数は文書にも宣言にも持たない**形にした。
  */
-export const MINIMUM_ENTRIES = 82;
+export const MINIMUM_ENTRIES = 83;
 
 /**
  * 文書側が現に古い値を載せていると宣言してよい件数（完全一致）
