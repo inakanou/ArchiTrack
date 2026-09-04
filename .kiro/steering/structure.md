@@ -2,7 +2,9 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-09-05（Steering Sync: タスク 115.275。ディレクトリ注記・見出し・スペック状態が名乗っていた実体の件数 30 行を、規約 (b)（数値を落として数える手段を書く）へ置き換えた。再現コマンドを書ける 21 行のうち 13 行が既に食い違っており（`quantity-table/` 22→68、`frontend/src/utils/` 22→37、Storybook 132→157、`backend/src/routes/` 34→37 など。コミット `b84137b9`、2026-09-05 にリポジトリルートで実測）、残る 9 行（`全46タスク完了` の形）は、下記の 6 通りの走査規則（深さを問わないチェック項目・最上位の番号付き項目・相異なる最上位番号・見出し・完了印の付いた項目・深さを問わない相異なる番号）を当てた範囲では書かれた値を再現できなかった（導入時のコミットまで遡ると `project-management` と `itemized-statement-generation` の 2 行だけは「相異なる最上位番号」が一致する。これ以外の数え方は当てていない）。値の書き換えでは同じ陳腐化が繰り返されるため「実体の件数の書き方の規約」節を新設し、`npm run check:steering-dir-counts` が実測日を伴わない件数を検知する）_
+_最終更新: 2026-09-05（Steering Sync: タスク 115.286。押下前の関門について本書が述べていた「初期化処理」と「品質チェック（順次実行）」の記述を、実体（`.husky/scripts/pre-push.sh`）へ揃えた。`NODE_OPTIONS` の割り当ては本書の二箇所が `--max-old-space-size=1024` と述べていたが実体は `--max-old-space-size=2048` であり、番号付きの列挙は「Formatチェック」から始まっていたが実体はその前に `docker-compose.yml` の環境変数が `backend/.env.example` に載っているかの検査（警告のみで中断しない）を走らせる。値を書き換える形は採らず、タスク 115.275 が実体の件数に対して採った規約 (b)（数値を落として数える手段を書く）を関門の列挙へも掛けた——列挙が名指していた検査は `npm run check:req-coverage` の一つだけで、`check:design-*` / `check:steering-*` / `check:e2e-*` / `check:cf-evidence` / `check:dead-script-env` / `check:req-exclusions` は一つも現れていなかった（コミット `98744b92`、2026-09-05 にリポジトリルートで実測）。以後は `grep -nE` で手順の見出しを、`grep -oE` で検査の npm スクリプト名を読み出す。同型の列挙が `.kiro/steering/tech.md` にもあったため同じ形へ揃えた）_
+
+_2026-09-05（Steering Sync: タスク 115.275。ディレクトリ注記・見出し・スペック状態が名乗っていた実体の件数 30 行を、規約 (b)（数値を落として数える手段を書く）へ置き換えた。再現コマンドを書ける 21 行のうち 13 行が既に食い違っており（`quantity-table/` 22→68、`frontend/src/utils/` 22→37、Storybook 132→157、`backend/src/routes/` 34→37 など。コミット `b84137b9`、2026-09-05 にリポジトリルートで実測）、残る 9 行（`全46タスク完了` の形）は、下記の 6 通りの走査規則（深さを問わないチェック項目・最上位の番号付き項目・相異なる最上位番号・見出し・完了印の付いた項目・深さを問わない相異なる番号）を当てた範囲では書かれた値を再現できなかった（導入時のコミットまで遡ると `project-management` と `itemized-statement-generation` の 2 行だけは「相異なる最上位番号」が一致する。これ以外の数え方は当てていない）。値の書き換えでは同じ陳腐化が繰り返されるため「実体の件数の書き方の規約」節を新設し、`npm run check:steering-dir-counts` が実測日を伴わない件数を検知する）_
 
 _2026-09-02（Steering Sync: タスク 115.243。「テストの件数は書かず数える手段を書く」規約が名指していた `npm --prefix backend run test` が、タスク 115.216 の分離以降は既定側しか数えないため、手段ごとに何を選ぶかを併記する形へ是正した（backend は既定の実行・`test:integration`・`test:all`、frontend は `test` が全件）。併せて「数える手段を書くときは、その手段が何を選ぶかまで書く」——数値を撤去しても手段の指し先が変われば記述は同じように偽になる——を「テスト区分の列挙の規約」へ加えた）_
 
@@ -180,18 +182,13 @@ Gitフック管理ディレクトリ（Husky v9使用）。
   - subject: 小文字始まり、100文字以内、末尾にピリオド不要
 - `pre-push` + `scripts/pre-push.sh` - プッシュ前に自動実行されるスクリプト
   - **ラッパー構造**: `pre-push`（sh）→ `scripts/pre-push.sh`（bash）でpipefail等を使用
-  - **WSL2メモリ最適化**: `NODE_OPTIONS="--max-old-space-size=1024"` でOOM防止
+  - **WSL2メモリ最適化**: 冒頭で `NODE_OPTIONS` を export してOOMを防ぐ。**割り当てる値は
+    本書に書き写さない**（規約 (b)。タスク 115.286）。読むには
+    `grep -n 'NODE_OPTIONS' .husky/scripts/pre-push.sh`
   - **Git操作検出**: ブランチ削除時はスキップ、新規ブランチ/更新時は全チェック
-  - Format check、Lint、TypeScript型チェック（Backend/Frontend/E2E）
-  - ビルド（Backend/Frontend）+ ES Module検証
-  - **セキュリティ監査**: `scripts/security-audit.mjs` による脆弱性チェック
-  - Backend単体テスト（カバレッジチェック付き）、Frontend単体テスト
-  - **Storybookテスト**: インタラクション + アクセシビリティ + カバレッジチェック
-  - Backend統合テスト（Docker環境: architrack-test）
-  - **要件カバレッジチェック**: E2E対象の受入基準100%確認
-  - **CI環境変数整合性チェック**: pre-pushとCIの設定一致確認
-  - **コンテナ再起動**: E2E前のメモリリフレッシュ
-  - E2Eテスト実行（Docker環境: architrack-test、ポート3100/5174）
+  - **実行される検査とその順序は本書に列挙しない**（規約 (b)。タスク 115.286）。
+    読み出す手段は下の「Pre-pushフック（ラッパー構造）」の節に置く
+  - E2Eテストは Docker のテスト環境（architrack-test、ポート3100/5174）で実行する
   - **同期実行**: すべてのテストを完了してからプッシュ実行
   - 失敗時はプッシュを中断、テスト環境を自動クリーンアップ
 
@@ -1669,31 +1666,48 @@ refactor: improve type safety by eliminating any types
 `.husky/pre-push`（sh）→ `.husky/scripts/pre-push.sh`（bash）の2層構造で実装。
 
 **初期化処理:**
-- WSL2メモリ最適化（`NODE_OPTIONS="--max-old-space-size=1024"`）
+- WSL2メモリ最適化（冒頭で `NODE_OPTIONS` を export する。**割り当てる値は書き写さず**、
+  `grep -n 'NODE_OPTIONS' .husky/scripts/pre-push.sh` で読む。タスク 115.286）
 - Git操作タイプ検出（ブランチ削除時はスキップ）
 - ログファイル管理とローテーション
 
-**品質チェック（順次実行）:**
+**品質チェック（順次実行）— 押下前の関門の書き方の規約（タスク 115.286）:**
 
-1. **Formatチェック（Backend/Frontend/E2E）**: Prettierによるコードフォーマット検証
-2. **型チェック（Backend/Frontend/E2E）**: TypeScript型エラーの検出
-3. **Lintチェック（Backend/Frontend/E2E）**: ESLintによるコード品質検証
-4. **ビルド（Backend/Frontend）**: 本番環境ビルドの成功確認 + ES Module検証
-5. **セキュリティ監査**: `scripts/security-audit.mjs`（本番依存high以上でブロック）
-6. **Backend単体テスト（カバレッジチェック）**: カバレッジ閾値80%
-7. **Frontend単体テスト（カバレッジチェック）**: カバレッジ閾値80%
-8. **Storybookテスト**: インタラクションテスト + アクセシビリティ + カバレッジ80%
-9. **Docker環境構築**: テスト環境（architrack-test）自動起動
-10. **Backend統合テスト**: `docker exec architrack-backend-test npm run test:integration`
-11. **要件カバレッジチェック**: E2E対象の受入基準100%確認
-12. **CI環境変数整合性チェック**: pre-pushとCIの設定一致確認
-13. **コンテナ再起動**: E2E前のメモリリフレッシュ
-14. **E2Eテスト実行**: `CI=true npx playwright test`
+**押下前の関門の項目と順序を本書に列挙しない。** 実体の件数に掛けた規約 (b)（数値を落として
+数える手段を書く）を、関門の列挙へも掛けたものである。権威は `.husky/scripts/pre-push.sh`
+であり、次の二つで読み出す（いずれもリポジトリルートで実行する）。
+
+```bash
+# 実行される手順を上から順に（スクリプトが自分で名乗る見出しだけを拾う）
+grep -nE '^[[:space:]]*echo "[^ "✅❌💡🆕📝]+ [A-Z]' .husky/scripts/pre-push.sh
+
+# 起動される検査の名前（:selftest / :verbose の接尾辞は落ちるので検査名だけが並ぶ）
+grep -oE 'npm run check:[a-z0-9-]+' .husky/scripts/pre-push.sh | sort -u
+```
+
+一つ目は手順の見出しだけを拾い、失敗時の案内（`❌` で始まる行・`対応方法:`・`詳細確認:`）と
+入れ子の待機ログを落とす。**限界は拾い漏れの向きへ倒してある**——見出しを英大文字で始めない
+手順や、`echo` を伴わない手順は掛からない。二つ目が挙げる検査がすべて一つ目の出力にも現れる
+ことは確かめてある（コミット `98744b92`、2026-09-05 にリポジトリルートで実測）。
+
+**是正の根拠**: 是正前の本書はこの位置に番号付きの列挙を持っていたが、一つ目のコマンドが
+返す手順を大きく取りこぼしていた。二つ目が挙げる検査のうち本書の列挙が名指していたのは
+「要件カバレッジチェック」だけで、`check:req-exclusions`・`check:e2e-guards`・
+`check:e2e-selfjudge`・`check:design-refs`・`check:design-code-refs`・
+`check:design-path-refs`・`check:design-component-reqs`・`check:trace-coverage`・
+`check:design-measurement-freshness`・`check:steering-refs`・`check:steering-idents`・
+`check:steering-test-tree`・`check:steering-dir-counts`・`check:cf-evidence`・
+`check:dead-script-env` は一つも現れていなかった（コミット `98744b92`、2026-09-05 に実測）。
+順序も食い違っており、列挙は「Formatチェック」から始まっていたが、実際にはその前に
+`docker-compose.yml` の環境変数が `backend/.env.example` に載っているかの検査（警告のみで
+中断しない）が走る。値と手順を書き写す形では、関門が一つ増えるたびに本書が無言で偽になる
+（タスク 115.275 が実体の件数に対して採った作法と同じ理由である）。
 
 型エラー、テスト失敗、カバレッジ不足がある場合、プッシュは中断されます。
 
 **テスト実行順序の理由:**
-- Format/Lint/型チェック（超高速）→ ビルド（高速）→ 単体テスト（高速）→ 統合テスト（中速）→ E2Eテスト（低速）の順で実行
+- 速い検査ほど先に走らせる（fail-fast のため）。**どの検査がどの位置に来るかは書き写さず、
+  上のコマンドで読む**（タスク 115.286）
 - **Fail-fast戦略**: 早期ステージでの失敗で即座に中断
 - **Shift-Left原則**: 問題を早期発見し、プッシュ前に品質を保証
 - **Defense in Depth戦略**: 複数レイヤーでの品質保証
