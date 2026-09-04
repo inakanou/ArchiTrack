@@ -327,8 +327,13 @@ export const GOVERNED_DOCUMENTS: readonly string[] = ['.kiro/specs/site-survey/d
  * 一致させる）を、ここでは下限へ課す。名前は `MINIMUM_ENTRIES` のままにする——
  * 115.262 も `maxMissing` の名を保ったまま遊びを禁じており、作法を揃えるとはそういう意味である。
  * 増やす向きも減らす向きも定数の書き換えを伴うため、**宣言の件数は差分に必ず現れる**。
+ *
+ * **タスク 115.273 が 30 件から 50 件へ上げた。** 増分の 20 件は
+ * `#### 他スペックの設計文書の走査（タスク 115.234）` が印字する二十値であり、
+ * いずれも読む先の版を名指す（`git grep <版> -- ...`）。版で固定した理由は
+ * 自己検査の `PINNED_FOREIGN_SCAN_DECLARATIONS` に実測とともに書いた。
  */
-export const MINIMUM_ENTRIES = 30;
+export const MINIMUM_ENTRIES = 50;
 
 /**
  * 文書側が現に古い値を載せていると宣言してよい件数（完全一致）

@@ -2044,6 +2044,139 @@ const BEHAVIOUR: TestCase[] = [
 ];
 
 // ============================================================================
+// 走査記録の宣言を版で固定する（タスク 115.273）
+// ============================================================================
+
+/**
+ * 十二件の設計文書を走査する宣言のうち、**版で固定した**もの（完全一致）
+ *
+ * `#### 他スペックの設計文書の走査（タスク 115.234）` が印字する二十値
+ * （十本の網 × 是正前 `6b84be3` / 是正後 `0f3c6d33`）にあたる。
+ *
+ * **なぜ版で固定するか（タスク 115.273 の判断。実測で決めた）。** 同じ二十値を
+ * 作業ツリーを読む形（`grep ... $T`）で宣言すると、他スペックの設計文書を触った押下が
+ * 本スペックの数値の測り直しで止まる。**その頻度を履歴で測った**——
+ * 現場調査以外の `design.md`（`.kiro/specs` 配下の十二件）を触ったコミットは 56 件あり、
+ * そのうち十本の網のいずれかの値が動いたのは **51 件（91.1%）**である
+ * （コミット `01653132` の作業ツリーで 2026-09-04 に実測。手順は本スペックの
+ * `design.md` の同節に置いた）。版で固定した宣言はこの 56 件のいずれでも動かない。
+ *
+ * **増やす向きも減らす向きも定数の書き換えを伴う**（{@link MINIMUM_ENTRIES} と同じ完全一致。
+ * タスク 115.262 / 115.271 の作法）。
+ */
+const PINNED_FOREIGN_SCAN_DECLARATIONS = 20;
+
+/**
+ * 十二件の設計文書を**作業ツリーから**走査する宣言の数（完全一致）
+ *
+ * 現況は `unticketed-proposal-net-b` の一件だけである。この一件は他スペックの現況について
+ * 述べる主張であり、版で固定すると主張そのものが成り立たない——ゆえに残す。
+ * **代償は実測してある**——上の 56 件のうち、この一件の値が動いたのは **10 件（17.9%）**で
+ * ある（同日・同じ版で実測）。十本の網を作業ツリー読みで足すと 51 件（91.1%）へ広がり、
+ * うち 41 件はこの一件では止まらなかった押下である。
+ *
+ * **この定数はタスク 115.273 の判断の掛け金である。** 作業ツリーを読む走査を新たに足すと
+ * ここが動き、代償を引き受ける決定が差分に現れる。**黙って足せない。**
+ */
+const LIVE_FOREIGN_SCAN_DECLARATIONS = 1;
+
+/** 十二件の設計文書を走査する宣言の見分け（母集団の綴りと現場調査の除外の両方を持つ） */
+function isForeignDesignScan(command: string): boolean {
+  return command.includes('.kiro/specs/*/design.md') && command.includes('site-survey');
+}
+
+/** 版で固定してあること（`<版> -- ` の形で読む先の版を名指している） */
+function isPinnedToRevision(command: string): boolean {
+  return / [0-9a-f]{7,40} -- /.test(command);
+}
+
+/** 十二件の設計文書を走査する宣言のうち、版で固定した／していないものを数える */
+function countForeignDesignScans(entries: readonly ManifestEntry[], pinned: boolean): number {
+  let count = 0;
+  for (const entry of entries) {
+    const command = String(entry.command ?? '');
+    if (!isForeignDesignScan(command)) continue;
+    if (isPinnedToRevision(command) === pinned) count += 1;
+  }
+  return count;
+}
+
+const FOREIGN_SCAN_PINNING: TestCase[] = [
+  {
+    name: '走査記録の二十値が宣言され、いずれも版で固定されている',
+    polarity: 'negative',
+    run() {
+      const { entries } = loadManifest(path.join(ROOT, DEFAULT_MANIFEST_PATH));
+      const pinned = countForeignDesignScans(entries, true);
+      return expect(
+        pinned === PINNED_FOREIGN_SCAN_DECLARATIONS,
+        `版で固定した走査の宣言が ${pinned} 件で、宣言した ${PINNED_FOREIGN_SCAN_DECLARATIONS} 件と一致しません` +
+          '（PINNED_FOREIGN_SCAN_DECLARATIONS を見よ）'
+      );
+    },
+  },
+  {
+    name: '作業ツリーを読む走査の宣言が宣言した件数ちょうどである',
+    polarity: 'negative',
+    run() {
+      const { entries } = loadManifest(path.join(ROOT, DEFAULT_MANIFEST_PATH));
+      const live = countForeignDesignScans(entries, false);
+      return expect(
+        live === LIVE_FOREIGN_SCAN_DECLARATIONS,
+        `作業ツリーを読む走査の宣言が ${live} 件で、宣言した ${LIVE_FOREIGN_SCAN_DECLARATIONS} 件と一致しません` +
+          '（LIVE_FOREIGN_SCAN_DECLARATIONS を見よ。代償の実測を読んでから動かすこと）'
+      );
+    },
+  },
+  {
+    name: '版の名指しを外した宣言は「固定されている」と数えない',
+    polarity: 'positive',
+    run() {
+      const pinnedCommand =
+        "git grep -nE 'x' 0f3c6d33 -- '.kiro/specs/*/design.md' " +
+        "':(exclude).kiro/specs/site-survey/design.md' | wc -l";
+      const strippedCommand = pinnedCommand.replace(' 0f3c6d33 -- ', ' -- ');
+      const sample = (command: string): ManifestEntry[] => [
+        { id: 'sample', file: 'doc.md', anchor: 'a', command, expected: '1' },
+      ];
+      return [
+        ...expect(
+          countForeignDesignScans(sample(pinnedCommand), true) === 1,
+          '版を名指した宣言が固定として数えられていない'
+        ),
+        ...expect(
+          countForeignDesignScans(sample(strippedCommand), true) === 0,
+          '版の名指しを外しても固定として数えられてしまう'
+        ),
+        ...expect(
+          countForeignDesignScans(sample(strippedCommand), false) === 1,
+          '版の名指しを外した宣言が作業ツリー読みとして数えられていない'
+        ),
+      ];
+    },
+  },
+  {
+    name: '現場調査の除外を持たない宣言は十二件の走査と数えない',
+    polarity: 'positive',
+    run() {
+      const entries: ManifestEntry[] = [
+        {
+          id: 'all-thirteen',
+          file: 'doc.md',
+          anchor: 'a',
+          command: 'ls .kiro/specs/*/design.md | wc -l',
+          expected: '13',
+        },
+      ];
+      return expect(
+        countForeignDesignScans(entries, true) + countForeignDesignScans(entries, false) === 0,
+        '十三件すべてを数える宣言が十二件の走査として数えられてしまう'
+      );
+    },
+  },
+];
+
+// ============================================================================
 // 実データの対照
 // ============================================================================
 
@@ -2088,20 +2221,23 @@ const REAL_DATA: TestCase[] = [
  * 2026-09-04 にリポジトリルートで実測した現況ちょうど（余裕ゼロ。タスク 115.271 が
  * 陽性 13→16・陰性 3→5 へ、タスク 115.272 が陽性 16→20 へ貼り直した）。抽出は
  * `npx tsx scripts/list-control-polarity-floors.ts` が出す値をそのまま置く。
+ * **タスク 115.273 が陽性 20→22・陰性 5→7 へ貼り直した**（走査記録の宣言を版で固定する
+ * 対照 4 件を足したぶん。2026-09-04 に実測）。
  *
  * **総数の下限だけでは片側の消失を捕まえられない。** 陽性対照を削って同じ数だけ陰性対照を
  * 足せば総数は動かないため、極性ごとに別の下限を貼る。極性は要素の宣言（`expected` ないし
  * `polarity`）から導き、**名前の綴りからは導かない**（115.247 の作法）。
  */
-const MINIMUM_POSITIVE_CONTROLS = 20;
-const MINIMUM_NEGATIVE_CONTROLS = 5;
+const MINIMUM_POSITIVE_CONTROLS = 22;
+const MINIMUM_NEGATIVE_CONTROLS = 7;
 
 /**
  * 確認の総数の下限（タスク 115.252）
  *
  * 2026-09-04 にリポジトリルートで実測した現況ちょうど（余裕ゼロ。タスク 115.271 の着手時点は
  * 宣言 31 件に対し現況 32 件で遊びが 1 件あった。同タスクが 115.262 の作法へ揃えて貼り直し、
- * タスク 115.272 が壊れた宣言項目の対照 5 件を足して 36→41 へ貼り直した）。
+ * タスク 115.272 が壊れた宣言項目の対照 5 件を足して 36→41 へ貼り直し、
+ * タスク 115.273 が走査記録の宣言を版で固定する対照 4 件を足して 41→45 へ貼り直した）。
  * 抽出は `npx tsx scripts/check-design-measurement-freshness.selftest.ts | tail -1` の出す値を
  * そのまま置く。**確認を減らす向きの書き換えは差分に現れる。**
  *
@@ -2109,7 +2245,7 @@ const MINIMUM_NEGATIVE_CONTROLS = 5;
  * 本体 `check-design-measurement-freshness.ts` の指摘は文字列で組み立てられ、種別の直和型を
  * 持たない。導けないため件数で貼る。
  */
-const MINIMUM_TOTAL_CASES = 41;
+const MINIMUM_TOTAL_CASES = 45;
 
 /**
  * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）
@@ -2218,6 +2354,7 @@ function main(): void {
     { title: 'コマンドの綴りの分割', cases: COMMAND_VOCABULARY },
     { title: '絞り込みの経路を作らせない', cases: NARROWING_GUARD },
     { title: '挙動（サブプロセス）', cases: BEHAVIOUR },
+    { title: '走査記録の宣言を版で固定する', cases: FOREIGN_SCAN_PINNING },
     { title: '実データの対照', cases: REAL_DATA },
   ];
 

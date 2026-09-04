@@ -236,38 +236,218 @@
     {
       "id": "self-reference-emphasised-net",
       "file": ".kiro/specs/site-survey/design.md",
-      "anchor": "タスク 115.270 の提出時点の再実測は 92 件と 267 件",
+      "anchor": "タスク 115.273 の提出時点の再実測は 92 件と 268 件",
       "command": "grep -cE '出力(が|は)|\\*\\*[0-9]+ *件' .kiro/specs/site-survey/design.md || test $? -eq 1",
       "expected": "92",
-      "documentRendering": "再実測は 92 件",
-      "note": "自己言及の四値 (1)。強調記号を課す網。錨は現況を述べる字面に採る——同じ行が持つ 80 件は 115.213 の提出時点の記録であり書き換えない（タスク 115.270 が四件の divergence を解消した際の作法。本体注釈の「歴史記録と現況の区別は見ない」を見よ）"
+      "documentRendering": "115.273 の提出時点の再実測は 92 件",
+      "note": "自己言及の四値 (1)。強調記号を課す網。錨は現況を述べる字面に採る——同じ行が持つ 80 件は 115.213 の提出時点の記録であり書き換えない（タスク 115.270 が四件の divergence を解消した際の作法。本体注釈の「歴史記録と現況の区別は見ない」を見よ）。タスク 115.273 が錨と値を提出時点へ貼り直した"
     },
     {
       "id": "self-reference-plain-net",
       "file": ".kiro/specs/site-survey/design.md",
-      "anchor": "タスク 115.270 の提出時点の再実測は 92 件と 267 件",
+      "anchor": "タスク 115.273 の提出時点の再実測は 92 件と 268 件",
       "command": "grep -cE '出力(が|は)|[0-9]+ *件' .kiro/specs/site-survey/design.md || test $? -eq 1",
-      "expected": "267",
-      "documentRendering": "92 件と 267 件",
-      "note": "自己言及の四値 (2)。強調記号を課さない網。同じ行が持つ 233 件は 115.213 の提出時点の記録であり書き換えない"
+      "expected": "268",
+      "documentRendering": "92 件と 268 件",
+      "note": "自己言及の四値 (2)。強調記号を課さない網。同じ行が持つ 233 件は 115.213 の提出時点の記録であり書き換えない。タスク 115.273 が錨と値を提出時点へ貼り直した"
     },
     {
       "id": "self-reference-command-bearing-lines",
       "file": ".kiro/specs/site-survey/design.md",
-      "anchor": "タスク 115.270 の提出時点の再実測は 98 件",
+      "anchor": "タスク 115.273 の提出時点の再実測は 99 件",
       "command": "grep -nE '出力(が|は)|[0-9]+ *件' .kiro/specs/site-survey/design.md | grep -cE '`(grep|node|awk|sed|git|npm|npx|ls|find|wc|test|cat|tr|sort)[^`]*`' || test $? -eq 1",
-      "expected": "98",
-      "documentRendering": "再実測は 98 件",
-      "note": "自己言及の四値 (3)。再現コマンドを同じ行に持つ行。同じ行が持つ 81 件は 115.213 の提出時点の記録であり書き換えない"
+      "expected": "99",
+      "documentRendering": "再実測は 99 件",
+      "note": "自己言及の四値 (3)。再現コマンドを同じ行に持つ行。同じ行が持つ 81 件は 115.213 の提出時点の記録であり書き換えない。タスク 115.273 が錨と値を提出時点へ貼り直した"
     },
     {
       "id": "self-reference-undated-residue",
       "file": ".kiro/specs/site-survey/design.md",
-      "anchor": "タスク 115.270 の提出時点の再実測は 199 件",
+      "anchor": "タスク 115.273 の提出時点の再実測も 199 件",
       "command": "grep -nE '出力(が|は)|[0-9]+ *件' .kiro/specs/site-survey/design.md | grep -vE '20[0-9]{2}-[0-9]{2}-[0-9]{2}' | wc -l",
       "expected": "199",
-      "documentRendering": "再実測は 199 件",
-      "note": "自己言及の四値 (4)。実測日を持たない残余。同じ行が持つ 184 件は 115.213 の提出時点の記録であり書き換えない"
+      "documentRendering": "再実測も 199 件",
+      "note": "自己言及の四値 (4)。実測日を持たない残余。同じ行が持つ 184 件は 115.213 の提出時点の記録であり書き換えない。タスク 115.273 が錨と値を提出時点へ貼り直した"
+    },
+    {
+      "id": "foreign-design-scan-net1-at-6b84be3",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "走査範囲は下の囲みの**一本目**が挙げる行であり",
+      "command": "git grep -nE '出力(が|は)|[0-9]+ *件' 6b84be3 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "143",
+      "documentRendering": "**143 件**",
+      "note": "他スペックの設計文書の走査（115.234）の一本目＝走査範囲。是正前の版 `6b84be3` に固定（タスク 115.273）"
+    },
+    {
+      "id": "foreign-design-scan-net1-at-0f3c6d33",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "走査範囲は下の囲みの**一本目**が挙げる行であり",
+      "command": "git grep -nE '出力(が|は)|[0-9]+ *件' 0f3c6d33 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "150",
+      "documentRendering": "是正を入れた後の同じ式は 150 件を返す",
+      "note": "同一本目。是正後の版 `0f3c6d33` に固定（タスク 115.273 が遡って版を名指した）"
+    },
+    {
+      "id": "foreign-design-scan-net2-at-6b84be3",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "115.212 が本書の 174 件に対して行った全件分類",
+      "command": "git grep -nE '実測|測り直|再実測|走査|全件|母集団|コミット `[0-9a-f]{7}`' 6b84be3 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "45",
+      "documentRendering": "それぞれ **45 件**",
+      "note": "他スペックの設計文書の走査（115.234）の二本目＝現況断言その1。是正前の版 `6b84be3` に固定（タスク 115.273）"
+    },
+    {
+      "id": "foreign-design-scan-net2-at-0f3c6d33",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "115.212 が本書の 174 件に対して行った全件分類",
+      "command": "git grep -nE '実測|測り直|再実測|走査|全件|母集団|コミット `[0-9a-f]{7}`' 0f3c6d33 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "61",
+      "documentRendering": "是正を入れた後は **61 件**",
+      "note": "同二本目。是正後の版 `0f3c6d33` に固定（タスク 115.273 が遡って版を名指した）"
+    },
+    {
+      "id": "foreign-design-scan-net3-at-6b84be3",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "115.212 が本書の 174 件に対して行った全件分類",
+      "command": "git grep -nE '実測|測り直|再実測|母集団|コミット `[0-9a-f]{7}`' 6b84be3 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "7",
+      "documentRendering": "対する出力は **7 件**にとどまる",
+      "note": "他スペックの設計文書の走査（115.234）の三本目＝その1から二語を外した対照。是正前の版 `6b84be3` に固定（タスク 115.273）"
+    },
+    {
+      "id": "foreign-design-scan-net3-at-0f3c6d33",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "115.212 が本書の 174 件に対して行った全件分類",
+      "command": "git grep -nE '実測|測り直|再実測|母集団|コミット `[0-9a-f]{7}`' 0f3c6d33 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "24",
+      "documentRendering": "是正後は **24 件**",
+      "note": "同三本目。是正後の版 `0f3c6d33` に固定（タスク 115.273 が遡って版を名指した）"
+    },
+    {
+      "id": "foreign-design-scan-net4-at-6b84be3",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "115.212 が本書の 174 件に対して行った全件分類",
+      "command": "git grep -nE '既存[0-9]|現在[0-9]|前例|ゼロ|[0-9]+ *(マイグレーション|コンポーネント|テスト|サービス|ファイル|箇所|メソッド|エンドポイント)' 6b84be3 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "49",
+      "documentRendering": "と **49 件**、本タスクの是正",
+      "note": "他スペックの設計文書の走査（115.234）の四本目＝現況断言その2。是正前の版 `6b84be3` に固定（タスク 115.273）"
+    },
+    {
+      "id": "foreign-design-scan-net4-at-0f3c6d33",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "115.212 が本書の 174 件に対して行った全件分類",
+      "command": "git grep -nE '既存[0-9]|現在[0-9]|前例|ゼロ|[0-9]+ *(マイグレーション|コンポーネント|テスト|サービス|ファイル|箇所|メソッド|エンドポイント)' 0f3c6d33 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "54",
+      "documentRendering": "**61 件**と **54 件**である",
+      "note": "同四本目。是正後の版 `0f3c6d33` に固定（タスク 115.273 が遡って版を名指した）"
+    },
+    {
+      "id": "foreign-design-scan-net5-at-6b84be3",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "比の百分率を足した網は囲みの**五本目**",
+      "command": "git grep -nE '[0-9]+ *(箇所|行|経路|個|ファイル|枚)|[0-9]+(\\.[0-9]+)?%' 6b84be3 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "151",
+      "documentRendering": "対する出力は **151 件**",
+      "note": "他スペックの設計文書の走査（115.234）の五本目＝未走査の残余。是正前の版 `6b84be3` に固定（タスク 115.273）"
+    },
+    {
+      "id": "foreign-design-scan-net5-at-0f3c6d33",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "比の百分率を足した網は囲みの**五本目**",
+      "command": "git grep -nE '[0-9]+ *(箇所|行|経路|個|ファイル|枚)|[0-9]+(\\.[0-9]+)?%' 0f3c6d33 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "154",
+      "documentRendering": "是正を入れた後は **154 件**",
+      "note": "同五本目。是正後の版 `0f3c6d33` に固定（タスク 115.273 が遡って版を名指した）"
+    },
+    {
+      "id": "foreign-design-scan-net6-at-6b84be3",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**このうち再現コマンドを同じ行に持つ行は 0 件である。**",
+      "command": "git grep -nE '出力(が|は)|[0-9]+ *件' 6b84be3 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | grep -cE '`(grep|node|awk|sed|git|npm|npx|ls|find|wc|test|cat|tr|sort)[^`]*`'",
+      "expected": "1",
+      "documentRendering": "重ねると12件の合計は 1 件挙がる",
+      "note": "他スペックの設計文書の走査（115.234）の六本目＝走査範囲へ絞りを重ねた網。是正前の版 `6b84be3` に固定（タスク 115.273）"
+    },
+    {
+      "id": "foreign-design-scan-net6-at-0f3c6d33",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**このうち再現コマンドを同じ行に持つ行は 0 件である。**",
+      "command": "git grep -nE '出力(が|は)|[0-9]+ *件' 0f3c6d33 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | grep -cE '`(grep|node|awk|sed|git|npm|npx|ls|find|wc|test|cat|tr|sort)[^`]*`'",
+      "expected": "8",
+      "documentRendering": "是正を入れた後の同じ式は 8 件を返す",
+      "note": "同六本目。是正後の版 `0f3c6d33` に固定（タスク 115.273 が遡って版を名指した）"
+    },
+    {
+      "id": "foreign-design-scan-net7-at-6b84be3",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**同じ絞りを走査範囲で切らずに12件の全行へ掛けると",
+      "command": "git grep -nE '`(grep|node|awk|sed|git|npm|npx|ls|find|wc|test|cat|tr|sort)[^`]*`' 6b84be3 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "62",
+      "documentRendering": "12件の全行へ掛けると 62 件挙がる",
+      "note": "他スペックの設計文書の走査（115.234）の七本目＝絞りだけを十二件の全行へ掛けた網。是正前の版 `6b84be3` に固定（タスク 115.273）"
+    },
+    {
+      "id": "foreign-design-scan-net7-at-0f3c6d33",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**同じ絞りを走査範囲で切らずに12件の全行へ掛けると",
+      "command": "git grep -nE '`(grep|node|awk|sed|git|npm|npx|ls|find|wc|test|cat|tr|sort)[^`]*`' 0f3c6d33 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "73",
+      "documentRendering": "是正を入れた後は 73 件",
+      "note": "同七本目。是正後の版 `0f3c6d33` に固定（タスク 115.273 が遡って版を名指した）"
+    },
+    {
+      "id": "foreign-design-scan-net8-at-6b84be3",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**同じ絞りを走査範囲で切らずに12件の全行へ掛けると",
+      "command": "git grep -nE 'wc -l|\\| *grep |git ls-files|git grep|npm run check:' 6b84be3 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "1",
+      "documentRendering": "`6b84be3` では 1 件だけ挙がり",
+      "note": "他スペックの設計文書の走査（115.234）の八本目＝再現コマンドの別の綴りを挙げる網。是正前の版 `6b84be3` に固定（タスク 115.273）"
+    },
+    {
+      "id": "foreign-design-scan-net8-at-0f3c6d33",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**同じ絞りを走査範囲で切らずに12件の全行へ掛けると",
+      "command": "git grep -nE 'wc -l|\\| *grep |git ls-files|git grep|npm run check:' 0f3c6d33 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "5",
+      "documentRendering": "是正後は 5 件で",
+      "note": "同八本目。是正後の版 `0f3c6d33` に固定（タスク 115.273 が遡って版を名指した）"
+    },
+    {
+      "id": "foreign-design-scan-net9-at-6b84be3",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "115.212 が本書の 174 件に対して行った全件分類",
+      "command": "git grep -nE '実測|測り直|再実測|走査|全件|母集団|コミット `[0-9a-f]{7}`|既存[0-9]|現在[0-9]|前例|ゼロ|[0-9]+ *(マイグレーション|コンポーネント|テスト|サービス|ファイル|箇所|メソッド|エンドポイント)' 6b84be3 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "91",
+      "documentRendering": "`6b84be3` で 91 行である",
+      "note": "他スペックの設計文書の走査（115.234）の九本目＝現況断言の二本の網の和。是正前の版 `6b84be3` に固定（タスク 115.273）"
+    },
+    {
+      "id": "foreign-design-scan-net9-at-0f3c6d33",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "115.212 が本書の 174 件に対して行った全件分類",
+      "command": "git grep -nE '実測|測り直|再実測|走査|全件|母集団|コミット `[0-9a-f]{7}`|既存[0-9]|現在[0-9]|前例|ゼロ|[0-9]+ *(マイグレーション|コンポーネント|テスト|サービス|ファイル|箇所|メソッド|エンドポイント)' 0f3c6d33 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | wc -l",
+      "expected": "99",
+      "documentRendering": "是正後は 99 行",
+      "note": "同九本目。是正後の版 `0f3c6d33` に固定（タスク 115.273 が遡って版を名指した）"
+    },
+    {
+      "id": "foreign-design-scan-net10-at-6b84be3",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**取り出しの基準を先に書く。**",
+      "command": "git grep -nE '実測|測り直|再実測|走査|全件|母集団|コミット `[0-9a-f]{7}`|既存[0-9]|現在[0-9]|前例|ゼロ|[0-9]+ *(マイグレーション|コンポーネント|テスト|サービス|ファイル|箇所|メソッド|エンドポイント)' 6b84be3 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | grep -cE '`[^`]+`'",
+      "expected": "38",
+      "documentRendering": "対する出力は **38 行**",
+      "note": "他スペックの設計文書の走査（115.234）の十本目＝その和のうち名指しを持つ行。是正前の版 `6b84be3` に固定（タスク 115.273）"
+    },
+    {
+      "id": "foreign-design-scan-net10-at-0f3c6d33",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**取り出しの基準を先に書く。**",
+      "command": "git grep -nE '実測|測り直|再実測|走査|全件|母集団|コミット `[0-9a-f]{7}`|既存[0-9]|現在[0-9]|前例|ゼロ|[0-9]+ *(マイグレーション|コンポーネント|テスト|サービス|ファイル|箇所|メソッド|エンドポイント)' 0f3c6d33 -- '.kiro/specs/*/design.md' ':(exclude).kiro/specs/site-survey/design.md' | grep -cE '`[^`]+`'",
+      "expected": "46",
+      "documentRendering": "是正後は 46 行",
+      "note": "同十本目。是正後の版 `0f3c6d33` に固定（タスク 115.273 が遡って版を名指した）"
     }
   ]
 }
