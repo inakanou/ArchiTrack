@@ -108,6 +108,14 @@ import {
   requirementsDocumentPath,
   scanRequirementsDocument,
 } from './requirement-document';
+// 設計文書の位置は要件定義書と同じ根の下にある。根は一箇所（scripts/spec-directory.ts）から
+// 取る（タスク 115.269）。ここが裸のリテラルを持っていたため、設計文書の根だけが動いても
+// 本検査は旧い根を読み続けた——scripts/design-document.ts の `SPEC_DIR` だけを
+// `'.kiro/specs-moved'` へ変える変異を当てると `npm run check:design-code-refs` は終了コード 1
+// になるのに対し、`npm run check:trace-coverage` は終了コード 0 のまま（機能 13 件 /
+// 追跡表の本文行 860 行）であった（コミット `97302295` の作業ツリーで 2026-09-04 に
+// リポジトリルートで実測。変異は退避した控えからの書き戻しで復元した）
+import { SPEC_DIR } from './spec-directory';
 
 /** 追跡表の表頭。Requirement / Summary / Components の三列で始まる行を表頭とみなす */
 export const TRACEABILITY_TABLE_HEADER = /^\| *Requirement \| *Summary \| *Components \|/;
@@ -490,7 +498,7 @@ export function expandRequirementColumn(rows: readonly string[]): {
 
 /** 一機能を実測する */
 export function measureFeature(rootDir: string, feature: string): FeatureMeasurement {
-  const designPath = path.join(rootDir, '.kiro/specs', feature, DESIGN_DOCUMENT_BASENAME);
+  const designPath = path.join(rootDir, SPEC_DIR, feature, DESIGN_DOCUMENT_BASENAME);
   const hasDesignDocument = fs.existsSync(designPath);
   const { tables, rows } = hasDesignDocument
     ? extractTraceabilityRows(fs.readFileSync(designPath, 'utf8'))

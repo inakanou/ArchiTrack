@@ -100,7 +100,7 @@ import {
   extractHeaderScopedCoverage,
 } from './check-requirement-coverage.js';
 import {
-  SPECS_DIR,
+  SPEC_DIR,
   discoverFeatureNames as scanFeatureNames,
   requirementsDocumentPath,
   scanRequirementsDocument,
@@ -507,7 +507,7 @@ export function checkCriterionCorrespondence(document: Json, rootDir = ROOT): Vi
     if (!catalogue.present) {
       violations.push({
         pointer: `${pointer}.id`,
-        message: `機能 '${featureName}' の要件定義書（${SPECS_DIR}/${featureName}/requirements.md）が存在しません`,
+        message: `機能 '${featureName}' の要件定義書（${SPEC_DIR}/${featureName}/requirements.md）が存在しません`,
         actual: entry.id,
       });
       return;

@@ -61,13 +61,26 @@
  * 探索はファイルシステムを読む。scanRequirementsDocument が内容だけを受け取る設計
  * （自己検査が合成の文書を直接与えられるようにするため）は変えていない。探索の側は
  * 根を引数に取ることで、同じく合成の根を与えられる形にしてある。
+ *
+ * ## 根そのものは本モジュールが持たない（タスク 115.269）
+ *
+ * `.kiro/specs` は設計文書の走査根でもある。同じ値を二箇所で宣言すると別名が並び、
+ * 片方が動いたときにもう片方が静かに残る。値は scripts/spec-directory.ts が唯一の担い手と
+ * して持ち、本モジュールは取り込んで再輸出する。判断の経緯と実測はそちらの冒頭に置く。
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { SPEC_DIR } from './spec-directory.js';
 
-/** 要件定義書が置かれる根（リポジトリ根からの相対） */
-export const SPECS_DIR = '.kiro/specs';
+/**
+ * 要件定義書が置かれる根（リポジトリ根からの相対）
+ *
+ * 値は scripts/spec-directory.ts が持つ（タスク 115.269）。設計文書の走査根と同じ一つの値で
+ * あり、ここで持つと同値の別名が二つ並ぶ。再輸出するのは、既存の呼び手が本モジュールから
+ * 要件定義書の読み取り規則をまとめて取れる形を保つためである。
+ */
+export { SPEC_DIR };
 
 /** 一つの機能の要件定義書のファイル名 */
 export const REQUIREMENTS_DOCUMENT_BASENAME = 'requirements.md';
@@ -80,7 +93,7 @@ export const REQUIREMENTS_DOCUMENT_BASENAME = 'requirements.md';
  *                絶対パスへ均してはならない。
  */
 export function requirementsDocumentPath(rootDir: string, featureName: string): string {
-  return path.join(rootDir, SPECS_DIR, featureName, REQUIREMENTS_DOCUMENT_BASENAME);
+  return path.join(rootDir, SPEC_DIR, featureName, REQUIREMENTS_DOCUMENT_BASENAME);
 }
 
 /**
@@ -103,7 +116,7 @@ export function requirementsDocumentPath(rootDir: string, featureName: string): 
  * 満たしていない箇所を隠さないためである。
  */
 export function discoverFeatureNames(rootDir: string): string[] {
-  const specsDir = path.resolve(rootDir, SPECS_DIR);
+  const specsDir = path.resolve(rootDir, SPEC_DIR);
   if (!fs.existsSync(specsDir)) return [];
   return fs
     .readdirSync(specsDir, { withFileTypes: true })

@@ -4,6 +4,12 @@
  * 「どの設計文書を読むか」を決める規則——置き場所（`SPEC_DIR`）・文書名（`DESIGN_DOC_NAME`）・
  * 列挙（`collectDesignDocuments`）——を、リポジトリで一箇所に置く（タスク 115.231）。
  *
+ * ただし置き場所そのものの値は本モジュールでは持たない（タスク 115.269）。
+ * `.kiro/specs` は要件定義書の根でもあり、二箇所に置くと同値の別名が並ぶためである。
+ * 値は scripts/spec-directory.ts が唯一の担い手として持ち、本モジュールは取り込んで
+ * 再輸出する。判断の経緯と、別名のままだと片方が動いてももう片方が静かに残ることの実測は
+ * scripts/spec-directory.ts の冒頭に置く。
+ *
  * ## なぜ一箇所でなければならないか
  *
  * この規則は三つの検査の**母集団**を同時に決めている。
@@ -82,9 +88,16 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { SPEC_DIR } from './spec-directory.js';
 
-/** 設計文書の置き場所（リポジトリ相対） */
-export const SPEC_DIR = '.kiro/specs';
+/**
+ * 設計文書の置き場所（リポジトリ相対）
+ *
+ * 値は scripts/spec-directory.ts が持つ（タスク 115.269）。要件定義書の根と同じ一つの値で
+ * あり、ここで持つと同値の別名が二つ並ぶ。再輸出するのは、既存の呼び手が本モジュールから
+ * 走査根の三点（置き場所・文書名・列挙）をまとめて取れる形を保つためである。
+ */
+export { SPEC_DIR };
 
 /** 走査対象の文書名 */
 export const DESIGN_DOC_NAME = 'design.md';

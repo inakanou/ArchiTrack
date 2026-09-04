@@ -74,14 +74,25 @@ const SCAN_ROOT_CONSUMERS: readonly string[] = [
  * **照合は注釈を取り除いたソースに対して行う。** 引用符ごとの形にしても注釈は逃れられない:
  * 共有部品の冒頭注釈は複製間の差を説明するために `'.kiro/specs'` を逐語で引いており、
  * 生のソースで照合すると「断片が共有部品に実在する」という空振り検知が**注釈だけで満たされる**。
- * 実際、共有部品の宣言を `['.kiro', 'specs'].join('/')` へ書き換える変異を当てたところ、
+ * 実際、担い手の宣言を `['.kiro', 'specs'].join('/')` へ書き換える変異を当てたところ、
  * 生のソースで照合する版はこの対照が緑のまま素通りし（自己検査 103/103 緑）、
  * 注釈を取り除く版では「共有部品 design-document.ts に走査根が見当たらない（対照が
  * 空振りしている）: '.kiro/specs'」として 103 件中 1 件が落ちた（2026-09-01 に総数 72 件で
  * 実測し、総数が 103 件になった 2026-09-04 に再実測した）。**タスク 115.268 の提出時点で
  * 同じ変異を当て直したところ、同じ一行で 104 件中 1 件が落ちた**——コミット `c6ef2779` に
- * 本タスクの未コミット差分を当てた作業ツリーで、2026-09-04 にリポジトリルートで実測。
- * 変異は退避した控えからの書き戻しで復元した。
+ * 当時の未コミット差分を当てた作業ツリーで、2026-09-04 にリポジトリルートで実測。
+ *
+ * **タスク 115.269 で担い手が移ったため、同じ変異を当て直した。** 根の宣言は
+ * scripts/spec-directory.ts にあり、そこの `export const SPEC_DIR = '.kiro/specs';` を
+ * `export const SPEC_DIR = ['.kiro', 'specs'].join('/');` へ書き換えると、
+ * 本自己検査は 104 件中 1 件が落ちる。挙がるのは
+ * `spec-directory.ts にスペックの根が見当たらない（対照が空振りしている）: '.kiro/specs'` と
+ * `走査根が担い手に見当たらない（対照が空振りしている）: '.kiro/specs'（担い手 spec-directory.ts）`
+ * の二行である。同じ変異で兄弟の `npm run check:req-exclusions:selftest` も 64 件中 1 件
+ * （`探索規則が担い手に見当たらない（対照が空振りしている）: '.kiro/specs'（担い手 spec-directory.ts）`）
+ * が落ちる——コミット `97302295` にタスク 115.269 の未コミット差分を当てた作業ツリーで、
+ * 2026-09-04 にリポジトリルートで実測。
+ * 変異はいずれも退避した控えからの書き戻しで復元した。
  *
  * **注釈除去がリテラルを跨ぐ穴は塞いだ（タスク 115.268）。** かつてここには「`stripComments`
  * の `//.*$` は文字列・正規表現リテラルの中の `//` も注釈の始まりと見なすため、同じ行の手前に
@@ -128,6 +139,45 @@ const SCAN_ROOT_FRAGMENTS: readonly string[] = [
   'export function collectDesignDocuments(',
   'const absoluteSpecDir = path.join(root, specDir);',
 ];
+
+/**
+ * スペックの根（`.kiro/specs`）の唯一の担い手（タスク 115.269）。
+ *
+ * 一つの機能のスペックは `requirements.md` と `design.md` を**同じディレクトリ**に置く。
+ * したがって「要件定義書の根」と「設計文書の走査根」は二つの概念ではなく、同じ一つの値の
+ * 別名であった——タスク 115.231 の直後は scripts/requirement-document.ts の `SPECS_DIR` と
+ * scripts/design-document.ts の `SPEC_DIR` が同値で並び、さらに
+ * scripts/check-traceability-coverage.ts が三つ目の裸のリテラルを持っていた。
+ *
+ * **別名のままだと、片方が動いてももう片方は静かに残る。** 実測（コミット `97302295` の
+ * 作業ツリー、2026-09-04 にリポジトリルートで実測。変異は退避した控えからの書き戻しで復元した）:
+ * scripts/design-document.ts の `SPEC_DIR` だけを `'.kiro/specs-moved'` へ変える変異を当てると、
+ * `npm run check:design-code-refs` は「走査対象の設計文書が一件も見つかりませんでした」で
+ * 終了コード 1 になり `npm run check:design-component-reqs` も 1 になる一方、
+ * **同じ機能の `requirements.md` と `design.md` を突き合わせる `npm run check:trace-coverage` は
+ * 終了コード 0 のまま**（機能 13 件 / 追跡表の本文行 860 行）であった。自前のリテラルで
+ * 旧い根を読み続けたためである。
+ */
+const SPEC_ROOT_MODULE_NAME = 'spec-directory.ts';
+const SPEC_ROOT_MODULE_PATH = path.join(SCRIPTS_DIR, SPEC_ROOT_MODULE_NAME);
+
+/** スペックの根そのものを表す断片（引用符ごとの形。散文の `.kiro/specs` には当たらない） */
+const SPEC_ROOT_FRAGMENT = "'.kiro/specs'";
+
+/** 根を自前で持たず共有部品から取らなければならない文書モジュール（タスク 115.269） */
+const SPEC_ROOT_DOCUMENT_MODULES: readonly string[] = [
+  'requirement-document.ts',
+  'design-document.ts',
+];
+
+/**
+ * 断片ごとの担い手（タスク 115.269 でスペックの根だけを別の共有部品へ移した）。
+ *
+ * 挙げられていない断片の担い手は {@link SHARED_ROOT_MODULE_NAME} である。
+ */
+const SCAN_ROOT_FRAGMENT_OWNERS: Readonly<Record<string, string>> = {
+  [SPEC_ROOT_FRAGMENT]: SPEC_ROOT_MODULE_NAME,
+};
 
 /**
  * `tsx` の起動口。見つからない場合は「確認できない」であって合格ではないため、
@@ -723,6 +773,8 @@ function checkEmptyScanFails(): string[] {
     fs.copyFileSync(ENTRY_PATH, path.join(tempScripts, ENTRY_NAME));
     // 本体は走査根を共有部品から取り込むため、同じ場所へ複製しないと起動できない
     fs.copyFileSync(SHARED_ROOT_MODULE_PATH, path.join(tempScripts, SHARED_ROOT_MODULE_NAME));
+    // 共有部品はさらにスペックの根を担い手から取り込む（タスク 115.269）
+    fs.copyFileSync(SPEC_ROOT_MODULE_PATH, path.join(tempScripts, SPEC_ROOT_MODULE_NAME));
     // 走査対象の置き場所は存在するが中身が無い状態にする
     fs.mkdirSync(path.join(tempRoot, SPEC_DIR), { recursive: true });
 
@@ -1979,6 +2031,8 @@ function checkReportedCountsAreExact(): string[] {
     fs.copyFileSync(ENTRY_PATH, path.join(tempScripts, ENTRY_NAME));
     // 本体は走査根を共有部品から取り込むため、同じ場所へ複製しないと起動できない
     fs.copyFileSync(SHARED_ROOT_MODULE_PATH, path.join(tempScripts, SHARED_ROOT_MODULE_NAME));
+    // 共有部品はさらにスペックの根を担い手から取り込む（タスク 115.269）
+    fs.copyFileSync(SPEC_ROOT_MODULE_PATH, path.join(tempScripts, SPEC_ROOT_MODULE_NAME));
 
     let expectedFindings = 0;
     FEATURES.forEach((feature, index) => {
@@ -2186,6 +2240,105 @@ function checkRealRepositoryIsScanned(): string[] {
  * 読み直す {@link checkRealRepositoryIsScanned} が所管する（タスク 115.229 の教訓:
  * 一元化のあと、一致を見張っていた対照が恒真になっていないか確かめること）。
  */
+/**
+ * スペックの根（`.kiro/specs`）の同値リテラルが `scripts/` に一つしか無いこと（タスク 115.269）。
+ *
+ * **判断の結論を機械で支える確認である。** 要件定義書の根と設計文書の走査根は、一つの機能の
+ * スペックが両文書を同じディレクトリに置く以上、同じ一つの値である。二つの検査が
+ * その前提で両文書を突き合わせている——scripts/check-traceability-coverage.ts と
+ * scripts/check-design-component-requirements.ts は、いずれも
+ * `discoverFeatureNames`（要件定義書の実在で機能を数える）が返した機能名を、そのまま
+ * 設計文書側の根の下のパス片として使う。**両者が別名で並んでいる限り、片方だけが動いても
+ * もう片方は静かに残る**（実測は {@link SPEC_ROOT_MODULE_NAME} の注釈に記す）。
+ *
+ * ここでは (a) 担い手 {@link SPEC_ROOT_MODULE_NAME} が根の断片を**実行される部分**に持つこと、
+ * (b) `scripts/` 直下の自己検査でない `.ts` のうち、担い手以外は根の断片を持たないこと、
+ * (c) 二つの文書モジュールが担い手から根を取り込んでいること、の三つを見る。
+ * 走査母集団が空なら失敗にする（AI運用7原則 第3原則）。
+ *
+ * **走査の範囲を宣言する。** (b) が読むのは `ls scripts/*.ts | grep -v '\.selftest\.ts$'` の
+ * 全件であり、`.cjs` / `.mjs` / `.sh` と自己検査（`*.selftest.ts`）は範囲外である。自己検査は
+ * 照合の素材や合成の木の組み立てとして同じ綴りを正当に持つため、ここで禁じると
+ * 対照そのものが書けなくなる。**この除外は保証の穴であり、隠さずここに置く。**
+ * 併せて {@link SCAN_ROOT_FRAGMENTS} の注釈が挙げる二つの天井——取り込んだ定数で書き直す形と
+ * 逐語で持たずに組み立てる形——は本確認にもそのまま掛かる（照合は同じ断片方式である）。
+ * 後者を実測した: scripts/check-requirement-coverage.ts の `if (!fs.existsSync(SPEC_DIR)) {` の
+ * 直前へ `const D_SPEC = '.kiro' + '/specs';` の一行を足す変異を当てても、本自己検査は
+ * 104/104 緑（終了コード 0）のままであった。対して同じ位置へ裸の
+ * `const LOCAL_SPECS_DIR = '.kiro/specs';` を足す変異では 104 件中 1 件が落ち、
+ * `スペックの根の同値リテラル '.kiro/specs' を spec-directory.ts 以外が持っている:
+ * check-requirement-coverage.ts` と名指しされる（いずれもコミット `97302295` に
+ * タスク 115.269 の未コミット差分を当てた作業ツリーで、2026-09-04 にリポジトリルートで実測。
+ * 変異は退避した控えからの書き戻しで復元し、復元後は 104/104 緑に戻ることを確かめた）。
+ */
+function checkSpecRootHasSingleOwner(): string[] {
+  const failures: string[] = [];
+
+  if (!fs.existsSync(SPEC_ROOT_MODULE_PATH)) {
+    return [`スペックの根の担い手 ${SPEC_ROOT_MODULE_NAME} が無い（根の唯一の定義が失われている）`];
+  }
+
+  const swept = fs
+    .readdirSync(SCRIPTS_DIR, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .filter((name) => name.endsWith('.ts') && !name.endsWith('.selftest.ts'))
+    .sort();
+
+  // 母集団が空なら以下の走査は空回りで緑になる（第3原則）
+  if (swept.length === 0) {
+    failures.push('scripts/ に走査対象の .ts が 0 件（この確認は何も主張していません）');
+  }
+  if (SPEC_ROOT_DOCUMENT_MODULES.length === 0) {
+    failures.push('根を担い手から取るべき文書モジュールが 0 件（対照の母集団が空）');
+  }
+  if (failures.length > 0) return failures;
+
+  const owner = stripComments(fs.readFileSync(SPEC_ROOT_MODULE_PATH, 'utf-8'));
+  if (!owner.includes(SPEC_ROOT_FRAGMENT)) {
+    failures.push(
+      `${SPEC_ROOT_MODULE_NAME} にスペックの根が見当たらない（対照が空振りしている）: ${SPEC_ROOT_FRAGMENT}`
+    );
+  }
+
+  const holders = swept.filter((name) => {
+    if (name === SPEC_ROOT_MODULE_NAME) return false;
+    const source = stripComments(fs.readFileSync(path.join(SCRIPTS_DIR, name), 'utf-8'));
+    return source.includes(SPEC_ROOT_FRAGMENT);
+  });
+  if (holders.length > 0) {
+    failures.push(
+      `スペックの根の同値リテラル ${SPEC_ROOT_FRAGMENT} を ${SPEC_ROOT_MODULE_NAME} 以外が持っている: ` +
+        `${holders.join(' / ')}（根は一箇所にだけ置き、他は取り込むこと）`
+    );
+  }
+
+  const importsOwner = /from '\.\/spec-directory(?:\.js)?'/;
+  for (const basename of SPEC_ROOT_DOCUMENT_MODULES) {
+    const modulePath = path.join(SCRIPTS_DIR, basename);
+    if (!fs.existsSync(modulePath)) {
+      failures.push(`${basename} が無い（改名・撤去で対照が空振りしている）`);
+      continue;
+    }
+    const source = stripComments(fs.readFileSync(modulePath, 'utf-8'));
+    if (!importsOwner.test(source)) {
+      failures.push(`${basename} が ${SPEC_ROOT_MODULE_NAME} から根を取り込んでいない`);
+    }
+  }
+
+  return failures;
+}
+
+/**
+ * スペックの根と設計文書の走査根の双方について、担い手が唯一であることを見る。
+ *
+ * 前者は {@link checkSpecRootHasSingleOwner}（タスク 115.269）、
+ * 後者は {@link checkScanRootIsNotDuplicated}（タスク 115.231）が所管する。
+ */
+function checkScanRootOwnership(): string[] {
+  return [...checkSpecRootHasSingleOwner(), ...checkScanRootIsNotDuplicated()];
+}
+
 function checkScanRootIsNotDuplicated(): string[] {
   const failures: string[] = [];
 
@@ -2201,13 +2354,27 @@ function checkScanRootIsNotDuplicated(): string[] {
   if (!fs.existsSync(SHARED_ROOT_MODULE_PATH)) {
     return [`共有部品 ${SHARED_ROOT_MODULE_NAME} が無い（走査根の担い手が失われている）`];
   }
-  const shared = stripComments(fs.readFileSync(SHARED_ROOT_MODULE_PATH, 'utf-8'));
-  // 断片が共有部品から消えていれば、以下の「消費側に無い」は自明に成り立ってしまう
-  const missing = SCAN_ROOT_FRAGMENTS.filter((fragment) => !shared.includes(fragment));
+  // 断片が担い手から消えていれば、以下の「消費側に無い」は自明に成り立ってしまう。
+  // 担い手は断片ごとに引く（スペックの根だけは spec-directory.ts が持つ。タスク 115.269）
+  const sourceOfOwner = new Map<string, string>();
+  const missing: string[] = [];
+  for (const fragment of SCAN_ROOT_FRAGMENTS) {
+    const ownerName = SCAN_ROOT_FRAGMENT_OWNERS[fragment] ?? SHARED_ROOT_MODULE_NAME;
+    let ownerSource = sourceOfOwner.get(ownerName);
+    if (ownerSource === undefined) {
+      const ownerPath = path.join(SCRIPTS_DIR, ownerName);
+      if (!fs.existsSync(ownerPath)) {
+        return [`担い手 ${ownerName} が無い（走査根の担い手が失われている）`];
+      }
+      ownerSource = stripComments(fs.readFileSync(ownerPath, 'utf-8'));
+      sourceOfOwner.set(ownerName, ownerSource);
+    }
+    if (!ownerSource.includes(fragment)) {
+      missing.push(`${fragment}（担い手 ${ownerName}）`);
+    }
+  }
   if (missing.length > 0) {
-    return [
-      `共有部品 ${SHARED_ROOT_MODULE_NAME} に走査根が見当たらない（対照が空振りしている）: ${missing.join(' / ')}`,
-    ];
+    return [`走査根が担い手に見当たらない（対照が空振りしている）: ${missing.join(' / ')}`];
   }
 
   const importSpecifier = `from './${SHARED_ROOT_MODULE_NAME.replace(/\.ts$/, '.js')}'`;
@@ -2638,9 +2805,9 @@ const STRUCTURAL: Case[] = [
     custom: checkRealRepositoryIsScanned,
   },
   {
-    name: '走査根の複製が戻っていない（共有部品が唯一の担い手である）',
+    name: 'スペックの根と走査根の複製が戻っていない（共有部品が唯一の担い手である）',
     expected: false,
-    custom: checkScanRootIsNotDuplicated,
+    custom: checkScanRootOwnership,
   },
   {
     name: '複製検知の照合器が文字列・正規表現リテラルを跨がない（天井を実体で固定する）',

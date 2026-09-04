@@ -53,6 +53,14 @@ const ENTRY_PATH = path.join(SCRIPTS_DIR, ENTRY_NAME);
 const SHARED_ROOT_MODULE_NAME = 'design-document.ts';
 
 /**
+ * 共有部品がさらに取り込むスペックの根の担い手（タスク 115.269）。
+ *
+ * `.kiro/specs` は要件定義書の根でもあるため、値は scripts/spec-directory.ts が唯一持つ。
+ * サブプロセスを起こす対照は共有部品だけでなくこれも同じ場所へ複製しないと起動できない。
+ */
+const SPEC_ROOT_MODULE_NAME = 'spec-directory.ts';
+
+/**
  * `tsx` の起動口。見つからない場合は「確認できない」であって合格ではないため、
  * 呼び出し側で失敗として扱う（第3原則: 前提が満たせないときに検査を無効化しない）。
  */
@@ -1661,6 +1669,11 @@ function checkReportedCountsAreExact(): string[] {
     fs.copyFileSync(
       path.join(SCRIPTS_DIR, SHARED_ROOT_MODULE_NAME),
       path.join(tempScripts, SHARED_ROOT_MODULE_NAME)
+    );
+    // 共有部品はさらにスペックの根を担い手から取り込む（タスク 115.269）
+    fs.copyFileSync(
+      path.join(SCRIPTS_DIR, SPEC_ROOT_MODULE_NAME),
+      path.join(tempScripts, SPEC_ROOT_MODULE_NAME)
     );
 
     let expectedFindings = 0;

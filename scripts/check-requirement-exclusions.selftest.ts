@@ -38,11 +38,11 @@ import {
   scanCoverageTags,
 } from './check-requirement-exclusions.js';
 import { discoverFeatures, extractRequirements } from './check-requirement-coverage.js';
-// `SPECS_DIR` は共有モジュールから直に取る。被検査モジュール（check-requirement-exclusions.ts）
+// `SPEC_DIR` は共有モジュールから直に取る。被検査モジュール（check-requirement-exclusions.ts）
 // を経由しても値は同じだが、経由させるためだけの再輸出を被検査側に置くことになる。
 // 本自己検査がこの定数を使うのは合成の根を組み立てるためであり、同一性の主張には使わない。
 // 両モジュールが同じ担い手を取り込んでいることは下の「機構の固定」の対照が別途確かめる。
-import { SPECS_DIR } from './requirement-document.js';
+import { SPEC_DIR } from './requirement-document.js';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(SCRIPTS_DIR, '..');
@@ -819,7 +819,7 @@ const DISCOVERY_RULE_CONSUMERS: readonly string[] = EXTRACTION_RULE_CONSUMERS;
  * 当たらないよう、引用符ごとの形で持つ。
  *
  * この機構には既知の天井がある（115.190 の断片方式から引き継いだ限界であり、
- * 本タスクで解いたものではない）。消費側が共有モジュールから取り込んだ `SPECS_DIR` /
+ * 本タスクで解いたものではない）。消費側が共有モジュールから取り込んだ `SPEC_DIR` /
  * `REQUIREMENTS_DOCUMENT_BASENAME` を使って探索を書き直すと、ソースに裸の文字列リテラルは
  * 現れないため、この対照は素通りする。さらにその再複製が挙動まで同一であれば、
  * 続く二つの対照（実データの一致・際どい構成の一致）も同じ並びを返すため素通りする。
@@ -827,6 +827,18 @@ const DISCOVERY_RULE_CONSUMERS: readonly string[] = EXTRACTION_RULE_CONSUMERS;
  * ではない。複製そのものの禁止は、依然としてレビューが担う。
  */
 const DISCOVERY_RULE_FRAGMENTS: readonly string[] = ["'.kiro/specs'", "'requirements.md'"];
+
+/**
+ * 断片ごとの担い手（タスク 115.269）。
+ *
+ * スペックの根 `.kiro/specs` は設計文書の走査根と同じ一つの値であるため、共有モジュール
+ * scripts/requirement-document.ts ではなく scripts/spec-directory.ts が持つ。挙げられていない
+ * 断片の担い手は {@link SHARED_SCANNER_BASENAME} である。**消費側が持ってはならないことは
+ * 変わらない**——下の対照は担い手を引くだけで、消費側の照合には同じ断片を使う。
+ */
+const DISCOVERY_RULE_FRAGMENT_OWNERS: Readonly<Record<string, string>> = {
+  "'.kiro/specs'": 'spec-directory.ts',
+};
 
 /** 探索の際どい構成を作る合成の根 */
 interface DiscoveryProbe {
@@ -885,7 +897,7 @@ const DISCOVERY_PROBES: DiscoveryProbe[] = [
 function withSpecsTree(probe: DiscoveryProbe, body: (rootDir: string) => void): void {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'req-discover-'));
   try {
-    const specsDir = path.join(rootDir, SPECS_DIR);
+    const specsDir = path.join(rootDir, SPEC_DIR);
     fs.mkdirSync(specsDir, { recursive: true });
     probe.build(specsDir, rootDir);
     body(rootDir);
@@ -903,7 +915,7 @@ function withSpecsTree(probe: DiscoveryProbe, body: (rootDir: string) => void): 
  * 一致を求める対象ではない。
  */
 function discoveredPairFor(rootDir: string): [string[], string[]] {
-  if (!fs.existsSync(path.resolve(rootDir, SPECS_DIR))) {
+  if (!fs.existsSync(path.resolve(rootDir, SPEC_DIR))) {
     throw new Error(`スペックディレクトリが無い根では比べられない: ${rootDir}`);
   }
   const fromExclusions = discoverFeatureNames(rootDir);
@@ -936,7 +948,7 @@ function shapeOf(body: () => Omit<ExtractionShape, 'thrown'>): ExtractionShape {
 
 /** 同じ要件定義書を、被覆率側と除外側の双方で読む */
 function extractedPairFor(feature: string, rootDir = ROOT): [ExtractionShape, ExtractionShape] {
-  const filePath = path.join(rootDir, SPECS_DIR, feature, 'requirements.md');
+  const filePath = path.join(rootDir, SPEC_DIR, feature, 'requirements.md');
   const fromCoverage = shapeOf(() => {
     const requirements = extractRequirements(feature, filePath);
     return {
@@ -1006,7 +1018,7 @@ function withRequirementsDocument(
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'req-extract-'));
   try {
     const feature = 'probe';
-    const dir = path.join(rootDir, SPECS_DIR, feature);
+    const dir = path.join(rootDir, SPEC_DIR, feature);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'requirements.md'), document, 'utf-8');
     body(rootDir, feature);
@@ -1570,13 +1582,27 @@ const MECHANISM_CASES: MechanismCase[] = [
         { name: '探索規則の消費側', size: DISCOVERY_RULE_CONSUMERS.length },
       ]);
       if (empty.length > 0) return empty;
-      const shared = fs.readFileSync(path.join(SCRIPTS_DIR, SHARED_SCANNER_BASENAME), 'utf-8');
-      // 断片が共有モジュールから消えていれば、以下の「消費側に無い」は自明に成り立つ。
-      const missing = DISCOVERY_RULE_FRAGMENTS.filter((fragment) => !shared.includes(fragment));
+      // 断片が担い手から消えていれば、以下の「消費側に無い」は自明に成り立つ。
+      // 担い手は断片ごとに引く（スペックの根だけは spec-directory.ts が持つ。タスク 115.269）
+      const ownerSources = new Map<string, string>();
+      const missing: string[] = [];
+      for (const fragment of DISCOVERY_RULE_FRAGMENTS) {
+        const ownerName = DISCOVERY_RULE_FRAGMENT_OWNERS[fragment] ?? SHARED_SCANNER_BASENAME;
+        let ownerSource = ownerSources.get(ownerName);
+        if (ownerSource === undefined) {
+          const ownerPath = path.join(SCRIPTS_DIR, ownerName);
+          if (!fs.existsSync(ownerPath)) {
+            return [`探索規則の担い手 ${ownerName} が無い（対照が空振りしている）`];
+          }
+          ownerSource = fs.readFileSync(ownerPath, 'utf-8');
+          ownerSources.set(ownerName, ownerSource);
+        }
+        if (!ownerSource.includes(fragment)) {
+          missing.push(`${fragment}（担い手 ${ownerName}）`);
+        }
+      }
       if (missing.length > 0) {
-        return [
-          `共有モジュール ${SHARED_SCANNER_BASENAME} に探索規則が見当たらない（対照が空振りしている）: ${missing.join(' / ')}`,
-        ];
+        return [`探索規則が担い手に見当たらない（対照が空振りしている）: ${missing.join(' / ')}`];
       }
       for (const basename of DISCOVERY_RULE_CONSUMERS) {
         const source = fs.readFileSync(path.join(SCRIPTS_DIR, basename), 'utf-8');

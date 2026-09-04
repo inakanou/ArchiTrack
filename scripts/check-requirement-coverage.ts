@@ -71,7 +71,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import {
-  SPECS_DIR,
+  SPEC_DIR,
   discoverFeatureNames,
   isRetiredCriterionText,
   requirementsDocumentPath,
@@ -414,8 +414,8 @@ export function listCoverageScanFilesAdmittedBy(
  * 算出すると、分母 0 の 100% が緑として出てしまう。
  */
 export function discoverFeatures(): string[] {
-  if (!fs.existsSync(SPECS_DIR)) {
-    console.error(`エラー: スペックディレクトリが見つかりません: ${SPECS_DIR}`);
+  if (!fs.existsSync(SPEC_DIR)) {
+    console.error(`エラー: スペックディレクトリが見つかりません: ${SPEC_DIR}`);
     process.exit(1);
   }
 
