@@ -46,9 +46,10 @@ const ENTRY_PATH = path.join(SCRIPTS_DIR, ENTRY_NAME);
  *
  * 本体がこれを取り込むため、サブプロセスを起こす対照は同じ場所へ本モジュールを複製する。
  * その 2 箇所の `fs.copyFileSync` を外す変異を当てると、合成した scripts に本モジュールが
- * 無いまま起動して `node:internal/modules/cjs/loader` が解決に失敗し、自己検査 72 件中 2 件
+ * 無いまま起動して `node:internal/modules/cjs/loader` が解決に失敗し、自己検査 103 件中 2 件
  * （「走査対象が 0 件のとき合格にしない」と「検出結果を返す前に絞り込む経路が無い」）が
- * 落ちた（2026-09-01 に実測）。
+ * 落ちた（2026-09-01 に総数 72 件で実測し、タスク 115.266 が対照群を足して総数が 103 件に
+ * なった 2026-09-04 に再実測した。落ちる件数は 2 件のまま変わらない）。
  *
  * また `collectDesignDocuments` の本体はここに在るため、**見張りの対象は本体のソースだけ
  * では足りない**——{@link readWatchedSources} が本体と本モジュールの双方を見る。足りない
@@ -74,8 +75,10 @@ const SCAN_ROOT_CONSUMERS: readonly string[] = [
  * 共有部品の冒頭注釈は複製間の差を説明するために `'.kiro/specs'` を逐語で引いており、
  * 生のソースで照合すると「断片が共有部品に実在する」という空振り検知が**注釈だけで満たされる**。
  * 実際、共有部品の宣言を `['.kiro', 'specs'].join('/')` へ書き換える変異を当てたところ、
- * 生のソースで照合する版はこの対照が緑のまま素通りし（自己検査 72/72 緑）、
- * 注釈を取り除く版では「対照が空振りしている」として落ちた（2026-09-01 に実測）。
+ * 生のソースで照合する版はこの対照が緑のまま素通りし（自己検査 103/103 緑）、
+ * 注釈を取り除く版では「共有部品 design-document.ts に走査根が見当たらない（対照が
+ * 空振りしている）: '.kiro/specs'」として 103 件中 1 件が落ちた（2026-09-01 に総数 72 件で
+ * 実測し、総数が 103 件になった 2026-09-04 に再実測した）。
  *
  * この機構には既知の天井が二つある（いずれもタスク 115.221 の断片方式から引き継いだ限界で
  * あり、本タスクで解いたものではない）。
@@ -89,9 +92,10 @@ const SCAN_ROOT_CONSUMERS: readonly string[] = [
  * 手前に `//` を含む文字列を置けば逃れられる。** scripts/check-design-path-references.ts の
  * 取り込みの直後へ `const SCHEME = 'https://example.invalid'; const LOCAL_SPEC_DIR =
  * '.kiro/specs'; const LOCAL_DOC = 'design.md';` の一行を足す変異を当てると、自己検査は
- * 72/72 緑のまま（終了コード 0）であった。同じ行から `const SCHEME = 'https://example.invalid'; `
+ * 103/103 緑のまま（終了コード 0）であった。同じ行から `const SCHEME = 'https://example.invalid'; `
  * だけを外すと `check-design-path-references.ts に走査根の複製が戻っている:
- * '.kiro/specs' / 'design.md'` として 72 件中 1 件が落ちた（いずれも 2026-09-01 に実測）。
+ * '.kiro/specs' / 'design.md'` として 103 件中 1 件が落ちた（いずれも 2026-09-01 に総数 72 件で
+ * 実測し、総数が 103 件になった 2026-09-04 に再実測した）。
  */
 const SCAN_ROOT_FRAGMENTS: readonly string[] = [
   "'.kiro/specs'",
@@ -122,13 +126,14 @@ function stripComments(source: string): string {
  * タスク 115.231 で `collectDesignDocuments` の本体を scripts/design-document.ts へ移した。
  *
  * (a) 見張りを本体のソースだけへ戻す変異——本関数の中身を `return readExecutableSource();` に
- * 置き換える——を当てると、走査根には何も手を加えていない時点で既に自己検査 72 件中 1 件が
+ * 置き換える——を当てると、走査根には何も手を加えていない時点で既に自己検査 103 件中 1 件が
  * 落ちる。落ちるのは「検出結果を返す前に絞り込む経路が無い」で、
  * `collectDesignDocuments の本体を取り出せなかった（宣言が変わった可能性がある）` と
  * `台帳が挙げる関数が本体に無い: collectDesignDocuments（改名・撤去で見張りが空振りしている）`
  * の二行を告げる。(b) その状態へさらに走査根の骨抜き（scripts/design-document.ts の走査の輪へ
- * `if (entry.name === 'site-survey') continue;` を一行）を重ねると 72 件中 2 件へ増える
- * （いずれも 2026-09-01 に実測）。**測ったこの二つの状態はどちらも赤であり、骨抜きが
+ * `if (entry.name === 'site-survey') continue;` を一行）を重ねると 103 件中 2 件へ増える
+ * （いずれも 2026-09-01 に総数 72 件で実測し、総数が 103 件になった 2026-09-04 に
+ * 再実測した。落ちる件数は 1 件・2 件のまま変わらない）。**測ったこの二つの状態はどちらも赤であり、骨抜きが
  * 黙って通る形ではない。**
  *
  * したがって本関数が在る理由は「無ければ骨抜きが素通りする」ではない。無ければ台帳
@@ -580,101 +585,517 @@ function extractFunctionBody(source: string, declaration: string): string | null
 }
 
 /**
- * 抽出（`DECLARATION`）が本体から拾える関数宣言の一覧と、絞り込みの検査がそれを
- * どう見張るかの台帳（タスク 115.230）。拾う綴りと、拾えずに素通りする書き方は
- * 後述する。
+ * 関数の書き方を判定する綴りの**唯一の出所**（タスク 115.230 が定め、タスク 115.266 が
+ * 散文の台帳から対照群へ移した）。
+ *
+ * この二つの綴りから `declaredFunctionNames` と `bindsFunctionValueAtTopLevel` を組む。
+ * **本体を見張る `checkMonitoredFunctionInventory` も、見本を通す `FUNCTION_FORM_SPECIMENS`
+ * も同じ述語を呼ぶ**（対象の同一性）。作法は
+ * `scripts/check-requirement-exclusions.selftest.ts` の `MUST_ACCEPT` / `MUST_REJECT` が
+ * 実体を本物の検査へ通す形に揃えた（115.222 が非空の関門を、115.242 が同じ作法を課している）。
+ *
+ * **なぜ散文から移したか。** タスク 115.230 は同じ欠陥で四度差し戻された。原因は個々の記述
+ * ミスではなく構造にある——正規表現という開いた構文空間の性質を散文で数え上げていながら、
+ * **散文と正規表現を突き合わせる機構が無かった**。散文はまだ挙げていない書き方を一つ
+ * 持ってくるだけで反証できる。
+ *
+ * 移す前の状態で当てた変異と実出力（2026-09-04、リポジトリルート、コミット `272e3bde` の
+ * 作業ツリーで実測。変異は退避した控えからの書き戻しで復元した）。
+ *   - 抽出の綴りの `[<(]` を `\(` へ狭める（散文が「`function sneakG<T>(...)` を捕らえる」と
+ *     主張していた枝を落とす）→ 自己検査は 72/72 緑のままだった
+ *   - 最上位の束縛の綴りから `\(` の枝を落とす（散文がカンマ演算子・複数行のアロー・三項を
+ *     捕らえると主張していた枝を落とす）→ 自己検査は 72/72 緑のままだった
+ *
+ * **散文はどちらの主張も機械へ預けていなかった。** 移した後の同じ二つの変異の実出力は
+ * `FUNCTION_FORM_SPECIMENS` の注釈に記す。
+ */
+const FUNCTION_DECLARATION_PATTERN = String.raw`^(?:export )?(?:default )?(?:async )?function ([A-Za-z_$][A-Za-z0-9_$]*)\s*[<(]`;
+
+/**
+ * 最上位で関数を値として束ねる形（アロー関数・関数式）の綴り。上と同じく唯一の出所である。
+ *
+ * 抽出は `function` で始まる宣言しか拾わないため、値として束ねる形は**置くこと自体を禁じる**。
+ * 掛かる形・掛からない形・関数でないのに掛かる形は、すべて `FUNCTION_FORM_SPECIMENS` が
+ * 実体で持つ。
+ */
+const TOP_LEVEL_FUNCTION_VALUE_BINDING_PATTERN = String.raw`^(?:export )?(?:const|let|var) [A-Za-z_$][A-Za-z0-9_$]*(?::[^=\n]*)? = (?:async )?(?:function\b|\(|[A-Za-z_$][A-Za-z0-9_$]*\s*(?::[^=\n]*)?=>)`;
+
+/** 抽出が拾う関数名を取り出す。本体の見張りと見本の対照群が共有する唯一の実装 */
+function declaredFunctionNames(source: string): string[] {
+  const declaration = new RegExp(FUNCTION_DECLARATION_PATTERN, 'gm');
+  const names: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = declaration.exec(source)) !== null) {
+    const name = match[1];
+    if (name !== undefined) names.push(name);
+  }
+  return names;
+}
+
+/** 最上位で関数を値として束ねる形に当たるかを判定する。上と同じく共有の唯一の実装 */
+function bindsFunctionValueAtTopLevel(source: string): boolean {
+  return new RegExp(TOP_LEVEL_FUNCTION_VALUE_BINDING_PATTERN, 'm').test(source);
+}
+
+/** 関数の書き方の見本一件（タスク 115.266） */
+interface FunctionFormSpecimen {
+  /** 形の名前。後任が同じ形を再現できる粒度で書く */
+  readonly name: string;
+  /** 本体の最上位へ置いたときの綴りそのもの。二つの述語へこのまま通す */
+  readonly code: string;
+  /** 抽出が拾う関数名。拾わないなら `null` */
+  readonly declares: string | null;
+  /** 最上位で関数を値として束ねる形の判定に当たるか */
+  readonly bindsFunctionValue: boolean;
+  /**
+   * この形をどう扱っているか。`declares` / `bindsFunctionValue` の実測と突き合わせる
+   * （`checkFunctionFormSpecimenComposition`）。
+   *
+   * - `'watched'`: 関数を置く形であり、いずれかの述語が捕らえる
+   * - `'false-positive'`: 関数ではないのに束縛の判定が捕らえる（赤へ倒れる誤り。塞がない）
+   * - `'residual'`: 関数を置けるのにどちらの述語も捕らえない。**取りこぼし**であり
+   *   `residual` に理由を開示する
+   * - `'out-of-scope'`: 関数ではなく、どちらの述語も捕らえない（正しい不検出）
+   */
+  readonly verdict: 'watched' | 'false-positive' | 'residual' | 'out-of-scope';
+  /** `verdict` が `'residual'` のときに必須。塞がずに残す理由を書く */
+  readonly residual?: string;
+}
+
+/**
+ * **いかなる先読みでも塞げないと実測された形**（タスク 115.266 が対照群へ必ず載せると定めた）。
+ *
+ * 先読みは述語が掛かる位置を**狭める**働きしか持たず、掛からない形を掛けることはできない。
+ * したがって下の三形のうち `residual` の二形は綴りの範囲では原理的に届かない。
+ * `checkFunctionFormSpecimenComposition` が、この三形が対照群から消えないことを固定する
+ * （**心地よい部分集合へ痩せるのを防ぐ**）。
+ */
+const UNBLOCKABLE_FORM_NAMES: readonly string[] = [
+  'カンマ演算子で既存の関数を参照だけする束縛（sneakZ）',
+  '関数型の注釈を伴う束縛（sneakT）',
+  '関数を参照するだけの束縛（plainRef）',
+];
+
+/**
+ * 関数の書き方の対照群（タスク 115.266。散文の台帳の置き換え）。
+ *
+ * 各見本は本物の述語 `declaredFunctionNames` / `bindsFunctionValueAtTopLevel` を通り、
+ * `declares` / `bindsFunctionValue` の宣言と突き合わされる。**主張が検査そのものになる。**
+ * 網羅の主張はしない——「関数を書けるすべての形」は数え上げられない。ここに在るのは
+ * **測った形だけ**であり、新しい形が見つかったら見本を足すこと。
+ *
+ * 移した後に当てた変異と実出力（2026-09-04、リポジトリルートで実測。変異は退避した控えからの
+ * 書き戻しで復元し、復元後は 103/103 で緑に戻ることを確かめた）。**移す前は同じ三つの変異が
+ * いずれも緑のまま素通りしていた**——上の注釈に当時の実出力を引いた。
+ *
+ *   - 抽出の綴りの `[<(]` を `\(` へ狭める → 自己検査 103 件中 1 件が落ちる。落ちるのは
+ *     「関数の書き方: 型引数を取る関数宣言（sneakG）」である
+ *   - 最上位の束縛の綴りから `\(` の枝を落とす → 自己検査 103 件中 16 件が落ちる。落ちるのは
+ *     括弧で始まる束縛の見本（アロー・複数行のアロー・カンマ演算子・三項・`sneakZ`）と
+ *     偽陽性の四形である
+ *   - 最上位の束縛の綴りの `\(` を ``\((?!\s*[\d'"\x60])`` へ絞る（偽陽性を消す向きの絞り込み）
+ *     → 自己検査 103 件中 11 件が落ちる。**内訳が要点である**——消えるはずの偽陽性は 3 件
+ *     だけで、残る 8 件は `sneakY` / `sneakY2` / `sneakY3` / `sneakYstr` / `sneakW` /
+ *     `sneakWn` / `sneakWt` / `sneakZ`、すなわち**本物の関数の束縛が素通りへ倒れた分**である。
+ *     **偽陽性は赤で気付けるが、素通りは黙って通る。** この検査は最上位に絞り込みを隠す
+ *     場所を作らせないためにあるので、赤へ倒れる誤りを残し、緑へ倒れる誤りを増やす
+ *     絞り込みは入れない
+ *
+ * 群そのものが痩せる向きの変異と実出力は
+ * `checkFunctionFormSpecimenComposition` の注釈に置く。
+ */
+const FUNCTION_FORM_SPECIMENS: readonly FunctionFormSpecimen[] = [
+  // --- 抽出が拾う形（台帳への登録が要る） ---
+  {
+    name: '素の関数宣言（sneakI）',
+    code: 'function sneakI(lineText: string): string[] {\n  return [lineText];\n}',
+    declares: 'sneakI',
+    bindsFunctionValue: false,
+    verdict: 'watched',
+  },
+  {
+    name: 'export と async を前置した関数宣言（sneakA）',
+    code: 'export async function sneakA(lineText: string): Promise<string[]> {\n  return [lineText];\n}',
+    declares: 'sneakA',
+    bindsFunctionValue: false,
+    verdict: 'watched',
+  },
+  {
+    name: 'export default を前置した関数宣言（sneakF）',
+    code: 'export default function sneakF(lineText: string): string[] {\n  return [lineText];\n}',
+    declares: 'sneakF',
+    bindsFunctionValue: false,
+    verdict: 'watched',
+  },
+  {
+    name: '型引数を取る関数宣言（sneakG）',
+    code: 'function sneakG<T>(value: T): T[] {\n  return [value];\n}',
+    declares: 'sneakG',
+    bindsFunctionValue: false,
+    verdict: 'watched',
+  },
+
+  // --- 最上位の束縛の判定が捕らえる形（置くこと自体を禁じる） ---
+  {
+    name: '関数式の束縛（sneakB）',
+    code: 'const sneakB = function (lineText: string): string[] {\n  return [lineText];\n};',
+    declares: null,
+    bindsFunctionValue: true,
+    verdict: 'watched',
+  },
+  {
+    name: '一行のアロー関数の束縛（sneakArrow）',
+    code: 'const sneakArrow = (lineText: string): string[] => [lineText];',
+    declares: null,
+    bindsFunctionValue: true,
+    verdict: 'watched',
+  },
+  {
+    name: 'export を前置したアロー関数の束縛（sneakExp）',
+    code: 'export const sneakExp = (lineText: string): string[] => [lineText];',
+    declares: null,
+    bindsFunctionValue: true,
+    verdict: 'watched',
+  },
+  {
+    name: '引数の括弧を省いたアロー関数の束縛（sneakP）',
+    code: 'const sneakP = lineText => [lineText];',
+    declares: null,
+    bindsFunctionValue: true,
+    verdict: 'watched',
+  },
+  {
+    name: '「= (」の直後で改行する複数行のアロー（sneakC）',
+    code: 'const sneakC = (\n  lineText: string\n): string[] => {\n  return [lineText];\n};',
+    declares: null,
+    bindsFunctionValue: true,
+    verdict: 'watched',
+  },
+  {
+    name: '第一引数の後ろで改行する複数行のアロー（sneakX）',
+    code: 'const sneakX = (a: string,\n  b: string): string[] => [a, b];',
+    declares: null,
+    bindsFunctionValue: true,
+    verdict: 'watched',
+  },
+  {
+    name: 'カンマ演算子で包んだアロー関数（sneakY）',
+    code: 'const sneakY = (0, (l: string): string[] => [l]);',
+    declares: null,
+    bindsFunctionValue: true,
+    verdict: 'watched',
+  },
+  {
+    name: 'カンマ演算子で包んだ関数式（sneakY2）',
+    code: 'const sneakY2 = (0, function (l: string): string[] { return [l]; });',
+    declares: null,
+    bindsFunctionValue: true,
+    verdict: 'watched',
+  },
+  {
+    name: 'カンマ演算子の直後で改行する形（sneakY3）',
+    code: 'const sneakY3 = (0,\n  (l: string): string[] => [l]);',
+    declares: null,
+    bindsFunctionValue: true,
+    verdict: 'watched',
+  },
+  {
+    name: 'カンマ演算子の第一項が文字列の形（sneakYstr）',
+    code: "const sneakYstr = ('x', (l: string): string[] => [l]);",
+    declares: null,
+    bindsFunctionValue: true,
+    verdict: 'watched',
+  },
+  {
+    // 参照を束ねるだけで新しい関数を書かない形。**捕らえているのは広い `\(` の枝であって、
+    // 綴りが関数だと見分けたからではない。** 偽陽性を消す向きの絞り込みを入れると、この形は
+    // 素通りへ倒れる（実測は上の注釈に記す）
+    name: UNBLOCKABLE_FORM_NAMES[0] ?? '',
+    code: 'const sneakZ = (0, scanLine);',
+    declares: null,
+    bindsFunctionValue: true,
+    verdict: 'watched',
+  },
+  {
+    name: '三項の第一項が比較の形（sneakW）',
+    code: "const sneakW = ('' === '' ? (l: string): string[] => [l] : (l: string): string[] => []);",
+    declares: null,
+    bindsFunctionValue: true,
+    verdict: 'watched',
+  },
+  {
+    name: '三項の第一項が数値の形（sneakWn）',
+    code: 'const sneakWn = (1 ? (l: string): string[] => [l] : (l: string): string[] => []);',
+    declares: null,
+    bindsFunctionValue: true,
+    verdict: 'watched',
+  },
+  {
+    name: '三項の第一項がテンプレートリテラルの形（sneakWt）',
+    code: 'const sneakWt = (`x` ? (l: string): string[] => [l] : (l: string): string[] => []);',
+    declares: null,
+    bindsFunctionValue: true,
+    verdict: 'watched',
+  },
+
+  // --- 関数ではないのに束縛の判定が捕らえる形（偽陽性。赤へ倒れる向きなので塞がない） ---
+  {
+    name: '偽陽性: 算術の括弧',
+    code: 'const answerOffset = (1 + 2) * 3;',
+    declares: null,
+    bindsFunctionValue: true,
+    verdict: 'false-positive',
+  },
+  {
+    name: '偽陽性: 文字列の連結の括弧',
+    code: "const joined = ('a' + 'b');",
+    declares: null,
+    bindsFunctionValue: true,
+    verdict: 'false-positive',
+  },
+  {
+    name: '偽陽性: テンプレートリテラルの連結の括弧',
+    code: 'const tagged = (`a` + `b`);',
+    declares: null,
+    bindsFunctionValue: true,
+    verdict: 'false-positive',
+  },
+  {
+    name: '偽陽性: オブジェクトを包む括弧',
+    code: 'const defaults = ({ limit: 3, offset: 0 });',
+    declares: null,
+    bindsFunctionValue: true,
+    verdict: 'false-positive',
+  },
+
+  // --- どちらの述語も捕らえない形（取りこぼし。塞がずに開示する） ---
+  {
+    name: 'クラスの静的メソッド（sneakD）',
+    code: 'class SneakClass {\n  static sneakD(lineText: string): string[] {\n    return [lineText];\n  }\n}',
+    declares: null,
+    bindsFunctionValue: false,
+    verdict: 'residual',
+    residual:
+      '抽出は行頭の `function` の綴りを見るため、クラスの本体に入った定義には届かない。' +
+      '塞ぐには綴りではなく構文解析が要る',
+  },
+  {
+    name: '分割代入の束縛（sneakE）',
+    code: 'const { sneakE } = { sneakE: function (l: string): string[] { return [l]; } };',
+    declares: null,
+    bindsFunctionValue: false,
+    verdict: 'residual',
+    residual: '束縛の判定は `const` の次に識別子を要求するため、`{` で始まる形は外れる',
+  },
+  {
+    name: '文としての名前付き即時実行（sneakH）',
+    code: '(function sneakH(): void {\n  return;\n})();',
+    declares: null,
+    bindsFunctionValue: false,
+    verdict: 'residual',
+    residual: '行頭が `(` であり、宣言でも束縛でもない',
+  },
+  {
+    name: '最上位での再代入（既存の関数を包み直す）',
+    code: 'scanLine = wrapForTest(scanLine);',
+    declares: null,
+    bindsFunctionValue: false,
+    verdict: 'residual',
+    residual:
+      '宣言でも束縛でもない。実際に検出を落とすところまで測った値は ' +
+      '`checkNoFindingsNarrowing` の注釈に記す',
+  },
+  {
+    name: UNBLOCKABLE_FORM_NAMES[1] ?? '',
+    code: 'const sneakT: (a: string) => string[] = (a) => [a];',
+    declares: null,
+    bindsFunctionValue: false,
+    verdict: 'residual',
+    residual:
+      '注釈の部分 `(?::[^=\\n]*)?` は注釈に `=` を許さないため、`=>` を含む関数型の注釈を' +
+      '伴う束縛は外れる。注釈に `=` を許すと代入の `= ` の位置が定まらず判定そのものが崩れる。' +
+      '先読みは掛かる位置を狭める働きしか持たないため、この形へは原理的に届かない',
+  },
+  {
+    name: UNBLOCKABLE_FORM_NAMES[2] ?? '',
+    code: 'const plainRef = scanLine;',
+    declares: null,
+    bindsFunctionValue: false,
+    verdict: 'residual',
+    residual:
+      '右辺が識別子だけで `function` も `(` も `=>` も現れない。綴りの上で ' +
+      '`const limit = maxCount;` と区別できないため、先読みでは届かない',
+  },
+
+  // --- 関数ではなく、どちらの述語も捕らえない形（正しい不検出。過検出の陰性対照） ---
+  {
+    name: '正しい不検出: 型注釈つきの空配列の束縛',
+    code: 'const collected: string[] = [];',
+    declares: null,
+    bindsFunctionValue: false,
+    verdict: 'out-of-scope',
+  },
+  {
+    name: '正しい不検出: 文字列の束縛',
+    code: "const specLabel = 'design.md';",
+    declares: null,
+    bindsFunctionValue: false,
+    verdict: 'out-of-scope',
+  },
+];
+
+/** 見本一件を本物の述語へ通し、宣言した分類と突き合わせる（タスク 115.266） */
+function checkFunctionFormSpecimen(specimen: FunctionFormSpecimen): string[] {
+  const failures: string[] = [];
+  const names = declaredFunctionNames(specimen.code);
+  const bound = bindsFunctionValueAtTopLevel(specimen.code);
+
+  if (specimen.declares === null) {
+    if (names.length > 0) {
+      failures.push(`抽出が拾わないはずの形から関数名を拾った: ${names.join(', ')}`);
+    }
+  } else if (!names.includes(specimen.declares)) {
+    failures.push(
+      `抽出が ${specimen.declares} を拾わなかった（実際に拾った名前: ${names.join(', ') || 'なし'}）`
+    );
+  }
+
+  if (bound !== specimen.bindsFunctionValue) {
+    failures.push(
+      `最上位の束縛の判定が宣言と食い違う（宣言 ${String(specimen.bindsFunctionValue)} / 実際 ${String(bound)}）`
+    );
+  }
+
+  return failures;
+}
+
+/**
+ * 対照群そのものの構成（タスク 115.266）。
+ *
+ * **見本を一件ずつ通すだけでは、群が痩せる向きの変更が黙って通る。** 取りこぼしの見本を
+ * 全部消せば「全部捕らえている」に見える群が残り、散文の台帳と同じ欠陥へ戻る。そこで
+ * 群の構成そのものへ下限を置く。件数ではなく**分類の在り方**で置くのは、同じ形を狙う
+ * 重複した見本を減らす正当な変更まで止めないためである（115.222 の作法）。
+ *
+ * 実測（2026-09-04、リポジトリルートで実測。変異は退避した控えからの書き戻しで復元し、
+ * 復元後は 103/103 で緑に戻ることを確かめた）。
+ *   - `FUNCTION_FORM_SPECIMENS` を空にする → 確認の実行より前に群の関門が
+ *     「対照群『関数の書き方の対照群（抽出と最上位の束縛の実測）』が空です」と
+ *     「確認の総数が 73 件しかありません（宣言の下限は 103 件）」を挙げて `EXIT=1` になる
+ *   - 取りこぼしの見本（`verdict: 'residual'`）を 6 件すべて消す → 総数が 97 件へ落ち、
+ *     下限 103 を割って `EXIT=1` になる。**下限も 97 へ下げて関門を通した場合でも**、
+ *     本確認が 97 件中 1 件として落ちる（「取りこぼしの見本が 0 件」および
+ *     `sneakT` / `plainRef` が対照群から消えている旨）
+ *   - `sneakT` の `bindsFunctionValue` と `verdict` を `true` / `'watched'` へ書き換える
+ *     （捕らえているふりをする）→ 自己検査 103 件中 2 件が落ちる。見本一件の確認が
+ *     「最上位の束縛の判定が宣言と食い違う（宣言 true / 実際 false）」で、本確認が
+ *     「取りこぼしではない見本が残余の理由を持っている」で落ちる
+ */
+function checkFunctionFormSpecimenComposition(): string[] {
+  const failures: string[] = [];
+
+  // 前提が満たせないときは合格ではなく失敗（AI運用7原則 第3原則）
+  if (FUNCTION_FORM_SPECIMENS.length === 0) {
+    failures.push('関数の書き方の対照群が空である。何も確かめていない状態を合格にしてはならない');
+    return failures;
+  }
+  if (UNBLOCKABLE_FORM_NAMES.length === 0) {
+    failures.push('先読みで塞げない形の一覧が空である（対照群が痩せても気付けない）');
+  }
+
+  const countOf = (verdict: FunctionFormSpecimen['verdict']): number =>
+    FUNCTION_FORM_SPECIMENS.filter((one) => one.verdict === verdict).length;
+
+  if (countOf('watched') === 0) {
+    failures.push('捕らえる形の見本が 0 件（述語が何も捕らえなくても緑になる）');
+  }
+  if (countOf('residual') === 0) {
+    failures.push(
+      '取りこぼしの見本が 0 件（すべて捕らえているように見える群になっている。' +
+        '限界は隠さず実測付きで残すこと）'
+    );
+  }
+  if (countOf('false-positive') === 0) {
+    failures.push('偽陽性の見本が 0 件（赤へ倒れる誤りの開示が消えている）');
+  }
+  if (countOf('out-of-scope') === 0) {
+    failures.push('正しい不検出の見本が 0 件（束縛の判定が何にでも反応しても緑になる）');
+  }
+
+  // 抽出の側と束縛の側の双方に、実際に掛かる見本が残っていること
+  if (!FUNCTION_FORM_SPECIMENS.some((one) => one.declares !== null)) {
+    failures.push('抽出が拾う見本が 0 件（抽出の枝を落としても赤くならない）');
+  }
+  if (!FUNCTION_FORM_SPECIMENS.some((one) => one.bindsFunctionValue)) {
+    failures.push('最上位の束縛の判定に掛かる見本が 0 件（束縛の枝を落としても赤くならない）');
+  }
+
+  // 分類は実測の宣言と整合していなければならない（「捕らえたふり」を構造で禁じる）
+  for (const one of FUNCTION_FORM_SPECIMENS) {
+    const caught = one.declares !== null || one.bindsFunctionValue;
+    if (one.name.trim() === '') {
+      failures.push('名前の無い見本がある（後任が再現できない）');
+    }
+    if (one.verdict === 'watched' && !caught) {
+      failures.push(`捕らえていない形を watched と宣言している: ${one.name}`);
+    }
+    if (one.verdict === 'false-positive' && !one.bindsFunctionValue) {
+      failures.push(`束縛の判定に掛からない形を偽陽性と宣言している: ${one.name}`);
+    }
+    if ((one.verdict === 'residual' || one.verdict === 'out-of-scope') && caught) {
+      failures.push(`捕らえている形を取りこぼし・対象外と宣言している: ${one.name}`);
+    }
+    if (one.verdict === 'residual' && (one.residual ?? '').trim() === '') {
+      failures.push(`取りこぼしの理由を開示していない見本がある: ${one.name}`);
+    }
+    if (one.verdict !== 'residual' && one.residual !== undefined) {
+      failures.push(`取りこぼしではない見本が残余の理由を持っている: ${one.name}`);
+    }
+  }
+
+  // 先読みで塞げないと実測した三形は、対照群から消えてはならない
+  for (const name of UNBLOCKABLE_FORM_NAMES) {
+    if (!FUNCTION_FORM_SPECIMENS.some((one) => one.name === name)) {
+      failures.push(`先読みで塞げないと実測した形が対照群から消えている: ${name}`);
+    }
+  }
+
+  return failures;
+}
+
+/** 見本ごとに一件の確認を作る（対照群が痩せれば確認の総数が減り、下限の関門に当たる） */
+const FUNCTION_FORM_CONTROLS: Case[] = FUNCTION_FORM_SPECIMENS.map((specimen) => ({
+  name: `関数の書き方: ${specimen.name}`,
+  expected: false,
+  custom: () => checkFunctionFormSpecimen(specimen),
+}));
+
+/**
+ * 抽出が本体から拾える関数宣言の一覧と、絞り込みの検査がそれをどう見張るかの台帳
+ * （タスク 115.230）。**拾う綴りと、拾えずに素通りする書き方を散文では持たない**——
+ * `FUNCTION_FORM_SPECIMENS` が実体で持ち、本物の述語 `declaredFunctionNames` /
+ * `bindsFunctionValueAtTopLevel` を通る（タスク 115.266 が散文から対照群へ移した）。
  *
  * `checkNoFindingsNarrowing` の `bodies` は「見張る側」の宣言である。**見張る側だけを
  * 置くと、そこから 1 本抜けても何も起きない。** タスク 115.230 が是正したのがこれで、
- * 行単位の検出の中核である `scanLine` は `bodies` に無く、冒頭へ
- * `if (lineText.includes('画像削除')) return [];` を足しても自己検査は 71/71 緑のまま
- * 素通りした（2026-09-01 に実測）。
+ * 行単位の検出の中核である `collectReferences` は `bodies` に無く、冒頭へ
+ * `if (lineText.includes('画像削除')) return [];` を足しても自己検査は素通りした
+ * （2026-09-01 に実測。当時の総数は 71 件で、71/71 緑のままだった。是正後の同じ変異の
+ * 実出力は `checkNoFindingsNarrowing` の注釈に記す）。
  *
  * そこで台帳を**二つ目の宣言**として置き、次の三者が双方向で一致することを要求する。
  *
- *   (a) 本体のソースに実在し、かつ抽出（`DECLARATION`）の綴りに合う関数宣言
+ *   (a) 本体のソースに実在し、かつ抽出が拾う関数宣言
  *   (b) 本台帳
  *   (c) `checkNoFindingsNarrowing` の `bodies` のラベルと見張り方
  *
  * これにより、`bodies` からの取り落としも、台帳に載る関数の改名・撤去も失敗になる。
  *
- * **新設**をどこまで失敗にできるかは、抽出（`DECLARATION`）が拾う綴りで決まる。拾うのは
- * 「注釈を取り除いた本体で、**行頭**から `export` / `default` / `async` を任意に前置した
- * `function` ＋名前＋`(` または `<`」という綴りだけである（差し戻し1回目で `export` /
- * `async` を、2回目で `default` と `<` を足した）。**この綴りに合う宣言の新設は失敗になる。**
- * 合わない書き方は**この抽出では**捕らえない（最上位の束縛の禁止形が別に捕らえる形は
- * 下に挙げる）。どちらも下に実測を挙げる。網羅の主張はしない——
- * 「関数を書けるすべての形」は数え上げられないため、測った形だけを名指しで書く。
- *
- * 是正の前後で、次の五形をそれぞれ本体の最上位（`const invokedPath =` の直前）へ足して
- * 実測した（2026-09-01。是正前は五形とも自己検査 71/71 緑・兄弟 56/56 緑で素通りしていた）。
- *
- *   - `export async function sneakA(lineText: string): Promise<string[]> { ... }` を足す →
- *     自己検査 71 件中 1 件が落ちる。「本体に台帳へ載っていない関数がある: sneakA」
- *     （兄弟でも 56 件中 1 件、同じ文言）
- *   - `const sneakB = function (lineText: string): string[] { ... };` を足す →
- *     自己検査 71 件中 1 件が落ちる。「最上位に関数を値として束ねる宣言がある
- *     （アロー関数・関数式）」（兄弟でも 56 件中 1 件、同じ文言）
- *   - `= (` の直後で改行する複数行のアロー（`const sneakC = (` / `  lineText: string` /
- *     `): string[] => { ... };`）を足す → 自己検査 71 件中 1 件が落ちる。文言は上と同じ
- *     （兄弟でも 56 件中 1 件）
- *   - `export default function sneakF(lineText: string): string[] { ... }` を足す →
- *     自己検査 71 件中 1 件が落ちる。「本体に台帳へ載っていない関数がある: sneakF」
- *     （兄弟でも 56 件中 1 件、同じ文言）。差し戻し2回目の指摘で `default ` を足すまでは
- *     `(?:export )?` に合わず 71/71 緑だった
- *   - `function sneakG<T>(value: T): T[] { ... }` を足す → 自己検査 71 件中 1 件が落ちる。
- *     「本体に台帳へ載っていない関数がある: sneakG」（兄弟でも 56 件中 1 件、同じ文言）。
- *     差し戻し2回目の指摘で `\s*\(` を `\s*[<(]` へ広げるまでは緑だった
- *
- * **捕らえない範囲**（上の綴りに合わない書き方。網羅ではなく、実際に測った形の列挙である）。
- * いずれも 2026-09-01 に本体の最上位へ足して実測し、自己検査 71/71 緑・兄弟 56/56 緑の
- * ままだった。
- *
- *   - モジュール最上位での**再代入**で既存の関数を包み直す形。宣言でも束縛でもない。
- *     実際に検出を落とすところまで測った値は `checkNoFindingsNarrowing` の注釈に記す
- *   - 最上位のクラスの静的メソッド
- *     `class SneakClass { static sneakD(lineText: string): string[] { ... } }`。
- *     行頭が `function` ではない
- *   - 分割代入の束縛 `const { sneakE } = { sneakE: function (...) { ... } };`。
- *     最上位の禁止形は `const` の次に識別子を要求するため、`{` で始まる形は外れる
- *   - 文としての名前付き即時実行 `(function sneakH(): void { ... })();`。行頭が `(` である
- *
- * これらは `_Boundary: 絞り込みの検査が監視する関数の範囲_` の外であり、本タスクでは塞がない。
- *
- * **取り違える範囲**（綴りだけを見ることの代償。いずれも 2026-09-01 に実測）。
- *
- *   - 捕らえた形（本体の `const invokedPath =` の直前へ足して 2026-09-01 に実測。いずれも
- *     自己検査 71 件中 1 件・兄弟 56 件中 1 件が落ち、文言はすべて「最上位に関数を値として
- *     束ねる宣言がある（アロー関数・関数式）。台帳へ載る function 宣言で書くこと」である）。
- *     `const sneakB = function (` の関数式、`const sneakC = (` で改行する複数行のアロー、
- *     `const sneakX = (a: string,` で改行する複数行のアロー、
- *     `const sneakY = (0, (l: string): string[] => [l]);` のカンマ演算子、
- *     `const sneakY2 = (0, function (l: string): string[] { return [l]; });`、
- *     `const sneakY3 = (0,` で改行するカンマ演算子、
- *     `const sneakYstr = ('x', (l: string): string[] => [l]);`、
- *     `const sneakZ = (0, scanLine);` の参照束縛、
- *     `const sneakW = ('' === '' ? (l: string): string[] => [l]` で始まる三項
- *     （第一項が `1 ?` の数値・`` `x` ? `` のテンプレートリテラルの形も同じ）
- *   - 残す偽陽性: `\(` の枝は `= (` を関数の始まりと見なすため、関数でない括弧も落とす。
- *     `const answerOffset = (1 + 2) * 3;`、`const joined = ('a' + 'b');`、
- *     ``const tagged = (`a` + `b`);``、`const defaults = ({ limit: 3, offset: 0 });` は
- *     同じ位置へ足すと自己検査 71 件中 1 件・兄弟 56 件中 1 件が落ちる（2026-09-01 に実測）。
- *     文言は上と同じで、これらの行についての診断としては事実に反する。**赤へ倒れる向き**
- *     であり、実在する関数束縛の取り落としを隠す向きには働かないため、塞がずここに記す。
- *     最上位の `const` は `= (` を避けて書けば足りる
- *   - 塞がない選択の根拠: `\(` の枝を ``\((?!\s*[\d'"`])`` へ絞ると
- *     `const answerOffset = (1 + 2) * 3;` は自己検査 71/71 緑・兄弟 56/56 緑になる。だが
- *     同じ絞りの下で、上の `sneakY` / `sneakY2` / `sneakY3` / `sneakYstr` / `sneakW` /
- *     第一項が数値の三項 / 第一項がテンプレートリテラルの三項 / `sneakZ` の八形すべてが
- *     自己検査 71/71 緑・兄弟 56/56 緑で素通りした（2026-09-01 に、絞った状態で八形を
- *     同じ位置へ足して実測）。**偽陽性は赤で気付けるが、素通りは黙って通る。**
- *     この検査は最上位に絞り込みを隠す場所を作らせないためにあるので、赤へ倒れる誤りを
- *     残し、緑へ倒れる誤りを増やす絞り込みは入れない
- *   - 幻の宣言: 抽出は構文ではなく行頭の綴りを見るため、テンプレートリテラルの中で列 0 に
- *     `function 名(` が現れると実在の宣言として読む。そのようなリテラルを足すと自己検査
- *     71 件中 1 件が落ち「本体に台帳へ載っていない関数がある: phantom」となる
- *     （兄弟でも 56 件中 1 件、同じ文言）。**赤へ倒れる向き**であり、実在する関数の
- *     取り落としを隠す方向には働かないため、塞がずここに記す
+ * **新設をどこまで失敗にできるかは、抽出が拾う綴りで決まる。** その範囲は散文ではなく
+ * `FUNCTION_FORM_SPECIMENS` に実体で在り、取りこぼし（`verdict: 'residual'`）も
+ * 偽陽性（`'false-positive'`）も同じ表へ並べてある。**網羅の主張はしない**——
+ * 「関数を書けるすべての形」は数え上げられないため、測った形だけを載せる。取りこぼしは
+ * いずれも `_Boundary: 絞り込みの検査が監視する関数の範囲_` の外であり、本タスクでは塞がない。
  *
  * `watch` は見張りの強さである。
  *   - `'whole-body'`: 本体の空でない全行を許可形と突き合わせる。逃がしを差し込む余地が無い
@@ -727,14 +1148,13 @@ function checkMonitoredFunctionInventory(
     failures.push('絞り込みの検査が本体を一つも見張っていない');
   }
 
-  const declared: string[] = [];
-  const DECLARATION =
-    /^(?:export )?(?:default )?(?:async )?function ([A-Za-z_$][A-Za-z0-9_$]*)\s*[<(]/gm;
+  // 抽出は `declaredFunctionNames` に一本化してある。**同じ述語を対照群
+  // `FUNCTION_FORM_SPECIMENS` も通る**ので、綴りを変えれば見本の側が赤くなる（対象の同一性。
+  // タスク 115.266）。実測: 抽出の `[<(]` を `\(` へ狭めると自己検査 103 件中 1 件
+  // （「関数の書き方: 型引数を取る関数宣言（sneakG）」）が落ちる（2026-09-04 に
+  // リポジトリルートで実測。変異は退避した控えからの書き戻しで復元した）
+  const declared = declaredFunctionNames(source);
   let match: RegExpExecArray | null;
-  while ((match = DECLARATION.exec(source)) !== null) {
-    const name = match[1];
-    if (name !== undefined) declared.push(name);
-  }
   if (declared.length === 0) {
     failures.push('本体から関数宣言を一件も取り出せなかった（抽出が壊れている）');
   }
@@ -778,18 +1198,11 @@ function checkMonitoredFunctionInventory(
   }
 
   // 最上位で関数を値として束ねる形（アロー関数・関数式）は上の関数宣言の抽出に掛からない
-  // ため、置くこと自体を禁じる。`= (` の直後で改行する複数行のアローも `\(` の枝で捕らえる。
-  // この枝は `= (` を関数の始まりと見なすため、`const defaults = ({ limit: 3, offset: 0 });`
-  // のような関数でない括弧も落とす（偽陽性。赤へ倒れる向きなので塞がない。実測は台帳に記す）。
-  // 掛からない形として、最上位での再代入・クラスの静的メソッド・分割代入の束縛・文としての
-  // 名前付き即時実行を実測した（網羅ではない）。いずれも本タスクの境界の外である。
-  // 実測値と当てた変異は台帳 EXECUTABLE_FUNCTION_INVENTORY と
-  // `checkNoFindingsNarrowing` の注釈に記す
-  if (
-    /^(?:export )?(?:const|let|var) [A-Za-z_$][A-Za-z0-9_$]*(?::[^=\n]*)? = (?:async )?(?:function\b|\(|[A-Za-z_$][A-Za-z0-9_$]*\s*(?::[^=\n]*)?=>)/m.test(
-      source
-    )
-  ) {
+  // ため、置くこと自体を禁じる。掛かる形・掛からない形・関数でないのに掛かる形は、すべて
+  // `FUNCTION_FORM_SPECIMENS` が実体で持ち、ここと同じ述語 `bindsFunctionValueAtTopLevel`
+  // を通る（タスク 115.266。散文で数え上げると、まだ挙げていない形を一つ持ってくるだけで
+  // 反証できてしまう）。取りこぼしはいずれも本タスクの境界の外である
+  if (bindsFunctionValueAtTopLevel(source)) {
     failures.push(
       '最上位に関数を値として束ねる宣言がある（アロー関数・関数式）。台帳へ載る function 宣言で書くこと'
     );
@@ -815,18 +1228,19 @@ function checkMonitoredFunctionInventory(
  * それまで見ていたのは `collectDesignDocuments` / `run` / `scanDocument` / `main` の
  * 4 本で、**行単位の検出の中核である `scanLine` が入っていなかった。** その冒頭へ
  * `if (lineText.includes('画像削除')) return [];` を足すと、自己検査は 71/71 緑・
- * 本検査も緑で素通りした（2026-09-01 に実測）。同じ 1 行を現在の形に当てると
- * 自己検査は 71 件中 1 件が落ち、内訳は
+ * 本検査も緑で素通りした（2026-09-01 に、当時の総数 71 件で実測）。同じ 1 行を現在の形に
+ * 当てると自己検査は 103 件中 1 件が落ち、内訳は
  * 「scanLine が検出結果／走査対象へ想定外の操作をしている」の 1 件である
- * （2026-09-01 に実測）。表の `行` 列を拾う `scanTableLineColumns` も同型で、
+ * （2026-09-01 に総数 71 件で実測し、総数が 103 件になった 2026-09-04 に再実測した）。
+ * 表の `行` 列を拾う `scanTableLineColumns` も同型で、
  * 冒頭へ `if (lines.some((line) => line.includes('画像削除'))) return [];` を足すと、
- * 現在の形では同じく 71 件中 1 件が落ちる（2026-09-01 に実測）。
+ * 現在の形では同じく 103 件中 1 件が落ちる（同じ二時点で実測）。
  *
- * **見張る範囲は、抽出（`DECLARATION`）が本体から拾える関数宣言——注釈を取り除いた本体の
- * 行頭から `export` / `default` / `async` を任意に前置した `function` ＋名前＋
- * `(` または `<` ——であり、台帳 `EXECUTABLE_FUNCTION_INVENTORY` と双方向で一致させる。**
- * その綴りの範囲で、取り落とし・改名・撤去・新設が失敗になる。当てた五形と、綴りに合わず
- * 緑のままだった形（最上位の再代入・クラスの静的メソッド・分割代入の束縛・文としての
+ * **見張る範囲は、抽出 `declaredFunctionNames` が本体から拾える関数宣言であり、台帳
+ * `EXECUTABLE_FUNCTION_INVENTORY` と双方向で一致させる。** その範囲で、取り落とし・改名・
+ * 撤去・新設が失敗になる。**どの書き方が範囲に入り、どれが外れるかは散文では持たない**
+ * ——`FUNCTION_FORM_SPECIMENS` が実体で持ち、同じ述語を通る（タスク 115.266）。
+ * 綴りに合わず緑のままだった形（最上位の再代入・クラスの静的メソッド・分割代入の束縛・文としての
  * 名前付き即時実行）の実測は台帳の注釈に挙げる。関数の外——モジュール最上位——は
  * 範囲に含まない。下の「捕らえない範囲」を見よ。
  *
@@ -855,12 +1269,15 @@ function checkMonitoredFunctionInventory(
  *   `const __origScanLine = scanLine;` と、`画像削除` を含む行だけ空配列を返してから
  *   `__origScanLine` へ委ねる `scanLine = function (lineText) {...};` を足すと、
  *   `scanLine` は実際に検出を落とす——同じ一行に対し包む前は 1 件、包んだ後は 0 件、
- *   対照の行は前後とも 1 件——にもかかわらず、自己検査は 71/71 緑のままである
- *   （2026-09-01 に実測）。`_Boundary: 絞り込みの検査が監視する関数の範囲_` の外であるため
+ *   対照の行は前後とも 1 件——にもかかわらず、自己検査は 103/103 緑のままである
+ *   （2026-09-01 に総数 71 件で実測し、総数が 103 件になった 2026-09-04 に再実測した。
+ *   いずれも緑）。`_Boundary: 絞り込みの検査が監視する関数の範囲_` の外であるため
  *   本タスクでは塞がず、後続として起票する。最上位で捕らえない形はこの再代入だけではない。
- *   クラスの静的メソッド・分割代入の束縛・文としての名前付き即時実行も 2026-09-01 に
- *   実測して自己検査 71/71 緑（兄弟 56/56 緑）であり、綴りと実測値は台帳
- *   `EXECUTABLE_FUNCTION_INVENTORY` の注釈に挙げる（網羅の主張ではない）
+ *   クラスの静的メソッド・分割代入の束縛・文としての名前付き即時実行も同じ位置へ足して
+ *   自己検査 103/103 緑（兄弟 87/87 緑）であった（2026-09-01 に総数 71 件／兄弟 56 件で
+ *   実測し、2026-09-04 に再実測）。**これらの形は `FUNCTION_FORM_SPECIMENS` が
+ *   `verdict: 'residual'` として実体で持つ**ため、散文の数え上げではなく述語で固定されている
+ *   （網羅の主張ではない）
  */
 function checkNoFindingsNarrowing(): string[] {
   const failures: string[] = [];
@@ -1461,9 +1878,9 @@ function checkRealRepositoryIsScanned(): string[] {
  * `run` は `collectDesignDocuments` の戻りを逐語で `scannedFiles` へ載せるため、その突き合わせは
  * 両辺が同じ値になり**原理的に落ちない**。実際、共有部品へ `if (entry.name === 'site-survey')
  * continue;` を差し込む変異を当てても、その節を持つ版のこの対照は緑のままであった
- * （同じ変異で自己検査は 72 件中 2 件が落ちる。落としたのは {@link checkNoFindingsNarrowing} の
+ * （同じ変異で自己検査は 103 件中 2 件が落ちる。落としたのは {@link checkNoFindingsNarrowing} の
  * 全行の突き合わせと {@link checkRealRepositoryIsScanned} の独立列挙との完全一致である。
- * 2026-09-01 に実測）。走査対象が実データで正しいことは、`.kiro/specs` を自前で
+ * 2026-09-01 に総数 72 件で実測し、総数が 103 件になった 2026-09-04 に再実測した）。走査対象が実データで正しいことは、`.kiro/specs` を自前で
  * 読み直す {@link checkRealRepositoryIsScanned} が所管する（タスク 115.229 の教訓:
  * 一元化のあと、一致を見張っていた対照が恒真になっていないか確かめること）。
  */
@@ -1610,7 +2027,9 @@ function checkLineColumnTableIsDetected(): string[] {
     '| `frontend/src/components/site-surveys/gestures/touchGestureManager.ts` | 1 |',
   ].join('\n');
   // 素材が空（または本番コードの言及を失った）なら、以下の「検出しない」は恒真になる
-  // （第3原則。115.252 の候補5。実測 2026-09-03: `corrected` の中身を空にすると 72/72 緑・EXIT=0）
+  // （第3原則。115.252 の候補5。実測 2026-09-03: 本関門を置く前は `corrected` の中身を
+  // 空にすると 72/72 緑・EXIT=0 であった。関門を置いた現在の形で同じ変異を当てると
+  // 103 件中 1 件が落ちる——2026-09-04 に総数 103 件で再実測）
   if (!corrected.includes('touchGestureManager.ts')) {
     failures.push('是正後の表の見本が本番コードの言及を持たない（この確認が空振りしています）');
   }
@@ -1626,7 +2045,9 @@ function checkLineColumnTableIsDetected(): string[] {
   // (d) 本番コードの言及が無い行は、`行` 列があっても拾わない
   const withoutSource = ['| 章 | 行 | 件数 |', '|---|---|---|', '| 前書き | 20 | 1 |'].join('\n');
   // 素材が空（または `行` 列を失った）なら、以下の「検出しない」は恒真になる
-  // （第3原則。115.252 の候補5。実測 2026-09-03: `withoutSource` の中身を空にすると 72/72 緑・EXIT=0）
+  // （第3原則。115.252 の候補5。実測 2026-09-03: 本関門を置く前は `withoutSource` の中身を
+  // 空にすると 72/72 緑・EXIT=0 であった。関門を置いた現在の形で同じ変異を当てると
+  // 103 件中 1 件が落ちる——2026-09-04 に総数 103 件で再実測）
   if (!withoutSource.includes('| 章 | 行 | 件数 |')) {
     failures.push(
       '本番コードの言及が無い表の見本が `行` 列を持たない（この確認が空振りしています）'
@@ -1687,6 +2108,11 @@ const STRUCTURAL: Case[] = [
     expected: false,
     custom: checkPositiveControlsArePresent,
   },
+  {
+    name: '関数の書き方の対照群の構成（捕らえる形・取りこぼし・偽陽性・正しい不検出が揃う）',
+    expected: false,
+    custom: checkFunctionFormSpecimenComposition,
+  },
 ];
 
 // ============================================================================
@@ -1726,7 +2152,8 @@ function polarityOf(one: Case): 'positive' | 'negative' | undefined {
 /**
  * 陽性対照・陰性対照の件数の下限（タスク 115.252）
  *
- * 2026-09-03 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
+ * 2026-09-04 にリポジトリルートで実測した現況ちょうど（余裕ゼロ。タスク 115.266 が
+ * 関数の書き方の対照群を足した分だけ上げた。**下げてはならない**）。抽出は
  * `npx tsx scripts/list-control-polarity-floors.ts` が出す値をそのまま置く。
  *
  * **総数の下限だけでは片側の消失を捕まえられない。** 陽性対照を削って同じ数だけ陰性対照を
@@ -1739,14 +2166,15 @@ const MINIMUM_NEGATIVE_CONTROLS = 27;
 /**
  * 確認の総数の下限（タスク 115.252）
  *
- * 2026-09-03 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
+ * 2026-09-04 にリポジトリルートで実測した現況ちょうど（余裕ゼロ。タスク 115.266 が
+ * 関数の書き方の対照群を足した分だけ上げた。**下げてはならない**）。抽出は
  * `npx tsx scripts/check-design-code-reference-format.selftest.ts | tail -1` の出す値をそのまま置く。
  * **確認を減らす向きの書き換えは差分に現れる。**
  *
  * **下限を構造から導く語彙がこの検査には無い**（115.222 は本体の検査種別の直和型から導けた）。
  * 導けないため件数で貼る。
  */
-const MINIMUM_TOTAL_CASES = 72;
+const MINIMUM_TOTAL_CASES = 103;
 
 /**
  * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）
@@ -1856,6 +2284,10 @@ function main(): void {
     {
       title: '捕捉してはならない書き方（過検出）',
       cases: MUST_NOT_DETECT,
+    },
+    {
+      title: '関数の書き方の対照群（抽出と最上位の束縛の実測）',
+      cases: FUNCTION_FORM_CONTROLS,
     },
     { title: '走査対象と前提条件', cases: STRUCTURAL },
   ];
