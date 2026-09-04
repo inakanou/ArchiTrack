@@ -371,7 +371,7 @@ export const GOVERNED_DOCUMENTS: readonly string[] = [
  * そのため「是正後の版で `0` を返す」側は宣言に載せず、是正前の版の `10` と、
  * 番号だけを網に掛けた `12` / `2` の対で同じ変化を固定した。
  */
-export const MINIMUM_ENTRIES = 66;
+export const MINIMUM_ENTRIES = 78;
 
 /**
  * 文書側が現に古い値を載せていると宣言してよい件数（完全一致）
