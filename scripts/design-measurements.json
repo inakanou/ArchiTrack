@@ -448,6 +448,42 @@
       "expected": "46",
       "documentRendering": "是正後は 46 行",
       "note": "同十本目。是正後の版 `0f3c6d33` に固定（タスク 115.273 が遡って版を名指した）"
+    },
+    {
+      "id": "steering-design-path-refs-exemptions-record",
+      "file": ".kiro/steering/development-discipline.md",
+      "anchor": "提出時点の再実測は 123 件である",
+      "command": "git grep -h -oE '再実測は [0-9]+ 件である' 114e3179 -- .kiro/steering/development-discipline.md | grep -oE '[0-9]+'",
+      "expected": "123",
+      "documentRendering": "123 件",
+      "note": "「記録が引く件数は提出時に測り直す」節が引く `check:design-path-refs` の免除件数。記録が書き込まれた版 `114e3179` に固定（タスク 115.276）"
+    },
+    {
+      "id": "steering-design-path-refs-exemptions-record-restated",
+      "file": ".kiro/steering/development-discipline.md",
+      "anchor": "測ったところ、いずれも 123 件であった",
+      "command": "git grep -h -oE 'いずれも [0-9]+ 件であった' 114e3179 -- .kiro/steering/development-discipline.md | grep -oE '[0-9]+'",
+      "expected": "123",
+      "documentRendering": "123 件",
+      "note": "同じ免除件数を追記の前後で測った旨を述べる再掲。同じ版 `114e3179` に固定（タスク 115.276）"
+    },
+    {
+      "id": "steering-cf-evidence-sentences-record",
+      "file": ".kiro/steering/development-discipline.md",
+      "anchor": "再実測は 62 文 / 18 ファイルである",
+      "command": "git grep -h -oE '再実測は [0-9]+ 文' 114e3179 -- .kiro/steering/development-discipline.md | grep -oE '[0-9]+'",
+      "expected": "62",
+      "documentRendering": "62 文",
+      "note": "`check:cf-evidence:survey` の母集団（文の数）の記録。版 `114e3179` に固定。現況は 162 文であり、作業ツリー読みでは記録が偽になる（タスク 115.276）"
+    },
+    {
+      "id": "steering-cf-evidence-files-record",
+      "file": ".kiro/steering/development-discipline.md",
+      "anchor": "再実測は 62 文 / 18 ファイルである",
+      "command": "git grep -h -oE '[0-9]+ ファイルである' 114e3179 -- .kiro/steering/development-discipline.md | grep -oE '[0-9]+'",
+      "expected": "18",
+      "documentRendering": "18 ファイル",
+      "note": "同じ母集団のファイル数の記録。版 `114e3179` に固定。現況は 28 ファイル（タスク 115.276）"
     }
   ]
 }

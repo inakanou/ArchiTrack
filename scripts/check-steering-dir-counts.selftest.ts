@@ -56,6 +56,9 @@ import {
 
 const SELFTEST_PATH = fileURLToPath(import.meta.url);
 
+/** リポジトリルート（本ファイルは scripts/ 直下に置かれる） */
+const REPOSITORY_ROOT = path.resolve(path.dirname(SELFTEST_PATH), '..');
+
 /** 取り逃がしてはならない書き方（緩む向きの対照）。中核は是正前に実在した行である */
 const MUST_DETECT: { label: string; line: string }[] = [
   {
@@ -291,6 +294,69 @@ function checkDetectorPositiveControl(): void {
   }
 }
 
+/**
+ * 走査対象の steering 文書の数（完全一致。タスク 115.276）
+ *
+ * `structure.md`（115.275）と `product.md`（115.276）の二件である。
+ * **この定数はタスク 115.276 の判断の掛け金である**——走査範囲を狭めれば赤くなり、
+ * 広げるときも定数の書き換えを伴うので差分に必ず現れる（115.262 / 115.271 / 115.273 の作法）。
+ *
+ * 入れなかった二文書の根拠は本体の冒頭「走査範囲」に実測がある
+ * （`tech.md` は実体でない件数が 1 件掛かり、`development-discipline.md` は
+ * 数値と実測日が別の行に分かれた散文が 10 行掛かる。コミット `079604bb`、2026-09-05 に実測）。
+ */
+const SCANNED_STEERING_DOCUMENTS = 2;
+
+/** 走査対象の件数が宣言どおりであること（狭める向きの無言の縮小を塞ぐ） */
+function checkScannedDocumentCount(): void {
+  const declared = (TARGET_DOCUMENTS as readonly string[]).length;
+  if (declared !== SCANNED_STEERING_DOCUMENTS) {
+    fail(
+      'SCOPE',
+      `走査対象が ${declared} 件で、宣言した ${SCANNED_STEERING_DOCUMENTS} 件と一致しません` +
+        '（SCANNED_STEERING_DOCUMENTS を見よ。範囲を動かす判断は実測とともに書くこと）'
+    );
+  }
+  for (const required of ['.kiro/steering/structure.md', '.kiro/steering/product.md']) {
+    if (!(TARGET_DOCUMENTS as readonly string[]).includes(required)) {
+      fail('SCOPE', `${required} が走査対象から外れています`);
+    }
+  }
+}
+
+/**
+ * 規約 (b) へ移した記述が本当に免除ではなく「掛からない」こと（タスク 115.276）
+ *
+ * 規約 (a)（実測日を添える）は免除として数えられるが、規約 (b)（数値を落として数える手段を
+ * 書く）は**数値そのものが消える**ため判定の入口に入らない。両者を取り違えると、
+ * 数値が残ったまま緑になる経路を見落とす。是正後の `product.md` の当該行を逐語で当てる。
+ */
+function checkRegimeBLineIsNotMerelyExempted(): void {
+  const pattern = buildCountPattern(ARTIFACT_COUNT_UNITS);
+  const document = path.join(REPOSITORY_ROOT, '.kiro/steering/product.md');
+  const lines = readFileSync(document, 'utf8')
+    .split('\n')
+    .filter((raw) => raw.includes('コンポーネントドキュメント') && raw.includes('Storybook'));
+  if (lines.length !== 1) {
+    fail('REGIME_B', `product.md の Storybook の記述が ${lines.length} 行あります（1 行を期待）`);
+    return;
+  }
+  const line = lines[0] ?? '';
+  if (pattern.test(line)) {
+    fail('REGIME_B', `規約 (b) へ移した行に「数値 + 単位語」が残っています: ${line.slice(0, 90)}`);
+  }
+  if (!line.includes('git ls-files')) {
+    fail('REGIME_B', '規約 (b) の数える手段が当該行から失われています');
+  }
+  const reverted = line.replace('ストーリーファイルの数は', '141ストーリーファイル、数は');
+  if (findDatelessCount(reverted, pattern) === undefined) {
+    fail(
+      'REGIME_B',
+      '是正前の綴り（`141ストーリーファイル`）が検出されません（陽性の対照が死んでいます）'
+    );
+  }
+}
+
 /** 本番の走査対象が実在すること（対象を消して緑にする経路を塞ぐ） */
 function checkRealTargetExists(): void {
   const result = run();
@@ -314,6 +380,8 @@ function main(): void {
   checkDatePatternShape();
   checkVacuousRunsFail();
   checkDetectorPositiveControl();
+  checkScannedDocumentCount();
+  checkRegimeBLineIsNotMerelyExempted();
   checkRealTargetExists();
 
   const total = MUST_DETECT.length + MUST_NOT_DETECT.length;

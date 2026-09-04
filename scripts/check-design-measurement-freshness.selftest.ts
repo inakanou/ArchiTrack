@@ -1752,12 +1752,17 @@ const NARROWING_GUARD: TestCase[] = [
  * 一致1件・不一致1件・正しく宣言された食い違い（宣言 + 1 件）の仮マニフェストを与え、
  * 終了コードと報告件数を固定する
  *
- * 報告される 4 件の内訳は、不一致 1 件・下限割れ 1 件・所管の文書の未被覆 1 件・
- * 宣言された食い違いの超過 1 件である。**前提が崩れた仮マニフェストを合格にしないこと**が
- * ここで固定される（宣言が下限 29 件を下回るため、不一致が無くても赤い）。
+ * 報告の内訳は、不一致 1 件・下限割れ 1 件・**所管の文書の未被覆（{@link GOVERNED_DOCUMENTS}
+ * の件数ぶん）**・宣言された食い違いの超過 1 件である。**前提が崩れた仮マニフェストを
+ * 合格にしないこと**がここで固定される（宣言が下限 29 件を下回るため、不一致が無くても赤い）。
  * 食い違いの件数は {@link DECLARED_STALE_DOCUMENT_FIGURES} から組み立てるため、
  * 定数を締めても緩めても内訳は変わらない（タスク 115.270 が定数を 4 から 0 へ締めた際、
  * 「不足 1 件」が構成不能になったため「超過 1 件」へ改めた）。
+ *
+ * **未被覆の件数は手で写さず {@link GOVERNED_DOCUMENTS} から導く**（タスク 115.276）。
+ * 是正前は `4` を貼っていたため、所管の文書を一件足しただけでこの確認が落ちた。
+ * 導く形にすると、所管を増やす変更が本確認の書き換えを要求しなくなる一方、
+ * 未被覆の指摘が一件でも出なくなれば件数が合わずに落ちる。
  */
 function checkSubprocessBehaviour(): string[] {
   const failures: string[] = [];
@@ -1812,10 +1817,12 @@ function checkSubprocessBehaviour(): string[] {
       if (line.startsWith('   - ')) reported.push(line);
     }
     failures.push(...expect(result.status === 1, `終了コードが 1 でない: ${result.status}`));
+    // 不一致 1 件・下限割れ 1 件・宣言された食い違いの超過 1 件 + 所管の文書の未被覆（文書の数だけ）
+    const expectedReports = 3 + GOVERNED_DOCUMENTS.length;
     failures.push(
       ...expect(
-        reported.length === 4,
-        `報告件数が 4 件でない: ${reported.length}\n${result.stderr}`
+        reported.length === expectedReports,
+        `報告件数が ${expectedReports} 件でない: ${reported.length}\n${result.stderr}`
       )
     );
     failures.push(
@@ -2177,6 +2184,171 @@ const FOREIGN_SCAN_PINNING: TestCase[] = [
 ];
 
 // ============================================================================
+// steering の実測記録を版で固定する（タスク 115.276）
+// ============================================================================
+
+/**
+ * steering 文書の実測記録を宣言した件数のうち、**版で固定した**もの（完全一致）
+ *
+ * `.kiro/steering/development-discipline.md` の「記録が引く件数は提出時に測り直す」節が
+ * 引く四値（`123 件` が 2 箇所、`62 文`、`18 ファイル`）にあたる。
+ *
+ * **なぜ本検査が steering を見るのか（タスク 115.276 の判断。実測で決めた）。**
+ * 起票（115.276）の実測は「115.235 が是正した免除件数を旧値へ戻す変異を当てても五つの関門が
+ * すべて EXIT=0 のまま」であった。**六つ目の関門（`check:steering-dir-counts`。115.275 が新設）
+ * を加えて同じ変異を当て直しても、六つとも EXIT=0 のままである**——`123 件` → `119 件`、
+ * `62 文 / 18 ファイル` → `35 文 / 9 ファイル` の三箇所を戻して測った
+ * （コミット `079604bb`、2026-09-05 にリポジトリルートで実測）。115.275 の関門は
+ * `structure.md` の**行単位の**規則であり、同書の散文（数値と実測日が別の行に分かれる形）を
+ * 対象にしていないためである。
+ *
+ * **なぜ版で固定するのか（115.273 の作法へ揃えた）。** これらは「115.235 の提出時点の
+ * 再実測」という**過去の版についての記録**であり、現況を名乗る主張ではない。作業ツリーを
+ * 読む形で宣言すると、記録が指す版ではなく今日の値と突き合わせることになり、記録そのものが
+ * 偽になる。実際 `check:cf-evidence` の母集団は記録の 62 文 / 18 ファイルに対し
+ * 現況が **162 文 / 28 ファイル**である（同じコミット・同日に
+ * `npm run check:cf-evidence:survey` の要約行で実測）。**作業ツリー読みなら着手時点で赤い。**
+ *
+ * 版は記録が書き込まれたコミット `114e3179` である。記録の本文が名指す `46f1138` は
+ * **測った対象の版**であって記録が入った版ではない——`git log -S '提出時点の再実測は 123 件'
+ * --oneline --reverse -- .kiro/steering/development-discipline.md` が挙げるのは `114e3179`
+ * 一件である（同日に実測）。
+ *
+ * **この定数はタスク 115.276 の判断の掛け金である。** 増やす向きも減らす向きも定数の
+ * 書き換えを伴う（115.262 / 115.271 / 115.273 の作法）。
+ *
+ * **保証しないこと（残余）**: 版で固定した命令が確かめるのは「記録が書かれた版でも同じ値で
+ * あった」ことだけである。**その値が当時の実体と一致していたかは見ない**——`123 件` を
+ * 当時の作業ツリーで測り直すには版を展開する必要があり、宣言の命令（読み取り専用の綴りに
+ * 限る）では書けない。すなわち本宣言が塞ぐのは**記録の無言の書き換え**であって、
+ * 記録が最初から誤っていた場合ではない。
+ */
+const PINNED_STEERING_RECORD_DECLARATIONS = 4;
+
+/**
+ * steering 文書を**作業ツリーから**測る宣言の数（完全一致）
+ *
+ * **0 件である。** steering に残る実測値のうち現況を名乗るものは規約 (b)（数値を落として
+ * 数える手段を書く）へ移してあり、宣言に載せる現況の数値が無い。タスク 115.276 は
+ * `product.md` の `141ストーリーファイル`（実測 157）をここへ載せる案を測ったうえで採らなかった
+ * ——同じ値を作業ツリー読みで宣言すると、直近 500 コミットのうち **373 件（74.6%）**で
+ * 押下が止まる（`git rev-list -n 500 HEAD` の各版で
+ * `git ls-tree -r --name-only <版> | grep -c '\.stories\.tsx\?$'` を数えた。値の分布は
+ * 141:64 / 142:60 / 157:127 / 158:62 / 159:95 / 162:9 / 163:61 / 164:22。
+ * コミット `079604bb`、2026-09-05 に実測）。115.273 が受け入れた作業ツリー読み 1 件の代償が
+ * 17.9% であったのと比べても四倍を超える。同値は `check:steering-dir-counts` の
+ * 走査対象へ `product.md` を加えることで規約 (b) 側から守る。
+ */
+const LIVE_STEERING_RECORD_DECLARATIONS = 0;
+
+/** steering 文書を指す宣言の見分け */
+function isSteeringDeclaration(entry: ManifestEntry): boolean {
+  return String(entry.file ?? '').startsWith('.kiro/steering/');
+}
+
+/** steering を指す宣言のうち、版で固定した／していないものを数える */
+function countSteeringDeclarations(entries: readonly ManifestEntry[], pinned: boolean): number {
+  let count = 0;
+  for (const entry of entries) {
+    if (!isSteeringDeclaration(entry)) continue;
+    if (isPinnedToRevision(String(entry.command ?? '')) === pinned) count += 1;
+  }
+  return count;
+}
+
+const STEERING_RECORD_PINNING: TestCase[] = [
+  {
+    name: 'steering の実測記録が宣言され、いずれも版で固定されている',
+    polarity: 'negative',
+    run() {
+      const { entries } = loadManifest(path.join(ROOT, DEFAULT_MANIFEST_PATH));
+      const pinned = countSteeringDeclarations(entries, true);
+      return expect(
+        pinned === PINNED_STEERING_RECORD_DECLARATIONS,
+        `版で固定した steering の宣言が ${pinned} 件で、宣言した ${PINNED_STEERING_RECORD_DECLARATIONS} 件と一致しません` +
+          '（PINNED_STEERING_RECORD_DECLARATIONS を見よ）'
+      );
+    },
+  },
+  {
+    name: 'steering を作業ツリーから測る宣言が宣言した件数ちょうどである',
+    polarity: 'negative',
+    run() {
+      const { entries } = loadManifest(path.join(ROOT, DEFAULT_MANIFEST_PATH));
+      const live = countSteeringDeclarations(entries, false);
+      return expect(
+        live === LIVE_STEERING_RECORD_DECLARATIONS,
+        `steering を作業ツリーから測る宣言が ${live} 件で、宣言した ${LIVE_STEERING_RECORD_DECLARATIONS} 件と一致しません` +
+          '（LIVE_STEERING_RECORD_DECLARATIONS を見よ。代償の実測を読んでから動かすこと）'
+      );
+    },
+  },
+  {
+    name: 'steering 文書が本検査の所管に入っている',
+    polarity: 'negative',
+    run() {
+      return expect(
+        GOVERNED_DOCUMENTS.includes('.kiro/steering/development-discipline.md'),
+        '`.kiro/steering/development-discipline.md` が GOVERNED_DOCUMENTS に在りません' +
+          '（所管から外すと、同書を指す宣言を一件残らず削っても緑で通ります）'
+      );
+    },
+  },
+  {
+    name: '設計文書を指す宣言は steering の宣言として数えない',
+    polarity: 'positive',
+    run() {
+      const entries: ManifestEntry[] = [
+        {
+          id: 'design-side',
+          file: '.kiro/specs/site-survey/design.md',
+          anchor: 'a',
+          command: "git grep -c x 114e3179 -- '.kiro/steering/development-discipline.md'",
+          expected: '1',
+        },
+      ];
+      return expect(
+        countSteeringDeclarations(entries, true) + countSteeringDeclarations(entries, false) === 0,
+        '設計文書を指す宣言が steering の宣言として数えられてしまう'
+      );
+    },
+  },
+  {
+    name: '版の名指しを外した steering の宣言は「固定されている」と数えない',
+    polarity: 'positive',
+    run() {
+      const pinnedCommand =
+        "git grep -h -oE '再実測は [0-9]+ 件である' 114e3179 " +
+        "-- .kiro/steering/development-discipline.md | grep -oE '[0-9]+'";
+      const strippedCommand = pinnedCommand.replace(' 114e3179 -- ', ' -- ');
+      const sample = (command: string): ManifestEntry[] => [
+        {
+          id: 'sample',
+          file: '.kiro/steering/development-discipline.md',
+          anchor: 'a',
+          command,
+          expected: '123',
+        },
+      ];
+      return [
+        ...expect(
+          countSteeringDeclarations(sample(pinnedCommand), true) === 1,
+          '版を名指した宣言が固定として数えられていない'
+        ),
+        ...expect(
+          countSteeringDeclarations(sample(strippedCommand), true) === 0,
+          '版の名指しを外しても固定として数えられてしまう'
+        ),
+        ...expect(
+          countSteeringDeclarations(sample(strippedCommand), false) === 1,
+          '版の名指しを外した宣言が作業ツリー読みとして数えられていない'
+        ),
+      ];
+    },
+  },
+];
+
+// ============================================================================
 // 実データの対照
 // ============================================================================
 
@@ -2222,14 +2394,16 @@ const REAL_DATA: TestCase[] = [
  * 陽性 13→16・陰性 3→5 へ、タスク 115.272 が陽性 16→20 へ貼り直した）。抽出は
  * `npx tsx scripts/list-control-polarity-floors.ts` が出す値をそのまま置く。
  * **タスク 115.273 が陽性 20→22・陰性 5→7 へ貼り直した**（走査記録の宣言を版で固定する
- * 対照 4 件を足したぶん。2026-09-04 に実測）。
+ * 対照 4 件を足したぶん。2026-09-04 に実測）。**タスク 115.276 が陽性 22→24・陰性 7→10 へ
+ * 貼り直した**（steering の実測記録の宣言を版で固定する対照 5 件を足したぶん。
+ * コミット `079604bb` の作業ツリーで 2026-09-05 に実測）。
  *
  * **総数の下限だけでは片側の消失を捕まえられない。** 陽性対照を削って同じ数だけ陰性対照を
  * 足せば総数は動かないため、極性ごとに別の下限を貼る。極性は要素の宣言（`expected` ないし
  * `polarity`）から導き、**名前の綴りからは導かない**（115.247 の作法）。
  */
-const MINIMUM_POSITIVE_CONTROLS = 22;
-const MINIMUM_NEGATIVE_CONTROLS = 7;
+const MINIMUM_POSITIVE_CONTROLS = 24;
+const MINIMUM_NEGATIVE_CONTROLS = 10;
 
 /**
  * 確認の総数の下限（タスク 115.252）
@@ -2237,7 +2411,9 @@ const MINIMUM_NEGATIVE_CONTROLS = 7;
  * 2026-09-04 にリポジトリルートで実測した現況ちょうど（余裕ゼロ。タスク 115.271 の着手時点は
  * 宣言 31 件に対し現況 32 件で遊びが 1 件あった。同タスクが 115.262 の作法へ揃えて貼り直し、
  * タスク 115.272 が壊れた宣言項目の対照 5 件を足して 36→41 へ貼り直し、
- * タスク 115.273 が走査記録の宣言を版で固定する対照 4 件を足して 41→45 へ貼り直した）。
+ * タスク 115.273 が走査記録の宣言を版で固定する対照 4 件を足して 41→45 へ貼り直し、
+ * タスク 115.276 が steering の実測記録の宣言を版で固定する対照 5 件を足して 45→50 へ
+ * 貼り直した）。
  * 抽出は `npx tsx scripts/check-design-measurement-freshness.selftest.ts | tail -1` の出す値を
  * そのまま置く。**確認を減らす向きの書き換えは差分に現れる。**
  *
@@ -2245,7 +2421,7 @@ const MINIMUM_NEGATIVE_CONTROLS = 7;
  * 本体 `check-design-measurement-freshness.ts` の指摘は文字列で組み立てられ、種別の直和型を
  * 持たない。導けないため件数で貼る。
  */
-const MINIMUM_TOTAL_CASES = 45;
+const MINIMUM_TOTAL_CASES = 50;
 
 /**
  * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）
@@ -2355,6 +2531,7 @@ function main(): void {
     { title: '絞り込みの経路を作らせない', cases: NARROWING_GUARD },
     { title: '挙動（サブプロセス）', cases: BEHAVIOUR },
     { title: '走査記録の宣言を版で固定する', cases: FOREIGN_SCAN_PINNING },
+    { title: 'steering の実測記録の宣言を版で固定する', cases: STEERING_RECORD_PINNING },
     { title: '実データの対照', cases: REAL_DATA },
   ];
 

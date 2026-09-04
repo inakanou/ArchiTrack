@@ -304,8 +304,24 @@ export const DEFAULT_MANIFEST_PATH = 'scripts/design-measurements.json';
  * 宣言が必ず一件以上覆っていなければならない文書
  *
  * 文書がここに挙がっていて宣言が一件も無ければ失敗する。文書を増やすときはここへ足す。
+ *
+ * **タスク 115.276 が steering 文書を一件加えた。** 加えた理由は「steering の実測値に鮮度の
+ * 関門が無い」ことの実測である——115.235 が是正した免除件数を旧値へ戻す変異を当てても、
+ * `check:steering-refs` / `check:steering-idents` / `check:steering-test-tree` /
+ * `check:steering-dir-counts` / 本検査 / `check:design-path-refs` の**六つがすべて EXIT=0**
+ * のままであった（コミット `079604bb`、2026-09-05 にリポジトリルートで実測）。
+ * 115.275 が新設した `check:steering-dir-counts` は `structure.md` と `product.md` を
+ * **行単位で**見るため、数値と実測日が別の行に分かれる `development-discipline.md` の散文には
+ * 届かない。本検査は錨の行を名指す形なので、行の折り返しに依存せず同書を覆える。
+ *
+ * 同書の宣言は**いずれも版で固定する**（115.273 の作法）。理由と代償の実測は
+ * 自己検査の `PINNED_STEERING_RECORD_DECLARATIONS` / `LIVE_STEERING_RECORD_DECLARATIONS`
+ * に置いた。
  */
-export const GOVERNED_DOCUMENTS: readonly string[] = ['.kiro/specs/site-survey/design.md'];
+export const GOVERNED_DOCUMENTS: readonly string[] = [
+  '.kiro/specs/site-survey/design.md',
+  '.kiro/steering/development-discipline.md',
+];
 
 /**
  * 宣言の件数の下限。**遊びを持たせない**（タスク 115.271 が 115.262 の作法へ揃えた）
@@ -332,8 +348,15 @@ export const GOVERNED_DOCUMENTS: readonly string[] = ['.kiro/specs/site-survey/d
  * `#### 他スペックの設計文書の走査（タスク 115.234）` が印字する二十値であり、
  * いずれも読む先の版を名指す（`git grep <版> -- ...`）。版で固定した理由は
  * 自己検査の `PINNED_FOREIGN_SCAN_DECLARATIONS` に実測とともに書いた。
+ *
+ * **タスク 115.276 が 50 件から 54 件へ上げた。** 増分の 4 件は
+ * `.kiro/steering/development-discipline.md` の「記録が引く件数は提出時に測り直す」節が引く
+ * 四値（`123 件` が 2 箇所・`62 文`・`18 ファイル`）であり、いずれも記録が書き込まれた版
+ * `114e3179` を名指す。版で固定した理由と、作業ツリー読みを採らなかった代償の実測は
+ * 自己検査の `PINNED_STEERING_RECORD_DECLARATIONS` / `LIVE_STEERING_RECORD_DECLARATIONS`
+ * に書いた。
  */
-export const MINIMUM_ENTRIES = 50;
+export const MINIMUM_ENTRIES = 54;
 
 /**
  * 文書側が現に古い値を載せていると宣言してよい件数（完全一致）
