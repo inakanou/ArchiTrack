@@ -282,6 +282,134 @@ const DETECTION: TestCase[] = [
       ];
     },
   },
+  {
+    // 幻の表が生じない側（引用を宣言と読まない）。逆向き——正当な表頭を落とさない側——は
+    // 次の確認と、実データの群の「実データの表頭はいずれもフェンスの外にある」が持つ。
+    name: 'コードフェンスの中に引かれた表頭を表と数えない（タスク 115.263）',
+    polarity: 'negative',
+    run() {
+      const design = `${designDocument(['| 1.1 | a | X | - | - |'])}
+## 追跡表の書き方（説明のための引用）
+
+\`\`\`markdown
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 9.9 | 見本の行（この表は実在しない） | ExampleService | - | - |
+\`\`\`
+`;
+      const { tables, rows } = extractTraceabilityRows(design);
+      const { covered } = expandRequirementColumn(rows);
+      return [
+        ...expect(tables === 1, `フェンスの中の表頭まで数えている: ${tables}`),
+        ...expect(rows.length === 1, `本文行が 1 行でない: ${rows.length}`),
+        ...expect(covered.has('REQ-1.1'), '実在する表の行を落としている（この確認が空振り）'),
+        ...expect(!covered.has('REQ-9.9'), '見本の行が被覆済みに化けている'),
+      ];
+    },
+  },
+  {
+    name: 'フェンスを閉じた後の表頭は宣言として数える（正当な表を落とさない。タスク 115.263）',
+    polarity: 'negative',
+    run() {
+      const design = `# 設計
+
+\`\`\`markdown
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 9.9 | 見本の行 | ExampleService | - | - |
+\`\`\`
+
+${designDocument(['| 1.1 | a | X | - | - |', '| 1.2 | b | Y | - | - |'])}`;
+      const { tables, rows } = extractTraceabilityRows(design);
+      const { covered } = expandRequirementColumn(rows);
+      return [
+        ...expect(
+          tables === 1,
+          `フェンスの後の表を数え損ねている（または見本も数えた）: ${tables}`
+        ),
+        ...expect(rows.length === 2, `本文行が 2 行でない: ${rows.length}`),
+        ...expect(covered.has('REQ-1.1') && covered.has('REQ-1.2'), '正当な表の行が落ちている'),
+        ...expect(!covered.has('REQ-9.9'), '見本の行が被覆済みに化けている'),
+      ];
+    },
+  },
+  {
+    name: '開きより短い区切り・別種の記号ではフェンスを閉じない（入れ子の見本。タスク 115.263）',
+    polarity: 'negative',
+    run() {
+      // 外側を ```` で開き、内側の ``` を閉じと読めば、以降の見本が宣言に化ける。
+      const nested = `${designDocument(['| 1.1 | a | X | - | - |'])}
+\`\`\`\`markdown
+\`\`\`
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 9.9 | 見本の行 | ExampleService | - | - |
+\`\`\`\`
+`;
+      // 記号の異なる区切り（\`\`\` の中の ~~~）も閉じではない。
+      const mixed = `${designDocument(['| 1.1 | a | X | - | - |'])}
+\`\`\`markdown
+~~~
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 8.8 | 見本の行 | ExampleService | - | - |
+\`\`\`
+`;
+      const nestedResult = extractTraceabilityRows(nested);
+      const mixedResult = extractTraceabilityRows(mixed);
+      return [
+        ...expect(nestedResult.tables === 1, `入れ子の見本を宣言と読んだ: ${nestedResult.tables}`),
+        ...expect(
+          !expandRequirementColumn(nestedResult.rows).covered.has('REQ-9.9'),
+          '入れ子の見本の行が被覆済みに化けている'
+        ),
+        ...expect(mixedResult.tables === 1, `別種の記号を閉じと読んだ: ${mixedResult.tables}`),
+        ...expect(
+          !expandRequirementColumn(mixedResult.rows).covered.has('REQ-8.8'),
+          '別種の記号の内側の見本の行が被覆済みに化けている'
+        ),
+      ];
+    },
+  },
+  {
+    /**
+     * フェンスの開閉を**文書の全体**で数える選択が持つ副作用を、落ちる向きごと固定する
+     * （タスク 115.263）
+     *
+     * 閉じ忘れのフェンスは以降の表をすべて飲み込む。これは Markdown の読まれ方そのもので
+     * あって誤読ではないが、**黙って通ってはならない**。飲み込みは本文行を減らす向きに働くため、
+     * `judgeFeature` の「本文行が 0 行なら前提の崩壊」ないし欠落の増加として必ず表に出る。
+     * 115.226 が `.ts` で範囲をコメントの塊へ狭めた理由——閉じ忘れが**無言で**被覆を落とす
+     * ——が Markdown では成り立たないことを、この確認が押さえる。
+     */
+    name: '閉じ忘れのフェンスが表を飲み込んでも黙って通らない（タスク 115.263）',
+    polarity: 'positive',
+    run() {
+      const design = `# 設計\n\n\`\`\`markdown\n${designDocument(['| 1.1 | a | X | - | - |'])}`;
+      const { tables, rows } = extractTraceabilityRows(design);
+      const root = makeSyntheticRoot({
+        f: { requirements: requirementsDocument([{ number: '1', criteria: ['あ'] }]), design },
+      });
+      try {
+        const policies: Record<string, FeaturePolicy> = {
+          f: { mode: 'ratchet', maxMissing: 0, maxOrphans: 0, maxUnparsed: 0, reason: '現況 0 件' },
+        };
+        const { failures } = judgeNamed(root, policies, ['f']);
+        return [
+          ...expect(
+            tables === 0 && rows.length === 0,
+            `飲み込まれていない: ${tables}/${rows.length}`
+          ),
+          ...expect(
+            failures.some((failure) => failure.includes('追跡表の本文行が 0 行です')),
+            `飲み込まれたまま通ってしまう: ${JSON.stringify(failures)}`
+          ),
+        ];
+      } finally {
+        removeRoot(root);
+      }
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -915,6 +1043,125 @@ const REAL_DATA: TestCase[] = [
     },
   },
   {
+    /**
+     * 引用の排除が実データの表頭を一つも落としていないこと（タスク 115.263）
+     *
+     * 是正の時点——コミット `3b5d6917` の作業ツリー、2026-09-04 に実測——で 13 機能の
+     * `design.md` が持つ表頭の字面は 32 件、うちフェンスの内側は 0 件、行頭以外に現れるものも
+     * 0 件であった。したがって是正は `npm run check:trace-coverage` の出力を一字も動かさない
+     * （`--verbose` と `--json` の双方で突き合わせて確認した）。
+     *
+     * **散文の観測は一時点のものであり、形を固定するのはこの確認である。** 実データが増えて
+     * フェンスの中に表頭の字面が現れれば件数の側は動くが、ここが求めるのは
+     * 「フェンスの外の表頭はすべて宣言として拾われること」であり、その要求は動かない。
+     */
+    name: '実データの表頭はいずれもフェンスの外にあり、一つも落ちていない（タスク 115.263）',
+    polarity: 'negative',
+    run() {
+      const failures: string[] = [];
+      let literalHeaders = 0;
+      let declaredTables = 0;
+      for (const feature of discoverFeatureNames(REPOSITORY_ROOT)) {
+        const designPath = path.join(
+          REPOSITORY_ROOT,
+          '.kiro/specs',
+          feature,
+          DESIGN_DOCUMENT_BASENAME
+        );
+        if (!fs.existsSync(designPath)) continue;
+        const content = fs.readFileSync(designPath, 'utf8');
+        const literal = content
+          .split('\n')
+          .filter((line) => TRACEABILITY_TABLE_HEADER.test(line)).length;
+        const { tables } = extractTraceabilityRows(content);
+        literalHeaders += literal;
+        declaredTables += tables;
+        failures.push(
+          ...expect(
+            literal === tables,
+            `${feature}: 字面 ${literal} 件のうち宣言と認めたのは ${tables} 件。` +
+              'フェンスの中に表頭の字面が現れたか、フェンスの追跡が正当な表頭を落としている。'
+          )
+        );
+      }
+      return [
+        ...failures,
+        ...expect(literalHeaders > 0, '表頭の字面が実データに 0 件（この対照が空振り）'),
+        ...expect(declaredTables > 0, '宣言と認めた表が 0 件（引用の排除が効きすぎている）'),
+      ];
+    },
+  },
+  {
+    /**
+     * 幻の表が欠落を隠せないこと（タスク 115.263 の陽性対照）
+     *
+     * 是正前の実測（2026-09-04、コミット `3b5d6917` の作業ツリー）: `site-survey` の追跡表から
+     * `4.14` を落としたうえで、フェンスで囲った見本の表に `| 4.14 |` の行を置くと、
+     * `REQ-4.14` は被覆済みへ化け、欠落として挙がらなくなった（表の数は 7 から 8 へ、
+     * 被覆は 344 件から 346 件へ増え、要件定義書に無い `REQ-99.1` まで被覆に入った）。
+     *
+     * この確認は**同じ本文をフェンスの有無だけで二通り作り**、隠蔽が成立しないこと（フェンス
+     * あり）と、囲いを外せば同じ本文が確かに隠蔽すること（フェンスなし）を同時に求める。
+     * 後者が対照の非空振りを担う——見本を宣言と読む経路が本当に在ることを示すため、
+     * 「フェンスを見ているから隠れない」という主張が別の理由にすり替わらない。
+     */
+    name: 'フェンスの中の幻の表は欠落を隠せない（陽性対照。タスク 115.263）',
+    polarity: 'positive',
+    run() {
+      const designPath = path.join(
+        REPOSITORY_ROOT,
+        '.kiro/specs/site-survey',
+        DESIGN_DOCUMENT_BASENAME
+      );
+      const requirements = fs.readFileSync(
+        path.join(REPOSITORY_ROOT, '.kiro/specs/site-survey/requirements.md'),
+        'utf8'
+      );
+      const design = fs.readFileSync(designPath, 'utf8');
+      const before = '| 4.1-4.6, 4.9, 4.14 |';
+      const after = '| 4.1-4.6, 4.9 |';
+      if (!design.includes(before)) {
+        return [`site-survey の追跡表に \`${before}\` の行が見つからない（陽性対照が空振り）`];
+      }
+      const phantomTable = [
+        '',
+        '## 追跡表の書き方（説明のための引用）',
+        '',
+        '| Requirement | Summary | Components | Interfaces | Flows |',
+        '|-------------|---------|------------|------------|-------|',
+        '| 4.14 | 見本の行（この表は実在しない） | ExampleService | - | - |',
+        '',
+      ];
+      const defective = design.replace(before, after);
+      const fenced = `${defective}\n${['```markdown', ...phantomTable, '```'].join('\n')}\n`;
+      const unfenced = `${defective}\n${phantomTable.join('\n')}\n`;
+
+      const measure = (content: string): { missing: readonly string[]; rows: number } => {
+        const root = makeSyntheticRoot({ 'site-survey': { requirements, design: content } });
+        try {
+          const measurement = measureFeature(root, 'site-survey');
+          return { missing: measurement.missing, rows: measurement.rows };
+        } finally {
+          removeRoot(root);
+        }
+      };
+
+      const withFence = measure(fenced);
+      const withoutFence = measure(unfenced);
+      return [
+        ...expect(
+          withFence.missing.includes('REQ-4.14'),
+          `フェンスの中の幻の表が欠落を隠している: 欠落 ${withFence.missing.length} 件`
+        ),
+        ...expect(withFence.rows > 0, `合成の根で本文行が 0 行（対照が空振り）: ${withFence.rows}`),
+        ...expect(
+          !withoutFence.missing.includes('REQ-4.14'),
+          '囲いを外しても隠蔽が起きない（隠蔽の経路そのものが無く、この対照は空振りしている）'
+        ),
+      ];
+    },
+  },
+  {
     name: '実データに対して既定の対象で判定が通る（宣言が現況と一致している）',
     run() {
       const { failures, measurements } = judge(REPOSITORY_ROOT);
@@ -935,28 +1182,30 @@ const REAL_DATA: TestCase[] = [
  *
  * 2026-09-04 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
  * `npx tsx scripts/list-control-polarity-floors.ts` が出す値をそのまま置く
- * （タスク 115.262 が陽性対照 4 件・陰性対照 1 件を足したぶん、6/3 から 10/4 へ上げた）。
+ * （タスク 115.262 が陽性対照 4 件・陰性対照 1 件を足して 6/3 から 10/4 へ、タスク 115.263 が
+ * 陽性対照 2 件・陰性対照 4 件を足して 10/4 から 12/8 へ上げた）。
  *
  * **総数の下限だけでは片側の消失を捕まえられない。** 陽性対照を削って同じ数だけ陰性対照を
  * 足せば総数は動かないため、極性ごとに別の下限を貼る。極性は要素の宣言（`expected` ないし
  * `polarity`）から導き、**名前の綴りからは導かない**（115.247 の作法）。
  */
-const MINIMUM_POSITIVE_CONTROLS = 10;
-const MINIMUM_NEGATIVE_CONTROLS = 4;
+const MINIMUM_POSITIVE_CONTROLS = 12;
+const MINIMUM_NEGATIVE_CONTROLS = 8;
 
 /**
  * 確認の総数の下限（タスク 115.252）
  *
  * 2026-09-04 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
  * `npx tsx scripts/check-traceability-coverage.selftest.ts | tail -1` の出す値をそのまま置く
- * （タスク 115.262 が 5 件を足したぶん、32 件から 37 件へ上げた）。
+ * （タスク 115.262 が 5 件を足して 32 件から 37 件へ、タスク 115.263 が 6 件を足して
+ * 37 件から 43 件へ上げた）。
  * **確認を減らす向きの書き換えは差分に現れる。**
  *
  * **下限を構造から導く語彙がこの検査には無い。** 115.222 は本体の検査種別の直和型から下限を
  * 導いたが、本体 `check-traceability-coverage.ts` の判定は `exact` / `ratchet` の 2 型しか
- * 持たず、37 件の確認の大半は型に対応しない。導けないため件数で貼る。
+ * 持たず、43 件の確認の大半は型に対応しない。導けないため件数で貼る。
  */
-const MINIMUM_TOTAL_CASES = 37;
+const MINIMUM_TOTAL_CASES = 43;
 
 /**
  * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）

@@ -83,6 +83,13 @@
  *   npm run check:trace-coverage:verbose
  *   npm run check:trace-coverage:survey    宣言を無視して実測値だけを印字する（宣言の更新用）
  *
+ * ## 引用された表頭を宣言と読まない（タスク 115.263）
+ *
+ * 表頭の字面は設計文書の中で**引用**されうる。コードフェンスで囲った見本の中の
+ * `| Requirement | Summary | Components |` を表の宣言と読むと**幻の表**が立ち、その見本行が
+ * 挙げる番号が「被覆済み」に化けて欠落を隠す。判定の理由と、タスク 115.226 が `.ts` の側で
+ * 確立した処方のどの半分が Markdown へ渡るのかは `markCodeFenceLines` に書いた。
+ *
  * ## 見ないこと（限界）
  *
  *   - Components / Interfaces / Flows 列の中身は見ない。**担い手の欠落は本検査の対象外**である
@@ -107,6 +114,95 @@ export const TRACEABILITY_TABLE_HEADER = /^\| *Requirement \| *Summary \| *Compo
 
 /** 設計文書のファイル名 */
 export const DESIGN_DOCUMENT_BASENAME = 'design.md';
+
+/**
+ * コードフェンスの区切り行（CommonMark の fenced code block）
+ *
+ * 開き・閉じのいずれも「字下げ 3 桁まで」「同じ記号（`` ` `` か `~`）が 3 つ以上」で始まる。
+ * 続きの文字列（情報文字列）は開きにだけ許される。
+ */
+const CODE_FENCE_DELIMITER = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+
+/** 開いているコードフェンス */
+interface OpenCodeFence {
+  /** 区切りの記号（`` ` `` か `~`） */
+  readonly marker: string;
+  /** 開きの記号の長さ。閉じはこれ以上の長さでなければならない */
+  readonly length: number;
+}
+
+/** 区切り行なら記号・長さ・情報文字列を返す。区切り行でなければ null */
+function readCodeFenceDelimiter(
+  line: string
+): { marker: string; length: number; info: string } | null {
+  const match = CODE_FENCE_DELIMITER.exec(line);
+  const run = match?.[1];
+  const marker = run?.[0];
+  if (run === undefined || marker === undefined) return null;
+  return { marker, length: run.length, info: match?.[2] ?? '' };
+}
+
+/**
+ * 引用された表頭を宣言と読まない（タスク 115.263）
+ *
+ * 表頭の字面は設計文書の**散文の中で引用されうる**。「追跡表の表頭は
+ * `| Requirement | Summary | Components |` である」と書く記述、あるいは書き方の見本を
+ * コードフェンスで囲って示す記述がそれである。これを表の宣言と読むと**幻の表**が生まれ、
+ * その見本行が挙げる番号が「被覆済み」に化けて**欠落を隠す**。
+ *
+ * これはタスク 115.226 が `check-requirement-coverage.ts` の被覆印のヘッダー検出で塞いだ
+ * 「字面と意味の取り違え」の、追跡表の側の同型である。ただし**同じ処方をそのまま当てては
+ * ならない**——115.226 が走査するのは `.ts` / `.tsx` であり、本検査が走査するのは Markdown
+ * だからである。処方の二つの半分は、こちらでは次のように分かれる。
+ *
+ *   1. **「行の中身の先頭にあること」の半分は、既に `TRACEABILITY_TABLE_HEADER` の `^` が
+ *      持っている。** Markdown にコメント記号は無く、同正規表現は行頭直後の `|` しか
+ *      認めないため（字下げも許さない）、散文の途中に引かれた字面
+ *      （``表頭は `| Requirement | …` である``）も、引用符号を前置した行
+ *      （`> | Requirement | …`）も、構造として当たらない。115.226 が
+ *      `DECLARATION_PREFIX_REGEX` を要したのは、コメント記号という「行の中身の前の飾り」が
+ *      `.ts` に在るためであり、**Markdown にはその飾りが無い**。実データでも行頭以外に現れる
+ *      表頭の字面は 0 件である（13 機能の `design.md`、2026-09-04 にコミット `3b5d6917` の
+ *      作業ツリーで実測）。この半分について足すべきものは無い。
+ *   2. **「コードフェンスの内側にないこと」の半分がこちらの要点である。** フェンスの中の
+ *      見本は行頭から `|` で始まるため、条件 1 では覆えない。ここで塞ぐのはこの一点である。
+ *
+ * **フェンスの開閉を数える範囲は文書の全体に取る。** 115.226 が数える範囲を「ヘッダーを囲む
+ * コメントの塊」へ閉じ込めたのは、`.ts` では塊の外の閉じ忘れのフェンス一つが以降の
+ * **すべての**ヘッダーを無言で落とし、被覆の過小計上と区間の過大帰属を同時に生むためだった。
+ * Markdown にはコメントの塊に相当する内側の範囲が無く、**フェンスは文書全体に掛かる構造**で
+ * あるから、全体で数えることが Markdown の読まれ方そのものである。加えて**落ちる向きが違う**
+ * ——閉じ忘れが表を飲み込めば本文行が減り、欠落が増え、`exact` の集合ないし `ratchet` の上限
+ * との食い違いとして**必ず赤くなる**（本文行が 0 行になる形は `judgeFeature` の前提の崩壊が
+ * 別途受け持つ）。無言で消える経路が無いため、範囲を狭める機構は要らない。この向きは自己検査の
+ * 「閉じ忘れのフェンスが表を飲み込んでも黙って通らない」が固定する。
+ *
+ * @param lines 設計文書を行へ分けたもの
+ * @returns 各行がフェンスの内側（区切り行そのものを含む）にあるか
+ */
+function markCodeFenceLines(lines: readonly string[]): boolean[] {
+  const inside: boolean[] = [];
+  let open: OpenCodeFence | null = null;
+  for (const line of lines) {
+    const delimiter = readCodeFenceDelimiter(line);
+    if (delimiter === null) {
+      inside.push(open !== null);
+      continue;
+    }
+    if (open === null) {
+      open = { marker: delimiter.marker, length: delimiter.length };
+    } else if (
+      delimiter.marker === open.marker &&
+      delimiter.length >= open.length &&
+      delimiter.info.trim() === ''
+    ) {
+      open = null;
+    }
+    // 区切り行そのものは表頭になりえないため、内側として扱って差し支えない
+    inside.push(true);
+  }
+  return inside;
+}
 
 /** 範囲を表す区切り（半角ハイフン・各種ダッシュ・全角波ダッシュ・半角チルダ） */
 const RANGE_SEPARATORS = '-‐‑‒–—―〜～~';
@@ -312,17 +408,24 @@ function sortCriterionIds(ids: Iterable<string>): string[] {
  * 表頭（`TRACEABILITY_TABLE_HEADER`）の**2行下**（区切り行の次）から、`|` で始まらない行の
  * 直前までを本文行とする。この数え方は `design.md` の
  * `### 部品の自己申告と追跡表の突き合わせ（タスク 115.113）` が定めた再現手順と同一である。
+ *
+ * **コードフェンスの内側に引かれた表頭は宣言ではない**（タスク 115.263。理由と、
+ * 115.226 の処方のどの半分が Markdown へ渡るかは `markCodeFenceLines` に書いた）。
+ * 本文行の側にフェンスを見る必要は無い——フェンスの区切り行は `|` で始まらないため、
+ * 宣言と認めた表頭の直下の連なりへ割り込めないからである。
  */
 export function extractTraceabilityRows(designContent: string): {
   tables: number;
   rows: string[];
 } {
   const lines = designContent.split('\n');
+  const insideFence = markCodeFenceLines(lines);
   const rows: string[] = [];
   let tables = 0;
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index];
     if (line === undefined || !TRACEABILITY_TABLE_HEADER.test(line)) continue;
+    if (insideFence[index] === true) continue; // 見本として引かれた字面は表の宣言ではない
     tables += 1;
     for (let cursor = index + 2; cursor < lines.length; cursor++) {
       const bodyLine = lines[cursor];
