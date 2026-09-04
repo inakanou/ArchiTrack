@@ -209,6 +209,195 @@ function countMatching(list: readonly string[], needle: string): number {
   return count;
 }
 
+/**
+ * 壊れた宣言項目の見本（タスク 115.272）
+ *
+ * **JSON から作れる形だけを挙げる。** 宣言は `scripts/design-measurements.json` から読み込まれる
+ * ため、実際に到達しうるのはここに挙げた形である（欄を持つ getter が例外を送出する形は
+ * JSON からは作れない。それは {@link entryThatThrowsOnAccess} が別に覆う）。
+ *
+ * 各見本は「壊れた項目そのものが指摘になること」と「その後ろの宣言の判定が報告へ到達すること」の
+ * 両方を要求される。是正前の実測（コミット `97948d3c`、2026-09-04）では、ここに挙げた 9 形の
+ * **すべて**が捕捉されない例外で列挙を中断させ、後ろの宣言の指摘は一つも報告へ到達しなかった。
+ *
+ * **追試の手順**（提出物から再現できる形にする）: `git worktree add --detach <控え> 97948d3c`
+ * で是正前の作業ツリーを作り、そこへ**現行の**自己検査を置き、
+ * `ln -s <リポジトリ>/node_modules <控え>/node_modules` で依存を見えるようにしてから
+ * `npx tsx <控え>/scripts/check-design-measurement-freshness.selftest.ts` を走らせる。
+ * 本確認は 9 形すべてで失敗を出し（`列挙が例外で中断した` が 9 行）、自己検査の全体は
+ * **41 件中 7 件**が落ちて終了コード 1 になる（2026-09-04 に実測。同一コマンドの 2 回と
+ * `npm run --prefix <控え> check:design-measurement-freshness:selftest` でも同じ件数）。
+ *
+ * 落ちる 7 件の内訳（後任が照合できるように名前で挙げる）:
+ *   1. 壊れた宣言項目があっても列挙は最後まで走り、壊れた項目自身も指摘になる
+ *   2. 欄を欠く宣言項目でも、形の検査が算出した指摘が報告へ到達する
+ *   3. 壊れた欄の総当たり: 列挙は一度も中断せず、いずれの形も無言では通らない
+ *   4. 判定が例外で落ちた項目は指摘になり、列挙は最後まで走る（最後の網）
+ *   5. 台帳と本体の関数宣言が双方向で一致する
+ *   6. 集計と検出の本体に絞り込みの経路が無い
+ *   7. 壊れた宣言項目でもスタックトレースを出さず他の項目の指摘を報告する
+ *
+ * **`node_modules` を見せ忘れると 9 件に見える。** 控えは作業ツリーだけを持ち依存を持たないため、
+ * サブプロセスの確認のうち 2 件（仮マニフェストの終了コード、`--verbose` 経路の綴り）が
+ * 「tsx の起動口が見つからない」で落ちる。これは是正前の欠陥ではなく手順の不備であり、
+ * 上の 7 件とは別物である（2026-09-04 に両方を実測して切り分けた）。
+ */
+const BROKEN_ENTRY_SHAPES: readonly { readonly label: string; readonly entry: ManifestEntry }[] = [
+  { label: 'file を持たないオブジェクト', entry: { id: 'broken' } as unknown as ManifestEntry },
+  { label: '文字列', entry: 'broken' as unknown as ManifestEntry },
+  { label: 'null', entry: null as unknown as ManifestEntry },
+  { label: '数値', entry: 42 as unknown as ManifestEntry },
+  { label: '配列', entry: [] as unknown as ManifestEntry },
+  {
+    label: 'file が数値',
+    entry: {
+      id: 'broken',
+      file: 123,
+      anchor: '基準の行',
+      command: readFigure('7'),
+      expected: '7',
+    } as unknown as ManifestEntry,
+  },
+  {
+    label: 'expected が数値',
+    entry: {
+      id: 'broken',
+      file: 'doc.md',
+      anchor: '基準の行',
+      command: readFigure('7'),
+      expected: 7,
+    } as unknown as ManifestEntry,
+  },
+  {
+    label: 'documentRendering が数値',
+    entry: {
+      id: 'broken',
+      file: 'doc.md',
+      anchor: '基準の行',
+      command: readFigure('7'),
+      expected: '7',
+      documentRendering: 7,
+    } as unknown as ManifestEntry,
+  },
+  {
+    label: 'divergence が null',
+    entry: {
+      id: 'broken',
+      file: 'doc.md',
+      anchor: '基準の行',
+      command: readFigure('7'),
+      expected: '7',
+      divergence: null,
+    } as unknown as ManifestEntry,
+  },
+];
+
+/**
+ * 壊れた欄の総当たり（タスク 115.272）
+ *
+ * {@link BROKEN_ENTRY_SHAPES} は代表的な形を名指しで挙げるが、**挙げた形についてしか言えない**。
+ * ここでは宣言が持つ欄と、`JSON.parse` が欄に置きうる値の組を総当たりし、
+ * 「例外で列挙が止まらない」と「無言では通らない」の二つを全ての組へ課す。
+ * 母集団は {@link CHECKED_FIELDS} の 8 欄と項目そのものの計 9 通り × {@link BROKEN_FIELD_VALUES}
+ * の 11 値 = 99 通りである。**この 99 も機械が保つ**——欄は {@link declaredEntryFields} が
+ * 本体の型宣言から導き、組の数は {@link EXHAUSTIVE_TRIAL_COUNT} と厳密に突き合わせる。
+ *
+ * **`undefined` は入れない。** 欄が無いことは `documentFigure` / `documentRendering` /
+ * `divergence` については正しい形であり、壊れた欄ではないからである
+ * （必須の欄が無い形は「項目そのもの」の側の `{}` が覆う）。
+ */
+const BROKEN_FIELD_VALUES: readonly unknown[] = [
+  null,
+  0,
+  1.5,
+  -1.5,
+  true,
+  false,
+  '',
+  [],
+  [1],
+  {},
+  { a: 1 },
+];
+
+/**
+ * 総当たりの対象から外す欄と、その理由（タスク 115.272 の是正。指摘 6）
+ *
+ * `note` は {@link ManifestEntry} の型宣言以外のどこからも読まれない——本体
+ * `scripts/check-design-measurement-freshness.ts` に `note` は 1 箇所（宣言の行）しか
+ * 現れない（2026-09-04 に `grep -n note` で実測）。読まれない欄は壊しても例外にも
+ * 誤判定にもならないため、総当たりの母集団から外す。
+ * **`note` を読む処理が入ったら、この一覧から外すこと。**
+ */
+const UNCHECKED_FIELDS: readonly string[] = ['note'];
+
+/**
+ * {@link ManifestEntry} の宣言が挙げる欄を本体のソースから取り出す（タスク 115.272 の是正。指摘 5）
+ *
+ * **欄の一覧を自己検査へ手で写すと、写した側を痩せさせても誰も咎めない。**
+ * 手で書いた 8 欄を `['id']` の 1 欄へ痩せさせる変異を当てると、
+ * `npm run check:design-measurement-freshness:selftest` は 41/41 で緑のままだった
+ * （組の数を突き合わせる `attempted === BROKEN_FIELD_VALUES.length * (CHECKED_FIELDS.length + 1)`
+ * が同じ定数から再計算する自己言及であったため。2026-09-04 に実測）。宣言から導けば、
+ * 欄を落とすには本体の型宣言そのものを削るしかない。
+ */
+function declaredEntryFields(): readonly string[] {
+  const source = readEntrySource();
+  const at = source.indexOf('export interface ManifestEntry {');
+  if (at < 0) return [];
+  const end = source.indexOf('\n}', at);
+  if (end < 0) return [];
+  const fields: string[] = [];
+  for (const line of source.slice(at, end).split('\n')) {
+    const matched = /^\s*readonly\s+([A-Za-z][A-Za-z0-9]*)\??:/.exec(line);
+    const name = matched?.[1];
+    if (name !== undefined) fields.push(name);
+  }
+  return fields;
+}
+
+/**
+ * 総当たりの対象にする欄（{@link ManifestEntry} の宣言から導き、{@link UNCHECKED_FIELDS} を除く）
+ */
+const CHECKED_FIELDS: readonly string[] = declaredEntryFields().filter(
+  (field) => !UNCHECKED_FIELDS.includes(field)
+);
+
+/**
+ * 総当たりが毎回走らせる組の数（タスク 115.272 の是正。指摘 5）
+ *
+ * 本体注釈が「99 通りを毎回走らせる」と名乗る、その 99 をここへ逐語で貼る。
+ * **下限ではなく厳密な一致にする**——遊びを持つ下限は、その幅ぶんの無言の削除を吸収するため
+ * （タスク 115.271 が `MINIMUM_ENTRIES` で踏んだのと同型）。母集団を意図して変えるときは、
+ * 本体注釈とこの定数の双方を同時に改めること。
+ *
+ * **件数だけでは足りない。** 幅を保ったまま値を同じものへ差し替える痩せ方が残るため、
+ * {@link BROKEN_FIELD_VALUES} の重複も併せて咎める。**実測**: 11 値を `null` 11 個へ
+ * 差し替えると `npm run check:design-measurement-freshness:selftest` は 41 件中 1 件が
+ * 落ち、`壊れた値の見本に重複がある` を報告する（2026-09-04 に実測）。
+ */
+const EXHAUSTIVE_TRIAL_COUNT = 99;
+
+/**
+ * 欄の読み出しそのものが例外を送出する宣言（タスク 115.272）
+ *
+ * JSON からは作れないが、`judge` を直に呼ぶ経路では作れる。**最後の網**——一件の判定が
+ * 例外で落ちても列挙が最後まで走ること——を確かめるための素材である。
+ * 例外を仕込む欄は `anchor` に限る。`id` / `file` / `divergence` は母集団の集計
+ * （`duplicatedIds` / `countEntriesForFile` / `countStaleDivergences`）が
+ * 一件ごとの判定の**外側**で読むため、網の外に落ちるからである（限界として本体注釈に記す）。
+ */
+function entryThatThrowsOnAccess(): ManifestEntry {
+  const entry = { id: 'throws', file: 'doc.md', command: 'true', expected: '7' };
+  Object.defineProperty(entry, 'anchor', {
+    enumerable: true,
+    get(): string {
+      throw new Error('欄の読み出しが例外を送出する見本');
+    },
+  });
+  return entry as unknown as ManifestEntry;
+}
+
 // ============================================================================
 // 検出規則（緩める向きと狭めすぎる向きの両方）
 // ============================================================================
@@ -581,6 +770,194 @@ const DETECTION: TestCase[] = [
       });
     },
   },
+  {
+    /**
+     * 壊れた宣言項目で列挙が中断しないこと（タスク 115.272）
+     *
+     * 是正前は {@link BROKEN_ENTRY_SHAPES} の 9 形の**すべて**が捕捉されない例外を送出し、
+     * 後ろに並んだ正しい形の宣言は**一度も判定されなかった**（`97948d3c` の作業ツリーで
+     * `judge` へ 9 形を一つずつ渡して実測。送出 9 形 / 後ろの宣言の指摘の到達 0 形。
+     * 2026-09-04）。ここでは二つを同時に求める。
+     *
+     *   - 壊れた項目の**後ろ**の宣言の指摘が報告へ到達すること（`actual=\`8\`` は
+     *     後ろの宣言だけが出しうる字面である）
+     *   - 壊れた項目そのものが指摘になること（握り潰して緑にする向きへ倒さない）。
+     *     後ろの宣言だけを渡したときの指摘の件数と比べて増えていることで示す
+     */
+    name: '壊れた宣言項目があっても列挙は最後まで走り、壊れた項目自身も指摘になる（タスク 115.272）',
+    polarity: 'positive',
+    run() {
+      return withDocument(SAMPLE_DOCUMENT, (root) => {
+        const failures: string[] = [];
+        if (BROKEN_ENTRY_SHAPES.length === 0) {
+          failures.push('素材 BROKEN_ENTRY_SHAPES が空です（この確認が空振りしています）');
+        }
+        const tail = baseEntry({ id: 'tail', command: readFigure('8') });
+        const baseline = messagesFor(root, [tail]);
+        for (const shape of BROKEN_ENTRY_SHAPES) {
+          let list: string[];
+          try {
+            list = messagesFor(root, [shape.entry, tail]);
+          } catch (error) {
+            failures.push(`${shape.label}: 列挙が例外で中断した: ${String(error)}`);
+            continue;
+          }
+          failures.push(
+            ...expect(
+              countMatching(list, 'actual=`8`') === 1,
+              `${shape.label}: 壊れた項目の後ろの宣言の指摘が報告へ到達しない: ${JSON.stringify(list)}`
+            )
+          );
+          failures.push(
+            ...expect(
+              list.length > baseline.length,
+              `${shape.label}: 壊れた項目が握り潰されている（指摘が増えていない）: ${JSON.stringify(list)}`
+            )
+          );
+        }
+        return failures;
+      });
+    },
+  },
+  {
+    /**
+     * 形の検査が算出した指摘が報告へ到達すること（タスク 115.272）
+     *
+     * 是正前、`{"id":"broken"}` に対して `shapeFailures` は四つの指摘を**算出していた**が、
+     * 同じ関数の末尾で `documentRenderingOf` が返す `undefined` に対して `.includes` を
+     * 呼んで例外になり、算出済みの四件は呼び出し側へ渡らないまま捨てられていた。
+     */
+    name: '欄を欠く宣言項目でも、形の検査が算出した指摘が報告へ到達する（タスク 115.272）',
+    polarity: 'positive',
+    run() {
+      return withDocument(SAMPLE_DOCUMENT, (root) => {
+        const tail = baseEntry({ id: 'tail', command: readFigure('8') });
+        let list: string[];
+        try {
+          list = messagesFor(root, [{ id: 'broken' } as unknown as ManifestEntry, tail]);
+        } catch (error) {
+          return [`形の検査が例外で中断した: ${String(error)}`];
+        }
+        const hit = list.join('\n');
+        return [
+          ...expect(hit.includes('file が空です'), `file の指摘が届かない: ${hit}`),
+          ...expect(hit.includes('anchor が空です'), `anchor の指摘が届かない: ${hit}`),
+          ...expect(hit.includes('command が空です'), `command の指摘が届かない: ${hit}`),
+          ...expect(hit.includes('expected が空です'), `expected の指摘が届かない: ${hit}`),
+        ];
+      });
+    },
+  },
+  {
+    /**
+     * 壊れた欄の総当たり（タスク 115.272）
+     *
+     * 名指しの見本ではなく、欄と値の組の全体に対して二つの性質を課す。**無言で通らないこと**は
+     * 「正しい宣言 1 件を渡したときの指摘の件数」を基準に取り、それを上回ることで示す
+     * （母集団の前提に由来する指摘は両方に等しく含まれるため差し引かれる）。
+     */
+    name: '壊れた欄の総当たり: 列挙は一度も中断せず、いずれの形も無言では通らない（タスク 115.272）',
+    polarity: 'positive',
+    run() {
+      return withDocument(SAMPLE_DOCUMENT, (root) => {
+        const failures: string[] = [];
+        if (BROKEN_FIELD_VALUES.length === 0 || CHECKED_FIELDS.length === 0) {
+          failures.push(
+            '素材 BROKEN_FIELD_VALUES / CHECKED_FIELDS が空です（この確認が空振りしています）'
+          );
+        }
+        const valid = baseEntry();
+        const baseline = messagesFor(root, [valid]).length;
+        let attempted = 0;
+        const trial = (label: string, entry: ManifestEntry): void => {
+          attempted += 1;
+          let messages: string[];
+          try {
+            messages = messagesFor(root, [entry]);
+          } catch (error) {
+            failures.push(`${label}: 列挙が例外で中断した: ${String(error)}`);
+            return;
+          }
+          // JSON から作れる形は、最後の網ではなく個別の判定が名指しで咎めること
+          // （網へ落ちると、どの欄がどう壊れているかを指摘が失う）。
+          if (countMatching(messages, '判定が例外で中断しました') > 0) {
+            failures.push(`${label}: 最後の網へ落ちている: ${JSON.stringify(messages)}`);
+          }
+          const count = messages.length;
+          if (count <= baseline) {
+            failures.push(
+              `${label}: 壊れた欄が無言で通っている（指摘が ${count} 件で、正しい宣言の ${baseline} 件から増えていない）`
+            );
+          }
+        };
+        for (const value of BROKEN_FIELD_VALUES) {
+          trial(`項目そのもの=${JSON.stringify(value)}`, value as ManifestEntry);
+        }
+        for (const field of CHECKED_FIELDS) {
+          for (const value of BROKEN_FIELD_VALUES) {
+            trial(`${field}=${JSON.stringify(value)}`, {
+              ...valid,
+              [field]: value,
+            } as unknown as ManifestEntry);
+          }
+        }
+        failures.push(
+          ...expect(
+            attempted === BROKEN_FIELD_VALUES.length * (CHECKED_FIELDS.length + 1),
+            `総当たりの件数が母集団と合わない: ${attempted}`
+          ),
+          ...expect(
+            new Set(BROKEN_FIELD_VALUES.map((value) => JSON.stringify(value))).size ===
+              BROKEN_FIELD_VALUES.length,
+            // 件数だけを貼ると、値を同じものへ差し替えて幅だけ保つ痩せ方が通る
+            // （`null` を 11 個並べても組の数は 99 のままである）。
+            `壊れた値の見本に重複がある: ${JSON.stringify(BROKEN_FIELD_VALUES)}`
+          ),
+          ...expect(
+            attempted === EXHAUSTIVE_TRIAL_COUNT,
+            `総当たりの組の数が本体注釈の名乗る ${EXHAUSTIVE_TRIAL_COUNT} 通りと合わない: ` +
+              `${attempted} 通り（欄 ${CHECKED_FIELDS.length} + 項目そのもの 1 の ` +
+              `${CHECKED_FIELDS.length + 1} 通り × 値 ${BROKEN_FIELD_VALUES.length} 通り）。` +
+              '母集団を意図して変えたなら、本体注釈と EXHAUSTIVE_TRIAL_COUNT の双方を改めること'
+          )
+        );
+        return failures;
+      });
+    },
+  },
+  {
+    /**
+     * 一件の判定が例外で落ちても列挙が最後まで走ること（最後の網。タスク 115.272）
+     *
+     * {@link BROKEN_ENTRY_SHAPES} は JSON から作れる形を一つずつ塞ぐが、それは**列挙した形に
+     * ついてしか言えない**。ここでは欄の読み出し自体が例外を送出する項目を渡し、
+     * 個別の形を知らなくても列挙が続くことを求める。**握り潰さないこと**——例外そのものが
+     * 指摘になること——も同時に求める。
+     */
+    name: '判定が例外で落ちた項目は指摘になり、列挙は最後まで走る（最後の網。タスク 115.272）',
+    polarity: 'positive',
+    run() {
+      return withDocument(SAMPLE_DOCUMENT, (root) => {
+        const tail = baseEntry({ id: 'tail', command: readFigure('8') });
+        let list: string[];
+        try {
+          list = messagesFor(root, [entryThatThrowsOnAccess(), tail]);
+        } catch (error) {
+          return [`例外が判定の外へ抜けた（最後の網が無い）: ${String(error)}`];
+        }
+        return [
+          ...expect(
+            countMatching(list, '判定が例外で中断しました') === 1,
+            `例外が指摘になっていない: ${JSON.stringify(list)}`
+          ),
+          ...expect(
+            countMatching(list, 'actual=`8`') === 1,
+            `例外の後ろの宣言の指摘が報告へ到達しない: ${JSON.stringify(list)}`
+          ),
+        ];
+      });
+    },
+  },
 ];
 
 // ============================================================================
@@ -768,6 +1145,18 @@ const EXECUTABLE_FUNCTION_INVENTORY: readonly InventoryEntry[] = [
     watched: 'unwatched',
     reason: '述語一つ。誤れば形の検出が全滅して対照が落ちる',
   },
+  { name: 'isEntryObject', watched: 'body', reason: '壊れた宣言項目の門番（タスク 115.272）' },
+  {
+    name: 'fieldText',
+    watched: 'unwatched',
+    reason:
+      '欄の読み出し一つ。空として読んだ欄は shapeFailures が漏れなく咎めるため、誤れば壊れた項目の対照が落ちる（タスク 115.272）',
+  },
+  {
+    name: 'divergenceOf',
+    watched: 'body',
+    reason: '壊れた divergence の読み替え（タスク 115.272）',
+  },
   { name: 'loadManifest', watched: 'body', reason: '母集団の供給元' },
   { name: 'shapeFailures', watched: 'body', reason: '宣言の形の検出' },
   { name: 'anchorFailures', watched: 'body', reason: '錨と字面の検出' },
@@ -794,6 +1183,16 @@ const EXECUTABLE_FUNCTION_INVENTORY: readonly InventoryEntry[] = [
     reason: '失敗の整形のみ。落とせば対照が名指しを失って落ちる',
   },
   { name: 'makeGlobalFinding', watched: 'unwatched', reason: '同上' },
+  {
+    name: 'makeBrokenEntryFinding',
+    watched: 'unwatched',
+    reason: '失敗の整形のみ。落とせば壊れた項目の対照が指摘を失って落ちる（タスク 115.272）',
+  },
+  {
+    name: 'makeThrownFinding',
+    watched: 'unwatched',
+    reason: '同上（最後の網が積む失敗の整形。タスク 115.272）',
+  },
   { name: 'runMeasurement', watched: 'body', reason: 'コマンドの実行と失敗の判定' },
   {
     name: 'runOutsideRepository',
@@ -871,8 +1270,13 @@ const BODY_RULES: readonly BodyRule[] = [
     allowed: [
       'const findings: Finding[] = [];',
       'pushPopulationFindings(entries, findings);',
+      'let position = 0;',
       'for (const entry of entries) {',
+      'position += 1;',
+      'try {',
       'pushEntryFindings(root, entry, findings);',
+      '} catch (error) {',
+      'findings.push(makeThrownFinding(position, error));',
       '}',
       'pushDivergenceRatchetFindings(entries, findings);',
       'return findings;',
@@ -928,6 +1332,9 @@ const BODY_RULES: readonly BodyRule[] = [
       'function pushEntryFindings(root: string, entry: ManifestEntry, findings: Finding[]): void',
     watched: 'whole-body',
     allowed: [
+      'if (!isEntryObject(entry)) {',
+      'findings.push(makeBrokenEntryFinding(entry));',
+      'return;',
       'for (const message of shapeFailures(entry)) {',
       'findings.push(makeFinding(entry, message));',
       '}',
@@ -953,24 +1360,29 @@ const BODY_RULES: readonly BodyRule[] = [
       "if (!isNonEmptyString(entry.command)) failures.push('command が空です');",
       "if (!isNonEmptyString(entry.expected)) failures.push('expected が空です');",
       'const figure = documentFigureOf(entry);',
+      'const divergence = divergenceOf(entry);',
       'if (entry.documentFigure !== undefined && !isNonEmptyString(entry.documentFigure)) {',
       "failures.push('documentFigure が空です');",
       '}',
-      'if (figure !== entry.expected && entry.divergence === undefined) {',
+      'if (entry.documentRendering !== undefined && !isNonEmptyString(entry.documentRendering)) {',
+      "failures.push('documentRendering が空です');",
+      'if (entry.divergence !== undefined && divergence === undefined) {',
+      "failures.push('divergence が欄を持つオブジェクトではありません');",
+      'if (figure !== entry.expected && divergence === undefined) {',
       'failures.push(',
-      '`documentFigure \\`${figure}\\` が expected \\`${entry.expected}\\` と異なるのに divergence の宣言がありません`',
+      '`documentFigure \\`${figure}\\` が expected \\`${String(entry.expected)}\\` と異なるのに divergence の宣言がありません`',
       ');',
-      'if (figure === entry.expected && entry.divergence !== undefined) {',
+      'if (figure === entry.expected && divergence !== undefined) {',
       "'divergence を宣言していますが documentFigure と expected が一致しています（宣言が対象より長生きしています。divergence を外してください）'",
-      'if (entry.divergence !== undefined && !isNonEmptyString(entry.divergence.reason)) {',
+      'if (divergence !== undefined && !isNonEmptyString(divergence.reason)) {',
       "failures.push('divergence の reason が空です');",
       'const rendering = documentRenderingOf(entry);',
       'if (!rendering.includes(figure)) {',
       '`documentRendering \\`${rendering}\\` が documentFigure \\`${figure}\\` を含みません（記法と値が切り離されています）`',
       'if (entry.documentRendering !== undefined && entry.documentRendering === figure) {',
       "'documentRendering が documentFigure と同じです（既定と同じ宣言は外してください）'",
-      "if (entry.divergence !== undefined && entry.divergence.kind !== 'stale') {",
-      'failures.push(`divergence の kind \\`${String(entry.divergence.kind)}\\` は宣言されていません`);',
+      "if (divergence !== undefined && divergence.kind !== 'stale') {",
+      'failures.push(`divergence の kind \\`${String(divergence.kind)}\\` は宣言されていません`);',
       'return failures;',
     ],
     forbidAllNarrowing: false, // rendering.includes は文字列の包含であって検出の間引きではない
@@ -981,15 +1393,15 @@ const BODY_RULES: readonly BodyRule[] = [
     watched: 'whole-body',
     allowed: [
       'const failures: string[] = [];',
-      'const absolute = path.resolve(root, entry.file);',
+      'const absolute = path.resolve(root, fieldText(entry.file));',
       'let content: string;',
       'try {',
       "content = fs.readFileSync(absolute, 'utf8');",
       '} catch {',
-      'failures.push(`file ${entry.file} を読めません`);',
+      'failures.push(`file ${String(entry.file)} を読めません`);',
       'return failures;',
       '}',
-      'const matched = anchoredLines(content, entry.anchor);',
+      'const matched = anchoredLines(content, fieldText(entry.anchor));',
       'if (matched.length === 0) {',
       'failures.push(`anchor が ${entry.file} に見つかりません: ${entry.anchor}`);',
       'if (matched.length > 1) {',
@@ -1074,6 +1486,24 @@ const BODY_RULES: readonly BodyRule[] = [
     forbidAllNarrowing: false,
   },
   {
+    label: 'isEntryObject',
+    declaration: 'function isEntryObject(value: unknown): boolean',
+    watched: 'whole-body',
+    allowed: ["return typeof value === 'object' && value !== null && !Array.isArray(value);"],
+    forbidAllNarrowing: false,
+  },
+  {
+    label: 'divergenceOf',
+    declaration: 'function divergenceOf(entry: ManifestEntry): Divergence | undefined',
+    watched: 'whole-body',
+    allowed: [
+      'if (!isEntryObject(entry)) return undefined;',
+      'const value: unknown = entry.divergence;',
+      'return isEntryObject(value) ? (value as Divergence) : undefined;',
+    ],
+    forbidAllNarrowing: true,
+  },
+  {
     label: 'loadManifest',
     declaration: 'export function loadManifest(manifestPath: string): LoadedManifest',
     watched: 'whole-body',
@@ -1134,14 +1564,14 @@ const BODY_RULES: readonly BodyRule[] = [
     label: 'documentFigureOf',
     declaration: 'export function documentFigureOf(entry: ManifestEntry): string',
     watched: 'whole-body',
-    allowed: ['return entry.documentFigure ?? entry.expected;'],
+    allowed: ['return fieldText(entry.documentFigure ?? entry.expected);'],
     forbidAllNarrowing: true,
   },
   {
     label: 'documentRenderingOf',
     declaration: 'export function documentRenderingOf(entry: ManifestEntry): string',
     watched: 'whole-body',
-    allowed: ['return entry.documentRendering ?? documentFigureOf(entry);'],
+    allowed: ['return fieldText(entry.documentRendering ?? documentFigureOf(entry));'],
     forbidAllNarrowing: true,
   },
   {
@@ -1152,7 +1582,7 @@ const BODY_RULES: readonly BodyRule[] = [
     allowed: [
       'let count = 0;',
       'for (const entry of entries) {',
-      'if (entry.file === file) count += 1;',
+      'if (isEntryObject(entry) && entry.file === file) count += 1;',
       '}',
       'return count;',
     ],
@@ -1165,7 +1595,7 @@ const BODY_RULES: readonly BodyRule[] = [
     allowed: [
       'let count = 0;',
       'for (const entry of entries) {',
-      "if (entry.divergence !== undefined && entry.divergence.kind === 'stale') count += 1;",
+      "if (divergenceOf(entry)?.kind === 'stale') count += 1;",
       '}',
       'return count;',
     ],
@@ -1179,6 +1609,7 @@ const BODY_RULES: readonly BodyRule[] = [
       'const seen = new Set<string>();',
       'const duplicated: string[] = [];',
       'for (const entry of entries) {',
+      'if (!isEntryObject(entry)) continue;',
       "const id = String(entry.id ?? '');",
       'if (seen.has(id) && !duplicated.includes(id)) duplicated.push(id);',
       'seen.add(id);',
@@ -1509,8 +1940,102 @@ function checkVerboseDoesNotExecuteRejectedCommand(): string[] {
   return failures;
 }
 
+/**
+ * 壊れた宣言項目でもスタックトレースを出さず、他の項目の指摘を報告すること（タスク 115.272）
+ *
+ * `judge` を直に呼ぶ対照は関数の戻り値しか見ないため、**押下前の関門で人が読むもの**——
+ * 標準出力・標準エラー・終了コード——は固定できない。是正前（コミット `97948d3c`、
+ * 2026-09-04 に実測）は、**本関数が書き出すのと同じ仮マニフェスト**——`{"id":"broken-object"}` ・
+ * `null` ・ `"broken-string"` と正しい `tail` の 4 件——を `--manifest` で与えると、
+ * `judge` が一件ごとの判定より先に母集団の集計を呼ぶため
+ * `TypeError: Cannot read properties of null (reading 'id')`（`at duplicatedIds`）の
+ * スタックトレースを 9 行出して終了コード 1 で落ち、**対応方法の案内も他の宣言の指摘も
+ * 一切印字されなかった**。ここでは終了コード 1（安全側）を保ったまま、
+ * スタックトレースが出ないことと、後ろの宣言の指摘が印字されることを求める。
+ */
+function checkBrokenEntryDoesNotAbortReport(): string[] {
+  if (!fs.existsSync(TSX_CLI)) {
+    return ['tsx の起動口が見つからない（確認できないため合格にしない）'];
+  }
+  const failures: string[] = [];
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'design-measurement-broken-'));
+  try {
+    fs.writeFileSync(path.join(directory, 'doc.md'), `${SAMPLE_DOCUMENT.join('\n')}\n`);
+    const manifestPath = path.join(directory, 'manifest.json');
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify({
+        entries: [
+          { id: 'broken-object' },
+          null,
+          'broken-string',
+          {
+            id: 'tail',
+            file: 'doc.md',
+            anchor: '基準の行',
+            command: readFigure('8'),
+            expected: '7',
+          },
+        ],
+      })
+    );
+    const result = spawnSync(
+      process.execPath,
+      [TSX_CLI, ENTRY_PATH, `--manifest=${manifestPath}`],
+      // 見本の文書を起点にする（`file` と `command` が `doc.md` を相対で読むため）。
+      { cwd: directory, encoding: 'utf-8', env: { ...process.env } }
+    );
+    if (result.status === null) {
+      return ['本体の起動に失敗した'];
+    }
+    const output = `${String(result.stdout)}${String(result.stderr)}`;
+    failures.push(
+      ...expect(
+        result.status === 1,
+        `終了コードが 1 でない（安全側が崩れている）: ${result.status}`
+      )
+    );
+    failures.push(
+      ...expect(
+        !/\n\s+at /.test(output),
+        `捕捉されない例外のスタックトレースが出ている:\n${output}`
+      )
+    );
+    // JSON から作れる形は、最後の網（例外の受け止め）ではなく個別の判定が名指しで咎めること。
+    // 網へ落ちると指摘は「判定が例外で中断しました」の一行になり、どの欄が壊れているかを失う。
+    failures.push(
+      ...expect(
+        !output.includes('判定が例外で中断しました'),
+        `JSON から作れる壊れた項目が最後の網へ落ちている（個別の指摘になっていない）:\n${output}`
+      )
+    );
+    failures.push(
+      ...expect(
+        output.includes('file が空です'),
+        `壊れた項目に対する形の指摘が報告へ到達していない:\n${output}`
+      )
+    );
+    failures.push(
+      ...expect(
+        output.includes('actual=`8`'),
+        `壊れた項目の後ろの宣言の指摘が報告へ到達していない:\n${output}`
+      )
+    );
+    failures.push(
+      ...expect(output.includes('対応方法:'), `対応方法の案内が印字されていない:\n${output}`)
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+  return failures;
+}
+
 const BEHAVIOUR: TestCase[] = [
   { name: '仮マニフェストに対する終了コードと報告件数が固定される', run: checkSubprocessBehaviour },
+  {
+    name: '壊れた宣言項目でもスタックトレースを出さず他の項目の指摘を報告する（タスク 115.272）',
+    run: checkBrokenEntryDoesNotAbortReport,
+  },
   {
     name: '--verbose / --json --verbose でも許容外の綴りは実行されない',
     run: checkVerboseDoesNotExecuteRejectedCommand,
@@ -1561,21 +2086,22 @@ const REAL_DATA: TestCase[] = [
  * 陽性対照・陰性対照の件数の下限（タスク 115.252）
  *
  * 2026-09-04 にリポジトリルートで実測した現況ちょうど（余裕ゼロ。タスク 115.271 が
- * 陽性 13→16・陰性 3→5 へ貼り直した）。抽出は
+ * 陽性 13→16・陰性 3→5 へ、タスク 115.272 が陽性 16→20 へ貼り直した）。抽出は
  * `npx tsx scripts/list-control-polarity-floors.ts` が出す値をそのまま置く。
  *
  * **総数の下限だけでは片側の消失を捕まえられない。** 陽性対照を削って同じ数だけ陰性対照を
  * 足せば総数は動かないため、極性ごとに別の下限を貼る。極性は要素の宣言（`expected` ないし
  * `polarity`）から導き、**名前の綴りからは導かない**（115.247 の作法）。
  */
-const MINIMUM_POSITIVE_CONTROLS = 16;
+const MINIMUM_POSITIVE_CONTROLS = 20;
 const MINIMUM_NEGATIVE_CONTROLS = 5;
 
 /**
  * 確認の総数の下限（タスク 115.252）
  *
  * 2026-09-04 にリポジトリルートで実測した現況ちょうど（余裕ゼロ。タスク 115.271 の着手時点は
- * 宣言 31 件に対し現況 32 件で遊びが 1 件あった。同タスクが 115.262 の作法へ揃えて貼り直した）。
+ * 宣言 31 件に対し現況 32 件で遊びが 1 件あった。同タスクが 115.262 の作法へ揃えて貼り直し、
+ * タスク 115.272 が壊れた宣言項目の対照 5 件を足して 36→41 へ貼り直した）。
  * 抽出は `npx tsx scripts/check-design-measurement-freshness.selftest.ts | tail -1` の出す値を
  * そのまま置く。**確認を減らす向きの書き換えは差分に現れる。**
  *
@@ -1583,7 +2109,7 @@ const MINIMUM_NEGATIVE_CONTROLS = 5;
  * 本体 `check-design-measurement-freshness.ts` の指摘は文字列で組み立てられ、種別の直和型を
  * 持たない。導けないため件数で貼る。
  */
-const MINIMUM_TOTAL_CASES = 36;
+const MINIMUM_TOTAL_CASES = 41;
 
 /**
  * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）

@@ -150,8 +150,67 @@
  *     検査側は `npm run check:cf-evidence` の要約行。両者は基準が異なる
  *     （前者は本番コード、後者は走査対象の全体）。
  *
+ * ## 壊れた宣言項目でも列挙を最後まで走らせる（タスク 115.272）
+ *
+ * {@link loadManifest} は `entries` の要素を検査せずそのまま積むため、`null`・文字列・数値・
+ * 配列や、欄の型が違う項目がそのまま判定へ流れ込む。**是正前はこれが捕捉されない例外になり、
+ * 列挙がそこで止まっていた。** 安全側（終了コード 1）には倒れるが、出るのはスタックトレース
+ * だけで、**同じ関数が算出済みの指摘も、後ろに並んだ宣言の判定も報告へ届かなかった。**
+ * 11 形を `--manifest` で与えて実測したところ、**9 形**がスタックトレースを出し、その 9 形では
+ * 後ろに置いた宣言の指摘が一件も報告へ届かなかった（残る 2 形——`anchor` が数値・`divergence` が
+ * 文字列——は例外にならず、後ろの宣言の指摘も届いていた。コミット `97948d3c`、2026-09-04 に実測）。
+ * 現在は同じ 11 形すべてで、スタックトレースは 0 行・後ろの宣言の指摘は 11 形とも届き、
+ * 終了コードは 1 のままである（同日、同じ 11 形で実測）。
+ *
+ * どこまでが機械の保証かを三層に分ける（開発規律の作法）。
+ *
+ *   - **機械保証**: {@link isEntryObject} が欄を持たない項目を、{@link fieldText} と
+ *     {@link divergenceOf} が型の違う欄を、それぞれ例外ではなく指摘へ変える。自己検査の
+ *     「壊れた欄の総当たり」が 8 欄 + 項目そのもの の 9 通り × 11 値 = 99 通りを毎回走らせ、
+ *     **例外 0 件**かつ**無言で通る形 0 件**を要求する。**99 という数そのものも機械が保つ**——
+ *     欄の一覧は自己検査が本ファイルの {@link ManifestEntry} の宣言から導き（手で写した一覧では
+ *     ない）、組の数は自己検査の `EXHAUSTIVE_TRIAL_COUNT` に 99 と貼って厳密に突き合わせる。
+ *     **実測（2026-09-04、自己検査 41 件）**: 欄を `id` の 1 欄へ痩せさせる（`UNCHECKED_FIELDS`
+ *     へ残り 7 欄を足す）と 1 件が落ちて `22 通り` を報告する。値を `null` の 1 値へ痩せさせると
+ *     1 件が落ちて `9 通り` を報告する。{@link ManifestEntry} から `documentRendering` の宣言を
+ *     削ると 1 件が落ちて `88 通り` を報告する。値を `null` 11 個へ差し替えて幅だけ保つ痩せ方も
+ *     1 件が落ちる（見本の重複を別に咎めるため）。**手で写した一覧だった是正前は、欄を `id` の
+ *     1 欄へ痩せさせても 41/41 で緑のままだった**（いずれも同日に実測）
+ *   - **最後の網**: {@link judge} が一件ごとの判定を `try` で囲み、例外を指摘へ変えて
+ *     **次の項目へ進む**。握り潰しではない——指摘が積まれるので終了コードは 1 のままである。
+ *     自己検査は欄の読み出し自体が例外を送出する項目でこの網が働くことを固定する
+ *   - **残余（保証しない範囲）**: 母集団の集計（{@link duplicatedIds} /
+ *     {@link countEntriesForFile} / {@link countStaleDivergences}）は一件ごとの判定の
+ *     **外側**で走るため、最後の網の中に入っていない。三つとも欄を安全に読むので
+ *     `JSON.parse` が作れる値では例外にならないが、欄の読み出し自体が例外を送出する項目
+ *     （getter。JSON からは作れず、{@link judge} を直に呼ぶ経路でしか作れない）を渡せば
+ *     そこで止まる
+ *
+ * **どの層が何を支えているかは変異で確かめた。** 一つずつ当てて自己検査 41 件を走らせ、
+ * 控えからの書き戻しで復元した（いずれもコミット `97948d3c` の作業ツリー、2026-09-04 に実測）。
+ *
+ *   - {@link judge} の `try` を外す → 41 件中 1 件（最後の網の対照）が落ちる
+ *   - {@link pushEntryFindings} の門番（`isEntryObject` の枝）を外す → 41 件中 **2 件**が落ちる。
+ *     落ちるのは「壊れた欄の総当たり: 列挙は一度も中断せず、いずれの形も無言では通らない」と
+ *     「壊れた宣言項目でもスタックトレースを出さず他の項目の指摘を報告する」の二つで、
+ *     いずれも `null` の項目が {@link shapeFailures} で
+ *     `TypeError: Cannot read properties of null (reading 'id')` になり最後の網へ落ちるためである。
+ *     壊れた項目は最後の網が受け止めるため列挙は止まらないが、指摘が
+ *     「判定が例外で中断しました」の一行へ縮み、**どの欄が壊れているかを失う**
+ *   - {@link countStaleDivergences} を `divergenceOf` から `entry.divergence` の直読みへ戻す →
+ *     41 件中 4 件が落ちる（`null` の項目と `divergence: null` が母集団の集計で例外になる）
+ *   - {@link documentRenderingOf} の {@link fieldText} を外す → 41 件中 2 件が落ちる
+ *     （「壊れた欄の総当たり」と「集計と検出の本体に絞り込みの経路が無い」）。総当たり 99 通りの
+ *     うち **8 通り**——`documentRendering` が `0` / `1.5` / `-1.5` / `true` / `false` / `[]` /
+ *     `{}` / `{"a":1}`——が最後の網へ落ちる（同変異のまま落ちた組の名前を印字して数えた）
+ *   - **{@link documentFigureOf} の {@link fieldText} だけは挙動を支えていない**——外しても
+ *     落ちるのは自己検査の字面の規則 1 件だけで（41 件中 1 件）、総当たりは緑のままである。
+ *     戻り値の型の宣言（`string`）を実行時にも真に保つために置いている
+ *
  * ## 見ないこと（限界）
  *
+ *   - **壊れた宣言項目の残余は上の節に挙げる。** 一件ごとの判定は例外で止まらないが、
+ *     母集団の集計は最後の網の外に在る
  *   - **宣言に無い数値は見ない。** 本検査は網羅を主張しない。`design.md` の数値のうち
  *     どれを宣言するかは人の判断であり、宣言しなければ黙って外れる
  *   - **`anchor` の行に `documentRendering` がちょうど 1 箇所在ることしか見ない。** その 1 箇所が
@@ -502,6 +561,42 @@ function isNonEmptyString(value: unknown): boolean {
 }
 
 /**
+ * 宣言の項目が欄を持つオブジェクトであること（タスク 115.272）
+ *
+ * `JSON.parse` は配列の要素に何でも置ける。{@link loadManifest} は要素をそのまま
+ * {@link ManifestEntry} として積むため、`null` ・文字列・数値・配列が判定へ流れ込みうる。
+ */
+function isEntryObject(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * 欄を文字列として読む。文字列でない欄は空として読む（タスク 115.272）
+ *
+ * **判定を緩めない。** 空として読んだ欄は {@link shapeFailures} の
+ * `isNonEmptyString` が漏れなく咎める（`id` / `file` / `anchor` / `command` / `expected` /
+ * `documentFigure`）。`documentRendering` は `documentFigure` を含まないことで咎められる。
+ * ここでの読み替えは、咎める前に例外で列挙が止まるのを防ぐためだけに在る。
+ */
+function fieldText(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+/**
+ * `divergence` の欄を安全に読む（タスク 115.272）
+ *
+ * オブジェクトでない `divergence`（`null` や文字列）は「宣言されていない」ものとして扱い、
+ * {@link shapeFailures} が別に咎める。項目そのものがオブジェクトでない場合も同様に扱う——
+ * {@link countStaleDivergences} は一件ごとの判定の外側から呼ばれるため、
+ * ここで守らないと母集団の集計が例外で落ちる。
+ */
+function divergenceOf(entry: ManifestEntry): Divergence | undefined {
+  if (!isEntryObject(entry)) return undefined;
+  const value: unknown = entry.divergence;
+  return isEntryObject(value) ? (value as Divergence) : undefined;
+}
+
+/**
  * 宣言を読み込む
  *
  * 読めない・形が違うときは**空の宣言を返して合格させない**。errors が一件でもあれば
@@ -548,20 +643,27 @@ function shapeFailures(entry: ManifestEntry): string[] {
   if (!isNonEmptyString(entry.command)) failures.push('command が空です');
   if (!isNonEmptyString(entry.expected)) failures.push('expected が空です');
   const figure = documentFigureOf(entry);
+  const divergence = divergenceOf(entry);
   if (entry.documentFigure !== undefined && !isNonEmptyString(entry.documentFigure)) {
     failures.push('documentFigure が空です');
   }
-  if (figure !== entry.expected && entry.divergence === undefined) {
+  if (entry.documentRendering !== undefined && !isNonEmptyString(entry.documentRendering)) {
+    failures.push('documentRendering が空です');
+  }
+  if (entry.divergence !== undefined && divergence === undefined) {
+    failures.push('divergence が欄を持つオブジェクトではありません');
+  }
+  if (figure !== entry.expected && divergence === undefined) {
     failures.push(
-      `documentFigure \`${figure}\` が expected \`${entry.expected}\` と異なるのに divergence の宣言がありません`
+      `documentFigure \`${figure}\` が expected \`${String(entry.expected)}\` と異なるのに divergence の宣言がありません`
     );
   }
-  if (figure === entry.expected && entry.divergence !== undefined) {
+  if (figure === entry.expected && divergence !== undefined) {
     failures.push(
       'divergence を宣言していますが documentFigure と expected が一致しています（宣言が対象より長生きしています。divergence を外してください）'
     );
   }
-  if (entry.divergence !== undefined && !isNonEmptyString(entry.divergence.reason)) {
+  if (divergence !== undefined && !isNonEmptyString(divergence.reason)) {
     failures.push('divergence の reason が空です');
   }
   const rendering = documentRenderingOf(entry);
@@ -575,8 +677,8 @@ function shapeFailures(entry: ManifestEntry): string[] {
       'documentRendering が documentFigure と同じです（既定と同じ宣言は外してください）'
     );
   }
-  if (entry.divergence !== undefined && entry.divergence.kind !== 'stale') {
-    failures.push(`divergence の kind \`${String(entry.divergence.kind)}\` は宣言されていません`);
+  if (divergence !== undefined && divergence.kind !== 'stale') {
+    failures.push(`divergence の kind \`${String(divergence.kind)}\` は宣言されていません`);
   }
   return failures;
 }
@@ -584,15 +686,15 @@ function shapeFailures(entry: ManifestEntry): string[] {
 /** `anchor` が一行に当たること、その行が `documentFigure` を載せていること */
 function anchorFailures(root: string, entry: ManifestEntry): string[] {
   const failures: string[] = [];
-  const absolute = path.resolve(root, entry.file);
+  const absolute = path.resolve(root, fieldText(entry.file));
   let content: string;
   try {
     content = fs.readFileSync(absolute, 'utf8');
   } catch {
-    failures.push(`file ${entry.file} を読めません`);
+    failures.push(`file ${String(entry.file)} を読めません`);
     return failures;
   }
-  const matched = anchoredLines(content, entry.anchor);
+  const matched = anchoredLines(content, fieldText(entry.anchor));
   if (matched.length === 0) {
     failures.push(`anchor が ${entry.file} に見つかりません: ${entry.anchor}`);
     return failures;
@@ -681,6 +783,10 @@ function hollowCommandFailures(entry: ManifestEntry, inside: MeasurementOutcome)
  * 落とした後にしか呼ばれない——本関数の `if (vocabulary.length > 0) return;` より後に在る。
  */
 function pushEntryFindings(root: string, entry: ManifestEntry, findings: Finding[]): void {
+  if (!isEntryObject(entry)) {
+    findings.push(makeBrokenEntryFinding(entry));
+    return;
+  }
   for (const message of shapeFailures(entry)) {
     findings.push(makeFinding(entry, message));
   }
@@ -760,8 +866,14 @@ function pushDivergenceRatchetFindings(
 export function judge(root: string, entries: readonly ManifestEntry[]): Finding[] {
   const findings: Finding[] = [];
   pushPopulationFindings(entries, findings);
+  let position = 0;
   for (const entry of entries) {
-    pushEntryFindings(root, entry, findings);
+    position += 1;
+    try {
+      pushEntryFindings(root, entry, findings);
+    } catch (error) {
+      findings.push(makeThrownFinding(position, error));
+    }
   }
   pushDivergenceRatchetFindings(entries, findings);
   return findings;
@@ -773,7 +885,7 @@ export function judge(root: string, entries: readonly ManifestEntry[]): Finding[
 
 /** `documentFigure` の既定は `expected` */
 export function documentFigureOf(entry: ManifestEntry): string {
-  return entry.documentFigure ?? entry.expected;
+  return fieldText(entry.documentFigure ?? entry.expected);
 }
 
 /**
@@ -784,7 +896,7 @@ export function documentFigureOf(entry: ManifestEntry): string {
  * （{@link shapeFailures} が課す。含まなくてよいと、値と記法が黙って切り離される）。
  */
 export function documentRenderingOf(entry: ManifestEntry): string {
-  return entry.documentRendering ?? documentFigureOf(entry);
+  return fieldText(entry.documentRendering ?? documentFigureOf(entry));
 }
 
 /** `anchor` を逐語で含む行を集める */
@@ -828,6 +940,7 @@ export function duplicatedIds(entries: readonly ManifestEntry[]): string[] {
   const seen = new Set<string>();
   const duplicated: string[] = [];
   for (const entry of entries) {
+    if (!isEntryObject(entry)) continue;
     const id = String(entry.id ?? '');
     if (seen.has(id) && !duplicated.includes(id)) duplicated.push(id);
     seen.add(id);
@@ -839,7 +952,7 @@ export function duplicatedIds(entries: readonly ManifestEntry[]): string[] {
 export function countEntriesForFile(entries: readonly ManifestEntry[], file: string): number {
   let count = 0;
   for (const entry of entries) {
-    if (entry.file === file) count += 1;
+    if (isEntryObject(entry) && entry.file === file) count += 1;
   }
   return count;
 }
@@ -848,7 +961,7 @@ export function countEntriesForFile(entries: readonly ManifestEntry[], file: str
 export function countStaleDivergences(entries: readonly ManifestEntry[]): number {
   let count = 0;
   for (const entry of entries) {
-    if (entry.divergence !== undefined && entry.divergence.kind === 'stale') count += 1;
+    if (divergenceOf(entry)?.kind === 'stale') count += 1;
   }
   return count;
 }
@@ -864,6 +977,31 @@ function makeFinding(entry: ManifestEntry, message: string): Finding {
 
 function makeGlobalFinding(message: string): Finding {
   return { id: '(宣言全体)', file: '(宣言全体)', anchor: '(宣言全体)', message };
+}
+
+/** 欄を持つオブジェクトですらない項目の失敗（タスク 115.272） */
+function makeBrokenEntryFinding(value: unknown): Finding {
+  return {
+    id: '(壊れた項目)',
+    file: '(壊れた項目)',
+    anchor: '(壊れた項目)',
+    message: `宣言の項目が欄を持つオブジェクトではありません（型 ${typeof value}）: ${String(JSON.stringify(value))}`,
+  };
+}
+
+/**
+ * 一件の判定が例外で落ちたことの失敗（最後の網。タスク 115.272）
+ *
+ * **項目の中身には触れない。** 例外の出どころが欄の読み出しそのものである場合、
+ * ここで項目を読むと失敗の報告自身が例外になる。名指しは並び順で行う。
+ */
+function makeThrownFinding(position: number, error: unknown): Finding {
+  return {
+    id: `(${position} 件目)`,
+    file: `(${position} 件目)`,
+    anchor: `(${position} 件目)`,
+    message: `宣言の判定が例外で中断しました（項目そのものが壊れている疑いがあります）: ${String(error)}`,
+  };
 }
 
 export interface MeasurementOutcome {
@@ -953,6 +1091,17 @@ export function runOutsideRepository(command: string): MeasurementOutcome {
 export function measureAll(root: string, entries: readonly ManifestEntry[]): Measurement[] {
   const measurements: Measurement[] = [];
   for (const entry of entries) {
+    if (!isEntryObject(entry)) {
+      measurements.push({
+        id: '(壊れた項目)',
+        file: '(壊れた項目)',
+        expected: '',
+        actual: '(失敗) 宣言の項目が欄を持つオブジェクトではないため実行しません',
+        documentFigure: '',
+        stale: false,
+      });
+      continue;
+    }
     const command = String(entry.command ?? '');
     const rejected = vocabularyFailures(command);
     const outcome: MeasurementOutcome =
@@ -965,7 +1114,7 @@ export function measureAll(root: string, entries: readonly ManifestEntry[]): Mea
       expected: String(entry.expected ?? ''),
       actual: outcome.failure === '' ? outcome.output : `(失敗) ${outcome.failure}`,
       documentFigure: documentFigureOf(entry),
-      stale: entry.divergence !== undefined,
+      stale: divergenceOf(entry) !== undefined,
     });
   }
   return measurements;
