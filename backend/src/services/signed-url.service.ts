@@ -11,7 +11,7 @@
  *
  * Requirements:
  * - 4.1: 画像ファイルの一時的なアクセスURL生成
- * - 12.4: 署名付きURLの有効期限とアクセス権限を検証
+ * - 14.4: 署名付きURLの有効期限とアクセス権限を検証
  * - 14.6: 全ての通信をHTTPS/TLSで暗号化
  */
 import type { PrismaClient } from '../generated/prisma/client.js';

@@ -2,8 +2,8 @@
  * @fileoverview 現場調査用バリデーションスキーマ
  *
  * Requirements:
- * - 1.1: プロジェクトに紐付く新規現場調査レコードを作成する
- * - 1.6: プロジェクトが存在しない場合、現場調査の作成を許可しない
+ * - 1.2: プロジェクトに紐付く新規現場調査レコードを作成する
+ * - 1.7: プロジェクトが存在しない場合、現場調査の作成を許可しない
  *
  * @module schemas/site-survey
  */
@@ -56,7 +56,7 @@ const dateStringSchema = z.string().refine(
  * 現場調査作成用スキーマ
  *
  * Requirements:
- * - 1.1: プロジェクトに紐付く新規現場調査レコードを作成する
+ * - 1.2: プロジェクトに紐付く新規現場調査レコードを作成する
  */
 export const createSiteSurveySchema = z.object({
   projectId: z

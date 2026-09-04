@@ -4,18 +4,18 @@
  * 現場調査のCRUD操作とビジネスロジックを担当します。
  *
  * Requirements:
- * - 1.1: プロジェクトに紐付く新規現場調査レコードを作成する
- * - 1.2: 現場調査の基本情報と関連する画像一覧を表示する
- * - 1.3: 楽観的排他制御を用いて現場調査レコードを更新する
- * - 1.4: 現場調査と関連する画像データを論理削除する
- * - 1.5: 同時編集による競合が検出される場合、競合エラーを表示して再読み込みを促す
- * - 1.6: プロジェクトが存在しない場合、現場調査の作成を許可しない
+ * - 1.2: プロジェクトに紐付く新規現場調査レコードを作成する
+ * - 1.3: 現場調査の基本情報と関連する画像一覧を表示する
+ * - 1.4: 楽観的排他制御を用いて現場調査レコードを更新する
+ * - 1.5: 現場調査と関連する画像データを論理削除する
+ * - 1.6: 同時編集による競合が検出される場合、競合エラーを表示して再読み込みを促す
+ * - 1.7: プロジェクトが存在しない場合、現場調査の作成を許可しない
  * - 3.1: プロジェクト単位でのページネーション
  * - 3.2: キーワード検索（名前・メモの部分一致）
  * - 3.3: 調査日によるフィルタリング
  * - 3.4: ソート機能（調査日・作成日・更新日）
  * - 3.5: サムネイル画像URLの取得
- * - 12.5: 現場調査の作成・更新・削除時に監査ログを記録する
+ * - 14.5: 現場調査の作成・更新・削除時に監査ログを記録する
  *
  * @module services/site-survey
  */
@@ -92,7 +92,7 @@ export interface SurveyImageInfo {
 }
 
 /**
- * 現場調査詳細情報（Requirements: 1.2）
+ * 現場調査詳細情報（Requirements: 1.3）
  * 基本情報に加えて、プロジェクト情報と画像一覧を含む
  */
 export interface SiteSurveyDetail extends SiteSurveyInfo {
@@ -192,9 +192,9 @@ export class SiteSurveyService {
    * 現場調査作成
    *
    * トランザクション内で以下を実行:
-   * 1. プロジェクト存在確認 (Requirements: 1.6)
-   * 2. 現場調査作成 (Requirements: 1.1)
-   * 3. 監査ログの記録 (Requirements: 12.5)
+   * 1. プロジェクト存在確認 (Requirements: 1.7)
+   * 2. 現場調査作成 (Requirements: 1.2)
+   * 3. 監査ログの記録 (Requirements: 14.5)
    *
    * @param input - 作成入力
    * @param actorId - 実行者ID
@@ -203,7 +203,7 @@ export class SiteSurveyService {
    */
   async createSiteSurvey(input: CreateSiteSurveyInput, actorId: string): Promise<SiteSurveyInfo> {
     return await this.prisma.$transaction(async (tx) => {
-      // 1. プロジェクト存在確認 (Requirements: 1.6)
+      // 1. プロジェクト存在確認 (Requirements: 1.7)
       await this.validateProjectExists(tx, input.projectId);
 
       // 2. 現場調査作成
@@ -224,7 +224,7 @@ export class SiteSurveyService {
         },
       });
 
-      // 3. 監査ログの記録 (Requirements: 12.5)
+      // 3. 監査ログの記録 (Requirements: 14.5)
       await this.auditLogService.createLog({
         action: 'SITE_SURVEY_CREATED',
         actorId,
@@ -273,14 +273,14 @@ export class SiteSurveyService {
    * SiteSurveyConflictErrorをスロー。
    *
    * トランザクション内で以下を実行:
-   * 1. 現場調査の存在確認・楽観的排他制御 (Requirements: 1.3, 1.5)
+   * 1. 現場調査の存在確認・楽観的排他制御 (Requirements: 1.4, 1.6)
    * 2. 現場調査更新
-   * 3. 監査ログの記録 (Requirements: 12.5)
+   * 3. 監査ログの記録 (Requirements: 14.5)
    *
    * Requirements:
-   * - 1.3: 楽観的排他制御を用いて現場調査レコードを更新する
-   * - 1.5: 同時編集による競合が検出される場合、競合エラーを表示して再読み込みを促す
-   * - 12.5: 現場調査の更新時に監査ログを記録する
+   * - 1.4: 楽観的排他制御を用いて現場調査レコードを更新する
+   * - 1.6: 同時編集による競合が検出される場合、競合エラーを表示して再読み込みを促す
+   * - 14.5: 現場調査の更新時に監査ログを記録する
    *
    * @param id - 現場調査ID
    * @param input - 更新入力
@@ -316,7 +316,7 @@ export class SiteSurveyService {
         throw new SiteSurveyNotFoundError(id);
       }
 
-      // 楽観的排他制御: updatedAtの比較 (Requirements: 1.5)
+      // 楽観的排他制御: updatedAtの比較 (Requirements: 1.6)
       if (siteSurvey.updatedAt.getTime() !== expectedUpdatedAt.getTime()) {
         throw new SiteSurveyConflictError(
           '現場調査は他のユーザーによって更新されました。最新データを確認してください。',
@@ -350,7 +350,7 @@ export class SiteSurveyService {
         data: updateData,
       });
 
-      // 4. 監査ログの記録 (Requirements: 12.5)
+      // 4. 監査ログの記録 (Requirements: 14.5)
       await this.auditLogService.createLog({
         action: 'SITE_SURVEY_UPDATED',
         actorId,
@@ -379,7 +379,7 @@ export class SiteSurveyService {
    * 論理削除されたレコードは除外される。
    *
    * Requirements:
-   * - 1.2: 現場調査の基本情報と関連する画像一覧を表示する
+   * - 1.3: 現場調査の基本情報と関連する画像一覧を表示する
    *
    * @param id - 現場調査ID
    * @returns 現場調査詳細情報、存在しない場合はnull
@@ -430,11 +430,11 @@ export class SiteSurveyService {
    * 1. 現場調査の存在確認
    * 2. 関連画像の論理削除
    * 3. 現場調査の論理削除
-   * 4. 監査ログの記録 (Requirements: 12.5)
+   * 4. 監査ログの記録 (Requirements: 14.5)
    *
    * Requirements:
-   * - 1.4: 現場調査と関連する画像データを論理削除する
-   * - 12.5: 現場調査の削除時に監査ログを記録する
+   * - 1.5: 現場調査と関連する画像データを論理削除する
+   * - 14.5: 現場調査の削除時に監査ログを記録する
    *
    * @param id - 現場調査ID
    * @param actorId - 実行者ID
@@ -478,7 +478,7 @@ export class SiteSurveyService {
         data: { deletedAt },
       });
 
-      // 3. 監査ログの記録 (Requirements: 12.5)
+      // 3. 監査ログの記録 (Requirements: 14.5)
       await this.auditLogService.createLog({
         action: 'SITE_SURVEY_DELETED',
         actorId,

@@ -2,10 +2,10 @@
  * 現場調査機能関連のエラークラス
  *
  * Requirements:
- * - 1.5: 同時編集による競合エラー（SiteSurveyConflictError）
- * - 1.6: プロジェクトが存在しない場合の現場調査作成不可エラー（ProjectNotFoundForSurveyError）
+ * - 1.6: 同時編集による競合エラー（SiteSurveyConflictError）
+ * - 1.7: プロジェクトが存在しない場合の現場調査作成不可エラー（ProjectNotFoundForSurveyError）
  * - 4.1: 画像ファイルの一時的なアクセスURL生成
- * - 12.4: 署名付きURLの有効期限とアクセス権限を検証
+ * - 14.4: 署名付きURLの有効期限とアクセス権限を検証
  *
  * @module errors/siteSurveyError
  */
@@ -105,7 +105,7 @@ export class SiteSurveyValidationError extends ApiError {
  * 現場調査競合エラー（楽観的排他制御エラー）
  * 409 Conflict
  *
- * Requirements: 1.5
+ * Requirements: 1.6
  */
 export class SiteSurveyConflictError extends ApiError {
   constructor(message: string, conflictDetails?: Record<string, unknown>) {
@@ -118,7 +118,7 @@ export class SiteSurveyConflictError extends ApiError {
  * プロジェクトが見つからない場合のエラー（現場調査作成時）
  * 404 Not Found
  *
- * Requirements: 1.6
+ * Requirements: 1.7
  */
 export class ProjectNotFoundForSurveyError extends NotFoundError {
   constructor(public readonly projectId: string) {

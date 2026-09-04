@@ -598,19 +598,19 @@
       "id": "backend-requirement12-residue",
       "file": ".kiro/specs/site-survey/design.md",
       "anchor": "**したがって是正は上表の十組では閉じず、115.236 は十二箇所を是正した。**",
-      "command": "grep -rnE '^ \\* - 12\\.[0-9]' backend/src/routes/site-surveys.routes.ts backend/src/routes/survey-images.routes.ts backend/src/services/site-survey.service.ts backend/src/services/signed-url.service.ts | wc -l",
+      "command": "git grep -hE '^ \\* - 12\\.[0-9]' a1e4f4b6 -- backend/src/routes/site-surveys.routes.ts backend/src/routes/survey-images.routes.ts backend/src/services/site-survey.service.ts backend/src/services/signed-url.service.ts | wc -l",
       "expected": "4",
       "documentRendering": "の出力は **4 行**である",
-      "note": "115.277 が据え置いた backend 側の同型の残余（タスク 115.278）。所管は未着手のタスク 115.284"
+      "note": "115.277 が据え置いた backend 側の同型の残余（タスク 115.278）。タスク 115.284 が是正したため、宣言は記録が書き込まれた版 a1e4f4b6 を名指す形へ固定した（タスク 115.273 の作法。作業ツリーを読む形のままにすると記録そのものが偽になる）"
     },
     {
-      "id": "task-115-284-unstarted",
+      "id": "backend-requirement14-corrected",
       "file": ".kiro/specs/site-survey/design.md",
       "anchor": "**したがって是正は上表の十組では閉じず、115.236 は十二箇所を是正した。**",
-      "command": "grep -c '^- \\[ \\] 115\\.284 ' .kiro/specs/site-survey/tasks.md",
-      "expected": "1",
-      "documentRendering": "の出力が `1`。同日に実測",
-      "note": "backend 側の残余の所管が未着手であること（タスク 115.278）。同タスクが着手されたらこの宣言が赤くなり、文書側の「未着手」の記述を測り直させる"
+      "command": "grep -rhE '^ \\* - 14\\.[1-5]' backend/src/routes/site-surveys.routes.ts backend/src/routes/survey-images.routes.ts backend/src/services/site-survey.service.ts backend/src/services/signed-url.service.ts | wc -l",
+      "expected": "4",
+      "documentRendering": "の出力が **4 行**である",
+      "note": "タスク 115.284 の是正が生きていること。上の a1e4f4b6 を名指す宣言と対になる現況の側である。網を 14.[1-5] に絞るのは、同じ signed-url.service.ts に要件14 の受入基準として存在しない 14.6 が残っているためであり、その所管は本タスクの外である"
     },
     {
       "id": "task-115-277-deferred-families",

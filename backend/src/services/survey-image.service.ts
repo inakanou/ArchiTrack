@@ -12,7 +12,7 @@
  * Requirements:
  * - 4.1: 画像をストレージに保存し現場調査に紐付ける
  * - 4.5: 許可されない形式の場合エラーメッセージを表示してアップロードを拒否する
- * - 4.8: JPEG、PNG、WEBP形式の画像ファイルをサポートする
+ * - 4.9: JPEG、PNG、WEBP形式の画像ファイルをサポートする
  *
  * @module services/survey-image
  */
@@ -321,7 +321,7 @@ export class SurveyImageService {
   /**
    * MIMEタイプのバリデーション
    *
-   * Requirements: 4.5, 4.8
+   * Requirements: 4.5, 4.9
    * JPEG、PNG、WEBP形式のみサポート
    *
    * @param mimeType - 検証するMIMEタイプ
@@ -339,7 +339,7 @@ export class SurveyImageService {
    * ファイルのバイナリ内容を検証し、MIMEタイプと一致することを確認します。
    * これによりファイル拡張子の偽装を検出できます。
    *
-   * Requirements: 4.5, 4.8
+   * Requirements: 4.5, 4.9
    *
    * @param buffer - ファイルのバッファ
    * @param mimeType - 期待されるMIMEタイプ
@@ -517,7 +517,7 @@ export class SurveyImageService {
    * マジックバイトのみでファイル形式を判定する。
    * 拡張子・ブラウザ提供MIMEタイプは判定に使用しない。
    *
-   * Requirements: 4.5, 4.8, 21.1, 21.7, 21.8
+   * Requirements: 4.5, 4.9, 21.1, 21.7, 21.8
    *
    * @param file - 検証するファイル
    * @returns 検出された実際のMIMEタイプ
