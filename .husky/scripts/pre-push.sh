@@ -1118,6 +1118,39 @@ echo "✅ Steering test tree check passed"
 echo ""
 
 # ============================================================================
+# steering の実体の件数が版の手掛かりを持たないまま凍る状態を検知する
+# - check:steering-test-tree の件数の規約は「テスト」を含む行だけを見るため、
+#   ディレクトリ注記（注釈ツール（11ファイル）等）は網の外だった（タスク 115.275）
+# - 是正前の structure.md には実測日を持たない件数が30行あり、再現コマンドを書ける
+#   21行のうち13行が既に食い違っていた（quantity-table/ 22→68 など。2026-09-05 実測）
+# - 数値 + 実体の単位語を含む行に YYYY-MM-DD の実測日が無ければ落とす（規約 (a)）。
+#   数値を落として数える手段を書けば（規約 (b)）網に掛からない
+# ============================================================================
+
+echo "🔍 Checking steering artifact counts..."
+npm run check:steering-dir-counts:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Steering artifact count detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:steering-dir-counts:selftest"
+  exit 1
+fi
+npm run check:steering-dir-counts
+if [ $? -ne 0 ]; then
+  echo "❌ Steering artifact count check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 実測日（YYYY-MM-DD）と再現コマンドを数値と同じ行へ添えてください（規約 (a)）"
+  echo "  2. または数値を落とし、数える手段（git ls-files <dir> | wc -l 等）を書いてください（規約 (b)）"
+  echo ""
+  echo "詳細確認: npm run check:steering-dir-counts:verbose"
+  exit 1
+fi
+
+echo "✅ Steering artifact count check passed"
+echo ""
+
+# ============================================================================
 # E2E画面内自前判定チェック（E2Eテスト実行の前提条件）
 # ============================================================================
 # 画面の中で本番の判定を自前で書き起こし、その書き起こしへ主張する構造を検知する

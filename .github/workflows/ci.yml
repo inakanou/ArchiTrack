@@ -342,6 +342,32 @@ jobs:
           echo ""
           npm run check:steering-test-tree
 
+      - name: Check steering artifact count detector self-test
+        run: |
+          echo "========================================="
+          echo "Steering Artifact Count Detector Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Fixtures: scripts/check-steering-dir-counts.selftest.ts"
+          echo ""
+          npm run check:steering-dir-counts:selftest
+
+      - name: Check steering artifact counts
+        run: |
+          echo "========================================="
+          echo "Steering Artifact Count Check"
+          echo "========================================="
+          echo ""
+          echo "The count rule of check:steering-test-tree only looks at lines"
+          echo "containing the word for test, so directory annotations such as"
+          echo "annotation tools (11 files) fell outside it. Before this check,"
+          echo "structure.md carried 30 undated artifact counts and 13 of the 21"
+          echo "that could be re-measured were already wrong (measured"
+          echo "2026-09-05). A counted line must carry a YYYY-MM-DD measurement"
+          echo "date, or drop the number and state how to count instead."
+          echo ""
+          npm run check:steering-dir-counts
+
   e2e-in-page-selfjudgement:
     name: E2E In-Page Self-Judgement Check
     runs-on: ubuntu-latest

@@ -2,7 +2,9 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-09-02（Steering Sync: タスク 115.243。「テストの件数は書かず数える手段を書く」規約が名指していた `npm --prefix backend run test` が、タスク 115.216 の分離以降は既定側しか数えないため、手段ごとに何を選ぶかを併記する形へ是正した（backend は既定の実行・`test:integration`・`test:all`、frontend は `test` が全件）。併せて「数える手段を書くときは、その手段が何を選ぶかまで書く」——数値を撤去しても手段の指し先が変われば記述は同じように偽になる——を「テスト区分の列挙の規約」へ加えた）_
+_最終更新: 2026-09-05（Steering Sync: タスク 115.275。ディレクトリ注記・見出し・スペック状態が名乗っていた実体の件数 30 行を、規約 (b)（数値を落として数える手段を書く）へ置き換えた。再現コマンドを書ける 21 行のうち 13 行が既に食い違っており（`quantity-table/` 22→68、`frontend/src/utils/` 22→37、Storybook 132→157、`backend/src/routes/` 34→37 など。コミット `b84137b9`、2026-09-05 にリポジトリルートで実測）、残る 9 行（`全46タスク完了` の形）は、下記の 6 通りの走査規則（深さを問わないチェック項目・最上位の番号付き項目・相異なる最上位番号・見出し・完了印の付いた項目・深さを問わない相異なる番号）を当てた範囲では書かれた値を再現できなかった（導入時のコミットまで遡ると `project-management` と `itemized-statement-generation` の 2 行だけは「相異なる最上位番号」が一致する。これ以外の数え方は当てていない）。値の書き換えでは同じ陳腐化が繰り返されるため「実体の件数の書き方の規約」節を新設し、`npm run check:steering-dir-counts` が実測日を伴わない件数を検知する）_
+
+_2026-09-02（Steering Sync: タスク 115.243。「テストの件数は書かず数える手段を書く」規約が名指していた `npm --prefix backend run test` が、タスク 115.216 の分離以降は既定側しか数えないため、手段ごとに何を選ぶかを併記する形へ是正した（backend は既定の実行・`test:integration`・`test:all`、frontend は `test` が全件）。併せて「数える手段を書くときは、その手段が何を選ぶかまで書く」——数値を撤去しても手段の指し先が変われば記述は同じように偽になる——を「テスト区分の列挙の規約」へ加えた）_
 
 _2026-08-30（Steering Sync: タスク 115.200。`e2e/specs/` のテストカテゴリを網羅列挙へ是正し（20区分。従来は19区分で `execution-budget/` が欠落）、印で囲んで `npm run check:steering-test-tree` の検査対象にした。ディレクトリツリーの図は代表例である旨を明記して網羅の重複を解消（backend のテスト木は tech.md、frontend のテスト木も tech.md が権威）。「テスト区分の列挙の規約」節を新設。テストの件数・テストファイル数は撤去し、数える手段だけを残した）_
 
@@ -231,46 +233,56 @@ git config core.hooksPath .husky
 
 **完了した仕様:**
 
+**各スペックのタスク総数と完了数は本書に書かない**（タスク 115.275。数値を書くと、タスクが
+一つ積まれただけで無言のうちに偽になる）。数える手段は次のとおりで、いずれもリポジトリルートで
+実行する。スペック名の部分を数えたいスペックへ置き換える。
+
+- 総数: `grep -cE "^[[:space:]]*- \[[ x]\]" .kiro/specs/site-survey/tasks.md`
+- 完了数: `grep -cE "^[[:space:]]*- \[x\]" .kiro/specs/site-survey/tasks.md`
+
+`✅実装完了` は**当初の実装範囲が終わったことを表す印**であり、完了数が総数と一致することは
+意味しない（着地後に品質・是正のタスクが積まれるため）。
+
 - `.kiro/specs/user-authentication/` - ユーザー認証機能 ✅実装完了
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全46タスク完了）
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
   - 内容: 招待制ユーザー登録、ロールベースアクセス制御（RBAC）、JWT認証フロー、2FA、監査ログ
 
 **実装完了の仕様:**
 
 - `.kiro/specs/project-management/` - プロジェクト管理機能 ✅実装完了
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全17タスク完了）
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
   - 内容: プロジェクトCRUD、ステータス遷移管理（12種類のステータス）、担当者割り当て、検索・フィルタリング・ページネーション、取引先選択時の現場住所自動入力
 
 - `.kiro/specs/trading-partner-management/` - 取引先管理機能 ✅実装完了
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全15タスク完了）
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
   - 内容: 取引先CRUD、種別管理（顧客/協力業者）、請求締日・支払日管理、検索・フィルタリング・ページネーション
 
 - `.kiro/specs/site-survey/` - 現場調査機能 ✅実装完了
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全26タスク完了）
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
   - 内容: 現場調査CRUD、画像アップロード・管理（R2）、Canvas注釈編集（寸法線・矢印・図形・テキスト）、PDF報告書エクスポート
 
 - `.kiro/specs/quantity-table-generation/` - 数量表作成機能 ✅実装完了
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全48タスク完了）
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
   - 内容: 数量表CRUD、数量グループ・項目管理、計算方法選択（標準・面積体積・ピッチ）、調整係数・丸め設定、オートコンプリート入力支援、現場調査写真紐づけ、フィールドバリデーション（文字数制限・数値範囲・表示書式）、数量表インポート（Excel/PDF、Claude Vision OCR連携）
 
 - `.kiro/specs/itemized-statement-generation/` - 内訳書作成機能 ✅実装完了
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全16タスク完了）
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
   - 内容: 内訳書CRUD、数量表項目のピボット集計、分類軸（任意分類・工種・名称・規格・単位）によるグループ化、スナップショット独立性、ソート・フィルタリング・ページネーション、楽観的排他制御、Excel出力（.xlsx形式）、クリップボードコピー（タブ区切りテキスト）
 
 - `.kiro/specs/estimate-request/` - 見積依頼機能 ✅実装完了
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全24タスク完了）
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
   - 内容: 見積依頼CRUD、内訳書項目選択（クライアントサイド状態管理+保存ボタン方式、任意分類・工種列対応）、見積依頼文生成（メール/FAX対応）、クリップボードコピー、Excel出力、受領見積書登録（OCR構造化データ抽出、項目選択からの一括転記、customCategory・workTypeフィールド対応、NET金額は受領見積書単位で管理）、ステータス管理（依頼前/依頼済/見積受領済）
 
 - `.kiro/specs/company-info/` - 自社情報登録機能 ✅実装完了
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全22タスク完了）
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
   - 内容: 会社名・住所・連絡先管理（シングルトンパターン）、見積依頼文への自動挿入、楽観的排他制御
 
 - `.kiro/specs/estimate-creation/` - 見積書作成機能 ✅実装完了
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（tasks.md のチェック項目245件すべて完了）
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
   - 内容: 内訳書からの見積書生成、3行1セット構造（見積金額・実行金額・業者金額）、階層構造管理、受領見積書転記、NET金額案分計算、諸経費行管理、**明細編集のクライアント完結＋一括保存（行操作・階層移動・範囲操作・Undo/Redo・キーボード操作・階層表示モード・俯瞰パネル・注記行）**、**帳票出力のフロントエンド生成（A4横の表紙/内訳書/明細書 PDF・Excel、未保存プレビュー）**
 
 - `.kiro/specs/contract-management/` - 契約書管理機能 ✅実装完了
-  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**（全17タスク完了）
+  - 状態: 要件定義✅、技術設計✅、タスク分解✅、**実装完了✅**
   - 内容: 契約書CRUD、新規契約・変更契約種別管理、見積書連動金額自動計算、ステータス管理（契約前/契約済）、変更前後比較表示、楽観的排他制御
 
 - `.kiro/specs/construction-schedule/` - 工程表作成機能 ✅実装完了
@@ -478,7 +490,7 @@ frontend/
 │   │       ├── ImageExportDialog.tsx # 画像エクスポートダイアログ
 │   │       ├── StorageWarningBanner.tsx # ストレージ警告バナー
 │   │       ├── ZoomControls.tsx     # ズーム操作UI（ズームイン/アウト/全体表示・倍率バッジ、44px下部配置の表示専用）
-│   │       ├── tools/               # 注釈ツール（11ファイル）
+│   │       ├── tools/               # 注釈ツール
 │   │       │   ├── ArrowTool.ts     # 矢印ツール
 │   │       │   ├── CircleTool.ts    # 円・楕円ツール
 │   │       │   ├── DimensionTool.ts # 寸法線ツール
@@ -490,18 +502,18 @@ frontend/
 │   │       │   ├── RectangleTool.ts # 四角形ツール
 │   │       │   ├── TextTool.ts      # テキストツール
 │   │       │   └── registerCustomShapes.ts # カスタムシェイプ登録
-│   │       └── gestures/            # タッチジェスチャー・ビューポート制御（3ファイル）
+│   │       └── gestures/            # タッチジェスチャー・ビューポート制御
 │   │           ├── canvasViewportController.ts # 中点ズーム/パン/フィットの状態制御（純粋ロジック、UI非依存）
 │   │           ├── touchGestureManager.ts # マルチタッチ調停（2本指ピンチ/3本指以上の描画抑止/cooldown）
 │   │           └── gesture-thresholds.ts # ジェスチャー判定閾値の定義
-│   │   ├── quantity-table-import/    # 数量表インポートコンポーネント（8ファイル）
+│   │   ├── quantity-table-import/    # 数量表インポートコンポーネント
 │   │       ├── ImportDialog.tsx    # インポートダイアログ（Excel/PDFファイル選択、プレビュー、確定）
 │   │       ├── ImportPreviewTable.tsx # インポートプレビューテーブル
 │   │       ├── excel-parser.ts     # Excelファイルパーサー（SheetJS）
 │   │       ├── field-mapping.ts    # フィールドマッピングロジック
 │   │       ├── pdf-ocr-extractor.ts # PDF OCR抽出（Claude Vision API連携）
 │   │       └── useImportDataExtractor.ts # データ抽出カスタムフック
-│   │   ├── quantity-table/          # 数量表コンポーネント（22ファイル）
+│   │   ├── quantity-table/          # 数量表コンポーネント
 │   │       ├── QuantityInput.tsx    # 数量入力
 │   │       ├── QuantityGroupCard.tsx # 数量グループカード
 │   │       ├── QuantityGroupTitleRow.tsx # グループタイトル行（最適化表示）
@@ -523,12 +535,12 @@ frontend/
 │   │       ├── PhotoPreviewDialog.tsx # 写真プレビューダイアログ
 │   │       ├── SortOrderButtons.tsx # 並び順変更ボタン
 │   │       └── gridConstants.ts     # グリッド定数定義
-│   │   ├── itemized-statement/      # 内訳書コンポーネント（6ファイル）
+│   │   ├── itemized-statement/      # 内訳書コンポーネント
 │   │       ├── CreateItemizedStatementForm.tsx # 内訳書作成フォーム
 │   │       ├── CreateItemizedStatementForm.stories.tsx # Storybook
 │   │       ├── ItemizedStatementDeleteDialog.tsx # 削除確認ダイアログ
 │   │       └── ItemizedStatementDeleteDialog.stories.tsx # Storybook
-│   │   ├── estimate-request/        # 見積依頼コンポーネント（10+ファイル）
+│   │   ├── estimate-request/        # 見積依頼コンポーネント
 │   │       ├── EstimateRequestForm.tsx # 見積依頼フォーム
 │   │       ├── ItemSelectionPanel.tsx # 内訳書項目選択パネル（クライアントサイド状態管理+保存ボタン方式、任意分類・工種列対応）
 │   │       ├── EstimateRequestTextPanel.tsx # 見積依頼文表示パネル
@@ -537,7 +549,7 @@ frontend/
 │   │       ├── StatusBadge.tsx       # ステータスバッジ
 │   │       ├── StatusTransitionButton.tsx # ステータス遷移ボタン
 │   │       └── index.ts              # エクスポート集約
-│   │   ├── estimate-requests/       # 受領見積書コンポーネント（8+ファイル）
+│   │   ├── estimate-requests/       # 受領見積書コンポーネント
 │   │       ├── ReceivedQuotationForm.tsx # 受領見積書フォーム（一括転記対応）
 │   │       ├── ReceivedQuotationList.tsx # 受領見積書一覧
 │   │       ├── LineItemEditor.tsx    # 明細行エディタ（customCategory・workType・数値表示形式対応）
@@ -547,7 +559,7 @@ frontend/
 │   │       ├── pdf-worker-config.ts  # pdfjs-dist worker共通設定モジュール
 │   │       ├── number-format.ts      # 数値表示形式・丸め規則ユーティリティ
 │   │       └── index.ts              # エクスポート集約
-│   │   ├── estimate/                # 見積書コンポーネント（18+ファイル）
+│   │   ├── estimate/                # 見積書コンポーネント
 │   │       ├── EstimateCard.tsx      # 見積書カード
 │   │       ├── EstimateItemRow.tsx   # 見積項目行
 │   │       ├── EstimateItemTable.tsx # 見積項目テーブル
@@ -567,10 +579,10 @@ frontend/
 │   │       ├── ProfitRateDialog.tsx  # 利益率適用ダイアログ
 │   │       ├── EstimateExportDialog.tsx # 帳票出力ダイアログ（PDF/Excel、行タイプ選択）
 │   │       └── index.ts              # エクスポート集約
-│   │   ├── contract/                # 契約書コンポーネント（5ファイル）
+│   │   ├── contract/                # 契約書コンポーネント
 │   │       ├── ContractForm.tsx     # 契約書作成・編集フォーム（新規/変更契約対応、見積書連動金額計算）
 │   │       └── ComparisonPanel.tsx  # 変更契約の変更前後比較パネル
-│   │   ├── schedule/               # 工程表コンポーネント（10ファイル）
+│   │   ├── schedule/               # 工程表コンポーネント
 │   │       ├── ScheduleForm.tsx    # 工程表作成・編集フォーム
 │   │       ├── ScheduleItemRow.tsx # 工程項目行
 │   │       ├── SortableScheduleList.tsx # 並び替え可能な工程項目リスト
@@ -648,7 +660,7 @@ frontend/
 │   │   ├── ConstructionPhotoImageViewerPage.tsx # 工事写真フルスクリーンビューア（ズーム/回転/パン）
 │   │   └── ConstructionSignboardListPage.tsx # 工事看板マスタ管理ページ
 │   ├── routes.tsx          # ルーティング設定（React Router v7）
-│   ├── utils/             # ユーティリティ関数（22ファイル）
+│   ├── utils/             # ユーティリティ関数
 │   │   ├── formatters.ts  # 日付フォーマット、APIステータス変換等
 │   │   ├── image-compression.ts # 送信前の画像縮小・再エンコード（長辺2048px/JPEG0.85、非対応時は元ファイルへフォールバック）
 │   │   ├── imageFitScale.ts # 画像フィット倍率算出の純関数（computeFitScale、allowUpscale/maxUpscaleで原寸頭打ちを制御）
@@ -692,7 +704,7 @@ frontend/
 }
 ```
 
-**Storybookストーリーファイル（132ファイル）:**
+**Storybookストーリーファイル:**
 
 認証・共通コンポーネント:
 - `ErrorBoundary.stories.tsx` - エラーバウンダリコンポーネント（5バリアント）
@@ -767,7 +779,7 @@ frontend/
 
 ```
 frontend/src/
-├── api/               # APIクライアント（20ファイル）
+├── api/               # APIクライアント
 │   ├── auth.ts        # 認証API
 │   ├── client.ts      # 共通クライアント
 │   ├── projects.ts    # プロジェクトAPI
@@ -797,7 +809,7 @@ frontend/src/
 │       ├── estimateTree.ts # ツリー導出・祖先金額の再計算
 │       ├── estimateCalculations.ts # 案分・利益率・集計のクライアント計算
 │       └── estimateKeymap.ts # キー割当の単一定義（画面のヘルプ表示と共用）
-├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useEstimateKeyboard、useEstimateUndo、useEstimateNavigation、useEstimateViewModePreference、useAutocompleteCandidateStore、useUnsavedChanges、useScheduleState、useHolidayCalendar、useCanvasViewport（注釈Canvasの中点ズーム/パン/フィット状態）、useElementSize（ResizeObserverで要素実寸を購読し再フィットに使用）等 32ファイル）
+├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useEstimateKeyboard、useEstimateUndo、useEstimateNavigation、useEstimateViewModePreference、useAutocompleteCandidateStore、useUnsavedChanges、useScheduleState、useHolidayCalendar、useCanvasViewport（注釈Canvasの中点ズーム/パン/フィット状態）、useElementSize（ResizeObserverで要素実寸を購読し再フィットに使用）等）
 ├── services/          # サービス層（TokenRefreshManager.ts、AutoSaveManager.ts、UndoManager.ts）
 │   └── export/        # 帳票・エクスポート生成（jsPDF/SheetJS。`load*ExportService.ts` の動的importで初期チャンクから分離）
 ├── types/             # 型定義（auth.types.ts、session.types.ts、quantity-import.types.ts等）
@@ -870,7 +882,7 @@ backend/
 │   │       │   └── sentry.test.ts  # Sentryエラートラッキング
 │   │       └── config/    # 設定テスト
 │   │           └── env.test.ts     # 環境変数バリデーション
-│   ├── errors/            # カスタムエラー定義（17ファイル）
+│   ├── errors/            # カスタムエラー定義
 │   │   ├── apiError.ts    # 汎用APIエラークラス
 │   │   ├── projectError.ts # プロジェクト関連エラー
 │   │   ├── tradingPartnerError.ts # 取引先関連エラー
@@ -895,7 +907,7 @@ backend/
 │   │   ├── validate.middleware.ts      # Zodバリデーション
 │   │   ├── authenticate.middleware.ts  # JWT認証
 │   │   └── authorize.middleware.ts     # 権限チェック（RBAC）
-│   ├── routes/            # ルート定義（34ファイル）
+│   ├── routes/            # ルート定義
 │   │   ├── admin.routes.ts  # 管理者ルート（Swagger JSDoc付き）
 │   │   ├── jwks.routes.ts   # JWKS公開鍵配信（RFC 7517準拠）
 │   │   ├── auth.routes.ts   # 認証ルート（招待登録、ログイン、2FA等）
@@ -933,7 +945,7 @@ backend/
 │   ├── config/            # 設定ファイル
 │   │   ├── env.ts          # 環境変数設定
 │   │   └── security.constants.ts # セキュリティ定数
-│   ├── schemas/           # Zodバリデーションスキーマ（14ファイル）
+│   ├── schemas/           # Zodバリデーションスキーマ
 │   │   ├── project.schema.ts # プロジェクト関連
 │   │   ├── trading-partner.schema.ts # 取引先関連
 │   │   ├── site-survey.schema.ts # 現場調査関連
@@ -948,7 +960,7 @@ backend/
 │   │   ├── contract.schema.ts # 契約書関連
 │   │   ├── schedule.schema.ts # 工程表関連
 │   │   └── execution-budget.schema.ts # 実行予算関連
-│   ├── services/          # ビジネスロジック（59サービス）
+│   ├── services/          # ビジネスロジック
 │   │   ├── auth.service.ts  # 認証統合サービス
 │   │   ├── token.service.ts # JWTトークン管理（EdDSA署名）
 │   │   ├── session.service.ts # セッション管理
@@ -1024,7 +1036,7 @@ backend/
 │   │   ├── session.types.ts # セッション関連型定義
 │   │   ├── password.types.ts # パスワード関連型定義
 │   │   └── project.types.ts # プロジェクト関連型定義（ステータス、遷移）
-│   ├── utils/             # ユーティリティ関数（8ファイル）
+│   ├── utils/             # ユーティリティ関数
 │   │   ├── logger.ts      # Pinoロガー設定（Railway環境対応、pino-pretty統合）
 │   │   ├── sentry.ts      # Sentryエラートラッキング
 │   │   ├── cache.ts       # キャッシュユーティリティ
@@ -1096,7 +1108,7 @@ backend/src/
 - `routes/admin.routes.ts`: 管理者用ルート（ログレベル動的変更）。Swagger JSDocコメント付き
 - `utils/logger.ts`: Pinoロガー設定。Railway環境では構造化JSON、開発環境ではpino-prettyで視認性向上
 
-**実装済みAPI（34ルートファイル）:**
+**実装済みAPI:**
 
 **基盤API:**
 - `GET /health`: ヘルスチェックエンドポイント（サービス状態、DB/Redis接続状態）
@@ -1450,6 +1462,69 @@ steering の列挙は既定で**代表例**である。網羅を主張する列�
   `npm --prefix frontend run test` が全件である。手段だけを名指して選ぶ範囲を書かないと、
   区分が分かれた時点（backend はタスク 115.216）で**手段の名前は残ったまま意味が変わる**。
   数値を撤去しても、手段の指し先が変われば記述は同じように偽になる（タスク 115.243）。
+
+### 実体の件数の書き方の規約（タスク 115.275）
+
+ディレクトリのファイル数のような**実体を数えた値**を本書へ書くときは、次の (a) (b) のどちらかを
+必ず選ぶ（`.kiro/specs/site-survey/design.md` の「実測値の書き方（タスク 115.212）」と同じ規約を
+本書へも掛けたものである）。
+
+- **(a) 実測日を数値と同じ行へ添える。** 日付は `YYYY-MM-DD` の形で書き、再現コマンドと
+  コミットのハッシュを併記する。同じ日に複数のタスクが着地するため、日付だけでは版を絞れない。
+- **(b) 数値を落とし、数える手段を書く。** ディレクトリのファイル数は
+  `git ls-files frontend/src/hooks | wc -l` の形で数える（リポジトリルートで実行する）。
+  Storybook のストーリーファイルは `git ls-files "frontend/src/**/*.stories.tsx" | wc -l`、
+  バックエンドのルートファイルは `git ls-files backend/src/routes | wc -l` である。
+
+**ディレクトリツリーの図と見出しは (b) を採る。** ファイルが一つ増減しただけで値が偽になり、
+増減させた変更の側にはその値を直す動機が無いためである。
+
+`npm run check:steering-dir-counts` が (a) を満たさない件数を検出する（自己検査は
+`npm run check:steering-dir-counts:selftest`）。判定は行単位で、「数値 + 実体の単位語
+（ファイル／ルートファイル／ストーリー／サービス／タスク／区分／件）」を含む行が、同じ行に
+実測日を持つかだけを見る。**数値が実体と一致するかまでは見ない**——一致は (b) を選んで数値を
+書かないことで得る。検出しない形（`5バリアント` のような単位語の一覧に無い数え方、
+数値と実測日が別の行に分かれた散文）は `scripts/check-steering-dir-counts.ts` の冒頭が列挙する。
+
+是正の根拠: 本書には実測日を持たない実体の件数が 30 行あり、再現コマンドを書ける 21 行のうち
+13 行が既に食い違っていた（`quantity-table/` 22→68、`frontend/src/utils/` 22→37、
+Storybook 132→157 など。コミット `b84137b9`、2026-09-05 にリポジトリルートで実測）。
+残る 9 行（`全46タスク完了` の形。同じくコミット `b84137b9`、2026-09-05 に実測）については、
+走査規則の空間が開いており「どの数え方でも再現できない」を機械で確かめる手段が無いため、
+**当てた規則を挙げて範囲を限る**（`.kiro/steering/development-discipline.md` の
+「『掃き終えた』を未検証の前提で支えない」に従う）。当てたのは次の 6 通りである
+（`<spec>` は当該スペックのディレクトリ名。いずれもリポジトリルートで実行する）。
+
+1. `grep -cE '^[[:space:]]*- \[[ x]\]' .kiro/specs/<spec>/tasks.md` — 深さを問わないチェック項目
+2. `grep -cE '^- \[[ x]\] [0-9]+\. ' .kiro/specs/<spec>/tasks.md` — 最上位の番号付き項目
+3. `grep -oE '^- \[[ x]\] [0-9]+' .kiro/specs/<spec>/tasks.md | grep -oE '[0-9]+$' | sort -un | wc -l` — 相異なる最上位番号
+4. `grep -cE '^#{2,3} ' .kiro/specs/<spec>/tasks.md` — 見出し
+5. `grep -cE '^[[:space:]]*- \[x\]' .kiro/specs/<spec>/tasks.md` — 完了印の付いた項目
+6. `grep -oE '^[[:space:]]*- \[[ x]\] [0-9]+(\.[0-9]+)*' .kiro/specs/<spec>/tasks.md | grep -oE '[0-9]+(\.[0-9]+)*$' | sort -u | wc -l` — 深さを問わない相異なる番号
+
+**(1) 機械保証**: 無い。走査規則の空間は列挙できないため、この命題に機械の裏付けは付かない。
+`npm run check:steering-dir-counts` が見るのは「実測日を伴わない件数が在るか」だけであり、
+数え方が失われているかどうかは見ない。
+
+**(2) 上の 6 規則を当てた結果**（コミット `b84137b9`、2026-09-05 にリポジトリルートで実測）:
+
+- `b84137b9` の時点では **9 行すべてが 6 規則のいずれとも一致しない**。例えば
+  `contract-management` の 17 に対し規則 1〜6 は 45／16／16／0／45／45 を返す。
+- 当該文言が本書へ入った版まで遡ると **2 行は再現できる**。版は
+  `git log -S '全17タスク完了' --oneline --reverse -- .kiro/steering/structure.md`（2026-09-05 に実行）
+  の形で特定した。その版の `tasks.md` へ当て直すと `project-management` は規則 3 が 17、
+  `itemized-statement-generation` は規則 3 が 16 を返し、書かれた値と一致する
+  （コミット `06844cb4` と `0efe3215`、2026-09-05 に実測）。
+- 残る 7 行は導入時点でも 6 規則のいずれとも一致しない（`user-authentication` の 46 は導入版
+  `5e9b3320` で 65／10／10／2／31／65、`company-info` の 22 は `28d3a5c4` で
+  26／7／7／3／26／26。2026-09-05 に実測）。
+
+**(3) 未走査の残余**: 上の 6 規則以外の数え方は当てていない。いずれかの数え方が値を再現するなら
+本段落は偽になる。
+
+結論は「上の 6 規則の範囲では、`b84137b9` の時点で 9 行すべてが再現できず、導入時点まで遡っても
+7 行が再現できなかった」である。再現できた 2 行も現況では偽であり、値を書き換えるだけでは
+同じ陳腐化が繰り返される。
 
 ## インポート構成
 
