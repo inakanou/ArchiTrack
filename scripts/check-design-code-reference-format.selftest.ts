@@ -78,24 +78,49 @@ const SCAN_ROOT_CONSUMERS: readonly string[] = [
  * 生のソースで照合する版はこの対照が緑のまま素通りし（自己検査 103/103 緑）、
  * 注釈を取り除く版では「共有部品 design-document.ts に走査根が見当たらない（対照が
  * 空振りしている）: '.kiro/specs'」として 103 件中 1 件が落ちた（2026-09-01 に総数 72 件で
- * 実測し、総数が 103 件になった 2026-09-04 に再実測した）。
+ * 実測し、総数が 103 件になった 2026-09-04 に再実測した）。**タスク 115.268 の提出時点で
+ * 同じ変異を当て直したところ、同じ一行で 104 件中 1 件が落ちた**——コミット `c6ef2779` に
+ * 本タスクの未コミット差分を当てた作業ツリーで、2026-09-04 にリポジトリルートで実測。
+ * 変異は退避した控えからの書き戻しで復元した。
  *
- * この機構には既知の天井が二つある（いずれもタスク 115.221 の断片方式から引き継いだ限界で
- * あり、本タスクで解いたものではない）。
+ * **注釈除去がリテラルを跨ぐ穴は塞いだ（タスク 115.268）。** かつてここには「`stripComments`
+ * の `//.*$` は文字列・正規表現リテラルの中の `//` も注釈の始まりと見なすため、同じ行の手前に
+ * `//` を含む文字列を置けば裸の断片でも逃れられる」という天井が挙がっていた。
+ * {@link stripComments} を一文字ずつ読む走査へ改め、この経路を閉じた。実測（いずれも
+ * 2026-09-04 にリポジトリルートで実測。**版はコミット `c6ef2779`**——本タスクの差分は
+ * 未コミットであり、「改める前」は同コミットそのものの作業ツリー（総数 103 件）、
+ * 「改めた後」は同コミットへ本タスクの差分を当てた作業ツリー（総数 104 件）を指す。
+ * 変異は退避した控えからの書き戻しで復元した）:
+ *
+ *   - scripts/check-design-path-references.ts の取り込みの直後へ
+ *     `const SCHEME = 'https://example.invalid'; const LOCAL_SPEC_DIR = '.kiro/specs';
+ *     const LOCAL_DOC = 'design.md';` の一行を足す変異を当てると、改める前は自己検査
+ *     103/103 緑（終了コード 0）であったが、改めた後は `check-design-path-references.ts に
+ *     走査根の複製が戻っている: '.kiro/specs' / 'design.md'` として 104 件中 1 件が落ちる
+ *   - 同じ位置へ `const OPENER = '/*'; const LOCAL_SPEC_DIR = '.kiro/specs'; const CLOSER = '*' + '/';`
+ *     の一行を足す変異（塊注釈の記号を文字列で挟む形）でも、改めた後は 104 件中 1 件が落ちる
+ *
+ * **残る天井は二つあり、どちらも断片方式そのものの限界である**（タスク 115.221 から
+ * 引き継いだもので、注釈除去の穴とは別の経路。本タスクでも解いていない）。
  *
  * 一つ目。消費側が共有部品から取り込んだ `SPEC_DIR` / `DESIGN_DOC_NAME` を使って列挙を
  * 書き直すと、ソースに裸の文字列リテラルも `export function collectDesignDocuments(` も
- * 現れないため、この対照は素通りする。
+ * 現れないため、この対照は素通りする。scripts/check-design-path-references.ts の取り込みの
+ * 直後へ `const dupDocs = (root: string) => fs.readdirSync(path.join(root, SPEC_DIR)).map((n) =>
+ * path.join(SPEC_DIR, n, DESIGN_DOC_NAME));` の一行を足す変異を当てても、自己検査は
+ * 104/104 緑（終了コード 0）のままであった（コミット `c6ef2779` に本タスクの未コミット差分を
+ * 当てた作業ツリーで、2026-09-04 にリポジトリルートで実測）。
  *
- * 二つ目。`stripComments` の `//.*$` は文字列・正規表現リテラルの中の `//` も注釈の始まりと
- * 見なすため、`//` を含む行はその後ろが照合の対象から消える。**裸の断片であっても、同じ行の
- * 手前に `//` を含む文字列を置けば逃れられる。** scripts/check-design-path-references.ts の
- * 取り込みの直後へ `const SCHEME = 'https://example.invalid'; const LOCAL_SPEC_DIR =
- * '.kiro/specs'; const LOCAL_DOC = 'design.md';` の一行を足す変異を当てると、自己検査は
- * 103/103 緑のまま（終了コード 0）であった。同じ行から `const SCHEME = 'https://example.invalid'; `
- * だけを外すと `check-design-path-references.ts に走査根の複製が戻っている:
- * '.kiro/specs' / 'design.md'` として 103 件中 1 件が落ちた（いずれも 2026-09-01 に総数 72 件で
- * 実測し、総数が 103 件になった 2026-09-04 に再実測した）。
+ * 二つ目。断片を**逐語で持たずに組み立てる**複製も素通りする。同じ位置へ
+ * `const D_SPEC = '.kiro' + '/specs'; const D_DOC = 'design' + '.md';` の一行を足す変異を
+ * 当てても、自己検査は 104/104 緑（終了コード 0）のままであった（コミット `c6ef2779` に
+ * 本タスクの未コミット差分を当てた作業ツリーで、2026-09-04 にリポジトリルートで実測）。
+ * これは注釈除去の穴とは別の経路であり、**リテラルを跨がない走査に改めても閉じない**。
+ *
+ * この二つは散文だけでなく {@link SCAN_ROOT_MATCHER_SPECIMENS} が `verdict: 'ceiling'` の
+ * 素材として実体で持つ。塞げたときは対照の側が赤くなり、列挙の更新が強制される。
+ * **同群の `verdict: 'correct-miss'` は天井ではない**——本物の注釈の中の断片を拾わないという
+ * 正しい不検出であり、塞ぐ対象ではない（理由と実測は同群の注釈に置く）。
  */
 const SCAN_ROOT_FRAGMENTS: readonly string[] = [
   "'.kiro/specs'",
@@ -115,9 +140,158 @@ function readExecutableSource(): string {
   return stripComments(fs.readFileSync(ENTRY_PATH, 'utf-8'));
 }
 
-/** 注釈を取り除く */
+/**
+ * 正規表現リテラルが始まり得る位置か（除算の `/` と見分けるため）。
+ *
+ * 直前の意味のあるトークンで判じる。識別子で終わるなら `return` などの語のときだけ許し、
+ * それ以外（数値・`)`・`]`・`}`・`.`・引用符）は除算と読む。
+ */
+const REGEX_ALLOWING_KEYWORDS: ReadonlySet<string> = new Set([
+  'return',
+  'typeof',
+  'instanceof',
+  'in',
+  'of',
+  'case',
+  'do',
+  'else',
+  'yield',
+  'await',
+  'delete',
+  'void',
+  'new',
+  'throw',
+]);
+
+function regexLiteralCanStart(emitted: string): boolean {
+  const before = emitted.replace(/\s+$/, '');
+  if (before.length === 0) return true;
+  const identifier = /[A-Za-z_$][A-Za-z0-9_$]*$/.exec(before);
+  if (identifier !== null) return REGEX_ALLOWING_KEYWORDS.has(identifier[0]);
+  return !/[0-9)\]}.`\'"]$/.test(before);
+}
+
+/** `stripComments` の走査の状態（テンプレートの `${}` は再びコードとして読むため入れ子になる） */
+type StripFrame = { kind: 'code'; braces: number } | { kind: 'template' };
+
+/**
+ * 注釈を取り除く（**文字列・テンプレート・正規表現のリテラルを跨がない**）。
+ *
+ * 素朴な `source.replace(/\/\*[\s\S]*?\*\//g, \'\').replace(/\/\/.*$/gm, \'\')` は
+ * リテラルの中の `//` や `/*` も注釈の始まりと見なすため、**同じ行の手前に `//` を含む
+ * 文字列を置くだけで後続が照合の対象から消える**。タスク 115.268 でこの形を実測し、
+ * 一文字ずつ読む走査へ改めた（実測は {@link SCAN_ROOT_FRAGMENTS} の注釈に記す）。
+ *
+ * 走査は行を跨いで壊れない: 閉じない引用符・閉じない正規表現は改行で打ち切る。
+ */
 function stripComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  let out = '';
+  let index = 0;
+  const stack: StripFrame[] = [{ kind: 'code', braces: 0 }];
+
+  while (index < source.length) {
+    const frame = stack[stack.length - 1];
+    // 底は常にコード文脈のため空にならない。空なら走査の不具合であり、黙って合格にしない
+    if (frame === undefined) throw new Error('stripComments: 走査の状態が空になりました');
+    const character = source[index];
+
+    if (frame.kind === 'template') {
+      if (character === '\\') {
+        out += source.slice(index, index + 2);
+        index += 2;
+        continue;
+      }
+      if (character === '`') {
+        out += character;
+        index += 1;
+        stack.pop();
+        continue;
+      }
+      if (character === '$' && source[index + 1] === '{') {
+        out += '${';
+        index += 2;
+        stack.push({ kind: 'code', braces: 0 });
+        continue;
+      }
+      out += character;
+      index += 1;
+      continue;
+    }
+
+    // 行注釈: 改行は残す（行の対応を崩さないため）
+    if (character === '/' && source[index + 1] === '/') {
+      while (index < source.length && source[index] !== '\n') index += 1;
+      continue;
+    }
+    // 塊注釈: 中の改行だけ残す
+    if (character === '/' && source[index + 1] === '*') {
+      index += 2;
+      while (index < source.length && !(source[index] === '*' && source[index + 1] === '/')) {
+        if (source[index] === '\n') out += '\n';
+        index += 1;
+      }
+      index = Math.min(index + 2, source.length);
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      out += character;
+      index += 1;
+      while (index < source.length) {
+        const inner = source[index];
+        if (inner === '\\') {
+          out += source.slice(index, index + 2);
+          index += 2;
+          continue;
+        }
+        out += inner;
+        index += 1;
+        if (inner === character || inner === '\n') break;
+      }
+      continue;
+    }
+    if (character === '`') {
+      out += character;
+      index += 1;
+      stack.push({ kind: 'template' });
+      continue;
+    }
+    if (character === '/' && regexLiteralCanStart(out)) {
+      out += character;
+      index += 1;
+      let inCharacterClass = false;
+      while (index < source.length) {
+        const inner = source[index];
+        if (inner === '\\') {
+          out += source.slice(index, index + 2);
+          index += 2;
+          continue;
+        }
+        out += inner;
+        index += 1;
+        if (inner === '\n') break;
+        if (inner === '[') inCharacterClass = true;
+        else if (inner === ']') inCharacterClass = false;
+        else if (inner === '/' && !inCharacterClass) break;
+      }
+      continue;
+    }
+    const codeFrame = frame;
+    if (character === '{') {
+      codeFrame.braces += 1;
+    } else if (character === '}') {
+      if (codeFrame.braces === 0 && stack.length > 1) {
+        out += character;
+        index += 1;
+        stack.pop();
+        continue;
+      }
+      if (codeFrame.braces > 0) codeFrame.braces -= 1;
+    }
+    out += character;
+    index += 1;
+  }
+
+  return out;
 }
 
 /**
@@ -1996,9 +2170,11 @@ function checkRealRepositoryIsScanned(): string[] {
  * 現れないこと、の三つを見る。母集団（断片・消費側）が空なら失敗にする（第3原則）。
  *
  * この対照が捕らえるのは**`stripComments` を通した後のソースに断片がそのまま現れる複製**
- * である。共有部品から取り込んだ `SPEC_DIR` / `DESIGN_DOC_NAME` を使って列挙を書き直す形は
- * 捕らえない（断片が現れないため）。裸の断片であっても `stripComments` の後で消える書き方は
- * 逃れる。天井は {@link SCAN_ROOT_FRAGMENTS} の注釈に二つ記す。
+ * である。{@link stripComments} は文字列・テンプレート・正規表現のリテラルを跨がないため、
+ * リテラルの中へ `//` や `/*` を置いて後続を照合から隠す形は捕らえる（タスク 115.268）。
+ * 残る天井は断片方式そのものの限界——取り込んだ定数で列挙を書き直す形と、断片を逐語で
+ * 持たずに組み立てる形——の二つであり、{@link SCAN_ROOT_FRAGMENTS} の注釈に実測とともに
+ * 記す。照合器の当たりと天井は {@link SCAN_ROOT_MATCHER_SPECIMENS} が合成素材で固定する。
  *
  * **「本体の走査対象と共有部品の列挙が一致すること」はここに置かない。** 一元化した後の
  * `run` は `collectDesignDocuments` の戻りを逐語で `scannedFiles` へ載せるため、その突き合わせは
@@ -2045,9 +2221,256 @@ function checkScanRootIsNotDuplicated(): string[] {
     if (!source.includes(importSpecifier)) {
       failures.push(`${basename} が ${SHARED_ROOT_MODULE_NAME} を取り込んでいない`);
     }
-    const copied = SCAN_ROOT_FRAGMENTS.filter((fragment) => source.includes(fragment));
+    const copied = findCopiedScanRootFragments(fs.readFileSync(consumerPath, 'utf-8'));
     if (copied.length > 0) {
       failures.push(`${basename} に走査根の複製が戻っている: ${copied.join(' / ')}`);
+    }
+  }
+
+  return failures;
+}
+
+/**
+ * 消費側のソースに現れる走査根の断片（複製検知の照合器の本体）。
+ *
+ * 実ファイルも合成素材も**この同じ述語**を通す。対照群 {@link SCAN_ROOT_MATCHER_SPECIMENS}
+ * が合成素材の側から照合器の当たりと天井を固定する（対象の同一性。タスク 115.266 の作法）。
+ */
+function findCopiedScanRootFragments(source: string): string[] {
+  const stripped = stripComments(source);
+  return SCAN_ROOT_FRAGMENTS.filter((fragment) => stripped.includes(fragment));
+}
+
+/**
+ * 複製検知の照合器の対照群の一件（タスク 115.268）。
+ *
+ * `verdict` の語彙は兄弟の {@link FUNCTION_FORM_SPECIMENS} に揃える。**取りこぼし（天井）と
+ * 正しい不検出を一つの真偽値へ潰さない。** 潰すと「拾わない要素はすべて塞げていない形の
+ * 記録である」という誤った全称が生まれ、後任が正しい不検出まで「塞ぐべき天井」と読む。
+ */
+interface ScanRootMatcherSpecimen {
+  /** 何を確かめる素材か。後任が同じ形を再現できる粒度で書く */
+  readonly label: string;
+  /** 消費側のソースに見立てた合成素材 */
+  readonly source: string;
+  /**
+   * 照合器がこの素材をどう扱わなければならないか。
+   *
+   * - `'must-catch'`: 断片を取り出せなければならない
+   * - `'correct-miss'`: 取り出してはならない（**正しい不検出**。恒久的にこの分類であり、
+   *   塞ぐ対象ではない。理由は下の対照群の注釈に実測付きで置く）
+   * - `'ceiling'`: 断片方式そのものの限界で取り出せない（**取りこぼし**。塞げたときは
+   *   赤くなり、{@link SCAN_ROOT_FRAGMENTS} の列挙の更新が強制される）
+   */
+  readonly verdict: 'must-catch' | 'correct-miss' | 'ceiling';
+  /** 注釈の開始記号を文字列・テンプレート・正規表現のリテラルの中に含む素材か */
+  readonly crossesLiteral: boolean;
+}
+
+/**
+ * **リテラルを跨がない走査でなければ当たらないと実測された素材**（対照群が痩せるのを防ぐ）。
+ *
+ * この確認は「照合器が文字列・正規表現リテラルを跨がない」ことを名乗る。名乗りを裏づける
+ * のはここに挙げた形だけであり、これらが群から消えると**主張を証明する素材を失ったまま
+ * 緑になる**。{@link checkScanRootMatcherLiteralAwareness} がラベルの実在と分類を固定する
+ * （兄弟の {@link UNBLOCKABLE_FORM_NAMES} と同じ作法）。
+ */
+const LITERAL_CROSSING_SPECIMEN_LABELS: readonly string[] = [
+  '同じ行の手前に `//` を含む文字列リテラルが在る',
+  '同じ行に `/*` と `*/` を含む文字列リテラルが在る',
+  '同じ行の手前のテンプレートリテラルが `//` を含む',
+  '同じ行の手前の正規表現リテラルが `//` を含む',
+];
+
+/**
+ * 複製検知の照合器の対照群（タスク 115.268）。実ファイルと同じ述語
+ * {@link findCopiedScanRootFragments} を通す。
+ *
+ * **`correct-miss` の二件は恒久的な正しい不検出であり、塞いではならない。** 本物の注釈の中の
+ * 断片まで拾う向きへ改めると、{@link SCAN_ROOT_FRAGMENTS} の冒頭が記す前提——共有部品の冒頭
+ * 注釈が `'.kiro/specs'` を逐語で引いているため、注釈を残したまま照合すると空振り検知が
+ * 注釈だけで満たされる——が壊れる。実測（2026-09-04、コミット `c6ef2779` の作業ツリー。
+ * 変異は退避した控えからの書き戻しで復元し、復元後は緑に戻ることを確かめた）:
+ *
+ *   - {@link findCopiedScanRootFragments} の `const stripped = stripComments(source);` を
+ *     `const stripped = source;` へ変える変異（＝この二件を「塞ぐ」向きの改変）を当てると、
+ *     自己検査 104 件中 1 件が落ちる。落ちるのは本確認であり、
+ *     `照合器が拾ってはならない素材を拾った: 本物の行注釈の中の断片は拾わない（'.kiro/specs'）`
+ *     と `照合器が拾ってはならない素材を拾った: 本物の塊注釈の中の断片は拾わない
+ *     （'.kiro/specs' / 'design.md'）` の二行である
+ *
+ * すなわちこの二件は**赤へ倒す現役の支え**であって、塞げていない形の記録ではない。
+ * 塞げていない形は `verdict: 'ceiling'` の二件だけである。
+ */
+const SCAN_ROOT_MATCHER_SPECIMENS: readonly ScanRootMatcherSpecimen[] = [
+  {
+    label: '裸の断片（当たりの基準）',
+    source: "const LOCAL_SPEC_DIR = '.kiro/specs';\nconst LOCAL_DOC = 'design.md';\n",
+    verdict: 'must-catch',
+    crossesLiteral: false,
+  },
+  {
+    label: '同じ行の手前に `//` を含む文字列リテラルが在る',
+    source:
+      "const SCHEME = 'https://example.invalid'; const LOCAL_SPEC_DIR = '.kiro/specs'; const LOCAL_DOC = 'design.md';\n",
+    verdict: 'must-catch',
+    crossesLiteral: true,
+  },
+  {
+    label: '同じ行に `/*` と `*/` を含む文字列リテラルが在る',
+    source: "const OPENER = '/*'; const LOCAL_SPEC_DIR = '.kiro/specs'; const CLOSER = '*/';\n",
+    verdict: 'must-catch',
+    crossesLiteral: true,
+  },
+  {
+    label: '同じ行の手前のテンプレートリテラルが `//` を含む',
+    source: "const URL = `https://example.invalid`; const LOCAL_SPEC_DIR = '.kiro/specs';\n",
+    verdict: 'must-catch',
+    crossesLiteral: true,
+  },
+  {
+    label: '同じ行の手前の正規表現リテラルが `//` を含む',
+    source: "const RE = /[a//b]/; const LOCAL_SPEC_DIR = '.kiro/specs';\n",
+    verdict: 'must-catch',
+    crossesLiteral: true,
+  },
+  {
+    label: '本物の行注釈の中の断片は拾わない',
+    source: "// const LOCAL_SPEC_DIR = '.kiro/specs';\nconst other = 1;\n",
+    verdict: 'correct-miss',
+    crossesLiteral: false,
+  },
+  {
+    label: '本物の塊注釈の中の断片は拾わない',
+    source: "/* '.kiro/specs' と 'design.md' の説明 */\nconst other = 1;\n",
+    verdict: 'correct-miss',
+    crossesLiteral: false,
+  },
+  {
+    label: '天井: 文字列連結で組み立てる複製は拾えない',
+    source: "const D_SPEC = '.kiro' + '/specs';\nconst D_DOC = 'design' + '.md';\n",
+    verdict: 'ceiling',
+    crossesLiteral: false,
+  },
+  {
+    label: '天井: 取り込んだ定数で列挙を書き直す複製は拾えない',
+    source:
+      'const dupDocs = (root: string) =>\n' +
+      '  fs.readdirSync(path.join(root, SPEC_DIR)).map((n) => path.join(SPEC_DIR, n, DESIGN_DOC_NAME));\n',
+    verdict: 'ceiling',
+    crossesLiteral: false,
+  },
+];
+
+/**
+ * 複製検知の照合器が文字列・正規表現リテラルを跨がないこと、および天井の在り処
+ * （タスク 115.268）。
+ *
+ * {@link SCAN_ROOT_FRAGMENTS} の注釈が挙げる天井の列挙を、散文ではなく実体で持つ。
+ * 素材が空・分類のいずれかが欠けるときは合格にしない（AI運用7原則 第3原則）。
+ *
+ * **この確認は自らの名前を支える母集団を要求する。** 分類ごとの件数 0 を個別に失敗させるのは
+ * 兄弟の {@link checkFunctionFormSpecimenComposition} と同じ作法である。件数の下限
+ * {@link MINIMUM_TOTAL_CASES} は確認の数しか見ないため、素材だけを削る痩せ方は差分にしか
+ * 現れず、下限では止まらない。
+ *
+ * 実測（2026-09-04、コミット `c6ef2779` の作業ツリー。変異はいずれも退避した控えからの
+ * 書き戻しで復元し、復元後は緑に戻ることを確かめた）:
+ *
+ *   - {@link SCAN_ROOT_MATCHER_SPECIMENS} からリテラル跨ぎの 4 件と `correct-miss` の 2 件と
+ *     `ceiling` の 1 件を削り、`裸の断片` と `天井: 文字列連結` の 2 件だけへ痩せさせる変異を
+ *     当てると、本確認は 104 件中 1 件として落ちる。挙がるのは
+ *     `照合器の合成素材に「正しい不検出」の形がありません`、
+ *     `リテラルを跨ぐ「拾わなければならない」素材が 0 件です` と、消えた 4 件それぞれの
+ *     `リテラル跨ぎと実測した素材が対照群から消えている: ...` である
+ *   - `verdict: 'ceiling'` の 2 件だけを削る変異を当てると、本確認は 104 件中 1 件として
+ *     落ちる（`照合器の合成素材に「天井」の形がありません…`）
+ *   - `verdict: 'correct-miss'` の 2 件だけを削る変異を当てると、本確認は 104 件中 1 件として
+ *     落ちる（`照合器の合成素材に「正しい不検出」の形がありません…`）。三つの分類の 0 件は
+ *     それぞれ独立に赤くなる
+ *   - **是正前の同じ痩せさせ方は緑のまま素通りしていた**——`verdict` を導入する前の版
+ *     （`caught: boolean` と、空・両極性しか見ない構成関門）へ同じ 2 件への削減を当てると
+ *     自己検査は 104/104 緑であり、**さらに {@link stripComments} を素朴な
+ *     `source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')` へ差し戻しても
+ *     104/104 緑**であった。すなわち名前が主張する穴が復活しても気付けなかった
+ */
+function checkScanRootMatcherLiteralAwareness(): string[] {
+  const failures: string[] = [];
+
+  // 母集団が空なら以下の走査は空回りで緑になる（第3原則）
+  if (SCAN_ROOT_MATCHER_SPECIMENS.length === 0) {
+    failures.push('照合器の合成素材が 0 件（この確認は何も主張していません）');
+    return failures;
+  }
+  if (LITERAL_CROSSING_SPECIMEN_LABELS.length === 0) {
+    failures.push('リテラル跨ぎと実測した素材の一覧が空です（対照群が痩せても気付けません）');
+  }
+
+  const countOf = (verdict: ScanRootMatcherSpecimen['verdict']): number =>
+    SCAN_ROOT_MATCHER_SPECIMENS.filter((one) => one.verdict === verdict).length;
+
+  // 分類ごとの 0 件をそれぞれ独立に失敗させる（心地よい部分集合へ痩せるのを防ぐ）
+  if (countOf('must-catch') === 0) {
+    failures.push('照合器の合成素材に「拾わなければならない」形がありません');
+  }
+  if (countOf('correct-miss') === 0) {
+    failures.push(
+      '照合器の合成素材に「正しい不検出」の形がありません' +
+        '（注釈の中の断片まで拾う向きへ壊しても赤くなりません）'
+    );
+  }
+  if (countOf('ceiling') === 0) {
+    failures.push(
+      '照合器の合成素材に「天井」の形がありません' +
+        '（すべて捕らえているように見える群になっています。限界は隠さず実測付きで残すこと）'
+    );
+  }
+
+  // 名前が主張する「リテラルを跨がない」を裏づける素材そのものの下限
+  const literalCrossingMustCatch = SCAN_ROOT_MATCHER_SPECIMENS.filter(
+    (one) => one.crossesLiteral && one.verdict === 'must-catch'
+  );
+  if (literalCrossingMustCatch.length === 0) {
+    failures.push(
+      'リテラルを跨ぐ「拾わなければならない」素材が 0 件です' +
+        '（この確認は自らの名前を証明する素材を失っており、素朴な注釈除去へ戻しても緑になります）'
+    );
+  }
+
+  // 実測でリテラル跨ぎと確かめた形は、群から消えても分類を書き換えられてもならない
+  for (const label of LITERAL_CROSSING_SPECIMEN_LABELS) {
+    const found = SCAN_ROOT_MATCHER_SPECIMENS.find((one) => one.label === label);
+    if (found === undefined) {
+      failures.push(`リテラル跨ぎと実測した素材が対照群から消えている: ${label}`);
+      continue;
+    }
+    if (!found.crossesLiteral || found.verdict !== 'must-catch') {
+      failures.push(`リテラル跨ぎと実測した素材の分類が書き換えられている: ${label}`);
+    }
+  }
+
+  for (const specimen of SCAN_ROOT_MATCHER_SPECIMENS) {
+    if (specimen.label.trim() === '') {
+      failures.push('名前の無い素材がある（後任が再現できない）');
+    }
+    if (specimen.crossesLiteral && specimen.verdict !== 'must-catch') {
+      failures.push(`リテラルを跨ぐ素材を「拾わなくてよい」と宣言している: ${specimen.label}`);
+    }
+
+    const copied = findCopiedScanRootFragments(specimen.source);
+    if (specimen.verdict === 'must-catch' && copied.length === 0) {
+      failures.push(`照合器が素材を素通りさせた: ${specimen.label}`);
+    }
+    if (specimen.verdict === 'correct-miss' && copied.length > 0) {
+      failures.push(
+        `照合器が拾ってはならない素材を拾った: ${specimen.label}（${copied.join(' / ')}）`
+      );
+    }
+    if (specimen.verdict === 'ceiling' && copied.length > 0) {
+      failures.push(
+        `天井として記録した素材を拾えるようになっている（列挙を更新すること）: ` +
+          `${specimen.label}（${copied.join(' / ')}）`
+      );
     }
   }
 
@@ -2220,6 +2643,11 @@ const STRUCTURAL: Case[] = [
     custom: checkScanRootIsNotDuplicated,
   },
   {
+    name: '複製検知の照合器が文字列・正規表現リテラルを跨がない（天井を実体で固定する）',
+    expected: false,
+    custom: checkScanRootMatcherLiteralAwareness,
+  },
+  {
     name: '参照先の本番／テストの判別（本タスクの境界）',
     expected: false,
     custom: checkProductionReferenceClassification,
@@ -2293,14 +2721,19 @@ const MINIMUM_NEGATIVE_CONTROLS = 27;
  * 確認の総数の下限（タスク 115.252）
  *
  * 2026-09-04 にリポジトリルートで実測した現況ちょうど（余裕ゼロ。タスク 115.266 が
- * 関数の書き方の対照群を足した分だけ上げた。**下げてはならない**）。抽出は
+ * 関数の書き方の対照群を足し、タスク 115.268 が複製検知の照合器の対照を 1 件足した分だけ
+ * 上げた。**下げてはならない**）。**版はコミット `c6ef2779` に本タスクの未コミット差分を
+ * 当てた作業ツリー**である——同コミットそのものでは 103 件であり、同じ 2026-09-04 に
+ * 二つのタスクが着地して同じ値が動いたため、日付だけでは版を一つに絞れない
+ * （`.kiro/steering/development-discipline.md` の「現況を名乗る値にはコミットのハッシュを
+ * 添える」に従う）。抽出は
  * `npx tsx scripts/check-design-code-reference-format.selftest.ts | tail -1` の出す値をそのまま置く。
  * **確認を減らす向きの書き換えは差分に現れる。**
  *
  * **下限を構造から導く語彙がこの検査には無い**（115.222 は本体の検査種別の直和型から導けた）。
  * 導けないため件数で貼る。
  */
-const MINIMUM_TOTAL_CASES = 103;
+const MINIMUM_TOTAL_CASES = 104;
 
 /**
  * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）
