@@ -3490,7 +3490,7 @@ async function addDiscountItem(
 #### 1. 単一行項目の不変条件（REQ-41.3）
 
 - **不変条件**: `itemType === 'DISCOUNT'` の `EstimateItem` は **ESTIMATE 行をちょうど1行のみ** 保持し、EXECUTION/VENDOR 行を持たない。
-- **全行走査コードは行欠落を許容する**: `EstimateItemRow` の `LINE_TYPE_ORDER.map(type => lines.find(...))`（`frontend/src/components/estimate/EstimateItemRow.tsx` の `sortedLines` 生成箇所）は `undefined` を生むため、フィルタ前に `undefined` を除外する（`sortedLines.filter((line): line is EstimateItemLineEdit => line !== undefined)`）。値引き行は ESTIMATE 行のみを描画する。 **この現況の記述は再実測でも真である**——`EstimateItemRow.tsx` には `LINE_TYPE_ORDER` の定義と `sortedLines` の生成が現況でもある（タスク 115.234。コミット `6b84be3`。2026-09-02 にリポジトリルートで実測。(a) に従う併記である）。
+- **全行走査コードは行欠落を許容する**: `EstimateItemRow` の `LINE_TYPE_ORDER.map(type => lines.find(...))`（`frontend/src/components/estimate/EstimateItemRow.tsx` の `sortedLines` 生成箇所）は `undefined` を生むため、フィルタ前に `undefined` を除外する（`sortedLines.filter((line): line is EstimateItemLineEdit => line !== undefined)`）。値引き行は ESTIMATE 行のみを描画する。 **この現況の記述は再実測でも真である**——`EstimateItemRow.tsx` には `LINE_TYPE_ORDER` の定義と `sortedLines` の生成が現況でもある（タスク 115.234。コミット `6b84be3`。2026-09-02 にリポジトリルートで実測。(a) に従う併記である）。 **再現コマンドは `grep -cE '^const LINE_TYPE_ORDER|^  const sortedLines' frontend/src/components/estimate/EstimateItemRow.tsx` であり、出力は `2` である**（定義の 1 行と生成の 1 行）（コミット `5c276b30`。2026-09-04 にリポジトリルートで再実測。タスク 115.274 が規約 (a) の求める逐語のコマンドを添えた）。
 - **再計算時の行再合成を禁止**: `useEstimateEditor` の階層再計算（`frontend/src/hooks/useEstimateEditor.ts` の3行を再構築する処理）および編集・保存処理は、`DISCOUNT` 項目に対して EXECUTION/VENDOR 行を新規生成してはならない。階層再計算は親項目（子を持つ STANDARD 項目）のみを対象とし、値引き行はルートのリーフ項目として行構成を維持する。
 - **保存往復の保証**: 追加→保存→再読込の往復後も DISCOUNT 項目が ESTIMATE 1行のままであること（REQ-34 整合）を Integration/E2E で検証する。
 
@@ -3559,7 +3559,7 @@ async function addDiscountItem(
 
 - フロントエンドの依存方向: `types` → `api` → `calculations` / `reducer` → `hooks` → `components` → `pages`。逆方向の import を禁止する
 - 帳票サービスは `types` と `calculations` のみに依存し、`hooks` / `components` に依存しない
-- `frontend/src/services/export/` の既存4サービス（`PdfFontService` / `QuantityTablePdfExportService` / `PdfReportService` / `PdfExportService`）を**参照・再利用してよいが変更してはならない**（他機能と共有） **「既存4サービス」は再実測でも真である**——列挙された 4 つはいずれも `git ls-files` に現存する。ただしこの 4 は `frontend/src/services/export/` の全数ではなく、ここに列挙した 4 つを指す（タスク 115.234。コミット `6b84be3`。2026-09-02 にリポジトリルートで実測。(a) に従う併記である）。
+- `frontend/src/services/export/` の既存4サービス（`PdfFontService` / `QuantityTablePdfExportService` / `PdfReportService` / `PdfExportService`）を**参照・再利用してよいが変更してはならない**（他機能と共有） **「既存4サービス」は再実測でも真である**——列挙された 4 つはいずれも `git ls-files` に現存する。ただしこの 4 は `frontend/src/services/export/` の全数ではなく、ここに列挙した 4 つを指す（タスク 115.234。コミット `6b84be3`。2026-09-02 にリポジトリルートで実測。(a) に従う併記である）。 **再現コマンドは `git ls-files frontend/src/services/export/PdfFontService.ts frontend/src/services/export/QuantityTablePdfExportService.ts frontend/src/services/export/PdfReportService.ts frontend/src/services/export/PdfExportService.ts | wc -l` であり、出力は `4` である**（コミット `5c276b30`。2026-09-04 にリポジトリルートで再実測。タスク 115.274 が規約 (a) の求める逐語のコマンドを添えた）。
 - バックエンドは既存のレイヤード構成（routes → service → Prisma）を維持する
 - `quantity-table.service.ts` の `saveDraft` は**設計の参照元**であり、コードの共有・抽出は行わない（数量表への波及を避ける）
 
@@ -3587,7 +3587,7 @@ async function addDiscountItem(
 | 帳票 | バックエンド `estimate-export.service.ts`。**日本語フォント未埋め込み**、A4縦、5列、罫線なし | フロントエンドへ移設。既存4サービスを再利用 |
 | 階層 | `parentId` 隣接リストのみ。`level`/`path` なし | 維持。深さ・経路はクライアント算出＋メモ化 |
 
-**上の表の帳票の行が「現状」の欄で挙げるバックエンドのサービスは、再実測では版管理下に無い（タスク 115.234。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) が求める併記をここへ置く。欄そのものは着手前の状態を述べる記録であり書き換えない）。**当該のファイル名を `git ls-files` へ掛けた出力は `0` である——同じ行の変更後の欄が述べる移し替えが実施されたためである（コミット `6b84be3`。2026-09-02 にリポジトリルートで実測）。**同じ表の階層の行が挙げる「`level`/`path` なし」は再実測でも真である**（判定は `backend/prisma/schema.prisma` の `EstimateItem` による。同日に実測）。
+**上の表の帳票の行が「現状」の欄で挙げるバックエンドのサービスは、再実測では版管理下に無い（タスク 115.234。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) が求める併記をここへ置く。欄そのものは着手前の状態を述べる記録であり書き換えない）。**当該のファイル名を `git ls-files` へ掛けた出力は `0` である——同じ行の変更後の欄が述べる移し替えが実施されたためである（コミット `6b84be3`。2026-09-02 にリポジトリルートで実測）。**同じ表の階層の行が挙げる「`level`/`path` なし」は再実測でも真である**（判定は `backend/prisma/schema.prisma` の `EstimateItem` による。同日に実測）。 **再現コマンドは、版管理下に無いことが `git ls-files '*estimate-export.service.ts' | wc -l` で出力は `0`、「`level`/`path` なし」が `awk '/^model EstimateItem /,/^}/' backend/prisma/schema.prisma | grep -E '^ +(level|path) ' | wc -l` で出力は `0`、`awk '/^model EstimateItem /,/^}/' backend/prisma/schema.prisma | grep -c '^  parentId '` で出力は `1` である**（コミット `5c276b30`。2026-09-04 にリポジトリルートで再実測。タスク 115.274 が規約 (a) の求める逐語のコマンドを添えた）。
 
 #### 新規・変更コンポーネントの境界マップ
 
@@ -4448,7 +4448,7 @@ erDiagram
 
 - **リクエスト削減の効果**: 階層操作↑↓10回で 20リクエスト → 0リクエスト。保存時は「追加N回POST＋DELETE＋batch＋全件GET」→ 1リクエスト
 - **クエリ削減**: 明細100項目の更新が最大300UPDATE → 一括UPDATE。`getDescendantIds` のBFS（深さ分のクエリ）はクライアント側判定へ移行して消滅
-- **導出計算のコスト**: `level` / `path` を持たない隣接リストのため、深さ・経路・グリッド行列の算出をクライアントで行う。`estimateTree` の結果を `useMemo` でキャッシュし、reducer の state 参照が変わったときのみ再計算する。500項目規模の実測を段階1のリリース前に取る **この「`level` / `path` を持たない」は再実測でも真である**——`backend/prisma/schema.prisma` の `EstimateItem` は `parentId` を持ち、`level` と `path` のどちらも持たない（タスク 115.234。コミット `6b84be3`。2026-09-02 にリポジトリルートで実測。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である）。
+- **導出計算のコスト**: `level` / `path` を持たない隣接リストのため、深さ・経路・グリッド行列の算出をクライアントで行う。`estimateTree` の結果を `useMemo` でキャッシュし、reducer の state 参照が変わったときのみ再計算する。500項目規模の実測を段階1のリリース前に取る **この「`level` / `path` を持たない」は再実測でも真である**——`backend/prisma/schema.prisma` の `EstimateItem` は `parentId` を持ち、`level` と `path` のどちらも持たない（タスク 115.234。コミット `6b84be3`。2026-09-02 にリポジトリルートで実測。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である）。 **再現コマンドは `awk '/^model EstimateItem /,/^}/' backend/prisma/schema.prisma | grep -E '^ +(level|path) ' | wc -l` であり、出力は `0`、`awk '/^model EstimateItem /,/^}/' backend/prisma/schema.prisma | grep -c '^  parentId '` の出力は `1` である**（コミット `5c276b30`。2026-09-04 にリポジトリルートで再実測。タスク 115.274 が規約 (a) の求める逐語のコマンドを添えた）。
 - **帳票のバンドル影響**: Noto Sans JP（2.25MB）は既存3機能と共有する資産で増分はゼロ。帳票サービスは動的 import で初期ロードから切り離す
 
 ### Migration Strategy

@@ -1435,7 +1435,7 @@ async function registerHandler(req: Request, res: Response, next: NextFunction) 
 ```
 
 **実装のメリット**:
-- **コード重複削減**: `mapResultToApiError`により、エラーマッピングロジックが1箇所に集約。**この「1箇所に集約」は再実測でも真である**——`mapResultToApiError` の定義は `backend/src/utils/result-mapper.ts` の 1 箇所だけである（タスク 115.234。コミット `6b84be3`。2026-09-02 にリポジトリルートで実測。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である）
+- **コード重複削減**: `mapResultToApiError`により、エラーマッピングロジックが1箇所に集約。**この「1箇所に集約」は再実測でも真である**——`mapResultToApiError` の定義は `backend/src/utils/result-mapper.ts` の 1 箇所だけである（タスク 115.234。コミット `6b84be3`。2026-09-02 にリポジトリルートで実測。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である） **再現コマンドは `git grep -c 'export function mapResultToApiError' -- 'backend/src/**/*.ts' | wc -l` であり、出力は `1` である**（コミット `5c276b30`。2026-09-04 にリポジトリルートで再実測。タスク 115.274 が規約 (a) の求める逐語のコマンドを添えた）。
 - **保守性向上**: 新規エラー種別の追加時、`mapResultToApiError`のみ修正すればよい
 - **型安全性強化**: サービス層のエラー型（`AuthError`, `InvitationError`等）が統一的に定義される
 - **テスト容易性**: `mapResultToApiError`, `handleServiceResult`を単独でテスト可能
