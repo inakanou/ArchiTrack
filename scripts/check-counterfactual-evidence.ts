@@ -643,8 +643,20 @@ export interface NetSurveyTier {
  * 網の広さの三段階。**記録に書いた件数の追試手段を成果物に残すための出口**である
  * （タスク 115.189 の教訓: 追試の手段を残せない実測は記録に書かない）。
  * 本検査が採るのは最も狭い {@link NetSurveyTier} である `allThree` で、その文の数は
- * {@link RunResult.claims} と一致する。タスク 115.229 以降、両者は同じ列挙が付けた
- * 同じ印（{@link NetSentence.counterfactual}）を数えるため、一致は構造である。
+ * {@link RunResult.claims} と一致する。タスク 115.229 以降、両者は同じ列挙
+ * （{@link collectNetSentences}）が付けた同じ印（{@link NetSentence.counterfactual}）を
+ * 数えるため、**現在の実装では**一致が構造から出ている。**ただし「構造だから将来も
+ * 分かれない」とまでは言えない**——{@link surveyNet} が段を積むときに独自の絞りを足せば
+ * 分かれる。この立場は {@link collectNetSentencesInSource} の注釈と同じである
+ * （タスク 115.264 で論調を揃えた）。
+ *
+ * その分岐は自己検査 `checkNetSurveyMatchesTheCheck` が最も狭い段と母集団を突き合わせて
+ * 捕まえる。実測: {@link surveyNet} の段を積む条件へ絞りを足す変異
+ * （`row.counterfactual` を `row.counterfactual && row.sentence.length < 200` へ変える）を
+ * 当てると、自己検査のうち落ちるのは当該の 1 件だけで、「最も狭い段が本検査の母集団と
+ * 一致しない（本検査 109 / 三段階 91）」と告げる（コミット `6b7d3e83` へ本注釈の
+ * 書き換えを載せた作業ツリーで 2026-09-04 に実測。変異は退避した控えからの書き戻しで
+ * 復元した）。
  */
 export interface NetSurvey {
   scannedFiles: number;
