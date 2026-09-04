@@ -1211,6 +1211,130 @@ function checkMonitoredFunctionInventory(
   return failures;
 }
 
+/** 注釈の列挙を取り出す目印（この綴りは自ファイル内でただ一箇所に在ること） */
+const NARROWING_ENUMERATION_ANCHOR = '絞り込みに使える操作（';
+
+/** `NARROWING` の枝を操作名へ正規化する（`\.filter\(` → `filter`、`new Set` → `Set`） */
+function narrowingOperationsFromRegex(narrowing: RegExp): string[] {
+  return narrowing.source
+    .split('|')
+    .map((alternative) =>
+      alternative
+        .replace(/\\b/g, '')
+        .replace(/\\\(/g, '')
+        .replace(/\\\./g, '')
+        .replace(/^new /, '')
+        .trim()
+    );
+}
+
+/**
+ * 注釈の列挙から、逆引用符で囲まれた操作名を順に取り出す。
+ *
+ * **走査するのは注釈の行だけ**（`*` で始まる行）。目印そのものを保持する定数の宣言は
+ * コードの行であって散文ではないため、ここで数に入れると目印が常に二箇所になる。
+ * 目印がちょうど一箇所でなければ `null` を返し、呼び出し元が失格にする。
+ */
+function narrowingOperationsFromProse(selfSource: string): string[] | null {
+  const prose = selfSource
+    .split('\n')
+    .filter((line) => line.trim().startsWith('*'))
+    .join('\n');
+  if (prose.split(NARROWING_ENUMERATION_ANCHOR).length - 1 !== 1) return null;
+  const start = prose.indexOf(NARROWING_ENUMERATION_ANCHOR) + NARROWING_ENUMERATION_ANCHOR.length;
+  const end = prose.indexOf('）', start);
+  if (end === -1) return null;
+  const operations: string[] = [];
+  for (const match of prose.slice(start, end).matchAll(/`([^`]+)`/g)) {
+    const operation = match[1];
+    if (operation !== undefined) operations.push(operation);
+  }
+  return operations;
+}
+
+/**
+ * 上の注釈が挙げる「絞り込みに使える操作」の列挙が、禁止の判定が実際に使う `NARROWING` と
+ * 一致すること（タスク 115.267）。
+ *
+ * **正規表現という開いた構文空間の性質を散文で主張すると、列挙されていない一例を持って
+ * くるだけで反証できる**（タスク 115.266）。本件はその系である——起票時の列挙は
+ * `NARROWING` に在る `.every(` を落としていた。向きは安全側で、**実装のほうが散文より
+ * 厳しかったため逃がしは生まれていない**。それは実測で確かめた——本体 `scanDocument` の
+ * `for (const reference of scanLine(lineText)) {` の直前へ `.every(` を用いた逃がしを一行
+ * （`if (scanLine(lineText).every((one) => one.includes('画像削除'))) return;`）差し込むと、
+ * 自己検査 103 件中 1 件が「scanDocument の本体に絞り込みに使える操作がある: .every(」と
+ * 「scanDocument が検出結果／走査対象へ想定外の操作をしている」を挙げて落ちる
+ * （2026-09-04 に総数 103 件で実測。退避した控えからの書き戻しで復元し、
+ * 103/103 緑に戻ることを確かめた）。
+ * だが逆向き——列挙のほうが広い——へずれれば、読み手は禁じられていない操作を禁じられて
+ * いると誤読する。**どちらの向きも赤へ倒すには、散文を検査の入力にするしかない。**
+ *
+ * 見本ではなく全単射で持てるのは、`NARROWING` の枝が**閉じた有限集合**だからである
+ * （115.266 が見本を要したのは、関数の書き方という開いた構文空間が相手だったため）。
+ * 材料は二つとも本物である——実装の側は禁止の判定が実際に使う `NARROWING` の `source`
+ * から導き（写しを置かない）、散文の側は自ファイルのソースから読み直す。
+ *
+ * 実測（いずれも 2026-09-04 にリポジトリルートで実測。変異は退避した控えからの書き戻しで
+ * 復元し、復元後は 103/103 で緑に戻ることを確かめた。兄弟の `check-design-reference-format.selftest.ts` でも同じ
+ * 四つを当て、総数 87 件でそれぞれ 1 件が同じ文面で落ちた）。
+ *   - 注釈の列挙から `every` を外す（起票時の食い違いの再現）→ 103 件中 1 件が
+ *     「NARROWING が禁じている操作が注釈の列挙に無い: every」で落ちる
+ *   - 注釈の列挙へ `NARROWING` が禁じていない `reduce` を足す（危険な向き）→ 103 件中
+ *     1 件が「注釈の列挙にあるが NARROWING が禁じていない操作がある: reduce」で落ちる
+ *   - `NARROWING` へ枝 `\.at\(` を一本足す（実装が動いたとき散文が追随するか）→
+ *     103 件中 1 件が「NARROWING が禁じている操作が注釈の列挙に無い: at」で落ちる。
+ *     **写しを持たない設計がここで効く**
+ *   - 散文の側の目印を複製して二箇所にする → 103 件中 1 件が「列挙を自ファイルから
+ *     取り出せない」で落ちる（曖昧なまま突き合わせた気になるのを禁じる。第3原則）
+ *
+ * **塞いでいないこと**: 一致は集合として見るため、**列挙の順序**は固定していない。また
+ * 本確認は {@link checkNoFindingsNarrowing} の中の一節であって確認の要素ではないため、
+ * **呼び出しの一行を落とせば下限の関門には当たらない**——実測すると、呼び出しを落として
+ * 列挙から `every` を外した状態で自己検査は 103/103 緑・`EXIT=0` であった
+ * （2026-09-04 に実測。`MINIMUM_TOTAL_CASES` が見るのは確認の要素の数であり、
+ * 節の有無は数に現れない）。削除は差分に現れる。**塞がないことと、書かないことは別で
+ * ある**（115.242 の教訓）。
+ */
+function checkNarrowingEnumerationMatchesRegex(narrowing: RegExp): string[] {
+  const failures: string[] = [];
+  const fromRegex = narrowingOperationsFromRegex(narrowing);
+  const fromProse = narrowingOperationsFromProse(
+    fs.readFileSync(fileURLToPath(import.meta.url), 'utf-8')
+  );
+
+  // 突き合わせの材料が揃わないときは合格ではなく失敗（AI運用7原則 第3原則）
+  if (fromProse === null) {
+    return [
+      `注釈の「${NARROWING_ENUMERATION_ANCHOR}…）」の列挙を自ファイルから取り出せない` +
+        '（目印が消えたか二箇所になった。散文と実装を突き合わせられない状態を合格にしない）',
+    ];
+  }
+  if (fromRegex.length === 0) {
+    failures.push('NARROWING の枝が 0 件（何も禁じていない正規表現と空の列挙は必ず一致する）');
+  }
+  if (fromProse.length === 0) {
+    failures.push('注釈の列挙が 0 件（空の列挙はどんな正規表現とも矛盾しない）');
+  }
+
+  for (const operation of fromRegex) {
+    if (operation.includes('\\')) {
+      failures.push(
+        `NARROWING の枝を操作名へ正規化できない: ${operation}（正規化の規則を足すこと。` +
+          '正規化できない枝を黙って通すと、突き合わせが空振りする）'
+      );
+    }
+    if (!fromProse.includes(operation)) {
+      failures.push(`NARROWING が禁じている操作が注釈の列挙に無い: ${operation}`);
+    }
+  }
+  for (const operation of fromProse) {
+    if (!fromRegex.includes(operation)) {
+      failures.push(`注釈の列挙にあるが NARROWING が禁じていない操作がある: ${operation}`);
+    }
+  }
+  return failures;
+}
+
 /**
  * 検出結果を返す前に**絞り込む経路が無い**こと。
  *
@@ -1251,8 +1375,8 @@ function checkMonitoredFunctionInventory(
  *   文言の改訂で毎回落ちるためで、`main` の早期終了・件数の詐称は
  *   `checkReportedCountsAreExact` が終了コードと報告件数で捕らえる
  *   （`result.findings` への破壊的操作・再代入もここで落ちる）
- * - 絞り込みに使える操作（`filter` / `slice` / `splice` / `find` / `some` / `includes` /
- *   `Set` / `Map` / `continue` / `delete`）が `run` / `scanDocument` /
+ * - 絞り込みに使える操作（`filter` / `slice` / `splice` / `find` / `some` / `every` /
+ *   `includes` / `Set` / `Map` / `continue` / `delete`）が `run` / `scanDocument` /
  *   `isProductionReference` / `isThousandsSeparated` / `rejectsTestReference` の
  *   本体に現れないこと（他は正当な `continue` / `filter` / `Set` を持つため、
  *   この一律禁止ではなく上の全行の突き合わせで見る）
@@ -1285,6 +1409,8 @@ function checkNoFindingsNarrowing(): string[] {
 
   const NARROWING =
     /\.filter\(|\.slice\(|\.splice\(|\.find\(|\.some\(|\.every\(|\.includes\(|new Set|new Map|\bcontinue\b|\bdelete\b/;
+
+  failures.push(...checkNarrowingEnumerationMatchesRegex(NARROWING));
 
   interface BodyRule {
     /** 関数名（台帳 EXECUTABLE_FUNCTION_INVENTORY と同じ綴りにすること） */
