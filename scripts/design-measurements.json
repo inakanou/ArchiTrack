@@ -193,9 +193,46 @@
       "id": "jest-alternative-verification-exclusions",
       "file": ".kiro/specs/site-survey/design.md",
       "anchor": "5. `node -e \"const j=require",
-      "command": "node -e \"const j=require('./e2e/requirement-exclusions.json');const k=j.exclusions.filter(e=>/Jest/.test(e.alternativeVerification.tool));console.log(k.length, k.filter(e=>e.id.startsWith('site-survey/')).length)\"",
+      "command": "git show b999b2d:e2e/requirement-exclusions.json | node -e \"let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const k=j.exclusions.filter(e=>/Jest/.test(e.alternativeVerification.tool));console.log(k.length, k.filter(e=>e.id.startsWith('site-survey/')).length)})\"",
       "expected": "64 0",
-      "note": "未起票の提案の台帳 #7 の再現コマンド。数字二つを空白で連ねた出力"
+      "documentRendering": "の出力が `64 0`",
+      "note": "未起票の提案の台帳 #7 の再現コマンド。数字二つを空白で連ねた出力。**読む先を記録の版 `b999b2d` に固定した（タスク 115.280。115.273 の作法）**——作業ツリー読みのままだと、#7 の申し送りを 115.238 が起票した 8 スペックのいずれかが道具名から `Jest` を落とした瞬間に本検査が終了コード 1 になり、他スペックの是正が止まる（`project-management/REQ-18.1` の道具名を `Vitest` へ改める変異を当てると expected=`64 0` actual=`63 0` の 1 件で赤くなることを実測。是正後の版で同変異を当て直すと本検査は緑のままである。いずれも 2026-09-05）。総数の現況は文書に持たない（測り直す出口は文書の再現コマンド 5 そのもの）。現場調査スペックの所管の件数は `jest-alternative-verification-exclusions-site-survey` が作業ツリー読みで持つ"
+    },
+    {
+      "id": "jest-alternative-verification-exclusions-site-survey",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "5. `node -e \"const j=require",
+      "command": "node -e \"const j=require('./e2e/requirement-exclusions.json');const k=j.exclusions.filter(e=>/Jest/.test(e.alternativeVerification.tool));console.log(k.filter(e=>e.id.startsWith('site-survey/')).length)\"",
+      "expected": "0",
+      "documentRendering": "掛けた現況の出力は `0` である",
+      "note": "台帳の行7 の主張のうち 8 スペックの是正で動かない側——現場調査スペックの所管の項目の件数——を作業ツリー読みで固定する（タスク 115.280）。値が `0` でも宣言に載せられるのは、パイプの終端が `grep -c` ではなく `node -e` の `require` であるためである——リポジトリの外では `Cannot find module` で終了コード 1 になり、runOutsideRepository の対照が区別できる（2026-09-05 に同関数を直に呼んで実測）"
+    },
+    {
+      "id": "unticketed-proposal-scan-net-at-9e63637",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**追記（タスク 115.280。走査の当たり数）**",
+      "command": "git grep -h -cE '論理名|StyleTokens|Jest|除外一覧|追跡表|責務欄|Mermaid' 9e63637 -- .kiro/specs/site-survey/tasks.md",
+      "expected": "82",
+      "documentRendering": "版 `9e63637` では `82` 件",
+      "note": "前提の検証の第二の走査（台帳の #1〜#7 を担うタスクの網）の当たり数を版 `9e63637` に固定して数える（タスク 115.280）。115.213 が走査した版である"
+    },
+    {
+      "id": "unticketed-proposal-scan-net-at-3b3092be",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**追記（タスク 115.280。走査の当たり数）**",
+      "command": "git grep -h -cE '論理名|StyleTokens|Jest|除外一覧|追跡表|責務欄|Mermaid' 3b3092be -- .kiro/specs/site-survey/tasks.md",
+      "expected": "94",
+      "documentRendering": "版 `3b3092be` では `94` 件",
+      "note": "前提の検証の第二の走査（台帳の #1〜#7 を担うタスクの網）の当たり数を版 `3b3092be` に固定して数える（タスク 115.280）。#7 の申し送りを 8 スペックへ起票した 115.238 の版である。起票が測定値を動かした分がここに現れる"
+    },
+    {
+      "id": "unticketed-proposal-scan-net-at-18516005",
+      "file": ".kiro/specs/site-survey/design.md",
+      "anchor": "**追記（タスク 115.280。走査の当たり数）**",
+      "command": "git grep -h -cE '論理名|StyleTokens|Jest|除外一覧|追跡表|責務欄|Mermaid' 18516005 -- .kiro/specs/site-survey/tasks.md",
+      "expected": "122",
+      "documentRendering": "版 `18516005` では `122` 件",
+      "note": "前提の検証の第二の走査（台帳の #1〜#7 を担うタスクの網）の当たり数を版 `18516005` に固定して数える（タスク 115.280）。本タスクの着手の版である。三つとも版で固定するのは、この網が読む先が `tasks.md` であり、後続の起票のたびに作業ツリー読みの値が動いて記録が偽になるためである"
     },
     {
       "id": "image-order-display-order-writes",
@@ -236,38 +273,38 @@
     {
       "id": "self-reference-emphasised-net",
       "file": ".kiro/specs/site-survey/design.md",
-      "anchor": "タスク 115.279 の提出時点の再実測は 102 件と 275 件",
+      "anchor": "タスク 115.280 の提出時点の再実測は 102 件と 275 件",
       "command": "grep -cE '出力(が|は)|\\*\\*[0-9]+ *件' .kiro/specs/site-survey/design.md || test $? -eq 1",
       "expected": "102",
-      "documentRendering": "115.279 の提出時点の再実測は 102 件",
-      "note": "自己言及の四値 (1)。強調記号を課す網。錨は現況を述べる字面に採る——同じ行が持つ 80 件は 115.213 の提出時点の記録であり書き換えない（タスク 115.270 が四件の divergence を解消した際の作法。本体注釈の「歴史記録と現況の区別は見ない」を見よ）。タスク 115.278 が錨と値を提出時点へ貼り直した（115.273 の 92 件は当時の値として文書に残る）。タスク 115.279 が錨と値を提出時点へ貼り直した（115.278 の値は当時の値として文書に残る）"
+      "documentRendering": "115.280 の提出時点の再実測は 102 件",
+      "note": "自己言及の四値 (1)。強調記号を課す網。錨は現況を述べる字面に採る——同じ行が持つ 80 件は 115.213 の提出時点の記録であり書き換えない（タスク 115.270 が四件の divergence を解消した際の作法。本体注釈の「歴史記録と現況の区別は見ない」を見よ）。タスク 115.278 が錨と値を提出時点へ貼り直した（115.273 の 92 件は当時の値として文書に残る）。タスク 115.279 が錨と値を提出時点へ貼り直した（115.278 の値は当時の値として文書に残る）。タスク 115.280 が錨と値を提出時点へ貼り直した（115.279 の値は当時の値として文書に残る）"
     },
     {
       "id": "self-reference-plain-net",
       "file": ".kiro/specs/site-survey/design.md",
-      "anchor": "タスク 115.279 の提出時点の再実測は 102 件と 275 件",
+      "anchor": "タスク 115.280 の提出時点の再実測は 102 件と 275 件",
       "command": "grep -cE '出力(が|は)|[0-9]+ *件' .kiro/specs/site-survey/design.md || test $? -eq 1",
       "expected": "275",
-      "documentRendering": "102 件と 275 件",
-      "note": "自己言及の四値 (2)。強調記号を課さない網。同じ行が持つ 233 件は 115.213 の提出時点の記録であり書き換えない。タスク 115.278 が錨と値を提出時点へ貼り直した（115.273 の 268 件は当時の値として文書に残る）。タスク 115.279 が錨と値を提出時点へ貼り直した（115.278 の値は当時の値として文書に残る）"
+      "documentRendering": "再実測は 102 件と 275 件**である——コミット `18516005`",
+      "note": "自己言及の四値 (2)。強調記号を課さない網。同じ行が持つ 233 件は 115.213 の提出時点の記録であり書き換えない。タスク 115.278 が錨と値を提出時点へ貼り直した（115.273 の 268 件は当時の値として文書に残る）。タスク 115.279 が錨と値を提出時点へ貼り直した（115.278 の値は当時の値として文書に残る）。タスク 115.280 が錨と値を提出時点へ貼り直した（115.279 の値は当時の値として文書に残る）"
     },
     {
       "id": "self-reference-command-bearing-lines",
       "file": ".kiro/specs/site-survey/design.md",
-      "anchor": "タスク 115.279 の提出時点の再実測は 109 件",
+      "anchor": "タスク 115.280 の提出時点の再実測は 109 件",
       "command": "grep -nE '出力(が|は)|[0-9]+ *件' .kiro/specs/site-survey/design.md | grep -cE '`(grep|node|awk|sed|git|npm|npx|ls|find|wc|test|cat|tr|sort)[^`]*`' || test $? -eq 1",
       "expected": "109",
-      "documentRendering": "再実測は 109 件",
-      "note": "自己言及の四値 (3)。再現コマンドを同じ行に持つ行。同じ行が持つ 81 件は 115.213 の提出時点の記録であり書き換えない。タスク 115.278 が錨と値を提出時点へ貼り直した（115.273 の 99 件は当時の値として文書に残る）。タスク 115.279 が錨と値を提出時点へ貼り直した（115.278 の値は当時の値として文書に残る）"
+      "documentRendering": "115.280 の提出時点の再実測は 109 件",
+      "note": "自己言及の四値 (3)。再現コマンドを同じ行に持つ行。同じ行が持つ 81 件は 115.213 の提出時点の記録であり書き換えない。タスク 115.278 が錨と値を提出時点へ貼り直した（115.273 の 99 件は当時の値として文書に残る）。タスク 115.279 が錨と値を提出時点へ貼り直した（115.278 の値は当時の値として文書に残る）。タスク 115.280 が錨と値を提出時点へ貼り直した（115.279 の値は当時の値として文書に残る）"
     },
     {
       "id": "self-reference-undated-residue",
       "file": ".kiro/specs/site-survey/design.md",
-      "anchor": "タスク 115.279 の提出時点の再実測は 198 件",
+      "anchor": "タスク 115.280 の提出時点の再実測は 197 件",
       "command": "grep -nE '出力(が|は)|[0-9]+ *件' .kiro/specs/site-survey/design.md | grep -vE '20[0-9]{2}-[0-9]{2}-[0-9]{2}' | wc -l",
-      "expected": "198",
-      "documentRendering": "115.279 の提出時点の再実測は 198 件",
-      "note": "自己言及の四値 (4)。実測日を持たない残余。同じ行が持つ 184 件は 115.213 の提出時点の記録であり書き換えない。タスク 115.278 が錨と値を提出時点へ貼り直した（115.273 の 199 件は当時の値として文書に残る）。タスク 115.279 が錨と値を提出時点へ貼り直した（115.278 の値は当時の値として文書に残る）"
+      "expected": "197",
+      "documentRendering": "115.280 の提出時点の再実測は 197 件",
+      "note": "自己言及の四値 (4)。実測日を持たない残余。同じ行が持つ 184 件は 115.213 の提出時点の記録であり書き換えない。タスク 115.278 が錨と値を提出時点へ貼り直した（115.273 の 199 件は当時の値として文書に残る）。タスク 115.279 が錨と値を提出時点へ貼り直した（115.278 の値は当時の値として文書に残る）。タスク 115.280 が錨と値を提出時点へ貼り直した（115.279 の値は当時の値として文書に残る）"
     },
     {
       "id": "foreign-design-scan-net1-at-6b84be3",

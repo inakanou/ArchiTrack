@@ -370,8 +370,21 @@ export const GOVERNED_DOCUMENTS: readonly string[] = [
  * （`component-reqs-gate-ignores-requirements-doc` がその形である）。
  * そのため「是正後の版で `0` を返す」側は宣言に載せず、是正前の版の `10` と、
  * 番号だけを網に掛けた `12` / `2` の対で同じ変化を固定した。
+ *
+ * **タスク 115.280 が 78 件から 82 件へ上げた。** 増分の 4 件は台帳の #7（他機能スペックの
+ * 除外一覧の道具名）の追随であり、うち 3 件は読む先の版を名指す（`git grep <版> -- ...`）。
+ * **同タスクは既存の `jest-alternative-verification-exclusions` の読む先も作業ツリーから
+ * 版 `b999b2d` へ移した。** 作業ツリー読みのままでは、この宣言が数える総数が
+ * **他スペックの是正のたびに減る**ため、8 つの機能スペックの是正を本検査が止めていた——
+ * `e2e/requirement-exclusions.json` の `project-management/REQ-18.1` の道具名を
+ * `Jest / Mock Service Worker` から `Vitest / Mock Service Worker` へ改める変異を当てると、
+ * 移す前の版では「expected=\`64 0\` actual=\`63 0\`」の 1 件を報告して終了コード 1 になり、
+ * 移した後の版では同じ変異で指摘 0 件・終了コード 0 のままである
+ * （コミット `18516005` の作業ツリー、2026-09-05 に実測。変異は控えからの書き戻しで復元した）。
+ * 版で固定した記録の側と、8 スペックの進捗で動かない現況の側（現場調査スペックの所管の
+ * 件数 `0`）を別の宣言に分け、**動く総数は文書にも宣言にも持たない**形にした。
  */
-export const MINIMUM_ENTRIES = 78;
+export const MINIMUM_ENTRIES = 82;
 
 /**
  * 文書側が現に古い値を載せていると宣言してよい件数（完全一致）
