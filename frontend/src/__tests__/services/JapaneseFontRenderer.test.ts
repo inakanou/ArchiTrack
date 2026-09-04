@@ -6,7 +6,7 @@
  * - エクスポート画像での日本語表示確認
  *
  * @see design.md - ExportService日本語フォント埋め込み詳細
- * @see requirements.md - 要件10.5
+ * @see requirements.md - 要件12.5
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -139,7 +139,7 @@ describe('JapaneseFontRenderer', () => {
     vi.unstubAllGlobals();
   });
 
-  describe('Requirements 10.5: 日本語を含むテキスト注釈を正しくレンダリングしてエクスポート', () => {
+  describe('Requirements 12.5: 日本語を含むテキスト注釈を正しくレンダリングしてエクスポート', () => {
     describe('フォント定数', () => {
       it('日本語フォントファミリー名が定義されている', () => {
         expect(JAPANESE_FONT_FAMILY).toBeDefined();

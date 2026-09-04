@@ -7,7 +7,7 @@
  * - 解像度（品質）選択
  *
  * @see design.md - ExportService
- * @see requirements.md - 要件10.1, 10.2, 10.3
+ * @see requirements.md - 要件12.1, 12.2, 12.3
  */
 
 import type { Canvas as FabricCanvas } from 'fabric';
@@ -17,8 +17,8 @@ import type { DownloadOriginalImageOptions } from '../types/site-survey.types';
  * 画像エクスポートオプション
  *
  * Requirements:
- * - 10.2: JPEG、PNG形式でのエクスポートをサポート
- * - 10.3: エクスポート画像の解像度（品質）を選択可能にする
+ * - 12.2: JPEG、PNG形式でのエクスポートをサポート
+ * - 12.3: エクスポート画像の解像度（品質）を選択可能にする
  */
 export interface ExportImageOptions {
   /** エクスポート形式: 'jpeg' または 'png' */
@@ -62,7 +62,7 @@ export interface IExportService {
    * @param signedUrl 署名付きURL
    * @param options ダウンロードオプション
    *
-   * Requirements: 10.4
+   * Requirements: 12.4
    */
   downloadOriginalImage(signedUrl: string, options?: DownloadOriginalImageOptions): Promise<void>;
 }
@@ -88,9 +88,9 @@ const MAX_QUALITY = 1.0;
  * Fabric.js Canvasから画像をエクスポートし、ダウンロードを実行する。
  *
  * Requirements:
- * - 10.1: 注釈をレンダリングした画像を生成する
- * - 10.2: JPEG、PNG形式でのエクスポートをサポート
- * - 10.3: エクスポート画像の解像度（品質）を選択可能にする
+ * - 12.1: 注釈をレンダリングした画像を生成する
+ * - 12.2: JPEG、PNG形式でのエクスポートをサポート
+ * - 12.3: エクスポート画像の解像度（品質）を選択可能にする
  */
 export class ExportService implements IExportService {
   /**
@@ -178,7 +178,7 @@ export class ExportService implements IExportService {
    * 署名付きURLから元画像（注釈なし）をダウンロードする。
    * クロスオリジンのURLの場合はfetchでBlobとして取得してからダウンロード。
    *
-   * Requirements: 10.4
+   * Requirements: 12.4
    *
    * @param signedUrl 署名付きURL
    * @param options ダウンロードオプション
@@ -288,7 +288,7 @@ export function downloadFile(data: string | Blob, filename: string): void {
  *
  * 署名付きURLから元画像（注釈なし）をダウンロードする。
  *
- * Requirements: 10.4
+ * Requirements: 12.4
  *
  * @param signedUrl 署名付きURL
  * @param options ダウンロードオプション

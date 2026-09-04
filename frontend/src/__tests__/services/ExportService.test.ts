@@ -7,7 +7,7 @@
  * - 解像度（品質）選択
  *
  * @see design.md - ExportService
- * @see requirements.md - 要件10.1, 10.2, 10.3
+ * @see requirements.md - 要件12.1, 12.2, 12.3
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -49,7 +49,7 @@ describe('ExportService', () => {
   });
 
   describe('exportImage', () => {
-    describe('Requirements 10.1: 注釈をレンダリングした画像を生成', () => {
+    describe('Requirements 12.1: 注釈をレンダリングした画像を生成', () => {
       it('should export image with annotations using toDataURL', () => {
         const options: ExportImageOptions = {
           format: 'jpeg',
@@ -79,7 +79,7 @@ describe('ExportService', () => {
       });
     });
 
-    describe('Requirements 10.2: JPEG、PNG形式でのエクスポート', () => {
+    describe('Requirements 12.2: JPEG、PNG形式でのエクスポート', () => {
       it('should export as JPEG format when format is "jpeg"', () => {
         mockCanvas.toDataURL.mockReturnValue('data:image/jpeg;base64,jpegData');
         const options: ExportImageOptions = {
@@ -119,7 +119,7 @@ describe('ExportService', () => {
       });
     });
 
-    describe('Requirements 10.3: 解像度（品質）選択', () => {
+    describe('Requirements 12.3: 解像度（品質）選択', () => {
       it('should apply quality setting for JPEG export', () => {
         const options: ExportImageOptions = {
           format: 'jpeg',
@@ -376,7 +376,7 @@ describe('downloadFile function (standalone)', () => {
 /**
  * Task 20.2: 元画像ダウンロード機能のテスト
  *
- * Requirements: 10.4
+ * Requirements: 12.4
  * - 注釈なしの原画像ダウンロード
  * - 署名付きURLからのダウンロード
  */
@@ -409,7 +409,7 @@ describe('downloadOriginalImage', () => {
     vi.unstubAllGlobals();
   });
 
-  describe('Requirements 10.4: 注釈なしの元画像もダウンロード可能にする', () => {
+  describe('Requirements 12.4: 注釈なしの元画像もダウンロード可能にする', () => {
     // 元のURLクラスの静的メソッドを保存
     const originalCreateObjectURL = globalThis.URL.createObjectURL;
     const originalRevokeObjectURL = globalThis.URL.revokeObjectURL;

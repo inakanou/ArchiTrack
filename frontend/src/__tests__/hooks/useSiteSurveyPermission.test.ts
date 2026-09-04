@@ -4,9 +4,9 @@
  * Task 22.3: アクセス権限によるUI制御を実装する
  *
  * Requirements:
- * - 12.1: プロジェクトへのアクセス権を持つユーザーは現場調査を閲覧可能
- * - 12.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
- * - 12.3: 適切な権限を持たない場合、操作を拒否してエラーメッセージを表示
+ * - 14.1: プロジェクトへのアクセス権を持つユーザーは現場調査を閲覧可能
+ * - 14.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
+ * - 14.3: 適切な権限を持たない場合、操作を拒否してエラーメッセージを表示
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -24,7 +24,7 @@ describe('useSiteSurveyPermission', () => {
     vi.clearAllMocks();
   });
 
-  describe('閲覧権限 (Requirement 12.1)', () => {
+  describe('閲覧権限 (Requirement 14.1)', () => {
     it('site_survey:read権限を持つユーザーは閲覧可能', () => {
       vi.mocked(useAuthModule.useAuth).mockReturnValue({
         user: {
@@ -111,7 +111,7 @@ describe('useSiteSurveyPermission', () => {
     });
   });
 
-  describe('編集権限 (Requirement 12.2)', () => {
+  describe('編集権限 (Requirement 14.2)', () => {
     it('admin権限を持つユーザーは作成・編集・削除が可能', () => {
       vi.mocked(useAuthModule.useAuth).mockReturnValue({
         user: {
@@ -204,7 +204,7 @@ describe('useSiteSurveyPermission', () => {
     });
   });
 
-  describe('エラーメッセージ生成 (Requirement 12.3)', () => {
+  describe('エラーメッセージ生成 (Requirement 14.3)', () => {
     it('閲覧権限がない場合のエラーメッセージを返す', () => {
       vi.mocked(useAuthModule.useAuth).mockReturnValue({
         user: null,

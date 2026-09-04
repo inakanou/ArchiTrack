@@ -6,7 +6,7 @@
  * オフライン時の警告バナーと、オンライン復帰時の通知を表示する。
  *
  * @see design.md - ネットワーク状態管理フロー
- * @see requirements.md - 要件13.6
+ * @see requirements.md - 要件15.6
  */
 
 import React, { useState, useEffect } from 'react';

@@ -8,7 +8,7 @@ import { useNetworkStatus, NetworkStatus } from '../../hooks/useNetworkStatus';
  * Task 18.4: ネットワーク状態監視
  *
  * @see design.md - AutoSaveManager - ネットワーク状態管理フロー
- * @see requirements.md - 要件13.6
+ * @see requirements.md - 要件15.6
  */
 describe('useNetworkStatus', () => {
   // navigator.onLineのモック

@@ -212,7 +212,7 @@ export default function SiteSurveyListPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
 
-  // 権限チェック (Requirement 12.2)
+  // 権限チェック (Requirement 14.2)
   const { canCreate } = useSiteSurveyPermission();
 
   // データ状態

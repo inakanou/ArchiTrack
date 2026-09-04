@@ -12,7 +12,7 @@
  * - 2.6: ブレッドクラムで階層を表示する
  * - 10.1: 報告書出力対象写真の選択
  * - 10.5: ドラッグアンドドロップによる写真順序変更
- * - 12.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
+ * - 14.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -543,7 +543,7 @@ describe('SiteSurveyDetailPage', () => {
     });
   });
 
-  describe('権限によるUI制御 (Requirement 12.2)', () => {
+  describe('権限によるUI制御 (Requirement 14.2)', () => {
     it('編集権限がある場合、編集ボタンが表示される', async () => {
       vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
       vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
@@ -622,7 +622,7 @@ describe('SiteSurveyDetailPage', () => {
       expect(screen.queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
     });
 
-    it('権限がなくても基本情報は表示される (Requirement 12.1)', async () => {
+    it('権限がなくても基本情報は表示される (Requirement 14.1)', async () => {
       vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
       vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
         ...mockPermission,
@@ -1035,7 +1035,7 @@ describe('SiteSurveyDetailPage', () => {
       });
     });
 
-    describe('権限制御 (Requirement 12.2)', () => {
+    describe('権限制御 (Requirement 14.2)', () => {
       it('閲覧権限のみでも報告書出力ボタンは表示される', async () => {
         vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
           ...mockPermission,

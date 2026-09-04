@@ -55,7 +55,7 @@ export const PAN_CONSTANTS = {
  * タッチ操作関連の定数
  * @description ピンチズームと2本指パン操作の設定を定義
  * Requirements: 5.5 - ピンチ操作を行う（タッチデバイス）とズームレベルを変更する
- * Requirements: 13.2 - タッチ操作に最適化された注釈ツールを提供する
+ * Requirements: 15.2 - タッチ操作に最適化された注釈ツールを提供する
  */
 export const TOUCH_CONSTANTS = {
   /** ピンチズームの最小距離閾値（ピクセル） */

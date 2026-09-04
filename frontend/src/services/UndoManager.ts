@@ -5,7 +5,7 @@
  * 注釈編集の操作履歴を管理し、最大50件の履歴を保持する（FIFO）。
  *
  * @see design.md - UndoManager State Management
- * @see requirements.md - 要件11.1, 11.2, 11.4
+ * @see requirements.md - 要件13.1, 13.2, 13.4
  */
 
 /**

@@ -377,7 +377,7 @@ export default function SiteSurveyDetailPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // 権限チェック (Requirement 12.2)
+  // 権限チェック (Requirement 14.2)
   const { canEdit, canDelete } = useSiteSurveyPermission();
 
   // Task 115.105 (Req 15.6): 通信状態の購読。
@@ -1010,7 +1010,7 @@ export default function SiteSurveyDetailPage() {
         <NetworkStatusIndicator showReconnected />
       </div>
 
-      {/* 基本情報表示 (Requirement 12.2: 権限に基づくボタン表示制御) */}
+      {/* 基本情報表示 (Requirement 14.2: 権限に基づくボタン表示制御) */}
       <SiteSurveyDetailInfo
         survey={survey}
         onEdit={handleEdit}

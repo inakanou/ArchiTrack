@@ -6,7 +6,7 @@
  * - canUndo/canRedoの状態更新
  *
  * Requirements:
- * - 11.5: 注釈データを保存するとき、操作履歴をクリアする
+ * - 13.5: 注釈データを保存するとき、操作履歴をクリアする
  *
  * @see design.md - UndoManager State Management
  */

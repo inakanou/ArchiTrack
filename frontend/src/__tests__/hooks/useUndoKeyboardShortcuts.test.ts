@@ -6,7 +6,7 @@
  * - Ctrl/Cmd+Shift+Z（Redo）
  *
  * Requirements:
- * - 11.3: キーボードショートカット（Ctrl/Cmd+Z、Ctrl/Cmd+Shift+Z）でUndo/Redoを実行する
+ * - 13.3: キーボードショートカット（Ctrl/Cmd+Z、Ctrl/Cmd+Shift+Z）でUndo/Redoを実行する
  *
  * @vitest-environment jsdom
  */

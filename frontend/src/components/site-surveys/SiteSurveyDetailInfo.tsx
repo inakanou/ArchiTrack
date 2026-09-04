@@ -280,12 +280,12 @@ export default function SiteSurveyDetailInfo({
    *
    * 各画像の注釈データを取得し、元画像に注釈をレンダリングしてからPDFに埋め込む。
    *
-   * @requirement site-survey/REQ-10.6
-   * @requirement site-survey/REQ-11.1 報告書出力対象写真の選択
+   * @requirement site-survey/REQ-11.1 調査報告書出力ボタンの押下で注釈付き画像一覧をPDFドキュメントとして生成する
+   * @requirement site-survey/REQ-11.2 PDF出力対象として報告書出力フラグがONの写真のみを含める
    * @requirement site-survey/REQ-11.8 調査報告書出力UI
    */
   const handleExportPdf = useCallback(async () => {
-    // 報告書出力対象の写真をフィルタリング (Requirement 11.1)
+    // 報告書出力対象の写真をフィルタリング (Requirement 11.2)
     const exportTargetImages = survey.images.filter((img) => img.includeInReport);
 
     // 報告書出力対象が0件の場合はエラーを表示
@@ -354,7 +354,7 @@ export default function SiteSurveyDetailInfo({
         </div>
 
         <div style={styles.actionsContainer}>
-          {/* 調査報告書出力ボタン (Requirement 10.6, 11.1, 11.8) */}
+          {/* 調査報告書出力ボタン (Requirement 11.1, 11.2, 11.8) */}
           <button
             type="button"
             onClick={handleExportPdf}

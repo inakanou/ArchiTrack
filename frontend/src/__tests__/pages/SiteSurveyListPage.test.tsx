@@ -8,7 +8,7 @@
  * - 2.5: 全ての現場調査関連画面にブレッドクラムナビゲーションを表示する
  * - 2.6: ブレッドクラムで「プロジェクト名 > 現場調査一覧 > 現場調査名」の階層を表示する
  * - 2.7: ユーザーがブレッドクラムの各項目をクリックすると対応する画面に遷移する
- * - 12.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
+ * - 14.2: プロジェクトへの編集権限を持つユーザーは現場調査の作成・編集・削除を許可
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -229,7 +229,7 @@ describe('SiteSurveyListPage', () => {
     });
   });
 
-  describe('権限によるUI制御 (Requirement 12.2)', () => {
+  describe('権限によるUI制御 (Requirement 14.2)', () => {
     it('作成権限がある場合、新規作成ボタンが表示されること', async () => {
       vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
         ...mockPermission,

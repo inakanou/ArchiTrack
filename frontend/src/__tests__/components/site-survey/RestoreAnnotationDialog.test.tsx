@@ -4,7 +4,7 @@
  * 未保存データ復元確認ダイアログのテスト
  *
  * @see tasks.md - Task 18.3
- * @see requirements.md - Requirement 13.5
+ * @see requirements.md - Requirement 15.5
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
