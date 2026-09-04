@@ -15,12 +15,22 @@
  *     （{@link DECLARED_STALE_DOCUMENT_FIGURES} + 1 件）の仮マニフェストに対する
  *     終了コードと報告件数を固定する（タスク 115.232 の起票文が指定した作法。
  *     `check-design-path-references.selftest.ts` の挙動検査に倣う）
- *   - **許容外の綴りは実行の入口が二つとも塞がっている**。実行の入口は
+ *   - **許容外の綴りは実行の入口がすべて塞がっている**。実行の入口は
  *     `grep -n 'spawnSync(' scripts/check-design-measurement-freshness.ts` が 1 箇所
- *     （`runMeasurement`）を、`grep -n 'runMeasurement(' ...` が宣言 1 行と呼び出し 2 箇所
- *     （`measurementFailures` と `measureAll`）を挙げる——すなわち判定の経路と報告の経路の
- *     二つである（2026-09-01 に実測）。既定・`--verbose`・`--json --verbose` の三つを
+ *     （`runMeasurement`）を、`grep -n 'runMeasurement(' ...` が宣言 1 行と呼び出し 3 箇所
+ *     （`pushEntryFindings` と `runOutsideRepository` と `measureAll`）を挙げる——すなわち
+ *     判定の経路・空洞化の対照・報告の経路の三つである（**タスク 115.271 が三つ目を足した。
+ *     115.232 の提出時点は呼び出し 2 箇所であった**。2026-09-04、コミット `24acf91f` で実測）。
+ *     空洞化の対照は判定の経路の綴りの検査より後にしか呼ばれない。
+ *     既定・`--verbose`・`--json --verbose` の三つを
  *     サブプロセスで起動し、`sh -c "touch <marker>"` の痕跡ファイルが 0 個であることを固定する
+ *   - **宣言の空洞化が落ちること、および落ちない残余**（タスク 115.271）。
+ *     リポジトリの外でも同じ値を出す `command` は赤くなり、文書から値を読む `command` は
+ *     赤くならない。**塞げていない二形——リポジトリを読むが値は定数、錨と無関係な読み出し——は
+ *     「限界」の対照が現に通ることを固定する**（塞がれたら赤くなり、本体注釈の
+ *     「見ないこと（限界）」の更新が強制される。タスク 115.268 の作法）
+ *   - **下限に遊びが無いこと**（タスク 115.271 が 115.262 の作法へ揃えた）。宣言の件数が
+ *     {@link MINIMUM_ENTRIES} を上回っても下回っても赤くなる
  *
  * 使用方法:
  *   npx tsx scripts/check-design-measurement-freshness.selftest.ts
@@ -82,12 +92,31 @@ function expect(condition: boolean, message: string): string[] {
   return condition ? [] : [message];
 }
 
-/** 見本の文書。`基準の行` が唯一の錨で、`1815` は数字の境界を確かめるための行 */
+/**
+ * 見本の文書。`基準の行` が唯一の錨で、`1815` は数字の境界を確かめるための行
+ *
+ * 末尾の `控えの値` は {@link readFigure} が読み出す素材である。タスク 115.271 が
+ * 「リポジトリの外でも同じ値を出す `command`」を失格にしたため、**対照の素材を
+ * `printf '<数字>'` のままにできない**（素材そのものが新設の検出に掛かり、
+ * 検出とは無関係の指摘が全対照へ混ざる）。素材は文書から値を読み出す形へ移した。
+ */
 const SAMPLE_DOCUMENT: readonly string[] = [
   '# 見本',
   '- 基準の行: 出力は 7 件である',
   '- 別の行: 1815 という数がある',
+  '- 控えの値: <3> <7> <8> <9>',
 ];
+
+/**
+ * 見本の文書から値を読み出すコマンド（タスク 115.271）
+ *
+ * 文書の `控えの値` の行から `<数字>` を取り出す。**作業ディレクトリに `doc.md` が無ければ
+ * 空を返す**ため、`judge` が新設した「リポジトリの外でも同じ値を出す `command` は失格」に
+ * 掛からない。先頭語は `grep` と `tr` で、いずれも `READ_ONLY_COMMANDS` にある。
+ */
+function readFigure(figure: string): string {
+  return `grep -oE '<${figure}>' doc.md | tr -d '<>'`;
+}
 
 function withDocument(lines: readonly string[], body: (root: string) => string[]): string[] {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'design-measurement-'));
@@ -104,7 +133,7 @@ function baseEntry(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
     id: 'sample',
     file: 'doc.md',
     anchor: '基準の行',
-    command: "printf '7'",
+    command: readFigure('7'),
     expected: '7',
     ...overrides,
   } as ManifestEntry;
@@ -129,7 +158,7 @@ function staleEntries(count: number): ManifestEntry[] {
     entries.push(
       baseEntry({
         id: `stale-${index}`,
-        command: "printf '8'",
+        command: readFigure('8'),
         expected: '8',
         documentFigure: '7',
         divergence: { kind: 'stale', reason: '文書側が古いことを宣言している' },
@@ -203,7 +232,7 @@ const DETECTION: TestCase[] = [
     polarity: 'positive',
     run() {
       return withDocument(SAMPLE_DOCUMENT, (root) => {
-        const list = messagesFor(root, [baseEntry({ command: "printf '8'" })]);
+        const list = messagesFor(root, [baseEntry({ command: readFigure('8') })]);
         const hit = list.join('\n');
         return [
           ...expect(countMatching(list, '現況と食い違います') === 1, `検出されない: ${hit}`),
@@ -294,7 +323,7 @@ const DETECTION: TestCase[] = [
       return withDocument(SAMPLE_DOCUMENT, (root) => {
         const list = messagesFor(root, [
           baseEntry({
-            command: "printf '9'",
+            command: readFigure('9'),
             expected: '9',
             documentFigure: '9',
           }),
@@ -313,7 +342,7 @@ const DETECTION: TestCase[] = [
       return withDocument(SAMPLE_DOCUMENT, (root) => {
         const list = messagesFor(root, [baseEntry({ documentFigure: '7', expected: '7' })]);
         const declared = messagesFor(root, [
-          baseEntry({ command: "printf '8'", expected: '8', documentFigure: '7' }),
+          baseEntry({ command: readFigure('8'), expected: '8', documentFigure: '7' }),
         ]);
         return [
           ...expect(
@@ -353,7 +382,7 @@ const DETECTION: TestCase[] = [
       return withDocument(SAMPLE_DOCUMENT, (root) => {
         const list = messagesFor(root, [
           baseEntry({
-            command: "printf '8'",
+            command: readFigure('8'),
             expected: '8',
             documentFigure: '7',
             divergence: { kind: 'stale', reason: '   ' },
@@ -402,10 +431,11 @@ const DETECTION: TestCase[] = [
     name: 'documentRendering が行に二箇所あれば赤くなる（素の数字が別の数値にも当たる形）',
     polarity: 'positive',
     run() {
-      return withDocument(['# 見本', '- 基準の行: 3 の節が 3 つある（出力が `3`）'], (root) => {
-        const bare = messagesFor(root, [baseEntry({ command: "printf '3'", expected: '3' })]);
+      const document = ['# 見本', '- 基準の行: 3 の節が 3 つある（出力が `3`）', '- 控えの値: <3>'];
+      return withDocument(document, (root) => {
+        const bare = messagesFor(root, [baseEntry({ command: readFigure('3'), expected: '3' })]);
         const rendered = messagesFor(root, [
-          baseEntry({ command: "printf '3'", expected: '3', documentRendering: '出力が `3`' }),
+          baseEntry({ command: readFigure('3'), expected: '3', documentRendering: '出力が `3`' }),
         ]);
         return [
           ...expect(
@@ -468,6 +498,89 @@ const DETECTION: TestCase[] = [
       ];
     },
   },
+  {
+    name: 'リポジトリの外でも同じ値を出す command は赤くなる（宣言の空洞化。タスク 115.271）',
+    polarity: 'positive',
+    run() {
+      return withDocument(SAMPLE_DOCUMENT, (root) => {
+        const list = messagesFor(root, [baseEntry({ command: "printf '7'" })]);
+        return expect(
+          countMatching(list, 'リポジトリの外でも同じ値') === 1,
+          `中身を抜いた宣言が素通りしている: ${JSON.stringify(list)}`
+        );
+      });
+    },
+  },
+  {
+    name: '文書から値を読み出す command は告発されない（空洞化の検出が何にでも反応しない）',
+    polarity: 'negative',
+    run() {
+      return withDocument(SAMPLE_DOCUMENT, (root) => {
+        const list = messagesFor(root, [baseEntry()]);
+        return expect(
+          countMatching(list, 'リポジトリの外でも同じ値') === 0,
+          `現況を読む宣言を空洞化として告発している: ${JSON.stringify(list)}`
+        );
+      });
+    },
+  },
+  {
+    /**
+     * 塞げなかった経路が**現に通る**ことを固定する（タスク 115.268 の作法）
+     *
+     * 本体注釈の「見ないこと（限界）」が挙げる二形を、実際に判定へ通して指摘 0 件を求める。
+     * 将来この経路が塞がれたら本確認が赤くなり、限界の記述の更新が強制される。
+     *
+     * **空振りしない形にする。** 「指摘が 0 件」は、綴りで落ちた・コマンドが失敗した・
+     * 値が食い違ったといった別の理由でも成り立つ——そのときは空洞化の判定へ到達すら
+     * していない。到達したことを示すため、**当該の宣言が空洞化以外のどの検出にも
+     * 掛かっていないこと**を併せて求める。
+     */
+    name: '限界: リポジトリに触れるが値は定数、という command は現に通る（タスク 115.271 が塞げなかった経路）',
+    run() {
+      return withDocument(SAMPLE_DOCUMENT, (root) => {
+        const constantThroughFile = messagesFor(root, [
+          baseEntry({ command: "test -f doc.md && printf '7'" }),
+        ]);
+        const unrelatedFile = messagesFor(root, [
+          baseEntry({
+            command: "grep -c '存在しない綴り' doc.md || test $? -eq 1",
+            expected: '0',
+            documentFigure: '7',
+            divergence: { kind: 'stale', reason: '限界の固定。値は文書と無関係である' },
+          }),
+        ]);
+        const reachedTheHollowCheck = (list: readonly string[]): string[] => [
+          ...expect(
+            countMatching(list, 'READ_ONLY_COMMANDS にありません') === 0,
+            `綴りで落ちており空洞化の判定へ到達していない: ${JSON.stringify(list)}`
+          ),
+          ...expect(
+            countMatching(list, '失敗しました') === 0,
+            `コマンドが失敗しており空洞化の判定へ到達していない: ${JSON.stringify(list)}`
+          ),
+          ...expect(
+            countMatching(list, '現況と食い違います') === 0,
+            `値が食い違っており限界の見本として成立していない: ${JSON.stringify(list)}`
+          ),
+        ];
+        return [
+          ...reachedTheHollowCheck(constantThroughFile),
+          ...reachedTheHollowCheck(unrelatedFile),
+          ...expect(
+            countMatching(constantThroughFile, 'リポジトリの外でも同じ値') === 0,
+            '限界の記述が実態と食い違う（定数を文書の読み出しでくるむ経路が塞がれた）。' +
+              `本体注釈の「見ないこと（限界）」を更新すること: ${JSON.stringify(constantThroughFile)}`
+          ),
+          ...expect(
+            countMatching(unrelatedFile, 'リポジトリの外でも同じ値') === 0,
+            '限界の記述が実態と食い違う（錨と無関係な読み出しの経路が塞がれた）。' +
+              `本体注釈の「見ないこと（限界）」を更新すること: ${JSON.stringify(unrelatedFile)}`
+          ),
+        ];
+      });
+    },
+  },
 ];
 
 // ============================================================================
@@ -496,6 +609,37 @@ const NON_VACUITY: TestCase[] = [
           countMatching(list, `下限 ${MINIMUM_ENTRIES} 件を下回ります`) === 1,
           `下限が働いていない: ${JSON.stringify(list)}`
         );
+      });
+    },
+  },
+  {
+    name: '宣言が下限を上回れば赤くなり、下限ちょうどなら告発しない（下限に遊びを持たせない。タスク 115.262 の作法）',
+    polarity: 'positive',
+    run() {
+      return withDocument(SAMPLE_DOCUMENT, (root) => {
+        const build = (count: number): ManifestEntry[] => {
+          const entries: ManifestEntry[] = [];
+          for (let index = 0; index < count; index += 1) {
+            entries.push(baseEntry({ id: `entry-${index}` }));
+          }
+          return entries;
+        };
+        const over = messagesFor(root, build(MINIMUM_ENTRIES + 1));
+        const exact = messagesFor(root, build(MINIMUM_ENTRIES));
+        return [
+          ...expect(
+            countMatching(over, `${MINIMUM_ENTRIES} 件を上回ります`) === 1,
+            `下限の遊びが素通りしている（一件を無言で削れる）: ${JSON.stringify(over)}`
+          ),
+          ...expect(
+            countMatching(exact, '件を上回ります') === 0,
+            `ちょうどなのに超過として告発している: ${JSON.stringify(exact)}`
+          ),
+          ...expect(
+            countMatching(exact, '件を下回ります') === 0,
+            `ちょうどなのに不足として告発している: ${JSON.stringify(exact)}`
+          ),
+        ];
       });
     },
   },
@@ -628,6 +772,11 @@ const EXECUTABLE_FUNCTION_INVENTORY: readonly InventoryEntry[] = [
   { name: 'shapeFailures', watched: 'body', reason: '宣言の形の検出' },
   { name: 'anchorFailures', watched: 'body', reason: '錨と字面の検出' },
   { name: 'measurementFailures', watched: 'body', reason: '突き合わせの検出' },
+  {
+    name: 'hollowCommandFailures',
+    watched: 'body',
+    reason: '宣言の空洞化の検出（タスク 115.271）',
+  },
   { name: 'pushEntryFindings', watched: 'body', reason: '一件ぶんの集計' },
   { name: 'pushPopulationFindings', watched: 'body', reason: '母集団の前提の集計' },
   { name: 'pushDivergenceRatchetFindings', watched: 'body', reason: '宣言との突き合わせの集計' },
@@ -646,6 +795,11 @@ const EXECUTABLE_FUNCTION_INVENTORY: readonly InventoryEntry[] = [
   },
   { name: 'makeGlobalFinding', watched: 'unwatched', reason: '同上' },
   { name: 'runMeasurement', watched: 'body', reason: 'コマンドの実行と失敗の判定' },
+  {
+    name: 'runOutsideRepository',
+    watched: 'body',
+    reason: '空洞化の検出が使う対照（リポジトリの外での実行）',
+  },
   {
     name: 'measureAll',
     watched: 'unwatched',
@@ -740,6 +894,8 @@ const BODY_RULES: readonly BodyRule[] = [
       '`宣言が ${entries.length} 件で下限 ${MINIMUM_ENTRIES} 件を下回ります（MINIMUM_ENTRIES を見よ）`',
       ')',
       ');',
+      'if (entries.length > MINIMUM_ENTRIES) {',
+      '`宣言が ${entries.length} 件で、宣言した下限 ${MINIMUM_ENTRIES} 件を上回ります（遊び ${entries.length - MINIMUM_ENTRIES} 件）。下限は宣言の件数ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの無言の削除を吸収します。MINIMUM_ENTRIES を ${entries.length} 件へ上げてください。`',
       'for (const duplicated of duplicatedIds(entries)) {',
       'findings.push(makeGlobalFinding(`id \\`${duplicated}\\` が重複しています`));',
       'for (const document of GOVERNED_DOCUMENTS) {',
@@ -779,7 +935,9 @@ const BODY_RULES: readonly BodyRule[] = [
       'for (const message of vocabulary) {',
       'for (const message of anchorFailures(root, entry)) {',
       'if (vocabulary.length > 0) return;',
-      'for (const message of measurementFailures(root, entry)) {',
+      "const outcome = runMeasurement(root, String(entry.command ?? ''));",
+      'for (const message of measurementFailures(entry, outcome)) {',
+      'for (const message of hollowCommandFailures(entry, outcome)) {',
     ],
     forbidAllNarrowing: true,
   },
@@ -849,11 +1007,11 @@ const BODY_RULES: readonly BodyRule[] = [
   },
   {
     label: 'measurementFailures',
-    declaration: 'function measurementFailures(root: string, entry: ManifestEntry): string[]',
+    declaration:
+      'function measurementFailures(entry: ManifestEntry, outcome: MeasurementOutcome): string[]',
     watched: 'whole-body',
     allowed: [
       'const failures: string[] = [];',
-      'const outcome = runMeasurement(root, entry.command);',
       "if (outcome.failure !== '') {",
       'failures.push(outcome.failure);',
       'return failures;',
@@ -862,6 +1020,38 @@ const BODY_RULES: readonly BodyRule[] = [
       'failures.push(',
       '`${entry.file} の「${entry.anchor}」が引く値が現況と食い違います: expected=\\`${entry.expected}\\` actual=\\`${outcome.output}\\``',
       ');',
+    ],
+    forbidAllNarrowing: true,
+  },
+  {
+    label: 'hollowCommandFailures',
+    declaration:
+      'function hollowCommandFailures(entry: ManifestEntry, inside: MeasurementOutcome): string[]',
+    watched: 'whole-body',
+    allowed: [
+      'const failures: string[] = [];',
+      "if (inside.failure !== '') return failures;",
+      "const outside = runOutsideRepository(String(entry.command ?? ''));",
+      "if (outside.failure === '' && outside.output === inside.output) {",
+      'failures.push(',
+      "`command がリポジトリの外でも同じ値 \\`${outside.output}\\` を出します（この宣言は現況を測っていません。空洞化の経路。冒頭の「見ないこと（限界）」を見よ）: ${String(entry.command ?? '')}`",
+      ');',
+      '}',
+      'return failures;',
+    ],
+    forbidAllNarrowing: true,
+  },
+  {
+    label: 'runOutsideRepository',
+    declaration: 'export function runOutsideRepository(command: string): MeasurementOutcome',
+    watched: 'whole-body',
+    allowed: [
+      "const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'design-measurement-outside-'));",
+      'try {',
+      'return runMeasurement(directory, command);',
+      '} finally {',
+      'fs.rmSync(directory, { recursive: true, force: true });',
+      '}',
     ],
     forbidAllNarrowing: true,
   },
@@ -1155,14 +1345,14 @@ function checkSubprocessBehaviour(): string[] {
             id: 'agrees',
             file: path.join(directory, 'doc.md'),
             anchor: '基準の行',
-            command: "printf '7'",
+            command: readFigure('7'),
             expected: '7',
           },
           {
             id: 'disagrees',
             file: path.join(directory, 'doc.md'),
             anchor: '基準の行',
-            command: "printf '8'",
+            command: readFigure('8'),
             expected: '7',
           },
           ...staleEntries(DECLARED_STALE_DOCUMENT_FIGURES + 1).map((entry) => ({
@@ -1176,7 +1366,9 @@ function checkSubprocessBehaviour(): string[] {
       process.execPath,
       [TSX_CLI, ENTRY_PATH, `--manifest=${manifestPath}`],
       {
-        cwd: ROOT,
+        // 見本の文書を起点にする。`command` が `doc.md` を相対で読むためである
+        // （タスク 115.271。`printf '<数字>'` の素材は空洞化の検出に掛かるので使えない）。
+        cwd: directory,
         encoding: 'utf-8',
         env: { ...process.env },
       }
@@ -1368,28 +1560,30 @@ const REAL_DATA: TestCase[] = [
 /**
  * 陽性対照・陰性対照の件数の下限（タスク 115.252）
  *
- * 2026-09-03 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
+ * 2026-09-04 にリポジトリルートで実測した現況ちょうど（余裕ゼロ。タスク 115.271 が
+ * 陽性 13→16・陰性 3→5 へ貼り直した）。抽出は
  * `npx tsx scripts/list-control-polarity-floors.ts` が出す値をそのまま置く。
  *
  * **総数の下限だけでは片側の消失を捕まえられない。** 陽性対照を削って同じ数だけ陰性対照を
  * 足せば総数は動かないため、極性ごとに別の下限を貼る。極性は要素の宣言（`expected` ないし
  * `polarity`）から導き、**名前の綴りからは導かない**（115.247 の作法）。
  */
-const MINIMUM_POSITIVE_CONTROLS = 13;
-const MINIMUM_NEGATIVE_CONTROLS = 3;
+const MINIMUM_POSITIVE_CONTROLS = 16;
+const MINIMUM_NEGATIVE_CONTROLS = 5;
 
 /**
  * 確認の総数の下限（タスク 115.252）
  *
- * 2026-09-03 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
- * `npx tsx scripts/check-design-measurement-freshness.selftest.ts | tail -1` の出す値をそのまま
- * 置く。**確認を減らす向きの書き換えは差分に現れる。**
+ * 2026-09-04 にリポジトリルートで実測した現況ちょうど（余裕ゼロ。タスク 115.271 の着手時点は
+ * 宣言 31 件に対し現況 32 件で遊びが 1 件あった。同タスクが 115.262 の作法へ揃えて貼り直した）。
+ * 抽出は `npx tsx scripts/check-design-measurement-freshness.selftest.ts | tail -1` の出す値を
+ * そのまま置く。**確認を減らす向きの書き換えは差分に現れる。**
  *
  * **下限を構造から導く語彙がこの検査には無い**（115.222 は本体の検査種別の直和型から導けた）。
  * 本体 `check-design-measurement-freshness.ts` の指摘は文字列で組み立てられ、種別の直和型を
  * 持たない。導けないため件数で貼る。
  */
-const MINIMUM_TOTAL_CASES = 31;
+const MINIMUM_TOTAL_CASES = 36;
 
 /**
  * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）

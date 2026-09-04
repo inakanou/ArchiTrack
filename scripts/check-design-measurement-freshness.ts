@@ -13,7 +13,11 @@
  * `check:trace-coverage` は追跡表と受入基準の対応を、`check:steering-refs` /
  * `check:steering-idents` / `check:steering-test-tree` は steering の側を見る。
  * どれも「本書が引く 216 件は今日も 216 件か」を問わない
- * （`216 件` は `design.md` が人手走査の母集団として引いている値で、同書に 1 箇所ある。同日に実測）。
+ * （`216 件` は `design.md` が人手走査の母集団として引いている値である。**同書での出現は 2 箇所**——
+ * `grep -o '216 件' .kiro/specs/site-survey/design.md | wc -l` が `2`、
+ * どちらも同じ 1 行に在るため `grep -c` は `1` を返す。2026-09-04、コミット `24acf91f` で実測。
+ * 本注釈は 115.232 の提出時点から「1 箇所」と述べていたが、それは行数であって出現数ではなかった。
+ * 115.270 のレビューが検出し、本タスク 115.271 が是正した）。
  * 上の走査に掛からない関門（`design.md` を読まない検査）については保証しない。
  * `.kiro/specs/site-survey/design.md` 自身が第1層でこの不在を宣言している。
  *
@@ -63,7 +67,9 @@
  *   - 宣言の `documentFigure` だけを書き換えた → 行の字面とずれて赤くなる
  *
  * **「宣言をどう書き換えても赤くなる」ではない。** `command` を別の綴りへ差し替えて
- * 同じ出力を作れば緑のまま通る（下の「見ないこと」の空洞化の経路。実測済み）。
+ * 同じ出力を作る経路のうち、**リポジトリの外でも同じ値を出す形**はタスク 115.271 が塞いだ
+ * （{@link hollowCommandFailures}）。**リポジトリを読みながら値は定数、という形は今も通る**
+ * （下の「見ないこと」の空洞化の残余。実測済み）。
  *
  * ## 文書が古いことを宣言できる（タスク 115.228 の exact 判定）
  *
@@ -86,7 +92,13 @@
  * 陽性対照へ課したような「本体の語彙を全て名指ししていること」に相当する構造が、文書中の数値の側に
  * 見当たらない（見つからなかったのであって、存在しないことを示したのではない）。
  * そこで件数の下限をコードへ書く。タスク 115.222 が名指した弱点（現況を貼ると正当な削減まで止まる）は
- * ここにも当てはまる。宣言を減らす変更は定数の書き換えを伴い、差分としてレビューに現れる。
+ * ここにも当てはまる。
+ *
+ * **下限に遊びを持たせない**（タスク 115.271 が 115.262 の作法へ揃えた）。下限を**上回っても**
+ * 赤くする。二方向を合わせると宣言の件数は下限と一致するほかなく、増やす向きも減らす向きも
+ * 定数の書き換えを伴うため、宣言の件数は差分に必ず現れる。**遊びが 1 件在った時点では
+ * 「宣言を減らす変更は定数の書き換えを伴う」は偽であった**（{@link MINIMUM_ENTRIES} の
+ * 注釈に実測がある）。
  *
  * ## コマンドを走らせることについて
  *
@@ -144,14 +156,39 @@
  *     どれを宣言するかは人の判断であり、宣言しなければ黙って外れる
  *   - **`anchor` の行に `documentRendering` がちょうど 1 箇所在ることしか見ない。** その 1 箇所が
  *     本当にその数値の記述であるかは見ない。多義であることは検出するが、意味は見ない
- *   - **`anchor` と `command` が関係していることは見ない（空洞化の経路）。** 錨の行と
- *     再現コマンドを結び付ける判定は無い。29 件すべてを「一意な錨の行 + `printf` の一桁」へ
- *     置き換えた仮マニフェストを `--manifest` で与えたところ、要約行は
- *     「宣言 29 件 / 文書側が古いと宣言した箇所 4 件」を出し、終了コード 0 で緑になった
- *     （2026-09-01 に実測）。{@link MINIMUM_ENTRIES} は件数しか見ず、
- *     {@link DECLARED_STALE_DOCUMENT_FIGURES} も `divergence` の有無しか見ないため、
- *     **件数を減らさずに中身を空にする改変はこの二つの歯止めをすり抜ける**。
- *     残る歯止めは宣言の差分がレビューに現れることだけである
+ *   - **`anchor` と `command` の意味的な対応は見ない（空洞化の残余）。** タスク 115.271 が
+ *     部分的に塞いだ。**塞いだ線**は「値が作業ディレクトリに依存すること」である
+ *     （{@link hollowCommandFailures}）——リポジトリの外で走らせても同じ値を出す `command` は
+ *     現況を測っていないとみなして落とす。**塞いでいない線**は「値が錨の行の主張から
+ *     導かれること」であり、これは機械で決めきれないと判断した。判断は実測に基づく。
+ *
+ *     - 是正前: 30 件すべてを「錨はそのまま・`command` は `printf '<expected>'`」へ置換した
+ *       仮マニフェストを `--manifest` で与えると、要約行は「宣言 30 件 / 文書側が古いと
+ *       宣言した箇所 0 件」を出し、**終了コード 0 の緑**になった（コミット `24acf91f`、
+ *       2026-09-04 に実測。115.232 の提出時点の 29 件 / 4 件から件数だけが動いている）
+ *     - 是正後: 同じ写しに対し **30 件すべてが本判定で赤くなる**（同日・同じ写しで実測）。
+ *       実マニフェスト 30 件はいずれも誤って告発されない（同日に 30 件を両方の起点で走らせ、
+ *       同値になったものは 0 件）
+ *     - **残余（現に通る形）**: `test -f <パス> && printf '13'` と
+ *       `head -1 <パス> | wc -l | sed 's/1/13/'` は、リポジトリを読むため作業ディレクトリに
+ *       依存し、本判定を通る（同日に実測）。また `expected` が `0` の宣言は、錨と無関係な
+ *       ファイルに対する当たらない `grep -c` へ差し替えても `0` を出し続ける——実マニフェストの
+ *       `multer-file-filter` で差し替えを当てたところ **EXIT=0 の緑**であった（同日に実測。
+ *       {@link runOutsideRepository} に差し替えた綴りを載せている）。この二形は自己検査の
+ *       「限界: リポジトリに触れるが値は定数、という command は現に通る」が固定しており、
+ *       **将来この経路が塞がれたら当該の対照が赤くなり、本注釈の更新が強制される**
+ *       （タスク 115.268 の作法）
+ *     - **より強い判定を採らなかった根拠（いずれも実データで誤検出を数えた。同日に実測）**:
+ *       (a)「`expected` の字面が `command` に現れたら失格」は 30 件中 **4 件**を誤って落とす
+ *       （`component-summary-sections` は `#{3,4}` に、`new-survey-image-service-sites` /
+ *       `image-order-display-order-writes` / `image-list-fixed-order-reads` は
+ *       `|| test $? -eq 1` の `1` に当たる）。(b)「版管理の一覧どおりの木を作り中身だけ空にした
+ *       写しで走らせて同値なら失格」は 30 件中 **7 件**を誤って落とす（`expected` が `0` の
+ *       6 件と、ファイルの員数を数える `design-documents-scanned`）。**「命令が読んだ内容が
+ *       値を決めていること」を求める判定は、正当な宣言の 4〜7 件を巻き添えにする**
+ *
+ *     {@link MINIMUM_ENTRIES} と {@link DECLARED_STALE_DOCUMENT_FIGURES} が件数しか見ない
+ *     ことは変わらない。残余に対する歯止めは、宣言の差分がレビューに現れることだけである
  *   - **歴史記録と現況の区別は見ない。** 同じ行が当時の値と現況の値の両方を載せる形は、
  *     現況の側を `documentFigure` に採れば通る。当時の値が正しいかは見ない
  *   - **どのスペックの押下かは見ない。** 本検査は押下前の関門に載っており、宣言が指す文書は
@@ -178,6 +215,15 @@
  * **`check:cf-evidence` の走査件数のように、本検査自身の追加で動く値はここに書かない**
  * （上の「宣言に入れなかった値」の三つ目を見よ）。
  *
+ * **タスク 115.271 の提出時点の再実測**（コミット `24acf91f` の作業ツリー、2026-09-04）:
+ * 宣言 30 件 / 記法ごと 23 件 / 素の字面 7 件 / 文書側が古い 0 件 /
+ * `grep -ln 'design\.md\|design-document' scripts/check-*.ts | grep -v selftest` が挙げる
+ * 検査 10 件（本検査を除くと 9 件）。**`design.md` を読む検査の数は 115.232 の 9 件 / 8 件から
+ * 動いている**——後続のタスクが新設した検査が同じ網に掛かるためであり、
+ * 「文書側の数値と再現コマンドの出力を突き合わせるものは本検査だけ」という主張の
+ * 再走査は本タスクの境界（宣言の中身）の外にあるので行っていない。
+ * 上段の 8 件は 115.232 の提出時点の記録としてそのまま残す。
+ *
  * 使用方法:
  *   npx tsx scripts/check-design-measurement-freshness.ts [--verbose] [--json] [--manifest=<path>]
  *   npm run check:design-measurement-freshness
@@ -188,6 +234,7 @@
 
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -202,13 +249,27 @@ export const DEFAULT_MANIFEST_PATH = 'scripts/design-measurements.json';
 export const GOVERNED_DOCUMENTS: readonly string[] = ['.kiro/specs/site-survey/design.md'];
 
 /**
- * 宣言の件数の下限
+ * 宣言の件数の下限。**遊びを持たせない**（タスク 115.271 が 115.262 の作法へ揃えた）
  *
- * 2026-09-01 の時点の宣言は 29 件である。**構造から導ける下限を見つけられなかったのでコードへ書く**
+ * **構造から導ける下限を見つけられなかったのでコードへ書く**
  * （冒頭の「母集団が空なら失敗する」を見よ。AI運用7原則 第3原則。
  * タスク 115.222 の作法と、そこで名指しされた弱点の両方が当てはまる）。
+ *
+ * 115.232 が置いた当初の値は 29 件で、宣言は 30 件であった。**この 1 件の遊びは、
+ * 宣言を一件無言で削れることを意味していた**——実マニフェストから
+ * `self-reference-undated-residue` の一件を落とした写しを `--manifest` で与えると、
+ * 要約は「宣言 29 件 / 文書側が古いと宣言した箇所 0 件」を出して EXIT=0 の緑になった
+ * （コミット `24acf91f` の作業ツリーで 2026-09-04 に実測）。冒頭の注釈が挙げていた歯止め
+ * 「宣言を減らす変更は定数の書き換えを伴い、差分としてレビューに現れる」は、
+ * **最初の一件については偽であった**。
+ *
+ * タスク 115.262 が `scripts/check-traceability-coverage.ts` の上限へ課したのと同じ形
+ * （`judgeCeiling`。上限が実測を上回っていても失敗させ、二方向を合わせて宣言を実測と
+ * 一致させる）を、ここでは下限へ課す。名前は `MINIMUM_ENTRIES` のままにする——
+ * 115.262 も `maxMissing` の名を保ったまま遊びを禁じており、作法を揃えるとはそういう意味である。
+ * 増やす向きも減らす向きも定数の書き換えを伴うため、**宣言の件数は差分に必ず現れる**。
  */
-export const MINIMUM_ENTRIES = 29;
+export const MINIMUM_ENTRIES = 30;
 
 /**
  * 文書側が現に古い値を載せていると宣言してよい件数（完全一致）
@@ -557,10 +618,9 @@ function anchorFailures(root: string, entry: ManifestEntry): string[] {
   return failures;
 }
 
-/** コマンドを走らせて `expected` と突き合わせる */
-function measurementFailures(root: string, entry: ManifestEntry): string[] {
+/** 走らせた結果を `expected` と突き合わせる */
+function measurementFailures(entry: ManifestEntry, outcome: MeasurementOutcome): string[] {
   const failures: string[] = [];
-  const outcome = runMeasurement(root, entry.command);
   if (outcome.failure !== '') {
     failures.push(outcome.failure);
     return failures;
@@ -574,15 +634,51 @@ function measurementFailures(root: string, entry: ManifestEntry): string[] {
 }
 
 /**
+ * 宣言が現況を測っていること（空洞化の部分的な歯止め。タスク 115.271）
+ *
+ * 錨・字面・出力の突き合わせは**どれも `command` が現況を読んでいることを求めない**。
+ * `command` を `printf '<数字>'` に差し替えて `expected` をその数字に合わせれば、
+ * 錨が文書の一意な行を指してさえいれば三つとも通る。ここではその形を落とす——
+ * **リポジトリの外（空の一時ディレクトリ）で走らせても同じ値を出す `command` は、
+ * 現況を測っていない**とみなす。
+ *
+ * 実測（コミット `24acf91f` の作業ツリー、2026-09-04）。実マニフェスト 30 件の `command` を
+ * 一件ずつリポジトリルートと空の一時ディレクトリの両方で走らせたところ、**両者が同じ値を
+ * 出した宣言は 0 件**であった（空側の内訳は「出力が異なる」14 件と「終了コードが 0 でない」
+ * 16 件。二度の実行を合わせた所要は 745 ミリ秒）。すなわちこの判定は現況の宣言を一件も
+ * 誤って告発しない。同じ 30 件を「錨はそのまま・`command` は `printf '<expected>'`」へ
+ * 置換した写しを `--manifest` で与えると、この判定を置く前は EXIT=0 の緑であったのに対し、
+ * 置いた後は 30 件すべてが本判定で赤くなる。
+ *
+ * **塞げていない経路は {@link runOutsideRepository} と冒頭の「見ないこと（限界）」に挙げる。**
+ * 判定が見ているのは「値が作業ディレクトリに依存すること」であって、
+ * 「値が錨の行の主張から導かれること」ではない。
+ */
+function hollowCommandFailures(entry: ManifestEntry, inside: MeasurementOutcome): string[] {
+  const failures: string[] = [];
+  if (inside.failure !== '') return failures;
+  const outside = runOutsideRepository(String(entry.command ?? ''));
+  if (outside.failure === '' && outside.output === inside.output) {
+    failures.push(
+      `command がリポジトリの外でも同じ値 \`${outside.output}\` を出します（この宣言は現況を測っていません。空洞化の経路。冒頭の「見ないこと（限界）」を見よ）: ${String(entry.command ?? '')}`
+    );
+  }
+  return failures;
+}
+
+/**
  * 一件ぶんの失敗を積む
  *
  * 綴りの検査で落ちたコマンドは**この経路では走らせない**。走らせてから綴りを咎めるのでは、
  * 宣言に紛れ込んだ想定外のコマンドが一度は実行されてしまう。
  *
- * **判定の経路を塞ぐだけでは足りない。** 実行の入口は本関数と {@link measureAll} の
- * 二つあり、後者は判定に関わらない報告用でありながら `bash -c` を呼ぶ。以前の版は
- * 後者が綴りを参照しておらず、`--verbose` で痕跡ファイルが 1 個できた（2026-09-01 に実測）。
- * 両方を塞いだ現在は既定・`--verbose`・`--json --verbose` のいずれでも痕跡は 0 個である（同日に実測）。
+ * **判定の経路を塞ぐだけでは足りない。** `bash -c` を呼ぶのは {@link runMeasurement} の
+ * 1 箇所だが、そこへ至る入口は本関数（判定）・{@link runOutsideRepository}（空洞化の対照）・
+ * {@link measureAll}（報告）の三つである。{@link measureAll} は判定に関わらない報告用でありながら
+ * `bash -c` を呼ぶ。以前の版は同関数が綴りを参照しておらず、`--verbose` で痕跡ファイルが
+ * 1 個できた（2026-09-01 に実測）。両方を塞いだ現在は既定・`--verbose`・`--json --verbose` の
+ * いずれでも痕跡は 0 個である（同日に実測）。{@link runOutsideRepository} は本関数が綴りで
+ * 落とした後にしか呼ばれない——本関数の `if (vocabulary.length > 0) return;` より後に在る。
  */
 function pushEntryFindings(root: string, entry: ManifestEntry, findings: Finding[]): void {
   for (const message of shapeFailures(entry)) {
@@ -596,7 +692,11 @@ function pushEntryFindings(root: string, entry: ManifestEntry, findings: Finding
     findings.push(makeFinding(entry, message));
   }
   if (vocabulary.length > 0) return;
-  for (const message of measurementFailures(root, entry)) {
+  const outcome = runMeasurement(root, String(entry.command ?? ''));
+  for (const message of measurementFailures(entry, outcome)) {
+    findings.push(makeFinding(entry, message));
+  }
+  for (const message of hollowCommandFailures(entry, outcome)) {
     findings.push(makeFinding(entry, message));
   }
 }
@@ -614,6 +714,13 @@ function pushPopulationFindings(entries: readonly ManifestEntry[], findings: Fin
     findings.push(
       makeGlobalFinding(
         `宣言が ${entries.length} 件で下限 ${MINIMUM_ENTRIES} 件を下回ります（MINIMUM_ENTRIES を見よ）`
+      )
+    );
+  }
+  if (entries.length > MINIMUM_ENTRIES) {
+    findings.push(
+      makeGlobalFinding(
+        `宣言が ${entries.length} 件で、宣言した下限 ${MINIMUM_ENTRIES} 件を上回ります（遊び ${entries.length - MINIMUM_ENTRIES} 件）。下限は宣言の件数ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの無言の削除を吸収します。MINIMUM_ENTRIES を ${entries.length} 件へ上げてください。`
       )
     );
   }
@@ -792,6 +899,42 @@ export function runMeasurement(root: string, command: string): MeasurementOutcom
     };
   }
   return { output: result.stdout.trim(), failure: '' };
+}
+
+/**
+ * 同じコマンドをリポジトリの外（空の一時ディレクトリ）で走らせる（タスク 115.271）
+ *
+ * {@link hollowCommandFailures} が使う対照である。宣言のコマンドはすべてリポジトリルート
+ * 相対で書かれているため、起点を空のディレクトリへ移せば、現況を読んでいる宣言は
+ * 別の値を出すか終了コードが 0 でなくなる。**綴りの検査を通ったコマンドしかここへ来ない**
+ * （{@link pushEntryFindings} が先に落とす）。
+ *
+ * **この対照が見ているのは作業ディレクトリへの依存であって、値の由来ではない。** 塞げない形:
+ *
+ *   - **リポジトリを読むが値は定数**——`test -f <パス> && printf '13'` は
+ *     ルートでは `13`、空のディレクトリでは終了コード 1 になるため通る（2026-09-04 に実測）。
+ *     `head -1 <パス> | wc -l | sed 's/1/13/'` も同様に通った（同日に実測）
+ *   - **錨と無関係な読み出し**——`expected` が `0` の宣言は、存在するどのファイルに対する
+ *     当たらない `grep -c` へ差し替えても `0` を出し続ける。実マニフェストの
+ *     `multer-file-filter`（`backend/src/routes/survey-images.routes.ts` の `fileFilter` を
+ *     数える宣言）の `command` を
+ *     `grep -c '当たらない綴りZZZ' .kiro/specs/site-survey/design.md || test $? -eq 1` へ
+ *     差し替えた写しを `--manifest` で与えると、要約は「宣言 30 件 / 文書側が古いと宣言した
+ *     箇所 0 件」を出して **EXIT=0 の緑**であった（2026-09-04 に実測）
+ *   - **絶対パスで書いた宣言は逆に誤って告発される**——起点を移しても値が動かないためである。
+ *     `multer-file-filter` の `command` の対象パスだけを絶対パスへ書き換えた写しを与えると、
+ *     正当な宣言であるにもかかわらず「リポジトリの外でも同じ値 `0` を出します」で赤くなった
+ *     （2026-09-04 に実測）。現在の宣言 30 件はすべてリポジトリルート相対であり、
+ *     絶対パスを含むものは無い（同日に 30 件を両方の起点で走らせて確認。誤検出 0 件）。
+ *     絶対パスの宣言を足すときは、この判定が先に赤くなる
+ */
+export function runOutsideRepository(command: string): MeasurementOutcome {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'design-measurement-outside-'));
+  try {
+    return runMeasurement(directory, command);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 }
 
 /**
