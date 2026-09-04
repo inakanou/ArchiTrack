@@ -2191,6 +2191,11 @@ function reportPreconditions(): PreconditionRun {
   const tally: PreconditionRun = { ran: 0, failed: 0 };
   // 一件ごとに `ran` を加算する。加算を伴わない確認を足すと `checkPreconditionsAreWired` の
   // 「report( の件数＝前提の入口の件数」が合わなくなり赤くなる（タスク 115.242）。
+  // 実測: 末尾へ `tally.failed += report('【変異】加算を伴わない確認', []);` の一行だけを足す
+  // 変異を当てると、44 件中この 1 件だけが落ち、「reportPreconditions の report( の呼び出しが
+  // 6 件で、前提の入口 5 件と一致しない」「tally.ran の加算が 5 件で、report( の呼び出し
+  // 6 件と一致しない（総数が実行とずれる）」の二行を告げる（2026-09-04 に実測。変異は退避した
+  // 控えからの書き戻しで復元し、復元後は 44/44 で緑に戻ることを確かめた）。
   tally.ran += 1;
   tally.failed += report('対照のレジストリが一つも空でない', emptyRegistryFailures());
   tally.ran += 1;

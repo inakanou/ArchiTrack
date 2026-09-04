@@ -2384,6 +2384,11 @@ const IMPLIED_SUCCESSOR: Case[] = [
     // `LANGUAGE_FIXING_EQUALITY_MATCHERS` へ足す**単独の変異**で落ちる最小形にするため、
     // 後続の主題を locator の名前そのものに置いている（実在の形では間に
     // `textContent()` と `??` が挟まり、そちらは 115.163-10 が固定する）。
+    // 実測: 当該の集合を `new Set(['toBe', 'toEqual', 'toStrictEqual', 'toHaveText'])` へ
+    // 変える変異を当てると、196 件中この 1 件だけが落ち、
+    // 「T12-implied-successor が検出されている（過検出）: expect(amountText)」と告げる
+    // （2026-09-04 に実測。変異は退避した控えからの書き戻しで復元し、復元後は 196/196 で
+    // 緑に戻ることを確かめた）。
     name: '115.163-13 locator を主題とする matcher は言語を確定させる先行として数えない',
     source: [
       "test('locator matcher not language fixing', async ({ page }) => {",
