@@ -2,7 +2,9 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
-_最終更新: 2026-09-05（Steering Sync: タスク 115.286。押下前の関門について本書が述べていた「初期化処理」と「品質チェック（順次実行）」の記述を、実体（`.husky/scripts/pre-push.sh`）へ揃えた。`NODE_OPTIONS` の割り当ては本書の二箇所が `--max-old-space-size=1024` と述べていたが実体は `--max-old-space-size=2048` であり、番号付きの列挙は「Formatチェック」から始まっていたが実体はその前に `docker-compose.yml` の環境変数が `backend/.env.example` に載っているかの検査（警告のみで中断しない）を走らせる。値を書き換える形は採らず、タスク 115.275 が実体の件数に対して採った規約 (b)（数値を落として数える手段を書く）を関門の列挙へも掛けた——列挙が名指していた検査は `npm run check:req-coverage` の一つだけで、`check:design-*` / `check:steering-*` / `check:e2e-*` / `check:cf-evidence` / `check:dead-script-env` / `check:req-exclusions` は一つも現れていなかった（コミット `98744b92`、2026-09-05 にリポジトリルートで実測）。以後は `grep -nE` で手順の見出しを、`grep -oE` で検査の npm スクリプト名を読み出す。同型の列挙が `.kiro/steering/tech.md` にもあったため同じ形へ揃えた）_
+_最終更新: 2026-09-05（Steering Sync: タスク 115.287。`e2e/helpers/browser.ts` の起動コマンドが二文書で違う実行器を名指していた（本書 `npx ts-node` が 3 行、`.kiro/steering/tech.md` `npx tsx` が 2 箇所で 6 行）。実際に叩いて正否を決めた——`npx tsx …` はヘルパー本体まで届くが、`npx ts-node …` はルートの `package.json` が `"type": "module"` であるため型のみの取り込みが `SyntaxError` になりヘルパーへ入る前に落ちる。`ts-node` はルートの `node_modules/.bin/` に無く `backend/package.json` の devDependency にしかないが、`npx` はレジストリまたは取得済みの控えから解決するため「見つからない」形では失敗しない（コミット `3e670d6a`、2026-09-05 にリポジトリルートで実測）。値を書き換えて揃える形は採らず、タスク 115.275 / 115.286 と同じ規約 (b)（書き写さず読み出す手段を書く）を掛けた——起動コマンドの権威は `.kiro/steering/tech.md` の「Claude Code統合」節に一本化し、本書は `grep` で読み出す手段だけを持つ）_
+
+_2026-09-05（Steering Sync: タスク 115.286。押下前の関門について本書が述べていた「初期化処理」と「品質チェック（順次実行）」の記述を、実体（`.husky/scripts/pre-push.sh`）へ揃えた。`NODE_OPTIONS` の割り当ては本書の二箇所が `--max-old-space-size=1024` と述べていたが実体は `--max-old-space-size=2048` であり、番号付きの列挙は「Formatチェック」から始まっていたが実体はその前に `docker-compose.yml` の環境変数が `backend/.env.example` に載っているかの検査（警告のみで中断しない）を走らせる。値を書き換える形は採らず、タスク 115.275 が実体の件数に対して採った規約 (b)（数値を落として数える手段を書く）を関門の列挙へも掛けた——列挙が名指していた検査は `npm run check:req-coverage` の一つだけで、`check:design-*` / `check:steering-*` / `check:e2e-*` / `check:cf-evidence` / `check:dead-script-env` / `check:req-exclusions` は一つも現れていなかった（コミット `98744b92`、2026-09-05 にリポジトリルートで実測）。以後は `grep -nE` で手順の見出しを、`grep -oE` で検査の npm スクリプト名を読み出す。同型の列挙が `.kiro/steering/tech.md` にもあったため同じ形へ揃えた）_
 
 _2026-09-05（Steering Sync: タスク 115.275。ディレクトリ注記・見出し・スペック状態が名乗っていた実体の件数 30 行を、規約 (b)（数値を落として数える手段を書く）へ置き換えた。再現コマンドを書ける 21 行のうち 13 行が既に食い違っており（`quantity-table/` 22→68、`frontend/src/utils/` 22→37、Storybook 132→157、`backend/src/routes/` 34→37 など。コミット `b84137b9`、2026-09-05 にリポジトリルートで実測）、残る 9 行（`全46タスク完了` の形）は、下記の 6 通りの走査規則（深さを問わないチェック項目・最上位の番号付き項目・相異なる最上位番号・見出し・完了印の付いた項目・深さを問わない相異なる番号）を当てた範囲では書かれた値を再現できなかった（導入時のコミットまで遡ると `project-management` と `itemized-statement-generation` の 2 行だけは「相異なる最上位番号」が一致する。これ以外の数え方は当てていない）。値の書き換えでは同じ陳腐化が繰り返されるため「実体の件数の書き方の規約」節を新設し、`npm run check:steering-dir-counts` が実測日を伴わない件数を検知する）_
 
@@ -367,16 +369,28 @@ e2e/
 
 `e2e/helpers/browser.ts` により、AIアシスタントから直接ブラウザ操作が可能：
 
+**起動コマンドは本書に書き写さない**（規約 (b)。タスク 115.287）。同じ起動を二文書が
+別々に書き写した結果、本書だけが実行器の是正に追随できていなかった——
+`.kiro/steering/tech.md` はタスク 115.199（2026-08-30）で `npx tsx` へ改められたのに対し、
+本書は `npx ts-node` の形を 3 行のまま残していた。**権威は `.kiro/steering/tech.md` の
+「Claude Code統合」節**であり、読み出す手段は次のとおり（いずれもリポジトリルートで実行する）。
+
 ```bash
-# スクリーンショット撮影
-npx ts-node e2e/helpers/browser.ts screenshot http://localhost:5173 screenshot.png
+# 起動コマンドを権威の側から読み出す（実行器の綴りを本書に持たない）
+grep -n 'e2e/helpers/browser.ts' .kiro/steering/tech.md
 
-# ページ情報取得
-npx ts-node e2e/helpers/browser.ts info http://localhost:5173
-
-# APIテスト
-npx ts-node e2e/helpers/browser.ts api http://localhost:3000/health
+# 権威が名指す実行器を取り出し、ローカルの依存で解決することを確かめる
+grep -oE 'npx [a-z0-9-]+ e2e/helpers/browser\.ts' .kiro/steering/tech.md | awk '{print $2}' | sort -u
+ls node_modules/.bin
 ```
+
+二つ目が**二行以上を返したら、権威が二種類以上の実行器を名乗っている**（本タスクが是正した
+食い違いの再発である）。**行数は本書に書き写さない**——書き写した瞬間に規約 (b) を破り、
+守る機械の関門も無い（`check:design-measurement-freshness` の
+`LIVE_STEERING_RECORD_DECLARATIONS` はタスク 115.276 の判断で空に固定されており、
+steering の現況の数値を宣言へ載せる道は開いていない）。**限界は拾い漏れの向きへ倒してある**
+——`npx <実行器> <経路>` の綴りしか拾わないため、`node --import` を挟む形や実行器名に
+大文字・記号を含む形は掛からない。
 
 **テスト実行結果:**
 

@@ -2,7 +2,9 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-09-05（Steering Sync: タスク 115.286。「Pre-pushフック」節が持っていた番号付きの列挙を撤去し、`.husky/scripts/pre-push.sh` から手順と検査を読み出す手段だけを残した（`.kiro/steering/structure.md` の「押下前の関門の書き方の規約」と同じ規約）。撤去前の列挙はDocker のテスト環境の構築を先頭（`0.`）に置いていたが実体では Format / 型 / Lint / ビルド / セキュリティ監査 / 単体テスト / Storybook より後に走り、名指していた検査は「要件カバレッジチェック」だけであった（コミット `98744b92`、2026-09-05 にリポジトリルートで実測））_
+_最終更新: 2026-09-05（Steering Sync: タスク 115.287。`e2e/helpers/browser.ts` の起動コマンドについて、本節が `.kiro/steering/` における権威であることを明示し、実行器が `tsx` である根拠（実際に叩いた出力）を併記した。`.kiro/steering/structure.md` は同じ起動を `npx ts-node` と書き写しており（3 行）、タスク 115.199 が本書だけを `npx tsx` へ是正した 2026-08-30 以降ずっと食い違っていた。同書からは値を撤去し、本節を読み出す手段だけを残した（コミット `3e670d6a`、2026-09-05 にリポジトリルートで実測））_
+
+_2026-09-05（Steering Sync: タスク 115.286。「Pre-pushフック」節が持っていた番号付きの列挙を撤去し、`.husky/scripts/pre-push.sh` から手順と検査を読み出す手段だけを残した（`.kiro/steering/structure.md` の「押下前の関門の書き方の規約」と同じ規約）。撤去前の列挙はDocker のテスト環境の構築を先頭（`0.`）に置いていたが実体では Format / 型 / Lint / ビルド / セキュリティ監査 / 単体テスト / Storybook より後に走り、名指していた検査は「要件カバレッジチェック」だけであった（コミット `98744b92`、2026-09-05 にリポジトリルートで実測））_
 
 _2026-09-02（Steering Sync: タスク 115.245。タスク 115.243 が注記に留めた `test:all` の連結を決着させた。`&&` を逐次実行へ改め、既定側が落ちても統合側が走る形にした（終了コードは従来どおり、どちらかが落ちれば非零）。判断の根拠は steering 自身が `test:all` へ「両方を合わせた数を数える手段」という役目を与えている点で、既定側の失敗で統合側の数が出ない形はその役目を果たさない。実測: 是正前は既定側を落とすと統合側が一度も呼ばれず、是正後は四通り（既定のみ失敗・統合のみ失敗・両方失敗・両方成功）すべてで両方が呼ばれる。連結は `backend/src/__tests__/unit/config/test-all-script-connective.test.ts` が実行して固定する）_
 
@@ -617,6 +619,25 @@ npx tsx e2e/helpers/browser.ts info http://localhost:5173
 # APIテスト
 npx tsx e2e/helpers/browser.ts api http://localhost:3000/health
 ```
+
+**本節が `.kiro/steering/` における起動コマンドの権威である**（タスク 115.287）。
+`.kiro/steering/structure.md` は同じ起動を書き写さず、本節を読み出す手段だけを持つ。
+
+**実行器が `tsx` である根拠（実際に叩いて確かめた。コミット `3e670d6a`、2026-09-05 に
+リポジトリルートで実測）:**
+
+- `npx tsx e2e/helpers/browser.ts info http://localhost:5173` はヘルパーの本体まで届く
+  （開発サーバが起動していない状態では `page.goto` の `ERR_CONNECTION_REFUSED` を報告して
+  終了コード 0。読み込み自体は成功している）。引数を与えない起動は使い方を印字して
+  終了コード 1 を返し、ブラウザは起動しない
+- 同じ引数の `npx ts-node …` は**ヘルパーの本体へ入る前に落ちる**——リポジトリルートの
+  `package.json` は `"type": "module"` であり、`ts-node` は ESM の変換を挟まないため
+  `import { chromium, LaunchOptions, BrowserContextOptions }` の型のみの取り込みが
+  構文エラー（SyntaxError） になる（終了コード 1）。使い方の一行も出ない
+- `ts-node` はルートの `node_modules/.bin/` に無く、`backend/package.json` の
+  devDependency にしかない。**それでも `npx` は失敗しない**——レジストリまたは `npx` の
+  取得済みの控えから解決して起動してしまうため、「コマンドが見つからない」形の分かりやすい
+  失敗にはならず、上の 構文エラー（SyntaxError） として現れる
 
 ## 開発環境
 
