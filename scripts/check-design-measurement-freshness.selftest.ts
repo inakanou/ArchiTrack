@@ -11,7 +11,8 @@
  *   - **母集団が空なら失敗する**（AI運用7原則 第3原則）。宣言 0 件・下限割れのいずれも赤くなる
  *   - **集計と検出の本体に絞り込みの経路が無い**（タスク 115.230 の作法）。
  *     見張る範囲は台帳 {@link EXECUTABLE_FUNCTION_INVENTORY} と**双方向で一致**させる
- *   - **本体をサブプロセスとして起動**し、一致1件・不一致1件の仮マニフェストに対する
+ *   - **本体をサブプロセスとして起動**し、一致1件・不一致1件・正しく宣言された食い違い
+ *     （{@link DECLARED_STALE_DOCUMENT_FIGURES} + 1 件）の仮マニフェストに対する
  *     終了コードと報告件数を固定する（タスク 115.232 の起票文が指定した作法。
  *     `check-design-path-references.selftest.ts` の挙動検査に倣う）
  *   - **許容外の綴りは実行の入口が二つとも塞がっている**。実行の入口は
@@ -107,6 +108,35 @@ function baseEntry(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
     expected: '7',
     ...overrides,
   } as ManifestEntry;
+}
+
+/**
+ * 「文書側が古い」と正しく宣言された宣言を `count` 件つくる
+ *
+ * 一件ずつは形式・錨・実測のいずれの判定にも掛からない（`documentFigure` の `7` は
+ * `基準の行` にちょうど 1 箇所在り、`divergence` も揃っている）。掛かるのは
+ * {@link DECLARED_STALE_DOCUMENT_FIGURES} との件数の突き合わせだけである。
+ * **`count` を定数から算出することで、定数を締めても緩めても対照が意味を保つ**
+ * （タスク 115.270 が定数を 4 から 0 へ締めた際、`0 - 1` 件を作れず下回る側が構成不能に
+ * なったため、超える側を定数から組み立てる形へ改めた。**実測**: 定数だけを 0 へ落として
+ * 旧来の対照を走らせると、`npm run check:design-measurement-freshness:selftest` は
+ * 31 件中 2 件——下回る側の対照とサブプロセスの報告件数——が落ちた。2026-09-04 に
+ * リポジトリルートで実測）。
+ */
+function staleEntries(count: number): ManifestEntry[] {
+  const entries: ManifestEntry[] = [];
+  for (let index = 0; index < count; index += 1) {
+    entries.push(
+      baseEntry({
+        id: `stale-${index}`,
+        command: "printf '8'",
+        expected: '8',
+        documentFigure: '7',
+        divergence: { kind: 'stale', reason: '文書側が古いことを宣言している' },
+      })
+    );
+  }
+  return entries;
 }
 
 /**
@@ -485,14 +515,40 @@ const NON_VACUITY: TestCase[] = [
     },
   },
   {
-    name: '宣言された食い違いの件数が宣言と一致しなければ赤くなる（増減の両方向）',
+    name: '宣言された食い違いの件数が宣言と完全に一致しなければ赤くなる',
+    polarity: 'positive',
     run() {
       return withDocument(SAMPLE_DOCUMENT, (root) => {
-        const fewer = messagesFor(root, [baseEntry()]);
+        const over = messagesFor(root, [
+          baseEntry(),
+          ...staleEntries(DECLARED_STALE_DOCUMENT_FIGURES + 1),
+        ]);
         return expect(
-          countMatching(fewer, `宣言 ${DECLARED_STALE_DOCUMENT_FIGURES} 件を下回ります`) === 1,
-          `解消済みの宣言の置き去りが見られていない: ${JSON.stringify(fewer)}`
+          countMatching(over, `宣言 ${DECLARED_STALE_DOCUMENT_FIGURES} 件を超えています`) === 1,
+          `宣言を超えた食い違いが見られていない: ${JSON.stringify(over)}`
         );
+      });
+    },
+  },
+  {
+    name: '宣言された食い違いの件数が宣言とちょうど一致していれば告発しない',
+    polarity: 'negative',
+    run() {
+      return withDocument(SAMPLE_DOCUMENT, (root) => {
+        const exact = messagesFor(root, [
+          baseEntry(),
+          ...staleEntries(DECLARED_STALE_DOCUMENT_FIGURES),
+        ]);
+        return [
+          ...expect(
+            countMatching(exact, `宣言 ${DECLARED_STALE_DOCUMENT_FIGURES} 件を超えています`) === 0,
+            `一致しているのに超過として告発している: ${JSON.stringify(exact)}`
+          ),
+          ...expect(
+            countMatching(exact, `宣言 ${DECLARED_STALE_DOCUMENT_FIGURES} 件を下回ります`) === 0,
+            `一致しているのに不足として告発している: ${JSON.stringify(exact)}`
+          ),
+        ];
       });
     },
   },
@@ -1072,11 +1128,15 @@ const NARROWING_GUARD: TestCase[] = [
 // ============================================================================
 
 /**
- * 一致1件・不一致1件の仮マニフェストを与え、終了コードと報告件数を固定する
+ * 一致1件・不一致1件・正しく宣言された食い違い（宣言 + 1 件）の仮マニフェストを与え、
+ * 終了コードと報告件数を固定する
  *
  * 報告される 4 件の内訳は、不一致 1 件・下限割れ 1 件・所管の文書の未被覆 1 件・
- * 宣言された食い違いの不足 1 件である。**前提が崩れた仮マニフェストを合格にしないこと**が
- * ここで固定される（宣言 2 件は下限 29 件を下回るため、不一致が無くても赤い）。
+ * 宣言された食い違いの超過 1 件である。**前提が崩れた仮マニフェストを合格にしないこと**が
+ * ここで固定される（宣言が下限 29 件を下回るため、不一致が無くても赤い）。
+ * 食い違いの件数は {@link DECLARED_STALE_DOCUMENT_FIGURES} から組み立てるため、
+ * 定数を締めても緩めても内訳は変わらない（タスク 115.270 が定数を 4 から 0 へ締めた際、
+ * 「不足 1 件」が構成不能になったため「超過 1 件」へ改めた）。
  */
 function checkSubprocessBehaviour(): string[] {
   const failures: string[] = [];
@@ -1105,6 +1165,10 @@ function checkSubprocessBehaviour(): string[] {
             command: "printf '8'",
             expected: '7',
           },
+          ...staleEntries(DECLARED_STALE_DOCUMENT_FIGURES + 1).map((entry) => ({
+            ...entry,
+            file: path.join(directory, 'doc.md'),
+          })),
         ],
       })
     );
@@ -1145,7 +1209,7 @@ function checkSubprocessBehaviour(): string[] {
     );
     failures.push(
       ...expect(
-        String(result.stdout).includes('宣言 2 件'),
+        String(result.stdout).includes(`宣言 ${2 + DECLARED_STALE_DOCUMENT_FIGURES + 1} 件`),
         `要約行が宣言の件数を出していない:\n${result.stdout}`
       )
     );
