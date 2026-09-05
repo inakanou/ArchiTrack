@@ -183,6 +183,46 @@
  *   あり、面が一件も動かないまま比が 0.8 ポイント薄まっていた（2026-09-02 に実測）。
  *   115.215 の版はこの差を一切出していなかった。**残る限界**: 基準を更新すると母数も
  *   書き換わるため、薄まりが見えるのは前回の更新からの差だけである。
+ *   **この限界はタスク 115.293 が追記のみの履歴で解消した**（下の節）。
+ *
+ * ## 免除の側にも集合を持たせ、母数は関門にしない（タスク 115.293）
+ *
+ *   115.241 は面（reach）の側だけを集合にした。免除（exempted）の側は延べ件数のままであったため、
+ *   面について 115.241 が塞いだ「1 件が抜け 1 件が入る入れ替え」の穴が、免除の側にはそのまま残っていた。
+ *
+ *   **(1) 判断: 延べと集合の両方を持つ（数え方は変えない）。** 実測で決めた——
+ *   免除は延べ 123 件に対し distinct は **30 件**であり、差は **93 件**である
+ *   （内訳は `.kiro/specs/site-survey/design.md` が延べ 122 / distinct 29、
+ *   `.kiro/specs/estimate-creation/design.md` が延べ 1 / distinct 1。2026-09-05 にリポジトリルートで実測）。
+ *   延べの大半は同じ参照への繰り返しの言及であり（最多は `ImageViewer.tsx` の 20 行）、
+ *   **数え方を distinct へ置き換えると 93 件ぶんの動きが見えなくなる**。
+ *   一方で延べだけでは入れ替えが素通りする。**二つは互いに包含関係を持たない**——
+ *   同じ参照への言及が一つ増えると延べだけが動き、参照が入れ替わると集合だけが動く。
+ *   したがって両方を持ち、両方を関門に掛ける。
+ *   `exempted` に件数がある文書は `exemptedReferences` にも集合を持たねばならない
+ *   （集合だけを消して関門を外す経路を塞ぐ。`compareReach` が照合の前に拒否する）。
+ *
+ *   **(2) 判断: 母数（`candidateTotal`）は関門にしない。開示に留める。**
+ *   115.215 の却下理由（設計文書の編集そのものが赤を出す）が**今も成立することを変異で確かめた**——
+ *   `.kiro/specs/site-survey/design.md` へ、実在するファイルを二つ名指すだけの一行
+ *   （面にも免除にも入らない普通の記述）を足すと、母数は 609 件から 611 件へ、
+ *   比は 27.1% から 27.0% へ動く。面は 165 件のまま一件も動かない
+ *   （2026-09-05 にリポジトリルートで実測）。母数や比を関門に掛ければ、**この一行が赤を出す**。
+ *   比が下がる向きだけを関門にしても同じである——薄まりは面の増加ではなく記述量の増加で起きるためである。
+ *   **選ばなかった案**: (a) 母数の完全一致を関門にする（上の一行で赤くなる）。
+ *   (b) 比の下限を関門にする（同上。かつ閾値の根拠が無い）。
+ *   (c) 母数の増分に上限を置く（閾値が恣意的で、通常の加筆で跳ねる）。
+ *
+ *   **(3) ただし「見えるのは前回の更新からの差だけ」という限界は解消した。**
+ *   基準へ**追記のみ**の履歴 `candidateHistory` を持たせ、毎回の出力が**起点からの薄まり**を出す。
+ *   起点の三点は版管理から復元した（`git log -- scripts/design-path-exemption-baseline.json` の
+ *   各版の `candidateTotal`）: 2026-08-31 に面 162 / 母数 574（28.2%）、
+ *   2026-09-02 に面 162 / 母数 592（27.4%）、2026-09-05 に面 165 / 母数 603（27.4%）である。
+ *   `writeReachBaseline` は前回の履歴を読んで末尾へ追記する（値が同じなら追記しない）。
+ *   履歴の末尾が `reachTotal` / `candidateTotal` と食い違う基準は照合の前に拒否する——
+ *   履歴を空にしたり末尾を書き換えたりして薄まりを見えなくする経路を塞ぐため。
+ *   **残る限界（開示）**: 履歴の**途中の項を消す**書き換えは検出できない。基準ファイルは
+ *   人手で編集できる版管理下の成果物であり、末尾の自己整合より前は版管理の差分でしか見えない。
  *
  *   **(7) 開示と基準の読み書きも絞り込みの監視対象に入れた。** 115.215 は
  *   `loadReachBaseline` / `writeReachBaseline` / `reportReach` / `main` を
@@ -319,6 +359,14 @@ export interface DocumentReach {
   ambiguousBareNames: Array<{ name: string; matches: number }>;
   /** 当該文書で**いま免除している**参照の延べ件数（面が現に免除へ転じた分を含む） */
   exempted: number;
+  /**
+   * 当該文書で**いま免除している**参照の**集合**（distinct・整列済み。タスク 115.293）。
+   * `exempted` は延べ件数であり、同じ参照が複数行で言及されればその回数だけ数える。
+   * 延べだけを基準にすると、1 件が抜け 1 件が入る**入れ替え**は総数が動かず素通りする——
+   * 面について 115.241 が塞いだのと同じ穴が、免除の側に残っていた。
+   * **延べは捨てずに両方を持つ。** 二つは互いに包含関係を持たない（本ファイル冒頭の 115.293 の節）。
+   */
+  exemptedReferences: string[];
 }
 
 /** 免除機構の面（blast radius）の実測 */
@@ -341,6 +389,10 @@ export interface ExemptionReach {
   exemptedPerDocument: Record<string, number>;
   /** exemptedPerDocument の合計（`RunResult.exemptedCount` と一致する） */
   exemptedTotal: number;
+  /** 文書ごとの、いま免除している参照の集合（タスク 115.293） */
+  exemptedReferencesPerDocument: Record<string, readonly string[]>;
+  /** exemptedReferencesPerDocument の各集合の要素数の合計（タスク 115.293） */
+  exemptedDistinctTotal: number;
   /** 文書ごとの内訳（--verbose / --json 用） */
   documents: DocumentReach[];
 }
@@ -367,11 +419,43 @@ export interface ReachBaseline {
   /** exempted の合計。食い違う基準は手書き換えとみなして拒否する */
   exemptedTotal: number;
   /**
+   * 文書ごとの、いま免除している参照の**集合**（タスク 115.293）。
+   * 延べ件数だけを持っていた 115.241 までの形では、同一文書内で 1 件が抜け 1 件が入る
+   * 入れ替えがどちらの件数も動かさず素通りしていた。
+   */
+  exemptedReferences: Record<string, readonly string[]>;
+  /** exemptedReferences の各集合の要素数の合計。食い違う基準は拒否する（タスク 115.293） */
+  exemptedDistinctTotal: number;
+  /**
+   * 母数と面の**追記のみ**の履歴（タスク 115.293）。
+   * 115.241 は基準記録時の母数を一つだけ持ったため、薄まりが見えるのは**前回の更新からの差だけ**
+   * であった。更新のたびに追記することで、起点からの薄まりが毎回の出力に出る。
+   * **合否には用いない**——母数を関門にすると設計文書の編集そのものが赤を出すためである
+   * （115.215 の却下理由。115.293 が変異で再確認した。本ファイル冒頭の 115.293 の節を見よ）。
+   */
+  candidateHistory: CandidateHistoryEntry[];
+  /**
    * 面の集合として読めなかった `documents` の鍵（タスク 115.241）。
    * 115.215 の件数形式の基準や、手で書き換えられた基準がここに落ちる。
    * 空でなければ照合の前に拒否する——読めない基準を「面 0」と解して合格させないため。
    */
   malformedDocuments: string[];
+  /**
+   * 免除の集合として読めなかった `exemptedReferences` の鍵（タスク 115.293）。
+   * 115.241 までの形式の基準（`exemptedReferences` を持たない）は、鍵が一つも無い形で
+   * ここへは落ちないため、`compareReach` が「延べが 0 でない文書に集合が無い」ことを別に拒否する。
+   */
+  malformedExemptedReferences: string[];
+}
+
+/** 母数と面の追記のみの履歴の一項（タスク 115.293） */
+export interface CandidateHistoryEntry {
+  /** 基準を書き出した日（YYYY-MM-DD） */
+  recordedAt: string;
+  /** 書き出した時点の面の件数 */
+  reachTotal: number;
+  /** 書き出した時点の母数（候補 distinct の合計） */
+  candidateTotal: number;
 }
 
 export interface RunResult {
@@ -642,6 +726,8 @@ export function scanDocument(
   const declaredAbsent = collectAbsenceDeclarations(lines, index.topLevelEntries);
   const candidates = new Set<string>();
   const reached = new Set<string>();
+  // 免除は延べ件数で数えるが、集合でも持つ（タスク 115.293）。延べだけでは入れ替えが素通りする。
+  const exemptedReferences = new Set<string>();
   let insideFence = false;
 
   lines.forEach((lineText, offset) => {
@@ -665,6 +751,7 @@ export function scanDocument(
       }
       if (declaredAbsent.has(claim.reference)) {
         exemptedCount += 1;
+        exemptedReferences.add(claim.reference);
         continue;
       }
       findings.push({
@@ -686,6 +773,7 @@ export function scanDocument(
     entities: bundled.entities,
     ambiguousBareNames: bundled.ambiguous,
     exempted: exemptedCount,
+    exemptedReferences: [...exemptedReferences].sort(),
   };
 
   return { findings, exemptedCount, reach };
@@ -699,14 +787,19 @@ export function scanDocument(
 export function summariseReach(documents: readonly DocumentReach[]): ExemptionReach {
   const perDocument: Record<string, number> = {};
   const exemptedPerDocument: Record<string, number> = {};
+  const exemptedReferencesPerDocument: Record<string, readonly string[]> = {};
   const ambiguousBareNames: Array<{ file: string; name: string; matches: number }> = [];
   let total = 0;
   let candidateTotal = 0;
   let entityTotal = 0;
   let exemptedTotal = 0;
+  let exemptedDistinctTotal = 0;
   for (const document of documents) {
     if (document.reached.length > 0) perDocument[document.file] = document.reached.length;
     if (document.exempted > 0) exemptedPerDocument[document.file] = document.exempted;
+    if (document.exemptedReferences.length > 0)
+      exemptedReferencesPerDocument[document.file] = document.exemptedReferences;
+    exemptedDistinctTotal += document.exemptedReferences.length;
     total += document.reached.length;
     candidateTotal += document.candidates.length;
     entityTotal += document.entities;
@@ -723,6 +816,8 @@ export function summariseReach(documents: readonly DocumentReach[]): ExemptionRe
     ambiguousBareNames,
     exemptedPerDocument,
     exemptedTotal,
+    exemptedReferencesPerDocument,
+    exemptedDistinctTotal,
     documents: [...documents],
   };
 }
@@ -740,24 +835,39 @@ export function loadReachBaseline(baselinePath: string): ReachBaseline {
       entityTotal: 0,
       exempted: {},
       exemptedTotal: 0,
+      exemptedReferences: {},
+      exemptedDistinctTotal: 0,
+      candidateHistory: [],
       malformedDocuments: [],
+      malformedExemptedReferences: [],
     };
   }
   const parsed = JSON.parse(fs.readFileSync(baselinePath, 'utf-8')) as Record<string, unknown>;
-  const documents: Record<string, readonly string[]> = {};
-  const malformedDocuments: string[] = [];
-  const rawDocuments = parsed.documents;
-  if (rawDocuments !== null && typeof rawDocuments === 'object') {
-    for (const [key, value] of Object.entries(rawDocuments as Record<string, unknown>)) {
-      if (Array.isArray(value) && value.every((item) => typeof item === 'string')) {
-        documents[key] = value as string[];
-      } else {
-        malformedDocuments.push(key);
+  // 文字列配列の辞書として読む。読めなかった鍵は呼び出し側で拒否させるため名前で返す
+  // （読めない基準を「0 件」と解して無言の合格へ落とさないため。タスク 115.241 / 115.293）。
+  const setsOf = (
+    raw: unknown,
+    label: string
+  ): { sets: Record<string, readonly string[]>; malformed: string[] } => {
+    const sets: Record<string, readonly string[]> = {};
+    const malformed: string[] = [];
+    if (raw !== null && typeof raw === 'object') {
+      for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+        if (Array.isArray(value) && value.every((item) => typeof item === 'string')) {
+          sets[key] = value as string[];
+        } else {
+          malformed.push(key);
+        }
       }
+    } else if (raw !== undefined) {
+      malformed.push(label);
     }
-  } else if (rawDocuments !== undefined) {
-    malformedDocuments.push('documents');
-  }
+    return { sets, malformed };
+  };
+  const parsedDocuments = setsOf(parsed.documents, 'documents');
+  const documents = parsedDocuments.sets;
+  const malformedDocuments = parsedDocuments.malformed;
+  const parsedExempted = setsOf(parsed.exemptedReferences, 'exemptedReferences');
   const numberOf = (value: unknown): number => (typeof value === 'number' ? value : 0);
   const countsOf = (value: unknown): Record<string, number> => {
     const counts: Record<string, number> = {};
@@ -767,6 +877,21 @@ export function loadReachBaseline(baselinePath: string): ReachBaseline {
     }
     return counts;
   };
+  const candidateHistory: CandidateHistoryEntry[] = [];
+  if (Array.isArray(parsed.candidateHistory)) {
+    for (const raw of parsed.candidateHistory as unknown[]) {
+      if (raw === null || typeof raw !== 'object') continue;
+      const entry = raw as Record<string, unknown>;
+      if (typeof entry.recordedAt !== 'string') continue;
+      if (typeof entry.reachTotal !== 'number' || typeof entry.candidateTotal !== 'number')
+        continue;
+      candidateHistory.push({
+        recordedAt: entry.recordedAt,
+        reachTotal: entry.reachTotal,
+        candidateTotal: entry.candidateTotal,
+      });
+    }
+  }
   return {
     documents,
     reachTotal: numberOf(parsed.reachTotal),
@@ -774,7 +899,11 @@ export function loadReachBaseline(baselinePath: string): ReachBaseline {
     entityTotal: numberOf(parsed.entityTotal),
     exempted: countsOf(parsed.exempted),
     exemptedTotal: numberOf(parsed.exemptedTotal),
+    exemptedReferences: parsedExempted.sets,
+    exemptedDistinctTotal: numberOf(parsed.exemptedDistinctTotal),
+    candidateHistory,
     malformedDocuments,
+    malformedExemptedReferences: parsedExempted.malformed,
   };
 }
 
@@ -788,6 +917,22 @@ export function writeReachBaseline(baselinePath: string, reach: ExemptionReach):
   const orderedExempted: Record<string, number> = {};
   for (const file of Object.keys(reach.exemptedPerDocument).sort()) {
     orderedExempted[file] = reach.exemptedPerDocument[file]!;
+  }
+  const orderedExemptedReferences: Record<string, readonly string[]> = {};
+  for (const file of Object.keys(reach.exemptedReferencesPerDocument).sort()) {
+    orderedExemptedReferences[file] = [...reach.exemptedReferencesPerDocument[file]!].sort();
+  }
+  // 母数の履歴は**追記のみ**である（タスク 115.293）。前回と同じ値なら追記しない。
+  // 上書きにすると 115.241 の形へ戻り、薄まりが前回の更新からの差だけになる。
+  const previous = loadReachBaseline(baselinePath);
+  const candidateHistory: CandidateHistoryEntry[] = [...previous.candidateHistory];
+  const last = candidateHistory[candidateHistory.length - 1];
+  if (!last || last.reachTotal !== reach.total || last.candidateTotal !== reach.candidateTotal) {
+    candidateHistory.push({
+      recordedAt: new Date().toISOString().slice(0, 10),
+      reachTotal: reach.total,
+      candidateTotal: reach.candidateTotal,
+    });
   }
   const payload = {
     $comment: [
@@ -804,15 +949,24 @@ export function writeReachBaseline(baselinePath: string, reach: ExemptionReach):
       'basename で束ねた実体のファイル数。いずれも documents から導けるため、食い違う基準は',
       '手書き換えとみなして照合の前に拒否する。documents が集合として読めない場合も拒否する。',
       'candidateTotal は面の母数（候補 distinct の合計）であり、比を示すために持つ。合否には用いない。',
-      'exempted / exemptedTotal は「いま免除している件数」。面が現に免除へ転じた分もここに現れる。',
+      'exempted / exemptedTotal は「いま免除している件数」の延べ。面が現に免除へ転じた分もここに現れる。',
+      'exemptedReferences / exemptedDistinctTotal は同じものの distinct の集合（タスク 115.293）。',
+      '延べだけを持っていた 115.241 までの形では、免除の側で 1 件が抜け 1 件が入る入れ替えが',
+      'どちらの件数も動かさず素通りしていた。延べと集合は互いに包含関係を持たないため両方を持つ。',
+      'exempted に件数がある文書は exemptedReferences にも集合を持たねばならない（照合の前に拒否する）。',
+      'candidateHistory は母数と面の追記のみの履歴（タスク 115.293）。合否には用いず、',
+      '起点からの薄まりを毎回の出力に出すために持つ。末尾は reachTotal / candidateTotal と一致する。',
       '面に入っていたファイルを撤去すると面は減り免除は跳ねるため、両方を見張らないと素通りする。',
     ],
     reachTotal: reach.total,
     candidateTotal: reach.candidateTotal,
     entityTotal: reach.entityTotal,
     exemptedTotal: reach.exemptedTotal,
+    exemptedDistinctTotal: reach.exemptedDistinctTotal,
+    candidateHistory,
     documents: ordered,
     exempted: orderedExempted,
+    exemptedReferences: orderedExemptedReferences,
   };
   fs.writeFileSync(baselinePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
 }
@@ -832,7 +986,10 @@ export interface ReachComparison {
  *
  * 面は**集合**で比べる（タスク 115.241）。件数だけで比べていた 115.215 の形は、
  * 同一文書内で 1 件が抜け 1 件が入る入れ替えを素通りさせていた——どちらの件数も動かないためである。
- * 免除は延べ件数であり集合を持たないため、従来どおり件数で比べる。
+ * **免除も集合で比べる（タスク 115.293）。延べ件数での照合は残す。** 二つは互いに包含関係を
+ * 持たない——同じ参照への言及が一つ増えると延べだけが動き、参照が入れ替わると集合だけが動く。
+ * 母数（`candidateTotal`）は**合否に用いない**。設計文書の編集そのものが赤を出すためであり、
+ * この却下理由は 115.293 が変異で再確認した（本ファイル冒頭の 115.293 の節）。
  */
 export function compareReach(baseline: ReachBaseline, reach: ExemptionReach): ReachComparison {
   // 基準そのものの自己整合。reachTotal / entityTotal は documents から導けるため、
@@ -847,6 +1004,34 @@ export function compareReach(baseline: ReachBaseline, reach: ExemptionReach): Re
   }
   let exemptedSum = 0;
   for (const count of Object.values(baseline.exempted)) exemptedSum += count;
+
+  // 免除の集合の自己整合（タスク 115.293）。
+  //   - 集合の要素数の合計は exemptedDistinctTotal と一致する
+  //   - 延べに件数がある文書には集合が無ければならない（集合だけ消して関門を外せないように）
+  //   - distinct は延べを超えられない（延べは同じ参照を何度でも数えるため）
+  let exemptedDistinctSum = 0;
+  let exemptedSetsBroken = false;
+  for (const [file, references] of Object.entries(baseline.exemptedReferences)) {
+    exemptedDistinctSum += references.length;
+    if (references.length > (baseline.exempted[file] ?? 0)) exemptedSetsBroken = true;
+  }
+  for (const [file, count] of Object.entries(baseline.exempted)) {
+    if (count > 0 && (baseline.exemptedReferences[file] ?? []).length === 0)
+      exemptedSetsBroken = true;
+  }
+
+  // 母数の履歴の自己整合（タスク 115.293）。合否には用いないが、履歴を空にしたり
+  // 末尾を書き換えたりして「起点からの薄まり」を見えなくする経路は塞ぐ。
+  const baselineIsPopulated =
+    Object.keys(baseline.documents).length > 0 ||
+    baseline.reachTotal > 0 ||
+    baseline.exemptedTotal > 0;
+  const lastHistory = baseline.candidateHistory[baseline.candidateHistory.length - 1];
+  const historyBroken =
+    baselineIsPopulated &&
+    (!lastHistory ||
+      lastHistory.reachTotal !== baseline.reachTotal ||
+      lastHistory.candidateTotal !== baseline.candidateTotal);
 
   const regressions: string[] = [];
   const improvements: string[] = [];
@@ -878,16 +1063,40 @@ export function compareReach(baseline: ReachBaseline, reach: ExemptionReach): Re
   ].sort()) {
     const was = baseline.exempted[file] ?? 0;
     const is = exemptedNow[file] ?? 0;
-    if (is > was) regressions.push(`${file} [免除] ${was} → ${is}`);
-    if (is < was) improvements.push(`${file} [免除] ${was} → ${is}`);
+    if (is > was) regressions.push(`${file} [免除の延べ] ${was} → ${is}`);
+    if (is < was) improvements.push(`${file} [免除の延べ] ${was} → ${is}`);
+  }
+
+  // 免除: 集合でも比べる（タスク 115.293）。入れ替えは「入った側」が退行として現れる
+  const exemptedReferencesNow = reach.exemptedReferencesPerDocument;
+  for (const file of [
+    ...new Set([
+      ...Object.keys(baseline.exemptedReferences),
+      ...Object.keys(exemptedReferencesNow),
+    ]),
+  ].sort()) {
+    const was = new Set(baseline.exemptedReferences[file] ?? []);
+    const is = new Set(exemptedReferencesNow[file] ?? []);
+    const added = [...is].filter((reference) => !was.has(reference)).sort();
+    const removed = [...was].filter((reference) => !is.has(reference)).sort();
+    if (added.length > 0) {
+      regressions.push(`${file} [免除の集合] +${added.length} 件: ${added.join(' / ')}`);
+    }
+    if (removed.length > 0) {
+      improvements.push(`${file} [免除の集合] -${removed.length} 件: ${removed.join(' / ')}`);
+    }
   }
 
   return {
     inconsistent:
       baseline.malformedDocuments.length > 0 ||
+      baseline.malformedExemptedReferences.length > 0 ||
       reachSum !== baseline.reachTotal ||
       exemptedSum !== baseline.exemptedTotal ||
-      baselineEntities !== baseline.entityTotal,
+      baselineEntities !== baseline.entityTotal ||
+      exemptedDistinctSum !== baseline.exemptedDistinctTotal ||
+      exemptedSetsBroken ||
+      historyBroken,
     regressions,
     improvements,
   };
@@ -958,23 +1167,59 @@ function reportReach(reach: ExemptionReach, baseline: ReachBaseline, verbose: bo
         '各 1 件に畳んだ値であり、この参照が面から外れるのは一致が全て消えたときだけである。'
     );
   }
-  // 母数は合否に用いない（設計文書の増減そのものが赤を出すため）。用いない以上、
-  // 母数が増えて比が静かに薄まる向きには信号が無い。基準記録時の比を並べて開示する（タスク 115.241）。
+  // 母数は合否に用いない（設計文書の増減そのものが赤を出すため。115.215 の判断を 115.293 が
+  // 変異で再確認した）。用いない以上、母数が増えて比が静かに薄まる向きには信号が無い。
+  // 115.241 は基準記録時の一点だけを並べたため、見えるのは前回の更新からの差だけであった。
+  // 115.293 は基準へ追記のみの履歴を持たせ、**起点からの薄まり**を毎回出す。
   console.log(
     `   母数は合否に用いない。基準記録時の母数は ${baseline.candidateTotal} 件` +
       `（比 ${reachRatio(baseline.reachTotal, baseline.candidateTotal)}）である——` +
       '現在の比との差は面の増減ではなく設計文書の記述量の増減で動く。'
   );
+  if (baseline.candidateHistory.length === 0) {
+    console.log(
+      '   母数の推移: 基準に履歴がない。起点からの薄まりは測れない——' +
+        '`npm run check:design-path-refs:update` で書き出すと以後の推移が積まれる。'
+    );
+  } else {
+    const trail = baseline.candidateHistory
+      .map(
+        (entry) =>
+          `${entry.recordedAt} 面 ${entry.reachTotal}/母数 ${entry.candidateTotal}` +
+          `（${reachRatio(entry.reachTotal, entry.candidateTotal)}）`
+      )
+      .join(' → ');
+    const origin = baseline.candidateHistory[0]!;
+    console.log(
+      `   母数の推移（追記のみ。合否には用いない）: ${trail} → 現在 面 ${reach.total}/母数 ` +
+        `${reach.candidateTotal}（${reachRatio(reach.total, reach.candidateTotal)}）`
+    );
+    console.log(
+      `   起点（${origin.recordedAt}）からの薄まり: 母数は ${origin.candidateTotal} 件から ` +
+        `${reach.candidateTotal} 件へ ${reach.candidateTotal - origin.candidateTotal} 件動き、` +
+        `起点の面 ${origin.reachTotal} 件が今の母数に置かれていれば比は ` +
+        `${reachRatio(origin.reachTotal, reach.candidateTotal)} である` +
+        `（起点の比は ${reachRatio(origin.reachTotal, origin.candidateTotal)}）。` +
+        '前回の更新からの差だけでなく起点からの差が読める（タスク 115.293）。'
+    );
+  }
   console.log(
-    `   いま免除している件数: ${reach.exemptedTotal} 件（基準 ${baseline.exemptedTotal} 件）。` +
+    `   いま免除している件数: 延べ ${reach.exemptedTotal} 件（基準 ${baseline.exemptedTotal} 件）` +
+      ` / distinct ${reach.exemptedDistinctTotal} 件（基準 ${baseline.exemptedDistinctTotal} 件）。` +
       '面が減って免除が跳ねたときは、面に入っていたファイルが撤去された合図である。'
+  );
+  console.log(
+    `   免除は延べと集合の両方で見張る（タスク 115.293）。差 ` +
+      `${reach.exemptedTotal - reach.exemptedDistinctTotal} 件は同じ参照が複数行で言及されている分であり、` +
+      '延べだけを見ると 1 件が抜け 1 件が入る入れ替えが素通りする。'
   );
   if (!verbose) return;
   for (const document of reach.documents) {
     if (document.reached.length === 0) continue;
     console.log(
       `   ${document.file}: 面 ${document.reached.length} 件 / 実体 ${document.entities} 件` +
-        ` / 候補 ${document.candidates.length} 件 / 免除 ${document.exempted} 件`
+        ` / 候補 ${document.candidates.length} 件 / 免除 延べ ${document.exempted} 件・` +
+        `distinct ${document.exemptedReferences.length} 件`
     );
     for (const entry of document.ambiguousBareNames) {
       console.log(`     ! ${entry.name}: 同名の実在 ${entry.matches} 件（実体 1 件に畳んでいる）`);
@@ -1128,12 +1373,20 @@ export function execute(args: readonly string[], options: RunOptions = {}): numb
     console.error(`   documents の合計と reachTotal ${baseline.reachTotal}、`);
     console.error(`   documents から導いた実体の数と entityTotal ${baseline.entityTotal}、`);
     console.error(
-      `   または exempted の合計と exemptedTotal ${baseline.exemptedTotal} が食い違います`
+      `   exempted の合計と exemptedTotal ${baseline.exemptedTotal}、` +
+        `exemptedReferences の合計と exemptedDistinctTotal ${baseline.exemptedDistinctTotal}、`
     );
+    console.error('   または candidateHistory の末尾と reachTotal / candidateTotal が食い違います');
     if (baseline.malformedDocuments.length > 0) {
       console.error(
         `   面の集合として読めない項目: ${baseline.malformedDocuments.join(', ')}` +
           '（documents は文書ごとに参照トークンの配列を持ちます）'
+      );
+    }
+    if (baseline.malformedExemptedReferences.length > 0) {
+      console.error(
+        `   免除の集合として読めない項目: ${baseline.malformedExemptedReferences.join(', ')}` +
+          '（exemptedReferences は文書ごとに参照トークンの配列を持ちます）'
       );
     }
     console.error('   `npm run check:design-path-refs:update` で書き出し直してください。');
@@ -1154,7 +1407,8 @@ export function execute(args: readonly string[], options: RunOptions = {}): numb
     console.error('');
     console.error('   面が広がると、そのファイルが撤去されたときに文書内の全言及が');
     console.error('   無言で免除されます（タスク 115.215）。件数が同じでも中身が入れ替われば');
-    console.error('   ここに現れます（タスク 115.241）。次のいずれかで解消してください。');
+    console.error('   ここに現れます（面はタスク 115.241、免除はタスク 115.293）。');
+    console.error('   次のいずれかで解消してください。');
     console.error('     (a) 現存主張の行に不在の語（「削除」「撤去」など）が紛れていないか見直す');
     console.error('     (b) 広がりが妥当なら次で記録する:');
     console.error('         npm run check:design-path-refs:update -- --allow-increase');

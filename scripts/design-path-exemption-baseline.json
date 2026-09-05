@@ -13,13 +13,42 @@
     "basename で束ねた実体のファイル数。いずれも documents から導けるため、食い違う基準は",
     "手書き換えとみなして照合の前に拒否する。documents が集合として読めない場合も拒否する。",
     "candidateTotal は面の母数（候補 distinct の合計）であり、比を示すために持つ。合否には用いない。",
-    "exempted / exemptedTotal は「いま免除している件数」。面が現に免除へ転じた分もここに現れる。",
+    "exempted / exemptedTotal は「いま免除している件数」の延べ。面が現に免除へ転じた分もここに現れる。",
+    "exemptedReferences / exemptedDistinctTotal は同じものの distinct の集合（タスク 115.293）。",
+    "延べだけを持っていた 115.241 までの形では、免除の側で 1 件が抜け 1 件が入る入れ替えが",
+    "どちらの件数も動かさず素通りしていた。延べと集合は互いに包含関係を持たないため両方を持つ。",
+    "exempted に件数がある文書は exemptedReferences にも集合を持たねばならない（照合の前に拒否する）。",
+    "candidateHistory は母数と面の追記のみの履歴（タスク 115.293）。合否には用いず、",
+    "起点からの薄まりを毎回の出力に出すために持つ。末尾は reachTotal / candidateTotal と一致する。",
     "面に入っていたファイルを撤去すると面は減り免除は跳ねるため、両方を見張らないと素通りする。"
   ],
   "reachTotal": 165,
-  "candidateTotal": 603,
+  "candidateTotal": 609,
   "entityTotal": 126,
   "exemptedTotal": 123,
+  "exemptedDistinctTotal": 30,
+  "candidateHistory": [
+    {
+      "recordedAt": "2026-08-31",
+      "reachTotal": 162,
+      "candidateTotal": 574
+    },
+    {
+      "recordedAt": "2026-09-02",
+      "reachTotal": 162,
+      "candidateTotal": 592
+    },
+    {
+      "recordedAt": "2026-09-05",
+      "reachTotal": 165,
+      "candidateTotal": 603
+    },
+    {
+      "recordedAt": "2026-09-05",
+      "reachTotal": 165,
+      "candidateTotal": 609
+    }
+  ],
   "documents": {
     ".kiro/specs/construction-photo/design.md": [
       "ConstructionPhotoListCard.tsx"
@@ -202,5 +231,41 @@
   "exempted": {
     ".kiro/specs/estimate-creation/design.md": 1,
     ".kiro/specs/site-survey/design.md": 122
+  },
+  "exemptedReferences": {
+    ".kiro/specs/estimate-creation/design.md": [
+      "estimate-export.service.ts"
+    ],
+    ".kiro/specs/site-survey/design.md": [
+      "ImageViewer.stories.tsx",
+      "ImageViewer.test.tsx",
+      "ImageViewer.tsx",
+      "LazyImage.tsx",
+      "StylePanel.color-normalization.test.tsx",
+      "StylePanel.default-presets.test.tsx",
+      "StylePanel.mobile-gap.test.tsx",
+      "StylePanel.outline-toggle.test.tsx",
+      "StylePanel.stories.tsx",
+      "StylePanel.test.tsx",
+      "StylePanel.tsx",
+      "backend/src/services/errors.ts",
+      "frontend/src/__tests__/components/site-surveys/LazyImage.test.tsx",
+      "frontend/src/components/site-survey/index.ts",
+      "frontend/src/components/site-surveys/ImageViewer.tsx",
+      "frontend/src/components/site-surveys/LazyImage.stories.tsx",
+      "frontend/src/components/site-surveys/LazyImage.tsx",
+      "frontend/src/components/site-surveys/SiteSurveyErrorDisplay.tsx",
+      "frontend/src/components/site-surveys/SiteSurveyListView.tsx",
+      "frontend/src/components/site-surveys/SiteSurveySearchFilter.tsx",
+      "frontend/src/components/site-surveys/StylePanel.stories.tsx",
+      "frontend/src/components/site-surveys/StylePanel.tsx",
+      "frontend/src/components/site-surveys/index.ts",
+      "frontend/src/components/site-surveys/style-panel.constants.ts",
+      "frontend/src/components/site-surveys/tools/index.ts",
+      "frontend/src/hooks/useSiteSurveyError.ts",
+      "site-survey-image.types.test.ts",
+      "style-panel.constants.test.ts",
+      "style-panel.constants.ts"
+    ]
   }
 }

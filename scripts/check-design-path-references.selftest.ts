@@ -69,6 +69,8 @@ import {
   scanDocument,
   statesAbsence,
   summariseReach,
+  writeReachBaseline,
+  type ExemptionReach,
   type FileIndex,
 } from './check-design-path-references.js';
 // 走査根は共有部品から直に取る。被検査モジュール（check-design-path-references.ts）を
@@ -739,6 +741,9 @@ function checkExemptedBaselineGate(): string[] {
           candidateTotal: 2,
           exempted: { [fixture.document]: 2 },
           exemptedTotal: 99,
+          exemptedReferences: { [fixture.document]: ['frontend/src/gone.ts'] },
+          exemptedDistinctTotal: 1,
+          candidateHistory: [{ recordedAt: '2026-09-05', reachTotal: 1, candidateTotal: 2 }],
         },
         null,
         2
@@ -748,6 +753,458 @@ function checkExemptedBaselineGate(): string[] {
     const tampered = withCapturedConsole(() => execute([], options));
     if (tampered.value !== 1) {
       failures.push(`免除の内訳と総数が食い違う基準を受け入れた（exit ${tampered.value}）`);
+    }
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+  return failures;
+}
+
+/**
+ * 免除が**延べ件数と distinct の集合の両方**で測られていること（タスク 115.293）。
+ *
+ * 陽性対照と陰性対照を対で置く。どちらかが空になると「常に 0 件」で自明に通るため、
+ * 両方の件数を固定する。加えて**延べと distinct が別物である**ことを、
+ * 二つが食い違う形（同じ参照を二行で言及する形）で固定する——
+ * `exemptedReferences` を「延べと同じ長さの配列」にする変異や、
+ * 集合を常に空にする変異はここで赤くなる。
+ *
+ * リポジトリ本体での実額は延べ 123 件 / distinct 30 件（差 93 件）である
+ *（2026-09-05 にリポジトリルートで実測）。差が 0 の木では両者の違いを固定できないため、
+ * ここでは差が 1 の木を用いる。
+ */
+function checkExemptedSetIsMeasured(): string[] {
+  const failures: string[] = [];
+
+  // 陽性(1): 同じ参照が二行で言及され、一方が不在を述べる。延べ 2 件・distinct 1 件
+  const repeated = scanInjected([
+    '- 閲覧は `frontend/src/components/site-surveys/GhostViewer.tsx` が担っていた',
+    '- `frontend/src/components/site-surveys/GhostViewer.tsx` は撤去済み',
+  ]);
+  if (repeated.exemptedCount !== 2) {
+    failures.push(`免除の延べが 2 件でない（${repeated.exemptedCount}）`);
+  }
+  if (repeated.reach.exemptedReferences.length !== 1) {
+    failures.push(
+      `免除の集合が 1 件でない（${repeated.reach.exemptedReferences.length}）。` +
+        '延べをそのまま配列にしていないか'
+    );
+  }
+  if (
+    repeated.reach.exemptedReferences[0] !== 'frontend/src/components/site-surveys/GhostViewer.tsx'
+  ) {
+    failures.push(
+      `免除の集合が参照そのものを持っていない（${JSON.stringify(repeated.reach.exemptedReferences)}）`
+    );
+  }
+  if (repeated.reach.exemptedReferences.length === repeated.exemptedCount) {
+    failures.push('延べと distinct が同じ値になっている（二つを区別していない）');
+  }
+
+  // 陽性(2): 相異なる二つの参照。延べ 2 件・distinct 2 件（集合が常に 1 件でないこと）
+  const distinctPair = scanInjected([
+    '- `frontend/src/components/site-surveys/GhostViewer.tsx` と' +
+      ' `frontend/src/components/site-surveys/LostPanel.tsx` は撤去済み',
+  ]);
+  if (distinctPair.exemptedCount !== 2 || distinctPair.reach.exemptedReferences.length !== 2) {
+    failures.push(
+      `相異なる二つの免除が集合に入らない（延べ ${distinctPair.exemptedCount} /` +
+        ` distinct ${distinctPair.reach.exemptedReferences.length}）`
+    );
+  }
+  // 型は「distinct・整列済み」と宣言している。整列を外す変異を捕らえる
+  const pairSorted = [...distinctPair.reach.exemptedReferences].sort();
+  if (distinctPair.reach.exemptedReferences.join('|') !== pairSorted.join('|')) {
+    failures.push(
+      `免除の集合が整列していない（${JSON.stringify(distinctPair.reach.exemptedReferences)}）`
+    );
+  }
+
+  // 陰性: 実在する参照は免除にも集合にも入らない
+  const present = scanInjected([
+    '- 検査の本体は `scripts/check-design-path-references.ts` である',
+    '- `scripts/check-design-path-references.ts` の旧版は削除した',
+  ]);
+  if (present.exemptedCount !== 0 || present.reach.exemptedReferences.length !== 0) {
+    failures.push(
+      `実在する参照が免除の集合に入っている（延べ ${present.exemptedCount} /` +
+        ` distinct ${present.reach.exemptedReferences.length}）`
+    );
+  }
+
+  // 集計側（summariseReach）が集合を落としていないこと。
+  // 併せて、集合が空の文書を辞書へ入れないこと——入れると基準へ空配列の項が並び、
+  // 「延べに件数がある文書には集合が要る」判定の読み手を惑わせる
+  const summary = summariseReach([repeated.reach, distinctPair.reach]);
+  const emptyOnly = summariseReach([present.reach]);
+  if (Object.keys(emptyOnly.exemptedReferencesPerDocument).length !== 0) {
+    failures.push(
+      `集合が空の文書まで集計の辞書へ入っている（${Object.keys(emptyOnly.exemptedReferencesPerDocument).length} 件）`
+    );
+  }
+  if (Object.keys(summary.exemptedReferencesPerDocument).length === 0) {
+    failures.push('集合を持つ文書が集計の辞書に一つも入っていない（陰性対照が立たない）');
+  }
+  if (summary.exemptedDistinctTotal !== 3) {
+    failures.push(`集計の distinct 合計が 3 件でない（${summary.exemptedDistinctTotal}）`);
+  }
+  if (summary.exemptedTotal !== 4) {
+    failures.push(`集計の延べ合計が 4 件でない（${summary.exemptedTotal}）`);
+  }
+
+  // リポジトリ本体で 0 件に落ちていないこと（使い捨ての木だけで自明に通らせない）
+  const real = run();
+  if (real.reach.exemptedDistinctTotal === 0) {
+    failures.push('リポジトリ本体の免除の集合が 0 件（母集団が空で自明に通っている）');
+  }
+  if (real.reach.exemptedDistinctTotal > real.reach.exemptedTotal) {
+    failures.push(
+      `distinct が延べを超えている（${real.reach.exemptedDistinctTotal} > ${real.reach.exemptedTotal}）`
+    );
+  }
+  return failures;
+}
+
+/**
+ * 免除の側の**入れ替え**（1 件が抜け 1 件が入る）を関門が捕まえること（タスク 115.293）。
+ *
+ * 115.241 は面の側だけを集合にしたため、免除の側では延べ件数が動かない入れ替えが素通りしていた。
+ * リポジトリ本体で実証した変異は次のとおり——`.kiro/specs/site-survey/design.md` で
+ * 一度だけ言及されている免除済みの参照を、実在しない別の綴りへ置き換える。延べは 123 件のまま、
+ * distinct の集合だけが 1 件入れ替わる。**この変異は 115.241 の版では EXIT=0 の緑であり、
+ * 本タスクの版では EXIT=1 になる**（2026-09-05 にリポジトリルートで実測）。
+ * ここでは同じ形を使い捨ての木の上で固定し、併せて基準の側から集合を消す経路も塞ぐ。
+ */
+function checkExemptedSetBaselineGate(): string[] {
+  const failures: string[] = [];
+  const fixture = makeReachFixture();
+  const baselinePath = path.join(fixture.root, 'reach-baseline.json');
+  const options = { root: fixture.root, baselinePath };
+  const documentPath = path.join(fixture.root, fixture.document);
+  // 現況の走査には現れない文書。基準の側だけに置くことで、落ちる理由を一つに絞る
+  const GHOST_DOCUMENT = `${SPEC_DIR}/ghost/${DESIGN_DOC_NAME}`;
+  const writeBaselineFile = (payload: unknown): void => {
+    fs.writeFileSync(baselinePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
+  };
+
+  try {
+    // 前提: 免除は延べ 2 件・distinct 1 件（差が 1 件ある木でなければ入れ替えを固定できない）
+    const scanned = run(options);
+    if (scanned.exemptedCount !== 2 || scanned.reach.exemptedDistinctTotal !== 1) {
+      failures.push(
+        `前提が崩れている（延べ ${scanned.exemptedCount} /` +
+          ` distinct ${scanned.reach.exemptedDistinctTotal}）`
+      );
+    }
+
+    const recorded = withCapturedConsole(() =>
+      execute(['--update-baseline', '--allow-increase'], options)
+    );
+    if (recorded.value !== 0) failures.push(`基準を記録できない（exit ${recorded.value}）`);
+    const written = loadReachBaseline(baselinePath);
+    if ((written.exemptedReferences[fixture.document] ?? []).length !== 1) {
+      failures.push('基準が免除の集合を持っていない');
+    }
+    if (written.exemptedDistinctTotal !== 1) {
+      failures.push(`基準の distinct 合計が実測と合わない（${written.exemptedDistinctTotal}）`);
+    }
+    if (written.candidateHistory.length === 0) {
+      failures.push('基準が母数の履歴を持っていない（起点からの薄まりが測れない）');
+    }
+
+    // 対照: 変異を当てなければ合格する
+    const steady = withCapturedConsole(() => execute([], options));
+    if (steady.value !== 0) failures.push(`変異を当てていないのに落ちる（exit ${steady.value}）`);
+    // 要約の開示が実測と基準の対を述べていること（定数への置き換えを捕らえる）。
+    // この木は延べ 2 件・distinct 1 件・差 1 件であり、三値が同時に定数へ落ちることはない。
+    for (const expected of ['延べ 2 件（基準 2 件）', 'distinct 1 件（基準 1 件）', '差 1 件']) {
+      if (!steady.output.includes(expected)) {
+        failures.push(`免除の開示に「${expected}」が出ていない（定数に置き換わっていないか）`);
+      }
+    }
+    // 文書ごとの内訳（--verbose）も延べと distinct の双方を述べること
+    const verbose = withCapturedConsole(() => execute(['--verbose'], options));
+    if (!verbose.output.includes('免除 延べ 2 件・distinct 1 件')) {
+      failures.push('文書ごとの内訳が免除の延べと distinct の対を述べていない');
+    }
+
+    // 変異: 免除の入れ替え。延べ 2 件は動かず、集合だけが 1 件入れ替わる
+    const original = fs.readFileSync(documentPath, 'utf-8');
+    fs.writeFileSync(
+      documentPath,
+      original.split('frontend/src/gone.ts').join('frontend/src/vanished.ts'),
+      'utf-8'
+    );
+    const swappedRun = run(options);
+    if (swappedRun.exemptedCount !== 2) {
+      failures.push(
+        `入れ替えで免除の延べが動いてしまい対照にならない（${swappedRun.exemptedCount}）`
+      );
+    }
+    if (swappedRun.findings.length !== 0) {
+      failures.push(
+        `入れ替えで実在の失格が出てしまい対照にならない（${swappedRun.findings.length}）`
+      );
+    }
+    const swapped = withCapturedConsole(() => execute([], options));
+    if (swapped.value !== 1) {
+      failures.push(`免除の入れ替え（延べは不変）が素通りした（exit ${swapped.value}）`);
+    }
+    if (!swapped.output.includes('frontend/src/vanished.ts')) {
+      failures.push('入れ替えで免除に入った参照を名指しで報告していない');
+    }
+    // 入れ替えは両側を見せなければ運用者が「何が抜けたか」を読めない。
+    // 件数の字面まで固定すると `improvements` 側の分岐を単独で殺せる（115.293 のレビューが実測。
+    // 当該分岐を殺しても是正前は 46/46 緑だった）。
+    if (!swapped.output.includes('[免除の集合] -1 件: frontend/src/gone.ts')) {
+      failures.push('入れ替えで免除から抜けた参照を名指しで報告していない（片側しか見せていない）');
+    }
+    fs.writeFileSync(documentPath, original, 'utf-8');
+    const restored = withCapturedConsole(() => execute([], options));
+    if (restored.value !== 0) failures.push(`復元後も落ちる（exit ${restored.value}）`);
+
+    // 基準から免除の集合だけを消す（延べは残す）と、集合の関門が無言で外れる。拒否すること
+    writeBaselineFile({
+      documents: { [fixture.document]: ['frontend/src/present.ts'] },
+      reachTotal: 1,
+      candidateTotal: 2,
+      entityTotal: 1,
+      exempted: { [fixture.document]: 2 },
+      exemptedTotal: 2,
+      exemptedReferences: {},
+      exemptedDistinctTotal: 0,
+      candidateHistory: [{ recordedAt: '2026-09-05', reachTotal: 1, candidateTotal: 2 }],
+    });
+    const strippedSets = withCapturedConsole(() => execute([], options));
+    if (strippedSets.value !== 1) {
+      failures.push(`免除の集合を消した基準を受け入れた（exit ${strippedSets.value}）`);
+    }
+
+    // 上の case は集合の差分（基準に無い参照が増えた）でも赤くなるため、
+    // 「延べに件数がある文書には集合が要る」という条件そのものは殺していない
+    // （115.241 のレビューが `malformedDocuments` で踏んだのと同じ形。当該条件を外す変異を
+    // 当てると 46/46 緑だった。2026-09-05 にリポジトリルートで実測）。
+    // ここでは**現況に存在しない文書**を使い、落ちる理由を当該条件ただ一つに絞る——
+    // 現況では 0 件なので集合の差分も延べの差分も退行を出さない（出るのは助言だけ）。
+    writeBaselineFile({
+      documents: { [fixture.document]: ['frontend/src/present.ts'] },
+      reachTotal: 1,
+      candidateTotal: 2,
+      entityTotal: 1,
+      exempted: { [fixture.document]: 2, [GHOST_DOCUMENT]: 5 },
+      exemptedTotal: 7,
+      exemptedReferences: { [fixture.document]: ['frontend/src/gone.ts'] },
+      exemptedDistinctTotal: 1,
+      candidateHistory: [{ recordedAt: '2026-09-05', reachTotal: 1, candidateTotal: 2 }],
+    });
+    const setlessTally = withCapturedConsole(() => execute([], options));
+    if (setlessTally.value !== 1) {
+      failures.push(
+        `延べに件数がありながら集合を持たない文書を受け入れた（exit ${setlessTally.value}）`
+      );
+    }
+
+    // 逆向き（distinct が延べを超える）も同じ文書で単独に固定する
+    writeBaselineFile({
+      documents: { [fixture.document]: ['frontend/src/present.ts'] },
+      reachTotal: 1,
+      candidateTotal: 2,
+      entityTotal: 1,
+      exempted: { [fixture.document]: 2, [GHOST_DOCUMENT]: 1 },
+      exemptedTotal: 3,
+      exemptedReferences: {
+        [fixture.document]: ['frontend/src/gone.ts'],
+        [GHOST_DOCUMENT]: ['frontend/src/one.ts', 'frontend/src/two.ts'],
+      },
+      exemptedDistinctTotal: 3,
+      candidateHistory: [{ recordedAt: '2026-09-05', reachTotal: 1, candidateTotal: 2 }],
+    });
+    const distinctExceedsTally = withCapturedConsole(() => execute([], options));
+    if (distinctExceedsTally.value !== 1) {
+      failures.push(
+        `distinct が延べを超える基準を受け入れた（exit ${distinctExceedsTally.value}）`
+      );
+    }
+
+    // distinct の合計を手で書き換えた基準も拒否する
+    writeBaselineFile({
+      documents: { [fixture.document]: ['frontend/src/present.ts'] },
+      reachTotal: 1,
+      candidateTotal: 2,
+      entityTotal: 1,
+      exempted: { [fixture.document]: 2 },
+      exemptedTotal: 2,
+      exemptedReferences: { [fixture.document]: ['frontend/src/gone.ts'] },
+      exemptedDistinctTotal: 99,
+      candidateHistory: [{ recordedAt: '2026-09-05', reachTotal: 1, candidateTotal: 2 }],
+    });
+    const tamperedDistinct = withCapturedConsole(() => execute([], options));
+    if (tamperedDistinct.value !== 1) {
+      failures.push(`distinct の合計が食い違う基準を受け入れた（exit ${tamperedDistinct.value}）`);
+    }
+
+    // 免除の集合として読めない項目を持つ基準も拒否する
+    writeBaselineFile({
+      documents: { [fixture.document]: ['frontend/src/present.ts'] },
+      reachTotal: 1,
+      candidateTotal: 2,
+      entityTotal: 1,
+      exempted: { [fixture.document]: 2 },
+      exemptedTotal: 2,
+      exemptedReferences: { [fixture.document]: 2 },
+      exemptedDistinctTotal: 0,
+      candidateHistory: [{ recordedAt: '2026-09-05', reachTotal: 1, candidateTotal: 2 }],
+    });
+    const unreadableSets = withCapturedConsole(() => execute([], options));
+    if (unreadableSets.value !== 1) {
+      failures.push(`免除の集合として読めない基準を受け入れた（exit ${unreadableSets.value}）`);
+    }
+    if (!unreadableSets.output.includes('免除の集合として読めない項目')) {
+      failures.push('読めない免除の集合を名指しで報告していない');
+    }
+
+    // 上の case は「延べに件数があるのに集合が無い」条件でも赤くなるため、
+    // 読めない項目そのものを拒む条件は殺していない（当該条件を外す変異で 46/46 緑。
+    // 2026-09-05 にリポジトリルートで実測）。読める鍵を正しく残し、
+    // 現況に存在しない文書の側だけを読めない値にして、落ちる理由を一つに絞る。
+    writeBaselineFile({
+      documents: { [fixture.document]: ['frontend/src/present.ts'] },
+      reachTotal: 1,
+      candidateTotal: 2,
+      entityTotal: 1,
+      exempted: { [fixture.document]: 2 },
+      exemptedTotal: 2,
+      exemptedReferences: { [fixture.document]: ['frontend/src/gone.ts'], [GHOST_DOCUMENT]: 999 },
+      exemptedDistinctTotal: 1,
+      candidateHistory: [{ recordedAt: '2026-09-05', reachTotal: 1, candidateTotal: 2 }],
+    });
+    const loadedMixedExemption = loadReachBaseline(baselinePath);
+    if (loadedMixedExemption.malformedExemptedReferences.length !== 1) {
+      failures.push(
+        `前提が崩れている: 読めない免除の鍵が 1 件でない（${loadedMixedExemption.malformedExemptedReferences.length}）`
+      );
+    }
+    if ((loadedMixedExemption.exemptedReferences[fixture.document] ?? []).length !== 1) {
+      failures.push('前提が崩れている: 読める鍵まで落ちている（落ちる理由が一つに絞れない）');
+    }
+    const mixedExemption = withCapturedConsole(() => execute([], options));
+    if (mixedExemption.value !== 1) {
+      failures.push(
+        `総数は自己整合するが読めない免除の鍵を持つ基準を受け入れた（exit ${mixedExemption.value}）`
+      );
+    }
+    if (!mixedExemption.output.includes(GHOST_DOCUMENT)) {
+      failures.push('読めない免除の鍵を名指しで報告していない');
+    }
+
+    // 母数の履歴を空にした基準は拒否する（起点からの薄まりを消す経路）
+    writeBaselineFile({
+      documents: { [fixture.document]: ['frontend/src/present.ts'] },
+      reachTotal: 1,
+      candidateTotal: 2,
+      entityTotal: 1,
+      exempted: { [fixture.document]: 2 },
+      exemptedTotal: 2,
+      exemptedReferences: { [fixture.document]: ['frontend/src/gone.ts'] },
+      exemptedDistinctTotal: 1,
+      candidateHistory: [],
+    });
+    const emptiedHistory = withCapturedConsole(() => execute([], options));
+    if (emptiedHistory.value !== 1) {
+      failures.push(`母数の履歴が空の基準を受け入れた（exit ${emptiedHistory.value}）`);
+    }
+
+    // 履歴の末尾を書き換えた基準も拒否する（末尾は reachTotal / candidateTotal と一致する）
+    writeBaselineFile({
+      documents: { [fixture.document]: ['frontend/src/present.ts'] },
+      reachTotal: 1,
+      candidateTotal: 2,
+      entityTotal: 1,
+      exempted: { [fixture.document]: 2 },
+      exemptedTotal: 2,
+      exemptedReferences: { [fixture.document]: ['frontend/src/gone.ts'] },
+      exemptedDistinctTotal: 1,
+      candidateHistory: [{ recordedAt: '2026-09-05', reachTotal: 1, candidateTotal: 777 }],
+    });
+    const tamperedHistory = withCapturedConsole(() => execute([], options));
+    if (tamperedHistory.value !== 1) {
+      failures.push(`履歴の末尾が食い違う基準を受け入れた（exit ${tamperedHistory.value}）`);
+    }
+
+    // 免除の集合は「distinct・整列済み」と型が宣言している。書き出しの整列に対照を置く
+    // （115.293 のレビューが実測: `sort()` を `reverse()` にしても是正前は 46/46 緑だった）。
+    // 走査の側は既に整列して返すため、整列されていない入力を直に渡して書き出しだけを見る。
+    // **要素は三つ要る。** 二要素では逆順と整列の結果が一致してしまい、整列を逆順へ
+    // 差し替える変異を殺せない（本タスクの是正の途中で実測。二要素の対照では 47/47 緑だった）。
+    const sortProbePath = path.join(fixture.root, 'sort-probe-baseline.json');
+    const expectedOrder = ['frontend/src/alpha.ts', 'frontend/src/mid.ts', 'frontend/src/zeta.ts'];
+    const unsortedReach: ExemptionReach = {
+      perDocument: {},
+      total: 0,
+      candidateTotal: 0,
+      entityTotal: 0,
+      ambiguousBareNames: [],
+      exemptedPerDocument: { [fixture.document]: 3, [GHOST_DOCUMENT]: 1 },
+      exemptedTotal: 4,
+      exemptedReferencesPerDocument: {
+        [fixture.document]: [
+          'frontend/src/mid.ts',
+          'frontend/src/alpha.ts',
+          'frontend/src/zeta.ts',
+        ],
+        [GHOST_DOCUMENT]: ['frontend/src/only.ts'],
+      },
+      exemptedDistinctTotal: 4,
+      documents: [],
+    };
+    writeReachBaseline(sortProbePath, unsortedReach);
+    const sortProbe = loadReachBaseline(sortProbePath).exemptedReferences[fixture.document] ?? [];
+    if (sortProbe.join('|') !== expectedOrder.join('|')) {
+      failures.push(
+        `免除の集合が整列して書き出されていない（${JSON.stringify(sortProbe)}）。` +
+          '型は「distinct・整列済み」と宣言している'
+      );
+    }
+    // 文書の鍵も整列して書き出すこと（差分の読みやすさは基準の運用の前提である）。
+    // GHOST_DOCUMENT は `.kiro/specs/ghost/` であり、`.kiro/specs/sample/` より前に並ぶ
+    const sortProbeText = fs.readFileSync(sortProbePath, 'utf-8');
+    const exemptedSection = sortProbeText.slice(sortProbeText.indexOf('"exemptedReferences"'));
+    if (exemptedSection.indexOf(GHOST_DOCUMENT) > exemptedSection.indexOf(fixture.document)) {
+      failures.push('基準の免除の集合の鍵が整列して書き出されていない');
+    }
+
+    // 履歴は**追記のみ**である（書き出しが前回の履歴を捨てていないこと）
+    writeBaselineFile({
+      documents: { [fixture.document]: ['frontend/src/present.ts'] },
+      reachTotal: 1,
+      candidateTotal: 2,
+      entityTotal: 1,
+      exempted: { [fixture.document]: 2 },
+      exemptedTotal: 2,
+      exemptedReferences: { [fixture.document]: ['frontend/src/gone.ts'] },
+      exemptedDistinctTotal: 1,
+      candidateHistory: [{ recordedAt: '2026-01-01', reachTotal: 9, candidateTotal: 900 }],
+    });
+    const appended = withCapturedConsole(() =>
+      execute(['--update-baseline', '--allow-increase'], options)
+    );
+    if (appended.value !== 0) failures.push(`追記の更新ができない（exit ${appended.value}）`);
+    const afterAppend = loadReachBaseline(baselinePath);
+    if (afterAppend.candidateHistory.length !== 2) {
+      failures.push(
+        `履歴が追記されていない（${afterAppend.candidateHistory.length} 件）。前回の履歴を捨てている`
+      );
+    }
+    if (afterAppend.candidateHistory[0]?.candidateTotal !== 900) {
+      failures.push('履歴の起点が書き換わっている（追記のみでない）');
+    }
+    // 値が同じなら重ねて追記しない（更新のたびに膨らませない）
+    const reAppended = withCapturedConsole(() =>
+      execute(['--update-baseline', '--allow-increase'], options)
+    );
+    if (reAppended.value !== 0) failures.push(`二度目の更新ができない（exit ${reAppended.value}）`);
+    if (loadReachBaseline(baselinePath).candidateHistory.length !== 2) {
+      failures.push('同じ値でも履歴が重ねて追記されている');
     }
   } finally {
     fs.rmSync(fixture.root, { recursive: true, force: true });
@@ -1161,6 +1618,9 @@ function checkReachBaselineGate(): string[] {
       entityTotal: 3,
       exempted: { [fixture.document]: 2 },
       exemptedTotal: 2,
+      exemptedReferences: { [fixture.document]: ['frontend/src/gone.ts'] },
+      exemptedDistinctTotal: 1,
+      candidateHistory: [{ recordedAt: '2026-09-05', reachTotal: 3, candidateTotal: 2 }],
     });
     const shrunk = withCapturedConsole(() => execute([], options));
     if (shrunk.value !== 0) failures.push(`面が狭まったときに落ちる（exit ${shrunk.value}）`);
@@ -1176,6 +1636,9 @@ function checkReachBaselineGate(): string[] {
       entityTotal: 1,
       exempted: { [fixture.document]: 2 },
       exemptedTotal: 2,
+      exemptedReferences: { [fixture.document]: ['frontend/src/gone.ts'] },
+      exemptedDistinctTotal: 1,
+      candidateHistory: [{ recordedAt: '2026-09-05', reachTotal: 99, candidateTotal: 2 }],
     });
     const tampered = withCapturedConsole(() => execute([], options));
     if (tampered.value !== 1) {
@@ -1190,6 +1653,9 @@ function checkReachBaselineGate(): string[] {
       entityTotal: 99,
       exempted: { [fixture.document]: 2 },
       exemptedTotal: 2,
+      exemptedReferences: { [fixture.document]: ['frontend/src/gone.ts'] },
+      exemptedDistinctTotal: 1,
+      candidateHistory: [{ recordedAt: '2026-09-05', reachTotal: 1, candidateTotal: 2 }],
     });
     const tamperedEntities = withCapturedConsole(() => execute([], options));
     if (tamperedEntities.value !== 1) {
@@ -1204,6 +1670,9 @@ function checkReachBaselineGate(): string[] {
       entityTotal: 1,
       exempted: { [fixture.document]: 2 },
       exemptedTotal: 2,
+      exemptedReferences: { [fixture.document]: ['frontend/src/gone.ts'] },
+      exemptedDistinctTotal: 1,
+      candidateHistory: [{ recordedAt: '2026-09-05', reachTotal: 1, candidateTotal: 2 }],
     });
     const legacyShape = withCapturedConsole(() => execute([], options));
     if (legacyShape.value !== 1) {
@@ -1231,6 +1700,9 @@ function checkReachBaselineGate(): string[] {
       entityTotal: 1,
       exempted: { [fixture.document]: 2 },
       exemptedTotal: 2,
+      exemptedReferences: { [fixture.document]: ['frontend/src/gone.ts'] },
+      exemptedDistinctTotal: 1,
+      candidateHistory: [{ recordedAt: '2026-09-05', reachTotal: 1, candidateTotal: 2 }],
     });
     const loadedMixed = loadReachBaseline(baselinePath);
     if (loadedMixed.malformedDocuments.length !== 1) {
@@ -1264,7 +1736,11 @@ function checkReachBaselineGate(): string[] {
           entityTotal: 1,
           exempted: { [fixture.document]: 2 },
           exemptedTotal: 2,
+          exemptedReferences: { [fixture.document]: ['frontend/src/gone.ts'] },
+          exemptedDistinctTotal: 1,
+          candidateHistory: [{ recordedAt: '2026-09-05', reachTotal: 1, candidateTotal: 2 }],
           malformedDocuments: [],
+          malformedExemptedReferences: [],
         },
         summariseReach([firstDocument])
       );
@@ -1294,6 +1770,11 @@ function checkReachBaselineGate(): string[] {
  * 本対照を置いたうえで同じ二つの変異を当て直すと、母数・比の差し替えは 3 件の失敗で
  * 1/39 件が赤、別表記の定数化は 1 件の失敗で 1/39 件が赤になる
  *（いずれも 2026-09-02 にリポジトリルートで実測）。
+ *
+ * **タスク 115.293 が母数の履歴を足した。** 115.241 の信号は基準記録時の一点だけを述べるため、
+ * 見える薄まりは前回の更新からの差に限られていた。ここでは履歴を**二点**持つ基準を書き出し、
+ * 開示が `candidateHistory[0]`（起点）を述べていることを固定する。起点を末尾へ差し替える変異
+ * （見える差が再び前回の更新からの分だけになる変異）はこの対照で赤くなる。
  */
 function checkReachDisclosureQuotesTheBaseline(): string[] {
   const failures: string[] = [];
@@ -1326,8 +1807,11 @@ function checkReachDisclosureQuotesTheBaseline(): string[] {
       failures.push(`前提が崩れている: 候補が 2 件でない（${scanned.reach.candidateTotal}）`);
     }
 
-    // 基準の母数だけを現況（2 件）と異なる値で書き出す。母数は合否に用いないため合格するはず
+    // 基準の母数だけを現況（2 件）と異なる値で書き出す。母数は合否に用いないため合格するはず。
+    // 履歴は二点持たせる——起点（面 2 / 母数 100）と末尾（面 2 / 母数 999）。
+    // 末尾は reachTotal / candidateTotal と一致していなければ照合の前に拒否される（タスク 115.293）。
     const baselineCandidateTotal = 999;
+    const originCandidateTotal = 100;
     fs.writeFileSync(
       baselinePath,
       `${JSON.stringify(
@@ -1338,6 +1822,12 @@ function checkReachDisclosureQuotesTheBaseline(): string[] {
           entityTotal: 1,
           exempted: {},
           exemptedTotal: 0,
+          exemptedReferences: {},
+          exemptedDistinctTotal: 0,
+          candidateHistory: [
+            { recordedAt: '2026-08-01', reachTotal: 2, candidateTotal: originCandidateTotal },
+            { recordedAt: '2026-09-05', reachTotal: 2, candidateTotal: baselineCandidateTotal },
+          ],
         },
         null,
         2
@@ -1363,6 +1853,297 @@ function checkReachDisclosureQuotesTheBaseline(): string[] {
     // (1) と対になる別表記の件数（面 2 − 実体 1 = 1）
     if (!disclosed.output.includes('実体のファイルは 1 件で、残る 1 件は')) {
       failures.push('別表記の件数が実測と合わない（定数に置き換わっていないか）');
+    }
+    // 115.293: 開示は履歴の**起点**（先頭）から述べていること。末尾だけでは
+    // 見える薄まりが前回の更新からの差に戻る。
+    if (!disclosed.output.includes(`起点（2026-08-01）からの薄まり`)) {
+      failures.push('開示が母数の履歴の起点を述べていない（薄まりが前回の更新からの差に戻る）');
+    }
+    if (
+      !disclosed.output.includes(
+        `母数は ${originCandidateTotal} 件から ${scanned.reach.candidateTotal} 件へ`
+      )
+    ) {
+      failures.push('起点からの母数の動きが履歴の先頭と現況から導かれていない');
+    }
+    // 途中の点も落とさずに並べていること（履歴を末尾一点へ畳む変異を捕まえる）
+    if (!disclosed.output.includes(`2026-09-05 面 2/母数 ${baselineCandidateTotal}`)) {
+      failures.push('母数の推移が履歴の各点を並べていない');
+    }
+    if (!disclosed.output.includes(`2026-08-01 面 2/母数 ${originCandidateTotal}`)) {
+      failures.push('母数の推移が履歴の起点を並べていない');
+    }
+    // 薄まりの実額そのもの。定数へ置き換えても、起点の母数から導いても赤くなる
+    // （115.293 のレビュー後の走査で、いずれも是正前は 48/48 緑だった）。
+    const drift = scanned.reach.candidateTotal - originCandidateTotal;
+    if (!disclosed.output.includes(`${scanned.reach.candidateTotal} 件へ ${drift} 件動き`)) {
+      failures.push('起点からの母数の動きが実測から導かれていない（定数に置き換わっていないか）');
+    }
+    // 起点の面を**今の母数**に置いた比であること。起点の母数で割ると薄まりが消える
+    const dilutedRatio = `${((2 / scanned.reach.candidateTotal) * 100).toFixed(1)}%`;
+    const originRatio = `${((2 / originCandidateTotal) * 100).toFixed(1)}%`;
+    if (dilutedRatio === originRatio) {
+      failures.push('前提が崩れている: 薄まった比と起点の比が同値で、取り違えを固定できない');
+    }
+    if (!disclosed.output.includes(`比は ${dilutedRatio} である（起点の比は ${originRatio}）`)) {
+      failures.push('起点の面を今の母数へ置いた比が出ていない（薄まりの信号が消えている）');
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  return failures;
+}
+
+/**
+ * 免除の開示が「基準の値」と「現況の値」を取り違えず、定数でもないこと（タスク 115.293 のレビュー）。
+ *
+ * 115.241 は面の側について {@link checkReachDisclosureQuotesTheBaseline} を置いた。
+ * **115.293 が足した免除の開示には同型の対照が無く、レビューが二つの穴を実測した**——
+ * `いま免除している件数: 延べ … / distinct …` の distinct を定数 `0` へ置き換えても、
+ * `差 …` を定数 `0` へ置き換えても、自己検査は 46/46 緑・EXIT=0 のままだった。
+ * すなわち関門は偽の件数を印字しながら合格を出せた。**判断の根拠そのものである差の件数が
+ * 腐っても誰も気付かない。** `scripts/design-measurements.json` の宣言は基準の JSON を読むため、
+ * 印字の側の陳腐化は捕らえない。
+ *
+ * ここでは**五つの値がすべて相異なる**木を用いる——現況は延べ 3 件・distinct 1 件・差 2 件、
+ * 基準は延べ 5 件・distinct 4 件である。どれか一つを定数にしても、現況と基準を取り違えても、
+ * 差を別の値から導いても赤くなる。免除が基準より狭まる向きなので合否は緑のままであり、
+ * **開示だけを見る対照になる**。
+ */
+function checkExemptedDisclosureQuotesTheBaseline(): string[] {
+  const failures: string[] = [];
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'design-path-refs-exempt-disclosure-'));
+  const document = `${SPEC_DIR}/sample/${DESIGN_DOC_NAME}`;
+  const baselinePath = path.join(root, 'reach-baseline.json');
+  const options = { root, baselinePath };
+  try {
+    fs.mkdirSync(path.join(root, 'frontend', 'src'), { recursive: true });
+    fs.mkdirSync(path.join(root, SPEC_DIR, 'sample'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, document),
+      [
+        '# Sample',
+        '- 閲覧は `frontend/src/gone.ts` が担っていた',
+        '- `frontend/src/gone.ts` は撤去済み',
+        '- 続きも `frontend/src/gone.ts` が受け持っていた',
+        '',
+      ].join('\n')
+    );
+
+    // 前提: 免除は延べ 3 件・distinct 1 件・差 2 件。実在の失格は 0 件
+    const scanned = run(options);
+    if (scanned.exemptedCount !== 3 || scanned.reach.exemptedDistinctTotal !== 1) {
+      failures.push(
+        `前提が崩れている（延べ ${scanned.exemptedCount} /` +
+          ` distinct ${scanned.reach.exemptedDistinctTotal}）`
+      );
+    }
+    if (scanned.findings.length !== 0) {
+      failures.push(`前提が崩れている: 失格が 0 件でない（${scanned.findings.length}）`);
+    }
+
+    // 基準は現況より広い（延べ 5 件・distinct 4 件）。狭まる向きなので合否は緑のはず。
+    // 現況の集合は基準の部分集合であること——増える側が一件でもあれば赤くなり対照にならない。
+    const baselineExemptedTotal = 5;
+    const baselineExemptedDistinctTotal = 4;
+    const baselineCandidateTotal = 42;
+    fs.writeFileSync(
+      baselinePath,
+      `${JSON.stringify(
+        {
+          documents: {},
+          reachTotal: 0,
+          candidateTotal: baselineCandidateTotal,
+          entityTotal: 0,
+          exempted: { [document]: baselineExemptedTotal },
+          exemptedTotal: baselineExemptedTotal,
+          exemptedReferences: {
+            [document]: [
+              'frontend/src/alpha.ts',
+              'frontend/src/beta.ts',
+              'frontend/src/gamma.ts',
+              'frontend/src/gone.ts',
+            ],
+          },
+          exemptedDistinctTotal: baselineExemptedDistinctTotal,
+          candidateHistory: [
+            { recordedAt: '2026-09-05', reachTotal: 0, candidateTotal: baselineCandidateTotal },
+          ],
+        },
+        null,
+        2
+      )}\n`,
+      'utf-8'
+    );
+
+    const disclosed = withCapturedConsole(() => execute([], options));
+    if (disclosed.value !== 0) {
+      failures.push(
+        `免除が狭まっただけで落ちた（exit ${disclosed.value}）。狭まる向きは助言のみである`
+      );
+    }
+    // 現況の延べ・現況の distinct・基準の延べ・基準の distinct・差の五値をそれぞれ固定する
+    if (
+      !disclosed.output.includes(
+        `延べ ${scanned.exemptedCount} 件（基準 ${baselineExemptedTotal} 件）`
+      )
+    ) {
+      failures.push(
+        '免除の延べの開示が実測と基準の対で述べられていない（定数に置き換わっていないか）'
+      );
+    }
+    if (
+      !disclosed.output.includes(
+        `distinct ${scanned.reach.exemptedDistinctTotal} 件（基準 ${baselineExemptedDistinctTotal} 件）`
+      )
+    ) {
+      failures.push(
+        '免除の distinct の開示が実測と基準の対で述べられていない（定数に置き換わっていないか）'
+      );
+    }
+    const gap = scanned.exemptedCount - scanned.reach.exemptedDistinctTotal;
+    if (!disclosed.output.includes(`差 ${gap} 件`)) {
+      failures.push(
+        `延べと distinct の差 ${gap} 件が開示されていない（判断の根拠そのものが腐っても気付けない）`
+      );
+    }
+    // 現況と基準を取り違えていないこと（五値がすべて相異なるので取り違えは字面に出る）
+    if (
+      disclosed.output.includes(
+        `延べ ${baselineExemptedTotal} 件（基準 ${scanned.exemptedCount} 件）`
+      )
+    ) {
+      failures.push('免除の延べの開示が現況と基準を取り違えている');
+    }
+    if (
+      disclosed.output.includes(
+        `distinct ${baselineExemptedDistinctTotal} 件（基準 ${scanned.reach.exemptedDistinctTotal} 件）`
+      )
+    ) {
+      failures.push('免除の distinct の開示が現況と基準を取り違えている');
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  return failures;
+}
+
+/**
+ * 基準の読み取りが壊れた形を黙って受け入れないこと（タスク 115.293 のレビュー）。
+ *
+ * `loadReachBaseline` の型ガードは、いずれも**終了コードでは殺せない**——壊れた値を
+ * 受け入れた場合も別の条件が赤を出すため、`execute` の返り値だけを見る対照では
+ * 変異が素通りする。**ここは読み取りの結果そのものを直に見る。**
+ *
+ * 併せて「基準が空のときは手書き換えとみなさない」ことも直に固定する。この判定を
+ * 常に真へ倒す変異は**関門を厳しくする向き**であり終了コードは動かないが、
+ * 出す診断が「面が広がった」から「基準が自己整合しない」へすり替わる。
+ */
+function checkBaselineParsingRejectsMalformedShapes(): string[] {
+  const failures: string[] = [];
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'design-path-refs-parse-'));
+  const write = (name: string, payload: unknown): string => {
+    const target = path.join(root, name);
+    fs.writeFileSync(target, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
+    return target;
+  };
+  try {
+    // (1) 配列ではあるが要素が文字列でない集合は「読めた」ことにしない。
+    // 面の側と免除の側の双方が同じ型ガードを通る。
+    const nonStrings = loadReachBaseline(
+      write('non-strings.json', {
+        documents: { 'a/design.md': [1, 2] },
+        exemptedReferences: { 'b/design.md': [999] },
+      })
+    );
+    if (nonStrings.malformedDocuments.length !== 1) {
+      failures.push(
+        `文字列でない要素を持つ面の集合を受け入れた（malformedDocuments ${nonStrings.malformedDocuments.length} 件）`
+      );
+    }
+    if (nonStrings.malformedExemptedReferences.length !== 1) {
+      failures.push(
+        `文字列でない要素を持つ免除の集合を受け入れた（malformedExemptedReferences ${nonStrings.malformedExemptedReferences.length} 件）`
+      );
+    }
+    if (Object.keys(nonStrings.exemptedReferences).length !== 0) {
+      failures.push('読めない免除の集合が、読めたものとして残っている');
+    }
+
+    // (2) 対照: 文字列の配列は読める（(1) が常に malformed で自明に通っていない）
+    const readable = loadReachBaseline(
+      write('readable.json', {
+        documents: { 'a/design.md': ['x.ts'] },
+        exemptedReferences: { 'b/design.md': ['y.ts'] },
+      })
+    );
+    if (
+      readable.malformedDocuments.length !== 0 ||
+      readable.malformedExemptedReferences.length !== 0
+    ) {
+      failures.push('文字列の配列まで読めないものとして落としている（陰性対照が立たない）');
+    }
+    if ((readable.exemptedReferences['b/design.md'] ?? []).length !== 1) {
+      failures.push('読めるはずの免除の集合が落ちている');
+    }
+
+    // (3) 履歴の各欄の型ガード。日付が文字列でない項・件数が数でない項は落とすこと。
+    // 落とさなければ、開示の起点が壊れた値のまま印字される。
+    const badRecordedAt = loadReachBaseline(
+      write('bad-recorded-at.json', {
+        candidateHistory: [{ recordedAt: 5, reachTotal: 1, candidateTotal: 2 }],
+      })
+    );
+    if (badRecordedAt.candidateHistory.length !== 0) {
+      failures.push('履歴の日付が文字列でない項を受け入れた');
+    }
+    const badTotals = loadReachBaseline(
+      write('bad-totals.json', {
+        candidateHistory: [{ recordedAt: '2026-09-05', reachTotal: 'いち', candidateTotal: 2 }],
+      })
+    );
+    if (badTotals.candidateHistory.length !== 0) {
+      failures.push('履歴の件数が数でない項を受け入れた');
+    }
+    // 履歴そのものが配列でない形も、例外ではなく「履歴なし」として扱うこと
+    const notAnArray = loadReachBaseline(
+      write('history-not-an-array.json', { candidateHistory: { recordedAt: '2026-09-05' } })
+    );
+    if (notAnArray.candidateHistory.length !== 0) {
+      failures.push('配列でない履歴を受け入れた');
+    }
+    // 対照: 整った項は残る（(3) が常に空で自明に通っていない）
+    const goodHistory = loadReachBaseline(
+      write('good-history.json', {
+        candidateHistory: [{ recordedAt: '2026-09-05', reachTotal: 1, candidateTotal: 2 }],
+      })
+    );
+    if (goodHistory.candidateHistory.length !== 1) {
+      failures.push('整った履歴の項まで落としている（陰性対照が立たない）');
+    }
+
+    // (4) 空の基準は手書き換えとみなさない。面が広がった旨の診断を出させるためである。
+    const emptyBaseline = loadReachBaseline(write('empty.json', {}));
+    const emptyComparison = compareReach(emptyBaseline, summariseReach([]));
+    if (emptyComparison.inconsistent) {
+      failures.push('空の基準を手書き換えと判定している（面が広がった旨の診断がすり替わる）');
+    }
+
+    // (5) 履歴が無い基準では、その旨を断ること。黙って何も出さないと
+    // 「起点からの薄まりが読める」という本検査の主張が静かに空になる。
+    fs.mkdirSync(path.join(root, SPEC_DIR, 'sample'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, SPEC_DIR, 'sample', DESIGN_DOC_NAME),
+      '# Sample\n- 特記なし\n'
+    );
+    const noHistory = withCapturedConsole(() =>
+      execute([], { root, baselinePath: path.join(root, 'empty.json') })
+    );
+    if (noHistory.value !== 0) {
+      failures.push(`空の基準と空の文書で落ちた（exit ${noHistory.value}）`);
+    }
+    if (!noHistory.output.includes('基準に履歴がない')) {
+      failures.push('履歴が無い基準でその旨を断っていない（薄まりが測れないことが読めない）');
     }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -1823,6 +2604,16 @@ const STRUCTURAL: Case[] = [
     custom: checkExemptedBaselineGate,
   },
   {
+    name: '免除が延べ件数と distinct の集合の両方で測られている',
+    expected: false,
+    custom: checkExemptedSetIsMeasured,
+  },
+  {
+    name: '免除の入れ替え（延べは不変）を関門が捕まえ、集合と履歴の手書き換えを拒む',
+    expected: false,
+    custom: checkExemptedSetBaselineGate,
+  },
+  {
     name: '実体のファイル数が面の件数とは別に測られている',
     expected: false,
     custom: checkEntityCountIsMeasured,
@@ -1841,6 +2632,16 @@ const STRUCTURAL: Case[] = [
     name: '開示が基準記録時の母数・比と別表記の件数を述べている（現況や定数ではない）',
     expected: false,
     custom: checkReachDisclosureQuotesTheBaseline,
+  },
+  {
+    name: '免除の開示が実測と基準の対を述べている（現況の取り違えや定数ではない）',
+    expected: false,
+    custom: checkExemptedDisclosureQuotesTheBaseline,
+  },
+  {
+    name: '基準の読み取りが壊れた形を黙って受け入れない（集合の要素・履歴の各欄・空の基準）',
+    expected: false,
+    custom: checkBaselineParsingRejectsMalformedShapes,
   },
   {
     name: '本体を起動して、開示される面の件数と基準が実測と一致する',
