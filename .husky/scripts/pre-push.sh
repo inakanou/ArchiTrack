@@ -756,6 +756,44 @@ echo "✅ Requirement coverage check passed"
 echo ""
 
 # ============================================================================
+# 受入基準が名指す逐語の実在チェック（タスク 115.292）
+# ============================================================================
+# 被覆を数える関門は「番号を名乗る検証が在るか」までしか見ない。名乗った検証が条文と
+# 反対のことを確かめていても被覆と数えられる（タスク 115.240 が他スペックの実測で露出させ、
+# 115.292 の起票時に親が変異で実証した。押下前の関門 17 本すべてが基線と同じ終了コード）。
+# - 機械で判定できる一形だけを関門化する: 条文が「」『』"" で名指す 3 文字以上の逐語が
+#   backend/src と frontend/src に一度も現れない組
+# - 赤の解除条件は二択（是正するか、裁定台帳へ理由と代替の根拠を書いて登録するか）
+# - 台帳の件数はラチェット（LEDGER_ENTRY_LIMIT との完全一致）で固定する
+# - 逐語を持たない条文と、主張の中身と条文の食い違い一般は本検査の外である
+# ============================================================================
+
+echo "🔍 Checking criterion literal detector self-test..."
+npm run check:criterion-literals:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Criterion literal detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:criterion-literals:selftest"
+  exit 1
+fi
+npm run check:criterion-literals
+if [ $? -ne 0 ]; then
+  echo "❌ Criterion literal presence check failed. Push aborted."
+  echo ""
+  echo "対応方法（赤の解除条件は二択です）:"
+  echo "  1. 是正する——実装へ逐語を入れるか、条文を実装の綴りへ揃えてください"
+  echo "  2. 台帳へ登録する——scripts/criterion-literal-adjudication.json へ"
+  echo "     理由（なぜ逐語が実装に無いのか）と代替の根拠（何が受入基準を支えているか）を書き、"
+  echo "     scripts/check-criterion-literal-presence.ts の LEDGER_ENTRY_LIMIT を同時に更新してください"
+  echo ""
+  echo "詳細確認: npm run check:criterion-literals:verbose"
+  exit 1
+fi
+
+echo "✅ Criterion literal presence check passed"
+echo ""
+
+# ============================================================================
 # E2E検証無効化チェック（E2Eテスト実行の前提条件）
 # ============================================================================
 # 書かれてはいるが実質的に何も検証しないE2Eテスト構造の再発を検知する

@@ -1,0 +1,347 @@
+{
+  "$comment": [
+    "受入基準が鉤括弧で名指す逐語が backend/src と frontend/src に一度も現れない組の裁定台帳（タスク 115.292）。",
+    "判定・限界・ラチェットの説明はすべて scripts/check-criterion-literal-presence.ts の注釈にある。",
+    "一件の裁定は「なぜ逐語が実装に無いのか（reason）」と「逐語一致の代わりに何が受入基準を支えているか（alternativeBasis）」の対で書く。",
+    "unverified が真の項目は支えが無い。件数は疑いの数ではなく、一件ずつ条文と実装を読んで下した裁定の数である。"
+  ],
+  "categories": {
+    "format-description": "逐語が画面へ出る文字列ではなく、階層の並び・列の構成・計算式・操作の総称といった書式の記述である。逐語の抽出が過剰であり、実装に綴りが無いことは欠陥ではない。",
+    "wording-drift": "同じ役目の文字列が実装に在るが、条文と実装で言い回しが違う。どちらを動かすかは別の判断であり、規範そのものは満たされている。",
+    "implementation-divergence": "実装に逐語も近似形も無く、条文が求める規範を支えるものが見当たらない。是正が要る。unverified を真にする。"
+  },
+  "entries": [
+    {
+      "id": "company-info/REQ-5.5",
+      "literal": "ダッシュボード > 自社情報",
+      "criterionText": "The 自社情報管理サービス shall 自社情報ページに「ダッシュボード > 自社情報」のパンくずナビゲーションを表示する",
+      "category": "format-description",
+      "reason": "この逐語は区切り記号「>」で階層の並びを述べた書式の記述であり、画面へ出る一つの文字列ではない。実装はパンくずを項目の配列で持ち、区切りは描画側が入れるため、条文の綴りがそのまま実装に現れることはない。逐語の抽出が過剰である。",
+      "alternativeBasis": "パンくずの項目は CompanyInfoPage.tsx の BREADCRUMB_ITEMS がダッシュボードと自社情報の二段で宣言し、区切りの描画は共通の Breadcrumb が担う。並びの正しさは項目の配列を読めば確かめられる。",
+      "evidence": [
+        "frontend/src/pages/CompanyInfoPage.tsx",
+        "frontend/src/components/common/Breadcrumb.tsx"
+      ],
+      "unverified": false
+    },
+    {
+      "id": "contract-management/REQ-4.3",
+      "literal": "請負代金額 - 工事価格",
+      "criterionText": "When ユーザーが見積書を選択した場合, the 契約書管理システム shall 取引に係る消費税及び地方消費税の額として「請負代金額 - 工事価格」の金額を自動計算して表示する",
+      "category": "format-description",
+      "reason": "この逐語は「請負代金額から工事価格を引く」という計算式を人が読む形で述べたものであり、画面へ出る文字列ではない。実装は同じ関係を加減算の式として持つため、条文の綴りが実装に現れることはない。逐語の抽出が過剰である。",
+      "alternativeBasis": "ContractForm.tsx は工事価格と税率から税額を求め、請負代金額を工事価格と税額の和として算出する。条文が述べる差は同じ式の移項であり、算出の結線はこのコンポーネントを読めば確かめられる。",
+      "evidence": [
+        "frontend/src/components/contract/ContractForm.tsx"
+      ],
+      "unverified": false
+    },
+    {
+      "id": "estimate-request/REQ-2.7",
+      "literal": "見積依頼がありません",
+      "criterionText": "If 見積依頼が存在しない場合, then the システム shall 「見積依頼がありません」というメッセージを表示する",
+      "category": "wording-drift",
+      "reason": "空状態のメッセージは実装されているが、条文の綴りと実装の綴りが食い違う。実装側の註釈は同じ画面について要件 2.2 を引いており、要件定義書の側が実装より古い言い回しを残している。",
+      "alternativeBasis": "実装は EstimateRequestListPage.tsx の EmptyState が「見積依頼はまだありません」を描く。条文が求める「見積依頼が存在しないときにメッセージを出す」規範そのものは満たされている。",
+      "evidence": [
+        "frontend/src/pages/EstimateRequestListPage.tsx"
+      ],
+      "unverified": false
+    },
+    {
+      "id": "estimate-request/REQ-6.9",
+      "literal": "添付内訳書の通り",
+      "criterionText": "While 「内訳書を本文に含める」がチェックされていないとき, the システム shall 本文の【内容】セクションに「添付内訳書の通り」と表示する",
+      "category": "implementation-divergence",
+      "reason": "実装は本文に【内容】というセクションを持たず、内訳書を本文に含めない場合は見積対象項目のセクションを丸ごと省略する。条文が求める代替の文言は一度も出力されない。近似形も無い。",
+      "alternativeBasis": "支えは無い。estimate-request-text.service.ts の本文生成は内訳書を含める場合だけ項目のセクションを積み、含めない場合は何も積まない。是正には本文生成側か条文側のどちらかを動かす別タスクが要る。",
+      "evidence": [
+        "backend/src/services/estimate-request-text.service.ts"
+      ],
+      "unverified": true
+    },
+    {
+      "id": "estimate-request/REQ-29.1",
+      "literal": "ダッシュボード > プロジェクト一覧 > プロジェクト > 見積依頼一覧",
+      "criterionText": "The システム shall 見積依頼一覧画面のパンくずナビゲーションを「ダッシュボード > プロジェクト一覧 > プロジェクト > 見積依頼一覧」の階層構造で表示する",
+      "category": "format-description",
+      "reason": "この逐語は区切り記号で階層の並びを述べた書式の記述であり、画面へ出る一つの文字列ではない。実装はパンくずを項目の配列で持つため、条文の綴りがそのまま現れることはない。逐語の抽出が過剰である。",
+      "alternativeBasis": "見積依頼一覧画面は EstimateRequestListPage.tsx が共通の Breadcrumb へ項目の配列を渡して描く。並びの正しさは渡す配列を読めば確かめられる。",
+      "evidence": [
+        "frontend/src/pages/EstimateRequestListPage.tsx",
+        "frontend/src/components/common/Breadcrumb.tsx"
+      ],
+      "unverified": false
+    },
+    {
+      "id": "estimate-request/REQ-29.6",
+      "literal": "ダッシュボード > プロジェクト一覧 > プロジェクト > 見積依頼一覧 > 新規作成",
+      "criterionText": "The システム shall 見積依頼新規作成画面のパンくずナビゲーションを「ダッシュボード > プロジェクト一覧 > プロジェクト > 見積依頼一覧 > 新規作成」の階層構造で表示する",
+      "category": "format-description",
+      "reason": "この逐語は区切り記号で階層の並びを述べた書式の記述であり、画面へ出る一つの文字列ではない。実装はパンくずを項目の配列で持つため、条文の綴りがそのまま現れることはない。逐語の抽出が過剰である。",
+      "alternativeBasis": "見積依頼新規作成画面は EstimateRequestCreatePage.tsx が共通の Breadcrumb へ項目の配列を渡して描く。並びの正しさは渡す配列を読めば確かめられる。",
+      "evidence": [
+        "frontend/src/pages/EstimateRequestCreatePage.tsx",
+        "frontend/src/components/common/Breadcrumb.tsx"
+      ],
+      "unverified": false
+    },
+    {
+      "id": "estimate-request/REQ-29.13",
+      "literal": "ダッシュボード > プロジェクト一覧 > プロジェクト > 見積依頼一覧 > 見積依頼",
+      "criterionText": "The システム shall 見積依頼詳細画面のパンくずナビゲーションを「ダッシュボード > プロジェクト一覧 > プロジェクト > 見積依頼一覧 > 見積依頼」の階層構造で表示する",
+      "category": "format-description",
+      "reason": "この逐語は区切り記号で階層の並びを述べた書式の記述であり、画面へ出る一つの文字列ではない。実装はパンくずを項目の配列で持つため、条文の綴りがそのまま現れることはない。逐語の抽出が過剰である。",
+      "alternativeBasis": "見積依頼詳細画面は EstimateRequestDetailPage.tsx が共通の Breadcrumb へ項目の配列を渡して描く。並びの正しさは渡す配列を読めば確かめられる。",
+      "evidence": [
+        "frontend/src/pages/EstimateRequestDetailPage.tsx",
+        "frontend/src/components/common/Breadcrumb.tsx"
+      ],
+      "unverified": false
+    },
+    {
+      "id": "estimate-request/REQ-39.9",
+      "literal": "添付内訳書の通り",
+      "criterionText": "While 表示中の見積依頼が内訳書未紐付けのとき, the システム shall 見積依頼文表示（Requirement 6 AC 1）の本文【内容】セクションに「添付内訳書の通り」と表示する（Requirement 6 AC 9 と同等の挙動）",
+      "category": "implementation-divergence",
+      "reason": "要件 6 の受入基準 9 と同等の挙動を求める条文であり、同じ理由で実装に現れない。内訳書未紐付けのとき実装は二重の守りでセクションを省略する側へ倒しており、代替の文言を出す経路が無い。",
+      "alternativeBasis": "支えは無い。estimate-request-text.service.ts は内訳書未紐付けの見積依頼で見積対象項目のセクションを確実に省略する註釈を持つが、その代わりに文言を置く分岐は無い。是正は要件 6 の受入基準 9 と同じ判断に従う。",
+      "evidence": [
+        "backend/src/services/estimate-request-text.service.ts"
+      ],
+      "unverified": true
+    },
+    {
+      "id": "project-management/REQ-2.5",
+      "literal": "プロジェクトがありません。新規作成してください。",
+      "criterionText": "If プロジェクトが0件の場合, then the ArchiTrackシステム shall 「プロジェクトがありません。新規作成してください。」というメッセージを表示する",
+      "category": "wording-drift",
+      "reason": "空状態は実装されているが、条文が一文で述べる綴りを実装は見出しと説明の二要素へ分けている。要件定義書の側が実装の文面と揃っていない。",
+      "alternativeBasis": "ProjectListPage.tsx の検索なしの空状態は見出しに「プロジェクトがありません」を、説明に「最初のプロジェクトを作成して始めましょう」を描き、新規作成の導線も併置する。条文が求める規範は満たされている。",
+      "evidence": [
+        "frontend/src/pages/ProjectListPage.tsx"
+      ],
+      "unverified": false
+    },
+    {
+      "id": "project-management/REQ-4.2",
+      "literal": "該当するプロジェクトが見つかりませんでした。",
+      "criterionText": "If 検索結果が0件の場合, then the ArchiTrackシステム shall 「該当するプロジェクトが見つかりませんでした。」というメッセージを表示する",
+      "category": "wording-drift",
+      "reason": "検索結果が 0 件のときのメッセージは実装されているが、条文の綴りと実装の綴りが食い違う。実装は対象を名指さない一般形の文面を選んでいる。",
+      "alternativeBasis": "ProjectListPage.tsx の検索ありの空状態は「検索結果がありません」を見出しに描き、条件の変更を促す説明を添える。条文が求める「0 件のときにメッセージを出す」規範は満たされている。",
+      "evidence": [
+        "frontend/src/pages/ProjectListPage.tsx"
+      ],
+      "unverified": false
+    },
+    {
+      "id": "project-management/REQ-16.5",
+      "literal": "名前 / 代表者名",
+      "criterionText": "If 部課・支店・支社名が未設定の場合, then the ArchiTrackシステム shall 「名前 / 代表者名」の形式で表示する",
+      "category": "format-description",
+      "reason": "この逐語は「二つの欄を区切り記号でつなぐ」という書式の記述であり、画面へ出る固定の文字列ではない。実装は値を配列にして区切りで連結するため、条文の綴りがそのまま現れることはない。逐語の抽出が過剰である。",
+      "alternativeBasis": "TradingPartnerSelect.tsx は部課・支店・支社名と代表者名を空値を落としたうえで区切り付きで連結して表示する。部課名が未設定なら代表者名だけが残るという条文の規範は、この連結を読めば確かめられる。",
+      "evidence": [
+        "frontend/src/components/projects/TradingPartnerSelect.tsx"
+      ],
+      "unverified": false
+    },
+    {
+      "id": "project-management/REQ-16.8",
+      "literal": "該当する顧客がありません",
+      "criterionText": "If 該当する取引先候補が存在しない場合, then the ArchiTrackシステム shall 「該当する顧客がありません」というメッセージを表示する",
+      "category": "wording-drift",
+      "reason": "候補が無いときのメッセージは実装されているが、条文が「顧客」と呼ぶ対象を実装は「取引先」と呼ぶ。用語の統一が要件定義書側へ反映されていない。",
+      "alternativeBasis": "実装は CustomerNameInput.tsx と TradingPartnerSelect.tsx がいずれも「該当する取引先がありません」を描く。条文が求める「候補が無いときにメッセージを出す」規範は満たされている。",
+      "evidence": [
+        "frontend/src/components/projects/CustomerNameInput.tsx",
+        "frontend/src/components/projects/TradingPartnerSelect.tsx"
+      ],
+      "unverified": false
+    },
+    {
+      "id": "project-management/REQ-21.16",
+      "literal": "ダッシュボード > プロジェクト一覧 > 新規作成",
+      "criterionText": "The ArchiTrackシステム shall プロジェクト新規作成ページに「ダッシュボード > プロジェクト一覧 > 新規作成」のパンくずナビゲーションを表示する",
+      "category": "format-description",
+      "reason": "この逐語は区切り記号で階層の並びを述べた書式の記述であり、画面へ出る一つの文字列ではない。実装はパンくずを項目の配列で持つため、条文の綴りがそのまま現れることはない。逐語の抽出が過剰である。",
+      "alternativeBasis": "プロジェクト新規作成画面は ProjectCreatePage.tsx が共通の Breadcrumb へ項目の配列を渡して描く。並びの正しさは渡す配列を読めば確かめられる。",
+      "evidence": [
+        "frontend/src/pages/ProjectCreatePage.tsx",
+        "frontend/src/components/common/Breadcrumb.tsx"
+      ],
+      "unverified": false
+    },
+    {
+      "id": "project-management/REQ-22.7",
+      "literal": "名前 / 代表者名",
+      "criterionText": "If 部課・支店・支社名が未設定の場合, then the ArchiTrackシステム shall 「名前 / 代表者名」の形式で表示する",
+      "category": "format-description",
+      "reason": "要件 16 の受入基準 5 と同じ書式の記述であり、同じ理由で実装に現れない。画面へ出る固定の文字列ではなく、二つの欄を区切り記号でつなぐ規則を述べている。逐語の抽出が過剰である。",
+      "alternativeBasis": "TradingPartnerSelect.tsx が部課・支店・支社名と代表者名を空値を落として区切りで連結する。二つの条文は同じ表示規則を別の要件から述べており、支えも同じ実装である。",
+      "evidence": [
+        "frontend/src/components/projects/TradingPartnerSelect.tsx"
+      ],
+      "unverified": false
+    },
+    {
+      "id": "quantity-table-generation/REQ-5.1",
+      "literal": "大項目・中項目・小項目・任意分類・工種・名称・規格・計算方法・（計算用列）・数量・単位・備考",
+      "criterionText": "When 数量グループ内で行追加操作を行う, the 数量表管理システム shall 「大項目・中項目・小項目・任意分類・工種・名称・規格・計算方法・（計算用列）・数量・単位・備考」で構成される新しい数量項目を追加し、デフォルト値を設定する（大項目：空白、工種：空白、名称：空白、単位：空白、計算方法：「標準」、数量：「0」）",
+      "category": "format-description",
+      "reason": "この逐語は行が持つ列の構成を中黒で並べた記述であり、画面へ出る一つの文字列ではない。実装は列を型の欄と入力欄として個別に持つため、並びを綴った文字列は現れない。逐語の抽出が過剰である。",
+      "alternativeBasis": "列の構成は quantity-edit.types.ts の項目の型と既定値が持ち、描画は EditableQuantityItemRow.tsx が欄ごとに行う。条文が挙げる列が揃っているかは、この型と行の描画を突き合わせれば確かめられる。",
+      "evidence": [
+        "frontend/src/types/quantity-edit.types.ts",
+        "frontend/src/components/quantity-table/EditableQuantityItemRow.tsx"
+      ],
+      "unverified": false
+    },
+    {
+      "id": "quantity-table-generation/REQ-36.1",
+      "literal": "並び替え（上へ移動・下へ移動）",
+      "criterionText": "The 数量表管理システム shall 数量項目の行の右端に「並び替え（上へ移動・下へ移動）」ボタンと「削除」ボタンを個別に表示せず、アクションメニューボタン内に統合する",
+      "category": "format-description",
+      "reason": "この逐語は括弧で二つの操作をまとめた総称であり、画面へ出る一つのラベルではない。実装はメニューの項目を操作ごとに分けて持つため、総称の綴りは現れない。逐語の抽出が過剰である。",
+      "alternativeBasis": "QuantityItemActionMenu.tsx がアクションメニューの中に「上へ移動」と「下へ移動」を別々の項目として持ち、削除も同じメニューへ統合している。条文が求める「行の右端へ個別に並べない」規範はこの実装が担う。",
+      "evidence": [
+        "frontend/src/components/quantity-table/QuantityItemActionMenu.tsx"
+      ],
+      "unverified": false
+    },
+    {
+      "id": "site-survey/REQ-31.18",
+      "literal": "元画像そのまま出力",
+      "criterionText": "The Site Survey Service shall 一括エクスポートにおいて「元画像そのまま出力」設定時に、注釈・回転・サムネイル再生成結果を反映せず、アップロード時の原本画像を出力する",
+      "category": "wording-drift",
+      "reason": "設定そのものは実装されているが、条文は末尾に出力の語を足した綴りで名指しており、実装のラベルと一字違う。要件定義書の側が実装の綴りと揃っていない。",
+      "alternativeBasis": "実装は ExportSettingsForm.tsx が注釈モードの選択肢として「元画像そのまま」を持ち、原本を再レンダリングせず取得する経路へ結ぶ。条文が求める規範は満たされている。",
+      "evidence": [
+        "frontend/src/components/site-surveys/ExportSettingsForm.tsx"
+      ],
+      "unverified": false
+    },
+    {
+      "id": "user-authentication/REQ-2.7",
+      "literal": "このパスワードは過去のデータ漏洩で使用されています",
+      "criterionText": "IF パスワードが禁止パスワードリスト（HIBP Pwned Passwords、Bloom Filter実装、偽陽性率0.001）に含まれる THEN Authentication Serviceは「このパスワードは過去のデータ漏洩で使用されています」というエラーメッセージを返さなければならない",
+      "category": "wording-drift",
+      "reason": "漏洩パスワードの拒否は実装されているが、条文の綴りと実装のメッセージが食い違う。実装は別のパスワードを選ぶよう促す一文を足した形を選んでいる。",
+      "alternativeBasis": "auth.routes.ts の違反メッセージ変換が「このパスワードは過去に漏洩が確認されています。別のパスワードを選択してください」を返す。ただし漏洩判定そのものは簡易実装であり、条文が挙げる方式は未達である。",
+      "evidence": [
+        "backend/src/routes/auth.routes.ts"
+      ],
+      "unverified": false
+    },
+    {
+      "id": "user-authentication/REQ-7.7",
+      "literal": "過去に使用したパスワードは使用できません",
+      "criterionText": "IF 新しいパスワードが過去3回のパスワード（Argon2idハッシュ比較）と一致する THEN Authentication Serviceは「過去に使用したパスワードは使用できません」というエラーメッセージを返さなければならない",
+      "category": "wording-drift",
+      "reason": "パスワード履歴との一致で拒否する規範は実装されているが、返す文言は日本語ではなく英語の一文と機械可読の符号である。条文が名指す日本語の綴りは実装に現れない。",
+      "alternativeBasis": "result-mapper.ts が履歴の再利用を「Password was used in recent history」という文言と PASSWORD_REUSED の符号で返し、履歴の照合そのものは password.service.ts が担う。文言の言語を揃えるかは条文と実装のどちらを動かすかの判断になる。",
+      "evidence": [
+        "backend/src/utils/result-mapper.ts",
+        "backend/src/services/password.service.ts"
+      ],
+      "unverified": false
+    },
+    {
+      "id": "user-authentication/REQ-28.9",
+      "literal": "リセットメールを送信しました",
+      "criterionText": "WHEN パスワードリセット要求が成功する THEN Frontend UIは「リセットメールを送信しました」メッセージを表示しなければならない",
+      "category": "wording-drift",
+      "reason": "リセット要求の成功時のメッセージは実装されているが、条文の綴りと実装の綴りが食い違う。実装はメールの確認を促す一文を足した形を選んでいる。",
+      "alternativeBasis": "PasswordResetForm.tsx が成功時に「パスワードリセットリンクを送信しました。メールをご確認ください。」を表示する。条文が求める規範は満たされている。",
+      "evidence": [
+        "frontend/src/components/PasswordResetForm.tsx"
+      ],
+      "unverified": false
+    },
+    {
+      "id": "user-authentication/REQ-28.12",
+      "literal": "パスワードリセットを再度申請する",
+      "criterionText": "IF リセットトークンが無効または期限切れである THEN Frontend UIはエラーメッセージと「パスワードリセットを再度申請する」リンクを表示しなければならない",
+      "category": "implementation-divergence",
+      "reason": "実装はトークンの失効と無効をエラーメッセージとして案内するが、条文が求めるリンクを置いていない。当該のフォームにリンク要素は一つも無く、逐語の近似形も持たない。",
+      "alternativeBasis": "支えは無い。PasswordResetForm.tsx は失効時と無効時に再度の要求を促す文を出すだけで、再申請へ遷移する導線は描かない。是正にはリンクの追加か条文の見直しが要る。",
+      "evidence": [
+        "frontend/src/components/PasswordResetForm.tsx"
+      ],
+      "unverified": true
+    },
+    {
+      "id": "user-authentication/REQ-28.17",
+      "literal": "TOTPコードを使用する",
+      "criterionText": "WHEN バックアップコード入力画面で「TOTPコードを使用する」リンクがクリックされる THEN Frontend Serviceは2FA検証画面へ戻らなければならない",
+      "category": "wording-drift",
+      "reason": "バックアップコード入力から二要素認証の入力へ戻る導線は実装されているが、条文はその導線を規格の名で呼び、実装は利用者向けの呼び名を使う。綴りが食い違う。",
+      "alternativeBasis": "TwoFactorVerificationForm.tsx がバックアップコードのモードで「認証コードを使用する」の切り替えを描き、押すと元の入力へ戻る。条文が求める規範は満たされている。",
+      "evidence": [
+        "frontend/src/components/TwoFactorVerificationForm.tsx"
+      ],
+      "unverified": false
+    },
+    {
+      "id": "user-authentication/REQ-28.20",
+      "literal": "管理者に連絡する",
+      "criterionText": "IF 招待トークンが無効である THEN Frontend UIはエラーメッセージと「管理者に連絡する」案内を表示しなければならない",
+      "category": "wording-drift",
+      "reason": "招待トークンが無効なときの案内は実装されているが、条文は体言止めの綴りを、実装は依頼形の綴りを持つ。要件定義書の側が実装の文面と揃っていない。",
+      "alternativeBasis": "RegisterForm.tsx が招待の不正時にエラーとあわせて「管理者に連絡してください。」を描く。条文が求める規範は満たされている。",
+      "evidence": [
+        "frontend/src/components/RegisterForm.tsx"
+      ],
+      "unverified": false
+    },
+    {
+      "id": "user-authentication/REQ-28.34",
+      "literal": "他のデバイスからログアウト",
+      "criterionText": "WHEN セッション管理画面が表示される THEN Frontend UIはアクティブなセッション一覧と「他のデバイスからログアウト」ボタンを表示しなければならない",
+      "category": "wording-drift",
+      "reason": "セッション一覧と一括ログアウトの操作は実装されているが、条文が名指す綴りと実装のラベルが食い違う。実装は自分以外という限定を持たず、全デバイスを対象と呼んでいる。",
+      "alternativeBasis": "SessionManager.tsx がセッションの一覧と、個別のログアウト、および「全デバイスからログアウト」の操作を描く。対象の範囲が条文の言う他のデバイスと同じかは、条文の側の確認が要る。",
+      "evidence": [
+        "frontend/src/components/SessionManager.tsx"
+      ],
+      "unverified": false
+    },
+    {
+      "id": "user-authentication/REQ-29.6",
+      "literal": "入力されたメールアドレスにパスワードリセットのリンクを送信しました",
+      "criterionText": "WHEN リセットメール送信が成功する THEN Frontend UIは「入力されたメールアドレスにパスワードリセットのリンクを送信しました」というメッセージを表示しなければならない",
+      "category": "wording-drift",
+      "reason": "要件 28 の受入基準 9 と同じ画面・同じ契機を述べる条文であり、二つの条文が同じメッセージを別の綴りで名指している。実装はそのどちらとも違う綴りを持つ。",
+      "alternativeBasis": "支えは要件 28 の受入基準 9 と同じ「パスワードリセットリンクを送信しました。メールをご確認ください。」であり、PasswordResetForm.tsx が描く。条文どうしの綴りの重複は要件定義書側の整理が要る。",
+      "evidence": [
+        "frontend/src/components/PasswordResetForm.tsx"
+      ],
+      "unverified": false
+    },
+    {
+      "id": "user-authentication/REQ-29.12",
+      "literal": "パスワードリセットを再度申請する",
+      "criterionText": "IF リセットトークンが無効または期限切れである THEN Frontend UIはエラーメッセージと「パスワードリセットを再度申請する」リンクを表示しなければならない",
+      "category": "implementation-divergence",
+      "reason": "要件 28 の受入基準 12 と同じ規範を述べる条文であり、同じ理由で実装に現れない。二つの条文が同じ導線を重複して求めている。",
+      "alternativeBasis": "支えは無い。PasswordResetForm.tsx にリンク要素が無いことは要件 28 の受入基準 12 と同じであり、是正の判断も同じものに従う。",
+      "evidence": [
+        "frontend/src/components/PasswordResetForm.tsx"
+      ],
+      "unverified": true
+    },
+    {
+      "id": "user-authentication/REQ-29.17",
+      "literal": "パスワードが正常に変更されました。新しいパスワードでログインしてください。",
+      "criterionText": "WHEN パスワード変更が成功する THEN Frontend UIは「パスワードが正常に変更されました。新しいパスワードでログインしてください。」というメッセージを表示しなければならない",
+      "category": "wording-drift",
+      "reason": "パスワード変更の成功時のメッセージは実装されているが、条文の綴りと実装の綴りが食い違う。実装はリセットという語を使い、可能である旨の言い回しを選んでいる。",
+      "alternativeBasis": "PasswordResetForm.tsx が成功時に「パスワードをリセットしました。新しいパスワードでログインできます。」を表示する。条文が求める規範は満たされている。",
+      "evidence": [
+        "frontend/src/components/PasswordResetForm.tsx"
+      ],
+      "unverified": false
+    }
+  ]
+}
