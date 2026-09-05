@@ -65,6 +65,7 @@ import {
   execute,
   extractClaims,
   loadReachBaseline,
+  partitionAmbiguousBareNames,
   run,
   scanDocument,
   statesAbsence,
@@ -412,6 +413,12 @@ const NARROWING_WATCHED_BODIES: ReadonlyArray<{ label: string; declaration: stri
   // 115.215 はこの四つを網の外に置いていた。とりわけ `reportReach` は
   // 「文書 X を開示から隠す」絞り込みが最も自然に入る場所である。
   { label: 'bundleReachEntities', declaration: 'export function bundleReachEntities(' },
+  // 曖昧な裸の名前を面から切り出す関数も同じ網に入れる（タスク 115.294）。
+  // 「文書 X の裸の名前だけは曖昧と数えない」という名指しの逃がしが最も自然に入る場所である。
+  {
+    label: 'partitionAmbiguousBareNames',
+    declaration: 'export function partitionAmbiguousBareNames(',
+  },
   { label: 'loadReachBaseline', declaration: 'export function loadReachBaseline(' },
   { label: 'writeReachBaseline', declaration: 'export function writeReachBaseline(' },
   { label: 'reportReach', declaration: 'function reportReach(' },
@@ -1144,6 +1151,12 @@ function checkExemptedSetBaselineGate(): string[] {
       candidateTotal: 0,
       entityTotal: 0,
       ambiguousBareNames: [],
+      // 曖昧の集合も同じ対照を持つ（タスク 115.294）。整列されていない三要素を直に渡す。
+      ambiguousReferencesPerDocument: {
+        [fixture.document]: ['zeta.ts', 'alpha.ts', 'mid.ts'],
+        [GHOST_DOCUMENT]: ['solo.ts'],
+      },
+      ambiguousTotal: 4,
       exemptedPerDocument: { [fixture.document]: 3, [GHOST_DOCUMENT]: 1 },
       exemptedTotal: 4,
       exemptedReferencesPerDocument: {
@@ -1165,12 +1178,22 @@ function checkExemptedSetBaselineGate(): string[] {
           '型は「distinct・整列済み」と宣言している'
       );
     }
+    // 曖昧の集合の書き出しにも同じ対照を置く（タスク 115.294）
+    const ambiguousProbe = loadReachBaseline(sortProbePath).ambiguous[fixture.document] ?? [];
+    if (ambiguousProbe.join('|') !== 'alpha.ts|mid.ts|zeta.ts') {
+      failures.push(`曖昧の集合が整列して書き出されていない（${JSON.stringify(ambiguousProbe)}）`);
+    }
     // 文書の鍵も整列して書き出すこと（差分の読みやすさは基準の運用の前提である）。
     // GHOST_DOCUMENT は `.kiro/specs/ghost/` であり、`.kiro/specs/sample/` より前に並ぶ
     const sortProbeText = fs.readFileSync(sortProbePath, 'utf-8');
     const exemptedSection = sortProbeText.slice(sortProbeText.indexOf('"exemptedReferences"'));
     if (exemptedSection.indexOf(GHOST_DOCUMENT) > exemptedSection.indexOf(fixture.document)) {
       failures.push('基準の免除の集合の鍵が整列して書き出されていない');
+    }
+    // 曖昧の集合の鍵にも同じ対照を置く（タスク 115.294）
+    const ambiguousSection = sortProbeText.slice(sortProbeText.indexOf('"ambiguous"'));
+    if (ambiguousSection.indexOf(GHOST_DOCUMENT) > ambiguousSection.indexOf(fixture.document)) {
+      failures.push('基準の曖昧の集合の鍵が整列して書き出されていない');
     }
 
     // 履歴は**追記のみ**である（書き出しが前回の履歴を捨てていないこと）
@@ -1324,6 +1347,9 @@ function checkEntityCountIsMeasured(): string[] {
     fs.mkdirSync(path.join(root, 'backend'), { recursive: true });
     fs.writeFileSync(path.join(root, 'frontend', 'src', 'shared.ts'), 'export {};\n');
     fs.writeFileSync(path.join(root, 'backend', 'shared.ts'), 'export {};\n');
+    // 別表記の対には**同名の実在が一つだけ**の名前を使う。同名が二つ在る名前で書くと、
+    // 裸の側が曖昧として面から外れ（タスク 115.294）、束ねの対照ではなく曖昧の対照になる。
+    fs.writeFileSync(path.join(root, 'frontend', 'src', 'solo.ts'), 'export {};\n');
     const index = buildFileIndex(root);
     const document = `${SPEC_DIR}/sample/${DESIGN_DOC_NAME}`;
 
@@ -1331,8 +1357,8 @@ function checkEntityCountIsMeasured(): string[] {
     const twoSpellings = scanDocument(
       document,
       [
-        '- 中核は `frontend/src/shared.ts`、略記は `shared.ts` である',
-        '- `frontend/src/shared.ts` の旧実装は当時こうだった',
+        '- 中核は `frontend/src/solo.ts`、略記は `solo.ts` である',
+        '- `frontend/src/solo.ts` の旧実装は当時こうだった',
       ].join('\n'),
       index
     );
@@ -1364,7 +1390,7 @@ function checkEntityCountIsMeasured(): string[] {
     }
 
     // 束ねの規則そのものの対照（面が空なら実体も 0）
-    if (bundleReachEntities([], index.nameCounts).entities !== 0) {
+    if (bundleReachEntities([]) !== 0) {
       failures.push('面が空なのに実体が 0 でない');
     }
   } finally {
@@ -1374,10 +1400,18 @@ function checkEntityCountIsMeasured(): string[] {
 }
 
 /**
- * 裸の名前だけで面に入る参照の曖昧性が測られ、開示されること。
+ * 裸の名前の曖昧性が測られ、**面から外され**、別の集合として持たれること（タスク 115.294）。
  *
  * 陽性（同名の実在が 2 件）と陰性（1 件）を対で置く。陰性が無いと
  * 「何でも曖昧と数える」形でも通る。
+ *
+ * **面から外す向きの対照を同時に置く。** タスク 115.241 は曖昧な参照を `reached` に
+ * 含めたまま件数だけを開示していた。115.294 が面から外したため、ここでは
+ * (i) 曖昧な参照が `reached` に**居ないこと**、(ii) 外した先の集合
+ * （`ambiguousReferencesPerDocument` / `ambiguousTotal`）に**居ること**、
+ * (iii) 実体の数も曖昧な分を含まないこと、の三つを固定する。
+ * **(ii) が無いと「外して捨てる」形でも通る**——それは面にも曖昧の集合にも掛からない
+ * 素通りの経路であり、本タスクが最も避けねばならない向きである。
  */
 function checkAmbiguousBareNamesAreMeasured(): string[] {
   const failures: string[] = [];
@@ -1413,6 +1447,31 @@ function checkAmbiguousBareNamesAreMeasured(): string[] {
         `一致件数が実測と合わない（期待 2 / 実際 ${ambiguous.reach.ambiguousBareNames[0]!.matches}）`
       );
     }
+    // (i) 曖昧な参照は面に**居ない**（タスク 115.294）
+    if (ambiguous.reach.reached.includes('shared.ts')) {
+      failures.push('曖昧な裸の名前が面に残っている（恒真の参照が面の一件を占めている）');
+    }
+    if (ambiguous.reach.reached.length !== 0) {
+      failures.push(`曖昧な参照だけの文書で面が空でない（${ambiguous.reach.reached.length}）`);
+    }
+    if (ambiguous.reach.entities !== 0) {
+      failures.push(`曖昧な参照を実体として数えている（${ambiguous.reach.entities}）`);
+    }
+    // (ii) 外した先の集合に**居る**（外して捨てる形を殺す）
+    const ambiguousSummary = summariseReach([ambiguous.reach]);
+    if (ambiguousSummary.ambiguousTotal !== 1) {
+      failures.push(
+        `外した曖昧な参照を集計していない（期待 1 / 実際 ${ambiguousSummary.ambiguousTotal}）`
+      );
+    }
+    const ambiguousSet = ambiguousSummary.ambiguousReferencesPerDocument[document] ?? [];
+    if (ambiguousSet.length !== 1 || ambiguousSet[0] !== 'shared.ts') {
+      failures.push(`外した先の集合が実測と合わない（${JSON.stringify(ambiguousSet)}）`);
+    }
+    // 対照: 面が 0 の文書でも曖昧の集合は辞書へ載る（面の有無で開示が消えない）
+    if (ambiguousSummary.total !== 0) {
+      failures.push(`前提が崩れている: 面が 0 でない（${ambiguousSummary.total}）`);
+    }
 
     // 陰性: 同名の実在が一つだけなら曖昧ではない
     const unambiguous = scanDocument(
@@ -1427,6 +1486,58 @@ function checkAmbiguousBareNamesAreMeasured(): string[] {
       failures.push(
         `一意な裸の名前を曖昧と数えている（${unambiguous.reach.ambiguousBareNames.length}）`
       );
+    }
+    // 切り出しそのものの整列に対照を置く（タスク 115.294 のレビュー F4）。
+    // 唯一の呼び出し側が整列済みを渡すため、本体の `[...reached].sort()` は
+    // 走査経由では観測できない。整列されていない入力を直に渡して切り出しだけを見る。
+    const partitioned = partitionAmbiguousBareNames(
+      ['zeta.ts', 'alpha.ts', 'mid.ts', 'dup-b.ts', 'dup-a.ts'],
+      new Map([
+        ['zeta.ts', 1],
+        ['alpha.ts', 1],
+        ['mid.ts', 1],
+        ['dup-a.ts', 2],
+        ['dup-b.ts', 2],
+      ])
+    );
+    if (partitioned.tracked.join(',') !== 'alpha.ts,mid.ts,zeta.ts') {
+      failures.push(`切り出した面が整列していない（${JSON.stringify(partitioned.tracked)}）`);
+    }
+    if (partitioned.ambiguous.map((entry) => entry.name).join(',') !== 'dup-a.ts,dup-b.ts') {
+      failures.push(
+        `切り出した曖昧が整列していない（${JSON.stringify(partitioned.ambiguous.map((e) => e.name))}）`
+      );
+    }
+
+    // 集計の整列に対照を置く。**要素は三つ要る**——二要素では逆順と整列の結果が一致してしまい、
+    // 整列を落とす変異を殺せない（115.293 が免除の集合の書き出しで踏んだのと同型）。
+    // 走査の側は整列して返すため、整列されていない入力を直に渡して集計だけを見る。
+    const unsorted = summariseReach([
+      {
+        file: document,
+        reached: [],
+        candidates: [],
+        entities: 0,
+        ambiguousBareNames: [
+          { name: 'zeta.ts', matches: 2 },
+          { name: 'alpha.ts', matches: 3 },
+          { name: 'mid.ts', matches: 2 },
+        ],
+        exempted: 0,
+        exemptedReferences: [],
+      },
+    ]);
+    const unsortedSet = unsorted.ambiguousReferencesPerDocument[document] ?? [];
+    if (unsortedSet.join(',') !== 'alpha.ts,mid.ts,zeta.ts') {
+      failures.push(`曖昧の集合を整列していない（${JSON.stringify(unsortedSet)}）`);
+    }
+
+    // 陰性の裏: 一意な裸の名前は面に**残る**（「裸なら何でも外す」形を殺す）
+    if (!unambiguous.reach.reached.includes('unique.ts')) {
+      failures.push('一意な裸の名前まで面から外している（面が狭まりすぎている）');
+    }
+    if (summariseReach([unambiguous.reach]).ambiguousTotal !== 0) {
+      failures.push('一意な裸の名前を曖昧の集合へ入れている');
     }
 
     // 陰性: ルート相対パスは曖昧性の対象ではない（綴りが実体を一意に決める）
@@ -1446,6 +1557,452 @@ function checkAmbiguousBareNamesAreMeasured(): string[] {
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+  return failures;
+}
+
+/**
+ * 曖昧の集合が**関門**として働くこと（タスク 115.294）。
+ *
+ * 曖昧な裸の名前を面から外すのは**面が狭まる向きの変更**である。外した先を開示だけに
+ * 落とすと、新しく現れた曖昧な参照が面にも曖昧の集合にも掛からない素通りの経路になる
+ * ——是正前（115.241 の形）は同じ参照が面へ入って退行として赤くなっていたのだから、
+ * それは関門の**後退**である。ここでは次を固定する。
+ *
+ *   (i)   曖昧な参照が新たに現れると **EXIT=1**（素通りしない）
+ *   (ii)  曖昧な参照が消えると助言のみで **EXIT=0**（面・免除と同じ向き）
+ *   (iii) `ambiguous` の合計と `ambiguousTotal` が食い違う基準は照合の前に拒否する
+ *   (iv)  `ambiguous` を集合として読めない基準も拒否する（「曖昧 0」と解して合格させない）
+ *
+ * **(i) の対照が本タスクの主眼である。** これが無いと、曖昧な参照を面から外す変更は
+ * 「検知していたものを検知しなくなる」変更になる。
+ */
+function checkAmbiguousBaselineGate(): string[] {
+  const failures: string[] = [];
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'design-path-refs-ambiguous-gate-'));
+  const document = `${SPEC_DIR}/sample/${DESIGN_DOC_NAME}`;
+  const baselinePath = path.join(root, 'reach-baseline.json');
+  const options = { root, baselinePath };
+  const documentPath = path.join(root, document);
+  try {
+    fs.mkdirSync(path.join(root, 'frontend', 'src'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'backend'), { recursive: true });
+    // `twin.ts` は二つ在る（曖昧）。`lone.ts` は一つだけ在る（曖昧でない）。
+    fs.writeFileSync(path.join(root, 'frontend', 'src', 'twin.ts'), 'export {};\n');
+    fs.writeFileSync(path.join(root, 'backend', 'twin.ts'), 'export {};\n');
+    fs.writeFileSync(path.join(root, 'frontend', 'src', 'lone.ts'), 'export {};\n');
+    fs.mkdirSync(path.join(root, SPEC_DIR, 'sample'), { recursive: true });
+    const baseLines = [
+      '# Sample',
+      '- 中核は `lone.ts` である',
+      '- `lone.ts` の旧実装は当時こうだった',
+      '',
+    ];
+    fs.writeFileSync(documentPath, baseLines.join('\n'), 'utf-8');
+
+    // 起点: 面 1 件・曖昧 0 件を基準へ焼く（基準が無い状態からは増加になるため明示する）
+    const seeded = withCapturedConsole(() =>
+      execute(['--update-baseline', '--allow-increase'], options)
+    );
+    if (seeded.value !== 0) failures.push(`起点の基準を書き出せない（exit ${seeded.value}）`);
+    const seededBaseline = loadReachBaseline(baselinePath);
+    if (seededBaseline.reachTotal !== 1 || seededBaseline.ambiguousTotal !== 0) {
+      failures.push(
+        `前提が崩れている（面 ${seededBaseline.reachTotal} / 曖昧 ${seededBaseline.ambiguousTotal}）`
+      );
+    }
+    const steady = withCapturedConsole(() => execute([], options));
+    if (steady.value !== 0) failures.push(`無変異で落ちた（exit ${steady.value}）`);
+
+    // (i) 曖昧な参照を新たに書き足すと赤くなる
+    fs.writeFileSync(
+      documentPath,
+      [
+        ...baseLines.slice(0, -1),
+        '- 補助は `twin.ts` である',
+        '- `twin.ts` は当時こうだった',
+        '',
+      ].join('\n'),
+      'utf-8'
+    );
+    const widened = run(options);
+    if (widened.reach.ambiguousTotal !== 1) {
+      failures.push(`変異が効いていない（曖昧 ${widened.reach.ambiguousTotal} 件）`);
+    }
+    if (widened.reach.total !== 1) {
+      failures.push(`曖昧な参照が面へ混ざっている（面 ${widened.reach.total} 件）`);
+    }
+    const widenedRun = withCapturedConsole(() => execute([], options));
+    if (widenedRun.value !== 1) {
+      failures.push(`新たな曖昧な参照が素通りした（exit ${widenedRun.value}）`);
+    }
+    if (!widenedRun.output.includes('[曖昧] +1 件: twin.ts')) {
+      failures.push('入った側の曖昧な参照を名指しで報告していない');
+    }
+    // 増える向きの基準更新も既定では拒否されること（面・免除と同じ摩擦）
+    const refused = withCapturedConsole(() => execute(['--update-baseline'], options));
+    if (refused.value !== 1) {
+      failures.push(`曖昧が増える向きの更新を無言で通した（exit ${refused.value}）`);
+    }
+
+    // (ii) 曖昧な参照が消えると助言のみ（面・免除と同じ向き）
+    const recorded = withCapturedConsole(() =>
+      execute(['--update-baseline', '--allow-increase'], options)
+    );
+    if (recorded.value !== 0) failures.push(`曖昧の増加を記録できない（exit ${recorded.value}）`);
+    fs.writeFileSync(documentPath, baseLines.join('\n'), 'utf-8');
+    const narrowed = withCapturedConsole(() => execute([], options));
+    if (narrowed.value !== 0) {
+      failures.push(`曖昧が減る向きで落ちた（exit ${narrowed.value}）`);
+    }
+    if (!narrowed.output.includes('[曖昧] -1 件: twin.ts')) {
+      failures.push('抜けた側の曖昧な参照を助言で報告していない');
+    }
+
+    // (iii) 合計と内訳が食い違う基準は照合の前に拒否する
+    const tampered = JSON.parse(fs.readFileSync(baselinePath, 'utf-8')) as Record<string, unknown>;
+    tampered.ambiguousTotal = 99;
+    fs.writeFileSync(baselinePath, `${JSON.stringify(tampered, null, 2)}\n`, 'utf-8');
+    const inconsistent = withCapturedConsole(() => execute([], options));
+    if (inconsistent.value !== 1) {
+      failures.push(`曖昧の合計が食い違う基準を受け入れた（exit ${inconsistent.value}）`);
+    }
+
+    // (iv) 集合として読めない基準も拒否する（「曖昧 0」と解して合格させない）
+    const malformed = JSON.parse(fs.readFileSync(baselinePath, 'utf-8')) as Record<string, unknown>;
+    malformed.ambiguousTotal = 0;
+    malformed.ambiguous = { [document]: 1 };
+    fs.writeFileSync(baselinePath, `${JSON.stringify(malformed, null, 2)}\n`, 'utf-8');
+    const unreadable = withCapturedConsole(() => execute([], options));
+    if (unreadable.value !== 1) {
+      failures.push(`曖昧の集合として読めない基準を受け入れた（exit ${unreadable.value}）`);
+    }
+    if (!unreadable.output.includes('曖昧の集合として読めない項目')) {
+      failures.push('読めない曖昧の集合を名指しで報告していない');
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  return failures;
+}
+
+/**
+ * 曖昧の**開示**が現況と基準を取り違えず、定数でもないこと（タスク 115.293 の教訓）。
+ *
+ * 115.293 のレビューは「開示の陳腐化は宣言の側では捕らえられない。塞ぐ場所は自己検査である」
+ * を実測で示した——`scripts/design-measurements.json` の宣言は基準の JSON を読むため、
+ * 関門が**印字する**側が定数へ腐っても誰も気付かない。本タスクが新設した開示にも
+ * 同型の対照を置く。
+ *
+ * **五つの値がすべて相異なる木を用いる**（115.293 が定めた作法。値が偶然一致する木では
+ * 定数への置き換えを殺せない）——現況は 面 3 件・実体 2 件・曖昧 4 件・最大一致 5 件、
+ * 基準の曖昧は 7 件である。曖昧が基準より狭まる向きなので合否は緑のままであり、
+ * **開示だけを見る対照になる**。
+ */
+function checkAmbiguousDisclosureQuotesTheBaseline(): string[] {
+  const failures: string[] = [];
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'design-path-refs-ambiguous-disclosure-'));
+  const document = `${SPEC_DIR}/sample/${DESIGN_DOC_NAME}`;
+  const baselinePath = path.join(root, 'reach-baseline.json');
+  const options = { root, baselinePath };
+  try {
+    const write = (...segments: string[]): void => {
+      const full = path.join(root, ...segments);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, 'export {};\n');
+    };
+    // `alpha.ts` は 5 件（最大一致）、`beta.ts` / `delta.ts` は 2 件、`gamma.ts` は 3 件
+    for (const where of [
+      ['frontend', 'src', 'alpha.ts'],
+      ['frontend', 'alpha.ts'],
+      ['backend', 'alpha.ts'],
+      ['backend', 'src', 'alpha.ts'],
+      ['backend', 'src', 'deep', 'alpha.ts'],
+      ['frontend', 'src', 'beta.ts'],
+      ['backend', 'beta.ts'],
+      ['frontend', 'src', 'gamma.ts'],
+      ['backend', 'gamma.ts'],
+      ['backend', 'src', 'gamma.ts'],
+      ['frontend', 'src', 'delta.ts'],
+      ['backend', 'delta.ts'],
+      // 面に残る側（いずれも同名の実在は 1 件だけ）
+      ['frontend', 'src', 'only.ts'],
+      ['frontend', 'src', 'extra.ts'],
+      // 面にも曖昧にも入らない候補（母数だけを動かす）
+      ['frontend', 'src', 'plain.ts'],
+    ]) {
+      write(...where);
+    }
+    const named =
+      '`alpha.ts`、`beta.ts`、`gamma.ts`、`delta.ts`、`only.ts`、`frontend/src/only.ts`、`extra.ts`';
+    fs.mkdirSync(path.join(root, SPEC_DIR, 'sample'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, document),
+      [
+        '# Sample',
+        '- 現況の担当は `frontend/src/plain.ts` である',
+        `- 中核は ${named} である`,
+        `- ${named} の旧実装は当時こうだった`,
+        '',
+      ].join('\n'),
+      'utf-8'
+    );
+
+    // 前提: 面 3 / 実体 2 / 曖昧 4 / 最大一致 5 / 候補 8。いずれも互いに異なる値であること
+    const scanned = run(options).reach;
+    const maximum = Math.max(0, ...scanned.ambiguousBareNames.map((entry) => entry.matches));
+    const baselineAmbiguousTotal = 7;
+    const observed = [scanned.total, scanned.entityTotal, scanned.ambiguousTotal, maximum];
+    if (new Set([...observed, baselineAmbiguousTotal]).size !== observed.length + 1) {
+      failures.push(
+        `前提が崩れている: 値が互いに異なっていない（面 ${scanned.total} / 実体 ${scanned.entityTotal}` +
+          ` / 曖昧 ${scanned.ambiguousTotal} / 最大 ${maximum} / 基準 ${baselineAmbiguousTotal}）`
+      );
+    }
+    if (scanned.total !== 3 || scanned.entityTotal !== 2) {
+      failures.push(`前提が崩れている（面 ${scanned.total} / 実体 ${scanned.entityTotal}）`);
+    }
+    if (scanned.ambiguousTotal !== 4 || maximum !== 5) {
+      failures.push(`前提が崩れている（曖昧 ${scanned.ambiguousTotal} / 最大 ${maximum}）`);
+    }
+
+    // 基準は現況の上位集合（曖昧が狭まる向き＝助言のみ）。合否は緑のまま開示だけを見る。
+    fs.writeFileSync(
+      baselinePath,
+      `${JSON.stringify(
+        {
+          documents: { [document]: ['extra.ts', 'frontend/src/only.ts', 'only.ts'] },
+          reachTotal: 3,
+          candidateTotal: scanned.candidateTotal,
+          entityTotal: 2,
+          exempted: {},
+          exemptedTotal: 0,
+          exemptedReferences: {},
+          exemptedDistinctTotal: 0,
+          ambiguous: {
+            [document]: [
+              'alpha.ts',
+              'beta.ts',
+              'delta.ts',
+              'gamma.ts',
+              'padded-one.ts',
+              'padded-three.ts',
+              'padded-two.ts',
+            ],
+          },
+          ambiguousTotal: baselineAmbiguousTotal,
+          candidateHistory: [
+            { recordedAt: '2026-09-05', reachTotal: 3, candidateTotal: scanned.candidateTotal },
+          ],
+        },
+        null,
+        2
+      )}\n`,
+      'utf-8'
+    );
+
+    const disclosed = withCapturedConsole(() => execute(['--verbose'], options));
+    if (disclosed.value !== 0) {
+      failures.push(`曖昧が狭まる向きで落ちた（exit ${disclosed.value}）`);
+    }
+    // 現況・基準・最大一致の三つを一行で述べていること。どれか一つを定数にしても、
+    // 現況と基準を取り違えても、この一致は崩れる。
+    if (
+      !disclosed.output.includes(
+        `曖昧のため面から外した裸のファイル名: ${scanned.ambiguousTotal} 件` +
+          `（基準 ${baselineAmbiguousTotal} 件、最大 ${maximum} 件の一致）`
+      )
+    ) {
+      failures.push('曖昧の開示が現況・基準・最大一致の三つを実測から述べていない');
+    }
+    if (disclosed.output.includes(`外した裸のファイル名: ${baselineAmbiguousTotal} 件`)) {
+      failures.push('曖昧の開示が現況と称して基準の値を述べている');
+    }
+    // 実体の数は曖昧を含まない値であること（畳んだ 115.241 の形へ戻っていないか）
+    if (!disclosed.output.includes(`実体のファイルは ${scanned.entityTotal} 件`)) {
+      failures.push('実体の件数が実測と合わない（定数に置き換わっていないか）');
+    }
+    // 文書ごとの内訳も面と曖昧を別に述べ、外した先を一件ずつ名指していること
+    if (!disclosed.output.includes(`面 3 件 / 実体 2 件 / 曖昧 4 件`)) {
+      failures.push('文書ごとの内訳が面と曖昧を別に述べていない');
+    }
+    for (const entry of scanned.ambiguousBareNames) {
+      if (
+        !disclosed.output.includes(
+          `! ${entry.name}: 同名の実在 ${entry.matches} 件（曖昧のため面から外した）`
+        )
+      ) {
+        failures.push(`外した曖昧な参照を内訳で名指していない: ${entry.name}`);
+      }
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  return failures;
+}
+
+/**
+ * **空の枝**の開示も基準から取られていること（タスク 115.294 のレビュー F1 / F2）。
+ *
+ * {@link checkAmbiguousDisclosureQuotesTheBaseline} は曖昧が**非零**の枝しか通らない木で
+ * 組んであった。同じ値を印字する兄弟の枝が二つ見張られずに残っていた——レビューの実測:
+ *
+ *   - **曖昧 0 件の枝**（`… 0 件（基準 N 件）`）の基準値を定数へ置き換えても 50/50 緑。
+ *     **曖昧が 0 になった局面は、まさに基準の更新を促すべき局面である。**
+ *   - `reportReach` の文書ごとの繰り返しの継続条件を旧形（面が空なら読み飛ばす）へ戻しても
+ *     50/50 緑。**本タスクが「面が空でも曖昧の集合を持つ文書は開示する」として足した条件
+ *     そのものが、どの対照からも見られていなかった。**
+ *
+ * ここでは二つの木を置く。**(A) 曖昧 0 件・基準の曖昧 7 件**（面 2 件・実体 1 件。四値が
+ * 互いに異なる）と、**(B) 面 0 件・曖昧 1 件**の文書を `--verbose` で通す木である。
+ * (B) は継続条件を旧形へ戻すと当該文書の行が丸ごと消えるため赤くなる。
+ */
+function checkAmbiguousDisclosureOnEmptyBranches(): string[] {
+  const failures: string[] = [];
+  const document = `${SPEC_DIR}/sample/${DESIGN_DOC_NAME}`;
+
+  // ------------------------------------------------------------------
+  // (A) 曖昧 0 件の枝が、基準の値を述べていること
+  // ------------------------------------------------------------------
+  const zeroRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'design-path-refs-ambiguous-zero-'));
+  try {
+    fs.mkdirSync(path.join(zeroRoot, 'frontend', 'src'), { recursive: true });
+    fs.writeFileSync(path.join(zeroRoot, 'frontend', 'src', 'lone.ts'), 'export {};\n');
+    fs.mkdirSync(path.join(zeroRoot, SPEC_DIR, 'sample'), { recursive: true });
+    fs.writeFileSync(
+      path.join(zeroRoot, document),
+      [
+        '# Sample',
+        '- 中核は `frontend/src/lone.ts`、略記は `lone.ts` である',
+        '- `frontend/src/lone.ts` の旧実装は当時こうだった',
+        '',
+      ].join('\n'),
+      'utf-8'
+    );
+    const baselinePath = path.join(zeroRoot, 'reach-baseline.json');
+    const options = { root: zeroRoot, baselinePath };
+    const scanned = run(options).reach;
+    const baselineAmbiguousTotal = 7;
+    // 四値が互いに異なること（面 2 / 実体 1 / 現況の曖昧 0 / 基準の曖昧 7）
+    const observed = [scanned.total, scanned.entityTotal, scanned.ambiguousTotal];
+    if (new Set([...observed, baselineAmbiguousTotal]).size !== observed.length + 1) {
+      failures.push(
+        `(A) 前提が崩れている: 値が互いに異なっていない（面 ${scanned.total} / 実体 ` +
+          `${scanned.entityTotal} / 曖昧 ${scanned.ambiguousTotal} / 基準 ${baselineAmbiguousTotal}）`
+      );
+    }
+    if (scanned.total !== 2 || scanned.entityTotal !== 1 || scanned.ambiguousTotal !== 0) {
+      failures.push(
+        `(A) 前提が崩れている（面 ${scanned.total} / 実体 ${scanned.entityTotal} / 曖昧 ${scanned.ambiguousTotal}）`
+      );
+    }
+    fs.writeFileSync(
+      baselinePath,
+      `${JSON.stringify(
+        {
+          documents: { [document]: ['frontend/src/lone.ts', 'lone.ts'] },
+          reachTotal: 2,
+          candidateTotal: scanned.candidateTotal,
+          entityTotal: 1,
+          exempted: {},
+          exemptedTotal: 0,
+          exemptedReferences: {},
+          exemptedDistinctTotal: 0,
+          ambiguous: {
+            [document]: [
+              'gone-one.ts',
+              'gone-two.ts',
+              'gone-three.ts',
+              'gone-four.ts',
+              'gone-five.ts',
+              'gone-six.ts',
+              'gone-seven.ts',
+            ],
+          },
+          ambiguousTotal: baselineAmbiguousTotal,
+          candidateHistory: [
+            { recordedAt: '2026-09-05', reachTotal: 2, candidateTotal: scanned.candidateTotal },
+          ],
+        },
+        null,
+        2
+      )}\n`,
+      'utf-8'
+    );
+    const disclosed = withCapturedConsole(() => execute([], options));
+    if (disclosed.value !== 0) {
+      failures.push(`(A) 曖昧が狭まる向きで落ちた（exit ${disclosed.value}）`);
+    }
+    if (
+      !disclosed.output.includes(
+        `曖昧のため面から外した裸のファイル名: 0 件（基準 ${baselineAmbiguousTotal} 件）`
+      )
+    ) {
+      failures.push('(A) 曖昧 0 件の枝が基準の値を述べていない（定数に置き換わっていないか）');
+    }
+    if (disclosed.output.includes('外した裸のファイル名: 0 件（基準 0 件）')) {
+      failures.push('(A) 曖昧 0 件の枝が基準と称して 0 を述べている');
+    }
+  } finally {
+    fs.rmSync(zeroRoot, { recursive: true, force: true });
+  }
+
+  // ------------------------------------------------------------------
+  // (B) 面が空でも、曖昧の集合を持つ文書は内訳へ出ること
+  // ------------------------------------------------------------------
+  const emptyRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'design-path-refs-ambiguous-empty-'));
+  try {
+    fs.mkdirSync(path.join(emptyRoot, 'frontend', 'src'), { recursive: true });
+    fs.mkdirSync(path.join(emptyRoot, 'backend'), { recursive: true });
+    fs.writeFileSync(path.join(emptyRoot, 'frontend', 'src', 'twin.ts'), 'export {};\n');
+    fs.writeFileSync(path.join(emptyRoot, 'backend', 'twin.ts'), 'export {};\n');
+    fs.mkdirSync(path.join(emptyRoot, SPEC_DIR, 'sample'), { recursive: true });
+    fs.writeFileSync(
+      path.join(emptyRoot, document),
+      ['# Sample', '- `twin.ts` の旧実装は当時こうだった', ''].join('\n'),
+      'utf-8'
+    );
+    const baselinePath = path.join(emptyRoot, 'reach-baseline.json');
+    const options = { root: emptyRoot, baselinePath };
+    const scanned = run(options).reach;
+    if (scanned.total !== 0 || scanned.ambiguousTotal !== 1) {
+      failures.push(`(B) 前提が崩れている（面 ${scanned.total} / 曖昧 ${scanned.ambiguousTotal}）`);
+    }
+    fs.writeFileSync(
+      baselinePath,
+      `${JSON.stringify(
+        {
+          documents: {},
+          reachTotal: 0,
+          candidateTotal: scanned.candidateTotal,
+          entityTotal: 0,
+          exempted: {},
+          exemptedTotal: 0,
+          exemptedReferences: {},
+          exemptedDistinctTotal: 0,
+          ambiguous: { [document]: ['twin.ts'] },
+          ambiguousTotal: 1,
+          candidateHistory: [],
+        },
+        null,
+        2
+      )}\n`,
+      'utf-8'
+    );
+    const disclosed = withCapturedConsole(() => execute(['--verbose'], options));
+    if (disclosed.value !== 0) {
+      failures.push(`(B) 無変異で落ちた（exit ${disclosed.value}）`);
+    }
+    // 面が 0 件の文書の行そのもの。継続条件を旧形へ戻すと丸ごと消える
+    if (!disclosed.output.includes(`${document}: 面 0 件 / 実体 0 件 / 曖昧 1 件`)) {
+      failures.push('(B) 面が空で曖昧だけを持つ文書が内訳に出ていない（外した先の裏取りが消える）');
+    }
+    if (!disclosed.output.includes('! twin.ts: 同名の実在 2 件（曖昧のため面から外した）')) {
+      failures.push('(B) 面が空の文書について、外した曖昧な参照を名指していない');
+    }
+  } finally {
+    fs.rmSync(emptyRoot, { recursive: true, force: true });
+  }
+
   return failures;
 }
 
@@ -1738,9 +2295,12 @@ function checkReachBaselineGate(): string[] {
           exemptedTotal: 2,
           exemptedReferences: { [fixture.document]: ['frontend/src/gone.ts'] },
           exemptedDistinctTotal: 1,
+          ambiguous: {},
+          ambiguousTotal: 0,
           candidateHistory: [{ recordedAt: '2026-09-05', reachTotal: 1, candidateTotal: 2 }],
           malformedDocuments: [],
           malformedExemptedReferences: [],
+          malformedAmbiguous: [],
         },
         summariseReach([firstDocument])
       );
@@ -2176,15 +2736,21 @@ function checkReachReportedBySubprocess(): string[] {
   if (!stdout.includes(`実体のファイルは ${expected.entityTotal} 件`)) {
     failures.push(`開示された実体の数が実測（${expected.entityTotal} 件）と一致しない`);
   }
-  // 面に入る裸の名前の曖昧性は、開示の文言が実測の向きと一致していること（タスク 115.241）
+  // 曖昧のため面から外した裸の名前は、開示の文言が実測の向きと一致していること
+  // （タスク 115.241 が開示を置き、115.294 が面から外して集合を持たせた）
   const ambiguous = expected.ambiguousBareNames;
+  if (ambiguous.length !== expected.ambiguousTotal) {
+    failures.push(
+      `曖昧の一覧（${ambiguous.length} 件）と集計（${expected.ambiguousTotal} 件）が食い違う`
+    );
+  }
   if (ambiguous.length === 0) {
-    if (!stdout.includes('同名の実在が 1 件だけである')) {
+    if (!stdout.includes('曖昧のため面から外した裸のファイル名: 0 件')) {
       failures.push('曖昧な裸の名前が 0 件のときの開示が実測と一致しない');
     }
   } else {
-    if (!stdout.includes(`裸のファイル名のうち ${ambiguous.length} 件は同名の実在が複数ある`)) {
-      failures.push(`開示された曖昧な裸の名前が実測（${ambiguous.length} 件）と一致しない`);
+    if (!stdout.includes(`曖昧のため面から外した裸のファイル名: ${expected.ambiguousTotal} 件`)) {
+      failures.push(`開示された曖昧な裸の名前が実測（${expected.ambiguousTotal} 件）と一致しない`);
     }
     for (const entry of ambiguous) {
       if (entry.name.includes('/')) {
@@ -2192,6 +2758,11 @@ function checkReachReportedBySubprocess(): string[] {
       }
       if (entry.matches < 2) {
         failures.push(`一致が 1 件以下のものを曖昧と数えている: ${entry.name}`);
+      }
+      // 面から外した以上、面の集合に残っていてはならない（タスク 115.294）
+      const document = expected.documents.find((entry2) => entry2.file === entry.file);
+      if (document !== undefined && document.reached.includes(entry.name)) {
+        failures.push(`曖昧な裸の名前が面に残っている: ${entry.file} の ${entry.name}`);
       }
     }
   }
@@ -2210,9 +2781,19 @@ function checkReachReportedBySubprocess(): string[] {
       `基準の実体（${baseline.entityTotal} 件）が実測（${expected.entityTotal} 件）と食い違う`
     );
   }
+  if (baseline.ambiguousTotal !== expected.ambiguousTotal) {
+    failures.push(
+      `基準の曖昧（${baseline.ambiguousTotal} 件）が実測（${expected.ambiguousTotal} 件）と食い違う`
+    );
+  }
   if (baseline.malformedDocuments.length !== 0) {
     failures.push(
       `リポジトリ本体の基準を面の集合として読めない: ${baseline.malformedDocuments.join(', ')}`
+    );
+  }
+  if (baseline.malformedAmbiguous.length !== 0) {
+    failures.push(
+      `リポジトリ本体の基準を曖昧の集合として読めない: ${baseline.malformedAmbiguous.join(', ')}`
     );
   }
   return failures;
@@ -2619,9 +3200,24 @@ const STRUCTURAL: Case[] = [
     custom: checkEntityCountIsMeasured,
   },
   {
-    name: '裸の名前だけで面に入る参照の曖昧性が測られている',
+    name: '裸の名前の曖昧性が測られ、面から外され、別の集合として持たれている',
     expected: false,
     custom: checkAmbiguousBareNamesAreMeasured,
+  },
+  {
+    name: '曖昧の集合が関門として働く（新たな曖昧が素通りせず、手書き換えを拒む）',
+    expected: false,
+    custom: checkAmbiguousBaselineGate,
+  },
+  {
+    name: '曖昧の開示が実測と基準の対を述べている（現況の取り違えや定数ではない）',
+    expected: false,
+    custom: checkAmbiguousDisclosureQuotesTheBaseline,
+  },
+  {
+    name: '曖昧 0 件の枝と、面が空で曖昧だけを持つ文書の開示も基準から取られている',
+    expected: false,
+    custom: checkAmbiguousDisclosureOnEmptyBranches,
   },
   {
     name: '実在検査に失格があるツリーでは基準の更新を拒否する',

@@ -20,13 +20,18 @@
     "exempted に件数がある文書は exemptedReferences にも集合を持たねばならない（照合の前に拒否する）。",
     "candidateHistory は母数と面の追記のみの履歴（タスク 115.293）。合否には用いず、",
     "起点からの薄まりを毎回の出力に出すために持つ。末尾は reachTotal / candidateTotal と一致する。",
-    "面に入っていたファイルを撤去すると面は減り免除は跳ねるため、両方を見張らないと素通りする。"
+    "面に入っていたファイルを撤去すると面は減り免除は跳ねるため、両方を見張らないと素通りする。",
+    "ambiguous / ambiguousTotal は、同名の実在が複数あるため面から外した裸のファイル名の",
+    "集合（タスク 115.294）。この形の参照は意図した一件が撤去されても面から外れないため、",
+    "面には数えない。ただし外した側も基準で見張る——開示だけに落とすと、新しく現れた",
+    "曖昧な参照が面にも曖昧の集合にも掛からない素通りの経路になる。"
   ],
-  "reachTotal": 165,
-  "candidateTotal": 609,
-  "entityTotal": 126,
+  "reachTotal": 167,
+  "candidateTotal": 619,
+  "entityTotal": 129,
   "exemptedTotal": 123,
   "exemptedDistinctTotal": 30,
+  "ambiguousTotal": 5,
   "candidateHistory": [
     {
       "recordedAt": "2026-08-31",
@@ -47,6 +52,16 @@
       "recordedAt": "2026-09-05",
       "reachTotal": 165,
       "candidateTotal": 609
+    },
+    {
+      "recordedAt": "2026-09-05",
+      "reachTotal": 162,
+      "candidateTotal": 611
+    },
+    {
+      "recordedAt": "2026-09-05",
+      "reachTotal": 167,
+      "candidateTotal": 619
     }
   ],
   "documents": {
@@ -64,7 +79,6 @@
       "useEstimateEditor.ts"
     ],
     ".kiro/specs/estimate-request/design.md": [
-      "EstimateRequestForm.test.tsx",
       "LineItemEditor.tsx",
       "backend/src/__tests__/integration/estimate-request.api.integration.test.ts",
       "backend/src/routes/estimate-requests.routes.ts",
@@ -83,7 +97,6 @@
       "QuantityGroupCard.tsx",
       "QuantityItemActionMenu.tsx",
       "backend/src/schemas/quantity-table.schema.ts",
-      "calculation-engine.ts",
       "frontend/src/__tests__/components/quantity-table/EditableQuantityItemRow.actionMenu.test.tsx",
       "frontend/src/components/quantity-table/CalculationMethodSelect.tsx",
       "frontend/src/components/quantity-table/EditableQuantityItemRow.tsx",
@@ -92,6 +105,9 @@
       "quantity-table.schema.ts"
     ],
     ".kiro/specs/site-survey/design.md": [
+      ".kiro/specs/estimate-request/design.md",
+      ".kiro/specs/quantity-table-generation/design.md",
+      ".kiro/specs/site-survey/design.md",
       ".kiro/specs/site-survey/tasks.md",
       ".kiro/steering/development-discipline.md",
       ".kiro/steering/structure.md",
@@ -180,7 +196,9 @@
       "frontend/src/__tests__/services/AutoSaveManager.test.ts",
       "frontend/src/api/survey-annotations.ts",
       "frontend/src/api/survey-images.ts",
+      "frontend/src/components/Navigation/index.ts",
       "frontend/src/components/NetworkStatusIndicator.tsx",
+      "frontend/src/components/estimate-request/EstimateRequestForm.test.tsx",
       "frontend/src/components/projects/SiteSurveySectionCard.tsx",
       "frontend/src/components/site-surveys/AnnotationEditor.tsx",
       "frontend/src/components/site-surveys/SiteSurveyForm.tsx",
@@ -206,7 +224,6 @@
       "image-order.service.ts",
       "image-upload.service.ts",
       "image-viewer.constants.ts",
-      "index.ts",
       "scripts/check-design-code-reference-format.ts",
       "scripts/check-design-path-references.ts",
       "scripts/check-design-reference-format.selftest.ts",
@@ -266,6 +283,19 @@
       "site-survey-image.types.test.ts",
       "style-panel.constants.test.ts",
       "style-panel.constants.ts"
+    ]
+  },
+  "ambiguous": {
+    ".kiro/specs/estimate-request/design.md": [
+      "EstimateRequestForm.test.tsx"
+    ],
+    ".kiro/specs/quantity-table-generation/design.md": [
+      "calculation-engine.ts"
+    ],
+    ".kiro/specs/site-survey/design.md": [
+      "EstimateRequestForm.test.tsx",
+      "calculation-engine.ts",
+      "index.ts"
     ]
   }
 }

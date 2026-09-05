@@ -258,8 +258,13 @@
  *   - **裸のファイル名は basename しか照合しない。** ディレクトリの移動は検出しない
  *     （115.169 と同じ判断。字下げや文脈からパスを組み立てると在るファイルを誤って告発する）。
  *     **免除の面にも同じ曖昧性が及ぶ**——裸の名前で面に入った参照が面から外れるのは、
- *     同名の実在が全て消えたときだけである。該当は毎回の出力が件数と最大の一致数で開示する
- *     （タスク 115.241。実測では 3 件・最大 12 件の一致。2026-09-02）。
+ *     同名の実在が全て消えたときだけである。タスク 115.241 は該当の件数と最大の一致数を
+ *     開示するに留めた（当時の実測は 3 件・最大 12 件の一致。2026-09-02）が、
+ *     **開示は解消ではない**。タスク 115.294 は該当を**面から外し**、外した側を
+ *     `ambiguous` として基準に持たせた——面は「一件の撤去でここから外れる参照」だけを数え、
+ *     曖昧な側は別の集合として同じ強さで見張る。設計文書の側は書き換えていない
+ *     （理由は `.kiro/specs/site-survey/design.md` の
+ *     `### 曖昧な裸のファイル名を面から外し、設計文書は書き換えないという判断（タスク 115.294）`）。
  *   - **ディレクトリの参照（末尾が `/`、または末尾セグメントに拡張子が無いもの）は照合しない。**
  *     実測では該当 31 件のうち実在しないのは 1 件（`backend/coverage/`）で、それは
  *     `.gitignore` された生成物への正当な言及であった。生成物の有無で結果が変わる検査は
@@ -352,9 +357,11 @@ export interface DocumentReach {
    */
   entities: number;
   /**
-   * 面に入っている裸のファイル名のうち、**同名の実在が複数ある**もの（タスク 115.241）。
+   * **曖昧のため面から外した**裸のファイル名（同名の実在が複数あるもの）。
+   * タスク 115.241 はこれを `reached` に含めたまま件数を開示していたが、
    * この参照が面から外れるのは同名の一致が**全て**消えたときだけであり、
-   * `entities` はこの曖昧性を 1 件として畳んでいる。
+   * 意図した一件の撤去では動かない——面の一件を占めながら何も検知しない恒真である。
+   * タスク 115.294 が面から切り出し、**別の集合として基準に持たせた**。
    */
   ambiguousBareNames: Array<{ name: string; matches: number }>;
   /** 当該文書で**いま免除している**参照の延べ件数（面が現に免除へ転じた分を含む） */
@@ -385,6 +392,14 @@ export interface ExemptionReach {
   entityTotal: number;
   /** 文書ごとの `ambiguousBareNames` を連ねたもの（タスク 115.241） */
   ambiguousBareNames: Array<{ file: string; name: string; matches: number }>;
+  /**
+   * 文書ごとの、**曖昧のため面から外した**裸のファイル名の集合（タスク 115.294）。
+   * 面から外した以上、外した側も基準で見張らないと、新しく現れた曖昧な参照が
+   * どちらの関門にも掛からない素通りの経路になる。
+   */
+  ambiguousReferencesPerDocument: Record<string, readonly string[]>;
+  /** ambiguousReferencesPerDocument の各集合の要素数の合計（タスク 115.294） */
+  ambiguousTotal: number;
   /** 文書ごとの、いま免除している件数 */
   exemptedPerDocument: Record<string, number>;
   /** exemptedPerDocument の合計（`RunResult.exemptedCount` と一致する） */
@@ -427,6 +442,14 @@ export interface ReachBaseline {
   /** exemptedReferences の各集合の要素数の合計。食い違う基準は拒否する（タスク 115.293） */
   exemptedDistinctTotal: number;
   /**
+   * 文書ごとの、**曖昧のため面から外した**裸のファイル名の集合（タスク 115.294）。
+   * 面が狭まる向きの変更であるため、外した側を基準で見張ることで
+   * 「面にも曖昧の集合にも入らない」素通りの経路を作らない。
+   */
+  ambiguous: Record<string, readonly string[]>;
+  /** ambiguous の各集合の要素数の合計。食い違う基準は拒否する（タスク 115.294） */
+  ambiguousTotal: number;
+  /**
    * 母数と面の**追記のみ**の履歴（タスク 115.293）。
    * 115.241 は基準記録時の母数を一つだけ持ったため、薄まりが見えるのは**前回の更新からの差だけ**
    * であった。更新のたびに追記することで、起点からの薄まりが毎回の出力に出る。
@@ -446,6 +469,11 @@ export interface ReachBaseline {
    * ここへは落ちないため、`compareReach` が「延べが 0 でない文書に集合が無い」ことを別に拒否する。
    */
   malformedExemptedReferences: string[];
+  /**
+   * 曖昧の集合として読めなかった `ambiguous` の鍵（タスク 115.294）。
+   * 空でなければ照合の前に拒否する——読めない基準を「曖昧 0」と解して合格させないため。
+   */
+  malformedAmbiguous: string[];
 }
 
 /** 母数と面の追記のみの履歴の一項（タスク 115.293） */
@@ -680,6 +708,40 @@ export function collectAbsenceDeclarations(
 }
 
 /**
+ * 面の候補から**曖昧な裸のファイル名を切り出す**（タスク 115.294）。
+ *
+ * 裸の名前が複数の実在に一致しているとき、その参照が面から外れるのは一致が**全て**
+ * 消えたときだけである。すなわち**意図した一件が撤去されても面は一件も動かない**——
+ * 「撤去を検知する」働きを持たないまま面の一件を占め続ける、事実上の恒真である。
+ * タスク 115.241 は畳んだ件数を開示するに留めたが、開示は解消ではない。
+ *
+ * 本関数は面（`tracked`）と曖昧な参照（`ambiguous`）を**分ける**。面は
+ * 「一件の撤去でここから外れる参照」だけになり、曖昧な側は別の集合として基準に持ち、
+ * 別に開示する。**外した側も基準で見張る**——外して開示だけに落とすと、
+ * 新しく現れた曖昧な参照がどちらの関門にも掛からない素通りの経路になる。
+ *
+ * `ambiguous` は束ではなく**裸の参照そのもの**を単位に数える——ルート相対パスの兄弟が
+ * 同じ束に居ても、裸の言及が複数の実在に支えられている事実は変わらないためである。
+ */
+export function partitionAmbiguousBareNames(
+  reached: readonly string[],
+  nameCounts: ReadonlyMap<string, number>
+): { tracked: string[]; ambiguous: Array<{ name: string; matches: number }> } {
+  const tracked: string[] = [];
+  const ambiguous: Array<{ name: string; matches: number }> = [];
+  for (const reference of [...reached].sort()) {
+    if (reference.includes('/')) {
+      tracked.push(reference);
+      continue;
+    }
+    const matches = nameCounts.get(reference) ?? 0;
+    if (matches > 1) ambiguous.push({ name: reference, matches });
+    else tracked.push(reference);
+  }
+  return { tracked, ambiguous };
+}
+
+/**
  * 面の参照トークンを**実体のファイル**へ束ねる（タスク 115.241）。
  *
  * 束ねの規則は、同じ basename の束の中でルート相対パスを実体として数え、
@@ -687,31 +749,20 @@ export function collectAbsenceDeclarations(
  * `package.json` のように同じ basename で複数のルート相対パスが面に入っている場合は
  * その本数だけ数えるため、basename だけで素朴に束ねた値より大きくなる。
  *
- * **束ねは曖昧性を畳む。** 裸の名前だけで面に入る束は実体 1 件として数えられるが、
- * その名前が複数の実在に一致していれば、面から外れるのは一致が**全て**消えたときだけである。
- * 畳んだ分は `ambiguous` として返し、開示側で必ず併記する。
- * `ambiguous` は束ではなく**裸の参照そのもの**を単位に数える——ルート相対パスの兄弟が
- * 同じ束に居ても、裸の言及が複数の実在に支えられている事実は変わらないためである。
+ * **曖昧性はもう束ねが畳まない**（タスク 115.294）。曖昧な裸の名前は
+ * `partitionAmbiguousBareNames` が面へ入る前に切り出すため、ここへ渡る参照は
+ * 「一件の撤去で面から外れる」ものだけである。
  */
-export function bundleReachEntities(
-  reached: readonly string[],
-  nameCounts: ReadonlyMap<string, number>
-): { entities: number; ambiguous: Array<{ name: string; matches: number }> } {
+export function bundleReachEntities(reached: readonly string[]): number {
   const bundles = new Map<string, number>();
-  const ambiguous: Array<{ name: string; matches: number }> = [];
   for (const reference of [...reached].sort()) {
     const base = reference.slice(reference.lastIndexOf('/') + 1);
-    const qualified = reference.includes('/');
-    bundles.set(base, (bundles.get(base) ?? 0) + (qualified ? 1 : 0));
-    if (!qualified) {
-      const matches = nameCounts.get(base) ?? 0;
-      if (matches > 1) ambiguous.push({ name: base, matches });
-    }
+    bundles.set(base, (bundles.get(base) ?? 0) + (reference.includes('/') ? 1 : 0));
   }
   let entities = 0;
   for (const qualifiedCount of bundles.values())
     entities += qualifiedCount > 0 ? qualifiedCount : 1;
-  return { entities, ambiguous };
+  return entities;
 }
 
 /** 一つの設計文書から、実在しないパスの記載を検出する */
@@ -764,14 +815,15 @@ export function scanDocument(
     }
   });
 
-  const sortedReached = [...reached].sort();
-  const bundled = bundleReachEntities(sortedReached, index.nameCounts);
+  // 曖昧な裸の名前は面へ入れない（タスク 115.294）。面は「一件の撤去でここから外れる参照」
+  // だけを数える集合であり、恒真の参照が席を占めると面の意味そのものが薄まる。
+  const partitioned = partitionAmbiguousBareNames([...reached].sort(), index.nameCounts);
   const reach: DocumentReach = {
     file: relativePath,
-    reached: sortedReached,
+    reached: partitioned.tracked,
     candidates: [...candidates].sort(),
-    entities: bundled.entities,
-    ambiguousBareNames: bundled.ambiguous,
+    entities: bundleReachEntities(partitioned.tracked),
+    ambiguousBareNames: partitioned.ambiguous,
     exempted: exemptedCount,
     exemptedReferences: [...exemptedReferences].sort(),
   };
@@ -789,11 +841,13 @@ export function summariseReach(documents: readonly DocumentReach[]): ExemptionRe
   const exemptedPerDocument: Record<string, number> = {};
   const exemptedReferencesPerDocument: Record<string, readonly string[]> = {};
   const ambiguousBareNames: Array<{ file: string; name: string; matches: number }> = [];
+  const ambiguousReferencesPerDocument: Record<string, readonly string[]> = {};
   let total = 0;
   let candidateTotal = 0;
   let entityTotal = 0;
   let exemptedTotal = 0;
   let exemptedDistinctTotal = 0;
+  let ambiguousTotal = 0;
   for (const document of documents) {
     if (document.reached.length > 0) perDocument[document.file] = document.reached.length;
     if (document.exempted > 0) exemptedPerDocument[document.file] = document.exempted;
@@ -807,6 +861,14 @@ export function summariseReach(documents: readonly DocumentReach[]): ExemptionRe
     for (const entry of document.ambiguousBareNames) {
       ambiguousBareNames.push({ file: document.file, name: entry.name, matches: entry.matches });
     }
+    // 曖昧の集合も文書ごとに持つ（タスク 115.294）。空の文書は辞書へ入れない——
+    // 面・免除の集合と同じ規則であり、基準の差分が「鍵の有無」で揺れないようにする。
+    if (document.ambiguousBareNames.length > 0) {
+      ambiguousReferencesPerDocument[document.file] = document.ambiguousBareNames
+        .map((entry) => entry.name)
+        .sort();
+    }
+    ambiguousTotal += document.ambiguousBareNames.length;
   }
   return {
     perDocument,
@@ -814,6 +876,8 @@ export function summariseReach(documents: readonly DocumentReach[]): ExemptionRe
     candidateTotal,
     entityTotal,
     ambiguousBareNames,
+    ambiguousReferencesPerDocument,
+    ambiguousTotal,
     exemptedPerDocument,
     exemptedTotal,
     exemptedReferencesPerDocument,
@@ -837,9 +901,12 @@ export function loadReachBaseline(baselinePath: string): ReachBaseline {
       exemptedTotal: 0,
       exemptedReferences: {},
       exemptedDistinctTotal: 0,
+      ambiguous: {},
+      ambiguousTotal: 0,
       candidateHistory: [],
       malformedDocuments: [],
       malformedExemptedReferences: [],
+      malformedAmbiguous: [],
     };
   }
   const parsed = JSON.parse(fs.readFileSync(baselinePath, 'utf-8')) as Record<string, unknown>;
@@ -868,6 +935,7 @@ export function loadReachBaseline(baselinePath: string): ReachBaseline {
   const documents = parsedDocuments.sets;
   const malformedDocuments = parsedDocuments.malformed;
   const parsedExempted = setsOf(parsed.exemptedReferences, 'exemptedReferences');
+  const parsedAmbiguous = setsOf(parsed.ambiguous, 'ambiguous');
   const numberOf = (value: unknown): number => (typeof value === 'number' ? value : 0);
   const countsOf = (value: unknown): Record<string, number> => {
     const counts: Record<string, number> = {};
@@ -901,9 +969,12 @@ export function loadReachBaseline(baselinePath: string): ReachBaseline {
     exemptedTotal: numberOf(parsed.exemptedTotal),
     exemptedReferences: parsedExempted.sets,
     exemptedDistinctTotal: numberOf(parsed.exemptedDistinctTotal),
+    ambiguous: parsedAmbiguous.sets,
+    ambiguousTotal: numberOf(parsed.ambiguousTotal),
     candidateHistory,
     malformedDocuments,
     malformedExemptedReferences: parsedExempted.malformed,
+    malformedAmbiguous: parsedAmbiguous.malformed,
   };
 }
 
@@ -921,6 +992,10 @@ export function writeReachBaseline(baselinePath: string, reach: ExemptionReach):
   const orderedExemptedReferences: Record<string, readonly string[]> = {};
   for (const file of Object.keys(reach.exemptedReferencesPerDocument).sort()) {
     orderedExemptedReferences[file] = [...reach.exemptedReferencesPerDocument[file]!].sort();
+  }
+  const orderedAmbiguous: Record<string, readonly string[]> = {};
+  for (const file of Object.keys(reach.ambiguousReferencesPerDocument).sort()) {
+    orderedAmbiguous[file] = [...reach.ambiguousReferencesPerDocument[file]!].sort();
   }
   // 母数の履歴は**追記のみ**である（タスク 115.293）。前回と同じ値なら追記しない。
   // 上書きにすると 115.241 の形へ戻り、薄まりが前回の更新からの差だけになる。
@@ -957,16 +1032,22 @@ export function writeReachBaseline(baselinePath: string, reach: ExemptionReach):
       'candidateHistory は母数と面の追記のみの履歴（タスク 115.293）。合否には用いず、',
       '起点からの薄まりを毎回の出力に出すために持つ。末尾は reachTotal / candidateTotal と一致する。',
       '面に入っていたファイルを撤去すると面は減り免除は跳ねるため、両方を見張らないと素通りする。',
+      'ambiguous / ambiguousTotal は、同名の実在が複数あるため面から外した裸のファイル名の',
+      '集合（タスク 115.294）。この形の参照は意図した一件が撤去されても面から外れないため、',
+      '面には数えない。ただし外した側も基準で見張る——開示だけに落とすと、新しく現れた',
+      '曖昧な参照が面にも曖昧の集合にも掛からない素通りの経路になる。',
     ],
     reachTotal: reach.total,
     candidateTotal: reach.candidateTotal,
     entityTotal: reach.entityTotal,
     exemptedTotal: reach.exemptedTotal,
     exemptedDistinctTotal: reach.exemptedDistinctTotal,
+    ambiguousTotal: reach.ambiguousTotal,
     candidateHistory,
     documents: ordered,
     exempted: orderedExempted,
     exemptedReferences: orderedExemptedReferences,
+    ambiguous: orderedAmbiguous,
   };
   fs.writeFileSync(baselinePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
 }
@@ -997,10 +1078,9 @@ export function compareReach(baseline: ReachBaseline, reach: ExemptionReach): Re
   // 実体は**文書ごとに**束ねる（summariseReach が文書ごとの entities を合算するのと同じ規則）。
   let reachSum = 0;
   let baselineEntities = 0;
-  const emptyNameCounts: ReadonlyMap<string, number> = new Map();
   for (const references of Object.values(baseline.documents)) {
     reachSum += references.length;
-    baselineEntities += bundleReachEntities(references, emptyNameCounts).entities;
+    baselineEntities += bundleReachEntities(references);
   }
   let exemptedSum = 0;
   for (const count of Object.values(baseline.exempted)) exemptedSum += count;
@@ -1019,6 +1099,11 @@ export function compareReach(baseline: ReachBaseline, reach: ExemptionReach): Re
     if (count > 0 && (baseline.exemptedReferences[file] ?? []).length === 0)
       exemptedSetsBroken = true;
   }
+
+  // 曖昧の集合の自己整合（タスク 115.294）。集合の要素数の合計は ambiguousTotal と一致する。
+  let ambiguousDistinctSum = 0;
+  for (const references of Object.values(baseline.ambiguous))
+    ambiguousDistinctSum += references.length;
 
   // 母数の履歴の自己整合（タスク 115.293）。合否には用いないが、履歴を空にしたり
   // 末尾を書き換えたりして「起点からの薄まり」を見えなくする経路は塞ぐ。
@@ -1087,10 +1172,30 @@ export function compareReach(baseline: ReachBaseline, reach: ExemptionReach): Re
     }
   }
 
+  // 曖昧: 集合で比べる（タスク 115.294）。面から外した側も見張らないと、
+  // 新しく現れた曖昧な参照がどちらの関門にも掛からない素通りの経路になる。
+  const ambiguousNow = reach.ambiguousReferencesPerDocument;
+  for (const file of [
+    ...new Set([...Object.keys(baseline.ambiguous), ...Object.keys(ambiguousNow)]),
+  ].sort()) {
+    const was = new Set(baseline.ambiguous[file] ?? []);
+    const is = new Set(ambiguousNow[file] ?? []);
+    const added = [...is].filter((reference) => !was.has(reference)).sort();
+    const removed = [...was].filter((reference) => !is.has(reference)).sort();
+    if (added.length > 0) {
+      regressions.push(`${file} [曖昧] +${added.length} 件: ${added.join(' / ')}`);
+    }
+    if (removed.length > 0) {
+      improvements.push(`${file} [曖昧] -${removed.length} 件: ${removed.join(' / ')}`);
+    }
+  }
+
   return {
     inconsistent:
       baseline.malformedDocuments.length > 0 ||
       baseline.malformedExemptedReferences.length > 0 ||
+      baseline.malformedAmbiguous.length > 0 ||
+      ambiguousDistinctSum !== baseline.ambiguousTotal ||
       reachSum !== baseline.reachTotal ||
       exemptedSum !== baseline.exemptedTotal ||
       baselineEntities !== baseline.entityTotal ||
@@ -1156,15 +1261,22 @@ function reportReach(reach: ExemptionReach, baseline: ReachBaseline, verbose: bo
       `残る ${reach.total - reach.entityTotal} 件は既に数えたファイルの別表記である` +
       '（同じファイルがルート相対パスと裸のファイル名の両方で名指されている分）。'
   );
-  // 束ねが畳んだ曖昧性を必ず併記する（タスク 115.241）。
-  if (reach.ambiguousBareNames.length === 0) {
-    console.log('   実体の数え方: 面に入る裸のファイル名は、いずれも同名の実在が 1 件だけである。');
+  // 面から外した曖昧な裸の名前を必ず別に開示する（タスク 115.294）。
+  // 115.241 はこれを面に含めたまま件数だけを併記していた。含めていた分は恒真であり、
+  // 意図した一件の撤去では動かないため、面の意味（一件の撤去でここから外れる参照）を薄めていた。
+  if (reach.ambiguousTotal === 0) {
+    console.log(
+      `   曖昧のため面から外した裸のファイル名: 0 件（基準 ${baseline.ambiguousTotal} 件）。` +
+        '面に入る裸のファイル名は、いずれも同名の実在が 1 件だけである。'
+    );
   } else {
     const maximum = Math.max(...reach.ambiguousBareNames.map((entry) => entry.matches));
     console.log(
-      `   実体の数え方: 面に入る裸のファイル名のうち ${reach.ambiguousBareNames.length} 件は` +
-        `同名の実在が複数ある（最大 ${maximum} 件の一致）。実体 ${reach.entityTotal} 件はこれを` +
-        '各 1 件に畳んだ値であり、この参照が面から外れるのは一致が全て消えたときだけである。'
+      `   曖昧のため面から外した裸のファイル名: ${reach.ambiguousTotal} 件` +
+        `（基準 ${baseline.ambiguousTotal} 件、最大 ${maximum} 件の一致）。` +
+        '同名の実在が複数ある裸の参照は、意図した一件が撤去されても面から外れない——' +
+        '「撤去を検知する」働きを持たないまま面の一件を占める恒真であるため、' +
+        '面には数えず別の集合として見張る（タスク 115.294）。'
     );
   }
   // 母数は合否に用いない（設計文書の増減そのものが赤を出すため。115.215 の判断を 115.293 が
@@ -1215,14 +1327,17 @@ function reportReach(reach: ExemptionReach, baseline: ReachBaseline, verbose: bo
   );
   if (!verbose) return;
   for (const document of reach.documents) {
-    if (document.reached.length === 0) continue;
+    // 面が空でも曖昧の集合を持つ文書は開示する（タスク 115.294）。面から外した先が
+    // 内訳に出ないと、外した件数の裏取りが `--json` を自分で集計する側へ戻る。
+    if (document.reached.length === 0 && document.ambiguousBareNames.length === 0) continue;
     console.log(
       `   ${document.file}: 面 ${document.reached.length} 件 / 実体 ${document.entities} 件` +
+        ` / 曖昧 ${document.ambiguousBareNames.length} 件` +
         ` / 候補 ${document.candidates.length} 件 / 免除 延べ ${document.exempted} 件・` +
         `distinct ${document.exemptedReferences.length} 件`
     );
     for (const entry of document.ambiguousBareNames) {
-      console.log(`     ! ${entry.name}: 同名の実在 ${entry.matches} 件（実体 1 件に畳んでいる）`);
+      console.log(`     ! ${entry.name}: 同名の実在 ${entry.matches} 件（曖昧のため面から外した）`);
     }
     for (const reference of document.reached) console.log(`     - ${reference}`);
   }
@@ -1376,6 +1491,13 @@ export function execute(args: readonly string[], options: RunOptions = {}): numb
       `   exempted の合計と exemptedTotal ${baseline.exemptedTotal}、` +
         `exemptedReferences の合計と exemptedDistinctTotal ${baseline.exemptedDistinctTotal}、`
     );
+    console.error(`   ambiguous の合計と ambiguousTotal ${baseline.ambiguousTotal}、`);
+    if (baseline.malformedAmbiguous.length > 0) {
+      console.error(
+        `   曖昧の集合として読めない項目: ${baseline.malformedAmbiguous.join(', ')}` +
+          '（ambiguous は文書ごとに裸のファイル名の配列を持ちます）'
+      );
+    }
     console.error('   または candidateHistory の末尾と reachTotal / candidateTotal が食い違います');
     if (baseline.malformedDocuments.length > 0) {
       console.error(
@@ -1402,12 +1524,16 @@ export function execute(args: readonly string[], options: RunOptions = {}): numb
 
   if (comparison.regressions.length > 0) {
     console.error('');
-    console.error('❌ 免除機構の面に無かった参照が増えたか、いま免除している件数が広がっています:');
+    console.error(
+      '❌ 免除機構の面に無かった参照が増えたか、いま免除している件数が広がったか、' +
+        '曖昧のため面から外す参照が増えています:'
+    );
     for (const line of comparison.regressions) console.error(`   ${line}`);
     console.error('');
     console.error('   面が広がると、そのファイルが撤去されたときに文書内の全言及が');
     console.error('   無言で免除されます（タスク 115.215）。件数が同じでも中身が入れ替われば');
-    console.error('   ここに現れます（面はタスク 115.241、免除はタスク 115.293）。');
+    console.error('   ここに現れます（面はタスク 115.241、免除はタスク 115.293、');
+    console.error('   曖昧のため面から外した側はタスク 115.294）。');
     console.error('   次のいずれかで解消してください。');
     console.error('     (a) 現存主張の行に不在の語（「削除」「撤去」など）が紛れていないか見直す');
     console.error('     (b) 広がりが妥当なら次で記録する:');
