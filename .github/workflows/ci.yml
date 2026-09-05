@@ -368,6 +368,33 @@ jobs:
           echo ""
           npm run check:steering-dir-counts
 
+      - name: Check steering command annotation detector self-test
+        run: |
+          echo "========================================="
+          echo "Steering Command Annotation Detector Self-Test"
+          echo "========================================="
+          echo ""
+          echo "Fixtures: scripts/check-steering-command-annotations.selftest.ts"
+          echo ""
+          npm run check:steering-command-annotations:selftest
+
+      - name: Check steering command annotations
+        run: |
+          echo "========================================="
+          echo "Steering Command Annotation Check"
+          echo "========================================="
+          echo ""
+          echo "Task 115.243 showed by mutation that reverting a corrected"
+          echo "annotation to its false form left all five existing gates at"
+          echo "exit code 0. This check looks at three things only: whether a"
+          echo "named npm script exists in the matching package.json, whether an"
+          echo "annotation claiming all or only agrees with the selection the"
+          echo "vitest config derives, and whether the same asset is launched"
+          echo "with one executor across documents. Everything else is bound by"
+          echo ".kiro/steering/development-discipline.md, not by this gate."
+          echo ""
+          npm run check:steering-command-annotations
+
   e2e-in-page-selfjudgement:
     name: E2E In-Page Self-Judgement Check
     runs-on: ubuntu-latest

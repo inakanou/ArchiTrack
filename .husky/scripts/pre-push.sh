@@ -1151,6 +1151,41 @@ echo "✅ Steering artifact count check passed"
 echo ""
 
 # ============================================================================
+# steering が述べる「検証の実行方法」と実挙動の一致を検知する（タスク 115.288）
+# - タスク 115.243 が変異で実証: 是正した註を偽の形へ戻しても既存の五つの関門
+#   （steering-refs / -idents / -test-tree / -dir-counts / design-measurement-freshness）
+#   はすべて終了コード 0 のままだった（コミット 511000a7 で再現。2026-09-05 実測）
+# - 見るのは三つだけ: (i) 名指した npm スクリプトの実在、(ii)「全件」「〜だけ」の主張と
+#   vitest の構成から導いた選択範囲の一致、(iii) 同じ資材を名指す起動コマンドの実行器の一致
+# - 註の主張と実挙動の一致は一般には機械判定できない。残りは
+#   .kiro/steering/development-discipline.md の作法が拘束する
+# ============================================================================
+
+echo "🔍 Checking steering command annotations..."
+npm run check:steering-command-annotations:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Steering command annotation detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:steering-command-annotations:selftest"
+  exit 1
+fi
+npm run check:steering-command-annotations
+if [ $? -ne 0 ]; then
+  echo "❌ Steering command annotation check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 名指した npm スクリプトが当該 package.json に実在するか確かめてください"
+  echo "  2. 「全件」「〜だけ」と述べた註は、vitest の構成が実際に選ぶ範囲と揃えてください"
+  echo "  3. 同じ資材の起動コマンドは文書間で実行器を揃えてください（実際に叩いて正否を決める）"
+  echo ""
+  echo "詳細確認: npm run check:steering-command-annotations:verbose"
+  exit 1
+fi
+
+echo "✅ Steering command annotation check passed"
+echo ""
+
+# ============================================================================
 # E2E画面内自前判定チェック（E2Eテスト実行の前提条件）
 # ============================================================================
 # 画面の中で本番の判定を自前で書き起こし、その書き起こしへ主張する構造を検知する

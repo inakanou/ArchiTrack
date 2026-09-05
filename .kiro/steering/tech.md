@@ -2,7 +2,9 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
-_最終更新: 2026-09-05（Steering Sync: タスク 115.287。`e2e/helpers/browser.ts` の起動コマンドについて、本節が `.kiro/steering/` における権威であることを明示し、実行器が `tsx` である根拠（実際に叩いた出力）を併記した。`.kiro/steering/structure.md` は同じ起動を `npx ts-node` と書き写しており（3 行）、タスク 115.199 が本書だけを `npx tsx` へ是正した 2026-08-30 以降ずっと食い違っていた。同書からは値を撤去し、本節を読み出す手段だけを残した（コミット `3e670d6a`、2026-09-05 にリポジトリルートで実測））_
+_最終更新: 2026-09-05（Steering Sync: タスク 115.288。「ES Module Validation」節が frontend 側にも同名の検証スクリプトが在るかのように書いていたが、`frontend/package.json` に `validate:esm` は無い。実測: 実際に叩くと `npm error Missing script: "validate:esm"` を出して終了コード 1 で終わり、`git log --all -S 'validate:esm' -- frontend/package.json` は空である（一度も存在したことがない）。frontend 側の記述を撤去し、併せて backend の `validate:esm` の実体——ビルドと、出力された `.js` を一つずつ `node --check` へ通すこと——へ節の散文を揃えた。同型の食い違いを機械で捕らえるため、steering の述べる検証の実行方法と実挙動の一致を見る関門 `check:steering-command-annotations` を新設し、押下前の関門と統合の両方へ算入した。見るのは `missing-script`（名指した npm スクリプトの実在）・`overclaimed-scope` と `underclaimed-scope`（全件／一部だけの主張と vitest の構成から導いた選択範囲の突き合わせ）・`divergent-executor`（同じ資材を名指す起動コマンドが一つの実行器を名乗ること）の四種である（コミット `511000a7`、2026-09-05 にリポジトリルートで実測））_
+
+_2026-09-05（Steering Sync: タスク 115.287。`e2e/helpers/browser.ts` の起動コマンドについて、本節が `.kiro/steering/` における権威であることを明示し、実行器が `tsx` である根拠（実際に叩いた出力）を併記した。`.kiro/steering/structure.md` は同じ起動を `npx ts-node` と書き写しており（3 行）、タスク 115.199 が本書だけを `npx tsx` へ是正した 2026-08-30 以降ずっと食い違っていた。同書からは値を撤去し、本節を読み出す手段だけを残した（コミット `3e670d6a`、2026-09-05 にリポジトリルートで実測））_
 
 _2026-09-05（Steering Sync: タスク 115.286。「Pre-pushフック」節が持っていた番号付きの列挙を撤去し、`.husky/scripts/pre-push.sh` から手順と検査を読み出す手段だけを残した（`.kiro/steering/structure.md` の「押下前の関門の書き方の規約」と同じ規約）。撤去前の列挙はDocker のテスト環境の構築を先頭（`0.`）に置いていたが実体では Format / 型 / Lint / ビルド / セキュリティ監査 / 単体テスト / Storybook より後に走り、名指していた検査は「要件カバレッジチェック」だけであった（コミット `98744b92`、2026-09-05 にリポジトリルートで実測））_
 
@@ -1331,17 +1333,15 @@ ArchiTrackでは、3段階のGit hooksにより品質を自動保証していま
 
 #### ES Module Validation
 
-- `validate:esm` - 包括的なES Moduleバリデーションスクリプト
-- 全importで`.js`拡張子の使用を検証（ES module要件）
-- ビルドプロセスの一部として実行
-- ランタイムモジュール解決エラーを事前に防止
+- `validate:esm` - backend のビルド成果物へ ES Module としての検証を掛けるスクリプト
+- 実体はビルドの実行と、出力された `.js` を一つずつ Node の構文検査（`node --check`）へ通すこと
+- コミット前のフックは同じ検証の入口だけ（ビルドと、出力の入口ファイルへの `node --check`）を
+  走らせ、失敗時に本スクリプトを案内する（`.husky/scripts/pre-commit.sh` の Phase 3）
+- **frontend には同名のスクリプトが無い。** ESM 検証は backend の手段である
 
 ```bash
-# Backend ESM検証
+# Backend ESM検証（frontend に対応するスクリプトは無い）
 npm --prefix backend run validate:esm
-
-# Frontend ESM検証
-npm --prefix frontend run validate:esm
 ```
 
 #### Pre-commitフック（`.husky/pre-commit` + `scripts/pre-commit.sh`）

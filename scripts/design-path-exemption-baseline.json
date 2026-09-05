@@ -16,9 +16,9 @@
     "exempted / exemptedTotal は「いま免除している件数」。面が現に免除へ転じた分もここに現れる。",
     "面に入っていたファイルを撤去すると面は減り免除は跳ねるため、両方を見張らないと素通りする。"
   ],
-  "reachTotal": 162,
-  "candidateTotal": 592,
-  "entityTotal": 123,
+  "reachTotal": 165,
+  "candidateTotal": 603,
+  "entityTotal": 126,
   "exemptedTotal": 123,
   "documents": {
     ".kiro/specs/construction-photo/design.md": [
@@ -129,6 +129,8 @@
       "batch-upload.service.ts",
       "construction-photo-image.service.ts",
       "construction-photo-images.routes.ts",
+      "docs/development/testing.md",
+      "e2e/helpers/browser.ts",
       "e2e/requirement-exclusions.json",
       "e2e/specs/site-surveys/site-survey-annotation-editor-acceptance.spec.ts",
       "e2e/specs/site-surveys/site-survey-annotation-mobile.spec.ts",
@@ -183,6 +185,7 @@
       "scripts/check-e2e-assertion-guards.ts",
       "scripts/check-requirement-coverage.ts",
       "scripts/check-requirement-exclusions.ts",
+      "scripts/design-measurements.json",
       "site-survey-annotation-mobile.spec.ts",
       "site-survey-annotation.types.test.ts",
       "site-survey-outline-toggle.spec.ts",
