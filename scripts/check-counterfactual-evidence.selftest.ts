@@ -1471,6 +1471,10 @@ function polarityOf(one: Case): 'positive' | 'negative' | undefined {
  * 削ったのではなく陽性側へ移してある。同時に陽性側へ三件を新設したため、陽性は 36 から
  * 41 へ、総数は 72 から 75 へ動いた。**陰性側が痩せたのは判定の是正の結果であって、
  * 対照を捨てたからではない。**
+ *
+ * **遊びを持たせない**（タスク 115.298 が 115.262 / 115.271 の作法へ揃えた）。下限を
+ * **上回っても**赤くする——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
+ * 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
  */
 const MINIMUM_POSITIVE_CONTROLS = 41;
 const MINIMUM_NEGATIVE_CONTROLS = 20;
@@ -1484,6 +1488,10 @@ const MINIMUM_NEGATIVE_CONTROLS = 20;
  *
  * **下限を構造から導く語彙がこの検査には無い**（115.222 は本体の検査種別の直和型から導けた）。
  * 導けないため件数で貼る。
+ *
+ * **遊びを持たせない**（タスク 115.298 が 115.262 / 115.271 の作法へ揃えた）。下限を
+ * **上回っても**赤くする——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
+ * 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
  */
 const MINIMUM_TOTAL_CASES = 75;
 
@@ -1620,10 +1628,26 @@ function guardControlsArePresent(groups: readonly Group[]): void {
         '陽性対照を削ったのなら下限も同じ差分で下げること。'
     );
   }
+  // 下限に遊びを持たせない（タスク 115.298）
+  if (positives > MINIMUM_POSITIVE_CONTROLS) {
+    problems.push(
+      `陽性対照が ${positives} 件で、宣言した下限 ${MINIMUM_POSITIVE_CONTROLS} 件を上回ります（遊び ${positives - MINIMUM_POSITIVE_CONTROLS} 件）。` +
+        '下限は現況ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収します。' +
+        `MINIMUM_POSITIVE_CONTROLS を ${positives} 件へ上げてください。`
+    );
+  }
   if (negatives < MINIMUM_NEGATIVE_CONTROLS) {
     problems.push(
       `陰性対照が ${negatives} 件しかありません（宣言の下限は ${MINIMUM_NEGATIVE_CONTROLS} 件）。` +
         '陰性対照を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+  // 下限に遊びを持たせない（タスク 115.298）
+  if (negatives > MINIMUM_NEGATIVE_CONTROLS) {
+    problems.push(
+      `陰性対照が ${negatives} 件で、宣言した下限 ${MINIMUM_NEGATIVE_CONTROLS} 件を上回ります（遊び ${negatives - MINIMUM_NEGATIVE_CONTROLS} 件）。` +
+        '下限は現況ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収します。' +
+        `MINIMUM_NEGATIVE_CONTROLS を ${negatives} 件へ上げてください。`
     );
   }
 
@@ -1632,6 +1656,14 @@ function guardControlsArePresent(groups: readonly Group[]): void {
     problems.push(
       `確認の総数が ${total} 件しかありません（宣言の下限は ${MINIMUM_TOTAL_CASES} 件）。` +
         '確認を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+  // 下限に遊びを持たせない（タスク 115.298）
+  if (total > MINIMUM_TOTAL_CASES) {
+    problems.push(
+      `確認の総数が ${total} 件で、宣言した下限 ${MINIMUM_TOTAL_CASES} 件を上回ります（遊び ${total - MINIMUM_TOTAL_CASES} 件）。` +
+        '下限は現況ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収します。' +
+        `MINIMUM_TOTAL_CASES を ${total} 件へ上げてください。`
     );
   }
 

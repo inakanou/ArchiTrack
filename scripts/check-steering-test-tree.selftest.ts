@@ -975,6 +975,10 @@ const CASES: Case[] = [
  * **下限を構造から導く語彙がこの検査には無い。** 115.222 は本体の検査種別の直和型から陽性
  * 対照の下限を導いたが、本体 `check-steering-test-tree.ts` の指摘種別（`FindingKind`）は
  * 3 種しかなく、19 件の確認の大半は種別に対応しない機構の確認である。導けないため件数で貼る。
+ *
+ * **遊びを持たせない**（タスク 115.298 が 115.262 / 115.271 の作法へ揃えた）。下限を
+ * **上回っても**赤くする——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
+ * 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
  */
 const MINIMUM_TOTAL_CASES = 19;
 
@@ -1006,6 +1010,14 @@ function guardControlsArePresent(cases: readonly Case[]): void {
     problems.push(
       `確認の総数が ${cases.length} 件しかありません（宣言の下限は ${MINIMUM_TOTAL_CASES} 件）。` +
         '確認を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+  // 下限に遊びを持たせない（タスク 115.298）
+  if (cases.length > MINIMUM_TOTAL_CASES) {
+    problems.push(
+      `確認の総数が ${cases.length} 件で、宣言した下限 ${MINIMUM_TOTAL_CASES} 件を上回ります（遊び ${cases.length - MINIMUM_TOTAL_CASES} 件）。` +
+        '下限は現況ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収します。' +
+        `MINIMUM_TOTAL_CASES を ${cases.length} 件へ上げてください。`
     );
   }
 

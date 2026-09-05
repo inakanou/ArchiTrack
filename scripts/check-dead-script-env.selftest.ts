@@ -1530,6 +1530,12 @@ function checkGatedJobsAreNotNeutralized(): string[] {
       `ci-success が関門にしているジョブは ${gated.length} 件で、宣言の下限 ${MINIMUM_GATED_JOBS} 件を下回ります（意図して外したのなら MINIMUM_GATED_JOBS も同じ差分で下げること）`
     );
   }
+  // 下限に遊びを持たせない（タスク 115.298）
+  if (gated.length > MINIMUM_GATED_JOBS) {
+    failures.push(
+      `ci-success が関門にしているジョブは ${gated.length} 件で、宣言の下限 ${MINIMUM_GATED_JOBS} 件を上回ります（遊び ${gated.length - MINIMUM_GATED_JOBS} 件）。下限は現況ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの無言の目減りを吸収します。MINIMUM_GATED_JOBS を ${gated.length} 件へ上げてください。`
+    );
+  }
   for (const entry of neutralizedGatedJobs(yaml)) {
     failures.push(
       `関門ジョブが無力化されている — ${entry}（continue-on-error を持つジョブは検査が落ちても result が success になり、ci-success を素通りします）`
@@ -2002,6 +2008,10 @@ function report(name: string, failures: readonly string[]): number {
  *
  * **限界**: 削った分だけ別の群へ確認を足せば総数は動かない。件数を構造から導く語彙は本体側に
  * 無く、根拠の無い余裕を貼らないという 115.222 の判断を引き継いでいる。
+ *
+ * **遊びを持たせない**（タスク 115.298 が 115.262 / 115.271 の作法へ揃えた）。下限を
+ * **上回っても**赤くする——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
+ * 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
  */
 const MINIMUM_TOTAL_CASES = 29;
 
@@ -2034,6 +2044,15 @@ function main(): void {
     console.log(
       `❌ 報告した確認は ${ran} 件しかありません（宣言の下限は ${MINIMUM_TOTAL_CASES} 件）。` +
         '確認を削ったのなら下限も同じ差分で下げること。'
+    );
+    process.exit(1);
+  }
+  // 下限に遊びを持たせない（タスク 115.298）
+  if (ran > MINIMUM_TOTAL_CASES) {
+    console.log(
+      `❌ 確認の総数が ${ran} 件で、宣言した下限 ${MINIMUM_TOTAL_CASES} 件を上回ります（遊び ${ran - MINIMUM_TOTAL_CASES} 件）。` +
+        '下限は現況ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収します。' +
+        `MINIMUM_TOTAL_CASES を ${ran} 件へ上げてください。`
     );
     process.exit(1);
   }

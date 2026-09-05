@@ -36,6 +36,7 @@ import { SPEC_DIR, DESIGN_DOC_NAME } from './design-document';
 import {
   FEATURE_POLICIES,
   buildChapterIndex,
+  execute,
   extractRequirementNumbers,
   judge,
   measureDesignDocument,
@@ -739,12 +740,14 @@ const JUDGEMENT: TestCase[] = [
   {
     name: 'exact: 宣言と一致すれば通る',
     run() {
+      // 下限は実測ちょうど（遊び 0）でなければならない（タスク 115.298）
+      const measurement = measureDesignDocument('f', CONTRADICTING);
       const failures = judgeOne(CONTRADICTING, {
         mode: 'exact',
         contradictions: ['（章の見出しより前） | X | 2'],
-        minPairs: 2,
-        minTableDeclarations: 0,
-        minDetailDeclarations: 0,
+        minPairs: measurement.pairs,
+        minTableDeclarations: measurement.tableDeclarations,
+        minDetailDeclarations: measurement.detailDeclarations,
         reason: 't',
       });
       return expect(failures.length === 0, `一致しているのに落ちた: ${JSON.stringify(failures)}`);
@@ -850,13 +853,444 @@ const REAL_DATA: TestCase[] = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// (7) 宣言の遊びの禁止（タスク 115.298）
+// ---------------------------------------------------------------------------
+
+/** 詳細節の `| Requirements |` 欄を持つ設計文書（由来別の下限の対照の素材） */
+const WITH_DETAIL_DECLARATION = [
+  '# 設計',
+  '',
+  '## Requirements Traceability',
+  '',
+  '| Requirement | Summary | Components | Interfaces | Flows |',
+  '|-------------|---------|------------|------------|-------|',
+  '| 1.1 | a | X | - | - |',
+  '',
+  '## Components and Interfaces',
+  '',
+  '### Component Summary',
+  '',
+  '| Component | Domain/Layer | Intent | Req Coverage | Deps | Contracts |',
+  '|-----------|--------------|--------|--------------|------|-----------|',
+  '| X | UI | i | 1.1 | - | - |',
+  '',
+  '#### X',
+  '',
+  '| 欄 | 値 |',
+  '|----|----|',
+  '| Requirements | 1.1 |',
+  '',
+].join('\n');
+
+/** 実測ちょうどの方針を組み立てる（遊び 0 の基準線） */
+function tightPolicy(
+  design: string,
+  overrides: Partial<Record<string, number>> = {}
+): FeaturePolicy {
+  const measurement = measureDesignDocument('f', design);
+  return {
+    mode: 'ratchet',
+    maxContradictions: overrides['maxContradictions'] ?? measurement.contradictions.length,
+    minPairs: overrides['minPairs'] ?? measurement.pairs,
+    minTableDeclarations: overrides['minTableDeclarations'] ?? measurement.tableDeclarations,
+    minDetailDeclarations: overrides['minDetailDeclarations'] ?? measurement.detailDeclarations,
+    reason: 't',
+  };
+}
+
+/**
+ * 実 `FEATURE_POLICIES` の一つのつまみを緩める向きへ動かした写しを作る
+ *
+ * **写しである**。実データの宣言そのものは書き換えない。
+ */
+function loosenedPolicies(
+  feature: string,
+  knob: 'maxContradictions' | 'minPairs' | 'minTableDeclarations' | 'minDetailDeclarations',
+  value: number
+): Record<string, FeaturePolicy> {
+  const copy: Record<string, FeaturePolicy> = { ...FEATURE_POLICIES };
+  const target = copy[feature];
+  if (target === undefined) throw new Error(`実データの宣言に ${feature} がありません`);
+  if (knob === 'maxContradictions' && target.mode !== 'ratchet') {
+    throw new Error(`${feature} は ratchet ではないため maxContradictions を持ちません`);
+  }
+  copy[feature] = { ...target, [knob]: value } as FeaturePolicy;
+  return copy;
+}
+
+/** 実データの一つのつまみを緩めると本検査が赤くなることを確かめる */
+function realDataLoosening(
+  feature: string,
+  knob: 'maxContradictions' | 'minPairs' | 'minTableDeclarations' | 'minDetailDeclarations',
+  value: number,
+  expectedFragment: string
+): string[] {
+  const before = judge(REPOSITORY_ROOT);
+  const after = judge(REPOSITORY_ROOT, loosenedPolicies(feature, knob, value));
+  return [
+    ...expect(
+      before.failures.length === 0,
+      `緩める前の実データが既に赤い（この対照の前提が崩れている）: ${JSON.stringify(before.failures)}`
+    ),
+    ...expect(
+      after.failures.some((failure) => failure.includes(expectedFragment)),
+      `${feature} の ${knob} を ${value} へ緩めても本検査が赤くならない: ${JSON.stringify(after.failures)}`
+    ),
+  ];
+}
+
+const SLACK: TestCase[] = [
+  {
+    name: '合成: 上限に遊びがあれば失敗する（maxContradictions）',
+    polarity: 'positive',
+    run() {
+      const failures = judgeOne(
+        CONTRADICTING,
+        tightPolicy(CONTRADICTING, { maxContradictions: 5 })
+      );
+      return expect(
+        failures.some((failure) => failure.includes('の上限を 5 件と宣言していますが実測は 1 件')),
+        `上限の遊びが通ってしまう: ${JSON.stringify(failures)}`
+      );
+    },
+  },
+  {
+    name: '合成: 下限に遊びがあれば失敗する（minPairs）',
+    polarity: 'positive',
+    run() {
+      const failures = judgeOne(CONTRADICTING, tightPolicy(CONTRADICTING, { minPairs: 0 }));
+      return expect(
+        failures.some((failure) =>
+          failure.includes(
+            '突き合わせの母集団（章 × 部品）の下限を 0 と宣言していますが実測は 2 です'
+          )
+        ),
+        `母集団の下限の遊びが通ってしまう: ${JSON.stringify(failures)}`
+      );
+    },
+  },
+  {
+    name: '合成: 下限に遊びがあれば失敗する（minTableDeclarations）',
+    polarity: 'positive',
+    run() {
+      const failures = judgeOne(
+        CONTRADICTING,
+        tightPolicy(CONTRADICTING, { minTableDeclarations: 0 })
+      );
+      return expect(
+        failures.some((failure) =>
+          failure.includes('部品表由来の自己申告の下限を 0 と宣言していますが実測は 2 です')
+        ),
+        `部品表由来の下限の遊びが通ってしまう: ${JSON.stringify(failures)}`
+      );
+    },
+  },
+  {
+    name: '合成: 下限に遊びがあれば失敗する（minDetailDeclarations）',
+    polarity: 'positive',
+    run() {
+      const measurement = measureDesignDocument('f', WITH_DETAIL_DECLARATION);
+      const failures = judgeOne(
+        WITH_DETAIL_DECLARATION,
+        tightPolicy(WITH_DETAIL_DECLARATION, { minDetailDeclarations: 0 })
+      );
+      return [
+        ...expect(
+          measurement.detailDeclarations > 0,
+          `素材に詳細節由来の自己申告が無い（対照が空振り）: ${measurement.detailDeclarations}`
+        ),
+        ...expect(
+          failures.some((failure) =>
+            failure.includes(
+              '詳細節の Requirements 欄由来の自己申告の下限を 0 と宣言していますが実測は 1 です'
+            )
+          ),
+          `詳細節由来の下限の遊びが通ってしまう: ${JSON.stringify(failures)}`
+        ),
+      ];
+    },
+  },
+  {
+    name: '境界: 上限の遊びがちょうど 1 でも失敗する（judgeCeiling の境界）',
+    polarity: 'positive',
+    run() {
+      // **境界を対照で押さえる。** 遊び 4（上限 5 対 実測 1）や遊び 50 だけを見る対照では
+      // `ceiling <= actual + 1` へずらす変異が素通りする（是正前に実測。本検査 EXIT=0 /
+      // 自己検査 EXIT=0）。遊びちょうど 1 は 115.271 が現に見つけた欠陥の幅である。
+      const measurement = measureDesignDocument('f', CONTRADICTING);
+      const failures = judgeOne(
+        CONTRADICTING,
+        tightPolicy(CONTRADICTING, { maxContradictions: measurement.contradictions.length + 1 })
+      );
+      return [
+        ...expect(
+          measurement.contradictions.length === 1,
+          `素材の矛盾が 1 件でない（この境界の対照が空振り）: ${measurement.contradictions.length}`
+        ),
+        ...expect(
+          failures.some((failure) =>
+            failure.includes('の上限を 2 件と宣言していますが実測は 1 件')
+          ),
+          `遊びちょうど 1 の上限が通ってしまう: ${JSON.stringify(failures)}`
+        ),
+      ];
+    },
+  },
+  {
+    name: '境界: 下限の遊びがちょうど 1 でも失敗する（judgeFloor の境界。三つの下限すべて）',
+    polarity: 'positive',
+    run() {
+      const base = measureDesignDocument('f', CONTRADICTING);
+      const detail = measureDesignDocument('f', WITH_DETAIL_DECLARATION);
+      const pairs = judgeOne(
+        CONTRADICTING,
+        tightPolicy(CONTRADICTING, { minPairs: base.pairs - 1 })
+      );
+      const table = judgeOne(
+        CONTRADICTING,
+        tightPolicy(CONTRADICTING, { minTableDeclarations: base.tableDeclarations - 1 })
+      );
+      const detailFailures = judgeOne(
+        WITH_DETAIL_DECLARATION,
+        tightPolicy(WITH_DETAIL_DECLARATION, {
+          minDetailDeclarations: detail.detailDeclarations - 1,
+        })
+      );
+      return [
+        ...expect(
+          base.pairs === 2 && base.tableDeclarations === 2 && detail.detailDeclarations === 1,
+          `素材の実測が想定と違う（この境界の対照が空振り）: pairs=${base.pairs} table=${base.tableDeclarations} detail=${detail.detailDeclarations}`
+        ),
+        ...expect(
+          pairs.some((failure) =>
+            failure.includes(
+              '突き合わせの母集団（章 × 部品）の下限を 1 と宣言していますが実測は 2 です（遊び 1）'
+            )
+          ),
+          `母集団の遊びちょうど 1 が通ってしまう: ${JSON.stringify(pairs)}`
+        ),
+        ...expect(
+          table.some((failure) =>
+            failure.includes(
+              '部品表由来の自己申告の下限を 1 と宣言していますが実測は 2 です（遊び 1）'
+            )
+          ),
+          `部品表由来の遊びちょうど 1 が通ってしまう: ${JSON.stringify(table)}`
+        ),
+        ...expect(
+          detailFailures.some((failure) =>
+            failure.includes(
+              '詳細節の Requirements 欄由来の自己申告の下限を 0 と宣言していますが実測は 1 です（遊び 1）'
+            )
+          ),
+          `詳細節由来の遊びちょうど 1 が通ってしまう: ${JSON.stringify(detailFailures)}`
+        ),
+      ];
+    },
+  },
+  {
+    name: '陰性対照: 遊び 0 の宣言は通る（上の四つが何にでも反応していないこと）',
+    polarity: 'negative',
+    run() {
+      const failures = [
+        ...judgeOne(CONTRADICTING, tightPolicy(CONTRADICTING)),
+        ...judgeOne(WITH_DETAIL_DECLARATION, tightPolicy(WITH_DETAIL_DECLARATION)),
+      ];
+      return expect(failures.length === 0, `遊び 0 の宣言が落ちた: ${JSON.stringify(failures)}`);
+    },
+  },
+  {
+    name: '実データ: maxContradictions を緩めると本検査が赤くなる（115.247 の実測の機械化）',
+    polarity: 'positive',
+    run() {
+      return realDataLoosening(
+        'construction-photo',
+        'maxContradictions',
+        50,
+        'construction-photo: 追跡表が割り当てた要件を部品が自認していない組の上限を 50 件と宣言していますが実測は 0 件です'
+      );
+    },
+  },
+  {
+    name: '実データ: minPairs を緩めると本検査が赤くなる',
+    polarity: 'positive',
+    run() {
+      return realDataLoosening(
+        'site-survey',
+        'minPairs',
+        0,
+        'site-survey: 突き合わせの母集団（章 × 部品）の下限を 0 と宣言していますが実測は'
+      );
+    },
+  },
+  {
+    name: '実データ: minTableDeclarations を緩めると本検査が赤くなる',
+    polarity: 'positive',
+    run() {
+      return realDataLoosening(
+        'site-survey',
+        'minTableDeclarations',
+        0,
+        'site-survey: 部品表由来の自己申告の下限を 0 と宣言していますが実測は'
+      );
+    },
+  },
+  {
+    name: '実データ: minDetailDeclarations を緩めると本検査が赤くなる',
+    polarity: 'positive',
+    run() {
+      return realDataLoosening(
+        'site-survey',
+        'minDetailDeclarations',
+        0,
+        'site-survey: 詳細節の Requirements 欄由来の自己申告の下限を 0 と宣言していますが実測は'
+      );
+    },
+  },
+  {
+    name: '締める向き（実測より厳しい宣言）は既存の判定が受け持つ（二重報告しない）',
+    polarity: 'negative',
+    run() {
+      const failures = judgeOne(
+        CONTRADICTING,
+        tightPolicy(CONTRADICTING, { maxContradictions: 0, minPairs: 9 })
+      );
+      const slackReports = failures.filter((failure) => failure.includes('遊び'));
+      return [
+        ...expect(
+          failures.some((failure) => failure.includes('宣言の上限は 0 件')),
+          `上限超過が報告されない: ${JSON.stringify(failures)}`
+        ),
+        ...expect(
+          failures.some((failure) =>
+            failure.includes('突き合わせの母集団（章 × 部品）が 2 組しかありません')
+          ),
+          `下限割れが報告されない: ${JSON.stringify(failures)}`
+        ),
+        ...expect(
+          slackReports.length === 0,
+          `締める向きまで遊びとして二重に報告している: ${JSON.stringify(slackReports)}`
+        ),
+      ];
+    },
+  },
+];
+
+// ---------------------------------------------------------------------------
+// (8) 開示（印字と注釈）の対照（タスク 115.293 / 115.294 / 115.297 の教訓）
+// ---------------------------------------------------------------------------
+
+/** 本検査の本体（開示の逐語を確かめる対象。**この自己検査ファイル自身は読まない**） */
+const CHECK_SOURCE_PATH = path.join(
+  REPOSITORY_ROOT,
+  'scripts',
+  'check-design-component-requirements.ts'
+);
+
+/** 標準出力を捕まえる */
+function captureStdout(body: () => void): string {
+  const lines: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]): void => {
+    lines.push(args.map((one) => String(one)).join(' '));
+  };
+  try {
+    body();
+  } finally {
+    console.log = original;
+  }
+  return lines.join('\n');
+}
+
+const DISCLOSURE: TestCase[] = [
+  {
+    name: '要約の印字が実測から出ている（定数へ腐っていない。タスク 115.293 の教訓）',
+    run() {
+      const declared = Object.values(FEATURE_POLICIES);
+      const expectedCeilings = declared.filter((one) => one.mode === 'ratchet').length;
+      const expectedFloors = declared.length * 3;
+      const real = captureStdout(() => {
+        execute([], REPOSITORY_ROOT);
+      });
+      const wanted =
+        `宣言のつまみ ${expectedCeilings + expectedFloors} 件を実測ちょうどと突き合わせました` +
+        `（上限 ${expectedCeilings} / 下限 ${expectedFloors}）`;
+
+      // 合成の宣言（機能 1 件・exact なので上限 0 / 下限 3）を与えると印字が動くこと。
+      // 動かなければ印字は宣言に依らない定数である。
+      const syntheticRoot = makeSyntheticRoot({ f: CONTRADICTING });
+      let synthetic = '';
+      try {
+        synthetic = captureStdout(() => {
+          execute([], syntheticRoot, {
+            f: {
+              mode: 'exact',
+              contradictions: ['（章の見出しより前） | X | 2'],
+              minPairs: 2,
+              minTableDeclarations: 2,
+              minDetailDeclarations: 0,
+              reason: 't',
+            },
+          });
+        });
+      } finally {
+        removeRoot(syntheticRoot);
+      }
+
+      return [
+        ...expect(expectedCeilings > 0 && expectedFloors > 0, '期待値が 0（この対照が空振り）'),
+        ...expect(
+          real.includes(wanted),
+          `要約の印字が実測と食い違う。期待: ${wanted}\n実際:\n${real}`
+        ),
+        ...expect(
+          synthetic.includes(
+            '宣言のつまみ 3 件を実測ちょうどと突き合わせました（上限 0 / 下限 3）'
+          ),
+          `合成の宣言でも同じ数を印字している（定数の疑い）:\n${synthetic}`
+        ),
+      ];
+    },
+  },
+  {
+    name: '本体の開示が塞ぐ前の記述のまま残っていない（陳腐化の関門。タスク 115.297 の教訓）',
+    run() {
+      const source = fs.readFileSync(CHECK_SOURCE_PATH, 'utf8');
+      // 確かめる文字列は本自己検査の側に置き、**確かめる対象は別のファイル**から読む
+      // （同じファイルを読むと照合が恒真になる。タスク 115.297 の差し戻し）。
+      const stale = '緩和の経路は無防備である（未着手タスク 115.262 の所管）';
+      const current = '## 緩和の経路を塞いだ（タスク 115.298。それまでは無防備であった）';
+      const residue = '塞いでいない経路（下界として書く。網羅の主張ではない）';
+      return [
+        ...expect(
+          !source.includes(stale),
+          '塞いだあとも「緩和の経路は無防備である」という開示が残っている（開示が実態より古い）'
+        ),
+        ...expect(source.includes(current), '塞いだことの開示が本体に無い'),
+        ...expect(source.includes(residue), '塞げなかった経路の開示が本体に無い'),
+        ...expect(
+          source.includes('{@link judgeCeiling}') && source.includes('{@link judgeFloor}'),
+          '開示が塞いだ機構を名指ししていない'
+        ),
+      ];
+    },
+  },
+];
+
 /**
  * 確認の総数の下限
  *
- * 2026-09-02 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。**確認を減らす向きの
- * 書き換えは差分に現れる。**
+ * 2026-09-05 にリポジトリルートで実測した現況ちょうど（余裕ゼロ。タスク 115.298 が
+ * 対照を 14 件足した。それ以前は 2026-09-02 実測の 30 件）。
+ *
+ * **遊びを持たせない**（タスク 115.298 が 115.262 / 115.271 の作法へ揃えた）。下限を
+ * **上回っても**赤くする——本タスクが `FEATURE_POLICIES` の四つのつまみへ課したのと同じ規律を、
+ * その検査を指す宣言の側にも掛ける（タスク 115.297 の差し戻しの核心）。遊びを持つ下限は、
+ * その幅ぶんの対照の無言の削除を吸収する。二方向を合わせると、確認を増やす向きも減らす向きも
+ * 定数の書き換えを伴うため、対照の増減は必ず差分に現れる。
  */
-const MINIMUM_TOTAL_CASES = 30;
+const MINIMUM_TOTAL_CASES = 44;
 
 /**
  * 対照群そのものが在ることの関門（AI運用7原則 第3原則）
@@ -885,6 +1319,15 @@ function guardControlsArePresent(groups: readonly TestGroup[]): void {
     problems.push(
       `確認の総数が ${total} 件しかありません（宣言の下限は ${MINIMUM_TOTAL_CASES} 件）。` +
         '確認を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+  // 下限に遊びを持たせない（タスク 115.298）
+  if (total > MINIMUM_TOTAL_CASES) {
+    problems.push(
+      `確認の総数が ${total} 件で、宣言した下限 ${MINIMUM_TOTAL_CASES} 件を上回ります` +
+        `（遊び ${total - MINIMUM_TOTAL_CASES} 件）。下限は現況ちょうどに保ってください——` +
+        `遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収します。` +
+        `MINIMUM_TOTAL_CASES を ${total} 件へ上げてください。`
     );
   }
 
@@ -932,6 +1375,8 @@ function main(): void {
     { title: '宣言と対象の双方向の一致', cases: SUBJECT_IDENTITY },
     { title: '判定の型と突き合わせの前提', cases: JUDGEMENT },
     { title: '実データの対照', cases: REAL_DATA },
+    { title: '宣言の遊びの禁止（タスク 115.298）', cases: SLACK },
+    { title: '開示（印字と注釈）の対照', cases: DISCLOSURE },
   ];
 
   console.log(

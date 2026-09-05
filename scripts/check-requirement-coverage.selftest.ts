@@ -6990,6 +6990,10 @@ const GROUPS: Group[] = [
  * **総数の下限だけでは片側の消失を捕まえられない。** 陽性対照を削って同じ数だけ陰性対照を
  * 足せば総数は動かないため、極性ごとに別の下限を貼る。極性は要素の宣言（`expected` ないし
  * `polarity`）から導き、**名前の綴りからは導かない**（115.247 の作法）。
+ *
+ * **遊びを持たせない**（タスク 115.298 が 115.262 / 115.271 の作法へ揃えた）。下限を
+ * **上回っても**赤くする——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
+ * 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
  */
 const MINIMUM_POSITIVE_CONTROLS = 1;
 const MINIMUM_NEGATIVE_CONTROLS = 1;
@@ -6997,15 +7001,26 @@ const MINIMUM_NEGATIVE_CONTROLS = 1;
 /**
  * 確認の総数の下限（タスク 115.252）
  *
- * 2026-09-03 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
+ * 2026-09-05 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
  * `npx tsx scripts/check-requirement-coverage.selftest.ts | tail -1` の出す値をそのまま置く。
  * **確認を減らす向きの書き換えは差分に現れる。**
  *
  * **下限を構造から導く語彙がこの検査には無い**（115.222 は本体の検査種別の直和型から導けた）。
- * 本体 `check-requirement-coverage.ts` の被覆源の分類（`verification-*`）は 65 件の確認の一部に
- * しか対応しない。導けないため件数で貼る。
+ * 本体 `check-requirement-coverage.ts` の被覆源の分類（`verification-*`）は確認の一部にしか
+ * 対応しない。導けないため件数で貼る。
+ *
+ * **是正前の値 65 は「現況ちょうど（余裕ゼロ）」と称していたが偽であった**（タスク 115.298 の
+ * 同型の走査が実測）。コミット `9a387d34` の作業ツリーで本自己検査を走らせると要約は
+ * `📋 対照の現況: 陽性対照 1/1 ・ 陰性対照 1/1 ・ 総数 73/65（現況/宣言の下限）` を出し、
+ * **遊びが 8 件あった**——すなわち対照を 8 件まで無言で削れた。同じ走査で `MINIMUM_TOTAL_CASES` /
+ * `MINIMUM_POSITIVE_CONTROLS` / `MINIMUM_NEGATIVE_CONTROLS` を持つ自己検査は 13 本あり、
+ * 遊びが在ったのは本ファイルの総数だけである（残る宣言はいずれも遊び 0 の潜在的な穴であった）。
+ *
+ * **遊びを持たせない**（タスク 115.298 が 115.262 / 115.271 の作法へ揃えた）。下限を
+ * **上回っても**赤くする——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
+ * 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
  */
-const MINIMUM_TOTAL_CASES = 65;
+const MINIMUM_TOTAL_CASES = 73;
 
 /**
  * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）
@@ -7070,10 +7085,26 @@ function guardControlsArePresent(groups: readonly Group[]): void {
         '陽性対照を削ったのなら下限も同じ差分で下げること。'
     );
   }
+  // 下限に遊びを持たせない（タスク 115.298）
+  if (positives > MINIMUM_POSITIVE_CONTROLS) {
+    problems.push(
+      `陽性対照が ${positives} 件で、宣言した下限 ${MINIMUM_POSITIVE_CONTROLS} 件を上回ります（遊び ${positives - MINIMUM_POSITIVE_CONTROLS} 件）。` +
+        '下限は現況ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収します。' +
+        `MINIMUM_POSITIVE_CONTROLS を ${positives} 件へ上げてください。`
+    );
+  }
   if (negatives < MINIMUM_NEGATIVE_CONTROLS) {
     problems.push(
       `陰性対照が ${negatives} 件しかありません（宣言の下限は ${MINIMUM_NEGATIVE_CONTROLS} 件）。` +
         '陰性対照を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+  // 下限に遊びを持たせない（タスク 115.298）
+  if (negatives > MINIMUM_NEGATIVE_CONTROLS) {
+    problems.push(
+      `陰性対照が ${negatives} 件で、宣言した下限 ${MINIMUM_NEGATIVE_CONTROLS} 件を上回ります（遊び ${negatives - MINIMUM_NEGATIVE_CONTROLS} 件）。` +
+        '下限は現況ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収します。' +
+        `MINIMUM_NEGATIVE_CONTROLS を ${negatives} 件へ上げてください。`
     );
   }
 
@@ -7082,6 +7113,14 @@ function guardControlsArePresent(groups: readonly Group[]): void {
     problems.push(
       `確認の総数が ${total} 件しかありません（宣言の下限は ${MINIMUM_TOTAL_CASES} 件）。` +
         '確認を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+  // 下限に遊びを持たせない（タスク 115.298）
+  if (total > MINIMUM_TOTAL_CASES) {
+    problems.push(
+      `確認の総数が ${total} 件で、宣言した下限 ${MINIMUM_TOTAL_CASES} 件を上回ります（遊び ${total - MINIMUM_TOTAL_CASES} 件）。` +
+        '下限は現況ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収します。' +
+        `MINIMUM_TOTAL_CASES を ${total} 件へ上げてください。`
     );
   }
 

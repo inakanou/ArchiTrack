@@ -602,10 +602,20 @@ function checkRealRepositoryIsScanned(): string[] {
     if (!expected.includes(document))
       failures.push(`実在しない走査対象が混ざっている: ${document}`);
   }
-  const MINIMUM_STEERING_DOCUMENTS = 3;
+  // **遊びを持たせない**（タスク 115.298）。是正前は 3 と宣言しながら現況が 4 件で
+  // 遊びが 1 件あり、steering 文書を一件まで無言で走査から落とせた（2026-09-05 に実測）。
+  const MINIMUM_STEERING_DOCUMENTS = 4;
   if (documents.length < MINIMUM_STEERING_DOCUMENTS) {
     failures.push(
       `走査対象が ${MINIMUM_STEERING_DOCUMENTS} 件を下回っている（${documents.length} 件）`
+    );
+  }
+  if (documents.length > MINIMUM_STEERING_DOCUMENTS) {
+    failures.push(
+      `走査対象が ${documents.length} 件で、宣言の下限 ${MINIMUM_STEERING_DOCUMENTS} 件を上回っている` +
+        `（遊び ${documents.length - MINIMUM_STEERING_DOCUMENTS} 件）。下限は現況ちょうどに保ってください——` +
+        `遊びを持つ下限は、その幅ぶんの無言の目減りを吸収します。` +
+        `MINIMUM_STEERING_DOCUMENTS を ${documents.length} 件へ上げてください。`
     );
   }
   return failures;
@@ -1005,6 +1015,10 @@ function polarityOf(one: Case): 'positive' | 'negative' | undefined {
  * **総数の下限だけでは片側の消失を捕まえられない。** 陽性対照を削って同じ数だけ陰性対照を
  * 足せば総数は動かないため、極性ごとに別の下限を貼る。極性は要素の宣言（`expected` ないし
  * `polarity`）から導き、**名前の綴りからは導かない**（115.247 の作法）。
+ *
+ * **遊びを持たせない**（タスク 115.298 が 115.262 / 115.271 の作法へ揃えた）。下限を
+ * **上回っても**赤くする——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
+ * 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
  */
 const MINIMUM_POSITIVE_CONTROLS = 5;
 const MINIMUM_NEGATIVE_CONTROLS = 24;
@@ -1018,6 +1032,10 @@ const MINIMUM_NEGATIVE_CONTROLS = 24;
  *
  * **下限を構造から導く語彙がこの検査には無い**（115.222 は本体の検査種別の直和型から導けた）。
  * 導けないため件数で貼る。
+ *
+ * **遊びを持たせない**（タスク 115.298 が 115.262 / 115.271 の作法へ揃えた）。下限を
+ * **上回っても**赤くする——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
+ * 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
  */
 const MINIMUM_TOTAL_CASES = 41;
 
@@ -1084,10 +1102,26 @@ function guardControlsArePresent(groups: readonly Group[]): void {
         '陽性対照を削ったのなら下限も同じ差分で下げること。'
     );
   }
+  // 下限に遊びを持たせない（タスク 115.298）
+  if (positives > MINIMUM_POSITIVE_CONTROLS) {
+    problems.push(
+      `陽性対照が ${positives} 件で、宣言した下限 ${MINIMUM_POSITIVE_CONTROLS} 件を上回ります（遊び ${positives - MINIMUM_POSITIVE_CONTROLS} 件）。` +
+        '下限は現況ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収します。' +
+        `MINIMUM_POSITIVE_CONTROLS を ${positives} 件へ上げてください。`
+    );
+  }
   if (negatives < MINIMUM_NEGATIVE_CONTROLS) {
     problems.push(
       `陰性対照が ${negatives} 件しかありません（宣言の下限は ${MINIMUM_NEGATIVE_CONTROLS} 件）。` +
         '陰性対照を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+  // 下限に遊びを持たせない（タスク 115.298）
+  if (negatives > MINIMUM_NEGATIVE_CONTROLS) {
+    problems.push(
+      `陰性対照が ${negatives} 件で、宣言した下限 ${MINIMUM_NEGATIVE_CONTROLS} 件を上回ります（遊び ${negatives - MINIMUM_NEGATIVE_CONTROLS} 件）。` +
+        '下限は現況ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収します。' +
+        `MINIMUM_NEGATIVE_CONTROLS を ${negatives} 件へ上げてください。`
     );
   }
 
@@ -1096,6 +1130,14 @@ function guardControlsArePresent(groups: readonly Group[]): void {
     problems.push(
       `確認の総数が ${total} 件しかありません（宣言の下限は ${MINIMUM_TOTAL_CASES} 件）。` +
         '確認を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+  // 下限に遊びを持たせない（タスク 115.298）
+  if (total > MINIMUM_TOTAL_CASES) {
+    problems.push(
+      `確認の総数が ${total} 件で、宣言した下限 ${MINIMUM_TOTAL_CASES} 件を上回ります（遊び ${total - MINIMUM_TOTAL_CASES} 件）。` +
+        '下限は現況ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収します。' +
+        `MINIMUM_TOTAL_CASES を ${total} 件へ上げてください。`
     );
   }
 

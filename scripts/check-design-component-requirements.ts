@@ -161,26 +161,50 @@ export type FeaturePolicy =
  * `npx tsx scripts/check-design-component-requirements.ts --survey` で実測した現況である。
  * **上限を緩める向き・下限を下げる向きの書き換えは、突き合わせが後退したことを意味する。**
  *
- * ## 緩和の経路は無防備である（未着手タスク 115.262 の所管）
+ * ## 緩和の経路を塞いだ（タスク 115.298。それまでは無防備であった）
  *
- * 上の一文は**読み手への申し合わせにすぎず、機構は緩和を止めない**。上限を実測値より大きい値へ
- * 書き換えても、本検査も自己検査も何も言わずに緑を出す。
- *
- * 実測（2026-09-02、リポジトリルート）: `construction-photo` の `maxContradictions` を
+ * タスク 115.247 の時点では、上の一文は**読み手への申し合わせにすぎず、機構は緩和を止めなかった**。
+ * 当時の実測（2026-09-02、リポジトリルート）: `construction-photo` の `maxContradictions` を
  * `0` から `50` へ上げると、`npm run check:design-component-reqs` は EXIT=0 で
  * 「✅ 追跡表と部品別の自己申告は宣言どおりです」を、
  * `npm run check:design-component-reqs:selftest` は EXIT=0 で「✅ 28/28 件の確認に成功しました」を
- * 出した（当時の総数。由来別の下限を足した現在は 30 件）。**どちらも赤くならない。**
+ * 出した（当時の総数。由来別の下限を足した現在の値は
+ * `scripts/check-design-component-requirements.selftest.ts` の `MINIMUM_TOTAL_CASES` が持つ）。
  *
- * これは未着手タスク 115.262（`.kiro/specs/site-survey/tasks.md`
- * 「網羅検査のラチェット上限が先回りの緩和で無言になる状態を解消する」）が
- * `check-traceability-coverage.ts` について実測した形と同型であり、**本ファイルはその面を
- * 12 機能ぶん拡げている**。本ファイルも同タスクの対象に含まれる。
+ * **タスク 115.298 の着手時点で同じ変異を四つのつまみへ一つずつ当て直した**（コミット `9a387d34`
+ * の作業ツリー、2026-09-05 にリポジトリルートで実測）。緩める向きへ動かした結果は次のとおりで、
+ * **四つのうち三つは本検査も自己検査も緑のまま通った**。
  *
- * 現時点の上限は全機能で実測値ちょうど（余裕ゼロ）であり、**いま無言で吸収されている矛盾は
- * 無い**。したがって「先回りの緩和」そのものは行われていない。塞ぐ手立て（宣言値と実測値の
- * 一致を求める、緩和に理由の更新を強いる等）の設計は 115.262 の所管であり、本タスク
- * （115.247）の境界外である。
+ *   - `construction-photo` の `maxContradictions` `0` → `50`: 本検査 EXIT=0 / 自己検査 EXIT=0
+ *   - `site-survey` の `minPairs` `45` → `0`: 本検査 EXIT=0 / 自己検査 EXIT=1
+ *   - `site-survey` の `minTableDeclarations` `61` → `0`: 本検査 EXIT=0 / 自己検査 EXIT=0
+ *   - `site-survey` の `minDetailDeclarations` `37` → `0`: 本検査 EXIT=0 / 自己検査 EXIT=0
+ *
+ * `minPairs` だけが赤くなったのは**自己検査の陽性対照が実 `FEATURE_POLICIES` を読んで
+ * 突き合わせるため**であり、**本検査そのものはこの変異を素通しした**。すなわち押下前の関門
+ * `npm run check:design-component-reqs` の側には、四つのいずれについても歯止めが無かった。
+ *
+ * 是正は `check-traceability-coverage.ts` がタスク 115.262 で採った形——**遊びの禁止**——を
+ * そのまま当てた（下限側は 115.271 が同じ形を先に下限へ当てている）。{@link judgeCeiling} は
+ * 宣言した上限が実測を**上回っていても**失敗させ、{@link judgeFloor} は宣言した下限が実測を
+ * **下回っていても**失敗させる。既存の「上限を超えたら失敗」「下限を割ったら失敗」と合わせると
+ * 宣言は実測と一致するほかなく、**宣言が現実によって一意に決まる**。四つのつまみはいずれも
+ * 是正の時点で遊び 0 であったため、**本タスクは宣言値を一つも動かしていない**
+ * （関門を通すために現況の宣言値を動かさないこと。タスク 115.262 の制約）。
+ *
+ * ## 塞いでいない経路（下界として書く。網羅の主張ではない）
+ *
+ *   - **同じ差分で実態と宣言をそろって緩める書き換えは通る**。設計文書へ矛盾を一件足し、
+ *     同じ差分で `maxContradictions` を一つ上げれば緑である。下限側も同様で、部品表の行を
+ *     落としつつ下限を同額だけ下げれば通る。これはタスク 115.262 が上限側について申告した
+ *     残余と同じであり、**集合の逐一列挙（`mode: 'exact'`）へ移しても消えない**——宣言集合へ
+ *     新しい ID を足せば同じことが起きる。どちらの形も「宣言が現実の忠実な鏡である」ことしか
+ *     保証しない。
+ *   - **`unparsed` と `partial` は測っているのに宣言していない**。`--survey` は両者を印字するが
+ *     `FEATURE_POLICIES` は受け口を持たないため、読めない表記が増えても本検査は何も言わない
+ *     （`check-traceability-coverage.ts` は `maxUnparsed` を宣言に持つ。同型の欠落である）。
+ *     これは「宣言の緩和経路」ではなく「宣言が無い測定値」であり、本タスクの境界の外にある。
+ *     後任へ送る（`.kiro/specs/site-survey/design.md` の当該記録を見よ）。
  */
 export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
   'company-info': {
@@ -704,9 +728,64 @@ export function measureFeature(rootDir: string, feature: string): FeatureMeasure
 export interface Judgement {
   readonly failures: string[];
   readonly measurements: FeatureMeasurement[];
+  /** 実測と突き合わせたつまみの数（タスク 115.298。要約の印字がこの値を出す） */
+  readonly knobs: KnobTally;
 }
 
-function judgeFeature(measurement: FeatureMeasurement, policy: FeaturePolicy): string[] {
+/** 実測と突き合わせたつまみの内訳（タスク 115.298） */
+export interface KnobTally {
+  /** 上限（`maxContradictions`）を実測ちょうどと突き合わせた回数 */
+  readonly ceilings: number;
+  /** 下限（`minPairs` / `minTableDeclarations` / `minDetailDeclarations`）の同上 */
+  readonly floors: number;
+}
+
+/**
+ * 宣言した上限に遊びが無いことを求める（タスク 115.298。`check-traceability-coverage.ts` の
+ * タスク 115.262 と同じ形）
+ *
+ * 「超えないこと」だけを求める形は、**先回りで緩めた宣言を機構が止めない**。上限が実測を
+ * 上回っていれば、その幅ぶんの新たな悪化が無言で吸収される。ここでは逆向き——**上限が実測を
+ * 上回っていれば失敗**——を課す。既存の「上限を超えたら失敗」と合わせると、宣言は実測と
+ * 一致するほかない。
+ *
+ * **締める向きは妨げない。** 実測が減ったときに求めるのは上限を実測と同じ値まで下げることだけで
+ * あり、下げるべき値は失敗の文面が名指しする。実測が増えた側は既存の判定が受け持つため、
+ * ここでは扱わない（同じ食い違いを二度報告しない）。
+ */
+function judgeCeiling(label: string, kind: string, actual: number, ceiling: number): string[] {
+  if (ceiling <= actual) return [];
+  return [
+    `${label}: ${kind}の上限を ${ceiling} 件と宣言していますが実測は ${actual} 件です` +
+      `（遊び ${ceiling - actual} 件）。上限は実測ちょうどに保ってください——` +
+      `遊びを持つ宣言は、その幅ぶんの新たな悪化を無言で吸収します。上限を ${actual} 件へ下げてください。`,
+  ];
+}
+
+/**
+ * 宣言した下限に遊びが無いことを求める（タスク 115.298。タスク 115.271 が
+ * `check-design-measurement-freshness.ts` の `MINIMUM_ENTRIES` へ当てた形と同じ）
+ *
+ * 「割らないこと」だけを求める形は、**実測より低く据えた下限を機構が止めない**。下限が実測を
+ * 下回っていれば、その幅ぶんの無言の目減り（部品名の綴りの崩れ、表の書式の変化）が吸収される。
+ * ここでは逆向き——**下限が実測を下回っていれば失敗**——を課す。
+ *
+ * **増やす向きも減らす向きも定数の書き換えを伴う**ため、突き合わせの母集団の増減は必ず差分に
+ * 現れる。緩める向き（下げる）だけでなく、実態が育ったときも宣言の更新を強いる。
+ */
+function judgeFloor(label: string, kind: string, actual: number, floor: number): string[] {
+  if (floor >= actual) return [];
+  return [
+    `${label}: ${kind}の下限を ${floor} と宣言していますが実測は ${actual} です` +
+      `（遊び ${actual - floor}）。下限は実測ちょうどに保ってください——` +
+      `遊びを持つ宣言は、その幅ぶんの無言の目減りを吸収します。下限を ${actual} へ上げてください。`,
+  ];
+}
+
+function judgeFeature(
+  measurement: FeatureMeasurement,
+  policy: FeaturePolicy
+): { failures: string[]; knobs: KnobTally } {
   const failures: string[] = [];
   const label = measurement.feature;
   const noDeclarationsAllowed = policy.mode === 'ratchet' && policy.allowNoDeclarations === true;
@@ -749,6 +828,24 @@ function judgeFeature(measurement: FeatureMeasurement, policy: FeaturePolicy): s
     );
   }
 
+  // 下限に遊びを持たせない（タスク 115.298）。実測より低く据えた下限を機構の側で止める。
+  failures.push(
+    ...judgeFloor(label, '突き合わせの母集団（章 × 部品）', measurement.pairs, policy.minPairs),
+    ...judgeFloor(
+      label,
+      '部品表由来の自己申告',
+      measurement.tableDeclarations,
+      policy.minTableDeclarations
+    ),
+    ...judgeFloor(
+      label,
+      '詳細節の Requirements 欄由来の自己申告',
+      measurement.detailDeclarations,
+      policy.minDetailDeclarations
+    )
+  );
+  const floors = 3;
+
   if (policy.mode === 'exact') {
     const declared = new Set(policy.contradictions);
     const actual = new Set(measurement.contradictions.map((entry) => entry.id));
@@ -771,7 +868,8 @@ function judgeFeature(measurement: FeatureMeasurement, policy: FeaturePolicy): s
         `${label}: 解消済みの矛盾が宣言に残っています（宣言から削ってください）: ${stale.join(' / ')}`
       );
     }
-    return failures;
+    // `exact` は集合の完全一致を求めるため、上限のつまみを持たない
+    return { failures, knobs: { ceilings: 0, floors } };
   }
 
   if (measurement.contradictions.length > policy.maxContradictions) {
@@ -787,7 +885,16 @@ function judgeFeature(measurement: FeatureMeasurement, policy: FeaturePolicy): s
           .join('\n')
     );
   }
-  return failures;
+  // 上限に遊びを持たせない（タスク 115.298）。先回りで緩めた宣言を機構の側で止める。
+  failures.push(
+    ...judgeCeiling(
+      label,
+      '追跡表が割り当てた要件を部品が自認していない組',
+      measurement.contradictions.length,
+      policy.maxContradictions
+    )
+  );
+  return { failures, knobs: { ceilings: 1, floors } };
 }
 
 /**
@@ -804,6 +911,8 @@ export function judge(
 ): Judgement {
   const failures: string[] = [];
   const measurements: FeatureMeasurement[] = [];
+  let ceilings = 0;
+  let floors = 0;
 
   // 母集団が空なら前提の崩壊として赤くする（AI運用7原則 第3原則）
   if (features.length === 0) {
@@ -845,10 +954,13 @@ export function judge(
       failures.push(`${feature}: design.md が存在しません。`);
       continue;
     }
-    failures.push(...judgeFeature(measurement, policy));
+    const verdict = judgeFeature(measurement, policy);
+    failures.push(...verdict.failures);
+    ceilings += verdict.knobs.ceilings;
+    floors += verdict.knobs.floors;
   }
 
-  return { failures, measurements };
+  return { failures, measurements, knobs: { ceilings, floors } };
 }
 
 function reportSurvey(measurements: readonly FeatureMeasurement[]): void {
@@ -877,7 +989,18 @@ function reportSurvey(measurements: readonly FeatureMeasurement[]): void {
   }
 }
 
-export function execute(argv: readonly string[], rootDir = process.cwd()): number {
+/**
+ * @param policies 方針の宣言。既定は `FEATURE_POLICIES`
+ *
+ * `policies` を差し替えられるのは自己検査のためである（タスク 115.298）。**印字が宣言に
+ * 依らない定数へ腐っても宣言側の対照では気付けない**（タスク 115.293 の差し戻し）ため、
+ * 自己検査は合成の宣言を与えて要約の印字が動くことを確かめる。
+ */
+export function execute(
+  argv: readonly string[],
+  rootDir = process.cwd(),
+  policies: Readonly<Record<string, FeaturePolicy>> = FEATURE_POLICIES
+): number {
   const verbose = argv.includes('--verbose');
   const json = argv.includes('--json');
   const survey = argv.includes('--survey');
@@ -888,7 +1011,7 @@ export function execute(argv: readonly string[], rootDir = process.cwd()): numbe
     return 0;
   }
 
-  const { failures, measurements } = judge(rootDir);
+  const { failures, measurements, knobs } = judge(rootDir, policies);
 
   const totals = measurements.reduce(
     (accumulator, measurement) => ({
@@ -901,7 +1024,7 @@ export function execute(argv: readonly string[], rootDir = process.cwd()): numbe
   );
 
   if (json) {
-    console.log(JSON.stringify({ failures, totals, measurements }, null, 2));
+    console.log(JSON.stringify({ failures, totals, knobs, measurements }, null, 2));
     return failures.length > 0 ? 1 : 0;
   }
 
@@ -915,6 +1038,12 @@ export function execute(argv: readonly string[], rootDir = process.cwd()): numbe
   console.log(
     `   突き合わせの母集団 ${totals.pairs} 組 / 矛盾 ${totals.contradictions} 件` +
       '（いずれも宣言との比較で判定します）'
+  );
+  // 遊びの禁止の開示（タスク 115.298）。件数は判定に使うのと同じ `knobs` から出す——
+  // 判定と印字が別々の真実を持たないため、印字が定数へ腐れば自己検査の対照が赤くなる。
+  console.log(
+    `   宣言のつまみ ${knobs.ceilings + knobs.floors} 件を実測ちょうどと突き合わせました` +
+      `（上限 ${knobs.ceilings} / 下限 ${knobs.floors}）——緩める向きも締める向きも赤くなります`
   );
 
   if (verbose) {

@@ -3633,6 +3633,10 @@ interface Group {
  *
  * **限界**: 削った分だけ別の群へ確認を足せば総数は動かない。件数を構造から導く語彙は本体側に
  * 無く、根拠の無い余裕を貼らないという 115.222 の判断を引き継いでいる。
+ *
+ * **遊びを持たせない**（タスク 115.298 が 115.262 / 115.271 の作法へ揃えた）。下限を
+ * **上回っても**赤くする——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
+ * 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
  */
 const MINIMUM_TOTAL_CASES = 196;
 
@@ -3797,6 +3801,16 @@ function guardControlsArePresent(groups: readonly Group[]): void {
         '下限は先回りで緩められる。免除を増やすなら上限も同じ差分で上げること。'
     );
   }
+  // 上限に遊びを持たせない（タスク 115.298）。先回りで緩めた上限を機構の側で止める。
+  if (MAXIMUM_EXEMPTIONS > TYPES_WITHOUT_INJECTED_POSITIVE_CONTROL.length) {
+    problems.push(
+      `陽性対照の免除の上限を ${MAXIMUM_EXEMPTIONS} 件と宣言していますが実測は ` +
+        `${TYPES_WITHOUT_INJECTED_POSITIVE_CONTROL.length} 件です` +
+        `（遊び ${MAXIMUM_EXEMPTIONS - TYPES_WITHOUT_INJECTED_POSITIVE_CONTROL.length} 件）。` +
+        `上限は実測ちょうどに保ってください——遊びを持つ上限は、その幅ぶんの新たな免除を無言で吸収します。` +
+        `MAXIMUM_EXEMPTIONS を ${TYPES_WITHOUT_INJECTED_POSITIVE_CONTROL.length} 件へ下げてください。`
+    );
+  }
 
   const all = groups.flatMap((group) => [...group.cases]);
   const named = new Set(
@@ -3920,6 +3934,15 @@ function main(): void {
     console.log(
       `\n❌ 報告した確認は ${index} 件しかありません（宣言の下限は ${MINIMUM_TOTAL_CASES} 件）。` +
         '確認を削ったのなら下限も同じ差分で下げること。'
+    );
+    process.exit(1);
+  }
+  // 下限に遊びを持たせない（タスク 115.298）
+  if (index > MINIMUM_TOTAL_CASES) {
+    console.log(
+      `❌ 確認の総数が ${index} 件で、宣言した下限 ${MINIMUM_TOTAL_CASES} 件を上回ります（遊び ${index - MINIMUM_TOTAL_CASES} 件）。` +
+        '下限は現況ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収します。' +
+        `MINIMUM_TOTAL_CASES を ${index} 件へ上げてください。`
     );
     process.exit(1);
   }
