@@ -128,33 +128,171 @@ const CI_JOB_ID = 'dead-script-env';
  * の引用符内の言及、行頭 `#` の注釈、`…:selftest` / `…:verbose` への部分一致がすべて
  * 「結線されている」と誤判定される。本体の `isReadSomewhere` が「綴りが現れるだけでは
  * 読み手と数えない」を実装しているのと同じ規律をここにも当てる（115.244 のレビュー）。
+ *
+ * **限界（塞いでいない見逃し。タスク 115.297 が実測して開示に留めた）**: 実行と見るのは
+ * 綴りの完全一致だけで、**シェルの文脈は見ない**。ヒアドキュメント（`cat <<'HELP'` の本文）へ
+ * 同じ綴りの行を置くと、実行されないのに実行と数える。2026-09-05 に実
+ * `.github/workflows/ci.yml` の実行行をヒアドキュメントで包む変異を当て、自己検査が
+ * 25/25 緑・EXIT=0 のまま通ることを実測した。塞ぐにはシェルの構文解析が要る一方、この形は
+ * 作為的で実リポジトリの該当は 0 件であるため開示に留めている。開示は
+ * {@link checkDisclosedLimitsHold} が逐語と挙動の両方で固定している。
  */
 function hasExecutionLine(text: string, command: string): boolean {
   return text.split('\n').some((line) => line.trim() === command);
 }
 
-/** YAML の 2 空白字下げのジョブ定義（`  <id>:`）の本文を切り出す */
+/** YAML の行を構造の境界に数えるか（空行と行全体の注釈は数えない） */
+function isStructuralYamlLine(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed !== '' && !trimmed.startsWith('#');
+}
+
+/** 行頭の空白の数（字下げ幅） */
+function indentWidth(line: string): number {
+  return line.length - line.trimStart().length;
+}
+
+/**
+ * YAML のスカラから引用符と行末の注釈を落とす。
+ *
+ * `'dead-script-env'` と `dead-script-env` を同じ識別子として扱うためである。
+ */
+function unquoteYamlScalar(raw: string): string {
+  let value = raw.trim();
+  const comment = value.search(/\s#/);
+  if (comment !== -1) value = value.slice(0, comment).trim();
+  const quoted =
+    (value.startsWith("'") && value.endsWith("'")) ||
+    (value.startsWith('"') && value.endsWith('"'));
+  if (quoted && value.length >= 2) value = value.slice(1, -1);
+  return value.trim();
+}
+
+/** `  <id>:` のジョブ見出しの行か（引用の有無・行末の注釈を許す） */
+function isJobHeadingFor(line: string, jobId: string): boolean {
+  const matched = /^ {2}('[^']*'|"[^"]*"|[^'"\s:#][^:]*?)\s*:\s*(?:#.*)?$/.exec(line);
+  if (matched === null) return false;
+  return unquoteYamlScalar(matched[1] as string) === jobId;
+}
+
+/**
+ * YAML の 2 空白字下げのジョブ定義（`  <id>:`）の本文を切り出す。
+ *
+ * **綴りの完全一致ではなく構造で読む**（タスク 115.297）。是正前は
+ * `lines.indexOf('  ' + jobId + ':')` と `/^ {2}\S/` の完全一致に依存していたため、
+ * `yaml.safe_load` では意味の変わらない書式変更で**事実に反する赤**を出した。2026-09-05 に実
+ * `.github/workflows/ci.yml` へ当てた実測 3 件（いずれも変異前後で `yaml.safe_load` が同値で
+ * あることを `python3` で確認済み）:
+ *
+ *   - ジョブ内へ 2 空白字下げの注釈行を入れる → 「jobs に dead-script-env のジョブが無い」
+ *   - ジョブ名を `'dead-script-env':` と引用する → 同じ、事実に反するメッセージ
+ *   - `ci-success` の `needs:` をブロック記法にする → 「needs に dead-script-env が
+ *     含まれていない」
+ *
+ * **YAML の解析器は入れていない。** 根の `package.json` に YAML の直接依存は無く、
+ * `js-yaml` は eslint 経由の推移的依存にすぎない（2026-09-05 に `require.resolve` で確認）。
+ * 推移的依存に関門を載せると依存の更新で黙って壊れ、直接依存を足せば lockfile を触ることに
+ * なる。字下げ・引用・行全体の注釈だけを構造として読む形を選んだ。
+ *
+ * **限界**: 読むのはそこまでである。ブロックスカラ（`|` / `>`）の本文に `  <id>:` と同形の
+ * 行が現れると見出しと誤りうる。実 `ci.yml` の該当は 0 件（2026-09-05）。
+ */
 function sliceYamlJobBlock(text: string, jobId: string): string {
   const lines = text.split('\n');
-  const start = lines.indexOf(`  ${jobId}:`);
+  const start = lines.findIndex((line) => isJobHeadingFor(line, jobId));
   if (start === -1) return '';
   const rest = lines.slice(start + 1);
-  const end = rest.findIndex((line) => /^ {2}\S/.test(line));
+  const end = rest.findIndex((line) => isStructuralYamlLine(line) && indentWidth(line) <= 2);
   return (end === -1 ? rest : rest.slice(0, end)).join('\n');
 }
 
-/** ジョブ本文の `needs: [a, b, c]` の要素を取り出す */
+/**
+ * ジョブ本文の `needs:` の要素を取り出す。
+ *
+ * **流れ記法（`needs: [a, b]`）とブロック記法（`needs:` + `- a`）の双方を読む**
+ * （タスク 115.297。是正前は `needs:\s*\[` の流れ記法だけだった）。
+ */
 function parseNeedsList(jobBlock: string): string[] {
-  const line = jobBlock.split('\n').find((entry) => /^\s*needs:\s*\[/.test(entry));
-  if (line === undefined) return [];
-  const open = line.indexOf('[');
-  const close = line.lastIndexOf(']');
-  if (open === -1 || close === -1 || close < open) return [];
-  return line
-    .slice(open + 1, close)
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter((entry) => entry !== '');
+  const lines = jobBlock.split('\n');
+  const at = lines.findIndex((line) => /^\s*needs\s*:/.test(line));
+  if (at === -1) return [];
+  const header = lines[at] as string;
+  const inline = header.slice(header.indexOf(':') + 1).trim();
+  if (inline.startsWith('[')) {
+    const close = inline.lastIndexOf(']');
+    if (close === -1) return [];
+    return inline
+      .slice(1, close)
+      .split(',')
+      .map((entry) => unquoteYamlScalar(entry))
+      .filter((entry) => entry !== '');
+  }
+  if (inline !== '' && !inline.startsWith('#')) {
+    // `needs: lint` の単一スカラ記法
+    return [unquoteYamlScalar(inline)].filter((entry) => entry !== '');
+  }
+  const base = indentWidth(header);
+  const items: string[] = [];
+  for (const line of lines.slice(at + 1)) {
+    if (!isStructuralYamlLine(line)) continue;
+    if (indentWidth(line) <= base) break;
+    const item = /^\s*-\s*(.+)$/.exec(line);
+    if (item === null) break;
+    const value = unquoteYamlScalar(item[1] as string);
+    if (value !== '') items.push(value);
+  }
+  return items;
+}
+
+/** `ci-success` が関門にしているジョブの識別子 */
+function gatedJobIds(yaml: string): string[] {
+  return parseNeedsList(sliceYamlJobBlock(yaml, 'ci-success'));
+}
+
+/**
+ * 関門ジョブのうち**無力化されているもの**を挙げる（タスク 115.297 が新設）。
+ *
+ * `continue-on-error: true` を持つジョブは、中の検査が落ちても `result` が `success` になる。
+ * すなわち `ci-success` の `needs` にも失敗判定の条件部にも現れたまま、**関門だけが無力化
+ * される**。2026-09-05 の実測: 実 `ci.yml` の `dead-script-env` ジョブへこの 1 行を足すと、
+ * 本自己検査は 25/25 緑・EXIT=0 のまま通った。
+ *
+ * これは `dead-script-env` に固有の穴ではなく、`ci-success` が関門にしている**全ジョブに
+ * 共通する一般論**である。したがってここでは一件ではなく `needs` が挙げるジョブすべてを
+ * 見る（115.228 の作法）。
+ *
+ * **限界（塞いでいない形）**: 見るのは `continue-on-error` の値が `false` 以外であることだけ
+ * である。`if:` を常に偽にして skip させる形は `result` が `skipped` になり `!= "success"` で
+ * 落ちるため無力化にならない。ジョブ内の `run` の末尾へ `|| true` を足す形は本関門では見ない
+ * が、`hasExecutionLine` が行の完全一致を課すため実行行として数えられず別の確認が赤くなる
+ * （2026-09-05 に実 `ci.yml` への変異で実測）。
+ *
+ * **「関門ジョブ」は `ci-success` の `needs` が挙げるものだけを指す。** `jobs:` に在っても
+ * `needs` に無いジョブは、そもそも `ci-success` の合否に効かないため本関門の母集団の外に
+ * ある。2026-09-05 の実測では `criterion-literal-presence` が実際にこの位置にあり、
+ * **そのジョブが落ちても CI は緑になる**。これは本検査の所管を超えるため是正していない
+ * （`.kiro/specs/site-survey/design.md` の 115.297 の記録に起票候補として置いた）。
+ *
+ * **網羅の主張ではない。下界である。**
+ */
+function neutralizedGatedJobs(yaml: string): string[] {
+  const neutralized: string[] = [];
+  for (const jobId of gatedJobIds(yaml)) {
+    const block = sliceYamlJobBlock(yaml, jobId);
+    if (block === '') {
+      neutralized.push(`${jobId}: needs が指すジョブ定義が jobs に無い`);
+      continue;
+    }
+    for (const line of block.split('\n')) {
+      const matched = /^continue-on-error\s*:\s*(.*)$/.exec(line.trim());
+      if (matched === null) continue;
+      const value = unquoteYamlScalar(matched[1] as string);
+      if (value !== 'false') {
+        neutralized.push(`${jobId}: continue-on-error: ${value === '' ? '(空)' : value}`);
+      }
+    }
+  }
+  return neutralized;
 }
 
 /**
@@ -293,6 +431,104 @@ const CI_STRUCTURE_SAMPLES: readonly CiStructureSample[] = [
     ),
     expected: false,
   },
+  // --- 意味を変えない書式変更で赤くならないこと（タスク 115.297。実 ci.yml で実測した 3 件）
+  {
+    name: 'ジョブ内に 2 空白字下げの注釈行がある（yaml.safe_load では意味不変）',
+    yaml: CI_WIRED.replace(`  ${CI_JOB_ID}:\n`, `  ${CI_JOB_ID}:\n  # 2 空白字下げの注釈\n`),
+    expected: true,
+  },
+  {
+    name: 'ジョブ名が引用符で囲まれている（同上）',
+    yaml: CI_WIRED.replace(`  ${CI_JOB_ID}:\n`, `  '${CI_JOB_ID}':\n`),
+    expected: true,
+  },
+  {
+    name: 'needs がブロック記法で書かれている（同上）',
+    yaml: CI_WIRED.replace(
+      `    needs: [lint, ${CI_JOB_ID}]\n`,
+      `    needs:\n      - lint\n      - ${CI_JOB_ID}\n`
+    ),
+    expected: true,
+  },
+  // --- 書式に寛容にしたことで判定が恒真へ退化していないこと（陰性側）
+  {
+    name: '引用符付きでもジョブ名が別なら結線と数えない',
+    yaml: CI_WIRED.replace(`  ${CI_JOB_ID}:\n`, `  'other-job':\n`),
+    expected: false,
+  },
+  {
+    name: 'needs がブロック記法で、そこに検査のジョブが無い',
+    yaml: CI_WIRED.replace(`    needs: [lint, ${CI_JOB_ID}]\n`, '    needs:\n      - lint\n'),
+    expected: false,
+  },
+];
+
+/** 関門の無力化の対照 1 件 */
+interface CiNeutralizationSample {
+  readonly name: string;
+  readonly yaml: string;
+  /** 無力化として挙がるべき件数 */
+  readonly expectedCount: number;
+}
+
+/**
+ * 関門ジョブが二つある最小の ci.yml。
+ *
+ * **兄弟ジョブも見ていること**を対照で示すため、検査のジョブのほかに `lint` を置く
+ * （一件だけ見る形になっていないことの下限。115.228）。
+ */
+const CI_GATE_MINIMAL = [
+  'jobs:',
+  `  ${CI_JOB_ID}:`,
+  '    steps:',
+  `      - run: ${CHECK_COMMAND}`,
+  '  lint:',
+  '    steps:',
+  '      - run: npm run lint',
+  '  ci-success:',
+  `    needs: [lint, ${CI_JOB_ID}]`,
+  '    steps:',
+  '      - run: echo ok',
+  '',
+].join('\n');
+
+/** `neutralizedGatedJobs` の対照（陽性 = 無力化されている、陰性 = されていない） */
+const CI_NEUTRALIZATION_SAMPLES: readonly CiNeutralizationSample[] = [
+  { name: '無力化が無い', yaml: CI_GATE_MINIMAL, expectedCount: 0 },
+  {
+    name: '検査のジョブに continue-on-error: true',
+    yaml: CI_GATE_MINIMAL.replace(
+      `  ${CI_JOB_ID}:\n`,
+      `  ${CI_JOB_ID}:\n    continue-on-error: true\n`
+    ),
+    expectedCount: 1,
+  },
+  {
+    name: '兄弟のジョブに continue-on-error: true（一件だけ見る形になっていない）',
+    yaml: CI_GATE_MINIMAL.replace('  lint:\n', '  lint:\n    continue-on-error: true\n'),
+    expectedCount: 1,
+  },
+  {
+    name: 'ステップ側の continue-on-error: true',
+    yaml: CI_GATE_MINIMAL.replace(
+      `      - run: ${CHECK_COMMAND}\n`,
+      `      - run: ${CHECK_COMMAND}\n        continue-on-error: true\n`
+    ),
+    expectedCount: 1,
+  },
+  {
+    name: 'continue-on-error: false は無力化ではない',
+    yaml: CI_GATE_MINIMAL.replace(
+      `  ${CI_JOB_ID}:\n`,
+      `  ${CI_JOB_ID}:\n    continue-on-error: false\n`
+    ),
+    expectedCount: 0,
+  },
+  {
+    name: 'needs が指すジョブ定義が jobs に無い',
+    yaml: CI_GATE_MINIMAL.replace(`  ${CI_JOB_ID}:\n`, '  renamed-job:\n'),
+    expectedCount: 1,
+  },
 ];
 
 /** 合成した ci.yml に対して、4 点（ジョブ・実行行・needs・条件部）がすべて成立するか */
@@ -315,6 +551,21 @@ function ciStructureSampleFailures(): string[] {
     if (judged !== sample.expected) {
       failures.push(
         `${sample.expected ? '陽性' : '陰性'} [${sample.name}]: 結線の判定が ${judged}（期待は ${sample.expected}）`
+      );
+    }
+  }
+  return failures;
+}
+
+/** `CI_NEUTRALIZATION_SAMPLES` を回す。GROUPS へ結線して実行する */
+function ciNeutralizationSampleFailures(): string[] {
+  const failures: string[] = [];
+  for (const sample of CI_NEUTRALIZATION_SAMPLES) {
+    const judged = neutralizedGatedJobs(sample.yaml);
+    if (judged.length !== sample.expectedCount) {
+      const detail = judged.length > 0 ? ` — ${judged.join(' / ')}` : '';
+      failures.push(
+        `${sample.expectedCount > 0 ? '陽性' : '陰性'} [${sample.name}]: 無力化と判定した件数が ${judged.length}（期待は ${sample.expectedCount}）${detail}`
       );
     }
   }
@@ -1240,6 +1491,217 @@ function checkStripCommentsKeepsCode(): string[] {
   return failures;
 }
 
+/**
+ * `ci-success` が関門にしているジョブ数の下限（タスク 115.297）
+ *
+ * 2026-09-05 に `.github/workflows/ci.yml` から実測した現況ちょうど（余裕ゼロ）。抽出は
+ * `npx tsx -e` などで `gatedJobIds` を呼ぶか、`needs:` の行を数えること。**遊びを持つ下限は
+ * その幅ぶんの無言の削除を吸収する**ため、関門から意図してジョブを外すときだけこの数を下げる。
+ */
+const MINIMUM_GATED_JOBS = 14;
+
+function checkGatedJobsAreNotNeutralized(): string[] {
+  // 115.297 の (3)(b)。実 `.github/workflows/ci.yml` の `dead-script-env` ジョブへ
+  // `continue-on-error: true` を 1 行足す変異を実際に当てた結果、是正前は 25/25 緑・EXIT=0 で
+  // 素通りし、是正後は EXIT=1 / 1 件失敗（「関門ジョブが無力化されている — dead-script-env:
+  // continue-on-error: true」）になった（2026-09-05 にリポジトリルートで実測。復元は事前複製
+  // からの書き戻しで行い `git hash-object` の一致を確認）。同じ 1 行を**兄弟の `lint` ジョブ**
+  // へ足す変異も是正後 EXIT=1 / 1 件失敗になる（同日）。これは `dead-script-env` に固有では
+  // なく `ci-success` が関門にしている全ジョブに共通するため、一件ではなく `needs` が挙げる
+  // ジョブすべてを見る（115.228）。
+  const failures: string[] = [];
+  const workflow = path.join(ROOT, '.github/workflows/ci.yml');
+  if (!existsSync(workflow)) return ['結線先が実在しない: .github/workflows/ci.yml'];
+  const yaml = readFileSync(workflow, 'utf-8');
+
+  // 母集団が空なら以下は何も主張しない（第3原則。115.252）
+  const gated = gatedJobIds(yaml);
+  if (gated.length === 0) {
+    failures.push(
+      'ci-success の needs から関門ジョブを一件も取り出せない（この確認が空振りしています）'
+    );
+    return failures;
+  }
+  if (!gated.includes(CI_JOB_ID)) {
+    failures.push(`ci-success の needs に ${CI_JOB_ID} が含まれていない`);
+  }
+  if (gated.length < MINIMUM_GATED_JOBS) {
+    failures.push(
+      `ci-success が関門にしているジョブは ${gated.length} 件で、宣言の下限 ${MINIMUM_GATED_JOBS} 件を下回ります（意図して外したのなら MINIMUM_GATED_JOBS も同じ差分で下げること）`
+    );
+  }
+  for (const entry of neutralizedGatedJobs(yaml)) {
+    failures.push(
+      `関門ジョブが無力化されている — ${entry}（continue-on-error を持つジョブは検査が落ちても result が success になり、ci-success を素通りします）`
+    );
+  }
+  return failures;
+}
+
+/** 開示した限界 1 件（原文の逐語と、その挙動） */
+interface DisclosedLimit {
+  readonly name: string;
+  /** 開示が置かれている原文 */
+  readonly source: () => string;
+  /** 原文に在るべき逐語 */
+  readonly phrases: readonly string[];
+  /** 開示のとおりの挙動が実際に起きているか */
+  readonly holds: () => boolean;
+}
+
+/**
+ * 開示に留めた限界の一覧（タスク 115.297）。
+ *
+ * **開示は放っておくと実態から離れる**（115.293 / 115.294 の教訓）。ここでは
+ * 「逐語が原文に在ること」と「開示の述べる挙動が実際に起きること」の**両方**を課す。
+ *
+ * **`source` は必ず、照合する逐語のリテラルを含まない領域を返すこと。** 本ファイル自身を
+ * 丸ごと読ませると、`phrases` に書いた文字列リテラルがその中に在るため照合が恒真になる
+ * ——**115.294 の「木の値を写した定数は殺せない」と同型**である。是正前の (3)(a) は
+ * `readFileSync(SELF)` を返していたため、`hasExecutionLine` の doc comment から開示の段落を
+ * 丸ごと削除しても 28/28 緑・EXIT=0 で通った（2026-09-05 にレビューが実測し、本タスクが
+ * 独立に再現した）。是正後は {@link sliceLeadingDocComment} で当該の註だけを切り出す。
+ *
+ * 現況の 3 件の内訳: (1) の 2 件は `scripts/check-dead-script-env.ts`（別ファイル）を読むため
+ * 逐語のリテラルが照合対象に混じらない。(3)(a) の 1 件は本ファイルの `hasExecutionLine` の
+ * doc comment だけを切り出す。**いずれも「宣言自身で満たされる」経路を持たない。**
+ */
+const DISCLOSED_LIMITS: readonly DisclosedLimit[] = [
+  {
+    name: '(1) 地の文の引用符が同一行の注釈の中の引用符と対になると // が生き残る（見逃し側）',
+    source: () => readFileSync(ENTRY, 'utf-8'),
+    phrases: ['同一行の注釈の中の引用符と対になる'],
+    holds: () =>
+      stripComments(
+        "const el = <p>don't</p>; // it's process.env.ARCHITRACK_PROBE_DEAD\n"
+      ).includes('process.env.ARCHITRACK_PROBE_DEAD'),
+  },
+  {
+    name: '(1) 行継続の多行文字列の中身は地のコードとして走査される（誤検出側）',
+    source: () => readFileSync(ENTRY, 'utf-8'),
+    phrases: ['行継続で複数行に跨る文字列リテラルは文字列と見ない'],
+    holds: () =>
+      !stripComments("const a = 'ab\\\n// process.env.ARCHITRACK_PROBE_LIVE\ncd';\n").includes(
+        'process.env.ARCHITRACK_PROBE_LIVE'
+      ),
+  },
+  {
+    name: '(3)(a) ヒアドキュメントの本文の行を実行と数える（見逃し側）',
+    source: () =>
+      sliceLeadingDocComment(readFileSync(SELF, 'utf-8'), '\nfunction hasExecutionLine('),
+    phrases: ['ヒアドキュメント', 'シェルの文脈は見ない'],
+    holds: () => hasExecutionLine(`cat <<'HELP'\n${CHECK_COMMAND}\nHELP\n`, CHECK_COMMAND),
+  },
+];
+
+/**
+ * 開示の一覧を照合する。**純関数**（合成の対照で駆動できるよう本体から切り出した）。
+ *
+ * 切り出しの理由: 是正前は `checkDisclosedLimitsHold` の中に照合が直書きされており、
+ * **逐語の照合も `holds()` の呼び出しも、どちらを殺しても 28/28 緑**であった
+ * （2026-09-05 にレビューが実測）。新設した 3 機構のうちこれだけ対照を持っていなかった。
+ * `DISCLOSED_LIMIT_SAMPLES` がこの関数へ合成の限界を与えて両方向を固定する。
+ */
+function disclosedLimitFailures(limits: readonly DisclosedLimit[]): string[] {
+  const failures: string[] = [];
+  for (const limit of limits) {
+    const source = limit.source();
+    if (source === '') {
+      failures.push(`[${limit.name}]: 開示が置かれている原文を読めない`);
+      continue;
+    }
+    for (const phrase of limit.phrases) {
+      if (!source.includes(phrase)) {
+        failures.push(`[${limit.name}]: 開示の逐語「${phrase}」が原文から消えている`);
+      }
+    }
+    if (!limit.holds()) {
+      failures.push(
+        `[${limit.name}]: 開示している挙動が実測と食い違う（塞いだのなら開示も同じ変更で消すこと）`
+      );
+    }
+  }
+  return failures;
+}
+
+/** 開示の照合器の対照 1 件（合成の `DisclosedLimit` を与える） */
+interface DisclosedLimitSample {
+  readonly name: string;
+  readonly limit: DisclosedLimit;
+  /** 積まれるべき失敗の件数 */
+  readonly expectedFailures: number;
+}
+
+/** 合成の原文（`phrases` と別の綴りにしてあり、宣言自身では満たされない） */
+const SYNTHETIC_DISCLOSURE = '合成の原文: この限界は塞いでいない';
+
+/** `disclosedLimitFailures` の対照（陽性 = 失敗を積むべき、陰性 = 積むべきでない） */
+const DISCLOSED_LIMIT_SAMPLES: readonly DisclosedLimitSample[] = [
+  {
+    name: '逐語も挙動も揃っている',
+    limit: {
+      name: '合成(健全)',
+      source: () => SYNTHETIC_DISCLOSURE,
+      phrases: ['この限界は塞いでいない'],
+      holds: () => true,
+    },
+    expectedFailures: 0,
+  },
+  {
+    name: '開示の逐語が原文から消えている（塞いだのに開示だけ残る形の裏返し）',
+    limit: {
+      name: '合成(逐語欠落)',
+      source: () => '合成の原文: 開示は取り除かれている',
+      phrases: ['この限界は塞いでいない'],
+      holds: () => true,
+    },
+    expectedFailures: 1,
+  },
+  {
+    name: '開示している挙動が実測と食い違う（塞いだのに開示が残る形）',
+    limit: {
+      name: '合成(挙動不一致)',
+      source: () => SYNTHETIC_DISCLOSURE,
+      phrases: ['この限界は塞いでいない'],
+      holds: () => false,
+    },
+    expectedFailures: 1,
+  },
+  {
+    name: '開示が置かれている原文を読めない（切り出しが空を返す）',
+    limit: {
+      name: '合成(原文なし)',
+      source: () => '',
+      phrases: ['この限界は塞いでいない'],
+      holds: () => true,
+    },
+    expectedFailures: 1,
+  },
+];
+
+/** `DISCLOSED_LIMIT_SAMPLES` を回す。GROUPS へ結線して実行する */
+function disclosedLimitSampleFailures(): string[] {
+  const failures: string[] = [];
+  for (const sample of DISCLOSED_LIMIT_SAMPLES) {
+    const judged = disclosedLimitFailures([sample.limit]);
+    if (judged.length !== sample.expectedFailures) {
+      const detail = judged.length > 0 ? ` — ${judged.join(' / ')}` : '';
+      failures.push(
+        `${sample.expectedFailures > 0 ? '陽性' : '陰性'} [${sample.name}]: 積んだ失敗が ${judged.length} 件（期待は ${sample.expectedFailures} 件）${detail}`
+      );
+    }
+  }
+  return failures;
+}
+
+function checkDisclosedLimitsHold(): string[] {
+  // 素材が空なら以下の照合は一度も回らず、開示の主張そのものが消える（第3原則。115.252）
+  if (DISCLOSED_LIMITS.length === 0) {
+    return ['素材 DISCLOSED_LIMITS が空です（この確認が空振りしています）'];
+  }
+  return disclosedLimitFailures(DISCLOSED_LIMITS);
+}
+
 function checkPreconditionsAreWired(): string[] {
   // 前提の確認（reportPreconditions）が main から、対照より先に、結果に効く形で呼ばれること
   const failures: string[] = [];
@@ -1293,6 +1755,24 @@ function checkStructuralWiring(): string[] {
     }
   }
   return failures;
+}
+
+/**
+ * `declaration` の**直前に置かれた** `/** … *\/` の塊だけを切り出す（タスク 115.297）。
+ *
+ * 開示の逐語を本ファイルの中で照合するとき、ファイル全体を読ませると `phrases` の文字列
+ * リテラル自身が当たって恒真になる。当該の註だけを切り出すことでその経路を断つ。
+ * 註と宣言の間に別の記述が挟まっていたら、別物を拾わないよう空を返す。
+ */
+function sliceLeadingDocComment(source: string, declaration: string): string {
+  const start = source.indexOf(declaration);
+  if (start === -1) return '';
+  const close = source.lastIndexOf('*/', start);
+  if (close === -1) return '';
+  const open = source.lastIndexOf('/**', close);
+  if (open === -1) return '';
+  if (source.slice(close + 2, start).trim() !== '') return '';
+  return source.slice(open, close + 2);
 }
 
 /** `function 名(` から始まる本体を波括弧の対応で切り出す */
@@ -1356,6 +1836,11 @@ const STRUCTURAL: readonly Case[] = [
   },
   { name: '押下前の関門と CI と npm スクリプトへ結線されている', custom: checkWiredIntoGates },
   { name: '注釈の除去が正当なコードを落とさない', custom: checkStripCommentsKeepsCode },
+  { name: 'CI の関門ジョブが無力化されていない', custom: checkGatedJobsAreNotNeutralized },
+  {
+    name: '開示した限界が逐語・挙動ともに実態と一致する',
+    custom: checkDisclosedLimitsHold,
+  },
   { name: '前提の確認が入口へ結線されている', custom: checkPreconditionsAreWired },
   { name: '宣言された検査が一つ残らず結線されている', custom: checkStructuralWiring },
 ];
@@ -1376,6 +1861,19 @@ const GROUPS: ReadonlyArray<{ title: string; cases: readonly Case[] }> = [
       {
         name: 'CI の結線を構造で見る（ジョブ・実行行・needs・条件部）',
         custom: ciStructureSampleFailures,
+      },
+      {
+        name: '関門ジョブの無力化を見る（needs が挙げる全ジョブ横断）',
+        custom: ciNeutralizationSampleFailures,
+      },
+    ],
+  },
+  {
+    title: '開示の照合器の対照（逐語の欠落と挙動の不一致）',
+    cases: [
+      {
+        name: '逐語の欠落・挙動の不一致・原文の不在をそれぞれ捕らえる',
+        custom: disclosedLimitSampleFailures,
       },
     ],
   },
@@ -1408,6 +1906,25 @@ function emptyRegistryFailures(): string[] {
   if (!CI_STRUCTURE_SAMPLES.some((sample) => !sample.expected)) {
     failures.push('CI の結線の対照に陰性が一件も無い');
   }
+  if (CI_NEUTRALIZATION_SAMPLES.length === 0) {
+    failures.push('関門の無力化の対照 CI_NEUTRALIZATION_SAMPLES が空である');
+  }
+  if (!CI_NEUTRALIZATION_SAMPLES.some((sample) => sample.expectedCount > 0)) {
+    failures.push('関門の無力化の対照に陽性が一件も無い');
+  }
+  if (!CI_NEUTRALIZATION_SAMPLES.some((sample) => sample.expectedCount === 0)) {
+    failures.push('関門の無力化の対照に陰性が一件も無い');
+  }
+  if (DISCLOSED_LIMITS.length === 0) failures.push('開示の対照 DISCLOSED_LIMITS が空である');
+  if (DISCLOSED_LIMIT_SAMPLES.length === 0) {
+    failures.push('開示の照合器の対照 DISCLOSED_LIMIT_SAMPLES が空である');
+  }
+  if (!DISCLOSED_LIMIT_SAMPLES.some((sample) => sample.expectedFailures > 0)) {
+    failures.push('開示の照合器の対照に陽性が一件も無い');
+  }
+  if (!DISCLOSED_LIMIT_SAMPLES.some((sample) => sample.expectedFailures === 0)) {
+    failures.push('開示の照合器の対照に陰性が一件も無い');
+  }
   if (GROUPS.length === 0) failures.push('実行される対照の一覧 GROUPS が空である');
   const registered = GROUPS.flatMap((group) => group.cases);
   if (registered.length === 0) failures.push('GROUPS に登録された対照が一件も無い');
@@ -1421,7 +1938,13 @@ function emptyRegistryFailures(): string[] {
 function detectionRegistryWiringFailures(): string[] {
   const failures: string[] = [];
   const registered = GROUPS.flatMap((group) => group.cases).map((entry) => entry.custom.name);
-  const drivers = ['detectionFailures', 'wiringSampleFailures', 'ciStructureSampleFailures'];
+  const drivers = [
+    'detectionFailures',
+    'wiringSampleFailures',
+    'ciStructureSampleFailures',
+    'ciNeutralizationSampleFailures',
+    'disclosedLimitSampleFailures',
+  ];
   // 素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
   if (drivers.length === 0) {
     failures.push('素材 drivers が空です（この確認が空振りしています）');
@@ -1467,6 +1990,10 @@ function report(name: string, failures: readonly string[]): number {
  * `npx tsx scripts/check-dead-script-env.selftest.ts | tail -1` の出す値をそのまま置く。
  * 初出は 2026-09-03 の 20 件（タスク 115.252）。**タスク 115.296 が対照を 5 件足したため
  * 25 件へ上げた**（2026-09-05 に実測。基準はコミット `7267c757` の作業ツリー）。
+ * **タスク 115.297 が 4 件足したため 29 件へ上げた**（2026-09-05 に実測。基準はコミット
+ * `ede3633b` の作業ツリー）。内訳は関門の無力化の対照（`ciNeutralizationSampleFailures`）、
+ * `checkGatedJobsAreNotNeutralized`、`checkDisclosedLimitsHold`、および**レビューの差し戻しを
+ * 受けて足した**開示の照合器の対照（`disclosedLimitSampleFailures`）の 4 件。
  *
  * **数は空にできない。** 本ファイルの対照はすべて配列リテラルで書かれているため、配列を
  * `[]` へ空化する変異作用素に対して、母集団の側に置いた関門はいくらでも同型に増える。数値の
@@ -1476,7 +2003,7 @@ function report(name: string, failures: readonly string[]): number {
  * **限界**: 削った分だけ別の群へ確認を足せば総数は動かない。件数を構造から導く語彙は本体側に
  * 無く、根拠の無い余裕を貼らないという 115.222 の判断を引き継いでいる。
  */
-const MINIMUM_TOTAL_CASES = 25;
+const MINIMUM_TOTAL_CASES = 29;
 
 function main(): void {
   console.log(
@@ -1599,6 +2126,91 @@ function main(): void {
 //  19. `regexCanStart` の前置集合へ `<` と `>` を戻す
 //      → EXIT=1 / 2 件失敗（同じ 2 件）。JSX の閉じ札 `</p>` の `/` を正規表現の開始と誤ると、
 //      同じ行の `//` 注釈の最初の `/` までを飲み込んで注釈が生き残る。
+//
+// ============================================================================
+// 実行した変異と、その実測（タスク 115.297。基準点はコミット ede3633b、2026-09-05）
+// ============================================================================
+//
+// 復元はすべて事前複製からの `cp` で行い、`git hash-object` の一致を確認している。
+// 実 `.github/workflows/ci.yml` への変異は、変異前後で `python3 -c 'yaml.safe_load'` が
+// 同値かどうかも併記する（「意味を変えない書式変更」であることの根拠）。
+// 件数はすべて是正後（総数 28 件）の再実測である。
+//
+// **(2) 意味を変えない書式変更で赤くならないこと（是正前は事実に反する赤を出した）**
+//  20. `dead-script-env` ジョブの中へ 2 空白字下げの注釈行を入れる（safe_load 同値: true）
+//      → 是正前 EXIT=1 / 1 件失敗「ci.yml の jobs に dead-script-env のジョブが無い」
+//        （**事実に反するメッセージ**）。是正後 EXIT=0 / 28 件成功。
+//  21. ジョブ名を `'dead-script-env':` と引用する（safe_load 同値: true）
+//      → 是正前 EXIT=1 / 同じ誤ったメッセージ。是正後 EXIT=0 / 28 件成功。
+//  22. `ci-success` の `needs:` をブロック記法（`- lint` の並び）にする（safe_load 同値: true）
+//      → 是正前 EXIT=1 / 1 件失敗「ci-success の needs に dead-script-env が含まれていない」
+//        （**事実に反する**）。是正後 EXIT=0 / 28 件成功。
+//      寛容にしたことで判定が恒真へ退化していないことは、陰性 2 件
+//      （引用付きの別名／ブロック記法に検査のジョブが無い）を `CI_STRUCTURE_SAMPLES` へ
+//      置いて固定している。
+//
+// **(3)(b) 関門の無力化（`dead-script-env` に固有ではなく 14 の関門ジョブに共通する）**
+//  23. `dead-script-env` ジョブへ `continue-on-error: true` を足す
+//      → 是正前 EXIT=0 / 25 件**全て緑**（CI が無力化されても素通り）。
+//        是正後 EXIT=1 / 1 件失敗「関門ジョブが無力化されている — dead-script-env:
+//        continue-on-error: true」。
+//  24. **兄弟の `lint` ジョブへ** `continue-on-error: true` を足す
+//      → 是正後 EXIT=1 / 1 件失敗「… — lint: continue-on-error: true」。
+//        **一件だけを見る形になっていない**ことの実測（115.228）。
+//  25. `ci-success` の `needs` から `dead-script-env` を外す
+//      → EXIT=1 / 2 件失敗。既存の「needs に含まれていない」に加えて
+//        「関門にしているジョブは 13 件で、宣言の下限 14 件を下回ります」。
+//  26. ci.yml の実行行を `npm run check:dead-script-env || true` へ書き換える
+//      → EXIT=1 / 1 件失敗「dead-script-env ジョブに `npm run check:dead-script-env` の
+//        実行行が無い」。`|| true` は無力化の関門では見ないが、`hasExecutionLine` の
+//        完全一致が別経路で赤くする（`neutralizedGatedJobs` の註の根拠）。
+//  27. `CI_NEUTRALIZATION_SAMPLES` を空にする → EXIT=1 / 1 件失敗（空・陽性なし・陰性なし）。
+//
+// **開示（限界の記述）が実態から離れないこと（115.293 / 115.294 の教訓）**
+//  28. `closesOnSameLine` の前方探索を `//` の手前で打ち切る（＝(1) の見逃しを塞ぐ案）
+//      → EXIT=1 / **3 件失敗**。陰性「文字列リテラルの中の `//` を注釈と誤らない」の過検出、
+//        「注釈の除去が正当なコードを落とさない」、そして
+//        「開示している挙動が実測と食い違う（塞いだのなら開示も同じ変更で消すこと）」。
+//        **塞ぐ案が両側を同時に取れないことの実測**であり、同時に、開示が挙動と結びついて
+//        いることの実測でもある。
+//  29. `check-dead-script-env.ts` から開示の逐語「同一行の注釈の中の引用符と対になる」を
+//      消す → EXIT=1 / 1 件失敗「開示の逐語が原文から消えている」。
+//      （是正の途中で実際に観測した。開示を書く前の状態がこれである。）
+//  30. `DISCLOSED_LIMITS` を空にする → EXIT=1 / 2 件失敗（レジストリが空・確認が空振り）。
+//
+// **塞がずに開示へ留めた形（変異を当てて「緑のまま」であることを実測した）**
+//  31. ci.yml の実行行をヒアドキュメント（`cat <<'HELP'` … `HELP`）で包む
+//      → EXIT=0 / 28 件成功。**実行されないのに実行と数える見逃し**であり、塞いでいない。
+//        `hasExecutionLine` の註と `DISCLOSED_LIMITS` が開示として固定している。
+//
+// **レビューの差し戻しを受けて当てた変異（同日。基準は同じ作業ツリー）**
+//  32. `hasExecutionLine` の doc comment から**開示の段落だけ**を削除する
+//      → 是正前 EXIT=0 / 28/28 緑（(3)(a) の `source` が `readFileSync(SELF)` だったため、
+//        `phrases` の文字列リテラル自身が同じファイルに在って照合が恒真だった。**115.294 の
+//        「木の値を写した定数は殺せない」と同型**）。是正後 EXIT=1 / 1 件失敗で、逐語 2 本
+//        （`ヒアドキュメント` / `シェルの文脈は見ない`）の消失を名指す。
+//  33. `hasExecutionLine` の doc comment を**塊ごと**削除する
+//      → 是正後 EXIT=1 / 1 件失敗「開示が置かれている原文を読めない」。
+//  34. `disclosedLimitFailures` の逐語の照合を殺す（`if (!source.includes(phrase))` を恒偽へ）
+//      → 是正前 EXIT=0 / 28/28 緑（この照合器に対照が無かった）。是正後 EXIT=1 / 1 件失敗
+//        「陽性 [開示の逐語が原文から消えている…]: 積んだ失敗が 0 件（期待は 1 件）」。
+//  35. `disclosedLimitFailures` の `holds()` の呼び出しを殺す（`if (!limit.holds())` を恒偽へ）
+//      → 是正前 EXIT=0 / 28/28 緑。是正後 EXIT=1 / 1 件失敗
+//        「陽性 [開示している挙動が実測と食い違う…]: 積んだ失敗が 0 件（期待は 1 件）」。
+//  36. `DISCLOSED_LIMIT_SAMPLES` を空にする → EXIT=1 / 1 件失敗（空・陽性なし・陰性なし）。
+//
+// **宣言の側にも同じ規律を掛けたこと（`scripts/design-measurements.json`）**
+//  37. `ci-success` の `needs:` をブロック記法へ直す（変異 22 と同じ。`safe_load` 同値）
+//      → 本自己検査は 29/29 緑のまま。一方、**是正前の宣言 `ci-success-gated-jobs` の
+//        `command`**（`grep -oE '^    needs: \[…dead-script-env\]' | tr ',' '\n' | wc -l`）
+//        では `npm run check:design-measurement-freshness` が EXIT=1 になり
+//        「expected=`14` actual=`0`」と「command がリポジトリの外でも同じ値 `0` を出します」を
+//        出した。**本タスクが (2) で塞いだ欠陥を宣言の側へ再導入していた**（レビューが実測）。
+//        `awk` で `ci-success` のブロックを字下げで切り出す形へ改めた後は、ブロック記法・
+//        要素の引用・行末注釈のいずれでも EXIT=0 のまま。
+//  38. `ci-success` の `needs` から `dead-script-env` を外す
+//      → 改めた後の宣言で `check:design-measurement-freshness` が EXIT=1 /
+//        「expected=`14` actual=`13`」。**書式には耐えるが、関門の縮小は捕らえる。**
 //
 // **限界（塞いでいないこと）**: `MUST_DETECT` / `MUST_NOT_DETECT` / `WIRING_SAMPLES` /
 // `CI_STRUCTURE_SAMPLES` を 1 件へ削る変異は止まらない。下限を導ける語彙が本体側に無い

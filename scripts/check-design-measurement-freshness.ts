@@ -439,7 +439,7 @@ export const GOVERNED_DOCUMENTS: readonly string[] = [
  * {@link runOutsideRepository} の対照が区別できず、正当な宣言が「空洞化の経路」として
  * 告発される（上のタスク 115.279 の節が述べる形と同じである）。
  */
-export const MINIMUM_ENTRIES = 107;
+export const MINIMUM_ENTRIES = 108;
 
 /**
  * 文書側が現に古い値を載せていると宣言してよい件数（完全一致）
