@@ -428,7 +428,7 @@ export const GOVERNED_DOCUMENTS: readonly string[] = [
  * **母数の二値はどの関門も合否に用いない**（同スクリプトの 115.293 の節を見よ）。
  * すなわち母数の二値については、**この宣言だけが記録の陳腐化を捕らえる**。
  */
-export const MINIMUM_ENTRIES = 103;
+export const MINIMUM_ENTRIES = 105;
 
 /**
  * 文書側が現に古い値を載せていると宣言してよい件数（完全一致）

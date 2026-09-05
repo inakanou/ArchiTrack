@@ -54,6 +54,10 @@ import {
   run,
 } from './check-steering-dir-counts.js';
 
+// 失敗既定（タスク 115.295 が全 18 件で実測）。入口 `main();` が呼ばれないまま module が
+// 走り終えると EXIT=1 で終わる。解除は main の成功経路に置く `process.exitCode = 0;` だけ。
+process.exitCode = 1;
+
 const SELFTEST_PATH = fileURLToPath(import.meta.url);
 
 /** リポジトリルート（本ファイルは scripts/ 直下に置かれる） */
@@ -390,6 +394,8 @@ function main(): void {
       `✅ steering 実体件数 判定器の自己検査に合格しました` +
         `（陽性 ${MUST_DETECT.length} 件 / 陰性 ${MUST_NOT_DETECT.length} 件 / 対照 ${total} 件）`
     );
+    // 失敗既定（module の頂）をここで解除する
+    process.exitCode = 0;
     return;
   }
 

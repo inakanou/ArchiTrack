@@ -44,6 +44,10 @@ import { discoverFeatures, extractRequirements } from './check-requirement-cover
 // 両モジュールが同じ担い手を取り込んでいることは下の「機構の固定」の対照が別途確かめる。
 import { SPEC_DIR } from './requirement-document.js';
 
+// 失敗既定（タスク 115.295 が全 18 件で実測）。入口 `main();` が呼ばれないまま module が
+// 走り終えると EXIT=1 で終わる。解除は main の成功経路に置く `process.exitCode = 0;` だけ。
+process.exitCode = 1;
+
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(SCRIPTS_DIR, '..');
 const SCHEMA_BASENAME = 'requirement-exclusions.schema.json';
@@ -1870,6 +1874,8 @@ function main(): void {
   console.log(
     `✅ 自己検査に合格しました（${passed}/${total} 件: 陽性対照 ${MUST_REJECT.length} / 陰性対照 ${MUST_ACCEPT.length} / 機構 ${MECHANISM_CASES.length}）`
   );
+  // 失敗既定（module の頂）をここで解除する
+  process.exitCode = 0;
 }
 
 main();

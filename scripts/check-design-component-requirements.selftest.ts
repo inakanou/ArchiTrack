@@ -45,6 +45,10 @@ import {
   type FeaturePolicy,
 } from './check-design-component-requirements';
 
+// 失敗既定（タスク 115.295 が全 18 件で実測）。入口 `main();` が呼ばれないまま module が
+// 走り終えると EXIT=1 で終わる。解除は main の成功経路に置く `process.exitCode = 0;` だけ。
+process.exitCode = 1;
+
 const REPOSITORY_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 
 interface TestCase {
@@ -956,6 +960,8 @@ function main(): void {
     process.exit(1);
   }
   console.log(`\n✅ ${total}/${total} 件の確認に成功しました`);
+  // 失敗既定（module の頂）をここで解除する
+  process.exitCode = 0;
 }
 
 main();

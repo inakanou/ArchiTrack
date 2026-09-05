@@ -63,6 +63,10 @@ import {
   type RunResult,
 } from './check-dead-script-env.js';
 
+// 失敗既定（タスク 115.295 が全 18 件で実測）。入口 `main();` が呼ばれないまま module が
+// 走り終えると EXIT=1 で終わる。解除は main の成功経路に置く `process.exitCode = 0;` だけ。
+process.exitCode = 1;
+
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(SCRIPTS_DIR, '..');
 const ENTRY = path.join(SCRIPTS_DIR, 'check-dead-script-env.ts');
@@ -1330,8 +1334,5 @@ function main(): void {
 // ためで、根拠の無い件数を貼らないという 115.222 の判断を引き継いでいる。ただし
 // `WIRING_SAMPLES` と `CI_STRUCTURE_SAMPLES` については**陽性・陰性が片方でも消えたら
 // 赤くする**下限を置いた（`emptyRegistryFailures` の `some(...expected)` の 2 本）。
-
-// 失敗既定: 入口の呼び出しを消しても EXIT=0 にならない（115.242 が残した穴を持ち込まない）
-process.exitCode = 1;
 
 main();
