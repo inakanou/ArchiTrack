@@ -65,9 +65,17 @@
  *     **同じ行の中で閉じるとき**にだけリテラルとして扱う（`closesOnSameLine`）。これは
  *     JSX の `don't` のような地の文の引用符が同じ行の `//` 注釈を覆い隠す見逃しを塞ぐための
  *     規則であり、行継続を使った多行文字列の中身は地のコードとして走査される（誤検出側）。
+ *   - **`realpath` が解決できない要素は走査から落ちる。** 壊れたシンボリックリンクなどは
+ *     `statSync` と同じ `catch` で落ちる（読み手を取りこぼす向き＝誤検出＝安全側）。
+ *
+ * ## 報告する件数は「相異なる実体」である（タスク 115.296）
+ *
+ * `collectCorpusFiles` は `realpath` の訪問済み集合を持ち、**同じ実体を二度走査しない**。
+ * したがって `corpusFiles` は訪問回数ではなく相異なるファイル数であり、出力の語もそれに
+ * 合わせてある。詳しい経緯・是正前の実測・却下した案は同関数の註に置いた。
  */
 
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -185,7 +193,15 @@ export interface RunResult {
   readonly assignments: readonly Assignment[];
   readonly scannedManifests: readonly string[];
   readonly missingManifests: readonly string[];
+  /**
+   * 走査した読み手候補の**相異なる実体**の数（タスク 115.296）。
+   *
+   * 訪問回数ではない。`collectCorpusFiles` が `realpath` の訪問済み集合を持つため、同じ実体へ
+   * 二つの経路（`src -> backend/src` など）が在っても 1 と数える。
+   */
   readonly corpusFiles: number;
+  /** 訪問済みの実体だったために降りなかった要素の数（リンク経由の再訪の枝刈り数） */
+  readonly revisitedEntriesSkipped: number;
   readonly distinctNames: readonly string[];
   readonly findings: readonly Finding[];
 }
@@ -559,9 +575,70 @@ export function findDeadEnvNames(
 // コーパスの収集
 // ============================================================================
 
-/** 走査根の配下から、読み手の候補となるファイルを注釈を除いて集める */
-export function collectCorpusFiles(root: string): CorpusFile[] {
+/**
+ * 同じディレクトリの要素を「リンクでないものが先、同じ種別では名前の昇順」に並べる
+ * （タスク 115.296）。
+ *
+ * 訪問済み集合と対にして使う。集合だけでは、同じ実体へ二つの経路が在るとき**どちらが代表に
+ * なるかが `readdirSync` の返す順（環境依存）で決まってしまう**。リンクでない側を先に置けば、
+ * 実体と同じディレクトリに並んでいる限り代表は実体の側になる。
+ */
+export function orderRealEntriesFirst(directory: string, entries: readonly string[]): string[] {
+  const isLink = new Map<string, boolean>();
+  for (const entry of entries) {
+    try {
+      isLink.set(entry, lstatSync(path.join(directory, entry)).isSymbolicLink());
+    } catch {
+      isLink.set(entry, false);
+    }
+  }
+  return [...entries].sort((left, right) => {
+    const leftLink = isLink.get(left) === true ? 1 : 0;
+    const rightLink = isLink.get(right) === true ? 1 : 0;
+    if (leftLink !== rightLink) return leftLink - rightLink;
+    return left < right ? -1 : left > right ? 1 : 0;
+  });
+}
+
+/**
+ * 走査根の配下から、読み手の候補となるファイルを注釈を除いて集める。
+ *
+ * **実体（`realpath`）の訪問済み集合を持つ**（タスク 115.296）。走査根 `CORPUS_ROOT` の直下には
+ * `backend/` を指すシンボリックリンクが二つ在り（`src -> backend/src` と
+ * `prisma -> backend/prisma`）、`statSync` はリンクを追うため、集合が無いと両者の配下は実体と
+ * 併せて**二度**走査される。是正前の実測（2026-09-05、コミット `7267c757` のツリー。検査自身の
+ * 拡張子・除外の絞り込みで測った）は、リンク追従の訪問回数 2535・相異なる実体 2018・差 517
+ * （`src` 経由 480 / `prisma` 経由 37）であり、**報告していた「走査した読み手候補 2535 ファイル」は
+ * 相異なるファイル数ではなく訪問回数だった**。
+ *
+ * **判定そのものは二度読んでも変わらない。** 読み手は和集合であり、同じ実体を二度読んでも
+ * 読み手が増えるだけで見逃しにはならない。集合を入れた理由は二つである。
+ *
+ *   1. **件数の語を実態へ合わせる。** 数を報告するなら、何を数えたのかが語と一致していなければ
+ *      ならない。訪問回数はリンクの配置という偶発に依存し、コーパスの性質ではない。
+ *   2. **循環で無限降下しない。** 是正前は訪問済み集合が無く、走査根へ戻るリンク（`loop -> .`）を
+ *      一本置いただけで走査が発散した——実測では 2 分 43 秒でヒープ 2GB を使い切り
+ *      `FATAL ERROR: Ineffective mark-compacts near heap limit` で異常終了した（EXIT=134。
+ *      2026-09-05、コミット `7267c757` の作業ツリーにリンクを作って実測し、リンクは撤去した）。
+ *      現状の二つのリンクは循環していないが、それは現況であって構造上の保証ではない。
+ *
+ * 並びを `orderRealEntriesFirst` で固定するのは、同じ実体へ二つの経路が在るとき**どちらの
+ * 相対パスを代表に残すかを決めるため**である。集合だけでは、`readdirSync` の返す順（環境依存）で
+ * 代表が入れ替わる。リンクでない要素を先に置くので、代表は実体の側になる。
+ *
+ * **限界**: 訪問済み集合は 1 回の呼び出しの中だけで持つ。`realpath` が解決できないもの
+ * （壊れたリンクなど）は `statSync` と同じ `catch` で走査から落ちる（＝読み手を取りこぼす向き
+ * ＝誤検出＝安全側）。実体が**リンク経由でしか到達できない**位置に在る場合、代表はリンクの
+ * 側になる（同じディレクトリに実体が並んでいないため）。
+ */
+export function collectCorpusFiles(root: string): {
+  files: CorpusFile[];
+  revisitedEntriesSkipped: number;
+} {
   const files: CorpusFile[] = [];
+  /** 訪問済みの実体（`realpath`）。二度降りないことと、循環で止まることの両方をこの集合が担う */
+  const visited = new Set<string>();
+  let revisitedEntriesSkipped = 0;
 
   const walk = (directory: string): void => {
     let entries: string[];
@@ -570,15 +647,22 @@ export function collectCorpusFiles(root: string): CorpusFile[] {
     } catch {
       return;
     }
-    for (const entry of entries) {
+    for (const entry of orderRealEntriesFirst(directory, entries)) {
       if (NON_SOURCE_DIRECTORIES.has(entry)) continue;
       const absolute = path.join(directory, entry);
       let isDirectory: boolean;
+      let real: string;
       try {
         isDirectory = statSync(absolute).isDirectory();
+        real = realpathSync(absolute);
       } catch {
         continue;
       }
+      if (visited.has(real)) {
+        revisitedEntriesSkipped += 1;
+        continue;
+      }
+      visited.add(real);
       if (isDirectory) {
         walk(absolute);
         continue;
@@ -596,8 +680,15 @@ export function collectCorpusFiles(root: string): CorpusFile[] {
     }
   };
 
-  walk(path.resolve(root, CORPUS_ROOT));
-  return files;
+  const scanRoot = path.resolve(root, CORPUS_ROOT);
+  try {
+    // 走査根そのものを訪問済みにする。走査根へ戻るリンク（`loop -> .`）を最初の一段で止める
+    visited.add(realpathSync(scanRoot));
+  } catch {
+    visited.add(scanRoot);
+  }
+  walk(scanRoot);
+  return { files, revisitedEntriesSkipped };
 }
 
 // ============================================================================
@@ -606,7 +697,7 @@ export function collectCorpusFiles(root: string): CorpusFile[] {
 
 export function run(root: string = REPO_ROOT): RunResult {
   const { assignments, scanned, missing } = collectAssignments(root);
-  const corpusFiles = collectCorpusFiles(root);
+  const { files: corpusFiles, revisitedEntriesSkipped } = collectCorpusFiles(root);
   const corpus = corpusFiles.map((entry) => entry.text).join('\n');
   const destructured = destructuredEnvNames(corpus);
 
@@ -625,9 +716,39 @@ export function run(root: string = REPO_ROOT): RunResult {
     scannedManifests: scanned,
     missingManifests: missing,
     corpusFiles: corpusFiles.length,
+    revisitedEntriesSkipped,
     distinctNames,
     findings,
   };
+}
+
+// ============================================================================
+// 開示（印字）。**純関数として切り出す**（タスク 115.296）
+// ============================================================================
+//
+// 件数の印字を定数へ置き換えても自己検査が緑なら、開示の側に穴が在る（タスク 115.293 /
+// 115.294 の教訓）。`main` の中の文字列連結のままでは、自己検査は「実行して出た文字列」しか
+// 見られず、その文字列が引数に**追随している**ことを示せない。純関数へ切り出せば、自己検査は
+// 同じ関数へ違う `RunResult` を与えて出力が変わることを直接確かめられる。
+
+/** 合格時の要約行。件数はすべて `result` から出す（定数を書かないこと） */
+export function formatSuccessSummary(result: RunResult): string {
+  return (
+    `✅ npm スクリプトが設定する環境変数には読み手がいます` +
+    `（定義元 ${result.scannedManifests.length} ファイル、設定 ${result.assignments.length} 件、` +
+    `相異なる変数 ${result.distinctNames.length} 件、` +
+    `走査した読み手候補 ${result.corpusFiles} ファイル（相異なる実体。` +
+    `リンク経由の再訪 ${result.revisitedEntriesSkipped} 件は降りていない））`
+  );
+}
+
+/** 検出時の合計行。同じ語で同じ量を述べる（合格時と食い違わせないこと） */
+export function formatFailureSummary(result: RunResult): string {
+  return (
+    `   合計 ${result.findings.length} 件 / 相異なる変数 ${result.distinctNames.length} 件` +
+    `（走査した読み手候補 ${result.corpusFiles} ファイル（相異なる実体。` +
+    `リンク経由の再訪 ${result.revisitedEntriesSkipped} 件は降りていない））`
+  );
 }
 
 /** 走査が空振りしていないかの判定。0 件の合格を合格にしない（AI運用7原則 第3原則） */
@@ -674,11 +795,7 @@ export function main(): void {
   const decision = decideExit(result);
   if (decision.ok) {
     if (!json) {
-      console.log(
-        `✅ npm スクリプトが設定する環境変数には読み手がいます` +
-          `（定義元 ${result.scannedManifests.length} ファイル、設定 ${result.assignments.length} 件、` +
-          `相異なる変数 ${result.distinctNames.length} 件、走査した読み手候補 ${result.corpusFiles} ファイル）`
-      );
+      console.log(formatSuccessSummary(result));
       if (verbose) {
         for (const name of result.distinctNames) {
           const setBy = result.assignments
@@ -713,10 +830,7 @@ export function main(): void {
       }
     }
     console.error('');
-    console.error(
-      `   合計 ${result.findings.length} 件 / 相異なる変数 ${result.distinctNames.length} 件` +
-        `（走査した読み手候補 ${result.corpusFiles} ファイル）`
-    );
+    console.error(formatFailureSummary(result));
     if (verbose) {
       console.error('');
       console.error('   設定の一覧:');

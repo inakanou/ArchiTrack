@@ -77,7 +77,7 @@
  *   npm run check:steering-command-annotations
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -296,16 +296,70 @@ export function globToRegExp(glob: string): RegExp {
   return new RegExp(`^${out}$`);
 }
 
-/** パッケージ配下の全ファイルをリポジトリ相対ではなくパッケージ相対で列挙する */
-export function listFiles(directory: string, base = directory): string[] {
+/**
+ * 同じディレクトリの要素を「リンクでないものが先、同じ種別では名前の昇順」に並べる
+ * （タスク 115.296。`scripts/check-dead-script-env.ts` の同名の関数と同じ規則。両者は
+ * 走査器ごとに閉じており、依存は持たせていない）。
+ *
+ * 訪問済み集合と対にして使う。集合だけでは、同じ実体へ二つの経路が在るとき代表が
+ * `readdirSync` の返す順（環境依存）で入れ替わる。
+ */
+function orderRealEntriesFirst(directory: string, entries: readonly string[]): string[] {
+  const isLink = new Map<string, boolean>();
+  for (const entry of entries) {
+    try {
+      isLink.set(entry, lstatSync(path.join(directory, entry)).isSymbolicLink());
+    } catch {
+      isLink.set(entry, false);
+    }
+  }
+  return [...entries].sort((left, right) => {
+    const leftLink = isLink.get(left) === true ? 1 : 0;
+    const rightLink = isLink.get(right) === true ? 1 : 0;
+    if (leftLink !== rightLink) return leftLink - rightLink;
+    return left < right ? -1 : left > right ? 1 : 0;
+  });
+}
+
+/**
+ * パッケージ配下の全ファイルをリポジトリ相対ではなくパッケージ相対で列挙する。
+ *
+ * **実体（`realpath`）の訪問済み集合を持つ**（タスク 115.296。同タスクが
+ * `scripts/check-dead-script-env.ts` の `collectCorpusFiles` で是正したのと同型の走査器である）。
+ * 本関数は `statSync` でリンクを追うため、集合が無いと (a) 同じ実体を二度並べ、
+ * (b) 循環するリンクに当たると無限降下する。
+ *
+ * **現況では挙動は変わらない**（2026-09-05、コミット `7267c757` の作業ツリーで実測）。
+ * 走査根は `<package>/src` であり、`find backend/src frontend/src -type l | wc -l` は 0 を返す。
+ * すなわち走査範囲の中にリンクは一本も無く、是正の前後で本検査の出力は逐語で一致する。
+ * **入れたのは現況の是正ではなく構造上の保証である**——走査根 `.` の直下には
+ * `src -> backend/src` と `prisma -> backend/prisma` が実在し、リンクが増えないという保証は無い。
+ *
+ * **限界**: 訪問済み集合は 1 回の呼び出しの中だけで持つ（スコープごとの呼び出しは独立）。
+ * `realpath` が解決できない要素は列挙から落ちる（取りこぼす向き）。
+ */
+export function listFiles(
+  directory: string,
+  base = directory,
+  visited: Set<string> = new Set()
+): string[] {
   if (!existsSync(directory)) return [];
   const found: string[] = [];
-  for (const entry of readdirSync(directory)) {
+  for (const entry of orderRealEntriesFirst(directory, readdirSync(directory))) {
     if (entry === 'node_modules' || entry === '.git' || entry === 'dist') continue;
     const absolute = path.join(directory, entry);
-    const stats = statSync(absolute);
+    let stats: ReturnType<typeof statSync>;
+    let real: string;
+    try {
+      stats = statSync(absolute);
+      real = realpathSync(absolute);
+    } catch {
+      continue;
+    }
+    if (visited.has(real)) continue;
+    visited.add(real);
     if (stats.isDirectory()) {
-      found.push(...listFiles(absolute, base));
+      found.push(...listFiles(absolute, base, visited));
     } else {
       found.push(path.relative(base, absolute).split(path.sep).join('/'));
     }

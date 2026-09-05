@@ -42,7 +42,17 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -57,6 +67,8 @@ import {
   destructuredEnvNames,
   extractAssignedEnvNames,
   findDeadEnvNames,
+  formatFailureSummary,
+  formatSuccessSummary,
   normalizeForReadScan,
   run,
   stripComments,
@@ -691,7 +703,7 @@ function checkRealRepositoryIsScanned(): string[] {
 
 function checkDocumentsAndManifestsAreNotReaders(): string[] {
   const failures: string[] = [];
-  const files = collectCorpusFiles(ROOT);
+  const { files } = collectCorpusFiles(ROOT);
   const documents = files.filter((entry) => entry.file.endsWith('.md'));
   if (documents.length > 0) {
     failures.push(`文書がコーパスに入っている: ${documents.length} 件（例 ${documents[0]?.file}）`);
@@ -703,6 +715,204 @@ function checkDocumentsAndManifestsAreNotReaders(): string[] {
   const vendored = files.filter((entry) => entry.file.split(path.sep).includes('node_modules'));
   if (vendored.length > 0) {
     failures.push(`node_modules がコーパスに入っている: ${vendored.length} 件`);
+  }
+  return failures;
+}
+
+/**
+ * 実リポジトリのコーパスに**同じ実体が二度入っていない**こと（タスク 115.296）。
+ *
+ * 是正前は `src -> backend/src` と `prisma -> backend/prisma` の配下が実体と併せて二度走査され、
+ * 報告する件数は訪問回数だった。**第3原則**に従い、素材（コーパス）が空なら「合格」ではなく
+ * 失敗にする——空のコーパスに対しては重複が無いことが恒真になり、何も主張しないためである。
+ */
+function checkCorpusVisitsEachRealPathOnce(): string[] {
+  const failures: string[] = [];
+  const { files } = collectCorpusFiles(ROOT);
+  if (files.length === 0) {
+    failures.push('実リポジトリのコーパスが空です（この確認が空振りしています。第3原則）');
+    return failures;
+  }
+  const byRealPath = new Map<string, string[]>();
+  for (const entry of files) {
+    let real: string;
+    try {
+      real = realpathSync(path.join(ROOT, entry.file));
+    } catch {
+      failures.push(`コーパスの要素の実体を解決できない: ${entry.file}`);
+      continue;
+    }
+    byRealPath.set(real, [...(byRealPath.get(real) ?? []), entry.file]);
+  }
+  const duplicated = [...byRealPath.entries()].filter(([, paths]) => paths.length > 1);
+  if (duplicated.length > 0) {
+    const [real, paths] = duplicated[0] as [string, string[]];
+    failures.push(
+      `同じ実体が ${duplicated.length} 件で二度以上コーパスに入っている（例 ${real} ← ${paths.join(' / ')}）`
+    );
+  }
+  return failures;
+}
+
+/**
+ * ディレクトリへのシンボリックリンクを一本増やしても、走査するファイル数が動かないこと
+ * （タスク 115.296 の起票が求めた「リンクを一つ増やす変異」を、恒久の対照として据えたもの）。
+ *
+ * 一時リポジトリで**同じ問いを二度**測る。(a) リンク無し、(b) 実体を指すリンクを一本足した状態。
+ * 訪問済み集合が効いていれば両者は同数になる。効いていなければ (b) が増える。
+ *
+ * **第3原則**: シンボリックリンクを作れない環境では対照が無効化されるのではなく**失敗**する。
+ */
+function checkAddedSymlinkDoesNotChangeCount(): string[] {
+  return withTemporaryRepository(
+    {
+      ...manifestFixtures({ probe: 'cross-env ARCHITRACK_PROBE_LIVE=1 vitest run' }),
+      'real/a.ts': 'const { ARCHITRACK_PROBE_LIVE } = process.env;\n',
+      'real/nested/b.ts': 'export const b = 1;\n',
+    },
+    (root) => {
+      const failures: string[] = [];
+      const before = collectCorpusFiles(root);
+      if (before.files.length === 0) {
+        failures.push('リンクを足す前のコーパスが空です（この確認が空振りしています。第3原則）');
+        return failures;
+      }
+      try {
+        symlinkSync(path.join(root, 'real'), path.join(root, 'mirror'), 'dir');
+      } catch (error) {
+        // 作れないなら対照は成立しない。無効化せず失敗にする（第3原則）
+        failures.push(`シンボリックリンクを作れないため対照が成立しない: ${String(error)}`);
+        return failures;
+      }
+      if (!lstatSync(path.join(root, 'mirror')).isSymbolicLink()) {
+        failures.push('足したはずの mirror がシンボリックリンクになっていない（対照の前提の崩壊）');
+        return failures;
+      }
+      const after = collectCorpusFiles(root);
+      if (after.files.length !== before.files.length) {
+        failures.push(
+          `実体を指すリンクを一本足したら走査するファイル数が ${before.files.length} → ${after.files.length} へ動いた（訪問済み集合が効いていない）`
+        );
+      }
+      // 件数だけでなく**集合そのもの**を見る。件数が同じでも代表の相対パスがリンクの側へ
+      // 入れ替われば、報告するパスがリンクの配置で動く（`orderRealEntriesFirst` の担当）
+      const pathsBefore = before.files.map((entry) => entry.file).sort();
+      const pathsAfter = after.files.map((entry) => entry.file).sort();
+      if (pathsBefore.join('\n') !== pathsAfter.join('\n')) {
+        failures.push(
+          `リンクを足したら走査するファイルの集合が変わった（代表がリンクの側へ入れ替わっている）: 前 ${pathsBefore.join(' / ')} → 後 ${pathsAfter.join(' / ')}`
+        );
+      }
+      if (after.revisitedEntriesSkipped <= before.revisitedEntriesSkipped) {
+        failures.push(
+          `リンクを足しても再訪の枝刈り数が増えていない（${before.revisitedEntriesSkipped} → ${after.revisitedEntriesSkipped}）。枝刈りが実際には働いていない疑いがある`
+        );
+      }
+      return failures;
+    }
+  );
+}
+
+/**
+ * 循環するシンボリックリンクが在っても走査が有限で止まり、件数が動かないこと（タスク 115.296）。
+ *
+ * 是正前は訪問済み集合が無く、走査根へ戻るリンクを一本置くだけで発散した（実リポジトリでの実測は
+ * `collectCorpusFiles` の註にある。ヒープ 2GB を使い切って異常終了）。ここでは一時リポジトリに
+ * **自分自身を指すリンク**（`real/self -> real`）を置き、件数がリンク無しのときと一致することを見る。
+ *
+ * **第3原則**: リンクを作れない環境では無効化せず失敗にする。
+ */
+function checkCyclicSymlinkTerminates(): string[] {
+  return withTemporaryRepository(
+    {
+      ...manifestFixtures({ probe: 'cross-env ARCHITRACK_PROBE_LIVE=1 vitest run' }),
+      'real/a.ts': 'const { ARCHITRACK_PROBE_LIVE } = process.env;\n',
+    },
+    (root) => {
+      const failures: string[] = [];
+      const before = collectCorpusFiles(root);
+      if (before.files.length === 0) {
+        failures.push('リンクを足す前のコーパスが空です（この確認が空振りしています。第3原則）');
+        return failures;
+      }
+      try {
+        // `real/self -> real`。訪問済み集合が無ければ real/self/self/self/... と降り続ける
+        symlinkSync(path.join(root, 'real'), path.join(root, 'real', 'self'), 'dir');
+      } catch (error) {
+        failures.push(`循環リンクを作れないため対照が成立しない: ${String(error)}`);
+        return failures;
+      }
+      const started = performance.now();
+      const after = collectCorpusFiles(root);
+      const elapsed = performance.now() - started;
+      if (after.files.length !== before.files.length) {
+        failures.push(
+          `循環リンクを足したら走査するファイル数が ${before.files.length} → ${after.files.length} へ動いた（無限降下している）`
+        );
+      }
+      // 壁時計は WSL2 で単調時計と食い違うため `performance.now()` で測る
+      if (elapsed > 5000) {
+        failures.push(
+          `循環リンクのある走査に ${Math.round(elapsed)}ms かかった（降下が止まっていない疑い）`
+        );
+      }
+      return failures;
+    }
+  );
+}
+
+/**
+ * **開示（印字）の側の対照**（タスク 115.293 / 115.294 の教訓。件数の印字を定数へ置き換えても
+ * 緑なら穴である）。
+ *
+ * 要約行を組む純関数へ**違う `RunResult` を与えて出力が追随すること**を見る。数を定数へ
+ * 書き換えると、二つの入力に対して同じ文字列が返り、ここが赤くなる。
+ */
+function checkSummaryReportsMeasuredCounts(): string[] {
+  const failures: string[] = [];
+  const base: RunResult = {
+    assignments: [{ manifest: 'package.json', script: 'probe', name: 'A' }],
+    scannedManifests: ['package.json'],
+    missingManifests: [],
+    corpusFiles: 7,
+    revisitedEntriesSkipped: 3,
+    distinctNames: ['A'],
+    findings: [],
+  };
+  const other: RunResult = { ...base, corpusFiles: 9, revisitedEntriesSkipped: 4 };
+
+  const successLow = formatSuccessSummary(base);
+  const successHigh = formatSuccessSummary(other);
+  if (!successLow.includes('7 ファイル') || !successHigh.includes('9 ファイル')) {
+    failures.push('合格時の要約が corpusFiles を印字していない（定数になっている疑い）');
+  }
+  if (!successLow.includes('再訪 3 件') || !successHigh.includes('再訪 4 件')) {
+    failures.push(
+      '合格時の要約が revisitedEntriesSkipped を印字していない（定数になっている疑い）'
+    );
+  }
+  if (successLow === successHigh) {
+    failures.push('件数の違う二つの結果から同じ合格の要約が出た（印字が入力に追随していない）');
+  }
+  if (!successLow.includes('相異なる実体')) {
+    failures.push('合格時の要約が「相異なる実体」を名乗っていない（語と数えたものが一致しない）');
+  }
+
+  const failingLow: RunResult = {
+    ...base,
+    findings: [{ name: 'A', setBy: ['package.json#probe'] }],
+  };
+  const failingHigh: RunResult = { ...failingLow, corpusFiles: 9, revisitedEntriesSkipped: 4 };
+  const summaryLow = formatFailureSummary(failingLow);
+  const summaryHigh = formatFailureSummary(failingHigh);
+  if (!summaryLow.includes('7 ファイル') || !summaryHigh.includes('9 ファイル')) {
+    failures.push('検出時の合計行が corpusFiles を印字していない（定数になっている疑い）');
+  }
+  if (summaryLow === summaryHigh) {
+    failures.push('件数の違う二つの結果から同じ合計行が出た（印字が入力に追随していない）');
+  }
+  if (!summaryLow.includes('相異なる実体')) {
+    failures.push('検出時の合計行が「相異なる実体」を名乗っていない（語と数えたものが一致しない）');
   }
   return failures;
 }
@@ -842,6 +1052,45 @@ function checkSubprocessRunSucceeds(): string[] {
   }
   if (reported.corpusFiles === 0) {
     failures.push('サブプロセスの報告で読み手候補が 0 ファイル');
+  }
+  return failures;
+}
+
+/**
+ * **開示の側の対照その二**（タスク 115.296）。実際に本体を起動して**人が読む行**を取り、
+ * それが `formatSuccessSummary(run(ROOT))` と**逐語で一致する**こと。
+ *
+ * 前の対照（`checkSummaryReportsMeasuredCounts`）は純関数が入力へ追随することを見るが、
+ * `main` が純関数を使わずに別の文字列を印字していたら気づかない。ここで両者を結ぶ。
+ */
+function checkPrintedSummaryMatchesFormatter(): string[] {
+  const failures: string[] = [];
+  const executed = spawnSync('npx', ['tsx', ENTRY], {
+    cwd: ROOT,
+    encoding: 'utf-8',
+    timeout: 180000,
+  });
+  if (executed.status !== 0) {
+    failures.push(`本体をサブプロセスで起動すると EXIT=${executed.status}: ${executed.stderr}`);
+    return failures;
+  }
+  const printed = executed.stdout.trim();
+  const expected = formatSuccessSummary(run(ROOT));
+  if (printed !== expected) {
+    failures.push(
+      `印字された要約が組み立て関数の出力と一致しない\n     印字: ${printed}\n     期待: ${expected}`
+    );
+  }
+  const matched = /走査した読み手候補 (\d+) ファイル/.exec(printed);
+  if (matched === null) {
+    failures.push('印字された要約に読み手候補の件数が無い');
+    return failures;
+  }
+  const measured = collectCorpusFiles(ROOT).files.length;
+  if (Number(matched[1]) !== measured) {
+    failures.push(
+      `印字された件数 ${matched[1]} が手元の実測 ${measured} と食い違う（印字が定数になっている疑い）`
+    );
   }
   return failures;
 }
@@ -1076,6 +1325,26 @@ const STRUCTURAL: readonly Case[] = [
     name: '文書・定義元・依存物は読み手に数えない',
     custom: checkDocumentsAndManifestsAreNotReaders,
   },
+  {
+    name: 'コーパスに同じ実体が二度入っていない（報告する件数は相異なるファイル数）',
+    custom: checkCorpusVisitsEachRealPathOnce,
+  },
+  {
+    name: '実体を指すリンクを一本足しても走査件数が動かない',
+    custom: checkAddedSymlinkDoesNotChangeCount,
+  },
+  {
+    name: '循環するリンクがあっても走査が有限で止まる',
+    custom: checkCyclicSymlinkTerminates,
+  },
+  {
+    name: '要約行の件数が実測に追随する（定数への置き換えを赤くする）',
+    custom: checkSummaryReportsMeasuredCounts,
+  },
+  {
+    name: '印字された要約が組み立て関数と実測に一致する',
+    custom: checkPrintedSummaryMatchesFormatter,
+  },
   { name: '母集団が空なら合格にしない', custom: checkEmptyPopulationIsNotSuccess },
   { name: '定義元が欠けていたら合格にしない', custom: checkMissingManifestIsNotSuccess },
   { name: '走査から報告までが実際に働く（陽性・陰性の両方向）', custom: checkEndToEndDetection },
@@ -1194,8 +1463,10 @@ function report(name: string, failures: readonly string[]): number {
 /**
  * 報告する確認の総数の下限（タスク 115.252）
  *
- * 2026-09-03 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
+ * リポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
  * `npx tsx scripts/check-dead-script-env.selftest.ts | tail -1` の出す値をそのまま置く。
+ * 初出は 2026-09-03 の 20 件（タスク 115.252）。**タスク 115.296 が対照を 5 件足したため
+ * 25 件へ上げた**（2026-09-05 に実測。基準はコミット `7267c757` の作業ツリー）。
  *
  * **数は空にできない。** 本ファイルの対照はすべて配列リテラルで書かれているため、配列を
  * `[]` へ空化する変異作用素に対して、母集団の側に置いた関門はいくらでも同型に増える。数値の
@@ -1205,7 +1476,7 @@ function report(name: string, failures: readonly string[]): number {
  * **限界**: 削った分だけ別の群へ確認を足せば総数は動かない。件数を構造から導く語彙は本体側に
  * 無く、根拠の無い余裕を貼らないという 115.222 の判断を引き継いでいる。
  */
-const MINIMUM_TOTAL_CASES = 20;
+const MINIMUM_TOTAL_CASES = 25;
 
 function main(): void {
   console.log(
