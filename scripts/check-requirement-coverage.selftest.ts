@@ -185,6 +185,7 @@ import {
   extractAllFeatures,
   extractImportSpecifiers,
   extractRequirements,
+  ANY_COVERAGE_HEADER_REGEX,
   extractTestCoverage,
   calculateCoverage,
   checkSummaryIntegrity,
@@ -197,6 +198,7 @@ import {
   isDeclaredCoverageHeader,
   isRetiredCriterionText,
   extractFileCoverage,
+  isCodeFenceDelimiterLine,
   listCoverageScanFiles,
   listCoverageScanFilesAdmittedBy,
   COVERAGE_FILE_PATTERN,
@@ -3508,6 +3510,14 @@ interface GuardedCitationDoc {
   anchor: string;
   /** 散文が名乗らなければならない導線（実データの現況を毎回出す側の名前） */
   mustName: readonly string[];
+  /**
+   * 散文が名乗らなければならない導線のうち、**本自己検査の側に在る**もの
+   *
+   * `mustName` は `sourcePath` と同じファイルに実在することを課す。引用を機械へ移した箇所は
+   * 導線が自己検査の関数になるため、その形では実在を確かめられない（タスク 115.307）。
+   * 空でよい——空なら何も課さない。
+   */
+  mustNameInGuard?: readonly string[];
   /** なぜ引用を落としたか／どこへ移したか。一箇所ずつの判断を残す */
   rationale: string;
 }
@@ -3515,9 +3525,11 @@ interface GuardedCitationDoc {
 /**
  * 実データの引用を落とし、現況の出所への導線だけを残す限界の記述（唯一の出所）
  *
- * タスク 115.223 は区間判定の説明文だけを是正し、同じファイルに残る四箇所は報告に留めた。
- * 本台帳はその四箇所を一件ずつ決着させた結果である。判断は二択（機械で確かめる形へ移すか、
- * 引用を落とすか）で、いずれを採ったかを `rationale` に書き残す。
+ * タスク 115.223 は区間判定の説明文だけを是正し、同じファイルに残る箇所は報告に留めた。
+ * 本台帳はその残りを一件ずつ決着させた結果である（115.254 が四箇所、115.307 が
+ * さらに五箇所）。判断は二択（機械で確かめる形へ移すか、引用を落とすか）で、
+ * いずれを採ったかを `rationale` に書き残す。**件数は
+ * {@link MINIMUM_GUARDED_CITATION_DOCS} が遊び 0 で固定するため、ここには書かない。**
  *
  * **対策コード自身の説明文も載せる。** 禁止を書く側の散文だけが実データの実例を持てる状態は、
  * 本タスクが根絶しようとしている欠陥そのものである（タスク 115.254 のレビューが差し戻した）。
@@ -3563,10 +3575,85 @@ const GUARDED_CITATION_DOCS: readonly GuardedCitationDoc[] = [
       'その名前は被覆印を持つため絞り込み後にも残り、例として偽であった（レビューの実測）。' +
       '実例を落とし、絞る前と後の母集団を毎回数えて真部分集合であることを確かめる形にした',
   },
+  {
+    label: '撤廃済みでない番号違いの数（findRetiredCriterionCoverageMarks）',
+    sourcePath: EXTRACTOR_SOURCE_PATH,
+    anchor: 'export function findRetiredCriterionCoverageMarks(',
+    mustName: ['collectOutOfDenominatorMarks'],
+    rationale:
+      '引用を落とした（タスク 115.307）。挙げていた数は、検査本体が毎回印字する' +
+      '「要件定義書に存在しない番号」の行の写しであり、同期する機構の無い二重帳簿だった。' +
+      '測り直した時点で既に偽であった',
+  },
+  {
+    label: '逐語複製の目印の最小長（MIN_CRITERION_QUOTE_LENGTH）',
+    sourcePath: EXTRACTOR_SOURCE_PATH,
+    anchor: 'export const MIN_CRITERION_QUOTE_LENGTH = 12;',
+    mustName: ['reportCriterionTextCopies'],
+    mustNameInGuard: ['checkCriterionQuote'],
+    rationale:
+      '引用を落とした（タスク 115.307）。挙げていた「偶然の一致」の数は、閾値を下げれば ' +
+      'reportCriterionTextCopies の mismatches として毎回印字される値そのものであり、' +
+      '同期する機構の無い二重帳簿だった。閾値を下げる変異で測り直したところ、' +
+      '散文が名乗る走査根での値とも、散文が名乗る閾値での値とも食い違っていた。' +
+      '定数の値と境界の挙動は checkCriterionQuote が字面で固定しており、そちらは残す',
+  },
+  {
+    label: '行の途中で開くフェンスの取りこぼし（isCodeFenceDelimiterLine）',
+    sourcePath: EXTRACTOR_SOURCE_PATH,
+    anchor: 'export function isCodeFenceDelimiterLine(line: string): boolean {',
+    mustName: ['listCoverageScanFiles', 'ANY_COVERAGE_HEADER_REGEX'],
+    mustNameInGuard: ['checkMidLineFenceFilesCarryNoCoverageHeader'],
+    rationale:
+      '機械で確かめる形へ移した（タスク 115.307）。挙げていた計数は測り直した時点でも真で' +
+      'あったが、真であることを見る機構が無く、印字する導線も無かった——落とすだけでは' +
+      '「この抜けが発火していない」という主張ごと失われる。走査を ' +
+      'checkMidLineFenceFilesCarryNoCoverageHeader として自己検査へ移し、散文からは計数を落とした',
+  },
+  {
+    label: '末尾の註釈を散文に含めない理由（splitCoverageBlocks）',
+    sourcePath: EXTRACTOR_SOURCE_PATH,
+    anchor: 'export function splitCoverageBlocks(',
+    mustName: ['reportCriterionTextCopies'],
+    rationale:
+      '引用を落とした（タスク 115.307）。挙げていた偽陽性の数は、末尾を切る一行を外す変異を' +
+      '当てれば reportCriterionTextCopies の mismatches として毎回印字される値であり、' +
+      '同期する機構の無い二重帳簿だった。その変異で測り直したところ桁で食い違っていた。' +
+      '切ること自体は既存の対照が押さえている（同じ変異で自己検査が赤くなることを実測した）',
+  },
+  {
+    label: '分子を分母との交わりで数える理由（calculateCoverage）',
+    sourcePath: EXTRACTOR_SOURCE_PATH,
+    anchor: 'export function calculateCoverage(',
+    mustName: ['collectOutOfDenominatorMarks'],
+    rationale:
+      '引用を落とし、あわせて注記を本体の行コメントから JSDoc へ引き上げた（タスク 115.307）。' +
+      '行コメントのままでは本台帳の関門が読めない——読めない場所に置かれた引用は、' +
+      '禁止を掛けたつもりで素通りする。挙げていた三つの値は「数え方の整合」の行として' +
+      '毎回印字される値の写しであり、是正前の形を再現して測り直したところ' +
+      'いずれも食い違っていた（不等号の向きだけは今日も成り立つ）',
+  },
 ];
+
+/**
+ * 守る限界の記述の件数の下限（遊びを持たせない。上回っても下回っても赤くする）
+ *
+ * 台帳を空にする抜け道は「一件も登録されていない」で、**禁止を書く側**が落ちる形は必須の
+ * ファイルの照合で塞いであるが、**抽出器側の一件だけを黙って外す変異はどちらにも掛からない**
+ * （タスク 115.307）。開示の側へ {@link MINIMUM_DISCLOSED_CITATION_HOLES} が置いたのと同じ
+ * 「遊び 0」を、守る側へも置く。**増やす向きも減らす向きも定数の書き換えを伴うため、
+ * 件数は差分に必ず現れる。**
+ */
+const MINIMUM_GUARDED_CITATION_DOCS = 9;
 
 /** 本検査それ自体の名前。限界の記述が「守り手」として名乗る */
 const LIMIT_DOC_GUARD_NAME = 'checkExtractorLimitDocsCiteNoRealData';
+
+/** 守り手の側の本文（`mustNameInGuard` の実在を確かめるために読む。読めなければ null） */
+function readGuardSource(): string | null {
+  const absolute = path.resolve(SELFTEST_SOURCE_PATH);
+  return fs.existsSync(absolute) ? fs.readFileSync(absolute, 'utf8') : null;
+}
 
 /**
  * 抽出器の限界の記述が、実データの名指しと計数を持たず、現況の出所を名乗っている
@@ -3574,7 +3661,7 @@ const LIMIT_DOC_GUARD_NAME = 'checkExtractorLimitDocsCiteNoRealData';
  * 限界の記述（「この検査が捕まえないもの」）は、非空振りを示すために実データの実例を
  * 引きがちである。引いた実例は実データとともに陳腐化し、陳腐化しても機械は何も言わない。
  *
- * 見るのは八つである。
+ * 見るのは九つである。
  *
  *   1. 台帳・禁止規則・実データから作る材料のいずれも空でないこと（第3原則。空にして
  *      緑にする抜け道を作らない）
@@ -3592,6 +3679,14 @@ const LIMIT_DOC_GUARD_NAME = 'checkExtractorLimitDocsCiteNoRealData';
  *   8. `DISCLOSED_CITATION_HOLES` の各見本が**どの禁止にも一致しない**こと、および
  *      各項の綴りが本 JSDoc に逐語で在ること（開示の側の対照。塞いだのに開示を直さない
  *      向きの漂流と、台帳と散文が別々の真実を持つ向きの漂流の双方を止める）
+ *   9. 台帳の件数が {@link MINIMUM_GUARDED_CITATION_DOCS} ちょうどであること（守る側の対照。
+ *      1 と必須ファイルの照合は「両方のファイルが一件ずつ残っていれば緑」であり、
+ *      **残りを黙って外す変異を止められなかった**。開示の側と同じ遊び 0 を守る側へも置く）
+ *
+ * **導線の実在も両側で見る。** `mustName` は記述と同じファイルに、`mustNameInGuard` は
+ * 本自己検査の側に、それぞれ `function <名前>(` として在ることを課す。引用を機械へ移した
+ * 箇所は導線が自己検査の関数になるため、片側だけでは名前の腐りを止められない
+ * （タスク 115.307）。
  *
  * **守れない範囲を明記する。** 見るのは台帳が挙げる記述だけであり、他の JSDoc は見ていない
  * （そちらへ広げる判断は、`check:cf-evidence` が引用を要求する反実仮想と衝突しないかを
@@ -3630,12 +3725,14 @@ const LIMIT_DOC_GUARD_NAME = 'checkExtractorLimitDocsCiteNoRealData';
  *   2. **`.M` を落として要件レベルにする**（`REQ-24` の形。タスク 115.306）。
  *      `実在する要件レベルの番号` の規則を足す前は、`collectRealDataCitationVocabulary` の
  *      JSDoc へ `現況では REQ-24 の被覆印がこの外に残っている` を挿入しても
- *      73 件すべてが緑であった。足した後に同じ挿入を当てると 73 件のうち 1 件が落ちる
- *      （2026-09-06 に同コマンドで実測）
+ *      すべてが緑であった（当時の総数は 73 件）。足した後に同じ挿入を当てると
+ *      74 件のうち 1 件が落ちる（2026-09-06 に同コマンドで実測。タスク 115.307 が
+ *      確認を一件足したため、同日の再実測で総数は 73 件から 74 件へ動いている）
  *   3. **区切りを点から別の一字へ替える**（`24-1` の形。タスク 115.306）。
  *      `点以外の区切りで書いた受入基準の番号` の規則を足す前は、同じ JSDoc へ
- *      `現況では 24-1 の被覆印がこの外に残っている` を挿入しても 73 件すべてが緑であった。
- *      足した後に同じ挿入を当てると 73 件のうち 1 件が落ちる（同日・同コマンドで実測）
+ *      `現況では 24-1 の被覆印がこの外に残っている` を挿入してもすべてが緑であった
+ *      （当時の総数は 73 件）。足した後に同じ挿入を当てると 74 件のうち 1 件が落ちる
+ *      （同日・同コマンドで実測。総数の動きの理由は上に同じ）
  *
  * 広げるときは `REAL_DATA_CITATION_RULES` と `GUARDED_CITATION_DOCS` へ足し、塞いだ穴を
  * `DISCLOSED_CITATION_HOLES` から外す。
@@ -3654,6 +3751,24 @@ function checkExtractorLimitDocsCiteNoRealData(): string[] {
         `${required} の記述が台帳に一件も無い（禁止を書く側だけが実データの実例を持てる状態を作らない）`
       );
     }
+  }
+  // 必須のファイルが一件ずつ残っていれば、残りは黙って外せた（タスク 115.307）。
+  // 開示の側と同じ「遊び 0」を守る側にも課す
+  if (GUARDED_CITATION_DOCS.length < MINIMUM_GUARDED_CITATION_DOCS) {
+    failures.push(
+      `守る限界の記述が ${GUARDED_CITATION_DOCS.length} 件しかない` +
+        `（宣言の下限は ${MINIMUM_GUARDED_CITATION_DOCS} 件）。` +
+        '記述ごと撤去したのなら、下限も同じ差分で下げること。'
+    );
+  }
+  if (GUARDED_CITATION_DOCS.length > MINIMUM_GUARDED_CITATION_DOCS) {
+    failures.push(
+      `守る限界の記述が ${GUARDED_CITATION_DOCS.length} 件で、宣言した下限 ` +
+        `${MINIMUM_GUARDED_CITATION_DOCS} 件を上回る（遊び ` +
+        `${GUARDED_CITATION_DOCS.length - MINIMUM_GUARDED_CITATION_DOCS} 件）。` +
+        '下限は現況ちょうどに保つこと——遊びを持つ下限は、その幅ぶんの無言の削除を吸収する。' +
+        `MINIMUM_GUARDED_CITATION_DOCS を ${GUARDED_CITATION_DOCS.length} 件へ上げること。`
+    );
   }
   if (REAL_DATA_CITATION_RULES.length === 0) {
     return ['実データを指す形が一件も登録されていない（規則を空にして緑にする抜け道）'];
@@ -3886,6 +4001,20 @@ function checkExtractorLimitDocsCiteNoRealData(): string[] {
       if (!source.includes(name)) {
         failures.push(
           `${entry.label}: ${entry.sourcePath} に ${name} が無い（実在しない名前を指している）`
+        );
+      }
+    }
+    for (const name of entry.mustNameInGuard ?? []) {
+      if (!doc.includes(name)) {
+        failures.push(
+          `${entry.label}: 限界の記述が導線 ${name} を名乗っていない（現況の出所が辿れない）`
+        );
+      }
+      const guardSource = sources.get(SELFTEST_SOURCE_PATH) ?? readGuardSource();
+      if (guardSource === null || !guardSource.includes(`function ${name}(`)) {
+        failures.push(
+          `${entry.label}: ${SELFTEST_SOURCE_PATH} に \`function ${name}(\` が無い` +
+            '（実在しない守り手を指している）'
         );
       }
     }
@@ -5032,6 +5161,60 @@ const UNTERMINATED_BLOCK_OPEN_BEFORE_HEADER = [
   '// - REQ-13.2: 終端の無い開きに影響されず拾われねばならない',
   '',
 ].join('\n');
+
+/**
+ * 実データ: 行の途中で開くフェンスの取りこぼしが発火していない（タスク 115.307）
+ *
+ * `isCodeFenceDelimiterLine` は**行の中身の先頭でしか**フェンスを見ない。見本を行の途中で
+ * 開く形（`例: ` に続けてバッククォート三つを置く形）は開きとしても閉じとしても数えないため、
+ * その直後の行に行頭でヘッダーの字面が置かれると宣言と誤読される。**塞いでいない**——
+ * 逆向きの取りこぼしを新たに作るためである（理由は当該関数の説明文にある）。
+ *
+ * 従前、この抜けが実データで発火していないことは**説明文の計数だけが述べていた**。
+ * 計数は実データとともに陳腐化し、陳腐化しても誰も何も言わない。本検査はその主張を
+ * 散文から機械へ移したものである。**走査根の中に「行の途中に開くフェンスを持つ行」と
+ * 「ヘッダーの字面」を同じファイルで併せ持つものが在れば赤くする。**
+ *
+ * **第3原則。** 走査根がファイルを一件も返さない、あるいは行の途中のフェンスを見つける
+ * 判定そのものが働かないときは、合格ではなく前提の崩壊として赤くする。判定が働くことは
+ * 実データに拠らない合成の陽性対照で確かめる——実データ側の主張が 0 件であることと、
+ * 判定が空振りしていることは、対照を置かなければ区別がつかない。
+ */
+function checkMidLineFenceFilesCarryNoCoverageHeader(): string[] {
+  const failures: string[] = [];
+
+  // 判定は**抽出器の本物**へ委ねる。写しを置くと、本体だけが変わったときに黙って追随しない
+  /** フェンスの区切り行では**ない**のに ``` を含む（＝行の途中で開く形） */
+  const opensFenceMidLine = (line: string): boolean =>
+    !isCodeFenceDelimiterLine(line) && line.includes('```');
+
+  // 陽性対照（合成）。実データが 0 件でも、判定が働いていることをここで独立に固定する
+  if (!opensFenceMidLine(' * 例: ```ts の見本')) {
+    return ['行の途中で開くフェンスを見つけられない（実データ側の主張が空振りする）'];
+  }
+  // 陰性対照（合成）。区切り行そのものを「途中で開く形」と数えてはならない
+  if (opensFenceMidLine(' * ```ts')) {
+    return ['行の中身の先頭にある区切り行を「行の途中で開く形」と数えた（判定が広すぎる）'];
+  }
+
+  const files = listCoverageScanFiles();
+  if (files.length === 0) {
+    return ['走査根がファイルを一件も返さない（前提が崩れたので合格にしない）'];
+  }
+
+  const headerPattern = new RegExp(ANY_COVERAGE_HEADER_REGEX.source);
+  for (const file of files) {
+    const content = fs.readFileSync(file, 'utf8');
+    if (!content.split('\n').some(opensFenceMidLine)) continue;
+    if (!headerPattern.test(content)) continue;
+    failures.push(
+      `${path.relative(process.cwd(), file)} が「行の途中で開くフェンス」とヘッダーの字面を` +
+        '併せ持つ。isCodeFenceDelimiterLine の抜けで宣言と誤読されうるため、' +
+        '当該関数の説明文（この抜けは塞いでいないと述べる箇所）を書き改めるか、抜けを塞ぐこと'
+    );
+  }
+  return failures;
+}
 
 /**
  * 機構: 文字列リテラル中の終端の無い `/*` が正当なヘッダーを飲み込まない（タスク 115.259）
@@ -7323,6 +7506,10 @@ const GROUPS: Group[] = [
         name: '文字列リテラル中の終端の無い `/*` が正当なヘッダーを飲み込まない',
         run: checkUnterminatedBlockOpenDoesNotSwallowHeader,
       },
+      {
+        name: '行の途中で開くフェンスとヘッダーの字面が実データで同居しない',
+        run: checkMidLineFenceFilesCarryNoCoverageHeader,
+      },
     ],
   },
   {
@@ -7518,7 +7705,7 @@ const MINIMUM_NEGATIVE_CONTROLS = 1;
  * **上回っても**赤くする——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
  * 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
  */
-const MINIMUM_TOTAL_CASES = 73;
+const MINIMUM_TOTAL_CASES = 74;
 
 /**
  * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）

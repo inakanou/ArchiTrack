@@ -576,7 +576,7 @@ const HEADER_LIST_ITEM_REGEX =
  * `--feature=NAME` で走らせたときに他機能のヘッダーが切れ目でなくなり、
  * 過大帰属が絞り込みのときだけ復活する。
  */
-const ANY_COVERAGE_HEADER_REGEX = /Requirements\s*(?:coverage\s*)?\([A-Za-z0-9_-]+\):/g;
+export const ANY_COVERAGE_HEADER_REGEX = /Requirements\s*(?:coverage\s*)?\([A-Za-z0-9_-]+\):/g;
 
 /** パターン4のヘッダー（既知の機能名のみ）を組み立てる */
 function buildHeaderRegex(featureNames: readonly string[]): RegExp {
@@ -603,14 +603,20 @@ const DECLARATION_PREFIX_REGEX = /^[ \t]*(?:\/\*+|\*|\/\/)?[ \t]*$/;
  * 向きは過大帰属）。塞いでいないのは、行の途中のバッククォートを見本の開きと読む規則が
  * 逆向きの取りこぼし——正当なヘッダーを引用と誤読して落とす過小帰属——を新たに作るためである。
  *
- * 実データでの出現: 行の途中に ``` を持つ行は 5 行（3 ファイル）あり、いずれも見本ではなく
- * コードの文字列である。当該 3 ファイルはヘッダーの字面を一件も持たないため、この抜けで
- * 宣言と誤読されるヘッダーは零件である（走査対象は `CODE_DIRS`、2026-09-01 実測。
- * 数え直しは同じ走査を `backend/src` / `frontend/src` / `e2e` へ当てて行う）。
+ * **この抜けが実データで発火していないことは、散文でなく機械が毎回測る。** 走査根
+ * （`listCoverageScanFiles` が既定で読む `CODE_DIRS`）の中に「行の途中に ``` を持つ行」と
+ * 「`ANY_COVERAGE_HEADER_REGEX` が拾う字面」を**同じファイルで**併せ持つものが在れば、
+ * 自己検査 `check-requirement-coverage.selftest.ts` の
+ * `checkMidLineFenceFilesCarryNoCoverageHeader` が赤くなる。**ここに出現の数を書かない**
+ * ——散文へ写せばその走査の二重帳簿になり、写した時点から陳腐化する（タスク 115.254 が
+ * 同じファイルの他の三箇所で確立した作法。ここが挙げていた数は、タスク 115.307 が
+ * 測り直した時点ではなお真であったが、いま真である計数も等しく時限装置である）。
+ * 本記述が実データの名指しと計数を持たないことは、同ファイルの
+ * `checkExtractorLimitDocsCiteNoRealData` が守る。
  *
  * @param line 当該行の本文（改行を含まない）
  */
-function isCodeFenceDelimiterLine(line: string): boolean {
+export function isCodeFenceDelimiterLine(line: string): boolean {
   return /^`{3,}/.test(line.replace(LINE_LEADING_COMMENT_SYNTAX_REGEX, ''));
 }
 
@@ -681,22 +687,28 @@ function enclosingCommentBlockStart(content: string, lineStart: number): number 
  * 2. **コードフェンスの内側にない。** フェンスで囲った見本の中の字面は、行の中身の先頭に
  *    あっても引用である。条件 1 だけでは覆えないため独立に見る。
  *
- * 二つは互いを覆わない。`isCodeFenceDelimiterLine` の走査だけを外すと自己検査 63 件のうち
- * 3 件が落ち、`DECLARATION_PREFIX_REGEX` の判定だけを外しても同じく 3 件が落ちる
+ * 二つは互いを覆わない。`isCodeFenceDelimiterLine` の走査だけを外すと自己検査の確認が
+ * 3 件落ち、`DECLARATION_PREFIX_REGEX` の判定だけを外しても同じく 3 件落ちる
  * （落ちる中身は前者がフェンスの内側の一件、後者がバッククォートの二件で別物である）。
- * いずれも 2026-09-01 に `npm run check:req-coverage:selftest` で実測した。
+ * いずれも 2026-09-06 に `npm run check:req-coverage:selftest` で測り直した。
+ * **確認の総数は書かない**——総数は確認を足すたびに動くのに対し、ここで意味を持つのは
+ * 落ちる件数の側だからである（タスク 115.307 が測り直した時点で、従前に書かれていた
+ * 総数は既に古かった）。
  *
  * 二つの条件が**引用のすべてを覆うわけではない**。見本を行の途中で開く形は
- * どちらにも掛からない（抜けの中身と実データでの件数は `isCodeFenceDelimiterLine` に書いた）。
+ * どちらにも掛からない（抜けの中身と、実データで発火していないことを誰が測るかは
+ * `isCodeFenceDelimiterLine` に書いた）。
  *
  * **フェンスの開閉はヘッダーが属するコメントの塊の中だけで数える**
  * （`enclosingCommentBlockStart`）。全文で数えると、無関係な塊にある閉じ忘れのフェンス一つが
  * それ以降のヘッダーをすべて落とし、帰属（`extractHeaderScopedCoverage` のヘッダー収集）と
  * 切れ目（同じく境界収集）の両方から無言で消す。範囲を塊へ閉じ込めることでこの依存は
  * 構造として消える。走査の起点を `enclosingCommentBlockStart(content, lineStart)` から `0`
- * （全文）へ戻すと、自己検査 63 件のうち `checkQuotedHeaderIsNotDetected` の 1 件が
- * 「閉じ忘れのフェンスを別の塊に持つ写しで site-survey/REQ-3.1 を取りこぼした」を挙げて
- * 赤くなる（2026-09-01 に `npm run check:req-coverage:selftest` で実測）。
+ * （全文）へ戻すと、`checkQuotedHeaderIsNotDetected` と
+ * `checkUnterminatedBlockOpenDoesNotSwallowHeader` の 2 件が赤くなる（前者は
+ * 「閉じ忘れのフェンスを別の塊に持つ写しで site-survey/REQ-3.1 を取りこぼした」を挙げる。
+ * 2026-09-06 に `npm run check:req-coverage:selftest` で測り直した。従前は落ちるのが
+ * 1 件だと書かれていたが、タスク 115.307 の再実測では 2 件であった）。
  *
  * @param content ファイル全体の本文
  * @param headerIndex 当該ヘッダーの開始位置
@@ -1189,10 +1201,18 @@ export interface RetiredCriterionMark {
  *
  * この検査が捕まえないもの（限界を両方向で述べる）:
  *   - 要件定義書に**存在しない**番号（撤廃ですらない番号違い）は挙げない。
- *     本検査の対象は「取り消し線で無効化された受入基準」に限る。実測では
- *     そのような番号は別に 12 件在るが、成り立ちが異なるため別途扱う。
+ *     本検査の対象は「取り消し線で無効化された受入基準」に限る。そのような番号は別に在るが、
+ *     成り立ちが異なるため別途扱う。
  *   - 移管先の番号を名乗り直したとき、その検証が移管先の条文を実際に
  *     確かめているかは見ない。名乗りの一致までである。
+ *
+ * **ここに「別に在る番号」の数を書かない。** 現況は collectOutOfDenominatorMarks の `unknown` が
+ * 一元に持ち、検査本体が「要件定義書に存在しない番号」の行として全件の列挙つきで毎回印字する。
+ * 散文へ写せばその出力の二重帳簿になり、写した時点から陳腐化する（タスク 115.254 が
+ * 同じファイルの他の三箇所で確立した作法。ここが挙げていた数は、タスク 115.307 が
+ * 測り直した時点で既に実データと食い違っていた）。本記述が実データの名指しと計数を
+ * 持たないことは、自己検査 `check-requirement-coverage.selftest.ts` の
+ * `checkExtractorLimitDocsCiteNoRealData` が守る。
  */
 export function findRetiredCriterionCoverageMarks(
   features: readonly Feature[],
@@ -1403,9 +1423,19 @@ export function findUnknownCriterionCoverageMarks(
  * 逐語複製として使える語句の最小長
  *
  * 短い語句（「バリデーションエラーを表示する」など）は複数の条文に等しく当てはまり、
- * 逐語複製の証拠にならない。実測で 12 文字未満まで許すと、偶然の一致が
- * 4 件（`e2e/specs` 全体）混じった。12 文字以上かつ「同一機能の他の条文の本文に
- * 現れない」語句だけを、当該条文を名指す複製として扱う。
+ * 逐語複製の証拠にならない。この値を下回る長さまで許すと、条文を名指さない偶然の一致が
+ * 食い違いとして混じる。12 文字以上かつ「同一機能の他の条文の本文に現れない」語句だけを、
+ * 当該条文を名指す複製として扱う。
+ *
+ * **ここに「混じる偶然の一致」の数を書かない。** その数は reportCriterionTextCopies が返す
+ * `mismatches` そのものであり、検査本体が「原文を逐語複製しながらその条文を名乗っていない
+ * 被覆印」の行として毎回印字する。**値を下げれば同じ行が動く**——散文へ写せばその出力の
+ * 二重帳簿になり、写した時点から陳腐化する（タスク 115.254 が同じファイルの他の三箇所で
+ * 確立した作法。ここが挙げていた数は、タスク 115.307 が閾値を下げる変異で測り直した時点で
+ * 既に実データと食い違っていた）。値そのものと境界の挙動は自己検査
+ * `check-requirement-coverage.selftest.ts` の `checkCriterionQuote` が字面で固定し、
+ * 本記述が実データの名指しと計数を持たないことは同ファイルの
+ * `checkExtractorLimitDocsCiteNoRealData` が守る。
  */
 export const MIN_CRITERION_QUOTE_LENGTH = 12;
 
@@ -1460,7 +1490,17 @@ export interface CoverageBlock {
  *
  * 区間は「直前に続く註釈の塊（前書き）＋宣言から次の宣言の手前まで」である。
  * 末尾に続く註釈の塊は**次の宣言の前書き**なので含めない。含めると、隣のテストの
- * 前書きに書かれた原文の写しを自分のものとして読んでしまう（実測で偽陽性が 109 件出た）。
+ * 前書きに書かれた原文の写しを自分のものとして読んでしまう。
+ *
+ * **ここに「含めたときに出る偽陽性」の数を書かない。** その数は reportCriterionTextCopies が
+ * 返す `mismatches` そのものであり、検査本体が「原文を逐語複製しながらその条文を名乗って
+ * いない被覆印」の行として毎回印字する。末尾を切る一行を外す変異を当てれば同じ行が動く。
+ * 散文へ写せばその出力の二重帳簿になり、写した時点から陳腐化する（タスク 115.254 が
+ * 同じファイルの他の三箇所で確立した作法。ここが挙げていた数は、タスク 115.307 が
+ * その変異で測り直した時点で既に実データと桁で食い違っていた）。**切ること自体**は自己検査
+ * `check-requirement-coverage.selftest.ts` の「逐語複製との食い違いを両方向で固定する」群が
+ * 押さえており、本記述が実データの名指しと計数を持たないことは同ファイルの
+ * `checkExtractorLimitDocsCiteNoRealData` が守る。
  */
 export function splitCoverageBlocks(
   content: string,
@@ -2329,6 +2369,20 @@ export function evaluateReachability(
 
 /**
  * カバレッジを計算
+ *
+ * **分子は分母との交わりで数える。被覆印が名乗るだけの番号を分子に入れてはならない。**
+ * 従前は coveredReqSet / coveredAcSet の大きさをそのまま分子にしていたため、
+ * 要件定義書に無い番号・撤廃済みの番号を名乗る印が分子だけを膨らませ、
+ * 「被覆済み + 未被覆 > 総数」が成立していた。
+ *
+ * **ここに当時の被覆数・未被覆数・総数を書かない。** 三つの値は検査本体が「数え方の整合」の
+ * 行として毎回印字し、分子から外した印の内訳は collectOutOfDenominatorMarks が一元に持つ。
+ * 散文へ写せばその出力の二重帳簿になり、写した時点から陳腐化する（タスク 115.254 が
+ * 同じファイルの他の三箇所で確立した作法。ここが挙げていた三つの値は、タスク 115.307 が
+ * 是正前の形を再現して測り直した時点で、いずれも実データと食い違っていた——
+ * **不等号の向きだけは今日も成り立つ**）。本記述が実データの名指しと計数を持たないことは、
+ * 自己検査 `check-requirement-coverage.selftest.ts` の
+ * `checkExtractorLimitDocsCiteNoRealData` が守る。
  */
 export function calculateCoverage(
   features: Feature[],
@@ -2409,10 +2463,7 @@ export function calculateCoverage(
   }
 
   // 全体カバレッジ計算
-  // 分子は分母との交わりで数える。**被覆印が名乗るだけの番号を分子に入れてはならない。**
-  // 従前は coveredReqSet / coveredAcSet の大きさをそのまま分子にしていたため、
-  // 要件定義書に無い番号・撤廃済みの番号を名乗る印が分子だけを膨らませ、
-  // 「被覆済み + 未被覆 > 総数」が成立していた（実測で受入基準 2695 + 205 > 2888）。
+  // 分子は分母との交わりで数える。理由と、写してはならない計数の在り処は本関数の JSDoc にある。
   const allRequirementIds = new Set(allRequirements.map((requirement) => requirement.fullId));
   const allCriterionIds = new Set(allAcceptanceCriteria.map((criterion) => criterion.id));
   const coveredRequirements = Array.from(coveredReqSet)
