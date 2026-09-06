@@ -3072,6 +3072,18 @@ interface RealDataCitationRule {
  */
 const RESERVED_ILLUSTRATION_CRITERION_NUMBERS: readonly string[] = ['1.1', '1.2', '2.2'];
 
+/**
+ * 書式そのものの説明に使うため、禁止から外す架空の要件レベルの番号
+ *
+ * 被覆印には受入基準を指す形（`N.M`）のほかに**要件全体を指す形**（`feature/REQ-N`）があり、
+ * 限界の記述はその書式も説明できなければならない。予約した受入基準の番号
+ * （{@link RESERVED_ILLUSTRATION_CRITERION_NUMBERS}）が属する要件をそのまま予約すれば、
+ * 見本の並びが一つの要件の中で閉じる。予約した番号は実在もするため、その番号に限っては
+ * 実データの引用も素通りする——{@link checkExtractorLimitDocsCiteNoRealData} の限界の節に
+ * {@link DISCLOSED_CITATION_HOLES} として登録し、素通りし続けることを機械で確かめる。
+ */
+const RESERVED_ILLUSTRATION_REQUIREMENT_NUMBERS: readonly string[] = ['1'];
+
 /** 実データから作る禁止の材料 */
 interface RealDataCitationVocabulary {
   /** 要件定義書が実在する機能の名前 */
@@ -3080,6 +3092,8 @@ interface RealDataCitationVocabulary {
   markedFileNames: readonly string[];
   /** 要件定義書に実在する受入基準の局所番号（`N.M`）。見本用に予約した番号は除く */
   criterionNumbers: readonly string[];
+  /** 要件定義書に実在する要件レベルの番号（`N`。枝つきの `NA` を含む）。見本用に予約した番号は除く */
+  requirementNumbers: readonly string[];
 }
 
 /**
@@ -3106,9 +3120,13 @@ interface RealDataCitationVocabulary {
  */
 function collectRealDataCitationVocabulary(): RealDataCitationVocabulary {
   const reserved = new Set(RESERVED_ILLUSTRATION_CRITERION_NUMBERS);
+  const reservedRequirements = new Set(RESERVED_ILLUSTRATION_REQUIREMENT_NUMBERS);
   const criterionNumbers = new Set<string>();
+  const requirementNumbers = new Set<string>();
   for (const feature of extractAllFeatures(discoverFeatures())) {
     for (const requirement of [...feature.requirements, ...feature.retiredRequirements]) {
+      const requirementLocal = requirement.id.replace(/^REQ-/, '');
+      if (!reservedRequirements.has(requirementLocal)) requirementNumbers.add(requirementLocal);
       for (const criterion of [
         ...requirement.acceptanceCriteria,
         ...requirement.retiredAcceptanceCriteria,
@@ -3128,13 +3146,73 @@ function collectRealDataCitationVocabulary(): RealDataCitationVocabulary {
       ...new Set(extractTestCoverage(discoverFeatures()).map((entry) => path.basename(entry.file))),
     ].sort(),
     criterionNumbers: [...criterionNumbers].sort(),
+    requirementNumbers: [...requirementNumbers].sort(),
   };
+}
+
+/**
+ * 台帳の見本が使う先頭要素
+ *
+ * 空配列は別の失敗（材料が一件も集まらない）が先に報告するため、ここでは空文字へ倒す。
+ */
+function firstOf(values: readonly string[]): string {
+  return values[0] ?? '';
 }
 
 /** 正規表現のメタ文字を素の字面として扱う */
 function escapeForRegExp(literal: string): string {
   return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+/**
+ * 受入基準の番号を「点以外の一字」で区切って書いた形のうち、禁止に載せる区切り
+ *
+ * `24-1` の形（`.` を別の一字へ替えただけの書き直し）は 115.254 の禁止を素通りした
+ * （同タスクのレビューが round 2 で実測）。区切りを何字まで禁じるかは**巻き込みの実測**で
+ * 決めた。台帳が読む記述（現況 4 件）ではどの区切りも巻き込みが 0 箇所であり、そこだけを
+ * 見ても差が付かない。そこで台帳の外——`npm run check:req-coverage:citesurvey` が宣言する
+ * 母集団——へ同じ規則を当てて数えた。
+ *
+ * **載せた理由は「巻き込みが少ない」でも「巻き込みを書き直せる」でもない。** 載せた `-` は
+ * 母集団の中で最も多く巻き込む字であり、その中身は範囲の書き方だけではない——同コマンドの
+ * ファイル別の内訳と見本を読むと、自己検査の対照名（段番号を持つ識別子）・
+ * `scripts/design-measurements.json` の宣言 ID・正規表現の文字クラス・本タスクの記録が
+ * 並べた見本が混ざる。**このうち宣言 ID は書き直せない**——書き直すと
+ * `npm run check:design-measurement-freshness` が錨を失う。
+ *
+ * **載せた本当の理由は二つである。** (1) `-` は起票が名指した素通りの形そのものであり、
+ * 塞がなければ落とした引用をこの区切りで書き直すだけで同じ時限装置が同じ箇所へ戻る。
+ * (2) 関門が実際に読むのは {@link GUARDED_CITATION_DOCS} が挙げる記述だけで、そこでの
+ * 巻き込みは 0 箇所である——**今は無料である。** `_` と `．` も同じ理由で載せた。
+ *
+ * **無料でなくなるのは台帳を広げるときである。** そのとき書き直せない箇所（宣言 ID・
+ * 文字クラス）に当たったら、その箇所を個別に免除するか、この区切りを
+ * {@link EXCLUDED_CRITERION_NUMBER_SEPARATORS} へ移すかを、内訳を数え直してから決めること。
+ * **数値をここへ写さないのは、写した瞬間に同期する機構の無い二重帳簿になるためである**
+ * ——記録を書き足す行為そのものがこの数を動かす。
+ */
+const CITED_CRITERION_NUMBER_SEPARATORS: readonly string[] = ['-', '_', '．'];
+
+/**
+ * 同じ「点以外の区切り」のうち、禁止に載せなかった区切り
+ *
+ * **外して数えてから決めた**（除外の理由も反実仮想である、という開発規律に従う）。
+ * `npm run check:req-coverage:citesurvey` が、載せた区切りと載せなかった区切りの両方に
+ * ついて、母集団・巻き込み・ファイル別の内訳・見本を印字する。
+ *
+ * **載せなかった理由は「素通りの形として実証されていないこと」である。** 115.254 の
+ * レビューが実際に挿入して素通りを実証したのは点と `-` の形だけで、ここに挙げた五字は
+ * 本タスクが見本を作って素通りを確かめた形にとどまる。加えて巻き込みの中身が、この
+ * 母集団が多用する記法である——`/` と `／` は比の書き方、`,` は正規表現リテラルの
+ * 繰り返し指定、`・` と空白は数の並記である。**「書き直せないこと」は理由にしない**
+ * ——書き直せない巻き込み（宣言 ID・正規表現の文字クラス）は載せた `-` の側にも在り、
+ * その線引きは成立しないことを実測で確かめた。
+ *
+ * ここに挙げた区切りは塞がない。**塞がないことと書かないことは別である**（115.242）ため、
+ * 素通りする見本を {@link DISCLOSED_CITATION_HOLES} へ登録し、素通りし続けることを
+ * 機械で確かめる。塞ぐ判断へ変えるときは、まず同コマンドで巻き込みを測り直すこと。
+ */
+const EXCLUDED_CRITERION_NUMBER_SEPARATORS: readonly string[] = ['/', '／', '・', ',', ' '];
 
 /**
  * 限界の記述に置いてはならない「実データとともに陳腐化する形」
@@ -3203,6 +3281,49 @@ const REAL_DATA_CITATION_RULES: readonly RealDataCitationRule[] = [
       'タスク 115.254 のレビューが差し戻した',
     ],
   },
+  {
+    // 受入基準の局所番号（`N.M`）を禁じても、`.M` を落とした要件レベルの番号（`REQ-24` の形）
+    // は素通りした（115.254 のレビューが round 2 で実測。115.306 が塞いだ）。
+    // **接頭辞 `REQ-` を必ず要求する**——要件レベルの番号は裸では 1 桁から 2 桁の数でしかなく、
+    // 裸で禁じると散文の数値がことごとく巻き込まれる。接頭辞を伴わない形は塞げないため
+    // `DISCLOSED_CITATION_HOLES` へ登録して素通りし続けることを機械で固定する。
+    // 後ろに数字と点を許さないのは `REQ-1.1`（書式の見本）と `REQ-16A` の基底を巻き込まないため。
+    label: '実在する要件レベルの番号',
+    entries: ({ requirementNumbers }) =>
+      requirementNumbers.map((number) => ({
+        pattern: new RegExp(`REQ-${escapeForRegExp(number)}(?![0-9.])`),
+        probe: `現況では REQ-${number} の被覆印がこの外に残っている`,
+      })),
+    counterProbes: [
+      '被覆印は `REQ-N.M` としてしか書けず',
+      '`(feature/REQ-1.1, REQ-1.2)` の二つ目以降',
+      '`(feature/REQ-1.1/REQ-2.2)` のような連結',
+      '要件全体を指す被覆印は `feature/REQ-1` の形で書く',
+    ],
+  },
+  {
+    // 点以外の一字で区切った書き直し（`24-1` の形）も素通りした（同上）。
+    // 区切りの集合は `CITED_CRITERION_NUMBER_SEPARATORS` が持ち、除いた区切りは
+    // `DISCLOSED_CITATION_HOLES` が理由つきで登録する。
+    label: '点以外の区切りで書いた受入基準の番号',
+    entries: ({ criterionNumbers }) =>
+      criterionNumbers.flatMap((number) => {
+        const dot = number.indexOf('.');
+        if (dot < 0) return [];
+        const head = escapeForRegExp(number.slice(0, dot));
+        const tail = escapeForRegExp(number.slice(dot + 1));
+        return CITED_CRITERION_NUMBER_SEPARATORS.map((separator) => ({
+          pattern: new RegExp(`(?<![0-9.])${head}${escapeForRegExp(separator)}${tail}(?![0-9])`),
+          probe: `現況では ${number.slice(0, dot)}${separator}${number.slice(dot + 1)} の被覆印がこの外に残っている`,
+        }));
+      }),
+    counterProbes: [
+      '被覆印は `REQ-N.M` としてしか書けず',
+      '`1a.` `4b.` のように英字の枝を持つ番号',
+      '`(feature/REQ-1.1, REQ-1.2)` の二つ目以降',
+      'タスク 115.254 のレビューが差し戻した',
+    ],
+  },
 ];
 
 /**
@@ -3240,7 +3361,142 @@ const MUST_DETECT_CITATIONS: ReadonlyArray<{
     label: '実在する受入基準の番号',
     text: ({ criterionNumbers }) => `現況では REQ-${criterionNumbers[0]} がこの外に残っている`,
   },
+  {
+    // `.M` を落とした書き直し。115.254 のレビューが round 2 で「守られている記述へ挿入しても
+    // 素通りする」ことを実証した形である（タスク 115.306 が塞いだ）
+    label: '実在する要件レベルの番号',
+    text: ({ requirementNumbers }) =>
+      `現況では REQ-${requirementNumbers[0]} の被覆印がこの外に残っている`,
+  },
+  {
+    // 区切りを点から別の一字へ替えた書き直し。上と同じ round で実証された（同上）
+    label: '点以外の区切りで書いた受入基準の番号',
+    text: ({ criterionNumbers }) =>
+      `現況では ${firstOf(criterionNumbers).replace('.', firstOf(CITED_CRITERION_NUMBER_SEPARATORS))} の被覆印がこの外に残っている`,
+  },
 ];
+
+/** 塞がないと決めた素通りの形。開示の側を機械で固定する */
+interface DisclosedCitationHole {
+  /** 後任が起票と突き合わせるための名前 */
+  label: string;
+  /** 素通りすることを示す架空の見本。どの禁止にも一致してはならない */
+  sample: (vocabulary: RealDataCitationVocabulary) => string;
+  /**
+   * 限界の記述が**逐語で**述べていなければならない綴り
+   *
+   * 台帳と散文を突き合わせる錨。台帳に登録した穴を散文が述べていなければ赤くなる
+   */
+  discloseAs: string;
+  /** なぜ塞がないか（115.242「塞がないことと書かないことは別」） */
+  rationale: string;
+}
+
+/**
+ * 塞がないと決めた素通りの形の台帳（開示の側の対照群）
+ *
+ * `MUST_DETECT_CITATIONS` が「捕まえ続けなければならない形」を固定するのに対し、本台帳は
+ * **「素通りし続けることを開示した形」**を固定する。二方向を揃える理由は二つある。
+ *
+ *   1. 穴を後から塞いだのに開示を直さない、という向きの漂流を止める。塞いだ瞬間に見本が
+ *      禁止へ一致して赤くなり、開示の書き換えを強制する
+ *   2. 開示の散文と台帳が別々の真実を持たないようにする。各項の `discloseAs` は
+ *      {@link checkExtractorLimitDocsCiteNoRealData} の JSDoc に逐語で在らねばならない
+ *
+ * **本台帳は「穴の全部」ではない。** 綴りで判定する禁止に完全な一致は無く、ここに挙がるのは
+ * タスク 115.306 が実際に見本を当てて素通りを確かめた形だけである。
+ */
+const DISCLOSED_CITATION_HOLES: readonly DisclosedCitationHole[] = [
+  {
+    label: '接頭辞 `REQ-` を伴わない要件レベルの番号',
+    sample: ({ requirementNumbers }) =>
+      `現況では要件 ${requirementNumbers[0]} がこの外に残っている`,
+    discloseAs: '接頭辞 `REQ-` を伴わない要件レベルの番号',
+    rationale:
+      '塞げない。要件レベルの番号は裸では 1 桁から 2 桁の数でしかなく、裸で禁じると散文の' +
+      '数値がことごとく巻き込まれる。受入基準の番号（`N.M`）が裸でも禁じられるのは、' +
+      '点を挟む二つ組が散文の数値と紛れにくいためである',
+  },
+  {
+    label: '禁止に載せなかった区切りで書いた受入基準の番号',
+    sample: ({ criterionNumbers }) =>
+      `現況では ${firstOf(criterionNumbers).replace('.', firstOf(EXCLUDED_CRITERION_NUMBER_SEPARATORS))} がこの外に残っている`,
+    discloseAs: '禁止に載せなかった区切り',
+    rationale:
+      '塞がない。EXCLUDED_CRITERION_NUMBER_SEPARATORS の各字はいずれも巻き込みが 0 件では' +
+      'なく、比の書き方・正規表現リテラル・数の並記を巻き込む。母集団と巻き込みは' +
+      'npm run check:req-coverage:citesurvey が毎回印字する',
+  },
+  {
+    label: '見本用に予約した番号',
+    sample: () =>
+      `現況では REQ-${RESERVED_ILLUSTRATION_REQUIREMENT_NUMBERS[0]} と REQ-${RESERVED_ILLUSTRATION_CRITERION_NUMBERS[0]} がこの外に残っている`,
+    discloseAs: '見本用に予約した番号',
+    rationale:
+      '意図して残す穴である。書式そのものを説明する義務があり、見本に使う番号を禁じると' +
+      '説明ごと禁じることになる。予約した番号は実在もするため、その番号に限っては' +
+      '実データの引用も素通りする',
+  },
+  {
+    label: '半角の算用数字で書かれていない番号',
+    sample: () => '現況では ２４.１ と二四・一がこの外に残っている',
+    discloseAs: '半角の算用数字で書かれていない番号',
+    rationale:
+      '塞がない。実データから組み立てる番号は半角の算用数字であり、全角や漢数字へ写した形は' +
+      '綴りが一致しない。正規化してから照合する形は、正規化した文字列の位置が原文と' +
+      '対応しなくなるため採らなかった。この形で被覆印を書く経路が実在しないことは' +
+      '確かめていない',
+  },
+  {
+    label: '点のあとに空白を挟む形',
+    sample: ({ criterionNumbers }) =>
+      `現況では ${firstOf(criterionNumbers).replace('.', '. ')} がこの外に残っている`,
+    discloseAs: '点のあとに空白を挟む形',
+    rationale:
+      '塞がない。番号順の一覧（`24.` に続く本文が数字で始まる形）と字面が同じであり、' +
+      '禁じると正当な一覧を巻き込む。区切りは一字に限るという線をここでも引く',
+  },
+  {
+    label: 'ファイル名を略した書き方',
+    sample: ({ markedFileNames }) =>
+      `現況では ${firstOf(firstOf(markedFileNames).split('.'))} が名乗っている`,
+    discloseAs: 'ファイル名を略した書き方',
+    rationale:
+      '塞がない。タスク 115.254 が置いた線をそのまま引き継ぐ。拡張子を落とした綴りは' +
+      '一般名と区別できず、禁じると実データの引用でない散文まで巻き込む',
+  },
+  {
+    label: '`件`・`箇所`・`印`・`ファイル` 以外の助数詞',
+    sample: () => '現況では 3 つがこの外に残っている',
+    discloseAs: '`件`・`箇所`・`印`・`ファイル` 以外の助数詞',
+    rationale:
+      '塞がない。助数詞は開いた集合であり、列挙で塞ぐ形には終わりが無い。' +
+      'タスク 115.254 が四つを選んだ線をそのまま引き継ぐ',
+  },
+  {
+    // 本タスクのレビューが 25 形の外側で見つけた四形（末尾の点・非実在の枝・大小文字・
+    // 接頭辞のあとの空白）。いずれも要件レベルの規則の綴りの縁を外れる
+    label: '要件レベルの番号の書き方の揺れ',
+    sample: ({ requirementNumbers }) =>
+      `現況では REQ-${firstOf(requirementNumbers)}. と REQ-${firstOf(requirementNumbers)}.999 と req-${firstOf(requirementNumbers)} と REQ ${firstOf(requirementNumbers)} がこの外に残っている`,
+    discloseAs: '要件レベルの番号の書き方の揺れ',
+    rationale:
+      '塞がない。末尾の点は `(?![0-9.])` に掛かり、非実在の枝を足した形は実在の番号と' +
+      '綴りが一致せず、小文字と接頭辞のあとの空白は綴りそのものが違う。いずれも' +
+      '縁を緩めると書式の見本（`REQ-N.M` の説明）を巻き込むため、緩める前に' +
+      'counterProbes の側で費用を測ること',
+  },
+];
+
+/**
+ * 塞がないと決めた形の件数の下限（遊びを持たせない。上回っても下回っても赤くする）
+ *
+ * 台帳を空にする抜け道は「一件も登録されていない」で塞いであるが、**7 項から 1 項へ縮める
+ * 変異は完全に無言で通った**（本タスクのレビューが実測）。開示は縮めても関門が黙るため、
+ * 件数を定数で固定する。115.298 が対照群の下限へ課したのと同じ「遊び 0」の形である。
+ * **増やす向きも減らす向きも定数の書き換えを伴うため、件数は差分に必ず現れる。**
+ */
+const MINIMUM_DISCLOSED_CITATION_HOLES = 8;
 
 /** 限界の記述の一つ。判断の根拠とともに台帳へ載せる */
 interface GuardedCitationDoc {
@@ -3318,7 +3574,7 @@ const LIMIT_DOC_GUARD_NAME = 'checkExtractorLimitDocsCiteNoRealData';
  * 限界の記述（「この検査が捕まえないもの」）は、非空振りを示すために実データの実例を
  * 引きがちである。引いた実例は実データとともに陳腐化し、陳腐化しても機械は何も言わない。
  *
- * 見るのは七つである。
+ * 見るのは八つである。
  *
  *   1. 台帳・禁止規則・実データから作る材料のいずれも空でないこと（第3原則。空にして
  *      緑にする抜け道を作らない）
@@ -3333,25 +3589,56 @@ const LIMIT_DOC_GUARD_NAME = 'checkExtractorLimitDocsCiteNoRealData';
  *   5. 各記述が取り出せること（宣言の綴りが変わった・JSDoc が消えたら失格）
  *   6. 各記述が実データを指す形を一つも挙げていないこと
  *   7. 各記述が名乗る導線が、その記述と同じファイルに実在すること
+ *   8. `DISCLOSED_CITATION_HOLES` の各見本が**どの禁止にも一致しない**こと、および
+ *      各項の綴りが本 JSDoc に逐語で在ること（開示の側の対照。塞いだのに開示を直さない
+ *      向きの漂流と、台帳と散文が別々の真実を持つ向きの漂流の双方を止める）
  *
  * **守れない範囲を明記する。** 見るのは台帳が挙げる記述だけであり、他の JSDoc は見ていない
  * （そちらへ広げる判断は、`check:cf-evidence` が引用を要求する反実仮想と衝突しないかを
  * 一箇所ずつ測ってから行うこと。全面禁止は抽出器にも本自己検査にも当てられない）。
- * 禁じる形にも穴がある。
+ * 禁じる形にも穴がある。**下の八つは {@link DISCLOSED_CITATION_HOLES} に見本つきで登録して
+ * あり、後から塞いだのに開示が古いまま残ると赤くなる**（開示の側の対照。上の 8）。
+ * 件数は {@link MINIMUM_DISCLOSED_CITATION_HOLES} が遊び 0 で固定する。
+ * **これで穴を数え上げたとは言えない**——挙げてあるのは、タスク 115.306 が見本を実際に
+ * 挿入して素通りを確かめた形だけである（同タスクの走査。捕まった形と素通りした形の内訳は
+ * `.kiro/specs/site-survey/design.md` の当該節に置いた。**同タスクのレビューが、その走査の
+ * 外側でさらに四形の素通りを見つけている**——下の最後の項がそれを引き取ったものである）。
  *
  *   - ファイル名を略した書き方（`some-feature.spec.ts` を `some-feature` と書く形）
  *   - 実データの日付、`件`・`箇所`・`印`・`ファイル` 以外の助数詞
- *   - 見本用に予約した番号（`RESERVED_ILLUSTRATION_CRITERION_NUMBERS`）。これらは実在も
- *     するため、その番号に限っては実データの引用も素通りする。書式の説明を残すための
- *     意図した穴である
+ *   - 見本用に予約した番号（`RESERVED_ILLUSTRATION_CRITERION_NUMBERS` と
+ *     `RESERVED_ILLUSTRATION_REQUIREMENT_NUMBERS`）。これらは実在もするため、その番号に
+ *     限っては実データの引用も素通りする。書式の説明を残すための意図した穴である
+ *   - 接頭辞 `REQ-` を伴わない要件レベルの番号（`要件 24` の形）。要件レベルの番号は裸では
+ *     1 桁から 2 桁の数でしかなく、裸で禁じると散文の数値がことごとく巻き込まれる
+ *   - 禁止に載せなかった区切りで書いた番号（`EXCLUDED_CRITERION_NUMBER_SEPARATORS`）。
+ *     いずれも巻き込みが 0 箇所ではない——母集団と巻き込みは
+ *     `npm run check:req-coverage:citesurvey` が毎回印字する
+ *   - 半角の算用数字で書かれていない番号（全角・漢数字。正規化してから照合する形は採らない）
+ *   - 点のあとに空白を挟む形（`24. 1`）。番号順の一覧と字面が同じになる
+ *   - 要件レベルの番号の書き方の揺れ（末尾に点を置く形・実在の要件に非実在の枝を足した形・
+ *     小文字で書く形・接頭辞のあとに空白を置く形）。縁を緩めると書式の見本を巻き込む
  *
- * **機能名の接頭辞を伴わない番号の列挙（`REQ-24.1` の形）は塞いである。** 差し戻しの前は
- * この形が素通りし、`:1082-1083` から落とした引用を接頭辞なしで書き直すだけで同じ時限装置を
- * 同じ箇所へ戻せた（レビューが実証。同じ挿入で自己検査 69 件はすべて緑のままだった）。
- * `実在する受入基準の番号` の規則を足した後に同じ挿入を当てると 69 件のうち 1 件が落ちる
- * （2026-09-03 に `npm run check:req-coverage:selftest` で実測）。
+ * **番号を書き替えて禁止を抜ける三つの形は塞いである。** いずれも「守られている記述へ
+ * 挿入すると自己検査が緑のまま通る」ことをレビューが実測した形であり、順に潰した。
  *
- * 広げるときは `REAL_DATA_CITATION_RULES` と `GUARDED_CITATION_DOCS` へ足す。
+ *   1. **機能名の接頭辞を落とす**（`REQ-24.1` の形。タスク 115.254）。差し戻しの前は
+ *      この形が素通りし、`:1082-1083` から落とした引用を接頭辞なしで書き直すだけで同じ
+ *      時限装置を同じ箇所へ戻せた。`実在する受入基準の番号` の規則を足した後に同じ挿入を
+ *      当てると 69 件のうち 1 件が落ちる（2026-09-03 に
+ *      `npm run check:req-coverage:selftest` で実測。当時の総数は 69 件であった）
+ *   2. **`.M` を落として要件レベルにする**（`REQ-24` の形。タスク 115.306）。
+ *      `実在する要件レベルの番号` の規則を足す前は、`collectRealDataCitationVocabulary` の
+ *      JSDoc へ `現況では REQ-24 の被覆印がこの外に残っている` を挿入しても
+ *      73 件すべてが緑であった。足した後に同じ挿入を当てると 73 件のうち 1 件が落ちる
+ *      （2026-09-06 に同コマンドで実測）
+ *   3. **区切りを点から別の一字へ替える**（`24-1` の形。タスク 115.306）。
+ *      `点以外の区切りで書いた受入基準の番号` の規則を足す前は、同じ JSDoc へ
+ *      `現況では 24-1 の被覆印がこの外に残っている` を挿入しても 73 件すべてが緑であった。
+ *      足した後に同じ挿入を当てると 73 件のうち 1 件が落ちる（同日・同コマンドで実測）
+ *
+ * 広げるときは `REAL_DATA_CITATION_RULES` と `GUARDED_CITATION_DOCS` へ足し、塞いだ穴を
+ * `DISCLOSED_CITATION_HOLES` から外す。
  */
 function checkExtractorLimitDocsCiteNoRealData(): string[] {
   const failures: string[] = [];
@@ -3393,6 +3680,36 @@ function checkExtractorLimitDocsCiteNoRealData(): string[] {
     if (vocabulary.criterionNumbers.includes(reserved)) {
       failures.push(
         `見本用に予約した番号 ${reserved} が禁止の材料に残っている（書式の説明まで禁じてしまう）`
+      );
+    }
+  }
+  if (vocabulary.requirementNumbers.length === 0) {
+    failures.push(
+      '実在する要件レベルの番号が一件も集まらない（実データから作る禁止が空振りしている）'
+    );
+  }
+  if (RESERVED_ILLUSTRATION_REQUIREMENT_NUMBERS.length === 0) {
+    failures.push(
+      '書式の見本に使う要件レベルの番号が一件も予約されていない（要件全体の被覆印の書式ごと禁じてしまう）'
+    );
+  }
+  for (const reserved of RESERVED_ILLUSTRATION_REQUIREMENT_NUMBERS) {
+    if (vocabulary.requirementNumbers.includes(reserved)) {
+      failures.push(
+        `見本用に予約した要件レベルの番号 ${reserved} が禁止の材料に残っている（書式の説明まで禁じてしまう）`
+      );
+    }
+  }
+  if (CITED_CRITERION_NUMBER_SEPARATORS.length === 0) {
+    failures.push('点以外の区切りが一本も登録されていない（区切りを空にして緑にする抜け道）');
+  }
+  for (const separator of CITED_CRITERION_NUMBER_SEPARATORS) {
+    if (separator === '.') {
+      failures.push('点そのものが「点以外の区切り」に載っている（既存の禁止と重なる）');
+    }
+    if (EXCLUDED_CRITERION_NUMBER_SEPARATORS.includes(separator)) {
+      failures.push(
+        `区切り「${separator}」が載せる側と載せない側の両方に在る（どちらの宣言が効いているか読めない）`
       );
     }
   }
@@ -3461,6 +3778,64 @@ function checkExtractorLimitDocsCiteNoRealData(): string[] {
     const text = control.text(vocabulary);
     if (!rule.entries(vocabulary).some((entry) => entry.pattern.test(text))) {
       failures.push(`${control.label}: 「${text}」を捕まえられない（この形の禁止が失われている）`);
+    }
+  }
+
+  // 開示の側にも対照を置く（タスク 115.306）。捕まえ続ける側だけを固定すると、
+  // 「塞がないと開示した形を後から塞いだのに開示が古いまま」という向きの漂流が残る
+  if (DISCLOSED_CITATION_HOLES.length === 0) {
+    failures.push('塞がないと決めた形が一件も登録されていない（開示の対照を空にする抜け道）');
+  }
+  // 空でないことだけでは 8 項から 1 項へ縮む変異を止められない（本タスクのレビューが実測）
+  if (DISCLOSED_CITATION_HOLES.length < MINIMUM_DISCLOSED_CITATION_HOLES) {
+    failures.push(
+      `塞がないと決めた形が ${DISCLOSED_CITATION_HOLES.length} 件しかない` +
+        `（宣言の下限は ${MINIMUM_DISCLOSED_CITATION_HOLES} 件）。` +
+        '穴を塞いで台帳から外したのなら、下限も同じ差分で下げること。'
+    );
+  }
+  if (DISCLOSED_CITATION_HOLES.length > MINIMUM_DISCLOSED_CITATION_HOLES) {
+    failures.push(
+      `塞がないと決めた形が ${DISCLOSED_CITATION_HOLES.length} 件で、宣言した下限 ` +
+        `${MINIMUM_DISCLOSED_CITATION_HOLES} 件を上回る（遊び ` +
+        `${DISCLOSED_CITATION_HOLES.length - MINIMUM_DISCLOSED_CITATION_HOLES} 件）。` +
+        '下限は現況ちょうどに保つこと——遊びを持つ下限は、その幅ぶんの無言の削除を吸収する。' +
+        `MINIMUM_DISCLOSED_CITATION_HOLES を ${DISCLOSED_CITATION_HOLES.length} 件へ上げること。`
+    );
+  }
+  const guardSourcePath = path.resolve(SELFTEST_SOURCE_PATH);
+  const guardDoc = fs.existsSync(guardSourcePath)
+    ? extractJsDocAbove(
+        fs.readFileSync(guardSourcePath, 'utf8'),
+        `function ${LIMIT_DOC_GUARD_NAME}(): string[] {`
+      )
+    : null;
+  if (guardDoc === null) {
+    failures.push(
+      `${LIMIT_DOC_GUARD_NAME} の限界の記述を取り出せない` +
+        '（開示の所在が失われた。前提が崩れたので合格にしない）'
+    );
+  }
+  for (const hole of DISCLOSED_CITATION_HOLES) {
+    if (hole.rationale.trim().length === 0) {
+      failures.push(`${hole.label}: 塞がない理由が空である（塞がないことと書かないことは別）`);
+    }
+    const sample = hole.sample(vocabulary);
+    for (const rule of REAL_DATA_CITATION_RULES) {
+      for (const { pattern } of rule.entries(vocabulary)) {
+        if (pattern.test(sample)) {
+          failures.push(
+            `${hole.label}: 素通りすると開示した見本「${sample}」へ${rule.label}の ` +
+              `${pattern.source} が一致する。塞いだのなら開示を書き換えること`
+          );
+        }
+      }
+    }
+    if (guardDoc !== null && !guardDoc.includes(hole.discloseAs)) {
+      failures.push(
+        `${hole.label}: 限界の記述が \`${hole.discloseAs}\` を逐語で述べていない` +
+          '（台帳に在る穴が開示に無い）'
+      );
     }
   }
 
@@ -3533,6 +3908,129 @@ function checkExtractorLimitDocsCiteNoRealData(): string[] {
   }
 
   return failures;
+}
+
+/**
+ * 巻き込みを測る母集団（タスク 115.306）
+ *
+ * **範囲を日本語で宣言しない。** 同じ記述から出発した二者の走査範囲が 2 倍ずれた実例が
+ * あるため、範囲はコマンドと同型の列挙で持つ（`ls scripts/*.ts` と設計文書 1 件）。
+ * 台帳が読む記述だけを見るとどの規則も巻き込み 0 箇所で並び、判断材料にならない。
+ */
+function listCitationSurveyFiles(): string[] {
+  const scriptsDir = path.resolve('scripts');
+  const files = fs
+    .readdirSync(scriptsDir)
+    .filter((name) => name.endsWith('.ts'))
+    .map((name) => path.join(scriptsDir, name))
+    .sort();
+  const design = path.resolve('.kiro/specs/site-survey/design.md');
+  if (fs.existsSync(design)) files.push(design);
+  return files;
+}
+
+/** 調査が印字する見本の上限。1 件だけ出すと巻き込みの中身を一般化して誤る */
+const CITATION_SURVEY_EXAMPLE_LIMIT = 6;
+
+/**
+ * 一本の網について、母集団の中の巻き込みを数えて印字する
+ *
+ * **ファイル別の内訳と複数の見本を出す。** 先頭 1 例だけを出す形は、巻き込みの中身を
+ * その 1 例で一般化する誤りを誘う（本タスクのレビューが実測した差し戻しの原因である。
+ * 範囲の書き方 1 例から「巻き込みはいずれも範囲である」と一般化していたが、実際には
+ * 対照名・宣言 ID・正規表現の文字クラスが含まれていた）。**内訳と見本を出す形にすれば、
+ * 後任は中身についての主張を自分で導き直せる。**
+ */
+function reportCitationNetCollisions(
+  label: string,
+  listed: boolean,
+  pattern: RegExp,
+  accept: (match: RegExpExecArray) => boolean,
+  texts: ReadonlyArray<{ file: string; text: string }>
+): void {
+  let hits = 0;
+  const perFile = new Map<string, number>();
+  const examples: string[] = [];
+  for (const { file, text } of texts) {
+    pattern.lastIndex = 0;
+    let match = pattern.exec(text);
+    while (match !== null) {
+      if (accept(match)) {
+        hits += 1;
+        const name = path.basename(file);
+        perFile.set(name, (perFile.get(name) ?? 0) + 1);
+        if (examples.length < CITATION_SURVEY_EXAMPLE_LIMIT) {
+          const line = text.slice(0, match.index).split('\n').length;
+          examples.push(
+            `${name}:${line} ${JSON.stringify(
+              text.slice(Math.max(0, match.index - 30), match.index + 30)
+            )}`
+          );
+        }
+      }
+      match = pattern.exec(text);
+    }
+  }
+  console.log(
+    `   ${listed ? '[載せた]  ' : '[載せない]'} ${label}: 巻き込み ${hits} 箇所 / ${perFile.size} ファイル`
+  );
+  for (const [name, count] of [...perFile].sort(
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0])
+  )) {
+    console.log(`      内訳 ${name}: ${count} 箇所`);
+  }
+  for (const example of examples) console.log(`      例 ${example}`);
+  if (hits > examples.length) {
+    console.log(`      （見本は先頭 ${examples.length} 件のみ。全件は上の内訳のファイルを読む）`);
+  }
+}
+
+/**
+ * 実データ引用の禁止をどこまで広げるかの判断材料を印字する（タスク 115.306）
+ *
+ * 載せた網（要件レベルの番号と {@link CITED_CRITERION_NUMBER_SEPARATORS}）と載せなかった網
+ * （{@link EXCLUDED_CRITERION_NUMBER_SEPARATORS}）の**両方**について、母集団・巻き込み・
+ * ファイル別の内訳・複数の見本を出す。片側だけを出すと「載せなかった理由」が測られていない
+ * 断言になる。**数え方は出現箇所**である（同じファイルの同じ番号が複数回現れれば複数と数える）
+ * ——単位を宣言しないと、同じ量について箇所・対・行の三つの値が並ぶ。
+ * 数値をここへ写さないのは、写した瞬間に同期する機構の無い二重帳簿になるためである。
+ */
+function surveyCitationNets(): void {
+  const vocabulary = collectRealDataCitationVocabulary();
+  const files = listCitationSurveyFiles();
+  const knownCriteria = new Set(vocabulary.criterionNumbers.filter((n) => n.includes('.')));
+  const knownRequirements = new Set(vocabulary.requirementNumbers);
+  const texts = files.map((file) => ({ file, text: fs.readFileSync(file, 'utf8') }));
+  console.log('🔍 実データ引用の禁止の巻き込み調査 (タスク 115.306)');
+  console.log('   母集団の宣言: ls scripts/*.ts .kiro/specs/site-survey/design.md');
+  console.log(
+    `   母集団: ${files.length} ファイル / 実在する受入基準の番号 ${knownCriteria.size} 件 / ` +
+      `実在する要件レベルの番号 ${knownRequirements.size} 件（いずれも見本用の予約を除く）`
+  );
+  console.log('   数え方: 出現箇所（同じファイルの同じ番号が複数回現れれば複数と数える）');
+  reportCitationNetCollisions(
+    '要件レベルの番号 `REQ-N`',
+    true,
+    /REQ-(\d+[A-Z]?)(?![0-9.])/g,
+    (match) => knownRequirements.has(match[1] ?? ''),
+    texts
+  );
+  for (const separator of [
+    ...CITED_CRITERION_NUMBER_SEPARATORS,
+    ...EXCLUDED_CRITERION_NUMBER_SEPARATORS,
+  ]) {
+    reportCitationNetCollisions(
+      `点以外の区切り「${separator}」`,
+      CITED_CRITERION_NUMBER_SEPARATORS.includes(separator),
+      new RegExp(`(?<![0-9.])(\\d+[A-Z]?)${escapeForRegExp(separator)}(\\d+)(?![0-9])`, 'g'),
+      (match) => knownCriteria.has(`${match[1] ?? ''}.${match[2] ?? ''}`),
+      texts
+    );
+  }
+  console.log(
+    '   載せた側の巻き込みは、GUARDED_CITATION_DOCS を広げるときに書き直しが要る箇所の下界である。' +
+      '書き直せるかは中身による——内訳と見本を読んで分類し直すこと。'
+  );
 }
 
 /**
@@ -7146,6 +7644,14 @@ function guardControlsArePresent(groups: readonly Group[]): void {
 }
 
 function main(): void {
+  // 判断材料を出すだけの経路（関門ではない）。タスク 115.306 が置いた
+  if (process.argv.includes('--survey-citation-nets')) {
+    surveyCitationNets();
+    // 判断材料を出すだけの経路であり関門ではない。失敗既定（module の頂）をここで解除する。
+    // `process.exitCode = 0` を二つ目に置かないのは、`main` の中の解除がちょうど一つで
+    // あることを設計文書の宣言が数えているためである（タスク 115.295 の形）
+    process.exit(0);
+  }
   console.log(
     '🔍 要件被覆 本番到達性 判定の自己検査 (scripts/check-requirement-coverage.selftest.ts)'
   );

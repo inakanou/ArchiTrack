@@ -82,6 +82,7 @@
     "check:req-coverage:json": "npx tsx scripts/check-requirement-coverage.ts --json",
     "check:req-coverage:strict": "npx tsx scripts/check-requirement-coverage.ts --strict",
     "check:req-coverage:selftest": "npx tsx scripts/check-requirement-coverage.selftest.ts",
+    "check:req-coverage:citesurvey": "npx tsx scripts/check-requirement-coverage.selftest.ts --survey-citation-nets",
     "check:cf-evidence": "npx tsx scripts/check-counterfactual-evidence.ts",
     "check:cf-evidence:verbose": "npx tsx scripts/check-counterfactual-evidence.ts --verbose",
     "check:cf-evidence:json": "npx tsx scripts/check-counterfactual-evidence.ts --json",
