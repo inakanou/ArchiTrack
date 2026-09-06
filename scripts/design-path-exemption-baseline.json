@@ -26,9 +26,9 @@
     "面には数えない。ただし外した側も基準で見張る——開示だけに落とすと、新しく現れた",
     "曖昧な参照が面にも曖昧の集合にも掛からない素通りの経路になる。"
   ],
-  "reachTotal": 167,
-  "candidateTotal": 619,
-  "entityTotal": 129,
+  "reachTotal": 170,
+  "candidateTotal": 641,
+  "entityTotal": 131,
   "exemptedTotal": 123,
   "exemptedDistinctTotal": 30,
   "ambiguousTotal": 5,
@@ -62,6 +62,16 @@
       "recordedAt": "2026-09-05",
       "reachTotal": 167,
       "candidateTotal": 619
+    },
+    {
+      "recordedAt": "2026-09-05",
+      "reachTotal": 169,
+      "candidateTotal": 641
+    },
+    {
+      "recordedAt": "2026-09-05",
+      "reachTotal": 170,
+      "candidateTotal": 641
     }
   ],
   "documents": {
@@ -172,6 +182,7 @@
       "backend/src/utils/survey-deleted-guard.ts",
       "backend/vitest.config.ts",
       "batch-upload.service.ts",
+      "check-design-component-requirements.ts",
       "construction-photo-image.service.ts",
       "construction-photo-images.routes.ts",
       "docs/development/testing.md",
@@ -225,6 +236,7 @@
       "image-upload.service.ts",
       "image-viewer.constants.ts",
       "scripts/check-design-code-reference-format.ts",
+      "scripts/check-design-component-requirements.ts",
       "scripts/check-design-path-references.ts",
       "scripts/check-design-reference-format.selftest.ts",
       "scripts/check-design-reference-format.ts",
@@ -232,6 +244,7 @@
       "scripts/check-requirement-coverage.ts",
       "scripts/check-requirement-exclusions.ts",
       "scripts/design-measurements.json",
+      "scripts/design-path-exemption-baseline.json",
       "site-survey-annotation-mobile.spec.ts",
       "site-survey-annotation.types.test.ts",
       "site-survey-outline-toggle.spec.ts",

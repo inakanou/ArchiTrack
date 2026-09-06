@@ -738,6 +738,72 @@ const JUDGEMENT: TestCase[] = [
     },
   },
   {
+    name: '取り消し線で潰した部品の行は母集団に入らない（タスク 115.299 が開示した限界の固定）',
+    run() {
+      // 生きた綴りなら矛盾として挙がる組（CONTRADICTING と同型）を、取り消し線で潰すだけの対照。
+      // **差は取り消し線の有無だけである。**
+      const struck = designDocument({
+        traceabilityRows: [
+          '| 1.1 | a | ~~X~~（撤去済み） | - | - |',
+          '| 2.1 | b | ~~X~~（撤去済み）, Y | - | - |',
+        ],
+        componentRows: [
+          '| ~~X~~（撤去済み） | UI | i | 1.1 | - | - |',
+          '| Y | UI | i | 2.1 | - | - |',
+        ],
+      });
+      const live = measureDesignDocument('f', CONTRADICTING);
+      const dead = measureDesignDocument('f', struck);
+      return [
+        ...expect(
+          live.contradictions.length === 1,
+          `生きた綴りの側が矛盾を挙げていない（対照が空振り）: ${live.contradictions.length}`
+        ),
+        ...expect(
+          dead.contradictions.length === 0,
+          `取り消し線の行を母集団に入れている（開示と食い違う）: ${dead.contradictions
+            .map((one) => one.id)
+            .join(' / ')}`
+        ),
+        ...expect(
+          live.pairs === 2 && dead.pairs === 1,
+          `母集団の縮みが取り消し線に由来していない: live=${live.pairs} dead=${dead.pairs}`
+        ),
+      ];
+    },
+  },
+  {
+    name: '表の外の散文は母集団に入らない（タスク 115.299 が開示した限界の固定）',
+    run() {
+      // 表は矛盾を持たない。**地の文だけ**が追跡表と食い違う範囲を述べる形。
+      const consistent = designDocument({
+        traceabilityRows: ['| 1.1 | a | X | - | - |'],
+        componentRows: ['| X | UI | i | 1.1 | - | - |'],
+      });
+      const prose = `${consistent}\n要件2.1-2.5 の担当は \`X\` である（この一文は面の外にある）。\n`;
+      const before = measureDesignDocument('f', consistent);
+      const after = measureDesignDocument('f', prose);
+      return [
+        ...expect(
+          before.assignments > 0 && before.declarations > 0 && before.pairs > 0,
+          `表の側が読めていない（この対照は空振りでは成立しない）: assignments=${before.assignments} declarations=${before.declarations} pairs=${before.pairs}`
+        ),
+        ...expect(
+          before.contradictions.length === 0,
+          `表だけの対照が既に矛盾を持っている（対照が空振り）: ${before.contradictions.length}`
+        ),
+        ...expect(
+          after.contradictions.length === 0,
+          '散文を矛盾として拾っている（本検査の面の宣言と食い違う）'
+        ),
+        ...expect(
+          after.assignments === before.assignments && after.declarations === before.declarations,
+          `散文が割り当て・自己申告の件数を動かしている: ${before.assignments}/${before.declarations} → ${after.assignments}/${after.declarations}`
+        ),
+      ];
+    },
+  },
+  {
     name: 'exact: 宣言と一致すれば通る',
     run() {
       // 下限は実測ちょうど（遊び 0）でなければならない（タスク 115.298）
@@ -1276,13 +1342,39 @@ const DISCLOSURE: TestCase[] = [
       ];
     },
   },
+  {
+    name: '本体が「散文と取り消し線の行を見ない」ことを開示している（タスク 115.299）',
+    run() {
+      // 確かめる文字列は本自己検査の側に置き、**確かめる対象は別のファイル**から読む
+      // （同じファイルを読むと照合が恒真になる。タスク 115.297 の差し戻し）。
+      const source = fs.readFileSync(CHECK_SOURCE_PATH, 'utf8');
+      const prose = '**表の外の散文は見ない（タスク 115.299 が実測）**';
+      const struck = '**取り消し線で潰した部品の行は母集団から外す**';
+      const twoWays = '一つの文書が同じ担い手の要件範囲を散文で二様に述べていても本検査は沈黙する';
+      const notDead = '**緑は検査の死ではなく面の外である**';
+      return [
+        ...expect(source.includes(prose), '散文を見ないことの開示が本体に無い'),
+        ...expect(source.includes(struck), '取り消し線の行を外すことの開示が本体に無い'),
+        ...expect(
+          source.includes(twoWays),
+          '「二様に述べても沈黙する」という帰結の開示が本体に無い'
+        ),
+        ...expect(
+          source.includes(notDead),
+          '見逃しの開示に「面の外である（検査の死ではない）」の裏付けが無い'
+        ),
+      ];
+    },
+  },
 ];
 
 /**
  * 確認の総数の下限
  *
- * 2026-09-05 にリポジトリルートで実測した現況ちょうど（余裕ゼロ。タスク 115.298 が
- * 対照を 14 件足した。それ以前は 2026-09-02 実測の 30 件）。
+ * 2026-09-06 にリポジトリルートで実測した現況ちょうど（余裕ゼロ。タスク 115.299 が
+ * 対照を 3 件足した——取り消し線の行と表の外の散文が母集団に入らないことの二件と、
+ * その限界が本体のヘッダに開示されていることの一件。それ以前は 2026-09-05 実測の 44 件で、
+ * さらにその前はタスク 115.298 が 14 件足す前の 2026-09-02 実測の 30 件である）。
  *
  * **遊びを持たせない**（タスク 115.298 が 115.262 / 115.271 の作法へ揃えた）。下限を
  * **上回っても**赤くする——本タスクが `FEATURE_POLICIES` の四つのつまみへ課したのと同じ規律を、
@@ -1290,7 +1382,7 @@ const DISCLOSURE: TestCase[] = [
  * その幅ぶんの対照の無言の削除を吸収する。二方向を合わせると、確認を増やす向きも減らす向きも
  * 定数の書き換えを伴うため、対照の増減は必ず差分に現れる。
  */
-const MINIMUM_TOTAL_CASES = 44;
+const MINIMUM_TOTAL_CASES = 47;
 
 /**
  * 対照群そのものが在ることの関門（AI運用7原則 第3原則）
