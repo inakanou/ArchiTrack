@@ -251,8 +251,9 @@
  *   - **歴史記録と現況の区別は見ない。** 同じ行が当時の値と現況の値の両方を載せる形は、
  *     現況の側を `documentFigure` に採れば通る。当時の値が正しいかは見ない
  *   - **どのスペックの押下かは見ない。** 本検査は押下前の関門に載っており、宣言が指す文書は
- *     {@link GOVERNED_DOCUMENTS}（現在は現場調査スペックの設計文書）に限られる。
- *     別スペックだけを触っている者の押下も、現場調査の設計文書が引く値が現況とずれていれば
+ *     {@link GOVERNED_DOCUMENTS} に限られる（この一覧はタスク 115.276 と 115.301 が広げた。
+ *     現在の中身は同定数の宣言そのものが持ち、要約行が件数を印字する）。
+ *     別スペックだけを触っている者の押下も、所管の文書が引く値が現況とずれていれば
  *     止まる。押下者の変更範囲と関門の対象範囲は結び付いていない
  *   - **`git ls-files` を使う宣言は指標に依存する。** `nonexistent-paths-by-git-index` の
  *     再現コマンドは版管理の一覧を実在の権威に採るため、作業ツリーではなく**指標**を見る。
@@ -317,10 +318,28 @@ export const DEFAULT_MANIFEST_PATH = 'scripts/design-measurements.json';
  * 同書の宣言は**いずれも版で固定する**（115.273 の作法）。理由と代償の実測は
  * 自己検査の `PINNED_STEERING_RECORD_DECLARATIONS` / `LIVE_STEERING_RECORD_DECLARATIONS`
  * に置いた。
+ *
+ * **タスク 115.301 が裁定記録を二件加えた。** 加えた理由は「裁定記録が引く実測値の鮮度を
+ * 見る機械が無い」ことの実測である——`scripts/exclusion-alternative-verification-adjudication.md`
+ * の見出しが名乗る全件表の行数を 104 から 114 へ書き換える変異を当てても、押下前の関門
+ * 19 本と `type-check` / `lint` / `format:check` は基線と**同じ終了コードのまま**であった
+ * （基線で赤いのは `check:req-coverage` 一本のみ。コミット `5f1b8568` の作業ツリーで
+ * 2026-09-06 にリポジトリルートで実測。変異は事前複製からの `cp` で復元し、
+ * `git diff HEAD --numstat` に当該ファイルが現れないことで確かめた）。
+ * 115.300 が新設した `check:adjudication-pointers` は §4 の指し先の実在だけを見るため、
+ * 記録が引く数値には一切届かない。
+ *
+ * 裁定記録の宣言は**版で固定する形と作業ツリーを読む形が混在する**。記録の中で自分自身の
+ * 表や走査の母集団を数える値は現況の主張であるため作業ツリーから測り、過去の版について
+ * 述べる値（115.300 が §4 を改める前の指し先の数）は版で固定する。線引きと代償の実測は
+ * 自己検査の `PINNED_ADJUDICATION_RECORD_DECLARATIONS` /
+ * `LIVE_ADJUDICATION_RECORD_DECLARATIONS` に置いた。
  */
 export const GOVERNED_DOCUMENTS: readonly string[] = [
   '.kiro/specs/site-survey/design.md',
   '.kiro/steering/development-discipline.md',
+  'scripts/coverage-mark-adjudication.md',
+  'scripts/exclusion-alternative-verification-adjudication.md',
 ];
 
 /**
@@ -456,8 +475,27 @@ export const GOVERNED_DOCUMENTS: readonly string[] = [
  * **片方だけを書き換えるとどちらかの関門が赤くなる**。後者は同関門が判定に使わない値であり、
  * **増えたことを知らせる受け口は本宣言だけである**（表題だけでは区間を一つに絞れない指し先が
  * 生じたことを示す）。
+ *
+ * **タスク 115.301 が 118 件から 124 件へ上げた。** 増分の 6 件は、同タスクが所管へ加えた
+ * 二つの裁定記録が引く値である。内訳は次のとおり。
+ *
+ * - `scripts/coverage-mark-adjudication.md` から 3 件——本記録の名を引くファイルの数
+ *   （`grep -rl` の終端が `wc -l`。作業ツリーを読む）、`§6` の走査が母集団に採る
+ *   「決着済み」の箇条書きの数（終端が `grep -c` で値は `1`）、および 115.300 が `§4` を
+ *   改める前の指し先の数 `150`（**この一件だけ版 `a639d314` で固定する**——過去の版に
+ *   ついての記録であり、作業ツリーを読む形では書いた瞬間に偽になる。115.273 の作法）。
+ * - `scripts/exclusion-alternative-verification-adjudication.md` から 3 件——`§4` の表が
+ *   件数の列で合計する `43`、`§5` の全件表の行数 `3`、`§6` の全件表の行数 `104`。
+ *   **いずれも記録が自分自身の表を数える現況の主張であるため作業ツリーから測る。**
+ *   三値は `§2` の機械集計 `206 = 56 + 43 + 3 + 104` の四つの加数のうち三つであり、
+ *   見出しの名乗りと表の実体がずれた瞬間に本検査が赤くなる。
+ *
+ * **`§1` と `§5` / `§7` の表（是正の前後の指標）は宣言に載せていない。** いずれも
+ * `95d1839` / `86882dd` という当時の HEAD に対する記録であり、是正後の側の値を再現する
+ * には当時の作業ツリーを展開して検査を走らせる必要がある。宣言の命令は読み取り専用の
+ * 綴りに限られるため書けない。**この残余は両記録の冒頭の開示に下界として書いた。**
  */
-export const MINIMUM_ENTRIES = 118;
+export const MINIMUM_ENTRIES = 124;
 
 /**
  * 文書側が現に古い値を載せていると宣言してよい件数（完全一致）
@@ -991,6 +1029,26 @@ function pushDivergenceRatchetFindings(
   }
 }
 
+/**
+ * 合格・不合格のいずれでも印字する要約行（タスク 115.301 が関数へ切り出した）
+ *
+ * **印字は引数から導く。** 定数へ畳んでも本体の判定は一件も動かないため、判定の側の対照
+ * だけでは開示の側の陳腐化を捕まえられない——タスク 115.300 が
+ * `scripts/check-adjudication-pointers.ts` で同じ形を採った理由である。切り出したうえで、
+ * 自己検査が合成の三値を与えて逐語を確かめる対照と、{@link execute} が本関数を呼んでいる
+ * ことを確かめる結線の対照を、二方向で置いている。
+ *
+ * **この行の値は宣言の受け口でもある。** `scripts/design-measurements.json` は所管の文書へ
+ * 「対象文書 N 件」を書かない方針だが（現況を名乗る数値を記録へ書くと記録が後から偽になる。
+ * 115.276 の線引き）、読み手はこの行で現況を知る。
+ */
+export function formatSummaryLine(declared: number, documents: number, stale: number): string {
+  return (
+    `   宣言 ${declared} 件 / 対象文書 ${documents} 件 / ` +
+    `文書側が古いと宣言した箇所 ${stale} 件`
+  );
+}
+
 /** 全件を判定する */
 export function judge(root: string, entries: readonly ManifestEntry[]): Finding[] {
   const findings: Finding[] = [];
@@ -1292,10 +1350,7 @@ export function execute(argv: readonly string[], root = process.cwd()): number {
   console.log(
     '🔍 設計文書の実測値の鮮度を検査しています (scripts/check-design-measurement-freshness.ts)'
   );
-  console.log(
-    `   宣言 ${entries.length} 件 / 対象文書 ${GOVERNED_DOCUMENTS.length} 件 / ` +
-      `文書側が古いと宣言した箇所 ${stale} 件`
-  );
+  console.log(formatSummaryLine(entries.length, GOVERNED_DOCUMENTS.length, stale));
 
   if (verbose) {
     console.log('');

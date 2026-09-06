@@ -50,6 +50,7 @@ import {
   READ_ONLY_COMMANDS,
   documentFigureOf,
   countFigureOnLine,
+  formatSummaryLine,
   judge,
   leadingWord,
   loadManifest,
@@ -1181,6 +1182,12 @@ const EXECUTABLE_FUNCTION_INVENTORY: readonly InventoryEntry[] = [
   { name: 'duplicatedIds', watched: 'body', reason: '重複の検出' },
   { name: 'countEntriesForFile', watched: 'body', reason: '所管の文書の被覆の数え方' },
   { name: 'countStaleDivergences', watched: 'body', reason: '宣言された食い違いの数え方' },
+  {
+    name: 'formatSummaryLine',
+    watched: 'unwatched',
+    reason:
+      '要約行の整形のみで判定に関わらない（タスク 115.301 が切り出した）。絞り込みの経路を持たないため本規則群では見張らず、専用の対照二件で塞ぐ——合成の三値から逐語を組み立てることを確かめる対照と、execute が本関数を呼んでいることを確かめる結線の対照である',
+  },
   {
     name: 'makeFinding',
     watched: 'unwatched',
@@ -2353,6 +2360,184 @@ const STEERING_RECORD_PINNING: TestCase[] = [
 ];
 
 // ============================================================================
+// 裁定記録を所管へ加えたこと（タスク 115.301）
+// ============================================================================
+
+/** 所管へ加えた裁定記録（タスク 115.301） */
+const ADJUDICATION_RECORDS: readonly string[] = [
+  'scripts/coverage-mark-adjudication.md',
+  'scripts/exclusion-alternative-verification-adjudication.md',
+];
+
+/**
+ * 裁定記録を指す宣言のうち、**版で固定した**ものの数（完全一致）
+ *
+ * **1 件である。** `scripts/coverage-mark-adjudication.md` の §4 の冒頭が引く
+ * 「115.300 が改める前の指し先 150 件」だけが過去の版についての記録であり、版 `a639d314`
+ * を名指す（115.273 の作法）。作業ツリーを読む形にすると、§4 は 115.300 が全件を書き換えた
+ * 後であるため出力は `0` になり、記録が書いた瞬間に偽になる。
+ *
+ * **保証しないこと（残余）**: 版で固定した命令が確かめるのは「記録が指す版でも同じ値で
+ * あった」ことだけである。当時の分類（55 件の内訳）が正しかったかは見ない。
+ */
+const PINNED_ADJUDICATION_RECORD_DECLARATIONS = 1;
+
+/**
+ * 裁定記録を指す宣言のうち、**作業ツリーから**測るものの数（完全一致）
+ *
+ * **5 件である。** いずれも記録が自分自身の表・自分自身の読み手を数える現況の主張であり、
+ * 版で固定すると測り直しの契機が消える。内訳は `coverage-mark-adjudication.md` の
+ * 読み手のファイル数と「決着済み」の箇条書きの数、
+ * `exclusion-alternative-verification-adjudication.md` の §4 / §5 / §6 の三つの件数である。
+ *
+ * **代償を測ってから受け入れた。** このうち押下の頻度に効くのは読み手のファイル数だけで
+ * あり、他の四件は当の記録を触らない限り動かない。読み手の側も、母集団を
+ * `--include` で五つの拡張子へ絞ったうえで E2E の生成物を除いてあるため、実測で 10 件
+ * である（コミット `5f1b8568` を起点に、本タスクの是正を当てた作業ツリーで 2026-09-06 に
+ * リポジトリルートで実測）。115.276 が却下した `product.md` の案（直近 500 コミットのうち
+ * 373 件で押下が止まる形）とは桁が違う。
+ */
+const LIVE_ADJUDICATION_RECORD_DECLARATIONS = 5;
+
+/** 裁定記録を指す宣言の見分け */
+function isAdjudicationDeclaration(entry: ManifestEntry): boolean {
+  return ADJUDICATION_RECORDS.includes(String(entry.file ?? ''));
+}
+
+/**
+ * 版の名指しの見分け（裁定記録の宣言用）
+ *
+ * `git grep <版> -- <パス>` の形と `git show <版>:<パス>` の形の両方を拾う。
+ * {@link isPinnedToRevision} は前者しか見ないため、ここでは別に持つ。
+ */
+function isPinnedAdjudicationCommand(command: string): boolean {
+  return / [0-9a-f]{7,40}(?: -- |:)/.test(command);
+}
+
+/** 裁定記録を指す宣言のうち、版で固定した／していないものを数える */
+function countAdjudicationDeclarations(entries: readonly ManifestEntry[], pinned: boolean): number {
+  let count = 0;
+  for (const entry of entries) {
+    if (!isAdjudicationDeclaration(entry)) continue;
+    if (isPinnedAdjudicationCommand(String(entry.command ?? '')) === pinned) count += 1;
+  }
+  return count;
+}
+
+const ADJUDICATION_RECORD_GOVERNANCE: TestCase[] = [
+  {
+    name: '二つの裁定記録が本検査の所管に入っている',
+    polarity: 'negative',
+    run() {
+      const missing = ADJUDICATION_RECORDS.filter((one) => !GOVERNED_DOCUMENTS.includes(one));
+      return expect(
+        missing.length === 0,
+        `裁定記録が GOVERNED_DOCUMENTS に在りません: ${missing.join(' / ')}` +
+          '（所管から外すと、当該記録を指す宣言を一件残らず削っても緑で通ります）'
+      );
+    },
+  },
+  {
+    name: '裁定記録を版で固定して測る宣言が宣言した件数ちょうどである',
+    polarity: 'negative',
+    run() {
+      const { entries } = loadManifest(path.join(ROOT, DEFAULT_MANIFEST_PATH));
+      const pinned = countAdjudicationDeclarations(entries, true);
+      return expect(
+        pinned === PINNED_ADJUDICATION_RECORD_DECLARATIONS,
+        `版で固定した裁定記録の宣言が ${pinned} 件で、宣言した ${PINNED_ADJUDICATION_RECORD_DECLARATIONS} 件と一致しません` +
+          '（PINNED_ADJUDICATION_RECORD_DECLARATIONS を見よ）'
+      );
+    },
+  },
+  {
+    name: '裁定記録を作業ツリーから測る宣言が宣言した件数ちょうどである',
+    polarity: 'negative',
+    run() {
+      const { entries } = loadManifest(path.join(ROOT, DEFAULT_MANIFEST_PATH));
+      const live = countAdjudicationDeclarations(entries, false);
+      return expect(
+        live === LIVE_ADJUDICATION_RECORD_DECLARATIONS,
+        `裁定記録を作業ツリーから測る宣言が ${live} 件で、宣言した ${LIVE_ADJUDICATION_RECORD_DECLARATIONS} 件と一致しません` +
+          '（LIVE_ADJUDICATION_RECORD_DECLARATIONS を見よ。代償の実測を読んでから動かすこと）'
+      );
+    },
+  },
+  {
+    name: '版の名指しの有無で裁定記録の宣言を二つに分けられる',
+    polarity: 'positive',
+    run() {
+      const sample = (file: string, command: string): ManifestEntry[] => [
+        { id: 'sample', file, anchor: 'a', command, expected: '1' },
+      ];
+      const pinnedShow = 'git show a639d314:scripts/coverage-mark-adjudication.md | wc -l';
+      const pinnedGrep = "git grep -c x a639d314 -- 'scripts/coverage-mark-adjudication.md'";
+      const live = "grep -c '^- ' scripts/coverage-mark-adjudication.md";
+      const record = 'scripts/coverage-mark-adjudication.md';
+      const foreign = '.kiro/specs/site-survey/design.md';
+      return [
+        ...expect(
+          countAdjudicationDeclarations(sample(record, pinnedShow), true) === 1,
+          '`git show <版>:<パス>` の形が固定として数えられていない'
+        ),
+        ...expect(
+          countAdjudicationDeclarations(sample(record, pinnedGrep), true) === 1,
+          '`git grep <版> -- <パス>` の形が固定として数えられていない'
+        ),
+        ...expect(
+          countAdjudicationDeclarations(sample(record, live), false) === 1,
+          '作業ツリーを読む形が作業ツリー読みとして数えられていない'
+        ),
+        ...expect(
+          countAdjudicationDeclarations(sample(foreign, live), true) +
+            countAdjudicationDeclarations(sample(foreign, live), false) ===
+            0,
+          '裁定記録以外を指す宣言が裁定記録の宣言として数えられてしまう'
+        ),
+      ];
+    },
+  },
+  {
+    name: '要約行の印字が合成の三値から組み立てられる（定数へ畳む変異を落とす）',
+    polarity: 'positive',
+    run() {
+      const rendered = formatSummaryLine(7, 3, 2);
+      const expected = '   宣言 7 件 / 対象文書 3 件 / 文書側が古いと宣言した箇所 2 件';
+      return [
+        ...expect(
+          rendered === expected,
+          `要約行が合成の三値から組み立てられていない: \`${rendered}\``
+        ),
+        ...expect(
+          formatSummaryLine(0, 0, 0) ===
+            '   宣言 0 件 / 対象文書 0 件 / 文書側が古いと宣言した箇所 0 件',
+          '要約行が零の三値で崩れる'
+        ),
+      ];
+    },
+  },
+  {
+    name: '要約行の整形関数が本体の印字経路へ結線されている',
+    polarity: 'negative',
+    run() {
+      const source = readEntrySource();
+      return [
+        ...expect(
+          source.includes(
+            'console.log(formatSummaryLine(entries.length, GOVERNED_DOCUMENTS.length, stale));'
+          ),
+          '本体が formatSummaryLine を呼んでいません（整形関数だけが正しくても印字は塞げません）'
+        ),
+        ...expect(
+          source.split('formatSummaryLine').length - 1 >= 2,
+          'formatSummaryLine の宣言か呼び出しのどちらかが消えています'
+        ),
+      ];
+    },
+  },
+];
+
+// ============================================================================
 // 実データの対照
 // ============================================================================
 
@@ -2410,8 +2595,8 @@ const REAL_DATA: TestCase[] = [
  * **上回っても**赤くする——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
  * 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
  */
-const MINIMUM_POSITIVE_CONTROLS = 24;
-const MINIMUM_NEGATIVE_CONTROLS = 10;
+const MINIMUM_POSITIVE_CONTROLS = 26;
+const MINIMUM_NEGATIVE_CONTROLS = 14;
 
 /**
  * 確認の総数の下限（タスク 115.252）
@@ -2433,7 +2618,7 @@ const MINIMUM_NEGATIVE_CONTROLS = 10;
  * **上回っても**赤くする——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
  * 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
  */
-const MINIMUM_TOTAL_CASES = 50;
+const MINIMUM_TOTAL_CASES = 56;
 
 /**
  * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）
@@ -2568,6 +2753,10 @@ function main(): void {
     { title: '挙動（サブプロセス）', cases: BEHAVIOUR },
     { title: '走査記録の宣言を版で固定する', cases: FOREIGN_SCAN_PINNING },
     { title: 'steering の実測記録の宣言を版で固定する', cases: STEERING_RECORD_PINNING },
+    {
+      title: '裁定記録を所管へ加えた（宣言の線引きと要約行の印字）',
+      cases: ADJUDICATION_RECORD_GOVERNANCE,
+    },
     { title: '実データの対照', cases: REAL_DATA },
   ];
 
