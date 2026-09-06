@@ -18,11 +18,14 @@ import * as os from 'os';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import {
+  ANCHOR_REQUIREMENT_DISCLOSURE,
+  ANCHOR_REQUIREMENT_SENTINEL,
   DEFAULT_BASELINE_PATH,
   GUARD_TYPES,
   buildObservationPattern,
   collectBooleanHelperNames,
   collectE2eFiles,
+  formatAccessibleNameSurvey,
   getObservationPattern,
   getObservationVocabulary,
   run,
@@ -3109,6 +3112,139 @@ const NAME_ANCHOR_CONTROLS: NameAnchorControl[] = [
       ].join('\n'),
     },
   },
+  // ==========================================================================
+  // 115.303: 錨の要件を「名前が零件なら失敗する参照」へ狭めた（Task 115.303）
+  //
+  // 115.251 の版は「零件で真になる主張の主題として現れなかった参照」をすべて錨に
+  // 数えていた。下の 1〜5 はいずれも**是正前は沈黙していた**形である。
+  // 6〜10 は狭めすぎていないことを反対側から押さえる。
+  // ==========================================================================
+  {
+    name: '115.303-1 宣言しただけで一度も使われない参照は錨に数えない',
+    polarity: 'detect',
+    expectedIn: 'a.spec.ts',
+    files: {
+      'a.spec.ts': [
+        "test('absent', async ({ page }) => {",
+        "  const back = page.getByRole('link', { name: '上へ戻る' });",
+        "  await expect(page.getByRole('link', { name: '上へ戻る' })).not.toBeVisible();",
+        '});',
+      ].join('\n'),
+    },
+  },
+  {
+    name: '115.303-2 値を使わない count() だけの参照は錨に数えない',
+    polarity: 'detect',
+    expectedIn: 'a.spec.ts',
+    files: {
+      'a.spec.ts': [
+        "test('absent', async ({ page }) => {",
+        "  await page.getByRole('link', { name: '上へ戻る' }).count();",
+        "  await expect(page.getByRole('link', { name: '上へ戻る' })).not.toBeVisible();",
+        '});',
+      ].join('\n'),
+    },
+  },
+  {
+    name: '115.303-3 count() の結果を零のまま通す主張は錨に数えない',
+    polarity: 'detect',
+    expectedIn: 'a.spec.ts',
+    files: {
+      'a.spec.ts': [
+        "test('absent', async ({ page }) => {",
+        "  expect(await page.getByRole('link', { name: '上へ戻る' }).count()).toBe(0);",
+        "  await expect(page.getByRole('link', { name: '上へ戻る' })).not.toBeVisible();",
+        '});',
+      ].join('\n'),
+    },
+  },
+  {
+    name: '115.303-4 isVisible() の結果を false のまま通す主張は錨に数えない',
+    polarity: 'detect',
+    expectedIn: 'a.spec.ts',
+    files: {
+      'a.spec.ts': [
+        "test('absent', async ({ page }) => {",
+        "  expect(await page.getByRole('link', { name: '上へ戻る' }).isVisible()).toBe(false);",
+        "  await expect(page.getByRole('link', { name: '上へ戻る' })).not.toBeVisible();",
+        '});',
+      ].join('\n'),
+    },
+  },
+  {
+    name: '115.303-5 消えるのを待つ waitFor は錨に数えない',
+    polarity: 'detect',
+    expectedIn: 'a.spec.ts',
+    files: {
+      'a.spec.ts': [
+        "test('absent', async ({ page }) => {",
+        "  await page.getByRole('link', { name: '上へ戻る' }).waitFor({ state: 'hidden' });",
+        "  await expect(page.getByRole('link', { name: '上へ戻る' })).not.toBeVisible();",
+        '});',
+      ].join('\n'),
+    },
+  },
+  {
+    name: '115.303-6 count() の結果を零で失敗する主張へ渡す形は錨に数える',
+    polarity: 'silent',
+    files: {
+      'a.spec.ts': [
+        "test('absent', async ({ page }) => {",
+        "  expect(await page.getByRole('link', { name: '上へ戻る' }).count()).toBeGreaterThan(0);",
+        "  await expect(page.getByRole('link', { name: '上へ戻る' })).not.toBeVisible();",
+        '});',
+      ].join('\n'),
+    },
+  },
+  {
+    name: '115.303-7 局所変数へ束ねた count() の結果も同じ扱いにする',
+    polarity: 'silent',
+    files: {
+      'a.spec.ts': [
+        "test('absent', async ({ page }) => {",
+        "  const back = page.getByRole('link', { name: '上へ戻る' });",
+        '  expect(await back.count()).toBeGreaterThan(0);',
+        "  await expect(page.getByRole('link', { name: '上へ戻る' })).not.toBeVisible();",
+        '});',
+      ].join('\n'),
+    },
+  },
+  {
+    name: '115.303-8 状態を指定しない waitFor は錨に数える',
+    polarity: 'silent',
+    files: {
+      'a.spec.ts': [
+        "test('absent', async ({ page }) => {",
+        "  await page.getByRole('link', { name: '上へ戻る' }).waitFor();",
+        "  await expect(page.getByRole('link', { name: '上へ戻る' })).not.toBeVisible();",
+        '});',
+      ].join('\n'),
+    },
+  },
+  {
+    name: '115.303-9 補助関数への引き渡しは分類できないため錨の側へ倒す',
+    polarity: 'silent',
+    files: {
+      'a.spec.ts': [
+        "test('absent', async ({ page }) => {",
+        "  await expectVisibleSoon(page.getByRole('link', { name: '上へ戻る' }));",
+        "  await expect(page.getByRole('link', { name: '上へ戻る' })).not.toBeVisible();",
+        '});',
+      ].join('\n'),
+    },
+  },
+  {
+    name: '115.303-10 要素の実在を要する取得は錨に数える',
+    polarity: 'silent',
+    files: {
+      'a.spec.ts': [
+        "test('absent', async ({ page }) => {",
+        "  await page.getByRole('link', { name: '上へ戻る' }).textContent();",
+        "  await expect(page.getByRole('link', { name: '上へ戻る' })).not.toBeVisible();",
+        '});',
+      ].join('\n'),
+    },
+  },
 ];
 
 /** 対照の走査場所を作る。ファイル群を書き出し、その絶対パスを返す */
@@ -3209,16 +3345,16 @@ function nameAnchorControlsArePresent(): string[] {
   const failures: string[] = [];
   const detect = NAME_ANCHOR_CONTROLS.filter((c) => c.polarity === 'detect');
   const silent = NAME_ANCHOR_CONTROLS.filter((c) => c.polarity === 'silent');
-  if (NAME_ANCHOR_CONTROLS.length < 10) {
+  if (NAME_ANCHOR_CONTROLS.length < 20) {
     failures.push(
-      `T13 の対照群が下限を下回っている: ${NAME_ANCHOR_CONTROLS.length} 件（下限 10 件）`
+      `T13 の対照群が下限を下回っている: ${NAME_ANCHOR_CONTROLS.length} 件（下限 20 件）`
     );
   }
-  if (detect.length < 4) {
-    failures.push(`T13 の陽性対照が下限を下回っている: ${detect.length} 件（下限 4 件）`);
+  if (detect.length < 9) {
+    failures.push(`T13 の陽性対照が下限を下回っている: ${detect.length} 件（下限 9 件）`);
   }
-  if (silent.length < 4) {
-    failures.push(`T13 の陰性対照が下限を下回っている: ${silent.length} 件（下限 4 件）`);
+  if (silent.length < 9) {
+    failures.push(`T13 の陰性対照が下限を下回っている: ${silent.length} 件（下限 9 件）`);
   }
   if (UNANCHORED_ACCESSIBLE_NAME.length !== NAME_ANCHOR_CONTROLS.length) {
     failures.push('T13 の対照群と実行する一覧の件数が食い違っている');
@@ -3228,6 +3364,194 @@ function nameAnchorControlsArePresent(): string[] {
     if (Object.keys(control.files).length === 0) {
       failures.push(`T13 の対照がファイルを一つも持たない: ${control.name}`);
     }
+  }
+  return failures;
+}
+
+// ============================================================================
+// 115.303: 開示（印字）側の対照
+//
+// **逐語と挙動だけでなく、数値の印字も塞ぐ**（115.300 の教訓）。方向は二つある。
+//   (1) 整形関数へ合成値を与えて印字の逐語と数値を見る
+//   (2) `run`（入口）が実際にその整形関数を呼んでいることを見る
+// (1) だけでは結線が外れても緑になり、(2) だけでは逐語が静かに書き換わっても緑になる。
+// ============================================================================
+
+/** 合成の走査結果。実データが零件の対照は空回りするため、値を与える（115.300 の教訓） */
+const SYNTHETIC_SURVEY = {
+  fileCount: 7,
+  refs: [
+    { file: 'a.spec.ts', line: 3, name: '甲', polarity: 'vacuous' as const, snippet: 'V甲' },
+    { file: 'a.spec.ts', line: 4, name: '乙', polarity: 'vacuous' as const, snippet: 'V乙' },
+    { file: 'b.spec.ts', line: 9, name: '乙', polarity: 'anchor' as const, snippet: 'A乙' },
+  ],
+  skips: { regex: 11, dynamic: 5 },
+  findings: [
+    {
+      file: 'a.spec.ts',
+      line: 3,
+      type: 'T13-unanchored-accessible-name' as const,
+      snippet: 'V甲',
+    },
+  ],
+};
+
+/** 合成の走査結果に対して印字が返すべき逐語（1 行のずれも許さない） */
+const SYNTHETIC_SURVEY_EXPECTED: string[] = [
+  '🔍 アクセシブル名の錨の走査 (T13-unanchored-accessible-name)',
+  '   走査ファイル数: 7',
+  '   零件で真になる主張が指す参照: 2 件 / 相異なる名前 2 件',
+  '   肯定側から指す参照: 1 件 / 相異なる名前 1 件',
+  '   比較の対象にできなかった名前（限界の開示）:',
+  '     正規表現で与えた名前: 11 件',
+  '     変数・テンプレート等で組み立てた名前: 5 件',
+  '   （どちらも文字列として突き合わせられないため、錨の有無を判定しない。',
+  '     肯定側が正規表現へ緩められた場合は、その名前の錨が消えたものとして扱われる）',
+  // **開示の逐語はここへ書き下ろす。** `ANCHOR_REQUIREMENT_DISCLOSURE` を展開すると
+  // 定数を書き換えた変異に対して期待も同時に動き、対照が恒真になる（115.300 の教訓）。
+  '   錨に数える要件（限界の開示）:',
+  '     錨は「名前が零件なら失敗する参照」に限る（操作・要素の実在を要する取得・',
+  '     零件では真にならない主張の主題）。宣言しただけで使われない参照、値を使わない',
+  '     count() 等の参照、零を返す取得の結果を零のまま通す主張は錨に数えない。',
+  '     分類できない使われ方（補助関数への引き渡し・返り値など）は錨の側へ倒すため、',
+  '     取りこぼす向き（検出が減る向き）の限界が残る。',
+  '',
+  '   零件で真になる主張が指す名前と錨の有無:',
+  '     錨あり  "乙"',
+  '     錨なし  "甲"',
+  '',
+  '   錨の無い箇所（T13 の検出）: 1 件',
+  '     a.spec.ts:3  V甲',
+];
+
+const ANCHOR_DISCLOSURE: Case[] = [
+  {
+    name: '115.303-11 整形関数が合成の走査結果を逐語のとおり印字する',
+    source: '',
+    expected: [],
+    custom: (): string[] => {
+      const actual = formatAccessibleNameSurvey(SYNTHETIC_SURVEY);
+      const failures: string[] = [];
+      if (SYNTHETIC_SURVEY_EXPECTED.length < 15) {
+        failures.push(
+          `期待する逐語が下限を下回っている: ${SYNTHETIC_SURVEY_EXPECTED.length} 行（下限 15 行）`
+        );
+        return failures;
+      }
+      if (actual.length !== SYNTHETIC_SURVEY_EXPECTED.length) {
+        failures.push(
+          `印字の行数が食い違う: ${actual.length} 行（期待 ${SYNTHETIC_SURVEY_EXPECTED.length} 行）`
+        );
+      }
+      for (let i = 0; i < SYNTHETIC_SURVEY_EXPECTED.length; i += 1) {
+        if (actual[i] !== SYNTHETIC_SURVEY_EXPECTED[i]) {
+          failures.push(
+            `${i + 1} 行目が食い違う: ${JSON.stringify(actual[i])}（期待 ${JSON.stringify(SYNTHETIC_SURVEY_EXPECTED[i])}）`
+          );
+        }
+      }
+      return failures;
+    },
+  },
+  {
+    name: '115.303-12 入口が整形関数を呼び、開示と数値を実際に印字する',
+    source: '',
+    expected: [],
+    custom: (): string[] =>
+      withSandbox((dir) => {
+        const failures: string[] = [];
+        const specPath = path.join(dir, 'a.spec.ts');
+        fs.writeFileSync(
+          specPath,
+          [
+            "test('absent', async ({ page }) => {",
+            "  const back = page.getByRole('link', { name: '上へ戻る' });",
+            "  await expect(page.getByRole('link', { name: '上へ戻る' })).not.toBeVisible();",
+            '});',
+            '',
+          ].join('\n'),
+          'utf8'
+        );
+        const { output } = runCheck(['--accessible-names'], { collectFiles: () => [specPath] });
+        if (output.trim() === '') return ['入口が何も印字していない'];
+        if (ANCHOR_REQUIREMENT_DISCLOSURE.length === 0) {
+          return ['錨の要件の開示が空である（この対照は何も主張していません）'];
+        }
+        for (const line of ANCHOR_REQUIREMENT_DISCLOSURE) {
+          if (!output.includes(line)) failures.push(`開示の行が印字されていない: ${line}`);
+        }
+        // 数値の印字も見る。合成の素材は未錨 1 件・走査 1 ファイルである。
+        for (const expected of [
+          '   走査ファイル数: 1',
+          '   錨の無い箇所（T13 の検出）: 1 件',
+          '     錨なし  "上へ戻る"',
+        ]) {
+          if (!output.includes(expected)) failures.push(`数値の印字が食い違う: ${expected}`);
+        }
+        return failures;
+      }),
+  },
+  {
+    // 起票が名指した不整合そのもの。コードの註が述べる錨の要件を、計画文書の
+    // 「明記する限界」が落としていた。**両側の存在を機械で結ぶ。**
+    name: '115.303-13 計画文書の「明記する限界」が錨の要件を落としていない',
+    source: '',
+    expected: [],
+    custom: (): string[] => {
+      const failures: string[] = [];
+      const planPath = path.join(
+        ROOT,
+        '.kiro/specs/site-survey/e2e-assertion-guard-reduction-plan.md'
+      );
+      if (!fs.existsSync(planPath)) return [`計画文書が見つからない: ${planPath}`];
+      const plan = fs.readFileSync(planPath, 'utf8');
+      if (ANCHOR_REQUIREMENT_SENTINEL.trim() === '') {
+        return ['錨の要件の逐語が空である（この対照は何も主張していません）'];
+      }
+      const heading = '### 8.4 明記する限界';
+      const start = plan.indexOf(heading);
+      if (start < 0) failures.push(`計画文書に「${heading}」が無い`);
+      const next = plan.indexOf('\n### ', start + heading.length);
+      const section = plan.slice(start, next < 0 ? plan.length : next);
+      if (start >= 0 && !section.includes(ANCHOR_REQUIREMENT_SENTINEL)) {
+        failures.push(
+          `計画文書の「明記する限界」が錨の要件を落としている（要る逐語: ${ANCHOR_REQUIREMENT_SENTINEL}）`
+        );
+      }
+      // コードの側にも同じ逐語が在ることを見る（片側だけを消す変異を塞ぐ）。
+      if (!ANCHOR_REQUIREMENT_DISCLOSURE.some((line) => line.includes(ANCHOR_REQUIREMENT_SENTINEL)))
+        failures.push('印字する開示が錨の要件の逐語を持たない');
+      return failures;
+    },
+  },
+];
+
+/**
+ * 錨の要件の開示そのものが在ることの関門（Task 115.303。AI運用7原則 第3原則）。
+ *
+ * **対照群の配列の外側に置く。** `ANCHOR_REQUIREMENT_DISCLOSURE` を空にすると、
+ * 上の 115.303-11 は「期待する逐語」も同時に縮むため一致してしまい、115.303-12 の
+ * 逐語の照合も空の繰り返しで自明に成立する。前提が満たされないときに自動で無効化
+ * させず、ここで失敗させる。
+ */
+function anchorDisclosureIsPresent(): string[] {
+  const failures: string[] = [];
+  if (ANCHOR_REQUIREMENT_DISCLOSURE.length < 4) {
+    failures.push(
+      `錨の要件の開示が下限を下回っている: ${ANCHOR_REQUIREMENT_DISCLOSURE.length} 行（下限 4 行）`
+    );
+  }
+  const printed = formatAccessibleNameSurvey({
+    fileCount: 0,
+    refs: [],
+    skips: { regex: 0, dynamic: 0 },
+    findings: [],
+  });
+  for (const line of ANCHOR_REQUIREMENT_DISCLOSURE) {
+    if (!printed.includes(line)) failures.push(`開示の行が整形関数から落ちている: ${line}`);
+  }
+  if (ANCHOR_DISCLOSURE.length < 3) {
+    failures.push(`開示側の対照が下限を下回っている: ${ANCHOR_DISCLOSURE.length} 件（下限 3 件）`);
   }
   return failures;
 }
@@ -3621,7 +3945,8 @@ interface Group {
 /**
  * 報告する確認の総数の下限（タスク 115.252）
  *
- * 2026-09-03 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
+ * 2026-09-06 にリポジトリルートで実測した現況ちょうど（余裕ゼロ。タスク 115.303 が
+ * 196 → 209 へ改めた）。抽出は
  * `npx tsx scripts/check-e2e-assertion-guards.selftest.ts | tail -1` の出す値をそのまま置く。
  *
  * **数は空にできない。** 本ファイルの対照はすべて配列リテラルで書かれているため、配列を
@@ -3638,7 +3963,7 @@ interface Group {
  * **上回っても**赤くする——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
  * 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
  */
-const MINIMUM_TOTAL_CASES = 196;
+const MINIMUM_TOTAL_CASES = 209;
 
 /**
  * 見本の極性（タスク 115.252）
@@ -3898,11 +4223,15 @@ function main(): void {
       title: '115.251 零件で真になる主張が指すアクセシブル名の錨',
       cases: UNANCHORED_ACCESSIBLE_NAME,
     },
+    {
+      title: '115.303 錨の要件の開示（印字）',
+      cases: ANCHOR_DISCLOSURE,
+    },
   ];
 
   // 対照群の配列の外側に置く関門。実行より前に、群そのものが在ることを確かめる。
   guardControlsArePresent(groups);
-  const controlFailures = nameAnchorControlsArePresent();
+  const controlFailures = [...nameAnchorControlsArePresent(), ...anchorDisclosureIsPresent()];
   if (controlFailures.length > 0) {
     console.log('❌ T13 の対照群が要件を満たしていません:');
     for (const failure of controlFailures) console.log(`   - ${failure}`);

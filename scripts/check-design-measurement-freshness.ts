@@ -505,7 +505,7 @@ export const GOVERNED_DOCUMENTS: readonly string[] = [
  * 再現には実ブラウザと frontend の再ビルドが要るため、読み取り専用の綴りでは書けない。**
  * この残余は同節の「なお残る穴」に下界として書いた。
  */
-export const MINIMUM_ENTRIES = 125;
+export const MINIMUM_ENTRIES = 127;
 
 /**
  * 文書側が現に古い値を載せていると宣言してよい件数（完全一致）

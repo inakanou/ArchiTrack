@@ -106,7 +106,12 @@
  *                           **判定は一ファイルでは閉じない。** 錨は別のファイルに在ってよく、
  *                           走査した全ファイルの参照を集め終えてから決まる。したがって
  *                           `scanSource` は参照（`accessibleNameRefs`）だけを返し、
- *                           検出そのものは `resolveUnanchoredAccessibleNames` が行う
+ *                           検出そのものは `resolveUnanchoredAccessibleNames` が行う。
+ *                           **錨に数えるのは「名前が零件なら失敗する参照」だけである**
+ *                           （Task 115.303）。115.251 の版は「零件で真になる主張の主題として
+ *                           現れなかった参照」をすべて錨に数えていたため、宣言しただけの参照や
+ *                           値を使わない `count()` の参照も錨として通していた。要件と、
+ *                           そこに残る限界は `ANCHOR_REQUIREMENT_DISCLOSURE` が出力へ印字する
  *
  * 分類の優先順位: T3 > T4 > T5 > T1（T2 と T6 と T7 と T8 と T9 と T10 と T11 と T12 は別軸のため重複して計上する）
  *
@@ -2412,6 +2417,54 @@ const VACUOUS_WHEN_NEGATED_MATCHERS = new Set(['toBeVisible', 'toBeAttached', 't
 /** 否定を伴わずに一致が零件でも真になる matcher */
 const VACUOUS_WHEN_PLAIN_MATCHERS = new Set(['toBeHidden']);
 
+/**
+ * locator を**絞り込むだけ**で、要素の実在を要求しないメソッド（Task 115.303）。
+ *
+ * これらは locator を返すだけなので、錨になるかどうかは**その先の使われ方**が決める。
+ * ここで打ち切らず、返り値がどう消費されるかまで辿る。
+ */
+const LOCATOR_REFINING_METHODS = new Set([
+  'first',
+  'last',
+  'nth',
+  'filter',
+  'locator',
+  'and',
+  'or',
+  'getByRole',
+  'getByLabel',
+  'getByText',
+  'getByTestId',
+  'getByTitle',
+  'getByPlaceholder',
+  'getByAltText',
+  'frameLocator',
+  'contentFrame',
+]);
+
+/**
+ * 一致が**零件でも失敗しない** locator のメソッド（Task 115.303）。
+ *
+ * `count()` は 0 を返し、`all()` は空配列を返し、`isVisible()` は `false` を返す。
+ * いずれも名前が改名・削除されても例外にならない。**ただしここで打ち切らない**——
+ * 返り値を `expect(await x.count()).toBeGreaterThan(0)` のように零で失敗する主張へ
+ * 渡す形は錨として働くため、返り値の消費まで辿ってから決める。
+ * `waitFor` は状態に依存するため別に `waitForIsZeroTolerant` が判定する。
+ */
+const ZERO_TOLERANT_LOCATOR_METHODS = new Set([
+  'count',
+  'all',
+  'allInnerTexts',
+  'allTextContents',
+  'elementHandles',
+  'isVisible',
+  'isHidden',
+  'isEnabled',
+  'isDisabled',
+  'isChecked',
+  'isEditable',
+]);
+
 /** 局所変数を辿る深さの上限（T13 の解決） */
 const NAME_RESOLVE_DEPTH_LIMIT = 4;
 
@@ -2456,6 +2509,27 @@ function matcherIsVacuousWhenEmpty(call: MatcherCall): boolean {
   if (call.negated) return VACUOUS_WHEN_NEGATED_MATCHERS.has(call.matcher);
   if (VACUOUS_WHEN_PLAIN_MATCHERS.has(call.matcher)) return true;
   return call.matcher === 'toHaveCount' && call.argumentIsZero;
+}
+
+/** 零に等しいことを述べる matcher（`toBe(0)` など。Task 115.303 の錨の判定が読む） */
+const ZERO_VALUE_EQUALITY_MATCHERS = new Set(['toBe', 'toEqual', 'toStrictEqual', 'toHaveLength']);
+
+/**
+ * `count()` / `isVisible()` などの**零を返す取得**の結果に対して、その零がそのまま
+ * 通ってしまう主張か（Task 115.303）。
+ *
+ * `expect(await x.count()).toBe(0)` は名前が零件でも成立するため錨にならない。
+ * 逆に `toBeGreaterThan(0)` は零件で失敗するため錨になる。**判定できない matcher は
+ * 錨の側へ倒す**（取りこぼす向きであって、偽の検出は作らない）。
+ */
+function matcherIsSatisfiedByZeroValue(node: ts.CallExpression, call: MatcherCall): boolean {
+  if (call.negated) return false;
+  if (call.matcher === 'toBeFalsy') return true;
+  if (!ZERO_VALUE_EQUALITY_MATCHERS.has(call.matcher)) return false;
+  const first = node.arguments[0];
+  if (!first) return false;
+  if (call.argumentIsZero) return true;
+  return first.kind === ts.SyntaxKind.FalseKeyword;
 }
 
 /** 文字列リテラルとして書かれたアクセシブル名を取り出す（正規表現・組み立ては取り出さない） */
@@ -2595,24 +2669,23 @@ export function collectAccessibleNameRefs(
     return found;
   };
 
-  // 主張ごとに極性を決め、主題から辿れる呼び出しへ配る。
-  // 同じ呼び出しが両方の極性で使われることがある（作った直後に見えることを主張し、
-  // 削除の後に消えることを主張する形）。その場合は錨が在るものとして扱う。
-  const polarityByCall = new Map<ts.CallExpression, { vacuous: boolean; anchor: boolean }>();
+  // 零件で真になる主張の主題を集める。主題から辿れる呼び出しすべてへ配る。
+  /** `expect(...)` の呼び出し → その主張の matcher（Task 115.303 の錨の判定が読む） */
+  const expectCallMatchers = new Map<
+    ts.CallExpression,
+    { node: ts.CallExpression; call: MatcherCall }
+  >();
   const refs: AccessibleNameRef[] = [];
   const visit = (node: ts.Node): void => {
     const call = asMatcherCall(node);
     if (call) {
       const vacuous = matcherIsVacuousWhenEmpty(call);
-      const targets = reachableNamedCalls(call.subject);
-      for (const target of targets) {
-        const flags = polarityByCall.get(target) ?? { vacuous: false, anchor: false };
-        if (vacuous) flags.vacuous = true;
-        else flags.anchor = true;
-        polarityByCall.set(target, flags);
+      const expectCall = call.subject.parent;
+      if (ts.isCallExpression(expectCall) && ts.isCallExpression(node)) {
+        expectCallMatchers.set(expectCall, { node, call });
       }
       if (vacuous) {
-        for (const target of targets) {
+        for (const target of reachableNamedCalls(call.subject)) {
           for (const name of namesByCall.get(target) ?? []) {
             refs.push({
               file: relPath,
@@ -2629,11 +2702,126 @@ export function collectAccessibleNameRefs(
   };
   visit(sourceFile);
 
-  // 主張の主題として一度も現れなかった呼び出し（操作・待機・数え上げなど）は錨に数える。
-  // 錨の要件は「肯定側から指していること」であり、`expect` に限らない。
+  // ==========================================================================
+  // 錨の要件（Task 115.303）
+  //
+  // 錨は「**名前が零件なら失敗する参照**」でなければならない。115.251 の規則は
+  // 「零件で真になる主張の主題として一度も現れなかった呼び出し」をすべて錨に数えて
+  // いたため、**宣言しただけで一度も使われない参照**と **値を使わない `count()` だけの
+  // 参照**も錨として通していた。どちらも名前が消えても失敗しないため錨として働かない。
+  //
+  // 判定は使われ方を上へ辿って行う。**分類できない使われ方（補助関数への引き渡し・
+  // 返り値・属性参照など）は錨の側へ倒す。** 取りこぼす向き（検出が減る向き）であって、
+  // 偽の検出は作らない。
+  // ==========================================================================
+
+  /** 同名の識別子の出現（局所変数を経由した使われ方を前へ辿るために引く） */
+  const identifiersByName = new Map<string, ts.Identifier[]>();
+  const collectIdentifiers = (node: ts.Node): void => {
+    if (ts.isIdentifier(node)) {
+      const list = identifiersByName.get(node.text) ?? [];
+      list.push(node);
+      identifiersByName.set(node.text, list);
+    }
+    ts.forEachChild(node, collectIdentifiers);
+  };
+  collectIdentifiers(sourceFile);
+
+  /** `waitFor` が零件でも失敗しないか（`hidden` / `detached` を待つ形だけが該当する） */
+  const waitForIsZeroTolerant = (call: ts.CallExpression): boolean => {
+    const options = call.arguments[0];
+    if (!options || !ts.isObjectLiteralExpression(options)) return false;
+    for (const property of options.properties) {
+      if (!ts.isPropertyAssignment(property)) continue;
+      if (property.name.getText(sourceFile) !== 'state') continue;
+      const literal = literalAccessibleName(property.initializer);
+      return literal === 'hidden' || literal === 'detached';
+    }
+    return false;
+  };
+
+  type UseKind = 'requiring' | 'tolerant' | 'none';
+  const strongerUse = (a: UseKind, b: UseKind): UseKind => {
+    if (a === 'requiring' || b === 'requiring') return 'requiring';
+    return a === 'tolerant' || b === 'tolerant' ? 'tolerant' : 'none';
+  };
+
+  /**
+   * 式がどう使われているかを上へ辿って分類する。
+   *
+   * `requiring` … 名前が零件なら失敗する使われ方（操作・要素を要する取得・
+   *               零件で真にならない主張の主題・分類できない使われ方）
+   * `tolerant`  … 零件でも失敗しない使われ方（値を使わない `count()`・
+   *               `waitFor({ state: 'hidden' })`・零件で真になる主張の主題・
+   *               零を返す取得の結果を零のまま通す主張）
+   * `none`      … 使われていない（宣言しただけ・単独の式文）
+   *
+   * `viaZeroTolerant` は「ここまでの経路に零を返す取得を通ったか」である。
+   * 通っている場合、その先の主張は**零を満たすなら錨にならない**。
+   */
+  const useKindOf = (node: ts.Node, depth: number, viaZeroTolerant: boolean): UseKind => {
+    let current: ts.Node = node;
+    let zeroTolerant = viaZeroTolerant;
+    for (;;) {
+      const parent: ts.Node | undefined = current.parent;
+      if (!parent) return 'none';
+      if (
+        ts.isParenthesizedExpression(parent) ||
+        ts.isAwaitExpression(parent) ||
+        ts.isNonNullExpression(parent) ||
+        ts.isAsExpression(parent)
+      ) {
+        current = parent;
+        continue;
+      }
+      if (ts.isExpressionStatement(parent)) return zeroTolerant ? 'tolerant' : 'none';
+      if (ts.isPropertyAccessExpression(parent) && parent.expression === current) {
+        const grand = parent.parent;
+        if (grand && ts.isCallExpression(grand) && grand.expression === parent) {
+          const method = parent.name.text;
+          if (LOCATOR_REFINING_METHODS.has(method)) {
+            current = grand;
+            continue;
+          }
+          if (ZERO_TOLERANT_LOCATOR_METHODS.has(method)) {
+            zeroTolerant = true;
+            current = grand;
+            continue;
+          }
+          if (method === 'waitFor') return waitForIsZeroTolerant(grand) ? 'tolerant' : 'requiring';
+          return 'requiring';
+        }
+        return 'requiring';
+      }
+      if (
+        ts.isCallExpression(parent) &&
+        parent.arguments.some((argument) => argument === current)
+      ) {
+        const matcher = expectCallMatchers.get(parent);
+        if (!matcher) return 'requiring';
+        if (matcherIsVacuousWhenEmpty(matcher.call)) return 'tolerant';
+        if (zeroTolerant && matcherIsSatisfiedByZeroValue(matcher.node, matcher.call))
+          return 'tolerant';
+        return 'requiring';
+      }
+      if (ts.isVariableDeclaration(parent) && parent.initializer === current) {
+        if (!ts.isIdentifier(parent.name) || depth >= NAME_RESOLVE_DEPTH_LIMIT) return 'requiring';
+        let combined: UseKind = 'none';
+        for (const identifier of identifiersByName.get(parent.name.text) ?? []) {
+          if (identifier === parent.name) continue;
+          const resolved = resolveIdentifier(identifier.text, identifier.getStart(sourceFile));
+          if (resolved !== parent.initializer) continue;
+          combined = strongerUse(combined, useKindOf(identifier, depth + 1, zeroTolerant));
+          if (combined === 'requiring') break;
+        }
+        return combined;
+      }
+      return 'requiring';
+    }
+  };
+
   for (const call of namedCalls) {
-    const flags = polarityByCall.get(call);
-    if (flags && !flags.anchor) continue;
+    if (useKindOf(call, 0, false) !== 'requiring') continue;
     for (const name of namesByCall.get(call) ?? []) {
       refs.push({
         file: relPath,
@@ -2671,6 +2859,75 @@ export function resolveUnanchoredAccessibleNames(refs: AccessibleNameRef[]): Fin
     });
   }
   return findings.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
+}
+
+/** `--accessible-names` の印字に渡す走査の結果（Task 115.303） */
+export interface AccessibleNameSurvey {
+  fileCount: number;
+  refs: AccessibleNameRef[];
+  skips: AccessibleNameSkips;
+  findings: Finding[];
+}
+
+/**
+ * 錨の要件の開示が必ず含む逐語（Task 115.303）。
+ *
+ * **この綴りは計画文書 `.kiro/specs/site-survey/e2e-assertion-guard-reduction-plan.md` の
+ * 「明記する限界」の一覧にも在らねばならない。** 115.251 の版はコードの註だけが錨の要件を
+ * 述べ、計画文書の一覧がそれを落としていた。両側の存在を自己検査が関門にしている。
+ */
+export const ANCHOR_REQUIREMENT_SENTINEL = '錨は「名前が零件なら失敗する参照」に限る';
+
+/**
+ * 錨の要件の開示（Task 115.303）。
+ *
+ * `ANCHOR_REQUIREMENT_SENTINEL` を含む一行を必ず持つ。**同じ綴りを計画文書の
+ * 「明記する限界」も持たねばならない**——115.251 の版はコードの註だけが要件を述べ、
+ * 計画文書の一覧がそれを落としていた。両側の存在を自己検査が関門にしている。
+ */
+export const ANCHOR_REQUIREMENT_DISCLOSURE = [
+  '   錨に数える要件（限界の開示）:',
+  `     ${ANCHOR_REQUIREMENT_SENTINEL}（操作・要素の実在を要する取得・`,
+  '     零件では真にならない主張の主題）。宣言しただけで使われない参照、値を使わない',
+  '     count() 等の参照、零を返す取得の結果を零のまま通す主張は錨に数えない。',
+  '     分類できない使われ方（補助関数への引き渡し・返り値など）は錨の側へ倒すため、',
+  '     取りこぼす向き（検出が減る向き）の限界が残る。',
+];
+
+/**
+ * 走査の結果を印字する行へ整形する（Task 115.303 が `run` から切り出した）。
+ *
+ * 切り出したのは**印字そのものを対照で固定するため**である。逐語と数値の両方を
+ * 合成値で検証できないと、開示の文言が静かに消えても誰も気づかない（115.300 の教訓）。
+ */
+export function formatAccessibleNameSurvey(survey: AccessibleNameSurvey): string[] {
+  const vacuous = survey.refs.filter((r) => r.polarity === 'vacuous');
+  const anchors = survey.refs.filter((r) => r.polarity === 'anchor');
+  const anchoredNames = new Set(anchors.map((r) => r.name));
+  const vacuousNames = [...new Set(vacuous.map((r) => r.name))].sort();
+  const lines: string[] = [
+    '🔍 アクセシブル名の錨の走査 (T13-unanchored-accessible-name)',
+    `   走査ファイル数: ${survey.fileCount}`,
+    `   零件で真になる主張が指す参照: ${vacuous.length} 件 / 相異なる名前 ${vacuousNames.length} 件`,
+    `   肯定側から指す参照: ${anchors.length} 件 / 相異なる名前 ${anchoredNames.size} 件`,
+    '   比較の対象にできなかった名前（限界の開示）:',
+    `     正規表現で与えた名前: ${survey.skips.regex} 件`,
+    `     変数・テンプレート等で組み立てた名前: ${survey.skips.dynamic} 件`,
+    '   （どちらも文字列として突き合わせられないため、錨の有無を判定しない。',
+    '     肯定側が正規表現へ緩められた場合は、その名前の錨が消えたものとして扱われる）',
+    ...ANCHOR_REQUIREMENT_DISCLOSURE,
+    '',
+    '   零件で真になる主張が指す名前と錨の有無:',
+  ];
+  for (const name of vacuousNames) {
+    lines.push(`     ${anchoredNames.has(name) ? '錨あり' : '錨なし'}  ${JSON.stringify(name)}`);
+  }
+  lines.push('');
+  lines.push(`   錨の無い箇所（T13 の検出）: ${survey.findings.length} 件`);
+  for (const finding of survey.findings) {
+    lines.push(`     ${finding.file}:${finding.line}  ${finding.snippet}`);
+  }
+  return lines;
 }
 
 /**
@@ -3989,35 +4246,16 @@ export function run(args: string[], options: RunOptions = {}): number {
   //
   // 走査根・母集団・除外の内訳・未錨の一覧を出力で宣言する。散文で範囲を述べると
   // 後から網羅性を確かめる手掛かりが残らない（tasks.md の 115.250 の教訓）。
+  // **整形は formatAccessibleNameSurvey へ切り出してある**（Task 115.303）。印字の
+  // 逐語と数値を合成値で固定する対照を置くためである（115.300 の教訓）。
   if (args.includes('--accessible-names')) {
-    const vacuous = nameRefs.filter((r) => r.polarity === 'vacuous');
-    const anchors = nameRefs.filter((r) => r.polarity === 'anchor');
-    const anchoredNames = new Set(anchors.map((r) => r.name));
-    const vacuousNames = [...new Set(vacuous.map((r) => r.name))].sort();
-    console.log('🔍 アクセシブル名の錨の走査 (T13-unanchored-accessible-name)');
-    console.log(`   走査ファイル数: ${files.length}`);
-    console.log(
-      `   零件で真になる主張が指す参照: ${vacuous.length} 件 / 相異なる名前 ${vacuousNames.length} 件`
-    );
-    console.log(
-      `   肯定側から指す参照: ${anchors.length} 件 / 相異なる名前 ${anchoredNames.size} 件`
-    );
-    console.log('   比較の対象にできなかった名前（限界の開示）:');
-    console.log(`     正規表現で与えた名前: ${nameSkips.regex} 件`);
-    console.log(`     変数・テンプレート等で組み立てた名前: ${nameSkips.dynamic} 件`);
-    console.log('   （どちらも文字列として突き合わせられないため、錨の有無を判定しない。');
-    console.log(
-      '     肯定側が正規表現へ緩められた場合は、その名前の錨が消えたものとして扱われる）'
-    );
-    console.log('');
-    console.log('   零件で真になる主張が指す名前と錨の有無:');
-    for (const name of vacuousNames) {
-      console.log(`     ${anchoredNames.has(name) ? '錨あり' : '錨なし'}  ${JSON.stringify(name)}`);
-    }
-    console.log('');
-    console.log(`   錨の無い箇所（T13 の検出）: ${unanchoredFindings.length} 件`);
-    for (const finding of unanchoredFindings) {
-      console.log(`     ${finding.file}:${finding.line}  ${finding.snippet}`);
+    for (const line of formatAccessibleNameSurvey({
+      fileCount: files.length,
+      refs: nameRefs,
+      skips: nameSkips,
+      findings: unanchoredFindings,
+    })) {
+      console.log(line);
     }
     return 0;
   }
