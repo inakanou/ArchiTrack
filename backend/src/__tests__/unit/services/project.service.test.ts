@@ -162,6 +162,9 @@ describe('ProjectService', () => {
       // トランザクション内のモック設定
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           user: {
             findUnique: vi
               .fn()
@@ -205,6 +208,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           user: {
             findUnique: vi.fn().mockResolvedValue({
               ...mockAdminUser,
@@ -229,6 +235,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           user: {
             findUnique: vi.fn().mockResolvedValue(null),
           },
@@ -254,6 +263,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           user: {
             findUnique: vi
               .fn()
@@ -285,6 +297,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           user: {
             findUnique: vi
               .fn()
@@ -318,6 +333,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           user: {
             findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
           },
@@ -847,6 +865,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           project: {
             findUnique: vi.fn().mockResolvedValue(mockProject),
             findFirst: vi.fn().mockResolvedValue(null), // プロジェクト名重複なし
@@ -891,6 +912,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           project: {
             findUnique: vi.fn().mockResolvedValue(projectWithNewerUpdate),
             update: vi.fn(),
@@ -914,6 +938,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           project: {
             findUnique: vi.fn().mockResolvedValue(null),
             update: vi.fn(),
@@ -937,6 +964,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           project: {
             findUnique: vi.fn().mockResolvedValue({
               ...mockProject,
@@ -966,6 +996,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           project: {
             findUnique: vi.fn().mockResolvedValue(mockProject),
             update: vi.fn(),
@@ -998,6 +1031,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           project: {
             findUnique: vi.fn().mockResolvedValue(mockProject),
             update: vi.fn().mockResolvedValue(deletedProject),
@@ -1026,6 +1062,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           project: {
             findUnique: vi.fn().mockResolvedValue(null),
             update: vi.fn(),
@@ -1046,6 +1085,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           project: {
             findUnique: vi.fn().mockResolvedValue({
               ...mockProject,
@@ -1102,6 +1144,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           user: {
             findUnique: vi.fn().mockResolvedValue({
               ...mockUser,
@@ -1152,6 +1197,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           user: {
             findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
           },
@@ -1219,6 +1267,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           user: {
             findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
           },
@@ -1483,6 +1534,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           project: {
             findUnique: vi.fn().mockResolvedValue(projectWithConstruction),
             update: vi.fn().mockImplementation((args) => {
@@ -1523,6 +1577,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           project: {
             findUnique: vi.fn().mockResolvedValue(mockProject),
             update: vi.fn(),
@@ -1556,6 +1613,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           project: {
             findUnique: vi.fn().mockResolvedValue(mockProject),
             update: vi.fn().mockImplementation((args) => {
@@ -1593,6 +1653,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           project: {
             findUnique: vi.fn().mockResolvedValue(mockProject),
             findFirst: vi.fn().mockResolvedValue(null), // プロジェクト名重複なし
@@ -1639,6 +1702,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           project: {
             findUnique: vi.fn().mockResolvedValue(mockProject),
             update: vi.fn().mockResolvedValue(deletedProject),
@@ -1705,6 +1771,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           user: {
             findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
           },
@@ -1737,6 +1806,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           user: {
             findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
           },
@@ -1771,6 +1843,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           user: {
             findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
           },
@@ -1812,6 +1887,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           user: {
             findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
           },
@@ -1844,6 +1922,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           user: {
             findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
           },
@@ -1884,6 +1965,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           user: {
             findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
           },
@@ -1923,6 +2007,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           user: {
             findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
           },
@@ -1965,6 +2052,9 @@ describe('ProjectService', () => {
 
       mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
         const tx = {
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue({ id: 'trading-partner-123', deletedAt: null }),
+          },
           user: {
             findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
           },
@@ -2337,6 +2427,205 @@ describe('ProjectService', () => {
       const findManyMock = mockPrisma.project.findMany as unknown as ReturnType<typeof vi.fn>;
       const callArgs = findManyMock.mock.calls[0]?.[0] as { where: { status?: unknown } };
       expect(callArgs?.where?.status).toBeUndefined();
+    });
+  });
+
+  /**
+   * 取引先IDの実在検証
+   *
+   * @requirement project-management/REQ-13.3
+   *
+   * 条文（project-management 要件13 の 3）は「取引先が指定された場合、取引先IDが有効な
+   * 取引先マスタのIDであることを検証する」と定める。外部キー制約だけでは条文を満たさない
+   * ことをタスク 115.311 が実測した（実在しない取引先IDは作成経路で 400 の汎用
+   * 「Database Error」、更新経路では 404 になり、論理削除済みの取引先IDは両経路とも
+   * 素通りして書き込まれた）。よってサービス層で実在と有効性を検証する。
+   */
+  describe('取引先IDの実在検証 (project-management/REQ-13.3)', () => {
+    const actorId = 'actor-123';
+
+    function buildCreateTx(tradingPartnerLookup: unknown) {
+      return {
+        user: {
+          findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
+        },
+        tradingPartner: {
+          findUnique: vi.fn().mockResolvedValue(tradingPartnerLookup),
+        },
+        project: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          create: vi.fn().mockResolvedValue({
+            ...mockProject,
+            salesPerson: mockUser,
+            constructionPerson: null,
+            createdBy: mockUser,
+          }),
+        },
+        projectStatusHistory: {
+          create: vi.fn().mockResolvedValue({ id: 'history-1' }),
+        },
+      };
+    }
+
+    const createInput: CreateProjectInput = {
+      name: 'テストプロジェクト',
+      tradingPartnerId: 'trading-partner-123',
+      salesPersonId: 'user-123',
+    };
+
+    it('作成時: 取引先が存在しない場合は ProjectValidationError を投げる', async () => {
+      let tx: ReturnType<typeof buildCreateTx> | undefined;
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        tx = buildCreateTx(null);
+        return fn(tx);
+      });
+
+      await expect(service.createProject(createInput, actorId)).rejects.toThrow(
+        ProjectValidationError
+      );
+      expect(tx?.project.create).not.toHaveBeenCalled();
+    });
+
+    it('作成時: 取引先が論理削除済みの場合は ProjectValidationError を投げる', async () => {
+      let tx: ReturnType<typeof buildCreateTx> | undefined;
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        tx = buildCreateTx({ id: 'trading-partner-123', deletedAt: new Date('2024-01-01') });
+        return fn(tx);
+      });
+
+      await expect(service.createProject(createInput, actorId)).rejects.toThrow(
+        ProjectValidationError
+      );
+      expect(tx?.project.create).not.toHaveBeenCalled();
+    });
+
+    it('作成時: エラーの validationErrors は tradingPartnerId を名指しする', async () => {
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => fn(buildCreateTx(null)));
+
+      await expect(service.createProject(createInput, actorId)).rejects.toMatchObject({
+        validationErrors: { tradingPartnerId: expect.any(String) },
+      });
+    });
+
+    it('作成時: 有効な取引先の場合は作成が進む', async () => {
+      let tx: ReturnType<typeof buildCreateTx> | undefined;
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        tx = buildCreateTx({ id: 'trading-partner-123', deletedAt: null });
+        return fn(tx);
+      });
+
+      await expect(service.createProject(createInput, actorId)).resolves.toBeDefined();
+      expect(tx?.tradingPartner.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'trading-partner-123' } })
+      );
+    });
+
+    it('作成時: 取引先が未指定なら照会そのものを行わない', async () => {
+      let tx: ReturnType<typeof buildCreateTx> | undefined;
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        tx = buildCreateTx(null);
+        return fn(tx);
+      });
+
+      await expect(
+        service.createProject({ name: 'テストプロジェクト', salesPersonId: 'user-123' }, actorId)
+      ).resolves.toBeDefined();
+      expect(tx?.tradingPartner.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('更新時: 取引先が存在しない場合は ProjectValidationError を投げる', async () => {
+      let updateFn: ReturnType<typeof vi.fn> | undefined;
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        updateFn = vi.fn();
+        const tx = {
+          project: {
+            findUnique: vi.fn().mockResolvedValue(mockProject),
+            findFirst: vi.fn().mockResolvedValue(null),
+            update: updateFn,
+          },
+          user: {
+            findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
+          },
+          tradingPartner: {
+            findUnique: vi.fn().mockResolvedValue(null),
+          },
+        };
+        return fn(tx);
+      });
+
+      await expect(
+        service.updateProject(
+          'project-123',
+          { tradingPartnerId: 'trading-partner-999' },
+          actorId,
+          new Date('2024-01-02')
+        )
+      ).rejects.toThrow(ProjectValidationError);
+      expect(updateFn).not.toHaveBeenCalled();
+    });
+
+    it('更新時: 取引先が論理削除済みの場合は ProjectValidationError を投げる', async () => {
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        const tx = {
+          project: {
+            findUnique: vi.fn().mockResolvedValue(mockProject),
+            findFirst: vi.fn().mockResolvedValue(null),
+            update: vi.fn(),
+          },
+          user: {
+            findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
+          },
+          tradingPartner: {
+            findUnique: vi
+              .fn()
+              .mockResolvedValue({ id: 'trading-partner-456', deletedAt: new Date('2024-01-01') }),
+          },
+        };
+        return fn(tx);
+      });
+
+      await expect(
+        service.updateProject(
+          'project-123',
+          { tradingPartnerId: 'trading-partner-456' },
+          actorId,
+          new Date('2024-01-02')
+        )
+      ).rejects.toThrow(ProjectValidationError);
+    });
+
+    it('更新時: 取引先の解除（null）では照会を行わない', async () => {
+      let lookup: ReturnType<typeof vi.fn> | undefined;
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
+        lookup = vi.fn().mockResolvedValue(null);
+        const tx = {
+          project: {
+            findUnique: vi.fn().mockResolvedValue(mockProject),
+            findFirst: vi.fn().mockResolvedValue(null),
+            update: vi.fn().mockResolvedValue({
+              ...mockProject,
+              tradingPartnerId: null,
+              tradingPartner: null,
+              updatedAt: new Date('2024-01-03'),
+            }),
+          },
+          user: {
+            findUnique: vi.fn().mockResolvedValue({ ...mockUser, userRoles: [] }),
+          },
+          tradingPartner: { findUnique: lookup },
+        };
+        return fn(tx);
+      });
+
+      await expect(
+        service.updateProject(
+          'project-123',
+          { tradingPartnerId: null },
+          actorId,
+          new Date('2024-01-02')
+        )
+      ).resolves.toBeDefined();
+      expect(lookup).not.toHaveBeenCalled();
     });
   });
 });

@@ -12,29 +12,38 @@
  * - 13.9: 概要は任意かつ最大5000文字
  * - 13.10: フロントエンドでバリデーションエラーが発生する場合、エラーメッセージを即座に表示
  * - 13.11: バックエンドでバリデーションエラーが発生する場合、エラーレスポンスとエラー詳細を返却
- *   （条文はHTTPステータスを定めていない。実装が 400 を返す箇所は
- *   backend/src/routes/projects.routes.ts の ProjectValidationError 分岐であり、
- *   条文の要求ではなく実装の選択である）
+ *   （条文はHTTPステータスを定めていない。400 を返すのは条文の要求ではなく実装の選択で
+ *   ある。本スキーマの入力に対して 400 へ至る経路は一つではなく、少なくとも次の三つが
+ *   ある——(a) 本スキーマ自身の zod 失敗は backend/src/middleware/validate.middleware.ts
+ *   が ValidationError（statusCode=400）へ写し、backend/src/middleware/errorHandler.middleware.ts
+ *   の ApiError 分岐が 400 を返す。ルータの catch には入らない、
+ *   (b) サービス層が投げる ProjectValidationError は
+ *   backend/src/routes/projects.routes.ts の当該分岐が 400 とフィールド名つきの
+ *   errors へ写す、(c) 上のいずれにも掛からず Prisma まで到達した違反は
+ *   errorHandler.middleware.ts の「その他の Prisma エラー」分岐が汎用の
+ *   400 Database Error へ落とす。従前この注記は (b) だけを挙げていた）
  *
  * 従前この一覧が掲げていた「22.1-22.5: 取引先連携」は、現行の要件22 の 1〜5 が
  * 顧客候補のドロップダウン・オートコンプリート（UIの候補提示・部分一致・フリガナ検索）で
  * あり、本ファイルが担う tradingPartnerId の形式検証とは対応しない。取引先を任意の
  * 外部キー参照として扱う根拠は要件13 の 2 であるため、そちらへ名乗り直した。
  *
- * 上の一覧に要件13 の 3（取引先が指定された場合に取引先IDが有効な取引先マスタのIDで
- * あることを検証する）を挙げていないのは、本番コードに当該の検証が無いためである。
- * 本スキーマの tradingPartnerId が課すのは UUID の形式検証だけで
- * （`.regex(UUID_REGEX, TRADING_PARTNER_ID_INVALID_UUID)`）、取引先マスタに当該IDが
- * 実在するかは見ていない。サービス層にも実在確認は無く、
- * `ProjectService.createProject`（backend/src/services/project.service.ts）は
- * 受け取った値をそのまま `tradingPartnerId: input.tradingPartnerId || null` として
- * 書き込む。同ファイルが `ProjectValidationError` を投げるのは
- * `validateAssignableUser` の2箇所だけであり、いずれも担当者ユーザーの実在と
- * admin 判定であって取引先とは無関係である。作成経路で実在しない取引先IDを弾くのは
- * `Project.tradingPartner`（backend/prisma/schema.prisma の
- * `@relation(fields: [tradingPartnerId], references: [id])`）が張る
- * データベースの外部キー制約だけで、アプリケーション層の検証ではない。
- * よって要件13 の 3 は事実上未実装であり、本ファイルでは被覆として名乗らない。
+ * 要件13 の 3（取引先が指定された場合に取引先IDが有効な取引先マスタのIDであることを
+ * 検証する）は、タスク 115.311 で実装された。サービス層の
+ * `ProjectService.validateTradingPartner`（backend/src/services/project.service.ts）が
+ * 作成・更新の双方で実在と論理削除を確かめ、担当者の検証と同じ
+ * `ProjectValidationError` を投げる。形式検証は引き続き本ファイル、実在検証はサービス層
+ * という分担であり、13.5 / 13.7 と同じ形である。外部キー制約で足りるとする案は採らな
+ * かった——制約が保証するのは行の存在だけで、取引先マスタが持つ論理削除（deletedAt）を
+ * 見ないためである。実測は `ProjectService.validateTradingPartner` の注釈に置いた。
+ *
+ * **同項を上の一覧へ番号つきで書き戻してはいない。** 本前書きは機能名を持たない
+ * ヘッダー（`Requirements:` の形）であり、配下の名乗りは被覆として一件も読まれない。
+ * その眠る名乗りの総数は `scripts/check-requirement-coverage.ts` の
+ * `MAX_DORMANT_HEADER_NAMES` が増やす向きに失敗するラチェットで押さえており、
+ * 番号を足すとラチェットが赤くなる（タスク 115.311 が実測）。**被覆源は
+ * backend/src/__tests__/unit/services/project.service.test.ts の
+ * 「取引先IDの実在検証」の群であり、そこが本番モジュールを取り込んで名乗る。**
  */
 
 import { z } from 'zod';

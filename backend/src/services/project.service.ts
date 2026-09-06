@@ -196,6 +196,7 @@ export class ProjectService {
    * トランザクション内で以下を実行:
    * 1. プロジェクト名の一意性チェック (Requirements: 1.15, 1.16)
    * 2. 担当者IDのバリデーション（admin以外の有効ユーザー確認）
+   * 2b. 取引先IDの実在検証（指定された場合のみ。要件13 の 3）
    * 3. プロジェクト作成
    * 4. 初期ステータス履歴の記録（transitionType='initial'）
    * 5. 監査ログの記録
@@ -204,7 +205,7 @@ export class ProjectService {
    * @param actorId - 実行者ID
    * @returns 作成されたプロジェクト情報
    * @throws DuplicateProjectNameError プロジェクト名が重複する場合
-   * @throws ProjectValidationError 担当者IDが無効な場合
+   * @throws ProjectValidationError 担当者IDまたは取引先IDが無効な場合
    */
   async createProject(input: CreateProjectInput, actorId: string): Promise<ProjectInfo> {
     return await this.prisma.$transaction(async (tx) => {
@@ -216,6 +217,11 @@ export class ProjectService {
 
       if (input.constructionPersonId) {
         await this.validateAssignableUser(tx, input.constructionPersonId, 'constructionPersonId');
+      }
+
+      // 2b. 取引先IDの実在検証（要件13 の 3）
+      if (input.tradingPartnerId) {
+        await this.validateTradingPartner(tx, input.tradingPartnerId);
       }
 
       // 3. プロジェクト作成
@@ -470,6 +476,7 @@ export class ProjectService {
    * 1. プロジェクトの存在確認・楽観的排他制御
    * 2. プロジェクト名の一意性チェック（名前変更時のみ）(Requirements: 8.7, 8.8)
    * 3. 担当者IDのバリデーション（更新対象の場合のみ）
+   * 3b. 取引先IDの実在検証（設定・変更の場合のみ。要件13 の 3）
    * 4. プロジェクト更新
    * 5. 監査ログの記録
    *
@@ -481,7 +488,7 @@ export class ProjectService {
    * @throws ProjectNotFoundError プロジェクトが存在しない場合
    * @throws ProjectConflictError 楽観的排他制御エラー
    * @throws DuplicateProjectNameError プロジェクト名が重複する場合
-   * @throws ProjectValidationError 担当者IDが無効な場合
+   * @throws ProjectValidationError 担当者IDまたは取引先IDが無効な場合
    */
   async updateProject(
     id: string,
@@ -543,6 +550,11 @@ export class ProjectService {
 
       if (input.constructionPersonId) {
         await this.validateAssignableUser(tx, input.constructionPersonId, 'constructionPersonId');
+      }
+
+      // 3b. 取引先IDの実在検証（設定・変更の場合のみ。null は解除であり照会しない。要件13 の 3）
+      if (input.tradingPartnerId) {
+        await this.validateTradingPartner(tx, input.tradingPartnerId);
       }
 
       // 4. プロジェクト更新
@@ -705,6 +717,48 @@ export class ProjectService {
       surveyCount: 0,
       estimateCount: 0,
     };
+  }
+
+  /**
+   * 取引先IDの実在検証
+   *
+   * 要件13 の 3（取引先が指定された場合、取引先IDが有効な取引先マスタのIDである
+   * ことを検証する）
+   *
+   * 外部キー制約では条文を満たさない。タスク 115.311 が実測した現況は次のとおりである
+   * （2026-09-07、コミット 7b0b156a の作業ツリー、backend/prisma/migrations を適用した
+   * PostgreSQL に対して本番の ProjectService を直接呼び出して観測）。
+   *
+   * - 作成経路で実在しない取引先IDを渡すと Prisma が P2003 を投げ、
+   *   errorHandler.middleware.ts の「その他の Prisma エラー」分岐が汎用の
+   *   400 Database Error（detail は Database operation failed）へ落とす。
+   *   どのフィールドが不正かはレスポンスに現れない。
+   * - 更新経路は nested connect のため P2025 になり、404 Not Found へ落ちる。
+   *   同じ入力の誤りが経路によって 400 と 404 に分かれる。
+   * - 論理削除済みの取引先IDは、作成・更新のいずれでも素通りして書き込まれた。
+   *   外部キー制約は行の存在しか見ず deletedAt を見ないためである。
+   *
+   * よって実在確認はアプリケーション層で行い、担当者の検証と同じ
+   * ProjectValidationError（ルータが 400 とフィールド名つきの詳細へ写す）で返す。
+   *
+   * @param tx - Prismaトランザクションクライアント
+   * @param tradingPartnerId - 検証する取引先ID
+   * @throws ProjectValidationError 取引先が存在しない、または論理削除済みの場合
+   */
+  private async validateTradingPartner(
+    tx: PrismaTransactionClient,
+    tradingPartnerId: string
+  ): Promise<void> {
+    const tradingPartner = await tx.tradingPartner.findUnique({
+      where: { id: tradingPartnerId },
+      select: { id: true, deletedAt: true },
+    });
+
+    if (!tradingPartner || tradingPartner.deletedAt !== null) {
+      throw new ProjectValidationError({
+        tradingPartnerId: '指定された取引先が存在しません',
+      });
+    }
   }
 
   /**
