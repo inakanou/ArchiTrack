@@ -1336,7 +1336,7 @@ export const MAX_FEATURELESS_COVERAGE_HEADERS = 2025;
  * 眠る量は名乗りの側で増えるため、二つの量を別々に押さえる。
  * 意味と下げ方は {@link MAX_FEATURELESS_COVERAGE_HEADERS} と同じである。
  */
-export const MAX_DORMANT_HEADER_NAMES = 5173;
+export const MAX_DORMANT_HEADER_NAMES = 5172;
 
 /** 撤廃済みの受入基準を名乗っている被覆印 */
 export interface RetiredCriterionMark {

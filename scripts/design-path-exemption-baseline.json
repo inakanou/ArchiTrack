@@ -26,9 +26,9 @@
     "面には数えない。ただし外した側も基準で見張る——開示だけに落とすと、新しく現れた",
     "曖昧な参照が面にも曖昧の集合にも掛からない素通りの経路になる。"
   ],
-  "reachTotal": 174,
-  "candidateTotal": 672,
-  "entityTotal": 135,
+  "reachTotal": 177,
+  "candidateTotal": 677,
+  "entityTotal": 138,
   "exemptedTotal": 123,
   "exemptedDistinctTotal": 30,
   "ambiguousTotal": 5,
@@ -82,6 +82,16 @@
       "recordedAt": "2026-09-06",
       "reachTotal": 174,
       "candidateTotal": 672
+    },
+    {
+      "recordedAt": "2026-09-06",
+      "reachTotal": 176,
+      "candidateTotal": 677
+    },
+    {
+      "recordedAt": "2026-09-06",
+      "reachTotal": 177,
+      "candidateTotal": 677
     }
   ],
   "documents": {
@@ -125,6 +135,7 @@
       "quantity-table.schema.ts"
     ],
     ".kiro/specs/site-survey/design.md": [
+      ".kiro/specs/estimate-creation/design.md",
       ".kiro/specs/estimate-request/design.md",
       ".kiro/specs/quantity-table-generation/design.md",
       ".kiro/specs/site-survey/design.md",
@@ -166,6 +177,7 @@
       "annotation.service.ts",
       "backend/package.json",
       "backend/scripts/restore-plain-thumbnails.ts",
+      "backend/src/__tests__/integration/estimate.api.integration.test.ts",
       "backend/src/__tests__/unit/middleware/upload.middleware.test.ts",
       "backend/src/__tests__/unit/models/project.model.test.ts",
       "backend/src/__tests__/unit/models/site-survey.model.test.ts",
@@ -214,6 +226,7 @@
       "frontend/src/__tests__/components/site-surveys/DimensionTool.test.tsx",
       "frontend/src/__tests__/components/site-surveys/gestures/touchGestureManager.test.ts",
       "frontend/src/__tests__/integration/annotation-scale-and-multitouch.test.ts",
+      "frontend/src/__tests__/pages/EstimateDetailPage.test.tsx",
       "frontend/src/__tests__/pages/QuantityTableEditPage.pdfPhoto.test.tsx",
       "frontend/src/__tests__/services/AutoSaveManager.test.ts",
       "frontend/src/api/survey-annotations.ts",
