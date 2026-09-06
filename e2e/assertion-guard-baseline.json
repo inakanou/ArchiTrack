@@ -9,12 +9,12 @@
     "reduction は削減の目標と計画文書の所在。実行のたびに残り件数を出力する（合否には用いない）。",
     "件数が増える方向の更新は既定で拒否する。記録が必要な場合のみ --allow-increase を付けること。"
   ],
-  "generatedTotal": 2,
+  "generatedTotal": 0,
   "allowedTotal": 0,
   "reduction": {
     "doc": ".kiro/specs/site-survey/e2e-assertion-guard-reduction-plan.md",
     "$comment": "目標は計画の「段」ごとに進める。合否には用いず、残り件数の出力にのみ用いる（Task 115.93）。",
-    "stage": "段 7 完了: F 群（復旧・再試行の分岐）122 件・G 群（全域分岐）42 件・D2（沈黙脱出）1 件を 0 にした。generatedTotal 191 → 0、e2e-guard-allow 0（リポジトリ全体で 1 件も残っていない）。以後は「新規の検証無効化を 0 件で維持する」段階であり、件数が増える方向の更新は既定で拒否される。Task 115.251 が第十三の型 T13-unanchored-accessible-name を足したため、**検出器の追加によって露出した既存の欠陥 2 件**を明示の増加として登録している（是正は当該スペックの所管。§8 を参照）",
+    "stage": "段 7 完了: F 群（復旧・再試行の分岐）122 件・G 群（全域分岐）42 件・D2（沈黙脱出）1 件を 0 にした。generatedTotal 191 → 0、e2e-guard-allow 0（リポジトリ全体で 1 件も残っていない）。以後は「新規の検証無効化を 0 件で維持する」段階であり、件数が増える方向の更新は既定で拒否される。Task 115.251 が第十三の型 T13-unanchored-accessible-name を足したため、**検出器の追加によって露出した既存の欠陥 2 件**を明示の増加として一時登録していた（是正は当該スペックの所管。§8 を参照）。Task 115.302 がその 2 件を是正し、generatedTotal は 2 → 0 へ戻した。目標値 0 は据え置きである",
     "targets": {
       "T1-conditional-expect": 0,
       "T2-ignored-timeout": 0,
@@ -64,16 +64,21 @@
       "T13 は**一ファイルでは決まらない**。錨は別ファイルに在ってよいため、scanSource は参照だけを返し、",
       "全ファイルを集め終えた resolveUnanchoredAccessibleNames が検出へ変換する。",
       "走査そのものは `npx tsx scripts/check-e2e-assertion-guards.ts --accessible-names` が印字する（走査根・母集団・除外の内訳・未錨の一覧）。",
-      "自己検査は 182 → 196 件。陽性 8・陰性 6 の対照を置き、対照群を空にする変異・片方の極性を消す変異のいずれでも EXIT=1 になることを実測した。"
+      "自己検査は 182 → 196 件。陽性 8・陰性 6 の対照を置き、対照群を空にする変異・片方の極性を消す変異のいずれでも EXIT=1 になることを実測した。",
+      "Task 115.302: 115.251 が露出させた 2 件を是正した。generatedTotal 2 → 0（減少 2）。目標値 0 は据え置きである。",
+      "是正の形は 115.251 と同じ「肯定側でアクセシブル名の完全一致を固定する」であり、検出器も規則も一行も変えていない。",
+      "estimate-hierarchy-keyboard-e2e.spec.ts はルートより下の階層で `一つ上の階層へ戻る` を exact:true の toBeVisible() で指す一行を足し、",
+      "construction-schedule-e2e.spec.ts は削除の前に `削除テスト工程表` のリンクを exact:true の toBeVisible() で指す一行を足した。",
+      "走査は前後とも 214 ファイルで、零件で真になる参照 61 件 / 相異なる名前 34 件は不変、肯定側の参照が 1291 → 1293 件・相異なる名前 262 → 264 件へ増え、未錨は 2 → 0 件になった。",
+      "実装側の綴りを改名する変異を実ブラウザで当てて確かめた（2026-09-06 に test 環境で実測。frontend は再ビルドし、",
+      "変異前と復元後の配信バンドルが assets/index-D5RUevcK.js で一致することを照合した。変異時の配信は assets/index-BMZGJ3l-.js である）。",
+      "変異は M1 = 表示文言 `一つ上の階層へ戻る` を `一つ上のかいそうへ戻る` へ変える／ScheduleListPage の名称欄リンクを `{schedule.name}（工程表）` へ変える の二つを同時に当てたものである。",
+      "是正前は estimate 側 3 passed / 0 failed、schedule 側 1 passed / 0 failed で緑のまま通り、是正後は同じ変異で estimate 側 2 passed / 1 failed、schedule 側 0 passed / 1 failed になる。",
+      "復元して再ビルドしたあとはいずれも緑（3 passed / 0 failed と 1 passed / 0 failed）である。",
+      "空振りするのは E2E 層に限った話である。単体側には錨があり、同じ M1 で",
+      "EstimateItemTable.drilldownMode.test.tsx は 24 件中 4 件、ScheduleListPage.test.tsx は 17 件中 1 件が落ちる（同日に実測）。"
     ]
   },
   "allowedFiles": {},
-  "files": {
-    "e2e/specs/estimate/estimate-hierarchy-keyboard-e2e.spec.ts": {
-      "T13-unanchored-accessible-name": 1
-    },
-    "e2e/specs/schedules/construction-schedule-e2e.spec.ts": {
-      "T13-unanchored-accessible-name": 1
-    }
-  }
+  "files": {}
 }

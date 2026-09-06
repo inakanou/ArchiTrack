@@ -686,6 +686,36 @@ test.describe('工程表機能 E2Eテスト', () => {
         waitUntil: 'networkidle',
       });
 
+      // 削除の前に、一覧へ当該工程表のリンクが**出ている**ことを完全一致で確かめる。
+      // **下の「消えたこと」の主張が指すアクセシブル名の錨はこの一行である**
+      // （タスク 115.302。是正の形はタスク 115.251 に倣う）。名前は `aria-label` ではなく
+      // `ScheduleListPage.tsx` の名称欄のリンクの表示文言に由来し、`getByLabel` が指す
+      // `削除テスト工程表を削除` は**別綴りなので錨にならない**。
+      //
+      // 実行した変異と出力（2026-09-06 に実測。frontend は test 環境で再ビルドし、
+      // 変異前と復元後の配信バンドルが `assets/index-D5RUevcK.js` で一致することを照合した）:
+      //   - M1 名称欄のリンクの表示を `{schedule.name}（工程表）` へ変える変異
+      //     （配信 `assets/index-BMZGJ3l-.js`）を当てても、**是正前は本区間が
+      //     1 passed / 0 failed で緑のまま**であった。削除の主張は一致が零件でも真になるため、
+      //     リンクの綴りが変わると静かに空振りへ変わる。
+      //   （M1 が入れる綴りは復元済みであり、いまのリポジトリには無い。逆引用符は変異が置く
+      //     字面を示すものであって、作業ツリーに実在することの主張ではない。）
+      //   - 同じ M1 を当てたまま本行を足すと、**本区間は 0 passed / 1 failed で赤になる**。
+      //     復元後は 1 passed / 0 failed に戻る。
+      //   実行したコマンドは
+      //   `npm run test:e2e -- e2e/specs/schedules/construction-schedule-e2e.spec.ts -g "一覧画面から工程表を削除できる"`。
+      //
+      // **検出されないのは E2E 層に限った話である。** 単体側には錨があり、
+      // `frontend/src/pages/ScheduleListPage.test.tsx` が名称欄の表示を `getByText` で
+      // 完全一致に固定している。M1 を当てて同ファイルを走らせると 17 件のうち 1 件が落ちる
+      // （1 failed / 16 passed。2026-09-06 に実測）。ここで塞ぐのは E2E 層の空振りである。
+      //
+      // 固定が緩められたら `npm run check:e2e-guards` の `T13-unanchored-accessible-name` が
+      // 赤になる（走査は `npx tsx scripts/check-e2e-assertion-guards.ts --accessible-names`）。
+      await expect(page.getByRole('link', { name: '削除テスト工程表', exact: true })).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
       // 削除ボタンをクリック
       const deleteButton = page.getByLabel('削除テスト工程表を削除');
       await deleteButton.click();

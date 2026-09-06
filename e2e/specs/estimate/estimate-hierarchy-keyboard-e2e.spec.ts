@@ -454,11 +454,41 @@ test.describe('階層ナビゲーションとキーボード操作', () => {
       await expect(page.locator(ROW_SELECTOR)).toHaveCount(3 + FILLER_NAMES.length);
       await expect(itemRow(page, ids[NAME.childA1]!)).toHaveCount(0);
       await expect(path.getByText('全体', { exact: true })).toHaveAttribute('aria-current', 'true');
-      // ルート階層ではこれ以上上げられない
+      // ルート階層ではこれ以上上げられない。
+      // この主張は**一致が零件でも真になる**。名前が実在することの錨は本行には無く、
+      // 直後の子階層で同名を `exact: true` の `toBeVisible()` で指す肯定側に置いてある
+      // （タスク 115.302。是正の形はタスク 115.251 に倣う）。
+      //
+      // 実行した変異と出力（2026-09-06 に実測。frontend は test 環境で再ビルドし、
+      // 変異前と復元後の配信バンドルが `assets/index-D5RUevcK.js` で一致することを照合した）:
+      //   - M1 `EstimateItemDrilldownView.tsx` の表示文言を `一つ上のかいそうへ戻る` へ
+      //     変える変異（配信 `assets/index-BMZGJ3l-.js`）を当てても、**是正前は本区間を含む
+      //     3 件が 3 passed / 0 failed で緑のまま**であった。名前は `aria-label` ではなく
+      //     表示文言に由来するため、改名は綴りの走査では捕まらない。
+      //   （M1 が入れる綴りは復元済みであり、いまのリポジトリには無い。逆引用符は変異が置く
+      //     字面を示すものであって、作業ツリーに実在することの主張ではない。）
+      //   - 同じ M1 を当てたまま下の肯定側を足すと、**3 件のうち 1 件（本区間）が落ちる**
+      //     （2 passed / 1 failed）。復元後は 3 passed / 0 failed に戻る。
+      //   実行したコマンドは
+      //   `npm run test:e2e -- e2e/specs/estimate/estimate-hierarchy-keyboard-e2e.spec.ts -g "準備|階層を下げると子の一覧"`。
+      //
+      // **検出されないのは E2E 層に限った話である。** 単体側には錨があり、
+      // `frontend/src/components/estimate/EstimateItemTable.drilldownMode.test.tsx` が
+      // 同名を肯定側から 5 箇所で指している。M1 を当てて同ファイルを走らせると
+      // 24 件のうち 4 件が落ちる（4 failed / 20 passed。2026-09-06 に実測）。
+      // ここで塞ぐのは E2E 層の空振りである。
       await expect(page.getByRole('button', { name: '一つ上の階層へ戻る' })).toHaveCount(0);
 
       // --- 親A の子階層へ下げる（45.8）---
       await page.getByRole('button', { name: `${NAME.rootA} の子階層を表示`, exact: true }).click();
+      // ルートより下の階層では階層上げの操作が出る。
+      // **上の零件の主張が指すアクセシブル名の錨はこの一行である。** 完全一致で固定し、
+      // 実装側の改名・削除を**肯定側の失敗**として表面化させる。
+      // 固定が緩められたら `npm run check:e2e-guards` の `T13-unanchored-accessible-name` が
+      // 赤になる（走査は `npx tsx scripts/check-e2e-assertion-guards.ts --accessible-names`）。
+      await expect(
+        page.getByRole('button', { name: '一つ上の階層へ戻る', exact: true })
+      ).toBeVisible();
       await expect(itemRow(page, ids[NAME.childA1]!)).toBeVisible();
       await expect(itemRow(page, ids[NAME.childA2]!)).toBeVisible();
       await expect(itemRow(page, ids[NAME.rootA]!)).toHaveCount(0);

@@ -26,9 +26,9 @@
     "面には数えない。ただし外した側も基準で見張る——開示だけに落とすと、新しく現れた",
     "曖昧な参照が面にも曖昧の集合にも掛からない素通りの経路になる。"
   ],
-  "reachTotal": 170,
-  "candidateTotal": 641,
-  "entityTotal": 131,
+  "reachTotal": 173,
+  "candidateTotal": 649,
+  "entityTotal": 134,
   "exemptedTotal": 123,
   "exemptedDistinctTotal": 30,
   "ambiguousTotal": 5,
@@ -72,6 +72,11 @@
       "recordedAt": "2026-09-05",
       "reachTotal": 170,
       "candidateTotal": 641
+    },
+    {
+      "recordedAt": "2026-09-06",
+      "reachTotal": 173,
+      "candidateTotal": 649
     }
   ],
   "documents": {
@@ -210,6 +215,7 @@
       "frontend/src/components/Navigation/index.ts",
       "frontend/src/components/NetworkStatusIndicator.tsx",
       "frontend/src/components/estimate-request/EstimateRequestForm.test.tsx",
+      "frontend/src/components/estimate/EstimateItemTable.drilldownMode.test.tsx",
       "frontend/src/components/projects/SiteSurveySectionCard.tsx",
       "frontend/src/components/site-surveys/AnnotationEditor.tsx",
       "frontend/src/components/site-surveys/SiteSurveyForm.tsx",
@@ -219,6 +225,8 @@
       "frontend/src/components/site-surveys/tools/DimensionTool.ts",
       "frontend/src/hooks/useNetworkStatus.ts",
       "frontend/src/hooks/useUnsavedChanges.ts",
+      "frontend/src/pages/ScheduleListPage.test.tsx",
+      "frontend/src/pages/ScheduleListPage.tsx",
       "frontend/src/pages/SiteSurveyDetailPage.tsx",
       "frontend/src/pages/SiteSurveyImageViewerPage.css",
       "frontend/src/pages/SiteSurveyImageViewerPage.tsx",
