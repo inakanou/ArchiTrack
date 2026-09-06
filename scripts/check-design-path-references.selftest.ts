@@ -47,6 +47,18 @@
  * 居る守り手は、対照の繰り返しを止められると自分ごと黙るためである。
  * 下限の置き方（導ける側は構造から導き、導けない側は限界を書き残す）は 115.222 と
  * 作法を揃えた。塞いだ見逃しと残る限界はその節の註を読むこと。
+ *
+ * ## 構造から導く下限へ、件数の下限を重ねる（タスク 115.305）
+ *
+ * **構造から導く下限は、構造そのものを痩せさせる変更を止めない。** 導出の源（本体の関数、
+ * 宣言された `check*`、宣言された `*Failures`）を対照と一緒に削る書き換えでは下限も一緒に
+ * 下がり、報告件数が縮むのに EXIT=0 のままになった。`MUST_DETECT` / `MUST_NOT_DETECT` に
+ * 至っては非空以上の下限が無く、8 件が 1 件へ、14 件が 1 件へ黙って縮められた。
+ *
+ * 115.305 は 115.298 / 115.304 と作法を揃え、**六つの件数の下限を遊びゼロで貼った**
+ * （`MINIMUM_PRECONDITIONS` ほか。宣言のすぐ上の節に是正前の実測と、115.222 の懸念を
+ * 却下した理由を書いた）。関門は対照群の配列の**外側**に置き（`guardControlCensus`）、
+ * 開示は現況と下限の双方を引数で受ける整形へ切り出した（`formatCensusLine`）。
  */
 
 import { spawnSync } from 'child_process';
@@ -125,6 +137,112 @@ interface Case {
   expected: boolean;
   /** 行の注入では確かめられない規則の確認（自前で失敗の一覧を返す） */
   custom?: () => string[];
+}
+
+// ============================================================================
+// 対照の件数の下限（タスク 115.305）
+// ============================================================================
+//
+// ## なぜ足したか（構造から導く形だけでは何が止まらなかったか）
+//
+// 本ファイルは 115.222 の作法に倣い、下限を**導ける側は構造から導く**形で書いてきた——
+// `STRUCTURAL` の下限は「宣言されている `check*` を一つ残らず結線していること」
+// （`structuralWiringFailures`）、`NARROWING_WATCHED_BODIES` の下限は「本体の関数を一つ残らず
+// 名指ししていること」（`watchedBodyCoverageFailures`）である。その形は撤回しない。
+//
+// **しかし構造から導く下限は、構造そのものを痩せさせる変更を止めない。** 是正前の実測
+// （コミット `dfddc11b` の作業ツリー、2026-09-06 にリポジトリルートで実測。変異は事前複製
+// からの書き戻しで復元し、`sha256sum -c` の一致と `git diff HEAD --numstat` が当該ファイルを
+// 挙げないことの双方で確認した。基線は 51/51 の合格・EXIT=0）:
+//
+//   - `MUST_DETECT` を 8 件から先頭 1 件へ削る → `✅ 44/44 件の確認に成功しました`・**EXIT=0**
+//   - `MUST_NOT_DETECT` を 14 件から先頭 1 件へ削る → `✅ 38/38 件の確認に成功しました`・**EXIT=0**
+//   - `checkFileIndexIsReal` の宣言と `STRUCTURAL` の当該要素をまとめて削る →
+//     `✅ 50/50 件の確認に成功しました`・**EXIT=0**
+//   - `watchedBodyCoverageFailures` の宣言と `reportPreconditions` の当該呼び出しをまとめて削る →
+//     `✅ 50/50 件の確認に成功しました`・**EXIT=0**
+//   - **対照**: `NARROWING_WATCHED_BODIES` から `reachRatio` の一件だけを削る →
+//     `絞り込みの監視から外れている本体の関数がある（下限割れ）: reachRatio`・**EXIT=1**
+//
+// 最後の一件が示すとおり、構造から導く下限は**片側だけ**を止める。導出の源（本体の関数、
+// 宣言された `check*`、宣言された `*Failures`）を一緒に削る書き換えでは下限も一緒に下がり、
+// 報告件数が縮むのに EXIT=0 のままになる。**上の三件は 115.252 が確立した判定基準——
+// 「実行側の報告件数が縮むのに EXIT=0 になるか」——に照らして真空である。** 前二件に至っては
+// 導出の源すら要らず、`MUST_DETECT` / `MUST_NOT_DETECT` には非空以上の下限が無かった。
+//
+// **数は空にできず、導出の源を持たない。** ゆえにこの漂流に錘を置けるのは件数だけである
+// （115.252 / 115.298 / 115.304 の作法）。
+//
+// ## 115.222 の懸念と、それでも貼る理由（選ばなかった側と却下理由）
+//
+// **選ばなかった側は「構造で導く形のまま据え置く」である。** 起票が挙げた根拠は 115.222 の
+// 判断——「実測の現況を下限に貼ると、同じ検査を狙う重複した対照を減らす正当な変更まで
+// 止まる」——であり、その衝突は現に存在する。**却下したのは次の三つの理由による。**
+//
+//   1. **同じ衝突は 115.298 が 13 本へ余裕 0 の下限を貼ったときにも在り、代償として受け入れ
+//      られている。** 同タスクは 9 種 38 件の宣言を全件塞ぎ、「塞がずに開示へ逃した宣言は
+//      一つも無い」と記録した。115.304 も同じ判断を採り、「本ファイルだけ作法を違える根拠は
+//      無い」と書いた。**本ファイルだけ作法を違える根拠も無い。**
+//   2. **代償の実体は「同じ差分で定数も書き換わる」ことだけである。** 重複対照を減らす変更は
+//      禁じられていない。禁じられるのは**黙って**減らすことであり、下限の書き換えは差分に
+//      現れる。上の実測が示すのは、その差分が無いまま 51 件が 38 件まで縮められる状態である。
+//   3. **構造の下限は撤回しない。** 数の下限は構造の下限の**置き換えではなく上乗せ**である。
+//      `structuralWiringFailures` / `watchedBodyCoverageFailures` は今も全単射を課しており、
+//      数の下限はその導出の源ごと痩せる向きにだけ効く。
+//
+// **塞がないことと書かないことは別である**（115.242）。塞いだうえで、なお残る穴は下の
+// 「なお残る穴」に書いた。
+//
+// ## 下限に遊びを持たせない（115.298 / 115.262 / 115.271 の作法）
+//
+// 下限を**上回っても**赤くする。遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
+// 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
+//
+// **判定は補助関数へ畳まず一件ずつ書き下ろす**（115.304 の作法）。畳むと、上回る側の報告の
+// 綴りで対の関門を数える 115.298 の走査に対し、宣言 6 件に対して綴りが 1 件しか現れず、
+// 同タスクが機械保証と呼んだ「宣言の数と対の関門の数の一致」が本ファイルについてだけ崩れる。
+// **その綴りは本ファイルの註へは書かない**——走査は註と実行される行を区別しないため、
+// 註に綴りを置くと走査の件数が実際の関門より多く出る（本タスクの提出前に実測して外した）。
+//
+// ## なお残る穴（下界として書く。網羅の主張ではない）
+//
+//   - **件数の合う入れ替えは止まらない**（115.304 の実測）。対照を一件削って、何も確かめない
+//     対照を一件足せば件数は動かない。**差分にしか現れない。**
+//   - **対照の中身の空洞化は止まらない。** `custom` の本体を `return [];` にする痩せ方は、
+//     件数の下限も構造の下限も捕まえない。
+//   - **同じ差分で下限も一緒に下げる書き換えは通る。** 数の下限が保証するのは
+//     「減らすなら定数も書き換わる」ことだけである（115.252 / 115.298 が申告した残余と同型）。
+
+/** 前提（`reportPreconditions` が走らせる確認）の件数の下限。現況ちょうど（遊び 0） */
+const MINIMUM_PRECONDITIONS = 5;
+
+/** 陽性対照（`MUST_DETECT`）の件数の下限。現況ちょうど（遊び 0） */
+const MINIMUM_POSITIVE_CONTROLS = 8;
+
+/** 陰性対照（`MUST_NOT_DETECT`）の件数の下限。現況ちょうど（遊び 0） */
+const MINIMUM_NEGATIVE_CONTROLS = 14;
+
+/** 構造の対照（`STRUCTURAL`）の件数の下限。現況ちょうど（遊び 0） */
+const MINIMUM_STRUCTURAL_CONTROLS = 26;
+
+/** 絞り込みの監視の対象（`NARROWING_WATCHED_BODIES`）の件数の下限。現況ちょうど（遊び 0） */
+const MINIMUM_WATCHED_BODIES = 17;
+
+/** 確認の総数（前提 + 対照）の下限。現況ちょうど（遊び 0） */
+const MINIMUM_TOTAL_CASES = 53;
+
+/**
+ * 対照の現況。**欄は件数の下限の宣言と一対一である**（`checkControlCensusIsWired` が
+ * 欄の数と `MINIMUM_` の宣言の数の一致を課す）。欄を落とせば下限を持たない量が生まれ、
+ * 下限を落とせば誰も見ない欄が残るため、どちらの向きも赤くする。
+ */
+interface Census {
+  preconditions: number;
+  positives: number;
+  negatives: number;
+  structural: number;
+  watched: number;
+  total: number;
 }
 
 // ============================================================================
@@ -2827,12 +2945,21 @@ function checkReachReportedBySubprocess(): string[] {
  * - **サブプロセスで走らせて出力行を数える**: 出力の文言に依存し、文言を変えると静かに
  *   空振りする。かつ本ファイル内で完結しないため、`STRUCTURAL` による施錠が効かない。
  *
- * ## 残る限界
+ * ## 残る限界（タスク 115.305 が狭めた）
  *
- * この関数ごと（宣言と `STRUCTURAL` の要素をまとめて）消す整理は通る。`STRUCTURAL` の
- * 下限は「宣言されている `check*` を一つ残らず結線していること」であり、宣言が消えれば
- * 下限も一緒に縮むためである。件数の下限を貼らないという 115.222 の判断の裏返しであり、
- * ここでは塞がない。
+ * **かつてはこの関数ごと（宣言と `STRUCTURAL` の要素をまとめて）消す整理が通った。**
+ * `STRUCTURAL` の下限は「宣言されている `check*` を一つ残らず結線していること」であり、
+ * 宣言が消えれば下限も一緒に縮むためである。実測（是正前。コミット `dfddc11b` の作業ツリー、
+ * 2026-09-06 にリポジトリルートで実測）: `checkFileIndexIsReal` の宣言と `STRUCTURAL` の
+ * 当該要素をまとめて削ると `✅ 50/50 件の確認に成功しました`・EXIT=0 であった（基線 51/51）。
+ *
+ * **タスク 115.305 が `MINIMUM_STRUCTURAL_CONTROLS` と `MINIMUM_TOTAL_CASES` を貼ったため、
+ * 同じ整理はいま二つの定数の書き換えを伴う**（`guardControlCensus` を見よ）。構造から導く
+ * 下限は撤回していない——数の下限はその上乗せである。
+ *
+ * **なお残るのは、同じ差分で下限も一緒に下げる書き換えである。** 数の下限が保証するのは
+ * 「減らすなら定数も書き換わる」ことだけであり、差分にしか現れない（115.252 / 115.298 が
+ * 申告した残余と同型）。
  */
 function checkPreconditionsAreWired(): string[] {
   const failures: string[] = [];
@@ -3253,6 +3380,16 @@ const STRUCTURAL: Case[] = [
     expected: false,
     custom: checkPreconditionsAreWired,
   },
+  {
+    name: '件数の関門が入口へ結線されている（呼び出し・順序・二方向の突き合わせ・器との一対一）',
+    expected: false,
+    custom: checkControlCensusIsWired,
+  },
+  {
+    name: '件数の開示と判定が合成値で働く（逐語・下限ちょうど・各欄の上下 1 件）',
+    expected: false,
+    custom: checkControlCensusDisclosure,
+  },
 ];
 
 /** 実行される対照の一覧。ここから外れたレジストリは走らない（registryWiringFailures が見る） */
@@ -3547,6 +3684,324 @@ function watchedBodyCoverageFailures(): string[] {
 }
 
 // ============================================================================
+// 対照の件数の関門（タスク 115.305）
+// ============================================================================
+
+/** 宣言した下限を現況と同じ器へ入れて返す（開示にも判定にも同じ器から渡す） */
+function declaredFloors(): Census {
+  return {
+    preconditions: MINIMUM_PRECONDITIONS,
+    positives: MINIMUM_POSITIVE_CONTROLS,
+    negatives: MINIMUM_NEGATIVE_CONTROLS,
+    structural: MINIMUM_STRUCTURAL_CONTROLS,
+    watched: MINIMUM_WATCHED_BODIES,
+    total: MINIMUM_TOTAL_CASES,
+  };
+}
+
+/**
+ * 現況の一行を組み立てる。**現況と下限の双方を引数で受ける**（タスク 115.304 の作法）。
+ * 下限を関数の中で定数から読む形にすると、合成値で逐語を見る対照が定数の書き換えに
+ * 追随して恒真になる。
+ */
+function formatCensusLine(census: Census, floors: Census): string {
+  return (
+    `📋 対照の現況: 前提 ${census.preconditions}/${floors.preconditions} ・ ` +
+    `陽性対照 ${census.positives}/${floors.positives} ・ ` +
+    `陰性対照 ${census.negatives}/${floors.negatives} ・ ` +
+    `構造の対照 ${census.structural}/${floors.structural} ・ ` +
+    `監視する本体 ${census.watched}/${floors.watched} ・ ` +
+    `総数 ${census.total}/${floors.total}（現況/宣言の下限）`
+  );
+}
+
+/**
+ * 現況が宣言した下限ちょうどであることを判定する（タスク 115.305）。
+ *
+ * **六つの判定は補助関数へ畳まず一件ずつ書き下ろしてある**（タスク 115.304 の作法）。
+ * 畳むと、上回る側の報告の綴りで対の関門を数える 115.298 の走査に対し、宣言 6 件に対して
+ * 綴りが 1 件しか現れない。
+ *
+ * **関門の設定を配列リテラルで持たない**（タスク 115.252）。要素としても設定としても持たない。
+ */
+function censusFailures(census: Census): string[] {
+  const problems: string[] = [];
+
+  if (census.preconditions < MINIMUM_PRECONDITIONS) {
+    problems.push(
+      `前提の確認が ${census.preconditions} 件しかありません（宣言の下限は ${MINIMUM_PRECONDITIONS} 件）。` +
+        '前提を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+  if (census.preconditions > MINIMUM_PRECONDITIONS) {
+    problems.push(
+      `前提の確認が ${census.preconditions} 件で、宣言した下限 ${MINIMUM_PRECONDITIONS} 件を上回ります（遊び ${census.preconditions - MINIMUM_PRECONDITIONS} 件）。` +
+        '下限は現況ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの確認の無言の削除を吸収します。' +
+        `MINIMUM_PRECONDITIONS を ${census.preconditions} 件へ上げてください。`
+    );
+  }
+
+  if (census.positives < MINIMUM_POSITIVE_CONTROLS) {
+    problems.push(
+      `陽性対照が ${census.positives} 件しかありません（宣言の下限は ${MINIMUM_POSITIVE_CONTROLS} 件）。` +
+        '陽性対照を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+  if (census.positives > MINIMUM_POSITIVE_CONTROLS) {
+    problems.push(
+      `陽性対照が ${census.positives} 件で、宣言した下限 ${MINIMUM_POSITIVE_CONTROLS} 件を上回ります（遊び ${census.positives - MINIMUM_POSITIVE_CONTROLS} 件）。` +
+        '下限は現況ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収します。' +
+        `MINIMUM_POSITIVE_CONTROLS を ${census.positives} 件へ上げてください。`
+    );
+  }
+
+  if (census.negatives < MINIMUM_NEGATIVE_CONTROLS) {
+    problems.push(
+      `陰性対照が ${census.negatives} 件しかありません（宣言の下限は ${MINIMUM_NEGATIVE_CONTROLS} 件）。` +
+        '陰性対照を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+  if (census.negatives > MINIMUM_NEGATIVE_CONTROLS) {
+    problems.push(
+      `陰性対照が ${census.negatives} 件で、宣言した下限 ${MINIMUM_NEGATIVE_CONTROLS} 件を上回ります（遊び ${census.negatives - MINIMUM_NEGATIVE_CONTROLS} 件）。` +
+        '下限は現況ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収します。' +
+        `MINIMUM_NEGATIVE_CONTROLS を ${census.negatives} 件へ上げてください。`
+    );
+  }
+
+  if (census.structural < MINIMUM_STRUCTURAL_CONTROLS) {
+    problems.push(
+      `構造の対照が ${census.structural} 件しかありません（宣言の下限は ${MINIMUM_STRUCTURAL_CONTROLS} 件）。` +
+        '確認を宣言ごと削ったのなら下限も同じ差分で下げること——構造から導く下限は一緒に縮みます。'
+    );
+  }
+  if (census.structural > MINIMUM_STRUCTURAL_CONTROLS) {
+    problems.push(
+      `構造の対照が ${census.structural} 件で、宣言した下限 ${MINIMUM_STRUCTURAL_CONTROLS} 件を上回ります（遊び ${census.structural - MINIMUM_STRUCTURAL_CONTROLS} 件）。` +
+        '下限は現況ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収します。' +
+        `MINIMUM_STRUCTURAL_CONTROLS を ${census.structural} 件へ上げてください。`
+    );
+  }
+
+  if (census.watched < MINIMUM_WATCHED_BODIES) {
+    problems.push(
+      `絞り込みの監視の対象が ${census.watched} 件しかありません（宣言の下限は ${MINIMUM_WATCHED_BODIES} 件）。` +
+        '本体の関数を削ったのなら下限も同じ差分で下げること——構造から導く下限は一緒に縮みます。'
+    );
+  }
+  if (census.watched > MINIMUM_WATCHED_BODIES) {
+    problems.push(
+      `絞り込みの監視の対象が ${census.watched} 件で、宣言した下限 ${MINIMUM_WATCHED_BODIES} 件を上回ります（遊び ${census.watched - MINIMUM_WATCHED_BODIES} 件）。` +
+        '下限は現況ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの監視の無言の削除を吸収します。' +
+        `MINIMUM_WATCHED_BODIES を ${census.watched} 件へ上げてください。`
+    );
+  }
+
+  if (census.total < MINIMUM_TOTAL_CASES) {
+    problems.push(
+      `確認の総数が ${census.total} 件しかありません（宣言の下限は ${MINIMUM_TOTAL_CASES} 件）。` +
+        '確認を削ったのなら下限も同じ差分で下げること。'
+    );
+  }
+  if (census.total > MINIMUM_TOTAL_CASES) {
+    problems.push(
+      `確認の総数が ${census.total} 件で、宣言した下限 ${MINIMUM_TOTAL_CASES} 件を上回ります（遊び ${census.total - MINIMUM_TOTAL_CASES} 件）。` +
+        '下限は現況ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの確認の無言の削除を吸収します。' +
+        `MINIMUM_TOTAL_CASES を ${census.total} 件へ上げてください。`
+    );
+  }
+
+  return problems;
+}
+
+/**
+ * 対照の件数の関門（タスク 115.305）。
+ *
+ * **対照群の配列の外側**（`main` の中、対照の実行より前）に置く（タスク 115.252 / 115.304 の
+ * 作法）。関門を配列の要素として持つ形は、配列ごと空にすると関門も一緒に消える。
+ *
+ * **総数は `main` が対照の実行に使うのと同じ式から受け取る。** 関門が数える対象と走査が回す
+ * 対象を分けない（タスク 115.304 の教訓。分けると「総数 67/67」と印字しながら 44 件しか
+ * 走らせない形が通った）。群ごとの件数は `MUST_DETECT` / `MUST_NOT_DETECT` / `STRUCTURAL` を
+ * 直に数えるが、その三つが `GROUPS` の要素そのものであることは `registryWiringFailures` が
+ * 同一性（`Set` への `has`）で見ている。
+ */
+function guardControlCensus(preconditions: PreconditionRun, total: number): void {
+  const census: Census = {
+    preconditions: preconditions.ran,
+    positives: MUST_DETECT.length,
+    negatives: MUST_NOT_DETECT.length,
+    structural: STRUCTURAL.length,
+    watched: NARROWING_WATCHED_BODIES.length,
+    total,
+  };
+  console.log(formatCensusLine(census, declaredFloors()));
+  const problems = censusFailures(census);
+  if (problems.length === 0) return;
+  console.log(
+    '\n❌ 対照の件数が宣言した下限と一致しません（この状態で出る「合格」は意味を持ちません）'
+  );
+  for (const problem of problems) console.log(`   - ${problem}`);
+  process.exit(1);
+}
+
+/**
+ * 件数の関門が入口へ結線されていること（タスク 115.305。開示の二方向のうち構造の側）。
+ *
+ * `checkControlCensusDisclosure` だけでは結線が外れても緑になり、本検査だけでは逐語が
+ * 静かに書き換わっても緑になる（タスク 115.304 の教訓）。
+ *
+ * **下限の一覧はここに書かない。** `MINIMUM_` の宣言そのものをソースから読んで導く——
+ * 一覧を配列リテラルで持つと、その一覧を空にする同型の穴が新たに開く（タスク 115.252）。
+ */
+function checkControlCensusIsWired(): string[] {
+  const failures: string[] = [];
+  const source = stripComments(readOwnSource());
+
+  const mainBody = sliceFunctionBody(source, '\nfunction main(');
+  const mainSliceFailures = bodySliceFailures('main', mainBody);
+  if (mainSliceFailures.length > 0 || mainBody === null) return mainSliceFailures;
+
+  const guardCall = 'guardControlCensus(';
+  const calls = mainBody.split(guardCall).length - 1;
+  if (calls !== 1) {
+    failures.push(
+      `main が guardControlCensus を ${calls} 回呼んでいる（過不足なく 1 回であること。呼ばれなければ件数の下限は効かない）`
+    );
+  }
+  if (calls > 0) {
+    failures.push(...serialStatementFailures(mainBody, guardCall, '件数の関門'));
+    const loopIndex = mainBody.indexOf(CORPUS_LOOP);
+    if (loopIndex >= 0 && mainBody.indexOf(guardCall) > loopIndex) {
+      failures.push('件数の関門が対照の実行より後にある（下限を割ったまま対照が走る）');
+    }
+  }
+
+  const guardBody = sliceFunctionBody(source, '\nfunction guardControlCensus(');
+  failures.push(...bodySliceFailures('guardControlCensus', guardBody));
+  if (guardBody !== null) {
+    if (!guardBody.includes('console.log(formatCensusLine(')) {
+      failures.push(
+        'guardControlCensus が現況の一行を印字していない（開示が判定と別の場所から出る）'
+      );
+    }
+    if (!guardBody.includes('censusFailures(census)')) {
+      failures.push('guardControlCensus が censusFailures で判定していない');
+    }
+    if (!guardBody.includes('process.exit(1)')) {
+      failures.push(
+        'guardControlCensus が下限割れで止まらない（印字だけでは終了コードへ伝わらない）'
+      );
+    } else {
+      failures.push(...serialStatementFailures(guardBody, 'process.exit(1);', '下限割れの停止'));
+    }
+    if (!guardBody.includes('total,')) {
+      failures.push(
+        'guardControlCensus が総数を引数から取っていない（関門の数える対象と走査が回す対象が分かれる）'
+      );
+    }
+  }
+
+  // 下限の宣言そのものを源にして、二方向の突き合わせが一つも欠けていないことを見る
+  const floors = [...source.matchAll(/^const (MINIMUM_[A-Z_0-9]+) = [0-9]+;$/gm)].map(
+    (match) => match[1] as string
+  );
+  if (floors.length === 0) {
+    failures.push('本ファイルに件数の下限の宣言が一つも無い（下限を導く語彙が消えた）');
+    return failures;
+  }
+  const judgeBody = sliceFunctionBody(source, '\nfunction censusFailures(');
+  failures.push(...bodySliceFailures('censusFailures', judgeBody));
+  if (judgeBody !== null) {
+    for (const floor of floors) {
+      if (!judgeBody.includes(`< ${floor}`)) {
+        failures.push(`censusFailures が ${floor} を下回る向きで見ていない`);
+      }
+      if (!judgeBody.includes(`> ${floor}`)) {
+        failures.push(`censusFailures が ${floor} を上回る向きで見ていない（遊びを許している）`);
+      }
+    }
+  }
+
+  // 現況の器の欄と下限の宣言が一対一であること（欄だけ・下限だけの片肺を作らない）
+  const censusIndex = source.indexOf('\ninterface Census');
+  const censusBlock = censusIndex < 0 ? null : sliceBraceBlock(source, censusIndex);
+  if (censusBlock === null) {
+    failures.push('Census の宣言を切り出せない（現況の器が消えた疑い）');
+  } else {
+    const fields = [...censusBlock.matchAll(/^ {2}([a-zA-Z]+): number;$/gm)].length;
+    if (fields !== floors.length) {
+      failures.push(
+        `Census の欄が ${fields} 件で、件数の下限の宣言 ${floors.length} 件と一致しない（下限を持たない欄、または欄を持たない下限がある）`
+      );
+    }
+  }
+  return failures;
+}
+
+/**
+ * 件数の関門の開示と判定が、合成値に対して期待どおりに働くこと
+ * （タスク 115.305。開示の二方向のうち逐語の側。115.300 の教訓）。
+ *
+ * **期待は書き下ろし、`MINIMUM_` を展開しない。** 展開すると定数の書き換えに追随して恒真になる。
+ * 動かす欄は `Census` の器そのものの欄から導く——欄の一覧を配列リテラルで持たない。
+ */
+function checkControlCensusDisclosure(): string[] {
+  const failures: string[] = [];
+
+  const synthetic: Census = {
+    preconditions: 1,
+    positives: 2,
+    negatives: 3,
+    structural: 4,
+    watched: 5,
+    total: 6,
+  };
+  const syntheticFloors: Census = {
+    preconditions: 7,
+    positives: 8,
+    negatives: 9,
+    structural: 10,
+    watched: 11,
+    total: 12,
+  };
+  const line = formatCensusLine(synthetic, syntheticFloors);
+  const expected =
+    '📋 対照の現況: 前提 1/7 ・ 陽性対照 2/8 ・ 陰性対照 3/9 ・ ' +
+    '構造の対照 4/10 ・ 監視する本体 5/11 ・ 総数 6/12（現況/宣言の下限）';
+  if (line !== expected) {
+    failures.push(`現況の開示が期待と一致しない（期待:「${expected}」/ 実際:「${line}」）`);
+  }
+
+  const exact = declaredFloors();
+  if (censusFailures(exact).length !== 0) {
+    failures.push('現況が宣言の下限ちょうどなのに失敗が挙がる（判定が恒真になっている疑い）');
+  }
+
+  const fields = Object.keys(exact) as Array<keyof Census>;
+  if (fields.length === 0) {
+    failures.push('現況の器に欄が一つも無い（動かす対象が消えた）');
+    return failures;
+  }
+  for (const field of fields) {
+    const low: Census = { ...exact };
+    low[field] = exact[field] - 1;
+    if (censusFailures(low).length === 0) {
+      failures.push(`${field} を 1 下げても失敗が挙がらない（下限が効いていない）`);
+    }
+    const high: Census = { ...exact };
+    high[field] = exact[field] + 1;
+    const overMessages = censusFailures(high);
+    if (overMessages.length === 0) {
+      failures.push(`${field} を 1 上げても失敗が挙がらない（下限に遊びを許している）`);
+    } else if (!overMessages.some((message) => message.includes('（遊び 1 件）'))) {
+      failures.push(`${field} を 1 上げたときの報告に遊びの幅が出ていない`);
+    }
+  }
+  return failures;
+}
+
+// ============================================================================
 // 実行
 // ============================================================================
 
@@ -3631,6 +4086,11 @@ function main(): void {
     process.exit(1);
   }
 
+  // 対照の件数が宣言した下限ちょうどであることを、対照を走らせる前に断つ（タスク 115.305）。
+  // 総数は下の繰り返しが回すのと同じ `GROUPS` から導き、関門と走査で真実を二つに分けない。
+  const total = preconditions.ran + GROUPS.reduce((sum, group) => sum + group.cases.length, 0);
+  guardControlCensus(preconditions, total);
+
   let failed = 0;
   for (const group of GROUPS) {
     console.log(`\n[${group.title}]`);
@@ -3639,7 +4099,6 @@ function main(): void {
     }
   }
 
-  const total = preconditions.ran + GROUPS.reduce((sum, group) => sum + group.cases.length, 0);
   if (failed > 0) {
     console.log(`\n❌ ${failed}/${total} 件の確認に失敗しました`);
     process.exit(1);
