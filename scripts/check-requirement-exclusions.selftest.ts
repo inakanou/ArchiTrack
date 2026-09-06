@@ -49,6 +49,8 @@ import { SPEC_DIR } from './requirement-document.js';
 process.exitCode = 1;
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
+/** 本ファイル自身の絶対パス（入口の結線を自ソースで確かめる対照が読む。タスク 115.304） */
+const OWN_SOURCE_PATH = fileURLToPath(import.meta.url);
 const ROOT = path.resolve(SCRIPTS_DIR, '..');
 const SCHEMA_BASENAME = 'requirement-exclusions.schema.json';
 const REAL_EXCLUSIONS = path.resolve(ROOT, EXCLUSIONS_PATH);
@@ -1696,6 +1698,11 @@ const MECHANISM_CASES: MechanismCase[] = [
     //   ちょうど 1 件（次の対照が担う）に加え、**変異を伴う陰性対照が 1 件以上**あること。
     //   実物 1 件だけへ削る破壊はここで止まる。**限界**: 7 件から 2 件へ削る破壊は止まらない。
     //   陰性側には下限を導ける語彙が無く、任意の件数を貼るのは根拠が無いためである。
+    //
+    // **この対照自身が `MECHANISM_CASES` の要素であったため、配列ごと空にすると一緒に消えた**
+    // （タスク 115.304 が実測。同タスクが関門を配列の外側——`main()` の中、確認の実行より前——へ
+    // 置き直し、件数の下限を数で貼った。上の「下限をどこに置くか」の判断は撤回していない。
+    // 二つは重ねて掛かる。詳しくは下の「対照群そのものが在ることの関門」の節を見よ）。
     name: '対照群の母集団が下限を満たす（陽性は検査の語彙を全て名指し／陰性は変異を伴う対照を持つ）',
     run: () => {
       // 語彙が空なら下の「名指ししていない検査」は自明に 0 件になる。関門自身の真空も塞ぐ。
@@ -1757,11 +1764,435 @@ const MECHANISM_CASES: MechanismCase[] = [
       return failures;
     },
   },
+  {
+    // 関門そのものを合成の対照群で確かめる（タスク 115.304）。実データの群は常に下限ちょうど
+    // であるため、実データだけを流す対照は空回りする（115.300 の教訓）。合成の値を与える。
+    name: '対照群の関門が、空・下限割れ・遊び・極性の消失を挙げる（合成の対照群）',
+    run: () => {
+      const failures: string[] = [];
+      const floors: CensusCounts = { positives: 2, negatives: 1, mechanisms: 1, total: 4 };
+      const positive: Case = { name: '合成の陽性対照', mustReject: true };
+      const negative: Case = { name: '合成の陰性対照', mustReject: false };
+      const mechanism: MechanismCase = { name: '合成の機構の固定', run: () => [] };
+      const groupsOf = (
+        positives: number,
+        negatives: number,
+        mechanisms: number
+      ): ControlGroup[] => [
+        {
+          title: '陽性',
+          polarised: Array.from({ length: positives }, () => positive),
+          mechanisms: [],
+        },
+        {
+          title: '陰性',
+          polarised: Array.from({ length: negatives }, () => negative),
+          mechanisms: [],
+        },
+        {
+          title: '機構',
+          polarised: [],
+          mechanisms: Array.from({ length: mechanisms }, () => mechanism),
+        },
+      ];
+      const expect = (
+        label: string,
+        groups: readonly ControlGroup[],
+        want: 'silent' | 'loud',
+        fragment?: string
+      ): void => {
+        const problems = controlPopulationProblems(groups, floors);
+        if (want === 'silent') {
+          if (problems.length > 0) {
+            failures.push(
+              `${label}: 何も挙がってはならないのに挙がった（${problems.join(' / ')}）`
+            );
+          }
+          return;
+        }
+        if (problems.length === 0) {
+          failures.push(`${label}: 関門が何も挙げなかった`);
+          return;
+        }
+        if (fragment !== undefined && !problems.some((one) => one.includes(fragment))) {
+          failures.push(
+            `${label}: 期待した文言「${fragment}」が挙がっていない（実際: ${problems.join(' / ')}）`
+          );
+        }
+      };
+
+      expect('下限ちょうど', groupsOf(2, 1, 1), 'silent');
+      expect('群の一覧そのものが空', [], 'loud', '対照群が一つも登録されていません');
+      expect('機構の群が空', groupsOf(2, 1, 0), 'loud', '対照群「機構」が空です');
+      expect(
+        '機構の群が空（極性の側）',
+        groupsOf(2, 1, 0),
+        'loud',
+        '機構の固定が 1 件もありません'
+      );
+      expect('陽性の群が空', groupsOf(0, 1, 1), 'loud', '陽性対照が 1 件もありません');
+      expect('陰性の群が空', groupsOf(2, 0, 1), 'loud', '陰性対照が 1 件もありません');
+      expect('陽性が下限割れ', groupsOf(1, 1, 1), 'loud', '陽性対照が 1 件しかありません');
+      expect('陽性に遊びが出る', groupsOf(3, 1, 1), 'loud', '遊び 1 件');
+      expect(
+        '総数だけが痩せる',
+        groupsOf(2, 1, 1).slice(0, 2),
+        'loud',
+        '確認の総数が 3 件しかありません'
+      );
+      return failures;
+    },
+  },
+  {
+    // 開示（印字）側の対照 その1: 整形関数へ合成値を与えて逐語と数値を見る（115.300 の教訓）。
+    // 期待は書き下ろす。`MINIMUM_` を展開すると定数の書き換えに期待も追随して恒真になる。
+    name: '対照の現況の整形が合成値を逐語のとおり返す（開示の対照）',
+    run: () => {
+      const line = formatControlCensus(
+        { positives: 3, negatives: 5, mechanisms: 7, total: 15 },
+        { positives: 2, negatives: 4, mechanisms: 6, total: 12 }
+      );
+      const expected =
+        '📋 対照の現況: 陽性対照 3/2 ・ 陰性対照 5/4 ・ 機構 7/6 ・ 総数 15/12（現況/宣言の下限）';
+      if (line !== expected) {
+        return [
+          `現況行の逐語が食い違う: ${JSON.stringify(line)}（期待 ${JSON.stringify(expected)}）`,
+        ];
+      }
+      return [];
+    },
+  },
+  {
+    // 開示（印字）側の対照 その2: 入口の結線を見る（115.300 の教訓の二方向目）。
+    // その1 だけでは結線が外れても緑になり、その2 だけでは逐語が静かに書き換わっても緑になる。
+    // 自ソースを読むのは、入口を副作用なしに走らせ直せないためである。
+    name: '入口が対照の実行より前に関門を呼び、関門が現況行を印字して落とす（結線の対照）',
+    run: () => {
+      const failures: string[] = [];
+      const source = fs.readFileSync(OWN_SOURCE_PATH, 'utf-8');
+
+      const mainAt = source.indexOf('\nfunction main(): void {');
+      if (mainAt < 0) return ['入口 main の宣言が見つからない（結線を確かめられない）'];
+      const mainBody = source.slice(mainAt);
+      const callAt = mainBody.indexOf('\n  guardControlsArePresent(groups);');
+      const firstLoopAt = mainBody.indexOf('\n  for (const ');
+      if (callAt < 0) {
+        failures.push('入口が関門を呼んでいない（深さ 1・文の先頭の呼び出しが無い）');
+      }
+      if (firstLoopAt < 0) {
+        failures.push('入口に対照の走査が見つからない（前提が崩れている）');
+      }
+      if (callAt >= 0 && firstLoopAt >= 0 && callAt > firstLoopAt) {
+        failures.push('関門の呼び出しが対照の走査より後にある（空の対照群でも走ってしまう）');
+      }
+
+      // 関門と走査が同じ配列を見ていること（真実が二つに分かれていないこと）。
+      // 三つの対照群の配列は、群の宣言でちょうど一度ずつ参照されるのが正しい形である。
+      // 二度目の参照が現れたら、走査が群を経由せず module の配列を直に回しているか、
+      // 件数を別に数えている疑いがある——是正前の版はまさにその形で真空パスを持っていた。
+      for (const name of ['MUST_REJECT', 'MUST_ACCEPT', 'MECHANISM_CASES']) {
+        const occurrences = mainBody.split(name).length - 1;
+        if (occurrences !== 1) {
+          failures.push(
+            `入口が ${name} を ${occurrences} 回参照している（群の宣言でちょうど一度であるべき。` +
+              '二度以上あると関門の数える対象と走査が回す対象が分かれうる）'
+          );
+        }
+      }
+
+      const guardAt = source.indexOf('\nfunction guardControlsArePresent(');
+      if (guardAt < 0) {
+        failures.push('関門の宣言が見つからない');
+        return failures;
+      }
+      const guardEnd = source.indexOf('\n}\n', guardAt);
+      const guardBody = source.slice(guardAt, guardEnd < 0 ? undefined : guardEnd);
+      if (!guardBody.includes('console.log(formatControlCensus(')) {
+        failures.push(
+          '関門が現況行を印字していない（scripts/list-control-polarity-floors.ts の分類が偽になる）'
+        );
+      }
+      if (!guardBody.includes('process.exit(1);')) {
+        failures.push('関門が下限割れで落としていない（印字だけでは関門にならない）');
+      }
+      return failures;
+    },
+  },
 ];
 
 // ============================================================================
 // 実行
 // ============================================================================
+
+// ============================================================================
+// 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.304）
+//
+// **115.222 は件数の下限を意図して置かなかった。** 同タスクは「実測の現況を下限に貼ると、
+// 同じ検査を狙う重複した対照を減らす正当な変更まで止まる」と述べ、代わりに構造
+// （`VIOLATION_CHECKS` の全件名指し／変異を伴う陰性対照の存在）を下限に置いた。その判断は
+// 陽性対照・陰性対照については機能していた——`MUST_REJECT` を空にすると `❌ 自己検査に
+// 失敗しました（1/27 件）` で EXIT=1、`MUST_ACCEPT` を空にすると `❌ 自己検査に失敗しました
+// （2/57 件）` で EXIT=1 になる（コミット `2be5b8fc` の作業ツリー、2026-09-06 に実測）。
+//
+// **しかしその構造の下限は `MECHANISM_CASES` の要素として書かれていた。** 配列ごと空にすると
+// 関門も一緒に消える。同じ作業ツリーでの実測: `MECHANISM_CASES` を空にすると
+// `✅ 自己検査に合格しました（44/44 件: 陽性対照 37 / 陰性対照 7 / 機構 0）` を出して EXIT=0
+// になった（基線は 64/64）。**要約行に `機構 0` と印字しながら通る——件数を印字することは
+// 関門ではない。**
+//
+// そこで 115.252 が 13 本の自己検査へ置いた作法を本ファイルへも当てる。
+//   - 関門を対照群の配列の**外側**（`main()` の中、確認の実行より前）に置く。
+//     **関門を配列リテラルで持たせない**（要素としても設定としても）。判定の四つの下限も
+//     一覧で回さず一件ずつ書き下ろす——一覧にすると、その一覧を空にする同型の穴が開く。
+//   - 群ごとの非空・総数の下限・極性の両立を、同じ関門で課す。
+//   - 件数の下限は**数**で持つ。数は空にできないため、この変異作用素に構造的に免疫である。
+//   - 下限は現況ちょうど（遊びゼロ）で貼る（115.298 の作法）。下回っても上回っても赤くする。
+//
+// **115.222 の懸念は解いていない。** 遊びゼロの下限は、重複した対照を減らす正当な変更にも
+// 定数の書き換えを要求する。それは 115.298 が 13 本すべてへ課した代償と同じであり、本ファイル
+// だけ作法を違える根拠は無いと判断した。**塞がないことと書かないことは別である**（115.242）
+// ため、この衝突をここに明記する。115.222 が置いた構造の下限は撤去していない——二つは重ねて
+// 掛かり、構造の側は「件数を保ったまま同じ検査へ寄せる」痩せ方を止める。
+//
+// **極性は要素の宣言（`mustReject`）から導き、配列の名前の綴りからは導かない**（115.247 の
+// 作法）。`MUST_REJECT` の要素を `mustReject: false` のまま `MUST_ACCEPT` へ移し替えるような
+// 書き換えでも、極性の数は宣言に従って動く。
+// ============================================================================
+
+/**
+ * 陽性対照の件数の下限（タスク 115.304）
+ *
+ * 現況ちょうど（遊びゼロ）。抽出は
+ * `npx tsx scripts/check-requirement-exclusions.selftest.ts | grep -oE '陽性対照 [0-9]+/'`。
+ */
+const MINIMUM_POSITIVE_CONTROLS = 37;
+
+/**
+ * 陰性対照の件数の下限（タスク 115.304）
+ *
+ * 現況ちょうど（遊びゼロ）。抽出は
+ * `npx tsx scripts/check-requirement-exclusions.selftest.ts | grep -oE '陰性対照 [0-9]+/'`。
+ */
+const MINIMUM_NEGATIVE_CONTROLS = 7;
+
+/**
+ * 機構の固定の件数の下限（タスク 115.304）
+ *
+ * **この下限が本タスクの主目的である。** 115.222 が置いた構造の下限はこの群の要素であり、
+ * 群ごと空にすると一緒に消えていた。数で貼れば空にできない。現況ちょうど（遊びゼロ）。
+ * 抽出は `npx tsx scripts/check-requirement-exclusions.selftest.ts | grep -oE '機構 [0-9]+/'`。
+ */
+const MINIMUM_MECHANISM_CASES = 23;
+
+/**
+ * 確認の総数の下限（タスク 115.304）
+ *
+ * 群ごとの下限の和。**総数だけでは片側の消失を捕まえられない**ため群ごとの下限と併せて課す
+ * （逆に、群ごとの下限だけでは群の内訳を保ったまま総数を痩せさせる形を捕まえられない）。
+ * 現況ちょうど（遊びゼロ）。抽出は
+ * `npx tsx scripts/check-requirement-exclusions.selftest.ts | grep -oE '総数 [0-9]+/'`。
+ */
+const MINIMUM_TOTAL_CASES = 67;
+
+/** 対照の現況（と、宣言した下限）を並べた数の組 */
+interface CensusCounts {
+  readonly positives: number;
+  readonly negatives: number;
+  readonly mechanisms: number;
+  readonly total: number;
+}
+
+/** 宣言した下限（判定と印字が同じ値を見る） */
+const DECLARED_FLOORS: CensusCounts = {
+  positives: MINIMUM_POSITIVE_CONTROLS,
+  negatives: MINIMUM_NEGATIVE_CONTROLS,
+  mechanisms: MINIMUM_MECHANISM_CASES,
+  total: MINIMUM_TOTAL_CASES,
+};
+
+/** 対照群（極性の宣言を持つ群と、持たない機構の群） */
+interface ControlGroup {
+  readonly title: string;
+  /** 極性の宣言（`mustReject`）を持つ対照。機構の群は空 */
+  readonly polarised: readonly Case[];
+  /** 極性を持たない対照（機構の固定）。極性を持つ群は空 */
+  readonly mechanisms: readonly MechanismCase[];
+}
+
+/**
+ * 群の件数（要素そのものから数える。タスク 115.304 のレビューが実測した真空パスの是正）
+ *
+ * **群に件数の別勘定を持たせてはならない。** 是正前の版は `size: number` を持ち、関門はその
+ * `size` を読む一方で走査は `MECHANISM_CASES` を直に回していた。**真実が二つに分かれていた。**
+ * レビュアーの変異——`MECHANISM_CASES` を空にし、群の `size:` を `23` と直書きする一トークンの
+ * 編集——で、関門は `📋 対照の現況: 陽性対照 37/37 ・ 陰性対照 7/7 ・ 機構 23/23 ・ 総数 67/67
+ * （現況/宣言の下限）` と印字しながら、走査は
+ * `✅ 自己検査に合格しました（44/44 件: 陽性対照 37 / 陰性対照 7 / 機構 0）` を出して **EXIT=0**
+ * になった（コミット `2be5b8fc` を親とする作業ツリー、2026-09-06 に実測）。**報告件数が縮むのに
+ * EXIT=0** であり、115.252 の判定基準に照らして真の真空パスであった。
+ *
+ * いまは群が要素そのものを持ち、関門が数えるのも `main()` が回すのも同じ配列である。
+ * **件数を別に書き込む場所が構造として存在しない。** 加えて、`main()` が三つの対照群の配列を
+ * 群の宣言以外の場所で参照していないことを、下の「結線の対照」が自ソースを読んで確かめる。
+ */
+function sizeOf(group: ControlGroup): number {
+  return group.polarised.length + group.mechanisms.length;
+}
+
+/**
+ * 対照の現況を一行へ整形する（タスク 115.304）
+ *
+ * **現況と下限の双方を引数で受ける。** 下限を関数の中で定数から読む形にすると、合成値で逐語を
+ * 見る対照が定数の書き換えに追随して恒真になる（115.300 の教訓）。
+ *
+ * `npx tsx scripts/list-control-polarity-floors.ts` がこの行を読む。ラベルの綴り
+ * （`陽性対照` / `陰性対照` / `総数`）と `現況/宣言の下限` の並びは、同一覧の取り出しが
+ * 依存する逐語である。
+ */
+function formatControlCensus(actual: CensusCounts, floors: CensusCounts): string {
+  return (
+    `📋 対照の現況: 陽性対照 ${actual.positives}/${floors.positives} ・ ` +
+    `陰性対照 ${actual.negatives}/${floors.negatives} ・ ` +
+    `機構 ${actual.mechanisms}/${floors.mechanisms} ・ ` +
+    `総数 ${actual.total}/${floors.total}（現況/宣言の下限）`
+  );
+}
+
+/** 群の一覧から現況を数える（極性は要素の宣言から導く） */
+function censusOf(groups: readonly ControlGroup[]): CensusCounts {
+  const polarised = groups.flatMap((group) => [...group.polarised]);
+  return {
+    positives: polarised.filter((one) => one.mustReject).length,
+    negatives: polarised.filter((one) => !one.mustReject).length,
+    mechanisms: groups.reduce((sum, group) => sum + group.mechanisms.length, 0),
+    total: groups.reduce((sum, group) => sum + sizeOf(group), 0),
+  };
+}
+
+/**
+ * 対照群そのものの欠けを挙げる（判定だけを行い、印字も終了もしない）
+ *
+ * 印字と終了から切り離してあるのは、**合成の対照群を与えて関門自身を確かめる対照**を置く
+ * ためである（実データの群は常に下限ちょうどであり、実データだけを流す対照は空回りする。
+ * 115.300 の教訓）。
+ */
+function controlPopulationProblems(
+  groups: readonly ControlGroup[],
+  floors: CensusCounts
+): string[] {
+  const problems: string[] = [];
+
+  if (groups.length === 0) {
+    problems.push('対照群が一つも登録されていません（この自己検査は何も確かめていません）');
+  }
+  for (const group of groups) {
+    if (sizeOf(group) === 0) {
+      problems.push(`対照群「${group.title}」が空です（この群は何も確かめていません）`);
+    }
+  }
+
+  const census = censusOf(groups);
+  if (census.positives === 0) {
+    problems.push('陽性対照が 1 件もありません（検出器が何も検出しなくても緑になります）');
+  }
+  if (census.negatives === 0) {
+    problems.push('陰性対照が 1 件もありません（検出器が何にでも反応しても緑になります）');
+  }
+  if (census.mechanisms === 0) {
+    problems.push('機構の固定が 1 件もありません（判定そのものを見る対照が消えています）');
+  }
+
+  // 四つの下限は一覧でも補助関数でもなく、一件ずつ書き下ろす。理由は二つある。
+  //   (1) 一覧で回す形は、その一覧を空にする同型の穴を新たに開く。
+  //   (2) 補助関数へ畳むと、上回る側の報告の綴りの数で対の関門を数える 115.298 の
+  //       走査（`grep -hE '（遊び \$\{' scripts/*.selftest.ts`）に対し、宣言 4 件に対して
+  //       綴りが 1 件しか現れず、同タスクが機械保証と呼んだ「宣言の数と対の関門の数の一致」が
+  //       本ファイルについてだけ崩れる。**他タスクの保証を痩せさせない側へ倒す。**
+  if (census.positives < floors.positives) {
+    problems.push(
+      `陽性対照が ${census.positives} 件しかありません（宣言の下限は ${floors.positives} 件）。` +
+        '対照を削ったのなら MINIMUM_POSITIVE_CONTROLS も同じ差分で下げること。'
+    );
+  }
+  // 下限に遊びを持たせない（タスク 115.298 の作法）
+  if (census.positives > floors.positives) {
+    problems.push(
+      `陽性対照が ${census.positives} 件で、宣言した下限 ${floors.positives} 件を上回ります（遊び ${census.positives - floors.positives} 件）。` +
+        '下限は現況ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収します。' +
+        `MINIMUM_POSITIVE_CONTROLS を ${census.positives} 件へ上げてください。`
+    );
+  }
+
+  if (census.negatives < floors.negatives) {
+    problems.push(
+      `陰性対照が ${census.negatives} 件しかありません（宣言の下限は ${floors.negatives} 件）。` +
+        '対照を削ったのなら MINIMUM_NEGATIVE_CONTROLS も同じ差分で下げること。'
+    );
+  }
+  // 下限に遊びを持たせない（タスク 115.298 の作法）
+  if (census.negatives > floors.negatives) {
+    problems.push(
+      `陰性対照が ${census.negatives} 件で、宣言した下限 ${floors.negatives} 件を上回ります（遊び ${census.negatives - floors.negatives} 件）。` +
+        '下限は現況ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収します。' +
+        `MINIMUM_NEGATIVE_CONTROLS を ${census.negatives} 件へ上げてください。`
+    );
+  }
+
+  if (census.mechanisms < floors.mechanisms) {
+    problems.push(
+      `機構の固定が ${census.mechanisms} 件しかありません（宣言の下限は ${floors.mechanisms} 件）。` +
+        '対照を削ったのなら MINIMUM_MECHANISM_CASES も同じ差分で下げること。'
+    );
+  }
+  // 下限に遊びを持たせない（タスク 115.298 の作法）
+  if (census.mechanisms > floors.mechanisms) {
+    problems.push(
+      `機構の固定が ${census.mechanisms} 件で、宣言した下限 ${floors.mechanisms} 件を上回ります（遊び ${census.mechanisms - floors.mechanisms} 件）。` +
+        '下限は現況ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収します。' +
+        `MINIMUM_MECHANISM_CASES を ${census.mechanisms} 件へ上げてください。`
+    );
+  }
+
+  if (census.total < floors.total) {
+    problems.push(
+      `確認の総数が ${census.total} 件しかありません（宣言の下限は ${floors.total} 件）。` +
+        '確認を削ったのなら MINIMUM_TOTAL_CASES も同じ差分で下げること。'
+    );
+  }
+  // 下限に遊びを持たせない（タスク 115.298 の作法）
+  if (census.total > floors.total) {
+    problems.push(
+      `確認の総数が ${census.total} 件で、宣言した下限 ${floors.total} 件を上回ります（遊び ${census.total - floors.total} 件）。` +
+        '下限は現況ちょうどに保ってください——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収します。' +
+        `MINIMUM_TOTAL_CASES を ${census.total} 件へ上げてください。`
+    );
+  }
+
+  return problems;
+}
+
+/**
+ * 対照群そのものが在ることを、確認の実行より前に確かめる（タスク 115.304）
+ *
+ * **限界（塞いでいないこと）**: 下限は件数しか見ない。**対照の名前と件数を保ったまま中身を
+ * 空洞にする痩せ方は、この関門では捕まらない**（差分にしか現れない）。また `main()` から
+ * この呼び出し自体を落とせば関門は走らなくなる——その結線は下の機構の対照が自ソースを読んで
+ * 見るが、その対照ごと落とす書き換えは件数の下限が捕まえる（相互に支え合う）。
+ */
+function guardControlsArePresent(groups: readonly ControlGroup[]): void {
+  const census = censusOf(groups);
+  // 判定に使うのと同じ値から印字する（判定と一覧が別々の真実を持たないため）
+  console.log(formatControlCensus(census, DECLARED_FLOORS));
+
+  const problems = controlPopulationProblems(groups, DECLARED_FLOORS);
+  if (problems.length > 0) {
+    console.error(
+      '❌ 自己検査の対照群そのものが欠けています（この状態で出る「合格」は意味を持ちません）'
+    );
+    for (const problem of problems) console.error(`   - ${problem}`);
+    process.exit(1);
+  }
+}
 
 function evaluate(testCase: Case): {
   rejected: boolean;
@@ -1802,77 +2233,118 @@ function evaluate(testCase: Case): {
   }
 }
 
+/** 陽性対照を一件走らせ、失敗の理由を挙げる（空なら合格）。印字も併せて行う */
+function positiveFailures(testCase: Case): string[] {
+  const { rejected, checks, detail } = evaluate(testCase);
+  const fired = [...checks].sort().join(', ');
+  if (!rejected) {
+    console.log(`  ❌ ${testCase.name} → 弾かれなかった`);
+    return [`検出漏れ: ${testCase.name}`];
+  }
+  // 狙った検査が挙げたことまで確かめる（別の検査に巻き込まれた合格を認めない）
+  if (testCase.expectCheck === undefined) {
+    console.log(`  ❌ ${testCase.name} → expectCheck 未指定（実際: ${fired}）`);
+    return [`陽性対照に expectCheck が無い: ${testCase.name}（実際に挙げた検査: ${fired}）`];
+  }
+  if (!checks.has(testCase.expectCheck)) {
+    console.log(`  ❌ ${testCase.name} → ${testCase.expectCheck} が挙げていない（実際: ${fired}）`);
+    return [
+      `狙った検査が挙げていない: ${testCase.name}（期待 ${testCase.expectCheck} / 実際 ${fired}）`,
+    ];
+  }
+  console.log(`  ✅ ${testCase.name} [${testCase.expectCheck}] → ${detail}`);
+  return [];
+}
+
+/** 陰性対照を一件走らせ、失敗の理由を挙げる（空なら合格）。印字も併せて行う */
+function negativeFailures(testCase: Case): string[] {
+  const { rejected, detail } = evaluate(testCase);
+  if (!rejected) {
+    console.log(`  ✅ ${testCase.name}`);
+    return [];
+  }
+  console.log(`  ❌ ${testCase.name} → 誤って弾かれた（${detail}）`);
+  return [`過検出: ${testCase.name} → ${detail}`];
+}
+
+/** 機構の固定を一件走らせ、失敗の理由を挙げる（空なら合格）。印字も併せて行う */
+function mechanismFailures(mechanismCase: MechanismCase): string[] {
+  const detected = mechanismCase.run();
+  if (detected.length === 0) {
+    console.log(`  ✅ ${mechanismCase.name}`);
+    return [];
+  }
+  console.log(`  ❌ ${mechanismCase.name} → ${detected.join(' / ')}`);
+  return [`機構: ${mechanismCase.name} → ${detected.join(' / ')}`];
+}
+
 function main(): void {
+  // 対照群は `main()` の中で束ね、確認の実行より前に関門を通す（タスク 115.304）。
+  // **群は要素そのものを持ち、件数の別勘定を持たない。** 関門が数えるのも下の走査が回すのも
+  // 同じ配列であり、真実が二つに分かれない（レビューが実測した真空パスの是正。`sizeOf` の
+  // 注釈に当時の実出力を引いた）。群の一覧を空にしても、いずれかの群を空にしても、
+  // 関門が EXIT=1 で落とす。
+  const groups: ControlGroup[] = [
+    { title: '弾かれなければならない壊し方（陽性対照）', polarised: MUST_REJECT, mechanisms: [] },
+    { title: '通らなければならない形（陰性対照）', polarised: MUST_ACCEPT, mechanisms: [] },
+    { title: '同居の判定そのもの（機構の固定）', polarised: [], mechanisms: MECHANISM_CASES },
+  ];
+  guardControlsArePresent(groups);
+
   const failures: string[] = [];
   let passed = 0;
+  // 実際に走らせた確認の数（合否と独立に数える。下の「数えた側と走らせた側の一致」に使う）
+  let ran = 0;
 
-  console.log('=== 弾かれなければならない壊し方（陽性対照） ===');
-  for (const testCase of MUST_REJECT) {
-    const { rejected, checks, detail } = evaluate(testCase);
-    const fired = [...checks].sort().join(', ');
-    if (!rejected) {
-      failures.push(`検出漏れ: ${testCase.name}`);
-      console.log(`  ❌ ${testCase.name} → 弾かれなかった`);
-      continue;
+  for (const group of groups) {
+    console.log(`=== ${group.title} ===`);
+    for (const testCase of group.polarised) {
+      // 極性は要素の宣言から導く（群の題や配列の位置からは導かない。115.247 の作法）
+      const problems = testCase.mustReject
+        ? positiveFailures(testCase)
+        : negativeFailures(testCase);
+      ran += 1;
+      if (problems.length === 0) passed += 1;
+      failures.push(...problems);
     }
-    // 狙った検査が挙げたことまで確かめる（別の検査に巻き込まれた合格を認めない）
-    if (testCase.expectCheck === undefined) {
-      failures.push(
-        `陽性対照に expectCheck が無い: ${testCase.name}（実際に挙げた検査: ${fired}）`
-      );
-      console.log(`  ❌ ${testCase.name} → expectCheck 未指定（実際: ${fired}）`);
-      continue;
+    for (const mechanismCase of group.mechanisms) {
+      const problems = mechanismFailures(mechanismCase);
+      ran += 1;
+      if (problems.length === 0) passed += 1;
+      failures.push(...problems);
     }
-    if (!checks.has(testCase.expectCheck)) {
-      failures.push(
-        `狙った検査が挙げていない: ${testCase.name}（期待 ${testCase.expectCheck} / 実際 ${fired}）`
-      );
-      console.log(
-        `  ❌ ${testCase.name} → ${testCase.expectCheck} が挙げていない（実際: ${fired}）`
-      );
-      continue;
-    }
-    passed += 1;
-    console.log(`  ✅ ${testCase.name} [${testCase.expectCheck}] → ${detail}`);
+    console.log('');
   }
 
-  console.log('');
-  console.log('=== 通らなければならない形（陰性対照） ===');
-  for (const testCase of MUST_ACCEPT) {
-    const { rejected, detail } = evaluate(testCase);
+  // 要約も関門と同じ `censusOf` から出す（印字と判定が別々の真実を持たないため）
+  const census = censusOf(groups);
 
-    if (!rejected) {
-      passed += 1;
-      console.log(`  ✅ ${testCase.name}`);
-    } else {
-      failures.push(`過検出: ${testCase.name} → ${detail}`);
-      console.log(`  ❌ ${testCase.name} → 誤って弾かれた（${detail}）`);
-    }
+  // **数えた側と走らせた側が一致しないことを失敗にする（タスク 115.304 のレビューが実測）。**
+  // 関門は群を数え、走査は群を回すが、**走査だけを別名の空配列へ差し替える**書き換えは
+  // 「群の綴りの回数」を数える結線の対照をすり抜ける。実測（コミット `2be5b8fc` を親とする
+  // 作業ツリー、2026-09-06）: module の頂へ `const MECH_VIEW: MechanismCase[] = [];` を置き、
+  // 機構の走査を `group.mechanisms` から `MECH_VIEW` へ差し替えると、関門は
+  // `📋 対照の現況: … 機構 23/23 ・ 総数 67/67（現況/宣言の下限）` を出し、要約は
+  // `✅ 自己検査に合格しました（44/67 件: 陽性対照 37 / 陰性対照 7 / 機構 23）` を出して
+  // **EXIT=0** になった。**分子と分母が食い違ったまま合格を名乗っていた。**
+  //
+  // 数えるのは合否ではなく**走らせた件数**である。合格数で見ると、真に落ちた確認が在るときに
+  // この判定まで一緒に鳴り、原因を取り違える報告になる。
+  if (ran !== census.total) {
+    failures.push(
+      `走らせた確認が現況の総数と食い違います（走らせた ${ran} 件 / 現況の総数 ${census.total} 件）。` +
+        '関門が数える対象と走査が回す対象が分かれています。'
+    );
   }
 
-  console.log('');
-  console.log('=== 同居の判定そのもの（機構の固定） ===');
-  for (const mechanismCase of MECHANISM_CASES) {
-    const detected = mechanismCase.run();
-    if (detected.length === 0) {
-      passed += 1;
-      console.log(`  ✅ ${mechanismCase.name}`);
-    } else {
-      failures.push(`機構: ${mechanismCase.name} → ${detected.join(' / ')}`);
-      console.log(`  ❌ ${mechanismCase.name} → ${detected.join(' / ')}`);
-    }
-  }
-
-  const total = MUST_REJECT.length + MUST_ACCEPT.length + MECHANISM_CASES.length;
-  console.log('');
   if (failures.length > 0) {
-    console.error(`❌ 自己検査に失敗しました（${failures.length}/${total} 件）`);
+    console.error(`❌ 自己検査に失敗しました（${failures.length}/${census.total} 件）`);
     for (const failure of failures) console.error(`   - ${failure}`);
     process.exit(1);
   }
 
   console.log(
-    `✅ 自己検査に合格しました（${passed}/${total} 件: 陽性対照 ${MUST_REJECT.length} / 陰性対照 ${MUST_ACCEPT.length} / 機構 ${MECHANISM_CASES.length}）`
+    `✅ 自己検査に合格しました（${passed}/${census.total} 件: 陽性対照 ${census.positives} / 陰性対照 ${census.negatives} / 機構 ${census.mechanisms}）`
   );
   // 失敗既定（module の頂）をここで解除する
   process.exitCode = 0;

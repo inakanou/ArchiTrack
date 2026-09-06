@@ -27,9 +27,15 @@
  * そこで**ソースとの交差照合**を入れる。各自己検査のソースを読み、ソースファイル直下の
  * `const MINIMUM_...` の宣言が 1 件以上あるのに現況行が出力へ現れなかった場合は、
  * `下限の宣言なし` と分類せず「下限を宣言しているのに現況行が出ていない（印字が失われたか、
- * 下限割れで手前で停止した）」として報告し、**非零で終了する**。境界外の 2 本
- * （`check-requirement-exclusions.selftest.ts` と `check-design-path-references.selftest.ts`）は
- * `const MINIMUM_` を 0 件しか持たないため、この照合でも正しく `下限の宣言なし` 側に落ちる。
+ * 下限割れで手前で停止した）」として報告し、**非零で終了する**。
+ *
+ * **上の実測を書いた 2026-09-03 の時点では、境界外の 2 本
+ * （`check-requirement-exclusions.selftest.ts` と `check-design-path-references.selftest.ts`）が
+ * `const MINIMUM_` を 0 件しか持たず、この照合でも `下限の宣言なし` 側に落ちていた。**
+ * その後タスク 115.304 が前者へ件数の下限（`MINIMUM_POSITIVE_CONTROLS` ほか 4 件）と現況行の
+ * 印字を入れたため、同ファイルは `下限の宣言なし` 側から外れた。**どのファイルが現況で
+ * `下限の宣言なし` に落ちるかは、本一覧の出力の末尾がそのまま印字する**——ここに名を書き
+ * 写すと、下限を足した時点でも自己検査が増えた時点でも註が偽になる。
  *
  * 是正後の同じ変異の実測（2026-09-03。当該の `console.log` を 1 文削除した状態で本一覧を実行）:
  *
@@ -38,7 +44,7 @@
  *   合計: 15 ファイル中 12 ファイルが下限を宣言している（ほかに 1 ファイルは下限を宣言しているが現況行が出ていない）
  *   下限の宣言が無いファイル:
  *     - check-design-path-references.selftest.ts
- *     - check-requirement-exclusions.selftest.ts
+ *     - check-requirement-exclusions.selftest.ts   （2026-09-03 当時。115.304 が下限を入れた）
  *   ❌ 1 件のファイルが、下限を宣言しているのに現況行を出していません（印字が失われたか、下限割れで手前で停止した）。一覧の分類が偽になるため合格にはしません。
  *     - check-requirement-coverage.selftest.ts（ソースに ^const MINIMUM_ の宣言があるのに 出力へ「📋 対照の現況:」の行が現れなかった。EXIT=0）
  *
@@ -73,9 +79,10 @@
  * - `余裕 0` は下限が現況ちょうどであることを表す。確認を一件でも削れば当該の自己検査が赤くなる。
  * - `余裕 +n` は下限が現況より緩いことを表す。n 件までは削っても関門に掛からない。
  * - `下限の宣言なし` は、その自己検査が件数の下限を持たないことを表す。**この分類はソースに
- *   `const MINIMUM_` の宣言が無いことを確かめたうえで出す**（上の「交差照合」を見よ）。境界外の
- *   `check-requirement-exclusions.selftest.ts` と `check-design-path-references.selftest.ts` が
- *   これに当たる（それぞれタスク 115.222 / 115.242 の担当範囲）。
+ *   `const MINIMUM_` の宣言が無いことを確かめたうえで出す**（上の「交差照合」を見よ）。
+ *   **どのファイルがこれに当たるかは本一覧の出力が印字する**——ここに名を書き写すと、下限を
+ *   足した時点で註が偽になる（タスク 115.304 の着手時、`check-requirement-exclusions.selftest.ts`
+ *   を名指ししていた 2 箇所が現にそうなっていた）。
  */
 
 import { execFileSync } from 'node:child_process';
