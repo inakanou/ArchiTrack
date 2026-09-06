@@ -46,14 +46,14 @@ export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
  * `getTransitionType` が initial を返す経路は存在しない。
  * よって本定数は「要件が定義する3種類 + 履歴の印 initial」の4値である。
  *
- * ただしこの整理は本注釈の時点でファイル全体へは行き渡っていない。下方の
- * `TRANSITION_TYPE_LABELS` は initial に「初期遷移」という遷移を名乗るラベルを与えたままで、
- * この文言は `backend/src/routes/projects.routes.ts` の 499 行目・1080 行目を通って
- * `transitionTypeLabel` として画面へ届く。ラベルの差し替えは表示の変更であり
- * （`backend/src/__tests__/unit/types/project.types.test.ts` の
- * `getTransitionTypeLabel` が '初期遷移' を固定している）、本注釈が属するタスクの
- * 境界の外にあるため手を付けていない。したがって「initial は遷移ではない」という
- * 上記の整理と当該ラベルの文言は、現時点では食い違ったまま残っている。
+ * この整理は表示文言まで行き渡らせてある。下方の `TRANSITION_TYPE_LABELS` が initial へ
+ * 与えるのは「初期登録」であり、遷移を名乗らない。この文言は
+ * `backend/src/routes/projects.routes.ts` が組み立てる `transitionTypeLabel` として
+ * 画面のステータス変更履歴の一覧へ届く。旧文言は「初期遷移」で、要件が定義する3種類が
+ * いずれも「〜遷移」で終わるため、遷移でない値を四つ目の遷移として見せていた。
+ * 改めた理由と、改めない側を却下した理由は
+ * `.kiro/specs/site-survey/design.md` の「遷移でない値の表示文言を「初期登録」へ改め、
+ * 据え置きの案を却下した記録」に置いた。
  *
  * - initial: 初期履歴の印（プロジェクト作成時、fromStatusなし。遷移ではない）
  * - forward: 順方向遷移（ワークフロー進行）
@@ -89,7 +89,7 @@ export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
  * 遷移種別の日本語ラベルマッピング
  */
 export const TRANSITION_TYPE_LABELS: Record<TransitionType, string> = {
-  initial: '初期遷移',
+  initial: '初期登録',
   forward: '順方向遷移',
   backward: '差し戻し遷移',
   terminate: '終端遷移',

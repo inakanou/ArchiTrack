@@ -361,7 +361,7 @@ function XCircleIcon({ color }: { color: string }) {
 }
 
 /**
- * プラスサークルアイコン（初期遷移用）
+ * プラスサークルアイコン（初期登録用）
  */
 function PlusCircleIcon({ color }: { color: string }) {
   return (

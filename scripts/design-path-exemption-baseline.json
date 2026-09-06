@@ -26,9 +26,9 @@
     "面には数えない。ただし外した側も基準で見張る——開示だけに落とすと、新しく現れた",
     "曖昧な参照が面にも曖昧の集合にも掛からない素通りの経路になる。"
   ],
-  "reachTotal": 183,
-  "candidateTotal": 687,
-  "entityTotal": 143,
+  "reachTotal": 189,
+  "candidateTotal": 696,
+  "entityTotal": 149,
   "exemptedTotal": 123,
   "exemptedDistinctTotal": 30,
   "ambiguousTotal": 5,
@@ -97,6 +97,11 @@
       "recordedAt": "2026-09-06",
       "reachTotal": 183,
       "candidateTotal": 687
+    },
+    {
+      "recordedAt": "2026-09-06",
+      "reachTotal": 189,
+      "candidateTotal": 696
     }
   ],
   "documents": {
@@ -142,6 +147,7 @@
     ".kiro/specs/site-survey/design.md": [
       ".kiro/specs/estimate-creation/design.md",
       ".kiro/specs/estimate-request/design.md",
+      ".kiro/specs/project-management/design.md",
       ".kiro/specs/quantity-table-generation/design.md",
       ".kiro/specs/site-survey/design.md",
       ".kiro/specs/site-survey/tasks.md",
@@ -181,6 +187,7 @@
       "annotation.routes.ts",
       "annotation.service.ts",
       "backend/package.json",
+      "backend/prisma/schema.prisma",
       "backend/scripts/restore-plain-thumbnails.ts",
       "backend/src/__tests__/integration/estimate.api.integration.test.ts",
       "backend/src/__tests__/unit/middleware/upload.middleware.test.ts",
@@ -189,6 +196,7 @@
       "backend/src/__tests__/unit/routes/annotation.routes.test.ts",
       "backend/src/__tests__/unit/routes/survey-images.soft-deleted-survey-guard.routes.test.ts",
       "backend/src/__tests__/unit/services/project.service.test.ts",
+      "backend/src/__tests__/unit/types/project.types.test.ts",
       "backend/src/config/storage.ts",
       "backend/src/middleware/upload.middleware.ts",
       "backend/src/routes/annotation.routes.ts",
@@ -212,6 +220,7 @@
       "backend/src/services/site-survey.service.ts",
       "backend/src/services/survey-image.service.ts",
       "backend/src/storage/r2-storage.provider.ts",
+      "backend/src/types/project.types.ts",
       "backend/src/utils/survey-deleted-guard.ts",
       "backend/vitest.config.ts",
       "batch-upload.service.ts",
@@ -239,6 +248,7 @@
       "frontend/src/__tests__/pages/EstimateDetailPage.test.tsx",
       "frontend/src/__tests__/pages/QuantityTableEditPage.pdfPhoto.test.tsx",
       "frontend/src/__tests__/services/AutoSaveManager.test.ts",
+      "frontend/src/__tests__/types/project.types.test.ts",
       "frontend/src/api/survey-annotations.ts",
       "frontend/src/api/survey-images.ts",
       "frontend/src/components/Navigation/index.ts",
@@ -263,6 +273,7 @@
       "frontend/src/services/AutoSaveManager.ts",
       "frontend/src/services/ExportService.ts",
       "frontend/src/services/export/PdfReportService.ts",
+      "frontend/src/types/project.types.ts",
       "frontend/src/types/site-survey.types.ts",
       "frontend/src/utils/siteSurveyBreadcrumb.ts",
       "frontend/vitest.config.ts",

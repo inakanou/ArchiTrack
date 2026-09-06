@@ -58,7 +58,7 @@ const mockStatusHistory = [
     toStatus: 'PREPARING' as const,
     toStatusLabel: '準備中',
     transitionType: 'initial' as const,
-    transitionTypeLabel: '初期遷移',
+    transitionTypeLabel: '初期登録',
     reason: null,
     changedBy: { id: 'user-1', displayName: '営業太郎' },
     changedAt: '2024-01-01T00:00:00.000Z',

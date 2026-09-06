@@ -46,7 +46,7 @@ const mockStatusHistory: StatusHistoryResponse[] = [
     toStatus: 'PREPARING',
     toStatusLabel: '準備中',
     transitionType: 'initial',
-    transitionTypeLabel: '初期遷移',
+    transitionTypeLabel: '初期登録',
     reason: null,
     changedBy: { id: 'user-1', displayName: 'ユーザー1' },
     changedAt: '2025-01-01T00:00:00.000Z',
@@ -358,7 +358,7 @@ describe('StatusTransitionUI', () => {
       const historyItems = screen.getAllByTestId(/^status-history-item-/);
       expect(historyItems.length).toBe(3);
 
-      // 初期遷移のアイテム
+      // 初期登録のアイテム
       const initialItem = screen.getByTestId('status-history-item-history-1');
       expect(initialItem).toHaveAttribute('data-transition-type', 'initial');
 
@@ -538,7 +538,7 @@ describe('StatusTransitionUI', () => {
         toStatus: 'PREPARING',
         toStatusLabel: '準備中',
         transitionType: 'initial',
-        transitionTypeLabel: '初期遷移',
+        transitionTypeLabel: '初期登録',
         reason: null,
         changedBy: { id: 'user-1', displayName: 'ユーザー1' },
         changedAt: '2025-01-01T00:00:00.000Z',
