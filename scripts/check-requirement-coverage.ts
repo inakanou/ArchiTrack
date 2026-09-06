@@ -1181,6 +1181,163 @@ export function extractTestCoverage(
   return coverage;
 }
 
+// ============================================================================
+// 機能名を欠くヘッダー（読まれない被覆印）
+// ============================================================================
+
+/**
+ * 機能名を欠くヘッダーの字面（`Requirements:` / `Requirements coverage:`）
+ *
+ * `ANY_COVERAGE_HEADER_REGEX` が要求する `(feature-name)` を持たない形である。
+ * 二つの正規表現は**交わらない**——機能名つきの形は `Requirements` の直後が `(` であり、
+ * 本正規表現が要求する `:` に届かないためである。したがって同じ字面が両方に数えられることはない。
+ */
+export const FEATURELESS_COVERAGE_HEADER_REGEX = /Requirements\s*(?:coverage\s*)?:/g;
+
+/** 機能名を欠くヘッダー一件と、その区間で読まれないままの名乗り */
+export interface FeaturelessCoverageHeader {
+  /** リポジトリ相対のファイル */
+  file: string;
+  /** ヘッダーの開始位置（ファイル内の絶対位置） */
+  index: number;
+  /** 区間の中で識別子欄として読める名乗りの数（機能名が付けば被覆印になる） */
+  dormantNameCount: number;
+}
+
+/** 機能名を欠くヘッダーの母集団 */
+export interface FeaturelessHeaderReport {
+  headers: FeaturelessCoverageHeader[];
+  /** ヘッダーの総数 */
+  headerCount: number;
+  /** 眠っている名乗りの総数 */
+  dormantNameCount: number;
+  /** ヘッダーを一件以上持つファイルの数 */
+  fileCount: number;
+}
+
+/**
+ * 一ファイルの本文から、機能名を欠くヘッダーと配下の名乗りの数を読む
+ *
+ * `findFeaturelessCoverageHeaders` の実体である。**本文だけを受ける形で切り出してある**——
+ * ディスクを持たない合成の対照（機能名つきのヘッダーを数えていないこと・引用された字面を
+ * 数えていないこと）を自己検査が直接当てられるようにするためである。
+ * 走査の側へ規則を複製すると、片方だけが動いたときに前提が黙って崩れる。
+ *
+ * @param content ファイル全体の本文
+ * @returns ヘッダーごとの「開始位置と、その区間で読まれないままの名乗りの数」
+ */
+export function readFeaturelessHeadersInContent(
+  content: string
+): Array<{ index: number; dormantNameCount: number }> {
+  const found: Array<{ index: number; dormantNameCount: number }> = [];
+
+  // 切れ目は本番と同じく「機能名つきの宣言ヘッダー」で決まる
+  const boundaries: number[] = [];
+  for (const match of content.matchAll(new RegExp(ANY_COVERAGE_HEADER_REGEX.source, 'g'))) {
+    if (match.index !== undefined && isDeclaredCoverageHeader(content, match.index)) {
+      boundaries.push(match.index);
+    }
+  }
+
+  for (const match of content.matchAll(new RegExp(FEATURELESS_COVERAGE_HEADER_REGEX.source, 'g'))) {
+    const index = match.index;
+    if (index === undefined) continue;
+    // 引用された字面は宣言ではない（本番のヘッダー収集と同じ判定を使う）
+    if (!isDeclaredCoverageHeader(content, index)) continue;
+
+    const next = boundaries.find((boundary) => boundary > index);
+    const section = content.slice(index, resolveHeaderSectionEnd(content, index, next ?? null));
+
+    let dormantNameCount = 0;
+    let lineStart = index;
+    for (const line of section.split('\n')) {
+      const markerIndex = findListItemMarker(content, lineStart, line);
+      lineStart += line.length + 1;
+      if (markerIndex === null) continue;
+      const afterMarker = line.slice(markerIndex + 1);
+      const colonIndex = afterMarker.search(/[:：]/);
+      const idRegion = colonIndex >= 0 ? afterMarker.slice(0, colonIndex) : afterMarker;
+      dormantNameCount += parseHeaderListItemIds(idRegion).length;
+    }
+
+    found.push({ index, dormantNameCount });
+  }
+
+  return found;
+}
+
+/**
+ * 機能名を欠くヘッダーと、その下で読まれないままの名乗りを数える（タスク 115.308）
+ *
+ * **これは被覆を増やす関数ではない。黙っていた量を口に出させる関数である。**
+ * `extractHeaderScopedCoverage` は区間のヘッダーから機能名を解決するため、
+ * `Requirements:` とだけ書いたヘッダーの下の `- 1.3: …` は**一件も集計されない**。
+ * 人が読めば被覆を主張しているが、機械は何も拾っていない。しかも**何も言わない**——
+ * 是正前は、この量がレポートのどこにも現れなかった。
+ *
+ * 区間の決め方・印の見分け・識別子欄の読み方は、いずれも本番の被覆印の走査と
+ * **同じ関数**を呼ぶ（`isDeclaredCoverageHeader` / `resolveHeaderSectionEnd` /
+ * `findListItemMarker` / `parseHeaderListItemIds`）。規則をここへ複製すると、
+ * 片方だけが動いたときに「同じ数え方で数えている」という前提が黙って崩れる。
+ *
+ * 区間の切れ目は本番と同じく**機能名つきのヘッダー**で決める。機能名を欠くヘッダーを
+ * 切れ目に含めない理由は、含めると本番が読む区間と数え方がずれ、この報告が
+ * 本番の取りこぼしを測る道具でなくなるためである。
+ *
+ * @param dirs 走査根（既定は `CODE_DIRS`。本番の被覆印の走査と同一の母集団）
+ */
+export function findFeaturelessCoverageHeaders(
+  dirs: readonly string[] = CODE_DIRS
+): FeaturelessHeaderReport {
+  const headers: FeaturelessCoverageHeader[] = [];
+  const files = new Set<string>();
+
+  for (const file of listCoverageScanFiles(dirs)) {
+    const content = fs.readFileSync(file, 'utf-8');
+    const relative = path.relative(process.cwd(), file);
+    for (const header of readFeaturelessHeadersInContent(content)) {
+      headers.push({ file: relative, ...header });
+      files.add(relative);
+    }
+  }
+
+  return {
+    headers,
+    headerCount: headers.length,
+    dormantNameCount: headers.reduce((sum, header) => sum + header.dormantNameCount, 0),
+    fileCount: files.size,
+  };
+}
+
+/**
+ * 機能名を欠くヘッダーの上限（ラチェット）
+ *
+ * **この定数は「許した量」であって「正しい量」ではない。** 現況が上限であり、
+ * 増やす方向は失敗する。減らす方向は失敗しない——減った分だけ定数を下げること。
+ *
+ * なぜ 0 を課さないか。**費用を測ったうえでの判断である**（タスク 115.308）。
+ * 一件ずつ機能名を与える是正は、与える機能名が正しいことを人が確かめる作業であり、
+ * 機械には委ねられない。委ねられないことは推測ではなく変異で測った——
+ * ファイルの所在（ディレクトリ）から機能を推定する規則を、
+ * 「同一ファイルが他所で機能名を名乗っており答えが判っている」ヘッダーへ当てて
+ * ホールドアウト検証したところ、一意に決まった中で誤って別の機能へ結び付ける形が残った。
+ * 誤って結び付いた被覆印は、**存在しない被覆を主張したまま緑になる**——
+ * 読まれないより悪い。測り方と結果は `.kiro/specs/site-survey/design.md` にある。
+ *
+ * 是正は機能ごとに分けて進める。**進んだ分はこの定数が下がる形でしか記録されない**ため、
+ * 「直したつもり」で止まることはできない。
+ */
+export const MAX_FEATURELESS_COVERAGE_HEADERS = 2025;
+
+/**
+ * 機能名を欠くヘッダーの下で眠っている名乗りの上限（ラチェット）
+ *
+ * ヘッダーの数だけを見ると、**既にあるヘッダーの下へ名乗りを足す**動きが素通りする。
+ * 眠る量は名乗りの側で増えるため、二つの量を別々に押さえる。
+ * 意味と下げ方は {@link MAX_FEATURELESS_COVERAGE_HEADERS} と同じである。
+ */
+export const MAX_DORMANT_HEADER_NAMES = 5173;
+
 /** 撤廃済みの受入基準を名乗っている被覆印 */
 export interface RetiredCriterionMark {
   /** feature-name/REQ-N.M */
@@ -2642,7 +2799,8 @@ function printReport(
   outOfDenominator: OutOfDenominatorMarks,
   unknownMarks: readonly UnknownCriterionMark[],
   copyReport: CriterionTextCopyReport,
-  integrity: SummaryIntegrityReport
+  integrity: SummaryIntegrityReport,
+  featureless: FeaturelessHeaderReport
 ): void {
   const { verbose, threshold } = options;
   const copyMismatches = copyReport.mismatches;
@@ -2719,6 +2877,24 @@ function printReport(
   console.log(
     `     （別勘定: 写した条文の番号を同じ区間の散文が挙げているため免除した「区間と条文」の組: ` +
       `${copyReport.exemptedByProseAttribution}組。番号を添えて引用すれば検査は黙る）`
+  );
+  console.log('');
+
+  // 機能名を欠くヘッダーは、人が読めば被覆を主張しているのに機械が一件も拾っていない。
+  // 0 件のときも無条件に出す。**黙って読まれない被覆印は、黙って縮む分母と同じだけ危うい**
+  // （タスク 115.308）。上限との差もここで出す——散文へ写せば写した時点から陳腐化する。
+  console.log(
+    `  🔇 機能名を欠くヘッダー（\`Requirements:\` の形。配下の名乗りは一件も集計されない）: ` +
+      `${featureless.headerCount}件 / ${featureless.fileCount}ファイル`
+  );
+  console.log(
+    `     （その下で読まれないままの名乗り: ${featureless.dormantNameCount}件。` +
+      `機能名を与えれば被覆印として読まれる）`
+  );
+  console.log(
+    `     （上限: ヘッダー ${MAX_FEATURELESS_COVERAGE_HEADERS}件 / ` +
+      `名乗り ${MAX_DORMANT_HEADER_NAMES}件。増やす方向は失敗する。` +
+      `減らしたら MAX_FEATURELESS_COVERAGE_HEADERS / MAX_DORMANT_HEADER_NAMES を下げること）`
   );
   console.log('');
 
@@ -2944,7 +3120,8 @@ function printJsonReport(
   outOfDenominator: OutOfDenominatorMarks,
   unknownMarks: readonly UnknownCriterionMark[],
   copyReport: CriterionTextCopyReport,
-  integrity: SummaryIntegrityReport
+  integrity: SummaryIntegrityReport,
+  featureless: FeaturelessHeaderReport
 ): void {
   const output = {
     features: result.features.map((f) => ({
@@ -2958,6 +3135,15 @@ function printJsonReport(
     unknownCriterionCoverageMarks: unknownMarks,
     summaryIntegrity: integrity,
     criterionTextCopy: copyReport,
+    // 開示は二方向で置く（タスク 115.300）。人が読むレポートだけに出すと、
+    // JSON を読む側からは黙って読まれない被覆印が見えないままになる。
+    featurelessCoverageHeaders: {
+      headerCount: featureless.headerCount,
+      dormantNameCount: featureless.dormantNameCount,
+      fileCount: featureless.fileCount,
+      maxHeaderCount: MAX_FEATURELESS_COVERAGE_HEADERS,
+      maxDormantNameCount: MAX_DORMANT_HEADER_NAMES,
+    },
     featureCoverage: result.featureCoverage.map((fc) => ({
       featureName: fc.featureName,
       requirements: {
@@ -3098,6 +3284,20 @@ function main(): void {
   // 5d. 全体サマリーの数え方の整合（恒等式と、分子から外した番号の可視性）
   const integrity = checkSummaryIntegrity(result, testCoverage, outOfDenominator);
 
+  // 5e. 機能名を欠くヘッダー（配下の名乗りが一件も読まれない区間）の母集団
+  const featureless = findFeaturelessCoverageHeaders();
+  const featurelessReasons: string[] = [];
+  if (featureless.headerCount > MAX_FEATURELESS_COVERAGE_HEADERS) {
+    featurelessReasons.push(
+      `機能名を欠くヘッダーが${featureless.headerCount}件で上限${MAX_FEATURELESS_COVERAGE_HEADERS}件を超えました（配下の名乗りは一件も集計されません。\`Requirements (feature-name):\` の形へ直してください）`
+    );
+  }
+  if (featureless.dormantNameCount > MAX_DORMANT_HEADER_NAMES) {
+    featurelessReasons.push(
+      `機能名を欠くヘッダーの下で読まれないままの名乗りが${featureless.dormantNameCount}件で上限${MAX_DORMANT_HEADER_NAMES}件を超えました（ヘッダーへ機能名を与えてください）`
+    );
+  }
+
   // 6. 本番到達性を判定（番号を持つ検証が本番の経路を通るか）
   const graph = buildModuleGraph();
   const reachableModules = computeReachableModules(graph);
@@ -3128,7 +3328,8 @@ function main(): void {
       outOfDenominator,
       unknownMarks,
       copyReport,
-      integrity
+      integrity,
+      featureless
     );
   } else {
     printReport(
@@ -3139,7 +3340,8 @@ function main(): void {
       outOfDenominator,
       unknownMarks,
       copyReport,
-      integrity
+      integrity,
+      featureless
     );
   }
 
@@ -3150,7 +3352,8 @@ function main(): void {
     retiredMarks.length === 0 &&
     unknownMarks.length === 0 &&
     copyMismatches.length === 0 &&
-    integrity.reasons.length === 0;
+    integrity.reasons.length === 0 &&
+    featurelessReasons.length === 0;
 
   const uncoveredNotExcluded = result.uncoveredAcceptanceCriteria.filter(
     (ac) =>
@@ -3173,6 +3376,9 @@ function main(): void {
       }
       for (const reason of integrity.reasons) {
         console.log(`❌ FAILED: 全体サマリーの数え方が整合していません — ${reason}`);
+      }
+      for (const reason of featurelessReasons) {
+        console.log(`❌ FAILED: ${reason}`);
       }
       if (unknownMarks.length > 0) {
         console.log(

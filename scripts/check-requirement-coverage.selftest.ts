@@ -196,6 +196,11 @@ import {
   findRetiredCriterionCoverageMarks,
   findUnknownCriterionCoverageMarks,
   isDeclaredCoverageHeader,
+  readFeaturelessHeadersInContent,
+  findFeaturelessCoverageHeaders,
+  MAX_FEATURELESS_COVERAGE_HEADERS,
+  MAX_DORMANT_HEADER_NAMES,
+  buildInlineTagPatterns,
   isRetiredCriterionText,
   extractFileCoverage,
   isCodeFenceDelimiterLine,
@@ -5162,6 +5167,235 @@ const UNTERMINATED_BLOCK_OPEN_BEFORE_HEADER = [
   '',
 ].join('\n');
 
+// ============================================================================
+// 機能名を欠くヘッダー（読まれない被覆印）— タスク 115.308
+// ============================================================================
+//
+// `Requirements:` とだけ書いたヘッダーの下の `- 1.3: …` は、人が読めば被覆を主張して
+// いるのに機械が一件も拾わない。是正前は、その量がレポートのどこにも現れなかった。
+// 以下の三つは順に「数え方が両向きに働くこと」「実データの量が上限を超えないこと」
+// 「規則を緩めて機能名を推定する案が安全でないこと」を固定する。
+
+/**
+ * 機構: 機能名を欠くヘッダーの数え方が両向きに働く
+ *
+ * 陽性（数えなければならない側）と陰性（数えてはならない側）を組で置く。
+ * 陰性を欠くと、機能名つきの正当なヘッダーまで「読まれていない」と報告して開示が嘘になる
+ * （向きは過大報告）。
+ *
+ * **当てた変異と出力**（2026-09-06 にリポジトリルートで実測）:
+ * `FEATURELESS_COVERAGE_HEADER_REGEX` を `/Requirements[^\n]*:/` へ広げると、
+ * `npx tsx scripts/check-requirement-coverage.selftest.ts` は 2 件失敗・EXIT=1 となり、
+ * 本検査が「`Requirements (site-survey):` を機能名を欠くヘッダーとして数えた（開示が過大に
+ * なる）」を挙げる（もう 1 件はラチェットが上限超過を挙げる）。
+ * `isDeclaredCoverageHeader` の判定を外す変異でも同じく 2 件失敗し、本検査が
+ * 「散文の中で引用された `Requirements:` の字面を宣言として数えた」を挙げる。
+ */
+function checkFeaturelessHeaderCountingIsTwoSided(): string[] {
+  const failures: string[] = [];
+
+  const featureless = [
+    '/**',
+    ' * Requirements:',
+    ' * - 1.3: 何かの条文',
+    ' * - 11.2: 別の条文',
+    ' */',
+  ].join('\n');
+  const named = [
+    '/**',
+    ' * Requirements (site-survey):',
+    ' * - 1.3: 何かの条文',
+    ' * - 11.2: 別の条文',
+    ' */',
+  ].join('\n');
+  const quoted = [
+    '/**',
+    ' * 従前はこの記述を `Requirements:` の見出しの下に置いていた',
+    ' * - 1.3: 何かの条文',
+    ' */',
+  ].join('\n');
+  const coverageWord = ['//  Requirements coverage:', '//  - 4.1: 何かの条文'].join('\n');
+
+  // 陽性: 機能名を欠くヘッダーは一件、配下の名乗りは二件
+  const positive = readFeaturelessHeadersInContent(featureless);
+  if (positive.length !== 1) {
+    failures.push(
+      `機能名を欠くヘッダーを ${positive.length} 件と数えた（1 件であるべき）。開示が黙る`
+    );
+  } else if (positive[0]?.dormantNameCount !== 2) {
+    failures.push(
+      `眠っている名乗りを ${positive[0]?.dormantNameCount} 件と数えた（2 件であるべき）`
+    );
+  }
+
+  // 陽性: `coverage` を挟む形も同じく機能名を欠く
+  if (readFeaturelessHeadersInContent(coverageWord).length !== 1) {
+    failures.push('`Requirements coverage:` を機能名を欠くヘッダーとして数えていない');
+  }
+
+  // 陰性: 機能名つきのヘッダーは「読まれていない」側に数えてはならない
+  if (readFeaturelessHeadersInContent(named).length !== 0) {
+    failures.push(
+      '`Requirements (site-survey):` を機能名を欠くヘッダーとして数えた（開示が過大になる）'
+    );
+  }
+
+  // 陰性: 引用された字面は宣言ではない（本番のヘッダー収集と同じ判定を通っているか）
+  if (readFeaturelessHeadersInContent(quoted).length !== 0) {
+    failures.push('散文の中で引用された `Requirements:` の字面を宣言として数えた');
+  }
+
+  // 陽性側と陰性側で本当に**同じ名乗り**を見ているかを確かめる。
+  // 機能名つきの側は本番の抽出が拾い、機能名を欠く側は一件も拾わない——これが起票の核心である
+  const readByProduction = extractHeaderScopedCoverage(named, ['site-survey']);
+  if (readByProduction.acceptanceCriteria.length !== 2) {
+    failures.push(
+      `機能名つきのヘッダー配下を本番の抽出が ${readByProduction.acceptanceCriteria.length} 件しか拾わない（2 件であるべき。対照の前提が崩れた）`
+    );
+  }
+  const readWithoutFeature = extractHeaderScopedCoverage(featureless, ['site-survey']);
+  if (readWithoutFeature.acceptanceCriteria.length !== 0) {
+    failures.push(
+      '機能名を欠くヘッダーの配下を本番の抽出が拾った（起票の前提が変わった。開示と上限を測り直すこと）'
+    );
+  }
+
+  return failures;
+}
+
+/**
+ * 実データ: 機能名を欠くヘッダーと眠る名乗りが上限を超えていない（ラチェット）
+ *
+ * 上限は「許した量」であって「正しい量」ではない。減らす方向は失敗しないため、
+ * 是正が進んだら定数を下げること。
+ *
+ * **第3原則**: 走査根が一件もファイルを返さないなら、量が 0 になるのは是正の成果ではなく
+ * 前提の崩壊である。その場合は緑にせず失格にする。
+ */
+function checkFeaturelessHeaderCountIsBounded(): string[] {
+  const failures: string[] = [];
+
+  const scanned = listCoverageScanFiles();
+  if (scanned.length === 0) {
+    return ['走査根がファイルを一件も返さない（量が 0 になる理由が是正でないので合格にしない）'];
+  }
+
+  const report = findFeaturelessCoverageHeaders();
+  if (report.headerCount > MAX_FEATURELESS_COVERAGE_HEADERS) {
+    failures.push(
+      `機能名を欠くヘッダーが ${report.headerCount} 件で上限 ${MAX_FEATURELESS_COVERAGE_HEADERS} 件を超えた`
+    );
+  }
+  if (report.dormantNameCount > MAX_DORMANT_HEADER_NAMES) {
+    failures.push(
+      `眠っている名乗りが ${report.dormantNameCount} 件で上限 ${MAX_DORMANT_HEADER_NAMES} 件を超えた`
+    );
+  }
+  // 上限に遊びが出たまま放置させない。是正が進んだ分は定数へ反映させる
+  if (report.headerCount < MAX_FEATURELESS_COVERAGE_HEADERS) {
+    failures.push(
+      `機能名を欠くヘッダーが ${report.headerCount} 件へ減った。MAX_FEATURELESS_COVERAGE_HEADERS を同数へ下げること（遊びを持つ上限は、その幅ぶんの無言の追加を吸収する）`
+    );
+  }
+  if (report.dormantNameCount < MAX_DORMANT_HEADER_NAMES) {
+    failures.push(
+      `眠っている名乗りが ${report.dormantNameCount} 件へ減った。MAX_DORMANT_HEADER_NAMES を同数へ下げること`
+    );
+  }
+  return failures;
+}
+
+/**
+ * 前提: ファイルの所在から機能名を推定する規則は**安全ではない**（タスク 115.308 の判断根拠）
+ *
+ * 起票は「読み取り規則側で救えるかも判断すること（ファイルの所在から機能を推定する等）。
+ * **規則を緩める場合は、誤った機能へ結び付ける危険を変異で測ること**」を求めた。
+ * ここがその変異である。反実仮想を散文で書かず、実データで測る。
+ *
+ * 測り方（ホールドアウト）: 同一ファイルが他所で機能名を名乗っており**答えが判っている**
+ * ファイルだけを取り、そのファイル自身の寄与を除いた同一ディレクトリの他ファイルから
+ * 機能名を推定する。推定が一意に決まった中に、答えと食い違う形が現に在る。
+ *
+ * 誤って結び付いた被覆印は、**存在しない被覆を主張したまま緑になる**——読まれないより悪い。
+ * だから規則は緩めず、ヘッダーの側を直す方針を採った。
+ *
+ * **件数はここに書かない。** 実データは動くため、写した時点から陳腐化する
+ * （タスク 115.223 / 115.254 が確立した作法）。主張は「誤りが 0 件ではない」だけである。
+ *
+ * **第3原則**: 一意に決まる形が一件も無ければ、この検査は何も主張していない。空振りは失格にする。
+ * 誤りが 0 件になった場合も失格にする——そのときは判断の前提が動いており、
+ * `.kiro/specs/site-survey/design.md` の記録を測り直す必要がある。
+ */
+function checkDirectoryInferenceMisattributesFeatures(): string[] {
+  const featureNames = discoverFeatures();
+  if (featureNames.length === 0) {
+    return ['機能を一件も検出できない（前提が崩れたので合格にしない）'];
+  }
+  const headerPattern = new RegExp(ANY_COVERAGE_HEADER_REGEX.source, 'g');
+  const inlinePatterns = buildInlineTagPatterns(featureNames);
+
+  // 各ファイルが自分で名乗っている機能名（＝そのファイルの答え）
+  const own = new Map<string, Set<string>>();
+  for (const file of listCoverageScanFiles()) {
+    const content = fs.readFileSync(file, 'utf8');
+    const named = new Set<string>();
+    headerPattern.lastIndex = 0;
+    for (const match of content.matchAll(headerPattern)) {
+      if (match.index === undefined || !isDeclaredCoverageHeader(content, match.index)) continue;
+      const feature = /\(([A-Za-z0-9_-]+)\)/.exec(match[0]);
+      if (feature && feature[1] && featureNames.includes(feature[1])) named.add(feature[1]);
+    }
+    for (const pattern of inlinePatterns) {
+      for (const match of content.matchAll(new RegExp(pattern.source, pattern.flags))) {
+        if (match[1]) named.add(match[1]);
+      }
+    }
+    own.set(file, named);
+  }
+
+  // ディレクトリごとの機能名（推定の材料）
+  const byDirectory = new Map<string, Map<string, number>>();
+  for (const [file, named] of own) {
+    const directory = path.dirname(file);
+    if (!byDirectory.has(directory)) byDirectory.set(directory, new Map());
+    const tally = byDirectory.get(directory);
+    if (!tally) continue;
+    for (const name of named) tally.set(name, (tally.get(name) ?? 0) + 1);
+  }
+
+  let decided = 0;
+  let misattributed = 0;
+  for (const [file, named] of own) {
+    if (named.size !== 1) continue;
+    const truth = [...named][0];
+    if (truth === undefined) continue;
+    const tally = byDirectory.get(path.dirname(file));
+    if (!tally) continue;
+    // 自分自身の寄与を除く（除かないと答えを見ながら推定することになる）
+    const others = new Set<string>();
+    for (const [name, count] of tally) {
+      if (name === truth ? count > 1 : count > 0) others.add(name);
+    }
+    if (others.size !== 1) continue;
+    decided += 1;
+    if ([...others][0] !== truth) misattributed += 1;
+  }
+
+  if (decided === 0) {
+    return [
+      'ディレクトリからの推定が一意に決まる形が一件も無い（この確認が空振りしている。第3原則）',
+    ];
+  }
+  if (misattributed === 0) {
+    return [
+      'ディレクトリからの推定が一件も誤らなかった。タスク 115.308 が「規則を緩めない」と' +
+        '判断した根拠（誤って別の機能へ結び付ける形が現に在る）が失われている。' +
+        '.kiro/specs/site-survey/design.md の記録を測り直し、判断を見直すこと',
+    ];
+  }
+  return [];
+}
+
 /**
  * 実データ: 行の途中で開くフェンスの取りこぼしが発火していない（タスク 115.307）
  *
@@ -7510,6 +7744,18 @@ const GROUPS: Group[] = [
         name: '行の途中で開くフェンスとヘッダーの字面が実データで同居しない',
         run: checkMidLineFenceFilesCarryNoCoverageHeader,
       },
+      {
+        name: '機能名を欠くヘッダーの数え方が両向きに働く（読まれない被覆印の開示）',
+        run: checkFeaturelessHeaderCountingIsTwoSided,
+      },
+      {
+        name: '機能名を欠くヘッダーと眠る名乗りが上限ちょうどである（ラチェット）',
+        run: checkFeaturelessHeaderCountIsBounded,
+      },
+      {
+        name: 'ファイルの所在から機能名を推定する規則は誤って結び付ける（規則を緩めない根拠）',
+        run: checkDirectoryInferenceMisattributesFeatures,
+      },
     ],
   },
   {
@@ -7705,7 +7951,7 @@ const MINIMUM_NEGATIVE_CONTROLS = 1;
  * **上回っても**赤くする——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
  * 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
  */
-const MINIMUM_TOTAL_CASES = 74;
+const MINIMUM_TOTAL_CASES = 77;
 
 /**
  * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）
