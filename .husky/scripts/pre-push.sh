@@ -1325,6 +1325,38 @@ echo "✅ Dead script env check passed"
 echo ""
 
 # ============================================================================
+# 裁定記録 §4 の指し先が走査の正典に実在することを検出する（タスク 115.300）
+# - 対象は scripts/coverage-mark-adjudication.md の "## 4." から "## 5." の手前まで
+# - 指し先は `e2e/specs/...` のパスと区間の表題の逐語で持つ（行番号は追記で動くため禁止）
+# - 走査の正典は scripts/scan-coverage-mark-correspondence.ts が出す
+# - 節が消えた・正典が空・登録件数が宣言とずれた場合も合格にしない（第3原則）
+# - 記録が引く「実測値の鮮度」は見ない（その判断はタスク 115.301 の所管）
+# ============================================================================
+
+echo "🔍 Checking adjudication record pointers exist in the coverage-mark canon..."
+npm run check:adjudication-pointers:selftest
+if [ $? -ne 0 ]; then
+  echo "❌ Adjudication pointer detector self-test failed. Push aborted."
+  echo ""
+  echo "詳細確認: npm run check:adjudication-pointers:selftest"
+  exit 1
+fi
+npm run check:adjudication-pointers
+if [ $? -ne 0 ]; then
+  echo "❌ Adjudication pointer check failed. Push aborted."
+  echo ""
+  echo "対応方法:"
+  echo "  1. 区間が動いた場合は表題の逐語へ指し先を引き直してください（行番号は使いません）"
+  echo "  2. 被覆印を取り下げた場合は §4 の登録も外し、DECLARED_POINTER_COUNT を合わせてください"
+  echo ""
+  echo "詳細確認: npm run check:adjudication-pointers:verbose"
+  exit 1
+fi
+
+echo "✅ Adjudication pointer check passed"
+echo ""
+
+# ============================================================================
 # CI環境変数整合性チェック（E2Eテスト実行の前提条件）
 # ============================================================================
 # ベストプラクティス: pre-pushを「正」としてCIとの整合性を検証

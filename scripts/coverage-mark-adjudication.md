@@ -257,60 +257,105 @@ _Boundary_ 外（`frontend/src`）なので §6 へ引き継ぐ。**
 `ua/28.31`、`ua/28.40`、`tpm/8.4` の二件、`pm/3.2`、`pm/21.25`〜`21.28`、`pm/6.3`・`20.6`、
 `pm/40.3`・`40.4`・`40.5`・`41.2`、`qtg/28.2`、`ss/8.2`）。
 
+**指し先の記法（タスク 115.300 が改めた）。** §4 の指し先は
+`e2e/specs/<ディレクトリ>/<ファイル>` の形のリポジトリルート相対パスを逆引用符で書き、
+その直後に `の区間` と**区間の表題の逐語**を逆引用符で置く。複数の区間は ` / ` で連ねる。
+モジュール冒頭の註釈に置かれた被覆印は、パスの直後に `の冒頭註釈` と書く（両方を持つ項目は
+表題を並べたあとに `および冒頭註釈` を付ける）。**行番号は指し先に使わない**——行番号は追記で
+動くためである（実例は §4.4 の追加登録の項に、2026-09-03 の実測値とその三日後の再実測を
+並べてある）。表題は走査の正典
+（`scripts/scan-coverage-mark-correspondence.ts` の `--tsv` が出す第 8 列）の綴りに揃える。
+**この記法と指し先の実在は `npm run check:adjudication-pointers` が毎回見る**（自己検査は
+`npm run check:adjudication-pointers:selftest`）。
+
+**なぜ改めたか（タスク 115.300 の実測。コミット `a639d314` の作業ツリーで 2026-09-06 に実測）。**
+115.250 が §6 に添えた抽出コマンドで数え直したところ、**改める前の §4 が引く指し先は一意
+150 件、そのうち 55 件が走査の正典に無かった**。**原因は一つではない。** 一件ずつ突き合わせた
+内訳は次のとおりである（55 件の分類。原因が重なる項目は主たる原因の側だけに数え、重なりは
+表の下に別途示す）。
+
+| 原因 | 件数 | 採った扱い |
+| --- | --- | --- |
+| 区間が別の追記で下へ動いた（行の移動） | 41 | 表題の逐語へ移した |
+| 記録した行が、記録の基準版でも区間の宣言行ではなかった | 6 | 表題の逐語へ移した |
+| 115.188 自身の是正で被覆印が取り下げ・付け替えられた | 4 | §4 から外し、外した理由を項へ書いた |
+| 記法上のディレクトリ接頭辞の省略（それ以外は現況と一致） | 2 | パスを `e2e/specs/` から始まる形へ揃えた |
+| §4.5 の「散文の言及」で、区間の宣言行ではなく散文の行を指していた | 1 | 読み取り規則が帰属させる区間（冒頭註釈）へ移した |
+| §4 の登録ではなく、項の散文が別ファイルへ張った相互参照 | 1 | 同じ記法へ揃えた（登録ではないことは項の文言が示す） |
+
+上の分類とは別に、**ディレクトリ接頭辞の省略を含む指し先は 5 件**あった（内訳は、接頭辞だけが
+原因のもの 2 件、行の移動と重なるもの 2 件、§4 の登録ではない散文の相互参照 1 件である。
+**最後の 1 件を「行の移動」に数えてはならない**——§4.3 の項が画像の並び替えの検証先として
+張っていた相互参照であり、それが指していた行は `95d1839a` では註釈の閉じ、`86882dd6` では
+空行で、**どちらの基準版でも区間の宣言行ではなかった**）。**「55 件すべてが行番号のずれ」ではない。**
+
+**外した 4 件（115.188 の是正で被覆印が取り下げ・付け替えられていたもの）。** §3.3 と §3.5 の
+表が付け替えを記録しており、本タスクはそれと突き合わせて外した。`admin/role-management` の
+`22.1→17.6`、`itemized-statement-crud` の `9.7→9.3` と `13.6→13.1`・`14.5→14.1`、
+`project-crud` の `1.7/1.8→1.10/1.11` である。**外したことで §4 の登録から落ちる受入基準は
+`pm/1.7` の一件だけで**、その扱いは当該の項に書いた（残る 3 件は同じ項の他の指し先が引き続き
+名乗る）。
+
+**この節の改稿は指し先の実在だけを扱う。** 各項が名乗る受入基準（`ua/19.5` などの右辺）の
+裁定は動かしていない。**§3 と §6 に残る `<path>:<行>` の形の指し先は本タスクの _Boundary_ 外で
+あり、実在を確かめていない**——件数と三層の開示は
+`.kiro/specs/site-survey/design.md` の「裁定記録 §4 の指し先を表題の逐語へ移した判断」の節に
+置いた。
+
 ### 4.1 観測手段が画面・API に届かない（監査ログ・サーバログ・暗号アルゴリズム・DB索引）
 
 区間が扱う操作は原文の主題と同じで、**その操作の副作用（ログ・アルゴリズム・索引）だけが
 画面と API 応答から見えない**。
 
-- `admin/role-permission.spec.ts:52,169,222` — ua/19.5・22.2・22.7: 権限の付与・剥奪という操作そのものは行っており、同時に記録されるべき監査ログだけを参照していない。
-- `admin/user-role.spec.ts:23,53,139` — ua/20.5・22.3・22.7: ユーザーへのロール割り当てを実際に行い、監査ログの記録だけを見ていない。
-- `admin/role-management.spec.ts:43,105,213` — ua/17.3・22.1: ロールの作成・更新・削除を行い、監査ログだけを見ていない。
-- `admin/audit-log.spec.ts:44,85,127,230,356` — ua/22.6・22.7・22.8・22.12: 監査ログの記録・取得は確かめるが、保存失敗時の中断・変更前後の値・DB索引という内部の性質だけが観測できない。
-- `admin/rbac.spec.ts:107,219,246,318` — ua/6.5・6.8・21.6・21.7・21.9・21.10: 権限チェックの結果（許可・拒否）は確かめるが、拒否のログ記録だけが見えない。
-- `auth/two-factor.spec.ts:85,173,433,462,975` — ua/27.1〜27.3・27.7・27.8・27A.3・27C.1〜27C.5: 2FA の設定と検証は通しで確かめるが、乱数長・暗号化保存・使用ライブラリ・SHA-1・環境変数という実装の内側だけが見えない。
-- `auth/token-refresh.spec.ts:296,341` — ua/5.7〜5.10: トークンの発行と更新は確かめるが、署名アルゴリズムと有効期限の環境変数だけが見えない。
-- `auth/login.spec.ts:45` — ua/4.4・4.5・4.7: ログイン成功でトークンが発行されることは確かめるが、トークンを復号して中身を検査していない。
-- `auth/register.spec.ts:61` — ua/2.9・2.10・2.12: 登録そのものは成功まで確かめるが、Argon2id のパラメータ・招待トークンの使用済み化・ロール割当だけが見えない。
-- `auth/security-accessibility.spec.ts:81,188,257,287` — ua/10.2〜10.5・10.7: 画面の安全側の挙動は確かめるが、送信ヘッダやログの内容だけが見えない。
-- `security/security-measures.spec.ts:49,154,208` — ua/26.4・26.9・26.11・26.12: 攻撃入力が拒否されることは確かめるが、拒否の記録と設定値だけが見えない。
-- `estimate-requests/estimate-request-ocr-vision-e2e.spec.ts:146,246,297,1` — er/21.4・22.3・22.5・22.6・23.1〜23.7・26.1〜26.4: OCR の起動と失敗表示は確かめるが、API キー未設定で 503 に止まるため送信本体もバックエンドログも観測できない。
-- `site-surveys/site-survey-export.spec.ts:476` — ss/11.2〜11.6: PDF 出力の起動とファイル名までは確かめるが、PDF を開いて中身を検査していない。
-- `estimate-requests/site-survey-report-e2e.spec.ts:1,319` — er/35.6・35.7: 出力要求の到達までは確かめるが、PDF の受領そのものを確かめていない（区間の註記も「到達確認に留める」と述べる）。
-- `project-contract-navigation.spec.ts:377`、`project-schedule-navigation.spec.ts:335` — pm/37.5・39.5: セクションのデータが揃うことは確かめるが、`Promise.allSettled` による**並行**取得かどうかは逐次実装でも同じ主張が通るため観測できない。
-- `project-execution-budget-navigation.spec.ts:1` — pm/41.5: 同上（実行予算セクションの並行取得）。
+- `e2e/specs/admin/role-permission.spec.ts` の区間 `管理者はロールに権限を追加できる` / `管理者はロールから権限を削除できる` / `管理者はロールの権限一覧を取得できる` — ua/19.5・22.2・22.7: 権限の付与・剥奪という操作そのものは行っており、同時に記録されるべき監査ログだけを参照していない。
+- `e2e/specs/admin/user-role.spec.ts` の区間 `ユーザーへのロール割り当て` / `管理者はユーザーにロールを追加できる` / `管理者はユーザーからロールを削除できる` — ua/20.5・22.3・22.7: ユーザーへのロール割り当てを実際に行い、監査ログの記録だけを見ていない。
+- `e2e/specs/admin/role-management.spec.ts` の区間 `管理者は新しいロールを作成できる` / `管理者はロール情報を更新できる` — ua/17.3・22.1: ロールの作成・更新・削除を行い、監査ログだけを見ていない。
+- `e2e/specs/admin/audit-log.spec.ts` の区間 `ロール作成時に監査ログが記録される` / `ユーザーへのロール割り当て時に監査ログが記録される` / `監査ログには必要な情報が含まれる` / `監査ログは規定の構造を持つ` / `監査ログは操作と同時に保存される` — ua/22.6・22.7・22.8・22.12: 監査ログの記録・取得は確かめるが、保存失敗時の中断・変更前後の値・DB索引という内部の性質だけが観測できない。
+- `e2e/specs/admin/rbac.spec.ts` の区間 `複数ロールを持つユーザーは全ロールの権限を持つ` / `権限はリソースタイプとアクションの組み合わせで定義される` / `権限のないユーザーはAPIエンドポイントにアクセスできない` / `プロジェクトには所有者情報（createdById）が正しく設定される` — ua/6.5・6.8・21.6・21.7・21.9・21.10: 権限チェックの結果（許可・拒否）は確かめるが、拒否のログ記録だけが見えない。
+- `e2e/specs/auth/two-factor.spec.ts` の区間 `2FAセットアップページが正しく表示される` / `TOTPコード検証後にバックアップコードが表示される` / `2FAが有効な状態でログイン時にTOTP検証が要求される` / `正しいTOTPコードでログインできる` / `2FA有効化・無効化が監査ログに記録される` — ua/27.1〜27.3・27.7・27.8・27A.3・27C.1〜27C.5: 2FA の設定と検証は通しで確かめるが、乱数長・暗号化保存・使用ライブラリ・SHA-1・環境変数という実装の内側だけが見えない。
+- `e2e/specs/auth/token-refresh.spec.ts` の区間 `アクセストークン有効期限の5分前に自動リフレッシュされる` / `401エラー時にトークンがクリアされる` — ua/5.7〜5.10: トークンの発行と更新は確かめるが、署名アルゴリズムと有効期限の環境変数だけが見えない。
+- `e2e/specs/auth/login.spec.ts` の区間 `有効な認証情報でログインできる` — ua/4.4・4.5・4.7: ログイン成功でトークンが発行されることは確かめるが、トークンを復号して中身を検査していない。
+- `e2e/specs/auth/register.spec.ts` の区間 `有効な情報で新規登録できる` — ua/2.9・2.10・2.12: 登録そのものは成功まで確かめるが、Argon2id のパラメータ・招待トークンの使用済み化・ロール割当だけが見えない。
+- `e2e/specs/auth/security-accessibility.spec.ts` の区間 `XSS攻撃が適切にエスケープされる` / `SQLインジェクション攻撃が防がれる` / `改ざんされたトークンでリクエストが拒否される` / `パスワード表示/非表示切り替えが正しく動作する` — ua/10.2〜10.5・10.7: 画面の安全側の挙動は確かめるが、送信ヘッダやログの内容だけが見えない。
+- `e2e/specs/security/security-measures.spec.ts` の区間 `連続ログイン失敗でアカウントがロックされる` / `無効なトークンでアクセスが拒否される` / `APIレスポンスにパスワードが含まれない` — ua/26.4・26.9・26.11・26.12: 攻撃入力が拒否されることは確かめるが、拒否の記録と設定値だけが見えない。
+- `e2e/specs/estimate-requests/estimate-request-ocr-vision-e2e.spec.ts` の区間 `Claude Vision APIに認証付きでBase64画像を送信できる (estimate-request/REQ-21.2, REQ-21.3)` / `Claude Vision APIレスポンスにAPIキーが含まれない (estimate-request/REQ-22.4, REQ-22.6)` / `Claude Vision APIのバリデーションエラーが適切に処理される (estimate-request/REQ-23.5, REQ-23.7)` および冒頭註釈 — er/21.4・22.3・22.5・22.6・23.1〜23.7・26.1〜26.4: OCR の起動と失敗表示は確かめるが、API キー未設定で 503 に止まるため送信本体もバックエンドログも観測できない。
+- `e2e/specs/site-surveys/site-survey-export.spec.ts` の区間 `報告書出力対象がある場合にPDF生成プログレスが表示されダウンロードが開始される` — ss/11.2〜11.6: PDF 出力の起動とファイル名までは確かめるが、PDF を開いて中身を検査していない。
+- `e2e/specs/estimate-requests/site-survey-report-e2e.spec.ts` の区間 `選択して出力実行で「生成中...」インジケータが表示され、対象画像0件のときエラーメッセージが表示される (REQ-35.5, 35.6, 35.8, 35.11)` および冒頭註釈 — er/35.6・35.7: 出力要求の到達までは確かめるが、PDF の受領そのものを確かめていない（区間の註記も「到達確認に留める」と述べる）。
+- `e2e/specs/project-contract-navigation.spec.ts` の区間 `detail-summary APIが契約書セクションデータを正しく返却する (project-management/REQ-37.1, REQ-37.2, REQ-37.3, REQ-37.5)`、`e2e/specs/project-schedule-navigation.spec.ts` の区間 `detail-summary APIが工程表セクションデータを正しく返却する (project-management/REQ-39.1, REQ-39.2, REQ-39.3, REQ-39.5)` — pm/37.5・39.5: セクションのデータが揃うことは確かめるが、`Promise.allSettled` による**並行**取得かどうかは逐次実装でも同じ主張が通るため観測できない。
+- `e2e/specs/project-execution-budget-navigation.spec.ts` の冒頭註釈 — pm/41.5: 同上（実行予算セクションの並行取得）。
 
 ### 4.2 遷移先の画面は確かめるが、クリックの契機を作っていない
 
 原文が述べる**遷移先**は実際に表示まで確かめており、未観測なのは**クリックという契機**だけである。
 `page.goto` で直接その画面へ入っている。
 
-- `auth/sessions.spec.ts:118,193` — ua/28.30・28.35・28.42・28.44: セッション管理画面とログアウト後の画面は表示まで確かめている。
-- `auth/two-factor.spec.ts:85,297,550` — ua/28.17・28.28・28.29・28.33: 2FA 設定画面とその前後の画面は表示まで確かめている。
-- `auth/profile.spec.ts:139,162` — ua/28.21〜28.27・28.37: プロフィール画面の各セクションは表示まで確かめている。
-- `admin/rbac.spec.ts:41,60` — ua/28.37・28.45・6.1・6.2・17.4・18.3・21.8: 管理画面の到達と権限による出し分けは確かめている。
-- `admin/admin-setup.spec.ts:16,24,42` — ua/3.2・3.3・17.4・18.5・28.37: 初期管理者の設定画面は表示まで確かめている。
-- `admin/permission-management.spec.ts:23,239` — ua/18.7・28.39: 権限管理画面は表示まで確かめている。
-- `admin/role-management.spec.ts:26` — ua/28.38: ロール管理画面は表示まで確かめている。
-- `auth/invitations.spec.ts:210` — ua/28.36: 招待管理画面は表示まで確かめている。
-- `auth/navigation.spec.ts:168` — ua/28.34: セッション管理画面の内容は表示まで確かめている。
-- `projects/project-breadcrumb.spec.ts:506,646,848,920` — pm/20.1・20.2・21.18・31.1・32.1: パンくずの各階層の表記は確かめている。
-- `estimate/estimate-navigation-e2e.spec.ts:504,606,636,1` — ec/15.2・15.4・15.6・15.9・15.12: 見積関連画面の到達は確かめている。
-- `itemized-statements/itemized-statement-crud.spec.ts:1,1597` — isg/9.2: 内訳書のパンくず表記は確かめている（新規作成画面の側は §3.2 の是正で `itemized-statement-create-page.spec.ts` が名乗るようになった）。
+- `e2e/specs/auth/sessions.spec.ts` の区間 `セッション一覧が正しく表示される` / `全デバイスログアウトができる` — ua/28.30・28.35・28.42・28.44: セッション管理画面とログアウト後の画面は表示まで確かめている。
+- `e2e/specs/auth/two-factor.spec.ts` の区間 `2FAセットアップページが正しく表示される` / `2FA設定完了時に成功メッセージが表示される` / `バックアップコードでログインできる` — ua/28.17・28.28・28.29・28.33: 2FA 設定画面とその前後の画面は表示まで確かめている。
+- `e2e/specs/auth/profile.spec.ts` の区間 `管理者ユーザーには「ユーザー管理」リンクが表示される` / `新パスワード入力時に強度インジケーターが表示される` — ua/28.21〜28.27・28.37: プロフィール画面の各セクションは表示まで確かめている。
+- `e2e/specs/admin/rbac.spec.ts` の区間 `一般ユーザーは管理者専用ページにアクセスできない` / `管理者はユーザー管理ページにアクセスできる` — ua/28.37・28.45・6.1・6.2・17.4・18.3・21.8: 管理画面の到達と権限による出し分けは確かめている。
+- `e2e/specs/admin/admin-setup.spec.ts` の区間 `初期管理者アカウントセットアップ` / `システム初期化時に管理者アカウントが存在する` / `シーディング後に事前定義ロールが存在する` — ua/3.2・3.3・17.4・18.5・28.37: 初期管理者の設定画面は表示まで確かめている。
+- `e2e/specs/admin/permission-management.spec.ts` の区間 `権限管理` / `管理者は権限管理画面にアクセスできる` — ua/18.7・28.39: 権限管理画面は表示まで確かめている。
+- `e2e/specs/admin/role-management.spec.ts` の区間 `動的ロール管理` — ua/28.38: ロール管理画面は表示まで確かめている。
+- `e2e/specs/auth/invitations.spec.ts` の区間 `一般ユーザーは招待画面にアクセスできない` — ua/28.36: 招待管理画面は表示まで確かめている。
+- `e2e/specs/auth/navigation.spec.ts` の区間 `プロフィールからセッション管理画面に遷移できる` — ua/28.34: セッション管理画面の内容は表示まで確かめている。
+- `e2e/specs/projects/project-breadcrumb.spec.ts` の区間 `現在ページ項目がクリック不可（リンクなし）であることを確認 (project-management/REQ-21.18)` / `パンくずナビゲーションにaria-label=` / `axe-playwrightによるパンくずナビゲーションのアクセシビリティチェック (project-management/REQ-21.18, REQ-20.1, REQ-20.2)` / `区切り文字（>）にaria-hidden=` — pm/20.1・20.2・21.18・31.1・32.1: パンくずの各階層の表記は確かめている。
+- `e2e/specs/estimate/estimate-navigation-e2e.spec.ts` の区間 `REQ-15.1：見積書一覧画面でパンくずが「ダッシュボード > プロジェクト一覧 > プロジェクト > 見積書一覧」形式で表示される` / `REQ-15.5：見積書新規作成画面でパンくずが正しい形式で表示される` / `REQ-15.8：見積書詳細画面でパンくずが「ダッシュボード > プロジェクト一覧 > プロジェクト > 見積書一覧 > 見積書」形式で表示される` および冒頭註釈 — ec/15.2・15.4・15.6・15.9・15.12: 見積関連画面の到達は確かめている。
+- `e2e/specs/itemized-statements/itemized-statement-crud.spec.ts` の冒頭註釈 — isg/9.2: 内訳書のパンくず表記は確かめている（新規作成画面の側は §3.2 の是正で `e2e/specs/itemized-statements/itemized-statement-create-page.spec.ts` の区間 `内訳書新規作成画面にパンくずナビゲーションが表示される (itemized-statement-generation/REQ-9.2)` / `内訳書新規作成画面のパンくずが正しい形式で表示される (itemized-statement-generation/REQ-9.2)` が名乗るようになった）。
 
 ### 4.3 操作の入口は確かめるが、操作の結果を確かめていない
 
 原文が述べる**操作の手段**は実際に描画まで確かめており、未観測なのは**押した後の結果**だけである。
 
-- `quantity-tables/quantity-table-phase10.spec.ts:201,363` — qtg/23.3・23.4・26.1: 当該のボタン群が描画されることは確かめている。
-- `quantity-tables/group-sort-e2e.spec.ts:335` — qtg/23.3・23.4: 同上。
-- `quantity-tables/quantity-table-copy.spec.ts:250` — qtg/17.6: 複製の導線は描画まで確かめている（expect が無いのは別種の欠陥で `check:e2e-guards` の所管）。
-- `quantity-tables/quantity-table-crud.spec.ts:1618` — qtg/6.2: 移動の導線は描画まで確かめている（移動先選択UIを開く先は 115.190 系の未実装と重なる）。
-- `site-surveys/site-survey-annotations.spec.ts:329`、`site-survey-export.spec.ts:401,541` — ss/11.1・11.8・12.1: 出力の導線は描画まで確かめている。
-- `site-surveys/site-survey-phase18.spec.ts:626` — ss/9.1: 注釈保存の導線は描画まで確かめている。
-- `site-surveys/site-survey-viewer.spec.ts:361` — ss/4.11: ドラッグハンドルが `draggable` 属性と `aria-label` を備えて描画されることまで確かめている（実際の並び替えは `site-survey-image-order.spec.ts:441` が確かめる）。
-- `execution-budget/amendment-apply-e2e.spec.ts:148` — ebm/15.1: 変更適用の導線は描画まで確かめている。
-- `construction-photos/construction-photo-workflow.spec.ts:196` — cp/5.1・6.1: 当該の操作手段は描画まで確かめている。
-- `estimate-requests/received-quotation-status-e2e.spec.ts:1282` — er/11.8: 当該の操作手段は描画まで確かめている。
+- `e2e/specs/quantity-tables/quantity-table-phase10.spec.ts` の区間 `数量グループの「上へ移動」「下へ移動」ボタンが表示される` / `PDF出力ボタンが表示される` — qtg/23.3・23.4・26.1: 当該のボタン群が描画されることは確かめている。
+- `e2e/specs/quantity-tables/group-sort-e2e.spec.ts` の区間 `数量グループに「上へ移動」「下へ移動」ボタンが表示される (REQ-23.3, REQ-23.4)` — qtg/23.3・23.4: 同上。
+- `e2e/specs/quantity-tables/quantity-table-copy.spec.ts` の区間 `数量表コピーの一連フロー（ダイアログ表示 -> 名前入力 -> コピー実行 -> 編集画面遷移）(quantity-table-generation/REQ-17.1, 17.2, 17.3, 17.6)` — qtg/17.6: 複製の導線は描画まで確かめている（expect が無いのは別種の欠陥で `check:e2e-guards` の所管）。
+- `e2e/specs/quantity-tables/quantity-table-crud.spec.ts` の区間 `数量項目移動時にUI表示される (quantity-table-generation/REQ-6.2)` — qtg/6.2: 移動の導線は描画まで確かめている（移動先選択UIを開く先は 115.190 系の未実装と重なる）。
+- `e2e/specs/site-surveys/site-survey-annotations.spec.ts` の区間 `PDF出力ボタンが表示される (site-survey/REQ-11.1)`、`e2e/specs/site-surveys/site-survey-export.spec.ts` の区間 `調査報告書出力ボタンが表示される` / `画像ビューアにエクスポートボタンが表示される` — ss/11.1・11.8・12.1: 出力の導線は描画まで確かめている。
+- `e2e/specs/site-surveys/site-survey-phase18.spec.ts` の区間 `注釈エディタに保存ボタンが表示される` — ss/9.1: 注釈保存の導線は描画まで確かめている。
+- `e2e/specs/site-surveys/site-survey-viewer.spec.ts` の区間 `ドラッグアンドドロップUIが存在する (site-survey/REQ-4.11)` — ss/4.11: ドラッグハンドルが `draggable` 属性と `aria-label` を備えて描画されることまで確かめている（実際の並び替えは `e2e/specs/site-surveys/site-survey-image-order.spec.ts` の区間 `ドラッグ&ドロップでUI上の順序が変更される` が確かめる）。
+- `e2e/specs/execution-budget/amendment-apply-e2e.spec.ts` の区間 `未反映の変更契約が存在するときのみ「変更契約の反映」ボタンが表示される (execution-budget-management/REQ-15.1)` — ebm/15.1: 変更適用の導線は描画まで確かめている。
+- `e2e/specs/construction-photos/construction-photo-workflow.spec.ts` の区間 `3系統アップローダ: ローカルアップロードで写真項目を追加でき、カメラ/現調導線が存在する` — cp/5.1・6.1: 当該の操作手段は描画まで確かめている。
+- `e2e/specs/estimate-requests/received-quotation-status-e2e.spec.ts` の区間 `REQ-11.8: ファイルアップロードフィールドにサイズ制限の説明が表示される` — er/11.8: 当該の操作手段は描画まで確かめている。
 
 ### 4.4 原文が挙げる前提や規範の一部を用意していない（主題は同じ）
 
@@ -318,32 +363,32 @@ _Boundary_ 外（`frontend/src`）なので §6 へ引き継ぐ。**
 ここに残すのは、区間が扱う主題が原文と同じで、原文が並べる条件・項目の**一部**を用意して
 いないものだけである。**前件に一度も入らないもの・逆を確定させるものは §3 へ移した。**
 
-- `auth/auth-initialization.spec.ts:72,146,277` — ua/16A.1・16A.3・16A.5・16A.8・16A.13・28.1・28.3: 主題は起動時のセッション復元と初期表示で、復元後のダッシュボード・未認証時のログイン画面・読み込み表示を実際に確かめている。未観測は待ち時間の閾値と ARIA の細目。
-- `auth/token-refresh.spec.ts:49,137,270,341,450` — ua/16.1・16.2・16.4・16.5・16.13・16.15・16.17・16.20・5.3: 主題はアクセストークンの自動リフレッシュと失敗時の扱いで、期限切れ・無効・同時要求の各経路を実際に通している。未観測は有効期限の具体値。
-- `auth/register.spec.ts:209,242〜343,444` — ua/2.8・11.11・12.1・12.2・12.5・12.7〜12.10・28.20: 主題は登録フォームとパスワード強度の拒否で、長さ・大文字・小文字・数字・記号・連続同一文字・漏洩の各条件を実際に入力して拒否まで確かめている。未観測は各条件の内部実装。
-- `auth/profile.spec.ts:55,248,261,322` — ua/2.6・9.2・14.1・14.3・14.10: 主題はプロフィール画面の表示とパスワード変更の拒否で、画面の項目とフォーカス移動を実際に確かめている。未観測はフォーカス順序の全経路。
-- `auth/password-reset.spec.ts:73,203,222,277,814` — ua/7.1・7.2・29.9・29.14・29.17: 主題はリセットの要求・トークン検証・完了後の遷移で、要求から再ログインまでを通しで確かめている。未観測はメールの送信そのもの。
-- `auth/invitations.spec.ts:113,231` — ua/1.3・1.6・13.3・13.10: 主題は招待の送信と一覧のステータス表示で、送信と表示を実際に確かめている。未観測は招待メールの内容と有効期限。
-- `execution-budget/execution-budget-display-e2e.spec.ts:1,374,499,538` — ebm/1.6・3.8・17.6・18.4: 主題は実行予算画面の表示項目で、画面の各欄を実際に確かめている。未観測は一部の状態（0件・上限など）。
-- `estimate-requests/estimate-request-e2e.spec.ts:1537,2965,3598` — er/10.3・10.4・39.12: 主題は見積依頼の作成・編集画面の項目で、当該の欄を実際に確かめている。未観測は原文が並べる項目のうち一部。
-- `estimate-requests/net-amount-auto-fill-e2e.spec.ts:210,270,298` — er/34.1・34.2・34.3: 主題は NET 金額の自動設定で、自動設定そのものは確かめている。未観測は原文の条件節が挙げる刺激の経路（別の導線から刺激している）。
-- `quantity-tables/import-e2e.spec.ts:743` — qtg/31.3〜31.9: 主題は一括取り込みで、取り込みの起動と結果表示を確かめている。最終主張が「完了**または**失敗」の選言である点は主張の強さの問題で `check:e2e-guards` の所管。
-- `quantity-tables/quantity-table-crud.spec.ts:647,2053,2951,3238,2148` — qtg/3.3・3.4・7.1・7.2・9.3・10.3: 主題は数量項目の入力欄と補完で、当該の欄と候補表示を実際に確かめている。未観測は原文が並べる欄のうち一部。
-- `site-surveys/site-survey-export.spec.ts:294,359` — ss/10.3・10.5: 主題は注釈付き画像のエクスポートで、出力の起動と結果を確かめている。未観測は解像度と日本語レンダリングの結果そのもの。
-- `site-surveys/site-survey-navigation.spec.ts:154`、`site-survey-phase18.spec.ts:155,242` — pm/24.1: 主題はプロジェクト詳細の現場調査セクションで、見出しと導線を実際に確かめている。未観測は一覧の件数・並び。
-- `projects/project-crud.spec.ts:81,462,537,752` — pm/1.7・8.5・8.6・9.6: 主題はプロジェクトの作成・編集フォームの挙動で、当該の欄と保存を実際に確かめている。未観測は原文が並べる条件のうち一部。
-- `projects/project-name-uniqueness.spec.ts:257` — pm/8.12: 主題は編集時の一意性チェックで、重複時のエラー表示を確かめている。未観測は自分自身を除外する条件。
+- `e2e/specs/auth/auth-initialization.spec.ts` の区間 `should display login page without showing protected content for unauthenticated users` / `should restore session and display dashboard for authenticated users` / `should have accessible loading indicator with proper ARIA attributes` — ua/16A.1・16A.3・16A.5・16A.8・16A.13・28.1・28.3: 主題は起動時のセッション復元と初期表示で、復元後のダッシュボード・未認証時のログイン画面・読み込み表示を実際に確かめている。未観測は待ち時間の閾値と ARIA の細目。
+- `e2e/specs/auth/token-refresh.spec.ts` の区間 `アクセストークン期限切れ時に自動的にリフレッシュされる` / `複数の同時APIリクエストでリフレッシュが1回のみ実行される` / `リフレッシュトークンが無効な場合ログイン画面にリダイレクトされる` / `401エラー時にトークンがクリアされる` / `明示的なログアウト時はリダイレクト先情報が設定されない` — ua/16.1・16.2・16.4・16.5・16.13・16.15・16.17・16.20・5.3: 主題はアクセストークンの自動リフレッシュと失敗時の扱いで、期限切れ・無効・同時要求の各経路を実際に通している。未観測は有効期限の具体値。
+- `e2e/specs/auth/register.spec.ts` の区間 `既に登録済みのメールアドレスではエラーが表示される` / `12文字未満のパスワードではエラーが表示される` / `大文字を含まないパスワードではエラーが表示される` / `小文字を含まないパスワードではエラーが表示される` / `数字を含まないパスワードではエラーが表示される` / `記号を含まないパスワードではエラーが表示される` / `漏洩パスワードではエラーが表示される` / `連続した同一文字を含むパスワードではエラーが表示される` / `ページロード時に表示名フィールドにオートフォーカスされる` — ua/2.8・11.11・12.1・12.2・12.5・12.7〜12.10・28.20: 主題は登録フォームとパスワード強度の拒否で、長さ・大文字・小文字・数字・記号・連続同一文字・漏洩の各条件を実際に入力して拒否まで確かめている。未観測は各条件の内部実装。
+- `e2e/specs/auth/profile.spec.ts` の区間 `プロフィール画面が正しく表示される` / `大文字を含まない新パスワードではエラーが表示される` / `連続した同一文字を含む新パスワードではエラーが表示される` / `Tab キーで論理的な順序でフォーカスが移動する` — ua/2.6・9.2・14.1・14.3・14.10: 主題はプロフィール画面の表示とパスワード変更の拒否で、画面の項目とフォーカス移動を実際に確かめている。未観測はフォーカス順序の全経路。
+- `e2e/specs/auth/password-reset.spec.ts` の区間 `有効なメールアドレスでパスワードリセットを要求できる` / `無効なリセットトークンではエラーが表示される` / `パスワードリセット画面が正しく表示される` / `12文字未満のパスワードではエラーが表示される` / `パスワードリセット要求画面に必要な要素が表示される` — ua/7.1・7.2・29.9・29.14・29.17: 主題はリセットの要求・トークン検証・完了後の遷移で、要求から再ログインまでを通しで確かめている。未観測はメールの送信そのもの。
+- `e2e/specs/auth/invitations.spec.ts` の区間 `有効なメールアドレスで招待を送信できる` / `招待一覧に各ステータスが正しく表示される` — ua/1.3・1.6・13.3・13.10: 主題は招待の送信と一覧のステータス表示で、送信と表示を実際に確かめている。未観測は招待メールの内容と有効期限。
+- `e2e/specs/execution-budget/execution-budget-display-e2e.spec.ts` の区間 `合計行が表示される (execution-budget-management/REQ-3.8)` / `未認証ユーザーは実行予算操作を拒否される (execution-budget-management/REQ-17.6)` / `出来高率が%付きで表示される (execution-budget-management/REQ-18.4)` および冒頭註釈 — ebm/1.6・3.8・17.6・18.4: 主題は実行予算画面の表示項目で、画面の各欄を実際に確かめている。未観測は一部の状態（0件・上限など）。
+- `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` の区間 `REQ-10.3: 未認証ユーザーはログインページにリダイレクトされる` / `REQ-10.4: 未認証状態での操作はログインにリダイレクトされる` / `REQ-39.10 / 39.12: 編集画面で内訳書ブロックが非表示、name 更新が可能` — er/10.3・10.4・39.12: 主題は見積依頼の作成・編集画面の項目で、当該の欄を実際に確かめている。未観測は原文が並べる項目のうち一部。
+- `e2e/specs/estimate-requests/net-amount-auto-fill-e2e.spec.ts` の区間 `項目選択から転記時にNET金額欄が空欄なら自動入力する (REQ-34.1, 34.6)` / `NET金額欄に小数値を入力してフォーカスアウトすると整数値（小数第1位四捨五入）にフォーマットされる (REQ-34.4, 34.5)` / `NET金額欄に既存値が入力されている場合、項目選択から転記しても値が変更されない (REQ-34.3)` — er/34.1・34.2・34.3: 主題は NET 金額の自動設定で、自動設定そのものは確かめている。未観測は原文の条件節が挙げる刺激の経路（別の導線から刺激している）。
+- `e2e/specs/quantity-tables/import-e2e.spec.ts` の区間 `一括取り込み実行後、完了メッセージが表示される (REQ-31.3, 31.4, 31.5, 31.6, 31.7, 31.8, 31.9)` — qtg/31.3〜31.9: 主題は一括取り込みで、取り込みの起動と結果表示を確かめている。最終主張が「完了**または**失敗」の選言である点は主張の強さの問題で `check:e2e-guards` の所管。
+- `e2e/specs/quantity-tables/quantity-table-crud.spec.ts` の区間 `数量表編集画面` / `大項目フィールドでオートコンプリート候補が表示される (quantity-table-generation/REQ-7.1)` / `調整係数に0以下の値を入力すると警告が表示される (quantity-table-generation/REQ-9.3)` / `丸め設定に0以下の値を入力するとエラーが表示される (quantity-table-generation/REQ-10.3)` / `中項目フィールドでオートコンプリート候補が表示される (quantity-table-generation/REQ-7.2)` — qtg/3.3・3.4・7.1・7.2・9.3・10.3: 主題は数量項目の入力欄と補完で、当該の欄と候補表示を実際に確かめている。未観測は原文が並べる欄のうち一部。
+- `e2e/specs/site-surveys/site-survey-export.spec.ts` の区間 `写真管理パネルでコメントを入力・保存できる (site-survey/REQ-10.9)` / `コメントが2000文字を超える場合にエラーが表示される` — ss/10.3・10.5: 主題は注釈付き画像のエクスポートで、出力の起動と結果を確かめている。未観測は解像度と日本語レンダリングの結果そのもの。
+- `e2e/specs/site-surveys/site-survey-navigation.spec.ts` の区間 `プロジェクト詳細画面に現場調査タブ/セクションが表示される (project-management/REQ-24.1)`、`e2e/specs/site-surveys/site-survey-phase18.spec.ts` の区間 `現場調査セクションが表示される` / `現場調査カードをクリックして詳細画面に遷移できる` — pm/24.1: 主題はプロジェクト詳細の現場調査セクションで、見出しと導線を実際に確かめている。未観測は一覧の件数・並び。
+- `e2e/specs/projects/project-crud.spec.ts` の区間 `編集キャンセル時は変更が破棄される (project-management/REQ-8.5, REQ-8.9)` / `編集中に他のユーザーがプロジェクトを更新した場合、競合エラーが表示される (project-management/REQ-8.6, REQ-8.10)` / `プロジェクトに関連データが存在する場合、警告ダイアログが表示される (project-management/REQ-9.5, REQ-9.6)` — pm/8.5・8.6・9.6: 主題はプロジェクトの作成・編集フォームの挙動で、当該の欄と保存を実際に確かめている。未観測は原文が並べる条件のうち一部。（`pm/1.7` の登録はタスク 115.300 で外した。当該の被覆印は §3.3 の一律ずれの是正で `1.7/1.8→1.10/1.11` へ付け替えられており、区間 `フォーム入力→送信→詳細画面遷移が正常に行われる (project-management/REQ-1.10, REQ-1.11)` は `pm/1.7` を名乗っていない。`pm/1.7` はいま `e2e/specs/projects/project-address-autofill.spec.ts` の区間 `現場住所に値がある状態で顧客を選択すると、既存の住所が上書きされない (project-management/REQ-1.7)` が名乗る。同区間の裁定は本記録の母集団の外である。）
+- `e2e/specs/projects/project-name-uniqueness.spec.ts` の区間 `他のプロジェクトと同一のプロジェクト名に変更するとエラーが表示される (project-management/REQ-8.8, REQ-8.11, REQ-8.12)` — pm/8.12: 主題は編集時の一意性チェックで、重複時のエラー表示を確かめている。未観測は自分自身を除外する条件。
   （同区間が併せて名乗っていた pm/8.7 は §3.6 で取り下げた。8.7 の原文は更新成功時の成功メッセージであり、主題が違う＝A のためここには残さない。）
-- `projects/project-autocomplete.spec.ts:75,183` — pm/1.4・16.5・16.6: 主題は顧客名のオートコンプリートで、候補の表示と選択を確かめている。未観測はフリガナの両表記など入力の一部。
-- `itemized-statements/itemized-statement-crud.spec.ts:1768,1994,2508,1` — isg/2.3・4.6・4.7・13.6・14.5: 主題は内訳書の一覧・詳細とフィルタで、当該の表示と操作を確かめている。未観測はフィルタ適用時の出力内容。
-- `quantity-tables/photo-preview-e2e.spec.ts:251` — qtg/20.3: 主題は写真プレビューの表示で、ダイアログの表示を確かめている。未観測は注釈付き画像の中身。
-- `estimate-requests/pdf-text-extraction-e2e.spec.ts:521` — er/17.6: 主題は PDF のテキスト抽出で、抽出の起動と結果表示を確かめている。未観測は抽出結果の内容。
-- `estimate-requests/preview-resize-e2e.spec.ts:197` — er/36.7: 主題はプレビューの拡大縮小で、操作と表示の変化を確かめている。未観測は倍率の具体値。
-- `trading-partners/trading-partner-navigation.spec.ts:298` — tpm/12.24: 主題は削除成功後の一覧への遷移で、遷移そのものを確かめている。未観測は削除の確認ダイアログ経由という経路。
-- `trading-partners/trading-partner-additional.spec.ts:110` — tpm/7.6: 主題は取引先の更新で、更新そのものを確かめている。未観測は同時に記録されるべき監査ログ。
-- `trading-partners/trading-partner-data-integrity.spec.ts:578` — tpm/7.5: 主題は取引先の参照整合性で、関連の維持を確かめている。未観測は削除時の扱いの一部。
-- `trading-partners/trading-partner-composite-unique.spec.ts:271` — tpm/2.11: 主題は取引先名と部課名の組み合わせの一意性で、重複時のエラー表示を確かめている。未観測は大文字小文字・空白の正規化。
-- `company-info/company-info-api.spec.ts:56,81` — company-info/6.7・6.8: 原文は「閲覧/保存に権限を要求する」という無条件の規範であり、主題は同じ。権限を持つ側で 200 と保存成功を確かめており、未観測は権限を欠く側の応答。
+- `e2e/specs/projects/project-autocomplete.spec.ts` の区間 `オートコンプリート候補をクリックすると取引先フィールドに反映される (project-management/REQ-1.4, REQ-16.10)` / `オートコンプリート候補は最大10件まで表示される (project-management/REQ-16.5)` — pm/1.4・16.5・16.6: 主題は顧客名のオートコンプリートで、候補の表示と選択を確かめている。未観測はフリガナの両表記など入力の一部。
+- `e2e/specs/itemized-statements/itemized-statement-crud.spec.ts` の区間 `同一キーの項目が集計される (itemized-statement-generation/REQ-2.1, REQ-2.2, REQ-2.3, REQ-2.4)` / `ページネーションが正しく機能する (itemized-statement-generation/REQ-4.6, REQ-4.8, REQ-4.9)` および冒頭註釈 — isg/2.3・4.6・4.7・13.6・14.5: 主題は内訳書の一覧・詳細とフィルタで、当該の表示と操作を確かめている。未観測はフィルタ適用時の出力内容。
+- `e2e/specs/quantity-tables/photo-preview-e2e.spec.ts` の区間 `プレビューダイアログ表示時にimg要素が存在し、ESCで閉じられる (REQ-20.3)` — qtg/20.3: 主題は写真プレビューの表示で、ダイアログの表示を確かめている。未観測は注釈付き画像の中身。
+- `e2e/specs/estimate-requests/pdf-text-extraction-e2e.spec.ts` の区間 `単一ページPDFではナビゲーションが非表示 (estimate-request/REQ-17.6)` — er/17.6: 主題は PDF のテキスト抽出で、抽出の起動と結果表示を確かめている。未観測は抽出結果の内容。
+- `e2e/specs/estimate-requests/preview-resize-e2e.spec.ts` の区間 `localStorage に小さすぎる値（< 200px）が保存されていても 200px にクランプされて初期化される (REQ-36.5, 36.7)` — er/36.7: 主題はプレビューの拡大縮小で、操作と表示の変化を確かめている。未観測は倍率の具体値。
+- `e2e/specs/trading-partners/trading-partner-navigation.spec.ts` の区間 `/trading-partners/:id にアクセスすると取引先詳細画面が表示される (trading-partner-management/REQ-12.11, REQ-12.24)` — tpm/12.24: 主題は削除成功後の一覧への遷移で、遷移そのものを確かめている。未観測は削除の確認ダイアログ経由という経路。
+- `e2e/specs/trading-partners/trading-partner-additional.spec.ts` の区間 `取引先作成時に監査ログが記録される (trading-partner-management/REQ-7.4, REQ-7.6)` — tpm/7.6: 主題は取引先の更新で、更新そのものを確かめている。未観測は同時に記録されるべき監査ログ。
+- `e2e/specs/trading-partners/trading-partner-data-integrity.spec.ts` の区間 `一般ユーザーが取引先の作成・編集操作を実行できる (trading-partner-management/REQ-7.2, REQ-7.5)` — tpm/7.5: 主題は取引先の参照整合性で、関連の維持を確かめている。未観測は削除時の扱いの一部。
+- `e2e/specs/trading-partners/trading-partner-composite-unique.spec.ts` の区間 `同一の取引先名で部課/支店/支社名が空と値ありの組み合わせは別の取引先として作成できる (trading-partner-management/REQ-2.11)` — tpm/2.11: 主題は取引先名と部課名の組み合わせの一意性で、重複時のエラー表示を確かめている。未観測は大文字小文字・空白の正規化。
+- `e2e/specs/company-info/company-info-api.spec.ts` の区間 `REQ-6.7: 自社情報の閲覧にcompany_info:read権限を要求する（認証済みユーザーはアクセス可能）` / `REQ-6.8: 自社情報の保存にcompany_info:update権限を要求する（認証済みユーザーは保存可能）` — company-info/6.7・6.8: 原文は「閲覧/保存に権限を要求する」という無条件の規範であり、主題は同じ。権限を持つ側で 200 と保存成功を確かめており、未観測は権限を欠く側の応答。
 
 **追加登録（タスク 115.250。2026-09-03）。以下の一件は §3（本タスクで是正した被覆印）にも §4 にも
 登録されず、§6 の引き継ぎ項目としてのみ扱われていた。** 115.220 が `project-management/REQ-27.4` の
@@ -352,19 +397,29 @@ _Boundary_ 外（`frontend/src`）なので §6 へ引き継ぐ。**
 **この「§3 にも §4 にも無く §6 にだけ在った」ことの実測（HEAD 版に当てたコマンドと出力）は
 §6 の当該項目の末尾に置いた。**
 
-- `estimate-requests/estimate-request-e2e.spec.ts:386` — pm/27.4: 主題は「見積依頼が存在しない場合の
+- `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` の区間 `REQ-1.3: 見積依頼がない場合、「すべて見る」リンクが非表示である (project-management/REQ-27.4)` — pm/27.4: 主題は「見積依頼が存在しない場合の
   セクション右上の表示」で原文（要件27 の 4）と同じであり、区間は右上の「すべて見る」リンクの
   `not.toBeVisible()` を実際に確かめている。未観測は原文が連言で並べるもう一方——右上の
   「新規作成」ボタンの非表示——と、前件（見積依頼が 0 件であること）の確定。
   - **区間は行番号ではなく表題の逐語で指す**:
     `REQ-1.3: 見積依頼がない場合、「すべて見る」リンクが非表示である (project-management/REQ-27.4)`。
-    §4 の行番号は 115.188 当時のものであり、その後の編集でずれている。**同じ §4.4 の項目
-    `estimate-requests/estimate-request-e2e.spec.ts:1537,2965,3598` が実例で、115.220 が同ファイルへ
-    観測を足した分だけ一律に 13 行ずれ、三件はいま `:1550`・`:2978`・`:3611` にある**（2026-09-03 に実測。
-    下のコマンドは 4 行を出す。四行目の `:3668` は §4 が挙げていない二つ目の er/39.12 の被覆印であり、
-    ずれの実測とは別の事柄である。
-    `npx tsx scripts/scan-coverage-mark-correspondence.ts --tsv | awk -F'\t' '$1=="e2e/specs/estimate-requests/estimate-request-e2e.spec.ts" && $3 ~ /REQ-(10[.]3|10[.]4|39[.]12)$/ {print $2, $3}'`）。
-    行番号の一律の追随は本項目の _Boundary_ 外であり、直していない。
+    §4 の行番号は 115.188 当時のものであり、その後の編集でずれていた。**同じ §4.4 の項目
+    `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts` の区間 `REQ-10.3: 未認証ユーザーはログインページにリダイレクトされる` / `REQ-10.4: 未認証状態での操作はログインにリダイレクトされる` / `REQ-39.10 / 39.12: 編集画面で内訳書ブロックが非表示、name 更新が可能` が実例で、115.220 が同ファイルへ
+    観測を足した分だけ一律に 13 行ずれ、2026-09-03 の実測では三件は `:1550`・`:2978`・`:3611` にあった**
+    （当時の実測。同日の四行目 `:3668` は §4 が挙げていない二つ目の er/39.12 の被覆印であり、
+    ずれの実測とは別の事柄である）。
+    **その三つの位置は、本記録に書き込まれた後さらに動いた。** 下のコマンドは 4 行を出し、
+    いまは `1621`（10.3）・`3049`（10.4）・`3682`（39.12）と、四行目の `3739`（二つ目の 39.12）である
+    （コミット `a639d314` の作業ツリー——`e2e/specs` は同コミットから無変更——で 2026-09-06 に実測）。
+
+    ```
+    npx tsx scripts/scan-coverage-mark-correspondence.ts --tsv | awk -F'\t' '$1=="e2e/specs/estimate-requests/estimate-request-e2e.spec.ts" && $3 ~ /REQ-(10[.]3|10[.]4|39[.]12)$/ {print $2, $3}'
+    ```
+
+    **記録が現況として書いた行番号が、その記録の提出から三日で偽になった**という実測であり、
+    §4 から行番号を落として表題の逐語だけを残すことにした根拠でもある（タスク 115.300。§4 の
+    冒頭を見よ）。行番号の一律の追随は本項目の _Boundary_ 外であったが、
+    **タスク 115.300 が §4 の全件について引き直した。**
 
 ### 4.5 散文の言及が被覆印として読まれている（読み取り規則の側の穴）
 
@@ -373,17 +428,17 @@ _Boundary_ 外（`frontend/src`）なので §6 へ引き継ぐ。**
 
 **実測（本タスクで確認）: 四箇所とも単独の被覆源になっておらず、現時点で分子を水増ししていない。**
 
-- `quantity-tables/quantity-table-crud.spec.ts:419` — pm/25.3・25.5（同ファイル内に正規の名乗りが別途ある）
-- `trading-partners/trading-partner-error-handling.spec.ts:319` — ua/30.2・30.3（他に被覆源がある）
-- `site-surveys/site-survey-images.spec.ts:756` — ss/38.8（他に被覆源がある）
-- `quantity-tables/quantity-count-persistence-e2e.spec.ts:34` — er/17.1（他に被覆源がある）
+- `e2e/specs/quantity-tables/quantity-table-crud.spec.ts` の区間 `数量表一覧画面に作成日時順で表示される (quantity-table-generation/REQ-2.3)` — pm/25.3・25.5（同ファイル内に正規の名乗りが別途ある）
+- `e2e/specs/trading-partners/trading-partner-error-handling.spec.ts` の区間 `取引先作成中に401エラーが発生した場合にログインページにリダイレクトされる (trading-partner-management/REQ-8.3)` — ua/30.2・30.3（他に被覆源がある）
+- `e2e/specs/site-surveys/site-survey-images.spec.ts` の区間 `ドラッグ＆ドロップで画像の表示順序を変更すると未保存状態になる` — ss/38.8（他に被覆源がある）
+- `e2e/specs/quantity-tables/quantity-count-persistence-e2e.spec.ts` の冒頭註釈 — er/17.1（他に被覆源がある）
 
 **これは被覆印の「指し先」ではなく「読み取り規則」の欠陥である。** 本タスクの _Boundary_
 （被覆タグが名乗る受入基準と内容の対応）とは別の形なので混ぜない。§6 に引き継ぐ。
 
 ### 4.6 走査の区間割当の限界（判定しない）
 
-- `site-surveys/site-survey-annotation-mobile.spec.ts:2346` — ss/36.1〜36.7。
+- `e2e/specs/site-surveys/site-survey-annotation-mobile.spec.ts` の区間 `(9) ズームUIボタンが44px以上で片手到達領域に収まりa11y違反がない (REQ-34.5/34.6/29.4)` — ss/36.1〜36.7。
   当該タグは後続の「Requirement 36」ブロックの前書きに置かれており、走査が直前のテスト区間へ
   割り当てた疑いがある。区間の割り方（`splitCoverageBlocks`）の側の限界であり、
   **走査の限界として記録する**。判定はしない。
@@ -524,6 +579,43 @@ _Boundary_ 外（`frontend/src`）なので §6 へ引き継ぐ。**
     是正であって、`check:req-coverage` の分子にも分母にも触れない。三件はいずれも被覆印のまま
     である（取り下げていない）。
   - **記録を機械へ載せる道は採らなかった（実測つきで開示する）。本記録を読む機械は無い。**
+    **この段落は 115.250 の提出時点の記述であり、タスク 115.300 が一部を偽にした。**
+    115.300 は §4 の**指し先の実在**だけを見る関門 `npm run check:adjudication-pointers` を
+    新設し、押下前の関門へ載せた（同時に自己検査
+    `npm run check:adjudication-pointers:selftest` も載せた）。したがって
+    「本記録を読む機械は無い」は現在は成り立たない。**成り立つのは狭めた形である**——
+    本記録が引く**実測値**（§1 と §5 の表、本節の件数）を読む機械は無い。
+    その面を `scripts/check-design-measurement-freshness.ts` の `GOVERNED_DOCUMENTS` へ
+    載せるかの判断は、下に述べるとおり未決のままである（タスク 115.301 が所管する）。
+
+    **下の宣言コマンドの当たりを提出時点で測り直した（タスク 115.300。2026-09-06、
+    コミット `a639d314` の作業ツリー）。当たりは 6 件から 7 件へ動いた。** 増分の 1 件は本タスクが
+    新設した `scripts/check-adjudication-pointers.ts` である。母集団の取り方を明記する——
+    素の宣言コマンドは E2E の生成物（`playwright-report/` と `test-results/` の配下）を 19 件
+    拾うため、次の形で除いた数である。
+
+    ```
+    grep -rl coverage-mark-adjudication --include=*.ts --include=*.js --include=*.json --include=*.md --include=*.yml . \
+      | grep -v node_modules | grep -vE '^\./(playwright-report|test-results)/'
+    ```
+
+    2026-09-03 の 4 件との差のうち 2 件は本タスクより前に増えたものである
+    （`.kiro/specs/site-survey/design.md` と `e2e/specs/estimate-requests/estimate-request-e2e.spec.ts`）。
+
+    **併せて、新設したファイルが一時期バイナリ判定になっていたことを開示する。**
+    `scripts/check-adjudication-pointers.ts` の初版は区切り文字に**生の NUL バイト**を 2 個
+    埋め込んでおり、`file -b` が `data` を返していた（レビューが検出。115.297 で同型の欠陥が
+    是正された先例がある）。**是正後は `JavaScript source, Unicode text, UTF-8 text` を返す。**
+    **ただし上の宣言コマンドの当たりは、NUL の有無で動かない**——GNU grep 3.11 の `-l` は
+    二値判定に関わらず一致したファイル名を挙げるため、是正の前後どちらでも当該ファイルは
+    挙がる（2026-09-06 に実測。是正前の控えへ `grep -l coverage-mark-adjudication` を当てると
+    終了コード 0 で名前が出る）。**NUL が実際に潰していたのは行を読む向きである**——同じ控えに
+    `grep -n coverage-mark-adjudication` を当てると、一致した行の代わりに
+    `binary file matches` の一行だけが出る（`-a` を足すと行が出る）。是正後は行がそのまま出る。
+    **したがって「宣言コマンドが関門を挙げない」という形ではなく、「挙げはするが中身を読めない」
+    という形の欠陥であった。**
+
+    以下は 115.250 の提出時点の実測であり、当時の版についての記録として残す。
     本記録の名を引くファイルは、**本記録自身（この段落が自分の名を綴るため）を除くと 3 件**で、
     いずれも散文である
     （`grep -rl coverage-mark-adjudication --include=*.ts --include=*.js --include=*.json --include=*.md --include=*.yml . | grep -v node_modules` は
