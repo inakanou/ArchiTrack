@@ -26,9 +26,9 @@
     "面には数えない。ただし外した側も基準で見張る——開示だけに落とすと、新しく現れた",
     "曖昧な参照が面にも曖昧の集合にも掛からない素通りの経路になる。"
   ],
-  "reachTotal": 173,
-  "candidateTotal": 649,
-  "entityTotal": 134,
+  "reachTotal": 174,
+  "candidateTotal": 672,
+  "entityTotal": 135,
   "exemptedTotal": 123,
   "exemptedDistinctTotal": 30,
   "ambiguousTotal": 5,
@@ -77,6 +77,11 @@
       "recordedAt": "2026-09-06",
       "reachTotal": 173,
       "candidateTotal": 649
+    },
+    {
+      "recordedAt": "2026-09-06",
+      "reachTotal": 174,
+      "candidateTotal": 672
     }
   ],
   "documents": {
@@ -162,6 +167,7 @@
       "backend/package.json",
       "backend/scripts/restore-plain-thumbnails.ts",
       "backend/src/__tests__/unit/middleware/upload.middleware.test.ts",
+      "backend/src/__tests__/unit/models/project.model.test.ts",
       "backend/src/__tests__/unit/models/site-survey.model.test.ts",
       "backend/src/__tests__/unit/routes/annotation.routes.test.ts",
       "backend/src/__tests__/unit/routes/survey-images.soft-deleted-survey-guard.routes.test.ts",

@@ -1581,8 +1581,15 @@ export function findUnknownCriterionCoverageMarks(
  *
  * 短い語句（「バリデーションエラーを表示する」など）は複数の条文に等しく当てはまり、
  * 逐語複製の証拠にならない。この値を下回る長さまで許すと、条文を名指さない偶然の一致が
- * 食い違いとして混じる。12 文字以上かつ「同一機能の他の条文の本文に現れない」語句だけを、
- * 当該条文を名指す複製として扱う。
+ * 食い違いとして混じる。11 文字以上かつ「同一機能の他の条文の本文に現れない」語句だけを、
+ * 当該条文を名指す複製として扱う。**除外は二つある**——長さと、同一機能の他の条文にも
+ * 現れる曖昧さである。片方だけを述べると、限界の記述が片側に寄る。
+ *
+ * **効いている閾値と、閾値に届かず目印にできない条文の量は、検査自身が毎回出す**——
+ * 前者は `minQuoteLength`、後者は `criteriaBelowMinLength` として、人が読む報告と JSON の
+ * 双方へ印字する（タスク 115.309。閾値を選んだ経緯と当てた変異は
+ * `.kiro/specs/site-survey/design.md` の「逐語複製の目印の最小長を下げる判断」の節に置いた。
+ * 散文へ写すと二重帳簿になるため、ここには量を書かない）。
  *
  * **ここに「混じる偶然の一致」の数を書かない。** その数は reportCriterionTextCopies が返す
  * `mismatches` そのものであり、検査本体が「原文を逐語複製しながらその条文を名乗っていない
@@ -1594,7 +1601,7 @@ export function findUnknownCriterionCoverageMarks(
  * 本記述が実データの名指しと計数を持たないことは同ファイルの
  * `checkExtractorLimitDocsCiteNoRealData` が守る。
  */
-export const MIN_CRITERION_QUOTE_LENGTH = 12;
+export const MIN_CRITERION_QUOTE_LENGTH = 11;
 
 /** 受入基準の原文のうち、逐語複製の目印として使う部分（`shall` 以降） */
 export function criterionQuote(text: string): string | null {
@@ -1810,6 +1817,27 @@ export interface CriterionTextCopyReport {
    * 一つの区間が複数の条文を写していれば、その分だけ数える。
    */
   exemptedByProseAttribution: number;
+  /**
+   * この報告を作るときに効いていた目印の最小長（`MIN_CRITERION_QUOTE_LENGTH`）
+   *
+   * **限界の量そのものを開示するために持つ**（タスク 115.309）。閾値は本検査の守備範囲を
+   * 決める唯一の可変値でありながら、従前は人が読む報告にも JSON にも出ていなかった——
+   * 出ていない限界は、読み手からは無いのと同じである。
+   */
+  minQuoteLength: number;
+  /**
+   * `shall` 以降を取り出せるのに、その語句が最小長に届かず目印にできない受入基準の数
+   *
+   * **閾値が塞いでいない側の量**である。ここに数えられた条文は、被覆印の番号を誤っても
+   * 本検査に掛からない。散文へ書けば実データとともに陳腐化するため、
+   * `exemptedByProseAttribution` と同じく**検査自身の出力として毎回測る**。
+   * 0 でも印字する——閾値が誰も締め出していないのか、多くを締め出しているのかを
+   * 黙って見分けられなくしないためである。
+   *
+   * 単位は受入基準であり、区間ではない。`shall` を含まない条文は目印の取り出し自体が
+   * できないため、ここには数えない（別種の限界であり、上の JSDoc が述べる）。
+   */
+  criteriaBelowMinLength: number;
   /** 写した条文を名乗っていない区間 */
   mismatches: CriterionTextCopyMismatch[];
 }
@@ -1822,6 +1850,8 @@ export function reportCriterionTextCopies(
   const featureNames = features.map((feature) => feature.name);
   /** 機能名 → 語句 → その語句を持つ受入基準 */
   const quotes = new Map<string, Map<string, string>>();
+  // 閾値に届かず目印にできない条文の数。**閾値が塞いでいない側の量**として毎回出す。
+  let criteriaBelowMinLength = 0;
   for (const feature of features) {
     const all: AcceptanceCriteria[] = feature.requirements.flatMap(
       (requirement) => requirement.acceptanceCriteria
@@ -1829,7 +1859,13 @@ export function reportCriterionTextCopies(
     const byQuote = new Map<string, string[]>();
     for (const criterion of all) {
       const quote = criterionQuote(criterion.text);
-      if (quote === null) continue;
+      if (quote === null) {
+        // `shall` 自体が無い条文は目印の取り出しができない別種の限界なので数えない。
+        // ここで数えるのは「取り出せたのに短すぎて使えない」側だけである。
+        const index = criterion.text.lastIndexOf('shall ');
+        if (index >= 0) criteriaBelowMinLength += 1;
+        continue;
+      }
       byQuote.set(quote, [...(byQuote.get(quote) ?? []), criterion.id]);
     }
     const usable = new Map<string, string>();
@@ -1893,7 +1929,14 @@ export function reportCriterionTextCopies(
     (a, b) =>
       a.file.localeCompare(b.file) || a.line - b.line || a.criterionId.localeCompare(b.criterionId)
   );
-  return { blocks, blocksWithCopy, exemptedByProseAttribution, mismatches };
+  return {
+    blocks,
+    blocksWithCopy,
+    exemptedByProseAttribution,
+    minQuoteLength: MIN_CRITERION_QUOTE_LENGTH,
+    criteriaBelowMinLength,
+    mismatches,
+  };
 }
 
 /** 逐語複製の食い違いだけを取り出す（母集団が要らない呼び出し向け） */
@@ -2877,6 +2920,13 @@ function printReport(
   console.log(
     `     （別勘定: 写した条文の番号を同じ区間の散文が挙げているため免除した「区間と条文」の組: ` +
       `${copyReport.exemptedByProseAttribution}組。番号を添えて引用すれば検査は黙る）`
+  );
+  // 閾値そのものと、閾値が塞いでいない側の量も無条件に出す（タスク 115.309）。
+  // 出ていない限界は読み手からは無いのと同じであり、開示は人が読む側と JSON の二方向へ置く。
+  console.log(
+    `     （目印として採る原文の最小長: ${copyReport.minQuoteLength}文字。` +
+      `これに届かず目印にできない受入基準: ${copyReport.criteriaBelowMinLength}件。` +
+      `この条文は被覆印の番号を誤っても本検査に掛からない）`
   );
   console.log('');
 

@@ -135,7 +135,7 @@
  *
  * ### 是正1巡目で見本を足して初めて赤くなった 10 件
  *
- *   - `MIN_CRITERION_QUOTE_LENGTH` 12→4（逐語複製の目印を狙った形だけ取り出す）
+ *   - `MIN_CRITERION_QUOTE_LENGTH` を 4 へ落とす（逐語複製の目印を狙った形だけ取り出す）
  *   - `criterionQuote` の `.trim()` 撤去（同上）
  *   - `proseAttributesCriterion` の `(?![0-9])` 撤去（出典明示の免除が条文の番号だけに反応する）
  *   - 同上の `(?<![0-9.])` 撤去（同じ検査）
@@ -3258,7 +3258,7 @@ const REAL_DATA_CITATION_RULES: readonly RealDataCitationRule[] = [
       { pattern: /\d+(?:\.\d+)?\s*%/, probe: '守備範囲は 12.3% にとどまる' },
     ],
     counterProbes: [
-      '語句が 12 文字未満、または `1a.` `4b.` の形',
+      '語句が 11 文字未満、または `1a.` `4b.` の形',
       'タスク 115.254 が一箇所ずつ決着させた',
       '件数と全件の列挙つきで毎回印字する',
     ],
@@ -3593,7 +3593,7 @@ const GUARDED_CITATION_DOCS: readonly GuardedCitationDoc[] = [
   {
     label: '逐語複製の目印の最小長（MIN_CRITERION_QUOTE_LENGTH）',
     sourcePath: EXTRACTOR_SOURCE_PATH,
-    anchor: 'export const MIN_CRITERION_QUOTE_LENGTH = 12;',
+    anchor: 'export const MIN_CRITERION_QUOTE_LENGTH = 11;',
     mustName: ['reportCriterionTextCopies'],
     mustNameInGuard: ['checkCriterionQuote'],
     rationale:
@@ -3601,7 +3601,10 @@ const GUARDED_CITATION_DOCS: readonly GuardedCitationDoc[] = [
       'reportCriterionTextCopies の mismatches として毎回印字される値そのものであり、' +
       '同期する機構の無い二重帳簿だった。閾値を下げる変異で測り直したところ、' +
       '散文が名乗る走査根での値とも、散文が名乗る閾値での値とも食い違っていた。' +
-      '定数の値と境界の挙動は checkCriterionQuote が字面で固定しており、そちらは残す',
+      '定数の値と境界の挙動は checkCriterionQuote が字面で固定しており、そちらは残す。' +
+      'タスク 115.309 が閾値を一つ下げ、あわせて限界の量そのもの（効いている閾値と、' +
+      '閾値に届かず目印にできない条文の数）を minQuoteLength / criteriaBelowMinLength として' +
+      '報告へ足した。散文へ写さず出力で測る作法はここでも同じである',
   },
   {
     label: '行の途中で開くフェンスの取りこぼし（isCodeFenceDelimiterLine）',
@@ -6902,28 +6905,106 @@ function checkCriterionQuote(): string[] {
   }
 
   // 最小長の境界。**定数から導かず、文字数を書き下す。**
+  const TEN_CHARACTERS = '合計金額を画面に表示';
   const ELEVEN_CHARACTERS = '明細行の合計を画面表示';
-  const TWELVE_CHARACTERS = '合計金額を画面下部に表示';
-  if (ELEVEN_CHARACTERS.length !== 11 || TWELVE_CHARACTERS.length !== 12) {
+  if (TEN_CHARACTERS.length !== 10 || ELEVEN_CHARACTERS.length !== 11) {
     // 見本の文字数が狂っていれば、以下の主張は境界を測っていない（対照が空振りしている）
     failures.push(
-      `境界の見本の文字数が違う（11文字のはずが ${ELEVEN_CHARACTERS.length}、` +
-        `12文字のはずが ${TWELVE_CHARACTERS.length}）`
+      `境界の見本の文字数が違う（10文字のはずが ${TEN_CHARACTERS.length}、` +
+        `11文字のはずが ${ELEVEN_CHARACTERS.length}）`
     );
   }
-  if (MIN_CRITERION_QUOTE_LENGTH !== 12) {
+  if (MIN_CRITERION_QUOTE_LENGTH !== 11) {
     failures.push(
-      `逐語複製の目印の最小長が 12 でない（${MIN_CRITERION_QUOTE_LENGTH}）。` +
-        '実測で 12 文字未満まで許すと偶然の一致が混じる。' +
+      `逐語複製の目印の最小長が 11 でない（${MIN_CRITERION_QUOTE_LENGTH}）。` +
+        'この値より一つ下まで許すと偶然の一致が混じる（タスク 115.309 が段ごとに数え直した）。' +
         '値を動かすなら、下の境界の見本も同時に書き改めること'
     );
   }
-  if (criterionQuote(`The システム shall ${ELEVEN_CHARACTERS}`) !== null) {
-    failures.push('11 文字の語句を目印として採った（短すぎる語句は条文を名指さない）');
+  if (criterionQuote(`The システム shall ${TEN_CHARACTERS}`) !== null) {
+    failures.push('10 文字の語句を目印として採った（短すぎる語句は条文を名指さない）');
   }
-  if (criterionQuote(`The システム shall ${TWELVE_CHARACTERS}`) !== TWELVE_CHARACTERS) {
-    failures.push('12 文字ちょうどの語句を落とした');
+  if (criterionQuote(`The システム shall ${ELEVEN_CHARACTERS}`) !== ELEVEN_CHARACTERS) {
+    failures.push('11 文字ちょうどの語句を落とした');
   }
+  return failures;
+}
+
+/**
+ * 効いている閾値と、閾値が塞いでいない側の量を、開示の二方向へ出す
+ *
+ * **限界は出さなければ無いのと同じである**（タスク 115.300 の教訓を閾値へ適用した形。
+ * タスク 115.309）。従前この閾値は、人が読む報告にも JSON にも一度も現れていなかった。
+ * 読み手は「本検査が短い条文を素通りさせる」ことも「どれだけ素通りさせるか」も、
+ * ソースを読むまで知りようがなかった。
+ *
+ * 見るのは二方向である。
+ *
+ *   1. **機械が読む JSON**: `reportCriterionTextCopies` の返す値に `minQuoteLength` と
+ *      `criteriaBelowMinLength` が載る（`printJsonReport` は報告をそのまま出す）。
+ *   2. **人が読む報告**: `printReport` の印字がその二つを内挿する。ここはソースの字面で見る
+ *      ——`printReport` は輸出されておらず、呼べば標準出力を占有するためである。
+ *
+ * **前提が崩れたときは自動的に無効化せず失格させる**（AI 運用第 3 原則）。印字の塊そのものを
+ * 見つけられなければ、内挿の有無を判定していないので失格とする。
+ */
+function checkQuoteLengthLimitIsDisclosed(): string[] {
+  const failures: string[] = [];
+
+  // (1) 機械が読む側。実データを読むが、見るのは限界の量であって被覆の値ではない。
+  const features = extractAllFeatures(discoverFeatures());
+  const report = reportCriterionTextCopies(features);
+  if (report.minQuoteLength !== MIN_CRITERION_QUOTE_LENGTH) {
+    failures.push(
+      `報告が名乗る最小長が定数と違う（報告 ${report.minQuoteLength} / 定数 ${MIN_CRITERION_QUOTE_LENGTH}）`
+    );
+  }
+  // 数え方そのものを別経路で数え直す。**非零の確認だけでは足りない**——数える対象を
+  // 「shall を持たない条文」へすり替える変異は、値が非零のまま通ってしまう（実測した）。
+  let expectedBelow = 0;
+  for (const feature of features) {
+    for (const requirement of feature.requirements) {
+      for (const criterion of requirement.acceptanceCriteria) {
+        const at = criterion.text.lastIndexOf('shall ');
+        if (at < 0) continue;
+        if (criterion.text.slice(at + 'shall '.length).trim().length < MIN_CRITERION_QUOTE_LENGTH) {
+          expectedBelow += 1;
+        }
+      }
+    }
+  }
+  if (report.criteriaBelowMinLength !== expectedBelow) {
+    failures.push(
+      `閾値に届かない条文の数え方が違う（報告 ${report.criteriaBelowMinLength} / 別経路 ${expectedBelow}）。` +
+        '数える対象は「shall 以降を取り出せるのに短すぎる条文」であり、shall を持たない条文ではない'
+    );
+  }
+  // 空振りの検出。実データに短い条文が一つも無ければ、この開示は何も測っていない。
+  // その状態は「閾値を撤去してよい」という別の判断を要求するので、黙って緑にしない。
+  if (expectedBelow === 0) {
+    failures.push(
+      '閾値に届かない受入基準が実データに一件も無い（開示が空振りしている）。' +
+        '閾値そのものが不要になった可能性があるため、撤去の可否を判断すること'
+    );
+  }
+
+  // (2) 人が読む側。印字の塊を字面で捉える。
+  const source = fs.readFileSync(EXTRACTOR_SOURCE_PATH, 'utf-8');
+  const marker = '目印として採る原文の最小長';
+  const at = source.indexOf(marker);
+  if (at < 0) {
+    failures.push(
+      `人が読む報告に最小長の開示が無い（${EXTRACTOR_SOURCE_PATH} に「${marker}」の印字が見つからない）`
+    );
+    return failures;
+  }
+  const printed = source.slice(at, at + 400);
+  for (const field of ['minQuoteLength', 'criteriaBelowMinLength']) {
+    if (!printed.includes(`copyReport.${field}`)) {
+      failures.push(`人が読む報告が ${field} を内挿していない（開示が片方向に寄っている）`);
+    }
+  }
+
   return failures;
 }
 
@@ -7014,6 +7095,8 @@ function runCopyReportProbe(spec: string): ReturnType<typeof reportCriterionText
     blocks: 0,
     blocksWithCopy: 0,
     exemptedByProseAttribution: 0,
+    minQuoteLength: MIN_CRITERION_QUOTE_LENGTH,
+    criteriaBelowMinLength: 0,
     mismatches: [],
   };
   withFixture({ 'requirements.md': requirements, 'specs/probe.spec.ts': spec }, (baseDir) => {
@@ -7086,6 +7169,8 @@ function runTwoFeatureCopyReportProbe(spec: string): ReturnType<typeof reportCri
     blocks: 0,
     blocksWithCopy: 0,
     exemptedByProseAttribution: 0,
+    minQuoteLength: MIN_CRITERION_QUOTE_LENGTH,
+    criteriaBelowMinLength: 0,
     mismatches: [],
   };
   withFixture(
@@ -7829,6 +7914,10 @@ const GROUPS: Group[] = [
         run: checkNumeratorIsIntersectedWithDenominator,
       },
       { name: '逐語複製の目印を狙った形だけ取り出す', run: checkCriterionQuote },
+      {
+        name: '目印の最小長と、それに届かない条文の量を開示の二方向へ出す',
+        run: checkQuoteLengthLimitIsDisclosed,
+      },
       { name: '逐語複製との食い違いを両方向で固定する', run: checkCriterionTextCopyMismatch },
       {
         name: '出典明示の免除が条文の番号だけに反応する（緩みで陽性が消えない）',
@@ -7951,7 +8040,7 @@ const MINIMUM_NEGATIVE_CONTROLS = 1;
  * **上回っても**赤くする——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
  * 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
  */
-const MINIMUM_TOTAL_CASES = 77;
+const MINIMUM_TOTAL_CASES = 78;
 
 /**
  * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）
