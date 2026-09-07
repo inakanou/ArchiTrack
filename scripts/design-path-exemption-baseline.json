@@ -26,9 +26,9 @@
     "面には数えない。ただし外した側も基準で見張る——開示だけに落とすと、新しく現れた",
     "曖昧な参照が面にも曖昧の集合にも掛からない素通りの経路になる。"
   ],
-  "reachTotal": 189,
-  "candidateTotal": 696,
-  "entityTotal": 149,
+  "reachTotal": 190,
+  "candidateTotal": 697,
+  "entityTotal": 150,
   "exemptedTotal": 123,
   "exemptedDistinctTotal": 30,
   "ambiguousTotal": 5,
@@ -102,6 +102,11 @@
       "recordedAt": "2026-09-06",
       "reachTotal": 189,
       "candidateTotal": 696
+    },
+    {
+      "recordedAt": "2026-09-07",
+      "reachTotal": 190,
+      "candidateTotal": 697
     }
   ],
   "documents": {
@@ -148,6 +153,7 @@
       ".kiro/specs/estimate-creation/design.md",
       ".kiro/specs/estimate-request/design.md",
       ".kiro/specs/project-management/design.md",
+      ".kiro/specs/project-management/tasks.md",
       ".kiro/specs/quantity-table-generation/design.md",
       ".kiro/specs/site-survey/design.md",
       ".kiro/specs/site-survey/tasks.md",

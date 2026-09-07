@@ -247,7 +247,8 @@ stateDiagram-v2
 ```
 
 **Key Decisions**:
-- ステータス遷移は4種類: initial（初期）、forward（順方向）、backward（差し戻し）、terminate（終端）
+- 遷移種別は3種類: forward（順方向遷移）、backward（差し戻し遷移）、terminate（終端遷移）。要件10 の 11 の定義であり、上図が名前を付けた遷移 22 本もこの3種類に尽きる
+- initial は遷移種別ではなく、プロジェクト作成時の初期履歴に付ける印である。上図の入口は「新規作成」であって遷移の名を持たない。実装の TransitionType の列挙値は、この3種類に印 initial を加えた4値である
 - プロジェクト作成時はtransitionType='initial'、fromStatus=nullの履歴を記録
 - 差し戻し遷移（backward）は1つ前のステータスへのみ許可、理由入力を必須とする
 - 「完了」「中止」「失注」は終端ステータス（いずれの遷移も禁止）
@@ -2865,7 +2866,8 @@ erDiagram
 - 取引先ID（tradingPartnerId）は任意、指定時は有効な取引先への参照
 - 営業担当者は必須
 - ステータスは定義された12種類のいずれか
-- 遷移種別は4種類: initial, forward, backward, terminate
+- 遷移種別は3種類: forward, backward, terminate（要件10 の 11 の定義）
+- TransitionType の列挙値は4値。上の3種類に、遷移ではない初期履歴の印 initial を加えたもの
 - プロジェクト作成時の初期履歴はfromStatus=null、transitionType='initial'
 - 差し戻し遷移時は理由が必須
 - 論理削除されたプロジェクトは一覧に表示されない
