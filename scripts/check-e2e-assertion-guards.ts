@@ -1454,6 +1454,22 @@ function loopExhaustionThrows(loop: ts.IterationStatement): boolean {
  * `e2e/specs/auth/invitations.spec.ts` の招待一覧の読み込み待ち）。
  * **繰り返しの後に `throw` が無い形**（上限に達しても黙って戻る形）は真正の沈黙脱出であり、
  * 本規則には当たらず従来どおり検出される。
+ *
+ * **(a) の実効の実測（2026-09-08。タスク 115.320 が `無効化` を語彙へ採り、上の (a) の
+ * 記述を露出させたため測った）。** 本関数から (a) を実装する一行
+ * （`if (containsAssertion(node)) return undefined;`）を外し、合成の三つの形へ本関数を
+ * 当てて「規則で対象外」になる件数を数えた。
+ *   - 主張を**条件式**に包み then 節が沈黙脱出する形: 0 件から 1 件へ動く。**(a) が単独で
+ *     効いているのはこの形だけである。**
+ *   - 主張を **then 節**に包む形: 0 件のまま動かない。(b) の `isSilentExit` が別に拒むため、
+ *     (a) はこの形について冗長である（開示。上の (a) の文だけを読むと単独で効いていると
+ *     読めるが、実測はそうでない）。
+ *   - 主張を持たない再試行の待機の形: 1 件のまま動かない（規則の想定どおり対象外）。
+ * この変異では `npm run check:e2e-guards` も `npm run check:e2e-guards:selftest` も EXIT=0 の
+ * 緑であり、落ちる確認は 0 件であった——現況の `e2e` 配下に条件式へ主張を包む実例が
+ * 無いためである。**(a) を固定する対照は無い**（実測した事実として残す。対照の新設は
+ * 本タスクの境界外である）。変異は退避した控えからの書き戻しで復元し、復元後に条件式へ
+ * 包む形が 0 件へ戻ることを確かめた。
  */
 export function retryExhaustionFailureExclusion(node: ts.Node): string | undefined {
   if (!ts.isIfStatement(node)) return undefined;

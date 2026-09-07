@@ -1632,6 +1632,17 @@ const SCAN_EXCLUSIONS_NAME = 'SCAN_EXCLUDED_DIRECTORIES';
  * 緑になる。宣言の原文（`\.(a|b)$` の形）から割って取る。**この形でなくなったら
  * 割れないことを失格として返す**——黙って「選択肢ゼロ件」にすると、以下の繰り返しが
  * 一度も回らずに緑になる（第3原則）。
+ *
+ * **実測（2026-09-08。タスク 115.320 が `書き換え` を語彙へ採り、上の記述を露出させたため
+ * 測った）。** 再現は `npm run check:req-coverage:selftest` である。
+ *   - 本体の `COVERAGE_FILE_PATTERN` を `/\.(ts|tsx|mts)$/` へ書き換えると（宣言から割って
+ *     取る現行の形）、落ちる確認は 1 件——「走査する拡張子がどれも遊んでいない（落とすと
+ *     被覆が真に縮む）」——である。増やした `mts` が一件も拾わないことを、この確認が捕まえる。
+ *   - そのうえで本関数の `COVERAGE_FILE_PATTERN.source` を `'\\.(ts|tsx)$'` という**写し**へ
+ *     替えると、同じ書き換えを載せたまま落ちる確認は 0 件になり緑で通る。**写しは本体の
+ *     型が動いた日に古いまま緑になる**——この節が述べていた形が、そのとおり実測された。
+ * 変異はいずれも退避した控えからの書き戻しで復元し、復元後に落ちる確認が 0 件へ戻ることを
+ * 確かめた。
  */
 function parseCoverageExtensionAlternatives(): { alternatives: string[]; failure: string | null } {
   const source = COVERAGE_FILE_PATTERN.source;
