@@ -17,6 +17,39 @@
  *
  * ---
  *
+ * ## この記録が引く数値の採り方（タスク 115.316）
+ *
+ * **バイト数**は、本番ゲートの標準出力を `npm run <スクリプト名> | wc -c` で数えた値である。
+ * `npm run` は実行前に `> architrack@1.0.0 <スクリプト名>` と実行コマンドの二行を標準出力へ
+ * 出すため、`npm run --silent` や `npx tsx scripts/check-requirement-coverage.ts` の直叩きでは
+ * **同じ状態でも数十バイト少ない値**になる。**ヘッダーの長さはスクリプト名の長さと実行コマンド
+ * 行の引数の長さで変わる**ため、差は一定ではない。2026-09-07 にコミット `5dc930b0` の作業ツリーで
+ * 実測すると、
+ * `npm run check:req-coverage | wc -c` が 37167 に対し
+ * `npm run --silent check:req-coverage | wc -c` と
+ * `npx tsx scripts/check-requirement-coverage.ts | wc -c` はいずれも 37079（差 88）、
+ * `check:req-coverage:json` は 65636 と 65536（差 100）、
+ * `check:req-coverage:strict` は 37430 と 37326（差 104）であった。
+ * 88 の内訳は、先頭の空行 1・`> architrack@1.0.0 check:req-coverage` の行 38・
+ * `> npx tsx scripts/check-requirement-coverage.ts` の行 48・末尾の空行 1 である
+ * （いずれも改行を含む）。100 と 104 はここから二箇所ずつ伸びる——`:json` はスクリプト名が
+ * `:json` のぶん 5 バイト、実行コマンド行が ` --json` のぶん 7 バイト伸びて計 12 バイト増
+ * （88 + 12 = 100）、`:strict` は名が 7 バイト、引数 ` --strict` が 9 バイトで計 16 バイト増
+ * （88 + 16 = 104）である。**スクリプト名だけでは説明が付かない**——引数の側も同じだけ効く。
+ * 追試は `npm run <スクリプト名> | head -3 | cat -A` でヘッダーの実体を見ればよい。
+ * 以下の各所が引くバイト数はいずれも `npm run` 側の採り方であり、
+ * 追試するときは同じ採り方を使うこと（`.kiro/steering/development-discipline.md` が求める
+ * 「追試の手順を数値と同じ場所に書く」に従い、各所にも採取コマンドを併記してある）。
+ *
+ * **確認の総数（自己検査が何件あるか）は、この記録のどこにも書かない**（タスク 115.316）。
+ * 総数は確認を一件足すたびに動く時限装置であり、書いた時点から陳腐化する。反実仮想が
+ * 述べるのは**落ちた確認の件数と、その名前と、再現のコマンド**だけにする
+ * （タスク 115.232 / 115.307 の形）。現況の総数は `MINIMUM_TOTAL_CASES` が機械で現況ちょうどに
+ * 固定しており、遊びが出れば `guardControlsArePresent` が赤くする——散文へ写す必要は無い。
+ * この禁止そのものは `checkProseCitesNoSelftestTotal` が機械で守っている。
+ *
+ * ---
+ *
  * ## 変異走査の対応表（タスク 115.197 で実測。是正2巡目で測り直した）
  *
  * 自己検査それ自体が空振りしていないかは、**読み取り規則の側を壊して本検査が赤くなるか**で
@@ -35,7 +68,9 @@
  *
  * 57/61 が赤くなった。無言だった 4 件はいずれも**実データ上の挙動に差が無い変異**であり、
  * `check:req-coverage` の出力（37942 バイト）と `--json`（677017 バイト）が
- * HEAD とバイト単位で完全一致することを実測して確かめた:
+ * HEAD とバイト単位で完全一致することを実測して確かめた
+ * （採取は `npm run check:req-coverage | wc -c` と `npm run check:req-coverage:json | wc -c`。
+ * 前掲「この記録が引く数値の採り方」のとおり npm のヘッダー 88 バイトを含む）:
  *
  *   1. `criterionQuote` の `lastIndexOf('shall ')` → `indexOf('shall ')`
  *      一つの条文が `shall ` を二度持つときだけ差が出る。実データは受入基準 2888 件・
@@ -79,7 +114,7 @@
  *     到達しない本番モジュールが 54 → 57 件へ動く
  *   - `reportCriterionTextCopies` の候補を区間が名乗る機能から全機能へ広げる
  *     （目印の候補は区間が名乗っている機能の条文に限る）。ゲートの出力が
- *     37942 → 56816 バイトへ膨れる（＝大量の偽陽性）
+ *     37942 → 56816 バイトへ膨れる（＝大量の偽陽性。`npm run check:req-coverage | wc -c`）
  *
  * ### 受入条件の書き直し後に閉じた名指しの 3 項目（2026-08-30 に測り直した）
  *
@@ -119,7 +154,10 @@
  *   - `\brtl\b`: 一致 2 件 / 単独一致 0 件
  *
  * それぞれを落とす変異について、`check:req-coverage`（37942 バイト）・`--strict`（38189 バイト）・
- * `--json`（677017 バイト）が HEAD と**バイト単位で一致**することを実測した。
+ * `--json`（677017 バイト）が HEAD と**バイト単位で一致**することを実測した
+ * （採取は `npm run check:req-coverage | wc -c`・`npm run check:req-coverage:strict | wc -c`・
+ * `npm run check:req-coverage:json | wc -c`。npm のヘッダーを含む。前掲「この記録が引く
+ * 数値の採り方」を見よ）。
  * 単独一致となる 4 語の側は、同じ測り方で 3 つの出力すべてが HEAD と食い違う。
  * この 3 語の見本を足しても実データ上の主張は増えないため、足していない
  * （実データが単独一致を持つようになった時点で、この記録の件数が実測と合わなくなる）。
@@ -163,8 +201,8 @@
  * **どの主張がどの変異を担っているかの対応**である。見本を消す・緩める変更を出すときは、
  * ここで名指された変異をもう一度当てて、赤が失われないことを確かめること。
  * 逆に、ここに無い形の変異が無言で通ることは十分にありうる。
- * 無言の変異を見つけたら、本番の出力（`check:req-coverage` と `--json`）が
- * HEAD と**バイト単位で一致するか**を必ず測ること。動くなら空振りであり、
+ * 無言の変異を見つけたら、本番の出力（`npm run check:req-coverage | wc -c` と
+ * `npm run check:req-coverage:json | wc -c`）が HEAD と**バイト単位で一致するか**を必ず測ること。動くなら空振りであり、
  * 一致するなら等価変異として上の一覧へ理由つきで記すこと。
  */
 
@@ -1114,7 +1152,7 @@ function reachableWithoutEntryPoint(graph: ModuleGraph, dropped: string): Set<st
  * 到達性の判定は `PRODUCTION_ENTRY_POINTS` から辿ることで成り立っている。入口が一つ落ちると
  * その先だけから使われるモジュールが**丸ごと死コード扱いへ転落し**、被覆が静かに縮む。
  * 115.197 のレビューが実測した: `backend/prisma/seed.ts` を入口から落とすと自己検査は
- * 52/52 緑のまま、本番ゲートは「本番モジュール 590（到達 536 / 未到達 54）」が
+ * 全件緑（落ちた確認は 0 件）のまま、本番ゲートは「本番モジュール 590（到達 536 / 未到達 54）」が
  * 「589（到達 534 / 未到達 55）」へ、到達被覆が 98.1% から 97.8% へ、
  * 「到達しない被覆源のみの受入基準」が 18件 から 26件 へ動いた。
  *
@@ -1244,12 +1282,14 @@ const CODE_SCAN_ROOT_WITNESSES: readonly CodeScanRootWitness[] = [
  * 母集団が空の場合（固定点が零件・走査根が零件・機能が零件・被覆印が零件）は失格にする。
  * 空の繰り返しは「どの根も縮む」を恒真にするため、緑で通す抜け道になる（第3原則）。
  *
- * 2026-09-01 に実測した。`CODE_DIRS` から `backend/src` を落とすと自己検査 65 件のうち
- * 1 件（本検査）が「固定点が登録されている backend/src が走査根の一覧に無い」で落ちる。
- * `frontend/src` を落とす変異・`e2e` を落とす変異でも同じ 1 件が落ちる。
- * 是正前（65 件のうち本検査と次の検査を欠く 63 件）は同じ三つの変異のいずれでも
- * 自己検査は 63/63 緑のままで、本ゲートの出力だけが 38082 バイトから
- * それぞれ 52030 / 99947 / 316123 バイトへ動いた（construction-photo の受入基準は
+ * 2026-09-01 に `npm run check:req-coverage:selftest` で実測した。`CODE_DIRS` から
+ * `backend/src` を落とすと、落ちる確認は本検査 1 件だけで、「固定点が登録されている
+ * backend/src が走査根の一覧に無い」を挙げる。`frontend/src` を落とす変異・`e2e` を落とす
+ * 変異でも落ちるのは同じ 1 件である。
+ * 是正前（本検査と次の検査を欠く状態）は同じ三つの変異のいずれでも自己検査は全件緑
+ * （落ちた確認は 0 件）のままで、本ゲートの出力だけが 38082 バイトから
+ * それぞれ 52030 / 99947 / 316123 バイトへ動いた
+ * （`npm run check:req-coverage | wc -c`。construction-photo の受入基準は
  * 143/145 から 109/145・97/145・93/145 へ）。
  * `CODE_SCAN_ROOT_WITNESSES` を空にすると「対照群が空」で 1 件が、`CODE_DIRS` を空にすると
  * 「母集団が空」で 1 件が落ちる。`backend/src` の固定点を frontend/src 側の番号
@@ -1503,10 +1543,11 @@ const COVERAGE_EXTRACTOR_NAME = 'extractTestCoverage';
  *   2. 抽出器の既定引数が `CODE_DIRS` である
  *   3. 抽出器の呼び出しが一つ以上あり、そのいずれも根の一覧を渡していない
  *
- * 2026-09-01 に実測した。`main()` の呼び出しを `extractTestCoverage(featureNames,
- * ['frontend/src', 'e2e'])` へ変える変異（`CODE_DIRS` は三件のまま）では、
- * `checkEveryCodeScanRootContributes` は**緑のまま**で、自己検査 65 件のうち本検査 1 件
- * だけが落ちる。既定引数を `CODE_DIRS` から字面のリテラルへ変える変異でも同じ 1 件が
+ * 2026-09-01 に `npm run check:req-coverage:selftest` で実測した。`main()` の呼び出しを
+ * `extractTestCoverage(featureNames, ['frontend/src', 'e2e'])` へ変える変異
+ * （`CODE_DIRS` は三件のまま）では、
+ * `checkEveryCodeScanRootContributes` は**緑のまま**で、落ちる確認は本検査 1 件
+ * だけである。既定引数を `CODE_DIRS` から字面のリテラルへ変える変異でも同じ 1 件が
  * 落ちる。`CODE_DIRS` の `export` を外すと、自己検査は取り込みに失敗して
  * 「does not provide an export named 'CODE_DIRS'」で終了する（終了コード 1・件数は出ない）。
  */
@@ -1701,7 +1742,8 @@ function partitionScanFilesByExclusiveExtension(
  * なった」で落ち、`COVERAGE_EXTENSION_WITNESSES` を空にすると「対照群が空」で落ちる。
  *
  * **是正前（本検査を欠く状態）は無言であった。** `tsx` を落としてもゲートの出力だけが
- * 38167 バイトから 70418 バイトへ動き（construction-photo の受入基準は 143/145 から
+ * 38167 バイトから 70418 バイトへ動き（`npm run check:req-coverage | wc -c`。
+ * construction-photo の受入基準は 143/145 から
  * 113/145 へ）、自己検査の側で落ちたのは本欄の主題と無関係な「規則4が落とす被覆印の母集団が
  * 実測と過不足なく一致する」1 件だけであった——同検査の台帳がたまたま `.tsx` のファイルを
  * 1 件名指ししていた巻き添えであり、拡張子の選別を主題にした検査は一つも無かった。
@@ -1933,7 +1975,8 @@ const EXCLUDED_DIRECTORY_LEDGER: readonly ExcludedDirectoryRecord[] = [
  * `SCAN_EXCLUDED_DIRECTORIES` を空にすると「母集団が空」で落ちる。
  *
  * **是正前（本検査を欠く状態）は無言であった。** `generated` を外しても自己検査は全件緑・
- * EXIT=0 のままで、ゲートの出力だけが 38167 バイトから 35532 バイトへ動いた——本番モジュールが
+ * EXIT=0 のままで、ゲートの出力だけが 38167 バイトから 35532 バイトへ動いた
+ * （`npm run check:req-coverage | wc -c`）——本番モジュールが
  * 590 件から 644 件へ、到達被覆が 2633/2684（98.1%）から 2646/2684（98.6%）へ、到達しない
  * 被覆源のみの受入基準が 17 件から 4 件へ、いずれも**生成物を数え入れた分だけ良く見える
  * 向きに**動いた。
@@ -3042,8 +3085,8 @@ function checkParagraphBreakDocDelegatesPopulation(): string[] {
  * 良い」とすると、束の中の一本が壊れて何にも一致しなくなっても、他の一本が見本を拾って
  * 緑のままになる。本タスクが実測した: 束で一つの見本を持つ形のとき
  * `\d+\s*(?:件|箇所|印|ファイル)` を規則から外しても、同じ束の割合の規則が見本の `12.3%` を
- * 拾い、自己検査 69 件はすべて緑のままだった。一対一へ改めた後に同じ規則を壊す
- * （助数詞の `件` を別の字へ替える）と 69 件のうち 1 件が落ちる（2026-09-03 に
+ * 拾い、自己検査は全件緑（落ちた確認は 0 件）のままだった。一対一へ改めた後に同じ規則を壊す
+ * （助数詞の `件` を別の字へ替える）と落ちる確認は 1 件である（2026-09-03 に
  * `npm run check:req-coverage:selftest` で実測）。
  */
 interface RealDataCitationPattern {
@@ -3339,7 +3382,7 @@ const REAL_DATA_CITATION_RULES: readonly RealDataCitationRule[] = [
  *
  * 規則と見本を一対一で照合しても、**規則を丸ごと削る**変異は捕まらない——削ると見本も
  * 一緒に消えるからである。本台帳を置く前に実測した: 助数詞の規則とその見本を組ごと外すと
- * 自己検査 69 件はすべて緑のままだった。本台帳を置いた後に同じ変異を当てると 69 件のうち
+ * 自己検査は全件緑（落ちた確認は 0 件）のままだった。本台帳を置いた後に同じ変異を当てると
  * 1 件が「この外に 3 件が残っている」を捕まえられないとして落ちる（2026-09-03 に
  * `npm run check:req-coverage:selftest` で実測）。ここは「どの形を捕まえられなければ
  * ならないか」を規則の実装から独立に固定する。
@@ -3729,19 +3772,18 @@ function readGuardSource(): string | null {
  *   1. **機能名の接頭辞を落とす**（`REQ-24.1` の形。タスク 115.254）。差し戻しの前は
  *      この形が素通りし、`:1082-1083` から落とした引用を接頭辞なしで書き直すだけで同じ
  *      時限装置を同じ箇所へ戻せた。`実在する受入基準の番号` の規則を足した後に同じ挿入を
- *      当てると 69 件のうち 1 件が落ちる（2026-09-03 に
- *      `npm run check:req-coverage:selftest` で実測。当時の総数は 69 件であった）
+ *      当てると落ちる確認は 1 件である（2026-09-03 に
+ *      `npm run check:req-coverage:selftest` で実測）
  *   2. **`.M` を落として要件レベルにする**（`REQ-24` の形。タスク 115.306）。
  *      `実在する要件レベルの番号` の規則を足す前は、`collectRealDataCitationVocabulary` の
  *      JSDoc へ `現況では REQ-24 の被覆印がこの外に残っている` を挿入しても
- *      すべてが緑であった（当時の総数は 73 件）。足した後に同じ挿入を当てると
- *      74 件のうち 1 件が落ちる（2026-09-06 に同コマンドで実測。タスク 115.307 が
- *      確認を一件足したため、同日の再実測で総数は 73 件から 74 件へ動いている）
+ *      全件が緑であった（落ちた確認は 0 件）。足した後に同じ挿入を当てると
+ *      落ちる確認は 1 件である（2026-09-06 に同コマンドで実測）
  *   3. **区切りを点から別の一字へ替える**（`24-1` の形。タスク 115.306）。
  *      `点以外の区切りで書いた受入基準の番号` の規則を足す前は、同じ JSDoc へ
- *      `現況では 24-1 の被覆印がこの外に残っている` を挿入してもすべてが緑であった
- *      （当時の総数は 73 件）。足した後に同じ挿入を当てると 74 件のうち 1 件が落ちる
- *      （同日・同コマンドで実測。総数の動きの理由は上に同じ）
+ *      `現況では 24-1 の被覆印がこの外に残っている` を挿入しても全件が緑であった
+ *      （落ちた確認は 0 件）。足した後に同じ挿入を当てると落ちる確認は 1 件である
+ *      （同日・同コマンドで実測）
  *
  * 広げるときは `REAL_DATA_CITATION_RULES` と `GUARDED_CITATION_DOCS` へ足し、塞いだ穴を
  * `DISCLOSED_CITATION_HOLES` から外す。
@@ -4785,9 +4827,9 @@ function checkRealUnderAttributionIsResolved(): string[] {
 //   - 範囲の後端を記録しない変異（`listMatch[3]` の記録を落とす）
 //   - 枝つき要件番号を認めない変異（`[A-E]?` を落とす）
 //
-// のいずれも自己検査 43 件が全件通過していた（＝主張が空虚だった）。
-// 是正後に同じ二つの変異を当て直すと、`listMatch[3]` の記録を落とす側では自己検査 58 件の
-// うち 1 件（「範囲は両端だけを記録し、間を展開しない」）が、`[A-E]?` を落とす側では 2 件
+// のいずれも自己検査が全件通過していた（落ちた確認は 0 件。＝主張が空虚だった）。
+// 是正後に同じ二つの変異を当て直すと、`listMatch[3]` の記録を落とす側では
+// 1 件（「範囲は両端だけを記録し、間を展開しない」）が、`[A-E]?` を落とす側では 2 件
 // （「枝つき要件番号を基底番号へ丸めない（両経路）」「実データに枝つき要件番号の被覆印が
 // 実在し拾われている」）が落ちる（2026-08-31 に実測。タスク 115.210）。
 // 実データには `backend/src/routes/auth.routes.ts` の `- REQ-27A: 2FA検証` が実在する。
@@ -4890,7 +4932,7 @@ function checkNumberRangeControlActuallyReacts(): string[] {
  * 書かれていない受入基準（`REQ-17.1` など）を名乗ることになる。
  *
  * 115.197 のレビューが実測した: `parseHeaderListItemIds` の `criterion: head[2] ?? null` を
- * `?? '1'` へ変えると自己検査は 52/52 緑のまま、`--json` に
+ * `?? '1'` へ変えると自己検査は全件緑（落ちた確認は 0 件）のまま、`--json` に
  * `user-authentication/REQ-17.1` `REQ-18.1` `REQ-27A.1` など約20件の
  * **存在しない被覆主張が出現した**（人向けゲートは他の被覆源が同じ番号を拾うため一致し、
  * 機械可読出力の側だけが誤る）。
@@ -5046,7 +5088,7 @@ function checkRealLetteredRequirementMarkExists(): string[] {
  * 引用の三つは宣言のヘッダーより後ろに置かれているため、規則4 が無ければ宣言の区間が
  * 段落の切れ目を越えて伸び、引用の配下の一覧項目まで飲み込む。実際、
  * `resolveHeaderSectionEnd` から規則4（`jsDocParagraphBreak` の上限）を外すと
- * 自己検査 63 件のうち 5 件が赤くなり、対をなす `checkQuotedHeaderIsNotDetected` は
+ * 赤くなる確認は 5 件で、対をなす `checkQuotedHeaderIsNotDetected` は
  * その一つとして `REQ-4.1` / `REQ-5.1` / `REQ-6.1` の三つすべてを挙げる
  * （2026-09-01 に `npm run check:req-coverage:selftest` で実測。タスク 115.226）。
  * 規則4 を触る者は、本資料が赤くなったとき**引用の判定が壊れたとは限らない**ことを知ること。
@@ -5087,7 +5129,7 @@ const QUOTED_HEADER_FORMS: ReadonlyArray<{ label: string; absent: string }> = [
  * 同じ四つの判定が保たれることを課す。フェンスの開閉をファイル全文の偶奇で数える実装は、
  * ここで塊を跨いで状態が漏れ、宣言の側（`site-survey/REQ-3.1`）を無言で落とす。
  * `isDeclaredCoverageHeader` の走査の起点を `enclosingCommentBlockStart(content, lineStart)`
- * から `0` へ戻すと、自己検査 63 件のうち本検査 1 件だけが赤くなり、
+ * から `0` へ戻すと、赤くなる確認は本検査 1 件だけで、
  * 「site-survey/REQ-3.1 を取りこぼした」と「site-survey/REQ-6.1 が拾われた」の
  * 両向きを同時に挙げる（2026-09-01 実測。タスク 115.226）。
  */
@@ -5458,8 +5500,8 @@ function checkMidLineFenceFilesCarryNoCoverageHeader(): string[] {
  * 機構: 文字列リテラル中の終端の無い `/*` が正当なヘッダーを飲み込まない（タスク 115.259）
  *
  * `enclosingCommentBlockStart` の判定 `if (blockClose >= lineStart)` を是正前の
- * `if (blockClose < 0 || blockClose >= lineStart)` へ戻すと、自己検査 71 件のうち本検査
- * 1 件だけが赤くなり、「終端の無い `/*` の後ろに置かれたヘッダーの配下
+ * `if (blockClose < 0 || blockClose >= lineStart)` へ戻すと、赤くなる確認は本検査
+ * 1 件だけで、「終端の無い `/*` の後ろに置かれたヘッダーの配下
  * site-survey/REQ-13.2 を取りこぼした」と「リテラルの行の有無で被覆印の集合が変わる」の
  * 二つを挙げる（2026-09-03 に `npm run check:req-coverage:selftest` で実測）。
  *
@@ -5923,24 +5965,24 @@ function relocateCarrierUnderHeader(control: SyntheticNegativeControl): string {
  * 2026-09-03 に実測した。登録は 24 件（資料 14 件）である。
  * `HEADER_OF_UNLISTED_FEATURE` の一覧項目を ` * Note: REQ-7.7 は…` の散文へ書き換えると、
  * 対をなす `checkUnlistedFeatureHeaderStillEndsSection` は**緑のまま**で、
- * 自己検査 63 件のうち本検査 1 件だけが赤くなる（115.224 が述べた空振りそのものである）。
+ * 赤くなる確認は本検査 1 件だけである（115.224 が述べた空振りそのものである）。
  * `suppressedBy` を取り違える変異も三種のいずれの向きでも赤くなる——`site-survey/REQ-8.3` の件を
  * `boundary` へ、`site-survey/REQ-4.2` の件を `shape` へ、`site-survey/REQ-4.1` の件を
  * `shape` へ、`user-authentication/REQ-17.1` の件を `quotation` へ変えると、
  * いずれも 1 件が落ちる（末尾の二つは 2026-09-01 に実測。タスク 115.226）。
- * 本体から規則4（段落の切れ目）を外すと 63 件のうち 5 件が赤くなり、本検査もその一つである。
+ * 本体から規則4（段落の切れ目）を外すと赤くなる確認は 5 件で、本検査もその一つである。
  *
  * `nonexistence` は他の三つより強い主張である。位置を緩めても現れないことに加えて、
  * ヘッダーと当該行だけの写しから**番号が一つでも拾われること**を課し、当該行が走査の
  * 範囲に入っていることを機械の側で示す（`shape` はこれを課さないため、当該行が一切
  * 読まれていなくても静かに通る）。2026-09-03 に実測した——`LETTERED_REQUIREMENT_NUMBER`
- * の件を `boundary` へ変えると 69 件のうち 1 件が、`quotation` へ変えても 1 件が赤くなり、
+ * の件を `boundary` へ変えると 1 件が、`quotation` へ変えても 1 件が赤くなり、
  * 拾われてはならない番号を資料に逐語で在る `user-authentication/REQ-27A` へ差し替えても
  * 1 件が赤くなる。読まれない当該行（`PROSE_BULLET_IS_NOT_AN_ID_LIST` の散文の箇条書き）を
  * `nonexistence` として登録する変異でも 1 件が赤くなる。
  *
  * **守れない範囲を明記する。** `nonexistence` を `shape` へ緩める取り違えは捕まらない
- * （同じ 2026-09-03 の実測で 69 件すべてが緑のままだった）。`shape` の主張は
+ * （同じ 2026-09-03 の実測で全件が緑のままだった——落ちた確認は 0 件）。`shape` の主張は
  * `nonexistence` の主張の真部分であるため、緩める向きの変異は既存の照合を一つも破らない。
  * 逆向き——資料に逐語で在る番号を `nonexistence` と称する形——は上記のとおり捕まる。
  */
@@ -6142,7 +6184,8 @@ function collectTopLevelFixtureNames(source: string): string[] {
  *
  * **二重の分類も失格にする。** 陰性側に登録された資料が「陽性のみ」の札を同時に持つ状態は、
  * 札と実際の主張の食い違いである。`LETTERED_REQUIREMENT_NUMBER` を両方へ載せると
- * 69 件のうち本検査 1 件が赤くなる（2026-09-03 に実測。タスク 115.255）。
+ * 赤くなる確認は本検査 1 件である（2026-09-03 に
+ * `npm run check:req-coverage:selftest` で実測。タスク 115.255）。
  *
  * **見ているのは資料の粒度であって行の粒度ではない。** 既に登録済みの資料へ陰性の主張を
  * 述べる行を**足しただけ**の場合、その行は登録を迫られない。ここが本検査の残りの限界で
@@ -7004,7 +7047,7 @@ function checkDroppedRequirementMarksNeverVanish(): string[] {
  * `'あ'.repeat(MIN_CRITERION_QUOTE_LENGTH - 1)` と `.repeat(MIN_CRITERION_QUOTE_LENGTH)` で
  * 境界を書いていた。定数が変われば主張も一緒に動くため、**この主張は決して落ちない**。
  * 115.197 のレビューが実測した: `MIN_CRITERION_QUOTE_LENGTH = 4` の変異で自己検査は
- * 48/48 緑のままだったが、本番ゲートは新たに「原文を逐語複製しながらその条文を
+ * 全件緑（落ちた確認は 0 件）のままだったが、本番ゲートは新たに「原文を逐語複製しながらその条文を
  * 名乗っていない被覆印が3件」で赤くなり、守備範囲も 283→296 と動いた
  * （＝実データに効く判断が、自己検査からは見えていなかった）。
  * よって境界は**リテラルで書き下し**、併せて定数の値そのものを主張する。
@@ -7134,7 +7177,8 @@ function checkQuoteLengthLimitIsDisclosed(): string[] {
  *
  * `criterionQuote` は `lastIndexOf('shall ')` で切る。一つの条文が `shall ` を二度持つとき、
  * 最初と最後のどちらで切るべきかは**実データからは決まらない**。
- * 115.197 の走査で `lastIndexOf` を `indexOf` へ変える変異を当てたところ自己検査は 48/48 緑で、
+ * 115.197 の走査で `lastIndexOf` を `indexOf` へ変える変異を当てたところ自己検査は
+ * 全件緑（落ちた確認は 0 件）で、
  * 本検査群はこの選択を固定していない。仮の見本で片方を「正しい」と決めると、
  * 根拠の無い決めごとを検査の形で固定してしまう。
  *
@@ -7269,12 +7313,13 @@ function runTwoFeatureCopyReportProbe(spec: string): ReturnType<typeof reportCri
 
   // 探りの資料が受入基準を失うと、呼び出し側の「挙げない」側の主張が恒真になる
   // （第3原則。115.252 の候補5。実測 2026-09-03: `probeRequirements` の中身を空にすると
-  // 65/65 緑・EXIT=0）。前提の崩壊は黙って通さず、ここで止める。
+  // 自己検査は全件緑・EXIT=0——落ちた確認は 0 件だった）。前提の崩壊は黙って通さず、ここで止める。
   //
   // **関門は自分の素材の配列を持ってはならない**（115.247 の作法。115.252 の候補3 の自己隠蔽
   // そのもの）。当初この関門を `for (const [label, document] of [['probeRequirements', ...],
   // ...] as const)` と書いていたが、**その直書き配列を空にするだけで関門ごと黙って消えた**
-  // （実測 2026-09-03: 当該配列を `[] as const` に空化して 65/65 緑・EXIT=0）。素材ごとに直に書く。
+  // （実測 2026-09-03: 当該配列を `[] as const` に空化して全件緑・EXIT=0。落ちた確認は
+  // 0 件だった）。素材ごとに直に書く。
   if (!probeRequirements.includes('#### Acceptance Criteria')) {
     throw new Error(
       '探り用の資料 probeRequirements が受入基準を持たない（この対照が空振りしています）'
@@ -7326,8 +7371,9 @@ function runTwoFeatureCopyReportProbe(spec: string): ReturnType<typeof reportCri
  *
  * 機能をまたぐ語句の一致は偽陽性が多いため、候補はその区間が既に名乗っている機能へ絞る
  * （`reportCriterionTextCopies` の限界の記述を参照）。この絞り込みは実データに強く効く。
- * 115.197 の走査で候補を全機能へ広げたところ、自己検査は 57/57 緑のまま、
- * 本番ゲートの出力は 37942 → 56816 バイトへ膨れた（＝大量の偽陽性が湧いた）。
+ * 115.197 の走査で候補を全機能へ広げたところ、自己検査は全件緑（落ちた確認は 0 件）のまま、
+ * 本番ゲートの出力は 37942 → 56816 バイトへ膨れた
+ * （＝大量の偽陽性が湧いた。`npm run check:req-coverage | wc -c`）。
  *
  * 陰性: 隣の機能の条文を写していても、その機能を名乗っていなければ挙げない・写しにも数えない。
  * 陽性: 同じ語句でも、隣の機能を名乗っている区間なら挙げる（絞り込みが厳しすぎないこと）。
@@ -7695,7 +7741,8 @@ function checkClaimedCriterionIsNeverAMismatch(): string[] {
  * `blocksWithCopy` は「食い違い 0 件」と「何も守っていない」を区別するために置いた指標である。
  * 数え方が全区間へ水増しされると、指標は常に母集団と等しくなり**何も区別しなくなる**。
  * 115.197 のレビューが実測した: `if (hasCopy) blocksWithCopy += 1;` を無条件の加算へ変えると
- * 自己検査は 52/52 緑のまま、本番ゲートの「原文の写しを持つ 283件」は 1850件 へ跳ね上がった。
+ * 自己検査は全件緑（落ちた確認は 0 件）のまま、本番ゲートの「原文の写しを持つ 283件」は
+ * 1850件 へ跳ね上がった。
  *
  * 実データ側の主張は片側（0 でないこと）しか置けないため、ここで**両側を挟む**。
  * 写しを持つ区間と持たない区間をちょうど一件ずつ置き、
@@ -7789,6 +7836,219 @@ function checkRealCriterionTextCopiesExist(): string[] {
         '写しを持たない区間が一件も無いのは実態と合わない（守備範囲が全区間へ水増しされている）'
     );
   }
+  return failures;
+}
+
+// ============================================================================
+// 反実仮想が自己検査の総数を引かない（タスク 115.316）
+// ============================================================================
+
+/**
+ * 総数を引く形の見本に差し込む数字
+ *
+ * **数字を見本の字面へ直に書かない。** 走査の対象には本ファイルそれ自体が入っているため、
+ * 字面へ直に書くと走査が自分の見本を拾って常に赤くなる。数字だけを変数から差し込むと、
+ * 見本の**値**は禁止の形を持ち、見本の**字面**は持たない。値の側が現に禁止の形を持つことは
+ * `checkProseCitesNoSelftestTotal` が毎回照合するため、この工夫で禁止が空振りすることはない。
+ * 逆に、後任が数字を字面へ戻せば本検査が自分の表を拾って**赤くなる**——黙って緩まない。
+ */
+const TOTAL_CITATION_PROBE_NUMBER = '99';
+
+/** 総数を引く記述を禁じる対象。抽出器の本体と本自己検査の双方を見る */
+const TOTAL_CITATION_SCAN_TARGETS: readonly string[] = [
+  SELFTEST_SOURCE_PATH,
+  EXTRACTOR_SOURCE_PATH,
+];
+
+/**
+ * 反実仮想に書いてはならない「自己検査の総数を引く形」
+ *
+ * 総数は確認を一件足すたびに動く。書いた時点では真でも、次に確認が増えた日から偽に読める
+ * ——**時限装置**である。タスク 115.316 の起票時点で、この二つのファイルの反実仮想は
+ * 「63 件」「69 件」「71 件」を分母に引いており、現況はそのいずれでもなかった。
+ *
+ * 処遇は「総数を書き換え続ける」ではなく「総数を書かない」を採った（タスク 115.232 /
+ * 115.307 の形）。反実仮想が述べるのは**落ちた確認の件数と、その名前と、再現のコマンド**で
+ * 足りる。現況の総数は `MINIMUM_TOTAL_CASES` が遊び 0 で機械に固定しており、散文へ写せば
+ * 同期する機構の無い二重帳簿になる。
+ *
+ * `paths` を規則ごとに持つのは、`件のうち` の形が抽出器の本体では**実データの件数**を
+ * 述べる正当な用法を持つためである（`check-requirement-coverage.ts` の除外の区分の記述が
+ * その一例）。総数の分母としての用法だけを禁じたいので、この規則の定義域は本自己検査に限る。
+ */
+const SELFTEST_TOTAL_CITATION_PATTERNS: ReadonlyArray<{
+  label: string;
+  pattern: RegExp;
+  probes: readonly string[];
+  paths: readonly string[];
+}> = [
+  {
+    label: '自己検査の総数を件数で引く',
+    pattern: /自己検査[はのがも]?\s*\d+\s*件/,
+    probes: [`自己検査 ${TOTAL_CITATION_PROBE_NUMBER} 件はすべて緑のままだった`],
+    paths: TOTAL_CITATION_SCAN_TARGETS,
+  },
+  {
+    label: '総数を分母に置く',
+    pattern: /\d+\s*件のうち/,
+    probes: [`${TOTAL_CITATION_PROBE_NUMBER} 件のうち 1 件が落ちる`],
+    paths: [SELFTEST_SOURCE_PATH],
+  },
+  {
+    // 分数と結語の**間に語が挟まる形**まで拾う（タスク 115.316 の是正）。着手時の
+    // `\d+\s*\/\s*\d+\s*(?:緑|件)` は結語が分数の直後に来ることを求めており、分数を中黒で
+    // 並べてから「いずれも」を挟んで結語へ繋ぐ書き方を取りこぼしていた——本ファイルの
+    // `guardControlsArePresent` の説明文が現にその形であり、規則が広がるまで網に掛からなかった。
+    // 挟める語は 12 文字までとし、`通過` も結語に加える。
+    label: '総数を分数で引く',
+    pattern: /\d+\s*\/\s*\d+[^\n]{0,12}?(?:緑|件|通過)/,
+    probes: [
+      `自己検査は ${TOTAL_CITATION_PROBE_NUMBER}/${TOTAL_CITATION_PROBE_NUMBER} 緑のままだった`,
+      `${TOTAL_CITATION_PROBE_NUMBER}/${TOTAL_CITATION_PROBE_NUMBER}・` +
+        `${TOTAL_CITATION_PROBE_NUMBER}/${TOTAL_CITATION_PROBE_NUMBER} いずれも緑であった`,
+    ],
+    paths: TOTAL_CITATION_SCAN_TARGETS,
+  },
+  {
+    label: '当時の総数として引く',
+    pattern: /総数[はがをも]?\s*\d+\s*件/,
+    probes: [`当時の総数は ${TOTAL_CITATION_PROBE_NUMBER} 件であった`],
+    paths: TOTAL_CITATION_SCAN_TARGETS,
+  },
+  {
+    label: '総数の全件通過として引く',
+    pattern: /\d+\s*件(?:すべて|が全件|は全件)[^\n]{0,8}(?:緑|通過)/,
+    probes: [`${TOTAL_CITATION_PROBE_NUMBER} 件すべてが緑のままだった`],
+    paths: TOTAL_CITATION_SCAN_TARGETS,
+  },
+];
+
+/** 書き換えた後の正しい形（陰性対照）。総数を引かず、落ちた件数と再現のコマンドを残す */
+const APPROVED_COUNTERFACTUAL_FORMS: readonly string[] = [
+  '赤くなる確認は本検査 1 件だけで、「取りこぼした」を挙げる',
+  '自己検査は全件緑（落ちた確認は 0 件）のままだった',
+  '落ちる確認は 1 件である（2026-09-07 に `npm run check:req-coverage:selftest` で実測）',
+];
+
+/** 一つの本文から、総数を引く記述を拾う */
+function findSelftestTotalCitations(relativePath: string, source: string): string[] {
+  const found: string[] = [];
+  const lines = source.split('\n');
+  for (const { label, pattern, paths } of SELFTEST_TOTAL_CITATION_PATTERNS) {
+    if (!paths.includes(relativePath)) continue;
+    for (let index = 0; index < lines.length; index += 1) {
+      const hit = pattern.exec(lines[index] ?? '');
+      if (hit !== null) {
+        found.push(`${relativePath}:${index + 1} が${label}形「${hit[0]}」を持つ`);
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * 記録が自己検査の総数を引いていないことを見る（タスク 115.316）
+ *
+ * 起票（115.316）が名指した陳腐化はこの形である——反実仮想が「自己検査 N 件のうち 1 件が
+ * 落ちる」と書き、その N が後から動く。**書き換えるだけでは同じ日が再び来る**ため、
+ * 総数を引く形そのものを機械で禁じる。
+ *
+ * 見るのは三つである。
+ *
+ *   1. 禁止する形が空でなく、**どの形も自分の見本に現に一致する**こと（規則の空振りの検出）。
+ *      見本は規則の**定義域のパスをすべて**、登録した見本をすべて回す——先頭のパス一つへしか
+ *      当てない形は、パスに依存する規則を後から足したときに二本目の経路の空振りを見逃す
+ *   2. 書き換えた後の正しい形（`APPROVED_COUNTERFACTUAL_FORMS`）が一つも拾われないこと
+ *      （禁止が広すぎて、総数を引かない正しい記述まで巻き込んでいないこと）
+ *   3. 走査対象の二つのファイルの本文が、禁止する形を一つも持たないこと
+ *
+ * 2026-09-07 に `npm run check:req-coverage:selftest` で実測した。禁止の側を確かめるため、
+ * 是正済みの一箇所へ総数を分母に置く形（起票が名指した書き方そのもの）を書き戻すと、
+ * 落ちる確認は本検査 1 件だけで、その行を所在つきで挙げる。`SELFTEST_TOTAL_CITATION_PATTERNS` を
+ * 空にしても落ちる確認は本検査 1 件である（空にして緑にする抜け道を塞いである）。
+ *
+ * **規則3 は一度取りこぼした。** 着手時の分数の規則は結語が分数の直後に来ることを求めており、
+ * 分数を中黒で並べてから「いずれも」を挟んで結語へ繋ぐ書き方——本ファイルの
+ * `guardControlsArePresent` の説明文が現にそれであった——に一致しなかった。挟まる語を 12 文字
+ * まで許す形へ広げ、同じ走査で拾えることを実測してから当該箇所を書き換えた（落ちた確認は
+ * 本検査 1 件・EXIT=1。書き換え後は EXIT=0）。**「機構で止める」と書いたその機構に穴があった**
+ * ——一件見つけたら全件を疑うこと。
+ *
+ * **守れない範囲を明記する。** 見ているのは字面の形であり、`MINIMUM_TOTAL_CASES` の説明文が
+ * 過去の欠陥を述べるときに引く `現況/宣言の下限` の形（コミットで作業ツリーを固定してある）は
+ * どの規則にも当たらない。**コミットで固定された過去の観測は時限装置ではない**——追試の
+ * 起点が書いてあるため、後から動いても記述は偽にならない。禁じたいのは起点を書かないまま
+ * 現況として読める総数であり、両者を字面だけで見分ける規則は持っていない。
+ * **同じファイルの中でも、五つの形から外れる書き方は網に掛からない**——総数を漢数字で書く、
+ * 分数と結語の間に 12 文字を超えて語を挟む、割合や図表で述べる、といった形である。
+ * 走査するファイルが二つに閉じていることと合わせ、この検査は**列挙した形の再発だけ**を止める。
+ */
+function checkProseCitesNoSelftestTotal(): string[] {
+  const failures: string[] = [];
+
+  if (SELFTEST_TOTAL_CITATION_PATTERNS.length === 0) {
+    failures.push('禁止する形が一件も登録されていない（規則を空にして緑にする抜け道）');
+  }
+  if (TOTAL_CITATION_SCAN_TARGETS.length === 0) {
+    failures.push('走査対象が一件も登録されていない（この確認は何も見ていない）');
+  }
+  if (APPROVED_COUNTERFACTUAL_FORMS.length === 0) {
+    failures.push('正しい形の見本が一件も登録されていない（広すぎの側を見ていない）');
+  }
+
+  // 陽性側: どの規則も自分の見本を現に拾う（**定義域のパスをすべて**、見本をすべて回す）。
+  // 先頭のパス一つだけへ当てる形は、パスに依存する規則を後から足したときに二本目の経路が
+  // 空振りしても気づけない（タスク 115.316 の是正）。
+  for (const rule of SELFTEST_TOTAL_CITATION_PATTERNS) {
+    if (rule.paths.length === 0) {
+      failures.push(`${rule.label}: 走査するファイルが一つも無い（この規則は何も見ていない）`);
+      continue;
+    }
+    if (rule.probes.length === 0) {
+      failures.push(`${rule.label}: 見本が一件も無い（この規則の空振りを誰も見ていない）`);
+      continue;
+    }
+    for (const probePath of rule.paths) {
+      for (const probe of rule.probes) {
+        if (findSelftestTotalCitations(probePath, probe).length === 0) {
+          failures.push(
+            `${rule.label}: 見本「${probe}」が ${probePath} の経路で規則に一致しない（規則が空振りしている）`
+          );
+        }
+      }
+    }
+  }
+
+  // 陰性側: 総数を引かない正しい形は拾わない
+  for (const form of APPROVED_COUNTERFACTUAL_FORMS) {
+    const hits = findSelftestTotalCitations(SELFTEST_SOURCE_PATH, form);
+    if (hits.length > 0) {
+      failures.push(`正しい形「${form}」を禁止が拾った（禁止が広すぎる）: ${hits.join(' / ')}`);
+    }
+  }
+
+  // 実物の走査
+  for (const relativePath of TOTAL_CITATION_SCAN_TARGETS) {
+    const absolute = path.resolve(relativePath);
+    if (!fs.existsSync(absolute)) {
+      failures.push(`${relativePath} が存在しない（検査対象が失われた）`);
+      continue;
+    }
+    const source = fs.readFileSync(absolute, 'utf8');
+    if (source.length === 0) {
+      failures.push(`${relativePath} が空である（走査が空振りしている）`);
+      continue;
+    }
+    for (const hit of findSelftestTotalCitations(relativePath, source)) {
+      failures.push(
+        `${hit}。総数は確認を足すたびに動く時限装置である。落ちた確認の件数と名前、` +
+          '再現のコマンド（`npm run check:req-coverage:selftest`）だけを書くこと' +
+          '（見本の表そのものが拾われたのなら、見本の数字を ' +
+          'TOTAL_CITATION_PROBE_NUMBER から差し込む形へ戻すこと）'
+      );
+    }
+  }
+
   return failures;
 }
 
@@ -7890,6 +8150,10 @@ const GROUPS: Group[] = [
       {
         name: '抽出器の限界の記述が実データの名指しと計数を持たず現況の出所を指す',
         run: checkExtractorLimitDocsCiteNoRealData,
+      },
+      {
+        name: '反実仮想が自己検査の総数を引かない（時限装置を置かない）',
+        run: checkProseCitesNoSelftestTotal,
       },
     ],
   },
@@ -8154,6 +8418,11 @@ const MINIMUM_NEGATIVE_CONTROLS = 1;
  * `npx tsx scripts/check-requirement-coverage.selftest.ts | tail -1` の出す値をそのまま置く。
  * **確認を減らす向きの書き換えは差分に現れる。**
  *
+ * 2026-09-07 のタスク 115.316 が確認を一件（`checkProseCitesNoSelftestTotal`）足したため、
+ * 同じ抽出で値を貼り直した。**この定数は散文ではなく機構が現況に固定するもの**であり、
+ * 遊びが出れば `guardControlsArePresent` が赤くする。反実仮想が総数を引いてよいのは
+ * ここまでで、散文の側は総数を書かない（前書き「この記録が引く数値の採り方」）。
+ *
  * **下限を構造から導く語彙がこの検査には無い**（115.222 は本体の検査種別の直和型から導けた）。
  * 本体 `check-requirement-coverage.ts` の被覆源の分類（`verification-*`）は確認の一部にしか
  * 対応しない。導けないため件数で貼る。
@@ -8169,7 +8438,7 @@ const MINIMUM_NEGATIVE_CONTROLS = 1;
  * **上回っても**赤くする——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
  * 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
  */
-const MINIMUM_TOTAL_CASES = 80;
+const MINIMUM_TOTAL_CASES = 81;
 
 /**
  * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）
@@ -8177,8 +8446,8 @@ const MINIMUM_TOTAL_CASES = 80;
  * 是正前の実測（2026-09-03）: `GROUPS` を丸ごと空にすると既存の `total === 0` の関門が働いて
  * EXIT=1 になるが、**群ごとの `cases` を個別に空にすると素通りした**——case 数 3 件以上の
  * 先頭 4 群（#3 取り込みの解析・#5 ヘッダー直下の要件一覧の区間判定・#6 一覧項目の識別子欄・
- * #7 一覧項目の番号の書式）を順に空にして 62/62・50/50・61/61・58/58 いずれも緑・EXIT=0
- * （115.252 の候補4）。
+ * #7 一覧項目の番号の書式）を順に空にしても、落ちた確認はいずれの回も 0 件・EXIT=0 であった
+ * （115.252 の候補4。2026-09-03 に `npm run check:req-coverage:selftest` で実測）。
  *
  * **この関門は対照群の配列の要素として書かない。** 要素として持つ形（115.252 の候補3）は配列
  * ごと空にすると関門も一緒に消える。`main()` の中、確認の実行より前に、配列の外側から貼る。
