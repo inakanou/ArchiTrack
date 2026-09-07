@@ -293,6 +293,28 @@ describe('ExecutionBudgetService', () => {
       mockTx.executionBudgetItem.update.mockResolvedValue({});
     }
 
+    /**
+     * @requirement execution-budget-management/REQ-19.1: The システム shall 実行予算データをPostgreSQLデータベースに永続化する
+     *
+     * 本検証は当該条文を機構として観測する。`ExecutionBudgetService.create` が
+     * トランザクション内で Prisma へ渡す `executionBudget.create` の `data`
+     * （`projectId` と `contractId`）と、続く `executionBudgetItem.createMany` の呼び出しを
+     * 主張しており、実行予算データが Prisma 経由で書き込まれることが主張そのものである。
+     * 観測の対象は本番モジュール backend/src/services/execution-budget.service.ts の
+     * `create` であり、当該サービスは backend/src/routes/execution-budget.routes.ts が
+     * 取り込むため本番の経路に乗る。
+     *
+     * 空振りでないことの実測: `create` の `executionBudget.create` の `data` から
+     * `contractId` を外すと、本検証を含む 56件中1件が落ちる（2026-09-07 実測。採取は
+     * `npm --prefix backend run test -- src/__tests__/unit/services/execution-budget.service.test.ts`。
+     * 変異は復元済み）。
+     *
+     * 従前この条文を名乗っていたのは
+     * backend/src/__tests__/unit/models/execution-budget.model.test.ts（生成された Prisma
+     * クライアントのみを取り込む）と同 execution-budget.migration.test.ts（マイグレーション
+     * SQL を readFileSync で読むだけ）の前書きで、いずれも本番モジュールを取り込まないため
+     * `npm run check:req-coverage` は「到達しない被覆源のみの受入基準」へ分類していた。
+     */
     it('契約書に紐づく見積項目から実行予算と実行予算項目を一括作成する', async () => {
       // Arrange
       // 既存実行予算なし
@@ -1195,6 +1217,28 @@ describe('ExecutionBudgetService', () => {
   });
 
   describe('delete', () => {
+    /**
+     * @requirement execution-budget-management/REQ-19.8: The システム shall 実行予算の論理削除をサポートする
+     *
+     * 本検証は当該条文を機構として観測する。`ExecutionBudgetService.delete` が
+     * `executionBudget.update` へ `deletedAt` を設定することを主張しており、行を消さずに
+     * 印を立てる——すなわち論理削除であること——が主張そのものである。テストが渡す
+     * トランザクションの二重は `executionBudget` に `delete`／`deleteMany` を持たないため、
+     * 物理削除へ変えれば主張以前に落ちる。観測の対象は本番モジュール
+     * backend/src/services/execution-budget.service.ts の `delete` であり、当該サービスは
+     * backend/src/routes/execution-budget.routes.ts が取り込むため本番の経路に乗る。
+     *
+     * 空振りでないことの実測: `delete` の `executionBudget.update` の `data` を
+     * `{ deletedAt: new Date() }` から `{ version: { increment: 1 } }` へ置き換えると、
+     * 本検証を含む 56件中1件が落ちる（2026-09-07 実測。採取は
+     * `npm --prefix backend run test -- src/__tests__/unit/services/execution-budget.service.test.ts`。
+     * 変異は復元済み）。
+     *
+     * 従前この条文を名乗っていたのは
+     * backend/src/__tests__/unit/models/execution-budget.model.test.ts と
+     * 同 execution-budget.migration.test.ts の前書きだけで、いずれも本番モジュールを
+     * 取り込まないため「到達しない被覆源のみの受入基準」へ分類されていた。
+     */
     it('発注済みの発注が存在しない場合は論理削除する', async () => {
       // Arrange
       const mockBudget = {

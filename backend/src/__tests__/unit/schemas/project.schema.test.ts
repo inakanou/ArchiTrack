@@ -167,6 +167,31 @@ describe('project.schema', () => {
       });
     });
 
+    /**
+     * 営業担当者IDの欄
+     *
+     * @requirement project-management/REQ-13.4: The ArchiTrackシステム shall 営業担当者を必須とする
+     *
+     * 本群は当該条文を機構として観測する。欄そのものを省いた場合・空文字を与えた場合の
+     * いずれも `createProjectSchema` が拒むことを主張しており、「必須とする」がそのまま
+     * 群の主張である。観測の対象は本番モジュール backend/src/schemas/project.schema.ts の
+     * `createProjectSchema` の `salesPersonId`（`.nullable()` も `.optional()` も付かない
+     * 素の必須欄）であり、当該スキーマは backend/src/routes/projects.routes.ts が取り込む
+     * ため本番の経路に乗る。
+     *
+     * 空振りでないことの実測: `createProjectSchema` の `salesPersonId` へ `.optional()` を
+     * 足すと、本群の「should reject missing salesPersonId field」を含む 90件中1件が落ちる
+     * （2026-09-07 実測。採取は
+     * `npm --prefix backend run test -- src/__tests__/unit/schemas/project.schema.test.ts`。
+     * 変異は復元済み）。
+     *
+     * 従前この条文を名乗っていたのは
+     * backend/src/__tests__/unit/models/project.model.test.ts の前書きだけで、同ファイルは
+     * 本番モジュールを一つも取り込まないため
+     * `npm run check:req-coverage` は「到達しない被覆源のみの受入基準」へ分類していた。
+     * 本群での名乗りはその分類を解くためのものであり、タスク 115.258 が
+     * 要件13 の 2 について採った形と同じである。
+     */
     describe('salesPersonId field', () => {
       it('should accept a valid UUID', () => {
         const result = createProjectSchema.safeParse({
@@ -210,6 +235,30 @@ describe('project.schema', () => {
       });
     });
 
+    /**
+     * 工事担当者IDの欄
+     *
+     * @requirement project-management/REQ-13.6: The ArchiTrackシステム shall 工事担当者を任意とする
+     *
+     * 本群は当該条文を機構として観測する。欄そのものを省いた場合・`null` を与えた場合の
+     * いずれも `createProjectSchema` が受理することを主張しており、「任意とする」がそのまま
+     * 群の主張である。観測の対象は本番モジュール backend/src/schemas/project.schema.ts の
+     * `createProjectSchema` の `constructionPersonId`（`.nullable().optional()`）であり、
+     * 当該スキーマは backend/src/routes/projects.routes.ts が取り込むため本番の経路に乗る。
+     *
+     * 空振りでないことの実測: `createProjectSchema` の `constructionPersonId` から
+     * `.nullable().optional()` を外すと、本群の「should accept without constructionPersonId」と
+     * 「should accept null for constructionPersonId」を含む 90件中17件が落ちる
+     * （2026-09-07 実測。採取は
+     * `npm --prefix backend run test -- src/__tests__/unit/schemas/project.schema.test.ts`。
+     * 変異は復元済み）。件数が 1件でなく 17件なのは、他の群の入力が
+     * `constructionPersonId` を与えないため必須化が横断して効くからである。
+     *
+     * 要件13 の 7（工事担当者が指定された場合に管理者以外の有効なユーザーIDであることを
+     * 検証する条文）は本群では名乗らない。本スキーマが課すのは UUID の形式検証だけで、
+     * ユーザーの実在と権限の確認はサービス層
+     * （`ProjectService.validateAssignableUser`）の担当である。
+     */
     describe('constructionPersonId field (optional)', () => {
       it('should accept without constructionPersonId', () => {
         const result = createProjectSchema.safeParse({

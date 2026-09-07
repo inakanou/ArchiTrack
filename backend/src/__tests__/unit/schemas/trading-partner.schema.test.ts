@@ -77,6 +77,26 @@ describe('createTradingPartnerSchema', () => {
       }
     });
 
+    /**
+     * @requirement trading-partner-management/REQ-6.2: The 取引先管理サービス shall 取引先種別を取引先登録時の必須選択項目として提供する
+     *
+     * 本検証は当該条文を機構として観測する。登録用スキーマ
+     * `createTradingPartnerSchema` が種別の空配列を拒み `TYPES_REQUIRED` を返すことを
+     * 主張しており、「登録時の必須選択項目」がそのまま主張である。観測の対象は本番モジュール
+     * backend/src/schemas/trading-partner.schema.ts の `createTradingPartnerSchema` の
+     * `types`（`.min(1, TYPES_REQUIRED)`）であり、当該スキーマは
+     * backend/src/routes/trading-partners.routes.ts が取り込むため本番の経路に乗る。
+     *
+     * 空振りでないことの実測: `types` の `.min(1, ...)` を `.min(0, ...)` へ緩めると、
+     * 本検証を含む 162件中1件が落ちる（2026-09-07 実測。採取は
+     * `npm --prefix backend run test -- src/__tests__/unit/schemas/trading-partner.schema.test.ts`。
+     * 変異は復元済み）。
+     *
+     * 従前この条文を名乗っていたのは
+     * backend/src/__tests__/unit/models/trading-partner.model.test.ts の前書きだけで、
+     * 同ファイルは本番モジュールを一つも取り込まないため
+     * `npm run check:req-coverage` は「到達しない被覆源のみの受入基準」へ分類していた。
+     */
     it('typesが空配列の場合エラーになること', () => {
       const result = createTradingPartnerSchema.safeParse({
         ...validData,
@@ -535,6 +555,30 @@ describe('createTradingPartnerSchema', () => {
     });
   });
 
+  /**
+   * @requirement trading-partner-management/REQ-11.10: The 取引先管理サービス shall 支払日を月オフセット（1=翌月、2=翌々月、3=3ヶ月後）と日（1〜31または「末日」）の組み合わせとして管理する
+   *
+   * 本群と直前の `支払月オフセットのバリデーション` の群が対になって当該条文を機構として
+   * 観測する。前者は月オフセットが 1・2・3 のみを受け、0 と 4 を拒むことを主張し、本群は
+   * 日が 1〜31 と末日の印（`PAYMENT_DAY_END_OF_MONTH` = 99）のみを受け、0 と 32 を拒むことを
+   * 主張する。両者は同じ `createTradingPartnerSchema` の一つの入力に対する主張であるため、
+   * 「月オフセットと日の組み合わせ」として管理されていることがそのまま観測されている。
+   * 観測の対象は本番モジュール backend/src/schemas/trading-partner.schema.ts の
+   * `paymentMonthOffsetSchema`（`.min(1).max(3)`）と `paymentDaySchema`
+   * （`1〜31 || PAYMENT_DAY_END_OF_MONTH` の refine）であり、当該スキーマは
+   * backend/src/routes/trading-partners.routes.ts が取り込むため本番の経路に乗る。
+   *
+   * 空振りでないことの実測: `paymentMonthOffsetSchema` の `.max(3)` を `.max(4)` へ、
+   * `paymentDaySchema` の上限 31 を 32 へ同時に緩めると、両群の「4を拒否すること」と
+   * 「32を拒否すること」の 162件中2件が落ちる（2026-09-07 実測。採取は
+   * `npm --prefix backend run test -- src/__tests__/unit/schemas/trading-partner.schema.test.ts`。
+   * 変異は復元済み）。
+   *
+   * 従前この条文を名乗っていたのは
+   * backend/src/__tests__/unit/models/trading-partner.model.test.ts の前書きだけで、
+   * 同ファイルは本番モジュールを一つも取り込まないため
+   * `npm run check:req-coverage` は「到達しない被覆源のみの受入基準」へ分類していた。
+   */
   describe('支払日のバリデーション', () => {
     it('1日〜31日の値を受け入れること', () => {
       for (let day = 1; day <= 31; day++) {

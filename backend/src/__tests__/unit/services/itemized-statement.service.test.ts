@@ -109,6 +109,33 @@ describe('ItemizedStatementService', () => {
   });
 
   describe('create', () => {
+    /**
+     * @requirement itemized-statement-generation/REQ-8.1: When 内訳書が作成される, the システム shall 集計時点の数量項目データを内訳書に保存する
+     *
+     * 本検証は当該条文を機構として観測する。`ItemizedStatementService.create` が
+     * 集計器（`aggregateByQuantityTable`）から受け取った項目を、そのままの値で
+     * `itemizedStatementItem.createMany` の `data` へ写して書き込むことを主張する。
+     * 任意分類・工種・名称・規格・単位・数量のすべてを完全一致で固定しているため、
+     * 写しから欄が一つ欠けても、値が潰れても落ちる。観測の対象は本番モジュール
+     * backend/src/services/itemized-statement.service.ts の `create` の `itemsData` の
+     * 組み立てであり、当該サービスは
+     * backend/src/routes/itemized-statements.routes.ts が取り込むため本番の経路に乗る。
+     *
+     * **この主張は本タスク（115.315）で足した。** 従前この検証は返り値の id・名称・
+     * 集計元の数量表名と、集計器が呼ばれた事実しか見ておらず、`createMany` の二重は
+     * `mockImplementation` の中で作られて変数に束ねられていなかったため、
+     * 書き込みの写しはどの単体検証からも届かなかった。条文を名乗っていたのは
+     * backend/src/__tests__/unit/models/itemized-statement.model.test.ts の前書きだけで、
+     * 同ファイルは生成された Prisma クライアントのみを取り込むため
+     * `npm run check:req-coverage` は「到達しない被覆源のみの受入基準」へ分類していた。
+     * 観測が無いまま名乗りだけを移すことは禁じられているため、先に観測を足した。
+     *
+     * 空振りでないことの実測（2026-09-07。採取は
+     * `npm --prefix backend run test -- src/__tests__/unit/services/itemized-statement.service.test.ts`。
+     * 変異は復元済み）: `itemsData` の `specification: item.specification` を
+     * `specification: null` へ潰すと 25件中1件（本検証）が落ちる。同じ変異を、本ファイルを
+     * HEAD（主張を足す前）の版へ戻して掛けると 25件すべてが緑のままだった。
+     */
     it('内訳書を作成し、集計項目を保存する（Requirements: 1.1, 1.5, 1.6, 1.8）', async () => {
       // Arrange
       const actorId = 'user-001';
@@ -147,6 +174,9 @@ describe('ItemizedStatementService', () => {
         deletedAt: null,
       };
 
+      // 書き込みの写しを検証するため、二重を変数へ束ねる
+      const createItems = vi.fn().mockResolvedValue({ count: 1 });
+
       // トランザクションモックをセットアップ
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
         const txClient = {
@@ -158,7 +188,7 @@ describe('ItemizedStatementService', () => {
             create: vi.fn().mockResolvedValue(mockCreatedStatement),
           },
           itemizedStatementItem: {
-            createMany: vi.fn().mockResolvedValue({ count: 1 }),
+            createMany: createItems,
           },
         };
         return fn(txClient as unknown as PrismaClient);
@@ -178,6 +208,23 @@ describe('ItemizedStatementService', () => {
       expect(result.sourceQuantityTableName).toBe('テスト数量表');
       expect(mockPivotService.aggregateByQuantityTable).toHaveBeenCalledWith('qt-001');
       expect(mockAuditLogService.createLog).toHaveBeenCalled();
+
+      // 集計時点の数量項目データが内訳書へ書き込まれること
+      // （上の JSDoc の @requirement の観測点）
+      expect(createItems).toHaveBeenCalledWith({
+        data: [
+          {
+            itemizedStatementId: 'is-001',
+            customCategory: '分類A',
+            workType: '工種1',
+            name: '名称1',
+            specification: '規格1',
+            unit: 'm',
+            quantity: 30.75,
+            displayOrder: 0,
+          },
+        ],
+      });
     });
 
     it('数量表が存在しない場合、エラーを発生させる', async () => {
@@ -902,6 +949,30 @@ describe('ItemizedStatementService', () => {
       );
     });
 
+    /**
+     * @requirement itemized-statement-generation/REQ-10.1: The 内訳書 shall updatedAtフィールドを持つ
+     *
+     * 本検証は当該条文を機構として観測する。`ItemizedStatementService.updateItemOrder` が
+     * 返す内訳書に `updatedAt` が含まれ、その値が更新後の日時であることを主張しており、
+     * 内訳書が `updatedAt` を持つことがそのまま主張である。観測の対象は本番モジュール
+     * backend/src/services/itemized-statement.service.ts の内訳書 DTO への写し
+     * （`updatedAt: statement.updatedAt`）であり、当該サービスは
+     * backend/src/routes/itemized-statements.routes.ts が取り込むため本番の経路に乗る。
+     *
+     * 空振りでないことの実測（2026-09-07。採取はいずれも
+     * `npm --prefix backend run test -- src/__tests__/unit/services/itemized-statement.service.test.ts`。
+     * 変異は復元済み）:
+     * - DTO への写し二箇所を `updatedAt: new Date(0)` へ置き換えると、本検証を含む
+     *   25件中1件が落ちる
+     * - 併せて、同フィールドが楽観的排他制御の比較にも使われていることの裏づけとして、
+     *   `delete` と `updateName` の `updatedAt.getTime()` の比較を無効化すると、
+     *   `delete` と `updateName` の楽観的排他制御の検証を含む 25件中2件が落ちる
+     *
+     * 従前この条文を名乗っていたのは
+     * backend/src/__tests__/unit/models/itemized-statement.model.test.ts の前書きだけで、
+     * 同ファイルは本番モジュールを一つも取り込まないため
+     * `npm run check:req-coverage` は「到達しない被覆源のみの受入基準」へ分類していた。
+     */
     it('更新後のレスポンスに更新後のupdatedAtが含まれる（Requirements: 17.8）', async () => {
       // Arrange
       const input = {

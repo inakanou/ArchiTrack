@@ -93,6 +93,31 @@ describe('ReceivedQuotationService', () => {
   });
 
   describe('create', () => {
+    /**
+     * @requirement estimate-request/REQ-14.1: The システム shall 受領見積書を見積依頼に紐づけて保存する
+     *
+     * 本検証は当該条文を機構として観測する。`ReceivedQuotationService.create` が
+     * トランザクション内で `receivedQuotation.create` へ渡す `data` に、入力の
+     * `estimateRequestId` がそのまま載ることを主張する。紐づけは外部キーの値として
+     * 書き込みへ現れるため、これが「見積依頼に紐づけて保存する」の観測点である。
+     * 観測の対象は本番モジュール backend/src/services/received-quotation.service.ts の
+     * `create` であり、当該サービスは
+     * backend/src/routes/received-quotation.routes.ts が取り込むため本番の経路に乗る。
+     *
+     * **この主張は本タスク（115.315）で足した。** 従前この検証は返り値の id・名称・
+     * ファイル名しか見ておらず、書き込みの写しから `estimateRequestId` を落としても
+     * 緑のままだった。条文を名乗っていたのは
+     * backend/src/__tests__/unit/models/received-quotation-revised.model.test.ts の
+     * 前書きだけで、同ファイルは生成された Prisma クライアントのみを取り込むため
+     * `npm run check:req-coverage` は「到達しない被覆源のみの受入基準」へ分類していた。
+     * 観測が無いまま名乗りだけを移すことは禁じられているため、先に観測を足した。
+     *
+     * 空振りでないことの実測（2026-09-07。採取は
+     * `npm --prefix backend run test -- src/__tests__/unit/services/received-quotation.service.test.ts`。
+     * 変異は復元済み）: `create` の書き込みの写しから `estimateRequestId` を外すと
+     * 53件中1件（本検証）が落ちる。同じ変異を、本ファイルを HEAD（主張を足す前）の版へ
+     * 戻して掛けると 53件すべてが緑のままだった。
+     */
     it('ファイルなしで受領見積書を作成する（Requirements: 11.3, 11.4）', async () => {
       // Arrange: ファイルなしだが明細行ありで作成（Requirements: 11.22 - ファイルまたは明細行のいずれかが必須）
       const lineItems = [
@@ -125,13 +150,16 @@ describe('ReceivedQuotationService', () => {
         lineItems: [{ id: 'li-001', receivedQuotationId: 'rq-001', ...lineItems[0] }],
       };
 
+      // 書き込みの写しを検証するため、二重を変数へ束ねる
+      const createQuotation = vi.fn().mockResolvedValue(mockCreatedQuotation);
+
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
         const txClient = {
           estimateRequest: {
             findUnique: vi.fn().mockResolvedValue(mockEstimateRequest),
           },
           receivedQuotation: {
-            create: vi.fn().mockResolvedValue(mockCreatedQuotation),
+            create: createQuotation,
           },
           receivedQuotationLineItem: {
             createMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -147,6 +175,15 @@ describe('ReceivedQuotationService', () => {
       expect(result.id).toBe('rq-001');
       expect(result.name).toBe('テスト受領見積書');
       expect(result.fileName).toBeNull();
+
+      // 見積依頼への紐づけが書き込みへ載ること（上の JSDoc の @requirement の観測点）
+      expect(createQuotation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            estimateRequestId: 'er-001',
+          }),
+        })
+      );
     });
 
     it('ファイル付きで受領見積書を作成する（Requirements: 11.6, 11.8）', async () => {
@@ -1726,6 +1763,28 @@ describe('ReceivedQuotationService', () => {
     });
 
     describe('明細行の全量置換（更新）テスト', () => {
+      /**
+       * @requirement estimate-request/REQ-14.2: The システム shall 受領見積書の明細行データ（任意分類、工種、名称、規格、単位、数量、単価、金額、備考）をデータベースに永続化する
+       *
+       * 本検証は当該条文のうち**書き込みの実行**を機構として観測する。
+       * `ReceivedQuotationService.update` がトランザクション内で
+       * `receivedQuotationLineItem.deleteMany` に続けて `createMany` を呼び、渡す `data` が
+       * 明細行ごとの値（名称と並び順）を持つことを主張している。観測の対象は本番モジュール
+       * backend/src/services/received-quotation.service.ts の `update` の全量置換であり、
+       * 当該サービスは backend/src/routes/received-quotation.routes.ts が取り込むため
+       * 本番の経路に乗る。
+       *
+       * 条文が挙げる九つの欄の構成を固定しているのは本検証ではなく
+       * backend/src/__tests__/unit/schemas/received-quotation.schema.test.ts の
+       * `lineItemSchema` の群である（そちらにも同じ番号を付けた）。本検証が固定するのは
+       * `createMany` の `data` のうち名称と並び順の二つで、残る七つの欄の写しは
+       * どの単体検証も固定していない。
+       *
+       * 空振りでないことの実測: `update` の `createMany` の写しで `sortOrder: item.sortOrder`
+       * を `sortOrder: 0` へ潰すと、本検証を含む 53件中1件が落ちる（2026-09-07 実測。採取は
+       * `npm --prefix backend run test -- src/__tests__/unit/services/received-quotation.service.test.ts`。
+       * 変異は復元済み）。
+       */
       it('明細行の全量置換でDELETE + INSERTが実行される', async () => {
         // Arrange
         const quotationId = 'rq-update-001';

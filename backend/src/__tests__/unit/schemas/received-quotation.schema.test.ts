@@ -424,6 +424,35 @@ describe('received-quotation.schema', () => {
       LINE_ITEM_VALIDATION_MESSAGES = mod.LINE_ITEM_VALIDATION_MESSAGES;
     });
 
+    /**
+     * @requirement estimate-request/REQ-14.2: The システム shall 受領見積書の明細行データ（任意分類、工種、名称、規格、単位、数量、単価、金額、備考）をデータベースに永続化する
+     *
+     * 本群は当該条文のうち**永続化される欄の構成**を機構として観測する。条文が挙げる九つの
+     * 欄（任意分類=customCategory、工種=workType、名称=name、規格=specification、
+     * 単位=unit、数量=quantity、単価=unitPrice、金額=amount、備考=remarks）をすべて備えた
+     * 明細行を `lineItemSchema` が受理し、解析後の値として取り出せることを主張している。
+     * zod は宣言に無い欄を落とすため、欄が一つでもスキーマから欠ければ本群は落ちる。
+     * 観測の対象は本番モジュール backend/src/schemas/received-quotation.schema.ts の
+     * `lineItemSchema` であり、当該スキーマは
+     * backend/src/routes/received-quotation.routes.ts が取り込むため本番の経路に乗る。
+     *
+     * 実際の書き込み（DELETE + INSERT）を観測するのは
+     * backend/src/__tests__/unit/services/received-quotation.service.test.ts の
+     * 「明細行の全量置換でDELETE + INSERTが実行される」であり、そちらにも同じ番号を付けた。
+     * 本群はその入口の欄構成を、あちらは書き込みの実行を担う。
+     *
+     * 空振りでないことの実測: `lineItemSchema` から `workType` の宣言を外すと、本群の
+     * 「customCategoryとworkTypeを含む完全な明細行を受け入れること (Task 36.4)」を含む
+     * 57件中3件が落ちる（2026-09-07 実測。採取は
+     * `npm --prefix backend run test -- src/__tests__/unit/schemas/received-quotation.schema.test.ts`。
+     * 変異は復元済み）。
+     *
+     * 従前この条文を名乗っていたのは
+     * backend/src/__tests__/unit/models/received-quotation-line-item.model.test.ts と
+     * 同 received-quotation-revised.model.test.ts の前書きだけで、いずれも生成された Prisma
+     * クライアントのみを取り込むため
+     * `npm run check:req-coverage` は「到達しない被覆源のみの受入基準」へ分類していた。
+     */
     describe('lineItemSchema', () => {
       it('名称が必須であること（Requirements: 11.10）', () => {
         const input = {

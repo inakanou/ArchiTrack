@@ -739,6 +739,33 @@ describe('ScheduleService', () => {
   // ===== Task 3.3: バルク保存（全項目一括更新） =====
 
   describe('bulkSaveItems', () => {
+    /**
+     * @requirement construction-schedule/REQ-10.4: When ユーザーが工程表を保存する, the 工程表管理システム shall ラベル文字をデータベースに永続化する
+     * @requirement construction-schedule/REQ-11.4: When ユーザーが工程表を保存する, the 工程表管理システム shall 詳細文字をデータベースに永続化する
+     *
+     * 本検証は上の二条文を機構として観測する。保存
+     * （`ScheduleService.bulkSaveItems`）がトランザクション内で `scheduleItem.create` へ渡す
+     * `data` に、項目ごとの `labelText` と `detailText` が載ることを主張する。観測の対象は
+     * 本番モジュール backend/src/services/schedule.service.ts の `bulkSaveItems` の
+     * 書き込みであり、当該サービスは backend/src/routes/schedules.routes.ts が取り込むため
+     * 本番の経路に乗る。
+     *
+     * **この二つの主張は本タスク（115.315）で足した。** 従前この検証は
+     * `updatedItemCount` と `updatedAt` の有無しか見ておらず、書き込みの写しから
+     * `labelText` / `detailText` を落としても緑のままだった。二条文を名乗っていたのは
+     * backend/src/__tests__/unit/models/construction-schedule.model.test.ts の前書きだけで、
+     * 同ファイルは生成された Prisma クライアントのみを取り込むため
+     * `npm run check:req-coverage` は「到達しない被覆源のみの受入基準」へ分類していた。
+     * 観測が無いまま名乗りだけを移すことは禁じられているため、先に観測を足した。
+     *
+     * 空振りでないことの実測（2026-09-07。採取は
+     * `npm --prefix backend run test -- src/__tests__/unit/services/schedule.service.test.ts`。
+     * 変異は復元済み）:
+     * - `bulkSaveItems` の `create` の写しから `labelText` を外すと 41件中1件（本検証）が落ちる
+     * - 同じく `detailText` を外すと 41件中1件（本検証）が落ちる
+     * - `detailText` を外したまま本ファイルを HEAD（主張を足す前）の版へ戻すと 41件すべてが
+     *   緑に戻る。すなわち足した二つの主張がこの変異を捕まえている
+     */
     it('既存項目を更新できること', async () => {
       // 既存レコードの取得
       (mockPrisma.constructionSchedule.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -797,6 +824,27 @@ describe('ScheduleService', () => {
 
       expect(result.updatedItemCount).toBe(2);
       expect(result.updatedAt).toBeDefined();
+
+      // ラベル文字・詳細文字が保存時の書き込みへ載ること
+      // （上の JSDoc の @requirement で名乗る二条文の観測点）
+      expect(txMock.scheduleItem.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            itemName: '基礎工事更新',
+            labelText: '基礎更新',
+            detailText: '更新後詳細',
+          }),
+        })
+      );
+      expect(txMock.scheduleItem.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            itemName: '鉄骨工事更新',
+            labelText: '鉄骨更新',
+            detailText: '更新後詳細2',
+          }),
+        })
+      );
     });
 
     it('id=nullの項目は新規作成されること', async () => {

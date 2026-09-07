@@ -772,6 +772,27 @@ describe('ProjectService', () => {
       });
     });
 
+    /**
+     * @requirement project-management/REQ-9.7: The ArchiTrackシステム shall 削除されたプロジェクトは一覧に表示しない
+     *
+     * 本検証は当該条文を機構として観測する。一覧の取得
+     * （`ProjectService.getProjects`）が Prisma へ渡す WHERE 条件に `deletedAt: null` が
+     * 含まれることを主張しており、論理削除済みの行が一覧の母集団から外れることが
+     * 主張そのものである。観測の対象は本番モジュール
+     * backend/src/services/project.service.ts の `getProjects` が組み立てる
+     * `Prisma.ProjectWhereInput` であり、当該サービスは
+     * backend/src/routes/projects.routes.ts が取り込むため本番の経路に乗る。
+     *
+     * 空振りでないことの実測: `getProjects` の WHERE 初期値から `deletedAt: null` を外すと、
+     * 本検証を含む 86件中7件が落ちる（2026-09-07 実測。採取は
+     * `npm --prefix backend run test -- src/__tests__/unit/services/project.service.test.ts`。
+     * 変異は復元済み）。
+     *
+     * 従前この条文を名乗っていたのは
+     * backend/src/__tests__/unit/models/project.model.test.ts の前書きだけで、同ファイルは
+     * 本番モジュールを一つも取り込まないため
+     * `npm run check:req-coverage` は「到達しない被覆源のみの受入基準」へ分類していた。
+     */
     it('論理削除されたプロジェクトを除外する', async () => {
       // Arrange
       mockPrisma.project.findMany = vi.fn().mockResolvedValue([]);
