@@ -221,6 +221,15 @@ const NON_COUNT_SAMPLES: Array<{ line: string; why: string }> = [
  * **限界**: `tsx` は型を落として実行するので、この表を空にしても実行時は素通りする
  * （型の違反は `npm run type-check` でしか赤くならない）。実行時の空振りは
  * `checkRealCountSamplesAreDetected()` の中の明示の主張で別に塞ぐ。
+ *
+ * **実測（2026-09-07。タスク 115.319 が反実仮想の語彙へ連用形を足して当該の記述を
+ * 露出させたため測った）**: 上の実引数を `{}` へ空にして
+ * `npm run check:steering-test-tree:selftest` を走らせると、`tsx` は型の違反を無視して実行し、
+ * 下限そのものは空のまま素通りする。落ちるのは別に置いた
+ * `checkRealCountSamplesAreDetected()` だけであり、落ちた確認は 1 件・EXIT=1 である。
+ * 同じ変異に対して `npm run type-check` は
+ * `error TS1360: Type '{}' does not satisfy the expected type 'Record<CountKind, true>'` を
+ * 出して赤くなる。変異は退避した控えからの書き戻しで復元した。
  */
 const ALL_COUNT_KINDS = Object.keys({
   'test-count': true,

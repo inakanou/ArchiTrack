@@ -40,7 +40,10 @@ import {
   EXCLUDED_DIRECTORIES,
   EXECUTION_VOCABULARY,
   extractCommentBlocks,
+  hasBacktickedName,
   hasExecutionCitation,
+  hasMutationWord,
+  hasVerdictWord,
   isCounterfactualSentence,
   listCounterfactualSentences,
   MUTATION_VOCABULARY,
@@ -200,6 +203,19 @@ const MUST_DETECT: Case[] = [
     source: lineComment('`foo` の書き戻しで落ちる。'),
     expected: true,
   },
+  // タスク 115.319 が `戻し` を語彙へ足した結果、上の見本は `戻し` でも拾えるようになった。
+  // `書き戻` が**単独で効く**のは、`戻す` / `戻せ` / `戻し` のいずれにも当たらない形——
+  // 未然形の `書き戻さ` と意志形の `書き戻そ`——だけである。下はその一形を固定する。
+  // 語幹そのものを字面に採った語は末尾が漢字であるため以降の送り仮名を問わず全形を覆う
+  // （`MUTATION_PARADIGMS` の `stem-literal`）。この重複は 115.319 が実測して露出させた
+  // ——語彙と活用の宣言の双方から `書き戻` を抜くと、落ちる確認は本見本 1 件だけであり、
+  // 上の見本（`foo` の書き戻しで落ちる）は `戻し` が拾って緑のまま通る
+  // （2026-09-07 にリポジトリルートで実測。変異は退避した控えからの書き戻しで復元した）。
+  {
+    name: '合成: 変異の語「書き戻」の単独の実効（未然形。`戻し` の採用で重複しなくなった形）',
+    source: lineComment('退避した控えから `SCAN_DIRS` を書き戻さずに走らせると、確認が赤くなる。'),
+    expected: true,
+  },
   {
     name: '合成: 変異の語「空にする」（`foo` を空にすると落ちる）',
     source: lineComment('`foo` を空にすると落ちる。'),
@@ -357,6 +373,29 @@ const MUST_DETECT: Case[] = [
       '`findingsFromNetSentences` の書き直しへ `&& row.sentence.length > 200` を足して',
       '仮の台の上で結果が分かれるようにすると、本確認は落ちる。'
     ),
+    expected: true,
+  },
+  // --- 連用形の落ち（タスク 115.319 が機械で洗い出した三形） ---
+  // 115.265 は `足す` と `足し` の一組だけを実例として踏んだが、現況の語彙を活用の型から
+  // 機械で洗うと、連用形の落ちは**三語**に及んでいた。いずれも実データで実効を持つ
+  // （名指しと判定の語を持ちながら、当時の語彙では変異の語を持たない文を拾う）。
+  // 実測は本体の「活用形の網羅を機械で確かめる範囲」に置いた。下の三件は当該の言い回しを
+  // 引用抜きで写した見本である（実物は引用を伴うため陰性側になる）。
+  {
+    name: '合成: 変異の語「落とし」（`落とす` の連用形。115.319 が実データで 8 文の実効を実測）',
+    source: lineComment(
+      '走査根の宣言 `SCAN_DIRS` から一つを落としても、自己検査は緑のままである。'
+    ),
+    expected: true,
+  },
+  {
+    name: '合成: 変異の語「戻し」（`戻す` の連用形。115.319 が実データで 2 文の実効を実測）',
+    source: lineComment('`stripComments` を素朴な実装へ戻して走らせると、当該の見本が素通りする。'),
+    expected: true,
+  },
+  {
+    name: '合成: 変異の語「空にし」（`空にする` の連用形。115.319 が実データで 4 文の実効を実測）',
+    source: lineComment('`ALL_COUNT_KINDS` の実引数を空にして走らせても、実行時は素通りする。'),
     expected: true,
   },
   // 下の二件は 115.248 が**陰性側**（過検出）に据えていた実物であり、115.265 が
@@ -804,6 +843,23 @@ function checkEndToEndDetection(): string[] {
  * 走査根が `main()` の中に隠れていると、根を落としても自己検査は緑のままになる
  * （タスク 115.227 が起票した型。同タスクは未着手であり、これは既得の知見ではなく指摘である）。
  * 本検査は `SCAN_DIRS` を通して同じ集合を数え直す。
+ *
+ * **着手前（HEAD、コミット `166753d8`）の版での実測（2026-09-07。タスク 115.319 が語彙を
+ * 広げて当該の記述を露出させたため測った）**: `SCAN_DIRS` から `'e2e'` を落として
+ * `npm run check:cf-evidence:selftest` を走らせても、落ちる確認は 0 件である
+ * （`npm run check:cf-evidence` も EXIT=0。走査 1779 ファイル・反実仮想 187 件が
+ * 1562 ファイル・173 件へ減るだけ）。`'scripts'` を落とした場合は 1729 ファイル・34 件へ
+ * 減るが、これも落ちる確認は 0 件である。
+ *
+ * **提出時点の再実測（同じコミット `166753d8` の作業ツリーへタスク 115.319 の未コミットの
+ * 変更を載せた版。2026-09-07 にリポジトリルートで測り直した）**: 同じ `'e2e'` 落としで
+ * 落ちる確認はやはり 0 件であり、走査 1779 ファイル・反実仮想 210 件が 1562 ファイル・
+ * 196 件へ減る。`'scripts'` 落としでは 1729 ファイル・36 件まで減るが、これも落ちる確認は
+ * 0 件のままである。**export しただけでは根の脱落は赤くならない**——本検査は宣言された根が
+ * 実在し空でないことしか見ないためである。**本タスクが新設した活用形の網羅確認の実効範囲も
+ * 走査根の完全性に丸ごと依存する**——根が欠ければ未宣言形を測る母集団ごと縮むためである。
+ * 根の集合そのものを固定するかは 115.227 の所管であり（本タスクでは新たな機構を作らない）、
+ * ここでは測った事実だけを残す。変異は退避した控えからの書き戻しで復元した。
  */
 function checkRealRepositoryIsScanned(): string[] {
   const failures: string[] = [];
@@ -986,6 +1042,233 @@ function checkEveryVocabularyEntryIsFixed(): string[] {
       })
     );
     if (!fixed) failures.push(`実行の語「${word}」を抜いても見本の判定が一つも変わらない`);
+  }
+  return failures;
+}
+
+// ============================================================================
+// 活用形の網羅（タスク 115.319）
+// ============================================================================
+
+/**
+ * 変異の語彙の活用の型。
+ *
+ * `MUTATION_VOCABULARY` は**語幹ではなく字面**で引くため、活用形を一つ落とすと黙って漏れる。
+ * 型を宣言すると、未宣言の活用形を機械で導けるようになる。
+ *
+ * - `godan-su`: 五段活用のサ行（`外す` / `落とす` / `戻す` / `足す`）。未然・連用・終止・
+ *   仮定・意志が「さ・し・す・せ・そ」の五形に分かれるため、**どれか一形だけを宣言すると
+ *   残りは網から外れる**。
+ * - `suru`: サ変（`空にする`）。「する・すれ・し・せ・さ・しろ」。
+ * - `vowel-stem`: 母音幹（一段・使役の `させ`・`ている` の形）。末尾の `る` / `れ` を落とした
+ *   語幹が全活用形の部分文字列になるため、**語幹さえ宣言すれば落ちは無い**。
+ * - `stem-literal`: 語幹そのものを字面に採った語（`書き戻`）と、活用しない語（`逐語復元`）。
+ *   **末尾が漢字であるため、以降の送り仮名を問わず全活用形を部分文字列として覆う**
+ *   ——本一覧の中で唯一「語幹での照合」を実現している形である。**逃げ道にならないよう、
+ *   活用しうる送り仮名で終わる語には宣言できない**（{@link conjugationFormsOf} が拒む）。
+ *   さもなければ `落とす` をこの型と宣言するだけで網羅の確認を黙らせられる。
+ */
+type ConjugationParadigm = 'godan-su' | 'suru' | 'vowel-stem' | 'stem-literal';
+
+/** 五段サ行の活用語尾（未然・連用・終止・仮定・意志） */
+const GODAN_SU_ENDINGS: readonly string[] = ['さ', 'し', 'す', 'せ', 'そ'];
+
+/** サ変の活用語尾 */
+const SURU_ENDINGS: readonly string[] = ['する', 'すれ', 'し', 'せ', 'さ', 'しろ'];
+
+/** 母音幹の語尾になりうる仮名（`る` / `れ` を落とした後の末尾） */
+const VOWEL_STEM_TAILS = /[えけげせぜてでねへべめれい]$/;
+
+/** 活用しうる送り仮名で終わるか（`stem-literal` の宣言を拒むための門） */
+const INFLECTABLE_TAIL = /[さしすせそるれえけげてでめ]$/;
+
+/**
+ * 語ごとの活用の型の宣言。
+ *
+ * **`MUTATION_VOCABULARY` と双方向に突き合わせる**（{@link checkVocabularyDeclaresItsConjugation}）。
+ * 語を足しても減らしてもここを直さない限り自己検査が赤くなるので、宣言と語彙が黙って
+ * 食い違うことはない。
+ */
+const MUTATION_PARADIGMS: Readonly<Record<string, ConjugationParadigm>> = {
+  外す: 'godan-su',
+  外せ: 'godan-su',
+  外し: 'godan-su',
+  消す: 'godan-su',
+  消せ: 'godan-su',
+  落とす: 'godan-su',
+  落とせ: 'godan-su',
+  落とし: 'godan-su',
+  戻す: 'godan-su',
+  戻せ: 'godan-su',
+  戻し: 'godan-su',
+  書き戻: 'stem-literal',
+  変え: 'vowel-stem',
+  置き換え: 'vowel-stem',
+  替え: 'vowel-stem',
+  足す: 'godan-su',
+  足し: 'godan-su',
+  空にする: 'suru',
+  空にすれ: 'suru',
+  空にし: 'suru',
+  反転させ: 'vowel-stem',
+  変異させ: 'vowel-stem',
+  変異を掛け: 'vowel-stem',
+  変異を当て: 'vowel-stem',
+  生きていれ: 'vowel-stem',
+  残していれ: 'vowel-stem',
+  逐語復元: 'stem-literal',
+  狭める: 'vowel-stem',
+  狭めれ: 'vowel-stem',
+  広げる: 'vowel-stem',
+  広げれ: 'vowel-stem',
+};
+
+/**
+ * 宣言された活用の型から、その語が属する活用形の全体を導く。
+ *
+ * 型と語形が噛み合わないときは形を返さず**理由を返す**（型の宣言そのものの誤りを
+ * 告発させるため）。とくに `stem-literal` は活用しうる送り仮名で終わる語には使えない
+ * ——さもなければ、`落とす` を `stem-literal` と宣言するだけで網羅の確認を黙らせられる。
+ */
+function conjugationFormsOf(
+  word: string,
+  paradigm: ConjugationParadigm
+): { forms: readonly string[] } | { error: string } {
+  if (paradigm === 'godan-su') {
+    const ending = GODAN_SU_ENDINGS.find((tail) => word.endsWith(tail));
+    if (ending === undefined || word.length <= ending.length) {
+      return { error: `五段サ行と宣言されているが「さ・し・す・せ・そ」で終わっていない` };
+    }
+    const base = word.slice(0, -ending.length);
+    return { forms: GODAN_SU_ENDINGS.map((tail) => base + tail) };
+  }
+  if (paradigm === 'suru') {
+    const ending = SURU_ENDINGS.find((tail) => word.endsWith(tail));
+    if (ending === undefined || word.length <= ending.length) {
+      return { error: `サ変と宣言されているが「する・すれ・し・せ・さ・しろ」で終わっていない` };
+    }
+    const base = word.slice(0, -ending.length);
+    return { forms: SURU_ENDINGS.map((tail) => base + tail) };
+  }
+  if (paradigm === 'vowel-stem') {
+    const stem = /[るれ]$/.test(word) ? word.slice(0, -1) : word;
+    if (stem.length === 0 || !VOWEL_STEM_TAILS.test(stem)) {
+      return { error: `母音幹と宣言されているが語幹「${stem}」が母音幹の形をしていない` };
+    }
+    return { forms: [stem] };
+  }
+  if (INFLECTABLE_TAIL.test(word)) {
+    return {
+      error: `語幹そのもの（活用しない語）と宣言されているが、活用しうる送り仮名で終わっている`,
+    };
+  }
+  return { forms: [word] };
+}
+
+/**
+ * 宣言した語彙のすべてが活用の型を持ち、宣言だけが残っていないこと（タスク 115.319）。
+ *
+ * これは {@link checkEveryVocabularyEntryIsFixed} の**逆向き**を成立させるための土台である。
+ * 同関数は「宣言した語が実効を持つ」ことしか固定しない。実効を持つ語が宣言に揃っているかを
+ * 見るには、まず語彙と活用の宣言が一対一であることが要る。
+ *
+ * **実測（2026-09-07。リポジトリルート）**: `MUTATION_VOCABULARY` へ `'書き換え'` を足して
+ * ここを直さないと、落ちる確認は 2 件——本確認（「活用の型が宣言されていない」）と
+ * {@link checkEveryVocabularyEntryIsFixed}（見本が無い）である。逆に `MUTATION_PARADIGMS` の
+ * `落とす` を `'stem-literal'` へ書き換えると、{@link conjugationFormsOf} が「活用しうる
+ * 送り仮名で終わっている」として拒み、落ちる確認は本確認 1 件だけになる。
+ * **網羅の確認を黙らせる向きの書き換えが、ここで止まる。**
+ * 変異はいずれも退避した控えからの書き戻しで復元し、復元後に緑へ戻ることを確かめた。
+ */
+function checkVocabularyDeclaresItsConjugation(): string[] {
+  const failures: string[] = [];
+  const declared = Object.keys(MUTATION_PARADIGMS);
+  if (declared.length === 0) failures.push('活用の型の宣言が空である');
+  for (const word of MUTATION_VOCABULARY) {
+    const paradigm = MUTATION_PARADIGMS[word];
+    if (paradigm === undefined) {
+      failures.push(`変異の語「${word}」の活用の型が宣言されていない`);
+      continue;
+    }
+    const derived = conjugationFormsOf(word, paradigm);
+    if ('error' in derived) {
+      failures.push(`変異の語「${word}」の活用の型の宣言が語形と合わない: ${derived.error}`);
+      continue;
+    }
+    // 導いた活用形のいずれかが語自身の部分文字列であること。母音幹は語幹だけを形として
+    // 持つため（`狭める` に対する `狭め`）、包含の向きは「語が形を含む」で見る。
+    if (!derived.forms.some((form) => word.includes(form))) {
+      failures.push(
+        `変異の語「${word}」が自身の活用形のどれとも重ならない（型の宣言が誤っている）`
+      );
+    }
+  }
+  for (const word of declared) {
+    if (!MUTATION_VOCABULARY.includes(word)) {
+      failures.push(`活用の型だけが残っている（語彙に無い）: ${word}`);
+    }
+  }
+  return failures;
+}
+
+/**
+ * 実データで**実効を持つ活用形が、宣言に揃っている**こと（タスク 115.319）。
+ *
+ * 115.265 が開示した非対称——`checkEveryVocabularyEntryIsFixed` は「宣言した語が効く」ことは
+ * 確かめるが「効いている語が宣言されている」ことは確かめない——を、ここで塞ぐ。
+ * 宣言済みの語の活用の型から未宣言の活用形を導き、その形が**実データで新たに拾う文**
+ * （名指しと判定の語を持ちながら、現況の語彙では変異の語を持たない文）を数える。
+ * 一件でも拾うなら、その活用形は実効を持っているのに宣言されていない——赤くする。
+ *
+ * **件数の下限は貼らない。** 拾う文が 0 件であることが合格であり、下限を貼ると
+ * 「網羅できている」という合格の意味が逆になる。台が空でないことは、走査した文の総数と
+ * 未索引の文の総数の双方が 0 でないことで別に押さえる（第3原則）。
+ *
+ * **実測（2026-09-07。リポジトリルート）**: `MUTATION_VOCABULARY` と `MUTATION_PARADIGMS`
+ * と見本から `落とし` を落とし、対照の下限二つを同じ差分だけ下げて走らせると、落ちる確認は
+ * 本確認 1 件だけであり「未宣言の活用形が実効を持つ: 落とし（`落とす` の活用形。8 文）」を
+ * 実在の箇所つきで名指しする。変異は退避した控えからの書き戻しで復元し、復元後は落ちる
+ * 確認が 0 件に戻ることを確かめた。
+ */
+function checkNoUnadoptedConjugationFormIsEffective(): string[] {
+  const failures: string[] = [];
+  let scannedSentences = 0;
+  const unindexed: Array<{ location: string; sentence: string }> = [];
+  for (const scanDir of SCAN_DIRS) {
+    for (const relativePath of collectSourceFiles(ROOT, scanDir)) {
+      const source = fs.readFileSync(path.join(ROOT, relativePath), 'utf-8');
+      for (const block of extractCommentBlocks(source)) {
+        for (const sentence of splitSentences(blockText(block))) {
+          scannedSentences += 1;
+          if (!hasBacktickedName(sentence)) continue;
+          if (!hasVerdictWord(sentence)) continue;
+          if (hasMutationWord(sentence)) continue;
+          unindexed.push({ location: `${relativePath}:${block.line}`, sentence });
+        }
+      }
+    }
+  }
+  // 前提が崩れたら赤くする（走査が空振りしていると、以下の 0 件が恒真になる）
+  if (scannedSentences === 0) failures.push('実データから文を一つも取り出せていない');
+  if (unindexed.length === 0) {
+    failures.push('名指しと判定の語を持ちながら変異の語を欠く文が一つも無い（走査の空振り）');
+  }
+  for (const word of MUTATION_VOCABULARY) {
+    const paradigm = MUTATION_PARADIGMS[word];
+    if (paradigm === undefined) continue; // 宣言の欠落は上の確認が告発する
+    const derived = conjugationFormsOf(word, paradigm);
+    if ('error' in derived) continue; // 型の誤りも上の確認が告発する
+    for (const form of derived.forms) {
+      // 現況の語彙が既に拾える形は、宣言の落ちではない
+      if (hasMutationWord(form)) continue;
+      const hits = unindexed.filter((row) => row.sentence.includes(form));
+      if (hits.length === 0) continue;
+      const shown = hits.slice(0, 3).map((row) => row.location);
+      failures.push(
+        `未宣言の活用形が実効を持つ: ${form}（${word} の活用形。${hits.length} 文。` +
+          `例 ${shown.join(' / ')}）——語彙へ足すか、足したうえで露出する引用欠を修復すること`
+      );
+    }
   }
   return failures;
 }
@@ -1338,6 +1621,16 @@ const STRUCTURAL: Case[] = [
     custom: checkEveryVocabularyEntryIsFixed,
   },
   {
+    name: '宣言した語彙のすべてが活用の型を持ち、宣言だけが残っていない',
+    expected: false,
+    custom: checkVocabularyDeclaresItsConjugation,
+  },
+  {
+    name: '実データで実効を持つ活用形が宣言に揃っている（字面照合の活用落ちを塞ぐ）',
+    expected: false,
+    custom: checkNoUnadoptedConjugationFormIsEffective,
+  },
+  {
     name: '文字列リテラルの中を注釈として読まない（見本が本検査に掛からない）',
     expected: false,
     custom: checkStringLiteralsAreNotRead,
@@ -1460,6 +1753,10 @@ function polarityOf(one: Case): 'positive' | 'negative' | undefined {
  *
  * 2026-09-04 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
  * `npx tsx scripts/list-control-polarity-floors.ts` が出す値をそのまま置く。
+ * **タスク 115.319 の提出時点の再実測は陽性 45 / 陰性 20 である**（2026-09-07 に同じ手順で
+ * 取り直した）。陽性が 41 から 45 へ動いたのは、字面照合の活用落ちを塞ぐために採った三形
+ * （`落とし` / `戻し` / `空にし`）の見本と、`戻し` の採用で重複しなくなった `書き戻` の
+ * 単独の実効を固定する見本とを、いずれも陽性側へ新設したためである。
  *
  * **総数の下限だけでは片側の消失を捕まえられない。** 陽性対照を削って同じ数だけ陰性対照を
  * 足せば総数は動かないため、極性ごとに別の下限を貼る。極性は要素の宣言（`expected` ないし
@@ -1476,7 +1773,7 @@ function polarityOf(one: Case): 'positive' | 'negative' | undefined {
  * **上回っても**赤くする——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
  * 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
  */
-const MINIMUM_POSITIVE_CONTROLS = 41;
+const MINIMUM_POSITIVE_CONTROLS = 45;
 const MINIMUM_NEGATIVE_CONTROLS = 20;
 
 /**
@@ -1485,6 +1782,10 @@ const MINIMUM_NEGATIVE_CONTROLS = 20;
  * 2026-09-04 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
  * `npx tsx scripts/check-counterfactual-evidence.selftest.ts | tail -1` の出す値をそのまま置く。
  * **確認を減らす向きの書き換えは差分に現れる。**
+ * **タスク 115.319 の提出時点の再実測は 81 である**（2026-09-07 に同じ手順で取り直した）。
+ * 75 から動いた内訳は、陽性対照の新設 4 件と、活用の網羅を見る確認の新設 2 件
+ * （`checkVocabularyDeclaresItsConjugation` と
+ * `checkNoUnadoptedConjugationFormIsEffective`）である。
  *
  * **下限を構造から導く語彙がこの検査には無い**（115.222 は本体の検査種別の直和型から導けた）。
  * 導けないため件数で貼る。
@@ -1493,7 +1794,7 @@ const MINIMUM_NEGATIVE_CONTROLS = 20;
  * **上回っても**赤くする——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
  * 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
  */
-const MINIMUM_TOTAL_CASES = 75;
+const MINIMUM_TOTAL_CASES = 81;
 
 // ============================================================================
 // 本自己検査群が閉じている範囲と、閉じていない範囲（タスク 115.252。**正典**）
