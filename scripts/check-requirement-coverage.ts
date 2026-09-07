@@ -217,6 +217,15 @@ export interface CoverageResult {
   excludedAcceptanceCriteriaCount: number;
   applicableCoveragePercent: number;
   excludedAcceptanceCriteria: ExclusionEntry[];
+  /**
+   * 除外の区分の定義（台帳の `categories` をそのまま持つ）
+   *
+   * 開示が区分名だけを印字していると、定義文が実態から離れても読み手の目に触れない。
+   * タスク 115.314 は現にそれで乖離を見逃していた（`pending-implementation` の定義文が
+   * 「機能実装済みだがE2Eテストが未作成」のまま、実データの過半が未実装であった）。
+   * 除外一覧を印字するときに定義文を並べるため、ここへ持ち回る。
+   */
+  exclusionCategories: Record<string, { description: string; verificationPhase: string }>;
 
   testFiles: TestCoverage[];
 }
@@ -2721,6 +2730,7 @@ export function calculateCoverage(
     excludedAcceptanceCriteriaCount: excludedIds.size,
     applicableCoveragePercent,
     excludedAcceptanceCriteria: excludedEntries,
+    exclusionCategories: exclusions?.categories ?? {},
 
     testFiles: testCoverage,
   };
@@ -2834,6 +2844,30 @@ export function checkSummaryIntegrity(
 /**
  * コンソールにレポートを出力
  */
+/**
+ * 除外の区分の見出しを組み立てる（タスク 115.314）
+ *
+ * 区分名と件数だけを印字していた形へ、台帳が持つ定義文と検証フェーズを並べる。
+ * **定義文を読み手の目に触れさせるための開示である。** タスク 115.314 が実測した乖離
+ * （`pending-implementation` の定義文は「機能実装済みだがE2Eテストが未作成」と述べるのに、
+ * 14 件のうち 11 件は条文の実装が本番に無かった。2026-09-07 に実測）は、定義文が
+ * どの出力にも現れないまま据え置かれたために長く気づかれなかった。
+ *
+ * 台帳に定義の無い区分は、黙って区分名だけを出さずに**その旨を印字する**。
+ * 定義の不在は形式検査（`npm run check:req-exclusions`）が別途違反として挙げるが、
+ * 開示の側が沈黙すると読み手には「定義文の無い区分」と「定義文を持つ区分」が
+ * 同じ見た目になる。
+ */
+export function formatExclusionCategoryHeading(
+  category: string,
+  count: number,
+  definition: { description: string; verificationPhase: string } | undefined
+): string {
+  const head = `     [${category}] (${count}件)`;
+  if (!definition) return `${head} ※ 台帳に定義文が無い区分`;
+  return `${head} ${definition.description}（検証フェーズ: ${definition.verificationPhase}）`;
+}
+
 function printReport(
   result: CoverageResult,
   options: Options,
@@ -3041,7 +3075,13 @@ function printReport(
     }
 
     for (const [category, entries] of byCategory) {
-      console.log(`\n     [${category}] (${entries.length}件)`);
+      console.log(
+        `\n${formatExclusionCategoryHeading(
+          category,
+          entries.length,
+          result.exclusionCategories[category]
+        )}`
+      );
       for (const entry of entries) {
         console.log(`       - ${entry.id}: ${entry.title}`);
         if (verbose) {

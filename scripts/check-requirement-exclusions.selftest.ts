@@ -24,8 +24,10 @@ import type {
 } from './check-requirement-exclusions.js';
 import {
   DEFAULT_FEATURE,
+  DEFERRED_E2E_PHASE,
   E2E_SPECS_DIR,
   EXCLUSIONS_PATH,
+  PROMISELESS_METHOD,
   VIOLATION_CHECKS,
   checkAlternativeCoverage,
   checkCoverageTagCoexistence,
@@ -302,6 +304,53 @@ function dropOneEntry(document: Json, index: number): void {
   summary(document).totalExclusions = list.length;
 }
 
+/**
+ * 代替検証を持たない除外（`method: "none"`）を実物から一件取り出す
+ *
+ * 無ければ前提の崩壊として送出する（黙って空振りさせない。AI運用7原則 第3原則）。
+ * この形は実データに現に在り、タスク 115.314 の時点では公開鍵配布の三件である。
+ * 全件が取り下げられた日には、下の二つの陽性対照は空振りではなく**失敗**する。
+ */
+function promiselessEntry(document: Json): Json {
+  const found = entries(document).find(
+    (entry) => (entry.alternativeVerification as Json | undefined)?.method === PROMISELESS_METHOD
+  );
+  if (!found) {
+    throw new Error(
+      `前提: 代替検証を持たない除外（method: ${PROMISELESS_METHOD}）が実物に一件も存在しない`
+    );
+  }
+  return found;
+}
+
+/**
+ * 「後でE2Eが確かめる」以外の検証フェーズを持つ分類の名前を実物から一つ取り出す
+ *
+ * 移し先が実物に無ければ前提の崩壊として送出する。
+ */
+function nonDeferredCategoryName(document: Json, exclude: string): string {
+  const table = categories(document) as Record<string, Json>;
+  const found = Object.keys(table).find(
+    (name) => name !== exclude && (table[name] as Json).verificationPhase !== DEFERRED_E2E_PHASE
+  );
+  if (!found) {
+    throw new Error(
+      `前提: 検証フェーズが ${DEFERRED_E2E_PHASE} でない分類が実物に存在しない（移し先が無い）`
+    );
+  }
+  return found;
+}
+
+/** 除外の分類を移し、集計もそれに合わせて整える（壊したい一点だけを壊す） */
+function moveCategory(document: Json, entry: Json, to: string): void {
+  const counts = byCategory(document);
+  const from = entry.category as string;
+  counts[from] = (counts[from] ?? 0) - 1;
+  if (counts[from] === 0) delete counts[from];
+  counts[to] = (counts[to] ?? 0) + 1;
+  entry.category = to;
+}
+
 // ============================================================================
 // 弾かれなければならない壊し方（陽性対照）
 // ============================================================================
@@ -415,6 +464,37 @@ const MUST_REJECT: Case[] = [
         description: '誰も使わない',
         verificationPhase: 'none',
       };
+    },
+    mustReject: true,
+    expectCheck: 'invariant',
+  },
+  {
+    // タスク 115.314。除外は「代わりにこの方法で確かめる」という約束であり、
+    // その約束を持たない形は「後でE2Eが確かめる」分類にしか置けない。移せると、
+    // 除外一覧は未実装かつ方針未決の条文を分母から外す器になる。
+    name: '代替検証を持たない除外を、後でE2Eが確かめる分類の外へ移す',
+    mutate: (d) => {
+      const entry = promiselessEntry(d);
+      moveCategory(d, entry, nonDeferredCategoryName(d, entry.category as string));
+    },
+    mustReject: true,
+    expectCheck: 'invariant',
+  },
+  {
+    // 同じ規則を分類の側から壊す。判定は分類名ではなく検証フェーズを読むため、
+    // 置き場所の分類が「後でE2Eが確かめる」ことをやめた瞬間に赤くならなければならない。
+    name: '代替検証を持たない除外を抱えた分類の検証フェーズを書き換える',
+    mutate: (d) => {
+      const entry = promiselessEntry(d);
+      const table = categories(d) as Record<string, Json>;
+      const category = table[entry.category as string];
+      if (!category) throw new Error(`前提: 分類 ${entry.category as string} が実物に存在しない`);
+      if (category.verificationPhase !== DEFERRED_E2E_PHASE) {
+        throw new Error(
+          `前提: 分類 ${entry.category as string} の検証フェーズが変異前から ${DEFERRED_E2E_PHASE} ではない`
+        );
+      }
+      category.verificationPhase = 'undecided';
     },
     mustReject: true,
     expectCheck: 'invariant',
@@ -696,6 +776,21 @@ const MUST_REJECT: Case[] = [
 const MUST_ACCEPT: Case[] = [
   {
     name: 'リポジトリの実物',
+    mustReject: false,
+  },
+  {
+    // タスク 115.314。上の二つの陽性対照と対にする。代替検証を持たない除外の置き場所を
+    // 決めるのは `verificationPhase` であって説明文ではない。説明文だけを書き換えても
+    // 通ることを固定しておくと、判定を散文の綴りへ寄せる締め上げが入った日に
+    // この対照だけが赤くなる。
+    name: '後でE2Eが確かめる分類の説明文の書き換え（判定は検証フェーズが担う）',
+    mutate: (d) => {
+      const entry = promiselessEntry(d);
+      const table = categories(d) as Record<string, Json>;
+      const category = table[entry.category as string];
+      if (!category) throw new Error(`前提: 分類 ${entry.category as string} が実物に存在しない`);
+      category.description = '説明文だけを書き換えた分類';
+    },
     mustReject: false,
   },
   {
@@ -1965,7 +2060,7 @@ const MECHANISM_CASES: MechanismCase[] = [
  * 現況ちょうど（遊びゼロ）。抽出は
  * `npx tsx scripts/check-requirement-exclusions.selftest.ts | grep -oE '陽性対照 [0-9]+/'`。
  */
-const MINIMUM_POSITIVE_CONTROLS = 37;
+const MINIMUM_POSITIVE_CONTROLS = 39;
 
 /**
  * 陰性対照の件数の下限（タスク 115.304）
@@ -1973,7 +2068,7 @@ const MINIMUM_POSITIVE_CONTROLS = 37;
  * 現況ちょうど（遊びゼロ）。抽出は
  * `npx tsx scripts/check-requirement-exclusions.selftest.ts | grep -oE '陰性対照 [0-9]+/'`。
  */
-const MINIMUM_NEGATIVE_CONTROLS = 7;
+const MINIMUM_NEGATIVE_CONTROLS = 8;
 
 /**
  * 機構の固定の件数の下限（タスク 115.304）
@@ -1992,7 +2087,7 @@ const MINIMUM_MECHANISM_CASES = 23;
  * 現況ちょうど（遊びゼロ）。抽出は
  * `npx tsx scripts/check-requirement-exclusions.selftest.ts | grep -oE '総数 [0-9]+/'`。
  */
-const MINIMUM_TOTAL_CASES = 67;
+const MINIMUM_TOTAL_CASES = 70;
 
 /** 対照の現況（と、宣言した下限）を並べた数の組 */
 interface CensusCounts {

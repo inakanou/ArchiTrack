@@ -547,7 +547,7 @@ export const GOVERNED_DOCUMENTS: readonly string[] = [
  * 再現には当該ファイルの書き換えが要るため、読み取り専用の綴りでは書けない。**
  * この残余は同節の三層の開示に書いた。
  */
-export const MINIMUM_ENTRIES = 144;
+export const MINIMUM_ENTRIES = 147;
 
 /**
  * 文書側が現に古い値を載せていると宣言してよい件数（完全一致）

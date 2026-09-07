@@ -1981,6 +1981,12 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 
 ## Implementation Notes
 
+- 115.314: 除外の区分は採点を改善する側へ動く。新設の是非は「未被覆のまま残すより正直か」で決め、示せないなら新設しないこと。結論が正しくても、結論を補強するために書いた理由には同じ立証責任がかかる（「需要は消えた」が同じ文書の負の対照と矛盾し差し戻し）。
+- 115.314: 述語が指す集合と引いてきた数の集合を取り違えないこと。「未被覆一覧に印字される」の母数は除外を差し引いた側であり、未被覆の全体ではない（214 と書いて実測 33）。
+- 115.314: 走査の区間を行番号で切ると末尾を落とす。レビュー側の 32 件はこれで 1 件取りこぼした。区間はパターンで切ること。
+- 115.314: 現況の実データについての観測を機械保証の層に書かないこと。規約が値域を縛っていない以上、「その値は存在しない」は観測であって保証ではない。
+- 115.314 の後任候補: (1) 定義文が実データについて真かを見る関門は無い（変異 M1 で 12 本が緑のまま）。(2) `infrastructure`/`fault-tolerance`/`integration-test` も定義文と実態が乖離（是正は各件の再分類で境界外）。(3) 記録へ 32/33 の食い違いの原因を一文足すか併記ごと落とす。(4) 三層の開示の第2層へ、今回足した二つの走査を名指しする。
+
 - **64.4**: トークン単体テスト（`ANNOTATION_DEFAULTS.strokeWidth >= 3`、`arrowOutline.enabled === true`、`textOutline.enabled === true`）は 64.1 で `annotation-style-tokens.test.ts` に先行実装済み。同ファイル 12 テスト全合格を確認（vitest）して観測可能完了状態を満たすため、差分コード追加なしでクローズ。
 - **65.4**: 矢印の単体テスト 4 ケース（Group 2 子、`setOutline({enabled:false})` で opacity=0、toObject→fromObject round-trip、legacy JSON 後方互換）は 65.1 の `ArrowTool.outline.test.ts`（19 テスト）、65.2 の `ArrowTool.serialization.test.ts`（17 テスト）、65.3 の `registerCustomShapes.arrow.test.ts`（6 テスト）に既に実装・合格済み。観測可能完了状態を満たすため追加実装なしでクローズ。
 - **66.3**: テキスト注釈の単体テスト 4 ケース（`setTextOutline({widthRatio:0.15})` で strokeWidth=fontSize*0.15、日本語マルチバイト白アウトライン適用、backgroundColor と textOutline の独立性、旧形式 JSON の後方互換復元）は 66.1 の `TextTool.outline.test.ts`（9 テスト、多バイト含む）、66.2 の `TextTool.serialization.test.ts`（25 テスト、widthRatio=0.15 round-trip / backgroundColor 独立 / legacy JSON 含む）に既に実装・合格済み。観測可能完了状態を満たすため追加実装なしでクローズ。
@@ -5914,7 +5920,7 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - _Depends: 115.257_
   - _Boundary: project-management 設計文書の遷移種別の件数_
 
-- [ ] 115.314 (P) 除外の語彙が「未実装かつ方針未決」を表せない状態を判断する（**115.258 の実装と debug が独立に実測**）
+- [x] 115.314 (P) 除外の語彙が「未実装かつ方針未決」を表せない状態を判断する（**115.258 の実装と debug が独立に実測**）
   - `e2e/requirement-exclusions.json` の `categories` は七件（`performance` / `infrastructure` / `fault-tolerance` / `data-integrity` / `security` / `pending-implementation` / `integration-test`）で、**「実装が無く、実装するかどうかも未決」を表す区分が無い**（2026-09-03 実測）
   - **定義文と実データが乖離している**: `pending-implementation` の説明は「E2Eテスト実装予定の要件。機能実装済みだがE2Eテストが未作成」だが、実測では 14 件中 **11 件が未実装の条文**である（debug が計測。実装者の自己申告 8 件は過少だった）
   - ただし当該 11 件は例外なく確定した実装決定と対になっている（`test.fail()` ラチェット 8 件、または所管スペックの番号付き実装タスク）。**反例は零件**。すなわち現状の運用は「未実装だが実装は決まっている」を表しており、定義文だけが実態から遅れている

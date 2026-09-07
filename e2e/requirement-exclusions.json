@@ -1,8 +1,8 @@
 {
   "$schema": "./requirement-exclusions.schema.json",
-  "description": "E2Eテスト対象外の受入基準とその代替検証方法を定義",
+  "description": "E2Eテスト対象外の受入基準とその代替検証方法を定義。除外は被覆率の分母から条文を外す宣言であるため、実装が無く実装するかどうかも未決の条文は登録しない——確かめる対象が存在しない条文を分母から外すと「E2E対象外」という偽の宣言になる。未被覆のまま列挙されることが未実装・未決の正直な表現である（タスク115.258 の決着とタスク115.314 の判断。判断の全文は .kiro/specs/site-survey/design.md にある）",
   "version": "1.0.0",
-  "lastUpdated": "2026-08-29",
+  "lastUpdated": "2026-09-07",
   "exclusions": [
     {
       "id": "REQ-23.3",
@@ -2813,7 +2813,7 @@
       "verificationPhase": "security-audit"
     },
     "pending-implementation": {
-      "description": "E2Eテスト実装予定の要件。機能実装済みだがE2Eテストが未作成",
+      "description": "E2Eテストで確かめることが確定している要件。実装済みでE2Eテストが未作成のものと、実装が未了で確定した実装決定（E2Eの test.fail() ラチェット、または所管スペックの未了の番号付き実装タスク）と対になっているものの双方を含む。実装するかどうかが未決の条文は含めない",
       "verificationPhase": "e2e-testing"
     },
     "integration-test": {

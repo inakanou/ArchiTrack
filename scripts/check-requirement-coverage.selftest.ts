@@ -195,6 +195,7 @@ import {
   findCriterionTextCopyMismatches,
   findRetiredCriterionCoverageMarks,
   findUnknownCriterionCoverageMarks,
+  formatExclusionCategoryHeading,
   isDeclaredCoverageHeader,
   readFeaturelessHeadersInContent,
   findFeaturelessCoverageHeaders,
@@ -6677,6 +6678,126 @@ function checkDroppedMarksNeverVanish(): string[] {
   return failures;
 }
 
+/**
+ * 除外の区分の見出しが、台帳の定義文を逐語のとおり並べる（開示の対照。タスク 115.314）
+ *
+ * 区分名と件数だけを印字していた頃、`pending-implementation` の定義文は
+ * 「機能実装済みだがE2Eテストが未作成」のまま実データから離れ続けた。定義文が
+ * **どの出力にも現れない**ことが、乖離を長く見えなくしていた原因である。
+ *
+ * ここは整形関数を合成値で呼び、逐語を固定する。数値の軸（件数）だけを見る対照では、
+ * 定義文を落とす変異が素通りする（タスク 115.300 の教訓）。**結線の側は
+ * {@link checkExclusionCategoryHeadingIsWired} が別に見る。**
+ */
+function checkExclusionCategoryHeadingIsVerbatim(): string[] {
+  const failures: string[] = [];
+
+  const withDefinition = formatExclusionCategoryHeading('探り用の区分', 3, {
+    description: '探り用の定義文',
+    verificationPhase: '探り用のフェーズ',
+  });
+  const expected = '     [探り用の区分] (3件) 探り用の定義文（検証フェーズ: 探り用のフェーズ）';
+  if (withDefinition !== expected) {
+    failures.push(`区分の見出しが逐語と違う: 期待 ${expected} / 実際 ${withDefinition}`);
+  }
+
+  // 定義の無い区分を黙って区分名だけで出さない（開示は安全側に誤る）。
+  const withoutDefinition = formatExclusionCategoryHeading('定義の無い区分', 1, undefined);
+  if (!withoutDefinition.includes('台帳に定義文が無い区分')) {
+    failures.push(`定義の無い区分がその旨を印字していない: ${withoutDefinition}`);
+  }
+  if (withoutDefinition === '     [定義の無い区分] (1件)') {
+    failures.push('定義の無い区分が、定義を持つ区分と同じ見た目になっている');
+  }
+
+  return failures;
+}
+
+/**
+ * 区分の定義文が台帳から集計結果まで運ばれている（結線の対照。タスク 115.314）
+ *
+ * 整形関数だけを固定しても、集計が台帳の `categories` を持ち回らなければ、印字される
+ * 定義文は空になる。ここは合成の台帳を `calculateCoverage` へ渡し、返る
+ * `exclusionCategories` が台帳の定義文をそのまま持つことを見る。
+ *
+ * **限界**: `printReport` が実際にこの値を整形関数へ渡していることは、本対照では
+ * 見ていない（`printReport` は輸出されていない）。その一段は本検査を実際に走らせた
+ * 出力でのみ確かめられる。
+ */
+function checkExclusionCategoryHeadingIsWired(): string[] {
+  const failures: string[] = [];
+  const document = [
+    '### Requirement 1: 探り用の要件',
+    '',
+    '#### Acceptance Criteria',
+    '1. The システム shall 探り用の振る舞いを行う',
+    '',
+  ].join('\n');
+
+  withFixture({ 'requirements.md': document }, (baseDir) => {
+    const requirementsPath = path.join(baseDir, 'requirements.md');
+    const requirements = extractRequirements('probe', requirementsPath);
+    const live = requirements.find((requirement) => requirement.id === 'REQ-1');
+    if (!live) {
+      failures.push('前提: 探り用の要件定義書から要件を取り出せない');
+      return;
+    }
+    const feature: Feature = {
+      name: 'probe',
+      path: requirementsPath,
+      requirements: [live],
+      totalAcceptanceCriteria: live.acceptanceCriteria.length,
+      retiredAcceptanceCriteriaCount: 0,
+      retiredRequirements: [],
+    };
+    const ledger: ExclusionsFile = {
+      exclusions: [
+        {
+          id: 'probe/REQ-1.1',
+          requirement: 'REQ-1: 探り用の要件',
+          title: '探り用の題',
+          reason: '探り用の理由',
+          category: '探り用の区分',
+          alternativeVerification: {
+            method: 'probe',
+            tool: 'probe',
+            description: '探り用の代替検証',
+            threshold: '-',
+          },
+        },
+      ],
+      categories: {
+        探り用の区分: {
+          description: '探り用の定義文',
+          verificationPhase: '探り用のフェーズ',
+        },
+      },
+      summary: { totalExclusions: 1, byCategory: { 探り用の区分: 1 } },
+    };
+
+    const result = calculateCoverage([feature], [], ledger);
+    if (result.excludedAcceptanceCriteria.length !== 1) {
+      failures.push(
+        `前提: 除外が集計に載っていない（${result.excludedAcceptanceCriteria.length}件）`
+      );
+      return;
+    }
+    const carried = result.exclusionCategories['探り用の区分'];
+    if (!carried) {
+      failures.push('台帳の区分の定義が集計結果まで運ばれていない（開示は定義文を出せない）');
+      return;
+    }
+    if (carried.description !== '探り用の定義文') {
+      failures.push(`運ばれた定義文が台帳と違う: ${carried.description}`);
+    }
+    const heading = formatExclusionCategoryHeading('探り用の区分', 1, carried);
+    if (!heading.includes('探り用の定義文')) {
+      failures.push(`結線した見出しに定義文が出ていない: ${heading}`);
+    }
+  });
+  return failures;
+}
+
 /** 全体サマリーの整合検査を回すための、分母1件の探り用機能を作る */
 function summaryIntegrityProbe(
   baseDir: string,
@@ -7962,6 +8083,14 @@ const GROUPS: Group[] = [
     cases: [
       { name: '除外の各形を正しく分類する', run: checkExclusionAudit },
       {
+        name: '区分の見出しが台帳の定義文を逐語のとおり並べる（開示の対照）',
+        run: checkExclusionCategoryHeadingIsVerbatim,
+      },
+      {
+        name: '区分の定義文が台帳から集計結果まで運ばれている（結線の対照）',
+        run: checkExclusionCategoryHeadingIsWired,
+      },
+      {
         name: '型宣言は本番モジュールとして数えない（母数と死コード一覧の両方）',
         run: checkTypeDeclarationsAreNotProductionModules,
       },
@@ -8040,7 +8169,7 @@ const MINIMUM_NEGATIVE_CONTROLS = 1;
  * **上回っても**赤くする——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
  * 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
  */
-const MINIMUM_TOTAL_CASES = 78;
+const MINIMUM_TOTAL_CASES = 80;
 
 /**
  * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）

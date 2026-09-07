@@ -20,7 +20,10 @@
  *   3. スキーマ単体では表せない不変条件
  *      - 受入基準の識別子が重複しないこと（機能名の有無で正規化してから比べる）
  *      - 各除外の `category` が `categories` に定義済みであること
+ *      - `categories` に定義しながらどの除外からも使われない分類が無いこと
  *      - `summary.totalExclusions` と `summary.byCategory` が実際の件数と一致すること
+ *      - 代替検証を持たない除外（`method: "none"`）が、`verificationPhase` が
+ *        `e2e-testing` の分類にしか置かれないこと（タスク 115.314 で追加）
  *   4. 識別子と内容の対応（タスク 115.167 で追加）
  *      - `id` が指す受入基準が要件定義書に実在すること
  *      - 指す受入基準が取り消し線（`~~`）で無効化されていないこと
@@ -34,6 +37,19 @@
  *   6. 代替検証が受入基準を覆う範囲（タスク 115.189 で追加）
  *      - 原文が中黒（`・`）で列挙する要素を、掲げた代替検証がすべて名指ししていること
  *      - 部分被覆を「除外」と呼ぶと、覆われていない要素がどの指標にも現れなくなる
+ *
+ * 未実装かつ方針未決を表す区分を置かないという判断（タスク 115.314）:
+ *   `pending-implementation` の定義文は長らく「機能実装済みだがE2Eテストが未作成」と
+ *   述べていたが、実データはそうではなかった——同区分の 14 件のうち 11 件は条文の実装が
+ *   本番に無い（2026-09-07 に実測。内訳と再現は
+ *   `.kiro/specs/site-survey/design.md` のタスク 115.314 の節にある）。ただし 11 件は
+ *   例外なく確定した実装決定と対になっており、反例は零件であった。すなわち運用は
+ *   「未実装だが実装は決まっている」を表しており、定義文だけが実態から遅れていた。
+ *   そこで定義文を実態へ合わせ（区分は増やさず）、「実装が無く実装するかどうかも未決」を
+ *   表す区分は**置かない**と決めた。除外は分母から外す宣言であり、確かめる対象が存在
+ *   しない条文を外すと「E2E対象外」という偽の宣言になる。未被覆のまま列挙されることが
+ *   未実装・未決の正直な表現形式である。この判断を機構にしたのが上の不変条件（3）の
+ *   末尾二つで、**「未決」を表せる `verificationPhase` の値は無い**。
  *
  * 同居をなぜ検査するか:
  *   除外の一件は「E2Eでは確かめない」という宣言である。同じ番号を `e2e/specs` の被覆印が
@@ -110,6 +126,17 @@ const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(SCRIPTS_DIR, '..');
 
 export const EXCLUSIONS_PATH = 'e2e/requirement-exclusions.json';
+
+/**
+ * 代替検証を持たないと自ら申告する `method`
+ *
+ * 除外は「E2Eでは確かめないが、代わりにこの方法で確かめる」という約束であるから、
+ * この値は約束の不在の申告である。置ける場所は下の {@link DEFERRED_E2E_PHASE} に限る。
+ */
+export const PROMISELESS_METHOD = 'none';
+
+/** 「後でE2Eが確かめる」と述べる `verificationPhase` の値 */
+export const DEFERRED_E2E_PHASE = 'e2e-testing';
 
 // ============================================================================
 // 型定義
@@ -1078,6 +1105,39 @@ export function checkInvariants(document: Json): Violation[] {
       violations.push({
         pointer: `categories.${name}`,
         message: 'どの除外からも使われていない分類です',
+      });
+    }
+  }
+
+  // 代替検証を持たない除外の置き場所（タスク 115.314）
+  //
+  // 除外の一件は「E2Eでは確かめないが、代わりにこの方法で確かめる」という約束である。
+  // `method: "none"` はその約束を持たないと自ら申告する形であり、実データではいずれも
+  // 「実装がまだ無い」ことの明示であった。この形を無条件に許すと、除外一覧は
+  // **未実装かつ方針未決の条文を分母から外す器**になる。確かめる対象が存在しない条文を
+  // 外すと「E2E対象外」という宣言そのものが偽になり、しかも採点は改善する側へ動く。
+  //
+  // そこで置き場所を、`verificationPhase` が「後でE2Eが確かめる」と述べている分類に限る。
+  // 分類名で縛らないのは、語彙が増えても規則が生きるようにするためである。**「未決」を
+  // 表せる `verificationPhase` の値は無い**——それがタスク 115.314 の判断であり、
+  // この不変条件はその判断を機構にしたものである。
+  for (const [index, entry] of exclusions.entries()) {
+    if (!isPlainObject(entry)) continue;
+    const alternative = isPlainObject(entry.alternativeVerification)
+      ? entry.alternativeVerification
+      : null;
+    if (!alternative || alternative.method !== PROMISELESS_METHOD) continue;
+    const categoryName = typeof entry.category === 'string' ? entry.category : '';
+    const category = isPlainObject(categories[categoryName]) ? categories[categoryName] : null;
+    const phase =
+      category && typeof category.verificationPhase === 'string'
+        ? category.verificationPhase
+        : null;
+    if (phase !== DEFERRED_E2E_PHASE) {
+      violations.push({
+        pointer: `exclusions[${index}].alternativeVerification.method`,
+        message: `代替検証を持たない除外（method: ${PROMISELESS_METHOD}）は verificationPhase が ${DEFERRED_E2E_PHASE} の分類にしか置けません（確かめる対象が無い条文を分母から外すと「E2E対象外」が偽の宣言になります）`,
+        actual: `${describe(entry.id)} -> category=${categoryName || '(無し)'} verificationPhase=${phase ?? '(無し)'}`,
       });
     }
   }
