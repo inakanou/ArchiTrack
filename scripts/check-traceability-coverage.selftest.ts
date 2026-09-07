@@ -414,6 +414,149 @@ ${designDocument(['| 1.1 | a | X | - | - |', '| 1.2 | b | Y | - | - |'])}`;
       }
     },
   },
+  {
+    /**
+     * 字下げされた開きのフェンスを区切りと読む枝の対照（タスク 115.318）
+     *
+     * `CODE_FENCE_DELIMITER` の `^ {0,3}` を `^` へ狭めると、この開きは区切りでなくなり、
+     * 中の見本の表頭が宣言に化ける（幻の表）。実データの字下げされた区切りは開きと閉じが
+     * 対を成すため許容を落としても判定が動かず、対照になりえない——だから合成で持つ。
+     */
+    name: '字下げされた開きのフェンスの中に引かれた表頭を表と数えない（タスク 115.318）',
+    polarity: 'negative',
+    run() {
+      // 箇条書きの中に置いた見本の型。開き・閉じは 3 桁字下げ、中身は行頭から始まる。
+      const design = `${designDocument(['| 1.1 | a | X | - | - |'])}
+## 追跡表の書き方（箇条書きの中の引用）
+
+- 見本を次に示す。
+
+   \`\`\`markdown
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 9.9 | 見本の行（この表は実在しない） | ExampleService | - | - |
+   \`\`\`
+`;
+      const { tables, rows } = extractTraceabilityRows(design);
+      const { covered } = expandRequirementColumn(rows);
+      return [
+        ...expect(tables === 1, `字下げされた開きを区切りと読んでいない: ${tables}`),
+        ...expect(rows.length === 1, `本文行が 1 行でない: ${rows.length}`),
+        ...expect(covered.has('REQ-1.1'), '実在する表の行を落としている（この確認が空振り）'),
+        ...expect(!covered.has('REQ-9.9'), '字下げされた見本の行が被覆済みに化けている'),
+      ];
+    },
+  },
+  {
+    /**
+     * 字下げされた閉じの区切りを区切りと読む枝の対照（タスク 115.318）
+     *
+     * 上と落ちる向きが逆である。`^ {0,3}` を `^` へ狭めるとこの閉じは区切りでなくなり、
+     * フェンスは開いたまま以降の正当な表をすべて飲み込む。
+     */
+    name: '字下げされた閉じの区切りでフェンスは閉じる（正当な表を飲み込まない。タスク 115.318）',
+    polarity: 'negative',
+    run() {
+      const design = `# 設計
+
+\`\`\`markdown
+| Requirement | Summary | Components | Interfaces | Flows |
+|-------------|---------|------------|------------|-------|
+| 9.9 | 見本の行 | ExampleService | - | - |
+   \`\`\`
+
+${designDocument(['| 1.1 | a | X | - | - |', '| 1.2 | b | Y | - | - |'])}`;
+      const { tables, rows } = extractTraceabilityRows(design);
+      const { covered } = expandRequirementColumn(rows);
+      return [
+        ...expect(tables === 1, `字下げされた閉じを区切りと読んでいない（飲み込み）: ${tables}`),
+        ...expect(rows.length === 2, `本文行が 2 行でない: ${rows.length}`),
+        ...expect(covered.has('REQ-1.1') && covered.has('REQ-1.2'), '正当な表の行が落ちている'),
+        ...expect(!covered.has('REQ-9.9'), '見本の行が被覆済みに化けている'),
+      ];
+    },
+  },
+  {
+    /**
+     * 区切り行を伴わない字面は表の宣言ではない（タスク 115.318）
+     *
+     * 是正前は表頭の次の行を見ずに `index + 2` から数えていたため、区切り行を欠いたまま
+     * 並べた行の塊（GFM は表として読まない）の 2 行目以降を本文行として拾った。
+     * これは 115.263 が塞いだ幻の表の、フェンスに囲われていない側である。
+     */
+    name: '区切り行を伴わない表頭は表の宣言ではない（タスク 115.318）',
+    polarity: 'negative',
+    run() {
+      const design = `${designDocument(['| 1.1 | a | X | - | - |'])}
+## 区切り行を欠く字面（GFM は表として読まない）
+
+| Requirement | Summary | Components | Interfaces | Flows |
+| - | 説明のための見本 | - | - | - |
+| 9.9 | 見本の行（この表は実在しない） | ExampleService | - | - |
+`;
+      const { tables, rows } = extractTraceabilityRows(design);
+      const { covered } = expandRequirementColumn(rows);
+      return [
+        ...expect(tables === 1, `区切り行を欠く字面まで表と数えている: ${tables}`),
+        ...expect(rows.length === 1, `本文行が 1 行でない: ${rows.length}`),
+        ...expect(covered.has('REQ-1.1'), '実在する表の行を落としている（この確認が空振り）'),
+        ...expect(!covered.has('REQ-9.9'), '区切り行を欠く字面の行が被覆済みに化けている'),
+      ];
+    },
+  },
+  {
+    /**
+     * 区切り行を欠く幻の表は欠落を隠せない（タスク 115.318）
+     *
+     * 抽出の水準ではなく判定の水準で、隠蔽が実際に起きないことを見る。位置揃えの `:` を
+     * 伴う区切り行（`|:---|`）は正当な区切りであることも、同じ素材で押さえる——ここで
+     * 弾いてしまえば実在の表を落とす向きの誤りになる。
+     */
+    name: '区切り行を欠く幻の表は欠落を隠せない（陽性対照。タスク 115.318）',
+    polarity: 'positive',
+    run() {
+      const phantom = `
+## 説明のための引用（区切り行が無い）
+
+| Requirement | Summary | Components | Interfaces | Flows |
+| - | 見本の一行目 | - | - | - |
+| 1.2 | 見本の行（この表は実在しない） | ExampleService | - | - |
+`;
+      const root = makeSyntheticRoot({
+        f: {
+          requirements: requirementsDocument([{ number: '1', criteria: ['あ', 'い'] }]),
+          design: `${designDocument(['| 1.1 | a | X | - | - |'])}${phantom}`,
+        },
+      });
+      // 位置揃えの `:` を伴う区切り行は正当である（弾けば実在の表を落とす）
+      const aligned = extractTraceabilityRows(
+        [
+          '| Requirement | Summary | Components | Interfaces | Flows |',
+          '|:------------|:-------:|-----------:|------------|-------|',
+          '| 1.2 | b | Y | - | - |',
+          '',
+        ].join('\n')
+      );
+      try {
+        const policies: Record<string, FeaturePolicy> = {
+          f: { mode: 'ratchet', maxMissing: 0, maxOrphans: 0, maxUnparsed: 0, reason: '現況 0 件' },
+        };
+        const { failures } = judgeNamed(root, policies, ['f']);
+        return [
+          ...expect(
+            failures.some((failure) => failure.includes('REQ-1.2')),
+            `区切り行を欠く幻の表が欠落を隠している: ${JSON.stringify(failures)}`
+          ),
+          ...expect(
+            aligned.tables === 1 && expandRequirementColumn(aligned.rows).covered.has('REQ-1.2'),
+            `位置揃えを伴う区切り行を弾いている: ${aligned.tables}/${aligned.rows.length}`
+          ),
+        ];
+      } finally {
+        removeRoot(root);
+      }
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -1197,8 +1340,8 @@ const REAL_DATA: TestCase[] = [
  * **上回っても**赤くする——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
  * 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
  */
-const MINIMUM_POSITIVE_CONTROLS = 12;
-const MINIMUM_NEGATIVE_CONTROLS = 8;
+const MINIMUM_POSITIVE_CONTROLS = 13;
+const MINIMUM_NEGATIVE_CONTROLS = 11;
 
 /**
  * 確認の総数の下限（タスク 115.252）
@@ -1206,18 +1349,18 @@ const MINIMUM_NEGATIVE_CONTROLS = 8;
  * 2026-09-04 にリポジトリルートで実測した現況ちょうど（余裕ゼロ）。抽出は
  * `npx tsx scripts/check-traceability-coverage.selftest.ts | tail -1` の出す値をそのまま置く
  * （タスク 115.262 が 5 件を足して 32 件から 37 件へ、タスク 115.263 が 6 件を足して
- * 37 件から 43 件へ上げた）。
+ * 37 件から 43 件へ、タスク 115.318 が 4 件を足して 43 件から 47 件へ上げた）。
  * **確認を減らす向きの書き換えは差分に現れる。**
  *
  * **下限を構造から導く語彙がこの検査には無い。** 115.222 は本体の検査種別の直和型から下限を
  * 導いたが、本体 `check-traceability-coverage.ts` の判定は `exact` / `ratchet` の 2 型しか
- * 持たず、43 件の確認の大半は型に対応しない。導けないため件数で貼る。
+ * 持たず、確認の大半は型に対応しない。導けないため件数で貼る。
  *
  * **遊びを持たせない**（タスク 115.298 が 115.262 / 115.271 の作法へ揃えた）。下限を
  * **上回っても**赤くする——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
  * 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
  */
-const MINIMUM_TOTAL_CASES = 43;
+const MINIMUM_TOTAL_CASES = 47;
 
 /**
  * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）
