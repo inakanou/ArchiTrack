@@ -1444,6 +1444,145 @@ function checkMonitoredFunctionInventory(
 /** 注釈の列挙を取り出す目印（この綴りは自ファイル内でただ一箇所に在ること） */
 const NARROWING_ENUMERATION_ANCHOR = '絞り込みに使える操作（';
 
+/** 適用先の列挙の終端の目印（自ファイルの注釈の行でただ一箇所に在ること。タスク 115.321） */
+const NARROWING_APPLICATION_ANCHOR = 'の本体に現れないこと';
+
+/**
+ * `NARROWING` の枝ごとの**意味**の見本（タスク 115.321）。拾うべき字面と拾っては
+ * ならない字面を、**その枝そのもの**へ通す。
+ *
+ * 名前の全単射（{@link checkNarrowingEnumerationMatchesRegex} が 115.267 で機構化した
+ * もの）が突き合わせるのは、正規化した操作名であって枝の意味ではない。正規化は `\b` と
+ * `\(` と `\.` と先頭の `new ` を落とすため、**同じ名前へ潰れる別の意味の枝が枝ごとに
+ * 複数ある**。名前が変わらない緩和は、名前の突き合わせでは黙って通る。
+ *
+ * 見本を置く前の実測（2026-09-07。コミット `6ce61827` のツリー。当時の枝は 11 本）。
+ * いずれも変異は退避した控えからの書き戻しで復元し、`md5sum` で一致を確かめた。
+ *   - 起票が挙げた変異——`\bdelete\b` を `\.delete\(` へ置き換える（裸の
+ *     `delete obj.x` を禁止対象から外す実質的な緩和）——を当てても**落ちた確認は
+ *     0 件**であった。2026-09-04 の起票時の観測が、そのまま現況でも再現した
+ *   - **同型は一例では終わらない。** 11 本の枝を一本ずつ「`new ` と操作名」
+ *     （`\.filter\(` を `new filter` へ 等。`new Set` と `new Map` の二本は
+ *     `\.Set\(` と `\.Map\(` へ）で置き換えると、禁止は事実上死ぬのに正規化後の
+ *     名前は変わらない。**11 本とも落ちた確認は 0 件**であった
+ *   - 兄弟の `check-design-reference-format.selftest.ts` でも同じ 11 本を当て、
+ *     **11 本とも落ちた確認は 0 件**であった
+ *
+ * 見本を置いた後は、同じ変異のいずれもがその枝の見本を外して落ちる。再現は
+ * `npm run check:design-code-refs:selftest`（兄弟は `npm run check:design-refs:selftest`）。
+ *
+ * 見本は**規則の側**へ置く（タスク 115.316 の作法）。禁止を狭めれば `mustMatch` が
+ * 外れ、広げれば `mustNotMatch` が当たる。どちらの向きも赤へ倒れる。
+ */
+const NARROWING_BRANCH_SPECIMENS: ReadonlyArray<{
+  /** 正規化後の操作名（`NARROWING` の枝と一対一に対応させる） */
+  operation: string;
+  /** その枝が拾わなければならない字面（禁止が緩む向きを赤へ倒す） */
+  mustMatch: readonly string[];
+  /** その枝が拾ってはならない字面（禁止が広がりすぎる向きを赤へ倒す） */
+  mustNotMatch: readonly string[];
+}> = [
+  {
+    operation: 'filter',
+    mustMatch: [
+      'const kept = references.filter((one) => one.ok);',
+      'const kept = references.filter(isReal);',
+      '  .filter(isReal)',
+    ],
+    mustNotMatch: [
+      'const filter = buildPredicate();',
+      'const kept = references.filterOut(one);',
+      'const kept = filter(references);',
+    ],
+  },
+  {
+    operation: 'slice',
+    mustMatch: [
+      'const head = references.slice(0, 3);',
+      'const tail = references.slice(-1);',
+      '  .slice(0, 3)',
+    ],
+    mustNotMatch: [
+      'const slice = 0;',
+      'const head = references.sliceTail(3);',
+      'const head = slice(references, 3);',
+    ],
+  },
+  {
+    operation: 'splice',
+    mustMatch: ['references.splice(0, 1);', 'references.splice(-1, 1);', '  .splice(0, 1)'],
+    mustNotMatch: ['const splice = 0;', 'references.spliceOut(0);', 'splice(references, 0);'],
+  },
+  {
+    operation: 'find',
+    mustMatch: [
+      'const one = references.find((item) => item.ok);',
+      'const hit = references.find(isBad);',
+      '  .find(isBad)',
+    ],
+    mustNotMatch: [
+      'const find = 0;',
+      'const at = references.findIndex((item) => item.ok);',
+      'const one = find(references);',
+    ],
+  },
+  {
+    operation: 'some',
+    mustMatch: [
+      'if (references.some((item) => item.ok)) return;',
+      'if (references.some(isBad)) return;',
+      '  .some(isBad)',
+    ],
+    mustNotMatch: [
+      'const some = 0;',
+      'if (references.someOf(item)) return;',
+      'if (some(references)) return;',
+    ],
+  },
+  {
+    operation: 'every',
+    mustMatch: [
+      'if (references.every((item) => item.ok)) return;',
+      'if (references.every(ok)) return;',
+      '  .every(ok)',
+    ],
+    mustNotMatch: [
+      'const every = 0;',
+      'if (references.everyOne(item)) return;',
+      'if (every(references)) return;',
+    ],
+  },
+  {
+    operation: 'includes',
+    mustMatch: ["if (lineText.includes('画像削除')) return [];", "  .includes('画像削除')"],
+    mustNotMatch: [
+      'const includes = 0;',
+      "if (lineText.includesAll('画像削除')) return [];",
+      'if (includes(lineText)) return [];',
+    ],
+  },
+  {
+    operation: 'Set',
+    mustMatch: ['const seen = new Set<string>();'],
+    mustNotMatch: ['const settings = readSettings();', 'const seen = Set();'],
+  },
+  {
+    operation: 'Map',
+    mustMatch: ['const seen = new Map<string, number>();'],
+    mustNotMatch: ['const mapped = Mapping.of(one);', 'const seen = Map();'],
+  },
+  {
+    operation: 'continue',
+    mustMatch: ['if (skipped) continue;', 'continue;'],
+    mustNotMatch: ['const continued = true;', 'const discontinue = 0;'],
+  },
+  {
+    operation: 'delete',
+    mustMatch: ['delete target.cache;', 'known.delete(key);'],
+    mustNotMatch: ['const deleted = true;', 'const predelete = 0;'],
+  },
+];
+
 /** `NARROWING` の枝を操作名へ正規化する（`\.filter\(` → `filter`、`new Set` → `Set`） */
 function narrowingOperationsFromRegex(narrowing: RegExp): string[] {
   return narrowing.source
@@ -1459,17 +1598,28 @@ function narrowingOperationsFromRegex(narrowing: RegExp): string[] {
 }
 
 /**
- * 注釈の列挙から、逆引用符で囲まれた操作名を順に取り出す。
+ * 注釈の行だけを連ねた散文を返す。
  *
  * **走査するのは注釈の行だけ**（`*` で始まる行）。目印そのものを保持する定数の宣言は
  * コードの行であって散文ではないため、ここで数に入れると目印が常に二箇所になる。
+ * 行頭の `*` と字下げを落として**改行を挟まずに**連ねるのは、適用先の列挙が行をまたいで
+ * 折り返されるためである（タスク 115.321。折り返し方は二つの自己検査で異なる）。
+ */
+function narrowingProse(selfSource: string): string {
+  return selfSource
+    .split('\n')
+    .filter((line) => line.trim().startsWith('*'))
+    .map((line) => line.trim().slice(1).trim())
+    .join('');
+}
+
+/**
+ * 注釈の列挙から、逆引用符で囲まれた操作名を順に取り出す。
+ *
  * 目印がちょうど一箇所でなければ `null` を返し、呼び出し元が失格にする。
  */
 function narrowingOperationsFromProse(selfSource: string): string[] | null {
-  const prose = selfSource
-    .split('\n')
-    .filter((line) => line.trim().startsWith('*'))
-    .join('\n');
+  const prose = narrowingProse(selfSource);
   if (prose.split(NARROWING_ENUMERATION_ANCHOR).length - 1 !== 1) return null;
   const start = prose.indexOf(NARROWING_ENUMERATION_ANCHOR) + NARROWING_ENUMERATION_ANCHOR.length;
   const end = prose.indexOf('）', start);
@@ -1480,6 +1630,91 @@ function narrowingOperationsFromProse(selfSource: string): string[] | null {
     if (operation !== undefined) operations.push(operation);
   }
   return operations;
+}
+
+/**
+ * 注釈が挙げる**適用先の関数名**の列挙を順に取り出す（タスク 115.321）。
+ *
+ * 取り出す窓は、操作の列挙を閉じる `）` から {@link NARROWING_APPLICATION_ANCHOR} まで
+ * である。窓の外の括弧書き（一律禁止を課さない関数の理由）は数に入らない。
+ * どちらの目印もちょうど一箇所でなければ `null` を返し、呼び出し元が失格にする。
+ */
+function narrowingApplicationTargetsFromProse(selfSource: string): string[] | null {
+  const prose = narrowingProse(selfSource);
+  if (prose.split(NARROWING_ENUMERATION_ANCHOR).length - 1 !== 1) return null;
+  if (prose.split(NARROWING_APPLICATION_ANCHOR).length - 1 !== 1) return null;
+  const enumerationEnd = prose.indexOf('）', prose.indexOf(NARROWING_ENUMERATION_ANCHOR));
+  const applicationEnd = prose.indexOf(NARROWING_APPLICATION_ANCHOR);
+  if (enumerationEnd === -1) return null;
+  if (applicationEnd <= enumerationEnd) return null;
+  const targets: string[] = [];
+  for (const match of prose.slice(enumerationEnd, applicationEnd).matchAll(/`([^`]+)`/g)) {
+    const target = match[1];
+    if (target !== undefined) targets.push(target);
+  }
+  return targets;
+}
+
+/**
+ * `NARROWING` の枝ごとに、意味の見本 {@link NARROWING_BRANCH_SPECIMENS} を**その枝
+ * そのもの**へ通す（タスク 115.321）。名前の全単射が見ない「名前は変わらないが意味が
+ * 変わる」書き換えを、ここで赤へ倒す。
+ *
+ * 見本と枝は**双方向で一対一**に要求する。見本の無い枝を足せば「意味の見本が無い」で
+ * 落ち、枝の消えた見本が残れば「枝が無い」で落ちる。片側だけの見本（拾う字面だけ、
+ * あるいは拾わない字面だけ）も失格にする——片側だけでは、緩める向きか広げる向きの
+ * どちらかが素通りするためである（AI運用7原則 第3原則）。
+ */
+function checkNarrowingBranchSpecimens(narrowing: RegExp): string[] {
+  const failures: string[] = [];
+  const alternatives = narrowing.source.split('|');
+  const names = narrowingOperationsFromRegex(narrowing);
+  if (NARROWING_BRANCH_SPECIMENS.length === 0) {
+    failures.push('枝の意味の見本が 0 件（見本の無い突き合わせはどんな枝とも矛盾しない）');
+  }
+  for (let index = 0; index < alternatives.length; index += 1) {
+    const alternative = alternatives[index];
+    const name = names[index];
+    if (alternative === undefined || name === undefined) continue;
+    const specimen = NARROWING_BRANCH_SPECIMENS.find((one) => one.operation === name);
+    if (specimen === undefined) {
+      failures.push(
+        `NARROWING の枝に意味の見本が無い: ${alternative}（NARROWING_BRANCH_SPECIMENS へ` +
+          '拾うべき字面と拾ってはならない字面を置くこと。名前だけの突き合わせは意味の変化を見ない）'
+      );
+      continue;
+    }
+    if (specimen.mustMatch.length === 0 || specimen.mustNotMatch.length === 0) {
+      failures.push(
+        `枝 ${alternative} の意味の見本が片側だけである（拾うべき字面と拾ってはならない字面の両方を置くこと）`
+      );
+    }
+    let branch: RegExp;
+    try {
+      branch = new RegExp(alternative);
+    } catch {
+      failures.push(`NARROWING の枝を単独の正規表現として組めない: ${alternative}`);
+      continue;
+    }
+    for (const code of specimen.mustMatch) {
+      if (!branch.test(code)) {
+        failures.push(`枝 ${alternative} が拾うべき字面を拾わない: ${code}（禁止が緩んでいる）`);
+      }
+    }
+    for (const code of specimen.mustNotMatch) {
+      if (branch.test(code)) {
+        failures.push(
+          `枝 ${alternative} が拾ってはならない字面を拾う: ${code}（禁止が広がりすぎている）`
+        );
+      }
+    }
+  }
+  for (const specimen of NARROWING_BRANCH_SPECIMENS) {
+    if (!names.includes(specimen.operation)) {
+      failures.push(`意味の見本があるが NARROWING に対応する枝が無い: ${specimen.operation}`);
+    }
+  }
+  return failures;
 }
 
 /**
@@ -1524,13 +1759,110 @@ function narrowingOperationsFromProse(selfSource: string): string[] | null {
  * （2026-09-04 に実測。`MINIMUM_TOTAL_CASES` が見るのは確認の要素の数であり、
  * 節の有無は数に現れない）。削除は差分に現れる。**塞がないことと、書かないことは別で
  * ある**（115.242 の教訓）。
+ *
+ * **名前の水準にとどまっていた限界は塞いだ**（タスク 115.321）。枝ごとの意味の見本
+ * {@link NARROWING_BRANCH_SPECIMENS} を枝そのものへ通し、同じ散文が挙げる**適用先の
+ * 関数名の列挙**も `forbidAllNarrowing` を課している本体と双方向で突き合わせる。実測は
+ * いずれも 2026-09-07（コミット `6ce61827` のツリー）で、変異は退避した控えからの
+ * 書き戻しで復元し `md5sum` で一致を確かめた。落ちた確認はいずれも 1 件である。
+ *   - 起票が挙げた変異——`\bdelete\b` を `\.delete\(` へ置き換える——を当てると
+ *     「枝 `\.delete\(` が拾うべき字面を拾わない: delete target.cache;（禁止が緩んで
+ *     いる）」で落ちる。**見本を置く前は緑のまま通っていた**
+ *   - 適用先の列挙から `scanDocument` を落とす → 「一律禁止を課している本体が注釈の
+ *     適用先の列挙に無い: scanDocument」で落ちる
+ *   - 適用先の列挙の `scanDocument` を `collectDesignDocuments` へ書き換える → 上に加えて
+ *     「注釈の適用先の列挙にあるが一律禁止を課していない本体がある: collectDesignDocuments」も挙がる
+ *   - 実装の側で `scanDocument` の `forbidAllNarrowing` を `false` へ倒す（散文は
+ *     そのまま）→ 「注釈の適用先の列挙にあるが一律禁止を課していない本体がある:
+ *     scanDocument」で落ちる。**散文と実装のどちらが動いても赤くなる**
+ *
+ * **見本を置いてなお塞いでいないこと**（`development-discipline.md` の三層——機械保証／
+ * 人手走査／未走査の残余——に分けて書く）。
+ *
+ * **機械が保証するのは**、`NARROWING` の各枝が {@link NARROWING_BRANCH_SPECIMENS} の
+ * `mustMatch`（26 件）を全て拾い `mustNotMatch`（29 件）を一つも拾わないことだけである。
+ * 見本が触れない意味の変化は素通りする。
+ *
+ * **人手走査の範囲をコマンドで宣言する。** 走査も向きの判定も
+ * `npx tsx scripts/survey-narrowing-branch-variants.ts [--list] [--dump] [--outside]` が行い、
+ * 材料（`NARROWING` の枝と {@link NARROWING_BRANCH_SPECIMENS}）は走査対象のソースから
+ * 読み直す（写しを置かない）。
+ * 土台の字面・挿入する語・重複の扱い・向きの判定に用いるコーパスはいずれも同スクリプトの
+ * 定数が持つ。以下はその出力であり、**第三者は同じコマンドで同じ数に着地する**
+ * （2026-09-08 にリポジトリルートで実測。範囲を日本語で宣言してはならないという
+ * `.kiro/steering/development-discipline.md` の要求に従い、散文での宣言から改めた——
+ * 同じ記述から出発した二者が別の数に着地する事故が現に起きたためである）。
+ *   - 走査 A（接辞のみ）: 枝 11 本で候補 4840 通り、通り抜け 71 本
+ *     （緩む 14・広がる 28・同値 29）
+ *   - 走査 B（任意の位置・高々二個）: 候補 17115 通り・うち名前が変わらない別形 10699 本、
+ *     通り抜け 37 本（緩む 18・広がる 9・同値 10）。**接辞の族が届かない語中への挿入**を含む
+ *   - 二つを合併すると通り抜けは 89 本（緩む 22・広がる 30・同値 37）。その 89 本すべてを
+ *     実際に枝へ差し替えて自己検査を走らせ、**両ファイルとも緑**であること、および
+ *     見本による予測と実走の食い違いが 0 件であることを確かめた（実走は 2026-09-07。
+ *     89 本の一覧は `--dump` が印字する）
+ *   - 走査 B を高々三個まで広げると候補 336404 通り・別形 148571 本・通り抜け 115 本
+ *     （緩む 52・広がる 27・同値 36）。緩む向きは二個までと同じく `new Set` と `new Map`
+ *     の二枝だけに留まった
+ *
+ * **「挿入で尽くされる」という一つ前の版の導出は誤りであった（撤回する）。** 正規化が落とすのは
+ * `\b` と `\(` と `\.` と先頭の `new `、および `trim` が落とす前後の空白だけだが、削除は
+ * **逐次適用**であるため、削除の結果として新たな削除対象が合成される。反例は `\\b.filter\(`
+ * である——妥当な正規表現であり、`\b` の削除が `\.` を生んで最終的に `filter` へ正規化される
+ * が、この字面は上の語を「操作名」や「`new ` を冠した操作名」へ挿入しては作れない。
+ * **ゆえに挿入の族は名前を保存する字面の部分集合にすぎず、上の数値は名前保存の別形を
+ * 尽くしていない。** 挿入の個数に上限は無いので名前を変えない別形は枝ごとに**無限にあり**、
+ * 上に挙げたのは有限な切片である。
+ *   - 族の外も同じコマンドで測った（`--outside`）。語ではなく**文字**（`\` `b` `(` `.` 半角空白
+ *     `n` `e` `w` の 8 文字）を高々三個挿入して得た字面のうち、名前が変わらず、走査 A と
+ *     走査 B（高々三個）のどちらの候補にも現れないものは**両ファイルとも 1380 本**あり、
+ *     そのうち**見本を通り抜けたものは 0 本**である（2026-09-08 に実測）
+ *   - 実走でも当てた——`NARROWING` の `\.filter\(` を `\\b.filter\(` へ置き換えると
+ *     「枝 `\\b.filter\(` が拾うべき字面を拾わない」で落ち、`\.find\(` を `\\b.find\(` へ
+ *     置き換えても同じ文面で落ちる。落ちた確認はいずれも 1 件で、**両ファイルで赤**である
+ *     （2026-09-08 に実測。変異は退避した控えからの書き戻しで復元し `md5sum` で一致を
+ *     確かめた）
+ *
+ * **結論はその範囲でしか言えない。** 上の範囲で**禁止が緩む向きの通り抜けは 22 本**で
+ * あり、**範囲外（語の挿入が四個以上、文字の挿入が四個以上、上に挙げていない文字の挿入、
+ * 半角空白以外の空白文字など）は保証しない**。22 本はすべて `new Set` と `new Map` の枝で、
+ * `new Set` の前後いずれかへ `\b` を足す形（`\bnew Set` / `new Set\b` / `new \bSet\b` など）
+ * である。取り落とすのは `new Settings` や `anew Set` のように**語構成文字と隣り合う字面**
+ * だけで、実在の `new Set(...)` は取り落とさない。**この 22 本は見本では塞げない**——塞ぐには
+ * `new Settings` を「拾うべき字面」として見本へ書かねばならず、それは現に在る偽陽性を要求として固定してしまう。
+ * 網を狭めて 0 本に見せかけるより、残すほうを採った。
+ *
+ * **一つ前の版が「緩む向きは 0 本」と書いていたのは誤りであった。** その版が数えた別形は
+ * 「接頭辞 4 種 × 接尾辞 3 種」という狭い族で、`\(` の重複挿入（`\.filter\(` を
+ * `\.filter\(\(` へ）を構造的に排除していた。その形は `mustMatch` が矢印関数の字面だけ
+ * だったため通り抜け、`xs.filter(isReal)` を取り落としていた。本版は単一引数呼び出しと
+ * 連鎖の継続行（`  .filter(isReal)`）を見本へ足して塞いだ——実測すると `\.filter\(\(` /
+ * `\.find\(\(` / `\.some\(\(` / `\.every\(\(` はいずれも**両ファイルで赤**になり、
+ * 「枝 … が拾うべき字面を拾わない」を挙げる。同じく新たに塞いだ `\b\.filter\(`（連鎖の
+ * 継続行を取り落とす）・`\.slice\(\b`・` continue\b` も両ファイルで赤である
+ * （いずれも 2026-09-07 に実測）。
+ *
+ * **挿入以外の書き換えは 115.267 の全単射が拾う。** 文字クラス（`[.]filter\(`）・量指定子
+ * （`\.filter\(?`）・先読み（`\.filter(?=\()`）・後読み（`(?<=\.)filter\(`）はいずれも
+ * 正規化後の名前が `filter` から変わるため、見本へ届く前に名前の突き合わせで落ちる
+ * （前三者を 2026-09-07 に両ファイルで実測。「NARROWING が禁じている操作が注釈の列挙に
+ * 無い」と「注釈の列挙にあるが NARROWING が禁じていない操作がある」を挙げて落ちた）。
+ *
+ * **見本そのものを薄める変更も、機構では止まらない。** `delete` の `mustMatch` から裸の
+ * `delete target.cache;` を落とすと落ちた確認は 0 件になり、その状態で起票の変異
+ * （`\bdelete\b` を `\.delete\(` へ）を重ねても落ちた確認は 0 件のままである
+ * （2026-09-07 に実測。兄弟でも同じ二つを当て、いずれも落ちた確認は 0 件）。見本の削除は
+ * 差分に現れる。一方、見本を**空にする**変異と、見本を**片側だけ**にする変異
+ * （`mustNotMatch` を空にする）は、いずれも落ちた確認 1 件で赤くなる（同日に両ファイルで
+ * 実測）。対照群を空にしても緑で通る状態にはしていない（AI運用7原則 第3原則）。
  */
-function checkNarrowingEnumerationMatchesRegex(narrowing: RegExp): string[] {
+function checkNarrowingEnumerationMatchesRegex(
+  narrowing: RegExp,
+  forbidAllNarrowingLabels: readonly string[]
+): string[] {
   const failures: string[] = [];
+  const selfSource = fs.readFileSync(fileURLToPath(import.meta.url), 'utf-8');
   const fromRegex = narrowingOperationsFromRegex(narrowing);
-  const fromProse = narrowingOperationsFromProse(
-    fs.readFileSync(fileURLToPath(import.meta.url), 'utf-8')
-  );
+  const fromProse = narrowingOperationsFromProse(selfSource);
 
   // 突き合わせの材料が揃わないときは合格ではなく失敗（AI運用7原則 第3原則）
   if (fromProse === null) {
@@ -1560,6 +1892,36 @@ function checkNarrowingEnumerationMatchesRegex(narrowing: RegExp): string[] {
   for (const operation of fromProse) {
     if (!fromRegex.includes(operation)) {
       failures.push(`注釈の列挙にあるが NARROWING が禁じていない操作がある: ${operation}`);
+    }
+  }
+
+  // 名前が一致しても枝の意味は変わりうる。枝ごとの見本で意味を固定する（タスク 115.321）
+  failures.push(...checkNarrowingBranchSpecimens(narrowing));
+
+  // 同じ散文が挙げる「適用先の関数名」も、実装の一律禁止と双方向で突き合わせる（同上）
+  const targetsFromProse = narrowingApplicationTargetsFromProse(selfSource);
+  if (targetsFromProse === null) {
+    failures.push(
+      `注釈の「…）が … ${NARROWING_APPLICATION_ANCHOR}」の適用先の列挙を自ファイルから` +
+        '取り出せない（目印が消えたか二箇所になった。適用先の散文と実装を突き合わせられない' +
+        '状態を合格にしない）'
+    );
+    return failures;
+  }
+  if (targetsFromProse.length === 0) {
+    failures.push('注釈の適用先の列挙が 0 件（空の列挙はどんな適用先の集合とも矛盾しない）');
+  }
+  if (forbidAllNarrowingLabels.length === 0) {
+    failures.push('一律禁止を課している本体が 0 件（空の母集団を合格にしない。第3原則）');
+  }
+  for (const label of forbidAllNarrowingLabels) {
+    if (!targetsFromProse.includes(label)) {
+      failures.push(`一律禁止を課している本体が注釈の適用先の列挙に無い: ${label}`);
+    }
+  }
+  for (const target of targetsFromProse) {
+    if (!forbidAllNarrowingLabels.includes(target)) {
+      failures.push(`注釈の適用先の列挙にあるが一律禁止を課していない本体がある: ${target}`);
     }
   }
   return failures;
@@ -1639,8 +2001,6 @@ function checkNoFindingsNarrowing(): string[] {
 
   const NARROWING =
     /\.filter\(|\.slice\(|\.splice\(|\.find\(|\.some\(|\.every\(|\.includes\(|new Set|new Map|\bcontinue\b|\bdelete\b/;
-
-  failures.push(...checkNarrowingEnumerationMatchesRegex(NARROWING));
 
   interface BodyRule {
     /** 関数名（台帳 EXECUTABLE_FUNCTION_INVENTORY と同じ綴りにすること） */
@@ -1923,6 +2283,14 @@ function checkNoFindingsNarrowing(): string[] {
       forbidAllNarrowing: false,
     },
   ];
+
+  // 適用先の列挙を実装から導くため、`bodies` を組んだあとに呼ぶ（タスク 115.321）
+  failures.push(
+    ...checkNarrowingEnumerationMatchesRegex(
+      NARROWING,
+      bodies.filter((body) => body.forbidAllNarrowing).map((body) => body.label)
+    )
+  );
 
   for (const { label, declaration, watched, allowed, forbidAllNarrowing } of bodies) {
     const body = extractFunctionBody(source, declaration);
