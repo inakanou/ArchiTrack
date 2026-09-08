@@ -1348,8 +1348,17 @@ export const MAX_FEATURELESS_COVERAGE_HEADERS = 2025;
  * ヘッダーの数だけを見ると、**既にあるヘッダーの下へ名乗りを足す**動きが素通りする。
  * 眠る量は名乗りの側で増えるため、二つの量を別々に押さえる。
  * 意味と下げ方は {@link MAX_FEATURELESS_COVERAGE_HEADERS} と同じである。
+ *
+ * タスク 115.324 が 2 だけ下げた。`frontend/src/components/projects/SiteSurveySectionCard.tsx`
+ * の `Requirements:` ブロックが名乗っていた `2.1` / `2.2` は、`.kiro/specs/site-survey/requirements.md`
+ * で取り消し線により潰され project-management/Requirement 24 AC 1-2 へ移管済みの番号であった。
+ * 移管先の呼称へ書き換えたことで、同ブロックの眠る名乗りは 3 件から 1 件へ減った
+ * （2026-09-08 にリポジトリルートで {@link findFeaturelessCoverageHeaders} を呼んで実測。
+ * {@link MAX_FEATURELESS_COVERAGE_HEADERS} が押さえるヘッダーの数は動いていない）。
+ * 判断の全文は `.kiro/specs/site-survey/design.md` の
+ * `### 部品の一覧の行の自足性と本番の前書きの移管済みの番号の決着（タスク 115.324）` にある。
  */
-export const MAX_DORMANT_HEADER_NAMES = 5172;
+export const MAX_DORMANT_HEADER_NAMES = 5170;
 
 /** 撤廃済みの受入基準を名乗っている被覆印 */
 export interface RetiredCriterionMark {

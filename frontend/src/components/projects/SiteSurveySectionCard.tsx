@@ -4,9 +4,20 @@
  * Task 31.2: SiteSurveySectionCardコンポーネントを実装する
  *
  * Requirements:
- * - 2.1: プロジェクト詳細画面に直近2件の現場調査と総数を表示する
- * - 2.2: 現場調査一覧画面への遷移リンク
+ * - project-management/Requirement 24 AC 1: プロジェクト詳細画面に直近2件の現場調査と総数を表示する
+ * - project-management/Requirement 24 AC 2: 現場調査一覧画面への遷移リンク
  * - 2.3: 現場調査詳細画面への遷移リンク
+ *
+ * 上二行の番号を付け替えた理由（タスク 115.324）:
+ * 本スペックの要件2.1 / 2.2 は `.kiro/specs/site-survey/requirements.md` で取り消し線により
+ * 潰され、条文自身が `→ project-management/Requirement 24 AC 1 に移動` /
+ * `→ project-management/Requirement 24 AC 2 に移動` と移管先を名指ししている。裸の `2.1` /
+ * `2.2` は本スペックにもう条文を持たない墓標であった。呼称は移管先の条文と
+ * `.kiro/specs/site-survey/design.md` の同部品の記述に合わせた綴りを採る（機能名に
+ * `/REQ-` を続ける綴りは被覆印の書式なので、ここでは用いない）。
+ * 本スペックが担うのは現場調査詳細への遷移（要件2.3）だけである。
+ * 判断の全文と実測は `.kiro/specs/site-survey/design.md` の
+ * `### 部品の一覧の行の自足性と本番の前書きの移管済みの番号の決着（タスク 115.324）` にある。
  *
  * 表示要素:
  * - セクションタイトル「現場調査」
