@@ -526,6 +526,66 @@ describe('ImageUploadService', () => {
       // S3アップロードは呼ばれていないこと
       expect(mockS3Client.send).not.toHaveBeenCalled();
     });
+
+    /**
+     * @requirement site-survey/REQ-21.7
+     *
+     * 条文が述べるのは「Content-Type を**設定する**」ことである。判定そのものは
+     * `SurveyImageService.validateFile` の担当で、その返り値を Content-Type として
+     * 実際に置くのは本サービスであるため、被覆印をここへ置く。
+     *
+     * 申告 MIME（`image/png`）と判定結果（`image/webp`）を食い違わせることで、
+     * 設定元が申告値ではなく判定結果であることを弁別する。原画像とサムネイルの
+     * 二回とも判定結果が置かれることを、順序を含めて固定する。
+     */
+    it('Content-Typeにマジックバイト判定結果を用いること (site-survey/REQ-21.7)', async () => {
+      const surveyId = '123e4567-e89b-12d3-a456-426614174000';
+      const file = {
+        buffer: Buffer.from('test'),
+        mimetype: 'image/png',
+        originalname: 'photo.png',
+        size: 1024,
+      };
+      const input: UploadInput = { surveyId, file };
+
+      mockPrisma.siteSurvey.findUnique.mockResolvedValue({
+        id: surveyId,
+        deletedAt: null,
+      });
+      mockPrisma.surveyImage.count.mockResolvedValue(0);
+      // マジックバイト判定は申告 MIME と異なる形式を返す
+      mockSurveyImageService.validateFile.mockReturnValue('image/webp');
+      mockSurveyImageService.sanitizeFileName.mockReturnValue('photo.png');
+      mockImageProcessorService.processImage.mockResolvedValue({
+        original: {
+          buffer: Buffer.from('processed'),
+          metadata: { width: 800, height: 600, size: 1024, format: 'webp' },
+          originalExceededSizeLimit: false,
+        },
+        thumbnail: Buffer.from('thumbnail'),
+        metadata: { width: 800, height: 600, size: 1024, format: 'webp' },
+      });
+      mockS3Client.send.mockResolvedValue({});
+      mockPrisma.surveyImage.create.mockResolvedValue({
+        id: 'img-new',
+        surveyId,
+        fileName: 'photo.png',
+        fileSize: 1024,
+        width: 800,
+        height: 600,
+        displayOrder: 1,
+        originalPath: 'surveys/123/photo.png',
+        thumbnailPath: 'surveys/123/thumb_photo.png',
+        createdAt: new Date(),
+      });
+
+      await service.upload(input);
+
+      const contentTypes = mockS3Client.send.mock.calls.map(
+        ([command]) => (command as { params: { ContentType: string } }).params.ContentType
+      );
+      expect(contentTypes).toStrictEqual(['image/webp', 'image/webp']);
+    });
   });
 
   describe('uploadBatch (Requirements: 4.2, 4.3)', () => {

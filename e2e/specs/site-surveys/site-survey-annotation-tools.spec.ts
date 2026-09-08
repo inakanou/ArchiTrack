@@ -15,6 +15,7 @@
  * - REQ-7.7: 図形の選択
  * - REQ-7.10: 図形のカスタマイズ
  * - REQ-8.1: テキストツールの選択
+ * - REQ-8.2: テキストの入力と確定による画像上への配置
  * - REQ-8.6: 吹き出し形式
  * - REQ-8.7: マルチバイト文字サポート
  * - REQ-9.1: 注釈データの保存
@@ -31,7 +32,9 @@
  * 除外のため被覆印を掲げない受入基準（e2e/requirement-exclusions.json）:
  *   要件6.4: 道具の選択状態（aria-pressed）だけを主張しており、寸法線のクリック選択を主張していない
  *   要件6.6: 押鍵の後に本文が可視であることしか主張しておらず、寸法線の除去を主張していない
- *   要件8.3: 道具の選択状態だけを主張しており、テキストの編集モードへの遷移を主張していない
+ *   要件8.3: 既存のテキストのダブルクリックによる編集モードへの遷移を主張していない
+ *     （検証是正 1 で新設した要件8.2 の検証は、単クリックによる新規作成の直後に編集モードが
+ *     開くことを主張するが、条文8.3 が課す「既存のテキストをダブルクリックする」経路は覆わない）
  *   要件8.5: フォントサイズと文字色は主張するが、受入基準が並べる背景色を主張していない
  *
  * タスク 115.277 の是正: 上記一覧から要件10.7 の被覆印を取り下げた。表題は「調査報告PDF
@@ -47,6 +50,59 @@
  * タスク 115.188 の是正: 上記一覧から要件8.2（テキストを入力して確定すると画像上に配置する）の
  * 被覆印を取り下げた。本ファイルのテキストツール検証は道具の選択とスタイルパネルの表示までで、
  * テキストを入力して確定し画像上に配置されることを一度も主張していない。
+ *
+ * 検証是正 1 の是正: 上の取り下げののち、要件8.2 は被覆印も除外の実エントリも持たないまま
+ * 残っていた（`e2e/requirement-exclusions.json` の `summary.note` が「統合テストで検証」と
+ * 述べるだけで、除外の登録は無かった）。入力と確定と配置を主張する検証が下の (1) と (2) の
+ * 範囲に一件も無かったため、被覆印を付け替えるのではなく検証を新設した
+ * （「テキストを入力して確定すると画像上にテキストコメントが配置される」）。
+ * 上の一覧へ要件8.2 を戻したのは、その新設の検証が本ファイルに在るためである。
+ *
+ * 検証是正 1 の是正（上の全称否定の走査範囲を三層で開示する）: 「一件も無かった」は全称否定で
+ * あるため、走査範囲を日本語ではなくコマンドで宣言する。実測はすべて 2026-09-08 に
+ * リポジトリルートで行い、是正前の基準版は本ファイルの新設の検証を含まないコミット
+ * c3f3e9f6、現況は同日の作業ツリー（本註を書き終えた後に測り直した値）である。
+ *
+ * (1) 機械保証。被覆印は
+ *     `grep -rn "site-survey/REQ-8\.2" backend/src frontend/src e2e --include=*.ts --include=*.tsx`
+ *     で挙げる。この三つの根は被覆の検査 `scripts/check-requirement-coverage.ts` の走査根
+ *     `CODE_DIRS` と同一で、拡張子も同検査の `COVERAGE_FILE_PATTERN` と同じである
+ *     （同検査の母集団は `listCoverageScanFiles()` が返す 1729 ファイル。現況で実測）。
+ *     基準版 c3f3e9f6 では当たり 0 行（終了コード 1）、現況では 2 行で、2 行とも本ファイルの
+ *     新設の検証のもの（`@requirement` の行と検証名の行）である。本註の文面は当たらない。
+ *     除外の実エントリは `grep -c '"id": "site-survey/REQ-8\.2"' e2e/requirement-exclusions.json`
+ *     で数え、基準版・現況とも 0 である（同台帳の site-survey の登録 33 件のうち要件8 のものは
+ *     8.3 と 8.4 の二件だけで、`grep -n '"id": "site-survey/REQ-8\.'` がその二行を印字する）。
+ *
+ * (2) 人手走査。単体検証の走査範囲は
+ *     `grep -rlE 'TextTool|TextAnnotation|AnnotationEditor' frontend/src/__tests__` が挙げる
+ *     36 ファイルとする。うち 24 ファイルが Fabric.js の `IText` へ模擬を差し込んでいる
+ *     （`class MockIText` を定義するのが 23 ファイル、同じ 23 ファイルが `IText: MockIText` で
+ *     差し込み、残る 1 ファイルは `IText: MockShape`）。この 36 ファイルに対する
+ *     `grep -nE 'new +IText\(' <36 ファイル>` と `grep -nE '^import[^;]*\bIText\b' <36 ファイル>`
+ *     はいずれも当たり 0（終了コード 1）であり、実物の `IText` を構築する単体検証は 0 件である。
+ *     したがって編集モードの開閉と本文の確定を本物の状態で主張できる単体検証はこの範囲に無い。
+ *     E2E 側の走査範囲は `grep -rlE 'テキストツール|textAnnotation|IText' e2e/specs` が挙げる
+ *     5 ファイル（基準版・現況とも 5）とし、全件を読んだ。文字を打つ箇所は、本ファイルの三つの
+ *     検証（「テキストツールのキーボード入力ができる」「日本語を含むマルチバイト文字を入力
+ *     できる」「日本語テキスト注釈を正しくレンダリングしてエクスポートできる」）と、
+ *     `e2e/specs/site-surveys/site-survey-drawing-selection-prevention.spec.ts` の 797 行、
+ *     `e2e/specs/site-surveys/site-survey-annotation-mobile.spec.ts` の 1004 行である
+ *     （行番号は基準版 c3f3e9f6 のもの。両ファイルは本是正で変更していない）。前者の三つは、
+ *     打鍵の後に `body` の可視だけを主張するものが二つ、書き出しの対話と落とし込まれた
+ *     ファイル名が空でないことだけを主張するものが一つである。後の二つは
+ *     打鍵の後に図形が一つ増えたことと白アウトラインの状態を主張するが、**打った本文と
+ *     描画面に載った本文が一致することは、五箇所のいずれも主張していない**。すなわち
+ *     「入力した本文が確定されて配置される」を主張する検証は、**基準版 c3f3e9f6 の時点で**
+ *     この 5 ファイルに 0 件である。現況では本ファイルの新設の検証がそれを主張するため、
+ *     この文を現況の記述として読んではならない（第 1 層が現況を 2 行と書き分けている）。
+ *
+ * (3) 未走査の残余。backend の統合検証、Storybook、`frontend/src/__tests__` の外に置かれた
+ *     検証、および上の語彙のいずれにも当たらない検証は保証しない。要件8.2 の入力・確定・配置を
+ *     主張する既存の検証が一件でも在れば、本記述は偽になる。
+ *
+ * 結論は「リポジトリのどこにも無い」ではなく、**(1) と (2) の範囲で 0 件であり、範囲外は
+ * 保証しない**である。
  */
 
 import path from 'path';
@@ -565,6 +621,38 @@ test.describe('現場調査注釈ツール', () => {
       await expect(lineWidth).toHaveValue('3');
     });
   });
+
+  /**
+   * 描画面に載っているテキスト注釈を読み出すヘルパー関数（検証是正 1）
+   *
+   * 描画面が取得できないことは「観測された値」ではなく「観測の失敗」であるため、
+   * 空配列を返さずその場で投げる（`getFabricObjectCount` と同じ扱い。Task 115.184）。
+   * 空配列を返す形にすると「一件も載っていない」と「そもそも観測できていない」が
+   * 同じ値に同居し、件数の主張がどちらでも成立してしまう。
+   */
+  async function readTextAnnotations(
+    page: import('@playwright/test').Page
+  ): Promise<Array<{ text: string; isEditing: boolean }>> {
+    return await page.evaluate(() => {
+      const canvas = (
+        window as unknown as {
+          __fabricCanvas?: {
+            getObjects: () => Array<{ type?: string; text?: string; isEditing?: boolean }>;
+          } | null;
+        }
+      ).__fabricCanvas;
+      if (!canvas) {
+        throw new Error(
+          'Fabric.js キャンバス（window.__fabricCanvas）が取得できない。' +
+            'テキスト注釈を観測できないため、ここで失敗させる'
+        );
+      }
+      return canvas
+        .getObjects()
+        .filter((object) => object.type === 'textAnnotation')
+        .map((object) => ({ text: object.text ?? '', isEditing: object.isEditing === true }));
+    });
+  }
 
   /**
    * キャンバスの中心座標を取得するヘルパー関数
@@ -1184,6 +1272,84 @@ test.describe('現場調査注釈ツール', () => {
 
       // ツールが引き続き選択状態であることを確認
       await expect(textTool).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    /**
+     * @requirement site-survey/REQ-8.2
+     *
+     * 条文（`.kiro/specs/site-survey/requirements.md` 要件8 受入基準2）:
+     * 「When ユーザーがテキストを入力して確定する, the Site Survey Service shall
+     * 画像上にテキストコメントを配置する」
+     *
+     * 入力は ASCII で行う。Playwright の押鍵は IME の変換を経由しないため、
+     * 変換中の入力の可否は本検証の主張の外にある。多バイト文字の入力・表示は
+     * 受入基準8.7 の担当であり、本 describe の別の検証が主張している。
+     *
+     * 「入力して」を実質にするため、入力の前に編集モードが開いたことを本番の状態で
+     * 確かめる。開いていなければ押鍵はどこへも入らず、初期文字列 `テキスト` のまま
+     * 置かれた図形で「配置された」が成立してしまう。確定後の主張が入力した本文と
+     * 一致することを求めるのも同じ理由である。
+     */
+    test('テキストを入力して確定すると画像上にテキストコメントが配置される (site-survey/REQ-8.2)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const success = await navigateToAnnotationEditor(page);
+      if (!success) {
+        throw new Error(
+          '注釈エディタへのナビゲーションに失敗しました。事前準備テストが正しく実行されていません。'
+        );
+      }
+
+      const objectCountBefore = await getFabricObjectCount(page);
+
+      // テキストツールを選択
+      const textTool = page.getByRole('button', { name: /テキスト/i });
+      await expect(textTool).toBeVisible({ timeout: getTimeout(5000) });
+      await textTool.click();
+      await expect(textTool).toHaveAttribute('aria-pressed', 'true');
+
+      // 画像上をクリックしてテキスト入力を開始する（受入基準8.1 の入力欄）
+      const center = await getCanvasCenter(page);
+      await page.mouse.click(center.x, center.y);
+
+      // 入力欄が編集モードで開いたことを確かめてから入力する
+      await expect
+        .poll(
+          async () =>
+            (await readTextAnnotations(page)).filter((annotation) => annotation.isEditing).length,
+          {
+            message: 'テキスト入力欄が編集モードで開くこと',
+            timeout: getTimeout(10000),
+          }
+        )
+        .toBe(1);
+
+      // 入力する（編集モードに入るとき初期文字列が全選択されているため置き換わる）
+      const comment = 'Crack on north wall';
+      await page.keyboard.type(comment);
+
+      // 確定する（Escape は fabric の keysMap で exitEditing に割り当てられており、
+      // 抜けるときに入力した本文は保持される）
+      await page.keyboard.press('Escape');
+
+      // 入力した本文が、確定済み（編集モードでない）のテキスト注釈として画像上に載ること
+      await expect
+        .poll(
+          async () =>
+            (await readTextAnnotations(page)).filter(
+              (annotation) => annotation.text === comment && !annotation.isEditing
+            ).length,
+          {
+            message: '入力した本文が確定済みのテキスト注釈として描画面に載ること',
+            timeout: getTimeout(10000),
+          }
+        )
+        .toBe(1);
+
+      // 配置されたのは一件だけであること（初期文字列のままの図形が残っていないこと）
+      expect(await getFabricObjectCount(page)).toBe(objectCountBefore + 1);
     });
 
     test('テキストツール選択時にスタイルオプションが表示される', async ({ page }) => {

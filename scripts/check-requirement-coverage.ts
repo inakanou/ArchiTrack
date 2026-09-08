@@ -1339,8 +1339,19 @@ export function findFeaturelessCoverageHeaders(
  *
  * 是正は機能ごとに分けて進める。**進んだ分はこの定数が下がる形でしか記録されない**ため、
  * 「直したつもり」で止まることはできない。
+ *
+ * 検証是正 1・3 が 2 だけ下げた（2025 → 2023）。
+ * `backend/src/__tests__/unit/services/survey-image.service.test.ts` の Requirement 21 を
+ * 名乗る二つの `Requirements:` ブロックである。片方（`validateFile - extension mismatch
+ * tolerance`）は条文どおりの入力を組み立てているため `Requirements (site-survey):` の
+ * 一覧形へ直して被覆印にし、もう片方（`detectMimeTypeByMagicBytes`）は判定の原始機構しか
+ * 通らず条文を検証していないため、被覆の名乗りを外して散文の注記へ改めた。
+ * `Requirements:` の直後に読点で並べる形は識別子欄として読まれないため、この二つが
+ * 押さえていた眠る名乗りは元から 0 件であり、{@link MAX_DORMANT_HEADER_NAMES} は動かない
+ * （2026-09-08 にリポジトリルートで {@link findFeaturelessCoverageHeaders} を呼んで実測。
+ * ヘッダー 2023 件 / 眠る名乗り 5170 件 / 965 ファイル）。
  */
-export const MAX_FEATURELESS_COVERAGE_HEADERS = 2025;
+export const MAX_FEATURELESS_COVERAGE_HEADERS = 2023;
 
 /**
  * 機能名を欠くヘッダーの下で眠っている名乗りの上限（ラチェット）

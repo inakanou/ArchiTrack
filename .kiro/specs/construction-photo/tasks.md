@@ -427,3 +427,34 @@
   - **`_Requirements:` を持たないのは意図である。** 本節は受入基準を実装せず、実装が既に満たしている下限の出所を整えるだけである。19.3 を挙げると「当該受入基準を本節が被覆した」という偽の申告になり、被覆の集計にも入りうるため、依存と境界だけを書く
   - _Depends: 16.1_
   - _Boundary: 工事写真のタップ領域の下限の実装側の出所_
+
+## Task 17: 工事写真の現調コピーが親の現場調査の論理削除を見ない状態を解消する
+
+**経緯**: site-survey の Task 115.124 が同スペックの5経路を `assertSurveyNotDeleted` で塞ぎ、Task 115.172 の実装とレビューが全8ルートを一件ずつ辿って**残る2経路が他スペックの所管であること**を確認した。同スペックは Task 115.214 を `_Blocked:_` に置いたが、**本スペックへ起票されないまま滞留していた**。site-survey の機能レベル検証がその断絶を検出し、申し送りを実行して本節を起こした。**所有権は本スペックにある。** site-survey 側は実装コードを一行も変更していない。
+
+**もう一方の経路は数量表生成スペックが所管する。** 起票は `.kiro/specs/quantity-table-generation/tasks.md` の `## Task 81: 数量表の経路が親の現場調査の論理削除を見ない状態を解消する` に置いた。**両スペックへ別々に起票したのは、二つの欠陥が別のサービス・別の所有者に属し、互いに依存しないためである**——片方を主として他方を参照だけに留めると、参照する側の所有者の作業キューに何も載らず、**この一連の是正が解消しようとしている「行き止まりの申し送り」をそのまま再現する**。共有するのは是正の道具（`assertSurveyNotDeleted`）だけであり、それは site-survey が既に提供している。
+
+**測った事実**（いずれもコミット `c3f3e9f6`、2026-09-08 にリポジトリルートで実測）:
+
+- **本スペックの未検査の経路**: `backend/src/services/construction-photo-image.service.ts` の `addFromSurveyImage` は、参照候補を `prisma.surveyImage.findMany` で読む際に `survey: { select: { projectId: true } }` しか置かず、**親の現場調査の `deletedAt` を読まない**。入口は `grep -nF 'async addFromSurveyImage(' backend/src/services/construction-photo-image.service.ts` で求め、続く50行を読むこと。当該の綴りの当たりは `grep -cF 'survey: { select: { projectId: true } },' backend/src/services/construction-photo-image.service.ts` の出力が `1` である
+- **拒否の条件はプロジェクト不一致と不存在の二つだけである**: 拒否集合は `!src || src.survey.projectId !== album.projectId` で作られる（入口は `grep -nF 'const rejected = surveyImageIds.filter((id) => {' backend/src/services/construction-photo-image.service.ts`）。**アルバム自身の論理削除は同じメソッドの冒頭で検査されているのに**（`grep -cF 'if (!album || album.deletedAt !== null) {' backend/src/services/construction-photo-image.service.ts` の出力は `3` で、本メソッドのものは `addFromSurveyImage` の入口と上の拒否集合の行に挟まれた一件である）、**参照元の現場調査の論理削除は検査されない**
+- **外部からの入口**: `backend/src/routes/construction-photo-images.routes.ts` の `POST /:id/from-surveys`（`construction_photo:update` 権限）である。入口は `grep -nF "'/from-surveys'," backend/src/routes/construction-photo-images.routes.ts`
+- **したがって、論理削除した現場調査の画像を工事写真アルバムへ今も取り込める**。同一プロジェクトでありさえすれば通る
+- **本スペックで現場調査画像を直接読むのはこの一箇所である**: `grep -c 'prisma\.surveyImage' backend/src/services/construction-photo-image.service.ts` の出力が `1`、`grep -c 'prisma\.surveyImage' backend/src/routes/construction-photo-images.routes.ts` の出力が `0`（終了コードは1）である。**総数を併記するのは、`0` だけでは「走査根を読めていない」場合と区別できないためである**（**走査根は `backend/src/services/construction-photo*.ts` と `backend/src/routes/construction-photo*.ts` の二つであり、その外は保証しない**）
+- **site-survey 側は塞がれている**: `grep -rn 'assertSurveyNotDeleted(' backend/src --include=*.ts | grep -v '__tests__' | grep -v 'survey-deleted-guard.ts'` の当たりが **5行**（`image-metadata.service.ts` 2件・`survey-images.routes.ts` 2件・`image-delete.service.ts` 1件）。**是正には `backend/src/utils/survey-deleted-guard.ts` の `assertSurveyNotDeleted` / `sendSurveyDeletedProblem` をそのまま使える**
+- **破れているのは他スペックの受入基準である**: site-survey の REQ-1.5（`grep -nE '^5\. When ユーザーが現場調査を削除する' .kiro/specs/site-survey/requirements.md` で取り出せる）が課す論理削除の意味が、本スペックの入口で破れている
+- **機械保証は無い。断定でなく現況で示す**: site-survey/REQ-1.5 は `e2e/specs/site-surveys/site-survey-crud.spec.ts` の被覆印を持つ（`grep -cF 'site-survey/REQ-1.5' e2e/specs/site-surveys/site-survey-crud.spec.ts` の出力が `2`）ため、**`npm run check:req-coverage` は当該受入基準を被覆済みと数える**（同検査は基線から既に終了コード1だが、未カバー一覧に site-survey/REQ-1.5 は挙がらない。2026-09-08 に実測）。**被覆の集計は「削除の画面操作が通ること」を見ており、他スペックの入口が同じ不変条件を守っているかは見ない**
+
+**着手前に測り直すこと**: 本節が引く所在と件数は 2026-09-08・コミット `c3f3e9f6` の値である。**起票が挙げた所在は、着手時には既に直っていることがある**（site-survey の Task 115.155 の実例）。
+
+- [ ] 17.1 現調コピーの参照候補の検証に親の論理削除の検査を加える
+  - 対象は `backend/src/services/construction-photo-image.service.ts` の `addFromSurveyImage` である。参照候補の `select` へ `survey: { select: { projectId: true, deletedAt: true } }` を加え、親が論理削除済みの候補を拒否すること
+  - **道具は既に在る。新たに判定を書き起こさないこと**——`backend/src/utils/survey-deleted-guard.ts` を取り込むこと。site-survey の5経路と同じ不変条件であることが、道具の共有で示せる
+  - **部分失敗の扱いを決めること。** 本経路は入力順を保ちつつ複製し、部分失敗を `failed` へ積んで継続する形である。一方でプロジェクト不一致・不存在は `SurveyImageCopyNotAllowedError` で**一件でもあれば全体を拒否**する。**論理削除済みの参照をどちらの扱いに寄せるかを、理由つきで決めること**。既存の拒否集合へ足すのが素直だが、応答の形（`surveyImageIds` を返す）と利用者への伝わり方を確かめてから決めること
+  - **応答が site-survey の経路と食い違わないこと**を確かめること。`sendSurveyDeletedProblem` を使うか本スペックの既存のエラー変換に載せるかは、上の判断と併せて決める
+  - **変異検証**: 検査を外すと当該の検証が落ちることを実測し、当てた変異と実出力を報告に書くこと。**「塞いだ」を検証なしで書かないこと**
+  - **`_Requirements:` を持たないのは意図である。** 本節が守る不変条件は site-survey の REQ-1.5 であって本スペックの受入基準ではない。本スペックの番号を挙げると偽の被覆申告になり、他スペックの番号を挙げると本スペックの分母に無い番号を名乗ることになる（Task 16.3 と同じ扱いである）
+  - _Depends: site-survey スペックの Task 115.172（全8ルートの走査と申し送り）_
+  - _Boundary: 工事写真の現調コピーにおける親の論理削除の検査_
+
+_申し送り元: site-survey スペックの Task 115.214（同スペックでは所管外としてブロック。数量表生成スペックとの共同所管）_

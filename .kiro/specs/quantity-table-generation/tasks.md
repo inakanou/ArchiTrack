@@ -2242,3 +2242,98 @@
   - **本節が `_Requirements:` を持たないのは意図である。** 本節は受入基準を実装せず、設計文書の状態記録を現況へ追随させるだけである。当該節が名乗る受入基準番号（35.1-35.7）を `_Requirements:` に挙げると「当該受入基準を本タスクが被覆した」という偽の申告になり、被覆の集計にも入りうるため、依存と境界だけを書く
   - _Depends: site-survey スペックの Task 115.240（状態記録の走査と申し送り）_
   - _Boundary: 本スペックの設計文書に残る状態記録_
+
+## Task 80: 数量表の範囲外入力にエラー表示が無い状態を解消する
+
+**経緯**: site-survey の Task 115.126 のレビューと是正で、数量表の欄指定E2Eが「範囲外ならエラーが出るか値が制限される」という**恒真の判定**で欠陥を覆っていたことが判明した。同スペックは所管外として Task 115.130 を `_Blocked:_` に置いたが、**本スペックへ起票されないまま滞留していた**。site-survey の機能レベル検証がその断絶（`_Blocked:_` された4件のうち下流へ起票済みは1件だけ）を検出し、申し送りを実行して本節を起こした。**所有権は本スペックにある。** site-survey 側は実装コードを一行も変更していない。
+
+**測った事実**（いずれもコミット `c3f3e9f6`、2026-09-08 にリポジトリルートで実測）:
+
+- **要件が課すもの**: REQ-9.3 は調整係数 `-9.99〜9.99`、REQ-10.3 は丸め設定 `-99.99〜99.99`、REQ-15.1 は数量 `-999999.99〜9999999.99`、REQ-15.3 は寸法・ピッチ・箇所数計算の「長さ」「重量」 `0.01〜9999999.99` について、範囲外の入力に対し**エラーメッセージを表示し範囲内の値の入力を求める**ことを課す。取り出しは `grep -nE '^3\. When 丸め設定フィールドに入力可能範囲' .kiro/specs/quantity-table-generation/requirements.md`（出力は1行）ほか、同じ形で 9.3 / 15.1 / 15.3 を引ける
+- **描画される行に範囲判定が無い**: 実際に描画されるのは `EditableQuantityItemRow` である（入口は `grep -nF '<EditableQuantityItemRow' frontend/src/components/quantity-table/QuantityGroupCard.tsx`）。同部品の数量欄の焦点喪失処理は `parseFloat`・`toFixed(2)`・`onUpdate` だけで範囲判定を持たない（`grep -nF 'const handleQuantityBlur = useCallback' frontend/src/components/quantity-table/EditableQuantityItemRow.tsx` で入口を求め、続く12行を読むこと）
+- **判定の実体は実装済みだが死コードである**: `grep -rl 'FieldValidatedItemRow' frontend/src --include=*.ts --include=*.tsx` の出力は **5ファイル**で、内訳は定義ファイル自身1・ストーリー1・単体検証3である。**本番経路からの参照が一つも無い**（表の欄では絞り込みを付けられないため、5行を目視すること）
+- **範囲判定の関数が本番から掛かるのは箇所数だけである**: `CalculationFields.tsx` が `validateNumericRange` を呼ぶのは `rangeFieldType` を宣言した欄に限られ、宣言は `grep -cF "rangeFieldType: 'count'" frontend/src/components/quantity-table/CalculationFields.tsx` の出力が `1`——**箇所数の一件のみ**である
+- **調整係数と丸め設定は範囲判定ではなく警告で処理されている**: `grep -cF 'warningCondition={(v) => v <= 0}' frontend/src/components/quantity-table/CalculationFields.tsx` の出力が `2`（調整係数と丸め設定）。**REQ-9.3 が有効域と定める `-9.99〜0` に対して警告が出る**。これは範囲の要件不整合であり、範囲判定の欠落とは別の欠陥である
+- **定数が要件と食い違い、しかも二系統ある**: `grep -cF 'roundingUnit: { min: 0.01, max: 999.99 }' frontend/src/utils/field-validation.ts` の出力が `1`。一方 `frontend/src/utils/numeric-range-validation.ts` の `FIELD_RANGE_CONFIG` は丸め設定を `min: 0.01` / `max: 99.99` と定める（入口は `grep -nF 'export const FIELD_RANGE_CONFIG' frontend/src/utils/numeric-range-validation.ts`）。**上限が二つの綴りで食い違い、下限は両方とも要件の `-99.99` と食い違う。** 同名の `validateNumericRange` が両ファイルに在り、本番の `CalculationFields` が取り込むのは後者である
+- **E2E は未実装を正直に宣言している**: `grep -cF 'test.fail();' e2e/specs/quantity-tables/quantity-table-crud.spec.ts` の出力が `5`。5件が名乗る受入基準は REQ-8.4 / 9.5 / 10.5 / 15.1 / 15.3 であり、いずれも直前の註が当該受入基準を**未実装**と述べる。**この5件が、是正の完了を測る外形上のラチェットである**
+- **欄指定E2Eの側にも「未検証」の記載が残る**: `e2e/specs/quantity-tables/field-specification.spec.ts` の冒頭。site-survey の Task 115.126 が恒真の判定を削除した際に据えたものである
+
+**完了印の粒度が食い違っている。逐語で示す**（同コミット・同日に実測）:
+
+- `grep -cE '^- \[x\] (11\.2|12\.4) ' .kiro/specs/quantity-table-generation/tasks.md` の出力が `2` である。すなわち **11.2 と 12.4 はいずれも `[x]` である**。当該2項は `grep -nE '^- \[x\] (11\.2|12\.4) ' .kiro/specs/quantity-table-generation/tasks.md` で所在を求め、直下の箇条を読むこと
+- 11.2 は丸め設定・数量・寸法/ピッチ計算の各範囲について「検証を実装する」を、12.4 は「入力時に範囲外の値を検出し、即座にエラーメッセージを表示する」と「既存の計算用フィールドコンポーネントに範囲チェックを統合する」を、それぞれ箇条として挙げている
+- **上の実測が示すのは、判定の実体は在るが描画される部品へ統合されていないことである。** したがって食い違うのは完了印の**粒度**である——「判定を実装した」（11.2 の大半）は現に達成されており、「計算用フィールドコンポーネントへ統合した」（12.4 の末尾の箇条）は箇所数の一件を除いて達成されていない
+- **本節は当該2項の完了印を偽と断定しない。** 断定できるのは上の逐語と当たり数だけであり、当時どこまでを完了の範囲と読んだかは記録に残っていない。**完了印をどう扱うかは 80.4 が判断する**
+
+**着手前に測り直すこと**: 本節が引く件数はいずれも 2026-09-08・コミット `c3f3e9f6` の値である。とくに `e2e/specs/quantity-tables/quantity-table-crud.spec.ts` は他のタスクが並行して編集しうるため、`test.fail()` の当たり数と対応する受入基準は着手時に取り直すこと。**起票が挙げた所在が、着手時には既に直っていることがある**（site-survey の Task 115.155 / 115.317 の学び）。
+
+**一件を直して「完全になった」と書かないこと**: 本節が挙げるのは上の走査が捕まえた範囲だけである。走査根は `frontend/src/components/quantity-table`・`frontend/src/utils`・`e2e/specs/quantity-tables` の三つであり、**その外で範囲を課す実装（HTML の `min` / `max` 属性、バックエンドの検証層）は保証しない**。
+
+- [ ] 80.1 範囲の正典を確定させ、定数の二系統を解消する
+  - **結線の前に着手すること。** どちらの定数が正かを決めずに結線すると、要件と食い違う判定が本番へ入る
+  - 決めるべきは三点。(a) 丸め設定の下限は要件どおり `-99.99` か。要件は REQ-10.4 で「0または空白でデフォルト値0.01を自動入力」も課しており、負の丸め単位が何を意味するかは条文からは決まらない。**条文が正であるなら実装を合わせ、条文の側が誤りであるなら要件を改める。どちらへ倒すかを実測と根拠つきで書くこと**、(b) 上限は `99.99`（`numeric-range-validation.ts`）か `999.99`（`field-validation.ts`）か、(c) 同名の `validateNumericRange` を二系統持ち続けるか一本化するか
+  - **「実装が要件に合っていないから要件を書き換える」を既定の解にしないこと。** 番号を直す向きは条文の逐語で決める（site-survey の Task 115.317 の学び）
+  - 結論を採ったら、**採らなかった側をなぜ採らなかったかを同じ場所へ書くこと**。次の担当者が同じ議論を繰り返さないために
+  - _Requirements: 9.3, 10.3, 15.1, 15.3_
+  - _Boundary: 数値欄の範囲の正典と、範囲定数の単一の出所_
+
+- [ ] 80.2 範囲判定を実際に描画される部品へ結線する
+  - 対象は `EditableQuantityItemRow`（数量欄）と `CalculationFields`（調整係数・丸め設定・寸法・ピッチ計算の各欄）である。**`FieldValidatedItemRow` を直すのではない**——同部品は本番経路から参照されない
+  - **死コードをどうするかも併せて決めること。** 選択肢は (a) `FieldValidatedItemRow` を描画経路へ据える、(b) 判定だけを `EditableQuantityItemRow` へ移し `FieldValidatedItemRow` とその検証3ファイル・ストーリー1ファイルを撤去する、(c) 現状のまま残す。**(c) を採るなら、なぜ残すかを一箇所へ書くこと**
+  - 調整係数と丸め設定は `warningCondition={(v) => v <= 0}` により **REQ-9.3 の有効域 `-9.99〜0` に対して警告が出る**。範囲判定を足すだけでは解消しないので、警告の条件も併せて是正すること
+  - **判定は単一の出所から得ること。** 検証側が範囲の数値を複製すると、範囲が変わったときに検証だけが古い前提のまま緑になる
+  - **変異検証**: 結線を外すと当該の検証が落ちることを実測し、当てた変異と実出力（落ちた件数／全体の件数）を報告に書くこと
+  - _Depends: 80.1_
+  - _Requirements: 9.3, 10.3, 15.1, 15.3_
+  - _Boundary: 数量・調整係数・丸め設定・寸法/ピッチ計算の各欄の範囲検証の結線_
+
+- [ ] 80.3 受入検証からラチェットを外す
+  - `e2e/specs/quantity-tables/quantity-table-crud.spec.ts` の `test.fail()` のうち、80.2 で実装した受入基準に対応するものを外す。**着手時に当該ファイルの現況を取り直すこと**（起票時点は5件で、名乗る受入基準は REQ-8.4 / 9.5 / 10.5 / 15.1 / 15.3）
+  - **数値以外の入力（REQ-8.4 / 9.5 / 10.5）と範囲外の入力（REQ-15.1 / 15.3）は別の規範である。** 片方だけを実装してもう片方のラチェットを外さないこと
+  - `e2e/specs/quantity-tables/field-specification.spec.ts` 冒頭の「未検証」記載を判定へ引き上げ、当該記載を削ること
+  - **主張は要件の具体値と突き合わせる形にすること。** 「エラーが出るか値が制限される」型の選言は恒真になりうる——site-survey の Task 115.126 が是正した欠陥がまさにその形である
+  - **入力の拒否を実装する場合は変換中（IME）の扱いを必ず考慮すること。** E2E の入力補助も単体の変更イベントも変換を経由しないため、この欠陥は構造的に検出できない（本スペックの `## Implementation Notes（越境して実行された是正）` が同じ作法を記録している）
+  - _Depends: 80.2_
+  - _Requirements: 8.4, 9.5, 10.5, 15.1, 15.3_
+  - _Boundary: 数量表CRUDと欄指定のE2Eのラチェットと被覆表記_
+
+- [ ] 80.4 (P) 11.2 と 12.4 の完了印の粒度を是正する
+  - **80.2 の完了後に着手すること。** 実装が入る前に印だけを動かすと、記録が二度動く
+  - 上の「完了印の粒度が食い違っている」で示した逐語を**着手時に取り直したうえで**、当該2項の記述を実態へ揃える。**歴史記録は改変せず、追記で現在を示すこと**（site-survey の Task 115.144 の学び）
+  - **`[x]` を `[ ]` へ戻すかは、当時の完了の読みを記録から復元できるかで決めること。** 復元できないなら戻さず、達成された部分と達成されていなかった部分を書き分けて追記すること。**復元できないことを「達成されていた」の根拠にしないこと**
+  - _Depends: 80.2_
+  - _Boundary: 本スペックのタスク一覧の 11.2 / 12.4 の記述_
+
+**この節が `_Requirements:` を全ての子に持つのは意図である**（Task 79 の逆）。80.1〜80.3 は実際に受入基準を実装するため被覆に計上されてよい。80.4 だけは記録の是正であり受入基準を実装しないため、依存と境界だけを書く。
+
+_申し送り元: site-survey スペックの Task 115.130（同スペックでは所管外としてブロック）_
+
+## Task 81: 数量表の経路が親の現場調査の論理削除を見ない状態を解消する
+
+**経緯**: site-survey の Task 115.124 が同スペックの5経路を `assertSurveyNotDeleted` で塞ぎ、Task 115.172 の実装とレビューが全8ルートを一件ずつ辿って**残る2経路が他スペックの所管であること**を確認した。同スペックは Task 115.214 を `_Blocked:_` に置いたが、**本スペックへ起票されないまま滞留していた**。site-survey の機能レベル検証がその断絶を検出し、申し送りを実行して本節を起こした。**所有権は本スペックにある。** site-survey 側は実装コードを一行も変更していない。
+
+**もう一方の経路は工事写真スペックが所管する。** 起票は `.kiro/specs/construction-photo/tasks.md` の `## Task 17: 工事写真の現調コピーが親の現場調査の論理削除を見ない状態を解消する` に置いた。**両スペックへ別々に起票したのは、二つの欠陥が別のサービス・別の所有者に属し、互いに依存しないためである**——片方を主として他方を参照だけに留めると、参照する側の所有者の作業キューに何も載らず、**本節が是正しようとしている「行き止まりの申し送り」をそのまま再現する**。共有するのは是正の道具（`assertSurveyNotDeleted`）だけであり、それは site-survey が既に提供している。
+
+**測った事実**（いずれもコミット `c3f3e9f6`、2026-09-08 にリポジトリルートで実測）:
+
+- **本スペックの未検査の経路**: `backend/src/services/quantity-group.service.ts` の `validateSurveyImage` は `tx.surveyImage.findUnique` の `select` に `survey: { select: { projectId: true } }` しか置かず、**親の現場調査の `deletedAt` を読まない**。入口は `grep -nF 'private async validateSurveyImage(' backend/src/services/quantity-group.service.ts` で求め、続く20行を読むこと。判定は「見つからない」と「プロジェクト不一致」の二つだけである
+- **呼び出し元は2箇所**: `grep -cF 'await this.validateSurveyImage(' backend/src/services/quantity-group.service.ts` の出力が `2`。数量グループの新規作成と更新の両方から呼ばれる。外部からの入口は `backend/src/routes/quantity-groups.routes.ts` の `POST /` と `PUT /:id`（いずれも `quantity_table:update` 権限）である
+- **したがって、論理削除した現場調査の画像を数量グループへ今も紐付けられる**。同一プロジェクトでありさえすれば通る
+- **同じファイルの別の経路は既に塞がれている**: 現場調査の写真からグループを一括生成する経路は `siteSurvey` を `select: { id: true, name: true, deletedAt: true, projectId: true }` で読み、`deletedAt !== null` なら `SiteSurveyNotFoundError` を投げる（入口は `grep -nF 'const siteSurvey = await tx.siteSurvey.findUnique({' backend/src/services/quantity-group.service.ts`）。**同一ファイル内で検査の有無が分かれている**
+- **site-survey 側は塞がれている**: `grep -rn 'assertSurveyNotDeleted(' backend/src --include=*.ts | grep -v '__tests__' | grep -v 'survey-deleted-guard.ts'` の当たりが **5行**（`image-metadata.service.ts` 2件・`survey-images.routes.ts` 2件・`image-delete.service.ts` 1件）。**是正には `backend/src/utils/survey-deleted-guard.ts` の `assertSurveyNotDeleted` / `sendSurveyDeletedProblem` をそのまま使える**
+- **破れているのは他スペックの受入基準である**: site-survey の REQ-1.5（`grep -nE '^5\. When ユーザーが現場調査を削除する' .kiro/specs/site-survey/requirements.md` で取り出せる）が課す論理削除の意味が、本スペックの入口で破れている
+- **機械保証は無い。断定でなく現況で示す**: site-survey/REQ-1.5 は `e2e/specs/site-surveys/site-survey-crud.spec.ts` の被覆印を持つ（`grep -cF 'site-survey/REQ-1.5' e2e/specs/site-surveys/site-survey-crud.spec.ts` の出力が `2`）ため、**`npm run check:req-coverage` は当該受入基準を被覆済みと数える**（同検査は基線から既に終了コード1だが、未カバー一覧に site-survey/REQ-1.5 は挙がらない。2026-09-08 に実測）。**被覆の集計は「削除の画面操作が通ること」を見ており、他スペックの入口が同じ不変条件を守っているかは見ない**
+
+**着手前に測り直すこと**: 本節が引く所在と件数は 2026-09-08・コミット `c3f3e9f6` の値である。**起票が挙げた所在は、着手時には既に直っていることがある**（site-survey の Task 115.155 の実例）。
+
+- [ ] 81.1 数量グループの現調画像の検証に親の論理削除の検査を加える
+  - 対象は `backend/src/services/quantity-group.service.ts` の `validateSurveyImage` である。`select` へ `survey: { select: { projectId: true, deletedAt: true } }` を加え、`assertSurveyNotDeleted` で塞ぐこと
+  - **道具は既に在る。新たに判定を書き起こさないこと**——`backend/src/utils/survey-deleted-guard.ts` を取り込むこと。site-survey の5経路と同じ応答になることが、この不変条件が一つであることの証拠になる
+  - **応答の形を決めること**: `assertSurveyNotDeleted` が投げる `SurveyDeletedError` を経路の応答へどう写すかは、`sendSurveyDeletedProblem` を使うか本スペックの既存のエラー変換に載せるかで分かれる。**site-survey の経路と食い違う応答にしないこと**
+  - 新規作成（`POST /`）と更新（`PUT /:id`）の**両方**が塞がれることを確かめること。呼び出し元は2箇所である
+  - **変異検証**: 検査を外すと当該の検証が落ちることを実測し、当てた変異と実出力を報告に書くこと。**「塞いだ」を検証なしで書かないこと**
+  - **`_Requirements:` を持たないのは意図である。** 本節が守る不変条件は site-survey の REQ-1.5 であって本スペックの受入基準ではない。本スペックの番号を挙げると偽の被覆申告になり、他スペックの番号を挙げると本スペックの分母に無い番号を名乗ることになる
+  - _Depends: site-survey スペックの Task 115.172（全8ルートの走査と申し送り）_
+  - _Boundary: 数量グループの現調画像紐付けにおける親の論理削除の検査_
+
+_申し送り元: site-survey スペックの Task 115.214（同スペックでは所管外としてブロック。工事写真スペックとの共同所管）_
