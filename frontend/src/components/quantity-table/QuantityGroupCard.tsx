@@ -989,6 +989,11 @@ export default function QuantityGroupCard({
                     thumbnailUrl: group.surveyImage.thumbnailUrl,
                     annotatedThumbnailUrl: group.surveyImage.annotatedThumbnailUrl,
                     originalUrl: group.surveyImage.originalUrl,
+                    // 未読込でも表示領域を確保できるよう実寸を渡す（Requirement 49.8）。
+                    // 実寸を伴わないサマリでは undefined のままとし、共有部品側の
+                    // 縮退（領域確保を行わず即時取得）に委ねる。
+                    width: group.surveyImage.width,
+                    height: group.surveyImage.height,
                   }}
                   alt={group.surveyImage.fileName}
                   style={styles.thumbnail}

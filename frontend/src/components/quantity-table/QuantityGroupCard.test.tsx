@@ -37,6 +37,8 @@ vi.mock('../site-surveys/AnnotatedImageThumbnail', () => ({
       thumbnailUrl?: string | null;
       annotatedThumbnailUrl?: string | null;
       originalUrl?: string | null;
+      width?: number;
+      height?: number;
     };
     alt: string;
     style?: React.CSSProperties;
@@ -52,6 +54,10 @@ vi.mock('../site-surveys/AnnotatedImageThumbnail', () => ({
       style={style}
       data-testid="annotated-image-thumbnail"
       data-prefer-thumbnail={preferThumbnail ? 'true' : 'false'}
+      // 呼び出し側が引き渡した実寸をそのまま露出する（Requirement 49.8）。
+      // 未指定のときは属性を付けず、共有部品が領域確保を行わない縮退を表す。
+      data-image-width={image.width}
+      data-image-height={image.height}
     />
   ),
 }));
@@ -348,6 +354,66 @@ describe('QuantityGroupCard', () => {
 
         const thumbnail = screen.getByAltText('photo1.jpg');
         expect(thumbnail).toHaveAttribute('src', '/images/annotated-thumb-1.jpg');
+      });
+
+      /**
+       * 表題部が共有表示部品へ渡す画像情報に、写真サマリの実寸が含まれること。
+       *
+       * 共有部品は実寸が正の値のときだけ `width` / `height` 属性を与え、未読込の状態でも
+       * 表示領域を確保する（`AnnotatedImageThumbnail` の `reservationSize`）。表示領域到達
+       * までの取得抑止そのものは共有部品と site-survey スペックの所管であり、実寸の有無に
+       * 依存しない（同スペックの「実寸が0でも表示領域へ入るまで表示元URLを設定せず注釈取得
+       * APIも呼ばない」で固定済み）。本テストの対象は引き渡しに限る。
+       *
+       * @requirement quantity-table-generation/REQ-49.8
+       */
+      it('表題部が渡す画像情報に写真サマリの実寸が含まれる (quantity-table-generation/REQ-49.8)', () => {
+        renderWithRouter(
+          <QuantityGroupCard
+            group={{
+              ...mockGroupWithImage,
+              surveyImage: {
+                ...mockGroupWithImage.surveyImage!,
+                width: 4032,
+                height: 3024,
+              },
+            }}
+            groupDisplayName="テストグループ"
+          />
+        );
+
+        const thumbnail = screen.getByAltText('photo1.jpg');
+        expect(thumbnail).toHaveAttribute('data-image-width', '4032');
+        expect(thumbnail).toHaveAttribute('data-image-height', '3024');
+      });
+
+      /**
+       * 実寸を伴わない写真サマリ（写真変更ダイアログ由来など）でも表示が破綻しないこと。
+       *
+       * 実寸が欠落した写真は、共有部品が寸法属性を与えず領域確保を行わない縮退となる。
+       * 表示そのものは成立させる（design.md の Error Handling「実寸が欠落した写真」）。
+       *
+       * @requirement quantity-table-generation/REQ-49.8
+       */
+      it('実寸が欠けていても表題部の写真表示は成立する (quantity-table-generation/REQ-49.8)', () => {
+        const summaryWithoutSize = { ...mockGroupWithImage.surveyImage! };
+        delete summaryWithoutSize.width;
+        delete summaryWithoutSize.height;
+
+        renderWithRouter(
+          <QuantityGroupCard
+            group={{ ...mockGroupWithImage, surveyImage: summaryWithoutSize }}
+            groupDisplayName="テストグループ"
+          />
+        );
+
+        const thumbnail = screen.getByAltText('photo1.jpg');
+        // 表示は成立する（表示元の選択規則は 49.4 / 49.5 のテストが固定する）
+        expect(thumbnail).toBeInTheDocument();
+        expect(thumbnail).toHaveAttribute('src', '/images/thumb-1.jpg');
+        // 実寸が無いことは属性を付けないことで表す（零を渡して領域を潰さない）
+        expect(thumbnail).not.toHaveAttribute('data-image-width');
+        expect(thumbnail).not.toHaveAttribute('data-image-height');
       });
 
       // ====================================================================
