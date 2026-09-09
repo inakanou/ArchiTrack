@@ -2672,12 +2672,12 @@
       "requirement": "REQ-49: 数量グループ数によらない写真表示の効率",
       "title": "表題部の写真の拡大表示時に原本画像を取得する",
       "criterionText": "When ユーザーが表題部の写真を拡大表示する, the 数量表管理システム shall 当該操作の時点で原本画像を取得する",
-      "reason": "現在の写真プレビューダイアログ（frontend/src/components/quantity-table/PhotoPreviewDialog.tsx）は表示元を annotatedThumbnailUrl || originalUrl とし、合成済みサムネイルがある場合は拡大表示でも原本を取得しない。本受入基準を満たすには当該ダイアログの表示元規則の変更が必要で、要件49を所管する quantity-table-generation スペックの実装課題である。実装前にE2Eの目印を付けると、満たしていない状態を満たしていると記録することになるため付けない",
+      "reason": "【起票時】現在の写真プレビューダイアログ（frontend/src/components/quantity-table/PhotoPreviewDialog.tsx）は表示元を annotatedThumbnailUrl || originalUrl とし、合成済みサムネイルがある場合は拡大表示でも原本を取得しない。本受入基準を満たすには当該ダイアログの表示元規則の変更が必要で、要件49を所管する quantity-table-generation スペックの実装課題である。実装前にE2Eの目印を付けると、満たしていない状態を満たしていると記録することになるため付けない。【2026-09-09 の現況】quantity-table-generation スペックのタスク 73.3 が当該ダイアログの表示元規則を改め、合成済みサムネイルへ分岐せず常に原本へ解決し、注釈は共有表示部品 AnnotatedImageThumbnail のクライアント側合成で維持する形になった（loading=\"eager\" で即時取得）。すなわち本受入基準は実装済みであり、在籍の理由は「未実装」から「実装済みでE2Eの検証が未作成」へ移った。取得の発生を監視するE2Eの作成をもって除外を取り下げること",
       "category": "pending-implementation",
       "alternativeVerification": {
         "method": "e2e-test",
         "tool": "Playwright",
-        "description": "quantity-table-generation スペックで PhotoPreviewDialog の表示元を原本へ改める実装を行ったうえで、拡大操作の時点で原本のストレージキーへの取得が発生することをリクエスト監視で検証する。現時点の表示元規則（合成済みサムネイル優先）は frontend/src/components/quantity-table/PhotoChangeDialog.test.tsx と同じ規則としてコンポーネント側に固定されている",
+        "description": "拡大操作の時点で原本のストレージキーへの取得が発生することをリクエスト監視で検証する。表示元を原本へ改める実装は 73.3 で完了しており、単体では frontend/src/__tests__/components/quantity-table/PhotoPreviewDialog.test.tsx が表示元が原本であること・即時取得が指定されることを固定している（実装前は合成済みサムネイル優先の規則がコンポーネント側に固定されていた）",
         "threshold": "original_fetch_on_zoom: 1"
       }
     },

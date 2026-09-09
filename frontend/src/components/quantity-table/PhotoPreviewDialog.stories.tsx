@@ -7,7 +7,8 @@ import type { SurveyImageSummary } from '../../types/quantity-table.types';
  * PhotoPreviewDialog コンポーネントのストーリー
  *
  * 数量グループに紐づけられた写真を拡大プレビューするモーダルダイアログ。
- * 注釈付き写真を優先的に拡大表示する。
+ * 表示元は原本画像で、注釈は共有表示部品がクライアント側で合成する
+ * （Requirement 49.7。合成済みサムネイルは縮小解像度のため拡大表示には用いない）。
  */
 
 // サンプル画像データ
@@ -53,7 +54,7 @@ export const Default: Story = {};
 
 /**
  * 注釈なし画像
- * オリジナル画像にフォールバック
+ * 注釈が無い場合も表示元は原本画像（合成が行われないだけで経路は同じ）
  */
 export const WithoutAnnotation: Story = {
   args: {

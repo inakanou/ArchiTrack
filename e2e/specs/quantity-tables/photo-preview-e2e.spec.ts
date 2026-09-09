@@ -243,10 +243,12 @@ test.describe('REQ-20: 写真プレビューダイアログでの注釈付き写
   /**
    * @requirement quantity-table-generation/REQ-20.3: 注釈付き写真を表示
    *
-   * プレビューに表示される画像 src は実装上、注釈付きサムネイルURL
-   * （annotatedThumbnailUrl）を優先利用する。これは {@link PhotoPreviewDialog}
-   * の実装で保証されているが、E2Eではプレビューダイアログ自身（注釈付き写真表示用ダイアログ）
-   * が表示され、その内容が img を持つことで間接的に検証する。
+   * プレビューに表示される画像 src は、Requirement 49.7（タスク 73.3）以降、
+   * 合成済みサムネイル（annotatedThumbnailUrl）ではなく原本画像へ解決され、
+   * 注釈は共有表示部品 AnnotatedImageThumbnail がクライアント側で合成する。
+   * これは {@link PhotoPreviewDialog} の実装で保証されているが、E2Eでは
+   * プレビューダイアログ自身（注釈付き写真表示用ダイアログ）が表示され、
+   * その内容が img を持つことで間接的に検証する。
    */
   test('プレビューダイアログ表示時にimg要素が存在し、ESCで閉じられる (REQ-20.3)', async ({
     page,
