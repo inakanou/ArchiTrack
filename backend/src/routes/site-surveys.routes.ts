@@ -38,8 +38,13 @@ import {
   SiteSurveyNotFoundError,
   SiteSurveyConflictError,
   ProjectNotFoundForSurveyError,
+  ProjectSurveyImagesAccessDeniedError,
 } from '../errors/siteSurveyError.js';
-import { ImageListService } from '../services/image-list.service.js';
+import {
+  ImageListService,
+  PROJECT_SURVEY_IMAGE_DEFAULT_LIMIT,
+  PROJECT_SURVEY_IMAGE_MAX_LIMIT,
+} from '../services/image-list.service.js';
 import { SignedUrlService } from '../services/signed-url.service.js';
 import { getStorageProvider, isStorageConfigured } from '../storage/index.js';
 
@@ -750,6 +755,167 @@ router.delete(
           code: 'SITE_SURVEY_NOT_FOUND',
         });
         return;
+      }
+      next(error);
+    }
+  }
+);
+
+/**
+ * プロジェクト配下の写真一覧エンドポイント用ルーター
+ *
+ * `GET /api/projects/:projectId/survey-images` として `app.ts` から装着する。
+ * 現場調査CRUDのルーターは `/api/projects/:projectId/site-surveys` および
+ * `/api/site-surveys` に装着されており、装着先が異なるため別のルーターとして公開する。
+ *
+ * Requirements (quantity-table-generation): 49.9
+ */
+export const projectSurveyImagesRouter = Router({ mergeParams: true });
+
+/**
+ * プロジェクト写真一覧のクエリスキーマ
+ *
+ * 上限を超える指定・1未満の指定・整数でない指定はいずれも 400 で拒否する。
+ * サービス側の 1〜上限への丸めは既定値の解決のための縮退であり、クエリ検証の代わりには
+ * ならない。丸めで応えると、利用者は要求した件数と異なる結果を要求どおりと誤解する。
+ *
+ * Requirements (quantity-table-generation): 49.9
+ */
+const projectSurveyImagesQuerySchema = z.object({
+  limit: z.coerce
+    .number({ message: '取得件数は数値で指定してください' })
+    .int('取得件数は整数で指定してください')
+    .min(1, '取得件数は1以上で指定してください')
+    .max(
+      PROJECT_SURVEY_IMAGE_MAX_LIMIT,
+      `取得件数は${PROJECT_SURVEY_IMAGE_MAX_LIMIT}以下で指定してください`
+    )
+    .default(PROJECT_SURVEY_IMAGE_DEFAULT_LIMIT),
+});
+
+/**
+ * @swagger
+ * /api/projects/{projectId}/survey-images:
+ *   get:
+ *     summary: プロジェクト写真一覧取得
+ *     description: |
+ *       プロジェクトに紐付く現場調査のうち、注釈が存在する写真の一覧をまとめて取得する。
+ *       写真選択・変更ダイアログが現場調査ごとの個別リクエストを発生させないための入口。
+ *       表示用の署名付きURLは1件あたり1本（displayUrl）に限る。
+ *     tags:
+ *       - Site Surveys
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: projectId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: プロジェクトID
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 200
+ *           minimum: 1
+ *           maximum: 500
+ *         description: 取得件数（デフォルト200、最大500）
+ *     responses:
+ *       200:
+ *         description: 注釈付き写真の一覧
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 images:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       surveyId:
+ *                         type: string
+ *                       surveyName:
+ *                         type: string
+ *                       fileName:
+ *                         type: string
+ *                       displayUrl:
+ *                         type: string
+ *                         nullable: true
+ *                       originalUrl:
+ *                         type: string
+ *                         nullable: true
+ *                       comment:
+ *                         type: string
+ *                         nullable: true
+ *                       width:
+ *                         type: integer
+ *                       height:
+ *                         type: integer
+ *                       displayOrder:
+ *                         type: integer
+ *                 hasMore:
+ *                   type: boolean
+ *                   description: 上限に達して切り捨てが発生したか
+ *       400:
+ *         description: バリデーションエラー
+ *       401:
+ *         description: 認証エラー
+ *       403:
+ *         description: 権限不足
+ *       404:
+ *         description: プロジェクトが見つからない
+ */
+projectSurveyImagesRouter.get(
+  '/',
+  authenticate,
+  requirePermission('site_survey:read'),
+  validate(projectIdParamSchema, 'params'),
+  validate(projectSurveyImagesQuerySchema, 'query'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const { projectId } = req.validatedParams as { projectId: string };
+
+    try {
+      const { limit } = req.validatedQuery as { limit: number };
+      const userId = req.user!.userId;
+
+      const result = await imageListService.findAnnotatedByProjectIdWithUrls(projectId, userId, {
+        limit,
+      });
+
+      logger.debug(
+        { userId, projectId, imageCount: result.images.length, hasMore: result.hasMore },
+        'Project survey images list retrieved'
+      );
+
+      res.json(result);
+    } catch (error) {
+      if (error instanceof ProjectSurveyImagesAccessDeniedError) {
+        // 拒否の理由を切り分ける。`validateProjectAccess` は「不在・論理削除」でも
+        // 「権限なし」でも false を返すため、サービスの拒否だけでは 404 と 403 を
+        // 区別できない。存在確認は**この拒否の経路でのみ**行う。正常な経路へ足すと、
+        // プロジェクト単位の問い合わせ回数が1回増える。
+        const project = await prisma.project.findUnique({
+          where: { id: projectId },
+          select: { id: true, deletedAt: true },
+        });
+
+        if (!project || project.deletedAt !== null) {
+          res.status(404).json({
+            type: 'https://architrack.example.com/problems/project-not-found',
+            title: 'Project Not Found',
+            status: 404,
+            detail: `Project not found: ${projectId}`,
+            code: 'PROJECT_NOT_FOUND',
+            projectId,
+          });
+          return;
+        }
+        // プロジェクトは存在する。すなわち権限不足であり、既定の403へ委ねる。
       }
       next(error);
     }

@@ -2280,6 +2280,114 @@
         }
       }
     },
+    "/api/projects/{projectId}/survey-images": {
+      "get": {
+        "summary": "プロジェクト写真一覧取得",
+        "description": "プロジェクトに紐付く現場調査のうち、注釈が存在する写真の一覧をまとめて取得する。\n写真選択・変更ダイアログが現場調査ごとの個別リクエストを発生させないための入口。\n表示用の署名付きURLは1件あたり1本（displayUrl）に限る。\n",
+        "tags": [
+          "Site Surveys"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "projectId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "プロジェクトID"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 200,
+              "minimum": 1,
+              "maximum": 500
+            },
+            "description": "取得件数（デフォルト200、最大500）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "注釈付き写真の一覧",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "images": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "surveyId": {
+                            "type": "string"
+                          },
+                          "surveyName": {
+                            "type": "string"
+                          },
+                          "fileName": {
+                            "type": "string"
+                          },
+                          "displayUrl": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "originalUrl": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "comment": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "width": {
+                            "type": "integer"
+                          },
+                          "height": {
+                            "type": "integer"
+                          },
+                          "displayOrder": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    },
+                    "hasMore": {
+                      "type": "boolean",
+                      "description": "上限に達して切り捨てが発生したか"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "バリデーションエラー"
+          },
+          "401": {
+            "description": "認証エラー"
+          },
+          "403": {
+            "description": "権限不足"
+          },
+          "404": {
+            "description": "プロジェクトが見つからない"
+          }
+        }
+      }
+    },
     "/api/v1/auth/sessions": {
       "get": {
         "summary": "Get all sessions",

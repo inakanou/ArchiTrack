@@ -80,13 +80,18 @@ vi.mock('../../../services/audit-log.service', () => ({
   },
 }));
 
-vi.mock('../../../services/image-list.service', () => ({
-  ImageListService: class {
-    constructor() {
-      return mockImageListService;
-    }
-  },
-}));
+// ルーターは件数の上限・既定値を同モジュールの定数から取るため、実物を通す
+vi.mock('../../../services/image-list.service', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../services/image-list.service')>();
+  return {
+    ...actual,
+    ImageListService: class {
+      constructor() {
+        return mockImageListService;
+      }
+    },
+  };
+});
 
 vi.mock('../../../services/signed-url.service', () => ({
   SignedUrlService: class {
