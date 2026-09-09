@@ -2,6 +2,8 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
+_最終更新: 2026-09-09（Steering Sync: `/kiro-steering`。ルートツリーが `scripts/`・`docs/`・`data/`・`.vscode/` の四つを一つも挙げていなかった（実測: `git ls-files | awk -F/ 'NF>1{print $1}' | sort -u` が返すルート直下の 11 件のうち、本書のツリーに現れるのは 7 件。コミット `faa54052`、2026-09-09 にリポジトリルートで実測）。とりわけ `scripts/` は押下前の関門（`npm run check:*` が 19 件、対の `:selftest` が 19 件）と CI の関門ジョブがすべてそこから起動する所でありながら、ツリーにも「主要ディレクトリの詳細」の節にも一度も現れていなかった。ツリーへ四件を加え、`scripts/` には節を新設した。節は一覧も件数も持たず、命名で役割が決まること（`check-*.ts` と対の `check-*.selftest.ts`、判定しない `survey-*`/`scan-*`/`list-*`、根拠を持つ `*-adjudication.*` と `*-baseline.json`）という規約だけを述べ、実体は `git ls-files` と `grep` で読み出す形にした——規約 (b)（数値を落として数える手段を書く）をディレクトリの内訳へ掛けたものである。対の自己検査は `check-*.ts` の 19 件すべてに在り、例外は `check-staged-coverage.cjs` の一件（対を持たず、押下前の関門からも CI からも呼ばれない。`package.json` の `coverage:staged:*` に定義があるだけ）。併せて「押下前の関門と CI の関門は同一ではない」ことを `comm` で読み出す形で明示した——実測では押下前だけが走らせる検査が 4 件（`check:adjudication-pointers`・`check:design-component-reqs`・`check:design-measurement-freshness`・`check:trace-coverage`）、CI だけが 1 件（`check:env`）である）_
+
 _最終更新: 2026-09-05（Steering Sync: タスク 115.287。`e2e/helpers/browser.ts` の起動コマンドが二文書で違う実行器を名指していた（本書 `npx ts-node` が 3 行、`.kiro/steering/tech.md` `npx tsx` が 2 箇所で 6 行）。実際に叩いて正否を決めた——`npx tsx …` はヘルパー本体まで届くが、`npx ts-node …` はルートの `package.json` が `"type": "module"` であるため型のみの取り込みが `SyntaxError` になりヘルパーへ入る前に落ちる。`ts-node` はルートの `node_modules/.bin/` に無く `backend/package.json` の devDependency にしかないが、`npx` はレジストリまたは取得済みの控えから解決するため「見つからない」形では失敗しない（コミット `3e670d6a`、2026-09-05 にリポジトリルートで実測）。値を書き換えて揃える形は採らず、タスク 115.275 / 115.286 と同じ規約 (b)（書き写さず読み出す手段を書く）を掛けた——起動コマンドの権威は `.kiro/steering/tech.md` の「Claude Code統合」節に一本化し、本書は `grep` で読み出す手段だけを持つ）_
 
 _2026-09-05（Steering Sync: タスク 115.286。押下前の関門について本書が述べていた「初期化処理」と「品質チェック（順次実行）」の記述を、実体（`.husky/scripts/pre-push.sh`）へ揃えた。`NODE_OPTIONS` の割り当ては本書の二箇所が `--max-old-space-size=1024` と述べていたが実体は `--max-old-space-size=2048` であり、番号付きの列挙は「Formatチェック」から始まっていたが実体はその前に `docker-compose.yml` の環境変数が `backend/.env.example` に載っているかの検査（警告のみで中断しない）を走らせる。値を書き換える形は採らず、タスク 115.275 が実体の件数に対して採った規約 (b)（数値を落として数える手段を書く）を関門の列挙へも掛けた——列挙が名指していた検査は `npm run check:req-coverage` の一つだけで、`check:design-*` / `check:steering-*` / `check:e2e-*` / `check:cf-evidence` / `check:dead-script-env` / `check:req-exclusions` は一つも現れていなかった（コミット `98744b92`、2026-09-05 にリポジトリルートで実測）。以後は `grep -nE` で手順の見出しを、`grep -oE` で検査の npm スクリプト名を読み出す。同型の列挙が `.kiro/steering/tech.md` にもあったため同じ形へ揃えた）_
@@ -56,6 +58,7 @@ ArchiTrack/
 │   │   ├── structure.md    # プロジェクト構造
 │   │   └── development-discipline.md # 開発規律（反実仮想の作法など）
 │   └── specs/              # 機能仕様（動的生成）
+├── .vscode/                # エディタ共有設定（推奨拡張・デバッグ構成・タスク）
 ├── e2e/                    # E2Eテスト（Playwright）
 │   ├── specs/              # テスト仕様（カテゴリ別ディレクトリ。以下は代表例）
 │   │   ├── api/            # APIエンドポイントテスト
@@ -118,6 +121,9 @@ ArchiTrack/
 │   ├── eslint.config.js    # ESLint設定（Flat Config形式）
 │   ├── .prettierrc         # Prettier設定
 │   └── .env.example        # 環境変数テンプレート
+├── scripts/                # リポジトリ全域のスクリプト（スペック／steering の関門群・調査用・環境準備）
+├── docs/                   # 人間向けドキュメント（`api/`・`architecture/` ほか）
+├── data/                   # スクリプトが読む静的データ
 ├── docker-compose.yml      # 基本サービス定義（環境非依存）
 ├── docker-compose.dev.yml  # 開発環境オーバーライド
 ├── docker-compose.test.yml # テスト環境オーバーライド（ポートオフセット、nginx本番イメージ）
@@ -1332,6 +1338,56 @@ backend/src/
 - **CSRF保護**: cookie-based double-submit pattern（csrf.middleware.ts）
 - **ファイルアップロード**: multer統合（upload.middleware.ts）
 - **レート制限**: express-rate-limit + RedisRateLimitStore（rateLimit.middleware.ts）
+
+### `scripts/`
+
+どの package にも属さず**リポジトリ全域**で走るスクリプトを置く。主目的は、スペックと
+steering が述べることと実体の一致を機械で見る**関門**であり、押下前の関門
+（`.husky/scripts/pre-push.sh`）と CI（`.github/workflows/ci.yml`）の双方がここから起動する。
+
+**命名で役割が決まる:**
+
+| 命名 | 役割 | 押下前の関門で走るか |
+|------|------|----------------------|
+| `check-*.ts` | 関門。違反を検出して非零で終わる | 走る（`npm run check:*`） |
+| `check-*.selftest.ts` | 関門自身の自己検査。関門が「常に緑」へ退化していないことを見る | 走る（`npm run check:*:selftest`） |
+| `survey-*.ts` / `scan-*.ts` / `list-*.ts` | 調査用。判定せず母数や分布だけを出す。関門を書く前に実体を測る道具 | 走らない |
+| `*-adjudication.{md,json}` | 関門が許した個別の例外と、その裁定の根拠 | 関門が読む |
+| `*-baseline.json` | 既知の指摘を凍らせた基準点。増分だけを赤にする | 関門が読む |
+
+**規約:**
+
+- **`check-*.ts` には同名の `check-*.selftest.ts` を対で置く。** 関門は「見るべきものを見なく
+  なっても緑のまま」という形で静かに死ぬため、自己検査が入口の消失を赤にする（`development-discipline.md`
+  の「自己検査へ失敗既定を入れ入口の消失を赤にする」を見よ）。**例外は `check-staged-coverage.cjs`
+  の一件**で、これは対を持たず、押下前の関門からも CI からも呼ばれていない
+  （`package.json` に `coverage:staged:backend` / `coverage:staged:frontend` として定義があるだけ）。
+- **例外は消さずに裁定として残す。** `*-adjudication.*` と `*-baseline.json` は「なぜこの一件を
+  許したか」を持つ。根拠を持たない例外は書かない。
+- **調査用を関門へ昇格させない。** `survey-*` / `scan-*` / `list-*` は一度きりの実測の道具であり、
+  得た値はタスクの記録や設計文書へ移す。スクリプト自体は追試の手段として残す。
+
+**関門の一覧と件数は本書へ書かない**（規約 (b)：数値を落として数える手段を書く）。次で読み出す
+（いずれもリポジトリルートで実行する）。
+
+```bash
+# 関門の実体（対の自己検査を除く）
+git ls-files 'scripts/check-*.ts' | grep -v '\.selftest\.ts$'
+
+# 押下前の関門が実際に起動する検査
+grep -oE 'npm run check:[a-z0-9-]+' .husky/scripts/pre-push.sh | sort -u
+
+# 調査用スクリプト
+git ls-files 'scripts/survey-*.ts' 'scripts/scan-*.ts' 'scripts/list-*.ts'
+```
+
+**押下前の関門と CI の関門は同一ではない。** 「CI が緑なら押下前も緑」は成り立たないため、
+差分を確かめてから押す。
+
+```bash
+comm -23 <(grep -oE 'check:[a-z0-9-]+' .husky/scripts/pre-push.sh | sort -u) \
+         <(grep -oE 'check:[a-z0-9-]+' .github/workflows/ci.yml | sort -u)
+```
 
 ## Docker構成
 

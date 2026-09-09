@@ -2,6 +2,8 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
+_最終更新: 2026-09-09（Steering Sync: `/kiro-steering`。「CI/CD」節の二つの列挙が実体から離れていた。(1)「主要ジョブ」の 7 件の列挙に対し `.github/workflows/ci.yml` が定義するジョブは 18 件で、欠けていた 11 件のうち 9 件はスペックと steering の関門ジョブ（`requirement-coverage`・`requirement-exclusions-schema`・`criterion-literal-presence`・`e2e-assertion-guard`・`design-reference-format`・`e2e-in-page-selfjudgement`・`counterfactual-evidence`・`dead-script-env`）と `test-storybook` であった。(2)「監視対象エコシステム（5つ、計85依存関係）」の内訳 7／42／36 に対し実測は root 24・backend 77・frontend 52（計 153）、`5 actions` に対し実測 6、`2 images` に対し実測 3 である（コミット `faa54052`、2026-09-09 にリポジトリルートで実測）。いずれも値を書き換える形は採らず、タスク 115.286 が「Pre-pushフック」節へ掛けた規約 (b)（列挙・数値を落として読み出す手段を書く）を同じ形で当てた。この二箇所が陳腐化したまま残っていたのは、`npm run check:steering-dir-counts` の走査対象が `structure.md` と `product.md` の二件で、本書は誤検出 1 件を避けるため所管の外に置かれているためである（`scripts/check-steering-dir-counts.ts` 冒頭の記述）。本書を所管へ加える案は今回は採っていない——「推奨事項」として起票のみ）_
+
 _最終更新: 2026-09-05（Steering Sync: タスク 115.288。「ES Module Validation」節が frontend 側にも同名の検証スクリプトが在るかのように書いていたが、`frontend/package.json` に `validate:esm` は無い。実測: 実際に叩くと `npm error Missing script: "validate:esm"` を出して終了コード 1 で終わり、`git log --all -S 'validate:esm' -- frontend/package.json` は空である（一度も存在したことがない）。frontend 側の記述を撤去し、併せて backend の `validate:esm` の実体——ビルドと、出力された `.js` を一つずつ `node --check` へ通すこと——へ節の散文を揃えた。同型の食い違いを機械で捕らえるため、steering の述べる検証の実行方法と実挙動の一致を見る関門 `check:steering-command-annotations` を新設し、押下前の関門と統合の両方へ算入した。見るのは `missing-script`（名指した npm スクリプトの実在）・`overclaimed-scope` と `underclaimed-scope`（全件／一部だけの主張と vitest の構成から導いた選択範囲の突き合わせ）・`divergent-executor`（同じ資材を名指す起動コマンドが一つの実行器を名乗ること）の四種である（コミット `511000a7`、2026-09-05 にリポジトリルートで実測））_
 
 _2026-09-05（Steering Sync: タスク 115.287。`e2e/helpers/browser.ts` の起動コマンドについて、本節が `.kiro/steering/` における権威であることを明示し、実行器が `tsx` である根拠（実際に叩いた出力）を併記した。`.kiro/steering/structure.md` は同じ起動を `npx ts-node` と書き写しており（3 行）、タスク 115.199 が本書だけを `npx tsx` へ是正した 2026-08-30 以降ずっと食い違っていた。同書からは値を撤去し、本節を読み出す手段だけを残した（コミット `3e670d6a`、2026-09-05 にリポジトリルートで実測））_
@@ -1191,27 +1193,35 @@ Railway環境では動的に割り当てられるPORTを使用します。
 
 プッシュ・PR時に自動実行されます。
 
-**主要ジョブ:**
-1. **lint** - フォーマット・構文チェック（backend/frontend/e2e並列）
-   - Matrix strategy活用で並列実行
-   - Prettier + ESLint
-2. **typecheck** - TypeScript型チェック（backend/frontend/e2e並列）
-   - Matrix strategy活用で並列実行
-3. **test-unit** - ユニットテスト（backend/frontend並列）
-   - Matrix strategy活用で並列実行
-   - Codecov連携でカバレッジ自動アップロード
-4. **build** - ビルドテスト（backend/frontend並列）
-   - Matrix strategy活用で並列実行
-   - ビルド成果物をartifactとしてアップロード
-5. **test-integration** - 統合・E2Eテスト（順次実行）
-   - Docker Composeでサービス起動
-   - Backend統合テスト + Playwright E2Eテスト
-   - ヘルスチェック待機（最大120秒）
-   - 失敗時にスクリーンショット・ビデオをartifactとしてアップロード
-6. **security** - セキュリティスキャン（backend/frontend並列）
-   - Matrix strategy活用で並列実行
-   - npm audit実行
-7. **ci-success** - 全ジョブ成功確認ゲート
+**主要ジョブ — ジョブの列挙は本書へ書かない（規約 (b)。「Pre-pushフック」節と同型）:**
+
+権威は `.github/workflows/ci.yml` であり、次の二つで読み出す（いずれもリポジトリルートで実行する）。
+
+```bash
+# 定義されているジョブ名を、ファイル内の順序のまま
+awk '/^jobs:/{f=1;next} f && /^  [a-z][a-z0-9_-]*:$/{print NR": "$0}' .github/workflows/ci.yml
+
+# CI が起動するスペック／steering の関門
+grep -oE 'check:[a-z0-9-]+' .github/workflows/ci.yml | sort -u
+```
+
+一つ目が `jobs:` 以降へ範囲を絞るのは、字下げだけでは足りないためである——`grep -nE '^  [a-z][a-z0-9_-]*:$'`
+を単体で当てると `on:` の下の `push:` と `pull_request:` も同じ二字下げで掛かる（値を持つ
+`concurrency:` の下の `group:` は行末の `:` で落ちる）。**限界は拾い過ぎの向きへ倒してある**——
+`jobs:` 以降に同じ字下げのキーが増えれば現れる。
+
+**ジョブの構成の型（個々の名前ではなく、変わりにくい形だけを述べる）:**
+- **並列の静的検査**: lint / typecheck を backend・frontend・e2e の matrix で回す
+- **スペックと steering の関門**: `scripts/check-*.ts` を独立ジョブとして並列に回す
+  （`structure.md` の `scripts/` 節を見よ）
+- **テスト**: 単体（backend/frontend 並列、Codecov 連携）・Storybook・
+  統合／E2E（順次実行。Docker Compose でサービスを起動し、失敗時にスクリーンショットと
+  ビデオを artifact へ上げる）
+- **セキュリティ**: npm audit（backend/frontend 並列）
+- **合流点**: 全ジョブの成功を確認するゲートジョブが、後段のデプロイの前提になる
+
+**押下前の関門と CI の関門は同一ではない。** どちらか一方だけが走らせる検査があるため、
+「CI が緑＝押下前も緑」は成り立たない。差分は `structure.md` の `scripts/` 節が示す `comm` で見る。
 
 **ワークフローの特徴:**
 - **Matrix Strategy**: 並列実行による高速化
@@ -1256,12 +1266,32 @@ CI成功後、CIワークフロー内でデプロイジョブが実行されま�
 
 `.github/dependabot.yml` と `.github/workflows/dependabot-automerge.yml` で自動依存関係更新を実装しています。
 
-**監視対象エコシステム（5つ、計85依存関係）:**
-1. **NPM Root** - E2Eテスト（7依存関係）
-2. **NPM Backend** - バックエンドAPI（42依存関係）
-3. **NPM Frontend** - フロントエンドUI（36依存関係）
-4. **GitHub Actions** - ワークフロー（5 actions）
-5. **Docker** - ベースイメージ（2 images）
+**監視対象エコシステム（5つ）— 依存関係の件数は本書へ書かない（規約 (b)）:**
+
+1. **NPM Root** - E2Eテスト（対象はリポジトリルート）
+2. **NPM Backend** - バックエンドAPI（対象は `backend/`）
+3. **NPM Frontend** - フロントエンドUI（対象は `frontend/`）
+4. **GitHub Actions** - ワークフロー（対象はリポジトリルート）
+5. **Docker** - ベースイメージ（対象はリポジトリルート）
+
+エコシステムの権威は `.github/dependabot.yml`、監視される件数の権威は各 `package.json` と
+ワークフロー・Dockerfile である。次で読み出す（いずれもリポジトリルートで実行する）。
+
+```bash
+# エコシステムと対象ディレクトリ
+grep -nE 'package-ecosystem|directory:' .github/dependabot.yml
+
+# npm の直接依存の数（root / backend / frontend）
+for d in . backend frontend; do
+  node -e "const p=require('./'+process.argv[1]+'/package.json');
+    console.log(process.argv[1],
+      Object.keys(p.dependencies||{}).length + Object.keys(p.devDependencies||{}).length)" "$d"
+done
+
+# GitHub Actions とベースイメージ
+grep -ohE 'uses: [^ ]+' .github/workflows/*.yml | sort -u
+grep -rhoE '^FROM [^ ]+' */Dockerfile* | sort -u
+```
 
 **更新スケジュール:**
 - 週次月曜 09:00-10:00 UTC（各エコシステムで時間差）
