@@ -43,6 +43,24 @@ export class SurveyImageAccessDeniedError extends ForbiddenError {
 }
 
 /**
+ * プロジェクト内の現場調査写真へのアクセス権限がないエラー
+ *
+ * プロジェクト内の写真をまとめて扱う経路は、写真ごと・現場調査ごとではなく
+ * プロジェクト単位で1回だけ可否を判定する。判定が否であれば一覧そのものを返さない。
+ *
+ * Requirements (quantity-table-generation): 49.9
+ */
+export class ProjectSurveyImagesAccessDeniedError extends ForbiddenError {
+  constructor(projectId: string, _userId: string) {
+    super(
+      `Access denied to project survey images: ${projectId}`,
+      'PROJECT_SURVEY_IMAGES_ACCESS_DENIED'
+    );
+    this.name = 'ProjectSurveyImagesAccessDeniedError';
+  }
+}
+
+/**
  * 署名付きURL生成エラー
  */
 export class SignedUrlGenerationError extends ApiError {

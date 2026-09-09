@@ -28,3 +28,16 @@ export const SURVEY_IMAGE_ORDER_BY: Prisma.SurveyImageOrderByWithRelationInput[]
   { createdAt: 'asc' },
   { id: 'asc' },
 ];
+
+/**
+ * プロジェクト単位で横断的に画像を取得する場合の並び（調査日降順 → 表示順昇順）
+ *
+ * 複数の現場調査にまたがるため、第一の鍵は現場調査の調査日（新しい調査を先頭に置く）。
+ * 以降は現場調査単位と同じ鍵を用い、経路ごとに並びが食い違わないようにする。
+ *
+ * Requirements (quantity-table-generation): 49.9
+ */
+export const PROJECT_SURVEY_IMAGE_ORDER_BY: Prisma.SurveyImageOrderByWithRelationInput[] = [
+  { survey: { surveyDate: 'desc' } },
+  ...SURVEY_IMAGE_ORDER_BY,
+];

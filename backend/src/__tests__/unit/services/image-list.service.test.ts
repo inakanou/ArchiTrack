@@ -20,6 +20,7 @@ const mockPrisma = {
   },
   siteSurvey: {
     findUnique: vi.fn(),
+    findMany: vi.fn(),
   },
   imageAnnotation: {
     findMany: vi.fn(),
@@ -31,6 +32,7 @@ const mockSignedUrlService = {
   generateSignedUrl: vi.fn(),
   generateBatchSignedUrls: vi.fn(),
   validateSurveyAccess: vi.fn(),
+  validateProjectAccess: vi.fn(),
 };
 
 // storageモック
@@ -51,7 +53,12 @@ vi.mock('../../../storage/index.js', () => ({
   getStorageProvider: vi.fn(() => null),
 }));
 
-import { ImageListService } from '../../../services/image-list.service.js';
+import {
+  ImageListService,
+  PROJECT_SURVEY_IMAGE_DEFAULT_LIMIT,
+  PROJECT_SURVEY_IMAGE_MAX_LIMIT,
+} from '../../../services/image-list.service.js';
+import { ProjectSurveyImagesAccessDeniedError } from '../../../errors/siteSurveyError.js';
 import { isStorageConfigured, getStorageProvider } from '../../../storage/index.js';
 
 describe('ImageListService', () => {
@@ -63,6 +70,7 @@ describe('ImageListService', () => {
     vi.mocked(isStorageConfigured).mockReturnValue(false);
     vi.mocked(getStorageProvider).mockReturnValue(null);
     mockSignedUrlService.validateSurveyAccess.mockResolvedValue(true);
+    mockSignedUrlService.validateProjectAccess.mockResolvedValue(true);
     mockStorageProvider.getSignedUrl.mockImplementation((objectKey: string) =>
       Promise.resolve(`https://r2.example.com/${objectKey}`)
     );
@@ -669,6 +677,299 @@ describe('ImageListService', () => {
 
       const args = mockPrisma.surveyImage.findMany.mock.calls[0]![0];
       expect(args.orderBy).toEqual([{ displayOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }]);
+    });
+  });
+
+  /**
+   * プロジェクト単位の注釈付き写真一覧
+   *
+   * 写真選択・変更ダイアログが選択可能な写真をまとめて取得する経路。現場調査ごとの
+   * 個別リクエストへ分割せず、問い合わせ回数を写真枚数・現場調査数に比例させない。
+   * 対象は注釈が存在する写真のみ（Requirement 4.3 / 19.2 が定める
+   * 「注釈エディタで編集済みの画像」）であり、表示用の署名付きURLは1件あたり1本に限る。
+   *
+   * Requirements (quantity-table-generation): 49.9, 49.10
+   */
+  describe('findAnnotatedByProjectIdWithUrls', () => {
+    const projectId = 'project-1';
+    const userId = 'user-123';
+
+    /** 現場調査の取得結果を設定する */
+    const mockSurveys = (
+      surveys: { id: string; name: string }[]
+    ): { id: string; name: string }[] => {
+      mockPrisma.siteSurvey.findMany.mockResolvedValue(surveys);
+      return surveys;
+    };
+
+    /** 画像1件分の取得結果を組み立てる */
+    const buildImage = (
+      overrides: Partial<{
+        id: string;
+        surveyId: string;
+        fileName: string;
+        comment: string | null;
+        width: number;
+        height: number;
+        displayOrder: number;
+        originalPath: string;
+        thumbnailPath: string;
+        annotatedThumbnailPath: string | null;
+        createdAt: Date;
+      }> = {}
+    ) => ({
+      id: 'img-1',
+      surveyId: 'survey-1',
+      fileName: 'image1.jpg',
+      comment: null,
+      width: 800,
+      height: 600,
+      displayOrder: 1,
+      originalPath: 'surveys/1/original1.jpg',
+      thumbnailPath: 'surveys/1/thumb1.jpg',
+      annotatedThumbnailPath: null,
+      createdAt: new Date('2024-01-01'),
+      ...overrides,
+    });
+
+    it('注釈が存在する写真だけを取得すること（注釈のない写真は結果に含まれない）', async () => {
+      mockSurveys([{ id: 'survey-1', name: '一次調査' }]);
+      // 注釈のない画像はデータベースの絞り込みで除かれるため、取得結果にも現れない
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        buildImage({ id: 'img-annotated', annotatedThumbnailPath: 'surveys/1/annot1.jpg' }),
+      ]);
+      configureStorage();
+
+      const result = await service.findAnnotatedByProjectIdWithUrls(projectId, userId);
+
+      expect(result.images.map((image) => image.id)).toEqual(['img-annotated']);
+      const args = mockPrisma.surveyImage.findMany.mock.calls[0]![0];
+      // 「注釈レコードが存在する」ことが絞り込みの条件（hasAnnotations の判定と同一）
+      expect(args.where.annotation).toEqual({ isNot: null });
+    });
+
+    it('表示用URLは注釈付きサムネイルを優先して1件あたり1本に解決すること', async () => {
+      mockSurveys([{ id: 'survey-1', name: '一次調査' }]);
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        buildImage({
+          id: 'img-annotated',
+          displayOrder: 1,
+          thumbnailPath: 'surveys/1/thumb1.jpg',
+          annotatedThumbnailPath: 'surveys/1/annot1.jpg',
+        }),
+        buildImage({
+          id: 'img-plain-thumb',
+          displayOrder: 2,
+          thumbnailPath: 'surveys/1/thumb2.jpg',
+          annotatedThumbnailPath: null,
+        }),
+      ]);
+      configureStorage();
+
+      const result = await service.findAnnotatedByProjectIdWithUrls(projectId, userId);
+
+      expect(result.images[0]?.displayUrl).toBe('https://r2.example.com/surveys/1/annot1.jpg');
+      expect(result.images[1]?.displayUrl).toBe('https://r2.example.com/surveys/1/thumb2.jpg');
+      // 表示用の署名付きURLは1本のみ。通信量が件数に比例して肥大しないようにする
+      for (const image of result.images) {
+        expect(Object.keys(image)).not.toContain('thumbnailUrl');
+        expect(Object.keys(image)).not.toContain('annotatedThumbnailUrl');
+      }
+      // 1件あたり表示用1本＋原本1本を超えて署名付きURLを生成しない
+      expect(mockStorageProvider.getSignedUrl).toHaveBeenCalledTimes(result.images.length * 2);
+    });
+
+    it('原本URLと実寸、現場調査名を併せて返すこと', async () => {
+      mockSurveys([{ id: 'survey-1', name: '一次調査' }]);
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        buildImage({
+          id: 'img-1',
+          surveyId: 'survey-1',
+          comment: '外壁の状況',
+          width: 1600,
+          height: 1200,
+          originalPath: 'surveys/1/original1.jpg',
+        }),
+      ]);
+      configureStorage();
+
+      const result = await service.findAnnotatedByProjectIdWithUrls(projectId, userId);
+
+      expect(result.images[0]).toMatchObject({
+        id: 'img-1',
+        surveyId: 'survey-1',
+        surveyName: '一次調査',
+        comment: '外壁の状況',
+        width: 1600,
+        height: 1200,
+        originalUrl: 'https://r2.example.com/surveys/1/original1.jpg',
+      });
+    });
+
+    it('写真30枚でもアクセス可否の判定を1回だけ行い、画像ごとの再照会を発生させないこと', async () => {
+      const surveys = mockSurveys([
+        { id: 'survey-1', name: '一次調査' },
+        { id: 'survey-2', name: '二次調査' },
+        { id: 'survey-3', name: '三次調査' },
+      ]);
+      const images = surveys.flatMap((survey, surveyIndex) =>
+        Array.from({ length: 10 }, (_, index) =>
+          buildImage({
+            id: `img-${surveyIndex}-${index}`,
+            surveyId: survey.id,
+            displayOrder: index + 1,
+            originalPath: `surveys/${survey.id}/original${index}.jpg`,
+            thumbnailPath: `surveys/${survey.id}/thumb${index}.jpg`,
+          })
+        )
+      );
+      mockPrisma.surveyImage.findMany.mockResolvedValue(images);
+      configureStorage();
+
+      const result = await service.findAnnotatedByProjectIdWithUrls(projectId, userId);
+
+      expect(result.images).toHaveLength(30);
+      // アクセス可否の判定はプロジェクト単位で1回のみ
+      expect(mockSignedUrlService.validateProjectAccess).toHaveBeenCalledTimes(1);
+      expect(mockSignedUrlService.validateProjectAccess).toHaveBeenCalledWith(projectId, userId);
+      // 現場調査ごと・画像ごとの判定へ退行していないこと
+      expect(mockSignedUrlService.validateSurveyAccess).not.toHaveBeenCalled();
+      // 現場調査の抽出と画像の抽出はそれぞれ1回
+      expect(mockPrisma.siteSurvey.findMany).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.surveyImage.findMany).toHaveBeenCalledTimes(1);
+      // 画像IDからストレージキーを引き直す経路（DB再照会を伴う）は使わない
+      expect(mockSignedUrlService.generateSignedUrl).not.toHaveBeenCalled();
+      expect(mockSignedUrlService.generateBatchSignedUrls).not.toHaveBeenCalled();
+    });
+
+    it('現場調査の抽出はプロジェクト配下の未削除の調査に限ること', async () => {
+      mockSurveys([{ id: 'survey-1', name: '一次調査' }]);
+      mockPrisma.surveyImage.findMany.mockResolvedValue([]);
+
+      await service.findAnnotatedByProjectIdWithUrls(projectId, userId);
+
+      const args = mockPrisma.siteSurvey.findMany.mock.calls[0]![0];
+      expect(args.where).toEqual({ projectId, deletedAt: null });
+      // 画像の抽出は抽出済みの現場調査に限る
+      const imageArgs = mockPrisma.surveyImage.findMany.mock.calls[0]![0];
+      expect(imageArgs.where.surveyId).toEqual({ in: ['survey-1'] });
+    });
+
+    it('現場調査が1件も無い場合は画像を照会せず空一覧を返すこと', async () => {
+      mockSurveys([]);
+
+      const result = await service.findAnnotatedByProjectIdWithUrls(projectId, userId);
+
+      expect(result).toEqual({ images: [], hasMore: false });
+      expect(mockPrisma.surveyImage.findMany).not.toHaveBeenCalled();
+    });
+
+    it('並びは調査日降順・表示順昇順とすること', async () => {
+      mockSurveys([{ id: 'survey-1', name: '一次調査' }]);
+      mockPrisma.surveyImage.findMany.mockResolvedValue([]);
+
+      await service.findAnnotatedByProjectIdWithUrls(projectId, userId);
+
+      const args = mockPrisma.surveyImage.findMany.mock.calls[0]![0];
+      expect(args.orderBy).toEqual([
+        { survey: { surveyDate: 'desc' } },
+        { displayOrder: 'asc' },
+        { createdAt: 'asc' },
+        { id: 'asc' },
+      ]);
+    });
+
+    it('取得順序を保ったまま返すこと', async () => {
+      mockSurveys([
+        { id: 'survey-new', name: '新しい調査' },
+        { id: 'survey-old', name: '古い調査' },
+      ]);
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        buildImage({ id: 'img-new-1', surveyId: 'survey-new', displayOrder: 1 }),
+        buildImage({ id: 'img-new-2', surveyId: 'survey-new', displayOrder: 2 }),
+        buildImage({ id: 'img-old-1', surveyId: 'survey-old', displayOrder: 1 }),
+      ]);
+
+      const result = await service.findAnnotatedByProjectIdWithUrls(projectId, userId);
+
+      expect(result.images.map((image) => image.id)).toEqual([
+        'img-new-1',
+        'img-new-2',
+        'img-old-1',
+      ]);
+    });
+
+    it('上限に達した場合は件数を上限で打ち切り切り捨てを伝えること', async () => {
+      mockSurveys([{ id: 'survey-1', name: '一次調査' }]);
+      // 上限判定のため上限+1件を取得する
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        buildImage({ id: 'img-1', displayOrder: 1 }),
+        buildImage({ id: 'img-2', displayOrder: 2 }),
+        buildImage({ id: 'img-3', displayOrder: 3 }),
+      ]);
+
+      const result = await service.findAnnotatedByProjectIdWithUrls(projectId, userId, {
+        limit: 2,
+      });
+
+      expect(result.images.map((image) => image.id)).toEqual(['img-1', 'img-2']);
+      expect(result.hasMore).toBe(true);
+      const args = mockPrisma.surveyImage.findMany.mock.calls[0]![0];
+      expect(args.take).toBe(3);
+    });
+
+    it('上限に達していない場合は切り捨てが起きていないことを伝えること', async () => {
+      mockSurveys([{ id: 'survey-1', name: '一次調査' }]);
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        buildImage({ id: 'img-1', displayOrder: 1 }),
+        buildImage({ id: 'img-2', displayOrder: 2 }),
+      ]);
+
+      const result = await service.findAnnotatedByProjectIdWithUrls(projectId, userId, {
+        limit: 2,
+      });
+
+      expect(result.images).toHaveLength(2);
+      expect(result.hasMore).toBe(false);
+    });
+
+    it('上限の指定が無い場合は既定200件、最大500件を超えないこと', async () => {
+      mockSurveys([{ id: 'survey-1', name: '一次調査' }]);
+      mockPrisma.surveyImage.findMany.mockResolvedValue([]);
+
+      await service.findAnnotatedByProjectIdWithUrls(projectId, userId);
+      expect(mockPrisma.surveyImage.findMany.mock.calls[0]![0].take).toBe(
+        PROJECT_SURVEY_IMAGE_DEFAULT_LIMIT + 1
+      );
+
+      await service.findAnnotatedByProjectIdWithUrls(projectId, userId, { limit: 1000 });
+      expect(mockPrisma.surveyImage.findMany.mock.calls[1]![0].take).toBe(
+        PROJECT_SURVEY_IMAGE_MAX_LIMIT + 1
+      );
+    });
+
+    it('プロジェクトへのアクセス権が無い場合は一覧を返さず拒否すること', async () => {
+      mockSignedUrlService.validateProjectAccess.mockResolvedValue(false);
+      mockSurveys([{ id: 'survey-1', name: '一次調査' }]);
+
+      await expect(
+        service.findAnnotatedByProjectIdWithUrls(projectId, userId)
+      ).rejects.toBeInstanceOf(ProjectSurveyImagesAccessDeniedError);
+      // 拒否時は写真の抽出そのものを行わない
+      expect(mockPrisma.siteSurvey.findMany).not.toHaveBeenCalled();
+      expect(mockPrisma.surveyImage.findMany).not.toHaveBeenCalled();
+    });
+
+    it('署名付きURLの生成に失敗した場合はnullを設定すること', async () => {
+      mockSurveys([{ id: 'survey-1', name: '一次調査' }]);
+      mockPrisma.surveyImage.findMany.mockResolvedValue([buildImage({ id: 'img-1' })]);
+      configureStorage();
+      mockStorageProvider.getSignedUrl.mockRejectedValue(new Error('URL generation failed'));
+
+      const result = await service.findAnnotatedByProjectIdWithUrls(projectId, userId);
+
+      expect(result.images[0]?.displayUrl).toBeNull();
+      expect(result.images[0]?.originalUrl).toBeNull();
     });
   });
 
