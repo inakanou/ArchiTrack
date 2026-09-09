@@ -321,6 +321,16 @@ export interface SurveyImageSummary {
   annotatedThumbnailUrl?: string | null;
   /** 写真コメント（REQ-21.1, 21.2） */
   comment?: string | null;
+  /**
+   * 画像の実寸（ピクセル・幅）。
+   *
+   * 表示部品が画像の未読込時にも表示領域を確保するために用いる（Requirement 49.8）。
+   * 数量表詳細APIは常に返すが、写真選択・変更ダイアログが供給するサマリなど
+   * 実寸を伴わない供給元があるため任意項目とする（欠落時は共有部品が領域確保を行わない）。
+   */
+  width?: number;
+  /** 画像の実寸（ピクセル・高さ）。用途は width と同じ（Requirement 49.8） */
+  height?: number;
 }
 
 /**

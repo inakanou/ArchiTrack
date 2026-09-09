@@ -227,6 +227,8 @@ describe('QuantityTableService', () => {
         thumbnailPath: 'surveys/s/thumb.jpg',
         originalPath: 'surveys/s/orig.jpg',
         annotatedThumbnailPath: null,
+        width: 4032,
+        height: 3024,
         fileName: 'orig.jpg',
         comment: null,
         annotation,
@@ -344,6 +346,92 @@ describe('QuantityTableService', () => {
       const annotationSelect = args.include.groups.include.surveyImage.select.annotation.select;
       expect(annotationSelect).toEqual({ id: true, hasDrawnAnnotations: true });
       expect(annotationSelect).not.toHaveProperty('data');
+    });
+  });
+
+  // ==========================================================================
+  // Task 72.2: 写真情報に画像の実寸を含める
+  //
+  // 数量グループ表題部の写真は、共有表示部品が表示領域に入るまで取得を遅らせる。
+  // 遅延させる間も版面を崩さずに領域を確保するには画像の実寸が要るため、数量表詳細の
+  // 写真サマリで実寸を供給する。実寸は既存の問い合わせの取得項目を広げて得るものとし、
+  // 写真1枚あたりの追加の問い合わせを発生させない。
+  //
+  // Requirements: 49.8
+  // ==========================================================================
+  describe('findById - 写真サマリの実寸', () => {
+    const quantityTableId = '123e4567-e89b-12d3-a456-426614174002';
+
+    const buildTableWithSizedImage = () => ({
+      id: quantityTableId,
+      projectId: '123e4567-e89b-12d3-a456-426614174000',
+      name: 'テスト数量表',
+      createdAt: new Date('2026-01-06T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+      deletedAt: null,
+      project: { id: '123e4567-e89b-12d3-a456-426614174000', name: 'テストプロジェクト' },
+      groups: [
+        {
+          id: '123e4567-e89b-12d3-a456-426614174010',
+          quantityTableId,
+          name: null,
+          surveyImageId: 'img-1',
+          displayOrder: 0,
+          createdAt: new Date('2026-01-06T00:00:00.000Z'),
+          updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+          surveyImage: {
+            id: 'img-1',
+            thumbnailPath: 'surveys/s/thumb.jpg',
+            originalPath: 'surveys/s/orig.jpg',
+            annotatedThumbnailPath: null,
+            fileName: 'orig.jpg',
+            comment: null,
+            width: 4032,
+            height: 3024,
+            annotation: null,
+          },
+          items: [],
+          _count: { items: 0 },
+        },
+      ],
+      _count: { groups: 1 },
+    });
+
+    it('写真サマリに画像の実寸（幅・高さ）が含まれる', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(buildTableWithSizedImage());
+
+      // Act
+      const result = await service.findById(quantityTableId);
+
+      // Assert
+      const surveyImage = result!.groups[0]!.surveyImage!;
+      expect(surveyImage.width).toBe(4032);
+      expect(surveyImage.height).toBe(3024);
+    });
+
+    it('実寸は既存の問い合わせの取得項目から得る（写真ごとの追加の問い合わせを発生させない）', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(buildTableWithSizedImage());
+
+      // Act
+      await service.findById(quantityTableId);
+
+      // Assert: 実寸は数量表詳細の同一の問い合わせで取得する
+      const args = mockPrisma.quantityTable.findUnique.mock.calls[0]![0];
+      const imageSelect = args.include.groups.include.surveyImage.select;
+      expect(imageSelect.width).toBe(true);
+      expect(imageSelect.height).toBe(true);
+
+      // Assert: 問い合わせの回数が増えていないこと
+      expect(mockPrisma.quantityTable.findUnique).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.quantityTable.findMany).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityItem.create).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityItem.update).not.toHaveBeenCalled();
+      expect(mockPrisma.project.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
     });
   });
 

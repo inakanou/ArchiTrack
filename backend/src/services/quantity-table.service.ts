@@ -105,6 +105,14 @@ export interface SurveyImageSummary {
   annotatedThumbnailUrl: string | null;
   /** 写真コメント（REQ-21.1, 21.2） */
   comment: string | null;
+  /**
+   * 画像の実寸（ピクセル・幅）。
+   * 表示部品が画像の未読込時にも表示領域を確保するために用いる（Requirement 49.8）。
+   * 数量表詳細と同一の問い合わせで取得し、写真ごとの追加の問い合わせを発生させない。
+   */
+  width: number;
+  /** 画像の実寸（ピクセル・高さ）。用途は width と同じ（Requirement 49.8） */
+  height: number;
 }
 
 /**
@@ -465,6 +473,10 @@ export class QuantityTableService {
                 annotatedThumbnailPath: true,
                 fileName: true,
                 comment: true,
+                // 表示領域の確保に用いる実寸（Requirement 49.8）。
+                // 既存の取得項目を広げて得るため、写真ごとの追加の問い合わせは発生しない。
+                width: true,
+                height: true,
                 // 注釈の有無のみ判定する（重いdataは取得しない）。
                 // 注釈なしの画像でフロントが注釈APIを叩かないようにするためのフラグ供給。
                 // hasDrawnAnnotations は描画された注釈の有無の派生値で、これも data を
@@ -1618,6 +1630,8 @@ export class QuantityTableService {
         annotatedThumbnailPath: string | null;
         fileName: string;
         comment: string | null;
+        width: number;
+        height: number;
         annotation: { id: string; hasDrawnAnnotations: boolean | null } | null;
       } | null;
       items: Array<{
@@ -1667,6 +1681,9 @@ export class QuantityTableService {
               ? `/api/storage/${g.surveyImage.annotatedThumbnailPath}`
               : null,
             comment: g.surveyImage.comment ?? null,
+            // 表示領域の確保に用いる実寸（Requirement 49.8）
+            width: g.surveyImage.width,
+            height: g.surveyImage.height,
           }
         : null,
       displayOrder: g.displayOrder,
