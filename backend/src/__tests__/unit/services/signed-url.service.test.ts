@@ -513,6 +513,188 @@ describe('SignedUrlService', () => {
     });
   });
 
+  /**
+   * プロジェクト単位のアクセス可否判定（公開された入口）
+   *
+   * 現場調査単位ではなくプロジェクト単位で1回だけ可否を判定する入口を検証する。
+   * プロジェクト内の写真をまとめて扱う経路では、写真ごと・現場調査ごとに判定を
+   * 繰り返すと問い合わせ回数が枚数に比例する。現場調査機能の Requirement 38 が
+   * 定める「枚数に比例させない」規約を満たすため、判定の入口をプロジェクト単位で
+   * 公開する。判定基準（プロジェクト関係者または admin ロール）は変更しない。
+   *
+   * Requirements (quantity-table-generation): 49.9
+   */
+  describe('validateProjectAccess', () => {
+    const projectId = 'test-project-id';
+
+    it('プロジェクトの作成者にはアクセスを許可し、現場調査・画像の照会を行わない', async () => {
+      // Arrange
+      const userId = 'creator-user-id';
+      mockPrisma.project.findUnique.mockResolvedValue({
+        id: projectId,
+        deletedAt: null,
+        createdById: userId,
+        salesPersonId: null,
+        constructionPersonId: null,
+      });
+
+      // Act
+      const result = await signedUrlService.validateProjectAccess(projectId, userId);
+
+      // Assert
+      expect(result).toBe(true);
+      // プロジェクト単位で1回だけ判定する（写真枚数・現場調査数に比例させない）
+      expect(mockPrisma.project.findUnique).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.surveyImage.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.siteSurvey.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('プロジェクトの営業担当者にはアクセスを許可する', async () => {
+      // Arrange
+      const userId = 'sales-user-id';
+      mockPrisma.project.findUnique.mockResolvedValue({
+        id: projectId,
+        deletedAt: null,
+        createdById: 'other-user-id',
+        salesPersonId: userId,
+        constructionPersonId: null,
+      });
+
+      // Act & Assert
+      await expect(signedUrlService.validateProjectAccess(projectId, userId)).resolves.toBe(true);
+    });
+
+    it('プロジェクトの工事担当者にはアクセスを許可する', async () => {
+      // Arrange
+      const userId = 'construction-user-id';
+      mockPrisma.project.findUnique.mockResolvedValue({
+        id: projectId,
+        deletedAt: null,
+        createdById: 'other-user-id',
+        salesPersonId: 'another-user-id',
+        constructionPersonId: userId,
+      });
+
+      // Act & Assert
+      await expect(signedUrlService.validateProjectAccess(projectId, userId)).resolves.toBe(true);
+    });
+
+    it('関係者でなくても admin ロール保持者にはアクセスを許可する', async () => {
+      // Arrange
+      const userId = 'admin-user-id';
+      mockPrisma.project.findUnique.mockResolvedValue({
+        id: projectId,
+        deletedAt: null,
+        createdById: 'other-user-id',
+        salesPersonId: 'another-user-id',
+        constructionPersonId: 'yet-another-user-id',
+      });
+      mockPrisma.userRole.findMany.mockResolvedValue([{ role: { name: 'admin' } }]);
+
+      // Act & Assert
+      await expect(signedUrlService.validateProjectAccess(projectId, userId)).resolves.toBe(true);
+    });
+
+    it('関係者でも admin でもないユーザーのアクセスを拒否する', async () => {
+      // Arrange
+      const userId = 'unrelated-user-id';
+      mockPrisma.project.findUnique.mockResolvedValue({
+        id: projectId,
+        deletedAt: null,
+        createdById: 'other-user-id',
+        salesPersonId: 'another-user-id',
+        constructionPersonId: 'yet-another-user-id',
+      });
+      mockPrisma.userRole.findMany.mockResolvedValue([{ role: { name: 'user' } }]);
+
+      // Act & Assert
+      await expect(signedUrlService.validateProjectAccess(projectId, userId)).resolves.toBe(false);
+    });
+
+    it('プロジェクトが存在しない場合はアクセスを拒否する', async () => {
+      // Arrange
+      mockPrisma.project.findUnique.mockResolvedValue(null);
+
+      // Act
+      const result = await signedUrlService.validateProjectAccess('missing-project-id', 'user-id');
+
+      // Assert
+      expect(result).toBe(false);
+      expect(mockPrisma.userRole.findMany).not.toHaveBeenCalled();
+    });
+
+    it('論理削除済みのプロジェクトはアクセスを拒否する', async () => {
+      // Arrange
+      const userId = 'creator-user-id';
+      mockPrisma.project.findUnique.mockResolvedValue({
+        id: projectId,
+        deletedAt: new Date(),
+        createdById: userId,
+        salesPersonId: null,
+        constructionPersonId: null,
+      });
+
+      // Act & Assert
+      await expect(signedUrlService.validateProjectAccess(projectId, userId)).resolves.toBe(false);
+    });
+
+    it('現場調査単位の判定は公開されたプロジェクト単位の判定へ委譲する（判定基準を複製しない）', async () => {
+      // Arrange
+      const surveyId = 'test-survey-id';
+      const userId = 'creator-user-id';
+      const spy = vi.spyOn(signedUrlService, 'validateProjectAccess');
+      mockPrisma.siteSurvey.findUnique.mockResolvedValue({
+        id: surveyId,
+        projectId,
+      });
+      mockPrisma.project.findUnique.mockResolvedValue({
+        id: projectId,
+        deletedAt: null,
+        createdById: userId,
+        salesPersonId: null,
+        constructionPersonId: null,
+      });
+
+      // Act
+      const result = await signedUrlService.validateSurveyAccess(surveyId, userId);
+
+      // Assert
+      expect(result).toBe(true);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith(projectId, userId);
+    });
+
+    it('画像単位の判定も公開されたプロジェクト単位の判定へ委譲する（判定基準を複製しない）', async () => {
+      // Arrange
+      const imageId = 'test-image-id';
+      const userId = 'creator-user-id';
+      const spy = vi.spyOn(signedUrlService, 'validateProjectAccess');
+      mockPrisma.surveyImage.findUnique.mockResolvedValue({
+        id: imageId,
+        surveyId: 'test-survey-id',
+        survey: {
+          id: 'test-survey-id',
+          projectId,
+        },
+      });
+      mockPrisma.project.findUnique.mockResolvedValue({
+        id: projectId,
+        deletedAt: null,
+        createdById: userId,
+        salesPersonId: null,
+        constructionPersonId: null,
+      });
+
+      // Act
+      const result = await signedUrlService.validateSignedUrlAccess(imageId, userId);
+
+      // Assert
+      expect(result).toBe(true);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith(projectId, userId);
+    });
+  });
+
   describe('getSignedUrlWithValidation', () => {
     it('should return signed URL when user has access', async () => {
       // Arrange

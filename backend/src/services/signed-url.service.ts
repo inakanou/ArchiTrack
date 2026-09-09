@@ -213,13 +213,22 @@ export class SignedUrlService {
   /**
    * ユーザーがプロジェクトの関係者、またはadminロール保持者かを判定する
    *
-   * `validateSignedUrlAccess` と `validateSurveyAccess` の共通判定。
+   * `validateSignedUrlAccess`（画像単位）と `validateSurveyAccess`（現場調査単位）の
+   * 共通判定であり、両者はこのメソッドへ委譲する。判定基準はここが唯一の出所である。
+   *
+   * プロジェクト内の写真をまとめて扱う経路（プロジェクト単位の画像一覧など）では、
+   * 画像ごと・現場調査ごとに可否を判定すると同じプロジェクト判定を件数分繰り返すことに
+   * なり、問い合わせ回数が写真枚数に比例する。現場調査機能の Requirement 38 が定める
+   * 「枚数に比例させない」規約を満たすため、プロジェクト単位で1回だけ判定できる入口と
+   * して公開している。判定基準そのものは公開にあたって変更していない。
+   *
+   * Requirements (quantity-table-generation): 49.9
    *
    * @param projectId - プロジェクトID
    * @param userId - ユーザーID
    * @returns アクセス権限があればtrue、なければfalse
    */
-  private async validateProjectAccess(projectId: string, userId: string): Promise<boolean> {
+  async validateProjectAccess(projectId: string, userId: string): Promise<boolean> {
     // プロジェクト情報を取得
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
