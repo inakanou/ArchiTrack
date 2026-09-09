@@ -13,7 +13,7 @@ import { useState, useEffect, useCallback, useReducer, useMemo, useRef } from 'r
 import { useParams, Link, useBlocker } from 'react-router-dom';
 import { getQuantityTableDetail, saveQuantityTableDraft } from '../api/quantity-tables';
 import { ApiError } from '../api/client';
-import { getSiteSurveys, getSiteSurvey } from '../api/site-surveys';
+import { getSiteSurveys, getSiteSurvey, getProjectSurveyImages } from '../api/site-surveys';
 import { getAnnotation } from '../api/survey-annotations';
 import { Canvas as FabricCanvas, FabricImage, util } from 'fabric';
 import type {
@@ -22,7 +22,7 @@ import type {
   QuantityItemDetail,
   SurveyImageSummary,
 } from '../types/quantity-table.types';
-import type { SurveyImageInfo } from '../types/site-survey.types';
+import type { ProjectSurveyImage } from '../types/site-survey.types';
 import {
   quantityTableEditReducer,
   initialQuantityTableEditState,
@@ -426,6 +426,22 @@ const styles = {
     padding: '4px',
     lineHeight: 1,
   } as React.CSSProperties,
+  // 写真一覧の取得に失敗した旨の提示（Requirement 49.9）
+  photoListError: {
+    textAlign: 'center' as const,
+    padding: '40px 20px',
+    color: '#b91c1c',
+  } as React.CSSProperties,
+  // 一覧に全件が含まれない旨の提示（Requirement 49.9）
+  photoListNotice: {
+    margin: '0 0 12px 0',
+    padding: '8px 12px',
+    backgroundColor: '#fffbeb',
+    border: '1px solid #fcd34d',
+    borderRadius: '6px',
+    color: '#92400e',
+    fontSize: '12px',
+  } as React.CSSProperties,
   emptyPhotos: {
     textAlign: 'center' as const,
     padding: '40px 20px',
@@ -601,7 +617,14 @@ export default function QuantityTableEditPage() {
   // 写真選択ダイアログ用state（REQ-4.3）
   const [isPhotoDialogOpen, setIsPhotoDialogOpen] = useState(false);
   const [selectedGroupIdForPhoto, setSelectedGroupIdForPhoto] = useState<string | null>(null);
-  const [availablePhotos, setAvailablePhotos] = useState<SurveyImageInfo[]>([]);
+  // 一括取得した注釈付き写真の一覧（Requirement 49.9）
+  const [projectSurveyImages, setProjectSurveyImages] = useState<ProjectSurveyImage[]>([]);
+  // 上限に達して切り捨てが発生したか（Requirement 49.9）
+  const [isPhotoListTruncated, setIsPhotoListTruncated] = useState(false);
+  // 写真一覧の取得に失敗した旨（Requirement 49.9 の Error Handling）。
+  // ダイアログは画面全体を覆うため、背後の共通エラー表示では利用者へ届かない。
+  // 0件と失敗を取り違えさせないよう、空一覧の案内とは別の状態として持つ。
+  const [photoListError, setPhotoListError] = useState<string | null>(null);
   const [isLoadingPhotos, setIsLoadingPhotos] = useState(false);
   // 注釈ビューアモーダル用state（REQ-4.4）
   const [annotationViewerGroupId, setAnnotationViewerGroupId] = useState<string | null>(null);
@@ -796,7 +819,12 @@ export default function QuantityTableEditPage() {
   /**
    * 写真選択ダイアログを開く
    *
+   * 選択可能な写真は、プロジェクト写真一覧の取得1回でまとめて取得する。現場調査ごとの
+   * 個別リクエストへ分割しない（Requirement 49.9）。応答は注釈エディタで編集済みの写真
+   * のみを含む（Requirement 4.3 / 19.2）。
+   *
    * Requirements: 4.3
+   * Requirements (quantity-table-generation): 49.9, 49.10
    */
   const handleSelectImage = useCallback(
     async (groupId: string) => {
@@ -805,40 +833,22 @@ export default function QuantityTableEditPage() {
       setSelectedGroupIdForPhoto(groupId);
       setIsPhotoDialogOpen(true);
       setIsLoadingPhotos(true);
-      setAvailablePhotos([]);
+      setProjectSurveyImages([]);
+      setIsPhotoListTruncated(false);
+      setPhotoListError(null);
 
       try {
-        // プロジェクト内の現場調査を取得
-        const surveysResult = await getSiteSurveys(snapshot.projectId, { limit: 100 });
-        const allPhotos: SurveyImageInfo[] = [];
-
-        // バッチサイズ（レートリミット回避のため一度に処理する件数を制限）
-        const BATCH_SIZE = 5;
-        const surveys = surveysResult.data;
-
-        // 各現場調査の詳細をバッチ処理で取得して画像を集める
-        // N+1クエリ問題を軽減するためPromise.allで並列処理し、
-        // レートリミット回避のためバッチサイズで分割
-        for (let i = 0; i < surveys.length; i += BATCH_SIZE) {
-          const batch = surveys.slice(i, i + BATCH_SIZE);
-          const batchResults = await Promise.allSettled(
-            batch.map((survey) => getSiteSurvey(survey.id))
-          );
-
-          for (const result of batchResults) {
-            if (result.status === 'fulfilled') {
-              const surveyDetail = result.value;
-              if (surveyDetail.images && surveyDetail.images.length > 0) {
-                allPhotos.push(...surveyDetail.images);
-              }
-            }
-            // rejected（エラー）の場合は無視して続行
-          }
-        }
-
-        setAvailablePhotos(allPhotos);
+        // プロジェクト配下の注釈付き写真を1リクエストでまとめて取得する（Requirement 49.9）。
+        // 現場調査一覧→現場調査詳細×N の経路は廃止した。中間の現場調査詳細は写真収集の
+        // ためだけに取得しており、他の情報は使われていなかった。
+        const result = await getProjectSurveyImages(snapshot.projectId);
+        setProjectSurveyImages(result.images);
+        // 上限に達して切り捨てが発生したかを保持し、一覧へ提示する（Requirement 49.9）
+        setIsPhotoListTruncated(result.hasMore);
       } catch {
-        setOperationError('写真の読み込みに失敗しました');
+        // 失敗はダイアログの中で伝える。既存の写真の紐づけには手を触れない
+        // （部分的に取得した一覧で選択させない）。
+        setPhotoListError('写真の読み込みに失敗しました');
       } finally {
         setIsLoadingPhotos(false);
       }
@@ -854,7 +864,9 @@ export default function QuantityTableEditPage() {
   const handleClosePhotoDialog = useCallback(() => {
     setIsPhotoDialogOpen(false);
     setSelectedGroupIdForPhoto(null);
-    setAvailablePhotos([]);
+    setProjectSurveyImages([]);
+    setIsPhotoListTruncated(false);
+    setPhotoListError(null);
   }, []);
 
   /**
@@ -867,20 +879,41 @@ export default function QuantityTableEditPage() {
       if (!selectedGroupIdForPhoto) return;
       setOperationError(null);
 
-      // 選択した写真情報を取得し、描画用サマリとして保持
-      const selectedPhoto = availablePhotos.find((p) => p.id === imageId);
-      if (selectedPhoto) {
+      // 選択した写真情報を取得し、描画用サマリとして保持する。
+      // 一覧の表示元 `displayUrl` はサーバー側で解決済み（注釈付きサムネイル優先）であり、
+      // 呼び出し側で優先順位を再実装しない（Requirement 49.10）。
+      const selectedImage = projectSurveyImages.find((p) => p.id === imageId);
+      if (selectedImage) {
+        // 表示用URLが合成済みサムネイルかどうかはサーバーが伝える。合成済みを
+        // 「通常のサムネイル」として渡すと共有表示部品がクライアント側の合成を重ねて
+        // 実行し、注釈が二重に描かれる（回転補正済みの画像では重ね位置もずれる）。
+        // 合成済みのときだけ注釈付きサムネイルの口へ渡し、部品側の短絡へ乗せる
+        // （Requirement 49.5）。そうでないときは渡さず、部品のクライアント側合成に
+        // 委ねて Requirement 3.3 の表示を維持する（Requirement 49.6）。
+        const isComposited = selectedImage.isDisplayUrlAnnotated;
+        const displayUrl = selectedImage.displayUrl ?? '';
         setLinkedPhotoSummaries((prev) => ({
           ...prev,
           [imageId]: {
-            id: selectedPhoto.id,
-            thumbnailUrl: selectedPhoto.thumbnailUrl || selectedPhoto.originalUrl || '',
-            originalUrl: selectedPhoto.originalUrl || '',
-            fileName: selectedPhoto.fileName,
-            hasAnnotations: selectedPhoto.hasAnnotations,
-            // 注釈の目印は「描画された注釈の有無」で判定する（Task 115.13、要件20.2）
-            hasDrawnAnnotations: selectedPhoto.hasDrawnAnnotations ?? false,
-            comment: selectedPhoto.comment ?? null,
+            id: selectedImage.id,
+            // 合成済みのときは合成前のサムネイルが応答に無いため、代替は原本のみ。
+            // ただし合成済みの短絡が働くため、この値が実際に読み込まれることはない。
+            thumbnailUrl: isComposited
+              ? selectedImage.originalUrl || ''
+              : displayUrl || selectedImage.originalUrl || '',
+            originalUrl: selectedImage.originalUrl || '',
+            annotatedThumbnailUrl: isComposited ? displayUrl : null,
+            fileName: selectedImage.fileName,
+            // 一覧は注釈エディタで編集済みの写真のみを返すため、注釈レコードは必ず存在する
+            hasAnnotations: true,
+            // 注釈の目印は「描画された注釈の有無」で判定する。注釈レコードの存在
+            // （hasAnnotations）も合成済みサムネイルの有無も、回転のみの保存で真に
+            // なるため判定源にできない（Requirement 20.2、site-survey Task 115.13）。
+            hasDrawnAnnotations: selectedImage.hasDrawnAnnotations,
+            comment: selectedImage.comment ?? null,
+            // 未読込時に表示領域を確保するための実寸（Requirement 49.8）
+            width: selectedImage.width,
+            height: selectedImage.height,
           },
         }));
       }
@@ -894,7 +927,7 @@ export default function QuantityTableEditPage() {
 
       handleClosePhotoDialog();
     },
-    [selectedGroupIdForPhoto, availablePhotos, handleClosePhotoDialog]
+    [selectedGroupIdForPhoto, projectSurveyImages, handleClosePhotoDialog]
   );
 
   /**
@@ -1938,21 +1971,35 @@ export default function QuantityTableEditPage() {
               <div style={styles.emptyPhotos}>
                 <p>写真を読み込み中...</p>
               </div>
-            ) : availablePhotos.length === 0 ? (
-              <div style={styles.emptyPhotos}>
-                <p>利用可能な写真がありません</p>
+            ) : photoListError !== null ? (
+              // 取得に失敗した旨はダイアログの中で伝える。0件の案内を出すと、
+              // 取得の失敗を「注釈付きの写真が無い」と取り違えさせる
+              // （Requirement 49.9 の Error Handling）。
+              <div style={styles.photoListError} data-testid="photo-list-error" role="alert">
+                <p>{photoListError}</p>
                 <p style={{ fontSize: '12px', marginTop: '8px' }}>
-                  現場調査で写真をアップロードしてください
+                  通信の状態を確認して、もう一度お試しください。
+                </p>
+              </div>
+            ) : projectSurveyImages.length === 0 ? (
+              // 一覧の対象は注釈エディタで編集済みの写真のみ（Requirement 4.3 / 19.2）。
+              // 0件のときは注釈エディタでの編集を促す（Requirement 49.9 の Error Handling）。
+              <div style={styles.emptyPhotos} data-testid="photo-list-empty">
+                <p>注釈付きの写真がありません</p>
+                <p style={{ fontSize: '12px', marginTop: '8px' }}>
+                  現場調査の注釈エディタで写真を編集すると、ここから選択できるようになります
                 </p>
               </div>
             ) : (
-              <div style={styles.photoGrid} data-testid="photo-list">
-                {availablePhotos.map((photo) => {
-                  // 写真選択ダイアログの注釈の目印も「描画された注釈の有無」で判定する
-                  // （Task 115.13、要件20.2）
-                  const hasPhotoAnnotations =
-                    (photo.hasDrawnAnnotations ?? false) || (photo.annotations?.length ?? 0) > 0;
-                  return (
+              <>
+                {/* 上限に達して切り捨てが発生した旨を提示する（Requirement 49.9） */}
+                {isPhotoListTruncated && (
+                  <p data-testid="photo-list-truncated-notice" style={styles.photoListNotice}>
+                    写真が多いため、一覧にすべての写真は含まれていません。
+                  </p>
+                )}
+                <div style={styles.photoGrid} data-testid="photo-list">
+                  {projectSurveyImages.map((photo) => (
                     <div
                       key={photo.id}
                       style={{ ...styles.photoItem, position: 'relative' as const }}
@@ -1967,37 +2014,20 @@ export default function QuantityTableEditPage() {
                         }
                       }}
                     >
+                      {/*
+                        表示元はサーバーが解決済みの表示用URL（サムネイル解像度）を用いる。
+                        注釈の有無で表示元を分岐しない（Requirement 49.10）。
+                      */}
                       <img
-                        src={photo.thumbnailUrl || photo.originalUrl || ''}
+                        src={photo.displayUrl ?? ''}
                         alt={photo.fileName}
                         style={styles.photoImage}
                         data-testid={`photo-item-${photo.id}`}
                       />
-                      {/* 注釈バッジ (REQ-3.3) */}
-                      {hasPhotoAnnotations && (
-                        <span
-                          data-testid={`photo-annotation-badge-${photo.id}`}
-                          style={{
-                            position: 'absolute',
-                            top: '4px',
-                            right: '4px',
-                            backgroundColor: '#dc2626',
-                            color: '#ffffff',
-                            borderRadius: '9999px',
-                            padding: '2px 6px',
-                            fontSize: '10px',
-                            fontWeight: 'bold',
-                            minWidth: '16px',
-                            textAlign: 'center',
-                          }}
-                        >
-                          注
-                        </span>
-                      )}
                     </div>
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         </div>

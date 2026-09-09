@@ -19,7 +19,7 @@ import * as quantityTablesApi from '../api/quantity-tables';
 import * as siteSurveysApi from '../api/site-surveys';
 import { ApiError } from '../api/client';
 import type { QuantityTableDetail } from '../types/quantity-table.types';
-import type { SurveyImageInfo } from '../types/site-survey.types';
+import type { ProjectSurveyImage } from '../types/site-survey.types';
 
 // APIモック
 vi.mock('../api/quantity-tables');
@@ -114,6 +114,63 @@ const mockSaveQuantityTableDraft = vi.mocked(quantityTablesApi.saveQuantityTable
 
 const mockGetSiteSurveys = vi.mocked(siteSurveysApi.getSiteSurveys);
 const mockGetSiteSurvey = vi.mocked(siteSurveysApi.getSiteSurvey);
+const mockGetProjectSurveyImages = vi.mocked(siteSurveysApi.getProjectSurveyImages);
+
+/**
+ * 写真選択ダイアログが一括取得するプロジェクト写真一覧
+ *
+ * 一覧に含まれるのは注釈エディタで編集済みの写真のみであり、注釈の有無による絞り込みは
+ * サーバー側で済んでいる（Requirement 4.3 / 19.2）。表示元は解決済みの `displayUrl`
+ * 1本で、原本URLとは別の値を与えて取り違えを検出できるようにしてある。
+ *
+ * Requirements (quantity-table-generation): 49.9, 49.10
+ */
+const mockProjectSurveyImages: ProjectSurveyImage[] = [
+  {
+    id: 'photo-1',
+    surveyId: 'survey-1',
+    surveyName: 'テスト調査',
+    fileName: 'photo1.jpg',
+    displayUrl: '/images/display-1.jpg',
+    originalUrl: '/images/original-1.jpg',
+    isDisplayUrlAnnotated: true,
+    hasDrawnAnnotations: true,
+    comment: null,
+    width: 800,
+    height: 600,
+    displayOrder: 0,
+  },
+  {
+    id: 'photo-2',
+    surveyId: 'survey-1',
+    surveyName: 'テスト調査',
+    fileName: 'photo2.jpg',
+    displayUrl: '/images/display-2.jpg',
+    originalUrl: '/images/original-2.jpg',
+    isDisplayUrlAnnotated: false,
+    hasDrawnAnnotations: true,
+    comment: null,
+    width: 800,
+    height: 600,
+    displayOrder: 1,
+  },
+  {
+    // 注釈レコードは存在する（回転角度が載る）が、描画された注釈は0件。
+    // 一覧の対象には入るが、ダイアログはこれを他と区別しない
+    id: 'photo-rotate-only',
+    surveyId: 'survey-1',
+    surveyName: 'テスト調査',
+    fileName: 'photo-rotate-only.jpg',
+    displayUrl: '/images/display-rotate-only.jpg',
+    originalUrl: '/images/original-rotate-only.jpg',
+    isDisplayUrlAnnotated: true,
+    hasDrawnAnnotations: false,
+    comment: null,
+    width: 800,
+    height: 600,
+    displayOrder: 2,
+  },
+];
 
 // テストデータ
 const mockQuantityTableDetail: QuantityTableDetail = {
@@ -1391,73 +1448,15 @@ describe('QuantityTableEditPage', () => {
   // ====================================================================
 
   describe('REQ 4.3: 写真選択してグループに紐付け', () => {
-    const mockPhotosWithAnnotations: SurveyImageInfo[] = [
-      {
-        id: 'photo-1',
-        surveyId: 'survey-1',
-        originalPath: '/original/photo1.jpg',
-        thumbnailPath: '/thumb/photo1.jpg',
-        originalUrl: '/images/original-1.jpg',
-        thumbnailUrl: '/images/thumb-1.jpg',
-        fileName: 'photo1.jpg',
-        fileSize: 1024,
-        width: 800,
-        height: 600,
-        displayOrder: 0,
-        createdAt: '2025-01-01T00:00:00Z',
-        hasAnnotations: true,
-        hasDrawnAnnotations: true,
-      },
-      {
-        id: 'photo-2',
-        surveyId: 'survey-1',
-        originalPath: '/original/photo2.jpg',
-        thumbnailPath: '/thumb/photo2.jpg',
-        originalUrl: '/images/original-2.jpg',
-        thumbnailUrl: '/images/thumb-2.jpg',
-        fileName: 'photo2.jpg',
-        fileSize: 2048,
-        width: 800,
-        height: 600,
-        displayOrder: 1,
-        createdAt: '2025-01-01T00:00:00Z',
-      },
-    ];
-
     /**
      * @requirement quantity-table-generation/REQ-49.10
      */
-    it('写真選択ダイアログで注釈ありの写真には注釈バッジが表示される (quantity-table-generation/REQ-49.10)', async () => {
+    it('写真選択ダイアログの一覧は解決済みの表示用URLを表示元に用いる (quantity-table-generation/REQ-49.10)', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockGetSiteSurveys.mockResolvedValue({
-        data: [
-          {
-            id: 'survey-1',
-            projectId: 'proj-456',
-            name: 'テスト調査',
-            surveyDate: '2025-01-01',
-            memo: null,
-            thumbnailUrl: null,
-            imageCount: 2,
-            createdAt: '2025-01-01T00:00:00Z',
-            updatedAt: '2025-01-01T00:00:00Z',
-          },
-        ],
-        pagination: { page: 1, limit: 100, total: 1, totalPages: 1 },
-      });
-      mockGetSiteSurvey.mockResolvedValue({
-        id: 'survey-1',
-        projectId: 'proj-456',
-        name: 'テスト調査',
-        surveyDate: '2025-01-01',
-        memo: null,
-        thumbnailUrl: null,
-        imageCount: 2,
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-01T00:00:00Z',
-        project: { id: 'proj-456', name: 'テストプロジェクト' },
-        images: mockPhotosWithAnnotations,
+      mockGetProjectSurveyImages.mockResolvedValue({
+        images: mockProjectSurveyImages,
+        hasMore: false,
       });
 
       renderWithRouter();
@@ -1474,63 +1473,30 @@ describe('QuantityTableEditPage', () => {
         expect(screen.getByRole('dialog', { name: /写真を選択/ })).toBeInTheDocument();
       });
 
-      // 注釈ありの写真には注釈バッジが表示される
-      await waitFor(() => {
-        expect(screen.getByTestId('photo-annotation-badge-photo-1')).toBeInTheDocument();
-      });
-
-      // 写真選択ダイアログの一覧表示は原本ではなくサムネイルを表示元に用いる
-      // （quantity-table-generation/REQ-49.10）。写真変更ダイアログ側は
-      // PhotoChangeDialog.test.tsx が同じ規則を固定する。
+      // 写真選択ダイアログの一覧表示は原本ではなく、サーバーが解決済みの表示用URL
+      // （サムネイル解像度）を表示元に用いる（quantity-table-generation/REQ-49.10）。
       const photoDialog = within(screen.getByRole('dialog', { name: /写真を選択/ }));
-      for (const photo of mockPhotosWithAnnotations) {
-        const candidate = photoDialog.getByAltText(photo.fileName);
-        expect(candidate).toHaveAttribute('src', photo.thumbnailUrl);
-        expect(candidate).not.toHaveAttribute('src', photo.originalUrl);
+      for (const image of mockProjectSurveyImages) {
+        const candidate = await photoDialog.findByAltText(image.fileName);
+        expect(candidate).toHaveAttribute('src', image.displayUrl);
+        expect(candidate).not.toHaveAttribute('src', image.originalUrl);
       }
     });
 
-    // Task 115.13: 写真選択ダイアログの注釈の目印も「描画された注釈の有無」で判定する
-    it('回転のみを保存した写真は写真選択ダイアログで注釈バッジを表示しない', async () => {
+    // Task 75.1: 一覧の対象が注釈エディタで編集済みの写真のみになったため、写真選択
+    // ダイアログは注釈の有無で表示を分岐しない。回転のみを保存した写真を注釈ありと
+    // 誤表示する余地（site-survey Task 115.13、要件20.2）は分岐そのものの撤去で消える。
+    //
+    // 検証の主眼は「バッジが無いこと」ではなく「描画された注釈の有無によらず全件が
+    // 同じ体裁で並ぶこと」に置く。バッジの不在だけでは絞り込みや分岐の復活を捕まえ
+    // られない。選択後の表題部で注釈の目印が保たれることは
+    // `__tests__/pages/QuantityTableEditPage.photoSelectBulkFetch.test.tsx` が固定する。
+    it('写真選択ダイアログは描画された注釈の有無によらず一覧の全件を同じ体裁で並べる', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockGetSiteSurveys.mockResolvedValue({
-        data: [
-          {
-            id: 'survey-1',
-            projectId: 'proj-456',
-            name: 'テスト調査',
-            surveyDate: '2025-01-01',
-            memo: null,
-            thumbnailUrl: null,
-            imageCount: 2,
-            createdAt: '2025-01-01T00:00:00Z',
-            updatedAt: '2025-01-01T00:00:00Z',
-          },
-        ],
-        pagination: { page: 1, limit: 100, total: 1, totalPages: 1 },
-      });
-      mockGetSiteSurvey.mockResolvedValue({
-        id: 'survey-1',
-        projectId: 'proj-456',
-        name: 'テスト調査',
-        surveyDate: '2025-01-01',
-        memo: null,
-        thumbnailUrl: null,
-        imageCount: 2,
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-01T00:00:00Z',
-        project: { id: 'proj-456', name: 'テストプロジェクト' },
-        images: [
-          {
-            ...mockPhotosWithAnnotations[0]!,
-            // 注釈レコードは存在する（回転角度が載る）が、描画された注釈は0件
-            hasAnnotations: true,
-            hasDrawnAnnotations: false,
-            annotatedThumbnailUrl: '/images/annotated-thumb-1.jpg',
-          },
-          mockPhotosWithAnnotations[1]!,
-        ],
+      mockGetProjectSurveyImages.mockResolvedValue({
+        images: mockProjectSurveyImages,
+        hasMore: false,
       });
 
       renderWithRouter();
@@ -1546,40 +1512,29 @@ describe('QuantityTableEditPage', () => {
         expect(screen.getByRole('dialog', { name: /写真を選択/ })).toBeInTheDocument();
       });
 
-      expect(screen.queryByTestId('photo-annotation-badge-photo-1')).not.toBeInTheDocument();
+      // 描画された注釈が0件の写真（回転のみの保存）も含めて一覧の全件が並ぶ
+      const photoList = await screen.findByTestId('photo-list');
+      expect(within(photoList).getAllByTestId(/^photo-item-/)).toHaveLength(
+        mockProjectSurveyImages.length
+      );
+      expect(within(photoList).getByTestId('photo-item-photo-rotate-only')).toBeInTheDocument();
+      // 表示元も分岐しない。全件がサーバー解決済みの表示用URLを用いる
+      for (const image of mockProjectSurveyImages) {
+        expect(within(photoList).getByTestId(`photo-item-${image.id}`)).toHaveAttribute(
+          'src',
+          image.displayUrl
+        );
+      }
+      // 注釈の目印による区別も付けない
+      expect(within(photoList).queryByTestId(/^photo-annotation-badge-/)).toBeNull();
     });
 
     it('写真を選択するとドラフトに紐付けられ永続化APIは呼ばれない', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockGetSiteSurveys.mockResolvedValue({
-        data: [
-          {
-            id: 'survey-1',
-            projectId: 'proj-456',
-            name: 'テスト調査',
-            surveyDate: '2025-01-01',
-            memo: null,
-            thumbnailUrl: null,
-            imageCount: 2,
-            createdAt: '2025-01-01T00:00:00Z',
-            updatedAt: '2025-01-01T00:00:00Z',
-          },
-        ],
-        pagination: { page: 1, limit: 100, total: 1, totalPages: 1 },
-      });
-      mockGetSiteSurvey.mockResolvedValue({
-        id: 'survey-1',
-        projectId: 'proj-456',
-        name: 'テスト調査',
-        surveyDate: '2025-01-01',
-        memo: null,
-        thumbnailUrl: null,
-        imageCount: 2,
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-01T00:00:00Z',
-        project: { id: 'proj-456', name: 'テストプロジェクト' },
-        images: mockPhotosWithAnnotations,
+      mockGetProjectSurveyImages.mockResolvedValue({
+        images: mockProjectSurveyImages,
+        hasMore: false,
       });
       renderWithRouter();
 
@@ -1614,34 +1569,9 @@ describe('QuantityTableEditPage', () => {
     it('写真選択後、グループのサムネイルが更新される', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockGetSiteSurveys.mockResolvedValue({
-        data: [
-          {
-            id: 'survey-1',
-            projectId: 'proj-456',
-            name: 'テスト調査',
-            surveyDate: '2025-01-01',
-            memo: null,
-            thumbnailUrl: null,
-            imageCount: 2,
-            createdAt: '2025-01-01T00:00:00Z',
-            updatedAt: '2025-01-01T00:00:00Z',
-          },
-        ],
-        pagination: { page: 1, limit: 100, total: 1, totalPages: 1 },
-      });
-      mockGetSiteSurvey.mockResolvedValue({
-        id: 'survey-1',
-        projectId: 'proj-456',
-        name: 'テスト調査',
-        surveyDate: '2025-01-01',
-        memo: null,
-        thumbnailUrl: null,
-        imageCount: 2,
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-01T00:00:00Z',
-        project: { id: 'proj-456', name: 'テストプロジェクト' },
-        images: mockPhotosWithAnnotations,
+      mockGetProjectSurveyImages.mockResolvedValue({
+        images: mockProjectSurveyImages,
+        hasMore: false,
       });
       mockUpdateQuantityGroup.mockResolvedValue({
         id: 'group-2',
@@ -2147,49 +2077,9 @@ describe('QuantityTableEditPage', () => {
     it('写真紐付けはドラフトへ反映され永続化APIは呼ばれない', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockGetSiteSurveys.mockResolvedValue({
-        data: [
-          {
-            id: 'survey-1',
-            projectId: 'proj-456',
-            name: 'テスト調査',
-            surveyDate: '2025-01-01',
-            memo: null,
-            thumbnailUrl: null,
-            imageCount: 1,
-            createdAt: '2025-01-01T00:00:00Z',
-            updatedAt: '2025-01-01T00:00:00Z',
-          },
-        ],
-        pagination: { page: 1, limit: 100, total: 1, totalPages: 1 },
-      });
-      mockGetSiteSurvey.mockResolvedValue({
-        id: 'survey-1',
-        projectId: 'proj-456',
-        name: 'テスト調査',
-        surveyDate: '2025-01-01',
-        memo: null,
-        thumbnailUrl: null,
-        imageCount: 1,
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-01T00:00:00Z',
-        project: { id: 'proj-456', name: 'テストプロジェクト' },
-        images: [
-          {
-            id: 'photo-1',
-            surveyId: 'survey-1',
-            originalPath: '/original/photo1.jpg',
-            thumbnailPath: '/thumb/photo1.jpg',
-            originalUrl: '/images/original-1.jpg',
-            thumbnailUrl: '/images/thumb-1.jpg',
-            fileName: 'photo1.jpg',
-            fileSize: 1024,
-            width: 800,
-            height: 600,
-            displayOrder: 0,
-            createdAt: '2025-01-01T00:00:00Z',
-          },
-        ],
+      mockGetProjectSurveyImages.mockResolvedValue({
+        images: mockProjectSurveyImages,
+        hasMore: false,
       });
       renderWithRouter();
 
@@ -2270,49 +2160,9 @@ describe('QuantityTableEditPage', () => {
     it('写真選択ダイアログで写真をEnterキーで選択できる', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockGetSiteSurveys.mockResolvedValue({
-        data: [
-          {
-            id: 'survey-1',
-            projectId: 'proj-456',
-            name: 'テスト調査',
-            surveyDate: '2025-01-01',
-            memo: null,
-            thumbnailUrl: null,
-            imageCount: 1,
-            createdAt: '2025-01-01T00:00:00Z',
-            updatedAt: '2025-01-01T00:00:00Z',
-          },
-        ],
-        pagination: { page: 1, limit: 100, total: 1, totalPages: 1 },
-      });
-      mockGetSiteSurvey.mockResolvedValue({
-        id: 'survey-1',
-        projectId: 'proj-456',
-        name: 'テスト調査',
-        surveyDate: '2025-01-01',
-        memo: null,
-        thumbnailUrl: null,
-        imageCount: 1,
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-01T00:00:00Z',
-        project: { id: 'proj-456', name: 'テストプロジェクト' },
-        images: [
-          {
-            id: 'photo-1',
-            surveyId: 'survey-1',
-            originalPath: '/original/photo1.jpg',
-            thumbnailPath: '/thumb/photo1.jpg',
-            originalUrl: '/images/original-1.jpg',
-            thumbnailUrl: '/images/thumb-1.jpg',
-            fileName: 'photo1.jpg',
-            fileSize: 1024,
-            width: 800,
-            height: 600,
-            displayOrder: 0,
-            createdAt: '2025-01-01T00:00:00Z',
-          },
-        ],
+      mockGetProjectSurveyImages.mockResolvedValue({
+        images: mockProjectSurveyImages,
+        hasMore: false,
       });
       renderWithRouter();
 
@@ -2547,49 +2397,9 @@ describe('QuantityTableEditPage', () => {
     it('写真アイテムでEnterキーを押すと選択される', async () => {
       const user = userEvent.setup();
       mockGetQuantityTableDetail.mockResolvedValue(mockQuantityTableDetail);
-      mockGetSiteSurveys.mockResolvedValue({
-        data: [
-          {
-            id: 'survey-1',
-            projectId: 'proj-456',
-            name: 'テスト調査',
-            surveyDate: '2025-01-01',
-            memo: null,
-            thumbnailUrl: null,
-            imageCount: 1,
-            createdAt: '2025-01-01T00:00:00Z',
-            updatedAt: '2025-01-01T00:00:00Z',
-          },
-        ],
-        pagination: { page: 1, limit: 100, total: 1, totalPages: 1 },
-      });
-      mockGetSiteSurvey.mockResolvedValue({
-        id: 'survey-1',
-        projectId: 'proj-456',
-        name: 'テスト調査',
-        surveyDate: '2025-01-01',
-        memo: null,
-        thumbnailUrl: null,
-        imageCount: 1,
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-01T00:00:00Z',
-        project: { id: 'proj-456', name: 'テストプロジェクト' },
-        images: [
-          {
-            id: 'photo-1',
-            surveyId: 'survey-1',
-            originalPath: '/original/photo1.jpg',
-            thumbnailPath: '/thumb/photo1.jpg',
-            originalUrl: '/images/original-1.jpg',
-            thumbnailUrl: '/images/thumb-1.jpg',
-            fileName: 'photo1.jpg',
-            fileSize: 1024,
-            width: 800,
-            height: 600,
-            displayOrder: 0,
-            createdAt: '2025-01-01T00:00:00Z',
-          },
-        ],
+      mockGetProjectSurveyImages.mockResolvedValue({
+        images: mockProjectSurveyImages,
+        hasMore: false,
       });
       mockUpdateQuantityGroup.mockResolvedValue({
         id: 'group-2',

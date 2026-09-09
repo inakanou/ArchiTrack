@@ -715,6 +715,7 @@ describe('ImageListService', () => {
         originalPath: string;
         thumbnailPath: string;
         annotatedThumbnailPath: string | null;
+        annotation: { hasDrawnAnnotations: boolean | null } | null;
         createdAt: Date;
       }> = {}
     ) => ({
@@ -728,6 +729,9 @@ describe('ImageListService', () => {
       originalPath: 'surveys/1/original1.jpg',
       thumbnailPath: 'surveys/1/thumb1.jpg',
       annotatedThumbnailPath: null,
+      // 絞り込みが注釈レコードの存在で行われるため、取得結果には必ず注釈が伴う。
+      // 描画の有無は同じ問い合わせの関連の取得項目として得る（Requirement 20.2）。
+      annotation: { hasDrawnAnnotations: true },
       createdAt: new Date('2024-01-01'),
       ...overrides,
     });
@@ -970,6 +974,107 @@ describe('ImageListService', () => {
 
       expect(result.images[0]?.displayUrl).toBeNull();
       expect(result.images[0]?.originalUrl).toBeNull();
+    });
+
+    /**
+     * 表示側が注釈の目印と二重合成の回避に必要とする2つの真偽値
+     *
+     * 写真選択ダイアログで選んだ写真は、再読込を挟まずそのまま表題部の表示へ渡る。
+     * 表題部は注釈の目印を `hasDrawnAnnotations` で判定し、合成済みサムネイルが
+     * 与えられたときだけ再合成を省く。一覧の応答がこの2つを伝えないと、呼び出し側は
+     * 推測で補うほかなく、回転のみの写真を注釈ありと誤表示するか、合成済みの画像へ
+     * さらに注釈を重ねることになる。
+     *
+     * Requirements (site-survey): 20.2
+     * Requirements (quantity-table-generation): 49.5, 49.9
+     */
+    describe('表示に必要な判定の供給', () => {
+      it('描画された注釈の有無を同じ問い合わせの関連の取得項目として得ること', async () => {
+        mockSurveys([{ id: 'survey-1', name: '一次調査' }]);
+        mockPrisma.surveyImage.findMany.mockResolvedValue([buildImage({ id: 'img-1' })]);
+        configureStorage();
+
+        await service.findAnnotatedByProjectIdWithUrls(projectId, userId);
+
+        const args = mockPrisma.surveyImage.findMany.mock.calls[0]![0];
+        // 既に絞り込みで結合済みの関連から取得する。重い注釈データ（data）は読まない
+        expect(args.select.annotation).toEqual({ select: { hasDrawnAnnotations: true } });
+        // 問い合わせ回数は増やさない（写真の抽出は1回のまま・注釈表の別引きもしない）
+        expect(mockPrisma.surveyImage.findMany).toHaveBeenCalledTimes(1);
+        expect(mockPrisma.siteSurvey.findMany).toHaveBeenCalledTimes(1);
+        expect(mockPrisma.imageAnnotation.findMany).not.toHaveBeenCalled();
+      });
+
+      it('回転のみの保存（描画0件）と描画ありを応答で区別すること', async () => {
+        mockSurveys([{ id: 'survey-1', name: '一次調査' }]);
+        mockPrisma.surveyImage.findMany.mockResolvedValue([
+          buildImage({ id: 'img-drawn', annotation: { hasDrawnAnnotations: true } }),
+          buildImage({ id: 'img-rotate-only', annotation: { hasDrawnAnnotations: false } }),
+        ]);
+        configureStorage();
+
+        const result = await service.findAnnotatedByProjectIdWithUrls(projectId, userId);
+
+        expect(result.images[0]).toMatchObject({ id: 'img-drawn', hasDrawnAnnotations: true });
+        expect(result.images[1]).toMatchObject({
+          id: 'img-rotate-only',
+          hasDrawnAnnotations: false,
+        });
+      });
+
+      it('未算出（バックフィル未実施）の注釈は従来どおり注釈ありとして扱うこと', async () => {
+        mockSurveys([{ id: 'survey-1', name: '一次調査' }]);
+        mockPrisma.surveyImage.findMany.mockResolvedValue([
+          buildImage({ id: 'img-unknown', annotation: { hasDrawnAnnotations: null } }),
+        ]);
+        configureStorage();
+
+        const result = await service.findAnnotatedByProjectIdWithUrls(projectId, userId);
+
+        expect(result.images[0]?.hasDrawnAnnotations).toBe(true);
+      });
+
+      it('表示用URLが合成済みの注釈付きサムネイルであるかを応答で伝えること', async () => {
+        mockSurveys([{ id: 'survey-1', name: '一次調査' }]);
+        mockPrisma.surveyImage.findMany.mockResolvedValue([
+          buildImage({
+            id: 'img-composited',
+            displayOrder: 1,
+            annotatedThumbnailPath: 'surveys/1/annot1.jpg',
+          }),
+          buildImage({ id: 'img-plain', displayOrder: 2, annotatedThumbnailPath: null }),
+        ]);
+        configureStorage();
+
+        const result = await service.findAnnotatedByProjectIdWithUrls(projectId, userId);
+
+        // 合成済みを渡された呼び出し側は再合成を行わない
+        expect(result.images[0]).toMatchObject({
+          id: 'img-composited',
+          displayUrl: 'https://r2.example.com/surveys/1/annot1.jpg',
+          isDisplayUrlAnnotated: true,
+        });
+        // 通常のサムネイルはクライアント側の合成が要るため合成済みと名乗らない
+        expect(result.images[1]).toMatchObject({
+          id: 'img-plain',
+          displayUrl: 'https://r2.example.com/surveys/1/thumb1.jpg',
+          isDisplayUrlAnnotated: false,
+        });
+      });
+
+      it('表示用URLを生成できなかった場合は合成済みと名乗らないこと', async () => {
+        mockSurveys([{ id: 'survey-1', name: '一次調査' }]);
+        mockPrisma.surveyImage.findMany.mockResolvedValue([
+          buildImage({ id: 'img-1', annotatedThumbnailPath: 'surveys/1/annot1.jpg' }),
+        ]);
+        configureStorage();
+        mockStorageProvider.getSignedUrl.mockRejectedValue(new Error('URL generation failed'));
+
+        const result = await service.findAnnotatedByProjectIdWithUrls(projectId, userId);
+
+        expect(result.images[0]?.displayUrl).toBeNull();
+        expect(result.images[0]?.isDisplayUrlAnnotated).toBe(false);
+      });
     });
   });
 

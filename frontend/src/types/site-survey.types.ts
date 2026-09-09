@@ -100,6 +100,72 @@ export interface SurveyImageInfo {
 }
 
 /**
+ * プロジェクト写真一覧の1件（写真選択ダイアログ用）
+ *
+ * `GET /api/projects/:projectId/survey-images` の応答要素。プロジェクト配下の
+ * 注釈付き現場調査写真のみを含み、注釈のない写真は含まれない（Requirement 4.3 / 19.2）。
+ * 表示用の署名付きURLは1件あたり1本（`displayUrl`）に限る。優先順位（注釈付きサムネイル
+ * ＞ 通常サムネイル）はサーバー側で解決済みであり、呼び出し側で再実装しない。
+ *
+ * Requirements (quantity-table-generation): 49.9, 49.10
+ */
+export interface ProjectSurveyImage {
+  /** 画像ID */
+  id: string;
+  /** 現場調査ID */
+  surveyId: string;
+  /** 現場調査名 */
+  surveyName: string;
+  /** ファイル名 */
+  fileName: string;
+  /** 一覧表示に用いる画像（署名付きURL・サムネイル解像度へ解決済み） */
+  displayUrl: string | null;
+  /** 原本画像（署名付きURL）。選択確定後の拡大表示に用いる */
+  originalUrl: string | null;
+  /**
+   * `displayUrl` が注釈をレンダリング済みの合成サムネイルであるか
+   *
+   * `displayUrl` は「注釈付きサムネイル」と「通常サムネイル」をサーバー側で1本へ畳んだ
+   * 結果であり、値だけでは両者を区別できない。合成済みの画像をクライアント側の合成へ
+   * 渡すと注釈が二重に重なる（回転補正済みの画像では重ね位置もずれる）ため、
+   * どちらであるかをこの真偽値で受け取る。
+   *
+   * Requirements (quantity-table-generation): 49.5, 49.9
+   */
+  isDisplayUrlAnnotated: boolean;
+  /**
+   * 描画された注釈の有無（Requirement 20.2）
+   *
+   * 一覧は「注釈レコードが存在する写真」に限られるが、画像編集画面は注釈0件
+   * （回転のみ）でも注釈レコードを残すため、一覧に含まれること自体は描画の有無を
+   * 意味しない。注釈の目印の判定にはこちらを用いる。
+   */
+  hasDrawnAnnotations: boolean;
+  /** コメント */
+  comment: string | null;
+  /** 画像の実寸（ピクセル・幅） */
+  width: number;
+  /** 画像の実寸（ピクセル・高さ） */
+  height: number;
+  /** 表示順序 */
+  displayOrder: number;
+}
+
+/**
+ * プロジェクト写真一覧の取得結果
+ *
+ * `hasMore` が真の場合、上限に達して切り捨てが発生し一覧に全件が含まれないことを示す。
+ *
+ * Requirements (quantity-table-generation): 49.9
+ */
+export interface ProjectSurveyImageList {
+  /** 注釈付き写真の一覧 */
+  images: ProjectSurveyImage[];
+  /** 上限に達して切り捨てが発生したか */
+  hasMore: boolean;
+}
+
+/**
  * 現場調査情報（一覧表示用）
  */
 export interface SiteSurveyInfo {

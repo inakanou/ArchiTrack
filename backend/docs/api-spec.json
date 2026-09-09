@@ -2283,7 +2283,7 @@
     "/api/projects/{projectId}/survey-images": {
       "get": {
         "summary": "プロジェクト写真一覧取得",
-        "description": "プロジェクトに紐付く現場調査のうち、注釈が存在する写真の一覧をまとめて取得する。\n写真選択・変更ダイアログが現場調査ごとの個別リクエストを発生させないための入口。\n表示用の署名付きURLは1件あたり1本（displayUrl）に限る。\n",
+        "description": "プロジェクトに紐付く現場調査のうち、注釈が存在する写真の一覧をまとめて取得する。\n写真選択・変更ダイアログが現場調査ごとの個別リクエストを発生させないための入口。\n表示用の署名付きURLは1件あたり1本（displayUrl）に限り、その1本が合成済みか否かと\n描画された注釈の有無は真偽値で伝える。\n",
         "tags": [
           "Site Surveys"
         ],
@@ -2347,6 +2347,14 @@
                           "originalUrl": {
                             "type": "string",
                             "nullable": true
+                          },
+                          "isDisplayUrlAnnotated": {
+                            "type": "boolean",
+                            "description": "displayUrl が注釈をレンダリング済みの合成サムネイルであるか。\n偽の場合は通常のサムネイルであり、注釈の反映は呼び出し側が行う。\n"
+                          },
+                          "hasDrawnAnnotations": {
+                            "type": "boolean",
+                            "description": "描画された注釈の有無。注釈レコードは回転のみの保存でも残るため、\n一覧に含まれること（注釈レコードの存在）とは一致しない。\n"
                           },
                           "comment": {
                             "type": "string",

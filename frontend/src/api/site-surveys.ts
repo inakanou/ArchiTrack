@@ -9,11 +9,15 @@
  * - 1.3: PUT /api/site-surveys/:id 現場調査更新（楽観的排他制御）
  * - 1.4: DELETE /api/site-surveys/:id 現場調査削除
  * - 3.1: GET /api/projects/:projectId/site-surveys 現場調査一覧取得
+ *
+ * Requirements (quantity-table-generation): 49.9, 49.10
+ * - GET /api/projects/:projectId/survey-images プロジェクト写真一覧取得（写真選択ダイアログ用）
  */
 
 import { apiClient } from './client';
 import type {
   PaginatedSiteSurveys,
+  ProjectSurveyImageList,
   ProjectSurveySummary,
   SiteSurveyDetail,
   SiteSurveyInfo,
@@ -44,6 +48,16 @@ export interface GetSiteSurveysOptions {
   sort?: SiteSurveySortableField;
   /** ソート順序 */
   order?: SiteSurveySortOrder;
+}
+
+/**
+ * プロジェクト写真一覧取得のオプション
+ *
+ * Requirements (quantity-table-generation): 49.9
+ */
+export interface GetProjectSurveyImagesOptions {
+  /** 取得件数の上限（既定: 200、最大: 500）。範囲外・非整数は 400 で拒否される */
+  limit?: number;
 }
 
 // ============================================================================
@@ -275,4 +289,49 @@ export async function updateSiteSurvey(
  */
 export async function deleteSiteSurvey(id: string): Promise<void> {
   return apiClient.delete<void>(`/api/site-surveys/${id}`);
+}
+
+/**
+ * プロジェクト配下の注釈付き現場調査写真の一覧を取得する
+ *
+ * 数量表編集画面の写真選択ダイアログが用いる。現場調査ごとの個別リクエストへ分割せず
+ * 1リクエストで一覧を取得する（Requirement 49.9）。応答に含まれるのは注釈エディタで
+ * 編集済みの写真のみであり（Requirement 4.3 / 19.2）、注釈のない写真は含まれない。
+ * 一覧表示には解決済みの `displayUrl`（サムネイル解像度）を用いる（Requirement 49.10）。
+ *
+ * @param projectId - プロジェクトID（UUID）
+ * @param options - 取得オプション（件数上限）
+ * @returns 注釈付き写真の一覧と切り捨ての有無（`hasMore`）
+ * @throws ApiError
+ *   - クエリ不正（400）
+ *   - 認証エラー（401）
+ *   - 権限不足（403）
+ *   - プロジェクトが見つからない（404）
+ *
+ * Requirements (quantity-table-generation): 49.9, 49.10
+ *
+ * @example
+ * // 既定（200件まで）を取得
+ * const { images, hasMore } = await getProjectSurveyImages('project-id');
+ *
+ * @example
+ * // 件数上限を指定して取得
+ * const result = await getProjectSurveyImages('project-id', { limit: 500 });
+ */
+export async function getProjectSurveyImages(
+  projectId: string,
+  options: GetProjectSurveyImagesOptions = {}
+): Promise<ProjectSurveyImageList> {
+  const params = new URLSearchParams();
+
+  if (options.limit !== undefined) {
+    params.append('limit', String(options.limit));
+  }
+
+  const queryString = params.toString();
+  const path = queryString
+    ? `/api/projects/${projectId}/survey-images?${queryString}`
+    : `/api/projects/${projectId}/survey-images`;
+
+  return apiClient.get<ProjectSurveyImageList>(path);
 }

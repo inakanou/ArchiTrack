@@ -118,6 +118,26 @@ export interface ProjectSurveyImage {
   displayUrl: string | null;
   /** 原本画像（署名付きURL）。選択確定後の拡大表示に用いる */
   originalUrl: string | null;
+  /**
+   * `displayUrl` が注釈をレンダリング済みの合成サムネイルであるか
+   *
+   * `displayUrl` は「注釈付きサムネイル」と「通常サムネイル」をサーバー側で1本へ畳んだ
+   * 結果であり、値だけでは両者を区別できない。区別できないまま合成済みの画像を
+   * クライアント側の合成へ渡すと、注釈が二重に重なる（回転補正済みの画像では重ね位置も
+   * ずれる）。表示用URLの本数は増やさず、真偽値1つで判別できるようにする。
+   *
+   * Requirements (quantity-table-generation): 49.5, 49.9
+   */
+  isDisplayUrlAnnotated: boolean;
+  /**
+   * 描画された注釈の有無（Requirement 20.2、site-survey Task 115.13）
+   *
+   * 本一覧は「注釈レコードが存在する写真」に限られるが、画像編集画面は注釈0件
+   * （回転のみ）でも注釈レコードを残すため、レコードの存在は描画の有無を意味しない。
+   * 注釈の目印はこちらで判定する。未算出（バックフィル未実施）は従来どおり注釈ありとして
+   * 扱う。
+   */
+  hasDrawnAnnotations: boolean;
   comment: string | null;
   /** 画像の実寸（表示領域確保に用いる） */
   width: number;
@@ -320,6 +340,11 @@ export class ImageListService {
    * 1本あたり数百バイト規模になり得るため、複数本を返すとリクエスト件数の削減が通信量の
    * 増加で相殺される。優先順位（注釈付きサムネイル > 通常サムネイル）はここで解決する。
    *
+   * 表示用URLを1本へ畳んだ結果、呼び出し側は値だけでは合成済みか否かを判別できない。
+   * また注釈レコードの存在は描画の有無を意味しない。この2点を真偽値
+   * （`isDisplayUrlAnnotated` / `hasDrawnAnnotations`）で伝える。いずれも応答サイズは
+   * 無視できる大きさで、署名付きURLを増やさない。
+   *
    * Requirements (quantity-table-generation): 49.9, 49.10
    *
    * @param projectId - プロジェクトID
@@ -373,6 +398,11 @@ export class ImageListService {
         originalPath: true,
         thumbnailPath: true,
         annotatedThumbnailPath: true,
+        // 描画された注釈の有無は、絞り込み（annotation: { isNot: null }）で既に結合済みの
+        // 関連から同じ問い合わせで取得する。注釈表を別に引くと写真の抽出が2回になり、
+        // 74.2 が立てた問い合わせ回数の保証（アクセス判定1回・調査1回・写真1回）が崩れる。
+        // 重い注釈データ（data）は読まないため判定コストは増えない（Requirement 20.2）。
+        annotation: { select: { hasDrawnAnnotations: true } },
       },
     });
 
@@ -397,6 +427,12 @@ export class ImageListService {
           fileName: image.fileName,
           displayUrl,
           originalUrl,
+          // 解決に成功した表示用URLが合成済みサムネイル由来であるときだけ真とする。
+          // 署名の生成に失敗して null になった場合は合成済みと名乗らない。
+          isDisplayUrlAnnotated: displayUrl !== null && image.annotatedThumbnailPath !== null,
+          // 未算出（バックフィル未実施）は従来どおり注釈ありとして扱う。絞り込みにより
+          // 関連は必ず存在するが、取得結果の型に合わせて欠落も同じ既定へ寄せる。
+          hasDrawnAnnotations: image.annotation?.hasDrawnAnnotations ?? true,
           comment: image.comment,
           width: image.width,
           height: image.height,

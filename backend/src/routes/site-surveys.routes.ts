@@ -801,7 +801,8 @@ const projectSurveyImagesQuerySchema = z.object({
  *     description: |
  *       プロジェクトに紐付く現場調査のうち、注釈が存在する写真の一覧をまとめて取得する。
  *       写真選択・変更ダイアログが現場調査ごとの個別リクエストを発生させないための入口。
- *       表示用の署名付きURLは1件あたり1本（displayUrl）に限る。
+ *       表示用の署名付きURLは1件あたり1本（displayUrl）に限り、その1本が合成済みか否かと
+ *       描画された注釈の有無は真偽値で伝える。
  *     tags:
  *       - Site Surveys
  *     security:
@@ -849,6 +850,16 @@ const projectSurveyImagesQuerySchema = z.object({
  *                       originalUrl:
  *                         type: string
  *                         nullable: true
+ *                       isDisplayUrlAnnotated:
+ *                         type: boolean
+ *                         description: |
+ *                           displayUrl が注釈をレンダリング済みの合成サムネイルであるか。
+ *                           偽の場合は通常のサムネイルであり、注釈の反映は呼び出し側が行う。
+ *                       hasDrawnAnnotations:
+ *                         type: boolean
+ *                         description: |
+ *                           描画された注釈の有無。注釈レコードは回転のみの保存でも残るため、
+ *                           一覧に含まれること（注釈レコードの存在）とは一致しない。
  *                       comment:
  *                         type: string
  *                         nullable: true
