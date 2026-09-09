@@ -357,7 +357,7 @@ describe('QuantityTableService', () => {
   // 写真サマリで実寸を供給する。実寸は既存の問い合わせの取得項目を広げて得るものとし、
   // 写真1枚あたりの追加の問い合わせを発生させない。
   //
-  // Requirements: 49.8
+  // Requirements (quantity-table-generation): 49.8
   // ==========================================================================
   describe('findById - 写真サマリの実寸', () => {
     const quantityTableId = '123e4567-e89b-12d3-a456-426614174002';
