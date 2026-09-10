@@ -45,6 +45,10 @@ import { useAutocompleteCandidateStore } from '../hooks/useAutocompleteCandidate
 import { loadQuantityTablePdfExportService } from '../services/export/loadQuantityTablePdfExportService';
 import { CALCULATION_METHOD_LABELS } from '../utils/calculation-method';
 import { validateCalculationParams } from '../utils/calculation-params-validation';
+import {
+  validateNumericRange,
+  validateSavePersistability,
+} from '../utils/numeric-range-validation';
 import { loadPdfExportService } from '../services/export/loadPdfExportService';
 import { ImportDialog } from '../components/quantity-table-import/ImportDialog';
 import type { ImportQuantityItem } from '../types/quantity-import.types';
@@ -1602,10 +1606,42 @@ export default function QuantityTableEditPage() {
         if (!item.name || item.name.trim() === '') {
           validationErrors.push(`グループ「${groupLabel}」に項目名が空の項目があります`);
         }
-        // 丸め設定が0以下の場合はエラー
-        if (Number(item.roundingUnit) <= 0) {
+        // 丸め設定が範囲外の場合はエラー（REQ-10.3 / REQ-11.2）。
+        //
+        // Task 80.2: 範囲は `utils/numeric-range-validation.ts` の正典から引く。
+        // 改める前は `Number(item.roundingUnit) <= 0` と直書きしており、正典の下限
+        // `0.01` とも上限 `99.99` とも一致していなかった（0.005 は通り、1000 も通った）。
+        //
+        // **本層は `0` を既定値へ差し替えず、拒否する。** 欄の側（`AdjustmentField`）は
+        // REQ-10.4 に従い `0` と空白を既定値 `0.01` へ差し替えてから範囲判定へ渡すが、
+        // 本層は保存直前の最終状態を検める層であり、REQ-10.4 が働く機会は既に過ぎている。
+        // ここまで残った `0` は「利用者が入力した未設定の印」ではなく、
+        // どの欄の層にも触れられずに紛れ込んだ値である。`applyRounding()` は単位が
+        // `0` 以下で例外を投げるため、これは REQ-11.2 が保存を中断すべき不整合そのものである。
+        // すなわち二つの層は**規則が食い違っているのではなく、役割が違う**——
+        // 欄は未設定を繕う層、本層は繕われた後を検める層であり、範囲は一つの正典から引く。
+        if (!validateNumericRange(Number(item.roundingUnit), 'roundingUnit').isValid) {
           validationErrors.push(
             `グループ「${groupLabel}」の項目「${itemLabel}」の丸め設定が無効です`
+          );
+        }
+        // 調整係数が保存経路の受け付けない領域にある場合はエラー（REQ-11.2）。
+        //
+        // Task 80.2: これは**範囲判定ではない**。REQ-9.3 の有効域 `-9.99〜9.99` は `0` と
+        // 負値を内側に含み、欄の側もそれを範囲外とは呼ばない。しかし保存経路
+        // （`backend/src/routes/quantity-tables.routes.ts` の `saveDraftItemSchema` が課す
+        // `z.number().positive()`）が `0` 以下を 400 で拒むため、そのまま送ると
+        // 「保存に失敗しました」としか出ない。ここで捕まえて問題箇所を名指す
+        // （食い違いの是正の向きはバックエンドであり本タスクの境界の外である。
+        //  判断の全文は `utils/numeric-range-validation.ts` の
+        //  `SAVE_POSITIVE_ONLY_FIELD_TYPES` の説明にある）。
+        const adjustmentFactorPersistability = validateSavePersistability(
+          Number(item.adjustmentFactor),
+          'adjustmentFactor'
+        );
+        if (!adjustmentFactorPersistability.isValid) {
+          validationErrors.push(
+            `グループ「${groupLabel}」の項目「${itemLabel}」の${adjustmentFactorPersistability.error ?? '調整係数が無効です'}`
           );
         }
         // 計算方法ごとの必須パラメータ（箇所数・ピッチ必須項目・面積体積の1項目以上）を検証する。

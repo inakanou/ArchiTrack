@@ -39,6 +39,7 @@ vi.mock('react-router-dom', async () => {
 import QuantityTableEditPage from '../../pages/QuantityTableEditPage';
 import * as quantityTablesApi from '../../api/quantity-tables';
 import type { QuantityItemDetail, QuantityTableDetail } from '../../types/quantity-table.types';
+import { FIELD_RANGE_CONFIG } from '../../utils/numeric-range-validation';
 
 // APIモック
 vi.mock('../../api/quantity-tables');
@@ -322,6 +323,79 @@ describe('QuantityTableEditPage - 保存前の計算パラメータ検証（Task
         expect(screen.getByText(/丸め設定が無効です/)).toBeInTheDocument();
       });
       expect(mockSaveQuantityTableDraft).not.toHaveBeenCalled();
+    });
+
+    /*
+     * Requirements (quantity-table-generation): 10.3, 11.2
+     *
+     * Task 80.2: 保存前の整合性チェックが引く範囲を正典へ一本化したことを固定する。
+     * 上限は正典から取り出す。検証側へ数値を書き写すと、範囲が変わったとき
+     * 検証だけが古い前提のまま緑になる。
+     */
+    it('丸め設定が上限を超える場合もサーバーへ送信されずにエラーが表示される', async () => {
+      const aboveMax = FIELD_RANGE_CONFIG.roundingUnit.max + 0.01;
+      await loadAndSave(buildDetail([{ ...baseItem, roundingUnit: aboveMax }]));
+
+      await waitFor(() => {
+        expect(screen.getByText(/丸め設定が無効です/)).toBeInTheDocument();
+      });
+      expect(mockSaveQuantityTableDraft).not.toHaveBeenCalled();
+    });
+
+    /*
+     * Requirements (quantity-table-generation): 10.3, 11.2
+     *
+     * 下限側の退行（旧実装の `<= 0` は `0 < v < 0.01` を素通りさせていた）を固定する。
+     * 境界は正典から導く。
+     */
+    it('丸め設定が下限を下回る正の値の場合もサーバーへ送信されずにエラーが表示される', async () => {
+      const belowMin = FIELD_RANGE_CONFIG.roundingUnit.min / 2;
+      expect(belowMin).toBeGreaterThan(0);
+      await loadAndSave(buildDetail([{ ...baseItem, roundingUnit: belowMin }]));
+
+      await waitFor(() => {
+        expect(screen.getByText(/丸め設定が無効です/)).toBeInTheDocument();
+      });
+      expect(mockSaveQuantityTableDraft).not.toHaveBeenCalled();
+    });
+
+    /*
+     * Requirements (quantity-table-generation): 9.3, 11.2
+     *
+     * 調整係数の `0` と負値は REQ-9.3 の有効域の内側であり範囲外ではないが、
+     * 保存経路（backend の saveDraftItemSchema の `z.number().positive()`）が拒む。
+     * 素通しすると画面には 400 由来の一般エラーしか出ないため、保存前に名指す。
+     */
+    it.each([
+      ['0', 0],
+      ['負の値', -0.5],
+    ])(
+      '調整係数が%sの場合はサーバーへ送信されずに保存できない旨が表示される',
+      async (_label, value) => {
+        await loadAndSave(buildDetail([{ ...baseItem, adjustmentFactor: value }]));
+
+        await waitFor(() => {
+          expect(screen.getByText(/調整係数が0以下の値は保存できません/)).toBeInTheDocument();
+        });
+        expect(mockSaveQuantityTableDraft).not.toHaveBeenCalled();
+      }
+    );
+
+    it('丸め設定が有効域の上限のときはサーバーへ送信される', async () => {
+      const detail = buildDetail([
+        { ...baseItem, roundingUnit: FIELD_RANGE_CONFIG.roundingUnit.max },
+      ]);
+      mockSaveQuantityTableDraft.mockResolvedValue({
+        ...detail,
+        updatedAt: '2026-02-02T00:00:00Z',
+      });
+
+      await loadAndSave(detail);
+
+      await waitFor(() => {
+        expect(screen.getByText(/保存しました/)).toBeInTheDocument();
+      });
+      expect(mockSaveQuantityTableDraft).toHaveBeenCalledTimes(1);
     });
   });
 });

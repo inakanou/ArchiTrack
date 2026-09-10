@@ -14,6 +14,11 @@ import { useState } from 'react';
 import { render, screen, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import EditableQuantityItemRow from './EditableQuantityItemRow';
+import {
+  FIELD_RANGE_CONFIG,
+  validateNumericRange,
+  validateSavePersistability,
+} from '../../utils/numeric-range-validation';
 import type { CalculationMethod, QuantityItemDetail } from '../../types/quantity-table.types';
 
 // Task 18.1: useAutocompleteモックは不要（新モード専用）
@@ -544,69 +549,152 @@ describe('EditableQuantityItemRow', () => {
     });
   });
 
-  describe('REQ-9.3: 調整係数警告', () => {
-    it('面積・体積モードで調整係数が0以下の場合、警告が表示される', () => {
-      const itemWithZeroFactor = {
-        ...mockItem,
-        calculationMethod: 'AREA_VOLUME' as const,
-        calculationParams: { width: 10, depth: 5 },
-        adjustmentFactor: 0,
-      };
-      render(<EditableQuantityItemRow {...defaultProps} item={itemWithZeroFactor} />);
+  // ==========================================================================
+  // 範囲判定の結線（Task 80.2）
+  //
+  // Requirements (quantity-table-generation): 8.3, 9.3, 10.3, 10.4, 15.1
+  //
+  // 期待する文言と境界の数値は `numeric-range-validation` の正典から取り出す。
+  // 検証側へ範囲を書き写すと、範囲が変わったとき検証だけが古い前提のまま緑になる。
+  // ==========================================================================
 
-      expect(screen.getByText(/0以下の値は使用できません/)).toBeInTheDocument();
+  describe('調整係数の範囲判定（REQ-9.3）', () => {
+    const renderWithAdjustmentFactor = (adjustmentFactor: number) =>
+      render(
+        <EditableQuantityItemRow
+          {...defaultProps}
+          item={{
+            ...mockItem,
+            calculationMethod: 'AREA_VOLUME' as const,
+            calculationParams: { width: 10, depth: 5 },
+            adjustmentFactor,
+          }}
+        />
+      );
+
+    it('有効域かつ保存経路が受け付ける値ではエラーを表示しない', () => {
+      renderWithAdjustmentFactor(FIELD_RANGE_CONFIG.adjustmentFactor.max);
+
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
 
-    it('面積・体積モードで調整係数が負の場合、警告が表示される', () => {
-      const itemWithNegativeFactor = {
-        ...mockItem,
-        calculationMethod: 'AREA_VOLUME' as const,
-        calculationParams: { width: 10, depth: 5 },
-        adjustmentFactor: -0.5,
-      };
-      render(<EditableQuantityItemRow {...defaultProps} item={itemWithNegativeFactor} />);
+    it.each([
+      ['0', 0],
+      ['負の有効値', -0.5],
+      ['下限', FIELD_RANGE_CONFIG.adjustmentFactor.min],
+    ])(
+      '有効域だが保存経路が受け付けない値（%s）では、範囲エラーではなく保存できない旨を表示する',
+      (_label, value) => {
+        renderWithAdjustmentFactor(value);
 
-      expect(screen.getByText(/0以下の値は使用できません/)).toBeInTheDocument();
-    });
+        const expected = validateSavePersistability(value, 'adjustmentFactor').error;
+        expect(expected).toBeDefined();
+        expect(screen.getByRole('alert')).toHaveTextContent(expected as string);
+        expect(screen.getByRole('alert')).not.toHaveTextContent('範囲で入力してください');
+      }
+    );
 
-    it('面積・体積モードで調整係数が正の場合、警告は表示されない', () => {
-      const itemWithPositiveFactor = {
-        ...mockItem,
-        calculationMethod: 'AREA_VOLUME' as const,
-        calculationParams: { width: 10, depth: 5 },
-        adjustmentFactor: 1.5,
-      };
-      render(<EditableQuantityItemRow {...defaultProps} item={itemWithPositiveFactor} />);
+    it.each([
+      ['下限未満', FIELD_RANGE_CONFIG.adjustmentFactor.min - 0.01],
+      ['上限超過', FIELD_RANGE_CONFIG.adjustmentFactor.max + 0.01],
+    ])('範囲外の値（%s）では範囲のエラーメッセージを表示する', (_label, value) => {
+      renderWithAdjustmentFactor(value);
 
-      // 調整係数の警告が表示されないことを確認
-      const warnings = screen.queryAllByText(/0以下の値は使用できません/);
-      expect(warnings.length).toBe(0);
+      const expected = validateNumericRange(value, 'adjustmentFactor').error;
+      expect(expected).toBeDefined();
+      expect(screen.getByRole('alert')).toHaveTextContent(expected as string);
     });
   });
 
-  describe('REQ-10.3: 丸め設定警告', () => {
-    it('面積・体積モードで丸め設定が0以下の場合、警告が表示される', () => {
-      const itemWithZeroRounding = {
-        ...mockItem,
-        calculationMethod: 'AREA_VOLUME' as const,
-        calculationParams: { width: 10, depth: 5 },
-        roundingUnit: 0,
-      };
-      render(<EditableQuantityItemRow {...defaultProps} item={itemWithZeroRounding} />);
+  describe('丸め設定の範囲判定（REQ-10.3 / REQ-10.4）', () => {
+    const renderWithRoundingUnit = (roundingUnit: number) =>
+      render(
+        <EditableQuantityItemRow
+          {...defaultProps}
+          item={{
+            ...mockItem,
+            calculationMethod: 'AREA_VOLUME' as const,
+            calculationParams: { width: 10, depth: 5 },
+            roundingUnit,
+          }}
+        />
+      );
 
-      expect(screen.getByText(/0以下の値は使用できません/)).toBeInTheDocument();
+    it('0 は REQ-10.4 の番兵であり範囲判定の対象外なのでエラーを表示しない', () => {
+      renderWithRoundingUnit(0);
+
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
 
-    it('面積・体積モードで丸め設定が負の場合、警告が表示される', () => {
-      const itemWithNegativeRounding = {
-        ...mockItem,
-        calculationMethod: 'AREA_VOLUME' as const,
-        calculationParams: { width: 10, depth: 5 },
-        roundingUnit: -0.1,
-      };
-      render(<EditableQuantityItemRow {...defaultProps} item={itemWithNegativeRounding} />);
+    it.each([
+      ['下限', FIELD_RANGE_CONFIG.roundingUnit.min],
+      ['上限', FIELD_RANGE_CONFIG.roundingUnit.max],
+    ])('有効域の%s（%s）ではエラーを表示しない', (_label, value) => {
+      renderWithRoundingUnit(value);
 
-      expect(screen.getByText(/0以下の値は使用できません/)).toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ['負の値', -0.1],
+      ['上限超過', FIELD_RANGE_CONFIG.roundingUnit.max + 0.01],
+    ])('範囲外の値（%s）では範囲のエラーメッセージを表示する', (_label, value) => {
+      renderWithRoundingUnit(value);
+
+      const expected = validateNumericRange(value, 'roundingUnit').error;
+      expect(expected).toBeDefined();
+      expect(screen.getByRole('alert')).toHaveTextContent(expected as string);
+    });
+  });
+
+  describe('数量の範囲判定（REQ-15.1）', () => {
+    const blurQuantityWith = (value: string) => {
+      const onUpdate = vi.fn();
+      render(<EditableQuantityItemRow {...defaultProps} onUpdate={onUpdate} />);
+      const input = screen.getByLabelText(/数量/);
+      fireEvent.change(input, { target: { value } });
+      fireEvent.blur(input);
+      return { input, onUpdate };
+    };
+
+    it.each([
+      ['下限未満', FIELD_RANGE_CONFIG.quantity.min - 0.01],
+      ['上限超過', FIELD_RANGE_CONFIG.quantity.max + 0.01],
+    ])('範囲外の値（%s）でエラーを表示し、親へ通知しない', (_label, value) => {
+      const { input, onUpdate } = blurQuantityWith(String(value));
+
+      const expected = validateNumericRange(value, 'quantity').error;
+      expect(expected).toBeDefined();
+      expect(screen.getByText(expected as string)).toBeInTheDocument();
+      expect(input).toHaveAttribute('aria-invalid', 'true');
+      expect(onUpdate).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['下限', FIELD_RANGE_CONFIG.quantity.min],
+      ['上限', FIELD_RANGE_CONFIG.quantity.max],
+    ])('有効域の%s（%s）はそのまま親へ通知される', (_label, value) => {
+      const { onUpdate } = blurQuantityWith(String(value));
+
+      expect(onUpdate).toHaveBeenCalledWith('item-1', { quantity: value });
+    });
+
+    it('負の値は有効域の内側であり、範囲エラーではなく REQ-8.3 の警告として提示される', () => {
+      const { input, onUpdate } = blurQuantityWith('-10');
+
+      expect(screen.getByText(/負の値が入力されています/)).toBeInTheDocument();
+      expect(
+        screen.queryByText(validateNumericRange(-10, 'quantity').error ?? '該当なし')
+      ).not.toBeInTheDocument();
+      expect(input).toHaveAttribute('aria-invalid', 'true');
+      expect(onUpdate).toHaveBeenCalledWith('item-1', { quantity: -10 });
+    });
+
+    it('空白は範囲判定より先に既定値 0 へ差し替えられ「0.00」と表示される（REQ-15.2）', () => {
+      const { input, onUpdate } = blurQuantityWith('');
+
+      expect(input).toHaveValue('0.00');
+      expect(onUpdate).toHaveBeenCalledWith('item-1', { quantity: 0 });
     });
   });
 

@@ -8,6 +8,12 @@
  * - 7.2: 中項目フィールドで大項目に紐づく候補を表示
  * - 7.3: 小項目フィールドで大項目・中項目に紐づく候補を表示
  * - 7.4: 候補選択時の自動入力
+ *
+ * Task 80.2: 数量欄へ範囲判定を結線する。
+ * - 15.1: 数量の入力可能範囲（-999999.99〜9999999.99）外はエラーを表示し、範囲内の値の入力を求める
+ * - 15.2: 空白は既定値「0」へ差し替え「0.00」と表示する（範囲判定より前の層）
+ * - 8.3: 負の値は有効域の内側であり、範囲エラーではなく警告として提示する（従来どおり）
+ * 範囲も既定値差し替えの規則も `utils/numeric-range-validation.ts` の正典から得る。
  */
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
@@ -20,6 +26,7 @@ import CalculationFields from './CalculationFields';
 import QuantityItemActionMenu from './QuantityItemActionMenu';
 import FieldValidationTooltip from './FieldValidationTooltip';
 import { calculate } from '../../utils/calculation-engine';
+import { validateNumericRange, resolveFieldInput } from '../../utils/numeric-range-validation';
 import { resetParamsForMethod } from '../../utils/calculation-method';
 import { QUANTITY_ITEM_GRID_COLUMNS } from './gridConstants';
 
@@ -156,6 +163,9 @@ const styles = {
   } as React.CSSProperties,
   inputError: {
     borderColor: '#dc2626',
+    backgroundColor: '#fef2f2',
+    // 入力欄右端のエラーアイコンと入力文字が重ならないよう余白を確保
+    paddingRight: '22px',
   } as React.CSSProperties,
   inputWarning: {
     borderColor: '#f59e0b',
@@ -249,10 +259,18 @@ export default function EditableQuantityItemRow({
   }, [item.quantity]);
 
   // REQ-8.3: 負の値警告状態（ローカル状態から派生計算 - 入力時に即座に警告）
+  // 負の値は REQ-15.1 の有効域の内側であり、範囲外エラーではなく確認を求める警告である
   const negativeQuantityWarning = useMemo(
     () => parseFloat(localQuantity) < 0 && item.calculationMethod === 'STANDARD',
     [localQuantity, item.calculationMethod]
   );
+
+  // REQ-15.1: 数量の範囲エラー（ローカル状態から派生計算 - 入力時に即座に提示）。
+  // REQ-15.2 の既定値差し替えを先に適用してから範囲判定へ渡す（Task 80.1 が確定させた層の順序）。
+  const quantityRangeError = useMemo((): string | undefined => {
+    const result = validateNumericRange(resolveFieldInput(localQuantity, 'quantity'), 'quantity');
+    return result.isValid ? undefined : result.error;
+  }, [localQuantity]);
 
   // バリデーションエラー
   const errors = useMemo((): Record<string, string | undefined> => {
@@ -289,14 +307,15 @@ export default function EditableQuantityItemRow({
    * REQ-15.2: 空入力時は0を設定
    */
   const handleQuantityBlur = useCallback(() => {
-    let value = parseFloat(localQuantity);
-    // REQ-15.2: 空または無効な値の場合は0を設定
-    if (isNaN(value) || localQuantity.trim() === '') {
-      value = 0;
-    }
+    // REQ-15.2: 空または無効な値の場合は0を設定（範囲判定より前の層）
+    const value = resolveFieldInput(localQuantity, 'quantity');
     // REQ-14.2: 小数2桁でフォーマット
     const formattedValue = value.toFixed(2);
     setLocalQuantity(formattedValue);
+    // REQ-15.1: 範囲外の値は確定させず、範囲内の値の入力を求める
+    if (!validateNumericRange(value, 'quantity').isValid) {
+      return;
+    }
     // APIを呼び出し
     onUpdate?.(item.id, { quantity: value });
   }, [localQuantity, item.id, onUpdate]);
@@ -619,23 +638,41 @@ export default function EditableQuantityItemRow({
                   ...styles.input,
                   ...styles.quantityInput,
                   ...styles.numberInput,
-                  ...(negativeQuantityWarning ? styles.inputWarning : {}),
+                  ...(quantityRangeError !== undefined
+                    ? styles.inputError
+                    : negativeQuantityWarning
+                      ? styles.inputWarning
+                      : {}),
                 }}
                 aria-required
-                aria-invalid={negativeQuantityWarning}
+                aria-invalid={quantityRangeError !== undefined || negativeQuantityWarning}
                 aria-describedby={
-                  negativeQuantityWarning ? `${item.id}-quantity-warning` : undefined
+                  quantityRangeError !== undefined
+                    ? `${item.id}-quantity-error`
+                    : negativeQuantityWarning
+                      ? `${item.id}-quantity-warning`
+                      : undefined
                 }
                 aria-label={showFieldLabels ? undefined : '数量'}
               />
-              {/* REQ-8.3: 負の値警告（黄枠＋アイコン＋ホバー吹き出し）。
-                  通常フローにメッセージを挿入しないため行の高さが変わらない。 */}
-              {negativeQuantityWarning && (
+              {/* REQ-15.1: 範囲外エラー（赤枠＋アイコン＋ホバー吹き出し）。
+                  範囲外は有効域の外であり、REQ-8.3 の負値警告より強い提示とする。 */}
+              {quantityRangeError !== undefined ? (
                 <FieldValidationTooltip
-                  message="負の値が入力されています。確認してください。"
-                  id={`${item.id}-quantity-warning`}
-                  severity="warning"
+                  message={quantityRangeError}
+                  id={`${item.id}-quantity-error`}
+                  severity="error"
                 />
+              ) : (
+                /* REQ-8.3: 負の値警告（黄枠＋アイコン＋ホバー吹き出し）。
+                   通常フローにメッセージを挿入しないため行の高さが変わらない。 */
+                negativeQuantityWarning && (
+                  <FieldValidationTooltip
+                    message="負の値が入力されています。確認してください。"
+                    id={`${item.id}-quantity-warning`}
+                    severity="warning"
+                  />
+                )
               )}
             </div>
           </div>

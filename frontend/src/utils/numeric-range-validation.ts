@@ -22,6 +22,8 @@
  * Task 12.4: 数値フィールドの入力制御と範囲チェックを実装する
  * Task 66.1: 数値範囲バリデーションに整数制約を追加する
  * Task 80.1: 範囲の正典を確定させ、定数の二系統を解消する
+ * Task 80.2: 既定値差し替えの層（REQ-9.4 / 10.4 / 15.2）も本モジュールへ置き、
+ *   描画される部品が「差し替えてから範囲判定」の順序を単一の出所から得られるようにする
  *
  * @module utils/numeric-range-validation
  */
@@ -219,4 +221,170 @@ export function validateNumericRange(
  */
 export function getFieldRangeConfig(fieldType: NumericRangeFieldType): RangeConfig {
   return FIELD_RANGE_CONFIG[fieldType];
+}
+
+// ============================================================================
+// 既定値差し替えの層（範囲判定より先に適用する）
+// ============================================================================
+
+/**
+ * 既定値差し替えの規則
+ *
+ * `substitutesZero` は「値 `0` にも既定値を差し替えるか」であり、**丸め設定だけが真である**。
+ */
+export interface DefaultSubstitutionConfig {
+  /** 差し替える既定値 */
+  defaultValue: number;
+  /** 値 `0` も既定値へ差し替えるか */
+  substitutesZero: boolean;
+}
+
+/**
+ * 既定値差し替えの正典（Task 80.2）
+ *
+ * ## この層は範囲判定より先である
+ *
+ * 80.1 が確定させた順序に従い、**既定値へ差し替えてから範囲判定へ渡す**。
+ * 丸め設定の `0` は REQ-10.4 が「未設定」の意味を与えた番兵であって入力値ではなく、
+ * 差し替え後の `0.01` は範囲の下限そのものなので、この順序なら範囲判定は必ず通る。
+ * 逆順に置くと REQ-10.4 が到達しない条文になる（`FIELD_RANGE_CONFIG` の説明を読むこと）。
+ *
+ * ## `0` を差し替えるのは丸め設定だけである（Task 80.2）
+ *
+ * REQ-9.4 の逐語は「When 調整係数フィールドに**空白**が入力される, the 数量表管理システム
+ * shall 自動的にデフォルト値「1.00」を設定する」であり、`0` を挙げていない。加えて
+ * REQ-9.3 の有効域 `-9.99〜9.99` は `0` を**内側に含む**。したがって調整係数の `0` は
+ * そのまま `0.00` として確定させるのが条文どおりである。
+ *
+ * 改める前の `CalculationFields.tsx` の `AdjustmentField` は `numValue === 0 &&
+ * defaultValue !== 0` という条件で `0` を既定値へ差し替えており、丸め設定（REQ-10.4）の
+ * ための差し替えが同じ部品を使う調整係数へ相乗りしていた（実装側の註も
+ * 「0の場合もデフォルト値を設定（丸め設定用）」と述べており、意図されたものではない）。
+ * 規則を欄ごとに宣言する形へ改め、相乗りを断った。
+ *
+ * *採らなかった案*: 「AC 4 が先」という 80.1 の順序を調整係数へも横展開し、`0` を
+ * `1.00` へ差し替え続ける。REQ-9.4 は空白しか挙げておらず、`0` は REQ-9.3 の有効域の
+ * 内側であるため、条文の裏づけが無い。実装の都合（同一部品）を条文の読みへ持ち込む
+ * ことになるため採らなかった。
+ *
+ * 数量（REQ-15.2）は空白のとき `0` を設定して「0.00」と表示する。`0` は数量の有効域
+ * `-999999.99〜9999999.99` の内側であるため `substitutesZero` は偽で足りる。
+ */
+export const FIELD_DEFAULT_SUBSTITUTION = {
+  // REQ-9.4: 空白のときだけ既定値「1.00」。`0` は REQ-9.3 の有効域の内側であり差し替えない
+  adjustmentFactor: { defaultValue: 1.0, substitutesZero: false },
+  // REQ-10.4: `0` または空白で既定値「0.01」。本項は REQ-10.3 の範囲判定に優先する
+  roundingUnit: { defaultValue: 0.01, substitutesZero: true },
+  // REQ-15.2: 空白のとき既定値「0」を設定し「0.00」と表示する
+  quantity: { defaultValue: 0, substitutesZero: false },
+} as const satisfies Partial<Record<NumericRangeFieldType, DefaultSubstitutionConfig>>;
+
+/**
+ * 既定値差し替えの規則を持つフィールドタイプ
+ */
+export type DefaultSubstitutedFieldType = keyof typeof FIELD_DEFAULT_SUBSTITUTION;
+
+/**
+ * 入力文字列へ既定値差し替えの層（REQ-9.4 / REQ-10.4 / REQ-15.2）を適用する
+ *
+ * **範囲判定へ渡す値は必ず本関数を通したものにすること。** 呼び出し側で
+ * 「空白なら既定値」「0なら既定値」を書き直すと、規則が二系統に割れる。
+ *
+ * @param rawValue - 欄に入力されている生の文字列（前後の空白は無視する）
+ * @param fieldType - フィールドタイプ
+ * @returns 差し替えを適用した数値（範囲判定の入力）
+ */
+// ============================================================================
+// 保存経路が受け付けない領域（範囲判定より後段の制約）
+// ============================================================================
+
+/**
+ * 保存経路が正の値しか受け付けない欄（Task 80.2）
+ *
+ * ## これは要件の範囲ではなく、実装側の後段の制約である
+ *
+ * `backend/src/routes/quantity-tables.routes.ts` の `saveDraftItemSchema` は
+ * `adjustmentFactor` と `roundingUnit` に `z.number().positive()` を課しており、
+ * `0` 以下を 400 で拒む。丸め設定は正典の下限が `0.01` であるため範囲判定が先に捕まえるが、
+ * **調整係数はそうではない——その有効域 `-9.99〜9.99`（REQ-9.3）は `0` と負値を内側に含む。**
+ *
+ * この食い違いを「条文の側の誤り」とは読まなかった。根拠は三点である。
+ *
+ * - **条文は内部で食い違っていない。** REQ-9.2（乗算して数量とする）・REQ-9.3（有効域）・
+ *   REQ-9.4（空白のみ既定値）は互いに整合しており、`0` や負値を別の意味へ割り当てる条文が無い。
+ *   丸め設定（Task 80.1）では REQ-10.4 が `0` に「未設定」という別の意味を与えていたが、
+ *   調整係数にはそれが無い
+ * - **計算は落ちない。** `applyAdjustmentFactor()`（`utils/calculation-engine.ts`）は
+ *   単なる乗算であり例外を投げない。`applyRounding()` が単位 `0` 以下で投げるのとは異なる。
+ *   すなわち 80.1 が下限拡張を退けた根拠「範囲判定を通った値が計算の時点で落ちる」は、
+ *   調整係数には当てはまらない
+ * - **食い違っているのは保存経路の側が少数派である。** 同じバックエンドでも
+ *   `backend/src/services/quantity-field-validation.service.ts` の
+ *   `FIELD_CONSTRAINTS.ADJUSTMENT_FACTOR` は `-9.99〜9.99` と書いており、条文および
+ *   `design.md` の数値フィールド仕様表と一致する。`z.number().positive()` を課す
+ *   保存経路の綴りだけが三者と食い違う
+ *
+ * *採らなかった案*: REQ-9.3 の有効域を `0.01〜9.99` へ狭め、条文の側を保存経路へ合わせる
+ * （Task 80.1 が REQ-10.3 に対して行った形）。上の三点により、今回は条文の側に誤りを
+ * 見いだせない。「実装が要件に合っていないから要件を書き換える」を既定の解にしない、
+ * という本スペックの作法にも反する。**是正の向きはバックエンドであり、本タスクの境界の外である。**
+ *
+ * *採らなかった案*: 画面では何も告げず、保存時の 400 に任せる。利用者は
+ * 「欄はエラーを出さず `0.00` を受け付け、数量が `0` になり、保存だけが失敗する」
+ * 行き止まりを踏む。**改める前の実装は `0` を既定値へ差し替えていたためこの状態は到達不能であり、
+ * 相乗りを断つ是正がこれを到達可能にした。** 到達可能にした側が塞ぐ。
+ *
+ * 本定数は「条文が有効と認めるが、いまの保存経路は受け付けない」領域を名指すためのものである。
+ * バックエンドが是正されたら本定数と {@link validateSavePersistability} を撤去すること。
+ */
+export const SAVE_POSITIVE_ONLY_FIELD_TYPES: readonly DefaultSubstitutedFieldType[] = [
+  'adjustmentFactor',
+  'roundingUnit',
+];
+
+/**
+ * 保存経路が受け付ける値かを検証する（範囲判定とは別の層）
+ *
+ * 範囲判定（{@link validateNumericRange}）を通った値でも、保存経路が拒む領域がある。
+ * 呼び出し側は範囲判定と本判定を別のものとして提示すること——前者は「範囲外の誤り」、
+ * 後者は「条文上は有効だが、いまは保存できない」であり、利用者へ告げる内容が違う。
+ *
+ * @param value - 検証対象の数値
+ * @param fieldType - フィールドタイプ
+ * @returns 検証結果（保存できない場合はその旨の文言を返す）
+ */
+export function validateSavePersistability(
+  value: number,
+  fieldType: DefaultSubstitutedFieldType
+): NumericRangeValidationResult {
+  if (!SAVE_POSITIVE_ONLY_FIELD_TYPES.includes(fieldType)) {
+    return { isValid: true };
+  }
+  if (value > 0) {
+    return { isValid: true };
+  }
+  const config = FIELD_RANGE_CONFIG[fieldType];
+  return {
+    isValid: false,
+    error: `${config.label}が0以下の値は保存できません（0より大きい値を入力してください）`,
+  };
+}
+
+export function resolveFieldInput(
+  rawValue: string,
+  fieldType: DefaultSubstitutedFieldType
+): number {
+  const config: DefaultSubstitutionConfig = FIELD_DEFAULT_SUBSTITUTION[fieldType];
+  const trimmed = rawValue.trim();
+  const parsed = Number.parseFloat(trimmed);
+
+  // 空白・数値として読めない入力は既定値へ倒す（結線前からの挙動を維持する）
+  if (trimmed === '' || Number.isNaN(parsed)) {
+    return config.defaultValue;
+  }
+  // REQ-10.4: 丸め設定の `0` は「未設定」の番兵であり既定値へ差し替える
+  if (parsed === 0 && config.substitutesZero) {
+    return config.defaultValue;
+  }
+  return parsed;
 }

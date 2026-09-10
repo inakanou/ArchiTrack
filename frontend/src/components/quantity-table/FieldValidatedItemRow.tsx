@@ -8,6 +8,40 @@
  * - 14.1, 14.2, 14.3, 14.4, 14.5: 各数値フィールドに範囲チェックと表示書式を適用する
  * - 15.1, 15.2, 15.3: フィールドバリデーターを使用した入力制御を統合する
  *
+ * ## 本部品は死コードである。撤去せずに残すと決めた（Task 80.2）
+ *
+ * **本部品は本番の描画経路から一件も参照されない。** 描画されるのは
+ * `EditableQuantityItemRow`（編集行）と `QuantityItemRow`（閲覧行）であり、
+ * 本部品を取り込むのは自身のストーリー1件と単体検証3件だけである
+ * （`grep -rl 'FieldValidatedItemRow' frontend/src --include=*.ts --include=*.tsx` が5件）。
+ *
+ * Task 80.2 は数値欄の範囲判定を **`EditableQuantityItemRow` と `CalculationFields` の側へ**
+ * 結線した。本部品には手を入れていない。したがって同じ判定が二箇所に在る状態が残る。
+ * 撤去（本部品と検証3件・ストーリー1件の削除）を実際に当てて測った結果、次の二つが
+ * **本タスクの境界の外で**壊れるため、撤去を見送った。
+ *
+ * 1. `npm run check:design-path-refs` が 0 → 1（不在パス4件／2ファイル）になる。
+ *    うち2件は `.kiro/specs/site-survey/design.md` の「実測値の書き方」が本ファイルを名指す箇所——
+ *    **別スペックの設計文書**であり、本タスクの境界の外である。
+ *    残る2件は `.kiro/specs/quantity-table-generation/design.md` の `### Out of Boundary` である
+ * 2. `npm run check:req-coverage:selftest` の失敗が 1 → 2 件になる。同自己検査は
+ *    `scripts/check-requirement-coverage.selftest.ts` が本ファイルのパスを
+ *    **実在する死コードの実例として名指し**ており、撤去すると「自己検査の前提が失われた」と落ちる。
+ *    この結合は `.kiro/specs/site-survey/tasks.md` の Implementation Notes が既に記録しており
+ *    （「実データを固定資料に使う自己検査は、欠陥の是正で自ら落ちる」）、
+ *    解消は自己検査の側を仮想資料へ移す作業である。これも本タスクの境界の外である
+ *
+ * 撤去しても被覆は悪化しない。`npm run check:req-coverage` を撤去の前後で測ると、
+ * quantity-table-generation は 要件 46/48・受入基準 316/358・E2E適用対象 99.7% で変わらず、
+ * 「到達しない被覆源のみの受入基準」も 4件（いずれも他スペック）のままである。
+ * 機能名を欠くヘッダーは 2019 → 2017、その下で眠る名乗りは 5156 → 5134 へ減る。
+ * **すなわち撤去を阻んでいるのは被覆ではなく、上の二つの境界外の依存だけである。**
+ * この二つを解いたうえでの撤去は、別タスクとして起票する価値がある。
+ * （いずれも 2026-09-10 にリポジトリルートで実測）
+ *
+ * **本部品へ範囲や書式の是正を当てないこと。** 直しても画面には現れない。
+ * 直すべきは `EditableQuantityItemRow` と `CalculationFields` である。
+ *
  * @module components/quantity-table/FieldValidatedItemRow
  */
 
