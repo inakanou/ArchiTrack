@@ -32,6 +32,14 @@
  * - 10.4: 丸め設定の 0 と空白は既定値へ差し替える。本項は 10.3 に優先する
  * - 15.3: 寸法・ピッチ計算・箇所数計算の各欄の入力可能範囲（0.01〜9999999.99）外はエラーを表示する
  * 範囲も既定値差し替えの規則も `utils/numeric-range-validation.ts` の正典から得る。
+ *
+ * Task 80.3: 数値以外の入力の拒否を調整係数・丸め設定へ結線する。
+ * - 9.5 / 10.5: 数値以外の文字が入力された場合は入力を拒否しエラーメッセージを表示する
+ *
+ * **拒否は焦点喪失の時点だけで行う。** 打鍵ごとに値を検査して弾く形は採らなかった——
+ * 日本語入力の変換中に値へ手を入れると変換が壊れ、その欠陥は Playwright の `fill()` でも
+ * `fireEvent.change` でも変換を経由しないため構造的に検出できない。焦点喪失は変換確定より
+ * 後に起きるため、この作法には変換中の面が一切無い。
  */
 
 import { useCallback, useId, useState } from 'react';
@@ -453,34 +461,45 @@ function AdjustmentField({
   // 前回のprops値を追跡
   const [prevValue, setPrevValue] = useState(value);
 
+  // REQ-9.5 / REQ-10.5: 数値以外の入力を拒否したことの提示（Task 80.3）。
+  // **派生ではなく状態である。** 拒否は直前の確定値を欄へ書き戻すため、入力中の文字列から
+  // 導く形にすると書き戻した瞬間に提示が消え、値が黙って戻ったようにしか見えない。
+  const [nonNumericError, setNonNumericError] = useState<string | undefined>(undefined);
+
   // 親の値が変更された場合、レンダリング中にローカル状態を同期
   if (value !== prevValue) {
     setPrevValue(value);
     setLocalValue(value.toFixed(2));
+    setNonNumericError(undefined);
   }
 
   // 範囲エラーの判定（REQ-9.3 / REQ-10.3）。
   // **既定値へ差し替えてから範囲判定へ渡す**（REQ-10.4 が REQ-10.3 に優先する。Task 80.1）。
   // 判定は入力中の値から導くため、blur を待たずに提示される（従来の警告と同じ提示の時機）。
-  const resolvedValue = resolveFieldInput(localValue, fieldType);
-  const rangeResult = validateNumericRange(resolvedValue, fieldType);
-  const rangeError = rangeResult.isValid ? undefined : rangeResult.error;
+  // 数値以外の入力は範囲の層ではなく REQ-9.5 / REQ-10.5 の層が受け持つ。
+  const resolution = resolveFieldInput(localValue, fieldType);
+  const rangeError = resolution.isNumeric
+    ? validateNumericRange(resolution.value, fieldType).error
+    : undefined;
 
   // 保存経路が受け付けない領域の告知（範囲判定とは別の層。Task 80.2）。
   // 調整係数の `0` と負値は REQ-9.3 の有効域の内側であり**範囲外ではない**が、
   // 保存経路（backend の saveDraftItemSchema が課す `z.number().positive()`）が拒む。
   // 範囲エラーが出ているときは重ねない（同じ欄に二つの理由を並べない）。
   const saveBlockedWarning =
-    rangeError === undefined
-      ? validateSavePersistability(resolvedValue, fieldType).error
+    resolution.isNumeric && rangeError === undefined
+      ? validateSavePersistability(resolution.value, fieldType).error
       : undefined;
 
-  const message = rangeError ?? saveBlockedWarning;
+  // 数値以外の拒否は範囲エラーより手前の層である
+  const message = nonNumericError ?? rangeError ?? saveBlockedWarning;
   const showWarning = message !== undefined;
 
-  // 入力中はそのままの値を保持
+  // 入力中はそのままの値を保持。**値には一切手を入れない**（変換中の破壊を避ける）
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setLocalValue(e.target.value);
+    // REQ-9.5 / REQ-10.5: 直し始めた時点で拒否の提示を下げる。提示を消すだけで値には触れない
+    setNonNumericError(undefined);
   }, []);
 
   // フォーカス時に既存値を全選択（上書き入力の効率化。他の数量項目フィールドと挙動を統一）
@@ -491,8 +510,19 @@ function AdjustmentField({
   // blur時に小数2桁でフォーマットして親に通知
   const handleBlur = useCallback(() => {
     // REQ-9.4 / REQ-10.4: 既定値差し替えを先に適用する（範囲判定より前の層）
-    const numValue = resolveFieldInput(localValue, fieldType);
+    const blurResolution = resolveFieldInput(localValue, fieldType);
 
+    // REQ-9.5 / REQ-10.5: 数値以外の入力は拒否する。直前の確定値（親が持つ値）を欄へ戻し、
+    // エラーを提示し、親へは何も渡さない。**既定値へ倒さない**——倒すと
+    // 「拒否された」のか「既定値に戻された」のかを利用者も検証も区別できない
+    if (!blurResolution.isNumeric) {
+      setNonNumericError(blurResolution.error);
+      setLocalValue(value.toFixed(2));
+      return;
+    }
+    setNonNumericError(undefined);
+
+    const numValue = blurResolution.value;
     // REQ-14.2: 小数2桁でフォーマット
     setLocalValue(numValue.toFixed(2));
 
@@ -501,7 +531,7 @@ function AdjustmentField({
       return;
     }
     onChange(numValue);
-  }, [localValue, onChange, fieldType]);
+  }, [localValue, onChange, fieldType, value]);
 
   return (
     <div style={styles.fieldWrapper}>

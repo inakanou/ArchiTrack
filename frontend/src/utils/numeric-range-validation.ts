@@ -9,6 +9,9 @@
  * （全置換にすると `COUNT_MIN` / `COUNT_MAX` が欠けて読み込みに失敗する）。
  *
  * Requirements:
+ * - 8.4: 数量フィールドに数値以外の文字が入力された場合は入力を拒否しエラーメッセージを表示する
+ * - 9.5: 調整係数フィールドに数値以外の文字が入力された場合は入力を拒否しエラーメッセージを表示する
+ * - 10.5: 丸め設定フィールドに数値以外の文字が入力された場合は入力を拒否しエラーメッセージを表示する
  * - 9.3: 調整係数は-9.99〜9.99の範囲で入力可能とする
  * - 10.3: 丸め設定は0.01〜99.99の範囲で入力可能とする
  * - 15.1: 数量は-999999.99〜9999999.99の範囲で入力可能とする
@@ -24,6 +27,10 @@
  * Task 80.1: 範囲の正典を確定させ、定数の二系統を解消する
  * Task 80.2: 既定値差し替えの層（REQ-9.4 / 10.4 / 15.2）も本モジュールへ置き、
  *   描画される部品が「差し替えてから範囲判定」の順序を単一の出所から得られるようにする
+ * Task 80.3: 数値以外の入力の拒否（REQ-8.4 / 9.5 / 10.5）を同じ層へ足す。
+ *   **空白（既定値の自動設定）と数値以外（拒否）は別の帰結であり、`resolveFieldInput` が
+ *   両者を判別して返す。** 拒否は焦点喪失の時点で行い、打鍵の途中では値に一切触れない
+ *   ——日本語入力の変換中に値へ手を入れると変換が壊れるためである（IME の項を読むこと）
  *
  * @module utils/numeric-range-validation
  */
@@ -285,15 +292,25 @@ export const FIELD_DEFAULT_SUBSTITUTION = {
 export type DefaultSubstitutedFieldType = keyof typeof FIELD_DEFAULT_SUBSTITUTION;
 
 /**
- * 入力文字列へ既定値差し替えの層（REQ-9.4 / REQ-10.4 / REQ-15.2）を適用する
+ * 入力文字列の解決結果（Task 80.3）
  *
- * **範囲判定へ渡す値は必ず本関数を通したものにすること。** 呼び出し側で
- * 「空白なら既定値」「0なら既定値」を書き直すと、規則が二系統に割れる。
+ * `isNumeric` が偽のときは **数値としてまるごと読めない文字が入力された** ことを表す
+ * （REQ-8.4 / REQ-9.5 / REQ-10.5）。呼び出し側は入力を拒否し `error` を提示すること。
+ * `value` はその場合も既定値を持つが、**確定させてはならない**。
  *
- * @param rawValue - 欄に入力されている生の文字列（前後の空白は無視する）
- * @param fieldType - フィールドタイプ
- * @returns 差し替えを適用した数値（範囲判定の入力）
+ * 空白は「数値以外」ではない。REQ-9.4 / REQ-10.4 / REQ-15.2 が既定値の自動設定という
+ * 別の帰結を定めているため、`isNumeric` は真で既定値を返す。**この二つを混ぜると、
+ * 空白の自動設定（現に緑の検証がある）か数値以外の拒否のどちらかが必ず壊れる。**
  */
+export interface FieldInputResolution {
+  /** 数値としてまるごと読めたか（偽なら入力を拒否する） */
+  isNumeric: boolean;
+  /** 既定値差し替えを適用した数値（`isNumeric` が真のときのみ確定させてよい） */
+  value: number;
+  /** 数値以外のときに提示する文言（REQ-8.4 / REQ-9.5 / REQ-10.5） */
+  error?: string;
+}
+
 // ============================================================================
 // 保存経路が受け付けない領域（範囲判定より後段の制約）
 // ============================================================================
@@ -370,21 +387,50 @@ export function validateSavePersistability(
   };
 }
 
+/**
+ * 入力文字列へ既定値差し替えの層（REQ-9.4 / REQ-10.4 / REQ-15.2）と
+ * 数値以外の拒否（REQ-8.4 / REQ-9.5 / REQ-10.5）を適用する
+ *
+ * **範囲判定へ渡す値は必ず本関数を通したものにすること。** 呼び出し側で
+ * 「空白なら既定値」「0なら既定値」を書き直すと、規則が二系統に割れる。
+ *
+ * **戻り値が構造体なのは意図である**（Task 80.3）。数値を直接返していたころは
+ * 数値以外の入力が黙って既定値へ倒れており、呼び出し側からは空白との区別がつかなかった。
+ * 判別を型で強制することで、拒否の層を素通りする呼び出し側が生まれない。
+ *
+ * @param rawValue - 欄に入力されている生の文字列（前後の空白は無視する）
+ * @param fieldType - フィールドタイプ
+ * @returns 解決結果（{@link FieldInputResolution}）
+ */
 export function resolveFieldInput(
   rawValue: string,
   fieldType: DefaultSubstitutedFieldType
-): number {
+): FieldInputResolution {
   const config: DefaultSubstitutionConfig = FIELD_DEFAULT_SUBSTITUTION[fieldType];
   const trimmed = rawValue.trim();
-  const parsed = Number.parseFloat(trimmed);
 
-  // 空白・数値として読めない入力は既定値へ倒す（結線前からの挙動を維持する）
-  if (trimmed === '' || Number.isNaN(parsed)) {
-    return config.defaultValue;
+  // REQ-9.4 / REQ-10.4 / REQ-15.2: 空白は既定値差し替えの層が受け持つ。
+  // **空白は「数値以外の文字」ではない。** 条文が別の帰結（既定値の自動設定）を定めている
+  if (trimmed === '') {
+    return { isNumeric: true, value: config.defaultValue };
   }
+
+  // REQ-8.4 / REQ-9.5 / REQ-10.5: 数値としてまるごと読めない入力は拒否する。
+  // `Number.parseFloat` を使わないのは「12abc」を `12` と読んでしまうためである——
+  // 条文は「数値以外の文字が入力される」ことを拒否の条件としており、先頭が数字であることを
+  // 免罪符にしない。`Number()` は全体が数値表記のときだけ有限値を返す
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) {
+    return {
+      isNumeric: false,
+      value: config.defaultValue,
+      error: `${FIELD_RANGE_CONFIG[fieldType].label}は数値で入力してください`,
+    };
+  }
+
   // REQ-10.4: 丸め設定の `0` は「未設定」の番兵であり既定値へ差し替える
   if (parsed === 0 && config.substitutesZero) {
-    return config.defaultValue;
+    return { isNumeric: true, value: config.defaultValue };
   }
-  return parsed;
+  return { isNumeric: true, value: parsed };
 }

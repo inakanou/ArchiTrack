@@ -16,6 +16,7 @@ import { describe, it, expect } from 'vitest';
 import {
   validateNumericRange,
   getFieldRangeConfig,
+  resolveFieldInput,
   type NumericRangeFieldType,
 } from './numeric-range-validation';
 import { COUNT_MIN, COUNT_MAX, applyRounding } from './calculation-engine';
@@ -501,6 +502,69 @@ describe('数値欄の範囲の正典（Task 80.1）', () => {
     ['dimension', 0.01, 9999999.99],
   ] as const)('%s の範囲は %s 〜 %s である', (fieldType, min, max) => {
     expect(getFieldRangeConfig(fieldType)).toMatchObject({ min, max });
+  });
+
+  /**
+   * Requirements (quantity-table-generation): 8.4, 9.5, 10.5
+   *
+   * 数値以外の入力の拒否（Task 80.3）。**空白との判別が本節の要である。**
+   * REQ-9.4 / 10.4 / 15.2 は空白に「既定値の自動設定」という帰結を与えており、
+   * REQ-8.4 / 9.5 / 10.5 の「拒否」とは別の規範である。両者を同じ枝へ落とすと、
+   * 空白の自動設定か数値以外の拒否のどちらかが必ず壊れる。
+   */
+  describe('数値以外の入力の判別（REQ-8.4 / REQ-9.5 / REQ-10.5）', () => {
+    it('数量欄の「abc」は数値以外として拒否され、欄名を含む文言を返す', () => {
+      const resolution = resolveFieldInput('abc', 'quantity');
+      expect(resolution.isNumeric).toBe(false);
+      expect(resolution.error).toBe('数量は数値で入力してください');
+    });
+
+    it('調整係数の「abc」は数値以外として拒否される', () => {
+      const resolution = resolveFieldInput('abc', 'adjustmentFactor');
+      expect(resolution.isNumeric).toBe(false);
+      expect(resolution.error).toBe('調整係数は数値で入力してください');
+    });
+
+    it('丸め設定の「abc」は数値以外として拒否される', () => {
+      const resolution = resolveFieldInput('abc', 'roundingUnit');
+      expect(resolution.isNumeric).toBe(false);
+      expect(resolution.error).toBe('丸め設定は数値で入力してください');
+    });
+
+    it('日本語（変換確定後の文字列）も数値以外として拒否される', () => {
+      // 変換確定を経て欄に残るのは日本語の文字列である。半角英字だけを拒否の対象に
+      // していると、この経路が素通りする
+      expect(resolveFieldInput('立米', 'quantity').isNumeric).toBe(false);
+      expect(resolveFieldInput('いち', 'adjustmentFactor').isNumeric).toBe(false);
+    });
+
+    it('先頭だけが数字の「12abc」も拒否される（parseFloat の部分読みを採らない）', () => {
+      // `Number.parseFloat('12abc')` は 12 を返す。これを採ると「数値以外の文字が
+      // 入力される」という条文の条件が成立しているのに拒否されない
+      const resolution = resolveFieldInput('12abc', 'quantity');
+      expect(resolution.isNumeric).toBe(false);
+    });
+
+    it('全角数字は数値として読めないため拒否される', () => {
+      expect(resolveFieldInput('１２', 'quantity').isNumeric).toBe(false);
+    });
+
+    it('空白は数値以外ではなく、既定値差し替えの層が受け持つ（REQ-15.2 / 9.4 / 10.4）', () => {
+      // **この表明が REQ-8.4 と REQ-15.2 の衝突を防いでいる。** 空白を拒否側へ倒すと
+      // 「空白入力時は 0.00 が自動設定される」が壊れる
+      expect(resolveFieldInput('', 'quantity')).toEqual({ isNumeric: true, value: 0 });
+      expect(resolveFieldInput('   ', 'adjustmentFactor')).toEqual({ isNumeric: true, value: 1.0 });
+      expect(resolveFieldInput('', 'roundingUnit')).toEqual({ isNumeric: true, value: 0.01 });
+    });
+
+    it('数値として読める入力は差し替え規則を適用して返す', () => {
+      expect(resolveFieldInput('12.34', 'quantity')).toEqual({ isNumeric: true, value: 12.34 });
+      expect(resolveFieldInput('-1', 'quantity')).toEqual({ isNumeric: true, value: -1 });
+      // REQ-10.4: 丸め設定の 0 は「未設定」の番兵であり既定値へ差し替える
+      expect(resolveFieldInput('0', 'roundingUnit')).toEqual({ isNumeric: true, value: 0.01 });
+      // REQ-9.3 の有効域は 0 を内側に含むため、調整係数の 0 は差し替えない
+      expect(resolveFieldInput('0', 'adjustmentFactor')).toEqual({ isNumeric: true, value: 0 });
+    });
   });
 
   it('箇所数の範囲は calculation-engine の定数と同一の参照である', () => {

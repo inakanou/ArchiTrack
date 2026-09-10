@@ -19,7 +19,8 @@
  *   - 9.8: 標準計算時は調整係数フィールドを表示しない
  * - REQ-10: 丸め設定（面積・体積選択時に表示）
  *   - 10.1: 丸め設定フィールドが既定値「0.01」で表示される
- *   - 10.3（一部）: 範囲の境界値（99.99 / -99.99）がそのまま保持される
+ *   - 10.3: 範囲の境界値（0.01 / 99.99）がそのまま保持され、有効域の外
+ *     （取り下げた旧下限 -99.99）は境界の数値を含む文言で提示され、親の状態へ確定しない
  *   - 10.4: 0または空白が入力されると「0.01」が自動設定される
  *   - 10.8: 標準計算時は丸め設定フィールドを表示しない
  * - REQ-13: テキストフィールドの入力制御
@@ -36,24 +37,26 @@
  *   - 14.3: 寸法フィールドは数値入力時に小数2桁で表示する
  *   - 14.4: 寸法フィールドが空白の場合は空白のまま表示する
  * - REQ-15: 数量フィールドの入力制御
- *   - 15.1（一部）: 範囲の境界値（9999999.99 / -999999.99）がそのまま保持される
+ *   - 15.1: 範囲の境界値（9999999.99 / -999999.99）がそのまま保持され、有効域の外
+ *     （上限超過・下限未満の双方）は境界の数値を含む文言で提示される
  *   - 15.2: 空白が入力されると「0」が設定され「0.00」と表示される
  *   - 15.3: 寸法フィールドは境界値（0.01 / 9999999.99）がそのまま保持される
  *
  * ## 未検証（本ファイルでは主張していない）
  *
- * - REQ-9.3 / REQ-10.3 / REQ-15.1 の「範囲外の値が入力された場合のエラーメッセージ表示」。
- *   production 側（CalculationFields.tsx の AdjustmentField、および
- *   EditableQuantityItemRow.tsx の数量欄）に範囲検査が無く、既定値の補完と小数2桁の整形しか
- *   行わない。値の制限もエラー表示も画面に現れないため観測できる結果が無い。
- *   恒真の判定（「制限されている または エラーが出ている」）を置くことは禁止されているため、
- *   判定を置かずここに未検証として記す。実装は別タスクとして起票する。
  * - REQ-13.1 / 13.2 / 13.3 の入力防止のうち、日本語入力（IME）の変換中から確定に至る経路。
  *   実装（AutocompleteInput）は変換中の幅判定を行わず compositionend の確定値で判定するが、
  *   Playwright の `fill()` は変換イベントを発生させないため、本ファイルの判定は
  *   確定入力の経路のみを通る。変換経路は単体テスト側の担当であり、ここでは主張しない。
  * - REQ-13.4（左寄せ）、REQ-14.1 / 14.5（右寄せ）、REQ-14.6 / 14.7 および
  *   REQ-15.4 / 15.5（箇所数フィールド）。本ファイルの対象外。
+ *
+ * Task 80.3: 「REQ-9.3 / REQ-10.3 / REQ-15.1 の範囲外エラーは未検証」という記載を削り、
+ * 判定へ引き上げた。当該記載は Task 115.126 (site-survey) が恒真の判定を撤去した際、
+ * 実装に範囲検査が無く観測できる結果が無いことを理由に据えたものである。Task 80.2 が
+ * 範囲判定を描画される部品へ結線したため理由が消滅した。REQ-10.3 / REQ-15.1 は本ファイルで
+ * 判定する。REQ-9.3 の範囲外は `quantity-table-crud.spec.ts` が判定しており、
+ * 本ファイルは境界値の保持だけを引き続き受け持つ（重複して主張しない）。
  *
  * Task 115.131 (site-survey): 13.2（工種）/ 13.3（単位）へ 13.1 と同型の「上限超過の入力を
  * 受け付けない」判定を足し、被覆表記を実際の判定内容へ揃えた。上限は欄ごとの仕様
@@ -412,13 +415,49 @@ test.describe('フィールド仕様', () => {
       await quantityInput.blur();
       await expect(quantityInput, '下限値がそのまま保持される').toHaveValue('-999999.99');
 
-      // 【未検証】範囲外の値（例: 10000000）を入力したときのエラー表示は主張していない。
-      // REQ-15.1 は範囲外入力に対しエラーメッセージの表示を求めるが、実装
-      // （EditableQuantityItemRow.handleQuantityBlur）は parseFloat と toFixed(2) を行うだけで
-      // 範囲検査を持たず、frontend/src/utils/field-validation.ts の validateNumericRange も
-      // 数量欄からは呼ばれていない。値の制限もエラー表示も画面に現れないため観測できる結果が無い。
-      // 「値が制限されている または エラーが出ている」の形は常に真となり何も主張しないため置かない。
-      // 範囲外エラーの実装は別タスクとして起票する。
+      // Task 80.3: ここに置かれていた「【未検証】範囲外の値のエラー表示は主張していない」の
+      // 記載を判定へ引き上げた。Task 80.2 が範囲判定を数量欄へ結線したため、観測できる
+      // 結果が画面に現れるようになった。
+      //
+      // REQ-15.1: 有効域の外はエラーメッセージを表示し、範囲内の値の入力を求める。
+      // 期待する文言には要件が定める境界の数値そのものを書く。「値が制限されている
+      // または エラーが出ている」の形は恒真であり、置かない
+      await quantityInput.fill('10000000');
+      await quantityInput.blur();
+      await expect(
+        quantityInput,
+        'REQ-15.1: 数量欄がエラーの説明と結び付いていない'
+      ).toHaveAttribute('aria-describedby', /-quantity-error$/);
+      const quantityErrorId = await quantityInput.getAttribute('aria-describedby');
+      await expect(
+        page.locator(`[id="${quantityErrorId}"]`),
+        'REQ-15.1: 上限を超える数量にエラーメッセージが表示されない'
+      ).toHaveText('数量は-999999.99〜9999999.99の範囲で入力してください', {
+        timeout: getTimeout(10000),
+      });
+      await expect(quantityInput, 'REQ-15.1: 数量欄がハイライトされない').toHaveAttribute(
+        'aria-invalid',
+        'true'
+      );
+
+      // 下限を下回る値も同じ提示になる（上限だけの片側検査では下限の欠落に気づけない）
+      await quantityInput.fill('-1000000');
+      await quantityInput.blur();
+      await expect(
+        page.locator(`[id="${quantityErrorId}"]`),
+        'REQ-15.1: 下限を下回る数量にエラーメッセージが表示されない'
+      ).toHaveText('数量は-999999.99〜9999999.99の範囲で入力してください', {
+        timeout: getTimeout(10000),
+      });
+
+      // 範囲内へ戻せば提示は消える（提示が出っぱなしの実装と区別する）
+      await quantityInput.fill('12.34');
+      await quantityInput.blur();
+      await expect(quantityInput, '範囲内の値が保持される').toHaveValue('12.34');
+      await expect(
+        page.locator(`[id="${quantityErrorId}"]`),
+        '範囲内の値に戻してもエラーの提示が消えない'
+      ).toHaveCount(0);
     });
 
     test('15.2: 数量フィールドに空白が入力されると0.00が自動設定される', async ({ page }) => {
@@ -597,7 +636,7 @@ test.describe('フィールド仕様', () => {
       ).not.toBeVisible({ timeout: getTimeout(10000) });
     });
 
-    test('10.1, 10.3: 面積・体積選択時に丸め設定フィールドが表示され-99.99〜99.99の範囲で入力できる (quantity-table-generation/REQ-10.1, REQ-10.3)', async ({
+    test('10.1, 10.3: 面積・体積選択時に丸め設定フィールドが表示され0.01〜99.99の範囲で入力できる (quantity-table-generation/REQ-10.1, REQ-10.3)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -614,6 +653,13 @@ test.describe('フィールド仕様', () => {
       });
       await expect(roundingUnitInput, '丸め設定の既定値は0.01である').toHaveValue('0.01');
 
+      // Task 80.3: 改める前は下限として `-99.99` を入れ、`toHaveValue('-99.99')` を主張していた。
+      // **Task 80.1 がこの範囲を取り下げている**——丸め設定の正典は `0.01〜99.99` である
+      // （負の切り上げ単位を定める条文が無く、`applyRounding()` が `unit <= 0` で例外を投げる）。
+      // それでも判定が緑だったのは、`AdjustmentField.handleBlur` が範囲判定より先に
+      // `toFixed(2)` を欄へ書き戻すためで、**欄の文字列は残るが親へは確定していなかった**。
+      // 表示だけを見る主張は、取り下げられた範囲をそのまま名乗り続けていた。
+
       // REQ-10.3: 上限の有効な値を入力
       await roundingUnitInput.fill('99.99');
       await roundingUnitInput.blur();
@@ -621,11 +667,58 @@ test.describe('フィールド仕様', () => {
       // 小数2桁で表示されることを確認
       await expect(roundingUnitInput).toHaveValue('99.99');
 
-      // REQ-10.3: 下限の有効な値を入力
+      // REQ-10.3: 下限（0.01）の有効な値を入力
+      await roundingUnitInput.fill('0.01');
+      await roundingUnitInput.blur();
+      await expect(roundingUnitInput, '下限0.01がそのまま保持される').toHaveValue('0.01');
+
+      // REQ-10.3: 有効域の外はエラーを表示し、範囲内の値の入力を求める。
+      // **確定していないことも併せて確かめる**——欄の文字列だけでは、範囲判定を
+      // 持たない実装（整形して受け入れるだけ）と区別がつかない。
+      // 確定の有無は、丸め設定が現に効く先——数量（REQ-10.2 の切り上げ）——で観測する。
+      // まず確定の経路が生きていることを確かめてから、範囲外で数量が動かないことを主張する
+      const roundingMessage = roundingUnitInput.locator('xpath=..').getByRole('alert');
+      const widthInput = row.getByLabel('幅（W）');
+      const quantityInput = row.getByLabel('数量', { exact: true });
+
+      await widthInput.fill('3');
+      await widthInput.blur();
+      await expect(quantityInput, '前提: 幅3が数量へ反映される（REQ-8.6）').toHaveValue('3.00', {
+        timeout: getTimeout(10000),
+      });
+
+      await roundingUnitInput.fill('10');
+      await roundingUnitInput.blur();
+      await expect(
+        quantityInput,
+        '前提: 有効域の丸め設定は確定し、数量が切り上げられる（REQ-10.2）'
+      ).toHaveValue('10.00', { timeout: getTimeout(10000) });
+
       await roundingUnitInput.fill('-99.99');
       await roundingUnitInput.blur();
+      await expect(
+        roundingMessage,
+        'REQ-10.3: 取り下げた下限（-99.99）が範囲外として提示されない'
+      ).toHaveText('丸め設定は0.01〜99.99の範囲で入力してください', { timeout: getTimeout(10000) });
+      await expect(
+        roundingUnitInput,
+        'REQ-10.3: 範囲外の丸め設定がハイライトされない'
+      ).toHaveAttribute('aria-invalid', 'true');
 
-      await expect(roundingUnitInput).toHaveValue('-99.99');
+      // 確定していないことは**上限を超える値**で観測する。下限側（負値）では
+      // `applyRounding()` が例外を投げるため、確定させてしまう実装でも数量が動かず、
+      // 「確定していない」と区別がつかない（実測で確かめた）。
+      // 上限側（100）なら、確定させてしまう実装では数量が 100.00 へ動く
+      await roundingUnitInput.fill('100');
+      await roundingUnitInput.blur();
+      await expect(
+        roundingMessage,
+        'REQ-10.3: 上限を超える丸め設定が範囲外として提示されない'
+      ).toHaveText('丸め設定は0.01〜99.99の範囲で入力してください', { timeout: getTimeout(10000) });
+      await expect(
+        quantityInput,
+        'REQ-10.3: 範囲外の丸め設定が親の状態へ確定している（数量へ反映された）'
+      ).toHaveValue('10.00');
     });
 
     test('10.4: 丸め設定が空白時は0.01が自動設定される (quantity-table-generation/REQ-10.4)', async ({

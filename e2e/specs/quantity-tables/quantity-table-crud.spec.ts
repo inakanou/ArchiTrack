@@ -2592,17 +2592,8 @@ test.describe('数量表CRUD操作', () => {
     test('標準モードで数値以外を入力するとエラーメッセージが表示される (quantity-table-generation/REQ-8.4)', async ({
       page,
     }) => {
-      // REQ-8.4（数値以外の入力を拒否しエラーメッセージを表示する）は未実装である。
-      // 数量欄は素の input で、blur 時に parseFloat が NaN なら 0 に置き換えるだけで
-      // 直前の確定値は失われ、エラーメッセージも出ない（EditableQuantityItemRow）。
-      // 要件を実装した QuantityInput は存在するが、どこからも参照されていない。
-      // 本テストの主張は要件どおりだが、実装が要件を満たしていないため落ちる。
-      // 前提条件による自動無効化ではなく、本体は毎回すべて実行される。
-      // 実装されると本テストは通り、この注釈により「落ちるはずが通った」として
-      // 赤くなるため、注釈の撤去を強制するラチェットとして機能する。
-      // 直列実行のため、素の失敗を残すと後続の検証と後片付けが実行されなくなる。
-
-      test.fail();
+      // Task 80.3: REQ-8.4 を実装したためラチェット（test.fail()）を外した。
+      // 拒否は焦点喪失の時点で行う（打鍵ごとに弾くと日本語入力の変換が壊れる）。
 
       if (!createdQuantityTableId) {
         throw new Error(
@@ -2640,17 +2631,28 @@ test.describe('数量表CRUD操作', () => {
       // 以前は `値が元と同じ || 空 || 'abc' を含まない` の論理和で判定していた。
       // 第三項は入力欄が非数値を保持しない限り常に真であり、恒真であった。
       // 「拒否」は直前の確定値が保たれることであり、それとエラーメッセージの双方を主張する。
+      // **既定値 0.00 へ倒っていないことも同時に主張している**——12.34 は既定値ではないため、
+      // この主張は「拒否された」と「既定値に戻された」を区別する。
       await expect(
         quantityField,
         'REQ-8.4: 数値以外の入力が拒否されず、直前の確定値が失われた'
       ).toHaveValue('12.34');
+
+      // 画面のどこかの alert ではなく、**当該の欄が説明として指している** alert を読む。
+      // 無関係な必須欄の提示で成立してしまう形を避ける
       await expect(
-        page
-          .getByRole('alert')
-          .filter({ hasText: /数値|数字/ })
-          .first(),
+        quantityField,
+        'REQ-8.4: 数量欄がエラーの説明と結び付いていない'
+      ).toHaveAttribute('aria-describedby', /-quantity-error$/);
+      const quantityErrorId = await quantityField.getAttribute('aria-describedby');
+      await expect(
+        page.locator(`[id="${quantityErrorId}"]`),
         'REQ-8.4: 数値以外の入力に対するエラーメッセージが表示されない'
-      ).toBeVisible({ timeout: getTimeout(3000) });
+      ).toHaveText('数量は数値で入力してください', { timeout: getTimeout(3000) });
+      await expect(quantityField, 'REQ-8.4: 数量欄がハイライトされない').toHaveAttribute(
+        'aria-invalid',
+        'true'
+      );
     });
 
     /**
@@ -2948,7 +2950,7 @@ test.describe('数量表CRUD操作', () => {
       ).toHaveValue('200.00', { timeout: getTimeout(5000) });
     });
 
-    test('調整係数に0以下の値を入力すると警告が表示される (quantity-table-generation/REQ-9.3)', async ({
+    test('調整係数の範囲外の入力にエラーが表示される (quantity-table-generation/REQ-9.3)', async ({
       page,
     }) => {
       if (!createdQuantityTableId) {
@@ -2971,41 +2973,59 @@ test.describe('数量表CRUD操作', () => {
       const adjustmentField = page.getByLabel(/調整係数|coefficient/i).first();
       await expect(adjustmentField).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 0以下の値を入力する。警告は入力中に出て、blur で既定値へ自動補正されると消える
-      // （CalculationFields の AdjustmentField: warningCondition v<=0 / handleBlur の既定値補正）。
-      // 以前は Tab を押した後に判定していたため、警告は既に消えていた。それでも
-      // 「警告文 または 画面のどこかの aria-invalid」の論理和は、無関係な必須欄の
-      // aria-invalid だけで常に成立し、警告の有無を一度も確かめていなかった。
-      await adjustmentField.click();
-      await adjustmentField.fill('0');
+      // Task 80.3: 本テストは Task 80.2 の結線に合わせて主張を作り直した。
+      // 改める前は「0以下の値は使用できません」という警告を主張していたが、この文言は
+      // **REQ-9.3 が有効域と定める `-9.99〜0` に対しても出ていた**もので、80.2 が撤去した。
+      // 0 と負値の扱いは下の二段で書き分ける。
+      //
+      // 提示は当該の欄と同じ枠の中に描かれる（CalculationFields の fieldWrapper）。
+      // 画面全体から alert を拾うと、無関係な必須欄の提示だけで成立してしまう
+      const adjustmentMessage = adjustmentField.locator('xpath=..').getByRole('alert');
 
-      await expect(
-        page.getByRole('alert').filter({ hasText: '0以下の値は使用できません' }).first(),
-        'REQ-9.3: 調整係数に0以下を入力しても警告が表示されない'
-      ).toBeVisible({ timeout: getTimeout(3000) });
-      await expect(adjustmentField, '調整係数の欄がハイライトされない').toHaveAttribute(
+      // REQ-9.3: 有効域（-9.99〜9.99）の外はエラーを表示し、範囲内の値の入力を求める。
+      // 期待する文言には要件が定める境界の数値そのものを書く（恒真の選言を作らない）
+      await adjustmentField.click();
+      await adjustmentField.fill('10');
+      await expect(adjustmentMessage, 'REQ-9.3: 範囲外の調整係数にエラーが表示されない').toHaveText(
+        '調整係数は-9.99〜9.99の範囲で入力してください',
+        { timeout: getTimeout(3000) }
+      );
+      await expect(adjustmentField, 'REQ-9.3: 調整係数の欄がハイライトされない').toHaveAttribute(
         'aria-invalid',
         'true'
       );
 
-      // blur すると既定値 1.00 に自動補正される（REQ-9.4）
+      // 焦点を外しても範囲外は確定させない。提示は残り、黙って書き換えられもしない
       await page.keyboard.press('Tab');
-      await expect(adjustmentField).toHaveValue('1.00');
+      await expect(adjustmentField, 'REQ-9.3: 範囲外の値が黙って書き換えられている').toHaveValue(
+        '10.00'
+      );
+      await expect(adjustmentMessage, 'REQ-9.3: 焦点を外すと範囲外のエラーが消えている').toHaveText(
+        '調整係数は-9.99〜9.99の範囲で入力してください'
+      );
+
+      // 0 は REQ-9.3 の有効域の**内側**であり範囲外ではない。範囲外の文言は出さず、
+      // 保存経路が受け付けない旨だけを別の文言で告げる（Task 80.2 の判断）
+      await adjustmentField.click();
+      await adjustmentField.fill('0');
+      await expect(
+        adjustmentMessage,
+        'REQ-9.3: 有効域の内側である0に範囲外のエラーが出ている'
+      ).toHaveText('調整係数が0以下の値は保存できません（0より大きい値を入力してください）', {
+        timeout: getTimeout(3000),
+      });
+
+      // REQ-9.4 が既定値へ差し替えるのは空白のときだけである。0 はそのまま確定する
+      await page.keyboard.press('Tab');
+      await expect(adjustmentField, 'REQ-9.4: 0が空白と同じ扱いで既定値へ倒されている').toHaveValue(
+        '0.00'
+      );
     });
 
     test('調整係数に数値以外を入力するとエラーが表示される (quantity-table-generation/REQ-9.5)', async ({
       page,
     }) => {
-      // REQ-9.5（数値以外の入力を拒否しエラーメッセージを表示する）は未実装である。
-      // 調整係数の欄は blur 時に既定値 1.00 へ置き換えるだけで、直前の確定値は失われ、
-      // エラーメッセージも出ない（CalculationFields の AdjustmentField）。
-      // 本テストの主張は要件どおりだが、実装が要件を満たしていないため落ちる。
-      // 前提条件による自動無効化ではなく、本体は毎回すべて実行される。
-      // 実装されると本テストは通り、この注釈により「落ちるはずが通った」として
-      // 赤くなるため、注釈の撤去を強制するラチェットとして機能する。
-      // 直列実行のため、素の失敗を残すと後続の検証と後片付けが実行されなくなる。
-
-      test.fail();
+      // Task 80.3: REQ-9.5 を実装したためラチェット（test.fail()）を外した。
 
       if (!createdQuantityTableId) {
         throw new Error(
@@ -3042,17 +3062,20 @@ test.describe('数量表CRUD操作', () => {
       // REQ-9.5: 数値以外の文字が入力された場合は入力を拒否しエラーメッセージを表示する。
       // 以前は `値が元と同じ || 空 || 'abc' を含まない` の論理和で、第三項は恒真だった。
       // 「拒否」は直前の確定値が保たれることであり、それとエラーメッセージの双方を主張する。
+      // 2.50 は既定値（1.00）ではないため、この主張は「拒否された」と「既定値に戻された」を
+      // 区別する。提示は当該の欄と同じ枠の中から読む
       await expect(
         adjustmentField,
         'REQ-9.5: 数値以外の入力が拒否されず、直前の確定値が失われた'
       ).toHaveValue('2.50');
       await expect(
-        page
-          .getByRole('alert')
-          .filter({ hasText: /数値|数字/ })
-          .first(),
+        adjustmentField.locator('xpath=..').getByRole('alert'),
         'REQ-9.5: 数値以外の入力に対するエラーメッセージが表示されない'
-      ).toBeVisible({ timeout: getTimeout(3000) });
+      ).toHaveText('調整係数は数値で入力してください', { timeout: getTimeout(3000) });
+      await expect(adjustmentField, 'REQ-9.5: 調整係数の欄がハイライトされない').toHaveAttribute(
+        'aria-invalid',
+        'true'
+      );
     });
 
     /**
@@ -3235,7 +3258,7 @@ test.describe('数量表CRUD操作', () => {
       expect(afterValue).toBeGreaterThanOrEqual(beforeValue);
     });
 
-    test('丸め設定に0以下の値を入力するとエラーが表示される (quantity-table-generation/REQ-10.3)', async ({
+    test('丸め設定の範囲外の入力にエラーが表示される (quantity-table-generation/REQ-10.3)', async ({
       page,
     }) => {
       if (!createdQuantityTableId) {
@@ -3258,35 +3281,59 @@ test.describe('数量表CRUD操作', () => {
       const roundingField = page.getByLabel(/丸め設定|rounding/i).first();
       await expect(roundingField).toBeVisible({ timeout: getTimeout(5000) });
 
-      // 0の値を入力
-      await roundingField.fill('0');
+      // Task 80.3: 本テストは Task 80.2 の結線に合わせて主張を作り直した。
+      // 改める前は 0 を入れて「0以下の値は使用できません」を主張していたが、
+      // **0 は REQ-10.4 が「未設定」の意味を与えた番兵であり、範囲判定の層に属さない**
+      // （Task 80.1 の判断）。したがって 0 ではエラーが出ない。範囲外は別に入れて確かめる。
+      const roundingMessage = roundingField.locator('xpath=..').getByRole('alert');
 
-      // blur前に警告が表示されることを確認（REQ-10.3）
-      const warningMessage = page.getByText(/0以下の値は使用できません/);
-      const hasWarning = await isVisibleWithin(warningMessage, 3000);
-      expect(hasWarning).toBeTruthy();
+      // REQ-10.3: 有効域（0.01〜99.99）の外はエラーを表示し、範囲内の値の入力を求める。
+      // 期待する文言には要件が定める境界の数値そのものを書く
+      await roundingField.click();
+      await roundingField.fill('100');
+      await expect(
+        roundingMessage,
+        'REQ-10.3: 上限を超える丸め設定にエラーが表示されない'
+      ).toHaveText('丸め設定は0.01〜99.99の範囲で入力してください', { timeout: getTimeout(3000) });
+      await expect(roundingField, 'REQ-10.3: 丸め設定の欄がハイライトされない').toHaveAttribute(
+        'aria-invalid',
+        'true'
+      );
 
-      // blur時にデフォルト値（0.01）に自動補正されることを確認（REQ-10.4）
+      // 焦点を外しても範囲外は確定させない。提示は残る
       await page.keyboard.press('Tab');
-      await page.waitForTimeout(200);
+      await expect(roundingField, 'REQ-10.3: 範囲外の値が黙って書き換えられている').toHaveValue(
+        '100.00'
+      );
+      await expect(roundingMessage, 'REQ-10.3: 焦点を外すと範囲外のエラーが消えている').toHaveText(
+        '丸め設定は0.01〜99.99の範囲で入力してください'
+      );
 
-      const correctedValue = await roundingField.inputValue();
-      expect(correctedValue).toBe('0.01');
+      // 下限を下回る値も同じ提示になる
+      await roundingField.click();
+      await roundingField.fill('-1');
+      await expect(
+        roundingMessage,
+        'REQ-10.3: 下限を下回る丸め設定にエラーが表示されない'
+      ).toHaveText('丸め設定は0.01〜99.99の範囲で入力してください', { timeout: getTimeout(3000) });
+
+      // REQ-10.4 は REQ-10.3 に優先する。0 は範囲外ではなく「未設定」であり、
+      // 既定値 0.01 が自動入力されてエラーにならない
+      await roundingField.click();
+      await roundingField.fill('0');
+      await page.keyboard.press('Tab');
+      await expect(roundingField, 'REQ-10.4: 0のとき既定値0.01が自動入力されない').toHaveValue(
+        '0.01'
+      );
+      await expect(roundingMessage, 'REQ-10.4: 番兵である0が範囲外として扱われている').toHaveCount(
+        0
+      );
     });
 
     test('丸め設定に数値以外を入力するとエラーが表示される (quantity-table-generation/REQ-10.5)', async ({
       page,
     }) => {
-      // REQ-10.5（数値以外の入力を拒否しエラーメッセージを表示する）は未実装である。
-      // 丸め設定の欄は blur 時に既定値 0.01 へ置き換えるだけで、直前の確定値は失われ、
-      // エラーメッセージも出ない（CalculationFields の AdjustmentField）。
-      // 本テストの主張は要件どおりだが、実装が要件を満たしていないため落ちる。
-      // 前提条件による自動無効化ではなく、本体は毎回すべて実行される。
-      // 実装されると本テストは通り、この注釈により「落ちるはずが通った」として
-      // 赤くなるため、注釈の撤去を強制するラチェットとして機能する。
-      // 直列実行のため、素の失敗を残すと後続の検証と後片付けが実行されなくなる。
-
-      test.fail();
+      // Task 80.3: REQ-10.5 を実装したためラチェット（test.fail()）を外した。
 
       if (!createdQuantityTableId) {
         throw new Error(
@@ -3324,17 +3371,20 @@ test.describe('数量表CRUD操作', () => {
       // 以前は「エラー文 または 画面のどこかの aria-invalid または 入力拒否」の論理和で、
       // 最後の項の `!fieldValue.includes('abc')` は恒真、二番目は無関係な必須欄の
       // aria-invalid で常に成立していた。要件が定める二つを個別に主張する。
+      // 0.25 は既定値（0.01）ではないため、この主張は「拒否された」と「既定値に戻された」を
+      // 区別する。提示は当該の欄と同じ枠の中から読む
       await expect(
         roundingField,
         'REQ-10.5: 数値以外の入力が拒否されず、直前の確定値が失われた'
       ).toHaveValue('0.25');
       await expect(
-        page
-          .getByRole('alert')
-          .filter({ hasText: /数値|数字/ })
-          .first(),
+        roundingField.locator('xpath=..').getByRole('alert'),
         'REQ-10.5: 数値以外の入力に対するエラーメッセージが表示されない'
-      ).toBeVisible({ timeout: getTimeout(3000) });
+      ).toHaveText('丸め設定は数値で入力してください', { timeout: getTimeout(3000) });
+      await expect(roundingField, 'REQ-10.5: 丸め設定の欄がハイライトされない').toHaveAttribute(
+        'aria-invalid',
+        'true'
+      );
     });
 
     test('丸め設定を指定すると調整係数適用後の値が切り上げられる (quantity-table-generation/REQ-10.2)', async ({
@@ -3991,16 +4041,8 @@ test.describe('数量表CRUD操作', () => {
     test('数量フィールドに範囲外の値を入力するとエラーが表示される (quantity-table-generation/REQ-15.1)', async ({
       page,
     }) => {
-      // REQ-15.1（入力可能範囲外の値にエラーメッセージを表示する）は未実装である。
-      // 数量欄に範囲の検証は無く、99999999 がそのまま受け付けられる。
-      // 範囲検証（validateNumericRange）は箇所数の欄にしか適用されていない。
-      // 本テストの主張は要件どおりだが、実装が要件を満たしていないため落ちる。
-      // 前提条件による自動無効化ではなく、本体は毎回すべて実行される。
-      // 実装されると本テストは通り、この注釈により「落ちるはずが通った」として
-      // 赤くなるため、注釈の撤去を強制するラチェットとして機能する。
-      // 直列実行のため、素の失敗を残すと後続の検証と後片付けが実行されなくなる。
-
-      test.fail();
+      // Task 80.3: REQ-15.1 の結線（Task 80.2）が入ったためラチェット（test.fail()）を外し、
+      // 主張を実装が保証するものへ作り直した。
 
       if (!createdQuantityTableId) {
         throw new Error(
@@ -4016,14 +4058,18 @@ test.describe('数量表CRUD操作', () => {
       const quantityField = page.locator('input[id$="-quantity"]').first();
       await expect(quantityField).toBeVisible({ timeout: getTimeout(5000) });
 
+      // 未保存インジケーター（REQ-44.1）は編集が親の状態へ確定した瞬間に現れる。
+      // 「範囲外の値を確定させない」ことを、画面に現れる結果として観測するために用いる。
+      // 開いた直後は未保存の変更が無いことを前提として主張しておく
+      const unsavedBadge = page.getByTestId('unsaved-changes-badge');
+      await expect(unsavedBadge, '前提: 編集画面を開いた直後は未保存の変更が無い').toHaveCount(0);
+
       // 範囲外の値（9999999.99より大きい値）を入力
       await quantityField.fill('99999999');
       await page.keyboard.press('Tab');
       // 「300ms 経てば確定しているはず」という前提を置かず、**ブラー整形が反映されたこと**を
-      // 条件として待つ。整形前の生の入力値のまま観測すると、直下の不在の主張が
+      // 条件として待つ。整形前の生の入力値のまま観測すると、後続の主張が
       // 「まだ整形されていないだけ」で通ってしまい、何も述べない。
-      // 小数2桁の形は範囲内へ丸めた値も範囲外のままの値も満たすため、直下の主張を含意しない
-      // （実測: 待ち合わせ成立時の値は 99999999.00 であり、直下の主張は落ちる）。
       await expect(quantityField, '数量欄のブラー整形（小数2桁）が反映されない').toHaveValue(
         /^-?\d+\.\d{2}$/,
         { timeout: getTimeout(5000) }
@@ -4032,19 +4078,48 @@ test.describe('数量表CRUD操作', () => {
       // REQ-15.1: 入力可能範囲（-999999.99〜9999999.99）外の値にはエラーメッセージを表示し、
       // 範囲内の値の入力を求める。
       // 以前は「エラー文 または 画面のどこかの aria-invalid または 値が上限以下」の論理和で、
-      // 二番目は無関係な必須欄の aria-invalid で常に成立していた（実測: エラー文は出ず、
-      // 値は 99999999.00 のまま受け付けられている）。要件が定める提示を主張する。
+      // 二番目は無関係な必須欄の aria-invalid で常に成立していた。
+      // Task 80.3: 主張を実装が保証するものへ作り直した。**欄の見た目を書き換えることは
+      // 要件ではない**（80.2 は利用者の入力を黙って書き換えない道を選び、その判断を
+      // design.md へ記録している）。要件が課すのは「エラーメッセージを表示し、範囲内の値の
+      // 入力を求める」ことであり、実装はこれを「確定させない」ことで果たしている。
+      // 文言には要件が定める境界の数値そのものを書く（恒真の選言を作らない）
       await expect(
         quantityField,
-        'REQ-15.1: 範囲外の数量がそのまま受け付けられている'
-      ).not.toHaveValue('99999999.00');
+        'REQ-15.1: 数量欄がエラーの説明と結び付いていない'
+      ).toHaveAttribute('aria-describedby', /-quantity-error$/);
+      const rangeErrorId = await quantityField.getAttribute('aria-describedby');
       await expect(
-        page
-          .getByRole('alert')
-          .filter({ hasText: /範囲|上限|下限/ })
-          .first(),
+        page.locator(`[id="${rangeErrorId}"]`),
         'REQ-15.1: 範囲外の数量に対するエラーメッセージが表示されない'
-      ).toBeVisible({ timeout: getTimeout(3000) });
+      ).toHaveText('数量は-999999.99〜9999999.99の範囲で入力してください', {
+        timeout: getTimeout(3000),
+      });
+      await expect(quantityField, 'REQ-15.1: 数量欄がハイライトされない').toHaveAttribute(
+        'aria-invalid',
+        'true'
+      );
+
+      // 範囲外の値は親の状態へ確定していない。確定していれば未保存インジケーターが出る
+      await expect(
+        unsavedBadge,
+        'REQ-15.1: 範囲外の数量が親の状態へ確定している（未保存の変更として現れた）'
+      ).toHaveCount(0);
+
+      // **上の不在の主張が空振りでないことを、同じ経路で確かめる。**
+      // 範囲内の値を入れれば確定し、未保存インジケーターは現れる
+      await quantityField.click();
+      await quantityField.fill('12.34');
+      await page.keyboard.press('Tab');
+      await expect(quantityField, '範囲内の値が保持されない').toHaveValue('12.34');
+      await expect(
+        page.locator(`[id="${rangeErrorId}"]`),
+        '範囲内の値に戻してもエラーが消えない'
+      ).toHaveCount(0);
+      await expect(
+        unsavedBadge,
+        '前提の反証: 範囲内の値でも未保存インジケーターが現れず、上の不在の主張が空振りである'
+      ).toBeVisible({ timeout: getTimeout(5000) });
     });
 
     /**
@@ -4095,15 +4170,8 @@ test.describe('数量表CRUD操作', () => {
     test('寸法フィールドに範囲外の値を入力するとエラーが表示される (quantity-table-generation/REQ-15.3)', async ({
       page,
     }) => {
-      // REQ-15.3（入力可能範囲外の値にエラーメッセージを表示する）は未実装である。
-      // 寸法欄に範囲の検証は無く、-1 がそのまま受け付けられる。
-      // 本テストの主張は要件どおりだが、実装が要件を満たしていないため落ちる。
-      // 前提条件による自動無効化ではなく、本体は毎回すべて実行される。
-      // 実装されると本テストは通り、この注釈により「落ちるはずが通った」として
-      // 赤くなるため、注釈の撤去を強制するラチェットとして機能する。
-      // 直列実行のため、素の失敗を残すと後続の検証と後片付けが実行されなくなる。
-
-      test.fail();
+      // Task 80.3: REQ-15.3 の結線（Task 80.2）が入ったためラチェット（test.fail()）を外し、
+      // 主張を実装が保証するものへ作り直した。
 
       if (!createdQuantityTableId) {
         throw new Error(
@@ -4125,35 +4193,49 @@ test.describe('数量表CRUD操作', () => {
       const widthField = page.getByLabel(/幅|W/i).first();
       await expect(widthField).toBeVisible({ timeout: 3000 });
 
-      // 範囲外の値（0未満）を入力
+      // 数量欄は面積・体積モードでは計算用列から自動設定される（REQ-8.6 / 8.11）。
+      // 「寸法が親の状態へ確定したか」を、この自動設定の結果として観測する
+      const quantityField = page.locator('input[id$="-quantity"]').first();
+      await expect(quantityField).toBeVisible({ timeout: getTimeout(5000) });
+
+      // **確定の経路が生きていることを先に確かめる。** これが無いと、後段の
+      // 「確定していない」の主張が「そもそも自動設定が動かない」だけで成立してしまう
+      await widthField.click();
+      await widthField.fill('2');
+      await page.keyboard.press('Tab');
+      await expect(
+        quantityField,
+        '前提: 有効域の寸法は確定し、数量へ自動設定される（REQ-8.6）'
+      ).toHaveValue('2.00', { timeout: getTimeout(5000) });
+
+      // 範囲外の値（下限 0.01 未満）を入力
+      await widthField.click();
       await widthField.fill('-1');
       await page.keyboard.press('Tab');
-      // 「300ms 経てば確定しているはず」という前提を置かず、**ブラー整形が反映されたこと**を
-      // 条件として待つ。整形前の生の入力値のまま観測すると、直下の不在の主張が
-      // 「まだ整形されていないだけ」で通ってしまい、何も述べない。
-      // 小数2桁の形は範囲内へ丸めた値も範囲外のままの値も満たすため、直下の主張を含意しない
-      // （実測: 待ち合わせ成立時の値は -1.00 であり、直下の主張は落ちる）。
-      await expect(widthField, '幅欄のブラー整形（小数2桁）が反映されない').toHaveValue(
-        /^-?\d+\.\d{2}$/,
-        { timeout: getTimeout(5000) }
-      );
 
       // REQ-15.3: 寸法フィールドの入力可能範囲（0.01〜9999999.99）外の値には
       // エラーメッセージを表示し、範囲内の値の入力を求める。
       // 以前は「エラー文 または 画面のどこかの aria-invalid または 値が範囲内」の論理和で、
-      // 二番目は無関係な必須欄の aria-invalid で常に成立していた（実測: エラー文は出ず、
-      // 値は -1.00 のまま受け付けられている）。要件が定める提示を主張する。
+      // 二番目は無関係な必須欄の aria-invalid で常に成立していた。
+      // Task 80.3: 提示は当該の欄と同じ枠の中から読み、文言には要件が定める境界の数値
+      // そのものを書く。**欄の見た目を書き換えることは要件ではない**——要件が課すのは
+      // エラーの提示であり、実装はあわせて「確定させない」ことで範囲内の入力を求めている
       await expect(
-        widthField,
-        'REQ-15.3: 範囲外の寸法がそのまま受け付けられている'
-      ).not.toHaveValue('-1.00');
-      await expect(
-        page
-          .getByRole('alert')
-          .filter({ hasText: /範囲|正の値|0より大きい/ })
-          .first(),
+        widthField.locator('xpath=..').getByRole('alert'),
         'REQ-15.3: 範囲外の寸法に対するエラーメッセージが表示されない'
-      ).toBeVisible({ timeout: getTimeout(3000) });
+      ).toHaveText('寸法/ピッチは0.01〜9999999.99の範囲で入力してください', {
+        timeout: getTimeout(3000),
+      });
+      await expect(widthField, 'REQ-15.3: 寸法の欄がハイライトされない').toHaveAttribute(
+        'aria-invalid',
+        'true'
+      );
+
+      // 範囲外の値は親の状態へ確定していない。確定していれば数量が -1.00 へ変わる
+      await expect(
+        quantityField,
+        'REQ-15.3: 範囲外の寸法が親の状態へ確定している（数量へ反映された）'
+      ).toHaveValue('2.00');
     });
   });
 
@@ -4416,23 +4498,25 @@ test.describe('数量表CRUD操作', () => {
       await lastInput.fill('-1');
 
       // REQ-11.3: 不整合はエラー箇所を明示して修正を求める。
-      // 提示は入力中に行われ、blur で既定値へ自動補正されると消える
-      // （CalculationFields の AdjustmentField）。以前は Tab を押した後に
+      // 提示は入力中に行われる。以前は Tab を押した後に
       // 「エラー文 または 画面のどこかの aria-invalid または 任意の alert」の論理和で
       // 判定していたため、無関係な必須欄の状態だけで常に成立していた。
       // 当該の欄について、明示（メッセージ）と箇所の特定（ハイライト）を主張する。
+      // Task 80.3: 文言を実装の現況へ揃えた。改める前の「0以下の値は使用できません」は
+      // **REQ-9.3 の有効域に対しても出ていた警告**であり、Task 80.2 が範囲判定へ置き換えた。
+      // 丸め設定の -1 は正典の有効域（0.01〜99.99）の外であり、範囲外として明示される
       await expect(
-        page.getByRole('alert').filter({ hasText: '0以下の値は使用できません' }).first(),
+        lastInput.locator('xpath=..').getByRole('alert'),
         'REQ-11.3: 丸め設定の不整合が明示されない'
-      ).toBeVisible({ timeout: getTimeout(3000) });
+      ).toHaveText('丸め設定は0.01〜99.99の範囲で入力してください', { timeout: getTimeout(3000) });
       await expect(lastInput, 'REQ-11.3: 不整合の箇所がハイライトされない').toHaveAttribute(
         'aria-invalid',
         'true'
       );
 
-      // blur しても負の値は既定値へ置き換えられない（自動補正は 0 と空白のときだけである。
-      // CalculationFields の AdjustmentField.handleBlur）。すなわち不整合は残り、
-      // ハイライトも消えない。黙って書き換えられていないことを主張する。
+      // blur しても負の値は既定値へ置き換えられない（自動補正は空白と、丸め設定の 0 の
+      // ときだけである。REQ-9.4 / REQ-10.4）。すなわち不整合は残り、ハイライトも消えない。
+      // 黙って書き換えられていないことを主張する。
       await page.keyboard.press('Tab');
       await expect(lastInput, '不整合の値が黙って書き換えられている').toHaveValue('-1.00');
       await expect(lastInput, '不整合の箇所のハイライトが消えている').toHaveAttribute(
@@ -4460,8 +4544,10 @@ test.describe('数量表CRUD操作', () => {
       await calcMethodSelect.selectOption({ value: 'AREA_VOLUME' });
       await page.waitForTimeout(500);
 
-      // 丸め設定を0に変更して不整合を発生させる（REQ-10.3の警告表示をテスト）
-      // 注意: blur時に自動補正されるため、blur前に警告を確認する
+      // 丸め設定を上限超過（100）に変更して不整合を発生させる（REQ-10.3 の提示）。
+      // Task 80.3: 改める前は 0 を入れていたが、**0 は REQ-10.4 が「未設定」の意味を
+      // 与えた番兵であり、既定値 0.01 へ差し替えられて不整合にならない**（Task 80.1 の判断）。
+      // 不整合を作るには有効域の外の値を入れる必要がある
       const roundingInputs = page.getByLabel(/丸め/);
       // 欄が一つも無ければ操作も判定も空振りする。供給を無条件に主張する。
       const count = await roundingInputs.count();
@@ -4469,23 +4555,29 @@ test.describe('数量表CRUD操作', () => {
 
       const lastInput = roundingInputs.nth(count - 1);
       await lastInput.click();
-      await lastInput.fill('0');
+      await lastInput.fill('100');
 
       // REQ-11.4: 不整合がある場合は警告メッセージを表示し、問題箇所をハイライトする。
       // 実装（AdjustmentField）は入力中に両方を同時に与えるため、論理和では片方が
       // 失われても気づけない。双方を個別に主張する（blur 前の状態で確かめる）。
       await expect(
-        page.getByText(/0以下.*使用できません/i).first(),
+        lastInput.locator('xpath=..').getByRole('alert'),
         'REQ-11.4: 不整合の警告メッセージが表示されない'
-      ).toBeVisible({ timeout: getTimeout(2000) });
+      ).toHaveText('丸め設定は0.01〜99.99の範囲で入力してください', { timeout: getTimeout(2000) });
       await expect(lastInput, 'REQ-11.4: 問題箇所がハイライトされない').toHaveAttribute(
         'aria-invalid',
         'true'
       );
 
-      // blurをトリガー（自動補正が行われる）
+      // blur しても不整合の値は黙って書き換えられず、問題箇所の提示も残る
       await page.keyboard.press('Tab');
-      await expect(lastInput).toHaveValue('0.01');
+      await expect(lastInput, 'REQ-11.4: 不整合の値が黙って書き換えられている').toHaveValue(
+        '100.00'
+      );
+      await expect(lastInput, 'REQ-11.4: 問題箇所のハイライトが消えている').toHaveAttribute(
+        'aria-invalid',
+        'true'
+      );
     });
   });
 

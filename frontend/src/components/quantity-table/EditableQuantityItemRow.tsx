@@ -14,6 +14,16 @@
  * - 15.2: 空白は既定値「0」へ差し替え「0.00」と表示する（範囲判定より前の層）
  * - 8.3: 負の値は有効域の内側であり、範囲エラーではなく警告として提示する（従来どおり）
  * 範囲も既定値差し替えの規則も `utils/numeric-range-validation.ts` の正典から得る。
+ *
+ * Task 80.3: 数値以外の入力の拒否を数量欄へ結線する。
+ * - 8.4: 数値以外の文字が入力された場合は入力を拒否しエラーメッセージを表示する
+ *
+ * **拒否は焦点喪失の時点だけで行う。** 打鍵ごとに値を検査して弾く形は採らなかった——
+ * 日本語入力の変換中（compositionstart 〜 compositionend）に値へ手を入れると変換が壊れ、
+ * しかも Playwright の `fill()` も `fireEvent.change` も変換を経由しないため、
+ * その欠陥は E2E でも単体でも構造的に検出できない（本スペックの
+ * `## Implementation Notes（越境して実行された是正）` が単位欄で踏んだ事故である）。
+ * 焦点喪失は変換確定より後に起きるため、この作法には変換中の面が一切無い。
  */
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
@@ -267,10 +277,26 @@ export default function EditableQuantityItemRow({
 
   // REQ-15.1: 数量の範囲エラー（ローカル状態から派生計算 - 入力時に即座に提示）。
   // REQ-15.2 の既定値差し替えを先に適用してから範囲判定へ渡す（Task 80.1 が確定させた層の順序）。
+  // 数値以外の入力は範囲の層ではなく REQ-8.4 の層が受け持つ（焦点喪失の時点で提示する）。
   const quantityRangeError = useMemo((): string | undefined => {
-    const result = validateNumericRange(resolveFieldInput(localQuantity, 'quantity'), 'quantity');
+    const resolution = resolveFieldInput(localQuantity, 'quantity');
+    if (!resolution.isNumeric) {
+      return undefined;
+    }
+    const result = validateNumericRange(resolution.value, 'quantity');
     return result.isValid ? undefined : result.error;
   }, [localQuantity]);
+
+  // REQ-8.4: 数値以外の入力を拒否したことの提示（Task 80.3）。
+  // **派生ではなく状態である。** 拒否は直前の確定値を欄へ書き戻すため、
+  // 入力中の文字列から導く形にすると書き戻した瞬間に提示が消え、
+  // 利用者は「値が勝手に戻った」だけを見ることになる。
+  const [quantityNonNumericError, setQuantityNonNumericError] = useState<string | undefined>(
+    undefined
+  );
+
+  // 欄に提示する文言。数値以外の拒否は範囲エラーより手前の層である
+  const quantityError = quantityNonNumericError ?? quantityRangeError;
 
   // バリデーションエラー
   const errors = useMemo((): Record<string, string | undefined> => {
@@ -297,8 +323,11 @@ export default function EditableQuantityItemRow({
    * REQ-8.3: 負の値が入力された場合は警告を表示（ローカル状態で即座に警告）
    */
   const handleQuantityChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    // 入力中はそのままの値を保持（フォーマットしない）
+    // 入力中はそのままの値を保持（フォーマットしない）。
+    // **値には一切手を入れない。** 変換中（IME）に値を書き換えると変換が壊れる
     setLocalQuantity(e.target.value);
+    // REQ-8.4: 利用者が直し始めた時点で拒否の提示を下げる。提示を消すだけで値には触れない
+    setQuantityNonNumericError(undefined);
   }, []);
 
   /**
@@ -307,8 +336,20 @@ export default function EditableQuantityItemRow({
    * REQ-15.2: 空入力時は0を設定
    */
   const handleQuantityBlur = useCallback(() => {
-    // REQ-15.2: 空または無効な値の場合は0を設定（範囲判定より前の層）
-    const value = resolveFieldInput(localQuantity, 'quantity');
+    // REQ-15.2: 空白の場合は0を設定（範囲判定より前の層）
+    const resolution = resolveFieldInput(localQuantity, 'quantity');
+
+    // REQ-8.4: 数値以外の入力は拒否する。直前の確定値（親が持つ値）を欄へ戻し、
+    // エラーを提示し、親へは何も渡さない。**既定値へ倒さない**——倒すと
+    // 「拒否された」のか「既定値に戻された」のかを利用者も検証も区別できない
+    if (!resolution.isNumeric) {
+      setQuantityNonNumericError(resolution.error);
+      setLocalQuantity(item.quantity.toFixed(2));
+      return;
+    }
+    setQuantityNonNumericError(undefined);
+
+    const value = resolution.value;
     // REQ-14.2: 小数2桁でフォーマット
     const formattedValue = value.toFixed(2);
     setLocalQuantity(formattedValue);
@@ -318,7 +359,7 @@ export default function EditableQuantityItemRow({
     }
     // APIを呼び出し
     onUpdate?.(item.id, { quantity: value });
-  }, [localQuantity, item.id, onUpdate]);
+  }, [localQuantity, item.id, item.quantity, onUpdate]);
 
   /**
    * 数量フィールドフォーカスハンドラ
@@ -638,16 +679,16 @@ export default function EditableQuantityItemRow({
                   ...styles.input,
                   ...styles.quantityInput,
                   ...styles.numberInput,
-                  ...(quantityRangeError !== undefined
+                  ...(quantityError !== undefined
                     ? styles.inputError
                     : negativeQuantityWarning
                       ? styles.inputWarning
                       : {}),
                 }}
                 aria-required
-                aria-invalid={quantityRangeError !== undefined || negativeQuantityWarning}
+                aria-invalid={quantityError !== undefined || negativeQuantityWarning}
                 aria-describedby={
-                  quantityRangeError !== undefined
+                  quantityError !== undefined
                     ? `${item.id}-quantity-error`
                     : negativeQuantityWarning
                       ? `${item.id}-quantity-warning`
@@ -655,11 +696,11 @@ export default function EditableQuantityItemRow({
                 }
                 aria-label={showFieldLabels ? undefined : '数量'}
               />
-              {/* REQ-15.1: 範囲外エラー（赤枠＋アイコン＋ホバー吹き出し）。
-                  範囲外は有効域の外であり、REQ-8.3 の負値警告より強い提示とする。 */}
-              {quantityRangeError !== undefined ? (
+              {/* REQ-8.4 / REQ-15.1: 数値以外の拒否と範囲外エラー（赤枠＋アイコン＋ホバー吹き出し）。
+                  いずれも有効な入力ではなく、REQ-8.3 の負値警告より強い提示とする。 */}
+              {quantityError !== undefined ? (
                 <FieldValidationTooltip
-                  message={quantityRangeError}
+                  message={quantityError}
                   id={`${item.id}-quantity-error`}
                   severity="error"
                 />

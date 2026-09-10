@@ -1695,4 +1695,139 @@ describe('CalculationFields', () => {
       });
     });
   });
+  // ============================================================================
+  // 数値以外の入力の拒否（Task 80.3）
+  //
+  // Requirements (quantity-table-generation): 9.5, 10.5
+  //
+  // **変換中（IME）の面をここで固定する。** 打鍵ごとに値を弾く実装にすると、
+  // 日本語入力の変換途中の文字列が壊れる。`fireEvent.change` も Playwright の
+  // `fill()` も変換イベントを発生させないため、通常の入力を模した検証では
+  // この欠陥を一切捕まえられない。ゆえに変換イベントを明示的に起こして確かめる。
+  // ============================================================================
+
+  describe('数値以外の入力の拒否', () => {
+    const nonNumericCases: Array<[string, string, string, 'adjustment' | 'rounding']> = [
+      ['調整係数', '調整係数', '調整係数は数値で入力してください', 'adjustment'],
+      ['丸め設定', '丸め設定', '丸め設定は数値で入力してください', 'rounding'],
+    ];
+
+    const renderField = (
+      which: 'adjustment' | 'rounding',
+      handler: (value: number) => void
+    ): void => {
+      render(
+        <CalculationFields
+          method="AREA_VOLUME"
+          params={{} as AreaVolumeParams}
+          onChange={vi.fn()}
+          disabled={false}
+          adjustmentFactor={2.5}
+          roundingUnit={0.25}
+          onAdjustmentFactorChange={which === 'adjustment' ? handler : vi.fn()}
+          onRoundingUnitChange={which === 'rounding' ? handler : vi.fn()}
+        />
+      );
+    };
+
+    it.each(nonNumericCases)(
+      '%s は数値以外を入力して焦点を外すと直前の確定値へ戻り、エラーを表示し、親へ通知しない',
+      (_name, label, expectedError, which) => {
+        const handler = vi.fn();
+        renderField(which, handler);
+
+        const input = screen.getByLabelText(label);
+        const committed = which === 'adjustment' ? '2.50' : '0.25';
+        expect(input).toHaveValue(committed);
+
+        fireEvent.change(input, { target: { value: 'abc' } });
+        fireEvent.blur(input);
+
+        // 「拒否」は直前の確定値が保たれることである。既定値（1.00 / 0.01）へ倒すと、
+        // 拒否されたのか既定値に戻されたのかを区別できない
+        expect(input).toHaveValue(committed);
+        expect(screen.getByRole('alert')).toHaveTextContent(expectedError);
+        expect(input).toHaveAttribute('aria-invalid', 'true');
+        expect(handler).not.toHaveBeenCalled();
+      }
+    );
+
+    it.each(nonNumericCases)(
+      '%s の拒否の提示は入力を直し始めた時点で消え、直した値は確定する',
+      (_name, label, expectedError, which) => {
+        const handler = vi.fn();
+        renderField(which, handler);
+
+        const input = screen.getByLabelText(label);
+        fireEvent.change(input, { target: { value: 'abc' } });
+        fireEvent.blur(input);
+        expect(screen.getByRole('alert')).toHaveTextContent(expectedError);
+
+        fireEvent.change(input, { target: { value: '3' } });
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+        fireEvent.blur(input);
+        expect(handler).toHaveBeenCalledWith(3);
+      }
+    );
+
+    it.each(nonNumericCases)(
+      '%s は変換中（IME）に値へ一切手を入れない——変換途中の文字列がそのまま残る',
+      (_name, label, expectedError, which) => {
+        const handler = vi.fn();
+        renderField(which, handler);
+
+        const input = screen.getByLabelText(label);
+        const committed = which === 'adjustment' ? '2.50' : '0.25';
+
+        fireEvent.compositionStart(input);
+        fireEvent.change(input, { target: { value: 'り' } });
+        expect(input).toHaveValue('り');
+        fireEvent.change(input, { target: { value: 'りゅう' } });
+        expect(input).toHaveValue('りゅう');
+        fireEvent.change(input, { target: { value: '立米' } });
+        fireEvent.compositionEnd(input, { data: '立米' });
+        expect(input).toHaveValue('立米');
+
+        // 変換中は拒否の提示も出さない
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(handler).not.toHaveBeenCalled();
+
+        // 焦点を外した時点で初めて拒否する（REQ-9.5 / REQ-10.5）
+        fireEvent.blur(input);
+        expect(screen.getByRole('alert')).toHaveTextContent(expectedError);
+        expect(input).toHaveValue(committed);
+        expect(handler).not.toHaveBeenCalled();
+      }
+    );
+
+    it('空白は数値以外ではなく既定値の自動設定として扱われる（REQ-9.4 / REQ-10.4）', () => {
+      const onAdjustmentFactorChange = vi.fn();
+      const onRoundingUnitChange = vi.fn();
+      render(
+        <CalculationFields
+          method="AREA_VOLUME"
+          params={{} as AreaVolumeParams}
+          onChange={vi.fn()}
+          disabled={false}
+          adjustmentFactor={2.5}
+          roundingUnit={0.25}
+          onAdjustmentFactorChange={onAdjustmentFactorChange}
+          onRoundingUnitChange={onRoundingUnitChange}
+        />
+      );
+
+      const adjustment = screen.getByLabelText('調整係数');
+      fireEvent.change(adjustment, { target: { value: '' } });
+      fireEvent.blur(adjustment);
+      expect(adjustment).toHaveValue('1.00');
+      expect(onAdjustmentFactorChange).toHaveBeenCalledWith(1.0);
+
+      const rounding = screen.getByLabelText('丸め設定');
+      fireEvent.change(rounding, { target: { value: '' } });
+      fireEvent.blur(rounding);
+      expect(rounding).toHaveValue('0.01');
+      expect(onRoundingUnitChange).toHaveBeenCalledWith(0.01);
+    });
+  });
 });

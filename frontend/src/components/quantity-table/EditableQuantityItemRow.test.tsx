@@ -698,6 +698,84 @@ describe('EditableQuantityItemRow', () => {
     });
   });
 
+  /**
+   * Requirements (quantity-table-generation): 8.4
+   *
+   * 数値以外の入力の拒否（Task 80.3）。
+   *
+   * **変換中（IME）の面をここで固定する。** 打鍵ごとに値を弾く実装にすると、
+   * 日本語入力の変換途中の文字列が壊れる。`fireEvent.change` も Playwright の
+   * `fill()` も変換イベントを発生させないため、通常の入力を模した検証では
+   * この欠陥を一切捕まえられない。ゆえに変換イベントを明示的に起こして確かめる。
+   */
+  describe('数値以外の入力の拒否（REQ-8.4）', () => {
+    const NON_NUMERIC_ERROR = '数量は数値で入力してください';
+
+    it('数値以外を入力して焦点を外すと、直前の確定値へ戻りエラーを表示し、親へ通知しない', () => {
+      const onUpdate = vi.fn();
+      render(<EditableQuantityItemRow {...defaultProps} onUpdate={onUpdate} />);
+
+      const input = screen.getByLabelText(/数量/);
+      fireEvent.change(input, { target: { value: 'abc' } });
+      fireEvent.blur(input);
+
+      // 「拒否」は直前の確定値（item.quantity = 100）が保たれることである。
+      // 既定値 0.00 へ倒すと、拒否されたのか既定値に戻されたのかを区別できない
+      expect(input).toHaveValue('100.00');
+      expect(screen.getByText(NON_NUMERIC_ERROR)).toBeInTheDocument();
+      expect(input).toHaveAttribute('aria-invalid', 'true');
+      expect(onUpdate).not.toHaveBeenCalled();
+    });
+
+    it('拒否の提示は入力を直し始めた時点で消え、直した値は確定する', () => {
+      const onUpdate = vi.fn();
+      render(<EditableQuantityItemRow {...defaultProps} onUpdate={onUpdate} />);
+
+      const input = screen.getByLabelText(/数量/);
+      fireEvent.change(input, { target: { value: 'abc' } });
+      fireEvent.blur(input);
+      expect(screen.getByText(NON_NUMERIC_ERROR)).toBeInTheDocument();
+
+      fireEvent.change(input, { target: { value: '42' } });
+      expect(screen.queryByText(NON_NUMERIC_ERROR)).not.toBeInTheDocument();
+
+      fireEvent.blur(input);
+      expect(onUpdate).toHaveBeenCalledWith('item-1', { quantity: 42 });
+    });
+
+    it('変換中（IME）は値へ一切手を入れない——変換途中の文字列がそのまま残る', () => {
+      const onUpdate = vi.fn();
+      render(<EditableQuantityItemRow {...defaultProps} onUpdate={onUpdate} />);
+
+      const input = screen.getByLabelText(/数量/);
+
+      // 「立米」を変換して入力する経路を再現する。
+      // 打鍵ごとに非数値を弾く実装では、この途中の値が消えるか書き換わる
+      fireEvent.compositionStart(input);
+      fireEvent.change(input, { target: { value: 'り' } });
+      expect(input).toHaveValue('り');
+      fireEvent.change(input, { target: { value: 'りゅう' } });
+      expect(input).toHaveValue('りゅう');
+      fireEvent.change(input, { target: { value: 'りゅうべい' } });
+      expect(input).toHaveValue('りゅうべい');
+
+      // 変換確定
+      fireEvent.change(input, { target: { value: '立米' } });
+      fireEvent.compositionEnd(input, { data: '立米' });
+      expect(input).toHaveValue('立米');
+
+      // 変換中は拒否の提示も出さない（確定前の途中経過を誤りとして責めない）
+      expect(screen.queryByText(NON_NUMERIC_ERROR)).not.toBeInTheDocument();
+      expect(onUpdate).not.toHaveBeenCalled();
+
+      // 焦点を外した時点で初めて拒否する（REQ-8.4）
+      fireEvent.blur(input);
+      expect(screen.getByText(NON_NUMERIC_ERROR)).toBeInTheDocument();
+      expect(input).toHaveValue('100.00');
+      expect(onUpdate).not.toHaveBeenCalled();
+    });
+  });
+
   describe('REQ-6.3: 項目移動（REQ-36: アクションメニュー統合後）', () => {
     it('上へ移動ボタンをクリックするとonMoveUpが呼ばれる', async () => {
       const onMoveUp = vi.fn();
