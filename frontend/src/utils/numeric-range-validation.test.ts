@@ -18,6 +18,7 @@ import {
   getFieldRangeConfig,
   type NumericRangeFieldType,
 } from './numeric-range-validation';
+import { COUNT_MIN, COUNT_MAX, applyRounding } from './calculation-engine';
 
 describe('NumericFieldRangeValidator', () => {
   describe('調整係数の範囲チェック（REQ-15.1）', () => {
@@ -483,5 +484,61 @@ describe('NumericFieldRangeValidator', () => {
         expect(result.error).toContain('寸法/ピッチ');
       });
     });
+  });
+});
+
+// ============================================================================
+// 範囲の正典（Task 80.1）
+// ============================================================================
+
+describe('数値欄の範囲の正典（Task 80.1）', () => {
+  // ここだけは条文の逐語を数値のまま固定する。
+  // 正典そのものを釘付けする箇所であり、正典から導くと恒真になるため。
+  it.each([
+    ['adjustmentFactor', -9.99, 9.99],
+    ['roundingUnit', 0.01, 99.99],
+    ['quantity', -999999.99, 9999999.99],
+    ['dimension', 0.01, 9999999.99],
+  ] as const)('%s の範囲は %s 〜 %s である', (fieldType, min, max) => {
+    expect(getFieldRangeConfig(fieldType)).toMatchObject({ min, max });
+  });
+
+  it('箇所数の範囲は calculation-engine の定数と同一の参照である', () => {
+    expect(getFieldRangeConfig('count').min).toBe(COUNT_MIN);
+    expect(getFieldRangeConfig('count').max).toBe(COUNT_MAX);
+  });
+
+  describe('丸め設定の 0 は REQ-10.4 の番兵であり範囲判定の層に属さない', () => {
+    // REQ-10.1 / REQ-10.4 が定める既定値。条文の逐語を数値のまま固定する
+    // （正典そのものを釘付けする箇所であり、正典から導くと恒真になるため）
+    const ROUNDING_UNIT_DEFAULT_BY_SPEC = 0.01;
+
+    it('0 は範囲外である（REQ-10.4 が先に適用されるため、この層へは届かない）', () => {
+      // REQ-10.4 を REQ-10.3 に優先させる決定の裏返し。
+      // 逆の決定（範囲判定を先に適用し 0 を有効値として扱う）を採ると、この表明が落ちる。
+      expect(validateNumericRange(0, 'roundingUnit').isValid).toBe(false);
+    });
+
+    it('REQ-10.4 が差し替える既定値は範囲の下限そのものであり、差し替え後は必ず範囲判定を通る', () => {
+      const { min } = getFieldRangeConfig('roundingUnit');
+      expect(ROUNDING_UNIT_DEFAULT_BY_SPEC).toBe(min);
+      expect(validateNumericRange(ROUNDING_UNIT_DEFAULT_BY_SPEC, 'roundingUnit').isValid).toBe(
+        true
+      );
+    });
+
+    it('既定値へ差し替えた値は applyRounding の定義域に入る（範囲を通れば必ず計算できる）', () => {
+      expect(() => applyRounding(10, ROUNDING_UNIT_DEFAULT_BY_SPEC)).not.toThrow();
+    });
+  });
+
+  it('丸め設定の下限は applyRounding が受け付ける定義域の内側にある', () => {
+    // 丸め設定の下限を負へ広げると、範囲判定を通った値が計算時に例外になる。
+    // 下限 0.01 は「範囲判定を通れば必ず計算できる」ことの担保である。
+    const { min, max } = getFieldRangeConfig('roundingUnit');
+    expect(() => applyRounding(10, min)).not.toThrow();
+    expect(() => applyRounding(10, max)).not.toThrow();
+    expect(() => applyRounding(10, 0)).toThrow();
+    expect(() => applyRounding(10, -min)).toThrow();
   });
 });

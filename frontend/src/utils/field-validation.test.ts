@@ -20,7 +20,14 @@ import {
   getRemainingWidth,
   formatDecimal2,
   FIELD_CONSTRAINTS,
+  validateQuantityItemFields,
+  type QuantityItemValidationInput,
 } from './field-validation';
+import * as fieldValidationModule from './field-validation';
+import {
+  FIELD_RANGE_CONFIG,
+  validateNumericRange as validateNumericRangeCanon,
+} from './numeric-range-validation';
 
 describe('field-validation', () => {
   describe('FIELD_CONSTRAINTS', () => {
@@ -560,5 +567,81 @@ describe('field-validation', () => {
         expect(getRemainingWidth(text, 'unit')).toBe(-2);
       });
     });
+  });
+});
+
+// ============================================================================
+// 範囲の正典への一本化（Task 80.1）
+// ============================================================================
+
+describe('数値欄の範囲は numeric-range-validation を唯一の出所とする（Task 80.1）', () => {
+  const baseItem: QuantityItemValidationInput = {
+    majorCategory: '土工',
+    middleCategory: null,
+    minorCategory: null,
+    customCategory: null,
+    workType: '掘削工',
+    name: '掘削',
+    specification: null,
+    unit: 'm3',
+    remarks: null,
+    adjustmentFactor: 1.0,
+    roundingUnit: 0.01,
+    quantity: 10,
+  };
+
+  it('field-validation は範囲の判定も範囲の定数も公開しない（二系統の解消）', () => {
+    // 同名の判定関数を二系統持つと、片方だけが動いたときに静かに食い違う。
+    // 実際に丸め設定の上限が 99.99 と 999.99 に割れていた。
+    expect(Object.keys(fieldValidationModule)).not.toContain('validateNumericRange');
+    expect(Object.keys(fieldValidationModule)).not.toContain('NUMERIC_FIELD_RANGES');
+  });
+
+  it.each([
+    ['adjustmentFactor', 'adjustmentFactor'],
+    ['roundingUnit', 'roundingUnit'],
+    ['quantity', 'quantity'],
+  ] as const)(
+    '%s の範囲外メッセージは validateNumericRange の返す文言と逐語一致する',
+    (itemKey, fieldType) => {
+      // 出所が一つであることを、値を書き写さずに示す。
+      // 上限の外側の値は正典の設定から導く（検証側で数値を複製しない）。
+      const outOfRange = FIELD_RANGE_CONFIG[fieldType].max + 1;
+      const errors = validateQuantityItemFields({ ...baseItem, [itemKey]: outOfRange });
+      const expected = validateNumericRangeCanon(outOfRange, fieldType);
+
+      expect(expected.isValid).toBe(false);
+      expect(errors[itemKey]).toBe(expected.error);
+    }
+  );
+
+  it.each([
+    ['adjustmentFactor', 'adjustmentFactor'],
+    ['roundingUnit', 'roundingUnit'],
+    ['quantity', 'quantity'],
+  ] as const)('%s の境界値（正典の上限ちょうど）は受理される', (itemKey, fieldType) => {
+    const errors = validateQuantityItemFields({
+      ...baseItem,
+      [itemKey]: FIELD_RANGE_CONFIG[fieldType].max,
+    });
+    expect(errors[itemKey]).toBeUndefined();
+  });
+
+  it('丸め設定 100.00 は範囲外として拒否される（上限 999.99 の系統が残っていれば通ってしまう）', () => {
+    const errors = validateQuantityItemFields({ ...baseItem, roundingUnit: 100.0 });
+    expect(errors.roundingUnit).toBeDefined();
+  });
+
+  it('丸め設定 0 と負値は範囲外として拒否される（applyRounding の定義域と一致する）', () => {
+    // ここは「範囲判定の層」の表明である。0 を範囲外と返すのは意図であり、
+    // REQ-10.4 の番兵（0 → 既定値 0.01）は**この層より前**で差し替わる（REQ-10.4 が REQ-10.3 に優先）。
+    // したがって本表明は e2e/specs/quantity-tables/field-specification.spec.ts の
+    // 「10.4: 丸め設定が0の時は0.01が自動設定される」（画面の層。現に緑）と矛盾しない——
+    // 画面では 0 が範囲判定へ届く前に 0.01 へ差し替わるため、この層は 0 を受け取らない。
+    // 層の分担は utils/numeric-range-validation.ts の FIELD_RANGE_CONFIG の説明にある。
+    expect(validateQuantityItemFields({ ...baseItem, roundingUnit: 0 }).roundingUnit).toBeDefined();
+    expect(
+      validateQuantityItemFields({ ...baseItem, roundingUnit: -1 }).roundingUnit
+    ).toBeDefined();
   });
 });

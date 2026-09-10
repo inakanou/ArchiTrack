@@ -14,6 +14,10 @@ import { render, screen, waitFor } from '@testing-library/react';
 import FieldValidatedItemRow from './FieldValidatedItemRow';
 import type { QuantityItemDetail } from '../../types/quantity-table.types';
 import { validateQuantityItemFields } from '../../utils/field-validation';
+import { validateNumericRange } from '../../utils/numeric-range-validation';
+
+/** 文言を正典から取るための正規表現エスケープ（範囲の数値を検証側へ書き写さない） */
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // Task 18.1: useAutocompleteモックは不要（新モード専用）
 
@@ -148,11 +152,10 @@ describe('FieldValidatedItemRow - Task 14.1', () => {
         <FieldValidatedItemRow {...defaultProps} item={itemWithOutOfRangeQuantity} showValidation />
       );
 
-      // エラーメッセージが表示されることを確認
+      // エラーメッセージが表示されることを確認（文言は範囲の正典から取る）
+      const expectedMessage = validateNumericRange(99999999, 'quantity').error as string;
       await waitFor(() => {
-        expect(
-          screen.getByText(/数量は-999999.99から9999999.99の範囲で入力してください/)
-        ).toBeInTheDocument();
+        expect(screen.getByText(new RegExp(escapeRegExp(expectedMessage)))).toBeInTheDocument();
       });
     });
   });

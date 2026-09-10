@@ -88,7 +88,10 @@ vi.mock('../../../components/quantity-table/CalculationFields', () => ({
   ),
 }));
 
-vi.mock('../../../utils/calculation-engine', () => ({
+// 範囲の正典（numeric-range-validation）が箇所数の上下限を calculation-engine から
+// 取るため、部分モックにして実体の定数を残す（Task 80.1。値の二重定義を避ける）
+vi.mock('../../../utils/calculation-engine', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../utils/calculation-engine')>()),
   calculate: vi.fn(() => ({
     rawValue: 100,
     adjustedValue: 110,

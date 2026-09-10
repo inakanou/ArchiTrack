@@ -23,10 +23,11 @@ import {
   validateQuantityItemFields,
   hasValidationErrors,
   validateTextLength,
-  validateNumericRange,
   type FieldValidationErrors,
   type TextFieldName,
 } from '../../utils/field-validation';
+// 数値欄の範囲判定は正典（Task 80.1）から取る。field-validation.ts は範囲を持たない
+import { validateNumericRange } from '../../utils/numeric-range-validation';
 
 // ============================================================================
 // 型定義
