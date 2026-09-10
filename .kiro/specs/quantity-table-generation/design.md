@@ -1787,17 +1787,19 @@ function convertToQuantityItems(
 
 現在の実装では`PhotoCommentDisplay`コンポーネント自体は正しく実装されているが、`QuantityGroupCard`から渡されるcommentプロパティが正しく設定されていない。具体的には以下の問題が存在する:
 
-1. **写真選択時のコメント未取得**: `QuantityGroupCard`で写真を選択（`linkSurveyImage`）した際、レスポンスに含まれる`comment`フィールドをローカルステートに反映していない
-2. **初回表示時のコメント未伝播**: `QuantityTableEditPage`から`QuantityGroupCard`へデータを渡す際、`surveyImage.comment`の値が適切に伝播されていない場合がある
-3. **写真変更ダイアログでの更新未反映**: `PhotoChangeDialog`で写真を変更した後、変更後の写真のコメントを取得してQuantityGroupCardのステートを更新するフローが欠落している
+**この段落と続く 3 箇条の「現在」は書かれた時点の現在であって、読まれる時点の現在ではない。** site-survey の設計文書 `#### 実測値の書き方（タスク 115.212）` の (a) に従い、当時の記述は消さずに残し、現況の再実測を同じ場所へ並べる（各箇条の末尾と直下の表の各行）。**再実測の結果、3 箇条はいずれも現況ではない。** **本タスクが測ったのはこの 3 箇条と直下の `修正対象コンポーネントと変更内容` の表だけであり、本節の他の欄（`Responsibilities & Constraints`・`Implementation Notes`）および本書の他節の状態記録は測っていない。** タスク 79.1。コミット `3aee62b0`。2026-09-10 にリポジトリルートで実測
+
+1. **写真選択時のコメント未取得**: `QuantityGroupCard`で写真を選択（`linkSurveyImage`）した際、レスポンスに含まれる`comment`フィールドをローカルステートに反映していない。**`linkSurveyImage` は再実測では実装にも検証にも一件も見当たらない**——`grep -rn 'linkSurveyImage' frontend/src backend/src e2e` の出力は空（終了コード `1`）であり、絞り込みを外した `grep -rln 'linkSurveyImage' --include=*.ts --include=*.tsx . | grep -v node_modules | wc -l` の出力も `0` でリポジトリ全域に一件も無い。現在の写真選択は永続化APIを呼ばずドラフトへ反映する `handlePhotoSelect`（`frontend/src/pages/QuantityTableEditPage.tsx`）であり、選択した写真の `comment` を描画用サマリへ載せている（`grep -cF 'comment: selectedImage.comment ?? null' frontend/src/pages/QuantityTableEditPage.tsx` の出力が `1`）。**この箇条が名指す欠落も、欠落の主体として名指す API も、現況ではない。** タスク 79.1。コミット `3aee62b0`。2026-09-10 にリポジトリルートで実測
+2. **初回表示時のコメント未伝播**: `QuantityTableEditPage`から`QuantityGroupCard`へデータを渡す際、`surveyImage.comment`の値が適切に伝播されていない場合がある。**伝播は再実測では結線済みである**——`grep -cF 'PhotoCommentDisplay comment={group.surveyImage.comment ?? null}' frontend/src/components/quantity-table/QuantityGroupCard.tsx` の出力が `1` であり、`QuantityGroupCard` は写真サマリのローカルステートを持たず props の `group.surveyImage` をそのまま渡す。親側の `surveyImage` は詳細API応答のスナップショットと選択時のサマリから解決される（`grep -cF 'snapshotImages[g.surveyImageId] = g.surveyImage;' frontend/src/pages/QuantityTableEditPage.tsx` の出力が `1`）。タスク 79.1。コミット `3aee62b0`。2026-09-10 にリポジトリルートで実測
+3. **写真変更ダイアログでの更新未反映**: `PhotoChangeDialog`で写真を変更した後、変更後の写真のコメントを取得してQuantityGroupCardのステートを更新するフローが欠落している。**`PhotoChangeDialog` は再実測では本番経路から到達できず、この箇条が求める「要修正」は現況ではない**——同部品を参照するのは `grep -rl 'PhotoChangeDialog' frontend/src --include=*.tsx --include=*.ts` の 4 ファイルで、内訳は定義ファイル自身 1・単体検証 2・ストーリー 1 である。取り込みの側から見ても `grep -rn "PhotoChangeDialog'" frontend/src --include=*.tsx --include=*.ts | grep -c import` の出力は `3`（単体検証 2・ストーリー 1）で、画面・経路の部品からの取り込みは一つも無い。写真の変更は同部品ではなく `QuantityGroupCard` の `handleChangePhoto` が `onSelectImage` を呼び、`QuantityTableEditPage` のインライン写真選択ダイアログを開く経路で行われる（`grep -cF 'const handleChangePhoto = useCallback' frontend/src/components/quantity-table/QuantityGroupCard.tsx` の出力が `1`）。すなわち変更後のコメントは選択と同じ `handlePhotoSelect` が載せる。**本書が同じ部品を二通りに扱っていた矛盾はこれで解ける**——`### Architecture Pattern & Boundary Map` の修正コンポーネント（REQ-39）の行と `#### 写真選択・変更ダイアログのレイアウト修正（REQ-39）` が書く「未使用・残置」の側が現況であり、**陳腐化しているのは本箇条の「要修正」の側である**。**参照の件数は起票時の記録（5 ファイル）からも動いている**——`QuantityTableEditPage.test.tsx` の註の中での言及がコミット `b701ad53`（2026-09-10）で消えたためで、`git show b701ad53 -- frontend/src/pages/QuantityTableEditPage.test.tsx | grep -cE '^-.*PhotoChangeDialog'` の出力が `1` である。**「未使用・残置」を書く箇所は 2 箇所ではなく 3 箇所である**——起票文（`tasks.md` の Task 79）は 2 箇所と述べるが、着手時に数え直すと `grep -cE '未使用[の]' .kiro/specs/quantity-table-generation/design.md` の出力が `3` であり、上に挙げた 2 節に加えて `#### 影響ファイル一覧（REQ-39〜41）` が同じ扱いを書いている（本書で `未使用` に `の` が続く行は現在この 3 行だけであり、いずれも同部品の残置を述べる行である）。**綴りを `未使用[の]` と括弧で割るのは、この文自身が同じ字面を引くと素の形が自分を数えるためである**（site-survey の設計文書 `#### 実測値の書き方（タスク 115.212）` が (a) の副作用として警告する自己言及の型）。タスク 79.1。コミット `3aee62b0`。2026-09-10 にリポジトリルートで実測
 
 **修正対象コンポーネントと変更内容**
 
 | コンポーネント | 修正内容 |
 |---------------|---------|
-| QuantityGroupCard | 写真選択（linkSurveyImage）レスポンスのcommentフィールドをローカルステートに反映する。初回表示時にpropsのsurveyImage.commentを正しくPhotoCommentDisplayに伝播する |
-| QuantityTableEditPage | 数量表詳細API（GET /api/quantity-tables/:id）のレスポンスに含まれるsurveyImage.commentをグループステートに正しくマッピングする |
-| PhotoChangeDialog | 写真変更確定後、変更後の写真のcommentを含むレスポンスを親（QuantityGroupCard）に返却し、コメント表示を更新する |
+| QuantityGroupCard | 写真選択（linkSurveyImage）レスポンスのcommentフィールドをローカルステートに反映する。初回表示時にpropsのsurveyImage.commentを正しくPhotoCommentDisplayに伝播する。**再実測では `linkSurveyImage` は存在せず、伝播は結線済みである**（上の箇条 1・2 の再実測を見よ）。この欄が求める修正は現況では対象を失っている。行は起票時の記述として残す。タスク 79.1。コミット `3aee62b0`。2026-09-10 にリポジトリルートで実測 |
+| QuantityTableEditPage | 数量表詳細API（GET /api/quantity-tables/:id）のレスポンスに含まれるsurveyImage.commentをグループステートに正しくマッピングする。**再実測では詳細API応答の写真サマリはグループの表示状態へ解決済みである**（`grep -cF 'snapshotImages[g.surveyImageId] = g.surveyImage;' frontend/src/pages/QuantityTableEditPage.tsx` の出力が `1`）。行は起票時の記述として残す。タスク 79.1。コミット `3aee62b0`。2026-09-10 にリポジトリルートで実測 |
+| PhotoChangeDialog | 写真変更確定後、変更後の写真のcommentを含むレスポンスを親（QuantityGroupCard）に返却し、コメント表示を更新する。**再実測では同部品は本番経路から到達できず（参照は定義ファイル自身 1・単体検証 2・ストーリー 1 の 4 ファイルのみ）、この欄が求める修正には担い手が無い**（上の箇条 3 の再実測を見よ）。本書の他の箇所が書く「未使用・残置」が現況である（箇所と数え直しは上の箇条 3 の再実測を見よ。表のセルには縦棒を書けないため再現コマンドはそちらに置く）。行は起票時の記述として残す。タスク 79.1。コミット `3aee62b0`。2026-09-10 にリポジトリルートで実測 |
 
 **Responsibilities & Constraints**
 
