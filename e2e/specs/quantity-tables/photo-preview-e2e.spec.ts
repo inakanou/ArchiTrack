@@ -122,11 +122,14 @@ test.describe('REQ-20: 写真プレビューダイアログでの注釈付き写
 
     test('注釈対象となる現場調査写真を作成する', async ({ page }) => {
       assertPrepared(testProjectId, '事前準備で作成したプロジェクトのID');
+      // REQ-20 の関心は紐づけ済み写真の拡大表示であり、注釈なし写真との選別ではない。
+      // 写真選択ダイアログの候補として現れる必要があるため全件へ注釈を保存する（Task 82.1）。
       await seedSurveyPhotosWithComments(
         page,
         testProjectId,
         'REQ20_現場調査',
-        PREVIEW_PHOTO_COMMENTS
+        PREVIEW_PHOTO_COMMENTS,
+        'all'
       );
     });
 

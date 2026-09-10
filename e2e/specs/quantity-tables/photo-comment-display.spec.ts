@@ -123,7 +123,15 @@ test.describe('REQ-35: 写真コメント表示の不具合修正', () => {
 
     test('コメントを付けた現場調査写真を作成する', async ({ page }) => {
       assertPrepared(testProjectId, '事前準備で作成したプロジェクトのID');
-      await seedSurveyPhotosWithComments(page, testProjectId, 'REQ35_現場調査', PHOTO_COMMENTS);
+      // REQ-35 の関心は写真コメントの表示であり注釈の有無ではない。写真選択ダイアログの
+      // 候補として現れる必要があるため全件へ注釈を保存する（Task 82.1）。
+      await seedSurveyPhotosWithComments(
+        page,
+        testProjectId,
+        'REQ35_現場調査',
+        PHOTO_COMMENTS,
+        'all'
+      );
     });
 
     test('数量表と写真を紐づけた数量グループを作成する', async ({ page }) => {

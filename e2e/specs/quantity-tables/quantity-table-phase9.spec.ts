@@ -66,9 +66,15 @@ test.describe('Phase 9: パンくずナビゲーション改善・注釈付き�
     test('コメント付き写真を紐づけた数量グループを作成する', async ({ page }) => {
       const projectId = await createTestProject(page, 'Phase9_PJ');
       preparedProjectId = projectId;
-      await seedSurveyPhotosWithComments(page, projectId, 'Phase9_現場調査', [
-        PHASE9_PHOTO_COMMENT,
-      ]);
+      // Phase 9 の関心はパンくず・写真コメント表示であり注釈なし写真との選別ではない。
+      // 写真選択ダイアログの候補として現れる必要があるため全件へ注釈を保存する（Task 82.1）。
+      await seedSurveyPhotosWithComments(
+        page,
+        projectId,
+        'Phase9_現場調査',
+        [PHASE9_PHOTO_COMMENT],
+        'all'
+      );
 
       const quantityTable = await createTestQuantityTable(page, projectId, 'Phase9_数量表');
       preparedQuantityTableId = quantityTable.id;

@@ -333,52 +333,29 @@ test.describe('写真選択ダイアログの一括取得とサムネイル表�
         return [...detail.images].sort((a, b) => a.displayOrder - b.displayOrder);
       };
 
-      /** 写真へ注釈（矩形1件）を保存する */
-      const saveAnnotation = async (image: DetailImage): Promise<void> => {
-        const response = await page.request.put(
-          `${API_BASE_URL}/api/site-surveys/images/${image.id}/annotations`,
-          {
-            headers: authHeaders,
-            data: {
-              data: {
-                version: '6.0.0',
-                objects: [
-                  {
-                    type: 'Rect',
-                    left: 10,
-                    top: 10,
-                    width: 40,
-                    height: 30,
-                    fill: 'transparent',
-                    stroke: '#ff0000',
-                    strokeWidth: 3,
-                  },
-                ],
-                canvasWidth: image.width,
-                canvasHeight: image.height,
-              },
-            },
-          }
-        );
-        expect(response.ok(), `前提: 注釈が保存できる (status=${response.status()})`).toBeTruthy();
-      };
-
       // --- 現場調査をシードし、各現場調査の先頭1枚にだけ注釈を付ける ---
+      // 注釈の保存は共有ヘルパー `e2e/helpers/survey-image-annotations.ts` に集約した
+      // （Task 82.1。従前は本ファイル内に `saveAnnotation` を書き起こしていた）。
+      // 位置指定で渡すため注釈なし写真が残り、「注釈付きだけが現れる」の主張が
+      // 空集合に対する恒真にならない。
       for (let index = 0; index < SURVEY_COUNT; index += 1) {
         const seeded = await seedSurveyPhotosWithComments(
           page,
           createdProjectId,
           `REQ49_調査${index + 1}`,
-          Array.from({ length: PHOTOS_PER_SURVEY }, () => null)
+          Array.from({ length: PHOTOS_PER_SURVEY }, () => null),
+          [ANNOTATED_INDEX]
         );
         seededSurveyIds.push(seeded.surveyId);
 
-        const images = await fetchDetailImages(seeded.surveyId);
-        expect(images, `前提: 現場調査${index + 1}に写真が${PHOTOS_PER_SURVEY}枚ある`).toHaveLength(
-          PHOTOS_PER_SURVEY
-        );
-
-        await saveAnnotation(images[ANNOTATED_INDEX]!);
+        expect(
+          seeded.imageIds,
+          `前提: 現場調査${index + 1}に写真が${PHOTOS_PER_SURVEY}枚ある`
+        ).toHaveLength(PHOTOS_PER_SURVEY);
+        expect(
+          seeded.annotatedImageIds,
+          `前提: 現場調査${index + 1}の写真のうち1枚だけに注釈が付く`
+        ).toHaveLength(1);
       }
 
       // --- 注釈の保存後に目録を作り直す（合成済みサムネイルが生成された場合も拾う） ---

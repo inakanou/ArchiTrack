@@ -27,6 +27,7 @@ import { expect, type Locator, type Page } from '@playwright/test';
 import { getTimeout } from './wait-helpers';
 import { selectFirstRealOption } from './form-preconditions';
 import { assertPrepared } from './preconditions';
+import { annotateSurveyImages, type AnnotationTargets } from './survey-image-annotations';
 import { API_BASE_URL } from '../config';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -272,25 +273,40 @@ export async function openEditPageWithSingleItemRow(
 }
 
 /**
- * 現場調査を作成し、写真をアップロードして、指定のコメントを付ける。
+ * 現場調査を作成し、写真をアップロードして、指定のコメントを付け、指定の写真へ注釈を保存する。
  *
  * 写真コメントの検証（REQ-35）は「コメントの付いた写真」を前提とするが、画面から
  * コメントを付ける導線は現場調査側にあり、数量表の検証としては遠回りになる。
  * 前提の生成はAPIで行い、成立（枚数とコメント）を応答で主張する。
  *
+ * ## 注釈の保存が前提に含まれる理由（Task 82.1）
+ *
+ * 写真選択・変更ダイアログの取得経路 `GET /api/projects/:projectId/survey-images`
+ * （Task 75.1）は**注釈レコードが存在する写真のみ**を返す（Requirement 4.3 / 19.2）。
+ * 注釈を保存しないままでは選択候補が0件になり、ダイアログを用いる検証は前提段階で
+ * 成立しない。`annotate` を**必須の引数**としているのは、新たな呼び出し側が指定を
+ * 忘れて「候補0件の前提」を再生産することを型で防ぐためである。
+ *
+ * 注釈の有無そのものを検証の関心に持つ呼び出し側（「注釈付きのみが現れる」を主張する
+ * 検証）は、`'all'` ではなく位置指定を渡し、注釈なし写真を併せて残すこと。全件を
+ * 注釈付きにすると「注釈なしは現れない」が空集合に対する恒真になる。
+ *
  * @param page Playwright のページ（ログイン済みであること）
  * @param projectId 現場調査を作成する対象のプロジェクトID
  * @param namePrefix 現場調査名の接頭辞
  * @param comments 写真ごとのコメント（配列の長さがアップロードする枚数になる）
- * @returns 作成した現場調査のIDとアップロードした画像のID一覧
- * @throws 現場調査が作成できない・アップロードが失敗する・コメントが反映されない場合
+ * @param annotate 注釈を保存する対象（`'all'` / `'none'` / 表示順の位置。省略不可）
+ * @returns 作成した現場調査のID・アップロードした画像のID一覧・注釈を付けた画像のID一覧
+ * @throws 現場調査が作成できない・アップロードが失敗する・コメントが反映されない・
+ *         注釈が保存できない場合
  */
 export async function seedSurveyPhotosWithComments(
   page: Page,
   projectId: string,
   namePrefix: string,
-  comments: readonly (string | null)[]
-): Promise<{ surveyId: string; imageIds: string[] }> {
+  comments: readonly (string | null)[],
+  annotate: AnnotationTargets
+): Promise<{ surveyId: string; imageIds: string[]; annotatedImageIds: string[] }> {
   await page.goto(`/projects/${projectId}/site-surveys/new`);
   await page.waitForLoadState('networkidle');
 
@@ -367,7 +383,11 @@ export async function seedSurveyPhotosWithComments(
     expect(patched.comment, `前提: ${index + 1}枚目の写真コメントが保存される`).toBe(comment);
   }
 
-  return { surveyId, imageIds };
+  // 選択候補として現れるのは注釈レコードを持つ写真のみであるため、注釈の保存までを前提に含める
+  const annotatedImages = await annotateSurveyImages(page, surveyId, annotate);
+  const annotatedImageIds = annotatedImages.map((image) => image.id);
+
+  return { surveyId, imageIds, annotatedImageIds };
 }
 
 /**

@@ -149,7 +149,15 @@ test.describe('REQ-21: 写真選択時のコメント表示', () => {
 
     test('コメントを付けた現場調査写真を作成する', async ({ page }) => {
       assertPrepared(testProjectId, '事前準備で作成したプロジェクトのID');
-      await seedSurveyPhotosWithComments(page, testProjectId, 'REQ21_現場調査', PHOTO_COMMENTS);
+      // REQ-21 の関心は写真選択時のコメント表示であり注釈の有無ではない。写真選択
+      // ダイアログの候補として現れる必要があるため全件へ注釈を保存する（Task 82.1）。
+      await seedSurveyPhotosWithComments(
+        page,
+        testProjectId,
+        'REQ21_現場調査',
+        PHOTO_COMMENTS,
+        'all'
+      );
     });
 
     test('テスト用数量表と写真を紐づけたグループを作成する', async ({ page }) => {

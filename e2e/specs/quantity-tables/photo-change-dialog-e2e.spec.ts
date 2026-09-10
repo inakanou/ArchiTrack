@@ -16,6 +16,18 @@
  * site-survey の受入基準 115.19（実在しない）を名乗る印として拾っていた。
  * 115.19 はタスク番号であり受入基準番号ではない。
  *
+ * ## Task 82.1 の是正: REQ-19.2 が注釈の有無を問うていなかった
+ *
+ * 従前の事前準備は写真をアップロードするだけで注釈を保存せず、REQ-19.2（注釈付き写真
+ * 一覧の表示）の検証は「一覧に写真がシード枚数だけ並ぶ」を見ていた。注釈なし写真が
+ * 並んでも通るため、当該受入基準に対しては何も確かめていなかった（Task 75.1 が一覧の
+ * 取得経路を注釈付きのみを返す `GET /api/projects/:projectId/survey-images` へ
+ * 置き換えたことで、候補0件として露出した）。
+ *
+ * 本ファイルは**注釈付きと注釈なしの両方**をシードし、選択候補が注釈を保存した写真と
+ * 一致すること（注釈なし写真が現れないこと）を主張する。全件を注釈付きにすると
+ * 「注釈なしは現れない」が空集合に対する恒真になるため、注釈なし写真を必ず残す。
+ *
  * @module e2e/specs/quantity-tables/photo-change-dialog-e2e.spec
  */
 
@@ -28,16 +40,50 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { assertPrepared } from '../../helpers/preconditions';
+import {
+  fetchSurveyImagesInDisplayOrder,
+  saveSurveyImageAnnotation,
+} from '../../helpers/survey-image-annotations';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/** 事前準備でシードする現場調査写真の枚数（REQ-19.2/19.3 の候補として必須） */
-const SEED_PHOTO_COUNT = 3;
+/**
+ * 注釈を保存する写真の枚数（REQ-19.2/19.3 の選択候補として現れるべき写真）
+ *
+ * 一覧（`GET /api/projects/:projectId/survey-images`）は注釈レコードを持つ写真のみを
+ * 返すため、ここが選択候補の枚数になる。
+ */
+const ANNOTATED_PHOTO_COUNT = 3;
+
+/**
+ * 注釈を保存しない写真の枚数（選択候補に現れてはならない写真）
+ *
+ * REQ-19.2 は「注釈付き写真一覧」を定めるため、注釈なし写真が選別されて落ちることまでを
+ * 確かめる必要がある。注釈なし写真を置かないと「注釈なしは現れない」が空集合に対する
+ * 恒真になる。
+ */
+const PLAIN_PHOTO_COUNT = 2;
+
+/** 事前準備でアップロードする写真の総枚数 */
+const SEED_PHOTO_COUNT = ANNOTATED_PHOTO_COUNT + PLAIN_PHOTO_COUNT;
+
+/** 注釈を保存する写真のファイル名の接頭辞 */
+const ANNOTATED_FILE_PREFIX = 'req19-annotated-';
+
+/** 注釈を保存しない写真のファイル名の接頭辞 */
+const PLAIN_FILE_PREFIX = 'req19-plain-';
 
 let testProjectId: string | null = null;
 let createdSurveyId: string | null = null;
 let createdQuantityTableId: string | null = null;
+
+/** 注釈を保存した写真のファイル名（選択候補に現れるべき写真。表示要素の `alt` と一致する） */
+const annotatedFileNames: string[] = [];
+
+/** 注釈を保存していない写真のファイル名（選択候補に現れてはならない写真） */
+const plainFileNames: string[] = [];
 
 /**
  * 数量表編集画面へ遷移する。
@@ -81,6 +127,46 @@ async function openPhotoDialog(page: Page, entry: 'placeholder' | 'change-button
     page.getByRole('dialog', { name: '写真を選択' }),
     '写真選択ダイアログが開く必要がある'
   ).toBeVisible({ timeout: getTimeout(10000) });
+}
+
+/**
+ * 開いているダイアログの写真一覧が「注釈を保存した写真だけ」で尽くされていることを主張する。
+ *
+ * 枚数の完全一致（`toHaveCount`）と、注釈付き各1件の存在、注釈なし各0件の不在を併せて
+ * 主張する。注釈なし写真がシードされていることは呼び出し側が事前に確認する。
+ *
+ * @param page Playwright のページ（写真一覧のダイアログが開いていること）
+ * @param context 失敗メッセージに付す文脈（どちらの入口から開いた一覧か）
+ * @throws 一覧が表示されない・枚数が一致しない・並ぶ写真が注釈付きと一致しない場合
+ */
+async function expectAnnotatedOnlyPhotoList(page: Page, context: string): Promise<void> {
+  const dialog = page.getByRole('dialog', { name: '写真を選択' });
+  const photoList = dialog.locator('[data-testid="photo-list"]');
+  await expect(photoList, `${context}: 写真一覧が表示される必要がある`).toBeVisible({
+    timeout: getTimeout(20000),
+  });
+
+  const photoItems = dialog.locator('[data-testid^="photo-item-"]');
+  await expect(
+    photoItems,
+    `${context}: 一覧に並ぶのは注釈付きの${ANNOTATED_PHOTO_COUNT}枚だけである` +
+      `（アップロードした総枚数は${SEED_PHOTO_COUNT}枚）`
+  ).toHaveCount(ANNOTATED_PHOTO_COUNT, { timeout: getTimeout(20000) });
+  await expect(photoItems.first(), `${context}: 一覧の写真が視認できる`).toBeVisible();
+
+  for (const fileName of annotatedFileNames) {
+    await expect(
+      dialog.locator(`[data-testid^="photo-item-"][alt="${fileName}"]`),
+      `${context}: 注釈を保存した ${fileName} が一覧に並ぶ`
+    ).toHaveCount(1, { timeout: getTimeout(10000) });
+  }
+
+  for (const fileName of plainFileNames) {
+    await expect(
+      dialog.locator(`[data-testid^="photo-item-"][alt="${fileName}"]`),
+      `${context}: 注釈を保存していない ${fileName} は一覧に並ばない`
+    ).toHaveCount(0, { timeout: getTimeout(10000) });
+  }
 }
 
 test.describe('REQ-19: 写真変更ダイアログでの注釈付き写真表示', () => {
@@ -167,12 +253,20 @@ test.describe('REQ-19: 写真変更ダイアログでの注釈付き写真表示
       const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
       expect(accessToken, 'アクセストークンが取得できる必要がある').toBeTruthy();
 
+      // 注釈を付ける写真と付けない写真をファイル名で区別してアップロードする
       const form = new FormData();
-      for (let i = 0; i < SEED_PHOTO_COUNT; i += 1) {
+      for (let i = 0; i < ANNOTATED_PHOTO_COUNT; i += 1) {
         form.append(
           'images',
           new Blob([new Uint8Array(imageBuffer)], { type: 'image/png' }),
-          `req19-${i + 1}.png`
+          `${ANNOTATED_FILE_PREFIX}${i + 1}.png`
+        );
+      }
+      for (let i = 0; i < PLAIN_PHOTO_COUNT; i += 1) {
+        form.append(
+          'images',
+          new Blob([new Uint8Array(imageBuffer)], { type: 'image/png' }),
+          `${PLAIN_FILE_PREFIX}${i + 1}.png`
         );
       }
       const uploadResponse = await page.request.post(
@@ -184,16 +278,35 @@ test.describe('REQ-19: 写真変更ダイアログでの注釈付き写真表示
         `写真アップロードが成功する必要がある (status=${uploadResponse.status()})`
       ).toBeTruthy();
 
-      const detailResponse = await page.request.get(
-        `${API_BASE_URL}/api/site-surveys/${createdSurveyId}`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
+      assertPrepared(createdSurveyId, '作成した現場調査のID');
+      const seededImages = await fetchSurveyImagesInDisplayOrder(page, createdSurveyId);
+      expect(seededImages.length, 'REQ-19 の選択候補として写真がシードされている必要がある').toBe(
+        SEED_PHOTO_COUNT
       );
-      expect(detailResponse.ok()).toBeTruthy();
-      const detail = (await detailResponse.json()) as { images?: unknown[] };
+
+      // --- 注釈付き／注釈なしに分けて、注釈付きにだけ注釈を保存する（Task 82.1）---
+      const toBeAnnotated = seededImages.filter((image) =>
+        image.fileName.startsWith(ANNOTATED_FILE_PREFIX)
+      );
+      const toStayPlain = seededImages.filter((image) =>
+        image.fileName.startsWith(PLAIN_FILE_PREFIX)
+      );
       expect(
-        detail.images?.length ?? 0,
-        'REQ-19 の選択候補として写真がシードされている必要がある'
-      ).toBeGreaterThanOrEqual(SEED_PHOTO_COUNT);
+        toBeAnnotated.length,
+        `注釈を保存する写真が${ANNOTATED_PHOTO_COUNT}枚ある必要がある`
+      ).toBe(ANNOTATED_PHOTO_COUNT);
+      expect(toStayPlain.length, `注釈を保存しない写真が${PLAIN_PHOTO_COUNT}枚ある必要がある`).toBe(
+        PLAIN_PHOTO_COUNT
+      );
+
+      for (const image of toBeAnnotated) {
+        await saveSurveyImageAnnotation(page, image);
+      }
+
+      annotatedFileNames.length = 0;
+      annotatedFileNames.push(...toBeAnnotated.map((image) => image.fileName));
+      plainFileNames.length = 0;
+      plainFileNames.push(...toStayPlain.map((image) => image.fileName));
     });
 
     test('テスト用数量表とグループを作成する', async ({ page }) => {
@@ -262,27 +375,57 @@ test.describe('REQ-19: 写真変更ダイアログでの注釈付き写真表示
   });
 
   /**
-   * @requirement quantity-table-generation/REQ-19.2: ダイアログに注釈付き写真一覧を表示
+   * @requirement quantity-table-generation/REQ-4.3: 写真選択ダイアログに注釈付き写真一覧を表示
+   * @requirement quantity-table-generation/REQ-19.2: 写真変更ダイアログに注釈付き写真一覧を表示
    *
-   * 写真選択ダイアログ内で、選択可能な写真がグリッド表示される。
-   * 事前準備で写真をシードしているため、空状態ではなく写真一覧が表示される。
+   * 受入基準19.2 の原文は「While **写真変更ダイアログ**が表示されている状態で……同一
+   * プロジェクトの注釈付き現場調査写真一覧（注釈エディタで編集済みの画像）を表示する」
+   * である。したがって本区間は写真を紐づけてから「写真を変更」で開き直した一覧に対して
+   * 主張する（写真未紐付けから開く一覧は受入基準4.3 の所管であり、併せて主張する）。
+   *
+   * 「注釈付き写真一覧」であることを確かめるため、枚数だけでなく**どの写真が並ぶか**を
+   * 主張する（Task 82.1）。事前準備は注釈付き3枚・注釈なし2枚をシードしており、
+   * 次の3つを併せて主張することで「注釈なし写真は並ばない」が言える。
+   *
+   * 1. 注釈なし写真が現にシードされている（母集団が空でないこと）
+   * 2. 並ぶ枚数が注釈付きの枚数と**完全一致**する（`toHaveCount`）
+   * 3. 注釈を保存した各写真が、それぞれ1件ずつ並ぶ
+   *
+   * 2と3から、並んでいる要素は注釈付き写真で尽くされる。したがって注釈なし写真は
+   * 1件も並んでいない。念のため注釈なし写真のファイル名が1件も現れないことも直接主張する。
    */
-  test('写真選択ダイアログに写真一覧が表示される (REQ-19.2)', async ({ page }) => {
-    await navigateToQuantityTableEdit(page);
-    await openPhotoDialog(page, 'placeholder');
+  test('写真選択・写真変更ダイアログに注釈付き写真のみが一覧表示される (REQ-4.3, REQ-19.2)', async ({
+    page,
+  }) => {
+    // 母集団の確認: 注釈なし写真が現に存在する（存在しなければ「現れない」は恒真になる）
+    expect(
+      plainFileNames,
+      `前提: 注釈なし写真が${PLAIN_PHOTO_COUNT}枚シードされている`
+    ).toHaveLength(PLAIN_PHOTO_COUNT);
+    expect(
+      annotatedFileNames,
+      `前提: 注釈付き写真が${ANNOTATED_PHOTO_COUNT}枚シードされている`
+    ).toHaveLength(ANNOTATED_PHOTO_COUNT);
 
+    await navigateToQuantityTableEdit(page);
+
+    // --- 写真未紐付けから開く一覧（REQ-4.3）---
+    await openPhotoDialog(page, 'placeholder');
+    await expectAnnotatedOnlyPhotoList(page, 'REQ-4.3: 写真選択ダイアログ');
+
+    // --- 写真を紐づけてから「写真を変更」で開き直した一覧（REQ-19.2）---
+    // 紐づけはクライアントドラフトの更新に留まる（REQ-42.3）。本区間は一覧の内容のみを
+    // 問うため保存はしない（後続テストは未紐付けのグループを前提に開き直す）。
     const dialog = page.getByRole('dialog', { name: '写真を選択' });
-    const photoList = dialog.locator('[data-testid="photo-list"]');
-    await expect(photoList, '写真一覧が表示される必要がある').toBeVisible({
-      timeout: getTimeout(20000),
+    const firstAnnotated = annotatedFileNames[0];
+    assertPrepared(firstAnnotated, '注釈を保存した写真のファイル名');
+    await dialog.locator(`[data-testid^="photo-item-"][alt="${firstAnnotated}"]`).click();
+    await expect(dialog, '写真の選択でダイアログが閉じる必要がある').not.toBeVisible({
+      timeout: getTimeout(10000),
     });
 
-    const photoItems = dialog.locator('[data-testid^="photo-item-"]');
-    await expect(photoItems, 'シードした写真が選択候補として表示される必要がある').toHaveCount(
-      SEED_PHOTO_COUNT,
-      { timeout: getTimeout(20000) }
-    );
-    await expect(photoItems.first()).toBeVisible();
+    await openPhotoDialog(page, 'change-button');
+    await expectAnnotatedOnlyPhotoList(page, 'REQ-19.2: 写真変更ダイアログ');
   });
 
   /**

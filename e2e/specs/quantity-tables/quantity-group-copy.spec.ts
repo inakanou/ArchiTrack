@@ -313,11 +313,14 @@ test.describe('REQ-38: 数量グループのコピー機能 E2E', () => {
         throw new Error('testProjectId が未設定です。事前準備テストが正しく実行されていません。');
       }
 
+      // REQ-38.4 の関心はコピー先での写真紐づけの維持であり注釈の有無ではない。写真選択
+      // ダイアログの候補として現れる必要があるため全件へ注釈を保存する（Task 82.1）。
       const { imageIds } = await seedSurveyPhotosWithComments(
         page,
         testProjectId,
         'グループコピーE2E_現場調査',
-        SURVEY_PHOTO_COMMENTS
+        SURVEY_PHOTO_COMMENTS,
+        'all'
       );
       expect(imageIds.length, '前提: 紐づけ候補となる写真が作成される').toBe(
         SURVEY_PHOTO_COMMENTS.length

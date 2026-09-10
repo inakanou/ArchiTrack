@@ -27,7 +27,8 @@ import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
-import { assertPresent } from '../../helpers/preconditions';
+import { assertPresent, assertPrepared } from '../../helpers/preconditions';
+import { annotateSurveyImages } from '../../helpers/survey-image-annotations';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -255,6 +256,24 @@ test.describe('REQ-39: 写真選択・変更ダイアログの写真一覧が重
       expect(
         seededPhotoCount,
         '重なり検証のため30枚以上の写真がシードされている必要がある'
+      ).toBeGreaterThanOrEqual(30);
+
+      // --- シードした全枚数へ注釈を保存する（Task 82.1）---
+      // 写真選択・変更ダイアログの一覧（`GET /api/projects/:projectId/survey-images`）は
+      // 注釈レコードを持つ写真のみを返す（Requirement 4.3 / 19.2）。注釈を保存しないと
+      // 選択候補が0件になり、重なり判定は「複数枚が表示される」の前提段階で失敗する。
+      //
+      // 枚数を絞らず全件へ注釈を付けるのは、本 spec の検証対象（REQ-39: 写真枚数の多寡に
+      // かかわらず重なりゼロ／折り返しとスクロール）が**一覧に並ぶ枚数**そのものを要件と
+      // するためである。一覧に並ぶのは注釈付きのみなので、注釈を付けた枚数＝判定に供される
+      // 枚数であり、ここを30枚未満に絞ると REQ-39.4 / 39.5 / 39.6 の「多数枚」が成立しない。
+      // 注釈の保存は画像処理を伴わないDB書き込み1回であり（合成済みサムネイルは別経路。
+      // `survey-image-annotations.ts` 参照）、枚数に対する所要時間は軽い。
+      assertPrepared(createdSurveyId, '作成した現場調査のID');
+      const annotatedImages = await annotateSurveyImages(page, createdSurveyId, 'all');
+      expect(
+        annotatedImages.length,
+        '重なり検証のため30枚以上の写真が選択候補（注釈付き）になっている必要がある'
       ).toBeGreaterThanOrEqual(30);
 
       // --- 数量表作成 ---
