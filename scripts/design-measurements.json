@@ -1065,11 +1065,11 @@
     {
       "id": "coverage-adjudication-reader-files",
       "file": "scripts/coverage-mark-adjudication.md",
-      "anchor": "タスク 115.301 の提出時点の再実測は",
+      "anchor": "タスク 80.4 の時点の再実測は",
       "command": "grep -rl coverage-mark-adjudication --include=*.ts --include=*.js --include=*.json --include=*.md --include=*.yml . | grep -v node_modules | grep -vE '^\\./(playwright-report|test-results)/' | wc -l",
-      "expected": "10",
-      "documentRendering": "再実測は 10 件である",
-      "note": "タスク 115.301。裁定記録の名を引くファイルの数。§6 が「本記録を読む機械は」を述べるときの読み手の母集団であり、増減すればその主張を測り直す契機になる。E2E の生成物は除いた形で数える（母集団の取り方は §6 の当該段落が逐語で持つ）"
+      "expected": "11",
+      "documentRendering": "再実測は 11 件である",
+      "note": "タスク 80.4（起点は 115.301）。裁定記録の名を引くファイルの数。§6 が「本記録を読む機械は」を述べるときの読み手の母集団であり、増減すればその主張を測り直す契機になる。E2E の生成物は除いた形で数える（母集団の取り方は §6 の当該段落が逐語で持つ） 80.4 で 11 件へ。増分は数量表作成スペックのタスク一覧が本記録を名指したことによる（規約 (a) により 115.301 の 10 件は文書に残す）。"
     },
     {
       "id": "coverage-adjudication-settled-bullets",
