@@ -120,7 +120,12 @@ const bulkMoveSchema = z.object({
  * /api/quantity-groups/{groupId}/items:
  *   post:
  *     summary: 数量項目作成
- *     description: 新しい数量項目を作成
+ *     description: |
+ *       新しい数量項目を作成する。
+ *       テキスト欄には maxLength（符号単位）とは別に文字幅の上限が課される（全角2・半角1で換算）。
+ *       大項目・中項目・小項目・任意分類・名称・規格・備考は幅50、工種は幅16、単位は幅6。
+ *       上限を超える値は 400（code: QUANTITY_TABLE_VALIDATION_ERROR）で拒否され、
+ *       応答本体に違反したフィールド名と理由が入る。保存（PUT /api/quantity-tables/{id}/save）と同一の判定である。
  *     tags:
  *       - Quantity Items
  *     security:
@@ -176,7 +181,9 @@ const bulkMoveSchema = z.object({
  *       201:
  *         description: 数量項目作成成功
  *       400:
- *         description: バリデーションエラー
+ *         description: |
+ *           バリデーションエラー。テキスト欄の文字幅上限違反は code: QUANTITY_TABLE_VALIDATION_ERROR で、
+ *           違反したフィールド名をキーに理由を持つ
  *       401:
  *         description: 認証エラー
  *       403:
@@ -225,6 +232,19 @@ router.post(
           status: 404,
           detail: error.message,
           code: 'QUANTITY_GROUP_NOT_FOUND',
+        });
+        return;
+      }
+      if (error instanceof QuantityTableValidationError) {
+        // 文字数上限（13.1-13.3）違反。保存経路（PUT /api/quantity-tables/:id/save）と同じ
+        // 400 / QUANTITY_TABLE_VALIDATION_ERROR で返し、違反フィールドを明示する（Task 77.1）
+        res.status(400).json({
+          type: 'https://architrack.example.com/problems/validation-error',
+          title: 'Validation Error',
+          status: 400,
+          detail: error.message,
+          code: 'QUANTITY_TABLE_VALIDATION_ERROR',
+          ...(error.validationErrors ?? {}),
         });
         return;
       }
@@ -445,7 +465,11 @@ router.get(
  * /api/quantity-items/{id}:
  *   put:
  *     summary: 数量項目更新
- *     description: 既存の数量項目情報を更新（楽観的排他制御）
+ *     description: |
+ *       既存の数量項目情報を更新する（楽観的排他制御）。
+ *       テキスト欄には作成と同一の文字幅の上限が課される（全角2・半角1で換算）。
+ *       大項目・中項目・小項目・任意分類・名称・規格・備考は幅50、工種は幅16、単位は幅6。
+ *       上限を超える値は 400（code: QUANTITY_TABLE_VALIDATION_ERROR）で拒否され、当該行は変化しない。
  *     tags:
  *       - Quantity Items
  *     security:
@@ -480,7 +504,9 @@ router.get(
  *       200:
  *         description: 数量項目更新成功
  *       400:
- *         description: バリデーションエラー
+ *         description: |
+ *           バリデーションエラー。テキスト欄の文字幅上限違反は code: QUANTITY_TABLE_VALIDATION_ERROR で、
+ *           違反したフィールド名をキーに理由を持つ
  *       401:
  *         description: 認証エラー
  *       403:
@@ -535,6 +561,19 @@ router.put(
           detail: error.message,
           code: 'QUANTITY_ITEM_CONFLICT',
           ...(conflictDetails ?? {}),
+        });
+        return;
+      }
+      if (error instanceof QuantityTableValidationError) {
+        // 文字数上限（13.1-13.3）違反。作成経路・保存経路と同じ
+        // 400 / QUANTITY_TABLE_VALIDATION_ERROR で返し、違反フィールドを明示する（Task 77.1）
+        res.status(400).json({
+          type: 'https://architrack.example.com/problems/validation-error',
+          title: 'Validation Error',
+          status: 400,
+          detail: error.message,
+          code: 'QUANTITY_TABLE_VALIDATION_ERROR',
+          ...(error.validationErrors ?? {}),
         });
         return;
       }

@@ -8,6 +8,9 @@
  * - 5.2: 数量項目の各フィールドに値を入力する
  * - 5.3: 必須フィールド（大項目・工種・名称・単位・数量）が未入力で保存を試行する
  * - 5.4: 数量項目を選択して削除操作を行う
+ * - 13.1: 大項目・中項目・小項目・任意分類・名称・規格・備考の文字数上限（全角25文字/半角50文字）
+ * - 13.2: 工種の文字数上限（全角8文字/半角16文字）
+ * - 13.3: 単位の文字数上限（全角3文字/半角6文字）
  *
  * @module services/quantity-item
  */
@@ -29,6 +32,7 @@ import {
   QuantityTableValidationError,
 } from '../errors/quantityTableError.js';
 import { QUANTITY_ITEM_TARGET_TYPE } from '../types/audit-log.types.js';
+import { QuantityFieldValidationService } from './quantity-field-validation.service.js';
 import Decimal from 'decimal.js';
 
 /**
@@ -37,6 +41,12 @@ import Decimal from 'decimal.js';
 export interface QuantityItemServiceDependencies {
   prisma: PrismaClient;
   auditLogService: IAuditLogService;
+  /**
+   * フィールド仕様（文字数上限）検証サービス
+   *
+   * 省略時は既定のインスタンスを用いる。保存経路（QuantityTableService）と同一の実装である。
+   */
+  quantityFieldValidationService?: QuantityFieldValidationService;
 }
 
 /**
@@ -88,10 +98,13 @@ type PrismaTransactionClient = Omit<
 export class QuantityItemService {
   private readonly prisma: PrismaClient;
   private readonly auditLogService: IAuditLogService;
+  private readonly quantityFieldValidationService: QuantityFieldValidationService;
 
   constructor(deps: QuantityItemServiceDependencies) {
     this.prisma = deps.prisma;
     this.auditLogService = deps.auditLogService;
+    this.quantityFieldValidationService =
+      deps.quantityFieldValidationService ?? new QuantityFieldValidationService();
   }
 
   /**
@@ -106,8 +119,13 @@ export class QuantityItemService {
    * @param actorId - 実行者ID
    * @returns 作成された数量項目情報
    * @throws QuantityGroupNotFoundError 数量グループが存在しない、または論理削除済みの場合
+   * @throws QuantityTableValidationError テキストフィールドが文字数上限を超える場合（13.1-13.3）
    */
   async create(input: CreateQuantityItemInput, actorId: string): Promise<QuantityItemInfo> {
+    // トランザクション開始前に文字数上限を検証し、違反があれば作成を中断する（13.1-13.3）。
+    // 書き込みは一切行わない（保存経路 QuantityTableService.saveDraft と同じ順序）。
+    this.validateTextFieldWidths(input);
+
     return await this.prisma.$transaction(async (tx) => {
       // 1. 数量グループ存在確認
       await this.validateQuantityGroupExists(tx, input.quantityGroupId);
@@ -158,6 +176,68 @@ export class QuantityItemService {
 
       return this.toQuantityItemInfo(quantityItem);
     });
+  }
+
+  /**
+   * 作成・更新入力のテキストフィールドの文字数上限を検証する
+   *
+   * Task 77.1: 作成経路・更新経路が保存経路と同じ上限を課さないため、作成・更新はできるが
+   * 保存はできない数量項目を作れてしまう状態を解消する。
+   *
+   * 判定は保存経路（`QuantityTableService.validateDraft`）と同一の
+   * `QuantityFieldValidationService.validateItemTextFieldSpecs` に委ねる。上限値・幅計算・
+   * メッセージを本ファイルへ書き起こすと、判定の定義が二重になり再び食い違う。
+   *
+   * 検証対象は受け取った値そのものである（永続化時の `trim()` を先に適用しない）。保存経路も
+   * 要求に入っていた値を検証して永続化時に `trim()` するため、前処理を変えると同じ値に対する
+   * 判定が再び非対称になる。
+   *
+   * **部分更新で指定されなかった欄は判定の対象にならない。** 必須3欄（工種・名称・単位）の
+   * 未指定には空文字を、任意欄の未指定には null を充てる。正典の判定は幅だけを見るため
+   * （`validateTextField` は `validateTextLength` の真偽のみを返す）、幅0の空文字と
+   * 判定を飛ばす null はいずれも違反にならず、未指定の欄を誤って拒否することはない。
+   *
+   * Requirements: 13.1, 13.2, 13.3
+   *
+   * @param input - 作成入力または更新入力（部分更新可）
+   * @throws QuantityTableValidationError 文字数上限を超えるフィールドが1件以上ある場合
+   */
+  private validateTextFieldWidths(input: {
+    majorCategory?: string | null;
+    middleCategory?: string | null;
+    minorCategory?: string | null;
+    customCategory?: string | null;
+    workType?: string;
+    name?: string;
+    specification?: string | null;
+    unit?: string;
+    remarks?: string | null;
+  }): void {
+    const result = this.quantityFieldValidationService.validateItemTextFieldSpecs({
+      majorCategory: input.majorCategory ?? null,
+      middleCategory: input.middleCategory ?? null,
+      minorCategory: input.minorCategory ?? null,
+      customCategory: input.customCategory ?? null,
+      workType: input.workType ?? '',
+      name: input.name ?? '',
+      specification: input.specification ?? null,
+      unit: input.unit ?? '',
+      remarks: input.remarks ?? null,
+    });
+
+    if (result.isValid) {
+      return;
+    }
+
+    const validationErrors: Record<string, string> = {};
+    for (const error of result.errors) {
+      validationErrors[error.field] = error.message;
+    }
+
+    throw new QuantityTableValidationError(
+      '数量項目に整合性エラーがあります。問題箇所を修正してください。',
+      validationErrors
+    );
   }
 
   /**
@@ -248,6 +328,7 @@ export class QuantityItemService {
    * @returns 更新された数量項目情報
    * @throws QuantityItemNotFoundError 数量項目が存在しない場合
    * @throws QuantityItemConflictError 楽観的排他制御エラー
+   * @throws QuantityTableValidationError テキストフィールドが文字数上限を超える場合（13.1-13.3）
    */
   async update(
     id: string,
@@ -255,6 +336,10 @@ export class QuantityItemService {
     actorId: string,
     expectedUpdatedAt: Date
   ): Promise<QuantityItemInfo> {
+    // トランザクション開始前に文字数上限を検証し、違反があれば更新を中断する（13.1-13.3）。
+    // 書き込みは一切行わない（作成経路・保存経路と同じ順序・同じ判定）。
+    this.validateTextFieldWidths(input);
+
     return await this.prisma.$transaction(async (tx) => {
       // 1. 数量項目の存在確認
       const quantityItem = await tx.quantityItem.findUnique({

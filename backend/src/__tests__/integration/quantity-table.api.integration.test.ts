@@ -6,12 +6,16 @@
  * 数量表、数量グループ、数量項目のAPI統合テストを実装します。
  *
  * Task 9.3: APIエンドポイントの統合テストを実装する
+ * Task 77.1: 数量項目の入力上限の検証位置の不一致を解消する
  *
  * Requirements:
  * - 2.1: 数量表一覧画面で新規作成操作を行う
  * - 4.1: 数量表編集画面で数量グループ追加操作を行う
  * - 5.1: 数量グループ内で行追加操作を行う
  * - 7.1: オートコンプリート候補の取得
+ * - 13.1: 大項目・中項目・小項目・任意分類・名称・規格・備考の文字数上限（全角25文字/半角50文字）
+ * - 13.2: 工種の文字数上限（全角8文字/半角16文字）
+ * - 13.3: 単位の文字数上限（全角3文字/半角6文字）
  *
  * @module __tests__/integration/quantity-table.api.integration.test
  */
@@ -1149,6 +1153,65 @@ describe('Quantity Table API Integration Tests', () => {
 
         expect(response.status).toBe(400);
       });
+
+      // Task 77.1: 作成経路が保存経路と同じ文字数上限を課さないと、作成はできるが保存は
+      // 必ず拒否される数量項目が残る。作成の時点で拒否し、行が増えないことを実DBで確かめる。
+      it('文字数上限を超える値での作成を400で拒否し、行を作らない (Req 13.1, 13.2, 13.3)', async () => {
+        const before = await prisma.quantityItem.count({
+          where: { quantityGroupId: testQuantityGroupId },
+        });
+
+        const response = await request(app)
+          .post(`/api/quantity-groups/${testQuantityGroupId}/items`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({
+            majorCategory: '建築工事',
+            workType: 'あ'.repeat(9), // 幅18 > 16（13.2）
+            name: 'あ'.repeat(26), // 幅52 > 50（13.1）
+            unit: '立方メートル', // 幅12 > 6（13.3）
+            quantity: 100,
+            calculationMethod: 'STANDARD',
+            adjustmentFactor: 1.0,
+            roundingUnit: 0.01,
+          });
+
+        expect(response.status).toBe(400);
+        expect(response.body).toMatchObject({
+          code: 'QUANTITY_TABLE_VALIDATION_ERROR',
+          workType: '工種は全角8文字/半角16文字以内で入力してください',
+          name: '名称は全角25文字/半角50文字以内で入力してください',
+          unit: '単位は全角3文字/半角6文字以内で入力してください',
+        });
+
+        const after = await prisma.quantityItem.count({
+          where: { quantityGroupId: testQuantityGroupId },
+        });
+        expect(after).toBe(before);
+      });
+
+      it('上限ちょうどの値は作成できる (Req 13.1, 13.2, 13.3)', async () => {
+        const response = await request(app)
+          .post(`/api/quantity-groups/${testQuantityGroupId}/items`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({
+            majorCategory: '建築工事',
+            workType: 'あ'.repeat(8), // 幅16
+            name: 'あ'.repeat(25), // 幅50
+            unit: 'あいう', // 幅6
+            remarks: 'あ'.repeat(24) + 'ab', // 幅50
+            quantity: 100,
+            calculationMethod: 'STANDARD',
+            adjustmentFactor: 1.0,
+            roundingUnit: 0.01,
+          });
+
+        expect(response.status).toBe(201);
+        expect(response.body).toMatchObject({
+          workType: 'あ'.repeat(8),
+          name: 'あ'.repeat(25),
+          unit: 'あいう',
+        });
+      });
     });
 
     describe('GET /api/quantity-groups/:groupId/items', () => {
@@ -1159,6 +1222,89 @@ describe('Quantity Table API Integration Tests', () => {
 
         expect(response.status).toBe(200);
         expect(response.body).toBeInstanceOf(Array);
+      });
+    });
+
+    // Task 77.1: 更新経路にも保存経路と同じ文字数上限を課す。上限超過の更新を受理すると
+    // 保存できない値が永続化され、その数量表は以後保存できなくなる。
+    describe('PUT /api/quantity-items/:id', () => {
+      it('文字数上限を超える値での更新を400で拒否し、行を変化させない (Req 13.1, 13.2, 13.3)', async () => {
+        const item = await prisma.quantityItem.create({
+          data: {
+            quantityGroupId: testQuantityGroupId,
+            majorCategory: '更新上限テスト',
+            workType: 'テスト工種',
+            name: '更新前の名称',
+            unit: 'm2',
+            quantity: 100,
+            calculationMethod: 'STANDARD',
+            adjustmentFactor: 1.0,
+            roundingUnit: 0.01,
+            remarks: '更新前の備考',
+            displayOrder: 98,
+          },
+        });
+
+        const response = await request(app)
+          .put(`/api/quantity-items/${item.id}`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({
+            name: 'あ'.repeat(26), // 幅52 > 50（13.1）
+            unit: '立方メートル', // 幅12 > 6（13.3）
+            remarks: 'あ'.repeat(50000), // 更新スキーマに上限が無い欄（13.1）
+            expectedUpdatedAt: item.updatedAt.toISOString(),
+          });
+
+        expect(response.status).toBe(400);
+        expect(response.body).toMatchObject({
+          code: 'QUANTITY_TABLE_VALIDATION_ERROR',
+          name: '名称は全角25文字/半角50文字以内で入力してください',
+          unit: '単位は全角3文字/半角6文字以内で入力してください',
+          remarks: '備考は全角25文字/半角50文字以内で入力してください',
+        });
+
+        // 当該行が一切変化しないこと
+        const after = await prisma.quantityItem.findUnique({ where: { id: item.id } });
+        expect(after).not.toBeNull();
+        expect(after!.name).toBe('更新前の名称');
+        expect(after!.unit).toBe('m2');
+        expect(after!.remarks).toBe('更新前の備考');
+        expect(after!.updatedAt.toISOString()).toBe(item.updatedAt.toISOString());
+      });
+
+      it('上限ちょうどの値は更新できる (Req 13.1, 13.2, 13.3)', async () => {
+        const item = await prisma.quantityItem.create({
+          data: {
+            quantityGroupId: testQuantityGroupId,
+            majorCategory: '更新上限テスト',
+            workType: 'テスト工種',
+            name: '更新前の名称',
+            unit: 'm2',
+            quantity: 100,
+            calculationMethod: 'STANDARD',
+            adjustmentFactor: 1.0,
+            roundingUnit: 0.01,
+            displayOrder: 97,
+          },
+        });
+
+        const response = await request(app)
+          .put(`/api/quantity-items/${item.id}`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({
+            name: 'あ'.repeat(25), // 幅50
+            workType: 'あ'.repeat(8), // 幅16
+            unit: 'あいう', // 幅6
+            remarks: 'あ'.repeat(24) + 'ab', // 幅50
+            expectedUpdatedAt: item.updatedAt.toISOString(),
+          });
+
+        expect(response.status).toBe(200);
+        expect(response.body).toMatchObject({
+          name: 'あ'.repeat(25),
+          workType: 'あ'.repeat(8),
+          unit: 'あいう',
+        });
       });
     });
 

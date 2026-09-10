@@ -10,6 +10,9 @@
  * - 5.4: 数量項目を選択して削除操作を行う
  * - 6.1: 数量項目のコピー
  * - 6.2: 数量項目の移動
+ * - 13.1: 大項目・中項目・小項目・任意分類・名称・規格・備考の文字数上限（全角25文字/半角50文字）
+ * - 13.2: 工種の文字数上限（全角8文字/半角16文字）
+ * - 13.3: 単位の文字数上限（全角3文字/半角6文字）
  *
  * @module __tests__/unit/routes/quantity-items.routes
  */
@@ -198,6 +201,39 @@ describe('QuantityItemsRoutes', () => {
         .expect(400);
     });
 
+    it('文字数上限違反を400 / QUANTITY_TABLE_VALIDATION_ERROR と違反フィールドで返す（Req 13.1, 13.2, 13.3）', async () => {
+      // Task 77.1: 作成経路の拒否の応答形を保存経路（PUT /api/quantity-tables/:id/save）と揃える
+      const groupId = '123e4567-e89b-12d3-a456-426614174000';
+      const { QuantityTableValidationError } =
+        await import('../../../errors/quantityTableError.js');
+      mockService.create.mockRejectedValue(
+        new QuantityTableValidationError(
+          '数量項目に整合性エラーがあります。問題箇所を修正してください。',
+          {
+            unit: '単位は全角3文字/半角6文字以内で入力してください',
+          }
+        )
+      );
+
+      const response = await request(app)
+        .post(`/api/quantity-groups/${groupId}/items`)
+        .send({
+          majorCategory: '建築',
+          workType: '足場工事',
+          name: '単管足場',
+          unit: '立方メートル',
+          quantity: 100.5,
+        })
+        .expect(400);
+
+      expect(response.body).toMatchObject({
+        status: 400,
+        code: 'QUANTITY_TABLE_VALIDATION_ERROR',
+        detail: '数量項目に整合性エラーがあります。問題箇所を修正してください。',
+        unit: '単位は全角3文字/半角6文字以内で入力してください',
+      });
+    });
+
     it('should return 404 when group not found', async () => {
       const groupId = '123e4567-e89b-12d3-a456-426614174000';
       const { QuantityGroupNotFoundError } = await import('../../../errors/quantityTableError.js');
@@ -354,6 +390,36 @@ describe('QuantityItemsRoutes', () => {
         .expect(409);
 
       expect(response.body).toHaveProperty('code', 'QUANTITY_ITEM_CONFLICT');
+    });
+
+    it('文字数上限違反を400 / QUANTITY_TABLE_VALIDATION_ERROR と違反フィールドで返す（Req 13.1, 13.2, 13.3）', async () => {
+      // Task 77.1: 更新経路の拒否の応答形を作成経路・保存経路と揃える
+      const itemId = '123e4567-e89b-12d3-a456-426614174001';
+      const { QuantityTableValidationError } =
+        await import('../../../errors/quantityTableError.js');
+      mockService.update.mockRejectedValue(
+        new QuantityTableValidationError(
+          '数量項目に整合性エラーがあります。問題箇所を修正してください。',
+          {
+            remarks: '備考は全角25文字/半角50文字以内で入力してください',
+          }
+        )
+      );
+
+      const response = await request(app)
+        .put(`/api/quantity-items/${itemId}`)
+        .send({
+          remarks: 'あ'.repeat(26),
+          expectedUpdatedAt: new Date().toISOString(),
+        })
+        .expect(400);
+
+      expect(response.body).toMatchObject({
+        status: 400,
+        code: 'QUANTITY_TABLE_VALIDATION_ERROR',
+        detail: '数量項目に整合性エラーがあります。問題箇所を修正してください。',
+        remarks: '備考は全角25文字/半角50文字以内で入力してください',
+      });
     });
   });
 

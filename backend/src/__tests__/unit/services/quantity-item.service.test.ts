@@ -8,14 +8,20 @@
  * - 5.2: 数量項目の各フィールドに値を入力する
  * - 5.3: 必須フィールド（大項目・工種・名称・単位・数量）が未入力で保存を試行する
  * - 5.4: 数量項目を選択して削除操作を行う
+ * - 13.1: 大項目・中項目・小項目・任意分類・名称・規格・備考の文字数上限（全角25文字/半角50文字）
+ * - 13.2: 工種の文字数上限（全角8文字/半角16文字）
+ * - 13.3: 単位の文字数上限（全角3文字/半角6文字）
  *
  * Task 2.3: 数量項目のCRUD操作を実装する
+ * Task 77.1: 数量項目の入力上限の検証位置の不一致を解消する
  *
  * @module __tests__/unit/services/quantity-item.service.test
  */
 
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { QuantityItemService } from '../../../services/quantity-item.service.js';
+import { QuantityFieldValidationService } from '../../../services/quantity-field-validation.service.js';
+import { QuantityTableValidationError } from '../../../errors/quantityTableError.js';
 import type { PrismaClient } from '../../../generated/prisma/client.js';
 import type { IAuditLogService } from '../../../types/audit-log.types.js';
 import Decimal from 'decimal.js';
@@ -212,6 +218,193 @@ describe('QuantityItemService', () => {
 
       // Act & Assert
       await expect(service.create(input, actorId)).rejects.toThrow('数量グループが見つかりません');
+    });
+
+    // ========================================================================
+    // Task 77.1: 作成経路にも保存経路と同一の文字数上限を課す
+    //
+    // 作成が上限を課さないと、上限を超える値のまま項目を作成でき、その後の保存が
+    // 必ず拒否されるため「保存できない数量表」が残る。作成の時点で拒否することと、
+    // 判定・メッセージが保存経路（QuantityTableService.validateDraft が呼ぶ
+    // QuantityFieldValidationService.validateItemFieldSpecs）と一致することを確かめる。
+    //
+    // Requirements: 13.1, 13.2, 13.3
+    // ========================================================================
+    describe('テキストフィールドの文字数上限（Requirements: 13.1, 13.2, 13.3）', () => {
+      /** 保存経路が用いる正典の検証サービス（作成経路と同一の実装であること自体を確かめる） */
+      const canonicalValidation = new QuantityFieldValidationService();
+
+      /**
+       * 保存経路（validateItemFieldSpecs）が当該フィールドについて返すメッセージを得る。
+       * 作成経路の拒否メッセージと突き合わせることで、判定の定義が二重になっていないことを示す。
+       */
+      const saveSideMessageFor = (overrides: Record<string, string>, field: string): string => {
+        const result = canonicalValidation.validateItemFieldSpecs({
+          majorCategory: null,
+          middleCategory: null,
+          minorCategory: null,
+          customCategory: null,
+          workType: '掘削',
+          name: '掘削作業',
+          specification: null,
+          unit: 'm3',
+          remarks: null,
+          adjustmentFactor: 1.0,
+          roundingUnit: 0.01,
+          quantity: 100,
+          ...overrides,
+        });
+        const error = result.errors.find((e) => e.field === field);
+        expect(error).toBeDefined();
+        return error!.message;
+      };
+
+      /** 上限を超える値での作成が拒否され、書き込みが一切起きないことを確かめる */
+      const expectRejected = async (
+        overrides: Record<string, string>,
+        expectedValidationErrors: Record<string, string>
+      ): Promise<void> => {
+        mockPrisma.quantityGroup.findUnique.mockResolvedValue({
+          id: quantityGroupId,
+          quantityTable: { deletedAt: null },
+        });
+        mockPrisma.quantityItem.count.mockResolvedValue(0);
+
+        const thrown = await service.create({ ...input, ...overrides }, actorId).then(
+          () => null,
+          (error: unknown) => error
+        );
+
+        expect(thrown).toBeInstanceOf(QuantityTableValidationError);
+        expect((thrown as QuantityTableValidationError).validationErrors).toEqual(
+          expectedValidationErrors
+        );
+        // 保存できない数量項目が残らないこと（書き込み前に中断する）
+        expect(mockPrisma.quantityItem.create).not.toHaveBeenCalled();
+        expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+      };
+
+      /** 上限以内の値での作成が従来どおり通ることを確かめる */
+      const expectAccepted = async (overrides: Record<string, string>): Promise<void> => {
+        mockPrisma.quantityGroup.findUnique.mockResolvedValue({
+          id: quantityGroupId,
+          quantityTable: { deletedAt: null },
+        });
+        mockPrisma.quantityItem.count.mockResolvedValue(0);
+        mockPrisma.quantityItem.create.mockResolvedValue({
+          id: '123e4567-e89b-12d3-a456-426614174002',
+          quantityGroupId,
+          majorCategory: '土工事',
+          middleCategory: null,
+          minorCategory: null,
+          customCategory: null,
+          workType: '掘削',
+          name: '掘削作業',
+          specification: null,
+          unit: 'm3',
+          calculationMethod: 'STANDARD',
+          calculationParams: null,
+          adjustmentFactor: new Decimal('1.0000'),
+          roundingUnit: new Decimal('0.0100'),
+          quantity: new Decimal('100.0000'),
+          remarks: null,
+          displayOrder: 0,
+          createdAt: new Date('2026-01-06T00:00:00.000Z'),
+          updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+          ...overrides,
+        });
+
+        await service.create({ ...input, ...overrides }, actorId);
+
+        expect(mockPrisma.quantityItem.create).toHaveBeenCalledTimes(1);
+      };
+
+      it('単位が上限（全角3文字/半角6文字）を超える作成を拒否する（13.3）', async () => {
+        // 幅12（全角6文字）。site-survey の Task 115.27 で実際に投入された類の値
+        const overWideUnit = '立方メートル';
+        const expected = saveSideMessageFor({ unit: overWideUnit }, 'unit');
+        expect(expected).toBe('単位は全角3文字/半角6文字以内で入力してください');
+
+        await expectRejected({ unit: overWideUnit }, { unit: expected });
+      });
+
+      it('単位が半角でも上限（半角6文字）を超える作成を拒否する（13.3）', async () => {
+        const overWideUnit = 'm3m3m3'.concat('m'); // 幅7
+        await expectRejected(
+          { unit: overWideUnit },
+          { unit: saveSideMessageFor({ unit: overWideUnit }, 'unit') }
+        );
+      });
+
+      it('工種が上限（全角8文字/半角16文字）を超える作成を拒否する（13.2）', async () => {
+        const overWideWorkType = 'あ'.repeat(9); // 幅18
+        const expected = saveSideMessageFor({ workType: overWideWorkType }, 'workType');
+        expect(expected).toBe('工種は全角8文字/半角16文字以内で入力してください');
+
+        await expectRejected({ workType: overWideWorkType }, { workType: expected });
+      });
+
+      it('名称が上限（全角25文字/半角50文字）を超える作成を拒否する（13.1）', async () => {
+        const overWideName = 'あ'.repeat(26); // 幅52
+        const expected = saveSideMessageFor({ name: overWideName }, 'name');
+        expect(expected).toBe('名称は全角25文字/半角50文字以内で入力してください');
+
+        await expectRejected({ name: overWideName }, { name: expected });
+      });
+
+      it('備考が上限（全角25文字/半角50文字）を超える作成を拒否する（13.1）', async () => {
+        // 備考は作成スキーマに文字数上限が一切無く、保存経路だけが拒否していたフィールド
+        const overWideRemarks = 'あ'.repeat(26); // 幅52
+        await expectRejected(
+          { remarks: overWideRemarks },
+          { remarks: saveSideMessageFor({ remarks: overWideRemarks }, 'remarks') }
+        );
+      });
+
+      it('大項目・中項目・小項目・任意分類・規格も上限を超える作成を拒否する（13.1）', async () => {
+        const overWide = 'あ'.repeat(26); // 幅52
+        for (const field of [
+          'majorCategory',
+          'middleCategory',
+          'minorCategory',
+          'customCategory',
+          'specification',
+        ]) {
+          vi.clearAllMocks();
+          mockAuditLogService.createLog.mockResolvedValue(undefined);
+          mockPrisma.$transaction.mockImplementation((callback: (tx: unknown) => unknown) =>
+            callback(mockPrisma)
+          );
+
+          await expectRejected(
+            { [field]: overWide },
+            { [field]: saveSideMessageFor({ [field]: overWide }, field) }
+          );
+        }
+      });
+
+      it('複数フィールドが上限を超える場合は全件を返す（13.1, 13.2, 13.3）', async () => {
+        const overrides = {
+          name: 'あ'.repeat(26),
+          workType: 'あ'.repeat(9),
+          unit: '立方メートル',
+        };
+
+        await expectRejected(overrides, {
+          name: saveSideMessageFor(overrides, 'name'),
+          workType: saveSideMessageFor(overrides, 'workType'),
+          unit: saveSideMessageFor(overrides, 'unit'),
+        });
+      });
+
+      it('上限ちょうどの値は従来どおり作成できる（13.1, 13.2, 13.3）', async () => {
+        await expectAccepted({
+          name: 'あ'.repeat(25), // 幅50
+          workType: 'あ'.repeat(8), // 幅16
+          unit: 'あいう', // 幅6
+          remarks: 'あ'.repeat(24) + 'ab', // 幅50
+        });
+      });
     });
   });
 
@@ -507,6 +700,191 @@ describe('QuantityItemService', () => {
       await expect(
         service.update(itemId, { name: '新名称' }, actorId, expectedUpdatedAt)
       ).rejects.toThrow('数量項目が見つかりません');
+    });
+
+    // ========================================================================
+    // Task 77.1: 更新経路にも保存経路と同一の文字数上限を課す
+    //
+    // 更新が上限を課さないと、上限以内で作成した項目を上限超過へ書き換えられ、
+    // その後の保存が必ず拒否されるため「保存できない数量表」が残る。作成経路と同じ
+    // 欠陥であり、同じ正典（QuantityFieldValidationService）で塞ぐ。
+    //
+    // Requirements: 13.1, 13.2, 13.3
+    // ========================================================================
+    describe('テキストフィールドの文字数上限（Requirements: 13.1, 13.2, 13.3）', () => {
+      /** 保存経路が用いる正典の検証サービス（更新経路と同一の実装であること自体を確かめる） */
+      const canonicalValidation = new QuantityFieldValidationService();
+
+      /**
+       * 保存経路（validateItemFieldSpecs）が当該フィールドについて返すメッセージを得る。
+       * 更新経路の拒否メッセージと突き合わせることで、判定の定義が二重になっていないことを示す。
+       */
+      const saveSideMessageFor = (overrides: Record<string, string>, field: string): string => {
+        const result = canonicalValidation.validateItemFieldSpecs({
+          majorCategory: null,
+          middleCategory: null,
+          minorCategory: null,
+          customCategory: null,
+          workType: '掘削',
+          name: '掘削作業',
+          specification: null,
+          unit: 'm3',
+          remarks: null,
+          adjustmentFactor: 1.0,
+          roundingUnit: 0.01,
+          quantity: 100,
+          ...overrides,
+        });
+        const error = result.errors.find((e) => e.field === field);
+        expect(error).toBeDefined();
+        return error!.message;
+      };
+
+      /** 更新対象として findUnique が返す既存行 */
+      const existingItem = {
+        id: itemId,
+        quantityGroupId: '123e4567-e89b-12d3-a456-426614174000',
+        majorCategory: '土工事',
+        middleCategory: null,
+        minorCategory: null,
+        customCategory: null,
+        workType: '掘削',
+        name: '掘削作業',
+        specification: null,
+        unit: 'm3',
+        calculationMethod: 'STANDARD',
+        calculationParams: null,
+        adjustmentFactor: new Decimal('1.0000'),
+        roundingUnit: new Decimal('0.0100'),
+        quantity: new Decimal('100.0000'),
+        remarks: null,
+        displayOrder: 0,
+        createdAt: new Date('2026-01-05T00:00:00.000Z'),
+        updatedAt: expectedUpdatedAt,
+        quantityGroup: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          quantityTable: { deletedAt: null },
+        },
+      };
+
+      /** 上限を超える値での更新が拒否され、書き込みが一切起きないことを確かめる */
+      const expectRejected = async (
+        overrides: Record<string, string>,
+        expectedValidationErrors: Record<string, string>
+      ): Promise<void> => {
+        mockPrisma.quantityItem.findUnique.mockResolvedValue(existingItem);
+
+        const thrown = await service.update(itemId, overrides, actorId, expectedUpdatedAt).then(
+          () => null,
+          (error: unknown) => error
+        );
+
+        expect(thrown).toBeInstanceOf(QuantityTableValidationError);
+        expect((thrown as QuantityTableValidationError).validationErrors).toEqual(
+          expectedValidationErrors
+        );
+        // 保存できない値が永続化されないこと（トランザクション開始前に中断する）
+        expect(mockPrisma.quantityItem.update).not.toHaveBeenCalled();
+        expect(mockPrisma.quantityItem.findUnique).not.toHaveBeenCalled();
+        expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
+      };
+
+      /** 上限以内の値での更新が従来どおり通ることを確かめる */
+      const expectAccepted = async (overrides: Record<string, unknown>): Promise<void> => {
+        mockPrisma.quantityItem.findUnique.mockResolvedValue(existingItem);
+        mockPrisma.quantityItem.update.mockResolvedValue({
+          ...existingItem,
+          ...overrides,
+          updatedAt: new Date('2026-01-06T01:00:00.000Z'),
+        });
+
+        await service.update(itemId, overrides, actorId, expectedUpdatedAt);
+
+        expect(mockPrisma.quantityItem.update).toHaveBeenCalledTimes(1);
+      };
+
+      it('備考が上限（全角25文字/半角50文字）を超える更新を拒否する（13.1）', async () => {
+        // 更新スキーマは備考に上限を一切持たない。10万文字でも受理されていた欄である
+        const overWideRemarks = 'あ'.repeat(50000); // 10万文字・幅10万
+        await expectRejected(
+          { remarks: overWideRemarks },
+          { remarks: saveSideMessageFor({ remarks: overWideRemarks }, 'remarks') }
+        );
+      });
+
+      it('単位が上限（全角3文字/半角6文字）を超える更新を拒否する（13.3）', async () => {
+        const overWideUnit = '立方メートル'; // 幅12 > 6
+        const expected = saveSideMessageFor({ unit: overWideUnit }, 'unit');
+        expect(expected).toBe('単位は全角3文字/半角6文字以内で入力してください');
+
+        await expectRejected({ unit: overWideUnit }, { unit: expected });
+      });
+
+      it('工種が上限（全角8文字/半角16文字）を超える更新を拒否する（13.2）', async () => {
+        const overWideWorkType = 'あ'.repeat(9); // 幅18 > 16
+        await expectRejected(
+          { workType: overWideWorkType },
+          { workType: saveSideMessageFor({ workType: overWideWorkType }, 'workType') }
+        );
+      });
+
+      it('名称が上限（全角25文字/半角50文字）を超える更新を拒否する（13.1）', async () => {
+        const overWideName = 'あ'.repeat(26); // 幅52 > 50
+        await expectRejected(
+          { name: overWideName },
+          { name: saveSideMessageFor({ name: overWideName }, 'name') }
+        );
+      });
+
+      it('大項目・中項目・小項目・任意分類・規格も上限を超える更新を拒否する（13.1）', async () => {
+        const overWide = 'あ'.repeat(26); // 幅52
+        for (const field of [
+          'majorCategory',
+          'middleCategory',
+          'minorCategory',
+          'customCategory',
+          'specification',
+        ]) {
+          vi.clearAllMocks();
+          mockAuditLogService.createLog.mockResolvedValue(undefined);
+          mockPrisma.$transaction.mockImplementation((callback: (tx: unknown) => unknown) =>
+            callback(mockPrisma)
+          );
+
+          await expectRejected(
+            { [field]: overWide },
+            { [field]: saveSideMessageFor({ [field]: overWide }, field) }
+          );
+        }
+      });
+
+      it('複数フィールドが上限を超える場合は全件を返す（13.1, 13.2, 13.3）', async () => {
+        const overrides = {
+          name: 'あ'.repeat(26),
+          workType: 'あ'.repeat(9),
+          unit: '立方メートル',
+        };
+
+        await expectRejected(overrides, {
+          name: saveSideMessageFor(overrides, 'name'),
+          workType: saveSideMessageFor(overrides, 'workType'),
+          unit: saveSideMessageFor(overrides, 'unit'),
+        });
+      });
+
+      it('上限ちょうどの値は従来どおり更新できる（13.1, 13.2, 13.3）', async () => {
+        await expectAccepted({
+          name: 'あ'.repeat(25), // 幅50
+          workType: 'あ'.repeat(8), // 幅16
+          unit: 'あいう', // 幅6
+          remarks: 'あ'.repeat(24) + 'ab', // 幅50
+        });
+      });
+
+      it('テキスト欄を指定しない部分更新は拒否されない（未指定欄を誤検知しない）', async () => {
+        // 必須3欄（工種・名称・単位）が未指定でも、判定は幅のみを見るため違反にならない
+        await expectAccepted({ quantity: 150 });
+      });
     });
   });
 

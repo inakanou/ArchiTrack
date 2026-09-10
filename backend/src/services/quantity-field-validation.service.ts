@@ -19,6 +19,17 @@
  *
  * Task 11: フィールドバリデーションサービスの拡張
  *
+ * 本サービスは 13.1-13.3 の文字数上限の**正典**である。上限値（{@link FIELD_CONSTRAINTS}）と
+ * 幅計算（{@link QuantityFieldValidationService.calculateStringWidth}）、およびフィールド別の
+ * 判定（`validateUnit` ほか）をここだけで定義し、保存経路（`QuantityTableService.validateDraft`）と
+ * 作成経路（`QuantityItemService.create`）の双方が {@link QuantityFieldValidationService.validateItemTextFieldSpecs}
+ * を通る（Task 77.1）。
+ *
+ * `quantity-validation.service.ts` にも同一仕様の `calculateStringWidth` があるが、同メソッドは
+ * 数量グループ名のコピー時の切り詰め（REQ-22 AC4 / 38.6）のための基礎関数であり、13.1-13.3 の
+ * フィールド別の上限値を持たない。そちらを正典に採ると、フィールド別の上限を第二の箇所へ
+ * 書き起こすことになるため採らなかった。
+ *
  * @module services/quantity-field-validation
  */
 
@@ -59,6 +70,26 @@ export const FIELD_CONSTRAINTS = {
 export interface TextValidationResult {
   isValid: boolean;
   error?: string;
+}
+
+/**
+ * 数量項目のテキストフィールド（文字数上限の検証対象）
+ *
+ * Requirements 13.1-13.3 が上限を課すフィールドの集合。計算方法は列挙値であり
+ * 自由入力ではないため含めない。
+ *
+ * Task 77.1: 作成経路と保存経路で同一の集合・同一の上限を検証するための共通の入力型。
+ */
+export interface QuantityItemTextFields {
+  majorCategory: string | null;
+  middleCategory: string | null;
+  minorCategory: string | null;
+  customCategory: string | null;
+  workType: string;
+  name: string;
+  specification: string | null;
+  unit: string;
+  remarks: string | null;
 }
 
 /**
@@ -475,23 +506,76 @@ export class QuantityFieldValidationService {
    * @param item - 検証対象の数量項目
    * @returns バリデーション結果
    */
-  validateItemFieldSpecs(item: {
-    majorCategory: string | null;
-    middleCategory: string | null;
-    minorCategory: string | null;
-    customCategory: string | null;
-    workType: string;
-    name: string;
-    specification: string | null;
-    unit: string;
-    remarks: string | null;
-    adjustmentFactor: number;
-    roundingUnit: number;
-    quantity: number;
-  }): FieldSpecValidationResult {
+  validateItemFieldSpecs(
+    item: QuantityItemTextFields & {
+      adjustmentFactor: number;
+      roundingUnit: number;
+      quantity: number;
+    }
+  ): FieldSpecValidationResult {
+    // テキストフィールドの文字数検証は作成経路と共用する（下記メソッドが唯一の定義）
+    const errors: FieldSpecError[] = [...this.validateItemTextFieldSpecs(item).errors];
+
+    // 数値フィールドの範囲検証
+    const adjustmentFactorResult = this.validateAdjustmentFactor(item.adjustmentFactor);
+    if (!adjustmentFactorResult.isValid) {
+      errors.push({
+        field: 'adjustmentFactor',
+        message: '調整係数は-9.99から9.99の範囲で入力してください',
+        value: item.adjustmentFactor,
+      });
+    }
+
+    // 丸め設定の範囲検証（フィールド仕様: 0.01〜999.99）
+    const roundingUnitMin = 0.01;
+    const roundingUnitMax = 999.99;
+    if (item.roundingUnit < roundingUnitMin || item.roundingUnit > roundingUnitMax) {
+      errors.push({
+        field: 'roundingUnit',
+        message: `丸め設定は${roundingUnitMin}から${roundingUnitMax}の範囲で入力してください`,
+        value: item.roundingUnit,
+      });
+    }
+
+    const quantityResult = this.validateQuantity(item.quantity);
+    if (!quantityResult.isValid) {
+      errors.push({
+        field: 'quantity',
+        message: '数量は-999999.99から9999999.99の範囲で入力してください',
+        value: item.quantity,
+      });
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors,
+    };
+  }
+
+  /**
+   * 数量項目のテキストフィールドの文字幅（全角/半角換算）のみを検証する
+   *
+   * Task 77.1: 数量項目の入力上限の検証位置の不一致を解消する
+   *
+   * 上限の定義は本サービスの {@link FIELD_CONSTRAINTS} と各 `validateXxx` のみが持つ。
+   * 保存経路（`QuantityTableService.validateDraft` → {@link validateItemFieldSpecs}）と
+   * 作成経路（`QuantityItemService.create`）の双方が本メソッドを通ることで、
+   * 同じ値が一方では通り他方では拒否される非対称（作成できるが保存できない数量項目）を作らない。
+   *
+   * 数値フィールドの範囲検証（9.3/10.3/15.1）は含めない。作成経路に課す上限は
+   * Requirements 13.1-13.3（文字数）のみであり、範囲検証は別の受入基準の所管である。
+   *
+   * Requirements:
+   * - 13.1: 大項目・中項目・小項目・任意分類・名称・規格・備考（全角25文字/半角50文字）
+   * - 13.2: 工種（全角8文字/半角16文字）
+   * - 13.3: 単位（全角3文字/半角6文字）
+   *
+   * @param item - 検証対象の数量項目のテキストフィールド
+   * @returns バリデーション結果
+   */
+  validateItemTextFieldSpecs(item: QuantityItemTextFields): FieldSpecValidationResult {
     const errors: FieldSpecError[] = [];
 
-    // テキストフィールドの文字数検証
     const textFieldsToValidate = [
       {
         field: 'majorCategory',
@@ -550,36 +634,6 @@ export class QuantityFieldValidationService {
           value: value ?? undefined,
         });
       }
-    }
-
-    // 数値フィールドの範囲検証
-    const adjustmentFactorResult = this.validateAdjustmentFactor(item.adjustmentFactor);
-    if (!adjustmentFactorResult.isValid) {
-      errors.push({
-        field: 'adjustmentFactor',
-        message: '調整係数は-9.99から9.99の範囲で入力してください',
-        value: item.adjustmentFactor,
-      });
-    }
-
-    // 丸め設定の範囲検証（フィールド仕様: 0.01〜999.99）
-    const roundingUnitMin = 0.01;
-    const roundingUnitMax = 999.99;
-    if (item.roundingUnit < roundingUnitMin || item.roundingUnit > roundingUnitMax) {
-      errors.push({
-        field: 'roundingUnit',
-        message: `丸め設定は${roundingUnitMin}から${roundingUnitMax}の範囲で入力してください`,
-        value: item.roundingUnit,
-      });
-    }
-
-    const quantityResult = this.validateQuantity(item.quantity);
-    if (!quantityResult.isValid) {
-      errors.push({
-        field: 'quantity',
-        message: '数量は-999999.99から9999999.99の範囲で入力してください',
-        value: item.quantity,
-      });
     }
 
     return {
