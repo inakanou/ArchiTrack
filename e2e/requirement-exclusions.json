@@ -741,7 +741,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "数量グループ追加時に、同一プロジェクトの注釈付き現場調査写真一覧（注釈エディタで編集済みの画像）から写真を選択する機能が提供されることを確認",
         "threshold": "photo_selection: available"
       }
@@ -755,7 +755,7 @@
       "category": "data-integrity",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "必須フィールドである工種・名称・単位・計算方法・数量のいずれかが未入力で保存を試みたとき、該当フィールドのハイライトとエラーメッセージが表示されることを確認",
         "threshold": "validation_error: displayed"
       }
@@ -769,7 +769,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "同一グループ内での項目位置移動が正しく動作することを確認",
         "threshold": "move_within_group: functional"
       }
@@ -783,7 +783,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "複数項目選択時の一括削除・コピー・移動が正しく動作することを確認",
         "threshold": "bulk_operation: functional"
       }
@@ -811,7 +811,7 @@
       "category": "data-integrity",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "面積・体積モードで計算用列が未入力の場合にエラーメッセージが表示され、幅・奥行き・高さのうち最低1項目の入力が求められることを確認",
         "threshold": "validation_error: displayed"
       }
@@ -825,7 +825,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "unit-test",
-        "tool": "Jest",
+        "tool": "Vitest",
         "description": "ピッチ計算式((範囲長 - 端長1 - 端長2) / ピッチ長 + 1)で本数が計算され、任意項目の長さ・重量が入力されている場合はそれらを乗算した結果が数量として自動設定されることを確認",
         "threshold": "calculation: pitch_formula"
       }
@@ -839,7 +839,7 @@
       "category": "data-integrity",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "ピッチモードで必須項目の範囲長・端長1・端長2・ピッチ長のいずれかが未入力のときにエラーメッセージが表示され、必須項目の入力が求められることを確認",
         "threshold": "validation_error: displayed"
       }
@@ -881,7 +881,7 @@
       "category": "data-integrity",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Prisma",
+        "tool": "Vitest / Prisma",
         "description": "保存時に整合性チェックでエラーが検出された場合に保存が中断され、問題箇所の修正が求められることを確認",
         "threshold": "integrity_check: enforced"
       }

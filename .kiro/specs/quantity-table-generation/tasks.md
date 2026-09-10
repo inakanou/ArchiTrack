@@ -2170,7 +2170,7 @@
 | `quantity-table-generation/REQ-8.10` | `Jest / React Testing Library` |
 | `quantity-table-generation/REQ-11.2` | `Jest / Prisma` |
 
-- [ ] 78.1 除外一覧の道具名を実体へ揃える
+- [x] 78.1 除外一覧の道具名を実体へ揃える
   - 上表 8 件の `alternativeVerification.tool` から、実在しない `Jest` を取り除く
   - **先例に揃えること**: site-survey は Task 115.121 で自機能分 32 件を「道具名の先頭 `Jest` を `Vitest` へ置換し、`React Testing Library` / `Supertest` などの併記部分は据え置く」形で是正した。`.kiro/specs/site-survey/design.md` の `**あわせて是正した除外一覧の記述**` に続く項が、その形を逐語で記録している
   - **併記の `React Testing Library`（`@testing-library/react@^16.3.0`）と `Prisma`（`backend/package.json`）はいずれも実在する**（2026-09-02 に実測）ため据え置いてよい
