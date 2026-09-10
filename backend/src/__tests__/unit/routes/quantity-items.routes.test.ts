@@ -3,7 +3,7 @@
  *
  * TDD: RED phase - テストを先に作成
  *
- * Requirements:
+ * Requirements (quantity-table-generation):
  * - 5.1: 数量グループ内で行追加操作を行う
  * - 5.2: 数量項目の各フィールドに値を入力する
  * - 5.3: 必須フィールド（大項目・工種・名称・単位・数量）が未入力で保存を試行する

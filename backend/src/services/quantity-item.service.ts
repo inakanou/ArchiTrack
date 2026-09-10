@@ -197,7 +197,7 @@ export class QuantityItemService {
    * （`validateTextField` は `validateTextLength` の真偽のみを返す）、幅0の空文字と
    * 判定を飛ばす null はいずれも違反にならず、未指定の欄を誤って拒否することはない。
    *
-   * Requirements: 13.1, 13.2, 13.3
+   * Requirements (quantity-table-generation): 13.1, 13.2, 13.3
    *
    * @param input - 作成入力または更新入力（部分更新可）
    * @throws QuantityTableValidationError 文字数上限を超えるフィールドが1件以上ある場合

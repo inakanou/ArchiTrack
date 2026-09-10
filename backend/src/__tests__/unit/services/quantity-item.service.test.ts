@@ -3,7 +3,7 @@
  *
  * TDD: RED phase - テストを先に書く
  *
- * Requirements:
+ * Requirements (quantity-table-generation):
  * - 5.1: 数量グループ内で行追加操作を行う
  * - 5.2: 数量項目の各フィールドに値を入力する
  * - 5.3: 必須フィールド（大項目・工種・名称・単位・数量）が未入力で保存を試行する
@@ -228,9 +228,9 @@ describe('QuantityItemService', () => {
     // 判定・メッセージが保存経路（QuantityTableService.validateDraft が呼ぶ
     // QuantityFieldValidationService.validateItemFieldSpecs）と一致することを確かめる。
     //
-    // Requirements: 13.1, 13.2, 13.3
+    // Requirements (quantity-table-generation): 13.1, 13.2, 13.3
     // ========================================================================
-    describe('テキストフィールドの文字数上限（Requirements: 13.1, 13.2, 13.3）', () => {
+    describe('テキストフィールドの文字数上限（Requirements (quantity-table-generation): 13.1, 13.2, 13.3）', () => {
       /** 保存経路が用いる正典の検証サービス（作成経路と同一の実装であること自体を確かめる） */
       const canonicalValidation = new QuantityFieldValidationService();
 
@@ -709,9 +709,9 @@ describe('QuantityItemService', () => {
     // その後の保存が必ず拒否されるため「保存できない数量表」が残る。作成経路と同じ
     // 欠陥であり、同じ正典（QuantityFieldValidationService）で塞ぐ。
     //
-    // Requirements: 13.1, 13.2, 13.3
+    // Requirements (quantity-table-generation): 13.1, 13.2, 13.3
     // ========================================================================
-    describe('テキストフィールドの文字数上限（Requirements: 13.1, 13.2, 13.3）', () => {
+    describe('テキストフィールドの文字数上限（Requirements (quantity-table-generation): 13.1, 13.2, 13.3）', () => {
       /** 保存経路が用いる正典の検証サービス（更新経路と同一の実装であること自体を確かめる） */
       const canonicalValidation = new QuantityFieldValidationService();
 

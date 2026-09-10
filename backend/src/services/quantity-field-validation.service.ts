@@ -565,7 +565,7 @@ export class QuantityFieldValidationService {
    * 数値フィールドの範囲検証（9.3/10.3/15.1）は含めない。作成経路に課す上限は
    * Requirements 13.1-13.3（文字数）のみであり、範囲検証は別の受入基準の所管である。
    *
-   * Requirements:
+   * Requirements (quantity-table-generation):
    * - 13.1: 大項目・中項目・小項目・任意分類・名称・規格・備考（全角25文字/半角50文字）
    * - 13.2: 工種（全角8文字/半角16文字）
    * - 13.3: 単位（全角3文字/半角6文字）
