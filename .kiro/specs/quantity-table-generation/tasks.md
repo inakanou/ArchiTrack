@@ -2355,6 +2355,74 @@ _申し送り元: site-survey スペックの Task 115.130（同スペックで�
 
 _申し送り元: site-survey スペックの Task 115.214（同スペックでは所管外としてブロック。工事写真スペックとの共同所管）_
 
+## Task 82: 数量表E2Eのシード前提が注釈なし写真のままで成立しない状態を解消する
+
+**経緯**: Task 75.1 が写真選択ダイアログの取得経路を `GET /api/projects/:projectId/survey-images` へ置き換えた。同経路は注釈レコードが存在する写真のみを返す（Requirement 4.3 / 19.2 が選択対象を「注釈エディタで編集済みの写真」と定めるため）。**その結果、注釈を保存せずに写真をシードしていた既存の数量表E2Eが、ダイアログの選択候補0件で前提段階から成立しなくなった。** Task 76.1 の実装中に発見し、同タスクの独立レビューが実走で裏を取ったが、いずれのタスクも所管していなかったため本節を起こした。
+
+**これは「動いていた検証が壊れた」のではなく「恒真だった検証が露出した」である。** とくに `photo-change-dialog-e2e.spec.ts` は冒頭で `@requirement quantity-table-generation/REQ-19.2: 注釈付き写真一覧の表示` を名乗りながら注釈を保存していない。**注釈なし写真が一覧に出ることを「注釈付き写真一覧の検証」として記録していた。** シードへ注釈を足すことで、当該受入基準は初めて現に検証される。
+
+**測った事実**（いずれもコミット `b42d4d67`、2026-09-10 にリポジトリルートで実測）:
+
+- **対象は7本で、前提の作り方は二系統ある**。`grep -c` の実測値を併記する:
+
+| ファイル（`e2e/specs/quantity-tables/` 配下） | `seedSurveyPhotosWithComments` | `annotations` |
+|---|---|---|
+| `photo-comment-display.spec.ts` | 2 | 0 |
+| `photo-comment-e2e.spec.ts` | 3 | 0 |
+| `photo-preview-e2e.spec.ts` | 2 | 0 |
+| `quantity-group-copy.spec.ts` | 4 | 0 |
+| `quantity-table-phase9.spec.ts` | 2 | 0 |
+| `photo-select-overlap-e2e.spec.ts` | 0 | 0 |
+| `photo-change-dialog-e2e.spec.ts` | 0 | 0 |
+
+- **共有ヘルパー経由が5本**: `e2e/helpers/quantity-table-preconditions.ts` の `seedSurveyPhotosWithComments`（入口は `grep -nF 'export async function seedSurveyPhotosWithComments' e2e/helpers/quantity-table-preconditions.ts`）は、現場調査を画面から作成し、写真を `POST /api/site-surveys/:surveyId/images` でアップロードし、コメントを `PATCH /api/site-surveys/images/:imageId` で付ける。**注釈の保存は行わない**
+- **自前アップロードが2本**: `photo-select-overlap-e2e.spec.ts` と `photo-change-dialog-e2e.spec.ts` は `multipart` で直接アップロードしており（`grep -c 'multipart'` の出力はそれぞれ 2 と 1）、共有ヘルパーを通らない。**片方だけ直しても残る**
+- **実走で確認済み**: `npm run test:e2e -- e2e/specs/quantity-tables/photo-comment-display.spec.ts` が **1 failed / 5 skipped / 終了コード1**。失敗箇所は `attachPhotoToGroup` の `前提: 1番目の選択候補の写真が表示される`（element(s) not found）
+- **注釈保存の入口は既に在る**: `PUT /api/site-surveys/images/:imageId/annotations`（`grep -n 'annotations（保存）' backend/src/routes/annotation.routes.ts`）。Task 76.1 が新設した `e2e/specs/quantity-tables/photo-select-bulk-fetch-e2e.spec.ts` の `saveAnnotation`（`grep -nF 'const saveAnnotation' e2e/specs/quantity-tables/photo-select-bulk-fetch-e2e.spec.ts`）と、`e2e/specs/site-surveys/site-survey-image-request-scaling.spec.ts` / `site-survey-batch-annotations.spec.ts` が同じ入口を使っている
+- **ただし `e2e/helpers/` に注釈保存の共有ヘルパーは無い**（`grep -rn 'saveAnnotation' e2e/helpers/` の当たりが `0`）。**各specが自前で書き起こしている。** 本タスクで7本へ同じ処理を複製すると、道具の出所が8つになる
+
+**着手前に測り直すこと**: 上の件数は 2026-09-10・コミット `b42d4d67` の値である。**起票が挙げた所在が、着手時には既に直っていることがある。**
+
+- [ ] 82.1 数量表E2Eのシードへ注釈保存を加えて選択候補を成立させる
+  - 共有ヘルパー `seedSurveyPhotosWithComments` と、自前アップロードの2本（`photo-select-overlap-e2e.spec.ts` / `photo-change-dialog-e2e.spec.ts`）の**両系統**を対象とすること。**共有ヘルパーだけを直して「7本を直した」と書かないこと**
+  - **注釈保存の道具は一箇所に置くこと。** 既に4箇所（76.1 の spec・site-survey の spec 2本・本タスクが足す分）が同じ `PUT /api/site-surveys/images/:imageId/annotations` を叩いている。`e2e/helpers/` へ共有ヘルパーを設けるか、既存のどれかを正典とするかを決め、**採らなかった側をなぜ採らなかったかを同じ場所へ書くこと**
+  - **注釈の有無を検証の関心に持つテストは、注釈なし写真も併せてシードすること。** 全件を注釈付きにすると「注釈付きのみが現れる」という主張が空集合に対する恒真になる。どのテストが当該の関心を持つかは一件ずつ読んで決めること（少なくとも `photo-change-dialog-e2e.spec.ts` の REQ-19.2 は該当する）
+  - **`photo-change-dialog-e2e.spec.ts` の REQ-19.2 の主張を、注釈付きであることを実際に確かめる形へ引き上げること。** 現状は注釈なし写真が並んでも通る。**目印だけ残して中身を直さないこと**
+  - **変異検証**: シードの注釈保存を外すと当該の検証が落ちることを実測し、当てた変異と実出力（落ちた件数／全体の件数）を報告に書くこと
+  - **検証**: 対象7本がいずれも終了コード0で通ること。`npm run check:e2e-guards` と `npm run check:e2e-selfjudge` が緑であること。**`test.fail()` / `test.skip()` / 条件付きスキップで前提の不成立を回避しないこと**（`.claude/CLAUDE.md` 第3原則）
+  - _Depends: 75.1, 76.1_
+  - _Requirements: 19.2_
+  - _Boundary: 数量表E2Eのシード前提_
+
+**`_Requirements:` に 19.2 だけを挙げるのは意図である。** 本タスクが現に被覆を増やすのは、注釈なしで恒真になっていた REQ-19.2 の一件のみである。他の6本は前提の復旧であって被覆の追加ではなく、当該specが既に名乗る受入基準番号を本タスクの `_Requirements:` に並べると「本タスクが被覆した」という二重計上になる。
+
+## Task 83: 拡大表示で原本を取得する受入基準がE2E未作成のまま除外に在籍する状態を解消する
+
+**経緯**: `REQ-49.7`（拡大表示の時点で原本画像を取得する）は Task 73.3 が実装済みだが、E2E が未作成のため `e2e/requirement-exclusions.json` に `pending-implementation` として在籍し続けている。同エントリの理由欄は「**取得の発生を監視するE2Eの作成をもって除外を取り下げること**」と自ら取り下げ条件を書いているが、Task 76.1（49.9 / 49.10 を所管）も Task 76.2（49.2 / 49.3 / 49.8 を所管）も当該取り下げを所管していない。Task 76.1 の実行中に計画の穴として検出し、本節を起こした。
+
+**測った事実**（コミット `b42d4d67`、2026-09-10 に実測）:
+
+- **除外は在籍している**: `python3` で `e2e/requirement-exclusions.json` を読み、`quantity-table-generation/REQ-49.7` のエントリが `category: "pending-implementation"`、`alternativeVerification.method: "e2e-test"`、`threshold: "original_fetch_on_zoom: 1"` を持つことを確認した
+- **実装は済んでいる**: 同エントリの理由欄が「【2026-09-09 の現況】……タスク 73.3 が当該ダイアログの表示元規則を改め、合成済みサムネイルへ分岐せず常に原本へ解決し、注釈は共有表示部品 `AnnotatedImageThumbnail` のクライアント側合成で維持する形になった（`loading="eager"` で即時取得）」と述べ、在籍理由が「未実装」から「実装済みでE2Eの検証が未作成」へ移ったことを明記している
+- **単体では固定済み**: 同エントリが `frontend/src/__tests__/components/quantity-table/PhotoPreviewDialog.test.tsx` を代替検証として挙げている
+- **Task 76.1 が作った観測器に先例がある**: `e2e/specs/quantity-tables/photo-select-bulk-fetch-e2e.spec.ts` は、拡大表示で原本の取得が発生することを**0件判定の非空証明として既に捉えている**（同ファイルの原本取得の観測。`grep -nF 'originalRequestPaths' e2e/specs/quantity-tables/photo-select-bulk-fetch-e2e.spec.ts` で所在を求めること）。**本タスクはその観測を 49.7 の主張として正面から立てるものであり、一から書き起こす必要は無い**
+
+**着手前に測り直すこと**: 上の所在と件数は 2026-09-10・コミット `b42d4d67` の値である。
+
+- [ ] 83.1 拡大表示で原本を取得することをE2Eで確認し、除外を取り下げる
+  - 表題部の写真を拡大表示した**操作の時点で**原本画像の取得が発生することを、リクエスト監視で確認すること
+  - **リクエストの観測はパスを基準に行い、接続先の違いで判定が変わらないようにすること**（`new URL(request.url()).pathname` のみで選別し、ホスト・ポート・スキームを判定条件に入れない）。オリジンを条件に含めると観測が全件除外され「0件」が恒真になる
+  - **「操作の時点で」を主張すること。** 拡大表示の前に原本の取得が発生していないこと（＝一覧・表題部の段階では原本を引かないこと）を併せて確かめないと、取得の契機を固定したことにならない
+  - 上記を検証したうえで、`e2e/requirement-exclusions.json` から `quantity-table-generation/REQ-49.7` を取り下げ、`summary` の集計欄を実体と整合させること。**`npx prettier --check e2e/requirement-exclusions.json` を直接走らせること**（JSON はルートの `format:check` の対象外である）
+  - **49.3 / 49.8 の除外は触らないこと**（Task 76.2 の所管）
+  - **変異検証**: 拡大表示の表示元を原本から合成済みサムネイルへ戻すと当該の検証が落ちることを実測し、当てた変異と実出力を報告に書くこと
+  - **検証**: 新設・改修したE2Eが終了コード0で通ること。`npm run check:req-exclusions` が緑であること。`npm run check:req-coverage` の未カバー一覧から 49.7 が消えること（**同検査は基線で既に終了コード1である**。本スペックに関する項目が悪化していないことを出力内容で判断すること）
+  - _Depends: 73.3, 76.1_
+  - _Requirements: 49.7_
+  - _Boundary: E2E_
+
+_起票元: Task 76.1 の実行中に検出した計画の穴（76.1 / 76.2 のいずれも 49.7 の取り下げを所管していない）_
+
 ## Implementation Notes（Task 75 以降）
 
 - **表示用URLを1本へ畳むと、呼び出し側は合成済みか否かを値から判別できない**: 75.1 の結線で `isDisplayUrlAnnotated` と `hasDrawnAnnotations` の2真偽値を応答へ足すことが不可分になった。常に注釈付きとして渡せば合成済み画像へ二重に重なり、常に通常サムネイルとして渡せば `AnnotatedImageThumbnail` が短絡して注釈が消える。**畳むのはURLの本数だけで、判別の情報は畳まないこと。** また注釈レコードの存在は描画の有無を意味しない（回転のみの保存でもレコードは残る）。
