@@ -34,6 +34,7 @@ import {
 } from '../errors/quantityTableError.js';
 import { SurveyImageNotFoundError, SiteSurveyNotFoundError } from '../errors/siteSurveyError.js';
 import { ForbiddenError } from '../errors/apiError.js';
+import { SurveyDeletedError, sendSurveyDeletedProblem } from '../utils/survey-deleted-guard.js';
 
 // mergeParams: true を設定してネストされたルートからquantityTableIdを取得できるようにする
 const router = Router({ mergeParams: true });
@@ -168,6 +169,11 @@ router.post(
 
       res.status(201).json(quantityGroup);
     } catch (error) {
+      // 論理削除された現場調査の画像は 410 で拒否する（site-survey の5経路と同じ扱い）
+      if (error instanceof SurveyDeletedError) {
+        sendSurveyDeletedProblem(res, error);
+        return;
+      }
       if (error instanceof QuantityTableNotFoundError) {
         res.status(404).json({
           type: 'https://architrack.example.com/problems/quantity-table-not-found',
@@ -492,6 +498,11 @@ router.put(
 
       res.json(quantityGroup);
     } catch (error) {
+      // 論理削除された現場調査の画像は 410 で拒否する（site-survey の5経路と同じ扱い）
+      if (error instanceof SurveyDeletedError) {
+        sendSurveyDeletedProblem(res, error);
+        return;
+      }
       if (error instanceof QuantityGroupNotFoundError) {
         res.status(404).json({
           type: 'https://architrack.example.com/problems/quantity-group-not-found',

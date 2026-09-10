@@ -26,6 +26,7 @@ import {
   QuantityTableNotFoundError,
   QuantityTableValidationError,
 } from '../../../errors/quantityTableError.js';
+import { SurveyDeletedError } from '../../../utils/survey-deleted-guard.js';
 
 // Mock Prisma型の定義
 type MockPrismaClient = {
@@ -48,6 +49,9 @@ type MockPrismaClient = {
   };
   project: {
     findUnique: Mock;
+  };
+  surveyImage: {
+    findMany: Mock;
   };
   $transaction: Mock;
 };
@@ -79,6 +83,11 @@ describe('QuantityTableService', () => {
       },
       project: {
         findUnique: vi.fn(),
+      },
+      surveyImage: {
+        // 既定は「該当する画像が無い」。親の状態を読めない以上、
+        // 親が論理削除済みだとは主張しない（検証は行を得たときだけ働く）。
+        findMany: vi.fn().mockResolvedValue([]),
       },
       $transaction: vi.fn((callback) => callback(mockPrisma)),
     };
@@ -2821,6 +2830,104 @@ describe('QuantityTableService', () => {
       expect(mockPrisma.quantityItem.update).toHaveBeenCalledWith(
         expect.objectContaining({ where: { id: sharedId } })
       );
+    });
+
+    it('親の現場調査が論理削除済みの現調画像を含む保存は書き込み前に中断する（Task 81.1）', async () => {
+      const surveyImageId = '123e4567-e89b-12d3-a456-426614174010';
+      const surveyId = '123e4567-e89b-12d3-a456-426614174011';
+
+      setupFindUnique(currentState(), reloadedDetail());
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        {
+          id: surveyImageId,
+          surveyId,
+          survey: { projectId, deletedAt: new Date('2026-09-01T00:00:00.000Z') },
+        },
+      ]);
+      // 検査が無ければ書き込みが通ることを露わにするため、後続の経路も用意しておく
+      mockPrisma.quantityGroup.create.mockResolvedValue({ id: 'group-db-1' });
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [{ id: null, name: 'グループ1', surveyImageId, displayOrder: 0, items: [] }],
+      };
+
+      await expect(service.saveDraft(quantityTableId, input, actorId)).rejects.toBeInstanceOf(
+        SurveyDeletedError
+      );
+      expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
+    });
+
+    it('現調画像の問い合わせはグループ数によらず1回で、重複を排除した集合を引く（Task 81.1）', async () => {
+      const firstImageId = '123e4567-e89b-12d3-a456-426614174010';
+      const secondImageId = '123e4567-e89b-12d3-a456-426614174012';
+
+      setupFindUnique(currentState(), reloadedDetail());
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        { id: firstImageId, surveyId: 'survey-1', survey: { projectId, deletedAt: null } },
+        { id: secondImageId, surveyId: 'survey-2', survey: { projectId, deletedAt: null } },
+      ]);
+      mockPrisma.quantityGroup.create.mockResolvedValue({ id: 'group-db-1' });
+
+      // 5グループ・参照する画像は2種（うち1種は3グループが重複して指す）・1グループは未紐付け
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          { id: null, name: 'g1', surveyImageId: firstImageId, displayOrder: 0, items: [] },
+          { id: null, name: 'g2', surveyImageId: firstImageId, displayOrder: 1, items: [] },
+          { id: null, name: 'g3', surveyImageId: secondImageId, displayOrder: 2, items: [] },
+          { id: null, name: 'g4', surveyImageId: firstImageId, displayOrder: 3, items: [] },
+          { id: null, name: 'g5', surveyImageId: null, displayOrder: 4, items: [] },
+        ],
+      };
+
+      await service.saveDraft(quantityTableId, input, actorId);
+
+      expect(mockPrisma.surveyImage.findMany).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.surveyImage.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: { in: [firstImageId, secondImageId] } },
+          select: expect.objectContaining({
+            surveyId: true,
+            survey: { select: { projectId: true, deletedAt: true } },
+          }),
+        })
+      );
+    });
+
+    it('現調画像を一つも指さない保存では画像の問い合わせを行わない（Task 81.1）', async () => {
+      setupFindUnique(currentState(), reloadedDetail());
+      mockPrisma.quantityGroup.create.mockResolvedValue({ id: 'group-db-1' });
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [{ id: null, name: 'グループ1', surveyImageId: null, displayOrder: 0, items: [] }],
+      };
+
+      await service.saveDraft(quantityTableId, input, actorId);
+
+      expect(mockPrisma.surveyImage.findMany).not.toHaveBeenCalled();
+    });
+
+    it('指した現調画像が見つからない場合は論理削除の判定を適用しない（Task 81.1）', async () => {
+      const surveyImageId = '123e4567-e89b-12d3-a456-426614174013';
+
+      setupFindUnique(currentState(), reloadedDetail());
+      mockPrisma.surveyImage.findMany.mockResolvedValue([]);
+      mockPrisma.quantityGroup.create.mockResolvedValue({ id: 'group-db-1' });
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [{ id: null, name: 'グループ1', surveyImageId, displayOrder: 0, items: [] }],
+      };
+
+      await expect(service.saveDraft(quantityTableId, input, actorId)).resolves.toBeDefined();
+      expect(mockPrisma.quantityGroup.create).toHaveBeenCalled();
     });
   });
 });

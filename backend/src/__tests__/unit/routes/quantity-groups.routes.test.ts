@@ -197,6 +197,29 @@ describe('QuantityGroupsRoutes', () => {
 
       expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_NOT_FOUND');
     });
+
+    it('should return 410 when the parent site survey is soft deleted (Task 81.1)', async () => {
+      const quantityTableId = '123e4567-e89b-12d3-a456-426614174000';
+      const surveyId = '123e4567-e89b-12d3-a456-426614174005';
+      const { SurveyDeletedError } = await import('../../../utils/survey-deleted-guard.js');
+      mockService.create.mockRejectedValue(
+        new SurveyDeletedError(surveyId, `削除された現場調査の画像は紐付けできません: ${surveyId}`)
+      );
+
+      const response = await request(app)
+        .post(`/api/quantity-tables/${quantityTableId}/groups`)
+        .send({ surveyImageId: '123e4567-e89b-12d3-a456-426614174002' })
+        .expect(410);
+
+      expect(response.body).toEqual({
+        type: 'https://architrack.example.com/problems/survey-deleted',
+        title: 'SURVEY DELETED',
+        status: 410,
+        detail: `削除された現場調査の画像は紐付けできません: ${surveyId}`,
+        code: 'SURVEY_DELETED',
+        surveyId,
+      });
+    });
   });
 
   describe('GET /api/quantity-tables/:quantityTableId/groups', () => {
@@ -310,6 +333,32 @@ describe('QuantityGroupsRoutes', () => {
         .expect(409);
 
       expect(response.body).toHaveProperty('code', 'QUANTITY_GROUP_CONFLICT');
+    });
+
+    it('should return 410 when the parent site survey is soft deleted (Task 81.1)', async () => {
+      const groupId = '123e4567-e89b-12d3-a456-426614174001';
+      const surveyId = '123e4567-e89b-12d3-a456-426614174005';
+      const { SurveyDeletedError } = await import('../../../utils/survey-deleted-guard.js');
+      mockService.update.mockRejectedValue(
+        new SurveyDeletedError(surveyId, `削除された現場調査の画像は紐付けできません: ${surveyId}`)
+      );
+
+      const response = await request(app)
+        .put(`/api/quantity-groups/${groupId}`)
+        .send({
+          surveyImageId: '123e4567-e89b-12d3-a456-426614174002',
+          expectedUpdatedAt: new Date().toISOString(),
+        })
+        .expect(410);
+
+      expect(response.body).toEqual({
+        type: 'https://architrack.example.com/problems/survey-deleted',
+        title: 'SURVEY DELETED',
+        status: 410,
+        detail: `削除された現場調査の画像は紐付けできません: ${surveyId}`,
+        code: 'SURVEY_DELETED',
+        surveyId,
+      });
     });
   });
 

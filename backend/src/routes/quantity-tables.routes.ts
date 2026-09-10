@@ -37,6 +37,7 @@ import {
   QuantityTableValidationError,
   ProjectNotFoundForQuantityTableError,
 } from '../errors/quantityTableError.js';
+import { SurveyDeletedError, sendSurveyDeletedProblem } from '../utils/survey-deleted-guard.js';
 import type {
   SaveQuantityTableDraftInput,
   QuantityTableDetailWithItems,
@@ -750,6 +751,11 @@ router.put(
 
       res.json(enrichedQuantityTable);
     } catch (error) {
+      // 論理削除された現場調査の画像は 410 で拒否する（site-survey の5経路と同じ扱い）
+      if (error instanceof SurveyDeletedError) {
+        sendSurveyDeletedProblem(res, error);
+        return;
+      }
       if (error instanceof QuantityTableNotFoundError) {
         res.status(404).json({
           type: 'https://architrack.example.com/problems/quantity-table-not-found',

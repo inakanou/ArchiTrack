@@ -787,6 +787,28 @@ describe('QuantityTablesRoutes', () => {
       expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_CONFLICT');
     });
 
+    it('親の現場調査が論理削除済みの現調画像を含む場合410を返却する（Task 81.1）', async () => {
+      const surveyId = '123e4567-e89b-12d3-a456-426614174005';
+      const { SurveyDeletedError } = await import('../../../utils/survey-deleted-guard.js');
+      mockService.saveDraft.mockRejectedValue(
+        new SurveyDeletedError(surveyId, `削除された現場調査の画像は紐付けできません: ${surveyId}`)
+      );
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .send(buildSaveBody())
+        .expect(410);
+
+      expect(response.body).toEqual({
+        type: 'https://architrack.example.com/problems/survey-deleted',
+        title: 'SURVEY DELETED',
+        status: 410,
+        detail: `削除された現場調査の画像は紐付けできません: ${surveyId}`,
+        code: 'SURVEY_DELETED',
+        surveyId,
+      });
+    });
+
     it('認証なしの場合401を返却する', async () => {
       // authenticate ミドルウェアが401で応答する
       mockAuthenticate.mockImplementationOnce((_req, res) => {

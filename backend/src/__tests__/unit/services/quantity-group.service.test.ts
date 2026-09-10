@@ -27,6 +27,7 @@ import {
   OptimisticLockError,
 } from '../../../errors/quantityTableError.js';
 import { SiteSurveyNotFoundError } from '../../../errors/siteSurveyError.js';
+import { SurveyDeletedError } from '../../../utils/survey-deleted-guard.js';
 import { ForbiddenError } from '../../../errors/apiError.js';
 import { Prisma, type PrismaClient } from '../../../generated/prisma/client.js';
 import type { IAuditLogService } from '../../../types/audit-log.types.js';
@@ -249,6 +250,91 @@ describe('QuantityGroupService', () => {
         '異なるプロジェクトの現場調査画像は紐付けできません'
       );
     });
+
+    it('親の現場調査が論理削除済みの現場調査画像は紐付けを拒む（Task 81.1）', async () => {
+      // Arrange
+      const surveyImageId = '123e4567-e89b-12d3-a456-426614174004';
+      const surveyId = '123e4567-e89b-12d3-a456-426614174005';
+      const inputWithImage = {
+        ...input,
+        surveyImageId,
+      };
+
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        deletedAt: null,
+        projectId: '123e4567-e89b-12d3-a456-426614174003',
+      });
+
+      mockPrisma.surveyImage.findUnique.mockResolvedValue({
+        id: surveyImageId,
+        surveyId,
+        survey: {
+          projectId: '123e4567-e89b-12d3-a456-426614174003',
+          deletedAt: new Date('2026-09-01T00:00:00.000Z'),
+        },
+      });
+
+      // 検査が無い場合に「作成が成功してしまう」ことが見えるよう、後続の経路も用意しておく
+      mockPrisma.quantityGroup.count.mockResolvedValue(0);
+      mockPrisma.quantityGroup.create.mockResolvedValue({
+        id: '123e4567-e89b-12d3-a456-426614174002',
+        quantityTableId,
+        name: 'テストグループ',
+        surveyImageId,
+        displayOrder: 0,
+        createdAt: new Date('2026-01-06T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+        _count: { items: 0 },
+      });
+
+      // Act & Assert
+      await expect(service.create(inputWithImage, actorId)).rejects.toBeInstanceOf(
+        SurveyDeletedError
+      );
+      expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
+    });
+
+    it('新規作成の現場調査画像の問い合わせは親の削除状態を取得する（Task 81.1）', async () => {
+      // Arrange
+      const surveyImageId = '123e4567-e89b-12d3-a456-426614174004';
+      const surveyId = '123e4567-e89b-12d3-a456-426614174005';
+
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        deletedAt: null,
+        projectId: '123e4567-e89b-12d3-a456-426614174003',
+      });
+      mockPrisma.surveyImage.findUnique.mockResolvedValue({
+        id: surveyImageId,
+        surveyId,
+        survey: { projectId: '123e4567-e89b-12d3-a456-426614174003', deletedAt: null },
+      });
+      mockPrisma.quantityGroup.count.mockResolvedValue(0);
+      mockPrisma.quantityGroup.create.mockResolvedValue({
+        id: '123e4567-e89b-12d3-a456-426614174002',
+        quantityTableId,
+        name: 'テストグループ',
+        surveyImageId,
+        displayOrder: 0,
+        createdAt: new Date('2026-01-06T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+        _count: { items: 0 },
+      });
+
+      // Act
+      await service.create({ ...input, surveyImageId }, actorId);
+
+      // Assert
+      expect(mockPrisma.surveyImage.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({
+          select: expect.objectContaining({
+            surveyId: true,
+            survey: { select: { projectId: true, deletedAt: true } },
+          }),
+        })
+      );
+    });
   });
 
   describe('findById', () => {
@@ -418,6 +504,96 @@ describe('QuantityGroupService', () => {
       await expect(
         service.update(groupId, { name: '新名称' }, actorId, expectedUpdatedAt)
       ).rejects.toThrow('他のユーザーによって更新されました');
+    });
+
+    it('親の現場調査が論理削除済みの現場調査画像への差し替えを拒む（Task 81.1）', async () => {
+      // Arrange
+      const surveyImageId = '123e4567-e89b-12d3-a456-426614174004';
+      const surveyId = '123e4567-e89b-12d3-a456-426614174005';
+      const existingGroup = {
+        id: groupId,
+        quantityTableId: '123e4567-e89b-12d3-a456-426614174000',
+        name: 'テストグループ',
+        surveyImageId: null,
+        displayOrder: 0,
+        createdAt: new Date('2026-01-05T00:00:00.000Z'),
+        updatedAt: expectedUpdatedAt,
+        quantityTable: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          deletedAt: null,
+          projectId: '123e4567-e89b-12d3-a456-426614174003',
+        },
+      };
+
+      mockPrisma.quantityGroup.findUnique.mockResolvedValue(existingGroup);
+      mockPrisma.surveyImage.findUnique.mockResolvedValue({
+        id: surveyImageId,
+        surveyId,
+        survey: {
+          projectId: '123e4567-e89b-12d3-a456-426614174003',
+          deletedAt: new Date('2026-09-01T00:00:00.000Z'),
+        },
+      });
+
+      // 検査が無い場合に「更新が成功してしまう」ことが見えるよう、後続の経路も用意しておく
+      mockPrisma.quantityGroup.update.mockResolvedValue({
+        ...existingGroup,
+        surveyImageId,
+        updatedAt: new Date('2026-01-06T01:00:00.000Z'),
+        _count: { items: 0 },
+      });
+
+      // Act & Assert
+      await expect(
+        service.update(groupId, { surveyImageId }, actorId, expectedUpdatedAt)
+      ).rejects.toBeInstanceOf(SurveyDeletedError);
+      expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
+    });
+
+    it('更新の現場調査画像の問い合わせは親の削除状態を取得する（Task 81.1）', async () => {
+      // Arrange
+      const surveyImageId = '123e4567-e89b-12d3-a456-426614174004';
+      const surveyId = '123e4567-e89b-12d3-a456-426614174005';
+      const existingGroup = {
+        id: groupId,
+        quantityTableId: '123e4567-e89b-12d3-a456-426614174000',
+        name: 'テストグループ',
+        surveyImageId: null,
+        displayOrder: 0,
+        createdAt: new Date('2026-01-05T00:00:00.000Z'),
+        updatedAt: expectedUpdatedAt,
+        quantityTable: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          deletedAt: null,
+          projectId: '123e4567-e89b-12d3-a456-426614174003',
+        },
+      };
+
+      mockPrisma.quantityGroup.findUnique.mockResolvedValue(existingGroup);
+      mockPrisma.surveyImage.findUnique.mockResolvedValue({
+        id: surveyImageId,
+        surveyId,
+        survey: { projectId: '123e4567-e89b-12d3-a456-426614174003', deletedAt: null },
+      });
+      mockPrisma.quantityGroup.update.mockResolvedValue({
+        ...existingGroup,
+        surveyImageId,
+        updatedAt: new Date('2026-01-06T01:00:00.000Z'),
+        _count: { items: 0 },
+      });
+
+      // Act
+      await service.update(groupId, { surveyImageId }, actorId, expectedUpdatedAt);
+
+      // Assert
+      expect(mockPrisma.surveyImage.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({
+          select: expect.objectContaining({
+            surveyId: true,
+            survey: { select: { projectId: true, deletedAt: true } },
+          }),
+        })
+      );
     });
   });
 

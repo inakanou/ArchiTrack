@@ -30,6 +30,7 @@ import {
 } from '../errors/quantityTableError.js';
 import { SurveyImageNotFoundError, SiteSurveyNotFoundError } from '../errors/siteSurveyError.js';
 import { ForbiddenError } from '../errors/apiError.js';
+import { assertSurveyNotDeleted } from '../utils/survey-deleted-guard.js';
 import { QUANTITY_GROUP_TARGET_TYPE } from '../types/audit-log.types.js';
 import { QuantityValidationService } from './quantity-validation.service.js';
 
@@ -155,6 +156,7 @@ export class QuantityGroupService {
    * @throws QuantityTableNotFoundError 数量表が存在しない、または論理削除済みの場合
    * @throws SurveyImageNotFoundError 現場調査画像が存在しない場合
    * @throws QuantityTableValidationError 異なるプロジェクトの画像を指定した場合
+   * @throws SurveyDeletedError 指定した現場調査画像の親の現場調査が論理削除済みの場合（410）
    */
   async create(input: CreateQuantityGroupInput, actorId: string): Promise<QuantityGroupInfo> {
     return await this.prisma.$transaction(async (tx) => {
@@ -231,13 +233,15 @@ export class QuantityGroupService {
   /**
    * 現場調査画像の検証
    *
-   * 画像が存在し、同一プロジェクトに属していることを確認する。
+   * 画像が存在し、同一プロジェクトに属し、かつ親の現場調査が論理削除されて
+   * いないことを確認する。
    *
    * @param tx - Prismaトランザクションクライアント
    * @param surveyImageId - 現場調査画像ID
    * @param projectId - プロジェクトID
    * @throws SurveyImageNotFoundError 現場調査画像が存在しない場合
    * @throws QuantityTableValidationError 異なるプロジェクトの画像を指定した場合
+   * @throws SurveyDeletedError 親の現場調査が論理削除済みの場合
    */
   private async validateSurveyImage(
     tx: PrismaTransactionClient,
@@ -248,8 +252,9 @@ export class QuantityGroupService {
       where: { id: surveyImageId },
       select: {
         id: true,
+        surveyId: true,
         survey: {
-          select: { projectId: true },
+          select: { projectId: true, deletedAt: true },
         },
       },
     });
@@ -261,6 +266,15 @@ export class QuantityGroupService {
     if (surveyImage.survey.projectId !== projectId) {
       throw new QuantityTableValidationError('異なるプロジェクトの現場調査画像は紐付けできません');
     }
+
+    // 親の現場調査が論理削除済みなら紐付けを拒む（site-survey スペックの不変条件）。
+    // 判定は survey-deleted-guard の共通機構をそのまま用い、site-survey の5経路と
+    // 同じ SurveyDeletedError を投げる。応答（410）への写しは経路側が行う。
+    assertSurveyNotDeleted(
+      surveyImage.survey,
+      surveyImage.surveyId,
+      `削除された現場調査の画像は紐付けできません: ${surveyImage.surveyId}`
+    );
   }
 
   /**
@@ -356,6 +370,9 @@ export class QuantityGroupService {
    * @returns 更新された数量グループ情報
    * @throws QuantityGroupNotFoundError 数量グループが存在しない場合
    * @throws QuantityGroupConflictError 楽観的排他制御エラー
+   * @throws SurveyImageNotFoundError 指定した現場調査画像が存在しない場合
+   * @throws QuantityTableValidationError 異なるプロジェクトの画像を指定した場合
+   * @throws SurveyDeletedError 指定した現場調査画像の親の現場調査が論理削除済みの場合（410）
    */
   async update(
     id: string,
@@ -794,6 +811,13 @@ export class QuantityGroupService {
       }
 
       // 3. 対象現場調査の存在確認とプロジェクト所属検証
+      //
+      // Task 81.1 の判断: 本経路の判定は assertSurveyNotDeleted へ寄せない。
+      // 現調画像の紐付け（validateSurveyImage）と違い、ここが扱うのは現場調査そのもの
+      // を起点とする一括生成であり、応答は「対象が見つからない」意味の 404
+      // （SITE_SURVEY_NOT_FOUND）で既に確立している。共通機構は 410 を返すため、
+      // 寄せると一括生成 API の確立済みの応答が変わり、既存の統合検証も崩れる。
+      // 共通機構の適用範囲は「画像の親の状態を見る経路」に留める。
       const siteSurvey = await tx.siteSurvey.findUnique({
         where: { id: siteSurveyId },
         select: { id: true, name: true, deletedAt: true, projectId: true },

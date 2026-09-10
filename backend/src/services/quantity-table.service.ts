@@ -35,6 +35,7 @@ import {
   type CalculationParamsType,
 } from './quantity-validation.service.js';
 import { QuantityFieldValidationService } from './quantity-field-validation.service.js';
+import { assertSurveyNotDeleted } from '../utils/survey-deleted-guard.js';
 import Decimal from 'decimal.js';
 
 /**
@@ -936,6 +937,8 @@ export class QuantityTableService {
    * 2. ID検証（いずれも書き込み前に保存を中断, 400）:
    *    - 重複検証: payload 内で同じ既存ID（グループ・項目）が複数回現れないことを確認
    *    - 所属検証: payload の既存ID（グループ・項目）が当該数量表に属することを確認
+   * 2-1. 現調画像の親の状態検証（書き込み前に保存を中断, 410）:
+   *    - payload が指す現調画像の親の現場調査が論理削除済みでないことを確認
    * 3. DB現状と payload の差分適用:
    *    - グループ・項目とも payload の配列順に「更新（id一致）/ 作成（id=null）」を先に適用する
    *    - 削除はその後段でまとめて行う。判定はグループ単位ではなく数量表全体のID集合の差分で
@@ -966,6 +969,7 @@ export class QuantityTableService {
    * @throws QuantityTableValidationError 整合性検証エラー（文字数・数値範囲・計算整合）、
    *         同一のグループ・項目IDが複数回含まれる場合、または当該数量表に属さない
    *         グループ・項目IDが含まれる場合（400）
+   * @throws SurveyDeletedError payload が指す現調画像の親の現場調査が論理削除済みの場合（410）
    */
   async saveDraft(
     id: string,
@@ -1043,6 +1047,11 @@ export class QuantityTableService {
       //      付け替えられてしまう（既存項目の更新は quantityGroupId を明示するため）。
       //      書き込み前に検証し、違反時は保存を中断する（REQ-42.9, 11.2, 11.4）。
       this.validateDraftOwnership(input, dbGroupIds, dbItemIds);
+
+      // 2-0-3. 現調画像の親の状態検証: payload が指す現調画像の親の現場調査が
+      //      論理削除済みでないことを確認する。他の検証と同じく書き込み前に中断し、
+      //      未反映のまま保存を止める。
+      await this.assertDraftSurveyImagesNotDeleted(tx, input);
 
       // 2-1. グループを payload 配列順に処理（displayOrder は配列順を正とする）
       //      削除（グループ・項目）は本ループの後段でまとめて行う。所属変更（グループ間移動）を
@@ -1314,6 +1323,64 @@ export class QuantityTableService {
       throw new QuantityTableValidationError(
         'この数量表に属さないグループまたは項目が含まれています。最新データを再取得してください。',
         validationErrors
+      );
+    }
+  }
+
+  /**
+   * フル状態同期保存（saveDraft）が指す現調画像の親の状態検証
+   *
+   * payload の各グループが指す現調画像について、親の現場調査が論理削除済みで
+   * ないことを検証する。論理削除は画像の行に印を付けないため、画像を書き込む
+   * 経路が明示的に確かめるほかない。判定は QuantityGroupService の紐付け経路と
+   * 同じ共通機構（survey-deleted-guard）を用い、応答（410）への写しは経路側が行う。
+   *
+   * 問い合わせは重複排除した ID 群に対する 1 回の findMany に限る。グループごとに
+   * 引くとグループ数に比例した問い合わせが並ぶため、件数によらず 1 回で済ませる。
+   *
+   * 画像が見つからない場合は何も主張しない。親の状態を読めない以上、親が
+   * 論理削除済みだとは言えないためである。存在しない画像IDの扱いは本検証の
+   * 担当外であり、現状の挙動を変えない。
+   *
+   * @param tx - Prismaトランザクションクライアント
+   * @param input - フル状態同期保存入力
+   * @throws SurveyDeletedError 親の現場調査が論理削除済みの現調画像が含まれる場合
+   */
+  private async assertDraftSurveyImagesNotDeleted(
+    tx: PrismaTransactionClient,
+    input: SaveQuantityTableDraftInput
+  ): Promise<void> {
+    const surveyImageIds = [
+      ...new Set(
+        input.groups
+          .map((group) => group.surveyImageId)
+          .filter((surveyImageId): surveyImageId is string => surveyImageId !== null)
+      ),
+    ];
+
+    if (surveyImageIds.length === 0) {
+      return;
+    }
+
+    // select の形は QuantityGroupService.validateSurveyImage と揃える。
+    // projectId は同経路がプロジェクト境界の判定に用いる項目であり、本保存経路での
+    // 当該判定は本タスクの担当外のため、ここでは読むだけで判定には用いない。
+    const surveyImages = await tx.surveyImage.findMany({
+      where: { id: { in: surveyImageIds } },
+      select: {
+        id: true,
+        surveyId: true,
+        survey: {
+          select: { projectId: true, deletedAt: true },
+        },
+      },
+    });
+
+    for (const surveyImage of surveyImages) {
+      assertSurveyNotDeleted(
+        surveyImage.survey,
+        surveyImage.surveyId,
+        `削除された現場調査の画像は紐付けできません: ${surveyImage.surveyId}`
       );
     }
   }
