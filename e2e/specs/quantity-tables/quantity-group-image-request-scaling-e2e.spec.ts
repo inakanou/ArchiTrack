@@ -2,10 +2,12 @@
  * @fileoverview 数量グループ数によらない数量表編集画面の画像リクエストのE2Eテスト
  *
  * Task 76.2: 数量表編集画面の画像リクエストが数量グループ数に比例しないことを確認する
+ * Task 83.1: 拡大表示で原本を取得することをE2Eで確認する
  *
  * Requirements coverage (quantity-table-generation):
  * - @requirement quantity-table-generation/REQ-49.2: 数量表編集画面の表示で、注釈を反映した写真を表示するための追加リクエストを数量グループごとに発生させない
  * - @requirement quantity-table-generation/REQ-49.3: 数量表編集画面の表示で発生するサーバーリクエストの件数を、数量グループ数の増加に比例して増大させない
+ * - @requirement quantity-table-generation/REQ-49.7: 表題部の写真を拡大表示した操作の時点で原本画像を取得する
  * - @requirement quantity-table-generation/REQ-49.8: 表示領域外の数量グループの写真の取得を、表示領域に入るまで行わない
  *
  * ## 観測方式
@@ -50,6 +52,16 @@
  *    どの画像のキーとも異なること（＝どの表示元が採用されたかがパスで一意に判別できること）
  *
  * 実測値はテストログへ出力する。
+ *
+ * ## 取得の契機（49.7）
+ *
+ * 49.4 / 49.5 が定める表題部の表示元はサムネイル（合成済みサムネイル）であり、原本は
+ * 拡大表示の時点で取得される（49.7）。この対比は**同一の観測器・同一の述語**
+ * （`observation.originalKeys`）で測る。すなわち「拡大表示の前は原本0件」と
+ * 「拡大操作の後は当該写真の原本が取得される」を一組として判定し、0件の側だけでは
+ * 観測漏れでも成立してしまうことを避ける。原本とサムネイルはいずれもストレージキーの
+ * 後方一致で判別するため、拡大表示の表示元がサムネイルへ退行した場合は原本0件のまま
+ * 後者が成立しない。
  *
  * ## 編集画面が発行するリクエスト
  *
@@ -895,6 +907,90 @@ test.describe('数量グループ数によらない編集画面の画像リク�
         observation.quantityTableDetailPaths,
         '数量表詳細の取得は1回のままである'
       ).toHaveLength(1);
+    } finally {
+      await context.close();
+    }
+  });
+
+  /**
+   * @requirement quantity-table-generation/REQ-49.7
+   *
+   * 表題部の縮小表示（サムネイル。49.4 / 49.5）と拡大表示（原本。49.7）の対比で、原本の
+   * 取得が拡大操作の時点に限られることを確かめる。判定は「拡大表示の前は原本0件」と
+   * 「拡大操作の後は当該写真の原本が取得される」を**同一の観測器・同一の述語**
+   * （`observation.originalKeys`）で一組にして行う。前者だけでは観測条件の誤りでも成立する。
+   */
+  test('表題部の写真を拡大表示した操作の時点で原本画像を取得すること (quantity-table-generation/REQ-49.7)', async ({
+    browser,
+  }) => {
+    assertPrepared(createdQuantityTableId, '事前準備で作成した数量表のID');
+    const context = await browser.newContext({ viewport: MEASUREMENT_VIEWPORT });
+    const page = await context.newPage();
+    try {
+      const observation = observeImageRequests(page, createdQuantityTableId, storageKeyCatalog);
+      await openQuantityTableEditPage(page);
+
+      // 拡大表示の対象は初期表示で表示領域へ入る先頭グループとする。表示領域外のグループは
+      // 表題部の取得自体が遅延されるため（49.8）、縮小表示と拡大表示の対比にならない
+      const target = measuredImages[0]!;
+      const composedKey = composedThumbnailKeys[0];
+      assertPrepared(composedKey, '先頭グループの合成済みサムネイルのキー');
+
+      // 表題部の表示元はサムネイル側である（49.4 / 49.5）。画面が実際に表示元を引いている
+      // ことを先に確かめ、下の「原本0件」が画面の停止や観測の失敗によるものでないようにする
+      await expect
+        .poll(() => observation.displaySourceKeys.includes(composedKey), {
+          timeout: getTimeout(20000),
+          message: `先頭グループの表題部の表示元(${composedKey})が取得されていない。数量表詳細の応答に annotatedThumbnailUrl が含まれているかを確認すること`,
+        })
+        .toBe(true);
+
+      // 拡大表示の前に原本の取得は発生していない（＝取得の契機が拡大操作に限られる）
+      expect(
+        observation.originalKeys,
+        `拡大表示の前に原本(${target.originalPath})を取得しない`
+      ).toEqual([]);
+
+      // --- 拡大表示の操作 ---
+      // 操作部は表題部の写真を包む要素である。位置ではなく当該写真を含むことで指定し、
+      // グループの並び順に依存しないようにする
+      const zoomTrigger = page
+        .getByRole('button', { name: '紐付け画像を表示' })
+        .filter({ has: page.getByAltText(target.fileName, { exact: true }) });
+      await expect(
+        zoomTrigger,
+        '前提: 先頭グループの表題部に拡大表示の操作部が1つある'
+      ).toHaveCount(1);
+      await zoomTrigger.click();
+      await expect(
+        page.getByRole('dialog', { name: '写真プレビュー' }),
+        '前提: 写真プレビューダイアログが開く'
+      ).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 当該操作の時点で原本が取得される（49.7）。0件の側と同じ述語で非空を捉えることで、
+      // 上の「拡大表示の前は原本0件」が観測漏れでないことが示される
+      await expect
+        .poll(() => observation.originalKeys.includes(target.originalPath), {
+          timeout: getTimeout(20000),
+          message: `拡大表示しても原本(${target.originalPath})が取得されない。拡大表示の表示元がサムネイル側へ退行している可能性がある`,
+        })
+        .toBe(true);
+
+      observation.stop();
+
+      const observedOriginalKeys = [...new Set(observation.originalKeys)];
+      console.log(
+        `[REQ-49] 拡大表示: 原本取得=${JSON.stringify(observedOriginalKeys)} / 表示元取得=${uniqueCount(observation.displaySourceKeys)}件 / 未分類ストレージ=${JSON.stringify(observation.unclassifiedStoragePaths)}`
+      );
+
+      // 取得された原本は拡大表示した写真の分だけである（＝拡大操作が他のグループの原本取得を
+      // 引き起こしていない。「当該操作の時点で」の主張が件数の増加に頼らないようにする）
+      expect(observedOriginalKeys, '取得する原本は拡大表示した写真の分だけである').toEqual([
+        target.originalPath,
+      ]);
+
+      // 分類漏れがあると原本0件・原本1件の双方の判定が緩むため、未分類が無いことを確かめる
+      expect(observation.unclassifiedStoragePaths, '分類できないストレージ取得が無い').toEqual([]);
     } finally {
       await context.close();
     }
