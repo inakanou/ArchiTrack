@@ -93,6 +93,7 @@ describe('QuantityTableService Phase 9 - SurveyImage拡張', () => {
             updatedAt: new Date('2025-01-01'),
             surveyImage: {
               id: 'img-1',
+              survey: { projectId: 'proj-1' },
               thumbnailPath: 'thumbnails/thumb-1.jpg',
               originalPath: 'originals/original-1.jpg',
               annotatedThumbnailPath: 'annotated/annotated-thumb-1.jpg',
@@ -140,6 +141,7 @@ describe('QuantityTableService Phase 9 - SurveyImage拡張', () => {
             updatedAt: new Date('2025-01-01'),
             surveyImage: {
               id: 'img-2',
+              survey: { projectId: 'proj-1' },
               thumbnailPath: 'thumbnails/thumb-2.jpg',
               originalPath: 'originals/original-2.jpg',
               annotatedThumbnailPath: null,
@@ -186,6 +188,7 @@ describe('QuantityTableService Phase 9 - SurveyImage拡張', () => {
             updatedAt: new Date('2025-01-01'),
             surveyImage: {
               id: 'img-1',
+              survey: { projectId: 'proj-1' },
               thumbnailPath: 'thumbnails/thumb-1.jpg',
               originalPath: 'originals/original-1.jpg',
               annotatedThumbnailPath: 'annotated/annotated-thumb-1.jpg',
@@ -229,6 +232,7 @@ describe('QuantityTableService Phase 9 - SurveyImage拡張', () => {
             updatedAt: new Date('2025-01-01'),
             surveyImage: {
               id: 'img-2',
+              survey: { projectId: 'proj-1' },
               thumbnailPath: 'thumbnails/thumb-2.jpg',
               originalPath: 'originals/original-2.jpg',
               annotatedThumbnailPath: null,

@@ -67,6 +67,15 @@ const quantityTableService = new QuantityTableService({
  * 省略するために用いる。変換対象から漏れると表示できずクライアント合成へ退行するため、
  * thumbnailUrl/originalUrl と同じ経路で変換する。
  * Requirements: quantity-table-generation 49.1（写真表示に必要な情報をまとめて取得する）
+ *
+ * **現調画像の所属（テナント境界）はここでは検めない。** 検査は取得の正典である
+ * `QuantityTableService.findById` の写像に置いてある（Task 86.3）。ここに置かなかった理由は
+ * 二つある。(1) 本関数はストレージ未設定時に冒頭で早期 return するため、ストレージの設定に
+ * よって検査の有無が変わってしまう。テナント境界をストレージの設定に依存させてはならない。
+ * (2) 本関数が受け取る `QuantityTableDetailWithItems` の写真サマリは所属プロジェクトを
+ * 持たないため、ここで検めるには追加の問い合わせが要る。`findById` の側なら既存の問い合わせの
+ * 取得項目を広げるだけで済む。
+ * したがって本関数へ届く時点で所属違反の紐付けは既に落ちている。
  */
 async function enrichQuantityTableSignedUrls(
   quantityTable: QuantityTableDetailWithItems

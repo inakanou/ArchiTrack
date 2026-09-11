@@ -37,6 +37,7 @@ import {
 import { QuantityFieldValidationService } from './quantity-field-validation.service.js';
 import { assertSurveyNotDeleted } from '../utils/survey-deleted-guard.js';
 import { SurveyImageNotFoundError } from '../errors/siteSurveyError.js';
+import logger from '../utils/logger.js';
 import Decimal from 'decimal.js';
 
 /**
@@ -470,6 +471,11 @@ export class QuantityTableService {
             surveyImage: {
               select: {
                 id: true,
+                // 取得経路の所属の検査（Task 86.3）に用いる。写真1枚ごとの追加の
+                // 問い合わせにはならず、数量表詳細の同一の問い合わせの取得項目が広がるだけである。
+                survey: {
+                  select: { projectId: true },
+                },
                 thumbnailPath: true,
                 originalPath: true,
                 annotatedThumbnailPath: true,
@@ -1737,6 +1743,7 @@ export class QuantityTableService {
       updatedAt: Date;
       surveyImage: {
         id: string;
+        survey: { projectId: string };
         thumbnailPath: string;
         originalPath: string;
         annotatedThumbnailPath: string | null;
@@ -1771,59 +1778,100 @@ export class QuantityTableService {
     }>;
     _count: { groups: number };
   }): QuantityTableDetailWithItems {
-    const groups: QuantityGroupDetailInfo[] = quantityTable.groups.map((g) => ({
-      id: g.id,
-      quantityTableId: g.quantityTableId,
-      name: g.name,
-      surveyImageId: g.surveyImageId,
-      surveyImage: g.surveyImage
-        ? {
-            id: g.surveyImage.id,
-            thumbnailUrl: `/api/storage/${g.surveyImage.thumbnailPath}`,
-            originalUrl: `/api/storage/${g.surveyImage.originalPath}`,
-            fileName: g.surveyImage.fileName,
-            hasAnnotations: g.surveyImage.annotation !== null,
-            // 描画された注釈の有無（Requirement 20.2、Task 115.13）。
-            // 回転のみの保存でも注釈レコードは残るため hasAnnotations とは一致しない。
-            // 未算出（バックフィル未実施）のレコードは従来どおり注釈ありとして扱う。
-            hasDrawnAnnotations: g.surveyImage.annotation
-              ? (g.surveyImage.annotation.hasDrawnAnnotations ?? true)
-              : false,
-            annotatedThumbnailUrl: g.surveyImage.annotatedThumbnailPath
-              ? `/api/storage/${g.surveyImage.annotatedThumbnailPath}`
-              : null,
-            comment: g.surveyImage.comment ?? null,
-            // 表示領域の確保に用いる実寸（Requirement 49.8）
-            width: g.surveyImage.width,
-            height: g.surveyImage.height,
-          }
-        : null,
-      displayOrder: g.displayOrder,
-      itemCount: g._count.items,
-      items: g.items.map((item) => ({
-        id: item.id,
-        quantityGroupId: item.quantityGroupId,
-        majorCategory: item.majorCategory,
-        middleCategory: item.middleCategory,
-        minorCategory: item.minorCategory,
-        customCategory: item.customCategory,
-        workType: item.workType,
-        name: item.name,
-        specification: item.specification,
-        unit: item.unit,
-        calculationMethod: item.calculationMethod,
-        calculationParams: item.calculationParams as Record<string, number> | null,
-        adjustmentFactor: Number(item.adjustmentFactor),
-        roundingUnit: Number(item.roundingUnit),
-        quantity: Number(item.quantity),
-        remarks: item.remarks,
-        displayOrder: item.displayOrder,
-        createdAt: item.createdAt,
-        updatedAt: item.updatedAt,
-      })),
-      createdAt: g.createdAt,
-      updatedAt: g.updatedAt,
-    }));
+    const groups: QuantityGroupDetailInfo[] = quantityTable.groups.map((g) => {
+      // 取得経路の現調画像の所属の検査（Task 86.3）。
+      //
+      // Task 86.1 が保存経路を塞いだため新規の混入は起きないが、それ以前に永続化された
+      // 所属違反の紐付けは残っており、取得経路はそれをそのまま返していた。
+      //
+      // **落とす向きに倒し、拒む向きは採らない。** 取得を 4xx で拒むと、既存の違反紐付けを
+      // 持つ利用者は数量表を開けなくなる。Task 86.1 が保存を 400 で拒んでいるため、表示も
+      // 保存もできず画面から解除もできない袋小路になる。落とす向きなら数量表は開ける。
+      //
+      // **`surveyImageId` も併せて落とす。** 画面は取得した `surveyImageId` をそのまま
+      // 保存へ送り返すため、これを残すと 86.1 の 400 で保存が止まり続け、袋小路が解けない。
+      // 落とすことで、Task 86.4（解除の出口）が未着手の時点でも保存が通り、その保存で
+      // 違反の紐付けが解除される。`surveyImage` だけを落として `surveyImageId` を残すと
+      // 「紐付いているが中身が無い」という、画面が解釈できない応答にもなる。
+      //
+      // **落としたことは利用者へは伝えない。** サーバ側のログにのみ残す。伝え方の設計は
+      // Task 86.5 の領分であり、加えて他プロジェクトの画像が紐付いていた事実を画面で告げると
+      // 利用者の権限の外にある資源の存在を示唆する。
+      //
+      // 所属の検査をここ（取得の正典）に置き、ルータの enrichQuantityTableSignedUrls に
+      // 置かない理由は同関数のコメントに書いた。
+      const violatesProjectBoundary =
+        g.surveyImage !== null && g.surveyImage.survey.projectId !== quantityTable.projectId;
+
+      if (violatesProjectBoundary) {
+        // 落としたことは運用側の記録にのみ残す。利用者への提示は Task 86.5 の領分である。
+        logger.warn(
+          {
+            quantityTableId: quantityTable.id,
+            quantityTableProjectId: quantityTable.projectId,
+            quantityGroupId: g.id,
+            surveyImageId: g.surveyImageId,
+          },
+          'Dropped survey image link that belongs to another project'
+        );
+      }
+
+      const linkedSurveyImage = violatesProjectBoundary ? null : g.surveyImage;
+
+      return {
+        id: g.id,
+        quantityTableId: g.quantityTableId,
+        name: g.name,
+        surveyImageId: violatesProjectBoundary ? null : g.surveyImageId,
+        surveyImage: linkedSurveyImage
+          ? {
+              id: linkedSurveyImage.id,
+              thumbnailUrl: `/api/storage/${linkedSurveyImage.thumbnailPath}`,
+              originalUrl: `/api/storage/${linkedSurveyImage.originalPath}`,
+              fileName: linkedSurveyImage.fileName,
+              hasAnnotations: linkedSurveyImage.annotation !== null,
+              // 描画された注釈の有無（Requirement 20.2、Task 115.13）。
+              // 回転のみの保存でも注釈レコードは残るため hasAnnotations とは一致しない。
+              // 未算出（バックフィル未実施）のレコードは従来どおり注釈ありとして扱う。
+              hasDrawnAnnotations: linkedSurveyImage.annotation
+                ? (linkedSurveyImage.annotation.hasDrawnAnnotations ?? true)
+                : false,
+              annotatedThumbnailUrl: linkedSurveyImage.annotatedThumbnailPath
+                ? `/api/storage/${linkedSurveyImage.annotatedThumbnailPath}`
+                : null,
+              comment: linkedSurveyImage.comment ?? null,
+              // 表示領域の確保に用いる実寸（Requirement 49.8）
+              width: linkedSurveyImage.width,
+              height: linkedSurveyImage.height,
+            }
+          : null,
+        displayOrder: g.displayOrder,
+        itemCount: g._count.items,
+        items: g.items.map((item) => ({
+          id: item.id,
+          quantityGroupId: item.quantityGroupId,
+          majorCategory: item.majorCategory,
+          middleCategory: item.middleCategory,
+          minorCategory: item.minorCategory,
+          customCategory: item.customCategory,
+          workType: item.workType,
+          name: item.name,
+          specification: item.specification,
+          unit: item.unit,
+          calculationMethod: item.calculationMethod,
+          calculationParams: item.calculationParams as Record<string, number> | null,
+          adjustmentFactor: Number(item.adjustmentFactor),
+          roundingUnit: Number(item.roundingUnit),
+          quantity: Number(item.quantity),
+          remarks: item.remarks,
+          displayOrder: item.displayOrder,
+          createdAt: item.createdAt,
+          updatedAt: item.updatedAt,
+        })),
+        createdAt: g.createdAt,
+        updatedAt: g.updatedAt,
+      };
+    });
 
     const itemCount = groups.reduce((sum, g) => sum + g.itemCount, 0);
 

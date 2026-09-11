@@ -253,6 +253,7 @@ describe('QuantityTableService', () => {
       updatedAt: new Date('2026-01-06T00:00:00.000Z'),
       surveyImage: {
         id: 'img-1',
+        survey: { projectId: DEFAULT_SURVEY_IMAGE_PROJECT_ID },
         thumbnailPath: 'surveys/s/thumb.jpg',
         originalPath: 'surveys/s/orig.jpg',
         annotatedThumbnailPath: null,
@@ -410,6 +411,7 @@ describe('QuantityTableService', () => {
           updatedAt: new Date('2026-01-06T00:00:00.000Z'),
           surveyImage: {
             id: 'img-1',
+            survey: { projectId: DEFAULT_SURVEY_IMAGE_PROJECT_ID },
             thumbnailPath: 'surveys/s/thumb.jpg',
             originalPath: 'surveys/s/orig.jpg',
             annotatedThumbnailPath: null,
@@ -459,6 +461,137 @@ describe('QuantityTableService', () => {
       expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
       expect(mockPrisma.quantityItem.create).not.toHaveBeenCalled();
       expect(mockPrisma.quantityItem.update).not.toHaveBeenCalled();
+      expect(mockPrisma.project.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================================================
+  // Task 86.3: 数量表の取得経路が現調画像の所属を検めない状態を解消する
+  //
+  // Task 86.1 が保存経路を塞いだため、他プロジェクトの現調画像を新たに紐付けることは
+  // できない。しかし 86.1 より前に永続化された紐付けは残っており、取得経路はそれを
+  // そのまま返していた。取得経路は当該の紐付けだけを落とし、数量表そのものは返す。
+  //
+  // 本 describe は受入基準を名乗らない。守るのはテナント境界であり、本スペックの
+  // 受入基準として条文化されていないためである（tasks.md の Task 86 節末尾に明記）。
+  // ==========================================================================
+  describe('findById - 現調画像の所属の検査', () => {
+    const quantityTableId = '123e4567-e89b-12d3-a456-426614174002';
+    const ownerProjectId = '123e4567-e89b-12d3-a456-426614174000';
+    const foreignProjectId = '123e4567-e89b-12d3-a456-4266141740ff';
+
+    const buildTableWithImageOwnedBy = (imageProjectId: string) => ({
+      id: quantityTableId,
+      projectId: ownerProjectId,
+      name: 'テスト数量表',
+      createdAt: new Date('2026-01-06T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+      deletedAt: null,
+      project: { id: ownerProjectId, name: 'テストプロジェクト' },
+      groups: [
+        {
+          id: '123e4567-e89b-12d3-a456-426614174010',
+          quantityTableId,
+          name: 'グループ',
+          surveyImageId: 'img-1',
+          displayOrder: 0,
+          createdAt: new Date('2026-01-06T00:00:00.000Z'),
+          updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+          surveyImage: {
+            id: 'img-1',
+            survey: { projectId: imageProjectId },
+            thumbnailPath: 'surveys/s/thumb.jpg',
+            originalPath: 'surveys/s/orig.jpg',
+            annotatedThumbnailPath: null,
+            fileName: 'orig.jpg',
+            comment: null,
+            width: 4032,
+            height: 3024,
+            annotation: null,
+          },
+          items: [],
+          _count: { items: 0 },
+        },
+      ],
+      _count: { groups: 1 },
+    });
+
+    it('他プロジェクトの現調画像を指す紐付けは写真サマリを落として返す', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(
+        buildTableWithImageOwnedBy(foreignProjectId)
+      );
+
+      // Act
+      const result = await service.findById(quantityTableId);
+
+      // Assert
+      expect(result!.groups[0]!.surveyImage).toBeNull();
+    });
+
+    it('他プロジェクトの現調画像を指す紐付けは surveyImageId も落として返す（保存の出口を塞がないため）', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(
+        buildTableWithImageOwnedBy(foreignProjectId)
+      );
+
+      // Act
+      const result = await service.findById(quantityTableId);
+
+      // Assert
+      expect(result!.groups[0]!.surveyImageId).toBeNull();
+    });
+
+    it('落とすのは当該の紐付けだけで、数量表とグループそのものは返す', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(
+        buildTableWithImageOwnedBy(foreignProjectId)
+      );
+
+      // Act
+      const result = await service.findById(quantityTableId);
+
+      // Assert
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe(quantityTableId);
+      expect(result!.groups).toHaveLength(1);
+      expect(result!.groups[0]!.name).toBe('グループ');
+    });
+
+    it('同一プロジェクトの現調画像は従来どおり写真サマリを返す（対照）', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(
+        buildTableWithImageOwnedBy(ownerProjectId)
+      );
+
+      // Act
+      const result = await service.findById(quantityTableId);
+
+      // Assert
+      expect(result!.groups[0]!.surveyImageId).toBe('img-1');
+      expect(result!.groups[0]!.surveyImage!.id).toBe('img-1');
+      expect(result!.groups[0]!.surveyImage!.thumbnailUrl).toBe('/api/storage/surveys/s/thumb.jpg');
+    });
+
+    it('所属の判定は既存の問い合わせの取得項目から得る（写真ごとの追加の問い合わせを発生させない）', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue(
+        buildTableWithImageOwnedBy(foreignProjectId)
+      );
+
+      // Act
+      await service.findById(quantityTableId);
+
+      // Assert: 所属は数量表詳細の同一の問い合わせで取得する
+      const args = mockPrisma.quantityTable.findUnique.mock.calls[0]![0];
+      const imageSelect = args.include.groups.include.surveyImage.select;
+      expect(imageSelect.survey).toEqual({ select: { projectId: true } });
+
+      // Assert: 問い合わせの回数が増えていないこと
+      expect(mockPrisma.quantityTable.findUnique).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.surveyImage.findMany).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityTable.findMany).not.toHaveBeenCalled();
       expect(mockPrisma.project.findUnique).not.toHaveBeenCalled();
       expect(mockPrisma.$transaction).not.toHaveBeenCalled();
     });
@@ -989,6 +1122,7 @@ describe('QuantityTableService', () => {
             surveyImageId: 'img-1',
             surveyImage: {
               id: 'img-1',
+              survey: { projectId: DEFAULT_SURVEY_IMAGE_PROJECT_ID },
               thumbnailPath: 'thumbnails/img-1.jpg',
               originalPath: 'originals/img-1.jpg',
               fileName: 'survey.jpg',
