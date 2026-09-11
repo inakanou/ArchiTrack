@@ -948,6 +948,8 @@ export class QuantityTableService {
    * 違反があれば DB へ一切アクセスせず保存を中断する。
    *
    * トランザクション内で以下を実行:
+   * 0. 当該数量表の行を `SELECT ... FOR UPDATE` で行ロックし、同一数量表への保存を直列化する
+   *    （Task 88.1。後発は先行の確定を待ってから updatedAt を読むため、1 の照合で 409 となる）
    * 1. 数量表の存在確認・楽観的排他制御（expectedUpdatedAt 不一致は 409）
    * 2. ID検証（いずれも書き込み前に保存を中断, 400）:
    *    - 重複検証: payload 内で同じ既存ID（グループ・項目）が複数回現れないことを確認
@@ -1002,6 +1004,16 @@ export class QuantityTableService {
     const expectedUpdatedAt = new Date(input.expectedUpdatedAt);
 
     await this.prisma.$transaction(async (tx) => {
+      // 0. 当該数量表の行を SELECT ... FOR UPDATE で行ロックし、同一数量表への保存を直列化する
+      //    （Task 88.1）。差分元と updatedAt を読む前に取るので、後発の保存は先行の確定を
+      //    待ってから確定後の updatedAt を読み、下の楽観的排他制御の照合で 409 となる。
+      //    行が無い／論理削除済みの判定は直後の読み取りに任せる（応答は従来どおり 404）。
+      await tx.$queryRaw`
+        SELECT id FROM "quantity_tables"
+        WHERE id = ${id}
+        FOR UPDATE
+      `;
+
       // 1. 数量表の存在確認・現状取得（差分元となるグループ/項目IDを含む）
       const current = await tx.quantityTable.findUnique({
         where: { id },

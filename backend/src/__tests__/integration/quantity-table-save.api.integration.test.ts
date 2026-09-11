@@ -1239,12 +1239,13 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
     });
 
     it('後発 save の競合（stale token）で後発が 409 となり、部分反映なし・displayOrder 衝突が起きない', async () => {
-      // 並行/後発 save の競合は楽観ロック（expectedUpdatedAt）で検出される。
-      // 実装に SELECT ... FOR UPDATE の行ロックは存在せず（design.md L2073: OPTIONAL）、
-      // 真の同時並行リクエストでは READ COMMITTED 下で両者が読み取り段階を通過しうるため
-      // 結果が非決定的（200/500/200 双方成功 等）になる。
-      // そこで REQ-42.9 の「後発が 409・部分反映なし」は、先行 save 成功で updatedAt を
-      // 進めた後、stale（陳腐化）な expectedUpdatedAt で後発 save を行う決定的手法で検証する。
+      // 後発 save の競合は楽観ロック（expectedUpdatedAt）で検出される。
+      // 本検証は、先行 save 成功で updatedAt を進めた後に stale（陳腐化）な
+      // expectedUpdatedAt で後発 save を行う逐次の競合を決定的に扱う。
+      // Task 59.4 の時点の saveDraft は行ロックを取らず、真の同時並行では両者が読み取り段階を
+      // 通過しえたため、逐次の形に限って検証していた。Task 88.1 が saveDraft へ数量表の行の
+      // SELECT ... FOR UPDATE を加えたので、同時並行の競合は下の describe
+      // 「同時並行保存の直列化（Task 88.1）」が検証する。
       const seeded = await createSeededTable(testProjectId, '後発競合テスト');
       const staleExpected = await getExpectedUpdatedAt(seeded.tableId);
 
@@ -1350,5 +1351,166 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
         expect(new Set(itemOrders).size).toBe(itemOrders.length);
       }
     });
+  });
+
+  /**
+   * 真の同時並行保存の直列化（Task 88.1）
+   *
+   * 上の「楽観的排他制御」は、先行の保存が確定した後に後発が読み取る逐次の競合だけを
+   * 検証している。ここでは後発が読み取りを終えた時点で先行がまだ確定していない
+   * 同時並行の競合を扱う。
+   */
+  describe('同時並行保存の直列化（Task 88.1）', () => {
+    /**
+     * 数量表の行に対してロック待ちに入った接続が現れるまで待つ。
+     * 期限内に現れなければ失敗させる（前提が崩れたときに検証を素通りさせない）。
+     * 時間の計測は単調時計で行う（WSL2 では壁時計が単調時計より遅れるため）。
+     */
+    const waitForLockWaiterOnQuantityTables = async (): Promise<void> => {
+      const deadline = performance.now() + 10_000;
+      while (performance.now() < deadline) {
+        const rows = await prisma.$queryRaw<Array<{ n: number }>>`
+          SELECT count(*)::int AS n
+          FROM pg_stat_activity
+          WHERE datname = current_database()
+            AND wait_event_type = 'Lock'
+            AND query ILIKE '%quantity_tables%'
+        `;
+        if ((rows[0]?.n ?? 0) > 0) return;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      throw new Error('保存要求が数量表の行のロック待ちに入るのを 10 秒以内に観測できなかった');
+    };
+
+    /**
+     * 既存の2グループを残したまま末尾へ新規グループを1件足す保存要求の本文
+     */
+    const appendGroupPayload = (
+      seeded: { group1Id: string; group2Id: string },
+      expectedUpdatedAt: string,
+      label: string
+    ): Record<string, unknown> => ({
+      expectedUpdatedAt,
+      name: label,
+      groups: [
+        {
+          id: seeded.group1Id,
+          name: '初期グループ1',
+          surveyImageId: null,
+          displayOrder: 0,
+          items: [],
+        },
+        {
+          id: seeded.group2Id,
+          name: '初期グループ2',
+          surveyImageId: null,
+          displayOrder: 1,
+          items: [],
+        },
+        { id: null, name: `${label}-末尾追加`, surveyImageId: null, displayOrder: 2, items: [] },
+      ],
+    });
+
+    it('先行の保存が確定する前に読み取りを終えうる後発の保存も 409 となり、displayOrder が衝突しない', async () => {
+      const seeded = await createSeededTable(testProjectId, '同時保存テスト');
+      const baseExpected = await getExpectedUpdatedAt(seeded.tableId);
+
+      let releaseFirst!: () => void;
+      const firstMayCommit = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      let signalFirstWritten!: () => void;
+      const firstWritten = new Promise<void>((resolve) => {
+        signalFirstWritten = resolve;
+      });
+
+      // 先行の保存を模す: 末尾へグループを1件足し、数量表の updatedAt を進めたまま確定を保留する。
+      // saveDraft と同じく数量表の行を UPDATE で書くので、この行の書き込みロックを握り続ける。
+      const firstSave = prisma.$transaction(
+        async (tx) => {
+          await tx.quantityGroup.create({
+            data: { quantityTableId: seeded.tableId, name: '先行-末尾追加', displayOrder: 2 },
+          });
+          await tx.quantityTable.update({
+            where: { id: seeded.tableId },
+            data: { name: '先行確定', updatedAt: new Date() },
+          });
+          signalFirstWritten();
+          await firstMayCommit;
+        },
+        { timeout: 20_000 }
+      );
+
+      try {
+        await firstWritten;
+
+        // 後発の保存: 先行と同じ版（baseExpected）から出た保存。先行は未確定なので、
+        // 読み取り時点では updatedAt は旧値のまま見える。
+        const secondSave = request(app)
+          .put(`/api/quantity-tables/${seeded.tableId}/save`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send(appendGroupPayload(seeded, baseExpected, '後発'))
+          .then((res) => res);
+
+        // 後発が数量表の行のロック待ちに入ったのを見届けてから先行を確定させる
+        await waitForLockWaiterOnQuantityTables();
+        releaseFirst();
+        await firstSave;
+
+        const second = await secondSave;
+        expect(second.status).toBe(409);
+        expect(second.body).toHaveProperty('code', 'QUANTITY_TABLE_CONFLICT');
+      } finally {
+        releaseFirst();
+        await firstSave.catch(() => undefined);
+      }
+
+      // 最終状態は先行の確定結果のみ（後発の作成・改名は反映されない）
+      const table = await prisma.quantityTable.findUniqueOrThrow({
+        where: { id: seeded.tableId },
+      });
+      expect(table.name).toBe('先行確定');
+
+      const groups = await prisma.quantityGroup.findMany({
+        where: { quantityTableId: seeded.tableId },
+        orderBy: { displayOrder: 'asc' },
+      });
+      expect(groups.map((g) => g.name)).toEqual([
+        '初期グループ1',
+        '初期グループ2',
+        '先行-末尾追加',
+      ]);
+
+      // displayOrder に衝突（重複）が無いこと
+      const orders = groups.map((g) => g.displayOrder);
+      expect(new Set(orders).size).toBe(orders.length);
+    }, 30_000);
+
+    it('同じ版から出た2本の保存を同時に送ると、一方だけが成功し他方は 409 となり、displayOrder が衝突しない', async () => {
+      const seeded = await createSeededTable(testProjectId, '同時保存テスト2');
+      const baseExpected = await getExpectedUpdatedAt(seeded.tableId);
+
+      const [a, b] = await Promise.all([
+        request(app)
+          .put(`/api/quantity-tables/${seeded.tableId}/save`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send(appendGroupPayload(seeded, baseExpected, '保存A')),
+        request(app)
+          .put(`/api/quantity-tables/${seeded.tableId}/save`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send(appendGroupPayload(seeded, baseExpected, '保存B')),
+      ]);
+
+      expect([a.status, b.status].sort()).toEqual([200, 409]);
+      const loser = a.status === 409 ? a : b;
+      expect(loser.body).toHaveProperty('code', 'QUANTITY_TABLE_CONFLICT');
+
+      const groups = await prisma.quantityGroup.findMany({
+        where: { quantityTableId: seeded.tableId },
+        orderBy: { displayOrder: 'asc' },
+      });
+      expect(groups).toHaveLength(3);
+      expect(groups.map((g) => g.displayOrder)).toEqual([0, 1, 2]);
+    }, 30_000);
   });
 });

@@ -63,6 +63,7 @@ type MockPrismaClient = {
     findMany: Mock;
   };
   $transaction: Mock;
+  $queryRaw: Mock;
 };
 
 describe('QuantityTableService', () => {
@@ -110,6 +111,10 @@ describe('QuantityTableService', () => {
         ),
       },
       $transaction: vi.fn((callback) => callback(mockPrisma)),
+      // saveDraft が差分元を読む前に取る数量表の行ロック（SELECT ... FOR UPDATE。Task 88.1）。
+      // ロックが直列化することは単体では確かめられないため、統合検証
+      // （quantity-table-save.api.integration.test.ts の「同時並行保存の直列化」）が担う。
+      $queryRaw: vi.fn().mockResolvedValue([]),
     };
 
     // Mock AuditLogService

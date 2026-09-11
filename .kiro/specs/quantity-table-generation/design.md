@@ -686,6 +686,8 @@ sequenceDiagram
     end
 ```
 
+**上の図の「任意で SELECT ... FOR UPDATE」は書いた時点の記録である。** Task 88.1 が `saveDraft` に数量表の行ロックを入れ、任意ではなくなった。決着と根拠は `#### QuantityTableService.saveDraft（フル状態同期保存）` の「並行制御の範囲（Task 88.1 の決着）」 に置いた。
+
 ### 未保存変更の離脱ガードフロー（REQ-43）
 
 ```mermaid
@@ -2096,6 +2098,7 @@ await prisma.$transaction(async (tx) => {
 - **ロック粒度**: QuantityTable 行単位。同一数量表内の並行 displayOrder 操作のみ serialize し、別の数量表への操作はブロックしない
 - **失敗ハンドリング**: ロック取得タイムアウト（既存 Prisma デフォルト 5 秒）または `SELECT FOR UPDATE` で対象行が削除済みの場合、`OptimisticLockError` を投げて API 層で 409 にマップする
 - **代替案不採用**: `isolationLevel: 'Serializable'` も検討したが、PostgreSQL の Serializable は実行時にシリアライズ失敗を検出するため、ロック取得時点で失敗させる `FOR UPDATE` の方が動作が予測可能で既存サービス層パターン（`quantity-table.service.ts`）と整合する
+- **ロック粒度が及ぶ操作の現況（Task 88.1）**: 上の冒頭の段落が挙げる「グループ追加・並び替え」は、行ロックを取らず直列化されていない。取るのは `copy()`・`createGroupsFromSurvey()`・`saveDraft` である。決着と根拠は `#### QuantityTableService.saveDraft（フル状態同期保存）` の「並行制御の範囲（Task 88.1 の決着）」 に置いた
 
 ##### API Contract
 
@@ -2146,6 +2149,7 @@ interface QuantityGroupCardProps {
 - Integration: 後続グループの displayOrder シフトは `prisma.quantityGroup.updateMany({ where: { quantityTableId, displayOrder: { gt: srcGroup.displayOrder } }, data: { displayOrder: { increment: 1 } } })` を `$transaction` 内で実行
 - Concurrency: トランザクション開始直後に親 QuantityTable 行への `SELECT ... FOR UPDATE` を取得し、同一数量表に対する並行 displayOrder 操作（追加・並び替え・別グループの copy）を serialize する（詳細: 上記 Concurrency Control セクション）
 - Concurrency: ロック取得失敗・タイムアウト・ロック後の元グループ削除検出は `OptimisticLockError` として上位に伝播し、API 層で 409 にマップする
+- Concurrency の現況（Task 88.1）: 上の2項と `##### Concurrency Control` が述べる「追加・並び替え・別グループの copy と競合し、serialize する」は書いた時点の記録として残す。数量表の行ロックを取るのは `copy()`・`createGroupsFromSurvey()`・`saveDraft` で、追加（`create()`）と並び替え（`updateDisplayOrder()`）は取らない。決着と根拠は `#### QuantityTableService.saveDraft（フル状態同期保存）` の「並行制御の範囲（Task 88.1 の決着）」 に置いた
 - Validation: 元グループの存在チェック → 数量表 ID 経由で書き込み権限チェック → トランザクション開始の順
 - Validation: 名前文字数超過時の切り詰めロジックは `QuantityValidationService` に `truncateForCopy(originalName: string, suffix: string): string` を新設して再利用可能化
 - Risks: 数量項目が大量（数百件）にあるグループのコピーは DB 負荷が増加する。既存 REQ-17（数量表コピー）と同等のサイズ想定（最大 100 項目程度）でテストし、必要に応じてレート制限を後追い検討（design 外 / out of scope）
@@ -2199,6 +2203,7 @@ interface QuantityGroupCardProps {
 
 - バックエンド: `QuantityGroupService.createGroupsFromSurvey` が現場調査の全写真を写真順（`displayOrder`）に取得し、既存グループの `max(displayOrder)+1` から連番でグループを末尾追加する。全処理を単一トランザクションで実行し、エラー時はロールバックする（AC12）
 - 並行制御: REQ-38 `copy()` と同一の方針を採用する。当該数量表の数量グループ群に対して `SELECT FOR UPDATE`（行ロック）を取得してから `max(displayOrder)` 算出・末尾追加を行い、同一数量表への add/copy/reorder/一括生成が並行しても displayOrder 衝突・順序破綻が起きないよう直列化する。ロック取得タイムアウト時は `OptimisticLockError` を送出し、API 層で 409 にマップする（design.md「数量グループのコピー機能（REQ-38）」`##### Concurrency Control` と整合）
+- 並行制御の現況（Task 88.1）: 上の箇条は書いた時点の記録として残す。`createGroupsFromSurvey()` は数量表の行ロックを取るが、add（`create()`）と reorder（`updateDisplayOrder()`）は取らず、「add/copy/reorder/一括生成が並行しても displayOrder 衝突・順序破綻が起きない」の範囲に入っていない（両者は逐次でも displayOrder を重ねうることを実測した）。数量表の行ロックを取るのは一括生成・copy・`saveDraft` の三つである。決着と根拠は `#### QuantityTableService.saveDraft（フル状態同期保存）` の「並行制御の範囲（Task 88.1 の決着）」 に置いた
 - グループ名は「{現場調査名} {連番}」（連番1始まり）。最大文字数（全角25/半角50、REQ-22 AC4）超過時は現場調査名部分を切り詰めて連番を付与する（REQ-38 の `truncateForCopy` を汎用化した命名ヘルパーを共有）
 - 各グループは数量項目0件の初期状態で作成する（AC9）。数量項目の自動生成は行わない
 - 写真0枚の場合はグループを生成せず `created: 0` を返し、フロントで「写真が存在しません」メッセージを表示する（AC10）
@@ -2343,6 +2348,32 @@ interface SiteSurveySummary {
 - 全フィールドを `QuantityValidationService` で検証（文字数・数値範囲・計算整合）。不整合時は保存中断（REQ-11.2/11.3）
 - 単一 `$transaction`。失敗時 ROLLBACK で部分反映を残さない。完了後 `updatedAt` 更新・監査ログ記録・最新 `QuantityTableDetail` を返却
 
+**並行制御の範囲（Task 88.1 の決着）**
+
+本節の上の箇条（楽観的排他制御を主とし行ロックは任意とする記述）と、`##### Concurrency Control`（REQ-38）・`#### 現場調査からの数量グループ一括生成（REQ-40）` が述べる並行制御の範囲は、書いた時点の記録として残す。Task 88.1 が実測に基づいて次のとおり決着させた。実測はいずれもコミット `36c816dd` の作業ツリーで、2026-09-12 にリポジトリルートから行った。
+
+- **決着**: 数量グループの displayOrder を書く経路のうち、画面から到達するのは `saveDraft` だけである。そこで (1) `saveDraft` には数量表の行の `SELECT ... FOR UPDATE` を、差分元と `updatedAt` の読み取りより前に取らせる（実装を設計の「並行 save は後発が 409」へ揃える）。(2) 「add / copy / reorder / from-survey の4種を直列化する」という主張は、行ロックを取る `copy()` と `createGroupsFromSurvey()` の2種へ狭める（設計を実装へ揃える）。`saveDraft` のロックは両者と同じ数量表の行に取る
+- **画面からの到達の実測**: 関数名ごとに `grep -rlw '<関数名>' frontend/src --include=*.ts --include=*.tsx | grep -v '\.test\.\|\.stories\.\|__tests__' | grep -v 'frontend/src/api/quantity-tables.ts'` を走らせた。`createQuantityGroup` / `updateQuantityGroup` / `updateGroupDisplayOrder` / `createGroupsFromSurvey` は 0 ファイル、`saveQuantityTableDraft` は 3 ファイルである。`copyQuantityGroup` は 1 ファイルに当たるが、次の行のとおり註の中の言及である
+  - `frontend/src/pages/QuantityTableEditPage.tsx` の `handleCopyGroup` の JSDoc の註（`grep -n copyQuantityGroup` の当たりはこの1行のみ）。呼び出しではない
+  - 画面のグループの追加・コピー・並び替え・一括生成はいずれもドラフトの操作で、永続化は `PUT /api/quantity-tables/:id/save` の1回に畳まれる（REQ-42）
+- **行ロックの所在の実測**: `grep -n 'FOR UPDATE' backend/src/services/quantity-group.service.ts` の当たりは `577` / `620` / `626`（`copy()`）と `757` / `797` / `803`（`createGroupsFromSurvey()`）の6行で、起票（コミット `9c4dc21e`）の値と一致した。同じファイルの `create()`・`updateDisplayOrder()`・`update()` は行ロックを取らない
+  - `backend/prisma/schema.prisma` の `QuantityGroup` は `@@index([quantityTableId, displayOrder])` を持つだけで、同じ組の一意制約は無い（`grep -n -A25 '^model QuantityGroup ' backend/prisma/schema.prisma | grep '@@'` の出力による）
+- **画面から到達する唯一の経路で重なりが起きていた**: 行ロックを入れる前の `saveDraft` へ、同じ版から出た保存2本（どちらも既存2グループの末尾へ新規グループを1件足す）を同時に送る一時プローブを 5 回走らせた。5 回とも両方が 200 を返し（楽観的排他制御の照合を両方が通過した）、displayOrder 2 のグループが2件残った。プローブのファイルは提出物に残していない。同じ形は統合検証「同時並行保存の直列化（Task 88.1）」の2件目が固定しており、下の変異 M1 を当てれば再現できる
+- **個別 API は直列化しても重なりを防げない**: 同じ一時プローブで、並行を含まない逐次の要求を実測した。いずれも既存2グループ（displayOrder 0 と 1）の数量表に対して送った
+  - `POST /api/quantity-tables/:quantityTableId/groups` を displayOrder 省略で送ると 201 で displayOrder 0 に作られ、既存の先頭と重なった。ルートの zod スキーマ `createQuantityGroupSchema` が displayOrder を `.default(0)` で補うため、`create()` の件数による既定は経路からは使われない
+  - `PUT /api/quantity-tables/:quantityTableId/groups/order` に同じ displayOrder を2件送ると 204 で重なった
+  - `PUT /api/quantity-groups/:id` に既存の先頭と同じ displayOrder を送ると 200 で重なった
+  - 対照として `POST /api/quantity-groups/:id/copy` は後続を +1 して重ならなかった
+  - **3件の重なりはどれも並行を含まないので、行ロックを足しても消えない**
+- **採らなかった側（4種すべての直列化）を採らなかった理由**: (i) `create()`・`updateDisplayOrder()` は画面から到達しない（上の実測で呼び出しは 0）。(ii) 到達したとしても、重なりの原因は並行ではなく呼び出し側が渡す displayOrder の値そのものであり、上の逐次の実測のとおり直列化では防げない。防ぐには displayOrder をサーバーが採番する契約への変更か、`(quantityTableId, displayOrder)` の一意制約が要り、いずれも本項の境界（数量グループの並び順の並行制御）を超える。(iii) 「4種」は displayOrder を書く第5の経路 `update()`（`PUT /api/quantity-groups/:id`）を数えていなかった
+- **採らなかった側（設計の主張を逐次の競合だけへ狭める）を採らなかった理由**: 画面から到達する唯一の経路 `saveDraft` で、上の重なりが実測で起きていた。主張を狭めて記録だけを揃えると、同じ数量表を二つの画面から同時に保存したときの重なりが残る
+- **Task 59.4 の問い（`saveDraft` に行ロックが要るか）への答え**: 要る。上の決着 (1) で入れた。59.4 の注は、真の同時並行では両者が読み取り段階を通過しうることを記録したうえで、統合検証を逐次の競合に限っていた
+- **変異で確かめたこと**: 次の変異を当て、控えから書き戻して `git hash-object` の一致で復元を確かめた（2026-09-12、コミット `36c816dd` の作業ツリーに本項の変更を載せた状態で実測）
+  - M1: `saveDraft` から数量表の行の `SELECT ... FOR UPDATE` を取り除く。`npm --prefix backend run test:integration -- quantity-table-save.api` は 31 件中 2 件落ちる（統合検証「同時並行保存の直列化（Task 88.1）」の2件）
+  - M2: 同じロックを、差分元の読み取りと存在確認の後ろへ移す。同じコマンドで同じ 2 件が落ちる
+  - M1 の下で `npm --prefix backend run test`（単体）は 5688 件すべて緑のままである。**単体検証はこのロックを固定していない**。固定しているのは上の統合検証だけである
+- **残るリスク**: (a) 上の逐次の3件は画面からは到達しないが、認証済みの HTTP クライアントからは今も displayOrder を重ねうる。是正は本項の境界の外である。(b) `saveDraft` の後発はロックを待つ時間も Prisma の対話トランザクションの時間切れに算入される。先行が長引いたときの後発の応答は測っていない
+
 **Dependencies**: Inbound: QuantityTableRoutes (P0) / Outbound: QuantityGroupService, QuantityItemService, QuantityValidationService (P1) / External: PrismaClient (P0), AuditLogService (P1)
 
 **Contracts**: Service [x] / API [x]
@@ -2412,7 +2443,7 @@ interface SaveDraftItemInput {
 
 | ファイル | 区分 | 責務 |
 |---------|------|------|
-| `backend/src/services/quantity-table.service.ts` | 変更 | `saveDraft` 追加（フル状態差分同期、FOR UPDATE 直列化、楽観ロック、検証、監査ログ）。既存 `bulkSave` を統合・置換 |
+| `backend/src/services/quantity-table.service.ts` | 変更 | `saveDraft` 追加（フル状態差分同期、FOR UPDATE 直列化、楽観ロック、検証、監査ログ）。既存 `bulkSave` を統合・置換。FOR UPDATE は Task 88.1 の着手時点では実装に無く、88.1 が入れた |
 | `backend/src/routes/quantity-tables.routes.ts` | 変更 | `PUT /:id/save` ルート追加＋Zodスキーマ（`saveQuantityTableDraftSchema`）。既存 `/bulk-save` を置換 |
 | `frontend/src/api/quantity-tables.ts` | 変更 | `saveQuantityTableDraft(id, input)` 追加（PUT /:id/save）。`bulkSaveQuantityTable` を置換 |
 | `frontend/src/pages/QuantityTableEditPage.tsx` | 変更 | state を `useReducer` ドラフトモデルへ再設計。全編集ハンドラをドラフト更新に変更（即時API呼び出し除去）。`useUnsavedChanges`+`useBlocker` 結線、保存ハンドラを `saveDraft` 化。`styles.header` を sticky 化 |
@@ -3031,6 +3062,7 @@ enum CalculationMethod {
 - Claude Vision API（数量表モード）: 数量表用プロンプトで正しい列マッピングが返却されること
 - 現場調査一括生成API (REQ-40): POST /api/quantity-tables/:tableId/groups/from-survey が現場調査の写真枚数分のグループを末尾に連番命名で生成し、各グループに写真が写真順で1枚ずつ紐づくこと、写真0枚時に created:0 を返すこと、他プロジェクトの現場調査指定時に 403/404 となること、トランザクションでエラー時に部分生成が残らないこと
 - 現場調査一括生成 並行制御 (REQ-40): 同一数量表に対する from-survey/copy/add/reorder が並行実行された場合、`SELECT FOR UPDATE` ロックにより直列化され displayOrder の衝突・欠番・重複が発生しないこと、ロック取得タイムアウト時に 409 が返却されること（REQ-38 並行制御と同一方針）
+- **上の2項（数量グループコピー並行制御・現場調査一括生成 並行制御）の現況（Task 88.1）**: 書いた時点の記録として残す。add（`create()`）と reorder（`updateDisplayOrder()`）は行ロックを取らず、直列化の範囲に入っていない。統合検証が並行で確かめているのは一括生成2本と copy の組み合わせ（Task 56.5）と、`saveDraft` どうしの同時保存（Task 88.1）である。決着と根拠は `#### QuantityTableService.saveDraft（フル状態同期保存）` の「並行制御の範囲（Task 88.1 の決着）」 に置いた
 
 ### E2E Tests
 

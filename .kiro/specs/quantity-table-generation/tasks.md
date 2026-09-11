@@ -2654,11 +2654,21 @@ _起票元: 機能レベル検証。(1) は Task 79.1 が範囲外と宣言し�
 - `grep -n 'FOR UPDATE' backend/src/services/quantity-group.service.ts` の当たりは `620` / `626`（`copy()`）と `797` / `803`（`createGroupsFromSurvey()`）およびそれらを述べる註 `577` / `757` である。**`create()` と `updateDisplayOrder()` は行ロックを取得しない**
 - 設計文書は今も「`SELECT FOR UPDATE` ロックにより直列化され displayOrder の衝突を防ぐ」旨を述べており、実装と食い違う
 
-- [ ] 88.1 並行制御の範囲を実態へ揃えるか、設計の主張へ実装を揃える
+- [x] 88.1 並行制御の範囲を実態へ揃えるか、設計の主張へ実装を揃える
   - **どちらへ倒すかを実測と根拠つきで決めること。** 4種の直列化が要るのか、2種で足りるのかは、displayOrder の衝突が実際に起こりうる経路を数えて決める
   - 設計文書の主張と実装のどちらかを動かしたら、**採らなかった側をなぜ採らなかったかを同じ場所へ書くこと**
   - Task 59.4 が挙げる `saveDraft` への行ロックの要否も同じ判断の中で扱うこと
   - _Boundary: 数量グループの並び順の並行制御_
+  - **【決着】(1) `saveDraft` に数量表の行の `SELECT ... FOR UPDATE` を、差分元と `updatedAt` の読み取りより前に入れた（実装を設計の「並行する保存は後発が 409」へ揃えた）。(2) 4種直列化の主張を copy / from-survey の2種へ狭めた（設計を実装へ揃えた）。** 実測はコミット `36c816dd` の作業木、2026-09-12、リポジトリルートで行った
+  - **画面から displayOrder を書く経路は `saveDraft`（`PUT /api/quantity-tables/:id/save`）だけだった**: `grep -rlw '<関数名>' frontend/src --include=*.ts --include=*.tsx | grep -v '\.test\.\|\.stories\.\|__tests__' | grep -v 'frontend/src/api/quantity-tables.ts'` で `createQuantityGroup` / `updateQuantityGroup` / `updateGroupDisplayOrder` / `createGroupsFromSurvey` は 0 ファイル、`copyQuantityGroup` は 1 ファイル（`handleCopyGroup` の JSDoc の註の言及で呼び出しではない）、`saveQuantityTableDraft` は 3 ファイル
+  - `grep -n 'FOR UPDATE' backend/src/services/quantity-group.service.ts` は `577` / `620` / `626`（copy）と `757` / `797` / `803`（from-survey）で起票値と一致した。`QuantityGroup` は `@@index([quantityTableId, displayOrder])` のみで一意制約を持たない
+  - **一時プローブ（提出物に残していない）の実測**: 行ロック導入前の `saveDraft` へ同一版の保存2本を同時に送ると、5 回とも両方が 200 を返し displayOrder 2 のグループが2件残った（画面から到達する唯一の経路で重なりが実在した）。個別 API は逐次でも重なった（`POST /groups` の displayOrder 省略は zod の `.default(0)` で 0 に作成され 201、`PUT /groups/order` の同値2件は 204、`PUT /api/quantity-groups/:id` は 200。copy は対照で重ならない）
+  - **採らなかった側の理由**は design.md の「並行制御の範囲（Task 88.1 の決着）」に併記した。4種直列化は画面から到達しない経路を対象とし、重なりの原因は並行ではなく呼び出し側の値なので直列化では防げない（採番の契約変更か一意制約が要り境界外）。また第5の経路 `update()` を数えていなかった。主張を逐次だけへ狭める案は、実在する画面経路の重なりを残すため採らなかった
+  - **Task 59.4 の問い（`saveDraft` の行ロックの要否）は「要る」で決着した**
+  - **RED**: 実装前に `npm --prefix backend run test:integration -- quantity-table-save.api` が 31 件中 2 件落ちた（`expected 200 to be 409` / `expected [ 200, 200 ] to deeply equal [ 200, 409 ]`）
+  - **変異の実測（独立レビューが全件実行で再現し、申告と一致した。2026-09-12、`36c816dd` の作業木、リポジトリルート）**: M1（`saveDraft` の行ロックを取り除く）で全統合 `npm --prefix backend run test:integration` の 876 件中 2 件（新設の2件）が落ち、M2（ロックを読み取りと存在確認の後ろへ移す）でも同じ 2 件が落ちる。M1 の下で単体 `npm --prefix backend run test` は 5688 件すべて緑（**単体はロックを固定しない**。固定しているのは統合検証のみ）。新設の2件は同ファイル単独の5回連続実行で5回とも緑だった
+  - **残るリスク**: 個別 API は画面外（認証済み HTTP クライアント）から今も displayOrder を重ねうる（境界外。受け皿は `## Task 92` の 92.1）。後発のロック待ちはトランザクションの時間切れに算入される
+  - **時間切れの応答（独立レビューがコードを読んで判断。実測はしていない）**: `saveDraft` の `$transaction` はオプションを持たず Prisma の既定 5 秒が掛かる。時間切れは P2028 となり `backend/src/middlewares/errorHandler.middleware.ts` が 500「Transaction Timeout」へ写す。**先行が長引くと、後発は 409 ではなく 500 になりうる。** ロック導入前は後発が待たずに重なっていたので退行ではない。また design.md の `##### Concurrency Control` の「失敗ハンドリング」（ロックの時間切れは 409）は copy 向けの記述で、`saveDraft` の時間切れには当てはまらない。受け皿は `## Task 92` の 92.2
 
 _起票元: 機能レベル検証。`## Implementation Notes` の 56.5 / 59.4 が申し送りながら未起票だった_
 
@@ -2742,6 +2752,38 @@ _起票元: 機能レベル検証（本実行）_
 
 _起票元: Task 86.4 の実装が一時プローブで実測し、独立レビューが第二の経路を検出して申し送った_
 
+## Task 92: 並び順の個別 API と保存の時間切れに残る穴を塞ぐ
+
+**経緯**: Task 88.1 は、画面から到達する唯一の書き込み経路 `saveDraft` に行ロックを入れ、4種直列化の主張を2種へ狭めて決着した。その過程で実装が一時プローブで測り、独立レビューがコードを読んで裏づけた穴が二つ残った。どちらも 88.1 の決着の外にあるため、本節を受け皿として起こした。
+
+**測った事実**（コミット `36c816dd`、2026-09-12、リポジトリルート）:
+
+- **個別 API は、並行させなくても逐次の呼び出しで displayOrder を重ねる**（88.1 の一時プローブ。提出物に残していない）。`POST /api/quantity-tables/:quantityTableId/groups` は displayOrder を省くと `createQuantityGroupSchema` の `.default(0)` で 0 に作られる（201）。`PUT /api/quantity-tables/:quantityTableId/groups/order` は同じ値を2件送っても 204 で受け付ける（`updateDisplayOrderSchema` と `updateDisplayOrder()` に重複値の検査が無い）。`PUT /api/quantity-groups/:id` は displayOrder をそのまま書き込む（200）。`QuantityGroup` は `@@index([quantityTableId, displayOrder])` のみで一意制約を持たない
+- いずれも**画面からは到達しない**（88.1 の到達の実測で本番の呼び出し元は 0 ファイル）。認証済みの HTTP クライアントからのみ到達する
+- **原因は並行ではなく呼び出し側の値である**ため、行ロックを足しても消えない
+- **保存の後発がロック待ちで時間切れになると 500 になりうる**（独立レビューがコードを読んだ判断。実測はしていない）。`saveDraft` の `$transaction` は Prisma の既定 5 秒で、P2028 は 500「Transaction Timeout」に写される。design.md の `##### Concurrency Control` の「失敗ハンドリング」は copy 向けに「ロックの時間切れは 409」と書いており、`saveDraft` には当てはまらない
+
+**前提条件を添えて読むこと**: 92.1 の悪用には対象数量表への `quantity_table:update` 権限が要る。重なりが起きても表示の並びが不定になるだけで、データは失われない。**これが抜けると優先度を過大に見積もる。**
+
+- [ ] 92.1 並び順の個別 API が displayOrder を重ねない形にする
+  - **是正の向きを実測と根拠つきで決めること。** サーバー側で採番する（`.default(0)` を外し件数から決める）、重複値を 400 で拒む、DB の一意制約を置く、の三つがある。一意制約は `saveDraft` のフル状態同期の書き込み順と衝突しうる（途中状態で重複が生じる）ので、置くなら遅延制約の要否まで測ること
+  - 画面から到達しない経路であることを踏まえ、**撤去という選択肢も並べること**（81.1 の学び「塞ぐ前にその経路が本番から呼ばれるかを測ること」）。撤去するなら公開 API としての利用者の有無を確かめること
+  - 採らなかった案とその理由を同じ場所へ書くこと
+  - **変異検証**: 検査を外すと当該の検証が落ちることを実測すること
+  - _Depends: 88.1_
+  - _Boundary: 数量グループの並び順の個別 API_
+
+- [ ] 92.2 保存の後発がロック待ちで時間切れになったときの応答を測り、設計の記述を揃える
+  - **まず実測すること。** 先行の保存を5秒以上保留させたとき、後発が 409 と 500 のどちらを返すかを統合検証で確かめる（88.1 の `pg_stat_activity` を使う決定的な形が流用できる）
+  - 500 なら、利用者に「再度お試しください」と案内するのが正しいか、409 と同じ「他の利用者が更新しました」へ寄せるべきかを決めること。**時間切れの応答を 409 へ寄せると、先行が確定しなかった場合にも「他の利用者が更新した」と告げる偽の案内になりうる**
+  - design.md の `##### Concurrency Control` の「失敗ハンドリング」に、`saveDraft` の時間切れについての現況を併記すること（規約 (a)）
+  - _Depends: 88.1_
+  - _Boundary: 数量表の保存の並行制御における時間切れの応答_
+
+**本節が `_Requirements:` を持たないのは意図である。** 守るのは並び順の一貫性とエラー応答の妥当性であり、本スペックの受入基準として条文化されていない。
+
+_起票元: Task 88.1 の実装が一時プローブで実測し、独立レビューがコードを読んで裏づけて申し送った_
+
 ## Implementation Notes（Task 75 以降）
 
 - **表示用URLを1本へ畳むと、呼び出し側は合成済みか否かを値から判別できない**: 75.1 の結線で `isDisplayUrlAnnotated` と `hasDrawnAnnotations` の2真偽値を応答へ足すことが不可分になった。常に注釈付きとして渡せば合成済み画像へ二重に重なり、常に通常サムネイルとして渡せば `AnnotatedImageThumbnail` が短絡して注釈が消える。**畳むのはURLの本数だけで、判別の情報は畳まないこと。** また注釈レコードの存在は描画の有無を意味しない（回転のみの保存でもレコードは残る）。
@@ -2812,3 +2854,5 @@ _起票元: Task 86.4 の実装が一時プローブで実測し、独立レビ�
 - **境界外の申し送りは、同じ害へ到達する経路を全数で数えてから起票すること**: 86.4 の実装は複製経路を `QuantityTableService.copy` の1本と報告したが、独立レビューが `QuantityGroupService.copy` を見つけた。同じ綴り `surveyImageId: sourceGroup.surveyImageId` を `backend/src/services` 全体へ grep すれば2本とも出る。**1本見つけた時点で探索を打ち切らないこと**（77.1 の「同じ害へ到達する経路を全数で数え」と同型）。
 - **E2E の変異は、本番ビルドが通る形で当てること**: 86.5 の初回の E2E 変異は `if (false && …)` の形で当てたところ、本番ビルドが型エラー（TS2769 / TS18047）で失敗した。コンテナは作り直されず、spec は古いバンドルに対して 4/4 緑になった。**変異を当てたら型検査を先に通し、コンテナの作成時刻かイメージの変化で作り直しを確かめてから spec を走らせること。** 緑になったことは、変異が当たったことの証拠にならない。
 - **応答の形を変えたタスクの検証集合には、root の lint と API 仕様書の再生成を含めること**: 86.5 の初稿は backend / frontend の lint は通したが、root の `npm run lint`（E2E ファイルの prettier）と `npm --prefix backend run docs:generate` を落として差し戻された。後者はコミット `1aa3319c` が同じ漏れを是正した直後の再発である。**swagger の注釈を触ったら `backend/docs/api-spec.json` を生成し直すこと。**
+- **並行制御の穴は、まず「並行で起きるのか、逐次でも起きるのか」を測ること**: 88.1 の起票は displayOrder の衝突を直列化の範囲の問題として立てたが、実測すると個別 API の重なりは**並行を含まない逐次の呼び出しで起きていた**（原因は `.default(0)` と重複値の未検査）。この形はロックを何本足しても消えない。**直列化を足す前に、逐次で再現するかを先に試すこと。** 逆に画面から到達する唯一の経路 `saveDraft` は、並行でのみ重なる本物の競合だった。
+- **行ロックを固定できるのは実データベースへの統合検証だけである**: 88.1 のロックを取り除く変異の下で単体 5688 件はすべて緑のままだった（モックの `$queryRaw` は足場にすぎない）。決定的に検出したのは、先行のトランザクションを保留したまま後発のロック待ちを `pg_stat_activity` で見届ける形の統合検証である。**`Promise.all` で同時に送るだけの形はロックが無いときに確率的にしか落ちない**ので、決定的な形と対にして置くこと。
