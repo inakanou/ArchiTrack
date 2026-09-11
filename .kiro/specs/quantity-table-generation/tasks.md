@@ -2699,11 +2699,23 @@ _起票元: 機能レベル検証。`## Implementation Notes` の 56.5 / 59.4 �
   - **完了の判定（独立レビューの読み）**: 本文の「同スペックへ起票して本項は待つこと」は起票と待機の両方を課しており、「処遇を決めた」だけでは完了にならない。**`[x]` は site-survey 側の 115.325 の解決後に `FieldValidatedItemRow` の処遇を確定し、被覆の前後を測り直してから付けること**。撤去済みの3部品と残置の判断は独立レビューで承認されている
   - _Blocked: site-survey スペックの Task 115.325（`FieldValidatedItemRow` の撤去を阻む同スペック側の二つの依存）の解決待ち。3部品の撤去と `QuantityItemRow` の残置は承認・コミット済み_
 
-- [ ] 89.2 (P) REQ-40.11 の除外の取り下げ条件を満たすか、在籍理由を改める
+- [x] 89.2 (P) REQ-40.11 の除外の取り下げ条件を満たすか、在籍理由を改める
   - 一括生成処理の実行中インジケーター表示・重複実行防止を観測するE2Eを作って取り下げるか、**取り下げられない理由を category と reason の両方へ正確に書き直すこと**
   - **除外の取り下げは「実装済みか」ではなく「検証が実挙動を固定しているか」で決まる**（Task 83 の学び）
   - _Requirements: 40.11_
   - _Boundary: REQ-40.11 の被覆表記_
+  - **取り下げ（コミット `2444afba` の作業ツリー、2026-09-12 にリポジトリルートで実測）**: `e2e/specs/quantity-tables/create-groups-from-survey-in-progress-e2e.spec.ts` を新設し、`e2e/requirement-exclusions.json` から `quantity-table-generation/REQ-40.11` を取り下げた。`summary` は除外 196→195、pending-implementation 5→4、`lastUpdated` 2026-09-12 にし、`summary.note` へ経緯を追記した
+  - **実行中の窓の所在**: REQ-42 以降、グループの生成は reducer の同期操作である。非同期の窓は確定直後の写真一覧の取得（`GET /api/site-surveys/:id`）だけで、条文の「写真一覧取得およびグループ生成」の実行中に含まれる。E2E は固定時間の遅延でなく、この取得をパス基準（`URL.pathname` の完全一致）のゲートで保留し、解放までの本番の状態を観測する。画面は偽装していない
+  - **観測の内容**: 確定前はインジケーター（`role="status"`・名前「生成中」）0件・確定ボタン「実行」・一括追加ボタン `aria-busy="false"`。保留中はインジケーターが現れ、確定ボタン「生成中...」、一括追加ボタン `aria-busy="true"`、確定・キャンセル・閉じる・一括追加の無効化を soft で判定する。保留中に確定ボタンを `force: true` で2回押し Escape を押してもダイアログは閉じない。解放後は完了メッセージ、`aria-busy` が偽へ戻り、写真一覧の取得は1件だけ、グループは写真枚数の2件
+  - **非空証明**: 最初の実行も同じ `force: true` の押下で起こし、確定前に Escape でダイアログが閉じることも示す。確定前のインジケーター0件は、同じロケーターが保留中に一致することで支える
+  - **変異（独立レビューが再現し、イメージIDまで申告と一致した。2026-09-12、`2444afba` の作業ツリー、リポジトリルート）**: 各変異で `npm --prefix frontend run type-check` 0 → `--force-recreate` 再ビルド → イメージIDの変化を確認してから走らせた。レビューは spec を3回連続で走らせ3回とも通過した
+    - M1: `QuantityTableEditPage.tsx` の `handleConfirmCreateFromSurvey` から `setIsCreatingFromSurvey(true);` を外す（イメージ `1a3cc1ad`）→ spec:145 のインジケーター判定で 1/1 失敗
+    - M2: `SurveySelectDialog.tsx` の確定ボタンを `disabled={selectedId === null}` にし、`handleConfirm` の `&& !isCreating` と `handleConfirmCreateFromSurvey` の `|| isCreatingFromSurvey` を外す（イメージ `f1fa52ac`）→ spec:152 の確定ボタン無効化（soft）と spec:177 の取得件数（3件発行）で 1/1 失敗
+    - M3: M2 から disabled だけ戻す（イメージ `1b3e10d7`）→ 1/1 通過。**実際の押下は disabled 属性だけで止まるので、冗長な早期 return の有無は本検証では区別しない**
+    - 復元: 控えからの書き戻しを `git hash-object` の一致で確認し、再ビルドでイメージは `7a9ee3ce` に戻り 1/1 通過
+  - **被覆（`npm run check:req-coverage`、終了コードは基線と同じ 1）**: 受入基準 2689→2690 / 2889、到達被覆 2657/2693→2658/2694（98.7% のまま）、除外を分母へ戻した到達被覆率 92.9%→93.0%、quantity-table-generation 316→317 / 358、未カバー一覧の `REQ-40.11` 1件→0件
+  - **鮮度（`npm run check:design-measurement-freshness`）**: 基線と同じ7行・終了コード1。actual が動いたのは `requirement-exclusions-total` 196→195、`pending-implementation-exclusions-after-115314` 5→4、`t13-anchor-references-after-115303` 1305→1307 の3件（t13 の +2 は新しい spec の名前つき `getByRole` 2件による）。いずれも site-survey 側の宣言で、境界外のため未変更。独立レビューが、基線で緑だった宣言が赤へ変わったものは無いことを確認した
+  - **残る改善余地（独立レビューの Suggestion、未対応）**: spec の `await firstHeld`（`:142`）は期限を持たない。取得が一度も発行されない退行では 180 秒のテスト時間切れまで待ち、診断文が曖昧になる。落ちはするので取り下げの妨げにはならない。期限つきの race にすると原因が読みやすくなる
 
 _起票元: Task 80.2 が撤去の起票を推奨し、機能レベル検証が未起票と REQ-40.11 の滞留を検出_
 
@@ -2866,3 +2878,4 @@ _起票元: Task 88.1 の実装が一時プローブで実測し、独立レビ�
 - **応答の形を変えたタスクの検証集合には、root の lint と API 仕様書の再生成を含めること**: 86.5 の初稿は backend / frontend の lint は通したが、root の `npm run lint`（E2E ファイルの prettier）と `npm --prefix backend run docs:generate` を落として差し戻された。後者はコミット `1aa3319c` が同じ漏れを是正した直後の再発である。**swagger の注釈を触ったら `backend/docs/api-spec.json` を生成し直すこと。**
 - **並行制御の穴は、まず「並行で起きるのか、逐次でも起きるのか」を測ること**: 88.1 の起票は displayOrder の衝突を直列化の範囲の問題として立てたが、実測すると個別 API の重なりは**並行を含まない逐次の呼び出しで起きていた**（原因は `.default(0)` と重複値の未検査）。この形はロックを何本足しても消えない。**直列化を足す前に、逐次で再現するかを先に試すこと。** 逆に画面から到達する唯一の経路 `saveDraft` は、並行でのみ重なる本物の競合だった。
 - **行ロックを固定できるのは実データベースへの統合検証だけである**: 88.1 のロックを取り除く変異の下で単体 5688 件はすべて緑のままだった（モックの `$queryRaw` は足場にすぎない）。決定的に検出したのは、先行のトランザクションを保留したまま後発のロック待ちを `pg_stat_activity` で見届ける形の統合検証である。**`Promise.all` で同時に送るだけの形はロックが無いときに確率的にしか落ちない**ので、決定的な形と対にして置くこと。
+- **「起票して待つ」は、起票を実際に書き込んでから待機に入ること**: 89.1 の実装は site-survey への起票文を報告に書き、tasks.md の記録も「同スペックへの起票を待つ」とした。そのため、誰が起票するのかが曖昧なまま完了印へ進みかけた。独立レビューが「本文は起票と待機の両方を課している」と読み、完了にしないよう差し止めた。**親が上流の tasks.md へ実際に書き込み（site-survey Task 115.325）、下流の項は `_Blocked:` で起票先の ID を名指すこと。** 起票は上流の設計文書の書き換えには当たらない。
