@@ -73,6 +73,45 @@ export interface AnnotatableSurveyImage {
 export type AnnotationTargets = 'all' | 'none' | readonly number[];
 
 /**
+ * 保存する注釈レコードの中身（Task 84.1）
+ *
+ * 選択候補の抽出条件（`backend/src/services/image-list.service.ts` の
+ * `annotation: { isNot: null }`）は**注釈レコードの存在のみ**を見る。一方で
+ * 目印の表示（site-survey/REQ-20.2）と合成済みサムネイルの有無は
+ * `hasDrawnAnnotations`（`data.objects` の件数から算出）を見る。
+ * 画像編集画面は注釈0件（回転のみ・無描画）でも無条件に保存するため、
+ * 「候補に現れるが描画は持たない写真」は実在する状態である。
+ *
+ * - `'drawn'`: 描画あり（矩形1件）。`hasDrawnAnnotations` が真になる
+ * - `'undrawn'`: 描画なし（`objects` が0件）。レコードは残るので候補には現れるが、
+ *   `hasDrawnAnnotations` は偽のままで注釈の目印も合成済みサムネイルも生じない
+ */
+export type AnnotationShape = 'drawn' | 'undrawn';
+
+/**
+ * 既定の中身が `'drawn'` である理由
+ *
+ * 本引数を必須にすると既存の呼び出し側（Task 82.1 が是正した7本）を一斉に書き換える
+ * ことになり、現に緑である検証へ無関係な変更を波及させる。既定を従来と同一の
+ * `'drawn'` に置くことで、既存の呼び出し側の振る舞いは1バイトも変わらない。
+ */
+const DEFAULT_ANNOTATION_SHAPE: AnnotationShape = 'drawn';
+
+/** 描画あり（矩形1件）として保存する注釈オブジェクト */
+const DRAWN_ANNOTATION_OBJECTS = [
+  {
+    type: 'Rect',
+    left: 10,
+    top: 10,
+    width: 40,
+    height: 30,
+    fill: 'transparent',
+    stroke: '#ff0000',
+    strokeWidth: 3,
+  },
+] as const;
+
+/**
  * アクセストークンを伴うリクエストヘッダを作る。
  *
  * @param page Playwright のページ（ログイン済みであること）
@@ -114,11 +153,11 @@ export async function fetchSurveyImagesInDisplayOrder(
 }
 
 /**
- * 画像へ注釈（矩形1件）を保存する。
+ * 画像へ注釈を保存する。
  *
  * 注釈レコードの存在が `GET /api/projects/:projectId/survey-images` の抽出条件であるため、
- * 描画内容そのものは検証の関心ではない。ただし空の注釈では「描画あり」とは言えないため、
- * 実際に描画した状態（矩形1件）を保存する。
+ * 選択候補として現れるかどうかは描画内容に依らない。描画の有無まで関心に持つ呼び出し側
+ * （注釈の目印・合成済みサムネイルを主題にする検証）は `shape` で作り分ける。
  *
  * 合成済みサムネイル（`annotatedThumbnailPath`）はクライアントの画像編集画面が合成して
  * 別の入口で保存するものであり、本経路では生成されない（Task 115.107）。
@@ -126,11 +165,13 @@ export async function fetchSurveyImagesInDisplayOrder(
  *
  * @param page Playwright のページ（ログイン済みであること）
  * @param image 注釈を保存する対象の画像
+ * @param shape 保存する注釈レコードの中身（既定は描画あり）
  * @throws 保存が成功しない場合
  */
 export async function saveSurveyImageAnnotation(
   page: Page,
-  image: AnnotatableSurveyImage
+  image: AnnotatableSurveyImage,
+  shape: AnnotationShape = DEFAULT_ANNOTATION_SHAPE
 ): Promise<void> {
   expect(image.width, `前提: ${image.fileName} の幅が正の値である`).toBeGreaterThan(0);
   expect(image.height, `前提: ${image.fileName} の高さが正の値である`).toBeGreaterThan(0);
@@ -142,18 +183,8 @@ export async function saveSurveyImageAnnotation(
       data: {
         data: {
           version: '6.0.0',
-          objects: [
-            {
-              type: 'Rect',
-              left: 10,
-              top: 10,
-              width: 40,
-              height: 30,
-              fill: 'transparent',
-              stroke: '#ff0000',
-              strokeWidth: 3,
-            },
-          ],
+          objects:
+            shape === 'drawn' ? DRAWN_ANNOTATION_OBJECTS.map((object) => ({ ...object })) : [],
           canvasWidth: image.width,
           canvasHeight: image.height,
         },
@@ -172,13 +203,15 @@ export async function saveSurveyImageAnnotation(
  * @param page Playwright のページ（ログイン済みであること）
  * @param surveyId 対象の現場調査ID
  * @param targets 注釈を付ける対象（`'all'` / `'none'` / 表示順の位置）
+ * @param shape 保存する注釈レコードの中身（既定は描画あり）
  * @returns 注釈を付けた画像（表示順）
  * @throws 現場調査詳細が取得できない・指定位置に画像が無い・保存が成功しない場合
  */
 export async function annotateSurveyImages(
   page: Page,
   surveyId: string,
-  targets: AnnotationTargets
+  targets: AnnotationTargets,
+  shape: AnnotationShape = DEFAULT_ANNOTATION_SHAPE
 ): Promise<AnnotatableSurveyImage[]> {
   if (targets === 'none') {
     return [];
@@ -197,7 +230,7 @@ export async function annotateSurveyImages(
         });
 
   for (const image of selected) {
-    await saveSurveyImageAnnotation(page, image);
+    await saveSurveyImageAnnotation(page, image, shape);
   }
 
   return selected;

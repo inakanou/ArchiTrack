@@ -37,8 +37,12 @@ import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
-import { assertPrepared } from '../../helpers/preconditions';
+import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import { waitForFabricCanvas } from '../../helpers/fabric-canvas';
+import {
+  fetchSurveyImagesInDisplayOrder,
+  saveSurveyImageAnnotation,
+} from '../../helpers/survey-image-annotations';
 import {
   createTestProject,
   createTestQuantityTable,
@@ -79,6 +83,22 @@ test.describe('数量表CRUD操作', () => {
   let createdQuantityTableId: string | null = null;
   let createdSurveyId: string | null = null;
   let projectName: string = '';
+
+  /**
+   * 写真選択ダイアログの候補に**現れるべき**写真のファイル名（注釈レコードを保存済み）
+   *
+   * ダイアログの一覧は `img` の `alt` にファイル名を出す
+   * （`frontend/src/pages/QuantityTableEditPage.tsx` の `alt={photo.fileName}`）ため、
+   * 候補の同定にファイル名を用いる。
+   */
+  let annotatedPhotoFileName: string | null = null;
+
+  /**
+   * 写真選択ダイアログの候補に**現れてはならない**写真のファイル名（注釈を保存しない）
+   *
+   * 「注釈付きのみが現れる」を空集合に対する恒真へ退化させないために置く。
+   */
+  let unannotatedPhotoFileName: string | null = null;
 
   test.beforeEach(async ({ context }) => {
     // テスト間の状態をクリア
@@ -235,6 +255,87 @@ test.describe('数量表CRUD操作', () => {
       // アップロードされた画像が表示されることを確認
       const uploadedImage = page.locator('[data-testid="photo-panel-item"] img');
       await expect(uploadedImage.first()).toBeVisible({ timeout: getTimeout(15000) });
+
+      // ============================================================
+      // 写真選択ダイアログの候補を成立させる前提（Task 84.1 / REQ-4.3）
+      // ============================================================
+      //
+      // ダイアログの供給元 `GET /api/projects/:projectId/survey-images` は**注釈レコードを
+      // 持つ写真だけ**を返す（`backend/src/services/image-list.service.ts` の
+      // `annotation: { isNot: null }`）。写真をアップロードしただけでは候補が0件になり、
+      // ダイアログを用いる判定は前提段階で成立しない。注釈の保存までを前提に含める。
+      //
+      // ## 道具の選択（採らなかった側とその理由）
+      //
+      // 採るのは共有ヘルパー `e2e/helpers/survey-image-annotations.ts` の
+      // `saveSurveyImageAnnotation` である。採らなかった側は次の二つ。
+      //
+      // 1. **`PUT /api/site-surveys/images/:imageId/annotations` を本ファイルへ直接書き起こす**
+      //    → 採らない。注釈保存の入口を写し取った箇所が増えるほど、入口の仕様変更
+      //    （本文スキーマの変更など）で同時に陳腐化する箇所が増える。Task 75.1 の変更が
+      //    7本の spec を同時に倒したのはまさにその形であり、本ファイルへ複製すれば
+      //    同じ壊れ方を再生産する。共有ヘルパーの冒頭が述べる判断と同じである。
+      // 2. **共有ヘルパー `seedSurveyPhotosWithComments` へ丸ごと置き換える**
+      //    → 採らない。同補助は現場調査の作成と写真のアップロードまでを引き受けるが、
+      //    本前提は「画面から現場調査を作り、画面からアップロードし、`photo-panel-item` に
+      //    現れるところまで」を検証している。置き換えるとこの画面経路の検証が消える。
+      //    注釈の保存だけを担う `saveSurveyImageAnnotation` を用いて、既存の画面経路を残す。
+      //
+      // ## 注釈なし写真も併せて置く理由
+      //
+      // 「注釈付きのみが候補に現れる」は、注釈なし写真が一枚も無ければ空集合に対する
+      // 恒真へ退化する。注釈を保存しない写真を1枚残し、その不在を主張できるようにする。
+      //
+      // ## 描画を伴わない注釈（`'undrawn'`）を保存する理由
+      //
+      // 供給元の抽出条件は注釈レコードの存在のみを見て、描画の有無
+      // （`hasDrawnAnnotations`）は見ない。一方で後続の REQ-4.4 / REQ-3.3 は
+      // 「この写真は描画された注釈を持たない」ことを前提に、注釈の目印の不在と
+      // 合成済みサムネイルの不在を主張する。描画ありで保存するとその前提を壊す。
+      // 画像編集画面は注釈0件（無描画）でも無条件に保存する
+      // （`backend/src/services/annotation.service.ts` の `hasDrawnObjects`）ため、
+      // 「候補には現れるが描画は持たない写真」は実在する状態であり、
+      // 前提として作り物ではない。
+      // 以降の前提生成は現場調査IDを要する。`let` の絞り込みに頼らず、その場で主張して
+      // 型と実行時の双方を確定させる。
+      const seedSurveyId = createdSurveyId;
+      assertPrepared(seedSurveyId, '事前準備で作成した現場調査のID');
+
+      const unannotatedFileName = `unannotated-${Date.now()}.png`;
+      const unannotatedImagePath = path.join(__dirname, '../../fixtures/test-image.png');
+      expect(
+        fs.existsSync(unannotatedImagePath),
+        '前提: 注釈なし写真に用いるテスト用画像が存在する'
+      ).toBeTruthy();
+      const unannotatedImageBuffer = fs.readFileSync(unannotatedImagePath);
+
+      const unannotatedUploadForm = new FormData();
+      unannotatedUploadForm.append(
+        'images',
+        new Blob([new Uint8Array(unannotatedImageBuffer)], { type: 'image/png' }),
+        unannotatedFileName
+      );
+      const unannotatedUploadResponse = await page.request.post(
+        `${API_BASE_URL}/api/site-surveys/${seedSurveyId}/images`,
+        { headers: await apiAuthHeaders(page), multipart: unannotatedUploadForm }
+      );
+      expect(
+        unannotatedUploadResponse.ok(),
+        `前提: 注釈なし写真のアップロードが成功する (status=${unannotatedUploadResponse.status()})`
+      ).toBeTruthy();
+
+      const surveyImages = await fetchSurveyImagesInDisplayOrder(page, seedSurveyId);
+      expect(surveyImages.length, '前提: 現場調査に写真が2枚ある').toBe(2);
+
+      const unannotatedImage = surveyImages.find((image) => image.fileName === unannotatedFileName);
+      assertPresent(unannotatedImage, '注釈を保存せずに残す写真');
+      const annotatedImage = surveyImages.find((image) => image.fileName !== unannotatedFileName);
+      assertPresent(annotatedImage, '注釈を保存する写真');
+
+      await saveSurveyImageAnnotation(page, annotatedImage, 'undrawn');
+
+      annotatedPhotoFileName = annotatedImage.fileName;
+      unannotatedPhotoFileName = unannotatedImage.fileName;
     });
   });
 
@@ -865,14 +966,31 @@ test.describe('数量表CRUD操作', () => {
       const dialogTitle = photoDialog.getByText('写真を選択');
       await expect(dialogTitle).toBeVisible();
 
-      // REQ-4.3: 写真一覧または空状態メッセージのどちらかが表示されることを確認
-      // 読み込み完了を待機するため、photo-listまたは空状態テキストのいずれかを待つ
+      // REQ-4.3: 写真一覧が表示されることを確認する。
+      //
+      // 以前はここが「一覧 **または** 空状態メッセージ」の選言だった。選言は候補0件でも
+      // 通るため、REQ-4.3（注釈付き現場写真一覧を表示し選択可能にする）について
+      // 何も主張しない恒真である（Task 84.1）。前提で注釈を保存しているため候補は
+      // 必ず存在する。一覧そのものを無条件に待つ。
       const photoList = photoDialog.getByTestId('photo-list');
-      const emptyStateText = photoDialog.getByText(/利用可能な写真がありません/);
-      const photoListOrEmpty = photoList.or(emptyStateText);
+      await expect(
+        photoList,
+        '注釈を保存済みの写真があるため、空状態ではなく写真一覧が表示される'
+      ).toBeVisible({ timeout: getTimeout(20000) });
 
-      // 写真一覧または空状態のどちらかが表示されるまで待機（読み込み完了を含む）
-      await expect(photoListOrEmpty).toBeVisible({ timeout: getTimeout(20000) });
+      // REQ-4.3: 一覧に現れるのは注釈付きの写真のみである。
+      // 前提は注釈を保存した写真1枚と保存していない写真1枚を用意しているため、
+      // 「注釈なしは現れない」は空集合に対する恒真ではない。
+      assertPrepared(annotatedPhotoFileName, '注釈を保存した写真のファイル名');
+      assertPrepared(unannotatedPhotoFileName, '注釈を保存していない写真のファイル名');
+      await expect(
+        photoList.getByAltText(annotatedPhotoFileName, { exact: true }),
+        '注釈を保存した写真は選択候補に現れる'
+      ).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(
+        photoDialog.getByAltText(unannotatedPhotoFileName, { exact: true }),
+        '注釈を保存していない写真は選択候補に現れない'
+      ).toHaveCount(0);
 
       // ダイアログを閉じる
       const closeButton = photoDialog.getByRole('button', { name: /ダイアログを閉じる/ });
@@ -932,23 +1050,27 @@ test.describe('数量表CRUD操作', () => {
       const photoDialog = page.getByRole('dialog', { name: /写真を選択/ });
       await expect(photoDialog).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 写真一覧または空状態が表示されるまで待機（読み込み完了を含む）
+      // 写真一覧が表示されるまで待機（読み込み完了を含む）。
+      // 空状態との選言は置かない。候補0件でも通る形は REQ-4.3 について何も主張しない
+      // 恒真であり、紐付けの検証の前提としても成立しない（Task 84.1）。
       const photoList = photoDialog.getByTestId('photo-list');
-      const emptyStateText = photoDialog.getByText(/利用可能な写真がありません/);
-      const photoListOrEmpty = photoList.or(emptyStateText);
-      await expect(photoListOrEmpty).toBeVisible({ timeout: getTimeout(20000) });
-
-      // 写真一覧から最初の写真を選択する。
-      // 事前準備で現場調査へ写真をアップロードしているため候補は必ず存在する。
-      // 候補が無いことを理由に検証を飛ばすと、紐付けの検証が実質を持たなくなる。
-      const photos = photoDialog.locator('img');
       await expect(
-        photos.first(),
-        '写真の選択候補が存在する必要がある（事前準備でアップロード済み）'
+        photoList,
+        '注釈を保存済みの写真があるため、空状態ではなく写真一覧が表示される'
+      ).toBeVisible({ timeout: getTimeout(20000) });
+
+      // 前提で注釈を保存した写真を選択する。
+      // 位置（`first()`）ではなくファイル名で指すのは、候補の並びが変わっても
+      // 紐付ける対象が入れ替わらないようにするためである。
+      assertPrepared(annotatedPhotoFileName, '注釈を保存した写真のファイル名');
+      const targetPhoto = photoList.getByAltText(annotatedPhotoFileName, { exact: true });
+      await expect(
+        targetPhoto,
+        '注釈を保存した写真が選択候補に存在する必要がある（事前準備で注釈を保存済み）'
       ).toBeVisible({ timeout: getTimeout(10000) });
 
       // 写真を選択
-      await photos.first().click();
+      await targetPhoto.click();
 
       // ダイアログが閉じることを確認
       await expect(photoDialog).not.toBeVisible({ timeout: getTimeout(5000) });
@@ -1003,7 +1125,10 @@ test.describe('数量表CRUD操作', () => {
       ).toBeVisible({ timeout: getTimeout(10000) });
 
       // REQ-4.4: 注釈の目印（バッジ）は「描画された注釈を持つ写真」にのみ表示される。
-      // 事前準備でアップロードしただけの写真は注釈を持たないため、目印は表示されない。
+      // 前提で保存した注釈は描画を伴わない（`objects` が0件）ため `hasDrawnAnnotations` は
+      // 偽であり、目印は表示されない。目印が出ない理由は「注釈を持たない」ことではなく
+      // 「保存した注釈が描画を伴わない」ことである（Task 84.1 が前提へ注釈の保存を
+      // 加えたため、前者はもはや実体と合わない）。
       // 目印の有無を自ら観測して分岐せず、非表示を無条件に検証する。
       await expect(
         firstGroup.locator('[data-testid^="annotation-badge-"]'),
@@ -1103,22 +1228,22 @@ test.describe('数量表CRUD操作', () => {
 
       // 応答の項目の有無を条件にして検証を選ぶと、当該項目が常に空である限り
       // 検証本体が一度も実行されない。ここは前提が既知であること
-      // （この写真は事前準備でアップロードしただけで画像編集画面を一度も経ておらず、
-      // 描画された注釈も合成済みサムネイルも持たない）を、画面が実際に用いる取得経路の
+      // （この写真は前提で描画を伴わない注釈だけを保存しており、描画された注釈も
+      // 合成済みサムネイルも持たない）を、画面が実際に用いる取得経路の
       // 応答で先に確定させたうえで、表示元を無条件に検証する。
       // 注釈がある場合（REQ-49.5 / REQ-49.6）の表示元は、注釈を描いた状態を自ら用意する
       // 本ファイル末尾の「数量表グループの注釈の目印」および site-survey 側の
       // 注釈付きサムネイルのテストで検証する。
       expect(
         linkedImage!.hasDrawnAnnotations,
-        '事前準備でアップロードしただけの写真は描画された注釈を持たない'
+        '描画を伴わない注釈だけを保存した写真は描画された注釈を持たない'
       ).toBe(false);
       expect(
         linkedImage!.annotatedThumbnailUrl,
         '描画された注釈が無い写真には合成済みサムネイルが存在しない'
       ).toBeNull();
 
-      // 注釈が無い画像は通常サムネイルをそのまま表示する（REQ-49.4）
+      // 描画された注釈を持たない画像は通常サムネイルをそのまま表示する（REQ-49.4）
       expect(pathOf(imageSrc!)).toBe(pathOf(linkedImage!.thumbnailUrl));
 
       // 注釈の目印（バッジ）の検証（site-survey/REQ-20.2、site-survey Task 115.14）
