@@ -6025,6 +6025,16 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - _Depends: 115.317_
   - _Boundary: 部品の一覧の行の自足性と、本番の前書きに残る移管済みの番号_
 
+- [ ] 115.325 数量表の死コード `FieldValidatedItemRow` の撤去を阻む二つの依存を解く（**quantity-table-generation の Task 89.1 からの起票依頼**）
+  - 数量表の死コード `frontend/src/components/quantity-table/FieldValidatedItemRow.tsx`（本体・ストーリー1・単体検証3）を下流で撤去したいが、本スペック側の二つの依存が阻んでいる。quantity-table-generation の Task 89.1 は「site-survey 側を巻き込む是正になるなら、同スペックへ起票して本項は待つこと」と定めており、**下流は本スペックの文書も自己検査も書き換えていない**
+  - **実測（コミット `4e560c7f` の作業ツリー、2026-09-12、リポジトリルート。5ファイルを外す変異を当て、控えから書き戻して `git hash-object` の一致を確かめた。89.1 の独立レビューが別の作業ツリーで再現した）**:
+    - (1) `.kiro/specs/site-survey/design.md` L172（115.212 系の走査記録の第3項）が `FieldValidatedItemRow.tsx` と `FieldValidatedItemRow.autocomplete.test.tsx` を裸のファイル名で名指している。撤去すると `npm run check:design-path-refs` が 0→1 になる（不在パス5件のうち2件が同行。同文書に不在の記録が無いため）
+    - (2) `scripts/check-requirement-coverage.selftest.ts` の `checkKnownDeadAndLiveModules`（L1100 付近）が同ファイルを `mustBeDead` の実データ固定点としている。撤去すると `npm run check:req-coverage:selftest` に「実在する死コードと生存コードで両側を固定する」の失敗が加わる（メッセージは「走査対象に含まれない（自己検査の前提が失われた）」）
+    - 撤去しても被覆は動かない（受入基準 316/358、到達被覆 2657/2693、到達しない被覆源のみの受入基準 4件のまま）
+  - **依頼**: (1) の行へ、撤去に備えた不在の記録を規約 (a) で併記してよいかを判断すること。(2) の固定点を、別の実在する死コードか仮想の資料へ移すこと。二つが解ければ、下流（quantity-table-generation の 89.1）が撤去を実施する
+  - **あわせて判断されたい**: `.kiro/specs/site-survey/e2e-assertion-guard-reduction-plan.md` L365 の「要件を実装した `QuantityInput` は存在するが未参照」は、89.1 が `QuantityInput` を撤去したため現況として偽になった。歴史記録として併記するかを本スペックで判断すること
+  - _Boundary: 本スペックの設計文書と被覆の自己検査が数量表の死コードを名指す箇所_
+
 ## Implementation Notes（Task 115.30-115.52）
 
 - **「注記が言う未実装」を鵜呑みにしないこと**: 115.127 段4 で、八件の検証が「実装がセレクトボックスなので未実装」という注記つきの分岐で守られていたが、実装は入力欄であり**観測は一度も発火していなかった**。危険なのは発火しなかったことではなく、**実装が退行した瞬間に八件が緑のまま何も主張しなくなる**ことである。変異で実測すると、観測が発火する状況では八件が主張を一つも実行せずに通った。

@@ -2688,6 +2688,16 @@ _起票元: 機能レベル検証。`## Implementation Notes` の 56.5 / 59.4 �
   - **撤去が被覆検査を悪化させないことを前後の実測で示すこと**
   - _Depends: 80.2_
   - _Boundary: 数量表画面の未結線部品の処遇_
+  - **処遇（コミット `4e560c7f` の作業ツリー、2026-09-12 にリポジトリルートで実測）**: 3部品を撤去し、2部品を残置とした
+  - **撤去: `AdjustmentFactorInput`・`RoundingUnitInput`・`QuantityInput`**（本体・単体検証・ストーリーの計9ファイル）。取り込み元は `frontend/src/components/quantity-table/index.ts` の再輸出だけで、`grep -rnE "components/quantity-table(/index)?['\"]" frontend/src e2e` の出力は空だった。`npm run check:req-coverage:json` の `productionReachability.unreachableProductionModules` にも3部品と `index.ts` が載っていた。再輸出6件を外し、`.kiro/steering/structure.md` のツリー3行とストーリー3行を外した（外さないと `check:steering-refs` が落ちる）。design.md は追跡表を書き換えず、表の直下へ規約 (a) の注を置いた
+  - **残置: `FieldValidatedItemRow`**。5ファイルを外す変異を当てると、`check:design-path-refs` が 0→1（不在パス5件／2ファイル。うち2件は `.kiro/specs/site-survey/design.md` L172）、`check:req-coverage:selftest` の失敗が 1→2件（81件中。「走査対象に含まれない（自己検査の前提が失われた）」）になった。被覆は 316/358、到達しない被覆源のみの受入基準 4件のまま動かなかった。依存は二つとも site-survey 側で解くものなので、**同スペックへ Task 115.325 として起票済みであり、その解決を待つ**（起票は親が行った。下流は同スペックの設計文書も自己検査も書き換えていない）。理由は同ファイルの冒頭の説明へ追記した
+  - **残置: `QuantityItemRow`**。取り込みは本番に在り到達判定は「到達」だが、描画するのは `QuantityGroupCard` の `isEditable` が偽の枝だけで、唯一の本番の呼び出し元 `QuantityTableEditPage.tsx:1926` は常に `isEditable` を渡す。枝を `null` へ置き換える変異では、`npm --prefix frontend run test -- QuantityGroupCard PhotoCommentBugfix QuantityTableBreadcrumb AnnotatedImageThumbnail QuantityItemActionMenu QuantityTableEditPage` が 378 件中 7 件落ちた（いずれも `QuantityGroupCard.test.tsx`）。戻すと 378 件すべて通過した。撤去は `QuantityGroupCard` の読み取り専用表示の作り直しになり境界を越えるため残置とし、理由は同ファイルの冒頭に書いた
+  - **被覆検査の前後（`npm run check:req-coverage`）**: 動かなかった値は、受入基準 2689/2889、到達被覆 2657/2693（98.7%）、到達しない被覆源のみの受入基準 4件（いずれも他スペック）、quantity-table-generation 316/358。動いた値は、本番モジュール 591→588（未到達 52→49）、機能名を欠くヘッダー 2019→2013 件、眠る名乗り 5159→5133 件。削除した検証3件の見出しは機能名を欠く形で、被覆源ではなかった
+  - **関門18本の終了コードは基線と同一**（独立レビューが再現した。2026-09-12、リポジトリルート）。`check:design-measurement-freshness` の7行は id・expected・actual まで同一。`check:req-coverage:selftest` の唯一の失敗は基線と同じ上限ちょうどのラチェットで、値が 2013 / 5133 へ減り上限との遊びが広がった
+  - **撤去した名前が残る記録（境界外なので未変更）**: `e2e/specs/estimate-requests/lineitem-textbox-size-unification-e2e.spec.ts:29` の注釈、`scripts/exclusion-alternative-verification-adjudication.md:267,292`、`.kiro/specs/site-survey/e2e-assertion-guard-reduction-plan.md:365`
+  - **範囲外の同型（未処置）**: 到達判定が「到達しない」とする数量表の本番モジュールは、ほかに `CalculationNumericInput`・`NumericFieldInput`・`TextFieldInput`・`PhotoChangeDialog`・`frontend/src/hooks/useQuantityTableSave.ts`、および再輸出ファイル `frontend/src/components/quantity-table/index.ts` がある（`index.ts` は独立レビューが列挙の漏れとして検出。撤去後も取り込み元は0件で、`unreachableProductionModules` の49件に含まれる）
+  - **完了の判定（独立レビューの読み）**: 本文の「同スペックへ起票して本項は待つこと」は起票と待機の両方を課しており、「処遇を決めた」だけでは完了にならない。**`[x]` は site-survey 側の 115.325 の解決後に `FieldValidatedItemRow` の処遇を確定し、被覆の前後を測り直してから付けること**。撤去済みの3部品と残置の判断は独立レビューで承認されている
+  - _Blocked: site-survey スペックの Task 115.325（`FieldValidatedItemRow` の撤去を阻む同スペック側の二つの依存）の解決待ち。3部品の撤去と `QuantityItemRow` の残置は承認・コミット済み_
 
 - [ ] 89.2 (P) REQ-40.11 の除外の取り下げ条件を満たすか、在籍理由を改める
   - 一括生成処理の実行中インジケーター表示・重複実行防止を観測するE2Eを作って取り下げるか、**取り下げられない理由を category と reason の両方へ正確に書き直すこと**

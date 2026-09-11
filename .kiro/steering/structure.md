@@ -2,6 +2,8 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
+_最終更新: 2026-09-12（Steering Sync: quantity-table-generation のタスク 89.1。数量表コンポーネントのツリーとストーリーの列挙から、本番の経路から到達しない三部品（調整係数入力・丸め単位入力・数量入力）の行を外した。三部品は同タスクで撤去した——取り込み元は `frontend/src/components/quantity-table/index.ts` の再輸出だけで、その再輸出を取り込むファイルは一つも無かった（`grep -rnE "components/quantity-table(/index)?['\"]" frontend/src e2e` の出力が空。コミット `4e560c7f`、2026-09-12 にリポジトリルートで実測）。同じく到達しない `FieldValidatedItemRow.tsx` と、唯一の呼び出し元が読み取り専用の枝へ入らない `QuantityItemRow.tsx` は残置であり、本書の列挙も残す）_
+
 _最終更新: 2026-09-09（Steering Sync: `/kiro-steering`。ルートツリーが `scripts/`・`docs/`・`data/`・`.vscode/` の四つを一つも挙げていなかった（実測: `git ls-files | awk -F/ 'NF>1{print $1}' | sort -u` が返すルート直下の 11 件のうち、本書のツリーに現れるのは 7 件。コミット `faa54052`、2026-09-09 にリポジトリルートで実測）。とりわけ `scripts/` は押下前の関門（`npm run check:*` が 19 件、対の `:selftest` が 19 件）と CI の関門ジョブがすべてそこから起動する所でありながら、ツリーにも「主要ディレクトリの詳細」の節にも一度も現れていなかった。ツリーへ四件を加え、`scripts/` には節を新設した。節は一覧も件数も持たず、命名で役割が決まること（`check-*.ts` と対の `check-*.selftest.ts`、判定しない `survey-*`/`scan-*`/`list-*`、根拠を持つ `*-adjudication.*` と `*-baseline.json`）という規約だけを述べ、実体は `git ls-files` と `grep` で読み出す形にした——規約 (b)（数値を落として数える手段を書く）をディレクトリの内訳へ掛けたものである。対の自己検査は `check-*.ts` の 19 件すべてに在り、例外は `check-staged-coverage.cjs` の一件（対を持たず、押下前の関門からも CI からも呼ばれない。`package.json` の `coverage:staged:*` に定義があるだけ）。併せて「押下前の関門と CI の関門は同一ではない」ことを `comm` で読み出す形で明示した——実測では押下前だけが走らせる検査が 4 件（`check:adjudication-pointers`・`check:design-component-reqs`・`check:design-measurement-freshness`・`check:trace-coverage`）、CI だけが 1 件（`check:env`）である）_
 
 _最終更新: 2026-09-05（Steering Sync: タスク 115.287。`e2e/helpers/browser.ts` の起動コマンドが二文書で違う実行器を名指していた（本書 `npx ts-node` が 3 行、`.kiro/steering/tech.md` `npx tsx` が 2 箇所で 6 行）。実際に叩いて正否を決めた——`npx tsx …` はヘルパー本体まで届くが、`npx ts-node …` はルートの `package.json` が `"type": "module"` であるため型のみの取り込みが `SyntaxError` になりヘルパーへ入る前に落ちる。`ts-node` はルートの `node_modules/.bin/` に無く `backend/package.json` の devDependency にしかないが、`npx` はレジストリまたは取得済みの控えから解決するため「見つからない」形では失敗しない（コミット `3e670d6a`、2026-09-05 にリポジトリルートで実測）。値を書き換えて揃える形は採らず、タスク 115.275 / 115.286 と同じ規約 (b)（書き写さず読み出す手段を書く）を掛けた——起動コマンドの権威は `.kiro/steering/tech.md` の「Claude Code統合」節に一本化し、本書は `grep` で読み出す手段だけを持つ）_
@@ -531,14 +533,11 @@ frontend/
 │   │       ├── pdf-ocr-extractor.ts # PDF OCR抽出（Claude Vision API連携）
 │   │       └── useImportDataExtractor.ts # データ抽出カスタムフック
 │   │   ├── quantity-table/          # 数量表コンポーネント
-│   │       ├── QuantityInput.tsx    # 数量入力
 │   │       ├── QuantityGroupCard.tsx # 数量グループカード
 │   │       ├── QuantityGroupTitleRow.tsx # グループタイトル行（最適化表示）
 │   │       ├── QuantityItemRow.tsx  # 数量項目行
 │   │       ├── CalculationFields.tsx # 計算フィールド群
 │   │       ├── CalculationMethodSelect.tsx # 計算方法選択
-│   │       ├── AdjustmentFactorInput.tsx # 調整係数入力
-│   │       ├── RoundingUnitInput.tsx # 丸め単位入力
 │   │       ├── AutocompleteInput.tsx # オートコンプリート入力（フォーカス時ドロップダウン表示）
 │   │       ├── ItemCopyMoveDialog.tsx # コピー・移動ダイアログ
 │   │       ├── CopyQuantityTableDialog.tsx # 数量表コピーダイアログ
@@ -754,7 +753,6 @@ frontend/
 - `RestoreAnnotationDialog.stories.tsx` - 注釈復元ダイアログ
 
 数量表コンポーネント（quantity-table/）:
-- `AdjustmentFactorInput.stories.tsx` - 調整係数入力
 - `AutocompleteInput.stories.tsx` - オートコンプリート入力
 - `CalculationFields.stories.tsx` - 計算フィールド群
 - `CalculationMethodSelect.stories.tsx` - 計算方法選択
@@ -764,9 +762,7 @@ frontend/
 - `ItemCopyMoveDialog.stories.tsx` - コピー・移動ダイアログ
 - `NumericFieldInput.stories.tsx` - 数値フィールド入力
 - `QuantityGroupCard.stories.tsx` - 数量グループカード
-- `QuantityInput.stories.tsx` - 数量入力
 - `QuantityItemRow.stories.tsx` - 数量項目行
-- `RoundingUnitInput.stories.tsx` - 丸め単位入力
 - `TextFieldInput.stories.tsx` - テキストフィールド入力
 - `PhotoChangeDialog.stories.tsx` - 写真変更ダイアログ
 - `PhotoCommentDisplay.stories.tsx` - 写真コメント表示

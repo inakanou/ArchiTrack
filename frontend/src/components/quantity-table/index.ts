@@ -17,17 +17,8 @@ export type { ItemCopyMoveDialogProps, ItemCopyMoveMode } from './ItemCopyMoveDi
 // Task 6: 計算機能UIコンポーネント
 export { default as CalculationMethodSelect } from './CalculationMethodSelect';
 export { default as CalculationFields } from './CalculationFields';
-export { default as AdjustmentFactorInput } from './AdjustmentFactorInput';
-export { default as RoundingUnitInput } from './RoundingUnitInput';
-export { default as QuantityInput } from './QuantityInput';
 export type { CalculationMethodSelectProps } from './CalculationMethodSelect';
 export type { CalculationFieldsProps } from './CalculationFields';
-export type {
-  AdjustmentFactorInputProps,
-  AdjustmentFactorInputMeta,
-} from './AdjustmentFactorInput';
-export type { RoundingUnitInputProps, RoundingUnitInputMeta } from './RoundingUnitInput';
-export type { QuantityInputProps, QuantityInputMeta } from './QuantityInput';
 
 // Task 7: 入力支援機能コンポーネント
 export { default as AutocompleteInput } from './AutocompleteInput';

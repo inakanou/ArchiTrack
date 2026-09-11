@@ -778,6 +778,10 @@ sequenceDiagram
 | 48.1-48.2, 48.7 | 計算方法切替時に旧方式のパラメータを破棄し、共通フィールドは引き継ぐ | EditableQuantityItemRow.handleCalculationMethodChange, calculation-method.ts (PARAM_KEYS_BY_METHOD) | resetParamsForMethod() | 計算方法切替時のパラメータ整合 |
 | 48.3-48.6 | 計算方法を判別子としたパラメータ検証（形状推測の廃止） | quantity-table.schema.ts (PARAMS_SCHEMA_BY_METHOD), quantity-items.routes.ts, quantity-tables.routes.ts | withCalculationParams() superRefine | 計算方法切替時のパラメータ整合 |
 
+**追跡表の Components 列についての注（タスク 89.1）**: 9.1-9.8 の行が挙げる `AdjustmentFactorInput` は、同名の部品が本番の経路から到達しない死コードであったため、同タスクで撤去した。取り込み元は数量表コンポーネントの再輸出だけで、その再輸出を取り込むファイルは一つも無かった（コミット `4e560c7f`、2026-09-12 にリポジトリルートで実測）。調整係数の欄を実際に描画するのは `CalculationFields` である。行は書かれた時点の記述として残す（規約 (a)）。同じ理由で丸め単位入力と数量入力の部品も撤去したが、本表はそれらを名指さない——10.1-10.8 の行の `RoundingSettingInput` は、もとより同名の実装を持たない設計上の名である。
+
+**同じ注の続き（残置の二部品）**: 5.1-5.5 と 14.1-14.5 の行が挙げる `QuantityItemRow` と、16.1-16.12 の行が挙げる `FieldValidatedItemRow` はタスク 89.1 で残置と決めた。前者は `QuantityGroupCard` の読み取り専用の枝からだけ描画され、唯一の本番の呼び出し元が常に編集可能として渡すため本番の画面では描画されない。後者は本番の経路から到達しない。残す理由と実測は、いずれもそれぞれの部品の冒頭の説明に置いた。
+
 ## Field Specifications
 
 ### テキストフィールド仕様
