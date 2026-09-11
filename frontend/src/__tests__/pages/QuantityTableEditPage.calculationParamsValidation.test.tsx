@@ -362,20 +362,51 @@ describe('QuantityTableEditPage - 保存前の計算パラメータ検証（Task
     /*
      * Requirements (quantity-table-generation): 9.3, 11.2
      *
-     * 調整係数の `0` と負値は REQ-9.3 の有効域の内側であり範囲外ではないが、
-     * 保存経路（backend の saveDraftItemSchema の `z.number().positive()`）が拒む。
-     * 素通しすると画面には 400 由来の一般エラーしか出ないため、保存前に名指す。
+     * 調整係数の `0` と負値は REQ-9.3 の有効域の内側である。タスク 80.2 の時点では
+     * 保存経路（backend の `saveDraftItemSchema` の `z.number().positive()`）が拒んでいたため、
+     * 保存前に止めて名指していた。**タスク 85.1 がバックエンドを有効域へ揃えたため
+     * 向きが反転した**——止めずにサーバーへ送る。
      */
     it.each([
       ['0', 0],
       ['負の値', -0.5],
+      ['下限', FIELD_RANGE_CONFIG.adjustmentFactor.min],
+    ])('調整係数が%sの場合も保存は中断されずサーバーへ送信される', async (_label, value) => {
+      const detail = buildDetail([{ ...baseItem, adjustmentFactor: value }]);
+      mockSaveQuantityTableDraft.mockResolvedValue({
+        ...detail,
+        updatedAt: '2026-02-02T00:00:00Z',
+      });
+
+      await loadAndSave(detail);
+
+      await waitFor(() => {
+        expect(mockSaveQuantityTableDraft).toHaveBeenCalled();
+      });
+      const calls = mockSaveQuantityTableDraft.mock.calls as unknown as [
+        string,
+        { groups: { items: { adjustmentFactor: number }[] }[] },
+      ][];
+      const sentItems = calls[calls.length - 1]?.[1]?.groups?.[0]?.items;
+      expect(sentItems?.[0]?.adjustmentFactor).toBe(value);
+    });
+
+    /*
+     * Requirements (quantity-table-generation): 9.3, 11.2
+     *
+     * 上の「中断しない」が、保存前の検査そのものが死んでいるだけで成立していないことを
+     * 同じ欄で確かめる。有効域の外は引き続き中断する。
+     */
+    it.each([
+      ['下限未満', FIELD_RANGE_CONFIG.adjustmentFactor.min - 0.01],
+      ['上限超過', FIELD_RANGE_CONFIG.adjustmentFactor.max + 0.01],
     ])(
-      '調整係数が%sの場合はサーバーへ送信されずに保存できない旨が表示される',
+      '調整係数が有効域の外（%s）の場合はサーバーへ送信されずにエラーが表示される',
       async (_label, value) => {
         await loadAndSave(buildDetail([{ ...baseItem, adjustmentFactor: value }]));
 
         await waitFor(() => {
-          expect(screen.getByText(/調整係数が0以下の値は保存できません/)).toBeInTheDocument();
+          expect(screen.getByText(/調整係数が無効です/)).toBeInTheDocument();
         });
         expect(mockSaveQuantityTableDraft).not.toHaveBeenCalled();
       }

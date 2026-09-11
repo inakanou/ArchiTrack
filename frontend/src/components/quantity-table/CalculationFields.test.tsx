@@ -20,7 +20,6 @@ import { CALCULATION_METHOD_ORDER, PARAM_KEYS_BY_METHOD } from '../../utils/calc
 import {
   FIELD_RANGE_CONFIG,
   validateNumericRange,
-  validateSavePersistability,
   type NumericRangeFieldType,
 } from '../../utils/numeric-range-validation';
 import type { CalculationMethod, CalculationParams } from '../../types/quantity-edit.types';
@@ -1428,47 +1427,72 @@ describe('CalculationFields', () => {
       });
 
       /*
-       * Requirements (quantity-table-generation): 9.3, 11.2
+       * Requirements (quantity-table-generation): 9.3
        *
        * REQ-9.3 の有効域は `0` と負値を内側に含むため、これらは**範囲外ではない**。
-       * しかし保存経路が拒むため、欄は範囲エラーとは別の文言で告知する。
-       * 期待する文言は正典 `validateSavePersistability` から取り出す。
+       * タスク 80.2 の時点では保存経路（`z.number().positive()`）が拒んでいたため、
+       * 欄は「保存できません」という別の層の文言を告げていた。**タスク 85.1 が
+       * バックエンドを有効域へ揃えたため、その層は撤去され、向きが反転した**——
+       * いまは何の提示も出さず、そのまま確定する。
        */
       it.each([
         ['0', 0],
         ['負の有効値', -0.5],
         ['下限', FIELD_RANGE_CONFIG.adjustmentFactor.min],
-      ])(
-        '有効域だが保存経路が受け付けない値（%s）は、範囲エラーではなく保存できない旨を告げる',
-        (_label, value) => {
-          const onAdjustmentFactorChange = vi.fn();
-          render(
-            <CalculationFields
-              method="AREA_VOLUME"
-              params={{} as AreaVolumeParams}
-              onChange={vi.fn()}
-              disabled={false}
-              onAdjustmentFactorChange={onAdjustmentFactorChange}
-            />
-          );
+      ])('有効域の内側の値（%s）は何も告げずそのまま確定する', (_label, value) => {
+        const onAdjustmentFactorChange = vi.fn();
+        render(
+          <CalculationFields
+            method="AREA_VOLUME"
+            params={{} as AreaVolumeParams}
+            onChange={vi.fn()}
+            disabled={false}
+            onAdjustmentFactorChange={onAdjustmentFactorChange}
+          />
+        );
 
-          const input = screen.getByLabelText('調整係数');
-          fireEvent.change(input, { target: { value: String(value) } });
+        const input = screen.getByLabelText('調整係数');
+        fireEvent.change(input, { target: { value: String(value) } });
 
-          const expected = validateSavePersistability(value, 'adjustmentFactor').error;
-          expect(expected).toBeDefined();
-          expect(screen.getByRole('alert')).toHaveTextContent(expected as string);
-          // 範囲外の文言は出さない（有効域の内側であることを潰さない）
-          expect(screen.getByRole('alert')).not.toHaveTextContent('範囲で入力してください');
-          expect(input).toHaveAttribute('aria-invalid', 'true');
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(input).not.toHaveAttribute('aria-invalid', 'true');
 
-          // 有効域の内側であるため確定はする（REQ-9.3 / REQ-9.2）
-          fireEvent.blur(input);
-          expect(onAdjustmentFactorChange).toHaveBeenCalledWith(value);
-        }
-      );
+        // 有効域の内側であるため確定する（REQ-9.3 / REQ-9.2）
+        fireEvent.blur(input);
+        expect(onAdjustmentFactorChange).toHaveBeenCalledWith(value);
+      });
 
-      it('正の有効値では保存できない旨を告げない', () => {
+      /*
+       * Requirements (quantity-table-generation): 9.3
+       *
+       * 上の「何も告げない」が、提示の経路そのものが死んでいるだけで成立していないことを
+       * 同じ欄で確かめる。範囲の外は引き続き範囲の文言で拒む。
+       */
+      it.each([
+        ['下限未満', FIELD_RANGE_CONFIG.adjustmentFactor.min - 0.01],
+        ['上限超過', FIELD_RANGE_CONFIG.adjustmentFactor.max + 0.01],
+      ])('有効域の外の値（%s）は範囲の文言で拒む', (_label, value) => {
+        const onAdjustmentFactorChange = vi.fn();
+        render(
+          <CalculationFields
+            method="AREA_VOLUME"
+            params={{} as AreaVolumeParams}
+            onChange={vi.fn()}
+            disabled={false}
+            onAdjustmentFactorChange={onAdjustmentFactorChange}
+          />
+        );
+
+        const input = screen.getByLabelText('調整係数');
+        fireEvent.change(input, { target: { value: String(value) } });
+
+        const expected = validateNumericRange(value, 'adjustmentFactor').error;
+        expect(expected).toBeDefined();
+        expect(screen.getByRole('alert')).toHaveTextContent(expected as string);
+        expect(input).toHaveAttribute('aria-invalid', 'true');
+      });
+
+      it('正の有効値でも何も告げない', () => {
         render(
           <CalculationFields
             method="AREA_VOLUME"

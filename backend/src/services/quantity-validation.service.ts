@@ -9,10 +9,10 @@
  * - 8.7: 「面積・体積」モードで計算用列に値が1つも入力されていない状態で保存を試行する場合、エラーメッセージを表示する
  * - 8.10: 「ピッチ」モードで必須項目（範囲長・端長1・端長2・ピッチ長）のいずれかが未入力で保存を試行する場合、エラーメッセージを表示する
  * - 8.15: 「箇所数」モードで必須項目（箇所数）が未入力で保存を試行する場合、エラーメッセージを表示し箇所数の入力を求める
- * - 9.3: 調整係数列に0以下の値が入力される場合、警告メッセージを表示し確認を求める
- * - 9.4: 調整係数列に数値以外の文字が入力される場合、入力を拒否しエラーメッセージを表示する
- * - 10.3: 丸め設定列に0以下の値が入力される場合、エラーメッセージを表示し、正の値の入力を求める
- * - 10.4: 丸め設定列に数値以外の文字が入力される場合、入力を拒否しエラーメッセージを表示する
+ * - 9.3: 調整係数は-9.99〜9.99の範囲で入力可能とする
+ * - 9.5: 調整係数フィールドに数値以外の文字が入力される場合、入力を拒否しエラーメッセージを表示する
+ * - 10.3: 丸め設定は0.01〜99.99の範囲で入力可能とする
+ * - 10.5: 丸め設定フィールドに数値以外の文字が入力される場合、入力を拒否しエラーメッセージを表示する
  * - 47.8: 「箇所数」フィールドを必須項目とし、入力可能範囲を1〜9999999の整数とする
  * - 47.9: 「箇所数」が未入力のまま保存を試行する場合、エラーメッセージを表示し箇所数の入力を求める
  * - 47.10: 「箇所数」に小数を含む値が入力される場合、入力を拒否しエラーメッセージを表示する
@@ -20,6 +20,16 @@
  *
  * Task 2.5: 計算検証とバリデーションを実装する
  * Task 66.2: 計算方法「箇所数」の検証と未知の計算方法の fail-fast を追加する
+ * Task 85.1: 数値欄の範囲の判定を本サービスから外し、正典
+ *   （`quantity-field-validation.service.ts` の `FIELD_CONSTRAINTS`）へ畳んだ
+ *
+ * **上の Requirements 行は Task 85.1 で現行条文へ改めたものである（当時の記録）。**
+ * 本ファイルは着手時まで、次の逐語を名乗っていた——「9.3: 調整係数列に0以下の値が
+ * 入力される場合、警告メッセージを表示し確認を求める」「10.3: 丸め設定列に0以下の値が
+ * 入力される場合、エラーメッセージを表示し、正の値の入力を求める」「9.4 / 10.4: 数値以外の
+ * 文字が入力される場合、入力を拒否しエラーメッセージを表示する」。前二者は `0` に有効域の
+ * 外という意味を与える条文であり、REQ-9.3 の有効域 `-9.99〜9.99` が `0` と負値を**内側に
+ * 含む**ようになった時点で撤廃されている。後二者は番号が REQ-9.5 / REQ-10.5 へ繰り下がった。
  *
  * @module services/quantity-validation
  */
@@ -140,12 +150,12 @@ export class QuantityValidationService {
     const errors: ValidationError[] = [];
     const warnings: ValidationWarning[] = [];
 
-    // 1. 丸め設定の検証（エラーとなるため先に検証）
+    // 1. 丸め設定が数値であることの検証（範囲は正典 `FIELD_CONSTRAINTS` の所管。Task 85.1）
     const roundingResult = this.validateRoundingUnit(input.roundingUnit);
     errors.push(...roundingResult.errors);
     warnings.push(...roundingResult.warnings);
 
-    // 2. 調整係数の検証
+    // 2. 調整係数が数値であることの検証（同上）
     const adjustmentResult = this.validateAdjustmentFactor(input.adjustmentFactor);
     errors.push(...adjustmentResult.errors);
     warnings.push(...adjustmentResult.warnings);
@@ -400,65 +410,48 @@ export class QuantityValidationService {
   }
 
   /**
-   * 調整係数の検証
+   * 調整係数の検証（数値であることのみ。範囲は見ない）
+   *
+   * **範囲を見ないのは意図である（Task 85.1）。** 数量表の数値欄の範囲の正典は
+   * `quantity-field-validation.service.ts` の `FIELD_CONSTRAINTS` 一つであり、保存経路では
+   * `QuantityTableService.validateDraft` が本メソッドより先に
+   * `QuantityFieldValidationService.validateItemFieldSpecs` を通している。
+   *
+   * 改める前の本メソッドは `adjustmentFactor <= 0` を警告として報じていた。これは
+   * REQ-9.3 の有効域が `-9.99〜9.99` へ確定する前の条文（「0以下の値には警告」）の名残であり、
+   * **いまの有効域は `0` と負値を内側に含む**。`validateDraft` の重複抑止
+   * （同一フィールドの二件目を採らない分岐）に覆われて表面化していなかっただけで、
+   * 正典を一箇所で動かしても挙動が追随しない重複であった。
+   *
+   * 数値であること（NaN / Infinity でないこと）の検査はここに残す。範囲判定は
+   * `value < min || value > max` の形であり、NaN はどちらの比較も偽になるため
+   * **範囲の層では捕まらない**。両者は別の不変条件である。
+   *
+   * *採らなかった案*: 本メソッドから `QuantityFieldValidationService` を呼んで正典を経由させる。
+   * 同一フィールドに対して `validateItemFieldSpecs` と本メソッドが同じ違反を二度報じることになり、
+   * `validateDraft` の重複抑止に依存して片方が沈黙する構造——いま解消しているもの——を
+   * 別の綴りで作り直すだけである。加えてサービス間の依存を一本増やす。採らなかった。
    *
    * @param adjustmentFactor - 調整係数
    * @returns バリデーション結果
    */
   private validateAdjustmentFactor(adjustmentFactor: number): ValidationResult {
-    const errors: ValidationError[] = [];
-    const warnings: ValidationWarning[] = [];
-
-    // 数値検証
-    const numericResult = this.validateNumericInput(adjustmentFactor, 'adjustmentFactor');
-    if (!numericResult.isValid) {
-      return numericResult;
-    }
-
-    // 0以下の値チェック（警告）
-    if (adjustmentFactor <= 0) {
-      warnings.push({
-        field: 'adjustmentFactor',
-        message: '調整係数に0以下の値が入力されています。確認してください。',
-      });
-    }
-
-    return {
-      isValid: errors.length === 0,
-      errors,
-      warnings,
-    };
+    return this.validateNumericInput(adjustmentFactor, 'adjustmentFactor');
   }
 
   /**
-   * 丸め設定の検証
+   * 丸め設定の検証（数値であることのみ。範囲は見ない）
+   *
+   * 範囲を見ない理由と採らなかった案は {@link QuantityValidationService.validateAdjustmentFactor}
+   * の説明に書いた（同じ判断である。Task 85.1）。改める前の本メソッドは
+   * `roundingUnit <= 0` を直書きの文言「丸め設定は0より大きい値を入力してください」で
+   * 拒んでおり、正典の下限 `0.01` とも、そこから組み立てる文言とも一致していなかった。
    *
    * @param roundingUnit - 丸め単位
    * @returns バリデーション結果
    */
   private validateRoundingUnit(roundingUnit: number): ValidationResult {
-    const errors: ValidationError[] = [];
-    const warnings: ValidationWarning[] = [];
-
-    // 数値検証
-    const numericResult = this.validateNumericInput(roundingUnit, 'roundingUnit');
-    if (!numericResult.isValid) {
-      return numericResult;
-    }
-
-    // 0以下の値チェック（エラー）
-    if (roundingUnit <= 0) {
-      errors.push({
-        field: 'roundingUnit',
-        message: '丸め設定は0より大きい値を入力してください',
-      });
-    }
-
-    return {
-      isValid: errors.length === 0,
-      errors,
-      warnings,
-    };
+    return this.validateNumericInput(roundingUnit, 'roundingUnit');
   }
 
   /**

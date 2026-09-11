@@ -194,8 +194,12 @@ const saveDraftItemSchema = withCalculationParams(
     unit: z.string().max(50),
     calculationMethod: z.enum(CALCULATION_METHODS),
     calculationParams: z.record(z.string(), z.number()).nullable(),
-    adjustmentFactor: z.number().positive(),
-    roundingUnit: z.number().positive(),
+    // 数値欄の範囲はここでは課さない。範囲の唯一の出所は
+    // `quantity-field-validation.service.ts` の `FIELD_CONSTRAINTS` であり、
+    // 検証は `validateDraft` → `validateItemFieldSpecs` が担う（Task 85.1）。
+    // `quantity` が以前からこの層立てである（下行）。
+    adjustmentFactor: z.number(),
+    roundingUnit: z.number(),
     quantity: z.number(),
     remarks: z.string().nullable(),
     displayOrder: z.number().int().min(0),

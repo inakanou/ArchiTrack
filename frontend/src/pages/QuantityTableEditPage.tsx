@@ -45,10 +45,7 @@ import { useAutocompleteCandidateStore } from '../hooks/useAutocompleteCandidate
 import { loadQuantityTablePdfExportService } from '../services/export/loadQuantityTablePdfExportService';
 import { CALCULATION_METHOD_LABELS } from '../utils/calculation-method';
 import { validateCalculationParams } from '../utils/calculation-params-validation';
-import {
-  validateNumericRange,
-  validateSavePersistability,
-} from '../utils/numeric-range-validation';
+import { validateNumericRange } from '../utils/numeric-range-validation';
 import { loadPdfExportService } from '../services/export/loadPdfExportService';
 import { ImportDialog } from '../components/quantity-table-import/ImportDialog';
 import type { ImportQuantityItem } from '../types/quantity-import.types';
@@ -1625,23 +1622,17 @@ export default function QuantityTableEditPage() {
             `グループ「${groupLabel}」の項目「${itemLabel}」の丸め設定が無効です`
           );
         }
-        // 調整係数が保存経路の受け付けない領域にある場合はエラー（REQ-11.2）。
+        // 調整係数が範囲外の場合はエラー（REQ-9.3 / REQ-11.2）。
         //
-        // Task 80.2: これは**範囲判定ではない**。REQ-9.3 の有効域 `-9.99〜9.99` は `0` と
-        // 負値を内側に含み、欄の側もそれを範囲外とは呼ばない。しかし保存経路
-        // （`backend/src/routes/quantity-tables.routes.ts` の `saveDraftItemSchema` が課す
-        // `z.number().positive()`）が `0` 以下を 400 で拒むため、そのまま送ると
-        // 「保存に失敗しました」としか出ない。ここで捕まえて問題箇所を名指す
-        // （食い違いの是正の向きはバックエンドであり本タスクの境界の外である。
-        //  判断の全文は `utils/numeric-range-validation.ts` の
-        //  `SAVE_POSITIVE_ONLY_FIELD_TYPES` の説明にある）。
-        const adjustmentFactorPersistability = validateSavePersistability(
-          Number(item.adjustmentFactor),
-          'adjustmentFactor'
-        );
-        if (!adjustmentFactorPersistability.isValid) {
+        // Task 85.1: 改める前は「保存経路が受け付けない領域」という別の層
+        // （`validateSavePersistability`）を置き、`0` と負値を保存の手前で止めていた。
+        // バックエンドの範囲が REQ-9.3 の有効域 `-9.99〜9.99` へ揃った（保存経路の
+        // `z.number().positive()` は撤廃された）ため、その層は役目を終えた。
+        // **`0` と負値は有効域の内側であり、いまはそのまま保存される。**
+        // ここに残るのは丸め設定と同じ範囲判定だけであり、出所も同じ正典である。
+        if (!validateNumericRange(Number(item.adjustmentFactor), 'adjustmentFactor').isValid) {
           validationErrors.push(
-            `グループ「${groupLabel}」の項目「${itemLabel}」の${adjustmentFactorPersistability.error ?? '調整係数が無効です'}`
+            `グループ「${groupLabel}」の項目「${itemLabel}」の調整係数が無効です`
           );
         }
         // 計算方法ごとの必須パラメータ（箇所数・ピッチ必須項目・面積体積の1項目以上）を検証する。

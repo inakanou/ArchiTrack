@@ -47,7 +47,6 @@ import type { CalculationMethod, CalculationParams } from '../../types/quantity-
 import type { AreaVolumeParams, PitchParams, CountParams } from '../../utils/calculation-engine';
 import {
   validateNumericRange,
-  validateSavePersistability,
   resolveFieldInput,
   type NumericRangeFieldType,
   type DefaultSubstitutedFieldType,
@@ -482,17 +481,13 @@ function AdjustmentField({
     ? validateNumericRange(resolution.value, fieldType).error
     : undefined;
 
-  // 保存経路が受け付けない領域の告知（範囲判定とは別の層。Task 80.2）。
-  // 調整係数の `0` と負値は REQ-9.3 の有効域の内側であり**範囲外ではない**が、
-  // 保存経路（backend の saveDraftItemSchema が課す `z.number().positive()`）が拒む。
-  // 範囲エラーが出ているときは重ねない（同じ欄に二つの理由を並べない）。
-  const saveBlockedWarning =
-    resolution.isNumeric && rangeError === undefined
-      ? validateSavePersistability(resolution.value, fieldType).error
-      : undefined;
+  // Task 85.1: 「保存経路が受け付けない領域」の告知（`validateSavePersistability`）は撤去した。
+  // バックエンドの範囲が REQ-9.3 の有効域へ揃い、調整係数の `0` と負値がそのまま保存できる
+  // ようになったためである。欄が告げる理由は数値以外（REQ-9.5 / 10.5）と範囲外
+  // （REQ-9.3 / 10.3）の二つだけになった。
 
   // 数値以外の拒否は範囲エラーより手前の層である
-  const message = nonNumericError ?? rangeError ?? saveBlockedWarning;
+  const message = nonNumericError ?? rangeError;
   const showWarning = message !== undefined;
 
   // 入力中はそのままの値を保持。**値には一切手を入れない**（変換中の破壊を避ける）

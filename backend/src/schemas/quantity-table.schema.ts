@@ -28,6 +28,7 @@ import { z } from 'zod';
 // 範囲の二重定義を避けるため、ここでは再定義せず import して参照する
 // （calculation-engine.ts は decimal.js のみに依存するため循環参照は生じない）。
 import { COUNT_MAX, COUNT_MIN } from '../services/calculation-engine.js';
+import { FIELD_CONSTRAINTS } from '../services/quantity-field-validation.service.js';
 
 /**
  * バリデーションエラーメッセージ定数
@@ -90,11 +91,11 @@ export const QUANTITY_TABLE_VALIDATION_MESSAGES = {
   // 計算方法
   CALCULATION_METHOD_INVALID: '計算方法が不正です',
 
-  // 調整係数
-  ADJUSTMENT_FACTOR_INVALID: '調整係数は0より大きい数値を入力してください',
+  // 調整係数（文言も範囲の正典 `FIELD_CONSTRAINTS` から組み立てる。Task 85.1）
+  ADJUSTMENT_FACTOR_INVALID: `調整係数は${FIELD_CONSTRAINTS.ADJUSTMENT_FACTOR.min}から${FIELD_CONSTRAINTS.ADJUSTMENT_FACTOR.max}の範囲で入力してください`,
 
-  // 丸め単位
-  ROUNDING_UNIT_INVALID: '丸め単位は0より大きい数値を入力してください',
+  // 丸め設定
+  ROUNDING_UNIT_INVALID: `丸め設定は${FIELD_CONSTRAINTS.ROUNDING_UNIT.min}から${FIELD_CONSTRAINTS.ROUNDING_UNIT.max}の範囲で入力してください`,
 
   // 数量
   QUANTITY_REQUIRED: '数量は必須です',
@@ -526,15 +527,31 @@ export const createQuantityItemBaseSchema = z.object({
 
   calculationParams: calculationParamsInputSchema,
 
+  // 範囲の唯一の出所は `FIELD_CONSTRAINTS`（quantity-field-validation.service.ts）である。
+  // 作成経路と保存経路で同じ範囲を課し、「作成できるが保存できない」非対称を作らない（Task 85.1）
   adjustmentFactor: z
     .number()
-    .positive(QUANTITY_TABLE_VALIDATION_MESSAGES.ADJUSTMENT_FACTOR_INVALID)
-    .default(1.0),
+    .min(
+      FIELD_CONSTRAINTS.ADJUSTMENT_FACTOR.min,
+      QUANTITY_TABLE_VALIDATION_MESSAGES.ADJUSTMENT_FACTOR_INVALID
+    )
+    .max(
+      FIELD_CONSTRAINTS.ADJUSTMENT_FACTOR.max,
+      QUANTITY_TABLE_VALIDATION_MESSAGES.ADJUSTMENT_FACTOR_INVALID
+    )
+    .default(FIELD_CONSTRAINTS.ADJUSTMENT_FACTOR.default),
 
   roundingUnit: z
     .number()
-    .positive(QUANTITY_TABLE_VALIDATION_MESSAGES.ROUNDING_UNIT_INVALID)
-    .default(0.01),
+    .min(
+      FIELD_CONSTRAINTS.ROUNDING_UNIT.min,
+      QUANTITY_TABLE_VALIDATION_MESSAGES.ROUNDING_UNIT_INVALID
+    )
+    .max(
+      FIELD_CONSTRAINTS.ROUNDING_UNIT.max,
+      QUANTITY_TABLE_VALIDATION_MESSAGES.ROUNDING_UNIT_INVALID
+    )
+    .default(FIELD_CONSTRAINTS.ROUNDING_UNIT.default),
 
   quantity: z.number().nonnegative(QUANTITY_TABLE_VALIDATION_MESSAGES.QUANTITY_INVALID),
 
@@ -628,14 +645,29 @@ export const updateQuantityItemBaseSchema = z.object({
 
   calculationParams: calculationParamsInputSchema,
 
+  // 範囲の唯一の出所は `FIELD_CONSTRAINTS` である（上の作成用スキーマと同じ。Task 85.1）
   adjustmentFactor: z
     .number()
-    .positive(QUANTITY_TABLE_VALIDATION_MESSAGES.ADJUSTMENT_FACTOR_INVALID)
+    .min(
+      FIELD_CONSTRAINTS.ADJUSTMENT_FACTOR.min,
+      QUANTITY_TABLE_VALIDATION_MESSAGES.ADJUSTMENT_FACTOR_INVALID
+    )
+    .max(
+      FIELD_CONSTRAINTS.ADJUSTMENT_FACTOR.max,
+      QUANTITY_TABLE_VALIDATION_MESSAGES.ADJUSTMENT_FACTOR_INVALID
+    )
     .optional(),
 
   roundingUnit: z
     .number()
-    .positive(QUANTITY_TABLE_VALIDATION_MESSAGES.ROUNDING_UNIT_INVALID)
+    .min(
+      FIELD_CONSTRAINTS.ROUNDING_UNIT.min,
+      QUANTITY_TABLE_VALIDATION_MESSAGES.ROUNDING_UNIT_INVALID
+    )
+    .max(
+      FIELD_CONSTRAINTS.ROUNDING_UNIT.max,
+      QUANTITY_TABLE_VALIDATION_MESSAGES.ROUNDING_UNIT_INVALID
+    )
     .optional(),
 
   quantity: z.number().nonnegative(QUANTITY_TABLE_VALIDATION_MESSAGES.QUANTITY_INVALID).optional(),

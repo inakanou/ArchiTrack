@@ -14,11 +14,7 @@ import { useState } from 'react';
 import { render, screen, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import EditableQuantityItemRow from './EditableQuantityItemRow';
-import {
-  FIELD_RANGE_CONFIG,
-  validateNumericRange,
-  validateSavePersistability,
-} from '../../utils/numeric-range-validation';
+import { FIELD_RANGE_CONFIG, validateNumericRange } from '../../utils/numeric-range-validation';
 import type { CalculationMethod, QuantityItemDetail } from '../../types/quantity-table.types';
 
 // Task 18.1: useAutocompleteモックは不要（新モード専用）
@@ -572,27 +568,28 @@ describe('EditableQuantityItemRow', () => {
         />
       );
 
-    it('有効域かつ保存経路が受け付ける値ではエラーを表示しない', () => {
+    it('有効域の上限ではエラーを表示しない', () => {
       renderWithAdjustmentFactor(FIELD_RANGE_CONFIG.adjustmentFactor.max);
 
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
 
+    /*
+     * Requirements (quantity-table-generation): 9.3
+     *
+     * タスク 80.2 の時点では、保存経路が `0` 以下を拒むため欄が「保存できません」と
+     * 告げていた。**タスク 85.1 がバックエンドを有効域へ揃えたため向きが反転した**——
+     * `0` と負値は有効域の内側であり、何の提示も出さない。
+     */
     it.each([
       ['0', 0],
       ['負の有効値', -0.5],
       ['下限', FIELD_RANGE_CONFIG.adjustmentFactor.min],
-    ])(
-      '有効域だが保存経路が受け付けない値（%s）では、範囲エラーではなく保存できない旨を表示する',
-      (_label, value) => {
-        renderWithAdjustmentFactor(value);
+    ])('有効域の内側の値（%s）ではエラーを表示しない', (_label, value) => {
+      renderWithAdjustmentFactor(value);
 
-        const expected = validateSavePersistability(value, 'adjustmentFactor').error;
-        expect(expected).toBeDefined();
-        expect(screen.getByRole('alert')).toHaveTextContent(expected as string);
-        expect(screen.getByRole('alert')).not.toHaveTextContent('範囲で入力してください');
-      }
-    );
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
 
     it.each([
       ['下限未満', FIELD_RANGE_CONFIG.adjustmentFactor.min - 0.01],

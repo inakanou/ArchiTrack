@@ -8,12 +8,14 @@
  * - 8.4: 計算方法が「標準」で数量フィールドに数値以外の文字が入力される場合、入力を拒否しエラーメッセージを表示する
  * - 8.7: 「面積・体積」モードで計算用列に値が1つも入力されていない状態で保存を試行する場合、エラーメッセージを表示する
  * - 8.10: 「ピッチ」モードで必須項目のいずれかが未入力で保存を試行する場合、エラーメッセージを表示する
- * - 9.3: 調整係数列に0以下の値が入力される場合、警告メッセージを表示し確認を求める
- * - 9.4: 調整係数列に数値以外の文字が入力される場合、入力を拒否しエラーメッセージを表示する
- * - 10.3: 丸め設定列に0以下の値が入力される場合、エラーメッセージを表示し、正の値の入力を求める
- * - 10.4: 丸め設定列に数値以外の文字が入力される場合、入力を拒否しエラーメッセージを表示する
+ * - 9.3: 調整係数は-9.99〜9.99の範囲で入力可能とする
+ * - 9.5: 調整係数フィールドに数値以外の文字が入力される場合、入力を拒否しエラーメッセージを表示する
+ * - 10.3: 丸め設定は0.01〜99.99の範囲で入力可能とする
+ * - 10.5: 丸め設定フィールドに数値以外の文字が入力される場合、入力を拒否しエラーメッセージを表示する
  *
  * Task 2.5: 計算検証とバリデーションを実装する
+ * Task 85.1: 撤廃済みの条文（「0以下の値には警告／エラー」）を主張していた4件を現行条文へ
+ *   反転させ、範囲の判定が本サービスの所管でないことを固定した
  *
  * @module __tests__/unit/services/quantity-validation.service.test
  */
@@ -544,13 +546,25 @@ describe('QuantityValidationService', () => {
     });
 
     describe('調整係数（adjustmentFactor）', () => {
-      it('0以下の値の場合は警告を返す（Requirements: 9.3）', () => {
+      /*
+       * Requirements (quantity-table-generation): 9.3
+       *
+       * 改める前は `0` と負値に警告を出すことを主張していた（撤廃済みの条文
+       * 「調整係数列に0以下の値が入力される場合、警告メッセージを表示し確認を求める」）。
+       * **現行 REQ-9.3 の有効域 `-9.99〜9.99` は `0` と負値を内側に含む。**
+       * Task 85.1 が実装から当該の判定を外したため、向きが反転した。
+       */
+      it.each([
+        ['0', 0],
+        ['負の有効値', -0.5],
+        ['下限', -9.99],
+      ])('有効域の内側の値（%s）に警告を出さない', (_label, adjustmentFactor) => {
         // Arrange
         const input: QuantityItemValidationInput = {
           calculationMethod: 'STANDARD',
           calculationParams: {},
           quantity: 100,
-          adjustmentFactor: 0,
+          adjustmentFactor,
           roundingUnit: 0.01,
         };
 
@@ -559,21 +573,28 @@ describe('QuantityValidationService', () => {
 
         // Assert
         expect(result.isValid).toBe(true);
-        expect(result.warnings).toContainEqual(
-          expect.objectContaining({
-            field: 'adjustmentFactor',
-            message: expect.stringContaining('0以下'),
-          })
-        );
+        expect(result.warnings.filter((w) => w.field === 'adjustmentFactor')).toHaveLength(0);
+        expect(result.errors.filter((e) => e.field === 'adjustmentFactor')).toHaveLength(0);
       });
 
-      it('負の値の場合は警告を返す（Requirements: 9.3）', () => {
+      /*
+       * Requirements (quantity-table-generation): 9.5
+       *
+       * 上の「何も報じない」が、報じる経路そのものが死んでいるだけで成立していないことを
+       * 同じ欄・同じメソッドで確かめる。数値であることの検査は本サービスに残っており、
+       * **範囲判定（`value < min || value > max`）では NaN を捕まえられない**ため
+       * 層として別である。
+       */
+      it.each([
+        ['NaN', Number.NaN],
+        ['Infinity', Number.POSITIVE_INFINITY],
+      ])('数値として読めない値（%s）はエラーとして報じる', (_label, adjustmentFactor) => {
         // Arrange
         const input: QuantityItemValidationInput = {
           calculationMethod: 'STANDARD',
           calculationParams: {},
           quantity: 100,
-          adjustmentFactor: -0.5,
+          adjustmentFactor,
           roundingUnit: 0.01,
         };
 
@@ -581,11 +602,10 @@ describe('QuantityValidationService', () => {
         const result = service.validateQuantityItem(input);
 
         // Assert
-        expect(result.isValid).toBe(true);
-        expect(result.warnings).toContainEqual(
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContainEqual(
           expect.objectContaining({
             field: 'adjustmentFactor',
-            message: expect.stringContaining('0以下'),
           })
         );
       });
@@ -609,37 +629,55 @@ describe('QuantityValidationService', () => {
     });
 
     describe('丸め設定（roundingUnit）', () => {
-      it('0以下の値の場合はエラーを返す（Requirements: 10.3）', () => {
+      /*
+       * Requirements (quantity-table-generation): 10.3
+       *
+       * 改める前は `0` と負値を直書きの文言「丸め設定は0より大きい値を入力してください」で
+       * 拒むことを主張していた。**範囲の判定は本サービスの所管ではなく、正典
+       * `quantity-field-validation.service.ts` の `FIELD_CONSTRAINTS` を引く
+       * `QuantityFieldValidationService.validateRoundingUnit` の所管である**（Task 85.1）。
+       * `0` と負値が最終的に拒まれること自体は変わらない——拒む層が一つになった。
+       * それは保存経路の統合検証
+       * （`quantity-table-save.api.integration.test.ts` の
+       * 「丸め設定が有効域の外（%s）のとき400で拒まれ永続化されない」）が確かめる。
+       */
+      it.each([
+        ['0', 0],
+        ['負値', -0.01],
+      ])('範囲の判定は行わない（%s でもエラーを報じない）', (_label, roundingUnit) => {
         // Arrange
         const input: QuantityItemValidationInput = {
           calculationMethod: 'STANDARD',
           calculationParams: {},
           quantity: 100,
           adjustmentFactor: 1.0,
-          roundingUnit: 0,
+          roundingUnit,
         };
 
         // Act
         const result = service.validateQuantityItem(input);
 
         // Assert
-        expect(result.isValid).toBe(false);
-        expect(result.errors).toContainEqual(
-          expect.objectContaining({
-            field: 'roundingUnit',
-            message: expect.stringContaining('0より大きい'),
-          })
-        );
+        expect(result.errors.filter((e) => e.field === 'roundingUnit')).toHaveLength(0);
       });
 
-      it('負の値の場合はエラーを返す（Requirements: 10.3）', () => {
+      /*
+       * Requirements (quantity-table-generation): 10.5
+       *
+       * 上の「報じない」が、報じる経路そのものが死んでいるだけで成立していないことを
+       * 同じ欄・同じメソッドで確かめる（調整係数と同じ理由。NaN は範囲判定では捕まらない）。
+       */
+      it.each([
+        ['NaN', Number.NaN],
+        ['Infinity', Number.POSITIVE_INFINITY],
+      ])('数値として読めない値（%s）はエラーとして報じる', (_label, roundingUnit) => {
         // Arrange
         const input: QuantityItemValidationInput = {
           calculationMethod: 'STANDARD',
           calculationParams: {},
           quantity: 100,
           adjustmentFactor: 1.0,
-          roundingUnit: -0.01,
+          roundingUnit,
         };
 
         // Act
@@ -650,7 +688,6 @@ describe('QuantityValidationService', () => {
         expect(result.errors).toContainEqual(
           expect.objectContaining({
             field: 'roundingUnit',
-            message: expect.stringContaining('0より大きい'),
           })
         );
       });

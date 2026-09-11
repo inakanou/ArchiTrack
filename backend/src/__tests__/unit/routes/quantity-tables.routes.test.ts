@@ -635,6 +635,83 @@ describe('QuantityTablesRoutes', () => {
       );
     });
 
+    /*
+     * Requirements (quantity-table-generation): 9.3
+     *
+     * ルート層の `z.number().positive()` は REQ-9.3 の有効域 `-9.99〜9.99` が内側に含む
+     * `0` と負値を 400 で拒んでいた。範囲の正典は
+     * `quantity-field-validation.service.ts` の `FIELD_CONSTRAINTS` 一つであり、
+     * ルート層は範囲を課さない（タスク 85.1）。
+     *
+     * **サービスへ届くことまで主張する。** 400 が出ないことだけでは、経路が別の理由で
+     * 素通りしている場合と区別できない。
+     */
+    it.each([
+      ['0', 0],
+      ['負の有効値', -0.5],
+      ['下限', -9.99],
+    ])(
+      '調整係数が有効域の内側（%s）のときルート層で拒まれずサービスへ届く',
+      async (_label, adjustmentFactor) => {
+        const body = buildSaveBody();
+        const targetItem = body.groups[0]?.items[0];
+        if (!targetItem) {
+          throw new Error('前提: 検証対象の項目がペイロードに存在しない');
+        }
+        targetItem.adjustmentFactor = adjustmentFactor;
+        mockService.saveDraft.mockResolvedValue({
+          id: tableId,
+          projectId: '123e4567-e89b-12d3-a456-426614174000',
+          name: '編集後の数量表名',
+          groups: [],
+          createdAt: new Date(),
+          updatedAt: new Date('2026-01-01T01:00:00.000Z'),
+        });
+
+        await request(app).put(`/api/quantity-tables/${tableId}/save`).send(body).expect(200);
+
+        const calls = mockService.saveDraft.mock.calls as unknown as [
+          string,
+          { groups: { items: { adjustmentFactor: number }[] }[] },
+        ][];
+        const sentItems = calls[calls.length - 1]?.[1]?.groups?.[0]?.items;
+        expect(sentItems?.[0]?.adjustmentFactor).toBe(adjustmentFactor);
+      }
+    );
+
+    /*
+     * Requirements (quantity-table-generation): 10.3
+     *
+     * 丸め設定も同じく範囲をルート層で課さない。範囲判定はサービス層
+     * （`validateDraft` → `validateItemFieldSpecs`）が一手に担い、違反は項目の位置を
+     * 名指すエラーとして返る。素通しではないことは下の検証が示す。
+     */
+    it('丸め設定が0のときルート層で拒まれずサービスへ届く', async () => {
+      const body = buildSaveBody();
+      const targetItem = body.groups[0]?.items[0];
+      if (!targetItem) {
+        throw new Error('前提: 検証対象の項目がペイロードに存在しない');
+      }
+      targetItem.roundingUnit = 0;
+      mockService.saveDraft.mockResolvedValue({
+        id: tableId,
+        projectId: '123e4567-e89b-12d3-a456-426614174000',
+        name: '編集後の数量表名',
+        groups: [],
+        createdAt: new Date(),
+        updatedAt: new Date('2026-01-01T01:00:00.000Z'),
+      });
+
+      await request(app).put(`/api/quantity-tables/${tableId}/save`).send(body).expect(200);
+
+      const calls = mockService.saveDraft.mock.calls as unknown as [
+        string,
+        { groups: { items: { roundingUnit: number }[] }[] },
+      ][];
+      const sentItems = calls[calls.length - 1]?.[1]?.groups?.[0]?.items;
+      expect(sentItems?.[0]?.roundingUnit).toBe(0);
+    });
+
     it('保存レスポンスのsurveyImage URLを署名付きURLに変換して返却する（保存後リンク切れ防止）', async () => {
       // 保存直後の応答でも詳細取得（GET /:id）と同様に署名付きURL変換を適用することで、
       // 保存後にグループ画像がリンク切れになる事象を防ぐ。

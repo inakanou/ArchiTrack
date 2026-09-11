@@ -676,6 +676,147 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
     });
   });
 
+  describe('数値欄の範囲（Req 9.3, 10.3）', () => {
+    /*
+     * Requirements (quantity-table-generation): 9.3
+     *
+     * REQ-9.3 の有効域 `-9.99〜9.99` は `0` と負値を内側に含む。改める前の保存経路は
+     * `z.number().positive()` でこれを 400 で拒んでおり、フロント側に「保存できません」と
+     * 告げる暫定の層（タスク 80.2）を要していた。**永続化されて読み戻せることまで主張する**
+     * ——200 が返るだけでは、値が黙って既定値へ倒されている場合と区別できない。
+     */
+    it.each([
+      ['0', 0],
+      ['負の有効値', -0.5],
+      ['下限', -9.99],
+    ])('調整係数が有効域の内側（%s）のとき保存され読み戻せる', async (_label, adjustmentFactor) => {
+      const seeded = await createSeededTable(testProjectId, `調整係数保存_${adjustmentFactor}`);
+      const expectedUpdatedAt = await getExpectedUpdatedAt(seeded.tableId);
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${seeded.tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          name: '調整係数保存',
+          groups: [
+            {
+              id: seeded.group1Id,
+              name: '初期グループ1',
+              surveyImageId: null,
+              displayOrder: 0,
+              items: [itemPayload({ id: seeded.item1Id, adjustmentFactor, displayOrder: 0 })],
+            },
+          ],
+        });
+
+      expect(response.status).toBe(200);
+
+      const persisted = await prisma.quantityItem.findUniqueOrThrow({
+        where: { id: seeded.item1Id },
+        select: { adjustmentFactor: true },
+      });
+      expect(Number(persisted.adjustmentFactor)).toBe(adjustmentFactor);
+    });
+
+    /*
+     * Requirements (quantity-table-generation): 10.3
+     *
+     * 丸め設定の有効域は `0.01〜99.99` である（REQ-10.3、タスク 80.1 が改訂）。
+     * 改める前は保存経路が直書きの上限 `999.99` を課しており、`100` を通していた。
+     * 拒むときは項目の位置を名指すこと（REQ-11.3）。
+     */
+    it.each([
+      ['上限超過', 100],
+      ['下限未満の正値', 0.005],
+      ['0（番兵は欄の層で差し替わる。ここまで残れば不整合）', 0],
+      ['負値', -0.5],
+    ])(
+      '丸め設定が有効域の外（%s）のとき400で拒まれ永続化されない',
+      async (_label, roundingUnit) => {
+        const seeded = await createSeededTable(testProjectId, `丸め設定拒否_${roundingUnit}`);
+        const expectedUpdatedAt = await getExpectedUpdatedAt(seeded.tableId);
+
+        const response = await request(app)
+          .put(`/api/quantity-tables/${seeded.tableId}/save`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({
+            expectedUpdatedAt,
+            name: '丸め設定拒否',
+            groups: [
+              {
+                id: seeded.group1Id,
+                name: '初期グループ1',
+                surveyImageId: null,
+                displayOrder: 0,
+                items: [itemPayload({ id: seeded.item1Id, roundingUnit, displayOrder: 0 })],
+              },
+            ],
+          });
+
+        expect(response.status).toBe(400);
+
+        // **応答の形まで主張する（REQ-11.3 / 11.4）。** 400 と永続化の不在だけでは、
+        // 範囲の判定がルート層の zod へ戻って `code: VALIDATION_ERROR` になっても、
+        // 問題箇所の名指しが失われても緑のまま通る。範囲はサービス層が一手に担い、
+        // 項目の位置を名指して返すことが本タスクの層立てそのものである（Task 85.1）
+        expect(response.body.code).toBe('QUANTITY_TABLE_VALIDATION_ERROR');
+        // 問題箇所は応答本体の直下へ `groups[i].items[j].<欄>` のキーで展開される
+        // （`quantity-tables.routes.ts` の `QuantityTableValidationError` の分岐）。
+        // `toHaveProperty` は角括弧と点をパスとして解釈するため、キーは添字で直接引く
+        const named = (response.body as Record<string, string>)['groups[0].items[0].roundingUnit'];
+        expect(named).toBeDefined();
+        expect(named).toContain('丸め設定');
+
+        // 値は永続化されていない（保存は中断する。REQ-42.9）
+        const persisted = await prisma.quantityItem.findUniqueOrThrow({
+          where: { id: seeded.item1Id },
+          select: { roundingUnit: true },
+        });
+        expect(Number(persisted.roundingUnit)).toBe(0.01);
+      }
+    );
+
+    /*
+     * Requirements (quantity-table-generation): 10.3
+     *
+     * 有効域の両端は通ること。上の拒否だけでは、経路が丸め設定を一律に拒んでいる場合と
+     * 区別できない。
+     */
+    it.each([
+      ['下限', 0.01],
+      ['上限', 99.99],
+    ])('丸め設定が有効域の端（%s）のとき保存される', async (_label, roundingUnit) => {
+      const seeded = await createSeededTable(testProjectId, `丸め設定許可_${roundingUnit}`);
+      const expectedUpdatedAt = await getExpectedUpdatedAt(seeded.tableId);
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${seeded.tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          name: '丸め設定許可',
+          groups: [
+            {
+              id: seeded.group1Id,
+              name: '初期グループ1',
+              surveyImageId: null,
+              displayOrder: 0,
+              items: [itemPayload({ id: seeded.item1Id, roundingUnit, displayOrder: 0 })],
+            },
+          ],
+        });
+
+      expect(response.status).toBe(200);
+
+      const persisted = await prisma.quantityItem.findUniqueOrThrow({
+        where: { id: seeded.item1Id },
+        select: { roundingUnit: true },
+      });
+      expect(Number(persisted.roundingUnit)).toBe(roundingUnit);
+    });
+  });
+
   describe('保存対象の所属検証（Req 42.9）', () => {
     it('他の数量表に属する数量項目IDを含む保存は 400 で拒否され、当該項目の所属は変わらない', async () => {
       // Arrange: 保存対象の数量表（A）と、無関係な別の数量表（B）
