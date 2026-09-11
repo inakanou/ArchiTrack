@@ -2929,5 +2929,99 @@ describe('QuantityTableService', () => {
       await expect(service.saveDraft(quantityTableId, input, actorId)).resolves.toBeDefined();
       expect(mockPrisma.quantityGroup.create).toHaveBeenCalled();
     });
+
+    it('他プロジェクトの現調画像を含む保存は書き込み前に中断する（Task 86.1）', async () => {
+      const surveyImageId = '123e4567-e89b-12d3-a456-426614174014';
+
+      setupFindUnique(currentState(), reloadedDetail());
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        {
+          id: surveyImageId,
+          surveyId: 'survey-other-project',
+          // 親の現場調査は生きているが、当該数量表とは別のプロジェクトに属する
+          survey: { projectId: 'other-project-id', deletedAt: null },
+        },
+      ]);
+      // 検査が無ければ書き込みが通ることを露わにするため、後続の経路も用意しておく
+      mockPrisma.quantityGroup.create.mockResolvedValue({ id: 'group-db-1' });
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [{ id: null, name: 'グループ1', surveyImageId, displayOrder: 0, items: [] }],
+      };
+
+      const thrown = await service
+        .saveDraft(quantityTableId, input, actorId)
+        .then(() => null)
+        .catch((error: unknown) => error);
+
+      // 応答の形は QuantityGroupService.validateSurveyImage と同一にする（400・同じ文言）
+      expect(thrown).toBeInstanceOf(QuantityTableValidationError);
+      expect((thrown as QuantityTableValidationError).message).toBe(
+        '異なるプロジェクトの現場調査画像は紐付けできません'
+      );
+      expect((thrown as QuantityTableValidationError).statusCode).toBe(400);
+      expect((thrown as QuantityTableValidationError).code).toBe('QUANTITY_TABLE_VALIDATION_ERROR');
+      expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
+    });
+
+    it('所属違反と親の論理削除の双方に該当する現調画像は所属違反として拒む（Task 86.1）', async () => {
+      const surveyImageId = '123e4567-e89b-12d3-a456-426614174015';
+
+      setupFindUnique(currentState(), reloadedDetail());
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        {
+          id: surveyImageId,
+          surveyId: 'survey-other-project-deleted',
+          survey: {
+            projectId: 'other-project-id',
+            deletedAt: new Date('2026-09-01T00:00:00.000Z'),
+          },
+        },
+      ]);
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [{ id: null, name: 'グループ1', surveyImageId, displayOrder: 0, items: [] }],
+      };
+
+      // 検査の相対順序も validateSurveyImage に揃える（所属を先に見るため 410 ではなく 400）
+      await expect(service.saveDraft(quantityTableId, input, actorId)).rejects.toBeInstanceOf(
+        QuantityTableValidationError
+      );
+    });
+
+    it('所属の検査を加えても現調画像の問い合わせは1回のままである（Task 86.1）', async () => {
+      const firstImageId = '123e4567-e89b-12d3-a456-426614174016';
+      const secondImageId = '123e4567-e89b-12d3-a456-426614174017';
+
+      setupFindUnique(currentState(), reloadedDetail());
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        { id: firstImageId, surveyId: 'survey-1', survey: { projectId, deletedAt: null } },
+        { id: secondImageId, surveyId: 'survey-2', survey: { projectId, deletedAt: null } },
+      ]);
+      mockPrisma.quantityGroup.create.mockResolvedValue({ id: 'group-db-1' });
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          { id: null, name: 'g1', surveyImageId: firstImageId, displayOrder: 0, items: [] },
+          { id: null, name: 'g2', surveyImageId: secondImageId, displayOrder: 1, items: [] },
+          { id: null, name: 'g3', surveyImageId: firstImageId, displayOrder: 2, items: [] },
+        ],
+      };
+
+      await service.saveDraft(quantityTableId, input, actorId);
+
+      // 突き合わせ先の projectId は数量表の読み出し（findUnique）で既に得ているため、
+      // 所属の判定のために増える問い合わせは無い
+      expect(mockPrisma.surveyImage.findMany).toHaveBeenCalledTimes(1);
+      // 数量表の読み出しも従来どおり2回（現状取得・再読込）のままである
+      expect(mockPrisma.quantityTable.findUnique).toHaveBeenCalledTimes(2);
+    });
   });
 });

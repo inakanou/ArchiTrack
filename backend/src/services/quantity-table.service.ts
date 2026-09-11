@@ -967,8 +967,9 @@ export class QuantityTableService {
    * @throws QuantityTableNotFoundError 数量表が存在しない、または論理削除済みの場合
    * @throws QuantityTableConflictError 楽観的排他制御エラー（他ユーザーによる更新との競合, 409）
    * @throws QuantityTableValidationError 整合性検証エラー（文字数・数値範囲・計算整合）、
-   *         同一のグループ・項目IDが複数回含まれる場合、または当該数量表に属さない
-   *         グループ・項目IDが含まれる場合（400）
+   *         同一のグループ・項目IDが複数回含まれる場合、当該数量表に属さない
+   *         グループ・項目IDが含まれる場合、または他プロジェクトの現調画像を
+   *         指した場合（400）
    * @throws SurveyDeletedError payload が指す現調画像の親の現場調査が論理削除済みの場合（410）
    */
   async saveDraft(
@@ -1048,10 +1049,12 @@ export class QuantityTableService {
       //      書き込み前に検証し、違反時は保存を中断する（REQ-42.9, 11.2, 11.4）。
       this.validateDraftOwnership(input, dbGroupIds, dbItemIds);
 
-      // 2-0-3. 現調画像の親の状態検証: payload が指す現調画像の親の現場調査が
-      //      論理削除済みでないことを確認する。他の検証と同じく書き込み前に中断し、
-      //      未反映のまま保存を止める。
-      await this.assertDraftSurveyImagesNotDeleted(tx, input);
+      // 2-0-3. 現調画像の紐付け可否の検証: payload が指す現調画像が当該数量表と同じ
+      //      プロジェクトに属し、かつ親の現場調査が論理削除済みでないことを確認する。
+      //      突き合わせ先の projectId は 1 で読んだ当該数量表の値をそのまま渡すため、
+      //      問い合わせは増えない。他の検証と同じく書き込み前に中断し、未反映のまま
+      //      保存を止める。
+      await this.assertDraftSurveyImagesLinkable(tx, input, current.projectId);
 
       // 2-1. グループを payload 配列順に処理（displayOrder は配列順を正とする）
       //      削除（グループ・項目）は本ループの後段でまとめて行う。所属変更（グループ間移動）を
@@ -1328,27 +1331,40 @@ export class QuantityTableService {
   }
 
   /**
-   * フル状態同期保存（saveDraft）が指す現調画像の親の状態検証
+   * フル状態同期保存（saveDraft）が指す現調画像の紐付け可否の検証
    *
-   * payload の各グループが指す現調画像について、親の現場調査が論理削除済みで
-   * ないことを検証する。論理削除は画像の行に印を付けないため、画像を書き込む
-   * 経路が明示的に確かめるほかない。判定は QuantityGroupService の紐付け経路と
-   * 同じ共通機構（survey-deleted-guard）を用い、応答（410）への写しは経路側が行う。
+   * payload の各グループが指す現調画像について、(1) 当該数量表と同じプロジェクトに
+   * 属すること、(2) 親の現場調査が論理削除済みでないこと、の2点を検証する。
+   * いずれも画像の行そのものには印が無く、画像を書き込む経路が明示的に確かめるほかない。
+   *
+   * 判定と応答は QuantityGroupService.validateSurveyImage と同じ形に揃える。
+   * 同じ不変条件に対して経路ごとに違う応答を返さないためである。所属違反は同経路と
+   * 同じ QuantityTableValidationError（400）・同じ文言で拒み、親の論理削除は同じ共通機構
+   * （survey-deleted-guard）の SurveyDeletedError（410）で拒む。検査の相対順序も同経路に
+   * 揃え、所属を先に見る（両方に該当する画像はどちらの経路でも 400 になる）。
    *
    * 問い合わせは重複排除した ID 群に対する 1 回の findMany に限る。グループごとに
    * 引くとグループ数に比例した問い合わせが並ぶため、件数によらず 1 回で済ませる。
+   * 所属の判定に用いる projectId は saveDraft が既に読んでいる当該数量表の値を
+   * 受け取るため、本検証のために問い合わせを増やすことはない。
    *
-   * 画像が見つからない場合は何も主張しない。親の状態を読めない以上、親が
-   * 論理削除済みだとは言えないためである。存在しない画像IDの扱いは本検証の
-   * 担当外であり、現状の挙動を変えない。
+   * 画像が見つからない場合は何も主張しない。所属も親の状態も読めない以上、
+   * 違反だとは言えないためである。存在しない画像IDの扱いは本検証の担当外であり、
+   * 現状の挙動を変えない（Task 86.2 の領分）。
+   *
+   * Task 81.1 では親の論理削除だけを見たため `assertDraftSurveyImagesNotDeleted` と
+   * 名乗っていた。Task 86.1 で所属の検査を加えたのに伴い、名を検証内容へ揃えた。
    *
    * @param tx - Prismaトランザクションクライアント
    * @param input - フル状態同期保存入力
-   * @throws SurveyDeletedError 親の現場調査が論理削除済みの現調画像が含まれる場合
+   * @param projectId - 当該数量表が属するプロジェクトID（所属の突き合わせ先）
+   * @throws QuantityTableValidationError 他プロジェクトの現調画像が含まれる場合（400）
+   * @throws SurveyDeletedError 親の現場調査が論理削除済みの現調画像が含まれる場合（410）
    */
-  private async assertDraftSurveyImagesNotDeleted(
+  private async assertDraftSurveyImagesLinkable(
     tx: PrismaTransactionClient,
-    input: SaveQuantityTableDraftInput
+    input: SaveQuantityTableDraftInput,
+    projectId: string
   ): Promise<void> {
     const surveyImageIds = [
       ...new Set(
@@ -1363,8 +1379,8 @@ export class QuantityTableService {
     }
 
     // select の形は QuantityGroupService.validateSurveyImage と揃える。
-    // projectId は同経路がプロジェクト境界の判定に用いる項目であり、本保存経路での
-    // 当該判定は本タスクの担当外のため、ここでは読むだけで判定には用いない。
+    // projectId は同経路がプロジェクト境界の判定に用いる項目であり、本保存経路でも
+    // 引数で受け取った当該数量表の projectId との突き合わせに用いる。
     const surveyImages = await tx.surveyImage.findMany({
       where: { id: { in: surveyImageIds } },
       select: {
@@ -1377,6 +1393,13 @@ export class QuantityTableService {
     });
 
     for (const surveyImage of surveyImages) {
+      if (surveyImage.survey.projectId !== projectId) {
+        // 文言・例外の型は QuantityGroupService.validateSurveyImage と同一にする。
+        throw new QuantityTableValidationError(
+          '異なるプロジェクトの現場調査画像は紐付けできません'
+        );
+      }
+
       assertSurveyNotDeleted(
         surveyImage.survey,
         surveyImage.surveyId,
