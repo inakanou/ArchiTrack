@@ -67,7 +67,7 @@
 - `frontend/src/hooks/useMemoizedCalculation.ts`（import 元ゼロのデッドコード。PITCH ロジックが `calculation-engine.ts` と乖離しているが、参照されないため実害なし。COUNT 対応も削除も行わない。**「import 元ゼロ」は再実測でも真である**——`grep -rlE 'useMemoizedCalculation' frontend/src e2e --include=*.ts --include=*.tsx` の出力から定義ファイル自身を差し引くと 0 件である。タスク 115.234。コミット `6b84be3`。2026-09-02 にリポジトリルートで実測）
 - `frontend/src/components/quantity-table/FieldValidatedItemRow.tsx`（**本番コードからの import がゼロのデッドコード**。テストとストーリーからの import は 4 件あり、「本体以外からの import がゼロ」は本項を書いた時点でも成り立っていなかった——当該のテスト・ストーリー 4 件は、本項を書いたコミット `01b46ca`（2026-07-17）より前に追加されている（3 件が `0ee7c79`（2026-01-16）、`FieldValidatedItemRow.autocomplete.test.tsx` の 1 件が `cf7c165`（2026-02-17）。`git log --diff-filter=A` で一件ずつ確かめた）。再実測は `grep -rlE 'from .*FieldValidatedItemRow' frontend/src e2e` の出力のうち、テスト・ストーリーを除いたものが 0 件、テスト・ストーリーが 4 件である（タスク 115.234。コミット `6b84be3`。2026-09-02 にリポジトリルートで実測）。本項が支えたい主張——実際にレンダリングされる行コンポーネントは 2 つだけ——は本番コードの 0 件の方に依るため、成り立つ。`CalculationMethodSelect` / `CalculationFields` の呼び出しと `!== 'STANDARD'` ガードを多数持つため一見 COUNT 対応が必要に見えるが、実際にレンダリングされる行コンポーネントは `EditableQuantityItemRow`（編集）と `QuantityItemRow`（閲覧）のみである。**COUNT 対応は行わない**）
 - 数量表インポート（REQ-27〜34）への「箇所数」マッピング
-- `field-validation.ts` の `NUMERIC_FIELD_RANGES` / `validateNumericRange` 重複定義の統合
+- `field-validation.ts` の `NUMERIC_FIELD_RANGES` / `validateNumericRange` 重複定義の統合。**「境界外の未解決」は再実測では現況ではない**——統合はタスク 80.1（コミット `ba7040ae`、2026-09-10）が本スペックの中で済ませている。同ファイルが両者を自前で定義する行は、`git show ba7040ae^:frontend/src/utils/field-validation.ts | grep -cE '^export (const|function) (NUMERIC_FIELD_RANGES|validateNumericRange)'` の出力 `2` から、`grep -cE '^export (const|function) (NUMERIC_FIELD_RANGES|validateNumericRange)' frontend/src/utils/field-validation.ts` の出力 `0`（終了コード `1`）へ移った。範囲の判定は正典から取り込む形であり（`grep -cF "from './numeric-range-validation'" frontend/src/utils/field-validation.ts` の出力が `1`）、定数の名が同モジュールの輸出へ戻らないことは単体検証が固定している（`grep -cF "not.toContain('NUMERIC_FIELD_RANGES')" frontend/src/utils/field-validation.test.ts` の出力が `1`）。本書の `### 数値フィールド仕様（計算パラメータ）` も同じ統合を「一本化した」と書いており、本項はそれと食い違っていた。(a) に従い項は残して再実測を併記する。タスク 87.1 の測定範囲は起票の 3 件（本項・`#### PhotoCommentDisplay修正（REQ-35）` の `**Implementation Notes**` の 2 項・Requirement 49 の `ProjectSurveyImage` の定義とファイル変更表の 1 行）に限り、走査は広げていない。タスク 87.1。コミット `cba1233f`。2026-09-12 にリポジトリルートで実測
 - REQ-36 で定義したメニュー項目の構成・活性制御・各操作の動作（REQ-46 は表示のみを扱う）
 
 ### Allowed Dependencies
@@ -1859,8 +1859,8 @@ function convertToQuantityItems(
 
 **Implementation Notes**
 
-- Integration: QuantityGroupCard内の`handleLinkImage`コールバックで、APIレスポンスの`comment`フィールドをローカルステートの`surveyImage`オブジェクトに含める
-- Integration: PhotoChangeDialogの`onPhotoChanged`コールバックの型を拡張し、変更後の写真のcommentを含める
+- Integration: QuantityGroupCard内の`handleLinkImage`コールバックで、APIレスポンスの`comment`フィールドをローカルステートの`surveyImage`オブジェクトに含める。**`handleLinkImage` は再実測では実装にも検証にも一件も当たらない**——`grep -rn 'handleLinkImage\|onPhotoChanged' frontend/src backend/src e2e` の出力は空（終了コード `1`）である。写真の選択と変更はいずれも `QuantityTableEditPage` の `handlePhotoSelect` がドラフトへ反映し、選んだ写真の `comment` を写真サマリへ載せる（上の `**不具合分析**` の箇条 1 と箇条 3 の再実測を見よ）。この項が名指すコールバックも、それが受け取るとした API レスポンスも、現況の経路には無い。タスク 79.1 が測定範囲外と宣言した欄であり、項は設計時の記述として残す。タスク 87.1。コミット `cba1233f`。2026-09-12 にリポジトリルートで実測
+- Integration: PhotoChangeDialogの`onPhotoChanged`コールバックの型を拡張し、変更後の写真のcommentを含める。**`onPhotoChanged` も再実測では実装にも検証にも一件も当たらない**（上の項と同じ `grep -rn` の出力が空）。同部品が持つコールバックは `onClose` と `onSelect` の二つである（`grep -oE '^  on[A-Za-z]+' frontend/src/components/quantity-table/PhotoChangeDialog.tsx | sort -u` の出力が `onClose` と `onSelect` の 2 行）。しかも同部品は本番経路から到達できない（上の `**不具合分析**` の箇条 3 の再実測を見よ）ため、この項が求める型の拡張には担い手が無い。タスク 79.1 が測定範囲外と宣言した欄であり、項は設計時の記述として残す。タスク 87.1 の測定範囲は起票の 3 件に限り、走査は広げていない（範囲の内訳は本書 `### Out of Boundary` の `field-validation.ts` の項に置いた）。タスク 87.1。コミット `cba1233f`。2026-09-12 にリポジトリルートで実測
 - Validation: コメントがnullの場合はPhotoCommentDisplayが空白表示を行うため、null安全性を維持する
 - Risks: APIレスポンスのcommentフィールドが既に正しく返却されていることが前提。バックエンド側の修正が不要であることを確認済み
 
@@ -3306,7 +3306,7 @@ graph TB
 | `frontend/src/api/site-surveys.ts` | 変更 | プロジェクト単位の写真一覧取得を追加する |
 | `frontend/src/components/quantity-table/QuantityGroupCard.tsx` | 変更 | 表題部の画像情報へ実寸を渡す |
 | `frontend/src/components/quantity-table/PhotoPreviewDialog.tsx` | 変更 | 拡大表示を原本画像＋クライアント合成へ切り替える |
-| `frontend/src/pages/QuantityTableEditPage.tsx` | 変更 | 写真選択ダイアログの取得を一括取得へ置き換える。表示元は `displayUrl` を用い、注釈の有無による分岐とバッジ表示は不要になる（全件が注釈付きのため） |
+| `frontend/src/pages/QuantityTableEditPage.tsx` | 変更 | 写真選択ダイアログの取得を一括取得へ置き換える。表示元は `displayUrl` を用い、注釈の有無による分岐とバッジ表示は不要になる（全件が注釈付きのため）。**再実測では、この欄のうち「一覧の表示元を分岐しない」は真であり、「注釈の有無による分岐とバッジ表示は不要」をファイル全体について読むのは偽である**——一覧の各写真は `displayUrl` をそのまま表示元とし（`grep -cF '注釈の有無で表示元を分岐しない' frontend/src/pages/QuantityTableEditPage.tsx` の出力が `1`）、一覧には目印も出さない。一方、同じファイルの `handlePhotoSelect` は選択の確定時に `isDisplayUrlAnnotated` で表示元の渡し先を分け（`grep -cF 'const isComposited = selectedImage.isDisplayUrlAnnotated;' frontend/src/pages/QuantityTableEditPage.tsx` の出力が `1`）、`hasDrawnAnnotations` を写真サマリへ載せ（`grep -cF 'hasDrawnAnnotations: selectedImage.hasDrawnAnnotations,' frontend/src/pages/QuantityTableEditPage.tsx` の出力が `1`）、それが数量グループの表題部の注釈の目印を決める（`grep -cF '{hasDrawnAnnotations && (' frontend/src/components/quantity-table/QuantityGroupCard.tsx` の出力が `1`）。括弧の理由「全件が注釈付き」は注釈レコードの有無についてだけ真である。一覧に目印が無いことの再現と、理由の再実測は、下の `ProjectSurveyImage` の定義の直下に置いた（表のセルには縦棒を書けないため）。行は 75.1 以前の設計の記述として残す。タスク 87.1。コミット `cba1233f`。2026-09-12 にリポジトリルートで実測 |
 
 ### Components and Interfaces
 
@@ -3357,6 +3357,8 @@ export interface ProjectSurveyImage {
   displayOrder: number;
 }
 ```
+
+**上の定義は 75.1 の実装に対して陳腐化している（再実測）。** 実装の同名の型はいずれも 12 欄を持ち、上の定義の 10 欄に `isDisplayUrlAnnotated` と `hasDrawnAnnotations` の二つの真偽値を加えている——`awk '/^export interface ProjectSurveyImage \{/,/^\}/' backend/src/services/image-list.service.ts | grep -cE '^  [A-Za-z]+: '` と、同じ式を `frontend/src/types/site-survey.types.ts` および本書へ掛けた出力は、順に `12`・`12`・`10` である。二つの真偽値だけを数える `awk '/^export interface ProjectSurveyImage \{/,/^\}/' backend/src/services/image-list.service.ts | grep -cE '^  (isDisplayUrlAnnotated|hasDrawnAnnotations): boolean;'` の出力は両ファイルとも `2` であり、本併記を書く前の本書は二つの名を一度も持っていなかった（`git show cba1233f:.kiro/specs/quantity-table-generation/design.md | grep -c 'isDisplayUrlAnnotated\|hasDrawnAnnotations'` の出力が `0`）。二つが要る理由は、表示用URLを 1 本へ畳むと呼び出し側が合成済みか否かを値から判別できないこと（前者）と、注釈レコードの有無が描画の有無を意味しないこと（後者。回転のみの保存でもレコードは残る）であり、75.1 のコミット `b701ad53`（2026-09-10）の本文が同じ二点を挙げる（`git show -s --format=%B b701ad53 | grep -cF '真偽値2つで応答へ足す'` の出力が `1`）。**下の契約の第一項は再実測でも真である**——一覧は注釈レコードを持つ写真に限られる（`grep -cF 'annotation: { isNot: null },' backend/src/services/image-list.service.ts` の出力が `1`）。ただしそこで言う「注釈あり」はレコードの有無であって、描画の有無でも合成済みサムネイルの有無でもない。表示用URLは合成済みサムネイルが無ければ通常のサムネイルへ解決される（`grep -cF 'image.annotatedThumbnailPath ?? image.thumbnailPath' backend/src/services/image-list.service.ts` の出力が `1`）。上のファイル変更表の `QuantityTableEditPage.tsx` の行について、一覧の描画は画像要素一つだけで二つの真偽値を読まない（`awk '/projectSurveyImages.map/,/\)\)\}/' frontend/src/pages/QuantityTableEditPage.tsx | grep -c '<img'` の出力が `1`、同じ範囲へ `grep -cE 'hasDrawnAnnotations|isDisplayUrlAnnotated'` を掛けた出力が `0`）。(a) に従い定義は 75.1 以前の設計の記述として残し、再実測を併記する。タスク 87.1 の測定範囲は起票の 3 件に限り、走査は広げていない。タスク 87.1。コミット `cba1233f`。2026-09-12 にリポジトリルートで実測
 
 **契約**
 
