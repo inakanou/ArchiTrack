@@ -27,6 +27,15 @@ import {
   QuantityTableValidationError,
 } from '../../../errors/quantityTableError.js';
 import { SurveyDeletedError } from '../../../utils/survey-deleted-guard.js';
+import { SurveyImageNotFoundError } from '../../../errors/siteSurveyError.js';
+
+/**
+ * 既定の現調画像モックが名乗る所属プロジェクトID
+ *
+ * 各 describe の `projectId`（= 現状DB状態が返す数量表の projectId）と同じ値である。
+ * 既定では所属違反にならないようにするため、同じ値をここに置く。
+ */
+const DEFAULT_SURVEY_IMAGE_PROJECT_ID = '123e4567-e89b-12d3-a456-426614174000';
 
 // Mock Prisma型の定義
 type MockPrismaClient = {
@@ -85,9 +94,20 @@ describe('QuantityTableService', () => {
         findUnique: vi.fn(),
       },
       surveyImage: {
-        // 既定は「該当する画像が無い」。親の状態を読めない以上、
-        // 親が論理削除済みだとは主張しない（検証は行を得たときだけ働く）。
-        findMany: vi.fn().mockResolvedValue([]),
+        // 既定は「要求した画像がすべて実在し、当該数量表と同じプロジェクトに属し、
+        // 親の現場調査も生きている」。存在・所属・論理削除のいずれの検査にも掛からない
+        // 状態を既定に置き、各検査を確かめる検証だけが個別に上書きする。
+        // （Task 81.1 当時の既定は「該当する画像が無い」であった。存在の検査を加えた
+        //   Task 86.2 以降、その既定では画像を指す全ての保存が 404 で止まってしまう。）
+        findMany: vi.fn(({ where }: { where: { id: { in: string[] } } }) =>
+          Promise.resolve(
+            where.id.in.map((id) => ({
+              id,
+              surveyId: `survey-of-${id}`,
+              survey: { projectId: DEFAULT_SURVEY_IMAGE_PROJECT_ID, deletedAt: null },
+            }))
+          )
+        ),
       },
       $transaction: vi.fn((callback) => callback(mockPrisma)),
     };
@@ -2913,11 +2933,57 @@ describe('QuantityTableService', () => {
       expect(mockPrisma.surveyImage.findMany).not.toHaveBeenCalled();
     });
 
-    it('指した現調画像が見つからない場合は論理削除の判定を適用しない（Task 81.1）', async () => {
+    /*
+     * 存在の検査（Task 86.2）
+     *
+     * Task 81.1 の時点では、行が返らなかった画像IDには何も主張せず保存を通していた
+     * （旧検証「指した現調画像が見つからない場合は論理削除の判定を適用しない」）。
+     * その挙動は外部キー制約違反として書き込み時に表面化し 500 になっていたため、
+     * Task 86.2 で向きを反転させ、書き込み前に中断させる。
+     *
+     * 反転した主張が恒真でないことは、直後の対（行が返る場合）が示す。
+     * 同じ入力・同じ枠で findMany の戻り値だけを変え、一方は中断し他方は保存が通る。
+     */
+    it('指した現調画像が見つからない場合は書き込み前に中断する（Task 86.2）', async () => {
       const surveyImageId = '123e4567-e89b-12d3-a456-426614174013';
 
       setupFindUnique(currentState(), reloadedDetail());
+      // 要求した ID に対して行が1件も返らない = 実在しない
       mockPrisma.surveyImage.findMany.mockResolvedValue([]);
+      // 検査が無ければ書き込みが通ることを露わにするため、後続の経路も用意しておく
+      mockPrisma.quantityGroup.create.mockResolvedValue({ id: 'group-db-1' });
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [{ id: null, name: 'グループ1', surveyImageId, displayOrder: 0, items: [] }],
+      };
+
+      const thrown = await service
+        .saveDraft(quantityTableId, input, actorId)
+        .then(() => null)
+        .catch((error: unknown) => error);
+
+      // 応答の形は QuantityGroupService.validateSurveyImage と同一にする
+      // （404・同じ code・同じ文言）
+      expect(thrown).toBeInstanceOf(SurveyImageNotFoundError);
+      expect((thrown as SurveyImageNotFoundError).message).toBe(
+        `Survey image not found: ${surveyImageId}`
+      );
+      expect((thrown as SurveyImageNotFoundError).statusCode).toBe(404);
+      expect((thrown as SurveyImageNotFoundError).code).toBe('SURVEY_IMAGE_NOT_FOUND');
+      expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
+    });
+
+    it('同じ入力でも行が返れば保存は通る（存在の検査が恒真でないことの対・Task 86.2）', async () => {
+      const surveyImageId = '123e4567-e89b-12d3-a456-426614174013';
+
+      setupFindUnique(currentState(), reloadedDetail());
+      // 直前の検証と異なるのは findMany の戻り値だけである
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        { id: surveyImageId, surveyId: 'survey-1', survey: { projectId, deletedAt: null } },
+      ]);
       mockPrisma.quantityGroup.create.mockResolvedValue({ id: 'group-db-1' });
 
       const input = {
@@ -2928,6 +2994,71 @@ describe('QuantityTableService', () => {
 
       await expect(service.saveDraft(quantityTableId, input, actorId)).resolves.toBeDefined();
       expect(mockPrisma.quantityGroup.create).toHaveBeenCalled();
+    });
+
+    it('一部の現調画像だけが見つからない場合も保存全体を中断する（Task 86.2）', async () => {
+      const existingImageId = '123e4567-e89b-12d3-a456-426614174018';
+      const missingImageId = '123e4567-e89b-12d3-a456-426614174019';
+
+      setupFindUnique(currentState(), reloadedDetail());
+      // 要求は2件、返るのは1件だけ
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        { id: existingImageId, surveyId: 'survey-1', survey: { projectId, deletedAt: null } },
+      ]);
+      mockPrisma.quantityGroup.create.mockResolvedValue({ id: 'group-db-1' });
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          { id: null, name: 'g1', surveyImageId: existingImageId, displayOrder: 0, items: [] },
+          { id: null, name: 'g2', surveyImageId: missingImageId, displayOrder: 1, items: [] },
+        ],
+      };
+
+      const thrown = await service
+        .saveDraft(quantityTableId, input, actorId)
+        .then(() => null)
+        .catch((error: unknown) => error);
+
+      // 名指すのは見つからなかった側の画像である
+      expect(thrown).toBeInstanceOf(SurveyImageNotFoundError);
+      expect((thrown as SurveyImageNotFoundError).message).toBe(
+        `Survey image not found: ${missingImageId}`
+      );
+      expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
+      // 存在の判定は「要求した ID の集合」と「返った行の集合」の差で行うため、
+      // 存在を確かめるための問い合わせは増えていない
+      expect(mockPrisma.surveyImage.findMany).toHaveBeenCalledTimes(1);
+    });
+
+    it('存在しない画像が複数あるときは payload で先に現れたものを名指す（Task 86.2）', async () => {
+      const firstMissingImageId = '123e4567-e89b-12d3-a456-426614174020';
+      const secondMissingImageId = '123e4567-e89b-12d3-a456-426614174021';
+
+      setupFindUnique(currentState(), reloadedDetail());
+      // 2件とも行が返らない
+      mockPrisma.surveyImage.findMany.mockResolvedValue([]);
+
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          { id: null, name: 'g1', surveyImageId: firstMissingImageId, displayOrder: 0, items: [] },
+          { id: null, name: 'g2', surveyImageId: secondMissingImageId, displayOrder: 1, items: [] },
+        ],
+      };
+
+      const thrown = await service
+        .saveDraft(quantityTableId, input, actorId)
+        .then(() => null)
+        .catch((error: unknown) => error);
+
+      // 判定は要求した ID の並び（payload の出現順）で行う。findMany の戻り値の並びは
+      // 指定していないため、行の並びで回すと名指す画像が定まらない
+      expect((thrown as SurveyImageNotFoundError).message).toBe(
+        `Survey image not found: ${firstMissingImageId}`
+      );
     });
 
     it('他プロジェクトの現調画像を含む保存は書き込み前に中断する（Task 86.1）', async () => {

@@ -886,6 +886,26 @@ describe('QuantityTablesRoutes', () => {
       });
     });
 
+    it('指した現調画像が存在しない場合404を返却する（Task 86.2）', async () => {
+      const surveyImageId = '123e4567-e89b-12d3-a456-426614174006';
+      const { SurveyImageNotFoundError } = await import('../../../errors/siteSurveyError.js');
+      mockService.saveDraft.mockRejectedValue(new SurveyImageNotFoundError(surveyImageId));
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .send(buildSaveBody())
+        .expect(404);
+
+      // 写しは数量グループの紐付け経路（quantity-groups.routes.ts）と同一にする
+      expect(response.body).toEqual({
+        type: 'https://architrack.example.com/problems/survey-image-not-found',
+        title: 'Survey Image Not Found',
+        status: 404,
+        detail: `Survey image not found: ${surveyImageId}`,
+        code: 'SURVEY_IMAGE_NOT_FOUND',
+      });
+    });
+
     it('認証なしの場合401を返却する', async () => {
       // authenticate ミドルウェアが401で応答する
       mockAuthenticate.mockImplementationOnce((_req, res) => {

@@ -36,6 +36,7 @@ import {
 } from './quantity-validation.service.js';
 import { QuantityFieldValidationService } from './quantity-field-validation.service.js';
 import { assertSurveyNotDeleted } from '../utils/survey-deleted-guard.js';
+import { SurveyImageNotFoundError } from '../errors/siteSurveyError.js';
 import Decimal from 'decimal.js';
 
 /**
@@ -937,8 +938,10 @@ export class QuantityTableService {
    * 2. ID検証（いずれも書き込み前に保存を中断, 400）:
    *    - 重複検証: payload 内で同じ既存ID（グループ・項目）が複数回現れないことを確認
    *    - 所属検証: payload の既存ID（グループ・項目）が当該数量表に属することを確認
-   * 2-1. 現調画像の親の状態検証（書き込み前に保存を中断, 410）:
-   *    - payload が指す現調画像の親の現場調査が論理削除済みでないことを確認
+   * 2-1. 現調画像の紐付け可否の検証（書き込み前に保存を中断）:
+   *    - payload が指す現調画像が実在することを確認（404）
+   *    - 当該数量表と同じプロジェクトに属することを確認（400）
+   *    - 親の現場調査が論理削除済みでないことを確認（410）
    * 3. DB現状と payload の差分適用:
    *    - グループ・項目とも payload の配列順に「更新（id一致）/ 作成（id=null）」を先に適用する
    *    - 削除はその後段でまとめて行う。判定はグループ単位ではなく数量表全体のID集合の差分で
@@ -970,6 +973,7 @@ export class QuantityTableService {
    *         同一のグループ・項目IDが複数回含まれる場合、当該数量表に属さない
    *         グループ・項目IDが含まれる場合、または他プロジェクトの現調画像を
    *         指した場合（400）
+   * @throws SurveyImageNotFoundError payload が実在しない現調画像を指した場合（404）
    * @throws SurveyDeletedError payload が指す現調画像の親の現場調査が論理削除済みの場合（410）
    */
   async saveDraft(
@@ -1049,7 +1053,7 @@ export class QuantityTableService {
       //      書き込み前に検証し、違反時は保存を中断する（REQ-42.9, 11.2, 11.4）。
       this.validateDraftOwnership(input, dbGroupIds, dbItemIds);
 
-      // 2-0-3. 現調画像の紐付け可否の検証: payload が指す現調画像が当該数量表と同じ
+      // 2-0-3. 現調画像の紐付け可否の検証: payload が指す現調画像が実在し、当該数量表と同じ
       //      プロジェクトに属し、かつ親の現場調査が論理削除済みでないことを確認する。
       //      突き合わせ先の projectId は 1 で読んだ当該数量表の値をそのまま渡すため、
       //      問い合わせは増えない。他の検証と同じく書き込み前に中断し、未反映のまま
@@ -1333,31 +1337,37 @@ export class QuantityTableService {
   /**
    * フル状態同期保存（saveDraft）が指す現調画像の紐付け可否の検証
    *
-   * payload の各グループが指す現調画像について、(1) 当該数量表と同じプロジェクトに
-   * 属すること、(2) 親の現場調査が論理削除済みでないこと、の2点を検証する。
-   * いずれも画像の行そのものには印が無く、画像を書き込む経路が明示的に確かめるほかない。
+   * payload の各グループが指す現調画像について、(1) 実在すること、(2) 当該数量表と
+   * 同じプロジェクトに属すること、(3) 親の現場調査が論理削除済みでないこと、の3点を
+   * 検証する。いずれも画像の行そのものには印が無く（実在しない画像に至っては行が無く）、
+   * 画像を書き込む経路が明示的に確かめるほかない。
    *
    * 判定と応答は QuantityGroupService.validateSurveyImage と同じ形に揃える。
-   * 同じ不変条件に対して経路ごとに違う応答を返さないためである。所属違反は同経路と
-   * 同じ QuantityTableValidationError（400）・同じ文言で拒み、親の論理削除は同じ共通機構
+   * 同じ不変条件に対して経路ごとに違う応答を返さないためである。実在しない画像は同経路と
+   * 同じ SurveyImageNotFoundError（404）・同じ文言で拒み、所属違反は同じ
+   * QuantityTableValidationError（400）・同じ文言で拒み、親の論理削除は同じ共通機構
    * （survey-deleted-guard）の SurveyDeletedError（410）で拒む。検査の相対順序も同経路に
-   * 揃え、所属を先に見る（両方に該当する画像はどちらの経路でも 400 になる）。
+   * 揃え、存在・所属・論理削除の順で見る（複数に該当する画像はどちらの経路でも同じ応答になる）。
    *
    * 問い合わせは重複排除した ID 群に対する 1 回の findMany に限る。グループごとに
    * 引くとグループ数に比例した問い合わせが並ぶため、件数によらず 1 回で済ませる。
-   * 所属の判定に用いる projectId は saveDraft が既に読んでいる当該数量表の値を
-   * 受け取るため、本検証のために問い合わせを増やすことはない。
+   * 存在の判定は「要求した ID の集合」と「返ってきた行の集合」の差で行うため、
+   * 同じ 1 回の結果から導ける。所属の判定に用いる projectId は saveDraft が既に
+   * 読んでいる当該数量表の値を受け取るため、本検証のために問い合わせを増やすことはない。
    *
-   * 画像が見つからない場合は何も主張しない。所属も親の状態も読めない以上、
-   * 違反だとは言えないためである。存在しない画像IDの扱いは本検証の担当外であり、
-   * 現状の挙動を変えない（Task 86.2 の領分）。
+   * 判定は要求した ID の並び（payload の出現順）で行う。findMany の戻り値の並びは
+   * 指定していないため、行の並びで回すと複数の違反があるときに名指す画像が定まらない。
    *
    * Task 81.1 では親の論理削除だけを見たため `assertDraftSurveyImagesNotDeleted` と
    * 名乗っていた。Task 86.1 で所属の検査を加えたのに伴い、名を検証内容へ揃えた。
+   * Task 86.2 で存在の検査を加えた。それ以前は行が返らない ID に何も主張せず、
+   * 外部キー制約違反として書き込み時に表面化して 500 になっていた（ROLLBACK される
+   * ためデータは壊れないが、クライアントの誤りに対する応答として妥当でない）。
    *
    * @param tx - Prismaトランザクションクライアント
    * @param input - フル状態同期保存入力
    * @param projectId - 当該数量表が属するプロジェクトID（所属の突き合わせ先）
+   * @throws SurveyImageNotFoundError 実在しない現調画像が含まれる場合（404）
    * @throws QuantityTableValidationError 他プロジェクトの現調画像が含まれる場合（400）
    * @throws SurveyDeletedError 親の現場調査が論理削除済みの現調画像が含まれる場合（410）
    */
@@ -1392,7 +1402,19 @@ export class QuantityTableService {
       },
     });
 
-    for (const surveyImage of surveyImages) {
+    // 判定は「要求した ID の並び」で行う。findMany が返す行の並びは指定していないため、
+    // 行の並びで判定すると複数の違反があるときに名指す画像が定まらない。
+    const surveyImageById = new Map(surveyImages.map((image) => [image.id, image]));
+
+    for (const surveyImageId of surveyImageIds) {
+      const surveyImage = surveyImageById.get(surveyImageId);
+
+      if (!surveyImage) {
+        // 要求した ID のうち行が返らなかったものは実在しない。文言・例外の型は
+        // QuantityGroupService.validateSurveyImage と同一にする。
+        throw new SurveyImageNotFoundError(surveyImageId);
+      }
+
       if (surveyImage.survey.projectId !== projectId) {
         // 文言・例外の型は QuantityGroupService.validateSurveyImage と同一にする。
         throw new QuantityTableValidationError(

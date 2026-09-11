@@ -38,6 +38,7 @@ import {
   ProjectNotFoundForQuantityTableError,
 } from '../errors/quantityTableError.js';
 import { SurveyDeletedError, sendSurveyDeletedProblem } from '../utils/survey-deleted-guard.js';
+import { SurveyImageNotFoundError } from '../errors/siteSurveyError.js';
 import type {
   SaveQuantityTableDraftInput,
   QuantityTableDetailWithItems,
@@ -721,7 +722,7 @@ router.put(
  *       403:
  *         description: 権限不足
  *       404:
- *         description: 数量表が見つからない
+ *         description: 数量表が見つからない、または指定した現調画像が存在しない
  *       409:
  *         description: 楽観的排他制御エラー（競合）
  */
@@ -767,6 +768,19 @@ router.put(
           status: 404,
           detail: error.message,
           code: 'QUANTITY_TABLE_NOT_FOUND',
+        });
+        return;
+      }
+      // 実在しない現調画像を指した保存は 404 で拒む。写しは数量グループの紐付け経路
+      // （POST /api/quantity-tables/:quantityTableId/groups, PUT /api/quantity-groups/:id）と
+      // 同一にする。同じ不変条件に対して経路ごとに違う応答を返さないためである（Task 86.2）
+      if (error instanceof SurveyImageNotFoundError) {
+        res.status(404).json({
+          type: 'https://architrack.example.com/problems/survey-image-not-found',
+          title: 'Survey Image Not Found',
+          status: 404,
+          detail: error.message,
+          code: 'SURVEY_IMAGE_NOT_FOUND',
         });
         return;
       }
