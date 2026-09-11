@@ -45,7 +45,12 @@ import { useAutocompleteCandidateStore } from '../hooks/useAutocompleteCandidate
 import { loadQuantityTablePdfExportService } from '../services/export/loadQuantityTablePdfExportService';
 import { CALCULATION_METHOD_LABELS } from '../utils/calculation-method';
 import { validateCalculationParams } from '../utils/calculation-params-validation';
-import { validateNumericRange } from '../utils/numeric-range-validation';
+import {
+  FIELD_DEFAULT_SUBSTITUTION,
+  getFieldRangeConfig,
+  validateNumericRange,
+  type DefaultSubstitutedFieldType,
+} from '../utils/numeric-range-validation';
 import {
   describeDroppedSurveyImageLinks,
   describeSurveyImageLinkSaveFailure,
@@ -56,6 +61,88 @@ import type { ImportQuantityItem } from '../types/quantity-import.types';
 import SurveySelectDialog, {
   type SiteSurveySummary,
 } from '../components/quantity-table/SurveySelectDialog';
+
+// ============================================================================
+// 範囲外の既存値の救済（Task 90.1）
+// ============================================================================
+
+/** 保存前の範囲判定で名指し、既定値へ戻す操作の対象になりうる計算設定の欄 */
+type RescuableSettingField = Extract<
+  DefaultSubstitutedFieldType,
+  'roundingUnit' | 'adjustmentFactor'
+>;
+
+/**
+ * 描画されない欄の範囲外の既存値を既定値へ戻す操作の対象
+ *
+ * ## なぜ在るか
+ *
+ * 正典の範囲（`FIELD_RANGE_CONFIG`）より広い範囲で永続化された既存値——たとえば旧保存経路
+ * （タスク 85.1 より前）の上限 `999.99` の内側にある丸め設定 `500`——は、保存前の整合性チェック
+ * （REQ-11.2）で保存を中断させる。計算方法「標準」の項目では調整係数・丸め設定の欄が描画されない
+ * （REQ-9 の表示条件 / REQ-10.8）ため、告知が欄を名指しても利用者には直す手段が無く、
+ * 当該の数量表は二度と保存できなくなる。
+ *
+ * ## 採った形と採らなかった形
+ *
+ * **採った形**: 告知が項目・欄・現在の値・範囲を名指す。欄が描画される計算方法では欄から直させ、
+ * 描画されない「標準」に限り、告知に既定値へ戻す操作を添える。書き換えは利用者の操作を契機とし、
+ * ドラフトを変えるだけで保存はしない（永続化は保存操作時のみ。REQ-42.7）。
+ *
+ * *採らなかった形*:
+ * - 「標準」でも欄を開いて直させる——REQ-10.8 は「標準」で丸め設定の欄を表示しないと定める
+ * - 範囲外の既存値を読み込み時・保存時に黙って既定値へ寄せる——`250` のような丸め単位は利用者が
+ *   意図して置いた値でありうる。計算方法の切替は調整係数・丸め設定を引き継ぐ（`EditableQuantityItemRow`
+ *   の `handleCalculationMethodChange`）ため、「標準」で見えない値も切替後の計算に効く。
+ *   黙って書き換えると、利用者の知らないところで数量が変わる
+ * - 「標準」の項目では範囲判定を省く——保存経路（バックエンドの `validateItemFieldSpecs`）は計算方法に
+ *   よらず範囲を課すので、画面だけ省いても 400 で止まる。バックエンドまで緩めると、タスク 85.1 が
+ *   閉じた「範囲外の値が新たに永続化される」経路を開き直す
+ *
+ * 判断の全文は design.md の `### 数値フィールド仕様（計算パラメータ）` に置いた。
+ */
+interface HiddenFieldRescue {
+  /** 操作を名指した告知の全文。この告知が表示されている間だけ操作を出す */
+  message: string;
+  groupKey: string;
+  itemKey: string;
+  field: RescuableSettingField;
+}
+
+/**
+ * 保存前の範囲判定で名指す数値欄
+ *
+ * 数量は計算方法によらず欄が描画されるため、既定値へ戻す操作の対象にはしない。
+ */
+type OutOfRangeCheckedField = RescuableSettingField | 'quantity';
+
+/**
+ * 範囲外の数値欄を名指す告知の文言を組み立てる（REQ-10.3 / REQ-11.2）
+ *
+ * 範囲と欄の名は正典（`FIELD_RANGE_CONFIG`）から引き、ここへ書き写さない。
+ */
+function describeOutOfRangeSetting(
+  groupLabel: string,
+  itemLabel: string,
+  field: OutOfRangeCheckedField,
+  rawValue: string,
+  isHidden: boolean
+): string {
+  const { min, max, label } = getFieldRangeConfig(field);
+  const numeric = Number(rawValue);
+  // 調整係数・丸め設定・数量は小数2桁で常時表示する（REQ-10.7 / REQ-14）ため、告知もその書式で示す
+  const shownValue = Number.isFinite(numeric) ? numeric.toFixed(2) : rawValue;
+  const head = `グループ「${groupLabel}」の項目「${itemLabel}」の${label}が無効です（現在の値: ${shownValue}）。`;
+  return isHidden
+    ? `${head}${min}〜${max}の範囲外ですが、計算方法「標準」ではこの欄は表示されません。既定値に戻してから保存してください`
+    : `${head}${min}〜${max}の範囲で入力してください`;
+}
+
+/** 既定値へ戻す操作の表示名（既定値は正典の `FIELD_DEFAULT_SUBSTITUTION` から引く） */
+function describeHiddenFieldRescueAction(field: RescuableSettingField): string {
+  const { label } = getFieldRangeConfig(field);
+  return `${label}を既定値（${FIELD_DEFAULT_SUBSTITUTION[field].defaultValue.toFixed(2)}）に戻す`;
+}
 
 // ============================================================================
 // スタイル定義
@@ -306,6 +393,18 @@ const styles = {
     fontSize: '14px',
     margin: 0,
     flex: 1,
+  } as React.CSSProperties,
+  // 描画されない欄の範囲外の既存値を既定値へ戻す操作（Task 90.1）
+  operationErrorAction: {
+    backgroundColor: '#ffffff',
+    border: '1px solid #fca5a5',
+    borderRadius: '6px',
+    color: '#991b1b',
+    cursor: 'pointer',
+    fontSize: '13px',
+    padding: '6px 12px',
+    marginLeft: '12px',
+    whiteSpace: 'nowrap',
   } as React.CSSProperties,
   operationErrorDismiss: {
     backgroundColor: 'transparent',
@@ -621,6 +720,10 @@ export default function QuantityTableEditPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null); // 読み込みエラー（全画面表示）
   const [operationError, setOperationError] = useState<string | null>(null); // 操作エラー（インライン表示）
+  // 描画されない欄の範囲外の既存値を既定値へ戻す操作（Task 90.1）。
+  // 操作は、それを名指した告知（`message`）が表示されている間だけ出す。告知が閉じられたり
+  // 別の告知へ置き換わったりした後に、告げていない欄を書き換えさせないためである。
+  const [hiddenFieldRescue, setHiddenFieldRescue] = useState<HiddenFieldRescue | null>(null);
 
   // 取得時に落とした現調画像の紐付けの告知（Task 86.5）。
   // バックエンドの取得は他プロジェクトの写真を指す既存の紐付けを落とし（Task 86.3）、当該グループを
@@ -1031,6 +1134,25 @@ export default function QuantityTableEditPage() {
     },
     [findGroupKeyByItemKey]
   );
+
+  /**
+   * 描画されない欄の範囲外の既存値を既定値へ戻すハンドラ（Task 90.1, REQ-10.3, REQ-11.2）
+   *
+   * 告知が名指した一項目の一欄だけを、正典の既定値へ戻す。ドラフトを変えるだけで保存はしない
+   * （永続化は保存操作時のみ。REQ-42.7）。戻したことは未保存の変更として残り、利用者が保存する。
+   */
+  const handleRescueHiddenField = useCallback(() => {
+    if (hiddenFieldRescue === null) return;
+    const { groupKey, itemKey, field } = hiddenFieldRescue;
+    dispatch({
+      type: 'updateItemField',
+      groupKey,
+      itemKey,
+      updates: { [field]: String(FIELD_DEFAULT_SUBSTITUTION[field].defaultValue) },
+    });
+    setHiddenFieldRescue(null);
+    setOperationError(null);
+  }, [hiddenFieldRescue]);
 
   /**
    * 項目削除ハンドラ（REQ-5.3, REQ-42.1）
@@ -1623,15 +1745,35 @@ export default function QuantityTableEditPage() {
     if (!draftToSave || !snapshot || !id) return;
 
     // REQ-11.2: 整合性チェック（ドラフトの最終状態を検証する）
-    const validationErrors: string[] = [];
+    //
+    // Task 90.1: 各誤りは告知の文言に加え、描画されない欄の範囲外の既存値であれば
+    // 既定値へ戻す操作の対象（`rescue`）を持つ。先頭の誤りだけを告げるため、操作も先頭の誤りに限る。
+    const validationErrors: Array<{
+      message: string;
+      rescue?: Omit<HiddenFieldRescue, 'message'>;
+    }> = [];
     for (const group of draftToSave.groups) {
       const groupLabel = group.name ?? '';
+      const groupKey = group.id ?? group.tempId ?? '';
       for (const item of group.items) {
         const itemLabel = item.name || '(名称未設定)';
+        const itemKey = item.id ?? item.tempId ?? '';
+        // 計算方法「標準」では調整係数・丸め設定の欄を描画しない（REQ-9 の表示条件 / REQ-10.8）
+        const isSettingHidden = item.calculationMethod === 'STANDARD';
+        const pushOutOfRangeSetting = (field: OutOfRangeCheckedField, rawValue: string) => {
+          const isHidden = field !== 'quantity' && isSettingHidden;
+          validationErrors.push({
+            message: describeOutOfRangeSetting(groupLabel, itemLabel, field, rawValue, isHidden),
+            // `isHidden` が真なら `field` は数量ではない（型が別名の条件で絞り込む）
+            ...(isHidden ? { rescue: { groupKey, itemKey, field } } : {}),
+          });
+        };
 
         // 項目名が空の場合はエラー
         if (!item.name || item.name.trim() === '') {
-          validationErrors.push(`グループ「${groupLabel}」に項目名が空の項目があります`);
+          validationErrors.push({
+            message: `グループ「${groupLabel}」に項目名が空の項目があります`,
+          });
         }
         // 丸め設定が範囲外の場合はエラー（REQ-10.3 / REQ-11.2）。
         //
@@ -1647,10 +1789,12 @@ export default function QuantityTableEditPage() {
         // `0` 以下で例外を投げるため、これは REQ-11.2 が保存を中断すべき不整合そのものである。
         // すなわち二つの層は**規則が食い違っているのではなく、役割が違う**——
         // 欄は未設定を繕う層、本層は繕われた後を検める層であり、範囲は一つの正典から引く。
+        //
+        // Task 90.1: 正典より広い範囲で永続化された既存値（例: 旧保存経路の上限 999.99 の内側）も
+        // ここで止まる。告知は現在の値と範囲を名指し、範囲内の値の入力を求める（REQ-10.3）。
+        // 欄が描画されない「標準」の項目では欄から直せないため、告知に既定値へ戻す操作を添える。
         if (!validateNumericRange(Number(item.roundingUnit), 'roundingUnit').isValid) {
-          validationErrors.push(
-            `グループ「${groupLabel}」の項目「${itemLabel}」の丸め設定が無効です`
-          );
+          pushOutOfRangeSetting('roundingUnit', item.roundingUnit);
         }
         // 調整係数が範囲外の場合はエラー（REQ-9.3 / REQ-11.2）。
         //
@@ -1661,27 +1805,38 @@ export default function QuantityTableEditPage() {
         // **`0` と負値は有効域の内側であり、いまはそのまま保存される。**
         // ここに残るのは丸め設定と同じ範囲判定だけであり、出所も同じ正典である。
         if (!validateNumericRange(Number(item.adjustmentFactor), 'adjustmentFactor').isValid) {
-          validationErrors.push(
-            `グループ「${groupLabel}」の項目「${itemLabel}」の調整係数が無効です`
-          );
+          pushOutOfRangeSetting('adjustmentFactor', item.adjustmentFactor);
+        }
+        // 数量が範囲外の場合はエラー（REQ-15.1 / REQ-11.2）。
+        //
+        // Task 90.1: 改める前の本層は数量の範囲を見ておらず、範囲外の既存値（タスク 85.1 より前の
+        // 作成経路は数量に上限を課さなかった）は保存経路の 400 で初めて止まり、画面は一般の
+        // 「再度お試しください」を出していた。再試行しても成功せず、問題箇所も名指さない。
+        // 範囲は保存経路（`validateItemFieldSpecs`）と同じ正典の値であり、画面だけが弾く状態は作らない。
+        if (!validateNumericRange(Number(item.quantity), 'quantity').isValid) {
+          pushOutOfRangeSetting('quantity', item.quantity);
         }
         // 計算方法ごとの必須パラメータ（箇所数・ピッチ必須項目・面積体積の1項目以上）を検証する。
         // 検証は utils/calculation-params-validation を単一情報源とし、バックエンドの
         // 保存時検証（400）と同じ必須条件・同じ文言をサーバー送信前に画面へ提示する
         // （REQ-8.7/8.10/8.15, REQ-47.9/47.10/47.11）。
         for (const issue of validateCalculationParams(item)) {
-          validationErrors.push(
-            `グループ「${groupLabel}」の項目「${itemLabel}」: ${issue.message}`
-          );
+          validationErrors.push({
+            message: `グループ「${groupLabel}」の項目「${itemLabel}」: ${issue.message}`,
+          });
         }
       }
     }
 
     // エラーがある場合は保存を中断
-    if (validationErrors.length > 0) {
-      setOperationError('保存できません: ' + validationErrors[0]);
+    const firstError = validationErrors[0];
+    if (firstError !== undefined) {
+      const message = '保存できません: ' + firstError.message;
+      setOperationError(message);
+      setHiddenFieldRescue(firstError.rescue ? { ...firstError.rescue, message } : null);
       return;
     }
+    setHiddenFieldRescue(null);
 
     // フル状態同期保存（REQ-42.5）。1回の PUT で全状態を確定する。
     setSaveMessage('保存中...');
@@ -1889,6 +2044,15 @@ export default function QuantityTableEditPage() {
       {operationError && (
         <div role="alert" style={styles.operationErrorContainer}>
           <p style={styles.operationErrorText}>{operationError}</p>
+          {hiddenFieldRescue !== null && hiddenFieldRescue.message === operationError && (
+            <button
+              type="button"
+              style={styles.operationErrorAction}
+              onClick={handleRescueHiddenField}
+            >
+              {describeHiddenFieldRescueAction(hiddenFieldRescue.field)}
+            </button>
+          )}
           <button
             type="button"
             style={styles.operationErrorDismiss}
