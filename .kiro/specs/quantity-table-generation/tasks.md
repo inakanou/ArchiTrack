@@ -2571,7 +2571,7 @@ _起票元: Task 80.1 / 80.2 / 80.4 が境界外として申し送り、機能�
   - **名指しは所属違反（400）に限った**: 存在しない画像（404）と親の論理削除（410）の応答は、グループを名指さないまま据え置いた。本節の境界と箇条が名指すのは所属違反の 400 だけだからである
   - **記録**: design.md の「### Error Categories and Responses」に、応答の形の変化を追記した。保存経路の統合検証ファイルの `@fileoverview` にも、3経路で揃うのは引き続き `status` / `code` / `detail` の3項目であることを追記した
 
-- [ ] 86.5 現調画像の紐付けの失敗が利用者に伝わらない状態を解消する
+- [x] 86.5 現調画像の紐付けの失敗が利用者に伝わらない状態を解消する
   - **86.1 / 86.2 が応答を正した結果、伝わらないのは画面の側だけになった。** `frontend/src/pages/QuantityTableEditPage.tsx` は 409 以外の失敗を一律に `保存に失敗しました。再度お試しください。` へ畳む（コミット `f0cc864d`、2026-09-11 にリポジトリルートで `sed -n '1676,1687p' frontend/src/pages/QuantityTableEditPage.tsx` を実測）。**恒久的に消えた画像に対して「再度お試しください」と促すのは誤った案内である**——再試行しても永久に成功しない
   - 現調画像は**物理削除**される（`backend/prisma/schema.prisma` の `model SurveyImage` に `deletedAt` が無く、`backend/src/services/image-delete.service.ts` が `delete` / `deleteMany` を呼ぶ）。したがって 404 は「編集中に誰かが画像を消した」を意味し、利用者の行動は再試行ではなく紐付けの解除である
   - 86.1 の 400（他プロジェクト）・86.2 の 404（不在）・81.1 の 410（親の論理削除）の三つは**それぞれ利用者が取るべき行動が違う**。畳まずに書き分けること
@@ -2580,6 +2580,38 @@ _起票元: Task 80.1 / 80.2 / 80.4 が境界外として申し送り、機能�
   - **86.4 で、保存の所属違反の 400 が原因のグループを `groups[i].surveyImageId`（i は payload 上の位置）のキーで名指すようになった。** 画面で 400 を書き分けるときは、この項目を使って原因のグループを示すこと。404（不在）と 410（親の論理削除）は名指しを持たないため、応答の非対称が残っている（86.4 の記録を参照）
   - _Depends: 86.1, 86.2_
   - _Boundary: 現調画像の紐付けの失敗に対する利用者向けの提示_
+  - **保存の失敗の書き分け**: 編集画面の保存ハンドラ（`handleSave`）は、現調画像の紐付けの失敗を `frontend/src/utils/survey-image-link-feedback.ts` の `describeSurveyImageLinkSaveFailure` へ渡して書き分ける。見分けは状態コードではなく応答の `code` で行う
+    - 400 `QUANTITY_TABLE_VALIDATION_ERROR` かつ `groups[i].surveyImageId` の名指しあり: i を保存要求の構築元であるドラフトのグループの位置へ引き当て、原因のグループを示す
+    - 404 `SURVEY_IMAGE_NOT_FOUND`: 応答の `surveyImageId` と同じ写真を持つグループをすべて示す
+    - 410 `SURVEY_DELETED`: 現場調査の削除を告げる
+    - 3種とも「写真を変更してから保存してください」と案内し、再試行は促さない。`QUANTITY_TABLE_NOT_FOUND` の 404 や 500 は従来どおり一般の文言とする
+    - 410 は原因のグループを名指さない。応答は `surveyId` しか持たず、ドラフトのグループは写真の現場調査を知らないためである。410 の名指しは 90.2 の領分である
+  - **取得時に落とした紐付けの提示（保存の失敗とは別の設計）**: `QuantityTableService.findById` の写像が、落とした紐付けを持つグループのIDを `droppedSurveyImageLinkGroupIds` で返す（落としていなければ空配列）
+    - 画面は `role="status"` の告知 `survey-image-link-dropped-notice` で当該グループを名指し、保存すると紐付けが解除されることを告げる。保存の成功で告知は消える
+    - 写真を選び直したグループと、削除したグループは告げない（告知が偽にならないように）
+    - 86.3 の不変条件は保つ。他プロジェクトの画像IDは返さず、文言も「参照できない写真」とだけ告げる
+    - 採らなかった案（件数だけを返す／グループごとの真偽値／一括で `null` へ書き換える）とその理由は、design.md の `### Error Categories and Responses` に書いた
+  - **バックエンドの文言**: `SurveyImageNotFoundError` の文言を「現場調査画像が見つかりません」へ改め、画像IDは例外と応答本文の `surveyImageId` で持つ
+    - 3経路（`PUT /api/quantity-tables/:id/save`、`POST /api/quantity-tables/:quantityTableId/groups`、`PUT /api/quantity-groups/:id`）を同時に改めた。本文の全項目の一致は `quantity-table-save-survey-image-existence.api.integration.test.ts` が突き合わせる
+    - 旧文言の消費者は単体検証4ファイル・統合検証1ファイルで、いずれも追随させた（`git grep -l 'Survey image not found' c1ea1231 -- backend/src/__tests__/unit | wc -l` の出力が `4`。リポジトリルート、2026-09-12 に独立レビューが実測。実装の申告は「5ファイル」で誤っていた）。本番コードとフロントに旧文言やこの `code` の消費者は無い（`grep -rn 'Survey image not found'` と `grep -rn 'SURVEY_IMAGE_NOT_FOUND' frontend/src` をリポジトリルートで実行し、`c1ea1231`、2026-09-11 に確認）
+  - **RED の実測**（コミット `c1ea1231` にテストだけを足した作業木、2026-09-11、リポジトリルートで実行）: `npm --prefix backend run test` で 5688 件中 7 件が失敗、統合（fetch と existence の2ファイル）で 11 件中 6 件が失敗、`npm --prefix frontend run test` で 12035 件中 4 件が失敗し util の検証ファイルは読み込み時点で失敗
+  - **変異の実測（独立レビューが全件実行で再現し、申告値と一致した。2026-09-12、`c1ea1231` の作業木、リポジトリルート）**: backend は `npm --prefix backend run test` / `test:integration`、frontend は `npm --prefix frontend run test` の全件実行。レビューの MF2 は 4 件落ちたが、うち 1 件は `SiteSurveyDetailPage`（Req 15.6）の本件と無関係なタイミング不安定で、関係する分は 3 件だった
+    - MB1（`findById` の `droppedSurveyImageLinkGroupIds.push(g.id)` を外す）: 単体 5688 件中 1 件、統合 874 件中 2 件
+    - MB2（保存経路の 404 本文から `surveyImageId` を外す）: 単体 5688 件中 1 件、統合 874 件中 4 件
+    - MB3（紐付け経路2箇所の 404 本文から `surveyImageId` を外す）: 単体 5688 件中 0 件、統合 874 件中 1 件（3経路の本文の一致）
+    - MB4（文言を英語＋画像IDへ戻す）: 単体 5688 件中 4 件、統合 874 件中 4 件
+    - MF1 / MF2 / MF3（400 / 404 / 410 の分岐を殺す）: 12046 件中 3 / 3 / 2 件、MF4（告知の描画を殺す）: 12046 件中 1 件
+    - E2E（3分岐の条件を `status === 499` へ、告知の入力を `undefined` へ換える）: `e2e/specs/quantity-tables/survey-image-link-failure-e2e.spec.ts` の 4 件中 4 件が失敗。書き戻して再ビルドした後は 4/4 が通る。どちらのビルドでもコンテナの作成時刻の変化で作り直しを確認した
+    - **E2E の1回目の変異は無効だった。** `if (false && …)` の形は本番ビルドで型エラー（TS2769 / TS18047）を起こしてビルドが失敗し、コンテナが作り直されないまま古いバンドルに対して 4/4 通った。この値は被覆に数えない
+  - **前提の作り方（E2E）**: 所属違反の紐付けは Task 86.1 以降 API からは作れないため DB へ直接書いた。400 は保存要求の本文だけを書き換えて実バックエンドへ送った（応答は書き換えていない）。404 と 410 は、編集画面を開いた後に管理者（`ADMIN_USER`）が API で写真・現場調査を削除して作った（一般ユーザーには `site_survey:delete` が無い）
+  - **関門の値の移動（開示）**: `check:design-measurement-freshness` の宣言 `t13-anchor-references-after-115303`（site-survey、基線で既に赤。expected 1295）の実測値が、基線の 1304 から 1305 へ1件動いた。新設の E2E ファイルが原因で、当該ファイルを退避して `npm exec -- tsx scripts/check-e2e-assertion-guards.ts --accessible-names` で測ると 1304 に戻る（`c1ea1231` の作業木、2026-09-11、リポジトリルートで実行）。独立レビューが退避と復帰で両向きを再現し、宣言は基線で既に赤く違反は7行のまま・終了コードも pre-push の挙動も不変で、宣言の測り直しは site-survey の領分として受け入れた
+  - **独立レビュー第1回の差し戻しと是正**（コミット `c1ea1231` の作業木、2026-09-12、リポジトリルートで実施）:
+    - (1) 新規の E2E ファイルが root の `npm run lint` で prettier のエラー5件を出していた。`npx prettier --write` で整形し、`npm run lint` の EXIT 0 を確認した
+    - (2) `backend/docs/api-spec.json` を再生成していなかった。`npm --prefix backend run docs:generate` で再生成し、差分は GET の 200 と保存の 404 の説明の2箇所だった（`git diff -U0 -- backend/docs/api-spec.json | grep -c '^@@'` の出力が `2`）。コミット `1aa3319c` の先例に倣った
+    - (3) design.md の `interface QuantityTableDetail` の定義ブロックへ `droppedSurveyImageLinkGroupIds: string[]` を足した
+    - (4) E2E の `page.content()` による不在の主張は非空証明を持たなかった。**削除でなく、非空証明を足す方を採った。** 一回取得した描画 HTML の中に、所属違反を落としたグループ自身のID（写真枠のプレースホルダの `image-placeholder-<グループID>`）が在ることを先に主張し、同じ HTML に他プロジェクトの画像IDが無いことを主張する形へ改めた。同一プロジェクトの画像IDを非空証明に使わなかったのは、編集画面が画像IDを描画するのは写真選択ダイアログの候補（`photo-item-<画像ID>`）だけで、候補は注釈付きの写真に限られ、本ファイルの前提の写真は注釈を持たないためである
+    - 是正後に E2E の当該 spec が 4/4 passed であることを確認した。frontend のコードは変えていないため、コンテナは作り直していない
+    - **非空証明が効く範囲（独立レビュー第2回が変異で測った。2026-09-12、`c1ea1231` の作業木、リポジトリルート）**: 観測を `page.content()` から `innerText()` へ換える変異（EM1）は非空証明で落ちる。表示中の同一プロジェクトの写真でも画像IDは HTML に出ない（EM2）。バックエンドで 86.3 を戻す変異（EM3a）は**告知の主張**で落ちる。EM3a に加えて告知・写真枠・非空証明の主張を外すと（EM3b）、**不在の主張は通過する**。したがって非空証明が守るのは「観測器が空にならないこと」であり、86.3 の後退を捕まえているのは告知の主張である。不在の主張は、画面が画像IDを描画する経路が将来増えたときに初めて意味を持つ。spec の註「（＝下の不在が恒真でないこと）」はこの範囲を越えて読めるため、観測器についての主張として読むこと
 
 **この節が `_Requirements:` を持たないのは意図である。** 守るのはテナント境界とエラー応答の妥当性であり、本スペックの受入基準として条文化されていない。番号を挙げると偽の被覆申告になる。
 
@@ -2772,3 +2804,5 @@ _起票元: Task 86.4 の実装が一時プローブで実測し、独立レビ�
 - **実装が申告する変異の件数は、レビュアーが再現するまで引き写さないこと**: 86.3 の実装は変異A=単体4件・変異B=単体2件と申告したが、独立レビューの実測は **A=2件・B=1件**だった（統合側の 3/4 は一致）。変異が殺されること自体は両者一致するので結論は変わらないが、**親が申告値をそのまま記録すると誤った数字が残る。**
 - **検証ケースを足したら、変異の件数はその後の版で測り直すこと**: 86.4 の実装は M3 を捕まえるために統合へ複数該当のケースを足したが、M1 / M2 の統合側の件数は足す前の 871 件の版のまま申告した。独立レビューの再現は 872 件の版で M1 = 3 件・M2 = 2 件であり、申告（2 件・1 件）と食い違った。**件数は、提出する版の全件実行で揃えて測ること。**
 - **境界外の申し送りは、同じ害へ到達する経路を全数で数えてから起票すること**: 86.4 の実装は複製経路を `QuantityTableService.copy` の1本と報告したが、独立レビューが `QuantityGroupService.copy` を見つけた。同じ綴り `surveyImageId: sourceGroup.surveyImageId` を `backend/src/services` 全体へ grep すれば2本とも出る。**1本見つけた時点で探索を打ち切らないこと**（77.1 の「同じ害へ到達する経路を全数で数え」と同型）。
+- **E2E の変異は、本番ビルドが通る形で当てること**: 86.5 の初回の E2E 変異は `if (false && …)` の形で当てたところ、本番ビルドが型エラー（TS2769 / TS18047）で失敗した。コンテナは作り直されず、spec は古いバンドルに対して 4/4 緑になった。**変異を当てたら型検査を先に通し、コンテナの作成時刻かイメージの変化で作り直しを確かめてから spec を走らせること。** 緑になったことは、変異が当たったことの証拠にならない。
+- **応答の形を変えたタスクの検証集合には、root の lint と API 仕様書の再生成を含めること**: 86.5 の初稿は backend / frontend の lint は通したが、root の `npm run lint`（E2E ファイルの prettier）と `npm --prefix backend run docs:generate` を落として差し戻された。後者はコミット `1aa3319c` が同じ漏れを是正した直後の再発である。**swagger の注釈を触ったら `backend/docs/api-spec.json` を生成し直すこと。**

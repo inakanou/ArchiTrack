@@ -9,10 +9,11 @@
  * 作れない。本検証の前提はいずれも `prisma.quantityGroup.create` による直接の書き込みで
  * 用意する（86.1 より前に永続化された既存の紐付けを模す）。条件付きスキップは行わない。
  *
- * **落としたことの利用者への提示は行わない。** サーバ側のログにのみ残す。伝え方の設計は
- * Task 86.5（現調画像の紐付けの失敗に対する利用者向けの提示）の領分であり、加えて
- * 「他プロジェクトの画像が紐付いていた」と画面で告げること自体が、利用者の権限の外に
- * ある資源の存在を示唆する。
+ * **落としたことは、当該グループのIDだけで利用者へ伝える（Task 86.5）。** Task 86.3 の時点では
+ * サーバ側のログにのみ残していた。応答の `droppedSurveyImageLinkGroupIds` が落とした紐付けを
+ * 持つグループを名指し、編集画面が告げる。名指すのは当該数量表のグループIDだけで、
+ * 他プロジェクトの画像IDは返さない——「他プロジェクトの画像が紐付いていた」ことを告げる
+ * こと自体が、利用者の権限の外にある資源の存在を示唆するためである。
  *
  * **拒む向きに倒さなかった理由**: 取得を 4xx で拒むと、既存の所属違反の紐付けを持つ
  * 利用者は数量表を開けなくなる。Task 86.1 が保存を 400 で拒んでいるため、表示も保存も
@@ -274,6 +275,70 @@ describe('Quantity Table Fetch Survey Image Project Boundary Integration Tests',
       expect(response.body.groups[1].name).toBe('他プロジェクト');
       expect(response.body.groups[1].surveyImageId).toBeNull();
       expect(response.body.groups[1].surveyImage).toBeNull();
+    });
+
+    // Task 86.5: 落としたことを画面が利用者へ告げられるよう、落とした紐付けを持つグループを
+    // 応答で名指す。名指すのは当該数量表のグループIDだけで、他プロジェクトの画像IDは返さない。
+    it('落とした紐付けを持つグループを droppedSurveyImageLinkGroupIds で名指し、他プロジェクトの画像IDは返さない（Task 86.5）', async () => {
+      const quantityTableId = await createQuantityTable('取得の所属検査：名指し');
+      const ownImageId = await createSurveyImageIn(ownerProjectId, '名指しの同一プロジェクト');
+      const foreignImageId = await createSurveyImageIn(foreignProjectId, '名指しの別プロジェクト');
+      const ownGroupId = await linkSurveyImageDirectly(
+        quantityTableId,
+        ownImageId,
+        '自プロジェクト',
+        0
+      );
+      const foreignGroupId = await linkSurveyImageDirectly(
+        quantityTableId,
+        foreignImageId,
+        '他プロジェクト',
+        1
+      );
+
+      const response = await request(app)
+        .get(`/api/quantity-tables/${quantityTableId}`)
+        .set('Authorization', `Bearer ${accessToken}`);
+
+      expect(response.status).toBe(200);
+      // 名指すのは落とした側だけ。同一プロジェクトのグループは名指さない
+      expect(response.body.droppedSurveyImageLinkGroupIds).toEqual([foreignGroupId]);
+      expect(response.body.droppedSurveyImageLinkGroupIds).not.toContain(ownGroupId);
+      // 他プロジェクトの画像IDは応答のどこにも現れない（86.3 の不変条件）。
+      // 同一プロジェクトの画像IDは現れる（観測器が働いていることの非空証明）
+      expect(JSON.stringify(response.body)).not.toContain(foreignImageId);
+      expect(JSON.stringify(response.body)).toContain(ownImageId);
+    });
+
+    it('取得の応答をそのまま保存すると紐付けが解除され、以後の取得も保存の応答も名指しを持たない（Task 86.5）', async () => {
+      const quantityTableId = await createQuantityTable('取得の所属検査：名指しの解消');
+      const foreignImageId = await createSurveyImageIn(foreignProjectId, '解消の別プロジェクト');
+      const groupId = await linkSurveyImageDirectly(quantityTableId, foreignImageId, 'グループ');
+
+      const fetched = await request(app)
+        .get(`/api/quantity-tables/${quantityTableId}`)
+        .set('Authorization', `Bearer ${accessToken}`);
+      // 前提: 保存前は名指しがある（下の空配列が恒真でないことの非空証明）
+      expect(fetched.body.droppedSurveyImageLinkGroupIds).toEqual([groupId]);
+
+      const saved = await request(app)
+        .put(`/api/quantity-tables/${quantityTableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt: fetched.body.updatedAt,
+          name: fetched.body.name,
+          groups: [
+            { id: groupId, name: 'グループ', surveyImageId: null, displayOrder: 0, items: [] },
+          ],
+        });
+
+      expect(saved.status).toBe(200);
+      expect(saved.body.droppedSurveyImageLinkGroupIds).toEqual([]);
+
+      const refetched = await request(app)
+        .get(`/api/quantity-tables/${quantityTableId}`)
+        .set('Authorization', `Bearer ${accessToken}`);
+      expect(refetched.body.droppedSurveyImageLinkGroupIds).toEqual([]);
     });
 
     it('取得の応答をそのまま保存でき、その保存で所属違反の紐付けが解除される（袋小路にならない）', async () => {

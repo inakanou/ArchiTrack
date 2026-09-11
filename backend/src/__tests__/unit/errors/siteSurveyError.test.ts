@@ -27,11 +27,15 @@ describe('SiteSurveyError', () => {
   });
 
   describe('SurveyImageNotFoundError', () => {
-    it('should create error with image ID in message', () => {
-      const imageId = 'test-image-id';
+    // Task 86.5: 文言は兄弟判定（所属違反・親の論理削除）と同じく日本語にし、
+    // 生の画像IDは文言から外して構造化した項目（surveyImageId）で持つ
+    it('文言は日本語で画像IDを含まず、画像IDは surveyImageId で持つ', () => {
+      const imageId = '123e4567-e89b-42d3-a456-426614174099';
       const error = new SurveyImageNotFoundError(imageId);
 
-      expect(error.message).toBe(`Survey image not found: ${imageId}`);
+      expect(error.message).toBe('現場調査画像が見つかりません');
+      expect(error.message).not.toContain(imageId);
+      expect(error.surveyImageId).toBe(imageId);
       expect(error.statusCode).toBe(404);
       expect(error.code).toBe('SURVEY_IMAGE_NOT_FOUND');
       expect(error.name).toBe('SurveyImageNotFoundError');

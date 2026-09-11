@@ -901,8 +901,10 @@ describe('QuantityTablesRoutes', () => {
         type: 'https://architrack.example.com/problems/survey-image-not-found',
         title: 'Survey Image Not Found',
         status: 404,
-        detail: `Survey image not found: ${surveyImageId}`,
+        detail: '現場調査画像が見つかりません',
         code: 'SURVEY_IMAGE_NOT_FOUND',
+        // Task 86.5: 画面が原因のグループを引き当てられるよう、画像IDを構造化して返す
+        surveyImageId,
       });
     });
 

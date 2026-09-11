@@ -161,13 +161,20 @@ describe('Quantity Table Save Survey Image Existence Integration Tests', () => {
     return quantityTable.updatedAt.toISOString();
   };
 
-  /** 存在しない現調画像の応答本文（SurveyImageNotFoundError の形） */
+  /**
+   * 存在しない現調画像の応答本文（SurveyImageNotFoundError の形）
+   *
+   * Task 86.5 で、`detail` は兄弟判定と同じ日本語の文言になり、生の画像IDを含まなくなった。
+   * 画像IDは構造化した項目 `surveyImageId` で返す（画面が原因のグループを引き当てるため）。
+   * 3経路で本文の全項目が一致することは引き続き下の検証が突き合わせる。
+   */
   const expectedProblem = (imageId: string): Record<string, unknown> => ({
     type: 'https://architrack.example.com/problems/survey-image-not-found',
     title: 'Survey Image Not Found',
     status: 404,
-    detail: `Survey image not found: ${imageId}`,
+    detail: '現場調査画像が見つかりません',
     code: 'SURVEY_IMAGE_NOT_FOUND',
+    surveyImageId: imageId,
   });
 
   beforeAll(async () => {

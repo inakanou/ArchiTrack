@@ -24,11 +24,24 @@ export class SiteSurveyNotFoundError extends NotFoundError {
 
 /**
  * 現場調査画像が見つからないエラー
+ *
+ * 数量グループへ現調画像を紐付ける3経路（`PUT /api/quantity-tables/:id/save`、
+ * `POST /api/quantity-tables/:quantityTableId/groups`、`PUT /api/quantity-groups/:id`）が
+ * 404 へ写す。3経路は応答本文の全項目を揃えている（Task 86.2）。
+ *
+ * 文言は同じ検査の兄弟判定（所属違反・親の論理削除）と同じく日本語とし、生の画像IDを
+ * 文言に含めない。画像IDは `surveyImageId` で持ち、各経路が応答本文の同名の項目へ写す。
+ * 編集画面はこの項目で原因のグループを引き当てる（Task 86.5）。以前の文言は英語で
+ * 画像IDを文言に含んでいた。
  */
 export class SurveyImageNotFoundError extends NotFoundError {
+  /** 見つからなかった現調画像のID */
+  readonly surveyImageId: string;
+
   constructor(imageId: string) {
-    super(`Survey image not found: ${imageId}`, 'SURVEY_IMAGE_NOT_FOUND');
+    super('現場調査画像が見つかりません', 'SURVEY_IMAGE_NOT_FOUND');
     this.name = 'SurveyImageNotFoundError';
+    this.surveyImageId = imageId;
   }
 }
 

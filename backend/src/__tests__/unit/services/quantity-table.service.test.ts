@@ -574,6 +574,34 @@ describe('QuantityTableService', () => {
       expect(result!.groups[0]!.surveyImage!.thumbnailUrl).toBe('/api/storage/surveys/s/thumb.jpg');
     });
 
+    // Task 86.5: 落としたことを画面が利用者へ告げられるよう、落とした紐付けを持つ
+    // グループを応答で名指す。名指すのは当該数量表のグループIDだけで、他プロジェクトの
+    // 画像IDは返さない（86.3 が落とした識別子を別の項目から再び露出させない）。
+    it('落とした紐付けのグループを droppedSurveyImageLinkGroupIds で名指し、画像IDは返さない（Task 86.5）', async () => {
+      // Arrange / Act: 所属違反の紐付け
+      mockPrisma.quantityTable.findUnique.mockResolvedValueOnce(
+        buildTableWithImageOwnedBy(foreignProjectId)
+      );
+      const dropped = await service.findById(quantityTableId);
+
+      // Assert: 当該グループを名指す
+      expect(dropped!.droppedSurveyImageLinkGroupIds).toEqual([
+        '123e4567-e89b-12d3-a456-426614174010',
+      ]);
+      // 他プロジェクトの画像IDは応答のどこにも現れない
+      expect(JSON.stringify(dropped)).not.toContain('img-1');
+
+      // Arrange / Act: 同一プロジェクトの紐付け（対照。上の名指しが恒真でないこと）
+      mockPrisma.quantityTable.findUnique.mockResolvedValueOnce(
+        buildTableWithImageOwnedBy(ownerProjectId)
+      );
+      const kept = await service.findById(quantityTableId);
+
+      // Assert: 落としていないので名指さない。画像IDは従来どおり返る（観測器の非空証明）
+      expect(kept!.droppedSurveyImageLinkGroupIds).toEqual([]);
+      expect(JSON.stringify(kept)).toContain('img-1');
+    });
+
     it('所属の判定は既存の問い合わせの取得項目から得る（写真ごとの追加の問い合わせを発生させない）', async () => {
       // Arrange
       mockPrisma.quantityTable.findUnique.mockResolvedValue(
@@ -3101,9 +3129,9 @@ describe('QuantityTableService', () => {
       // 応答の形は QuantityGroupService.validateSurveyImage と同一にする
       // （404・同じ code・同じ文言）
       expect(thrown).toBeInstanceOf(SurveyImageNotFoundError);
-      expect((thrown as SurveyImageNotFoundError).message).toBe(
-        `Survey image not found: ${surveyImageId}`
-      );
+      // Task 86.5: 文言は日本語で画像IDを含まない。画像IDは surveyImageId で持つ
+      expect((thrown as SurveyImageNotFoundError).message).toBe('現場調査画像が見つかりません');
+      expect((thrown as SurveyImageNotFoundError).surveyImageId).toBe(surveyImageId);
       expect((thrown as SurveyImageNotFoundError).statusCode).toBe(404);
       expect((thrown as SurveyImageNotFoundError).code).toBe('SURVEY_IMAGE_NOT_FOUND');
       expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
@@ -3157,9 +3185,7 @@ describe('QuantityTableService', () => {
 
       // 名指すのは見つからなかった側の画像である
       expect(thrown).toBeInstanceOf(SurveyImageNotFoundError);
-      expect((thrown as SurveyImageNotFoundError).message).toBe(
-        `Survey image not found: ${missingImageId}`
-      );
+      expect((thrown as SurveyImageNotFoundError).surveyImageId).toBe(missingImageId);
       expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
       // 存在の判定は「要求した ID の集合」と「返った行の集合」の差で行うため、
       // 存在を確かめるための問い合わせは増えていない
@@ -3190,9 +3216,7 @@ describe('QuantityTableService', () => {
 
       // 判定は要求した ID の並び（payload の出現順）で行う。findMany の戻り値の並びは
       // 指定していないため、行の並びで回すと名指す画像が定まらない
-      expect((thrown as SurveyImageNotFoundError).message).toBe(
-        `Survey image not found: ${firstMissingImageId}`
-      );
+      expect((thrown as SurveyImageNotFoundError).surveyImageId).toBe(firstMissingImageId);
     });
 
     it('他プロジェクトの現調画像を含む保存は書き込み前に中断する（Task 86.1）', async () => {

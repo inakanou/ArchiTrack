@@ -46,6 +46,10 @@ import { loadQuantityTablePdfExportService } from '../services/export/loadQuanti
 import { CALCULATION_METHOD_LABELS } from '../utils/calculation-method';
 import { validateCalculationParams } from '../utils/calculation-params-validation';
 import { validateNumericRange } from '../utils/numeric-range-validation';
+import {
+  describeDroppedSurveyImageLinks,
+  describeSurveyImageLinkSaveFailure,
+} from '../utils/survey-image-link-feedback';
 import { loadPdfExportService } from '../services/export/loadPdfExportService';
 import { ImportDialog } from '../components/quantity-table-import/ImportDialog';
 import type { ImportQuantityItem } from '../types/quantity-import.types';
@@ -311,6 +315,16 @@ const styles = {
     fontSize: '16px',
     padding: '4px 8px',
     marginLeft: '12px',
+  } as React.CSSProperties,
+  // 取得時に落とした現調画像の紐付けの告知（Task 86.5）。失敗ではないため注意色で示す
+  surveyImageLinkNotice: {
+    backgroundColor: '#fffbeb',
+    border: '1px solid #fde68a',
+    borderRadius: '8px',
+    color: '#92400e',
+    fontSize: '14px',
+    padding: '12px 16px',
+    marginBottom: '16px',
   } as React.CSSProperties,
   // 確認ダイアログスタイル
   dialogOverlay: {
@@ -607,6 +621,20 @@ export default function QuantityTableEditPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null); // 読み込みエラー（全画面表示）
   const [operationError, setOperationError] = useState<string | null>(null); // 操作エラー（インライン表示）
+
+  // 取得時に落とした現調画像の紐付けの告知（Task 86.5）。
+  // バックエンドの取得は他プロジェクトの写真を指す既存の紐付けを落とし（Task 86.3）、当該グループを
+  // `droppedSurveyImageLinkGroupIds` で名指す。名指しは最後にロード/保存したスナップショットから読み、
+  // 告げる対象は現在のドラフトで写真を持たないまま残っているグループに限る（選び直した・削除した
+  // グループを告げると告知が偽になる）。保存の応答は解除後の状態を名指さないため、保存の成功で消える。
+  const droppedSurveyImageLinkNotice = useMemo(
+    () =>
+      describeDroppedSurveyImageLinks(
+        snapshot?.droppedSurveyImageLinkGroupIds,
+        editState.draft?.groups ?? []
+      ),
+    [snapshot, editState.draft]
+  );
   // 削除確認ダイアログ用state（REQ-4.5）。対象行キー（id または tempId）を保持する。
   const [groupToDelete, setGroupToDelete] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -1584,8 +1612,10 @@ export default function QuantityTableEditPage() {
    * - 成功時: レスポンスの最新 QuantityTableDetail でスナップショット（参照情報・写真サマリ供給元）と
    *   ドラフト（reducer saveSync → isDirty=false）を同期し、「保存しました」を表示する（REQ-42.8）。
    *   saveDraft レスポンスで同期するため保存後の再取得（GET）は行わない。
-   * - 失敗時: 409 は競合専用メッセージ、それ以外（400/500等）は一般エラーメッセージを表示し、
-   *   ドラフト（未保存の変更）を保持したまま再保存可能とする（REQ-42.9）。
+   * - 失敗時: 409 は競合専用メッセージ、現調画像の紐付けの失敗（400 他プロジェクト / 404 写真の削除 /
+   *   410 現場調査の削除）は {@link describeSurveyImageLinkSaveFailure} が書き分けた文言（Task 86.5）、
+   *   それ以外（500等）は一般エラーメッセージを表示し、ドラフト（未保存の変更）を保持したまま
+   *   再保存可能とする（REQ-42.9）。
    * - 自動保存は持たず、永続化は本保存操作時にのみ実行する（REQ-42.7）。
    */
   const handleSave = useCallback(async () => {
@@ -1681,7 +1711,14 @@ export default function QuantityTableEditPage() {
           '他のユーザーによって更新されました。ページを再読み込みして最新データを確認してください。'
         );
       } else {
-        setOperationError('保存に失敗しました。再度お試しください。');
+        // 現調画像の紐付けの失敗（400 他プロジェクト / 404 写真の削除 / 410 現場調査の削除）は
+        // いずれも恒久的で、再試行しても成功しない。利用者が取るべき行動も違うため、一般の文言へ
+        // 畳まずに書き分ける（Task 86.5）。原因のグループは保存要求の構築元であるドラフトの
+        // 並びから引き当てる。それ以外の失敗は従来どおり一般の文言とする。
+        setOperationError(
+          describeSurveyImageLinkSaveFailure(error, draftToSave.groups) ??
+            '保存に失敗しました。再度お試しください。'
+        );
       }
       setSaveMessage(null);
     }
@@ -1836,6 +1873,17 @@ export default function QuantityTableEditPage() {
           </button>
         </div>
       </div>
+
+      {/* 取得時に落とした現調画像の紐付けの告知（Task 86.5） */}
+      {droppedSurveyImageLinkNotice && (
+        <div
+          role="status"
+          data-testid="survey-image-link-dropped-notice"
+          style={styles.surveyImageLinkNotice}
+        >
+          {droppedSurveyImageLinkNotice}
+        </div>
+      )}
 
       {/* 操作エラー表示（インライン） */}
       {operationError && (

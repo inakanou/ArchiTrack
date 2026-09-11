@@ -165,6 +165,14 @@ export interface QuantityGroupDetailInfo {
 export interface QuantityTableDetailWithItems extends QuantityTableInfo {
   project: { id: string; name: string };
   groups: QuantityGroupDetailInfo[];
+  /**
+   * 取得時に紐付けを落としたグループのID（落としていなければ空配列）
+   *
+   * 他プロジェクトの現調画像を指す既存の紐付けは、取得の写像が写真サマリと `surveyImageId`
+   * ごと落とす（Task 86.3）。落としたことを編集画面が利用者へ告げられるよう、当該グループを
+   * 名指す（Task 86.5）。名指すのは当該数量表のグループIDだけで、他プロジェクトの画像IDは返さない。
+   */
+  droppedSurveyImageLinkGroupIds: string[];
 }
 
 /**
@@ -1818,6 +1826,9 @@ export class QuantityTableService {
     }>;
     _count: { groups: number };
   }): QuantityTableDetailWithItems {
+    // 取得時に紐付けを落としたグループのID（Task 86.5）。落とした事実を応答で名指す
+    const droppedSurveyImageLinkGroupIds: string[] = [];
+
     const groups: QuantityGroupDetailInfo[] = quantityTable.groups.map((g) => {
       // 取得経路の現調画像の所属の検査（Task 86.3）。
       //
@@ -1834,9 +1845,12 @@ export class QuantityTableService {
       // 違反の紐付けが解除される。`surveyImage` だけを落として `surveyImageId` を残すと
       // 「紐付いているが中身が無い」という、画面が解釈できない応答にもなる。
       //
-      // **落としたことは利用者へは伝えない。** サーバ側のログにのみ残す。伝え方の設計は
-      // Task 86.5 の領分であり、加えて他プロジェクトの画像が紐付いていた事実を画面で告げると
-      // 利用者の権限の外にある資源の存在を示唆する。
+      // **落としたことは、当該グループのIDだけで利用者へ伝える（Task 86.5）。** Task 86.3 の
+      // 時点ではサーバ側のログにのみ残していたため、利用者から見ると写真が理由もなく消えていた。
+      // 応答の `droppedSurveyImageLinkGroupIds` で当該グループを名指し、編集画面が告げる。
+      // 名指すのは当該数量表のグループIDだけで、他プロジェクトの画像IDもプロジェクトも返さない。
+      // 他プロジェクトの画像が紐付いていた事実を告げると、利用者の権限の外にある資源の存在を
+      // 示唆するためである（画面の文言も「参照できない写真」とだけ告げる）。
       //
       // 所属の検査をここ（取得の正典）に置き、ルータの enrichQuantityTableSignedUrls に
       // 置かない理由は同関数のコメントに書いた。
@@ -1844,7 +1858,8 @@ export class QuantityTableService {
         g.surveyImage !== null && g.surveyImage.survey.projectId !== quantityTable.projectId;
 
       if (violatesProjectBoundary) {
-        // 落としたことは運用側の記録にのみ残す。利用者への提示は Task 86.5 の領分である。
+        // 利用者へは応答の名指しで伝え（Task 86.5）、運用側には画像IDを含む記録を残す
+        droppedSurveyImageLinkGroupIds.push(g.id);
         logger.warn(
           {
             quantityTableId: quantityTable.id,
@@ -1925,6 +1940,7 @@ export class QuantityTableService {
       updatedAt: quantityTable.updatedAt,
       project: quantityTable.project,
       groups,
+      droppedSurveyImageLinkGroupIds,
     };
   }
 }

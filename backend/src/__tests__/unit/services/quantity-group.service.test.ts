@@ -222,7 +222,7 @@ describe('QuantityGroupService', () => {
 
       // Act & Assert
       await expect(service.create(inputWithInvalidImage, actorId)).rejects.toThrow(
-        'Survey image not found'
+        '現場調査画像が見つかりません'
       );
     });
 

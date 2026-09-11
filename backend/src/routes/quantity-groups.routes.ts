@@ -191,6 +191,8 @@ router.post(
           status: 404,
           detail: error.message,
           code: 'SURVEY_IMAGE_NOT_FOUND',
+          // 保存経路（PUT /api/quantity-tables/:id/save）と同じ項目を返す（Task 86.5）
+          surveyImageId: error.surveyImageId,
         });
         return;
       }
@@ -532,6 +534,8 @@ router.put(
           status: 404,
           detail: error.message,
           code: 'SURVEY_IMAGE_NOT_FOUND',
+          // 保存経路（PUT /api/quantity-tables/:id/save）と同じ項目を返す（Task 86.5）
+          surveyImageId: error.surveyImageId,
         });
         return;
       }

@@ -506,7 +506,11 @@ router.get(
  *         description: 数量表ID
  *     responses:
  *       200:
- *         description: 数量表詳細
+ *         description: |
+ *           数量表詳細。他プロジェクトの現調画像を指す既存の紐付けは写真サマリと surveyImageId を
+ *           落として返し（Task 86.3）、落とした紐付けを持つグループのIDを
+ *           droppedSurveyImageLinkGroupIds（落としていなければ空配列）で返す（Task 86.5）。
+ *           他プロジェクトの画像IDは返さない。
  *       401:
  *         description: 認証エラー
  *       403:
@@ -731,7 +735,9 @@ router.put(
  *       403:
  *         description: 権限不足
  *       404:
- *         description: 数量表が見つからない、または指定した現調画像が存在しない
+ *         description: |
+ *           数量表が見つからない（code: QUANTITY_TABLE_NOT_FOUND）、または指定した現調画像が
+ *           存在しない（code: SURVEY_IMAGE_NOT_FOUND。見つからなかった画像IDを surveyImageId で返す）
  *       409:
  *         description: 楽観的排他制御エラー（競合）
  */
@@ -790,6 +796,8 @@ router.put(
           status: 404,
           detail: error.message,
           code: 'SURVEY_IMAGE_NOT_FOUND',
+          // 画面が原因のグループを引き当てるための画像ID（Task 86.5。3経路で同じ項目を返す）
+          surveyImageId: error.surveyImageId,
         });
         return;
       }

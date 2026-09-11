@@ -439,6 +439,17 @@ export interface QuantityTableDetail {
   groupCount: number;
   itemCount: number;
   groups: QuantityGroupDetail[];
+  /**
+   * 取得時に紐付けを落としたグループのID（Task 86.5）
+   *
+   * バックエンドの取得は、他プロジェクトの現調画像を指す既存の紐付けを写真サマリと
+   * `surveyImageId` ごと落とし（Task 86.3）、当該グループをここで名指す。他プロジェクトの
+   * 画像IDは含まない。編集画面はこれを読んで利用者へ告げる。
+   *
+   * バックエンドは常に返す（落としていなければ空配列）が、本項目を持たない応答
+   * （本項目を足す前の版のバックエンド）でも画面が壊れないよう任意とする。
+   */
+  droppedSurveyImageLinkGroupIds?: string[];
   createdAt: string;
   updatedAt: string;
 }
