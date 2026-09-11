@@ -1423,8 +1423,10 @@ export class QuantityTableService {
 
       if (surveyImage.survey.projectId !== projectId) {
         // 文言・例外の型は QuantityGroupService.validateSurveyImage と同一にする。
+        // 加えて原因のグループを payload の位置で名指す（Task 86.4）。
         throw new QuantityTableValidationError(
-          '異なるプロジェクトの現場調査画像は紐付けできません'
+          '異なるプロジェクトの現場調査画像は紐付けできません',
+          this.locateForeignSurveyImageGroups(input, surveyImageById, projectId)
         );
       }
 
@@ -1434,6 +1436,44 @@ export class QuantityTableService {
         `削除された現場調査の画像は紐付けできません: ${surveyImage.surveyId}`
       );
     }
+  }
+
+  /**
+   * 他プロジェクトの現調画像を指すグループを payload の位置で名指す（Task 86.4）
+   *
+   * 所属違反の 400 は文言だけでは原因のグループが分からず、利用者は数量表のどこを
+   * 直せばよいかを知る手段を持たなかった。同じ保存経路の validateDraftOwnership /
+   * validateDraftDuplicateIds と同じく `groups[i].<欄>` をキーとし、違反する全ての
+   * グループを名指す。同じ画像を複数のグループが指す場合も、グループごとに名指す。
+   *
+   * 所属の判定には assertDraftSurveyImagesLinkable が既に引いた行をそのまま使うため、
+   * 問い合わせは増えない。行が返らなかった画像（実在しない画像）は所属を判定できない
+   * ため名指さない。それは存在の検査（404）の領分である。
+   *
+   * @param input - フル状態同期保存入力
+   * @param surveyImageById - 要求した現調画像の行（ID をキーとする）
+   * @param projectId - 当該数量表が属するプロジェクトID
+   * @returns `groups[i].surveyImageId` をキー、利用者向けの文言を値とする問題箇所
+   */
+  private locateForeignSurveyImageGroups(
+    input: SaveQuantityTableDraftInput,
+    surveyImageById: ReadonlyMap<string, { survey: { projectId: string } }>,
+    projectId: string
+  ): Record<string, string> {
+    const validationErrors: Record<string, string> = {};
+
+    for (const [groupIndex, group] of input.groups.entries()) {
+      if (group.surveyImageId === null) {
+        continue;
+      }
+      const surveyImage = surveyImageById.get(group.surveyImageId);
+      if (surveyImage !== undefined && surveyImage.survey.projectId !== projectId) {
+        validationErrors[`groups[${groupIndex}].surveyImageId`] =
+          '異なるプロジェクトの現場調査画像は紐付けできません';
+      }
+    }
+
+    return validationErrors;
   }
 
   /**

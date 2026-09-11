@@ -3232,6 +3232,64 @@ describe('QuantityTableService', () => {
       expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
     });
 
+    it('所属違反の 400 は原因のグループを payload の位置で名指し、違反しないグループは名指さない（Task 86.4）', async () => {
+      const ownImageId = '123e4567-e89b-12d3-a456-426614174022';
+      const firstForeignImageId = '123e4567-e89b-12d3-a456-426614174023';
+      const secondForeignImageId = '123e4567-e89b-12d3-a456-426614174024';
+
+      setupFindUnique(currentState(), reloadedDetail());
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        { id: ownImageId, surveyId: 'survey-own', survey: { projectId, deletedAt: null } },
+        {
+          id: firstForeignImageId,
+          surveyId: 'survey-other-1',
+          survey: { projectId: 'other-project-id', deletedAt: null },
+        },
+        {
+          id: secondForeignImageId,
+          surveyId: 'survey-other-2',
+          survey: { projectId: 'another-project-id', deletedAt: null },
+        },
+      ]);
+
+      // 違反するグループ（1・3・4）と違反しないグループ（0 = 同一プロジェクトの画像、
+      // 2 = 画像なし）を混ぜる。3 は 1 と同じ画像を指すため、画像の重複排除の後でも
+      // グループ単位で名指せることを確かめる。4 は別の他プロジェクトの画像を指すため、
+      // 最初に出会った違反で名指しを打ち切らないことを確かめる。
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          { id: null, name: 'g0', surveyImageId: ownImageId, displayOrder: 0, items: [] },
+          { id: null, name: 'g1', surveyImageId: firstForeignImageId, displayOrder: 1, items: [] },
+          { id: null, name: 'g2', surveyImageId: null, displayOrder: 2, items: [] },
+          { id: null, name: 'g3', surveyImageId: firstForeignImageId, displayOrder: 3, items: [] },
+          { id: null, name: 'g4', surveyImageId: secondForeignImageId, displayOrder: 4, items: [] },
+        ],
+      };
+
+      const thrown = await service
+        .saveDraft(quantityTableId, input, actorId)
+        .then(() => null)
+        .catch((error: unknown) => error);
+
+      expect(thrown).toBeInstanceOf(QuantityTableValidationError);
+      // 全体の文言は紐付け経路（validateSurveyImage）と同一のまま据え置く
+      expect((thrown as QuantityTableValidationError).message).toBe(
+        '異なるプロジェクトの現場調査画像は紐付けできません'
+      );
+      // 問題箇所の名指しは validateDraftOwnership / validateDraftDuplicateIds と同じ
+      // `groups[i].<欄>` の形にする。キーの集合まで一致させ、過不足の双方を捕まえる
+      expect((thrown as QuantityTableValidationError).validationErrors).toEqual({
+        'groups[1].surveyImageId': '異なるプロジェクトの現場調査画像は紐付けできません',
+        'groups[3].surveyImageId': '異なるプロジェクトの現場調査画像は紐付けできません',
+        'groups[4].surveyImageId': '異なるプロジェクトの現場調査画像は紐付けできません',
+      });
+      // 名指しのために問い合わせを増やしていない
+      expect(mockPrisma.surveyImage.findMany).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
+    });
+
     it('所属違反と親の論理削除の双方に該当する現調画像は所属違反として拒む（Task 86.1）', async () => {
       const surveyImageId = '123e4567-e89b-12d3-a456-426614174015';
 

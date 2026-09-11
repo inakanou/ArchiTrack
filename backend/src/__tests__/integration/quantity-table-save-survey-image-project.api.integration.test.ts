@@ -26,7 +26,14 @@
  * 応答まで変わる。よって `type` の統一は本タスクの `_Boundary:`（数量表の保存経路に
  * おける現調画像の所属の検査）の外であり、未解決の論点として残る。
  *
+ * Task 86.4 で保存経路の本文に原因のグループの名指し（`groups[i].surveyImageId` を
+ * キーとする項目。本文の直下に展開される）を加えた。グループ経路の本文はこれを
+ * 持たない。グループ経路は URL で1グループを指すため名指す位置が無く、そのハンドラは
+ * `QuantityTableValidationError` の details を本文へ展開しない。**3経路で揃っている
+ * のは引き続き `status` / `code` / `detail` の3項目である。**
+ *
  * Task 86.1: 保存経路の現調画像に所属の検査を加える
+ * Task 86.4: 所属違反の 400 が原因のグループを名指す
  *
  * @module __tests__/integration/quantity-table-save-survey-image-project.api.integration.test
  */
@@ -176,13 +183,27 @@ describe('Quantity Table Save Survey Image Project Boundary Integration Tests', 
     return quantityTable.updatedAt.toISOString();
   };
 
-  /** 所属違反の応答本文（QuantityTableValidationError の形） */
-  const expectedProblem = (): Record<string, unknown> => ({
+  /**
+   * 所属違反の応答本文（QuantityTableValidationError の形）
+   *
+   * 原因のグループは `groups[i].surveyImageId` のキーで本文の直下に名指される
+   * （Task 86.4）。キーの形は同じ保存経路の所属検証・重複検証が既に使う
+   * `groups[i].id` と揃えてある。
+   *
+   * @param offendingGroupIndexes - 他プロジェクトの画像を指す payload 上のグループ位置
+   */
+  const expectedProblem = (offendingGroupIndexes: number[]): Record<string, unknown> => ({
     type: 'https://architrack.example.com/problems/quantity-table-validation-error',
     title: 'Validation Error',
     status: 400,
     detail: '異なるプロジェクトの現場調査画像は紐付けできません',
     code: 'QUANTITY_TABLE_VALIDATION_ERROR',
+    ...Object.fromEntries(
+      offendingGroupIndexes.map((groupIndex) => [
+        `groups[${groupIndex}].surveyImageId`,
+        '異なるプロジェクトの現場調査画像は紐付けできません',
+      ])
+    ),
   });
 
   beforeAll(async () => {
@@ -246,7 +267,7 @@ describe('Quantity Table Save Survey Image Project Boundary Integration Tests', 
         });
 
       expect(response.status).toBe(400);
-      expect(response.body).toEqual(expectedProblem());
+      expect(response.body).toEqual(expectedProblem([0]));
 
       // 書き込み前に中断しており、グループは1件も永続化されていない
       const persisted = await prisma.quantityGroup.findMany({
@@ -290,7 +311,61 @@ describe('Quantity Table Save Survey Image Project Boundary Integration Tests', 
         });
 
       expect(response.status).toBe(400);
-      expect(response.body).toEqual(expectedProblem());
+      // 名指すのは他プロジェクトの画像を指す 2 件目だけで、同一プロジェクトの 1 件目は名指さない
+      expect(response.body).toEqual(expectedProblem([1]));
+
+      const persisted = await prisma.quantityGroup.count({ where: { quantityTableId } });
+      expect(persisted).toBe(0);
+    });
+
+    it('違反するグループが複数あるときは全てを位置で名指す（Task 86.4）', async () => {
+      const quantityTableId = await createQuantityTable('所属検査の複数該当');
+      const ownImageId = await createSurveyImageIn(ownerProjectId, '複数該当の同一プロジェクト');
+      const firstForeignImageId = await createSurveyImageIn(
+        foreignProjectId,
+        '複数該当の別プロジェクト現場調査A'
+      );
+      const secondForeignImageId = await createSurveyImageIn(
+        foreignProjectId,
+        '複数該当の別プロジェクト現場調査B'
+      );
+      const expectedUpdatedAt = await getExpectedUpdatedAt(quantityTableId);
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${quantityTableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          name: '所属検査の複数該当',
+          groups: [
+            {
+              id: null,
+              name: '他A',
+              surveyImageId: firstForeignImageId,
+              displayOrder: 0,
+              items: [],
+            },
+            { id: null, name: '自', surveyImageId: ownImageId, displayOrder: 1, items: [] },
+            // 0 と同じ画像を指す。画像の重複排除の後でもグループごとに名指す
+            {
+              id: null,
+              name: '他Aの再掲',
+              surveyImageId: firstForeignImageId,
+              displayOrder: 2,
+              items: [],
+            },
+            {
+              id: null,
+              name: '他B',
+              surveyImageId: secondForeignImageId,
+              displayOrder: 3,
+              items: [],
+            },
+          ],
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body).toEqual(expectedProblem([0, 2, 3]));
 
       const persisted = await prisma.quantityGroup.count({ where: { quantityTableId } });
       expect(persisted).toBe(0);

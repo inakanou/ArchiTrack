@@ -2913,6 +2913,8 @@ enum CalculationMethod {
 - `422 UNPROCESSABLE_ENTITY`: ビジネスロジックエラー
 - `500 INTERNAL_SERVER_ERROR`: コピー処理・保存処理中の予期しないエラー。saveDraft 失敗時もドラフトは保持され、編集内容は失われない（REQ-42 AC9）
 
+**保存経路の所属違反の 400 は原因のグループを名指す（タスク 86.4）。** `PUT /api/quantity-tables/:id/save` が他プロジェクトの現調画像を指す payload を拒むとき、応答本文は `detail` に加えて、`groups[i].surveyImageId`（i は payload 上のグループの位置）をキーとする項目を本文の直下に持つ。キーの形は同じ保存経路の所属検証・重複検証が使う `groups[i].id` と揃えてある。違反する全てのグループを名指し、同じ画像を指す複数のグループもそれぞれ名指す。名指しには検査が既に引いた現調画像の行を使うため、問い合わせは増えない。`status` / `code` / `detail` は数量グループの紐付け経路（`POST /api/quantity-tables/:quantityTableId/groups` と `PUT /api/quantity-groups/:id`）と引き続き一致する。両経路は URL で1グループを指すため、位置の名指しを持たない。**画面への提示はタスク 86.5 の領分である。** 画面は現在、保存の失敗のうち 409 以外を一律の文言へ畳んでおり、この項目を読まない。
+
 **Business Logic Errors**:
 
 - 計算不整合エラー: 問題のフィールドをハイライト
