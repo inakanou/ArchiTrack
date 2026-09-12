@@ -122,11 +122,12 @@ const createGroupsFromSurveyBodySchema = z.object({
  *               displayOrder:
  *                 type: integer
  *                 minimum: 0
+ *                 description: 表示順序（任意）。省略時は当該数量表の末尾へ採番する。既存グループと同じ値は 400 で拒否する
  *     responses:
  *       201:
  *         description: 数量グループ作成成功
  *       400:
- *         description: バリデーションエラー
+ *         description: バリデーションエラー（表示順序が既存グループと重複する場合を含む）
  *       401:
  *         description: 認証エラー
  *       403:
@@ -147,7 +148,7 @@ router.post(
       const validatedBody = req.validatedBody as {
         name?: string | null;
         surveyImageId?: string | null;
-        displayOrder: number;
+        displayOrder?: number;
       };
 
       const input = {
@@ -301,7 +302,7 @@ router.get(
  *       204:
  *         description: 更新成功
  *       400:
- *         description: バリデーションエラー
+ *         description: バリデーションエラー（適用後の表示順序が重複する場合を含む）
  *       401:
  *         description: 認証エラー
  *       403:
@@ -455,6 +456,7 @@ router.get(
  *                 format: uuid
  *               displayOrder:
  *                 type: integer
+ *                 description: 表示順序。当該数量表の他のグループが使っている値は 400 で拒否する
  *               expectedUpdatedAt:
  *                 type: string
  *                 format: date-time
@@ -462,7 +464,7 @@ router.get(
  *       200:
  *         description: 数量グループ更新成功
  *       400:
- *         description: バリデーションエラー
+ *         description: バリデーションエラー（表示順序が他のグループと重複する場合を含む）
  *       401:
  *         description: 認証エラー
  *       403:

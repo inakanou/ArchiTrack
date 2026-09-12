@@ -845,6 +845,34 @@ describe('QuantityGroupService', () => {
       expect(result.displayOrder).toBe(5);
     });
 
+    it('他のグループと同じ displayOrder への更新は拒む（Task 92.1）', async () => {
+      // Arrange
+      const existingGroup = {
+        id: groupId,
+        quantityTableId: '123e4567-e89b-12d3-a456-426614174000',
+        name: 'テストグループ',
+        surveyImageId: null,
+        displayOrder: 0,
+        createdAt: new Date('2026-01-05T00:00:00.000Z'),
+        updatedAt: expectedUpdatedAt,
+        quantityTable: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          deletedAt: null,
+          projectId: '123e4567-e89b-12d3-a456-426614174003',
+        },
+      };
+
+      mockPrisma.quantityGroup.findUnique.mockResolvedValue(existingGroup);
+      // 自分以外に displayOrder=1 のグループが在る
+      mockPrisma.quantityGroup.count.mockResolvedValue(1);
+
+      // Act & Assert
+      await expect(
+        service.update(groupId, { displayOrder: 1 }, actorId, expectedUpdatedAt)
+      ).rejects.toThrow('表示順序が他の数量グループと重複しています');
+      expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
+    });
+
     it('名前をnullに設定できる', async () => {
       // Arrange
       const existingGroup = {
@@ -907,6 +935,63 @@ describe('QuantityGroupService', () => {
       await expect(
         service.updateDisplayOrder(quantityTableId, orderUpdates, actorId)
       ).rejects.toThrow('異なる数量表のグループが含まれています');
+    });
+
+    it('同じ displayOrder を複数件指定した並び替えは拒む（Task 92.1）', async () => {
+      const idA = '123e4567-e89b-12d3-a456-426614174002';
+      const idB = '123e4567-e89b-12d3-a456-426614174003';
+      const orderUpdates = [
+        { id: idA, displayOrder: 0 },
+        { id: idB, displayOrder: 0 },
+      ];
+
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        deletedAt: null,
+        projectId: '123e4567-e89b-12d3-a456-426614174004',
+      });
+
+      mockPrisma.quantityGroup.findMany
+        // 1回目: 所属確認（要求のIDで引く）
+        .mockResolvedValueOnce([
+          { id: idA, quantityTableId },
+          { id: idB, quantityTableId },
+        ])
+        // 2回目: 当該数量表の全グループ（適用後の状態を組み立てるため）
+        .mockResolvedValueOnce([
+          { id: idA, displayOrder: 0 },
+          { id: idB, displayOrder: 1 },
+        ]);
+
+      await expect(
+        service.updateDisplayOrder(quantityTableId, orderUpdates, actorId)
+      ).rejects.toThrow('表示順序が他の数量グループと重複しています');
+      expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
+    });
+
+    it('要求に含めない既存グループと重なる並び替えも拒む（Task 92.1）', async () => {
+      const idA = '123e4567-e89b-12d3-a456-426614174002';
+      const idB = '123e4567-e89b-12d3-a456-426614174003';
+      // A だけを 1 へ動かす。B は要求に含めないが既に 1 を占めている
+      const orderUpdates = [{ id: idA, displayOrder: 1 }];
+
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        deletedAt: null,
+        projectId: '123e4567-e89b-12d3-a456-426614174004',
+      });
+
+      mockPrisma.quantityGroup.findMany
+        .mockResolvedValueOnce([{ id: idA, quantityTableId }])
+        .mockResolvedValueOnce([
+          { id: idA, displayOrder: 0 },
+          { id: idB, displayOrder: 1 },
+        ]);
+
+      await expect(
+        service.updateDisplayOrder(quantityTableId, orderUpdates, actorId)
+      ).rejects.toThrow('表示順序が他の数量グループと重複しています');
+      expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
     });
   });
 
@@ -993,6 +1078,53 @@ describe('QuantityGroupService', () => {
 
       // Assert
       expect(result.name).toBeNull();
+    });
+
+    it('displayOrder を省いた作成は最大値+1になる（件数ではない。Task 92.1）', async () => {
+      // Arrange: 0 と 2 が残り 1 が空いている数量表。件数は 2、最大値は 2 で食い違う
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        deletedAt: null,
+        projectId: '123e4567-e89b-12d3-a456-426614174003',
+      });
+      mockPrisma.quantityGroup.count.mockResolvedValue(2);
+      mockPrisma.quantityGroup.aggregate.mockResolvedValue({ _max: { displayOrder: 2 } });
+      mockPrisma.quantityGroup.create.mockResolvedValue({
+        id: '123e4567-e89b-12d3-a456-426614174002',
+        quantityTableId,
+        name: '末尾追加',
+        surveyImageId: null,
+        displayOrder: 3,
+        createdAt: new Date('2026-01-06T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+        _count: { items: 0 },
+      });
+
+      // Act
+      await service.create({ quantityTableId, name: '末尾追加' }, actorId);
+
+      // Assert
+      expect(mockPrisma.quantityGroup.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ displayOrder: 3 }),
+        })
+      );
+    });
+
+    it('既存と同じ displayOrder を明示した作成は拒む（Task 92.1）', async () => {
+      // Arrange
+      mockPrisma.quantityTable.findUnique.mockResolvedValue({
+        id: quantityTableId,
+        deletedAt: null,
+        projectId: '123e4567-e89b-12d3-a456-426614174003',
+      });
+      mockPrisma.quantityGroup.count.mockResolvedValue(1);
+
+      // Act & Assert
+      await expect(
+        service.create({ quantityTableId, name: '重複', displayOrder: 0 }, actorId)
+      ).rejects.toThrow('表示順序が他の数量グループと重複しています');
+      expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
     });
   });
 

@@ -21,6 +21,7 @@ import type {
   CreateQuantityGroupInput,
   UpdateQuantityGroupInput,
 } from '../schemas/quantity-table.schema.js';
+import { QUANTITY_TABLE_VALIDATION_MESSAGES } from '../schemas/quantity-table.schema.js';
 import {
   QuantityTableNotFoundError,
   QuantityGroupNotFoundError,
@@ -168,10 +169,12 @@ export class QuantityGroupService {
         await this.validateSurveyImage(tx, input.surveyImageId, quantityTable.projectId);
       }
 
-      // 3. 次の表示順序を取得
-      const maxDisplayOrder = await tx.quantityGroup.count({
-        where: { quantityTableId: input.quantityTableId },
-      });
+      // 3. 表示順序の決定（明示された値は重なりを拒み、省略時は末尾へ採番する）
+      const displayOrder = await this.resolveCreateDisplayOrder(
+        tx,
+        input.quantityTableId,
+        input.displayOrder
+      );
 
       // 4. 数量グループ作成
       const quantityGroup = await tx.quantityGroup.create({
@@ -179,7 +182,7 @@ export class QuantityGroupService {
           quantityTableId: input.quantityTableId,
           name: input.name?.trim() ?? null,
           surveyImageId: input.surveyImageId ?? null,
-          displayOrder: input.displayOrder ?? maxDisplayOrder,
+          displayOrder,
         },
         include: {
           _count: {
@@ -228,6 +231,69 @@ export class QuantityGroupService {
     }
 
     return { id: quantityTable.id, projectId: quantityTable.projectId };
+  }
+
+  /**
+   * 作成時の表示順序を決める
+   *
+   * 明示された値は当該数量表の既存グループと重ならないことを確かめる。省略時は末尾
+   * （最大値 + 1）へ採番し、グループが1件も無ければ 0 から始める。
+   *
+   * 採番に「件数」を使ってはならない。削除は後続グループの表示順序を詰めないため、
+   * 空き番号のある数量表では件数が既存の最大値と一致し、末尾と重なる（Task 92.1）。
+   *
+   * @param tx - Prismaトランザクションクライアント
+   * @param quantityTableId - 数量表ID
+   * @param requested - 呼び出し側が明示した表示順序（未指定なら undefined）
+   * @returns 実際に書き込む表示順序
+   * @throws QuantityTableValidationError 明示された値が既存グループと重なる場合
+   */
+  private async resolveCreateDisplayOrder(
+    tx: PrismaTransactionClient,
+    quantityTableId: string,
+    requested: number | undefined
+  ): Promise<number> {
+    if (requested !== undefined) {
+      await this.assertDisplayOrderNotTaken(tx, quantityTableId, requested);
+      return requested;
+    }
+
+    const aggregated = await tx.quantityGroup.aggregate({
+      where: { quantityTableId },
+      _max: { displayOrder: true },
+    });
+
+    return (aggregated._max.displayOrder ?? -1) + 1;
+  }
+
+  /**
+   * 指定した表示順序が当該数量表の他のグループに使われていないことを確かめる
+   *
+   * @param tx - Prismaトランザクションクライアント
+   * @param quantityTableId - 数量表ID
+   * @param displayOrder - 判定する表示順序
+   * @param excludeGroupId - 判定から除くグループID（自分自身の現在値を指す更新を通すため）
+   * @throws QuantityTableValidationError 他のグループが同じ表示順序を持つ場合
+   */
+  private async assertDisplayOrderNotTaken(
+    tx: PrismaTransactionClient,
+    quantityTableId: string,
+    displayOrder: number,
+    excludeGroupId?: string
+  ): Promise<void> {
+    const taken = await tx.quantityGroup.count({
+      where: {
+        quantityTableId,
+        displayOrder,
+        ...(excludeGroupId !== undefined ? { id: { not: excludeGroupId } } : {}),
+      },
+    });
+
+    if (taken > 0) {
+      throw new QuantityTableValidationError(
+        QUANTITY_TABLE_VALIDATION_MESSAGES.DISPLAY_ORDER_DUPLICATED
+      );
+    }
   }
 
   /**
@@ -429,6 +495,13 @@ export class QuantityGroupService {
         updateData.surveyImageId = input.surveyImageId;
       }
       if (input.displayOrder !== undefined) {
+        // 他のグループが同じ表示順序を持つ状態を作らせない（自分自身は判定から除く。Task 92.1）
+        await this.assertDisplayOrderNotTaken(
+          tx,
+          quantityGroup.quantityTableId,
+          input.displayOrder,
+          id
+        );
         updateData.displayOrder = input.displayOrder;
       }
 
@@ -493,7 +566,29 @@ export class QuantityGroupService {
         throw new QuantityTableValidationError('異なる数量表のグループが含まれています');
       }
 
-      // 3. 各グループの表示順序を更新
+      // 3. 適用後の並びに重なりが生じないことを確かめる。
+      //    要求の中の重複だけでなく、要求に含めなかった既存グループとの重なりも見る
+      //    （一部のグループだけを動かす要求でも重なりうるため。Task 92.1）
+      const currentGroups = await tx.quantityGroup.findMany({
+        where: { quantityTableId },
+        select: { id: true, displayOrder: true },
+      });
+
+      const resultingOrders = new Map<string, number>(
+        currentGroups.map((g) => [g.id, g.displayOrder])
+      );
+      for (const update of orderUpdates) {
+        resultingOrders.set(update.id, update.displayOrder);
+      }
+
+      const orderValues = [...resultingOrders.values()];
+      if (new Set(orderValues).size !== orderValues.length) {
+        throw new QuantityTableValidationError(
+          QUANTITY_TABLE_VALIDATION_MESSAGES.DISPLAY_ORDER_DUPLICATED
+        );
+      }
+
+      // 4. 各グループの表示順序を更新
       for (const update of orderUpdates) {
         await tx.quantityGroup.update({
           where: { id: update.id },
@@ -501,7 +596,7 @@ export class QuantityGroupService {
         });
       }
 
-      // 4. 監査ログの記録
+      // 5. 監査ログの記録
       await this.auditLogService.createLog({
         action: 'QUANTITY_GROUP_UPDATED',
         actorId,

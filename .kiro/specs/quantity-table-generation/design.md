@@ -1155,6 +1155,38 @@ interface SurveyImageSummary {
 | PUT | /api/quantity-tables/:tableId/groups/reorder | { orderedIds: string[] } | QuantityGroupInfo[] | 400, 404 |
 | POST | /api/quantity-tables/:tableId/groups/from-survey | { siteSurveyId: string } | CreateGroupsFromSurveyResult | 400, 404 |
 
+**並び順の個別 API が displayOrder を重ねない形（Task 92.1 の決着）**
+
+上の Service Interface と `##### API Contract` の表は書いた時点の記録として残す。Task 88.1 が「個別 API は並行させなくても逐次の呼び出しで displayOrder を重ねる」と申し送った3経路について、Task 92.1 が次のとおり決着させた。実測はいずれも HEAD `4a745c07` の作業ツリーで、2026-09-12 にリポジトリルートから行った。
+
+- **決着**: **逐次の呼び出しについて**「同一数量表の2つのグループが同じ displayOrder を持つ状態」を個別 API に作らせない（並行して送られた要求に対する窓は残る。下の「塞いだ範囲」を見よ）。(1) `createQuantityGroupSchema` の displayOrder から既定値を外して任意にし、省略時はサーバーが採番する。(2) 採番は**件数ではなく最大値 + 1** とする（`resolveCreateDisplayOrder`）。(3) 明示された値が既存と重なる要求は 400 で拒む（`assertDisplayOrderNotTaken`）。更新（`update()`）は自分自身を判定から除くため、自分の現在値を指す更新は通る。(4) 並び替え（`updateDisplayOrder()`）は**適用後の全グループの並び**に重なりが生じる要求を 400 で拒む。文言は `QUANTITY_TABLE_VALIDATION_MESSAGES` の `DISPLAY_ORDER_DUPLICATED` 一本で、3経路とも既存の `QuantityTableValidationError` → 400 の写しに乗るため応答の形は変わらない
+- **採番に件数を使うと、それ自体が重なりを作る**（起票が挙げていない第4の穴）。`DELETE /api/quantity-groups/:id` は後続グループの displayOrder を詰めないため、0 と 2 が残る数量表では件数 2 が既存の末尾 2 と一致する。最大値 + 1 なら 3 になる
+- **ただし、この枝は本変更の前には公開 API から到達しなかった。** `createQuantityGroupSchema` の既定値が displayOrder を必ず補うため `input.displayOrder` が undefined にならず、件数による既定は経路からは使われなかった（`create()` の呼び出し元はルートだけである）。**既定値を外して省略を許した時点で初めて到達可能になり、同じ変更の中で是正が必要になる。** 件数のままで既定値だけを外すと、上の空き番号のある数量表で重なりが現に生じる（M2 がその状態を再現する）
+- **画面からの到達の実測**: 関数名ごとに `grep -rlw '<関数名>' frontend/src --include=*.ts --include=*.tsx | grep -v '\.test\.\|\.stories\.\|__tests__' | grep -v 'frontend/src/api/quantity-tables.ts'` を走らせた。`createQuantityGroup` / `updateQuantityGroup` / `updateGroupDisplayOrder` はいずれも 0 ファイルで、Task 88.1 の実測と一致する。画面の永続化は `saveDraft` の1回に畳まれる（REQ-42）
+
+**塞いだ範囲（逐次のみ）と、残る並行の窓**
+
+**Task 92.1 が塞いだのは逐次の呼び出しの側だけである。並行して送られた要求に対する窓は残る。** `assertDisplayOrderNotTaken` も並び替えの適用後の検査も、いずれも**数えてから書く**形である。そして `create()`・`update()`・`updateDisplayOrder()` は数量表の行ロックを取らない——Task 88.1 が `SELECT ... FOR UPDATE` を置いたのは `saveDraft`・`copy()`・`createGroupsFromSurvey()` の3つであり、本項の3経路は含まれない。したがって Read Committed の下では、2本の要求が互いの書き込みを見ないまま同じ検査を通過し、同じ displayOrder を書きうる。
+
+**これはコードを読んだ判断であって実測ではない。** 本項では並行プローブを走らせていない（Task 88.1 が `saveDraft` について用いた `pg_stat_activity` で先行を保留する決定的な形が流用できる）。塞ぐなら、本項の3経路にも同じ数量表の行ロックを取らせるか、遅延一意制約を置くことになる（後者は下のとおり退けた）。**部分的な是正であることを明示しておく**——重なりの主因であった「呼び出し側が渡す値」と「件数による採番」は消えたが、並行の窓は本項では消していない。
+
+**採らなかった案**
+
+- **`(quantityTableId, displayOrder)` の一意制約は採らなかった。画面から到達する唯一の経路を壊すことを実測した。** 検証用データベースへ非遅延の一意索引を当てて統合検証を走らせると、`npm --prefix backend run test:integration -- quantity-table-save.api` が 31 件中 3 件落ちた（基線は 31 件すべて緑）。落ちたのは「新規/更新/削除/並び替えが原子的に永続化され、再取得（GET詳細）で反映が保持される」「移動元グループを同時に削除しても移動した数量項目は失われない（Req 6.4）」「後発 save の競合（stale token）で後発が 409 となり、部分反映なし・displayOrder 衝突が起きない」の3件で、いずれも 200 のはずの応答が 500 になった。`saveDraft` は payload の配列順で既存グループの displayOrder を詰め直してから、payload に無いグループをまとめて削除するため、**詰め直しの途中で削除予定のグループと番号が一時的に重なる**
+- 同じ当て方で `npm --prefix backend run test:integration -- quantity-table-sort-order.api` も 4 件中 1 件落ちた（「PUT /api/quantity-tables/:tableId/groups/order で並び順が正しく更新される」が 204 のはずのところ 409）。Prisma の出力は「Unique constraint failed on the fields」に続けて quantityTableId と displayOrder の2列を挙げる（逐語は逆引用符を含むため鉤括弧で示す）。並び替えが1件ずつ更新するため、入れ替えの途中で番号が重なるからである。**通すには遅延制約が要るが、Prisma のスキーマ定義では宣言できず、生SQLの migration を置くとスキーマと実体が食い違う。** 索引は実測後に落とし、`quantity_groups` の索引が2本（主キーと既存の複合索引）へ戻ったことを確かめた
+- **撤去も採らなかった（81.1 の学び「塞ぐ前にその経路が本番から呼ばれるかを測ること」に従って利用者を先に数えた）。** `POST /api/quantity-tables/:quantityTableId/groups` は画面からは到達しないが、**E2E の前提条件が 35 箇所で呼んでいる**（``grep -rnF '/groups`' e2e --include=*.ts | grep 'quantity-tables' | wc -l`` の出力が 35。共有ヘルパー `e2e/helpers/estimate-request-preconditions.ts` を含む）。撤去すると見積・内訳書・プロジェクト詳細の E2E が前提を作れなくなる。加えて3経路とも `backend/docs/api-spec.json` に載る公開 API である。並び替えと単体更新は E2E からの呼び出しが 0 件だが、単体更新はグループ名変更と写真紐付けを兼ねるため撤去できない
+- **「重複を 400 で拒むだけ」で既定値を残す案も採らなかった。** 既定値が 0 である限り、displayOrder を省いた作成が2件目から必ず 400 になり、省略を許す API 契約が事実上使えなくなる
+- **行ロックを足す案は Task 88.1 が既に退けている。** 3経路の重なりは並行を含まない逐次の呼び出しで起きるため、直列化では防げない
+
+**変異の実測**（本項の変更を載せた状態で 2026-09-12 にリポジトリルートで実測。復元は事前複製からの書き戻しで行い `git hash-object` の一致で確かめた）
+
+- M1（作成の重複検査を外す）: `npm --prefix backend run test -- quantity-group.service` が 59 件中 1 件、`npm --prefix backend run test:integration -- quantity-group-display-order` が 11 件中 1 件落ちる
+- M2（採番を最大値 + 1 から件数へ戻す）: 同じ2コマンドが 59 件中 1 件・11 件中 1 件落ちる
+- M3（更新の重複検査を外す）: 同じ2コマンドが 59 件中 1 件・11 件中 1 件落ちる
+- M4（並び替えの適用後の重複検査を外す）: 同じ2コマンドが 59 件中 2 件・11 件中 2 件落ちる
+
+**範囲外の同型（未処置・測定のみ）**: 数量項目側の `backend/src/routes/quantity-items.routes.ts` が持つ並び順の一括更新スキーマと、数量項目作成スキーマの displayOrder の既定値は同じ形である。本項の境界は数量グループの並び順の個別 API なので触れていない
+
 ---
 
 #### QuantityItemService
@@ -2388,7 +2420,7 @@ interface SiteSurveySummary {
   - M1: `saveDraft` から数量表の行の `SELECT ... FOR UPDATE` を取り除く。`npm --prefix backend run test:integration -- quantity-table-save.api` は 31 件中 2 件落ちる（統合検証「同時並行保存の直列化（Task 88.1）」の2件）
   - M2: 同じロックを、差分元の読み取りと存在確認の後ろへ移す。同じコマンドで同じ 2 件が落ちる
   - M1 の下で `npm --prefix backend run test`（単体）は 5688 件すべて緑のままである。**単体検証はこのロックを固定していない**。固定しているのは上の統合検証だけである
-- **残るリスク**: (a) 上の逐次の3件は画面からは到達しないが、認証済みの HTTP クライアントからは今も displayOrder を重ねうる。是正は本項の境界の外である。(b) `saveDraft` の後発はロックを待つ時間も Prisma の対話トランザクションの時間切れに算入される。先行が長引いたときの後発の応答は測っていない
+- **残るリスク**: (a) 上の逐次の3件は画面からは到達しないが、認証済みの HTTP クライアントからは今も displayOrder を重ねうる。是正は本項の境界の外である。**【現況】Task 92.1 が塞いだのは、この3経路の逐次の呼び出しの側だけである**（省略時はサーバーが最大値 + 1 で採番し、重なる指定は 400 で拒む）。**並行の窓は残っており、本項の (a) は閉じていない**——検査は数えてから書く形であり、`create()`・`update()`・`updateDisplayOrder()` は数量表の行ロックを取らないままである（上の「行ロックの所在の実測」のとおり、ロックを取るのは `saveDraft`・`copy()`・`createGroupsFromSurvey()` の3つで、この3経路は含まれない）。Read Committed の下では2本の要求が同じ検査を通過して同じ値を書きうる。**これはコードを読んだ判断であって実測ではない**（並行プローブは走らせていない）。決着・採らなかった案・変異の実測、および残る窓の詳細は `#### QuantityGroupService` の「並び順の個別 API が displayOrder を重ねない形（Task 92.1 の決着）」に置いた。**(b) `saveDraft` の後発はロックを待つ時間も Prisma の対話トランザクションの時間切れに算入される。先行が長引いたときの後発の応答は測っていない
 
 **Dependencies**: Inbound: QuantityTableRoutes (P0) / Outbound: QuantityGroupService, QuantityItemService, QuantityValidationService (P1) / External: PrismaClient (P0), AuditLogService (P1)
 
