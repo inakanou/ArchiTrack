@@ -35,6 +35,7 @@ import {
   QuantityTableNotFoundError,
   QuantityTableConflictError,
   QuantityTableValidationError,
+  QuantityTableSaveBusyError,
   ProjectNotFoundForQuantityTableError,
 } from '../errors/quantityTableError.js';
 import { SurveyDeletedError, sendSurveyDeletedProblem } from '../utils/survey-deleted-guard.js';
@@ -745,6 +746,11 @@ router.put(
  *           指定した現調画像の親の現場調査が論理削除済み（code: SURVEY_DELETED）。
  *           削除された現場調査IDを surveyId で返し、原因のグループを
  *           groups[i].surveyImageId（i は payload 上のグループの位置）で名指す（Task 90.2）
+ *       503:
+ *         description: |
+ *           同一数量表への先行の保存が長引き、行ロックの待機が上限（2 秒）を超えた
+ *           （code: QUANTITY_TABLE_SAVE_BUSY。Task 92.5）。変更は一切保存されていない。
+ *           時間をおいて再送すれば解消する種類の失敗である
  */
 router.put(
   '/:id/save',
@@ -828,6 +834,29 @@ router.put(
           detail: error.message,
           code: 'QUANTITY_TABLE_VALIDATION_ERROR',
           ...(validationDetails ?? {}),
+        });
+        return;
+      }
+      // ロック待ちの上限超過（Task 92.5）は混雑による一時的な失敗であり、時間をおけば
+      // 解消する。恒久的な失敗（下の 500）と同じ文言・同じコードへ畳むと、運用側が
+      // 「混雑しているだけ」と「本当に壊れている」を区別できない。画面に届く文言は
+      // 一般の失敗と同じ（再試行を促す案内）であり、増えるのは運用側の識別である。
+      if (error instanceof QuantityTableSaveBusyError) {
+        logger.warn(
+          {
+            userId: req.user?.userId,
+            quantityTableId: (req.validatedParams as { id?: string })?.id,
+            code: 'QUANTITY_TABLE_SAVE_BUSY',
+            details: error.details,
+          },
+          'Quantity table draft save aborted by lock wait timeout'
+        );
+        res.status(503).json({
+          type: 'https://architrack.example.com/problems/quantity-table-save-busy',
+          title: 'Service Unavailable',
+          status: 503,
+          detail: error.message,
+          code: 'QUANTITY_TABLE_SAVE_BUSY',
         });
         return;
       }

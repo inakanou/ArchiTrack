@@ -26,6 +26,7 @@ import {
   QuantityTableNotFoundError,
   QuantityTableConflictError,
   QuantityTableValidationError,
+  QuantityTableSaveBusyError,
   ProjectNotFoundForQuantityTableError,
 } from '../errors/quantityTableError.js';
 import { QUANTITY_TABLE_TARGET_TYPE } from '../types/audit-log.types.js';
@@ -39,6 +40,64 @@ import { assertSurveyNotDeleted } from '../utils/survey-deleted-guard.js';
 import { SurveyImageNotFoundError } from '../errors/siteSurveyError.js';
 import logger from '../utils/logger.js';
 import Decimal from 'decimal.js';
+
+/**
+ * `saveDraft` が数量表の行ロックを待つ上限（ミリ秒）
+ *
+ * ## なぜ上限が要るか
+ *
+ * `saveDraft` は同一数量表への保存を直列化するため数量表の行を `SELECT ... FOR UPDATE` で
+ * 握る（Task 88.1）。Prisma の対話トランザクションの時間切れは**実行中の問い合わせを
+ * 中断しない**ため、待機はトランザクションの制限時間では切れない。上限を入れない限り、
+ * 後発の利用者は先行が終わるまで待たされる（Task 92.2 の実測: 先行を 120 秒握らせた条件で
+ * 後発の所要も 120013 ms）。待機を切れるのは PostgreSQL 側の `lock_timeout` だけである。
+ *
+ * ## なぜ 2000 ms か（Task 92.5 の実測に基づく）
+ *
+ * - 保存そのものの所要は、2グループ×3項目で中央 18 ms（10 回の最小 13 / 最大 73 ms）、
+ *   10グループ×200項目で中央 237 ms（5 回の最小 196 / 最大 291 ms）である。上限は
+ *   実際に競合する保存が終わるのを待つに十分な長さ（大きな保存の 8 倍超）が要る
+ * - 上限はトランザクションの制限時間（Prisma 既定 5 秒）より確実に手前で効かなければ
+ *   ならない。効かなければ待機が制限時間を食い潰し、応答は P2028 由来の 500 になって
+ *   本エラーの識別が失われる。設定値に対する待機の実測は環境の揺らぎで最大 1.56 倍まで
+ *   伸びたため、2000 ms なら最悪でも約 3.1 秒で、大きな保存の所要（約 0.3 秒）を足しても
+ *   5 秒に届かない。3000 ms では同じ揺らぎで 4.5 秒となり余裕が無い
+ *
+ * 実測はいずれも 2026-09-12、コミット `21d95ac1` の作業ツリー（本タスクの変更を入れる前の
+ * 状態）で、リポジトリルートから統合検証の一時プローブとして行った。
+ */
+export const SAVE_DRAFT_LOCK_TIMEOUT_MS = 2000;
+
+/** 生SQLの失敗を表す Prisma のエラーコード */
+const PRISMA_RAW_QUERY_ERROR_CODE = 'P2010';
+
+/** ロック待ちの打ち切りを表す PostgreSQL の SQLSTATE（`canceling statement due to lock timeout`） */
+const POSTGRES_LOCK_TIMEOUT_SQLSTATE = '55P03';
+
+/**
+ * ロック待ちの上限超過（PostgreSQL の `lock_timeout`）による失敗かを判定する
+ *
+ * `lock_timeout` で切られた `SELECT ... FOR UPDATE` は、Prisma からは
+ * `PrismaClientKnownRequestError`（`code: 'P2010'`）として届く。SQLSTATE は
+ * メッセージ（``Raw query failed. Code: `55P03`.``）と `meta` の driver adapter の
+ * 情報の両方に現れるため、どちらかに現れれば上限超過と判定する。
+ *
+ * @param error - 判定対象
+ * @returns ロック待ちの上限超過なら true
+ */
+function isLockWaitTimeoutError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+  const { code, meta, message } = error as { code?: unknown; meta?: unknown; message?: unknown };
+  if (code !== PRISMA_RAW_QUERY_ERROR_CODE) {
+    return false;
+  }
+  if (typeof message === 'string' && message.includes(POSTGRES_LOCK_TIMEOUT_SQLSTATE)) {
+    return true;
+  }
+  return meta !== undefined && JSON.stringify(meta).includes(POSTGRES_LOCK_TIMEOUT_SQLSTATE);
+}
 
 /**
  * QuantityTableService依存関係
@@ -991,6 +1050,8 @@ export class QuantityTableService {
    *         指した場合（400）
    * @throws SurveyImageNotFoundError payload が実在しない現調画像を指した場合（404）
    * @throws SurveyDeletedError payload が指す現調画像の親の現場調査が論理削除済みの場合（410）
+   * @throws QuantityTableSaveBusyError 先行の保存が長引き、行ロックの待機が上限
+   *         （{@link SAVE_DRAFT_LOCK_TIMEOUT_MS}）を超えた場合（503。Task 92.5）
    */
   async saveDraft(
     id: string,
@@ -1008,11 +1069,26 @@ export class QuantityTableService {
       //    （Task 88.1）。差分元と updatedAt を読む前に取るので、後発の保存は先行の確定を
       //    待ってから確定後の updatedAt を読み、下の楽観的排他制御の照合で 409 となる。
       //    行が無い／論理削除済みの判定は直後の読み取りに任せる（応答は従来どおり 404）。
-      await tx.$queryRaw`
-        SELECT id FROM "quantity_tables"
-        WHERE id = ${id}
-        FOR UPDATE
-      `;
+      //
+      //    待機には上限を掛ける（Task 92.5）。掛けないと待機はトランザクションの制限時間では
+      //    切れず、後発は先行が終わるまで待たされる。SET LOCAL なので本トランザクションの
+      //    間だけ効き、接続を共有する他の処理には及ばない。値の根拠は
+      //    SAVE_DRAFT_LOCK_TIMEOUT_MS の註に置いた。
+      await tx.$executeRawUnsafe(`SET LOCAL lock_timeout = '${SAVE_DRAFT_LOCK_TIMEOUT_MS}ms'`);
+      try {
+        await tx.$queryRaw`
+          SELECT id FROM "quantity_tables"
+          WHERE id = ${id}
+          FOR UPDATE
+        `;
+      } catch (error) {
+        // 上限超過は混雑による一時的な失敗であり、時間をおけば解消する。恒久的な失敗
+        // （ルートが 500 QUANTITY_TABLE_SAVE_ERROR へ畳むもの）と別のコードで返す。
+        if (isLockWaitTimeoutError(error)) {
+          throw new QuantityTableSaveBusyError(SAVE_DRAFT_LOCK_TIMEOUT_MS);
+        }
+        throw error;
+      }
 
       // 1. 数量表の存在確認・現状取得（差分元となるグループ/項目IDを含む）
       const current = await tx.quantityTable.findUnique({

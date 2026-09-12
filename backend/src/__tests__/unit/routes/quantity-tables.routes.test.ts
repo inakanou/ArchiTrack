@@ -864,6 +864,48 @@ describe('QuantityTablesRoutes', () => {
       expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_CONFLICT');
     });
 
+    it('ロック待ちの上限超過は503（QUANTITY_TABLE_SAVE_BUSY）を返却する（Task 92.5）', async () => {
+      const { QuantityTableSaveBusyError } = await import('../../../errors/quantityTableError.js');
+      mockService.saveDraft.mockRejectedValue(new QuantityTableSaveBusyError());
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .send(buildSaveBody())
+        .expect(503);
+
+      expect(response.body).toHaveProperty('code', 'QUANTITY_TABLE_SAVE_BUSY');
+    });
+
+    it('見知らぬ例外（Prisma の P2028 を含む）は500 QUANTITY_TABLE_SAVE_ERROR へ畳まれる（Task 92.2 の決着の固定）', async () => {
+      // Task 92.2 が実測した「保存経路のルートが自前の catch を持ち、見知らぬ例外をすべて
+      // QUANTITY_TABLE_SAVE_ERROR の 500 へ畳む。errorHandler の P2028 の枝（500
+      // 『Transaction Timeout』）は本経路の応答には効かない」を、壁時計を払わずに固定する。
+      const { Prisma } = await import('../../../generated/prisma/client.js');
+      const transactionTimeout = new Prisma.PrismaClientKnownRequestError(
+        'Transaction API error: Transaction already closed',
+        { code: 'P2028', clientVersion: 'test' }
+      );
+      mockService.saveDraft.mockRejectedValue(transactionTimeout);
+
+      const timedOut = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .send(buildSaveBody())
+        .expect(500);
+
+      expect(timedOut.body).toHaveProperty('code', 'QUANTITY_TABLE_SAVE_ERROR');
+      expect(timedOut.body).toHaveProperty('title', 'Internal Server Error');
+      expect(timedOut.body).not.toHaveProperty('title', 'Transaction Timeout');
+
+      // P2028 に限らない。素の Error も同じ 500 の本文へ畳まれる（非空証明）
+      mockService.saveDraft.mockRejectedValue(new Error('想定外の失敗'));
+      const unknown = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .send(buildSaveBody())
+        .expect(500);
+
+      expect(unknown.body).toHaveProperty('code', 'QUANTITY_TABLE_SAVE_ERROR');
+    });
+
     it('親の現場調査が論理削除済みの現調画像を含む場合410を返却する（Task 81.1）', async () => {
       const surveyId = '123e4567-e89b-12d3-a456-426614174005';
       const { SurveyDeletedError } = await import('../../../utils/survey-deleted-guard.js');

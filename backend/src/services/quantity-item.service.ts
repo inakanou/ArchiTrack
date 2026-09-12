@@ -364,6 +364,9 @@ export class QuantityItemService {
    * 書き込み経路が取るロックが1種類に揃う。`move` / `bulkMove` は2つのグループに跨るため、
    * グループ行を対象にすると取得順序を決める必要が生じるが、数量表の行なら1行で足りる。
    *
+   * 述語に `AND "deletedAt" IS NULL` を付さない理由は、数量グループ側の同名のヘルパー
+   * （`quantity-group.service.ts` の `lockQuantityTableRow`）の註に置いた（Task 92.5）。
+   *
    * @param tx - Prismaトランザクションクライアント
    * @param quantityTableId - 数量表ID
    */

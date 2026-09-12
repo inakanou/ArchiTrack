@@ -64,6 +64,7 @@ type MockPrismaClient = {
   };
   $transaction: Mock;
   $queryRaw: Mock;
+  $executeRawUnsafe: Mock;
 };
 
 describe('QuantityTableService', () => {
@@ -115,6 +116,10 @@ describe('QuantityTableService', () => {
       // ロックが直列化することは単体では確かめられないため、統合検証
       // （quantity-table-save.api.integration.test.ts の「同時並行保存の直列化」）が担う。
       $queryRaw: vi.fn().mockResolvedValue([]),
+      // saveDraft が行ロックの前に掛けるロック待ちの上限（SET LOCAL lock_timeout。Task 92.5）。
+      // 上限が実際に待機を切ることは単体では確かめられないため、統合検証
+      // （quantity-table-save.api.integration.test.ts の「ロック待ちの上限」）が担う。
+      $executeRawUnsafe: vi.fn().mockResolvedValue(0),
     };
 
     // Mock AuditLogService
@@ -2365,6 +2370,70 @@ describe('QuantityTableService', () => {
         .mockResolvedValueOnce(current)
         .mockResolvedValueOnce(reloaded);
     };
+
+    describe('ロック待ちの上限（Task 92.5）', () => {
+      /** payload は最小構成（グループ無し）。見るのはロック取得の手前の挙動だけである */
+      const minimalInput = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [],
+      };
+
+      it('行ロックを取る前に SET LOCAL lock_timeout で待機の上限を掛ける', async () => {
+        setupFindUnique(currentState(), reloadedDetail());
+
+        await service.saveDraft(quantityTableId, minimalInput as never, actorId);
+
+        const statements = mockPrisma.$executeRawUnsafe.mock.calls.map(
+          (call: unknown[]) => call[0] as string
+        );
+        expect(statements).toHaveLength(1);
+        expect(statements[0]).toContain('SET LOCAL lock_timeout');
+        expect(statements[0]).toContain('2000ms');
+
+        // 上限は行ロックの取得より前に掛かっていなければ意味が無い。
+        // 呼び出しが無い場合は主張が成立しない側の既定を置く（恒真にしない）
+        const limitOrder =
+          mockPrisma.$executeRawUnsafe.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY;
+        const lockOrder =
+          mockPrisma.$queryRaw.mock.invocationCallOrder[0] ?? Number.NEGATIVE_INFINITY;
+        expect(limitOrder).toBeLessThan(lockOrder);
+      });
+
+      it('上限超過（PostgreSQL 55P03）は QuantityTableSaveBusyError へ写す', async () => {
+        const { Prisma } = await import('../../../generated/prisma/client.js');
+        const { QuantityTableSaveBusyError } =
+          await import('../../../errors/quantityTableError.js');
+        setupFindUnique(currentState(), reloadedDetail());
+        mockPrisma.$queryRaw.mockRejectedValueOnce(
+          new Prisma.PrismaClientKnownRequestError(
+            'Raw query failed. Code: `55P03`. Message: `canceling statement due to lock timeout`',
+            { code: 'P2010', clientVersion: 'test' }
+          )
+        );
+
+        await expect(
+          service.saveDraft(quantityTableId, minimalInput as never, actorId)
+        ).rejects.toBeInstanceOf(QuantityTableSaveBusyError);
+      });
+
+      it('上限超過でない生SQLの失敗は写さずそのまま投げる（非空証明）', async () => {
+        const { Prisma } = await import('../../../generated/prisma/client.js');
+        const { QuantityTableSaveBusyError } =
+          await import('../../../errors/quantityTableError.js');
+        setupFindUnique(currentState(), reloadedDetail());
+        mockPrisma.$queryRaw.mockRejectedValueOnce(
+          new Prisma.PrismaClientKnownRequestError(
+            'Raw query failed. Code: `42P01`. Message: `relation does not exist`',
+            { code: 'P2010', clientVersion: 'test' }
+          )
+        );
+
+        await expect(
+          service.saveDraft(quantityTableId, minimalInput as never, actorId)
+        ).rejects.not.toBeInstanceOf(QuantityTableSaveBusyError);
+      });
+    });
 
     it('数量表名・グループ名・写真紐づけ・新規グループ/項目をフル状態で保存できる（REQ-42.5, 11.1）', async () => {
       // Arrange: DBは空の数量表。payloadで1グループ+1項目を新規作成

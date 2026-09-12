@@ -302,11 +302,14 @@ describe('並び順の個別 API の並行制御（Task 92.4）', () => {
         expect((await postGroup(tableId, { name: 'A', displayOrder: 0 })).status).toBe(201);
         expect((await postGroup(tableId, { name: 'B', displayOrder: 1 })).status).toBe(201);
 
-        await Promise.all([
+        const responses = await Promise.all([
           postGroup(tableId, { name: '並行1' }).then((r) => r),
           postGroup(tableId, { name: '並行2' }).then((r) => r),
         ]);
 
+        // 2本とも成功していることを先に主張する。重なりの不在だけを見る形では、
+        // 2本とも 500 で死んでも「残る並びが一意」で通過してしまう（Task 92.4 の独立レビュー）
+        expect(responses.map((r) => r.status)).toEqual([201, 201]);
         expectNoOverlap(await readGroupOrders(tableId));
       }
     }, 120_000);
@@ -353,11 +356,13 @@ describe('並び順の個別 API の並行制御（Task 92.4）', () => {
         expect((await postItem(groupId, { name: 'A', displayOrder: 0 })).status).toBe(201);
         expect((await postItem(groupId, { name: 'B', displayOrder: 1 })).status).toBe(201);
 
-        await Promise.all([
+        const responses = await Promise.all([
           postItem(groupId, { name: '並行1' }).then((r) => r),
           postItem(groupId, { name: '並行2' }).then((r) => r),
         ]);
 
+        // 2本とも成功していることを先に主張する（上と同じ理由）
+        expect(responses.map((r) => r.status)).toEqual([201, 201]);
         expectNoOverlap(await readItemOrders(groupId));
       }
     }, 120_000);

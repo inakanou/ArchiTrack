@@ -1513,4 +1513,131 @@ describe('Quantity Table Save (PUT /:id/save) API Integration Tests', () => {
       expect(groups.map((g) => g.displayOrder)).toEqual([0, 1, 2]);
     }, 30_000);
   });
+
+  /**
+   * ロック待ちの上限（Task 92.5）
+   *
+   * Task 92.2 は、先行が数量表の行を握り続けると後発の待機に上限が無く、所要時間の上限を
+   * 決めるのは先行の長さであることを実測した（先行を 120 秒握らせた条件で後発の所要も
+   * 120013 ms）。本節は上限を固定する。
+   *
+   * ## なぜ関門を「解放しない」形で書くか
+   *
+   * 先行を一定時間だけ握らせる形にすると、検証は壁時計をその時間ぶん必ず払ううえ、
+   * 上限が効かなくなる退行でも「先行が解放された後に応答が返る」ため緑になりうる。
+   * 関門を握ったまま応答を待てば、**上限が効いているときだけ応答が返る**。上限を外す
+   * 変異の下では下の期限つきの待ち合わせが失敗する。
+   */
+  describe('ロック待ちの上限（Task 92.5）', () => {
+    /** 数量表の行を FOR UPDATE で握り、release されるまで保持し続ける関門を開く */
+    const openBarrier = (
+      quantityTableId: string
+    ): { started: Promise<void>; release: () => void; done: Promise<unknown> } => {
+      let release!: () => void;
+      const mayRelease = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let signalStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        signalStarted = resolve;
+      });
+      const done = prisma.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`
+            SELECT id FROM "quantity_tables" WHERE id = ${quantityTableId} FOR UPDATE
+          `;
+          signalStarted();
+          await mayRelease;
+        },
+        { timeout: 120_000 }
+      );
+      return { started, release, done };
+    };
+
+    /** 既存の2グループを残したまま末尾へ新規グループを1件足す保存要求の本文 */
+    const appendGroupPayload = (
+      seeded: { group1Id: string; group2Id: string },
+      expectedUpdatedAt: string,
+      label: string
+    ): Record<string, unknown> => ({
+      expectedUpdatedAt,
+      name: label,
+      groups: [
+        {
+          id: seeded.group1Id,
+          name: '初期グループ1',
+          surveyImageId: null,
+          displayOrder: 0,
+          items: [],
+        },
+        {
+          id: seeded.group2Id,
+          name: '初期グループ2',
+          surveyImageId: null,
+          displayOrder: 1,
+          items: [],
+        },
+        { id: null, name: `${label}-末尾追加`, surveyImageId: null, displayOrder: 2, items: [] },
+      ],
+    });
+
+    it('先行が行を握り続けても、後発の保存は上限で打ち切られ 503 を返す（解放後は 200 になる）', async () => {
+      const seeded = await createSeededTable(testProjectId, 'ロック待ちの上限');
+      const baseExpected = await getExpectedUpdatedAt(seeded.tableId);
+
+      const barrier = openBarrier(seeded.tableId);
+      let blocked: request.Response;
+      let elapsedMs: number;
+      let guardTimer: NodeJS.Timeout | undefined;
+      try {
+        await barrier.started;
+
+        const started = performance.now();
+        const pending = request(app)
+          .put(`/api/quantity-tables/${seeded.tableId}/save`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send(appendGroupPayload(seeded, baseExpected, '後発'))
+          .then((res) => res);
+
+        // 上限が無ければ応答は返らない（関門は握ったままである）。期限つきで待ち合わせ、
+        // 期限内に返らなければ失敗させる。時間は単調時計で測る（WSL2 の壁時計はずれる）
+        const guard = new Promise<never>((_, reject) => {
+          guardTimer = setTimeout(
+            () =>
+              reject(
+                new Error(
+                  'ロック待ちの上限が効いていない: 関門を保持したまま 20 秒以内に応答が返らなかった'
+                )
+              ),
+            20_000
+          );
+        });
+
+        blocked = await Promise.race([pending, guard]);
+        elapsedMs = performance.now() - started;
+      } finally {
+        if (guardTimer) clearTimeout(guardTimer);
+        barrier.release();
+        await barrier.done.catch(() => undefined);
+      }
+
+      expect(blocked.status).toBe(503);
+      expect(blocked.body).toHaveProperty('code', 'QUANTITY_TABLE_SAVE_BUSY');
+      // 上限（2 秒）で切れていること。観測環境の揺らぎを見込んでも 15 秒には遠く及ばない
+      expect(elapsedMs).toBeLessThan(15_000);
+
+      // 後発は何も書いていない（先行の状態のまま）
+      const groupsWhileBlocked = await prisma.quantityGroup.findMany({
+        where: { quantityTableId: seeded.tableId },
+      });
+      expect(groupsWhileBlocked).toHaveLength(2);
+
+      // 非空証明: 競合が解けた同じ要求は通る。503 は恒常の応答ではない
+      const afterRelease = await request(app)
+        .put(`/api/quantity-tables/${seeded.tableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send(appendGroupPayload(seeded, baseExpected, '解放後'));
+      expect(afterRelease.status).toBe(200);
+    }, 60_000);
+  });
 });
