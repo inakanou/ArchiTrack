@@ -3022,6 +3022,29 @@ _起票元: Task 88.1 の実装が一時プローブで実測し、独立レビ�
 
 _起票元: Task 89.3 の実装が不在を測定し、独立レビューが兄弟メソッドの列挙漏れを検出して申し送った_
 
+## Task 94: 機能レベル検証が検出した二件の残り
+
+**経緯**: 本実行の機能レベル検証（`/kiro-validate-impl`）が、per-task のレビューでは見えない二件を検出した。いずれも欠陥ではなく、受け皿の無い測定記録と、実態より狭い注釈である。
+
+- [ ] 94.1 到達しない本番モジュールの残りの処遇を決める
+  - **経緯**: 89.1 が「範囲外の同型（未処置）」として6件、89.3 が同節で `SurveyImageSelectorProps` 等を、**いずれも測定のみで受け皿を持たないまま**記録している。機能レベル検証が「89.1 と同じ整理の続きとして起票が望ましい」と申し送った
+  - **測った事実**（機能レベル検証が `npm run check:req-coverage:json` で確認）: `unreachableProductionModules` に 49 件が在籍する。89.1 が名指したのは `CalculationNumericInput` / `NumericFieldInput` / `TextFieldInput` / `PhotoChangeDialog` / `frontend/src/hooks/useQuantityTableSave.ts` / `frontend/src/components/quantity-table/index.ts` である
+  - **89.1 の作法をそのまま使うこと**: 一件ずつ到達可能性を測り、撤去が被覆検査を悪化させないことを前後の実測で示し、steering の追随が要るかを確かめる。**撤去が別スペックの文書や自己検査を巻き込むなら、同スペックへ起票して待つこと**（89.1 が 115.325 で踏んだ手順）
+  - **`index.ts` は再輸出であり、消費者が 0 のまま残っている**（89.1 が撤去後も到達しないと記録）。撤去の可否は他の部品の処遇と連動する
+  - _Depends: 89.3_
+  - _Boundary: 数量表画面の到達しない本番モジュールの処遇_
+
+- [ ] 94.2 突き合わせの範囲を名乗る注釈を実態へ揃える
+  - **経緯**: 機能レベル検証が検出した。`backend/src/__tests__/integration/quantity-table-save-survey-image-existence.api.integration.test.ts` の注釈が、突き合わせ対象を「`type` / `title` / `status` / `detail` / `code` の5項目（＝応答本文の全項目）」と述べるが、実際の本文と `expectedProblem` は `surveyImageId` を含む **6項目**である
+  - **欠陥ではない**。`toEqual` は本文全体を比較するため 86.2 の経路間の一致そのものは健在で、**注釈だけが実態より狭い**（安全側の誤り）
+  - **同型の先例がある**: 86.1 の初稿が「本文が同一である」と名乗りながら3項目しか比べていなかった件（Implementation Notes に記録）。あちらは実態が主張より狭い危険な向きで、こちらは逆向きである。**どちらも「表題が名乗る範囲と実際の突き合わせを一致させること」の違反である**
+  - 着手時に項目数を測り直してから直すこと
+  - _Boundary: 保存経路の応答本文の突き合わせを述べる注釈_
+
+**本節が `_Requirements:` を持たないのは意図である。** いずれも受入基準を実装せず、記録と注釈を現況へ揃えるだけである。
+
+_起票元: 本実行の機能レベル検証（`/kiro-validate-impl`）_
+
 ## Implementation Notes（Task 75 以降）
 
 - **表示用URLを1本へ畳むと、呼び出し側は合成済みか否かを値から判別できない**: 75.1 の結線で `isDisplayUrlAnnotated` と `hasDrawnAnnotations` の2真偽値を応答へ足すことが不可分になった。常に注釈付きとして渡せば合成済み画像へ二重に重なり、常に通常サムネイルとして渡せば `AnnotatedImageThumbnail` が短絡して注釈が消える。**畳むのはURLの本数だけで、判別の情報は畳まないこと。** また注釈レコードの存在は描画の有無を意味しない（回転のみの保存でもレコードは残る）。
