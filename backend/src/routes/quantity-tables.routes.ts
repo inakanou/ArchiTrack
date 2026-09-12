@@ -740,6 +740,11 @@ router.put(
  *           存在しない（code: SURVEY_IMAGE_NOT_FOUND。見つからなかった画像IDを surveyImageId で返す）
  *       409:
  *         description: 楽観的排他制御エラー（競合）
+ *       410:
+ *         description: |
+ *           指定した現調画像の親の現場調査が論理削除済み（code: SURVEY_DELETED）。
+ *           削除された現場調査IDを surveyId で返し、原因のグループを
+ *           groups[i].surveyImageId（i は payload 上のグループの位置）で名指す（Task 90.2）
  */
 router.put(
   '/:id/save',

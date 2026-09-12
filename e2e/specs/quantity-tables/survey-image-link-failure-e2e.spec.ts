@@ -11,7 +11,9 @@
  *    名指して告げる。保存で紐付けが解除されると告知は消える。
  * 2. 保存の 400（他プロジェクトの写真。Task 86.1 / 86.4）: 原因のグループを名指し、再試行を促さない。
  * 3. 保存の 404（写真の物理削除。Task 86.2）: 原因のグループを名指し、再試行を促さない。
- * 4. 保存の 410（親の現場調査の論理削除。Task 81.1）: 現場調査の削除を告げ、再試行を促さない。
+ * 4. 保存の 410（親の現場調査の論理削除。Task 81.1 / 名指しと解除は Task 90.2）: 原因のグループを
+ *    名指し、再試行を促さない。続けて紐付けを解除すると保存が通る（袋小路の出口）。
+ *    論理削除された現場調査の写真は選択候補に現れないため、「写真を変更」では復旧できない。
  *
  * 前提の作り方:
  * - (1) の所属違反の紐付けは、Task 86.1 以降 API からは作れないため DB へ直接書く
@@ -335,7 +337,7 @@ test.describe('現調画像の紐付けの失敗の提示（Task 86.5）', () =>
 
     const alert = saveFailureAlert(page);
     await expect(alert).toContainText(
-      '次のグループの写真はこの数量表のプロジェクトに属していないため保存できません: グループ「差し替えられる写真」。写真を変更してから保存してください。'
+      '次のグループの写真はこの数量表のプロジェクトに属していないため保存できません: グループ「差し替えられる写真」。写真を変更するか紐付けを解除してから保存してください。'
     );
     await expect(alert).not.toContainText('残る写真');
     await expect(alert).not.toContainText(RETRY_WORDING);
@@ -384,13 +386,13 @@ test.describe('現調画像の紐付けの失敗の提示（Task 86.5）', () =>
 
     const alert = saveFailureAlert(page);
     await expect(alert).toContainText(
-      '次のグループの写真は削除されているため保存できません: グループ「削除される写真」。写真を変更してから保存してください。'
+      '次のグループの写真は削除されているため保存できません: グループ「削除される写真」。写真を変更するか紐付けを解除してから保存してください。'
     );
     await expect(alert).not.toContainText('残る写真');
     await expect(alert).not.toContainText(RETRY_WORDING);
   });
 
-  test('編集中に写真の現場調査が削除されたとき、その旨を告げ再試行を促さない（410）', async ({
+  test('編集中に写真の現場調査が削除されたとき、原因のグループを名指し、紐付けを解除すると保存できる（410。Task 90.2）', async ({
     page,
     browser,
   }) => {
@@ -398,19 +400,24 @@ test.describe('現調画像の紐付けの失敗の提示（Task 86.5）', () =>
     const doomedSurvey = await seedSurveyPhotosWithComments(
       page,
       state.ownerProjectId,
-      'T86_5_現場調査を削除',
+      'T90_2_現場調査を削除',
       [null],
       'none'
     );
     const imageId = doomedSurvey.imageIds[0];
     assertPrepared(imageId, '論理削除する現場調査の写真のID');
 
-    const { tableId } = await createTableWithGroups(
+    const { tableId, groupIds } = await createTableWithGroups(
       page,
       state.ownerProjectId,
-      `T86_5_現場調査の削除_${RUN_ID}`,
-      [{ name: '現場調査ごと削除', surveyImageId: imageId }]
+      `T90_2_現場調査の削除_${RUN_ID}`,
+      [
+        { name: '残る写真', surveyImageId: state.ownImageIds[0]! },
+        { name: '現場調査ごと削除', surveyImageId: imageId },
+      ]
     );
+    const doomedGroupId = groupIds[1];
+    assertPrepared(doomedGroupId, '現場調査ごと削除されるグループのID');
 
     await openQuantityTableEdit(page, tableId);
 
@@ -421,10 +428,37 @@ test.describe('現調画像の紐付けの失敗の提示（Task 86.5）', () =>
     expect(response.status).toBe(410);
     expect(response.code).toBe('SURVEY_DELETED');
 
+    // 原因のグループを名指す（Task 90.2）。該当しないグループは名指さない
     const alert = saveFailureAlert(page);
     await expect(alert).toContainText(
-      '紐付けた写真の現場調査が削除されているため保存できません。該当するグループの写真を変更してから保存してください。'
+      '次のグループの写真は現場調査ごと削除されているため保存できません: グループ「現場調査ごと削除」。写真を変更するか紐付けを解除してから保存してください。'
     );
+    await expect(alert).not.toContainText('残る写真');
     await expect(alert).not.toContainText(RETRY_WORDING);
+
+    // 袋小路の出口: 画面から紐付けを解除すると保存が通る（Task 90.2）。
+    // 論理削除された現場調査の写真は選択候補に現れないため、「変更」では復旧できない。
+    const doomedCard = page
+      .locator('[data-testid="quantity-group-card"]')
+      .filter({ hasText: '現場調査ごと削除' });
+    await doomedCard.getByRole('button', { name: '写真の紐付けを解除' }).click();
+
+    // 解除はドラフトにのみ反映される（REQ-42.3）。写真枠がプレースホルダへ変わる
+    await expect(doomedCard.getByTestId(`image-placeholder-${doomedGroupId}`)).toBeVisible();
+
+    await saveQuantityTableDraft(page);
+
+    // 紐付けが解除された状態で永続化され、もう一方のグループの写真は保たれる
+    const prisma = getPrismaClient();
+    const persisted = await prisma.quantityGroup.findUnique({
+      where: { id: doomedGroupId },
+      select: { surveyImageId: true },
+    });
+    expect(persisted?.surveyImageId).toBeNull();
+    const kept = await prisma.quantityGroup.findUnique({
+      where: { id: groupIds[0]! },
+      select: { surveyImageId: true },
+    });
+    expect(kept?.surveyImageId).toBe(state.ownImageIds[0]!);
   });
 });

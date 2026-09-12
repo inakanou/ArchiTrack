@@ -1453,9 +1453,55 @@ export class QuantityTableService {
       assertSurveyNotDeleted(
         surveyImage.survey,
         surveyImage.surveyId,
-        `削除された現場調査の画像は紐付けできません: ${surveyImage.surveyId}`
+        `削除された現場調査の画像は紐付けできません: ${surveyImage.surveyId}`,
+        // 名指しは拒むときにだけ組み立てる（Task 90.2）。生存する画像の走査で
+        // グループ数に比例した無駄な走査を並べないため、値ではなく組み立てを渡す
+        () => this.locateDeletedSurveyImageGroups(input, surveyImageById)
       );
     }
+  }
+
+  /**
+   * 親の現場調査が論理削除済みの現調画像を指すグループを payload の位置で名指す（Task 90.2）
+   *
+   * 改める前の 410 は `surveyId` しか持たず、利用者は数量表のどこを直せばよいかを知る
+   * 手段を持たなかった。画面のドラフトのグループは写真の現場調査を知らないため、
+   * 応答の `surveyId` からは引き当てられない（Task 86.5 が記録した非対称）。
+   *
+   * 名指しの形は所属違反の 400（{@link locateForeignSurveyImageGroups}）と揃え、
+   * `groups[i].<欄>` をキーとする。該当する全てのグループを名指し、同じ画像を複数の
+   * グループが指す場合も、グループごとに名指す。**最初に出会った該当で打ち切らない**——
+   * 打ち切ると利用者は保存のたびに1件ずつ解除することになる。
+   *
+   * 判定には assertDraftSurveyImagesLinkable が既に引いた行をそのまま使うため、
+   * 問い合わせは増えない。行が返らなかった画像（実在しない画像）は親を判定できない
+   * ため名指さない。それは存在の検査（404）の領分である。
+   *
+   * 値の文言に現場調査IDを含めないのは、複数の現場調査が該当しうるためである。
+   * 応答の `detail` と `surveyId` は最初に出会った現場調査を指す（従来どおり）。
+   *
+   * @param input - フル状態同期保存入力
+   * @param surveyImageById - 要求した現調画像の行（ID をキーとする）
+   * @returns `groups[i].surveyImageId` をキー、利用者向けの文言を値とする問題箇所
+   */
+  private locateDeletedSurveyImageGroups(
+    input: SaveQuantityTableDraftInput,
+    surveyImageById: ReadonlyMap<string, { survey: { deletedAt: Date | null } }>
+  ): Record<string, string> {
+    const validationErrors: Record<string, string> = {};
+
+    for (const [groupIndex, group] of input.groups.entries()) {
+      if (group.surveyImageId === null) {
+        continue;
+      }
+      const surveyImage = surveyImageById.get(group.surveyImageId);
+      if (surveyImage !== undefined && surveyImage.survey.deletedAt !== null) {
+        validationErrors[`groups[${groupIndex}].surveyImageId`] =
+          '削除された現場調査の画像は紐付けできません';
+      }
+    }
+
+    return validationErrors;
   }
 
   /**

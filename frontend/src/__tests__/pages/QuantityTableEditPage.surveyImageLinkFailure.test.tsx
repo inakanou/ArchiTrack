@@ -152,7 +152,7 @@ describe('QuantityTableEditPage - 現調画像の紐付けの失敗の提示（T
 
       const alert = await screen.findByRole('alert');
       expect(alert).toHaveTextContent(
-        '次のグループの写真はこの数量表のプロジェクトに属していないため保存できません: グループ「屋根」。写真を変更してから保存してください。'
+        '次のグループの写真はこの数量表のプロジェクトに属していないため保存できません: グループ「屋根」。写真を変更するか紐付けを解除してから保存してください。'
       );
       expect(alert).not.toHaveTextContent('外壁');
       expect(alert).not.toHaveTextContent('再度お試しください');
@@ -176,19 +176,20 @@ describe('QuantityTableEditPage - 現調画像の紐付けの失敗の提示（T
 
       const alert = await screen.findByRole('alert');
       expect(alert).toHaveTextContent(
-        '次のグループの写真は削除されているため保存できません: グループ「屋根」。写真を変更してから保存してください。'
+        '次のグループの写真は削除されているため保存できません: グループ「屋根」。写真を変更するか紐付けを解除してから保存してください。'
       );
       expect(alert).not.toHaveTextContent('外壁');
       expect(alert).not.toHaveTextContent('再度お試しください');
     });
 
-    it('410（親の現場調査の論理削除）は現場調査の削除を告げ、再試行を促さない', async () => {
+    it('410（親の現場調査の論理削除）は名指されたグループを示し、再試行を促さない（Task 90.2）', async () => {
       const user = userEvent.setup();
       mockSaveQuantityTableDraft.mockRejectedValue(
         new ApiError(410, '削除された現場調査の画像は紐付けできません: survey-1', {
           status: 410,
           code: 'SURVEY_DELETED',
           surveyId: 'survey-1',
+          'groups[1].surveyImageId': '削除された現場調査の画像は紐付けできません',
         })
       );
       renderPage();
@@ -197,8 +198,9 @@ describe('QuantityTableEditPage - 現調画像の紐付けの失敗の提示（T
 
       const alert = await screen.findByRole('alert');
       expect(alert).toHaveTextContent(
-        '紐付けた写真の現場調査が削除されているため保存できません。該当するグループの写真を変更してから保存してください。'
+        '次のグループの写真は現場調査ごと削除されているため保存できません: グループ「屋根」。写真を変更するか紐付けを解除してから保存してください。'
       );
+      expect(alert).not.toHaveTextContent('外壁');
       expect(alert).not.toHaveTextContent('再度お試しください');
     });
 
@@ -247,6 +249,51 @@ describe('QuantityTableEditPage - 現調画像の紐付けの失敗の提示（T
         expect(screen.getByText('保存しました')).toBeInTheDocument();
       });
       expect(screen.queryByTestId('survey-image-link-dropped-notice')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('写真の紐付けの解除（Task 90.2）', () => {
+    it('解除はドラフトにのみ反映し、永続化のAPIを呼ばない（REQ-42.3）', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('数量表名')).toBeInTheDocument();
+      });
+
+      // 2グループとも写真を持つ（解除の対象が2件ある）
+      const unlinkButtons = screen.getAllByRole('button', { name: '写真の紐付けを解除' });
+      expect(unlinkButtons).toHaveLength(2);
+
+      await user.click(unlinkButtons[1]!);
+
+      // 解除したグループだけが写真を失う
+      await waitFor(() => {
+        expect(screen.getAllByRole('button', { name: '写真の紐付けを解除' })).toHaveLength(1);
+      });
+      // 永続化APIは呼ばない（REQ-42.3: クライアント編集状態にのみ反映）
+      expect(mockSaveQuantityTableDraft).not.toHaveBeenCalled();
+      // 再取得もしない
+      expect(mockGetQuantityTableDetail).toHaveBeenCalledTimes(1);
+    });
+
+    it('解除した状態で保存すると、そのグループの surveyImageId を null として送る', async () => {
+      const user = userEvent.setup();
+      mockSaveQuantityTableDraft.mockResolvedValue(linkedDetail);
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('数量表名')).toBeInTheDocument();
+      });
+
+      await user.click(screen.getAllByRole('button', { name: '写真の紐付けを解除' })[1]!);
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(mockSaveQuantityTableDraft).toHaveBeenCalledTimes(1);
+      });
+      const [, input] = mockSaveQuantityTableDraft.mock.calls[0]!;
+      expect(input.groups.map((group) => group.surveyImageId)).toEqual(['image-a', null]);
     });
   });
 });

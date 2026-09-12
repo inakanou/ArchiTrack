@@ -18,8 +18,10 @@
  *    取得（`GET /api/quantity-tables/:id`）は他プロジェクトの写真を指す既存の紐付けを落とし
  *    （Task 86.3）、当該グループを `droppedSurveyImageLinkGroupIds` で名指す。
  *
- * 410 は原因のグループを名指さない。応答は `surveyId` しか持たず、ドラフトのグループは写真の
- * 現場調査を知らないため、画面の側では引き当てられない。410 の名指しは Task 90.2 の領分である。
+ * 上の記述は Task 86.5 の時点のもので、Task 90.2 で現況ではなくなった。410 も 400 と同じ
+ * `groups[i].surveyImageId` の名指しを持つようになったため、三つの失敗はいずれも原因のグループを
+ * 示せる。ドラフトのグループが写真の現場調査を知らないことは変わらないが、引き当てるのは
+ * 応答の `surveyId` ではなく payload 上の位置である。
  */
 
 import { ApiError } from '../api/client';
@@ -39,8 +41,14 @@ export interface SurveyImageLinkFeedbackGroup {
 /** 保存経路の所属違反の 400 が原因のグループを名指すキー（Task 86.4） */
 const GROUP_SURVEY_IMAGE_KEY_PATTERN = /^groups\[(\d+)\]\.surveyImageId$/;
 
-/** 恒久的な失敗に添える行動の案内（写真の紐付けを解除する操作は画面に無い。Task 90.2） */
-const CHANGE_PHOTO_GUIDANCE = '写真を変更してから保存してください。';
+/**
+ * 恒久的な失敗に添える行動の案内
+ *
+ * Task 90.2 で数量グループカードへ紐付けの解除を置いたため、取れる行動は二つある。
+ * 親の現場調査が論理削除された写真は選択候補に現れず「変更」では復旧できないため、
+ * 解除を案内しなければ 410 の利用者には出口が無い。三つの失敗で同じ案内を用いる。
+ */
+const CHANGE_PHOTO_GUIDANCE = '写真を変更するか紐付けを解除してから保存してください。';
 
 /** 応答本文（RFC 7807 の Problem Details）をオブジェクトとして取り出す */
 function readProblemBody(error: unknown): Record<string, unknown> | null {
@@ -58,6 +66,19 @@ function readProblemBody(error: unknown): Record<string, unknown> | null {
 function labelGroup(group: SurveyImageLinkFeedbackGroup | undefined, index: number): string {
   const name = group?.name?.trim();
   return name ? `グループ「${name}」` : `${index + 1}番目のグループ`;
+}
+
+/**
+ * 応答本文の `groups[i].surveyImageId` の名指しを、payload 上の位置の昇順で取り出す
+ *
+ * 所属違反の 400（Task 86.4）と親の論理削除の 410（Task 90.2）が同じ形の名指しを持つ。
+ */
+function readNamedGroupIndexes(body: Record<string, unknown>): number[] {
+  return Object.keys(body)
+    .map((key) => GROUP_SURVEY_IMAGE_KEY_PATTERN.exec(key))
+    .filter((match): match is RegExpExecArray => match !== null)
+    .map((match) => Number(match[1]))
+    .sort((a, b) => a - b);
 }
 
 /**
@@ -79,11 +100,7 @@ export function describeSurveyImageLinkSaveFailure(
   const code = body.code;
 
   if (status === 400 && code === 'QUANTITY_TABLE_VALIDATION_ERROR') {
-    const indexes = Object.keys(body)
-      .map((key) => GROUP_SURVEY_IMAGE_KEY_PATTERN.exec(key))
-      .filter((match): match is RegExpExecArray => match !== null)
-      .map((match) => Number(match[1]))
-      .sort((a, b) => a - b);
+    const indexes = readNamedGroupIndexes(body);
     if (indexes.length === 0) {
       // 写真の名指しを持たない 400（項目の範囲・計算の整合など）は本関数の対象外
       return null;
@@ -107,7 +124,14 @@ export function describeSurveyImageLinkSaveFailure(
   }
 
   if (status === 410 && code === 'SURVEY_DELETED') {
-    return `紐付けた写真の現場調査が削除されているため保存できません。該当するグループの${CHANGE_PHOTO_GUIDANCE}`;
+    // Task 90.2: 応答が原因のグループを名指すようになった。名指しを持たない応答
+    // （名指しを足す前の版のバックエンド）では、従来どおり行動だけを示す
+    const indexes = readNamedGroupIndexes(body);
+    if (indexes.length === 0) {
+      return `紐付けた写真の現場調査が削除されているため保存できません。該当するグループの${CHANGE_PHOTO_GUIDANCE}`;
+    }
+    const labels = indexes.map((index) => labelGroup(groups[index], index));
+    return `次のグループの写真は現場調査ごと削除されているため保存できません: ${labels.join('、')}。${CHANGE_PHOTO_GUIDANCE}`;
   }
 
   return null;

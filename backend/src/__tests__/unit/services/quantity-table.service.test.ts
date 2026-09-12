@@ -3261,6 +3261,67 @@ describe('QuantityTableService', () => {
       expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
     });
 
+    it('親の論理削除の 410 は原因のグループを payload の位置で名指し、該当しないグループは名指さない（Task 90.2）', async () => {
+      const liveImageId = '123e4567-e89b-12d3-a456-426614174030';
+      const firstDeletedImageId = '123e4567-e89b-12d3-a456-426614174031';
+      const secondDeletedImageId = '123e4567-e89b-12d3-a456-426614174032';
+
+      setupFindUnique(currentState(), reloadedDetail());
+      mockPrisma.surveyImage.findMany.mockResolvedValue([
+        { id: liveImageId, surveyId: 'survey-live', survey: { projectId, deletedAt: null } },
+        {
+          id: firstDeletedImageId,
+          surveyId: 'survey-deleted-1',
+          survey: { projectId, deletedAt: new Date('2026-09-01T00:00:00.000Z') },
+        },
+        {
+          id: secondDeletedImageId,
+          surveyId: 'survey-deleted-2',
+          survey: { projectId, deletedAt: new Date('2026-09-02T00:00:00.000Z') },
+        },
+      ]);
+
+      // 該当するグループ（1・3・4）と該当しないグループ（0 = 生存する現場調査の画像、
+      // 2 = 画像なし）を混ぜる。3 は 1 と同じ画像を指すため、画像の重複排除の後でも
+      // グループ単位で名指せることを確かめる。4 は別の論理削除済みの現場調査の画像を
+      // 指すため、最初に出会った該当で名指しを打ち切らないことを確かめる。
+      const input = {
+        expectedUpdatedAt: expectedUpdatedAtIso,
+        name: '数量表',
+        groups: [
+          { id: null, name: 'g0', surveyImageId: liveImageId, displayOrder: 0, items: [] },
+          { id: null, name: 'g1', surveyImageId: firstDeletedImageId, displayOrder: 1, items: [] },
+          { id: null, name: 'g2', surveyImageId: null, displayOrder: 2, items: [] },
+          { id: null, name: 'g3', surveyImageId: firstDeletedImageId, displayOrder: 3, items: [] },
+          { id: null, name: 'g4', surveyImageId: secondDeletedImageId, displayOrder: 4, items: [] },
+        ],
+      };
+
+      const thrown = await service
+        .saveDraft(quantityTableId, input, actorId)
+        .then(() => null)
+        .catch((error: unknown) => error);
+
+      expect(thrown).toBeInstanceOf(SurveyDeletedError);
+      // 文言と surveyId は紐付け経路（validateSurveyImage）と同一のまま据え置く。
+      // surveyId は最初に出会った該当の現場調査を指す
+      expect((thrown as SurveyDeletedError).message).toBe(
+        '削除された現場調査の画像は紐付けできません: survey-deleted-1'
+      );
+      expect((thrown as SurveyDeletedError).surveyId).toBe('survey-deleted-1');
+      // 問題箇所の名指しは所属違反の 400（Task 86.4）と同じ `groups[i].<欄>` の形にする。
+      // キーの集合まで一致させ、過不足の双方を捕まえる
+      expect((thrown as SurveyDeletedError).validationErrors).toEqual({
+        'groups[1].surveyImageId': '削除された現場調査の画像は紐付けできません',
+        'groups[3].surveyImageId': '削除された現場調査の画像は紐付けできません',
+        'groups[4].surveyImageId': '削除された現場調査の画像は紐付けできません',
+      });
+      // 名指しのために問い合わせを増やしていない
+      expect(mockPrisma.surveyImage.findMany).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.quantityGroup.create).not.toHaveBeenCalled();
+      expect(mockPrisma.quantityGroup.update).not.toHaveBeenCalled();
+    });
+
     it('所属違反の 400 は原因のグループを payload の位置で名指し、違反しないグループは名指さない（Task 86.4）', async () => {
       const ownImageId = '123e4567-e89b-12d3-a456-426614174022';
       const firstForeignImageId = '123e4567-e89b-12d3-a456-426614174023';

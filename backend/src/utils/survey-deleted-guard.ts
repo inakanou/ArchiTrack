@@ -37,11 +37,20 @@ export const SURVEY_DELETED_CODE = 'SURVEY_DELETED';
 export class SurveyDeletedError extends Error {
   readonly code = SURVEY_DELETED_CODE;
   readonly surveyId: string;
+  /**
+   * 問題箇所の名指し（Task 90.2）
+   *
+   * `groups[i].surveyImageId` をキーとする。位置の名指しを持てる経路（数量表の
+   * フル状態同期保存）だけが与え、URL で1つの資源を指す経路は与えない。
+   * 与えない限り応答本文は従来と一字も変わらない。
+   */
+  readonly validationErrors: Record<string, string> | undefined;
 
-  constructor(surveyId: string, message?: string) {
+  constructor(surveyId: string, message?: string, validationErrors?: Record<string, string>) {
     super(message ?? `削除された現場調査の画像は操作できません: ${surveyId}`);
     this.name = 'SurveyDeletedError';
     this.surveyId = surveyId;
+    this.validationErrors = validationErrors;
   }
 }
 
@@ -57,15 +66,19 @@ export class SurveyDeletedError extends Error {
  * @param survey - 画像に紐付く現場調査の削除状態（未取得なら null/undefined）
  * @param surveyId - 現場調査ID（応答の詳細文に用いる）
  * @param message - 経路ごとの詳細文（省略時は既定文）
+ * @param describeValidationErrors - 問題箇所の名指しの組み立て（Task 90.2）。
+ *   拒むときにだけ呼ぶ。値ではなく組み立てを受け取るのは、生存する画像に対して
+ *   名指しの走査を無駄に走らせないためである。省略した経路の応答本文は従来と変わらない
  * @throws {SurveyDeletedError} 現場調査が論理削除済みの場合
  */
 export function assertSurveyNotDeleted(
   survey: { deletedAt: Date | null } | null | undefined,
   surveyId: string,
-  message?: string
+  message?: string,
+  describeValidationErrors?: () => Record<string, string>
 ): void {
   if (survey && survey.deletedAt !== null && survey.deletedAt !== undefined) {
-    throw new SurveyDeletedError(surveyId, message);
+    throw new SurveyDeletedError(surveyId, message, describeValidationErrors?.());
   }
 }
 
@@ -86,5 +99,8 @@ export function sendSurveyDeletedProblem(res: Response, error: SurveyDeletedErro
     detail: error.message,
     code: SURVEY_DELETED_CODE,
     surveyId: error.surveyId,
+    // 問題箇所の名指しは本文の直下へ展開する（所属違反の 400 と同じ形。Task 90.2）。
+    // 名指しを持たない経路では空の展開になり、本文は従来と一字も変わらない
+    ...(error.validationErrors ?? {}),
   });
 }

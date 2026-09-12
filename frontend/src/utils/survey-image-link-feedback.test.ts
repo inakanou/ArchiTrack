@@ -36,7 +36,7 @@ describe('describeSurveyImageLinkSaveFailure', () => {
       const message = describeSurveyImageLinkSaveFailure(error, groups);
 
       expect(message).toBe(
-        '次のグループの写真はこの数量表のプロジェクトに属していないため保存できません: グループ「屋根」。写真を変更してから保存してください。'
+        '次のグループの写真はこの数量表のプロジェクトに属していないため保存できません: グループ「屋根」。写真を変更するか紐付けを解除してから保存してください。'
       );
       // 名指されていないグループは示さない（上の名指しが全グループの列挙でないこと）
       expect(message).not.toContain('外壁');
@@ -52,7 +52,7 @@ describe('describeSurveyImageLinkSaveFailure', () => {
       });
 
       expect(describeSurveyImageLinkSaveFailure(error, groups)).toBe(
-        '次のグループの写真はこの数量表のプロジェクトに属していないため保存できません: グループ「屋根」、3番目のグループ。写真を変更してから保存してください。'
+        '次のグループの写真はこの数量表のプロジェクトに属していないため保存できません: グループ「屋根」、3番目のグループ。写真を変更するか紐付けを解除してから保存してください。'
       );
     });
 
@@ -79,7 +79,7 @@ describe('describeSurveyImageLinkSaveFailure', () => {
       const message = describeSurveyImageLinkSaveFailure(error, groups);
 
       expect(message).toBe(
-        '次のグループの写真は削除されているため保存できません: グループ「屋根」、3番目のグループ。写真を変更してから保存してください。'
+        '次のグループの写真は削除されているため保存できません: グループ「屋根」、3番目のグループ。写真を変更するか紐付けを解除してから保存してください。'
       );
       expect(message).not.toContain('外壁');
       expect(message).not.toContain('再度お試しください');
@@ -93,7 +93,7 @@ describe('describeSurveyImageLinkSaveFailure', () => {
       });
 
       expect(describeSurveyImageLinkSaveFailure(error, groups)).toBe(
-        '紐付けた写真のうち削除されたものがあるため保存できません。該当するグループの写真を変更してから保存してください。'
+        '紐付けた写真のうち削除されたものがあるため保存できません。該当するグループの写真を変更するか紐付けを解除してから保存してください。'
       );
     });
 
@@ -104,8 +104,40 @@ describe('describeSurveyImageLinkSaveFailure', () => {
     });
   });
 
-  describe('410（親の現場調査の論理削除。Task 81.1）', () => {
-    it('現場調査が削除されたことを示し、再試行を促さない', () => {
+  describe('410（親の現場調査の論理削除。Task 81.1 / 名指しは Task 90.2）', () => {
+    it('groups[i].surveyImageId の名指しから原因のグループを示し、再試行を促さない', () => {
+      const error = new ApiError(410, 'x', {
+        status: 410,
+        code: 'SURVEY_DELETED',
+        surveyId: 'survey-1',
+        'groups[1].surveyImageId': '削除された現場調査の画像は紐付けできません',
+      });
+
+      const message = describeSurveyImageLinkSaveFailure(error, groups);
+
+      expect(message).toBe(
+        '次のグループの写真は現場調査ごと削除されているため保存できません: グループ「屋根」。写真を変更するか紐付けを解除してから保存してください。'
+      );
+      // 名指されていないグループは示さない（上の名指しが全グループの列挙でないこと）
+      expect(message).not.toContain('外壁');
+      expect(message).not.toContain('再度お試しください');
+    });
+
+    it('複数の名指しをすべて示し、名称の無いグループは位置で示す', () => {
+      const error = new ApiError(410, 'x', {
+        status: 410,
+        code: 'SURVEY_DELETED',
+        surveyId: 'survey-1',
+        'groups[1].surveyImageId': '削除された現場調査の画像は紐付けできません',
+        'groups[2].surveyImageId': '削除された現場調査の画像は紐付けできません',
+      });
+
+      expect(describeSurveyImageLinkSaveFailure(error, groups)).toBe(
+        '次のグループの写真は現場調査ごと削除されているため保存できません: グループ「屋根」、3番目のグループ。写真を変更するか紐付けを解除してから保存してください。'
+      );
+    });
+
+    it('名指しを持たない 410（名指しを足す前の版のバックエンド）はグループを名指さずに行動を示す', () => {
       const error = new ApiError(410, 'x', {
         status: 410,
         code: 'SURVEY_DELETED',
@@ -115,7 +147,7 @@ describe('describeSurveyImageLinkSaveFailure', () => {
       const message = describeSurveyImageLinkSaveFailure(error, groups);
 
       expect(message).toBe(
-        '紐付けた写真の現場調査が削除されているため保存できません。該当するグループの写真を変更してから保存してください。'
+        '紐付けた写真の現場調査が削除されているため保存できません。該当するグループの写真を変更するか紐付けを解除してから保存してください。'
       );
       expect(message).not.toContain('再度お試しください');
     });

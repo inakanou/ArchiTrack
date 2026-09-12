@@ -1063,6 +1063,25 @@ export default function QuantityTableEditPage() {
   );
 
   /**
+   * 写真の紐付けを解除（REQ-42.3、Task 90.2）
+   *
+   * ドラフトのグループから surveyImageId を外す（永続化APIは呼ばない）。確定は保存操作時の
+   * 1回の PUT に畳まれる（REQ-42.7）。
+   *
+   * **これが親の現場調査が論理削除された写真を持つ数量表の唯一の出口である。** 当該写真は
+   * 写真選択ダイアログの候補に現れないため「写真を変更」では選び直せず、保存は 410 で止まる。
+   * 解除しない限り、無関係な編集も含めて当該数量表の保存が全面的に止まったままになる。
+   *
+   * `linkedPhotoSummaries` からは消さない。同マップは画像IDを鍵とする描画用のキャッシュであり、
+   * 同じ写真を別のグループが指している場合に消すとその描画が壊れる。解除したグループの写真枠は
+   * `renderTable` が surveyImageId の有無で解決するため、残しても表示には現れない。
+   */
+  const handleUnlinkImage = useCallback((groupKey: string) => {
+    setOperationError(null);
+    dispatch({ type: 'linkGroupImage', groupKey, surveyImageId: null });
+  }, []);
+
+  /**
    * 注釈ビューアを開く
    *
    * Requirements: 4.4
@@ -2091,6 +2110,7 @@ export default function QuantityTableEditPage() {
                 onAddItem={handleAddItem}
                 onDeleteGroup={handleDeleteGroup}
                 onSelectImage={handleSelectImage}
+                onUnlinkImage={handleUnlinkImage}
                 onUpdateItem={handleUpdateItem}
                 onDeleteItem={handleDeleteItem}
                 onCopyItem={handleCopyItem}

@@ -172,15 +172,29 @@ describe('Quantity Group Survey Image Deleted Survey Guard Integration Tests', (
     return await createSurveyImage(surveyId);
   };
 
-  /** SURVEY_DELETED の応答本文（survey-deleted-guard の形） */
-  const expectedProblem = (surveyId: string): Record<string, unknown> => ({
+  /**
+   * SURVEY_DELETED の応答本文（survey-deleted-guard の形）
+   *
+   * 保存経路（3）だけは原因のグループを `groups[i].surveyImageId` で名指すため、
+   * `groupNaming` を渡して本文の直下へ足す（Task 90.2）。紐付け経路（1・2）は URL で
+   * 1グループを指すため位置の名指しを持たず、既定の空オブジェクトのまま
+   * 3経路で共通の項目だけを突き合わせる。
+   */
+  const expectedProblem = (
+    surveyId: string,
+    groupNaming: Record<string, string> = {}
+  ): Record<string, unknown> => ({
     type: 'https://architrack.example.com/problems/survey-deleted',
     title: 'SURVEY DELETED',
     status: 410,
     detail: `削除された現場調査の画像は紐付けできません: ${surveyId}`,
     code: 'SURVEY_DELETED',
     surveyId,
+    ...groupNaming,
   });
+
+  /** 保存経路が名指しへ用いる文言（グループごとの値。画像IDも現場調査IDも含めない） */
+  const DELETED_SURVEY_GROUP_MESSAGE = '削除された現場調査の画像は紐付けできません';
 
   beforeAll(async () => {
     prisma = getPrismaClient();
@@ -319,7 +333,12 @@ describe('Quantity Group Survey Image Deleted Survey Guard Integration Tests', (
         });
 
       expect(response.status).toBe(410);
-      expect(response.body).toEqual(expectedProblem(surveyId));
+      // 保存経路は原因のグループを payload の位置で名指す（Task 90.2）
+      expect(response.body).toEqual(
+        expectedProblem(surveyId, {
+          'groups[0].surveyImageId': DELETED_SURVEY_GROUP_MESSAGE,
+        })
+      );
 
       // 書き込み前に中断しており、グループは1件も永続化されていない
       const persisted = await prisma.quantityGroup.count({ where: { quantityTableId } });
@@ -346,7 +365,46 @@ describe('Quantity Group Survey Image Deleted Survey Guard Integration Tests', (
         });
 
       expect(response.status).toBe(410);
-      expect(response.body).toEqual(expectedProblem(surveyId));
+      // 該当するグループだけを名指す。生存する現場調査の画像を指す 0 番目は名指さない（Task 90.2）
+      expect(response.body).toEqual(
+        expectedProblem(surveyId, {
+          'groups[1].surveyImageId': DELETED_SURVEY_GROUP_MESSAGE,
+        })
+      );
+
+      const persisted = await prisma.quantityGroup.count({ where: { quantityTableId } });
+      expect(persisted).toBe(0);
+    });
+
+    it('複数のグループが該当すればすべて名指す（Task 90.2）', async () => {
+      const quantityTableId = await createQuantityTable('フル状態同期保存の複数該当');
+      const liveImageId = await createImageUnderLiveSurvey('複数該当の生存する現場調査');
+      const first = await createImageUnderDeletedSurvey('複数該当の削除済み現場調査1');
+      const second = await createImageUnderDeletedSurvey('複数該当の削除済み現場調査2');
+      const expectedUpdatedAt = await getExpectedUpdatedAt(quantityTableId);
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${quantityTableId}/save`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          expectedUpdatedAt,
+          name: 'フル状態同期保存の複数該当',
+          groups: [
+            { id: null, name: '生存', surveyImageId: liveImageId, displayOrder: 0, items: [] },
+            { id: null, name: '該当1', surveyImageId: first.imageId, displayOrder: 1, items: [] },
+            { id: null, name: '未紐付け', surveyImageId: null, displayOrder: 2, items: [] },
+            { id: null, name: '該当2', surveyImageId: second.imageId, displayOrder: 3, items: [] },
+          ],
+        });
+
+      expect(response.status).toBe(410);
+      // 最初に出会った該当で名指しを打ち切らない。detail / surveyId は最初の現場調査を指す
+      expect(response.body).toEqual(
+        expectedProblem(first.surveyId, {
+          'groups[1].surveyImageId': DELETED_SURVEY_GROUP_MESSAGE,
+          'groups[3].surveyImageId': DELETED_SURVEY_GROUP_MESSAGE,
+        })
+      );
 
       const persisted = await prisma.quantityGroup.count({ where: { quantityTableId } });
       expect(persisted).toBe(0);

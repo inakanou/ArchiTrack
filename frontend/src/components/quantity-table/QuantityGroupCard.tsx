@@ -60,6 +60,12 @@ export interface QuantityGroupCardProps {
   onDeleteGroup?: (groupId: string) => void;
   /** 画像選択コールバック */
   onSelectImage?: (groupId: string) => void;
+  /** 写真の紐付け解除コールバック（Task 90.2: REQ-42.3）
+   *  - 指定時、写真が紐付いているグループにのみ解除ボタンが表示される
+   *  - 親の現場調査が論理削除された写真は選択候補に現れず「変更」では復旧できないため、
+   *    解除が当該グループを含む数量表を保存できる状態へ戻す唯一の操作である
+   */
+  onUnlinkImage?: (groupId: string) => void;
   /** 項目更新コールバック */
   onUpdateItem?: (itemId: string, updates: Partial<QuantityItemDetail>) => void;
   /** 項目削除コールバック */
@@ -521,6 +527,7 @@ export default function QuantityGroupCard({
   onAddItem,
   onDeleteGroup,
   onSelectImage,
+  onUnlinkImage,
   onUpdateItem,
   onDeleteItem,
   onCopyItem,
@@ -626,6 +633,15 @@ export default function QuantityGroupCard({
   const handleChangePhoto = useCallback(() => {
     onSelectImage?.(group.id);
   }, [group.id, onSelectImage]);
+
+  /**
+   * 写真の紐付け解除ボタンハンドラ（Task 90.2: REQ-42.3）
+   *
+   * 解除はドラフトにのみ反映される（永続化は保存操作時の1回に畳まれる）。
+   */
+  const handleUnlinkPhoto = useCallback(() => {
+    onUnlinkImage?.(group.id);
+  }, [group.id, onUnlinkImage]);
 
   // =========================================================================
   // Task 35.1: グループ名インライン編集ハンドラ
@@ -1033,6 +1049,19 @@ export default function QuantityGroupCard({
               >
                 写真を変更
               </button>
+              {/* 写真の紐付け解除ボタン（Task 90.2: REQ-42.3）。
+                  親の現場調査が論理削除された写真は選択候補に現れないため、
+                  「変更」では 410 で止まる数量表を保存できる状態へ戻せない。 */}
+              {onUnlinkImage && (
+                <button
+                  type="button"
+                  style={styles.photoChangeButton}
+                  onClick={handleUnlinkPhoto}
+                  aria-label="写真の紐付けを解除"
+                >
+                  写真の紐付けを解除
+                </button>
+              )}
             </div>
             {/* 写真コメント表示（REQ-21.2） */}
             <PhotoCommentDisplay comment={group.surveyImage.comment ?? null} />

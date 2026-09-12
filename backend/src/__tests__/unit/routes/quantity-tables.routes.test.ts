@@ -886,6 +886,39 @@ describe('QuantityTablesRoutes', () => {
       });
     });
 
+    it('410 が原因のグループの名指しを伴う場合、本文の直下へ展開する（Task 90.2）', async () => {
+      const surveyId = '123e4567-e89b-12d3-a456-426614174005';
+      const { SurveyDeletedError } = await import('../../../utils/survey-deleted-guard.js');
+      mockService.saveDraft.mockRejectedValue(
+        new SurveyDeletedError(
+          surveyId,
+          `削除された現場調査の画像は紐付けできません: ${surveyId}`,
+          {
+            'groups[0].surveyImageId': '削除された現場調査の画像は紐付けできません',
+            'groups[2].surveyImageId': '削除された現場調査の画像は紐付けできません',
+          }
+        )
+      );
+
+      const response = await request(app)
+        .put(`/api/quantity-tables/${tableId}/save`)
+        .send(buildSaveBody())
+        .expect(410);
+
+      // 名指しは所属違反の 400（Task 86.4）と同じく本文の直下に置く。
+      // 既存の項目（type/title/status/detail/code/surveyId）は据え置く
+      expect(response.body).toEqual({
+        type: 'https://architrack.example.com/problems/survey-deleted',
+        title: 'SURVEY DELETED',
+        status: 410,
+        detail: `削除された現場調査の画像は紐付けできません: ${surveyId}`,
+        code: 'SURVEY_DELETED',
+        surveyId,
+        'groups[0].surveyImageId': '削除された現場調査の画像は紐付けできません',
+        'groups[2].surveyImageId': '削除された現場調査の画像は紐付けできません',
+      });
+    });
+
     it('指した現調画像が存在しない場合404を返却する（Task 86.2）', async () => {
       const surveyImageId = '123e4567-e89b-12d3-a456-426614174006';
       const { SurveyImageNotFoundError } = await import('../../../errors/siteSurveyError.js');
