@@ -2699,12 +2699,21 @@ _起票元: 機能レベル検証。`## Implementation Notes` の 56.5 / 59.4 �
   - **完了の判定（独立レビューの読み）**: 本文の「同スペックへ起票して本項は待つこと」は起票と待機の両方を課しており、「処遇を決めた」だけでは完了にならない。**`[x]` は site-survey 側の 115.325 の解決後に `FieldValidatedItemRow` の処遇を確定し、被覆の前後を測り直してから付けること**。撤去済みの3部品と残置の判断は独立レビューで承認されている
   - _Blocked: site-survey スペックの Task 115.325（`FieldValidatedItemRow` の撤去を阻む同スペック側の二つの依存）の解決待ち。3部品の撤去と `QuantityItemRow` の残置は承認・コミット済み_
 
-- [ ] 89.3 (P) 未結線の契約 `unlinkGroupImage` の処遇を決める
+- [x] 89.3 (P) 未結線の契約 `unlinkGroupImage` の処遇を決める
   - **経緯**: 90.2 の独立レビューが検出した。`frontend/src/types/quantity-edit.types.ts:284` の `unlinkGroupImage: (groupId: string) => void;` は**リポジトリ全体で唯一の出現**であり、実装も呼び出しも無い死んだ契約である
   - 90.2 は別名の `onUnlinkImage` を新設して解除の導線を置いたため、動作上の問題は無い。**しかし「描画木から解除の口が無いことを確かめた」という 90.2 の記録は、この宣言に触れていない**
   - 撤去するか、`onUnlinkImage` に合わせて実体を与えるかを決めること。撤去が被覆検査を悪化させないことを前後の実測で示すこと（89.1 の作法）
   - _Depends: 90.2_
   - _Boundary: 数量表画面の未結線の型契約_
+  - **処遇（コミット `44463464` の作業ツリー、2026-09-12 にリポジトリルートで実測）**: 宣言を**撤去**した。`frontend/src/types/quantity-edit.types.ts` の `QuantityTableEditActions` を節見出しごと削除（`git diff --stat` は 1 ファイル / 42 行削除）
+  - **単独の死ではなくインターフェース全体が死んでいた**: `git grep -n 'QuantityTableEditActions'` の出力は**自身の宣言 1 行のみ**（`frontend/src/types/quantity-edit.types.ts:272`）。実装する側も、これに対して型検査される側も存在しない。`unlinkGroupImage` の 1 行だけを外すと「実装者のいない契約」という漂流はそのまま残る
+  - **16 メンバーを一件ずつ測った**: 名前がリポジトリ全体で当該宣言にしか無いものが 5 件（`loadQuantityTable` / `updateGroupName` / `unlinkGroupImage` / `toggleGroupExpansion` / `triggerAutoSave`）。**照合は語境界一致（`\b`）で測った**——素の部分一致では `loadQuantityTable` が 6 件当たる（他 5 件は無関係な `loadQuantityTablePdfExportService`）。残り 11 件の当たりは reducer のアクション種別や無関係な同名識別子であって、このインターフェースの束縛ではない
+  - **採らなかった案 (1)「`onUnlinkImage` に合わせて実体を与える」**: 束縛先が無い。90.2 の導線は既に動いており、この 16 メンバーのインターフェースを実装する部品は一つも無い。実体を与えるには「何も消費しない実装者」を新設するか、90.2 の動いている結線を改名する必要があり、どちらも死んだ宣言を正当化するために構造を発明することになる
+  - **採らなかった案 (2)「該当 1 行だけ削る」**: 実装者のいないインターフェースが残るため、90.2 のレビューが指摘した漂流が解けない
+  - **被覆検査は前後で一切動かなかった**: `npm run check:req-coverage` は前後とも終了コード 1 で、**出力全文が `diff` で無差分**。`check:req-coverage:json` の `productionReachability` も 8 項目すべて不動。**関門 11 本は出力がバイト一致**（`diff -q` が 11 本とも identical）。steering は当該識別子を一度も名指さないため `structure.md` の追随は不要
+  - **design.md に併記すべき記録は無かった**（`grep -n 'unlinkGroupImage\|QuantityTableEditActions' .kiro/specs/quantity-table-generation/design.md` の当たりが 0）
+  - **範囲外の同型（未処置・測定のみ）**: (i) `QuantityTableEditState`（同ファイル `:234`）は reducer 側の同名の生きた型に覆われた別形である。(ii) `SurveyImageSelectorProps` / `createDefaultQuantityItem` / `createDefaultQuantityGroup` は当たりが自身の 1 ファイルのみだが、`scripts/criterion-literal-adjudication.json:194-196` が当該ファイルの「項目の型と既定値」を代替根拠に据えているため、既定値の撤去は裁定の根拠に触れる。(iii) **バックエンド側の双子** `QuantityGroupService.unlinkSurveyImage` は `.kiro/specs/quantity-table-generation/design.md:1080` にしか存在せず実装を持たない（境界が違い、規約 (a) により記録は消さない）。**独立レビューが列挙の不完全を検出した**——兄弟の `linkSurveyImage`（design.md:1079）も `backend/src` への語境界 grep が 0 件で同じく実体を持たない。実体は `update()` が `input.surveyImageId` の設定／null で担っており、**挙動の欠落ではなく設計文書側の名前の乖離**である。受け皿は `## Task 93`。本スペックの学び「1本見つけた時点で探索を打ち切らないこと」と同型の取りこぼしだった
+  - **本項の経緯が指す行番号は撤去で失効した**: `quantity-edit.types.ts:284` は削除済みである。指し先は宣言の逐語（`export interface QuantityTableEditActions`）で辿ること
 
 - [x] 89.2 (P) REQ-40.11 の除外の取り下げ条件を満たすか、在籍理由を改める
   - 一括生成処理の実行中インジケーター表示・重複実行防止を観測するE2Eを作って取り下げるか、**取り下げられない理由を category と reason の両方へ正確に書き直すこと**
@@ -2841,6 +2850,28 @@ _起票元: Task 86.4 の実装が一時プローブで実測し、独立レビ�
 **本節が `_Requirements:` を持たないのは意図である。** 守るのは並び順の一貫性とエラー応答の妥当性であり、本スペックの受入基準として条文化されていない。
 
 _起票元: Task 88.1 の実装が一時プローブで実測し、独立レビューがコードを読んで裏づけて申し送った_
+
+## Task 93: 設計文書のサービス契約が実体を持たない名前を挙げ続ける状態を解消する
+
+**経緯**: Task 89.3 の実装が `QuantityGroupService.unlinkSurveyImage` の不在を測定し、その独立レビューが兄弟の `linkSurveyImage` も同じく不在であることを検出した。89.3 の境界（数量表画面の未結線の型契約）の外にあるため、本節を受け皿として起こした。
+
+**測った事実**（コミット `44463464`、2026-09-12、リポジトリルートで実測）:
+
+- `.kiro/specs/quantity-table-generation/design.md` の `#### QuantityGroupService` の Service Interface は `linkSurveyImage`（`:1079`）と `unlinkSurveyImage`（`:1080`）を挙げるが、`backend/src` への語境界 grep はどちらも **0 件**である
+- **挙動が欠けているのではない。** 実体は `update()` が `input.surveyImageId` を設定するか `null` にするかで担っており（`PUT /api/quantity-groups/:id`、design.md `:1150`、`UpdateQuantityGroupInput` は既に `surveyImageId?: string | null` を持つ）、**設計文書側の名前が実装と乖離している**
+- 同型の乖離 `reorder` → `updateDisplayOrder` は、design.md が Task 88.1 の注で既に開示済みである（本節の対象外）
+
+- [ ] 93.1 実体を持たない二つのメソッド名に現況を併記する
+  - **削除ではなく、当時の記録を残したまま現況を並べること**（規約 (a)。89.1 / 90.1 の先例に倣う）
+  - **実測値には 再現コマンド・実行の起点・コミットのハッシュ・日付 の4点を揃えること**
+  - **着手時に二つの不在と `update()` による実体を測り直してから書くこと。** 起票が挙げた行番号をそのまま写さないこと
+  - 走査を広げたならその網と出力を書くこと。広げないなら範囲を二つのメソッドに限ると明記すること
+  - _Depends: 89.3_
+  - _Boundary: design.md の QuantityGroupService のサービス契約の記述_
+
+**本節が `_Requirements:` を持たないのは意図である**（Task 79 / 87 と同じ）。受入基準を実装せず、状態記録を現況へ追随させるだけである。
+
+_起票元: Task 89.3 の実装が不在を測定し、独立レビューが兄弟メソッドの列挙漏れを検出して申し送った_
 
 ## Implementation Notes（Task 75 以降）
 

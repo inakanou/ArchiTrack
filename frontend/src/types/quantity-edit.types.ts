@@ -263,48 +263,6 @@ export interface ValidationError {
 }
 
 // ============================================================================
-// 編集画面のアクション
-// ============================================================================
-
-/**
- * 数量表編集画面のアクション
- */
-export interface QuantityTableEditActions {
-  /** 数量表の読み込み */
-  loadQuantityTable: (id: string) => Promise<void>;
-  /** グループ追加 */
-  addGroup: () => void;
-  /** グループ削除 */
-  removeGroup: (groupId: string) => void;
-  /** グループ名更新 */
-  updateGroupName: (groupId: string, name: string) => void;
-  /** グループの画像紐付け */
-  linkGroupImage: (groupId: string, surveyImageId: string) => void;
-  /** グループの画像紐付け解除 */
-  unlinkGroupImage: (groupId: string) => void;
-  /** 項目追加 */
-  addItem: (groupId: string) => void;
-  /** 項目更新 */
-  updateItem: (itemId: string, updates: Partial<QuantityItemEdit>) => void;
-  /** 項目削除 */
-  removeItem: (itemId: string) => void;
-  /** 項目コピー */
-  copyItems: (itemIds: string[]) => void;
-  /** 項目移動 */
-  moveItems: (itemIds: string[], targetGroupId: string, position: number) => void;
-  /** 項目選択切り替え */
-  toggleItemSelection: (itemId: string) => void;
-  /** 全項目選択解除 */
-  clearItemSelection: () => void;
-  /** グループ展開切り替え */
-  toggleGroupExpansion: (groupId: string) => void;
-  /** 保存 */
-  save: () => Promise<void>;
-  /** 自動保存トリガー */
-  triggerAutoSave: () => void;
-}
-
-// ============================================================================
 // 現場調査画像選択モーダル関連
 // ============================================================================
 
