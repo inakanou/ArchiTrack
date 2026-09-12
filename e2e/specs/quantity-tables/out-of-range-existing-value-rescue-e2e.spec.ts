@@ -2,15 +2,21 @@
  * @fileoverview 範囲外の既存値を持つ数量項目の保存の出口 E2E
  *
  * Task 90.1: 範囲外の既存値を持つ項目を救済する
+ * Task 90.3: REQ-11.2 の除外を取り下げ、下の3件へ被覆印を置く
  *
  * Requirements coverage (quantity-table-generation):
  * - @requirement quantity-table-generation/REQ-10.3: 丸め設定が入力可能範囲（0.01〜99.99）の外である
  *   ときエラーメッセージを表示し、範囲内の値の入力を求める
+ * - @requirement quantity-table-generation/REQ-11.2: データ保存時に整合性チェックでエラーが検出された
+ *   とき保存を中断し、問題箇所の修正を求める
  *
- * 保存の中断と問題箇所の名指し（Requirement 11 の受入基準 2）も画面で確かめるが、被覆印は置かない。
- * 同受入基準は `e2e/requirement-exclusions.json` に「データ整合性チェックはバックエンド統合テストで
- * 検証」として在籍しており、E2E の被覆印と除外は同時に成り立たない（`npm run check:req-exclusions`
- * が拒む）。除外を取り下げるかは本タスク（90.1）の境界の外である。
+ * 保存の中断と問題箇所の名指し（Requirement 11 の受入基準 2）は下の3件がいずれも固定している——
+ * 告知がグループ・項目・欄・現在の値・範囲を名指すことと、保存要求がパス基準の観測器で0件である
+ * ことを同じテストの中で主張し、直した後に同じ観測器が1件を数えることで非空証明を置く。
+ * **タスク 90.1 の時点では、ここに被覆印を置けなかった**——同受入基準は
+ * `e2e/requirement-exclusions.json` に「データ整合性チェックはバックエンド統合テストで検証」として
+ * 在籍しており、E2E の被覆印と除外は同時に成り立たない（`npm run check:req-exclusions` が拒む）。
+ * タスク 90.3 が除外を取り下げたので、印は上の一覧と下の各テストに置いてある。
  *
  * 検証する画面の振る舞い:
  * 1. 計算方法「標準」の項目（丸め設定の欄が描画されない。REQ-10.8）に範囲外の既存値があるとき、
@@ -250,6 +256,10 @@ test.describe('範囲外の既存値を持つ数量項目の保存の出口（Ta
     await loginAsUser(page, 'REGULAR_USER');
   });
 
+  /**
+   * @requirement quantity-table-generation/REQ-10.3
+   * @requirement quantity-table-generation/REQ-11.2
+   */
   test('「標準」の項目の範囲外の丸め設定は、名指して保存を中断し、告知の操作で既定値へ戻すと保存できる', async ({
     page,
   }) => {
@@ -308,6 +318,10 @@ test.describe('範囲外の既存値を持つ数量項目の保存の出口（Ta
     expect(await readPersisted(bystanderId)).toEqual({ roundingUnit: 0.5, quantity: 3 });
   });
 
+  /**
+   * @requirement quantity-table-generation/REQ-10.3
+   * @requirement quantity-table-generation/REQ-11.2
+   */
   test('欄が描画される計算方法の項目の範囲外の丸め設定は、範囲内の値の入力を求め、欄から直すと保存できる', async ({
     page,
   }) => {
@@ -351,6 +365,9 @@ test.describe('範囲外の既存値を持つ数量項目の保存の出口（Ta
     expect((await readPersisted(targetId)).roundingUnit).toBe(1);
   });
 
+  /**
+   * @requirement quantity-table-generation/REQ-11.2
+   */
   test('範囲外の数量の既存値は、保存経路に委ねず名指して保存を中断し、数量の欄から直すと保存できる', async ({
     page,
   }) => {
