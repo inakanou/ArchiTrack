@@ -2158,6 +2158,132 @@ describe('QuantityTableService', () => {
         })
       );
     });
+
+    /**
+     * Task 91.1: 複製の経路が所属違反の紐付けを複製先へ写さない
+     *
+     * 取得経路（Task 86.3）は所属違反の紐付けを `surveyImageId` ごと落とすため、
+     * 利用者から見て「紐づけられている写真」ではない。REQ-17.7 が維持を求めるのは
+     * 利用者が見ている紐付けであり、落とす向きは同条文に反しない。
+     *
+     * 所属を判定する `survey.projectId` は元の数量表を引く既存の1回の問い合わせの
+     * 取得項目を広げて得る。グループ数に比例した問い合わせは足さない。
+     */
+    describe('現調画像の所属の検査（Task 91.1）', () => {
+      /** 元の数量表とは別のプロジェクト（所属違反の供給元） */
+      const foreignProjectId = '123e4567-e89b-12d3-a456-4266141749ff';
+      const timestamp = new Date('2026-01-06T00:00:00.000Z');
+
+      /**
+       * 所属違反のグループと同一プロジェクトのグループを1件ずつ持つ元の数量表
+       *
+       * `surveyImage.survey.projectId` は取得経路（Task 86.3）と同じ取得項目である。
+       */
+      const buildSourceTableWithLinks = () => ({
+        id: sourceTableId,
+        projectId: sourceTable.projectId,
+        name: 'コピー元数量表',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        deletedAt: null,
+        groups: [
+          {
+            id: 'group-foreign',
+            quantityTableId: sourceTableId,
+            name: '他プロジェクトの写真を持つグループ',
+            surveyImageId: 'foreign-image',
+            surveyImage: {
+              id: 'foreign-image',
+              survey: { projectId: foreignProjectId },
+            },
+            displayOrder: 0,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            items: [],
+          },
+          {
+            id: 'group-own',
+            quantityTableId: sourceTableId,
+            name: '同一プロジェクトの写真を持つグループ',
+            surveyImageId: 'own-image',
+            surveyImage: {
+              id: 'own-image',
+              survey: { projectId: sourceTable.projectId },
+            },
+            displayOrder: 1,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            items: [],
+          },
+        ],
+      });
+
+      /** 複製先の数量表・グループ生成のモックを敷く */
+      const arrangeCopyMocks = (): void => {
+        mockPrisma.quantityTable.findUnique.mockResolvedValue(buildSourceTableWithLinks());
+        mockPrisma.quantityTable.create.mockResolvedValue({
+          id: 'copied-table-id',
+          projectId: sourceTable.projectId,
+          name: copyName,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        });
+        mockPrisma.quantityGroup.create
+          .mockResolvedValueOnce({ id: 'copied-group-foreign' })
+          .mockResolvedValueOnce({ id: 'copied-group-own' });
+      };
+
+      it('他プロジェクトの現調画像を指すグループは、紐付けを外して複製する', async () => {
+        // Arrange
+        arrangeCopyMocks();
+
+        // Act
+        await service.copy(sourceTableId, { name: copyName }, actorId);
+
+        // Assert: 違反した紐付けは複製先へ写さない
+        expect(mockPrisma.quantityGroup.create).toHaveBeenNthCalledWith(
+          1,
+          expect.objectContaining({
+            data: expect.objectContaining({
+              name: '他プロジェクトの写真を持つグループ',
+              surveyImageId: null,
+            }),
+          })
+        );
+      });
+
+      it('同一プロジェクトの現調画像の紐付けは複製先でも維持する（REQ-17.7 の対照）', async () => {
+        // Arrange
+        arrangeCopyMocks();
+
+        // Act
+        await service.copy(sourceTableId, { name: copyName }, actorId);
+
+        // Assert: 違反しない紐付けは従来どおり写す
+        expect(mockPrisma.quantityGroup.create).toHaveBeenNthCalledWith(
+          2,
+          expect.objectContaining({
+            data: expect.objectContaining({
+              name: '同一プロジェクトの写真を持つグループ',
+              surveyImageId: 'own-image',
+            }),
+          })
+        );
+      });
+
+      it('所属の判定で問い合わせを増やさない（元の数量表の取得1回に畳む）', async () => {
+        // Arrange
+        arrangeCopyMocks();
+
+        // Act
+        await service.copy(sourceTableId, { name: copyName }, actorId);
+
+        // Assert: 元の数量表を引く1回だけで判定する。グループ数に比例する問い合わせも、
+        // 現調画像を別途引く問い合わせも足さない
+        expect(mockPrisma.quantityTable.findUnique).toHaveBeenCalledTimes(1);
+        expect(mockPrisma.surveyImage.findMany).not.toHaveBeenCalled();
+      });
+    });
   });
 
   /**

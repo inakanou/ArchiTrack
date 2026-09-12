@@ -1693,6 +1693,11 @@ export class QuantityTableService {
    * - 17.5: コピー中にエラーが発生した場合、不完全なコピーデータが残らないようにする
    * - 17.7: 元の数量表に写真が紐づけられている場合、コピー先でも同じ写真の紐づけを維持する
    *
+   * Task 91.1: 他プロジェクトの現調画像を指す紐付けは複製先へ写さない（`surveyImageId`
+   * は `null` になる）。取得経路（Task 86.3）が同じ紐付けを落とすため、利用者から見て
+   * 「紐づけられている写真」ではなく、17.7 の維持の対象に当たらない。親の現場調査が
+   * 論理削除された画像の紐付けは落とさずに写す（判断の経緯は複製の箇所の註を参照）。
+   *
    * @param id - コピー元の数量表ID
    * @param input - コピー先の名前
    * @param actorId - 実行ユーザーID
@@ -1715,6 +1720,17 @@ export class QuantityTableService {
           groups: {
             orderBy: { displayOrder: 'asc' },
             include: {
+              // 複製の経路の現調画像の所属の検査（Task 91.1）に用いる。取得経路
+              // （Task 86.3）と同じ取得項目であり、写真1枚ごとの追加の問い合わせには
+              // ならない。元の数量表を引く同一の問い合わせの取得項目が広がるだけである。
+              surveyImage: {
+                select: {
+                  id: true,
+                  survey: {
+                    select: { projectId: true },
+                  },
+                },
+              },
               items: {
                 orderBy: { displayOrder: 'asc' },
               },
@@ -1740,11 +1756,31 @@ export class QuantityTableService {
       let totalItemCount = 0;
 
       for (const sourceGroup of sourceTable.groups) {
+        // 複製の経路の現調画像の所属の検査（Task 91.1）。
+        //
+        // 所属違反の紐付けは取得経路（Task 86.3）が `surveyImageId` ごと落とすため、
+        // 利用者から見て「紐づけられている写真」ではない。REQ-17.7 が維持を求めるのは
+        // 利用者が見ている紐付けであり、落とす向きは同条文に反しない。写したままにすると
+        // 複製先に**新しい**所属違反の行が永続化される（それが本タスクの是正対象である）。
+        //
+        // **複製全体を拒む向きは採らない。** 取得経路が落とす向きに倒れている以上、
+        // 利用者は当該の数量表を開いて編集できる。複製だけを拒むと、開けるのに複製は
+        // できないという新たな出口の無さを作る。
+        //
+        // **親の現場調査が論理削除された画像の紐付けは落とさない**（Task 81.1 の不変条件）。
+        // 取得経路は論理削除を落とさず、画面には解除の導線がある（Task 90.2）。ここで
+        // 黙って落とすと、利用者が現に見ている写真が理由もなく消える。判定に用いるのは
+        // 所属（`survey.projectId`）だけで、`deletedAt` は読まない。
+        // 紐付けを持たないグループでは `surveyImage` が無いため所属を判定しない
+        const linkedSurveyProjectId = sourceGroup.surveyImage?.survey.projectId;
+        const violatesProjectBoundary =
+          linkedSurveyProjectId !== undefined && linkedSurveyProjectId !== sourceTable.projectId;
+
         const copiedGroup = await tx.quantityGroup.create({
           data: {
             quantityTableId: copiedTable.id,
             name: sourceGroup.name,
-            surveyImageId: sourceGroup.surveyImageId,
+            surveyImageId: violatesProjectBoundary ? null : sourceGroup.surveyImageId,
             displayOrder: sourceGroup.displayOrder,
           },
         });

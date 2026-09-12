@@ -587,7 +587,9 @@ export class QuantityGroupService {
    * Requirements:
    * - 38.2: 数量グループのコピーボタンクリックで同一数量表内に複製する
    * - 38.3: 配下の全数量項目（各フィールド・並び順）を複製する
-   * - 38.4: 元の写真紐づけ（surveyImageId）を複製先でも維持する
+   * - 38.4: 元の写真紐づけ（surveyImageId）を複製先でも維持する。ただし他プロジェクトの
+   *   現調画像を指す紐付けは複製先へ写さない（Task 91.1。取得経路が同じ紐付けを落とす
+   *   ため、利用者から見て「紐づけられている写真」ではない。判断の経緯は複製の箇所の註）
    * - 38.5: 複製先のグループ名は「{元のグループ名}のコピー」
    * - 38.6: 上限超過時は元名を切り詰めてサフィックスを末尾に付与
    * - 38.7: 元グループの直下（displayOrder = 元 + 1）に挿入する
@@ -638,7 +640,18 @@ export class QuantityGroupService {
         where: { id: groupId },
         include: {
           quantityTable: {
-            select: { id: true, deletedAt: true },
+            // projectId は複製の経路の現調画像の所属の検査（Task 91.1）の突き合わせ先。
+            // 既に引いている行の取得項目が広がるだけで、問い合わせは増えない
+            select: { id: true, deletedAt: true, projectId: true },
+          },
+          // 所属の判定に用いる（Task 91.1）。取得経路（Task 86.3）と同じ取得項目である
+          surveyImage: {
+            select: {
+              id: true,
+              survey: {
+                select: { projectId: true },
+              },
+            },
           },
           items: {
             orderBy: { displayOrder: 'asc' },
@@ -676,11 +689,26 @@ export class QuantityGroupService {
       );
 
       // 6. 複製グループの挿入
+      //
+      // 複製の経路の現調画像の所属の検査（Task 91.1）。判断は
+      // `QuantityTableService.copy` と同一である——所属違反の紐付けは取得経路
+      // （Task 86.3）が `surveyImageId` ごと落とすため、利用者から見て「紐づけられて
+      // いる写真」ではなく、REQ-38.4 が維持を求める対象に当たらない。写したままにすると
+      // 複製先に新しい所属違反の行が永続化される。
+      //
+      // 複製全体を拒む向きは採らない。親の現場調査が論理削除された画像の紐付けは
+      // 落とさずに写す（Task 81.1 の不変条件。理由は数量表のコピーの註に書いた）。
+      // 紐付けを持たないグループでは `surveyImage` が無いため所属を判定しない
+      const linkedSurveyProjectId = sourceGroup.surveyImage?.survey.projectId;
+      const violatesProjectBoundary =
+        linkedSurveyProjectId !== undefined &&
+        linkedSurveyProjectId !== sourceGroup.quantityTable.projectId;
+
       const copiedGroup = await tx.quantityGroup.create({
         data: {
           quantityTableId,
           name: copiedName,
-          surveyImageId: sourceGroup.surveyImageId,
+          surveyImageId: violatesProjectBoundary ? null : sourceGroup.surveyImageId,
           displayOrder: sourceGroup.displayOrder + 1,
         },
         include: {

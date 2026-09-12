@@ -852,7 +852,10 @@ router.put(
  * /api/quantity-tables/{id}/copy:
  *   post:
  *     summary: 数量表コピー
- *     description: 既存の数量表を全データ（グループ・項目・写真紐づけ）含めてディープコピーする
+ *     description: |
+ *       既存の数量表を全データ（グループ・項目・写真紐づけ）含めてディープコピーする。
+ *       ただし当該数量表と別のプロジェクトの現場調査画像を指す紐づけは複製先へ写さない
+ *       （複製先の surveyImageId は null になる。複製自体は成功する）。
  *     tags:
  *       - Quantity Tables
  *     security:

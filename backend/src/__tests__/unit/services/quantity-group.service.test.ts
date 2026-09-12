@@ -1621,6 +1621,103 @@ describe('QuantityGroupService', () => {
       expect(mockPrisma.quantityItem.createMany).not.toHaveBeenCalled();
       expect(mockAuditLogService.createLog).not.toHaveBeenCalled();
     });
+
+    /**
+     * Task 91.1: 複製の経路が所属違反の紐付けを複製先へ写さない
+     *
+     * 数量表のコピー（`QuantityTableService.copy`）と同じ判断である。取得経路
+     * （Task 86.3）が所属違反の紐付けを `surveyImageId` ごと落とすため、利用者から
+     * 見て「紐づけられている写真」ではなく、REQ-38.4 が維持を求める対象に当たらない。
+     *
+     * 所属の判定はロック取得後の元グループの取得の項目を広げて得る。追加の
+     * 問い合わせは足さない。
+     */
+    describe('現調画像の所属の検査（Task 91.1）', () => {
+      /** 元グループが属する数量表のプロジェクト */
+      const ownerProjectId = '123e4567-e89b-12d3-a456-426614174030';
+      /** 別のプロジェクト（所属違反の供給元） */
+      const foreignProjectId = '123e4567-e89b-12d3-a456-4266141740ff';
+
+      /**
+       * 現調画像を持つ元グループ（所属の判定に用いる項目つき）
+       *
+       * @param surveyProjectId - 紐付く現調画像の親の現場調査が属するプロジェクト
+       */
+      const buildLinkedSourceGroup = (surveyProjectId: string) => ({
+        ...buildSourceGroup(),
+        quantityTable: { id: quantityTableId, deletedAt: null, projectId: ownerProjectId },
+        surveyImage: {
+          id: 'survey-image-1',
+          survey: { projectId: surveyProjectId },
+        },
+      });
+
+      it('他プロジェクトの現調画像を指す元グループは、紐付けを外して複製する', async () => {
+        // Arrange
+        mockPrisma.quantityGroup.findUnique.mockResolvedValue(
+          buildLinkedSourceGroup(foreignProjectId)
+        );
+        mockPrisma.quantityGroup.updateMany.mockResolvedValue({ count: 0 });
+        mockPrisma.quantityGroup.create.mockResolvedValue({
+          ...buildCopiedGroup(),
+          surveyImageId: null,
+        });
+        mockPrisma.quantityItem.createMany.mockResolvedValue({ count: 1 });
+
+        // Act
+        const result = await service.copy(sourceGroupId, actorId);
+
+        // Assert: 違反した紐付けは複製先へ写さない
+        expect(mockPrisma.quantityGroup.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ surveyImageId: null }),
+          })
+        );
+        expect(result.surveyImageId).toBeNull();
+      });
+
+      it('同一プロジェクトの現調画像の紐付けは複製先でも維持する（REQ-38.4 の対照）', async () => {
+        // Arrange
+        mockPrisma.quantityGroup.findUnique.mockResolvedValue(
+          buildLinkedSourceGroup(ownerProjectId)
+        );
+        mockPrisma.quantityGroup.updateMany.mockResolvedValue({ count: 0 });
+        mockPrisma.quantityGroup.create.mockResolvedValue(buildCopiedGroup());
+        mockPrisma.quantityItem.createMany.mockResolvedValue({ count: 1 });
+
+        // Act
+        const result = await service.copy(sourceGroupId, actorId);
+
+        // Assert: 違反しない紐付けは従来どおり写す
+        expect(mockPrisma.quantityGroup.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ surveyImageId: 'survey-image-1' }),
+          })
+        );
+        expect(result.surveyImageId).toBe('survey-image-1');
+      });
+
+      it('所属の判定で問い合わせを増やさない（現調画像を別途引かない）', async () => {
+        // Arrange
+        mockPrisma.quantityGroup.findUnique.mockResolvedValue(
+          buildLinkedSourceGroup(foreignProjectId)
+        );
+        mockPrisma.quantityGroup.updateMany.mockResolvedValue({ count: 0 });
+        mockPrisma.quantityGroup.create.mockResolvedValue({
+          ...buildCopiedGroup(),
+          surveyImageId: null,
+        });
+        mockPrisma.quantityItem.createMany.mockResolvedValue({ count: 1 });
+
+        // Act
+        await service.copy(sourceGroupId, actorId);
+
+        // Assert: 元グループの取得（ロック前・ロック後）以外に問い合わせを足さない
+        expect(mockPrisma.quantityGroup.findUnique).toHaveBeenCalledTimes(2);
+        expect(mockPrisma.surveyImage.findUnique).not.toHaveBeenCalled();
+        expect(mockPrisma.surveyImage.findMany).not.toHaveBeenCalled();
+      });
+    });
   });
 
   // ==========================================================================
