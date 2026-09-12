@@ -40,6 +40,7 @@ type MockPrismaClient = {
   quantityGroup: {
     findUnique: Mock;
   };
+  $queryRaw: Mock;
   $transaction: Mock;
 };
 
@@ -54,7 +55,9 @@ describe('QuantityItemService', () => {
       quantityItem: {
         create: vi.fn(),
         findUnique: vi.fn(),
-        findMany: vi.fn(),
+        // 既定は空配列。ロック対象の先読み（Task 92.4 の lockQuantityTableRowsByItems）が
+        // 配列を前提とするため、明示しない検証で undefined を返さないようにする
+        findMany: vi.fn().mockResolvedValue([]),
         update: vi.fn(),
         delete: vi.fn(),
         count: vi.fn(),
@@ -63,6 +66,9 @@ describe('QuantityItemService', () => {
       quantityGroup: {
         findUnique: vi.fn(),
       },
+      // 数量表の行ロック（Task 92.4）。モックでは足場にすぎず、ロックの有無を固定するのは
+      // 実データベースへ接続する統合検証だけである
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'locked-table' }]),
       $transaction: vi.fn((callback) => callback(mockPrisma)),
     };
 

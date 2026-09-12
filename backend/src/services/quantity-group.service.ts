@@ -161,6 +161,10 @@ export class QuantityGroupService {
    */
   async create(input: CreateQuantityGroupInput, actorId: string): Promise<QuantityGroupInfo> {
     return await this.prisma.$transaction(async (tx) => {
+      // 0. 数量表の行を排他ロックし、同一数量表への並行 displayOrder 操作を直列化する
+      //    （Task 92.4。採番・重複検査より前に取る）
+      await this.lockQuantityTableRow(tx, input.quantityTableId);
+
       // 1. 数量表存在確認
       const quantityTable = await this.validateQuantityTableExists(tx, input.quantityTableId);
 
@@ -231,6 +235,35 @@ export class QuantityGroupService {
     }
 
     return { id: quantityTable.id, projectId: quantityTable.projectId };
+  }
+
+  /**
+   * 当該数量表の行を `SELECT ... FOR UPDATE` で排他ロックする
+   *
+   * 並び順の個別 API が持つのは「数えてから書く」形の検査だけなので、行ロックが無いと
+   * 並行する2要求が互いの書き込みを見ないまま同じ検査を通過し、同じ displayOrder を
+   * 書きうる（Task 92.4 が実測した）。
+   *
+   * ロックの対象は Task 88.1 が `saveDraft` / `copy()` / `createGroupsFromSurvey()` で
+   * 取るのと同一の「数量表の行」である。**本スペックの書き込み経路はこの1行だけを、
+   * トランザクションの最初に取る。** 一つのトランザクションが或るロックを保持したまま
+   * 別のロックを待つ状態が生じないため、ロック順序の循環＝デッドロックは構造的に
+   * 起こらない。
+   *
+   * 行が無い／論理削除済みの判定は後続の読み取りに任せる（応答は従来どおり 404）。
+   *
+   * @param tx - Prismaトランザクションクライアント
+   * @param quantityTableId - 数量表ID
+   */
+  private async lockQuantityTableRow(
+    tx: PrismaTransactionClient,
+    quantityTableId: string
+  ): Promise<void> {
+    await tx.$queryRaw`
+      SELECT id FROM "quantity_tables"
+      WHERE id = ${quantityTableId}
+      FOR UPDATE
+    `;
   }
 
   /**
@@ -447,6 +480,17 @@ export class QuantityGroupService {
     expectedUpdatedAt: Date
   ): Promise<QuantityGroupInfo> {
     return await this.prisma.$transaction(async (tx) => {
+      // 0. 数量表の行を排他ロックし、同一数量表への並行 displayOrder 操作を直列化する
+      //    （Task 92.4）。ロック対象を知るための先読みはロックの外で行うが、グループの
+      //    所属数量表は変わらない（数量表をまたぐ移動を許す経路が無い）ので安全である。
+      const owner = await tx.quantityGroup.findUnique({
+        where: { id },
+        select: { quantityTableId: true },
+      });
+      if (owner) {
+        await this.lockQuantityTableRow(tx, owner.quantityTableId);
+      }
+
       // 1. 数量グループの存在確認
       const quantityGroup = await tx.quantityGroup.findUnique({
         where: { id },
@@ -551,6 +595,10 @@ export class QuantityGroupService {
     actorId: string
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      // 0. 数量表の行を排他ロックし、同一数量表への並行 displayOrder 操作を直列化する
+      //    （Task 92.4。適用後の重なりの検査より前に取る）
+      await this.lockQuantityTableRow(tx, quantityTableId);
+
       // 1. 数量表存在確認
       await this.validateQuantityTableExists(tx, quantityTableId);
 

@@ -128,6 +128,10 @@ export class QuantityItemService {
     this.validateTextFieldWidths(input);
 
     return await this.prisma.$transaction(async (tx) => {
+      // 0. 数量表の行を排他ロックし、同一数量表への並行 displayOrder 操作を直列化する
+      //    （Task 92.4。採番・重複検査より前に取る）
+      await this.lockQuantityTableRowByGroup(tx, input.quantityGroupId);
+
       // 1. 数量グループ存在確認
       await this.validateQuantityGroupExists(tx, input.quantityGroupId);
 
@@ -349,6 +353,79 @@ export class QuantityItemService {
   }
 
   /**
+   * 当該数量表の行を `SELECT ... FOR UPDATE` で排他ロックする
+   *
+   * 数量項目の並び順の個別 API が持つのは「数えてから書く」形の検査だけなので、行ロックが
+   * 無いと並行する2要求が互いの書き込みを見ないまま同じ検査を通過し、同じ displayOrder を
+   * 書きうる（Task 92.4 が実測した）。
+   *
+   * ロックの対象は数量グループの行ではなく**数量表の行**である。Task 88.1 の
+   * `saveDraft` / `copy()` / `createGroupsFromSurvey()` と同一の対象を選ぶことで、本スペックの
+   * 書き込み経路が取るロックが1種類に揃う。`move` / `bulkMove` は2つのグループに跨るため、
+   * グループ行を対象にすると取得順序を決める必要が生じるが、数量表の行なら1行で足りる。
+   *
+   * @param tx - Prismaトランザクションクライアント
+   * @param quantityTableId - 数量表ID
+   */
+  private async lockQuantityTableRow(
+    tx: PrismaTransactionClient,
+    quantityTableId: string
+  ): Promise<void> {
+    await tx.$queryRaw`
+      SELECT id FROM "quantity_tables"
+      WHERE id = ${quantityTableId}
+      FOR UPDATE
+    `;
+  }
+
+  /**
+   * 数量グループが属する数量表の行を排他ロックする
+   *
+   * ロック対象を知るための先読みはロックの外で行うが、グループの所属数量表は変わらない
+   * （数量表をまたぐ移動を許す経路が無い）ので安全である。グループが無い場合は何もしない
+   * ——不在の判定は後続の読み取りに任せる（応答は従来どおり 404）。
+   *
+   * @param tx - Prismaトランザクションクライアント
+   * @param quantityGroupId - 数量グループID
+   */
+  private async lockQuantityTableRowByGroup(
+    tx: PrismaTransactionClient,
+    quantityGroupId: string
+  ): Promise<void> {
+    const group = await tx.quantityGroup.findUnique({
+      where: { id: quantityGroupId },
+      select: { quantityTableId: true },
+    });
+
+    if (group) {
+      await this.lockQuantityTableRow(tx, group.quantityTableId);
+    }
+  }
+
+  /**
+   * 数量項目が属する数量表の行を排他ロックする
+   *
+   * @param tx - Prismaトランザクションクライアント
+   * @param itemIds - 数量項目IDの配列
+   */
+  private async lockQuantityTableRowsByItems(
+    tx: PrismaTransactionClient,
+    itemIds: string[]
+  ): Promise<void> {
+    const owners = await tx.quantityItem.findMany({
+      where: { id: { in: itemIds } },
+      select: { quantityGroup: { select: { quantityTableId: true } } },
+    });
+
+    // 複数の数量表に跨りうる経路（bulkCopy）では、取得順序を ID の昇順に固定する。
+    // 全経路が同じ順序で取るため、ロック順序の循環＝デッドロックは生じない。
+    const tableIds = [...new Set(owners.map((o) => o.quantityGroup.quantityTableId))].sort();
+    for (const tableId of tableIds) {
+      await this.lockQuantityTableRow(tx, tableId);
+    }
+  }
+
+  /**
    * 数量項目詳細取得
    *
    * @param id - 数量項目ID
@@ -423,6 +500,10 @@ export class QuantityItemService {
     this.validateTextFieldWidths(input);
 
     return await this.prisma.$transaction(async (tx) => {
+      // 0. 数量表の行を排他ロックし、同一数量表への並行 displayOrder 操作を直列化する
+      //    （Task 92.4。重複検査と楽観的排他制御の読み取りより前に取る）
+      await this.lockQuantityTableRowsByItems(tx, [id]);
+
       // 1. 数量項目の存在確認
       const quantityItem = await tx.quantityItem.findUnique({
         where: { id },
@@ -606,6 +687,10 @@ export class QuantityItemService {
     actorId: string
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      // 0. 数量表の行を排他ロックし、同一数量表への並行 displayOrder 操作を直列化する
+      //    （Task 92.4。適用後の重なりの検査より前に取る）
+      await this.lockQuantityTableRowByGroup(tx, groupId);
+
       // 1. 数量グループ存在確認
       await this.validateQuantityGroupExists(tx, groupId);
 
@@ -678,6 +763,10 @@ export class QuantityItemService {
    */
   async copy(itemId: string, actorId: string): Promise<QuantityItemInfo> {
     return await this.prisma.$transaction(async (tx) => {
+      // 0. 数量表の行を排他ロックし、同一数量表への並行 displayOrder 操作を直列化する
+      //    （Task 92.4。採番より前に取る）
+      await this.lockQuantityTableRowsByItems(tx, [itemId]);
+
       // 1. コピー元の項目を取得
       const sourceItem = await tx.quantityItem.findUnique({
         where: { id: itemId },
@@ -763,6 +852,10 @@ export class QuantityItemService {
     actorId: string
   ): Promise<QuantityItemInfo> {
     return await this.prisma.$transaction(async (tx) => {
+      // 0. 数量表の行を排他ロックし、同一数量表への並行 displayOrder 操作を直列化する
+      //    （Task 92.4。移動元・移動先は同一数量表に限られるので1行で足りる）
+      await this.lockQuantityTableRowsByItems(tx, [itemId]);
+
       // 1. 移動対象の項目を取得
       const sourceItem = await tx.quantityItem.findUnique({
         where: { id: itemId },
@@ -879,6 +972,10 @@ export class QuantityItemService {
    */
   async bulkCopy(itemIds: string[], actorId: string): Promise<QuantityItemInfo[]> {
     return await this.prisma.$transaction(async (tx) => {
+      // 0. 対象項目が属する数量表の行を排他ロックする（Task 92.4）。
+      //    本経路だけは複数の数量表に跨りうるため、取得順序を ID の昇順に固定する
+      await this.lockQuantityTableRowsByItems(tx, itemIds);
+
       // 1. コピー対象の項目を取得
       const sourceItems = await tx.quantityItem.findMany({
         where: { id: { in: itemIds } },
@@ -963,6 +1060,10 @@ export class QuantityItemService {
    */
   async bulkMove(itemIds: string[], targetGroupId: string, actorId: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      // 0. 数量表の行を排他ロックし、同一数量表への並行 displayOrder 操作を直列化する
+      //    （Task 92.4。全項目が移動先と同一数量表であることは 3 で検証する）
+      await this.lockQuantityTableRowByGroup(tx, targetGroupId);
+
       // 1. 移動先グループの検証
       const targetGroup = await tx.quantityGroup.findUnique({
         where: { id: targetGroupId },
