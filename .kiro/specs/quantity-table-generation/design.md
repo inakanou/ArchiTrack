@@ -1155,6 +1155,17 @@ interface SurveyImageSummary {
 | PUT | /api/quantity-tables/:tableId/groups/reorder | { orderedIds: string[] } | QuantityGroupInfo[] | 400, 404 |
 | POST | /api/quantity-tables/:tableId/groups/from-survey | { siteSurveyId: string } | CreateGroupsFromSurveyResult | 400, 404 |
 
+**実体を持たない二つのメソッド名の現況（Task 93.1 の併記）**
+
+上の Service Interface が挙げる `linkSurveyImage(id: string, surveyImageId: string): Promise<QuantityGroupInfo>;` と `unlinkSurveyImage(id: string): Promise<QuantityGroupInfo>;` の2行は、書いた時点の記録として残す。**この2つの名前に対応する実装をバックエンドは持たない。** 実測はいずれもコミット `e37a84b9`（本項の追記より前）の作業ツリーで、2026-09-12 にリポジトリルートから行った。
+
+- **不在の実測**: `grep -rnw -E 'linkSurveyImage|unlinkSurveyImage' backend/src` は当たりを一つも返さない（出力は空、終了コードは 1）
+- **挙動が欠けているのではない。実体は `update()` が担っている。** `backend/src/schemas/quantity-table.schema.ts` の `updateQuantityGroupSchema` が `surveyImageId` を nullable かつ optional で受け、`backend/src/routes/quantity-groups.routes.ts` の `PUT /api/quantity-groups/:id` がその値を `quantityGroupService.update` へ渡し、`backend/src/services/quantity-group.service.ts` の `update()` が `input.surveyImageId !== undefined` のときだけ `updateData.surveyImageId` を書く。**画像IDを与えれば紐付けになり、`null` を与えれば紐付けが外れる。** 二つの操作は一つのメソッドへ畳まれており、**設計文書の側の名前が実装と食い違っている**
+- **走査は二つのメソッドで打ち切っていない。Service Interface の全9メソッドを一件ずつ測った。** 再現は `for m in create findById findByQuantityTableId update delete linkSurveyImage unlinkSurveyImage reorder createGroupsFromSurvey; do printf '%s %s\n' "$m" "$(grep -cE "^  (async )?${m}\(" backend/src/services/quantity-group.service.ts)"; done` で、実装の側にメソッド定義を持つのは6件、持たないのは `linkSurveyImage` / `unlinkSurveyImage` / `reorder` の3件である。**`reorder` は実体が `updateDisplayOrder()` であることを Task 88.1 の注が本書で既に開示しており、本項の対象外である**
+- **`##### API Contract` の表の2行も同じ不在である。** `PUT /api/quantity-groups/:id/survey-image` と `DELETE /api/quantity-groups/:id/survey-image` に対応する経路を `backend/src/routes/quantity-groups.routes.ts` は登録しない。同ファイルが登録する経路は `grep -A 1 -nE '^router\.(get|put|post|delete)\(' backend/src/routes/quantity-groups.routes.ts` が印字する8件（`/` が2件、`/order`、`/:id` が3件、`/:id/copy`、`/from-survey`）であり、`survey-image` を含むものは一つも無い。**この2行は上の2つのメソッドと同じ操作を HTTP の層で述べたものなので、本項の境界に入れて併記する。** 表の行は書いた時点の記録として残す
+- **逆向きの食い違いも同じ走査で見えた（測定のみ・未処置）**: `backend/src/services/quantity-group.service.ts` は `copy()` を持つが、上の Service Interface はこれを挙げていない。同メソッドの契約は本書の「数量グループのコピー機能（REQ-38）」の節が別に述べているため、本項では触れていない
+- **範囲外の同型（測定のみ・未処置）**: (i) 同じ表の `PUT /api/quantity-tables/:tableId/groups/reorder` は、実装では `/order` で登録されている（`reorder` 系であり Task 88.1 の開示の範囲、本項の対象外）。(ii) 上の Service Interface の `update()` は3引数だが、実装は `actorId` を加えた4引数である。(iii) 上の `interface UpdateQuantityGroupInput` は `name` と `surveyImageId` だけを挙げるが、`updateQuantityGroupSchema` は `displayOrder` も受ける。(ii) と (iii) はメソッド名の不在ではないため、本項では測っただけで触れていない
+
 **並び順の個別 API が displayOrder を重ねない形（Task 92.1 の決着）**
 
 上の Service Interface と `##### API Contract` の表は書いた時点の記録として残す。Task 88.1 が「個別 API は並行させなくても逐次の呼び出しで displayOrder を重ねる」と申し送った3経路について、Task 92.1 が次のとおり決着させた。実測はいずれも HEAD `4a745c07` の作業ツリーで、2026-09-12 にリポジトリルートから行った。
