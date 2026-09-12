@@ -22,6 +22,9 @@
  * - @requirement quantity-table-generation/REQ-8.13: 「箇所数」選択で計算用列を箇所数→長さ→重量→調整係数→丸め設定の順に表示する
  * - @requirement quantity-table-generation/REQ-8.14: 箇所数×任意項目（長さ・重量）の乗算で数量を自動設定する
  * - @requirement quantity-table-generation/REQ-8.15: 箇所数未入力での保存試行時にエラーを表示する
+ * - @requirement quantity-table-generation/REQ-11.2: データ保存時の整合性チェックでエラーが検出された
+ *   とき、保存を中断し、問題箇所の修正を求める（タスク 90.4 が付した。下の REQ-47.9 の検証が
+ *   `handleSave` の計算パラメータの枝について条文の二つの節を既に固定しているため）
  * - @requirement quantity-table-generation/REQ-14.6: 「箇所数」フィールドを小数桁付与せず整数表示する
  * - @requirement quantity-table-generation/REQ-14.7: 「箇所数」フィールド空白時は空白のまま表示する
  * - @requirement quantity-table-generation/REQ-15.4: 「箇所数」範囲（1〜9999999）外入力でエラーを表示する
@@ -496,19 +499,29 @@ test.describe('REQ-47: 計算方法「箇所数」の計算・表示・入力検
   // --------------------------------------------------------------------------
   // REQ-47.9: 未入力での必須エラー（保存試行時）
   // --------------------------------------------------------------------------
+  /**
+   * @requirement quantity-table-generation/REQ-47.9
+   * @requirement quantity-table-generation/REQ-11.2
+   *
+   * タスク 90.4: 本検証は REQ-11.2 の条文の二つの節を既に固定している——保存が中断されること
+   * （保存要求が0件であり、箇所数を入れた後の保存で同じ観測器が1件を数える非空証明を伴う）と、
+   * 問題箇所の修正を求めること（告知が「箇所数は必須です」を名指す）である。通る枝は
+   * `handleSave` の計算パラメータの検証（`validateCalculationParams`）であり、
+   * `out-of-range-existing-value-rescue-e2e.spec.ts` の3件が通る範囲判定の枝とは別である。
+   */
   test('「箇所数」が未入力のまま保存を試行するとエラーが表示され、保存が中断される (REQ-47.9)', async ({
     page,
   }) => {
     await gotoEditPage(page);
 
-    // 保存 API（PUT /:id/save）が送信されないことを検証するためリクエストを監視する
+    // 保存 API（PUT /:id/save）が送信されないことを検証するためリクエストを監視する。
+    // 判定はパスのみで行い、接続先（ホスト・ポート・スキーム）を条件に入れない。
+    // オリジンを条件に含めると観測が全件除外され「0件」が恒真になる。
     const saveRequests: string[] = [];
     page.on('request', (request) => {
-      if (
-        request.method() === 'PUT' &&
-        /\/api\/quantity-tables\/[^/]+\/save$/.test(request.url())
-      ) {
-        saveRequests.push(request.url());
+      const pathname = new URL(request.url()).pathname;
+      if (request.method() === 'PUT' && /^\/api\/quantity-tables\/[^/]+\/save$/.test(pathname)) {
+        saveRequests.push(pathname);
       }
     });
 

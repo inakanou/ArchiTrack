@@ -4556,6 +4556,14 @@ test.describe('数量表CRUD操作', () => {
 
     /**
      * 受入基準 11.2 は除外である（e2e/requirement-exclusions.json）。名称欄を空にして焦点を外したときの必須エラーの表示とハイライトを主張するもので、保存の試行そのものを行っておらず、条文が求める保存の中断を主張していないため、被覆印は掲げない。
+     *
+     * 【現況】除外はタスク 90.3 が取り下げたため、上の一文の前半（「除外である」）はもう成り立たない。
+     * **被覆印を掲げない結論は変わらない**——後半の理由（保存の試行を行っておらず、条文が求める
+     * 保存の中断を主張していない）は現在も真であり、本検証は焦点喪失時の必須エラーの表示と
+     * ハイライトだけを見ている。REQ-11.2 を名乗る検証は
+     * `e2e/specs/quantity-tables/out-of-range-existing-value-rescue-e2e.spec.ts`（範囲外の既存値）、
+     * `e2e/specs/quantity-tables/save-integrity-empty-item-name-e2e.spec.ts`（項目名が空）、
+     * 本ディレクトリの `quantity-count-calculation-e2e.spec.ts`（計算パラメータ未入力）にある。
      */
     test('整合性チェックでエラーが検出されると保存が中断される', async ({ page }) => {
       if (!createdQuantityTableId) {
