@@ -177,13 +177,18 @@ const bulkMoveSchema = z.object({
  *                 maxLength: 50
  *               quantity:
  *                 type: number
+ *               displayOrder:
+ *                 type: integer
+ *                 minimum: 0
+ *                 description: 表示順序（任意）。省略時は当該グループの末尾へ採番する。既存項目と同じ値は 400 で拒否する
  *     responses:
  *       201:
  *         description: 数量項目作成成功
  *       400:
  *         description: |
  *           バリデーションエラー。テキスト欄の文字幅上限違反は code: QUANTITY_TABLE_VALIDATION_ERROR で、
- *           違反したフィールド名をキーに理由を持つ
+ *           違反したフィールド名をキーに理由を持つ。表示順序が既存項目と重複する場合も
+ *           同じ code で拒否する
  *       401:
  *         description: 認証エラー
  *       403:
@@ -343,7 +348,7 @@ router.get(
  *       204:
  *         description: 更新成功
  *       400:
- *         description: バリデーションエラー
+ *         description: バリデーションエラー（適用後の表示順序が重複する場合を含む）
  *       401:
  *         description: 認証エラー
  *       403:
@@ -497,6 +502,10 @@ router.get(
  *                 type: string
  *               quantity:
  *                 type: number
+ *               displayOrder:
+ *                 type: integer
+ *                 minimum: 0
+ *                 description: 表示順序。当該グループの他の項目が使っている値は 400 で拒否する
  *               expectedUpdatedAt:
  *                 type: string
  *                 format: date-time
@@ -506,7 +515,8 @@ router.get(
  *       400:
  *         description: |
  *           バリデーションエラー。テキスト欄の文字幅上限違反は code: QUANTITY_TABLE_VALIDATION_ERROR で、
- *           違反したフィールド名をキーに理由を持つ
+ *           違反したフィールド名をキーに理由を持つ。表示順序が他の項目と重複する場合も
+ *           同じ code で拒否する
  *       401:
  *         description: 認証エラー
  *       403:
@@ -740,7 +750,7 @@ router.post(
  *       200:
  *         description: 数量項目移動成功
  *       400:
- *         description: バリデーションエラー
+ *         description: バリデーションエラー（移動先で使われている表示順序を指定した場合を含む）
  *       401:
  *         description: 認証エラー
  *       403:

@@ -104,6 +104,7 @@ export const QUANTITY_TABLE_VALIDATION_MESSAGES = {
   // 表示順序
   DISPLAY_ORDER_INVALID: '表示順序は0以上の整数を入力してください',
   DISPLAY_ORDER_DUPLICATED: '表示順序が他の数量グループと重複しています',
+  ITEM_DISPLAY_ORDER_DUPLICATED: '表示順序が他の数量項目と重複しています',
 
   // 箇所数（REQ-47）
   COUNT_REQUIRED: '箇所数は必須です',
@@ -564,11 +565,17 @@ export const createQuantityItemBaseSchema = z.object({
 
   remarks: z.string().nullable().optional(),
 
+  /**
+   * 表示順序（任意）。
+   *
+   * 省略時はサーバーが当該グループの末尾（最大値 + 1）へ採番する。既定値を持たせると、
+   * 省略した作成が常に 0 になり既存の先頭と重なる（Task 92.3。数量グループ側は Task 92.1）。
+   */
   displayOrder: z
     .number()
     .int()
     .min(0, QUANTITY_TABLE_VALIDATION_MESSAGES.DISPLAY_ORDER_INVALID)
-    .default(0),
+    .optional(),
 });
 
 /**

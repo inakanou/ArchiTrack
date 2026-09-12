@@ -1289,6 +1289,44 @@ interface QuantityItemInfo {
 | POST | /api/quantity-items/:id/move | { targetGroupId: string, position: number } | QuantityItemInfo | 400, 404 |
 | POST | /api/quantity-items/batch | BatchOperation | QuantityItemInfo[] | 400, 404 |
 
+**並び順の個別 API が displayOrder を重ねない形（Task 92.3 の決着）**
+
+上の Service Interface と `##### API Contract` の表は書いた時点の記録として残す。Task 92.1 が数量グループについて決着させた形と同型の穴が数量項目側にも残っており（92.1 の「範囲外の同型（未処置・測定のみ）」が申し送った）、Task 92.3 が次のとおり決着させた。実測はいずれも HEAD `8b19d5b3` の作業ツリーで、2026-09-12 にリポジトリルートから行った。
+
+- **決着**: **逐次の呼び出しについて**「同一グループの2つの項目が同じ displayOrder を持つ状態」を個別 API に作らせない（並行して送られた要求に対する窓は残る。下の「塞いだ範囲」を見よ）。(1) `createQuantityItemBaseSchema` の displayOrder から既定値を外して任意にし、省略時はサーバーが採番する。(2) 採番は**件数ではなく最大値 + 1** とする（`nextDisplayOrder`）。(3) 明示された値が既存と重なる作成・更新・移動は 400 で拒む（`assertDisplayOrderNotTaken`。更新（`update`）と移動（`move`）は自分自身を判定から除くため、自分の現在値を指す要求は通る）。(4) 並び替え（`updateDisplayOrder`）は**適用後の全項目の並び**に重なりが生じる要求を 400 で拒む。(5) 複製（`copy`）・一括複製（`bulkCopy`）・一括移動（`bulkMove`）の採番も件数から最大値 + 1 へ改めた。文言は `QUANTITY_TABLE_VALIDATION_MESSAGES` の `ITEM_DISPLAY_ORDER_DUPLICATED` 一本で、既存の `QuantityTableValidationError` → 400 の写しに乗るため応答の形は変わらない
+- **数量グループ側の `DISPLAY_ORDER_DUPLICATED` を流用しなかった**のは、同定数の文言が「他の数量グループと重複」と述べるためである。判定の対象が違うので定数を分けた
+- **問い合わせの本数は項目数によらず定数である**: 採番は `aggregate` 1回、重複の判定は `count` 1回、並び替えの適用後の判定は `findMany` 1回を足しただけである（一括系が項目ごとに1回引く形は本変更の前からのもので、増やしていない）
+- **数量グループ側と違い、件数による採番は本変更の前から公開 API へ到達していた。** `copy` / `bulkCopy` / `bulkMove` は displayOrder を受け取らず、常に件数で採番する。削除は後続項目の displayOrder を詰めないため、0 と 2 が残るグループでは件数 2 が末尾と重なる。一方 `create` については 92.1 と同じく既定値が値を必ず補っていたため件数の枝は経路から使われず、**既定値を外して省略を許した時点で初めて到達可能になる**。したがって既定値の撤去と採番の是正は不可分である
+- **画面からの到達の実測**: 関数名ごとに `grep -rlw '<関数名>' frontend/src --include=*.ts --include=*.tsx | grep -v '\.test\.\|\.stories\.\|__tests__' | grep -v 'frontend/src/api/quantity-tables.ts'` を走らせた。`createQuantityItem` / `updateQuantityItem` / `copyQuantityItem` / `deleteQuantityItem` / `updateItemDisplayOrder` はいずれも 0 ファイルであり、数量グループ側（92.1 の実測）と同じである。移動・一括系はクライアント関数自体が無い。画面の永続化は `saveDraft` の1回に畳まれる（REQ-42）
+
+**塞いだ範囲（逐次のみ）と、残る並行の窓**
+
+**Task 92.3 が塞いだのは逐次の呼び出しの側だけである。並行して送られた要求に対する窓は残る。** `assertDisplayOrderNotTaken` も `nextDisplayOrder` も並び替えの適用後の検査も、いずれも**数えてから書く**形である。そして数量項目の個別 API はいずれも数量表の行ロックを取らない（Task 88.1 が `SELECT ... FOR UPDATE` を置いたのは `saveDraft`・`copy()`・`createGroupsFromSurvey()` の3つで、数量項目の経路は含まれない）。したがって Read Committed の下では、2本の要求が互いの書き込みを見ないまま同じ検査を通過し、同じ displayOrder を書きうる。**これはコードを読んだ判断であって実測ではない**（並行プローブは走らせていない）。**数量グループについて Task 92.4 が受け皿としている窓と同型であり、数量項目側の窓も同じく開いたままである。**
+
+**`saveDraft` は本項の対象外である。** 同経路は payload の配列順で全項目の displayOrder を詰め直すため呼び出し側の値をそのまま書かず、かつ画面から到達する唯一の経路として Task 88.1 が行ロックを入れている。
+
+**採らなかった案**
+
+- **`(quantityGroupId, displayOrder)` の一意制約は採らなかった。画面から到達する唯一の経路を壊すことを実測した。** 検証用データベースへ非遅延の一意索引を当てて統合検証を走らせると、`npm --prefix backend run test:integration -- quantity-table-save.api` が 31 件中 **4 件**落ちた（基線は 31 件すべて緑）。落ちたのは「新規/更新/削除/並び替えが原子的に永続化され、再取得（GET詳細）で反映が保持される」「数量項目を別の数量グループへ移し替えた状態を保存できる（quantity-table-generation Req 6.4）」「新規（id=null）・同一数量表内の更新・グループ間移動は所属検証で拒否されない」「新規（id=null）が複数含まれる保存・更新・グループ間移動は重複検証で拒否されない」の4件である。**数量グループに同じ索引を当てたとき（92.1 の実測）の 3 件より多く、増えた分はいずれもグループ間移動を含む条件である**——`saveDraft` は移動してきた項目を移動先グループの配列順で詰め直すため、移動元の項目がまだ番号を手放していない間に移動先の既存項目と一時的に重なる
+- 同じ当て方で `npm --prefix backend run test:integration -- quantity-table-sort-order.api` が 4 件中 1 件（「PUT /api/quantity-groups/:groupId/items/order で並び順が正しく更新される」）、`npm --prefix backend run test:integration -- quantity-item-calculation-params.api` が 16 件中 1 件（「既存3方式（標準・面積体積・ピッチ）の作成が壊れていない（回帰）」）落ちた。後者は**是正前の既定値 `.default(0)` が同一グループへ複数の項目を 0 で作っていたこと**を映している。**通すには遅延制約が要るが、Prisma のスキーマ定義では宣言できない**（92.1 と同じ結論）。索引は実測後に落とし、`quantity_items` の索引が2本（主キーと既存の複合索引）へ戻ったことを `SELECT indexname FROM pg_indexes WHERE tablename='quantity_items'` で確かめた
+- **【訂正】上の2箇条は三つの数値を一つの測定として書いているが、実際には二つの異なる状態から得たものである**（独立レビューが検出。2026-09-12 に是正後の作業ツリーで再実測して書き分けた。**数値そのものはいずれも誤っていない**）。「同じ当て方で」は同じ状態で得た組であることを含意するが、`quantity-item-calculation-params.api` の 1 件だけは**是正前のコード**でしか起きない。索引はどの条件でも非遅延の一意索引を検証用データベースへ当てたものである。状態ごとに書き分けると次のとおりである
+  - **是正後の作業ツリー＋索引**: `quantity-table-save.api` が 31 件中 4 件（上の箇条が挙げた4件と同一）、`quantity-table-sort-order.api` が 4 件中 1 件（同じ1件）、`quantity-item-calculation-params.api` は **16 件すべて緑で1件も落ちない**
+  - **是正前のコード（コミット `8b19d5b3` そのものの状態）＋索引**: 上の save の 4 件・sort-order の 1 件に加えて、`quantity-item-calculation-params.api` が 16 件中 1 件（「既存3方式（標準・面積体積・ピッチ）の作成が壊れていない（回帰）」）落ちる。**上の2箇条の三つの数値はこの状態で測ったものである**
+  - **対照（是正前のコード＋索引なし）**: `quantity-item-calculation-params.api` は 16 件すべて緑である。索引の有無だけが違う二条件で結果が分かれるので、当該1件を落としていたのは索引であることが確定する
+  - **この差は本項の是正の効き目そのものである。** 当該の検証は同一グループへ displayOrder を省いて複数の項目を作るため、既定値 `.default(0)` があった時期は全件が 0 で作られ、一意索引と衝突していた。既定値を外して最大値+1で採番するようにした後は重なりが生じないので、同じ索引を当てても落ちない
+  - **一意制約を退ける根拠は是正後の状態でも成り立つ。** 画面から到達する唯一の経路を壊すこと（save の 4 件）と並び替えを壊すこと（sort-order の 1 件）は、是正後の作業ツリーでも同じく再現するためである
+- **撤去も採らなかった**（81.1 の学び「塞ぐ前にその経路が本番から呼ばれるかを測ること」に従って利用者を先に数えた）。`POST /api/quantity-groups/:groupId/items` は画面からは到達しないが、**受入検証の前提条件が 41 箇所で呼んでいる**（``grep -rnF '/items`' e2e --include=*.ts | grep 'quantity-groups' | wc -l`` の出力が 41。共有ヘルパーを含む）。並び順の一括更新の呼び出しは受入検証にも 0 件だが、数量項目の個別 API は 7 経路が公開 API として API 仕様に載る
+- **「重複を 400 で拒むだけ」で既定値を残す案も採らなかった。** 既定値が 0 である限り、displayOrder を省いた作成が2件目から必ず 400 になり、省略を許す API 契約が事実上使えなくなる
+- **行ロックを足す案は Task 88.1 / 92.1 が既に退けている**（**逐次**の重なりについて）。本項の重なりも並行を含まない逐次の呼び出しで起きるため、直列化では防げない
+
+**変異の実測**（本項の変更を載せた状態で 2026-09-12 にリポジトリルートで実測。復元は事前複製からの書き戻しで行い `git hash-object` の一致（`c00ee356a7b3af92c9e6d57f80a4a2b8c36edca0`）で確かめた）
+
+- M1（作成の重複検査を外す）: `npm --prefix backend run test -- quantity-item.service` が 64 件中 1 件、`npm --prefix backend run test:integration -- quantity-item-display-order` が 14 件中 1 件落ちる
+- M2（採番を最大値 + 1 から件数へ戻す）: 同じ2コマンドが 64 件中 **4 件**・14 件中 **2 件**落ちる（`nextDisplayOrder` は作成・複製・一括複製・一括移動が共有するため、1つの変異が4経路を同時に壊す）
+- M3（更新の重複検査を外す）: 同じ2コマンドが 64 件中 1 件・14 件中 1 件落ちる
+- M4（並び替えの適用後の重複検査を外す）: 同じ2コマンドが 64 件中 2 件・14 件中 2 件落ちる
+- M5（移動の重複検査を外す。同一グループ内と別グループの2箇所）: 同じ2コマンドが 64 件中 1 件・14 件中 1 件落ちる
+
 ---
 
 #### AutocompleteCandidatesEndpoint

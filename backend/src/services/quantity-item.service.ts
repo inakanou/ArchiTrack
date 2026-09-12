@@ -25,6 +25,7 @@ import type {
   CreateQuantityItemInput,
   UpdateQuantityItemInput,
 } from '../schemas/quantity-table.schema.js';
+import { QUANTITY_TABLE_VALIDATION_MESSAGES } from '../schemas/quantity-table.schema.js';
 import {
   QuantityGroupNotFoundError,
   QuantityItemNotFoundError,
@@ -130,10 +131,12 @@ export class QuantityItemService {
       // 1. 数量グループ存在確認
       await this.validateQuantityGroupExists(tx, input.quantityGroupId);
 
-      // 2. 次の表示順序を取得
-      const maxDisplayOrder = await tx.quantityItem.count({
-        where: { quantityGroupId: input.quantityGroupId },
-      });
+      // 2. 表示順序の決定（明示された値は重なりを拒み、省略時は末尾へ採番する。Task 92.3）
+      const displayOrder = await this.resolveCreateDisplayOrder(
+        tx,
+        input.quantityGroupId,
+        input.displayOrder
+      );
 
       // 3. 数量項目作成
       const quantityItem = await tx.quantityItem.create({
@@ -153,7 +156,7 @@ export class QuantityItemService {
           roundingUnit: new Decimal(input.roundingUnit ?? 0.01),
           quantity: new Decimal(input.quantity),
           remarks: input.remarks ?? null,
-          displayOrder: input.displayOrder ?? maxDisplayOrder,
+          displayOrder,
         },
       });
 
@@ -263,6 +266,85 @@ export class QuantityItemService {
 
     if (!quantityGroup || quantityGroup.quantityTable.deletedAt !== null) {
       throw new QuantityGroupNotFoundError(quantityGroupId);
+    }
+  }
+
+  /**
+   * 作成時の表示順序を決める
+   *
+   * 明示された値は当該グループの既存項目と重ならないことを確かめる。省略時は末尾
+   * （最大値 + 1）へ採番し、項目が1件も無ければ 0 から始める。
+   *
+   * 採番に「件数」を使ってはならない。削除は後続項目の表示順序を詰めないため、
+   * 空き番号のあるグループでは件数が既存の最大値と一致し、末尾と重なる（Task 92.3）。
+   *
+   * @param tx - Prismaトランザクションクライアント
+   * @param quantityGroupId - 数量グループID
+   * @param requested - 呼び出し側が明示した表示順序（未指定なら undefined）
+   * @returns 実際に書き込む表示順序
+   * @throws QuantityTableValidationError 明示された値が既存項目と重なる場合
+   */
+  private async resolveCreateDisplayOrder(
+    tx: PrismaTransactionClient,
+    quantityGroupId: string,
+    requested: number | undefined
+  ): Promise<number> {
+    if (requested !== undefined) {
+      await this.assertDisplayOrderNotTaken(tx, quantityGroupId, requested);
+      return requested;
+    }
+
+    return await this.nextDisplayOrder(tx, quantityGroupId);
+  }
+
+  /**
+   * 当該グループの末尾の表示順序（最大値 + 1）を返す
+   *
+   * 問い合わせは項目数によらず1回である（Task 92.3）。
+   *
+   * @param tx - Prismaトランザクションクライアント
+   * @param quantityGroupId - 数量グループID
+   * @returns 末尾の表示順序。項目が1件も無ければ 0
+   */
+  private async nextDisplayOrder(
+    tx: PrismaTransactionClient,
+    quantityGroupId: string
+  ): Promise<number> {
+    const aggregated = await tx.quantityItem.aggregate({
+      where: { quantityGroupId },
+      _max: { displayOrder: true },
+    });
+
+    return (aggregated._max.displayOrder ?? -1) + 1;
+  }
+
+  /**
+   * 指定した表示順序が当該グループの他の項目に使われていないことを確かめる
+   *
+   * @param tx - Prismaトランザクションクライアント
+   * @param quantityGroupId - 数量グループID
+   * @param displayOrder - 判定する表示順序
+   * @param excludeItemId - 判定から除く項目ID（自分自身の現在値を指す更新・移動を通すため）
+   * @throws QuantityTableValidationError 他の項目が同じ表示順序を持つ場合
+   */
+  private async assertDisplayOrderNotTaken(
+    tx: PrismaTransactionClient,
+    quantityGroupId: string,
+    displayOrder: number,
+    excludeItemId?: string
+  ): Promise<void> {
+    const taken = await tx.quantityItem.count({
+      where: {
+        quantityGroupId,
+        displayOrder,
+        ...(excludeItemId !== undefined ? { id: { not: excludeItemId } } : {}),
+      },
+    });
+
+    if (taken > 0) {
+      throw new QuantityTableValidationError(
+        QUANTITY_TABLE_VALIDATION_MESSAGES.ITEM_DISPLAY_ORDER_DUPLICATED
+      );
     }
   }
 
@@ -417,6 +499,13 @@ export class QuantityItemService {
         updateData.remarks = input.remarks;
       }
       if (input.displayOrder !== undefined) {
+        // 他の項目が同じ表示順序を持つ状態を作らせない（自分自身は判定から除く。Task 92.3）
+        await this.assertDisplayOrderNotTaken(
+          tx,
+          quantityItem.quantityGroupId,
+          input.displayOrder,
+          id
+        );
         updateData.displayOrder = input.displayOrder;
       }
 
@@ -532,7 +621,29 @@ export class QuantityItemService {
         throw new QuantityTableValidationError('異なる数量グループの項目が含まれています');
       }
 
-      // 3. 各項目の表示順序を更新
+      // 3. 適用後の並びに重なりが生じないことを確かめる。
+      //    要求の中の重複だけでなく、要求に含めなかった既存項目との重なりも見る
+      //    （一部の項目だけを動かす要求でも重なりうるため。Task 92.3）
+      const currentItems = await tx.quantityItem.findMany({
+        where: { quantityGroupId: groupId },
+        select: { id: true, displayOrder: true },
+      });
+
+      const resultingOrders = new Map<string, number>(
+        currentItems.map((i) => [i.id, i.displayOrder])
+      );
+      for (const update of orderUpdates) {
+        resultingOrders.set(update.id, update.displayOrder);
+      }
+
+      const orderValues = [...resultingOrders.values()];
+      if (new Set(orderValues).size !== orderValues.length) {
+        throw new QuantityTableValidationError(
+          QUANTITY_TABLE_VALIDATION_MESSAGES.ITEM_DISPLAY_ORDER_DUPLICATED
+        );
+      }
+
+      // 4. 各項目の表示順序を更新
       for (const update of orderUpdates) {
         await tx.quantityItem.update({
           where: { id: update.id },
@@ -540,7 +651,7 @@ export class QuantityItemService {
         });
       }
 
-      // 4. 監査ログの記録
+      // 5. 監査ログの記録
       await this.auditLogService.createLog({
         action: 'QUANTITY_ITEM_UPDATED',
         actorId,
@@ -586,10 +697,8 @@ export class QuantityItemService {
         throw new QuantityItemNotFoundError(itemId);
       }
 
-      // 2. 次の表示順序を取得
-      const maxDisplayOrder = await tx.quantityItem.count({
-        where: { quantityGroupId: sourceItem.quantityGroupId },
-      });
+      // 2. 次の表示順序を取得（件数ではなく最大値 + 1。Task 92.3）
+      const displayOrder = await this.nextDisplayOrder(tx, sourceItem.quantityGroupId);
 
       // 3. 項目を複製
       const copiedItem = await tx.quantityItem.create({
@@ -609,7 +718,7 @@ export class QuantityItemService {
           roundingUnit: sourceItem.roundingUnit,
           quantity: sourceItem.quantity,
           remarks: sourceItem.remarks,
-          displayOrder: maxDisplayOrder,
+          displayOrder,
         },
       });
 
@@ -679,6 +788,9 @@ export class QuantityItemService {
 
       // 2. 同一グループ内の移動の場合
       if (sourceGroupId === targetGroupId) {
+        // 他の項目が使っている表示順序へは移さない（自分自身は判定から除く。Task 92.3）
+        await this.assertDisplayOrderNotTaken(tx, targetGroupId, displayOrder, itemId);
+
         const movedItem = await tx.quantityItem.update({
           where: { id: itemId },
           data: { displayOrder },
@@ -723,7 +835,10 @@ export class QuantityItemService {
         throw new QuantityTableValidationError('異なる数量表のグループへは移動できません');
       }
 
-      // 5. 項目を移動
+      // 5. 移動先グループで使われている表示順序へは移さない（Task 92.3）
+      await this.assertDisplayOrderNotTaken(tx, targetGroupId, displayOrder, itemId);
+
+      // 6. 項目を移動
       const movedItem = await tx.quantityItem.update({
         where: { id: itemId },
         data: {
@@ -732,7 +847,7 @@ export class QuantityItemService {
         },
       });
 
-      // 6. 監査ログの記録
+      // 7. 監査ログの記録
       await this.auditLogService.createLog({
         action: 'QUANTITY_ITEM_MOVED',
         actorId,
@@ -787,10 +902,8 @@ export class QuantityItemService {
           continue;
         }
 
-        // 次の表示順序を取得
-        const currentCount = await tx.quantityItem.count({
-          where: { quantityGroupId: sourceItem.quantityGroupId },
-        });
+        // 次の表示順序を取得（件数ではなく最大値 + 1。Task 92.3）
+        const displayOrder = await this.nextDisplayOrder(tx, sourceItem.quantityGroupId);
 
         const copiedItem = await tx.quantityItem.create({
           data: {
@@ -809,7 +922,7 @@ export class QuantityItemService {
             roundingUnit: sourceItem.roundingUnit,
             quantity: sourceItem.quantity,
             remarks: sourceItem.remarks,
-            displayOrder: currentCount,
+            displayOrder,
           },
         });
 
@@ -889,10 +1002,8 @@ export class QuantityItemService {
         }
       }
 
-      // 4. 現在の移動先グループの項目数を取得
-      let currentDisplayOrder = await tx.quantityItem.count({
-        where: { quantityGroupId: targetGroupId },
-      });
+      // 4. 移動先グループの末尾の表示順序を取得（件数ではなく最大値 + 1。Task 92.3）
+      let currentDisplayOrder = await this.nextDisplayOrder(tx, targetGroupId);
 
       // 5. 各項目を移動
       for (const item of sourceItems) {

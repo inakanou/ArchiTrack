@@ -35,6 +35,7 @@ type MockPrismaClient = {
     update: Mock;
     delete: Mock;
     count: Mock;
+    aggregate: Mock;
   };
   quantityGroup: {
     findUnique: Mock;
@@ -57,6 +58,7 @@ describe('QuantityItemService', () => {
         update: vi.fn(),
         delete: vi.fn(),
         count: vi.fn(),
+        aggregate: vi.fn(),
       },
       quantityGroup: {
         findUnique: vi.fn(),
@@ -1044,6 +1046,8 @@ describe('QuantityItemService', () => {
 
       mockPrisma.quantityItem.findUnique.mockResolvedValue(existingItem);
       mockPrisma.quantityItem.count.mockResolvedValue(1);
+      // 採番は件数ではなく最大値+1（Task 92.3）。既存は displayOrder=0 の1件なので末尾は 1
+      mockPrisma.quantityItem.aggregate.mockResolvedValue({ _max: { displayOrder: 0 } });
       mockPrisma.quantityItem.create.mockResolvedValue(copiedItem);
 
       // Act
@@ -1379,6 +1383,8 @@ describe('QuantityItemService', () => {
 
       mockPrisma.quantityItem.findMany.mockResolvedValue(existingItems);
       mockPrisma.quantityItem.count.mockResolvedValue(2);
+      // 採番は件数ではなく最大値+1（Task 92.3）。既存は 0 と 1 なので末尾は 2
+      mockPrisma.quantityItem.aggregate.mockResolvedValue({ _max: { displayOrder: 1 } });
       mockPrisma.quantityItem.create.mockResolvedValue({
         ...existingItems[0],
         id: 'new-id-1',
@@ -1455,6 +1461,8 @@ describe('QuantityItemService', () => {
 
       mockPrisma.quantityItem.findMany.mockResolvedValue(existingItems);
       mockPrisma.quantityItem.count.mockResolvedValue(2);
+      // 採番は件数ではなく最大値+1（Task 92.3）。既存は 0 と 1 なので末尾は 2
+      mockPrisma.quantityItem.aggregate.mockResolvedValue({ _max: { displayOrder: 1 } });
       mockPrisma.quantityItem.create.mockResolvedValue({
         ...existingItems[1],
         id: 'new-id-2',
@@ -1514,6 +1522,8 @@ describe('QuantityItemService', () => {
         quantityTable: { deletedAt: null },
       });
       mockPrisma.quantityItem.count.mockResolvedValue(0);
+      // 採番は件数ではなく最大値+1（Task 92.3）。移動先は空なので 0 から始まる
+      mockPrisma.quantityItem.aggregate.mockResolvedValue({ _max: { displayOrder: null } });
       mockPrisma.quantityItem.update.mockResolvedValue({});
 
       // Act
@@ -1803,6 +1813,351 @@ describe('QuantityItemService', () => {
 
       // Act & Assert
       await expect(service.copy(itemId, actorId)).rejects.toThrow('数量項目が見つかりません');
+    });
+  });
+
+  /**
+   * 数量項目の並び順が重ならないこと（Task 92.3）
+   *
+   * 同一グループの2つの項目が同じ displayOrder を持つ状態を、逐次の呼び出しで作らせない。
+   * 採番は件数ではなく最大値 + 1 である（削除は後続の採番を詰めないため、件数は空き番号の
+   * あるグループで既存の末尾と一致する）。
+   */
+  describe('displayOrder の重複（Task 92.3）', () => {
+    const groupId = '123e4567-e89b-12d3-a456-426614174000';
+    const actorId = '123e4567-e89b-12d3-a456-426614174001';
+    const itemId = '123e4567-e89b-12d3-a456-426614174002';
+    const otherItemId = '123e4567-e89b-12d3-a456-426614174003';
+    const targetGroupId = '123e4567-e89b-12d3-a456-426614174010';
+    const quantityTableId = '123e4567-e89b-12d3-a456-426614174020';
+    const DUPLICATED = '表示順序が他の数量項目と重複しています';
+
+    /** 永続化済みの数量項目1件（toQuantityItemInfo が読む全欄を持つ） */
+    const persistedItem = (
+      displayOrder: number,
+      overrides: Record<string, unknown> = {}
+    ): Record<string, unknown> => ({
+      id: itemId,
+      quantityGroupId: groupId,
+      majorCategory: '土工事',
+      middleCategory: null,
+      minorCategory: null,
+      customCategory: null,
+      workType: '掘削',
+      name: '掘削作業',
+      specification: null,
+      unit: 'm3',
+      calculationMethod: 'STANDARD',
+      calculationParams: null,
+      adjustmentFactor: new Decimal('1.0000'),
+      roundingUnit: new Decimal('0.0100'),
+      quantity: new Decimal('100.0000'),
+      remarks: null,
+      displayOrder,
+      createdAt: new Date('2026-01-06T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+      ...overrides,
+    });
+
+    const createInput = {
+      quantityGroupId: groupId,
+      majorCategory: '土工事',
+      workType: '掘削',
+      name: '掘削作業',
+      unit: 'm3',
+      quantity: 100,
+      calculationMethod: 'STANDARD' as const,
+      adjustmentFactor: 1.0,
+      roundingUnit: 0.01,
+    };
+
+    const groupExists = (): void => {
+      mockPrisma.quantityGroup.findUnique.mockResolvedValue({
+        id: groupId,
+        quantityTable: { deletedAt: null },
+      });
+    };
+
+    describe('create', () => {
+      it('displayOrder を省いた作成は最大値+1になる（件数ではない。Task 92.3）', async () => {
+        // Arrange: 0 と 2 が残り 1 が空いているグループ。件数は 2、最大値は 2 で食い違う
+        groupExists();
+        mockPrisma.quantityItem.count.mockResolvedValue(2);
+        mockPrisma.quantityItem.aggregate.mockResolvedValue({ _max: { displayOrder: 2 } });
+        mockPrisma.quantityItem.create.mockResolvedValue(persistedItem(3));
+
+        // Act
+        await service.create(createInput, actorId);
+
+        // Assert
+        expect(mockPrisma.quantityItem.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ displayOrder: 3 }),
+          })
+        );
+      });
+
+      it('項目が1件も無いグループへの省略した作成は 0 になる（対照）', async () => {
+        // Arrange
+        groupExists();
+        mockPrisma.quantityItem.count.mockResolvedValue(0);
+        mockPrisma.quantityItem.aggregate.mockResolvedValue({ _max: { displayOrder: null } });
+        mockPrisma.quantityItem.create.mockResolvedValue(persistedItem(0));
+
+        // Act
+        await service.create(createInput, actorId);
+
+        // Assert
+        expect(mockPrisma.quantityItem.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ displayOrder: 0 }),
+          })
+        );
+      });
+
+      it('既存と同じ displayOrder を明示した作成は拒む（Task 92.3）', async () => {
+        // Arrange: 同じ displayOrder を持つ項目が既に在る
+        groupExists();
+        mockPrisma.quantityItem.count.mockResolvedValue(1);
+
+        // Act & Assert
+        await expect(service.create({ ...createInput, displayOrder: 0 }, actorId)).rejects.toThrow(
+          DUPLICATED
+        );
+        expect(mockPrisma.quantityItem.create).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('update', () => {
+      const expectedUpdatedAt = new Date('2026-01-06T00:00:00.000Z');
+
+      const existingForUpdate = (): void => {
+        mockPrisma.quantityItem.findUnique.mockResolvedValue(
+          persistedItem(0, {
+            updatedAt: expectedUpdatedAt,
+            quantityGroup: {
+              id: groupId,
+              quantityTable: { deletedAt: null },
+            },
+          })
+        );
+      };
+
+      it('他の項目と同じ displayOrder への更新は拒む（Task 92.3）', async () => {
+        // Arrange: 自分以外に displayOrder=1 の項目が在る
+        existingForUpdate();
+        mockPrisma.quantityItem.count.mockResolvedValue(1);
+
+        // Act & Assert
+        await expect(
+          service.update(itemId, { displayOrder: 1 }, actorId, expectedUpdatedAt)
+        ).rejects.toThrow(DUPLICATED);
+        expect(mockPrisma.quantityItem.update).not.toHaveBeenCalled();
+      });
+
+      it('自分自身の現在の displayOrder を指す更新は通る（自己重複と判定しない。対照）', async () => {
+        // Arrange: 自分を除くと同じ値の項目は無い
+        existingForUpdate();
+        mockPrisma.quantityItem.count.mockResolvedValue(0);
+        mockPrisma.quantityItem.update.mockResolvedValue(persistedItem(0));
+
+        // Act
+        const result = await service.update(
+          itemId,
+          { displayOrder: 0 },
+          actorId,
+          expectedUpdatedAt
+        );
+
+        // Assert
+        expect(result.displayOrder).toBe(0);
+        expect(mockPrisma.quantityItem.update).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    describe('updateDisplayOrder', () => {
+      const currentOrders = [
+        { id: itemId, displayOrder: 0 },
+        { id: otherItemId, displayOrder: 1 },
+      ];
+
+      const ownershipThenCurrent = (owned: Array<{ id: string }>): void => {
+        mockPrisma.quantityItem.findMany
+          .mockResolvedValueOnce(owned.map((o) => ({ id: o.id, quantityGroupId: groupId })))
+          .mockResolvedValueOnce(currentOrders);
+      };
+
+      it('同じ displayOrder を複数件指定した並び替えは拒む（Task 92.3）', async () => {
+        // Arrange
+        groupExists();
+        ownershipThenCurrent([{ id: itemId }, { id: otherItemId }]);
+
+        // Act & Assert
+        await expect(
+          service.updateDisplayOrder(
+            groupId,
+            [
+              { id: itemId, displayOrder: 0 },
+              { id: otherItemId, displayOrder: 0 },
+            ],
+            actorId
+          )
+        ).rejects.toThrow(DUPLICATED);
+        expect(mockPrisma.quantityItem.update).not.toHaveBeenCalled();
+      });
+
+      it('要求に含めない既存項目と重なる並び替えも拒む（Task 92.3）', async () => {
+        // Arrange: itemId だけを 1 へ動かすと、要求に含めない otherItemId（=1）と重なる
+        groupExists();
+        ownershipThenCurrent([{ id: itemId }]);
+
+        // Act & Assert
+        await expect(
+          service.updateDisplayOrder(groupId, [{ id: itemId, displayOrder: 1 }], actorId)
+        ).rejects.toThrow(DUPLICATED);
+        expect(mockPrisma.quantityItem.update).not.toHaveBeenCalled();
+      });
+
+      it('重ならない入れ替えは従来どおり更新される（対照）', async () => {
+        // Arrange
+        groupExists();
+        ownershipThenCurrent([{ id: itemId }, { id: otherItemId }]);
+        mockPrisma.quantityItem.update.mockResolvedValue({});
+
+        // Act
+        await service.updateDisplayOrder(
+          groupId,
+          [
+            { id: itemId, displayOrder: 1 },
+            { id: otherItemId, displayOrder: 0 },
+          ],
+          actorId
+        );
+
+        // Assert
+        expect(mockPrisma.quantityItem.update).toHaveBeenCalledTimes(2);
+      });
+    });
+
+    describe('copy', () => {
+      it('複製の採番は件数ではなく最大値+1（Task 92.3）', async () => {
+        // Arrange: 0 と 3 が残るグループ。件数 2 は末尾と重ならないが、空き番号が2つある
+        mockPrisma.quantityItem.findUnique.mockResolvedValue(
+          persistedItem(0, {
+            quantityGroup: { id: groupId, quantityTable: { deletedAt: null } },
+          })
+        );
+        mockPrisma.quantityItem.count.mockResolvedValue(2);
+        mockPrisma.quantityItem.aggregate.mockResolvedValue({ _max: { displayOrder: 3 } });
+        mockPrisma.quantityItem.create.mockResolvedValue(persistedItem(4));
+
+        // Act
+        await service.copy(itemId, actorId);
+
+        // Assert
+        expect(mockPrisma.quantityItem.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ displayOrder: 4 }),
+          })
+        );
+      });
+    });
+
+    describe('move', () => {
+      const sourceForMove = (): void => {
+        mockPrisma.quantityItem.findUnique.mockResolvedValue(
+          persistedItem(0, {
+            quantityGroup: {
+              id: groupId,
+              quantityTableId,
+              quantityTable: { deletedAt: null },
+            },
+          })
+        );
+        mockPrisma.quantityGroup.findUnique.mockResolvedValue({
+          id: targetGroupId,
+          quantityTableId,
+          quantityTable: { deletedAt: null },
+        });
+      };
+
+      it('移動先で使われている displayOrder への移動は拒む（Task 92.3）', async () => {
+        // Arrange
+        sourceForMove();
+        mockPrisma.quantityItem.count.mockResolvedValue(1);
+
+        // Act & Assert
+        await expect(service.move(itemId, targetGroupId, 0, actorId)).rejects.toThrow(DUPLICATED);
+        expect(mockPrisma.quantityItem.update).not.toHaveBeenCalled();
+      });
+
+      it('移動先で空いている displayOrder への移動は通る（対照）', async () => {
+        // Arrange
+        sourceForMove();
+        mockPrisma.quantityItem.count.mockResolvedValue(0);
+        mockPrisma.quantityItem.update.mockResolvedValue(
+          persistedItem(1, { quantityGroupId: targetGroupId })
+        );
+
+        // Act
+        const result = await service.move(itemId, targetGroupId, 1, actorId);
+
+        // Assert
+        expect(result.quantityGroupId).toBe(targetGroupId);
+        expect(result.displayOrder).toBe(1);
+      });
+    });
+
+    describe('bulkCopy / bulkMove', () => {
+      it('一括複製の採番は件数ではなく最大値+1（Task 92.3）', async () => {
+        // Arrange
+        mockPrisma.quantityItem.findMany.mockResolvedValue([
+          persistedItem(0, {
+            quantityGroup: { id: groupId, quantityTable: { deletedAt: null } },
+          }),
+        ]);
+        mockPrisma.quantityItem.count.mockResolvedValue(2);
+        mockPrisma.quantityItem.aggregate.mockResolvedValue({ _max: { displayOrder: 4 } });
+        mockPrisma.quantityItem.create.mockResolvedValue(persistedItem(5));
+
+        // Act
+        await service.bulkCopy([itemId], actorId);
+
+        // Assert
+        expect(mockPrisma.quantityItem.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ displayOrder: 5 }),
+          })
+        );
+      });
+
+      it('一括移動の採番は件数ではなく最大値+1から始まる（Task 92.3）', async () => {
+        // Arrange
+        mockPrisma.quantityGroup.findUnique.mockResolvedValue({
+          id: targetGroupId,
+          quantityTableId,
+          quantityTable: { deletedAt: null },
+        });
+        mockPrisma.quantityItem.findMany.mockResolvedValue([
+          persistedItem(0, {
+            id: itemId,
+            quantityGroup: { id: groupId, quantityTableId, quantityTable: { deletedAt: null } },
+          }),
+        ]);
+        mockPrisma.quantityItem.count.mockResolvedValue(2);
+        mockPrisma.quantityItem.aggregate.mockResolvedValue({ _max: { displayOrder: 5 } });
+        mockPrisma.quantityItem.update.mockResolvedValue({});
+
+        // Act
+        await service.bulkMove([itemId], targetGroupId, actorId);
+
+        // Assert
+        expect(mockPrisma.quantityItem.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ displayOrder: 6 }),
+          })
+        );
+      });
     });
   });
 });
