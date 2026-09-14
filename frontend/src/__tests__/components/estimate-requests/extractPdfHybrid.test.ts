@@ -86,6 +86,13 @@ function setupPdfMock(opts: { numPages: number; pageTexts: string[][] }) {
   });
 }
 
+/**
+ * pdfjs-dist の getTextContent() 経由でテキストを組み立てることと、1ページ目から
+ * 最終ページまでを対象にすることの双方をこの区間が確かめる。
+ *
+ * @requirement quantity-table-generation/REQ-29.1
+ * @requirement quantity-table-generation/REQ-29.2
+ */
 describe('extractPdfText', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -130,6 +137,15 @@ describe('extractPdfText', () => {
   });
 });
 
+/**
+ * テキストPDFと判定したときに抽出テキストをそのまま使い、かつ Tesseract OCR を
+ * 実行しないことをこの区間が確かめる。
+ *
+ * スキャンPDF側の分岐（Canvas → Tesseract）は下の `extractPdfWithOcrFallback` の
+ * 区間が確かめるため、ここでは名乗らない。
+ *
+ * @requirement quantity-table-generation/REQ-29.3
+ */
 describe('extractPdfHybrid', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -153,6 +169,16 @@ describe('extractPdfHybrid', () => {
     expect(result.numPages).toBe(1);
     expect(onProgress).toHaveBeenCalledWith(10, 'PDFテキスト抽出中...');
     expect(onProgress).toHaveBeenCalledWith(100, 'テキスト抽出完了');
+    // 条文（REQ-29.3）の括弧書き「Tesseract OCRは実行しない」の側を固定する。
+    //
+    // 当てた変異: extractPdfHybrid のテキストPDFの早期 return の直前へ
+    //   const { createWorker: cwM2 } = await import('tesseract.js');
+    //   await cwM2('jpn');
+    // を挿入する（返り値は変えずにOCRだけが余計に走る実装を模す）。
+    // この変異を実行すると、本主張を含む現版は 1 failed / 14 passed（15件中）で
+    // 落ち、同じ変異を強化前の版（a193b6bc）へ当て直すと 15 passed で緑のまま
+    // である。2026-09-14 にリポジトリルートで実測した。
+    expect(mockCreateWorker).not.toHaveBeenCalled();
   });
 
   it('テキスト量が閾値未満の場合はスキャンPDFと判定し、OCRフォールバックを実行する', async () => {
@@ -218,6 +244,19 @@ describe('extractPdfHybrid', () => {
   });
 });
 
+/**
+ * スキャンPDFの各ページを Canvas 経由で画像に変換して Tesseract.js OCR を実行すること
+ * （REQ-29.4）と、そのときの Canvas 描画スケールが 4.0 であること（REQ-29.5）を
+ * この区間が確かめる。
+ *
+ * 前処理パイプラインの中身（グレースケール→大津の二値化→水平線除去→垂直線除去）は
+ * `frontend/src/components/estimate-requests/pdf-text-extractor.test.ts` の
+ * `preprocessImageData` の区間が確かめるため、ここでは名乗らない——本区間が見るのは
+ * `getImageData` / `putImageData` が呼ばれることまでである。
+ *
+ * @requirement quantity-table-generation/REQ-29.4
+ * @requirement quantity-table-generation/REQ-29.5
+ */
 describe('extractPdfWithOcrFallback', () => {
   let mockContext: {
     getImageData: ReturnType<typeof vi.fn>;

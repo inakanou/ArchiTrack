@@ -171,6 +171,12 @@ describe('ImportPreviewTable', () => {
     expect(screen.queryByText(/表示:/)).not.toBeInTheDocument();
   });
 
+  /**
+   * 抽出結果のテキストがユーザーによる選択・コピーが可能な状態で表示されることを
+   * この検証が確かめる。
+   *
+   * @requirement quantity-table-generation/REQ-29.8
+   */
   it('テキストが選択可能な状態で表示される (userSelect: text)', () => {
     const { container } = render(
       <ImportPreviewTable

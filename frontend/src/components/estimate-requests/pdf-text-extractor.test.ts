@@ -336,6 +336,12 @@ describe('removeVerticalLines', () => {
 // Task 46.5: preprocessImageDataパイプライン統合テスト (Requirement 19.6)
 // ============================================================================
 
+/**
+ * グレースケール変換 → 大津の二値化 → 水平線除去 → 垂直線除去 の4段を順に適用する
+ * ことをこの区間が確かめる。
+ *
+ * @requirement quantity-table-generation/REQ-29.6
+ */
 describe('preprocessImageData', () => {
   it('4ステップ（グレースケール→二値化→水平線除去→垂直線除去）が順次実行される', () => {
     // 100x100の画像（白背景にカラーの罫線パターン）

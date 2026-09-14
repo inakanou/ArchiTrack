@@ -27,6 +27,12 @@ describe('extractPdfData', () => {
     vi.clearAllMocks();
   });
 
+  /**
+   * Claude Vision API が利用可能なとき、pdfjs-dist + Tesseract.js ではなく
+   * Claude Vision API が優先的に呼ばれることをこの検証が確かめる。
+   *
+   * @requirement quantity-table-generation/REQ-30.1
+   */
   it('Claude Vision APIが利用可能な場合は優先使用する', async () => {
     // Arrange
     const { renderPdfPagesToBase64 } = await import('../estimate-requests/pdf-text-extractor');
@@ -67,6 +73,16 @@ describe('extractPdfData', () => {
     expect(extractWithClaudeVisionForQuantityTable).toHaveBeenCalled();
   });
 
+  /**
+   * この検証には `@requirement` を付けていない。理由を現地に残す（115.176 の作法）。
+   *
+   * 受入基準 30.7 は「Claude Vision API使用時もpdfjs-dist + Tesseract.js使用時も、
+   * 同一のプレビューテーブル形式で抽出結果を表示する」であり、二つの経路の同一性を
+   * 主張する条文である。本検証が固定するのは Claude Vision 経路のヘッダーだけで、
+   * フォールバック経路と突き合わせていない。実装上もフォールバック経路のヘッダーは
+   * `pdf-ocr-extractor.ts` の `extractWithOcrFallback` が組み立てる `列1`…`列N` で
+   * あって、ここで主張する10フィールドとは別物である。名乗れば偽の被覆になる。
+   */
   it('Claude Vision API使用時も同一のプレビューテーブル形式で表示する（ヘッダーに数量表フィールドを含む）', async () => {
     const { renderPdfPagesToBase64 } = await import('../estimate-requests/pdf-text-extractor');
     const { extractWithClaudeVisionForQuantityTable } = await import('../../api/claude-vision');
@@ -95,6 +111,12 @@ describe('extractPdfData', () => {
     ]);
   });
 
+  /**
+   * Claude Vision API が利用できないとき、pdfjs-dist + Tesseract.js による OCR 処理へ
+   * フォールバックすることをこの検証が確かめる。
+   *
+   * @requirement quantity-table-generation/REQ-30.5
+   */
   it('Claude Vision APIが利用不可の場合はpdfjs-dist + Tesseract.jsフォールバックを実行する', async () => {
     const { renderPdfPagesToBase64, extractPdfHybrid } =
       await import('../estimate-requests/pdf-text-extractor');
@@ -121,6 +143,12 @@ describe('extractPdfData', () => {
     expect(extractPdfHybrid).toHaveBeenCalled();
   });
 
+  /**
+   * Claude Vision API のリクエストがタイムアウトまたはエラーとなったとき、
+   * pdfjs-dist + Tesseract.js による OCR 処理へフォールバックすることを確かめる。
+   *
+   * @requirement quantity-table-generation/REQ-30.6
+   */
   it('APIタイムアウト時もフォールバックを実行する', async () => {
     const { renderPdfPagesToBase64, extractPdfHybrid } =
       await import('../estimate-requests/pdf-text-extractor');
@@ -146,6 +174,15 @@ describe('extractPdfData', () => {
     expect(extractPdfHybrid).toHaveBeenCalled();
   });
 
+  /**
+   * Claude API のレスポンスから取り出した表データが、大項目・中項目・小項目・
+   * 任意分類・工種・名称・規格・数量・単位・備考の各欄へ順に対応づけられることを
+   * この検証が確かめる（フロント側の対応づけ）。バックエンド側の対応づけは
+   * `backend/src/__tests__/unit/services/claude-vision-quantity.service.test.ts` が
+   * 確かめる。
+   *
+   * @requirement quantity-table-generation/REQ-30.4
+   */
   it('Claude Vision APIレスポンスからの数量項目フィールドマッピングが正しい', async () => {
     const { renderPdfPagesToBase64 } = await import('../estimate-requests/pdf-text-extractor');
     const { extractWithClaudeVisionForQuantityTable } = await import('../../api/claude-vision');

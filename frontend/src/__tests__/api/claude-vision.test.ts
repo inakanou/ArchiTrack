@@ -207,6 +207,15 @@ describe('claude-vision API client', () => {
   });
 
   describe('extractWithClaudeVisionForQuantityTable()', () => {
+    /**
+     * Base64 エンコードされた画像データがバックエンドの Claude Vision API
+     * エンドポイント（`/api/claude-vision/extract`）へ送られることをこの検証が
+     * 確かめる（REQ-30.2 の後半）。ページを Base64 画像へ変換する側は
+     * `frontend/src/__tests__/components/estimate-requests/renderPdfPagesToBase64.test.ts`
+     * が確かめる。
+     *
+     * @requirement quantity-table-generation/REQ-30.2
+     */
     it('should call apiClient.post with mode quantity-table', async () => {
       const mockResponse: ClaudeVisionQuantityExtractResponse = {
         lineItems: [
