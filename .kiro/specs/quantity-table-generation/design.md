@@ -253,6 +253,15 @@ e2e/specs/quantity-tables/
 └── calculation-method-switch.spec.ts                # REQ-48: 切替後に入力した値が保存で失われないこと
 ```
 
+**注記（上のツリーが挙げる E2E 4本の綴りと実体の対応。Task 95.5 の再実測）**: 上のツリーの4本は計画時点の綴りであり、着地した実体はいずれも別の綴りである。**ツリーの記述は計画の記録として残し、ここへ現況の再実測を併記する**（site-survey の設計文書 `#### 実測値の書き方（タスク 115.212）` の (a)）。
+
+- REQ-46（クリップ検証）の実体: `e2e/specs/quantity-tables/quantity-item-action-menu-clipping-e2e.spec.ts`
+- REQ-47 の前段（箇所数の計算・フィールド表示・入力検証）の実体: `e2e/specs/quantity-tables/quantity-count-calculation-e2e.spec.ts`
+- REQ-47 の後段（保存復元・グループコピー・PDF出力）の実体: `e2e/specs/quantity-tables/quantity-count-persistence-e2e.spec.ts`
+- REQ-48（切替後のパラメータ整合）の実体: `e2e/specs/quantity-tables/quantity-count-method-switch-e2e.spec.ts`
+
+本書 `### Testing Strategy` の REQ-46 / REQ-47 / REQ-48 の各項は、いずれも上の実体の綴りを挙げている。**ツリーの4本は逆引用符を持たずコードフェンスの内側にあるため、`npm run check:design-path-refs` は主張を一つも取り出さない**——同検査はフェンスの内側を読み飛ばし、逆引用符で囲まれたトークンだけを主張とする。Task 95.5。コミット `077f3a1d`。2026-09-14 にリポジトリルートで実測
+
 **注記**: REQ-47 の E2E を2ファイルに分けるのは、前段（計算・表示・入力検証）と後段（永続化・コピー・PDF出力）で依存する実装タスクが異なり、別ファイルにすることで並行実行可能になるためである。
 
 **注記**: Storybook ストーリーは `CalculationFields` / `CalculationMethodSelect` / `QuantityItemActionMenu` / `EditableQuantityItemRow` の**4件とも既に実在する**（新規作成ではなく変更対象）。下表に記載する。

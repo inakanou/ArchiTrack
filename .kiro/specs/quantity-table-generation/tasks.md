@@ -1934,7 +1934,7 @@
   - E2E のフロントエンドは静的ビルドのため、実行前にフロントエンドを再ビルドする
   - 観測可能完了条件: 実ブラウザで REQ-46 の各受入基準が緑になり、Portal 化前の実装では失敗する
   - _Requirements: 46.1, 46.2, 46.3, 46.4, 46.5, 46.6, 46.7, 46.8, 46.9, 46.11_
-  - _Boundary: quantity-tables E2E(quantity-item-action-menu-clipping)_
+  - _Boundary: quantity-tables E2E(計画名 quantity-item-action-menu-clipping、実体 quantity-item-action-menu-clipping-e2e.spec.ts)_
   - _Depends: 69.2_
 
 - [x] 71.2 (P) 計算方法「箇所数」の計算・表示・入力検証の E2E を実装する
@@ -1944,7 +1944,7 @@
   - E2E のフロントエンドは静的ビルドのため、実行前にフロントエンドを再ビルドする
   - 観測可能完了条件: 実ブラウザで REQ-47 の計算・表示・入力検証に関する受入基準が緑になる
   - _Requirements: 47.1, 47.2, 47.3, 47.4, 47.5, 47.6, 47.7, 47.8, 47.9, 47.10, 47.11, 47.12, 47.13, 47.14_
-  - _Boundary: quantity-tables E2E(calculation-method-count)_
+  - _Boundary: quantity-tables E2E(計画名 calculation-method-count、実体 quantity-count-calculation-e2e.spec.ts)_
   - _Depends: 66.1, 67.2, 68.2, 68.3, 68.4, 68.6_
 
 - [x] 71.3 (P) 計算方法「箇所数」の永続化・コピー・PDF出力の E2E を実装する
@@ -1955,7 +1955,7 @@
   - E2E のフロントエンドは静的ビルドのため、実行前にフロントエンドを再ビルドする
   - 観測可能完了条件: 実ブラウザで REQ-47 の永続化・コピー・PDF出力に関する受入基準が緑になる
   - _Requirements: 47.15, 47.16, 47.17, 47.18_
-  - _Boundary: quantity-tables E2E(calculation-method-count-persistence)_
+  - _Boundary: quantity-tables E2E(計画名 calculation-method-count-persistence、実体 quantity-count-persistence-e2e.spec.ts)_
   - _Depends: 67.2, 68.2, 68.3, 68.5, 68.6_
 
 - [x] 71.4 (P) 計算方法切替時のパラメータ整合の E2E を実装する
@@ -1965,7 +1965,7 @@
   - E2E のフロントエンドは静的ビルドのため、実行前にフロントエンドを再ビルドする
   - 観測可能完了条件: 実ブラウザで REQ-48 の各受入基準が緑になり、修正前の実装では箇所数と幅の保持テストが失敗する
   - _Requirements: 48.1, 48.2, 48.3, 48.4, 48.7_
-  - _Boundary: quantity-tables E2E(calculation-method-switch)_
+  - _Boundary: quantity-tables E2E(計画名 calculation-method-switch、実体 quantity-count-method-switch-e2e.spec.ts)_
   - _Depends: 67.2, 68.3, 68.4_
 
 
@@ -3181,13 +3181,20 @@ _起票元: 本実行の機能レベル検証（`/kiro-validate-impl`）_
   - **範囲外の同型（測定のみ・未処置。走査範囲は `grep -rlE '^\s*\*\s*-\s*28\.[0-9]+:' frontend/src backend/src e2e scripts` で宣言する。10ファイルが挙がる）**: (i) **本番 `excel-parser.ts:7-13` の名乗りが陳腐化している**（28.4 / 28.7 を掲げるが実装していない。95.2 の `ImportDialog.tsx:12`・95.3 の `pdf-ocr-extractor.ts:14` と同型）。(ii) `ImportPreviewTable.tsx` / `ImportPreviewTable.test.tsx` は裸の見出しで 28.4 / 28.5 / 28.7 / 32.1-32.3 / 32.6 を挙げる。当該7件は被覆済みのため偽の帰属の危険は測った範囲では無いが、是正は遊びを動かすため被覆印の扱いと併せた判断が要る。(iii) **`scripts/exclusion-alternative-verification-adjudication.md:326` が陳腐化した**——`REQ-28.1` の説明として旧 `description` の字面を挙げており、本タスクの書き直しでずれた。**同ファイルには一行も触れていない**（`exclusion-adjudication-uncorrected-total` は §4 の件数欄を数え説明文を読まないため不動、`check:adjudication-pointers` は前後とも EXIT=0）。**追記した `summary.note` へ旧字面を写さなかったのは、写すと当該検出が自分を数えて向きが反転するためである**（115.324 の学び）。(iv) 残る4ファイルは site-survey の所管で未測。**未走査の残余**——上記コマンドは ` * - 28.N:` の書式だけを拾い、別書式の名乗りは保証しない
   - **申し送り**: (i) **本節の処置後、本スペックの未被覆は12件である**（`REQ-2.5` / `4.2` / `6.3` / `26.5` / `26.8` / `29.7` / `29.9` / `29.10` / `30.7` / `34.2` / `34.4` / `42.10`）。いずれも 95.1〜95.3 が理由つきで据え置いた件であり、新たに増えた件は無い。(ii) **本番ファイル側の陳腐化した名乗り（`excel-parser.ts` の 28.4 / 28.7）は、95.2 の `ImportDialog.tsx:12`・95.3 の `pdf-ocr-extractor.ts:14` と併せて一括で扱うのが安い。** (iii) 裁定記録 `:326` の行は、95.1 の `:398`・95.2 の `:320`・95.3 の `:319` と同じ性質の陳腐化であり、**鮮度検査の宣言と対で扱う起票が4件ぶん溜まっている**。(iv) 鮮度の `featureless-headers-resolvable-by-own-feature-after-115308` を測り直す担当者は、95.2 の +5・95.3 の +7 に加えて**本タスクの +1** を織り込むこと。(v) **本タスクは記録の先例を自己申告で援用して一度差し戻された。** 後任は `summary.note` の追記の有無を述べる際、必ず各コミットの親版との長さの差で検算すること。(vi) **`lastUpdated` は `summary` 直下ではなくトップレベルのキーである**（`summary` のキーは `totalExclusions` / `byCategory` / `note` の3つのみ）。本タスクは動かしておらず `2026-09-14` のままである
 
-- [ ] 95.5 (P) 設計文書の File Structure Plan が挙げる E2E の名を実体へ揃える
+- [x] 95.5 (P) 設計文書の File Structure Plan が挙げる E2E の名を実体へ揃える
   - `design.md` の L249-254（File Structure Plan / 新規作成）が挙げる E2E 4本は**いずれも実在しない**——`quantity-item-action-menu-clipping.spec.ts` / `calculation-method-count.spec.ts` / `calculation-method-count-persistence.spec.ts` / `calculation-method-switch.spec.ts`
   - **実体は別名である**——`quantity-item-action-menu-clipping-e2e.spec.ts` / `quantity-count-calculation-e2e.spec.ts` / `quantity-count-persistence-e2e.spec.ts` / `quantity-count-method-switch-e2e.spec.ts`
   - **同じ文書の中で食い違っている**。§Testing Strategy の L3357 / L3368 / L3382 は**実体の名**を逆引用符付きで挙げており、計画側の名とは別物である。改名した旨の記録は `design.md` にも `tasks.md` にも無く、`tasks.md` の `_Boundary:` 欄2箇所は今も計画側の名を名乗ったままである
   - **この食い違いは関門に構造的に見えない。** `scripts/check-design-path-references.ts` の主張の取り出しは**逆引用符で囲まれたトークンだけ**を拾うため、コードフェンス内のツリー表記（`├── …`）は主張を一つも立てない。同じ囲みの中の `frontend/src/utils/calculation-method.ts` が緑なのは囲みが見られているからではなく、別の箇所の逆引用符付きの言及が主張を立てているためである
   - 規約 (a) に従い、当時の計画の記録を消さずに現況の再実測を併記する形で揃えること。**`tasks.md` の `_Boundary:` 欄の追随も併せて判断すること**
   - _Boundary: 設計文書の File Structure Plan が挙げる E2E の名と、それを指すタスクの境界欄_
+  - **処遇（基線コミット `077f3a1d` の作業ツリー、2026-09-14 にリポジトリルートで実測）**: `design.md` の `## File Structure Plan` / `### 新規作成` のツリー（基線の `L249-254`）は**一字も書き換えず**、その直下へ規約 (a) の注記を新設して実体の綴りを併記した（**本変更後の `L256-263`**）。併せて `tasks.md` の `_Boundary:` 欄を `計画名 <旧綴り>、実体 <実体の綴り>` の形へ追随させた（`L1937` / `L1947` / `L1958` / `L1968`。基線・本変更後とも同じ行）。**実コードは一行も変更していない。** 変更は文書2ファイルである。**以下で引く行番号は、断りの無い限り基線 `077f3a1d` を基準とする**（115.243 / 95.1 / 95.4 の作法）
+  - **起票文の件数に誤りが1件あった（規約 (a) に従い起票文本体は書き換えず、ここへ訂正を残す）**: 起票文は「`tasks.md` の `_Boundary:` 欄**2箇所**」と書くが、**実測は4箇所**である——`git show 077f3a1d:.kiro/specs/quantity-table-generation/tasks.md | grep -cE '_Boundary: quantity-tables E2E\('` の出力が `4`。内訳は 71.1（接尾辞 `-e2e` の差のみ）と 71.2 / 71.3 / 71.4（全く別の綴り）で、**4本とも計画側の綴りを名乗っていた**。79.1「起票文の数字は起票時点の実測であって着手時の実測ではない」と 95.3「1本見つけた時点で探索を打ち切らないこと」に従い全数を処置した
+  - **`_Boundary:` 欄の書き換えは境界の充填と判断した**: 95.5 の `_Boundary:` が「それを指すタスクの境界欄」を明示的に内側へ含めており、77.1「境界内の未充填は拒否し、境界外の押し込みも拒否する」に照らすと放置が漂流の側になる。**`_Boundary:` を構文解析する検査は存在しない**（`grep -rln "_Boundary" scripts/` の当たり6件はいずれも JSDoc の斜体表記と裁定記録の散文）。115.237「他タスクの記録へ新しい欄を立てるのは現況の記録を超える」を避けるため**欄は増やさず同じ欄の内側で併記**し、計画名のトークンは逐語で残した
+  - **規約 (a) の併記から不在の語彙を排除したのは、実測に基づく判断である**: `ABSENCE_MARKERS` は `改名` / `当時` / `旧` を含むため、常用の書きぶりのまま実在パスと同じ行へ置くと免除の面が広がる（79.1 の型）。**「計画時点の綴り」「着地した実体」へ言い換えて面を 190 件のまま保った**。飾りでないことは変異で実証済み——**当てた変異は、本変更で新設した `design.md` の 258 行目（基線 `077f3a1d` には存在しない行）にある逐語 `REQ-46（クリップ検証）の実体:` を、「REQ-46（クリップ検証）は改名された。実体:」へ置き換えるものである**。置換後の綴りは変異を当てている間しか存在せず、復元済みの現況ではリポジトリのどこからも取れないため、**逆引用符を掛けず鉤括弧で示した**（115.243 の守るべきこと 1「逆引用符は逐語にのみ掛ける」および 4「1 行に収まらないものは引かない」）。取り直せるのは変異前の側だけで、`grep -cF 'REQ-46（クリップ検証）の実体:' .kiro/specs/quantity-table-generation/design.md` の出力は `1`、`grep -cF 'REQ-46（クリップ検証）は改名された。実体:' .kiro/specs/quantity-table-generation/design.md` の出力は `0`（終了コード 1）である（いずれも 2026-09-14 にリポジトリルートで実測）。この変異を当てると**面が 190 → 191 へ動き `check:design-path-refs` が終了コード 1 になる**（同日・同基線で実測）
+  - **食い違いがフェンスの内側で守られている度合いは、起票文が述べたより強い**: 起票文は「逆引用符で囲まれたトークンだけを拾う」ことを理由に挙げるが、**ツリーの行を逆引用符で囲む変異を当てても終了コードは 0 のまま・面も候補 distinct も不動**であった（`scanDocument` はフェンスの内側を丸ごと読み飛ばす）。**同じ逐語をフェンスの外側へ置くと終了コード 1 になり候補 distinct が 739 → 740 へ動く**。ツリーの綴りは書式を変えない限り関門では永久に検出できない
+  - **関門19本は前後で完全に同値**（17本が終了コード 0、`check:design-measurement-freshness` と `check:req-coverage` が 1 で、いずれも本作業以前から赤い）。`check:design-path-refs` は**前後とも延べ 123 件 / distinct 30 件**・面 190 件・候補 distinct 739 件で、**鮮度の失敗行は前後とも 7**。被覆も不動である——**機能名を欠くヘッダー 2011件 / 955ファイル、眠る名乗り 5127**（上限 2023 / 5170、**遊びは 12 / 43 のまま**）、適用対象 2696 / 除外 193 / 到達被覆 2660/2696 (98.7%)。文書のみの変更のためスイートは走らせていない（`grep -rn "readFileSync\|readFile" backend/src frontend/src | grep -F ".kiro"` の出力が空＝実行時に読むソースが無い）
+  - **範囲外の同型（未処置・測定のみ）。件数は実在判定の方式で割れるので方式を併記する**（115.78-115.80）: `.kiro/specs/*/design.md` 全13件の**フェンス内側**のパス様トークンを走査すると、実在判定を**ディスク実体で行うと 71 件**、**`git ls-files` の索引で行うと 79 件**になる（索引側は厳密な上位集合で、差の 8 件はすべて site-survey の1文書にあり、7 件は先頭 `./` を正規化が落とさなかった偽陽性、1 件は `backend/` 起点の相対パスで、いずれも実在する）。**確かなのは両方式が一致する 71 件である。** **本スペックは両方式とも 5 件で完全に一致**し、4 件が本タスクの境界内（`L250-253`）、**残る1件は `frontend/src/api/quantity-groups.ts`（本変更後の `L2263`、`##### Frontend Interface` の typescript フェンス内のコメント行）で実体を持たない**——実際の追記先は同文書が別の箇所で挙げる `frontend/src/api/quantity-tables.ts` である。境界（「File Structure Plan が挙げる **E2E の名**」）の外なので手を触れていない。**なお `scripts/check-design-path-references.selftest.ts` が計画側の綴りを MUST_DETECT の事例として逐語で固定しているが、これは是正前の実物を凍結した対照であり未変更が正しい**（書き換えると対照が主張を失う）
 
 **本節が `_Requirements:` を持たないのは意図である**（Task 79 / 87 / 93 / 94 と同じ）。受入基準を新規に実装せず、除外の在籍理由と記帳を実態へ揃えるだけである。ただし 95.2 / 95.3 は結果として除外の取り下げを伴いうるため、**その場合は分母が動く。前後の被覆を実測して記録すること**。
 
