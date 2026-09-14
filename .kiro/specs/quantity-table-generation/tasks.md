@@ -3071,6 +3071,67 @@ _起票元: Task 89.3 の実装が不在を測定し、独立レビューが兄�
 
 _起票元: 本実行の機能レベル検証（`/kiro-validate-impl`）_
 
+## Task 95: 被覆率を支える除外と記帳の実質を検める
+
+**経緯**: 本実行の機能レベル検証が **NO-GO** を出した。機械的検査（全テスト 18,616件・起動の実証・TBD・秘密）、横断結線、設計整合、境界監査はいずれも合格し、本実行の2コミット（`deb800aa` / `ce455dcf`）由来の退行は一件も無い。**判定を分けたのは被覆の実質である**——適用対象 317/318 という数字が、根拠の失効した除外と、代替検証の実体を検査が確かめられない除外に支えられている。**本節の5件はいずれも本実行が持ち込んだものではなく、スペックに元から積まれた負債である。** 利用者が「5件すべてを起票する」ことを選んだ。
+
+**測った事実**（いずれもコミット `ce455dcf`、2026-09-14 にリポジトリルートで実測。親が自ら測り直した値であり、検証サブエージェントの申告を引き写していない）:
+
+- 本スペックの除外は **40件**。`npm run check:req-coverage:json` の `exclusionAudit.entries` を `id` の前置で絞り `verdict` で数えると、**`in-repo-unverified` が 39件・`in-repo-verified` が 1件**（後者は `REQ-5.3` のみ）である。横断の合計は 133件で、**本スペックが単独で 29.3% を占める**
+- **`in-repo-unverified` の定義は `scripts/check-requirement-coverage.ts` の型注釈が逐語で持つ**——「リポジトリ内の自動検証を掲げているが、到達する検証が存在しない」。`--strict` はこれが 1件でもあれば落ちる（`npm run check:req-coverage:strict` の終了コード 1、文言は「本番の経路へ到達する検証が存在しない除外が133件あります」）
+- **数の一致を基準の一致と読まないこと**: 親は当初 `alternativeVerification` にファイルパスを含むかという**自前の基準**でも 39件を得たが、**検査の判定は「本番の経路へ到達する検証が実在するか」であって別物である**。偶然同じ数になっただけであり、着手時は必ず `exclusionAudit.entries` の `verdict` で数えること
+- `REQ-29` は 10件、`REQ-30` は 7件で、**いずれも受入基準の全数が除外**されており、40件すべてが `in-repo-unverified` の側にある
+- `REQ-28.2` は**除外に不在**である。被覆されていないのは除外のためではなく、被覆印の欠落による
+
+**先行タスクとの関係で、着手前に必ず読むこと**:
+
+- **Task 78.1 は `[x]` だが、その所管は 8件であって 39件ではない**（同節の表が `REQ-4.2` / `5.3` / `6.3` / `6.5` / `8.7` / `8.9` / `8.10` / `11.2` を全件挙げている）。78.1 の任務は道具名から実在しない `Jest` を落とすことであり、**同節は既に「道具名だけを機械的に置換して終えないこと。…存在しないなら道具名の是正ではなく除外の取り下げが要る」と課している**。本節はその積み残しを 40件全体へ広げるものであって、78.1 の再実施ではない
+- **Task 78 節の「是正すると別の関門が赤くなる」という警告は、現況では解消している。** 同節は「一件でも道具名から `Jest` を落とすと `check:design-measurement-freshness` が expected=`64 0` actual=`63 0` で落ちる」と実測付きで書くが、`scripts/design-measurements.json` の宣言 `jest-alternative-verification-exclusions` は**読む先が版 `b999b2d` に固定済み**であり（`git show b999b2d:e2e/requirement-exclusions.json | …`）、同宣言の `note` が「作業ツリー読みのままだと…8スペックのいずれかが道具名から `Jest` を落とした瞬間に本検査が終了コード 1 になり、他スペックの是正が止まる」として**上流の Task 115.280 が版固定した経緯**を記録している。もう一方の `jest-alternative-verification-exclusions-site-survey` は作業ツリー読みだが `site-survey` 分だけを数えるため本スペックの是正では動かない。**規約 (a) に従い当時の記録は消さず、現況の再実測をここに併記する。着手時にもう一度測り直すこと**
+- **本節の記録を書き足す行為そのものが `check:req-coverage` の二つの上限を動かしうる。** 現況は機能名を欠くヘッダー 2011件 / 955ファイル、眠る名乗り 5127件で、上限は 2023 / 5170（**遊びは 12 / 43 しかない**）。箇条書きの見出しに `Requirements:` の形を作らないこと
+
+- [ ] 95.1 REQ-2.5 の除外の根拠が失効している状態を解消する
+  - `e2e/requirement-exclusions.json` の `quantity-table-generation/REQ-2.5` は、`reason` / `alternativeVerification.description` / `alternativeVerification.threshold` の**3箇所すべてが `REQ-11.5` の自動保存テストを根拠に挙げる**（`threshold` は `covered_by: REQ-11.5`）
+  - **しかし現行の条文は自動保存を禁じている**。`requirements.md:298` は「The 数量表管理システム shall 編集内容の自動保存（一定間隔での保存）を行わず、データの永続化は保存操作時にのみ実行する（Requirement 42 AC 7）」である。**根拠として名指されたテストは、条文が明示的に禁じた挙動のテストである**
+  - **条文の矛盾ではない。** Requirement 2 は画面ごとに書き分けられており、受入基準5が一覧画面で「即座に保存する」、受入基準6が編集画面で「永続化は保存操作時に行う（Requirement 42）」である。**是正の宛先は条文ではなく除外の側**であり、理由の全面書き直しか取り下げのいずれかになる
+  - **取り下げは「実装済みか」ではなく「検証が実挙動を固定しているか」で決めること**（Task 83 / 89.2 の学び）
+  - _Boundary: `REQ-2.5` の除外の在籍理由_
+
+- [ ] 95.2 除外が掲げる代替検証の実体を与えるか、取り下げる
+  - 本スペックの除外 40件のうち **39件が `in-repo-unverified`**（上の測った事実を参照）。着手時に `exclusionAudit.entries` の `verdict` で数え直すこと
+  - **一件ずつ、`description` が約束する代替検証が現に存在し本番の経路へ到達するかを確かめること。** 存在するなら `alternativeVerification` へ到達する検証を名指しし、存在しないなら**道具名の是正ではなく除外の取り下げ**が要る（Task 78.1 が既に課している作法）
+  - 被覆担当が取り下げ候補として名指しした2件を出発点にしてよい。ただし**名指しをそのまま信じず自分で測ること**——`REQ-8.9`（ピッチ計算式。`in-repo-unverified` / infrastructure / Vitest。純粋な計算ロジックであり `frontend/src/utils/calculation-engine.test.ts` が実在する）と `REQ-42.10`（`in-repo-unverified` / integration-test / Playwright。reason 自身が `client-side-edit-explicit-save-e2e` のネットワーク監視で担保されると述べ、当該 E2E は実在する）
+  - **`category` と代替検証が食い違う4件がある**（`REQ-4.2` / `6.3` / `6.5` / `8.9` は `category: infrastructure`＝検証フェーズ design-review でありながら `method` が integration-test / unit-test）。分類の是正も併せて判断すること
+  - **39件を一度に扱う必要はない。** 分割して起票し直してよいが、**扱った件と残した件を件数で開示すること**
+  - _Boundary: 本スペックが所管する除外項目の代替検証の実体_
+
+- [ ] 95.3 Requirement 29・30 の全数除外の処遇を決める
+  - `REQ-29`（PDF OCR処理による数量項目抽出）は 10件、`REQ-30`（Claude Vision API連携による高精度抽出）は 7件で、**いずれも受入基準の全数が除外**されており、17件すべてが `in-repo-unverified` である。**したがってこの2節は被覆の分子にも分母にも載っていない**
+  - **この形は本スペック自身が最悪形と記録したものである**——`## Implementation Notes（Task 75 以降）` の「直列実行の受入検証では、除外を取り下げる前に『その判定が実際に走るか』を測ること」の項が、「**除外は分母から外れ、検証は走らない——被覆率だけが改善して見える最悪の形である**」と書いている
+  - 実装の有無をまず測ること。実装が在るなら検証を与えて取り下げ、実装が無いなら `method: none`（未実装の明示）へ改めるか、**取り下げられない理由を `category` と `reason` の両方へ正確に書き直すこと**（Task 89.2 の作法）
+  - **17件すべてを一度に解く必要はない。** 分割してよいが、扱った件と残した件を件数で開示すること
+  - _Boundary: `REQ-29` / `REQ-30` の除外の在籍理由_
+
+- [ ] 95.4 (P) REQ-28.2 の被覆印の欠落を解消する
+  - **実装も検証も既に存在する。** `frontend/src/components/quantity-table-import/excel-parser.ts:38` が `for (const sheetName of workbook.SheetNames)` で全シートを走査し、`excel-parser.test.ts:47` の検証名は `Excelファイルの全シートを解析してImportExtractionResult形式で返す` で、`:50` のモックは `SheetNames: ['Sheet1', 'Sheet2']` と複数シートを与えている
+  - **被覆に数えられないのは印が無いためである**。同ファイルの被覆印（`スペック名/REQ-番号` の形）は **0件**で、`:6` に**裸の `Requirements:`** がある。これは `check:req-coverage` が「機能名を欠くヘッダー（配下の名乗りは一件も集計されない）」として数える形そのものである
+  - 見出しへ機能名を与えること。形は `Requirements (quantity-table-generation):` である（`## Implementation Notes（Task 75 以降）` の「被覆検査の上限は静かに超える。見出しへ機能名を与えること」の項）。**被覆印は検証側へ付けること**——本番ファイルへ付けると本番コードが受入基準を被覆したと数えられる
+  - **これは本節で唯一、判断を要さず機械的に解ける項である。** 解くと被覆の分子が増え、上限との遊びも広がる向きに動く
+  - _Boundary: `excel-parser.test.ts` の被覆印_
+
+- [ ] 95.5 (P) 設計文書の File Structure Plan が挙げる E2E の名を実体へ揃える
+  - `design.md` の L249-254（File Structure Plan / 新規作成）が挙げる E2E 4本は**いずれも実在しない**——`quantity-item-action-menu-clipping.spec.ts` / `calculation-method-count.spec.ts` / `calculation-method-count-persistence.spec.ts` / `calculation-method-switch.spec.ts`
+  - **実体は別名である**——`quantity-item-action-menu-clipping-e2e.spec.ts` / `quantity-count-calculation-e2e.spec.ts` / `quantity-count-persistence-e2e.spec.ts` / `quantity-count-method-switch-e2e.spec.ts`
+  - **同じ文書の中で食い違っている**。§Testing Strategy の L3357 / L3368 / L3382 は**実体の名**を逆引用符付きで挙げており、計画側の名とは別物である。改名した旨の記録は `design.md` にも `tasks.md` にも無く、`tasks.md` の `_Boundary:` 欄2箇所は今も計画側の名を名乗ったままである
+  - **この食い違いは関門に構造的に見えない。** `scripts/check-design-path-references.ts` の主張の取り出しは**逆引用符で囲まれたトークンだけ**を拾うため、コードフェンス内のツリー表記（`├── …`）は主張を一つも立てない。同じ囲みの中の `frontend/src/utils/calculation-method.ts` が緑なのは囲みが見られているからではなく、別の箇所の逆引用符付きの言及が主張を立てているためである
+  - 規約 (a) に従い、当時の計画の記録を消さずに現況の再実測を併記する形で揃えること。**`tasks.md` の `_Boundary:` 欄の追随も併せて判断すること**
+  - _Boundary: 設計文書の File Structure Plan が挙げる E2E の名と、それを指すタスクの境界欄_
+
+**本節が `_Requirements:` を持たないのは意図である**（Task 79 / 87 / 93 / 94 と同じ）。受入基準を新規に実装せず、除外の在籍理由と記帳を実態へ揃えるだけである。ただし 95.2 / 95.3 は結果として除外の取り下げを伴いうるため、**その場合は分母が動く。前後の被覆を実測して記録すること**。
+
+**着手前の共通の作法**: 上に挙げた件数・行番号はいずれも `ce455dcf`・2026-09-14 の実測である。**起票文の数字は起票時点の実測であって着手時の実測ではない**（79.1 / 84.1 / 85.1 の学び）。所在も件数も、着手時に測り直してから書くこと。
+
+_起票元: 本実行の機能レベル検証（`/kiro-validate-impl`）が NO-GO を出し、利用者が5件すべての起票を選んだ。実装は行っていない_
+
 ## Implementation Notes（Task 75 以降）
 
 - **表示用URLを1本へ畳むと、呼び出し側は合成済みか否かを値から判別できない**: 75.1 の結線で `isDisplayUrlAnnotated` と `hasDrawnAnnotations` の2真偽値を応答へ足すことが不可分になった。常に注釈付きとして渡せば合成済み画像へ二重に重なり、常に通常サムネイルとして渡せば `AnnotatedImageThumbnail` が短絡して注釈が消える。**畳むのはURLの本数だけで、判別の情報は畳まないこと。** また注釈レコードの存在は描画の有無を意味しない（回転のみの保存でもレコードは残る）。
