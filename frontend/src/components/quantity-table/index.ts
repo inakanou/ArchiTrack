@@ -38,11 +38,9 @@ export { QUANTITY_ITEM_GRID_COLUMNS } from './gridConstants';
 // Task 12: フィールドバリデーション
 export { default as TextFieldInput } from './TextFieldInput';
 export { default as NumericFieldInput } from './NumericFieldInput';
-export { default as CalculationNumericInput } from './CalculationNumericInput';
 export type { TextFieldInputProps } from './TextFieldInput';
 export type {
   NumericFieldInputProps,
   NumericFieldInputMeta,
   NumericFieldType,
 } from './NumericFieldInput';
-export type { CalculationNumericInputProps } from './CalculationNumericInput';

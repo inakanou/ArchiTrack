@@ -2,6 +2,8 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
+_最終更新: 2026-09-14（Steering Sync: quantity-table-generation のタスク 94.1。数量表コンポーネントのツリーとストーリーの列挙から、本番の経路から到達しない一部品（計算用数値入力）の行を外した。同部品は同タスクで撤去した——取り込み元は `frontend/src/components/quantity-table/index.ts` の再輸出だけで、その再輸出を取り込むファイルは一つも無かった（`grep -rnE "components/quantity-table(/index)?['\"]" frontend/src e2e` の出力が空。コミット `52879319` の作業ツリー、2026-09-14 にリポジトリルートで実測）。同じく到達しないテキストフィールド入力・数値フィールド入力・写真変更ダイアログ・数量表の保存フックは、設計文書の参照が撤去を阻むため残置とした。再輸出ファイルを阻むのは設計文書ではない——同ファイルは残置した二部品を公開 API として輸出する唯一の口であるため、二部品の処遇と連動して残置である。いずれも本書の列挙は残す）_
+
 _最終更新: 2026-09-12（Steering Sync: quantity-table-generation のタスク 89.1。数量表コンポーネントのツリーとストーリーの列挙から、本番の経路から到達しない三部品（調整係数入力・丸め単位入力・数量入力）の行を外した。三部品は同タスクで撤去した——取り込み元は `frontend/src/components/quantity-table/index.ts` の再輸出だけで、その再輸出を取り込むファイルは一つも無かった（`grep -rnE "components/quantity-table(/index)?['\"]" frontend/src e2e` の出力が空。コミット `4e560c7f`、2026-09-12 にリポジトリルートで実測）。同じく到達しない `FieldValidatedItemRow.tsx` と、唯一の呼び出し元が読み取り専用の枝へ入らない `QuantityItemRow.tsx` は残置であり、本書の列挙も残す）_
 
 _最終更新: 2026-09-09（Steering Sync: `/kiro-steering`。ルートツリーが `scripts/`・`docs/`・`data/`・`.vscode/` の四つを一つも挙げていなかった（実測: `git ls-files | awk -F/ 'NF>1{print $1}' | sort -u` が返すルート直下の 11 件のうち、本書のツリーに現れるのは 7 件。コミット `faa54052`、2026-09-09 にリポジトリルートで実測）。とりわけ `scripts/` は押下前の関門（`npm run check:*` が 19 件、対の `:selftest` が 19 件）と CI の関門ジョブがすべてそこから起動する所でありながら、ツリーにも「主要ディレクトリの詳細」の節にも一度も現れていなかった。ツリーへ四件を加え、`scripts/` には節を新設した。節は一覧も件数も持たず、命名で役割が決まること（`check-*.ts` と対の `check-*.selftest.ts`、判定しない `survey-*`/`scan-*`/`list-*`、根拠を持つ `*-adjudication.*` と `*-baseline.json`）という規約だけを述べ、実体は `git ls-files` と `grep` で読み出す形にした——規約 (b)（数値を落として数える手段を書く）をディレクトリの内訳へ掛けたものである。対の自己検査は `check-*.ts` の 19 件すべてに在り、例外は `check-staged-coverage.cjs` の一件（対を持たず、押下前の関門からも CI からも呼ばれない。`package.json` の `coverage:staged:*` に定義があるだけ）。併せて「押下前の関門と CI の関門は同一ではない」ことを `comm` で読み出す形で明示した——実測では押下前だけが走らせる検査が 4 件（`check:adjudication-pointers`・`check:design-component-reqs`・`check:design-measurement-freshness`・`check:trace-coverage`）、CI だけが 1 件（`check:env`）である）_
@@ -543,7 +545,6 @@ frontend/
 │   │       ├── CopyQuantityTableDialog.tsx # 数量表コピーダイアログ
 │   │       ├── NumericFieldInput.tsx # 数値フィールド入力
 │   │       ├── TextFieldInput.tsx   # テキストフィールド入力
-│   │       ├── CalculationNumericInput.tsx # 計算用数値入力
 │   │       ├── EditableQuantityItemRow.tsx # 編集可能項目行
 │   │       ├── FieldValidatedItemRow.tsx # バリデーション付き項目行
 │   │       ├── PhotoChangeDialog.tsx # 写真変更ダイアログ
@@ -756,7 +757,6 @@ frontend/
 - `AutocompleteInput.stories.tsx` - オートコンプリート入力
 - `CalculationFields.stories.tsx` - 計算フィールド群
 - `CalculationMethodSelect.stories.tsx` - 計算方法選択
-- `CalculationNumericInput.stories.tsx` - 計算用数値入力
 - `EditableQuantityItemRow.stories.tsx` - 編集可能項目行
 - `FieldValidatedItemRow.stories.tsx` - バリデーション付き項目行
 - `ItemCopyMoveDialog.stories.tsx` - コピー・移動ダイアログ

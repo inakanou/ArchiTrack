@@ -1693,6 +1693,32 @@
   - _Depends: site-survey スペックの Task 115.280（`64 0` の宣言の解除と台帳の追随）_
   - _Boundary: 本スペックが所管する除外項目の `alternativeVerification.tool`_
 
+## タスク59: 数量表の未結線部品 `NumericFieldInput` / `TextFieldInput` の撤去を阻む本スペックの名指しを解く
+
+**経緯**: quantity-table-generation の Task 94.1 が、数量表画面の到達しない本番モジュールを一件ずつ測り、`frontend/src/components/quantity-table/NumericFieldInput.tsx` と同 `TextFieldInput.tsx` の2件について**撤去を阻むのは本スペックの設計文書の名指しだけである**ことを変異で確定させた。同タスクは「撤去が別スペックの文書や自己検査を巻き込むなら、同スペックへ起票して待つこと」と定めており、**下流は本スペックの文書を一行も書き換えていない**。**所有権は本スペックにある。** これは Task 89.1 が `FieldValidatedItemRow` について site-survey へ Task 115.325 を起こしたのと同型の手順である。
+
+**測った事実**（コミット `52879319` の作業ツリー、2026-09-14 にリポジトリルートで実測。下流の実装が変異を当て、**独立レビューが別の作業ツリーで再現して行番号まで一致を確認した**。変異はいずれも控えからの書き戻しで復元し、`git hash-object` の一致で確かめている）:
+
+- (1) `NumericFieldInput` 一式（本体・単体検証・ストーリー＋数量表側の再輸出2文）を外すと `npm run check:design-path-refs` が exit 0 から **exit 1**（合計 1 件 / 1 ファイル）へ転じる。名指しは `.kiro/specs/estimate-creation/design.md` の `L3255: NumericFieldInput.tsx [bare-filename]` である
+- (2) `TextFieldInput` 一式を外すと同検査が **exit 1**（合計 2 件 / 1 ファイル）になる。名指しは同文書の `L3200: TextFieldInput.tsx [bare-filename]` と `L3255: TextFieldInput.tsx [bare-filename]` である
+- (3) **阻んでいるのは本スペックの設計文書だけである。** `grep -rn 'NumericFieldInput\|TextFieldInput' .kiro/specs/quantity-table-generation/design.md` の当たりは 0 件であり、`grep -n 'NumericFieldInput\|TextFieldInput' scripts/design-path-exemption-baseline.json` の当たりも 0 件である（いずれも親が同日に実測）
+- (4) 当該 2 行はいずれも `### 見積項目テキストフィールドのコンパクト化（REQ-40）` の配下にあり、数量表の部品を**スタイル定数の参照元**として名指している（`L3200` は「現状分析」、`L3255` は「Implementation Notes」）
+- (5) `scripts/design-measurements.json` に `estimate-creation` の当たりは 0 件であり、本件の是正で `npm run check:design-measurement-freshness` の宣言は動かない（親が同日に実測）
+
+**依頼**: 上の 2 行が数量表の部品を参照している状態を、撤去に備えた形へ改めてよいかを判断すること。選択肢は少なくとも三つある——(a) 規約 (a) による不在の記録を併記する（**本スペックは既にこの作法を持つ**。`design.md` の L3493 が再現コマンド・コミット・実測日を添えて規約 (a) に従う併記であると明記している）、(b) 参照を実体のあるスタイル定数の所在へ付け替える、(c) `scripts/design-path-exemption-baseline.json` へ登録する（同台帳は本スペックの設計文書について既に 8 名を `documents` に持ち、`exempted` が**延べ** 1 件を、`exemptedReferences` が**その名** `estimate-export.service.ts` を保持する。同検査は延べと集合の両方で見張るため、二つのキーの区別は判断の入力になる）。**どれを採るかは本スペックの判断である。** 二つが解ければ、下流（quantity-table-generation の Task 94.1）が撤去を実施する。
+
+**撤去しても被覆は動かない**: 下流の実測では、両部品の変異で到達被覆 2659/2695（98.66%）と、到達しない被覆源のみの受入基準 4 件はいずれも不動であった。動くのは本番モジュールの未到達数だけである。
+
+**あわせて申し送る**: 数量表側の再輸出 `frontend/src/components/quantity-table/index.ts` は、残置したこの 2 部品を公開 API として輸出する唯一の口である。**ただし再輸出の撤去を阻むのは機械的な制約ではない**——独立レビューが同ファイル単体の削除を変異として当てたところ、`check:design-path-refs` / `check:steering-refs` / `check:design-code-refs` の 3 本がいずれも exit 0 であり、取り込み元も 0 件だった。生きた検証 `frontend/src/__tests__/components/quantity-table/QuantityItemFieldMaxWidth.test.tsx` は `TextFieldInput` を**再輸出経由ではなく直接**取り込んでいる（`:20`）。阻んでいるのは同検証の `:301` の註が「公開 API として再輸出されている」と述べていることであり、再輸出を撤去すると**その註が偽になる**。したがって数量表側は、**註の是正と同時でなければ再輸出を撤去できない**。
+
+- [ ] 59.1 数量表の部品を名指す 2 行の処遇を決める
+  - `.kiro/specs/estimate-creation/design.md` の `L3200` と `L3255` について、上の (a) / (b) / (c) のいずれを採るかを決め、実施すること
+  - **着手時に行番号と件数を測り直すこと。** 上の値は 2026-09-14 の実測であり、本書が動けば行番号も動く。再現は数量表側の 2 部品を外す変異を当てて `npm run check:design-path-refs` を読む形である
+  - **是正が被覆検査と鮮度検査を悪化させないことを前後の実測で示すこと**
+  - _Boundary: 本スペックの設計文書が数量表の入力部品を名指す箇所_
+
+_起票元: quantity-table-generation の Task 94.1。独立レビューが行番号まで再現して確定させた_
+
 ## Implementation Notes
 
 - 51.3: 値引き行追加エンドポイントのパスは design.md 準拠で `POST /api/estimates/:id/discount-items`（`/items/discount` ではない）。後続のフロントAPI関数（51.5）はこのパスに合わせること。`itemType` は createEstimateItemSchema / batchUpdateItemsSchema に optional 追加済み。サービスは `DISCOUNT_PRESET_LINE` 定数（名称=値引き/規格=''/単位=式/数量=1）をエクスポートし、createItem は itemType=DISCOUNT 時 ESTIMATE 行のみ生成する。
