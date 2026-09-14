@@ -44,6 +44,23 @@ describe('parseExcelFile', () => {
     vi.clearAllMocks();
   });
 
+  /**
+   * 全シートを解析対象とすること（受入基準 28.2）と、読み取りの出所が SheetJS ただ一つで
+   * あること（受入基準 28.1）を、この区間が確かめる。
+   *
+   * シートを二枚（`Sheet1` に2行・`Sheet2` に1行）与えて抽出行が合計 3 行になることを主張する
+   * ため、この数はシートをまたいで積み上げた結果でしか満たせない。`sheetNames` と行の中身は
+   * いずれもモックした `XLSX.read` の返り値からのみ導かれる。
+   *
+   * 二つの変異を当てて実測した（2026-09-14、基線コミット 47a4dde4 の作業ツリー）。
+   * `excel-parser.ts` の `workbook.SheetNames` を `workbook.SheetNames.slice(0, 1)` へ変えると
+   * 本ファイルは 2 failed | 4 passed (6) になる。`XLSX.read(arrayBuffer, { type: 'array' })` を
+   * SheetJS を経由しない workbook リテラルへ差し替えると 4 failed | 2 passed (6) になる。
+   * どちらの変異でも本区間は落ちる側に入る。
+   *
+   * @requirement quantity-table-generation/REQ-28.1
+   * @requirement quantity-table-generation/REQ-28.2
+   */
   it('Excelファイルの全シートを解析してImportExtractionResult形式で返す', async () => {
     // Arrange
     const mockWorkbook = {
@@ -78,6 +95,17 @@ describe('parseExcelFile', () => {
     expect(result.rows.length).toBe(3); // 2 + 1
   });
 
+  /**
+   * 本区間と次の区間は受入基準 28.3 を名乗らない（無タグである理由をここに残す。115.176）。
+   *
+   * 28.3 が課すのは列データを数量項目の対応フィールド（大項目・中項目・小項目・任意分類・
+   * 工種・名称・規格・数量・単位・備考）へマッピングすることである。その実体は
+   * `frontend/src/components/quantity-table-import/field-mapping.ts` の `MAPPING_RULES` に在り、
+   * `parseExcelFile` は列名と列値を元の並びのまま返すだけでマッピング先を決めない。
+   * 本区間が主張するのは検出した列見出しの字面であってマッピングではないため、
+   * ここで 28.3 を名乗ると当該検証が確かめていない条文を被覆と数えることになる（86.3）。
+   * 28.3 の被覆は `e2e/specs/quantity-tables/import-e2e.spec.ts` の区間が担っている。
+   */
   it('ヘッダー行を自動検出して列ヘッダーとして返す', async () => {
     const mockWorkbook = {
       SheetNames: ['Sheet1'],
@@ -141,6 +169,15 @@ describe('parseExcelFile', () => {
     expect(result.sheetNames).toEqual(['数量表', '内訳書']);
   });
 
+  /**
+   * 本区間は受入基準 28.6 を名乗らない（無タグである理由をここに残す。115.176）。
+   *
+   * 28.6 が課すのは「エラーメッセージを表示し手動入力を促す」ことであり、本区間が主張するのは
+   * `parseExcelFile` が拒否で終わること（`rejects.toThrow()`）だけである。表示も手動入力の導線も
+   * 本区間の主張の外に在るため、ここで 28.6 を名乗ると当該検証が確かめていない条文を被覆と
+   * 数えることになる（86.3）。28.6 の被覆は
+   * `e2e/specs/quantity-tables/import-e2e.spec.ts` の区間が担っている。
+   */
   it('ファイル読み取り失敗時はエラーをスローする', async () => {
     vi.mocked(XLSX.read).mockImplementation(() => {
       throw new Error('Invalid file format');
