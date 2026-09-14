@@ -89,6 +89,12 @@ describe('calculation-params-validation', () => {
     });
   });
 
+  /**
+   * 範囲長・端長1・端長2・ピッチ長の四つについて、未入力時に入力を求める問題が
+   * 記録されることをこの区間が確かめる。
+   *
+   * @requirement quantity-table-generation/REQ-8.10
+   */
   describe('計算方法「ピッチ」（REQ-8 AC10）', () => {
     it('計算パラメータが未設定の場合に警告が記録されること', () => {
       expect(check('PITCH', null)).toEqual([
@@ -149,6 +155,12 @@ describe('calculation-params-validation', () => {
     });
   });
 
+  /**
+   * 計算用列が一つも入力されていないときのエラーと、幅・奥行き・高さのいずれか一つで
+   * 解消されることの双方をこの区間が確かめる。
+   *
+   * @requirement quantity-table-generation/REQ-8.7
+   */
   describe('計算方法「面積・体積」（REQ-8 AC7）', () => {
     it('計算パラメータが未設定の場合に警告が記録されること', () => {
       expect(check('AREA_VOLUME', null)).toEqual([

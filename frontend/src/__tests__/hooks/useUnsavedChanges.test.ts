@@ -100,6 +100,12 @@ describe('useUnsavedChanges', () => {
     });
   });
 
+  /**
+   * 未保存の変更がある間だけ beforeunload ハンドラが登録され、発火時に既定動作を
+   * 抑止することをこの区間が確かめる。
+   *
+   * @requirement quantity-table-generation/REQ-43.2
+   */
   describe('beforeunloadイベントの管理', () => {
     it('isDirtyがfalseのときはbeforeunloadイベントリスナーが登録されない', () => {
       renderHook(() => useUnsavedChanges());

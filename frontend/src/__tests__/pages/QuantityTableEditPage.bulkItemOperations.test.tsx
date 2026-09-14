@@ -224,6 +224,11 @@ describe('QuantityTableEditPage - 数量項目のグループ間移動（REQ-6.2
 // REQ-6.5: 複数選択の一括操作
 // ============================================================================
 
+/**
+ * 複数選択した全項目に対する削除・コピー・移動の三つの一括操作をこの区間が確かめる。
+ *
+ * @requirement quantity-table-generation/REQ-6.5
+ */
 describe('QuantityTableEditPage - 複数選択の一括操作（REQ-6.5）', () => {
   const user = userEvent.setup();
 

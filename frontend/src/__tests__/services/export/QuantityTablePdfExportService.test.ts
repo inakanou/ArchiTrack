@@ -122,6 +122,11 @@ describe('QuantityTablePdfExportService', () => {
     service = new QuantityTablePdfExportService();
   });
 
+  /**
+   * 表紙の「数量表」タイトル・数量表名・工事名・作成日の四つをこの区間が確かめる。
+   *
+   * @requirement quantity-table-generation/REQ-26.2
+   */
   describe('表紙生成 (REQ-26.1, 26.2)', () => {
     it('表紙に「数量表」タイトルが含まれる', async () => {
       const input = createMockInput();
@@ -173,6 +178,18 @@ describe('QuantityTablePdfExportService', () => {
     });
   });
 
+  /**
+   * 並び順での出力・グループ名・写真・写真コメントの配置と、写真が無い場合の省略を
+   * この区間が確かめる。
+   *
+   * 受入基準 26.5（写真とコメントを数量項目一覧の「前に」配置すること）は名乗らない。
+   * この区間が確かめるのは写真とコメントが描画されることまでであり、数量項目一覧との
+   * 前後関係を確かめる検証をまだ持たないためである。
+   *
+   * @requirement quantity-table-generation/REQ-26.3
+   * @requirement quantity-table-generation/REQ-26.4
+   * @requirement quantity-table-generation/REQ-26.6
+   */
   describe('数量グループセクション (REQ-26.3, 26.4, 26.5, 26.6)', () => {
     it('数量グループが並び順で出力される', async () => {
       const input = createMockInput({
@@ -251,15 +268,30 @@ describe('QuantityTablePdfExportService', () => {
     });
   });
 
+  /**
+   * テーブル形式の全11列が列名として描画されることをこの区間が確かめる。
+   *
+   * 受入基準 26.8（改ページ後の先頭でテーブルヘッダーを繰り返すこと）は名乗らない。
+   * この区間はページをまたぐ入力を与えておらず、繰り返しを確かめる検証をまだ
+   * 持たないためである。
+   *
+   * @requirement quantity-table-generation/REQ-26.7
+   */
   describe('数量項目テーブル (REQ-26.7, 26.8)', () => {
     it('テーブルヘッダーが11列構成で描画される', async () => {
       const input = createMockInput();
       await service.generatePdf(input);
 
-      // ヘッダー列名がtext呼び出しに含まれる
+      // ヘッダー列名がtext呼び出しに含まれる（原文が並べる11列を全件確かめる）
       const textCalls = mockText.mock.calls.map((call: unknown[]) => call[0]);
       expect(textCalls).toContain('大項目');
+      expect(textCalls).toContain('中項目');
+      expect(textCalls).toContain('小項目');
+      expect(textCalls).toContain('任意分類');
+      expect(textCalls).toContain('工種');
       expect(textCalls).toContain('名称');
+      expect(textCalls).toContain('規格');
+      expect(textCalls).toContain('計算方法');
       expect(textCalls).toContain('数量');
       expect(textCalls).toContain('単位');
       expect(textCalls).toContain('備考');
@@ -276,6 +308,11 @@ describe('QuantityTablePdfExportService', () => {
     });
   });
 
+  /**
+   * 表紙を除く各ページへページ番号を付す経路が実行されることをこの区間が確かめる。
+   *
+   * @requirement quantity-table-generation/REQ-26.12
+   */
   describe('ページ番号 (REQ-26.12)', () => {
     it('表紙を除く全ページにページ番号が表示される', async () => {
       const input = createMockInput();
