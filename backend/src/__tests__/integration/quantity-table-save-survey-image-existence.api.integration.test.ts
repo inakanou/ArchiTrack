@@ -14,9 +14,10 @@
  * （POST /api/quantity-tables/:quantityTableId/groups と PUT /api/quantity-groups/:id）へ
  * 揃える。同経路は同じ不変条件（指した現調画像が存在すること）を
  * `SurveyImageNotFoundError`（404 / SURVEY_IMAGE_NOT_FOUND）で拒んでおり、保存経路だけ
- * 別の応答を返さない。ここでは `type` / `title` / `status` / `detail` / `code` の
- * **応答本文の全項目**を突き合わせる（Task 86.1 の所属違反と異なり、本タスクは保存経路に
- * 専用の写しを新設するため `type` も揃えられる）。
+ * 別の応答を返さない。ここでは `type` / `title` / `status` / `detail` / `code` /
+ * `surveyImageId` の6項目、すなわち**応答本文の全項目**を突き合わせる（Task 86.1 の
+ * 所属違反と異なり、本タスクは保存経路に専用の写しを新設するため `type` も揃えられる）。
+ * 6項目のうち `surveyImageId` は Task 86.5 が加えたもので、それ以前は5項目だった。
  *
  * 存在しない画像IDには RFC4122 準拠のUUID（バリアント桁が 8/9/a/b）を用いる。
  * 不正バリアントはスキーマ段階で 400（VALIDATION_ERROR）となり、別の欠陥と取り違える。
@@ -381,7 +382,8 @@ describe('Quantity Table Save Survey Image Existence Integration Tests', () => {
         });
 
       // 同じ不変条件に対して、3経路が同じ応答本文で拒む。突き合わせるのは
-      // type / title / status / detail / code の5項目（= 応答本文の全項目）である。
+      // type / title / status / detail / code / surveyImageId の6項目
+      // （= 応答本文の全項目）である。
       for (const body of [createResponse.body, updateResponse.body, saveResponse.body]) {
         expect(body).toEqual(expectedProblem(MISSING_IMAGE_ID));
       }
