@@ -2210,6 +2210,7 @@ interface QuantityItemActionMenuProps {
 
 - **採用案（操作列セル wrapper 拡張）**:
   - メイン行は既存どおり 12列 CSS Grid（1180px）で描画する
+    - **この「1180px」も本節を書いた時点の記述であり書き換えない（タスク 97.19、規約 (a)）。同じ定数を後出の REQ-41 の節（水平スクロール時の画像・コメント固定表示）の再実測と同じコマンドで測ると、12列の定義値の合計は 1168px である**（コミット `1fe3d533`、2026-09-15）
   - 操作列セル（最右列）内に `wrapper` div を新設し、`display: flex; flex-direction: row; align-items: center; gap: 4px` で「既存操作ボタン群 + `<CalculationFields>`」を横並び配置
   - 計算用フィールド群は wrapper 内で `flex-shrink: 0` を指定し、操作ボタンと同列内に水平展開
   - **採用理由**: 既存 Grid メイン行のレイアウト構造（12列定義・gridTemplateColumns・gap）を維持できるため、Storybook デコレータ・scrollbar test の改修範囲が最小化される。回帰影響を局所化できる
@@ -2519,6 +2520,8 @@ interface SiteSurveySummary {
 **不具合分析**
 
 `QuantityGroupCard` ではカード全体（`styles.card`）に `overflowX:'auto'` が掛かっており、`photoArea`（画像 + コメント、`display:flex`）と数量項目テーブル行群が同一の水平スクロールコンテナ内に存在する。数量項目テーブルはグリッド列幅合計（`QUANTITY_ITEM_GRID_COLUMNS` ≈ 1264px、REQ-37 でさらに拡大）が常にビューポートを超えるため水平スクロールが発生し、右へスクロールすると `photoArea` も一緒に左へ流れて消える。
+
+**上の「`QUANTITY_ITEM_GRID_COLUMNS` ≈ 1264px」は本節を書いた時点の記述であり書き換えない（タスク 97.19。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う）。再実測では値が合わない**——`gridConstants.ts` の `QUANTITY_ITEM_GRID_COLUMNS` は12列（76・76・76・76・88・202・202・90・80・46・76・80px）で、定義値の合計は **1168px** である。測り方は `grep -oE "'[0-9px ]+'" frontend/src/components/quantity-table/gridConstants.ts | tr -d "'" | tr ' ' '\n' | sed 's/px//' | awk 'NF{n++; s+=$1} END{print n, s}'` で、出力は `12 1168`。これは列の定義値の和であり、描画幅（gap など）と「REQ-37 でさらに拡大」の量は測っていない。コミット `1fe3d533`。2026-09-15 にリポジトリルートで実測。
 
 **修正対象コンポーネントと変更内容**
 

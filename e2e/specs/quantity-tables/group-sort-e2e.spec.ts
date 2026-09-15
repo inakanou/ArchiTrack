@@ -608,22 +608,56 @@ test.describe('REQ-23, REQ-24: 数量グループ・項目の並び順管理', (
       );
       const count = PREPARED_ITEM_COUNT;
 
-      // 各項目の name 入力値を取得
-      const initialNames: string[] = [];
-      for (let i = 0; i < count; i++) {
-        const text = (await itemRows.nth(i).textContent()) ?? '';
-        initialNames.push(text.trim());
-      }
+      // 行の同一性は名称欄の値で読む。項目行の textContent は入力欄の値を含まず、
+      // 行どうしの文字列が一致しうるため、並びが入れ替わっても比較が合格してしまう
+      // （タスク 97.19 の変異で、再読み込み時だけ表示順を逆にしても旧判定は合格した）。
+      const initialNames = await readItemNames(itemRows, count);
+      // 名称が重複していると入れ替わりを判定できない。初期値を失敗する側に置く。
+      expect(new Set(initialNames).size, '前提: 各数量項目の名称が互いに異なる').toBe(count);
+
+      // REQ-24.1 / 24.2: 再読み込みの前後比較だけでは、読み込むたびに同じ誤った順で表示される
+      // 状態を見分けられない（タスク 97.19 の変異で、読み込み時だけ項目を逆順にしても合格した。
+      // 名称は画面から付けており、先行する REQ-23.7 の保存が逆順をそのまま永続化するため）。
+      // そこで、同じ再読み込みで本番が受け取る数量表詳細の応答が保持する並び順
+      // （グループ・項目とも displayOrder の昇順）と、画面の並びを突き合わせる。
+      expect(
+        createdQuantityTableId,
+        '前提: 事前準備で作成した数量表のIDが得られている'
+      ).toBeTruthy();
+      const detailPath = `/api/quantity-tables/${createdQuantityTableId}`;
+      const detailResponsePromise = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === detailPath &&
+          response.request().method() === 'GET' &&
+          response.status() === 200,
+        { timeout: getTimeout(30000) }
+      );
 
       await page.reload({ waitUntil: 'networkidle' });
-      await page.waitForLoadState('networkidle');
+      const detail = (await (await detailResponsePromise).json()) as {
+        groups: Array<{
+          displayOrder: number;
+          items: Array<{ name: string; displayOrder: number }>;
+        }>;
+      };
+      const persistedNames = [...detail.groups]
+        .sort((a, b) => a.displayOrder - b.displayOrder)
+        .flatMap((group) =>
+          [...group.items].sort((a, b) => a.displayOrder - b.displayOrder).map((item) => item.name)
+        );
+      // REQ-24.1: 並び順がデータとして保持されている（再読み込み前に画面で見た並びと一致する）
+      expect(persistedNames, 'REQ-24.1: 数量項目の並び順がデータとして保持されていない').toEqual(
+        initialNames
+      );
 
-      const reloadedCount = await itemRows.count();
-      expect(reloadedCount, '再表示後も項目数は同じ').toBe(count);
-      for (let i = 0; i < reloadedCount; i++) {
-        const text = ((await itemRows.nth(i).textContent()) ?? '').trim();
-        expect(text, `項目${i}の並び順が保持される`).toBe(initialNames[i]);
-      }
+      await expect(itemRows, '再表示後も項目数は同じ').toHaveCount(count, {
+        timeout: getTimeout(10000),
+      });
+      // REQ-24.2: 画面は保持された並び順で表示される
+      expect(
+        await readItemNames(itemRows, count),
+        'REQ-24.2: 数量項目が保持された並び順で表示されない'
+      ).toEqual(persistedNames);
     });
 
     /**
