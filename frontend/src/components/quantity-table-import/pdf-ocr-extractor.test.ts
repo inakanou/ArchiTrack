@@ -3,9 +3,11 @@
  *
  * Task 44.2 + 44.3 + 48.2 + 48.3: PDF OCR処理とClaude Vision API連携
  *
- * Requirements:
- * - 29.1-29.4: pdfjs-distテキスト抽出とOCRフォールバック
- * - 30.1-30.7: Claude Vision API連携
+ * 本ファイルが確かめる受入基準は 29.7 / 29.9 / 29.10 / 30.1 / 30.4〜30.7 である。番号は各検証の
+ * `@requirement` の印に記してあり、冒頭には一覧を重ねない（Task 97.10）。
+ * 29.1〜29.4（pdfjs-dist のテキスト抽出と OCR への切り替え）は、共有部品
+ * `pdf-text-extractor` をモックしているため本ファイルでは確かめない。30.2 / 30.3（画像の送信と
+ * プロンプト）も本ファイルは主張しない。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 

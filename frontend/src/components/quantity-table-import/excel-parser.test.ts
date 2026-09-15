@@ -3,11 +3,9 @@
  *
  * Task 44.1 + 48.1: Excelデータパース機能
  *
- * Requirements:
- * - 28.1: SheetJS（xlsx）ライブラリを使用してExcelデータを直接読み取る
- * - 28.2: Excelファイルの全シートを解析対象とする
- * - 28.3: 列データを数量項目の対応フィールドにマッピングする
- * - 28.6: ファイル読み取り失敗時はエラーメッセージを返す
+ * 本ファイルが確かめる受入基準は 28.1 / 28.2 / 28.6（読み取りに失敗したとき手動入力を促す文言で
+ * 失敗すること）である。番号は各検証の `@requirement` の印に記してあり、冒頭には一覧を重ねない
+ * （Task 97.10）。28.3 は本ファイルでは確かめない（理由は該当区間の注釈に記す）。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ImportExtractionResult } from '../../types/quantity-import.types';
