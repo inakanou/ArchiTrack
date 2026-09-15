@@ -487,8 +487,16 @@ test.describe('REQ-27: 数量表インポート（ファイルアップロード
   /**
    * @requirement quantity-table-generation/REQ-27.7: 処理中インジケーター表示
    *
-   * ファイルアップロード直後、処理中インジケーター（role=status / aria-live / プログレス系）が
-   * ダイアログ内に表示される。処理完了で消えるか結果に置き換わる。
+   * OCR 処理が実行中の間、「抽出結果」の領域に処理中インジケーター（role="progressbar"）と
+   * 処理中を示す文言が表示され、処理が終わるとインジケーターが消えて結果に置き換わる。
+   *
+   * 以前は「progressbar / status / aria-live / … / table / alert のいずれかが見える」ことを
+   * 待っていた。抽出が終わると「抽出結果」の領域に表が出るため、progressbar を描かない実装でも
+   * 表で確実に合格していた（タスク 97.22）。付随的な要素の選言に頼らず、処理中の状態を確定させて
+   * 主張する。抽出は Claude Vision の応答（POST /api/claude-vision/extract）を待つため、
+   * その応答を保留している間は処理中であることが確定する（REQ-27.8 の検証と同じ手口）。
+   *   1. 抽出要求が保留されている間、progressbar と処理中の文言が表示され、結果の表はまだ無い
+   *   2. 応答（目印の行を持つ抽出結果）を返すと progressbar が消え、目印の行を持つ表に置き換わる
    */
   test('ファイルアップロード後に処理中インジケーターが表示される (REQ-27.7)', async ({ page }) => {
     const navigated = await navigateToQuantityTableEdit(page);
@@ -497,19 +505,81 @@ test.describe('REQ-27: 数量表インポート（ファイルアップロード
     const opened = await openImportDialog(page);
     expect(opened).toBeTruthy();
 
-    const fileInput = page.getByLabel('ファイルを選択');
-    await fileInput.setInputFiles(TEST_PDF);
+    const resultMarker = `REQ277_RESULT_ROW_${Date.now()}`;
+    let releaseExtraction: (() => void) | undefined;
+    const extractionHeld = new Promise<void>((resolve) => {
+      releaseExtraction = resolve;
+    });
+    await page.route('**/api/claude-vision/extract', async (route) => {
+      await extractionHeld;
+      await route
+        .fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            lineItems: [
+              {
+                majorCategory: null,
+                middleCategory: null,
+                minorCategory: null,
+                customCategory: null,
+                workType: '仮設工',
+                name: resultMarker,
+                specification: null,
+                quantity: 1,
+                unit: '式',
+                remarks: null,
+              },
+            ],
+            pageCount: 1,
+          }),
+        })
+        // 判定の失敗でテストが先に終わった場合、ページが閉じた後の応答は捨てる
+        .catch(() => undefined);
+    });
 
-    // 処理中インジケーター: ImportDialog 実装は role="progressbar" で表現する。
-    // OCR が高速完了するケースでは progressbar が即座に結果（table または alert）に
-    // 置き換わるため、いずれかの「処理が走った証跡」を許容する。
-    const dialog = page.getByRole('dialog');
-    const indicator = dialog
-      .locator(
-        '[role="progressbar"], [role="status"], [aria-live], [data-testid*="indicator" i], [data-testid*="processing" i], [data-testid*="loading" i], table, [role="alert"]'
-      )
-      .first();
-    await expect(indicator).toBeVisible({ timeout: getTimeout(15000) });
+    try {
+      const dialog = page.getByRole('dialog');
+      const results = dialog.getByRole('region', { name: '抽出結果' });
+      const indicator = results.getByRole('progressbar');
+
+      // ファイル選択より前に待機を仕掛け、選択を契機に発行される抽出要求を取りこぼさない
+      const visionRequest = page.waitForRequest(
+        (request) =>
+          request.method() === 'POST' && /\/api\/claude-vision\/extract$/.test(request.url()),
+        { timeout: getTimeout(45000) }
+      );
+      await page.getByLabel('ファイルを選択').setInputFiles(TEST_PDF);
+      await visionRequest;
+
+      // 1. 応答を保留している（＝OCR 処理が実行中の）間、インジケーターが表示される
+      await expect(
+        indicator,
+        'REQ-27.7: OCR処理の実行中に処理中インジケーター（progressbar）が表示されない'
+      ).toBeVisible({ timeout: getTimeout(15000) });
+      await expect(
+        results,
+        'REQ-27.7: OCR処理の実行中に処理中であることを示す文言が表示されない'
+      ).toContainText('解析中');
+      await expect(
+        results.locator('table'),
+        'REQ-27.7: 処理中の判定の時点で結果の表が既に出ている（処理中の状態を捉えていない）'
+      ).toHaveCount(0);
+
+      // 2. 応答を返すと、インジケーターが消えて結果に置き換わる
+      releaseExtraction?.();
+      await expect(
+        results.locator('table tbody'),
+        'REQ-27.7: 処理完了後に抽出結果の表が表示されない'
+      ).toContainText(resultMarker, { timeout: getTimeout(45000) });
+      await expect(
+        indicator,
+        'REQ-27.7: 処理完了後も処理中インジケーターが表示されたままである'
+      ).toHaveCount(0);
+    } finally {
+      releaseExtraction?.();
+      await page.unroute('**/api/claude-vision/extract');
+    }
   });
 
   /**
