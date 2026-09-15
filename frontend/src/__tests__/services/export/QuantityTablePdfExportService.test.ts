@@ -113,6 +113,75 @@ const createMockInput = (overrides?: Partial<QuantityTablePdfInput>): QuantityTa
   ...overrides,
 });
 
+/** 名称だけを変えた数量項目を作る（他の列は固定値） */
+const createItem = (name: string): QuantityTablePdfInput['groups'][number]['items'][number] => ({
+  majorCategory: '建築',
+  middleCategory: '',
+  minorCategory: '',
+  customCategory: '',
+  workType: '仮設',
+  name,
+  specification: '',
+  calculationMethod: '標準',
+  quantity: '1.00',
+  unit: '式',
+  remarks: '',
+});
+
+/** 本番の列定義と同じ並びの列名（大項目〜備考の11列） */
+const TABLE_HEADER_LABELS = [
+  '大項目',
+  '中項目',
+  '小項目',
+  '任意分類',
+  '工種',
+  '名称',
+  '規格',
+  '計算方法',
+  '数量',
+  '単位',
+  '備考',
+];
+
+/** ページ番号の文字列「n / m」 */
+const PAGE_NUMBER_PATTERN = /^\d+ \/ \d+$/;
+
+interface RecordedText {
+  text: string;
+  y: number;
+  order: number;
+  page: number;
+}
+
+/**
+ * モックへの呼び出し順から、その描画がどのページに対して行われたかを求める。
+ * setPage 以後はその引数のページ、それ以前は表紙（1）に addPage の回数を足したページ。
+ */
+const pageOfInvocation = (order: number): number => {
+  const setPageOrders = mockSetPage.mock.invocationCallOrder;
+  let page: number | undefined;
+  for (let i = 0; i < setPageOrders.length; i++) {
+    if (setPageOrders[i]! < order) page = mockSetPage.mock.calls[i]![0] as number;
+  }
+  if (page !== undefined) return page;
+  return 1 + mockAddPage.mock.invocationCallOrder.filter((o) => o < order).length;
+};
+
+const allTextCalls = (): RecordedText[] =>
+  mockText.mock.calls.map((call: unknown[], i: number) => {
+    const order = mockText.mock.invocationCallOrder[i]!;
+    return { text: call[0] as string, y: call[2] as number, order, page: pageOfInvocation(order) };
+  });
+
+/** ページ番号の付与（最初の setPage）より前に描画された文字列 */
+const textCallsBeforePageNumbering = (): RecordedText[] => {
+  const firstSetPage = mockSetPage.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY;
+  return allTextCalls().filter((c) => c.order < firstSetPage);
+};
+
+const findTextCall = (text: string): RecordedText | undefined =>
+  allTextCalls().find((c) => c.text === text);
+
 describe('QuantityTablePdfExportService', () => {
   let service: QuantityTablePdfExportService;
 
@@ -182,9 +251,9 @@ describe('QuantityTablePdfExportService', () => {
    * 並び順での出力・グループ名・写真・写真コメントの配置と、写真が無い場合の省略を
    * この区間が確かめる。
    *
-   * 受入基準 26.5（写真とコメントを数量項目一覧の「前に」配置すること）は名乗らない。
-   * この区間が確かめるのは写真とコメントが描画されることまでであり、数量項目一覧との
-   * 前後関係を確かめる検証をまだ持たないためである。
+   * 受入基準 26.5（写真とコメントを数量項目一覧の「前に」配置すること）はこの区間では
+   * 名乗らない。この区間が確かめるのは写真とコメントが描画されることまでであり、
+   * 数量項目一覧との前後関係は区間「写真・コメントと数量項目一覧の前後関係 (REQ-26.5)」が確かめる。
    *
    * @requirement quantity-table-generation/REQ-26.3
    * @requirement quantity-table-generation/REQ-26.4
@@ -271,9 +340,9 @@ describe('QuantityTablePdfExportService', () => {
   /**
    * テーブル形式の全11列が列名として描画されることをこの区間が確かめる。
    *
-   * 受入基準 26.8（改ページ後の先頭でテーブルヘッダーを繰り返すこと）は名乗らない。
-   * この区間はページをまたぐ入力を与えておらず、繰り返しを確かめる検証をまだ
-   * 持たないためである。
+   * 受入基準 26.8（改ページ後の先頭でテーブルヘッダーを繰り返すこと）はこの区間では
+   * 名乗らない。この区間はページをまたぐ入力を与えておらず、繰り返しは区間
+   * 「改ページ時のテーブルヘッダー繰り返し (REQ-26.8)」が確かめる。
    *
    * @requirement quantity-table-generation/REQ-26.7
    */
@@ -309,18 +378,156 @@ describe('QuantityTablePdfExportService', () => {
   });
 
   /**
-   * 表紙を除く各ページへページ番号を付す経路が実行されることをこの区間が確かめる。
+   * 写真と写真コメントが、同じグループの数量項目一覧より前（描画順と縦位置の両方）に
+   * 置かれることをこの区間が確かめる。
+   *
+   * @requirement quantity-table-generation/REQ-26.5
+   */
+  describe('写真・コメントと数量項目一覧の前後関係 (REQ-26.5)', () => {
+    it('写真紐づけありの場合に写真とコメントが数量項目一覧より前に配置される', async () => {
+      const input = createMockInput({
+        groups: [
+          {
+            name: 'グループ1',
+            displayOrder: 0,
+            photoDataUrl: 'data:image/jpeg;base64,/9j/test',
+            photoComment: '配置確認コメント',
+            items: [createItem('配置確認項目')],
+          },
+        ],
+      });
+
+      await service.generatePdf(input);
+
+      const photoOrder = mockAddImage.mock.invocationCallOrder[0];
+      const photoCall = mockAddImage.mock.calls[0] as unknown[];
+      const comment = findTextCall('配置確認コメント');
+      const tableHeader = findTextCall('大項目');
+      const firstRow = findTextCall('配置確認項目');
+
+      expect(photoOrder).toBeDefined();
+      expect(comment).toBeDefined();
+      expect(tableHeader).toBeDefined();
+      expect(firstRow).toBeDefined();
+
+      // 描画順: 写真 → コメント → 一覧のヘッダー → 一覧の行
+      expect(photoOrder!).toBeLessThan(tableHeader!.order);
+      expect(comment!.order).toBeLessThan(tableHeader!.order);
+      expect(tableHeader!.order).toBeLessThan(firstRow!.order);
+
+      // 同じページに置かれ、縦位置でも写真の下端とコメントが一覧のヘッダーより上にある
+      expect(pageOfInvocation(photoOrder!)).toBe(pageOfInvocation(tableHeader!.order));
+      expect(comment!.page).toBe(tableHeader!.page);
+      const photoY = photoCall[3] as number;
+      const photoHeight = photoCall[5] as number;
+      expect(photoY + photoHeight).toBeLessThanOrEqual(tableHeader!.y);
+      expect(comment!.y).toBeLessThan(tableHeader!.y);
+    });
+  });
+
+  /**
+   * 数量項目一覧がページをまたぐとき、改ページ後の新しいページの先頭に11列の列名が
+   * 再び描画され、続きの行はその後に置かれることをこの区間が確かめる。
+   *
+   * @requirement quantity-table-generation/REQ-26.8
+   */
+  describe('改ページ時のテーブルヘッダー繰り返し (REQ-26.8)', () => {
+    it('数量項目一覧がページをまたぐと新しいページの先頭にテーブルヘッダーが繰り返される', async () => {
+      const items = Array.from({ length: 40 }, (_, i) => createItem(`改ページ項目${i + 1}`));
+      const input = createMockInput({
+        groups: [
+          { name: 'グループ1', displayOrder: 0, photoDataUrl: null, photoComment: null, items },
+        ],
+      });
+
+      await service.generatePdf(input);
+
+      // 前提: 表紙 + グループ1ページ目 + 続きのページ（1ページ以上）になっている
+      expect(mockAddPage.mock.calls.length).toBeGreaterThanOrEqual(2);
+
+      const contentTexts = textCallsBeforePageNumbering();
+      const itemNames = items.map((item) => item.name);
+      const rowPages = items.map((item) => contentTexts.find((c) => c.text === item.name)?.page);
+      expect(rowPages.every((page) => page !== undefined)).toBe(true);
+      const firstRowPage = rowPages[0]!;
+      const lastRowPage = rowPages[rowPages.length - 1]!;
+      expect(lastRowPage).toBeGreaterThan(firstRowPage);
+
+      // 行が載っている各ページについて、そのページで最初に描画される11件の文字列が
+      // 列名の並びそのものであり、ページ上端（余白直下）に置かれている
+      const pagesWithRows = [...new Set(rowPages as number[])];
+      for (const page of pagesWithRows) {
+        const onPage = contentTexts.filter((c) => c.page === page);
+        if (page === firstRowPage) {
+          // グループの先頭ページはグループ名が先に来るので、それを除いて見る
+          expect(onPage[0]!.text).toBe('グループ1');
+          onPage.shift();
+        }
+        expect(onPage.slice(0, TABLE_HEADER_LABELS.length).map((c) => c.text)).toEqual(
+          TABLE_HEADER_LABELS
+        );
+        if (page !== firstRowPage) {
+          const headerYs = onPage.slice(0, TABLE_HEADER_LABELS.length).map((c) => c.y);
+          const rest = onPage.slice(TABLE_HEADER_LABELS.length);
+          // ヘッダーはページ上端の余白（15mm）直下にあり、続きの行はすべてその下にある
+          expect(headerYs.every((y) => y > 15 && y < 15 + 8)).toBe(true);
+          expect(rest.some((c) => itemNames.includes(c.text))).toBe(true);
+          expect(Math.min(...rest.map((c) => c.y))).toBeGreaterThan(Math.max(...headerYs));
+        }
+      }
+    });
+  });
+
+  /**
+   * 表紙（1ページ目）にはページ番号を付けず、表紙以外のすべてのページにだけ、
+   * 表紙を数えない通し番号を付けることをこの区間が確かめる。
    *
    * @requirement quantity-table-generation/REQ-26.12
    */
   describe('ページ番号 (REQ-26.12)', () => {
     it('表紙を除く全ページにページ番号が表示される', async () => {
-      const input = createMockInput();
+      // 表紙 + グループ2件（うち1件はページをまたぐ）で、表紙以外が複数ページになる入力
+      const input = createMockInput({
+        groups: [
+          {
+            name: 'グループ1',
+            displayOrder: 0,
+            photoDataUrl: null,
+            photoComment: null,
+            items: Array.from({ length: 40 }, (_, i) => createItem(`番号項目${i + 1}`)),
+          },
+          {
+            name: 'グループ2',
+            displayOrder: 1,
+            photoDataUrl: null,
+            photoComment: null,
+            items: [createItem('番号項目末尾')],
+          },
+        ],
+      });
+
       await service.generatePdf(input);
 
-      // setPageが呼ばれる（ページ番号付与のため）
-      // 表紙は1ページ目なので、2ページ目以降にページ番号が付く
-      expect(mockSetPage).toHaveBeenCalled();
+      const totalPages = mockPageCount;
+      expect(totalPages).toBeGreaterThanOrEqual(4);
+      const contentPageCount = totalPages - 1;
+
+      // ページ番号の付与で開くページは、表紙（1）を含まず2ページ目以降のすべてである
+      const pagesNumbered = mockSetPage.mock.calls.map((call: unknown[]) => call[0]);
+      expect(pagesNumbered).toEqual(Array.from({ length: contentPageCount }, (_, i) => i + 2));
+      expect(pagesNumbered).not.toContain(1);
+
+      // 各ページに付く番号は、表紙を数えない通し番号「n / 表紙以外のページ数」である
+      const pageNumberTexts = allTextCalls().filter((c) => PAGE_NUMBER_PATTERN.test(c.text));
+      expect(pageNumberTexts.map((c) => [c.page, c.text])).toEqual(
+        Array.from({ length: contentPageCount }, (_, i) => [
+          i + 2,
+          `${i + 1} / ${contentPageCount}`,
+        ])
+      );
+
+      // 表紙のページにはページ番号の文字列が一つも描画されない
+      expect(pageNumberTexts.some((c) => c.page === 1)).toBe(false);
     });
   });
 
