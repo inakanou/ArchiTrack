@@ -23,8 +23,27 @@ import type {
   ImportExtractedRow,
   ImportTargetField,
 } from '../../types/quantity-import.types';
-import type { ProgressCallback } from '../estimate-requests/pdf-text-extractor';
+import type {
+  ProgressCallback,
+  PdfTextExtractionResult,
+} from '../estimate-requests/pdf-text-extractor';
 import { autoDetectFieldMapping } from './field-mapping';
+
+/**
+ * OCR処理（pdfjs-dist + Tesseract.js フォールバック）のタイムアウト（ミリ秒）。
+ *
+ * 受領見積書登録機能の `OcrDataExtractor.tsx` の `OCR_TIMEOUT_MS` と同じく、`extractPdfHybrid` の
+ * 呼び出しを包む。Claude Vision API の応答待ちには課さない（同 API は自身のタイムアウトで失敗し、
+ * REQ-30.6 によりフォールバックへ進む。計時はフォールバックの開始から始まる）。
+ */
+export const OCR_TIMEOUT_MS = 30000;
+
+/** OCR処理が失敗した場合のエラーメッセージ（REQ-29.9。受領見積書登録機能と同じ文言） */
+export const OCR_FAILURE_MESSAGE = 'OCR処理に失敗しました。手動入力してください';
+
+/** OCR処理がタイムアウトした場合のエラーメッセージ（REQ-29.10 / REQ-29.9） */
+export const OCR_TIMEOUT_MESSAGE =
+  'OCR処理がタイムアウトしました（30秒超過）。手動入力してください';
 
 /**
  * PDFファイルからOCR処理でデータを抽出する（Claude Vision API優先）
@@ -114,6 +133,7 @@ async function extractWithClaudeVisionForQuantityTable(
     headers,
     rows,
     extractionType: 'pdf-claude-vision',
+    extractedText: JSON.stringify(response.lineItems, null, 2),
   };
 }
 
@@ -126,7 +146,7 @@ async function extractWithOcrFallback(
 ): Promise<ImportExtractionResult> {
   const { extractPdfHybrid } = await import('../estimate-requests/pdf-text-extractor');
 
-  const pdfResult = await extractPdfHybrid(file, onProgress);
+  const pdfResult = await extractPdfHybridWithTimeout(extractPdfHybrid, file, onProgress);
 
   // テキストから表構造を解析して行データに変換
   const rawRows = parseTextToRows(pdfResult.text);
@@ -136,7 +156,45 @@ async function extractWithOcrFallback(
     headers: [...PREVIEW_HEADERS],
     rows: alignRowsToPreviewFields(rawRows),
     extractionType: pdfResult.isTextPdf ? 'pdf-text' : 'pdf-ocr',
+    extractedText: pdfResult.text,
   };
+}
+
+/**
+ * `extractPdfHybrid` に30秒のタイムアウトを課して実行する（REQ-29.10）。
+ *
+ * - 30秒を超えたら `OCR_TIMEOUT_MESSAGE` で失敗する。以後に届く進捗は通知しない
+ * - それ以外の失敗は `OCR_FAILURE_MESSAGE` で失敗する（REQ-29.9。元のエラーの文言は利用者へ出さない）
+ * - 完了・失敗のいずれでもタイマーを解除する
+ */
+async function extractPdfHybridWithTimeout(
+  extractPdfHybrid: typeof import('../estimate-requests/pdf-text-extractor').extractPdfHybrid,
+  file: File,
+  onProgress?: ProgressCallback
+): Promise<PdfTextExtractionResult> {
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const guardedProgress: ProgressCallback | undefined = onProgress
+    ? (progress, message) => {
+        if (!timedOut) onProgress(progress, message);
+      }
+    : undefined;
+
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      reject(new Error(OCR_TIMEOUT_MESSAGE));
+    }, OCR_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([extractPdfHybrid(file, guardedProgress), timeout]);
+  } catch {
+    throw new Error(timedOut ? OCR_TIMEOUT_MESSAGE : OCR_FAILURE_MESSAGE);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**

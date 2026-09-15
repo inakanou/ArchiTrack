@@ -1819,19 +1819,6 @@
       }
     },
     {
-      "id": "quantity-table-generation/REQ-29.7",
-      "requirement": "REQ-29: PDF OCR処理による数量項目抽出",
-      "title": "PDF OCR処理による数量項目抽出29.7",
-      "criterionText": "When OCR処理が完了したとき, the 数量表管理システム shall 抽出結果をテキストデータおよびプレビューテーブルとして表示する",
-      "reason": "数量表インポート経路から到達する範囲に、抽出結果を「テキストデータとして」表示する経路が無い。三層で書く。(1) 機械保証——本受入基準の除外監査の判定は in-repo-unverified であり、到達する検証が存在しない。(2) 人手走査（範囲をコマンドで宣言）——grep -rn \"extractedText\\|<pre\" frontend/src/components/quantity-table-import/ は当たり0件（終了コード1）で、ImportExtractionResult（frontend/src/types/quantity-import.types.ts:32-41）は headers / rows / extractionType / sheetNames だけを持ち抽出テキストの欄が無く、ImportDialog.tsx:366-373 は抽出完了時に ImportPreviewTable のみを描画する。ただし走査範囲を広げると実体は在る——frontend/src/components/estimate-requests/OcrDataExtractor.tsx:1284-1288 が抽出完了時に data-testid=\"ocr-extracted-text\" の pre 要素で抽出テキストを描画し、同 :522-530 の styles.extractedText が「userSelect: 'text' as const,」と「WebkitUserSelect: 'text' as const,」と「cursor: 'text',」を持つ。それでも当該部品へは到達しない——grep -rn \"OcrDataExtractor\" frontend/src/components/quantity-table-import/ frontend/src/hooks は当たり0件（終了コード1）である。(3) 未走査の残余——上記の走査根の外は保証しない。反例が在れば本記述は偽になる。REQ-29.9 / REQ-29.10 と同型であり、実体は「未実装」ではなく、Task 44.2 の箇条が命じた OcrDataExtractor.tsx の再利用から落ちたものである（同タスクは「抽出結果テキストをユーザーが選択・コピー可能な状態にする」も掲げている）。取り下げの前に Task 44.2 の完了印の是非と併せて決着させること（2026-09-14 実測、タスク95.3）",
-      "category": "integration-test",
-      "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Vitest",
-        "description": "据え置き。現時点で数量表インポート経路から到達する自動検証は無い。テキストデータとしての表示が当該経路へ結線されたのち、プレビューテーブルの表示と併せて統合テストで確かめる"
-      }
-    },
-    {
       "id": "quantity-table-generation/REQ-29.8",
       "requirement": "REQ-29: PDF OCR処理による数量項目抽出",
       "title": "PDF OCR処理による数量項目抽出29.8",
@@ -1841,20 +1828,7 @@
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Vitest",
-        "description": "frontend/src/components/quantity-table-import/ImportPreviewTable.test.tsx の「テキストが選択可能な状態で表示される (userSelect: text)」が、プレビューの包摂要素に userSelect: text が掛かっており抽出結果のテキストを選択・コピーできる状態であることを確かめる"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-29.9",
-      "requirement": "REQ-29: PDF OCR処理による数量項目抽出",
-      "title": "PDF OCR処理による数量項目抽出29.9",
-      "criterionText": "If OCR処理が失敗した場合, then the 数量表管理システム shall エラーメッセージを表示し手動入力を促す",
-      "reason": "数量表インポート経路から到達する範囲に、OCR処理の失敗時に手動入力を促す導線が無い。三層で書く。(1) 機械保証——本受入基準の除外監査の判定は in-repo-unverified であり、到達する検証が存在しない。(2) 人手走査（範囲をコマンドで宣言）——エラーメッセージの表示自体は在る（useImportDataExtractor が状態を持ち ImportDialog.tsx:331-364 が role=\"alert\" で描画する）が、同区間が出すのはメッセージとリトライボタンだけで手動入力を促す文言が無く、grep -rn \"手動入力\\|手入力\" frontend/src/components/quantity-table-import/ は当たり0件（終了コード1）である。ただし走査範囲を広げると実体は在る——frontend/src/components/estimate-requests/OcrDataExtractor.tsx:895 と :991 が「OCR処理に失敗しました。手動入力してください」を設定し、:1320-1322 が status が error のときにこれを描画する。それでも当該部品へは到達しない——grep -rn \"OcrDataExtractor\" frontend/src/components/quantity-table-import/ frontend/src/hooks は当たり0件（終了コード1）である。(3) 未走査の残余——上記の走査根の外は保証しない。反例が在れば本記述は偽になる。REQ-29.7 / REQ-29.10 と同型であり、Task 44.2 の箇条が命じた OcrDataExtractor.tsx の再利用から落ちたものである。取り下げの前に Task 44.2 の完了印の是非と併せて決着させること（2026-09-14 実測、タスク95.3）",
-      "category": "integration-test",
-      "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Vitest",
-        "description": "据え置き。現時点で数量表インポート経路から到達する自動検証は無い。手動入力を促す導線が当該経路へ結線されたのち、エラーメッセージの表示と併せて統合テストで確かめる"
+        "description": "frontend/src/components/quantity-table-import/ImportPreviewTable.test.tsx の「テキストが選択可能な状態で表示される (userSelect: text)」が、プレビューの包摂要素に userSelect: text が掛かっており抽出結果のテキストを選択・コピーできる状態であることを確かめる。タスク96.3で結線した抽出テキストの領域については、frontend/src/components/quantity-table-import/ImportDialog.test.tsx の「抽出テキストは選択・コピーできる状態で表示する」が、抽出テキストの pre 要素に userSelect: text が掛かっていることを確かめる"
       }
     },
     {
@@ -1862,12 +1836,12 @@
       "requirement": "REQ-29: PDF OCR処理による数量項目抽出",
       "title": "PDF OCR処理による数量項目抽出29.10",
       "criterionText": "The 数量表管理システム shall OCR処理のタイムアウトを30秒とする",
-      "reason": "数量表インポート経路から到達する範囲に、OCR処理へ30秒のタイムアウトを課す機構が無い。三層で書く。(1) 機械保証——本受入基準の除外監査の判定は in-repo-unverified であり、到達する検証が存在しない。(2) 人手走査（範囲をコマンドで宣言）——grep -rn \"30000\" frontend/src/components/quantity-table-import/ frontend/src/components/estimate-requests/pdf-text-extractor.ts の当たりは pdf-ocr-extractor.ts:14 の註のみで、grep -rn \"Promise.race\" を同じ範囲へ当てても0件である。ただし走査範囲を広げると実体は在る——frontend/src/components/estimate-requests/OcrDataExtractor.tsx:82 の「const OCR_TIMEOUT_MS = 30000;」が :858 と :956 の Promise.race で現にOCRへ課されており、うち :858 は数量表インポート経路が呼ぶ extractPdfHybrid そのものを包んでいる。それでも当該部品へは到達しない——grep -rn \"OcrDataExtractor\" frontend/src/components/quantity-table-import/ frontend/src/hooks は当たり0件（終了コード1）で、pdf-ocr-extractor.ts が pdf-text-extractor.ts から取り込むのは renderPdfPagesToBase64 と extractPdfHybrid の2つだけであり、OcrDataExtractor.tsx を取り込む本番ファイルは ReceivedQuotationForm.tsx:58 の遅延読込だけである。(3) 未走査の残余——上記の走査根の外は保証しない。反例が在れば本記述は偽になる。したがって実体は「未実装」ではなく、Task 44.2 の箇条が逐語で命じた「受領見積書登録機能のpdf-text-extractor.tsとOcrDataExtractor.tsxのパイプラインを再利用する」のうち、30秒タイムアウト・抽出テキストの表示（REQ-29.7）・失敗時に手動入力を促す導線（REQ-29.9）の3件が再利用から落ちたものである。取り下げの前に Task 44.2 の完了印の是非と併せて決着させること（2026-09-14 実測、タスク95.3）",
+      "reason": "30秒の経過をE2Eで再現するには、ブラウザ内で動く pdfjs-dist / Tesseract.js の処理を30秒以上止める必要があり、ルートの差し替えでは決定論的に作れない（Claude Vision API の応答を保留しても、30秒は同 API の応答待ちには課さないため当該の時間切れに届かない）。偽のタイマーを用いる単体テストで検証する。タスク96.3（2026-09-15）で、取り込み経路の pdf-ocr-extractor.ts へ30秒のタイムアウト（OCR_TIMEOUT_MS と extractPdfHybridWithTimeout）を結線した。以下は同タスク前の据え置きの理由であり、経緯として残す——数量表インポート経路から到達する範囲に、OCR処理へ30秒のタイムアウトを課す機構が無い。三層で書く。(1) 機械保証——本受入基準の除外監査の判定は in-repo-unverified であり、到達する検証が存在しない。(2) 人手走査（範囲をコマンドで宣言）——grep -rn \"30000\" frontend/src/components/quantity-table-import/ frontend/src/components/estimate-requests/pdf-text-extractor.ts の当たりは pdf-ocr-extractor.ts:14 の註のみで、grep -rn \"Promise.race\" を同じ範囲へ当てても0件である。ただし走査範囲を広げると実体は在る——frontend/src/components/estimate-requests/OcrDataExtractor.tsx:82 の「const OCR_TIMEOUT_MS = 30000;」が :858 と :956 の Promise.race で現にOCRへ課されており、うち :858 は数量表インポート経路が呼ぶ extractPdfHybrid そのものを包んでいる。それでも当該部品へは到達しない——grep -rn \"OcrDataExtractor\" frontend/src/components/quantity-table-import/ frontend/src/hooks は当たり0件（終了コード1）で、pdf-ocr-extractor.ts が pdf-text-extractor.ts から取り込むのは renderPdfPagesToBase64 と extractPdfHybrid の2つだけであり、OcrDataExtractor.tsx を取り込む本番ファイルは ReceivedQuotationForm.tsx:58 の遅延読込だけである。(3) 未走査の残余——上記の走査根の外は保証しない。反例が在れば本記述は偽になる。したがって実体は「未実装」ではなく、Task 44.2 の箇条が逐語で命じた「受領見積書登録機能のpdf-text-extractor.tsとOcrDataExtractor.tsxのパイプラインを再利用する」のうち、30秒タイムアウト・抽出テキストの表示（REQ-29.7）・失敗時に手動入力を促す導線（REQ-29.9）の3件が再利用から落ちたものである。取り下げの前に Task 44.2 の完了印の是非と併せて決着させること（2026-09-14 実測、タスク95.3）",
       "category": "integration-test",
       "alternativeVerification": {
         "method": "integration-test",
         "tool": "Vitest",
-        "description": "据え置き。現時点で数量表インポート経路から到達する自動検証は無い。タイムアウトの機構が当該経路へ結線されたのち統合テストで確かめる"
+        "description": "frontend/src/components/quantity-table-import/pdf-ocr-extractor.test.ts の「OCR処理は30秒でタイムアウトし、30秒未満では失敗しない」が、偽のタイマーで29,999ミリ秒の時点では未決着、30,000ミリ秒の時点でタイムアウトのメッセージで失敗することを確かめ、同ファイルの「タイムアウトの計時はClaude Vision APIの応答待ちを含まずOCR処理の開始から始まる」が、計時の起点がフォールバックのOCR処理の開始であることを確かめる"
       }
     },
     {
@@ -2641,12 +2615,12 @@
     }
   },
   "summary": {
-    "totalExclusions": 192,
+    "totalExclusions": 190,
     "byCategory": {
       "data-integrity": 30,
       "fault-tolerance": 14,
       "infrastructure": 53,
-      "integration-test": 67,
+      "integration-test": 65,
       "pending-implementation": 4,
       "performance": 19,
       "security": 5

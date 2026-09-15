@@ -366,6 +366,40 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
         {/* 抽出結果プレビュー */}
         {extractor.status === 'completed' && extractor.result && fieldMapping && (
           <div>
+            {/* 抽出結果のテキストデータ（REQ-29.7 / 29.8） */}
+            {extractor.result.extractedText !== undefined && (
+              <section aria-labelledby="quantity-import-extracted-text-title">
+                <h3
+                  id="quantity-import-extracted-text-title"
+                  style={{ fontSize: '14px', fontWeight: 'bold', margin: '0 0 8px' }}
+                >
+                  抽出テキスト
+                </h3>
+                <pre
+                  data-testid="import-extracted-text"
+                  style={{
+                    margin: '0 0 16px',
+                    padding: '12px 16px',
+                    maxHeight: '200px',
+                    overflow: 'auto',
+                    backgroundColor: '#f9fafb',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '4px',
+                    whiteSpace: 'pre-wrap',
+                    fontFamily: 'monospace',
+                    fontSize: '13px',
+                    color: '#374151',
+                    lineHeight: '1.6',
+                    userSelect: 'text',
+                    WebkitUserSelect: 'text',
+                    cursor: 'text',
+                  }}
+                >
+                  {extractor.result.extractedText}
+                </pre>
+              </section>
+            )}
+
             <ImportPreviewTable
               extractionResult={extractor.result}
               fieldMapping={fieldMapping}

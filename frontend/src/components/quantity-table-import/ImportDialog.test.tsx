@@ -11,7 +11,7 @@
  * - 34.1-34.5: インラインプレビュー
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ImportDialog } from './ImportDialog';
 import type { QuantityGroupDetail } from '../../types/quantity-table.types';
@@ -526,5 +526,80 @@ describe('ImportDialog', () => {
     render(<ImportDialog {...defaultProps} />);
     const fileInput = screen.getByLabelText('ファイルを選択');
     expect(fileInput).not.toBeDisabled();
+  });
+});
+
+describe('ImportDialog: 抽出結果のテキストデータ表示', () => {
+  const defaultProps = {
+    isOpen: true,
+    onClose: vi.fn(),
+    onImport: vi.fn(),
+    groups: mockGroups,
+  };
+
+  function mockCompleted(extractedText: string | undefined): void {
+    vi.mocked(useImportDataExtractor).mockReturnValue({
+      status: 'completed',
+      progress: 100,
+      progressMessage: '完了',
+      result: {
+        headers: ['工種', '名称', '数量', '単位'],
+        rows: [{ columns: ['土工', '掘削工', '150', 'm3'], sourceRowIndex: 0 }],
+        extractionType: extractedText === undefined ? 'excel-parse' : 'pdf-text',
+        ...(extractedText === undefined ? {} : { extractedText }),
+      },
+      error: null,
+      startExtraction: mockStartExtraction,
+      retry: mockRetry,
+      reset: mockReset,
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /**
+   * OCR処理の完了時、抽出結果をテキストデータ（抽出テキストの領域）とプレビューテーブルの
+   * 両方として同じダイアログに表示することを確かめる。
+   *
+   * @requirement quantity-table-generation/REQ-29.7
+   */
+  it('抽出テキストを持つ抽出結果は、抽出テキストとプレビューテーブルを併せて表示する', () => {
+    mockCompleted('工種 名称 数量 単位\n土工 掘削工 150 m3');
+
+    render(<ImportDialog {...defaultProps} />);
+
+    const region = screen.getByRole('region', { name: '抽出テキスト' });
+    expect(within(region).getByTestId('import-extracted-text').textContent).toBe(
+      '工種 名称 数量 単位\n土工 掘削工 150 m3'
+    );
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('掘削工')).toBeInTheDocument();
+  });
+
+  /**
+   * 抽出テキストはユーザーが選択・コピーできる状態（user-select: text）で表示することを確かめる。
+   *
+   * @requirement quantity-table-generation/REQ-29.8
+   */
+  it('抽出テキストは選択・コピーできる状態で表示する', () => {
+    mockCompleted('土工 掘削工 150 m3');
+
+    render(<ImportDialog {...defaultProps} />);
+
+    const text = within(screen.getByRole('region', { name: '抽出テキスト' })).getByTestId(
+      'import-extracted-text'
+    );
+    expect(text.style.userSelect).toBe('text');
+  });
+
+  it('抽出テキストを持たない抽出結果（Excel）では抽出テキストの領域を表示しない', () => {
+    mockCompleted(undefined);
+
+    render(<ImportDialog {...defaultProps} />);
+
+    expect(screen.queryByRole('region', { name: '抽出テキスト' })).not.toBeInTheDocument();
+    expect(screen.getByRole('table')).toBeInTheDocument();
   });
 });

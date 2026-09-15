@@ -1,5 +1,5 @@
 /**
- * @fileoverview 数量表インポート機能 E2Eテスト (REQ-27, 28, 31, 32, 33, 34)
+ * @fileoverview 数量表インポート機能 E2Eテスト (REQ-27, 28, 29, 31, 32, 33, 34)
  *
  * Requirements coverage:
  * - @requirement quantity-table-generation/REQ-27.1: インポートダイアログ表示
@@ -15,6 +15,8 @@
  * - @requirement quantity-table-generation/REQ-28.5: マッピング先表示
  * - @requirement quantity-table-generation/REQ-28.6: 読み取り失敗時のエラー
  * - @requirement quantity-table-generation/REQ-28.7: テキスト選択・コピー可能
+ * - @requirement quantity-table-generation/REQ-29.7: OCR完了時に抽出テキストとプレビューテーブルを表示
+ * - @requirement quantity-table-generation/REQ-29.9: OCR失敗時にエラーメッセージを表示し手動入力を促す
  * - @requirement quantity-table-generation/REQ-31.1: 「一括取り込み」ボタン
  * - @requirement quantity-table-generation/REQ-31.2: 取り込み先グループ選択UI
  * - @requirement quantity-table-generation/REQ-31.3: 各行を数量項目として追加
@@ -665,6 +667,112 @@ test.describe('REQ-28: Excelデータパース', () => {
     // user-select が text または 親が auto/text どちらでも選択可能
     expect(['text', 'auto'], 'REQ-28.7: プレビューがテキスト選択不可になっている').toContain(
       userSelect
+    );
+  });
+});
+
+/**
+ * Claude Vision API を利用不可（HTTP 503）にし、pdfjs-dist + Tesseract.js の OCR 経路を必ず通す。
+ *
+ * テスト環境の ANTHROPIC_API_KEY の有無によって経路が変わらないよう、応答を固定する
+ * （REQ-30.5: 利用不可ならフォールバックする）。
+ */
+async function forceClaudeVisionUnavailable(page: Page): Promise<void> {
+  await page.route('**/api/claude-vision/extract', (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Service Unavailable', errorType: 'service_unavailable' }),
+    })
+  );
+}
+
+test.describe('REQ-29: PDF OCR処理の結果表示と失敗時の導線', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  test.beforeEach(async ({ page }) => {
+    await loginAsUser(page, 'REGULAR_USER');
+  });
+
+  /**
+   * @requirement quantity-table-generation/REQ-29.7: OCR完了時に抽出テキストとプレビューテーブルを表示
+   *
+   * 資材 test-text-pdf.pdf は2ページのテキストPDFで、1ページ目に「Concrete Work」、
+   * 2ページ目に「Rebar Work」を持つ。抽出テキストの領域が両方を含み、同じダイアログに
+   * プレビューテーブル（10欄の名前付きヘッダー。REQ-30.7）が並ぶことを主張する。
+   */
+  test('OCR処理の完了時に抽出テキストとプレビューテーブルがダイアログ内に表示される (REQ-29.7)', async ({
+    page,
+  }) => {
+    const navigated = await navigateToQuantityTableEdit(page);
+    expect(navigated).toBeTruthy();
+
+    const opened = await openImportDialog(page);
+    expect(opened).toBeTruthy();
+
+    await forceClaudeVisionUnavailable(page);
+
+    const fileInput = page.getByLabel('ファイルを選択');
+    await fileInput.setInputFiles(TEST_PDF);
+
+    const dialog = page.getByRole('dialog');
+    const extractedText = dialog.getByRole('region', { name: '抽出テキスト' });
+    await expect(extractedText, 'REQ-29.7: OCR完了時に抽出テキストが表示されない').toBeVisible({
+      timeout: getTimeout(45000),
+    });
+    await expect(
+      extractedText,
+      'REQ-29.7: 抽出テキストに1ページ目の内容が含まれない'
+    ).toContainText('Concrete Work');
+    await expect(
+      extractedText,
+      'REQ-29.7: 抽出テキストに2ページ目の内容が含まれない'
+    ).toContainText('Rebar Work');
+
+    const previewTable = dialog.locator('table').first();
+    await expect(
+      previewTable.locator('thead'),
+      'REQ-29.7: OCR完了時にプレビューテーブルが表示されない'
+    ).toBeVisible();
+    await expect(previewTable.locator('thead')).toContainText('大項目');
+    await expect(previewTable.locator('thead')).toContainText('備考');
+  });
+
+  /**
+   * @requirement quantity-table-generation/REQ-29.9: OCR失敗時にエラーメッセージを表示し手動入力を促す
+   *
+   * PDF として読めないバイト列を .pdf として渡すと、Claude Vision 用のページ画像化も
+   * pdfjs-dist のテキスト抽出も失敗する。ダイアログのエラー表示が OCR の失敗を告げ、
+   * 手動入力を促す文言を含むことを主張する。
+   */
+  test('OCR処理の失敗時にエラーメッセージと手動入力を促す文言が表示される (REQ-29.9)', async ({
+    page,
+  }) => {
+    const navigated = await navigateToQuantityTableEdit(page);
+    expect(navigated).toBeTruthy();
+
+    const opened = await openImportDialog(page);
+    expect(opened).toBeTruthy();
+
+    await forceClaudeVisionUnavailable(page);
+
+    const fileInput = page.getByLabel('ファイルを選択');
+    await fileInput.setInputFiles({
+      name: 'broken.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('this is not a pdf document'),
+    });
+
+    const dialog = page.getByRole('dialog');
+    const errorAlert = dialog.getByRole('alert').first();
+    await expect(errorAlert, 'REQ-29.9: OCR失敗時にエラー表示が出ない').toBeVisible({
+      timeout: getTimeout(45000),
+    });
+    await expect(errorAlert, 'REQ-29.9: エラー表示がOCR処理の失敗を告げない').toContainText(
+      'OCR処理に失敗しました'
+    );
+    await expect(errorAlert, 'REQ-29.9: エラー表示が手動入力を促さない').toContainText(
+      '手動入力してください'
     );
   });
 });
