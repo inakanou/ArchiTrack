@@ -1491,6 +1491,17 @@ test.describe('REQ-33: OCR再実行・リトライ機能', () => {
   /**
    * @requirement quantity-table-generation/REQ-33.2: リトライ実行
    * @requirement quantity-table-generation/REQ-33.3: リトライ中インジケーター
+   *
+   * 以前は壊れた xlsx でエラーを出し、リトライのクリック後に progressbar か alert が見えることだけを
+   * 待っていた。リトライボタンはエラー表示の alert の中にあり、クリック前から alert が見えているため、
+   * リトライが何もしなくても確実に合格していた（タスク 97.24）。1回目だけ決定的に失敗させ、
+   * ファイルを選び直さずにリトライした後の状態の変化で主張する。
+   *   1. 画像のみの PDF を選ぶ。Claude Vision を 503 にしてフォールバックへ進め、Tesseract の資材の
+   *      取得を遮断してフォールバックも失敗させる → エラー表示とリトライボタンが出る
+   *   2. リトライをクリックすると、同じファイルのページ画像を載せた2回目の抽出要求が発行される
+   *      （要求の本文が1回目と一致する）。応答を保留している間は処理中インジケーターが表示され、
+   *      エラー表示は消えている（REQ-33.3）
+   *   3. 目印の行を持つ応答を返すと、抽出結果の表に目印の行が表示される
    */
   test('「リトライ」クリックで再処理が走り、インジケーターまたはエラーが再表示される (REQ-33.2, REQ-33.3)', async ({
     page,
@@ -1501,30 +1512,141 @@ test.describe('REQ-33: OCR再実行・リトライ機能', () => {
     const opened = await openImportDialog(page);
     expect(opened).toBeTruthy();
 
-    const fileInput = page.getByLabel('ファイルを選択');
-    await fileInput.setInputFiles({
-      name: 'invalid.xlsx',
-      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      // ZIP マジックバイトのみを持つ不正な xlsx。SheetJS が "Unsupported ZIP encryption"
-      // 等のエラーを返す（任意のテキストだけだとパーサーが空ワークブックとして処理を完了
-      // させてしまう環境があり、REQ-33 の「処理失敗」状態を再現できないため）。
-      buffer: Buffer.from('PK\x03\x04dummy-excel-bytes'),
+    const scannedPdf = path.join(FIXTURES_DIR, 'test-scanned-pdf.pdf');
+    const visionUrl = /\/api\/claude-vision\/extract$/;
+    const tesseractAssets = /tesseract\.js@|tesseract\.js-core|@tesseract\.js-data|tessdata/;
+    const resultMarker = `REQ332_RETRY_ROW_${Date.now()}`;
+
+    const visionRequests: Request[] = [];
+    const onRequest = (request: Request) => {
+      if (request.method() === 'POST' && visionUrl.test(request.url())) {
+        visionRequests.push(request);
+      }
+    };
+
+    let releaseRetry: (() => void) | undefined;
+    const retryHeld = new Promise<void>((resolve) => {
+      releaseRetry = resolve;
     });
+    let visionCalls = 0;
+    await page.route('**/api/claude-vision/extract', async (route) => {
+      visionCalls += 1;
+      if (visionCalls === 1) {
+        // 1回目: 利用不可にしてフォールバックへ進める（REQ-30.5）
+        await route
+          .fulfill({
+            status: 503,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              error: 'Service Unavailable',
+              errorType: 'service_unavailable',
+            }),
+          })
+          .catch(() => undefined);
+        return;
+      }
+      // 2回目以降（リトライ）: テストが解放するまで保留し、目印の行を返す
+      await retryHeld;
+      await route
+        .fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            lineItems: [
+              {
+                majorCategory: null,
+                middleCategory: null,
+                minorCategory: null,
+                customCategory: null,
+                workType: '仮設工',
+                name: resultMarker,
+                specification: null,
+                quantity: 1,
+                unit: '式',
+                remarks: null,
+              },
+            ],
+            pageCount: 1,
+          }),
+        })
+        // 判定の失敗でテストが先に終わった場合、ページが閉じた後の応答は捨てる
+        .catch(() => undefined);
+    });
+    // 1回目のフォールバック（Tesseract OCR）を失敗させる
+    await page.route(tesseractAssets, (route) => route.abort());
+    page.on('request', onRequest);
 
-    const retryBtn = page.getByRole('button', { name: 'リトライ' });
-    await expect(retryBtn).toBeVisible({ timeout: getTimeout(15000) });
+    try {
+      const dialog = page.getByRole('dialog');
+      const results = dialog.getByRole('region', { name: '抽出結果' });
+      const errorAlert = results.getByRole('alert');
+      const retryBtn = results.getByRole('button', { name: 'リトライ' });
+      const indicator = results.getByRole('progressbar');
 
-    await retryBtn.click();
+      // 1. 1回目の抽出は失敗し、リトライボタンが出る
+      await page.getByLabel('ファイルを選択').setInputFiles(scannedPdf);
+      await expect(retryBtn, '前提: 1回目の抽出が失敗してリトライボタンが表示されない').toBeVisible(
+        {
+          timeout: getTimeout(60000),
+        }
+      );
+      await expect(errorAlert, '前提: 1回目の抽出がOCR処理の失敗で終わっていない').toContainText(
+        'OCR処理'
+      );
+      expect(visionRequests, '前提: 1回目の抽出要求がちょうど1件発行されていない').toHaveLength(1);
+      await expect(results.locator('table'), '前提: 失敗時に結果の表が出ている').toHaveCount(0);
 
-    // 再処理開始の証跡：プログレスバー or エラー（再表示）
-    const progressbar = page.locator('[role="progressbar"]');
-    const errorAlert = page.locator('[role="alert"]');
+      // 2. ファイルを選び直さずにリトライする → 同じファイルに対する抽出要求が再び発行される
+      const retryRequest = page.waitForRequest(
+        (request) => request.method() === 'POST' && visionUrl.test(request.url()),
+        { timeout: getTimeout(30000) }
+      );
+      await retryBtn.click();
+      await retryRequest;
 
-    const result = await Promise.race([
-      labelWhenVisibleWithin(progressbar.first(), getTimeout(10000), 'progress'),
-      labelWhenVisibleWithin(errorAlert.first(), getTimeout(10000), 'error'),
-    ]);
-    expect(result, 'リトライ後にプログレスまたはエラー表示が出る').not.toBeNull();
+      expect(
+        visionRequests,
+        'REQ-33.2: リトライで抽出要求が再発行されない（再処理が走っていない）'
+      ).toHaveLength(2);
+      const [firstRequest, secondRequest] = visionRequests as [Request, Request];
+      const firstBody = firstRequest.postData() ?? '';
+      expect(firstBody.length, '前提: 1回目の抽出要求がページ画像を載せていない').toBeGreaterThan(
+        1000
+      );
+      expect(
+        secondRequest.postData() === firstBody,
+        'REQ-33.2: リトライの抽出要求が1回目と同一ファイルのページ画像を載せていない'
+      ).toBe(true);
+
+      // REQ-33.3: リトライ処理の実行中（応答の保留中）はインジケーターが表示され、エラーは消えている
+      await expect(
+        indicator,
+        'REQ-33.3: リトライ処理の実行中に処理中インジケーターが表示されない'
+      ).toBeVisible({ timeout: getTimeout(15000) });
+      await expect(
+        errorAlert,
+        'REQ-33.2: リトライ開始後も前回のエラー表示が残っている'
+      ).toHaveCount(0);
+
+      // 3. 応答を返すと、再処理の結果が表示される
+      releaseRetry?.();
+      await expect(
+        results.locator('table tbody'),
+        'REQ-33.2: リトライによる再処理の結果が表示されない'
+      ).toContainText(resultMarker, { timeout: getTimeout(45000) });
+      await expect(indicator, 'REQ-33.3: 再処理の完了後もインジケーターが残っている').toHaveCount(
+        0
+      );
+      await expect(errorAlert, 'REQ-33.2: 再処理の成功後にエラー表示が残っている').toHaveCount(0);
+      expect(visionRequests, 'REQ-33.2: リトライ1回で抽出要求が2回以上再発行された').toHaveLength(
+        2
+      );
+    } finally {
+      releaseRetry?.();
+      page.off('request', onRequest);
+      await page.unroute(tesseractAssets);
+      await page.unroute('**/api/claude-vision/extract');
+    }
   });
 
   /**
