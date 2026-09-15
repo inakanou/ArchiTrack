@@ -105,36 +105,54 @@
 graph TB
     subgraph Frontend
         PDP[ProjectDetailPage]
-        QTL[QuantityTableListPage]
-        QTE[QuantityTableEditPage]
         QTS[QuantityTableSectionCard]
-        QGC[QuantityGroupComponent]
-        QIC[QuantityItemComponent]
+        QTL[QuantityTableListPage]
+        CQTD[CopyQuantityTableDialog]
+        QTC[QuantityTableCreatePage]
+        QTRD[QuantityTableRedirectPage]
+        QTE[QuantityTableEditPage]
+        RED["quantityTableEditReducer<br/>(クライアント側ドラフト・isDirty)"]
+        UCB["UnsavedChangesBadge<br/>(未保存の印)"]
+        LG["useBlocker + UnsavedChangesDialog<br/>(画面内遷移の離脱確認)"]
+        UUC["useUnsavedChanges<br/>(beforeunload)"]
+        ACS[useAutocompleteCandidateStore]
+        QGC[QuantityGroupCard]
+        QGTR[QuantityGroupTitleRow]
+        EQIR[EditableQuantityItemRow]
         QIAM[QuantityItemActionMenu]
-        CE[CalculationEngine]
-        FV[FieldValidator]
-        ACS[AutocompleteCandidateStore]
-        PCD[PhotoChangeDialog]
+        ACI[AutocompleteInput]
+        CALC["calculate<br/>(frontend calculation-engine)"]
+        AIT[AnnotatedImageThumbnail]
         PPD[PhotoPreviewDialog]
         PCC[PhotoCommentDisplay]
         SOB[SortOrderButtons]
-        QTPDF[QuantityTablePdfExportService]
-        IMP[ImportDialog]
-        IMPEXT[ImportDataExtractor]
-        IMPPRV[ImportPreviewTable]
-        IMPMAP[ImportFieldMapping]
+        ICMD[ItemCopyMoveDialog]
         SSD[SurveySelectDialog]
+        QTPDF[QuantityTablePdfExportService]
+        PDFS[PdfExportService]
+        IMP[ImportDialog]
+        IMPEXT[useImportDataExtractor]
+        IMPMAP["field-mapping<br/>(autoDetectFieldMapping)"]
+        IMPPRV[ImportPreviewTable]
+        XLS[excel-parser]
+        POE[pdf-ocr-extractor]
+        PTE["pdf-text-extractor<br/>(pdfjs-dist + Tesseract.js)"]
+        APIPJ["api: projects"]
+        APIQT["api: quantity-tables"]
+        APISS["api: site-surveys / survey-annotations"]
+        APICV["api: claude-vision"]
     end
 
     subgraph Backend
-        QTR[QuantityTableRoutes]
+        PRR["projects.routes<br/>GET /:id・GET /:id/detail-summary"]
+        QTR["quantity-tables.routes<br/>GET・POST・DELETE・POST /:id/copy<br/>PUT /:id/save"]
         QTSV[QuantityTableService]
-        QGSV[QuantityGroupService]
-        QISV[QuantityItemService]
         QVS[QuantityValidationService]
-        ACSV[AutocompleteCandidatesEndpoint]
+        QFVS[QuantityFieldValidationService]
+        ACR["autocomplete.routes<br/>GET autocomplete-candidates"]
+        SSR["現場調査の既存API<br/>(survey-images / site-surveys / annotations)"]
+        CVR["claude-vision.routes<br/>POST /extract"]
         CVSV[ClaudeVisionService]
-        CVR[ClaudeVisionRoutes]
     end
 
     subgraph Database
@@ -146,45 +164,85 @@ graph TB
     end
 
     PDP --> QTS
+    PDP -->|サマリー取得| APIPJ
     QTS --> QTL
-    QTL --> QTE
-    QTE --> QGC
-    QTE --> ACS
-    QTE --> IMP
-    QTE --> SSD
-    SSD --> QTR
-    QGC --> QIC
-    QIC --> CE
-    QIC --> FV
-    QIC --> ACS
+    QTS --> QTC
+    QTS --> QTRD
+    QTL --> QTRD
+    QTRD -->|編集画面へリダイレクト| QTE
+    QTL --> CQTD
+    QTL -->|プロジェクト取得| APIPJ
+    QTL -->|一覧取得・削除| APIQT
+    CQTD -->|数量表コピー| APIQT
+    QTC -->|プロジェクト取得| APIPJ
+    QTC -->|数量表作成| APIQT
+    QTC -->|作成後に遷移| QTE
 
-    QGC --> PCD
-    QGC --> PPD
-    QGC --> PCC
+    QTE -->|初期読込 getQuantityTableDetail| APIQT
+    QTE -->|全編集操作を dispatch| RED
+    QTE -->|保存操作時のみ saveQuantityTableDraft| APIQT
+    QTE -->|isDirty| UCB
+    QTE -->|isDirty| LG
+    QTE -->|isDirty| UUC
+
+    QTE --> ACS
+    QTE --> QGC
+    QTE --> ICMD
+    QTE --> SSD
+    QTE --> IMP
+    QTE --> AIT
+    QTE -->|PDF生成| QTPDF
+    QTE -->|PDFのダウンロード| PDFS
+    QTE -->|写真一覧・調査一覧・調査詳細・注釈の読み取り| APISS
+
+    QGC --> QGTR
+    QGC --> EQIR
     QGC --> SOB
-    QIC --> QIAM
+    QGC --> AIT
+    QGC --> PCC
+    QGC --> PPD
+    PPD --> AIT
+    EQIR --> QIAM
+    EQIR --> ACI
+    EQIR --> CALC
+    AIT -->|注釈の読み取り| APISS
+    ACS -->|候補の読み取り| ACR
 
     IMP --> IMPEXT
-    IMP --> IMPPRV
     IMP --> IMPMAP
-    IMPEXT --> CVR
-
-    QTE --> QTPDF
-    QTE --> QTR
-    QTE --> ACSV
-    QTR --> QTSV
-    QTSV --> QGSV
-    QGSV --> QISV
-    QISV --> QVS
+    IMP --> IMPPRV
+    IMPEXT --> XLS
+    IMPEXT --> POE
+    POE -->|優先| APICV
+    POE -->|フォールバック| PTE
+    APICV --> CVR
     CVR --> CVSV
 
-    QTSV --> QT
-    QGSV --> QG
-    QISV --> QI
-    QG --> SI
+    APIPJ --> PRR
+    APIQT --> QTR
+    APISS --> SSR
+    PRR -->|detail-summary| QTSV
+    QTR --> QTSV
+    QTSV -->|saveDraft の検証| QVS
+    QTSV -->|saveDraft の検証| QFVS
+    QTSV -->|saveDraft: 1トランザクションで差分を反映| QT
+    QTSV --> QG
+    QTSV --> QI
+    QTSV -->|紐づけ可否の確認| SI
+    ACR --> QI
+    SSR --> SI
+
     QT --> PJ
-    ACSV --> QI
+    QG --> QT
+    QI --> QG
+    QG --> SI
 ```
+
+**本図はタスク 96.9 が 2026-09-15 にコミット `67097fde` の実装から描き直したものである**（51ノード・67辺。本番のコードから到達する辺だけを描く）。保存の明示化（REQ-42）を反映し、編集操作はすべて `quantityTableEditReducer` のクライアント側ドラフトへ入り、永続化は保存操作の `PUT /:id/save` → `QuantityTableService.saveDraft` の1経路に限る。未保存の印と離脱確認は編集画面が `isDirty` から描く。読み取りの取得（初期読込・プロジェクト取得・入力補完候補・現場調査の写真と注釈・取り込みの抽出）は配線どおりに残した。描き直す前の図は `git show 67097fde:.kiro/specs/quantity-table-generation/design.md | sed -n 104,187p` で取り出せる。
+- バックエンドには数量グループ・数量項目の個別ルートと `QuantityGroupService` / `QuantityItemService` が残るが、本番のフロントエンドから呼ぶ経路が無いため図に描かない（API クライアントの対応関数はいずれも本番の呼び出し元を持たない）
+- 読み取り専用の枝の `QuantityItemRow` は本番から到達しないため描かない（唯一の本番の呼び出し元である編集画面が常に `isEditable` を渡す。Task 89.1 の記録と同じ）
+- `EditableQuantityItemRow` の入力用の子部品（`CalculationMethodSelect` / `CalculationFields` / `FieldValidationTooltip`）は外部の取得を持たないため省いた
+- 写真コメントは個別に取得せず、初期読込の詳細と写真選択時の写真一覧の応答に含まれる
 
 **Architecture Integration**:
 
