@@ -396,7 +396,19 @@ test.describe('REQ-27: 数量表インポート（ファイルアップロード
    * @requirement quantity-table-generation/REQ-27.6: PDFファイルアップロード時にOCR自動開始
    *
    * PDF ファイルをアップロードすると、ユーザーの追加操作なしに OCR 処理が起動し、
-   * プレビュー領域に処理状態（インジケーターまたは結果）が現れる。
+   * PDF の内容を読み取った結果がダイアログに現れる。
+   *
+   * 以前は「status / aria-live / indicator / preview / alert のいずれかが見える」ことを
+   * 待っていたが、実際に一致していたのはフォールバック経路のヘッダーが「列N」だった頃に
+   * 付随的に出ていた必須フィールド未マッピングの警告（role="alert"）だけであった。
+   * タスク 96.1 でヘッダーが10欄の名前付きフィールドになり警告が出なくなると、
+   * OCR は自動起動しているのに何も一致せず失敗した。付随的な要素の選言に頼らず、
+   * 次の二点を決定論的な証跡として主張する。
+   *   1. ファイル選択の後、何も操作しないまま OCR の最初の段（Claude Vision への抽出要求）が発行される
+   *   2. 何も操作しないまま、資材 PDF の本文（1ページ目「Concrete Work」・2ページ目「Rebar Work」）を
+   *      読み取った抽出テキストがダイアログに表示される
+   * Claude Vision は 503 に固定し、ANTHROPIC_API_KEY の有無によらずフォールバックの OCR 経路
+   * （pdfjs-dist + Tesseract.js）を通す（REQ-29 の検証と同じ手口）。
    */
   test('PDFアップロード時にOCR処理が自動起動する (REQ-27.6)', async ({ page }) => {
     const navigated = await navigateToQuantityTableEdit(page);
@@ -405,17 +417,36 @@ test.describe('REQ-27: 数量表インポート（ファイルアップロード
     const opened = await openImportDialog(page);
     expect(opened).toBeTruthy();
 
+    await forceClaudeVisionUnavailable(page);
+
+    // ファイル選択より前に待機を仕掛け、選択を契機に発行される抽出要求を取りこぼさない
+    const extractionRequested = page.waitForRequest(
+      (request) =>
+        request.method() === 'POST' && /\/api\/claude-vision\/extract$/.test(request.url()),
+      { timeout: getTimeout(30000) }
+    );
+
     const fileInput = page.getByLabel('ファイルを選択');
     await fileInput.setInputFiles(TEST_PDF);
 
+    // 1. 以降クリック等の操作を一切行わずに、OCR の抽出要求が発行される
+    await extractionRequested;
+
+    // 2. 操作なしのまま、PDF の本文を読み取った抽出テキストが表示される
     const dialog = page.getByRole('dialog');
+    const extractedText = dialog.getByRole('region', { name: '抽出テキスト' });
     await expect(
-      dialog
-        .locator(
-          '[role="status"], [aria-live], [data-testid*="indicator" i], [data-testid*="processing" i], [data-testid*="preview" i], [role="alert"]'
-        )
-        .first()
-    ).toBeVisible({ timeout: getTimeout(15000) });
+      extractedText,
+      'REQ-27.6: PDFアップロード後、操作なしにOCRの抽出テキストが表示されない'
+    ).toBeVisible({ timeout: getTimeout(45000) });
+    await expect(
+      extractedText,
+      'REQ-27.6: 自動起動したOCRが1ページ目の内容を読み取っていない'
+    ).toContainText('Concrete Work');
+    await expect(
+      extractedText,
+      'REQ-27.6: 自動起動したOCRが2ページ目の内容を読み取っていない'
+    ).toContainText('Rebar Work');
   });
 
   /**
