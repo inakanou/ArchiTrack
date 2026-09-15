@@ -205,7 +205,13 @@ test.describe('REQ-36: 数量項目のアクションボタン統合', () => {
   /**
    * @requirement quantity-table-generation/REQ-36.3
    * @requirement quantity-table-generation/REQ-36.4
+   * @requirement quantity-table-generation/REQ-6.3
    * 「上へ移動」「下へ移動」操作で項目が移動する
+   *
+   * 受入基準 6.3（移動先として同一数量グループ内の位置が選択されたとき、選択数量項目を指定位置へ移す）は、
+   * 本画面ではアクションメニューの「上へ移動」「下へ移動」で隣接する位置を選ぶ形で実現している
+   * （`QuantityTableEditPage.tsx` の `handleMoveItem` → reducer の `reorderItem`）。
+   * 名称で識別した2行の並びが入れ替わることを主張するため、移動しなかった場合はこの検証が落ちる。
    */
   test('アクションメニューから「下へ移動」「上へ移動」で項目位置が入れ替わる (REQ-36.3, REQ-36.4)', async ({
     page,

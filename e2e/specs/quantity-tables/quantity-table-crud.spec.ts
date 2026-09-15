@@ -802,7 +802,7 @@ test.describe('数量表CRUD操作', () => {
 
   /**
    * @requirement quantity-table-generation/REQ-4.1
-   * 受入基準 4.2 は除外である（e2e/requirement-exclusions.json）。写真選択のボタンが可視であることしか主張しておらず、写真を選択する機能の提供を主張していないため、被覆印は掲げない。
+   * 受入基準 4.2 の被覆は e2e/specs/quantity-tables/group-add-photo-selection-e2e.spec.ts が担う（追加したグループそのものから写真選択が開き、同一プロジェクトの注釈付き写真だけが候補に現れ、選んだ写真がそのグループへ紐づくことを主張する）。本 describe の「グループ追加時に注釈付き現場調査写真選択機能が提供される」は既存の先頭グループで写真選択のボタンが可視であることしか主張していないため、被覆印は掲げない。
    * @requirement quantity-table-generation/REQ-4.5
    *
    * REQ-4: 数量グループの作成・管理
@@ -1772,7 +1772,7 @@ test.describe('数量表CRUD操作', () => {
     });
 
     /**
-     * 受入基準 6.3 は除外である（e2e/requirement-exclusions.json）。「下へ移動」の導線が現れて押せることと、押した後も数量項目の行が可視であることしか主張しておらず、選択した項目が指定位置へ移ったことを主張していないため、被覆印は掲げない。
+     * 受入基準 6.3 の被覆は e2e/specs/quantity-tables/quantity-item-action-menu.spec.ts の「アクションメニューから「下へ移動」「上へ移動」で項目位置が入れ替わる」が担う（名称で識別した2行の並びが入れ替わることを主張する）。本テストは「下へ移動」の導線が現れて押せることと、押した後も数量項目の行が可視であることしか主張しておらず、選択した項目が指定位置へ移ったことを主張していないため、被覆印は掲げない。
      */
     test('同一数量グループ内で項目の位置を移動できる', async ({ page }) => {
       if (!createdQuantityTableId) {
