@@ -252,6 +252,10 @@ graph TB
 - ドメイン境界: 数量表管理は独立したドメインとして分離、プロジェクトとの関連はIDリレーションのみ
 - 既存パターン: SiteSurveyパターンを継承（CRUD、一覧、詳細、楽観的排他制御）
 - 新規コンポーネント: 計算エンジン（フロントエンド・バックエンド両方で共有）、フィールドバリデーター、AutocompleteCandidateStore
+  - **上の箇条の `AutocompleteCandidateStore` の現況（タスク 97.12）**: 箇条は書いた時点の記録として残し、ここへ現況の再実測を併記する（site-survey の設計文書 `#### 実測値の書き方（タスク 115.212）` の (a)）。この名は設計上の部品名であり、実装での名はフック `useAutocompleteCandidateStore` である。上の図のノードは実装での名で描いている
+    - 実体: `frontend/src/hooks/useAutocompleteCandidateStore.ts`。`grep -rlw 'AutocompleteCandidateStore' frontend/src backend/src` の出力は空（終了コード `1`）で、部品名そのままのファイル・型・関数は本番コードに無い
+    - 本書で部品名を用いる箇所: 本箇条、`### オートコンプリート候補取得・利用フロー（初回一括読み込み方式）` の図の participant、`## Requirements Traceability` の 7.1-7.8 の行、`### Component Summary` の表の3行（本部品の行と、QuantityTableEditPage・AutocompleteInput の依存欄）、詳細節の見出し `#### AutocompleteCandidateStore`、`### Unit Tests` の項。いずれも部品名として読めば正しく、実装での名へは置き換えない。部品表の行と詳細節の `| Requirements |` 欄は `check:design-component-reqs` が部品ごとの自己申告として突き合わせる対象であり、詳細節の Hook Interface は実装での名 `useAutocompleteCandidateStore` を既に定義している。`grep -nw 'AutocompleteCandidateStore' .kiro/specs/quantity-table-generation/design.md` の出力は本併記を書き足す前は8行、書き足した後は11行である（本併記の3行が加わる自己言及のため差し引いて読む）
+    - タスク 97.12。コミット `cee3619d`。2026-09-15 にリポジトリルートで実測
 - 追加コンポーネント（REQ-17, 18）: コピー機能（QuantityTableService.copy）、CopyQuantityTableDialog、QuantityGroupTitleRow
 - 追加コンポーネント（REQ-19, 20, 21）: PhotoChangeDialog、PhotoPreviewDialog、PhotoCommentDisplay
 - 追加コンポーネント（REQ-22, 23, 24）: 数量グループ名前変更（既存QuantityGroupCard拡張）、SortOrderButtons
@@ -508,6 +512,8 @@ sequenceDiagram
 ### 数量グループコピーフロー（REQ-38）
 
 > **REQ-42 による更新**: 以下は当初の「コピー押下即サーバー実行（POST /copy）」フロー。REQ-42 適用後、編集画面ではグループコピーをクライアントサイドのドラフト複製（仮ID採番・同一 surveyImageId 参照・直下挿入・displayOrder シフト）として実行し、永続化は保存操作時の `saveDraft` で確定する。サーバー側 `POST /copy` は編集フローから未使用化（命名・切り詰めロジックはクライアントの複製処理で再利用）。
+>
+> **現況（タスク 97.12）**: ここでいう「再利用」はバックエンドのコードを使う意味ではない。クライアントは同じ切り詰めの規則を自前で実装しており、フロントエンドとバックエンドで切り詰めのコードは共有していない。再実測は `#### 現場調査からの数量グループ一括生成（REQ-40）` のグループ名の箇条への併記を読むこと
 
 ```mermaid
 sequenceDiagram
@@ -545,6 +551,8 @@ sequenceDiagram
 ### 現場調査からの数量グループ一括生成フロー（REQ-40）
 
 > **REQ-42 による更新**: 以下は当初の「実行即サーバー生成（POST /from-survey）」フロー。REQ-42 適用後、編集画面では対象現場調査の写真一覧を参照系GETで取得し、写真枚数分の数量グループをクライアントサイドのドラフトに生成（仮ID・連番命名・写真順 surveyImageId 紐づけ・末尾追加）する。永続化は保存操作時の `saveDraft` で確定し、サーバー側 `POST /from-survey` は編集フローから未使用化。命名・切り詰めロジックはクライアント生成処理で再利用する。
+>
+> **現況（タスク 97.12）**: ここでいう「再利用」はバックエンドのコードを使う意味ではない。クライアントは同じ切り詰めの規則を自前で実装しており、フロントエンドとバックエンドで切り詰めのコードは共有していない。再実測は `#### 現場調査からの数量グループ一括生成（REQ-40）` のグループ名の箇条への併記を読むこと
 
 ```mermaid
 sequenceDiagram
@@ -2399,6 +2407,10 @@ interface QuantityGroupCardProps {
 **Responsibilities & Constraints**
 
 - 修正対象はレイアウト（CSS）のみ。写真取得方式（`handleSelectImage` の `getSiteSurveys`→`getSiteSurvey` バッチ取得）・注釈付き写真の表示内容・注釈バッジ（REQ-3.3）は変更しない
+  - **上の箇条が括弧内に書く写真取得方式の現況（タスク 97.12）**: 箇条は本節を書いた時点の記録として残し、ここへ現況の再実測を併記する（site-survey の設計文書 `#### 実測値の書き方（タスク 115.212）` の (a)）。現況の `handleSelectImage` は現場調査一覧と各現場調査の詳細を順に取る形ではなく、プロジェクト単位の写真一覧取得 `getProjectSurveyImages` を1回呼ぶ。この取得経路の設計は Requirement 49 の `### 設計合成（Design Decisions）` の Simplification にあり、範囲の読みは `#### Allowed Dependencies` のタスク 96.8 の併記にある
+    - 再現コマンドと出力: `awk '/^  const handleSelectImage = useCallback\(/,/^  \);$/' frontend/src/pages/QuantityTableEditPage.tsx | grep -c 'getProjectSurveyImages('` の出力は `1`、同じ区間へ `grep -cE 'getSiteSurveys?\('` を掛けた出力は `0`（終了コード `1`）
+    - 一括生成の側（`#### 現場調査からの数量グループ一括生成（REQ-40）` の Dependencies）が挙げる `getSiteSurveys` / `getSiteSurvey` は現況と一致しており、本併記の対象外である
+    - タスク 97.12。コミット `cee3619d`。2026-09-15 にリポジトリルートで実測
 - 未使用の `PhotoChangeDialog.tsx`（参照は単体テストのみ）は本要件のスコープ外（残置・削除しない）。**「参照は単体テストのみ」は再実測では偽である**——ストーリーからも参照される。再実測の内訳は本書 `### Architecture Pattern & Boundary Map` の修正コンポーネント（REQ-39）の行へ併記した（タスク 115.234。2026-09-02 に実測）
 - ビューポート幅が狭い場合も写真が重ならないこと（狭幅でも最低1列で潰れず表示）
 
@@ -2424,6 +2436,12 @@ interface QuantityGroupCardProps {
 - 並行制御: REQ-38 `copy()` と同一の方針を採用する。当該数量表の数量グループ群に対して `SELECT FOR UPDATE`（行ロック）を取得してから `max(displayOrder)` 算出・末尾追加を行い、同一数量表への add/copy/reorder/一括生成が並行しても displayOrder 衝突・順序破綻が起きないよう直列化する。ロック取得タイムアウト時は `OptimisticLockError` を送出し、API 層で 409 にマップする（design.md「数量グループのコピー機能（REQ-38）」`##### Concurrency Control` と整合）
 - 並行制御の現況（Task 88.1）: 上の箇条は書いた時点の記録として残す。`createGroupsFromSurvey()` は数量表の行ロックを取るが、add（`create()`）と reorder（`updateDisplayOrder()`）は取らず、「add/copy/reorder/一括生成が並行しても displayOrder 衝突・順序破綻が起きない」の範囲に入っていない（両者は逐次でも displayOrder を重ねうることを実測した）。数量表の行ロックを取るのは一括生成・copy・`saveDraft` の三つである。決着と根拠は `#### QuantityTableService.saveDraft（フル状態同期保存）` の「並行制御の範囲（Task 88.1 の決着）」 に置いた。**【現況】Task 92.1 が逐次の重なりを、Task 92.4 が並行の窓（add と reorder への行ロック追加）をそれぞれ塞いだため、現在は「add/copy/reorder/一括生成が並行しても displayOrder 衝突が起きない」が成り立つ**（`#### QuantityGroupService` の「並行する要求に対する窓を塞いだ形（Task 92.4 の決着）」）
 - グループ名は「{現場調査名} {連番}」（連番1始まり）。最大文字数（全角25/半角50、REQ-22 AC4）超過時は現場調査名部分を切り詰めて連番を付与する（REQ-38 の `truncateForCopy` を汎用化した命名ヘルパーを共有）
+  - **上の箇条が書く「`truncateForCopy` を汎用化した命名ヘルパーを共有」の現況（タスク 97.12）**: 箇条は書いた時点の記録として残し、ここへ現況の再実測を併記する（site-survey の設計文書 `#### 実測値の書き方（タスク 115.212）` の (a)）。**フロントエンドとバックエンドは切り詰めのコードを共有していない。** 同じ規則（REQ-38.5/38.6 の元名の切り詰めとサフィックスの付与、REQ-22 AC4 の文字数）を、それぞれが自前の `truncateNameWithSuffix` で実装している。`truncateForCopy` はバックエンドにだけある
+    - バックエンド: `backend/src/services/quantity-validation.service.ts` の `QuantityValidationService` が `truncateNameWithSuffix` を持ち、コピー名の `truncateForCopy` と連番名の命名ヘルパーはどちらもそこへ委譲する。`truncateForCopy` を呼ぶのは `backend/src/services/quantity-group.service.ts` の `copy()` である
+    - フロントエンド: `frontend/src/pages/quantityTableEditReducer.ts` がファイル内の非公開関数 `truncateNameWithSuffix` を持ち、コピー名と連番名の二つの命名関数がそこへ委譲する。バックエンドのコードは取り込まず、同関数の JSDoc は「バックエンド truncateNameWithSuffix と同仕様」と書く
+    - 再現コマンドと出力: `grep -rlw 'truncateForCopy' frontend/src` の出力は空（終了コード `1`）。`grep -rlw 'truncateForCopy' backend/src | grep -vE '\.test\.|__tests__'` の出力は `backend/src/services/quantity-group.service.ts` と `backend/src/services/quantity-validation.service.ts` の2件。`grep -cE '^function truncateNameWithSuffix\(' frontend/src/pages/quantityTableEditReducer.ts` の出力は `1`、`^export function` で始めた同じ式の出力は `0`（終了コード `1`）。`grep -cE '^  (truncateNameWithSuffix|truncateForCopy)\(' backend/src/services/quantity-validation.service.ts` の出力は `2`
+    - 同じ読みを誘う箇所: `#### 影響ファイル一覧（REQ-39〜41）` の表の命名ヘルパーの行（「汎用化・共有」）と、`### 数量グループコピーフロー（REQ-38）` および `### 現場調査からの数量グループ一括生成フロー（REQ-40）` の冒頭の REQ-42 による更新の注記（「命名・切り詰めロジックは…再利用」）。いずれにも本併記への案内を置いた。`##### Service Interface（命名ヘルパー）` の囲みは同一の文字数規則に従うと書くだけで、共有を述べない
+    - タスク 97.12。コミット `cee3619d`。2026-09-15 にリポジトリルートで実測
 - 各グループは数量項目0件の初期状態で作成する（AC9）。数量項目の自動生成は行わない
 - 写真0枚の場合はグループを生成せず `created: 0` を返し、フロントで「写真が存在しません」メッセージを表示する（AC10）
 - 写真コメント表示は既存の REQ-21・REQ-35 のコメント取得・表示ロジックに委譲する（本コンポーネントはコメントを生成・保持しない、AC8）
@@ -2528,13 +2546,14 @@ interface SiteSurveySummary {
 | TEST | `e2e/specs/quantity-tables/` 配下 | 新規 | REQ-39/40/41 の E2E（重なり・一括生成・スクロール固定） |
 
 - **上の表が命名ヘルパーの置き場として挙げる行の現況（タスク 96.10）**: 行は REQ-39〜41 を設計した時点のファイル計画として残し、ここへ現況の再実測を併記する（site-survey の設計文書 `#### 実測値の書き方（タスク 115.212）` の (a)）。**`buildGroupNameFromSurvey` はフロントエンドの `utils` 配下に置かれていない。** 置き場は次の二つである。
-  - フロントエンド: `frontend/src/pages/quantityTableEditReducer.ts` のファイル内の非公開関数（輸出しない）。切り詰めは同ファイル内の `truncateNameWithSuffix` へ委譲し、文字幅の数え方だけを `frontend/src/utils/field-validation.ts` の `calculateStringWidth` から取り込む
+  - フロントエンド: `frontend/src/pages/quantityTableEditReducer.ts` のファイル内の非公開関数（`export` しない）。切り詰めは同ファイル内の `truncateNameWithSuffix` へ委譲し、文字幅の数え方だけを `frontend/src/utils/field-validation.ts` の `calculateStringWidth` から取り込む
   - バックエンド: `backend/src/services/quantity-validation.service.ts` の `QuantityValidationService` のメソッド。`backend/src/services/quantity-group.service.ts` の `createGroupsFromSurvey` が呼ぶ
-  - 再現コマンドと出力: `grep -rlF 'buildGroupNameFromSurvey' frontend/src/utils` の出力は空（終了コード `1`）。名前でなく挙動で探す `grep -rlE '連番|WithSuffix|buildGroup' frontend/src/utils --include=*.ts --exclude='*.test.ts'` も空（終了コード `1`）。`grep -rlF 'buildGroupNameFromSurvey' frontend/src backend/src | grep -vE '\.test\.|__tests__'` の出力は上の三つのファイルである
+  - 再現コマンドと出力: `grep -rlF 'buildGroupNameFromSurvey' frontend/src/utils` の出力は空（終了コード `1`）。名前でなく挙動で探す `grep -rlE '連番|WithSuffix|buildGroup' frontend/src/utils --include=*.ts --exclude='*.test.ts'` も空（終了コード `1`）。`grep -rlF 'buildGroupNameFromSurvey' frontend/src backend/src | grep -vE '\.test\.|__tests__'` の出力は `frontend/src/pages/quantityTableEditReducer.ts`・`backend/src/services/quantity-group.service.ts`・`backend/src/services/quantity-validation.service.ts` の3件である（上の二つの置き場のファイルと、バックエンドの呼び出し側のファイル）
   - 同じく: `grep -cE '^function buildGroupNameFromSurvey\(' frontend/src/pages/quantityTableEditReducer.ts` の出力は `1`、`^export function` で始めた同じ式の出力は `0`（終了コード `1`）。`grep -cE '^  buildGroupNameFromSurvey\(' backend/src/services/quantity-validation.service.ts` の出力は `1`
   - 経緯: 起票文（`tasks.md` の 96.10）は、生成をクライアント側のドラフトへ寄せた REQ-42 で置き場が動いたと読む。履歴からは順序を確かめられない——`git log --oneline -S 'buildGroupNameFromSurvey'` を `frontend/src` と `backend/src/services` のそれぞれへ掛けても、本書の表の行の文言へ掛けても、出力は同じ squash コミット `628fbe96` の1行である
   - 走査範囲: 本書で `buildGroupNameFromSurvey` の置き場を述べるのは上の表の行だけである。`grep -n 'buildGroupNameFromSurvey' .kiro/specs/quantity-table-generation/design.md` の出力は本併記を書き足す前は3行で（`##### Service Interface（命名ヘルパー）` の囲み・上の表の行・テスト計画の単体テストの項）、囲みとテスト計画の項は置き場を述べない。書き足した後は本併記の行が加わる（自己言及のため差し引いて読む）
   - タスク 96.10。コミット `c113b4a9`。2026-09-15 にリポジトリルートで実測
+  - 追記（タスク 97.12）: 上の表の行が書く「汎用化・共有」について、切り詰めのコードはフロントエンドとバックエンドで共有していない。再実測は `#### 現場調査からの数量グループ一括生成（REQ-40）` のグループ名の箇条への併記を読むこと。また読みやすさのため、本併記の語2箇所（「`export` しない」と、再現コマンドの出力の3ファイルの列挙）を書き換えた。事実と再現コマンドは変えていない。タスク 97.12。コミット `cee3619d`。2026-09-15 にリポジトリルートで実測
 
 未使用の `frontend/src/components/quantity-table/PhotoChangeDialog.tsx` は本スコープでは変更しない（残置）。
 
@@ -3575,7 +3594,18 @@ enum CalculationMethod {
 - `QuantityGroupCard` → `AnnotatedImageThumbnail`, `PhotoPreviewDialog`。注釈取得APIを直接呼ばない
 - `PhotoPreviewDialog` → `AnnotatedImageThumbnail`。Fabric.js を直接扱わない
 - `QuantityTableEditPage` → 新規の写真一覧取得API。現場調査詳細取得（`getSiteSurvey`）を写真収集の目的で呼ばない
-  - **上の条項が範囲を絞らずに書く「現場調査詳細取得を写真収集の目的で呼ばない」の現況（タスク 96.8）**: 条項は書かれた時点の記録として残し、ここへ現況の再実測を併記する（site-survey の設計文書 `#### 実測値の書き方（タスク 115.212）` の (a)）。**この禁止が及ぶのは写真選択ダイアログおよび写真変更ダイアログの写真一覧の取得に限られ、現場調査からの一括生成（Requirement 40）の写真取得には及ばない。** 根拠は要件の側にある——Requirement 49 のスコープ節は対象を表示に必要なリクエストの発生の仕方と表示に用いる画像の選択に絞り、49.9 はまとめて取得する義務を課す契機を「写真選択ダイアログまたは写真変更ダイアログを開く」場合に限る。一方の Requirement 40 は受入基準 13 件のいずれも写真の取得形態を規定せず、同要件の注記と 42.10 は現場調査写真一覧の取得を参照系として制約の対象外に置く。さらに 40.3 は注釈の有無を問わない全写真を求めるため、注釈付きの写真だけを返す新規の写真一覧取得API（`getProjectSurveyImages`）では満たせない。**実装はこの読みのとおりである**——編集画面で `getSiteSurvey(` を呼ぶ箇所は一括生成の確定ハンドラ `handleConfirmCreateFromSurvey` の1箇所だけで、写真選択ダイアログを開く `handleSelectImage` は `getProjectSurveyImages` の1リクエストへ一本化されている。写真の変更も同じ経路を通る（`QuantityGroupCard` の `handleChangePhoto` が `onSelectImage` を呼び、編集画面はそこへ `handleSelectImage` を渡す）。再現コマンドと出力は次のとおりである: `grep -c 'getSiteSurvey(' frontend/src/pages/QuantityTableEditPage.tsx` の出力は `1`、`awk '/^  const handleSelectImage = useCallback\(/,/^  \);$/' frontend/src/pages/QuantityTableEditPage.tsx | grep -c 'getSiteSurvey('` の出力は `0`、同じ区間へ `grep -c 'getProjectSurveyImages('` を掛けた出力は `1`、`awk '/^  const handleConfirmCreateFromSurvey = useCallback\(/,/^  \);$/' frontend/src/pages/QuantityTableEditPage.tsx | grep -c 'getSiteSurvey('` の出力は `1`、`grep -c 'onSelectImage={handleSelectImage}' frontend/src/pages/QuantityTableEditPage.tsx` の出力は `1`、`awk '/^### Requirement 40:/,/^### Requirement 41:/' .kiro/specs/quantity-table-generation/requirements.md | grep -cE '^[0-9]+\. '` の出力は `13` である。**起票文（`tasks.md` の 96.8）は受入基準を 12 件と書くが、着手時に上の式で数え直すと 13 件である**（Requirement 40 の見出しから Requirement 41 の見出しまでの区間で、行頭が「数字・ピリオド・空白」の行を数えた。作業ツリーのディスク上のファイルへの数えであり、索引は用いていない）。**本書で同じ禁止を書く条項はこの1行だけである**——`grep -n '写真収集の目的で呼ばない' .kiro/specs/quantity-table-generation/design.md` の出力は2行で、上の条項の行と、その文言を引く本併記の行である（本併記を書き足す前の同じ式の出力は条項の行の1行だった。site-survey の設計文書 `#### 実測値の書き方（タスク 115.212）` が警告する自己言及の型のため、件数は本併記の行を差し引いて読む）。直下の `### 設計合成（Design Decisions）` の Simplification の箇条が述べる「中間の現場調査詳細は写真収集のためだけに取得されており」は写真選択ダイアログの取得経路についての記述であり、本併記の読みと食い違わない。タスク 96.8。コミット `05061bfb`。2026-09-15 にリポジトリルートで実測
+  - **上の条項が範囲を絞らずに書く「現場調査詳細取得を写真収集の目的で呼ばない」の現況（タスク 96.8）**: 条項は書かれた時点の記録として残し、ここへ現況の再実測を併記する（site-survey の設計文書 `#### 実測値の書き方（タスク 115.212）` の (a)）。
+    - **この禁止が及ぶのは写真選択ダイアログおよび写真変更ダイアログの写真一覧の取得に限られ、現場調査からの一括生成（Requirement 40）の写真取得には及ばない。**
+    - 根拠は要件の側にある——Requirement 49 のスコープ節は対象を表示に必要なリクエストの発生の仕方と表示に用いる画像の選択に絞り、49.9 はまとめて取得する義務を課す契機を「写真選択ダイアログまたは写真変更ダイアログを開く」場合に限る。
+    - 一方の Requirement 40 は受入基準 13 件のいずれも写真の取得形態を規定せず、同要件の注記と 42.10 は現場調査写真一覧の取得を参照系として制約の対象外に置く。さらに 40.3 は注釈の有無を問わない全写真を求めるため、注釈付きの写真だけを返す新規の写真一覧取得API（`getProjectSurveyImages`）では満たせない。
+    - **実装はこの読みのとおりである**——編集画面で `getSiteSurvey(` を呼ぶ箇所は一括生成の確定ハンドラ `handleConfirmCreateFromSurvey` の1箇所だけで、写真選択ダイアログを開く `handleSelectImage` は `getProjectSurveyImages` の1リクエストへ一本化されている。写真の変更も同じ経路を通る（`QuantityGroupCard` の `handleChangePhoto` が `onSelectImage` を呼び、編集画面はそこへ `handleSelectImage` を渡す）。
+    - 再現コマンドと出力は次のとおりである: `grep -c 'getSiteSurvey(' frontend/src/pages/QuantityTableEditPage.tsx` の出力は `1`、`awk '/^  const handleSelectImage = useCallback\(/,/^  \);$/' frontend/src/pages/QuantityTableEditPage.tsx | grep -c 'getSiteSurvey('` の出力は `0`、同じ区間へ `grep -c 'getProjectSurveyImages('` を掛けた出力は `1`、`awk '/^  const handleConfirmCreateFromSurvey = useCallback\(/,/^  \);$/' frontend/src/pages/QuantityTableEditPage.tsx | grep -c 'getSiteSurvey('` の出力は `1`、`grep -c 'onSelectImage={handleSelectImage}' frontend/src/pages/QuantityTableEditPage.tsx` の出力は `1` である。
+    - 要件の区間の再現コマンドと出力: `awk '/^### Requirement 40:/,/^### Requirement 41:/' .kiro/specs/quantity-table-generation/requirements.md | grep -cE '^[0-9]+\. '` の出力は `13` である。
+    - **起票文（`tasks.md` の 96.8）は受入基準を 12 件と書くが、着手時に上の式で数え直すと 13 件である**（Requirement 40 の見出しから Requirement 41 の見出しまでの区間で、行頭が「数字・ピリオド・空白」の行を数えた。作業ツリーのディスク上のファイルへの数えであり、索引は用いていない）。
+    - **本書で同じ禁止を書く条項はこの1行だけである**——`grep -n '写真収集の目的で呼ばない' .kiro/specs/quantity-table-generation/design.md` の出力は3行で、上の条項の行と、その文言を引く本併記の先頭の行と、このコマンドを書いた本項の行である（本併記を書き足す前の同じ式の出力は条項の行の1行、本併記を1行で書いていた時点は2行だった。site-survey の設計文書 `#### 実測値の書き方（タスク 115.212）` が警告する自己言及の型のため、件数は本併記の行を差し引いて読む）。
+    - 直下の `### 設計合成（Design Decisions）` の Simplification の箇条が述べる「中間の現場調査詳細は写真収集のためだけに取得されており」は写真選択ダイアログの取得経路についての記述であり、本併記の読みと食い違わない。
+    - タスク 96.8。コミット `05061bfb`。2026-09-15 にリポジトリルートで実測
+    - 読みやすさのため、タスク 97.12 で本併記を下位項目へ分けた。事実と再現コマンドは変えておらず、行を分けたことで動いた上の件数（2行→3行）だけを数え直した。コミット `cee3619d`。2026-09-15 にリポジトリルートで実測
 - バックエンド: 新規エンドポイント → `ImageListService`, `SignedUrlService`。Prisma へ直接問い合わせる経路を新設しない
 - 新規の外部ライブラリ依存を追加しない
 
