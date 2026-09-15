@@ -7,13 +7,13 @@
  * Requirements coverage (quantity-table-generation):
  * - REQ-7.2: 候補値の取得APIをテキスト入力中に発行しない
  * - REQ-7.3: 対象フィールドの焦点獲得時に候補をドロップダウン表示する（空欄なら全候補）
- * - REQ-7.4: 候補が選択されると該当フィールドへ自動入力する
- * - REQ-7.5: blur 時に入力値を確定値として候補値リストへ追加する
- * - REQ-7.6: blur 時の候補値リスト更新でAPIリクエストを発行しない
+ * - REQ-7.5: 候補が選択されると該当フィールドへ自動入力する
+ * - REQ-7.6: blur 時に入力値を確定値として候補値リストへ追加する
+ * - REQ-7.7: blur 時の候補値リスト更新でAPIリクエストを発行しない
  *
  * ## 本ファイルが判定していないもの（Task 115.134）
  *
- * - REQ-7.1（初回表示時の一括取得）と REQ-7.7（50音順）: 本ファイルは名称・備考を軸に
+ * - REQ-7.1（初回表示時の一括取得）と REQ-7.8（50音順）: 本ファイルは名称・備考を軸に
  *   した確認であり、いずれも `autocomplete-optimization.spec.ts` が判定している。
  *   以前はこの2件を coverage に掲げていたが、対応する主張は本ファイルに無かった。
  * - REQ-7.3 の「値が入力されている場合は前方一致でフィルタリング」: 本ファイルは
@@ -48,10 +48,10 @@ import {
 /**
  * 名称・備考フィールドのオートコンプリートE2Eテスト
  */
-/** REQ-7.5 で候補値リストへ登録し、REQ-7.3/7.4 で選び直す名称の確定値 */
+/** REQ-7.6 で候補値リストへ登録し、REQ-7.3/7.5 で選び直す名称の確定値 */
 const REGISTERED_NAME = 'テスト名称';
 
-/** REQ-7.5 で候補値リストへ登録し、REQ-7.3 で候補として現れることを確かめる備考の確定値 */
+/** REQ-7.6 で候補値リストへ登録し、REQ-7.3 で候補として現れることを確かめる備考の確定値 */
 const REGISTERED_REMARKS = 'テスト備考';
 
 test.describe('名称・備考フィールドのオートコンプリート', () => {
@@ -127,7 +127,7 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
         'REQ-7.3: 名称欄に aria-autocomplete="list" が無い'
       ).toHaveAttribute('aria-autocomplete', 'list');
 
-      // REQ-7.5: 1行目の名称に確定値を入れ、blur で候補値リストへ追加する
+      // REQ-7.6: 1行目の名称に確定値を入れ、blur で候補値リストへ追加する
       await firstNameField.fill(REGISTERED_NAME);
       await expect(firstNameField, '名称欄へ入力が反映される').toHaveValue(REGISTERED_NAME);
       await firstNameField.blur();
@@ -162,7 +162,7 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
       //
       // Task 115.134: 以前のテスト名は「候補がフィルタリングされる」と名乗っていたが、
       // 主張していたのはAPIリクエストが無いことだけだった。名を主張に合わせ、
-      // 併せて REQ-7.6（blur 時の更新もAPIを発行しない）まで監視の窓を広げた。
+      // 併せて REQ-7.7（blur 時の更新もAPIを発行しない）まで監視の窓を広げた。
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
       const nameField = row.locator('input[id$="-name"]');
@@ -171,7 +171,7 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
       });
 
       // 監視は入力の前に始める（初回表示の一括取得は既に完了している）。
-      // REQ-7.2/7.6 が禁じるのはメソッドを問わない補完のAPIリクエストである。
+      // REQ-7.2/7.7 が禁じるのはメソッドを問わない補完のAPIリクエストである。
       const apiCalls: string[] = [];
       page.on('request', (request) => {
         if (request.url().includes('/autocomplete')) {
@@ -184,14 +184,14 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
       await nameField.fill('テスト追加');
       await expect(nameField, '名称欄へ追加入力が反映される').toHaveValue('テスト追加');
 
-      // REQ-7.5: blur で確定値を候補値リストへ追加する
+      // REQ-7.6: blur で確定値を候補値リストへ追加する
       await nameField.blur();
       await expect(nameField, 'blur で名称欄から焦点が外れる').not.toBeFocused();
 
-      // REQ-7.2/7.6: 入力中も blur 時も補完のAPIリクエストを発行しない
+      // REQ-7.2/7.7: 入力中も blur 時も補完のAPIリクエストを発行しない
       expect(
         apiCalls,
-        'REQ-7.2/7.6: 入力中またはblur時に補完のAPIリクエストが発行された'
+        'REQ-7.2/7.7: 入力中またはblur時に補完のAPIリクエストが発行された'
       ).toHaveLength(0);
     });
   });
@@ -228,7 +228,7 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
         'REQ-7.3: 備考欄に aria-autocomplete="list" が無い'
       ).toHaveAttribute('aria-autocomplete', 'list');
 
-      // REQ-7.5: 1行目の備考に確定値を入れ、blur で候補値リストへ追加する
+      // REQ-7.6: 1行目の備考に確定値を入れ、blur で候補値リストへ追加する
       await firstRemarksField.fill(REGISTERED_REMARKS);
       await expect(firstRemarksField, '備考欄へ入力が反映される').toHaveValue(REGISTERED_REMARKS);
       await firstRemarksField.blur();
@@ -254,10 +254,10 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
   });
 
   // ==========================================================================
-  // REQ-7.4: 名称フィールドで候補を選択すると値が自動入力される
+  // REQ-7.5: 名称フィールドで候補を選択すると値が自動入力される
   // ==========================================================================
 
-  test.describe('REQ-7.4: 候補選択時の自動入力', () => {
+  test.describe('REQ-7.5: 候補選択時の自動入力', () => {
     test('名称フィールドで候補を選択すると値が自動入力される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -268,7 +268,7 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
       const groupCard = await addQuantityGroup(page);
       const itemRows = await addQuantityItemRows(groupCard, 2);
 
-      // REQ-7.5: 1行目の名称に確定値を入れ、blur で候補値リストへ追加する
+      // REQ-7.6: 1行目の名称に確定値を入れ、blur で候補値リストへ追加する
       const firstNameField = itemRows.nth(0).getByRole('combobox', { name: '名称', exact: true });
       await expect(firstNameField, '1行目の名称の入力欄が表示される').toBeVisible({
         timeout: getTimeout(10000),
@@ -292,13 +292,13 @@ test.describe('名称・備考フィールドのオートコンプリート', ()
       });
 
       const option = listbox.getByRole('option', { name: REGISTERED_NAME, exact: true });
-      await expect(option, 'REQ-7.5: blurで追加した名称が候補に現れる').toBeVisible({
+      await expect(option, 'REQ-7.6: blurで追加した名称が候補に現れる').toBeVisible({
         timeout: getTimeout(5000),
       });
       await option.click();
 
-      // REQ-7.4: 選択した候補が該当フィールドへ自動入力される
-      await expect(secondNameField, 'REQ-7.4: 選択した候補が自動入力される').toHaveValue(
+      // REQ-7.5: 選択した候補が該当フィールドへ自動入力される
+      await expect(secondNameField, 'REQ-7.5: 選択した候補が自動入力される').toHaveValue(
         REGISTERED_NAME
       );
     });

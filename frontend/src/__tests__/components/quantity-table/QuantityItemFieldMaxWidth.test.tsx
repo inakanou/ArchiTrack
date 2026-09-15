@@ -43,7 +43,7 @@ function ControlledAutocomplete({
   initialValue?: string;
   /**
    * サーバー側（初回一括取得）から届いた候補。幅の判定を経ていない値を含みうる。
-   * 実際の候補ストアと同じく前方一致で絞り込んで返す（Req 7.3, 7.3a）。
+   * 実際の候補ストアと同じく前方一致で絞り込んで返す（Req 7.3, 7.4）。
    */
   serverCandidates?: string[];
 }) {
@@ -704,8 +704,8 @@ describe('数量項目テキストフィールドの入力時点での上限超�
    * 上限を超える値が入力欄の状態に載らないことを固定する。
    *
    * Requirements:
-   * - 7.3 / 7.3a: 候補のドロップダウン表示（濾した後も表示自体は成立する）
-   * - 7.4: 候補選択時の自動入力
+   * - 7.3: 候補のドロップダウン表示（濾した後も表示自体は成立する）
+   * - 7.5: 候補選択時の自動入力
    * - 13.3: 単位は全角3文字/半角6文字を超える入力を防止する
    */
   describe('補完候補の選択 (Task 115.43)', () => {
@@ -808,7 +808,7 @@ describe('数量項目テキストフィールドの入力時点での上限超�
       expect(screen.queryByRole('option', { name: OVER_LIMIT_CANDIDATE })).toBeNull();
     });
 
-    it('上限以内の候補は従来どおり選択できる (Req 7.4)', () => {
+    it('上限以内の候補は従来どおり選択できる (Req 7.5)', () => {
       render(
         <ControlledAutocomplete
           field="unit"

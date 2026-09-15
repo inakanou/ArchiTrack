@@ -2021,7 +2021,7 @@ test.describe('数量表CRUD操作', () => {
 
   /**
    * @requirement quantity-table-generation/REQ-7.1
-   * @requirement quantity-table-generation/REQ-7.4
+   * @requirement quantity-table-generation/REQ-7.5
    *
    * REQ-7: 入力支援・オートコンプリート
    */
@@ -2084,7 +2084,7 @@ test.describe('数量表CRUD操作', () => {
       return `${fieldSpec.prefix}${fieldSpec.suffix}`;
     }
 
-    /** 50音順（REQ-7.7）の検証で用いる、並び順が一意に定まる大項目の候補群 */
+    /** 50音順（REQ-7.8）の検証で用いる、並び順が一意に定まる大項目の候補群 */
     const SORT_PREFIX = `オートコンプリート並び順${AUTOCOMPLETE_RUN_ID}`;
     const SORT_SEED_VALUES = [`${SORT_PREFIX}う`, `${SORT_PREFIX}あ`, `${SORT_PREFIX}い`];
     const SORT_EXPECTED_ORDER = [`${SORT_PREFIX}あ`, `${SORT_PREFIX}い`, `${SORT_PREFIX}う`];
@@ -2170,7 +2170,7 @@ test.describe('数量表CRUD操作', () => {
       }
     }
 
-    /** 大項目（REQ-7.1 / REQ-7.4）の検証で用いる入力履歴を用意する */
+    /** 大項目（REQ-7.1 / REQ-7.5）の検証で用いる入力履歴を用意する */
     async function seedMajorCategoryHistory(page: Page): Promise<void> {
       await seedAutocompleteHistory(page, [{ majorCategory: seededMajorCategory }]);
     }
@@ -2224,7 +2224,7 @@ test.describe('数量表CRUD操作', () => {
       await page.waitForTimeout(500);
     });
 
-    test('オートコンプリート候補を選択すると入力欄に反映される (quantity-table-generation/REQ-7.4)', async ({
+    test('オートコンプリート候補を選択すると入力欄に反映される (quantity-table-generation/REQ-7.5)', async ({
       page,
     }) => {
       if (!createdQuantityTableId) {
@@ -2255,9 +2255,9 @@ test.describe('数量表CRUD操作', () => {
         timeout: getTimeout(5000),
       });
 
-      // REQ-7.4: 候補を選択すると、その値が該当フィールドへ自動入力される
+      // REQ-7.5: 候補を選択すると、その値が該当フィールドへ自動入力される
       await seededOption.click();
-      await expect(majorCategoryInput, 'REQ-7.4: 選択した候補の値が入力欄へ反映される').toHaveValue(
+      await expect(majorCategoryInput, 'REQ-7.5: 選択した候補の値が入力欄へ反映される').toHaveValue(
         seededMajorCategory,
         { timeout: getTimeout(5000) }
       );
@@ -2296,7 +2296,7 @@ test.describe('数量表CRUD操作', () => {
       const mediumCategoryInput = page.getByRole('combobox', { name: /中項目/ }).first();
       await expect(mediumCategoryInput).toBeVisible({ timeout: getTimeout(5000) });
 
-      // REQ-7.3 / REQ-7.3a: 入力内容に前方一致する候補をドロップダウン表示する
+      // REQ-7.3 / REQ-7.4: 入力内容に前方一致する候補をドロップダウン表示する
       await mediumCategoryInput.click();
       await mediumCategoryInput.fill(MIDDLE_CATEGORY_PREFIX);
 
@@ -2377,15 +2377,15 @@ test.describe('数量表CRUD操作', () => {
     });
 
     /**
-     * 受入基準7.7（同一フィールドで複数の候補があるとき50音順に候補を表示する）を主張する。
+     * 受入基準7.8（同一フィールドで複数の候補があるとき50音順に候補を表示する）を主張する。
      *
-     * タスク 115.186 の是正: 従前は受入基準7.5（blur 時に入力値を確定値として候補値リストへ
+     * タスク 115.186 の是正: 従前は受入基準7.6（blur 時に入力値を確定値として候補値リストへ
      * 追加する）を名乗っていたが、本検証が主張しているのは並び順だけであり、blur 時の候補追加は
-     * 一切主張していない。受入基準7.5 は
+     * 一切主張していない。受入基準7.6 は
      * `e2e/specs/quantity-tables/autocomplete-optimization.spec.ts` の
-     * 「REQ-7.5/7.6: blur時の候補追加」が別途被覆している。
+     * 「REQ-7.6/7.7: blur時の候補追加」が別途被覆している。
      */
-    test('オートコンプリート候補が50音順に表示される (quantity-table-generation/REQ-7.7)', async ({
+    test('オートコンプリート候補が50音順に表示される (quantity-table-generation/REQ-7.8)', async ({
       page,
     }) => {
       if (!createdQuantityTableId) {
@@ -2420,23 +2420,23 @@ test.describe('数量表CRUD操作', () => {
       await majorCategoryInput.fill(SORT_PREFIX);
 
       const listbox = page.getByRole('listbox', { name: '大項目の候補' });
-      await expect(listbox, 'REQ-7.7: 大項目の候補がドロップダウン表示される').toBeVisible({
+      await expect(listbox, 'REQ-7.8: 大項目の候補がドロップダウン表示される').toBeVisible({
         timeout: getTimeout(5000),
       });
 
       const options = listbox.getByRole('option');
-      await expect(options, 'REQ-7.7: 用意した候補が全件表示される').toHaveCount(
+      await expect(options, 'REQ-7.8: 用意した候補が全件表示される').toHaveCount(
         SORT_SEED_VALUES.length,
         { timeout: getTimeout(5000) }
       );
 
       const optionTexts = await options.allTextContents();
-      expect(optionTexts, 'REQ-7.7: 候補が50音順（投入順ではない）に表示される').toEqual(
+      expect(optionTexts, 'REQ-7.8: 候補が50音順（投入順ではない）に表示される').toEqual(
         SORT_EXPECTED_ORDER
       );
 
       const sortedTexts = [...optionTexts].sort((a, b) => a.localeCompare(b, 'ja'));
-      expect(optionTexts, 'REQ-7.7: 表示順が50音順の整列結果と一致する').toEqual(sortedTexts);
+      expect(optionTexts, 'REQ-7.8: 表示順が50音順の整列結果と一致する').toEqual(sortedTexts);
 
       // クリーンアップ: リストを閉じる
       await page.keyboard.press('Escape');

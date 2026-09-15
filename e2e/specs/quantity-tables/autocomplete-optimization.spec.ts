@@ -9,11 +9,11 @@
  * - REQ-7.2: 候補値の取得APIは初回表示時の1回のみで、テキスト入力中は発行しない
  * - REQ-7.3: 対象フィールドの焦点獲得時に候補をドロップダウン表示する
  *            （空欄なら全候補、値があれば前方一致でフィルタリング）
- * - REQ-7.3a: 焦点がある状態での入力に応じて前方一致の候補へリアルタイムに絞り込む
- * - REQ-7.4: 候補が選択されると該当フィールドへ自動入力する
- * - REQ-7.5: blur 時に入力値を確定値として候補値リストへ追加する（既存の値は重複追加しない）
- * - REQ-7.6: blur 時の候補値リスト更新をクライアントサイドのみで行いAPIリクエストを発行しない
- * - REQ-7.7: 同一フィールドで複数の候補があるとき50音順に表示する
+ * - REQ-7.4: 焦点がある状態での入力に応じて前方一致の候補へリアルタイムに絞り込む
+ * - REQ-7.5: 候補が選択されると該当フィールドへ自動入力する
+ * - REQ-7.6: blur 時に入力値を確定値として候補値リストへ追加する（既存の値は重複追加しない）
+ * - REQ-7.7: blur 時の候補値リスト更新をクライアントサイドのみで行いAPIリクエストを発行しない
+ * - REQ-7.8: 同一フィールドで複数の候補があるとき50音順に表示する
  *
  * design.md `Error Handling` > `Error Categories and Responses` >「オートコンプリート関連エラー」:
  * - 初回候補取得失敗時は補完を無効化し手入力のみで運用する（graceful degradation）
@@ -24,7 +24,7 @@
  *   観測できるのは応答が対象9フィールド分の候補配列を返すことまでで、それがSQLの
  *   GROUP BY で得られたかは判定できない。バックエンドの統合テストの領分である。
  * - 上下キーによる選択と Enter 確定という**操作そのもの**: requirements.md の
- *   Requirement 7 に対応する条項が無い。本ファイルはキーボードを REQ-7.4
+ *   Requirement 7 に対応する条項が無い。本ファイルはキーボードを REQ-7.5
  *   「オートコンプリート候補が選択される」経路の一つとして扱い、確定後に値が
  *   自動入力されることだけを要件として主張する。
  *
@@ -38,17 +38,17 @@
  * 補完リクエスト全体を数える主張へ改めた（backend の補完ルートは
  * `autocomplete-candidates` の一本しか無い）。
  *
- * Task 115.134（是正）: REQ-7.4 の2件（クリック経路・キーボード経路）が間欠的に落ちて
+ * Task 115.134（是正）: REQ-7.5 の2件（クリック経路・キーボード経路）が間欠的に落ちて
  * いた。原因は再試行単位（`toPass`）の内側に**期限の無い待ち**を置いていたことである。
  * 遅延クローズで一覧が消えた周回の `option.click()` / `selectedOption.textContent()` が
  * 既定の `actionTimeout`（＝再試行の予算と同じ長さ）まで待ち続け、一周で予算を使い切って
  * 二周目が始まらなかった（詳細は `BOUNDED_STEP_TIMEOUT_MS` の説明）。併せて、選ぶ対象が
  * 在ること自体を前提として主張する `assertCandidateOffered` を要件の主張の手前へ置き、
- * 候補登録の失敗が REQ-7.4 の名前で現れる構造を解消した。
+ * 候補登録の失敗が REQ-7.5 の名前で現れる構造を解消した。
  *
- * Task 115.186（是正）: 受入基準7.7 の除外を取り下げ、被覆印を戻した。従前の除外は
+ * Task 115.186（是正）: 受入基準7.8 の除外を取り下げ、被覆印を戻した。従前の除外は
  * 「ソート順の検証はユニットテストで検証」と述べていたが、本ファイルの
- * 「REQ-7.7: 50音順表示」が、逆順で登録した候補が 50音順に並ぶことを実際に主張しており、
+ * 「REQ-7.8: 50音順表示」が、逆順で登録した候補が 50音順に並ぶことを実際に主張しており、
  * `e2e/specs/quantity-tables/quantity-table-crud.spec.ts` にも同じ条文を主張する検証が在る。
  *
  * @module e2e/specs/quantity-tables/autocomplete-optimization.spec
@@ -84,7 +84,7 @@ const AUTOCOMPLETE_FIELD_KEYS = [
 ] as const;
 
 /**
- * 補完対象フィールドへ確定値を入力し、blur で候補値リストへ登録させる（REQ-7.5）。
+ * 補完対象フィールドへ確定値を入力し、blur で候補値リストへ登録させる（REQ-7.6）。
  *
  * 「表示されていれば入力する」形では、フィールドが描画されない限り登録も後段の判定も
  * 揃って飛ぶ。入力が保持されたことと焦点が外れたことを主張し、前提が崩れた地点で失敗させる。
@@ -119,7 +119,7 @@ const REOPEN_SENTINEL = 'z';
  * `playwright.config.ts` の `actionTimeout`（ローカル15秒 / CI30秒）であり、
  * 再試行の予算（`toPass` の 15秒 / CI30秒）と同じである。したがって一周が予算を
  * 丸ごと使い切り、**二周目が始まらない**。`toPass` は再試行の形をしているのに
- * 一度も開き直せないまま、要件の名前（例: 「REQ-7.4: 候補をクリックすると値が
+ * 一度も開き直せないまま、要件の名前（例: 「REQ-7.5: 候補をクリックすると値が
  * 自動入力される」）で落ちる。前提の崩れが要件の失敗として現れる構造である。
  *
  * 実測（Task 115.134 の是正時、`--retries=0` で4回中1回再現）でこの形に落ちた。
@@ -216,17 +216,17 @@ async function readSuggestions(page: Page, field: Locator, inputText: string): P
     });
 
     suggestions = captured;
-  }, 'REQ-7.3a: 入力に対応する候補一覧が表示される').toPass({ timeout: getTimeout(15000) });
+  }, '入力に対応する候補一覧が表示される').toPass({ timeout: getTimeout(15000) });
   return suggestions;
 }
 
 /**
- * **前提**として、直前に登録した確定値が候補として提示されることを確かめる（REQ-7.5 の成立）。
+ * **前提**として、直前に登録した確定値が候補として提示されることを確かめる（REQ-7.6 の成立）。
  *
- * REQ-7.4（候補の選択で値が自動入力される）を判定する前に、選ぶ対象そのものが在ることを
+ * REQ-7.5（候補の選択で値が自動入力される）を判定する前に、選ぶ対象そのものが在ることを
  * 要件の主張とは別に確かめる。`registerCandidate` は「入力が保持された」「焦点が外れた」
  * ことしか主張しておらず、候補値リストへの登録が成立したかは見ていない。登録が失敗して
- * いれば後段の再試行を何周重ねても候補は現れず、REQ-7.4 の名前で落ちて原因を取り違える。
+ * いれば後段の再試行を何周重ねても候補は現れず、REQ-7.5 の名前で落ちて原因を取り違える。
  *
  * 前提が崩れた場合は前提の名前で落ちる。
  *
@@ -249,7 +249,7 @@ async function assertCandidateOffered(
     await expect(option, '前提: 登録した確定値が候補として現れる').toBeVisible({
       timeout: BOUNDED_STEP_TIMEOUT_MS,
     });
-  }, '前提: REQ-7.5 の blur で登録した確定値が候補値リストへ入っている').toPass({
+  }, '前提: REQ-7.6 の blur で登録した確定値が候補値リストへ入っている').toPass({
     timeout: getTimeout(15000),
   });
 }
@@ -425,12 +425,12 @@ test.describe('オートコンプリート最適化', () => {
         }
       });
 
-      // REQ-7.5: blur で確定値を候補値リストへ追加する
+      // REQ-7.6: blur で確定値を候補値リストへ追加する
       await registerCandidate(majorCategoryInput, '建築工事');
 
-      // REQ-7.3a: 入力に前方一致する候補へ絞り込まれる（＝絞り込みが実際に起きている）
+      // REQ-7.4: 入力に前方一致する候補へ絞り込まれる（＝絞り込みが実際に起きている）
       const suggestions = await readSuggestions(page, majorCategoryInput, '建');
-      expect(suggestions, 'REQ-7.3a: 入力に前方一致する候補が表示される').toEqual(['建築工事']);
+      expect(suggestions, 'REQ-7.4: 入力に前方一致する候補が表示される').toEqual(['建築工事']);
 
       // REQ-7.2: テキスト入力中に候補取得のAPIリクエストを発行しない
       expect(
@@ -441,17 +441,17 @@ test.describe('オートコンプリート最適化', () => {
   });
 
   // ==========================================================================
-  // REQ-7.4: 候補選択時にフィールドに値が自動入力されること
+  // REQ-7.5: 候補選択時にフィールドに値が自動入力されること
   // ==========================================================================
 
-  test.describe('REQ-7.4: 候補選択時の自動入力', () => {
+  test.describe('REQ-7.5: 候補選択時の自動入力', () => {
     test('候補をクリックするとフィールドに値が自動入力される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // 以前は「項目追加ボタンが見えたら押す」「入力欄が見えたら入力する」「一覧が出たら
       // 候補を探す」「候補が見えたら押す」の四重の観測で包まれており、どこか一つでも
-      // 満たされなければ REQ-7.4 の判定は一つも実行されずに緑になった。
-      // 前提（グループ1件・項目1行）は補助で作り、判定は同ファイルの REQ-7.5 と同じく
+      // 満たされなければ REQ-7.5 の判定は一つも実行されずに緑になった。
+      // 前提（グループ1件・項目1行）は補助で作り、判定は同ファイルの REQ-7.6 と同じく
       // 一連の操作を一つの再試行単位へ閉じ込める（遅延クローズ対策。readSuggestions 参照）。
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
       const majorCategoryInput = row.getByRole('combobox', { name: '大項目', exact: true });
@@ -459,7 +459,7 @@ test.describe('オートコンプリート最適化', () => {
         timeout: getTimeout(10000),
       });
 
-      // REQ-7.5: blur で確定値を候補値リストへ追加する
+      // REQ-7.6: blur で確定値を候補値リストへ追加する
       await registerCandidate(majorCategoryInput, '建築工事');
 
       const listbox = page.getByRole('listbox');
@@ -467,11 +467,11 @@ test.describe('オートコンプリート最適化', () => {
 
       // 前提: 選ぶ対象そのものが在ること（候補値リストへの登録が成立していること）を
       // 要件の主張とは別に確かめる。登録が失敗・遅延していれば後段の再試行を何周
-      // 重ねても候補は現れず、REQ-7.4 の名前で落ちて原因を取り違える。
+      // 重ねても候補は現れず、REQ-7.5 の名前で落ちて原因を取り違える。
       await assertCandidateOffered(majorCategoryInput, listbox, option, '建');
 
       await expect(async () => {
-        // REQ-7.3a: 前方一致する候補がドロップダウン表示される
+        // REQ-7.4: 前方一致する候補がドロップダウン表示される
         await reopenSuggestions(majorCategoryInput, '建');
         await expect(listbox).toBeVisible({ timeout: getTimeout(1000) });
 
@@ -479,29 +479,29 @@ test.describe('オートコンプリート最適化', () => {
           timeout: getTimeout(1000),
         });
 
-        // REQ-7.4: 候補を選択すると値がフィールドへ自動入力される。
+        // REQ-7.5: 候補を選択すると値がフィールドへ自動入力される。
         // 一覧に触れる操作には周回内の期限を与える（既定の actionTimeout は15秒で
         // 再試行の予算と同じであり、一周が予算を使い切ってしまう。BOUNDED_STEP_TIMEOUT_MS 参照）。
         await option.click({ timeout: BOUNDED_STEP_TIMEOUT_MS });
-        await expect(majorCategoryInput, 'REQ-7.4: 選択した候補が入力される').toHaveValue(
+        await expect(majorCategoryInput, 'REQ-7.5: 選択した候補が入力される').toHaveValue(
           '建築工事',
           { timeout: getTimeout(1000) }
         );
-      }, 'REQ-7.4: 候補をクリックすると値が自動入力される').toPass({
+      }, 'REQ-7.5: 候補をクリックすると値が自動入力される').toPass({
         timeout: getTimeout(15000),
       });
     });
   });
 
   // ==========================================================================
-  // REQ-7.4: キーボードで候補を選択して確定できること
+  // REQ-7.5: キーボードで候補を選択して確定できること
   //
   // 上下キー・Enter という操作そのものは requirements.md の Requirement 7 に条項が無い。
   // ここではキーボードを「オートコンプリート候補が選択される」経路の一つとして扱い、
-  // 選択した候補がフィールドへ自動入力されること（REQ-7.4）を要件として主張する。
+  // 選択した候補がフィールドへ自動入力されること（REQ-7.5）を要件として主張する。
   // ==========================================================================
 
-  test.describe('REQ-7.4: キーボードによる候補選択', () => {
+  test.describe('REQ-7.5: キーボードによる候補選択', () => {
     test('上下キーで候補を選択しEnterで確定できる', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -511,7 +511,7 @@ test.describe('オートコンプリート最適化', () => {
         timeout: getTimeout(10000),
       });
 
-      // REQ-7.5: blur で確定値を候補値リストへ追加する
+      // REQ-7.6: blur で確定値を候補値リストへ追加する
       await registerCandidate(majorCategoryInput, '建築工事');
 
       // 一覧を開いてから確定するまでを一つの再試行単位に閉じ込める。
@@ -530,11 +530,11 @@ test.describe('オートコンプリート最適化', () => {
       );
 
       await expect(async () => {
-        // REQ-7.3a: 前方一致する候補がドロップダウン表示される
+        // REQ-7.4: 前方一致する候補がドロップダウン表示される
         await reopenSuggestions(majorCategoryInput, '建');
         await expect(listbox).toBeVisible({ timeout: getTimeout(1000) });
 
-        // 下矢印キーで候補が選択状態になる（REQ-7.4 の選択経路）
+        // 下矢印キーで候補が選択状態になる（REQ-7.5 の選択経路）
         await majorCategoryInput.press('ArrowDown');
         const selectedOption = listbox.getByRole('option', { selected: true });
         await expect(selectedOption, '上下キーで候補が選択状態になる').toBeVisible({
@@ -548,28 +548,28 @@ test.describe('オートコンプリート最適化', () => {
         });
         assertPrepared(selectedText, '選択状態になった補完候補の文字列');
 
-        // REQ-7.4: Enter で確定すると選択した候補がフィールドへ自動入力される
+        // REQ-7.5: Enter で確定すると選択した候補がフィールドへ自動入力される
         await majorCategoryInput.press('Enter');
-        await expect(majorCategoryInput, 'REQ-7.4: 選択した候補が入力される').toHaveValue(
+        await expect(majorCategoryInput, 'REQ-7.5: 選択した候補が入力される').toHaveValue(
           selectedText,
           { timeout: getTimeout(1000) }
         );
-      }, 'REQ-7.4: 上下キーで選んだ候補を Enter で確定すると自動入力される').toPass({
+      }, 'REQ-7.5: 上下キーで選んだ候補を Enter で確定すると自動入力される').toPass({
         timeout: getTimeout(15000),
       });
 
       // 確定した値は候補として登録した値そのものである
-      await expect(majorCategoryInput, 'REQ-7.4: 確定後の値が候補と一致する').toHaveValue(
+      await expect(majorCategoryInput, 'REQ-7.5: 確定後の値が候補と一致する').toHaveValue(
         '建築工事'
       );
     });
   });
 
   // ==========================================================================
-  // REQ-7.5 / REQ-7.6: blur時に入力値がクライアントサイドの候補リストに追加されること
+  // REQ-7.6 / REQ-7.7: blur時に入力値がクライアントサイドの候補リストに追加されること
   // ==========================================================================
 
-  test.describe('REQ-7.5/7.6: blur時の候補追加', () => {
+  test.describe('REQ-7.6/7.7: blur時の候補追加', () => {
     test('blur時に入力値が候補へ重複なく追加され再入力時に候補として表示される', async ({
       page,
     }) => {
@@ -578,7 +578,7 @@ test.describe('オートコンプリート最適化', () => {
       const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
       // blur時のAPIリクエストを監視（初回表示の一括取得は既に完了している）。
-      // REQ-7.6 が禁じるのはメソッドを問わない「APIリクエストの発行」なので、
+      // REQ-7.7 が禁じるのはメソッドを問わない「APIリクエストの発行」なので、
       // POST に限らず補完に関わるリクエストをすべて数える。
       const blurApiRequests: string[] = [];
       page.on('request', (request) => {
@@ -596,30 +596,30 @@ test.describe('オートコンプリート最適化', () => {
       const uniqueValue = `テスト大項目_${Date.now()}`;
       await registerCandidate(majorCategoryInput, uniqueValue);
 
-      // REQ-7.5 は「既に存在する値の場合は重複追加しない」ことも定めている。
+      // REQ-7.6 は「既に存在する値の場合は重複追加しない」ことも定めている。
       // 一度空にしてから同じ値を入れ直し、二度目の blur を確実に起こす
       // （同じ値をそのまま `fill` しても React の入力値追跡は変化を検知しない）。
       await clearField(majorCategoryInput);
       await registerCandidate(majorCategoryInput, uniqueValue);
 
-      // REQ-7.6: blur時の候補値リスト更新はクライアントサイドのみで行う
-      expect(blurApiRequests, 'REQ-7.6: blur時にAPIリクエストを発行した').toHaveLength(0);
+      // REQ-7.7: blur時の候補値リスト更新はクライアントサイドのみで行う
+      expect(blurApiRequests, 'REQ-7.7: blur時にAPIリクエストを発行した').toHaveLength(0);
 
-      // REQ-7.5: blur で追加した値が再入力時に候補として現れ、二度 blur しても重複しない
+      // REQ-7.6: blur で追加した値が再入力時に候補として現れ、二度 blur しても重複しない
       const suggestions = await readSuggestions(
         page,
         majorCategoryInput,
         uniqueValue.substring(0, 5)
       );
-      expect(suggestions, 'REQ-7.5: blurで追加した値が重複なく候補に現れる').toEqual([uniqueValue]);
+      expect(suggestions, 'REQ-7.6: blurで追加した値が重複なく候補に現れる').toEqual([uniqueValue]);
     });
   });
 
   // ==========================================================================
-  // REQ-7.7: 候補が50音順で表示されること
+  // REQ-7.8: 候補が50音順で表示されること
   // ==========================================================================
 
-  test.describe('REQ-7.7: 50音順表示', () => {
+  test.describe('REQ-7.8: 50音順表示', () => {
     test('候補が50音順でソートされて表示される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
@@ -629,7 +629,7 @@ test.describe('オートコンプリート最適化', () => {
         timeout: getTimeout(10000),
       });
 
-      // 50音順の判定に意味を持たせるため、意図的に逆順で候補を登録する（REQ-7.5）
+      // 50音順の判定に意味を持たせるため、意図的に逆順で候補を登録する（REQ-7.6）
       const registeredValues = ['ウ工事', 'イ工事', 'ア工事'];
       for (const value of registeredValues) {
         await registerCandidate(majorCategoryInput, value);
@@ -647,11 +647,11 @@ test.describe('オートコンプリート最適化', () => {
       // したがって集合はこのテストが登録した3件に一意に定まる。
       expect(
         [...optionTexts].sort((a, b) => a.localeCompare(b, 'ja')),
-        'REQ-7.7 の並びを判定するため登録した候補が揃っている'
+        'REQ-7.8 の並びを判定するため登録した候補が揃っている'
       ).toEqual([...registeredValues].sort((a, b) => a.localeCompare(b, 'ja')));
 
-      // REQ-7.7: 候補は50音順に並ぶ
-      expect(optionTexts, 'REQ-7.7: 候補が50音順に並ぶ').toEqual(
+      // REQ-7.8: 候補は50音順に並ぶ
+      expect(optionTexts, 'REQ-7.8: 候補が50音順に並ぶ').toEqual(
         [...optionTexts].sort((a, b) => a.localeCompare(b, 'ja'))
       );
     });
@@ -707,7 +707,7 @@ test.describe('オートコンプリート最適化', () => {
   });
 
   // ==========================================================================
-  // REQ-7.3 / REQ-7.3a: 焦点獲得時の候補表示と入力中の絞り込み（Task 25.4）
+  // REQ-7.3 / REQ-7.4: 焦点獲得時の候補表示と入力中の絞り込み（Task 25.4）
   //
   // Task 115.134: 以前はここの2件が「フォーカスした際に」と名乗りながら、実際には
   // `readSuggestions`（値を入れ直して `handleInputChange` の経路で開く）でしか判定して
@@ -715,7 +715,7 @@ test.describe('オートコンプリート最適化', () => {
   // 入力を伴わない `readSuggestionsOnFocus` で判定する。
   // ==========================================================================
 
-  test.describe('REQ-7.3/7.3a: 焦点獲得時の候補表示', () => {
+  test.describe('REQ-7.3/7.4: 焦点獲得時の候補表示', () => {
     test('空の対象フィールドにフォーカスした際に全候補がドロップダウン表示される', async ({
       page,
     }) => {
@@ -777,16 +777,16 @@ test.describe('オートコンプリート最適化', () => {
         await registerCandidate(majorCategoryInput, value);
       }
 
-      // REQ-7.3a: 入力を空へ戻すと登録した全候補が表示される
+      // 比較の基準: 入力を空へ戻すと登録した全候補が表示される
       const allSuggestions = await readSuggestions(page, majorCategoryInput, '');
       expect(
         [...allSuggestions].sort((a, b) => a.localeCompare(b, 'ja')),
         '空欄では登録した全候補が表示される'
       ).toEqual([...registeredValues].sort((a, b) => a.localeCompare(b, 'ja')));
 
-      // REQ-7.3a: 入力に応じて前方一致する候補へリアルタイムに絞り込まれる
+      // REQ-7.4: 入力に応じて前方一致する候補へリアルタイムに絞り込まれる
       const filteredSuggestions = await readSuggestions(page, majorCategoryInput, 'リアルタイム');
-      expect(filteredSuggestions, 'REQ-7.3a: 残るのは前方一致する候補だけである').toEqual([
+      expect(filteredSuggestions, 'REQ-7.4: 残るのは前方一致する候補だけである').toEqual([
         'リアルタイムA',
         'リアルタイムB',
       ]);

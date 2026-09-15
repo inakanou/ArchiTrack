@@ -8,10 +8,8 @@
  * Requirements:
  * - 7.1: 入力開始時の候補表示
  * - 7.3: クライアントサイドでのフィルタリング表示
- * - 7.4: 候補選択時の自動入力（上下キー選択とEnter確定を含む）
- * - 7.5: blur時にクライアントサイドで候補追加
- * - 7.6: blur時の候補追加はAPIリクエスト不要
- * - 7.7: 候補を50音順に表示
+ * - 7.5: 候補選択時の自動入力（上下キー選択とEnter確定を含む）
+ * - 7.6: blur時にクライアントサイドで候補追加
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -131,7 +129,7 @@ describe('AutocompleteInput', () => {
     });
   });
 
-  describe('候補選択 (Req 7.4)', () => {
+  describe('候補選択 (Req 7.5)', () => {
     it('候補クリック時にonChangeが呼ばれる', async () => {
       const onChange = vi.fn();
       getSuggestions.mockReturnValue(['建築工事', '建設工事']);
@@ -164,7 +162,7 @@ describe('AutocompleteInput', () => {
     });
   });
 
-  describe('キーボード操作 (Req 7.4)', () => {
+  describe('キーボード操作 (Req 7.5)', () => {
     it('下矢印キーで次の候補にフォーカスが移動する', async () => {
       getSuggestions.mockReturnValue(['建築工事', '建設工事', '建具工事']);
 
@@ -381,7 +379,7 @@ describe('AutocompleteInput', () => {
       expect(onChange).toHaveBeenCalledWith('建');
     });
 
-    it('blur時にonBlurAddCandidateが呼ばれる (Req 7.5, 7.6)', async () => {
+    it('blur時にonBlurAddCandidateが呼ばれる (Req 7.6)', async () => {
       render(
         <div>
           <AutocompleteInput {...defaultProps} value="新しい工事" />
@@ -416,7 +414,7 @@ describe('AutocompleteInput', () => {
       expect(onBlurAddCandidate).not.toHaveBeenCalled();
     });
 
-    it('候補選択時にonChangeが呼ばれる (Req 7.4)', async () => {
+    it('候補選択時にonChangeが呼ばれる (Req 7.5)', async () => {
       const onChange = vi.fn();
       getSuggestions.mockReturnValue(['建築工事', '建設工事']);
 
@@ -431,7 +429,7 @@ describe('AutocompleteInput', () => {
       expect(onChange).toHaveBeenCalledWith('建築工事');
     });
 
-    it('キーボード操作が正常に動作する (Req 7.4)', async () => {
+    it('キーボード操作が正常に動作する (Req 7.5)', async () => {
       const onChange = vi.fn();
       getSuggestions.mockReturnValue(['建築工事', '建設工事']);
 

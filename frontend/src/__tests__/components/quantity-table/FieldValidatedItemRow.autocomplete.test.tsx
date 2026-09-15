@@ -6,8 +6,7 @@
  * Requirements coverage (quantity-table-generation):
  * - REQ-7.1: 対象フィールド（名称・備考）でオートコンプリート候補を表示
  * - REQ-7.3: クライアントサイドでのフィルタリング表示（フォーカス時に候補表示）
- * - REQ-7.4: 候補選択時の自動入力
- * - REQ-7.5: blur時にクライアントサイドで候補追加
+ * - REQ-7.6: blur時にクライアントサイドで候補追加
  *
  * @module __tests__/components/quantity-table/FieldValidatedItemRow.autocomplete.test
  */
@@ -173,7 +172,7 @@ describe('FieldValidatedItemRow - 名称・備考オートコンプリート', (
     });
   });
 
-  describe('REQ-7.5: 名称フィールドでblur時に候補が追加される', () => {
+  describe('REQ-7.6: 名称フィールドでblur時に候補が追加される', () => {
     it('名称フィールドからフォーカスが外れるとonBlurAddCandidateが呼ばれる', async () => {
       const onBlurAddCandidate = vi.fn();
       const user = userEvent.setup();

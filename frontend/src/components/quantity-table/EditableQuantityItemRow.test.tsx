@@ -112,7 +112,7 @@ describe('EditableQuantityItemRow', () => {
     });
   });
 
-  describe('フィールド更新 (Req 7.4)', () => {
+  describe('フィールド更新', () => {
     it('大項目変更時にonUpdateが呼ばれる', async () => {
       const onUpdate = vi.fn();
       render(<EditableQuantityItemRow {...defaultProps} onUpdate={onUpdate} />);
