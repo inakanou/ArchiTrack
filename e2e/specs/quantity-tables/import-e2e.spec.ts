@@ -12,7 +12,7 @@
  * - @requirement quantity-table-generation/REQ-27.8: 処理中ボタン非活性化
  * - @requirement quantity-table-generation/REQ-28.3: 列マッピング
  * - @requirement quantity-table-generation/REQ-28.4: プレビューテーブル
- * - @requirement quantity-table-generation/REQ-28.5: マッピング先表示
+ * - @requirement quantity-table-generation/REQ-28.5: 各列の現在のマッピング先フィールドの表示
  * - @requirement quantity-table-generation/REQ-28.6: 読み取り失敗時のエラー
  * - @requirement quantity-table-generation/REQ-28.7: テキスト選択・コピー可能
  * - @requirement quantity-table-generation/REQ-29.7: OCR完了時に抽出テキストとプレビューテーブルを表示
@@ -577,10 +577,14 @@ test.describe('REQ-28: Excelデータパース', () => {
    * @requirement quantity-table-generation/REQ-28.3: 列マッピング機能
    * @requirement quantity-table-generation/REQ-32.1: マッピング先フィールド表示
    *
-   * タスク 115.188 の是正: 従前は REQ-28.5 を名乗っていたが、受入基準28.5 の原文は「The 数量表管理システム
-   * shall 抽出結果のプレビューテーブルに各行のマッピング先フィールドを表示する」である。
-   * 本区間の表題・本文が述べる内容に対応するのは受入基準32.1（「The 数量表管理システム shall 抽出結果のプレビューテーブルの各列ヘッダーにマッピング先フィールドのドロップダウンを表示する」
+   * タスク 115.188 の是正（記録）: 従前は受入基準28.5 を名乗っていたが、当時の受入基準28.5 の原文は
+   * 「The 数量表管理システム shall 抽出結果のプレビューテーブルに各行のマッピング先フィールドを表示する」
+   * であった。本区間の表題・本文が述べる内容に対応するのは受入基準32.1（「The 数量表管理システム shall 抽出結果のプレビューテーブルの各列ヘッダーにマッピング先フィールドのドロップダウンを表示する」
    * ）である。
+   *
+   * 現況（タスク 97.20、2026-09-15）: 受入基準28.5 は利用者の裁定で「各列の現在のマッピング先
+   * フィールドを表示する」へ改められた。その被覆は本区間ではなく、直後の区間（列ごとに選択中の
+   * 表示名を主張する検証）が担う。本区間は引き続き 28.3 と 32.1 だけを名乗る。
    *
    * ImportPreviewTable のヘッダーに「のマッピング先」aria-label の select が含まれる
    * （実際にデータが抽出された場合のみ）。
@@ -594,7 +598,7 @@ test.describe('REQ-28: Excelデータパース', () => {
     const opened = await openImportDialog(page);
     expect(opened).toBeTruthy();
 
-    // REQ-28.3/28.5 が対象とするのは「抽出された列にマッピング先を表示する」ことであり、
+    // REQ-28.3/32.1 が対象とするのは「抽出された列にマッピング先を用意する」ことであり、
     // 抽出の手段（PDF OCR か Excel パースか）ではない。PDF は Claude Vision
     // （ANTHROPIC_API_KEY 依存）を経由するため、以前は「プレビューが出れば主張し、
     // 出なければエラー表示が出ていることだけを確かめる」分岐になっており、
@@ -611,17 +615,85 @@ test.describe('REQ-28: Excelデータパース', () => {
       timeout: getTimeout(45000),
     });
 
-    // REQ-28.3/28.5: 列ごとにマッピング先のドロップダウンが表示される
+    // REQ-28.3/32.1: 列ごとにマッピング先のドロップダウンが表示される
     const mappingSelects = page.locator('select[aria-label*="のマッピング先"]');
     await expect(
       mappingSelects.first(),
-      'REQ-28.5: マッピング先のドロップダウンが表示されない'
+      'REQ-32.1: マッピング先のドロップダウンが表示されない'
     ).toBeVisible({ timeout: getTimeout(5000) });
     // 資材のヘッダーは「工種・名称・規格・数量・単位」の5列である
     await expect(
       mappingSelects,
       'REQ-28.3: 抽出された全列にマッピング先が用意されない'
     ).toHaveCount(5);
+  });
+
+  /**
+   * @requirement quantity-table-generation/REQ-28.5: 各列の現在のマッピング先フィールドの表示
+   *
+   * タスク 97.20 で条文を「各行」から「各列の現在のマッピング先」へ改めた（requirements.md の
+   * Requirement 28 の註）。本検証は、抽出結果のプレビューテーブルの列ごとに、**その列の見出しセルの中に**、
+   * その列が現在対応付けられているフィールドの**表示名**が出ていることを主張する。
+   *
+   * 主張しないもの: 表示の手段がドロップダウンであること（32.1）、選択肢の全件（32.2）、
+   * 推定の内部値（32.4 は列ごとの選択欄の値を内部値の配列と `toHaveValue` で突き合わせる）。
+   *
+   * 見出しセル全体の文字列では主張しない。資材の列見出し（工種・名称・規格・数量・単位）は
+   * 自動推定の表示名と同じ綴りであり、マッピング先が一切表示されなくても列見出しだけで
+   * 一致してしまうためである。選択中の選択肢（`option:checked`）の表示名に限って読む。
+   */
+  test('プレビューテーブルの各列の見出しにその列の現在のマッピング先フィールドが表示される (REQ-28.5)', async ({
+    page,
+  }) => {
+    const navigated = await navigateToQuantityTableEdit(page);
+    expect(navigated).toBeTruthy();
+
+    const opened = await openImportDialog(page);
+    expect(opened).toBeTruthy();
+
+    // 列が決定論的に抽出されるよう、クライアントサイドで解析される Excel の資材を用いる
+    const fileInput = page.getByLabel('ファイルを選択');
+    await fileInput.setInputFiles(TEST_XLSX);
+
+    // Excel はインラインプレビュー（REQ-34.3）にも表が出るため、抽出結果の領域の表に限定する
+    const previewTable = page.getByRole('region', { name: '抽出結果' }).locator('table');
+    await expect(previewTable, '前提: 抽出結果のプレビューテーブルが表示される').toBeVisible({
+      timeout: getTimeout(45000),
+    });
+
+    // 資材の列見出しと、自動推定で各列が対応付けられるフィールドの表示名（列の並び順）
+    const expectedColumns: Array<[string, string]> = [
+      ['工種', '工種'],
+      ['名称', '名称'],
+      ['規格', '規格'],
+      ['数量', '数量'],
+      ['単位', '単位'],
+    ];
+    const headerCells = previewTable.locator('thead th');
+    await expect(headerCells, '前提: 資材の5列が見出しとして表示される').toHaveCount(
+      expectedColumns.length
+    );
+
+    for (const [index, [header, targetLabel]] of expectedColumns.entries()) {
+      const headerCell = headerCells.nth(index);
+      await expect(headerCell, `前提: ${index + 1}列目の見出しが「${header}」である`).toContainText(
+        header
+      );
+      // 「表示する」の主張。DOM に在っても見えなければ利用者は読み取れない。
+      // 閉じた選択欄は選択中の選択肢の表示名を自身の枠内に描くが、Playwright は `<option>` 自体を
+      // 可視と数えない（変異なしの版でも `option:checked` への toBeVisible は落ちると実測した）。
+      // したがって可視性は表示名を描く選択欄に、表示名の中身は選択中の選択肢に問う。
+      const targetDisplay = headerCell.locator('select');
+      await expect(
+        targetDisplay,
+        `REQ-28.5: 列「${header}」の見出しにその列の現在のマッピング先が表示されない（不可視）`
+      ).toBeVisible();
+      const displayedTarget = targetDisplay.locator('option:checked');
+      await expect(
+        displayedTarget,
+        `REQ-28.5: 列「${header}」の見出しにその列の現在のマッピング先「${targetLabel}」が表示されない`
+      ).toHaveText(targetLabel);
+    }
   });
 
   /**
