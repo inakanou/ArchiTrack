@@ -2445,10 +2445,19 @@ interface SiteSurveySummary {
 | FE | `frontend/src/components/quantity-table/SurveySelectDialog.tsx` | 新規 | REQ-40: 現場調査選択ダイアログ |
 | FE | `frontend/src/components/quantity-table/QuantityGroupCard.tsx` | 変更 | REQ-41: 水平スクロールをテーブルへ限定し画像・コメントを固定表示 |
 | FE | `frontend/src/api/quantity-tables.ts` | 変更 | REQ-40: `createGroupsFromSurvey` クライアント関数追加 |
-| FE | `frontend/src/utils/`（命名ヘルパー、既存の命名ロジックがある箇所） | 変更/新規 | REQ-40: `buildGroupNameFromSurvey`（REQ-38 命名規則の汎用化・共有） |
+| FE | `frontend/src/utils/`（命名ヘルパー、既存の命名ロジックがある箇所） | 変更/新規 | REQ-40: `buildGroupNameFromSurvey`（REQ-38 命名規則の汎用化・共有）。配置の現況は表の直下の併記を読むこと（タスク 96.10） |
 | BE | `backend/src/services/quantity-group.service.ts` | 変更 | REQ-40: `createGroupsFromSurvey`（トランザクション一括生成） |
 | BE | `backend/src/routes/`（数量表/グループのルート定義ファイル） | 変更 | REQ-40: `POST /api/quantity-tables/:tableId/groups/from-survey` |
 | TEST | `e2e/specs/quantity-tables/` 配下 | 新規 | REQ-39/40/41 の E2E（重なり・一括生成・スクロール固定） |
+
+- **上の表が命名ヘルパーの置き場として挙げる行の現況（タスク 96.10）**: 行は REQ-39〜41 を設計した時点のファイル計画として残し、ここへ現況の再実測を併記する（site-survey の設計文書 `#### 実測値の書き方（タスク 115.212）` の (a)）。**`buildGroupNameFromSurvey` はフロントエンドの `utils` 配下に置かれていない。** 置き場は次の二つである。
+  - フロントエンド: `frontend/src/pages/quantityTableEditReducer.ts` のファイル内の非公開関数（輸出しない）。切り詰めは同ファイル内の `truncateNameWithSuffix` へ委譲し、文字幅の数え方だけを `frontend/src/utils/field-validation.ts` の `calculateStringWidth` から取り込む
+  - バックエンド: `backend/src/services/quantity-validation.service.ts` の `QuantityValidationService` のメソッド。`backend/src/services/quantity-group.service.ts` の `createGroupsFromSurvey` が呼ぶ
+  - 再現コマンドと出力: `grep -rlF 'buildGroupNameFromSurvey' frontend/src/utils` の出力は空（終了コード `1`）。名前でなく挙動で探す `grep -rlE '連番|WithSuffix|buildGroup' frontend/src/utils --include=*.ts --exclude='*.test.ts'` も空（終了コード `1`）。`grep -rlF 'buildGroupNameFromSurvey' frontend/src backend/src | grep -vE '\.test\.|__tests__'` の出力は上の三つのファイルである
+  - 同じく: `grep -cE '^function buildGroupNameFromSurvey\(' frontend/src/pages/quantityTableEditReducer.ts` の出力は `1`、`^export function` で始めた同じ式の出力は `0`（終了コード `1`）。`grep -cE '^  buildGroupNameFromSurvey\(' backend/src/services/quantity-validation.service.ts` の出力は `1`
+  - 経緯: 起票文（`tasks.md` の 96.10）は、生成をクライアント側のドラフトへ寄せた REQ-42 で置き場が動いたと読む。履歴からは順序を確かめられない——`git log --oneline -S 'buildGroupNameFromSurvey'` を `frontend/src` と `backend/src/services` のそれぞれへ掛けても、本書の表の行の文言へ掛けても、出力は同じ squash コミット `628fbe96` の1行である
+  - 走査範囲: 本書で `buildGroupNameFromSurvey` の置き場を述べるのは上の表の行だけである。`grep -n 'buildGroupNameFromSurvey' .kiro/specs/quantity-table-generation/design.md` の出力は本併記を書き足す前は3行で（`##### Service Interface（命名ヘルパー）` の囲み・上の表の行・テスト計画の単体テストの項）、囲みとテスト計画の項は置き場を述べない。書き足した後は本併記の行が加わる（自己言及のため差し引いて読む）
+  - タスク 96.10。コミット `c113b4a9`。2026-09-15 にリポジトリルートで実測
 
 未使用の `frontend/src/components/quantity-table/PhotoChangeDialog.tsx` は本スコープでは変更しない（残置）。
 
