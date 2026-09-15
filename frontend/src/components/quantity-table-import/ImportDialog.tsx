@@ -81,8 +81,24 @@ interface ImportDialogProps {
 // コンポーネント
 // ============================================================================
 
-export const ImportDialog: React.FC<ImportDialogProps> = ({
-  isOpen,
+/**
+ * インラインプレビューの縦幅を保存する localStorage のキー（Task 97.9）。
+ * 受領見積書登録（`architrack:received-quotation:preview-height`）とは共有しない。
+ */
+const IMPORT_PREVIEW_HEIGHT_STORAGE_KEY = 'architrack:quantity-table-import:preview-height';
+
+/**
+ * 閉じている間は中身の部品を外す（Task 97.9）。
+ * 呼び出し側は `isOpen` を切り替えるだけで部品を外さないため、ここで外すことで
+ * ファイルのプレビュー・抽出結果・マッピング・エラー・取り込み先の選択といった状態を閉じるたびに捨てる。
+ * 外した後に遅れて届いた抽出結果は、外れた部品の状態へ向かうため開き直したダイアログには現れない。
+ */
+export const ImportDialog: React.FC<ImportDialogProps> = (props) => {
+  if (!props.isOpen) return null;
+  return <ImportDialogContent {...props} />;
+};
+
+const ImportDialogContent: React.FC<Omit<ImportDialogProps, 'isOpen'>> = ({
   onClose,
   onImport,
   groups,
@@ -217,8 +233,6 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
     [extractor.result, fieldMapping, onImport]
   );
 
-  if (!isOpen) return null;
-
   const isProcessing = extractor.status === 'processing';
 
   return (
@@ -344,7 +358,11 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
         >
           {previewFile && (
             <section aria-label="ファイルプレビュー" style={{ flex: '1 1 360px', minWidth: 0 }}>
-              <FileInlinePreview file={previewFile} showPageNavigationForSinglePage />
+              <FileInlinePreview
+                file={previewFile}
+                showPageNavigationForSinglePage
+                resizeStorageKey={IMPORT_PREVIEW_HEIGHT_STORAGE_KEY}
+              />
             </section>
           )}
 

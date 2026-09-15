@@ -3468,12 +3468,15 @@ _起票元: Task 95 の処置後に再実行した機能レベル検証（`/kiro
   - **利用者の裁定（2026-09-15）**: 「中断の仕組みを足す」。共有部品 `pdf-text-extractor` に中断の手段を足し、時間切れで OCR の worker を止める。受領見積書登録の挙動は変えない
   - _Boundary: 取り込み経路の時間切れ後の処理の扱い_
 
-- [ ] 97.9 取り込みダイアログが、プレビューの高さの保存キーを他の画面と共有している状態と、閉じた後も状態が残る状態の処遇を決める
+- [x] 97.9 取り込みダイアログが、プレビューの高さの保存キーを他の画面と共有している状態と、閉じた後も状態が残る状態の処遇を決める
   - **出所**: 96.2 の観測
   - **再実測**: `frontend/src/components/estimate-requests/FileInlinePreview.tsx:84` の `RESIZE_STORAGE_KEY = 'architrack:received-quotation:preview-height'` は定数で、取り込みダイアログから差し替える口が無い（このキーは estimate-request の `tasks.md:1629` が受領見積書向けに定めたもの）。`ImportDialog.tsx:96` の `previewFile` は、`:213` の `if (!isOpen) return null;` より上で保持される。呼び出し側 `QuantityTableEditPage.tsx:2372-2377` は `isOpen` を渡すだけで、部品を外さない。状態を戻すのは、新しいファイルを受けた `:129` の `extractor.reset()` だけである
   - **利用者が決めること**: キーを分けるか（96.2 が `FileInlinePreview` に既定値つきの任意 props を足した先例がある）、閉じたときに状態を捨てるか。要件はどちらにも触れていない
   - **利用者の裁定（2026-09-15）**: 「保存キーを分ける」と「閉じたら状態を捨てる」の両方。`FileInlinePreview` に既定値つきの任意 props を足して取り込みダイアログだけ別のキーを使い、ダイアログを閉じたときにプレビューと抽出結果を捨てる
   - _Boundary: 取り込みダイアログのプレビューの高さの保存と、閉じたときの状態_
+  - **処遇（コミット `e446e6b9` 〜 `117d0520` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: `FileInlinePreview` に既定値つきの任意 props `resizeStorageKey`（既定は受領見積書登録の `RESIZE_STORAGE_KEY`）を足し、`useResizableHeight` / `loadPersistedHeight` へキーを渡した。取り込みダイアログだけが `architrack:quantity-table-import:preview-height` を渡す。`ImportDialog` を外側（`isOpen` が偽なら何も描かない）と中身の `ImportDialogContent` に分け、閉じている間は中身を外して、ファイルのプレビュー・抽出結果・フィールドマッピング・エラー・取り込み先の選択をすべて捨てる。design.md の 96.2 の追記の直下へ現況を併記した。要件に無い挙動のため被覆印は付けていない
+  - **検証**: 単体はフラグを切った状態で 7件失敗（既定キーの1件は挙動不変の番人として合格）。新規 `ImportDialog.close-reset.test.tsx`（抽出フックは実物、`excel-parser` と `pdf-ocr-extractor` だけを模擬）が、抽出完了後・取り込み先の選択中・形式エラー表示中・処理中に閉じて後から結果が届く場合・開き直した後の通常動作の5件と保存キーの1件を主張する。E2E は取り込み spec に2件（受領見積書のキーに `'250'` を置いたうえで取り込みダイアログのキーにだけ保存され開き直すと復元されること、閉じて開き直すとプレビュー・抽出結果の表・一括取り込みボタンが無いこと。不在の主張の前に存在を確かめる）。変異は実装の E2E 変異（キーの props を外し、中身を外さない旧来の形へ戻す）と独立レビューの単体変異2種（キーの props を外す→1件、中身を外さず `hidden` で隠す→5件）がすべて検出された。取り込み spec 36件、受領見積書の `preview-resize-e2e` 10件・`pdf-zoom-control-e2e` 9件・`received-quotation-dialog-improvements-e2e` 10件、全単体スイート3分割 12,016件がいずれも合格。被覆 358/359・ラチェット 2007 / 5112・関門は前後で同一
+  - **観測**: 受領見積書側の `FileInlinePreview` の利用は `ReceivedQuotationForm.tsx` の2か所だけで既定のまま。依存配列に足した `storageKey` は描画中に変わらない定数で、読み書きの回数とタイミングは変わらない。31.6 / 31.7 の完了メッセージは、編集画面が取り込み後にダイアログを閉じないため影響を受けない。閉じた後に届く抽出結果は外れた部品へ向かい、act 警告や外れた部品への setState 警告は出ず、30秒のタイマーも `finally` で解除される。抽出処理そのものは止まらない（97.8 の所管）。**estimate-request の design.md の `FileInlinePreviewProps` には、96.2 の `showPageNavigationForSinglePage` と本タスクの `resizeStorageKey` のどちらも記されていない**（機能レベル検証の指摘と同型。最終の是正で扱う）
 
 - [x] 97.10 取り込み経路の検証の見出しと本番の注釈が実体と食い違う状態を解消する
   - **出所**: 96.4 の観測 (ii)(iii)(iv)、95.4 の範囲外の同型 (ii)

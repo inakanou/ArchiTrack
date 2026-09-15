@@ -1179,5 +1179,93 @@ describe('FileInlinePreview', () => {
         }
       });
     });
+
+    /**
+     * 縦幅の保存キーの差し替え口（resizeStorageKey）
+     *
+     * 既定では受領見積書登録のキーで復元・保存する（挙動不変）。数量表の取り込みダイアログは
+     * 受領見積書と縦幅を共有しないよう、別のキーを渡す（quantity-table-generation Task 97.9）。
+     */
+    describe('縦幅の保存キーの差し替え（resizeStorageKey）', () => {
+      const CUSTOM_STORAGE_KEY = 'architrack:test-screen:preview-height';
+
+      /** getItem をキーごとの保存値で置き換える（受領見積書のキーと差し替え先のキーで値を変える） */
+      const mockStoredHeights = (): void => {
+        vi.spyOn(Storage.prototype, 'getItem').mockImplementation((key: string) => {
+          if (key === RESIZE_STORAGE_KEY) return '300';
+          if (key === CUSTOM_STORAGE_KEY) return '350';
+          return null;
+        });
+      };
+
+      it('resizeStorageKey を渡さない既定では、受領見積書のキーで縦幅を復元し保存する', async () => {
+        mockStoredHeights();
+        const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {});
+        const originalInnerHeight = window.innerHeight;
+        Object.defineProperty(window, 'innerHeight', { configurable: true, value: 2000 });
+
+        try {
+          render(<FileInlinePreview file={createMockFile('test.png', 'image/png')} />);
+
+          // 受領見積書のキーの値 300 が復元される
+          expect(getImageContainerHeightPx()).toBe(300);
+
+          const handle = screen.getByTestId('preview-resize-handle');
+          fireEvent.pointerDown(handle, { pointerId: 1, clientY: 100 });
+          fireEvent.pointerMove(window, { pointerId: 1, clientY: 150 });
+          await waitFor(() => {
+            expect(getImageContainerHeightPx()).toBe(350);
+          });
+          fireEvent.pointerUp(window, { pointerId: 1, clientY: 150 });
+
+          await waitFor(() => {
+            expect(setItemSpy).toHaveBeenCalledWith(RESIZE_STORAGE_KEY, '350');
+          });
+          expect(setItemSpy).not.toHaveBeenCalledWith(CUSTOM_STORAGE_KEY, expect.any(String));
+        } finally {
+          Object.defineProperty(window, 'innerHeight', {
+            configurable: true,
+            value: originalInnerHeight,
+          });
+        }
+      });
+
+      it('resizeStorageKey を渡すと、そのキーで縦幅を復元し保存し、受領見積書のキーには書き込まない', async () => {
+        mockStoredHeights();
+        const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {});
+        const originalInnerHeight = window.innerHeight;
+        Object.defineProperty(window, 'innerHeight', { configurable: true, value: 2000 });
+
+        try {
+          render(
+            <FileInlinePreview
+              file={createMockFile('test.png', 'image/png')}
+              resizeStorageKey={CUSTOM_STORAGE_KEY}
+            />
+          );
+
+          // 差し替え先のキーの値 350 が復元される（受領見積書のキーの 300 ではない）
+          expect(getImageContainerHeightPx()).toBe(350);
+
+          const handle = screen.getByTestId('preview-resize-handle');
+          fireEvent.pointerDown(handle, { pointerId: 1, clientY: 100 });
+          fireEvent.pointerMove(window, { pointerId: 1, clientY: 175 });
+          await waitFor(() => {
+            expect(getImageContainerHeightPx()).toBe(425);
+          });
+          fireEvent.pointerUp(window, { pointerId: 1, clientY: 175 });
+
+          await waitFor(() => {
+            expect(setItemSpy).toHaveBeenCalledWith(CUSTOM_STORAGE_KEY, '425');
+          });
+          expect(setItemSpy).not.toHaveBeenCalledWith(RESIZE_STORAGE_KEY, expect.any(String));
+        } finally {
+          Object.defineProperty(window, 'innerHeight', {
+            configurable: true,
+            value: originalInnerHeight,
+          });
+        }
+      });
+    });
   });
 });

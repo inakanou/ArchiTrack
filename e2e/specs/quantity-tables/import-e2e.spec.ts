@@ -1690,3 +1690,157 @@ test.describe('REQ-34: インポートダイアログのインラインプレビ
     );
   });
 });
+
+/**
+ * Task 97.9: 取り込みダイアログのプレビューの高さの保存と、閉じたときの状態
+ *
+ * 利用者の裁定（2026-09-15）で決めた挙動であり、要件の受入基準には無いため番号を名乗らない。
+ * - プレビューの高さは受領見積書登録（`architrack:received-quotation:preview-height`）と共有せず、
+ *   取り込みダイアログ専用のキーに保存・復元する
+ * - ダイアログを閉じるとファイルのプレビューと抽出結果を捨て、開き直すと初期状態になる
+ */
+const RECEIVED_QUOTATION_PREVIEW_HEIGHT_KEY = 'architrack:received-quotation:preview-height';
+const IMPORT_PREVIEW_HEIGHT_KEY = 'architrack:quantity-table-import:preview-height';
+
+/** 取り込みダイアログの Excel をアップロードし、ファイルプレビューの表が出るまで待つ */
+async function uploadXlsxAndWaitPreview(page: Page) {
+  await page.getByLabel('ファイルを選択').setInputFiles(TEST_XLSX);
+  const inlinePreview = page
+    .getByRole('dialog')
+    .getByRole('region', { name: 'ファイルプレビュー' });
+  await expect(inlinePreview.locator('table'), '前提: Excelのプレビューが表示される').toBeVisible({
+    timeout: getTimeout(45000),
+  });
+  return inlinePreview;
+}
+
+/** リサイズハンドルの、ファイルプレビュー領域の上端からの距離（プレビューの縦幅に連動する） */
+async function handleOffsetFromPreviewTop(
+  inlinePreview: ReturnType<Page['getByRole']>
+): Promise<number> {
+  const regionBox = await inlinePreview.boundingBox();
+  const handleBox = await inlinePreview.getByTestId('preview-resize-handle').boundingBox();
+  expect(regionBox, '前提: ファイルプレビューの描画位置が取れる').not.toBeNull();
+  expect(handleBox, '前提: リサイズハンドルの描画位置が取れる').not.toBeNull();
+  return (
+    (handleBox as NonNullable<typeof handleBox>).y - (regionBox as NonNullable<typeof regionBox>).y
+  );
+}
+
+test.describe('取り込みダイアログのプレビューの高さの保存と閉じたときの状態 (Task 97.9)', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  test.beforeEach(async ({ page }) => {
+    await loginAsUser(page, 'REGULAR_USER');
+  });
+
+  test('プレビューの高さは取り込みダイアログ専用のキーに保存され、受領見積書のキーを変えず、開き直すと復元される', async ({
+    page,
+  }) => {
+    const navigated = await navigateToQuantityTableEdit(page);
+    expect(navigated).toBeTruthy();
+
+    // 受領見積書のキーには別の値を置き、取り込みダイアログのキーは空にする
+    await page.evaluate(
+      ({ received, importKey }) => {
+        localStorage.setItem(received, '250');
+        localStorage.removeItem(importKey);
+      },
+      { received: RECEIVED_QUOTATION_PREVIEW_HEIGHT_KEY, importKey: IMPORT_PREVIEW_HEIGHT_KEY }
+    );
+
+    expect(await openImportDialog(page)).toBeTruthy();
+    const inlinePreview = await uploadXlsxAndWaitPreview(page);
+
+    const handle = inlinePreview.getByTestId('preview-resize-handle');
+    await expect(handle).toBeVisible({ timeout: getTimeout(10000) });
+    const offsetBefore = await handleOffsetFromPreviewTop(inlinePreview);
+
+    // リサイズハンドルを 80px 下へドラッグする
+    const handleBox = await handle.boundingBox();
+    expect(handleBox, '前提: リサイズハンドルの描画位置が取れる').not.toBeNull();
+    const box = handleBox as NonNullable<typeof handleBox>;
+    const startX = box.x + box.width / 2;
+    const startY = box.y + box.height / 2;
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX, startY + 80, { steps: 10 });
+    await page.mouse.up();
+
+    // 取り込みダイアログのキーに保存される
+    await expect
+      .poll(() => page.evaluate((key) => localStorage.getItem(key), IMPORT_PREVIEW_HEIGHT_KEY), {
+        message: '取り込みダイアログのキーにプレビューの高さが保存されない',
+        timeout: getTimeout(5000),
+      })
+      .not.toBeNull();
+    const savedHeight = Number(
+      await page.evaluate((key) => localStorage.getItem(key), IMPORT_PREVIEW_HEIGHT_KEY)
+    );
+    expect(savedHeight, '保存された高さが数値でない').not.toBeNaN();
+
+    // 受領見積書のキーは変わらない
+    expect(
+      await page.evaluate(
+        (key) => localStorage.getItem(key),
+        RECEIVED_QUOTATION_PREVIEW_HEIGHT_KEY
+      ),
+      '取り込みダイアログでのリサイズが受領見積書のプレビューの高さを変えた'
+    ).toBe('250');
+
+    // 閉じて開き直し、同じファイルを選ぶと、ドラッグした高さで復元される
+    await page.getByRole('dialog').getByRole('button', { name: '閉じる' }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    expect(await openImportDialog(page)).toBeTruthy();
+    const reopenedPreview = await uploadXlsxAndWaitPreview(page);
+    await expect(reopenedPreview.getByTestId('preview-resize-handle')).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    const offsetAfter = await handleOffsetFromPreviewTop(reopenedPreview);
+    expect(
+      Math.abs(offsetAfter - offsetBefore - 80),
+      'ドラッグした高さが開き直した取り込みダイアログで復元されない'
+    ).toBeLessThanOrEqual(2);
+  });
+
+  test('ダイアログを閉じて開き直すと、ファイルのプレビューと抽出結果が残らない', async ({
+    page,
+  }) => {
+    const navigated = await navigateToQuantityTableEdit(page);
+    expect(navigated).toBeTruthy();
+
+    expect(await openImportDialog(page)).toBeTruthy();
+    await uploadXlsxAndWaitPreview(page);
+
+    // 前提: 閉じる前は抽出結果のプレビューテーブルが表示されている
+    const results = page.getByRole('dialog').getByRole('region', { name: '抽出結果' });
+    await expect(
+      results.locator('table thead'),
+      '前提: 抽出結果のプレビューテーブルが表示される'
+    ).toContainText('大項目', { timeout: getTimeout(45000) });
+
+    await page.getByRole('dialog').getByRole('button', { name: '閉じる' }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+
+    expect(await openImportDialog(page)).toBeTruthy();
+    const dialog = page.getByRole('dialog');
+    // 不在の主張の前に、開き直したダイアログそのものと抽出結果の領域が在ることを確かめる
+    await expect(dialog.getByRole('heading', { name: '数量表インポート' })).toBeVisible();
+    await expect(dialog.getByLabel('ファイルを選択')).toBeEnabled();
+    const reopenedResults = dialog.getByRole('region', { name: '抽出結果' });
+    await expect(reopenedResults).toBeAttached();
+
+    await expect(
+      dialog.getByRole('region', { name: 'ファイルプレビュー' }),
+      '閉じる前のファイルのプレビューが開き直したダイアログに残る'
+    ).toHaveCount(0);
+    await expect(
+      reopenedResults.locator('table'),
+      '閉じる前の抽出結果が開き直したダイアログに残る'
+    ).toHaveCount(0);
+    await expect(
+      dialog.getByRole('button', { name: '一括取り込み' }),
+      '閉じる前の一括取り込みボタンが開き直したダイアログに残る'
+    ).toHaveCount(0);
+  });
+});
