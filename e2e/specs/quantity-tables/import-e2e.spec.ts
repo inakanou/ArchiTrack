@@ -652,9 +652,11 @@ test.describe('REQ-28: Excelデータパース', () => {
   /**
    * @requirement quantity-table-generation/REQ-28.6: 読み取り失敗時のエラー
    *
-   * 不正なファイルアップロード時、エラーメッセージが表示される。
+   * ZIP の署名だけを持ち中身が壊れたバイト列を .xlsx として渡すと、SheetJS の読み取りが失敗する。
+   * ダイアログのエラー表示が Excel ファイルの読み取り失敗を告げ、手動入力を促す文言を含むことを
+   * 主張する（エラー表示の要素が見えるだけでは、他の警告やリトライボタンだけでも成立するため）。
    */
-  test('不正なExcelファイルアップロード時にエラー表示またはリトライボタンが表示される (REQ-28.6)', async ({
+  test('不正なExcelファイルアップロード時にエラーメッセージと手動入力を促す文言が表示される (REQ-28.6)', async ({
     page,
   }) => {
     const navigated = await navigateToQuantityTableEdit(page);
@@ -670,8 +672,19 @@ test.describe('REQ-28: Excelデータパース', () => {
       buffer: Buffer.from('PK\x03\x04invalid-xlsx-content'),
     });
 
-    const errorAlert = page.locator('[role="alert"]').first();
-    await expect(errorAlert).toBeVisible({ timeout: getTimeout(15000) });
+    const dialog = page.getByRole('dialog');
+    const errorAlert = dialog
+      .getByRole('alert')
+      .filter({ hasText: 'Excelファイルの読み取りに失敗しました' });
+    await expect(
+      errorAlert,
+      'REQ-28.6: エラー表示がExcelファイルの読み取り失敗を告げない'
+    ).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await expect(errorAlert, 'REQ-28.6: エラー表示が手動入力を促さない').toContainText(
+      '手動入力してください'
+    );
   });
 
   /**

@@ -170,22 +170,45 @@ describe('parseExcelFile', () => {
   });
 
   /**
-   * 本区間は受入基準 28.6 を名乗らない（無タグである理由をここに残す。115.176）。
+   * Excelファイルの読み取りが失敗したとき、手動入力を促すエラーメッセージで失敗することを確かめる。
+   * 元のエラーの文言（SheetJS の例外文など）は利用者へ出さない。
+   * ダイアログでの表示は `e2e/specs/quantity-tables/import-e2e.spec.ts` の REQ-28.6 の区間が確かめる。
    *
-   * 28.6 が課すのは「エラーメッセージを表示し手動入力を促す」ことであり、本区間が主張するのは
-   * `parseExcelFile` が拒否で終わること（`rejects.toThrow()`）だけである。表示も手動入力の導線も
-   * 本区間の主張の外に在るため、ここで 28.6 を名乗ると当該検証が確かめていない条文を被覆と
-   * 数えることになる（86.3）。28.6 の被覆は
-   * `e2e/specs/quantity-tables/import-e2e.spec.ts` の区間が担っている。
+   * @requirement quantity-table-generation/REQ-28.6
    */
-  it('ファイル読み取り失敗時はエラーをスローする', async () => {
+  it('ファイル読み取り失敗時は手動入力を促すエラーメッセージで失敗する', async () => {
     vi.mocked(XLSX.read).mockImplementation(() => {
       throw new Error('Invalid file format');
     });
 
-    const file = createMockFile('test.xlsx');
+    const outcome = parseExcelFile(createMockFile('test.xlsx'));
 
-    await expect(parseExcelFile(file)).rejects.toThrow();
+    await expect(outcome).rejects.toThrow(
+      'Excelファイルの読み取りに失敗しました。手動入力してください'
+    );
+    await expect(outcome).rejects.not.toThrow('Invalid file format');
+  });
+
+  /**
+   * 読み取り後のシートの変換で失敗した場合も、同じメッセージで失敗することを確かめる。
+   *
+   * @requirement quantity-table-generation/REQ-28.6
+   */
+  it('シートの変換で失敗した場合も手動入力を促すエラーメッセージで失敗する', async () => {
+    vi.mocked(XLSX.read).mockReturnValue({
+      SheetNames: ['Sheet1'],
+      Sheets: { Sheet1: {} },
+    } as unknown as XLSX.WorkBook);
+    vi.mocked(XLSX.utils.sheet_to_json).mockImplementationOnce(() => {
+      throw new Error('Corrupted sheet');
+    });
+
+    const outcome = parseExcelFile(createMockFile('test.xlsx'));
+
+    await expect(outcome).rejects.toThrow(
+      'Excelファイルの読み取りに失敗しました。手動入力してください'
+    );
+    await expect(outcome).rejects.not.toThrow('Corrupted sheet');
   });
 
   it('空のシートがある場合はスキップして処理を継続する', async () => {
