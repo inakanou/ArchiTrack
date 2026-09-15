@@ -76,6 +76,10 @@
 - Prisma enum `CalculationMethod` と `quantity_items.calculationParams`（JSON カラム）。**カラム追加は行わない**
 - `PUT /api/quantity-tables/:id/save`（saveDraft）。「箇所数」の永続化はこの既存経路のみを使う。新規エンドポイントは追加しない
 - 既存の `QuantityValidationService` / `calculation-engine`（フロント・バックエンド双方）
+- **追記（Task 97 の是正、2026-09-15。上の各項は REQ-46・REQ-47 の範囲の記録として残す）**: 数量表インポート（REQ-27〜34）は estimate-request スペックの部品に依存する。本節の冒頭は REQ-1〜45 の境界を再定義しないと書くが、機能レベル検証がこの依存の宣言の欠落を検出したため、ここへ記す
+  - `frontend/src/components/estimate-requests/FileInlinePreview.tsx`（取り込みダイアログのインラインプレビュー）。**下流の本スペックが既定値つきの任意 props を2つ足した**——`showPageNavigationForSinglePage`（タスク 96.2、既定 false）と `resizeStorageKey`（タスク 97.9、既定は受領見積書登録のキー）。取り込みダイアログだけが既定と異なる値を渡す
+  - `frontend/src/components/estimate-requests/pdf-text-extractor.ts` の `extractPdfHybrid` と `renderPdfPagesToBase64`（取り込みの PDF 経路）。**このうち `extractPdfHybrid`（と内部の `extractPdfWithOcrFallback`）に、下流の本スペックが任意の3番目の引数 `options.signal` を足した**（タスク 97.8、省略時は従来どおり。`renderPdfPagesToBase64` は変えていない）
+  - 既定値・省略時に estimate-request 側の挙動が変わらないことは、タスク 96.2・97.9 が estimate-request の E2E の再走で、タスク 97.8 が全単体スイートの再走で確かめた（97.8 は estimate-request の E2E を再走していない）。**estimate-request の設計文書への記録は同スペックの Task 94.1 として起票した**（下流は同スペックの文書を書き換えていない）
 
 ### Revalidation Triggers
 

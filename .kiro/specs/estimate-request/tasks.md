@@ -2205,3 +2205,14 @@
   - **本節が `_Requirements:` を持たないのは意図である。** 本節は消化の道筋を決める起票であり、`6.9` / `39.9` を `_Requirements:` に挙げると「当該受入基準を本タスクが被覆した」という偽の申告になる。**当該受入基準が偽の被覆に数えられていることこそが本節の対象である**ため、同じ形を本節が繰り返してはならない。依存と境界だけを書く
   - _Depends: site-survey スペックの Task 115.240（持ち越しの走査と申し送り）_
   - _Boundary: 本スペックの設計文書に残る持ち越し R-39-1 と、その受入基準を名乗る E2E・除外一覧の整合_
+
+## Task 94: 下流が転用のために足した共有部品の任意 props と引数が設計文書に記されていない状態を解消する
+
+**経緯**: quantity-table-generation の機能レベル検証（`/kiro-validate-impl`、2026-09-15）が、同スペックの取り込みダイアログが本スペックの部品を転用するにあたり、本スペックの部品へ既定値つきの任意の差し替え口を足したにもかかわらず、**本スペックの設計文書にも再検証の記録にも反映されていない**ことを検出した。下流は本スペックの文書を書き換えていない。`FileInlinePreview` の2つの props は、既定値で本スペックの挙動が変わらないことを、下流の Task 96.2 / 97.9 の検証が本スペックの E2E の再走で確かめている（96.2 は `FileInlinePreview` を描く E2E 12本、97.9 は `preview-resize-e2e` / `pdf-zoom-control-e2e` / `received-quotation-dialog-improvements-e2e`）。`pdf-text-extractor` の `options` 引数（Task 97.8）は単体検証（対象3ディレクトリ 24ファイル / 607件と全単体スイート）だけで確かめており、本スペックの E2E は再走していない。
+
+- [ ] 94.1 `FileInlinePreview` と `pdf-text-extractor` に下流が足した任意の差し替え口を、設計文書へ記録するかを決める（**quantity-table-generation の機能レベル検証からの起票依頼**）
+  - **実測（コミット `c3ded654`、2026-09-15、リポジトリルート）**:
+    - `frontend/src/components/estimate-requests/FileInlinePreview.tsx` の `FileInlinePreviewProps` に、下流の Task 96.2 が `showPageNavigationForSinglePage?: boolean`（既定 false。総ページ数1の PDF でもページナビゲーションを出すか。本スペックの「1ページなら出さない」の決まりは既定で維持）を、Task 97.9 が `resizeStorageKey?: string`（既定は `architrack:received-quotation:preview-height`。下流の取り込みダイアログは `architrack:quantity-table-import:preview-height` を渡す）を足した。本スペックの design.md の `interface FileInlinePreviewProps`（`:1434`）はどちらも記していない
+    - `frontend/src/components/estimate-requests/pdf-text-extractor.ts` の `extractPdfHybrid` / `extractPdfWithOcrFallback` に、下流の Task 97.8 が任意の3番目の引数 `options: { signal?: AbortSignal }` を足した（中断されると工程の区切りと認識の待ちで打ち切り、Tesseract の worker を終了して `AbortError` で失敗する）。本スペックの `OcrDataExtractor.tsx` はシグナルを渡さず、時間切れ後も OCR が裏で完走しうる挙動は従来どおり
+  - **依頼**: 上記の差し替え口を本スペックの設計文書（`FileInlinePreviewProps` と `pdf-text-extractor` の項）へ規約 (a) の形で記録するか、下流の利用者として別の形で記すかを決めること。あわせて、これらの部品を変更するときに下流の取り込みダイアログの再検証が要ることを、本スペックの再検証の契機として記すかを決めること
+  - _Boundary: 本スペックの設計文書が `FileInlinePreview` と `pdf-text-extractor` の公開面を記す箇所_
