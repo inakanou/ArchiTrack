@@ -7,16 +7,24 @@
  * - 2.1: 数量表一覧画面で新規作成操作を行う
  * - 2.3: プロジェクトに紐づく全ての数量表を作成日時順に一覧表示する
  * - 2.4: 数量表を選択して削除操作を行う
- * - 2.5: 数量表名を編集する
+ * - 2.5: 一覧画面で数量表名を編集し、変更を即座に保存する
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { getQuantityTables, deleteQuantityTable } from '../api/quantity-tables';
+import {
+  getQuantityTables,
+  deleteQuantityTable,
+  updateQuantityTable,
+} from '../api/quantity-tables';
+import { ApiError } from '../api/client';
 import { getProject } from '../api/projects';
 import type { QuantityTableInfo, PaginatedQuantityTables } from '../types/quantity-table.types';
 import { Breadcrumb } from '../components/common';
 import CopyQuantityTableDialog from '../components/quantity-table/CopyQuantityTableDialog';
+
+/** 数量表名の最大文字数（backend の updateQuantityTableSchema と同じ上限） */
+const QUANTITY_TABLE_NAME_MAX_LENGTH = 200;
 
 // ============================================================================
 // スタイル定義
@@ -100,9 +108,48 @@ const styles = {
     color: '#6b7280',
     flexShrink: 0,
   } as React.CSSProperties,
+  cardMain: {
+    display: 'flex',
+    gap: '16px',
+    flex: 1,
+    minWidth: 0,
+    textDecoration: 'none',
+    color: 'inherit',
+  } as React.CSSProperties,
   tableInfo: {
     flex: 1,
     minWidth: 0,
+  } as React.CSSProperties,
+  tableNameInput: {
+    width: '100%',
+    boxSizing: 'border-box' as const,
+    fontSize: '16px',
+    fontWeight: 600,
+    color: '#1f2937',
+    padding: '4px 8px',
+    marginBottom: '4px',
+    border: '1px solid #2563eb',
+    borderRadius: '4px',
+    outline: 'none',
+  } as React.CSSProperties,
+  tableNameError: {
+    fontSize: '12px',
+    color: '#dc2626',
+    margin: 0,
+    marginBottom: '4px',
+  } as React.CSSProperties,
+  editNameButton: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '36px',
+    height: '36px',
+    border: 'none',
+    borderRadius: '6px',
+    backgroundColor: '#f3f4f6',
+    color: '#374151',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
   } as React.CSSProperties,
   tableName: {
     fontSize: '16px',
@@ -340,6 +387,27 @@ function CopyIcon() {
 }
 
 /**
+ * 鉛筆アイコン（名前の編集）
+ */
+function PencilIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+    </svg>
+  );
+}
+
+/**
  * ゴミ箱アイコン
  */
 function TrashIcon() {
@@ -385,11 +453,105 @@ function TableCard({
   table,
   onDelete,
   onCopy,
+  onRename,
 }: {
   table: QuantityTableInfo;
   onDelete: (id: string) => void;
   onCopy: (table: QuantityTableInfo) => void;
+  onRename: (table: QuantityTableInfo, name: string) => Promise<void>;
 }) {
+  // 数量表名のインライン編集（REQ-2.5: 一覧画面では確定と同時に保存する）
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editNameValue, setEditNameValue] = useState(table.name);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [isSavingName, setIsSavingName] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  // 確定・取り消しで入力欄が消えた後の blur や、保存中の再確定を退けるための同期的な印
+  const isEditingNameRef = useRef(false);
+  const isSavingNameRef = useRef(false);
+  const isNameComposingRef = useRef(false);
+  const nameErrorId = `quantity-table-name-error-${table.id}`;
+
+  useEffect(() => {
+    if (isEditingName && nameInputRef.current) {
+      nameInputRef.current.focus();
+      nameInputRef.current.select();
+    }
+  }, [isEditingName]);
+
+  const finishNameEditing = () => {
+    isEditingNameRef.current = false;
+    setIsEditingName(false);
+    setNameError(null);
+  };
+
+  const handleEditNameClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    isEditingNameRef.current = true;
+    setEditNameValue(table.name);
+    setNameError(null);
+    setIsEditingName(true);
+  };
+
+  const confirmName = async () => {
+    if (!isEditingNameRef.current || isSavingNameRef.current) return;
+
+    const trimmed = editNameValue.trim();
+    if (!trimmed) {
+      setNameError('数量表名を入力してください');
+      return;
+    }
+    if (trimmed.length > QUANTITY_TABLE_NAME_MAX_LENGTH) {
+      setNameError(`数量表名は${QUANTITY_TABLE_NAME_MAX_LENGTH}文字以内で入力してください`);
+      return;
+    }
+    if (trimmed === table.name) {
+      finishNameEditing();
+      return;
+    }
+
+    isSavingNameRef.current = true;
+    setIsSavingName(true);
+    setNameError(null);
+    try {
+      await onRename(table, trimmed);
+      finishNameEditing();
+    } catch (error) {
+      setNameError(
+        error instanceof ApiError && error.statusCode === 409
+          ? '他のユーザーによって更新されました。ページを再読み込みして最新データを確認してください。'
+          : '数量表名の保存に失敗しました'
+      );
+    } finally {
+      isSavingNameRef.current = false;
+      setIsSavingName(false);
+    }
+  };
+
+  const handleNameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // 日本語入力の変換中の Enter / Escape は IME の操作であり、確定・取り消しではない
+    const nativeEvent = e.nativeEvent as KeyboardEvent;
+    if (
+      isNameComposingRef.current ||
+      nativeEvent.isComposing === true ||
+      e.keyCode === 229 ||
+      nativeEvent.keyCode === 229
+    ) {
+      return;
+    }
+
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      void confirmName();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      if (isSavingNameRef.current) return;
+      setEditNameValue(table.name);
+      finishNameEditing();
+    }
+  };
+
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -402,24 +564,77 @@ function TableCard({
     onCopy(table);
   };
 
+  const tableMeta = (
+    <p style={styles.tableMeta}>
+      作成: {formatDate(table.createdAt)} / {table.groupCount}グループ / {table.itemCount}項目
+    </p>
+  );
+
   return (
     <div style={styles.tableCard}>
-      <Link
-        to={`/projects/${table.projectId}/quantity-tables/${table.id}`}
-        style={{ display: 'flex', gap: '16px', flex: 1, textDecoration: 'none', color: 'inherit' }}
-        aria-label={`${table.name}の数量表詳細を見る`}
-      >
-        <div style={styles.iconWrapper}>
-          <QuantityTableIcon size={28} />
+      {isEditingName ? (
+        // 編集中は詳細画面へのリンクで包まない（入力欄の操作で遷移させないため）
+        <div style={styles.cardMain}>
+          <div style={styles.iconWrapper}>
+            <QuantityTableIcon size={28} />
+          </div>
+          <div style={styles.tableInfo}>
+            <input
+              ref={nameInputRef}
+              type="text"
+              value={editNameValue}
+              onChange={(e) => setEditNameValue(e.target.value)}
+              onCompositionStart={() => {
+                isNameComposingRef.current = true;
+              }}
+              onCompositionEnd={() => {
+                isNameComposingRef.current = false;
+              }}
+              onKeyDown={handleNameKeyDown}
+              onBlur={() => {
+                void confirmName();
+              }}
+              readOnly={isSavingName}
+              aria-label="数量表名を編集"
+              aria-invalid={nameError ? true : undefined}
+              aria-describedby={nameError ? nameErrorId : undefined}
+              style={styles.tableNameInput}
+            />
+            {nameError && (
+              <p id={nameErrorId} role="alert" style={styles.tableNameError}>
+                {nameError}
+              </p>
+            )}
+            {tableMeta}
+          </div>
         </div>
-        <div style={styles.tableInfo}>
-          <h2 style={styles.tableName}>{table.name}</h2>
-          <p style={styles.tableMeta}>
-            作成: {formatDate(table.createdAt)} / {table.groupCount}グループ / {table.itemCount}項目
-          </p>
-        </div>
-      </Link>
+      ) : (
+        <Link
+          to={`/projects/${table.projectId}/quantity-tables/${table.id}`}
+          style={styles.cardMain}
+          aria-label={`${table.name}の数量表詳細を見る`}
+        >
+          <div style={styles.iconWrapper}>
+            <QuantityTableIcon size={28} />
+          </div>
+          <div style={styles.tableInfo}>
+            <h2 style={styles.tableName}>{table.name}</h2>
+            {tableMeta}
+          </div>
+        </Link>
+      )}
       <div style={styles.cardActions}>
+        {!isEditingName && (
+          <button
+            type="button"
+            style={styles.editNameButton}
+            onClick={handleEditNameClick}
+            aria-label="名前を編集"
+            title="名前を編集"
+          >
+            <PencilIcon />
+          </button>
+        )}
         <button
           type="button"
           style={styles.copyButton}
@@ -545,6 +760,24 @@ export default function QuantityTableListPage() {
   }, []);
 
   /**
+   * 数量表名を即座に保存する（REQ-2.5）
+   *
+   * 一覧画面の名称変更は保存操作を待たずに PUT /api/quantity-tables/:id で永続化する。
+   * 楽観的排他制御には一覧が保持する更新日時を用い、成功時は応答で行を置き換えて
+   * 次の保存が最新の更新日時を用いるようにする。失敗は呼び出し側（カード）が表示する。
+   */
+  const handleRename = useCallback(async (table: QuantityTableInfo, name: string) => {
+    const updated = await updateQuantityTable(table.id, { name }, table.updatedAt);
+    setData((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        data: prev.data.map((t) => (t.id === updated.id ? { ...t, ...updated } : t)),
+      };
+    });
+  }, []);
+
+  /**
    * コピーダイアログを開く
    */
   const handleCopyClick = useCallback((table: QuantityTableInfo) => {
@@ -652,6 +885,7 @@ export default function QuantityTableListPage() {
               table={table}
               onDelete={handleDeleteClick}
               onCopy={handleCopyClick}
+              onRename={handleRename}
             />
           ))}
         </div>

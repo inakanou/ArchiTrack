@@ -9,14 +9,15 @@
  * - 2.1: 数量表一覧画面で新規作成操作を行う
  * - 2.3: プロジェクトに紐づく全ての数量表を作成日時順に一覧表示する
  * - 2.4: 数量表を選択して削除操作を行う
- * - 2.5: 数量表名を編集する
+ * - 2.5: 一覧画面で数量表名を編集し、変更を即座に保存する
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import QuantityTableListPage from './QuantityTableListPage';
 import * as quantityTablesApi from '../api/quantity-tables';
+import { ApiError } from '../api/client';
 import * as projectsApi from '../api/projects';
 
 // APIモック
@@ -513,6 +514,287 @@ describe('QuantityTableListPage', () => {
       await waitFor(() => {
         expect(quantityTablesApi.getQuantityTables).toHaveBeenCalledTimes(2);
         expect(screen.getByText('第1回見積数量表')).toBeInTheDocument();
+      });
+    });
+  });
+
+  /**
+   * 一覧画面での数量表名の編集と即時保存
+   *
+   * Requirements (quantity-table-generation):
+   * @requirement quantity-table-generation/REQ-2.5
+   *
+   * 一覧画面で名称を確定した時点で PUT /api/quantity-tables/:id を1回発行し、
+   * 保存操作（保存ボタン）を待たずに永続化する。編集画面の明示保存（Requirement 42）は
+   * 編集画面の規定であり、一覧画面には及ばない。
+   */
+  describe('数量表名の編集 (Requirements: 2.5)', () => {
+    const renamedTable = {
+      ...mockQuantityTables.data[0]!,
+      name: '改名後の数量表',
+      updatedAt: '2024-06-01T00:00:00.000Z',
+    };
+
+    const setup = async () => {
+      const { userEvent } = await import('@testing-library/user-event');
+      const user = userEvent.setup();
+      vi.mocked(quantityTablesApi.getQuantityTables).mockResolvedValue(mockQuantityTables);
+      renderWithRouter();
+      await waitFor(() => {
+        expect(screen.getByText('第1回見積数量表')).toBeInTheDocument();
+      });
+      return user;
+    };
+
+    const openEditorForFirstCard = async (user: Awaited<ReturnType<typeof setup>>) => {
+      const editButtons = screen.getAllByRole('button', { name: '名前を編集' });
+      await user.click(editButtons[0]!);
+      return screen.getByRole('textbox', { name: '数量表名を編集' });
+    };
+
+    it('各数量表カードに名前の編集ボタンが表示される', async () => {
+      await setup();
+
+      expect(screen.getAllByRole('button', { name: '名前を編集' })).toHaveLength(2);
+    });
+
+    it('編集ボタンを押すと現在の名前を持つ入力欄がフォーカスされて表示される', async () => {
+      const user = await setup();
+
+      const input = await openEditorForFirstCard(user);
+
+      expect(input).toHaveValue('第1回見積数量表');
+      expect(input).toHaveFocus();
+    });
+
+    it('Enterで確定すると即座に更新APIを呼び、一覧の名前が変わる', async () => {
+      const user = await setup();
+      vi.mocked(quantityTablesApi.updateQuantityTable).mockResolvedValue(renamedTable);
+
+      const input = await openEditorForFirstCard(user);
+      await user.clear(input);
+      await user.type(input, '改名後の数量表{Enter}');
+
+      await waitFor(() => {
+        expect(screen.getByText('改名後の数量表')).toBeInTheDocument();
+      });
+      expect(quantityTablesApi.updateQuantityTable).toHaveBeenCalledTimes(1);
+      expect(quantityTablesApi.updateQuantityTable).toHaveBeenCalledWith(
+        'table-1',
+        { name: '改名後の数量表' },
+        '2024-05-15T00:00:00.000Z'
+      );
+      expect(screen.queryByRole('textbox', { name: '数量表名を編集' })).not.toBeInTheDocument();
+      expect(screen.queryByText('第1回見積数量表')).not.toBeInTheDocument();
+      // 保存操作を待つ導線（保存ボタン）は一覧画面に存在しない
+      expect(screen.queryByRole('button', { name: /^保存$/ })).not.toBeInTheDocument();
+    });
+
+    it('フォーカスを外すと即座に保存する', async () => {
+      const user = await setup();
+      vi.mocked(quantityTablesApi.updateQuantityTable).mockResolvedValue(renamedTable);
+
+      const input = await openEditorForFirstCard(user);
+      await user.clear(input);
+      await user.type(input, '改名後の数量表');
+      await user.tab();
+
+      await waitFor(() => {
+        expect(screen.getByText('改名後の数量表')).toBeInTheDocument();
+      });
+      expect(quantityTablesApi.updateQuantityTable).toHaveBeenCalledWith(
+        'table-1',
+        { name: '改名後の数量表' },
+        '2024-05-15T00:00:00.000Z'
+      );
+    });
+
+    it('前後の空白を除いた名前を送信する', async () => {
+      const user = await setup();
+      vi.mocked(quantityTablesApi.updateQuantityTable).mockResolvedValue(renamedTable);
+
+      const input = await openEditorForFirstCard(user);
+      await user.clear(input);
+      await user.type(input, '  改名後の数量表  {Enter}');
+
+      await waitFor(() => {
+        expect(quantityTablesApi.updateQuantityTable).toHaveBeenCalledWith(
+          'table-1',
+          { name: '改名後の数量表' },
+          '2024-05-15T00:00:00.000Z'
+        );
+      });
+    });
+
+    it('Enterの確定に続いてフォーカスが外れても、保存は1回だけ行う', async () => {
+      const user = await setup();
+      let resolveUpdate: (value: typeof renamedTable) => void = () => {};
+      vi.mocked(quantityTablesApi.updateQuantityTable).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveUpdate = resolve;
+          })
+      );
+
+      const input = await openEditorForFirstCard(user);
+      await user.clear(input);
+      await user.type(input, '改名後の数量表{Enter}');
+      await user.tab();
+      resolveUpdate(renamedTable);
+
+      await waitFor(() => {
+        expect(screen.getByText('改名後の数量表')).toBeInTheDocument();
+      });
+      expect(quantityTablesApi.updateQuantityTable).toHaveBeenCalledTimes(1);
+    });
+
+    it('Escapeで取り消すと更新APIを呼ばず元の名前に戻る', async () => {
+      const user = await setup();
+
+      const input = await openEditorForFirstCard(user);
+      await user.clear(input);
+      await user.type(input, '取り消す名前{Escape}');
+
+      expect(screen.queryByRole('textbox', { name: '数量表名を編集' })).not.toBeInTheDocument();
+      expect(screen.getByText('第1回見積数量表')).toBeInTheDocument();
+      expect(quantityTablesApi.updateQuantityTable).not.toHaveBeenCalled();
+    });
+
+    it('名前を変えずに確定した場合は更新APIを呼ばない', async () => {
+      const user = await setup();
+
+      const input = await openEditorForFirstCard(user);
+      await user.type(input, '{Enter}');
+
+      expect(screen.queryByRole('textbox', { name: '数量表名を編集' })).not.toBeInTheDocument();
+      expect(quantityTablesApi.updateQuantityTable).not.toHaveBeenCalled();
+    });
+
+    it('空の名前では確定せずエラーを表示する', async () => {
+      const user = await setup();
+
+      const input = await openEditorForFirstCard(user);
+      await user.clear(input);
+      await user.type(input, '   {Enter}');
+
+      expect(screen.getByRole('alert')).toHaveTextContent('数量表名を入力してください');
+      expect(screen.getByRole('textbox', { name: '数量表名を編集' })).toBeInTheDocument();
+      expect(quantityTablesApi.updateQuantityTable).not.toHaveBeenCalled();
+    });
+
+    it('200文字を超える名前では確定せずエラーを表示する', async () => {
+      const user = await setup();
+
+      const input = await openEditorForFirstCard(user);
+      await user.clear(input);
+      await user.click(input);
+      await user.paste('あ'.repeat(201));
+      await user.keyboard('{Enter}');
+
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        '数量表名は200文字以内で入力してください'
+      );
+      expect(quantityTablesApi.updateQuantityTable).not.toHaveBeenCalled();
+    });
+
+    it('200文字の名前は保存する', async () => {
+      const user = await setup();
+      vi.mocked(quantityTablesApi.updateQuantityTable).mockResolvedValue({
+        ...renamedTable,
+        name: 'あ'.repeat(200),
+      });
+
+      const input = await openEditorForFirstCard(user);
+      await user.clear(input);
+      await user.click(input);
+      await user.paste('あ'.repeat(200));
+      await user.keyboard('{Enter}');
+
+      await waitFor(() => {
+        expect(quantityTablesApi.updateQuantityTable).toHaveBeenCalledWith(
+          'table-1',
+          { name: 'あ'.repeat(200) },
+          '2024-05-15T00:00:00.000Z'
+        );
+      });
+    });
+
+    it('日本語入力の変換中のEnterでは保存しない', async () => {
+      const user = await setup();
+      vi.mocked(quantityTablesApi.updateQuantityTable).mockResolvedValue(renamedTable);
+
+      const input = await openEditorForFirstCard(user);
+      fireEvent.compositionStart(input);
+      fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 });
+
+      expect(quantityTablesApi.updateQuantityTable).not.toHaveBeenCalled();
+      expect(screen.getByRole('textbox', { name: '数量表名を編集' })).toBeInTheDocument();
+    });
+
+    it('競合（409）で失敗した場合は競合メッセージを表示し、入力を保持する', async () => {
+      const user = await setup();
+      vi.mocked(quantityTablesApi.updateQuantityTable).mockRejectedValue(
+        new ApiError(409, 'Conflict')
+      );
+
+      const input = await openEditorForFirstCard(user);
+      await user.clear(input);
+      await user.type(input, '改名後の数量表{Enter}');
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          '他のユーザーによって更新されました。ページを再読み込みして最新データを確認してください。'
+        );
+      });
+      expect(screen.getByRole('textbox', { name: '数量表名を編集' })).toHaveValue('改名後の数量表');
+      // 一覧そのものは失われない
+      expect(screen.getByText('第2回見積数量表')).toBeInTheDocument();
+    });
+
+    it('その他のエラーで失敗した場合は保存失敗のメッセージを表示し、入力を保持する', async () => {
+      const user = await setup();
+      vi.mocked(quantityTablesApi.updateQuantityTable).mockRejectedValue(
+        new ApiError(500, 'Internal Server Error')
+      );
+
+      const input = await openEditorForFirstCard(user);
+      await user.clear(input);
+      await user.type(input, '改名後の数量表{Enter}');
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toHaveTextContent('数量表名の保存に失敗しました');
+      });
+      expect(screen.getByRole('textbox', { name: '数量表名を編集' })).toHaveValue('改名後の数量表');
+      expect(screen.getByText('第2回見積数量表')).toBeInTheDocument();
+    });
+
+    it('保存後の更新日時を次の保存の楽観ロックに用いる', async () => {
+      const user = await setup();
+      vi.mocked(quantityTablesApi.updateQuantityTable)
+        .mockResolvedValueOnce(renamedTable)
+        .mockResolvedValueOnce({
+          ...renamedTable,
+          name: '再改名',
+          updatedAt: '2024-06-02T00:00:00.000Z',
+        });
+
+      let input = await openEditorForFirstCard(user);
+      await user.clear(input);
+      await user.type(input, '改名後の数量表{Enter}');
+      await waitFor(() => {
+        expect(screen.getByText('改名後の数量表')).toBeInTheDocument();
+      });
+
+      input = await openEditorForFirstCard(user);
+      await user.clear(input);
+      await user.type(input, '再改名{Enter}');
+
+      await waitFor(() => {
+        expect(quantityTablesApi.updateQuantityTable).toHaveBeenLastCalledWith(
+          'table-1',
+          { name: '再改名' },
+          '2024-06-01T00:00:00.000Z'
+        );
       });
     });
   });
