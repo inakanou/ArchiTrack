@@ -22,6 +22,7 @@ import type {
 import { useImportDataExtractor } from './useImportDataExtractor';
 import { autoDetectFieldMapping, convertToQuantityItems } from './field-mapping';
 import { ImportPreviewTable } from './ImportPreviewTable';
+import { FileInlinePreview } from '../estimate-requests/FileInlinePreview';
 
 // ============================================================================
 // 許可するファイル拡張子
@@ -32,6 +33,28 @@ const ACCEPTED_FILE_INPUT = '.xlsx,.xls,.pdf';
 function isAcceptedFile(file: File): boolean {
   const name = file.name.toLowerCase();
   return ACCEPTED_EXTENSIONS.some((ext) => name.endsWith(ext));
+}
+
+/**
+ * 拡張子ごとのプレビュー用 MIME 型。
+ * 受け付けの判定は拡張子で行うため、プレビューの種別も拡張子から決める
+ * （ブラウザや OS によっては .xls の MIME 型が空や別の値で報告される）。
+ */
+const PREVIEW_MIME_TYPE_BY_EXTENSION: ReadonlyArray<readonly [string, string]> = [
+  ['.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+  ['.xls', 'application/vnd.ms-excel'],
+  ['.pdf', 'application/pdf'],
+];
+
+/**
+ * インラインプレビューへ渡すファイルを返す（REQ-34.2 / 34.3）。
+ * MIME 型が拡張子と食い違う場合だけ、同じ内容で MIME 型を揃えたファイルを作る。
+ */
+function toPreviewFile(file: File): File {
+  const name = file.name.toLowerCase();
+  const entry = PREVIEW_MIME_TYPE_BY_EXTENSION.find(([ext]) => name.endsWith(ext));
+  if (!entry || file.type === entry[1]) return file;
+  return new File([file], file.name, { type: entry[1], lastModified: file.lastModified });
 }
 
 // ============================================================================
@@ -67,6 +90,9 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
 
+  // インラインプレビューの対象ファイル（REQ-34.1）
+  const [previewFile, setPreviewFile] = useState<File | null>(null);
+
   // ドラッグ&ドロップ
   const [isDragging, setIsDragging] = useState(false);
 
@@ -97,6 +123,7 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
         return;
       }
 
+      setPreviewFile(toPreviewFile(file));
       extractor.reset();
       extractor.startExtraction(file);
     },
@@ -208,7 +235,7 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
           backgroundColor: '#fff',
           borderRadius: '8px',
           width: '90%',
-          maxWidth: '1000px',
+          maxWidth: '1400px',
           maxHeight: '90vh',
           overflow: 'auto',
           padding: '24px',
@@ -297,214 +324,235 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
           </div>
         )}
 
-        {/* 処理中インジケーター */}
-        {isProcessing && (
-          <div style={{ marginBottom: '16px' }}>
-            <div
-              role="progressbar"
-              aria-valuenow={extractor.progress}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              style={{
-                width: '100%',
-                height: '8px',
-                backgroundColor: '#e5e7eb',
-                borderRadius: '4px',
-                overflow: 'hidden',
-              }}
-            >
-              <div
-                style={{
-                  width: `${extractor.progress}%`,
-                  height: '100%',
-                  backgroundColor: '#2563eb',
-                  transition: 'width 0.3s',
-                }}
-              />
-            </div>
-            <p style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
-              {extractor.progressMessage}
-            </p>
-          </div>
-        )}
+        {/* インラインプレビュー（左）と抽出結果（右）を同じ行に並べる（REQ-34.5） */}
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '16px',
+            alignItems: 'flex-start',
+          }}
+        >
+          {previewFile && (
+            <section aria-label="ファイルプレビュー" style={{ flex: '1 1 360px', minWidth: 0 }}>
+              <FileInlinePreview file={previewFile} showPageNavigationForSinglePage />
+            </section>
+          )}
 
-        {/* エラー表示とリトライ */}
-        {extractor.status === 'error' && extractor.error && (
-          <div
-            role="alert"
-            style={{
-              padding: '12px',
-              marginBottom: '16px',
-              backgroundColor: '#fef2f2',
-              border: '1px solid #ef4444',
-              borderRadius: '4px',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}
+          <section
+            aria-label="抽出結果"
+            style={{ flex: '1 1 360px', minWidth: 0, overflowX: 'auto' }}
           >
-            <span style={{ color: '#991b1b', fontSize: '13px' }}>{extractor.error}</span>
-            <button
-              type="button"
-              onClick={extractor.retry}
-              aria-label="リトライ"
-              style={{
-                padding: '4px 12px',
-                fontSize: '13px',
-                backgroundColor: '#ef4444',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-              }}
-            >
-              リトライ
-            </button>
-          </div>
-        )}
-
-        {/* 抽出結果プレビュー */}
-        {extractor.status === 'completed' && extractor.result && fieldMapping && (
-          <div>
-            {/* 抽出結果のテキストデータ（REQ-29.7 / 29.8） */}
-            {extractor.result.extractedText !== undefined && (
-              <section aria-labelledby="quantity-import-extracted-text-title">
-                <h3
-                  id="quantity-import-extracted-text-title"
-                  style={{ fontSize: '14px', fontWeight: 'bold', margin: '0 0 8px' }}
-                >
-                  抽出テキスト
-                </h3>
-                <pre
-                  data-testid="import-extracted-text"
+            {/* 処理中インジケーター */}
+            {isProcessing && (
+              <div style={{ marginBottom: '16px' }}>
+                <div
+                  role="progressbar"
+                  aria-valuenow={extractor.progress}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
                   style={{
-                    margin: '0 0 16px',
-                    padding: '12px 16px',
-                    maxHeight: '200px',
-                    overflow: 'auto',
-                    backgroundColor: '#f9fafb',
-                    border: '1px solid #e5e7eb',
+                    width: '100%',
+                    height: '8px',
+                    backgroundColor: '#e5e7eb',
                     borderRadius: '4px',
-                    whiteSpace: 'pre-wrap',
-                    fontFamily: 'monospace',
-                    fontSize: '13px',
-                    color: '#374151',
-                    lineHeight: '1.6',
-                    userSelect: 'text',
-                    WebkitUserSelect: 'text',
-                    cursor: 'text',
+                    overflow: 'hidden',
                   }}
                 >
-                  {extractor.result.extractedText}
-                </pre>
-              </section>
-            )}
-
-            <ImportPreviewTable
-              extractionResult={extractor.result}
-              fieldMapping={fieldMapping}
-              onFieldMappingChange={handleFieldMappingChange}
-            />
-
-            {/* 取り込みメッセージ */}
-            {importMessage && (
-              <div
-                style={{
-                  padding: '8px 12px',
-                  marginTop: '12px',
-                  backgroundColor: '#f0fdf4',
-                  border: '1px solid #22c55e',
-                  borderRadius: '4px',
-                  color: '#166534',
-                  fontSize: '13px',
-                }}
-              >
-                {importMessage}
+                  <div
+                    style={{
+                      width: `${extractor.progress}%`,
+                      height: '100%',
+                      backgroundColor: '#2563eb',
+                      transition: 'width 0.3s',
+                    }}
+                  />
+                </div>
+                <p style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
+                  {extractor.progressMessage}
+                </p>
               </div>
             )}
 
-            {/* 一括取り込みボタン */}
-            {!showGroupSelector && !importMessage && (
-              <div style={{ marginTop: '16px', textAlign: 'right' }}>
+            {/* エラー表示とリトライ */}
+            {extractor.status === 'error' && extractor.error && (
+              <div
+                role="alert"
+                style={{
+                  padding: '12px',
+                  marginBottom: '16px',
+                  backgroundColor: '#fef2f2',
+                  border: '1px solid #ef4444',
+                  borderRadius: '4px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <span style={{ color: '#991b1b', fontSize: '13px' }}>{extractor.error}</span>
                 <button
                   type="button"
-                  onClick={handleBulkImportClick}
-                  aria-label="一括取り込み"
-                  disabled={isImporting}
+                  onClick={extractor.retry}
+                  aria-label="リトライ"
                   style={{
-                    padding: '8px 20px',
-                    fontSize: '14px',
-                    fontWeight: 'bold',
-                    backgroundColor: '#2563eb',
+                    padding: '4px 12px',
+                    fontSize: '13px',
+                    backgroundColor: '#ef4444',
                     color: '#fff',
                     border: 'none',
-                    borderRadius: '6px',
+                    borderRadius: '4px',
                     cursor: 'pointer',
                   }}
                 >
-                  一括取り込み
+                  リトライ
                 </button>
               </div>
             )}
 
-            {/* グループ選択UI */}
-            {showGroupSelector && (
-              <div
-                style={{
-                  marginTop: '16px',
-                  padding: '16px',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '8px',
-                  backgroundColor: '#f9fafb',
-                }}
-              >
-                <h3 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px' }}>
-                  取り込み先グループを選択
-                </h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {groups.map((group) => (
-                    <button
-                      key={group.id}
-                      type="button"
-                      onClick={() => handleGroupSelect(group.id)}
-                      disabled={isImporting}
+            {/* 抽出結果プレビュー */}
+            {extractor.status === 'completed' && extractor.result && fieldMapping && (
+              <div>
+                {/* 抽出結果のテキストデータ（REQ-29.7 / 29.8） */}
+                {extractor.result.extractedText !== undefined && (
+                  <section aria-labelledby="quantity-import-extracted-text-title">
+                    <h3
+                      id="quantity-import-extracted-text-title"
+                      style={{ fontSize: '14px', fontWeight: 'bold', margin: '0 0 8px' }}
+                    >
+                      抽出テキスト
+                    </h3>
+                    <pre
+                      data-testid="import-extracted-text"
                       style={{
-                        padding: '10px 16px',
-                        fontSize: '14px',
-                        backgroundColor: '#fff',
-                        border: '1px solid #d1d5db',
-                        borderRadius: '6px',
-                        cursor: isImporting ? 'wait' : 'pointer',
-                        textAlign: 'left',
+                        margin: '0 0 16px',
+                        padding: '12px 16px',
+                        maxHeight: '200px',
+                        overflow: 'auto',
+                        backgroundColor: '#f9fafb',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '4px',
+                        whiteSpace: 'pre-wrap',
+                        fontFamily: 'monospace',
+                        fontSize: '13px',
+                        color: '#374151',
+                        lineHeight: '1.6',
+                        userSelect: 'text',
+                        WebkitUserSelect: 'text',
+                        cursor: 'text',
                       }}
                     >
-                      {group.name || `グループ ${group.displayOrder}`}
-                      <span style={{ color: '#9ca3af', marginLeft: '8px', fontSize: '12px' }}>
-                        ({group.itemCount}項目)
-                      </span>
+                      {extractor.result.extractedText}
+                    </pre>
+                  </section>
+                )}
+
+                <ImportPreviewTable
+                  extractionResult={extractor.result}
+                  fieldMapping={fieldMapping}
+                  onFieldMappingChange={handleFieldMappingChange}
+                />
+
+                {/* 取り込みメッセージ */}
+                {importMessage && (
+                  <div
+                    style={{
+                      padding: '8px 12px',
+                      marginTop: '12px',
+                      backgroundColor: '#f0fdf4',
+                      border: '1px solid #22c55e',
+                      borderRadius: '4px',
+                      color: '#166534',
+                      fontSize: '13px',
+                    }}
+                  >
+                    {importMessage}
+                  </div>
+                )}
+
+                {/* 一括取り込みボタン */}
+                {!showGroupSelector && !importMessage && (
+                  <div style={{ marginTop: '16px', textAlign: 'right' }}>
+                    <button
+                      type="button"
+                      onClick={handleBulkImportClick}
+                      aria-label="一括取り込み"
+                      disabled={isImporting}
+                      style={{
+                        padding: '8px 20px',
+                        fontSize: '14px',
+                        fontWeight: 'bold',
+                        backgroundColor: '#2563eb',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      一括取り込み
                     </button>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowGroupSelector(false)}
-                  style={{
-                    marginTop: '12px',
-                    padding: '6px 12px',
-                    fontSize: '13px',
-                    backgroundColor: 'transparent',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    color: '#6b7280',
-                  }}
-                >
-                  キャンセル
-                </button>
+                  </div>
+                )}
+
+                {/* グループ選択UI */}
+                {showGroupSelector && (
+                  <div
+                    style={{
+                      marginTop: '16px',
+                      padding: '16px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '8px',
+                      backgroundColor: '#f9fafb',
+                    }}
+                  >
+                    <h3 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px' }}>
+                      取り込み先グループを選択
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {groups.map((group) => (
+                        <button
+                          key={group.id}
+                          type="button"
+                          onClick={() => handleGroupSelect(group.id)}
+                          disabled={isImporting}
+                          style={{
+                            padding: '10px 16px',
+                            fontSize: '14px',
+                            backgroundColor: '#fff',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '6px',
+                            cursor: isImporting ? 'wait' : 'pointer',
+                            textAlign: 'left',
+                          }}
+                        >
+                          {group.name || `グループ ${group.displayOrder}`}
+                          <span style={{ color: '#9ca3af', marginLeft: '8px', fontSize: '12px' }}>
+                            ({group.itemCount}項目)
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowGroupSelector(false)}
+                      style={{
+                        marginTop: '12px',
+                        padding: '6px 12px',
+                        fontSize: '13px',
+                        backgroundColor: 'transparent',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        color: '#6b7280',
+                      }}
+                    >
+                      キャンセル
+                    </button>
+                  </div>
+                )}
               </div>
             )}
-          </div>
-        )}
+          </section>
+        </div>
       </div>
     </div>
   );

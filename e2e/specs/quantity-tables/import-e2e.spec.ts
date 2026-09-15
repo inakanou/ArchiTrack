@@ -38,7 +38,9 @@
  * - @requirement quantity-table-generation/REQ-33.4: 別ファイル許可
  * - @requirement quantity-table-generation/REQ-33.5: 別ファイル選択時のクリア
  * - @requirement quantity-table-generation/REQ-34.1: インラインプレビュー表示
+ * - @requirement quantity-table-generation/REQ-34.2: PDFビューアでのインライン表示
  * - @requirement quantity-table-generation/REQ-34.3: Excelインライン表示
+ * - @requirement quantity-table-generation/REQ-34.4: PDFのページナビゲーション
  * - @requirement quantity-table-generation/REQ-34.5: ダイアログ内に並べて表示
  *
  * @module e2e/specs/quantity-tables/import-e2e.spec
@@ -57,6 +59,8 @@ const __dirname = path.dirname(__filename);
 const FIXTURES_DIR = path.resolve(__dirname, '..', '..', 'fixtures');
 
 const TEST_PDF = path.join(FIXTURES_DIR, 'test-text-pdf.pdf');
+// 1ページの PDF 資材（REQ-34.4 は総ページ数が1でもページナビゲーションを求める）
+const TEST_SINGLE_PAGE_PDF = path.join(FIXTURES_DIR, 'test-file.pdf');
 const TEST_TXT = path.join(FIXTURES_DIR, 'test-document.txt');
 // クライアントサイド（SheetJS）でパースされる Excel フィクスチャ。
 // OCR（ANTHROPIC_API_KEY 依存）を経由せず決定論的に抽出行を得られるため、
@@ -601,7 +605,8 @@ test.describe('REQ-28: Excelデータパース', () => {
     await fileInput.setInputFiles(TEST_XLSX);
 
     // REQ-28.4: 抽出結果はプレビューテーブルとして表示される
-    const previewTable = page.locator('table').first();
+    // Excel はインラインプレビュー（REQ-34.3）にも表が出るため、抽出結果の領域の表に限定する
+    const previewTable = page.getByRole('region', { name: '抽出結果' }).locator('table');
     await expect(previewTable, 'REQ-28.4: 抽出結果のプレビューテーブルが表示されない').toBeVisible({
       timeout: getTimeout(45000),
     });
@@ -687,7 +692,8 @@ test.describe('REQ-28: Excelデータパース', () => {
     const fileInput = page.getByLabel('ファイルを選択');
     await fileInput.setInputFiles(TEST_XLSX);
 
-    const previewTable = page.locator('table').first();
+    // Excel はインラインプレビュー（REQ-34.3）にも表が出るため、抽出結果の領域の表に限定する
+    const previewTable = page.getByRole('region', { name: '抽出結果' }).locator('table');
     await expect(previewTable, '前提: 抽出結果のプレビューテーブルが表示される').toBeVisible({
       timeout: getTimeout(45000),
     });
@@ -1070,7 +1076,8 @@ test.describe('REQ-32: フィールドマッピング調整', () => {
     const fileInput = page.getByLabel('ファイルを選択');
     await fileInput.setInputFiles(TEST_XLSX);
 
-    const previewTable = page.locator('table').first();
+    // Excel はインラインプレビュー（REQ-34.3）にも表が出るため、抽出結果の領域の表に限定する
+    const previewTable = page.getByRole('region', { name: '抽出結果' }).locator('table');
     await expect(previewTable, '前提: 抽出結果のプレビューテーブルが表示される').toBeVisible({
       timeout: getTimeout(45000),
     });
@@ -1360,8 +1367,8 @@ test.describe('REQ-34: インポートダイアログのインラインプレビ
   /**
    * @requirement quantity-table-generation/REQ-34.1: インラインプレビュー表示
    *
-   * ファイルアップロード後、ダイアログ内に処理プログレスまたはプレビューテーブルが
-   * インライン表示される（PDFはOCR処理結果のテーブル形式プレビュー）。
+   * ファイルのアップロード直後、OCR の完了を待たずにダイアログ内へファイルそのものの
+   * インラインプレビュー（領域「ファイルプレビュー」）が表示される。
    */
   test('ファイルアップロード時にダイアログ内にインラインプレビューが表示される (REQ-34.1)', async ({
     page,
@@ -1375,30 +1382,21 @@ test.describe('REQ-34: インポートダイアログのインラインプレビ
     const fileInput = page.getByLabel('ファイルを選択');
     await fileInput.setInputFiles(TEST_PDF);
 
-    // ダイアログ内にprogressbar or table が表示される
-    const progressbar = page.locator('[role="progressbar"]').first();
-    const previewTable = page.locator('table').first();
-
-    // 枝ごとに待機の指定が異なる（プログレスは処理開始直後に出るため 10 秒、
-    // プレビューは OCR の完了を待つため 45 秒）。`Promise.race` は最初に解決した枝が
-    // 勝つため、プログレスが 10 秒で出なければその枝が null で勝つ。これは畳み方に
-    // よらない `Promise.race` の意味そのものであり、待機の指定を揃えると
-    // 「プログレスが出ないまま 45 秒後にプレビューが出る」場合の結論が変わる。
-    // したがって枝ごとの待機の指定を機械的に揃えてはならない。
-    const result = await Promise.race([
-      labelWhenVisibleWithin(progressbar, getTimeout(10000), 'progress'),
-      labelWhenVisibleWithin(previewTable, getTimeout(45000), 'preview'),
-    ]);
-
-    expect(result, 'プログレスまたはプレビューが表示される').not.toBeNull();
+    const dialog = page.getByRole('dialog');
+    const inlinePreview = dialog.getByRole('region', { name: 'ファイルプレビュー' });
+    await expect(
+      inlinePreview,
+      'REQ-34.1: アップロードしたファイルのインラインプレビューがダイアログ内に表示されない'
+    ).toBeVisible({ timeout: getTimeout(10000) });
   });
 
   /**
-   * @requirement quantity-table-generation/REQ-34.3: Excelインライン表示（テーブル形式）
+   * @requirement quantity-table-generation/REQ-34.2: PDFビューアでのインライン表示
    *
-   * Excel/PDF いずれもプレビューはテーブル形式（ImportPreviewTable）で表示される。
+   * 資材 test-text-pdf.pdf（2ページ）をアップロードすると、PDF ビューアが1ページ目を
+   * canvas へ実際に描画する（描画面の幅と高さが 0 でない）。
    */
-  test('処理完了時にテーブル形式のプレビューがインライン表示される (REQ-34.3)', async ({
+  test('PDFアップロード時にPDFビューアで1ページ目がインライン表示される (REQ-34.2)', async ({
     page,
   }) => {
     const navigated = await navigateToQuantityTableEdit(page);
@@ -1407,35 +1405,121 @@ test.describe('REQ-34: インポートダイアログのインラインプレビ
     const opened = await openImportDialog(page);
     expect(opened).toBeTruthy();
 
-    // REQ-34.3 は「処理完了時にテーブル形式で表示する」ことを対象とする。
-    // 以前は PDF OCR が失敗すると「エラーかリトライが出ている」ことだけを確かめており、
-    // テーブル形式の判定は実行されなかった。決定論的に解析される Excel を用いる。
-    const fileInput = page.getByLabel('ファイルを選択');
-    await fileInput.setInputFiles(TEST_XLSX);
+    await page.getByLabel('ファイルを選択').setInputFiles(TEST_PDF);
 
-    const previewTable = page.locator('table').first();
-    await expect(previewTable, 'REQ-34.3: プレビューがテーブル形式で表示されない').toBeVisible({
-      timeout: getTimeout(45000),
+    const inlinePreview = page
+      .getByRole('dialog')
+      .getByRole('region', { name: 'ファイルプレビュー' });
+    const firstPageCanvas = inlinePreview.locator('[data-page-number="1"] canvas');
+    await expect(firstPageCanvas, 'REQ-34.2: PDFビューアが1ページ目を描画しない').toBeVisible({
+      timeout: getTimeout(20000),
     });
-
-    // table 要素が thead と tbody を含む
-    await expect(
-      previewTable.locator('thead'),
-      'REQ-34.3: プレビューテーブルにヘッダー行が無い'
-    ).toBeVisible();
-    await expect(
-      previewTable.locator('tbody'),
-      'REQ-34.3: プレビューテーブルにデータ行が無い'
-    ).toBeVisible();
+    const drawn = await firstPageCanvas.evaluate((canvas: HTMLCanvasElement) => ({
+      width: canvas.width,
+      height: canvas.height,
+    }));
+    expect(drawn.width, 'REQ-34.2: PDFページの描画面の幅が 0').toBeGreaterThan(0);
+    expect(drawn.height, 'REQ-34.2: PDFページの描画面の高さが 0').toBeGreaterThan(0);
   });
 
   /**
-   * @requirement quantity-table-generation/REQ-34.5: ダイアログ内に並べて表示
+   * @requirement quantity-table-generation/REQ-34.4: PDFのページナビゲーション
    *
-   * インラインプレビューと抽出結果プレビューテーブルが同一ダイアログ内に表示される。
-   * E2Eでは、ダイアログ heading とプレビューテーブルが両方表示されることで検証。
+   * PDF のプレビュー中は「ページ 現在 / 総数」と前へ/次へのボタンが出る。次へで2ページ目が
+   * 描画され、前へで1ページ目に戻る。先頭では前へ、末尾では次へが押せない。
    */
-  test('インポートダイアログ内にプレビューテーブルが含まれる (REQ-34.5)', async ({ page }) => {
+  test('PDFプレビューで前ページ/次ページのボタンと現在ページ/総ページ数でページを送れる (REQ-34.4)', async ({
+    page,
+  }) => {
+    const navigated = await navigateToQuantityTableEdit(page);
+    expect(navigated).toBeTruthy();
+
+    const opened = await openImportDialog(page);
+    expect(opened).toBeTruthy();
+
+    await page.getByLabel('ファイルを選択').setInputFiles(TEST_PDF);
+
+    const inlinePreview = page
+      .getByRole('dialog')
+      .getByRole('region', { name: 'ファイルプレビュー' });
+    // 親要素まで一致して strict mode 違反にならないよう、行そのものへ錨を張る
+    const pageIndicator = inlinePreview.getByText(/^ページ \d+ \/ \d+$/);
+    await expect(pageIndicator, 'REQ-34.4: 現在ページ/総ページ数が表示されない').toHaveText(
+      'ページ 1 / 2',
+      { timeout: getTimeout(20000) }
+    );
+
+    const prevButton = inlinePreview.getByRole('button', { name: '前へ' });
+    const nextButton = inlinePreview.getByRole('button', { name: '次へ' });
+    await expect(prevButton, 'REQ-34.4: 先頭ページで前へが押せる').toBeDisabled();
+    await expect(nextButton, 'REQ-34.4: 次へが押せない').toBeEnabled();
+
+    await nextButton.click();
+    await expect(pageIndicator, 'REQ-34.4: 次へで2ページ目に進まない').toHaveText('ページ 2 / 2');
+    await expect(
+      inlinePreview.locator('[data-page-number="2"] canvas'),
+      'REQ-34.4: 次へで2ページ目が描画されない'
+    ).toBeVisible({ timeout: getTimeout(20000) });
+    await expect(nextButton, 'REQ-34.4: 末尾ページで次へが押せる').toBeDisabled();
+    await expect(prevButton, 'REQ-34.4: 前へが押せない').toBeEnabled();
+
+    await prevButton.click();
+    await expect(pageIndicator, 'REQ-34.4: 前へで1ページ目に戻らない').toHaveText('ページ 1 / 2');
+    await expect(
+      inlinePreview.locator('[data-page-number="1"] canvas'),
+      'REQ-34.4: 前へで1ページ目が描画されない'
+    ).toBeVisible({ timeout: getTimeout(20000) });
+  });
+
+  /**
+   * @requirement quantity-table-generation/REQ-34.4: PDFのページナビゲーション（1ページのPDF）
+   *
+   * REQ-34.4 は総ページ数による例外を設けない。1ページの資材 test-file.pdf でも
+   * 「ページ 1 / 1」と前へ/次へのボタンが出て、どちらも押せない。
+   */
+  test('1ページのPDFでも現在ページ/総ページ数と前ページ/次ページのボタンが表示される (REQ-34.4)', async ({
+    page,
+  }) => {
+    const navigated = await navigateToQuantityTableEdit(page);
+    expect(navigated).toBeTruthy();
+
+    const opened = await openImportDialog(page);
+    expect(opened).toBeTruthy();
+
+    await page.getByLabel('ファイルを選択').setInputFiles(TEST_SINGLE_PAGE_PDF);
+
+    const inlinePreview = page
+      .getByRole('dialog')
+      .getByRole('region', { name: 'ファイルプレビュー' });
+    await expect(
+      inlinePreview.locator('[data-page-number="1"] canvas'),
+      '前提: 1ページのPDFが描画される'
+    ).toBeVisible({ timeout: getTimeout(20000) });
+
+    const pageIndicator = inlinePreview.getByText(/^ページ \d+ \/ \d+$/);
+    await expect(
+      pageIndicator,
+      'REQ-34.4: 1ページのPDFで現在ページ/総ページ数が表示されない'
+    ).toHaveText('ページ 1 / 1', { timeout: getTimeout(20000) });
+    await expect(
+      inlinePreview.getByRole('button', { name: '前へ' }),
+      'REQ-34.4: 1ページのPDFで前へが無いか押せる'
+    ).toBeDisabled();
+    await expect(
+      inlinePreview.getByRole('button', { name: '次へ' }),
+      'REQ-34.4: 1ページのPDFで次へが無いか押せる'
+    ).toBeDisabled();
+  });
+
+  /**
+   * @requirement quantity-table-generation/REQ-34.3: Excelインライン表示（テーブル形式）
+   *
+   * 決定論的に解析される Excel の資材をアップロードすると、インラインプレビューの領域に
+   * 表データがテーブル形式（見出し行とデータ行）で表示される。
+   */
+  test('Excelアップロード時に表データがテーブル形式でインライン表示される (REQ-34.3)', async ({
+    page,
+  }) => {
     const navigated = await navigateToQuantityTableEdit(page);
     expect(navigated).toBeTruthy();
 
@@ -1443,31 +1527,81 @@ test.describe('REQ-34: インポートダイアログのインラインプレビ
     expect(opened).toBeTruthy();
 
     const fileInput = page.getByLabel('ファイルを選択');
-    await fileInput.setInputFiles(TEST_PDF);
+    await fileInput.setInputFiles(TEST_XLSX);
 
-    // ダイアログヘッダーが継続表示される
-    const heading = page.getByRole('heading', { name: '数量表インポート' });
-    await expect(heading).toBeVisible();
+    const inlinePreview = page
+      .getByRole('dialog')
+      .getByRole('region', { name: 'ファイルプレビュー' });
+    const previewTable = inlinePreview.locator('table');
+    await expect(previewTable, 'REQ-34.3: Excelがテーブル形式でインライン表示されない').toBeVisible(
+      {
+        timeout: getTimeout(45000),
+      }
+    );
 
-    // プレビューテーブル/抽出結果アラート/リトライ/一括取り込みのいずれかが
-    // ダイアログ内に表示される。空抽出では table が 0 サイズになり Playwright 上で
-    // hidden 扱いになるため、抽出後に出現する alert（必須フィールド警告など）や
-    // 一括取り込みボタンも「ダイアログ内に並べて表示された結果」の証跡として許容する。
+    // 資材のヘッダーは「工種・名称・規格・数量・単位」の5列である
+    await expect(
+      previewTable.locator('thead'),
+      'REQ-34.3: インラインプレビューのテーブルに資材の見出し行が無い'
+    ).toContainText('名称');
+    await expect(
+      previewTable.locator('tbody tr').first(),
+      'REQ-34.3: インラインプレビューのテーブルにデータ行が無い'
+    ).toBeVisible();
+  });
+
+  /**
+   * @requirement quantity-table-generation/REQ-34.5: ダイアログ内に並べて表示
+   *
+   * OCR 経路を固定して PDF を取り込み、同一ダイアログ内でインラインプレビュー（PDF の描画）と
+   * 抽出結果（抽出テキストとプレビューテーブル）が左右に並ぶことを描画座標で確かめる。
+   */
+  test('インラインプレビューと抽出結果プレビューテーブルが同一ダイアログ内に並べて表示される (REQ-34.5)', async ({
+    page,
+  }) => {
+    const navigated = await navigateToQuantityTableEdit(page);
+    expect(navigated).toBeTruthy();
+
+    const opened = await openImportDialog(page);
+    expect(opened).toBeTruthy();
+
+    await forceClaudeVisionUnavailable(page);
+    await page.getByLabel('ファイルを選択').setInputFiles(TEST_PDF);
+
     const dialog = page.getByRole('dialog');
-    const previewTable = dialog.locator('table').first();
-    const retryBtn = dialog.getByRole('button', { name: 'リトライ' });
-    const importBtn = dialog.getByRole('button', { name: '一括取り込み' });
-    const alertInDialog = dialog.locator('[role="alert"]').first();
+    const inlinePreview = dialog.getByRole('region', { name: 'ファイルプレビュー' });
+    const results = dialog.getByRole('region', { name: '抽出結果' });
 
-    const result = await Promise.race([
-      labelWhenVisibleWithin(previewTable, getTimeout(45000), 'preview'),
-      labelWhenVisibleWithin(retryBtn, getTimeout(45000), 'retry'),
-      labelWhenVisibleWithin(importBtn, getTimeout(45000), 'import'),
-      labelWhenVisibleWithin(alertInDialog, getTimeout(45000), 'alert'),
-    ]);
+    await expect(
+      results.getByRole('region', { name: '抽出テキスト' }),
+      'REQ-34.5: 抽出結果の抽出テキストが表示されない'
+    ).toBeVisible({ timeout: getTimeout(45000) });
+    const resultTable = results.locator('table');
+    await expect(
+      resultTable.locator('thead'),
+      'REQ-34.5: 抽出結果プレビューテーブルが表示されない'
+    ).toContainText('大項目');
+    await expect(
+      inlinePreview.locator('[data-page-number="1"] canvas'),
+      'REQ-34.5: インラインプレビューが表示されない'
+    ).toBeVisible({ timeout: getTimeout(20000) });
 
-    expect(result).not.toBeNull();
-    // ダイアログ headingは依然として表示
-    await expect(heading).toBeVisible();
+    const previewBox = await inlinePreview.boundingBox();
+    const resultsBox = await results.boundingBox();
+    expect(previewBox, 'REQ-34.5: インラインプレビューの描画位置が取れない').not.toBeNull();
+    expect(resultsBox, 'REQ-34.5: 抽出結果の描画位置が取れない').not.toBeNull();
+    const left = previewBox as NonNullable<typeof previewBox>;
+    const right = resultsBox as NonNullable<typeof resultsBox>;
+    // 左右に並ぶ: プレビューの右端が抽出結果の左端以下で、縦方向の範囲が重なる
+    expect(
+      left.x + left.width,
+      'REQ-34.5: インラインプレビューが抽出結果の左に並ばない'
+    ).toBeLessThanOrEqual(right.x);
+    expect(left.y, 'REQ-34.5: インラインプレビューと抽出結果が横に並ばない').toBeLessThan(
+      right.y + right.height
+    );
+    expect(right.y, 'REQ-34.5: インラインプレビューと抽出結果が横に並ばない').toBeLessThan(
+      left.y + left.height
+    );
   });
 });

@@ -134,6 +134,7 @@ graph TB
         IMPEXT[useImportDataExtractor]
         IMPMAP["field-mapping<br/>(autoDetectFieldMapping)"]
         IMPPRV[ImportPreviewTable]
+        FIP["FileInlinePreview<br/>(受領見積書登録の部品を再利用)"]
         XLS[excel-parser]
         POE[pdf-ocr-extractor]
         PTE["pdf-text-extractor<br/>(pdfjs-dist + Tesseract.js)"]
@@ -211,6 +212,7 @@ graph TB
     IMP --> IMPEXT
     IMP --> IMPMAP
     IMP --> IMPPRV
+    IMP -->|ファイルプレビュー| FIP
     IMPEXT --> XLS
     IMPEXT --> POE
     POE -->|優先| APICV
@@ -238,7 +240,7 @@ graph TB
     QG --> SI
 ```
 
-**本図はタスク 96.9 が 2026-09-15 にコミット `67097fde` の実装から描き直したものである**（51ノード・67辺。本番のコードから到達する辺だけを描く）。保存の明示化（REQ-42）を反映し、編集操作はすべて `quantityTableEditReducer` のクライアント側ドラフトへ入り、永続化は保存操作の `PUT /:id/save` → `QuantityTableService.saveDraft` の1経路に限る。未保存の印と離脱確認は編集画面が `isDirty` から描く。読み取りの取得（初期読込・プロジェクト取得・入力補完候補・現場調査の写真と注釈・取り込みの抽出）は配線どおりに残した。描き直す前の図は `git show 67097fde:.kiro/specs/quantity-table-generation/design.md | sed -n 104,187p` で取り出せる。
+**本図はタスク 96.9 が 2026-09-15 にコミット `67097fde` の実装から描き直したものである**（51ノード・67辺。本番のコードから到達する辺だけを描く）。保存の明示化（REQ-42）を反映し、編集操作はすべて `quantityTableEditReducer` のクライアント側ドラフトへ入り、永続化は保存操作の `PUT /:id/save` → `QuantityTableService.saveDraft` の1経路に限る。未保存の印と離脱確認は編集画面が `isDirty` から描く。読み取りの取得（初期読込・プロジェクト取得・入力補完候補・現場調査の写真と注釈・取り込みの抽出）は配線どおりに残した。描き直す前の図は `git show 67097fde:.kiro/specs/quantity-table-generation/design.md | sed -n 104,187p` で取り出せる。**その後タスク 96.2 が取り込みダイアログから `FileInlinePreview` への辺を足した（52ノード・68辺）。**
 - バックエンドには数量グループ・数量項目の個別ルートと `QuantityGroupService` / `QuantityItemService` が残るが、本番のフロントエンドから呼ぶ経路が無いため図に描かない（API クライアントの対応関数はいずれも本番の呼び出し元を持たない）
 - 読み取り専用の枝の `QuantityItemRow` は本番から到達しないため描かない（唯一の本番の呼び出し元である編集画面が常に `isEditable` を渡す。Task 89.1 の記録と同じ）
 - `EditableQuantityItemRow` の入力用の子部品（`CalculationMethodSelect` / `CalculationFields` / `FieldValidationTooltip`）は外部の取得を持たないため省いた
@@ -1710,6 +1712,7 @@ interface ImportDialogProps {
 - Excelプレビュー: SheetJSで読み取ったデータをHTMLテーブルとして表示
 - Retry: 処理失敗時に「リトライ」ボタンを表示。別ファイルのアップロードは常に許可
 - Layout: インラインプレビュー（左側）と抽出結果プレビューテーブル（右側）を同一ダイアログ内に並列配置
+- **インラインプレビューの実体（タスク 96.2、2026-09-15 の利用者裁定「実装する」に基づく追記）**: 受領見積書登録の `FileInlinePreview` を再利用し、`showPageNavigationForSinglePage` に true を渡す。PDF は react-pdf で表示し、ページナビゲーション（「ページ N / M」と前へ/次へ）は総ページ数が1でも出す（1ページでは前へ・次へとも非活性。Requirement 34 の受入基準 4 は例外を設けない）。受領見積書登録は同 props の既定 false により1ページでは出さないまま。Excel は SheetJS のテーブル。種別は受け付けと同じく拡張子で決め、抽出処理には元のファイルを渡す。インラインプレビュー（領域「ファイルプレビュー」）と抽出結果（領域「抽出結果」）は折り返し可能な横並びの行に置き、狭い画面では縦に積む。プレビューの高さの保存キーは受領見積書登録と共有している
 
 ---
 

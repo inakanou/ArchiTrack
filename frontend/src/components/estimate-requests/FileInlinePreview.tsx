@@ -38,6 +38,12 @@ export interface FileInlinePreviewProps {
   existingPreviewUrl?: string;
   /** ファイルのMIMEタイプ（existingPreviewUrl使用時） */
   fileMimeType?: string;
+  /**
+   * 総ページ数が1のPDFでもページナビゲーション（ページ表示と前へ/次へ）を表示するか。
+   * 既定の false では受領見積書登録の決まり（17.6: 1ページなら出さない）に従う。
+   * 数量表の取り込みダイアログは総ページ数によらずナビゲーションを求めるため true を渡す。
+   */
+  showPageNavigationForSinglePage?: boolean;
 }
 
 /**
@@ -499,11 +505,13 @@ function PdfPreview({
   height,
   onResizeStart,
   isResizing,
+  showPageNavigationForSinglePage,
 }: {
   fileUrl: string;
   height: number;
   onResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void;
   isResizing: boolean;
+  showPageNavigationForSinglePage: boolean;
 }) {
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
@@ -578,8 +586,9 @@ function PdfPreview({
       {/* ナビゲーション・ズームコントロール */}
       {totalPages > 0 && (
         <div style={styles.pdfNavigation}>
-          {/* ページナビゲーション: 総ページ数が1の場合は非表示 (17.6) */}
-          {totalPages > 1 && (
+          {/* ページナビゲーション: 既定では総ページ数が1の場合は非表示 (17.6)。
+              showPageNavigationForSinglePage が true なら1ページでも表示する */}
+          {(showPageNavigationForSinglePage || totalPages > 1) && (
             <>
               <button
                 type="button"
@@ -771,6 +780,7 @@ export function FileInlinePreview({
   file,
   existingPreviewUrl,
   fileMimeType,
+  showPageNavigationForSinglePage = false,
 }: FileInlinePreviewProps) {
   // --------------------------------------------------------------------------
   // 状態管理
@@ -987,6 +997,7 @@ export function FileInlinePreview({
           height={height}
           onResizeStart={onResizeStart}
           isResizing={isResizing}
+          showPageNavigationForSinglePage={showPageNavigationForSinglePage}
         />
       </div>
     );

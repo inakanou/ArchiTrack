@@ -1923,32 +1923,6 @@
       }
     },
     {
-      "id": "quantity-table-generation/REQ-34.2",
-      "requirement": "REQ-34: インポートダイアログのインラインプレビュー",
-      "title": "インポートダイアログのインラインプレビュー34.2",
-      "criterionText": "While アップロードファイルがPDFのとき, the 数量表管理システム shall PDFビューアでインライン表示する",
-      "reason": "PDFビューア (pdfjs-distライブラリ依存) のレンダリングは統合テストで検証",
-      "category": "integration-test",
-      "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Vitest + pdfjs mocking",
-        "description": "PDFレンダリングを検証"
-      }
-    },
-    {
-      "id": "quantity-table-generation/REQ-34.4",
-      "requirement": "REQ-34: インポートダイアログのインラインプレビュー",
-      "title": "インポートダイアログのインラインプレビュー34.4",
-      "criterionText": "While PDFファイルがプレビュー表示されているとき, the 数量表管理システム shall ページナビゲーション機能（前ページ/次ページボタン、現在ページ/総ページ数表示）を提供する",
-      "reason": "PDFページナビゲーション (pdfjs-distベース) は統合テストで検証",
-      "category": "integration-test",
-      "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Vitest + pdfjs mocking",
-        "description": "PDFナビゲーションを検証"
-      }
-    },
-    {
       "id": "construction-schedule/REQ-6.7",
       "requirement": "construction-schedule/REQ-6: ガントチャート形式リアルタイム表示",
       "title": "ガントチャートの入力変更から表示更新までを200ミリ秒以内",
@@ -2615,12 +2589,12 @@
     }
   },
   "summary": {
-    "totalExclusions": 190,
+    "totalExclusions": 188,
     "byCategory": {
       "data-integrity": 30,
       "fault-tolerance": 14,
       "infrastructure": 53,
-      "integration-test": 65,
+      "integration-test": 63,
       "pending-implementation": 4,
       "performance": 19,
       "security": 5

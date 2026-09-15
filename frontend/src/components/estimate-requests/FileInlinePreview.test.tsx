@@ -554,6 +554,34 @@ describe('FileInlinePreview', () => {
       expect(screen.queryByRole('button', { name: /前へ/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /次へ/i })).not.toBeInTheDocument();
     });
+
+    it('showPageNavigationForSinglePage を渡さない既定では、1ページPDFでページ表示とボタンを出さない', async () => {
+      mockNumPages = 1;
+      const pdfFile = createMockFile('test.pdf', 'application/pdf');
+
+      render(<FileInlinePreview file={pdfFile} />);
+
+      // 読み込み完了後に出るズーム表示で、ナビゲーション行の描画を待つ
+      await waitFor(() => {
+        expect(screen.getByTestId('zoom-level-text')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('ページ 1 / 1')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '前へ' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '次へ' })).not.toBeInTheDocument();
+    });
+
+    it('showPageNavigationForSinglePage が true のときは、1ページPDFでもページ表示と非活性の前へ/次へを出す', async () => {
+      mockNumPages = 1;
+      const pdfFile = createMockFile('test.pdf', 'application/pdf');
+
+      render(<FileInlinePreview file={pdfFile} showPageNavigationForSinglePage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('ページ 1 / 1')).toBeInTheDocument();
+      });
+      expect(screen.getByRole('button', { name: '前へ' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: '次へ' })).toBeDisabled();
+    });
   });
 
   // --------------------------------------------------------------------------
