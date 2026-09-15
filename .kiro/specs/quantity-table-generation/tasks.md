@@ -3539,11 +3539,14 @@ _起票元: Task 95 の処置後に再実行した機能レベル検証（`/kiro
   - **起票（2026-09-15、コミット `ca9819db` の作業ツリーで対象の所在を測り直した）**: 親が `.kiro/specs/site-survey/tasks.md` へ **Task 115.327** として書き込んだ（`SiteSurveyDetailPage.test.tsx:2485` の区間、`:2543` / `:2561` の `offline-warning` 待ち、94.1 の実測が最新で起票時点では再走していないことを明記）
   - _Boundary: 上流への起票の書き込み_
 
-- [ ] 97.16 上流の鮮度宣言に溜まった差を上流へ起票する
+- [x] 97.16 上流の鮮度宣言に溜まった差を上流へ起票する
   - **出所**: 95.2 の申し送り (v)・95.3 の申し送り (iv)・95.4 の申し送り (iv)、96.3 の被覆の記録
   - **再実測**（`npm run -s check:design-measurement-freshness`）: `featureless-headers-resolvable-by-own-feature-after-115308` は expected `495` / actual `590`。本スペックの記録が名指した増分は、95.2 の +5（576→581）、95.3 の +7（581→588）、95.4 の +1（588→589）、96.3 の +1（589→590）。`requirement-exclusions-total` は expected `205` / actual `188` で、本スペックの取り下げ（95.1 の1件、96.1〜96.3 の計5件）も差に含まれる。**どちらも宣言先は `.kiro/specs/site-survey/design.md` で、site-survey の所管である**
   - **本項の任務は、測り直しを担当する上流へ増分の内訳を渡す起票を書き込み、起票先の番号をここへ記すことである。** 下流から上流の設計文書を書き換えないこと
   - **追加の増分（Task 97 の実行中に生じた。2026-09-15）**: 起票にはあわせて次を含めること。(i) 97.1 の新設 spec と 97.2 の新設 spec による `t13-anchor-references-after-115303` の +2 / +2（1340→1343→1345）、97.20 の検証による +2（→1347）、97.1 の2ファイルによる `featureless-headers-resolvable-by-own-feature-after-115308` の +2（590→592）、97.2 / 97.3 の取り下げによる `requirement-exclusions-total` の減少（188→183）。(ii) **97.13 の利用者の裁定（「97.16 の起票に含める」）による4行**——97.13 が `useQuantityTableSave` の撤去に伴い `scripts/design-path-exemption-baseline.json` を関門の案内する経路で更新した結果、site-survey の design.md が基線の旧値を文中で引く宣言4件が新たに不一致になった: `design-path-exemption-tally-total`（123→125）、`design-path-exemption-distinct-total`（30→31）、`design-path-exemption-tally-distinct-gap`（93→94）、`design-path-candidate-recorded`（697→740）。着手時に実測し直してから書くこと
+  - **起票（2026-09-15、コミット `18d884c6` で `npm run -s check:design-measurement-freshness` を実測。97.24 のコミットの前後で値は不変）**: 親が `.kiro/specs/site-survey/tasks.md` へ **Task 115.330** として書き込んだ。失敗は宣言 11件（行 12件）である。宣言ごとに、下流の記録が数値で名指した増分（除外の取り下げ、E2E の新設、見出しの是正）と、97.13 の基線更新で新たに不一致になった4件を渡した。**記録に帰属の記載が無い差分は、帰属が無いと明記し、候補として区別した**（t13 の 1345→1369、featureless の 592→589、除外の差24件のうち11件、pending の 14→5）。着手時に測り直すこと、115.328 / 115.326 の解決後に測れば一度で済むことも添えた
+  - **本文の訂正**: 上の本文の「`t13-anchor-references-after-115303` の +2 / +2（1340→1343→1345）」のうち 97.1 の分は、97.1 の記録どおり **+3** が正しい。97.20 の「+2（→1347）」は 97.20 自身の記録に数値が無く、起票では帰属の無い差分として扱った
+  - **独立レビューは1回差し戻した**: 記録に数値の無いタスクを t13 の増分の源として並べていた。また、97.10 の記録にあるのは別の指標（ラチェットのヘッダー数）なのに、featureless の減少の源としていた。さらに、下流の 89.2 が記録した `pending-implementation-exclusions-after-115314` を「関係が未確認」と分類していた。**上流が判断に使う内訳は、記録が数値で名指した分だけを帰属させ、残りは帰属が無いと明記すること**
   - _Boundary: 上流への起票の書き込み_
 
 - [x] 97.17 裁定記録の陳腐化した行を、鮮度宣言と対で扱うよう上流へ起票する
