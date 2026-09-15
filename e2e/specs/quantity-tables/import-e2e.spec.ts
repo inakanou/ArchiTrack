@@ -370,7 +370,18 @@ test.describe('REQ-27: 数量表インポート（ファイルアップロード
    * @requirement quantity-table-generation/REQ-27.5: Excelファイルアップロード時にExcelパース自動開始
    *
    * Excel ファイル(.xlsx)をアップロードすると、ユーザーの追加操作なしにパース処理が起動し、
-   * プレビュー領域に処理状態（インジケーターまたは結果）が現れる。
+   * Excel の中身を読み取った結果がダイアログの「抽出結果」の領域に現れる。
+   *
+   * 以前は壊れたバイト列を .xlsx として渡し、「status / aria-live / indicator / processing /
+   * preview / alert のいずれかが見える」ことを待っていた。この選言には、ファイル選択を契機に
+   * 抽出とは無関係に描かれるインラインプレビュー（REQ-34.1、`data-testid="preview-skeleton"` 等）
+   * も含まれ、パースの成否ではなく「何かが出た」ことしか主張していなかった（タスク 97.21）。
+   * 付随的な要素の選言に頼らず（REQ-27.6 の検証と同じ方針）、次を決定論的な証跡として主張する。
+   *   1. 実在する Excel の資材（import-items.xlsx）を選んだ後、クリック等の操作を一切行わずに、
+   *      「抽出結果」の領域にプレビューテーブルが表示され、資材の本文の行
+   *      （「仮設工 / E2E取込項目 / 標準仕様 / 12 / 式」）を読み取った内容を含む
+   *   2. パースを利用者に開始させる操作（開始・解析・読み取り等のボタン）がダイアログに無い
+   * インラインプレビュー（REQ-34.3）にも同じ表が出るため、判定は「抽出結果」の領域に限定する。
    */
   test('Excel(.xlsx)アップロード時にパース処理が自動起動する (REQ-27.5)', async ({ page }) => {
     const navigated = await navigateToQuantityTableEdit(page);
@@ -379,22 +390,41 @@ test.describe('REQ-27: 数量表インポート（ファイルアップロード
     const opened = await openImportDialog(page);
     expect(opened).toBeTruthy();
 
-    const fileInput = page.getByLabel('ファイルを選択');
-    await fileInput.setInputFiles({
-      name: 'auto-start.xlsx',
-      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      buffer: Buffer.from('PK\x03\x04dummy-excel-bytes'),
-    });
-
-    // 自動起動の証拠: インジケーターが現れるか、エラー/プレビューが現れる（いずれにせよ処理は走った）
     const dialog = page.getByRole('dialog');
+
+    // 2. パースを開始させる操作が用意されていない（自動で始まる前提の画面である）
     await expect(
-      dialog
-        .locator(
-          '[role="status"], [aria-live], [data-testid*="indicator" i], [data-testid*="processing" i], [data-testid*="preview" i], [role="alert"]'
-        )
-        .first()
-    ).toBeVisible({ timeout: getTimeout(10000) });
+      dialog.getByRole('button', { name: /開始|解析|パース|読み取|読込|読み込|抽出/ }),
+      'REQ-27.5: パースを利用者に開始させるボタンがある'
+    ).toHaveCount(0);
+
+    const fileInput = page.getByLabel('ファイルを選択');
+    await fileInput.setInputFiles(TEST_XLSX);
+
+    // 1. 以降クリック等の操作を一切行わずに、Excel をパースした結果の行が抽出結果に表示される
+    const results = dialog.getByRole('region', { name: '抽出結果' });
+    const resultTable = results.locator('table');
+    await expect(
+      resultTable,
+      'REQ-27.5: Excelアップロード後、操作なしに抽出結果のプレビューテーブルが表示されない'
+    ).toBeVisible({ timeout: getTimeout(45000) });
+    const resultRow = resultTable.locator('tbody tr').filter({ hasText: 'E2E取込項目' });
+    await expect(
+      resultRow,
+      'REQ-27.5: 自動起動したパースが資材の本文の行を読み取っていない'
+    ).toHaveCount(1);
+    for (const cell of ['仮設工', '標準仕様', '12', '式']) {
+      await expect(
+        resultRow,
+        `REQ-27.5: 自動起動したパースの結果の行に「${cell}」が含まれない`
+      ).toContainText(cell);
+    }
+
+    // 選択後も、パースを開始させる操作は現れていない
+    await expect(
+      dialog.getByRole('button', { name: /開始|解析|パース|読み取|読込|読み込|抽出/ }),
+      'REQ-27.5: ファイル選択後にパースを利用者に開始させるボタンが現れた'
+    ).toHaveCount(0);
   });
 
   /**
