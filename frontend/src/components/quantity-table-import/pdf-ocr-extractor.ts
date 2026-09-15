@@ -18,8 +18,13 @@
  * - 30.7: 同一プレビューテーブル形式での表示
  */
 
-import type { ImportExtractionResult, ImportExtractedRow } from '../../types/quantity-import.types';
+import type {
+  ImportExtractionResult,
+  ImportExtractedRow,
+  ImportTargetField,
+} from '../../types/quantity-import.types';
 import type { ProgressCallback } from '../estimate-requests/pdf-text-extractor';
+import { autoDetectFieldMapping } from './field-mapping';
 
 /**
  * PDFファイルからOCR処理でデータを抽出する（Claude Vision API優先）
@@ -83,18 +88,7 @@ async function extractWithClaudeVisionForQuantityTable(
   }
 
   // Claude Vision結果をImportExtractionResult形式に変換
-  const headers = [
-    '大項目',
-    '中項目',
-    '小項目',
-    '任意分類',
-    '工種',
-    '名称',
-    '規格',
-    '数量',
-    '単位',
-    '備考',
-  ];
+  const headers = [...PREVIEW_HEADERS];
 
   const rows: ImportExtractedRow[] = response.lineItems.map((item, index) => ({
     columns: [
@@ -135,16 +129,80 @@ async function extractWithOcrFallback(
   const pdfResult = await extractPdfHybrid(file, onProgress);
 
   // テキストから表構造を解析して行データに変換
-  const rows = parseTextToRows(pdfResult.text);
+  const rawRows = parseTextToRows(pdfResult.text);
 
-  // ヘッダーの推定（行の最初のデータから）
-  const headers = rows.length > 0 ? rows[0]!.columns.map((_, i) => `列${i + 1}`) : [];
-
+  // Claude Vision 経路と同一のプレビューテーブル形式（10欄の名前付きヘッダー）へ揃える
   return {
-    headers,
-    rows,
+    headers: [...PREVIEW_HEADERS],
+    rows: alignRowsToPreviewFields(rawRows),
     extractionType: pdfResult.isTextPdf ? 'pdf-text' : 'pdf-ocr',
   };
+}
+
+/**
+ * プレビューテーブルの10欄（並び順）。Claude Vision 経路とフォールバック経路が共有する。
+ */
+const PREVIEW_FIELDS: ReadonlyArray<{ field: ImportTargetField; header: string }> = [
+  { field: 'majorCategory', header: '大項目' },
+  { field: 'middleCategory', header: '中項目' },
+  { field: 'minorCategory', header: '小項目' },
+  { field: 'customCategory', header: '任意分類' },
+  { field: 'workType', header: '工種' },
+  { field: 'name', header: '名称' },
+  { field: 'specification', header: '規格' },
+  { field: 'quantity', header: '数量' },
+  { field: 'unit', header: '単位' },
+  { field: 'remarks', header: '備考' },
+];
+
+const PREVIEW_HEADERS: readonly string[] = PREVIEW_FIELDS.map((f) => f.header);
+
+/**
+ * 1行目を見出し行とみなすのに必要な、見出し語で当たった欄の種類の最小数。
+ *
+ * 1列だけの一致はデータ中の語（例: 「数量は概算」という備考）でも起こりうる。
+ * 誤って見出し行とみなすと、当たらない列を捨てる規則によりデータの大半を失うため、
+ * 異なる2欄以上の一致を見出し行の条件とする（同じ欄に当たった複数列は1欄と数える）。
+ */
+const MIN_HEADER_MATCHES = 2;
+
+/**
+ * フォールバック経路で得た行を、Claude Vision 経路と同じ10欄の並びへ組み替える。
+ *
+ * - 1行目の各列を `autoDetectFieldMapping`（`field-mapping.ts` の見出し語の規則）で判定し、
+ *   当たった欄の種類が `MIN_HEADER_MATCHES` 以上なら見出し行とみなす。各行を判定した欄へ並べ替え、
+ *   見出し行はデータから外す。どの欄にも当たらない列は捨てる。同じ欄に2列以上が当たった
+ *   場合は左側（先に現れた列）を採り、後の列は捨てる。
+ * - 見出し行とみなさない場合は位置で当てる（第1列→大項目 … 第10列→備考）。
+ *   1行目もデータとして扱い、10列を超える列は切り詰め、不足は空欄で埋める。
+ */
+function alignRowsToPreviewFields(rows: ImportExtractedRow[]): ImportExtractedRow[] {
+  const firstRow = rows[0];
+  if (!firstRow) return [];
+
+  const detected = autoDetectFieldMapping(firstRow.columns, []).mappings;
+  const columnForField = new Map<ImportTargetField, number>();
+  firstRow.columns.forEach((_, colIndex) => {
+    const field = detected[colIndex];
+    if (field && field !== 'skip' && !columnForField.has(field)) {
+      columnForField.set(field, colIndex);
+    }
+  });
+
+  if (columnForField.size >= MIN_HEADER_MATCHES) {
+    return rows.slice(1).map((row) => ({
+      columns: PREVIEW_FIELDS.map(({ field }) => {
+        const colIndex = columnForField.get(field);
+        return colIndex === undefined ? '' : (row.columns[colIndex] ?? '');
+      }),
+      sourceRowIndex: row.sourceRowIndex,
+    }));
+  }
+
+  return rows.map((row) => ({
+    columns: PREVIEW_FIELDS.map((_, i) => row.columns[i] ?? ''),
+    sourceRowIndex: row.sourceRowIndex,
+  }));
 }
 
 /**

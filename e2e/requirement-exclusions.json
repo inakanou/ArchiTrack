@@ -1949,19 +1949,6 @@
       }
     },
     {
-      "id": "quantity-table-generation/REQ-30.7",
-      "requirement": "REQ-30: Claude Vision API連携による高精度抽出（PDF）",
-      "title": "Claude Vision API連携による高精度抽出（PDF）30.7",
-      "criterionText": "The 数量表管理システム shall Claude Vision API使用時もpdfjs-dist + Tesseract.js使用時も、同一のプレビューテーブル形式で抽出結果を表示する",
-      "reason": "条文は Claude Vision 経路とフォールバック経路の表示形式が同一であることを求めるが、宣言した走査範囲に両経路を突き合わせる検証を見つけられなかった。三層で書く。(1) 機械保証——本受入基準の除外監査の判定は in-repo-unverified であり、到達する検証が存在しない。(2) 人手走査（範囲をコマンドで宣言）——grep -rn \"pdf-claude-vision\" --include=*.ts --include=*.tsx frontend/src の当たりは4件で、内訳は pdf-ocr-extractor.ts:122（種別の設定）・同 test.ts:69（Vision 経路の種別の主張）・useImportDataExtractor.test.ts:49（雛形）・quantity-import.types.ts:38（型宣言）であり、二つの経路のヘッダーを突き合わせる主張はこの中に無い。しかも pdf-ocr-extractor.ts:141 の extractWithOcrFallback はヘッダーを「列1」…「列N」で組み立てており、Claude Vision 経路が組み立てる10フィールドのヘッダーと同一ではない。(3) 未走査の残余——上記の走査根の外（e2e 配下・backend 側）は保証しない。反例が在れば本記述は偽になる。片側だけを見る検証へ被覆印を与えると偽の被覆になるため名乗らず除外に残す（2026-09-14 実測、タスク95.3）",
-      "category": "integration-test",
-      "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Vitest",
-        "description": "据え置き。現時点で宣言した走査範囲に到達する自動検証は無い。両経路の表示形式の同一性を決着させたのち統合テストで確かめる"
-      }
-    },
-    {
       "id": "quantity-table-generation/REQ-34.2",
       "requirement": "REQ-34: インポートダイアログのインラインプレビュー",
       "title": "インポートダイアログのインラインプレビュー34.2",
@@ -2654,12 +2641,12 @@
     }
   },
   "summary": {
-    "totalExclusions": 193,
+    "totalExclusions": 192,
     "byCategory": {
       "data-integrity": 30,
       "fault-tolerance": 14,
       "infrastructure": 53,
-      "integration-test": 68,
+      "integration-test": 67,
       "pending-implementation": 4,
       "performance": 19,
       "security": 5
