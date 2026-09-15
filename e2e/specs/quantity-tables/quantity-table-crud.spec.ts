@@ -2270,7 +2270,7 @@ test.describe('数量表CRUD操作', () => {
       await page.waitForTimeout(500);
     });
 
-    test('中項目フィールドでオートコンプリート候補が表示される (quantity-table-generation/REQ-7.2)', async ({
+    test('中項目フィールドでオートコンプリート候補が表示される (quantity-table-generation/REQ-7.3)', async ({
       page,
     }) => {
       if (!createdQuantityTableId) {
