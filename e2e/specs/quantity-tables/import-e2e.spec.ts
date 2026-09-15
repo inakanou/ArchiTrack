@@ -46,6 +46,7 @@
  * @module e2e/specs/quantity-tables/import-e2e.spec
  */
 
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { test, expect, type Page, type Request } from '@playwright/test';
@@ -1439,6 +1440,126 @@ test.describe('REQ-33: OCR再実行・リトライ機能', () => {
 
     // 形式エラーが消える（要素が無くなるか非表示になる）
     await expect(formatError).not.toBeVisible({ timeout: getTimeout(5000) });
+  });
+
+  /**
+   * @requirement quantity-table-generation/REQ-33.5: 別ファイル選択時のクリア
+   *
+   * PDF の抽出中にドロップ領域へ Excel を落とすと、抽出結果は Excel のものになり、
+   * 後から届いた PDF の抽出結果で上書きされない。
+   *
+   * PDF の抽出は Claude Vision の応答を待つため、その応答を保留して処理中の状態を確定させ、
+   * Excel の抽出が表示された後に目印の行を持つ応答を返す。目印の行が抽出結果に現れれば、
+   * 追い越された処理の結果が新しいファイルの結果を上書きしている。
+   */
+  test('PDF抽出中に別ファイルをドロップすると、遅れて届いたPDFの結果で上書きされない (REQ-33.5)', async ({
+    page,
+  }) => {
+    const navigated = await navigateToQuantityTableEdit(page);
+    expect(navigated).toBeTruthy();
+
+    const opened = await openImportDialog(page);
+    expect(opened).toBeTruthy();
+
+    const staleMarker = `STALE_PDF_ROW_${Date.now()}`;
+    let releaseExtraction: (() => void) | undefined;
+    const extractionHeld = new Promise<void>((resolve) => {
+      releaseExtraction = resolve;
+    });
+    await page.route('**/api/claude-vision/extract', async (route) => {
+      await extractionHeld;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          lineItems: [
+            {
+              majorCategory: null,
+              middleCategory: null,
+              minorCategory: null,
+              customCategory: null,
+              workType: '仮設工',
+              name: staleMarker,
+              specification: null,
+              quantity: 1,
+              unit: '式',
+              remarks: null,
+            },
+          ],
+          pageCount: 1,
+        }),
+      });
+    });
+
+    const dialog = page.getByRole('dialog');
+    const results = dialog.getByRole('region', { name: '抽出結果' });
+
+    // 1件目: PDF。Claude Vision への送信が出た時点で、抽出は応答待ちの処理中である
+    const visionRequest = page.waitForRequest(
+      (request) =>
+        request.method() === 'POST' && /\/api\/claude-vision\/extract$/.test(request.url()),
+      { timeout: getTimeout(45000) }
+    );
+    await page.getByLabel('ファイルを選択').setInputFiles(TEST_PDF);
+    await visionRequest;
+    await expect(
+      page.getByLabel('ファイルを選択'),
+      'PDFの抽出が処理中になっていない'
+    ).toBeDisabled();
+
+    // 2件目: 処理中でも受け付けるドロップ領域へ Excel を落とす
+    const xlsxBase64 = fs.readFileSync(TEST_XLSX).toString('base64');
+    const dataTransfer = await page.evaluateHandle(
+      ({ base64, name }) => {
+        const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+        const transfer = new DataTransfer();
+        transfer.items.add(
+          new File([bytes], name, {
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          })
+        );
+        return transfer;
+      },
+      { base64: xlsxBase64, name: 'import-items.xlsx' }
+    );
+    await dialog
+      .getByText('ファイルをドラッグ&ドロップ、またはファイルを選択してください')
+      .dispatchEvent('drop', { dataTransfer });
+
+    const resultRows = results.locator('table tbody');
+    await expect(resultRows, 'REQ-33.5: ドロップしたExcelの抽出結果が表示されない').toContainText(
+      'E2E取込項目',
+      { timeout: getTimeout(45000) }
+    );
+
+    // 保留していた PDF の応答を返し、画面側がその応答を読み終えるまで待つ
+    const visionResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        /\/api\/claude-vision\/extract$/.test(response.url()),
+      { timeout: getTimeout(15000) }
+    );
+    releaseExtraction?.();
+    await (await visionResponse).finished();
+    // 追い越された処理の完了は画面に変化を出さない（正しく捨てられれば何も起きない）ため、
+    // 確定的に待つ目印が無い。応答の受信から画面側の JS（応答の読み取り・整形・状態更新）が
+    // 走り終えるまでの余裕として固定で待つ。前提となる Excel の抽出行の表示は先に確かめている。
+    await page.evaluate(() => new Promise<void>((resolve) => setTimeout(resolve, 1000)));
+
+    await expect(
+      resultRows,
+      'REQ-33.5: 追い越されたPDFの抽出結果で新しいファイルの抽出結果が上書きされた'
+    ).not.toContainText(staleMarker);
+    await expect(
+      resultRows,
+      'REQ-33.5: 新しいファイル（Excel）の抽出結果が保たれていない'
+    ).toContainText('E2E取込項目');
+    await expect(
+      results.getByRole('alert'),
+      'REQ-33.5: 追い越された処理のエラーが表示された'
+    ).toHaveCount(0);
+
+    await page.unroute('**/api/claude-vision/extract');
   });
 });
 

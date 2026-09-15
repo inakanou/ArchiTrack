@@ -256,6 +256,190 @@ describe('useImportDataExtractor', () => {
     expect(result.current.status).toBe('completed');
   });
 
+  /**
+   * 追い越された処理の結果が新しいファイルの状態を上書きしない。
+   *
+   * 処理中でもドロップ領域からは別のファイルを渡せるため、先に始めた処理の解決（または
+   * 30秒の時間切れ）が後から届くことがある。最後に始めた処理（と、リセットより後に始めた処理）
+   * だけが状態を更新してよい。
+   *
+   * @requirement quantity-table-generation/REQ-33.5: 別ファイル選択時に前回の抽出結果をクリアし、新しいファイルの処理を開始する
+   */
+  describe('追い越された処理の結果を捨てる (REQ-33.5)', () => {
+    function deferred<T>() {
+      let resolve!: (value: T) => void;
+      let reject!: (reason: unknown) => void;
+      const promise = new Promise<T>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      return { promise, resolve, reject };
+    }
+
+    const resultA: ImportExtractionResult = {
+      headers: ['名称'],
+      rows: [{ columns: ['先のファイルの行'], sourceRowIndex: 0 }],
+      extractionType: 'excel-parse',
+    };
+    const resultB: ImportExtractionResult = {
+      headers: ['名称'],
+      rows: [{ columns: ['後のファイルの行'], sourceRowIndex: 0 }],
+      extractionType: 'excel-parse',
+    };
+
+    it('後から始めた処理が先に終わっても、先の処理の遅れて届いた結果で上書きしない', async () => {
+      const { parseExcelFile } = await import('./excel-parser');
+      const runA = deferred<ImportExtractionResult>();
+      const runB = deferred<ImportExtractionResult>();
+      vi.mocked(parseExcelFile)
+        .mockImplementationOnce(() => runA.promise)
+        .mockImplementationOnce(() => runB.promise);
+
+      const { result } = renderHook(() => useImportDataExtractor());
+
+      await act(async () => {
+        result.current.startExtraction(createMockFile('a.xlsx'));
+      });
+      await act(async () => {
+        result.current.startExtraction(createMockFile('b.xlsx'));
+      });
+      await vi.waitFor(() => expect(parseExcelFile).toHaveBeenCalledTimes(2));
+
+      await act(async () => {
+        runB.resolve(resultB);
+      });
+      expect(result.current.status).toBe('completed');
+      expect(result.current.result).toEqual(resultB);
+
+      await act(async () => {
+        runA.resolve(resultA);
+      });
+      expect(result.current.status).toBe('completed');
+      expect(result.current.result).toEqual(resultB);
+    });
+
+    it('先の処理の失敗（時間切れ）が後から届いても、エラーを出さず後のファイルの状態を保つ', async () => {
+      const { parseExcelFile } = await import('./excel-parser');
+      const { extractPdfData } = await import('./pdf-ocr-extractor');
+      const runA = deferred<ImportExtractionResult>();
+      let progressA: ((p: number, message?: string) => void) | undefined;
+      vi.mocked(extractPdfData).mockImplementationOnce((_file, onProgress) => {
+        progressA = onProgress;
+        return runA.promise;
+      });
+      vi.mocked(parseExcelFile).mockResolvedValueOnce(resultB);
+
+      const { result } = renderHook(() => useImportDataExtractor());
+
+      await act(async () => {
+        result.current.startExtraction(createMockFile('a.pdf'));
+      });
+      await vi.waitFor(() => expect(extractPdfData).toHaveBeenCalledTimes(1));
+
+      await act(async () => {
+        result.current.startExtraction(createMockFile('b.xlsx'));
+      });
+      expect(result.current.status).toBe('completed');
+      expect(result.current.result).toEqual(resultB);
+
+      // 追い越された処理の進捗は、新しいファイルの進捗を書き換えない
+      await act(async () => {
+        progressA?.(40, '先のファイルの進捗');
+      });
+      expect(result.current.progress).toBe(100);
+      expect(result.current.progressMessage).toBe('データパース完了');
+
+      await act(async () => {
+        runA.reject(new Error('OCR処理が時間切れになりました'));
+      });
+      expect(result.current.status).toBe('completed');
+      expect(result.current.error).toBeNull();
+      expect(result.current.result).toEqual(resultB);
+    });
+
+    it('リセットより前に始めた処理の結果・進捗は、リセット後の状態を変えない', async () => {
+      const { parseExcelFile } = await import('./excel-parser');
+      const runA = deferred<ImportExtractionResult>();
+      vi.mocked(parseExcelFile).mockImplementationOnce(() => runA.promise);
+
+      const { result } = renderHook(() => useImportDataExtractor());
+
+      await act(async () => {
+        result.current.startExtraction(createMockFile('a.xlsx'));
+      });
+      await vi.waitFor(() => expect(parseExcelFile).toHaveBeenCalledTimes(1));
+
+      act(() => {
+        result.current.reset();
+      });
+
+      await act(async () => {
+        runA.resolve(resultA);
+      });
+      expect(result.current.status).toBe('idle');
+      expect(result.current.result).toBeNull();
+      expect(result.current.progress).toBe(0);
+      expect(result.current.progressMessage).toBe('');
+    });
+
+    it('リセットより前に始めた処理の失敗は、リセット後にエラーを出さない', async () => {
+      const { parseExcelFile } = await import('./excel-parser');
+      const runA = deferred<ImportExtractionResult>();
+      vi.mocked(parseExcelFile).mockImplementationOnce(() => runA.promise);
+
+      const { result } = renderHook(() => useImportDataExtractor());
+
+      await act(async () => {
+        result.current.startExtraction(createMockFile('a.xlsx'));
+      });
+      await vi.waitFor(() => expect(parseExcelFile).toHaveBeenCalledTimes(1));
+
+      act(() => {
+        result.current.reset();
+      });
+
+      await act(async () => {
+        runA.reject(new Error('ファイル読み取りエラー'));
+      });
+      expect(result.current.status).toBe('idle');
+      expect(result.current.error).toBeNull();
+    });
+
+    it('追い越しの後のリトライは最後に選んだファイルを再処理し、先の処理の結果を受け付けない', async () => {
+      const { parseExcelFile } = await import('./excel-parser');
+      const runA = deferred<ImportExtractionResult>();
+      vi.mocked(parseExcelFile)
+        .mockImplementationOnce(() => runA.promise)
+        .mockRejectedValueOnce(new Error('一時エラー'))
+        .mockResolvedValueOnce(resultB);
+
+      const { result } = renderHook(() => useImportDataExtractor());
+      const fileA = createMockFile('a.xlsx');
+      const fileB = createMockFile('b.xlsx');
+
+      await act(async () => {
+        result.current.startExtraction(fileA);
+      });
+      await act(async () => {
+        result.current.startExtraction(fileB);
+      });
+      expect(result.current.status).toBe('error');
+
+      await act(async () => {
+        result.current.retry();
+      });
+      expect(parseExcelFile).toHaveBeenCalledTimes(3);
+      expect(vi.mocked(parseExcelFile).mock.calls[2]?.[0]).toBe(fileB);
+      expect(result.current.status).toBe('completed');
+      expect(result.current.result).toEqual(resultB);
+
+      await act(async () => {
+        runA.resolve(resultA);
+      });
+      expect(result.current.result).toEqual(resultB);
+    });
+  });
+
   it('大文字拡張子のファイルも正しく処理する', async () => {
     const { parseExcelFile } = await import('./excel-parser');
     vi.mocked(parseExcelFile).mockResolvedValue(mockExtractionResult);

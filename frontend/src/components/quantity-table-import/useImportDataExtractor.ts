@@ -10,6 +10,9 @@
  * - 29.9: OCR処理失敗時のエラーハンドリング
  * - 33.1: リトライ機能
  * - 33.2: 同一ファイルに対する再実行
+ *
+ * 処理中にドロップ領域から別ファイルが渡されても、追い越された処理（およびリセット前に
+ * 始めた処理）の結果・エラー・進捗は状態へ反映しない（最後に始めた処理だけが状態を更新する）。
  */
 
 import { useState, useCallback, useRef } from 'react';
@@ -46,8 +49,13 @@ export function useImportDataExtractor(): UseImportDataExtractorResult {
   const [result, setResult] = useState<ImportExtractionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const lastFileRef = useRef<File | null>(null);
+  const generationRef = useRef(0);
 
   const processFile = useCallback(async (file: File) => {
+    // 追い越された処理（後から別の処理が始まった、またはリセットされた）は状態を更新しない（REQ-33.5）
+    const generation = ++generationRef.current;
+    const isCurrent = () => generationRef.current === generation;
+
     setStatus('processing');
     setProgress(0);
     setProgressMessage('処理を開始しています...');
@@ -55,6 +63,7 @@ export function useImportDataExtractor(): UseImportDataExtractorResult {
     setResult(null);
 
     const onProgress = (p: number, message?: string) => {
+      if (!isCurrent()) return;
       setProgress(p);
       if (message) setProgressMessage(message);
     };
@@ -79,9 +88,11 @@ export function useImportDataExtractor(): UseImportDataExtractorResult {
         );
       }
 
+      if (!isCurrent()) return;
       setResult(extractionResult);
       setStatus('completed');
     } catch (err) {
+      if (!isCurrent()) return;
       const message = err instanceof Error ? err.message : 'ファイルの処理中にエラーが発生しました';
       setError(message);
       setStatus('error');
@@ -103,6 +114,8 @@ export function useImportDataExtractor(): UseImportDataExtractorResult {
   }, [processFile]);
 
   const reset = useCallback(() => {
+    // 進行中の処理を追い越し済みにし、リセット後の状態を書き換えさせない（REQ-33.5）
+    generationRef.current += 1;
     setStatus('idle');
     setProgress(0);
     setProgressMessage('');
