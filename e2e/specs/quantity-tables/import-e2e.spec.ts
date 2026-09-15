@@ -709,10 +709,10 @@ test.describe('REQ-28: Excelデータパース', () => {
     const fileInput = page.getByLabel('ファイルを選択');
     await fileInput.setInputFiles(TEST_XLSX);
 
-    // REQ-28.4: 抽出結果はプレビューテーブルとして表示される
+    // 前提: 抽出結果のプレビューテーブルが表示される（REQ-28.4 の被覆は同じ区間の専用の検証が担う）
     // Excel はインラインプレビュー（REQ-34.3）にも表が出るため、抽出結果の領域の表に限定する
     const previewTable = page.getByRole('region', { name: '抽出結果' }).locator('table');
-    await expect(previewTable, 'REQ-28.4: 抽出結果のプレビューテーブルが表示されない').toBeVisible({
+    await expect(previewTable, '前提: 抽出結果のプレビューテーブルが表示される').toBeVisible({
       timeout: getTimeout(45000),
     });
 
@@ -799,8 +799,19 @@ test.describe('REQ-28: Excelデータパース', () => {
 
   /**
    * @requirement quantity-table-generation/REQ-28.4: プレビューテーブル表示
+   *
+   * Excel のデータパースが完了したとき、抽出結果が「抽出結果」の領域にプレビューテーブルとして
+   * 表示され、その表がパースした内容（資材 import-items.xlsx の見出し5列と本文の行）を持つことを主張する。
+   *
+   * タスク 97.23 の是正: 以前は PDF を渡し「最初の table か role="alert" のどちらかが見える」ことだけを
+   * 待っていた。条文はデータパース（Excel）を対象とするのに PDF で走り、表を出さずにエラー表示だけを
+   * 出す実装でも合格した（Excel の結果に表の代わりに alert を描く変異で合格することを実測した）。
+   * 選言を撤去し、Excel で表の存在と中身を無条件に主張する。
+   * インラインプレビュー（REQ-34.3）にも同じ表が出るため、判定は「抽出結果」の領域に限定する。
    */
-  test('PDF処理完了時にプレビューテーブルまたはエラーが表示される (REQ-28.4)', async ({ page }) => {
+  test('Excelのデータパース完了時に抽出結果がプレビューテーブルとして表示される (REQ-28.4)', async ({
+    page,
+  }) => {
     const navigated = await navigateToQuantityTableEdit(page);
     expect(navigated).toBeTruthy();
 
@@ -808,18 +819,47 @@ test.describe('REQ-28: Excelデータパース', () => {
     expect(opened).toBeTruthy();
 
     const fileInput = page.getByLabel('ファイルを選択');
-    await fileInput.setInputFiles(TEST_PDF);
+    await fileInput.setInputFiles(TEST_XLSX);
 
-    const previewTable = page.locator('table').first();
-    const errorAlert = page.locator('[role="alert"]').first();
+    const results = page.getByRole('dialog').getByRole('region', { name: '抽出結果' });
+    const previewTable = results.locator('table');
+    await expect(
+      previewTable,
+      'REQ-28.4: データパース完了後、抽出結果のプレビューテーブルが表示されない'
+    ).toBeVisible({ timeout: getTimeout(45000) });
 
-    // 処理完了 or エラーまでを待つ
-    const result = await Promise.race([
-      labelWhenVisibleWithin(previewTable, getTimeout(45000), 'preview'),
-      labelWhenVisibleWithin(errorAlert, getTimeout(45000), 'error'),
-    ]);
+    // 表がパースした内容を持つ（表の存在だけでは中身の欠けた表でも成立するため）
+    const headerCells = previewTable.locator('thead th');
+    await expect(
+      headerCells,
+      'REQ-28.4: プレビューテーブルの見出しが資材の5列になっていない'
+    ).toHaveCount(5);
+    for (const [index, header] of ['工種', '名称', '規格', '数量', '単位'].entries()) {
+      // 見出しセル（th）の文字列にはマッピング先の選択欄の選択肢（工種・名称・規格・数量・単位を含む）も
+      // 入り、どの列でも一致してしまう。見出しの文字だけを持つ th 直下の div に限って読む。
+      await expect(
+        headerCells.nth(index).locator(':scope > div'),
+        `REQ-28.4: プレビューテーブルの${index + 1}列目の見出しが「${header}」でない`
+      ).toHaveText(header);
+    }
+    const bodyRows = previewTable.locator('tbody tr');
+    await expect(
+      bodyRows,
+      'REQ-28.4: プレビューテーブルに資材の本文の行がちょうど1行表示されない'
+    ).toHaveCount(1);
+    const cells = bodyRows.first().locator('td');
+    for (const [index, value] of ['仮設工', 'E2E取込項目', '標準仕様', '12', '式'].entries()) {
+      await expect(
+        cells.nth(index),
+        `REQ-28.4: プレビューテーブルの本文の行の${index + 1}列目に「${value}」が表示されない`
+      ).toHaveText(value);
+    }
 
-    expect(result, 'プレビューテーブル または エラー表示のいずれかが表示される').not.toBeNull();
+    // 完了した抽出結果の領域にエラー表示が出ていない（表の代わりにエラーを出す実装を拒む）
+    await expect(
+      results.getByRole('alert'),
+      'REQ-28.4: データパース完了後の抽出結果にエラー表示が出ている'
+    ).toHaveCount(0);
   });
 
   /**
