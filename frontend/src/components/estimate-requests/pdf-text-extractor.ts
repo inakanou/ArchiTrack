@@ -11,6 +11,7 @@
  * Task 44.5: 垂直線除去関数の実装
  * Task 44.6: 画像前処理パイプライン統合関数の実装
  * Task 44.7: extractPdfWithOcrFallback関数への画像前処理パイプライン統合
+ * Task 97.8（quantity-table-generation）: 任意の中断のシグナル（省略時の挙動は従来どおり）
  *
  * Requirements:
  * - 17.1: pdfjs-distのgetTextContent() APIを使用してPDFからテキストを抽出する
@@ -75,6 +76,20 @@ export interface PdfTextExtractionResult {
  * 進捗通知コールバック
  */
 export type ProgressCallback = (progress: number, message?: string) => void;
+
+/**
+ * PDFテキスト抽出の任意指定（Task 97.8）
+ */
+export interface PdfExtractionOptions {
+  /**
+   * 処理を中断するためのシグナル。
+   *
+   * 中断されると、ページ・工程の区切りで処理を打ち切り、Tesseract.js のワーカーを作っていれば
+   * 直ちに終了し、`name` が `'AbortError'` のエラーで失敗する。認識中のページの完了は待たない。
+   * 省略したときの挙動は、この指定を足す前と同一である（受領見積書登録機能の呼び出しは渡さない）。
+   */
+  signal?: AbortSignal;
+}
 
 // ============================================================================
 // 画像前処理パイプライン（Task 44.2-44.6, Requirements 19.2-19.6）
@@ -315,24 +330,81 @@ export async function extractPdfText(file: File): Promise<string> {
 }
 
 // ============================================================================
+// 中断（Task 97.8）
+// ============================================================================
+
+/** 中断されたときに投げるエラー（`name` は `'AbortError'`） */
+function createAbortError(): DOMException {
+  return new DOMException('PDFテキスト抽出を中断しました', 'AbortError');
+}
+
+/** シグナルが中断済みなら `AbortError` を投げる。シグナルが無ければ何もしない */
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw createAbortError();
+  }
+}
+
+/**
+ * 待っている処理と中断を競わせる。中断されたら処理の完了を待たずに `AbortError` で失敗する。
+ * シグナルが無ければ処理の Promise をそのまま返す。
+ *
+ * 処理の Promise には常に購読を付けるため、中断の後に処理が失敗しても未処理の拒否は残らない。
+ */
+function raceWithAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) {
+    return promise;
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => reject(createAbortError());
+    if (signal.aborted) {
+      onAbort();
+    } else {
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      }
+    );
+  });
+}
+
+// ============================================================================
 // スキャンPDFフォールバック（Canvas→画像→Tesseract OCR）
 // ============================================================================
 
 /**
  * スキャンPDFの各ページをCanvas描画→画像変換→Tesseract OCRで処理する
  *
+ * `options.signal` が中断されると、ページの区切りで打ち切り、認識中のページはその完了を待たずに
+ * 打ち切り、ワーカーを終了して `AbortError` で失敗する（Task 97.8）。tesseract.js の
+ * `terminate` は認識中の Promise を settle させないため、認識の待ちは中断と競わせる。
+ * ワーカーの作成中に中断された場合は、ワーカーを取り逃さないよう作成を待ってから終了する。
+ *
  * @param file - 処理対象のPDFファイル
  * @param onProgress - 進捗通知コールバック
+ * @param options - 中断のシグナル（省略時の挙動は従来どおり）
  * @returns OCR抽出テキスト
  */
 export async function extractPdfWithOcrFallback(
   file: File,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  options: PdfExtractionOptions = {}
 ): Promise<string> {
+  const { signal } = options;
   const { createWorker } = await import('tesseract.js');
 
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+
+  // 中断済みならワーカーを作らない
+  throwIfAborted(signal);
 
   // Tesseract.jsワーカーの初期化
   const worker = await createWorker('jpn');
@@ -363,6 +435,10 @@ export async function extractPdfWithOcrFallback(
       // PDFページをCanvas上に描画
       await page.render({ canvas, viewport }).promise;
 
+      // 描画の後で中断を確かめる（中断されていればこのページの前処理・画像変換・認識へ進まない）。
+      // 認識の待ちの間の中断は raceWithAbort が受け持つ（Task 97.8）
+      throwIfAborted(signal);
+
       // Task 44.7: 画像前処理パイプラインの適用（Requirements 19.6, 19.7）
       // Canvas描画後、toBlob()前にImageDataを取得して前処理を実行
       const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
@@ -386,7 +462,7 @@ export async function extractPdfWithOcrFallback(
 
       // Tesseract.jsでOCR処理
       const imageFile = new File([blob], `page-${pageNum}.png`, { type: 'image/png' });
-      const result = await worker.recognize(imageFile);
+      const result = await raceWithAbort(worker.recognize(imageFile), signal);
       pageTexts.push(result.data.text);
     }
 
@@ -408,20 +484,27 @@ export async function extractPdfWithOcrFallback(
  * 2. テキスト文字数が閾値以上 → テキストPDF（そのまま使用）
  * 3. テキスト文字数が閾値未満 → スキャンPDF（Canvas→Tesseract OCRフォールバック）
  *
+ * `options.signal` が中断されると、工程の区切りで打ち切り、OCR のワーカーを終了して
+ * `AbortError` で失敗する（Task 97.8）。省略時の挙動は従来どおりである。
+ *
  * @param file - 処理対象のPDFファイル
  * @param onProgress - 進捗通知コールバック
+ * @param options - 中断のシグナル（省略時の挙動は従来どおり）
  * @returns テキスト抽出結果
  */
 export async function extractPdfHybrid(
   file: File,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  options: PdfExtractionOptions = {}
 ): Promise<PdfTextExtractionResult> {
+  const { signal } = options;
   if (onProgress) {
     onProgress(10, 'PDFテキスト抽出中...');
   }
 
   // Step 1: pdfjs-distでテキスト抽出
   const pdfText = await extractPdfText(file);
+  throwIfAborted(signal);
 
   // Step 2: 閾値判定（空白を除いた文字数）
   const textLengthWithoutSpaces = pdfText.replace(/\s/g, '').length;
@@ -431,6 +514,7 @@ export async function extractPdfHybrid(
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
   const numPages = pdf.numPages;
+  throwIfAborted(signal);
 
   if (isTextPdf) {
     // テキストPDF: pdfjs-dist抽出テキストをそのまま使用
@@ -444,7 +528,7 @@ export async function extractPdfHybrid(
   if (onProgress) {
     onProgress(25, 'スキャンPDF検出、OCR処理を開始...');
   }
-  const ocrText = await extractPdfWithOcrFallback(file, onProgress);
+  const ocrText = await extractPdfWithOcrFallback(file, onProgress, { signal });
 
   return { text: ocrText, isTextPdf: false, numPages };
 }

@@ -670,4 +670,73 @@ describe('OCR処理の抽出テキスト・失敗時の導線・タイムアウ�
     lateProgress?.(80, '遅れて届いた進捗');
     expect(onProgress).not.toHaveBeenCalled();
   });
+
+  /**
+   * タイムアウトしたら、OCR処理（`extractPdfHybrid`）へ渡した中断のシグナルを中断し、
+   * 裏で走り続ける OCR のワーカーを止めさせることを確かめる（Task 97.8）。
+   * 30秒に満たない間は中断しない。利用者へ出すメッセージは変えない。
+   */
+  it('タイムアウトするとOCR処理へ渡した中断のシグナルを中断する', async () => {
+    vi.useFakeTimers();
+    const { renderPdfPagesToBase64, extractPdfHybrid } =
+      await import('../estimate-requests/pdf-text-extractor');
+    vi.mocked(renderPdfPagesToBase64).mockRejectedValue(new Error('API unavailable'));
+    let signal: AbortSignal | undefined;
+    vi.mocked(extractPdfHybrid).mockImplementation((_file, _onProgress, options) => {
+      signal = options?.signal;
+      return new Promise(() => {});
+    });
+
+    const outcome = track(extractPdfData(new File(['test'], 'test.pdf')));
+
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal?.aborted).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(outcome.state()).toBe('rejected');
+    expect((outcome.error() as Error).message).toBe(
+      'OCR処理がタイムアウトしました（30秒超過）。手動入力してください'
+    );
+    expect(signal?.aborted).toBe(true);
+  });
+
+  /**
+   * 中断された OCR処理が時間切れの後に失敗しても、未処理の拒否（unhandled rejection）を残さず、
+   * 利用者へ出すタイムアウトのメッセージも変えないことを確かめる（Task 97.8）。
+   */
+  it('中断されたOCR処理が時間切れの後に失敗しても未処理の拒否を残さない', async () => {
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      vi.useFakeTimers();
+      const { renderPdfPagesToBase64, extractPdfHybrid } =
+        await import('../estimate-requests/pdf-text-extractor');
+      vi.mocked(renderPdfPagesToBase64).mockRejectedValue(new Error('API unavailable'));
+      vi.mocked(extractPdfHybrid).mockImplementation(
+        (_file, _onProgress, options) =>
+          new Promise((_, reject) => {
+            options?.signal?.addEventListener('abort', () => {
+              // 本物と同じく、中断の後に遅れて AbortError で失敗する
+              queueMicrotask(() => reject(new DOMException('中断しました', 'AbortError')));
+            });
+          })
+      );
+
+      const outcome = track(extractPdfData(new File(['test'], 'test.pdf')));
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      vi.useRealTimers();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(outcome.state()).toBe('rejected');
+      expect((outcome.error() as Error).message).toBe(
+        'OCR処理がタイムアウトしました（30秒超過）。手動入力してください'
+      );
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
+  });
 });

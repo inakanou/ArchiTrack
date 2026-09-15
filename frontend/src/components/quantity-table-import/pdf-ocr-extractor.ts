@@ -167,6 +167,9 @@ async function extractWithOcrFallback(
  * `extractPdfHybrid` に30秒のタイムアウトを課して実行する（REQ-29.10）。
  *
  * - 30秒を超えたら `OCR_TIMEOUT_MESSAGE` で失敗する。以後に届く進捗は通知しない
+ * - 30秒を超えたら `extractPdfHybrid` へ渡した中断のシグナルを中断し、裏で走り続ける OCR の
+ *   ワーカーを止めさせる（Task 97.8）。中断された処理は後から `AbortError` で失敗するが、
+ *   `Promise.race` がその拒否を購読しているため未処理の拒否は残らず、利用者へ出すメッセージも変わらない
  * - それ以外の失敗は `OCR_FAILURE_MESSAGE` で失敗する（REQ-29.9。元のエラーの文言は利用者へ出さない）
  * - 完了・失敗のいずれでもタイマーを解除する
  */
@@ -177,6 +180,7 @@ async function extractPdfHybridWithTimeout(
 ): Promise<PdfTextExtractionResult> {
   let timedOut = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const controller = new AbortController();
 
   const guardedProgress: ProgressCallback | undefined = onProgress
     ? (progress, message) => {
@@ -188,11 +192,15 @@ async function extractPdfHybridWithTimeout(
     timer = setTimeout(() => {
       timedOut = true;
       reject(new Error(OCR_TIMEOUT_MESSAGE));
+      controller.abort();
     }, OCR_TIMEOUT_MS);
   });
 
   try {
-    return await Promise.race([extractPdfHybrid(file, guardedProgress), timeout]);
+    return await Promise.race([
+      extractPdfHybrid(file, guardedProgress, { signal: controller.signal }),
+      timeout,
+    ]);
   } catch {
     throw new Error(timedOut ? OCR_TIMEOUT_MESSAGE : OCR_FAILURE_MESSAGE);
   } finally {

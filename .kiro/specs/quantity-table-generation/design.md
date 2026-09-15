@@ -1863,6 +1863,7 @@ async function extractPdfData(
 - `ImportExtractionResult` は `extractedText` を持つ。フォールバック経路は `extractPdfHybrid` が返したテキスト、Claude Vision 経路は抽出した行を整形した JSON テキスト（受領見積書登録の `OcrDataExtractor` と同じ表示）。Excel では持たない
 - `ImportDialog` は抽出完了時、`extractedText` を持つ場合に見出し「抽出テキスト」の領域をプレビューテーブルの直前に表示し、テキストを選択・コピーできる状態にする（受入基準 7・8）
 - 30秒（`OCR_TIMEOUT_MS`）はフォールバックの `extractPdfHybrid` にのみ課し、計時はフォールバック開始から始める。Claude Vision API の応答待ちには課さない（課すと Requirement 30 の受入基準 6 のフォールバックへ届かない）。時間切れ後の進捗は通知しない。`extractPdfHybrid` は中断手段を持たないため、時間切れ後も OCR の処理は裏で完走しうるが、結果は状態へ反映しない（受入基準 10）
+  - **現況（タスク 97.8、2026-09-15 の利用者裁定「中断の仕組みを足す」に基づく追記）**: 上の「中断手段を持たない」は 97.8 で改めた。共有部品の `extractPdfHybrid` / `extractPdfWithOcrFallback` は任意の3番目の引数 `options.signal`（`AbortSignal`）を受け、中断されると工程の区切り（テキスト抽出の後・worker を作る前・各ページの描画の後）と認識の待ちで処理を打ち切り、Tesseract の worker を終了して `AbortError` で失敗する。取り込み経路の時間切れはその時点でシグナルを中断し、その拒否は `Promise.race` が受け止めるため未処理の拒否は残らず、利用者への文言も変わらない。受領見積書登録の `OcrDataExtractor` はシグナルを渡さないため挙動は不変である。描画中と worker の作成中の中断は、その工程が終わった直後に反映される（tesseract.js 7.0.0 の `terminate` は認識中の Promise を終わらせないため、認識の待ちは中断と競わせている）
 - 失敗時は「OCR処理に失敗しました。手動入力してください」、時間切れ時は「OCR処理がタイムアウトしました（30秒超過）。手動入力してください」で失敗させ、ダイアログの `role="alert"` がリトライボタンと併せて表示する。元の例外文は利用者へ出さない（受入基準 9、受領見積書登録と同じ文言）
 
 ##### Claude Vision API連携（数量表インポート用プロンプト）
