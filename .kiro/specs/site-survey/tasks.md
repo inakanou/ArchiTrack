@@ -6035,6 +6035,16 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - **あわせて判断されたい**: `.kiro/specs/site-survey/e2e-assertion-guard-reduction-plan.md` L365 の「要件を実装した `QuantityInput` は存在するが未参照」は、89.1 が `QuantityInput` を撤去したため現況として偽になった。歴史記録として併記するかを本スペックで判断すること
   - _Boundary: 本スペックの設計文書と被覆の自己検査が数量表の死コードを名指す箇所_
 
+- [ ] 115.326 数量表の死コード `PhotoChangeDialog` の撤去を阻む設計文書の名指しを解く（**quantity-table-generation の Task 97.14 からの起票依頼**）
+  - 数量表の本番から到達しない部品 `frontend/src/components/quantity-table/PhotoChangeDialog.tsx`（本体・検証2・ストーリー1）を、下流の利用者の裁定（2026-09-15「統治台帳ごと撤去する」）に従って撤去したいが、本スペックの設計文書の名指しが阻んでいる
+  - **実測（コミット `eef1289c` 〜 `e446e6b9` の作業ツリー、2026-09-15、リポジトリルート。4ファイルを scratchpad へ一時移動する変異を当て、測った後に元へ戻したことを確認した）**:
+    - `.kiro/specs/site-survey/design.md` L178（再実測の記録、17件中の9番目の項目）が `PhotoChangeDialog.tsx` と `PhotoChangeDialog.stories.tsx` を実在するものとして裸のファイル名で名指している（「参照は単体テストのみ」を偽とした根拠として、ストーリーも同じ部品を参照すると書く）
+    - 撤去の変異で `npm run check:design-path-refs` が exit 0 → 1 となり、不在パスが4件出た。うち本スペック側は `site-survey/design.md (2件) L178: PhotoChangeDialog.tsx [bare-filename] / L178: PhotoChangeDialog.stories.tsx [bare-filename]`。残る2件は下流の design.md で、下流が規約 (a) の注で解く
+    - 撤去しても被覆は失われない（`REQ-49.10` は下流の他の3ファイルが被覆する）。`frontend/src/components/quantity-table/index.ts` に `PhotoChangeDialog` の再輸出は無い
+  - **依頼**: L178 の9番目の項目へ、撤去に備えた不在の記録を規約 (a) で併記してよいかを判断すること（115.325 の (1) と同型）。下流は本スペックの文書を書き換えていない
+  - **あわせて知らせる**: 下流が撤去して統治台帳 `scripts/design-path-exemption-baseline.json` を関門の案内する経路で更新すると、97.13 と同型で本スペックの design.md が基線の値を文中で引く鮮度宣言（`design-path-exemption-tally-total` / `-distinct-total` / `-tally-distinct-gap` / `design-path-candidate-recorded`）がさらに動く見込みである（下流の 97.16 の起票に内訳を含める）
+  - _Boundary: 本スペックの設計文書が数量表の死コード `PhotoChangeDialog` を名指す箇所_
+
 ## Implementation Notes（Task 115.30-115.52）
 
 - **「注記が言う未実装」を鵜呑みにしないこと**: 115.127 段4 で、八件の検証が「実装がセレクトボックスなので未実装」という注記つきの分岐で守られていたが、実装は入力欄であり**観測は一度も発火していなかった**。危険なのは発火しなかったことではなく、**実装が退行した瞬間に八件が緑のまま何も主張しなくなる**ことである。変異で実測すると、観測が発火する状況では八件が主張を一つも実行せずに通った。

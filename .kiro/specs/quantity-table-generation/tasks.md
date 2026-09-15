@@ -3517,6 +3517,9 @@ _起票元: Task 95 の処置後に再実行した機能レベル検証（`/kiro
   - 台帳の更新が他スペックの面に及ぶなら、上流へ起票して待つこと（Implementation Notes「起票して待つ」は、起票を実際に書き込んでから待機に入ること）
   - **利用者の裁定（2026-09-15）**: 「台帳ごと撤去する」。部品を撤去し、統治台帳の当該行と設計文書の言及を追随させる。台帳は他スペックと共有のため、他の面への影響を測る
   - _Boundary: `PhotoChangeDialog` の撤去の是非と、統治台帳の当該の行_
+  - **着手時の実測（コミット `eef1289c` 〜 `e446e6b9` の作業ツリー、2026-09-15、リポジトリルート。4ファイルを scratchpad へ一時移動する変異を当て、測った後に元へ戻したことを確認した。作業ツリーは無変更）**: 本番からの取り込み0件、再輸出0件。参照は定義・検証2（`components/quantity-table/PhotoChangeDialog.test.tsx` / `__tests__/components/quantity-table/PhotoChangeDialog.test.tsx`）・ストーリー1、steering の `structure.md` L550 / L767、本スペックの design.md 13行、統治台帳 `scripts/design-path-exemption-baseline.json` の本スペックの面の配列、**そして他スペック `.kiro/specs/site-survey/design.md` L178**。撤去の変異で `check:design-path-refs` が exit 0→1（不在4件/2ファイル。うち2件が site-survey の L178）、`check:steering-refs` も exit 1。検証の一方が `REQ-49.10` の印を持つが、同じ受入基準を他の3ファイルが被覆しており撤去しても被覆は失われない
+  - **89.1 / 94.1 と同じ手順で上流へ起票した**: site-survey の L178 は下流が書き換えられない上流の文書であり、97.13 と同じ基線の更新では消えない。**親が `.kiro/specs/site-survey/tasks.md` へ Task 115.326 として起票を書き込んだ**。解決後の境界内の作業は、部品・検証2・ストーリーの撤去、`structure.md` の2行の削除、design.md への規約 (a) の注、`check:design-path-refs:update -- --allow-increase` による台帳の更新、鮮度の失敗行の再測定（97.16 への追加）である
+  - _Blocked: site-survey スペックの Task 115.326（`PhotoChangeDialog` を名指す同スペックの design.md L178 の処遇）の解決待ち。撤去の変異による影響の実測は完了し、作業ツリーは無変更_
 
 - [ ] 97.15 site-survey の単体検証の非決定性を上流へ起票する
   - **出所**: 94.1 の申し送り (v)
