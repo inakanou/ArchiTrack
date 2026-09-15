@@ -93,12 +93,10 @@ describe('renderPdfPagesToBase64', () => {
   });
 
   /**
-   * PDFの各ページが Base64 エンコードされた画像データへ変換されることをこの検証が
-   * 確かめる（REQ-30.2 の前半）。その画像データをバックエンドの Claude Vision API
-   * エンドポイントへ送る側は `frontend/src/__tests__/api/claude-vision.test.ts` の
-   * 「should call apiClient.post with mode quantity-table」が確かめる。
-   *
-   * @requirement quantity-table-generation/REQ-30.2
+   * PDFのページが Base64 エンコードされた画像データへ変換されることを、この部品単独で確かめる。
+   * 数量表取り込みで画像化から Claude Vision API への送信までを通して確かめる検証は
+   * `frontend/src/components/quantity-table-import/pdf-ocr-extractor.vision-request.test.ts` に
+   * 置き、被覆印はそちらだけに付ける（Task 97.5。片側だけの本検証は名乗らない）。
    */
   it('should convert a single-page PDF to Base64 image array', async () => {
     const file = createMockFile('test.pdf');

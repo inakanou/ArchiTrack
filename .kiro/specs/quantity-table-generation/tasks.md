@@ -3432,12 +3432,18 @@ _起票元: Task 95 の処置後に再実行した機能レベル検証（`/kiro
   - **利用者の裁定（2026-09-15）**: 「主張を新設して取り下げる」。参照系の取得が操作時に実際に起き、保存を待たずに表示されることを E2E で主張し、変異で落ちることを確かめて除外を取り下げる
   - _Boundary: `REQ-42.10` の除外の在籍理由_
 
-- [ ] 97.5 (P) REQ-30.2 の被覆源が二つのファイルに分かれている状態の処遇を決める
+- [x] 97.5 (P) REQ-30.2 の被覆源が二つのファイルに分かれている状態の処遇を決める
   - **出所**: 95.3 の申し送り (iii)
   - **再実測**: `grep -rln 'quantity-table-generation/REQ-30\.2' frontend/src backend/src e2e` を実行すると、検証は `frontend/src/__tests__/components/estimate-requests/renderPdfPagesToBase64.test.ts` と `frontend/src/__tests__/api/claude-vision.test.ts` の2本（ほかに除外台帳1件）。それぞれが連言の片側ずつを固定しているので、片側が消えても被覆と数え続ける構造である
   - **利用者の裁定（2026-09-15）**: 「両側を一つの検証にまとめる」。取り込み経路で画像化から送信までを通して確かめる検証を1件足し、被覆印をそこだけに移す
   - **追加の利用者の裁定（2026-09-15）**: 一本化した検証が変異で落ちることを確かめた後、30.2 が除外に在籍したままで被覆に数えられないことを示したところ、「取り下げる」（97.2 / 97.3 と同じ扱い）
   - _Boundary: `REQ-30.2` の被覆源の構成_
+  - **処遇（コミット `cb350693` 〜 `eef1289c` の作業ツリー、2026-09-15 にリポジトリルートで実測。台帳の数値は `eef1289c` で独立レビューが再現）**: 取り込み経路の入口 `extractPdfData` から、pdfjs-dist の `getDocument`・Canvas（`document.createElement` と `toDataURL`）・HTTP 層の `apiClient.post` だけを差し替え、`renderPdfPagesToBase64` と `extractWithClaudeVisionForQuantityTable` を実物のまま通す検証を新設した（`frontend/src/components/quantity-table-import/pdf-ocr-extractor.vision-request.test.ts`。既存の `pdf-ocr-extractor.test.ts` は画像化の部品と API クライアントをファイル全体で差し替えるため別ファイルにした）。3ページの PDF でページ 1〜3 を順に描画し、`post` が1回だけ `/api/claude-vision/extract` へ `{ images: [各ページ固有の Base64（接頭辞なし）×3、ページ順], mode: 'quantity-table' }` を送り、結果が `pdf-claude-vision` になることを主張する。Canvas は1つを共有し、描画したページを `toDataURL` が読むため、ページ別の区別は描画順に依存する（モックの作り込みではない）。分かれていた2ファイルからは被覆印を外し、検証そのものは部品単独の検証として残した。**追加の裁定により除外も取り下げた**（除外 183→182、integration-test 60→59、本スペックの除外 29→28、本スペックの適用対象 330→331 で被覆率 100%）。本スペックの受入基準は 358/359 で不動、ラチェットは 2007 / 5112 で不動
+  - **変異の実出力（測った者を分けて記す）**
+    - 実装者: (a) 描画を1ページに限定 → `expected [ 1 ] to deeply equal [ 1, 2, 3 ]`／(b) `callApi([])` → `expected "vi.fn()" to be called with arguments: [ '/api/claude-vision/extract', …(2) ]`／(c) API を呼ばずフォールバックへ直行 → フォールバックが `OCR処理に失敗しました。手動入力してください` で投げて失敗（主張ではなく例外で落ちた）／(d) data URL の接頭辞を除かない → (b) と同じ引数不一致
+    - 独立レビュー（(c) が主張で捕まっていない点を補うため強めた）: M1 API を呼ばず成功を装う結果を返す → `post` の呼び出し回数が 1 でなく 0 の主張で失敗／M2 ページを逆順で送る → `toHaveBeenCalledWith` の主張で失敗／M3 描画の前に `toDataURL` を呼ぶ → 失敗（初回は置換対象の文字列が複数あり変異が当たらず合格を観測したため、関数の範囲に絞って当て直した）
+    - 台帳 `summary.note` の「変異（5種）で落ちることを確かめた」は、上の実装者の (a)(b) と独立レビューの M1〜M3 を指す
+  - **観測**: 台帳の note は測った場所を `cb350693` と書くが、取り下げ時の HEAD は `eef1289c`（`requirements.md` と `import-e2e.spec.ts` のみ変更）であり、`eef1289c` で測り直した数値は note と一致した
 
 - [ ] 97.6 44.x 系のタスクが担当する他の受入基準で、共有パイプラインの再利用が欠けていないかを測る
   - **出所**: 95.3 の申し送り (v)。96.3 が扱ったのは、Task 44.2 配下の3件（29.7 / 29.9 / 29.10）だけである
