@@ -2260,7 +2260,7 @@ await prisma.$transaction(async (tx) => {
 ##### Frontend Interface
 
 ```typescript
-// frontend/src/api/quantity-groups.ts
+// frontend/src/api/quantity-tables.ts（既存 API クライアントに追記）
 export async function copyQuantityGroup(
   groupId: string,
 ): Promise<QuantityGroupInfo>;

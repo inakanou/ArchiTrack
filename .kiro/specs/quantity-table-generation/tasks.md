@@ -3246,12 +3246,13 @@ _起票元: 本実行の機能レベル検証（`/kiro-validate-impl`）が NO-G
   - したがって**分子にも分母にも除外にも載らず、被覆率を一切動かさない**。**問うべきは検査の側ではなく、条文の番号付けである**——枝つきをやめて通し番号にするか、解析器の設計を変えるかの判断が要る。後者は全スペックに及ぶため、上流の所管になる可能性が高い
   - _Boundary: 当該条文の番号付けと、その処遇の判断_
 
-- [ ] 96.6 設計文書の囲みの内側に実体を持たない参照が残る状態を解消する
+- [x] 96.6 設計文書の囲みの内側に実体を持たない参照が残る状態を解消する
   - `design.md` の本変更後 `L2263`（`##### Frontend Interface` の囲みの内側の注釈行）が `frontend/src/api/quantity-groups.ts` を挙げるが、**ディスクにも `git ls-files` の索引にも無い**
   - **実体は `frontend/src/api/quantity-tables.ts:388` の `copyQuantityGroup` である。** 同じ文書の `L2282` は正しい綴りを挙げており、**文書内で自家撞着している**
   - **関門はこれを永久に検出しない**。`scripts/check-design-path-references.ts` の走査は囲みの内側を丸ごと読み飛ばすため、書式を変えない限り主張が一つも立たない（95.5 が変異で実証済み）
   - **Task 95.5 が境界外として測定のみ残した1件である**
   - _Boundary: 当該注釈行の綴り_
+  - **処遇（コミット `49b72184` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: 当該注釈行を `frontend/src/api/quantity-tables.ts（既存 API クライアントに追記）` へ直した（同節 `L2282` と逐語で一致）。`grep -c "quantity-groups.ts" .kiro/specs/quantity-table-generation/design.md` の出力は変更前 `1`・変更後 `0`。囲みが挙げる関数 `copyQuantityGroup` は `frontend/src/api/quantity-tables.ts:388` に実在する。**古い綴りは併記していない**——当該行は経緯の記録ではなくインターフェースの規定であり、併記すれば実体の無い綴りを文書へ戻すことになる（独立レビューが規約 (a) の対象外と判定）。関門19本の終了コードは前後で同一（17緑 / 2赤、赤は基線から）。`check:design-path-refs` は前後とも延べ123 / distinct30 / 面190 / 候補 distinct 739。境界外に残る古い綴りは `research.md:167`（調査記録）・本書の 96.7 の対象2欄・起票記録（`## Task 95` / `## Task 96` の本文）・`scripts/check-design-path-references.selftest.ts` の凍結した対照で、いずれも未変更が正しい
 
 - [ ] 96.7 完了済みタスクの境界欄が実体を持たないファイルを名乗る状態を解消する
   - **2件ある**——`tasks.md:1367`（親は `- [x] 53.1`）と `tasks.md:1401`（親は `- [x] 54.1`）が、いずれも境界欄で `api/quantity-groups.ts` を所有対象として名乗る。**当該ファイルはディスクにも索引にも無い**
