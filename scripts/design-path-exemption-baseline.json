@@ -27,10 +27,10 @@
     "曖昧な参照が面にも曖昧の集合にも掛からない素通りの経路になる。"
   ],
   "reachTotal": 190,
-  "candidateTotal": 697,
+  "candidateTotal": 740,
   "entityTotal": 150,
-  "exemptedTotal": 123,
-  "exemptedDistinctTotal": 30,
+  "exemptedTotal": 125,
+  "exemptedDistinctTotal": 31,
   "ambiguousTotal": 5,
   "candidateHistory": [
     {
@@ -107,6 +107,11 @@
       "recordedAt": "2026-09-07",
       "reachTotal": 190,
       "candidateTotal": 697
+    },
+    {
+      "recordedAt": "2026-09-15",
+      "reachTotal": 190,
+      "candidateTotal": 740
     }
   ],
   "documents": {
@@ -315,11 +320,15 @@
   },
   "exempted": {
     ".kiro/specs/estimate-creation/design.md": 1,
+    ".kiro/specs/quantity-table-generation/design.md": 2,
     ".kiro/specs/site-survey/design.md": 122
   },
   "exemptedReferences": {
     ".kiro/specs/estimate-creation/design.md": [
       "estimate-export.service.ts"
+    ],
+    ".kiro/specs/quantity-table-generation/design.md": [
+      "frontend/src/hooks/useQuantityTableSave.ts"
     ],
     ".kiro/specs/site-survey/design.md": [
       "ImageViewer.stories.tsx",

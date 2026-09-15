@@ -4,8 +4,8 @@
  * Task 68.7: 保存前の計算パラメータ検証を編集画面の保存処理へ配線する（TDDテストファースト）
  *
  * 本ユーティリティは保存前の計算パラメータ検証の単一情報源であり、
- * 数量表編集画面（QuantityTableEditPage.handleSave）と useQuantityTableSave の
- * 双方から参照される。文言はバックエンド（quantity-validation.service.ts /
+ * 数量表編集画面（QuantityTableEditPage.handleSave）から参照される
+ * （useQuantityTableSave は Task 97.13 で撤去した）。文言はバックエンド（quantity-validation.service.ts /
  * quantity-table.schema.ts）と一致させ、バックエンドより厳しくしない。
  *
  * Requirements:

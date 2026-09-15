@@ -376,6 +376,8 @@ e2e/specs/quantity-tables/
 | `frontend/src/components/quantity-table/CalculationMethodSelect.stories.tsx` | **既存**。選択肢に「箇所数」が増えることへの追随 |
 | `frontend/src/components/quantity-table/EditableQuantityItemRow.stories.tsx` | **既存**。COUNT の行ストーリーを追加 |
 
+**上表の行についての注（タスク 97.13）**: `frontend/src/hooks/useQuantityTableSave.ts` の行が挙げるフックは、本番の経路から到達しないデッドコードであったため、同タスクで撤去した（検証ファイルも併せて撤去。2026-09-15、利用者の裁定により 68.6 の維持判断を覆した）。保存前の計算パラメータ検証は `validateCalculationParams` が単一の情報源として担い、編集画面の保存処理がこれを呼ぶ。行は書かれた時点の記述として残す（規約 (a)）。
+
 **テスト**
 
 | ファイル | 変更内容 |

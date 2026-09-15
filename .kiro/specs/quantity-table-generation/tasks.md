@@ -3493,12 +3493,15 @@ _起票元: Task 95 の処置後に再実行した機能レベル検証（`/kiro
   - **処遇（コミット `cee3619d` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: 3件とも当時の記述を残し、規約 (a) で現況を下位項目として併記した（再現コマンド・コミット・日付つき）。(a) REQ-39 の節へ、`handleSelectImage` は `getProjectSurveyImages` を1回呼ぶだけであることを併記。(b) `AutocompleteCandidateStore` の8行は、部品表と詳細節の名前が `check:design-component-reqs` の突き合わせ対象であるため**名前を置き換えず**、図の直後の箇条の下に実体名 `useAutocompleteCandidateStore` と所在、8箇所の読み方を併記。(c) REQ-40 の節へ、フロントとバックエンドに共有のコードは無く、同じ仕様の `truncateNameWithSuffix` を別々に持つことを併記し、REQ-42 の更新注記2件と影響ファイル一覧の併記から案内を置いた。読みやすさとして、96.8 の3,938バイトの1行の併記を見出しと下位項目11件に分け（文言とコマンドは不変、行を分けたため禁止文言の grep は 2行→3行になり記載も改めた）、96.10 の併記の「輸出しない」「上の三つのファイル」を言い換えた
   - **独立レビューは1回差し戻した**: 96.8 の併記を分けた際に先頭行の箇条記号が落ち、併記の見出しが元の条項の段落に溶け込んで記録と現況の区別が表示上消えていた。記号を戻し、追加・変更した全行の行頭を機械的に走査して同型の崩れが他に無いことを確かめた。2回目のレビューが元の条項の本文が HEAD と一字一句同じであること、再現コマンドの出力が記載どおりであることを確かめて承認した。`check:design-path-refs` は延べ123 / distinct30 / 面190 で不動、候補は新しく書いた実パス1件で 739→740（合否に用いない値）。design 系の関門は出力の差分ゼロ
 
-- [ ] 97.13 境界内で解ける残置 `useQuantityTableSave` を撤去するかを決める
+- [x] 97.13 境界内で解ける残置 `useQuantityTableSave` を撤去するかを決める
   - **出所**: 94.1 の申し送り (ii)
   - **再実測**: `frontend/src/hooks/useQuantityTableSave.ts` は `productionReachability.unreachableProductionModules` に載っている（全体48件、数量表に当たるのは6件）。撤去を阻んでいるのは自スペックの `design.md:370` の名指しである（94.1 の時点の `L301` から行が動いた）
   - **利用者が決めること**: 68.6 が「design 準拠・テスト十分・境界遵守のため維持」とした判断を覆すか
   - **利用者の裁定（2026-09-15）**: 「撤去する」（68.6 の維持判断を覆す）。フックとその検証を撤去し、設計文書の名指しは規約 (a) で注記する。被覆と関門を前後で測る
   - _Boundary: `useQuantityTableSave` の撤去の是非と、設計文書の名指し_
+  - **処遇（コミット `7bbf1a38` の作業ツリー、2026-09-15 にリポジトリルートで実測）**: `frontend/src/hooks/useQuantityTableSave.ts` と検証ファイルを撤去した。本番からの取り込み・ストーリー・再輸出・steering・他スペックの文書・自己検査からの参照はいずれも0件だった。検証は機能名つきの被覆印を持たず被覆源ではなかったため、失われた受入基準は0件（被覆済みの集合で比較）。design.md は REQ-47 の影響ファイル表の元の行を残し、表の直下へ規約 (a) の注を置いた。撤去で事実に反した `frontend/src/utils/calculation-params-validation.ts` / `.test.ts` の冒頭注釈（「双方から参照」）を現況へ直した（68.6 の移設の経緯の行は残した）。到達しない本番モジュールは 48→47（数量表 6→5）、ラチェットは減少
+  - **関門の扱い（利用者の裁定、2026-09-15）**: 元の行が撤去したパスを挙げるため `check:design-path-refs` が免除の基線超過で赤になり、**「基線を更新する」**との裁定で `npm run check:design-path-refs:update -- --allow-increase` を実行した。基線の変化は本スペックの免除（延べ 0→2、集合 +1）と合計値、および合否に用いない母数 `candidateTotal` 697→740 と `candidateHistory` の追記（ツールが実測から書く値）。これにより、すでに赤い `check:design-measurement-freshness` の失敗行が site-survey の design.md の4宣言分増えた。**利用者の裁定「97.16 の起票に含める」により、site-survey の文書は書き換えず 97.16 の起票内容へ記した**。独立レビューが参照の残り、被覆、基線の差分、関門の変化が想定の4行に限られることを確かめて承認した
+  - **観測**: 撤去した名前は `research.md` と本書の各記録に残る（記録なので未変更）
 
 - [ ] 97.14 `PhotoChangeDialog` の撤去を、統治台帳の更新と併せて決める
   - **出所**: 94.1 の申し送り (iii)(iv)
@@ -3518,6 +3521,7 @@ _起票元: Task 95 の処置後に再実行した機能レベル検証（`/kiro
   - **出所**: 95.2 の申し送り (v)・95.3 の申し送り (iv)・95.4 の申し送り (iv)、96.3 の被覆の記録
   - **再実測**（`npm run -s check:design-measurement-freshness`）: `featureless-headers-resolvable-by-own-feature-after-115308` は expected `495` / actual `590`。本スペックの記録が名指した増分は、95.2 の +5（576→581）、95.3 の +7（581→588）、95.4 の +1（588→589）、96.3 の +1（589→590）。`requirement-exclusions-total` は expected `205` / actual `188` で、本スペックの取り下げ（95.1 の1件、96.1〜96.3 の計5件）も差に含まれる。**どちらも宣言先は `.kiro/specs/site-survey/design.md` で、site-survey の所管である**
   - **本項の任務は、測り直しを担当する上流へ増分の内訳を渡す起票を書き込み、起票先の番号をここへ記すことである。** 下流から上流の設計文書を書き換えないこと
+  - **追加の増分（Task 97 の実行中に生じた。2026-09-15）**: 起票にはあわせて次を含めること。(i) 97.1 の新設 spec と 97.2 の新設 spec による `t13-anchor-references-after-115303` の +2 / +2（1340→1343→1345）、97.20 の検証による +2（→1347）、97.1 の2ファイルによる `featureless-headers-resolvable-by-own-feature-after-115308` の +2（590→592）、97.2 / 97.3 の取り下げによる `requirement-exclusions-total` の減少（188→183）。(ii) **97.13 の利用者の裁定（「97.16 の起票に含める」）による4行**——97.13 が `useQuantityTableSave` の撤去に伴い `scripts/design-path-exemption-baseline.json` を関門の案内する経路で更新した結果、site-survey の design.md が基線の旧値を文中で引く宣言4件が新たに不一致になった: `design-path-exemption-tally-total`（123→125）、`design-path-exemption-distinct-total`（30→31）、`design-path-exemption-tally-distinct-gap`（93→94）、`design-path-candidate-recorded`（697→740）。着手時に実測し直してから書くこと
   - _Boundary: 上流への起票の書き込み_
 
 - [ ] 97.17 裁定記録の陳腐化した行を、鮮度宣言と対で扱うよう上流へ起票する

@@ -2,8 +2,9 @@
  * @fileoverview 計算パラメータ検証ユーティリティ（保存前チェックの単一情報源）
  *
  * 計算方法ごとの必須パラメータ検証を1箇所に集約する。数量表編集画面の保存処理
- * （QuantityTableEditPage.handleSave）と useQuantityTableSave の整合性チェックは、
- * いずれも本モジュールを参照する（検証ロジックを二重に持たない）。
+ * （QuantityTableEditPage.handleSave）は本モジュールを参照する（検証ロジックを二重に持たない）。
+ * もう一方の参照元だった useQuantityTableSave は本番から取り込まれないデッドコードのため、
+ * Task 97.13 で撤去した。
  *
  * バックエンドとの整合（重要）:
  * バックエンドは保存時（PUT /:id/save）に zod スキーマ（quantity-table.schema.ts の
