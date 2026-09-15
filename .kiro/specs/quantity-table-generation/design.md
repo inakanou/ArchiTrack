@@ -3307,6 +3307,7 @@ enum CalculationMethod {
 
 - ファイル形式エラー: サポート対象外のファイル形式（対応形式: .xlsx, .xls, .pdf）
 - Excelパースエラー: SheetJSによるファイル読み取り失敗 → エラーメッセージ表示、手動入力を促す
+  - **文言（タスク 97.7、2026-09-15 に追記）**: `parseExcelFile` は読み取り・シート変換のどの失敗でも「Excelファイルの読み取りに失敗しました。手動入力してください」（`EXCEL_READ_FAILURE_MESSAGE`）で失敗させ、ダイアログの `role="alert"` がリトライボタンと併せて表示する。元の例外文は利用者へ出さない（Requirement 28 の受入基準 6。PDF 経路の Requirement 29 の受入基準 9 と同じ形の文言）
 - OCR処理エラー: pdfjs-dist/Tesseract.js/Claude Vision APIの処理失敗 → エラーメッセージ表示、リトライボタン表示
 - OCRタイムアウト: 30秒超過 → タイムアウトエラー表示、リトライボタン表示
 - Claude Vision APIフォールバック: API利用不可（ANTHROPIC_API_KEY未設定、HTTP 503、タイムアウト）→ pdfjs-dist + Tesseract.jsで自動フォールバック
