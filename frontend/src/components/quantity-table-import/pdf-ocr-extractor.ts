@@ -49,6 +49,18 @@ export const OCR_TIMEOUT_MESSAGE =
   'OCR処理がタイムアウトしました（30秒超過）。手動入力してください';
 
 /**
+ * `extractPdfData` の任意の設定（Task 98.4）。
+ *
+ * `signal` は共有部品 `extractPdfHybrid` の `options.signal`（Task 97.8）へ中継する。
+ * 中断されると、フォールバック経路で走っている Tesseract のワーカーが終了する。
+ * 省略時は中断の手段を持たない従来どおりの振る舞いになる。
+ */
+export interface PdfDataExtractionOptions {
+  /** 進行中の OCR を中断するためのシグナル */
+  signal?: AbortSignal;
+}
+
+/**
  * PDFファイルからOCR処理でデータを抽出する（Claude Vision API優先）
  *
  * 処理フロー:
@@ -58,11 +70,13 @@ export const OCR_TIMEOUT_MESSAGE =
  *
  * @param file PDFファイル
  * @param onProgress 進捗コールバック
+ * @param options `signal` を渡すと、フォールバック経路の OCR を中断できる（Task 98.4）
  * @returns 抽出結果
  */
 export async function extractPdfData(
   file: File,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  options: PdfDataExtractionOptions = {}
 ): Promise<ImportExtractionResult> {
   // Claude Vision API優先で試行
   try {
@@ -78,7 +92,7 @@ export async function extractPdfData(
       onProgress(15, 'OCRフォールバック処理を開始...');
     }
 
-    return extractWithOcrFallback(file, onProgress);
+    return extractWithOcrFallback(file, onProgress, options.signal);
   }
 }
 
@@ -145,11 +159,12 @@ async function extractWithClaudeVisionForQuantityTable(
  */
 async function extractWithOcrFallback(
   file: File,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  signal?: AbortSignal
 ): Promise<ImportExtractionResult> {
   const { extractPdfHybrid } = await import('../estimate-requests/pdf-text-extractor');
 
-  const pdfResult = await extractPdfHybridWithTimeout(extractPdfHybrid, file, onProgress);
+  const pdfResult = await extractPdfHybridWithTimeout(extractPdfHybrid, file, onProgress, signal);
 
   // テキストから表構造を解析して行データに変換
   const rawRows = parseTextToRows(pdfResult.text);
@@ -170,17 +185,29 @@ async function extractWithOcrFallback(
  * - 30秒を超えたら `extractPdfHybrid` へ渡した中断のシグナルを中断し、裏で走り続ける OCR の
  *   ワーカーを止めさせる（Task 97.8）。中断された処理は後から `AbortError` で失敗するが、
  *   `Promise.race` がその拒否を購読しているため未処理の拒否は残らず、利用者へ出すメッセージも変わらない
+ * - 呼び出し元の `signal`（Task 98.4）が中断されたときも、同じシグナルを中断して OCR の
+ *   ワーカーを止める。ファイルの差し替え（`reset`）とダイアログを閉じたとき（アンマウント）が
+ *   これを使い、時間切れの30秒を待たずに止める
  * - それ以外の失敗は `OCR_FAILURE_MESSAGE` で失敗する（REQ-29.9。元のエラーの文言は利用者へ出さない）
- * - 完了・失敗のいずれでもタイマーを解除する
+ * - 完了・失敗のいずれでもタイマーを解除し、呼び出し元のシグナルの購読を外す
  */
 async function extractPdfHybridWithTimeout(
   extractPdfHybrid: typeof import('../estimate-requests/pdf-text-extractor').extractPdfHybrid,
   file: File,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  callerSignal?: AbortSignal
 ): Promise<PdfTextExtractionResult> {
   let timedOut = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+  if (callerSignal) {
+    if (callerSignal.aborted) {
+      controller.abort();
+    } else {
+      callerSignal.addEventListener('abort', abortFromCaller, { once: true });
+    }
+  }
 
   const guardedProgress: ProgressCallback | undefined = onProgress
     ? (progress, message) => {
@@ -205,6 +232,7 @@ async function extractPdfHybridWithTimeout(
     throw new Error(timedOut ? OCR_TIMEOUT_MESSAGE : OCR_FAILURE_MESSAGE);
   } finally {
     clearTimeout(timer);
+    callerSignal?.removeEventListener('abort', abortFromCaller);
   }
 }
 

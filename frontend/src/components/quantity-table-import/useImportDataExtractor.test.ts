@@ -111,7 +111,10 @@ describe('useImportDataExtractor', () => {
       result.current.startExtraction(file);
     });
 
-    expect(extractPdfData).toHaveBeenCalledWith(file, expect.any(Function));
+    // 第3引数の中断のシグナルは、リセットとアンマウントで OCR を止めるためのもの（Task 98.4）
+    expect(extractPdfData).toHaveBeenCalledWith(file, expect.any(Function), {
+      signal: expect.any(AbortSignal),
+    });
     expect(result.current.status).toBe('completed');
     expect(result.current.result).toEqual(mockPdfExtractionResult);
   });
