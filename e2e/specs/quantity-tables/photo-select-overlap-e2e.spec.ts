@@ -95,6 +95,147 @@ async function expectNoThumbnailOverlap(photoList: Locator, context: string): Pr
     }
   }
 }
+/**
+ * 写真一覧の表示領域の寸法と、並んだサムネイルの行構成を実測する。
+ *
+ * 要素ハンドルを受け取って画面の実レイアウトだけを読み出す（本番の判定を書き写さない）。
+ */
+async function measurePhotoListLayout(photoList: Locator): Promise<{
+  itemCount: number;
+  rowCount: number;
+  clientHeight: number;
+  scrollHeight: number;
+  clientWidth: number;
+  scrollWidth: number;
+  containerRight: number;
+  maxItemRight: number;
+}> {
+  return photoList.evaluate((el: HTMLElement) => {
+    const items = Array.from(el.querySelectorAll('[data-testid^="photo-item-"]')) as HTMLElement[];
+    const containerRect = el.getBoundingClientRect();
+    const itemRects = items.map((item) => item.getBoundingClientRect());
+    // 行は「上端の座標が同じサムネイルの集まり」で数える。折り返していれば2行以上になる。
+    const rowTops = new Set(itemRects.map((rect) => Math.round(rect.top)));
+    return {
+      itemCount: items.length,
+      rowCount: rowTops.size,
+      clientHeight: el.clientHeight,
+      scrollHeight: el.scrollHeight,
+      clientWidth: el.clientWidth,
+      scrollWidth: el.scrollWidth,
+      containerRight: containerRect.right,
+      maxItemRight: itemRects.reduce((max, rect) => Math.max(max, rect.right), containerRect.left),
+    };
+  });
+}
+
+/**
+ * 写真一覧の末尾のサムネイルが、表示領域（写真一覧の可視矩形）の中に全体が入っているか。
+ */
+async function isLastThumbnailFullyInView(photoList: Locator): Promise<boolean> {
+  return photoList.evaluate((el: HTMLElement) => {
+    const items = Array.from(el.querySelectorAll('[data-testid^="photo-item-"]')) as HTMLElement[];
+    const last = items[items.length - 1];
+    if (last === undefined) {
+      // 母集団が空のときに「見えている」と答えると、呼び出し側の主張が空集合への
+      // 恒真へ退化する。見えていないと答え、呼び出し側の件数の主張に判定を委ねる。
+      return false;
+    }
+    const containerRect = el.getBoundingClientRect();
+    const lastRect = last.getBoundingClientRect();
+    return lastRect.top >= containerRect.top - 0.5 && lastRect.bottom <= containerRect.bottom + 0.5;
+  });
+}
+
+/**
+ * REQ-39.5 の条文を、前件ごと固定する。
+ *
+ * 条文（requirements.md Requirement 39 受入基準 5 の逐語）:
+ *   「写真の枚数が増加して写真一覧が表示領域に収まらない場合、写真同士を重ねずに
+ *     折り返して配置し、収まらない分はスクロールバーを表示して閲覧可能にする」
+ *
+ * 39.5 固有の主張は次の4つである（「重ならない」は 39.3 / 39.4 / 39.6 の所管であり、
+ * 呼び出し側が `expectNoThumbnailOverlap` で別途主張する）。
+ *
+ *   (1) 母集団: シードした全枚数が一覧に並んでいること。
+ *   (2) 折り返して配置: サムネイルが2行以上に分かれ、かつ横方向へはみ出していないこと。
+ *       1行に押し込む実装（`nowrap`）では行は1つになり横へあふれる。
+ *   (3) 前件の成立: 一覧が表示領域に収まっていないこと（`scrollHeight > clientHeight`）。
+ *       収まってしまう枚数・寸法で測ると、(4) の主張は空集合に対する恒真へ退化する。
+ *       前提が崩れたら沈黙せず失敗させる。
+ *   (4) スクロールバーを表示して閲覧可能: 初期表示で表示領域の外にある末尾のサムネイルが、
+ *       **ホイール操作**の後に表示領域の中へ全体が入ること。
+ *       `scrollTop` への代入で測ってはならない——`overflow-y: hidden` でも代入は効くため、
+ *       「スクロールバーを表示して」を区別できない。利用者が行える操作で手繰ること。
+ *
+ * 実測（Task 100.1、2026-09-16、test 環境の chromium）: 通常幅は 4列×8行・
+ * `scrollHeight` 1292 / `clientHeight` 473、狭幅 375px は 1列×32行・`scrollHeight` 5180 /
+ * `clientHeight` 473。いずれも `offsetWidth === clientWidth` であり、この chromium の
+ * スクロールバーは重ね描き（overlay）で幅を占めない。**スクロールバーの実体を
+ * 「`offsetWidth - clientWidth > 0`」で測ってはならない**——基線でも成立しない。
+ */
+async function expectWrappedAndScrollable(
+  page: Page,
+  photoList: Locator,
+  context: string
+): Promise<void> {
+  const layout = await measurePhotoListLayout(photoList);
+
+  // (1) 母集団: シードした全枚数が一覧に並んでいること。
+  //     ここが崩れると以降の主張はすべて意味を失うので、最初に無条件で主張する。
+  expect(
+    layout.itemCount,
+    `${context}: シードした全枚数（${SEED_PHOTO_COUNT}枚）が一覧に並ぶ必要がある`
+  ).toBeGreaterThanOrEqual(SEED_PHOTO_COUNT);
+
+  // (2) 折り返して配置: 2行以上へ折り返し、横方向へはみ出さない。
+  //     主張の順序は「壊れた条文がそのまま失敗の文言に出る」ように並べている。
+  //     1行へ押し込む実装はここで落ち、収まってしまう実装は (3) で落ちる。
+  expect(
+    layout.rowCount,
+    `${context}: 収まらない分は折り返して2行以上に配置される必要がある (行数=${layout.rowCount})`
+  ).toBeGreaterThan(1);
+  expect(
+    layout.scrollWidth,
+    `${context}: 折り返しにより横方向へあふれない必要がある ` +
+      `(scrollWidth=${layout.scrollWidth}, clientWidth=${layout.clientWidth})`
+  ).toBeLessThanOrEqual(layout.clientWidth);
+  expect(
+    layout.maxItemRight,
+    `${context}: サムネイルが表示領域の右端を越えない必要がある ` +
+      `(maxItemRight=${layout.maxItemRight}, containerRight=${layout.containerRight})`
+  ).toBeLessThanOrEqual(layout.containerRight + 0.5);
+
+  // (3) 前件: 一覧が表示領域に収まらない状態が実際に起きていること。
+  //     収まってしまうなら条文の前件が成立せず、(4) の主張は空集合への恒真へ退化する。
+  expect(
+    layout.scrollHeight,
+    `${context}: 一覧が表示領域に収まらない状態である必要がある ` +
+      `(scrollHeight=${layout.scrollHeight}, clientHeight=${layout.clientHeight}, ` +
+      `items=${layout.itemCount})`
+  ).toBeGreaterThan(layout.clientHeight);
+
+  // (4) 収まらない分がスクロールで閲覧可能になること
+  const lastVisibleBeforeScroll = await isLastThumbnailFullyInView(photoList);
+  expect(
+    lastVisibleBeforeScroll,
+    `${context}: 収まらない分（末尾のサムネイル）は初期表示では表示領域の外にある必要がある`
+  ).toBe(false);
+
+  await photoList.hover();
+  // 観測で打ち切らず固定回数を送る。必要量は実測で最大 4707px（狭幅・32枚）であり、
+  // 400px × 40 回 = 16000px はこれを十分に上回る。上限に達した後の余剰は無視される。
+  for (let i = 0; i < 40; i++) {
+    await page.mouse.wheel(0, 400);
+  }
+
+  await expect
+    .poll(async () => isLastThumbnailFullyInView(photoList), {
+      timeout: getTimeout(5000),
+      message: `${context}: 収まらない分（末尾のサムネイル）がスクロール操作で表示領域の中へ入る必要がある`,
+    })
+    .toBe(true);
+}
 
 /**
  * 写真ダイアログを開く導線。REQ-39.1（写真選択）と REQ-39.2（写真変更）で入口が異なる。
@@ -321,9 +462,11 @@ test.describe('REQ-39: 写真選択・変更ダイアログの写真一覧が重
    * @requirement quantity-table-generation/REQ-39.5
    * @requirement quantity-table-generation/REQ-39.6
    *
-   * 写真選択ダイアログを開いた際、隣接サムネイルの矩形が重複しないこと。
+   * 写真選択ダイアログを開いた際、隣接サムネイルの矩形が重複しないこと（39.1 / 39.3 / 39.4 / 39.6）。
+   * 加えて、一覧が表示領域に収まらない状態で折り返して配置され、収まらない分がスクロールで
+   * 閲覧可能になること（39.5）。39.5 の主張は `expectWrappedAndScrollable` が持つ。
    */
-  test('写真選択ダイアログで多数枚のサムネイルが重ならない (REQ-39.1, 39.3, 39.4, 39.6)', async ({
+  test('写真選択ダイアログで多数枚のサムネイルが重ならず折り返しとスクロールで全件を閲覧できる (REQ-39.1, 39.3, 39.4, 39.5, 39.6)', async ({
     page,
   }) => {
     expect(createdQuantityTableId, '事前準備が完了している必要がある').toBeTruthy();
@@ -332,6 +475,7 @@ test.describe('REQ-39: 写真選択・変更ダイアログの写真一覧が重
 
     const photoList = await openPhotoDialog(page, 'select');
     await expectNoThumbnailOverlap(photoList, '写真選択ダイアログ（通常幅）');
+    await expectWrappedAndScrollable(page, photoList, '写真選択ダイアログ（通常幅）');
   });
 
   /**
@@ -366,10 +510,12 @@ test.describe('REQ-39: 写真選択・変更ダイアログの写真一覧が重
    * @requirement quantity-table-generation/REQ-39.5
    * @requirement quantity-table-generation/REQ-39.6
    *
-   * 狭幅ビューポートでも写真が潰れず（幅・高さがゼロにならず）重ならないこと。
-   * 折り返しが強制されるため重なり回帰の検出に有効。
+   * 狭幅ビューポートでも写真が潰れず（幅・高さがゼロにならず）重ならないこと（39.4 / 39.6）。
+   * 狭幅では列数が1へ落ちて折り返しが最大になり、収まらない分も最大になるため、
+   * 39.5 の「折り返して配置し、収まらない分はスクロールバーを表示して閲覧可能にする」を
+   * 通常幅とは別の列構成でもう一度固定する。
    */
-  test('狭幅ビューポートでもサムネイルが潰れず重ならない (REQ-39.4, 39.5, 39.6)', async ({
+  test('狭幅ビューポートでもサムネイルが潰れず重ならず折り返しとスクロールで全件を閲覧できる (REQ-39.4, 39.5, 39.6)', async ({
     page,
   }) => {
     expect(createdQuantityTableId).toBeTruthy();
@@ -381,5 +527,6 @@ test.describe('REQ-39: 写真選択・変更ダイアログの写真一覧が重
 
     const photoList = await openPhotoDialog(page, 'select');
     await expectNoThumbnailOverlap(photoList, '写真選択ダイアログ（狭幅 375px）');
+    await expectWrappedAndScrollable(page, photoList, '写真選択ダイアログ（狭幅 375px）');
   });
 });

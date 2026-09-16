@@ -3765,10 +3765,19 @@ _起票元: Task 96.11 の棚卸し。実装は行っていない_
 
 **行番号と件数は検証時の読解であって変異による実測ではない。着手時に測り直すこと**。**検証を強めるときは、今の実装に対して変異で落ちることを先に確かめること**（97.21〜97.24 / 98.1 / 98.2 / 98.5 / 98.6 と同じ作法）
 
-- [ ] 100.1 REQ-39.5 の被覆印が、折り返しもスクロールバーも判定していない状態を解消する
+- [x] 100.1 REQ-39.5 の被覆印が、折り返しもスクロールバーも判定していない状態を解消する
   - **出所**: 検証の Important 1。**本実行で見つかった唯一の確定した空洞である**
   - **測った事実**: 条文は「収まらない場合、**重ねずに折り返して配置し、収まらない分はスクロールバーを表示して閲覧可能にする**」。被覆源は `photo-select-overlap-e2e.spec.ts` の2区間（検証時 `:326` / `:372`）だけで、両方とも判定は `expectNoThumbnailOverlap`（矩形の非重複＋幅高さ>0）のみ。**折り返しもスクロールバーも一度も主張していない**（重ならないことは 39.3 / 39.4 / 39.6 の所管）。実装側（`QuantityTableEditPage.tsx` の `photoGrid`）は `auto-fill` の折り返しと `overflowY:'auto'` を備えており、**実装は在るが判定が無い**型である
   - _Boundary: `REQ-39.5` の E2E の主張と被覆印_
+  - **着手時の測り直し（コミット `7f261e26` の作業ツリー、2026-09-16 にリポジトリルートで実測）**: REQ-39.5 の被覆印は `grep -rn "quantity-table-generation/REQ-39\.5\b" e2e/ frontend/ backend/ scripts/` の全件列挙で**3件**（前書きの索引1件と区間の docblock 2件）。**起票文が挙げた `:326` / `:372` は test 行であって印の行ではない**。印が付く2区間はいずれも判定が `expectNoThumbnailOverlap` のみだった。表題は変えてよい（`scripts/` と本スペックに旧表題の逐語引用は0件。`scripts/coverage-mark-adjudication.md` の `REQ-39.5` の当たりは project-management のもの）
+  - **条文の逐語**: 「Where 写真の枚数が増加して写真一覧が表示領域に収まらない場合, the 数量表管理システム shall 写真同士を重ねずに折り返して配置し、収まらない分はスクロールバーを表示して閲覧可能にする」。**「重ならない」は 39.3 / 39.4 / 39.6 の所管**であり、39.5 固有は「折り返し」と「収まらない分の閲覧可能性」である
+  - **処遇**: `measurePhotoListLayout` / `isLastThumbnailFullyInView` / `expectWrappedAndScrollable` の3ヘルパーを新設し、印が付く2区間から呼ぶ。主張は (1) **前件**——一覧が表示領域に収まらないこと（`scrollHeight > clientHeight` の**無条件アサーション**。母集団も `items >= SEED_PHOTO_COUNT=32` を要求し `items > 0` のような弱い形にしていない）、(2) 折り返し——行数が2以上で、かつ横方向へあふれない（`scrollWidth <= clientWidth` と `maxItemRight <= containerRight`）、(3) 閲覧可能性——末尾のサムネイルが初期表示では領域の外にあり、**ホイール操作で領域の中へ入る**こと。**既存の `expectNoThumbnailOverlap` は1文字も変えていない**（兄弟の所管を侵していない）
+  - **「スクロールバーを表示」の観測の設計**: この chromium のスクロールバーは重ね描きで、**基線でも `offsetWidth === clientWidth` が成立する**（独立レビューが一時プローブで実測: 通常幅 752/752、狭幅 290/290）。したがって**物理的な幅では測れない**。`overflow-y` の計算値を読むのは本番の綴りの写しになるため採らず、**利用者が行える操作（ホイール）で収まらない分が表示領域へ入ること**を観測して条文の「閲覧可能にする」を固定した。`scrollTop` への代入は `overflowY:'hidden'` を素通りするため使っていない
+  - **空洞の実証と変異による検証（実装者4種）**: 基線は `index-DmYNCCjx.js`（md5 `049bf4ff…`）。折り返しを壊す（grid→`flexWrap:'nowrap'`）→「行数=1」で落ちる、`overflowY:'hidden'`→ホイールの主張で落ちる、`overflowY:'visible'`→前件の主張で落ちる、**前件を壊す**（`gridAutoRows` を 150px→10px にして32枚が収まるようにする）→前件の主張で落ちる。**4変異すべてで、同じ test 内で先に走る `expectNoThumbnailOverlap` は緑のまま通過し、赤くなったのは新判定だけ**だった
+  - **独立レビューの再現**: 3種を独立に当て直した。`overflowY:'hidden'`（`index-27OCUszT.js`）、**前件破壊**（150px→40px、`index-BPxibTon.js`。「scrollHeight=412, clientHeight=412, items=32」で落ちる）、**横あふれ単独**（`gridTemplateColumns` → `repeat(5, 300px)`、`index-BGHrZz8U.js`。行数7で折り返しの前半は通過したうえで「scrollWidth=1556, clientWidth=752」で落ちる＝**横あふれの主張が単独で歯を持つ**ことを実測）。毎回 `--force-recreate`・ビルドの終了コード・配信バンドルの中身の文言の3点を照合し、復元後に基線へ md5 一致することも確認した
+  - **`mode: 'serial'` の懸念を解消した**: 全件実行では最初に落ちた通常幅の区間で打ち切られ狭幅375px 側が走らない。独立レビューが**変異を当てたまま `-g` で狭幅側だけを走らせ**、狭幅区間も同じ主張で落ちることを実測した。狭幅側は `scrollHeight 5180 / clientHeight 473` と**前件がより強く成立する**ため恒真化の余地は無い
+  - **検証（親が提出時に実測）**: 作業ツリーは spec 1件のみ。`git diff frontend/`・`git diff backend/` はいずれも0行、変異の残骸0件、一時 spec の残骸0件。配信バンドルは基線 `index-DmYNCCjx.js`。被覆印は3件のまま。**`photo-select-overlap-e2e.spec.ts` を全件走らせ 4/4・Status PASSED・Failed 0・Flaky 0・終了コード0**。独立レビューは加えて `check:req-coverage` の出力が**基線とバイト単位で同一**（qtg 359/359、ラチェット 2007 / 5110 が不動＝遊びを食い潰していない）、`check:trace-coverage` / `check:criterion-literals` / `check:e2e-guards` / `check:e2e-selfjudge` / `check:adjudication-pointers` / `lint` / `type-check` / `format:check` がいずれも exit 0 であることを確認した
+  - **観測（範囲外・未処置）**: (i) 狭幅375px では列数が1（行数32）になるため、**狭幅区間の「行数が2以上」は折り返しでなく単なる縦積みでも成立する**。折り返しの歯は通常幅側と、狭幅でも残る横あふれの2主張が担うため処置は不要と判断した。(ii) `overflowY:'visible'` 型の変異は前件の主張で落ちるため、失敗文言が「スクロールバーが無い」ではなく「収まらない状態である必要がある」になる。赤にはなるので空洞ではなく、82.1 の作法（前提が崩れたら沈黙せず失敗させる）に沿った正しい設計である
 
 - [ ] 100.2 REQ-12.1 / 12.2 / 12.3 の判定が、パンくずの階層と順序に届いていない状態を解消する
   - **出所**: 検証の Important 2
