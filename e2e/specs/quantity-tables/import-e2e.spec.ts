@@ -1,5 +1,5 @@
 /**
- * @fileoverview 数量表インポート機能 E2Eテスト (REQ-27, 28, 29, 31, 32, 33, 34)
+ * @fileoverview 数量表インポート機能 E2Eテスト (REQ-27, 28, 29, 30, 31, 32, 33, 34)
  *
  * Requirements coverage:
  * - @requirement quantity-table-generation/REQ-27.1: インポートダイアログ表示
@@ -16,7 +16,9 @@
  * - @requirement quantity-table-generation/REQ-28.6: 読み取り失敗時のエラー
  * - @requirement quantity-table-generation/REQ-28.7: テキスト選択・コピー可能
  * - @requirement quantity-table-generation/REQ-29.7: OCR完了時に抽出テキストとプレビューテーブルを表示
+ * - @requirement quantity-table-generation/REQ-29.8: 抽出結果のテキストを選択・コピーできる状態で表示
  * - @requirement quantity-table-generation/REQ-29.9: OCR失敗時にエラーメッセージを表示し手動入力を促す
+ * - @requirement quantity-table-generation/REQ-30.5: Claude Vision API利用不可時のOCRフォールバック
  * - @requirement quantity-table-generation/REQ-31.1: 「一括取り込み」ボタン
  * - @requirement quantity-table-generation/REQ-31.2: 取り込み先グループ選択UI
  * - @requirement quantity-table-generation/REQ-31.3: 各行を数量項目として追加
@@ -88,6 +90,13 @@ const ALL_FIELDS_ROW = {
   単位: 'm2',
   備考: 'E2E備考',
 } as const;
+
+/**
+ * 画像のみのPDF（`e2e/fixtures/test-scanned-pdf.pdf`）の画像の中にしか存在しない語。
+ * OCR を通してしか抽出テキストへ現れない（REQ-30.5 のフォールバックの実行の観測に用いる）。
+ * 資材の生成手順は `e2e/fixtures/generate-image-only-pdf.mjs` にある。
+ */
+const SCANNED_PDF_OCR_EXPECTED_TOKENS = ['外壁塗装工事', '100', '平米', '5000', '500000'] as const;
 
 // ----------------------------------------------------------------------------
 // ネットワーク監視（REQ-42.6: 保存前は数量表サブリソースへの書き込みが一切ない）
@@ -1023,6 +1032,66 @@ test.describe('REQ-29: PDF OCR処理の結果表示と失敗時の導線', () =>
   });
 
   /**
+   * @requirement quantity-table-generation/REQ-29.8: 抽出結果のテキストを選択・コピーできる状態で表示
+   *
+   * 条文は「抽出結果のテキストをユーザーが選択・コピーできる状態で表示する」。対象は OCR の
+   * **抽出テキスト**であり、Excel のプレビューテーブルを対象とする REQ-28.7 とは別物である
+   * （28.7 の判定は同じファイルの別区間にあるが、そちらは PDF の抽出テキストを一度も見ない）。
+   *
+   * 経路と資材は 29.7 と同じ——Claude Vision を 503 に固定してフォールバックの抽出テキストを得る。
+   * 「選択・コピーできる状態」を二つの観測で固定する。
+   *   (1) 抽出テキストの要素の算出値 `user-select` が `text` である（選択を禁じていない）
+   *   (2) その要素の中身を範囲選択したとき、選択文字列に抽出テキストの本文が現れる
+   *       （画面では選択して文字列を読み出すだけで、合否の判定は Node 側の expect が行う）
+   */
+  test('OCRの抽出テキストが選択・コピーできる状態で表示される (REQ-29.8)', async ({ page }) => {
+    const navigated = await navigateToQuantityTableEdit(page);
+    expect(navigated).toBeTruthy();
+
+    const opened = await openImportDialog(page);
+    expect(opened).toBeTruthy();
+
+    await forceClaudeVisionUnavailable(page);
+
+    const fileInput = page.getByLabel('ファイルを選択');
+    await fileInput.setInputFiles(TEST_PDF);
+
+    const dialog = page.getByRole('dialog');
+    const extractedText = dialog.getByRole('region', { name: '抽出テキスト' });
+    await expect(extractedText, '前提: 抽出テキストが表示されない').toBeVisible({
+      timeout: getTimeout(45000),
+    });
+
+    const extractedTextBody = extractedText.locator('pre[data-testid="import-extracted-text"]');
+    await expect(extractedTextBody, '前提: 抽出テキストにPDFの本文が現れない').toContainText(
+      'Concrete Work'
+    );
+
+    const userSelect = await extractedTextBody.evaluate(
+      (el: HTMLElement) => getComputedStyle(el).userSelect
+    );
+    expect(
+      userSelect,
+      'REQ-29.8: 抽出テキストが選択できない状態（user-select）で表示されている'
+    ).toBe('text');
+
+    // 要素の中身を丸ごと範囲選択し、選択文字列（コピーの対象になる文字列）を読み出す
+    const selectedText = await extractedTextBody.evaluate((el: HTMLElement) => {
+      const doc = el.ownerDocument;
+      const range = doc.createRange();
+      range.selectNodeContents(el);
+      const selection = doc.defaultView?.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      return selection?.toString() ?? '';
+    });
+    expect(
+      selectedText,
+      'REQ-29.8: 抽出テキストを範囲選択してもコピーできる文字列が取り出せない'
+    ).toContain('Concrete Work');
+  });
+
+  /**
    * @requirement quantity-table-generation/REQ-29.9: OCR失敗時にエラーメッセージを表示し手動入力を促す
    *
    * PDF として読めないバイト列を .pdf として渡すと、Claude Vision 用のページ画像化も
@@ -1058,6 +1127,132 @@ test.describe('REQ-29: PDF OCR処理の結果表示と失敗時の導線', () =>
     await expect(errorAlert, 'REQ-29.9: エラー表示が手動入力を促さない').toContainText(
       '手動入力してください'
     );
+  });
+});
+
+/**
+ * Tesseract.js は worker スクリプトと言語データを配信元から取得する。数量表インポートの
+ * PDF 経路でこの取得が起きるのは `extractWithOcrFallback` → `extractPdfHybrid` →
+ * `extractPdfWithOcrFallback` の `createWorker('jpn')` だけである（Claude Vision 経路は
+ * `renderPdfPagesToBase64` しか呼ばず tesseract.js を読み込まない）。
+ *
+ * 配信元のホスト名ではなく**パス**で見分ける。配信元が環境で食い違っても観測が全件外れて
+ * 素通りしないようにするためである（`e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts`
+ * と同じ作法）。
+ */
+const TESSERACT_WORKER_PATH_MARK = '/tesseract.js@';
+const TESSERACT_LANG_PATH_MARK = '/@tesseract.js-data/jpn/';
+
+/** Tesseract の資材の取得パスを記録し始める（進行中も追記される）。 */
+function watchTesseractAssetRequests(page: Page): string[] {
+  const paths: string[] = [];
+  page.on('request', (request) => {
+    const requestPath = new URL(request.url()).pathname;
+    if (
+      requestPath.includes(TESSERACT_WORKER_PATH_MARK) ||
+      requestPath.includes(TESSERACT_LANG_PATH_MARK)
+    ) {
+      paths.push(requestPath);
+    }
+  });
+  return paths;
+}
+
+test.describe('REQ-30: Claude Vision APIが利用できないときのOCRフォールバック', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  test.beforeEach(async ({ page }) => {
+    await loginAsUser(page, 'REGULAR_USER');
+  });
+
+  /**
+   * @requirement quantity-table-generation/REQ-30.5: Claude Vision API利用不可時のpdfjs-dist + Tesseract.jsフォールバック
+   *
+   * 条文は「Claude Vision APIが利用できない場合（ANTHROPIC_API_KEY未設定、HTTP 503等）、
+   * フォールバックとしてpdfjs-dist + Tesseract.jsによるOCR処理を実行する」。
+   *
+   * **前件**は Claude Vision API の応答を HTTP 503（条文が名指しする形）に固定して作る。
+   * 503 が現に返っていることを応答の観測で確かめてから後件を主張する。
+   *
+   * **後件**は画像のみのPDF（`e2e/fixtures/test-scanned-pdf.pdf`。`/Font` を持たず
+   * テキスト描画演算子を一つも含まない）を入力に用いて、二つの engine が両方走ったことを観測する。
+   *   - Tesseract.js: worker スクリプトと日本語データの取得が起きる（上の註のとおり、
+   *     この取得は OCR フォールバックの中の `createWorker('jpn')` でしか起きない）
+   *   - pdfjs-dist: 画像の中にしか存在しない語が抽出テキストへ現れる。この語が現れるには
+   *     pdfjs-dist が各ページを Canvas へ描いた画素を Tesseract が読む経路を通るほかなく、
+   *     503 で終わった Claude Vision 経路からは決して現れない（同経路の抽出テキストは
+   *     API 応答の JSON である）
+   *
+   * テキストPDFを使うと `extractPdfHybrid` が Tesseract を実行しない（REQ-29.3）ため、
+   * 条文が名指しする2つの engine のうち片方しか観測できない。資材に画像のみのPDFを選ぶのは
+   * そのためである。
+   */
+  test('Claude Vision APIが503のときpdfjs-dist + Tesseract.jsのOCRフォールバックが実行される (REQ-30.5)', async ({
+    page,
+  }) => {
+    const navigated = await navigateToQuantityTableEdit(page);
+    expect(navigated).toBeTruthy();
+
+    const opened = await openImportDialog(page);
+    expect(opened).toBeTruthy();
+
+    const visionPath = /\/api\/claude-vision\/extract$/;
+    const visionResponseStatuses: number[] = [];
+    page.on('response', (response) => {
+      if (visionPath.test(new URL(response.url()).pathname)) {
+        visionResponseStatuses.push(response.status());
+      }
+    });
+    const tesseractAssetPaths = watchTesseractAssetRequests(page);
+
+    await forceClaudeVisionUnavailable(page);
+
+    const scannedPdf = path.join(FIXTURES_DIR, 'test-scanned-pdf.pdf');
+    await page.getByLabel('ファイルを選択').setInputFiles(scannedPdf);
+
+    const dialog = page.getByRole('dialog');
+    const results = dialog.getByRole('region', { name: '抽出結果' });
+    const extractedText = dialog.getByRole('region', { name: '抽出テキスト' });
+    await expect(
+      extractedText,
+      'REQ-30.5: Claude Visionが利用できないのにフォールバックの抽出結果が出ない'
+    ).toBeVisible({ timeout: getTimeout(45000) });
+    await expect(
+      results.getByRole('alert'),
+      'REQ-30.5: フォールバックが失敗して終わっている'
+    ).toHaveCount(0);
+
+    // 前件: Claude Vision API が 503（利用できない）で返っている
+    expect(
+      visionResponseStatuses,
+      '前提: Claude Vision APIへの要求が一度も発行されていない'
+    ).not.toHaveLength(0);
+    expect(
+      visionResponseStatuses.filter((status) => status !== 503),
+      '前提: Claude Vision APIが503以外で応答した（前件が成立していない）'
+    ).toHaveLength(0);
+
+    // 後件(1): Tesseract.js の OCR が走った
+    expect(
+      tesseractAssetPaths.filter((p) => p.includes(TESSERACT_WORKER_PATH_MARK)).length,
+      'REQ-30.5: Tesseractのworkerスクリプトが取得されていない（OCRフォールバックへ入っていない）'
+    ).toBeGreaterThan(0);
+    expect(
+      tesseractAssetPaths.filter((p) => p.includes(TESSERACT_LANG_PATH_MARK)).length,
+      'REQ-30.5: Tesseractの日本語データが取得されていない（createWorker("jpn")へ到達していない）'
+    ).toBeGreaterThan(0);
+
+    // 後件(2): pdfjs-dist が描いた画素を Tesseract が読み取った結果が抽出テキストに現れる
+    const extractedTextContent = await extractedText
+      .locator('pre[data-testid="import-extracted-text"]')
+      .textContent();
+    const normalizedText = (extractedTextContent ?? '').replace(/\s/g, '');
+    for (const token of SCANNED_PDF_OCR_EXPECTED_TOKENS) {
+      expect(
+        normalizedText,
+        `REQ-30.5: フォールバックの抽出テキストに画像内の語「${token}」が現れていない`
+      ).toContain(token);
+    }
   });
 });
 
