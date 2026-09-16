@@ -51,7 +51,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { test, expect, type Page, type Request } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
-import { getTimeout, isVisibleWithin, labelWhenVisibleWithin } from '../../helpers/wait-helpers';
+import { getTimeout, isVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import {
@@ -1070,8 +1070,20 @@ test.describe('REQ-31: 抽出結果から数量項目への一括取り込み', 
 
   /**
    * @requirement quantity-table-generation/REQ-31.1: 「一括取り込み」ボタン
+   *
+   * 条文 31.1 は「抽出結果のプレビューテーブルの下に『一括取り込み』ボタンを表示する」。
+   *
+   * Task 98.2: 従前の判定は PDF（Claude Vision 経由＝ANTHROPIC_API_KEY 依存）を選び、
+   * 「一括取り込みボタンかリトライボタンのどちらかが先に見えれば合格」の競争だった。
+   * 抽出が失敗してリトライボタンだけが出た場合にも合格するため、条文が求める
+   * 「一括取り込みボタンの表示」を一度も確かめない（壊れた PDF を与えた計測で、競争は
+   * リトライ側を掴み、一括取り込みボタンが0件のまま合格することを実測した）。
+   * クライアントサイドで決定論的に解析される Excel の資材を用い、抽出結果の領域に
+   * プレビューテーブルがちょうど1つ出ること・その下に「一括取り込み」ボタンが在ること・
+   * 抽出の失敗（エラー表示とリトライボタン）が無いことを無条件に主張する
+   * （97.22 / 98.1 と同じ手口）。
    */
-  test('プレビュー表示後に「一括取り込み」ボタンまたはリトライボタンが表示される (REQ-31.1)', async ({
+  test('抽出結果のプレビューテーブルの下に「一括取り込み」ボタンが表示される (REQ-31.1)', async ({
     page,
   }) => {
     const navigated = await navigateToQuantityTableEdit(page);
@@ -1081,17 +1093,44 @@ test.describe('REQ-31: 抽出結果から数量項目への一括取り込み', 
     expect(opened).toBeTruthy();
 
     const fileInput = page.getByLabel('ファイルを選択');
-    await fileInput.setInputFiles(TEST_PDF);
+    await fileInput.setInputFiles(TEST_XLSX);
 
-    const importBtn = page.getByRole('button', { name: '一括取り込み' });
-    const retryBtn = page.getByRole('button', { name: 'リトライ' });
+    const extraction = page.getByRole('dialog').locator('section[aria-label="抽出結果"]');
 
-    const result = await Promise.race([
-      labelWhenVisibleWithin(importBtn, getTimeout(45000), 'import'),
-      labelWhenVisibleWithin(retryBtn, getTimeout(45000), 'retry'),
-    ]);
+    // 31.1 が「下に」と述べる対象。位置関係の主張を一意にするため、ちょうど1つであることも固定する
+    const previewTable = extraction.getByRole('table');
+    await expect(previewTable, 'REQ-31.1: 抽出結果のプレビューテーブルが表示されない').toBeVisible({
+      timeout: getTimeout(45000),
+    });
+    await expect(
+      previewTable,
+      'REQ-31.1: 抽出結果のプレビューテーブルがちょうど1つでない'
+    ).toHaveCount(1);
 
-    expect(result, '一括取り込みボタンまたはリトライボタンが表示される').not.toBeNull();
+    const importBtn = extraction.getByRole('button', { name: '一括取り込み' });
+    await expect(importBtn, 'REQ-31.1: 「一括取り込み」ボタンが表示されない').toBeVisible({
+      timeout: getTimeout(10000),
+    });
+
+    // 「プレビューテーブルの下に」。レイアウト擬似クラスで位置関係ごと主張する
+    // （内側のセレクタを文書ルートから綴り、インラインプレビュー側の表と取り違えないようにする）
+    const importBtnBelowPreviewTable = page.locator(
+      'section[aria-label="抽出結果"] button[aria-label="一括取り込み"]:below(section[aria-label="抽出結果"] table)'
+    );
+    await expect(
+      importBtnBelowPreviewTable,
+      'REQ-31.1: 「一括取り込み」ボタンがプレビューテーブルの下に無い'
+    ).toHaveCount(1);
+
+    // 抽出が失敗した経路（エラー表示とリトライ）で合格しないことを併せて固定する
+    await expect(
+      extraction.getByRole('alert'),
+      'REQ-31.1: 抽出結果の領域にエラー表示が出ている'
+    ).toHaveCount(0);
+    await expect(
+      extraction.getByRole('button', { name: 'リトライ' }),
+      'REQ-31.1: 抽出が失敗しリトライボタンが表示されている'
+    ).toHaveCount(0);
   });
 
   /**
@@ -1114,7 +1153,7 @@ test.describe('REQ-31: 抽出結果から数量項目への一括取り込み', 
     await fileInput.setInputFiles(TEST_XLSX);
 
     const importBtn = page.getByRole('button', { name: '一括取り込み' });
-    await expect(importBtn, 'REQ-31.1: 抽出完了後に一括取り込みボタンが表示されない').toBeVisible({
+    await expect(importBtn, '前提: 抽出完了後に一括取り込みボタンが表示されない').toBeVisible({
       timeout: getTimeout(45000),
     });
 
@@ -1182,7 +1221,7 @@ test.describe('REQ-31: 抽出結果から数量項目への一括取り込み', 
     await fileInput.setInputFiles(TEST_XLSX_ALL_FIELDS);
 
     const importBtn = page.getByRole('button', { name: '一括取り込み' });
-    await expect(importBtn, 'REQ-31.1: 抽出完了後に一括取り込みボタンが表示される').toBeVisible({
+    await expect(importBtn, '前提: 抽出完了後に一括取り込みボタンが表示される').toBeVisible({
       timeout: getTimeout(45000),
     });
 
