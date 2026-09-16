@@ -54,6 +54,10 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, isVisibleWithin, labelWhenVisibleWithin } from '../../helpers/wait-helpers';
 import { saveQuantityTableDraft } from '../../helpers/quantity-table-actions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import {
+  addQuantityItemRows,
+  fillItemRequiredFields,
+} from '../../helpers/quantity-table-preconditions';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -67,6 +71,23 @@ const TEST_TXT = path.join(FIXTURES_DIR, 'test-document.txt');
 // OCR（ANTHROPIC_API_KEY 依存）を経由せず決定論的に抽出行を得られるため、
 // REQ-42.4/42.6 の「取り込みは保存まで永続化しない」挙動を環境非依存で検証できる。
 const TEST_XLSX = path.join(FIXTURES_DIR, 'import-items.xlsx');
+// REQ-31.4 は対応フィールド10欄（大項目〜備考）への自動入力を求める。上の資材は5列で、
+// その見出しと中身は REQ-27.5 / REQ-28.4 の判定が固定しているため変えられない。
+// 10欄すべてを見出しに持つ資材を別に置く（見出しは field-mapping.ts の推定規則に一致する）。
+const TEST_XLSX_ALL_FIELDS = path.join(FIXTURES_DIR, 'import-items-all-fields.xlsx');
+/** TEST_XLSX_ALL_FIELDS のデータ行（1行）。見出しの欄名 → セルの値 */
+const ALL_FIELDS_ROW = {
+  大項目: 'E2E大項目',
+  中項目: 'E2E中項目',
+  小項目: 'E2E小項目',
+  任意分類: 'E2E任意分類',
+  工種: 'E2E工種',
+  名称: 'E2E全欄取込項目',
+  規格: 'E2E規格',
+  数量: '34.5',
+  単位: 'm2',
+  備考: 'E2E備考',
+} as const;
 
 // ----------------------------------------------------------------------------
 // ネットワーク監視（REQ-42.6: 保存前は数量表サブリソースへの書き込みが一切ない）
@@ -1117,12 +1138,36 @@ test.describe('REQ-31: 抽出結果から数量項目への一括取り込み', 
    *
    * 一括取り込み実行後、完了メッセージと確認・修正促進メッセージが表示される。
    * convertToQuantityItems により計算方法は「STANDARD」として設定される（field-mapping.ts）。
+   *
+   * Task 98.1: 最後の判定が「完了メッセージ**または**失敗メッセージ」の選言だったため、
+   * 取り込みが失敗しても合格した（31.4 / 31.5 / 31.7 / 31.8 / 31.9 の E2E の被覆印は
+   * この区間にしか無い）。選言を撤去し、条文ごとに観測できる挙動を固定する。
+   * 表題は `scripts/coverage-mark-adjudication.md` が逐語で引くため据え置く。
    */
   test('一括取り込み実行後、完了メッセージが表示される (REQ-31.3, 31.4, 31.5, 31.6, 31.7, 31.8, 31.9)', async ({
     page,
   }) => {
     const navigated = await navigateToQuantityTableEdit(page);
     expect(navigated).toBeTruthy();
+
+    // 前提（REQ-31.9）: 取り込み先グループに既存の数量項目を1行用意する。
+    // 末尾追加と既存項目の非上書きは、既存項目が在る状態でしか観測できない。
+    const groupCard = page.locator('[data-testid="quantity-group-card"]').first();
+    await expect(groupCard, '前提: 取り込み先の数量グループが表示される').toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    const itemRows = groupCard.locator('[data-testid="quantity-item-row"]');
+    const rowsBefore = await itemRows.count();
+    await addQuantityItemRows(groupCard, rowsBefore + 1);
+    const existingName = `E2E既存項目_${Date.now()}`;
+    await fillItemRequiredFields(itemRows.nth(rowsBefore), { name: existingName });
+    // 既存項目を保存して永続化する（REQ-42.5）。既存項目が「保存済みの項目」である状態で
+    // 末尾追加と非上書きを観測するため、また取り込んだ行との区別を id の有無へ寄せないため。
+    await saveQuantityTableDraft(page);
+    await expect(
+      itemRows.nth(rowsBefore).getByLabel('名称', { exact: true }),
+      '前提: 既存項目が保存後も保持される'
+    ).toHaveValue(existingName);
 
     const opened = await openImportDialog(page);
     expect(opened).toBeTruthy();
@@ -1132,8 +1177,9 @@ test.describe('REQ-31: 抽出結果から数量項目への一括取り込み', 
     // （ANTHROPIC_API_KEY 依存）を経由するため、失敗時に検証を丸ごと飛ばす関門が
     // 置かれていた。クライアントサイドで決定論的に解析される Excel の資材を用いれば、
     // 環境に依らず抽出が成立し、関門を置かずに済む（REQ-42.4 の検証と同じ手口）。
+    // REQ-31.4 は10欄への自動入力を求めるため、10欄すべてを持つ資材を用いる。
     const fileInput = page.getByLabel('ファイルを選択');
-    await fileInput.setInputFiles(TEST_XLSX);
+    await fileInput.setInputFiles(TEST_XLSX_ALL_FIELDS);
 
     const importBtn = page.getByRole('button', { name: '一括取り込み' });
     await expect(importBtn, 'REQ-31.1: 抽出完了後に一括取り込みボタンが表示される').toBeVisible({
@@ -1164,18 +1210,104 @@ test.describe('REQ-31: 抽出結果から数量項目への一括取り込み', 
     ).toBeVisible({ timeout: getTimeout(10000) });
 
     await groupButton.click();
-    await page.waitForLoadState('networkidle');
 
-    // 完了メッセージ：「件の数量項目を取り込みました」または「失敗しました」
-    const completeMessage = page.getByText(/件の数量項目を取り込みました|取り込み結果を確認・修正/);
-    const failMessage = page.getByText(/取り込みに失敗しました/);
+    // REQ-31.6: 取り込まれた項目数（資材のデータ行は1行）を含む完了メッセージが出る。
+    const importMessage = dialog.getByText(/数量項目を取り込みました/);
+    await expect(
+      importMessage,
+      'REQ-31.6: 取り込まれた項目数を含む完了メッセージが表示されない'
+    ).toHaveText(/1件の数量項目を取り込みました/, { timeout: getTimeout(15000) });
 
-    const result = await Promise.race([
-      labelWhenVisibleWithin(completeMessage.first(), getTimeout(15000), 'complete'),
-      labelWhenVisibleWithin(failMessage.first(), getTimeout(15000), 'fail'),
-    ]);
+    // REQ-31.7: 取り込み結果の確認・修正を促すメッセージが出る。
+    await expect(
+      importMessage,
+      'REQ-31.7: 取り込み結果の確認・修正を促すメッセージが表示されない'
+    ).toHaveText(/取り込み結果を確認・修正してください/);
 
-    expect(result, '完了メッセージまたは失敗メッセージのいずれかが表示される').not.toBeNull();
+    // 失敗メッセージは出ていない（同じテスト内で完了メッセージの実在を示している）。
+    await expect(dialog.getByText(/取り込みに失敗しました/), '取り込みが失敗している').toHaveCount(
+      0
+    );
+
+    // ダイアログを閉じて編集画面の行を観測する。
+    await dialog.getByRole('button', { name: '閉じる' }).click();
+    await expect(dialog).toHaveCount(0, { timeout: getTimeout(10000) });
+
+    // REQ-31.3 / REQ-31.9: 抽出の1行が数量項目として、既存項目の末尾に追加される
+    // （既存項目は上書きされない）。
+    await expect(
+      itemRows,
+      'REQ-31.3/31.9: 既存項目を保ったまま抽出行が追加されていない'
+    ).toHaveCount(rowsBefore + 2, { timeout: getTimeout(10000) });
+    await expect(
+      itemRows.nth(rowsBefore).getByLabel('名称', { exact: true }),
+      'REQ-31.9: 既存項目が上書きされている'
+    ).toHaveValue(existingName);
+
+    const importedRow = itemRows.nth(rowsBefore + 1);
+    await expect(
+      importedRow.getByLabel('名称', { exact: true }),
+      'REQ-31.9: 取り込んだ項目が既存項目の末尾に無い'
+    ).toHaveValue(ALL_FIELDS_ROW.名称);
+
+    // REQ-31.4: 各列データが対応フィールドへ自動入力される（大項目〜備考の10欄）。
+    const textFields: Array<[string, string]> = [
+      ['大項目', ALL_FIELDS_ROW.大項目],
+      ['中項目', ALL_FIELDS_ROW.中項目],
+      ['小項目', ALL_FIELDS_ROW.小項目],
+      ['任意分類', ALL_FIELDS_ROW.任意分類],
+      ['工種', ALL_FIELDS_ROW.工種],
+      ['名称', ALL_FIELDS_ROW.名称],
+      ['規格', ALL_FIELDS_ROW.規格],
+      ['単位', ALL_FIELDS_ROW.単位],
+      ['備考', ALL_FIELDS_ROW.備考],
+    ];
+    for (const [label, value] of textFields) {
+      await expect(
+        importedRow.getByLabel(label, { exact: true }),
+        `REQ-31.4: ${label}へ列データが自動入力されていない`
+      ).toHaveValue(value);
+    }
+    // 数量は数値欄（表示の桁揃えに依らず値で判定する）
+    const quantityInput = importedRow.locator('input[id$="-quantity"]');
+    await expect
+      .poll(async () => Number(await quantityInput.inputValue()), {
+        timeout: getTimeout(10000),
+        message: 'REQ-31.4: 数量へ列データが自動入力されていない',
+      })
+      .toBe(Number(ALL_FIELDS_ROW.数量));
+
+    // REQ-31.5: 取り込んだ項目の計算方法は「標準」である。
+    const calcMethodSelect = importedRow.getByLabel('計算方法');
+    await expect(
+      calcMethodSelect,
+      'REQ-31.5: 取り込んだ項目の計算方法が「標準」でない'
+    ).toHaveValue('STANDARD');
+    await expect(
+      calcMethodSelect.locator('option:checked'),
+      'REQ-31.5: 計算方法の表示が「標準」でない'
+    ).toHaveText('標準');
+
+    // REQ-31.8: 取り込み後も各フィールドを自由に編集できる。
+    const editedName = `${ALL_FIELDS_ROW.名称}_編集後`;
+    const nameInput = importedRow.getByLabel('名称', { exact: true });
+    await nameInput.fill(editedName);
+    await nameInput.press('Escape');
+    await expect(nameInput, 'REQ-31.8: 取り込んだ項目の名称を編集できない').toHaveValue(editedName);
+
+    await quantityInput.fill('78.25');
+    await quantityInput.blur();
+    await expect
+      .poll(async () => Number(await quantityInput.inputValue()), {
+        timeout: getTimeout(10000),
+        message: 'REQ-31.8: 取り込んだ項目の数量を編集できない',
+      })
+      .toBe(78.25);
+
+    await calcMethodSelect.selectOption('AREA_VOLUME');
+    await expect(calcMethodSelect, 'REQ-31.8: 取り込んだ項目の計算方法を編集できない').toHaveValue(
+      'AREA_VOLUME'
+    );
   });
 });
 
