@@ -2041,6 +2041,45 @@ test.describe('数量表CRUD操作', () => {
     const seededMiddleCategory = `${MIDDLE_CATEGORY_PREFIX}${AUTOCOMPLETE_RUN_ID}`;
 
     /**
+     * 受入基準 7.1 が挙げる対象フィールド（オートコンプリート候補APIの応答キー）。
+     * 「対象フィールドごとの入力履歴を一括取得する」ことを、1回の応答が9件すべての
+     * 候補値リストを持つことで確かめるために用いる。
+     */
+    const AUTOCOMPLETE_RESPONSE_FIELDS = [
+      'majorCategory',
+      'middleCategory',
+      'minorCategory',
+      'customCategory',
+      'workType',
+      'name',
+      'specification',
+      'unit',
+      'remarks',
+    ] as const;
+
+    /**
+     * 受入基準 7.1 の「対象フィールドごとの一括取得」を確かめるために、
+     * 大項目と同時に用意する規格の候補（他の検証が用いる規格の候補とは別の値にする）。
+     * 長さは Requirement 13.1（全角25文字）に収まる。
+     */
+    const seededBatchSpecification = `オートコンプリート一括規格${AUTOCOMPLETE_RUN_ID}`;
+
+    /**
+     * オートコンプリート候補の一括取得の経路かどうかを、オリジンに依らずパスで判定する。
+     *
+     * フロントの API オリジンは実行環境によって食い違うため、オリジンを含む照合は
+     * 環境によって常に偽になりうる。判定はパスの末尾のみで行う。
+     */
+    const CANDIDATES_PATH_SUFFIX = '/quantity-items/autocomplete-candidates';
+    function isCandidatesRequestUrl(url: string): boolean {
+      try {
+        return new URL(url).pathname.endsWith(CANDIDATES_PATH_SUFFIX);
+      } catch {
+        return false;
+      }
+    }
+
+    /**
      * 入力上限が狭いフィールド（工種・単位）向けの短い実行識別子。
      * 単位は Requirement 13.3 により半角6文字相当が上限で、AUTOCOMPLETE_RUN_ID（8文字）は
      * そのままでは収まらないため、末尾3文字のみを用いる。
@@ -2171,7 +2210,7 @@ test.describe('数量表CRUD操作', () => {
       }
     }
 
-    /** 大項目（REQ-7.1 / REQ-7.5）の検証で用いる入力履歴を用意する */
+    /** 大項目（REQ-7.5）の検証で用いる入力履歴を用意する */
     async function seedMajorCategoryHistory(page: Page): Promise<void> {
       await seedAutocompleteHistory(page, [{ majorCategory: seededMajorCategory }]);
     }
@@ -2187,11 +2226,32 @@ test.describe('数量表CRUD操作', () => {
 
       await loginAsUser(page, 'REGULAR_USER');
 
-      // 候補の元となる入力履歴を用意する（前提が整わなければここで失敗する）
-      await seedMajorCategoryHistory(page);
+      // 受入基準 1 は「同一プロジェクト内の対象フィールドごとの入力履歴を GROUP BY で重複排除して
+      // 一括取得し、クライアントサイドの候補値リストとして保持する」ことを求める。
+      // 重複排除と「フィールドごと」を観測できるよう、同じ大項目を持つ数量項目を2件用意し、
+      // 一方には別の対象フィールド（規格）の入力履歴も持たせる。
+      // 前提が整わなければ用意の時点で失敗する。
+      await seedAutocompleteHistory(page, [
+        { majorCategory: seededMajorCategory },
+        { majorCategory: seededMajorCategory, specification: seededBatchSpecification },
+      ]);
+
+      // 初回表示が発行する候補取得の要求を、オリジンに依らずパスで数える
+      const candidateRequestPaths: string[] = [];
+      page.on('request', (request) => {
+        if (isCandidatesRequestUrl(request.url())) {
+          candidateRequestPaths.push(new URL(request.url()).pathname);
+        }
+      });
+      const candidatesResponsePromise = page.waitForResponse(
+        (response) =>
+          isCandidatesRequestUrl(response.url()) && response.request().method() === 'GET',
+        { timeout: getTimeout(15000) }
+      );
 
       // 初回表示で候補が一括取得される（REQ-7.1）ため、用意後に編集画面を開く
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
+      const candidatesResponse = await candidatesResponsePromise;
       await page.waitForLoadState('networkidle');
 
       await expect(page.getByTestId('quantity-group-card').first()).toBeVisible({
@@ -2212,10 +2272,53 @@ test.describe('数量表CRUD操作', () => {
       await expect(listbox, 'REQ-7.1: 入力履歴からの候補リストが表示される').toBeVisible({
         timeout: getTimeout(5000),
       });
+      // 候補が表示されること自体は先頭要素で見る（件数は直後の主張で厳密に固定する）
       await expect(
-        listbox.getByRole('option', { name: seededMajorCategory, exact: true }),
+        listbox.getByRole('option', { name: seededMajorCategory, exact: true }).first(),
         'REQ-7.1: 用意した入力履歴が候補として表示される'
       ).toBeVisible({ timeout: getTimeout(5000) });
+
+      // 重複排除された候補が、画面でもちょうど1件だけ現れる
+      await expect(
+        listbox.getByRole('option', { name: seededMajorCategory, exact: true }),
+        'REQ-7.1: 同じ値の入力履歴を2件用意しても候補はちょうど1件だけ表示される'
+      ).toHaveCount(1);
+
+      // 初回表示が発行した一括取得の応答そのものを検める
+      expect(candidatesResponse.ok(), 'REQ-7.1: 初回表示の候補取得が成功する').toBeTruthy();
+      const fetchedCandidates = (
+        (await candidatesResponse.json()) as { candidates: Record<string, string[]> }
+      ).candidates;
+
+      expect(
+        Object.keys(fetchedCandidates).sort(),
+        'REQ-7.1: 対象フィールド9件ごとの候補値リストが1回の応答に含まれる'
+      ).toEqual([...AUTOCOMPLETE_RESPONSE_FIELDS].sort());
+
+      // キーが欠けた応答は空配列として扱い、以下の主張が確実に失敗するようにする
+      const majorCategoryCandidates = fetchedCandidates.majorCategory ?? [];
+      const specificationCandidates = fetchedCandidates.specification ?? [];
+
+      expect(
+        majorCategoryCandidates,
+        'REQ-7.1: 大項目の入力履歴が一括取得の応答に含まれる'
+      ).toContain(seededMajorCategory);
+      expect(
+        specificationCandidates,
+        'REQ-7.1: 別フィールド（規格）の入力履歴も同じ1回の応答に含まれる'
+      ).toContain(seededBatchSpecification);
+
+      expect(
+        majorCategoryCandidates.filter((value) => value === seededMajorCategory),
+        'REQ-7.1: 同じ値の入力履歴を2件投入しても候補は重複排除されて1件になる'
+      ).toHaveLength(1);
+
+      // フィールドごとに取りに行くのではなく、初回表示で1回だけ一括取得する。
+      // 取得後はクライアントサイドの候補値リストとして保持され、入力中に取り直さない。
+      expect(
+        candidateRequestPaths,
+        'REQ-7.1: 候補取得はフィールドごとではなく初回表示の1回だけで、入力中に取り直さない'
+      ).toHaveLength(1);
 
       // テスト終了前にクリーンアップ
       await page.keyboard.press('Escape');

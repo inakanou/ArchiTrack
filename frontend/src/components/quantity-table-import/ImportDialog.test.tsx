@@ -420,7 +420,10 @@ describe('ImportDialog', () => {
     expect(defaultProps.onClose).toHaveBeenCalled();
   });
 
-  it('処理中は一括取り込みボタンが非活性になる', () => {
+  // 条文 27.8 は「ファイルアップロードボタンおよび一括取り込みボタンを非活性にする」と書くが、
+  // 本番（`ImportDialog.tsx`）は処理中に一括取り込みボタンを描画しない。描画しないことは
+  // 「押せない」をより強く満たすため、本検証は非活性ではなく不在を確かめる（表題も不在で名乗る）。
+  it('処理中は一括取り込みボタンが描画されない', () => {
     vi.mocked(useImportDataExtractor).mockReturnValue({
       status: 'processing',
       progress: 30,
@@ -433,7 +436,7 @@ describe('ImportDialog', () => {
     });
 
     render(<ImportDialog {...defaultProps} />);
-    // processing中は一括取り込みボタンが表示されない
+    // processing中は一括取り込みボタンが文書のどこにも存在しない（押せる経路が無い）
     expect(screen.queryByRole('button', { name: '一括取り込み' })).not.toBeInTheDocument();
   });
 
