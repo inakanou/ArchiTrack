@@ -150,7 +150,7 @@ graph TB
 
     subgraph Backend
         PRR["projects.routes<br/>GET /:id・GET /:id/detail-summary"]
-        QTR["quantity-tables.routes<br/>GET・POST・DELETE・POST /:id/copy<br/>PUT /:id/save"]
+        QTR["quantity-tables.routes<br/>GET・POST・DELETE・POST /:id/copy<br/>PUT /:id（数量表名の変更）・PUT /:id/save"]
         QTSV[QuantityTableService]
         QVS[QuantityValidationService]
         QFVS[QuantityFieldValidationService]
@@ -177,7 +177,7 @@ graph TB
     QTRD -->|編集画面へリダイレクト| QTE
     QTL --> CQTD
     QTL -->|プロジェクト取得| APIPJ
-    QTL -->|一覧取得・削除| APIQT
+    QTL -->|一覧取得・削除・名前変更（PUT /:id）| APIQT
     CQTD -->|数量表コピー| APIQT
     QTC -->|プロジェクト取得| APIPJ
     QTC -->|数量表作成| APIQT
@@ -221,6 +221,7 @@ graph TB
     IMPEXT --> POE
     POE -->|優先| APICV
     POE -->|フォールバック| PTE
+    POE -->|列の自動判定 autoDetectFieldMapping| IMPMAP
     APICV --> CVR
     CVR --> CVSV
 
@@ -244,11 +245,41 @@ graph TB
     QG --> SI
 ```
 
-**本図はタスク 96.9 が 2026-09-15 にコミット `67097fde` の実装から描き直したものである**（51ノード・67辺。本番のコードから到達する辺だけを描く）。保存の明示化（REQ-42）を反映し、編集操作はすべて `quantityTableEditReducer` のクライアント側ドラフトへ入り、永続化は保存操作の `PUT /:id/save` → `QuantityTableService.saveDraft` の1経路に限る。未保存の印と離脱確認は編集画面が `isDirty` から描く。読み取りの取得（初期読込・プロジェクト取得・入力補完候補・現場調査の写真と注釈・取り込みの抽出）は配線どおりに残した。描き直す前の図は `git show 67097fde:.kiro/specs/quantity-table-generation/design.md | sed -n 104,187p` で取り出せる。**その後タスク 96.2 が取り込みダイアログから `FileInlinePreview` への辺を足した（52ノード・68辺）。**
+**本図はタスク 96.9 が 2026-09-15 にコミット `67097fde` の実装から描き直したものである**（51ノード・67辺。本番のコードから到達する辺だけを描く）。保存の明示化（REQ-42）を反映し、編集操作はすべて `quantityTableEditReducer` のクライアント側ドラフトへ入り、永続化は保存操作の `PUT /:id/save` → `QuantityTableService.saveDraft` の1経路に限る。未保存の印と離脱確認は編集画面が `isDirty` から描く。読み取りの取得（初期読込・プロジェクト取得・入力補完候補・現場調査の写真と注釈・取り込みの抽出）は配線どおりに残した。描き直す前の図は `git show 67097fde:.kiro/specs/quantity-table-generation/design.md | sed -n 104,187p` で取り出せる。**その後タスク 96.2 が取り込みダイアログから `FileInlinePreview` への辺を足した（52ノード・68辺）。** **その後タスク 98.3 が、実在するのに図に無かった辺1本と、ラベルの取りこぼし2件を是正した（52ノード・69辺）。** **測り直しの内訳と数え方は、下の箇条の後に置いた。**
 - バックエンドには数量グループ・数量項目の個別ルートと `QuantityGroupService` / `QuantityItemService` が残るが、本番のフロントエンドから呼ぶ経路が無いため図に描かない（API クライアントの対応関数はいずれも本番の呼び出し元を持たない）
 - 読み取り専用の枝の `QuantityItemRow` は本番から到達しないため描かない（唯一の本番の呼び出し元である編集画面が常に `isEditable` を渡す。Task 89.1 の記録と同じ）
 - `EditableQuantityItemRow` の入力用の子部品（`CalculationMethodSelect` / `CalculationFields` / `FieldValidationTooltip`）は外部の取得を持たないため省いた
 - 写真コメントは個別に取得せず、初期読込の詳細と写真選択時の写真一覧の応答に含まれる
+
+**タスク 98.3 の測り直し（規約 (a)）**: 足した辺は `POE` → `IMPMAP` で、`pdf-ocr-extractor.ts` が `field-mapping` の `autoDetectFieldMapping` を値として取り込む実在の依存である（`grep -nF "import { autoDetectFieldMapping } from './field-mapping';" frontend/src/components/quantity-table-import/pdf-ocr-extractor.ts` が1行を返す）。ラベルは、タスク 97.1 が一覧画面へ実装した数量表名の即時保存の経路——`QuantityTableListPage` の `updateQuantityTable` → `PUT /api/quantity-tables/:id` → `QuantityTableService.update`——が `QTR` のノードにも `QTL` → `APIQT` の辺にも現れていなかったため、両方へ `PUT /:id` を書き入れた（`grep -nE 'updateQuantityTable\b' frontend/src/pages/QuantityTableListPage.tsx` が2行（取り込みと呼び出しの各1行。語境界を付けないと `updateQuantityTableSchema` を挙げる注釈行まで拾って3行になる）、`grep -nE "^router\\.put\\(" backend/src/routes/quantity-tables.routes.ts` が2行を返し、後者の直後の引数は順に `'/:id'` と `'/:id/save'` である）。**ノードも辺も図の実数を数え直して書いている。** 数え方は次のとおりで、リポジトリルートで実行する（図の囲みだけを両端の行で切り出し、ノードは宣言行、辺は矢印を含む行を数える。下の囲みは切り出しの範囲の外にあるため件数を動かさない）。
+
+```bash
+D=.kiro/specs/quantity-table-generation/design.md
+awk '/^        PDP\[ProjectDetailPage\]$/,/^    QG --> SI$/' "$D" | grep -cE '^ +[A-Z][A-Za-z0-9]*\['
+awk '/^        PDP\[ProjectDetailPage\]$/,/^    QG --> SI$/' "$D" | grep -c -- '-->'
+```
+
+上の2本の出力は順に `52` と `69` である。**同じ数え方を是正の前の版へ当てると `52` と `68` であり**（`git show 415b1d06:.kiro/specs/quantity-table-generation/design.md` を同じ2本へ流す）、直前の是正である 96.2 が名乗った 52ノード・68辺と一致する——本註が引く過去の2組の値は書き換えず、現況をここへ並べる（`site-survey` の設計文書 `#### 実測値の書き方（タスク 115.212）` の (a)）。**起票文が挙げた2件だけを直したのではなく、図の全域で同型の欠落を数え直した。** フロントエンドの実在判定の方式は、図のノードのラベルから先頭の名前を取り出して名前の集合 N を作り、`frontend/src` の同名ファイル（テストとストーリーを除く）から `import type` でない相対 import と動的 import を集め、指定先の basename が N のいずれかに一致する組を数える走査である（遅延読み込みの中継は先頭の `load` を落として中継先へ読み替える）。**ただし API の4ノード `APIPJ` / `APIQT` / `APISS` / `APICV` はラベルが `api: …` の形で、捕捉が空白の手前の `api` で止まるため、API クライアントのファイル名そのものは N に入らない。** それでも走査の出力に `-> projects` / `-> quantity-tables` / `-> claude-vision` が現れるのは、この3語がバックエンドのルートノード `PRR` / `QTR` / `CVR` のラベル先頭語として別経路で N に入っているからであり、API ノードのラベルに由来するのではない（上の `sed` を宣言行へ1行ずつ当てると `PRR` => `projects`・`QTR` => `quantity-tables`・`CVR` => `claude-vision`・`APIPJ` / `APIQT` / `APISS` / `APICV` => いずれも `api`）。
+
+```bash
+D=.kiro/specs/quantity-table-generation/design.md
+N=$(awk '/^        PDP\[ProjectDetailPage\]$/,/^    QG --> SI$/' "$D" \
+  | sed -nE 's/^ +[A-Z][A-Za-z0-9]*\["?([A-Za-z][A-Za-z0-9_-]*).*/\1/p' | sort -u)
+F=$(for n in $N; do find frontend/src -name "$n.ts" -o -name "$n.tsx"; done \
+  | grep -vE '\.(test|stories)\.' | sort -u)
+for f in $F; do
+  a=$(basename "$f"); a=${a%.ts*}
+  { sed 's|//.*$||' "$f" | tr '\n' ' ' | tr ';' '\n' \
+      | grep -E '^[[:space:]]*import[[:space:]]' \
+      | grep -vE '^[[:space:]]*import[[:space:]]+type[[:space:]]' \
+      | grep -oE "from '[^']+'" | cut -d"'" -f2
+    grep -oE "import\('[^']+'\)" "$f" | cut -d"'" -f2; } \
+  | while read -r t; do b=$(basename "$t"); b=${b#load}
+      echo "$N" | grep -qx "$b" && echo "$a -> $b"; done
+done | sort -u
+```
+
+出力は 38 組である。**この走査は、ラベルの先頭語が実体のファイル名と違う3ノードを取りこぼす**——`CALC`（ラベルの先頭語は `calculate`、実体は `frontend/src/utils/calculation-engine.ts`）、`LG`（同じく `useBlocker`、実体は `frontend/src/components/common/UnsavedChangesDialog.tsx`）、そして `APISS`（捕捉が `api` で止まり、実体の `site-surveys` / `survey-annotations` / `survey-images` はどれも N に入らない）である。`APIPJ` / `APIQT` / `APICV` が同じ潰れ方をしても実害を免れるのは、対応するルートノード `PRR` / `QTR` / `CVR` のラベル先頭語が偶然その綴りで N を埋めるからであり、`APISS` に対応するルートノード `SSR` はラベルが日本語で始まって `sed` 自体に一致せず落ちるため、`APISS` だけが救われない（`site-surveys` / `survey-annotations` / `survey-images` の3語とも走査の `grep -qx "$b"` が偽になることを実測）。取りこぼす組は、ファイル単位で5組・ノード単位で4組である——`EditableQuantityItemRow` → `calculation-engine`（`frontend/src/components/quantity-table/EditableQuantityItemRow.tsx` が `calculate` を取り込む）、`QuantityTableEditPage` → `UnsavedChangesDialog`（`frontend/src/pages/QuantityTableEditPage.tsx` が `UnsavedChangesDialog` を default import する）、`AnnotatedImageThumbnail` → `survey-annotations`（`frontend/src/components/site-surveys/AnnotatedImageThumbnail.tsx` が `getAnnotation` を取り込む。ノードとしては `AIT` → `APISS`）、`QuantityTableEditPage` → `site-surveys` と `survey-annotations`（同ページが `getSiteSurveys` / `getSiteSurvey` / `getProjectSurveyImages` と `getAnnotation` を取り込む。ノードとしては1組の `QTE` → `APISS` に畳まれる）。いずれも `import type` でない値の import である。これらを手で足すと**ノード単位で 42 組**（ファイル単位では 43 組）であり、**そのうち図に無かったのは `pdf-ocr-extractor` → `field-mapping`（`POE` → `IMPMAP`）の1組だけであった**——N の `api` / `calculate` / `useBlocker` / `autocomplete` の4語を実体のファイル名（`projects` などは既出のため据え置き、`calculation-engine` / `UnsavedChangesDialog` / `site-surveys` / `survey-annotations` / `survey-images` を追加）へ差し替えた走査を流し直し、得た42組を図の辺と突き合わせて確かめた（差し替えで消える組は無く、上の4語は1組も生んでいなかった）。`ACS` → `ACR` が走査に現れないのは `useAutocompleteCandidateStore` が `../api/client` の `apiClient` を直に使い、候補取得の API クライアントのファイルを介さないためで、辺の欠落ではない。`APISS` の辺のラベルは、`QuantityTableEditPage` が取り込む `getSiteSurveys` / `getSiteSurvey` / `getProjectSurveyImages` / `getAnnotation` の4本と一致する。図の残りの辺——画面遷移、バックエンドとデータベースの依存——は、ルート定義とサービスの import とハンドラを読んで突き合わせ、欠落は無かった。`QTR` → `QTSV` は `PUT /:id` のハンドラが `quantityTableService.update` を呼ぶため既存の辺で足り、ノードを増やす必要は無い。タスク 98.3。コミット `415b1d06` の作業ツリー。2026-09-16 にリポジトリルートで実測
 
 **Architecture Integration**:
 
