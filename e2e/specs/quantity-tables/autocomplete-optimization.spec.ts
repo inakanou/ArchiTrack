@@ -55,6 +55,7 @@
  */
 
 import { test, expect, type Locator, type Page } from '@playwright/test';
+import { API_BASE_URL } from '../../config';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { assertPrepared } from '../../helpers/preconditions';
@@ -319,10 +320,55 @@ test.describe('オートコンプリート最適化', () => {
   // テストで作成したリソースのIDを保存
   let createdQuantityTableId: string | null = null;
 
+  /** 受入基準1の「同一プロジェクト内」を否定側から確かめるための、別プロジェクトのID */
+  let foreignProjectId: string | null = null;
+
+  /**
+   * 別プロジェクトへ播く大項目の入力履歴。
+   *
+   * 同一のデータベースを繰り返し使うため、実行ごとに一意な接尾辞を付けて実行間で区別する。
+   * 幅は Requirement 13.1（大項目は全角25文字／半角50文字）に収まる。
+   */
+  const FOREIGN_MAJOR_CATEGORY = `別PJ検証大項目${Date.now().toString(36)}`;
+
   test.beforeEach(async ({ context }) => {
     // テスト間の状態をクリア
     await context.clearCookies();
   });
+
+  /**
+   * ログイン済みページのアクセストークンから API 呼び出し用のヘッダーを作る。
+   *
+   * @param page ログイン済みのページ
+   * @returns Authorization ヘッダー
+   */
+  async function authHeaders(page: Page): Promise<Record<string, string>> {
+    const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+    expect(accessToken, '前提: アクセストークンが取得できる').toBeTruthy();
+    return { Authorization: `Bearer ${accessToken}` };
+  }
+
+  /**
+   * 指定プロジェクトのオートコンプリート候補を、画面を経由せずAPIから取得する。
+   *
+   * @param page ログイン済みのページ
+   * @param projectId 取得対象のプロジェクトID
+   * @returns フィールド別の候補値マップ
+   */
+  async function fetchCandidatesByApi(
+    page: Page,
+    projectId: string
+  ): Promise<Record<string, string[]>> {
+    const response = await page.request.get(
+      `${API_BASE_URL}/api/projects/${projectId}/quantity-items/autocomplete-candidates`,
+      { headers: await authHeaders(page) }
+    );
+    expect(
+      response.ok(),
+      `オートコンプリート候補の取得が成功する (status=${response.status()})`
+    ).toBeTruthy();
+    return ((await response.json()) as { candidates: Record<string, string[]> }).candidates;
+  }
 
   /**
    * 事前準備: テスト用プロジェクトと数量表を作成
@@ -337,6 +383,70 @@ test.describe('オートコンプリート最適化', () => {
       const projectId = await createTestProject(page, 'AC最適化テスト');
       const quantityTable = await createTestQuantityTable(page, projectId, 'AC最適化テスト数量表');
       createdQuantityTableId = quantityTable.id;
+    });
+
+    /**
+     * 受入基準1は入力履歴の範囲を「**同一プロジェクト内**」に限る。その否定側を確かめるには
+     * **別プロジェクトに実在する入力履歴**が要る。実在しないまま「混ざらない」を主張すれば、
+     * 空集合に対する恒真へ退化する。そのため、播いた値が当の別プロジェクトの候補として
+     * 返ることまでを無条件に主張する（整わなければこの時点で失敗する）。
+     *
+     * 数量グループと数量項目はAPIで作る。画面から作った行はクライアントの下書きに留まり
+     * （Requirement 42 の明示保存）、入力履歴として永続化されないためである。
+     *
+     * 本ファイルの検証用プロジェクト側には**何も播かない**。REQ-7.8 / REQ-7.3 の判定は
+     * 「このファイルは数量表を保存しないのでサーバー側の入力履歴は空」という母集団の
+     * 一意性に依っており、そこへ永続化された履歴を足すと当該の判定が壊れる。
+     */
+    test('別プロジェクトに識別可能な入力履歴を用意する', async ({ page }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const projectId = await createTestProject(page, 'AC別プロジェクト');
+      const foreignTable = await createTestQuantityTable(page, projectId, 'AC別プロジェクト数量表');
+
+      const headers = await authHeaders(page);
+
+      const groupResponse = await page.request.post(
+        `${API_BASE_URL}/api/quantity-tables/${foreignTable.id}/groups`,
+        { headers, data: { name: '別プロジェクトの入力履歴' } }
+      );
+      expect(
+        groupResponse.ok(),
+        `前提: 別プロジェクトの数量グループの作成が成功する (status=${groupResponse.status()})`
+      ).toBeTruthy();
+      const foreignGroupId = ((await groupResponse.json()) as { id?: string }).id;
+      assertPrepared(foreignGroupId ?? null, '別プロジェクトの数量グループのID');
+
+      const itemResponse = await page.request.post(
+        `${API_BASE_URL}/api/quantity-groups/${foreignGroupId}/items`,
+        {
+          headers,
+          data: {
+            // 値の幅は Requirement 13.1〜13.3 の上限に収める
+            majorCategory: FOREIGN_MAJOR_CATEGORY,
+            workType: '検証工種',
+            name: 'オートコンプリート検証名称',
+            unit: 'm',
+            calculationMethod: 'STANDARD',
+            calculationParams: null,
+            adjustmentFactor: 1,
+            roundingUnit: 0.01,
+            quantity: 1,
+            displayOrder: 0,
+          },
+        }
+      );
+      expect(
+        itemResponse.ok(),
+        `前提: 別プロジェクトの入力履歴となる数量項目の作成が成功する (status=${itemResponse.status()})`
+      ).toBeTruthy();
+
+      expect(
+        (await fetchCandidatesByApi(page, projectId)).majorCategory ?? [],
+        '前提: 別プロジェクトへ播いた入力履歴が、そのプロジェクトの候補として実在する'
+      ).toContain(FOREIGN_MAJOR_CATEGORY);
+
+      foreignProjectId = projectId;
     });
   });
 
@@ -392,6 +502,22 @@ test.describe('オートコンプリート最適化', () => {
       expect(candidateRequests, 'REQ-7.2: 候補取得APIは初回表示時の1回だけ呼ばれる').toHaveLength(
         1
       );
+
+      // REQ-7.1: 一括取得の範囲は「同一プロジェクト内」の入力履歴に限られる。
+      //
+      // 肯定側（同じ値が別プロジェクトの候補には実在する）と否定側（本プロジェクトの
+      // 応答には現れない）を**同じ値・同じフィールド**で組にして置く。両者はプロジェクトの
+      // 違いだけで分かれるため、片側だけが恒真に成立する形にならない。
+      // 別プロジェクトの取得はAPIで行い、直前の要求数の主張より後に置く（数に影響しない）。
+      assertPrepared(foreignProjectId, '別プロジェクトのID');
+      expect(
+        (await fetchCandidatesByApi(page, foreignProjectId)).majorCategory ?? [],
+        'REQ-7.1: 別プロジェクトの入力履歴は、そのプロジェクトの候補としては実在する'
+      ).toContain(FOREIGN_MAJOR_CATEGORY);
+      expect(
+        (candidates as Record<string, string[]>).majorCategory ?? [],
+        'REQ-7.1: 別プロジェクトの入力履歴は同一プロジェクトの一括取得の応答に含まれない'
+      ).not.toContain(FOREIGN_MAJOR_CATEGORY);
     });
   });
 

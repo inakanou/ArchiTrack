@@ -2158,6 +2158,17 @@ test.describe('数量表CRUD操作', () => {
     const seededBatchSpecification = `オートコンプリート一括規格${AUTOCOMPLETE_RUN_ID}`;
 
     /**
+     * 受入基準 1 の「**同一プロジェクト内**の…入力履歴」を否定側で確かめるために、
+     * 別プロジェクトへ播く大項目の候補値。
+     *
+     * 本プロジェクトの候補と**同じ接頭辞**を持たせる。前方一致で絞り込んだ画面の候補一覧にも
+     * 現れうる形にしておかないと、「別プロジェクトの値が出てこない」が接頭辞の違いだけで
+     * 成立し、プロジェクトのスコープを確かめたことにならない。
+     * 幅は Requirement 13.1（大項目は全角25文字／半角50文字＝幅50）に収まる。
+     */
+    const foreignMajorCategory = `${MAJOR_CATEGORY_PREFIX}別PJ${AUTOCOMPLETE_RUN_ID}`;
+
+    /**
      * オートコンプリート候補の一括取得の経路かどうかを、オリジンに依らずパスで判定する。
      *
      * フロントの API オリジンは実行環境によって食い違うため、オリジンを含む照合は
@@ -2308,6 +2319,91 @@ test.describe('数量表CRUD操作', () => {
       await seedAutocompleteHistory(page, [{ majorCategory: seededMajorCategory }]);
     }
 
+    /**
+     * 別プロジェクトに、識別可能な大項目の入力履歴を用意する。
+     *
+     * 受入基準 1 の「同一プロジェクト内」を否定側で確かめるには、**別プロジェクトに実在する
+     * 入力履歴**が要る。その履歴が実際に永続化されたことを先に主張しないと、
+     * 「別プロジェクトの値が候補に混ざらない」は空集合に対する恒真へ退化する。
+     * そのため本補助は、別プロジェクトの候補取得の応答に当該の値が現れることまでを
+     * 無条件に主張する（前提が整わなければこの時点で失敗する）。
+     *
+     * 数量グループと数量項目はAPIで作る。画面から作るとクライアントドラフトに留まり
+     * （REQ-42）、入力履歴として永続化されないためである。
+     *
+     * @param page - ログイン済みのページ
+     */
+    async function seedForeignProjectHistory(page: Page): Promise<void> {
+      const foreignProjectId = await createTestProject(page, 'AC別プロジェクト');
+      const foreignTable = await createTestQuantityTable(
+        page,
+        foreignProjectId,
+        'AC別プロジェクト数量表'
+      );
+
+      const headers = await autocompleteAuthHeaders(page);
+
+      const groupResponse = await page.request.post(
+        `${API_BASE_URL}/api/quantity-tables/${foreignTable.id}/groups`,
+        { headers, data: { name: '別プロジェクトの入力履歴' } }
+      );
+      expect(
+        groupResponse.ok(),
+        `別プロジェクトの数量グループの作成が成功する (status=${groupResponse.status()})`
+      ).toBeTruthy();
+      const foreignGroupId = ((await groupResponse.json()) as { id?: string }).id;
+      expect(foreignGroupId, '別プロジェクトの数量グループIDが得られる').toBeTruthy();
+
+      const itemResponse = await page.request.post(
+        `${API_BASE_URL}/api/quantity-groups/${foreignGroupId}/items`,
+        {
+          headers,
+          data: {
+            // 値の幅は Requirement 13.1〜13.3 の上限に収める（自プロジェクト側の播種と同じ作法）
+            majorCategory: foreignMajorCategory,
+            workType: '検証工種',
+            name: 'オートコンプリート検証名称',
+            unit: 'm',
+            calculationMethod: 'STANDARD',
+            calculationParams: null,
+            adjustmentFactor: 1,
+            roundingUnit: 0.01,
+            quantity: 1,
+            displayOrder: 0,
+          },
+        }
+      );
+      expect(
+        itemResponse.ok(),
+        `別プロジェクトの入力履歴となる数量項目の作成が成功する (status=${itemResponse.status()})`
+      ).toBeTruthy();
+
+      const foreignCandidatesResponse = await page.request.get(
+        `${API_BASE_URL}/api/projects/${foreignProjectId}/quantity-items/autocomplete-candidates`,
+        { headers }
+      );
+      expect(
+        foreignCandidatesResponse.ok(),
+        '別プロジェクトのオートコンプリート候補の取得が成功する'
+      ).toBeTruthy();
+      const foreignCandidates = (
+        (await foreignCandidatesResponse.json()) as { candidates: Record<string, string[]> }
+      ).candidates;
+      expect(
+        foreignCandidates.majorCategory ?? [],
+        '別プロジェクトへ播いた入力履歴が、そのプロジェクトの候補として実在する'
+      ).toContain(foreignMajorCategory);
+
+      // 別プロジェクトの編集画面に居たまま戻ると、**その画面自身**が発行する
+      // `autocomplete-candidates` の要求が遅れて着弾し、呼び手が数える
+      // 「初回表示の1回だけ」（`candidateRequestPaths` の件数）を壊しうる。
+      // 偽の緑にはならない（必ず赤へ倒れる）が、間欠の種になる。
+      // 中立ページへ退避して進行中の要求を尽きさせ、別プロジェクトの画面を生かしたまま
+      // 残さない（退避後は新たな要求を起こす主体が居ない）。
+      await page.goto('/projects');
+      await page.waitForLoadState('networkidle');
+    }
+
     test('大項目フィールドでオートコンプリート候補が表示される (quantity-table-generation/REQ-7.1)', async ({
       page,
     }) => {
@@ -2318,6 +2414,12 @@ test.describe('数量表CRUD操作', () => {
       }
 
       await loginAsUser(page, 'REGULAR_USER');
+
+      // 受入基準 1 は入力履歴の範囲を「**同一プロジェクト内**」に限る。その否定側
+      // （別プロジェクトの入力履歴が混ざらないこと）を確かめるため、別プロジェクトに
+      // 識別可能な入力履歴を用意し、それが実在することまで先に主張する。
+      // 候補取得の要求を数え始める前に済ませる（別プロジェクトの編集画面も候補を取得するため）。
+      await seedForeignProjectHistory(page);
 
       // 受入基準 1 は「同一プロジェクト内の対象フィールドごとの入力履歴を GROUP BY で重複排除して
       // 一括取得し、クライアントサイドの候補値リストとして保持する」ことを求める。
@@ -2377,6 +2479,14 @@ test.describe('数量表CRUD操作', () => {
         'REQ-7.1: 同じ値の入力履歴を2件用意しても候補はちょうど1件だけ表示される'
       ).toHaveCount(1);
 
+      // 同じ接頭辞で絞り込んでも、別プロジェクトの入力履歴は候補に現れない（同一プロジェクト内）。
+      // 直前の肯定側の主張（用意した履歴がちょうど1件現れる）と組で置いているため、
+      // 候補一覧が空でもこの主張だけが成立する形にはならない。
+      await expect(
+        listbox.getByRole('option', { name: foreignMajorCategory, exact: true }),
+        'REQ-7.1: 別プロジェクトの入力履歴は候補として表示されない'
+      ).toHaveCount(0);
+
       // 初回表示が発行した一括取得の応答そのものを検める
       expect(candidatesResponse.ok(), 'REQ-7.1: 初回表示の候補取得が成功する').toBeTruthy();
       const fetchedCandidates = (
@@ -2396,6 +2506,11 @@ test.describe('数量表CRUD操作', () => {
         majorCategoryCandidates,
         'REQ-7.1: 大項目の入力履歴が一括取得の応答に含まれる'
       ).toContain(seededMajorCategory);
+
+      expect(
+        majorCategoryCandidates,
+        'REQ-7.1: 別プロジェクトの入力履歴は同一プロジェクトの一括取得の応答に含まれない'
+      ).not.toContain(foreignMajorCategory);
       expect(
         specificationCandidates,
         'REQ-7.1: 別フィールド（規格）の入力履歴も同じ1回の応答に含まれる'
