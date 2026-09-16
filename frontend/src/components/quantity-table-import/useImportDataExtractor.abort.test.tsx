@@ -9,6 +9,8 @@
  * 抽出の経路は `useImportDataExtractor` → `pdf-ocr-extractor` → 共有部品 `pdf-text-extractor`
  * まで実物を通し、外界（pdfjs-dist / tesseract.js / Claude Vision API）だけを模擬する。
  * 中断の主張は「ワーカーが終了する（`worker.terminate()` が呼ばれる）」ことに置く。
+ * ファイルの差し替えの1件だけは、表題が「終了してから次の処理を始める」と順序を名乗るため、
+ * 件数を個別に待つのではなく `create → terminate → create` の並びそのものを主張する（Task 99.3）。
  *
  * @module components/quantity-table-import/useImportDataExtractor.abort.test
  */
@@ -136,6 +138,22 @@ function hangRecognition(): void {
   mockRecognize.mockImplementation(() => new Promise(() => {}));
 }
 
+/**
+ * ワーカーの生成（`createWorker`）と終了（`terminate`）を、起きた順に一列へ並べる。
+ *
+ * `vi.fn()` の `invocationCallOrder` はモックをまたいで共有される連番なので、別々のモックの
+ * 呼び出しでも前後関係を比べられる。件数を個別に待つだけでは「終了してから次を始める」という
+ * 順序は固定できない（順序を遅らせる変異が素通りする）ため、並びそのものを主張に使う。
+ */
+function workerLifecycleSequence(): string[] {
+  return [
+    ...mockCreateWorker.mock.invocationCallOrder.map((order) => ({ order, kind: 'create' })),
+    ...mockTerminate.mock.invocationCallOrder.map((order) => ({ order, kind: 'terminate' })),
+  ]
+    .sort((a, b) => a.order - b.order)
+    .map(({ kind }) => kind);
+}
+
 describe('進行中の OCR の中断（Task 98.4）', () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -172,10 +190,11 @@ describe('進行中の OCR の中断（Task 98.4）', () => {
       result.current.startExtraction(pdfFile('後.pdf'));
     });
 
-    await waitFor(() => expect(mockTerminate).toHaveBeenCalledTimes(1));
     // 先の処理は残りのページへ進まない（2つ同時に走らない）
     await waitFor(() => expect(mockCreateWorker).toHaveBeenCalledTimes(2));
-    expect(mockRecognize).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(mockRecognize).toHaveBeenCalledTimes(2));
+    // 表題の「終了してから」を順序として固定する。件数（生成2回・終了1回）もこの並びが兼ねる
+    expect(workerLifecycleSequence()).toEqual(['create', 'terminate', 'create']);
   });
 
   it('処理中にアンマウントされると、進行中の OCR のワーカーを終了する', async () => {
