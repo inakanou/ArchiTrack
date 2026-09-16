@@ -74,6 +74,98 @@ function calculateStringWidth(value: string): number {
 }
 
 /**
+ * 上限ちょうどの幅を持つ試験値を3種（全角のみ・半角のみ・全角と半角の混在）作る。
+ *
+ * REQ-13.1/13.2/13.3 は上限を「全角N文字/半角2N文字」と二通りで書く。どちらの数え方でも
+ * 同じ幅 2N を指すため、全角だけ・半角だけ・混在の3種で境界を踏む。`marker` は欄ごとに
+ * 異なる半角2文字で、欄をまたいで値が取り違えられていれば逐語一致が崩れる。
+ *
+ * @param maxWidth 当該欄の上限幅（= 半角の最大文字数）
+ * @param marker 欄を識別する半角2文字
+ * @returns 幅がちょうど maxWidth の試験値3種
+ */
+function atLimitSamples(maxWidth: number, marker: string): readonly string[] {
+  return [
+    '漢'.repeat(maxWidth / 2),
+    marker + 'a'.repeat(maxWidth - marker.length),
+    '漢'.repeat((maxWidth - marker.length) / 2) + marker,
+  ];
+}
+
+/**
+ * REQ-13.1/13.2/13.3 が定める「最大文字数（全角N文字/半角2N文字）を超える入力の防止」を、
+ * 上界と下界の両方で主張する。
+ *
+ * 上界だけの判定（`幅 <= 上限`）は、欄が空になる不具合でも成立してしまう恒真である
+ * （Task 100.3 の起票事由）。本補助は次の二つを無条件に主張する。
+ *
+ * 1. **下界**: 上限ちょうどの幅の入力は逐語で保たれる（欄が空にならず、上限が不当に
+ *    厳しくもない）。
+ * 2. **上界**: 上限を超える入力を試みても、欄が保持する値は上限ちょうどの直前の値の
+ *    ままで、超過した入力を保持しない。
+ *
+ * 超過の試行は**上限ちょうどの値を接頭辞に持つ**文字列で行う。こうすると「超過分を
+ * 丸ごと拒否する」実装でも「上限で切り詰める」実装でも期待値は同一の逐語になるため、
+ * 選言を使わずに条文（超える入力を防止する）だけを固定できる。
+ *
+ * @param field 対象の入力欄
+ * @param fieldLabel 失敗時に欄を名指すためのラベル
+ * @param maxWidth 当該欄の上限幅
+ * @param marker 欄を識別する半角2文字
+ */
+async function expectMaxWidthPrevented(
+  field: Locator,
+  fieldLabel: string,
+  maxWidth: number,
+  marker: string
+): Promise<void> {
+  for (const atLimit of atLimitSamples(maxWidth, marker)) {
+    expect(
+      calculateStringWidth(atLimit),
+      `前提: ${fieldLabel}の試験値が上限ちょうどの幅である`
+    ).toBe(maxWidth);
+
+    await field.fill(atLimit);
+    await field.press('Escape');
+    await expect(
+      field,
+      `${fieldLabel}: 上限ちょうど（幅${maxWidth}）の入力は逐語で保たれる`
+    ).toHaveValue(atLimit);
+
+    // 半角1文字（幅+1）と全角1文字（幅+2）の二通りで上限を1文字だけ超える。
+    for (const extra of ['x', '超']) {
+      const overLimit = `${atLimit}${extra}`;
+      expect(
+        calculateStringWidth(overLimit),
+        `前提: ${fieldLabel}の超過値が上限を超える幅である`
+      ).toBeGreaterThan(maxWidth);
+
+      await field.fill(overLimit);
+      await field.press('Escape');
+      await expect(
+        field,
+        `${fieldLabel}: 上限を超える入力は防止され、欄は上限ちょうどの直前の値を保つ`
+      ).toHaveValue(atLimit);
+    }
+  }
+}
+
+/**
+ * テキスト欄の最大幅（REQ-13.1: 全角25文字/半角50文字）
+ */
+const TEXT_FIELD_MAX_WIDTH = 50;
+
+/**
+ * 工種欄の最大幅（REQ-13.2: 全角8文字/半角16文字）
+ */
+const WORK_TYPE_MAX_WIDTH = 16;
+
+/**
+ * 単位欄の最大幅（REQ-13.3: 全角3文字/半角6文字）
+ */
+const UNIT_MAX_WIDTH = 6;
+
+/**
  * 数量表CRUD機能のE2Eテスト
  */
 test.describe('数量表CRUD操作', () => {
@@ -3901,117 +3993,98 @@ test.describe('数量表CRUD操作', () => {
      * @requirement quantity-table-generation/REQ-13.1
      * 大項目・中項目・小項目・任意分類・名称・規格・計算方法・備考フィールドに
      * 最大文字数（全角25文字/半角50文字）を超える入力を防止する
+     *
+     * 条文が挙げる**8欄すべて**を見る。うち7欄は自由入力欄なので上限ちょうどの逐語保持と
+     * 超過の防止を主張し、計算方法は選択式の欄なので「自由入力の余地が無く、選べる値が
+     * すべて上限以内である」ことを主張する（Task 100.3）。
      */
-    test('テキストフィールドの最大文字数制限が適用される (quantity-table-generation/REQ-13.1)', async ({
+    test('大項目から備考までの8欄が全角25文字/半角50文字を超える入力を防止する (quantity-table-generation/REQ-13.1)', async ({
       page,
     }) => {
-      if (!createdQuantityTableId) {
-        throw new Error(
-          'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
-        );
+      test.setTimeout(getTimeout(180000));
+      await loginAsUser(page, 'REGULAR_USER');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
+
+      // REQ-13.1 の条文が名指す自由入力の7欄。欄ごとに異なる半角2文字の目印を与える。
+      const freeTextFields: ReadonlyArray<readonly [string, string]> = [
+        ['大項目', 'MJ'],
+        ['中項目', 'MD'],
+        ['小項目', 'MN'],
+        ['任意分類', 'CC'],
+        ['名称', 'NM'],
+        ['規格', 'SP'],
+        ['備考', 'RM'],
+      ];
+
+      for (const [label, marker] of freeTextFields) {
+        const field = row.getByLabel(label, { exact: true });
+        await expect(field, `前提: ${label}の入力欄が表示される`).toBeVisible({
+          timeout: getTimeout(15000),
+        });
+        await expectMaxWidthPrevented(field, label, TEXT_FIELD_MAX_WIDTH, marker);
       }
 
-      await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      await page.waitForLoadState('networkidle');
-
-      // 名称フィールドを取得（AutocompleteInput = combobox）
-      const nameField = page.getByRole('combobox', { name: /名称/ }).first();
-      await expect(nameField).toBeVisible({ timeout: getTimeout(5000) });
-      const targetField = nameField;
-
-      // 51文字（半角）の文字列を入力（最大は50文字）
-      const longText = 'a'.repeat(51);
-      await targetField.fill(longText);
-      await page.keyboard.press('Tab');
-      await page.waitForTimeout(300);
-
-      // 入力値を確認
-      const fieldValue = await targetField.inputValue();
-
-      // REQ-13.1: 最大文字数（全角25文字/半角50文字）を超える入力を防止する。
-      // 同じ「防止する」規定の REQ-22.5（数量グループ名）は、上限を超える入力を
-      // 入力欄が保持しないことで実現している。よって上限超過の入力を行っても、
-      // 入力欄が保持する値は常に上限（半角50文字相当の幅）以内でなければならない。
-      expect(calculateStringWidth(fieldValue)).toBeLessThanOrEqual(50);
+      // 8欄目の計算方法は選択式である。自由入力の余地が無いこと（選択肢を列挙できる欄で
+      // あること）と、選べる値がいずれも上限以内であることをもって条文を満たす。
+      const calculationMethod = row.getByLabel('計算方法', { exact: true });
+      await expect(calculationMethod, '前提: 計算方法の欄が表示される').toBeVisible({
+        timeout: getTimeout(15000),
+      });
+      const options = calculationMethod.locator('option');
+      const optionLabels = await options.allTextContents();
+      expect(
+        optionLabels.length,
+        '前提: 計算方法は選択肢を持つ欄である（自由入力欄なら選択肢は列挙できない）'
+      ).toBeGreaterThan(1);
+      for (const optionLabel of optionLabels) {
+        expect(
+          calculateStringWidth(optionLabel),
+          `計算方法: 選択肢「${optionLabel}」は上限（全角25文字/半角50文字）以内である`
+        ).toBeLessThanOrEqual(TEXT_FIELD_MAX_WIDTH);
+      }
+      // 最も幅の広い選択肢を選び、欄が保持する値がその選択肢そのものであることを主張する。
+      const widestLabel = optionLabels.reduce((widest, candidate) =>
+        calculateStringWidth(candidate) > calculateStringWidth(widest) ? candidate : widest
+      );
+      await calculationMethod.selectOption({ label: widestLabel });
+      await expect(
+        calculationMethod.locator('option:checked'),
+        '計算方法: 選んだ選択肢がそのまま保持される'
+      ).toHaveText(widestLabel);
     });
 
     /**
      * @requirement quantity-table-generation/REQ-13.2
      * 工種フィールドに最大文字数（全角8文字/半角16文字）を超える入力を防止する
      */
-    test('工種フィールドの最大文字数制限が適用される (quantity-table-generation/REQ-13.2)', async ({
+    test('工種フィールドが全角8文字/半角16文字を超える入力を防止する (quantity-table-generation/REQ-13.2)', async ({
       page,
     }) => {
-      if (!createdQuantityTableId) {
-        throw new Error(
-          'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
-        );
-      }
-
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      await page.waitForLoadState('networkidle');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
-      // 工種フィールドを取得
-      const workTypeField = page.getByRole('combobox', { name: /工種/ }).first();
-      const workTypeFieldAlt = page.getByLabel(/工種/).first();
-
-      const targetField = (await isVisibleWithin(workTypeField, 2000))
-        ? workTypeField
-        : workTypeFieldAlt;
-      await expect(targetField).toBeVisible({ timeout: getTimeout(5000) });
-
-      // 17文字（半角）の文字列を入力（最大は16文字）
-      const longText = 'a'.repeat(17);
-      await targetField.fill(longText);
-      await page.keyboard.press('Tab');
-      await page.waitForTimeout(300);
-
-      // 入力値を確認
-      const fieldValue = await targetField.inputValue();
-
-      // REQ-13.2: 最大文字数（全角8文字/半角16文字）を超える入力を防止する。
-      // 上限超過の入力を行っても、入力欄が保持する値は常に上限以内でなければならない。
-      expect(calculateStringWidth(fieldValue)).toBeLessThanOrEqual(16);
+      const workTypeField = row.getByLabel('工種', { exact: true });
+      await expect(workTypeField, '前提: 工種の入力欄が表示される').toBeVisible({
+        timeout: getTimeout(15000),
+      });
+      await expectMaxWidthPrevented(workTypeField, '工種', WORK_TYPE_MAX_WIDTH, 'WT');
     });
 
     /**
      * @requirement quantity-table-generation/REQ-13.3
      * 単位フィールドに最大文字数（全角3文字/半角6文字）を超える入力を防止する
      */
-    test('単位フィールドの最大文字数制限が適用される (quantity-table-generation/REQ-13.3)', async ({
+    test('単位フィールドが全角3文字/半角6文字を超える入力を防止する (quantity-table-generation/REQ-13.3)', async ({
       page,
     }) => {
-      if (!createdQuantityTableId) {
-        throw new Error(
-          'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
-        );
-      }
-
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      await page.waitForLoadState('networkidle');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
-      // 単位フィールドを取得
-      const unitField = page.getByRole('combobox', { name: /単位/ }).first();
-      const unitFieldAlt = page.getByLabel(/単位/).first();
-
-      const targetField = (await isVisibleWithin(unitField, 2000)) ? unitField : unitFieldAlt;
-      await expect(targetField).toBeVisible({ timeout: getTimeout(5000) });
-
-      // 7文字（半角）の文字列を入力（最大は6文字）
-      const longText = 'a'.repeat(7);
-      await targetField.fill(longText);
-      await page.keyboard.press('Tab');
-      await page.waitForTimeout(300);
-
-      // 入力値を確認
-      const fieldValue = await targetField.inputValue();
-
-      // REQ-13.3: 最大文字数（全角3文字/半角6文字）を超える入力を防止する。
-      // 上限超過の入力を行っても、入力欄が保持する値は常に上限以内でなければならない。
-      expect(calculateStringWidth(fieldValue)).toBeLessThanOrEqual(6);
+      const unitField = row.getByLabel('単位', { exact: true });
+      await expect(unitField, '前提: 単位の入力欄が表示される').toBeVisible({
+        timeout: getTimeout(15000),
+      });
+      await expectMaxWidthPrevented(unitField, '単位', UNIT_MAX_WIDTH, 'UN');
     });
 
     /**
