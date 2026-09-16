@@ -49,6 +49,7 @@ import {
   createTestQuantityTable,
   openEditPageWithSingleItemRow,
 } from '../../helpers/quantity-table-preconditions';
+import { breadcrumbNav, readBreadcrumbTrail } from '../../helpers/breadcrumb';
 
 // ESモジュールでの__dirname代替
 const __filename = fileURLToPath(import.meta.url);
@@ -4840,12 +4841,25 @@ test.describe('数量表CRUD操作', () => {
       await page.waitForLoadState('networkidle');
 
       // パンくずナビゲーションが表示される
-      const breadcrumb = page.getByRole('navigation', { name: /パンくず|breadcrumb/i });
-      await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
+      const breadcrumb = breadcrumbNav(page);
+      await expect(breadcrumb, 'REQ-12.1: パンくずナビゲーションが表示されない').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-      // 「プロジェクト一覧 > {プロジェクト名} > 数量表」の形式
-      await expect(breadcrumb).toContainText(/プロジェクト/);
-      await expect(breadcrumb).toContainText(/数量表/);
+      // REQ-12.1: 条文は「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 数量表一覧」と
+      // **階層・順序・プロジェクト名まで**規定する。旧判定の `toContainText(/プロジェクト/)` と
+      // `/数量表/` は、URL や本文に同じ語が在れば通るうえ、項目の欠落も順序の入れ替えも
+      // 検出しなかった。読み取った並びを条文どおりの配列と完全一致で照合する。
+      // `{プロジェクト名}` は事前準備が実行ごとに変わる名称で作ったものを用いる
+      // （固定文字列で照合すると、名称を描かなくなる変異を見逃す）。
+      expect(projectName, '前提: 事前準備で作成したプロジェクト名が記録されている').not.toBe('');
+      await expect
+        .poll(async () => readBreadcrumbTrail(breadcrumb), {
+          message:
+            'REQ-12.1: パンくずが「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 数量表一覧」の階層と順序で表示されない',
+          timeout: getTimeout(15000),
+        })
+        .toEqual(['ダッシュボード', 'プロジェクト一覧', projectName, '数量表一覧']);
     });
 
     test('数量表編集画面にパンくずが表示される (quantity-table-generation/REQ-12.2)', async ({
@@ -4861,11 +4875,38 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      const breadcrumb = page.getByRole('navigation', { name: /パンくず|breadcrumb/i });
-      await expect(breadcrumb).toBeVisible({ timeout: getTimeout(10000) });
+      const breadcrumb = breadcrumbNav(page);
+      await expect(breadcrumb, 'REQ-12.2: パンくずナビゲーションが表示されない').toBeVisible({
+        timeout: getTimeout(10000),
+      });
 
-      // プロジェクト名がパンくずに含まれる
-      await expect(breadcrumb).toContainText(/プロジェクト/);
+      // 末尾の `{数量表名}` は、この spec の中で改名・復元を経る（REQ-42.5 の検証）。
+      // 画面が今この数量表に与えている名称を見出しの入力欄から読み、その値で照合する。
+      // 空欄のまま照合すると主張が退化するため、空でないことを前提として先に確かめる。
+      const tableNameInput = page.getByLabel('数量表名');
+      await expect(tableNameInput, '前提: 数量表名の入力欄が表示されない').toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      const currentTableName = await tableNameInput.inputValue();
+      expect(currentTableName, '前提: 数量表名が空である').not.toBe('');
+
+      // REQ-12.2: 条文は
+      // 「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 数量表一覧 > {数量表名}」。
+      // 旧判定は `toContainText(/プロジェクト/)` だけで、URL 上ほぼ恒真であった。
+      expect(projectName, '前提: 事前準備で作成したプロジェクト名が記録されている').not.toBe('');
+      await expect
+        .poll(async () => readBreadcrumbTrail(breadcrumb), {
+          message:
+            'REQ-12.2: パンくずが「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 数量表一覧 > {数量表名}」の階層と順序で表示されない',
+          timeout: getTimeout(15000),
+        })
+        .toEqual([
+          'ダッシュボード',
+          'プロジェクト一覧',
+          projectName,
+          '数量表一覧',
+          currentTableName,
+        ]);
     });
 
     test('数量表新規作成画面にパンくずが表示される (quantity-table-generation/REQ-12.3)', async ({
@@ -4879,22 +4920,26 @@ test.describe('数量表CRUD操作', () => {
       await page.goto(`/projects/${testProjectId}/quantity-tables/new`);
       await page.waitForLoadState('networkidle');
 
-      // ローディングが終わるまで待機
-      await page.waitForTimeout(1000);
-
       // REQ-12.3: 数量表新規作成画面に
       // 「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 数量表一覧 > 新規作成」を表示する。
       // 以前は `nav[aria-label="breadcrumb"]` と `getByRole('navigation', {name:/breadcrumb/i})` の
       // 論理和で判定していたが、この二つは同じ要素を別の書き方で指しているだけであり、
-      // 一方が偽なら他方も偽になる。さらに内容の判定は「プロジェクト または 新規作成」の
-      // 論理和で、片方の欠落を検出できなかった。要素と内容の双方を直接主張する。
-      const breadcrumb = page.locator('nav[aria-label="breadcrumb"]');
-      await expect(breadcrumb, 'パンくずナビゲーションが表示されない').toBeVisible({
-        timeout: getTimeout(5000),
+      // 一方が偽なら他方も偽になる。さらに内容の判定は「プロジェクト」「新規作成」の2語の
+      // 部分一致だけで、**階層も順序もプロジェクト名も主張していなかった**。
+      // 読み取った並びを条文どおりの配列と完全一致で照合する。
+      const breadcrumb = breadcrumbNav(page);
+      await expect(breadcrumb, 'REQ-12.3: パンくずナビゲーションが表示されない').toBeVisible({
+        timeout: getTimeout(10000),
       });
 
-      await expect(breadcrumb).toContainText('プロジェクト');
-      await expect(breadcrumb).toContainText('新規作成');
+      expect(projectName, '前提: 事前準備で作成したプロジェクト名が記録されている').not.toBe('');
+      await expect
+        .poll(async () => readBreadcrumbTrail(breadcrumb), {
+          message:
+            'REQ-12.3: パンくずが「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 数量表一覧 > 新規作成」の階層と順序で表示されない',
+          timeout: getTimeout(15000),
+        })
+        .toEqual(['ダッシュボード', 'プロジェクト一覧', projectName, '数量表一覧', '新規作成']);
     });
 
     test('パンくず項目をクリックして遷移できる (quantity-table-generation/REQ-12.4)', async ({

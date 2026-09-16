@@ -34,18 +34,25 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
- * テスト用のプロジェクトを新規作成し、そのIDを返す。
+ * テスト用のプロジェクトを新規作成し、そのIDと**実際に付けた名称**を返す。
  *
  * 営業担当者の選択は `selectFirstRealOption`（Task 115.92）に委ね、候補が供給されない
  * 場合は補助の内側で失敗する。作成APIの 201 応答と詳細画面への遷移までを主張するため、
  * 「作成できていないのにIDだけ null で先へ進む」経路が無い。
  *
+ * 名称は接頭辞に時刻を足して実行ごとに変わる。**パンくずが `{プロジェクト名}` を
+ * 動的に描いているか（固定文字列で誤魔化していないか）を判定するには呼び出し側が
+ * この名称を知っている必要がある**（quantity-table-generation の REQ-12.1〜12.3）。
+ *
  * @param page Playwright のページ（ログイン済みであること）
  * @param namePrefix プロジェクト名の接頭辞（テストの出所が分かる文字列）
- * @returns 作成したプロジェクトのID
+ * @returns 作成したプロジェクトのIDと名称
  * @throws 作成画面が開けない・候補が無い・作成APIが成功しない・遷移先URLからIDが取れない場合
  */
-export async function createTestProject(page: Page, namePrefix: string): Promise<string> {
+export async function createTestProjectWithName(
+  page: Page,
+  namePrefix: string
+): Promise<{ id: string; name: string }> {
   await page.goto('/projects');
   await page.waitForLoadState('networkidle');
 
@@ -60,11 +67,12 @@ export async function createTestProject(page: Page, namePrefix: string): Promise
     timeout: getTimeout(15000),
   });
 
+  const name = `${namePrefix}_${Date.now()}`;
   const nameInput = page.getByRole('textbox', { name: /プロジェクト名/i });
   await expect(nameInput, '前提: プロジェクト名の入力欄が表示される').toBeVisible({
     timeout: getTimeout(15000),
   });
-  await nameInput.fill(`${namePrefix}_${Date.now()}`);
+  await nameInput.fill(name);
 
   await selectFirstRealOption(page.locator('select[aria-label="営業担当者"]'), '営業担当者');
 
@@ -81,7 +89,22 @@ export async function createTestProject(page: Page, namePrefix: string): Promise
   await page.waitForURL(/\/projects\/[0-9a-f-]+$/, { timeout: getTimeout(15000) });
   const projectId = page.url().match(/\/projects\/([0-9a-f-]+)$/)?.[1] ?? null;
   assertPrepared(projectId, '作成したプロジェクトのID');
-  return projectId;
+  return { id: projectId, name };
+}
+
+/**
+ * テスト用のプロジェクトを新規作成し、そのIDを返す。
+ *
+ * 名称を要しない呼び出し側のための薄い包み（`createTestProjectWithName` に委ねる）。
+ *
+ * @param page Playwright のページ（ログイン済みであること）
+ * @param namePrefix プロジェクト名の接頭辞（テストの出所が分かる文字列）
+ * @returns 作成したプロジェクトのID
+ * @throws 作成画面が開けない・候補が無い・作成APIが成功しない・遷移先URLからIDが取れない場合
+ */
+export async function createTestProject(page: Page, namePrefix: string): Promise<string> {
+  const { id } = await createTestProjectWithName(page, namePrefix);
+  return id;
 }
 
 /**

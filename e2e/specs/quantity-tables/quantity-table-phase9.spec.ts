@@ -29,11 +29,12 @@ import { assertPrepared } from '../../helpers/preconditions';
 import {
   addQuantityGroup,
   attachPhotoToGroup,
-  createTestProject,
+  createTestProjectWithName,
   createTestQuantityTable,
   openQuantityTableEdit,
   seedSurveyPhotosWithComments,
 } from '../../helpers/quantity-table-preconditions';
+import { breadcrumbNav, readBreadcrumbTrail } from '../../helpers/breadcrumb';
 
 /** 事前準備で現場調査写真に付けるコメント（REQ-21.2 の表示内容の判定に用いる） */
 const PHASE9_PHOTO_COMMENT = 'Phase9: 写真コメント表示エリアの検証用コメント';
@@ -43,6 +44,21 @@ let preparedQuantityTableId: string | null = null;
 
 /** 事前準備で作成したプロジェクトのID（REQ-12.1 のパンくず検証の起点） */
 let preparedProjectId: string | null = null;
+
+/**
+ * 事前準備で作成したプロジェクトの名称（実行ごとに変わる）
+ *
+ * REQ-12.1 / 12.2 の条文は `{プロジェクト名}` を階層の一つとして名指す。
+ * 固定文字列で照合すると、パンくずが名称を描かなくなる変異を検出できない。
+ */
+let preparedProjectName: string | null = null;
+
+/**
+ * 事前準備で作成した数量表の名称（実行ごとに変わる）
+ *
+ * REQ-12.2 の条文の末尾 `{数量表名}` の照合に用いる。
+ */
+let preparedQuantityTableName: string | null = null;
 
 test.describe('Phase 9: パンくずナビゲーション改善・注釈付き写真・コメント表示', () => {
   test.describe.configure({ mode: 'serial' });
@@ -64,8 +80,10 @@ test.describe('Phase 9: パンくずナビゲーション改善・注釈付き�
    */
   test.describe('事前準備', () => {
     test('コメント付き写真を紐づけた数量グループを作成する', async ({ page }) => {
-      const projectId = await createTestProject(page, 'Phase9_PJ');
+      const project = await createTestProjectWithName(page, 'Phase9_PJ');
+      const projectId = project.id;
       preparedProjectId = projectId;
+      preparedProjectName = project.name;
       // Phase 9 の関心はパンくず・写真コメント表示であり注釈なし写真との選別ではない。
       // 写真選択ダイアログの候補として現れる必要があるため全件へ注釈を保存する（Task 82.1）。
       await seedSurveyPhotosWithComments(
@@ -78,6 +96,7 @@ test.describe('Phase 9: パンくずナビゲーション改善・注釈付き�
 
       const quantityTable = await createTestQuantityTable(page, projectId, 'Phase9_数量表');
       preparedQuantityTableId = quantityTable.id;
+      preparedQuantityTableName = quantityTable.name;
 
       const groupCard = await addQuantityGroup(page);
       await attachPhotoToGroup(page, groupCard, 0);
@@ -117,16 +136,23 @@ test.describe('Phase 9: パンくずナビゲーション改善・注釈付き�
       await page.waitForLoadState('networkidle');
 
       // パンくずの検証
-      const breadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
+      const breadcrumb = breadcrumbNav(page);
       await expect(breadcrumb, 'REQ-12.1: 数量表一覧画面にパンくずが表示される').toBeVisible({
         timeout: getTimeout(10000),
       });
 
-      // 「プロジェクト一覧」が表示されていること
-      await expect(
-        breadcrumb.getByText('プロジェクト一覧'),
-        'REQ-12.1: パンくずに「プロジェクト一覧」が含まれる'
-      ).toBeVisible();
+      // REQ-12.1: 条文は「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 数量表一覧」と
+      // **階層・順序・プロジェクト名まで**規定する。個々の語の部分一致では項目の欠落も
+      // 順序の入れ替えも検出できないため、読み取った並びを条文どおりの配列と完全一致で照合する。
+      // `{プロジェクト名}` は事前準備が実行ごとに変わる名称で作ったものを用いる。
+      assertPrepared(preparedProjectName, '事前準備で作成したプロジェクトの名称');
+      await expect
+        .poll(async () => readBreadcrumbTrail(breadcrumb), {
+          message:
+            'REQ-12.1: パンくずが「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 数量表一覧」の階層と順序で表示されない',
+          timeout: getTimeout(15000),
+        })
+        .toEqual(['ダッシュボード', 'プロジェクト一覧', preparedProjectName, '数量表一覧']);
 
       // 「数量表一覧」が非リンクで表示されていること。
       // 末尾の li は区切り記号の span（aria-hidden）と現在地の span の二つを持つため、
@@ -151,18 +177,29 @@ test.describe('Phase 9: パンくずナビゲーション改善・注釈付き�
       // 事前準備で作成した数量表の編集画面を直接開いて前提を確定させる。
       await openQuantityTableEdit(page, preparedQuantityTableId);
 
-      const breadcrumb = page.locator('nav[aria-label="パンくずナビゲーション"]');
+      const breadcrumb = breadcrumbNav(page);
       await expect(breadcrumb, 'REQ-12.2: 数量表編集画面にパンくずが表示される').toBeVisible({
         timeout: getTimeout(10000),
       });
-      await expect(
-        breadcrumb.getByText('プロジェクト一覧'),
-        'REQ-12.2: パンくずに「プロジェクト一覧」が含まれる'
-      ).toBeVisible();
-      await expect(
-        breadcrumb.getByText('数量表一覧'),
-        'REQ-12.2: パンくずに「数量表一覧」が含まれる'
-      ).toBeVisible();
+
+      // REQ-12.2: 条文は
+      // 「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 数量表一覧 > {数量表名}」。
+      // 末尾の `{数量表名}` も含めて、事前準備が付けた実行ごとに変わる名称で照合する。
+      assertPrepared(preparedProjectName, '事前準備で作成したプロジェクトの名称');
+      assertPrepared(preparedQuantityTableName, '事前準備で作成した数量表の名称');
+      await expect
+        .poll(async () => readBreadcrumbTrail(breadcrumb), {
+          message:
+            'REQ-12.2: パンくずが「ダッシュボード > プロジェクト一覧 > {プロジェクト名} > 数量表一覧 > {数量表名}」の階層と順序で表示されない',
+          timeout: getTimeout(15000),
+        })
+        .toEqual([
+          'ダッシュボード',
+          'プロジェクト一覧',
+          preparedProjectName,
+          '数量表一覧',
+          preparedQuantityTableName,
+        ]);
     });
   });
 
