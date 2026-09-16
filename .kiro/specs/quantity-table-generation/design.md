@@ -842,7 +842,7 @@ sequenceDiagram
 | 9.1-9.8 | 調整係数 | AdjustmentFactorInput | CalculationEngine, FieldValidator | - |
 | 10.1-10.8 | 丸め設定 | RoundingSettingInput | CalculationEngine, FieldValidator | - |
 | 11.1-11.5 | 数量表の保存（明示保存・自動保存廃止） | QuantityTableEditPage(draft reducer), SaveButton, QuantityTableService.saveDraft | PUT /api/quantity-tables/:id/save | クライアントサイド編集・明示保存フロー |
-| 12.1-12.5 | パンくずナビゲーション | Breadcrumb, QuantityTableListPage, QuantityTableEditPage | - | - |
+| 12.1-12.5 | パンくずナビゲーション | Breadcrumb, QuantityTableListPage, QuantityTableEditPage, QuantityTableCreatePage | - | - |
 | 13.1-13.4 | テキストフィールドの入力制御 | FieldValidator, TextFieldConstraints | QuantityValidationService | - |
 | 14.1-14.5 | 数値フィールドの表示書式 | NumericFormatter, QuantityItemRow | - | - |
 | 15.1-15.3 | 数量フィールドの入力制御 | FieldValidator, NumericInputConstraints | QuantityValidationService | - |
@@ -1951,7 +1951,7 @@ interface ClaudeVisionQuantityExtractResponse {
 - Performance: React.lazy()による動的インポートでバンドルサイズ影響を回避
 - Risks: OCR精度はPDFの品質に依存。特にスキャンPDFでは表構造の解析精度が低下する可能性がある
 - **追い越された処理の結果を捨てる（機能レベル検証の是正、2026-09-15 に追記）**: `useImportDataExtractor` は処理ごとに世代番号（`useRef` のカウンタ）を持ち、`processFile` の開始時と `reset()` で番号を進め、各処理は開始時の番号を覚える。解析・OCR の完了時、失敗時、進捗の通知時に覚えた番号と現在の番号を比べ、一致しなければ状態（結果・状態・エラー・進捗）を更新しない。処理中でもドロップ領域から別ファイルを受け付ける現行の画面で、追い越された処理の結果や30秒の時間切れエラーが新しいファイルの状態を上書きしないことを保証する（Requirement 33 の受入基準 5）。リトライは最後に選んだファイルで新しい世代を始める。追い越された PDF の処理は中断しない（`extractPdfData` が中断のシグナルを受け取らないため裏で完了まで走り、結果は捨てる）。処理中のドロップを禁止するか（Requirement 27 の受入基準 8 と Requirement 33 の受入基準 4 の読み方）は変えていない
-  - **現況（タスク 98.4、2026-09-16 の利用者裁定「中断の仕組みを足す」に基づく追記）**: 上の「追い越された PDF の処理は中断しない」は 98.4 で改めた。`useImportDataExtractor` は処理ごとに `AbortController` を持ち、そのシグナルを `extractPdfData` の任意の3番目の引数へ渡す。`reset()`（ファイルの差し替え）とアンマウント（ダイアログを閉じたとき）は、世代番号を進めるのに加えてそのシグナルを中断し、`extractPdfData` → `extractPdfHybrid`（タスク 97.8 の `options.signal`）を経て Tesseract のワーカーを終了させる。時間切れの30秒を待たずに止まるため、差し替えの前後で OCR が2つ同時に走ることはない。中断された処理は `OCR_FAILURE_MESSAGE` で失敗するが、世代番号が進んでいるため状態へは反映されず、利用者への表示は変わらない。Excel の解析は中断しない（ワーカーを持たない）。受領見積書登録の `OcrDataExtractor` はシグナルを渡さないまま（挙動不変）である。要件に無い挙動のため被覆印は付けていない
+  - **現況（タスク 98.4、2026-09-16 の利用者裁定「中断の仕組みを足す」に基づく追記）**: 上の「追い越された PDF の処理は中断しない」は 98.4 で改めた。`useImportDataExtractor` は処理ごとに `AbortController` を持ち、そのシグナルを `extractPdfData` の任意の3番目の引数へ渡す。`reset()`（ファイルの差し替え）とアンマウント（ダイアログを閉じたとき）は、世代番号を進めるのに加えてそのシグナルを中断し、`extractPdfData` → `extractPdfHybrid`（タスク 97.8 の `options.signal`）を経て Tesseract のワーカーを終了させる。時間切れの30秒を待たずに止まるため、差し替えの前後で OCR が2つ同時に走ることはない。中断された処理は `OCR_FAILURE_MESSAGE` で失敗するが、世代番号が進んでいるため状態へは反映されず、利用者への表示は変わらない。Excel の解析は中断しない（ワーカーを持たない）。**中断が届くのはフォールバックの OCR だけであり、主経路である Claude Vision の要求は止まらない（タスク 100.6 で明記）。** `frontend/src/components/quantity-table-import/pdf-ocr-extractor.ts` の `extractPdfData` は、`extractWithClaudeVisionForQuantityTable` をファイルと進捗の通知だけで呼び `options` を渡さないため、PDF ページの画像化（`renderPdfPagesToBase64`）と Claude Vision API の応答待ちは、ダイアログを閉じてもファイルを差し替えても最後まで走り切る。`options.signal` を受け取るのは `catch` 節の `extractWithOcrFallback` だけである。**それでも利用者に見える挙動は変わらない**——世代番号（`useImportDataExtractor`）が進んでいるため、追い越された主経路の結果も状態へは反映されない。中断の裁定が対象としたのは Tesseract のワーカー（終了させないと差し替えの前後で2つ同時に走る）であり、ワーカーを持たない Vision 経路をフォールバック限定のまま据え置いた判断は正しいが、「進行中の OCR を中断する」とだけ読むと主経路まで止まると誤解される。受領見積書登録の `OcrDataExtractor` はシグナルを渡さないまま（挙動不変）である。要件に無い挙動のため被覆印は付けていない
 
 ---
 

@@ -360,14 +360,16 @@ test.describe('REQ-25: 画面スクロールバー表示', () => {
 
     const scrollLeftBefore = await itemTableScroll.evaluate((el) => el.scrollLeft);
 
-    // 横スクロール操作
-    await itemTableScroll.evaluate((el) => {
-      el.scrollLeft += 200;
-    });
+    // 条文が名指す手段そのもの（マウスホイールの横スクロール操作）で動かす。
+    // 旧判定は `el.scrollLeft += 200` のプログラム代入であり、これは利用者の操作を
+    // 一切通らない——表示領域の `overflow-x` を `hidden` にしても、ホイールの既定動作を
+    // `preventDefault()` で止めても、プログラム代入は変わらず成功する（タスク 100.6）。
+    await itemTableScroll.hover();
+    await page.mouse.wheel(200, 0);
 
     await expect
       .poll(() => itemTableScroll.evaluate((el) => el.scrollLeft), {
-        message: 'REQ-25.5: 水平スクロール操作で表領域が横方向にスクロールする',
+        message: 'REQ-25.5: マウスホイールの横スクロール操作で表領域が横方向にスクロールする',
         timeout: getTimeout(10000),
       })
       .toBeGreaterThan(scrollLeftBefore);
@@ -404,11 +406,16 @@ test.describe('REQ-25: 画面スクロールバー表示', () => {
       .toBeGreaterThan(0);
 
     const scrollYBefore = await page.evaluate(() => window.scrollY);
-    await page.evaluate(() => window.scrollBy(0, 200));
+
+    // 25.5 と同じ理由で、条文が名指す手段（マウスホイールの縦スクロール操作）で動かす。
+    // 旧判定の `window.scrollBy(0, 200)` はプログラム代入であり、ホイールの既定動作が
+    // 止められていても成功する（タスク 100.6）。
+    await page.mouse.move(640, 200);
+    await page.mouse.wheel(0, 200);
 
     await expect
       .poll(() => page.evaluate(() => window.scrollY), {
-        message: 'REQ-25.6: 縦スクロール操作で画面が縦方向にスクロールする',
+        message: 'REQ-25.6: マウスホイールの縦スクロール操作で画面が縦方向にスクロールする',
         timeout: getTimeout(10000),
       })
       .toBeGreaterThan(scrollYBefore);

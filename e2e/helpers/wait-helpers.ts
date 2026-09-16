@@ -451,37 +451,6 @@ export async function isVisibleWithin(locator: Locator, timeout: number): Promis
 }
 
 /**
- * 指定した待機時間の内に要素が表示されればラベルを、待機切れなら null を返す
- *
- * 「A か B のいずれかが表示される」を `Promise.race` で観測する際、各枝を
- * `locator.waitFor(...).then(() => 'label').catch(() => null)` と手書きで畳むと、
- * **待機切れ以外の失敗まで null に化ける**。strict mode 違反（目印が複数要素に
- * 一致するようになった）、ページ切断、本体終了による中断のいずれも、
- * 「表示されなかった」と同じ null になる。畳んだ先の主張は `not.toBeNull()` であり、
- * 失敗の言い分は常に「いずれも表示されない」になる。**真の原因は出力のどこにも残らない。**
- *
- * 本補助は `isVisibleWithin` を通すため、**待機切れのみ null**、それ以外は送出する。
- * 解決の時刻は `locator.waitFor` そのものと同一（表示された時点、または待機切れの時点）で
- * あるため、`Promise.race` の勝者は畳み方を変えても変わらない。
- *
- * 枝ごとに待機の指定が異なる `Promise.race` では、**短い待機の枝が先に null で解決して
- * 勝つ**ことに注意すること。これは畳み方によらず `Promise.race` の意味そのものであり、
- * 本補助への置き換えでも変わらない。
- *
- * @param locator - 判定対象の要素ロケーター
- * @param timeout - 待機時間（ミリ秒）。CI 環境で伸ばす場合は `getTimeout()` を通すこと
- * @param label - 表示された場合に返すラベル
- * @returns 待機時間内に表示されればラベル、待機切れなら null
- */
-export async function labelWhenVisibleWithin<TLabel extends string>(
-  locator: Locator,
-  timeout: number,
-  label: TLabel
-): Promise<TLabel | null> {
-  return (await isVisibleWithin(locator, timeout)) ? label : null;
-}
-
-/**
  * 事象待ちの結果を返し、**待機切れのときだけ** null へ畳む
  *
  * `page.waitForEvent('dialog' | 'download' | 'page', ...)` のような事象待ちを

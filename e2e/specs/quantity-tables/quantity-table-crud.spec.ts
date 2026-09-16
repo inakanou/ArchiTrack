@@ -4090,31 +4090,50 @@ test.describe('数量表CRUD操作', () => {
     /**
      * @requirement quantity-table-generation/REQ-13.4
      * 全てのテキストフィールドを左寄せで表示する
+     *
+     * 旧判定は二重に弱かった（タスク 100.6 で是正）。
+     * - **前提が先行テストの保存状態に依っていた**: 編集画面を開くだけで「名称の欄が
+     *   既に一行ある」ことを当てにしており、同 describe を部分集合で走らせると
+     *   `toBeVisible` の待機切れで落ちた。全件では先行テストが行を残すため緑になる。
+     *   13.1〜13.3 が `openEditPageWithSingleItemRow` で自立した（タスク 100.3）後、
+     *   この区間だけが状態依存として残っていた。前提は自分で作る。
+     * - **条文が「全ての」と述べるのに名称1欄しか見ていなかった**: 他の8欄が右寄せへ
+     *   変わっても緑のままである。条文が名指す数量項目行のテキスト入力欄を全数で見る。
+     *
+     * 計算方法は選択式（`<select>`）でありテキストフィールドではないため対象外である
+     * （13.1 の区間が選択式であること自体を主張している）。
      */
     test('テキストフィールドが左寄せで表示される (quantity-table-generation/REQ-13.4)', async ({
       page,
     }) => {
-      if (!createdQuantityTableId) {
-        throw new Error(
-          'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
-        );
-      }
-
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      await page.waitForLoadState('networkidle');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
-      // 名称フィールドを取得（AutocompleteInput = combobox）
-      const targetField = page.getByRole('combobox', { name: /名称/ }).first();
-      await expect(targetField).toBeVisible({ timeout: getTimeout(5000) });
+      // 数量項目行のテキスト入力欄（自由入力7欄＋工種＋単位）。条文の「全ての」を全数で見る。
+      const textFieldLabels = [
+        '大項目',
+        '中項目',
+        '小項目',
+        '任意分類',
+        '工種',
+        '名称',
+        '規格',
+        '単位',
+        '備考',
+      ] as const;
 
-      // CSSのtext-alignを確認
-      const textAlign = await targetField.evaluate((el) => {
-        return window.getComputedStyle(el).textAlign;
-      });
+      for (const label of textFieldLabels) {
+        const field = row.getByLabel(label, { exact: true });
+        await expect(field, `前提: ${label}の入力欄が表示される`).toBeVisible({
+          timeout: getTimeout(15000),
+        });
 
-      // 左寄せ（left, start）であることを確認
-      expect(['left', 'start']).toContain(textAlign);
+        const textAlign = await field.evaluate((el) => window.getComputedStyle(el).textAlign);
+        expect(
+          ['left', 'start'],
+          `REQ-13.4: ${label}のテキストフィールドが左寄せで表示される（実測: ${textAlign}）`
+        ).toContain(textAlign);
+      }
     });
   });
 
@@ -4131,37 +4150,45 @@ test.describe('数量表CRUD操作', () => {
     /**
      * @requirement quantity-table-generation/REQ-14.1
      * 調整係数・丸め設定・数量フィールドを右寄せで表示する
+     *
+     * 旧判定は条文が名指す3欄のうち**調整係数1欄しか見ていなかった**（タスク 100.6 で是正）。
+     * 丸め設定と数量の右寄せを外す変異は、旧判定の下では一度も赤にならない。
+     * 条文の主語が3欄の連言である以上、3欄すべてに問うこと。
+     *
+     * 併せて前提を自立させた。旧判定は編集画面を開くだけで「計算方法の欄が既に一行ある」
+     * ことを先行テストの保存状態に当てにしていた（13.1〜13.3 が タスク 100.3 で外した依存と同型）。
      */
     test('数値フィールドが右寄せで表示される (quantity-table-generation/REQ-14.1)', async ({
       page,
     }) => {
-      if (!createdQuantityTableId) {
-        throw new Error(
-          'createdQuantityTableIdが未設定です。数量表作成テストが正しく実行されていません。'
-        );
-      }
-
       await loginAsUser(page, 'REGULAR_USER');
-      await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
-      await page.waitForLoadState('networkidle');
+      const row = await openEditPageWithSingleItemRow(page, createdQuantityTableId);
 
-      // REQ-5.5: 調整係数は計算方法が「標準」以外の場合のみ表示される
-      const calcMethodSelect = page.getByLabel(/計算方法/).first();
-      await expect(calcMethodSelect).toBeVisible({ timeout: getTimeout(5000) });
-      await calcMethodSelect.selectOption({ value: 'AREA_VOLUME' });
-      await page.waitForTimeout(500);
-
-      // 調整係数フィールドを取得
-      const adjustmentField = page.getByLabel(/調整係数|coefficient/i).first();
-      await expect(adjustmentField).toBeVisible({ timeout: getTimeout(5000) });
-
-      // CSSのtext-alignを確認
-      const textAlign = await adjustmentField.evaluate((el) => {
-        return window.getComputedStyle(el).textAlign;
+      // REQ-5.5: 調整係数・丸め設定は計算方法が「標準」以外の場合のみ表示される
+      const calcMethodSelect = row.getByLabel('計算方法', { exact: true });
+      await expect(calcMethodSelect, '前提: 計算方法の欄が表示される').toBeVisible({
+        timeout: getTimeout(15000),
       });
+      await calcMethodSelect.selectOption({ value: 'AREA_VOLUME' });
 
-      // 右寄せ（right, end）であることを確認
-      expect(['right', 'end']).toContain(textAlign);
+      // 条文が名指す3欄。数量は `<label for>` に必須印の `*` が付くため id で引く。
+      const numericFields: ReadonlyArray<readonly [string, Locator]> = [
+        ['調整係数', row.getByLabel('調整係数', { exact: true })],
+        ['丸め設定', row.getByLabel('丸め設定', { exact: true })],
+        ['数量', row.locator('input[id$="-quantity"]')],
+      ];
+
+      for (const [label, field] of numericFields) {
+        await expect(field, `前提: ${label}の入力欄が表示される`).toBeVisible({
+          timeout: getTimeout(15000),
+        });
+
+        const textAlign = await field.evaluate((el) => window.getComputedStyle(el).textAlign);
+        expect(
+          ['right', 'end'],
+          `REQ-14.1: ${label}フィールドが右寄せで表示される（実測: ${textAlign}）`
+        ).toContain(textAlign);
+      }
     });
 
     /**
@@ -4550,6 +4577,20 @@ test.describe('数量表CRUD操作', () => {
    * REQ-11: 数量表の保存
    */
   test.describe('保存機能', () => {
+    /**
+     * @requirement quantity-table-generation/REQ-11.1
+     * 保持された全ての数量グループと数量項目（各フィールド値を含む）を一括で保存する
+     *
+     * 旧判定は**保存の成否しか見ていなかった**（タスク 100.6 で是正）。`saveQuantityTableDraft`
+     * が確かめるのは保存 API が 200 を返し完了の提示が出ることだけで、条文が規定する
+     * 「保持された**全ての**…を一括で」という中身に一切触れない。保存要求が一部の数量グループを
+     * 落としても、特定の欄を送らなくても、応答が 200 である限り緑のままである。
+     *
+     * 是正後は、保存の直前に画面が保持している全量（数量グループの識別子・その配下の
+     * 数量項目の識別子・名称・工種・単位）を読み取り、保存の直後に読み戻した永続化内容と
+     * **完全一致**で突き合わせる。件数の一致ではなく識別子で突き合わせるのは、
+     * 「同じ数だけ保存された」で済ませないためである。
+     */
     test('保存操作でデータベースに保存される (quantity-table-generation/REQ-11.1)', async ({
       page,
     }) => {
@@ -4560,48 +4601,153 @@ test.describe('数量表CRUD操作', () => {
       }
 
       await loginAsUser(page, 'REGULAR_USER');
+      const headers = await apiAuthHeaders(page);
+
+      // 前提: 判定対象となる数量グループと数量項目を自分で作る。先行テストが残した
+      // 数量グループも画面に並ぶが、それらも含めて「全て」を突き合わせる。
+      await openEditPageWithSingleItemRow(page, createdQuantityTableId);
+
+      const groupCards = page.locator('[data-testid="quantity-group-card"]');
+
+      /**
+       * 画面に並ぶ**全ての**数量グループの**全ての**数量項目へ、欄ごとに区別の付く値を書き込む。
+       *
+       * 条文は「保持された全ての数量グループと数量項目（…各フィールド値を含む）を一括で保存する」
+       * と中身を規定しているため、一部の欄だけを埋める形では主張の母集団が欠ける。
+       */
+      const fillAllItems = async (
+        marker: string,
+        shortTag: string,
+        unit: string
+      ): Promise<number> => {
+        const groupCount = await groupCards.count();
+        expect(groupCount, '前提: 保存対象の数量グループが画面に存在する').toBeGreaterThan(0);
+        let seq = 0;
+        for (let g = 0; g < groupCount; g++) {
+          const rows = groupCards.nth(g).locator('[data-testid="quantity-item-row"]');
+          const rowCount = await rows.count();
+          for (let i = 0; i < rowCount; i++) {
+            seq += 1;
+            const row = rows.nth(i);
+            await row.getByRole('combobox', { name: /名称/ }).fill(`${marker}名称${seq}`);
+            // 工種は REQ-13.2 の上限（全角8文字/半角16文字）、単位は REQ-13.3 の上限
+            // （全角3文字/半角6文字）に収める。上限を超える値は入力が拒否され、
+            // 欄ごとの区別が付かなくなる。**前提の回と判定の回で必ず違う値にすること**——
+            // 同じ値を書くと、その欄を保存から落とす欠陥が前の回の値に隠れて検出できない。
+            await row.getByRole('combobox', { name: /工種/ }).fill(`${shortTag}工種${seq}`);
+            await row.getByRole('combobox', { name: /単位/ }).fill(unit);
+          }
+        }
+        await page.keyboard.press('Escape');
+        expect(seq, '前提: 保存対象の数量項目が画面に存在する').toBeGreaterThan(0);
+        return seq;
+      };
+
+      // 前提の確定: 追加したばかりの数量項目はまだ識別子を持たないため、一度保存して
+      // 画面と永続化の双方を同じ識別子で語れる状態にしてから判定へ進む。
+      // ここでの保存は前提の確立であって、本テストが固定する挙動そのものではない。
+      const seedMarker = `一括保存前提_${Date.now().toString(36)}`;
+      await fillAllItems(seedMarker, 'S', 'm');
+      await saveQuantityTableDraft(page);
       await page.goto(`/quantity-tables/${createdQuantityTableId}/edit`);
       await page.waitForLoadState('networkidle');
 
-      // 必須フィールドを入力する（各項目に名称、工種、単位を設定）
-      // 名称フィールドはAutocompleteInput（combobox）として実装されている
-      const nameInputs = page.getByRole('combobox', { name: /名称/ });
-      const workTypeInputs = page.getByRole('combobox', { name: /工種/ });
-      const unitInputs = page.getByRole('combobox', { name: /単位/ });
+      const editMarker = `一括保存検証_${Date.now().toString(36)}`;
+      const itemSeq = await fillAllItems(editMarker, 'E', 'kg');
+      expect(itemSeq, '前提: 保存対象の数量項目が画面に存在する').toBeGreaterThan(0);
 
-      const nameCount = await nameInputs.count();
-      for (let i = 0; i < nameCount; i++) {
-        const nameInput = nameInputs.nth(i);
-        const currentValue = await nameInput.inputValue().catch(() => '');
-        if (!currentValue || currentValue.trim() === '') {
-          await nameInput.fill(`テスト名称${i + 1}`);
+      /**
+       * 画面（＝クライアントサイドの編集状態）が保持している内容を、保存の前に読み取る。
+       *
+       * 数量グループの識別子は `item-table-scroll-{groupId}` の目印から、数量項目の識別子は
+       * 数量欄の `id`（`{itemId}-quantity`）から得る。値ではなく識別子で突き合わせるのは、
+       * 「同じ数だけ保存された」ではなく「保持していたそのものが保存された」を主張するためである。
+       */
+      const readEditorState = async (): Promise<
+        {
+          groupId: string;
+          items: { itemId: string; name: string; workType: string; unit: string }[];
+        }[]
+      > => {
+        const state: {
+          groupId: string;
+          items: { itemId: string; name: string; workType: string; unit: string }[];
+        }[] = [];
+        const groupCount = await groupCards.count();
+        for (let g = 0; g < groupCount; g++) {
+          const card = groupCards.nth(g);
+          const scrollArea = card.locator('[data-testid^="item-table-scroll-"]').first();
+          const scrollTestId = await scrollArea.getAttribute('data-testid');
+          expect(
+            scrollTestId,
+            '前提: 数量項目の表示領域が数量グループの識別子を持つ'
+          ).not.toBeNull();
+          const groupId = String(scrollTestId).replace('item-table-scroll-', '');
+
+          const rows = card.locator('[data-testid="quantity-item-row"]');
+          const rowCount = await rows.count();
+          const items: { itemId: string; name: string; workType: string; unit: string }[] = [];
+          for (let i = 0; i < rowCount; i++) {
+            const row = rows.nth(i);
+            const quantityId = await row.locator('input[id$="-quantity"]').getAttribute('id');
+            expect(quantityId, '前提: 数量欄が数量項目の識別子を持つ').not.toBeNull();
+            items.push({
+              itemId: String(quantityId).replace(/-quantity$/, ''),
+              name: await row.getByRole('combobox', { name: /名称/ }).inputValue(),
+              workType: await row.getByRole('combobox', { name: /工種/ }).inputValue(),
+              unit: await row.getByRole('combobox', { name: /単位/ }).inputValue(),
+            });
+          }
+          state.push({ groupId, items });
         }
-      }
+        return state;
+      };
 
-      const workTypeCount = await workTypeInputs.count();
-      for (let i = 0; i < workTypeCount; i++) {
-        const workTypeInput = workTypeInputs.nth(i);
-        const currentValue = await workTypeInput.inputValue().catch(() => '');
-        if (!currentValue || currentValue.trim() === '') {
-          await workTypeInput.fill(`テスト工種${i + 1}`);
-        }
-      }
-
-      const unitCount = await unitInputs.count();
-      for (let i = 0; i < unitCount; i++) {
-        const unitInput = unitInputs.nth(i);
-        const currentValue = await unitInput.inputValue().catch(() => '');
-        if (!currentValue || currentValue.trim() === '') {
-          await unitInput.fill('m');
-        }
-      }
-
-      await page.waitForTimeout(500);
+      const heldInEditor = await readEditorState();
 
       // REQ-11.1: 保存操作で永続化されること。保存APIの応答が 200 であることと
       // 保存完了フィードバック（「保存しました」）の表示を無条件に主張する。
       // 保存が 400 などで失敗した場合は 200 の応答待機が成立せずこのテストは失敗する。
       await saveQuantityTableDraft(page);
+
+      // 永続化された内容を読み戻して、画面が保持していた全量と突き合わせる。
+      // 成否だけを見る旧判定は、保存要求が一部のグループ・一部の欄を落としていても緑だった。
+      const persistedResponse = await page.request.get(
+        `${API_BASE_URL}/api/quantity-tables/${createdQuantityTableId}`,
+        { headers }
+      );
+      expect(persistedResponse.ok(), '保存後の数量表詳細の取得が成功する').toBeTruthy();
+      const persistedDetail = (await persistedResponse.json()) as {
+        groups: {
+          id: string;
+          displayOrder: number;
+          items: {
+            id: string;
+            displayOrder: number;
+            name: string | null;
+            workType: string | null;
+            unit: string | null;
+          }[];
+        }[];
+      };
+      const persisted = [...persistedDetail.groups]
+        .sort((a, b) => a.displayOrder - b.displayOrder)
+        .map((group) => ({
+          groupId: group.id,
+          items: [...group.items]
+            .sort((a, b) => a.displayOrder - b.displayOrder)
+            .map((item) => ({
+              itemId: item.id,
+              name: item.name ?? '',
+              workType: item.workType ?? '',
+              unit: item.unit ?? '',
+            })),
+        }));
+
+      expect(
+        persisted,
+        'REQ-11.1: 保持された全ての数量グループと数量項目（各フィールド値を含む）が一括で保存される'
+      ).toEqual(heldInEditor);
     });
 
     // REQ-11.5 は「編集内容の自動保存（一定間隔での保存）を行わず、データの永続化は
