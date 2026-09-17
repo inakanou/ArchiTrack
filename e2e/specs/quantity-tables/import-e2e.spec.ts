@@ -9,7 +9,7 @@
  * - @requirement quantity-table-generation/REQ-27.5: Excelパース自動開始
  * - @requirement quantity-table-generation/REQ-27.6: PDF OCR自動開始
  * - @requirement quantity-table-generation/REQ-27.7: 処理中インジケーター
- * - @requirement quantity-table-generation/REQ-27.8: 処理中ボタン非活性化
+ * - @requirement quantity-table-generation/REQ-27.8: 処理中のファイル選択の非活性と一括取り込みボタンの不表示
  * - @requirement quantity-table-generation/REQ-28.3: 列マッピング
  * - @requirement quantity-table-generation/REQ-28.4: プレビューテーブル
  * - @requirement quantity-table-generation/REQ-28.5: 各列の現在のマッピング先フィールドの表示
@@ -613,45 +613,115 @@ test.describe('REQ-27: 数量表インポート（ファイルアップロード
   });
 
   /**
-   * @requirement quantity-table-generation/REQ-27.8: 処理中時のボタン非活性化
+   * @requirement quantity-table-generation/REQ-27.8: 処理中のファイル選択の非活性と一括取り込みボタンの不表示
    *
-   * 処理中はキャンセル以外の主要操作（再アップロード・取り込み等）が disabled に切り替わる。
-   * インジケーターが見えている間に少なくとも 1 つのボタンが disabled であることを確認する。
+   * 条文 27.8 は「データパースまたはOCR処理が実行中のとき、ファイルアップロードボタンを
+   * 非活性にし、一括取り込みボタンを表示しない」。**後半は「非活性」ではなく「表示しない」で
+   * ある**（タスク 99.1 で条文の側を実体へ改訂した。経緯と採らなかった案は requirements.md の
+   * Requirement 27 の直下に置いた）。一括取り込みボタンは抽出結果に従属する部品で、
+   * 実装では `extractor.status === 'completed' && extractor.result && fieldMapping` の枝の
+   * 内側に在る。ボタンの `disabled` が見るのは取り込み実行中を表す別の状態（`isImporting`）で
+   * あって処理中ではない。
+   *
+   * 以前は「disabled 状態を捉えた」「処理結果が表示された」のどちらかが観測されれば良い
+   * 競争にしており、結果が先に出た環境では disabled の判定が一つも実行されなかった。
+   * 抽出は Claude Vision の応答（POST /api/claude-vision/extract）を待つため、
+   * その応答を保留すれば処理中の状態を確定的に観測できる。判定後に解放する。
+   *
+   * **後半は肯定と否定の組で主張する**（タスク 99.1）。否定（処理中に一括取り込みボタンが
+   * 0件）だけでは、この画面にそもそも当該ボタンが出ない場合と区別できず恒真へ退化する。
+   * そこで同じ区間の中で、抽出を完了させると**同じ綴りの同じボタンが現れる**ことを併せて
+   * 主張する。両者が同時に成立しうるのは、表示の有無が処理中かどうかで切り替わる場合に
+   * 限られる。抽出の応答は環境（ANTHROPIC_API_KEY）に依らず決定論的に組み立てるため、
+   * 保留の解放時に目印の行を持つ結果を返す（REQ-27.7 の検証と同じ手口）。
    */
-  test('処理中はダイアログ内ボタンが非活性化される (REQ-27.8)', async ({ page }) => {
+  test('処理中はファイル選択が非活性化され一括取り込みボタンが表示されない (REQ-27.8)', async ({
+    page,
+  }) => {
     const navigated = await navigateToQuantityTableEdit(page);
     expect(navigated).toBeTruthy();
 
     const opened = await openImportDialog(page);
     expect(opened).toBeTruthy();
 
-    // 処理中: ImportDialog 実装では `<input type="file">` が `disabled={isProcessing}` で
-    // 非活性化される。
-    //
-    // 以前は「disabled 状態を捉えた」「処理結果が表示された」のどちらかが観測されれば良い
-    // 競争にしており、結果が先に出た環境では disabled の判定が一つも実行されなかった。
-    // 抽出は Claude Vision の応答（POST /api/claude-vision/extract）を待つため、
-    // その応答を保留すれば処理中の状態を確定的に観測できる。判定後に解放する。
+    const resultMarker = `REQ278_RESULT_ROW_${Date.now()}`;
     let releaseExtraction: (() => void) | undefined;
     const extractionHeld = new Promise<void>((resolve) => {
       releaseExtraction = resolve;
     });
     await page.route('**/api/claude-vision/extract', async (route) => {
       await extractionHeld;
-      await route.continue();
+      await route
+        .fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            lineItems: [
+              {
+                majorCategory: null,
+                middleCategory: null,
+                minorCategory: null,
+                customCategory: null,
+                workType: '仮設工',
+                name: resultMarker,
+                specification: null,
+                quantity: 1,
+                unit: '式',
+                remarks: null,
+              },
+            ],
+            pageCount: 1,
+          }),
+        })
+        // 判定の失敗でテストが先に終わった場合、ページが閉じた後の応答は捨てる
+        .catch(() => undefined);
     });
 
-    const fileInput = page.getByLabel('ファイルを選択');
-    await fileInput.setInputFiles(TEST_PDF);
+    try {
+      const dialog = page.getByRole('dialog');
+      const bulkImportButton = dialog.getByRole('button', { name: '一括取り込み' });
 
-    // REQ-27.8: 処理中はファイル選択が非活性化される
-    const filePicker = page.getByLabel('ファイルを選択');
-    await expect(filePicker, 'REQ-27.8: 処理中はファイル選択が非活性化される').toBeDisabled({
-      timeout: getTimeout(45000),
-    });
+      // ファイル選択より前に待機を仕掛け、選択を契機に発行される抽出要求を取りこぼさない
+      const visionRequest = page.waitForRequest(
+        (request) =>
+          request.method() === 'POST' && /\/api\/claude-vision\/extract$/.test(request.url()),
+        { timeout: getTimeout(45000) }
+      );
+      await page.getByLabel('ファイルを選択').setInputFiles(TEST_PDF);
+      await visionRequest;
 
-    releaseExtraction?.();
-    await page.unroute('**/api/claude-vision/extract');
+      // 前半: 処理中はファイルアップロードボタン（ファイル選択）が非活性である。
+      // この判定の成立をもって「処理中である」が確定するので、後続の否定は処理中の状態を見る
+      const filePicker = page.getByLabel('ファイルを選択');
+      await expect(filePicker, 'REQ-27.8: 処理中はファイル選択が非活性化される').toBeDisabled({
+        timeout: getTimeout(45000),
+      });
+
+      // 後半（否定）: 処理中は一括取り込みボタンが描かれない
+      await expect(
+        bulkImportButton,
+        'REQ-27.8: 処理中に一括取り込みボタンが表示されている'
+      ).toHaveCount(0);
+
+      // 後半（肯定）: 同じ綴りの同じボタンが、処理が完了すると現れる。
+      // これが無いと上の否定は「この画面には当該ボタンが出ない」だけで成立してしまう
+      releaseExtraction?.();
+      await expect(
+        dialog.getByRole('region', { name: '抽出結果' }).locator('table tbody'),
+        'REQ-27.8: 前提 — 抽出が完了して結果の表が表示される'
+      ).toContainText(resultMarker, { timeout: getTimeout(45000) });
+      await expect(
+        bulkImportButton,
+        'REQ-27.8: 処理の完了後も一括取り込みボタンが表示されない（否定側が恒真である）'
+      ).toBeVisible({ timeout: getTimeout(15000) });
+      await expect(
+        filePicker,
+        'REQ-27.8: 処理の完了後もファイル選択が非活性のままである'
+      ).toBeEnabled();
+    } finally {
+      releaseExtraction?.();
+      await page.unroute('**/api/claude-vision/extract');
+    }
   });
 });
 
