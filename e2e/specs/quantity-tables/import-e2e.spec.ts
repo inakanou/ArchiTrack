@@ -15,10 +15,19 @@
  * - @requirement quantity-table-generation/REQ-28.5: 各列の現在のマッピング先フィールドの表示
  * - @requirement quantity-table-generation/REQ-28.6: 読み取り失敗時のエラー
  * - @requirement quantity-table-generation/REQ-28.7: テキスト選択・コピー可能
+ * - @requirement quantity-table-generation/REQ-29.2: PDFの全ページを対象にテキスト抽出
+ * - @requirement quantity-table-generation/REQ-29.3: テキストPDFは抽出テキストをそのまま使用しTesseract OCRを実行しない
+ * - @requirement quantity-table-generation/REQ-29.4: スキャンPDFは各ページをCanvas経由で画像化しTesseract.js OCRを実行
+ * - @requirement quantity-table-generation/REQ-29.5: スキャンPDFフォールバックのCanvas描画スケール4.0
+ * - @requirement quantity-table-generation/REQ-29.6: スキャンPDFフォールバックの画像前処理パイプライン
  * - @requirement quantity-table-generation/REQ-29.7: OCR完了時に抽出テキストとプレビューテーブルを表示
  * - @requirement quantity-table-generation/REQ-29.8: 抽出結果のテキストを選択・コピーできる状態で表示
  * - @requirement quantity-table-generation/REQ-29.9: OCR失敗時にエラーメッセージを表示し手動入力を促す
+ * - @requirement quantity-table-generation/REQ-29.10: OCR処理のタイムアウトを30秒とする
+ * - @requirement quantity-table-generation/REQ-30.1: Claude Vision API利用可能時の優先使用
+ * - @requirement quantity-table-generation/REQ-30.4: Claude APIレスポンスの数量項目フィールドへのマッピング
  * - @requirement quantity-table-generation/REQ-30.5: Claude Vision API利用不可時のOCRフォールバック
+ * - @requirement quantity-table-generation/REQ-30.6: Claude Vision APIのタイムアウト・エラー時のOCRフォールバック
  * - @requirement quantity-table-generation/REQ-31.1: 「一括取り込み」ボタン
  * - @requirement quantity-table-generation/REQ-31.2: 取り込み先グループ選択UI
  * - @requirement quantity-table-generation/REQ-31.3: 各行を数量項目として追加
@@ -97,6 +106,273 @@ const ALL_FIELDS_ROW = {
  * 資材の生成手順は `e2e/fixtures/generate-image-only-pdf.mjs` にある。
  */
 const SCANNED_PDF_OCR_EXPECTED_TOKENS = ['外壁塗装工事', '100', '平米', '5000', '500000'] as const;
+
+// ----------------------------------------------------------------------------
+// スキャンPDFのフォールバック経路の画素観測（REQ-29.4 / 29.5 / 29.6）
+//
+// 画面の外から見えるのは抽出結果のテキストだけであり、それだけでは「Canvas をどの倍率で
+// 描いたか」「前処理を通したか」を弁別できない。そこで本番が呼ぶブラウザ API
+// （`CanvasRenderingContext2D.getImageData` / `putImageData` /
+// `HTMLCanvasElement.toBlob` / `toDataURL`）へ観測を挟み、**本番が渡した画素そのもの**を測る。
+// 測るのは寸法・画素値の分布・連続する黒画素の最長という素の量だけで、合否の判定は
+// Node 側の `expect` が行う（`e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts`
+// と同じ作法。同ファイルは estimate-request の同型の条文を同じ観測で判定している）。
+// ----------------------------------------------------------------------------
+
+/**
+ * `e2e/fixtures/test-scanned-pdf.pdf` のページサイズ（pt）。
+ * 生成手順は `e2e/fixtures/generate-image-only-pdf.mjs` の `PAGE_WIDTH` / `PAGE_HEIGHT` と対。
+ */
+const SCANNED_PDF_PAGE_WIDTH_PT = 350;
+const SCANNED_PDF_PAGE_HEIGHT_PT = 175;
+
+/**
+ * 「**各ページ**を Canvas 経由で画像に変換する」（REQ-29.4）の量化子を n=1 で済ませないための、
+ * 2 ページの画像のみPDF。`generate-image-only-pdf.mjs --pages 2` の生成物で、
+ * 画像 XObject は 1 個を 2 ページが共有する（ページの中身は同一）。
+ */
+const SCANNED_PDF_2PAGES_PAGE_COUNT = 2;
+
+/**
+ * 本番 `pdf-text-extractor.ts` の `CANVAS_RENDER_SCALE`（REQ-29.5 が命じる 4.0）。
+ * 本番の値を読み込まず定数として再掲するのは、「本番が 4.0 で描いていること」を
+ * 外から主張するためである。本番が別の倍率へ変われば下の寸法の主張が落ちる。
+ */
+const EXPECTED_CANVAS_RENDER_SCALE = 4.0;
+
+/**
+ * Claude Vision 経路の描画スケール（本番 `CLAUDE_VISION_RENDER_SCALE` = 2.0）。
+ * フォールバック経路の 4.0 と弁別するために置く。
+ */
+const CLAUDE_VISION_RENDER_SCALE = 2.0;
+
+/**
+ * 罫線除去の対象となる長さの比率。本番 `removeHorizontalLines` / `removeVerticalLines` の
+ * 既定の `minLengthRatio`（0.3）と対。fixture はこの比率を超える罫線を水平・垂直へ 1 本ずつ持つ。
+ */
+const RULE_MIN_RATIO = 0.3;
+
+/** 一回の画素観測。判定はしない。素の量だけを持つ。 */
+interface PixelObservation {
+  /** 観測の順序（ページ内で単調増加） */
+  order: number;
+  /** 画素の幅 */
+  width: number;
+  /** 画素の高さ */
+  height: number;
+  /** R=G=B でない画素の数 */
+  nonGrayscalePixels: number;
+  /** 値が 0 でも 255 でもない画素の数 */
+  nonBinaryPixels: number;
+  /** 行方向の連続する暗い画素の最長 */
+  longestDarkRunHorizontal: number;
+  /** 列方向の連続する暗い画素の最長 */
+  longestDarkRunVertical: number;
+}
+
+/** Canvas から画像へ変換した呼び出し（`toBlob` / `toDataURL`） */
+interface CanvasExportObservation {
+  order: number;
+  width: number;
+  height: number;
+}
+
+/** ページから回収する観測の全体 */
+interface CanvasPipelineObservations {
+  getImageData: PixelObservation[];
+  putImageData: PixelObservation[];
+  toBlob: CanvasExportObservation[];
+  toDataURL: CanvasExportObservation[];
+}
+
+/**
+ * 本番が呼ぶ Canvas API へ観測を挟む。
+ *
+ * 観測は本番の呼び出しをそのまま素通しし、通過した画素を測るだけである。
+ * 画面の中で合否を決めてはいない（判定はすべて Node 側の `expect`）。
+ *
+ * @param page Playwright のページ
+ */
+async function installCanvasPipelineObservers(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const store = {
+      getImageData: [] as unknown[],
+      putImageData: [] as unknown[],
+      toBlob: [] as unknown[],
+      toDataURL: [] as unknown[],
+    };
+    (window as unknown as Record<string, unknown>).__canvasPipelineObservations = store;
+
+    let order = 0;
+
+    /** 画素の素の量を測る。判定はしない。 */
+    const measure = (imageData: ImageData) => {
+      const { data, width, height } = imageData;
+      let nonGrayscalePixels = 0;
+      let nonBinaryPixels = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i] as number;
+        const g = data[i + 1] as number;
+        const b = data[i + 2] as number;
+        if (r !== g || g !== b) nonGrayscalePixels++;
+        if (r !== 0 && r !== 255) nonBinaryPixels++;
+      }
+
+      const DARK = 128;
+      let longestDarkRunHorizontal = 0;
+      for (let y = 0; y < height; y++) {
+        let run = 0;
+        for (let x = 0; x < width; x++) {
+          if ((data[(y * width + x) * 4] as number) < DARK) {
+            run++;
+            if (run > longestDarkRunHorizontal) longestDarkRunHorizontal = run;
+          } else {
+            run = 0;
+          }
+        }
+      }
+
+      let longestDarkRunVertical = 0;
+      for (let x = 0; x < width; x++) {
+        let run = 0;
+        for (let y = 0; y < height; y++) {
+          if ((data[(y * width + x) * 4] as number) < DARK) {
+            run++;
+            if (run > longestDarkRunVertical) longestDarkRunVertical = run;
+          } else {
+            run = 0;
+          }
+        }
+      }
+
+      order += 1;
+      return {
+        order,
+        width,
+        height,
+        nonGrayscalePixels,
+        nonBinaryPixels,
+        longestDarkRunHorizontal,
+        longestDarkRunVertical,
+      };
+    };
+
+    const originalGetImageData = CanvasRenderingContext2D.prototype.getImageData;
+    CanvasRenderingContext2D.prototype.getImageData = function patchedGetImageData(
+      this: CanvasRenderingContext2D,
+      ...args: Parameters<CanvasRenderingContext2D['getImageData']>
+    ) {
+      const result = originalGetImageData.apply(this, args);
+      store.getImageData.push(measure(result));
+      return result;
+    };
+
+    // putImageData は引数 3 個と 7 個の二つの形を持つ多重定義であり、可変長引数の関数を
+    // そのまま代入すると片方の形に合わない。観測は第一引数の ImageData しか見ないため、
+    // 素通しの部分だけ型を緩めて元の実装へ委ねる。
+    const originalPutImageData = CanvasRenderingContext2D.prototype.putImageData;
+    const patchedPutImageData = function patchedPutImageData(
+      this: CanvasRenderingContext2D,
+      ...args: unknown[]
+    ): void {
+      store.putImageData.push(measure(args[0] as ImageData));
+      (originalPutImageData as unknown as (...a: unknown[]) => void).apply(this, args);
+    };
+    CanvasRenderingContext2D.prototype.putImageData =
+      patchedPutImageData as unknown as CanvasRenderingContext2D['putImageData'];
+
+    const originalToBlob = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function patchedToBlob(
+      this: HTMLCanvasElement,
+      ...args: Parameters<HTMLCanvasElement['toBlob']>
+    ) {
+      order += 1;
+      store.toBlob.push({ order, width: this.width, height: this.height });
+      return originalToBlob.apply(this, args);
+    };
+
+    const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+    HTMLCanvasElement.prototype.toDataURL = function patchedToDataURL(
+      this: HTMLCanvasElement,
+      ...args: Parameters<HTMLCanvasElement['toDataURL']>
+    ) {
+      order += 1;
+      store.toDataURL.push({ order, width: this.width, height: this.height });
+      return originalToDataURL.apply(this, args);
+    };
+  });
+}
+
+/**
+ * ページに溜まった画素観測を回収する。
+ *
+ * @param page Playwright のページ
+ */
+async function collectCanvasPipelineObservations(page: Page): Promise<CanvasPipelineObservations> {
+  return page.evaluate(
+    () =>
+      (window as unknown as Record<string, unknown>)
+        .__canvasPipelineObservations as unknown as CanvasPipelineObservations
+  );
+}
+
+// ----------------------------------------------------------------------------
+// 打ち切りまでの時間の観測（REQ-29.10）
+// ----------------------------------------------------------------------------
+
+/** 画面側で記録する2点の時刻（いずれも `performance.now()`。判定は含まない）。 */
+interface ImportOcrTiming {
+  /** ファイルが選ばれた時刻。本番の抽出処理はこの後に始まる。 */
+  fileSelectedAtMs: number;
+  /** 抽出結果の領域へエラー表示が現れた時刻。 */
+  errorShownAtMs: number;
+}
+
+/**
+ * 打ち切りまでの時間を**画面側の単調時計**で測るための観測を挟む。
+ *
+ * 記録するのは生の時刻2点だけで、判定はしない。`Date.now()`（壁時計）ではなく
+ * `performance.now()` を使う理由は当該テストの注記に記す。
+ *
+ * @param page Playwright のページ
+ */
+async function installImportOcrTimingObservers(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const timing = { fileSelectedAtMs: 0, errorShownAtMs: 0 };
+    (window as unknown as Record<string, unknown>).__importOcrTiming = timing;
+
+    document.addEventListener(
+      'change',
+      (event) => {
+        const target = event.target as HTMLInputElement | null;
+        if (target?.type === 'file' && timing.fileSelectedAtMs === 0) {
+          timing.fileSelectedAtMs = performance.now();
+        }
+      },
+      true
+    );
+
+    const observer = new MutationObserver(() => {
+      if (document.querySelector('section[aria-label="抽出結果"] [role="alert"]')) {
+        timing.errorShownAtMs = performance.now();
+        observer.disconnect();
+      }
+    });
+    observer.observe(document, { childList: true, subtree: true });
+  });
+}
+
+/**
+ * 画面側に溜まった時刻を回収する。
+ *
+ * @param page Playwright のページ
+ */
+async function collectImportOcrTiming(page: Page): Promise<ImportOcrTiming> {
+  return page.evaluate(
+    () =>
+      (window as unknown as Record<string, unknown>).__importOcrTiming as unknown as ImportOcrTiming
+  );
+}
 
 // ----------------------------------------------------------------------------
 // ネットワーク監視（REQ-42.6: 保存前は数量表サブリソースへの書き込みが一切ない）
@@ -1194,9 +1470,380 @@ test.describe('REQ-29: PDF OCR処理の結果表示と失敗時の導線', () =>
     await expect(errorAlert, 'REQ-29.9: エラー表示がOCR処理の失敗を告げない').toContainText(
       'OCR処理に失敗しました'
     );
+
     await expect(errorAlert, 'REQ-29.9: エラー表示が手動入力を促さない').toContainText(
       '手動入力してください'
     );
+  });
+
+  /**
+   * @requirement quantity-table-generation/REQ-29.2: PDFの全ページ（1ページ目から最終ページ）を対象にテキスト抽出
+   * @requirement quantity-table-generation/REQ-29.3: 十分なテキストが得られたときは抽出テキストをそのまま使用しTesseract OCRを実行しない
+   *
+   * 条文 29.2 は「PDFの全ページ（1ページ目から最終ページ）を対象にテキスト抽出を行う」。
+   * 資材 `test-text-pdf.pdf` はちょうど2ページで、1ページ目にだけ「Concrete Work」、
+   * 2ページ目にだけ「Rebar Work」がある。両方が抽出テキストへ現れることは、
+   * **1ページ目（最初）と2ページ目（最終）の双方が抽出の対象になった**ことを意味する。
+   *
+   * 条文 29.3 は「抽出テキストをそのまま使用する（**Tesseract OCRは実行しない**）」で、
+   * 後段の否定が主題である。Tesseract の資材（worker と jpn 言語データ）の取得は
+   * フォールバック経路の `createWorker('jpn')` でしか起きないため、その0件が
+   * 「OCRを実行していない」の観測になる。
+   *
+   * **否定が空集合への退化で成り立っていないことを、同じ観測器の肯定側で塞ぐ**（99.1 の作法）。
+   *   - 要求の購読: Tesseract 資材 0 件と対に、**同じ `page.on('request')` の購読**が
+   *     Claude Vision への要求を現に記録していることを主張する
+   *   - Canvas の観測器: 前処理の書き戻し（`putImageData`）0 件と対に、**同じ観測器**が
+   *     Claude Vision 経路の `toDataURL`（スケール2.0の描画）を現に記録していることを主張する
+   *
+   * 経路の前件（Claude Vision が使えない）は 29.7 / 29.8 と同じく 503 で作る。
+   * Claude Vision が成功すると `extractPdfHybrid` 自体が呼ばれず 29.2 / 29.3 の主題に届かない。
+   */
+  test('テキストPDFでは全ページの抽出テキストがそのまま使われTesseract OCRは実行されない (REQ-29.2, REQ-29.3)', async ({
+    page,
+  }) => {
+    await installCanvasPipelineObservers(page);
+    const requestPaths = watchPdfExtractionRequestPaths(page);
+
+    const navigated = await navigateToQuantityTableEdit(page);
+    expect(navigated).toBeTruthy();
+
+    const opened = await openImportDialog(page);
+    expect(opened).toBeTruthy();
+
+    await forceClaudeVisionUnavailable(page);
+
+    await page.getByLabel('ファイルを選択').setInputFiles(TEST_PDF);
+
+    const dialog = page.getByRole('dialog');
+    const extractedText = dialog.getByRole('region', { name: '抽出テキスト' });
+    await expect(extractedText, '前提: 抽出テキストが表示されない').toBeVisible({
+      timeout: getTimeout(45000),
+    });
+    const extractedTextBody = extractedText.locator('pre[data-testid="import-extracted-text"]');
+
+    // REQ-29.2: 1ページ目（最初）と2ページ目（最終）の双方が抽出の対象になっている
+    await expect(
+      extractedTextBody,
+      'REQ-29.2: 抽出テキストに1ページ目（最初のページ）の内容が含まれない'
+    ).toContainText('Concrete Work');
+    await expect(
+      extractedTextBody,
+      'REQ-29.2: 抽出テキストに2ページ目（最終ページ）の内容が含まれない'
+    ).toContainText('Rebar Work');
+
+    // REQ-29.3 前段: 抽出テキストがそのまま使われている（OCRの読み取り結果に置き換わっていない）
+    await expect(
+      dialog.locator('section[aria-label="抽出結果"]').getByRole('alert'),
+      '前提: 抽出が失敗して終わっている'
+    ).toHaveCount(0);
+
+    // 肯定側（同じ購読が現に記録している）
+    expect(
+      requestPaths.claudeVision.length,
+      '前提: Claude Vision APIへの要求が一度も記録されていない（要求の購読が働いていない）'
+    ).toBeGreaterThan(0);
+
+    // REQ-29.3 後段: Tesseract OCR は実行されていない
+    expect(
+      requestPaths.tesseract,
+      'REQ-29.3: テキストPDFなのにTesseractの資材が取得されている（OCRが実行されている）'
+    ).toEqual([]);
+
+    const observations = await collectCanvasPipelineObservations(page);
+
+    // 肯定側（同じ Canvas の観測器が現に記録している。Claude Vision 経路のスケール2.0の描画）
+    expect(
+      observations.toDataURL.length,
+      '前提: Canvasからの画像化が一度も記録されていない（Canvasの観測器が働いていない）'
+    ).toBeGreaterThan(0);
+
+    // 否定側（フォールバックの前処理は一度も走っていない）
+    expect(
+      observations.putImageData,
+      'REQ-29.3: テキストPDFなのに前処理後の画素が書き戻されている（OCRフォールバックへ入っている）'
+    ).toEqual([]);
+  });
+
+  /**
+   * @requirement quantity-table-generation/REQ-29.4: スキャンPDFは各ページをCanvas経由で画像に変換しTesseract.js OCRを実行する
+   * @requirement quantity-table-generation/REQ-29.5: スキャンPDFフォールバック時のCanvas描画スケールは4.0
+   * @requirement quantity-table-generation/REQ-29.6: グレースケール変換→大津の二値化→水平線除去→垂直線除去の前処理パイプライン
+   *
+   * 前件（pdfjs-dist のテキスト抽出でテキストがほとんど得られない＝スキャンPDF）は、
+   * `/Font` を持たずテキスト描画演算子を一つも含まない画像のみのPDF
+   * （`e2e/fixtures/test-scanned-pdf-2pages.pdf`。生成手順は
+   * `generate-image-only-pdf.mjs --pages 2`）で作る。テキストPDFを与えたときに
+   * 「Tesseract が走らない」ことを主張する上の 29.3 の判定と対になっており、
+   * 二つを並べると本ファイルの観測が経路の有無を弁別できることが示される。
+   *
+   * **資材を2ページにしたのは条文の「各ページ」を n=1 で済ませないためである。**
+   * 1ページの `test-scanned-pdf.pdf`（REQ-30.5 の判定が使う）では「各ページ」の量化子が
+   * 単数の場合でしか成り立たず、ページを1枚しか処理しない実装でも主張が通ってしまう。
+   * 2ページの資材では、画素の読み出し・書き戻し・画像化の回数と、抽出テキストに現れる
+   * 画像内の語の出現回数がいずれもページ数と一致することを主張できる。
+   *
+   * 画面の外から見えるのは抽出テキストだけであり、それだけでは倍率も前処理も弁別できない。
+   * 本番が呼ぶ Canvas API へ観測を挟み、**本番が渡した画素そのもの**を測る。
+   *
+   * - REQ-29.4: fixture のページ数と同じ回数だけ Canvas から画素が読み出され、
+   *   その画素が画像へ変換（`toBlob`）され、Tesseract の worker と jpn 言語データが
+   *   取得され、**画像の中にしか無い語**が抽出テキストへ現れること
+   * - REQ-29.5: 画素を読み出した Canvas の寸法が、fixture の MediaBox 350x175pt に対して
+   *   1400x700 であること（＝スケール 4.0）。Claude Vision 経路のスケール 2.0 なら
+   *   700x350 になるため、この値は両者を弁別する
+   * - REQ-29.6: `getImageData` → `putImageData` → `toBlob` の順に呼ばれ、書き戻された画素が
+   *   (a) R=G=B（グレースケール変換）、(b) 値が 0 か 255 のみ（大津の二値化）、
+   *   (c) 幅の30%以上の連続黒画素が消えている（水平線除去）、
+   *   (d) 高さの30%以上の連続黒画素が消えている（垂直線除去）を同時に満たすこと。
+   *   fixture は除去対象の長さの罫線を水平・垂直へ1本ずつ持ち、**前処理前の画素では
+   *   両方が閾値を超えている**ことを先に確かめてから、前処理後に下回ることを主張する
+   *   （消す対象が無いまま「消えている」が成り立つ空洞を塞ぐ）
+   */
+  test('スキャンPDFは各ページがCanvas経由で画像化されスケール4.0と前処理パイプラインを経てTesseract OCRが実行される (REQ-29.4, REQ-29.5, REQ-29.6)', async ({
+    page,
+  }) => {
+    await installCanvasPipelineObservers(page);
+    const requestPaths = watchPdfExtractionRequestPaths(page);
+
+    const navigated = await navigateToQuantityTableEdit(page);
+    expect(navigated).toBeTruthy();
+
+    const opened = await openImportDialog(page);
+    expect(opened).toBeTruthy();
+
+    await forceClaudeVisionUnavailable(page);
+
+    await page
+      .getByLabel('ファイルを選択')
+      .setInputFiles(path.join(FIXTURES_DIR, 'test-scanned-pdf-2pages.pdf'));
+
+    const dialog = page.getByRole('dialog');
+    const extractedText = dialog.getByRole('region', { name: '抽出テキスト' });
+    await expect(extractedText, '前提: フォールバックの抽出テキストが表示されない').toBeVisible({
+      timeout: getTimeout(45000),
+    });
+    await expect(
+      dialog.locator('section[aria-label="抽出結果"]').getByRole('alert'),
+      '前提: フォールバックが失敗して終わっている'
+    ).toHaveCount(0);
+
+    // ------------------------------------------------------------------
+    // REQ-29.4: 各ページを Canvas 経由で画像に変換し Tesseract.js OCR を実行する
+    // ------------------------------------------------------------------
+    expect(
+      requestPaths.tesseract.filter((p) => p.includes(TESSERACT_WORKER_PATH_MARK)).length,
+      'REQ-29.4: Tesseractのworkerスクリプトが取得されていない（OCRが実行されていない）'
+    ).toBeGreaterThan(0);
+    expect(
+      requestPaths.tesseract.filter((p) => p.includes(TESSERACT_LANG_PATH_MARK)).length,
+      'REQ-29.4: Tesseractの日本語データが取得されていない（createWorker("jpn")へ到達していない）'
+    ).toBeGreaterThan(0);
+
+    const observations = await collectCanvasPipelineObservations(page);
+
+    // ------------------------------------------------------------------
+    // REQ-29.5: Canvas 描画スケールが 4.0
+    // ------------------------------------------------------------------
+    const expectedWidth = SCANNED_PDF_PAGE_WIDTH_PT * EXPECTED_CANVAS_RENDER_SCALE;
+    const expectedHeight = SCANNED_PDF_PAGE_HEIGHT_PT * EXPECTED_CANVAS_RENDER_SCALE;
+    const scaledObservations = observations.getImageData.filter(
+      (o) => o.width === expectedWidth && o.height === expectedHeight
+    );
+    expect(
+      scaledObservations.length,
+      `REQ-29.5: スケール ${EXPECTED_CANVAS_RENDER_SCALE} で描画されたCanvas（${expectedWidth}x${expectedHeight}）から画素が読み出されていない。` +
+        `観測された寸法: ${JSON.stringify(observations.getImageData.map((o) => `${o.width}x${o.height}`))}`
+    ).toBeGreaterThan(0);
+    expect(
+      observations.getImageData.filter(
+        (o) =>
+          o.width === SCANNED_PDF_PAGE_WIDTH_PT * CLAUDE_VISION_RENDER_SCALE &&
+          o.height === SCANNED_PDF_PAGE_HEIGHT_PT * CLAUDE_VISION_RENDER_SCALE
+      ).length,
+      `REQ-29.5: Claude Vision経路のスケール ${CLAUDE_VISION_RENDER_SCALE} で描画されたCanvasからOCR用の画素が読み出されている`
+    ).toBe(0);
+
+    // REQ-29.4: 「各ページ」。fixture のページ数と同じ回数だけ画像化されている
+    expect(
+      scaledObservations.length,
+      `REQ-29.4: Canvas経由の画素の読み出しの回数がPDFのページ数（${SCANNED_PDF_2PAGES_PAGE_COUNT}）と一致しない`
+    ).toBe(SCANNED_PDF_2PAGES_PAGE_COUNT);
+
+    // ------------------------------------------------------------------
+    // REQ-29.6: 前処理パイプラインが Canvas 描画と OCR の間に入っている
+    // ------------------------------------------------------------------
+    const preprocessed = observations.putImageData.filter(
+      (o) => o.width === expectedWidth && o.height === expectedHeight
+    );
+    expect(
+      preprocessed.length,
+      `REQ-29.6: 前処理後の画素の書き戻しの回数がPDFのページ数（${SCANNED_PDF_2PAGES_PAGE_COUNT}）と一致しない`
+    ).toBe(SCANNED_PDF_2PAGES_PAGE_COUNT);
+
+    const horizontalThreshold = Math.floor(expectedWidth * RULE_MIN_RATIO);
+    const verticalThreshold = Math.floor(expectedHeight * RULE_MIN_RATIO);
+
+    // ページごとに、読み出し → 書き戻し → 画像化の順序と、書き戻された画素の性質を主張する
+    for (let pageIndex = 0; pageIndex < SCANNED_PDF_2PAGES_PAGE_COUNT; pageIndex++) {
+      const beforePreprocess = scaledObservations[pageIndex]!;
+      const afterPreprocess = preprocessed[pageIndex]!;
+      const label = `${pageIndex + 1}ページ目`;
+
+      expect(
+        beforePreprocess.order,
+        `REQ-29.6: ${label}の画素の読み出しが書き戻しより後に起きている`
+      ).toBeLessThan(afterPreprocess.order);
+
+      const blobAfterPreprocess = observations.toBlob.find(
+        (o) => o.order > afterPreprocess.order && o.width === expectedWidth
+      );
+      expect(
+        blobAfterPreprocess,
+        `REQ-29.4: ${label}の前処理後の画素を画像へ変換していない（Canvas経由の画像化がOCRの前に入っていない）`
+      ).toBeDefined();
+
+      // グレースケール変換（前段）と大津の二値化（次段）の結果
+      expect(
+        afterPreprocess.nonGrayscalePixels,
+        `REQ-29.6: ${label}の前処理後にR=G=Bでない画素が残っている（グレースケール変換が働いていない）`
+      ).toBe(0);
+      expect(
+        afterPreprocess.nonBinaryPixels,
+        `REQ-29.6: ${label}の前処理後に0でも255でもない画素が残っている（大津の二値化が働いていない）`
+      ).toBe(0);
+
+      // 水平線除去と垂直線除去の結果。消す対象が前処理前に在ることを先に確かめる
+      expect(
+        beforePreprocess.longestDarkRunHorizontal,
+        `前提: ${label}の前処理前の画像に水平線除去の対象となる罫線が無い（除去を検査できていない）`
+      ).toBeGreaterThanOrEqual(horizontalThreshold);
+      expect(
+        beforePreprocess.longestDarkRunVertical,
+        `前提: ${label}の前処理前の画像に垂直線除去の対象となる罫線が無い（除去を検査できていない）`
+      ).toBeGreaterThanOrEqual(verticalThreshold);
+      expect(
+        afterPreprocess.longestDarkRunHorizontal,
+        `REQ-29.6: ${label}の前処理後も幅の30%以上の連続黒画素が残っている（水平線除去が働いていない）`
+      ).toBeLessThan(horizontalThreshold);
+      expect(
+        afterPreprocess.longestDarkRunVertical,
+        `REQ-29.6: ${label}の前処理後も高さの30%以上の連続黒画素が残っている（垂直線除去が働いていない）`
+      ).toBeLessThan(verticalThreshold);
+    }
+
+    // Canvas から画像への変換も、ページ数と同じ回数だけ起きている
+    expect(
+      observations.toBlob.filter((o) => o.width === expectedWidth).length,
+      `REQ-29.4: Canvasから画像への変換の回数がPDFのページ数（${SCANNED_PDF_2PAGES_PAGE_COUNT}）と一致しない`
+    ).toBe(SCANNED_PDF_2PAGES_PAGE_COUNT);
+
+    // OCR が画像の中の文字を実際に読み取っている（画像のみのPDFであるため、
+    // これらの語は Canvas 経由の画像化と Tesseract OCR を通してしか画面へ現れない）。
+    // 2ページは同じ画像を持つため、各語はページ数と同じ回数だけ現れる。
+    const extractedTextContent = await extractedText
+      .locator('pre[data-testid="import-extracted-text"]')
+      .textContent();
+    const normalizedText = (extractedTextContent ?? '').replace(/\s/g, '');
+    for (const token of SCANNED_PDF_OCR_EXPECTED_TOKENS) {
+      expect(
+        normalizedText,
+        `REQ-29.4: OCRの抽出テキストに画像内の語「${token}」が現れていない`
+      ).toContain(token);
+    }
+    expect(
+      normalizedText.split(SCANNED_PDF_OCR_EXPECTED_TOKENS[0]).length - 1,
+      `REQ-29.4: OCRの抽出テキストに画像内の語「${SCANNED_PDF_OCR_EXPECTED_TOKENS[0]}」が` +
+        `ページ数（${SCANNED_PDF_2PAGES_PAGE_COUNT}）と同じ回数だけ現れていない（一部のページがOCRされていない）`
+    ).toBe(SCANNED_PDF_2PAGES_PAGE_COUNT);
+  });
+
+  /**
+   * @requirement quantity-table-generation/REQ-29.10: OCR処理のタイムアウトを30秒とする
+   *
+   * ## 除外の根拠が崩れていることを先に述べる
+   *
+   * 本受入基準は長く「30秒の経過をE2Eで再現するにはブラウザ内の処理を30秒以上止める必要があり、
+   * ルートの差し替えでは決定論的に作れない」という理由で除外に在籍していた。**この理由は
+   * 二つの事実で崩れている。** (1) タスク96.3 が取り込み経路の `pdf-ocr-extractor.ts` へ
+   * 30秒の打ち切り（`OCR_TIMEOUT_MS` と `extractPdfHybridWithTimeout`）を結線した。
+   * (2) 上流の `e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts` が、
+   * **30秒では終わらない量の仕事を実際に与える**形（150ページの画像のみPDF）で同型の条文
+   * （estimate-request/REQ-17.8・19.8）をE2Eで判定する先例を作った。ルートの差し替えではなく
+   * 仕事量で作るため、外部の滞留に依存しない。
+   *
+   * ## 何を主張するか
+   *
+   * 150ページの画像のみPDF（`e2e/fixtures/test-scanned-pdf-multipage.pdf`）は、1ページあたり
+   * 「スケール4.0の描画 → 前処理 → OCR」を要するため完走に数分かかる。これを取り込みダイアログへ
+   * 与え、**打ち切りが 30 秒で起きること**を、ファイル選択からエラー表示までの経過時間で主張する。
+   * 併せて、打ち切りの文言が30秒超過を告げること（本番の `OCR_TIMEOUT_MESSAGE`）と、
+   * 抽出結果が出ていないこと（完走していないこと）を主張する。
+   *
+   * ## 時計の選び方
+   *
+   * `Date.now()`（壁時計）では測らない。本環境では `setTimeout` を駆動する単調時計と壁時計が
+   * 乖離しており、30000ms の `setTimeout` が発火するまでに壁時計は27.4秒ほどしか進まない
+   * （上流 spec の注記に実測がある）。壁時計で測ると「30秒より早く終わっている」という誤った像に
+   * なるため、画面側の `performance.now()`（`setTimeout` と同じ単調時計）で測る。画面側で記録するのは
+   * 時刻2点だけで、判定は Node 側の `expect` が行う。
+   *
+   * ## 受入幅
+   *
+   * 下限 29000 は「30秒より早く諦めていない」ことを、上限 40000 は「30秒より長く回していない
+   * （＝完走もしていない）」ことを言う。30000 ちょうどに詰めないのは、ファイル選択から打ち切りの
+   * タイマーが登録されるまでの前置き（Claude Vision 用のページ画像化と503応答）が必ず加わることと、
+   * 打ち切りのコールバックが主スレッドの塞がり具合で遅れうることによる。
+   */
+  test('取り込みのOCR処理は30秒で打ち切られる (REQ-29.10)', async ({ page }) => {
+    await installImportOcrTimingObservers(page);
+
+    const navigated = await navigateToQuantityTableEdit(page);
+    expect(navigated).toBeTruthy();
+
+    const opened = await openImportDialog(page);
+    expect(opened).toBeTruthy();
+
+    await forceClaudeVisionUnavailable(page);
+
+    await page
+      .getByLabel('ファイルを選択')
+      .setInputFiles(path.join(FIXTURES_DIR, 'test-scanned-pdf-multipage.pdf'));
+
+    const dialog = page.getByRole('dialog');
+    const extraction = dialog.locator('section[aria-label="抽出結果"]');
+    const errorAlert = extraction.getByRole('alert');
+    await expect(
+      errorAlert,
+      'REQ-29.10: 30秒では終わらない量のOCR処理が打ち切られていない'
+    ).toBeVisible({ timeout: getTimeout(120000) });
+    await expect(errorAlert, 'REQ-29.10: 打ち切りの表示が30秒の超過を告げていない').toContainText(
+      'OCR処理がタイムアウトしました（30秒超過）'
+    );
+
+    // 打ち切られた（＝完走していない）こと。器そのものが無いことによる空洞ではないことを、
+    // 同じ領域にエラー表示が現に在ること（上の主張）が示している。
+    await expect(
+      extraction.locator('pre[data-testid="import-extracted-text"]'),
+      'REQ-29.10: 打ち切られたはずなのに抽出テキストが表示されている'
+    ).toHaveCount(0);
+
+    // 打ち切りが30秒の上限によること。時計は画面側の単調時計を使う（注記を参照）。
+    const timing = await collectImportOcrTiming(page);
+    expect(timing.fileSelectedAtMs, '前提: ファイル選択の時刻が観測されていない').toBeGreaterThan(
+      0
+    );
+    expect(timing.errorShownAtMs, '前提: エラー表示の時刻が観測されていない').toBeGreaterThan(0);
+
+    const elapsedMs = Math.round(timing.errorShownAtMs - timing.fileSelectedAtMs);
+    expect(
+      elapsedMs,
+      `REQ-29.10: 打ち切りまでが短すぎる（${elapsedMs}ms）。30秒の上限より前に別の要因で終わっている`
+    ).toBeGreaterThanOrEqual(29000);
+    expect(
+      elapsedMs,
+      `REQ-29.10: 打ち切りまでが長すぎる（${elapsedMs}ms）。30秒の上限で打ち切られていない`
+    ).toBeLessThanOrEqual(40000);
   });
 });
 
@@ -1226,6 +1873,44 @@ function watchTesseractAssetRequests(page: Page): string[] {
     }
   });
   return paths;
+}
+
+/** Claude Vision API の抽出エンドポイントのパス。 */
+const CLAUDE_VISION_EXTRACT_PATH_MARK = '/api/claude-vision/extract';
+
+/**
+ * PDF 抽出経路の要求を**一つの購読**で記録する。
+ *
+ * Tesseract 資材の取得（フォールバック経路でしか起きない）と Claude Vision API への要求を
+ * 同じ `page.on('request')` で拾うのは、「Tesseract の取得が0件」という否定の主張が
+ * *購読そのものが死んでいる*ことによる空洞でないことを、同じ購読が拾った肯定側
+ * （Claude Vision への要求が現に記録されている）で示すためである（99.1 の作法）。
+ *
+ * 配信元のホスト名ではなく**パス**で見分ける。配信元が環境で食い違っても観測が全件外れて
+ * 素通りしないようにするためである。
+ *
+ * @param page Playwright のページ
+ * @returns 記録された経路別のパスの配列（進行中も追記される）
+ */
+function watchPdfExtractionRequestPaths(page: Page): {
+  tesseract: string[];
+  claudeVision: string[];
+} {
+  const tesseract: string[] = [];
+  const claudeVision: string[] = [];
+  page.on('request', (request) => {
+    const requestPath = new URL(request.url()).pathname;
+    if (
+      requestPath.includes(TESSERACT_WORKER_PATH_MARK) ||
+      requestPath.includes(TESSERACT_LANG_PATH_MARK)
+    ) {
+      tesseract.push(requestPath);
+    }
+    if (requestPath.includes(CLAUDE_VISION_EXTRACT_PATH_MARK)) {
+      claudeVision.push(requestPath);
+    }
+  });
+  return { tesseract, claudeVision };
 }
 
 test.describe('REQ-30: Claude Vision APIが利用できないときのOCRフォールバック', () => {
@@ -1321,6 +2006,363 @@ test.describe('REQ-30: Claude Vision APIが利用できないときのOCRフォ�
       expect(
         normalizedText,
         `REQ-30.5: フォールバックの抽出テキストに画像内の語「${token}」が現れていない`
+      ).toContain(token);
+    }
+  });
+
+  /**
+   * @requirement quantity-table-generation/REQ-30.1: Claude Vision APIが利用可能な場合は優先的に使用する
+   *
+   * 条文は「PDFファイルのOCR処理が開始されたとき、Claude Vision APIが利用可能な場合は
+   * Claude Vision APIを**優先的に**使用する」。
+   *
+   * **前件**（利用可能）は、抽出エンドポイントの応答を 200 に固定して作る。テスト環境の
+   * backend は `ANTHROPIC_API_KEY` を持たず素では 503 を返すため、利用可能な状態は
+   * ルートの差し替えでしか作れない（30.5 が 503 を差し替えて利用不可を作るのと対）。
+   * 200 が現に返っていることを応答の観測で確かめてから後件を主張する。
+   *
+   * **後件**（優先的に使用する）は、入力に**画像のみのPDF**を選ぶことで意味を持たせる。
+   * 同じ入力に対してフォールバック経路が走れば、抽出テキストは OCR の読み取り結果
+   * （`SCANNED_PDF_OCR_EXPECTED_TOKENS` の語）になり、応答へ入れた目印は決して現れない。
+   * したがって「目印が画面へ出ている」ことが、Claude Vision の結果が採られたことの観測になる。
+   *
+   * **否定の主張が空集合への退化で成り立っていないことを、同じ観測器の肯定側で塞ぐ**（99.1）。
+   *   - 要求の購読: Tesseract 資材 0 件と対に、**同じ購読**が Claude Vision への要求を記録している
+   *   - Canvas の観測器: スケール4.0の画素の読み出し 0 件と対に、**同じ観測器**が
+   *     Claude Vision 経路の `toDataURL` を記録している
+   */
+  test('Claude Vision APIが利用可能なときはClaude Vision APIが優先して使われる (REQ-30.1)', async ({
+    page,
+  }) => {
+    /** Claude Vision の応答にだけ入れる目印。OCR の読み取り結果には決して現れない綴りにする。 */
+    const VISION_ONLY_MARKER = 'ビジョン優先マーカ9F3';
+
+    await installCanvasPipelineObservers(page);
+    const requestPaths = watchPdfExtractionRequestPaths(page);
+
+    const navigated = await navigateToQuantityTableEdit(page);
+    expect(navigated).toBeTruthy();
+
+    const opened = await openImportDialog(page);
+    expect(opened).toBeTruthy();
+
+    const visionPath = /\/api\/claude-vision\/extract$/;
+    const visionResponseStatuses: number[] = [];
+    page.on('response', (response) => {
+      if (visionPath.test(new URL(response.url()).pathname)) {
+        visionResponseStatuses.push(response.status());
+      }
+    });
+
+    // 前件: Claude Vision API が利用可能（200 で表データを返す）
+    await page.route('**/api/claude-vision/extract', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          lineItems: [
+            {
+              majorCategory: '建築工事',
+              middleCategory: '外装',
+              minorCategory: '塗装',
+              customCategory: '',
+              workType: '塗装工',
+              name: VISION_ONLY_MARKER,
+              specification: 'AEP',
+              quantity: 12.5,
+              unit: 'm2',
+              remarks: '',
+            },
+          ],
+          pageCount: 1,
+        }),
+      })
+    );
+
+    await page
+      .getByLabel('ファイルを選択')
+      .setInputFiles(path.join(FIXTURES_DIR, 'test-scanned-pdf.pdf'));
+
+    const dialog = page.getByRole('dialog');
+    const extraction = dialog.locator('section[aria-label="抽出結果"]');
+    const previewTable = extraction.getByRole('table');
+    await expect(previewTable, '前提: 抽出結果のプレビューテーブルが表示されない').toBeVisible({
+      timeout: getTimeout(45000),
+    });
+    await expect(extraction.getByRole('alert'), '前提: 抽出が失敗して終わっている').toHaveCount(0);
+
+    // 前件の検算: Claude Vision API が 200（利用可能）で応答している
+    expect(
+      visionResponseStatuses,
+      '前提: Claude Vision APIへの要求が一度も発行されていない'
+    ).not.toHaveLength(0);
+    expect(
+      visionResponseStatuses.filter((status) => status !== 200),
+      '前提: Claude Vision APIが200以外で応答した（前件が成立していない）'
+    ).toHaveLength(0);
+
+    // 後件(1): 画面に出ている抽出結果が Claude Vision の応答そのものである
+    await expect(
+      previewTable,
+      'REQ-30.1: Claude Vision APIの応答がプレビューテーブルに現れていない'
+    ).toContainText(VISION_ONLY_MARKER);
+    await expect(
+      dialog
+        .getByRole('region', { name: '抽出テキスト' })
+        .locator('pre[data-testid="import-extracted-text"]'),
+      'REQ-30.1: Claude Vision APIの応答が抽出テキストに現れていない'
+    ).toContainText(VISION_ONLY_MARKER);
+
+    // 後件(2): pdfjs-dist + Tesseract.js のフォールバックへ落ちていない（＝優先されている）
+    expect(
+      requestPaths.claudeVision.length,
+      '前提: Claude Vision APIへの要求が購読に記録されていない'
+    ).toBeGreaterThan(0);
+    expect(
+      requestPaths.tesseract,
+      'REQ-30.1: Claude Vision APIが利用可能なのにTesseractの資材が取得されている（フォールバックが走っている）'
+    ).toEqual([]);
+
+    const observations = await collectCanvasPipelineObservations(page);
+    expect(
+      observations.toDataURL.length,
+      '前提: Canvasからの画像化が一度も記録されていない（Canvasの観測器が働いていない）'
+    ).toBeGreaterThan(0);
+    expect(
+      observations.getImageData.filter(
+        (o) =>
+          o.width === SCANNED_PDF_PAGE_WIDTH_PT * EXPECTED_CANVAS_RENDER_SCALE &&
+          o.height === SCANNED_PDF_PAGE_HEIGHT_PT * EXPECTED_CANVAS_RENDER_SCALE
+      ).length,
+      'REQ-30.1: Claude Vision APIが利用可能なのにOCRフォールバックのスケール4.0の描画が行われている'
+    ).toBe(0);
+
+    // OCR の読み取り結果が画面を占めていないこと（目印と読み取り結果の取り違えを塞ぐ）
+    await expect(
+      previewTable,
+      'REQ-30.1: プレビューテーブルにOCRの読み取り結果が現れている'
+    ).not.toContainText(SCANNED_PDF_OCR_EXPECTED_TOKENS[0]);
+  });
+
+  /**
+   * @requirement quantity-table-generation/REQ-30.4: Claude APIのレスポンスのJSON表データを数量項目フィールドへ対応づける
+   *
+   * 条文は「Claude APIのレスポンスからJSON形式の表データを抽出し、数量項目フィールド
+   * （大項目・中項目・小項目・任意分類・工種・名称・規格・数量・単位・備考）にマッピングする」。
+   * 中黒で並ぶ10欄すべてが対象であり、**どの欄がどこへ入るか**が主題である。
+   *
+   * 応答の10欄へ**互いに区別できる目印**を入れ、プレビューテーブルの見出しの並びと
+   * データ行のセルの並びを**10欄ぶん一括で**突き合わせる。1欄でも入れ替わればこの主張は落ちる
+   * （欄ごとに分けて主張すると、二つの欄が入れ替わったときに両方の主張が同時に壊れて
+   * 「どちらの欄か」が読めなくなるため、順序の同一性は一括で固定する）。
+   *
+   * 前件は 30.1 と同じく応答を 200 に固定して作る。入力は画像のみのPDFで、
+   * フォールバックの OCR からはこれらの目印が決して現れない。
+   */
+  test('Claude Vision APIの応答が数量項目フィールドの10欄へ対応づけられる (REQ-30.4)', async ({
+    page,
+  }) => {
+    /** 応答の各欄へ入れる目印。欄ごとに異なる綴りにして入れ替わりを検出できるようにする。 */
+    const VISION_FIELD_VALUES = {
+      majorCategory: 'V大項目7A',
+      middleCategory: 'V中項目7B',
+      minorCategory: 'V小項目7C',
+      customCategory: 'V任意分類7D',
+      workType: 'V工種7E',
+      name: 'V名称7F',
+      specification: 'V規格7G',
+      quantity: 12.5,
+      unit: 'V単位7H',
+      remarks: 'V備考7I',
+    } as const;
+    /** 数量項目フィールドの並び（条文の中黒列挙の順）。 */
+    const EXPECTED_HEADERS = [
+      '大項目',
+      '中項目',
+      '小項目',
+      '任意分類',
+      '工種',
+      '名称',
+      '規格',
+      '数量',
+      '単位',
+      '備考',
+    ];
+    const EXPECTED_CELLS = [
+      VISION_FIELD_VALUES.majorCategory,
+      VISION_FIELD_VALUES.middleCategory,
+      VISION_FIELD_VALUES.minorCategory,
+      VISION_FIELD_VALUES.customCategory,
+      VISION_FIELD_VALUES.workType,
+      VISION_FIELD_VALUES.name,
+      VISION_FIELD_VALUES.specification,
+      String(VISION_FIELD_VALUES.quantity),
+      VISION_FIELD_VALUES.unit,
+      VISION_FIELD_VALUES.remarks,
+    ];
+
+    const navigated = await navigateToQuantityTableEdit(page);
+    expect(navigated).toBeTruthy();
+
+    const opened = await openImportDialog(page);
+    expect(opened).toBeTruthy();
+
+    const visionPath = /\/api\/claude-vision\/extract$/;
+    const visionResponseStatuses: number[] = [];
+    page.on('response', (response) => {
+      if (visionPath.test(new URL(response.url()).pathname)) {
+        visionResponseStatuses.push(response.status());
+      }
+    });
+
+    await page.route('**/api/claude-vision/extract', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ lineItems: [VISION_FIELD_VALUES], pageCount: 1 }),
+      })
+    );
+
+    await page
+      .getByLabel('ファイルを選択')
+      .setInputFiles(path.join(FIXTURES_DIR, 'test-scanned-pdf.pdf'));
+
+    const dialog = page.getByRole('dialog');
+    const extraction = dialog.locator('section[aria-label="抽出結果"]');
+    const previewTable = extraction.getByRole('table');
+    await expect(previewTable, '前提: 抽出結果のプレビューテーブルが表示されない').toBeVisible({
+      timeout: getTimeout(45000),
+    });
+    await expect(extraction.getByRole('alert'), '前提: 抽出が失敗して終わっている').toHaveCount(0);
+    expect(
+      visionResponseStatuses.filter((status) => status !== 200),
+      '前提: Claude Vision APIが200以外で応答した（前件が成立していない）'
+    ).toHaveLength(0);
+
+    // 見出しの並びが数量項目フィールドの10欄である
+    await expect
+      .poll(
+        () =>
+          previewTable
+            .locator('thead th > div')
+            .allTextContents()
+            .then((texts) => texts.map((t) => t.trim())),
+        {
+          message: 'REQ-30.4: プレビューテーブルの見出しが数量項目フィールドの10欄の並びでない',
+          timeout: getTimeout(10000),
+        }
+      )
+      .toEqual(EXPECTED_HEADERS);
+
+    // 応答の各欄が、対応する欄の位置へ入っている
+    await expect
+      .poll(
+        () =>
+          previewTable
+            .locator('tbody tr')
+            .first()
+            .locator('td')
+            .allTextContents()
+            .then((texts) => texts.map((t) => t.trim())),
+        {
+          message:
+            'REQ-30.4: Claude Vision APIの応答が数量項目フィールドの10欄へ対応づけられていない（欄の入れ替わりまたは欠落）',
+          timeout: getTimeout(10000),
+        }
+      )
+      .toEqual(EXPECTED_CELLS);
+  });
+
+  /**
+   * @requirement quantity-table-generation/REQ-30.6: Claude Vision APIのタイムアウト・エラー時のOCRフォールバック
+   *
+   * 条文は「Claude Vision APIリクエストが**タイムアウトまたはエラー**となった場合、
+   * フォールバックとして pdfjs-dist + Tesseract.js による OCR 処理を実行する」。
+   * 30.5 の前件（HTTP 503 ＝ API が利用できない）とは別の前件であり、ここでは
+   * **要求そのものが時間切れで失敗する**形を `route.abort('timedout')` で作る。
+   * 応答は一度も返らないため、30.5 の「503 で応答した」とは観測できる痕跡も異なる。
+   *
+   * 後件は 30.5 と同じく二つの engine が両方走ったことで観測する。
+   *   - Tesseract.js: worker スクリプトと日本語データの取得が起きる
+   *   - pdfjs-dist: 画像の中にしか無い語が抽出テキストへ現れる（Canvas へ描いた画素を
+   *     Tesseract が読む経路を通るほかなく、失敗した Claude Vision 経路からは現れない）
+   */
+  test('Claude Vision APIの要求がタイムアウトしたときpdfjs-dist + Tesseract.jsのOCRフォールバックが実行される (REQ-30.6)', async ({
+    page,
+  }) => {
+    const requestPaths = watchPdfExtractionRequestPaths(page);
+
+    const navigated = await navigateToQuantityTableEdit(page);
+    expect(navigated).toBeTruthy();
+
+    const opened = await openImportDialog(page);
+    expect(opened).toBeTruthy();
+
+    const visionPath = /\/api\/claude-vision\/extract$/;
+    const visionFailures: string[] = [];
+    const visionResponseStatuses: number[] = [];
+    page.on('requestfailed', (request) => {
+      if (visionPath.test(new URL(request.url()).pathname)) {
+        visionFailures.push(request.failure()?.errorText ?? 'unknown');
+      }
+    });
+    page.on('response', (response) => {
+      if (visionPath.test(new URL(response.url()).pathname)) {
+        visionResponseStatuses.push(response.status());
+      }
+    });
+
+    // 前件: Claude Vision API への要求が時間切れで失敗する
+    await page.route('**/api/claude-vision/extract', (route) => route.abort('timedout'));
+
+    await page
+      .getByLabel('ファイルを選択')
+      .setInputFiles(path.join(FIXTURES_DIR, 'test-scanned-pdf.pdf'));
+
+    const dialog = page.getByRole('dialog');
+    const extractedText = dialog.getByRole('region', { name: '抽出テキスト' });
+    await expect(
+      extractedText,
+      'REQ-30.6: Claude Vision APIがタイムアウトしたのにフォールバックの抽出結果が出ない'
+    ).toBeVisible({ timeout: getTimeout(45000) });
+    await expect(
+      dialog.locator('section[aria-label="抽出結果"]').getByRole('alert'),
+      'REQ-30.6: フォールバックが失敗して終わっている'
+    ).toHaveCount(0);
+
+    // 前件の検算: 要求は発行され、応答は一度も返らずに時間切れで失敗している
+    expect(
+      requestPaths.claudeVision.length,
+      '前提: Claude Vision APIへの要求が一度も発行されていない'
+    ).toBeGreaterThan(0);
+    expect(
+      visionFailures.length,
+      '前提: Claude Vision APIへの要求が失敗として記録されていない（前件が成立していない）'
+    ).toBeGreaterThan(0);
+    expect(
+      visionResponseStatuses,
+      '前提: Claude Vision APIが応答を返している（時間切れの前件になっていない）'
+    ).toEqual([]);
+
+    // 後件(1): Tesseract.js の OCR が走った
+    expect(
+      requestPaths.tesseract.filter((p) => p.includes(TESSERACT_WORKER_PATH_MARK)).length,
+      'REQ-30.6: Tesseractのworkerスクリプトが取得されていない（OCRフォールバックへ入っていない）'
+    ).toBeGreaterThan(0);
+    expect(
+      requestPaths.tesseract.filter((p) => p.includes(TESSERACT_LANG_PATH_MARK)).length,
+      'REQ-30.6: Tesseractの日本語データが取得されていない（createWorker("jpn")へ到達していない）'
+    ).toBeGreaterThan(0);
+
+    // 後件(2): pdfjs-dist が描いた画素を Tesseract が読み取った結果が抽出テキストに現れる
+    const fallbackText = await extractedText
+      .locator('pre[data-testid="import-extracted-text"]')
+      .textContent();
+    const normalizedFallbackText = (fallbackText ?? '').replace(/\s/g, '');
+    for (const token of SCANNED_PDF_OCR_EXPECTED_TOKENS) {
+      expect(
+        normalizedFallbackText,
+        `REQ-30.6: フォールバックの抽出テキストに画像内の語「${token}」が現れていない`
       ).toContain(token);
     }
   });

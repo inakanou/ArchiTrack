@@ -28,9 +28,14 @@
  *   node e2e/fixtures/generate-image-only-pdf.mjs
  *   node e2e/fixtures/generate-image-only-pdf.mjs --pages 150 --out test-scanned-pdf-multipage.pdf
  *
- * 生成物は 2 件で、いずれもリポジトリへコミットしている。
+ * 生成物は 3 件で、いずれもリポジトリへコミットしている。
  *
  * - `test-scanned-pdf.pdf`（1 ページ）: フォールバック経路そのものの検査に使う
+ * - `test-scanned-pdf-2pages.pdf`（2 ページ）: 「**各ページ**を Canvas 経由で画像に変換する」
+ *   （数量表インポートの受入基準 29.4）の量化子を n=1 で済ませないために使う。
+ *   画素の読み出し・書き戻し・画像化の回数と、抽出テキストに現れる画像内の語の出現回数が
+ *   いずれもページ数 2 と一致することを E2E から主張できる
+ *   （`node e2e/fixtures/generate-image-only-pdf.mjs --pages 2 --out test-scanned-pdf-2pages.pdf`）
  * - `test-scanned-pdf-multipage.pdf`（150 ページ）: 30 秒では終わらない量の仕事を与えて
  *   `OcrDataExtractor.tsx` の 30 秒の打ち切りを検査するために使う。画像 XObject は
  *   1 個を全ページで共有するため、ページ数を増やしてもファイルは 64KB 程度にとどまる
