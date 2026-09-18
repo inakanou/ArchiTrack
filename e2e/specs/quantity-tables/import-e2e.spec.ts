@@ -10,6 +10,7 @@
  * - @requirement quantity-table-generation/REQ-27.6: PDF OCR自動開始
  * - @requirement quantity-table-generation/REQ-27.7: 処理中インジケーター
  * - @requirement quantity-table-generation/REQ-27.8: 処理中のファイル選択の非活性と一括取り込みボタンの不表示
+ * - @requirement quantity-table-generation/REQ-28.2: Excelファイルの全シートを解析対象とする
  * - @requirement quantity-table-generation/REQ-28.3: 列マッピング
  * - @requirement quantity-table-generation/REQ-28.4: プレビューテーブル
  * - @requirement quantity-table-generation/REQ-28.5: 各列の現在のマッピング先フィールドの表示
@@ -86,6 +87,21 @@ const TEST_XLSX = path.join(FIXTURES_DIR, 'import-items.xlsx');
 // その見出しと中身は REQ-27.5 / REQ-28.4 の判定が固定しているため変えられない。
 // 10欄すべてを見出しに持つ資材を別に置く（見出しは field-mapping.ts の推定規則に一致する）。
 const TEST_XLSX_ALL_FIELDS = path.join(FIXTURES_DIR, 'import-items-all-fields.xlsx');
+// REQ-28.2 は「Excelファイルの**全シート**を解析対象とする」を求める。上の資材は 2 件とも
+// 単一シート（どちらも SheetNames は `["Sheet1"]`）であり、1枚目だけを読む実装と区別できない。
+// 見出しを共有し本文が 1 行ずつ異なる 3 枚のシートを持つ資材を別に置く。
+// 生成手順は `e2e/fixtures/generate-multi-sheet-xlsx.mjs` にある。
+const TEST_XLSX_MULTI_SHEET = path.join(FIXTURES_DIR, 'import-items-multi-sheet.xlsx');
+/**
+ * TEST_XLSX_MULTI_SHEET の本文（シートの並び順に 1 行ずつ）。
+ * 列の並びは 3 枚に共通の見出し（工種・名称・規格・数量・単位）と対。
+ */
+const MULTI_SHEET_ROWS = [
+  ['仮設工', 'E2E1枚目項目', '標準仕様', '11', '式'],
+  ['土工', 'E2E2枚目項目', '特記仕様', '22', 'm3'],
+  ['電気工', 'E2E3枚目項目', '参考仕様', '33', '箇所'],
+] as const;
+
 /** TEST_XLSX_ALL_FIELDS のデータ行（1行）。見出しの欄名 → セルの値 */
 const ALL_FIELDS_ROW = {
   大項目: 'E2E大項目',
@@ -1236,6 +1252,82 @@ test.describe('REQ-28: Excelデータパース', () => {
       results.getByRole('alert'),
       'REQ-28.4: データパース完了後の抽出結果にエラー表示が出ている'
     ).toHaveCount(0);
+  });
+
+  /**
+   * @requirement quantity-table-generation/REQ-28.2: Excelファイルの全シートを解析対象とする
+   *
+   * 見出しを共有し本文が 1 行ずつ異なる 3 枚のシートを持つ資材（import-items-multi-sheet.xlsx、
+   * 生成手順は `e2e/fixtures/generate-multi-sheet-xlsx.mjs`）を渡し、抽出結果のプレビューテーブルに
+   * **3 枚すべての本文が、シートの並び順に、ちょうど 3 行**現れることを主張する。
+   *
+   * タスク 100.9 の是正: 本条文の被覆印は
+   * `frontend/src/components/quantity-table-import/excel-parser.test.ts` の単体印にしかなく、
+   * それは除外台帳（e2e/requirement-exclusions.json）の REQ-28.1 の項が代替検証に挙げているのと
+   * 同一のファイルであった（機能名を冠した表記は被覆印として読まれるため、ここでは冠さない）。
+   * 兄弟の 28.1（SheetJS で直接読み取る）は「条文が名指すのは出力ではなく手段そのものであり、
+   * 画面から弁別できない」として据え置いたが、28.2 が名指すのは**解析の対象範囲**であり、
+   * 2 枚目以降のシートの本文が抽出結果に現れるか否かとして画面から弁別できる
+   * （`frontend/src/components/quantity-table-import/excel-parser.ts` の `readExcelFile` が
+   * `workbook.SheetNames` を回して行を積むため、1 枚でも落とせば行数と中身が食い違う）。
+   *
+   * シートを 3 枚にしたのは量化子を n=1 / n=2 で済ませないためである（REQ-29.4 の 2 ページ PDF と同じ理由）。
+   * 「先頭だけ」「末尾だけ」「先頭 2 枚だけ」のいずれの実装も落ちる。
+   *
+   * **判定は行の並びをシートの並び順に固定しており、この点で条文より厳格である**（条文は順序を
+   * 求めていない）。本番は `workbook.SheetNames`（ブック内の並び）を回すため順序は決定的であり、
+   * 決定的な一方を主張することは条文「全シートが対象」の十分な証人になる（タスク 100.6 (iii) の
+   * 判定と同型）。また行順の変化はそれ自体が利用者に見える振る舞いの変化である。副作用として、
+   * 全シートを読むが順序が違う実装は赤になる（`[...SheetNames].reverse()` で実測。タスク 100.9）。
+   * インラインプレビュー（REQ-34.3）にも表が出るため、判定は「抽出結果」の領域に限定する。
+   */
+  test('Excelの全シートが解析対象となり全シートの本文が抽出結果に現れる (REQ-28.2)', async ({
+    page,
+  }) => {
+    const navigated = await navigateToQuantityTableEdit(page);
+    expect(navigated).toBeTruthy();
+
+    const opened = await openImportDialog(page);
+    expect(opened).toBeTruthy();
+
+    const fileInput = page.getByLabel('ファイルを選択');
+    await fileInput.setInputFiles(TEST_XLSX_MULTI_SHEET);
+
+    const results = page.getByRole('dialog').getByRole('region', { name: '抽出結果' });
+    const previewTable = results.locator('table');
+    await expect(
+      previewTable,
+      'REQ-28.2: 複数シートのExcelのパース完了後、抽出結果のプレビューテーブルが表示されない'
+    ).toBeVisible({ timeout: getTimeout(45000) });
+
+    // 3 枚は同じ見出しを共有するため、抽出結果の列は 5 列に定まる
+    const headerCells = previewTable.locator('thead th');
+    await expect(
+      headerCells,
+      'REQ-28.2: プレビューテーブルの見出しが3枚に共通の5列になっていない'
+    ).toHaveCount(5);
+    for (const [index, header] of ['工種', '名称', '規格', '数量', '単位'].entries()) {
+      await expect(
+        headerCells.nth(index).locator(':scope > div'),
+        `REQ-28.2: プレビューテーブルの${index + 1}列目の見出しが「${header}」でない`
+      ).toHaveText(header);
+    }
+
+    // 全シートが解析対象である＝3 枚それぞれの本文が現れ、かつ行数は資材どおり 3 行にとどまる
+    const bodyRows = previewTable.locator('tbody tr');
+    await expect(
+      bodyRows,
+      'REQ-28.2: 抽出結果の本文が資材の3枚のシート分（3行）になっていない'
+    ).toHaveCount(MULTI_SHEET_ROWS.length);
+    for (const [rowIndex, expectedRow] of MULTI_SHEET_ROWS.entries()) {
+      const cells = bodyRows.nth(rowIndex).locator('td');
+      for (const [colIndex, value] of expectedRow.entries()) {
+        await expect(
+          cells.nth(colIndex),
+          `REQ-28.2: ${rowIndex + 1}枚目のシートの本文の${colIndex + 1}列目に「${value}」が表示されない`
+        ).toHaveText(value);
+      }
+    }
   });
 
   /**
