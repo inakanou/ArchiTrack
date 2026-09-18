@@ -246,13 +246,34 @@ function pointEntryAtRetired(entry: Json, criterionId: string): void {
 }
 
 /**
- * 原文が中黒で複数の要素を列挙している除外（代替検証の被覆範囲の対照で使う）
+ * 原文が中黒で複数の要素を列挙している除外を実物から一件取り出す（代替検証の被覆範囲の対照で使う）
  *
  * 変異は「掲げた代替検証から、原文が並べた要素を一つ落とす」形で入れる。
  * 実データがこの前提（列挙が二つ以上あり、その全てを代替検証が述べている）を
- * 満たさなくなれば `enumeratedElementsOf` が送出し、対照は静かに空振りせず落ちる。
+ * 満たさなくなれば送出し、対照は静かに空振りせず落ちる（AI運用7原則 第3原則）。
+ *
+ * **探針を ID で名指ししてはならない。** かつては
+ * `quantity-table-generation/REQ-26.7` を直書きしていたが、同条文の除外が
+ * タスク 100.5 で取り下げられた際に `entryById` が「実物に存在しない」で送出し、
+ * **陽性対照39件を含む機構全体が最後まで走らなくなった**（2026-09-18 の機能レベル
+ * 検証が、基線 `56a6a164` では exit 0 だったことを一時 worktree で実測して検出した）。
+ * 除外の取り下げは本検査自身が推奨する営みであり、それが検査を壊す構造は誤りである。
+ * `promiselessEntry` と同じく、**性質で見つけ、無ければ送出する**形にすること。
  */
-const ENUMERATION_PROBE_ID = 'quantity-table-generation/REQ-26.7';
+function enumerationProbeEntry(document: Json): Json {
+  const found = entries(document).find((entry) => {
+    const elements = extractEnumeratedElements((entry.criterionText as string) ?? '');
+    if (elements.length < 2) return false;
+    const text = alternativeTextOf(entry);
+    return elements.every((element) => namesElement(element, text));
+  });
+  if (!found) {
+    throw new Error(
+      '前提: 原文が中黒で二つ以上を列挙し、その全てを代替検証が述べている除外が実物に一件も存在しない'
+    );
+  }
+  return found;
+}
 
 /** 原文に中黒の列挙が無い除外（列挙が無ければ判定しない、という限界を固定する） */
 const NO_ENUMERATION_PROBE_ID = 'estimate-request/REQ-14.5';
@@ -724,7 +745,7 @@ const MUST_REJECT: Case[] = [
     // 一要素だけを落とす。除外の他の欄には触れないため、立つ違反はこれだけである。
     name: '代替検証が原文の列挙のうち一要素を述べていない（部分被覆）',
     mutate: (d) => {
-      const entry = entryById(d, ENUMERATION_PROBE_ID);
+      const entry = enumerationProbeEntry(d);
       const dropped = enumeratedElementsOf(entry, true)[0] as string;
       const alternative = altOf(entry);
       for (const [key, value] of Object.entries(alternative)) {
@@ -740,7 +761,7 @@ const MUST_REJECT: Case[] = [
   {
     name: '代替検証の説明が総称だけで原文の列挙を一つも述べていない',
     mutate: (d) => {
-      const entry = entryById(d, ENUMERATION_PROBE_ID);
+      const entry = enumerationProbeEntry(d);
       enumeratedElementsOf(entry, true);
       const alternative = altOf(entry);
       alternative.description = 'PDF生成ロジックを検証';
@@ -756,7 +777,7 @@ const MUST_REJECT: Case[] = [
     // （題は「フォントサイズ・色・背景色のカスタマイズ」、説明は「フォントサイズ」だけ）。
     name: '題だけが原文の列挙を写し、代替検証は一要素しか述べていない',
     mutate: (d) => {
-      const entry = entryById(d, ENUMERATION_PROBE_ID);
+      const entry = enumerationProbeEntry(d);
       const elements = enumeratedElementsOf(entry, true);
       entry.title = elements.join('・');
       const alternative = altOf(entry);
@@ -859,7 +880,7 @@ const MUST_ACCEPT: Case[] = [
     // 要素を閾値の欄で述べている除外は実在する。説明の欄だけを見ると誤検出になる。
     name: '原文の列挙を閾値の欄で述べていても通す',
     mutate: (d) => {
-      const entry = entryById(d, ENUMERATION_PROBE_ID);
+      const entry = enumerationProbeEntry(d);
       const elements = enumeratedElementsOf(entry, true);
       const alternative = altOf(entry);
       alternative.description = 'PDF生成ロジックを検証';
@@ -1542,15 +1563,35 @@ const MECHANISM_CASES: MechanismCase[] = [
   {
     // 判定が実データに当たっていること。列挙を持つ除外が一件も読めていなければ、
     // この検査は在るだけで何も見ていない。
+    //
+    // **母集団の下限を定数で置いてはならない。** かつては `< 10` を失敗としていたが、
+    // 除外の取り下げは本検査自身が推奨する営みであり、母集団は正当に減る。
+    // タスク 100.5 が `quantity-table-generation/REQ-26.6` と `REQ-26.7`（いずれも
+    // 原文が中黒で列挙する）を判定を置いたうえで取り下げた結果、実データは 11 件から
+    // 9 件へ減り、**何も壊れていないのに下限が落ちた**（2026-09-18 に一時 worktree で
+    // 基線 `56a6a164` の 11 件を実測）。定数を取り下げのたびに下げ直す運用は、
+    // ラチェットを名ばかりにするか、正当な取り下げを妨げるかのどちらかにしかならない。
+    //
+    // 代わりに「走査が空振りしていないこと」だけを、**対照が現に使う探針が実データから
+    // 見つかること**で確かめる。走査が壊れれば `enumerationProbeEntry` が送出し、
+    // 陽性対照39件も同時に落ちる（AI運用7原則 第3原則）。
     name: '実データに列挙を持つ除外があり判定が空振りしていない',
     run: () => {
       const document = JSON.parse(fs.readFileSync(REAL_EXCLUSIONS, 'utf-8')) as Json;
       const withEnumeration = entries(document).filter(
         (entry) => extractEnumeratedElements(entry.criterionText as string).length >= 2
       );
-      if (withEnumeration.length < 10) {
+      if (withEnumeration.length === 0) {
         return [
-          `中黒で二つ以上を列挙する原文を持つ除外が ${withEnumeration.length} 件しか読めていない（走査が壊れている疑い）`,
+          '中黒で二つ以上を列挙する原文を持つ除外が一件も読めていない（走査が壊れている疑い）',
+        ];
+      }
+      // 陽性対照が変異を当てる相手が実在すること。無ければここで送出する。
+      const probe = enumerationProbeEntry(document);
+      const elements = extractEnumeratedElements(probe.criterionText as string);
+      if (elements.length < 2) {
+        return [
+          `探針 ${probe.id as string} の原文から列挙が ${elements.length} 件しか読めていない（走査が壊れている疑い）`,
         ];
       }
       return [];
