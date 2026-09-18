@@ -42,6 +42,18 @@ import { openEditPageWithSingleItemRow } from '../../helpers/quantity-table-prec
 const WIDE_VIEWPORT_WIDTH = 1280;
 const NARROW_VIEWPORT_WIDTH = 600;
 
+/**
+ * REQ-25.2 の「表示領域は収まっているのにページ側が縦を担う」点で用いるビューポート高さ。
+ *
+ * 幅 1280px・数量グループ1件・数量項目1行の資材では、表示領域（`item-table-scroll-*`）の
+ * 矩形は `scrollY === 0` の時点で top 460px / bottom 513px にあり、文書の高さは 642px である。
+ * したがって高さ 600px では**表示領域はビューポート内に完全に収まりながら、文書は 42px
+ * あふれてページ側が垂直スクロールバーを担う**。この食い違いは高さ 550px 〜 642px の区間に
+ * だけ現れ、既存の 400px（表示領域が折り返しより下）や 900px（文書も表示領域も収まる）では
+ * 二つの量が同じ向きに動くため現れない（タスク 100.4 が8点で実測、タスク 100.7）。
+ */
+const AREA_FITS_WHILE_PAGE_OVERFLOWS_HEIGHT = 600;
+
 let testProjectId: string | null = null;
 let createdQuantityTableId: string | null = null;
 
@@ -233,6 +245,12 @@ test.describe('REQ-25: 画面スクロールバー表示', () => {
    * 否定側（縦の超過量が 0）が恒真へ退化していないことは、**同じ要素の同じ測り方**で
    * 横方向の超過量が 0 を上回ること（実測 1194/1182px）で担保する。要素が描かれていない、
    * あるいは測定そのものが死んでいる場合、この肯定側が先に落ちる。
+   *
+   * **この高さ 400px の点だけでは、改訂の核心は守れない。** ここでは表示領域が折り返しより下に
+   * 在るため「表示領域の量」と「ページ側の量」が同じ向きに動き、差し戻された偽の条文
+   * （前件を表示領域の収まりに据えた案）でも同じように合格する。改訂後の条文の特徴的な場合
+   * （表示領域は収まっているのにページ側が縦を担う高さ 600px）は、直後の判定が主張する
+   * （タスク 100.7）。
    */
   test('ページ側が垂直スクロールバーを担い表示領域の内側には設けない (REQ-25.2)', async ({
     page,
@@ -310,6 +328,106 @@ test.describe('REQ-25: 画面スクロールバー表示', () => {
   });
 
   /**
+   * @requirement quantity-table-generation/REQ-25.2: ページの内容がビューポートの縦幅を超える場合にページ側の垂直スクロールバーを表示する（表示領域の内側には設けない）
+   *
+   * **この判定は、上の高さ 400px の点が構造的に踏めない場合を踏む**（タスク 100.7）。
+   *
+   * 条文はタスク 100.4 で「前件も後件もページ側の量」へ改訂された。改訂前の案は**後件だけを
+   * ページ側へ付け替え、前件を「数量項目の表示領域が収まっている」に据え置いた偽の条文**で、
+   * 独立レビューが差し戻した。ところが被覆源は 25.2 を高さ 400px、25.3 を高さ 900px の各1点
+   * でしか測っておらず、**この2点は差し戻された偽の条文でも同じように合格する**——400px では
+   * 表示領域が折り返しより下（top 460px / bottom 513px）に在って「収まっていない」、900px では
+   * 文書も表示領域も収まるため、「表示領域の量」と「ページ側の量」が同じ向きに動くからである。
+   * つまり従来の判定は 100.4 の是正そのものを守っていなかった。
+   *
+   * 両者が食い違うのは高さ 550px 〜 642px の区間で、ここが**改訂後の条文の特徴的な場合**である。
+   * この判定は高さ {@link AREA_FITS_WHILE_PAGE_OVERFLOWS_HEIGHT}px を取り、次の三つを**同時に**
+   * 主張する。三つが同時に成り立つ状態は、前件を「表示領域の収まり」に据えた偽の条文では
+   * 説明できない（偽の条文の下では (b) が真なのでページ側の垂直スクロールバーは現れず (a) が偽になる）。
+   * - (a) `document.documentElement` の縦方向の超過量が 0 を上回る（実測 42px。文書 642px）
+   * - (b) 表示領域の矩形がビューポート内に**完全に**収まる（`top >= 0 && bottom <= 600`。実測 460..513）
+   * - (c) 表示領域の**内側**の縦方向の超過量が 0（実測 53/53px）
+   *
+   * 矩形はビューポート座標で読むため、測る前にページの縦位置を先頭へ戻す。前提を用意する
+   * 補助が入力欄へ焦点を当てる際にページを送ることがあり、位置が実行ごとに揺れるためである
+   * （100.4 の実測もすべて `scrollY === 0` で取られている）。
+   *
+   * (c) が恒真へ退化していないことは、上の 400px の判定と同じ手口——**同じ要素の同じ測り方**で
+   * 横方向の超過量が 0 を上回ること（実測 1194/1182px）——で担保する。併せて表示領域が高さを
+   * 持つことを主張し、(b) が高さ 0 の要素で自明に成立する形を排除する。
+   *
+   * ホイール操作は上の 400px の判定が担うためここでは行わない。高さ 600px では文書の超過が
+   * 42px しかなく、`hover()` の scrollIntoView がページを動かす余地と区別しにくいためである。
+   */
+  test('表示領域がビューポート内に完全に収まっていてもページ側が垂直スクロールバーを担う (REQ-25.2)', async ({
+    page,
+  }) => {
+    await openEditPageWithSingleItemRow(page, createdQuantityTableId);
+
+    await page.setViewportSize({
+      width: 1280,
+      height: AREA_FITS_WHILE_PAGE_OVERFLOWS_HEIGHT,
+    });
+
+    const itemTableScroll = page.locator('[data-testid^="item-table-scroll-"]').first();
+    await expect(itemTableScroll, '前提: 数量項目の表示領域が表示される').toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    // 矩形をビューポート座標で読むための基準をそろえる（主張ではなく前提の整備）。
+    await page.evaluate(() => window.scrollTo(0, 0));
+
+    // (a) ページ側: 条文の前件が成立し、縦にあふれた分はページの垂直スクロールバーが受け持つ
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () => document.documentElement.scrollHeight - document.documentElement.clientHeight
+          ),
+        {
+          message:
+            'REQ-25.2: 表示領域がビューポート内に完全に収まる高さで、ページ側に垂直スクロールが生じない',
+          timeout: getTimeout(10000),
+        }
+      )
+      .toBeGreaterThan(0);
+
+    const areaRect = await itemTableScroll.evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      return { top: rect.top, bottom: rect.bottom };
+    });
+
+    // (b) 表示領域の矩形がビューポート内に完全に収まる（ここが偽の条文と食い違う点である）
+    expect(
+      areaRect.top,
+      'REQ-25.2: 表示領域の上端がビューポートの外にあり、「表示領域は収まっている」状態になっていない'
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      areaRect.bottom,
+      'REQ-25.2: 表示領域の下端がビューポートの外にあり、「表示領域は収まっている」状態になっていない'
+    ).toBeLessThanOrEqual(AREA_FITS_WHILE_PAGE_OVERFLOWS_HEIGHT);
+    expect(
+      areaRect.bottom - areaRect.top,
+      '前提: 表示領域が高さを持つ（矩形の収まりが高さ 0 の要素で自明に成立していないこと）'
+    ).toBeGreaterThan(0);
+
+    // 肯定側（測定器が生きていることの証拠）: 同じ要素の同じ測り方で横方向は超過を返す
+    expect(
+      await itemTableScroll.evaluate((el) => el.scrollWidth - el.clientWidth),
+      '前提: 表示領域の横方向の超過量が 0 を上回る（縦の 0 が測定不能による 0 でないこと）'
+    ).toBeGreaterThan(0);
+
+    // (c) 表示領域の側: 収まっている状態でも内側に縦へスクロールする余地が無い
+    await expect
+      .poll(() => itemTableScroll.evaluate((el) => el.scrollHeight - el.clientHeight), {
+        message:
+          'REQ-25.2: 表示領域が収まっている状態で、その内側に縦へスクロールする余地があり垂直スクロールバーが現れる',
+        timeout: getTimeout(10000),
+      })
+      .toBe(0);
+  });
+
+  /**
    * @requirement quantity-table-generation/REQ-25.3: ページの内容がビューポートの縦幅に収まっている状態ではページ側の垂直スクロールバーを非表示にする（表示領域の内側には常に設けない）
    *
    * 従来の判定は空の数量表を 2560x1440 で開き、文書の横方向の超過量が 50px 以下で
@@ -339,6 +457,12 @@ test.describe('REQ-25: 画面スクロールバー表示', () => {
    *
    * 否定側が恒真へ退化していないことは REQ-25.2 と同じ手口——**同じ要素の同じ測り方**で
    * 横方向の超過量が 0 を上回ること（実測 1194/1182px）——で担保する。
+   *
+   * **この判定の 900px の点だけでは、100.4 が差し戻した「表示領域の収まりを前件に据えた
+   * 偽の条文」を捉えられない**（900px では文書も表示領域も収まるため、独立な二つの量が
+   * 同じ向きに動く）。改訂の核心を守る点は REQ-25.2 側の高さ 600px の判定
+   * （本ファイルの `AREA_FITS_WHILE_PAGE_OVERFLOWS_HEIGHT` を使う区間。タスク 100.7）
+   * である。25.3 の判定だけを読んで「改訂は被覆源に載っている」と結論しないこと。
    *
    * 水平方向の非表示は主張しない。承認済みの仕様（REQ-37 配置概要・REQ-37 AC6・
    * design.md:2212）が数量項目の表の常時溢れを受け入れており、「数量項目の表示領域が
