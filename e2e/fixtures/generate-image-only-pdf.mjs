@@ -28,7 +28,7 @@
  *   node e2e/fixtures/generate-image-only-pdf.mjs
  *   node e2e/fixtures/generate-image-only-pdf.mjs --pages 150 --out test-scanned-pdf-multipage.pdf
  *
- * 生成物は 3 件で、いずれもリポジトリへコミットしている。
+ * 生成物は 4 件で、いずれもリポジトリへコミットしている。
  *
  * - `test-scanned-pdf.pdf`（1 ページ）: フォールバック経路そのものの検査に使う
  * - `test-scanned-pdf-2pages.pdf`（2 ページ）: 「**各ページ**を Canvas 経由で画像に変換する」
@@ -39,6 +39,13 @@
  * - `test-scanned-pdf-multipage.pdf`（150 ページ）: 30 秒では終わらない量の仕事を与えて
  *   `OcrDataExtractor.tsx` の 30 秒の打ち切りを検査するために使う。画像 XObject は
  *   1 個を全ページで共有するため、ページ数を増やしてもファイルは 64KB 程度にとどまる
+ * - `test-scanned-pdf-ocr-timeout.pdf`（600 ページ）: 数量表インポートの 30 秒の打ち切り
+ *   （quantity-table-generation/REQ-29.10）を検査するために使う
+ *   （`node e2e/fixtures/generate-image-only-pdf.mjs --pages 600 --out test-scanned-pdf-ocr-timeout.pdf`）。
+ *   150 ページでは所要が打ち切りの 30 秒とほぼ同じで、完走が先に着く試行と打ち切りが先に着く
+ *   試行が入れ替わっていた（2026-09-18 に実測。ファイル選択からの経過は 29882ms で完走、
+ *   直後の再試行は 30643ms で打ち切り）。600 ページの完走は 117755ms（打ち切りを外したビルドで
+ *   実測）で、30 秒の打ち切りに対して約 3.9 倍の余裕がある
  *
  * E2E の実行時に生成しないのは、(1) 生成に backend の sharp と日本語フォントが要り
  * E2E の前提が増えること、(2) OCR の読み取り結果に対する主張が生成環境のフォントで
