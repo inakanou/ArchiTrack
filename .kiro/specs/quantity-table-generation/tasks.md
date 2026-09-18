@@ -4022,13 +4022,22 @@ _起票元: Task 96.11 の棚卸し。実装は行っていない_
   - **観測（範囲外。受け皿を 100.17 として起票した）**: **母集団の取り方に穴がある**——宣言のコマンドの `--include` に `.sh` が無いため、**`.husky/scripts/pre-push.sh` の言及が母集団に入らない**（`--include` 無しの `grep -rln` では 13 件になる）。**押下前の関門を駆動する最も「機械らしい」読み手が、§6 の「本記録を読む機械は」の母集団から漏れている**。これは 115.300 が §6 の逐語へ固定した既存の母集団定義の性質であり、是正はコマンドの書き換え＝母集団定義の変更を伴う → **100.17**
   - **観測（範囲外・上流所管）**: `check:design-measurement-freshness` の残 13 件はすべて `.kiro/specs/site-survey/design.md` 所管である。うち `selftest-entry-population` / `selftest-failure-default-conforming` の2件は **101.2**（`_Blocked:` site-survey 115.331）が受け皿を持つが、**残る11件には本スペック内にも上流にも受け皿が見当たらない**（`requirement-exclusions-total` expected=205 actual=160、`named-inline-id-headers-after-115308` expected=22 actual=84、`pending-implementation-exclusions-after-115314` expected=14 actual=4 など乖離幅が大きいものを含む）。**上流 site-survey の Task 115.330 が同じ系列を扱っているため、その棚卸しに含まれるかの確認が要る**
 
-- [ ] 100.15 除外の自己検査が探針を ID で名指しする箇所を、残る一件についても性質で見つける形へ改める
+- [x] 100.15 除外の自己検査が探針を ID で名指しする箇所を、残る一件についても性質で見つける形へ改める
   - **出所**: 機能レベル検証（2026-09-18）の是正の途中で親が観測した。**同型の欠陥が本実行で現に発火した**（下記）
   - **本実行で発火した側（是正済み）**: `scripts/check-requirement-exclusions.selftest.ts` の `ENUMERATION_PROBE_ID` が `quantity-table-generation/REQ-28.2` ではなく `quantity-table-generation/REQ-26.7` を直書きしており、**タスク 100.5 が同条文の除外を取り下げた瞬間に `entryById` が「実物に存在しない」で送出し、陽性対照39件を含む機構全体（70件）が最後まで走らなくなった**。基線 `56a6a164` では exit 0 だったことを一時 worktree で実測して検出した。**除外の取り下げは本検査自身が推奨する営みであり、それが検査を壊す構造は誤りである。** `promiselessEntry` と同じく性質で見つける `enumerationProbeEntry` へ改めた
   - **残っている側（本タスクの対象）**: 同ファイルの **`NO_ENUMERATION_PROBE_ID = 'estimate-request/REQ-14.5'`**（原文に中黒の列挙が無い除外の探針）が**依然として ID 直書き**である。当該除外が取り下げられた日に、同じ形で機構全体が止まる。**現時点では緑であり本実行の回帰ではない**
   - **選ぶべきこと**: `enumerationProbeEntry` と対になる「列挙を持たない除外を性質で見つけ、無ければ送出する」関数へ改めること。**改めたうえで、走査を殺す変異（`extractEnumeratedElements` が常に空を返す等）で現に赤くなることを実測すること**（本実行の是正では `MUTANT_EXIT=1` を実測した）
   - **所管**: 探針が名指すのは estimate-request の除外だが、**欠陥は共有スクリプトの構造にあり、直近で踏んだのは本機能である**。本機能で解いてよいが、estimate-request 側の取り下げ予定と衝突しないか着手時に確かめること
   - _Boundary: `scripts/check-requirement-exclusions.selftest.ts` の `NO_ENUMERATION_PROBE_ID` とその利用箇所_
+  - **旧探針は ID 直書きであるだけでなく、事実上恒真な陰性対照だった（実装者が発見し独立レビューが実測で確認）**: `NO_ENUMERATION_PROBE_ID` が指す `estimate-request/REQ-14.5` の原文は「The システム shall 受領見積書の削除時に論理削除を行う」で、**読点も中黒も1つも含まれていない**。当該対照は `mustReject: false`（＝弾かれないことを主張する）であるから、**並べるものが何も無い相手を選べば、機構をどれだけ緩めても violation は生まれず、対照は在るだけで何も見ていない**。本タスクは ID 直書きの解消と**恒真な対照の是正**を同時に果たした
+  - **是正**: `promiselessEntry` / `enumerationProbeEntry` と同じ作法（**性質で見つけ、無ければ送出する**）の `noEnumerationProbeEntry(document)` を新設した。選ぶ性質は三つ——(1) 中黒の列挙が0件（＝限界の前件が立つ）、(2) **読点を中黒へ読み替えれば二要素以上が読める**（＝**取り逃がす当てが実在する**。旧探針が恒真だった原因を正面から塞ぐ）、(3) 説明を総称へ置き換えるとその要素の少なくとも一つが代替検証のどの欄にも現れなくなる（＝変異が効いている）。加えて置き換え前の説明が総称と一致しないことも見る（**「変異したつもりの無変異」を作らないため**）
+  - **独立レビューが実装者の CONCERN を反証した（本タスクで最も重い論点）**: 実装者は「変異 (C)（抽出器本体を緩める）では当該対照が『誤って弾かれた』ではなく**探針の前提崩壊の送出**で赤くなる。対照が実質的に自分自身を検査している循環の疑いがある」と自己申告した。**独立レビューは自分で変異 M-F を設計してこれを反証した**——`checkAlternativeCoverage` の**呼び出し側1行だけ**を緩め（`extractEnumeratedElements(entry.criterionText.split('、').join('・'))`）、**探針が使う抽出器本体は無傷に保つ**。すると当該対照は前提崩壊ではなく**「過検出（誤って弾かれた）」として本来の極性で赤くなり、しかも自分の探針が選んだ `exclusions[6]`（REQ-24.3）を名指しした**（欠落要素「最大5回」「1分」「5分」「15分」「1時間」「6時間後」）。同じ実行で他の対照が挙げるのは `[3] [19] [42]` のみで `[6]` は現れないため、**赤の原因はこの対照自身の変異に帰属する**。すなわち循環ではない。**旧探針を同じ M-F に当てるとこの検出は成立しなかった**——恒真性の是正が実効を持つことの直接証拠である
+  - **変異による検証（独立レビューが実装者をなぞらず6種を自分で設計。落ちない壊し方は無かった）**: **A** `namesElement` を常に `true` → 条件3が全件 false で**候補が0件**になり、**新設 `noEnumerationProbeEntry` 自身が前提崩壊を送出**して EXIT=1（**候補が0件のとき緑にならず赤になることの直接の実測**。AI運用第3原則）。**B** `namesElement` を常に `false` → 陽性対照側が検出。**C** 抽出器で読点を中黒へ読み替える → 新設関数が送出。**D** 常に `['甲','乙']` を返す／**E** 常に `[]` を返す → 対の `enumerationProbeEntry` が先に送出。**F** 呼び出し側だけ読点を読む → 当該対照が「過検出」で赤（上記）
+  - **候補の独立計数**: 独立レビューが自前のスクリプトで三条件を再現して数え、**候補15件・先頭 `REQ-24.3`**（実装者の主張と一致）。中黒の列挙を持たない除外は 160 件中 151 件あり、三条件で 15 件へ絞られる。**1件が取り下げられても残る14件へ自動で移るため、ID 直書きの再発は構造的に起きない**
+  - **検証（親が提出時に自分で実測）**: 作業ツリーは `scripts/check-requirement-exclusions.selftest.ts` の1件のみ。**`git diff frontend/ backend/` は 0 行**、**`scripts/check-requirement-exclusions.ts` の `git hash-object` が HEAD と一致**（本体は無変更）、**`git diff e2e/requirement-exclusions.json` は 0 行**（探針を作るために実データを触っていない）。自己検査は **70/70・EXIT=0（陽性対照 39 / 陰性対照 8 / 機構 23）で件数構成は着手前と不変**。`check:req-exclusions` / `check:adjudication-pointers` / `check:criterion-literals` / `check:e2e-guards` / `check:e2e-selfjudge` / `check:dead-script-env` / `type-check` / `lint` / `format:check` がいずれも **exit 0**。`check:design-measurement-freshness` の食い違いは **13 件で着手前と `diff` が空**（増えていない）
+  - **下限の定数を新設していない**（本実行の教訓「ラチェットの下限は、減ることが正当な母集団に置いてはならない」に抵触しないこと。独立レビューが `MIN_` / `MINIMUM` / `下限` / `LOWER_BOUND` の追加が0件であることを実測）
+  - **観測（範囲外。受け皿を 100.18 として起票した）**: **同ファイルに ID 直書きの探針が4つ残っている**——`COVERED_PROBE_ID = 'site-survey/REQ-1.3'`、`SHIFT_TARGET_ID = 'site-survey/REQ-29.2'`、`MUTATION_SOURCE_ID = 'site-survey/REQ-14.4'`、`RETIRED_PROBE_ID = 'quantity-table-generation/REQ-1.3'`。いずれも `entryById` 経由で、**指し先が取り下げられれば同型の「機構全体が止まる」障害を起こしうる** → **100.18**
+  - **観測（範囲外・非ブロッキング）**: `alternativeTextWithDescription` が `alternativeTextOf` の本体を逐語で複製している。`alternativeTextOf({ ...entry, alternativeVerification: { ...altOf(entry), description } })` へ委譲すれば担い手が一箇所に収まる（独立レビューの Suggestion 11）
 
 - [ ] 100.16 estimate-request の OCR 打ち切りの判定が、同型のコイン投げを抱えている状態を解消する
   - **出所**: 100.12 の実装者の CONCERNS (1) と独立レビューの Finding 6（いずれも本タスクの境界外と判定された）
@@ -4045,6 +4054,15 @@ _起票元: Task 96.11 の棚卸し。実装は行っていない_
   - **選ぶべきこと**: コマンドの `--include` を広げて母集団を定義し直すか（**その場合 `expected` も同時に測り直すこと**。規約 (a) に従い当時の値は残す）、§6 の言い回しを実体へ寄せるか
   - **注意**: これは **115.300 が §6 の逐語へ固定した既存の母集団定義の変更**にあたる。**母集団の定義を変えるなら、変えた後の値が再び陳腐化しない形か**（拡張子を列挙し続ける運用にならないか）を併せて考えること
   - _Boundary: `scripts/design-measurements.json` の `coverage-adjudication-reader-files` の `command` と `expected`、および `scripts/coverage-mark-adjudication.md` §6 の当該の言い回し_
+
+- [ ] 100.18 除外の自己検査に残る4件の ID 直書きの探針を、性質で見つける形へ改める
+  - **出所**: 100.15 の独立レビューの Finding 12（本タスクの `_Boundary:_` 外と判定された）
+  - **測った事実（100.15 で実測。親も確認済み）**: `scripts/check-requirement-exclusions.selftest.ts` に ID 直書きの探針が**4つ**残っている——`COVERED_PROBE_ID = 'site-survey/REQ-1.3'`、`SHIFT_TARGET_ID = 'site-survey/REQ-29.2'`、`MUTATION_SOURCE_ID = 'site-survey/REQ-14.4'`、`RETIRED_PROBE_ID = 'quantity-table-generation/REQ-1.3'`。いずれも `entryById` / `pointEntryAt` / `pointEntryAtRetired` 経由である
+  - **なぜ急ぐべきか（本実行で同型が現に発火した）**: `ENUMERATION_PROBE_ID` が `quantity-table-generation/REQ-26.7` を直書きしていたため、**タスク 100.5 が同条文の除外を取り下げた瞬間に機構全体（70件・陽性対照39件を含む）が未捕捉例外で止まった**。しかも `check:req-exclusions` 本体は exit 0 のままで**関門の見かけは緑**だった。**除外の取り下げは本検査自身が推奨する営みであり、それが検査を壊す構造は誤りである**
+  - **手本は2件ある**: `enumerationProbeEntry`（本実行の機能レベル検証の是正）と `noEnumerationProbeEntry`（100.15）。いずれも `promiselessEntry` の作法（**性質で見つけ、無ければ送出する**）に倣っている
+  - **注意**: **`RETIRED_PROBE_ID = 'quantity-table-generation/REQ-1.3'` は本機能の条文である**。Requirement 1 は全受入基準が `project-management/Requirement 25` へ移管済み（打ち消し線）であり、**当該除外が台帳に在るのか、既に無いのかを着手時に測ること**。無いなら本タスクは緊急である
+  - **改めるにあたり**: 探針は**当該の対照が何を固定したいか**で選ぶこと。100.15 は陰性対照の探針を「**取り逃がす当てが実在する**相手」で選び直すことで、**ID 直書きの解消と恒真な対照の是正を同時に果たした**。単に性質へ置き換えるだけでなく、**置き換えた探針で対照が現に効くことを変異で実測すること**
+  - _Boundary: `scripts/check-requirement-exclusions.selftest.ts` の `COVERED_PROBE_ID` / `SHIFT_TARGET_ID` / `MUTATION_SOURCE_ID` / `RETIRED_PROBE_ID` とその利用箇所_
 
 
 ## Task 101. 被覆印の計数の方式そのものの是正
@@ -4195,3 +4213,5 @@ _起票元: Task 96.11 の棚卸し。実装は行っていない_
 - **「等値の鮮度宣言」と「片側のラチェット」を混同しないこと**: 本実行は 101.1 の自己検査から「ラチェットの下限は、減ることが正当な母集団に置いてはならない」を学んだが、100.14 の実装者はその申し送りに**正面から反論し、独立レビューが支持した**。両者は逆の型である——**片側の `>= N` は「何も壊れていないのに」落ちるので誤検知**だが、**`expected == actual` の等値の鮮度宣言は「止めて測り直させること」が目的**であり、発火は設計どおりで、結果は規約 (a) の監査証跡になる。**親の申し送りを実装者が測り直して覆すのは正しい振る舞いである。**
 - **母集団の宣言が陳腐化したら、値を上げる前に「新しいメンバーが本当にメンバーか」を測ること**: 100.14 は 12 件目が「単なる文字列の出現」か「機械が課す制約を受けた記述」かを、**表題を1文字改める変異で `check:adjudication-pointers` が赤になる**ことによって判定した。妥当でなければ宣言でなく参照の側を直すのが筋である。**この分岐を先に潰さずに値だけ上げると、辻褄合わせで母集団が膨らむ。**
 - **宣言の母集団を絞る条件（`--include` の拡張子など）は、宣言の言い回しと突き合わせること**: 100.14 の独立レビューは、§6 が「本記録を**読む機械**は」と述べる母集団から、**押下前の関門を駆動する `pre-push.sh` が拡張子の指定漏れで抜けている**ことを見つけた（100.17 として起票）。**言い回しが広く、母集団の取り方が狭い**組み合わせは、宣言が緑でも実体を代表しない。
+- **`mustReject: false` の対照は「何をしても弾かれない相手」を選ぶと恒真になる**: 100.15 が見つけたとおり、陰性対照の探針が「読点も中黒も持たない条文」だったため、機構をどれだけ緩めても violation が生まれず、対照は在るだけで何も見ていなかった。**限界を固定する対照は、「取り逃がす当てが実在する」相手を選ぶこと**——その相手でなお弾かれないことが、限界が現に効いている証拠になる。
+- **「循環している」という自己申告は、変異の入れ方を変えて反証できることがある**: 100.15 の実装者は「対照の探針が被検査関数を使うので、機構を緩める変異では前提崩壊でしか赤くならない＝循環の疑い」と申告した。独立レビューは**呼び出し側1行だけを緩め、探針が使う本体は無傷に保つ**変異を設計し、対照が**本来の極性（過検出の検出）で自分の探針を名指しして赤くなる**ことを実測して反証した。**「循環だから仕方ない」と結論する前に、変異を入れる場所を変えて測ること。**

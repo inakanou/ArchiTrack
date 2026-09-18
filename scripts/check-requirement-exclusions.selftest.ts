@@ -275,12 +275,79 @@ function enumerationProbeEntry(document: Json): Json {
   return found;
 }
 
-/** 原文に中黒の列挙が無い除外（列挙が無ければ判定しない、という限界を固定する） */
-const NO_ENUMERATION_PROBE_ID = 'estimate-request/REQ-14.5';
+/**
+ * 「機構の限界」の陰性対照が代替検証の説明を置き換える総称
+ *
+ * 探針の選び方（`noEnumerationProbeEntry`）と対で意味を持つ。この総称へ置き換えても
+ * なお緑であることが、固定したい限界そのものである。
+ */
+const NO_ENUMERATION_GENERIC_DESCRIPTION = 'ロジックを検証';
+
+/**
+ * 原文が中黒の列挙を持たない除外を実物から一件取り出す（機構の限界を固定する陰性対照で使う）
+ *
+ * 固定したい限界は「原文が**中黒で**列挙していなければ `alternative-coverage` は何も
+ * 言わない」である。連言や読点で並ぶ要素の部分被覆は機構では決まらない。
+ *
+ * **探針を ID で名指ししてはならない。** かつては `estimate-request/REQ-14.5` を
+ * 直書きしていた。除外の取り下げは本検査自身が推奨する営みであり、当該の除外が
+ * 取り下げられた日に `entryById` が「実物に存在しない」で送出して、陽性対照39件を
+ * 含む機構全体（70件）が最後まで走らなくなる。対になる `enumerationProbeEntry` が
+ * まさにその形で壊れた（タスク 100.5 が `quantity-table-generation/REQ-26.7` の除外を
+ * 取り下げた瞬間に発火。2026-09-18 の機能レベル検証が基線 `56a6a164` との差で検出）。
+ * `promiselessEntry` / `enumerationProbeEntry` と同じく、**性質で見つけ、無ければ
+ * 送出する**形にする。
+ *
+ * 選ぶ性質は三つで、いずれも**対照を恒真にしないため**に要る（AI運用7原則 第3原則）。
+ *
+ * 1. 中黒の列挙を持たない（＝限界の前件が立っている）
+ * 2. 読点を中黒に読み替えれば二つ以上の要素が読める（＝**取り逃がす当てが実在する**）。
+ *    ここを落とすと「そもそも並べるものが何も無い原文」を選びうる。それでは変異が
+ *    無害なのは当たり前で、対照は限界ではなく何も確かめていないことになる。
+ * 3. 説明を総称へ置き換えると、その要素の少なくとも一つがどの欄にも現れなくなる
+ *    （＝**変異が効いている**）。この三つを満たす相手を選ぶ限り、機構が読点まで読むよう
+ *    緩められた日には (1) が崩れて本関数が送出し、対照は緑のまま通り過ぎない。
+ *    実測: `extractEnumeratedElements` の先頭へ `criterionText` の読点を中黒へ読み替える
+ *    一行を挿すと、本関数が上の前提の崩壊を送出して自己検査は EXIT=1 で落ちる
+ *    （2026-09-19 に実測。変異は控えからの書き戻しで復元し、70/70 の緑へ戻した）。
+ *    逆に、実データが「列挙を持たない除外」を一件も持たなくなる変異
+ *    （中黒の無い原文へ二要素を返させる）でも同じ経路で EXIT=1 になる。
+ *
+ * 加えて、置き換え前の説明が総称と食い違うことも見る。同じ文字列なら「変異を加えた
+ * つもりの無変異」になり、実物と区別が付かなくなるからである。
+ */
+function noEnumerationProbeEntry(document: Json): Json {
+  const found = entries(document).find((entry) => {
+    const criterionText = (entry.criterionText as string) ?? '';
+    if (extractEnumeratedElements(criterionText).length > 0) return false;
+    const alternative = entry.alternativeVerification as Json | undefined;
+    if (!alternative || typeof alternative.description !== 'string') return false;
+    if (alternative.description === NO_ENUMERATION_GENERIC_DESCRIPTION) return false;
+    // 読点を中黒に読み替えて「機構が読まない列挙」を取り出す（検査本体の規則を使い回す）。
+    const unread = extractEnumeratedElements(criterionText.split('、').join('・'));
+    if (unread.length < 2) return false;
+    const text = alternativeTextWithDescription(entry, NO_ENUMERATION_GENERIC_DESCRIPTION);
+    return unread.some((element) => !namesElement(element, text));
+  });
+  if (!found) {
+    throw new Error(
+      '前提: 原文が中黒では列挙せず読点で二つ以上を並べ、説明を総称へ置き換えるとその要素を述べなくなる除外が実物に一件も存在しない'
+    );
+  }
+  return found;
+}
 
 /** 代替検証の全ての文字列（検査が照合する相手と同じ範囲） */
 function alternativeTextOf(entry: Json): string {
   return Object.values(altOf(entry))
+    .filter((value): value is string => typeof value === 'string')
+    .join('\n');
+}
+
+/** 説明の欄だけを差し替えたときの代替検証の全文字列（変異が効くかを変異の前に測る） */
+function alternativeTextWithDescription(entry: Json, description: string): string {
+  const alternative = { ...(entry.alternativeVerification as Json), description };
+  return Object.values(alternative)
     .filter((value): value is string => typeof value === 'string')
     .join('\n');
 }
@@ -867,12 +934,16 @@ const MUST_ACCEPT: Case[] = [
   {
     // 機構の限界をそのまま固定する。原文が中黒で列挙していなければ、説明が総称でも
     // この検査は何も言わない（連言「〜を表示し、〜を促す」の部分被覆は機構では決まらない）。
-    // 緩めた覚えのない側を後から緩めると、この陰性対照ではなく陽性対照が落ちる。
+    // 探針は `noEnumerationProbeEntry` が性質で選ぶ。ID で名指しすると、当該の除外が
+    // 取り下げられた日に機構全体が止まる（タスク 100.15。理由は同関数の註に書いた）。
+    // 選ばれる相手は「読点でなら二つ以上が読め、総称へ置き換えるとその要素をどの欄でも
+    // 述べなくなる」除外に限る。緩めた覚えのない側（読点まで読む等）を後から緩めると、
+    // この陰性対照自身が赤くなる。
     name: '原文に中黒の列挙が無ければ代替検証の総称を弾かない（機構の限界）',
     mutate: (d) => {
-      const entry = entryById(d, NO_ENUMERATION_PROBE_ID);
+      const entry = noEnumerationProbeEntry(d);
       enumeratedElementsOf(entry, false);
-      altOf(entry).description = 'ロジックを検証';
+      altOf(entry).description = NO_ENUMERATION_GENERIC_DESCRIPTION;
     },
     mustReject: false,
   },
