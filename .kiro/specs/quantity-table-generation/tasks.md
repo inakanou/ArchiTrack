@@ -3989,6 +3989,21 @@ _起票元: Task 96.11 の棚卸し。実装は行っていない_
   - **選ぶべきこと**: テストの上限を上げるか、打ち切りの検証を**単調時計**（`performance.now()` 等）で行う形へ改めるか、打ち切り時間そのものを注入可能にするか。**揺れる判定は「緑だから正しい」とも「赤だから壊れている」とも言えないため、被覆印としての価値を損なう**
   - _Boundary: `e2e/specs/quantity-tables/import-e2e.spec.ts` の REQ-29.10 の判定と、その docblock。打ち切り時間の注入が要る場合は本番の変更を伴うため、その時点で裁定を受けること_
 
+- [ ] 100.13 REQ-43.2 が除外に在籍したまま本番に実装されていない状態を解消する
+  - **出所**: 機能レベル検証（2026-09-18）の要件被覆の次元。**99.5 が 2026-09-17 に「1行の結線で直る見込みで別タスクの起票が望ましい」と観測したまま、どこにも起票されていなかった**
+  - **測った事実（検証のサブエージェントが測り、親が自分でコードを読んで裏を取った）**: `frontend/src/pages/QuantityTableEditPage.tsx` は `useUnsavedChanges({ enabled: isDirty })` と呼ぶだけで**戻り値を使わず `initialDirty` も渡さない**。`frontend/src/hooks/useUnsavedChanges.ts` の**内部の** `isDirty` は `useState(initialDirty)`（既定 `false`）のまま真にならず、`beforeunload` の登録は `if (!enabled || !isDirty) { return; }` に守られているため**リスナーが一度も登録されない**。すなわち条文 43.2（未保存時のタブ閉じ・リロードに対するブラウザ標準の離脱確認）は**本番の経路に存在しない**
+  - **二重の問題である**: (1) 43.2 は `e2e/requirement-exclusions.json` に在籍しており**分母から外れている**ため、実装の欠落が被覆率に一切現れない。除外の `reason` の記述自体は正確だが、**それは「E2E対象外」の宣言ではなく未実装の告白**である。(2) **Task 62.1「未保存変更時の離脱ガードを実装する」は `[x]` で `_Requirements: 43.1, 43.2, …, 43.6_` を名乗っている**。**完了印が実装の到達可能性を伴っていない**（96.x の教訓「完了印は実装の存在でなく到達可能性で判断する」の再発）
+  - **選ぶべきこと**: 結線して実装を成立させ、判定を置いて除外を取り下げるか（83.1 の作法）、実装しないと決めて条文と 62.1 の完了印の側を正すか。**前者を採るなら本番の変更を伴う**
+  - _Boundary: `frontend/src/pages/QuantityTableEditPage.tsx` の `useUnsavedChanges` の結線、`e2e/requirement-exclusions.json` の `REQ-43.2` の項、Task 62.1 の完了印と `_Requirements:` の名乗り_
+  - **着手前に利用者へ確かめること**: 本番の変更を伴う可能性があり、かつ**既に `[x]` が付いたタスクの完了印を扱う**ため、**着手してよいかの裁定を先に受けること**
+
+- [ ] 100.14 裁定文書の読み手の母集団の宣言が、下流の増分で陳腐化した状態を解消する
+  - **出所**: 機能レベル検証（2026-09-18）の Implementation Notes の棚卸し。**`## Implementation Notes` L4063 が記録した「学びを書く行が、別の検査の母集団を増やして関門を後退させる」型の再発**である（80.3 で `coverage-adjudication-reader-files` が 10→11 へ動き、80.4 が測り直した先例がある）
+  - **測った事実（親が実測。2026-09-18）**: `grep -rl coverage-mark-adjudication`（node_modules を除く）の当たりは **12 ファイル**だが、`scripts/design-measurements.json` の `coverage-adjudication-reader-files` の宣言は **expected=11** であり `check:design-measurement-freshness` が現に赤である。**12 件目は `e2e/specs/quantity-tables/import-e2e.spec.ts`** で、**本機能のコミット `3366deca`（2026-09-16）が入れた**
+  - **所管は本スペックである**: 当該ファイルは本機能のコミットが3件触れており、**80.4 が 10→11 へ測り直した先例がある**。`.kiro/specs/` 全体を grep しても `coverage-adjudication-reader-files` を受ける未完タスクは無い（99.4 は別ファイル、101.2 は別宣言）。**境界内で解ける**
+  - **注意**: 宣言の値を動かす前に、**12 件目が読み手として妥当か**（裁定文書を現に参照しているか、単に文字列が出現しただけか）を測ること。妥当でないなら参照の側を直すのが筋である
+  - _Boundary: `scripts/design-measurements.json` の `coverage-adjudication-reader-files` の expected と、その宣言が引く逐語_
+
 
 ## Task 101. 被覆印の計数の方式そのものの是正
 
