@@ -6090,6 +6090,17 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - **依頼**: 規約 (a) に従い、各宣言の本文の値と `design-measurements.json` の expected を同時に測り直すこと。下流の増分の内訳は、当時の記録を残したうえで現況の値へ揃える判断の材料として使うこと。115.328（ラチェットの引き下げ）と 115.326（`PhotoChangeDialog`）の解決の後に測ると、一度で済む
   - _Boundary: 本スペックの設計文書の鮮度宣言の本文と `design-measurements.json` の expected_
 
+- [ ] 115.331 自己検査の母集団を引く鮮度宣言を、下流が1本増やした実測へ揃える（**quantity-table-generation の Task 101.1 からの起票依頼**）
+  - **出所**: 下流 quantity-table-generation の Task 101.1（利用者の裁定「被覆印の計数の方式を統一する補助を用意する（自己検査を伴う）」）。同タスクが `scripts/count-coverage-marks.ts` とその自己検査 `scripts/count-coverage-marks.selftest.ts` を新設したため、**`scripts/*.selftest.ts` の母集団が 19 件から 20 件へ増えた**。**下流は本スペックの設計文書も `design-measurements.json` も書き換えていない**
+  - **再実測（2026-09-18、リポジトリルート、`npm run -s check:design-measurement-freshness`）**: 本件に由来する食い違いは**ちょうど2件**である（下流の独立レビューが、下流の是正ラウンド1・2の前後で `diff` を取り増えていないことを実測した）
+    - `selftest-entry-population`: expected `19` / actual `20`
+    - `selftest-failure-default-conforming`: expected `19` / actual `20`
+    - いずれも `.kiro/specs/site-survey/design.md` の逐語「タスク 115.300 の提出時点の再実測は母集団 19 件・適合 19 件である」が引く値である
+  - **両者が揃って 20 であることの意味**: 新設された自己検査は**失敗既定の形**（module 頂の `process.exitCode = 1;`、成功経路にのみ字下げ付きの `process.exitCode = 0;`、`main();` が1箇所）に適合している。母集団が 20 へ増え、適合も 20 へ増えているので、**作法違反による増加ではない**
+  - **依頼**: 規約 (a) に従い、`design.md` の当該逐語と `design-measurements.json` の `expected` を**同時に**測り直すこと。**逐語の書き換えは本スペックの所管であり、下流からは触れない**（下流の独立レビューも境界外と判定した）
+  - **併せて測ると一度で済むもの**: 本宣言は 115.330 が扱う鮮度宣言の系列と同じ文書に在る。**115.330 の測り直しの際に本件も同時に処理するのが自然**である（本件だけを先に直すと 115.330 で再び触ることになる）
+  - _Boundary: 本スペックの `design.md` の当該鮮度宣言の逐語と `design-measurements.json` の `selftest-entry-population` / `selftest-failure-default-conforming` の expected_
+
 ## Implementation Notes（Task 115.30-115.52）
 
 - **「注記が言う未実装」を鵜呑みにしないこと**: 115.127 段4 で、八件の検証が「実装がセレクトボックスなので未実装」という注記つきの分岐で守られていたが、実装は入力欄であり**観測は一度も発火していなかった**。危険なのは発火しなかったことではなく、**実装が退行した瞬間に八件が緑のまま何も主張しなくなる**ことである。変異で実測すると、観測が発火する状況では八件が主張を一つも実行せずに通った。

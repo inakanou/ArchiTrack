@@ -333,6 +333,35 @@ sed -nE 's/^- \*\*([^*]+)\*\*:.*/\1/p' .kiro/specs/site-survey/tasks.md \
 あった。**除外の理由を述べる記述も反実仮想である**——115.170（封じ込め要因を取り違えた例）
 と同型であり、当てるべき変異は「その条件だけを足す／外す」である。
 
+## 被覆印は逐語 grep で数えない（タスク 101.1 の教訓）
+
+被覆印（`<feature>/REQ-N.M`）の件数を `grep -rn "<feature>/REQ-N.M"` で数えてはならない。
+この数え方は**構造的に読み落とす形**を持つ。ヘッダーが `Requirements coverage (<feature-name>):`
+の形で機能名を持つとき、**その直下の一覧の素の `- REQ-N.M:` は被覆印として読まれる**
+（`scripts/check-requirement-coverage.ts` の `extractHeaderScopedCoverage`）が、逐語 grep は
+`<feature>/REQ-N.M` という綴りだけを探すためこの形に当たらない。
+
+害は三つある。(a)「印は 0 件」という誤った結論から**空洞が残る**（タスク 99.2 で現に起きた）。
+(b) タスク記録に残る計数が誤る。(c) ヘッダーの名乗りは `npm run check:req-exclusions` の
+不変条件5（除外と被覆印の同居の禁止）にも掛かるため、誤った計数は除外の処遇の判断も誤らせる
+（タスク 100.6）。
+
+**数えるときは `npm run count:coverage-marks` を使うこと。** 読み手は関門と同じ
+`extractFileCoverage` / `extractHeaderScopedCoverage` であり、走査対象の母集団も
+`listCoverageScanFiles` から配られる。誰が数えても同じ方式になる。機能とファイルは
+`--feature=NAME` と `--root=DIR` で絞れる（いずれも繰り返し指定できる）。逐語 grep では
+当たらない印には出力上で `!` の印が付く（`--verbose`）。
+
+```bash
+npm run count:coverage-marks -- --feature=quantity-table-generation --root=e2e --verbose
+```
+
+**件数は本書に書かない**（前節の規約 (b)。数値を落として数える手段を書く）。上のコマンドの
+出力がその時点の値を印字する。読み手が読んだものをそのまま出すため、範囲記法
+`- REQ-22.1-22.3:` が識別子欄では先頭 1 件しか読まれないという挙動も補正せずに現れる。
+判定器そのものの自己検査は `npm run count:coverage-marks:selftest` であり、逐語 grep が
+読み落とす形を現に拾えることと、本体が読み取り規則を自前で複製していないことを固定している。
+
 ## 記録が引く逐語は提出時に取り直す（タスク 115.243 の教訓）
 
 前節は**件数**について述べたが、同じことが**引用した文言**についても成り立つ。記録を書く
