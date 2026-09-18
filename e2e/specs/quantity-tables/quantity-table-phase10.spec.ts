@@ -25,7 +25,7 @@
  * - REQ-23.3, 23.4, 23.5, 23.6: 数量グループの並び順管理（ボタンの表示と無効化）
  * - REQ-24.5, 24.6: 数量項目の並び順管理（無効化。操作の入口は REQ-36 によりアクションメニュー）
  * - REQ-25.1, 25.5: 数量項目表示領域の水平スクロール
- * - REQ-26.1, 26.11: PDF出力
+ * - REQ-26.1, 26.9, 26.10, 26.11: PDF出力
  * - REQ-36.2: 数量項目のアクションメニューに操作項目を含める
  *
  * ヘッダーに機能名を与えたのは、機能名を欠く `Requirements coverage:` の配下の名乗りが
@@ -33,12 +33,31 @@
  * 各区間の `@requirement` の印と一致させてある。範囲の記法（`22.1-22.3`）は識別子欄の
  * 読み取りが先頭の一件しか拾わないため、逐一列挙する形へ改めた。
  *
- * 受入基準 26.9（PDF生成中のインジケーター表示と重複操作の防止）は
- * `e2e/requirement-exclusions.json` に在籍しているため、ここでは名乗らない。
- * 除外の宣言と被覆印の同居は `scripts/check-requirement-exclusions.ts` の
- * 不変条件5が禁じる。本ファイルには「PDF生成中にボタンが無効化される」区間が現に在り
- * `toBeDisabled()` を主張しているが、除外を取り下げるかどうかの決着は
- * `.kiro/specs/quantity-table-generation/tasks.md` のタスク 100.5 が扱う。
+ * 受入基準 26.9（PDF生成中のインジケーター表示と重複操作の防止）と 26.10（PDF生成の
+ * 失敗時のエラーメッセージ表示と再試行の促し）は、以前は
+ * `e2e/requirement-exclusions.json` に「PDF生成は Canvas 描画と外部 PDF ライブラリに
+ * 依存するため統合テストで検証」を理由として在籍していた。**両者の主題は生成された
+ * PDF の中身ではなく画面から観測できる振る舞いであり、除外の理由は当たらない**
+ * （タスク 100.5、2026-09-18 に実測）。26.9 は本ファイルに `toBeDisabled()` を主張する
+ * 区間が既に在ったが、条文が併せて求める「処理中であることを示すインジケーター」を
+ * 主張していなかったため印を掲げられずにいた。26.10 は判定そのものが無かった。
+ * 本ファイルは両者に届く判定を置き、除外を取り下げたうえで印を掲げる。
+ *
+ * 取り下げの前に本番へ変異を当て、落ちる主張を実測した（タスク 100.5、2026-09-18。
+ * `npm run test:docker:build -- --force-recreate` の終了コード・配信バンドルの md5・
+ * 配信物に埋めたマーカーの3点を毎回照合したうえでの測定である）。
+ *
+ * - 変異ビルドA（`QuantityTableEditPage.tsx` のボタン表示名を `'PDF出力'` 固定にする）:
+ *   26.9 が**インジケーターの主張**で落ち（`Expected: "PDF生成中..." / Received: "PDF出力"`）、
+ *   **26.10 は緑のまま**。
+ * - 変異ビルドB（`disabled={isPdfGenerating}` を `disabled={false}` にし、併せて失敗時の
+ *   `setOperationError` を除く）: 26.9 は**重複操作防止の主張**で落ち
+ *   （`Expected: disabled / Received: enabled`）、26.10 は告知の件数 0 で落ちる。
+ *   26.9 がビルドBでインジケーターの主張を通り抜けて `toBeDisabled()` で落ちることが、
+ *   **条文の連言を片方ずつ分離して観測できている**ことの証拠である。
+ * - 26.10 の**前件が作れない状態も測った**——`route()` の当たりを外して生成が成功する
+ *   ようにすると、判定は緑ではなく**赤**になる（告知の件数 0 で落ちる）。
+ *   前件の不成立が緑として現れる形ではない（AI運用7原則 第3原則）。
  *
  * @module e2e/specs/quantity-tables/quantity-table-phase10.spec
  */
@@ -381,7 +400,7 @@ test.describe('Phase 10: グループ名変更・並び順管理・スクロー�
     });
   });
 
-  test.describe('REQ-26.1, 26.9, 26.11: PDF出力', () => {
+  test.describe('REQ-26.1, 26.9, 26.10, 26.11: PDF出力', () => {
     /**
      * @requirement quantity-table-generation/REQ-26.1
      */
@@ -419,22 +438,40 @@ test.describe('Phase 10: グループ名変更・並び順管理・スクロー�
     });
 
     /**
-     * 受入基準 26.9 は除外である（e2e/requirement-exclusions.json）。ボタンの無効化は主張するが、処理中であることを示すインジケーターの表示を主張していないため、被覆印は掲げない。
+     * @requirement quantity-table-generation/REQ-26.9
+     *
+     * 条文は二つを同時に求める——(1) 処理中であることを示す**インジケーターの表示**と
+     * (2) **重複操作の防止**である。本番はボタンの表示名を「PDF出力」から
+     * 「PDF生成中...」へ差し替えることで (1) を、`disabled` 属性で (2) を担う
+     * （`QuantityTableEditPage.tsx` の PDF 出力ボタン）。
+     *
+     * ボタンの参照名が `aria-label="PDF出力"` に固定されているため、表示名が
+     * 差し替わっても同じ locator で追える。表示名の主張は `toHaveText` で行う。
      */
-    test('PDF生成中にボタンが無効化される (REQ-26.9)', async ({ page }) => {
+    test('PDF生成中は処理中インジケーターを表示し重複操作を防止する (REQ-26.9)', async ({
+      page,
+    }) => {
       await openPreparedGroups(page);
 
       const pdfButton = page.getByRole('button', { name: /PDF出力/ });
       await expect(pdfButton, 'PDF出力ボタンが表示される').toBeVisible({
         timeout: getTimeout(10000),
       });
+      await expect(pdfButton, '前提: 生成前の表示名は「PDF出力」である').toHaveText('PDF出力');
 
       const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(45000) });
       await pdfButton.click();
 
       // REQ-26.9: 生成中は処理中であることを示し、重複操作を防止する。
-      // 生成の完了（ダウンロード）を待つ前に、無効化されていることを主張する。
-      await expect(pdfButton, 'REQ-26.9: PDF生成中はボタンが無効化される').toBeDisabled({
+      // 生成の完了（ダウンロード）を待つ前に、両方を主張する。
+      await expect(
+        pdfButton,
+        'REQ-26.9: PDF生成中は処理中であることを示すインジケーターが表示される'
+      ).toHaveText('PDF生成中...', { timeout: getTimeout(10000) });
+      await expect(
+        pdfButton,
+        'REQ-26.9: PDF生成中はボタンが無効化され重複操作が防止される'
+      ).toBeDisabled({
         timeout: getTimeout(10000),
       });
 
@@ -442,6 +479,50 @@ test.describe('Phase 10: グループ名変更・並び順管理・スクロー�
       await downloadPromise;
       await expect(pdfButton, 'PDF生成の完了でボタンが再び有効になる').toBeEnabled({
         timeout: getTimeout(45000),
+      });
+      await expect(pdfButton, 'PDF生成の完了で表示名が「PDF出力」へ戻る').toHaveText('PDF出力');
+    });
+
+    /**
+     * @requirement quantity-table-generation/REQ-26.10
+     *
+     * 前件（PDF生成中のエラー）は、PDF 出力サービスの資材の取得を
+     * `route.abort()` で断って作る。`loadQuantityTablePdfExportService()` は
+     * 動的 import の境界であり（フォント資産を初期ロードから外すための境界）、
+     * 資材が取れなければ `handlePdfExport` の try が例外で抜ける。
+     * 生成の失敗という前件を、本番コードへ一切触れずに決定論的に作れる唯一の口である。
+     *
+     * 資材が（キャッシュなどで）取れてしまった場合は生成が成功し、告知が出ないため
+     * 判定は**赤**になる。前件が作れないことが緑として現れる形ではない。
+     */
+    test('PDF生成に失敗するとエラーメッセージを表示し再試行を促す (REQ-26.10)', async ({
+      page,
+    }) => {
+      await openPreparedGroups(page);
+
+      // PDF出力サービスのチャンクの取得を断ち、生成を失敗させる
+      await page.route('**/QuantityTablePdfExportService-*.js', (route) => route.abort('failed'));
+
+      const pdfButton = page.getByRole('button', { name: /PDF出力/ });
+      await expect(pdfButton, 'PDF出力ボタンが表示される').toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      await pdfButton.click();
+
+      const pdfErrorAlert = page.getByRole('alert').filter({ hasText: /PDF/ });
+      await expect(pdfErrorAlert, 'REQ-26.10: PDF生成の失敗が告知として1件表示される').toHaveCount(
+        1,
+        { timeout: getTimeout(30000) }
+      );
+      await expect(
+        pdfErrorAlert,
+        'REQ-26.10: エラーメッセージを表示し、再度の試行を促す'
+      ).toContainText('PDF生成中にエラーが発生しました。再度お試しください。');
+
+      // 再試行を促す以上、出力ボタンは再び操作可能でなければならない
+      await expect(pdfButton, 'REQ-26.10: 失敗後はPDF出力を再試行できる').toBeEnabled({
+        timeout: getTimeout(15000),
       });
     });
   });
