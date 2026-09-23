@@ -588,6 +588,23 @@ test.describe('PDFテキスト抽出ハイブリッドアプローチ (Task 41.3
    * 30 秒の打ち切りを実測し、`e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts`
    * で被覆した。当該除外は解消済みである。
    *
+   * **【現況の併記。quantity-table-generation スペックのタスク100.20 が越境して追記した
+   * （利用者の裁定は 2026-09-23。先例は同スペックのタスク100.16 で、本 spec の兄弟である
+   * `e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts` を同じ形で是正している）。
+   * 規約 (a) に従い上の段落は当時のまま残し、現況の再実測をここへ並べる。
+   * 2026-09-23 にコミット `07b52f0e` の作業ツリーで実測】**
+   * **上が名を挙げた 150 ページの資材 `e2e/fixtures/test-scanned-pdf-multipage.pdf` は、
+   * 現在どの検査も読み込んでいない。** タスク100.16 が上記フォールバック spec の打ち切りの
+   * 判定を 600 ページの `e2e/fixtures/test-scanned-pdf-quotation-ocr-timeout.pdf` へ移した
+   * ためである（150 ページでは完走 36435ms に対し打ち切り 30914ms で余裕が 5.5 秒しかなく、
+   * 完走が先に着いた試行で判定が赤になる）。**除外が解消済みであることは変わらない**——
+   * 被覆は同 spec が 600 ページの資材で担い続けている。本 spec 自身も当該資材を読み込まない
+   * （本 spec が現に読むのは `e2e/fixtures/test-text-pdf.pdf` と `e2e/fixtures/test-file.pdf`）。
+   * 150 ページの資材は撤去せず残す（タスク100.20 の裁定。`e2e/requirement-exclusions.json` の
+   * タスク115.157 の是正の記録が本資材のページ数と実測を逐語で引いており、撤去は上流の歴史
+   * 記録を巻き込むため）。経緯は `.kiro/specs/quantity-table-generation/tasks.md` の
+   * タスク100.20 の節にある。**`estimate-request` スペックの文書は一行も変更していない。**
+   *
    * 本検証に残るのは REQ-17.7 の後半、すなわち処理中インジケーターが
    * 実行中にだけ表示され、終端後は残らないことの確認である。
    */

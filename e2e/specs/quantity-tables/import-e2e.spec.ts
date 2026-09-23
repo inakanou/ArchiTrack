@@ -1893,6 +1893,29 @@ test.describe('REQ-29: PDF OCR処理の結果表示と失敗時の導線', () =>
    * `e2e/specs/estimate-requests/pdf-text-extraction-e2e.spec.ts` が使っており、本タスクの境界の
    * 外だからである（両者も同じ理由で揺れうる。タスク100.12 の報告で申し送る）。
    *
+   * ## 上の「両者が使っており」の現況（タスク100.20。2026-09-23 にコミット `07b52f0e` の作業ツリーで実測）
+   *
+   * **規約 (a) に従い上の段落は当時のまま残す。以下はその後の現況の再実測である。**
+   * 上が書かれた 2026-09-18 の後、タスク100.16 が
+   * `e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts` の打ち切りの判定を
+   * 600ページの `e2e/fixtures/test-scanned-pdf-quotation-ocr-timeout.pdf` へ移した
+   * （150ページでは完走36435msに対し打ち切り30914msで、余裕が5.5秒しか無かったため）。
+   * **その結果、`test-scanned-pdf-multipage.pdf` を読み込む検査はリポジトリに0件である。**
+   * `git grep -n test-scanned-pdf-multipage -- e2e/specs` の当たりは、本段落を書き足す前の
+   * コミット `07b52f0e` の作業ツリーで4件、**本段落と兄弟 spec への併記を書き足した後で8件**
+   * である（**規律に従って実測を書き足す行為そのものが、次に測るべき数字を動かす**。
+   * `.kiro/steering/development-discipline.md` の同旨の記述に倣い、数字は文章を書き終えた
+   * 後に測り直して入れた）。**いずれの版でも**、そこから jsdoc の継続行を除く
+   * `git grep -n test-scanned-pdf-multipage -- e2e/specs | grep -cvE ': *[*]'` は**0を返す**
+   * ——当たりはすべて散文であって資材の投入ではない。名を挙げられた
+   * `e2e/specs/estimate-requests/pdf-text-extraction-e2e.spec.ts` も同様で、現に読み込むのは
+   * `e2e/fixtures/test-text-pdf.pdf` と `e2e/fixtures/test-file.pdf` である。
+   *
+   * **150ページの資材は撤去せず残す（タスク100.20 の裁定）。** `e2e/requirement-exclusions.json`
+   * のタスク115.157 の是正の記録が本資材のページ数と実測を逐語で引いており、撤去すると上流
+   * （estimate-request）の歴史記録が実在しない資材を指すことになるからである。同じ処遇は生成器
+   * `e2e/fixtures/generate-image-only-pdf.mjs` の注記にも記してある（タスク100.16 が追記）。
+   *
    * ## 本検査だけ実行時間の上限を上げる理由
    *
    * 本検査は**必ず30秒以上かかる**——それが条文の主張そのものだからである。ところが
