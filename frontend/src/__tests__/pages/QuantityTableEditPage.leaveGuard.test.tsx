@@ -200,6 +200,12 @@ describe('QuantityTableEditPage - 離脱ガード (Task 62.1)', () => {
     });
   });
 
+  // 注意（Task 100.13）: 本区間はフックをモックしたうえで「何を渡したか」だけを測る。
+  // それは離脱確認が出ることの保証にならない——実際、`enabled` だけを渡してフック内部の
+  // dirty を追従させていなかった間、本区間は緑のままで beforeunload リスナーは一度も
+  // 登録されていなかった。挙動そのもの（未保存時に離脱確認を要求するか）は
+  // `QuantityTableEditPage.beforeUnload.test.tsx`（フックをモックしない）と
+  // E2E シナリオ7 が測る。
   describe('REQ-43.2: beforeunload は isDirty のときだけ有効化する', () => {
     it('初期状態では useUnsavedChanges に enabled=false で渡される', async () => {
       renderPage();

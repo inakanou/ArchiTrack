@@ -5,6 +5,7 @@
  *
  * Requirements coverage (quantity-table-generation):
  * - REQ-43.1: 未保存変更がある状態でのアプリ内遷移に対し離脱確認を表示する
+ * - REQ-43.2: 未保存変更がある状態のタブクローズ・リロードに対しブラウザ標準の離脱確認を表示する
  * - REQ-43.3: 離脱確認で「とどまる」を選ぶと編集画面と未保存状態を維持する
  * - REQ-43.4: 離脱確認で「離脱」を選ぶと画面遷移を実行する
  * - REQ-43.5: 未保存変更がない状態では離脱時に警告を表示しない（保存後の素通り遷移で検証）
@@ -25,8 +26,9 @@
  *
  * 注記:
  * - react-router の useBlocker はアプリ内（クライアントサイド）ナビゲーションのみを
- *   インターセプトする。ブラウザのリロード/タブクローズ（beforeunload）の標準ダイアログは
- *   Playwright で安定して検証できないため、本スペックでは扱わない（REQ-43.2 は対象外）。
+ *   インターセプトする。ブラウザのリロード/タブクローズ（beforeunload）は別経路であり、
+ *   Task 100.13 でシナリオ7として本スペックに加えた（それまで REQ-43.2 は除外台帳に
+ *   在籍していたが、実際には本番の結線が欠けており実装自体が存在しなかった）。
  * - 離脱確認ダイアログは UnsavedChangesDialog（タイトル「変更が保存されていません」、
  *   「ページを離れる」「このページにとどまる」ボタン）で実装されている。
  *
@@ -517,6 +519,76 @@ test.describe('REQ-43/44/45: 離脱ガード・未保存インジケーター・
     const groupCard = page.locator('[data-testid="quantity-group-card"]').last();
     await expect(groupCard).toBeInViewport();
     await expect(groupCard.getByRole('button', { name: '項目を追加' })).toBeVisible();
+  });
+
+  // --------------------------------------------------------------------------
+  // シナリオ7: タブクローズ/リロードに対するブラウザ標準の離脱確認 (REQ-43.2)
+  // --------------------------------------------------------------------------
+  /**
+   * REQ-43.2 の条文は「タブ/ウィンドウを閉じる操作またはリロード操作に対して**ブラウザ標準の
+   * 離脱確認を表示する**」である。本判定は、その帰結そのもの——ブラウザが標準の離脱確認を
+   * 実際に提示し、取り消せば画面に留まること——を観測する。
+   *
+   * 観測の設計（なぜこの形か）:
+   * - `page.close({ runBeforeUnload: true })` はタブを閉じる操作そのものであり、ページが
+   *   beforeunload の既定動作を抑止していれば Chromium は標準の離脱確認を提示する。
+   *   Playwright はそれを `dialog` イベント（`type() === 'beforeunload'`）として渡すため、
+   *   「利用者に確認が出た」ことを直接観測できる。`dismiss()` は確認の取り消し（留まる）に
+   *   あたり、実際にタブが閉じずに編集画面が残ることまで確かめられる。
+   * - `window.dispatchEvent(new Event('beforeunload'))` の合成イベントで
+   *   `defaultPrevented` を見る形（construction-photo / site-survey の先例）は「ページが
+   *   確認を要求したか」までしか測れず、条文の帰結である「ブラウザが確認を表示する」からは
+   *   一段遠い。本判定はより近い側を採る。
+   * - 限界: OS/ブラウザが描画する確認ダイアログの**文面やボタン配置**は Chromium が決める
+   *   ため観測・検証の対象にしない。確認が提示されたこと・取り消しで留まること・未保存が
+   *   無ければ提示されないことまでを判定範囲とする。
+   *
+   * 陰性対照は同一テスト内に置く: 保存して未保存変更を解消したのち同じ操作を行い、確認が
+   * 提示されず（`dialog` イベント 0 件）タブがそのまま閉じることを確かめる（REQ-43.5/43.6）。
+   * これが無いと「常に確認が出る実装」でも本判定は緑になりうる。
+   *
+   * @requirement quantity-table-generation/REQ-43.2
+   */
+  test('未保存状態でタブを閉じるとブラウザ標準の離脱確認が出て、取り消すと画面に留まる', async ({
+    page,
+  }) => {
+    if (!testProjectId) {
+      throw new Error('testProjectId が未設定です。');
+    }
+
+    const tableId = await createQuantityTable(page, `標準離脱確認数量表_${RUN_ID}`);
+
+    // 観測したブラウザ標準ダイアログを記録する。取り消し（dismiss）＝「留まる」。
+    const browserDialogs: string[] = [];
+    page.on('dialog', async (dialog) => {
+      browserDialogs.push(dialog.type());
+      await dialog.dismiss();
+    });
+
+    // 未保存変更を作る（保存可能な項目まで埋める。後段で保存して陰性対照に移るため）
+    await addGroup(page, 1);
+    await addItemToGroupAt(page, 0, 1, { workType: '工種C', name: '名称C', unit: 'm3' });
+    await expect(unsavedBadge(page)).toBeVisible({ timeout: getTimeout(10000) });
+
+    // REQ-43.2: タブを閉じる操作に対してブラウザ標準の離脱確認が提示される
+    await page.close({ runBeforeUnload: true });
+    await expect
+      .poll(() => browserDialogs, { timeout: getTimeout(10000) })
+      .toEqual(['beforeunload']);
+
+    // 確認を取り消した（dismiss）ので、タブは閉じず編集画面と未保存状態が維持される
+    expect(page.isClosed()).toBe(false);
+    await expect(page).toHaveURL(new RegExp(`/quantity-tables/${tableId}/edit$`));
+    await expect(unsavedBadge(page)).toBeVisible();
+
+    // 陰性対照（REQ-43.5/43.6）: 保存して未保存変更が無くなれば確認は提示されない
+    await saveQuantityTableDraft(page);
+    await expect(unsavedBadge(page)).toHaveCount(0, { timeout: getTimeout(10000) });
+
+    const dialogCountBeforeCleanClose = browserDialogs.length;
+    await page.close({ runBeforeUnload: true });
+    await expect.poll(() => page.isClosed(), { timeout: getTimeout(10000) }).toBe(true);
+    expect(browserDialogs.length).toBe(dialogCountBeforeCleanClose);
   });
 
   // --------------------------------------------------------------------------

@@ -696,7 +696,19 @@ export default function QuantityTableEditPage() {
   const isDirty = editState.isDirty;
 
   // タブクローズ/リロード時の beforeunload 標準確認（REQ-43.2）
-  useUnsavedChanges({ enabled: isDirty });
+  //
+  // Task 100.13: `enabled` だけを渡してもフックは beforeunload を登録しない。
+  // `useUnsavedChanges` は自前の dirty 状態（`useState(initialDirty)`、既定 false）を持ち、
+  // 登録条件は「`enabled` かつ**内部の** dirty」であるためである
+  // （`frontend/src/hooks/useUnsavedChanges.ts` の beforeunload の useEffect）。
+  // 未保存判定の正は `quantityTableEditReducer` 側の `editState.isDirty` であるから、
+  // `setDirty` で内部状態を追従させる。EstimateDetailPage / SiteSurveyImageViewerPage が
+  // 同じ注意書きとともに採っている確立済みパターンである。
+  const { setDirty: setUnsavedGuardDirty } = useUnsavedChanges({ enabled: isDirty });
+
+  useEffect(() => {
+    setUnsavedGuardDirty(isDirty);
+  }, [isDirty, setUnsavedGuardDirty]);
 
   // アプリ内ナビゲーションのブロック（REQ-43.1）
   const blocker = useBlocker(isDirty);
