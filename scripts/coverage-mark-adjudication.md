@@ -709,6 +709,83 @@ _Boundary_ 外（`frontend/src`）なので §6 へ引き継ぐ。**
     書き戻しで復元し `sha256sum` で照合した）。すなわち本タスクの前は、**押下前の関門が本記録への
     言及を丸ごと失っても、本節の値は何も述べなかった。**
 
+    **タスク 100.21 は、本節の値を指す言い回しを実体へ寄せる。** 一つ上の段落（100.17）は
+    「本節の値は『本記録を読む機械は』の母集団として述べているのだから」と書いた。その綴りは
+    当時のものとしてそのまま残す（規約 (a)）。**以後はこう読むこと——本節の値が数えるのは
+    「本記録の名を引く追跡ファイルの数」であって、「本記録を読む機械」の数ではない。** 二つは
+    別物であり、一方が他方を含む関係にもない。
+
+    **乖離の大きさを測った**（2026-09-23、コミット `35288e3b` の作業ツリー。統制のため
+    `git worktree add --detach HEAD` で複製を作り、変異はそちらへ当てた）。当たりの 13 件のうち、
+    **走らせると本記録のバイトが開かれる機械は 3 件**である——
+    `scripts/check-adjudication-pointers.ts`（直接）、
+    `scripts/check-design-measurement-freshness.ts`（所管の文書として直接）、
+    `scripts/check-design-measurement-freshness.selftest.ts`（実データの対照が本検査を
+    そのまま走らせるため間接に）。**押下前にそれらを走らせる駆動系が 1 件**
+    （`.husky/scripts/pre-push.sh`）。**残る 9 件は本記録を一切開かない**——スペック文書 3 件・
+    E2E の註釈 2 件・本記録自身・`scripts/design-measurements.json`（宣言のデータ）・
+    `scripts/exclusion-alternative-verification-adjudication.md`・
+    `scripts/scan-coverage-mark-correspondence.ts`（`@fileoverview` が所在を述べるだけ）である。
+    すなわち**言い回しが名指す「読む機械」は 13 件中 3 件しかいない。**
+
+    **起票が挙げた反例は、着手時に測ったところ成り立たなかった。** 起票（100.17 の独立レビューの
+    Finding 2）は `comm -23 <(git grep -l 裁定記録 | sort) <(git grep -l coverage-mark-adjudication | sort)`
+    の当たり 1 件——`scripts/check-adjudication-pointers.selftest.ts`——を「`runCheck` を import して
+    本記録を現に読む機械でありながら名を綴らない」例として挙げた。**同ファイルは本記録を開かない。**
+    `runCheck` へ与えるのは `wrap(…)` が組み立てる合成の文書と合成の正典だけであり、
+    `readFileSync` の引数は本体（`check-adjudication-pointers.ts`）と自分自身の二つしかない。
+    **複製から本記録を丸ごと取り除いて走らせると、出力は基線と 1 バイトも違わず
+    `76/76 件成功`・終了コード 0 である**（同日に実測）。同じ複製で
+    `npm run check:adjudication-pointers` は `裁定記録が見つかりません` で終了コード 1、
+    `npm run check:design-measurement-freshness` は本記録を指す三宣言について
+    `file … を読めません` を挙げる。**読む側と読まない側は、この変異で分かれる。**
+
+    **「本記録を読むが名を綴らないファイル」は現況 0 件である。** 上の 1 件が唯一の候補であった
+    から、これで候補は尽きる。逐語の探り（`裁定記録`）だけに頼らない形でも測った——本記録の
+    パスを綴らずに開くには、パスを持つ定数を import するほかない。その定数は
+    `ADJUDICATION_DOCUMENT` / `GOVERNED_DOCUMENTS` / `ADJUDICATION_RECORDS` の三つであり、
+    これらを引くファイルの集合から当たりの 13 件を差し引くと**空である**（同日に実測。
+    `comm -23 <(git grep -l 'ADJUDICATION_DOCUMENT\|GOVERNED_DOCUMENTS\|ADJUDICATION_RECORDS' | sort) <(git grep -l coverage-mark-adjudication | sort)`
+    は一行も出さない）。
+
+    **母集団の定義を「本記録を読む機械」へ広げる側は採らなかった。** 三つの理由をいずれも
+    実測で裏づける。
+    (i) **機械的に数える術が、100.17 が入れたばかりの 1 件を落とす。** import の推移閉包を
+    辿る形が最も素直だが、`.husky/scripts/pre-push.sh` は module の import を一つも持たない
+    （`^import` の当たりは 0 件。`require(` の唯一の当たりは `:544` の、2FA 鍵の生成例を
+    印字する `echo` の文字列の中であって読み込みではない）。同ファイルは
+    `npm run check:adjudication-pointers` という**スクリプト名**を介して読み手へ到達するので、
+    `package.json` の `scripts` の間接まで模さないと届かない。**広げたはずの定義が、押下前の
+    関門を駆動するまさにその 1 件を落とす**のでは、100.17 の是正が無に帰す。
+    (ii) **100.14 が変異で「読み手として妥当」と確かめた 1 件も落ちる。**
+    `e2e/specs/quantity-tables/import-e2e.spec.ts` は本記録が課す制約（表題の据え置き）を
+    受けた註釈であって、本記録を開く機械ではない。**二つの先行タスクの裁定を、定義の変更が
+    静かに覆すことになる。**
+    (iii) **止まる契機の多くを捨てることになる。** 本宣言は下限を課すラチェットではなく
+    「増減したときに止めて測り直させる」ための宣言である（100.14 の段落）。現に測り直しの
+    契機となった増分を数え直すと、「読む機械」の定義で拾えるのは 115.301 の 3 件のうち 2 件
+    だけであり、80.4 の 1 件（スペックのタスク一覧）・100.14 の 1 件（E2E の註釈）・
+    100.17 の 1 件（駆動系の `pre-push.sh`）はいずれも拾えない。
+
+    **したがって是正は言い回しの側に当てる。** 値の意味は、判定者である
+    `scripts/check-design-measurement-freshness.ts` のヘッダが既に「本記録の名を引くファイルの数」
+    と綴っており、`scripts/design-measurements.json` の `coverage-adjudication-reader-files` の
+    `note` も同じ定義を持つ。**食い違っていたのは §6 のこの箇所だけであり、本段落を並べて
+    閉じる**（`command` と `expected` は 100.17 のまま動かさない）。
+
+    **閉じ切らない限界を残しておく。これは版に依らない主張である。** `git grep -l <名>` が
+    数えられるのは名を綴るファイルだけであり、**名を綴らない読み手は原理的に数えられない**。
+    上で測った「現況 0 件」は現況の実測にすぎず、将来そういうファイルが一つでも現れれば、
+    本節の値は動かないまま読み手だけが増える。**そのときに拾う受け口は本段落のこの断りである**
+    ——本節の値を「読み手の総数」と読んではならない。
+
+    **書き足した文章自身が母集団を動かさないことを、書き終えてから測り直した。**
+    `.kiro/steering/development-discipline.md` が 115.210 の実例で述べる罠（実測を書き足す行為
+    そのものが次に測るべき数字を動かす）に当たるかを確かめたものである。本タスクが触れるのは
+    本記録と `scripts/design-measurements.json` の二つだけで、**どちらも既に当たりに在る**ため
+    当たりは動かない。**本変更を当てた作業ツリーでの再実測も 13 件で不変であった**
+    （2026-09-23 にリポジトリルートで `git grep -l coverage-mark-adjudication | wc -l` を実行）。
+
     **併せて、新設したファイルが一時期バイナリ判定になっていたことを開示する。**
     `scripts/check-adjudication-pointers.ts` の初版は区切り文字に**生の NUL バイト**を 2 個
     埋め込んでおり、`file -b` が `data` を返していた（レビューが検出。115.297 で同型の欠陥が
