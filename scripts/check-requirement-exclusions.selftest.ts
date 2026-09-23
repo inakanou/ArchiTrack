@@ -20,6 +20,7 @@ import { fileURLToPath } from 'url';
 import type {
   CoverageTagIndex,
   CoverageTagSite,
+  RequirementCatalogue,
   ViolationCheck,
 } from './check-requirement-exclusions.js';
 import {
@@ -36,6 +37,7 @@ import {
   extractEnumeratedElements,
   loadRequirementCatalogue,
   namesElement,
+  normalizeExclusionId,
   run,
   scanCoverageTags,
 } from './check-requirement-exclusions.js';
@@ -102,12 +104,10 @@ function entryAt(document: Json, index: number): Json {
   return entry;
 }
 
-/** 識別子で除外を取り出す。無ければ前提が崩れているので失敗させる。 */
-function entryById(document: Json, id: string): Json {
-  const found = entries(document).find((entry) => entry.id === id);
-  if (!found) throw new Error(`前提: 除外 ${id} が実物に存在しない`);
-  return found;
-}
+// 「識別子で除外を取り出す」`entryById` はタスク 100.18 で撤去した。**除外を ID で名指し
+// して引く受け皿が在る限り、直書きの探針はいつでも書き戻せる。** 指し先が取り下げられた
+// 瞬間に「実物に存在しない」で送出し、機構全体が最後まで走らなくなる形を、関数ごと無くす。
+// 探針は下の「陽性対照の探針」の節が性質で選ぶ。
 
 /** 除外が掲げる代替検証を取り出す。無ければ前提が崩れているので失敗させる。 */
 function altOf(entry: Json): Json {
@@ -128,72 +128,280 @@ function categories(document: Json): Json {
   return document.categories as Json;
 }
 
-/**
- * `e2e/specs` の被覆印が名乗っており、かつ除外されていない受入基準
- *
- * 同居の陽性対照で「除外の指し先」を移す先として使う。除外に載っていないため、
- * 移しても重複にはならない。
- *
- * タスク 115.188 まで site-survey/REQ-1.1 を使っていたが、同タスクで当該の被覆印を
- * 取り下げた（名乗っていた三区間はいずれも受入基準1.1 の「調査名欄のデフォルト値」を
- * 確かめていなかった）ため差し替えた。
- *
- * 前提（`e2e/specs` が実際にこの番号を名乗っている）は `assertCoveredByE2E` が
- * 走査で確かめる。`pointEntryAt` は要件定義書に在ることしか見ないため、前提が崩れても
- * 変異が「同居を作らない無害な書き換え」に化けて陽性対照が静かに空振りするからである。
- */
-const COVERED_PROBE_ID = 'site-survey/REQ-1.3';
+// ----------------------------------------------------------------------------
+// 陽性対照の探針（**識別子で名指ししない**。性質で見つけ、無ければ送出する）
+// ----------------------------------------------------------------------------
+//
+// かつてこの四つは `site-survey/REQ-1.3` / `site-survey/REQ-29.2` /
+// `site-survey/REQ-14.4` / `quantity-table-generation/REQ-1.3` を直書きしていた。
+// **除外の取り下げは本検査自身が推奨する営みであり、それが検査を壊す構造は誤りである。**
+// 現に、同じ形で直書きしていた `ENUMERATION_PROBE_ID`
+// （`quantity-table-generation/REQ-26.7`）は、タスク 100.5 が同条文の除外を取り下げた
+// 瞬間に、ID で除外を引く `entryById`（タスク 100.18 で撤去済み）が「実物に存在しない」で
+// 送出し、**陽性対照39件を含む機構全体（70件）が最後まで走らなくなった**。しかも
+// `check:req-exclusions` 本体は EXIT=0 のままで、関門の見かけは緑だった。
+//
+// 直書きのままだと何が起きるかは、タスク 100.18 が四つとも実測した（2026-09-23。
+// いずれも `check:req-exclusions` 本体は EXIT=0 のまま、自己検査だけが未捕捉例外で
+// 中断し、走り終えた対照は 70 件中それぞれ 28 / 29 / 33 / 35 件だった）。
+//
+//   - 台帳から `site-survey/REQ-14.4` の除外を取り下げる → 28 件で中断
+//   - 台帳から `site-survey/REQ-29.3` の除外を取り下げる → 29 件で中断
+//   - `quantity-table-generation/requirements.md` の 1.3 の墓標を消す → 33 件で中断
+//   - `site-survey/REQ-1.3` を名乗る被覆印を取り下げる → 35 件で中断
+//
+// よって探針は `promiselessEntry` / `enumerationProbeEntry` / `noEnumerationProbeEntry`
+// と同じ作法で選ぶ——**当該の対照が何を固定したいかを性質として書き、その性質を満たす
+// 相手を実物から探し、一件も無ければ送出する**。黙って読み飛ばす形にはしない
+// （AI運用7原則 第3原則）。
+
+/** 除外が指している受入基準の識別子の集合（機能名を冠した形に正規化する） */
+function excludedIds(document: Json): Set<string> {
+  return new Set(
+    entries(document)
+      .filter((entry) => typeof entry.id === 'string')
+      .map((entry) => normalizeExclusionId(entry.id as string))
+  );
+}
+
+/** `feature/REQ-N.M` を機能名・受入基準番号（`REQ-N.M`）・要件番号（`REQ-N`）へ分ける */
+function splitCriterionId(criterionId: string): {
+  feature: string;
+  localId: string;
+  requirementId: string;
+} {
+  const separator = criterionId.indexOf('/');
+  const feature = criterionId.slice(0, separator);
+  const localId = criterionId.slice(separator + 1);
+  return { feature, localId, requirementId: localId.slice(0, localId.lastIndexOf('.')) };
+}
+
+// 探針の選定は実物の要件定義書と被覆印を何度も読む。走査の結果は一回の実行のあいだ
+// 変わらない（変異は読み込んだ複製と一時ディレクトリの上だけで起きる）ため、覚えておく。
+const catalogueCache = new Map<string, RequirementCatalogue>();
+
+function catalogueOf(featureName: string): RequirementCatalogue {
+  let catalogue = catalogueCache.get(featureName);
+  if (!catalogue) {
+    catalogue = loadRequirementCatalogue(featureName, ROOT);
+    catalogueCache.set(featureName, catalogue);
+  }
+  return catalogue;
+}
+
+let coverageTagCache: CoverageTagIndex | undefined;
+
+function coverageTags(): CoverageTagIndex {
+  coverageTagCache ??= scanCoverageTags(ROOT);
+  return coverageTagCache;
+}
 
 /**
- * 被覆印の走査で `criterionId` が実際に名乗られていることを確かめる
+ * 除外の三つの欄（`id` / `requirement` / `criterionText`）が現に要件定義書と合っているか
  *
- * ラチェット（`test.fail()`）だけの被覆印は同居の違反にならないため、
- * ラチェットでない被覆印が一件以上あることまで見る。
+ * 変異元はここが合っている除外から選ぶ。既に違反している除外を変異元にすると、
+ * 注入した欠陥と元から在った欠陥が混ざり、陽性対照が「何を検出したのか」を言えなくなる。
  */
-function assertCoveredByE2E(criterionId: string): void {
-  const sites = scanCoverageTags().get(criterionId);
-  if (sites === undefined || !sites.some((entry) => !entry.ratchet)) {
-    throw new Error(`前提: ${criterionId} を名乗るラチェットでない被覆印が e2e/specs に無い`);
+function correspondsToCatalogue(entry: Json): boolean {
+  const id = entry.id;
+  // 機能名を冠さない旧形式は選ばない（指し先を移す変異が接頭辞の有無まで変えてしまう）
+  if (typeof id !== 'string' || !id.includes('/')) return false;
+  const { feature, localId, requirementId } = splitCriterionId(id);
+  const catalogue = catalogueOf(feature);
+  if (!catalogue.present) return false;
+  const title = catalogue.requirementTitles.get(requirementId);
+  if (title === undefined) return false;
+  if (entry.requirement !== `${requirementId}: ${title}`) return false;
+  return catalogue.criteria.get(localId) === entry.criterionText;
+}
+
+/**
+ * 陽性対照の変異元に使う除外を実物から一件取り出す
+ *
+ * 固定したいのは「除外の三つの欄のうち一つだけを崩すと、番号と内容の対応の検査が
+ * それを挙げる」ことである。そのため相手は次の二つを満たさなければならない。
+ *
+ * 1. 三つの欄が現に要件定義書と合っている（＝注入する欠陥がただ一つになる）
+ * 2. `e2e/specs` の被覆印がその番号を名乗っていない。名乗っていると、指し先を移す変異で
+ *    同居の違反が同時に立ち、どちらの検査が捕まえたのか分からなくなる
+ *
+ * 実物が一件も満たさなくなれば送出する（黙って空振りさせない。AI運用7原則 第3原則）。
+ */
+function mutationSourceEntry(document: Json): Json {
+  const found = entries(document).find(
+    (entry) => correspondsToCatalogue(entry) && !coverageTags().has(entry.id as string)
+  );
+  if (!found) {
+    throw new Error(
+      '前提: 三つの欄が要件定義書と合っており、かつ e2e/specs の被覆印がその番号を名乗っていない除外が実物に一件も存在しない'
+    );
+  }
+  return found;
+}
+
+/** 変異元の要件番号（`REQ-N`。requirement 欄の題だけを崩す変異で使う） */
+function requirementIdOf(entry: Json): string {
+  return splitCriterionId(entry.id as string).requirementId;
+}
+
+/**
+ * 変異元と同じ要件の下にある「実在しない受入基準の番号」を作る
+ *
+ * 番号だけを実在しない値へ書き換える陽性対照で使う。実在する番号・撤廃済みの番号・
+ * 既に除外されている番号・被覆印が名乗っている番号を避けるため、立つ違反は
+ * 「番号が指す受入基準が要件定義書に無い」の一つだけになる。
+ */
+function absentCriterionIdOf(document: Json, entry: Json): string {
+  const { feature, requirementId } = splitCriterionId(entry.id as string);
+  const catalogue = catalogueOf(feature);
+  const taken = excludedIds(document);
+  for (let number = 90; number < 1000; number += 1) {
+    const localId = `${requirementId}.${number}`;
+    const full = `${feature}/${localId}`;
+    if (catalogue.criteria.has(localId) || catalogue.retiredCriteria.has(localId)) continue;
+    if (taken.has(full) || coverageTags().has(full)) continue;
+    return full;
+  }
+  throw new Error(`前提: ${requirementId} の下に実在しない受入基準の番号を作れない`);
+}
+
+/**
+ * 変異元の機能に実在しない要件番号（`REQ-N`）を作る
+ *
+ * requirement 欄の要件番号を識別子と食い違わせる陽性対照で使う。変異元自身の番号とは
+ * 必ず異なるため、「変異を加えたつもりの無変異」にならない。
+ */
+function absentRequirementIdOf(entry: Json): string {
+  const { feature, requirementId } = splitCriterionId(entry.id as string);
+  const catalogue = catalogueOf(feature);
+  for (let number = 90; number < 1000; number += 1) {
+    const candidate = `REQ-${number}`;
+    if (candidate === requirementId) continue;
+    if (!catalogue.requirementTitles.has(candidate)) return candidate;
+  }
+  throw new Error(`前提: ${feature} に実在しない要件番号を作れない`);
+}
+
+/** 要件の題を崩す変異で置く題（実物の題と一致してしまえば無変異になるので確かめる） */
+const FICTITIOUS_REQUIREMENT_TITLE = 'まったく別の題';
+
+/** 実物の題が `FICTITIOUS_REQUIREMENT_TITLE` と異なることを確かめる（無変異を許さない） */
+function assertTitleDiffers(entry: Json): void {
+  const { feature, requirementId } = splitCriterionId(entry.id as string);
+  if (catalogueOf(feature).requirementTitles.get(requirementId) === FICTITIOUS_REQUIREMENT_TITLE) {
+    throw new Error(`前提: ${requirementId} の実物の題が置き換える題と同じで、変異にならない`);
   }
 }
 
 /**
- * 識別子を一つずらす陽性対照のずらし先
+ * 「識別子を一つずらす」陽性対照の変異元と、そのずらし先を実物から一組取り出す
  *
- * 除外にも載っておらず `e2e/specs` の被覆印も名乗っていない受入基準を選ぶ。除外に載って
- * いれば重複の違反が、被覆印が付いていれば同居の違反が同時に立ち、注入した欠陥が
- * どの検査に捕まったのか分からなくなる。実データからこの前提が崩れれば、ずらした先の
- * 検出が別の検査に移るため、この対照が `expectCheck` の不一致として失敗する。
+ * 固定したいのは「同じ要件の中で番号だけを隣へ動かすと、逐語複製が原文と合わなくなる」
+ * ことである。そのため組は次の四つを満たさなければならない。
+ *
+ * 1. 変異元の三つの欄が現に合っている（＝注入する欠陥がただ一つになる）
+ * 2. ずらし先が**同じ要件**の実在する受入基準である。requirement 欄は動かさないので、
+ *    別の要件へ動かすと要件番号の食い違いという別の違反が同時に立つ
+ * 3. ずらし先が除外にも載っておらず、被覆印も名乗っていない。載っていれば重複の違反が、
+ *    被覆印が付いていれば同居の違反が同時に立ち、どの検査が捕まえたのか分からなくなる
+ *    （タスク 115.186 のレビューが実際に変異を走らせて実証した遮蔽）
+ * 4. ずらし先の原文が変異元の逐語複製と**異なる**。同じ本文の受入基準へずらしても
+ *    逐語複製は合ったままで、対照は恒真になる
+ *
+ * 実物が一組も満たさなくなれば送出する。
  */
-const SHIFT_TARGET_ID = 'site-survey/REQ-29.2';
+function shiftPair(document: Json): { entry: Json; targetId: string } {
+  const taken = excludedIds(document);
+  for (const entry of entries(document)) {
+    if (!correspondsToCatalogue(entry)) continue;
+    const { feature, localId, requirementId } = splitCriterionId(entry.id as string);
+    for (const [candidate, text] of catalogueOf(feature).criteria) {
+      if (candidate === localId) continue;
+      if (!candidate.startsWith(`${requirementId}.`)) continue;
+      const full = `${feature}/${candidate}`;
+      if (taken.has(full) || coverageTags().has(full)) continue;
+      if (text === entry.criterionText) continue;
+      return { entry, targetId: full };
+    }
+  }
+  throw new Error(
+    '前提: 三つの欄が合っている除外と、同じ要件の中で除外にも被覆印にも掛からず原文の異なる受入基準の組が実物に一件も存在しない'
+  );
+}
 
 /**
- * 陽性対照の変異元に使う「実在する除外」
+ * 同居の陽性対照で「除外の指し先」を移す先を実物から一件取り出す
  *
- * タスク 115.188 まで site-survey/REQ-1.6 を使っていたが、同タスクで当該の除外を
- * 取り下げたため差し替えた（実物に無い識別子を変異元にすると `entryById` が送出し、
- * 前提の崩壊として検査が落ちる。黙って読み飛ばす形にはしない）。実測: 本定数を
- * `'site-survey/REQ-99.99'` へ変える変異を当てると、64 件を数え上げる前に
- * `Error: 前提: 除外 site-survey/REQ-99.99 が実物に存在しない` を送出して EXIT=1 で
- * 異常終了する（2026-09-04 に実測。変異は退避した控えからの書き戻しで復元し、復元後は
- * 64/64 で緑に戻ることを確かめた）。
+ * 固定したいのは「『E2Eでは確かめない』と宣言した番号を `e2e/specs` の被覆印が名乗って
+ * いれば同居の検査が挙げる」ことである。そのため相手は次の四つを満たさなければならない。
  *
- * 条件は「実在する除外であり、`e2e/specs` の被覆印がその番号を名乗っていない」こと。
- * 被覆印が付いていると、指し先をずらす変異で同居の違反が同時に立ち、
- * どの検査が捕まえたのか分からなくなる。
+ * 1. `e2e/specs` の被覆印が名乗っており、その印が**一つもラチェット（`test.fail()`）でない**。
+ *    ラチェットとの同居は許される例外なので、混じっていると対照が別の枝を通る
+ * 2. 除外にまだ載っていない（載っていれば重複の違反が同時に立つ）
+ * 3. 要件定義書に実在する（`pointEntryAt` が番号・題・原文をそろえられる）
+ * 4. 原文が中黒で列挙していない。列挙していると、移した先の原文に対して代替検証の
+ *    被覆範囲の検査まで同時に鳴り、注入した欠陥が一つに収まらない
+ *
+ * 実物が一件も満たさなくなれば送出する。かつては `site-survey/REQ-1.3` を直書きし、
+ * 別途 `assertCoveredByE2E` で前提を確かめていたが、**性質そのものを走査から読む**
+ * この形なら、当該の被覆印が取り下げられても探針が別の相手へ移るだけで機構は止まらない。
  */
-const MUTATION_SOURCE_ID = 'site-survey/REQ-14.4';
-
-/** `MUTATION_SOURCE_ID` の要件番号（requirement 欄の題だけを崩す変異で使う） */
-const MUTATION_SOURCE_REQUIREMENT = 'REQ-14';
+function coveredProbeCriterionId(document: Json): string {
+  const taken = excludedIds(document);
+  const found = [...coverageTags().entries()]
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .find(([criterionId, sites]) => {
+      if (sites.length === 0 || sites.some((tag) => tag.ratchet)) return false;
+      if (taken.has(criterionId) || !criterionId.includes('/')) return false;
+      const { feature, localId, requirementId } = splitCriterionId(criterionId);
+      const catalogue = catalogueOf(feature);
+      if (!catalogue.present) return false;
+      if (catalogue.requirementTitles.get(requirementId) === undefined) return false;
+      const text = catalogue.criteria.get(localId);
+      if (text === undefined) return false;
+      return extractEnumeratedElements(text).length === 0;
+    });
+  if (!found) {
+    throw new Error(
+      '前提: ラチェットでない被覆印だけが名乗っており、除外に載っておらず、要件定義書に実在し、原文が中黒で列挙していない受入基準が実物に一件も存在しない'
+    );
+  }
+  return found[0];
+}
 
 /**
- * 取り消し線で無効化された受入基準（墓標）の陽性対照での指し先
+ * 取り消し線で無効化された受入基準（墓標）を指す陽性対照の指し先を実物から一件取り出す
  *
- * 実データに撤廃済みとして残っている番号を選ぶ。要件定義書からこの表記が消えれば
- * `pointEntryAtRetired` が前提の崩壊として失敗するため、対照が黙って空振りしない。
+ * 固定したいのは「撤廃済みの番号は被覆率の分母に載らないので除外の対象にならない」ことで
+ * ある。そのため相手は次の四つを満たさなければならない。
+ *
+ * 1. 要件定義書に**墓標として**実在する（`pointEntryAtRetired` が原文を取れる）
+ * 2. その要件の題が読める（requirement 欄をそろえられる）
+ * 3. 除外にまだ載っていない（載っていれば重複の違反が同時に立つ）
+ * 4. 原文が中黒で列挙していない（代替検証の被覆範囲の検査が同時に鳴らない）
+ *
+ * 実物から墓標が一件も無くなれば送出する。かつては `quantity-table-generation/REQ-1.3` を
+ * 直書きしていたが、これは Requirement 1 の全受入基準が project-management/Requirement 25
+ * へ移管された跡であり、**移管の跡が整理された日に機構全体が止まる**構造だった。
  */
-const RETIRED_PROBE_ID = 'quantity-table-generation/REQ-1.3';
+function retiredProbeCriterionId(document: Json): string {
+  const taken = excludedIds(document);
+  for (const feature of discoverFeatureNames(ROOT)) {
+    const catalogue = catalogueOf(feature);
+    if (!catalogue.present) continue;
+    for (const [localId, text] of catalogue.retiredCriteria) {
+      const full = `${feature}/${localId}`;
+      if (taken.has(full)) continue;
+      if (catalogue.requirementTitles.get(localId.slice(0, localId.lastIndexOf('.'))) === undefined)
+        continue;
+      if (extractEnumeratedElements(text).length > 0) continue;
+      return full;
+    }
+  }
+  throw new Error(
+    '前提: 取り消し線で無効化された受入基準のうち、除外に載っておらず原文が中黒で列挙していないものが実物に一件も存在しない'
+  );
+}
 
 /**
  * 除外の指し先を別の受入基準へ移す（番号と内容の対応は要件定義書から取り直す）
@@ -254,8 +462,9 @@ function pointEntryAtRetired(entry: Json, criterionId: string): void {
  *
  * **探針を ID で名指ししてはならない。** かつては
  * `quantity-table-generation/REQ-26.7` を直書きしていたが、同条文の除外が
- * タスク 100.5 で取り下げられた際に `entryById` が「実物に存在しない」で送出し、
- * **陽性対照39件を含む機構全体が最後まで走らなくなった**（2026-09-18 の機能レベル
+ * タスク 100.5 で取り下げられた際に、ID で除外を引く探し方（当時の `entryById`。タスク
+ * 100.18 で撤去済み）が「実物に存在しない」で送出し、**陽性対照39件を含む機構全体が
+ * 最後まで走らなくなった**（2026-09-18 の機能レベル
  * 検証が、基線 `56a6a164` では exit 0 だったことを一時 worktree で実測して検出した）。
  * 除外の取り下げは本検査自身が推奨する営みであり、それが検査を壊す構造は誤りである。
  * `promiselessEntry` と同じく、**性質で見つけ、無ければ送出する**形にすること。
@@ -291,8 +500,9 @@ const NO_ENUMERATION_GENERIC_DESCRIPTION = 'ロジックを検証';
  *
  * **探針を ID で名指ししてはならない。** かつては `estimate-request/REQ-14.5` を
  * 直書きしていた。除外の取り下げは本検査自身が推奨する営みであり、当該の除外が
- * 取り下げられた日に `entryById` が「実物に存在しない」で送出して、陽性対照39件を
- * 含む機構全体（70件）が最後まで走らなくなる。対になる `enumerationProbeEntry` が
+ * 取り下げられた日に、ID で除外を引く探し方（当時の `entryById`。タスク 100.18 で撤去
+ * 済み）が「実物に存在しない」で送出して、陽性対照39件を含む機構全体（70件）が
+ * 最後まで走らなくなる。対になる `enumerationProbeEntry` が
  * まさにその形で壊れた（タスク 100.5 が `quantity-table-generation/REQ-26.7` の除外を
  * 取り下げた瞬間に発火。2026-09-18 の機能レベル検証が基線 `56a6a164` との差で検出）。
  * `promiselessEntry` / `enumerationProbeEntry` と同じく、**性質で見つけ、無ければ
@@ -712,11 +922,13 @@ const MUST_REJECT: Case[] = [
     expectCheck: 'invariant',
   },
   {
-    // 変異元は `MUTATION_SOURCE_ID`（実在する除外）。番号だけを実在しない値へ書き換えるので、
-    // 立つ違反は番号と原文の対応だけである。
+    // 変異元は `mutationSourceEntry` が性質で選ぶ（実在する除外のうち、三つの欄が
+    // 要件定義書と合っていて被覆印が名乗っていないもの）。書き換える先の番号も
+    // `absentCriterionIdOf` が実物から作るので、立つ違反は番号と原文の対応だけである。
     name: '要件定義書に存在しない受入基準を指す識別子',
     mutate: (d) => {
-      entryById(d, MUTATION_SOURCE_ID).id = 'site-survey/REQ-14.99';
+      const entry = mutationSourceEntry(d);
+      entry.id = absentCriterionIdOf(d, entry);
     },
     mustReject: true,
     expectCheck: 'criterion-correspondence',
@@ -725,7 +937,9 @@ const MUST_REJECT: Case[] = [
     // 指し先を隣の受入基準へ一つずらす。requirement 欄は同じ要件を指したままなので、
     // 崩れるのは criterionText（逐語複製）と番号の対応だけである。
     //
-    // ずらす先は **被覆印が付いていない受入基準** を選ぶ（`SHIFT_TARGET_ID`）。
+    // 変異元もずらし先も `shiftPair` が性質で選ぶ（同じ要件の中で、除外にも被覆印にも
+    // 掛からず、原文が変異元の逐語複製と異なる受入基準）。
+    // ずらす先が **被覆印が付いていない受入基準** でなければならない理由は次のとおり。
     // 従前は quantity-table-generation/REQ-9.5 → REQ-9.4 をずらしていたが、REQ-9.4 には
     // `e2e/specs/quantity-tables/field-specification.spec.ts` の被覆印があるため、同居の
     // 検査も同時に発火していた。二つの欠陥が同時に入ると、この対照は
@@ -735,7 +949,8 @@ const MUST_REJECT: Case[] = [
     // 併せて、遮蔽を二重に塞ぐ。
     name: '識別子を一つずらす（番号と内容の対応が崩れる）',
     mutate: (d) => {
-      entryById(d, 'site-survey/REQ-29.3').id = SHIFT_TARGET_ID;
+      const { entry, targetId } = shiftPair(d);
+      entry.id = targetId;
     },
     mustReject: true,
     expectCheck: 'criterion-correspondence',
@@ -743,7 +958,8 @@ const MUST_REJECT: Case[] = [
   {
     name: 'requirement 欄の要件番号が識別子と食い違う',
     mutate: (d) => {
-      entryById(d, MUTATION_SOURCE_ID).requirement = 'REQ-99: 架空の要件';
+      const entry = mutationSourceEntry(d);
+      entry.requirement = `${absentRequirementIdOf(entry)}: 架空の要件`;
     },
     mustReject: true,
     expectCheck: 'criterion-correspondence',
@@ -751,8 +967,9 @@ const MUST_REJECT: Case[] = [
   {
     name: 'requirement 欄の要件の題が要件定義書と食い違う',
     mutate: (d) => {
-      entryById(d, MUTATION_SOURCE_ID).requirement =
-        `${MUTATION_SOURCE_REQUIREMENT}: まったく別の題`;
+      const entry = mutationSourceEntry(d);
+      assertTitleDiffers(entry);
+      entry.requirement = `${requirementIdOf(entry)}: ${FICTITIOUS_REQUIREMENT_TITLE}`;
     },
     mustReject: true,
     expectCheck: 'criterion-correspondence',
@@ -760,7 +977,7 @@ const MUST_REJECT: Case[] = [
   {
     name: 'criterionText が原文と一文字違う（逐語複製の崩れ）',
     mutate: (d) => {
-      const entry = entryById(d, MUTATION_SOURCE_ID);
+      const entry = mutationSourceEntry(d);
       entry.criterionText = `${entry.criterionText as string}。`;
     },
     mustReject: true,
@@ -772,7 +989,7 @@ const MUST_REJECT: Case[] = [
     // 存在しない。指し先を実在する墓標へ移して、その一点だけを注入する。
     name: '取り消し線で無効化された受入基準を除外で指す',
     mutate: (d) => {
-      pointEntryAtRetired(entryById(d, MUTATION_SOURCE_ID), RETIRED_PROBE_ID);
+      pointEntryAtRetired(mutationSourceEntry(d), retiredProbeCriterionId(d));
     },
     mustReject: true,
     expectCheck: 'criterion-correspondence',
@@ -793,8 +1010,7 @@ const MUST_REJECT: Case[] = [
     // 弾かれることを避ける）。
     name: '除外と被覆タグの同居（E2Eで確かめないと宣言した受入基準を e2e/specs が名乗る）',
     mutate: (d) => {
-      assertCoveredByE2E(COVERED_PROBE_ID);
-      pointEntryAt(entryById(d, MUTATION_SOURCE_ID), COVERED_PROBE_ID);
+      pointEntryAt(mutationSourceEntry(d), coveredProbeCriterionId(d));
     },
     mustReject: true,
     expectCheck: 'coverage-tag-coexistence',
@@ -1462,17 +1678,25 @@ const MECHANISM_CASES: MechanismCase[] = [
     // どちらも `criterion-correspondence` として弾かれるため、陽性対照の expectCheck では
     // 区別が付かない。直し方が正反対（除外を足すのではなく取り下げる）である以上、
     // 言い分けそのものを機構として固定する。
+    //
+    // 墓標も「存在しない番号」も **ID で名指ししない**。従前は
+    // `quantity-table-generation/REQ-1.3` を直書きしていたが、これは Requirement 1 の
+    // 全受入基準が project-management/Requirement 25 へ移管された跡であり、**移管の跡が
+    // 整理された日にこの機構が前提の崩壊で落ちる**（タスク 100.18 が実測: 当該の一行を
+    // 消すと 70 件中この一件だけが赤になった）。探針は `retiredProbeCriterionId` が
+    // 実物の性質で選び、実物から墓標が絶えたときにだけ送出する。
     name: '撤廃済みの受入基準を指す除外を、番号違いと言い分けて報告する',
     run: () => {
       const failures: string[] = [];
-      const catalogue = loadRequirementCatalogue('quantity-table-generation', ROOT);
-      const retiredText = catalogue.retiredCriteria.get('REQ-1.3');
+      const retiredId = retiredProbeCriterionId(loadReal());
+      const { feature, localId } = splitCriterionId(retiredId);
+      const retiredText = catalogueOf(feature).retiredCriteria.get(localId);
       if (retiredText === undefined) {
-        return ['前提: quantity-table-generation/REQ-1.3 が墓標として読めていない'];
+        return [`前提: ${retiredId} が墓標として読めていない`];
       }
 
       const retired = checkCriterionCorrespondence({
-        exclusions: [{ id: 'quantity-table-generation/REQ-1.3', criterionText: retiredText }],
+        exclusions: [{ id: retiredId, criterionText: retiredText }],
       });
       if (retired.length !== 1 || !(retired[0]?.message ?? '').includes('取り消し線')) {
         failures.push(
@@ -1480,8 +1704,10 @@ const MECHANISM_CASES: MechanismCase[] = [
         );
       }
 
+      // 「存在しない番号」も実物から作る（同じ機能に実在しない要件番号の下の 1 番）
+      const absentId = `${feature}/${absentRequirementIdOf({ id: retiredId })}.1`;
       const absent = checkCriterionCorrespondence({
-        exclusions: [{ id: 'quantity-table-generation/REQ-999.1', criterionText: 'x' }],
+        exclusions: [{ id: absentId, criterionText: 'x' }],
       });
       if (absent.length !== 1 || (absent[0]?.message ?? '').includes('取り消し線')) {
         failures.push(
