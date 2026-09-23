@@ -1065,11 +1065,11 @@
     {
       "id": "coverage-adjudication-reader-files",
       "file": "scripts/coverage-mark-adjudication.md",
-      "anchor": "タスク 100.14 の時点の再実測は",
-      "command": "grep -rl coverage-mark-adjudication --include=*.ts --include=*.js --include=*.json --include=*.md --include=*.yml . | grep -v node_modules | grep -vE '^\\./(playwright-report|test-results)/' | wc -l",
-      "expected": "12",
-      "documentRendering": "再実測は 12 件である",
-      "note": "タスク 100.14（起点は 115.301、直前は 80.4）。裁定記録の名を引くファイルの数。§6 が「本記録を読む機械は」を述べるときの読み手の母集団であり、増減すればその主張を測り直す契機になる。E2E の生成物は除いた形で数える（母集団の取り方は §6 の当該段落が逐語で持つ） 80.4 で 11 件へ。増分は数量表作成スペックのタスク一覧が本記録を名指したことによる（規約 (a) により 115.301 の 10 件は文書に残す）。 100.14 で 12 件へ。増分は数量表作成スペックの E2E `e2e/specs/quantity-tables/import-e2e.spec.ts` が、§4 に逐語で引かれる区間の表題を据え置く理由を註釈へ綴ったことによる（規約 (a) により 80.4 の 11 件は文書に残す）。読み手として妥当であることは、表題を一字改める変異で `check:adjudication-pointers` が赤くなることで測った。"
+      "anchor": "タスク 100.17 の時点の再実測は",
+      "command": "git grep -l coverage-mark-adjudication | wc -l",
+      "expected": "13",
+      "documentRendering": "再実測は 13 件である",
+      "note": "タスク 100.17（起点は 115.301、直前は 100.14）。裁定記録の名を引くファイルの数。§6 が「本記録を読む機械は」を述べるときの読み手の母集団であり、増減すればその主張を測り直す契機になる（母集団の取り方は §6 の当該段落が逐語で持つ）。 80.4 で 11 件へ。増分は数量表作成スペックのタスク一覧が本記録を名指したことによる（規約 (a) により 115.301 の 10 件は文書に残す）。 100.14 で 12 件へ。増分は数量表作成スペックの E2E `e2e/specs/quantity-tables/import-e2e.spec.ts` が、§4 に逐語で引かれる区間の表題を据え置く理由を註釈へ綴ったことによる（規約 (a) により 80.4 の 11 件は文書に残す）。読み手として妥当であることは、表題を一字改める変異で `check:adjudication-pointers` が赤くなることで測った。 100.17 で 13 件へ。増分は読み手が増えたのではなく、数え方を実体へ寄せたことによる——`--include` で五つの拡張子へ絞る形は `.sh` を持たないため、押下前の関門を駆動する `.husky/scripts/pre-push.sh` を最初から挙げていなかった。拡張子の列挙を続ける運用に陥らないよう `git grep -l` へ改める（生成物と `node_modules` は `.gitignore` が、`.git/` の内部は追跡対象でないことが除く。追跡されていないファイルは数えない）。新しい 1 件が数え方の変更で現に入ったことは、pre-push.sh の当該行を落とすと 13→12 で本検査が赤くなり、同じ変異を旧形へ当てても 12 件のまま緑であることで測った（規約 (a) により 100.14 の 12 件は文書に残す）。"
     },
     {
       "id": "coverage-adjudication-settled-bullets",
