@@ -168,6 +168,21 @@ export const DEFERRED_E2E_PHASE = 'e2e-testing';
  * 変異はいずれも退避した控えからの書き戻しで復元し、復元後に落ちる確認が 0 件へ戻ることを
  * 確かめた。
  *
+ * **現況の再実測（2026-09-23。タスク 100.22）。** 上の三段は取り下げない。ただし二段目が
+ * 赤くなるのは **`checkCriterionCorrespondence` を無効化したまま**ずらし先を被覆印つきへ
+ * 戻したからであり、**本体が健在なまま**ずらし先だけを被覆印つきへ固定すると
+ * `criterion-correspondence` と `coverage-tag-coexistence` の**二つが同時に挙がる**。
+ * `checks.has(expectCheck)` は前者が在ることしか見ないため、**70/70 緑のまま通った**
+ * （`git worktree add --detach` で複製した基線へ `shiftPair` の一行を反転させて実測）。
+ * すなわち本一覧の粒度は**検査名どまり**であり、同じ検査の中で枝が一つ死んでも隣の枝が
+ * 鳴れば対照は気づかない。下の `VIOLATION_RULES` が枝の粒度を与え、自己検査は
+ * 「挙がった枝の集合が宣言と**完全一致**すること」まで見る。
+ *
+ * 一段目の「落ちる確認は 7 件」も同じ日に測り直した。`checkCriterionCorrespondence` を
+ * 丸ごと無効化すると、枝の粒度・完全一致の現況では**落ちる確認は 9 件**である
+ * （書式違反の二件が、巻き込みで挙がっていた枝の消失として新たに赤くなる）。
+ * 2026-09-08 の 7 件は取り下げない——当時の照合での値である。
+ *
  * 型でなく `as const` の配列で持つのは、自己検査が**実行時に語彙を数え上げる**ためである
  * （タスク 115.222）。陽性対照の下限を「この語彙をすべて名指しすること」に置くと、
  * 対照群を空にする破壊も 1 件へ削る破壊も機構で赤くなり、なおかつ重複した対照を減らす
@@ -190,14 +205,203 @@ export const VIOLATION_CHECKS = [
 
 export type ViolationCheck = (typeof VIOLATION_CHECKS)[number];
 
-export interface Violation {
+/**
+ * どの**枝**が挙げた違反か（`検査名:枝名`）
+ *
+ * **検査名だけでは足りない理由**（タスク 100.22 の出所。100.18 の独立レビューの所見1）。
+ * 一つの検査は複数の枝を持つ。`checkCriterionCorrespondence` は要件番号の食い違い・要件の
+ * 題の食い違い・受入基準の不在・墓標・逐語複製の崩れを別々の枝で挙げる。自己検査が
+ * 検査名しか見ないと、**枝を一つ恒偽化しても隣の枝が代わりに鳴り、陽性対照は緑のまま**に
+ * なる。実測（2026-09-23、`checks.has(expectCheck)` の**包含の照合**での値）: 要件番号の
+ * 食い違いの枝を `false &&` で恒偽化しても **70/70 緑**であった。**同じ変異を枝の粒度＋
+ * 完全一致の現況へ当てると 3/70 赤である**（2026-09-23 実測。落ちるのは
+ * `受入基準の識別子の書式違反（枝番が無い）` / `（要件番号ではない文字列）` /
+ * `requirement 欄の要件番号が識別子と食い違う`）。
+ *
+ * そこで枝そのものへ識別子を与え、自己検査は「挙がった枝の集合が宣言と**完全一致**する」
+ * ことを求める。完全一致にすることで、狙った枝が死んで隣が鳴る差し替えも、注入した欠陥が
+ * 別の検査を巻き込む遮蔽も、どちらも赤くなる。実測（2026-09-23、いずれも**枝の粒度＋完全
+ * 一致**の現況での値）: 前者は直上の **3/70 赤**、後者は `shiftPair` の
+ * `coverageTags().has(full)` を反転させる変異で **1/70 赤**である（突き合わせは
+ * `scripts/check-requirement-exclusions.selftest.ts` の 87-98 行）。
+ *
+ * **接頭辞は検査名そのもの**である。型 `RuleOf<C>` がこれを静的に強制するため、
+ * `invariant` の枝を `criterion-correspondence` の集計へ混ぜるような食い違いは
+ * `npm run type-check` が拒む（語彙と検査名が実行時にずれる余地を残さない）。
+ *
+ * **限界（塞いでいないこと）**: 陽性対照の下限は**検査名の語彙**を全て名指しすることに
+ * 置いてあり、**枝の語彙を全て名指しすることは求めていない**。実測（2026-09-23）: ここに
+ * 並ぶ **39 枝**のうち陽性対照が名指しているのは **26 枝**で、**13 枝**は名指しが無い。
+ *
+ * **13 枝のうち、発火させられることを実測したのは次の 5 枝である（残る 8 枝は未発火の確認も
+ * 未実施）。対照が置かれていない理由は測っていない——本註では述べない**（実測していない
+ * 8 枝: `schema:schema-file-unparsable` / `schema:schema-not-object` /
+ * `schema:schema-node-not-object` / `schema:min-properties` /
+ * `criterion-correspondence:requirements-missing` /
+ * `criterion-correspondence:requirement-format` / `criterion-correspondence:requirement-absent`
+ * / `coverage-tag-coexistence:stray-mark`）。
+ *
+ * **実測した 5 枝は、いずれも「発火させられるのに対照が無い枝」である。** 対照を置く相手が
+ * 無いのではない。二通りの当て方で確かめた。
+ *
+ * (i) **定義ファイル側の変異**（2026-09-23 に実測）。`schema:const` と `schema:minimum` は
+ * **その語彙を現に使っている**（`const` は 1 箇所、`minimum` は 2 箇所）。
+ * `validateAgainstSchema` を実データへ直接当てると、無改変の基線は 0 件だが、
+ * `summary.totalExclusions` を `-1` にすると `schema:minimum` が、`$schema` を
+ * `'./other.schema.json'` へ差し替えると `schema:const` が挙がる。
+ *
+ * (ii) **スキーマ側の変異**（2026-09-23 に実測）。自己検査の対照は定義ファイルに限られない。
+ * `Case.mutateSchema`（`scripts/check-requirement-exclusions.selftest.ts:73`）がスキーマ自体を
+ * 壊す口を持ち、**既存の陽性対照が現にそれを使っている**（`schema:unsupported-keyword` の
+ * 対照。同ファイル 949-956 行）。同じ手順——実物のスキーマを複製して変異を当て、実データは
+ * そのまま `run` へ通す——で当てた変異と挙がった枝は次のとおり。無改変の基線は 0 件である。
+ *
+ *   - `$defs.exclusion.properties.category.enum = ['__none__']` を足す
+ *     → 157 件・枝は `schema:enum` のみ
+ *   - `properties.exclusions.items.$ref = 'other.json'`（`#/` 始まりでない参照）
+ *     → 157 件・枝は `schema:ref-unsupported` のみ
+ *   - `properties.exclusions.items.$ref = '#/$defs/nope'`（解決先の無い参照）
+ *     → 157 件・枝は `schema:ref-unresolved` のみ
+ *
+ * **対照を一件足すと対照群の点呼が赤くなり、確認は一件も走らない**（2026-09-23 に実測）。
+ * `schema:enum` の陽性対照を一件足すと、点呼は「陽性対照が 40 件で、宣言した下限 39 件を
+ * 上回ります（遊び 1 件）」「確認の総数が 71 件で……（遊び 1 件）」の二つを挙げて赤くなり、
+ * 確認は一件も走らずに終わった。動くのは `MINIMUM_POSITIVE_CONTROLS`
+ * （`scripts/check-requirement-exclusions.selftest.ts:2477`、39 → 40）と
+ * `MINIMUM_TOTAL_CASES`（同ファイル 2504 行、70 → 71）の二つで、`MINIMUM_MECHANISM_CASES`
+ * （同ファイル 2494 行、23）は 23/23 のまま動かない。枝を増やしても対照が自動で増えるわけ
+ * ではない——この下限の置き方は検査名の粒度のままである。
+ */
+export const VIOLATION_RULES = [
+  // file: 定義ファイルそのものが読めない
+  /** 除外定義が見つからない */
+  'file:document-missing',
+  /** 除外定義が JSON として読めない */
+  'file:document-unparsable',
+
+  // schema: スキーマの解決（`run` が定義ファイルを読んだ直後に見る）
+  /** 定義が `$schema` を持たない */
+  'schema:schema-ref-missing',
+  /** `$schema` の参照先がリポジトリに存在しない */
+  'schema:schema-file-missing',
+  /** スキーマが JSON として読めない */
+  'schema:schema-file-unparsable',
+  /** スキーマの根がオブジェクトではない */
+  'schema:schema-not-object',
+
+  // schema: スキーマ適合（`validateAgainstSchema` の各語彙）
+  /** スキーマの節がオブジェクトではない */
+  'schema:schema-node-not-object',
+  /** この検証器が解釈できないスキーマ語彙 */
+  'schema:unsupported-keyword',
+  /** `#/` で始まらない `$ref` */
+  'schema:ref-unsupported',
+  /** `$ref` の参照先がスキーマに存在しない */
+  'schema:ref-unresolved',
+  /** `type` 違反 */
+  'schema:type',
+  /** `const` 違反 */
+  'schema:const',
+  /** `enum` 違反 */
+  'schema:enum',
+  /** `minLength` 違反 */
+  'schema:min-length',
+  /** `pattern` 違反 */
+  'schema:pattern',
+  /** `minimum` 違反 */
+  'schema:minimum',
+  /** `minItems` 違反 */
+  'schema:min-items',
+  /** `minProperties` 違反 */
+  'schema:min-properties',
+  /** `required` の項目が無い */
+  'schema:required',
+  /** `additionalProperties: false` のもとでスキーマに無い項目 */
+  'schema:additional-properties',
+
+  // invariant: スキーマ単体では表せない不変条件
+  /** 同じ識別子の除外が二件ある */
+  'invariant:duplicate-id',
+  /** 機能名の有無だけが違う識別子の重複（正規化して初めて見える） */
+  'invariant:duplicate-id-normalized',
+  /** `categories` に定義されていない分類を名乗る除外 */
+  'invariant:undefined-category',
+  /** どの除外からも使われていない分類の定義 */
+  'invariant:unused-category',
+  /** 代替検証を持たない除外が、後でE2Eが確かめる分類の外に置かれている */
+  'invariant:promiseless-placement',
+  /** `summary.totalExclusions` が実際の件数と違う */
+  'invariant:total-count-mismatch',
+  /** `summary.byCategory` の件数が実際と違う */
+  'invariant:category-count-mismatch',
+  /** `summary.byCategory` に該当の除外が一件も無い分類が残っている */
+  'invariant:category-count-orphan',
+
+  // criterion-correspondence: 識別子と受入基準の内容の対応
+  /** 機能の要件定義書そのものが存在しない */
+  'criterion-correspondence:requirements-missing',
+  /** `requirement` 欄が `REQ-N: 題` の形でない */
+  'criterion-correspondence:requirement-format',
+  /** `requirement` 欄の要件番号が識別子と食い違う */
+  'criterion-correspondence:requirement-number-mismatch',
+  /** 識別子が指す要件が要件定義書に無い */
+  'criterion-correspondence:requirement-absent',
+  /** `requirement` 欄の要件の題が要件定義書と食い違う */
+  'criterion-correspondence:requirement-title-mismatch',
+  /** 識別子が指す受入基準が要件定義書に無い */
+  'criterion-correspondence:criterion-absent',
+  /** 識別子が取り消し線で無効化された受入基準（墓標）を指す */
+  'criterion-correspondence:criterion-retired',
+  /** `criterionText` が原文の逐語複製になっていない */
+  'criterion-correspondence:criterion-text-mismatch',
+
+  // coverage-tag-coexistence: 除外の宣言と被覆印の同居
+  /** ラチェットでない被覆印と同居している */
+  'coverage-tag-coexistence:no-ratchet',
+  /** ラチェットが在っても、それ以外の被覆印が別に名乗っている */
+  'coverage-tag-coexistence:stray-mark',
+
+  // alternative-coverage: 代替検証の説明が原文の列挙を覆う範囲
+  /** 原文の列挙のうち代替検証が述べていない要素がある */
+  'alternative-coverage:unnamed-element',
+] as const;
+
+export type ViolationRule = (typeof VIOLATION_RULES)[number];
+
+/** ある検査に属する枝の識別子だけを取り出す（接頭辞が検査名であることを型で強制する） */
+export type RuleOf<C extends ViolationCheck> = Extract<ViolationRule, `${C}:${string}`>;
+
+/**
+ * 枝の識別子から検査名を取り出す
+ *
+ * 接頭辞が検査の語彙に無ければ、既定値へ落とさず送出する（前提条件で黙らない書き方。
+ * AI運用7原則 第3原則の作法に倣う）。ただし**この送出には機械的な効力が無い**——実測
+ * （2026-09-23）: `if (!found) throw` を `return found ?? VIOLATION_CHECKS[0]` へ退行させて
+ * も自己検査は **70/70 緑**であった。`tagViolations` が接頭辞の食い違いで投げる枝も同じ
+ * 性質で、その `throw` を丸ごと削っても **70/70 緑**である。どちらも `RuleOf<C>` が接頭辞
+ * を静的に強制しているため実行時には到達しない。ここを機械で縛るには語彙の外の接頭辞を
+ * 与える対照が要るが、`MINIMUM_TOTAL_CASES` の遊びゼロの錠がその追加を境界の外へ押し出す
+ * （`VIOLATION_RULES` の「限界」を見よ）。二つの変異はいずれも控えからの書き戻しで復元し、
+ * 復元後に `git diff --stat` が変異前と一致することを確かめた。
+ */
+export function checkOfRule(rule: string): ViolationCheck {
+  const separator = rule.indexOf(':');
+  const prefix = separator < 0 ? rule : rule.slice(0, separator);
+  const found = VIOLATION_CHECKS.find((check) => check === prefix);
+  if (!found) throw new Error(`枝の識別子 '${rule}' の接頭辞が検査の語彙にありません`);
+  return found;
+}
+
+export interface Violation<C extends ViolationCheck = ViolationCheck> {
   /** 違反箇所を指す JSON ポインタ風の経路（例: `exclusions[12].category`） */
   pointer: string;
   /** 何が満たされていないか */
   message: string;
   /** 実際の値（--verbose で出力する） */
   actual?: string;
-  /** どの検査が挙げたか（`run` が付ける） */
+  /** どの枝が挙げたか（押し出す側が必ず名乗る） */
+  rule: RuleOf<C>;
+  /** どの検査が挙げたか（`run` が枝の接頭辞から付ける） */
   check?: ViolationCheck;
 }
 
@@ -272,12 +476,18 @@ function typeMatches(value: Json, type: string): boolean {
   }
 }
 
-function resolveRef(ref: string, root: JsonObject, pointer: string, out: Violation[]): Json {
+function resolveRef(
+  ref: string,
+  root: JsonObject,
+  pointer: string,
+  out: Violation<'schema'>[]
+): Json {
   if (!ref.startsWith('#/')) {
     out.push({
       pointer,
       message: `解釈できない $ref です（'#/' で始まる参照のみ扱う）`,
       actual: ref,
+      rule: 'schema:ref-unsupported',
     });
     return undefined;
   }
@@ -285,7 +495,12 @@ function resolveRef(ref: string, root: JsonObject, pointer: string, out: Violati
   for (const rawSegment of ref.slice(2).split('/')) {
     const segment = rawSegment.replace(/~1/g, '/').replace(/~0/g, '~');
     if (!isPlainObject(current) || !(segment in current)) {
-      out.push({ pointer, message: `$ref の参照先がスキーマに存在しません`, actual: ref });
+      out.push({
+        pointer,
+        message: `$ref の参照先がスキーマに存在しません`,
+        actual: ref,
+        rule: 'schema:ref-unresolved',
+      });
       return undefined;
     }
     current = current[segment];
@@ -301,13 +516,14 @@ export function validateAgainstSchema(
   schema: Json,
   root: JsonObject,
   pointer: string,
-  out: Violation[]
+  out: Violation<'schema'>[]
 ): void {
   if (!isPlainObject(schema)) {
     out.push({
       pointer,
       message: 'スキーマの節がオブジェクトではありません',
       actual: describe(schema),
+      rule: 'schema:schema-node-not-object',
     });
     return;
   }
@@ -317,6 +533,7 @@ export function validateAgainstSchema(
       out.push({
         pointer,
         message: `この検証器が解釈できないスキーマ語彙 '${keyword}' が使われています。検証器を拡張してください（黙って素通りさせない）`,
+        rule: 'schema:unsupported-keyword',
       });
     }
   }
@@ -330,7 +547,12 @@ export function validateAgainstSchema(
   }
 
   if (typeof schema.type === 'string' && !typeMatches(value, schema.type)) {
-    out.push({ pointer, message: `型が ${schema.type} ではありません`, actual: describe(value) });
+    out.push({
+      pointer,
+      message: `型が ${schema.type} ではありません`,
+      actual: describe(value),
+      rule: 'schema:type',
+    });
     return;
   }
 
@@ -339,6 +561,7 @@ export function validateAgainstSchema(
       pointer,
       message: `値が ${describe(schema.const)} と一致しません`,
       actual: describe(value),
+      rule: 'schema:const',
     });
   }
 
@@ -346,7 +569,12 @@ export function validateAgainstSchema(
     Array.isArray(schema.enum) &&
     !schema.enum.some((c) => JSON.stringify(c) === JSON.stringify(value))
   ) {
-    out.push({ pointer, message: `許可された値のいずれでもありません`, actual: describe(value) });
+    out.push({
+      pointer,
+      message: `許可された値のいずれでもありません`,
+      actual: describe(value),
+      rule: 'schema:enum',
+    });
   }
 
   if (typeof value === 'string') {
@@ -355,6 +583,7 @@ export function validateAgainstSchema(
         pointer,
         message: `${schema.minLength} 文字以上である必要があります`,
         actual: describe(value),
+        rule: 'schema:min-length',
       });
     }
     if (typeof schema.pattern === 'string' && !new RegExp(schema.pattern).test(value)) {
@@ -362,6 +591,7 @@ export function validateAgainstSchema(
         pointer,
         message: `書式 /${schema.pattern}/ に一致しません`,
         actual: describe(value),
+        rule: 'schema:pattern',
       });
     }
   }
@@ -371,6 +601,7 @@ export function validateAgainstSchema(
       pointer,
       message: `${schema.minimum} 以上である必要があります`,
       actual: describe(value),
+      rule: 'schema:minimum',
     });
   }
 
@@ -380,6 +611,7 @@ export function validateAgainstSchema(
         pointer,
         message: `要素が ${schema.minItems} 件以上である必要があります`,
         actual: `${value.length}件`,
+        rule: 'schema:min-items',
       });
     }
     if (schema.items !== undefined) {
@@ -400,13 +632,18 @@ export function validateAgainstSchema(
         pointer,
         message: `項目が ${schema.minProperties} 件以上である必要があります`,
         actual: `${Object.keys(value).length}件`,
+        rule: 'schema:min-properties',
       });
     }
 
     if (Array.isArray(schema.required)) {
       for (const key of schema.required) {
         if (typeof key === 'string' && !(key in value)) {
-          out.push({ pointer: `${pointer}.${key}`, message: '必須の項目がありません' });
+          out.push({
+            pointer: `${pointer}.${key}`,
+            message: '必須の項目がありません',
+            rule: 'schema:required',
+          });
         }
       }
     }
@@ -420,6 +657,7 @@ export function validateAgainstSchema(
           pointer: childPointer,
           message: 'スキーマに無い項目です',
           actual: describe(child),
+          rule: 'schema:additional-properties',
         });
       } else if (isPlainObject(schema.additionalProperties)) {
         validateAgainstSchema(child, schema.additionalProperties, root, childPointer, out);
@@ -527,8 +765,11 @@ export function loadRequirementCatalogue(
  * （`criterionText`）を持たせ、それが要件定義書の当該行と完全に一致することを見る。
  * 番号がずれれば複製が合わなくなるため、ずれは検査で落ちる。
  */
-export function checkCriterionCorrespondence(document: Json, rootDir = ROOT): Violation[] {
-  const violations: Violation[] = [];
+export function checkCriterionCorrespondence(
+  document: Json,
+  rootDir = ROOT
+): Violation<'criterion-correspondence'>[] {
+  const violations: Violation<'criterion-correspondence'>[] = [];
   if (!isPlainObject(document)) return violations;
 
   const exclusions = Array.isArray(document.exclusions) ? document.exclusions : [];
@@ -554,6 +795,7 @@ export function checkCriterionCorrespondence(document: Json, rootDir = ROOT): Vi
         pointer: `${pointer}.id`,
         message: `機能 '${featureName}' の要件定義書（${SPEC_DIR}/${featureName}/requirements.md）が存在しません`,
         actual: entry.id,
+        rule: 'criterion-correspondence:requirements-missing',
       });
       return;
     }
@@ -567,12 +809,14 @@ export function checkCriterionCorrespondence(document: Json, rootDir = ROOT): Vi
           pointer: `${pointer}.requirement`,
           message: `'REQ-N: 要件の題' の形ではありません`,
           actual: entry.requirement,
+          rule: 'criterion-correspondence:requirement-format',
         });
       } else if (declaredMatch[1] !== requirementId) {
         violations.push({
           pointer: `${pointer}.requirement`,
           message: `id の要件番号（${requirementId}）と食い違っています`,
           actual: entry.requirement,
+          rule: 'criterion-correspondence:requirement-number-mismatch',
         });
       } else {
         const actualTitle = catalogue.requirementTitles.get(requirementId);
@@ -581,12 +825,14 @@ export function checkCriterionCorrespondence(document: Json, rootDir = ROOT): Vi
             pointer: `${pointer}.id`,
             message: `要件定義書に ${requirementId} がありません`,
             actual: entry.id,
+            rule: 'criterion-correspondence:requirement-absent',
           });
         } else if (actualTitle !== declaredMatch[2].trim()) {
           violations.push({
             pointer: `${pointer}.requirement`,
             message: `要件の題が要件定義書と一致しません（原文: ${actualTitle}）`,
             actual: entry.requirement,
+            rule: 'criterion-correspondence:requirement-title-mismatch',
           });
         }
       }
@@ -605,6 +851,10 @@ export function checkCriterionCorrespondence(document: Json, rootDir = ROOT): Vi
             ? `要件定義書に該当の受入基準がありません（分母から外す先が存在しない）`
             : `取り消し線で無効化された受入基準を指しています。撤廃済みの受入基準は被覆率の分母に載らないため除外の対象になりません（この除外を取り下げ、移管先があるならその番号を名乗ること）`,
         actual: retiredText === undefined ? normalized : `${normalized}: ${retiredText}`,
+        rule:
+          retiredText === undefined
+            ? 'criterion-correspondence:criterion-absent'
+            : 'criterion-correspondence:criterion-retired',
       });
       return;
     }
@@ -615,6 +865,7 @@ export function checkCriterionCorrespondence(document: Json, rootDir = ROOT): Vi
         pointer: `${pointer}.criterionText`,
         message: `要件定義書の ${normalized} の本文と一致しません（原文: ${criterionText}）`,
         actual: entry.criterionText,
+        rule: 'criterion-correspondence:criterion-text-mismatch',
       });
     }
   });
@@ -874,8 +1125,8 @@ export function scanCoverageTags(rootDir = ROOT): CoverageTagIndex {
 export function checkCoverageTagCoexistence(
   document: Json,
   tagIndex: CoverageTagIndex
-): Violation[] {
-  const violations: Violation[] = [];
+): Violation<'coverage-tag-coexistence'>[] {
+  const violations: Violation<'coverage-tag-coexistence'>[] = [];
   if (!isPlainObject(document)) return violations;
 
   const exclusions = Array.isArray(document.exclusions) ? document.exclusions : [];
@@ -891,6 +1142,7 @@ export function checkCoverageTagCoexistence(
         pointer: `exclusions[${position}].id`,
         message: `「E2Eでは確かめない」と宣言していますが ${E2E_SPECS_DIR} の被覆印が同じ受入基準を名乗っています（検証が実在するなら除外を取り下げ、名乗るだけなら被覆印を取り下げること）`,
         actual: `${criterionId} <- ${sites.map((site) => `${site.file}:${site.line}`).join(', ')}`,
+        rule: 'coverage-tag-coexistence:no-ratchet',
       });
       return;
     }
@@ -903,6 +1155,7 @@ export function checkCoverageTagCoexistence(
         pointer: `exclusions[${position}].id`,
         message: `ラチェット（test.fail()）以外の被覆印が同じ受入基準を名乗っています（ラチェットとの同居だけが許されます）`,
         actual: `${criterionId} <- ${stray.map((site) => `${site.file}:${site.line}`).join(', ')}`,
+        rule: 'coverage-tag-coexistence:stray-mark',
       });
     }
   });
@@ -1030,8 +1283,8 @@ export function namesElement(element: string, alternativeText: string): boolean 
  * 説明であって「代わりに何を確かめるか」の約束ではなく、含めると 8.5 のように
  * 題が原文を写しているだけで約束が欠けている対を見逃す（実測で確認した）。
  */
-export function checkAlternativeCoverage(document: Json): Violation[] {
-  const violations: Violation[] = [];
+export function checkAlternativeCoverage(document: Json): Violation<'alternative-coverage'>[] {
+  const violations: Violation<'alternative-coverage'>[] = [];
   if (!isPlainObject(document)) return violations;
 
   const exclusions = Array.isArray(document.exclusions) ? document.exclusions : [];
@@ -1054,6 +1307,7 @@ export function checkAlternativeCoverage(document: Json): Violation[] {
       pointer: `exclusions[${index}].alternativeVerification`,
       message: `原文が列挙する要素のうち ${missing.map((element) => `「${element}」`).join('')} を代替検証が述べていません（除外は受入基準を丸ごと分母から外すため、述べられていない要素はどの指標にも現れなくなります。説明を実態へ広げるか、覆えないなら除外を取り下げること）`,
       actual: `${typeof entry.id === 'string' ? entry.id : '(id不明)'} 原文の列挙: ${elements.join('・')}`,
+      rule: 'alternative-coverage:unnamed-element',
     });
   });
 
@@ -1072,8 +1326,8 @@ export function checkAlternativeCoverage(document: Json): Violation[] {
  *
  * 識別子と内容の対応（要件定義書との照合）は checkCriterionCorrespondence が扱う。
  */
-export function checkInvariants(document: Json): Violation[] {
-  const violations: Violation[] = [];
+export function checkInvariants(document: Json): Violation<'invariant'>[] {
+  const violations: Violation<'invariant'>[] = [];
   if (!isPlainObject(document)) return violations;
 
   const exclusions = Array.isArray(document.exclusions) ? document.exclusions : [];
@@ -1097,6 +1351,13 @@ export function checkInvariants(document: Json): Violation[] {
             ? `同じ受入基準が exclusions[${first.index}] でも除外されています（重複）`
             : `同じ受入基準が exclusions[${first.index}]（${first.id}）でも除外されています（機能名の有無だけが違う重複）`,
         actual: entry.id,
+        // 正規化して初めて見える重複は別の枝として扱う。
+        // 実測（2026-09-23、**枝の粒度＋完全一致**の現況での値）:
+        // `normalizeExclusionId` を外して生の id で比べる形へ戻すと **1/70 赤**
+        // （`接頭辞だけが違う識別子の重複（REQ-N.M と user-authentication/REQ-N.M）
+        // → 弾かれなかった`）。
+        rule:
+          first.id === entry.id ? 'invariant:duplicate-id' : 'invariant:duplicate-id-normalized',
       });
     } else {
       seen.set(normalized, { index, id: entry.id });
@@ -1113,6 +1374,7 @@ export function checkInvariants(document: Json): Violation[] {
         pointer: `exclusions[${index}].category`,
         message: 'categories に定義されていない分類です',
         actual: entry.category,
+        rule: 'invariant:undefined-category',
       });
     }
   });
@@ -1123,6 +1385,7 @@ export function checkInvariants(document: Json): Violation[] {
       violations.push({
         pointer: `categories.${name}`,
         message: 'どの除外からも使われていない分類です',
+        rule: 'invariant:unused-category',
       });
     }
   }
@@ -1156,6 +1419,7 @@ export function checkInvariants(document: Json): Violation[] {
         pointer: `exclusions[${index}].alternativeVerification.method`,
         message: `代替検証を持たない除外（method: ${PROMISELESS_METHOD}）は verificationPhase が ${DEFERRED_E2E_PHASE} の分類にしか置けません（確かめる対象が無い条文を分母から外すと「E2E対象外」が偽の宣言になります）`,
         actual: `${describe(entry.id)} -> category=${categoryName || '(無し)'} verificationPhase=${phase ?? '(無し)'}`,
+        rule: 'invariant:promiseless-placement',
       });
     }
   }
@@ -1171,6 +1435,7 @@ export function checkInvariants(document: Json): Violation[] {
         pointer: 'summary.totalExclusions',
         message: `実際の除外件数（${exclusions.length}件）と一致しません`,
         actual: String(summary.totalExclusions),
+        rule: 'invariant:total-count-mismatch',
       });
     }
     const declared = isPlainObject(summary.byCategory) ? summary.byCategory : {};
@@ -1180,6 +1445,7 @@ export function checkInvariants(document: Json): Violation[] {
           pointer: `summary.byCategory.${name}`,
           message: `実際の件数（${count}件）と一致しません`,
           actual: describe(declared[name]),
+          rule: 'invariant:category-count-mismatch',
         });
       }
     }
@@ -1189,6 +1455,7 @@ export function checkInvariants(document: Json): Violation[] {
           pointer: `summary.byCategory.${name}`,
           message: '該当する除外が一件もありません',
           actual: describe(declared[name]),
+          rule: 'invariant:category-count-orphan',
         });
       }
     }
@@ -1201,9 +1468,25 @@ export function checkInvariants(document: Json): Violation[] {
 // 実行
 // ============================================================================
 
-/** 違反にどの検査が挙げたかを刻む（自己検査が狙いどおりの検査を見るために使う） */
-function tagViolations(check: ViolationCheck, violations: Violation[]): Violation[] {
-  return violations.map((violation) => ({ ...violation, check }));
+/**
+ * 違反にどの検査が挙げたかを刻む（自己検査が狙いどおりの枝を見るために使う）
+ *
+ * **検査名は枝の識別子から導く。** 引数の `check` と枝の接頭辞という二つの出所を突き合わせ、
+ * 食い違えば送出する（前提条件で黙らない。AI運用7原則 第3原則）。実測（2026-09-23、**枝の
+ * 粒度＋完全一致**の現況での値）: この `throw` を丸ごと削っても **70/70 緑**である
+ * （`checkOfRule` の送出と同じ性質。同関数の註に同じ実測がある）。
+ */
+function tagViolations<C extends ViolationCheck>(
+  check: C,
+  violations: Violation<C>[]
+): Violation[] {
+  return violations.map((violation) => {
+    const derived = checkOfRule(violation.rule);
+    if (derived !== check) {
+      throw new Error(`枝 '${violation.rule}' は検査 '${check}' の集計に属しません`);
+    }
+    return { ...violation, check: derived };
+  });
 }
 
 export function run(
@@ -1223,6 +1506,7 @@ export function run(
           pointer: '(file)',
           message: '除外定義が見つかりません',
           actual: exclusionsPath,
+          rule: 'file:document-missing',
           check: 'file',
         },
       ],
@@ -1242,6 +1526,7 @@ export function run(
           pointer: '(file)',
           message: 'JSON として読めません',
           actual: error instanceof Error ? error.message : String(error),
+          rule: 'file:document-unparsable',
           check: 'file',
         },
       ],
@@ -1256,7 +1541,12 @@ export function run(
       schemaFile: '(未解決)',
       exclusionCount: 0,
       violations: [
-        { pointer: '$schema', message: 'スキーマへの参照がありません', check: 'schema' },
+        {
+          pointer: '$schema',
+          message: 'スキーマへの参照がありません',
+          rule: 'schema:schema-ref-missing',
+          check: 'schema',
+        },
       ],
     };
   }
@@ -1273,6 +1563,7 @@ export function run(
           pointer: '$schema',
           message: '参照先のスキーマがリポジトリに存在しません（ダングリング参照）',
           actual: schemaRef,
+          rule: 'schema:schema-file-missing',
           check: 'schema',
         },
       ],
@@ -1292,6 +1583,7 @@ export function run(
           pointer: '(schema)',
           message: 'スキーマが JSON として読めません',
           actual: error instanceof Error ? error.message : String(error),
+          rule: 'schema:schema-file-unparsable',
           check: 'schema',
         },
       ],
@@ -1299,11 +1591,15 @@ export function run(
   }
 
   const violations: Violation[] = [];
-  const schemaViolations: Violation[] = [];
+  const schemaViolations: Violation<'schema'>[] = [];
   if (isPlainObject(schema)) {
     validateAgainstSchema(document, schema, schema, '(root)', schemaViolations);
   } else {
-    schemaViolations.push({ pointer: '(schema)', message: 'スキーマがオブジェクトではありません' });
+    schemaViolations.push({
+      pointer: '(schema)',
+      message: 'スキーマがオブジェクトではありません',
+      rule: 'schema:schema-not-object',
+    });
   }
   violations.push(...tagViolations('schema', schemaViolations));
   violations.push(...tagViolations('invariant', checkInvariants(document)));

@@ -22,6 +22,7 @@ import type {
   CoverageTagSite,
   RequirementCatalogue,
   ViolationCheck,
+  ViolationRule,
 } from './check-requirement-exclusions.js';
 import {
   DEFAULT_FEATURE,
@@ -31,6 +32,7 @@ import {
   PROMISELESS_METHOD,
   VIOLATION_CHECKS,
   checkAlternativeCoverage,
+  checkOfRule,
   checkCoverageTagCoexistence,
   checkCriterionCorrespondence,
   discoverFeatureNames,
@@ -76,13 +78,33 @@ interface Case {
   /** 弾かれなければならない（true）／通らなければならない（false） */
   mustReject: boolean;
   /**
-   * どの検査が弾かなければならないか（陽性対照でのみ使う）
+   * どの**枝**が弾かなければならないか（陽性対照でのみ使う）。**挙がった枝の集合と完全一致**
    *
    * 「弾かれたか」だけを見る対照は、注入した欠陥が**別の**検査に巻き込まれて弾かれると
    * 緑のまま通ってしまう。狙った検査を丸ごと無効化しても検出漏れに気づけないため、
    * 陽性対照は必ず「どの検査が挙げたか」まで指定する（タスク 115.186 の是正）。
+   *
+   * **タスク 100.22 で検査名から枝へ粒度を下げ、包含から完全一致へ締めた。** 100.18 の
+   * 独立レビューが、`checks.has(expectCheck)` という包含の照合には二つの穴が残ることを
+   * 実測していた（本タスクが着手時に `git worktree add --detach` の複製で再現した）。
+   *   - (a) 「識別子を一つずらす」対照のずらし先を**あえて被覆印つき**へ固定しても
+   *     **70/70 緑**であった。`criterion-correspondence` と `coverage-tag-coexistence` の
+   *     二つが同時に挙がるが、包含の照合は前者が在ることしか見ないためである。
+   *     すなわち `shiftPair` の註が述べる「ずらし先が被覆印に掛からないこと」は、
+   *     機械的な効力を持っていなかった。
+   *   - (b) 本体の**要件番号の食い違いの枝**を `false &&` で恒偽化しても **70/70 緑**で
+   *     あった。題の照合が同じ `criterion-correspondence` として代わりに鳴るため、
+   *     枝が死んでも検査名の粒度では気づけない。
+   * 完全一致は (a) を、枝の粒度は (b) を塞ぐ。**どちらか一方では両方は塞がらない。**
+   *
+   * **複数の枝を並べてよいのは、一つの欠陥が構造上どうしても複数の枝を鳴らす場合だけ**で
+   * ある。現況で該当するのは、識別子の書式違反の二件（`schema:pattern` と
+   * `criterion-correspondence` の二枝）と、除外を空にする一件（`schema:min-items` と
+   * `invariant:unused-category`）の計三件であり、各件の理由は宣言の側に
+   * 書いてある。「鳴ってしまうから足す」は緩めることと同じなので、足す前に
+   * **対照の側を単一欠陥へ直せないか**を必ず先に問うこと。
    */
-  expectCheck?: ViolationCheck;
+  expectRules?: readonly ViolationRule[];
 }
 
 function loadReal(): Json {
@@ -304,7 +326,13 @@ function assertTitleDiffers(entry: Json): void {
  *    別の要件へ動かすと要件番号の食い違いという別の違反が同時に立つ
  * 3. ずらし先が除外にも載っておらず、被覆印も名乗っていない。載っていれば重複の違反が、
  *    被覆印が付いていれば同居の違反が同時に立ち、どの検査が捕まえたのか分からなくなる
- *    （タスク 115.186 のレビューが実際に変異を走らせて実証した遮蔽）
+ *    （タスク 115.186 のレビューが実際に変異を走らせて実証した遮蔽）。
+ *    **この条件に機械的な効力が付いたのはタスク 100.22 である。** それまでの照合は
+ *    `checks.has(expectCheck)` の包含であり、ここを `!coverageTags().has(full)` へ反転して
+ *    **被覆印つきのずらし先だけを選ばせても 70/70 緑**のままであった（2026-09-23 実測）。
+ *    いまは枝の集合の完全一致で照合する。実測（2026-09-23、枝の粒度＋完全一致の現況での
+ *    値）: 同じ反転は **1/70 赤**（`識別子を一つずらす（番号と内容の対応が崩れる） →
+ *    宣言に無い枝が挙がった: coverage-tag-coexistence:no-ratchet`）
  * 4. ずらし先の原文が変異元の逐語複製と**異なる**。同じ本文の受入基準へずらしても
  *    逐語複製は合ったままで、対照は恒真になる
  *
@@ -660,7 +688,7 @@ const MUST_REJECT: Case[] = [
       delete entryAt(d, 0).reason;
     },
     mustReject: true,
-    expectCheck: 'schema',
+    expectRules: ['schema:required'],
   },
   {
     name: '代替検証そのものの欠落（E2Eで確かめない約束の相手が無い）',
@@ -668,7 +696,7 @@ const MUST_REJECT: Case[] = [
       delete entryAt(d, 0).alternativeVerification;
     },
     mustReject: true,
-    expectCheck: 'schema',
+    expectRules: ['schema:required'],
   },
   {
     name: '代替検証の手段が空文字（形だけの代替検証）',
@@ -676,7 +704,7 @@ const MUST_REJECT: Case[] = [
       altOf(entryAt(d, 0)).method = '';
     },
     mustReject: true,
-    expectCheck: 'schema',
+    expectRules: ['schema:min-length'],
   },
   {
     name: '代替検証に未知の項目',
@@ -684,7 +712,7 @@ const MUST_REJECT: Case[] = [
       altOf(entryAt(d, 0)).owner = '誰か';
     },
     mustReject: true,
-    expectCheck: 'schema',
+    expectRules: ['schema:additional-properties'],
   },
   {
     name: '受入基準の識別子の書式違反（枝番が無い）',
@@ -692,7 +720,18 @@ const MUST_REJECT: Case[] = [
       entryAt(d, 0).id = 'REQ-23';
     },
     mustReject: true,
-    expectCheck: 'schema',
+    // **枝が三つ挙がるのは構造上分けられないためである**（タスク 100.22 が実測して裁定）。
+    // id の書式違反は、同時に「解決できない指し先」でもある。番号の形を満たさない文字列は
+    // 要件番号としても受入基準としても引けないため、`schema:pattern` に加えて
+    // `criterion-correspondence` の二枝が必ず鳴る。そこで三つを逐一宣言する。
+    // 実測（2026-09-23、枝の粒度＋完全一致の現況での値）:
+    // `criterion-correspondence:requirement-number-mismatch` の枝を恒偽化すると **3/70 赤**で、
+    // うち二件が本対照である。
+    expectRules: [
+      'schema:pattern',
+      'criterion-correspondence:requirement-number-mismatch',
+      'criterion-correspondence:criterion-absent',
+    ],
   },
   {
     name: '受入基準の識別子の書式違反（要件番号ではない文字列）',
@@ -700,7 +739,18 @@ const MUST_REJECT: Case[] = [
       entryAt(d, 0).id = 'パフォーマンス関連';
     },
     mustReject: true,
-    expectCheck: 'schema',
+    // **枝が三つ挙がるのは構造上分けられないためである**（タスク 100.22 が実測して裁定）。
+    // id の書式違反は、同時に「解決できない指し先」でもある。番号の形を満たさない文字列は
+    // 要件番号としても受入基準としても引けないため、`schema:pattern` に加えて
+    // `criterion-correspondence` の二枝が必ず鳴る。そこで三つを逐一宣言する。
+    // 実測（2026-09-23、枝の粒度＋完全一致の現況での値）:
+    // `criterion-correspondence:requirement-number-mismatch` の枝を恒偽化すると **3/70 赤**で、
+    // うち二件が本対照である。
+    expectRules: [
+      'schema:pattern',
+      'criterion-correspondence:requirement-number-mismatch',
+      'criterion-correspondence:criterion-absent',
+    ],
   },
   {
     name: '除外に未知の項目',
@@ -708,7 +758,7 @@ const MUST_REJECT: Case[] = [
       entryAt(d, 0).note = 'あとで消す';
     },
     mustReject: true,
-    expectCheck: 'schema',
+    expectRules: ['schema:additional-properties'],
   },
   {
     name: '型違反（reason が文字列ではない）',
@@ -716,7 +766,7 @@ const MUST_REJECT: Case[] = [
       entryAt(d, 0).reason = 42;
     },
     mustReject: true,
-    expectCheck: 'schema',
+    expectRules: ['schema:type'],
   },
   {
     name: '除外が一件も無い（前提条件で検査を無効化しない）',
@@ -727,7 +777,15 @@ const MUST_REJECT: Case[] = [
       summary(d).byCategory = {};
     },
     mustReject: true,
-    expectCheck: 'schema',
+    // **枝が二つ挙がるのは構造上分けられないためである**（タスク 100.22 が実測して裁定）。
+    // スキーマは `exclusions` に minItems:1、`categories` に minProperties:1 を課し、不変条件は
+    // 「どの除外からも使われていない分類」を禁じる。**除外を空にすると、分類を残せば不変条件が、
+    // 分類も空にすればスキーマの minProperties が、必ず第二の違反として立つ**。
+    // 実測（2026-09-23、枝の粒度＋完全一致の現況での値）: 分類も空にすると **1/70 赤**で、
+    // 挙がる枝は `schema:min-items, schema:min-properties`（`invariant:unused-category` と
+    // 入れ替わる）。狙いは「空の一覧を素通りさせない」ことなので、分類を残す現況の形のまま
+    // 二つを逐一宣言する。
+    expectRules: ['schema:min-items', 'invariant:unused-category'],
   },
   {
     name: '識別子の重複（同じ受入基準を二重に除外）',
@@ -741,7 +799,7 @@ const MUST_REJECT: Case[] = [
       summary(d).totalExclusions = list.length;
     },
     mustReject: true,
-    expectCheck: 'invariant',
+    expectRules: ['invariant:duplicate-id'],
   },
   {
     name: 'categories に定義されていない分類',
@@ -753,7 +811,7 @@ const MUST_REJECT: Case[] = [
       entryAt(d, 0).category = '思いつきの分類';
     },
     mustReject: true,
-    expectCheck: 'invariant',
+    expectRules: ['invariant:undefined-category'],
   },
   {
     name: 'どの除外からも使われていない分類の定義',
@@ -764,7 +822,7 @@ const MUST_REJECT: Case[] = [
       };
     },
     mustReject: true,
-    expectCheck: 'invariant',
+    expectRules: ['invariant:unused-category'],
   },
   {
     // タスク 115.314。除外は「代わりにこの方法で確かめる」という約束であり、
@@ -776,7 +834,7 @@ const MUST_REJECT: Case[] = [
       moveCategory(d, entry, nonDeferredCategoryName(d, entry.category as string));
     },
     mustReject: true,
-    expectCheck: 'invariant',
+    expectRules: ['invariant:promiseless-placement'],
   },
   {
     // 同じ規則を分類の側から壊す。判定は分類名ではなく検証フェーズを読むため、
@@ -795,7 +853,7 @@ const MUST_REJECT: Case[] = [
       category.verificationPhase = 'undecided';
     },
     mustReject: true,
-    expectCheck: 'invariant',
+    expectRules: ['invariant:promiseless-placement'],
   },
   {
     name: '分類の定義に検証フェーズが無い',
@@ -803,7 +861,7 @@ const MUST_REJECT: Case[] = [
       delete (categories(d).performance as Json).verificationPhase;
     },
     mustReject: true,
-    expectCheck: 'schema',
+    expectRules: ['schema:required'],
   },
   {
     name: '集計の総数が実際とずれている',
@@ -811,7 +869,7 @@ const MUST_REJECT: Case[] = [
       summary(d).totalExclusions = entries(d).length + 6;
     },
     mustReject: true,
-    expectCheck: 'invariant',
+    expectRules: ['invariant:total-count-mismatch'],
   },
   {
     name: '分類別の集計が実際とずれている',
@@ -820,7 +878,7 @@ const MUST_REJECT: Case[] = [
       counts.performance = (counts.performance ?? 0) + 4;
     },
     mustReject: true,
-    expectCheck: 'invariant',
+    expectRules: ['invariant:category-count-mismatch'],
   },
   {
     name: '該当が一件も無い分類が集計に残っている',
@@ -828,7 +886,7 @@ const MUST_REJECT: Case[] = [
       byCategory(d)['亡霊の分類'] = 3;
     },
     mustReject: true,
-    expectCheck: 'invariant',
+    expectRules: ['invariant:category-count-orphan'],
   },
   {
     name: '版番号の書式違反',
@@ -836,7 +894,7 @@ const MUST_REJECT: Case[] = [
       d.version = 'v1';
     },
     mustReject: true,
-    expectCheck: 'schema',
+    expectRules: ['schema:pattern'],
   },
   {
     name: '更新日の書式違反',
@@ -844,7 +902,7 @@ const MUST_REJECT: Case[] = [
       d.lastUpdated = '2026/08/25';
     },
     mustReject: true,
-    expectCheck: 'schema',
+    expectRules: ['schema:pattern'],
   },
   {
     name: '最上位に未知の項目',
@@ -852,7 +910,7 @@ const MUST_REJECT: Case[] = [
       d.todo = 'あとで整理する';
     },
     mustReject: true,
-    expectCheck: 'schema',
+    expectRules: ['schema:additional-properties'],
   },
   {
     name: 'スキーマ参照が別のファイルを指す',
@@ -860,7 +918,7 @@ const MUST_REJECT: Case[] = [
       d.$schema = './requirement-exclusions.v2.schema.json';
     },
     mustReject: true,
-    expectCheck: 'schema',
+    expectRules: ['schema:schema-file-missing'],
   },
   {
     name: 'スキーマ参照の欠落',
@@ -868,25 +926,25 @@ const MUST_REJECT: Case[] = [
       delete d.$schema;
     },
     mustReject: true,
-    expectCheck: 'schema',
+    expectRules: ['schema:schema-ref-missing'],
   },
   {
     name: 'スキーマ参照の先が実在しない（ダングリング参照）',
     omitSchema: true,
     mustReject: true,
-    expectCheck: 'schema',
+    expectRules: ['schema:schema-file-missing'],
   },
   {
     name: '定義が JSON として壊れている',
     rawDocument: '{ "exclusions": [ ',
     mustReject: true,
-    expectCheck: 'file',
+    expectRules: ['file:document-unparsable'],
   },
   {
     name: '定義ファイルが存在しない（前提条件で検査を無効化しない）',
     rawDocument: null,
     mustReject: true,
-    expectCheck: 'file',
+    expectRules: ['file:document-missing'],
   },
   {
     name: '検証器が解釈できないスキーマ語彙（黙って素通りさせない）',
@@ -894,7 +952,7 @@ const MUST_REJECT: Case[] = [
       ((s.$defs as Json).exclusion as Json).oneOf = [];
     },
     mustReject: true,
-    expectCheck: 'schema',
+    expectRules: ['schema:unsupported-keyword'],
   },
 
   // --------------------------------------------------------------------
@@ -919,7 +977,7 @@ const MUST_REJECT: Case[] = [
       counts[clone.category as string] = (counts[clone.category as string] ?? 0) + 1;
     },
     mustReject: true,
-    expectCheck: 'invariant',
+    expectRules: ['invariant:duplicate-id-normalized'],
   },
   {
     // 変異元は `mutationSourceEntry` が性質で選ぶ（実在する除外のうち、三つの欄が
@@ -931,7 +989,7 @@ const MUST_REJECT: Case[] = [
       entry.id = absentCriterionIdOf(d, entry);
     },
     mustReject: true,
-    expectCheck: 'criterion-correspondence',
+    expectRules: ['criterion-correspondence:criterion-absent'],
   },
   {
     // 指し先を隣の受入基準へ一つずらす。requirement 欄は同じ要件を指したままなので、
@@ -945,15 +1003,23 @@ const MUST_REJECT: Case[] = [
     // 検査も同時に発火していた。二つの欠陥が同時に入ると、この対照は
     // `checkCriterionCorrespondence` を丸ごと無効化しても同居違反だけで弾かれ、緑のまま
     // 通ってしまう（タスク 115.186 のレビューが実際に変異を走らせて実証した遮蔽）。
-    // 単一の欠陥だけを注入する。`expectCheck` による「狙った検査が挙げたか」の判定と
+    // 単一の欠陥だけを注入する。`expectRules` による「狙った枝**だけ**が挙げたか」の判定と
     // 併せて、遮蔽を二重に塞ぐ。
+    //
+    // **この二重化には、タスク 100.22 まで片側しか効いていなかった**（同タスクが実測）。
+    // 判定が `checks.has(expectCheck)` の包含だった間は、`shiftPair` のずらし先を**あえて
+    // 被覆印つき**へ固定しても `criterion-correspondence` が併せて挙がるため **70/70 緑**の
+    // ままであり、上の「被覆印に掛からないこと」は註が述べるほどの機械的な効力を持って
+    // いなかった。判定を枝の集合の**完全一致**へ締めたいま、実測（2026-09-23、枝の粒度＋
+    // 完全一致の現況での値）: 同じ変異は **1/70 赤**（`識別子を一つずらす（番号と内容の
+    // 対応が崩れる） → 宣言に無い枝が挙がった: coverage-tag-coexistence:no-ratchet`）。
     name: '識別子を一つずらす（番号と内容の対応が崩れる）',
     mutate: (d) => {
       const { entry, targetId } = shiftPair(d);
       entry.id = targetId;
     },
     mustReject: true,
-    expectCheck: 'criterion-correspondence',
+    expectRules: ['criterion-correspondence:criterion-text-mismatch'],
   },
   {
     name: 'requirement 欄の要件番号が識別子と食い違う',
@@ -962,7 +1028,7 @@ const MUST_REJECT: Case[] = [
       entry.requirement = `${absentRequirementIdOf(entry)}: 架空の要件`;
     },
     mustReject: true,
-    expectCheck: 'criterion-correspondence',
+    expectRules: ['criterion-correspondence:requirement-number-mismatch'],
   },
   {
     name: 'requirement 欄の要件の題が要件定義書と食い違う',
@@ -972,7 +1038,7 @@ const MUST_REJECT: Case[] = [
       entry.requirement = `${requirementIdOf(entry)}: ${FICTITIOUS_REQUIREMENT_TITLE}`;
     },
     mustReject: true,
-    expectCheck: 'criterion-correspondence',
+    expectRules: ['criterion-correspondence:requirement-title-mismatch'],
   },
   {
     name: 'criterionText が原文と一文字違う（逐語複製の崩れ）',
@@ -981,7 +1047,7 @@ const MUST_REJECT: Case[] = [
       entry.criterionText = `${entry.criterionText as string}。`;
     },
     mustReject: true,
-    expectCheck: 'criterion-correspondence',
+    expectRules: ['criterion-correspondence:criterion-text-mismatch'],
   },
   {
     // 撤廃済み（取り消し線）の受入基準は被覆率の分母に載らないため、除外の対象にならない。
@@ -992,7 +1058,7 @@ const MUST_REJECT: Case[] = [
       pointEntryAtRetired(mutationSourceEntry(d), retiredProbeCriterionId(d));
     },
     mustReject: true,
-    expectCheck: 'criterion-correspondence',
+    expectRules: ['criterion-correspondence:criterion-retired'],
   },
   {
     name: 'criterionText の欠落（逐語複製を置かずに済ませる）',
@@ -1000,7 +1066,7 @@ const MUST_REJECT: Case[] = [
       delete entryAt(d, 0).criterionText;
     },
     mustReject: true,
-    expectCheck: 'schema',
+    expectRules: ['schema:required'],
   },
   {
     // 「E2Eでは確かめない」と宣言した受入基準を、`e2e/specs` の被覆印が同じ番号で
@@ -1013,7 +1079,7 @@ const MUST_REJECT: Case[] = [
       pointEntryAt(mutationSourceEntry(d), coveredProbeCriterionId(d));
     },
     mustReject: true,
-    expectCheck: 'coverage-tag-coexistence',
+    expectRules: ['coverage-tag-coexistence:no-ratchet'],
   },
 
   // --------------------------------------------------------------------
@@ -1039,7 +1105,7 @@ const MUST_REJECT: Case[] = [
       }
     },
     mustReject: true,
-    expectCheck: 'alternative-coverage',
+    expectRules: ['alternative-coverage:unnamed-element'],
   },
   {
     name: '代替検証の説明が総称だけで原文の列挙を一つも述べていない',
@@ -1052,7 +1118,7 @@ const MUST_REJECT: Case[] = [
       delete alternative.threshold;
     },
     mustReject: true,
-    expectCheck: 'alternative-coverage',
+    expectRules: ['alternative-coverage:unnamed-element'],
   },
   {
     // 題（title）が原文を写していても、約束の側が述べていなければ覆えていない。
@@ -1069,7 +1135,7 @@ const MUST_REJECT: Case[] = [
       delete alternative.threshold;
     },
     mustReject: true,
-    expectCheck: 'alternative-coverage',
+    expectRules: ['alternative-coverage:unnamed-element'],
   },
 ];
 
@@ -1676,8 +1742,15 @@ const MECHANISM_CASES: MechanismCase[] = [
   {
     // 「撤廃済みの受入基準を指している」ことを、番号違いと**言い分けて**報告するか。
     // どちらも `criterion-correspondence` として弾かれるため、陽性対照の expectCheck では
-    // 区別が付かない。直し方が正反対（除外を足すのではなく取り下げる）である以上、
+    // 区別が付かなかった。直し方が正反対（除外を足すのではなく取り下げる）である以上、
     // 言い分けそのものを機構として固定する。
+    //
+    // **現況（タスク 100.22）**: 判定が枝の粒度になり、両者は
+    // `criterion-correspondence:criterion-absent` と `criterion-correspondence:criterion-retired`
+    // として陽性対照でも言い分けられるようになった。上の理由は取り下げない——**陽性対照は
+    // どの枝が挙がったかしか見ず、報告の文面が二通りに書き分かれていることは見ない**。
+    // 実測（2026-09-23、枝の粒度＋完全一致の現況での値）: 墓標の報告文面を「存在しない番号」
+    // の文面へ寄せると **1/70 赤**で、落ちるのは本機構の確認だけである。
     //
     // 墓標も「存在しない番号」も **ID で名指ししない**。従前は
     // `quantity-table-generation/REQ-1.3` を直書きしていたが、これは Requirement 1 の
@@ -2147,9 +2220,12 @@ const MECHANISM_CASES: MechanismCase[] = [
       if (empty.length > 0) return empty;
 
       const failures: string[] = [];
-      const named = new Set(
-        MUST_REJECT.map((testCase) => testCase.expectCheck).filter(
-          (check): check is ViolationCheck => check !== undefined
+      // 検査名は枝の接頭辞から導く（宣言が枝の粒度になったあとも、下限は検査名の粒度で
+      // 掛ける。枝の語彙を全て名指しすることは求めていない——`VIOLATION_RULES` の註に
+      // 書いた限界である）。
+      const named = new Set<ViolationCheck>(
+        MUST_REJECT.flatMap((testCase) => [...(testCase.expectRules ?? [])]).map((rule) =>
+          checkOfRule(rule)
         )
       );
       const unnamed = VIOLATION_CHECKS.filter((check) => !named.has(check));
@@ -2629,8 +2705,8 @@ function guardControlsArePresent(groups: readonly ControlGroup[]): void {
 
 function evaluate(testCase: Case): {
   rejected: boolean;
-  /** 弾いた検査の集合（陽性対照が「狙った検査が挙げたか」を見るのに使う） */
-  checks: Set<string>;
+  /** 弾いた枝の集合（陽性対照が「狙った枝だけが挙げたか」を見るのに使う） */
+  rules: Set<string>;
   detail: string;
 } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'req-exclusions-selftest-'));
@@ -2655,7 +2731,13 @@ function evaluate(testCase: Case): {
     const result = run(documentPath);
     return {
       rejected: result.violations.length > 0,
-      checks: new Set(result.violations.map((v) => v.check ?? '(未分類)')),
+      // 枝を名乗らない違反は既定値へ畳まず `(未分類)` として残す（第3原則）。
+      // `Violation<C>.rule` は必須である（`check-requirement-exclusions.ts:403`）。
+      // 実測（2026-09-23、**枝の粒度＋完全一致**の現況での値）: `?? '(未分類)'` を実在の枝
+      // （`invariant:duplicate-id`）へ退行させても **70/70 緑**であり、この既定値は実行時に
+      // 到達していない——この書き方に機械的な効力は無い（`checkOfRule` / `tagViolations` の
+      // 送出と同型）。
+      rules: new Set(result.violations.map((v) => (v.rule as string | undefined) ?? '(未分類)')),
       detail: result.violations
         .slice(0, 3)
         .map((v) => `${v.pointer}: ${v.message}`)
@@ -2666,26 +2748,41 @@ function evaluate(testCase: Case): {
   }
 }
 
-/** 陽性対照を一件走らせ、失敗の理由を挙げる（空なら合格）。印字も併せて行う */
+/**
+ * 陽性対照を一件走らせ、失敗の理由を挙げる（空なら合格）。印字も併せて行う
+ *
+ * 照合は**枝の集合の完全一致**である（タスク 100.22）。宣言に無い枝が挙がっても、宣言した
+ * 枝が挙がらなくても赤くする。包含（`checks.has(...)`）に留めると、狙った枝が死んで隣の枝が
+ * 代わりに鳴る差し替えも、注入した欠陥が別の検査を巻き込む遮蔽も、どちらも緑で通る
+ * （**包含の照合**での実測値は `Case.expectRules` の註——本ファイルの 87-98 行——にあり、
+ * (a) (b) とも **70/70 緑**である。2026-09-23 実測）。
+ */
 function positiveFailures(testCase: Case): string[] {
-  const { rejected, checks, detail } = evaluate(testCase);
-  const fired = [...checks].sort().join(', ');
+  const { rejected, rules, detail } = evaluate(testCase);
+  const fired = [...rules].sort().join(', ');
   if (!rejected) {
     console.log(`  ❌ ${testCase.name} → 弾かれなかった`);
     return [`検出漏れ: ${testCase.name}`];
   }
-  // 狙った検査が挙げたことまで確かめる（別の検査に巻き込まれた合格を認めない）
-  if (testCase.expectCheck === undefined) {
-    console.log(`  ❌ ${testCase.name} → expectCheck 未指定（実際: ${fired}）`);
-    return [`陽性対照に expectCheck が無い: ${testCase.name}（実際に挙げた検査: ${fired}）`];
+  // 狙った枝**だけ**が挙げたことまで確かめる（別の枝・別の検査に巻き込まれた合格を認めない）
+  if (testCase.expectRules === undefined || testCase.expectRules.length === 0) {
+    console.log(`  ❌ ${testCase.name} → expectRules 未指定（実際: ${fired}）`);
+    return [`陽性対照に expectRules が無い: ${testCase.name}（実際に挙げた枝: ${fired}）`];
   }
-  if (!checks.has(testCase.expectCheck)) {
-    console.log(`  ❌ ${testCase.name} → ${testCase.expectCheck} が挙げていない（実際: ${fired}）`);
-    return [
-      `狙った検査が挙げていない: ${testCase.name}（期待 ${testCase.expectCheck} / 実際 ${fired}）`,
-    ];
+  const expected = new Set<string>(testCase.expectRules);
+  const missing = [...expected].filter((rule) => !rules.has(rule)).sort();
+  const extra = [...rules].filter((rule) => !expected.has(rule)).sort();
+  if (missing.length > 0 || extra.length > 0) {
+    const reason = [
+      missing.length > 0 ? `挙がらなかった枝: ${missing.join(', ')}` : '',
+      extra.length > 0 ? `宣言に無い枝が挙がった: ${extra.join(', ')}` : '',
+    ]
+      .filter((part) => part !== '')
+      .join(' / ');
+    console.log(`  ❌ ${testCase.name} → ${reason}（実際: ${fired}）`);
+    return [`狙った枝だけが挙げていない: ${testCase.name}（${reason}）`];
   }
-  console.log(`  ✅ ${testCase.name} [${testCase.expectCheck}] → ${detail}`);
+  console.log(`  ✅ ${testCase.name} [${[...expected].sort().join(', ')}] → ${detail}`);
   return [];
 }
 
