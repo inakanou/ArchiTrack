@@ -4080,13 +4080,22 @@ _起票元: Task 96.11 の棚卸し。実装は行っていない_
   - **観測（範囲外。受け皿を 100.18 として起票した）**: **同ファイルに ID 直書きの探針が4つ残っている**——`COVERED_PROBE_ID = 'site-survey/REQ-1.3'`、`SHIFT_TARGET_ID = 'site-survey/REQ-29.2'`、`MUTATION_SOURCE_ID = 'site-survey/REQ-14.4'`、`RETIRED_PROBE_ID = 'quantity-table-generation/REQ-1.3'`。いずれも `entryById` 経由で、**指し先が取り下げられれば同型の「機構全体が止まる」障害を起こしうる** → **100.18**
   - **観測（範囲外・非ブロッキング）**: `alternativeTextWithDescription` が `alternativeTextOf` の本体を逐語で複製している。`alternativeTextOf({ ...entry, alternativeVerification: { ...altOf(entry), description } })` へ委譲すれば担い手が一箇所に収まる（独立レビューの Suggestion 11）
 
-- [ ] 100.16 estimate-request の OCR 打ち切りの判定が、同型のコイン投げを抱えている状態を解消する
+- [x] 100.16 estimate-request の OCR 打ち切りの判定が、同型のコイン投げを抱えている状態を解消する
   - **出所**: 100.12 の実装者の CONCERNS (1) と独立レビューの Finding 6（いずれも本タスクの境界外と判定された）
   - **測った事実（100.12 で実測。着手時に測り直すこと）**: `e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts` は `e2e/fixtures/test-scanned-pdf-multipage.pdf`（**150ページ**）を「30秒では終わらない量」として使い、経過時間の受入幅も `>=29000` / `<=34000` と同型である。**しかし 100.12 が実測した当該資材の OCR 所要は 29882ms で、打ち切りの30秒と±1秒しか違わない**。同 spec の註が残す実測（30832 / 30849 / 30903ms）も**余裕が1秒未満**であり、**完走が先に着いた試行では判定が赤になる**
   - **先例（100.12 の是正）**: 時計を替えるのでも上限を上げるのでもなく、**仕事量を増やして完走と打ち切りの順序を確定させた**。600ページの資材を新設して余裕を4倍以上にし、打ち切りを外す変異・打ち切りを1秒にする変異・資材の破損/欠落のいずれでも赤になることを実測した。**同じ道が取れる**（生成器 `e2e/fixtures/generate-image-only-pdf.mjs` は決定論的で、`--pages` を変えるだけでよい）
   - **注意**: **既存の `test-scanned-pdf-multipage.pdf` を作り替えないこと**。他の spec が同じ資材を参照している。新規資材を足す道を採ること（100.12 の先例）
   - **所管**: **estimate-request スペック**。本項は下流からの申し送りであり、**着手は当該スペックの `/kiro-impl` で行うのが筋である**。本スペックで解く場合は越境として明示的に記録すること
   - **利用者の裁定（2026-09-23）**: **越境であることを明示して本スペックで是正してよい**（estimate-request 側の資材を作り替えず、新規資材を足す道を採ること）
+  - **処遇（2026-09-23、リポジトリルートで実測）**: 100.12 の先例どおり、時計でも上限でも受入幅でもなく**仕事量**で解いた。資材を 150 ページから **600 ページ**（新規 `e2e/fixtures/test-scanned-pdf-quotation-ocr-timeout.pdf`）へ差し替えた。本番コードは一行も変更しておらず、`git diff .kiro/ frontend/ backend/` は 0 行である
+  - **着手時に測り直した距離（起票文の値は別経路のものだった）**: 打ち切りを外したビルドで画面側の `performance.now()` で完走まで測ると、**150 ページ資材は 36435ms**（打ち切りの終端 30914ms に対し余裕 5.5 秒＝約1.18倍。1ページ約212ms なので数十ページ分の揺れで消える距離）、**新 600 ページ資材は 127588ms**（約4.1倍）。起票文が引いた「29882ms・±1秒」は数量表インポート側の実測値であり、**本経路の距離は 5.5 秒であった**（危険の型は同じだが数値は測り直して記録する）
+  - **越境の記録**: 変更した spec の**冒頭 docblock と当該検査の docblock の2箇所**に、どのスペックのどのタスクの是正か・裁定の日付・経緯の在り処（本ファイルの 100.16 の節）・先例（100.12）を明記した。指し先の実在は独立レビューが確認し、`check:adjudication-pointers` も exit 0
+  - **恒真でないことの実測**: 実装者が5系統——(a) 打ち切りを外す（`OCR_TIMEOUT_MS` 600000）→ **`Test timeout` ではなく判定自身の文言**で赤、(b) 1秒 → Tesseract 資材の判定で赤、(b') 10秒 → 「エラー表示までが短すぎる（10821ms）」で赤＝**下限 29000 が恒真でないことの直接の実測**、(c1) 資材の欠落 → ENOENT、(c2) 60KB へ切り詰め → 赤。**独立レビューは別形の変異 M-A を自分で設計**（資材を1ページの `test-scanned-pdf.pdf` へ差し替え＝「打ち切られない状態」を作る）して**赤**を再現し、落ちた文言が判定自身のものであることから **`test.setTimeout(getTimeout(180000))` への引き上げが主張を骨抜きにしていない**ことを独立に確かめた
+  - **重複資材の判断（独立レビューが妥当と裁定）**: 新資材は 100.12 が作った `test-scanned-pdf-ocr-timeout.pdf` と**バイト列が完全一致する**（md5 `f3b6a820…`。同じ決定論的生成器・同じ引数のため）。**ただし `git hash-object` も両者 `5ebcdc2809…` で同一であり、git は内容アドレスなので blob は1個しか増えない**——増分は tree エントリ1件で、136KB の二重化は作業ツリーにしか現れない。共有せず各検査が自分の資材を持つ理由は、**150 ページ資材を2スペックが共有したまま片方向けに保たれた仕事量が他方でコイン投げになったのが 100.12→100.16 の連鎖そのもの**であり、しかも当時の註に「両者も同じ理由で揺れうる」と書いてあったのに2タスクを要した＝**散文の注意書きは保護として機能しなかった**という実測にある
+  - **既存資材は作り替えていない**: `test-scanned-pdf-multipage.pdf` の md5 は `882fd2f3…` で、親が `git hash-object` と `git rev-parse HEAD:` を突き合わせて blob が HEAD と同一（`eb26cd13…`）であることを確認した。生成器は**注記のみの変更で生成ロジックは一行も変えていない**
+  - **検証**: E2E は該当 spec のみ **5/5 PASSED・exit 0**（当該検査 35.9s。全件走行なし）。関門は `check:e2e-guards` / `check:e2e-selfjudge` / `check:criterion-literals` / `check:req-exclusions` / `check:adjudication-pointers` / `check:trace-coverage` / `check:dead-script-env` / `check:cf-evidence` / `type-check` / `lint` / `format:check` がいずれも exit 0。赤2本は基線と同一（`check:req-coverage` の未被覆一覧に REQ-17.8 / 19.8 は無い。`check:design-measurement-freshness` の食い違い14件はすべて `.kiro/specs/site-survey/design.md` 所管で **100.12 が記録した基線14件と同数**）。判定は2点とも `performance.now()` の**単調時計**で測っており WSL2 の壁時計のずれは結論を動かさない。被覆印は読み手で数えて **estimate-request の e2e 配下 369件が前後一致**（削除行に REQ トークン0件、追加は 17.8 / 19.8 が各4件）
+  - **観測（範囲外・受け皿を 100.20 として起票した）**: **150 ページ資材 `test-scanned-pdf-multipage.pdf` を読み込む検査が 0 件になった**（残る2件はいずれも散文）。加えて散文が2箇所陳腐化した——`e2e/specs/quantity-tables/import-e2e.spec.ts:1891`（「同じ資材を scanned-pdf-ocr-fallback と pdf-text-extraction が使っており」と述べるが**現在はどちらも読んでいない**）と `e2e/specs/estimate-requests/pdf-text-extraction-e2e.spec.ts:587`
+  - **観測（範囲外・処置不要）**: (i) 当該検査 docblock の「1ページあたり約212ms」は 600ページ実測（127588/600）由来で、150ページ実測から出る率（約237〜243ms）とは一致しない（結論はどちらの率でも成り立つ）。(ii) 旧注記にあった歴史的実測（`120000` へ変えると60秒経っても現れない／当時は壁時計で 28.6秒→11.3秒）が新実測に**置き換えられて消えた**——当時の値を残す本リポジトリの作法に照らすと併記が望ましい。(iii) 生成器の注記が md5 を逐語で書いているため、将来どちらかのページ数を動かすと陳腐化する（機械の検査は当たっていない）
   - _Boundary: `e2e/specs/estimate-requests/scanned-pdf-ocr-fallback-e2e.spec.ts` の OCR 打ち切りの判定と、その資材_
 
 - [ ] 100.17 裁定文書の読み手の母集団が、押下前の関門を駆動するファイルを取りこぼしている状態を解消する
@@ -4113,6 +4122,11 @@ _起票元: Task 96.11 の棚卸し。実装は行っていない_
   - **選ぶべきこと**: 撤去するか、`calculation-params-validation.ts` へ一本化するか。**撤去するなら 89.1 / 94.1 の作法を使うこと**——到達可能性を測り、撤去が被覆検査（`check:req-coverage` の被覆印・`check:design-path-refs` の名指し・`check:steering-refs`）を悪化させないことを**前後の実測で示す**こと。設計文書や他スペックの文書が当該の名前を名指すなら、上流へ起票して待つこと
   - _Boundary: `frontend/src/utils/calculation-engine.ts` の `validateAreaVolumeParams` とその単体検証、および撤去に伴う被覆印・設計文書の追随_
 
+- [ ] 100.20 150ページのスキャンPDF資材が孤児化し、それを指す散文が陳腐化した状態を解消する
+  - **出所**: 100.16 の独立レビューの Finding 1（本タスクの境界外と判定された）
+  - **測った事実（100.16 で実測。着手時に測り直すこと）**: 100.16 が estimate-request の OCR 打ち切りの判定を 600 ページ資材へ移したため、**`e2e/fixtures/test-scanned-pdf-multipage.pdf`（150ページ）を読み込む検査が 0 件になった**（`grep -rn multipage e2e/ --include=*.ts` の残る2件はいずれも散文）。加えて `e2e/specs/quantity-tables/import-e2e.spec.ts:1891` が「同じ資材を `scanned-pdf-ocr-fallback-e2e.spec.ts` と `pdf-text-extraction-e2e.spec.ts` が使っており」と述べるが、**現在はどちらも読んでいない**（後者は 100.12 の観測 (ii) で既に「名を挙げるのみで読み込んでいない」と判明している）。`e2e/specs/estimate-requests/pdf-text-extraction-e2e.spec.ts:587` も 115.157 当時の履歴記述であり、読み手を実在しない依存へ導きうる
+  - **選ぶべきこと**: 資材を残すか撤去するか、散文をどう扱うか。**撤去するなら 89.1 / 94.1 の作法**（前後の実測で関門が悪化しないことを示す）を使うこと。**ただし他スペックの記録がページ数と実測を逐語で引いているため、撤去は上流の文書を巻き込む可能性が高い**（その場合は起票して待つこと）。散文は規約 (a)（当時の値を残し現況の再実測を並べる）に照らすと、書き換えではなく**現況の併記**が筋である
+  - _Boundary: `e2e/fixtures/test-scanned-pdf-multipage.pdf` の処遇と、`e2e/specs/quantity-tables/import-e2e.spec.ts` / `e2e/specs/estimate-requests/pdf-text-extraction-e2e.spec.ts` の当該の散文_
 ## Task 101. 被覆印の計数の方式そのものの是正
 
 **出所**: 99.2 の是正ラウンド1。**着手時の被覆印の列挙を逐語 grep で行って誤り、独立レビューが差し戻した**。測り直しの過程で、同型の読み落としが repo 全体に及ぶことが判明した
