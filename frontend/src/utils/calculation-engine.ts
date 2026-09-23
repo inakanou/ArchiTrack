@@ -561,36 +561,6 @@ export function validateRoundingUnit(value: unknown): ValidationResult {
 }
 
 /**
- * 面積・体積モードのバリデーション
- *
- * Requirements:
- * - 8.7: 「面積・体積」モードで計算用列に値が1つも入力されていない状態で保存を試行する場合、エラーメッセージを表示し、幅(W)・奥行き(D)・高さ(H)のうち最低1項目の入力を求める
- *
- * タスク 100.10（2026-09-23、利用者の裁定）: 条文が名指す3列のみを数える。重量は
- * 計算では乗数として使われる（`calculateAreaVolume`）が、保存を許す根拠にはならない。
- * 保存前検証の単一情報源は `utils/calculation-params-validation.ts` であり、本関数は
- * 同じ条件・同じ趣旨を保つ（片方だけが条文から外れた状態を作らない）。
- *
- * @param params - 計算パラメータ
- * @returns バリデーション結果
- */
-export function validateAreaVolumeParams(params: AreaVolumeParams): ValidationResult {
-  const errors: string[] = [];
-  const warnings: string[] = [];
-
-  const hasAnyValue = [params.width, params.depth, params.height].some(
-    (v) => v !== undefined && v !== null && !isNaN(v)
-  );
-
-  if (!hasAnyValue) {
-    errors.push('面積・体積モードでは幅(W)・奥行き(D)・高さ(H)のうち最低1項目を入力してください');
-    return { isValid: false, errors, warnings };
-  }
-
-  return { isValid: true, errors, warnings };
-}
-
-/**
  * ピッチモードのバリデーション
  *
  * Requirements:

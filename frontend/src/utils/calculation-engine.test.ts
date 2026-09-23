@@ -28,7 +28,6 @@ import {
   validateStandardQuantity,
   validateAdjustmentFactor,
   validateRoundingUnit,
-  validateAreaVolumeParams,
   validatePitchParams,
   DEFAULT_ADJUSTMENT_FACTOR,
   DEFAULT_ROUNDING_UNIT,
@@ -1050,74 +1049,6 @@ describe('validateRoundingUnit', () => {
       const result = validateRoundingUnit(0.01);
       expect(result.isValid).toBe(true);
       expect(result.errors).toHaveLength(0);
-    });
-  });
-});
-
-// ============================================================================
-// validateAreaVolumeParams のテスト
-// ============================================================================
-
-describe('validateAreaVolumeParams', () => {
-  describe('REQ-8.7: 値が1つも入力されていない場合のエラー', () => {
-    it('全て未指定の場合、エラーを返す', () => {
-      const result = validateAreaVolumeParams({});
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toContain(
-        '面積・体積モードでは幅(W)・奥行き(D)・高さ(H)のうち最低1項目を入力してください'
-      );
-    });
-
-    /**
-     * タスク 100.10（2026-09-23、利用者の裁定）: 条文は幅(W)・奥行き(D)・高さ(H) のみを数える。
-     */
-    it('重量だけが指定されている場合、エラーを返す', () => {
-      const result = validateAreaVolumeParams({ weight: 3 });
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toContain(
-        '面積・体積モードでは幅(W)・奥行き(D)・高さ(H)のうち最低1項目を入力してください'
-      );
-    });
-
-    it('全てundefinedの場合、エラーを返す', () => {
-      const result = validateAreaVolumeParams({
-        width: undefined,
-        depth: undefined,
-        height: undefined,
-        weight: undefined,
-      });
-      expect(result.isValid).toBe(false);
-    });
-
-    it('全てNaNの場合、エラーを返す', () => {
-      const result = validateAreaVolumeParams({
-        width: NaN,
-        depth: NaN,
-        height: NaN,
-        weight: NaN,
-      });
-      expect(result.isValid).toBe(false);
-    });
-  });
-
-  describe('正常値', () => {
-    it('1つでも値があれば有効', () => {
-      const result = validateAreaVolumeParams({ width: 10 });
-      expect(result.isValid).toBe(true);
-    });
-
-    it('複数の値があっても有効', () => {
-      const result = validateAreaVolumeParams({
-        width: 10,
-        depth: 5,
-        height: 2,
-      });
-      expect(result.isValid).toBe(true);
-    });
-
-    it('0は有効な値として扱われる', () => {
-      const result = validateAreaVolumeParams({ width: 0 });
-      expect(result.isValid).toBe(true);
     });
   });
 });
