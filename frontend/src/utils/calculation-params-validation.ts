@@ -18,9 +18,10 @@
  *
  * Task 68.6: 保存前の整合性チェックに箇所数を追加する（useQuantityTableSave から移設）
  * Task 68.7: 保存前の計算パラメータ検証を編集画面の保存処理へ配線する
+ * Task 100.10: 面積・体積モードの受け入れキーと告知の文言を条文（REQ-8 AC7）へ揃える
  *
  * Requirements:
- * - 8.7: 「面積・体積」モードで計算用列に値が1つも入力されていない状態で保存を試行する場合、エラーを表示する
+ * - 8.7: 「面積・体積」モードで計算用列に値が1つも入力されていない状態で保存を試行する場合、エラーを表示し、幅(W)・奥行き(D)・高さ(H)のうち最低1項目の入力を求める
  * - 8.10: 「ピッチ」モードで必須項目（範囲長・端長1・端長2・ピッチ長）のいずれかが未入力で保存を試行する場合、エラーを表示する
  * - 8.15 / 47.9: 「箇所数」モードで箇所数が未入力で保存を試行する場合、エラーを表示し箇所数の入力を求める
  * - 47.10: 「箇所数」に小数を含む値が入力される場合、エラーを表示する
@@ -81,19 +82,27 @@ export interface CalculationParamsCarrier {
 const COUNT_REQUIRED_MESSAGE = '箇所数は必須です';
 
 /**
- * 面積・体積モードで計算用列が1つも入力されていない場合のメッセージ
+ * 面積・体積モードで幅(W)・奥行き(D)・高さ(H) が1つも入力されていない場合のメッセージ
  *
  * バックエンド `QuantityValidationService.validateAreaVolumeMode` と同一文言。
+ * 条文（REQ-8 AC7）が名指す3つの列をそのまま名指す（タスク 100.10）。
  */
 const AREA_VOLUME_NO_VALUE_MESSAGE =
-  '面積・体積モードでは少なくとも1つの計算用列に値を入力してください';
+  '面積・体積モードでは幅(W)・奥行き(D)・高さ(H)のうち最低1項目を入力してください';
 
 /**
  * 面積・体積モードで「いずれか1つ」の入力が求められるキー
  *
  * バックエンドの `validateAreaVolumeMode` が参照するキーと一致させる。
+ *
+ * **タスク 100.10（2026-09-23、利用者の裁定）**: 改める前は `weight` を含む4つであり、
+ * **重量だけを入力した状態が本番では通っていた**。条文（REQ-8 AC7）は
+ * 「幅(W)・奥行き(D)・高さ(H)のうち最低1項目の入力を求める」であり重量を数えない。
+ * 条文と実体の乖離に対し、利用者は**実体を条文へ合わせる**（本番の変更）を採ったため、
+ * `weight` を受け入れキーから外した。重量は面積・体積の計算では乗数として使われる
+ * （REQ-8 AC6 / `calculateAreaVolume`）が、**保存を許す根拠にはならない**。
  */
-const AREA_VOLUME_ANY_KEYS = ['width', 'depth', 'height', 'weight'] as const;
+const AREA_VOLUME_ANY_KEYS = ['width', 'depth', 'height'] as const;
 
 /**
  * ピッチモードの必須キーとメッセージ
@@ -150,7 +159,8 @@ function requireCalculationParams(
 /**
  * 「面積・体積」の計算パラメータ整合性チェック（REQ-8 AC7）
  *
- * 個々のキーは任意だが、幅・奥行き・高さ・重量のいずれか1つ以上の入力が必要。
+ * 個々のキーは任意だが、幅(W)・奥行き(D)・高さ(H) のいずれか1つ以上の入力が必要。
+ * 重量は条文が数えないため、重量だけが入力されていても問題として記録する（タスク 100.10）。
  */
 function checkAreaVolumeParams(params: CalculationParams): CalculationParamsIssue[] {
   const missingParams = requireCalculationParams(params, 'AREA_VOLUME');

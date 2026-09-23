@@ -6,7 +6,7 @@
  * Requirements:
  * - 8.3: 計算方法が「標準」で数量フィールドに負の値が入力される場合、警告メッセージを表示し確認を求める
  * - 8.4: 計算方法が「標準」で数量フィールドに数値以外の文字が入力される場合、入力を拒否しエラーメッセージを表示する
- * - 8.7: 「面積・体積」モードで計算用列に値が1つも入力されていない状態で保存を試行する場合、エラーメッセージを表示する
+ * - 8.7: 「面積・体積」モードで計算用列に値が1つも入力されていない状態で保存を試行する場合、エラーメッセージを表示し、幅(W)・奥行き(D)・高さ(H)のうち最低1項目の入力を求める
  * - 8.10: 「ピッチ」モードで必須項目（範囲長・端長1・端長2・ピッチ長）のいずれかが未入力で保存を試行する場合、エラーメッセージを表示する
  * - 8.15: 「箇所数」モードで必須項目（箇所数）が未入力で保存を試行する場合、エラーメッセージを表示し箇所数の入力を求める
  * - 9.3: 調整係数は-9.99〜9.99の範囲で入力可能とする
@@ -20,6 +20,7 @@
  *
  * Task 2.5: 計算検証とバリデーションを実装する
  * Task 66.2: 計算方法「箇所数」の検証と未知の計算方法の fail-fast を追加する
+ * Task 100.10: 面積・体積モードの受け入れキーと文言を条文（REQ-8 AC7）へ揃える
  * Task 85.1: 数値欄の範囲の判定を本サービスから外し、正典
  *   （`quantity-field-validation.service.ts` の `FIELD_CONSTRAINTS`）へ畳んだ
  *
@@ -238,6 +239,12 @@ export class QuantityValidationService {
   /**
    * 面積・体積モードの検証
    *
+   * 幅(W)・奥行き(D)・高さ(H) のうち最低1項目の入力を求める（REQ-8 AC7）。
+   * **重量は数えない**——タスク 100.10 の裁定（2026-09-23）で、条文が名指さない
+   * `weight` を受け入れキーから外し、実体を条文へ合わせた。重量は面積・体積の計算では
+   * 乗数として使われる（REQ-8 AC6）が、保存を許す根拠にはならない。
+   * フロントエンドの `calculation-params-validation.ts` と同一の条件・同一の文言である。
+   *
    * @param input - 検証対象の入力
    * @param errors - エラーリスト
    * @param warnings - 警告リスト
@@ -249,17 +256,14 @@ export class QuantityValidationService {
   ): void {
     const params = input.calculationParams as AreaVolumeValidationParams;
 
-    // 少なくとも1つの値が入力されているか確認
+    // 幅・奥行き・高さのうち少なくとも1つの値が入力されているか確認（REQ-8 AC7）
     const hasValue =
-      params.width !== undefined ||
-      params.depth !== undefined ||
-      params.height !== undefined ||
-      params.weight !== undefined;
+      params.width !== undefined || params.depth !== undefined || params.height !== undefined;
 
     if (!hasValue) {
       errors.push({
         field: 'calculationParams',
-        message: '面積・体積モードでは少なくとも1つの計算用列に値を入力してください',
+        message: '面積・体積モードでは幅(W)・奥行き(D)・高さ(H)のうち最低1項目を入力してください',
       });
       return;
     }

@@ -22,6 +22,7 @@
  * - @requirement quantity-table-generation/REQ-8.13: 「箇所数」選択で計算用列を箇所数→長さ→重量→調整係数→丸め設定の順に表示する
  * - @requirement quantity-table-generation/REQ-8.9: ピッチ計算式で本数を算出し任意項目（長さ・重量）を乗算した結果を数量として自動設定する
  * - @requirement quantity-table-generation/REQ-8.10: 「ピッチ」モードで必須項目のいずれかが未入力のまま保存を試行するとエラーを表示し必須項目の入力を求める
+ * - @requirement quantity-table-generation/REQ-8.7: 「面積・体積」モードで計算用列に値が1つも入力されていない状態で保存を試行するとエラーを表示し、幅(W)・奥行き(D)・高さ(H)のうち最低1項目の入力を求める
  * - @requirement quantity-table-generation/REQ-8.14: 箇所数×任意項目（長さ・重量）の乗算で数量を自動設定する
  * - @requirement quantity-table-generation/REQ-8.15: 箇所数未入力での保存試行時にエラーを表示する
  * - @requirement quantity-table-generation/REQ-11.2: データ保存時の整合性チェックでエラーが検出された
@@ -643,6 +644,101 @@ test.describe('REQ-47: 計算方法「箇所数」の計算・表示・入力検
     expect(
       saveRequests.length,
       'REQ-8.10: 範囲長を入力した後は保存APIが送信される必要がある（0件が恒真でないことの証明）'
+    ).toBe(1);
+  });
+
+  // --------------------------------------------------------------------------
+  // REQ-8.7: 「面積・体積」の計算用列が1つも入力されていないままの保存試行
+  // --------------------------------------------------------------------------
+  /**
+   * @requirement quantity-table-generation/REQ-8.7: 「面積・体積」モードで計算用列に値が1つも入力されていない状態で保存を試行するとエラーメッセージを表示し、幅(W)・奥行き(D)・高さ(H)のうち最低1項目の入力を求める
+   *
+   * 条文は「『面積・体積』モードで計算用列に値が1つも入力されていない状態で保存を試行するなら、
+   * エラーメッセージを表示し、**幅(W)・奥行き(D)・高さ(H)のうち最低1項目の入力を求める**」。
+   *
+   * 本判定はタスク 100.10 の裁定（2026-09-23。**実体を条文へ合わせる**）の後に置いた。
+   * 改める前の本番は告知で条文の3列を名指さず、受け入れキーに重量を含めていたため、
+   * **重量だけを入力した状態が保存できていた**。条文は重量を数えないので、それは条文違反である。
+   *
+   * 主張は四つ。(1) 計算用列がいずれも空のままの保存試行でエラー表示が出て、告知が
+   * **幅(W)・奥行き(D)・高さ(H) を名指して入力を求める**。(2) 保存が中断され保存API
+   * （PUT /:id/save）が発行されない。(3) **重量だけを入れても足りない**——同じ告知が続き
+   * 保存APIはなお0件である（条文が数える3列の入力が要る）。(4) 幅を入れれば保存できる——
+   * (2)(3) の0件が「そもそも保存できない状態」による空洞でないことの非空証明であり、
+   * 同じ観測器が1件を数える（REQ-8.10 / REQ-47.9 の判定と同じ作法）。
+   */
+  test('「面積・体積」の計算用列が未入力のまま保存を試行するとエラーが表示され、保存が中断される (REQ-8.7)', async ({
+    page,
+  }) => {
+    await gotoEditPage(page);
+
+    // 判定はパスのみで行い、接続先（ホスト・ポート・スキーム）を条件に入れない。
+    // オリジンを条件に含めると観測が全件除外され「0件」が恒真になる。
+    const saveRequests: string[] = [];
+    page.on('request', (request) => {
+      const pathname = new URL(request.url()).pathname;
+      if (request.method() === 'PUT' && /^\/api\/quantity-tables\/[^/]+\/save$/.test(pathname)) {
+        saveRequests.push(pathname);
+      }
+    });
+
+    const row = itemRows(page).first();
+    await methodSelect(row).selectOption({ value: 'AREA_VOLUME' });
+
+    // 前件: 計算用列（幅・奥行き・高さ・重量）がいずれも未入力である。
+    // 直前のテストが保存した値が残りうるため、明示的に空へ戻してから前提を確かめる。
+    for (const label of [/^幅/, /^奥行き/, /^高さ/, /^重量/]) {
+      await fillCalcField(row, label, '');
+    }
+    for (const label of [/^幅/, /^奥行き/, /^高さ/, /^重量/]) {
+      await expect(
+        row.getByLabel(label),
+        `前提: 計算用列（${String(label)}）が未入力である`
+      ).toHaveValue('');
+    }
+
+    const saveButton = page.getByRole('button', { name: '保存' });
+    await expect(saveButton).toBeVisible({ timeout: getTimeout(10000) });
+    await saveButton.click();
+
+    // (1) エラー表示が出て、条文が名指す3列の入力を求める
+    const saveError = page.getByRole('alert').filter({ hasText: '保存できません' });
+    await expect(
+      saveError,
+      'REQ-8.7: 面積・体積の計算用列が未入力のままの保存試行でエラーが表示されない'
+    ).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(
+      saveError,
+      'REQ-8.7: エラー表示が幅(W)・奥行き(D)・高さ(H)のうち最低1項目の入力を求めていない'
+    ).toContainText('幅(W)・奥行き(D)・高さ(H)のうち最低1項目を入力してください');
+
+    // (2) 保存が中断される
+    await expect.poll(() => saveRequests.length, { timeout: getTimeout(3000) }).toBe(0);
+    await expect(page.getByText(/保存しました/)).toHaveCount(0);
+
+    // (3) 重量だけでは足りない（条文は幅(W)・奥行き(D)・高さ(H) のみを数える）
+    await fillCalcField(row, /^重量/, '3');
+    await expect(row.getByLabel(/^重量/), '前提: 重量だけが入力された状態である').toHaveValue(
+      '3.00'
+    );
+    // 入力が本番へ届いたこと（画面が再計算したこと）を確かめてから二度目の保存を試みる。
+    // これがないと「二度目の押下が届かず前の告知が残っただけ」と区別できない。
+    await expectQuantity(row, '3.00', '重量だけを入力した後');
+    await expect(saveButton, '前提: 二度目の保存試行の時点で保存ボタンが押せる').toBeEnabled();
+    await saveButton.click();
+    await expect(
+      saveError,
+      'REQ-8.7: 重量だけが入力された状態でも3列の入力を求める告知が続く必要がある'
+    ).toContainText('幅(W)・奥行き(D)・高さ(H)のうち最低1項目を入力してください');
+    await expect.poll(() => saveRequests.length, { timeout: getTimeout(3000) }).toBe(0);
+    await expect(page.getByText(/保存しました/)).toHaveCount(0);
+
+    // (4) 非空証明: 幅を埋めれば保存できる（同じ観測器が1件を数える）
+    await fillCalcField(row, /^幅/, '2');
+    await saveQuantityTableDraft(page);
+    expect(
+      saveRequests.length,
+      'REQ-8.7: 幅を入力した後は保存APIが送信される必要がある（0件が恒真でないことの証明）'
     ).toBe(1);
   });
 

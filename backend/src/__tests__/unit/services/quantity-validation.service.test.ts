@@ -136,9 +136,55 @@ describe('QuantityValidationService', () => {
         expect(result.errors).toContainEqual(
           expect.objectContaining({
             field: 'calculationParams',
-            message: expect.stringContaining('少なくとも1つ'),
+            message:
+              '面積・体積モードでは幅(W)・奥行き(D)・高さ(H)のうち最低1項目を入力してください',
           })
         );
+      });
+
+      /**
+       * タスク 100.10（2026-09-23、利用者の裁定）: 条文（Requirements: 8.7）は
+       * 幅(W)・奥行き(D)・高さ(H) のみを数える。改める前は重量も「いずれか1つ」に
+       * 数えており、重量だけの状態が保存経路を通っていた。
+       */
+      it('重量だけが入力されている場合はエラーを返す（Requirements: 8.7）', () => {
+        // Arrange
+        const input: QuantityItemValidationInput = {
+          calculationMethod: 'AREA_VOLUME',
+          calculationParams: { weight: 3 },
+          adjustmentFactor: 1.0,
+          roundingUnit: 0.01,
+        };
+
+        // Act
+        const result = service.validateQuantityItem(input);
+
+        // Assert
+        expect(result.isValid).toBe(false);
+        expect(result.errors).toContainEqual(
+          expect.objectContaining({
+            field: 'calculationParams',
+            message:
+              '面積・体積モードでは幅(W)・奥行き(D)・高さ(H)のうち最低1項目を入力してください',
+          })
+        );
+      });
+
+      it('重量に加えて高さが入力されていれば有効（Requirements: 8.7）', () => {
+        // Arrange
+        const input: QuantityItemValidationInput = {
+          calculationMethod: 'AREA_VOLUME',
+          calculationParams: { weight: 3, height: 2 },
+          adjustmentFactor: 1.0,
+          roundingUnit: 0.01,
+        };
+
+        // Act
+        const result = service.validateQuantityItem(input);
+
+        // Assert
+        expect(result.isValid).toBe(true);
+        expect(result.errors).toHaveLength(0);
       });
 
       it('複数の値が入力されていれば有効（Requirements: 8.6）', () => {

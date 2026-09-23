@@ -3977,13 +3977,23 @@ _起票元: Task 96.11 の棚卸し。実装は行っていない_
   - **観測（範囲外。受け皿を 100.12 として起票した）**: **`REQ-29.10`（取り込みのOCR処理は30秒で打ち切られる）が `Test timeout of 60000ms exceeded` で落ちる**。**本変更が原因ではない**——独立レビューが**本変更を退避した素の作業ツリー**（HEAD 版の spec を書き戻し `git diff` 0行の状態）で当該テストを単独実行し、同じ Test timeout で落ちることを実測した（`git stash` は不使用）。**かつ同じ全件を再実行すると緑になる揺れがある**。WSL2 で壁時計が単調時計より遅い既知事象と重なる疑いがある → **100.12**
   - **観測（範囲外・処置不要）**: 新規 `.mjs` はルートの lint / format の glob（`e2e/**/*.{js,ts}`）の対象外である。先例 `generate-image-only-pdf.mjs` と同じ扱いで、本件固有の問題ではない
 
-- [ ] 100.10 REQ-8.7 の条文と本番の実体の乖離の処遇を決める
+- [x] 100.10 REQ-8.7 の条文と本番の実体の乖離の処遇を決める
   - **出所**: 100.5 の独立レビューの Finding 3。99.5 / 100.5 が据え置きの根拠として実測しながら、**受け皿となるタスク節が起票されていなかった**（`summary.note` 自身がそう書いている）
   - **測った事実（99.5 / 100.5 で実測）**: (1) 保存経路への結線は在る——`QuantityTableEditPage.tsx` の `handleSave` が `validateCalculationParams` を呼び、検出された問題を「保存できません: …」の告知として画面へ出す。**したがって「E2E から観測できない」ことが除外の理由ではない**（兄弟の 8.10 は同じ経路を E2E で判定できたため 99.5 で取り下げた）。(2) 乖離は二点——本番の文言は「面積・体積モードでは少なくとも1つの計算用列に値を入力してください」であり**条文が求める「幅(W)・奥行き(D)・高さ(H)」を名指さない**。さらに本番が「いずれか1つ」として受け入れるキーは `AREA_VOLUME_ANY_KEYS` の `width` / `depth` / `height` / `weight` の**4つ**（バックエンドの `validateAreaVolumeMode` と揃えてある）で、**重量だけを入力した状態は本番では通るが条文では不足である**
   - **選ぶべきこと**: **条文を実体へ合わせる（requirements.md の改訂）か、実体を条文へ合わせる（本番の変更）か**。いずれも 100.5 の境界外であったため据え置いた。決着後に判定を置いて除外を取り下げること（83.1 の作法）
   - _Boundary: `requirements.md` の Requirement 8 の受入基準7、または `frontend/src/utils/calculation-params-validation.ts` と `backend` の対応する検証、および `e2e/requirement-exclusions.json` の `REQ-8.7` の項_
   - **着手前に利用者へ確かめること**: 条文の改訂と本番の変更のどちらを採るかは**利用者の裁定が要る**（97.10 / 99.1 / 100.4 と同型の、条文と実体の乖離）
   - **利用者の裁定（2026-09-23）**: **実体を条文へ合わせる（本番の変更）**を採る。フロントエンド・バックエンドの検証と告知の文言を条文（幅(W)・奥行き(D)・高さ(H) のいずれか）へ揃え、決着後に判定を置いて除外を取り下げること
+  - **処遇（2026-09-23、リポジトリルートで実測）**: 裁定どおり**本番を条文へ合わせ**、`requirements.md` は一行も改訂していない。**`design.md:3193` は着手前から「計算方法「面積・体積」では幅(W)・奥行き(D)・高さ(H)のうち最低1項目の入力必須」と書いており、条文と設計は最初から一致していて外れていたのは本番の実装だけであった**（したがって design.md の改訂も不要）
+  - **変えた本番**: (i) `frontend/src/utils/calculation-params-validation.ts` の `AREA_VOLUME_ANY_KEYS` を `['width','depth','height']` へ（`weight` を外した）、告知を `面積・体積モードでは幅(W)・奥行き(D)・高さ(H)のうち最低1項目を入力してください` へ。(ii) `backend/src/services/quantity-validation.service.ts` の `validateAreaVolumeMode` を同条件・同文言へ。(iii) `frontend/src/utils/calculation-engine.ts` の `validateAreaVolumeParams` を追随（**境界の縁**。下の Finding を見よ）
+  - **Feature Flag Protocol**: `REQUIRE_DIMENSION_FOR_AREA_VOLUME_SAVE` を3ファイルへ既定 OFF で導入 → RED を実測（frontend 単体6件・backend 単体2件が落ちる出力を取得）→ ON で GREEN → **フラグを完全撤去して再 GREEN**。親が提出時に `grep -rn REQUIRE_DIMENSION_FOR_AREA_VOLUME_SAVE` を当てて **0件**を確認した
+  - **バックエンドが実保存経路に効くことの実測（独立レビューが最も重く検めた点）**: 経路は `quantity-tables.routes.ts:756`（`PUT /:id/save`）→ `saveDraft` → `validateDraft` → `validateQuantityItem` → `switch (calculationMethod)` → `validateAreaVolumeMode`。**Requirement 48 の「計算方法を判別子としてスキーマを選ぶ方式」に沿っており形状からの推測はしていない**。`areaVolumeParamsSchema` は4キーとも `optional` で zod は弾かないため**実効の番人はこのサービスである**。レビュアーは読み取りで済ませず**一時の統合検査を書いて実 API を叩き、測り終えて削除した**——変異を当てた状態では `PUT /:id/save` が **200 を返し `calculationParams:{"weight":3}` を実 DB へ永続化した**（＝改める前の本番が重量だけの面積・体積項目を実際に通していた直接証拠）、復元後は同じ要求が **400** で本文が新しい文言、幅を足すと **200**（非空証明）
+  - **恒真でないことの実測**: 実装者が2系統（変異A=本番を着手前へ差し戻し／変異B=`AREA_VOLUME_ANY_KEYS` にだけ `weight` を戻す）で赤を実測。**独立レビューは実装者の変異を採らず自分で4系統（R1 文言のみ旧へ／R2 キーのみ旧へ／R3 backend のみ旧へ／R2 を当てた E2E）を設計し、いずれも赤を再現した**。特に R2 では**文言の判定は緑のまま「重量だけでは不足」の主張だけが赤くなる**ため、裁定の核心の主張が単独で荷重を持つことが分離して示された。配信バンドルは復元後の縮小コードが `["width","depth","height"]`（`weight` 無し）であることを nginx の配信物へ直接当てて確認している（単純な grep は `resetParamsForMethod`（REQ-48）の別配列に当たるため識別子を解決して確定させた）
+  - **除外の取り下げ（83.1 の作法）**: 判定は `e2e/specs/quantity-tables/quantity-count-calculation-e2e.spec.ts` に置いた（保存APIの発行数を**パス基準で観測**しオリジンを条件に入れない／重量だけでは告知が続く／幅を入れれば保存できる非空証明）。台帳から `quantity-table-generation/REQ-8.7` を撤去し `totalExclusions` 159→158・`byCategory.data-integrity` 28→27。親が JSON を直接読んで宣言と実数の一致を確認し、`npx prettier --check e2e/requirement-exclusions.json` も exit 0。**被覆印は読み手（`count:coverage-marks --json`）で数え、`REQ-8.7` が素の印として1件・`headerScopedAcceptanceCriteria` は空であることを確認した**（逐語 grep は不使用）。兄弟 `quantity-table-crud.spec.ts` の 8.7 の docblock を「除外である」から「100.10 で取り下げた」へ追随させた
+  - **検証**: 単体は**全件**（frontend 525ファイル/12028件、backend 190ファイル/5721件、いずれも exit 0。独立レビューも自分で全件を走らせて同値を得た）。コンテナ内の統合 `quantity-item-calculation-params.api.integration.test.ts` 16/16・`quantity-table.api.integration.test.ts` 38/38。E2E は該当 spec のみ 12/12 PASSED・Flaky 0・exit 0（全件走行なし）。関門は `check:req-exclusions`(158件)・`:selftest`(70/70)・`criterion-literals`・`e2e-guards`・`e2e-selfjudge`・`adjudication-pointers`・`cf-evidence`・`design-refs`・`design-code-refs`・`design-path-refs`・`design-component-reqs`・`trace-coverage`・`steering-refs`・`type-check`・`lint`・`format:check` がいずれも exit 0。赤2本は基線から赤く**失敗行の集合は同一**（独立レビューが `git worktree add --detach` で基線を作って再測。`git stash` 不使用）
+  - **利用者に見える帰結（記録）**: **重量だけを入力した面積・体積項目は保存できなくなる**（計算自体は REQ-8.6 どおり重量を乗数として数え続ける）。既存データに該当項目があれば、幅・奥行き・高さのいずれかを入れるまでその数量表は再保存できない。告知は `保存できません: グループ「…」の項目「…」: …` の形で**何を入れれば直るかを条文の語で名指す**。移行スクリプト等は境界外のため実施していない
+  - **観測（範囲外・受け皿を 100.19 として起票した）**: `frontend/src/utils/calculation-engine.ts` の `validateAreaVolumeParams` は **REQ-8.7 を名乗りながら本番から一度も呼ばれない第二の検証**である（独立レビューが呼び出し元を自分で追跡し、本番 import 4件はいずれも当該関数を取らずバレルも無いことを確認）。片方だけ直せば本タスクが解消した乖離を同じリポジトリ内に作り直すため**逐語の境界の外だが追随させた**（レビューは逸脱を妥当と裁定）。撤去か一本化かは 100.19 で決める
+  - **観測（範囲外・未処置）**: (i) `scripts/exclusion-alternative-verification-adjudication.md:140` の `REQ-8.7` の行が取り下げ済みの除外を現存として挙げたまま陳腐化した（:141 の 8.9・:142 の 8.10 も 99.5 の取り下げ以来同じ状態＝既存の規約どおりの据え置き）。**99.4 / 上流 115.329 の陳腐化一覧にもう1件積まれた**（100.8 の1件と併せて計2件）。(ii) E2E の非空証明は**幅だけを使う**ため「`width` だけを受け入れる」実装でも E2E は緑のままである。条文の「幅・奥行き・高さのうち」は frontend 単体の `it.each` と backend 単体が固定しており被覆の穴ではないが、E2E 単体での締まりは幅に限られる。(iii) `check:design-measurement-freshness` で actual が動くのは基線から赤い2宣言のみ（`requirement-exclusions-total` 159→158、`t13-anchor-references-after-115303` 1413→1414。いずれも `.kiro/specs/site-survey/design.md` 所管＝下流は触れない）
 
 - [ ] 100.11 ページ側の垂直スクロールバーの「表示」を、文書の超過量ではなく実際のスクロール可能性で測る
   - **出所**: 100.7 の独立レビューの Finding 5（申し送り推奨・本タスクでは非阻害と判定された）
@@ -4077,6 +4087,12 @@ _起票元: Task 96.11 の棚卸し。実装は行っていない_
   - **改めるにあたり**: 探針は**当該の対照が何を固定したいか**で選ぶこと。100.15 は陰性対照の探針を「**取り逃がす当てが実在する**相手」で選び直すことで、**ID 直書きの解消と恒真な対照の是正を同時に果たした**。単に性質へ置き換えるだけでなく、**置き換えた探針で対照が現に効くことを変異で実測すること**
   - _Boundary: `scripts/check-requirement-exclusions.selftest.ts` の `COVERED_PROBE_ID` / `SHIFT_TARGET_ID` / `MUTATION_SOURCE_ID` / `RETIRED_PROBE_ID` とその利用箇所_
 
+- [ ] 100.19 REQ-8.7 を名乗る第二の検証が本番から呼ばれないまま残っている状態を解消する
+  - **出所**: 100.10 の独立レビューの Finding 2（逐語の境界外と判定された）
+  - **測った事実（100.10 で実測。独立レビューが呼び出し元を自分で追跡した）**: `frontend/src/utils/calculation-engine.ts` の `validateAreaVolumeParams` は docblock で `Requirements: 8.7` を名乗るが、`grep -rn validateAreaVolumeParams` の当たりは**自身の定義と自分のテストのみ**である。`frontend/src/utils/calculation-engine` を取り込む本番ファイルは4つあるがいずれも `calculate` / 型 / `COUNT_MIN,COUNT_MAX` を取るだけで当該関数を取らず、バレルも存在しない。**すなわち本番から一度も呼ばれない第二の検証である**
+  - **なぜ放置できないか**: 同一条文の検証が二箇所にあると、片方だけが改まって黙って乖離する。100.10 はまさにその乖離（条文 vs 本番）を解消したタスクであり、**同じ罠を同じリポジトリ内に残すことになる**。100.10 は乖離の再生産を避けるため当該関数も条文へ揃えたが、**存在そのものの処遇は決めていない**
+  - **選ぶべきこと**: 撤去するか、`calculation-params-validation.ts` へ一本化するか。**撤去するなら 89.1 / 94.1 の作法を使うこと**——到達可能性を測り、撤去が被覆検査（`check:req-coverage` の被覆印・`check:design-path-refs` の名指し・`check:steering-refs`）を悪化させないことを**前後の実測で示す**こと。設計文書や他スペックの文書が当該の名前を名指すなら、上流へ起票して待つこと
+  - _Boundary: `frontend/src/utils/calculation-engine.ts` の `validateAreaVolumeParams` とその単体検証、および撤去に伴う被覆印・設計文書の追随_
 
 ## Task 101. 被覆印の計数の方式そのものの是正
 

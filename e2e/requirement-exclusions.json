@@ -719,20 +719,6 @@
       }
     },
     {
-      "id": "quantity-table-generation/REQ-8.7",
-      "requirement": "REQ-8: 計算方法の選択",
-      "title": "面積・体積モードで計算用列未入力時のエラー",
-      "criterionText": "If 「面積・体積」モードで計算用列に値が1つも入力されていない状態で保存を試行する, then the 数量表管理システム shall エラーメッセージを表示し、幅(W)・奥行き(D)・高さ(H)のうち最低1項目の入力を求める",
-      "reason": "**据え置きの根拠は「E2Eから観測できない」ことではなく、条文と本番の実体が食い違っていて条文を逐語で主張するE2Eが現状では成立しないことである**（2026-09-17にタスク99.5が実測し、2026-09-18にタスク100.5が測り直して確認した）。従来の理由「入力バリデーションはユニット/統合テストで検証」は、それだけでは除外の根拠にならない——同じ理由で除外されていた兄弟の REQ-8.9 / REQ-8.10 は99.5でE2E被覆へ移り、同種の REQ-9.3 / REQ-10.3 / REQ-15.1 / REQ-15.3 はいずれも e2e/specs に被覆印を持つ（2026-09-18、scripts/check-requirement-coverage.ts の extractFileCoverage / extractHeaderScopedCoverage を e2e/specs の200ファイルへ当てて実測。逐語 grep では数えていない）。(1) 保存経路への結線は在る——QuantityTableEditPage.tsx:1842 の handleSave が validateCalculationParams を呼び、検出された問題を「保存できません: …」の告知として画面へ出す。したがって「E2Eから観測できない」ことが除外の理由ではない（兄弟の REQ-8.10 は同じ経路をE2Eで判定できたため本タスクで取り下げた）。(2) 食い違いは二点ある——本番の文言は「面積・体積モードでは少なくとも1つの計算用列に値を入力してください」（calculation-params-validation.ts:88）であり、条文が求める「幅(W)・奥行き(D)・高さ(H)」を名指さない。さらに本番が「いずれか1つ」として受け入れるキーは width / depth / height / weight の4つ（同 :96。バックエンドの validateAreaVolumeMode と揃えてある）で、**重量だけを入力した状態は本番では通るが条文では不足である**。取り下げの前に、条文を実体へ合わせるか実体を条文へ合わせるかの裁定が要る（97.10 / 99.1 / 98.6 の観測(iii) と同型の、条文と実体の乖離）。",
-      "category": "data-integrity",
-      "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Vitest / React Testing Library",
-        "description": "面積・体積モードで計算用列が未入力の場合にエラーメッセージが表示され、幅・奥行き・高さのうち最低1項目の入力が求められることを確認。到達する検証は frontend/src/utils/calculation-params-validation.test.ts の区間「計算方法「面積・体積」（REQ-8 AC7）」である",
-        "threshold": "validation_error: displayed"
-      }
-    },
-    {
       "id": "company-info/REQ-6.9",
       "requirement": "REQ-6: アクセス制御",
       "title": "権限のないユーザーが操作を試みた場合の403エラー",
@@ -2205,9 +2191,9 @@
     }
   },
   "summary": {
-    "totalExclusions": 159,
+    "totalExclusions": 158,
     "byCategory": {
-      "data-integrity": 28,
+      "data-integrity": 27,
       "fault-tolerance": 14,
       "infrastructure": 51,
       "integration-test": 38,

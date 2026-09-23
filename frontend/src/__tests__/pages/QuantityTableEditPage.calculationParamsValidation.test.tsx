@@ -238,7 +238,34 @@ describe('QuantityTableEditPage - 保存前の計算パラメータ検証（Task
 
       await waitFor(() => {
         expect(
-          screen.getByText(/面積・体積モードでは少なくとも1つの計算用列に値を入力してください/)
+          screen.getByText(
+            /面積・体積モードでは幅\(W\)・奥行き\(D\)・高さ\(H\)のうち最低1項目を入力してください/
+          )
+        ).toBeInTheDocument();
+      });
+      expect(mockSaveQuantityTableDraft).not.toHaveBeenCalled();
+    });
+
+    /**
+     * タスク 100.10（2026-09-23、利用者の裁定）: 条文は幅(W)・奥行き(D)・高さ(H) のみを数える。
+     * 改める前の実体は重量も「いずれか1つ」に数えており、重量だけの状態が保存できていた。
+     */
+    it('重量だけが入力されている状態で保存すると、サーバーへ送信されずにエラーが表示される', async () => {
+      await loadAndSave(
+        buildDetail([
+          {
+            ...baseItem,
+            calculationMethod: 'AREA_VOLUME',
+            calculationParams: { weight: 3 },
+          },
+        ])
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            /面積・体積モードでは幅\(W\)・奥行き\(D\)・高さ\(H\)のうち最低1項目を入力してください/
+          )
         ).toBeInTheDocument();
       });
       expect(mockSaveQuantityTableDraft).not.toHaveBeenCalled();

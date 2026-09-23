@@ -1063,7 +1063,20 @@ describe('validateAreaVolumeParams', () => {
     it('全て未指定の場合、エラーを返す', () => {
       const result = validateAreaVolumeParams({});
       expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('面積・体積モードでは最低1項目を入力してください');
+      expect(result.errors).toContain(
+        '面積・体積モードでは幅(W)・奥行き(D)・高さ(H)のうち最低1項目を入力してください'
+      );
+    });
+
+    /**
+     * タスク 100.10（2026-09-23、利用者の裁定）: 条文は幅(W)・奥行き(D)・高さ(H) のみを数える。
+     */
+    it('重量だけが指定されている場合、エラーを返す', () => {
+      const result = validateAreaVolumeParams({ weight: 3 });
+      expect(result.isValid).toBe(false);
+      expect(result.errors).toContain(
+        '面積・体積モードでは幅(W)・奥行き(D)・高さ(H)のうち最低1項目を入力してください'
+      );
     });
 
     it('全てundefinedの場合、エラーを返す', () => {
