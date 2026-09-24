@@ -16,7 +16,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import SiteSurveyDetailPage from '../../pages/SiteSurveyDetailPage';
 import * as siteSurveysApi from '../../api/site-surveys';
@@ -2510,12 +2510,21 @@ describe('SiteSurveyDetailPage - 通信断時の警告と保存抑止 (Req 15.6)
     setNavigatorOnLine(true);
   });
 
-  /** 詳細画面を表示し、写真管理パネルの描画完了まで待つ */
+  /**
+   * 詳細画面を表示し、写真管理パネルの描画と通信状態の購読の登録まで完了させる
+   *
+   * Task 115.327: 通信断の告知（NetworkStatusIndicator）は `offline` の購読を useEffect で
+   * 登録する。取得の解決に続く描画を act の外（waitFor の待機中）でコミットさせると、
+   * 描画は見えても副作用が React の後続タスクに残ったまま waitFor が解決しうる。その間に
+   * 通信断を起こすと告知が購読前のため取りこぼし、`offline-warning` が現れない
+   * （全件走行で非決定的に落ちた真因）。取得の解決・描画・副作用を act の中で完了させ、
+   * 購読の登録を検証の前提として確定させる。
+   */
   async function renderDetail(): Promise<void> {
-    renderComponent();
-    await waitFor(() => {
-      expect(screen.getByRole('region', { name: '写真管理パネル' })).toBeInTheDocument();
+    await act(async () => {
+      renderComponent();
     });
+    expect(screen.getByRole('region', { name: '写真管理パネル' })).toBeInTheDocument();
   }
 
   it('通信が切れると警告を表示し、保存ボタンへ抑止を示す', async () => {

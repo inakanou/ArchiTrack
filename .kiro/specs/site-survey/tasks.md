@@ -6061,11 +6061,17 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - **範囲外の観測**: L8815 の既存の「起点の面 162 件を今の母数に置けば比は 26.2%」は関門の出力（21.7%）と HEAD の時点から食い違っている。115.330 の測り直しの対象として申し送る
   - **下流への申し送り**: quantity-table-generation の 97.14 は、本項の解決により `PhotoChangeDialog` の撤去へ進める。撤去後の台帳の更新で `design-path-reach-total` / `-entity-total` と `design-path-exemption-*` の3宣言が動く見込みであり、97.16 と 115.330 の測り直しの対象になる
 
-- [ ] 115.327 現場調査詳細画面の通信断の単体検証が全件走行で非決定的に落ちる状態を解消する（**quantity-table-generation の Task 97.15 からの起票依頼**）
+- [x] 115.327 現場調査詳細画面の通信断の単体検証が全件走行で非決定的に落ちる状態を解消する（**quantity-table-generation の Task 97.15 からの起票依頼**）
   - **出所**: 下流の Task 94.1 の実測（全単体スイートを3回走らせ、うち1回だけ失敗。単独実行では緑）。下流の未完了タスクにも本スペックの未完了タスクにも、この件の受け皿は無かった
   - **再実測（コミット `ca9819db`、2026-09-15、リポジトリルート）**: `frontend/src/__tests__/pages/SiteSurveyDetailPage.test.tsx` の `:2485` に `describe('SiteSurveyDetailPage - 通信断時の警告と保存抑止 (Req 15.6)'`（`:2479` の註は Task 115.105）が在り、`:2543` / `:2561` が `findByTestId('offline-warning')` を待つ。94.1 の失敗は `data-testid="offline-warning"` が見つからない形であった。**非決定性の再現には全件を複数回走らせる必要があり、起票時点では再走していない**（94.1 の実測が最新）
   - **依頼**: 全件走行でのみ落ちる原因（他の検証との状態の共有、タイマーやオンライン状態の模擬の後始末、待ち時間の不足など）を突き止め、是正すること。他スペックの全件走行の緑の読みにも影響する
   - _Boundary: 本スペックの `SiteSurveyDetailPage.test.tsx` の通信断の区間と、その前提_
+  - **真因（2026-09-25、`1f711cc0` の作業ツリー、リポジトリルートで実測）**: 通信断の区間の `renderDetail` は描画を `waitFor` で待つだけだった。取得の解決に続く描画は act の外でコミットされるため、パネルが DOM に出ても、`survey` の取得後に初めてマウントされる `NetworkStatusIndicator` の `offline` 購読（useEffect）が React の後続タスクに残ったまま待ちが解けることがある。その隙に通信断を起こすと告知が取りこぼし、`offline-warning` が現れない（画面自身の `useNetworkStatus` は読み込み中から購読済みなので、保存の抑止は取りこぼさない）。94.1 当時の1件目は描画直後にいきなり通信断を起こしていた。クリックを挟む2・3件目は、クリックによる同期描画が保留中の副作用を先に流すので落ちなかった。現在の1件目のクリックは `23d83871`（Task 100.24）で入ったもので、偶然の遮蔽である
+  - **再現**: 94.1 当時の形（クリック無し）を複製し描画に遅延を入れると、遅延 10ms で 20回中1回・20ms で 60回中1回落ち、落ちた回だけ `offline` の購読数が 1 でメッセージは 94.1 と同じ。パネルが見えた瞬間（MutationObserver のマイクロタスク）に通信断を撃つ決定的な形では旧ヘルパーが 20/20 落ちた（独立レビューが自前のプローブで 24/24 を再現）
+  - **是正**: `frontend/src/__tests__/pages/SiteSurveyDetailPage.test.tsx` の1ファイルだけ。`renderDetail` を `await act(async () => { renderComponent(); })` の後に同期でパネルを確認する形へ改めた。`getSiteSurvey` の模擬は `mockResolvedValue` で lazy も無いため、取得の解決・描画・購読の登録が act の中で完了し、購読が検証の前提として確定する。判定文は一字も変えず、skip も時間上限の延長も無い。本番コードは変えていない
+  - **是正後**: 同じ条件で 30/30・60/60・60/60 がすべて緑（独立レビューのプローブも 24/24 緑）。本番 `SiteSurveyDetailPage.tsx` の変異（告知の結線を外す → 3件赤／保存抑止の分岐を外す → 1件赤）で赤になり、ハッシュ 6ad49203 へ復元。全単体は shard 1/2 6078件 + 2/2 5893件 = 11971件 緑。`type-check` / `lint` EXIT=0。`count:coverage-marks` / `check:req-coverage` は前後で出力同一
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix frontend run test -- SiteSurveyDetailPage` 97/97 緑、`type-check` / `count:coverage-marks` EXIT=0、差分に判定文の変更は無い（`expect` の差分は字下げのみ）
+  - **範囲外の観測（起票はしていない）**: (i) 本番の `NetworkStatusIndicator` には、マウントから副作用の実行までの数ミリ秒に起きた通信断で警告を取りこぼす理論上の窓がある（保存の抑止は画面側の購読で保たれる。副作用の中で `navigator.onLine` を読み直すか `useSyncExternalStore` へ移せば塞がる）。(ii) `frontend/vitest.config.ts` の `test.poolOptions` は Vitest 4 で撤去されており DEPRECATED 警告が出る（`maxForks`・`execArgv` は現在効いていない）。(iii) `AnnotationEditor.test.tsx` / `SiteSurveyForm.offline.test.tsx` は購読が初回描画（act 内）で登録されるため同型ではないと独立レビューが判定した
 
 - [ ] 115.328 被覆検査のラチェットの上限を実測値へ下げる（**quantity-table-generation の Task 97.18 からの起票依頼**）
   - **出所**: 下流の 94.1 以降の記録が毎回「遊び」として測ってきた差と、自己検査の失敗
