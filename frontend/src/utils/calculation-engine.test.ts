@@ -24,7 +24,6 @@ import {
   generateAreaVolumeFormula,
   generatePitchFormula,
   generateCountFormula,
-  isValidNumber,
   DEFAULT_ADJUSTMENT_FACTOR,
   DEFAULT_ROUNDING_UNIT,
   DEFAULT_CALCULATION_METHOD,
@@ -831,50 +830,5 @@ describe('generateCountFormula', () => {
     // 双方とも「x 3 x 2 = 30」で終端する（箇所数確定後の書式が同一）
     expect(pitchFormula.endsWith('x 3 x 2 = 30')).toBe(true);
     expect(countFormula.endsWith('x 3 x 2 = 30')).toBe(true);
-  });
-});
-
-// ============================================================================
-// isValidNumber のテスト
-// ============================================================================
-
-describe('isValidNumber', () => {
-  it('正の数は有効', () => {
-    expect(isValidNumber(10)).toBe(true);
-    expect(isValidNumber(0.5)).toBe(true);
-  });
-
-  it('0は有効', () => {
-    expect(isValidNumber(0)).toBe(true);
-  });
-
-  it('負の数は有効', () => {
-    expect(isValidNumber(-10)).toBe(true);
-  });
-
-  it('NaNは無効', () => {
-    expect(isValidNumber(NaN)).toBe(false);
-  });
-
-  it('Infinityは無効', () => {
-    expect(isValidNumber(Infinity)).toBe(false);
-    expect(isValidNumber(-Infinity)).toBe(false);
-  });
-
-  it('文字列は無効', () => {
-    expect(isValidNumber('10')).toBe(false);
-    expect(isValidNumber('')).toBe(false);
-  });
-
-  it('nullは無効', () => {
-    expect(isValidNumber(null)).toBe(false);
-  });
-
-  it('undefinedは無効', () => {
-    expect(isValidNumber(undefined)).toBe(false);
-  });
-
-  it('オブジェクトは無効', () => {
-    expect(isValidNumber({})).toBe(false);
   });
 });

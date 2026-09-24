@@ -84,15 +84,6 @@ export interface CalculationResult {
   formula: string;
 }
 
-/**
- * バリデーション結果
- */
-export interface ValidationResult {
-  isValid: boolean;
-  errors: string[];
-  warnings: string[];
-}
-
 // ============================================================================
 // デフォルト値
 // ============================================================================
@@ -444,18 +435,4 @@ export function generateCountFormula(params: CountParams): string {
   const result = computeCountRawValue(params);
 
   return `${parts.join(' x ')} = ${result}`;
-}
-
-// ============================================================================
-// バリデーション関数
-// ============================================================================
-
-/**
- * 数値入力のバリデーション
- *
- * @param value - 入力値
- * @returns 数値かどうか
- */
-export function isValidNumber(value: unknown): value is number {
-  return typeof value === 'number' && !isNaN(value) && isFinite(value);
 }

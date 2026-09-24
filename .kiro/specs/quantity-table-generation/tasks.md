@@ -4316,11 +4316,17 @@ _起票元: Task 96.11 の棚卸し。実装は行っていない_
   - **関門（前後でバイト一致）**: package.json の `check:*` / `count:*` 33本の終了コードと出力は前後で同一（赤4本 `check:req-coverage` / `:json` / `check:design-measurement-freshness` / `:json` は基線から）。独立レビューが HEAD の版へ差し替えて `check:req-coverage` / `count:coverage-marks` / `check:e2e-guards` / `check:criterion-literals`（`:verbose` とも）の一致を再現した。被覆印は一件も失われていない
   - **検証**: frontend 2ファイル47件・backend 58件は前後同数が緑、テスト名の差分は改名した2件だけ。type-check（frontend / backend / root）と prettier は EXIT=0。E2E `npm run test:e2e -- e2e/specs/quantity-tables/quantity-count-calculation-e2e.spec.ts` は 12/12 緑（実装者・独立レビューの双方）。親が承認後に新鮮な証拠で単体 47件 / 58件、`npm run type-check`、`count:coverage-marks` を再実行して緑
 
-- [ ] 100.31 `calculation-engine.ts` で 100.27 の撤去により本番の利用者を失った `isValidNumber` / `ValidationResult` の処遇を決める
+- [x] 100.31 `calculation-engine.ts` で 100.27 の撤去により本番の利用者を失った `isValidNumber` / `ValidationResult` の処遇を決める
   - **出所**: 100.27 の実装者の CONCERNS と独立レビューの Finding 2（いずれも 100.27 の `_Boundary:_` 外と判定された）
   - **測った事実（100.27 で実測。着手時に測り直すこと）**: `isValidNumber` は自身の定義と `calculation-engine.test.ts` だけが使い、`ValidationResult` は利用者が零件である。どちらも 100.27 が撤去した4つの検証の部品だった
   - **作法**: 撤去するなら 89.1 / 94.1 / 100.19 / 100.27 の作法を使うこと——到達可能性を測り、撤去が被覆検査を悪化させないことを前後の実測で示す。被覆印の計数は `npm run count:coverage-marks` で行うこと
   - _Boundary: `frontend/src/utils/calculation-engine.ts` の `isValidNumber` / `ValidationResult` とその単体検証_
+  - **処遇（2026-09-24、HEAD `0bd0c767` の作業ツリー、リポジトリルートで実測）**: **2件とも撤去した**。変更は `frontend/src/utils/calculation-engine.ts`（`ValidationResult` の interface と `isValidNumber`、および中身が空になる見出しコメント「バリデーション関数」、-23行）と `frontend/src/utils/calculation-engine.test.ts`（import 1件と `describe('isValidNumber')`・`it(` 9件、-46行）の2ファイルだけで、追加行は零
+  - **到達可能性（測り直し）**: `\bisValidNumber\b` の当たりは自身の定義と `calculation-engine.test.ts` の import・自分の9テスト、tasks.md の起票文だけで、ファイル内の生きた関数からの呼び出しも無い。`\bValidationResult\b` のフロントの当たりは定義の1件だけ。backend の `estimate-validation.service.ts` / `quantity-validation.service.ts` 等の `ValidationResult` は**同名の別シンボル**で `calculation-engine` から取り込んでいない。`calculation-engine` を取り込む本番ファイル（`CalculationFields` / `FieldValidatedItemRow` / `EditableQuantityItemRow` / `numeric-range-validation` / `calculation-params-validation`）はどれも2つの名前を取らず、バレルの `export *` も零件。撤去後の `frontend/src`・`e2e`・`scripts` への grep は2つとも零件（独立レビューが再現）
+  - **撤去の関門（前後の実測）**: `check:req-coverage` / `:json` / `count:coverage-marks` / `:json` / `check:design-path-refs` / `check:design-code-refs` / `check:steering-refs` / `check:steering-idents` / `check:design-measurement-freshness` の9本で、**終了コードの列は完全一致、出力は9本ともバイト一致**（赤の3本は基線から赤）。撤去した docblock・テストは条文を名乗らないため、100.27 と異なり「機能名を欠くヘッダー」「眠る名乗り」も動かない。**被覆印は一件も失われていない**。独立レビューが HEAD の版へ差し替えて4本（`check:req-coverage` / `count:coverage-marks` / `check:design-path-refs` / `check:steering-idents`）の一致を再現した
+  - **挙動不変の実測**: `npm --prefix frontend run test -- quantity-table QuantityTableEditPage numeric-range-validation calculation-params-validation calculation-engine` が**前 68ファイル/1566件 緑 → 後 68ファイル/1557件 緑**、差は削除した **-9件ちょうど**。合格テスト名の集合の突き合わせで、消えたのは `isValidNumber` の describe 配下だけ。`type-check` / `lint`（`npm --prefix frontend run lint`、error 0・既存の warning 15件）/ `prettier --check` は EXIT=0
+  - **設計文書・上流**: 追随不要。`.kiro` 配下で2つの名前を名指すのは本タスクと 100.27 の記録だけである
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix frontend run type-check` EXIT=0 ／ `npm --prefix frontend run test -- calculation-engine calculation-params-validation numeric-range-validation` 3ファイル/193件 緑 ／ `npm run count:coverage-marks` EXIT=0 ／ 2つの名前の `frontend/src`・`e2e`・`scripts` への grep は零件
 
 ## Task 101. 被覆印の計数の方式そのものの是正
 
