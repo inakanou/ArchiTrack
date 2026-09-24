@@ -63,17 +63,17 @@ vi.mock('../../hooks/useMediaQuery', () => ({
   default: vi.fn(() => false),
 }));
 // useUnsavedChangesのモック
-const mockUseUnsavedChanges = {
-  isDirty: false,
-  markAsChanged: vi.fn(),
-  markAsSaved: vi.fn(),
-  setDirty: vi.fn(),
-  reset: vi.fn(),
-  confirmNavigation: vi.fn().mockReturnValue(true),
-};
+// Task 100.24（quantity-table-generation）でフックは未保存判定 `isDirty` を受け取るだけの形へ
+// 一本化され、戻り値を持たない。未保存判定は画面が持つため、画面がフックへ渡した `isDirty` を
+// 記録して「変更で未保存になる／保存で解消する」ことを測る。
+const mockUseUnsavedChanges = vi.fn((_options: { isDirty: boolean; message?: string }) => {});
+/** 直近の描画で画面がフックへ渡した isDirty */
+const lastUnsavedDirty = (): boolean | undefined =>
+  mockUseUnsavedChanges.mock.calls[mockUseUnsavedChanges.mock.calls.length - 1]?.[0].isDirty;
 
 vi.mock('../../hooks/useUnsavedChanges', () => ({
-  useUnsavedChanges: () => mockUseUnsavedChanges,
+  useUnsavedChanges: (options: { isDirty: boolean; message?: string }) =>
+    mockUseUnsavedChanges(options),
 }));
 
 // PDF出力サービスのモック（ページテストではUI動作のみをテストし、実際のPDF生成は行わない）
@@ -828,13 +828,11 @@ describe('SiteSurveyDetailPage', () => {
       vi.mocked(surveyImagesApi.updateSurveyImageOrder).mockResolvedValue(undefined);
     });
 
-    it('報告書出力フラグを変更するとmarkAsChangedが呼ばれる', async () => {
+    it('報告書出力フラグを変更すると未保存状態になる（フックへ isDirty=true が渡る）', async () => {
       vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue({
         ...mockPermission,
         canEdit: true,
       });
-      mockUseUnsavedChanges.isDirty = false;
-      mockUseUnsavedChanges.markAsChanged.mockClear();
 
       renderComponent();
 
@@ -850,9 +848,9 @@ describe('SiteSurveyDetailPage', () => {
       const checkboxes = screen.getAllByRole('checkbox', { name: '報告書に含める' });
       fireEvent.click(checkboxes[0] as HTMLElement);
 
-      // markAsChangedが呼ばれることを確認（手動保存方式）
+      // 未保存状態になることを確認（手動保存方式）
       await waitFor(() => {
-        expect(mockUseUnsavedChanges.markAsChanged).toHaveBeenCalled();
+        expect(lastUnsavedDirty()).toBe(true);
       });
     });
 
@@ -1149,7 +1147,6 @@ describe('SiteSurveyDetailPage', () => {
   describe('メタデータ変更エラーハンドリング (Task 33.1: 手動保存方式)', () => {
     beforeEach(() => {
       vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
-      mockUseUnsavedChanges.isDirty = true;
     });
 
     it('メタデータ一括保存失敗時にエラーメッセージが表示される', async () => {
@@ -1504,8 +1501,6 @@ describe('SiteSurveyDetailPage', () => {
         ...mockPermission,
         canEdit: true,
       });
-      mockUseUnsavedChanges.isDirty = true;
-      mockUseUnsavedChanges.markAsChanged.mockClear();
     });
 
     it('メタデータ変更成功時に楽観的UI更新が行われる', async () => {
@@ -1541,11 +1536,11 @@ describe('SiteSurveyDetailPage', () => {
         expect(checkboxes[0]).not.toBeChecked();
       });
 
-      // markAsChangedが呼ばれたことを確認
-      expect(mockUseUnsavedChanges.markAsChanged).toHaveBeenCalled();
+      // 未保存状態になったことを確認
+      expect(lastUnsavedDirty()).toBe(true);
     });
 
-    it('コメント変更時に楽観的UI更新が行われ、markAsChangedが呼ばれる', async () => {
+    it('コメント変更時に楽観的UI更新が行われ、未保存状態になる', async () => {
       renderComponent();
 
       await waitFor(() => {
@@ -1562,9 +1557,9 @@ describe('SiteSurveyDetailPage', () => {
         fireEvent.change(commentInputs[0] as HTMLElement, { target: { value: '新しいコメント' } });
         fireEvent.blur(commentInputs[0] as HTMLElement);
 
-        // markAsChangedが呼ばれたことを確認（手動保存方式）
+        // 未保存状態になったことを確認（手動保存方式）
         await waitFor(() => {
-          expect(mockUseUnsavedChanges.markAsChanged).toHaveBeenCalled();
+          expect(lastUnsavedDirty()).toBe(true);
         });
       }
     });
@@ -1582,16 +1577,13 @@ describe('SiteSurveyDetailPage', () => {
       });
       vi.mocked(surveyImagesApi.updateSurveyImageOrder).mockResolvedValue(undefined);
       vi.mocked(surveyImagesApi.updateImageMetadataBatch).mockResolvedValue([]);
-      mockUseUnsavedChanges.isDirty = false;
-      mockUseUnsavedChanges.markAsChanged.mockClear();
-      mockUseUnsavedChanges.markAsSaved.mockClear();
     });
 
     // -------------------------------------------------------------------------
     // Task 37.3: pendingOrderRefパターン
     // -------------------------------------------------------------------------
     describe('pendingOrderRefパターン (Task 37.3)', () => {
-      it('順序変更時にmarkAsChangedが呼ばれること (要件4.11, 10.5)', async () => {
+      it('順序変更時に未保存状態になること (要件4.11, 10.5)', async () => {
         renderComponent();
 
         await waitFor(() => {
@@ -1615,15 +1607,13 @@ describe('SiteSurveyDetailPage', () => {
           dataTransfer: { getData: () => 'img-1' },
         });
 
-        // markAsChangedが呼ばれることを確認
+        // 未保存状態になることを確認
         await waitFor(() => {
-          expect(mockUseUnsavedChanges.markAsChanged).toHaveBeenCalled();
+          expect(lastUnsavedDirty()).toBe(true);
         });
       });
 
       it('保存ボタンクリック時に順序変更APIが呼ばれること (要件10.6, 10.7)', async () => {
-        mockUseUnsavedChanges.isDirty = true;
-
         renderComponent();
 
         await waitFor(() => {
@@ -1657,9 +1647,7 @@ describe('SiteSurveyDetailPage', () => {
         });
       });
 
-      it('保存成功後にmarkAsSavedが呼ばれること', async () => {
-        mockUseUnsavedChanges.isDirty = true;
-
+      it('保存成功後に未保存状態が解消すること', async () => {
         renderComponent();
 
         await waitFor(() => {
@@ -1683,13 +1671,19 @@ describe('SiteSurveyDetailPage', () => {
           dataTransfer: { getData: () => 'img-1' },
         });
 
+        // 変更で未保存になったことを確認（保存後の解消を測る前提）
+        await waitFor(() => {
+          expect(lastUnsavedDirty()).toBe(true);
+        });
+
         // 保存ボタンをクリック
         const saveButton = screen.getByRole('button', { name: /保存/i });
         fireEvent.click(saveButton);
 
-        // markAsSavedが呼ばれることを確認
+        // 保存成功で未保存状態が解消し、フックへ isDirty=false が渡ることを確認
         await waitFor(() => {
-          expect(mockUseUnsavedChanges.markAsSaved).toHaveBeenCalled();
+          expect(surveyImagesApi.updateSurveyImageOrder).toHaveBeenCalled();
+          expect(lastUnsavedDirty()).toBe(false);
         });
       });
     });
@@ -1708,8 +1702,6 @@ describe('SiteSurveyDetailPage', () => {
       });
 
       it('画像削除後もエラーなく保存できること (要件10.11, 10.12)', async () => {
-        mockUseUnsavedChanges.isDirty = true;
-
         renderComponent();
 
         await waitFor(() => {
@@ -2512,12 +2504,10 @@ describe('SiteSurveyDetailPage - 通信断時の警告と保存抑止 (Req 15.6)
     vi.mocked(useMediaQuery).mockReturnValue(false);
     vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
     vi.mocked(surveyImagesApi.updateImageMetadataBatch).mockResolvedValue([]);
-    mockUseUnsavedChanges.isDirty = true;
   });
 
   afterEach(() => {
     setNavigatorOnLine(true);
-    mockUseUnsavedChanges.isDirty = false;
   });
 
   /** 詳細画面を表示し、写真管理パネルの描画完了まで待つ */
@@ -2530,6 +2520,10 @@ describe('SiteSurveyDetailPage - 通信断時の警告と保存抑止 (Req 15.6)
 
   it('通信が切れると警告を表示し、保存ボタンへ抑止を示す', async () => {
     await renderDetail();
+
+    // 未保存の変更を作る（保存ボタンが有効になる前提条件を満たす）
+    const checkboxes = screen.getAllByRole('checkbox', { name: '報告書に含める' });
+    fireEvent.click(checkboxes[0] as HTMLElement);
 
     // 既定（オンライン）では警告は無く、保存は抑止されていない
     expect(screen.queryByTestId('offline-warning')).not.toBeInTheDocument();

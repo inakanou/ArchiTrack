@@ -6108,6 +6108,13 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - **併せて測ると一度で済むもの**: 本宣言は 115.330 が扱う鮮度宣言の系列と同じ文書に在る。**115.330 の測り直しの際に本件も同時に処理するのが自然**である（本件だけを先に直すと 115.330 で再び触ることになる）
   - _Boundary: 本スペックの `design.md` の当該鮮度宣言の逐語と `design-measurements.json` の `selftest-entry-population` / `selftest-failure-default-conforming` の expected_
 
+- [ ] 115.332 共有フック `useUnsavedChanges` の撤去済み API を名指す設計文書の記述を、現況へ揃える（**quantity-table-generation の Task 100.24 からの起票依頼**）
+  - **出所**: 下流 quantity-table-generation の Task 100.24（利用者の裁定「(b) API を一本化する」、2026-09-24）。共有フック `frontend/src/hooks/useUnsavedChanges.ts` を `useUnsavedChanges({ isDirty, message? }): void`（戻り値なし・自前の dirty 状態を持たない）へ改め、`enabled` / `initialDirty` / `onDirtyChange` と戻り値 `isDirty` / `setDirty` / `markAsChanged` / `markAsSaved` / `reset` / `confirmNavigation`、型 `UseUnsavedChangesResult` を撤去した。**本スペックの画面 `SiteSurveyDetailPage` / `SiteSurveyImageViewerPage` の呼び出しは下流が追随させた**（前者は画面側の `useState` の `isDirty` と `markAsChanged` / `markAsSaved` を持ち `isDirty: canEdit && isDirty` を渡す。旧条件「`enabled=canEdit` かつ内部 dirty」と同値であることを独立レビューが呼び出し点ごとに確認した）。**下流は本スペックの `design.md` を一行も書き換えていない**
+  - **陳腐化した記述（下流の独立レビューが 2026-09-24 に列挙。着手時に測り直すこと）**: `.kiro/specs/site-survey/design.md` の L590 の契約名の実体表の行 `UseUnsavedChangesResult | frontend/src/hooks/useUnsavedChanges.ts`（型は撤去済みで実体が無い）、`#### useUnsavedChanges（既存フック活用）` の `interface UseUnsavedChangesResult` のコードブロック、L777・L4025 の `confirmNavigation`、L922〜L1025 のシーケンス図の `useUnsavedChanges->>markAsChanged()` / `markAsSaved()`、要件9.3 の決着記述中の「`useUnsavedChanges` の `setDirty` で離脱を止める」
+  - **機械の関門は現状赤くならない**: 当該表は手動の照合手順であり、`check:design-code-refs` / `check:design-path-refs` はいずれも exit 0（下流の実装者・独立レビューが前後で実測）。**赤くならないため放置すると次の読み手が撤去済みの API を前提に実装しうる**
+  - **依頼**: 規約 (a) に従い、歴史の記述は残して現況（タスク 100.24 以降の API）を併記するか、契約名の実体表のように「現に実体を名指す」ことが目的の行は現況へ改めるかを、行ごとに決めること
+  - _Boundary: 本スペックの `design.md` の `useUnsavedChanges` を名指す記述_
+
 ## Implementation Notes（Task 115.30-115.52）
 
 - **「注記が言う未実装」を鵜呑みにしないこと**: 115.127 段4 で、八件の検証が「実装がセレクトボックスなので未実装」という注記つきの分岐で守られていたが、実装は入力欄であり**観測は一度も発火していなかった**。危険なのは発火しなかったことではなく、**実装が退行した瞬間に八件が緑のまま何も主張しなくなる**ことである。変異で実測すると、観測が発火する状況では八件が主張を一つも実行せずに通った。

@@ -76,33 +76,17 @@ vi.mock('../hooks/useConstructionPhotoPermission', () => ({
 }));
 
 // 未保存離脱警告フックのモック（Task 12.5: 未保存離脱警告の結線, R18）
-// SiteSurveyDetailPage のテスト作法に倣い、markAsChanged/markAsSaved で
-// isDirty を書き換える簡易実装で結線（isDirty のトグル）のみ検証する
+// quantity-table-generation の Task 100.24 でフックは未保存判定 `isDirty` を受け取るだけの形へ
+// 一本化され、戻り値を持たない（未保存判定は画面が持つ）。画面がフックへ渡した `isDirty` を
+// 記録し、結線（変更で真・保存で偽・編集権限が無ければ偽）のみ検証する
 // （beforeunload実登録の検証は useUnsavedChanges 自体の単体テストで担保済み）。
-// 既定はフル機能（isDirty=false から開始、markAsChanged/markAsSavedでトグル）で
-// 既存テスト（保存フロー等）の回帰を防ぐ。
-const unsavedChangesRuntime: { dirty: boolean } = { dirty: false };
-const mockMarkAsChanged = vi.fn(() => {
-  unsavedChangesRuntime.dirty = true;
-});
-const mockMarkAsSaved = vi.fn(() => {
-  unsavedChangesRuntime.dirty = false;
-});
-const mockUseUnsavedChanges = vi.fn((options: { enabled?: boolean } = {}) => ({
-  isDirty: unsavedChangesRuntime.dirty,
-  setDirty: (v: boolean) => {
-    unsavedChangesRuntime.dirty = v;
-  },
-  markAsChanged: mockMarkAsChanged,
-  markAsSaved: mockMarkAsSaved,
-  reset: () => {
-    unsavedChangesRuntime.dirty = false;
-  },
-  confirmNavigation: () => true,
-  __options: options,
-}));
+const mockUseUnsavedChanges = vi.fn((_options: { isDirty: boolean; message?: string }) => {});
+/** 直近の描画で画面がフックへ渡した isDirty */
+const lastUnsavedDirty = (): boolean | undefined =>
+  mockUseUnsavedChanges.mock.calls[mockUseUnsavedChanges.mock.calls.length - 1]?.[0].isDirty;
 vi.mock('../hooks/useUnsavedChanges', () => ({
-  useUnsavedChanges: (options: { enabled?: boolean }) => mockUseUnsavedChanges(options),
+  useUnsavedChanges: (options: { isDirty: boolean; message?: string }) =>
+    mockUseUnsavedChanges(options),
 }));
 
 // UnsavedChangesDialog のモック（CompanyInfoPage のテスト作法を参考に簡易DOMへ差し替え）
@@ -224,7 +208,6 @@ function renderPage() {
 describe('ConstructionPhotoDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    unsavedChangesRuntime.dirty = false;
     mockUseBlocker.mockReturnValue({ state: 'unblocked', proceed: mockProceed, reset: mockReset });
     mockUseConstructionPhotoPermission.mockReturnValue(fullPermission);
     vi.mocked(useMediaQuery).mockReturnValue(false);
@@ -831,27 +814,33 @@ describe('ConstructionPhotoDetailPage', () => {
   // ==========================================================================
 
   describe('未保存離脱警告の結線 (R18)', () => {
-    it('編集権限がある場合、useUnsavedChangesがenabled:trueで呼ばれる (R18.4)', async () => {
+    it('編集権限がある場合、変更で useUnsavedChanges へ isDirty=true が渡る (R18.4)', async () => {
       renderPage();
-      await screen.findByRole('img', { name: /a\.jpg/ });
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
 
-      expect(mockUseUnsavedChanges).toHaveBeenCalledWith(
-        expect.objectContaining({ enabled: true })
-      );
+      // 変更前は未保存でない
+      expect(lastUnsavedDirty()).toBe(false);
+
+      fireEvent.click(within(firstItem).getByLabelText('印刷対象に含める'));
+
+      await waitFor(() => {
+        expect(lastUnsavedDirty()).toBe(true);
+      });
     });
 
-    it('編集権限が無い場合、useUnsavedChangesがenabled:falseで呼ばれ未保存追跡が無効化される (R18.4)', async () => {
+    it('編集権限が無い場合、useUnsavedChanges へは常に isDirty=false が渡り離脱警告が無効化される (R18.4)', async () => {
       mockUseConstructionPhotoPermission.mockReturnValue({ ...fullPermission, canEdit: false });
 
       renderPage();
       await screen.findByRole('img', { name: /a\.jpg/ });
 
-      expect(mockUseUnsavedChanges).toHaveBeenCalledWith(
-        expect.objectContaining({ enabled: false })
+      expect(mockUseUnsavedChanges).toHaveBeenCalled();
+      expect(mockUseUnsavedChanges.mock.calls.every(([options]) => options.isDirty === false)).toBe(
+        true
       );
     });
 
-    it('コメント変更でmarkAsChangedが呼ばれる (R18.1)', async () => {
+    it('コメント変更で未保存状態になる (R18.1)', async () => {
       renderPage();
       const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
 
@@ -860,33 +849,33 @@ describe('ConstructionPhotoDetailPage', () => {
       fireEvent.blur(textarea);
 
       await waitFor(() => {
-        expect(mockMarkAsChanged).toHaveBeenCalled();
+        expect(lastUnsavedDirty()).toBe(true);
       });
     });
 
-    it('印刷対象トグルでmarkAsChangedが呼ばれる (R18.1)', async () => {
+    it('印刷対象トグルで未保存状態になる (R18.1)', async () => {
       renderPage();
       const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
 
       fireEvent.click(within(firstItem).getByLabelText('印刷対象に含める'));
 
       await waitFor(() => {
-        expect(mockMarkAsChanged).toHaveBeenCalled();
+        expect(lastUnsavedDirty()).toBe(true);
       });
     });
 
-    it('並び替えでmarkAsChangedが呼ばれる (R18.1)', async () => {
+    it('並び替えで未保存状態になる (R18.1)', async () => {
       renderPage();
       const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
 
       fireEvent.click(within(firstItem).getByRole('button', { name: '下へ移動' }));
 
       await waitFor(() => {
-        expect(mockMarkAsChanged).toHaveBeenCalled();
+        expect(lastUnsavedDirty()).toBe(true);
       });
     });
 
-    it('看板配置の保存でmarkAsChangedが呼ばれる (R18.1)', async () => {
+    it('看板配置の保存で未保存状態になる (R18.1)', async () => {
       renderPage();
       const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
       fireEvent.click(within(firstItem).getByRole('button', { name: /看板を配置/ }));
@@ -896,27 +885,31 @@ describe('ConstructionPhotoDetailPage', () => {
       fireEvent.click(within(dialog).getByRole('button', { name: '配置を保存' }));
 
       await waitFor(() => {
-        expect(mockMarkAsChanged).toHaveBeenCalled();
+        expect(lastUnsavedDirty()).toBe(true);
       });
     });
 
-    it('保存成功でmarkAsSavedが呼ばれ未保存状態が解消する (R18.3)', async () => {
+    it('保存成功で未保存状態が解消する (R18.3)', async () => {
       vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockResolvedValue([]);
 
       renderPage();
       const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
       fireEvent.click(within(firstItem).getByLabelText('印刷対象に含める'));
+      await waitFor(() => {
+        expect(lastUnsavedDirty()).toBe(true);
+      });
 
       fireEvent.click(screen.getByRole('button', { name: '保存' }));
 
       await waitFor(() => {
-        expect(mockMarkAsSaved).toHaveBeenCalled();
+        expect(imagesApi.updateConstructionPhotoMetadataBatch).toHaveBeenCalled();
+        expect(lastUnsavedDirty()).toBe(false);
       });
     });
 
     // --------------------------------------------------------------------
     // R18.2: アプリ内遷移全般（Breadcrumbのリンククリック含む）のガードは
-    // useBlocker(uc.isDirty) が担う。jsdom にはデータルーター連携の実遷移
+    // useBlocker(isDirty) が担う。jsdom にはデータルーター連携の実遷移
     // ブロックが無いため、QuantityTableEditPage/CompanyInfoPage/
     // ItemizedStatementDetailPage の確立済みパターンに倣い useBlocker を
     // モックし、(a) isDirtyに応じた呼び出し引数、(b) blocked状態でのダイアログ

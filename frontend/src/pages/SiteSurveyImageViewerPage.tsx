@@ -218,15 +218,10 @@ export default function SiteSurveyImageViewerPage() {
 
   // タブクローズ/リロード時のブラウザ標準確認（REQ-9.3）
   //
-  // `useUnsavedChanges` は自前の dirty 状態を持ち、`beforeunload` の登録条件は
-  // 「`enabled` かつ内部の dirty」である。`enabled` だけを渡しても内部の dirty は
-  // 初期値 false のままで登録されない（`EstimateDetailPage` が同じ注意書きを残している）。
-  // 未保存判定の正は注釈エディタ側であるため、`setDirty` で追従させる。
-  const { setDirty: setUnsavedGuardDirty } = useUnsavedChanges();
-
-  useEffect(() => {
-    setUnsavedGuardDirty(hasUnsavedAnnotationChanges);
-  }, [hasUnsavedAnnotationChanges, setUnsavedGuardDirty]);
+  // 未保存判定の正は注釈エディタ側であり、その通知を受けた状態をフックへ直接渡す
+  // （quantity-table-generation の Task 100.24 でフックが自前の dirty 状態を持たない形へ
+  // 一本化された）。
+  useUnsavedChanges({ isDirty: hasUnsavedAnnotationChanges });
 
   // アプリ内ナビゲーションのブロック（REQ-9.3）
   const blocker = useBlocker(hasUnsavedAnnotationChanges);

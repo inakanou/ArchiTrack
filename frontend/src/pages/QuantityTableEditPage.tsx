@@ -685,8 +685,8 @@ export default function QuantityTableEditPage() {
   // - アプリ内ナビゲーション: useBlocker(isDirty) でブロックし、blocked のとき
   //   既存の UnsavedChangesDialog を表示。離脱→ proceed()、とどまる→ reset()
   //   （REQ-43.1/43.3/43.4）。
-  // - タブクローズ/リロード: 既存 useUnsavedChanges の beforeunload ハンドラを
-  //   enabled: isDirty で有効化し標準確認を表示する（REQ-43.2）。
+  // - タブクローズ/リロード: 共有フック useUnsavedChanges の beforeunload ハンドラを
+  //   isDirty で有効化し標準確認を表示する（REQ-43.2）。
   // 既存 CompanyInfoPage / ItemizedStatementDetailPage / SiteSurveyDetailPage の
   // 確立済みパターンに準拠（design.md「Architecture Pattern & Boundary Map」の
   // 「追加コンポーネント（REQ-43, 44）」、および
@@ -697,18 +697,9 @@ export default function QuantityTableEditPage() {
 
   // タブクローズ/リロード時の beforeunload 標準確認（REQ-43.2）
   //
-  // Task 100.13: `enabled` だけを渡してもフックは beforeunload を登録しない。
-  // `useUnsavedChanges` は自前の dirty 状態（`useState(initialDirty)`、既定 false）を持ち、
-  // 登録条件は「`enabled` かつ**内部の** dirty」であるためである
-  // （`frontend/src/hooks/useUnsavedChanges.ts` の beforeunload の useEffect）。
-  // 未保存判定の正は `quantityTableEditReducer` 側の `editState.isDirty` であるから、
-  // `setDirty` で内部状態を追従させる。EstimateDetailPage / SiteSurveyImageViewerPage が
-  // 同じ注意書きとともに採っている確立済みパターンである。
-  const { setDirty: setUnsavedGuardDirty } = useUnsavedChanges({ enabled: isDirty });
-
-  useEffect(() => {
-    setUnsavedGuardDirty(isDirty);
-  }, [isDirty, setUnsavedGuardDirty]);
+  // 未保存判定の正は `quantityTableEditReducer` 側の `editState.isDirty` であり、フックへ
+  // 直接渡す（Task 100.24 でフックが自前の dirty 状態を持たない形へ一本化された）。
+  useUnsavedChanges({ isDirty });
 
   // アプリ内ナビゲーションのブロック（REQ-43.1）
   const blocker = useBlocker(isDirty);

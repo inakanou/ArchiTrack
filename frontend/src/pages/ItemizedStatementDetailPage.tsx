@@ -874,11 +874,8 @@ export default function ItemizedStatementDetailPage() {
   const [saveOrderSuccess, setSaveOrderSuccess] = useState(false);
   const [saveOrderError, setSaveOrderError] = useState<string | null>(null);
 
-  // 未保存変更の検出（Req 17.12）
-  const { markAsChanged, markAsSaved } = useUnsavedChanges({
-    initialDirty: false,
-    enabled: hasOrderChanges,
-  });
+  // 未保存変更時のタブクローズ/リロードの確認（Req 17.12）
+  useUnsavedChanges({ isDirty: hasOrderChanges });
 
   // ページ離脱時のブロック（Req 17.12）
   const blocker = useBlocker(hasOrderChanges);
@@ -1067,38 +1064,30 @@ export default function ItemizedStatementDetailPage() {
   }, [sortState.column, isFilterActive]);
 
   // 上移動ハンドラ (Req 17.4)
-  const handleMoveUp = useCallback(
-    (globalIndex: number) => {
-      if (globalIndex <= 0) return;
-      setOrderedItems((prev) => {
-        const next = [...prev];
-        const temp = next[globalIndex - 1]!;
-        next[globalIndex - 1] = next[globalIndex]!;
-        next[globalIndex] = temp;
-        return next;
-      });
-      setHasOrderChanges(true);
-      markAsChanged();
-    },
-    [markAsChanged]
-  );
+  const handleMoveUp = useCallback((globalIndex: number) => {
+    if (globalIndex <= 0) return;
+    setOrderedItems((prev) => {
+      const next = [...prev];
+      const temp = next[globalIndex - 1]!;
+      next[globalIndex - 1] = next[globalIndex]!;
+      next[globalIndex] = temp;
+      return next;
+    });
+    setHasOrderChanges(true);
+  }, []);
 
   // 下移動ハンドラ (Req 17.5)
-  const handleMoveDown = useCallback(
-    (globalIndex: number) => {
-      setOrderedItems((prev) => {
-        if (globalIndex >= prev.length - 1) return prev;
-        const next = [...prev];
-        const temp = next[globalIndex + 1]!;
-        next[globalIndex + 1] = next[globalIndex]!;
-        next[globalIndex] = temp;
-        return next;
-      });
-      setHasOrderChanges(true);
-      markAsChanged();
-    },
-    [markAsChanged]
-  );
+  const handleMoveDown = useCallback((globalIndex: number) => {
+    setOrderedItems((prev) => {
+      if (globalIndex >= prev.length - 1) return prev;
+      const next = [...prev];
+      const temp = next[globalIndex + 1]!;
+      next[globalIndex + 1] = next[globalIndex]!;
+      next[globalIndex] = temp;
+      return next;
+    });
+    setHasOrderChanges(true);
+  }, []);
 
   // 並び順保存ハンドラ (Req 17.8, 17.9, 17.14)
   const handleSaveOrder = useCallback(async () => {
@@ -1121,7 +1110,6 @@ export default function ItemizedStatementDetailPage() {
       const sorted = [...updatedDetail.items].sort((a, b) => a.displayOrder - b.displayOrder);
       setOrderedItems(sorted);
       setHasOrderChanges(false);
-      markAsSaved();
       setSaveOrderSuccess(true);
       setTimeout(() => {
         setSaveOrderSuccess(false);
@@ -1138,7 +1126,7 @@ export default function ItemizedStatementDetailPage() {
     } finally {
       setIsSavingOrder(false);
     }
-  }, [statement, isSavingOrder, orderedItems, markAsSaved]);
+  }, [statement, isSavingOrder, orderedItems]);
 
   // クリップボードコピーハンドラ (Req 14.1, 14.5, 14.6, 14.7)
   const handleCopyToClipboard = useCallback(async () => {

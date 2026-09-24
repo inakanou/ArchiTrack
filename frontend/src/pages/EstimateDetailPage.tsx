@@ -1047,15 +1047,10 @@ export default function EstimateDetailPage() {
   //   `useUnsavedChanges` の `beforeunload` ハンドラでブラウザ標準の確認を出す。
   //
   // 未保存判定の正は `estimateEditReducer` 側の `editor.isDirty`（53.4）であり、
-  // `useUnsavedChanges` は自前の dirty state を持つため、`setDirty` で追従させる。
-  // `enabled` オプションだけを渡してもフック内部の dirty は false のままで
-  // `beforeunload` が登録されないことに注意（`useUnsavedChanges.ts:216-239`）。
+  // フックへ直接渡す（quantity-table-generation の Task 100.24 でフックが自前の
+  // dirty state を持たない形へ一本化された）。
   // ==========================================================================
-  const { setDirty: setUnsavedGuardDirty } = useUnsavedChanges();
-
-  useEffect(() => {
-    setUnsavedGuardDirty(editor.isDirty);
-  }, [editor.isDirty, setUnsavedGuardDirty]);
+  useUnsavedChanges({ isDirty: editor.isDirty });
 
   // 削除完了後の遷移先（27.6 の離脱ガードの対象外とするため state で保持する）
   //

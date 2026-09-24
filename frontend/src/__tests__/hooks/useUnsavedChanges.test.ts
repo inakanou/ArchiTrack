@@ -2,16 +2,19 @@
  * @fileoverview useUnsavedChanges フックのテスト
  *
  * Task 19: 未保存変更の検出を実装する
+ * Task 100.24（quantity-table-generation）: API を一本化した。
  *
- * - isDirtyフラグの管理
- * - ページ離脱時の確認ダイアログ（beforeunload）
+ * フックは未保存かどうか（`isDirty`）を**呼び出し側から直接受け取る**だけで、自前の dirty 状態を
+ * 持たない。旧 API は `enabled` を受け取りながら登録条件が「`enabled` かつ**内部の** dirty」で
+ * あったため、`enabled` だけを渡す呼び出しは黙って無効化されていた（100.13 の実測）。
+ * 本ファイルは「渡した `isDirty` だけで beforeunload が登録される／外れる」ことを直接測る。
  *
  * @see requirements.md - 要件9.3
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
-import { useUnsavedChanges } from '../../hooks/useUnsavedChanges';
+import { renderHook } from '@testing-library/react';
+import { useUnsavedChanges, type UseUnsavedChangesOptions } from '../../hooks/useUnsavedChanges';
 
 describe('useUnsavedChanges', () => {
   // beforeunloadイベントのモック
@@ -19,6 +22,15 @@ describe('useUnsavedChanges', () => {
   let removeEventListenerSpy: ReturnType<typeof vi.spyOn>;
   let preventDefaultMock: ReturnType<typeof vi.fn>;
   let mockEvent: BeforeUnloadEvent;
+
+  const beforeunloadAdds = () =>
+    addEventListenerSpy.mock.calls.filter(
+      (call: [string, ...unknown[]]) => call[0] === 'beforeunload'
+    );
+  const beforeunloadRemoves = () =>
+    removeEventListenerSpy.mock.calls.filter(
+      (call: [string, ...unknown[]]) => call[0] === 'beforeunload'
+    );
 
   beforeEach(() => {
     addEventListenerSpy = vi.spyOn(window, 'addEventListener');
@@ -34,72 +46,6 @@ describe('useUnsavedChanges', () => {
     vi.restoreAllMocks();
   });
 
-  describe('初期状態', () => {
-    it('初期状態ではisDirtyはfalseである', () => {
-      const { result } = renderHook(() => useUnsavedChanges());
-
-      expect(result.current.isDirty).toBe(false);
-    });
-
-    it('初期値をtrueに設定できる', () => {
-      const { result } = renderHook(() => useUnsavedChanges({ initialDirty: true }));
-
-      expect(result.current.isDirty).toBe(true);
-    });
-  });
-
-  describe('isDirty状態の管理', () => {
-    it('setDirtyでisDirtyをtrueに設定できる', () => {
-      const { result } = renderHook(() => useUnsavedChanges());
-
-      act(() => {
-        result.current.setDirty(true);
-      });
-
-      expect(result.current.isDirty).toBe(true);
-    });
-
-    it('setDirtyでisDirtyをfalseに設定できる', () => {
-      const { result } = renderHook(() => useUnsavedChanges({ initialDirty: true }));
-
-      act(() => {
-        result.current.setDirty(false);
-      });
-
-      expect(result.current.isDirty).toBe(false);
-    });
-
-    it('markAsChangedでisDirtyをtrueに設定できる', () => {
-      const { result } = renderHook(() => useUnsavedChanges());
-
-      act(() => {
-        result.current.markAsChanged();
-      });
-
-      expect(result.current.isDirty).toBe(true);
-    });
-
-    it('markAsSavedでisDirtyをfalseに設定できる', () => {
-      const { result } = renderHook(() => useUnsavedChanges({ initialDirty: true }));
-
-      act(() => {
-        result.current.markAsSaved();
-      });
-
-      expect(result.current.isDirty).toBe(false);
-    });
-
-    it('resetでisDirtyをfalseにリセットできる', () => {
-      const { result } = renderHook(() => useUnsavedChanges({ initialDirty: true }));
-
-      act(() => {
-        result.current.reset();
-      });
-
-      expect(result.current.isDirty).toBe(false);
-    });
-  });
-
   /**
    * 未保存の変更がある間だけ beforeunload ハンドラが登録され、発火時に既定動作を
    * 抑止することをこの区間が確かめる。
@@ -107,257 +53,136 @@ describe('useUnsavedChanges', () => {
    * @requirement quantity-table-generation/REQ-43.2
    */
   describe('beforeunloadイベントの管理', () => {
-    it('isDirtyがfalseのときはbeforeunloadイベントリスナーが登録されない', () => {
-      renderHook(() => useUnsavedChanges());
+    it('isDirty=false を渡したときはbeforeunloadイベントリスナーが登録されない', () => {
+      renderHook(() => useUnsavedChanges({ isDirty: false }));
 
-      // beforeunloadイベントのリスナーがaddされているか確認
-      const beforeunloadCalls = addEventListenerSpy.mock.calls.filter(
-        (call: [string, ...unknown[]]) => call[0] === 'beforeunload'
-      );
-
-      // isDirtyがfalseなのでリスナーは追加されていないはず
-      expect(beforeunloadCalls.length).toBe(0);
+      expect(beforeunloadAdds().length).toBe(0);
     });
 
-    it('isDirtyがtrueのときはbeforeunloadイベントリスナーが登録される', () => {
-      renderHook(() => useUnsavedChanges({ initialDirty: true }));
+    it('isDirty=true を渡しただけでbeforeunloadイベントリスナーが登録される（他の操作を要しない）', () => {
+      renderHook(() => useUnsavedChanges({ isDirty: true }));
 
-      const beforeunloadCalls = addEventListenerSpy.mock.calls.filter(
-        (call: [string, ...unknown[]]) => call[0] === 'beforeunload'
-      );
-
-      expect(beforeunloadCalls.length).toBe(1);
+      expect(beforeunloadAdds().length).toBe(1);
     });
 
-    it('isDirtyがtrueからfalseになったときはbeforeunloadイベントリスナーが解除される', () => {
-      const { result } = renderHook(() => useUnsavedChanges({ initialDirty: true }));
-
-      act(() => {
-        result.current.setDirty(false);
+    it('渡す isDirty が false から true になったときはbeforeunloadイベントリスナーが登録される', () => {
+      const { rerender } = renderHook(({ isDirty }) => useUnsavedChanges({ isDirty }), {
+        initialProps: { isDirty: false },
       });
 
-      const removeBeforeunloadCalls = removeEventListenerSpy.mock.calls.filter(
-        (call: [string, ...unknown[]]) => call[0] === 'beforeunload'
-      );
+      expect(beforeunloadAdds().length).toBe(0);
 
-      expect(removeBeforeunloadCalls.length).toBeGreaterThan(0);
+      rerender({ isDirty: true });
+
+      expect(beforeunloadAdds().length).toBe(1);
     });
 
-    it('isDirtyがfalseからtrueになったときはbeforeunloadイベントリスナーが登録される', () => {
-      const { result } = renderHook(() => useUnsavedChanges());
-
-      // 初期状態ではリスナーなし
-      const initialCalls = addEventListenerSpy.mock.calls.filter(
-        (call: [string, ...unknown[]]) => call[0] === 'beforeunload'
-      );
-      expect(initialCalls.length).toBe(0);
-
-      act(() => {
-        result.current.setDirty(true);
+    it('渡す isDirty が true から false になったときはbeforeunloadイベントリスナーが解除される', () => {
+      const { rerender } = renderHook(({ isDirty }) => useUnsavedChanges({ isDirty }), {
+        initialProps: { isDirty: true },
       });
 
-      const afterCalls = addEventListenerSpy.mock.calls.filter(
-        (call: [string, ...unknown[]]) => call[0] === 'beforeunload'
-      );
-      expect(afterCalls.length).toBe(1);
+      const [added] = beforeunloadAdds();
+      expect(added).toBeDefined();
+
+      rerender({ isDirty: false });
+
+      const removed = beforeunloadRemoves();
+      expect(removed.length).toBeGreaterThan(0);
+      // 登録したものと同じハンドラが外れていること
+      expect(removed.some((call: [string, ...unknown[]]) => call[1] === added![1])).toBe(true);
     });
 
     it('アンマウント時にbeforeunloadイベントリスナーが解除される', () => {
-      const { unmount } = renderHook(() => useUnsavedChanges({ initialDirty: true }));
+      const { unmount } = renderHook(() => useUnsavedChanges({ isDirty: true }));
 
       unmount();
 
-      const removeBeforeunloadCalls = removeEventListenerSpy.mock.calls.filter(
-        (call: [string, ...unknown[]]) => call[0] === 'beforeunload'
-      );
-
-      expect(removeBeforeunloadCalls.length).toBeGreaterThan(0);
+      expect(beforeunloadRemoves().length).toBeGreaterThan(0);
     });
 
     it('beforeunloadイベント発生時にevent.preventDefaultが呼ばれる', () => {
-      renderHook(() => useUnsavedChanges({ initialDirty: true }));
+      renderHook(() => useUnsavedChanges({ isDirty: true }));
 
-      // 登録されたリスナーを取得
-      const beforeunloadCalls = addEventListenerSpy.mock.calls.filter(
-        (call: [string, ...unknown[]]) => call[0] === 'beforeunload'
-      );
+      const calls = beforeunloadAdds();
+      expect(calls.length).toBe(1);
 
-      expect(beforeunloadCalls.length).toBe(1);
-
-      // リスナーを実行
-      const listener = beforeunloadCalls[0][1] as EventListener;
+      const listener = calls[0]![1] as EventListener;
       listener(mockEvent);
 
       expect(preventDefaultMock).toHaveBeenCalled();
     });
 
     it('beforeunloadイベント発生時にevent.returnValueが設定される', () => {
-      renderHook(() => useUnsavedChanges({ initialDirty: true }));
+      renderHook(() => useUnsavedChanges({ isDirty: true }));
 
-      const beforeunloadCalls = addEventListenerSpy.mock.calls.filter(
-        (call: [string, ...unknown[]]) => call[0] === 'beforeunload'
-      );
-
-      const listener = beforeunloadCalls[0][1] as EventListener;
+      const listener = beforeunloadAdds()[0]![1] as EventListener;
       listener(mockEvent);
 
       // returnValueが設定されている（ブラウザが確認ダイアログを表示するため）
       expect(mockEvent.returnValue).not.toBe('');
     });
-  });
 
-  describe('enabledオプション', () => {
-    it('enabled=falseのときはbeforeunloadイベントリスナーが登録されない', () => {
-      renderHook(() => useUnsavedChanges({ initialDirty: true, enabled: false }));
+    it('実際に window へ beforeunload を送ると既定動作が抑止される（isDirty=true）', () => {
+      renderHook(() => useUnsavedChanges({ isDirty: true }));
 
-      const beforeunloadCalls = addEventListenerSpy.mock.calls.filter(
-        (call: [string, ...unknown[]]) => call[0] === 'beforeunload'
-      );
+      const event = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(event);
 
-      expect(beforeunloadCalls.length).toBe(0);
+      expect(event.defaultPrevented).toBe(true);
     });
 
-    it('enabled=trueのときはbeforeunloadイベントリスナーが登録される（isDirty=trueの場合）', () => {
-      renderHook(() => useUnsavedChanges({ initialDirty: true, enabled: true }));
+    it('実際に window へ beforeunload を送っても既定動作は抑止されない（isDirty=false）', () => {
+      renderHook(() => useUnsavedChanges({ isDirty: false }));
 
-      const beforeunloadCalls = addEventListenerSpy.mock.calls.filter(
-        (call: [string, ...unknown[]]) => call[0] === 'beforeunload'
-      );
+      const event = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(event);
 
-      expect(beforeunloadCalls.length).toBe(1);
-    });
-
-    it('enabledがtrueからfalseに変わったときはリスナーが解除される', () => {
-      const { rerender } = renderHook(
-        ({ enabled }) => useUnsavedChanges({ initialDirty: true, enabled }),
-        {
-          initialProps: { enabled: true },
-        }
-      );
-
-      rerender({ enabled: false });
-
-      const removeBeforeunloadCalls = removeEventListenerSpy.mock.calls.filter(
-        (call: [string, ...unknown[]]) => call[0] === 'beforeunload'
-      );
-
-      expect(removeBeforeunloadCalls.length).toBeGreaterThan(0);
+      expect(event.defaultPrevented).toBe(false);
     });
   });
 
-  describe('コールバックオプション', () => {
-    it('onDirtyChangeコールバックがisDirty変更時に呼ばれる', () => {
-      const onDirtyChange = vi.fn();
-      const { result } = renderHook(() => useUnsavedChanges({ onDirtyChange }));
-
-      act(() => {
-        result.current.setDirty(true);
-      });
-
-      expect(onDirtyChange).toHaveBeenCalledWith(true);
-
-      act(() => {
-        result.current.setDirty(false);
-      });
-
-      expect(onDirtyChange).toHaveBeenCalledWith(false);
+  describe('API の形（Task 100.24: 渡した引数が黙って無視される形を持たない）', () => {
+    it('isDirty は必須であり、省略すると型エラーになる', () => {
+      // @ts-expect-error isDirty を省略した引数は型で弾かれる
+      const options: UseUnsavedChangesOptions = {};
+      expect(options).toEqual({});
     });
 
-    it('同じ値に設定してもonDirtyChangeコールバックは呼ばれない', () => {
-      const onDirtyChange = vi.fn();
-      const { result } = renderHook(() => useUnsavedChanges({ initialDirty: true, onDirtyChange }));
+    it('旧 API の enabled は受け付けない（型エラーになる）', () => {
+      const options: UseUnsavedChangesOptions = {
+        isDirty: true,
+        // @ts-expect-error enabled は廃止された
+        enabled: true,
+      };
+      expect(options.isDirty).toBe(true);
+    });
 
-      // 初回レンダリング後にクリア
-      onDirtyChange.mockClear();
+    it('自前の dirty 状態を操作する手段（setDirty/markAsChanged 等）を返さない', () => {
+      const { result } = renderHook(() => useUnsavedChanges({ isDirty: true }));
 
-      act(() => {
-        result.current.setDirty(true); // 既にtrue
-      });
-
-      expect(onDirtyChange).not.toHaveBeenCalled();
+      expect(result.current).toBeUndefined();
     });
   });
 
   describe('確認メッセージ', () => {
     it('デフォルトの確認メッセージが設定される', () => {
-      renderHook(() => useUnsavedChanges({ initialDirty: true }));
+      renderHook(() => useUnsavedChanges({ isDirty: true }));
 
-      const beforeunloadCalls = addEventListenerSpy.mock.calls.filter(
-        (call: [string, ...unknown[]]) => call[0] === 'beforeunload'
-      );
-
-      const listener = beforeunloadCalls[0][1] as EventListener;
+      const listener = beforeunloadAdds()[0]![1] as EventListener;
       listener(mockEvent);
 
-      // デフォルトメッセージが含まれている
       expect(mockEvent.returnValue).toContain('保存されていない変更があります');
     });
 
     it('カスタム確認メッセージを設定できる', () => {
       const customMessage = 'データが失われます。よろしいですか？';
-      renderHook(() => useUnsavedChanges({ initialDirty: true, message: customMessage }));
+      renderHook(() => useUnsavedChanges({ isDirty: true, message: customMessage }));
 
-      const beforeunloadCalls = addEventListenerSpy.mock.calls.filter(
-        (call: [string, ...unknown[]]) => call[0] === 'beforeunload'
-      );
-
-      const listener = beforeunloadCalls[0][1] as EventListener;
+      const listener = beforeunloadAdds()[0]![1] as EventListener;
       listener(mockEvent);
 
       expect(mockEvent.returnValue).toBe(customMessage);
-    });
-  });
-
-  describe('confirmNavigation', () => {
-    it('isDirty=falseのときはconfirmNavigationはtrueを返す', () => {
-      const { result } = renderHook(() => useUnsavedChanges());
-
-      const canNavigate = result.current.confirmNavigation();
-
-      expect(canNavigate).toBe(true);
-    });
-
-    it('isDirty=trueのときはconfirmNavigationはwindow.confirmを呼び出す', () => {
-      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
-      const { result } = renderHook(() => useUnsavedChanges({ initialDirty: true }));
-
-      let canNavigate: boolean = false;
-      act(() => {
-        canNavigate = result.current.confirmNavigation();
-      });
-
-      expect(confirmSpy).toHaveBeenCalled();
-      expect(canNavigate).toBe(true);
-
-      confirmSpy.mockRestore();
-    });
-
-    it('isDirty=trueでユーザーがキャンセルした場合はfalseを返す', () => {
-      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
-      const { result } = renderHook(() => useUnsavedChanges({ initialDirty: true }));
-
-      let canNavigate: boolean = true;
-      act(() => {
-        canNavigate = result.current.confirmNavigation();
-      });
-
-      expect(confirmSpy).toHaveBeenCalled();
-      expect(canNavigate).toBe(false);
-
-      confirmSpy.mockRestore();
-    });
-
-    it('confirmNavigationでユーザーが確認した場合はisDirtyがfalseになる', () => {
-      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
-      const { result } = renderHook(() => useUnsavedChanges({ initialDirty: true }));
-
-      act(() => {
-        result.current.confirmNavigation();
-      });
-
-      expect(result.current.isDirty).toBe(false);
-
-      confirmSpy.mockRestore();
     });
   });
 });

@@ -33,11 +33,14 @@
  *   - canDelete=false: アルバム削除導線を非表示にし、写真項目削除ハンドラを渡さない（R17.2）
  *
  * Task 12.5 追加: 未保存離脱警告を結線する（独自isDirty stateを共有フックへ置換）。
- *   - `useUnsavedChanges({ enabled: canEdit })` を用い、コメント/印刷対象/並び替え/看板配置の
+ *   - 未保存判定 `isDirty` は本画面が持ち、コメント/印刷対象/並び替え/看板配置の
  *     変更発生で `markAsChanged()`、保存成功で `markAsSaved()`（R18.1, R18.3）
- *   - `enabled: canEdit` により編集権限が無い場合は未保存追跡自体を無効化する（R18.4）
+ *   - 共有フックへは `useUnsavedChanges({ isDirty: canEdit && isDirty })` と渡し、編集権限が
+ *     無い場合は離脱警告を出さない（R18.4）。当初は `useUnsavedChanges({ enabled: canEdit })` と
+ *     フック内部の dirty を使っていたが、quantity-table-generation の Task 100.24 でフックが
+ *     自前の dirty 状態を持たず `isDirty` を直接受ける形へ一本化された
  *   - ブラウザのリロード/タブ・ウィンドウ閉じはフックの beforeunload が担う（R18.1）。
- *     アプリ内遷移は `useBlocker(uc.isDirty)`（QuantityTableEditPage/CompanyInfoPage/
+ *     アプリ内遷移は `useBlocker(isDirty)`（QuantityTableEditPage/CompanyInfoPage/
  *     ItemizedStatementDetailPage の確立済みパターン）で `Breadcrumb` のリンククリックを含む
  *     遷移全般を汎用的に捕捉し、`UnsavedChangesDialog` で確認、「離れる」選択時のみ
  *     `blocker.proceed()` で遷移を継続する（R18.2）
@@ -297,10 +300,13 @@ export default function ConstructionPhotoDetailPage() {
   };
 
   // 未保存離脱警告（R18.1, R18.3, R18.4）。編集権限が無ければ未保存変更が生じないため無効化する。
-  const uc = useUnsavedChanges({ enabled: canEdit });
+  const [isDirty, setIsDirty] = useState(false);
+  const markAsChanged = useCallback(() => setIsDirty(true), []);
+  const markAsSaved = useCallback(() => setIsDirty(false), []);
+  useUnsavedChanges({ isDirty: canEdit && isDirty });
   // アプリ内遷移の汎用ガード（Breadcrumbのリンククリック含む全遷移を捕捉, R18.2）。
   // QuantityTableEditPage/CompanyInfoPage/ItemizedStatementDetailPage の確立済みパターンに準拠。
-  const blocker = useBlocker(uc.isDirty);
+  const blocker = useBlocker(isDirty);
 
   const [album, setAlbum] = useState<ConstructionPhotoAlbum | null>(null);
   const [project, setProject] = useState<ProjectDetail | null>(null);
@@ -430,9 +436,9 @@ export default function ConstructionPhotoDetailPage() {
 
       const existing = pendingChangesRef.current.get(photoId) ?? {};
       pendingChangesRef.current.set(photoId, { ...existing, ...metadata });
-      uc.markAsChanged();
+      markAsChanged();
     },
-    [uc]
+    [markAsChanged]
   );
 
   /**
@@ -530,9 +536,9 @@ export default function ConstructionPhotoDetailPage() {
         }));
       });
       pendingOrderRef.current = newOrders;
-      uc.markAsChanged();
+      markAsChanged();
     },
-    [uc]
+    [markAsChanged]
   );
 
   /**
@@ -565,13 +571,13 @@ export default function ConstructionPhotoDetailPage() {
 
       pendingChangesRef.current.clear();
       pendingOrderRef.current = null;
-      uc.markAsSaved();
+      markAsSaved();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '保存に失敗しました');
     } finally {
       setIsSaving(false);
     }
-  }, [id, uc]);
+  }, [id, markAsSaved]);
 
   /**
    * PDF出力ハンドラ（R10.1, R10.3, R10.12, R10.13）
@@ -865,7 +871,7 @@ export default function ConstructionPhotoDetailPage() {
           onSave={handleSave}
           onDelete={canDelete ? handleDelete : undefined}
           onAssignSignboard={handleAssignSignboard}
-          isDirty={uc.isDirty}
+          isDirty={isDirty}
           isSaving={isSaving}
           isLoading={isLoading}
           readOnly={!canEdit}

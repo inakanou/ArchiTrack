@@ -58,19 +58,6 @@ vi.mock('../../utils/sentry', () => ({
   captureMessage: vi.fn(),
 }));
 
-const mockUseUnsavedChanges = {
-  isDirty: false,
-  markAsChanged: vi.fn(),
-  markAsSaved: vi.fn(),
-  setDirty: vi.fn(),
-  reset: vi.fn(),
-  confirmNavigation: vi.fn().mockReturnValue(true),
-};
-
-vi.mock('../../hooks/useUnsavedChanges', () => ({
-  useUnsavedChanges: () => mockUseUnsavedChanges,
-}));
-
 // 一括エクスポート経路が読み込む重量サービスを差し替える（本テストの対象外）
 vi.mock('../../services/export/PdfExportService', () => ({
   exportAndDownloadPdf: vi.fn().mockResolvedValue(undefined),
@@ -159,7 +146,6 @@ let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockUseUnsavedChanges.isDirty = false;
   vi.mocked(useSiteSurveyPermissionModule.useSiteSurveyPermission).mockReturnValue(mockPermission);
   vi.mocked(useMediaQuery).mockReturnValue(false);
   vi.mocked(siteSurveysApi.getSiteSurvey).mockResolvedValue(mockSurveyDetail);
@@ -298,7 +284,6 @@ describe('SiteSurveyDetailPage の誤り送出 (Task 115.84, Requirement 16.8)',
   it('メタデータの保存に失敗したとき、監視基盤へ例外を送出する', async () => {
     const failure = new Error('メタデータの保存に失敗しました');
     vi.mocked(surveyImagesApi.updateImageMetadataBatch).mockRejectedValue(failure);
-    mockUseUnsavedChanges.isDirty = true;
 
     renderComponent();
     await waitForLoaded();

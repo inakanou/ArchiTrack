@@ -61,20 +61,13 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
-// useUnsavedChanges をモックし、beforeunload 連携の enabled フラグ（isDirty）を検証する。
-const mockUseUnsavedChanges = vi.fn((_options?: { enabled?: boolean; initialDirty?: boolean }) => ({
-  isDirty: false,
-  setDirty: vi.fn(),
-  markAsChanged: vi.fn(),
-  markAsSaved: vi.fn(),
-  reset: vi.fn(),
-  confirmNavigation: vi.fn().mockReturnValue(true),
-}));
+// useUnsavedChanges をモックし、beforeunload 連携へ渡す isDirty を検証する。
+// （Task 100.24 でフックは `isDirty` を直接受け取り戻り値を持たない形へ一本化された）
+const mockUseUnsavedChanges = vi.fn((_options: { isDirty: boolean; message?: string }) => {});
 vi.mock('../../hooks/useUnsavedChanges', () => ({
-  useUnsavedChanges: (options?: { enabled?: boolean; initialDirty?: boolean }) =>
+  useUnsavedChanges: (options: { isDirty: boolean; message?: string }) =>
     mockUseUnsavedChanges(options),
-  default: (options?: { enabled?: boolean; initialDirty?: boolean }) =>
-    mockUseUnsavedChanges(options),
+  default: (options: { isDirty: boolean; message?: string }) => mockUseUnsavedChanges(options),
 }));
 
 import QuantityTableEditPage from '../../pages/QuantityTableEditPage';
@@ -157,14 +150,6 @@ describe('QuantityTableEditPage - 離脱ガード (Task 62.1)', () => {
       proceed: mockProceed,
       reset: mockReset,
     });
-    mockUseUnsavedChanges.mockImplementation(() => ({
-      isDirty: false,
-      setDirty: vi.fn(),
-      markAsChanged: vi.fn(),
-      markAsSaved: vi.fn(),
-      reset: vi.fn(),
-      confirmNavigation: vi.fn().mockReturnValue(true),
-    }));
   });
 
   afterEach(() => {
@@ -206,17 +191,20 @@ describe('QuantityTableEditPage - 離脱ガード (Task 62.1)', () => {
   // 登録されていなかった。挙動そのもの（未保存時に離脱確認を要求するか）は
   // `QuantityTableEditPage.beforeUnload.test.tsx`（フックをモックしない）と
   // E2E シナリオ7 が測る。
+  // 現況（Task 100.24）: フックは `isDirty` を直接受け取り、渡した値がそのまま登録条件になる
+  // 形へ一本化された（`enabled` は廃止）。上の罠は API から消えたが、本区間が「渡した値」しか
+  // 測らない性質は変わらない。
   describe('REQ-43.2: beforeunload は isDirty のときだけ有効化する', () => {
-    it('初期状態では useUnsavedChanges に enabled=false で渡される', async () => {
+    it('初期状態では useUnsavedChanges に isDirty=false で渡される', async () => {
       renderPage();
       await waitFor(() => {
         expect(screen.getByLabelText('数量表名')).toBeInTheDocument();
       });
       const calls = mockUseUnsavedChanges.mock.calls;
-      expect(calls[calls.length - 1]?.[0]).toMatchObject({ enabled: false });
+      expect(calls[calls.length - 1]?.[0]).toMatchObject({ isDirty: false });
     });
 
-    it('未保存変更があると useUnsavedChanges に enabled=true で渡される', async () => {
+    it('未保存変更があると useUnsavedChanges に isDirty=true で渡される', async () => {
       const user = userEvent.setup();
       renderPage();
       await waitFor(() => {
@@ -227,7 +215,7 @@ describe('QuantityTableEditPage - 離脱ガード (Task 62.1)', () => {
 
       await waitFor(() => {
         const calls = mockUseUnsavedChanges.mock.calls;
-        expect(calls[calls.length - 1]?.[0]).toMatchObject({ enabled: true });
+        expect(calls[calls.length - 1]?.[0]).toMatchObject({ isDirty: true });
       });
     });
   });

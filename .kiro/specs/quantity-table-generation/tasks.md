@@ -4224,13 +4224,19 @@ _起票元: Task 96.11 の棚卸し。実装は行っていない_
   - **裁定 (a) の帰結**: 本番に該当項目があれば、その数量表は幅・奥行き・高さのいずれかを入れるまで再保存できないままである（計算自体は REQ-8.6 どおり重量を乗数として数え続ける）。自動の是正は行わない
   - **検証**: 新設の単体 17件が緑、backend 単体全件 191ファイル/5738件が緑、backend の type-check / lint / format:check が exit 0、steering 系・`dead-script-env` の関門は前後で終了コード同一（独立レビュー承認）
 
-- [ ] 100.24 共有フック `useUnsavedChanges` が「引数を渡しただけでは効かない」形をしている状態を解消する
+- [x] 100.24 共有フック `useUnsavedChanges` が「引数を渡しただけでは効かない」形をしている状態を解消する
   - **出所**: 100.13 の観測 (iii) と、機能レベル検証（2026-09-23）の設計・境界の次元の Finding 3
   - **測った事実（100.13 で実測）**: 登録条件が「`enabled` かつ**内部の** dirty」であるため、`enabled` だけを渡す呼び出しは**黙って無効化される**。全6箇所を洗った結果、`EstimateDetailPage` / `SiteSurveyImageViewerPage` / `QuantityTableEditPage`（100.13 の是正後）の**3箇所が同じ注意書きを各自のコメントで抱えており、同じ罠を3度踏んでいる**。残る3箇所は `markAsChanged` / `markAsSaved` を呼ぶため健全である
   - **設計文書の側の欠落（検証が指摘）**: `design.md:2795` は「タブクローズ/リロードは `useUnsavedChanges` の beforeunload ハンドラ（`enabled: isDirty`）で標準確認」と書くが、**`setDirty` の追従が要ることはどこにも書かれていない**（逐語としては今も真だが、同じ欠陥を再生産しうる書き方である）。`design.md:1637` の dirty 追跡の記述（`markAsChanged`/`markAsSaved` で駆動）も、数量表画面の実機構（reducer の `isDirty` を `setDirty` で鏡写しにする）と食い違う
   - **選ぶべきこと**: (a) フック側で禁じる（`enabled` が真のまま内部 dirty が一度も動かない使い方を型か実行時警告で弾く）、(b) API を一本化する（`enabled` を廃し `isDirty` を直接受ける等）、(c) 設計文書へ現況を併記するに留める（規約 (a)）。**(a)(b) は共有部品の変更なので、design.md の「共有実装の変更は再検証トリガ」に照らして他5画面の再検証が要る**
   - _Boundary: `frontend/src/hooks/useUnsavedChanges.ts` の API と全6箇所の呼び出し、および `design.md` の離脱ガード／dirty 追跡の記述_
   - **利用者の裁定（2026-09-24）**: 「(b) API を一本化する」。`enabled` だけ渡すと黙って無効化される罠そのものを API から消し、全6箇所の呼び出しを追随させる。共有部品の変更なので他5画面の再検証（単体・該当E2E）を行うこと。design.md の該当記述は規約 (a) に従い現況を併記する
+  - **処遇（2026-09-24、リポジトリルートで実測）**: フックを**自前の dirty 状態を持たない制御型** `useUnsavedChanges({ isDirty, message? }): void` へ改めた。`isDirty` は必須で、渡した値がそのまま beforeunload の登録条件になる。`enabled` / `initialDirty` / `onDirtyChange` と戻り値（`isDirty` / `setDirty` / `markAsChanged` / `markAsSaved` / `reset` / `confirmNavigation`）、型 `UseUnsavedChangesResult` を撤去した（本番の6箇所で戻り値の `confirmNavigation` / `reset` を使う箇所は無いことを `frontend/src` と `e2e` の走査で確認）。**「`enabled` だけを渡すと黙って無効化される」形は API から消えた**
+  - **全6箇所の追随（旧条件と同値であることを独立レビューが呼び出し点ごとに確認）**: `QuantityTableEditPage` / `EstimateDetailPage` / `SiteSurveyImageViewerPage` は `setDirty` の鏡写しの `useEffect` と注意書きを撤去し dirty 状態を直接渡す。`ItemizedStatementDetailPage` は `isDirty: hasOrderChanges`（冗長な `markAsChanged` / `markAsSaved` を撤去）。`SiteSurveyDetailPage` / `ConstructionPhotoDetailPage` は画面側の `useState` の `isDirty` と `markAsChanged` / `markAsSaved` を持ち `isDirty: canEdit && isDirty` を渡す。各画面の `useBlocker` の引数は不変
+  - **design.md**: 規約 (a) に従い、`##### State Management` の dirty 追跡の箇条、`#### UnsavedChangesBadge / 離脱ガード / 固定ヘッダー（REQ-43, 44, 45）` の離脱ガードの箇条、同節の File Structure Plan の表の下に「現況（タスク 100.24）」を併記した
+  - **検証**: RED はフック単体 14件中10件が赤（例: 「isDirty=true を渡しただけでbeforeunloadイベントリスナーが登録される」が `expected +0 to be 1`）。改修後フック単体 14/14、6画面と関連 43ファイル/636件、frontend 全件 shard 1/2＝263ファイル/6119件・2/2＝263ファイル/5893件が全緑、type-check / lint exit 0。E2E（`--build --force-recreate` で作り直した test 環境）は数量表の離脱ガード 9/9・construction-photo-additional 12/12・site-survey-responsive/phase18 37/37・site-survey-image-order 13/13・site-survey-annotation-tools 44/44 が緑。関門19本の終了コードは基線と同一、`count:coverage-marks:json` は HEAD と差分なし（独立レビューが一時 worktree で実測）。frontend 単体の総数は撤去した API の検証の分だけ 12030→12012 に減った
+  - **E2E で再検証していない画面**: `EstimateDetailPage`（beforeunload を踏む E2E が無い）と `ItemizedStatementDetailPage`（17.12 は `e2e/requirement-exclusions.json` に在籍）は単体検証のみで再検証した
+  - **上流へ起票した（撤去した API を名指す他スペックの設計文書。下流は書き換えていない）**: site-survey の `.kiro/specs/site-survey/tasks.md` へ **Task 115.332**、construction-photo の `.kiro/specs/construction-photo/tasks.md` へ **Task 18（18.1）** を親が書き込んだ。本項の境界内の作業（フック・6箇所・本スペックの design.md）は完了しており、上流の記述の鮮度は上流の所管として扱う
 
 - [ ] 100.25 Requirement 8 の受入基準7の条件節が、受入基準5・6 と緊張したまま残っている状態の処遇を決める
   - **出所**: 機能レベル検証（2026-09-23）の設計・境界の次元の Finding 1

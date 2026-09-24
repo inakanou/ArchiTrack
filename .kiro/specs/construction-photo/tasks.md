@@ -458,3 +458,16 @@
   - _Boundary: 工事写真の現調コピーにおける親の論理削除の検査_
 
 _申し送り元: site-survey スペックの Task 115.214（同スペックでは所管外としてブロック。数量表生成スペックとの共同所管）_
+
+## Task 18: 未保存離脱警告の設計記述が撤去済みの共有フック API を名指す状態を解消する
+
+**経緯**: 数量表生成スペックの Task 100.24（利用者の裁定「(b) API を一本化する」、2026-09-24）が共有フック `frontend/src/hooks/useUnsavedChanges.ts` を `useUnsavedChanges({ isDirty, message? }): void` へ改め、`enabled` と戻り値（`markAsChanged` / `markAsSaved` 等）を撤去した。**本スペックの画面 `ConstructionPhotoDetailPage` の呼び出しは同タスクが追随させた**——画面側に `useState` の `isDirty` と `markAsChanged` / `markAsSaved`（useCallback）を持たせ、`useUnsavedChanges({ isDirty: canEdit && isDirty })` と呼ぶ。旧条件「`enabled=canEdit` かつ内部 dirty」と同値であり、変更2箇所・保存成功1箇所の呼び出し点がすべて保たれていることを同タスクの独立レビューが確認した。`useBlocker(isDirty)` の引数は不変。**同タスクは本スペックの `design.md` を一行も書き換えていない**。
+
+**測った事実**（2026-09-24、下流の独立レビュー）: `.kiro/specs/construction-photo/design.md` の R18 の説明（L668 付近）が `const uc = useUnsavedChanges({ enabled: canEdit });` と `uc.markAsChanged()` / `uc.markAsSaved()` を名指したままである。機械の関門は赤くならない。
+
+- [ ] 18.1 R18 の未保存離脱警告の設計記述を現況の API へ揃える
+  - 規約 (a)（歴史の記述は書き換えず現況を併記する）に照らし、併記か改訂かを決めること。着手時に当該行を測り直すこと
+  - **`_Requirements:` を持たないのは意図である**（挙動は変わらず、記述の鮮度のみを扱う）
+  - _Boundary: 本スペックの `design.md` の R18 の記述_
+
+_申し送り元: quantity-table-generation スペックの Task 100.24_

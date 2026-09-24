@@ -420,10 +420,16 @@ export default function SiteSurveyDetailPage() {
   // 未保存の順序変更をトラッキング
   const pendingOrderRef = useRef<ImageOrderItem[] | null>(null);
 
-  // ページ離脱警告フック (Task 33.2: ページ離脱時の確認ダイアログ)
-  const { isDirty, markAsChanged, markAsSaved } = useUnsavedChanges({
+  // ページ離脱警告 (Task 33.2: ページ離脱時の確認ダイアログ)
+  // 未保存判定は本画面が持ち、編集権限がある間だけ共有フックへ渡す
+  // （quantity-table-generation の Task 100.24 でフックが自前の dirty 状態を持たない形へ
+  // 一本化された）。
+  const [isDirty, setIsDirty] = useState(false);
+  const markAsChanged = useCallback(() => setIsDirty(true), []);
+  const markAsSaved = useCallback(() => setIsDirty(false), []);
+  useUnsavedChanges({
     message: '保存されていない変更があります。このページを離れますか？',
-    enabled: canEdit,
+    isDirty: canEdit && isDirty,
   });
 
   // 一括エクスポート関連 state (Task 87.3, Requirements 31.1, 31.2, 31.3)

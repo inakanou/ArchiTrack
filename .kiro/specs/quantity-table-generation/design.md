@@ -1635,6 +1635,7 @@ interface QuantityTableEditState {
 
 - 仮ID生成: 新規グループ/項目は `crypto.randomUUID()` を `temp-` 接頭辞付きで採番し、React key およびドラフト内参照に使用。保存レスポンス（採番済み `QuantityTableDetail`）でドラフト/スナップショットを置換して解決（REQ-42 AC8、idMap不要）
 - dirty 追跡: 既存 `useUnsavedChanges`（`markAsChanged`/`markAsSaved`）を編集 dispatch と保存成功にフックし、`isDirty` を駆動。`useBlocker(isDirty)` で離脱ガード（REQ-43）、保存ボタン付近に `UnsavedChangesBadge`（REQ-44）を表示
+  - **上の箇条の現況（タスク 100.24）**: 書いた時点の記録として残す（規約 (a)）。**着地した実機構は `markAsChanged`/`markAsSaved` による駆動ではない**——未保存判定の正は `quantityTableEditReducer` の `isDirty`（`editState.isDirty`）であり、タスク 100.13 までは共有フックの自前の dirty を `setDirty` で鏡写しにしていた。タスク 100.24（利用者の裁定 (b)「API を一本化する」）で共有フック `useUnsavedChanges` は**自前の dirty 状態を持たず `isDirty` を直接受け取る形** `useUnsavedChanges({ isDirty, message? })`（戻り値なし）へ一本化され、`enabled`・`initialDirty`・`onDirtyChange` と `setDirty`/`markAsChanged`/`markAsSaved`/`reset`/`confirmNavigation` は撤去された。`QuantityTableEditPage` は `useUnsavedChanges({ isDirty })` と `useBlocker(isDirty)` に同じ `editState.isDirty` を渡すだけで、鏡写しの `useEffect` も撤去した。**「`enabled` だけを渡すと黙って無効化される」罠は API から消えた**（`isDirty` は必須で、渡した値がそのまま `beforeunload` の登録条件になる）
 - 保存: `saveDraft` 1回でフル状態を同期。失敗時はドラフトを保持し再保存可能（REQ-42 AC9）
 - 廃止: useAutoSave（1500msデバウンス）および編集画面からの個別ミューテーションAPI呼び出しを削除
 - Header: `styles.header` を `position: sticky; top: 0` 化（REQ-45）。`UnsavedChangesBadge` は固定ヘッダー内に配置（REQ-45 AC4）
@@ -2793,6 +2794,7 @@ interface SaveDraftItemInput {
 **Implementation Notes**
 
 - 離脱ガード: `const blocker = useBlocker(isDirty)`。`blocker.state==='blocked'` で確認UIを表示し、`blocker.proceed()`/`blocker.reset()` で遷移/取消（REQ-43 AC1,3,4）。タブクローズ/リロードは `useUnsavedChanges` の beforeunload ハンドラ（`enabled: isDirty`）で標準確認（REQ-43 AC2）。`isDirty=false` 時はガードしない（AC5,6）
+  - **上の箇条の `enabled: isDirty` の現況（タスク 100.24）**: 書いた時点の記録として残す（規約 (a)）。当時のフックは登録条件が「`enabled` かつ**フック内部の** dirty」であり、`enabled` だけでは `beforeunload` が登録されなかった（タスク 100.13 が実測し、`setDirty` の追従で到達させた）。タスク 100.24 でフックの API は `useUnsavedChanges({ isDirty, message? })` へ一本化され、**`enabled` は廃止された**。現在の結線は `useUnsavedChanges({ isDirty })` であり、渡した `isDirty` がそのまま登録条件になる（`setDirty` の追従は不要になり撤去した）。全6箇所の呼び出し（`QuantityTableEditPage` / `EstimateDetailPage` / `SiteSurveyImageViewerPage` / `SiteSurveyDetailPage` / `ItemizedStatementDetailPage` / `ConstructionPhotoDetailPage`）を同じ形へ揃えた。編集権限で離脱警告を止める画面（`SiteSurveyDetailPage` / `ConstructionPhotoDetailPage`）は `isDirty: canEdit && isDirty` と呼び出し側で合成する
 - インジケーター: `isDirty` true の間、保存ボタン付近に `UnsavedChangesBadge`（「未保存の変更があります」/ボタン強調）を表示。編集で表示、保存成功で非表示（REQ-44 AC1-4）
 - 固定ヘッダー: `styles.header` に `position: 'sticky' as const, top: 0, zIndex: 50, background` を付与。`UnsavedChangesBadge` を `headerActions` 内に配置（REQ-45 AC4）。既存 `EstimateDetailPage`/`SiteSurveyDetailPage` の固定ヘッダーに準拠
 
@@ -2809,6 +2811,8 @@ interface SaveDraftItemInput {
 | `frontend/src/hooks/useUnsavedChanges.ts` | 流用 | 既存フックを変更なしで利用（isDirty/markAsChanged/markAsSaved/beforeunload） |
 | `frontend/src/components/quantity-table/QuantityGroupCard.tsx` | 変更 | グループ操作コールバックをドラフト dispatch 経由へ（即時API呼び出し撤去）。コピー（REQ-38）をクライアント複製に変更 |
 | `frontend/src/components/quantity-table/EditableQuantityItemRow.tsx` | 変更 | 項目操作（add/delete/copy/reorder/フィールド編集）をドラフト dispatch 経由へ |
+
+**上の表の `frontend/src/hooks/useUnsavedChanges.ts` の行（「流用｜既存フックを変更なしで利用」）の現況（タスク 100.24）**: 計画時点の記録として残す（規約 (a)）。同フックはタスク 100.24 で**変更された**——利用者の裁定 (b)「API を一本化する」により、自前の dirty 状態と `enabled` を廃して `useUnsavedChanges({ isDirty, message? })`（戻り値なし）へ改めた。共有部品の変更であるため、本節の Revalidation Triggers（「`useUnsavedChanges`/`useBlocker` の共有実装の変更」）に従い、全6箇所の呼び出し元画面の単体テストと該当 E2E で再検証する
 
 #### 影響を受ける既存E2E（REQ-42 移行）
 
