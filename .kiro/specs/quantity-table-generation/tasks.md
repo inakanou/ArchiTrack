@@ -4238,12 +4238,16 @@ _起票元: Task 96.11 の棚卸し。実装は行っていない_
   - **E2E で再検証していない画面**: `EstimateDetailPage`（beforeunload を踏む E2E が無い）と `ItemizedStatementDetailPage`（17.12 は `e2e/requirement-exclusions.json` に在籍）は単体検証のみで再検証した
   - **上流へ起票した（撤去した API を名指す他スペックの設計文書。下流は書き換えていない）**: site-survey の `.kiro/specs/site-survey/tasks.md` へ **Task 115.332**、construction-photo の `.kiro/specs/construction-photo/tasks.md` へ **Task 18（18.1）** を親が書き込んだ。本項の境界内の作業（フック・6箇所・本スペックの design.md）は完了しており、上流の記述の鮮度は上流の所管として扱う
 
-- [ ] 100.25 Requirement 8 の受入基準7の条件節が、受入基準5・6 と緊張したまま残っている状態の処遇を決める
+- [x] 100.25 Requirement 8 の受入基準7の条件節が、受入基準5・6 と緊張したまま残っている状態の処遇を決める
   - **出所**: 機能レベル検証（2026-09-23）の設計・境界の次元の Finding 1
   - **測った事実**: 100.10 は利用者の裁定どおり**本番を条文の救済節（幅・奥行き・高さのうち最低1項目）と design.md:3193 へ揃えた**が、**条文の条件節は「計算用列に値が1つも入力されていない」のままである**。受入基準5は**重量も計算用列に数える**ため、**重量のみを入力した状態は条件節を満たさない＝逐語では「エラーを出さない」とも読める**。すなわち条文の内部に緊張が残っており、同じ乖離が将来また提起されうる
   - **選ぶべきこと**: 条件節を救済節と整合する形へ改める（`requirements.md` の改訂＝**利用者の裁定が要る**）か、条文はそのままに註記で読み方を固定するか。**100.10 の裁定は「実体を条文へ合わせる」であって条文の改訂を許していない**ので、着手前に改めて裁定を受けること
   - _Boundary: `requirements.md` の Requirement 8 の受入基準7の条件節（および 5・6 との関係を述べる註記）_
   - **利用者の裁定（2026-09-24）**: 「条文を改訂する」。AC7 の条件節を救済節と整合する形（例: 「幅(W)・奥行き(D)・高さ(H)のいずれも入力されていない状態で保存を試行する」）へ改める。requirements.md の改訂を許す
+  - **処遇（2026-09-24）**: `requirements.md` の Requirement 8 AC 7 の条件節を「計算用列に値が1つも入力されていない状態で保存を試行する」から「**幅(W)・奥行き(D)・高さ(H)のいずれも入力されていない状態で保存を試行する**」へ改めた（EARS の形と救済節は不変）。改訂の記録を AC 15 の直後へ既存の記録（80.1 / 100.4 / 99.1 / 97.20）の書式で置き、旧文言・根拠・AC 5・AC 6 との関係（AC 6 は数量の計算、AC 7 は保存の可否を定めるので「重量だけでも数量は計算されるが保存は拒まれる」が両立する）・採らなかった案（条文を据え置き註記で読み方を固定する案）を記した。旧条件は新条件に含まれるので保証は弱まっていない
+  - **本番は既に改訂後の条文どおり（変更なし）**: frontend `calculation-params-validation.ts` の `AREA_VOLUME_ANY_KEYS`（`width`/`depth`/`height`）と `checkAreaVolumeParams`、backend `quantity-validation.service.ts` の `validateAreaVolumeMode` は幅・奥行き・高さだけを見る。受け入れキーへ `weight` を戻す変異で frontend 2件・backend 5件（うち4件は 100.23 の棚卸しの単体）が赤くなることを実測し、元へ戻した
+  - **検証**: 関門19本の終了コードと出力は前後でバイト一致（赤い2本は基線から）。独立レビューが一時 worktree の HEAD と `check:criterion-literals` / `req-coverage` / `trace-coverage` / `design-refs` / `design-measurement-freshness` を比べ結果同一を確認。条文の逐語を固定する台帳（`criterion-literal-adjudication.json` / `requirement-exclusions.json` / `design-measurements.json`）に AC 7 の条件節を固定する項目は無い
+  - **観測（範囲外・受け皿を 100.30 として起票した）**: 旧条件節の逐語の写しがコード・検証・E2E に残る。とくに `e2e/specs/quantity-tables/quantity-count-calculation-e2e.spec.ts:656-657` の「条文は『…計算用列に値が1つも入力されていない…』」は**現行の条文の引用としては偽**になった
 
 - [ ] 100.26 tasks.md の `_Requirements:` の名乗りと、条文の現況の食い違いを解消する
   - **出所**: 機能レベル検証（2026-09-23）の要件被覆の次元の GAPS
@@ -4277,6 +4281,13 @@ _起票元: Task 96.11 の棚卸し。実装は行っていない_
   - **注意**: 母集団が広がると既存の註が大量に赤くなりうる。**改める前後で当たり件数を測り、赤くなる既存の註が幾つあるかを先に数えること**（89.1 / 94.1 / 100.19 の前後実測の作法）。`hasExecutionCitation` の数字の判定を締める場合はとくに影響が広い
   - _Boundary: `scripts/check-counterfactual-evidence.ts` の `isCounterfactualSentence` / `MUTATION_VOCABULARY` / `VERDICT_VOCABULARY` / `hasExecutionCitation` と、その自己検査_
   - **利用者の裁定（2026-09-24）**: 「(d) 現況の限界を開示するに留める」。関門の判定・語彙は変えない。一文連言であること、引用の帰属を検証しないこと、100.22 で実測した逃れる三つの理由を、関門の自己説明（ファイル冒頭の説明等）と記録に開示する。判定を変えないので「改めた形で赤くなることの実測」は課されない
+
+- [ ] 100.30 Requirement 8 AC 7 の旧条件節を逐語で写したコード・検証・E2E の記述を、改訂後の条文へ揃える
+  - **出所**: 100.25 の実装者の CONCERNS と独立レビューの Finding 1（いずれも 100.25 の `_Boundary:_`＝`requirements.md` の外と判定された）
+  - **測った事実（2026-09-24。着手時に測り直すこと）**: 旧条件節「計算用列に値が1つも入力されていない」を逐語で写す箇所——docblock: `frontend/src/utils/calculation-params-validation.ts:24`、`backend/src/services/quantity-validation.service.ts:9`、`frontend/src/utils/calculation-params-validation.test.ts:15`、`frontend/src/__tests__/pages/QuantityTableEditPage.calculationParamsValidation.test.tsx:16`、`backend/src/__tests__/unit/services/quantity-validation.service.test.ts:9`／テスト名: `calculation-params-validation.test.ts:180`、`QuantityTableEditPage.calculationParamsValidation.test.tsx:228`／E2E: `e2e/specs/quantity-tables/quantity-count-calculation-e2e.spec.ts:25`・`:654`・`:656-657`
+  - **真偽の区別**: 多くは「その状態を測る」記述であり、測る状態は改訂後の条件にも含まれるため**偽ではなく陳腐化した写し**である。**ただし `:656-657` は「条文は『…』」と現行の条文を引用する形であり、いまは偽**である。優先はこれを直すこと
+  - **注意**: テスト名・`@requirement` の説明文を変えると `check:req-coverage` / `check:e2e-guards` / `check:criterion-literals` 等の読みが動きうる。**前後で関門の終了コードと出力を比べること**。テストが測る状態（全列空・重量のみ）は変えないこと
+  - _Boundary: 上記の docblock・テスト名・E2E の説明文と引用の文言（検証の中身は変えない）_
 
 ## Task 101. 被覆印の計数の方式そのものの是正
 
