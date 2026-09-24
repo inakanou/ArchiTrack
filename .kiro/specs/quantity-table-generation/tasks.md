@@ -4304,12 +4304,17 @@ _起票元: Task 96.11 の棚卸し。実装は行っていない_
   - **自己検査ファイルと実行時の出力は変えていない**: 自己検査の冒頭へ足すと全行がずれ、100.22 の記録が引く `.selftest.ts:435` などが陳腐化する。実行時の出力を変えると出力不変と両立しない。節の置き場は 100.22 の記録が引く本体 `:214` をずらさない docblock の末尾近く（「許容リストは置いていない」の直前）とした。独立レビューは裁定の「ファイル冒頭の説明等」を本体の冒頭で満たすと判定した
   - **検証（親が承認後に新鮮な証拠で再実行）**: `npm run check:cf-evidence` EXIT=0 ／ `check:cf-evidence:selftest` 82/82 EXIT=0 ／ `npm run type-check` EXIT=0 ／ `git diff -U0` の追加行はすべて ` *` のコメント行
 
-- [ ] 100.30 Requirement 8 AC 7 の旧条件節を逐語で写したコード・検証・E2E の記述を、改訂後の条文へ揃える
+- [x] 100.30 Requirement 8 AC 7 の旧条件節を逐語で写したコード・検証・E2E の記述を、改訂後の条文へ揃える
   - **出所**: 100.25 の実装者の CONCERNS と独立レビューの Finding 1（いずれも 100.25 の `_Boundary:_`＝`requirements.md` の外と判定された）
   - **測った事実（2026-09-24。着手時に測り直すこと）**: 旧条件節「計算用列に値が1つも入力されていない」を逐語で写す箇所——docblock: `frontend/src/utils/calculation-params-validation.ts:24`、`backend/src/services/quantity-validation.service.ts:9`、`frontend/src/utils/calculation-params-validation.test.ts:15`、`frontend/src/__tests__/pages/QuantityTableEditPage.calculationParamsValidation.test.tsx:16`、`backend/src/__tests__/unit/services/quantity-validation.service.test.ts:9`／テスト名: `calculation-params-validation.test.ts:180`、`QuantityTableEditPage.calculationParamsValidation.test.tsx:228`／E2E: `e2e/specs/quantity-tables/quantity-count-calculation-e2e.spec.ts:25`・`:654`・`:656-657`
   - **真偽の区別**: 多くは「その状態を測る」記述であり、測る状態は改訂後の条件にも含まれるため**偽ではなく陳腐化した写し**である。**ただし `:656-657` は「条文は『…』」と現行の条文を引用する形であり、いまは偽**である。優先はこれを直すこと
   - **注意**: テスト名・`@requirement` の説明文を変えると `check:req-coverage` / `check:e2e-guards` / `check:criterion-literals` 等の読みが動きうる。**前後で関門の終了コードと出力を比べること**。テストが測る状態（全列空・重量のみ）は変えないこと
   - _Boundary: 上記の docblock・テスト名・E2E の説明文と引用の文言（検証の中身は変えない）_
+  - **処遇（2026-09-24、HEAD `8a59d90b`、リポジトリルートで実測）**: 旧条件節の写しを測り直すと、起票文の10箇所に加えて表記の揺れ2件（`frontend/src/utils/calculation-params-validation.test.ts:159` の「計算用列が一つも入力されていない」、`e2e/specs/quantity-tables/quantity-count-calculation-e2e.spec.ts:651` の「計算用列が1つも入力されていない」）が見つかり、計12件を改訂後の条件節「幅(W)・奥行き(D)・高さ(H)のいずれも入力されていない」へ揃えた（6ファイル、+15/-13行）。**偽だった `:656-657` の条文の引用**は requirements.md の AC 7 の EARS 文をそのまま写す形へ改め、`:659` に条件節が 100.25 で改訂された経緯を注記した（旧文言がここに1件だけ意図して残る）。引用と条文の一致は、`**` の除去・行の連結・入れ子の『』を「」へ戻す正規化の後に文字単位で一致（独立レビューが Python で照合）
+  - **書き換えた文言は測る中身に対して真**: 単体の `check('AREA_VOLUME', {})` と画面の `calculationParams: {}` は W・D・H がすべて空、`:159` の区間の「重量のみ」（`{weight:2}`）も W・D・H がいずれも空に当たる。本番も W・D・H だけを見る（frontend `AREA_VOLUME_ANY_KEYS`、backend `validateAreaVolumeMode`）
+  - **変えなかった記述**: e2e `:663` / `:672` のテスト名・`:708` のアサーション、`backend/src/__tests__/unit/services/quantity-table.service.test.ts:2727` 等、`e2e/specs/quantity-tables/quantity-table-crud.spec.ts:3098` 等は「計算用列が未入力・いずれも空」という**状態**の記述で条文の写しではなく、測る状態は改訂後の条件にも含まれるため偽ではない。`EditableQuantityItemRow.tsx:416` は REQ-8.6 の別条文。アサーション・フィクスチャ・テストロジックは一切変えていない（差分の全行がコメントか `it('…'` のタイトル）
+  - **関門（前後でバイト一致）**: package.json の `check:*` / `count:*` 33本の終了コードと出力は前後で同一（赤4本 `check:req-coverage` / `:json` / `check:design-measurement-freshness` / `:json` は基線から）。独立レビューが HEAD の版へ差し替えて `check:req-coverage` / `count:coverage-marks` / `check:e2e-guards` / `check:criterion-literals`（`:verbose` とも）の一致を再現した。被覆印は一件も失われていない
+  - **検証**: frontend 2ファイル47件・backend 58件は前後同数が緑、テスト名の差分は改名した2件だけ。type-check（frontend / backend / root）と prettier は EXIT=0。E2E `npm run test:e2e -- e2e/specs/quantity-tables/quantity-count-calculation-e2e.spec.ts` は 12/12 緑（実装者・独立レビューの双方）。親が承認後に新鮮な証拠で単体 47件 / 58件、`npm run type-check`、`count:coverage-marks` を再実行して緑
 
 - [ ] 100.31 `calculation-engine.ts` で 100.27 の撤去により本番の利用者を失った `isValidNumber` / `ValidationResult` の処遇を決める
   - **出所**: 100.27 の実装者の CONCERNS と独立レビューの Finding 2（いずれも 100.27 の `_Boundary:_` 外と判定された）
