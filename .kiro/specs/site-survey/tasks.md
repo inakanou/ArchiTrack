@@ -6043,7 +6043,7 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - **検証（親が承認後に新鮮な証拠で再実行）**: `check:design-path-refs` / `:selftest` / `check:steering-refs` / `count:coverage-marks` / `type-check` いずれも EXIT=0、`check:req-coverage:selftest` は 1/81（既存のラチェットのみ）
   - **下流への申し送り**: quantity-table-generation の 89.1 は、本項の解決により `FieldValidatedItemRow` の撤去へ進める
 
-- [ ] 115.326 数量表の死コード `PhotoChangeDialog` の撤去を阻む設計文書の名指しを解く（**quantity-table-generation の Task 97.14 からの起票依頼**）
+- [x] 115.326 数量表の死コード `PhotoChangeDialog` の撤去を阻む設計文書の名指しを解く（**quantity-table-generation の Task 97.14 からの起票依頼**）
   - 数量表の本番から到達しない部品 `frontend/src/components/quantity-table/PhotoChangeDialog.tsx`（本体・検証2・ストーリー1）を、下流の利用者の裁定（2026-09-15「統治台帳ごと撤去する」）に従って撤去したいが、本スペックの設計文書の名指しが阻んでいる
   - **実測（コミット `eef1289c` 〜 `e446e6b9` の作業ツリー、2026-09-15、リポジトリルート。4ファイルを scratchpad へ一時移動する変異を当て、測った後に元へ戻したことを確認した）**:
     - `.kiro/specs/site-survey/design.md` L178（再実測の記録、17件中の9番目の項目）が `PhotoChangeDialog.tsx` と `PhotoChangeDialog.stories.tsx` を実在するものとして裸のファイル名で名指している（「参照は単体テストのみ」を偽とした根拠として、ストーリーも同じ部品を参照すると書く）
@@ -6052,6 +6052,14 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - **依頼**: L178 の9番目の項目へ、撤去に備えた不在の記録を規約 (a) で併記してよいかを判断すること（115.325 の (1) と同型）。下流は本スペックの文書を書き換えていない
   - **あわせて知らせる**: 下流が撤去して統治台帳 `scripts/design-path-exemption-baseline.json` を関門の案内する経路で更新すると、97.13 と同型で本スペックの design.md が基線の値を文中で引く鮮度宣言（`design-path-exemption-tally-total` / `-distinct-total` / `-tally-distinct-gap` / `design-path-candidate-recorded`）がさらに動く見込みである（下流の 97.16 の起票に内訳を含める）
   - _Boundary: 本スペックの設計文書が数量表の死コード `PhotoChangeDialog` を名指す箇所_
+  - **処遇（コミット `dcf7d1f2` の作業ツリー、2026-09-25 にリポジトリルートで実測）**: `design.md` L178（`#### 他スペックの設計文書の走査（タスク 115.234）` の9番目の項目）へ、撤去に備えた不在の記録を規約 (a) で併記した（115.325 の (1) と同型）。本文は書き換えず、行も挿入していない。同文書で `PhotoChangeDialog` を名指すのは L178 の1行だけなので、不在の語が他の言及を黙って免除へ移す経路は無い。二つのファイル名はいずれも同名の実在が一件で、曖昧の集合には入らない。`PhotoChangeDialog` 本体の撤去は下流（quantity-table-generation の 97.14）の所管として行っていない
+  - **基準と鮮度宣言**: 撤去前に記録を置いたため免除の面が 192→194 件（実体 152→154、母数 747 のまま）に広がり、基準ファイルの `$comment` が定める経路 `check:design-path-refs:update -- --allow-increase` で記録した（115.325 と同じ形。`recordedAt` はツールの UTC 日付で "2026-09-24"）。L8815・L8839 に提出時点の値を足し、`design-path-reach-total`・`design-path-entity-total`・`design-path-candidate-recorded` を貼り直した。L8815 には 115.325 の「母数は 747 件」が当時の値として残るため、錨を「母数は 747 件（面 194 件」へ延ばして一箇所に定めた。追記で L178 が強調記号を課す網（272→273）と再現コマンドを持つ行の網（281→282）に入った（入ったのは L178 の1行、抜けた行は零。課さない網は 845、残余は 657 のまま）ため、L95・L97 に記録し `self-reference-emphasised-net` / `-plain-net` / `-command-bearing-lines` を貼り直した
+  - **証明（4ファイルを外す変異。本体・ストーリー・`components/quantity-table/PhotoChangeDialog.test.tsx`・`__tests__/components/quantity-table/PhotoChangeDialog.test.tsx`。独立レビューが再現）**: site-survey 側の不在パスは修正前2件（L178）→修正後0件。残る不在パス2件は下流 `quantity-table-generation/design.md` の L304・L2606 にあり、これと免除の広がり（本スペック分は延べ 122→124・集合 +2、下流分は延べ 2→6・集合 +1）、`structure.md` の L550・L767（`check:steering-refs`）は下流が撤去時に扱う。`check:design-code-refs` は緑。`check:req-coverage:selftest` は変異の有無にかかわらず 1/81（元からのラチェット。115.328 の案件）。復元後4ファイルとも `git hash-object` 一致
+  - **独立レビューは1回差し戻した**: L178 の追記が利用者の裁定を本スペックの起票文の言い換え「統治台帳ごと撤去する」で引いていた。一次記録（quantity-table-generation の tasks.md の 97.14）の「台帳ごと撤去する」へ逐語で揃え、追記した字面の中の他の引用も一次の出所と一致することを確かめた
+  - **関門**: `check:design-path-refs:selftest`（53/53）/ `check:design-refs` / `check:design-code-refs` / `check:steering-refs` / `check:req-coverage` / `count:coverage-marks` / `check:req-coverage:selftest` は前後で出力同一。`check:design-path-refs` は EXIT=0 で面と実体の数値だけが動いた。`check:design-measurement-freshness` の赤は前後とも12種（13行）で集合は同一、貼り直した6宣言はいずれも緑。type-check EXIT=0
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `check:design-path-refs` / `:selftest` / `check:steering-refs` / `count:coverage-marks` / `type-check` いずれも EXIT=0。「統治台帳ごと撤去する」の残存は本項の起票文の1箇所のみ
+  - **範囲外の観測**: L8815 の既存の「起点の面 162 件を今の母数に置けば比は 26.2%」は関門の出力（21.7%）と HEAD の時点から食い違っている。115.330 の測り直しの対象として申し送る
+  - **下流への申し送り**: quantity-table-generation の 97.14 は、本項の解決により `PhotoChangeDialog` の撤去へ進める。撤去後の台帳の更新で `design-path-reach-total` / `-entity-total` と `design-path-exemption-*` の3宣言が動く見込みであり、97.16 と 115.330 の測り直しの対象になる
 
 - [ ] 115.327 現場調査詳細画面の通信断の単体検証が全件走行で非決定的に落ちる状態を解消する（**quantity-table-generation の Task 97.15 からの起票依頼**）
   - **出所**: 下流の Task 94.1 の実測（全単体スイートを3回走らせ、うち1回だけ失敗。単独実行では緑）。下流の未完了タスクにも本スペックの未完了タスクにも、この件の受け皿は無かった

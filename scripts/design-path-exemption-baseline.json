@@ -26,9 +26,9 @@
     "面には数えない。ただし外した側も基準で見張る——開示だけに落とすと、新しく現れた",
     "曖昧な参照が面にも曖昧の集合にも掛からない素通りの経路になる。"
   ],
-  "reachTotal": 192,
+  "reachTotal": 194,
   "candidateTotal": 747,
-  "entityTotal": 152,
+  "entityTotal": 154,
   "exemptedTotal": 125,
   "exemptedDistinctTotal": 31,
   "ambiguousTotal": 5,
@@ -117,6 +117,11 @@
       "recordedAt": "2026-09-24",
       "reachTotal": 192,
       "candidateTotal": 747
+    },
+    {
+      "recordedAt": "2026-09-24",
+      "reachTotal": 194,
+      "candidateTotal": 747
     }
   ],
   "documents": {
@@ -188,6 +193,8 @@
       "FieldValidatedItemRow.autocomplete.test.tsx",
       "FieldValidatedItemRow.tsx",
       "FreehandTool.ts",
+      "PhotoChangeDialog.stories.tsx",
+      "PhotoChangeDialog.tsx",
       "PolygonTool.ts",
       "PolylineTool.ts",
       "QuantityTableEditPage.tsx",
