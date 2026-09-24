@@ -47,7 +47,8 @@
     "prisma:format": "prisma format",
     "generate:jwt-keys": "tsx scripts/generate-eddsa-keys.ts",
     "backfill:drawn-annotations": "tsx scripts/backfill-drawn-annotation-flags.ts",
-    "restore:plain-thumbnails": "tsx scripts/restore-plain-thumbnails.ts"
+    "restore:plain-thumbnails": "tsx scripts/restore-plain-thumbnails.ts",
+    "inventory:area-volume-weight-only": "tsx scripts/inventory-area-volume-weight-only.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.106.0",
