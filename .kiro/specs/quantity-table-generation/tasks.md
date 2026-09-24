@@ -4261,13 +4261,22 @@ _起票元: Task 96.11 の棚卸し。実装は行っていない_
   - **(b) 撤廃済みの名乗りは5タスク・延べ15件**（2.1: 1.2, 1.3／3.1: 1.2, 1.3／4.1: 1.1〜1.7／9.4: 1.1／10.1: 1.4, 1.5, 1.7）。移管は `a9396948`（#310、2026-02-15）で5タスクの完了（`0ee7c796`、2026-01-16）より後なので、**当時の名乗りは偽ではなく条文の側が後から移った**。後継は project-management の Requirement 25 の同じ番号の AC。存在しない番号の名乗りは0件
   - **関門**: 19本とも前後で終了コード・出力がバイト一致（赤い2本は基線から。独立レビューが一時 worktree で再現）
 
-- [ ] 100.27 `calculation-engine.ts` に残る同型の未到達検証4つの処遇を決める
+- [x] 100.27 `calculation-engine.ts` に残る同型の未到達検証4つの処遇を決める
   - **出所**: 100.19 の実装者の CONCERNS と独立レビューの Finding 4（いずれも 100.19 の `_Boundary:_` 外と判定された）
   - **測った事実（100.19 で実測。着手時に測り直すこと）**: `frontend/src/utils/calculation-engine.ts` に、100.19 が撤去した `validateAreaVolumeParams` と**同型の未到達検証が4つ残っている**——`validatePitchParams`（docblock で 8.10 を名乗る）／`validateStandardQuantity`（8.3 / 8.4）／`validateAdjustmentFactor`（9.3 / 9.4）／`validateRoundingUnit`（10.3 / 10.4）。いずれも当たりが**自身の定義と自分のテストのみ**で本番から一度も呼ばれず、機能名を欠く docblock で条文を名乗る。とくに `validatePitchParams` は `calculation-params-validation.ts` の `checkPitchParams` が REQ-8 AC10 を本番結線で担うため、**100.19 と完全同型の二重化**である
   - **なぜ放置できないか**: 100.19 が解消したのとまったく同じ罠——同一条文の検証が二箇所にあると片方だけが改まって黙って乖離する——を、**同じファイルの中に4つ残すことになる**。100.19 は `design.md:414` が `validateCalculationParams` を保存前検証の**単一の情報源**と定めていることを根拠に撤去を選んだが、その宣言は当該4件にも等しく及ぶ
   - **選ぶべきこと**: 4件それぞれについて撤去するか `calculation-params-validation.ts` へ一本化するか。**撤去するなら 89.1 / 94.1 / 100.19 の作法を使うこと**——到達可能性を測り、撤去が被覆検査（`check:req-coverage` の被覆印・`check:design-path-refs` の名指し・`check:steering-refs`）を悪化させないことを**前後の実測で示す**こと。被覆印の計数は**逐語 grep ではなく `npm run count:coverage-marks` 等のプロジェクト自身の読み手で行う**こと（99.2 / 101.1 の教訓）。設計文書や他スペックの文書が当該の名前を名指すなら、上流へ起票して待つこと
   - **注意**: 名乗られた条文（8.3 / 8.4 / 8.10 / 9.3 / 9.4 / 10.3 / 10.4）が**撤去後も現に守られていること**を、100.19 と同じ水準——残る単一情報源へ変異を当てて本番結線の検証が赤くなることの実測——で示すこと。4件は条文が異なるため、**一括ではなく1件ずつ**測ること
   - _Boundary: `frontend/src/utils/calculation-engine.ts` の `validatePitchParams` / `validateStandardQuantity` / `validateAdjustmentFactor` / `validateRoundingUnit` とその単体検証、および撤去に伴う被覆印・設計文書の追随_
+  - **処遇（2026-09-24、コミット `02330a4f` の作業ツリー、リポジトリルートで実測）**: **4件とも撤去した。一本化は選ばなかった**。変更は `frontend/src/utils/calculation-engine.ts`（4関数、-133行）と `frontend/src/utils/calculation-engine.test.ts`（import 4件と describe 4つ・`it(` 32件、-285行）の2ファイルだけである
+  - **到達可能性（測り直し）**: `calculation-engine` を取り込む本番ファイルは `CalculationFields.tsx`（型のみ）/ `FieldValidatedItemRow.tsx`（`calculate`）/ `EditableQuantityItemRow.tsx`（`calculate`）/ `numeric-range-validation.ts`（`COUNT_MIN` / `COUNT_MAX`）の4件で、4関数を取るものは無い。バレルの `export *` は `frontend/src` に零件。4つの名前は `frontend/src`・`e2e`・`scripts`・`.kiro/steering`・他スペックの文書のいずれにも残らない（独立レビューが repo 全体の grep で再現）
+  - **一本化しなかった理由**: `validateAdjustmentFactor` / `validateRoundingUnit` は**改訂前の条文**（旧 9.3「≤0 で警告」、旧 10.3「≤0 でエラー」、空白をエラーにする）を実装しており、現行の 9.3（範囲 -9.99〜9.99）/ 9.4（空白は既定値 1.00）/ 10.3（範囲 0.01〜99.99）/ 10.4（0 または空白は既定値 0.01）と食い違う。移せば条文から外れるので、移す中身が無い。`validatePitchParams` は `checkPitchParams` と完全に二重化しており（100.19 と同型）、`validateStandardQuantity` の 8.3 / 8.4 は `EditableQuantityItemRow` の負値警告と `resolveFieldInput` / `handleQuantityBlur` が本番結線で担っている
+  - **名乗られた条文は撤去後も締まっている（1件ずつ変異。検証は `npm --prefix frontend run test -- quantity-table QuantityTableEditPage numeric-range-validation calculation-params-validation`、変異なしで 67ファイル/1476件が緑）**: 8.10 `checkPitchParams` の filter に `&& false` → 3件赤（本番の保存経路 `QuantityTableEditPage.calculationParamsValidation.test.tsx` を含む）／8.3 `EditableQuantityItemRow` の `< 0` を `< -1e12` → 2件赤／8.4 `handleQuantityBlur` の `if (!resolution.isNumeric)` を `if (false && …)` → 3件赤／9.3 `FIELD_RANGE_CONFIG.adjustmentFactor.max` 9.99→99.99 → 7件赤／9.4 `FIELD_DEFAULT_SUBSTITUTION.adjustmentFactor.defaultValue` 1.0→2.0 → 4件赤／10.3 `roundingUnit.max` 99.99→999.99 → 10件赤／10.4 `roundingUnit.substitutesZero` true→false → 3件赤。各変異の後は `git hash-object` が基線と一致することを確かめて戻した。**独立レビューが 8.10 / 10.4 / 9.3 / 8.3 の4件を自分で当てて再現した**
+  - **撤去の関門（前後の実測）**: `pre-push.sh` 由来の19本に `count:coverage-marks` / `count:coverage-marks:json` / `check:req-coverage:json` を加えた22本を前後で走らせ、**終了コードの列は完全一致**、**20本が出力バイト一致**（赤の `check:design-measurement-freshness` / `check:req-coverage` はいずれも基線から赤）。動いたのは `check:req-coverage` の2値だけで、いずれも減る向き——機能名を欠くヘッダー 2005→2001（4関数の docblock）、眠る名乗り 5087→5080（8.3 / 8.4 / 9.3 / 9.4 / 10.3 / 10.4 / 8.10）。`productionReachability` は不動。**被覆印は `count:coverage-marks` のテキスト・JSON ともバイト一致で一件も失われていない**。ラチェット上限（`scripts/` 所管）は下げていない
+  - **挙動不変の実測**: フロント全件走行が**前 526ファイル/12012件 緑 → 後 526ファイル/11980件 緑**（後は `--shard=1/2`・`2/2` を前景で順に実行）、差は削除した **-32件ちょうど**。合格テスト名の集合の突き合わせで、消えたのは撤去した4つの describe 配下だけ、増えたものは零件。`type-check` / `lint` / `format:check` は EXIT=0
+  - **設計文書・上流**: 追随不要。`design.md:952` が名指すのは `backend/src/services/quantity-validation.service.ts` の**同名の別メソッド**（本番で生きている）であり、フロントの本件ではない。他スペックの文書に名指しは無く、上流への起票も不要
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix frontend run type-check` EXIT=0 ／ `npm --prefix frontend run test -- calculation-engine calculation-params-validation numeric-range-validation` 3ファイル/202件 緑 ／ `npm run count:coverage-marks`・`check:design-path-refs`・`check:steering-refs` いずれも EXIT=0 ／ 4つの名前の `frontend/src`・`e2e` への grep は零件
+  - **観測（範囲外・受け皿を 100.31 として起票した）**: 撤去の結果、同じファイルの `isValidNumber`（自分のテストだけが使う）とインターフェース `ValidationResult`（利用者零件）が本番からの利用者を失った
 
 - [ ] 100.28 上流 site-survey の `design.md:9393` に残る同型の言い回しを、上流へ起票する
   - **出所**: 100.21 の独立レビューの Finding 1（本タスクの `_Boundary:_` 外と判定された）
@@ -4293,6 +4302,12 @@ _起票元: Task 96.11 の棚卸し。実装は行っていない_
   - **真偽の区別**: 多くは「その状態を測る」記述であり、測る状態は改訂後の条件にも含まれるため**偽ではなく陳腐化した写し**である。**ただし `:656-657` は「条文は『…』」と現行の条文を引用する形であり、いまは偽**である。優先はこれを直すこと
   - **注意**: テスト名・`@requirement` の説明文を変えると `check:req-coverage` / `check:e2e-guards` / `check:criterion-literals` 等の読みが動きうる。**前後で関門の終了コードと出力を比べること**。テストが測る状態（全列空・重量のみ）は変えないこと
   - _Boundary: 上記の docblock・テスト名・E2E の説明文と引用の文言（検証の中身は変えない）_
+
+- [ ] 100.31 `calculation-engine.ts` で 100.27 の撤去により本番の利用者を失った `isValidNumber` / `ValidationResult` の処遇を決める
+  - **出所**: 100.27 の実装者の CONCERNS と独立レビューの Finding 2（いずれも 100.27 の `_Boundary:_` 外と判定された）
+  - **測った事実（100.27 で実測。着手時に測り直すこと）**: `isValidNumber` は自身の定義と `calculation-engine.test.ts` だけが使い、`ValidationResult` は利用者が零件である。どちらも 100.27 が撤去した4つの検証の部品だった
+  - **作法**: 撤去するなら 89.1 / 94.1 / 100.19 / 100.27 の作法を使うこと——到達可能性を測り、撤去が被覆検査を悪化させないことを前後の実測で示す。被覆印の計数は `npm run count:coverage-marks` で行うこと
+  - _Boundary: `frontend/src/utils/calculation-engine.ts` の `isValidNumber` / `ValidationResult` とその単体検証_
 
 ## Task 101. 被覆印の計数の方式そのものの是正
 
