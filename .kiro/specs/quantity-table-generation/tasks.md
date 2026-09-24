@@ -4285,6 +4285,9 @@ _起票元: Task 96.11 の棚卸し。実装は行っていない_
   - **所管は上流にある**: 当該行は `.kiro/specs/site-survey/design.md` の記述であり、本スペックは同ファイルを一行も変更していない。**したがって本タスクの任務は「上流の `tasks.md` へ起票して待つ」ことである**——115.330 への追記か新規起票かは上流の形に合わせて決めること
   - **作法**: 89.1 / 94.1 / 97.15〜97.18 の先例に倣い、**上流の `tasks.md` へ書き込んで待ちに入る時点で本タスクを `_Blocked:` に置き、起票先の ID を記すこと**。上流の実装コードや `design.md` を本スペックから書き換えないこと
   - _Boundary: `.kiro/specs/site-survey/tasks.md` への起票の書き込み（上流の `design.md` 自体は上流の所管）_
+  - **起票（2026-09-24、HEAD `7ad1fce3` で再実測）**: 上流 `.kiro/specs/site-survey/tasks.md` の **115.330 へ追記 (c) として書き込んだ**（新規タスクは立てていない。追加のみ6行、100.17 の追記 (b) の直後）。`:9393` は 115.330 の (a) が保持する `:9455` と同じ宣言 `coverage-adjudication-reader-files`・同じ 115.301 節の散文であり、上流では下流の増分を既存タスクへ追記する形が先例であるため。再実測: `grep -n '本記録を読む機械' .kiro/specs/site-survey/design.md` の当たりは `:9393` の1行のみ（置いたのはコミット `94a2d344`）、`design-measurements.json` のどの宣言の `anchor` でもなく関門では見つからない。100.21（コミット `a55665ba`）が §6 に置いた「値が数えるのは本記録の名を引く追跡ファイルの数（13件）であって本記録を読む機械（3件）の数ではない」との乖離がそのまま残る。上流の `design.md` と下流のコードには一字も触れていない
+  - **関門（前後でバイト一致。独立レビューが HEAD の版へ差し替えて再現）**: `check:design-path-refs` 0 / `check:steering-refs` 0 / `check:design-code-refs` 0 / `count:coverage-marks` 0 / `check:design-measurement-freshness` 1・`check:req-coverage` 1（いずれも基線から赤で、出力は前後同一）
+  - _Blocked: site-survey スペックの Task 115.330 の追記 (c)（本項の起票先。上流の `tasks.md` へ実際に書き込み済み）の解決待ち_
 
 - [ ] 100.29 反実仮想の関門が「主張と引用の同居」しか見ない状態の処遇を決める
   - **出所**: 100.22 の2回のデバッグ調査（本タスクの `_Boundary:_` 外と判定された）
