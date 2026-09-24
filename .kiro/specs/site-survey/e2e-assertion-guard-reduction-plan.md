@@ -371,6 +371,13 @@ $ node -e "console.log(545-43, 545-43-77, 545-43-77-194, 43+77+194+52+10+169)"
 | site-survey/REQ-13.5 | 注釈保存時に操作履歴をクリア | `UndoManager.clear()` が保存処理から呼ばれていない |
 | project-management/REQ-21.13 | 存在しないプロジェクトのエラー画面に一覧への戻るリンク | 再試行ボタンのみ。戻るリンクが無い |
 
+**追記（Task 115.325・2026-09-25）**: 上表の `quantity-table-generation/REQ-8.4` の行が述べる
+「要件を実装した `QuantityInput` は存在するが未参照」は、現況では偽である。
+quantity-table-generation の Task 89.1 が、未参照のまま到達しなかった `QuantityInput` を
+本体・単体検証・ストーリーごと撤去したためである（コミット `2444afba`、2026-09-12）。
+`git ls-files | grep -c 'QuantityInput\.'` の出力は `0` である（2026-09-25 にリポジトリルートで実測）。
+上表は同行を書いたコミット `db2417d8`（2026-08-21）の時点の記録としてそのまま残す。本追記は同行の他の記述（REQ-8.4 の実装の現状）を測り直していない。
+
 段5 では併せて、**恒真の陰に隠れていた「一度も実行されていない検証」**も複数見つかった。
 `project-status-transition` の不許可遷移は相対URLでAPIではなく配信サーバへ要求しており、
 本文の無い 4xx で常に成立していた。`trading-partner-error-handling` の 401 は

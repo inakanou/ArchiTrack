@@ -6025,7 +6025,7 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - _Depends: 115.317_
   - _Boundary: 部品の一覧の行の自足性と、本番の前書きに残る移管済みの番号_
 
-- [ ] 115.325 数量表の死コード `FieldValidatedItemRow` の撤去を阻む二つの依存を解く（**quantity-table-generation の Task 89.1 からの起票依頼**）
+- [x] 115.325 数量表の死コード `FieldValidatedItemRow` の撤去を阻む二つの依存を解く（**quantity-table-generation の Task 89.1 からの起票依頼**）
   - 数量表の死コード `frontend/src/components/quantity-table/FieldValidatedItemRow.tsx`（本体・ストーリー1・単体検証3）を下流で撤去したいが、本スペック側の二つの依存が阻んでいる。quantity-table-generation の Task 89.1 は「site-survey 側を巻き込む是正になるなら、同スペックへ起票して本項は待つこと」と定めており、**下流は本スペックの文書も自己検査も書き換えていない**
   - **実測（コミット `4e560c7f` の作業ツリー、2026-09-12、リポジトリルート。5ファイルを外す変異を当て、控えから書き戻して `git hash-object` の一致を確かめた。89.1 の独立レビューが別の作業ツリーで再現した）**:
     - (1) `.kiro/specs/site-survey/design.md` L172（115.212 系の走査記録の第3項）が `FieldValidatedItemRow.tsx` と `FieldValidatedItemRow.autocomplete.test.tsx` を裸のファイル名で名指している。撤去すると `npm run check:design-path-refs` が 0→1 になる（不在パス5件のうち2件が同行。同文書に不在の記録が無いため）
@@ -6034,6 +6034,14 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - **依頼**: (1) の行へ、撤去に備えた不在の記録を規約 (a) で併記してよいかを判断すること。(2) の固定点を、別の実在する死コードか仮想の資料へ移すこと。二つが解ければ、下流（quantity-table-generation の 89.1）が撤去を実施する
   - **あわせて判断されたい**: `.kiro/specs/site-survey/e2e-assertion-guard-reduction-plan.md` L365 の「要件を実装した `QuantityInput` は存在するが未参照」は、89.1 が `QuantityInput` を撤去したため現況として偽になった。歴史記録として併記するかを本スペックで判断すること
   - _Boundary: 本スペックの設計文書と被覆の自己検査が数量表の死コードを名指す箇所_
+  - **処遇（コミット `86fcec2a` の作業ツリー、2026-09-25 にリポジトリルートで実測）**: 二つの依存を解いた。`FieldValidatedItemRow` 本体の撤去は下流（quantity-table-generation の 89.1）の所管として行っていない
+  - **(1) `design.md` L172**（`#### 他スペックの設計文書の走査（タスク 115.234）` の第3項）の行末に、規約 (a) で撤去に備えた不在の記録を併記した。本文は書き換えず、行も挿入していない（115.326 が引く L178 は動かない）。同文書で `FieldValidatedItemRow` を名指すのは L172 の1行だけなので、不在の語が他の言及を黙って免除へ移す経路は無い。撤去前に記録を置いたため免除の面が 190→192 件に広がり、基準ファイルの `$comment` が定める経路 `check:design-path-refs:update -- --allow-increase` で記録した（115.294 / 115.313 と同じ形）。同じ作法で L8815・L8839 に提出時点の値（面 192・実体 152・母数 747）を足し、鮮度の宣言 `design-path-reach-total`・`design-path-entity-total`・`design-path-candidate-recorded`（HEAD で既に赤だった 697/740 の食い違いも解消）を貼り直した。追記で L172 が強調記号を課す網に入った（271→272。入ったのは L172 の1行、抜けた行は零）ため、L95 に記録して `self-reference-emphasised-net` / `-plain-net` を貼り直した。基準の `recordedAt` はツールの UTC 日付で "2026-09-24" となっている
+  - **(2) 自己検査の死側の固定点**を `frontend/src/hooks/useCanvasOptimization.ts` へ移した（本スペック Task 23.2 の部品で、取り込み元は `frontend/src/__tests__/hooks/useCanvasOptimization.test.ts` の1本だけの一段の死。`.kiro` に名指しは無く撤去の予定も無い）。検出器の変異（実装者: 検証ファイルを起点に加える／独立レビュー: 取り込み元を1つでも持てば到達とする）で自己検査は 6/81 件失敗し、新しい固定点を名指して赤になった。戻すと 1/81（元からのラチェット。115.328 の案件）
+  - **証明（5ファイルを外す変異。独立レビューが再現）**: 本体・ストーリー・`FieldValidatedItemRow.test.tsx`・`FieldValidatedItemRow.autocomplete.test.tsx`・`FieldSpecIntegration.test.tsx` を外すと、site-survey 側の不在パスは修正前 2件 → 修正後 0件、`check:req-coverage:selftest` は修正前 2/81 → 修正後 1/81（着手前と同じ。「両側を固定する」は緑）。残る不在パス3件は下流 `quantity-table-generation/design.md` L68・L934 にあり、免除の集合の +2 とともに下流が撤去時に規約 (a) の注と `--update-baseline --allow-increase` で扱う。復元後5ファイルとも `git hash-object` 一致
+  - **L365**: `e2e-assertion-guard-reduction-plan.md` の §4.2 の表の後に、`QuantityInput` の撤去（`2444afba`、2026-09-12、下流 Task 89.1）を追記として併記した。表は `db2417d8`（2026-08-21）時点の記録として残した
+  - **関門**: `check:design-refs` / `check:design-code-refs` / `check:steering-refs` / `check:req-coverage` / `count:coverage-marks` / `check:req-coverage:selftest` は前後で出力同一。`check:design-measurement-freshness` は赤の宣言が 13→12 種で新たな赤は無い（独立レビューが HEAD の版へ差し替えて比較）。`check:design-path-refs:selftest` 53/53、type-check / eslint EXIT=0
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `check:design-path-refs` / `:selftest` / `check:steering-refs` / `count:coverage-marks` / `type-check` いずれも EXIT=0、`check:req-coverage:selftest` は 1/81（既存のラチェットのみ）
+  - **下流への申し送り**: quantity-table-generation の 89.1 は、本項の解決により `FieldValidatedItemRow` の撤去へ進める
 
 - [ ] 115.326 数量表の死コード `PhotoChangeDialog` の撤去を阻む設計文書の名指しを解く（**quantity-table-generation の Task 97.14 からの起票依頼**）
   - 数量表の本番から到達しない部品 `frontend/src/components/quantity-table/PhotoChangeDialog.tsx`（本体・検証2・ストーリー1）を、下流の利用者の裁定（2026-09-15「統治台帳ごと撤去する」）に従って撤去したいが、本スペックの設計文書の名指しが阻んでいる

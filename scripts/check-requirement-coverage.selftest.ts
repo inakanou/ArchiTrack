@@ -1089,6 +1089,16 @@ function checkRealRepositoryIsScanned(): string[] {
  * 代わりに `frontend/src/utils/keyboard-navigation.ts` を置く。こちらは
  * `frontend/src/hooks/useKeyboardNavigation.ts` からのみ取り込まれ、そのフックがどこからも
  * 使われていない**二段の死**であり、直接の取り込み元の有無だけを見る実装では死と判定できない。
+ *
+ * もう一方の死側の一例も、当初の 115.130 の欄検証つき行
+ * （`frontend/src/components/quantity-table/FieldValidatedItemRow.tsx`）から差し替えた。
+ * quantity-table-generation の Task 89.1 がその死コードを撤去するため、固定点に据えたままでは
+ * 撤去の瞬間に「走査対象に含まれない」で落ちる（タスク 115.325。2026-09-25 に、同部品の
+ * 5 ファイルを外す変異で実測した）。代わりに `frontend/src/hooks/useCanvasOptimization.ts` を置く。
+ * 取り込み元は単体検証 1 本だけであり、欄検証つき行と同じ**一段の死**の形——
+ * 「検証ファイルが取り込んでいるから生きている」と数える退行で到達へ倒れる形——を保つ。
+ * 選んだ理由は、本スペックが作った部品で（Task 23.2）、`.kiro` のどの文書も撤去を予定して
+ * いないことである（`git grep -c useCanvasOptimization -- .kiro` の出力が空。2026-09-25 に実測）。
  */
 function checkKnownDeadAndLiveModules(): string[] {
   const failures: string[] = [];
@@ -1097,7 +1107,7 @@ function checkKnownDeadAndLiveModules(): string[] {
 
   const mustBeDead = [
     'frontend/src/utils/keyboard-navigation.ts',
-    'frontend/src/components/quantity-table/FieldValidatedItemRow.tsx',
+    'frontend/src/hooks/useCanvasOptimization.ts',
   ];
   // 合成素材が空なら以下の照合は一度も回らず、この確認は何も主張しない（第3原則。115.252）
   if (mustBeDead.length === 0) {
