@@ -2683,7 +2683,7 @@ _起票元: 機能レベル検証。`## Implementation Notes` の 56.5 / 59.4 �
 - 撤去を阻む依存は2件: `scripts/check-requirement-coverage.selftest.ts` が同ファイルを死コードの実データ固定点として名指すこと、および `.kiro/specs/quantity-table-generation/design.md` と `.kiro/specs/site-survey/design.md`（**別スペック**）が同パスを本文で参照すること
 - `e2e/requirement-exclusions.json` の `pending-implementation` に在籍する本スペックの項目は `quantity-table-generation/REQ-40.11` の1件のみ。**理由欄が「実装済み・専用E2E未作成」と自認しており、Task 83 が REQ-49.7 について問題視したのと同型だが、取り下げを所管するタスクが無い**
 
-- [ ] 89.1 (P) 未結線の部品の処遇を決める
+- [x] 89.1 (P) 未結線の部品の処遇を決める
   - `FieldValidatedItemRow` の撤去には**別スペックの設計文書への参照**が絡む。site-survey 側を巻き込む是正になるなら、**同スペックへ起票して本項は待つこと**。下流で勝手に上流の文書を書き換えないこと
   - `QuantityItemRow`・`AdjustmentFactorInput`・`RoundingUnitInput`・`QuantityInput` も同種の疑いがある。**一件ずつ到達可能性を測ってから決めること**——`QuantityItemRow` は本番から import されており「輸入ゼロの死」ではないが、唯一の呼び出し元が分岐の条件を常に真で渡すため枝が到達不能、という別の形である
   - **撤去が被覆検査を悪化させないことを前後の実測で示すこと**
@@ -2706,6 +2706,10 @@ _起票元: 機能レベル検証。`## Implementation Notes` の 56.5 / 59.4 �
   - **独立レビューの指摘**: 実装者は赤くなる関門を2本と報告したが、`check:design-measurement-freshness:selftest` を含む3本であった
   - **範囲外の観測**: `validateQuantityItemFields`（`frontend/src/utils/field-validation.ts`）は本番から呼ばれず単体検証からだけ呼ばれる関数として残る（関数単位の死。別途の棚卸しの候補）
   - _Blocked: site-survey スペックの Task 115.333（`FieldValidatedItemRow` の撤去で赤くなったラチェット定数と6宣言の測り直し。親が上流の tasks.md へ実際に書き込み済み）の解決待ち。撤去そのものは承認・コミット済み。`[x]` は 115.333 の解決後に関門が緑へ戻ったことを確かめてから付けること_
+  - **上流の解決の確認と完了（HEAD `d6027958` の作業ツリー、2026-09-26 にリポジトリルートで実測。独立レビューが再現）**: 上の `_Blocked:` は当時の記録として残す。site-survey の Task 115.333 が解決した（`[x]`、コミット `d6027958`）。撤去で赤くなった押下前の関門3本はいずれも緑へ戻った——`check:req-coverage:selftest` 81/81、`check:design-measurement-freshness` EXIT=0（宣言 149 件）、`check:design-measurement-freshness:selftest` 56/56。ラチェットの二定数は 1996 / 5054 で実測と遊びなしで一致する。`check:design-path-refs`（面 189）と `check:steering-refs`（主張 713 件）も EXIT=0
+  - **被覆の測り直し（撤去前の `c6830270` と HEAD を `check:req-coverage:json` で比較）**: 被覆済みの受入基準の集合の差は失われたもの・得たものとも0件（2732 件）。受入基準 2732/2890、到達被覆 2698/2733、本スペック 359/359（REQ-7.1 / 7.3 / 7.6 も被覆済み）、到達しない被覆源のみの受入基準 4件で不動。本番モジュールは 586→584（未到達 47→45）で、抜けたのは本項の `FieldValidatedItemRow.tsx` と、間に入った 97.14 の `PhotoChangeDialog.tsx` の2件だけ（新たな未到達は0件）
+  - **赤のまま残る関門（本項の所管外）**: `check:req-coverage`（EXIT=1。E2E 適用対象の被覆が閾値 100% に届かない、到達しない受入基準4件、到達被覆 98.7%）と `check:steering-idents:selftest`（41件中1件失敗「(A) 実データが実現する同値類のうち見本を欠くものが零」）。いずれも撤去前の `c6830270` でも同じ失敗で赤い（後者の例示の行番号 `structure.md:9/129` → `:13/133` は本項などが加えた `_最終更新_` 行による移動で、失敗の中身は同じ）。いずれも押下前の関門であり、両者が赤である限り push は止まる
+  - **完了の判定**: 本文の三つの要求（到達可能性を一件ずつ測る／上流の依存は起票して待つ／撤去が被覆検査を悪化させないことを前後の実測で示す）はすべて答えられた（撤去4件・残置1件、115.325 → 115.333）。完了規則の「115.325 の解決後に処遇を確定し被覆を測り直す」と「115.333 の解決後に関門が緑へ戻ったことを確かめる」をともに満たしたので `[x]` とする。親が承認後に `check:req-coverage:selftest` 81/81 と freshness EXIT=0 を新鮮な証拠で再実行した
 
 - [x] 89.3 (P) 未結線の契約 `unlinkGroupImage` の処遇を決める
   - **経緯**: 90.2 の独立レビューが検出した。`frontend/src/types/quantity-edit.types.ts:284` の `unlinkGroupImage: (groupId: string) => void;` は**リポジトリ全体で唯一の出現**であり、実装も呼び出しも無い死んだ契約である
