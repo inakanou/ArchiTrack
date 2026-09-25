@@ -1358,8 +1358,22 @@ export function findFeaturelessCoverageHeaders(
  * （2026-09-25 にコミット `34be516c` の作業ツリーでリポジトリルートから `npm run check:req-coverage`
  * を実行し、{@link findFeaturelessCoverageHeaders} の結果の印字を読んで実測。
  * ヘッダー 2001 件 / 眠る名乗り 5080 件 / 950 ファイル）。
+ *
+ * タスク 115.333（quantity-table-generation の Task 89.1 からの起票依頼）が実測値へ下げた
+ * （2001 → 1996）。減った 5 件は下流の同スペックの二つの撤去による——Task 89.1 のコミット
+ * `3d723c78`（`FieldValidatedItemRow` の5ファイルの撤去と、検証5件の別ファイルへの移設）が
+ * 2 件（2001 → 1999）、Task 97.14 のコミット `40fc5f81`（`PhotoChangeDialog` の4ファイルの撤去）が
+ * 3 件（1999 → 1996）である。帰属は、
+ * `3d723c78` の親 `c6830270`・`3d723c78`・`40fc5f81` の各版の三つの走査根と `.kiro/specs` を
+ * 取り出し、それぞれを起点に作業ツリーの {@link findFeaturelessCoverageHeaders} を呼んで測った
+ * （ヘッダー 2001 → 1999 → 1996 件、眠る名乗り 5080 → 5058 → 5054 件、950 → 948 → 945 ファイル。
+ * `40fc5f81` の後のコミット `60edb4da` の版も 1996 / 5054 / 945 で動いていない）。
+ * 下げるまでの間は自己検査の `checkFeaturelessHeaderCountIsBounded` が「同数へ下げること」を
+ * 求めて赤かった（2026-09-26 にコミット `60edb4da` の作業ツリーでリポジトリルートから
+ * `npm run check:req-coverage` を実行し、{@link findFeaturelessCoverageHeaders} の結果の
+ * 印字を読んで実測。ヘッダー 1996 件 / 眠る名乗り 5054 件 / 945 ファイル）。
  */
-export const MAX_FEATURELESS_COVERAGE_HEADERS = 2001;
+export const MAX_FEATURELESS_COVERAGE_HEADERS = 1996;
 
 /**
  * 機能名を欠くヘッダーの下で眠っている名乗りの上限（ラチェット）
@@ -1379,8 +1393,12 @@ export const MAX_FEATURELESS_COVERAGE_HEADERS = 2001;
  *
  * タスク 115.328 が実測値へ下げた（5170 → 5080。実測の条件と減った分の由来は
  * {@link MAX_FEATURELESS_COVERAGE_HEADERS} の註と同じである）。
+ *
+ * タスク 115.333 が実測値へ下げた（5080 → 5054。減った 26 件はコミット `3d723c78` が 22 件、
+ * コミット `40fc5f81` が 4 件である。実測の条件と帰属の測り方は
+ * {@link MAX_FEATURELESS_COVERAGE_HEADERS} の註と同じである）。
  */
-export const MAX_DORMANT_HEADER_NAMES = 5080;
+export const MAX_DORMANT_HEADER_NAMES = 5054;
 
 /** 撤廃済みの受入基準を名乗っている被覆印 */
 export interface RetiredCriterionMark {
