@@ -1350,8 +1350,16 @@ export function findFeaturelessCoverageHeaders(
  * 押さえていた眠る名乗りは元から 0 件であり、{@link MAX_DORMANT_HEADER_NAMES} は動かない
  * （2026-09-08 にリポジトリルートで {@link findFeaturelessCoverageHeaders} を呼んで実測。
  * ヘッダー 2023 件 / 眠る名乗り 5170 件 / 965 ファイル）。
+ *
+ * タスク 115.328（quantity-table-generation の Task 97.18 からの起票依頼）が実測値へ下げた
+ * （2023 → 2001）。この間に減った 22 件は、下流の注釈の是正（同スペックの 97.10 など）と
+ * 両スペックの部品の撤去が積み上げたもので、一件ずつの帰属は測っていない。下げるまでの間は
+ * 自己検査の `checkFeaturelessHeaderCountIsBounded` が「同数へ下げること」を求めて赤かった
+ * （2026-09-25 にコミット `34be516c` の作業ツリーでリポジトリルートから `npm run check:req-coverage`
+ * を実行し、{@link findFeaturelessCoverageHeaders} の結果の印字を読んで実測。
+ * ヘッダー 2001 件 / 眠る名乗り 5080 件 / 950 ファイル）。
  */
-export const MAX_FEATURELESS_COVERAGE_HEADERS = 2023;
+export const MAX_FEATURELESS_COVERAGE_HEADERS = 2001;
 
 /**
  * 機能名を欠くヘッダーの下で眠っている名乗りの上限（ラチェット）
@@ -1368,8 +1376,11 @@ export const MAX_FEATURELESS_COVERAGE_HEADERS = 2023;
  * {@link MAX_FEATURELESS_COVERAGE_HEADERS} が押さえるヘッダーの数は動いていない）。
  * 判断の全文は `.kiro/specs/site-survey/design.md` の
  * `### 部品の一覧の行の自足性と本番の前書きの移管済みの番号の決着（タスク 115.324）` にある。
+ *
+ * タスク 115.328 が実測値へ下げた（5170 → 5080。実測の条件と減った分の由来は
+ * {@link MAX_FEATURELESS_COVERAGE_HEADERS} の註と同じである）。
  */
-export const MAX_DORMANT_HEADER_NAMES = 5170;
+export const MAX_DORMANT_HEADER_NAMES = 5080;
 
 /** 撤廃済みの受入基準を名乗っている被覆印 */
 export interface RetiredCriterionMark {

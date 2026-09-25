@@ -6073,11 +6073,15 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix frontend run test -- SiteSurveyDetailPage` 97/97 緑、`type-check` / `count:coverage-marks` EXIT=0、差分に判定文の変更は無い（`expect` の差分は字下げのみ）
   - **範囲外の観測（起票はしていない）**: (i) 本番の `NetworkStatusIndicator` には、マウントから副作用の実行までの数ミリ秒に起きた通信断で警告を取りこぼす理論上の窓がある（保存の抑止は画面側の購読で保たれる。副作用の中で `navigator.onLine` を読み直すか `useSyncExternalStore` へ移せば塞がる）。(ii) `frontend/vitest.config.ts` の `test.poolOptions` は Vitest 4 で撤去されており DEPRECATED 警告が出る（`maxForks`・`execArgv` は現在効いていない）。(iii) `AnnotationEditor.test.tsx` / `SiteSurveyForm.offline.test.tsx` は購読が初回描画（act 内）で登録されるため同型ではないと独立レビューが判定した
 
-- [ ] 115.328 被覆検査のラチェットの上限を実測値へ下げる（**quantity-table-generation の Task 97.18 からの起票依頼**）
+- [x] 115.328 被覆検査のラチェットの上限を実測値へ下げる（**quantity-table-generation の Task 97.18 からの起票依頼**）
   - **出所**: 下流の 94.1 以降の記録が毎回「遊び」として測ってきた差と、自己検査の失敗
   - **再実測（コミット `ca9819db`、2026-09-15、リポジトリルート）**: `npm run -s check:req-coverage:selftest` が `❌ 機能名を欠くヘッダーと眠る名乗りが上限ちょうどである（ラチェット）` を出し、「機能名を欠くヘッダーが 2007 件へ減った。MAX_FEATURELESS_COVERAGE_HEADERS を同数へ下げること」「眠っている名乗りが 5112 件へ減った。MAX_DORMANT_HEADER_NAMES を同数へ下げること」と求める。定数は `scripts/check-requirement-coverage.ts:1354`（`= 2023`）と `:1372`（`= 5170`）で、同ファイルの直近3コミットはいずれも本スペックの名で入っている
   - **下流の利用者の裁定（2026-09-15）**: 「下流の是正の後に下げる」。下流で注釈を増やしうる是正（97.1 / 97.10）は起票時点で完了しており、97.10 でヘッダー −2・名乗り −8 と減った。**ただし下流にはなお作業中のタスクがあるため、下げる時点で実測し直すこと**。下げると、以後は一件でも増やす正しい是正も pre-push で止まる（本スペックの Implementation Notes「上限ちょうどのラチェットは、正しい是正でも赤くする」）
   - _Boundary: `scripts/check-requirement-coverage.ts` の二つの上限と、その自己検査_
+  - **処遇（コミット `34be516c` の作業ツリー、2026-09-25 にリポジトリルートで実測）**: 着手時に測り直すと、機能名を欠くヘッダーは **2001 件 / 950 ファイル**、眠る名乗りは **5080 件**だった（起票時の 2007 / 5112 からさらに減っていた）。`scripts/check-requirement-coverage.ts` の `MAX_FEATURELESS_COVERAGE_HEADERS` を 2023→2001、`MAX_DORMANT_HEADER_NAMES` を 5170→5080 へ遊びなしで下げ、両定数の註に経緯と実測の条件を加えた（一件ずつの帰属は測っていない）。値は design.md に書いていない（design.md:1694「値そのものは同定数とその註が持ち、本書には書かない」）。自己検査 `checkFeaturelessHeaderCountIsBounded` は定数を import して上下の両方向で遊び0を課すため変えていない
+  - **RED → GREEN**: `check:req-coverage:selftest` は 1/81 失敗（「同数へ下げること」）・EXIT=1 → **81/81 緑・EXIT=0**。ラチェットが効くことは変異で確かめた——機能名を欠く `Requirements:` ヘッダーと名乗り1行を持つ仮ファイルを置くと、自己検査は 1/81 失敗（2002 > 2001、5081 > 5080）、関門の本体も上限超過の FAILED 2行で赤になる（実装者は `frontend/src`、独立レビューは `backend/src` の別ファイルで再現。旧上限のままならこの +1 は素通りした）。仮ファイルは削除済み
+  - **関門**: `check:design-measurement-freshness` は `req-coverage-selftest-total-after-115314` の2行が一致へ戻り、失敗は12宣言→11宣言（新たな失敗は零）。`check:req-coverage` は前後とも EXIT=1 で、差分は上限の印字1行だけ。赤の原因（E2E 適用対象の被覆が 100% 未満、本番の経路から到達しない受入基準4件、到達被覆 98.7%）は本項の境界の外である。`count:coverage-marks` / `check:design-path-refs` / `check:steering-refs` / `check:design-code-refs` は前後で出力同一。type-check / eslint / prettier 合格。旧上限 2023 / 5170 を現況として引く文書は無い（design.md と design-measurements.json の当該値は日付付きの当時の記録）
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `check:req-coverage:selftest` 81/81 EXIT=0、`type-check` EXIT=0
 
 - [ ] 115.329 裁定記録の陳腐化した行を、鮮度宣言と対で扱う（**quantity-table-generation の Task 97.17 からの起票依頼**）
   - **出所**: 下流の 95.1〜95.4 の範囲外の同型と申し送り。その後の下流の取り下げ（96.1〜96.3、97.1〜97.3、97.5、97.20 の条文改訂）で陳腐化が進んだ。本記録と宣言は本スペックの 115.189 / 115.301 が置いたもの
