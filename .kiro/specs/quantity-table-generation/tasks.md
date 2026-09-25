@@ -3533,7 +3533,7 @@ _起票元: Task 95 の処置後に再実行した機能レベル検証（`/kiro
   - **関門の扱い（利用者の裁定、2026-09-15）**: 元の行が撤去したパスを挙げるため `check:design-path-refs` が免除の基線超過で赤になり、**「基線を更新する」**との裁定で `npm run check:design-path-refs:update -- --allow-increase` を実行した。基線の変化は本スペックの免除（延べ 0→2、集合 +1）と合計値、および合否に用いない母数 `candidateTotal` 697→740 と `candidateHistory` の追記（ツールが実測から書く値）。これにより、すでに赤い `check:design-measurement-freshness` の失敗行が site-survey の design.md の4宣言分増えた。**利用者の裁定「97.16 の起票に含める」により、site-survey の文書は書き換えず 97.16 の起票内容へ記した**。独立レビューが参照の残り、被覆、基線の差分、関門の変化が想定の4行に限られることを確かめて承認した
   - **観測**: 撤去した名前は `research.md` と本書の各記録に残る（記録なので未変更）
 
-- [ ] 97.14 `PhotoChangeDialog` の撤去を、統治台帳の更新と併せて決める
+- [x] 97.14 `PhotoChangeDialog` の撤去を、統治台帳の更新と併せて決める
   - **出所**: 94.1 の申し送り (iii)(iv)
   - **再実測**: `frontend/src/components/quantity-table/PhotoChangeDialog.tsx` は未到達に載っている。全スペック共通の統治台帳 `scripts/design-path-exemption-baseline.json` の `:141` に在籍する。94.1 の変異では、撤去すると設計文書の言及4件が黙って免除へ移った
   - **再輸出 `frontend/src/components/quantity-table/index.ts` は単独で扱わないこと**——`TextFieldInput` / `NumericFieldInput`（estimate-creation 59.1 待ち）の処遇とつながっている
@@ -3549,6 +3549,10 @@ _起票元: Task 95 の処置後に再実行した機能レベル検証（`/kiro
   - **押下前の関門**: exit code は全件で前後同一。上流所管で既に赤い `check:design-measurement-freshness` の中で `featureless-inline-id-headers-after-115308`（840→838）と `featureless-headers-resolvable-by-own-feature-after-115308`（585→584）の2宣言が新たに食い違い、既に赤い5宣言の actual も動いた。ラチェットの引き下げ先は 1996 / 5054 になった。**内訳は親が site-survey の 115.333 へ追記として実際に書き込んだ**。下流は上流の文書も定数も書き換えていない
   - **観測**: `check:req-coverage`（EXIT 1）と `check:steering-idents:selftest`（1/41 失敗）は、89.1 より前の `c6830270` でも赤だった（独立レビューが撤去前の HEAD でも再現）。いずれも押下前の関門であり、115.333 が解決しても両者が赤である限り push は止まる
   - _Blocked: site-survey スペックの Task 115.333（89.1 と 97.14 の撤去で動いたラチェット定数と鮮度宣言の測り直し。97.14 の増分は追記として書き込み済み）の解決待ち。撤去そのものは承認・コミット済み。`[x]` は 115.333 の解決後に関門が緑へ戻ったことを確かめてから付けること_
+  - **上流の解決の確認と完了（HEAD `0f1f4b94` の作業ツリー、2026-09-26 にリポジトリルートで実測。独立レビューが再現）**: 上の `_Blocked:` は当時の記録として残す。site-survey の Task 115.333 が解決した（`[x]`、コミット `d6027958`）。本項の撤去で食い違った `featureless-inline-id-headers-after-115308`（838）と `featureless-headers-resolvable-by-own-feature-after-115308`（584）の2宣言、および既に赤く actual が動いた5宣言（`design-path-exemption-tally-total` 141 / `-distinct-total` 40 / `-tally-distinct-gap` 101 / `design-path-reach-total` 189 / `design-path-entity-total` 149）はいずれも expected・actual・文書の字面が一致し、`check:design-measurement-freshness` は EXIT=0（宣言 149 件）、`:selftest` 56/56 へ戻った。`check:req-coverage:selftest` は 81/81 で、ラチェットの二定数 1996 / 5054 は実測と遊びなしで一致する。`check:design-path-refs`（免除の延べ 141・distinct 40 は基準と一致）と `check:steering-refs`（主張 713 件）も EXIT=0
+  - **被覆の測り直し（撤去前の `3d723c78`・本項のコミット `40fc5f81`・HEAD を `check:req-coverage:json` で比較）**: 被覆済みの受入基準の集合の差は、いずれの比較でも失われたもの・得たものとも0件（2732 件）。受入基準 2732/2890、到達被覆 2698/2733、本スペック 359/359、到達しない被覆源のみの受入基準 4件で不動。REQ-49.10 は `frontend/src/pages/QuantityTableEditPage.test.tsx`・`frontend/src/__tests__/pages/QuantityTableEditPage.photoSelectBulkFetch.test.tsx`・`e2e/specs/quantity-tables/photo-select-bulk-fetch-e2e.spec.ts` の3ファイルが被覆し続ける。本番モジュールは 585→584（未到達 46→45）で、抜けたのは `PhotoChangeDialog.tsx` だけ（新たな未到達は0件）。`git ls-files | grep PhotoChangeDialog` は0件、再輸出 `frontend/src/components/quantity-table/index.ts` は `3d723c78` から差分なし
+  - **赤のまま残る関門（本項の所管外）**: `check:req-coverage`（EXIT=1。E2E 適用対象の被覆が閾値 100% に届かない、到達しない受入基準4件、到達被覆 98.7%）と `check:steering-idents:selftest`（41件中1件失敗）。いずれも撤去前の `c6830270` でも同じ失敗で赤く（89.1 の完了記録を参照）、本項の撤去とは関係しない。いずれも押下前の関門であり、両者が赤である限り push は止まる
+  - **完了の判定**: 本文の要求（利用者の裁定「台帳ごと撤去する」に従う部品の撤去、統治台帳の当該行と設計文書・steering の追随、他スペックの面への影響の実測、上流の依存は起票を書き込んでから待つ、再輸出 `index.ts` を単独で扱わない）はすべて答えられた（115.326 → 115.333）。完了規則の「115.333 の解決後に関門が緑へ戻ったことを確かめる」を満たしたので `[x]` とする。親が承認後に freshness EXIT=0 を新鮮な証拠で再実行した
 
 - [x] 97.15 site-survey の単体検証の非決定性を上流へ起票する
   - **出所**: 94.1 の申し送り (v)
