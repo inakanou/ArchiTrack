@@ -6185,6 +6185,16 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - **検証（親が承認後に新鮮な証拠で再実行）**: `check:design-measurement-freshness` / `check:design-path-refs` / `check:design-code-refs` / `check:steering-idents` / `count:coverage-marks` いずれも EXIT=0
   - **範囲外の観測（起票はしていない）**: L1739 / L1740 の Component Summary、L3102 / L3110 の `PhotoManagementPanel` 節、L3330 / L3339 の `AnnotationEditor` 節は、両部品が `useUnsavedChanges` に依存すると書くが、git の履歴で両部品がこのフックを import したことは一度も無い（100.24 以前からの食い違いで、L3246 に足した現況と同文書内で食い違う）。L3135 の `PhotoManagementPanelProps.onDirtyChange` も実装に無い
 
+- [ ] 115.333 下流の `FieldValidatedItemRow` の撤去で赤くなった被覆のラチェットと鮮度宣言を、撤去後の実測へ揃える（**quantity-table-generation の Task 89.1 からの起票依頼**）
+  - **出所**: 下流 quantity-table-generation の Task 89.1 が、本スペックの 115.325 の解決を受けて `FieldValidatedItemRow` を撤去した（本体・ストーリー・`FieldValidatedItemRow.test.tsx`・`FieldValidatedItemRow.autocomplete.test.tsx`・`FieldSpecIntegration.test.tsx` の5ファイル。旧 autocomplete 検証の `EditableQuantityItemRow` の5件は `frontend/src/__tests__/components/quantity-table/EditableQuantityItemRow.autocomplete.test.tsx` へ移設）。下流は 115.325 の申し送りに従い、同スペックの `design.md` L68 / L897 へ規約 (a) の注を置き、`npm run check:design-path-refs:update -- --allow-increase` で `scripts/design-path-exemption-baseline.json` を更新した（面 194→192、実体 154→152、免除の延べ 125→132、distinct 31→35。本スペック分の延べ 122→124・集合 +2、下流分 2→7）。**下流は本スペックの設計文書も自己検査の定数も書き換えていない**
+  - **撤去で赤くなった押下前の関門（下流の実装者と独立レビューが HEAD `c6830270` と撤去後の作業ツリーで実測。HEAD ではいずれも緑）**:
+    - (1) `npm run check:req-coverage:selftest` が 81/81 → 1/81 失敗（ラチェット「上限ちょうど」）。機能名を欠くヘッダーが 2001→1999、眠る名乗りが 5080→5058 に減ったため、`scripts/check-requirement-coverage.ts` の `MAX_FEATURELESS_COVERAGE_HEADERS` / `MAX_DORMANT_HEADER_NAMES` を **1999 / 5058** へ下げる必要がある（前回は 115.328 が 2023→2001 / 5170→5080 へ下げた）
+    - (2) `npm run check:design-measurement-freshness` が EXIT 0 → 1。本書を錨にする宣言 `design-path-exemption-tally-total`（125→132）/ `design-path-exemption-distinct-total`（31→35）/ `design-path-exemption-tally-distinct-gap`（94→97）/ `design-path-reach-total`（194→192）/ `design-path-entity-total`（154→152）と、(1) を引く `req-coverage-selftest-total-after-115314`（「81/81」）の6宣言が現況とずれた。`design-path-candidate-recorded`（747）は動いていない
+    - (3) `npm run check:design-measurement-freshness:selftest` が 56/56 → 1/56（実マニフェストでの判定。(2) が解ければ戻る見込み）
+  - **影響**: 3本とも pre-push の関門であり、`--no-verify` は禁止されているため、本項が解決するまで当該ブランチは push できない（利用者の判断で、下流の撤去はローカルにコミットし本項の解決を待つ）
+  - **依頼**: (1) の二定数を撤去後の実測（着手時に測り直すこと）へ遊びなしで下げ、註に経緯を加える（115.328 の作法）。(2) の6宣言について、本書の該当文へ規約 (a) で当時の値を残して撤去後の再実測を並べ、錨・expected を貼り直す（115.330 の作法。四つの自己言及の網も最後に測り直す）。増分は下流 89.1 の撤去のコミットへ帰属させること
+  - _Boundary: `scripts/check-requirement-coverage.ts` の二つのラチェット定数とその註、本書の当該の実測の文、`scripts/design-measurements.json` の当該6宣言_
+
 ## Implementation Notes（Task 115.30-115.52）
 
 - **「注記が言う未実装」を鵜呑みにしないこと**: 115.127 段4 で、八件の検証が「実装がセレクトボックスなので未実装」という注記つきの分岐で守られていたが、実装は入力欄であり**観測は一度も発火していなかった**。危険なのは発火しなかったことではなく、**実装が退行した瞬間に八件が緑のまま何も主張しなくなる**ことである。変異で実測すると、観測が発火する状況では八件が主張を一つも実行せずに通った。

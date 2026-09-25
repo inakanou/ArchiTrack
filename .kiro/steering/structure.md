@@ -2,6 +2,8 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
+_最終更新: 2026-09-25（Steering Sync: quantity-table-generation のタスク 89.1 の続き。数量表コンポーネントのツリーとストーリーの列挙から、本番の経路から到達しない一部品（バリデーション付き項目行）の行を外した。同部品は同タスクで撤去した——本番コードからの取り込みは0件で、撤去を阻んでいた site-survey 側の二つの依存は同スペックの Task 115.325 が解いた。下の 2026-09-12 の項が「残置であり、本書の列挙も残す」と書くのは当時の記録である）_
+
 _最終更新: 2026-09-14（Steering Sync: quantity-table-generation のタスク 94.1。数量表コンポーネントのツリーとストーリーの列挙から、本番の経路から到達しない一部品（計算用数値入力）の行を外した。同部品は同タスクで撤去した——取り込み元は `frontend/src/components/quantity-table/index.ts` の再輸出だけで、その再輸出を取り込むファイルは一つも無かった（`grep -rnE "components/quantity-table(/index)?['\"]" frontend/src e2e` の出力が空。コミット `52879319` の作業ツリー、2026-09-14 にリポジトリルートで実測）。同じく到達しないテキストフィールド入力・数値フィールド入力・写真変更ダイアログ・数量表の保存フックは、設計文書の参照が撤去を阻むため残置とした。再輸出ファイルを阻むのは設計文書ではない——同ファイルは残置した二部品を公開 API として輸出する唯一の口であるため、二部品の処遇と連動して残置である。いずれも本書の列挙は残す）_
 
 _最終更新: 2026-09-12（Steering Sync: quantity-table-generation のタスク 89.1。数量表コンポーネントのツリーとストーリーの列挙から、本番の経路から到達しない三部品（調整係数入力・丸め単位入力・数量入力）の行を外した。三部品は同タスクで撤去した——取り込み元は `frontend/src/components/quantity-table/index.ts` の再輸出だけで、その再輸出を取り込むファイルは一つも無かった（`grep -rnE "components/quantity-table(/index)?['\"]" frontend/src e2e` の出力が空。コミット `4e560c7f`、2026-09-12 にリポジトリルートで実測）。同じく到達しない `FieldValidatedItemRow.tsx` と、唯一の呼び出し元が読み取り専用の枝へ入らない `QuantityItemRow.tsx` は残置であり、本書の列挙も残す）_
@@ -546,7 +548,6 @@ frontend/
 │   │       ├── NumericFieldInput.tsx # 数値フィールド入力
 │   │       ├── TextFieldInput.tsx   # テキストフィールド入力
 │   │       ├── EditableQuantityItemRow.tsx # 編集可能項目行
-│   │       ├── FieldValidatedItemRow.tsx # バリデーション付き項目行
 │   │       ├── PhotoChangeDialog.tsx # 写真変更ダイアログ
 │   │       ├── PhotoCommentDisplay.tsx # 写真コメント表示
 │   │       ├── PhotoPreviewDialog.tsx # 写真プレビューダイアログ
@@ -758,7 +759,6 @@ frontend/
 - `CalculationFields.stories.tsx` - 計算フィールド群
 - `CalculationMethodSelect.stories.tsx` - 計算方法選択
 - `EditableQuantityItemRow.stories.tsx` - 編集可能項目行
-- `FieldValidatedItemRow.stories.tsx` - バリデーション付き項目行
 - `ItemCopyMoveDialog.stories.tsx` - コピー・移動ダイアログ
 - `NumericFieldInput.stories.tsx` - 数値フィールド入力
 - `QuantityGroupCard.stories.tsx` - 数量グループカード

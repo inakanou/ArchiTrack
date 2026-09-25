@@ -26,11 +26,11 @@
     "面には数えない。ただし外した側も基準で見張る——開示だけに落とすと、新しく現れた",
     "曖昧な参照が面にも曖昧の集合にも掛からない素通りの経路になる。"
   ],
-  "reachTotal": 194,
+  "reachTotal": 192,
   "candidateTotal": 747,
-  "entityTotal": 154,
-  "exemptedTotal": 125,
-  "exemptedDistinctTotal": 31,
+  "entityTotal": 152,
+  "exemptedTotal": 132,
+  "exemptedDistinctTotal": 35,
   "ambiguousTotal": 5,
   "candidateHistory": [
     {
@@ -122,6 +122,11 @@
       "recordedAt": "2026-09-24",
       "reachTotal": 194,
       "candidateTotal": 747
+    },
+    {
+      "recordedAt": "2026-09-25",
+      "reachTotal": 192,
+      "candidateTotal": 747
     }
   ],
   "documents": {
@@ -190,8 +195,6 @@
       "CircleTool.ts",
       "DimensionTool.label-outline.test.ts",
       "DimensionTool.ts",
-      "FieldValidatedItemRow.autocomplete.test.tsx",
-      "FieldValidatedItemRow.tsx",
       "FreehandTool.ts",
       "PhotoChangeDialog.stories.tsx",
       "PhotoChangeDialog.tsx",
@@ -334,17 +337,21 @@
   },
   "exempted": {
     ".kiro/specs/estimate-creation/design.md": 1,
-    ".kiro/specs/quantity-table-generation/design.md": 2,
-    ".kiro/specs/site-survey/design.md": 122
+    ".kiro/specs/quantity-table-generation/design.md": 7,
+    ".kiro/specs/site-survey/design.md": 124
   },
   "exemptedReferences": {
     ".kiro/specs/estimate-creation/design.md": [
       "estimate-export.service.ts"
     ],
     ".kiro/specs/quantity-table-generation/design.md": [
+      "FieldValidatedItemRow.autocomplete.test.tsx",
+      "frontend/src/components/quantity-table/FieldValidatedItemRow.tsx",
       "frontend/src/hooks/useQuantityTableSave.ts"
     ],
     ".kiro/specs/site-survey/design.md": [
+      "FieldValidatedItemRow.autocomplete.test.tsx",
+      "FieldValidatedItemRow.tsx",
       "ImageViewer.stories.tsx",
       "ImageViewer.test.tsx",
       "ImageViewer.tsx",
