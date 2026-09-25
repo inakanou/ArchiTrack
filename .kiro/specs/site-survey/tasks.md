@@ -4155,7 +4155,7 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - _Requirements: 32.2_
   - _Boundary: 書き出し経路の表示倍率の適用先、設計文書の当該前提、統合検証の空の主張_
 
-- [ ] 115.130 数量表の範囲外入力にエラー表示が無い状態を解消する（**別スペックの所管**）
+- [x] 115.130 数量表の範囲外入力にエラー表示が無い状態を解消する（**別スペックの所管**）
   - 115.126 のレビューと是正で判明した。数量表の欄指定E2Eが「範囲外ならエラーが出るか値が制限される」という**恒真の判定**で覆っていた欠陥である
   - quantity-table-generation の REQ-9.3（調整係数 -9.99〜9.99）、REQ-10.3（丸め設定 -99.99〜99.99）、REQ-15.1（数量 -999999.99〜9999999.99）は、いずれも範囲外の入力に対し**エラーメッセージを表示し範囲内の入力を求める**ことを規定している
   - production 側に当該の検査が無い。`EditableQuantityItemRow.handleQuantityBlur` は `parseFloat` と `toFixed(2)` のみ、`CalculationFields.AdjustmentField` も範囲判定を持たない
@@ -4166,6 +4166,11 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - `AdjustmentField` は `warningCondition` が `v <= 0` のため、REQ-9.3 が有効域と定める -9.99〜0 に対して警告を出す。この要件不整合も併せて解消すること
   - 是正後は `e2e/specs/quantity-tables/field-specification.spec.ts` 冒頭の「未検証」記載を判定へ引き上げ、当該記載を削ること
   - _Blocked: 数量表生成スペックの所管。当該スペックの `## Task 80: 数量表の範囲外入力にエラー表示が無い状態を解消する` として起票済み（未実装）_
+  - **ブロックの解消（2026-09-25、コミット `9a8e3af8` の作業ツリーでリポジトリルートにて実測。利用者の指示「検証して閉じる」）**: 上の `_Blocked:` は起票当時の記録として残す。申し送り先の数量表生成スペック `## Task 80` の 80.1〜80.4 がいずれも `[x]`（`_申し送り元: site-survey スペックの Task 115.130_` を持つ）で、本項の要求は下流で満たされた。(1) 要件と定数のどちらが正かは 80.1 が条文の側を改めて確定させた——REQ-10.3 は現行「丸め設定フィールドに入力可能範囲（0.01〜99.99）外の値が入力される（ただし0および空白を除く。…）」（本項が引く `-99.99〜99.99` は改訂前の値）で、範囲の正典は `frontend/src/utils/numeric-range-validation.ts` の `FIELD_RANGE_CONFIG` 一箇所になり、`NUMERIC_FIELD_RANGES` は撤去済み。(2) 描画される部品へ結線済み——`EditableQuantityItemRow` が範囲外の数量を確定させずエラーを提示し（REQ-15.1。`QuantityGroupCard.tsx` から描画）、`CalculationFields` の `AdjustmentField` が調整係数・丸め設定を正典で判定して `role="alert"` で示す（REQ-9.3 / 10.3）。`warningCondition={(v) => v <= 0}` は撤去され、調整係数の有効域 `-9.99〜0` に警告は出ない（バックエンドの `positive()` も 85.1 が `z.number()` へ改めた）。(3) E2E は要件の具体値で主張する——`e2e/specs/quantity-tables/field-specification.spec.ts` の 15.1 / 10.3 が境界の数値を含む文言を、`quantity-table-crud.spec.ts` の REQ-9.3 が「調整係数は-9.99〜9.99の範囲で入力してください」と `aria-invalid` を主張し、同 crud の `test.fail()` の呼び出しは0件。冒頭の「未検証」記載は 80.3 が判定へ引き上げて削った。`e2e/requirement-exclusions.json` に 9.3 / 10.3 / 15.1 の除外は無い。(4) 11.2 / 12.4 の完了印は 80.4 が追記で書き分けた
+  - **変異**: 実装者——`FIELD_RANGE_CONFIG.adjustmentFactor.max` を 9.99→99.99 にすると `numeric-range-validation.test.ts` の4件が赤（3ファイル合算 344件中）、数量欄と `AdjustmentField` の範囲の結線を外すと 12件が赤。独立レビュー——`EditableQuantityItemRow` の `quantityError` から `quantityRangeError` を外すと 2 failed / 344（REQ-15.1 の上下限）、`AdjustmentField` の `message` から `rangeError` を外すと 10 failed / 344（REQ-9.3 / 10.3）。いずれも戻して 344件緑、`git hash-object` は HEAD の blob と一致
+  - **E2E**: `npm run test:e2e -- e2e/specs/quantity-tables/field-specification.spec.ts` 21 passed。E2E 用フロントのコンテナは 2026-09-24 14:31Z 作成で、以降の frontend 本番ファイルの変更は未使用 export の撤去（`86fcec2a`）とコメントの修正（`0bd0c767`）だけ、範囲判定に関わる4ファイルはコンテナ作成より前から不変であることを独立レビューが確かめ、証拠は有効と判定した。REQ-9.3 の範囲外判定を持つ `quantity-table-crud.spec.ts`（serial）は今回実走していない
+  - **本スペック側の作業は無い**: 本項が課す成果物はいずれも数量表生成スペックの境界内で完了した。本項が死コードとして挙げた `FieldValidatedItemRow` は 80.2 が残置と決めて理由を記録し、撤去は下流の 89.1 の所管である（本スペック側の阻害要因は 115.325 で解消済み）
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix frontend run test -- src/utils/numeric-range-validation.test.ts src/components/quantity-table/CalculationFields.test.tsx src/components/quantity-table/EditableQuantityItemRow.test.tsx` 344/344 緑
   - _Boundary: 調整係数・丸め設定・数量の範囲検証と、その結線先のE2E判定_
 
 - [x] 115.131 (P) 欄指定E2Eの被覆表記と検証名の不正直を解消する
