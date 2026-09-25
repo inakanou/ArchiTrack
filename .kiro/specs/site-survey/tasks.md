@@ -6161,12 +6161,19 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - **検証**: `check:design-measurement-freshness` EXIT=0（`:verbose` で二宣言とも expected=20 actual=20 documentFigure=20）、`:selftest` 56/56 EXIT=0（実装者・独立レビュー・親が承認後に再実行）
   - **下流への申し送り**: quantity-table-generation の 101.2 は、本項の完了によりブロックが解ける
 
-- [ ] 115.332 共有フック `useUnsavedChanges` の撤去済み API を名指す設計文書の記述を、現況へ揃える（**quantity-table-generation の Task 100.24 からの起票依頼**）
+- [x] 115.332 共有フック `useUnsavedChanges` の撤去済み API を名指す設計文書の記述を、現況へ揃える（**quantity-table-generation の Task 100.24 からの起票依頼**）
   - **出所**: 下流 quantity-table-generation の Task 100.24（利用者の裁定「(b) API を一本化する」、2026-09-24）。共有フック `frontend/src/hooks/useUnsavedChanges.ts` を `useUnsavedChanges({ isDirty, message? }): void`（戻り値なし・自前の dirty 状態を持たない）へ改め、`enabled` / `initialDirty` / `onDirtyChange` と戻り値 `isDirty` / `setDirty` / `markAsChanged` / `markAsSaved` / `reset` / `confirmNavigation`、型 `UseUnsavedChangesResult` を撤去した。**本スペックの画面 `SiteSurveyDetailPage` / `SiteSurveyImageViewerPage` の呼び出しは下流が追随させた**（前者は画面側の `useState` の `isDirty` と `markAsChanged` / `markAsSaved` を持ち `isDirty: canEdit && isDirty` を渡す。旧条件「`enabled=canEdit` かつ内部 dirty」と同値であることを独立レビューが呼び出し点ごとに確認した）。**下流は本スペックの `design.md` を一行も書き換えていない**
   - **陳腐化した記述（下流の独立レビューが 2026-09-24 に列挙。着手時に測り直すこと）**: `.kiro/specs/site-survey/design.md` の L590 の契約名の実体表の行 `UseUnsavedChangesResult | frontend/src/hooks/useUnsavedChanges.ts`（型は撤去済みで実体が無い）、`#### useUnsavedChanges（既存フック活用）` の `interface UseUnsavedChangesResult` のコードブロック、L777・L4025 の `confirmNavigation`、L922〜L1025 のシーケンス図の `useUnsavedChanges->>markAsChanged()` / `markAsSaved()`、要件9.3 の決着記述中の「`useUnsavedChanges` の `setDirty` で離脱を止める」
   - **機械の関門は現状赤くならない**: 当該表は手動の照合手順であり、`check:design-code-refs` / `check:design-path-refs` はいずれも exit 0（下流の実装者・独立レビューが前後で実測）。**赤くならないため放置すると次の読み手が撤去済みの API を前提に実装しうる**
   - **依頼**: 規約 (a) に従い、歴史の記述は残して現況（タスク 100.24 以降の API）を併記するか、契約名の実体表のように「現に実体を名指す」ことが目的の行は現況へ改めるかを、行ごとに決めること
   - _Boundary: 本スペックの `design.md` の `useUnsavedChanges` を名指す記述_
+  - **処遇（コミット `7f678825` の作業ツリー、2026-09-25 にリポジトリルートで実測）**: API を変えたコミットは下流 100.24 の `23d83871`（2026-09-24。`git log -S` で `markAsChanged` / `confirmNavigation` / `UseUnsavedChangesResult` を引くと、フックへの変更はこのコミットと導入時の `d7f3cf30` の2件だけ）。現況のフックは `useUnsavedChanges({ isDirty, message }: UseUnsavedChangesOptions): void`。design.md の記述を行ごとに次のように決めた（+17/−18 行）
+    - **現況へ改めた行**（実体を名指すことが目的の行）: L590 の契約名の実体表の行（`UseUnsavedChangesResult` → `UseUnsavedChangesOptions`。表は本書の定義ブロックに現れる型名を扱うため）と、`#### useUnsavedChanges（既存フック活用）` の定義ブロック（「既存実装」を示すことが目的のため現況のシグネチャへ改め、直後に旧6メンバー・撤去のコミット・利用者の裁定「(b) API を一本化する」（2026-09-24）を記録した）
+    - **規約 (a) で当時の記述を残し現況を併記した行**: L372 の要件9.3 の決着記述（`setDirty` は 115.102 の `1c308a83` が結線した当時の形）、L777・L4024 の `confirmNavigation`、二つのシーケンス図の直後の Key Decisions（L947 / L1032。図の `markAsChanged()` / `markAsSaved()` は撤去済みの戻り値を名指す）、L2986（擬似コードの同名の呼び出しは同コミット以降、画面側のコールバックを指す）、フック節の責務・Integration・Risks（L3229 / L3246 / L3248）、L7835 の `window.confirm` の既存実績（当時は `confirmNavigation` を指し、現在の本番の呼び出しは `ImageUploader` と `useUnsavedChangesGuard` の2箇所）
+    - **変えなかった行**: L382・L3135 の `onDirtyChange`（部品の props でフックのオプションではない）と L5126 / L5130 の擬似コード（フックを名指さない）
+  - **関門**: `check:design-measurement-freshness`（+selftest）/ `check:design-path-refs`（+selftest）/ `check:design-code-refs` / `check:design-refs` / `check:steering-refs` / `check:steering-idents` / `count:coverage-marks` / `check:req-coverage:selftest`（81/81）は前後とも EXIT=0 で出力同一（独立レビューが HEAD の版へ差し替えて比較）。免除の面は 194 のまま、自己言及の四つの網は 274/849/287/654 のまま（網の出入りは0行）で貼り直しは無い。本項の起票どおり、陳腐化は機械の関門では検出されない種類である
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `check:design-measurement-freshness` / `check:design-path-refs` / `check:design-code-refs` / `check:steering-idents` / `count:coverage-marks` いずれも EXIT=0
+  - **範囲外の観測（起票はしていない）**: L1739 / L1740 の Component Summary、L3102 / L3110 の `PhotoManagementPanel` 節、L3330 / L3339 の `AnnotationEditor` 節は、両部品が `useUnsavedChanges` に依存すると書くが、git の履歴で両部品がこのフックを import したことは一度も無い（100.24 以前からの食い違いで、L3246 に足した現況と同文書内で食い違う）。L3135 の `PhotoManagementPanelProps.onDirtyChange` も実装に無い
 
 ## Implementation Notes（Task 115.30-115.52）
 

@@ -369,7 +369,7 @@ grep -nE '出力(が|は)|[0-9]+ *件' "$D" | grep -vE '20[0-9]{2}-[0-9]{2}-[0-9
 **境界外に残る観測（是正は後続タスクを要する。ただし後に決着した項目があるため、各項に現況を明記する）**:
 
 - **代替検証手段に Jest を挙げる項目は、是正前は 124 件あった。**本リポジトリに Jest の依存も設定ファイルも存在せず、`frontend/package.json` と `backend/package.json` はいずれも Vitest を使う（両ファイルとも `vitest` を持ち `jest` を持たない。`frontend/vitest.config.ts` と `backend/vitest.config.ts` が実在する）。**根拠が名指す道具が実在しない。**124 件の内訳は現場調査スペックの項目が **32 件**、他機能スペックの項目が **92 件**であった。**このうち現場調査の 32 件は本タスクの境界内であるため、すべて Vitest へ改めた**（上表の 2 件は根拠ごと差し替え、残る 30 件は道具名の先頭 `Jest` を `Vitest` へ置換し `React Testing Library` / `Supertest` などの併記部分は据え置いた）。**是正後に Jest を挙げる項目は 92 件で、すべて他機能スペックの所管である**（`node -e "const j=require('./e2e/requirement-exclusions.json');const k=j.exclusions.filter(e=>/Jest/.test(e.alternativeVerification.tool));console.log(k.length, k.filter(e=>e.id.startsWith('site-survey/')).length)"` の出力が `92 0`。書く直前の実測）。他機能スペックの項目は本タスクの境界外であるため記録にとどめた。**この `92 0` は 115.121 時点の実測であり、タスク 115.172 の再実行では `90 0`、タスク 115.212 の再実行（2026-08-31）では `64 0` である**（現場調査の項目が 0 件である点は三度とも変わらない。他機能スペック側の項目の増減で数は動くため、この値を引くときは必ず実測日を添えること）。**後続タスクの提案（タスク 115.172 時点で未起票）**: 各機能スペックで自機能の項目の道具名を実測へ改めること。 **判定（タスク 115.213）**: 本提案は**後続タスクへ送る**。提案は依然として生きており（同じ `node -e` の出力は 2026-08-31 の再実測で `64 0` のままである）、**現場調査スペックの項目は 0 件で、残る全件が他機能スペックの所管である**。是正先は `e2e/requirement-exclusions.json` と各機能スペックの設計文書であって本書ではないため、**タスク 115.213 の境界の外にある**。本書は現場調査スペックの側では是正を終えており、ここに残るのは他スペックへの申し送りだけである。判定の一覧は下の `## 未起票の提案の台帳（タスク 115.213）` にある
-- **要件9.3（未保存変更時の確認ダイアログ）は、当時、検証が本番へ到達するが要件が名指す経路へは到達しなかった（**タスク 115.102 で決着済み。現在の欠落ではない**）。** 当時の観測は次のとおりであった——根拠が指す `frontend/src/hooks/useUnsavedChanges.ts` は本番から 5 箇所に結線されており、現場調査ではそのうち `frontend/src/pages/SiteSurveyDetailPage.tsx` が使う。しかし同ページの未保存対象は画像コメントと並び順であり、要件9.3 が名指す「注釈を編集中に画面を離れようとする」経路を担う `AnnotationEditor.tsx` には離脱確認の実装が無い。**「本番へ到達する」と「要件の経路へ到達する」は別の主張である。**この読み分け自体は現在も有効な教訓である。**後続タスクの提案とその結末（提案は消化済み）**: 115.121 が残した申し送り「注釈編集中の離脱確認の有無を要件9.3 に照らして決着させること」は、下の `#### 注釈編集画面の未実装受入基準の結線（タスク 115.102）` で決着した。現在は `AnnotationEditor`（`frontend/src/components/site-surveys/AnnotationEditor.tsx`）が未保存判定を持って `onDirtyChange` でホストへ通知し、`frontend/src/pages/SiteSurveyImageViewerPage.tsx` が `useBlocker` と `useUnsavedChanges` の `setDirty` で離脱を止める。**上の「5 箇所」も当時の実測であり、タスク 115.172 の再実測では 6 ファイルである**（`grep -rln "hooks/useUnsavedChanges'" frontend/src --include=*.ts --include=*.tsx | grep -v '\.test\.' | wc -l` の出力が `6`。2026-08-31 に再実測しても `6` で変わらない。`useUnsavedChangesGuard` は別部品であり、名前の前方一致で数えると混入するため上の形で数える）
+- **要件9.3（未保存変更時の確認ダイアログ）は、当時、検証が本番へ到達するが要件が名指す経路へは到達しなかった（**タスク 115.102 で決着済み。現在の欠落ではない**）。** 当時の観測は次のとおりであった——根拠が指す `frontend/src/hooks/useUnsavedChanges.ts` は本番から 5 箇所に結線されており、現場調査ではそのうち `frontend/src/pages/SiteSurveyDetailPage.tsx` が使う。しかし同ページの未保存対象は画像コメントと並び順であり、要件9.3 が名指す「注釈を編集中に画面を離れようとする」経路を担う `AnnotationEditor.tsx` には離脱確認の実装が無い。**「本番へ到達する」と「要件の経路へ到達する」は別の主張である。**この読み分け自体は現在も有効な教訓である。**後続タスクの提案とその結末（提案は消化済み）**: 115.121 が残した申し送り「注釈編集中の離脱確認の有無を要件9.3 に照らして決着させること」は、下の `#### 注釈編集画面の未実装受入基準の結線（タスク 115.102）` で決着した。現在は `AnnotationEditor`（`frontend/src/components/site-surveys/AnnotationEditor.tsx`）が未保存判定を持って `onDirtyChange` でホストへ通知し、`frontend/src/pages/SiteSurveyImageViewerPage.tsx` が `useBlocker` と `useUnsavedChanges` の `setDirty` で離脱を止める。**この「`setDirty` で」は 115.102（コミット `1c308a83`）が結線した当時の形である**——`setDirty` は当時の共有フックの戻り値であり、quantity-table-generation のタスク 100.24 がコミット `23d83871` で共有フックを `useUnsavedChanges({ isDirty, message? }): void` へ改めた際に撤去された。同コミットが同画面を追随させ、現況は注釈エディタの通知を受けた状態をそのまま `useUnsavedChanges({ isDirty: hasUnsavedAnnotationChanges })` へ渡し、`useBlocker(hasUnsavedAnnotationChanges)` と併せて離脱を止める（コミット `7f678825` の作業ツリーで 2026-09-25 に確認。タスク 115.332 が併記した）。**上の「5 箇所」も当時の実測であり、タスク 115.172 の再実測では 6 ファイルである**（`grep -rln "hooks/useUnsavedChanges'" frontend/src --include=*.ts --include=*.tsx | grep -v '\.test\.' | wc -l` の出力が `6`。2026-08-31 に再実測しても `6` で変わらない。`useUnsavedChangesGuard` は別部品であり、名前の前方一致で数えると混入するため上の形で数える）
 
 #### 注釈編集画面の未実装受入基準の結線（タスク 115.102）
 
@@ -587,7 +587,7 @@ grep -nE '出力(が|は)|[0-9]+ *件' "$D" | grep -vE '20[0-9]{2}-[0-9]{2}-[0-9
 | `UndoManagerState` | `frontend/src/services/UndoManager.ts` |
 | `UpdateImageMetadataInput` | `backend/src/services/image-metadata.service.ts` |
 | `UploadImageInput` | `backend/src/services/survey-image.service.ts` |
-| `UseUnsavedChangesResult` | `frontend/src/hooks/useUnsavedChanges.ts` |
+| `UseUnsavedChangesOptions` | `frontend/src/hooks/useUnsavedChanges.ts`（タスク 115.332 で本行の契約名を改めた。以前の本行は戻り値の型 `UseUnsavedChangesResult` を名指していたが、同型は quantity-table-generation のタスク 100.24 がコミット `23d83871` で撤去した。本表が名指すのは本書の定義ブロックに現れる型名であり、下の `#### useUnsavedChanges（既存フック活用）` の定義ブロックも同じタスク 115.332 で現況の `UseUnsavedChangesOptions` へ改めたため、撤去済みの名前は本表の対象から外れた） |
 | `AnnotationEditorState` | `frontend/src/components/site-surveys/AnnotationEditor.tsx`（**非エクスポート**のモジュールローカル型。外部から import できない） |
 | `AnnotatedImageInput` | `frontend/src/components/site-surveys/AnnotatedImageThumbnail.tsx` |
 | `AnnotationMode` | 同名宣言が2箇所に存在する（`frontend/src/components/site-surveys/ExportSettingsForm.tsx`、`frontend/src/services/export/bulkExportService.ts`）。値集合は同一だが**1:1 の実体ではない**ため、参照時はどの宣言を指すかをパスで明示する |
@@ -774,7 +774,7 @@ grep -nE '出力(が|は)|[0-9]+ *件' "$D" | grep -vE '20[0-9]{2}-[0-9]{2}-[0-9
 - ページネーション/検索/フィルタリングパターン
 - 論理削除パターン（deletedAtフィールド）
 - 楽観的排他制御パターン（expectedUpdatedAt）
-- **useUnsavedChangesフック（isDirty、beforeunload、confirmNavigation）**
+- **useUnsavedChangesフック（isDirty、beforeunload、confirmNavigation）**（括弧内は本項を書いた時点の API である。quantity-table-generation のタスク 100.24 がコミット `23d83871` で `confirmNavigation` と内部の dirty 状態を撤去し、現況のフックは `useUnsavedChanges({ isDirty, message? }): void` として、呼び出し側が渡す `isDirty` が真の間だけ beforeunload の確認を登録する。タスク 115.332 が併記した）
 
 **既存実装の活用**（要件10〜12向け）:
 - PdfExportService: クライアントサイドPDF生成（jsPDF 2.5.x）
@@ -944,7 +944,7 @@ sequenceDiagram
 - 注釈データはFabric.js JSON形式で保存
 - Undo/Redo履歴は最大50件保持し、超過時は最古の履歴から削除（FIFO）、保存時にクリア
 - **手動保存方式**: 保存ボタンクリックでサーバーに保存（オートセーブからの変更）
-- **未保存変更検出**: useUnsavedChangesフックでisDirty状態を管理
+- **未保存変更検出**: useUnsavedChangesフックでisDirty状態を管理（上の図の `useUnsavedChanges` への `markAsChanged()` / `markAsSaved()` は、quantity-table-generation のタスク 100.24 がコミット `23d83871` で撤去した共有フックの戻り値を名指す。現況のフックは dirty 状態を持たない。注釈編集の未保存判定は `AnnotationEditor` が持って `onDirtyChange` でホストの `SiteSurveyImageViewerPage` へ通知し、ホストがその状態を `useUnsavedChanges({ isDirty: hasUnsavedAnnotationChanges })` へ渡して `useBlocker` と併せて離脱を止める。コミット `7f678825` の作業ツリーで 2026-09-25 に確認し、タスク 115.332 が併記した）
 - **ページ離脱警告**: beforeunloadイベントで確認ダイアログを表示
 - 注釈編集中は30秒間隔で自動的にlocalStorageに一時保存（要件15.4。描き続けている最中も保存される）
 - ページリロード時にlocalStorageから未保存データを復元
@@ -1029,7 +1029,7 @@ sequenceDiagram
 - **手動保存方式**: コメント入力・フラグ変更・**順序変更**は未保存状態としてマーク、保存ボタンで一括保存
 - **順序変更の即時保存廃止**: ドラッグ&ドロップ、「上へ移動」「下へ移動」ボタンはローカル状態のみ更新（要件4.11-4.13、10.5-10.7）
 - **pendingOrderRefパターン**: 未保存の順序変更をRefで追跡し、保存時にメタデータ変更と統合
-- **未保存変更検出**: useUnsavedChangesフックでisDirty状態を管理
+- **未保存変更検出**: useUnsavedChangesフックでisDirty状態を管理（上の図の `useUnsavedChanges` への `markAsChanged()` / `markAsSaved()` は、quantity-table-generation のタスク 100.24 がコミット `23d83871` で撤去した共有フックの戻り値を名指す。同コミット以降、`SiteSurveyDetailPage` は画面側の `useState` の `isDirty` と同名のコールバック `markAsChanged` / `markAsSaved` を自ら持ち、共有フックへ `isDirty: canEdit && isDirty` を渡す。コミット `7f678825` の作業ツリーで 2026-09-25 に確認し、タスク 115.332 が併記した）
 - **ページ離脱警告**: 未保存変更がある場合は確認ダイアログを表示
 - 現場調査詳細画面ではサムネイル一覧タブを設けず、フルサイズ写真を直接表示（要件10.1準拠）
 - パフォーマンス最適化のため、一覧表示用に中解像度画像（800x600px程度）を使用し、クリック時に元画像を表示
@@ -2983,7 +2983,7 @@ interface SiteSurveySectionCardState {
 - **pendingOrderRefによる未保存順序変更の追跡**
 - **handleOrderChange**: ローカル状態のみを更新（サーバー保存しない）
 - **handleSaveMetadata**: メタデータと順序変更を一括保存
-- useUnsavedChangesフックとの統合
+- useUnsavedChangesフックとの統合（現況: 本画面が画面側の `useState` の `isDirty` と同名のコールバック `markAsChanged` / `markAsSaved` を持ち、共有フックへ `isDirty: canEdit && isDirty` を渡す。下の擬似コードの `markAsChanged()` / `markAsSaved()` は、quantity-table-generation のタスク 100.24 がコミット `23d83871` で共有フックの戻り値を撤去するまではフックの API を指していたが、同コミット以降はこの画面側のコールバックを指す。コミット `7f678825` の作業ツリーで 2026-09-25 に確認し、タスク 115.332 が併記した）
 
 **Dependencies**
 - Inbound: Router — ページ遷移 (P0)
@@ -3226,27 +3226,26 @@ interface OrderChangeHandlers {
 | Requirements | 9.1, 9.3, 10.8, 10.9 |
 
 **Responsibilities & Constraints**
-- isDirtyフラグの管理
+- isDirtyフラグの管理（本項を書いた時点の責務である。quantity-table-generation のタスク 100.24 がコミット `23d83871` でフック内部の dirty 状態を撤去し、現況のフックは呼び出し側が持つ `isDirty` を受け取るだけで、フラグを管理しない。タスク 115.332 が併記した）
 - beforeunloadイベントによるページ離脱時の確認ダイアログ
 - 既存実装（frontend/src/hooks/useUnsavedChanges.ts）を活用
 
 **既存実装の活用**:
 ```typescript
-// frontend/src/hooks/useUnsavedChanges.ts（既存実装）
-interface UseUnsavedChangesResult {
+// frontend/src/hooks/useUnsavedChanges.ts（現況。quantity-table-generation のタスク 100.24 以降）
+export interface UseUnsavedChangesOptions {
   isDirty: boolean;
-  setDirty: (dirty: boolean) => void;
-  markAsChanged: () => void;
-  markAsSaved: () => void;
-  reset: () => void;
-  confirmNavigation: () => boolean;
+  message?: string;
 }
+export function useUnsavedChanges(options: UseUnsavedChangesOptions): void;
 ```
 
+**上の定義ブロックの経緯（タスク 115.332）**: 本ブロックはタスク 115.332 まで、戻り値の型 `interface UseUnsavedChangesResult` として `isDirty` / `setDirty` / `markAsChanged` / `markAsSaved` / `reset` / `confirmNavigation` の六つを「既存実装」の名で載せていた。quantity-table-generation のタスク 100.24 が利用者の裁定「(b) API を一本化する」（2026-09-24）に従い、コミット `23d83871` でこの型と戻り値を、オプションの `enabled` / `initialDirty` / `onDirtyChange` とともに撤去したため、ブロックを現況の形へ改めた（本ブロックは「既存実装」を示すことが目的であり、撤去済みの形を残すと読み手が撤去済みの API を前提に実装しうるため）。現況のフックは `isDirty` を必須で受け取り、それが真の間だけ beforeunload の確認を登録する。フックの前書きも、フックが自前の dirty 状態を持たないことを明記している。上のブロックの形は、コミット `7f678825` の作業ツリーで 2026-09-25 に `frontend/src/hooks/useUnsavedChanges.ts` を開いて照合した（本体の分割代入と `message` の既定値は省いてシグネチャの形だけを示す）。
+
 **Implementation Notes**
-- Integration: SiteSurveyDetailPage、PhotoManagementPanel、AnnotationEditorで共有
+- Integration: SiteSurveyDetailPage、PhotoManagementPanel、AnnotationEditorで共有（現況: 本スペックの呼び出しは `SiteSurveyDetailPage`（`isDirty: canEdit && isDirty`）と `SiteSurveyImageViewerPage`（`isDirty: hasUnsavedAnnotationChanges`）の二画面である。`PhotoManagementPanel` と `AnnotationEditor` は本フックを呼ばない——前者は `isDirty` を props で受け、後者は `onDirtyChange` でホストへ通知する。コミット `7f678825` の作業ツリーで 2026-09-25 に確認し、タスク 115.332 が併記した）
 - Validation: isDirty=trueの場合のみbeforeunloadイベントをリッスン
-- Risks: React Routerとの連携（ルート遷移時の確認ダイアログ）
+- Risks: React Routerとの連携（ルート遷移時の確認ダイアログ）（現況: フックの前書きは、アプリ内遷移のブロック（React Router の `useBlocker`）を本フックの責務外とし、呼び出し側が同じ `isDirty` で結線するものと定める。タスク 115.332 が併記した）
 
 #### ImageExportDialog（要件12対応）
 
@@ -4022,7 +4021,7 @@ interface FabricSerializedObject {
 - **PdfReportService**: 3組レイアウト、コメント表示、ページ分割
 - **UndoManager**: コマンド実行、履歴制限、クリア処理
 - **AutoSaveManager**: ローカル保存、データ復元、ネットワーク状態監視、**QuotaExceededError LRUリトライ（15.7）、プライベートブラウジング検出（15.9）、クロスブラウザエラー検出（15.10）**
-- **useUnsavedChanges**: isDirty管理、beforeunload、confirmNavigation
+- **useUnsavedChanges**: isDirty管理、beforeunload、confirmNavigation（本項を書いた時点の検証観点である。quantity-table-generation のタスク 100.24 がコミット `23d83871` でフック内部の dirty 状態と `confirmNavigation` を撤去したため、現況のフック単体検証は、渡した `isDirty` と beforeunload の登録・解除の対応、確認メッセージ、および API の形（`isDirty` が必須であること、`enabled` を受け付けないこと、自前の dirty 状態を操作する手段を返さないこと）を見る。コミット `7f678825` の作業ツリーで 2026-09-25 に確認し、タスク 115.332 が併記した）
 - **AnnotationEditor（回転機能）**: **handleRotate（90度回転、キャンバスサイズ調整、注釈非追従）（22.1, 22.2, 22.3）**、**回転状態の保存・復元（imageRotationフィールド）（22.4, 22.5）**、**回転操作のUndo/Redo（22.6）**、**累積回転角度管理（22.8）**
 - **SiteSurveyDetailPage**: **handleOrderChange（ローカル状態更新）**、**handleSaveMetadata（メタデータ+順序一括保存）**、**pendingOrderRefパターン**
 
@@ -7833,7 +7832,7 @@ graph LR
 - **Generalization**: 現調 Requirement 37.1〜37.10 と工事写真 Requirement 20.1〜20.10 は同一の問題である。両画面が共用する `ImageUploader` を一般化点とし、1コンポーネントの改修で両スペックを充足させる。同様に 37.11〜37.15 は送信経路一般の関心であるため、画像固有の実装を作らず `client.ts` に集約する。
 - **Build vs Adopt（Adopt）**: 401リフレッシュ再送・指数バックオフ・セッション切れ発火（いずれも `frontend/src/api/client.ts`）は既存資産をそのまま採用する。`received-quotations.ts` のように各APIモジュールで `triggerSessionExpired()` を個別に呼ぶ方式は、リフレッシュによる**継続**（37.11）を満たせないため採用しない。
 - **Build vs Adopt（Adopt）**: プレビューURLは `URL.createObjectURL` と `FileInlinePreview.tsx` の useEffect クリーンアップ作法を採用。新規ライブラリを追加しない。
-- **Build vs Adopt（Adopt）**: 破棄確認は `window.confirm` を採用する。汎用 `ConfirmDialog` はコードベースに存在せず、破棄1操作のために新規共通ダイアログを起こすのは過剰である。既存実績は `useUnsavedChanges.ts`。E2E では `page.on('dialog')` で扱う。
+- **Build vs Adopt（Adopt）**: 破棄確認は `window.confirm` を採用する。汎用 `ConfirmDialog` はコードベースに存在せず、破棄1操作のために新規共通ダイアログを起こすのは過剰である。既存実績は `useUnsavedChanges.ts`。E2E では `page.on('dialog')` で扱う。（この既存実績は、同ファイルの `confirmNavigation` が `window.confirm` を呼んでいた実装を指す。コミット `23d83871` の親の版では、同ファイルで `window.confirm` を呼ぶのは `confirmNavigation` の中だけである。quantity-table-generation のタスク 100.24 が同コミットで `confirmNavigation` を撤去したため、コミット `7f678825` の作業ツリーの同ファイルは `window.confirm` を呼ばない。同じ作業ツリーで `grep -rn "window.confirm" frontend/src --include=*.ts --include=*.tsx | grep -v test` を走らせると、呼び出しは本節が採った破棄確認の `ImageUploader` と見積依頼側の別部品 `useUnsavedChangesGuard` にある。2026-09-25 にリポジトリルートで確認し、タスク 115.332 が併記した）
 - **Simplification**: `RequestOptions` に再試行条件の注入口を設けない。`body` が `FormData` である事実からアップロード用の再試行方針を導出する。本コードベースにおいて FormData ボディは multipart アップロードのみを意味するため、単一利用の拡張点を公開APIへ露出させる必要がない。
 - **Simplification**: 保持リストの操作を `record(attempted, failed)` の1メソッドに集約する。初回アップロードと再送を同一経路で扱え、「試行したが失敗しなかったものを除去し、失敗したものを追加・更新する」という不変条件を1箇所で保証できる。
 - **Rejected**: IndexedDB / Service Worker による永続化は Requirement 37 の Out of scope（Non-Goals）に該当するため採用しない。
