@@ -6194,6 +6194,12 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - **影響**: 3本とも pre-push の関門であり、`--no-verify` は禁止されているため、本項が解決するまで当該ブランチは push できない（利用者の判断で、下流の撤去はローカルにコミットし本項の解決を待つ）
   - **依頼**: (1) の二定数を撤去後の実測（着手時に測り直すこと）へ遊びなしで下げ、註に経緯を加える（115.328 の作法）。(2) の6宣言について、本書の該当文へ規約 (a) で当時の値を残して撤去後の再実測を並べ、錨・expected を貼り直す（115.330 の作法。四つの自己言及の網も最後に測り直す）。増分は下流 89.1 の撤去のコミットへ帰属させること
   - _Boundary: `scripts/check-requirement-coverage.ts` の二つのラチェット定数とその註、本書の当該の実測の文、`scripts/design-measurements.json` の当該6宣言_
+  - **追加の増分（下流 quantity-table-generation の Task 97.14。`PhotoChangeDialog` の撤去。HEAD `3d723c78` と撤去後の作業ツリーで実測、2026-09-25。下流の実装者と独立レビューが再現）**: 下流は本スペックの 115.326 の申し送りに従い4ファイル（本体・ストーリー・検証2本）を撤去し、下流の design.md L2606 へ規約 (a) の注を置き、`npm run check:design-path-refs:update -- --allow-increase` で基準ファイルを更新した。押下前の関門の exit code は撤去の前後で全件同一（上の3本は赤のまま）で、値は次のように動いた。**下流は本スペックの文書も定数も書き換えていない**
+    - (1) ラチェット: 機能名を欠くヘッダー 1999→1996、眠る名乗り 5058→5054。自己検査が求める引き下げ先は **1996 / 5054** になる（着手時に測り直すこと）
+    - (2) 既に赤い5宣言の actual: `design-path-exemption-tally-total` 132→141、`design-path-exemption-distinct-total` 35→40、`design-path-exemption-tally-distinct-gap` 97→101、`design-path-reach-total` 192→189、`design-path-entity-total` 152→149（`req-coverage-selftest-total-after-115314` は 1/81 のまま）
+    - (3) **新たに食い違った2宣言**: `featureless-inline-id-headers-after-115308`（expected 840 / actual 838）、`featureless-headers-resolvable-by-own-feature-after-115308`（expected 585 / actual 584）。`design-path-candidate-recorded`（747）は動いていない
+    - (4) 基準ファイルの本スペック分は延べ 124→126・集合 +2（`PhotoChangeDialog.stories.tsx` / `PhotoChangeDialog.tsx`）。増分は下流 97.14 の撤去のコミットへ帰属させること
+    - **観測（本項の範囲外）**: `check:req-coverage`（EXIT 1）と `check:steering-idents:selftest`（1/41 失敗）は、下流 89.1 より前の `c6830270` と撤去前の HEAD でも赤だった（89.1 と 97.14 の撤去によるものではない）。いずれも押下前の関門であり、本項が解決しても両者が赤である限り push は止まる
 
 ## Implementation Notes（Task 115.30-115.52）
 

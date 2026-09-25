@@ -2603,7 +2603,7 @@ interface SiteSurveySummary {
   - タスク 96.10。コミット `c113b4a9`。2026-09-15 にリポジトリルートで実測
   - 追記（タスク 97.12）: 上の表の行が書く「汎用化・共有」について、切り詰めのコードはフロントエンドとバックエンドで共有していない。再実測は `#### 現場調査からの数量グループ一括生成（REQ-40）` のグループ名の箇条への併記を読むこと。また読みやすさのため、本併記の語2箇所（「`export` しない」と、再現コマンドの出力の3ファイルの列挙）を書き換えた。事実と再現コマンドは変えていない。タスク 97.12。コミット `cee3619d`。2026-09-15 にリポジトリルートで実測
 
-未使用の `frontend/src/components/quantity-table/PhotoChangeDialog.tsx` は本スコープでは変更しない（残置）。
+未使用の `frontend/src/components/quantity-table/PhotoChangeDialog.tsx` は本スコープでは変更しない（残置）。 **撤去の記録（タスク 97.14。コミット `3d723c78` の作業ツリー、2026-09-25 にリポジトリルートで実測）**: 利用者の裁定（2026-09-15「台帳ごと撤去する」）に従い、本行が名指す部品を、そのストーリー `PhotoChangeDialog.stories.tsx` と単体検証 2 本とあわせて計 4 ファイル撤去した。撤去の直前も本番コードからの取り込みは 0 件で（定義ファイル自身を除く参照は単体検証 2 本とストーリー 1 本の 3 ファイルだけ）、`npm run check:req-coverage:json` の `productionReachability.unreachableProductionModules` に載っていた。撤去を阻んでいた site-survey の設計文書の名指しは、同スペックの Task 115.326 が解いた。本行の「残置」と、同じ部品を名指す本書の他の記述（`### Architecture Pattern & Boundary Map` の追加コンポーネントと修正コンポーネント（REQ-39）の行、`## Requirements Traceability` と `### Component Summary` の行、`#### PhotoCommentDisplay修正（REQ-35）`、`#### 写真選択・変更ダイアログのレイアウト修正（REQ-39）`、Requirement 49 の `#### Non-Goals` / `#### Out of Boundary` / `#### Revalidation Triggers` の項）は、書かれた時点の記述として残す（規約 (a)）
 
 ---
 
