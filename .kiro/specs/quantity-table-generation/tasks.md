@@ -4371,7 +4371,7 @@ _起票元: Task 96.11 の棚卸し。実装は行っていない_
   - **上流所管（起票済み。受け皿は 101.2）**: 自己検査ファイルを1本増やしたことで `check:design-measurement-freshness` に**ちょうど2件**の食い違いが生じる（`selftest-entry-population` / `selftest-failure-default-conforming`、いずれも expected=`19` actual=`20`）。是正には `.kiro/specs/site-survey/design.md` の逐語「タスク 115.300 の提出時点の再実測は母集団 19 件・適合 19 件である」と `scripts/design-measurements.json` の `expected` を**同時に**動かす必要があり、**前者は別スペックの設計文書＝上流所管**である。**親が上流 site-survey の tasks.md へ Task 115.331 として実際に書き込んだ**（89.1 の教訓「起票して待つ」は起票を実際に書き込んでから待機に入ること）
   - **観測（範囲外）**: `count:coverage-marks:selftest` は `.husky/scripts/pre-push.sh` にも CI にも組み込まれていない（pre-push が呼ぶのは `check:*:selftest` 系）。所要 5.5 秒はフックの負担にならない一方、**自己検査が黙って腐る経路は残る**。本タスクの裁定は「計数の補助（自己検査を伴う）」であって関門の新設ではないため境界内の欠陥としないが、`check:*` 系と同様に pre-push へ載せるかは別途の判断としてよい
 
-- [ ] 101.2 自己検査の母集団を引く上流の鮮度宣言が、101.1 の新設で陳腐化した状態を解消する
+- [x] 101.2 自己検査の母集団を引く上流の鮮度宣言が、101.1 の新設で陳腐化した状態を解消する
   - **出所**: 101.1 の独立レビューの Finding 3（上流所管と判定された）
   - **測った事実（親が 2026-09-18 に実測）**: `npm run check:design-measurement-freshness` に 101.1 由来の食い違いが**ちょうど2件**ある——`selftest-entry-population`（expected=`19` actual=`20`）と `selftest-failure-default-conforming`（expected=`19` actual=`20`）。いずれも `.kiro/specs/site-survey/design.md` の逐語「タスク 115.300 の提出時点の再実測は母集団 19 件・適合 19 件である」が引く値である。**101.1 が `scripts/count-coverage-marks.selftest.ts` を1本足したことで `ls scripts/*.selftest.ts | wc -l` が 19→20 になった**
   - **両者が揃って 20 であることの意味**: 新設の自己検査は失敗既定の形（module 頂の `process.exitCode = 1;`、成功経路にのみ字下げ付きの `process.exitCode = 0;`、`main();` が1箇所）に**適合している**。作法違反による増加ではない
@@ -4379,7 +4379,8 @@ _起票元: Task 96.11 の棚卸し。実装は行っていない_
   - _Blocked: site-survey スペックの Task 115.331（本項の起票先。親が上流の tasks.md へ実際に書き込み済み）の解決待ち。**115.330 が同じ文書の鮮度宣言の系列を扱っているため、そちらと同時に処理するのが自然である**_
 
 **本節が `_Requirements:` を持たないのは意図である**（Task 97 / 98 / 99 / 100 と同じ）。
-
+  - **処遇（HEAD `f3ee960d`、2026-09-25 にリポジトリルートで実測）**: 上の `_Blocked:` は当時の記録として残す。本項の要求は上流 site-survey の 115.330（コミット `f8c42e71`）が同時に処理し、115.331（コミット `7f678825`）が `[x]` で閉じた。下流としての編集は無い（是正は上流の設計文書と `scripts/design-measurements.json` の所管で、本項は下流の成果物を求めていない）。上流の `design.md` L8884（115.331 の記録時点の L8885。115.332 の編集で1行繰り上がった）は 115.300 の逐語「母集団 19 件・適合 19 件」を残したうえで「タスク 115.330 の提出時点の再実測は母集団 20 件・適合 20 件である」を並べ（規約 (a)）、増分を本スペック 101.1 のコミット `83d2fdba`（2026-09-18、`scripts/count-coverage-marks.selftest.ts` の新設。`git show --stat` で確認）へ帰属させている。`selftest-entry-population` / `selftest-failure-default-conforming` は錨が同文へ貼り直され expected は `20`
+  - **検証（独立レビューが再現）**: `ls scripts/*.selftest.ts | wc -l` は 20。`npm run check:design-measurement-freshness:verbose` で二宣言とも expected=20 actual=20 documentFigure=20（当該宣言は緑）。関門全体の EXIT=1 は上流 115.333（下流 89.1 / 97.14 の撤去に由来）が扱う別系列の宣言によるもので、本項とは無関係
 
 ## Requirements Coverage の現況の追補（Task 100.26、2026-09-24 実測）
 
