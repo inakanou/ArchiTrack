@@ -6147,7 +6147,7 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - **独立レビューは1回差し戻した**: L9408 の後記の出典を、計測に使った作業ツリーのコミット `d34f4116` で書いていた。追記したコミット `bbc0d934` へ改め、「同記録」が直前の段落の被覆印の裁定記録と紛れるため記録名を明示した。追記中の他のハッシュも、帰属先の変更を行ったコミットか計測の版として書いたものかを確かめた（独立レビューが `2823f9e4` / `bccdbaaf` / `59024868` / `9e7b1cae` / `35d45701` / `aea6dcad` / `b701ad53` を抜き取りで確認）
   - **検証（親が承認後に新鮮な証拠で再実行）**: `check:design-measurement-freshness` / `:selftest` / `check:design-path-refs` / `check:steering-refs` / `count:coverage-marks` / `check:req-coverage:selftest` / `type-check` いずれも EXIT=0。design.md に `d34f4116` の残存は零件
 
-- [ ] 115.331 自己検査の母集団を引く鮮度宣言を、下流が1本増やした実測へ揃える（**quantity-table-generation の Task 101.1 からの起票依頼**）
+- [x] 115.331 自己検査の母集団を引く鮮度宣言を、下流が1本増やした実測へ揃える（**quantity-table-generation の Task 101.1 からの起票依頼**）
   - **出所**: 下流 quantity-table-generation の Task 101.1（利用者の裁定「被覆印の計数の方式を統一する補助を用意する（自己検査を伴う）」）。同タスクが `scripts/count-coverage-marks.ts` とその自己検査 `scripts/count-coverage-marks.selftest.ts` を新設したため、**`scripts/*.selftest.ts` の母集団が 19 件から 20 件へ増えた**。**下流は本スペックの設計文書も `design-measurements.json` も書き換えていない**
   - **再実測（2026-09-18、リポジトリルート、`npm run -s check:design-measurement-freshness`）**: 本件に由来する食い違いは**ちょうど2件**である（下流の独立レビューが、下流の是正ラウンド1・2の前後で `diff` を取り増えていないことを実測した）
     - `selftest-entry-population`: expected `19` / actual `20`
@@ -6157,6 +6157,9 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - **依頼**: 規約 (a) に従い、`design.md` の当該逐語と `design-measurements.json` の `expected` を**同時に**測り直すこと。**逐語の書き換えは本スペックの所管であり、下流からは触れない**（下流の独立レビューも境界外と判定した）
   - **併せて測ると一度で済むもの**: 本宣言は 115.330 が扱う鮮度宣言の系列と同じ文書に在る。**115.330 の測り直しの際に本件も同時に処理するのが自然**である（本件だけを先に直すと 115.330 で再び触ることになる）
   - _Boundary: 本スペックの `design.md` の当該鮮度宣言の逐語と `design-measurements.json` の `selftest-entry-population` / `selftest-failure-default-conforming` の expected_
+  - **処遇（コミット `f8c42e71` の作業ツリー、2026-09-25 にリポジトリルートで実測）**: 本項の要求は 115.330（コミット `f8c42e71`）が同時に処理済みであり（本項の本文が「115.330 と同時に処理するのが自然」と定める）、本項としての編集は無い。`design.md` L8885 は 115.300 の逐語「母集団 19 件・適合 19 件」（`5f1b8568` が置いた行の先頭と逐語で一致）を残したうえで「タスク 115.330 の提出時点の再実測は母集団 20 件・適合 20 件である」を並べ（規約 (a)）、増分を下流 101.1 のコミット `83d2fdba`（2026-09-18、`scripts/count-coverage-marks.selftest.ts` の新設）へ帰属させている。`selftest-entry-population` / `selftest-failure-default-conforming` は錨を同文へ貼り直し expected は `20`。宣言自身の command の実測はいずれも 20
+  - **検証**: `check:design-measurement-freshness` EXIT=0（`:verbose` で二宣言とも expected=20 actual=20 documentFigure=20）、`:selftest` 56/56 EXIT=0（実装者・独立レビュー・親が承認後に再実行）
+  - **下流への申し送り**: quantity-table-generation の 101.2 は、本項の完了によりブロックが解ける
 
 - [ ] 115.332 共有フック `useUnsavedChanges` の撤去済み API を名指す設計文書の記述を、現況へ揃える（**quantity-table-generation の Task 100.24 からの起票依頼**）
   - **出所**: 下流 quantity-table-generation の Task 100.24（利用者の裁定「(b) API を一本化する」、2026-09-24）。共有フック `frontend/src/hooks/useUnsavedChanges.ts` を `useUnsavedChanges({ isDirty, message? }): void`（戻り値なし・自前の dirty 状態を持たない）へ改め、`enabled` / `initialDirty` / `onDirtyChange` と戻り値 `isDirty` / `setDirty` / `markAsChanged` / `markAsSaved` / `reset` / `confirmNavigation`、型 `UseUnsavedChangesResult` を撤去した。**本スペックの画面 `SiteSurveyDetailPage` / `SiteSurveyImageViewerPage` の呼び出しは下流が追随させた**（前者は画面側の `useState` の `isDirty` と `markAsChanged` / `markAsSaved` を持ち `isDirty: canEdit && isDirty` を渡す。旧条件「`enabled=canEdit` かつ内部 dirty」と同値であることを独立レビューが呼び出し点ごとに確認した）。**下流は本スペックの `design.md` を一行も書き換えていない**
