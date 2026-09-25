@@ -4295,7 +4295,7 @@ _起票元: Task 96.11 の棚卸し。実装は行っていない_
   - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix frontend run type-check` EXIT=0 ／ `npm --prefix frontend run test -- calculation-engine calculation-params-validation numeric-range-validation` 3ファイル/202件 緑 ／ `npm run count:coverage-marks`・`check:design-path-refs`・`check:steering-refs` いずれも EXIT=0 ／ 4つの名前の `frontend/src`・`e2e` への grep は零件
   - **観測（範囲外・受け皿を 100.31 として起票した）**: 撤去の結果、同じファイルの `isValidNumber`（自分のテストだけが使う）とインターフェース `ValidationResult`（利用者零件）が本番からの利用者を失った
 
-- [ ] 100.28 上流 site-survey の `design.md:9393` に残る同型の言い回しを、上流へ起票する
+- [x] 100.28 上流 site-survey の `design.md:9393` に残る同型の言い回しを、上流へ起票する
   - **出所**: 100.21 の独立レビューの Finding 1（本タスクの `_Boundary:_` 外と判定された）
   - **測った事実（100.21 で実測。着手時に測り直すこと）**: 100.21 は `scripts/coverage-mark-adjudication.md` §6 の「**本記録を読む機械は**」という言い回しを、値の実体（**名を引くファイルの数**）へ寄せて閉じた。しかし**上流 `.kiro/specs/site-survey/design.md:9393` の表の行「§6 が「本記録を読む機械は」を述べるときの母集団」が同じ乖離をそのまま抱えている**。同 `:9455` は既に開いている上流タスク **115.330 の (a)** が保持しているが、**`:9393` は 115.330 の本文（`.kiro/specs/site-survey/tasks.md:6085-6096`）に挙がっていない**
   - **なぜ扱うか**: 100.21 が閉じた乖離が上流の文書に残っていると、次に母集団を棚卸しする者が上流の記述を根拠に誤った読みへ戻りうる。**下流で閉じた判断を上流へ申し送らないと断絶が滞留する**（96.11 / 97.19 が同型の断絶を検出した先例がある）
@@ -4305,6 +4305,8 @@ _起票元: Task 96.11 の棚卸し。実装は行っていない_
   - **起票（2026-09-24、HEAD `7ad1fce3` で再実測）**: 上流 `.kiro/specs/site-survey/tasks.md` の **115.330 へ追記 (c) として書き込んだ**（新規タスクは立てていない。追加のみ6行、100.17 の追記 (b) の直後）。`:9393` は 115.330 の (a) が保持する `:9455` と同じ宣言 `coverage-adjudication-reader-files`・同じ 115.301 節の散文であり、上流では下流の増分を既存タスクへ追記する形が先例であるため。再実測: `grep -n '本記録を読む機械' .kiro/specs/site-survey/design.md` の当たりは `:9393` の1行のみ（置いたのはコミット `94a2d344`）、`design-measurements.json` のどの宣言の `anchor` でもなく関門では見つからない。100.21（コミット `a55665ba`）が §6 に置いた「値が数えるのは本記録の名を引く追跡ファイルの数（13件）であって本記録を読む機械（3件）の数ではない」との乖離がそのまま残る。上流の `design.md` と下流のコードには一字も触れていない
   - **関門（前後でバイト一致。独立レビューが HEAD の版へ差し替えて再現）**: `check:design-path-refs` 0 / `check:steering-refs` 0 / `check:design-code-refs` 0 / `count:coverage-marks` 0 / `check:design-measurement-freshness` 1・`check:req-coverage` 1（いずれも基線から赤で、出力は前後同一）
   - _Blocked: site-survey スペックの Task 115.330 の追記 (c)（本項の起票先。上流の `tasks.md` へ実際に書き込み済み）の解決待ち_
+  - **処遇（2026-09-25、HEAD `02b00d40` の作業ツリー、リポジトリルートで実測）**: 上の `_Blocked:` は当時の記録として残す。起票先の上流 115.330 の追記 (c) はコミット `f8c42e71` で解決済み（上流の `tasks.md` で `[x]`）。上流は表の行を規約 (a) で残し（旧 `:9393` は一行ずれて現在の `:9392`、blame は `94a2d344` のまま）、表の後の `:9401` に「**追記（タスク 115.330）**」の段落を足して「当該の宣言 `coverage-adjudication-reader-files` の値が数えるのは、被覆印の裁定記録を読む機械の数ではなく、同記録の名を引く追跡ファイルの数である」と定めた。これは 100.21（コミット `a55665ba`）が `scripts/coverage-mark-adjudication.md` §6 に置いた「本節の値が数えるのは「本記録の名を引く追跡ファイルの数」であって、「本記録を読む機械」の数ではない」と同じ読み方で、段落が引く内訳（開く機械 3・駆動系 1・開かないもの 9）も同宣言の `note` と一致する（独立レビューが blame と逐語で再現）
+  - **検証**: `check:design-measurement-freshness:verbose` の当該宣言は `expected=13 actual=13 documentFigure=13` で緑、`git grep -l coverage-mark-adjudication | wc -l` は 13。関門全体は EXIT=1 だが、赤は本件の外の宣言（上流 115.333 が名指すもの）から来ており、**緑と言えるのは当該宣言に限る**。本項の任務は起票して待つことであり残る作業は無い。本スペックからは上流の `design.md` にもコードにも一字も触れていない
 
 - [x] 100.29 反実仮想の関門が「主張と引用の同居」しか見ない状態の処遇を決める
   - **出所**: 100.22 の2回のデバッグ調査（本タスクの `_Boundary:_` 外と判定された）
