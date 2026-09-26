@@ -186,19 +186,19 @@ test.describe('JWKS Endpoint E2E', () => {
       expect(body.keys.length).toBeGreaterThan(0);
     });
 
+    /**
+     * @requirement user-authentication/REQ-31.4
+     * @requirement user-authentication/REQ-31.5
+     */
     test('キャッシュ制御: 適切なCache-Controlヘッダーが設定されていること', async ({ request }) => {
-      // `backend/src/routes/jwks.routes.ts` は Cache-Control を一切設定していない。
-      // 従来はヘッダーの有無で主張を包んでいたため、テスト名が掲げる主張は一度も実行されず
-      // 恒久的に緑だった。主張は名前どおり無条件に置き、実装が満たすまでは既知の失敗として
-      // 計上する。実装されると「落ちるはずが通った」で赤くなるため、注釈の撤去を強制する。
-      test.fail();
-
       const response = await request.get(`${API_BASE_URL}/.well-known/jwks.json`);
+      expect(response.status()).toBe(200);
 
-      const cacheControl = response.headers()['cache-control'];
-      // 公開鍵配布はキャッシュ方針を明示すべきエンドポイントである
-      expect(cacheControl).toBeDefined();
-      expect(cacheControl).toMatch(/public|private|max-age/);
+      // 要件31.4: ヘッダーが設定されていること。要件31.5: 有効期間が300秒であること。
+      // 期待値は具体値で書き、本番の定数（JWKS_CACHE_MAX_AGE_SECONDS）は参照しない。
+      // 「定義されている」「public / private / max-age のいずれかを含む」といった弱い主張は、
+      // 有効期間を誤った値へ変えても緑のままになるため採らない。
+      expect(response.headers()['cache-control']).toBe('public, max-age=300');
     });
   });
 });

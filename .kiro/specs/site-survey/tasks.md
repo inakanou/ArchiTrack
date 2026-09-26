@@ -6209,6 +6209,16 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - **検証（親が承認後に新鮮な証拠で再実行）**: `check:req-coverage:selftest` 81/81、`check:design-measurement-freshness` EXIT=0
   - **下流への申し送り**: quantity-table-generation の 89.1 と 97.14 は、本項の解決により `[x]` の条件（関門が緑へ戻ったことの確認）を満たせる状態になった
 
+- [ ] 115.334 下流の公開鍵配布のキャッシュ制御の除外の取り下げで赤くなった除外台帳の自己検査と鮮度宣言を、取り下げ後の実測へ揃える（**user-authentication の Task 32.2 からの起票依頼**）
+  - **出所**: 下流 user-authentication の Task 32.1（コミット `4dd8f37d`）が `backend/src/routes/jwks.routes.ts` に `Cache-Control: public, max-age=300` を実装した。続く 32.2 は `e2e/specs/api/jwks.spec.ts` のキャッシュ制御の検証から `test.fail()` を外し、`'public, max-age=300'` との完全一致を主張して `@requirement user-authentication/REQ-31.4` / `REQ-31.5` を付与した。被覆印とラチェットの無い除外は `scripts/check-requirement-exclusions.ts` の `checkCoverageTagCoexistence`（`coverage-tag-coexistence:no-ratchet`）により同居できないため、`e2e/requirement-exclusions.json` の REQ-31.4 / 31.5 の除外は取り下げが強制される。REQ-31.6 は利用者の裁定（2026-09-26「(A) 実態どおりに書き換える」）により、除外に残したまま分類を integration-test、代替検証を Vitest の単体検証（`backend/src/__tests__/unit/routes/jwks.routes.test.ts`）へ改めた。**下流は本スペックの設計文書も自己検査も `scripts/design-measurements.json` も書き換えていない**
+  - **取り下げで赤くなった押下前の関門（下流の実装者・デバッグ調査・独立レビューが HEAD `4dd8f37d` と 32.2 の作業ツリーで実測。HEAD ではいずれも緑）**:
+    - (1) `npm run check:req-exclusions:selftest` が 70/70 から**未捕捉例外による中断**へ変わった。`scripts/check-requirement-exclusions.selftest.ts` の `promiselessEntry()` は実データから method:none の除外を探し、無ければ「前提: 代替検証を持たない除外（method: none）が実物に一件も存在しない」を送出する。これを使う陽性対照2件と陰性対照1件が前提崩壊となる（同関数の註が「全件が取り下げられた日には…失敗する」と予告していた形）
+    - (2) `npm run check:design-measurement-freshness` が EXIT 0 → 1。本書を錨にする宣言 `requirement-exclusions-total`（expected 157 / actual 155）、`pending-implementation-exclusions-after-115314`（4 / 1）、`promiseless-exclusions-after-115314`（3 / 0）、および (1) の出力を引く `req-exclusions-selftest-total-after-115314`（70 / 空）と `req-exclusions-selftest-mechanism-after-115304`（23 / 空）
+    - (3) `npm run check:design-measurement-freshness:selftest` が 56/56 → 1/56（実マニフェストの対照。(2) が解ければ戻る見込み）
+  - **影響**: 3本とも押下前の関門であり、`--no-verify` は禁止されている。下流 32.1 がすでに jwks の E2E のラチェットを「落ちるはずが通った」で赤くしていたため、利用者の判断（2026-09-26）で 32.2 はローカルにコミットし本項の解決を待つ。**本項が解決するまで当該ブランチは push できない**（別に、`check:req-coverage` と `check:steering-idents:selftest` が本件以前から赤である）
+  - **依頼**: (a) `promiselessEntry` を使う3対照を実データへの依存から外す——変異の中で method:none の合成の除外を作ってそこから壊す／受理させる形へ改め、固定したい性質（置き場所の不変条件）を合成データで持たせる。下流の予定された解決（未実装の除外の取り下げ）のたびに自己検査が壊れる設計を解くこと。対照の件数 70 は変えないこと。(b) (2) の宣言について、本書の該当文（「除外 157 件である」、「再実測は 4 件である」、「**3 件**ある（いずれも公開鍵配布のキャッシュ制御の条文である）」など。着手時に grep で測り直すこと）へ規約 (a) で当時の値を残して取り下げ後の再実測を並べ、錨・expected・documentRendering・note を貼り直す（115.330 / 115.333 の作法。四つの自己言及の網も最後に測り直す）。promiseless が 0 になるので、当該の文の主張の母集団が現況で 0 であることも記すこと。増分は下流 32.2 のコミットへ帰属させること
+  - _Boundary: `scripts/check-requirement-exclusions.selftest.ts` の `promiselessEntry` とそれを使う3対照、本書の当該の実測の文、`scripts/design-measurements.json` の当該5宣言_
+
 ## Implementation Notes（Task 115.30-115.52）
 
 - **「注記が言う未実装」を鵜呑みにしないこと**: 115.127 段4 で、八件の検証が「実装がセレクトボックスなので未実装」という注記つきの分岐で守られていたが、実装は入力欄であり**観測は一度も発火していなかった**。危険なのは発火しなかったことではなく、**実装が退行した瞬間に八件が緑のまま何も主張しなくなる**ことである。変異で実測すると、観測が発火する状況では八件が主張を一つも実行せずに通った。
