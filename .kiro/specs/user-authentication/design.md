@@ -1984,6 +1984,11 @@ interface EmailService {
 }
 ```
 
+**再送（要件24.3）**（2026-09-26 タスク35.1 で追記）:
+- **回数の決定**: 条文「最大5回までリトライ（1分、5分、15分、1時間、6時間後）」は間隔を 5 つ挙げるため、**初回の送信に続くリトライを 5 回**と読む。Bull の `attempts` は初回を含む試行回数なので `attempts: 6`（初回 1 + リトライ 5）とする。`attempts: 5` では 5 つ目の間隔（6時間）が使われない
+- **間隔の与え方**: Bull 4 の組み込み `exponential` は `(2^n − 1) × delay` で、`delay` = 1分では 1分・3分・7分・15分となり条文と一致しない（タスク35.1 着手前の実装はこれだった）。そこでキュー生成時に `settings.backoffStrategies` へカスタム戦略 `email-retry-schedule` を登録し、n 回目の失敗の後に `RETRY_DELAYS[n − 1]`（60000 / 300000 / 900000 / 3600000 / 21600000 ms）を返す。招待・パスワードリセット・2FA有効化・管理者ロール変更アラートの 4 種のジョブすべてを `attempts: 6, backoff: { type: 'email-retry-schedule' }` で投入する
+- **実装と検証**: `backend/src/services/email.service.ts`（`emailRetryBackoff` / `retryJobOptions`）、`backend/src/__tests__/unit/services/email.service.test.ts`
+
 #### AuditLogService
 
 **責任と境界**:

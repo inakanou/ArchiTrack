@@ -65,6 +65,9 @@ describe('EmailService', () => {
   });
 
   describe('sendInvitationEmail', () => {
+    /**
+     * @requirement user-authentication/REQ-24.3: メール送信をキューに保存し、初回に続けて最大5回まで再送する戦略で投入する
+     */
     it('招待メールをキューに追加する', async () => {
       const to = 'newuser@example.com';
       const invitationToken = 'test-invitation-token-123';
@@ -78,10 +81,8 @@ describe('EmailService', () => {
           invitationToken,
         },
         expect.objectContaining({
-          attempts: 5,
-          backoff: expect.objectContaining({
-            type: 'exponential',
-          }),
+          attempts: 6,
+          backoff: { type: 'email-retry-schedule' },
         })
       );
     });
@@ -101,6 +102,9 @@ describe('EmailService', () => {
   });
 
   describe('sendPasswordResetEmail', () => {
+    /**
+     * @requirement user-authentication/REQ-24.3: メール送信をキューに保存し、初回に続けて最大5回まで再送する戦略で投入する
+     */
     it('パスワードリセットメールをキューに追加する', async () => {
       const to = 'user@example.com';
       const resetToken = 'test-reset-token-456';
@@ -114,10 +118,8 @@ describe('EmailService', () => {
           resetToken,
         },
         expect.objectContaining({
-          attempts: 5,
-          backoff: expect.objectContaining({
-            type: 'exponential',
-          }),
+          attempts: 6,
+          backoff: { type: 'email-retry-schedule' },
         })
       );
     });
@@ -137,6 +139,9 @@ describe('EmailService', () => {
   });
 
   describe('send2FAEnabledEmail', () => {
+    /**
+     * @requirement user-authentication/REQ-24.3: メール送信をキューに保存し、初回に続けて最大5回まで再送する戦略で投入する
+     */
     it('2FA有効化メールをキューに追加する', async () => {
       const to = 'user@example.com';
 
@@ -148,16 +153,17 @@ describe('EmailService', () => {
           to,
         },
         expect.objectContaining({
-          attempts: 5,
-          backoff: expect.objectContaining({
-            type: 'exponential',
-          }),
+          attempts: 6,
+          backoff: { type: 'email-retry-schedule' },
         })
       );
     });
   });
 
   describe('sendAdminRoleChangedAlert', () => {
+    /**
+     * @requirement user-authentication/REQ-24.3: メール送信をキューに保存し、初回に続けて最大5回まで再送する戦略で投入する
+     */
     it('システム管理者ロール変更アラートメールをキューに追加する', async () => {
       const adminEmails = ['admin1@example.com', 'admin2@example.com'];
       const targetUser = {
@@ -189,10 +195,8 @@ describe('EmailService', () => {
           performedBy,
         },
         expect.objectContaining({
-          attempts: 5,
-          backoff: expect.objectContaining({
-            type: 'exponential',
-          }),
+          attempts: 6,
+          backoff: { type: 'email-retry-schedule' },
         })
       );
     });
@@ -226,7 +230,27 @@ describe('EmailService', () => {
   });
 
   describe('リトライロジック', () => {
-    it('メール送信失敗時に5回リトライする設定がある', async () => {
+    /**
+     * 本番の経路（依存を注入しない生成）で Bull キューへ渡した設定を取り出す
+     */
+    const createQueueSettings = async () => {
+      const Bull = (await import('bull')).default as unknown as ReturnType<typeof vi.fn>;
+      Bull.mockImplementation(function () {
+        return { add: vi.fn(), process: vi.fn() };
+      });
+      new EmailService();
+      const options = Bull.mock.calls[0]?.[1] as {
+        settings?: {
+          backoffStrategies?: Record<string, (attemptsMade: number, err: Error) => number>;
+        };
+      };
+      return options.settings;
+    };
+
+    /**
+     * @requirement user-authentication/REQ-24.3: 初回の送信に続けて最大5回までリトライする（試行は計6回）
+     */
+    it('メール送信失敗時に初回に続けて5回リトライする設定がある', async () => {
       const to = 'user@example.com';
       const invitationToken = 'test-token';
 
@@ -236,27 +260,26 @@ describe('EmailService', () => {
         expect.any(String),
         expect.any(Object),
         expect.objectContaining({
-          attempts: 5,
+          attempts: 6,
         })
       );
     });
 
-    it('エクスポネンシャルバックオフでリトライする', async () => {
-      const to = 'user@example.com';
-      const invitationToken = 'test-token';
+    /**
+     * @requirement user-authentication/REQ-24.3: リトライの間隔を1分、5分、15分、1時間、6時間後とする
+     */
+    it.each([
+      [1, 60000],
+      [2, 300000],
+      [3, 900000],
+      [4, 3600000],
+      [5, 21600000],
+    ])('%i 回目の失敗の後は %i ミリ秒後に再送する', async (attemptsMade, expectedDelay) => {
+      const settings = await createQueueSettings();
+      const strategy = settings?.backoffStrategies?.['email-retry-schedule'];
 
-      await emailService.sendInvitationEmail(to, invitationToken);
-
-      expect(mockQueue.add).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.any(Object),
-        expect.objectContaining({
-          backoff: expect.objectContaining({
-            type: 'exponential',
-            delay: expect.any(Number),
-          }),
-        })
-      );
+      expect(strategy).toBeTypeOf('function');
+      expect(strategy!(attemptsMade, new Error('SMTP timeout'))).toBe(expectedDelay);
     });
   });
 

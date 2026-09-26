@@ -906,6 +906,10 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - 検証: 戦略関数が n = 1..5 に 60000 / 300000 / 900000 / 3600000 / 21600000 を返すこと、4 種のジョブがその戦略名で投入されることを主張する
   - _Requirements: 24.3_
   - _Boundary: EmailService のキュー投入オプションと backoff 戦略、およびその単体検証_
+  - **処遇（コミット `edc68558` の作業ツリー、2026-09-26 にリポジトリルートで実測）**: 条文 24.3 の「最大5回までリトライ（1分、5分、15分、1時間、6時間後）」は間隔が 5 つ挙がっているため、初回に続くリトライを 5 回と読み、Bull の `attempts: 6` とした（design.md の EmailService 節へ「再送（要件24.3）（2026-09-26 タスク35.1 で追記）」として記録。既存の記述は残した）。組み込みの exponential（`(2^n−1)×60s` で実際は 1分・3分・7分・15分）をやめ、`backend/src/services/email.service.ts` のキュー生成時に `settings.backoffStrategies` へカスタム戦略 `email-retry-schedule` を登録した。戦略は n 回目の失敗の後に `RETRY_DELAYS[n−1]` を返し、4 種のジョブ（招待・パスワードリセット・2FA 有効化・管理者ロール変更アラート）すべてをこの戦略名と `attempts: 6` で投入する。Bull 4.16.5 の `lib/job.js`（`attemptsMade++` の後 `attemptsMade < attempts` の間だけ戦略を呼ぶ）と `lib/backoffs.js`（カスタム戦略を組み込みより優先し `(attemptsMade, err, strategyOptions)` で呼ぶ）で、戦略が n=1..5 で呼ばれることを確かめた（独立レビューが再確認）
+  - **検証**: `backend/src/__tests__/unit/services/email.service.test.ts` に `@requirement user-authentication/REQ-24.3` を付け、本番の経路で Bull へ渡した戦略が n=1..5 に 60000 / 300000 / 900000 / 3600000 / 21600000 を返すこと、4 種の投入オプションが `{ attempts: 6, backoff: { type: 'email-retry-schedule' } }` であることをリテラルで主張した。**RED**: フラグ OFF で 10 件失敗、ON で 20/20、フラグ撤去後も 20/20。変異（5分→3分／1時間→30分／exponential への回帰／attempts を 5）はいずれも赤（独立レビューが再現）。全単体 5744 件・type-check・lint 緑。`check:req-coverage` は本スペックの受入基準 361→362/388（24.3 が被覆へ）
+  - **独立レビューの差し戻し（1回）**: 被覆印によって上流 site-survey の宣言 `featureless-headers-resolvable-by-own-feature-after-115308` が 584→585 で新たに赤くなり、その申し送りが無かった（テストファイルが名乗る機能名が1つになり、機能名なしヘッダーが解決可能側へ移ったため）。ヘッダーに機能名を付ける回避は別の宣言を赤くするため採らず、**親が上流 115.334 へ増分を追記した**（33.1 と同じ作法）。実装とテストのコードは変えていない
+  - _Blocked: site-survey スペックの Task 115.334（本項の被覆印に由来する `featureless-headers-resolvable-by-own-feature-after-115308` 584→585 の貼り直しを含む。親が上流の tasks.md へ追記済み）の解決待ち。実装そのものは承認・コミット済み。`[x]` は 115.334 の解決後に鮮度の関門で当該宣言が緑へ戻ったことを確かめてから付けること_
 
 - [ ] 35.2 DB 接続タイムアウト時のリトライを実装する
   - 条文 24.6: 最大 3 回、1 秒・2 秒・4 秒のエクスポネンシャルバックオフ
