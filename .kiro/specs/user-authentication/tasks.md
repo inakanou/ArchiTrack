@@ -911,13 +911,19 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - **独立レビューの差し戻し（1回）**: 被覆印によって上流 site-survey の宣言 `featureless-headers-resolvable-by-own-feature-after-115308` が 584→585 で新たに赤くなり、その申し送りが無かった（テストファイルが名乗る機能名が1つになり、機能名なしヘッダーが解決可能側へ移ったため）。ヘッダーに機能名を付ける回避は別の宣言を赤くするため採らず、**親が上流 115.334 へ増分を追記した**（33.1 と同じ作法）。実装とテストのコードは変えていない
   - _Blocked: site-survey スペックの Task 115.334（本項の被覆印に由来する `featureless-headers-resolvable-by-own-feature-after-115308` 584→585 の貼り直しを含む。親が上流の tasks.md へ追記済み）の解決待ち。実装そのものは承認・コミット済み。`[x]` は 115.334 の解決後に鮮度の関門で当該宣言が緑へ戻ったことを確かめてから付けること_
 
-- [ ] 35.2 DB 接続タイムアウト時のリトライを実装する
+- [x] 35.2 DB 接続タイムアウト時のリトライを実装する
   - 条文 24.6: 最大 3 回、1 秒・2 秒・4 秒のエクスポネンシャルバックオフ
   - 実測: `backend/src/db.ts`（全 45 行）にリトライの実装は無い。`grep -rlE "retr(y|ies)" backend/src --include=*.ts`（テストを除く）の当たりは `redis.ts` と `rateLimit.middleware.ts` だけ。Toxiproxy はリポジトリのどこでも使われていない
   - 実装の範囲（接続確立時のみかクエリ単位か）と 24.1（タイムアウト時 503）との関係を design.md で決めること
   - 検証: 接続失敗を模したモックで、3 回まで再試行し間隔が 1000 / 2000 / 4000ms（偽の時計で測る）、4 回目は行わず失敗を返すことを主張する
   - _Requirements: 24.6_
   - _Boundary: `backend/src/db.ts`（または新設する接続ラッパー）とその単体検証_
+  - **処遇（コミット `5a485c1f` の作業ツリー、2026-09-26 にリポジトリルートで実測）**: 再試行するのは接続の確立（pg のプールからの接続の取得）だけとし、クエリ単位では再試行しないと design.md の「## Error Handling」に日付付きで記録した（取得前には SQL が送られないため書き込みの二重実行は起きない）。`backend/src/db.ts` に `RetryingPool`（`pg.Pool` の派生）を新設し、PrismaPg へ `disposeExternalPool: true` で渡した（adapter-pg 7.3.0 の外部プール受け取りと `$disconnect` 時の後始末、通常のクエリ・対話型トランザクションがいずれもプールの `connect` を通ることを独立レビューがソースで確認）。ETIMEDOUT と pg-pool の2つのタイムアウト文言のときに限り 1000 / 2000 / 4000 ms の間隔で最大 3 回再試行し、4 回目は行わず最後のエラーを返す
+  - **接続タイムアウト**: 要件の環境変数表の `DATABASE_CONNECTION_TIMEOUT`（既定 5000ms）で与える（`backend/src/config/env.ts` の `parseDatabaseConnectionTimeout`。正の整数のみ、表の書き方に合わせ単位 ms を付けた表記も受け付け、`5s` のような他の単位は拒否）。既存の `backend/.env.example` の同変数がこれで初めて読まれるようになった。pg の既定 0 は無制限で、そのままでは再試行が働かない
+  - **独立レビューの差し戻し（1回）**: 初回はタイムアウトを設定しておらず、本番で pg-pool のタイムアウトが起きないため再試行が実質働かない（到達しない宛先で 8 秒後も待機のまま）と差し戻された。是正の過程で、親が当初指示した新しい変数名 `DB_CONNECT_TIMEOUT_MS` が承認済み requirements.md の `DATABASE_CONNECTION_TIMEOUT` と食い違うことを実装者が指摘し、要件の変数を使う形へ改めた。承認後、要件の表が既定値を `5000ms` と書くため本番で単位付きに設定されていると起動時に落ちる危険が指摘され、ms 付き表記の受け付けを加えた
+  - **検証**: `backend/src/__tests__/unit/db.test.ts`（11 件、`@requirement user-authentication/REQ-24.6`。偽の時計で回数と間隔、ETIMEDOUT、pool.query の経路、結線、タイムアウトの既定 5000・上書き 1500・5000ms・`5s` と `0` の拒否）と `env.test.ts`（9 件）。**RED**: 初回はフラグ OFF で 4 件、タイムアウトの配線前に 3 件、ms 付き表記の実装前に 2 件が赤。変異（間隔 2000→3000、再試行 4 回、再試行 2 回、素の `pg.Pool` の配線、タイムアウトの撤去、ETIMEDOUT の判定の撤去、既定値 30000）はいずれも赤。**実測**: モックなしの `getPrismaClient().user.findFirst()` を到達しない宛先 10.255.255.1:5432・タイムアウト 200ms で実行すると、1/2/4 秒の間隔で 3 回再試行した後、約 8000ms で素の `Error`（Connection terminated due to connection timeout）として失敗した（実装者・独立レビューの双方）。backend 単体 5764 件・統合 914 件・type-check・lint 緑。`check:req-coverage` は本スペックの受入基準 362→363/388（24.6 が被覆）。鮮度の関門の赤の集合は着手前と同一（新しい赤は無い）
+  - **範囲外（起票済み）**: 再試行を使い切った失敗の 503 への対応づけ（24.1）は 35.8、`DATABASE_RETRY_COUNT` は 35.9 へ回した
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test -- db env` 51/51、type-check EXIT=0、鮮度の関門の赤の集合は着手前と同一
 
 - [ ] 35.3 権限キャッシュ障害時の警告ログを検証する
   - 実測: 実装は既にある。`backend/src/services/rbac.service.ts:40-54` の `getUserPermissions` は `redis.get` の失敗時に `logger.warn({ error, userId }, 'Failed to get permissions from Redis cache')` を出して DB の取得へ進む
@@ -958,5 +964,23 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - 検証: 同じ版からの並行更新で片方がリトライされるか 409 を返すことを、実 DB の並行リクエストで主張する
   - _Requirements: 25.8_
   - _Boundary: 対象エンティティの更新経路と、その統合検証_
+
+- [ ] 35.8 DB 接続を確立できないときに 503 を返す
+  - 条文 24.1（逐語）: 「IF データベース接続がタイムアウト以内に確立できない THEN Authentication Serviceは503 Service Unavailableエラーを返さなければならない」
+  - 実測（2026-09-26、タスク35.2 の `RetryingPool` に `connectionTimeoutMillis: 200` を与え到達しない宛先 10.255.255.1:5432 へ PrismaClient 経由で `findFirst`）: 1000 / 2000 / 4000ms の再試行の後、約 8000ms で失敗する。Prisma から投げられるのは素の `Error`（message「Connection terminated due to connection timeout」、code・meta 無し）で、`PrismaClientKnownRequestError` / `PrismaClientInitializationError` / `PrismaClientUnknownRequestError` のいずれでもない
+  - 実測: `backend/src/middleware/errorHandler.middleware.ts` は 503 を `PrismaClientInitializationError` / `PrismaClientRustPanicError` に限って返す（:121-141）。上の素の `Error` は末尾の既定の分岐に落ちる見込み（コードの読解。HTTP での実測は本項の検証で行う）
+  - 実装: 接続タイムアウトを示すエラー（`db.ts` の `isConnectionTimeoutError` と同じ判定。ETIMEDOUT はアダプタが `DriverAdapterError`（kind: SocketTimeout）で包む場合がありうるので、その形も確かめる）を errorHandler で 503「Service Unavailable」へ対応づける
+  - 検証: 接続タイムアウトのエラーを投げるルートへの要求が 503 と Problem Details を返すことを主張し、対応づけを外すと赤くなることを変異で実測する
+  - _Requirements: 24.1_
+  - _Boundary: `backend/src/middleware/errorHandler.middleware.ts` とその単体検証_
+
+- [ ] 35.9 DB 接続の再試行回数を環境変数 `DATABASE_RETRY_COUNT` で与えるかを決めて実装する
+  - 要件の環境変数表（requirements.md :47、列の空白を詰めて引用）: 「| `DATABASE_RETRY_COUNT` | データベース接続リトライ回数 | `3` | 任意 | 整数値（0-10） |」
+  - 実測（2026-09-26）: `backend/.env.example:44-46` に `DATABASE_RETRY_COUNT=3` があるが、コードからは読まれていない（`git grep -l DATABASE_RETRY_COUNT` の当たりは requirements.md・`.env.example`・タスク35.2 で足した design.md の注記のみ）。タスク35.2 は条文 24.6 どおり回数を 3 回に固定した（`backend/src/db.ts` の `DB_CONNECT_RETRY_DELAYS_MS = [1000, 2000, 4000]` の要素数が回数を決める）
+  - 条文 24.6 は間隔を 1秒・2秒・4秒の 3 つだけ挙げる。4 回目以降（最大 10 回）の間隔を 1000 × 2^(n−1) へ延ばすか、表の上限を 3 に揃えるか、0 回（再試行なし）を許すかを design.md で決めてから実装すること
+  - 実装: `backend/src/config/env.ts` に 0〜10 の整数として検証を置き（既定 3）、DB クライアントの生成時にも同じ解析関数を通して `RetryingPool` の回数と間隔列を決める
+  - 検証: 未設定で 3 回（1000 / 2000 / 4000ms）、設定値 0 で再試行なし、設定値 5 で決めた間隔どおりに 5 回、範囲外（11・-1・非数値）を拒否することを偽の時計で主張し、既定値や上限の変異で赤くなることを実測する
+  - _Requirements: 24.6_
+  - _Boundary: `backend/src/config/env.ts`、`backend/src/db.ts` とその単体検証_
 
 _起票元: タスク33.1（利用者の裁定「取り下げて後続を起票」、2026-09-26）_

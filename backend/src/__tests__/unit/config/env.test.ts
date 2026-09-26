@@ -400,6 +400,59 @@ describe('env module', () => {
 
       expect(result.LOG_LEVEL).toBe('info');
     });
+
+    it('DATABASE_CONNECTION_TIMEOUTが未設定の場合、デフォルト5000が使用される', async () => {
+      process.env.JWT_PUBLIC_KEY = mockPublicKeyBase64;
+      process.env.JWT_PRIVATE_KEY = mockPrivateKeyBase64;
+      process.env.TWO_FACTOR_ENCRYPTION_KEY = mock2FAKey;
+      delete process.env.DATABASE_CONNECTION_TIMEOUT;
+
+      const { validateEnv } = await import('../../../config/env.js');
+
+      const result = validateEnv();
+
+      expect(result.DATABASE_CONNECTION_TIMEOUT).toBe(5000);
+    });
+
+    it('DATABASE_CONNECTION_TIMEOUT=1500 の場合、数値1500として検証される', async () => {
+      process.env.JWT_PUBLIC_KEY = mockPublicKeyBase64;
+      process.env.JWT_PRIVATE_KEY = mockPrivateKeyBase64;
+      process.env.TWO_FACTOR_ENCRYPTION_KEY = mock2FAKey;
+      process.env.DATABASE_CONNECTION_TIMEOUT = '1500';
+
+      const { validateEnv } = await import('../../../config/env.js');
+
+      const result = validateEnv();
+
+      expect(result.DATABASE_CONNECTION_TIMEOUT).toBe(1500);
+    });
+
+    it('DATABASE_CONNECTION_TIMEOUT=5000ms（単位 ms 付き）の場合、数値5000として検証される', async () => {
+      process.env.JWT_PUBLIC_KEY = mockPublicKeyBase64;
+      process.env.JWT_PRIVATE_KEY = mockPrivateKeyBase64;
+      process.env.TWO_FACTOR_ENCRYPTION_KEY = mock2FAKey;
+      process.env.DATABASE_CONNECTION_TIMEOUT = '5000ms';
+
+      const { validateEnv } = await import('../../../config/env.js');
+
+      const result = validateEnv();
+
+      expect(result.DATABASE_CONNECTION_TIMEOUT).toBe(5000);
+    });
+
+    it.each(['0', '-1', '1.5', 'abc', '5s', '0ms'])(
+      'DATABASE_CONNECTION_TIMEOUT=%s（正の整数でない）の場合、エラーを投げる',
+      async (value) => {
+        process.env.JWT_PUBLIC_KEY = mockPublicKeyBase64;
+        process.env.JWT_PRIVATE_KEY = mockPrivateKeyBase64;
+        process.env.TWO_FACTOR_ENCRYPTION_KEY = mock2FAKey;
+        process.env.DATABASE_CONNECTION_TIMEOUT = value;
+
+        const { validateEnv } = await import('../../../config/env.js');
+
+        expect(() => validateEnv()).toThrow('Failed to validate environment variables');
+      }
+    );
   });
 
   describe('環境変数ログ出力', () => {
