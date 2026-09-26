@@ -1683,7 +1683,7 @@
 | `estimate-creation/REQ-9.5` | `Jest / React Testing Library` |
 | `estimate-creation/REQ-9.6` | `Jest / React Testing Library` |
 
-- [ ] 58.1 除外一覧の道具名を実体へ揃える
+- [x] 58.1 除外一覧の道具名を実体へ揃える
   - 上表 8 件の `alternativeVerification.tool` から、実在しない `Jest` を取り除く
   - **先例に揃えること**: site-survey は Task 115.121 で自機能分 32 件を「道具名の先頭 `Jest` を `Vitest` へ置換し、`React Testing Library` / `Supertest` などの併記部分は据え置く」形で是正した。`.kiro/specs/site-survey/design.md` の `**あわせて是正した除外一覧の記述**` に続く項が、その形を逐語で記録している
   - **併記の `React Testing Library` は実在する**（`frontend/package.json` に `@testing-library/react@^16.3.0` と `@testing-library/user-event@^14.6.1`。2026-09-02 に実測）ため据え置いてよい。8 件はいずれも同じ `Jest / React Testing Library` である
@@ -1692,6 +1692,12 @@
   - **検証**: `npm run check:req-exclusions` が緑であること、および上の `node -e` の出力の第一値が本スペックの件数だけ減っていること
   - _Depends: site-survey スペックの Task 115.280（`64 0` の宣言の解除と台帳の追随）_
   - _Boundary: 本スペックが所管する除外項目の `alternativeVerification.tool`_
+  - **処遇（コミット `0e5c95d1` の作業ツリー、2026-09-26 にリポジトリルートで実測）**: `e2e/requirement-exclusions.json` の本スペック所管 8 件（`estimate-creation/REQ-8.2` / `8.4` / `8.5` / `8.6` / `9.2` / `9.4` / `9.5` / `9.6`）の `alternativeVerification.tool` を `Jest / React Testing Library` から `Vitest / React Testing Library` へ改めた（site-survey の Task 115.121 の形に揃え、併記の `React Testing Library` は据え置いた。`description` / `reason` / `method` / `threshold` は不変）
+  - **代替検証の実在（道具名を置換する前に一件ずつ確かめた。独立レビューが再確認）**: 8.2 / 9.2 は `frontend/src/pages/EstimateDetailPage.overheadCost.test.tsx` の it.each（現場管理費・一般管理費で手入力の単価が明細行へ反映されることを実物の画面で主張）と `frontend/src/components/estimate/OverheadCostPanel.test.tsx` の種別ごとの `unitPrice` の受け渡し、8.4 / 9.4 は同パネルの検証（現場管理費で純工事費欄、一般管理費で工事原価欄）、8.5 / 9.5 は計算結果の上書きの検証、8.6 / 9.6 は計算中の表示とボタンの無効化の検証である（2 ファイル 38 件が緑）。いずれも実在するため取り下げは要しない。ただし 8.5 / 9.5 / 8.6 / 9.6 の検証は既定の共通仮設費で走り費目を明示していない（上書き欄の `calculatedAmount` と `isCalculating` は費目に依存しない単一の状態で、費目切替でも保持されるため機構として代替検証は実在すると判断した）。8.4 の `description` が挙げる「共通仮設費」の単独欄は画面に無く、現場管理費の画面は直接工事費と純工事費（＝直接工事費＋共通仮設費。`backend/src/services/overhead-cost.service.ts`）を提供する。文言は受入基準 8.4 の例示（「等」付き）の写しであり偽とは言えない
+  - **関門（前後の実測）**: `node -e` の出力は `56 0` → `48 0`（第一値が本スペックの 8 件だけ減り、本スペック分の `Jest` は 0 件）。`check:req-exclusions`（157 件）・`:selftest`（70/70）・`check:design-measurement-freshness`（`jest-alternative-verification-exclusions` は site-survey 115.280 によりコミット `b999b2d` へ版固定され `64 0` のまま一致）・`npx prettier --check e2e/requirement-exclusions.json` はいずれも終了コード 0。`check:req-coverage` は基線から終了コード 1 で、出力は前後で一致する。本スペックの設計文書の `grep -c Jest` は 0
+  - **道具名の是正は機械監査の判定を動かさない**: `npm run check:req-coverage:verbose` は 8 件を是正の前後とも「リポジトリ内検証を掲げるが不在」に数える（上の検証に `@requirement estimate-creation/REQ-…` の印が無いため。`--strict` 時のみ失敗）
+  - **範囲外の観測（起票はしていない）**: (i) 上記の検証に被覆印を付けること、(ii) 8.4 の `description` を画面の実体（純工事費）へ精密化すること、(iii) 費目ごとの it.each で「計算→上書き」「計算中表示」を回すこと、はいずれも本項の `_Boundary:_` の外の後続候補である
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `check:req-exclusions` EXIT=0、`npx prettier --check e2e/requirement-exclusions.json` EXIT=0、本スペック分の `Jest` を名乗る除外は 0 件
 
 ## タスク59: 数量表の未結線部品 `NumericFieldInput` / `TextFieldInput` の撤去を阻む本スペックの名指しを解く
 

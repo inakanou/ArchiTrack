@@ -825,7 +825,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "現場管理費行の単価フィールドに手入力で値を設定できることを確認",
         "threshold": "manual_input: functional"
       }
@@ -839,7 +839,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "自動計算機能有効時に直接工事費・共通仮設費等のパラメータ入力画面が提供されることを確認",
         "threshold": "parameter_form: displayed"
       }
@@ -853,7 +853,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "自動計算後の単価を手入力で上書きできることを確認",
         "threshold": "manual_override: functional"
       }
@@ -867,7 +867,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "自動計算処理中にローディングインジケーターが表示されることを確認",
         "threshold": "loading_indicator: displayed"
       }
@@ -881,7 +881,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "一般管理費行の単価フィールドに手入力で値を設定できることを確認",
         "threshold": "manual_input: functional"
       }
@@ -895,7 +895,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "自動計算機能有効時に工事原価等のパラメータ入力画面が提供されることを確認",
         "threshold": "parameter_form: displayed"
       }
@@ -909,7 +909,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "自動計算後の単価を手入力で上書きできることを確認",
         "threshold": "manual_override: functional"
       }
@@ -923,7 +923,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "自動計算処理中にローディングインジケーターが表示されることを確認",
         "threshold": "loading_indicator: displayed"
       }
