@@ -10,6 +10,11 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { PrismaClient, User } from '../../../generated/prisma/client.js';
 import type Redis from 'ioredis';
 import { RBACService } from '../../../services/rbac.service.js';
+import logger from '../../../utils/logger.js';
+
+vi.mock('../../../utils/logger.js', () => ({
+  default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
 
 // モックデータ
 const mockUserId = 'user-123';
@@ -204,6 +209,75 @@ describe('RBACService', () => {
 
       // Assert
       expect(permissions).toEqual([]);
+    });
+  });
+
+  describe('getUserPermissions() の権限キャッシュ障害時', () => {
+    let redisMock: Redis;
+    let rbacServiceWithRedis: RBACService;
+
+    beforeEach(() => {
+      vi.mocked(logger.warn).mockClear();
+      vi.mocked(logger.debug).mockClear();
+      redisMock = {
+        get: vi.fn(),
+        setex: vi.fn().mockResolvedValue('OK'),
+      } as unknown as Redis;
+      rbacServiceWithRedis = new RBACService(prismaMock, redisMock);
+    });
+
+    /**
+     * @requirement user-authentication/REQ-24.7: キャッシュ障害で DB から取るフォールバックが実行されたとき警告ログを記録する
+     */
+    it('権限キャッシュの読み出しが失敗するとWARNレベルのログを1回だけ記録し、DBから取得した権限を返す', async () => {
+      // Arrange: キャッシュ（Redis）の読み出しが接続障害で失敗する
+      const cacheError = new Error('Redis connection failed');
+      vi.mocked(redisMock.get).mockRejectedValue(cacheError);
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(
+        mockUserWithMultipleRoles as unknown as User
+      );
+
+      // Act
+      const permissions = await rbacServiceWithRedis.getUserPermissions(mockUserId);
+
+      // Assert: 警告ログが WARN レベルで 1 回だけ、対象ユーザーと障害を添えて記録される
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        { error: cacheError, userId: mockUserId },
+        'Failed to get permissions from Redis cache'
+      );
+      expect(logger.debug).not.toHaveBeenCalledWith(
+        expect.anything(),
+        'Failed to get permissions from Redis cache'
+      );
+
+      // Assert: フォールバックとして DB から取得した権限が返る
+      expect(redisMock.get).toHaveBeenCalledWith(`rbac:permissions:${mockUserId}`);
+      expect(prismaMock.user.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: mockUserId } })
+      );
+      expect(permissions.map((p) => p.id).sort()).toEqual(
+        [mockAdrReadPermission.id, mockAdrCreatePermission.id, mockUserReadPermission.id].sort()
+      );
+    });
+
+    /**
+     * @requirement user-authentication/REQ-24.7: キャッシュ障害が無くフォールバックが実行されないときは警告ログを記録しない
+     */
+    it('権限キャッシュが正常に読めるときは警告ログを記録せずDBにも問い合わせない', async () => {
+      // Arrange
+      const cached = [
+        { id: mockAdrReadPermission.id, resource: 'adr', action: 'read', description: 'ADRの閲覧' },
+      ];
+      vi.mocked(redisMock.get).mockResolvedValue(JSON.stringify(cached));
+
+      // Act
+      const permissions = await rbacServiceWithRedis.getUserPermissions(mockUserId);
+
+      // Assert
+      expect(permissions).toEqual(cached);
+      expect(logger.warn).not.toHaveBeenCalled();
+      expect(prismaMock.user.findUnique).not.toHaveBeenCalled();
     });
   });
 

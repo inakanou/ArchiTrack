@@ -925,12 +925,17 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - **範囲外（起票済み）**: 再試行を使い切った失敗の 503 への対応づけ（24.1）は 35.8、`DATABASE_RETRY_COUNT` は 35.9 へ回した
   - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test -- db env` 51/51、type-check EXIT=0、鮮度の関門の赤の集合は着手前と同一
 
-- [ ] 35.3 権限キャッシュ障害時の警告ログを検証する
+- [x] 35.3 権限キャッシュ障害時の警告ログを検証する
   - 実測: 実装は既にある。`backend/src/services/rbac.service.ts:40-54` の `getUserPermissions` は `redis.get` の失敗時に `logger.warn({ error, userId }, 'Failed to get permissions from Redis cache')` を出して DB の取得へ進む
   - 実測: 検証が無い。`backend/src/__tests__/unit/services/rbac.service.test.ts:397` / `:477` は `invalidate*` の例外が漏れないことを見るだけで、`getUserPermissions` の障害経路もログも主張していない
   - 検証: `redis.get` を reject させたとき `logger.warn` が 1 回呼ばれること（spy）と、DB から取った権限が返ることを主張する。warn の削除または debug への格下げで赤くなることを変異で実測する
   - _Requirements: 24.7_
   - _Boundary: `rbac.service.test.ts` への検証の追加（実装に欠陥が見つかった場合に限り `rbac.service.ts`）_
+  - **処遇（コミット `347f5242` の作業ツリー、2026-09-26 にリポジトリルートで実測）**: 実装（`rbac.service.ts` の `getUserPermissions`）は `redis.get` が失敗すると `logger.warn({ error, userId }, 'Failed to get permissions from Redis cache')` を出して DB の取得へ進み、条文 24.7（フォールバック時の警告ログ）と 24.2（DB から直接取得）に食い違いは無いため実装は変えていない。`backend/src/__tests__/unit/services/rbac.service.test.ts` に「getUserPermissions() の権限キャッシュ障害時」を追加し、`redis.get` の reject で warn がちょうど1回、対象ユーザーと障害を添えて呼ばれること、同じ文言で debug が呼ばれないこと、DB 由来の権限が返ること、キャッシュが読めるときは warn も DB 問い合わせも起きないことを主張した（`@requirement user-authentication/REQ-24.7`。24.2 は除外中のため印を付けていない）
+  - **変異（独立レビューが再現）**: warn の削除・debug への格下げのいずれも障害経路の検証が赤（1 failed / 19 passed）。復元後 `rbac.service.ts` の hash は 58940794 で一致。backend 単体 5766 件・type-check・lint 緑。`check:req-coverage` で 24.7 は未被覆から被覆へ
+  - **上流への申し送り**: 機能名なしのヘッダーを持つ当該ファイルに印が入ったため、上流の鮮度宣言 `featureless-headers-resolvable-by-own-feature-after-115308` の実測値が 585→586 へ動いた（着手前から赤）。親が site-survey 115.334 へ追記した
+  - **範囲外の観測（起票はしていない）**: `e2e/requirement-exclusions.json` の REQ-24.2 の除外が代替検証に挙げる chaos-engineering（Docker stop redis / Toxiproxy）はリポジトリに存在しない。本項の障害経路の検証が 24.2 を単体レベルで実際に主張しているため、除外の代替検証をこの検証へ向け直す（または除外を取り下げて印を付ける）ことが後続の候補である
+  - _Blocked: site-survey スペックの Task 115.334（本項の被覆印に由来する `featureless-headers-resolvable-by-own-feature-after-115308` 585→586 を含む。親が上流の tasks.md へ追記済み）の解決待ち。検証そのものは承認・コミット済み。`[x]` は 115.334 の解決後に当該宣言が緑へ戻ったことを確かめてから付けること_
 
 - [ ] 35.4 登録・招待の処理をメール送信から切り離す
   - 実測: `EmailService.sendInvitationEmail`（`email.service.ts:177`）の本番からの呼び出しは 0 件。本番から呼ばれるのは `password.service.ts:302` と `user-role.service.ts:147` / `:286` だけで、`InvitationService.createInvitation`（`invitation.service.ts:45`）はメールを送らない
