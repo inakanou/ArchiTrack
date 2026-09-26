@@ -3197,7 +3197,7 @@ interface SummaryPanelData {
 | Requirements | 40.1, 40.2, 40.3, 40.4 |
 
 **現状分析**:
-- 数量表のテキスト入力フィールド（`TextFieldInput.tsx`）のスタイル:
+- 数量表のテキスト入力フィールド（`AutocompleteInput.tsx`）のスタイル: **参照先の付け替え（タスク 59.1。コミット `c5d3e417` の作業ツリー、2026-09-26 にリポジトリルートで実測）**: 本項は書かれた時点（コミット `e9a16ef2`、2026-03-09）では数量表の部品 `TextFieldInput` を名指していた。同部品は同コミットの時点で既に数量表画面の描画経路に載っておらず（本番コードからの取り込み元は数量表の再輸出の 1 ファイルだけ）、数量表画面のテキスト列（大項目・中項目・小項目・任意分類・工種・名称・規格・単位・備考）が描画に使うのは `AutocompleteInput.tsx` である。直下の 5 項目の値は、現況の付け替え先と付け替え前の部品の `styles` の入力欄とラベルの値にいずれも等しい。付け替えは quantity-table-generation の Task 94.1 が同部品を外すことに備えたもので、直下の値は書き換えていない。
   - `fontSize: '12px'`
   - `padding: '2px 4px'`
   - `height: '22px'`
@@ -3252,7 +3252,7 @@ const compactLabelStyle: React.CSSProperties = {
 ```
 
 **Implementation Notes**
-- 数量表（`TextFieldInput.tsx`、`NumericFieldInput.tsx`）のスタイル定数を参照し、完全に一致させる
+- 数量表（`AutocompleteInput.tsx`、`EditableQuantityItemRow.tsx`）のスタイル定数を参照し、完全に一致させる **参照先の付け替え（タスク 59.1。コミット `c5d3e417` の作業ツリー、2026-09-26 にリポジトリルートで実測）**: 本項は書かれた時点（コミット `e9a16ef2`、2026-03-09）では数量表の部品 `TextFieldInput` と `NumericFieldInput` を名指していた。両部品は同コミットの時点で既に数量表画面の描画経路に載っておらず（本番コードからの取り込み元はいずれも数量表の再輸出の 1 ファイルだけ）、数量表画面でテキスト列が描画に使うのは `AutocompleteInput.tsx` の `styles.input`、数量列が使うのは `EditableQuantityItemRow.tsx` の `styles.input` である。二つの `styles.input` の高さ・パディング・枠線・角丸・フォントサイズは、現況の付け替え前の二部品の入力欄の値と等しい。付け替えは quantity-table-generation の Task 94.1 が両部品を外すことに備えたもので、本項の指示の中身は書き換えていない。
 - EstimateItemTableのgridTemplateColumnsの調整は不要（列幅は変更しない、セル内のコンテンツサイズのみ変更）
 - 備考フィールドも同様にコンパクト化
 - readOnlyフィールド（金額、親項目の単価等）も同じスタイルを適用

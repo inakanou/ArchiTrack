@@ -1717,11 +1717,17 @@
 
 **あわせて申し送る**: 数量表側の再輸出 `frontend/src/components/quantity-table/index.ts` は、残置したこの 2 部品を公開 API として輸出する唯一の口である。**ただし再輸出の撤去を阻むのは機械的な制約ではない**——独立レビューが同ファイル単体の削除を変異として当てたところ、`check:design-path-refs` / `check:steering-refs` / `check:design-code-refs` の 3 本がいずれも exit 0 であり、取り込み元も 0 件だった。生きた検証 `frontend/src/__tests__/components/quantity-table/QuantityItemFieldMaxWidth.test.tsx` は `TextFieldInput` を**再輸出経由ではなく直接**取り込んでいる（`:20`）。阻んでいるのは同検証の `:301` の註が「公開 API として再輸出されている」と述べていることであり、再輸出を撤去すると**その註が偽になる**。したがって数量表側は、**註の是正と同時でなければ再輸出を撤去できない**。
 
-- [ ] 59.1 数量表の部品を名指す 2 行の処遇を決める
+- [x] 59.1 数量表の部品を名指す 2 行の処遇を決める
   - `.kiro/specs/estimate-creation/design.md` の `L3200` と `L3255` について、上の (a) / (b) / (c) のいずれを採るかを決め、実施すること
   - **着手時に行番号と件数を測り直すこと。** 上の値は 2026-09-14 の実測であり、本書が動けば行番号も動く。再現は数量表側の 2 部品を外す変異を当てて `npm run check:design-path-refs` を読む形である
   - **是正が被覆検査と鮮度検査を悪化させないことを前後の実測で示すこと**
   - _Boundary: 本スペックの設計文書が数量表の入力部品を名指す箇所_
+  - **処遇（コミット `c5d3e417` の作業ツリー、2026-09-26 にリポジトリルートで実測）**: **(b) を採った**。`design.md` の L3200 と L3255 の名指しを、数量表画面の対応列を実際に描画する部品へ付け替えた——テキスト列（大項目・中項目・小項目・任意分類・工種・名称・規格・単位・備考の 9 列）は `AutocompleteInput.tsx`、数量列は `EditableQuantityItemRow.tsx` の `styles.input` である（本番の描画経路は `QuantityTableEditPage.tsx` → `QuantityGroupCard.tsx` → `EditableQuantityItemRow`）。行を挿入せず行の中で書き換えたため行番号は動かない（行数 4481 のまま）。2 行を書いたコミット `e9a16ef2`（2026-03-09）の時点で付け替え前の二部品を名指していたことは同じ行の註に部品名（拡張子なし）で残し、直下の値と指示の中身は書き換えていない。**二部品は `e9a16ef2` の時点で既に描画経路に無く**、本番コードからの取り込み元は数量表の再輸出 `index.ts` の 1 ファイルだけだった（`git grep` で実測。各部品自身の単体検証・ストーリーを除く）。付け替え先の値（入力欄の高さ 22px・パディング 2px 4px・枠線 1px solid #d1d5db・角丸 0px・フォント 12px、ラベルのフォント 11px・行の高さ 14px）は、design.md が挙げる値および付け替え前の二部品の値と逐語で一致する（独立レビューが照合）
+  - **採らなかった案**: (a) は試したが差し戻した——両行へ不在の記録を置くと免除の面が 189→191（実体 149→151）に広がり、`--allow-increase` で基準を記録すると `check:design-measurement-freshness` が 0→1 になる（site-survey の宣言 `design-path-reach-total` / `-entity-total`。本スペックの境界外で、本項の「鮮度検査を悪化させない」に反する）。基準ファイルと design.md は元へ戻し、基準ファイルは HEAD と同一。(c) は基準ファイルが実在の判定に関わらず許容リストも持たないため機構として成立しない。規約 (a)「本文は書き換えない」が守るのは実測値の履歴であり、本件は一度も描画経路に載らなかった部品への参照で、名指しの経緯は註と git 履歴に残した
+  - **証明（二部品の本体・単体検証・ストーリーの 6 ファイルを外す変異。独立レビューが HEAD 版の design.md を対照に再現）**: 本スペック側の不在パスは修正前 3 件（L3200 の `TextFieldInput.tsx`、L3255 の `TextFieldInput.tsx` と `NumericFieldInput.tsx`）→ 修正後 0 件で、`check:design-path-refs` は EXIT 0、面 189・免除の延べ 141 / distinct 40 は不動。下流（quantity-table-generation 94.1）に残るのは `.kiro/steering/structure.md` の 4 行（`check:steering-refs`）、`check:req-coverage:selftest` のラチェット（撤去時に測り直すこと）、`index.ts` の再輸出と `QuantityItemFieldMaxWidth.test.tsx` の直接の取り込みと註である。基準の更新と下流の design.md の注は不要。復元後 6 ファイルとも `git hash-object` 一致。二部品の撤去は下流 94.1 の所管として行っていない
+  - **関門**: `check:design-path-refs`（`:selftest` 53/53）/ `check:design-refs` / `check:design-code-refs` / `check:steering-refs` / `check:design-measurement-freshness`（宣言 149 件、赤 0）/ `count:coverage-marks` / `check:req-coverage:selftest`（81/81）は前後で EXIT 0。`scripts/design-measurements.json` に本スペックの当たりは 0 件
+  - **承認後の文言の精密化（親）**: 独立レビューの minor 指摘 2 点に従い、註の「取り込み元」を「本番コードからの取り込み元」へ、「現況の両部品」「現況の二部品」を「現況の付け替え先と付け替え前の部品」「現況の付け替え前の二部品」へ改めた。最初の改稿で「旧」の語を使ったところ、不在の語として読まれて `check:design-path-refs` と `check:design-measurement-freshness` が赤くなったため、同語を使わない字面へ改め直した。改稿後に上の関門 7 本を再実行していずれも EXIT 0、面 189・免除の延べ 141 は不動であることを確かめた
+  - **下流への申し送り**: quantity-table-generation の 94.1 は、本項の解決により `NumericFieldInput` / `TextFieldInput` の撤去へ進める
 
 _起票元: quantity-table-generation の Task 94.1。独立レビューが行番号まで再現して確定させた_
 
