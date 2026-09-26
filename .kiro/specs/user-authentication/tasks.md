@@ -937,13 +937,20 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - **範囲外の観測（起票はしていない）**: `e2e/requirement-exclusions.json` の REQ-24.2 の除外が代替検証に挙げる chaos-engineering（Docker stop redis / Toxiproxy）はリポジトリに存在しない。本項の障害経路の検証が 24.2 を単体レベルで実際に主張しているため、除外の代替検証をこの検証へ向け直す（または除外を取り下げて印を付ける）ことが後続の候補である
   - _Blocked: site-survey スペックの Task 115.334（本項の被覆印に由来する `featureless-headers-resolvable-by-own-feature-after-115308` 585→586 を含む。親が上流の tasks.md へ追記済み）の解決待ち。検証そのものは承認・コミット済み。`[x]` は 115.334 の解決後に当該宣言が緑へ戻ったことを確かめてから付けること_
 
-- [ ] 35.4 登録・招待の処理をメール送信から切り離す
+- [x] 35.4 登録・招待の処理をメール送信から切り離す
   - 実測: `EmailService.sendInvitationEmail`（`email.service.ts:177`）の本番からの呼び出しは 0 件。本番から呼ばれるのは `password.service.ts:302` と `user-role.service.ts:147` / `:286` だけで、`InvitationService.createInvitation`（`invitation.service.ts:45`）はメールを送らない
   - 実測: `password.service.ts:302` は `sendPasswordResetEmail` を await しており、キュー投入（Redis）が失敗すると `catch` で `RESET_TOKEN_INVALID` を返す
   - 招待メールを結線するか（design.md で決める）と、キュー投入が失敗しても招待・登録が成功することを実装する
   - 検証: キューの `add` を reject させても招待の作成（と登録）が Ok を返し DB の状態が成立することを主張する
   - _Requirements: 24.8_
   - _Boundary: InvitationService / AuthService / EmailService の結線と、その単体・統合検証_
+  - **処遇（HEAD `6638f436` の作業ツリー、2026-09-27 にリポジトリルートで実測）**: 要件1.3「WHEN 招待トークンが生成される THEN Authentication Serviceは招待メールを対象メールアドレスに送信しなければならない」と design.md の招待フロー（`Backend->>Queue: メール送信ジョブをキュー` の後に `201 Created`）は結線を求めていると判断し、`InvitationService.createInvitation` が招待レコードの作成後に `EmailService.sendInvitationEmail` へ投入するよう結線した（`createInvitationRoutes` は既定で `EmailService` を渡す）。**これにより本番で招待メールが実際に送られるようになる**。条文24.8 は、メール送信（キュー投入を含む）の成否が招待・登録の成否を左右しないことと読んだ。投入は完了を待たず（Redis 無応答で HTTP 応答が止まらないように）、失敗は `logger.warn` に `err`（pino の標準シリアライザが効くキー）と `invitationId` を添えて残す。登録は EmailService を呼ばず構造上メールに依存しない。決定は design.md の InvitationService 節に日付付きで追記した
+  - **検証**: `@requirement user-authentication/REQ-24.8`（投入の単体検証には REQ-1.3）を付けた——単体（`invitation.service.test.ts`: 投入の reject で Ok と `{ err, invitationId }` の warn 1回、無応答でも1秒以内に Ok、投入が1回）、ルート（`invitation.routes.test.ts`: reject でも 201）、統合（`invitation-email-decoupling.integration.test.ts`: 実 DB で Bull の `add` を reject させ招待が pending で保存され、その招待による登録でユーザー作成・ロール付与・招待の used 化が成立。本物のロガーの err シリアライザを通した warn の引数に障害の message と stack が残る）。**RED**: フラグ OFF で単体4件・ルート1件が赤。変異5種（await して catch しない／await して catch する／warn の削除／呼び出しの削除／ログのキーを `error` に戻す）はいずれも赤（独立レビューが再現）。backend 単体 5771 件・統合（auth / invitation）・type-check・lint 緑。E2E `invitations.spec.ts` 16 件緑で、Mailpit に招待メール3通が届き登録 URL を含むことを確かめた。`check:req-coverage` は本スペックの受入基準 364→365/388、`check:req-coverage:selftest` 81/81
+  - **独立レビューの差し戻し（1回）**: 当初の警告ログは `error` キーで渡しており、logger の設定が `err` キーにだけシリアライザを当てるため本番の出力が `"error":{}` になって障害の中身が失われていた。`err` キーへ改め、本物のシリアライザでの検証を加えた
+  - **影響の確認（独立レビュー）**: `new EmailService()` は生成ごとに同名キュー `email-queue` と処理関数を登録するが、本番では既に3インスタンスが同じ構成で動いており、Bull は同名キューの処理関数を競合するワーカーとして扱うためジョブの二重処理は起きない（Redis 接続が約3本増える）
+  - **上流への申し送り**: 被覆印で上流の鮮度宣言 `featureless-headers-resolvable-by-own-feature-after-115308` が 586→587 へ動いたため、親が site-survey 115.334 へ追記した
+  - **範囲外の観測（起票はしていない）**: `e2e/specs/auth/invitations.spec.ts` は REQ-1.3 / 1.6 を名乗るがメール送信は主張していない。`requestPasswordReset` はキュー投入の失敗で `RESET_TOKEN_INVALID` を返す（条文24.8 の外。35.5 の 25.6 で扱う）。`rbac.service.ts` 等にも `{ error }` キーの warn が残る
+  - _Blocked: site-survey スペックの Task 115.334（本項の被覆印に由来する `featureless-headers-resolvable-by-own-feature-after-115308` 586→587 を含む。親が上流の tasks.md へ追記済み）の解決待ち。実装そのものは承認・コミット済み。`[x]` は 115.334 の解決後に当該宣言が緑へ戻ったことを確かめてから付けること_
 
 - [ ] 35.5 認証系の書き込みの原子性を実装し、失敗注入で検証する
   - 実測（25.1 / 25.2）: `auth.service.ts:130` の `$transaction` は実在する。単体の `auth.service.test.ts:147` は `$transaction` を `mockResolvedValue` で置き換えてコールバックを実行しない。統合の `auth.integration.test.ts:337` は結果だけを見て、`database.integration.test.ts:278` は Prisma 一般のロールバックを見るだけ

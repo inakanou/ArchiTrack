@@ -1560,6 +1560,14 @@ type InvitationError =
   | { type: 'EMAIL_ALREADY_REGISTERED' };
 ```
 
+**招待メールの結線とメール送信からの切り離し（要件1.3・24.8）**（2026-09-26 タスク35.4 で追記）:
+- **結線の決定**: 要件1.3「招待トークンが生成される THEN 招待メールを対象メールアドレスに送信しなければならない」と、上記「ユーザー招待フロー」の `Backend->>Queue: メール送信ジョブをキュー` に従い、`createInvitation` は招待レコードの作成後に `EmailService.sendInvitationEmail` を呼ぶ。タスク35.4 着手前の実装はこれを呼んでおらず、`sendInvitationEmail` の本番からの呼び出しは 0 件だった。管理者画面の招待URLコピー（要件13.3・13.5）はメールと併存する
+- **切り離しの決定**: 要件24.8「外部サービス（メール送信）が利用不可である THEN ユーザー登録・招待処理を非同期キューで処理」を、**メール送信（キューへの投入を含む）の成否が招待の作成・登録の成否を左右しない**ことと読む。`createInvitation` は投入の完了を待たずに `Ok` を返し、投入の失敗（Redis の障害など）は `logger.warn`（`'Failed to queue invitation email; invitation was created'`、`invitationId` と障害を添える。障害は pino の標準シリアライザが効く `err` キーに載せ、message と stack を残す）に残す。待たないのは、Redis が応答しないとき投入の `await` が接続の再試行の間だけ招待のレスポンスを止めるためである。SMTP の障害はキューの処理側（要件24.3 の再送）で扱われ、招待の作成には届かない
+- **登録**: `AuthService.register` はメールを送らない（EmailService を呼ばない）ため、登録の成否はもともとメール送信に依存しない。統合検証で、投入が失敗した招待を使った登録が成立することを確かめる
+- **送信口の注入**: `InvitationService` のコンストラクタは第2引数に送信口（`InvitationEmailSender` = `Pick<EmailService, 'sendInvitationEmail'>`）を任意で取る。招待APIの `createInvitationRoutes` は既定で `EmailService` を渡す。送信口の無い構成（招待の検証だけに使う `AuthService` 内部のインスタンス）で招待を作成した場合は、未送信を警告ログに残す
+- **範囲外**: パスワードリセット要求（`PasswordService.requestPasswordReset`）は投入を `await` し、失敗すると `RESET_TOKEN_INVALID` を返す。条文24.8 は「ユーザー登録・招待処理」に限るため本決定の対象としない（リセットのトークン生成・メール・ログの組み方は要件25.6、タスク35.5 で決める）
+- **実装と検証**: `backend/src/services/invitation.service.ts`（`queueInvitationEmail`）、`backend/src/routes/invitation.routes.ts`、`backend/src/__tests__/unit/services/invitation.service.test.ts`、`backend/src/__tests__/unit/routes/invitation.routes.test.ts`、`backend/src/__tests__/integration/invitation-email-decoupling.integration.test.ts`
+
 #### RBACService
 
 **責任と境界**:

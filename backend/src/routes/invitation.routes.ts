@@ -14,7 +14,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { PrismaClient } from '../generated/prisma/client.js';
-import { InvitationService } from '../services/invitation.service.js';
+import { InvitationService, type InvitationEmailSender } from '../services/invitation.service.js';
+import { EmailService } from '../services/email.service.js';
 import { InvitationStatus } from '../types/invitation.types.js';
 import { validateMultiple } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
@@ -47,11 +48,15 @@ const verifyInvitationSchema = {
  * 招待ルート初期化
  *
  * @param prisma - Prisma Clientインスタンス
+ * @param emailSender - 招待メールの送信口（省略時は EmailService。テストでは差し替える）
  * @returns Express Router
  */
-export function createInvitationRoutes(prisma: PrismaClient): Router {
+export function createInvitationRoutes(
+  prisma: PrismaClient,
+  emailSender: InvitationEmailSender = new EmailService()
+): Router {
   const router = Router();
-  const invitationService = new InvitationService(prisma);
+  const invitationService = new InvitationService(prisma, emailSender);
 
   /**
    * @swagger
