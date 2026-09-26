@@ -322,15 +322,6 @@ test.describe('トークンリフレッシュ機能', () => {
     await page.waitForLoadState('networkidle', { timeout: getTimeout(15000) });
 
     // バックグラウンドリフレッシュが実行されたことを確認
-    // waitForFunctionでリフレッシュ完了をポーリング
-    await page.waitForFunction(
-      () => {
-        // リフレッシュが実行されたかどうかをチェック
-        // 注: 実際にはrouteハンドラーで検出されるため、このチェックは補助的
-        return true;
-      },
-      { timeout: getTimeout(10000) }
-    );
     expect(backgroundRefreshCalled).toBe(true);
   });
 

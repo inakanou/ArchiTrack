@@ -305,8 +305,6 @@ test.describe('セッション切れモーダル再認証', () => {
     await passwordInput.fill('Password123!');
     await page.getByRole('button', { name: '再ログイン' }).click();
 
-    // APIが呼び出されたことを確認
-    await page.waitForFunction(() => true, {}, { timeout: getTimeout(5000) });
     // 短い待機でAPIコールの完了を待つ
     await page.waitForTimeout(1000);
     expect(loginApiCalled).toBe(true);
