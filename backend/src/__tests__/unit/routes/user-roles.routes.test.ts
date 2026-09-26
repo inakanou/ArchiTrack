@@ -15,6 +15,7 @@ import { Ok, Err } from '../../../types/result.js';
 // モックサービスをvi.hoisted()で初期化
 const mockUserRoleService = vi.hoisted(() => ({
   addRoleToUser: vi.fn(),
+  addRolesToUser: vi.fn(),
   removeRoleFromUser: vi.fn(),
   getUserRoles: vi.fn(),
 }));
@@ -100,7 +101,7 @@ describe('User Role Routes', () => {
       const userId = 'user-1';
       const roleId = 'role-2';
 
-      (mockUserRoleService.addRoleToUser as ReturnType<typeof vi.fn>).mockResolvedValue(
+      (mockUserRoleService.addRolesToUser as ReturnType<typeof vi.fn>).mockResolvedValue(
         Ok(undefined)
       );
 
@@ -135,7 +136,7 @@ describe('User Role Routes', () => {
       const userId = 'non-existent-user';
       const roleId = 'role-2';
 
-      (mockUserRoleService.addRoleToUser as ReturnType<typeof vi.fn>).mockResolvedValue(
+      (mockUserRoleService.addRolesToUser as ReturnType<typeof vi.fn>).mockResolvedValue(
         Err({ type: 'USER_NOT_FOUND' })
       );
 
@@ -151,7 +152,7 @@ describe('User Role Routes', () => {
       const userId = 'user-1';
       const roleId = 'non-existent-role';
 
-      (mockUserRoleService.addRoleToUser as ReturnType<typeof vi.fn>).mockResolvedValue(
+      (mockUserRoleService.addRolesToUser as ReturnType<typeof vi.fn>).mockResolvedValue(
         Err({ type: 'ROLE_NOT_FOUND' })
       );
 
@@ -168,7 +169,7 @@ describe('User Role Routes', () => {
       const roleId = 'role-2';
 
       // サービス層で重複を無視（Ok(undefined)を返す）
-      (mockUserRoleService.addRoleToUser as ReturnType<typeof vi.fn>).mockResolvedValue(
+      (mockUserRoleService.addRolesToUser as ReturnType<typeof vi.fn>).mockResolvedValue(
         Ok(undefined)
       );
 
@@ -183,14 +184,22 @@ describe('User Role Routes', () => {
       const userId = 'user-1';
       const roleIds = ['role-1', 'role-2', 'role-3'];
 
-      (mockUserRoleService.addRoleToUser as ReturnType<typeof vi.fn>).mockResolvedValue(
+      (mockUserRoleService.addRolesToUser as ReturnType<typeof vi.fn>).mockResolvedValue(
         Ok(undefined)
       );
 
       const response = await request(app).post(`/api/v1/users/${userId}/roles`).send({ roleIds });
 
       expect(response.status).toBe(204);
-      expect(mockUserRoleService.addRoleToUser).toHaveBeenCalledTimes(3);
+      // 全ロールを1回の呼び出し（一つのトランザクション）で渡し、1件ずつの追加はしない
+      expect(mockUserRoleService.addRolesToUser).toHaveBeenCalledTimes(1);
+      expect(mockUserRoleService.addRolesToUser).toHaveBeenCalledWith(
+        userId,
+        roleIds,
+        'admin-user-id',
+        expect.objectContaining({ email: expect.any(String) })
+      );
+      expect(mockUserRoleService.addRoleToUser).not.toHaveBeenCalled();
     });
   });
 

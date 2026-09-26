@@ -952,7 +952,7 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - **範囲外の観測（起票はしていない）**: `e2e/specs/auth/invitations.spec.ts` は REQ-1.3 / 1.6 を名乗るがメール送信は主張していない。`requestPasswordReset` はキュー投入の失敗で `RESET_TOKEN_INVALID` を返す（条文24.8 の外。35.5 の 25.6 で扱う）。`rbac.service.ts` 等にも `{ error }` キーの warn が残る
   - _Blocked: site-survey スペックの Task 115.334（本項の被覆印に由来する `featureless-headers-resolvable-by-own-feature-after-115308` 586→587 を含む。親が上流の tasks.md へ追記済み）の解決待ち。実装そのものは承認・コミット済み。`[x]` は 115.334 の解決後に当該宣言が緑へ戻ったことを確かめてから付けること_
 
-- [ ] 35.5 認証系の書き込みの原子性を実装し、失敗注入で検証する
+- [x] 35.5 認証系の書き込みの原子性を実装し、失敗注入で検証する
   - 実測（25.1 / 25.2）: `auth.service.ts:130` の `$transaction` は実在する。単体の `auth.service.test.ts:147` は `$transaction` を `mockResolvedValue` で置き換えてコールバックを実行しない。統合の `auth.integration.test.ts:337` は結果だけを見て、`database.integration.test.ts:278` は Prisma 一般のロールバックを見るだけ
   - 実測（25.3）: `user-role.service.ts:382` の `addRolesToUser` は docstring で「トランザクション」と述べるが、`addRoleToUser` を 1 件ずつループしておりトランザクションは無い（`:403` の `removeRolesFromUser` も同じ）
   - 実測（25.5）: `user-role.service.ts:91` の `userRole.create` と `:104-105` の監査ログ、`role-permission.service.ts:89` の `create` と `:107-108` の監査ログ、`:204` の `delete` と `:219-220` の監査ログはいずれも別々の書き込み。`role-permission.service.ts` に `$transaction` は 0 件
@@ -962,6 +962,11 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - 大きいのでフローごとに 35.5a〜e へ分割してよい
   - _Requirements: 25.1, 25.2, 25.3, 25.5, 25.6, 25.7_
   - _Boundary: AuthService / UserRoleService / RolePermissionService / PasswordService / AuditLogService の書き込み経路と、その統合検証_
+  - **処遇（HEAD `cec9756a` の作業ツリー、2026-09-27 にリポジトリルートで実測）**: 25.1 / 25.2 は `AuthService.register` の `$transaction` が既に満たしており実装は変えていない。25.3 / 25.5 / 25.7 は `UserRoleService` と `RolePermissionService` の書き込みを1件・一括とも1つの `$transaction` にまとめ、変更前の検証・紐付けの書き込み・監査ログ（`AuditLogService.createLog` の任意の第2引数に tx を渡す）を同じトランザクションで行うようにした。途中で失敗すれば業務エラーを含めて全件をロールバックする（着手前は途中まで確定していた）。アラートと権限キャッシュの無効化はコミットの後に行う。**25.6 は利用者の裁定（2026-09-27「(A) コミット後に投入」）に従った**——`PasswordService.requestPasswordReset` はリセットトークンの作成と監査ログ `PASSWORD_RESET_REQUESTED`（実行者・対象とも本人）を1つの `$transaction` で記録し、コミット後にメールを投入する。投入の失敗は `err` キーの warn に残して Ok を返す（着手前は `RESET_TOKEN_INVALID` を返していた）。DB が失敗すれば `RESET_TOKEN_INVALID` を返し投入しない。未登録のアドレスは何も作らずに同じ成功を返す（ユーザー列挙の防止は不変）。キューは DB のトランザクションに参加できないため条文の「メール送信をトランザクション内で」からは逸脱し、DB の整合性を保証してメールはコミット後に高々1回とした。「ログ記録」は同じトランザクションの監査ログと読んだ。決定は design.md の RBACService 節に日付付きで追記した
+  - **境界外の変更（独立レビューが正当と判定）**: 一括メソッドが本番から一度も呼ばれていなかったため、25.3 / 25.7 を本番の API から働かせるのに必要な最小限の結線として、ロール追加 API（POST /users/:id/roles）と権限追加 API を1件ずつのループから一括メソッドの1回の呼び出しへ改め、権限削除 API（DELETE /roles/:id/permissions/:permissionId）が実行者を渡すようにした（これが無いと本番の権限削除で 25.5 が空振りする。これにより権限削除の監査ログが新たに記録される）
+  - **検証**: `backend/src/__tests__/integration/auth-write-atomicity.integration.test.ts`（20件、`@requirement user-authentication/REQ-25.1` / `25.2` / `25.3` / `25.5` / `25.6` / `25.7`）で、実 DB の PostgreSQL トリガー（テスト固有の ID に限定し beforeEach / afterEach / afterAll で DROP）により途中の書き込みと監査ログの保存を失敗させ、コミット時点の失敗は遅延制約トリガーで起こし、全変更のロールバックとロールバック時にメールが投入されないことを主張した。25.6 は単体3件（`password.service.test.ts`）も置いた。**RED**: 実装前は統合 (a)〜(d) が 13 failed / 1 passed（登録は既に原子的）、25.6 は単体3件・統合3件が赤。変異10種（各 `$transaction` の撤去5種、監査ログに tx を渡さない3種、投入をコミット前へ移す1種、監査ログの撤去1種）はいずれも赤（独立レビューが3種を再現）。backend 単体 5775 件、統合の全件 936 件、type-check、lint、E2E（password-reset 27件、管理系 55件、data-integrity 5件）緑。`check:req-coverage` は本スペックの受入基準 365→371/388。鮮度の関門の赤の集合は着手前と同一（新しい赤は無い）。test DB に障害注入のトリガーは残っていない
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test -- password user-role role-permission audit-log roles` 175/175、type-check EXIT=0
+  - **範囲外の観測（起票はしていない）**: (i) `removeRoleFromUser` は監査ログを記録していない（要件22.3）。(ii) ロールの CRUD の監査ログはトランザクション外で書かれている。(iii) フロントの `UserManagement.tsx` は POST /users/:id/roles に `{roleId}` を送るが、ルートは `roleIds` を要求する（着手前からの食い違い）。(iv) パスワードリセットはコミット後の投入を await しており、Redis 無応答時に応答が止まりうる（35.4 の招待は待たない方式で方針がそろっていない。着手前も await）。(v) コミット後の処理が例外を投げるとコミット済みでも DATABASE_ERROR を返す（着手前と同じ）
 
 - [ ] 35.6 書き込みの ACID 特性を定め検証する
   - 条文 25.4 は「ACID特性を保証」とだけ述べる。取り下げた除外の description は「READ COMMITTED 以上」を掲げていたが条文には無い

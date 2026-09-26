@@ -9,7 +9,7 @@
  * - Business Rule Enforcement: システム管理者ロールの*:*権限保護
  */
 
-import type { PrismaClient } from '../generated/prisma/client.js';
+import type { PrismaClient, Prisma } from '../generated/prisma/client.js';
 import type {
   IRolePermissionService,
   RolePermissionInfo,
@@ -21,7 +21,23 @@ import { Ok, Err, type Result } from '../types/result.js';
 import logger from '../utils/logger.js';
 
 /**
+ * 紐付けの変更を途中で打ち切り、トランザクションをロールバックさせるための合図。
+ * 業務上のエラー（ロール・権限の不在など）を運ぶ。$transaction の外で Err へ戻す。
+ */
+class RolePermissionRollback extends Error {
+  constructor(readonly error: RolePermissionError) {
+    super(`Role permission change rolled back: ${error.type}`);
+    this.name = 'RolePermissionRollback';
+  }
+}
+
+/**
  * ロール・権限紐付け管理サービスの実装
+ *
+ * 変更前の検証（ロール・権限の存在、重複、紐付けの存在、システム管理者ロールの保護）、
+ * 紐付けの書き込み、監査ログの記録を一つのトランザクションで行う。一括操作は全件を
+ * 一つのトランザクションで行い、1件でも失敗すればロールの権限は変更前の状態に戻る。
+ * 権限キャッシュの無効化はコミット後に行う。
  */
 export class RolePermissionService implements IRolePermissionService {
   constructor(
@@ -47,93 +63,7 @@ export class RolePermissionService implements IRolePermissionService {
     permissionId: string,
     actorId?: string
   ): Promise<Result<void, RolePermissionError>> {
-    try {
-      // ロールの存在チェック (optimized: only fetch necessary fields)
-      const role = await this.prisma.role.findUnique({
-        where: { id: roleId },
-        select: { id: true, name: true },
-      });
-
-      if (!role) {
-        logger.warn({ roleId }, 'Role not found');
-        return Err({ type: 'ROLE_NOT_FOUND' });
-      }
-
-      // 権限の存在チェック (optimized: only fetch necessary fields)
-      const permission = await this.prisma.permission.findUnique({
-        where: { id: permissionId },
-        select: { id: true, resource: true, action: true },
-      });
-
-      if (!permission) {
-        logger.warn({ permissionId }, 'Permission not found');
-        return Err({ type: 'PERMISSION_NOT_FOUND' });
-      }
-
-      // 重複チェック (optimized: only check existence)
-      const existing = await this.prisma.rolePermission.findFirst({
-        where: {
-          roleId,
-          permissionId,
-        },
-        select: { id: true },
-      });
-
-      if (existing) {
-        // 重複は無視（エラーにしない）
-        logger.debug({ roleId, permissionId }, 'Permission already assigned, skipping');
-        return Ok(undefined);
-      }
-
-      // 紐付け作成
-      await this.prisma.rolePermission.create({
-        data: {
-          roleId,
-          permissionId,
-        },
-      });
-
-      logger.info(
-        {
-          roleId,
-          permissionId,
-          roleName: role.name,
-          permission: `${permission.resource}:${permission.action}`,
-        },
-        'Permission added to role successfully'
-      );
-
-      // 監査ログ記録
-      if (this.auditLogService && actorId) {
-        await this.auditLogService.createLog({
-          action: 'PERMISSION_ASSIGNED',
-          actorId,
-          targetType: 'role-permission',
-          targetId: roleId,
-          before: null,
-          after: {
-            roleId,
-            roleName: role.name,
-            permissionId,
-            permission: `${permission.resource}:${permission.action}`,
-          },
-          metadata: null,
-        });
-      }
-
-      // ロールを持つ全ユーザーのキャッシュを無効化
-      if (this.rbacService) {
-        await this.rbacService.invalidateUserPermissionsCacheForRole(roleId);
-      }
-
-      return Ok(undefined);
-    } catch (error) {
-      logger.error({ error, roleId, permissionId }, 'Failed to add permission to role');
-      return Err({
-        type: 'DATABASE_ERROR',
-        message: error instanceof Error ? error.message : 'Unknown error',
-      });
-    }
+    return this.addPermissions(roleId, [permissionId], actorId);
   }
 
   /**
@@ -154,98 +84,7 @@ export class RolePermissionService implements IRolePermissionService {
     permissionId: string,
     actorId?: string
   ): Promise<Result<void, RolePermissionError>> {
-    try {
-      // ロールの存在チェック (optimized: only fetch necessary fields)
-      const role = await this.prisma.role.findUnique({
-        where: { id: roleId },
-        select: { id: true, name: true },
-      });
-
-      if (!role) {
-        logger.warn({ roleId }, 'Role not found');
-        return Err({ type: 'ROLE_NOT_FOUND' });
-      }
-
-      // 権限の存在チェック (optimized: only fetch necessary fields)
-      const permission = await this.prisma.permission.findUnique({
-        where: { id: permissionId },
-        select: { id: true, resource: true, action: true },
-      });
-
-      if (!permission) {
-        logger.warn({ permissionId }, 'Permission not found');
-        return Err({ type: 'PERMISSION_NOT_FOUND' });
-      }
-
-      // システム管理者ロールの *:* 権限削除保護
-      if (role.name === 'admin' && permission.resource === '*' && permission.action === '*') {
-        logger.warn(
-          { roleId, permissionId, roleName: role.name },
-          'Cannot remove *:* permission from admin role'
-        );
-        return Err({ type: 'ADMIN_WILDCARD_PROTECTED' });
-      }
-
-      // 紐付けの存在チェック (optimized: only fetch id for deletion)
-      const rolePermission = await this.prisma.rolePermission.findFirst({
-        where: {
-          roleId,
-          permissionId,
-        },
-        select: { id: true },
-      });
-
-      if (!rolePermission) {
-        logger.warn({ roleId, permissionId }, 'Permission assignment not found');
-        return Err({ type: 'ASSIGNMENT_NOT_FOUND' });
-      }
-
-      // 紐付け削除
-      await this.prisma.rolePermission.delete({
-        where: { id: rolePermission.id },
-      });
-
-      logger.info(
-        {
-          roleId,
-          permissionId,
-          roleName: role.name,
-          permission: `${permission.resource}:${permission.action}`,
-        },
-        'Permission removed from role successfully'
-      );
-
-      // 監査ログ記録
-      if (this.auditLogService && actorId) {
-        await this.auditLogService.createLog({
-          action: 'PERMISSION_REVOKED',
-          actorId,
-          targetType: 'role-permission',
-          targetId: roleId,
-          before: {
-            roleId,
-            roleName: role.name,
-            permissionId,
-            permission: `${permission.resource}:${permission.action}`,
-          },
-          after: null,
-          metadata: null,
-        });
-      }
-
-      // ロールを持つ全ユーザーのキャッシュを無効化
-      if (this.rbacService) {
-        await this.rbacService.invalidateUserPermissionsCacheForRole(roleId);
-      }
-
-      return Ok(undefined);
-    } catch (error) {
-      logger.error({ error, roleId, permissionId }, 'Failed to remove permission from role');
-      return Err({
-        type: 'DATABASE_ERROR',
-        message: error instanceof Error ? error.message : 'Unknown error',
-      });
-    }
+    return this.removePermissions(roleId, [permissionId], actorId);
   }
 
   /**
@@ -307,49 +146,286 @@ export class RolePermissionService implements IRolePermissionService {
   /**
    * 複数の権限を一括でロールに追加（トランザクション）
    *
+   * 全権限の割り当てと監査ログを一つのトランザクションで行う。途中で1件でも失敗
+   * （ロール・権限の不在、書き込みや監査ログの失敗）すれば全件をロールバックする。
+   *
    * @param roleId - ロールID
    * @param permissionIds - 権限IDの配列
+   * @param actorId - 実行者ユーザーID（監査ログ用、オプション）
    * @returns 成功またはエラー
    */
   async addPermissionsToRole(
     roleId: string,
-    permissionIds: string[]
+    permissionIds: string[],
+    actorId?: string
   ): Promise<Result<void, RolePermissionError>> {
-    // 各権限を個別に追加（重複チェック含む）
-    for (const permissionId of permissionIds) {
-      const result = await this.addPermissionToRole(roleId, permissionId);
-      if (!result.ok && result.error.type !== 'DATABASE_ERROR') {
-        // DATABASE_ERROR以外のエラー（ROLE_NOT_FOUND, PERMISSION_NOT_FOUND）は即座に返す
-        return result;
-      }
+    const result = await this.addPermissions(roleId, permissionIds, actorId);
+    if (result.ok) {
+      logger.info({ roleId, count: permissionIds.length }, 'Permissions added to role in bulk');
     }
-
-    logger.info({ roleId, count: permissionIds.length }, 'Permissions added to role in bulk');
-    return Ok(undefined);
+    return result;
   }
 
   /**
    * 複数の権限を一括でロールから削除（トランザクション）
    *
+   * 全権限の削除と監査ログを一つのトランザクションで行う。途中で1件でも失敗すれば全件をロールバックする。
+   *
    * @param roleId - ロールID
    * @param permissionIds - 権限IDの配列
+   * @param actorId - 実行者ユーザーID（監査ログ用、オプション）
    * @returns 成功またはエラー
    */
   async removePermissionsFromRole(
     roleId: string,
-    permissionIds: string[]
+    permissionIds: string[],
+    actorId?: string
   ): Promise<Result<void, RolePermissionError>> {
-    // 各権限を個別に削除
-    for (const permissionId of permissionIds) {
-      const result = await this.removePermissionFromRole(roleId, permissionId);
-      if (!result.ok && result.error.type !== 'DATABASE_ERROR') {
-        // DATABASE_ERROR以外のエラーは即座に返す
-        return result;
+    const result = await this.removePermissions(roleId, permissionIds, actorId);
+    if (result.ok) {
+      logger.info({ roleId, count: permissionIds.length }, 'Permissions removed from role in bulk');
+    }
+    return result;
+  }
+
+  /**
+   * 権限の割り当て（1件・一括の共通処理）。全件を一つのトランザクションで行う
+   */
+  private async addPermissions(
+    roleId: string,
+    permissionIds: string[],
+    actorId?: string
+  ): Promise<Result<void, RolePermissionError>> {
+    try {
+      const changed = await this.prisma.$transaction(async (tx) => {
+        let count = 0;
+        for (const permissionId of permissionIds) {
+          if (await this.assignPermissionInTransaction(tx, roleId, permissionId, actorId)) {
+            count++;
+          }
+        }
+        return count;
+      });
+
+      await this.afterCommit(roleId, changed);
+      return Ok(undefined);
+    } catch (error) {
+      if (error instanceof RolePermissionRollback) {
+        return Err(error.error);
       }
+      logger.error({ error, roleId, permissionIds }, 'Failed to add permission to role');
+      return Err({
+        type: 'DATABASE_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  /**
+   * 権限の削除（1件・一括の共通処理）。全件を一つのトランザクションで行う
+   */
+  private async removePermissions(
+    roleId: string,
+    permissionIds: string[],
+    actorId?: string
+  ): Promise<Result<void, RolePermissionError>> {
+    try {
+      const changed = await this.prisma.$transaction(async (tx) => {
+        for (const permissionId of permissionIds) {
+          await this.removePermissionInTransaction(tx, roleId, permissionId, actorId);
+        }
+        return permissionIds.length;
+      });
+
+      await this.afterCommit(roleId, changed);
+      return Ok(undefined);
+    } catch (error) {
+      if (error instanceof RolePermissionRollback) {
+        return Err(error.error);
+      }
+      logger.error({ error, roleId, permissionIds }, 'Failed to remove permission from role');
+      return Err({
+        type: 'DATABASE_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  /**
+   * トランザクション内で権限を1件割り当て、監査ログを同じトランザクションで記録する
+   *
+   * @returns 新たに割り当てた場合 true（既に割り当て済みで何もしなかった場合 false）
+   */
+  private async assignPermissionInTransaction(
+    tx: Prisma.TransactionClient,
+    roleId: string,
+    permissionId: string,
+    actorId?: string
+  ): Promise<boolean> {
+    // ロールの存在チェック (optimized: only fetch necessary fields)
+    const role = await tx.role.findUnique({
+      where: { id: roleId },
+      select: { id: true, name: true },
+    });
+    if (!role) {
+      logger.warn({ roleId }, 'Role not found');
+      throw new RolePermissionRollback({ type: 'ROLE_NOT_FOUND' });
     }
 
-    logger.info({ roleId, count: permissionIds.length }, 'Permissions removed from role in bulk');
-    return Ok(undefined);
+    // 権限の存在チェック (optimized: only fetch necessary fields)
+    const permission = await tx.permission.findUnique({
+      where: { id: permissionId },
+      select: { id: true, resource: true, action: true },
+    });
+    if (!permission) {
+      logger.warn({ permissionId }, 'Permission not found');
+      throw new RolePermissionRollback({ type: 'PERMISSION_NOT_FOUND' });
+    }
+
+    // 重複チェック (optimized: only check existence)
+    const existing = await tx.rolePermission.findFirst({
+      where: { roleId, permissionId },
+      select: { id: true },
+    });
+    if (existing) {
+      // 重複は無視（エラーにしない）
+      logger.debug({ roleId, permissionId }, 'Permission already assigned, skipping');
+      return false;
+    }
+
+    // 紐付け作成
+    await tx.rolePermission.create({
+      data: {
+        roleId,
+        permissionId,
+      },
+    });
+
+    // 監査ログ記録（同じトランザクション。失敗すれば紐付けもロールバックされる）
+    if (this.auditLogService && actorId) {
+      await this.auditLogService.createLog(
+        {
+          action: 'PERMISSION_ASSIGNED',
+          actorId,
+          targetType: 'role-permission',
+          targetId: roleId,
+          before: null,
+          after: {
+            roleId,
+            roleName: role.name,
+            permissionId,
+            permission: `${permission.resource}:${permission.action}`,
+          },
+          metadata: null,
+        },
+        tx
+      );
+    }
+
+    logger.info(
+      {
+        roleId,
+        permissionId,
+        roleName: role.name,
+        permission: `${permission.resource}:${permission.action}`,
+      },
+      'Permission added to role successfully'
+    );
+    return true;
+  }
+
+  /**
+   * トランザクション内で権限を1件削除し、監査ログを同じトランザクションで記録する
+   */
+  private async removePermissionInTransaction(
+    tx: Prisma.TransactionClient,
+    roleId: string,
+    permissionId: string,
+    actorId?: string
+  ): Promise<void> {
+    // ロールの存在チェック (optimized: only fetch necessary fields)
+    const role = await tx.role.findUnique({
+      where: { id: roleId },
+      select: { id: true, name: true },
+    });
+    if (!role) {
+      logger.warn({ roleId }, 'Role not found');
+      throw new RolePermissionRollback({ type: 'ROLE_NOT_FOUND' });
+    }
+
+    // 権限の存在チェック (optimized: only fetch necessary fields)
+    const permission = await tx.permission.findUnique({
+      where: { id: permissionId },
+      select: { id: true, resource: true, action: true },
+    });
+    if (!permission) {
+      logger.warn({ permissionId }, 'Permission not found');
+      throw new RolePermissionRollback({ type: 'PERMISSION_NOT_FOUND' });
+    }
+
+    // システム管理者ロールの *:* 権限削除保護
+    if (role.name === 'admin' && permission.resource === '*' && permission.action === '*') {
+      logger.warn(
+        { roleId, permissionId, roleName: role.name },
+        'Cannot remove *:* permission from admin role'
+      );
+      throw new RolePermissionRollback({ type: 'ADMIN_WILDCARD_PROTECTED' });
+    }
+
+    // 紐付けの存在チェック (optimized: only fetch id for deletion)
+    const rolePermission = await tx.rolePermission.findFirst({
+      where: { roleId, permissionId },
+      select: { id: true },
+    });
+    if (!rolePermission) {
+      logger.warn({ roleId, permissionId }, 'Permission assignment not found');
+      throw new RolePermissionRollback({ type: 'ASSIGNMENT_NOT_FOUND' });
+    }
+
+    // 紐付け削除
+    await tx.rolePermission.delete({
+      where: { id: rolePermission.id },
+    });
+
+    // 監査ログ記録（同じトランザクション。失敗すれば削除も取り消される）
+    if (this.auditLogService && actorId) {
+      await this.auditLogService.createLog(
+        {
+          action: 'PERMISSION_REVOKED',
+          actorId,
+          targetType: 'role-permission',
+          targetId: roleId,
+          before: {
+            roleId,
+            roleName: role.name,
+            permissionId,
+            permission: `${permission.resource}:${permission.action}`,
+          },
+          after: null,
+          metadata: null,
+        },
+        tx
+      );
+    }
+
+    logger.info(
+      {
+        roleId,
+        permissionId,
+        roleName: role.name,
+        permission: `${permission.resource}:${permission.action}`,
+      },
+      'Permission removed from role successfully'
+    );
+  }
+
+  /**
+   * コミット後の処理: ロールを持つ全ユーザーの権限キャッシュを無効化
+   */
+  private async afterCommit(roleId: string, changedCount: number): Promise<void> {
+    if (changedCount > 0 && this.rbacService) {
+      await this.rbacService.invalidateUserPermissionsCacheForRole(roleId);
+    }
   }
 
   /**

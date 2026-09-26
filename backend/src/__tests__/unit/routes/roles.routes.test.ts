@@ -24,6 +24,7 @@ const mockRoleService = vi.hoisted(() => ({
 
 const mockRolePermissionService = vi.hoisted(() => ({
   addPermissionToRole: vi.fn(),
+  addPermissionsToRole: vi.fn(),
   removePermissionFromRole: vi.fn(),
   getRolePermissions: vi.fn(),
 }));
@@ -321,15 +322,43 @@ describe('Role Routes', () => {
       const roleId = 'role-3';
       const permissionId = 'permission-1';
 
-      (mockRolePermissionService.addPermissionToRole as ReturnType<typeof vi.fn>).mockResolvedValue(
-        Ok(undefined)
-      );
+      (
+        mockRolePermissionService.addPermissionsToRole as ReturnType<typeof vi.fn>
+      ).mockResolvedValue(Ok(undefined));
 
       const response = await request(app)
         .post(`/api/v1/roles/${roleId}/permissions`)
         .send({ permissionId });
 
       expect(response.status).toBe(204);
+      // 単一指定も一括の経路（一つのトランザクション）へ渡し、実行者を監査ログ用に添える
+      expect(mockRolePermissionService.addPermissionsToRole).toHaveBeenCalledWith(
+        roleId,
+        [permissionId],
+        'admin-user-id'
+      );
+    });
+
+    it('should add multiple permissions in one transactional call', async () => {
+      const roleId = 'role-3';
+      const permissionIds = ['permission-1', 'permission-2'];
+
+      (
+        mockRolePermissionService.addPermissionsToRole as ReturnType<typeof vi.fn>
+      ).mockResolvedValue(Ok(undefined));
+
+      const response = await request(app)
+        .post(`/api/v1/roles/${roleId}/permissions`)
+        .send({ permissionIds });
+
+      expect(response.status).toBe(204);
+      expect(mockRolePermissionService.addPermissionsToRole).toHaveBeenCalledTimes(1);
+      expect(mockRolePermissionService.addPermissionsToRole).toHaveBeenCalledWith(
+        roleId,
+        permissionIds,
+        'admin-user-id'
+      );
+      expect(mockRolePermissionService.addPermissionToRole).not.toHaveBeenCalled();
     });
 
     it('should return 400 when permissionId is missing', async () => {
@@ -346,9 +375,9 @@ describe('Role Routes', () => {
       const roleId = 'non-existent-role';
       const permissionId = 'permission-1';
 
-      (mockRolePermissionService.addPermissionToRole as ReturnType<typeof vi.fn>).mockResolvedValue(
-        Err({ type: 'ROLE_NOT_FOUND' })
-      );
+      (
+        mockRolePermissionService.addPermissionsToRole as ReturnType<typeof vi.fn>
+      ).mockResolvedValue(Err({ type: 'ROLE_NOT_FOUND' }));
 
       const response = await request(app)
         .post(`/api/v1/roles/${roleId}/permissions`)
@@ -362,9 +391,9 @@ describe('Role Routes', () => {
       const roleId = 'role-3';
       const permissionId = 'non-existent-permission';
 
-      (mockRolePermissionService.addPermissionToRole as ReturnType<typeof vi.fn>).mockResolvedValue(
-        Err({ type: 'PERMISSION_NOT_FOUND' })
-      );
+      (
+        mockRolePermissionService.addPermissionsToRole as ReturnType<typeof vi.fn>
+      ).mockResolvedValue(Err({ type: 'PERMISSION_NOT_FOUND' }));
 
       const response = await request(app)
         .post(`/api/v1/roles/${roleId}/permissions`)
@@ -389,6 +418,12 @@ describe('Role Routes', () => {
       );
 
       expect(response.status).toBe(204);
+      // 削除の監査ログのため実行者を渡す
+      expect(mockRolePermissionService.removePermissionFromRole).toHaveBeenCalledWith(
+        roleId,
+        permissionId,
+        'admin-user-id'
+      );
     });
 
     it('should return 404 when role not found', async () => {

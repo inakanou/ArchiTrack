@@ -221,21 +221,24 @@ describe('UserRoleService', () => {
       // Act
       await userRoleService.addRoleToUser(mockUserId, mockRoleId, actorId);
 
-      // Assert
-      expect(auditLogServiceMock.createLog).toHaveBeenCalledWith({
-        action: 'USER_ROLE_ASSIGNED',
-        actorId,
-        targetType: 'user-role',
-        targetId: mockUserId,
-        before: null,
-        after: {
-          userId: mockUserId,
-          userEmail: mockUser.email,
-          roleId: mockRoleId,
-          roleName: mockRole.name,
+      // Assert（監査ログは紐付けと同じトランザクションのクライアントで記録する）
+      expect(auditLogServiceMock.createLog).toHaveBeenCalledWith(
+        {
+          action: 'USER_ROLE_ASSIGNED',
+          actorId,
+          targetType: 'user-role',
+          targetId: mockUserId,
+          before: null,
+          after: {
+            userId: mockUserId,
+            userEmail: mockUser.email,
+            roleId: mockRoleId,
+            roleName: mockRole.name,
+          },
+          metadata: null,
         },
-        metadata: null,
-      });
+        prismaMock
+      );
     });
 
     it('システム管理者ロール追加時にメールアラートとSentryアラートを送信する', async () => {

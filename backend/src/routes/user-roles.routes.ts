@@ -150,23 +150,22 @@ router.post(
       const { roleIds } = req.body;
       const actorId = req.user!.userId;
 
-      // 各ロールを追加（監査ログとアラート対応）
-      for (const roleId of roleIds) {
-        const performedBy = req.user
-          ? { email: req.user.email, displayName: req.user.email }
-          : undefined;
+      const performedBy = req.user
+        ? { email: req.user.email, displayName: req.user.email }
+        : undefined;
 
-        const result = await userRoleService.addRoleToUser(userId, roleId, actorId, performedBy);
+      // 全ロールを一つのトランザクションで追加（監査ログとアラート対応）。
+      // 1件でも失敗すれば、先に追加したロールも残らない
+      const result = await userRoleService.addRolesToUser(userId, roleIds, actorId, performedBy);
 
-        if (!result.ok) {
-          const error = result.error;
-          if (error.type === 'USER_NOT_FOUND' || error.type === 'ROLE_NOT_FOUND') {
-            res.status(404).json({ error: 'User or role not found', code: error.type });
-            return;
-          }
-          res.status(500).json({ error: 'Failed to add role to user', details: error });
+      if (!result.ok) {
+        const error = result.error;
+        if (error.type === 'USER_NOT_FOUND' || error.type === 'ROLE_NOT_FOUND') {
+          res.status(404).json({ error: 'User or role not found', code: error.type });
           return;
         }
+        res.status(500).json({ error: 'Failed to add role to user', details: error });
+        return;
       }
 
       logger.info({ userId, roleIds, actorId }, 'Roles added to user successfully');

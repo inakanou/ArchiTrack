@@ -11,9 +11,10 @@ export interface IAuditLogService {
   /**
    * 監査ログを記録する
    * @param input - 監査ログ作成入力
+   * @param tx - 呼び出し元のトランザクション（渡すと元の操作と同じトランザクションで記録する）
    * @returns 作成された監査ログ情報
    */
-  createLog(input: CreateAuditLogInput): Promise<AuditLogInfo>;
+  createLog(input: CreateAuditLogInput, tx?: Prisma.TransactionClient): Promise<AuditLogInfo>;
 
   /**
    * 監査ログを取得する（フィルタリング対応）

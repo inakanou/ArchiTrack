@@ -453,18 +453,18 @@ router.post(
       // Batch or single permission assignment
       const idsToAdd: string[] = permissionIds || [permissionId];
 
-      for (const pId of idsToAdd) {
-        const result = await rolePermissionService.addPermissionToRole(roleId, pId, actorId);
+      // 全権限を一つのトランザクションで追加（監査ログを含む）。
+      // 1件でも失敗すれば、ロールの権限は変更前のまま残る
+      const result = await rolePermissionService.addPermissionsToRole(roleId, idsToAdd, actorId);
 
-        if (!result.ok) {
-          const error = result.error;
-          if (error.type === 'ROLE_NOT_FOUND' || error.type === 'PERMISSION_NOT_FOUND') {
-            res.status(404).json({ error: 'Role or permission not found', code: error.type });
-            return;
-          }
-          res.status(500).json({ error: 'Failed to add permission to role', details: error });
+      if (!result.ok) {
+        const error = result.error;
+        if (error.type === 'ROLE_NOT_FOUND' || error.type === 'PERMISSION_NOT_FOUND') {
+          res.status(404).json({ error: 'Role or permission not found', code: error.type });
           return;
         }
+        res.status(500).json({ error: 'Failed to add permission to role', details: error });
+        return;
       }
 
       logger.info(
@@ -522,7 +522,12 @@ router.delete(
     try {
       const { id: roleId, permissionId } = req.params as { id: string; permissionId: string };
 
-      const result = await rolePermissionService.removePermissionFromRole(roleId, permissionId);
+      // 削除と監査ログの記録を同じトランザクションで行う
+      const result = await rolePermissionService.removePermissionFromRole(
+        roleId,
+        permissionId,
+        req.user?.userId
+      );
 
       if (!result.ok) {
         const error = result.error;
