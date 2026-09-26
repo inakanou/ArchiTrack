@@ -6,6 +6,21 @@ import crypto from 'crypto';
 const router = Router();
 
 /**
+ * 公開鍵配布の応答のキャッシュ有効期間（秒）
+ *
+ * 要件31.5（有効期間300秒）・要件31.6（鍵の入れ替えの猶予期間より十分に短い値）に対応する。
+ *
+ * 値の根拠:
+ * - 鍵の入れ替えの猶予期間（`JWT_PUBLIC_KEY_OLD` が設定されている期間。設計上は T日目〜T+30日目）より
+ *   十分に短いこと。検証者のキャッシュが旧い鍵集合を保持し続けても、猶予期間内に必ず取り直される
+ * - アクセストークンの既定有効期限15分（`ACCESS_TOKEN_EXPIRY` の既定 '15m'）より短い値を選んでいる。
+ *   新しい鍵で署名されたトークンの有効期間中に、検証者が新しい鍵を取得できる
+ *
+ * 検証側はこの定数を参照できるが、期待値は具体値（300）で書くこと。
+ */
+export const JWKS_CACHE_MAX_AGE_SECONDS = 300;
+
+/**
  * JWKにRFC 7517準拠の必須フィールドを追加
  * @param jwk - 元のJWK
  * @param keyIdentifier - キー識別子（オプション）
@@ -62,6 +77,10 @@ router.get('/jwks.json', async (_req, res) => {
       const oldJWK = ensureRfc7517Compliance(rawJWK, 'old');
       keys.push(oldJWK);
     }
+
+    // 要件31.4: 公開鍵配布の応答に Cache-Control を設定する。
+    // 公開鍵は秘匿情報を含まないため、共有キャッシュ（CDN等）での保持も許す public とする
+    res.set('Cache-Control', `public, max-age=${JWKS_CACHE_MAX_AGE_SECONDS}`);
 
     // JWKS形式でレスポンス
     res.json({ keys });

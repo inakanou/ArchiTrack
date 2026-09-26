@@ -771,13 +771,18 @@ _追加日: 2026-02-09_
 
 **経緯**: site-survey の Task 115.127 段6 で、E2E の「適切なCache-Controlヘッダーが設定されていること」が観測結果で主張を包む構造により恒久的に緑になっていたことが判明した。実装は `Cache-Control` を一切設定しておらず、かつ**本仕様に JWKS の記述が無かった**ため、誰も決めていない仕様を検証している状態だった。利用者の判断（2026-08-22）により、要件へ昇格して実装することとした。
 
-- [ ] 32.1 公開鍵配布エンドポイントにキャッシュ制御を実装する
+- [x] 32.1 公開鍵配布エンドポイントにキャッシュ制御を実装する
   - `backend/src/routes/jwks.routes.ts` の応答に `Cache-Control` を設定する。有効期間は300秒（5分）とする
   - 値の根拠を注釈に残すこと。**鍵の入れ替えの猶予期間（`JWT_PUBLIC_KEY_OLD` が設定されている期間）より十分に短いこと**が要件6の趣旨である。アクセストークンの既定有効期限15分より短い値を選んでいる
   - 有効期間は本番コードの定数として一元管理し、検証側が同じ定数を参照できるようにすること。**検証が本番の算出を再実行する形にしないこと**（期待値は具体値で書くこと）
   - 単体テストで、応答に `Cache-Control` が含まれ有効期間が300秒であることを確認できること
   - _Requirements: 31.4, 31.5, 31.6_
   - _Boundary: 公開鍵配布エンドポイントの応答ヘッダー_
+  - **処遇（コミット `af75c660` の作業ツリー、2026-09-26 にリポジトリルートで実測）**: `backend/src/routes/jwks.routes.ts` に公開定数 `JWKS_CACHE_MAX_AGE_SECONDS = 300` を置き、成功応答の `res.json` の直前で `Cache-Control: public, max-age=300` を設定した（500 応答には付けない）。値の根拠は注釈に残した——鍵の入れ替えの猶予期間（design.md の鍵ローテーション手順 T〜T+30日）より十分に短く、アクセストークンの既定有効期限 15 分（`security.constants.ts` の `ACCESS_TOKEN_EXPIRY: '15m'`）より短い。要件・設計に `public` / `private` の指定は無く、公開鍵は秘匿情報を含まないため共有キャッシュを許す `public` とした
+  - **検証**: 単体テスト `backend/src/__tests__/unit/routes/jwks.routes.test.ts` の `describe('キャッシュ制御')` に2件を追加した——応答ヘッダーが `'public, max-age=300'` と一致すること（`@requirement` 31.4 / 31.5）、定数が `300` であり 30日（`2_592_000`）と15分（`900`）より小さいこと（31.5 / 31.6）。期待値はいずれも具体値。**RED**: フラグ OFF で `expected undefined to be 'public, max-age=300'` により1件が落ち、ON で10件緑、フラグ撤去後も10件緑。独立レビューが `res.set` の削除・`max-age=3000`・定数 3000 の変異をいずれも赤で再現した。backend 単体 5740件・type-check・lint は緑
+  - **関門**: `check:req-coverage` は基線から EXIT 1 のまま、本スペックの受入基準は 358→361/388（31.4 / 31.5 / 31.6 が単体の印で被覆）。`count:coverage-marks` は本スペック 461→464。`check:req-exclusions` / `check:design-code-refs` / `check:design-path-refs` / `check:design-measurement-freshness` は差分なし
+  - **申し送り（32.2 で必ず扱うこと）**: (i) 実装は test 環境（tsx watch）へ即反映され、`e2e/specs/api/jwks.spec.ts` のキャッシュ制御の検証に置かれた `test.fail()` は「落ちるはずが通った」として赤になる。**本項を含むブランチの push は 32.2 の完了後に行うこと**。(ii) `e2e/requirement-exclusions.json` の REQ-31.4 / 31.5 / 31.6 は pending-implementation のまま「実装が存在しない」と述べており、本項で事実と合わなくなった。32.2 の対象要件は 31.4 / 31.5 だけで、**31.6 の除外の処遇（削除するか、代替検証を上記の単体テストへ書き換えるか）は担当が明記されていない**
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test -- jwks` 10/10、backend type-check EXIT=0
 
 - [ ] 32.2 公開鍵配布の受入検証からラチェットを外す
   - `e2e/specs/api/jwks.spec.ts` の「キャッシュ制御: 適切なCache-Controlヘッダーが設定されていること」に置かれた `test.fail()` を外す
