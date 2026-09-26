@@ -849,7 +849,7 @@ _追加日: 2026-02-09_
 | `REQ-25.5` | `Jest / Prisma` |
 | `REQ-25.7` | `Jest / Prisma` |
 
-- [ ] 33.1 除外一覧の道具名を実体へ揃える
+- [x] 33.1 除外一覧の道具名を実体へ揃える
   - 上表 12 件の `alternativeVerification.tool` から、実在しない `Jest` を取り除く
   - **先例に揃えること**: site-survey は Task 115.121 で自機能分 32 件を「道具名の先頭 `Jest` を `Vitest` へ置換し、`React Testing Library` / `Supertest` などの併記部分は据え置く」形で是正した。`.kiro/specs/site-survey/design.md` の `**あわせて是正した除外一覧の記述**` に続く項が、その形を逐語で記録している
   - **`REQ-24.3` の `Jest / Vitest with mock` は、`Jest` を落とすだけで `Vitest with mock` になる。** 先頭を置換すると重複になるため、置換ではなく除去であること
@@ -861,6 +861,9 @@ _追加日: 2026-02-09_
   - **検証**: `npm run check:req-exclusions` が緑であること、および上の `node -e` の出力の第一値が本スペックの件数だけ減っていること
   - _Depends: site-survey スペックの Task 115.280（`64 0` の宣言の解除と台帳の追随）_
   - _Boundary: 本スペックが所管する除外項目の `alternativeVerification.tool`_
+  - **処遇（コミット `0459f048` の作業ツリー、2026-09-26 にリポジトリルートで実測。利用者の裁定「取り下げて後続を起票」）**: 道具名を是正する前に、12 件の代替検証が実在するかを一件ずつ確かめた。**`description` の約束を満たす検証は 0 件だった**。部分的な検証にとどまるのは 3 件——24.3 は `backend/src/__tests__/unit/services/email.service.test.ts` がキュー投入・`attempts: 5`・exponential を主張するが間隔を見ず、しかも実装は Bull の `(2^n−1)×60s`（1分・3分・7分・15分）で条文の 1分・5分・15分・1時間・6時間と一致しない。25.1 は `auth.integration.test.ts` が登録の結果だけを、25.2 は `database.integration.test.ts` が Prisma 一般のロールバックだけを見る。24.7 は実装（`rbac.service.ts`）があるが検証が無い。24.6 / 24.8 / 25.3 / 25.4 / 25.5 / 25.6 / 25.7 / 25.8 は実装も無い。併記の `Toxiproxy` はリポジトリの中で一度も使われていない（親も `git grep` で確認）。確かめる対象の無い条文を分母から外すのは偽の宣言になるため、道具名は是正せず、`e2e/requirement-exclusions.json` から 12 件を取り下げて未被覆として分母へ戻した（summary: `totalExclusions` 155→143、`fault-tolerance` 14→10、`data-integrity` 27→19、`note` に経緯を追記）。実装と検証はタスク35 として起票した
+  - **関門（前後の実測）**: `node -e` の出力は `48 0` → `36 0`（第一値が本スペックの 12 件だけ減り、本スペック分で `Jest` を名乗る除外は 0 件）。`check:req-exclusions` EXIT=0（155→143 件）、`npx prettier --check e2e/requirement-exclusions.json` EXIT=0。`check:req-coverage` は基線から EXIT=1 で FAILED の種類は不変——適用対象 2735→2747、到達被覆 2700/2735（98.7%）→ 2700/2747（98.3%）、本スペックの E2E 適用対象 99.4%→96.3%、未カバー受入基準 2→14 件。`count:coverage-marks` は不変。`check:design-measurement-freshness` / `:selftest` は上流 115.334 に由来して基線から EXIT=1 で、本件で実測値が動いたのは既に赤だった `requirement-exclusions-total`（actual 155→143）だけ、新しく赤になった宣言は無い（`jest-alternative-verification-exclusions` は版固定で `64 0` のまま）。`check:req-exclusions:selftest` は上流 115.334 に由来して基線から停止したまま。本スペックの設計文書の `grep -c Jest` は 0
+  - **申し送り**: `requirement-exclusions-total` の現況 143 を site-survey 115.334 へ追記した。REQ-24.1 / 24.2 の道具名 `Toxiproxy` も偽りだが `Jest` を含まず本項の範囲外（別途の扱いを要する）
 
 ## タスク34: 認証のE2Eに残る返り値を使わない待機を撤去する
 
@@ -884,3 +887,69 @@ _追加日: 2026-02-09_
   - _Boundary: 認証のE2Eの待機（`session-expired-modal.spec.ts` / `token-refresh.spec.ts` の各1箇所）_
 
 _申し送り元: site-survey スペックの Task 115.154（同スペックでは所管外としてブロック）_
+
+## タスク35: 要件24・25（障害耐性・データ整合性）を実装し検証する
+
+**経緯**: タスク33.1 は、除外一覧の道具名 `Jest` を是正する前に、12 件（REQ-24.3 / 24.6 / 24.7 / 24.8 / 25.1〜25.8）の代替検証が実在するかを一件ずつ確かめた。`description` の約束を満たす検証は 0 件で、8 件は実装も存在しなかった。利用者の裁定「取り下げて後続を起票」（2026-09-26）に従い、12 件は除外から取り下げて未被覆として分母へ戻した。本節はその後続である。**所有権は本スペックにある。** 各項の完了条件は、**条文を直接主張する検証（Vitest の単体または統合テスト、`@requirement user-authentication/REQ-…` の被覆印付き）を置き、それが変異で現に赤くなることを実測する**ことである。
+
+**測った事実**（コミット `0459f048`、2026-09-26 にリポジトリルートで実測）: 各項に記す。
+
+- [ ] 35.1 メール再送の間隔を条文へ合わせる
+  - 条文 24.3（逐語）: 「WHEN 外部メールサービスが応答しない THEN Authentication Serviceはメール送信をキューに保存し、最大5回までリトライ（1分、5分、15分、1時間、6時間後）を実行しなければならない」
+  - 実測: `backend/src/services/email.service.ts:87-93` に `RETRY_DELAYS = [1分, 5分, 15分, 1時間, 6時間]` があるが、`:178-186` 等の `emailQueue.add` は `attempts: 5, backoff: { type: 'exponential', delay: RETRY_DELAYS[0] }` を渡している。Bull 4.16.5 の exponential は `(2^n − 1) × delay`（`backend/node_modules/bull/lib/backoffs.js:12-15`）であり、実際の間隔は 1分・3分・7分・15分で、`RETRY_DELAYS[1..4]` は使われていない
+  - 実測: 既存の検証 `backend/src/__tests__/unit/services/email.service.test.ts` の `:229` の検証（`:239` の `attempts: 5`）/ `:244` の検証（`:256` の `delay: expect.any(Number)`）は間隔を見ていない
+  - 条文の「最大5回までリトライ」が初回を含む 5 回（`attempts: 5`）か初回＋リトライ 5 回（`attempts: 6`）かを、間隔が 5 つであることを踏まえて決めてから実装すること
+  - 実装: Bull のカスタム backoff 戦略（`settings.backoffStrategies`）で `RETRY_DELAYS[attemptsMade − 1]` を返し、4 種のジョブすべてに適用する
+  - 検証: 戦略関数が n = 1..5 に 60000 / 300000 / 900000 / 3600000 / 21600000 を返すこと、4 種のジョブがその戦略名で投入されることを主張する
+  - _Requirements: 24.3_
+  - _Boundary: EmailService のキュー投入オプションと backoff 戦略、およびその単体検証_
+
+- [ ] 35.2 DB 接続タイムアウト時のリトライを実装する
+  - 条文 24.6: 最大 3 回、1 秒・2 秒・4 秒のエクスポネンシャルバックオフ
+  - 実測: `backend/src/db.ts`（全 45 行）にリトライの実装は無い。`grep -rlE "retr(y|ies)" backend/src --include=*.ts`（テストを除く）の当たりは `redis.ts` と `rateLimit.middleware.ts` だけ。Toxiproxy はリポジトリのどこでも使われていない
+  - 実装の範囲（接続確立時のみかクエリ単位か）と 24.1（タイムアウト時 503）との関係を design.md で決めること
+  - 検証: 接続失敗を模したモックで、3 回まで再試行し間隔が 1000 / 2000 / 4000ms（偽の時計で測る）、4 回目は行わず失敗を返すことを主張する
+  - _Requirements: 24.6_
+  - _Boundary: `backend/src/db.ts`（または新設する接続ラッパー）とその単体検証_
+
+- [ ] 35.3 権限キャッシュ障害時の警告ログを検証する
+  - 実測: 実装は既にある。`backend/src/services/rbac.service.ts:40-54` の `getUserPermissions` は `redis.get` の失敗時に `logger.warn({ error, userId }, 'Failed to get permissions from Redis cache')` を出して DB の取得へ進む
+  - 実測: 検証が無い。`backend/src/__tests__/unit/services/rbac.service.test.ts:397` / `:477` は `invalidate*` の例外が漏れないことを見るだけで、`getUserPermissions` の障害経路もログも主張していない
+  - 検証: `redis.get` を reject させたとき `logger.warn` が 1 回呼ばれること（spy）と、DB から取った権限が返ることを主張する。warn の削除または debug への格下げで赤くなることを変異で実測する
+  - _Requirements: 24.7_
+  - _Boundary: `rbac.service.test.ts` への検証の追加（実装に欠陥が見つかった場合に限り `rbac.service.ts`）_
+
+- [ ] 35.4 登録・招待の処理をメール送信から切り離す
+  - 実測: `EmailService.sendInvitationEmail`（`email.service.ts:177`）の本番からの呼び出しは 0 件。本番から呼ばれるのは `password.service.ts:302` と `user-role.service.ts:147` / `:286` だけで、`InvitationService.createInvitation`（`invitation.service.ts:45`）はメールを送らない
+  - 実測: `password.service.ts:302` は `sendPasswordResetEmail` を await しており、キュー投入（Redis）が失敗すると `catch` で `RESET_TOKEN_INVALID` を返す
+  - 招待メールを結線するか（design.md で決める）と、キュー投入が失敗しても招待・登録が成功することを実装する
+  - 検証: キューの `add` を reject させても招待の作成（と登録）が Ok を返し DB の状態が成立することを主張する
+  - _Requirements: 24.8_
+  - _Boundary: InvitationService / AuthService / EmailService の結線と、その単体・統合検証_
+
+- [ ] 35.5 認証系の書き込みの原子性を実装し、失敗注入で検証する
+  - 実測（25.1 / 25.2）: `auth.service.ts:130` の `$transaction` は実在する。単体の `auth.service.test.ts:147` は `$transaction` を `mockResolvedValue` で置き換えてコールバックを実行しない。統合の `auth.integration.test.ts:337` は結果だけを見て、`database.integration.test.ts:278` は Prisma 一般のロールバックを見るだけ
+  - 実測（25.3）: `user-role.service.ts:382` の `addRolesToUser` は docstring で「トランザクション」と述べるが、`addRoleToUser` を 1 件ずつループしておりトランザクションは無い（`:403` の `removeRolesFromUser` も同じ）
+  - 実測（25.5）: `user-role.service.ts:91` の `userRole.create` と `:104-105` の監査ログ、`role-permission.service.ts:89` の `create` と `:107-108` の監査ログ、`:204` の `delete` と `:219-220` の監査ログはいずれも別々の書き込み。`role-permission.service.ts` に `$transaction` は 0 件
+  - 実測（25.6）: `password.service.ts:277-310` の `requestPasswordReset` はトークン作成（`:293`）とメール投入（`:302`）がトランザクション外で、ログの記録も無い。**外部への副作用（メール）を DB トランザクションとどう組むか（コミット後の投入か outbox か）を design.md で決めてから着手すること**
+  - 実測（25.7）: ロール・権限の紐付け変更に、変更前後の整合性検証もトランザクションも無い
+  - 検証: 実 DB の統合テストで、各フローの途中の書き込み（監査ログを含む）を失敗させ、全変更がロールバックされることを主張する。トランザクションを外す変異で赤くなることを実測する
+  - 大きいのでフローごとに 35.5a〜e へ分割してよい
+  - _Requirements: 25.1, 25.2, 25.3, 25.5, 25.6, 25.7_
+  - _Boundary: AuthService / UserRoleService / RolePermissionService / PasswordService / AuditLogService の書き込み経路と、その統合検証_
+
+- [ ] 35.6 書き込みの ACID 特性を定め検証する
+  - 条文 25.4 は「ACID特性を保証」とだけ述べる。取り下げた除外の description は「READ COMMITTED 以上」を掲げていたが条文には無い
+  - 実測: 認証領域のテスト・実装に `isolationLevel` / READ COMMITTED を扱う箇所は 0 件（`git grep -nE 'isolationLevel|READ COMMITTED' -- backend/src` の当たりは `estimate-draft.service.ts:429` の注釈 1 件のみ。追跡対象外の生成コード `backend/src/generated/prisma/` には Prisma 自身の `isolationLevel` の定義がある）
+  - 保証の内容（分離レベルを明示するか既定値に依拠するか）を design.md で定め、実 DB で検証する
+  - _Requirements: 25.4_
+  - _Boundary: 設計の決定と、それを主張する統合検証_
+
+- [ ] 35.7 楽観的ロックの競合処理を実装する
+  - 実測: 認証領域のサービス（auth / user-role / role-permission / role / invitation / password / audit-log / rbac / session / two-factor）に楽観的ロックの実装は 0 件。先例は取引先管理の `trading-partner.service.ts`（`:409-421` の JSDoc が方式を説明し、`:456` の `expectedUpdatedAt` の比較と `:459` の `TradingPartnerConflictError` の送出が実装）
+  - 対象（ユーザープロフィール更新、ロール更新など）を design.md で決める
+  - 検証: 同じ版からの並行更新で片方がリトライされるか 409 を返すことを、実 DB の並行リクエストで主張する
+  - _Requirements: 25.8_
+  - _Boundary: 対象エンティティの更新経路と、その統合検証_
+
+_起票元: タスク33.1（利用者の裁定「取り下げて後続を起票」、2026-09-26）_
