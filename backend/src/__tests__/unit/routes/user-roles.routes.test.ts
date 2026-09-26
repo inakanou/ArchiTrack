@@ -18,6 +18,7 @@ const mockUserRoleService = vi.hoisted(() => ({
   addRolesToUser: vi.fn(),
   removeRoleFromUser: vi.fn(),
   getUserRoles: vi.fn(),
+  deleteUser: vi.fn(),
 }));
 
 // モック: データベースとRedis
@@ -83,6 +84,7 @@ vi.mock('../../../middleware/authorize.middleware', () => ({
 // 実際のルートとミドルウェアをインポート（モックの後にインポート）
 import userRolesRouter from '../../../routes/user-roles.routes.js';
 import { errorHandler } from '../../../middleware/errorHandler.middleware.js';
+import { Prisma } from '../../../generated/prisma/client.js';
 
 describe('User Role Routes', () => {
   let app: Application;
@@ -257,6 +259,78 @@ describe('User Role Routes', () => {
 
       expect(response.status).toBe(400);
       expect(response.body.error).toContain('last admin');
+    });
+  });
+
+  describe('DELETE /api/v1/users/:id', () => {
+    it('削除できれば 204 を返す', async () => {
+      mockUserRoleService.deleteUser.mockResolvedValue(Ok({ email: 'target@example.com' }));
+
+      const response = await request(app).delete('/api/v1/users/target-user-id');
+
+      expect(response.status).toBe(204);
+      expect(mockUserRoleService.deleteUser).toHaveBeenCalledWith('target-user-id');
+    });
+
+    it('ユーザーが存在しなければ 404 USER_NOT_FOUND を返す', async () => {
+      mockUserRoleService.deleteUser.mockResolvedValue(Err({ type: 'USER_NOT_FOUND' }));
+
+      const response = await request(app).delete('/api/v1/users/missing-user-id');
+
+      expect(response.status).toBe(404);
+      expect(response.body).toEqual({ error: 'User not found', code: 'USER_NOT_FOUND' });
+    });
+
+    it('最後の管理者は削除できず 400 LAST_ADMIN_PROTECTED を返す', async () => {
+      mockUserRoleService.deleteUser.mockResolvedValue(Err({ type: 'LAST_ADMIN_PROTECTED' }));
+
+      const response = await request(app).delete('/api/v1/users/last-admin-id');
+
+      expect(response.status).toBe(400);
+      expect(response.body).toEqual({
+        error: 'Cannot delete the last admin user',
+        code: 'LAST_ADMIN_PROTECTED',
+      });
+    });
+
+    it('自分自身は削除できず 400 CANNOT_DELETE_SELF を返し、削除を呼ばない', async () => {
+      // 認証ミドルウェアのモックは userId に admin-user-id を入れる
+      const response = await request(app).delete('/api/v1/users/admin-user-id');
+
+      expect(response.status).toBe(400);
+      expect(response.body).toEqual({
+        error: 'Cannot delete yourself',
+        code: 'CANNOT_DELETE_SELF',
+      });
+      expect(mockUserRoleService.deleteUser).not.toHaveBeenCalled();
+    });
+
+    it('トランザクションのタイムアウト（Prisma P2028）はエラーハンドラーへ渡り 500 Transaction Timeout になる', async () => {
+      mockUserRoleService.deleteUser.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Transaction already closed', {
+          code: 'P2028',
+          clientVersion: 'test',
+        })
+      );
+
+      const response = await request(app).delete('/api/v1/users/target-user-id');
+
+      expect(response.status).toBe(500);
+      expect(response.body).toMatchObject({ status: 500, title: 'Transaction Timeout' });
+    });
+
+    it('レコードの不在（Prisma P2025）はエラーハンドラーへ渡り 404 Not Found になる', async () => {
+      mockUserRoleService.deleteUser.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Record to delete does not exist', {
+          code: 'P2025',
+          clientVersion: 'test',
+        })
+      );
+
+      const response = await request(app).delete('/api/v1/users/target-user-id');
+
+      expect(response.status).toBe(404);
+      expect(response.body).toMatchObject({ status: 404, title: 'Not Found' });
     });
   });
 });

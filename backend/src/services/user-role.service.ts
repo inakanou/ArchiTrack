@@ -40,6 +40,25 @@ interface UserRoleChange {
 type PerformedBy = { email: string; displayName: string };
 
 /**
+ * 最後の管理者の判定を直列化する。
+ *
+ * admin ロールの roles の行を FOR NO KEY UPDATE でロックし、同じ判定を行う並行トランザクションを
+ * このトランザクションのコミット（またはロールバック）まで待たせる。READ COMMITTED では待ちが明けた後の
+ * 文は新しいスナップショットで読むため、待った側の件数の数え直しは先行の削除を反映する。
+ * FOR NO KEY UPDATE は外部キーの検査が取る FOR KEY SHARE と衝突しないため、admin ロールの割り当て
+ * （user_roles への INSERT）は待たせない。
+ */
+async function lockAdminRoleForLastAdminCheck(
+  tx: Prisma.TransactionClient,
+  adminRoleId: string
+): Promise<void> {
+  await tx.$queryRaw`SELECT id FROM roles WHERE id = ${adminRoleId} FOR NO KEY UPDATE`;
+}
+
+/** ユーザー削除の業務上の失敗（データベースの例外は Err にせず投げる） */
+export type DeleteUserError = { type: 'USER_NOT_FOUND' } | { type: 'LAST_ADMIN_PROTECTED' };
+
+/**
  * ユーザー・ロール紐付け管理サービスの実装
  *
  * 紐付けの書き込みと監査ログの記録は同じトランザクションで行う。
@@ -243,6 +262,17 @@ export class UserRoleService implements IUserRoleService {
   ): Promise<Result<void, UserRoleError>> {
     try {
       const changes = await this.prisma.$transaction(async (tx) => {
+        // admin ロールを含むなら、どの紐付けを削除するよりも先に admin ロールの行をロックする。
+        // 先に他のロールの紐付けを削除（行ロック）してから admin ロールの行を待つと、admin ロールの行を
+        // 先に取ってから同じユーザーの紐付けを削除する deleteUser と逆順になり、デッドロックしうる
+        const adminRole = await tx.role.findFirst({
+          where: { id: { in: roleIds }, name: 'admin' },
+          select: { id: true },
+        });
+        if (adminRole) {
+          await lockAdminRoleForLastAdminCheck(tx, adminRole.id);
+        }
+
         const results: UserRoleChange[] = [];
         for (const roleId of roleIds) {
           results.push(await this.removeRoleInTransaction(tx, userId, roleId));
@@ -368,6 +398,11 @@ export class UserRoleService implements IUserRoleService {
       throw new UserRoleRollback({ type: 'ROLE_NOT_FOUND' });
     }
 
+    // 最後の管理者の判定を並行する削除と直列化する（紐付けの確認より前にロックする）
+    if (role.name === 'admin') {
+      await lockAdminRoleForLastAdminCheck(tx, role.id);
+    }
+
     // 紐付けの存在チェック (optimized: only fetch id for deletion)
     const userRole = await tx.userRole.findFirst({
       where: { userId, roleId },
@@ -402,6 +437,58 @@ export class UserRoleService implements IUserRoleService {
       'Role removed from user successfully'
     );
     return { changed: true, user, role };
+  }
+
+  /**
+   * ユーザーを削除する（最後の管理者は削除しない）
+   *
+   * admin ロールの行をロックしてから、対象のロールの確認・管理者の件数の確認・招待の後始末・
+   * ユーザーの削除（紐付けはカスケード削除）を一つのトランザクションで行う。
+   * ロールの削除（removeRoleInTransaction）と同じロックを取るため、並行する削除の間でも
+   * 管理者が 0 人になることはない。
+   *
+   * @param userId - 削除するユーザーID
+   * @returns 削除したユーザーのメールアドレス、または業務上のエラー
+   * @throws データベースの例外（Prisma のエラー）はそのまま投げる
+   */
+  async deleteUser(userId: string): Promise<Result<{ email: string }, DeleteUserError>> {
+    // 業務上の結果（不在・最後の管理者）だけを Err で返す。データベースの例外は捕まえずに投げ、
+    // 呼び出し側（ルート）がエラーハンドラーへ渡して Prisma のエラーコードごとに応答を分類させる
+    return this.prisma.$transaction(async (tx) => {
+      const adminRole = await tx.role.findUnique({
+        where: { name: 'admin' },
+        select: { id: true },
+      });
+      if (adminRole) {
+        await lockAdminRoleForLastAdminCheck(tx, adminRole.id);
+      }
+
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true, userRoles: { select: { roleId: true } } },
+      });
+      if (!user) {
+        return Err<DeleteUserError>({ type: 'USER_NOT_FOUND' });
+      }
+
+      // 削除対象が管理者なら、他の管理者がいるか確認
+      if (adminRole && user.userRoles.some((ur) => ur.roleId === adminRole.id)) {
+        const adminCount = await tx.userRole.count({ where: { roleId: adminRole.id } });
+        if (adminCount <= 1) {
+          logger.warn({ userId }, 'Cannot delete the last admin user');
+          return Err<DeleteUserError>({ type: 'LAST_ADMIN_PROTECTED' });
+        }
+      }
+
+      // このユーザーが送った招待を削除
+      await tx.invitation.deleteMany({ where: { inviterId: userId } });
+      // このユーザーに紐づく招待のuserIdをnullに設定
+      await tx.invitation.updateMany({ where: { userId }, data: { userId: null } });
+      // ユーザーを削除（カスケード削除で関連データも削除される）
+      await tx.user.delete({ where: { id: userId } });
+
+      return Ok({ email: user.email });
+    });
   }
 
   /**

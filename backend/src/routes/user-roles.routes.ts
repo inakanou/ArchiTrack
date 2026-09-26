@@ -369,69 +369,25 @@ router.delete(
         return;
       }
 
-      // ユーザーが存在するか確認
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        include: {
-          userRoles: {
-            include: {
-              role: true,
-            },
-          },
-        },
-      });
-
-      if (!user) {
-        res.status(404).json({
-          error: 'User not found',
-          code: 'USER_NOT_FOUND',
+      // 最後の管理者の確認と削除を一つのトランザクションで行う（並行する削除とも直列化される）
+      // データベースの例外は deleteUser が投げ、下の catch からエラーハンドラーへ渡る
+      const result = await userRoleService.deleteUser(userId);
+      if (!result.ok) {
+        if (result.error.type === 'USER_NOT_FOUND') {
+          res.status(404).json({
+            error: 'User not found',
+            code: 'USER_NOT_FOUND',
+          });
+          return;
+        }
+        // 残る業務上の失敗は LAST_ADMIN_PROTECTED のみ
+        res.status(400).json({
+          error: 'Cannot delete the last admin user',
+          code: 'LAST_ADMIN_PROTECTED',
         });
         return;
       }
-
-      // 削除対象が管理者ロールを持っているか確認
-      const isAdmin = user.userRoles.some((ur) => ur.role.name === 'admin');
-
-      if (isAdmin) {
-        // 他の管理者がいるか確認
-        const adminRole = await prisma.role.findUnique({
-          where: { name: 'admin' },
-        });
-
-        if (adminRole) {
-          const adminCount = await prisma.userRole.count({
-            where: { roleId: adminRole.id },
-          });
-
-          if (adminCount <= 1) {
-            res.status(400).json({
-              error: 'Cannot delete the last admin user',
-              code: 'LAST_ADMIN_PROTECTED',
-            });
-            return;
-          }
-        }
-      }
-
-      // トランザクション内でユーザーと関連データを削除
-      await prisma.$transaction(async (tx) => {
-        // 招待テーブルの関連データを処理
-        // このユーザーが送った招待を削除
-        await tx.invitation.deleteMany({
-          where: { inviterId: userId },
-        });
-
-        // このユーザーに紐づく招待のuserIdをnullに設定
-        await tx.invitation.updateMany({
-          where: { userId },
-          data: { userId: null },
-        });
-
-        // ユーザーを削除（カスケード削除で関連データも削除される）
-        await tx.user.delete({
-          where: { id: userId },
-        });
-      });
+      const user = result.value;
 
       logger.info({ userId, actorId, deletedUserEmail: user.email }, 'User deleted successfully');
 

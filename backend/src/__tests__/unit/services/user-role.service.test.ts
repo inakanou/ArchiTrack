@@ -96,6 +96,8 @@ describe('UserRoleService', () => {
       },
       role: {
         findUnique: vi.fn(),
+        // 一括削除が admin ロールを含むかの確認（既定は含まない）
+        findFirst: vi.fn().mockResolvedValue(null),
       },
       userRole: {
         findFirst: vi.fn(),
@@ -105,6 +107,8 @@ describe('UserRoleService', () => {
         count: vi.fn(),
         deleteMany: vi.fn(),
       },
+      // 最後の管理者の判定の前に取る admin ロールの行のロック（SELECT ... FOR NO KEY UPDATE）
+      $queryRaw: vi.fn().mockResolvedValue([]),
       $transaction: vi.fn((callback) => callback(prismaMock)),
     } as unknown as PrismaClient;
 
@@ -380,6 +384,16 @@ describe('UserRoleService', () => {
       // Assert
       expect(result).toEqual(Err({ type: 'LAST_ADMIN_PROTECTED' }));
       expect(prismaMock.userRole.delete).not.toHaveBeenCalled();
+      // 件数を数える前に admin ロールの行をロックしている（並行する削除との直列化）
+      const lock = vi.mocked(prismaMock.$queryRaw);
+      expect(lock).toHaveBeenCalledTimes(1);
+      expect((lock.mock.calls[0]![0] as TemplateStringsArray).join('?')).toMatch(
+        /FROM roles WHERE id = \? FOR NO KEY UPDATE/
+      );
+      expect(lock.mock.calls[0]![1]).toBe(mockAdminRoleId);
+      expect(lock.mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(prismaMock.userRole.count).mock.invocationCallOrder[0]!
+      );
     });
 
     it('紐付けが存在しない場合はASSIGNMENT_NOT_FOUNDエラーを返す', async () => {
@@ -673,6 +687,34 @@ describe('UserRoleService', () => {
 
       // Assert
       expect(result).toEqual(Ok(undefined));
+    });
+
+    it('admin ロールを含む一括削除は、どの紐付けを削除するよりも先に admin ロールの行をロックする', async () => {
+      // Arrange: 先に一般ロール、後に admin ロールを削除する（ロックがループ内だけだと一般ロールの削除が先になる）
+      const roleIds = [mockRoleId, mockAdminRoleId];
+      vi.mocked(prismaMock.role.findFirst).mockResolvedValue({ id: mockAdminRoleId } as Role);
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(prismaMock.role.findUnique)
+        .mockResolvedValueOnce(mockRole)
+        .mockResolvedValueOnce(mockAdminRole);
+      vi.mocked(prismaMock.userRole.findFirst).mockResolvedValue(mockUserRole);
+      vi.mocked(prismaMock.userRole.count).mockResolvedValue(2); // 他にもadminユーザーが存在
+
+      // Act
+      const result = await userRoleService.removeRolesFromUser(mockUserId, roleIds);
+
+      // Assert
+      expect(result).toEqual(Ok(undefined));
+      expect(prismaMock.role.findFirst).toHaveBeenCalledWith({
+        where: { id: { in: roleIds }, name: 'admin' },
+        select: { id: true },
+      });
+      const lock = vi.mocked(prismaMock.$queryRaw);
+      expect(lock).toHaveBeenCalled();
+      expect(lock.mock.calls[0]![1]).toBe(mockAdminRoleId);
+      const deleteCalls = vi.mocked(prismaMock.userRole.delete).mock.invocationCallOrder;
+      expect(deleteCalls).toHaveLength(2);
+      expect(lock.mock.invocationCallOrder[0]).toBeLessThan(deleteCalls[0]!);
     });
 
     it('途中でユーザーが見つからない場合は即座にエラーを返す', async () => {

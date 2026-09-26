@@ -968,12 +968,19 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test -- password user-role role-permission audit-log roles` 175/175、type-check EXIT=0
   - **範囲外の観測（起票はしていない）**: (i) `removeRoleFromUser` は監査ログを記録していない（要件22.3）。(ii) ロールの CRUD の監査ログはトランザクション外で書かれている。(iii) フロントの `UserManagement.tsx` は POST /users/:id/roles に `{roleId}` を送るが、ルートは `roleIds` を要求する（着手前からの食い違い）。(iv) パスワードリセットはコミット後の投入を await しており、Redis 無応答時に応答が止まりうる（35.4 の招待は待たない方式で方針がそろっていない。着手前も await）。(v) コミット後の処理が例外を投げるとコミット済みでも DATABASE_ERROR を返す（着手前と同じ）
 
-- [ ] 35.6 書き込みの ACID 特性を定め検証する
+- [x] 35.6 書き込みの ACID 特性を定め検証する
   - 条文 25.4 は「ACID特性を保証」とだけ述べる。取り下げた除外の description は「READ COMMITTED 以上」を掲げていたが条文には無い
   - 実測: 認証領域のテスト・実装に `isolationLevel` / READ COMMITTED を扱う箇所は 0 件（`git grep -nE 'isolationLevel|READ COMMITTED' -- backend/src` の当たりは `estimate-draft.service.ts:429` の注釈 1 件のみ。追跡対象外の生成コード `backend/src/generated/prisma/` には Prisma 自身の `isolationLevel` の定義がある）
   - 保証の内容（分離レベルを明示するか既定値に依拠するか）を design.md で定め、実 DB で検証する
   - _Requirements: 25.4_
   - _Boundary: 設計の決定と、それを主張する統合検証_
+  - **処遇（HEAD `2ac1b697` の作業ツリー、2026-09-27 にリポジトリルートで実測）**: 条文 25.4 の「ACID特性を保証」を、PostgreSQL の ACID をアプリケーションが弱めずに使うことと定めた（design.md の RBACService 節へ「認証系の書き込みの ACID 特性（要件25.4）」として日付付きで追記）。原子性は各フローの `$transaction`（35.5）、一貫性は DB の制約と同じトランザクション内の事前の検証（並行する重複は一意制約）、分離性は既定の READ COMMITTED に依拠して分離レベルを指定しない、永続性は既定の `fsync` / `synchronous_commit` が on であることに依拠する
+  - **write skew の是正（独立レビューの差し戻し1回目を受け、利用者の裁定「35.6 の中で直す」に従った）**: 最後の管理者の保護は件数を数えてから削除しており、READ COMMITTED では異なる2人の管理者からの並行する削除が双方とも通って**管理者が0人になった（実測）**。admin ロールの `roles` の行を `SELECT ... FOR NO KEY UPDATE` でロックしてから判定し直列化した（判定ごとに同じ1行を取り合い、外部キーの検査が取る `FOR KEY SHARE` とは衝突しない）。適用はロールの1件の削除・一括の削除とユーザーの削除（DELETE /api/v1/users/:id のトランザクション外での数え上げを `UserRoleService.deleteUser` へ移した）。admin を含むすべての経路で roles の行を最初に取り（一括の削除はループの前にロック）、`deleteUser` との間のデッドロックを避ける。ロールの削除（admin はシステムロールで削除不可）と admin の `*:*` 権限の削除（常に拒否）には該当しない。design.md 1715 行の担当を 35.6（直列化）と 35.7（楽観的ロック）に改めた
+  - **独立レビューの差し戻し2回目**: ユーザー削除をサービスへ移した際に Prisma の例外が一律の 500 に変わっていた（実装者は「応答は不変」と誤って報告していた）。`deleteUser` は業務上の結果（`USER_NOT_FOUND` / `LAST_ADMIN_PROTECTED`）だけを `Err` で返し DB の例外は投げる形へ改め、ルートは HEAD と同じく `next(error)` へ渡すので、Prisma の例外の分類（P2025→404、P2028→500 Transaction Timeout、その他の既知→400、初期化・panic→503）と 404 / 400 の本文は HEAD と逐語一致する。ルートの分岐に検証が無かった点も補った
+  - **検証**: `backend/src/__tests__/integration/auth-write-acid.integration.test.ts`（8件、`@requirement user-authentication/REQ-25.4`、並行の削除の1件は 25.7 も）で実 DB に対し、(1) アプリのクライアントの分離レベルと永続性の設定、(2) 認証系の各フローの書き込みが read committed であること（トリガーで観測）、(3) ダーティリードが無いことと一意制約による並行する重複の防止、(4) X からの admin の削除をコミット前に止めたまま Y からの一括の削除または Y のユーザーの削除を行うと後続がロックで待ち（`pg_stat_activity` で観測）、`LAST_ADMIN_PROTECTED` で失敗して管理者が1人残ること、を主張した。単体ではロックが件数・紐付けの削除より前であること、ルートの単体（`user-roles.routes.test.ts`、本物の errorHandler）では DELETE /api/v1/users/:id の 204 / 404 / 400（最後の管理者・自分自身）と P2028→500・P2025→404 を主張した
+  - **RED**: フラグ OFF で (4) の2件が赤（後続が成功し管理者 0 人）。変異（分離レベルの指定／`transactionOptions` に SERIALIZABLE／`synchronous_commit=off`／一意索引の DROP／ロックの撤去／ループ前のロックの撤去／例外を包んで投げ直す／ルートの各対応づけの撤去）はいずれも赤で、すべて元へ戻しハッシュの一致を確認した（独立レビューが主要な変異を再現）
+  - **結果**: 統合の全件 57 ファイル・944 件（独立レビューが実行）、backend 単体 5782 件、type-check、lint、E2E（管理系と data-integrity の36件）は緑。`check:req-coverage` は本スペックの受入基準 371→372/388。鮮度の関門と `check:design-path-refs` は前後で出力が同一。test DB に注入の残骸は無く、admin の割り当ては実行前と一致
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test -- user-role user-roles` 45/45、type-check EXIT=0
 
 - [ ] 35.7 楽観的ロックの競合処理を実装する
   - 実測: 認証領域のサービス（auth / user-role / role-permission / role / invitation / password / audit-log / rbac / session / two-factor）に楽観的ロックの実装は 0 件。先例は取引先管理の `trading-partner.service.ts`（`:409-421` の JSDoc が方式を説明し、`:456` の `expectedUpdatedAt` の比較と `:459` の `TradingPartnerConflictError` の送出が実装）
