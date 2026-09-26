@@ -89,6 +89,9 @@ test.describe('JWKS Endpoint E2E', () => {
       expect(Array.isArray(body.keys)).toBe(true);
     });
 
+    /**
+     * @requirement user-authentication/REQ-31.1
+     */
     test('RFC 7517準拠: 公開鍵がEdDSA (OKP) 形式であること', async ({ request }) => {
       const response = await request.get(`${API_BASE_URL}/.well-known/jwks.json`);
       const body: JWKSResponse = await response.json();
@@ -133,6 +136,9 @@ test.describe('JWKS Endpoint E2E', () => {
       }
     });
 
+    /**
+     * @requirement user-authentication/REQ-31.3
+     */
     test('RFC 7517準拠: 公開鍵にuse (Public Key Use) が設定されていること', async ({ request }) => {
       const response = await request.get(`${API_BASE_URL}/.well-known/jwks.json`);
       const body: JWKSResponse = await response.json();
@@ -148,6 +154,9 @@ test.describe('JWKS Endpoint E2E', () => {
       }
     });
 
+    /**
+     * @requirement user-authentication/REQ-31.3
+     */
     test('RFC 7517準拠: 公開鍵にalg (Algorithm) が設定されていること', async ({ request }) => {
       const response = await request.get(`${API_BASE_URL}/.well-known/jwks.json`);
       const body: JWKSResponse = await response.json();
@@ -174,10 +183,7 @@ test.describe('JWKS Endpoint E2E', () => {
       }
     });
 
-    /**
-     * @requirement user-authentication/REQ-31.2
-     */
-    test('猶予期間中の複数鍵配信: keys配列が空でないこと', async ({ request }) => {
+    test('鍵の配布: keys配列が空でないこと', async ({ request }) => {
       const response = await request.get(`${API_BASE_URL}/.well-known/jwks.json`);
       const body: JWKSResponse = await response.json();
 

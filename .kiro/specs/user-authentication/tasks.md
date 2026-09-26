@@ -797,12 +797,19 @@ _追加日: 2026-02-09_
   - **取り下げで赤くなった上流所管の関門（HEAD では緑）**: `check:req-exclusions:selftest`（`promiselessEntry` が実データの method:none の除外を前提にしており、0件で中断）、`check:design-measurement-freshness`（site-survey の design.md を錨にする5宣言: 除外総数 157→155、pending 4→1、promiseless 3→0、自己検査を引く2宣言が空）、`check:design-measurement-freshness:selftest`（1/56）。いずれも site-survey の所管であり下流は書き換えていない。デバッグ調査は、境界内で関門を赤くせずに本項を実装する方法は無いと結論した（印を付けずにラチェットだけ外す案は本文の要求に反し、31.6 を method:none のまま残す案でも件数の宣言は赤くなる）。**利用者の判断（2026-09-26）で本項はローカルにコミットし、上流へ起票して待つ**。上流が解決するまで当該ブランチは push できない
   - _Blocked: site-survey スペックの Task 115.334（除外台帳の自己検査の対照を合成データへ改めることと、除外の件数を固定した5宣言の貼り直し。親が上流の tasks.md へ実際に書き込み済み）の解決待ち。変更そのものは承認・コミット済み。`[x]` は 115.334 の解決後に関門が緑へ戻ったことを確かめてから付けること_
 
-- [ ] 32.3 (P) 公開鍵配布の既存の受入基準を要件へ結線する
+- [x] 32.3 (P) 公開鍵配布の既存の受入基準を要件へ結線する
   - 要件31.1〜31.3（JWKS形式での応答・旧公開鍵の併載・`alg`/`use`/`kid` の付与）は実装済みであり、`e2e/specs/api/jwks.spec.ts` に検証も存在する
   - 当該の検証へ `@requirement user-authentication/REQ-31.1` 等を付与し、被覆に計上されるようにすること
   - **実装が既にあることを確認したうえで付与すること。**タグだけ付けて被覆を埋める形にしないこと
   - _Requirements: 31.1, 31.2, 31.3_
   - _Boundary: 公開鍵配布のE2Eの要件タグ_
+  - **処遇（コミット `8546b446` の作業ツリー、2026-09-26 にリポジトリルートで実測）**: 要件 31.1〜31.3 の実装が `backend/src/routes/jwks.routes.ts` にあることを確かめた（`{ keys }` 形式の応答、`JWT_PUBLIC_KEY_OLD` による旧鍵の併載、`ensureRfc7517Compliance` による `alg` / `use` / `kid` の付与）。被覆印は `f11f09a5` で既に付いていたため、**印を検証ごとに見直し、主張が受入基準に届いていないものを正した**。本節の前提「検証も存在する」は 31.2 については成り立っていなかった
+    - **31.1**: 印は形式だけを確かめる「RFC 7517準拠: レスポンスがkeysプロパティを持つJWKS形式であること」にあり、`{keys: []}` でも緑になった（独立レビューの差し戻し1回）。主張は変えずに、鍵が1本以上あることと kty / crv / x を主張する「RFC 7517準拠: 公開鍵がEdDSA (OKP) 形式であること」にも印を付け、形式と現在の鍵の配布の両方を結線した
+    - **31.2**: 印の付いた E2E は `keys.length > 0` しか主張しておらず、test 環境には `JWT_PUBLIC_KEY_OLD` が無い（応答は `current` の1本のみ）ため偽の被覆だった。**利用者の裁定（2026-09-26「(A) 印を単体テストへ移す」）**に従い、E2E から印を外してテスト名を主張どおり「鍵の配布: keys配列が空でないこと」へ改め（主張は不変）、旧鍵を設定して2本と kid の順を主張する `backend/src/__tests__/unit/routes/jwks.routes.test.ts` の「should include old public key when JWT_PUBLIC_KEY_OLD is set」へ印を付けた
+    - **31.3**: 印は `kid` の検証にしか無かったため、`use`（`sig`）と `alg`（`EdDSA`）の検証にも付けた
+  - **変異（独立レビューが両方を再現）**: 旧鍵を加える行を外すと単体テストで 31.2 の検証だけが `expected 1 to be 2` で赤。現在の鍵を加える行を外すと（tsx watch の再読込を `touch backend/src/index.ts` と curl の `{"keys":[]}` で確認）、E2E で EdDSA（31.1）・kid / use / alg（31.3）・「鍵の配布」の5件が赤、形式の検証は緑のまま。いずれも復元後 `git hash-object` が HEAD の blob `ccac2729` と一致し、E2E 10/10・単体 10/10 が緑
+  - **関門**: `check:req-exclusions` 緑（155 件。31.1〜31.3 の除外は無い）、被覆は 2735/2890 で不変（31.1 / 31.3 は `e2e/specs/api/jwks.spec.ts`、31.2 は単体テストが被覆）、`count:coverage-marks` の総数は不変（jwks.spec.ts 5→4、jwks.routes.test.ts 3→4）。prettier / eslint 合格。`check:req-coverage` は基線から EXIT 1（要件31とは無関係の未被覆）
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test -- jwks` 10/10、`check:req-exclusions` EXIT=0
 
 ## タスク33: 除外一覧が名乗る検証道具名を実体へ揃える
 

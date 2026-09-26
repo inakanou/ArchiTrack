@@ -90,6 +90,9 @@ describe('JWKS Endpoint', () => {
       expect(response.headers['content-type']).toMatch(/application\/json/);
     });
 
+    /**
+     * @requirement user-authentication/REQ-31.2: 環境変数 JWT_PUBLIC_KEY_OLD が設定されているとき旧公開鍵を同一の応答に併載する
+     */
     it('should include old public key when JWT_PUBLIC_KEY_OLD is set', async () => {
       // 旧公開鍵を設定（jose v6ではextractable: trueが必要）
       const { publicKey: oldPublicKey } = await jose.generateKeyPair('EdDSA', {
