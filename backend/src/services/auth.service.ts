@@ -755,6 +755,7 @@ export class AuthService implements IAuthService {
           email: true,
           displayName: true,
           createdAt: true,
+          updatedAt: true,
           twoFactorEnabled: true,
           userRoles: {
             select: {
@@ -799,6 +800,7 @@ export class AuthService implements IAuthService {
         roles: user.userRoles.map((ur) => ur.role.name),
         permissions: Array.from(permissionSet),
         createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
         twoFactorEnabled: user.twoFactorEnabled,
       };
 
@@ -809,6 +811,45 @@ export class AuthService implements IAuthService {
         message: error instanceof Error ? error.message : 'Unknown error',
       });
     }
+  }
+
+  /**
+   * 楽観的ロック付きのプロフィール更新
+   *
+   * 条件付きの更新（updatedAt が expectedUpdatedAt と一致する行に限る）で競合を検出する。
+   * 読んでから比べる方式は、READ COMMITTED では同じ版から並行する2件がどちらも比較を通りうるため採らない。
+   * 条件を UPDATE の WHERE に置けば、後続は先行のコミットを待ってから最新の行で条件を評価し直し、0 件になる。
+   *
+   * @param userId ユーザーID
+   * @param data 更新内容（表示名）
+   * @param expectedUpdatedAt 取得時の updatedAt
+   * @returns 成功、USER_NOT_FOUND、PROFILE_CONFLICT のいずれか
+   */
+  async updateProfileIfUnchanged(
+    userId: string,
+    data: { displayName?: string },
+    expectedUpdatedAt: Date
+  ): Promise<Result<void, AuthError>> {
+    const { count } = await this.prisma.user.updateMany({
+      where: { id: userId, updatedAt: expectedUpdatedAt },
+      data,
+    });
+    if (count > 0) {
+      return Ok(undefined);
+    }
+    // 0 件の理由（ユーザーが無いか、版が古いか）を読み直して区別する
+    const current = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { updatedAt: true },
+    });
+    if (!current) {
+      return Err({ type: 'USER_NOT_FOUND' });
+    }
+    return Err({
+      type: 'PROFILE_CONFLICT',
+      expectedUpdatedAt,
+      actualUpdatedAt: current.updatedAt,
+    });
   }
 
   /**

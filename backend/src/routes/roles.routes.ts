@@ -18,6 +18,8 @@ import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
 import logger from '../utils/logger.js';
+import { updateRoleSchema } from '../schemas/auth-update.schema.js';
+import { ConflictError } from '../errors/apiError.js';
 
 const router = Router();
 const prisma = getPrismaClient();
@@ -30,12 +32,6 @@ const rolePermissionService = new RolePermissionService(prisma, rbacService, aud
 // Zodバリデーションスキーマ
 const createRoleSchema = z.object({
   name: z.string().min(1, 'Name is required').max(100),
-  description: z.string().optional(),
-  priority: z.number().int().optional(),
-});
-
-const updateRoleSchema = z.object({
-  name: z.string().min(1, 'Name is required').max(100).optional(),
   description: z.string().optional(),
   priority: z.number().int().optional(),
 });
@@ -207,6 +203,10 @@ router.post(
  *                 type: string
  *               priority:
  *                 type: integer
+ *               expectedUpdatedAt:
+ *                 type: string
+ *                 format: date-time
+ *                 description: 楽観的ロックの版（任意）。取得時の updatedAt。古いときは 409 ROLE_CONFLICT
  *     responses:
  *       200:
  *         description: ロール更新成功
@@ -219,7 +219,7 @@ router.post(
  *       404:
  *         description: ロールが見つからない
  *       409:
- *         description: ロール名の重複
+ *         description: ロール名の重複（ROLE_NAME_CONFLICT）、または楽観的ロックの競合（ROLE_CONFLICT、Problem Details）
  */
 router.patch(
   '/:id',
@@ -229,12 +229,21 @@ router.patch(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id: roleId } = req.params as { id: string };
-      const { name, description, priority } = req.body;
+      const { name, description, priority, expectedUpdatedAt } = req.body as {
+        name?: string;
+        description?: string;
+        priority?: number;
+        expectedUpdatedAt?: string;
+      };
 
       const result = await roleService.updateRole(roleId, {
         name,
         description,
         priority,
+        // 楽観的ロックの版は任意。送られたときだけ条件付きの更新になる
+        ...(expectedUpdatedAt !== undefined && {
+          expectedUpdatedAt: new Date(expectedUpdatedAt),
+        }),
       });
 
       if (!result.ok) {
@@ -248,6 +257,20 @@ router.patch(
             error: `Role with name '${error.name}' already exists`,
             code: 'ROLE_NAME_CONFLICT',
           });
+          return;
+        }
+        if (error.type === 'ROLE_CONFLICT') {
+          // 楽観的ロックの競合は Problem Details（RFC 7807）で返す
+          next(
+            new ConflictError(
+              '他のユーザーによって更新されました。画面を更新してください',
+              'ROLE_CONFLICT',
+              {
+                expectedUpdatedAt: error.expectedUpdatedAt.toISOString(),
+                actualUpdatedAt: error.actualUpdatedAt.toISOString(),
+              }
+            )
+          );
           return;
         }
         res.status(500).json({ error: 'Failed to update role', details: error });

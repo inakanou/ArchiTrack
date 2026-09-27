@@ -982,12 +982,18 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - **結果**: 統合の全件 57 ファイル・944 件（独立レビューが実行）、backend 単体 5782 件、type-check、lint、E2E（管理系と data-integrity の36件）は緑。`check:req-coverage` は本スペックの受入基準 371→372/388。鮮度の関門と `check:design-path-refs` は前後で出力が同一。test DB に注入の残骸は無く、admin の割り当ては実行前と一致
   - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test -- user-role user-roles` 45/45、type-check EXIT=0
 
-- [ ] 35.7 楽観的ロックの競合処理を実装する
+- [x] 35.7 楽観的ロックの競合処理を実装する
   - 実測: 認証領域のサービス（auth / user-role / role-permission / role / invitation / password / audit-log / rbac / session / two-factor）に楽観的ロックの実装は 0 件。先例は取引先管理の `trading-partner.service.ts`（`:409-421` の JSDoc が方式を説明し、`:456` の `expectedUpdatedAt` の比較と `:459` の `TradingPartnerConflictError` の送出が実装）
   - 対象（ユーザープロフィール更新、ロール更新など）を design.md で決める
   - 検証: 同じ版からの並行更新で片方がリトライされるか 409 を返すことを、実 DB の並行リクエストで主張する
   - _Requirements: 25.8_
   - _Boundary: 対象エンティティの更新経路と、その統合検証_
+  - **処遇（HEAD `ebeb3677` の作業ツリー、2026-09-27 にリポジトリルートで実測）**: 利用者の裁定「任意・バックエンドのみ」（2026-09-27）に従い、対象を PATCH /api/v1/roles/:id と PATCH /api/v1/auth/me とした。要求に任意の `expectedUpdatedAt`（オフセット付き ISO 8601）を受け、送られたときは `updateMany({ where: { id, updatedAt } })` の条件付きの更新で版を検出し、0 件なら読み直して 404（`ROLE_NOT_FOUND` / `USER_NOT_FOUND`）か 409 Problem Details（`ROLE_CONFLICT` / `PROFILE_CONFLICT`、`expectedUpdatedAt` と `actualUpdatedAt` を添える）を返す。送られないときの経路は HEAD と同じ（応答に `updatedAt` を足したのみ。GET / PATCH の `/auth/me` は版を返すようになった）。スキーマはルートから `backend/src/schemas/auth-update.schema.ts` へ移し、既存の項目と制限は逐語一致。プロフィールの版は `users.updatedAt` を流用するため、ログイン等でも進み偽の 409 がありうる（design.md に明記）。決定は design.md の「楽観的ロックの競合（要件25.8）」に日付付きで追記した。フロントエンドの結線は 35.10 へ起票した
+  - **検証**: `@requirement user-authentication/REQ-25.8` を付けた単体（`auth-update.schema.test.ts`、`auth-me-update.routes.test.ts`、`role.service.optimistic-lock.test.ts`、`auth.service.update-profile.test.ts`、`roles.routes.test.ts` に5件）と統合（`role-profile-optimistic-lock.integration.test.ts` 6件: 順次、advisory lock のトリガーと `pg_stat_activity` で揃えた並行、HTTP の往復）。**RED**: フラグ OFF で単体 11 件・統合 5 件が赤。変異8種が赤（独立レビューが「読んでから比べる」方式への置換＝並行のみ赤、プロフィールの WHERE から updatedAt を外す＝3件赤、の2種を再現しハッシュの一致を確認）。独立レビューは `updateMany` が `@updatedAt` を進めること、`+09:00` 表記・マイクロ秒表記の送り返しが一致することを実 DB で確かめた。backend 単体 5818 件、統合 950 件、E2E 31 件緑。`check:req-coverage` は本スペックの受入基準 372→373/388
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test -- auth-update.schema auth-me-update role.service auth.service roles.routes auth.routes` 211/211、統合 `role-profile-optimistic-lock` 6/6、type-check EXIT=0
+  - **範囲外の観測（独立レビュー、起票はしていない）**: 版だけを送り更新項目を送らない要求は書き込まずに 200 を返す（版は進まない）。ロールの存在確認・名前の重複確認は条件付きの更新のトランザクションの外にあり、並行する名前の重複の P2002 は HEAD と同じく 500
+  - **上流への申し送り**: `backend/src/__tests__/unit/routes/roles.routes.test.ts` の機能名なしのヘッダー（4行目）が、今回の被覆印で自機能で解決可能な側へ移り、上流の鮮度宣言 `featureless-headers-resolvable-by-own-feature-after-115308` が 587→588 へ動いた（独立レビューが HEAD との全ファイル比較で特定）。親が site-survey 115.334 へ追記した
+  - _Blocked: site-survey スペックの Task 115.334（本項の被覆印に由来する `featureless-headers-resolvable-by-own-feature-after-115308` 587→588 を含む。親が上流の tasks.md へ追記済み）の解決待ち。実装そのものは承認・コミット済み。`[x]` は 115.334 の解決後に当該宣言が緑へ戻ったことを確かめてから付けること_
 
 - [ ] 35.8 DB 接続を確立できないときに 503 を返す
   - 条文 24.1（逐語）: 「IF データベース接続がタイムアウト以内に確立できない THEN Authentication Serviceは503 Service Unavailableエラーを返さなければならない」
@@ -1006,5 +1012,14 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - 検証: 未設定で 3 回（1000 / 2000 / 4000ms）、設定値 0 で再試行なし、設定値 5 で決めた間隔どおりに 5 回、範囲外（11・-1・非数値）を拒否することを偽の時計で主張し、既定値や上限の変異で赤くなることを実測する
   - _Requirements: 24.6_
   - _Boundary: `backend/src/config/env.ts`、`backend/src/db.ts` とその単体検証_
+
+- [ ] 35.10 プロフィール更新の画面から版を送り、409 の競合を表示する
+  - 起票元: タスク35.7（利用者の裁定「任意・バックエンドのみ」、2026-09-27）。バックエンドは `expectedUpdatedAt` を任意で受け、GET / PATCH の `/auth/me` の応答に `updatedAt` を返す
+  - 実測（2026-09-27）: `frontend/src/api/auth.ts:85` の `apiClient.patch<UserProfile>('/api/v1/auth/me', data)` は版を送らない。ロールの更新（PATCH /api/v1/roles/:id）を呼ぶフロントエンドのコードは 0 件（`git grep -n "apiClient.patch" -- frontend/src` の当たりに roles は無い）
+  - 実装: `Profile.tsx` / `ProfileForm.tsx` が取得時の `updatedAt` を保持して送り、409 `PROFILE_CONFLICT` を受けたら最新の内容の再取得を促す表示を出す。ロールの更新画面を作るかは本項の範囲外
+  - 検証: E2E で、2つのページから同じ版で順に更新し、後の方が競合の表示になることと保存値が先の方であることを主張する。版を送らない変異で赤くなることを実測する
+  - _Requirements: 25.8_
+  - _Boundary: `frontend/src/api/auth.ts`、`frontend/src/pages/Profile.tsx`、`frontend/src/components/ProfileForm.tsx` とその単体・E2E 検証_
+  - _Depends: 35.7_
 
 _起票元: タスク33.1（利用者の裁定「取り下げて後続を起票」、2026-09-26）_

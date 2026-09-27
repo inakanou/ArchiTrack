@@ -74,6 +74,10 @@ export interface UpdateRoleInput {
   description?: string;
   /** 優先順位（高い値が高優先度） */
   priority?: number;
+  /**
+   * 楽観的ロックの版（任意）。与えたときは、ロールの updatedAt がこの値と一致する場合に限り更新する
+   */
+  expectedUpdatedAt?: Date;
 }
 
 /**
@@ -114,4 +118,5 @@ export type RoleError =
   | { type: 'ROLE_NAME_CONFLICT'; name: string }
   | { type: 'ROLE_IN_USE'; userCount: number }
   | { type: 'SYSTEM_ROLE_PROTECTED' }
+  | { type: 'ROLE_CONFLICT'; expectedUpdatedAt: Date; actualUpdatedAt: Date }
   | { type: 'DATABASE_ERROR'; message: string };

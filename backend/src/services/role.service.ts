@@ -27,6 +27,26 @@ import logger from '../utils/logger.js';
 export class RoleService implements IRoleService {
   constructor(private readonly prisma: PrismaClient) {}
 
+  private toRoleInfo(role: {
+    id: string;
+    name: string;
+    description: string;
+    priority: number;
+    isSystem: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+  }): RoleInfo {
+    return {
+      id: role.id,
+      name: role.name,
+      description: role.description,
+      priority: role.priority,
+      isSystem: role.isSystem,
+      createdAt: role.createdAt,
+      updatedAt: role.updatedAt,
+    };
+  }
+
   /**
    * 新しいロールを作成
    *
@@ -119,14 +139,62 @@ export class RoleService implements IRoleService {
         }
       }
 
+      const data = {
+        ...(input.name !== undefined && { name: input.name }),
+        ...(input.description !== undefined && { description: input.description }),
+        ...(input.priority !== undefined && { priority: input.priority }),
+      };
+
+      // 楽観的ロック: 版が与えられたときだけ、updatedAt が一致する行に限って更新する
+      if (input.expectedUpdatedAt !== undefined) {
+        const expectedUpdatedAt = input.expectedUpdatedAt;
+        const outcome = await this.prisma.$transaction(async (tx) => {
+          // 条件付きの更新。読んでから比べると、READ COMMITTED では同じ版から並行する2件が
+          // どちらも比較を通りうる。条件を UPDATE の WHERE に置けば、後続は先行のコミットを待って
+          // 条件を最新の行で評価し直し、0 件になる
+          const { count } = await tx.role.updateMany({
+            where: { id: roleId, updatedAt: expectedUpdatedAt },
+            data,
+          });
+          if (count === 0) {
+            // 0 件の理由（行が無いか、版が古いか）を読み直して区別する
+            const current = await tx.role.findUnique({
+              where: { id: roleId },
+              select: { updatedAt: true },
+            });
+            return current
+              ? ({ kind: 'conflict', actualUpdatedAt: current.updatedAt } as const)
+              : ({ kind: 'not_found' } as const);
+          }
+          // 同じトランザクションの中で読むため、自身が書いた行（行ロックを保持中）が返る
+          const role = await tx.role.findUniqueOrThrow({ where: { id: roleId } });
+          return { kind: 'updated', role } as const;
+        });
+
+        if (outcome.kind === 'not_found') {
+          logger.warn({ roleId }, 'Role not found');
+          return Err({ type: 'ROLE_NOT_FOUND' });
+        }
+        if (outcome.kind === 'conflict') {
+          logger.warn(
+            { roleId, expectedUpdatedAt, actualUpdatedAt: outcome.actualUpdatedAt },
+            'Role update conflict (optimistic lock)'
+          );
+          return Err({
+            type: 'ROLE_CONFLICT',
+            expectedUpdatedAt,
+            actualUpdatedAt: outcome.actualUpdatedAt,
+          });
+        }
+
+        logger.info({ roleId, changes: data }, 'Role updated successfully');
+        return Ok(this.toRoleInfo(outcome.role));
+      }
+
       // ロール更新
       const updatedRole = await this.prisma.role.update({
         where: { id: roleId },
-        data: {
-          ...(input.name !== undefined && { name: input.name }),
-          ...(input.description !== undefined && { description: input.description }),
-          ...(input.priority !== undefined && { priority: input.priority }),
-        },
+        data,
       });
 
       logger.info({ roleId, changes: input }, 'Role updated successfully');
