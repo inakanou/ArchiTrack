@@ -1,25 +1,29 @@
 /**
- * @fileoverview 最初の DB への到達が対話型トランザクションの開始である認証系の書き込みが、
- * DB 接続のタイムアウトで 503 を返すことの統合検証（タスク35.12）
+ * @fileoverview 対話型トランザクションで書き込む認証系のエンドポイント（ユーザーのロール・ユーザーの削除・
+ * ロールの権限）が、DB 接続のタイムアウトで 503 を返すことの統合検証（タスク35.12・35.13）
  *
- * モックを使わず、本物のアプリ（app.ts のルート・UserRoleService・RolePermissionService）と、
- * db.ts の getPrismaClient が組み立てる本物の PrismaClient・@prisma/adapter-pg・RetryingPool、エラーハンドラーを通す。
+ * モックを使わず、本物のアプリ（app.ts のルート・requirePermission・RBACService・UserRoleService・
+ * RolePermissionService）と、db.ts の getPrismaClient が組み立てる本物の PrismaClient・@prisma/adapter-pg・
+ * RetryingPool、エラーハンドラーを通す。
  * 接続先は、TCP 接続は受け付けるが一切応答しないローカルのサーバーとする。
  *
  * 再試行の予算（DATABASE_RETRY_COUNT=1・DATABASE_CONNECTION_TIMEOUT=1000 で 1000 + 1000 + 1000 = 3000ms）を
- * Prisma の maxWait の既定 2000ms より長くし、maxWait が予算を覆わなければトランザクションの開始が
- * P2028 で打ち切られ 500 になる状況を作る。
+ * Prisma の maxWait の既定 2000ms より長くし、応答が予算を使い切った後であることを確かめる。
  *
  * 権限の確認（requirePermission）について: 対象のエンドポイントはすべて requirePermission を通る。
  * requirePermission は Redis を持たない RBACService を都度生成するため権限のキャッシュが効かず、
- * 判定は必ず DB を引く。その例外は authorize.middleware.ts が捕まえ自前の 500 を返す（タスク35.13 の範囲）。
- * キャッシュを仕込んで通すことはできないため、ここでは RBACService.prototype.hasPermission だけを
- * 「権限あり」に差し替え、ルート・サービス・トランザクションの開始の経路を本物のまま確かめる。
+ * 判定は必ず DB を引く。ここでは RBACService を差し替えず、実運用と同じ経路で要求を送る。
+ * そのため応答しない DB では、最初の DB への到達は権限の判定となり、その接続のタイムアウトが
+ * authorize.middleware.ts からエラーハンドラーへ渡って 503 になる（タスク35.13）。
+ * トランザクションの開始の maxWait が予算を覆うこと（タスク35.12）は、単体検証
+ * auth-transaction-connect-budget.test.ts と、末尾の describe「トランザクションの開始の経路の退行検出」が守る。
+ * 後者は RBACService.prototype.hasPermission を差し替えて権限の判定を DB へ届かせず、
+ * 最初の DB への到達をトランザクションの開始にする。被覆の名乗りではないため要件の印を付けない。
  */
 
 import net from 'node:net';
 import type { AddressInfo } from 'node:net';
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
 
@@ -87,10 +91,6 @@ describe('対話型トランザクションから始まる認証系の書き込�
     disconnectPrisma = db.disconnectPrisma;
     const tokenService = (await import('../../services/token.service.js')).default;
 
-    // 権限の確認だけを「権限あり」にする（上の fileoverview を参照）
-    const { RBACService } = await import('../../services/rbac.service.js');
-    vi.spyOn(RBACService.prototype, 'hasPermission').mockResolvedValue(true);
-
     accessToken = await tokenService.generateAccessToken({
       userId: 'ua3512-actor',
       email: 'ua3512@example.com',
@@ -99,7 +99,6 @@ describe('対話型トランザクションから始まる認証系の書き込�
   }, BEFORE_ALL_TIMEOUT_MS);
 
   afterAll(async () => {
-    vi.restoreAllMocks();
     await disconnectPrisma?.();
     for (const socket of sockets) {
       socket.destroy();
@@ -127,13 +126,12 @@ describe('対話型トランザクションから始まる認証系の書き込�
 
     expect(response.status).toBe(503);
     expect(response.body).toEqual({ ...SERVICE_UNAVAILABLE, instance });
-    // Prisma の maxWait（既定 2000ms）で打ち切られず、接続の再試行を使い切ってから失敗している
+    // 接続の再試行を使い切ってから失敗している
     expect(elapsedMs).toBeGreaterThanOrEqual(CONNECT_BUDGET_MS - TIMING_TOLERANCE_MS);
   }
 
   /**
    * @requirement user-authentication/REQ-24.1
-   * （hasPermission を差し替えた前提。タスク35.13 の完了まで実運用では authorize.middleware の 500 が先に返る）
    */
   it('ユーザーへのロールの追加（POST /api/v1/users/:id/roles）は 503 と Problem Details を返す', async () => {
     await expectServiceUnavailable(
@@ -148,7 +146,6 @@ describe('対話型トランザクションから始まる認証系の書き込�
 
   /**
    * @requirement user-authentication/REQ-24.1
-   * （hasPermission を差し替えた前提。タスク35.13 の完了まで実運用では authorize.middleware の 500 が先に返る）
    */
   it('ユーザーからのロールの削除（DELETE /api/v1/users/:id/roles/:roleId）は 503 と Problem Details を返す', async () => {
     await expectServiceUnavailable(
@@ -162,7 +159,6 @@ describe('対話型トランザクションから始まる認証系の書き込�
 
   /**
    * @requirement user-authentication/REQ-24.1
-   * （hasPermission を差し替えた前提。タスク35.13 の完了まで実運用では authorize.middleware の 500 が先に返る）
    */
   it('ユーザーの削除（DELETE /api/v1/users/:id）は 503 と Problem Details を返す', async () => {
     await expectServiceUnavailable(
@@ -176,7 +172,6 @@ describe('対話型トランザクションから始まる認証系の書き込�
 
   /**
    * @requirement user-authentication/REQ-24.1
-   * （hasPermission を差し替えた前提。タスク35.13 の完了まで実運用では authorize.middleware の 500 が先に返る）
    */
   it('ロールへの権限の追加（POST /api/v1/roles/:id/permissions）は 503 と Problem Details を返す', async () => {
     await expectServiceUnavailable(
@@ -191,7 +186,6 @@ describe('対話型トランザクションから始まる認証系の書き込�
 
   /**
    * @requirement user-authentication/REQ-24.1
-   * （hasPermission を差し替えた前提。タスク35.13 の完了まで実運用では authorize.middleware の 500 が先に返る）
    */
   it('ロールからの権限の削除（DELETE /api/v1/roles/:id/permissions/:permissionId）は 503 と Problem Details を返す', async () => {
     await expectServiceUnavailable(
@@ -202,4 +196,78 @@ describe('対話型トランザクションから始まる認証系の書き込�
       '/api/v1/roles/ua3512-role/permissions/ua3512-permission'
     );
   }, 30000);
+
+  /**
+   * トランザクションの開始の経路の退行検出（タスク35.12 の maxWait を守る。被覆の名乗りではない）
+   *
+   * 差し替えなしでは権限の判定（requirePermission → RBACService）が最初に DB へ到達し、
+   * その接続のタイムアウトで authorize.middleware.ts が先に 503 を返すため、トランザクションの開始の
+   * maxWait が予算を覆っていなくても上の検証は緑のままになる。ここでは hasPermission だけを
+   * 「権限あり」に差し替え、ルート・サービス・トランザクションの開始の経路を本物のまま通す。
+   * maxWait が予算を覆わなければ、約 2 秒の P2028 で 500 となり赤くなる。
+   * 実運用の経路を名乗るものではないため、要件の印は付けない。
+   */
+  describe('トランザクションの開始の経路の退行検出（hasPermission を差し替え）', () => {
+    beforeEach(async () => {
+      const { RBACService } = await import('../../services/rbac.service.js');
+      vi.spyOn(RBACService.prototype, 'hasPermission').mockResolvedValue(true);
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    const cases: Array<[string, () => request.Test, string]> = [
+      [
+        'ユーザーへのロールの追加（POST /api/v1/users/:id/roles）',
+        () =>
+          request(app)
+            .post('/api/v1/users/ua3512-user/roles')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({ roleIds: ['ua3512-role'] }),
+        '/api/v1/users/ua3512-user/roles',
+      ],
+      [
+        'ユーザーからのロールの削除（DELETE /api/v1/users/:id/roles/:roleId）',
+        () =>
+          request(app)
+            .delete('/api/v1/users/ua3512-user/roles/ua3512-role')
+            .set('Authorization', `Bearer ${accessToken}`),
+        '/api/v1/users/ua3512-user/roles/ua3512-role',
+      ],
+      [
+        'ユーザーの削除（DELETE /api/v1/users/:id）',
+        () =>
+          request(app)
+            .delete('/api/v1/users/ua3512-user')
+            .set('Authorization', `Bearer ${accessToken}`),
+        '/api/v1/users/ua3512-user',
+      ],
+      [
+        'ロールへの権限の追加（POST /api/v1/roles/:id/permissions）',
+        () =>
+          request(app)
+            .post('/api/v1/roles/ua3512-role/permissions')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({ permissionIds: ['ua3512-permission'] }),
+        '/api/v1/roles/ua3512-role/permissions',
+      ],
+      [
+        'ロールからの権限の削除（DELETE /api/v1/roles/:id/permissions/:permissionId）',
+        () =>
+          request(app)
+            .delete('/api/v1/roles/ua3512-role/permissions/ua3512-permission')
+            .set('Authorization', `Bearer ${accessToken}`),
+        '/api/v1/roles/ua3512-role/permissions/ua3512-permission',
+      ],
+    ];
+
+    it.each(cases)(
+      '%s はトランザクションの開始で予算を使い切ってから 503 を返す',
+      async (_label, send, instance) => {
+        await expectServiceUnavailable(send, instance);
+      },
+      30000
+    );
+  });
 });

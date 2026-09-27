@@ -16,6 +16,7 @@ import type { PrismaClient } from '../generated/prisma/client.js';
 import { RBACService } from '../services/rbac.service.js';
 import getPrismaClient from '../db.js';
 import logger from '../utils/logger.js';
+import { isDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 
 /**
  * 権限チェックミドルウェアファクトリー
@@ -89,7 +90,13 @@ export function requirePermission(
       logger.debug({ userId, permission }, 'Permission check passed');
       next();
     } catch (error) {
-      logger.error({ error, permission, userId: req.user?.userId }, 'Permission check error');
+      // DB 接続のタイムアウトはエラーハンドラーの 503（Problem Details）へ渡す（要件24.1）。
+      // ログはエラーハンドラーが残すため、ここでは記録しない
+      if (isDatabaseConnectionTimeout(error)) {
+        next(error);
+        return;
+      }
+      logger.error({ err: error, permission, userId: req.user?.userId }, 'Permission check error');
       res.status(500).json({
         error: 'INTERNAL_ERROR',
         message: 'Failed to check permissions',
@@ -130,6 +137,6 @@ async function recordPermissionCheckFailure(
     });
   } catch (error) {
     // 監査ログ記録失敗はエラーをスローせずログに記録
-    logger.error({ error, actorId, requiredPermission }, 'Failed to record audit log');
+    logger.error({ err: error, actorId, requiredPermission }, 'Failed to record audit log');
   }
 }

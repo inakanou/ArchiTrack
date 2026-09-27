@@ -7,9 +7,41 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
-import type { PrismaClient } from '../../../generated/prisma/client.js';
+import { Prisma, type PrismaClient } from '../../../generated/prisma/client.js';
 import { requirePermission } from '../../../middleware/authorize.middleware.js';
 import { RBACService } from '../../../services/rbac.service.js';
+import logger from '../../../utils/logger.js';
+
+/**
+ * 本物のロガー（pino の設定を持つ実体）のシリアライザを、ログの第1引数へ当てて JSON にする。
+ * テストの共通設定（vitest.setup.ts）はロガーをモックに置き換えるため、実体は importActual で取り出す。
+ * pino はシリアライザを Symbol('pino.serializers') に持つので、記号はロガー自身から説明文で引く
+ */
+async function serializeWithRealLogger(
+  logged: Record<string, unknown>
+): Promise<Record<string, { message?: string; stack?: string } | unknown>> {
+  const { default: realLogger } = await vi.importActual<typeof import('../../../utils/logger.js')>(
+    '../../../utils/logger.js'
+  );
+  const serializersSym = Object.getOwnPropertySymbols(realLogger).find(
+    (sym) => sym.description === 'pino.serializers'
+  );
+  expect(serializersSym).toBeDefined();
+  const serializers = (
+    realLogger as unknown as Record<symbol, Record<string, (v: unknown) => unknown>>
+  )[serializersSym as symbol];
+  expect(typeof serializers?.err).toBe('function');
+  return JSON.parse(
+    JSON.stringify(
+      Object.fromEntries(
+        Object.entries(logged).map(([key, value]) => [
+          key,
+          serializers?.[key] ? serializers[key](value) : value,
+        ])
+      )
+    )
+  );
+}
 
 describe('requirePermission middleware', () => {
   let mockRequest: Partial<Request>;
@@ -195,6 +227,134 @@ describe('requirePermission middleware', () => {
         required: 'adr:delete',
       });
       expect(mockNext).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * 権限の判定が DB 接続のタイムアウトで失敗した場合（タスク35.13、要件24.1）
+   *
+   * 接続のタイムアウトは next(error) でエラーハンドラーの 503 へ渡し、
+   * それ以外の例外はこれまでどおり自前の 500 を返す
+   */
+  describe('DB 接続のタイムアウト', () => {
+    beforeEach(() => {
+      // ロガーのモックは共有されるため、他のテストの呼び出しを持ち越さない
+      vi.mocked(logger.error).mockClear();
+    });
+
+    const connectionTimeouts: Array<[string, () => Error]> = [
+      [
+        'pg-pool の接続タイムアウト（Connection terminated due to connection timeout）',
+        () => new Error('Connection terminated due to connection timeout'),
+      ],
+      [
+        'pg-pool の接続の取得のタイムアウト（timeout exceeded when trying to connect）',
+        () => new Error('timeout exceeded when trying to connect'),
+      ],
+      ['ETIMEDOUT', () => Object.assign(new Error('connect ETIMEDOUT'), { code: 'ETIMEDOUT' })],
+      [
+        'P1008',
+        () =>
+          new Prisma.PrismaClientKnownRequestError('Operations timed out', {
+            code: 'P1008',
+            clientVersion: 'test',
+          }),
+      ],
+    ];
+
+    it.each(connectionTimeouts)(
+      '%s は next(error) でエラーハンドラーへ渡し、自前の応答を返さない',
+      async (_label, makeError) => {
+        const timeoutError = makeError();
+        vi.mocked(mockRBACService.hasPermission).mockRejectedValue(timeoutError);
+        const middleware = requirePermission('role:read', mockRBACService, mockPrisma);
+
+        await middleware(mockRequest as Request, mockResponse as Response, mockNext);
+
+        expect(mockNext).toHaveBeenCalledTimes(1);
+        expect(mockNext).toHaveBeenCalledWith(timeoutError);
+        expect(mockResponse.status).not.toHaveBeenCalled();
+        expect(mockResponse.json).not.toHaveBeenCalled();
+        expect(mockPrisma.auditLog.create).not.toHaveBeenCalled();
+      }
+    );
+
+    const otherErrors: Array<[string, () => Error]> = [
+      ['一般の Error', () => new Error('Database connection failed')],
+      [
+        'P1001（接続拒否）',
+        () =>
+          new Prisma.PrismaClientKnownRequestError("Can't reach database server", {
+            code: 'P1001',
+            clientVersion: 'test',
+          }),
+      ],
+      ['部分一致の文言', () => new Error('Connection terminated due to connection timeout (x)')],
+    ];
+
+    it.each(otherErrors)(
+      '%s はこれまでどおり 500 と同じ本文を返し、next を呼ばない',
+      async (_label, makeError) => {
+        vi.mocked(mockRBACService.hasPermission).mockRejectedValue(makeError());
+        const middleware = requirePermission('role:read', mockRBACService, mockPrisma);
+
+        await middleware(mockRequest as Request, mockResponse as Response, mockNext);
+
+        expect(mockResponse.status).toHaveBeenCalledWith(500);
+        expect(mockResponse.json).toHaveBeenCalledWith({
+          error: 'INTERNAL_ERROR',
+          message: 'Failed to check permissions',
+        });
+        expect(mockNext).not.toHaveBeenCalled();
+      }
+    );
+
+    it('タイムアウト以外の例外のログは err キーで渡し、本物のシリアライザで message と stack が残る', async () => {
+      const dbError = new Error('Database connection failed');
+      vi.mocked(mockRBACService.hasPermission).mockRejectedValue(dbError);
+      const middleware = requirePermission('role:read', mockRBACService, mockPrisma);
+
+      await middleware(mockRequest as Request, mockResponse as Response, mockNext);
+
+      expect(logger.error).toHaveBeenCalledWith(
+        { err: dbError, permission: 'role:read', userId: 'user-123' },
+        'Permission check error'
+      );
+      const [logged] = vi
+        .mocked(logger.error)
+        .mock.calls.find(([, message]) => message === 'Permission check error') as unknown as [
+        Record<string, unknown>,
+        string,
+      ];
+      const serialized = (await serializeWithRealLogger(logged)) as {
+        err: { message: string; stack: string };
+      };
+      expect(serialized.err.message).toBe('Database connection failed');
+      expect(serialized.err.stack).toContain('Database connection failed');
+    });
+
+    it('監査ログの記録の失敗のログも err キーで渡し、本物のシリアライザで message が残る', async () => {
+      const auditError = new Error('audit write failed');
+      vi.mocked(mockRBACService.hasPermission).mockResolvedValue(false);
+      vi.mocked(mockPrisma.auditLog.create).mockRejectedValue(auditError);
+      const middleware = requirePermission('role:read', mockRBACService, mockPrisma);
+
+      await middleware(mockRequest as Request, mockResponse as Response, mockNext);
+
+      expect(logger.error).toHaveBeenCalledWith(
+        { err: auditError, actorId: 'user-123', requiredPermission: 'role:read' },
+        'Failed to record audit log'
+      );
+      const [logged] = vi
+        .mocked(logger.error)
+        .mock.calls.find(([, message]) => message === 'Failed to record audit log') as unknown as [
+        Record<string, unknown>,
+        string,
+      ];
+      const serialized = (await serializeWithRealLogger(logged)) as {
+        err: { message: string };
+      };
+      expect(serialized.err.message).toBe('audit write failed');
     });
   });
 
