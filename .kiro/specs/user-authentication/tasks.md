@@ -995,7 +995,7 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - **上流への申し送り**: `backend/src/__tests__/unit/routes/roles.routes.test.ts` の機能名なしのヘッダー（4行目）が、今回の被覆印で自機能で解決可能な側へ移り、上流の鮮度宣言 `featureless-headers-resolvable-by-own-feature-after-115308` が 587→588 へ動いた（独立レビューが HEAD との全ファイル比較で特定）。親が site-survey 115.334 へ追記した
   - _Blocked: site-survey スペックの Task 115.334（本項の被覆印に由来する `featureless-headers-resolvable-by-own-feature-after-115308` 587→588 を含む。親が上流の tasks.md へ追記済み）の解決待ち。実装そのものは承認・コミット済み。`[x]` は 115.334 の解決後に当該宣言が緑へ戻ったことを確かめてから付けること_
 
-- [ ] 35.8 DB 接続を確立できないときに 503 を返す
+- [x] 35.8 DB 接続を確立できないときに 503 を返す
   - 条文 24.1（逐語）: 「IF データベース接続がタイムアウト以内に確立できない THEN Authentication Serviceは503 Service Unavailableエラーを返さなければならない」
   - 実測（2026-09-26、タスク35.2 の `RetryingPool` に `connectionTimeoutMillis: 200` を与え到達しない宛先 10.255.255.1:5432 へ PrismaClient 経由で `findFirst`）: 1000 / 2000 / 4000ms の再試行の後、約 8000ms で失敗する。Prisma から投げられるのは素の `Error`（message「Connection terminated due to connection timeout」、code・meta 無し）で、`PrismaClientKnownRequestError` / `PrismaClientInitializationError` / `PrismaClientUnknownRequestError` のいずれでもない
   - 実測: `backend/src/middleware/errorHandler.middleware.ts` は 503 を `PrismaClientInitializationError` / `PrismaClientRustPanicError` に限って返す（:121-141）。上の素の `Error` は末尾の既定の分岐に落ちる見込み（コードの読解。HTTP での実測は本項の検証で行う）
@@ -1003,6 +1003,11 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - 検証: 接続タイムアウトのエラーを投げるルートへの要求が 503 と Problem Details を返すことを主張し、対応づけを外すと赤くなることを変異で実測する
   - _Requirements: 24.1_
   - _Boundary: `backend/src/middleware/errorHandler.middleware.ts` とその単体検証_
+  - **処遇（HEAD `036baf69` の作業ツリー、2026-09-27 にリポジトリルートで実測）**: `errorHandler.middleware.ts` に `isDatabaseConnectionTimeout` を足し、既知エラーの分岐より前で判定して 503「Service Unavailable」の Problem Details を返す（既存の初期化エラー・パニックの 503 と応答処理を `respondDatabaseUnavailable` に共通化し、ログ・Sentry・本文は HEAD と同じ）。対象は (a) pg-pool の素の Error「Connection terminated due to connection timeout」「timeout exceeded when trying to connect」（完全一致）、(b) `code === 'ETIMEDOUT'`、(c) `@prisma/adapter-pg` が syscall・errno を伴う ETIMEDOUT を `SocketTimeout` に包み Prisma が変換する P1008 の `PrismaClientKnownRequestError`（**着手前は 400「Database Error」だった。独立レビューが P1008 に 400 を期待する検証・契約が他に無いことを確認**）。判定は `db.ts` から `backend/src/utils/db-connection-timeout.ts` へ移し `db.ts` は再輸出する（境界外。`db.js` を丸ごとモックする単体 28 件がエラー経路で export 欠落により落ちるのを避けるため。判定は同一）
+  - **利用者の裁定「限定してコミット＋後続起票」（2026-09-27）**: 独立レビューの差し戻し（1回）で、**実際の認証エンドポイントは errorHandler に届かない**ことが判明した——`auth.service.ts` などのサービス（auth / permission / role-permission / role / session / user-role）は DB 例外を `Err({ type: 'DATABASE_ERROR' })` に変え、`auth.routes.ts`（:353 / :887 / :1000 など）が自前で 500 を返す。当初の検証は実在しない `/api/auth/me` の偽ルートで `@requirement user-authentication/REQ-24.1` を名乗り被覆を過大に数えていた。裁定に従い本項は errorHandler の対応づけに限り、**要件24.1 の被覆は名乗らない**（偽ルートを `/__test__/db-timeout` へ改名し、印7件を撤去。本スペックの受入基準は 373/388 のままで 24.1 は未被覆）。実エンドポイントへの到達は 35.11、対話型トランザクションの P2028 は 35.12 へ起票した
+  - **検証**: 単体 `errorHandler.test.ts` に 8 件（正例4、無関係な一般エラー・部分一致・ECONN を 500 に保つ負例3、supertest 経由1）、統合 `db-connection-timeout-503.integration.test.ts`（応答しない TCP サーバーに本物の `RetryingPool`・`PrismaPg`・`PrismaClient` と errorHandler を通し、503 と Problem Details と経過 7000ms 以上を主張、約 9 秒）。**RED**: フラグ OFF で単体 5 件・統合が赤。変異（対応づけの撤去／判定を既知エラーの分岐の後へ／P1008 判定の撤去／部分一致・ECONN への拡大）はいずれも赤（独立レビューが2種を再現しハッシュの一致を確認）。backend 単体 5826 件、統合 951 件、type-check、lint 緑。鮮度宣言 `featureless-headers-resolvable-by-own-feature-after-115308` は 588 のまま
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test -- errorHandler db env` 74/74、統合 `db-connection-timeout-503` 1/1、type-check EXIT=0
+  - **範囲外の観測（独立レビュー、起票はしていない）**: `code === 'ETIMEDOUT'` は発生元を問わず 503「Database connection error」になり、DB 以外（SMTP・S3 など）のタイムアウトが素のまま届くと誤分類されうる（タスク本文の指定どおりの判定）。P1001（ECONNREFUSED・ENOTFOUND）は 400「Database Error」のまま。`e2e/requirement-exclusions.json` の REQ-24.1 の除外（:64）が代替検証に挙げる chaos-engineering / Toxiproxy はリポジトリに実体が無い
 
 - [ ] 35.9 DB 接続の再試行回数を環境変数 `DATABASE_RETRY_COUNT` で与えるかを決めて実装する
   - 要件の環境変数表（requirements.md :47、列の空白を詰めて引用）: 「| `DATABASE_RETRY_COUNT` | データベース接続リトライ回数 | `3` | 任意 | 整数値（0-10） |」
@@ -1021,5 +1026,23 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - _Requirements: 25.8_
   - _Boundary: `frontend/src/api/auth.ts`、`frontend/src/pages/Profile.tsx`、`frontend/src/components/ProfileForm.tsx` とその単体・E2E 検証_
   - _Depends: 35.7_
+
+- [ ] 35.11 認証系のエンドポイントで DB 接続タイムアウトを 503 として返す
+  - 起票元: タスク35.8（独立レビューの差し戻しと利用者の裁定「限定してコミット＋後続起票」、2026-09-27）
+  - 実測（HEAD `036baf69` と 35.8 の作業ツリー）: `git grep -ln DATABASE_ERROR -- backend/src/services` の当たりは auth / permission / role-permission / role / session / user-role の 6 サービスで、DB 例外を `Err({ type: 'DATABASE_ERROR' })` に変える。`auth.routes.ts` の :353 / :887 / :1000 などはそれを受けて自前で 500 を返し、ログインの :353-360 は Problem Details でない本文の `detail` に `error.message` をそのまま載せる。35.8 の errorHandler の対応づけ（`isDatabaseConnectionTimeout`）には届かない
+  - 実装: 接続タイムアウト（`backend/src/utils/db-connection-timeout.ts` の判定と P1008）をサービス層で飲み込まずに投げ直すか、ルートで 503 の Problem Details へ変換するかを design.md で決めてから実装する
+  - 検証: 実在のエンドポイント（少なくともログイン・GET /api/v1/auth/me・トークンの更新）が DB 接続タイムアウトで 503 と Problem Details を返すことを、35.8 の統合検証と同じ無応答の TCP サーバーで主張し、`@requirement user-authentication/REQ-24.1` を付ける。変異で赤くなることを実測する
+  - _Requirements: 24.1_
+  - _Boundary: 上記 6 サービスと認証系のルートの DATABASE_ERROR の経路、その単体・統合検証_
+  - _Depends: 35.8_
+
+- [ ] 35.12 対話型トランザクションの開始が DB 接続タイムアウトで打ち切られる経路を 503 にする
+  - 起票元: タスク35.8（実装者の懸念と独立レビューの再現、2026-09-27）
+  - 実測: 到達しない DB に対する `prisma.$transaction(async tx => ...)` は Prisma の `maxWait` 既定 2000ms が `RetryingPool` の再試行の予算（1000 / 2000 / 4000ms）より短いため、約 2.1〜2.9 秒で P2028「Unable to start a transaction in the given time.」となり、`errorHandler.middleware.ts` の P2028 の分岐（:139）で 500「Transaction Timeout」を返す。認証系の書き込みはタスク35.5 でトランザクション化済みのため、書き込みの経路では 24.1 の 503 が成り立たない
+  - 制約: P2028 の 500 は estimate-creation の design.md（:4336、要件42.3）とタスク57.6 の約束であり、他スペックの振る舞いを変えないこと。認証系の `$transaction` に `maxWait` を明示するか、開始の待ちの打ち切りを接続タイムアウトとして区別するかを design.md で決め、estimate-creation への影響を確かめてから実装する
+  - 検証: 認証系の書き込みのエンドポイントが DB 接続タイムアウトで 503 を返すこと、estimate-creation の P2028 の既存の検証が緑のままであることを主張する
+  - _Requirements: 24.1_
+  - _Boundary: 認証系のサービスのトランザクションの設定（または errorHandler の P2028 の判定）とその統合検証_
+  - _Depends: 35.11_
 
 _起票元: タスク33.1（利用者の裁定「取り下げて後続を起票」、2026-09-26）_

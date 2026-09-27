@@ -2,6 +2,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
 import { parseDatabaseConnectionTimeout } from './config/env.js';
 import { PrismaClient } from './generated/prisma/client.js';
+import { isConnectionTimeoutError } from './utils/db-connection-timeout.js';
 import logger from './utils/logger.js';
 
 /**
@@ -11,25 +12,8 @@ import logger from './utils/logger.js';
  */
 export const DB_CONNECT_RETRY_DELAYS_MS: readonly number[] = [1000, 2000, 4000];
 
-/**
- * 接続の確立（プールからの接続の取得を含む）がタイムアウトしたことを示すエラーかを判定する。
- *
- * - `ETIMEDOUT`: OS の TCP 接続がタイムアウトした
- * - `timeout exceeded when trying to connect`: pg-pool が connectionTimeoutMillis 内に接続を渡せなかった
- * - `Connection terminated due to connection timeout`: pg-pool が接続の確立中に connectionTimeoutMillis を超えた
- */
-export function isConnectionTimeoutError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-  if ((error as NodeJS.ErrnoException).code === 'ETIMEDOUT') {
-    return true;
-  }
-  return (
-    error.message === 'timeout exceeded when trying to connect' ||
-    error.message === 'Connection terminated due to connection timeout'
-  );
-}
+// 接続タイムアウトの判定は依存の無いモジュールに置き（エラーハンドラーも使う）、ここから再輸出する
+export { isConnectionTimeoutError };
 
 type PoolConnectCallback = (
   err: Error | undefined,

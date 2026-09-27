@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Request, Response, NextFunction } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
+import request from 'supertest';
 import { ZodError, ZodIssue } from 'zod';
 import { errorHandler, notFoundHandler } from '../../../middleware/errorHandler.middleware.js';
 import { ApiError, BadRequestError, ValidationError } from '../../../errors/apiError.js';
@@ -376,6 +377,113 @@ describe('errorHandler middleware', () => {
         status: 503,
         detail: 'Database connection error',
         instance: '/api/test',
+      });
+    });
+  });
+
+  // errorHandler の接続タイムアウトの対応づけ（要件24.1 の前提。実エンドポイントへの到達はタスク35.11）。
+  // 被覆印は付けない: 実際の認証系エンドポイントはサービス層で DB 例外を捕まえるため、ここへ届かない
+  describe('Database connection timeout handling', () => {
+    const SERVICE_UNAVAILABLE_BODY = {
+      type: 'https://api.architrack.com/errors/internal-server-error',
+      title: 'Service Unavailable',
+      status: 503,
+      detail: 'Database connection error',
+      instance: '/api/test',
+    };
+
+    /**
+     * 接続の再試行を使い切った pg-pool の接続タイムアウト（Prisma から素の Error として届く）を 503 Service Unavailable の Problem Details で返す
+     */
+    it('再試行を使い切った接続タイムアウト（Connection terminated due to connection timeout）を503で返す', () => {
+      // 実測（タスク35.2）: Prisma から投げられるのは code・meta の無い素の Error
+      const error = new Error('Connection terminated due to connection timeout');
+
+      errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
+
+      expect(mockRequest.log?.error).toHaveBeenCalledWith(
+        { err: error },
+        'Database connection timeout'
+      );
+      expect(statusMock).toHaveBeenCalledWith(503);
+      expect(jsonMock).toHaveBeenCalledWith(SERVICE_UNAVAILABLE_BODY);
+    });
+
+    /**
+     * プールが制限時間内に接続を渡せないタイムアウト（timeout exceeded when trying to connect）を 503 で返す
+     */
+    it('プールが制限時間内に接続を渡せないタイムアウトを503で返す', () => {
+      const error = new Error('timeout exceeded when trying to connect');
+
+      errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
+
+      expect(statusMock).toHaveBeenCalledWith(503);
+      expect(jsonMock).toHaveBeenCalledWith(SERVICE_UNAVAILABLE_BODY);
+    });
+
+    /**
+     * アダプタが包まずに届く OS の TCP 接続タイムアウト（code: ETIMEDOUT）を 503 で返す
+     */
+    it('素の Error のまま届く ETIMEDOUT を503で返す', () => {
+      const error = Object.assign(new Error('connect ETIMEDOUT'), { code: 'ETIMEDOUT' });
+
+      errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
+
+      expect(statusMock).toHaveBeenCalledWith(503);
+      expect(jsonMock).toHaveBeenCalledWith(SERVICE_UNAVAILABLE_BODY);
+    });
+
+    /**
+     * @prisma/adapter-pg が SocketTimeout へ包み Prisma が P1008 へ変換した接続タイムアウトを、既知のエラーの 400 ではなく 503 で返す
+     */
+    it('アダプタが SocketTimeout へ包み P1008 として届くタイムアウトを400ではなく503で返す', () => {
+      const prismaError = new Prisma.PrismaClientKnownRequestError('Operation has timed out', {
+        code: 'P1008',
+        clientVersion: '7.9.1',
+        meta: { driverAdapterError: { name: 'DriverAdapterError' } },
+      });
+
+      errorHandler(prismaError, mockRequest as Request, mockResponse as Response, mockNext);
+
+      expect(statusMock).toHaveBeenCalledWith(503);
+      expect(jsonMock).toHaveBeenCalledWith(SERVICE_UNAVAILABLE_BODY);
+    });
+
+    /**
+     * 503 への対応づけは接続タイムアウトに限り、他の接続エラーや文言の一部が似た一般のエラーは 500 のままにする
+     */
+    it.each([
+      ['接続の予期しない切断', new Error('Connection terminated unexpectedly')],
+      ['文言の一部だけが一致するエラー', new Error('Query read timeout: connection timeout')],
+      [
+        'ETIMEDOUT 以外の code を持つエラー',
+        Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }),
+      ],
+    ])('%sは503にせず500で返す', (_label, error) => {
+      errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
+
+      expect(statusMock).toHaveBeenCalledWith(500);
+      expect(jsonMock).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 500, title: 'Internal Server Error' })
+      );
+    });
+
+    /**
+     * 接続タイムアウトを投げるルートへの HTTP 要求が 503 と Problem Details を返す
+     */
+    it('接続タイムアウトを投げるルートへの要求が503とProblem Detailsを返す', async () => {
+      const app = express();
+      app.get('/__test__/db-timeout', (_req, _res, next) => {
+        next(new Error('Connection terminated due to connection timeout'));
+      });
+      app.use(errorHandler);
+
+      const response = await request(app).get('/__test__/db-timeout');
+
+      expect(response.status).toBe(503);
+      expect(response.body).toEqual({
+        ...SERVICE_UNAVAILABLE_BODY,
+        instance: '/__test__/db-timeout',
       });
     });
   });
