@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page, type Request } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../fixtures/seed-helpers';
 import { createAllTestUsers } from '../../fixtures/auth.fixtures';
@@ -684,5 +684,156 @@ test.describe('プロフィール管理機能（パスワード変更系）', ()
     expect(success, 'パスワード変更の成功メッセージもログイン画面への遷移も観測できなかった').toBe(
       true
     );
+  });
+});
+
+// ===== プロフィール更新の楽観的ロック（要件25.8） =====
+/**
+ * 楽観的ロックの競合を画面から検証する。
+ *
+ * プロフィール画面は開いたときに GET /api/v1/auth/me の updatedAt（版）を取得し、
+ * 保存時に expectedUpdatedAt として送る。同じ版からの2つ目の保存は 409 PROFILE_CONFLICT となり、
+ * 画面は競合を表示して最新の内容の再読み込みを促す。
+ *
+ * @requirement user-authentication/REQ-25.8
+ */
+test.describe('プロフィール更新の楽観的ロック（要件25.8）', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  const LOCK_USER = { email: USER2_EMAIL, originalDisplayName: 'Test User 2' };
+
+  /** PATCH /api/v1/auth/me の要求をパスで捉える（オリジンに依存しない） */
+  const isProfilePatch = (request: Request): boolean =>
+    request.method() === 'PATCH' && new URL(request.url()).pathname === '/api/v1/auth/me';
+
+  /** 表示名を入力し、保存を押して PATCH の要求と応答を返す */
+  async function saveDisplayName(page: Page, value: string) {
+    const input = page.getByLabel(/表示名/i);
+    await input.fill(value);
+    const saveButton = page.getByRole('button', { name: /^保存$/ });
+    // 版の取得が終わるまで保存ボタンは無効（版なしで送らないため）
+    await expect(saveButton).toBeEnabled({ timeout: getTimeout(10000) });
+    const [request, response] = await Promise.all([
+      page.waitForRequest(isProfilePatch, { timeout: getTimeout(15000) }),
+      page.waitForResponse((res) => isProfilePatch(res.request()), {
+        timeout: getTimeout(15000),
+      }),
+      saveButton.click(),
+    ]);
+    return { request, response };
+  }
+
+  async function storedDisplayName(): Promise<string | undefined> {
+    const user = await getPrismaClient().user.findUnique({
+      where: { email: LOCK_USER.email },
+      select: { displayName: true },
+    });
+    return user?.displayName;
+  }
+
+  async function restoreDisplayName(): Promise<void> {
+    await getPrismaClient().user.update({
+      where: { email: LOCK_USER.email },
+      data: { displayName: LOCK_USER.originalDisplayName },
+    });
+  }
+
+  test.beforeAll(restoreDisplayName);
+  test.afterAll(restoreDisplayName);
+
+  /**
+   * 2つのページが同じ版で開き、順に保存すると、後の方が競合の表示になり、保存値は先の方になる。
+   * 再読み込みで最新の内容と版を取り直すと、保存できる。
+   * @requirement user-authentication/REQ-25.8
+   */
+  test('同じ版から2つの画面で順に保存すると、後の方に競合を表示し先の保存値が残る', async ({
+    page,
+    browser,
+  }) => {
+    const otherContext = await browser.newContext();
+    const otherPage = await otherContext.newPage();
+    try {
+      // 両方のページでログインしてから、両方でプロフィール画面を開く（ログイン自体も版を進めうるため）
+      await loginAsUser(page, 'REGULAR_USER_2');
+      await loginAsUser(otherPage, 'REGULAR_USER_2');
+      await openProfilePage(page, LOCK_USER.email);
+      await openProfilePage(otherPage, LOCK_USER.email);
+
+      // 先の画面の保存は成功する
+      const first = await saveDisplayName(page, 'Optimistic Lock First');
+      expect(first.response.status()).toBe(200);
+      await expect(page.getByText('プロフィールを更新しました')).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      // 後の画面（同じ版を保持）の保存は競合になる
+      const second = await saveDisplayName(otherPage, 'Optimistic Lock Second');
+      const conflict = otherPage.getByTestId('profile-conflict');
+      await expect(conflict, '後の保存で競合の表示が出ない').toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await expect(conflict).toContainText('プロフィールを保存できませんでした');
+      await expect(conflict).toContainText('最新の内容を読み込んでから、もう一度保存してください');
+      await expect(otherPage.getByText('プロフィールを更新しました')).toHaveCount(0);
+
+      expect(second.response.status()).toBe(409);
+      const problem = (await second.response.json()) as { code?: string };
+      expect(problem.code).toBe('PROFILE_CONFLICT');
+
+      // 両方の要求が同じ版（画面を開いた時点の updatedAt）を送っている
+      const firstBody = first.request.postDataJSON() as { expectedUpdatedAt?: string };
+      const secondBody = second.request.postDataJSON() as { expectedUpdatedAt?: string };
+      expect(firstBody.expectedUpdatedAt, '先の保存が版を送っていない').toEqual(expect.any(String));
+      expect(secondBody.expectedUpdatedAt).toBe(firstBody.expectedUpdatedAt);
+
+      // 保存値は先の方
+      expect(await storedDisplayName()).toBe('Optimistic Lock First');
+
+      // 最新の内容を読み込むと、先の保存値と新しい版を取り直し、もう一度保存できる
+      await otherPage.getByRole('button', { name: '最新の内容を読み込む' }).click();
+      await expect(otherPage.getByLabel(/表示名/i)).toHaveValue('Optimistic Lock First', {
+        timeout: getTimeout(10000),
+      });
+      await expect(conflict).toHaveCount(0);
+
+      const retried = await saveDisplayName(otherPage, 'Optimistic Lock Second');
+      expect(retried.response.status()).toBe(200);
+      const retriedBody = retried.request.postDataJSON() as { expectedUpdatedAt?: string };
+      const firstResult = (await first.response.json()) as { updatedAt?: string };
+      expect(retriedBody.expectedUpdatedAt).toBe(firstResult.updatedAt);
+      await expect(otherPage.getByText('プロフィールを更新しました')).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      expect(await storedDisplayName()).toBe('Optimistic Lock Second');
+    } finally {
+      await otherContext.close();
+    }
+  });
+
+  /**
+   * 保存に成功したら応答の新しい版を採用するため、同じ画面で続けて保存しても競合にならない。
+   * @requirement user-authentication/REQ-25.8
+   */
+  test('同じ画面で続けて2回保存すると、どちらも成功する', async ({ page }) => {
+    await loginAsUser(page, 'REGULAR_USER_2');
+    await openProfilePage(page, LOCK_USER.email);
+
+    const first = await saveDisplayName(page, 'Consecutive Save One');
+    expect(first.response.status()).toBe(200);
+    await expect(page.getByText('プロフィールを更新しました')).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+
+    const second = await saveDisplayName(page, 'Consecutive Save Two');
+    expect(second.response.status(), '2回目の保存が競合になった').toBe(200);
+    await expect(page.getByTestId('profile-conflict')).toHaveCount(0);
+
+    // 2回目は1回目の応答の新しい版を送っている
+    const firstResult = (await first.response.json()) as { updatedAt?: string };
+    const secondBody = second.request.postDataJSON() as { expectedUpdatedAt?: string };
+    expect(firstResult.updatedAt).toEqual(expect.any(String));
+    expect(secondBody.expectedUpdatedAt).toBe(firstResult.updatedAt);
+
+    expect(await storedDisplayName()).toBe('Consecutive Save Two');
   });
 });

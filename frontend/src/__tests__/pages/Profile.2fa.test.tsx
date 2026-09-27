@@ -30,6 +30,15 @@ vi.mock('../../api/client', () => ({
   },
 }));
 
+// 画面を開いたときの版の取得（要件25.8）は apiClient.get の順序付きモックを消費しないよう分離する
+vi.mock('../../api/auth', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../api/auth')>();
+  return {
+    ...actual,
+    getCurrentUser: vi.fn(async () => undefined),
+  };
+});
+
 // useAuthフックをモック
 const mockLogout = vi.fn();
 const mockUseAuth = vi.fn();

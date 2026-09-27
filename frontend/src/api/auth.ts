@@ -77,10 +77,40 @@ export async function getCurrentUser(): Promise<UserProfile> {
 }
 
 /**
- * プロフィール更新
- * @param data 更新データ
- * @returns 更新後のユーザープロフィール
+ * プロフィール更新の要求
+ *
+ * 要件25.8: `expectedUpdatedAt` に取得時の `updatedAt`（版）を渡すと、サーバーは版が
+ * 一致するときだけ更新し、一致しなければ 409 `PROFILE_CONFLICT` を返す（楽観的ロック）。
+ * 省略したときは版を比べずに更新する。
  */
-export async function updateProfile(data: UpdateProfileData): Promise<UserProfile> {
+export interface UpdateProfileRequest extends UpdateProfileData {
+  /** 楽観的ロックの版（GET / PATCH /api/v1/auth/me の応答の updatedAt） */
+  expectedUpdatedAt?: string;
+}
+
+/**
+ * プロフィール更新
+ * @param data 更新データ（任意で楽観的ロックの版 `expectedUpdatedAt` を含む）
+ * @returns 更新後のユーザープロフィール（新しい updatedAt を含む）
+ */
+export async function updateProfile(data: UpdateProfileRequest): Promise<UserProfile> {
   return apiClient.patch<UserProfile>('/api/v1/auth/me', data);
+}
+
+/**
+ * プロフィール更新の楽観的ロックの競合（409 `PROFILE_CONFLICT`）かを判定する
+ *
+ * 要件25.8: サーバーは版の不一致を 409 の Problem Details（`code: 'PROFILE_CONFLICT'`）で返す。
+ * 同じ 409 でも `code` が異なるものは競合として扱わない。
+ * @param error updateProfile が投げたエラー
+ */
+export function isProfileConflictError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+  const { statusCode, response } = error as { statusCode?: unknown; response?: unknown };
+  if (statusCode !== 409 || typeof response !== 'object' || response === null) {
+    return false;
+  }
+  return (response as { code?: unknown }).code === 'PROFILE_CONFLICT';
 }

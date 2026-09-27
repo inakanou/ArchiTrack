@@ -9,7 +9,9 @@ import {
   refreshToken,
   getCurrentUser,
   updateProfile,
+  isProfileConflictError,
 } from '../../api/auth';
+import { ApiError } from '../../api/client';
 
 describe('認証API', () => {
   let originalFetch: typeof globalThis.fetch;
@@ -276,6 +278,57 @@ describe('認証API', () => {
       await expect(updateProfile({ displayName: 'New Name' })).rejects.toThrow('Update failed');
 
       expect(patchSpy).toHaveBeenCalled();
+    });
+
+    /**
+     * @requirement user-authentication/REQ-25.8
+     */
+    it('楽観的ロックの版（expectedUpdatedAt）を本文に載せて送ること', async () => {
+      const patchSpy = vi.spyOn(apiClient, 'patch').mockResolvedValue({
+        id: 'user-1',
+        displayName: 'Updated Name',
+        updatedAt: '2025-01-01T02:00:00.000Z',
+      });
+
+      await updateProfile({
+        displayName: 'Updated Name',
+        expectedUpdatedAt: '2025-01-01T01:00:00.000Z',
+      });
+
+      expect(patchSpy).toHaveBeenCalledWith('/api/v1/auth/me', {
+        displayName: 'Updated Name',
+        expectedUpdatedAt: '2025-01-01T01:00:00.000Z',
+      });
+    });
+  });
+
+  /**
+   * @requirement user-authentication/REQ-25.8
+   */
+  describe('isProfileConflictError', () => {
+    it('409 の PROFILE_CONFLICT を競合と判定すること', () => {
+      const error = new ApiError(409, '他の操作によって更新されました。画面を更新してください', {
+        status: 409,
+        code: 'PROFILE_CONFLICT',
+        details: {
+          expectedUpdatedAt: '2025-01-01T01:00:00.000Z',
+          actualUpdatedAt: '2025-01-01T02:00:00.000Z',
+        },
+      });
+
+      expect(isProfileConflictError(error)).toBe(true);
+    });
+
+    it('code が PROFILE_CONFLICT でない 409 や他の状態コードは競合と判定しないこと', () => {
+      expect(isProfileConflictError(new ApiError(409, 'Conflict', { code: 'CONFLICT' }))).toBe(
+        false
+      );
+      expect(
+        isProfileConflictError(new ApiError(400, 'Bad Request', { code: 'PROFILE_CONFLICT' }))
+      ).toBe(false);
+      expect(isProfileConflictError(new ApiError(409, 'Conflict'))).toBe(false);
+      expect(isProfileConflictError(new Error('Update failed'))).toBe(false);
+      expect(isProfileConflictError(null)).toBe(false);
     });
   });
 });

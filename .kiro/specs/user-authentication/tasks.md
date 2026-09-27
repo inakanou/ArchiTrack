@@ -1022,7 +1022,7 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test -- env db` 72/72、type-check EXIT=0
   - **範囲外の観測（独立レビュー、起票はしていない）**: `DB_CONNECT_RETRY_DELAYS_MS` はコードから参照されなくなったが、design.md :3443 が名前で引くため既定の列として残した。design.md :3446 の「3 回に固定する」は 35.2 時点の記述で、:3447 の追記と字面上は食い違う。上限 10 回（約 18 分）では Railway などの HTTP プロキシの上限が短いと 503 が届く前に切られうる。`RetryingPool` のコンストラクタは `retryCount` を検証しない（本番の経路は必ず `parseDatabaseRetryCount` を通る）。Railway のダッシュボードの `DATABASE_RETRY_COUNT` の値はリポジトリの外で確認できない（リポジトリ内の env / compose には `.env.example` の `=3` のみ）
 
-- [ ] 35.10 プロフィール更新の画面から版を送り、409 の競合を表示する
+- [x] 35.10 プロフィール更新の画面から版を送り、409 の競合を表示する
   - 起票元: タスク35.7（利用者の裁定「任意・バックエンドのみ」、2026-09-27）。バックエンドは `expectedUpdatedAt` を任意で受け、GET / PATCH の `/auth/me` の応答に `updatedAt` を返す
   - 実測（2026-09-27）: `frontend/src/api/auth.ts:85` の `apiClient.patch<UserProfile>('/api/v1/auth/me', data)` は版を送らない。ロールの更新（PATCH /api/v1/roles/:id）を呼ぶフロントエンドのコードは 0 件（`git grep -n "apiClient.patch" -- frontend/src` の当たりに roles は無い）
   - 実装: `Profile.tsx` / `ProfileForm.tsx` が取得時の `updatedAt` を保持して送り、409 `PROFILE_CONFLICT` を受けたら最新の内容の再取得を促す表示を出す。ロールの更新画面を作るかは本項の範囲外
@@ -1030,6 +1030,11 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - _Requirements: 25.8_
   - _Boundary: `frontend/src/api/auth.ts`、`frontend/src/pages/Profile.tsx`、`frontend/src/components/ProfileForm.tsx` とその単体・E2E 検証_
   - _Depends: 35.7_
+  - **処遇（HEAD `e7ec0637` の作業ツリー、2026-09-27 にリポジトリルートで実測。利用者の裁定「35.10 を実装する」に従った）**: `frontend/src/api/auth.ts` に `UpdateProfileRequest`（任意の `expectedUpdatedAt`）と `isProfileConflictError`（409 かつ `code: 'PROFILE_CONFLICT'`）を足した。`frontend/src/pages/Profile.tsx` は画面を開いたときに `getCurrentUser()` で表示名と版を取得し（取得中は保存不可、編集中の入力は上書きしない、取得に失敗したら版なしで保存）、保存は `updateProfile` で版を送り、成功したら応答の表示名と `updatedAt` を採用する（連続保存が 409 にならない）。409 `PROFILE_CONFLICT` では `role="alert"` の競合の表示（ログインなどの操作でも版が進みうることを添え、他の利用者を責めない文言）と「最新の内容を読み込む」ボタンを出す。変更検知の基準は保存済みの表示名に改めた（保存後に保存ボタンが無効へ戻る）。`frontend/src/components/ProfileForm.tsx` はどのルートからも描画されない（参照は stories と単体テストのみ）ため変えていない
+  - **検証**: 単体 `Profile.optimistic-lock.test.tsx`（7 件）、`auth.test.ts`（+3 件）、`Profile.2fa.test.tsx`（画面を開いたときの取得の部分モックの追加のみで主張の弱化なし、独立レビューが確認）。E2E `e2e/specs/auth/profile.spec.ts` の describe「プロフィール更新の楽観的ロック（要件25.8）」2 件（`@requirement user-authentication/REQ-25.8`）: 2 画面から同じ版で順に保存し後の方が 409 と競合の表示、DB の値が先の方、再読み込み後の保存が成功／同一画面の連続保存がどちらも 200。**RED**: フラグ OFF で単体 7 件が赤。版を送らない変異は E2E（実装者が本番ビルドを作り直して再現）と単体 3 件（独立レビューが再現しハッシュの一致を確認）で赤。frontend 単体 11868 件、type-check、lint、format:check、E2E（profile 18・two-factor 17・security-accessibility 19・navigation 17・sessions 6）緑。`check:req-coverage` は本スペック 374/388 で不変（25.8 は 35.7 で被覆済み）、鮮度宣言は 588 のまま
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix frontend run test -- Profile auth` 133/133、frontend type-check EXIT=0
+  - **範囲外の観測（独立レビュー、起票はしていない）**: 保存後にヘッダーなど AuthContext の表示名は更新されない（HEAD と同じ）。画面を開いたときの取得が /auth/me を1回増やす。取得にかかる数ミリ秒の間に入力を始め、かつ context の表示名がサーバーより古いと、利用者が見ていない表示名の版で保存しうる。再読み込みの失敗の分岐には単体テストが無い
+  - **前提との関係**: 前提の 35.7 は実装・コミット済みだが site-survey 115.334 の解決待ちで `[ ]` のまま。本項は鮮度宣言を動かしておらず上流の関門に依存しないため `[x]` とした
 
 - [x] 35.11 認証系のエンドポイントで DB 接続タイムアウトを 503 として返す
   - 起票元: タスク35.8（独立レビューの差し戻しと利用者の裁定「限定してコミット＋後続起票」、2026-09-27）
