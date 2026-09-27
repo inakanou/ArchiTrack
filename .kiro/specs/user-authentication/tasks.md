@@ -784,7 +784,7 @@ _追加日: 2026-02-09_
   - **申し送り（32.2 で必ず扱うこと）**: (i) 実装は test 環境（tsx watch）へ即反映され、`e2e/specs/api/jwks.spec.ts` のキャッシュ制御の検証に置かれた `test.fail()` は「落ちるはずが通った」として赤になる。**本項を含むブランチの push は 32.2 の完了後に行うこと**。(ii) `e2e/requirement-exclusions.json` の REQ-31.4 / 31.5 / 31.6 は pending-implementation のまま「実装が存在しない」と述べており、本項で事実と合わなくなった。32.2 の対象要件は 31.4 / 31.5 だけで、**31.6 の除外の処遇（削除するか、代替検証を上記の単体テストへ書き換えるか）は担当が明記されていない**
   - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test -- jwks` 10/10、backend type-check EXIT=0
 
-- [ ] 32.2 公開鍵配布の受入検証からラチェットを外す
+- [x] 32.2 公開鍵配布の受入検証からラチェットを外す
   - `e2e/specs/api/jwks.spec.ts` の「キャッシュ制御: 適切なCache-Controlヘッダーが設定されていること」に置かれた `test.fail()` を外す
   - 主張を要件31.5 の具体値（300秒）と突き合わせる形へ強化すること。**「定義されている」「public か private か max-age を含む」といった弱い主張のままにしないこと**
   - あわせて `@requirement user-authentication/REQ-31.4, 31.5` を付与し、被覆に計上されるようにすること
@@ -795,7 +795,7 @@ _追加日: 2026-02-09_
   - **処遇（コミット `4dd8f37d` の作業ツリー、2026-09-26 にリポジトリルートで実測）**: `e2e/specs/api/jwks.spec.ts` の「キャッシュ制御: 適切なCache-Controlヘッダーが設定されていること」から `test.fail()` を外し、主張をステータス 200 と `cache-control` が `'public, max-age=300'` と一致すること（具体値。本番定数は参照しない）へ強めた。旧来の `toBeDefined` / `toMatch(/public|private|max-age/)` は残していない。`@requirement user-authentication/REQ-31.4` / `REQ-31.5` を同ファイルの 31.1〜31.3 と同じ書式で付与した。被覆印とラチェットの無い除外の同居は `coverage-tag-coexistence:no-ratchet` で禁じられるため、`e2e/requirement-exclusions.json` の REQ-31.4 / 31.5 の除外を取り下げた。**REQ-31.6 は利用者の裁定（2026-09-26「(A) 実態どおりに書き換える」）により**、値の選び方への制約で E2E から観測できないため除外に残し、分類を pending-implementation → integration-test、代替検証を method: unit-test / tool: Vitest（`backend/src/__tests__/unit/routes/jwks.routes.test.ts` の定数の検証）へ改めた（同じ組み合わせの既存除外は17件）。集計は総数 157→155、pending-implementation 4→1、integration-test 38
   - **検証（独立レビューが再現）**: `npm run test:e2e -- e2e/specs/api/jwks.spec.ts` は 10/10 で緑（実装者2回・レビュー1回）。**変異**: `jwks.routes.ts` の `res.set` の一行を外すと当該の検証が `toBe` の不一致で落ちる（9/10、EXIT=1）。復元は blob `ccac2729` の一致で確かめ、再実行は 10/10。`check:req-exclusions`（155 件、同居の違反なし）/ `check:e2e-guards` / `check:e2e-selfjudge` / `count:coverage-marks`（本スペック 464→466）/ prettier / eslint は EXIT 0。`check:req-coverage` は基線から EXIT 1 のまま、method:none は 3→0
   - **取り下げで赤くなった上流所管の関門（HEAD では緑）**: `check:req-exclusions:selftest`（`promiselessEntry` が実データの method:none の除外を前提にしており、0件で中断）、`check:design-measurement-freshness`（site-survey の design.md を錨にする5宣言: 除外総数 157→155、pending 4→1、promiseless 3→0、自己検査を引く2宣言が空）、`check:design-measurement-freshness:selftest`（1/56）。いずれも site-survey の所管であり下流は書き換えていない。デバッグ調査は、境界内で関門を赤くせずに本項を実装する方法は無いと結論した（印を付けずにラチェットだけ外す案は本文の要求に反し、31.6 を method:none のまま残す案でも件数の宣言は赤くなる）。**利用者の判断（2026-09-26）で本項はローカルにコミットし、上流へ起票して待つ**。上流が解決するまで当該ブランチは push できない
-  - _Blocked: site-survey スペックの Task 115.334（除外台帳の自己検査の対照を合成データへ改めることと、除外の件数を固定した5宣言の貼り直し。親が上流の tasks.md へ実際に書き込み済み）の解決待ち。変更そのものは承認・コミット済み。`[x]` は 115.334 の解決後に関門が緑へ戻ったことを確かめてから付けること_
+  - **上流待ちの解除（2026-09-27）**: site-survey 115.334 は `b36ea8ce` で解決し、`check:req-exclusions:selftest`・`check:design-measurement-freshness`・`check:design-measurement-freshness:selftest` がいずれも EXIT=0 に戻ったことを親が確かめたため `[x]` とした。解除前の注記: site-survey スペックの Task 115.334（除外台帳の自己検査の対照を合成データへ改めることと、除外の件数を固定した5宣言の貼り直し。親が上流の tasks.md へ実際に書き込み済み）の解決待ち。変更そのものは承認・コミット済み。`[x]` は 115.334 の解決後に関門が緑へ戻ったことを確かめてから付けること
 
 - [x] 32.3 (P) 公開鍵配布の既存の受入基準を要件へ結線する
   - 要件31.1〜31.3（JWKS形式での応答・旧公開鍵の併載・`alg`/`use`/`kid` の付与）は実装済みであり、`e2e/specs/api/jwks.spec.ts` に検証も存在する
@@ -897,7 +897,7 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
 
 **測った事実**（コミット `0459f048`、2026-09-26 にリポジトリルートで実測）: 各項に記す。
 
-- [ ] 35.1 メール再送の間隔を条文へ合わせる
+- [x] 35.1 メール再送の間隔を条文へ合わせる
   - 条文 24.3（逐語）: 「WHEN 外部メールサービスが応答しない THEN Authentication Serviceはメール送信をキューに保存し、最大5回までリトライ（1分、5分、15分、1時間、6時間後）を実行しなければならない」
   - 実測: `backend/src/services/email.service.ts:87-93` に `RETRY_DELAYS = [1分, 5分, 15分, 1時間, 6時間]` があるが、`:178-186` 等の `emailQueue.add` は `attempts: 5, backoff: { type: 'exponential', delay: RETRY_DELAYS[0] }` を渡している。Bull 4.16.5 の exponential は `(2^n − 1) × delay`（`backend/node_modules/bull/lib/backoffs.js:12-15`）であり、実際の間隔は 1分・3分・7分・15分で、`RETRY_DELAYS[1..4]` は使われていない
   - 実測: 既存の検証 `backend/src/__tests__/unit/services/email.service.test.ts` の `:229` の検証（`:239` の `attempts: 5`）/ `:244` の検証（`:256` の `delay: expect.any(Number)`）は間隔を見ていない
@@ -909,7 +909,7 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - **処遇（コミット `edc68558` の作業ツリー、2026-09-26 にリポジトリルートで実測）**: 条文 24.3 の「最大5回までリトライ（1分、5分、15分、1時間、6時間後）」は間隔が 5 つ挙がっているため、初回に続くリトライを 5 回と読み、Bull の `attempts: 6` とした（design.md の EmailService 節へ「再送（要件24.3）（2026-09-26 タスク35.1 で追記）」として記録。既存の記述は残した）。組み込みの exponential（`(2^n−1)×60s` で実際は 1分・3分・7分・15分）をやめ、`backend/src/services/email.service.ts` のキュー生成時に `settings.backoffStrategies` へカスタム戦略 `email-retry-schedule` を登録した。戦略は n 回目の失敗の後に `RETRY_DELAYS[n−1]` を返し、4 種のジョブ（招待・パスワードリセット・2FA 有効化・管理者ロール変更アラート）すべてをこの戦略名と `attempts: 6` で投入する。Bull 4.16.5 の `lib/job.js`（`attemptsMade++` の後 `attemptsMade < attempts` の間だけ戦略を呼ぶ）と `lib/backoffs.js`（カスタム戦略を組み込みより優先し `(attemptsMade, err, strategyOptions)` で呼ぶ）で、戦略が n=1..5 で呼ばれることを確かめた（独立レビューが再確認）
   - **検証**: `backend/src/__tests__/unit/services/email.service.test.ts` に `@requirement user-authentication/REQ-24.3` を付け、本番の経路で Bull へ渡した戦略が n=1..5 に 60000 / 300000 / 900000 / 3600000 / 21600000 を返すこと、4 種の投入オプションが `{ attempts: 6, backoff: { type: 'email-retry-schedule' } }` であることをリテラルで主張した。**RED**: フラグ OFF で 10 件失敗、ON で 20/20、フラグ撤去後も 20/20。変異（5分→3分／1時間→30分／exponential への回帰／attempts を 5）はいずれも赤（独立レビューが再現）。全単体 5744 件・type-check・lint 緑。`check:req-coverage` は本スペックの受入基準 361→362/388（24.3 が被覆へ）
   - **独立レビューの差し戻し（1回）**: 被覆印によって上流 site-survey の宣言 `featureless-headers-resolvable-by-own-feature-after-115308` が 584→585 で新たに赤くなり、その申し送りが無かった（テストファイルが名乗る機能名が1つになり、機能名なしヘッダーが解決可能側へ移ったため）。ヘッダーに機能名を付ける回避は別の宣言を赤くするため採らず、**親が上流 115.334 へ増分を追記した**（33.1 と同じ作法）。実装とテストのコードは変えていない
-  - _Blocked: site-survey スペックの Task 115.334（本項の被覆印に由来する `featureless-headers-resolvable-by-own-feature-after-115308` 584→585 の貼り直しを含む。親が上流の tasks.md へ追記済み）の解決待ち。実装そのものは承認・コミット済み。`[x]` は 115.334 の解決後に鮮度の関門で当該宣言が緑へ戻ったことを確かめてから付けること_
+  - **上流待ちの解除（2026-09-27）**: site-survey 115.334 は `b36ea8ce` で解決し、`check:req-exclusions:selftest`・`check:design-measurement-freshness`・`check:design-measurement-freshness:selftest` がいずれも EXIT=0 に戻ったことを親が確かめたため `[x]` とした。解除前の注記: site-survey スペックの Task 115.334（本項の被覆印に由来する `featureless-headers-resolvable-by-own-feature-after-115308` 584→585 の貼り直しを含む。親が上流の tasks.md へ追記済み）の解決待ち。実装そのものは承認・コミット済み。`[x]` は 115.334 の解決後に鮮度の関門で当該宣言が緑へ戻ったことを確かめてから付けること
 
 - [x] 35.2 DB 接続タイムアウト時のリトライを実装する
   - 条文 24.6: 最大 3 回、1 秒・2 秒・4 秒のエクスポネンシャルバックオフ
@@ -925,7 +925,7 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - **範囲外（起票済み）**: 再試行を使い切った失敗の 503 への対応づけ（24.1）は 35.8、`DATABASE_RETRY_COUNT` は 35.9 へ回した
   - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test -- db env` 51/51、type-check EXIT=0、鮮度の関門の赤の集合は着手前と同一
 
-- [ ] 35.3 権限キャッシュ障害時の警告ログを検証する
+- [x] 35.3 権限キャッシュ障害時の警告ログを検証する
   - 実測: 実装は既にある。`backend/src/services/rbac.service.ts:40-54` の `getUserPermissions` は `redis.get` の失敗時に `logger.warn({ error, userId }, 'Failed to get permissions from Redis cache')` を出して DB の取得へ進む
   - 実測: 検証が無い。`backend/src/__tests__/unit/services/rbac.service.test.ts:397` / `:477` は `invalidate*` の例外が漏れないことを見るだけで、`getUserPermissions` の障害経路もログも主張していない
   - 検証: `redis.get` を reject させたとき `logger.warn` が 1 回呼ばれること（spy）と、DB から取った権限が返ることを主張する。warn の削除または debug への格下げで赤くなることを変異で実測する
@@ -935,9 +935,9 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - **変異（独立レビューが再現）**: warn の削除・debug への格下げのいずれも障害経路の検証が赤（1 failed / 19 passed）。復元後 `rbac.service.ts` の hash は 58940794 で一致。backend 単体 5766 件・type-check・lint 緑。`check:req-coverage` で 24.7 は未被覆から被覆へ
   - **上流への申し送り**: 機能名なしのヘッダーを持つ当該ファイルに印が入ったため、上流の鮮度宣言 `featureless-headers-resolvable-by-own-feature-after-115308` の実測値が 585→586 へ動いた（着手前から赤）。親が site-survey 115.334 へ追記した
   - **範囲外の観測（起票はしていない）**: `e2e/requirement-exclusions.json` の REQ-24.2 の除外が代替検証に挙げる chaos-engineering（Docker stop redis / Toxiproxy）はリポジトリに存在しない。本項の障害経路の検証が 24.2 を単体レベルで実際に主張しているため、除外の代替検証をこの検証へ向け直す（または除外を取り下げて印を付ける）ことが後続の候補である
-  - _Blocked: site-survey スペックの Task 115.334（本項の被覆印に由来する `featureless-headers-resolvable-by-own-feature-after-115308` 585→586 を含む。親が上流の tasks.md へ追記済み）の解決待ち。検証そのものは承認・コミット済み。`[x]` は 115.334 の解決後に当該宣言が緑へ戻ったことを確かめてから付けること_
+  - **上流待ちの解除（2026-09-27）**: site-survey 115.334 は `b36ea8ce` で解決し、`check:req-exclusions:selftest`・`check:design-measurement-freshness`・`check:design-measurement-freshness:selftest` がいずれも EXIT=0 に戻ったことを親が確かめたため `[x]` とした。解除前の注記: site-survey スペックの Task 115.334（本項の被覆印に由来する `featureless-headers-resolvable-by-own-feature-after-115308` 585→586 を含む。親が上流の tasks.md へ追記済み）の解決待ち。検証そのものは承認・コミット済み。`[x]` は 115.334 の解決後に当該宣言が緑へ戻ったことを確かめてから付けること
 
-- [ ] 35.4 登録・招待の処理をメール送信から切り離す
+- [x] 35.4 登録・招待の処理をメール送信から切り離す
   - 実測: `EmailService.sendInvitationEmail`（`email.service.ts:177`）の本番からの呼び出しは 0 件。本番から呼ばれるのは `password.service.ts:302` と `user-role.service.ts:147` / `:286` だけで、`InvitationService.createInvitation`（`invitation.service.ts:45`）はメールを送らない
   - 実測: `password.service.ts:302` は `sendPasswordResetEmail` を await しており、キュー投入（Redis）が失敗すると `catch` で `RESET_TOKEN_INVALID` を返す
   - 招待メールを結線するか（design.md で決める）と、キュー投入が失敗しても招待・登録が成功することを実装する
@@ -950,7 +950,7 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - **影響の確認（独立レビュー）**: `new EmailService()` は生成ごとに同名キュー `email-queue` と処理関数を登録するが、本番では既に3インスタンスが同じ構成で動いており、Bull は同名キューの処理関数を競合するワーカーとして扱うためジョブの二重処理は起きない（Redis 接続が約3本増える）
   - **上流への申し送り**: 被覆印で上流の鮮度宣言 `featureless-headers-resolvable-by-own-feature-after-115308` が 586→587 へ動いたため、親が site-survey 115.334 へ追記した
   - **範囲外の観測（起票はしていない）**: `e2e/specs/auth/invitations.spec.ts` は REQ-1.3 / 1.6 を名乗るがメール送信は主張していない。`requestPasswordReset` はキュー投入の失敗で `RESET_TOKEN_INVALID` を返す（条文24.8 の外。35.5 の 25.6 で扱う）。`rbac.service.ts` 等にも `{ error }` キーの warn が残る
-  - _Blocked: site-survey スペックの Task 115.334（本項の被覆印に由来する `featureless-headers-resolvable-by-own-feature-after-115308` 586→587 を含む。親が上流の tasks.md へ追記済み）の解決待ち。実装そのものは承認・コミット済み。`[x]` は 115.334 の解決後に当該宣言が緑へ戻ったことを確かめてから付けること_
+  - **上流待ちの解除（2026-09-27）**: site-survey 115.334 は `b36ea8ce` で解決し、`check:req-exclusions:selftest`・`check:design-measurement-freshness`・`check:design-measurement-freshness:selftest` がいずれも EXIT=0 に戻ったことを親が確かめたため `[x]` とした。解除前の注記: site-survey スペックの Task 115.334（本項の被覆印に由来する `featureless-headers-resolvable-by-own-feature-after-115308` 586→587 を含む。親が上流の tasks.md へ追記済み）の解決待ち。実装そのものは承認・コミット済み。`[x]` は 115.334 の解決後に当該宣言が緑へ戻ったことを確かめてから付けること
 
 - [x] 35.5 認証系の書き込みの原子性を実装し、失敗注入で検証する
   - 実測（25.1 / 25.2）: `auth.service.ts:130` の `$transaction` は実在する。単体の `auth.service.test.ts:147` は `$transaction` を `mockResolvedValue` で置き換えてコールバックを実行しない。統合の `auth.integration.test.ts:337` は結果だけを見て、`database.integration.test.ts:278` は Prisma 一般のロールバックを見るだけ
@@ -982,7 +982,7 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - **結果**: 統合の全件 57 ファイル・944 件（独立レビューが実行）、backend 単体 5782 件、type-check、lint、E2E（管理系と data-integrity の36件）は緑。`check:req-coverage` は本スペックの受入基準 371→372/388。鮮度の関門と `check:design-path-refs` は前後で出力が同一。test DB に注入の残骸は無く、admin の割り当ては実行前と一致
   - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test -- user-role user-roles` 45/45、type-check EXIT=0
 
-- [ ] 35.7 楽観的ロックの競合処理を実装する
+- [x] 35.7 楽観的ロックの競合処理を実装する
   - 実測: 認証領域のサービス（auth / user-role / role-permission / role / invitation / password / audit-log / rbac / session / two-factor）に楽観的ロックの実装は 0 件。先例は取引先管理の `trading-partner.service.ts`（`:409-421` の JSDoc が方式を説明し、`:456` の `expectedUpdatedAt` の比較と `:459` の `TradingPartnerConflictError` の送出が実装）
   - 対象（ユーザープロフィール更新、ロール更新など）を design.md で決める
   - 検証: 同じ版からの並行更新で片方がリトライされるか 409 を返すことを、実 DB の並行リクエストで主張する
@@ -993,7 +993,7 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test -- auth-update.schema auth-me-update role.service auth.service roles.routes auth.routes` 211/211、統合 `role-profile-optimistic-lock` 6/6、type-check EXIT=0
   - **範囲外の観測（独立レビュー、起票はしていない）**: 版だけを送り更新項目を送らない要求は書き込まずに 200 を返す（版は進まない）。ロールの存在確認・名前の重複確認は条件付きの更新のトランザクションの外にあり、並行する名前の重複の P2002 は HEAD と同じく 500
   - **上流への申し送り**: `backend/src/__tests__/unit/routes/roles.routes.test.ts` の機能名なしのヘッダー（4行目）が、今回の被覆印で自機能で解決可能な側へ移り、上流の鮮度宣言 `featureless-headers-resolvable-by-own-feature-after-115308` が 587→588 へ動いた（独立レビューが HEAD との全ファイル比較で特定）。親が site-survey 115.334 へ追記した
-  - _Blocked: site-survey スペックの Task 115.334（本項の被覆印に由来する `featureless-headers-resolvable-by-own-feature-after-115308` 587→588 を含む。親が上流の tasks.md へ追記済み）の解決待ち。実装そのものは承認・コミット済み。`[x]` は 115.334 の解決後に当該宣言が緑へ戻ったことを確かめてから付けること_
+  - **上流待ちの解除（2026-09-27）**: site-survey 115.334 は `b36ea8ce` で解決し、`check:req-exclusions:selftest`・`check:design-measurement-freshness`・`check:design-measurement-freshness:selftest` がいずれも EXIT=0 に戻ったことを親が確かめたため `[x]` とした。解除前の注記: site-survey スペックの Task 115.334（本項の被覆印に由来する `featureless-headers-resolvable-by-own-feature-after-115308` 587→588 を含む。親が上流の tasks.md へ追記済み）の解決待ち。実装そのものは承認・コミット済み。`[x]` は 115.334 の解決後に当該宣言が緑へ戻ったことを確かめてから付けること
 
 - [x] 35.8 DB 接続を確立できないときに 503 を返す
   - 条文 24.1（逐語）: 「IF データベース接続がタイムアウト以内に確立できない THEN Authentication Serviceは503 Service Unavailableエラーを返さなければならない」
