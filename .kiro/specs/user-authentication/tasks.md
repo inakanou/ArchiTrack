@@ -1024,7 +1024,7 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
 
 - [x] 35.10 プロフィール更新の画面から版を送り、409 の競合を表示する
   - 起票元: タスク35.7（利用者の裁定「任意・バックエンドのみ」、2026-09-27）。バックエンドは `expectedUpdatedAt` を任意で受け、GET / PATCH の `/auth/me` の応答に `updatedAt` を返す
-  - 実測（2026-09-27）: `frontend/src/api/auth.ts:85` の `apiClient.patch<UserProfile>('/api/v1/auth/me', data)` は版を送らない。ロールの更新（PATCH /api/v1/roles/:id）を呼ぶフロントエンドのコードは 0 件（`git grep -n "apiClient.patch" -- frontend/src` の当たりに roles は無い）
+  - 実測（2026-09-27）: `frontend/src/api/auth.ts:85` の `apiClient.patch<UserProfile>('/api/v1/auth/me', data)` は版を送らない。ロールの更新（PATCH /api/v1/roles/:id）を呼ぶフロントエンドのコードは 0 件（`git grep -n "apiClient.patch" -- frontend/src` の当たりに roles は無い）。**訂正（2026-09-28）**: この実測は誤り。確認の grep の出力を途中で切り詰めて見落としており、`frontend/src/pages/UserManagement.tsx:184` がロールの編集で PATCH を呼んでいる。後続はタスク36.7
   - 実装: `Profile.tsx` / `ProfileForm.tsx` が取得時の `updatedAt` を保持して送り、409 `PROFILE_CONFLICT` を受けたら最新の内容の再取得を促す表示を出す。ロールの更新画面を作るかは本項の範囲外
   - 検証: E2E で、2つのページから同じ版で順に更新し、後の方が競合の表示になることと保存値が先の方であることを主張する。版を送らない変異で赤くなることを実測する
   - _Requirements: 25.8_
@@ -1079,3 +1079,64 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test -- authorize` 22/22、統合 `authorize-db-connection-timeout-503 auth-transaction-db-connection-timeout-503` 15/15、type-check EXIT=0
 
 _起票元: タスク33.1（利用者の裁定「取り下げて後続を起票」、2026-09-26）_
+
+## タスク36: 機能検証（2026-09-28）の NO-GO の是正
+
+_起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `6393c643`）の NO-GO と、利用者の指示「1〜8をタスク36として起票して」。行番号はいずれも HEAD `6393c643` での実測_
+
+- [ ] 36.1 管理画面からのロールの追加を API の契約へ揃える
+  - 実測: `frontend/src/pages/UserManagement.tsx:115` は `apiClient.post(`/api/v1/users/${userId}/roles`, { roleId })` を送るが、`backend/src/routes/user-roles.routes.ts:31` は `roleIds: z.array(z.string().min(1)).min(1, ...)` を必須にするため、`/admin/users` のセレクトからの追加は必ず 400 になり「ロール追加に失敗しました」と表示される。単体 `frontend/src/__tests__/pages/UserManagement.test.tsx` は apiClient をモックし `roleId: 'role-3'` を期待して欠陥を固定している。E2E（`e2e/specs/admin/user-role.spec.ts` ほか）は API を直接呼ぶだけで画面の操作を通していない（35.5 の範囲外の観測 (iii) で既知）
+  - 実装: 画面が `{ roleIds: [roleId] }` を送る。単体の期待値を契約へ改める
+  - 検証: 管理画面のセレクトからロールを追加し、成功の表示と DB の割り当てを主張する E2E を足す（`@requirement user-authentication/REQ-20.1`）。`roleId` を送る変異で赤くなることを実測する
+  - _Requirements: 20.1_
+  - _Boundary: `frontend/src/pages/UserManagement.tsx` とその単体・E2E 検証_
+
+- [ ] 36.2 権限のキャッシュを本番の権限確認の経路で使う
+  - 実測: `backend/src/middleware/authorize.middleware.ts:61` の `requirePermission` は `rbacService || new RBACService(client)` で Redis を渡さずに都度生成し、ルートからの注入は 0 件。`RBACService.getUserPermissions`（`rbac.service.ts:40`）を本番で呼ぶのは `hasPermission`（`:147`）だけで、それを呼ぶのは authorize だけである。Redis を渡す RBACService は `roles.routes.ts:27` / `user-roles.routes.ts:24` にあるがキャッシュの無効化にしか使われない。このため条文 21.9「権限情報を適切なキャッシュ機構に保存」・24.2「キャッシュ接続が失敗する THEN データベースから直接権限情報を取得」・24.7「キャッシュ障害時にフォールバック処理が実行される THEN 警告ログを記録」は、被覆印（35.3 ほか）があっても本番の経路では働かない（design.md の 35.12 の節も「Redis を持たない RBACService を都度生成するため権限のキャッシュに当たらず」と記す）。24.7 の警告（`rbac.service.ts:54` / `:120` ほか）はログのキーが `{ error }` で、本番の出力では障害の中身が失われる
+  - 実装: `requirePermission` が Redis を持つ RBACService を使う（共有インスタンスの注入か生成の方針を design.md で決める）。キャッシュの無効化（ロール・権限の変更時）と整合させる。24.7 の警告のキーを `err` にする。35.12 / 35.13 の統合検証（応答しない DB での 503）が、キャッシュに当たる場合と当たらない場合でどう振る舞うかを確かめ直す
+  - 検証: 実 Redis を使う統合検証で、2 回目の権限確認が DB を引かないこと（21.9）、Redis の障害時に DB から取得して応答が成り立つこと（24.2）と警告ログが `err` 付きで残ること（24.7）を、本物の `requirePermission` の経路で主張する。既存の 24.2 / 24.7 / 21.9 の印の妥当性を見直す
+  - _Requirements: 21.9, 24.2, 24.7_
+  - _Boundary: `backend/src/middleware/authorize.middleware.ts`、`backend/src/services/rbac.service.ts`、それらの生成箇所と統合検証_
+
+- [ ] 36.3 パスワードと二要素認証の経路で DB 接続タイムアウトを 503 として返す
+  - 実測: PasswordService の catch は DB 例外を `RESET_TOKEN_INVALID` に変える（`password.service.ts:339` / `:473` / `:539`）。`/password/change` は「Current password is incorrect」の 400、`/password/reset` は「Invalid reset token」の 400、`/password/reset-request` は 200 を返す。TwoFactorService の catch（`two-factor.service.ts:386` / `:469` / `:581` / `:650` / `:707` / `:764`）は DB 例外を `INVALID_TOTP_CODE` / `INVALID_PASSWORD` / `USER_NOT_FOUND` などに変え、400 / 404 を返す。2FA のログイン（`AuthService.verify2FA`）は検証の途中のタイムアウトを検証の失敗として扱い、失敗回数を加算する。利用者には DB 障害が「パスワード／コードが違う」と見える。design.md の 35.11 の節はこの 2 サービスを対象外としたが起票していなかった
+  - 実装: 35.11 と同じく `rethrowIfDatabaseConnectionTimeout` で投げ直し、errorHandler の 503 へ届ける。2FA の失敗回数をタイムアウトで加算しない
+  - 検証: 35.11 と同じ方式（応答しない TCP サーバーと本物のアプリ）で、パスワード変更・リセットの要求と確定・2FA の有効化・無効化・ログインの検証が 503 と Problem Details を返し、失敗回数が増えないことを主張する（`@requirement user-authentication/REQ-24.1`）。タイムアウト以外の DB 例外の応答は変えない
+  - _Requirements: 24.1_
+  - _Boundary: `backend/src/services/password.service.ts`、`backend/src/services/two-factor.service.ts`、`AuthService.verify2FA` の該当の catch と、その単体・統合検証_
+
+- [ ] 36.4 ロールの作成・更新・削除と割り当ての削除を監査ログへ同じトランザクションで記録する
+  - 実測: `UserRoleService.removeRoleInTransaction`（`user-role.service.ts:384`）は監査ログを記録しない。`USER_ROLE_REVOKED` は `backend/src/types/audit-log.types.ts:113` の型にあるだけで、どこでも書かれていない。ロールの監査ログは `roles.routes.ts:151` の `ROLE_CREATED` だけで、しかも書き込みのトランザクションの外にある。`ROLE_UPDATED` / `ROLE_DELETED` を記録する本番コードは 0 件。`e2e/specs/admin/audit-log.spec.ts` の `@requirement user-authentication/REQ-22.3`（「割り当て・削除時」）は割り当てしか主張していない（35.5 の範囲外の観測 (i)(ii) で既知）
+  - 実装: ロールの割り当ての削除に `USER_ROLE_REVOKED`、ロールの更新・削除に監査ログを記録し、ロールの作成・更新・削除の監査ログを書き込みと同じ `$transaction` に入れる（35.5 と同じ作法。`AuditLogService.createLog` の第2引数に tx）
+  - 検証: 実 DB の統合検証で、各操作の監査ログが記録されることと、監査ログの失敗で書き込みごとロールバックされることを主張する。E2E の 22.3 の検証に削除時の監査ログを加える
+  - _Requirements: 22.1, 22.3, 25.5_
+  - _Boundary: `backend/src/services/user-role.service.ts`、`backend/src/services/role.service.ts`、`backend/src/routes/roles.routes.ts` の監査ログの経路と、その統合・E2E 検証_
+
+- [ ] 36.5 障害耐性の除外（REQ-24.1 / 24.2）を実際の検証へ揃える
+  - 実測: `e2e/requirement-exclusions.json` の REQ-24.1（:64）と REQ-24.2（:78）は、代替検証にリポジトリに実体の無い chaos-engineering / Toxiproxy を挙げたまま除外に残っている。24.1 は 35.11〜35.13 の統合検証の印で被覆にも数えられ、除外と被覆が二重になっている。24.2 の被覆は 36.2 の後に本物の経路で成り立つ。33.1 / 35.3 / 35.8 / 35.11 の記録が「後続の候補」としたまま起票していなかった
+  - 実装: 24.1 の除外を取り下げるか、代替検証を実在の統合検証（`backend/src/__tests__/integration/auth-db-connection-timeout-503.integration.test.ts` ほか）へ書き直す。24.2 は 36.2 の結果に合わせる。除外の件数を錨にする site-survey の鮮度宣言（`requirement-exclusions-total` など）が動く場合は、site-survey の tasks.md へ起票して本項を `_Blocked:` にする（下流は上流の文書・宣言を書き換えない）
+  - 検証: `npm run check:req-exclusions` と `:selftest`、`npm run check:req-coverage`、`npm run check:design-measurement-freshness`
+  - _Requirements: 24.1, 24.2_
+  - _Boundary: `e2e/requirement-exclusions.json` の REQ-24.1 / 24.2 の項目_
+  - _Depends: 36.2_
+
+- [ ] 36.6 未被覆の受入基準 5.6 と 11.3 を検証する
+  - 条文 5.6（逐語）: 「WHEN トークンにユーザー情報を含める THEN Authentication ServiceはユーザーID、メールアドレス、ロール情報を含めなければならない」。条文 11.3（逐語）: 「WHEN ユーザーが入力フィールドにフォーカスする THEN Frontend UIは視覚的なフィードバック（アウトライン表示）を提供しなければならない」
+  - 実測: `backend/src/services/token.service.ts:121` はペイロードに `roles` を含めるが、条文を主張する検証が無い。2 件は site-survey の 115.188（コミット `86882dd6`）で誤った名乗りが取り下げられて未被覆になり、記録は site-survey が管理する被覆印の裁定記録（115.188 の取り下げの項）にあるだけで本スペックに担当のタスクが無い。`check:req-coverage` の「E2E 適用対象 100% 未満」の要因の一つ
+  - 実装・検証: 5.6 は発行したアクセストークンをデコードしユーザー ID・メールアドレス・ロールを含むことを、11.3 はログイン等の入力にフォーカスしたときアウトラインが表示されることを、それぞれ E2E で主張する（`@requirement user-authentication/REQ-5.6` / `REQ-11.3`）。実装に欠けがあれば直す。被覆印の追加が site-survey の鮮度宣言やラチェット（`MAX_FEATURELESS_COVERAGE_HEADERS` / `MAX_DORMANT_HEADER_NAMES`）を動かす場合は上流へ起票する
+  - _Requirements: 5.6, 11.3_
+  - _Boundary: 該当の E2E 検証（と欠けがあれば `token.service.ts` / 入力の見た目）_
+
+- [ ] 36.7 ロールの編集画面から版を送り、409 の競合を表示する
+  - 実測: `frontend/src/pages/UserManagement.tsx:184` の `apiClient.patch(`/api/v1/roles/${editingRole.id}`, input)` はロールの編集画面から版を送らない。35.7 のバックエンドは任意の `expectedUpdatedAt` を受け、409 `ROLE_CONFLICT` を返す。35.10 の起票の実測（「ロールの更新を呼ぶフロントエンドのコードは 0 件」）は誤りで、確認の grep の出力を途中で切り詰めて見落としていた（35.10 に訂正を追記済み）
+  - 実装: ロールの一覧・取得の `updatedAt` を保持して送り、409 `ROLE_CONFLICT` で競合の表示と最新の内容の再読み込みを出す（35.10 のプロフィールと同じ作法）
+  - 検証: 2 画面から同じ版で順にロールを編集し後の方が競合の表示になること、保存値が先の方であること、同一画面の連続保存が成功することを E2E で主張する（`@requirement user-authentication/REQ-25.8`）。版を送らない変異で赤くなることを実測する
+  - _Requirements: 25.8_
+  - _Boundary: `frontend/src/pages/UserManagement.tsx` のロールの編集とその単体・E2E 検証_
+
+- [ ] 36.8 ログのキー・全体に効く変更の記載・spec.json を整える
+  - 実測: 認証領域のサービスに `{ error }` キーの警告・エラーログが残る（two-factor 10・rbac 4・role 4・role-permission 3・user-role 3・permission 3・session 1 か所ほか。pino の `err` シリアライザが効かず本番の出力で中身が失われる）。全体に効く変更（35.2 / 35.9 の `RetryingPool` と接続の再試行、35.8 の P1008 の 400→503、35.12 の `maxWait`、35.13 の `requirePermission` の 503）が steering（`tech.md` / `structure.md` の utils 一覧）に記されていない。design.md :3443 は `RetryingPool` が `DB_CONNECT_RETRY_DELAYS_MS` を使うと記すが、実際は `dbConnectRetryDelaysMs(retryCount)` を使う。`spec.json` は `phase: tasks-generated`・`pending_sub_tasks: 6`・`requirements_count: 35` で実態（37 要件）と食い違う
+  - 実装: 上記のログのキーを `err` に改める（36.2 で扱う rbac の分を除く）。steering の追記は `/kiro-steering` の手順で行う。design.md の該当の記述を実装へ揃える。`spec.json` の metadata を実態へ更新する
+  - 検証: 本物の pino のシリアライザでキーの変更を主張する単体検証、`npm run check:steering-refs` ほか steering の関門、`check:design-path-refs` / `check:design-code-refs`
+  - _Requirements: 24.7（ログ）_
+  - _Boundary: 認証領域のサービスのログ呼び出し、`.kiro/steering/tech.md` / `structure.md`、本スペックの design.md と spec.json_
