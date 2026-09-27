@@ -172,10 +172,12 @@ function categories(document: Json): Json {
 //   - `quantity-table-generation/requirements.md` の 1.3 の墓標を消す → 33 件で中断
 //   - `site-survey/REQ-1.3` を名乗る被覆印を取り下げる → 35 件で中断
 //
-// よって探針は `promiselessEntry` / `enumerationProbeEntry` / `noEnumerationProbeEntry`
+// よって探針は `enumerationProbeEntry` / `noEnumerationProbeEntry`
 // と同じ作法で選ぶ——**当該の対照が何を固定したいかを性質として書き、その性質を満たす
 // 相手を実物から探し、一件も無ければ送出する**。黙って読み飛ばす形にはしない
-// （AI運用7原則 第3原則）。
+// （AI運用7原則 第3原則）。固定したいものが実データの在り方ではなく規則の形であり、
+// 実物の側が予定どおりに零件へ向かうものは、探さずに変異の中で合成する
+// （`synthesizePromiselessEntry`。タスク 115.334）。
 
 /** 除外が指している受入基準の識別子の集合（機能名を冠した形に正規化する） */
 function excludedIds(document: Json): Set<string> {
@@ -495,7 +497,7 @@ function pointEntryAtRetired(entry: Json, criterionId: string): void {
  * 最後まで走らなくなった**（2026-09-18 の機能レベル
  * 検証が、基線 `56a6a164` では exit 0 だったことを一時 worktree で実測して検出した）。
  * 除外の取り下げは本検査自身が推奨する営みであり、それが検査を壊す構造は誤りである。
- * `promiselessEntry` と同じく、**性質で見つけ、無ければ送出する**形にすること。
+ * `noEnumerationProbeEntry` と同じく、**性質で見つけ、無ければ送出する**形にすること。
  */
 function enumerationProbeEntry(document: Json): Json {
   const found = entries(document).find((entry) => {
@@ -533,8 +535,7 @@ const NO_ENUMERATION_GENERIC_DESCRIPTION = 'ロジックを検証';
  * 最後まで走らなくなる。対になる `enumerationProbeEntry` が
  * まさにその形で壊れた（タスク 100.5 が `quantity-table-generation/REQ-26.7` の除外を
  * 取り下げた瞬間に発火。2026-09-18 の機能レベル検証が基線 `56a6a164` との差で検出）。
- * `promiselessEntry` / `enumerationProbeEntry` と同じく、**性質で見つけ、無ければ
- * 送出する**形にする。
+ * `enumerationProbeEntry` と同じく、**性質で見つけ、無ければ送出する**形にする。
  *
  * 選ぶ性質は三つで、いずれも**対照を恒真にしないため**に要る（AI運用7原則 第3原則）。
  *
@@ -631,22 +632,54 @@ function dropOneEntry(document: Json, index: number): void {
 }
 
 /**
- * 代替検証を持たない除外（`method: "none"`）を実物から一件取り出す
+ * 代替検証を持たない除外を変異の中で合成するときに作る分類の名前
  *
- * 無ければ前提の崩壊として送出する（黙って空振りさせない。AI運用7原則 第3原則）。
- * この形は実データに現に在り、タスク 115.314 の時点では公開鍵配布の三件である。
- * 全件が取り下げられた日には、下の二つの陽性対照は空振りではなく**失敗**する。
+ * 実物の分類名と重なれば送出する（合成したつもりで実物を書き換えることを防ぐ）。
  */
-function promiselessEntry(document: Json): Json {
-  const found = entries(document).find(
-    (entry) => (entry.alternativeVerification as Json | undefined)?.method === PROMISELESS_METHOD
-  );
-  if (!found) {
+const SYNTHETIC_DEFERRED_CATEGORY = '合成: 後でE2Eが確かめる分類';
+
+/**
+ * 代替検証を持たない除外（`method: "none"`）を**変異の中で合成して**返す（タスク 115.334）
+ *
+ * かつては実物から method: none の除外を探し、無ければ送出していた（当時の
+ * `promiselessEntry`）。**この形は、下流が予定どおりに除外を取り下げるたびに自己検査を
+ * 壊す。** method: none の除外は「実装が未了」の明示であり、実装されれば取り下げられる
+ * のが正しい営みである。現に user-authentication の Task 32.2 が公開鍵配布のキャッシュ
+ * 制御の三件（最後の三件）を解消した瞬間に、これを使う三つの対照が前提の崩壊として送出し、
+ * 自己検査は 70 件の途中で未捕捉例外により中断した。
+ *
+ * 固定したいのは実データの在り方ではなく、**置き場所の不変条件**（method: none の除外は
+ * `verificationPhase` が {@link DEFERRED_E2E_PHASE} の分類にしか置けず、判定は分類名でも
+ * 説明文でもなく検証フェーズを読む）である。よって相手は合成する。
+ *
+ * 1. 検証フェーズが {@link DEFERRED_E2E_PHASE} の分類を {@link SYNTHETIC_DEFERRED_CATEGORY}
+ *    の名で新たに作る（実物の分類名にも語彙にも依らない）
+ * 2. 先頭の除外をそこへ移し、集計を整える
+ * 3. その除外の代替検証の `method` を {@link PROMISELESS_METHOD} へ書き換える
+ *
+ * 合成した直後の文書は受理されなければならない（不変条件を満たす置き場所であるため）。
+ * これは陰性対照「後でE2Eが確かめる分類の説明文の書き換え」が合成の上で固定する。
+ * 前提が崩れていれば黙って空振りさせず送出する（AI運用7原則 第3原則）。
+ */
+function synthesizePromiselessEntry(document: Json): Json {
+  const table = categories(document) as Record<string, Json>;
+  if (table[SYNTHETIC_DEFERRED_CATEGORY] !== undefined) {
+    throw new Error(`前提: 合成用の分類名 ${SYNTHETIC_DEFERRED_CATEGORY} が実物に既に在る`);
+  }
+  table[SYNTHETIC_DEFERRED_CATEGORY] = {
+    description: '代替検証を持たない除外の置き場所を固定するために自己検査が合成した分類',
+    verificationPhase: DEFERRED_E2E_PHASE,
+  };
+  const entry = entryAt(document, 0);
+  moveCategory(document, entry, SYNTHETIC_DEFERRED_CATEGORY);
+  const alternative = altOf(entry);
+  if (alternative.method === PROMISELESS_METHOD) {
     throw new Error(
-      `前提: 代替検証を持たない除外（method: ${PROMISELESS_METHOD}）が実物に一件も存在しない`
+      `前提: exclusions[0] の代替検証が変異前から method: ${PROMISELESS_METHOD} である（合成が無変異になる）`
     );
   }
-  return found;
+  alternative.method = PROMISELESS_METHOD;
+  return entry;
 }
 
 /**
@@ -667,12 +700,20 @@ function nonDeferredCategoryName(document: Json, exclude: string): string {
   return found;
 }
 
-/** 除外の分類を移し、集計もそれに合わせて整える（壊したい一点だけを壊す） */
+/**
+ * 除外の分類を移し、集計もそれに合わせて整える（壊したい一点だけを壊す）
+ *
+ * 移し元の分類が空になれば、その定義も取り除く（`dropOneEntry` と同じ）。残すと
+ * `invariant:unused-category` が巻き込まれて鳴り、陽性対照の枝の完全一致が崩れる。
+ */
 function moveCategory(document: Json, entry: Json, to: string): void {
   const counts = byCategory(document);
   const from = entry.category as string;
   counts[from] = (counts[from] ?? 0) - 1;
-  if (counts[from] === 0) delete counts[from];
+  if (counts[from] === 0) {
+    delete counts[from];
+    delete categories(document)[from];
+  }
   counts[to] = (counts[to] ?? 0) + 1;
   entry.category = to;
 }
@@ -828,9 +869,10 @@ const MUST_REJECT: Case[] = [
     // タスク 115.314。除外は「代わりにこの方法で確かめる」という約束であり、
     // その約束を持たない形は「後でE2Eが確かめる」分類にしか置けない。移せると、
     // 除外一覧は未実装かつ方針未決の条文を分母から外す器になる。
+    // 相手は実物から探さず合成する（タスク 115.334。`synthesizePromiselessEntry` の註）。
     name: '代替検証を持たない除外を、後でE2Eが確かめる分類の外へ移す',
     mutate: (d) => {
-      const entry = promiselessEntry(d);
+      const entry = synthesizePromiselessEntry(d);
       moveCategory(d, entry, nonDeferredCategoryName(d, entry.category as string));
     },
     mustReject: true,
@@ -841,7 +883,7 @@ const MUST_REJECT: Case[] = [
     // 置き場所の分類が「後でE2Eが確かめる」ことをやめた瞬間に赤くならなければならない。
     name: '代替検証を持たない除外を抱えた分類の検証フェーズを書き換える',
     mutate: (d) => {
-      const entry = promiselessEntry(d);
+      const entry = synthesizePromiselessEntry(d);
       const table = categories(d) as Record<string, Json>;
       const category = table[entry.category as string];
       if (!category) throw new Error(`前提: 分類 ${entry.category as string} が実物に存在しない`);
@@ -1152,10 +1194,11 @@ const MUST_ACCEPT: Case[] = [
     // タスク 115.314。上の二つの陽性対照と対にする。代替検証を持たない除外の置き場所を
     // 決めるのは `verificationPhase` であって説明文ではない。説明文だけを書き換えても
     // 通ることを固定しておくと、判定を散文の綴りへ寄せる締め上げが入った日に
-    // この対照だけが赤くなる。
+    // この対照だけが赤くなる。相手は合成であり、合成した置き場所が受理されることも
+    // 併せて固定する（タスク 115.334）。
     name: '後でE2Eが確かめる分類の説明文の書き換え（判定は検証フェーズが担う）',
     mutate: (d) => {
-      const entry = promiselessEntry(d);
+      const entry = synthesizePromiselessEntry(d);
       const table = categories(d) as Record<string, Json>;
       const category = table[entry.category as string];
       if (!category) throw new Error(`前提: 分類 ${entry.category as string} が実物に存在しない`);
