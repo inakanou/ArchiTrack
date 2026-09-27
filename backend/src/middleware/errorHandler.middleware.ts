@@ -5,23 +5,7 @@ import { Prisma } from '../generated/prisma/client.js';
 import { captureException } from '../utils/sentry.js';
 import logger from '../utils/logger.js';
 import { createProblemDetails, PROBLEM_TYPES } from '../types/problem-details.js';
-import { isConnectionTimeoutError } from '../utils/db-connection-timeout.js';
-
-/**
- * データベース接続を確立できずタイムアウトしたことを示すエラーかを判定する（要件24.1）。
- *
- * - 接続の再試行（要件24.6）を使い切った pg-pool のタイムアウトは、Prisma から素の Error
- *   （「Connection terminated due to connection timeout」など、code・meta 無し）として届く
- * - OS の TCP 接続タイムアウト（ETIMEDOUT）は、@prisma/adapter-pg が DriverAdapterError
- *   （kind: SocketTimeout）へ包み、Prisma が P1008 の PrismaClientKnownRequestError へ変換する。
- *   syscall・errno を伴わない ETIMEDOUT はアダプタが包まず、素の Error のまま届く
- */
-function isDatabaseConnectionTimeout(err: Error): boolean {
-  if (err instanceof Prisma.PrismaClientKnownRequestError) {
-    return err.code === 'P1008';
-  }
-  return isConnectionTimeoutError(err);
-}
+import { isDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 
 /**
  * データベースへ接続できないことを 503 Service Unavailable（Problem Details）で返す

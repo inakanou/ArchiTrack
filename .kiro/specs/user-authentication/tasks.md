@@ -1031,7 +1031,7 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - _Boundary: `frontend/src/api/auth.ts`、`frontend/src/pages/Profile.tsx`、`frontend/src/components/ProfileForm.tsx` とその単体・E2E 検証_
   - _Depends: 35.7_
 
-- [ ] 35.11 認証系のエンドポイントで DB 接続タイムアウトを 503 として返す
+- [x] 35.11 認証系のエンドポイントで DB 接続タイムアウトを 503 として返す
   - 起票元: タスク35.8（独立レビューの差し戻しと利用者の裁定「限定してコミット＋後続起票」、2026-09-27）
   - 実測（HEAD `036baf69` と 35.8 の作業ツリー）: `git grep -ln DATABASE_ERROR -- backend/src/services` の当たりは auth / permission / role-permission / role / session / user-role の 6 サービスで、DB 例外を `Err({ type: 'DATABASE_ERROR' })` に変える。`auth.routes.ts` の :353 / :887 / :1000 などはそれを受けて自前で 500 を返し、ログインの :353-360 は Problem Details でない本文の `detail` に `error.message` をそのまま載せる。35.8 の errorHandler の対応づけ（`isDatabaseConnectionTimeout`）には届かない
   - 実装: 接続タイムアウト（`backend/src/utils/db-connection-timeout.ts` の判定と P1008）をサービス層で飲み込まずに投げ直すか、ルートで 503 の Problem Details へ変換するかを design.md で決めてから実装する
@@ -1039,6 +1039,12 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - _Requirements: 24.1_
   - _Boundary: 上記 6 サービスと認証系のルートの DATABASE_ERROR の経路、その単体・統合検証_
   - _Depends: 35.8_
+  - **処遇（HEAD `727bd8b1` の作業ツリー、2026-09-27 にリポジトリルートで実測）**: サービス層で投げ直す方式を採った（ルートで変換すると DATABASE_ERROR を個別に扱うルートと汎用の 500 のルートの両方に分岐が要り、503 の応答の形が errorHandler と二重になるため）。`backend/src/utils/db-connection-timeout.ts` に判定 `isDatabaseConnectionTimeout`（pg-pool の2文言の完全一致・`ETIMEDOUT`・P1008）と `rethrowIfDatabaseConnectionTimeout` を置き、6 サービスの DATABASE_ERROR を返す catch 24 か所（auth 8・permission 3・role-permission 3・role 4・session 3・user-role 3）の先頭で呼ぶ。タイムアウト以外の DB 例外のログ・`Err`・応答は HEAD と同じ。catch はいずれも `$transaction` のコールバックの外にありロールバックの意味は変わらない。タイムアウト時はサービスの文脈付きログの代わりに errorHandler のログと Sentry に残る。errorHandler の判定は同じモジュールからの import に置き換えた（境界外。判定の中身は同一）。決定は design.md の Error Handling に日付付きで追記した
+  - **被覆の範囲（独立レビューの承認の条件）**: 24.1 の被覆印は、本物のアプリを応答しない DB へ向けて実在の認証の中核 6 エンドポイント（ログイン・GET /api/v1/auth/me・トークンの更新・ログアウト・全デバイスからのログアウト・登録。いずれも `$transaction` より先に DB へ問い合わせる）が 503 と Problem Details を返すことによる。**次の経路が残る間、条文24.1 は完全には充足していない**: (a) 最初の DB 到達が対話型トランザクションの開始である書き込み（P2028 → 500、35.12）、(b) `requirePermission` を通る roles / permissions / user-roles（`authorize.middleware.ts:91-96` が DB 例外を捕まえ自前の 500 を返す、35.13）
+  - **検証**: 単体 `db-connection-timeout-rethrow.test.ts`（106 件: 24 か所 × {pg-pool のタイムアウト・P1008 は投げ直し／一般 Error・P1001 は DATABASE_ERROR} と判定の正例4・負例6）、統合 `auth-db-connection-timeout-503.integration.test.ts`（6 件、`@requirement user-authentication/REQ-24.1`。`DATABASE_RETRY_COUNT=0`・`DATABASE_CONNECTION_TIMEOUT=200` で本物の app.js を動的 import）。**RED**: フラグ OFF で単体 52 件・統合 6 件が赤（login・me・refresh・register は 500、logout・logout-all は 400）。変異（getCurrentUser の投げ直しの削除／判定の P1001・部分一致・全 Error への拡大）はいずれも赤（独立レビューが2種を再現しハッシュの一致を確認）。backend 単体 5953 件、統合 957 件、type-check、lint、E2E auth 123 件緑。`check:req-coverage` は本スペックの受入基準 373→374/388、鮮度宣言は 588 のまま
+  - **独立レビューの差し戻し（1回）**: 統合検証の `beforeAll` が app.js の読み込み（コールド時 約10〜11秒）を既定の hookTimeout 20000ms の中で払い、backend-test の再起動直後に「Hook timed out in 20000ms」で赤になった（レビューが再現）。`beforeAll` に 60000ms の上限を渡し、再起動直後とウォームの両方で 6/6 緑を実装者とレビューがそれぞれ確かめた
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test -- db-connection-timeout errorHandler` 129/129、統合 `auth-db-connection-timeout-503` 6/6、type-check EXIT=0
+  - **後続の候補（起票はしていない）**: `e2e/requirement-exclusions.json` の REQ-24.1 の除外（:64）は代替検証に実体の無い chaos-engineering / Toxiproxy を挙げたままで、本項の統合検証へ向け直すか取り下げるかを決める必要がある。ログインの `detail: error.message` の露出はタイムアウト以外の DB 例外で残る
 
 - [ ] 35.12 対話型トランザクションの開始が DB 接続タイムアウトで打ち切られる経路を 503 にする
   - 起票元: タスク35.8（実装者の懸念と独立レビューの再現、2026-09-27）
@@ -1047,6 +1053,15 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - 検証: 認証系の書き込みのエンドポイントが DB 接続タイムアウトで 503 を返すこと、estimate-creation の P2028 の既存の検証が緑のままであることを主張する
   - _Requirements: 24.1_
   - _Boundary: 認証系のサービスのトランザクションの設定（または errorHandler の P2028 の判定）とその統合検証_
+  - _Depends: 35.11_
+
+- [ ] 35.13 権限の確認が DB 接続タイムアウトを 503 として返す
+  - 起票元: タスク35.11（独立レビューの承認の条件、2026-09-27）
+  - 実測（HEAD `727bd8b1`）: `backend/src/middleware/authorize.middleware.ts:91-96` の `requirePermission` の catch は RBAC の DB 例外をすべて捕まえ、`logger.error({ error, ... })` の後に `res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to check permissions' })` を返す。権限キャッシュに当たらないと判定が DB を引くため、roles / permissions / user-roles の実エンドポイントは DB 接続タイムアウトで 503 にならない。ログのキーが `error` のため、pino の `err` シリアライザが効かず障害の中身が失われる（35.4 と同じ問題）
+  - 実装: 接続タイムアウト（`backend/src/utils/db-connection-timeout.ts` の `isDatabaseConnectionTimeout`）は `next(error)` で errorHandler の 503 へ渡し、自前の 500 はそれ以外の例外に限る。ログのキーを `err` にするかもあわせて決める
+  - 検証: 権限キャッシュに当たらない状態で roles / permissions / user-roles の実エンドポイントが DB 接続タイムアウトで 503 と Problem Details を返すことを統合で主張し（35.11 の統合検証と同じ方式）、タイムアウト以外の例外が従来どおり 500 を返すことと、渡しを外す変異で赤くなることを実測する
+  - _Requirements: 24.1_
+  - _Boundary: `backend/src/middleware/authorize.middleware.ts` とその単体・統合検証_
   - _Depends: 35.11_
 
 _起票元: タスク33.1（利用者の裁定「取り下げて後続を起票」、2026-09-26）_

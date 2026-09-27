@@ -20,6 +20,7 @@ import type {
 } from '../types/role.types.js';
 import { Ok, Err, type Result } from '../types/result.js';
 import logger from '../utils/logger.js';
+import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 
 /**
  * ロール管理サービスの実装
@@ -94,6 +95,8 @@ export class RoleService implements IRoleService {
         updatedAt: role.updatedAt,
       });
     } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
       logger.error({ error, input }, 'Failed to create role');
       return Err({
         type: 'DATABASE_ERROR',
@@ -209,6 +212,8 @@ export class RoleService implements IRoleService {
         updatedAt: updatedRole.updatedAt,
       });
     } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
       logger.error({ error, roleId, input }, 'Failed to update role');
       return Err({
         type: 'DATABASE_ERROR',
@@ -266,6 +271,8 @@ export class RoleService implements IRoleService {
 
       return Ok(undefined);
     } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
       logger.error({ error, roleId }, 'Failed to delete role');
       return Err({
         type: 'DATABASE_ERROR',
@@ -339,6 +346,8 @@ export class RoleService implements IRoleService {
         updatedAt: role.updatedAt,
       });
     } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
       logger.error({ error, roleId }, 'Failed to get role');
       return Err({
         type: 'DATABASE_ERROR',

@@ -17,6 +17,7 @@ import type { IAuditLogService } from '../types/audit-log.types.js';
 import type { EmailService } from './email.service.js';
 import { Ok, Err, type Result } from '../types/result.js';
 import logger from '../utils/logger.js';
+import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 import { captureMessage } from '../utils/sentry.js';
 
 /**
@@ -164,6 +165,8 @@ export class UserRoleService implements IUserRoleService {
 
       return Ok(roles);
     } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
       logger.error({ error, userId }, 'Failed to get user roles');
       return Err({
         type: 'DATABASE_ERROR',
@@ -241,6 +244,8 @@ export class UserRoleService implements IUserRoleService {
       await this.afterCommit(userId, changes, 'assigned', performedBy);
       return Ok(undefined);
     } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
       if (error instanceof UserRoleRollback) {
         return Err(error.error);
       }
@@ -283,6 +288,8 @@ export class UserRoleService implements IUserRoleService {
       await this.afterCommit(userId, changes, 'revoked', performedBy);
       return Ok(undefined);
     } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
       if (error instanceof UserRoleRollback) {
         return Err(error.error);
       }

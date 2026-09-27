@@ -19,6 +19,7 @@ import type { IRBACService } from '../types/rbac.types.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
 import { Ok, Err, type Result } from '../types/result.js';
 import logger from '../utils/logger.js';
+import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 
 /**
  * 紐付けの変更を途中で打ち切り、トランザクションをロールバックさせるための合図。
@@ -135,6 +136,8 @@ export class RolePermissionService implements IRolePermissionService {
 
       return Ok(permissions);
     } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
       logger.error({ error, roleId }, 'Failed to get role permissions');
       return Err({
         type: 'DATABASE_ERROR',
@@ -210,6 +213,8 @@ export class RolePermissionService implements IRolePermissionService {
       await this.afterCommit(roleId, changed);
       return Ok(undefined);
     } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
       if (error instanceof RolePermissionRollback) {
         return Err(error.error);
       }
@@ -240,6 +245,8 @@ export class RolePermissionService implements IRolePermissionService {
       await this.afterCommit(roleId, changed);
       return Ok(undefined);
     } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
       if (error instanceof RolePermissionRollback) {
         return Err(error.error);
       }
