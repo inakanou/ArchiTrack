@@ -1046,7 +1046,7 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test -- db-connection-timeout errorHandler` 129/129、統合 `auth-db-connection-timeout-503` 6/6、type-check EXIT=0
   - **後続の候補（起票はしていない）**: `e2e/requirement-exclusions.json` の REQ-24.1 の除外（:64）は代替検証に実体の無い chaos-engineering / Toxiproxy を挙げたままで、本項の統合検証へ向け直すか取り下げるかを決める必要がある。ログインの `detail: error.message` の露出はタイムアウト以外の DB 例外で残る
 
-- [ ] 35.12 対話型トランザクションの開始が DB 接続タイムアウトで打ち切られる経路を 503 にする
+- [x] 35.12 対話型トランザクションの開始が DB 接続タイムアウトで打ち切られる経路を 503 にする
   - 起票元: タスク35.8（実装者の懸念と独立レビューの再現、2026-09-27）
   - 実測: 到達しない DB に対する `prisma.$transaction(async tx => ...)` は Prisma の `maxWait` 既定 2000ms が `RetryingPool` の再試行の予算（1000 / 2000 / 4000ms）より短いため、約 2.1〜2.9 秒で P2028「Unable to start a transaction in the given time.」となり、`errorHandler.middleware.ts` の P2028 の分岐（:139）で 500「Transaction Timeout」を返す。認証系の書き込みはタスク35.5 でトランザクション化済みのため、書き込みの経路では 24.1 の 503 が成り立たない
   - 制約: P2028 の 500 は estimate-creation の design.md（:4336、要件42.3）とタスク57.6 の約束であり、他スペックの振る舞いを変えないこと。認証系の `$transaction` に `maxWait` を明示するか、開始の待ちの打ち切りを接続タイムアウトとして区別するかを design.md で決め、estimate-creation への影響を確かめてから実装する
@@ -1054,6 +1054,10 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - _Requirements: 24.1_
   - _Boundary: 認証系のサービスのトランザクションの設定（または errorHandler の P2028 の判定）とその統合検証_
   - _Depends: 35.11_
+  - **処遇（HEAD `886898f2` の作業ツリー、2026-09-27 にリポジトリルートで実測）**: 認証系の対話型トランザクションのうち最初の DB 到達が開始である 7 か所（`AuthService.register`、`RoleService.updateRole` の版つき、`RolePermissionService` の add / removePermissions、`UserRoleService` の add / removeRoles と `deleteUser`）に、`maxWait` として「接続の再試行の予算 + Prisma 既定の 2000ms」を渡す。新設 `backend/src/utils/db-connect-budget.ts` の `dbConnectBudgetMs(n, t)`（間隔の総和 + (n+1) × t）と `connectBudgetTransactionOptions()`（`parseDatabaseRetryCount` / `parseDatabaseConnectionTimeout` を呼び出しの時点で通す）が値を決め、`dbConnectRetryDelaysMs` は `db.ts` から移して再輸出した。`timeout` は既定のまま。実測（Prisma 7.9.1 + adapter-pg + 応答しない TCP）で、`maxWait` なしでは約 2.3 秒で P2028（`meta` 空）、予算を覆う `maxWait` では pg-pool の接続タイムアウトの素の Error が届き 35.11 の投げ直しで 503 になることを確かめた。P2028 は原因を持たずプールの満杯でも同じ文言で出るため区別する方式は採らず、errorHandler の P2028 の分岐・PrismaClient の既定の `transactionOptions`・estimate-creation の `ESTIMATE_SAVE_TRANSACTION_OPTIONS` は変えていない。PasswordService・TwoFactorService の対話型トランザクションは先に DB へ問い合わせるため対象外（独立レビューが確認）。決定は design.md の Error Handling に日付付きで追記した
+  - **振る舞いの変化（開示）**: プールが満杯のとき、7 か所の書き込みは従来の約 2 秒の P2028 → 500 に代えて、予算の内（既定で最長 27 秒、`DATABASE_RETRY_COUNT=10` で約 18 分）待って成功するか 503 を返す。トランザクションを使わない問い合わせと同じ扱い（独立レビューは退行でないと判断）
+  - **検証**: 単体 `auth-transaction-connect-budget.test.ts`（21 件: 7 か所 × 2 と予算の関数）、統合 `auth-transaction-db-connection-timeout-503.integration.test.ts`（5 件、POST / DELETE のユーザーのロール、DELETE のユーザー、POST / DELETE のロールの権限）。5 件とも `requirePermission` を通るため `RBACService.prototype.hasPermission` だけを差し替え、ルート・サービス・PrismaClient・RetryingPool・errorHandler は本物。`@requirement user-authentication/REQ-24.1` の各印に「hasPermission を差し替えた前提。35.13 の完了まで実運用では 500」と添えた（独立レビューの推奨に従い親が注記のみ追加）。**RED**: フラグ OFF で単体 17 件・統合 5 件が赤（約 2.0〜2.7 秒の P2028 で 500）。変異（`deleteUser` の options の撤去＝統合1・単体2 件赤、予算の `(n+1)` を `n` に＝単体 20 件赤）を独立レビューが再現しハッシュの一致を確認。後者は統合では検出されない（2000ms の余裕が覆う）ため、式の正しさは単体が守る。backend 単体 5974 件、統合 962 件（estimate-draft-save 36 件を含む）、コールド実行、type-check、lint 緑。`check:req-coverage` は本スペック 374/388 で不変、鮮度宣言は 588 のまま
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test -- auth-transaction-connect-budget db-connection-timeout` 127/127、統合 `auth-transaction-db-connection-timeout-503` 5/5（注記の追加後）、type-check EXIT=0、lint EXIT=0
 
 - [ ] 35.13 権限の確認が DB 接続タイムアウトを 503 として返す
   - 起票元: タスク35.11（独立レビューの承認の条件、2026-09-27）
@@ -1063,5 +1067,6 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - _Requirements: 24.1_
   - _Boundary: `backend/src/middleware/authorize.middleware.ts` とその単体・統合検証_
   - _Depends: 35.11_
+  - 追記（タスク35.12 の独立レビュー、2026-09-27）: `backend/src/__tests__/integration/auth-transaction-db-connection-timeout-503.integration.test.ts` は `RBACService.prototype.hasPermission` を差し替えて 503 を主張している。本項で authorize.middleware がタイムアウトを errorHandler へ渡すようになったら、この差し替えを外し差し替えなしで 503 を主張するよう改め、各印に添えた「35.13 の完了まで実運用では 500」の注記も除くこと
 
 _起票元: タスク33.1（利用者の裁定「取り下げて後続を起票」、2026-09-26）_

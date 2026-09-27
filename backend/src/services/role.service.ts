@@ -20,6 +20,7 @@ import type {
 } from '../types/role.types.js';
 import { Ok, Err, type Result } from '../types/result.js';
 import logger from '../utils/logger.js';
+import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
 import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 
 /**
@@ -172,7 +173,7 @@ export class RoleService implements IRoleService {
           // 同じトランザクションの中で読むため、自身が書いた行（行ロックを保持中）が返る
           const role = await tx.role.findUniqueOrThrow({ where: { id: roleId } });
           return { kind: 'updated', role } as const;
-        });
+        }, connectBudgetTransactionOptions());
 
         if (outcome.kind === 'not_found') {
           logger.warn({ roleId }, 'Role not found');

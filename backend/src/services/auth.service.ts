@@ -28,6 +28,7 @@ import { Ok, Err, type Result } from '../types/result.js';
 import { addTimingAttackDelay } from '../utils/timing.js';
 import { SECURITY_CONFIG } from '../config/security.constants.js';
 import logger from '../utils/logger.js';
+import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
 import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 
 /**
@@ -173,7 +174,7 @@ export class AuthService implements IAuthService {
             },
           },
         });
-      });
+      }, connectBudgetTransactionOptions());
 
       if (!user) {
         return Err({ type: 'DATABASE_ERROR', message: 'Failed to create user' });

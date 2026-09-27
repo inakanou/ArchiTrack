@@ -6,20 +6,15 @@ import {
   parseDatabaseRetryCount,
 } from './config/env.js';
 import { PrismaClient } from './generated/prisma/client.js';
+import {
+  DB_CONNECT_RETRY_BASE_DELAY_MS,
+  dbConnectRetryDelaysMs,
+} from './utils/db-connect-budget.js';
 import { isConnectionTimeoutError } from './utils/db-connection-timeout.js';
 import logger from './utils/logger.js';
 
-/** 1 回目の再試行までの待ち時間（ミリ秒）。n 回目は 1000 × 2^(n−1) ms へ倍々に延ばす */
-export const DB_CONNECT_RETRY_BASE_DELAY_MS = 1000 as const;
-
-/**
- * 再試行回数から、各再試行までの待ち時間（ミリ秒）の列を求める。
- * n 回目の再試行は n 回目の失敗から 1000 × 2^(n−1) ms 後に行う（3 回なら 1000 / 2000 / 4000 ms）。
- * @param retryCount 再試行回数（0 なら再試行しない）
- */
-export function dbConnectRetryDelaysMs(retryCount: number): number[] {
-  return Array.from({ length: retryCount }, (_, i) => DB_CONNECT_RETRY_BASE_DELAY_MS * 2 ** i);
-}
+// 再試行の間隔の列は db.ts に依存しないモジュールに置き（認証系のトランザクションの設定も使う）、ここから再輸出する
+export { DB_CONNECT_RETRY_BASE_DELAY_MS, dbConnectRetryDelaysMs };
 
 /**
  * 既定の再試行回数（3 回）での待ち時間（1000 / 2000 / 4000 ms）。

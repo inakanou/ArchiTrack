@@ -19,6 +19,7 @@ import type { IRBACService } from '../types/rbac.types.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
 import { Ok, Err, type Result } from '../types/result.js';
 import logger from '../utils/logger.js';
+import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
 import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 
 /**
@@ -208,7 +209,7 @@ export class RolePermissionService implements IRolePermissionService {
           }
         }
         return count;
-      });
+      }, connectBudgetTransactionOptions());
 
       await this.afterCommit(roleId, changed);
       return Ok(undefined);
@@ -240,7 +241,7 @@ export class RolePermissionService implements IRolePermissionService {
           await this.removePermissionInTransaction(tx, roleId, permissionId, actorId);
         }
         return permissionIds.length;
-      });
+      }, connectBudgetTransactionOptions());
 
       await this.afterCommit(roleId, changed);
       return Ok(undefined);

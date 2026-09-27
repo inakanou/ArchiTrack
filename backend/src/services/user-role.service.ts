@@ -17,6 +17,7 @@ import type { IAuditLogService } from '../types/audit-log.types.js';
 import type { EmailService } from './email.service.js';
 import { Ok, Err, type Result } from '../types/result.js';
 import logger from '../utils/logger.js';
+import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
 import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
 import { captureMessage } from '../utils/sentry.js';
 
@@ -239,7 +240,7 @@ export class UserRoleService implements IUserRoleService {
           results.push(await this.assignRoleInTransaction(tx, userId, roleId, actorId));
         }
         return results;
-      });
+      }, connectBudgetTransactionOptions());
 
       await this.afterCommit(userId, changes, 'assigned', performedBy);
       return Ok(undefined);
@@ -283,7 +284,7 @@ export class UserRoleService implements IUserRoleService {
           results.push(await this.removeRoleInTransaction(tx, userId, roleId));
         }
         return results;
-      });
+      }, connectBudgetTransactionOptions());
 
       await this.afterCommit(userId, changes, 'revoked', performedBy);
       return Ok(undefined);
@@ -495,7 +496,7 @@ export class UserRoleService implements IUserRoleService {
       await tx.user.delete({ where: { id: userId } });
 
       return Ok({ email: user.email });
-    });
+    }, connectBudgetTransactionOptions());
   }
 
   /**
