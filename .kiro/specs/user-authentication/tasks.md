@@ -925,7 +925,7 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - **範囲外（起票済み）**: 再試行を使い切った失敗の 503 への対応づけ（24.1）は 35.8、`DATABASE_RETRY_COUNT` は 35.9 へ回した
   - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test -- db env` 51/51、type-check EXIT=0、鮮度の関門の赤の集合は着手前と同一
 
-- [x] 35.3 権限キャッシュ障害時の警告ログを検証する
+- [ ] 35.3 権限キャッシュ障害時の警告ログを検証する
   - 実測: 実装は既にある。`backend/src/services/rbac.service.ts:40-54` の `getUserPermissions` は `redis.get` の失敗時に `logger.warn({ error, userId }, 'Failed to get permissions from Redis cache')` を出して DB の取得へ進む
   - 実測: 検証が無い。`backend/src/__tests__/unit/services/rbac.service.test.ts:397` / `:477` は `invalidate*` の例外が漏れないことを見るだけで、`getUserPermissions` の障害経路もログも主張していない
   - 検証: `redis.get` を reject させたとき `logger.warn` が 1 回呼ばれること（spy）と、DB から取った権限が返ることを主張する。warn の削除または debug への格下げで赤くなることを変異で実測する
@@ -937,7 +937,7 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - **範囲外の観測（起票はしていない）**: `e2e/requirement-exclusions.json` の REQ-24.2 の除外が代替検証に挙げる chaos-engineering（Docker stop redis / Toxiproxy）はリポジトリに存在しない。本項の障害経路の検証が 24.2 を単体レベルで実際に主張しているため、除外の代替検証をこの検証へ向け直す（または除外を取り下げて印を付ける）ことが後続の候補である
   - _Blocked: site-survey スペックの Task 115.334（本項の被覆印に由来する `featureless-headers-resolvable-by-own-feature-after-115308` 585→586 を含む。親が上流の tasks.md へ追記済み）の解決待ち。検証そのものは承認・コミット済み。`[x]` は 115.334 の解決後に当該宣言が緑へ戻ったことを確かめてから付けること_
 
-- [x] 35.4 登録・招待の処理をメール送信から切り離す
+- [ ] 35.4 登録・招待の処理をメール送信から切り離す
   - 実測: `EmailService.sendInvitationEmail`（`email.service.ts:177`）の本番からの呼び出しは 0 件。本番から呼ばれるのは `password.service.ts:302` と `user-role.service.ts:147` / `:286` だけで、`InvitationService.createInvitation`（`invitation.service.ts:45`）はメールを送らない
   - 実測: `password.service.ts:302` は `sendPasswordResetEmail` を await しており、キュー投入（Redis）が失敗すると `catch` で `RESET_TOKEN_INVALID` を返す
   - 招待メールを結線するか（design.md で決める）と、キュー投入が失敗しても招待・登録が成功することを実装する
@@ -982,7 +982,7 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - **結果**: 統合の全件 57 ファイル・944 件（独立レビューが実行）、backend 単体 5782 件、type-check、lint、E2E（管理系と data-integrity の36件）は緑。`check:req-coverage` は本スペックの受入基準 371→372/388。鮮度の関門と `check:design-path-refs` は前後で出力が同一。test DB に注入の残骸は無く、admin の割り当ては実行前と一致
   - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test -- user-role user-roles` 45/45、type-check EXIT=0
 
-- [x] 35.7 楽観的ロックの競合処理を実装する
+- [ ] 35.7 楽観的ロックの競合処理を実装する
   - 実測: 認証領域のサービス（auth / user-role / role-permission / role / invitation / password / audit-log / rbac / session / two-factor）に楽観的ロックの実装は 0 件。先例は取引先管理の `trading-partner.service.ts`（`:409-421` の JSDoc が方式を説明し、`:456` の `expectedUpdatedAt` の比較と `:459` の `TradingPartnerConflictError` の送出が実装）
   - 対象（ユーザープロフィール更新、ロール更新など）を design.md で決める
   - 検証: 同じ版からの並行更新で片方がリトライされるか 409 を返すことを、実 DB の並行リクエストで主張する
