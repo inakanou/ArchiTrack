@@ -3017,6 +3017,11 @@
                   },
                   "priority": {
                     "type": "integer"
+                  },
+                  "expectedUpdatedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "楽観的ロックの版（任意）。取得時の updatedAt。古いときは 409 ROLE_CONFLICT"
                   }
                 }
               }
@@ -3040,7 +3045,7 @@
             "description": "ロールが見つからない"
           },
           "409": {
-            "description": "ロール名の重複"
+            "description": "ロール名の重複（ROLE_NAME_CONFLICT）、または楽観的ロックの競合（ROLE_CONFLICT、Problem Details）"
           }
         }
       },
@@ -9604,6 +9609,11 @@
                     "type": "string",
                     "description": "Updated display name",
                     "example": "John Smith"
+                  },
+                  "expectedUpdatedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "楽観的ロックの版（任意）。GET /api/v1/auth/me の updatedAt。古いときは 409 PROFILE_CONFLICT"
                   }
                 }
               }
@@ -9626,6 +9636,11 @@
                     },
                     "displayName": {
                       "type": "string"
+                    },
+                    "updatedAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "次の更新で expectedUpdatedAt として送り返す版"
                     }
                   }
                 }
@@ -9634,6 +9649,12 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "ユーザーが見つからない（USER_NOT_FOUND、Problem Details）"
+          },
+          "409": {
+            "description": "楽観的ロックの競合（PROFILE_CONFLICT、Problem Details）"
           }
         }
       }
