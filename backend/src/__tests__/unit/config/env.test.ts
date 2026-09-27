@@ -453,6 +453,75 @@ describe('env module', () => {
         expect(() => validateEnv()).toThrow('Failed to validate environment variables');
       }
     );
+
+    /**
+     * @requirement user-authentication/REQ-24.6: 再試行回数 DATABASE_RETRY_COUNT が未設定なら条文どおり 3 回になる
+     */
+    it('DATABASE_RETRY_COUNTが未設定の場合、デフォルト3が使用される', async () => {
+      process.env.JWT_PUBLIC_KEY = mockPublicKeyBase64;
+      process.env.JWT_PRIVATE_KEY = mockPrivateKeyBase64;
+      process.env.TWO_FACTOR_ENCRYPTION_KEY = mock2FAKey;
+      delete process.env.DATABASE_RETRY_COUNT;
+
+      const { validateEnv } = await import('../../../config/env.js');
+
+      const result = validateEnv();
+
+      expect(result.DATABASE_RETRY_COUNT).toBe(3);
+    });
+
+    /**
+     * @requirement user-authentication/REQ-24.6: 再試行回数 DATABASE_RETRY_COUNT は 0〜10 の整数を受け付ける
+     */
+    it.each([
+      ['0', 0],
+      ['5', 5],
+      ['10', 10],
+    ])('DATABASE_RETRY_COUNT=%s の場合、数値%iとして検証される', async (value, expected) => {
+      process.env.JWT_PUBLIC_KEY = mockPublicKeyBase64;
+      process.env.JWT_PRIVATE_KEY = mockPrivateKeyBase64;
+      process.env.TWO_FACTOR_ENCRYPTION_KEY = mock2FAKey;
+      process.env.DATABASE_RETRY_COUNT = value;
+
+      const { validateEnv } = await import('../../../config/env.js');
+
+      const result = validateEnv();
+
+      expect(result.DATABASE_RETRY_COUNT).toBe(expected);
+    });
+
+    /**
+     * @requirement user-authentication/REQ-24.6: 再試行回数 DATABASE_RETRY_COUNT に 0〜10 の整数でない値（範囲外・小数・非数値）を受け付けない
+     */
+    it.each(['11', '-1', '1.5', 'abc', '3回'])(
+      'DATABASE_RETRY_COUNT=%s（0〜10 の整数でない）の場合、エラーを投げる',
+      async (value) => {
+        process.env.JWT_PUBLIC_KEY = mockPublicKeyBase64;
+        process.env.JWT_PRIVATE_KEY = mockPrivateKeyBase64;
+        process.env.TWO_FACTOR_ENCRYPTION_KEY = mock2FAKey;
+        process.env.DATABASE_RETRY_COUNT = value;
+
+        const { validateEnv } = await import('../../../config/env.js');
+
+        expect(() => validateEnv()).toThrow('Failed to validate environment variables');
+      }
+    );
+  });
+
+  describe('parseDatabaseRetryCount', () => {
+    /**
+     * @requirement user-authentication/REQ-24.6: DB クライアントの生成が通す解析関数も、未設定で 3、0〜10 の整数をそのまま返し、それ以外を拒否する
+     */
+    it('未設定で3、0〜10の整数はその値を返し、範囲外・小数・非数値は例外を投げる', async () => {
+      const { parseDatabaseRetryCount } = await import('../../../config/env.js');
+
+      expect(parseDatabaseRetryCount(undefined)).toBe(3);
+      expect(parseDatabaseRetryCount('0')).toBe(0);
+      expect(parseDatabaseRetryCount('10')).toBe(10);
+      for (const value of ['11', '-1', '1.5', 'abc', '']) {
+        expect(() => parseDatabaseRetryCount(value)).toThrow();
+      }
+    });
   });
 
   describe('環境変数ログ出力', () => {

@@ -1009,7 +1009,7 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test -- errorHandler db env` 74/74、統合 `db-connection-timeout-503` 1/1、type-check EXIT=0
   - **範囲外の観測（独立レビュー、起票はしていない）**: `code === 'ETIMEDOUT'` は発生元を問わず 503「Database connection error」になり、DB 以外（SMTP・S3 など）のタイムアウトが素のまま届くと誤分類されうる（タスク本文の指定どおりの判定）。P1001（ECONNREFUSED・ENOTFOUND）は 400「Database Error」のまま。`e2e/requirement-exclusions.json` の REQ-24.1 の除外（:64）が代替検証に挙げる chaos-engineering / Toxiproxy はリポジトリに実体が無い
 
-- [ ] 35.9 DB 接続の再試行回数を環境変数 `DATABASE_RETRY_COUNT` で与えるかを決めて実装する
+- [x] 35.9 DB 接続の再試行回数を環境変数 `DATABASE_RETRY_COUNT` で与えるかを決めて実装する
   - 要件の環境変数表（requirements.md :47、列の空白を詰めて引用）: 「| `DATABASE_RETRY_COUNT` | データベース接続リトライ回数 | `3` | 任意 | 整数値（0-10） |」
   - 実測（2026-09-26）: `backend/.env.example:44-46` に `DATABASE_RETRY_COUNT=3` があるが、コードからは読まれていない（`git grep -l DATABASE_RETRY_COUNT` の当たりは requirements.md・`.env.example`・タスク35.2 で足した design.md の注記のみ）。タスク35.2 は条文 24.6 どおり回数を 3 回に固定した（`backend/src/db.ts` の `DB_CONNECT_RETRY_DELAYS_MS = [1000, 2000, 4000]` の要素数が回数を決める）
   - 条文 24.6 は間隔を 1秒・2秒・4秒の 3 つだけ挙げる。4 回目以降（最大 10 回）の間隔を 1000 × 2^(n−1) へ延ばすか、表の上限を 3 に揃えるか、0 回（再試行なし）を許すかを design.md で決めてから実装すること
@@ -1017,6 +1017,10 @@ _申し送り元: site-survey スペックの Task 115.154（同スペックで�
   - 検証: 未設定で 3 回（1000 / 2000 / 4000ms）、設定値 0 で再試行なし、設定値 5 で決めた間隔どおりに 5 回、範囲外（11・-1・非数値）を拒否することを偽の時計で主張し、既定値や上限の変異で赤くなることを実測する
   - _Requirements: 24.6_
   - _Boundary: `backend/src/config/env.ts`、`backend/src/db.ts` とその単体検証_
+  - **処遇（HEAD `8c585a05` の作業ツリー、2026-09-27 にリポジトリルートで実測）**: 利用者の裁定「0〜10 を受け、間隔を倍々で延ばす」（2026-09-27）に従い、`backend/src/config/env.ts` に `parseDatabaseRetryCount`（`^[0-9]+$` かつ 10 以下、未設定は 3。11・-1・1.5・非数値・空文字は拒否）を置き、`validateEnv` のスキーマと `getPrismaClient` の両方が同じ関数を通す。`backend/src/db.ts` の `dbConnectRetryDelaysMs(n)` が n 回目の間隔 1000 × 2^(n−1) ms の列を返し、`RetryingPool` は設定の `retryCount`（省略時 3）から間隔を決める。0 は再試行なし。未設定時の間隔 1000 / 2000 / 4000ms と打ち切りの条件は HEAD と同じ。決定は design.md の「データベース接続タイムアウト時の再試行（要件24.6）」に日付付きで追記した（上限 10 回では待ちの総和 1023000ms に接続タイムアウト 5000ms × 11 試行が加わり、失敗が返るまで約 18 分）
+  - **検証**: `@requirement user-authentication/REQ-24.6` を付けた `env.test.ts`（既定 3、0 / 5 / 10 の受理、11 / -1 / 1.5 / abc / 3回 の拒否）と `db.test.ts`（偽の時計で試行の時刻差を測り、省略・0・5・10 回と `getPrismaClient` の未設定・0・5・拒否を主張）。**RED**: フラグ OFF で 19 件が赤。変異6種（既定値・上限・上限判定・間隔の式・`retryCount` の受け渡し・コンストラクタの既定値）はいずれも赤（独立レビューが3種を再現しハッシュの一致を確認）。backend 単体 5847 件、統合 `db-connection-timeout-503`、type-check、lint、`check:design-path-refs` 緑。`check:req-coverage` は本スペック 373/388 で不変（24.6 は 35.2 で被覆済み）、鮮度宣言は 588 のまま
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test -- env db` 72/72、type-check EXIT=0
+  - **範囲外の観測（独立レビュー、起票はしていない）**: `DB_CONNECT_RETRY_DELAYS_MS` はコードから参照されなくなったが、design.md :3443 が名前で引くため既定の列として残した。design.md :3446 の「3 回に固定する」は 35.2 時点の記述で、:3447 の追記と字面上は食い違う。上限 10 回（約 18 分）では Railway などの HTTP プロキシの上限が短いと 503 が届く前に切られうる。`RetryingPool` のコンストラクタは `retryCount` を検証しない（本番の経路は必ず `parseDatabaseRetryCount` を通る）。Railway のダッシュボードの `DATABASE_RETRY_COUNT` の値はリポジトリの外で確認できない（リポジトリ内の env / compose には `.env.example` の `=3` のみ）
 
 - [ ] 35.10 プロフィール更新の画面から版を送り、409 の競合を表示する
   - 起票元: タスク35.7（利用者の裁定「任意・バックエンドのみ」、2026-09-27）。バックエンドは `expectedUpdatedAt` を任意で受け、GET / PATCH の `/auth/me` の応答に `updatedAt` を返す
