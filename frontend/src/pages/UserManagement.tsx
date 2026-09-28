@@ -112,7 +112,8 @@ export function UserManagement() {
   const handleAddRoleToUser = async (userId: string, roleId: string) => {
     setMessage('');
     try {
-      await apiClient.post(`/api/v1/users/${userId}/roles`, { roleId });
+      // API の契約（user-roles.routes.ts の addRolesSchema: roleIds は1件以上の配列）に揃える
+      await apiClient.post(`/api/v1/users/${userId}/roles`, { roleIds: [roleId] });
       setMessage('ロールを追加しました');
       await fetchUsers();
     } catch {

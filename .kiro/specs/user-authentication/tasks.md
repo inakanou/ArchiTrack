@@ -1084,12 +1084,13 @@ _起票元: タスク33.1（利用者の裁定「取り下げて後続を起票�
 
 _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `6393c643`）の NO-GO と、利用者の指示「1〜8をタスク36として起票して」。行番号はいずれも HEAD `6393c643` での実測_
 
-- [ ] 36.1 管理画面からのロールの追加を API の契約へ揃える
+- [x] 36.1 管理画面からのロールの追加を API の契約へ揃える
   - 実測: `frontend/src/pages/UserManagement.tsx:115` は `apiClient.post(`/api/v1/users/${userId}/roles`, { roleId })` を送るが、`backend/src/routes/user-roles.routes.ts:31` は `roleIds: z.array(z.string().min(1)).min(1, ...)` を必須にするため、`/admin/users` のセレクトからの追加は必ず 400 になり「ロール追加に失敗しました」と表示される。単体 `frontend/src/__tests__/pages/UserManagement.test.tsx` は apiClient をモックし `roleId: 'role-3'` を期待して欠陥を固定している。E2E（`e2e/specs/admin/user-role.spec.ts` ほか）は API を直接呼ぶだけで画面の操作を通していない（35.5 の範囲外の観測 (iii) で既知）
   - 実装: 画面が `{ roleIds: [roleId] }` を送る。単体の期待値を契約へ改める
   - 検証: 管理画面のセレクトからロールを追加し、成功の表示と DB の割り当てを主張する E2E を足す（`@requirement user-authentication/REQ-20.1`）。`roleId` を送る変異で赤くなることを実測する
   - _Requirements: 20.1_
   - _Boundary: `frontend/src/pages/UserManagement.tsx` とその単体・E2E 検証_
+  - **処遇（2026-09-28）**: `handleAddRoleToUser` が `{ roleIds: [roleId] }` を送るよう改め、単体 `UserManagement.test.tsx` の期待値を契約へ揃えた。`e2e/specs/admin/user-role.spec.ts` に「管理者は管理画面のセレクトからユーザーにロールを追加できる」（`@requirement user-authentication/REQ-20.1`）を足し、セレクトの操作 → POST の 204（パス基準で観測）・成功の表示・失敗の表示 0 件・`userRole` の行を主張する。修正前の `{ roleId }` の送信で frontend を作り直すと E2E は 400 で赤くなることを実測した。user-role.spec.ts 9/9、frontend 単体の全体 11868 件が緑。独立レビューは APPROVED
 
 - [ ] 36.2 権限のキャッシュを本番の権限確認の経路で使う
   - 実測: `backend/src/middleware/authorize.middleware.ts:61` の `requirePermission` は `rbacService || new RBACService(client)` で Redis を渡さずに都度生成し、ルートからの注入は 0 件。`RBACService.getUserPermissions`（`rbac.service.ts:40`）を本番で呼ぶのは `hasPermission`（`:147`）だけで、それを呼ぶのは authorize だけである。Redis を渡す RBACService は `roles.routes.ts:27` / `user-roles.routes.ts:24` にあるがキャッシュの無効化にしか使われない。このため条文 21.9「権限情報を適切なキャッシュ機構に保存」・24.2「キャッシュ接続が失敗する THEN データベースから直接権限情報を取得」・24.7「キャッシュ障害時にフォールバック処理が実行される THEN 警告ログを記録」は、被覆印（35.3 ほか）があっても本番の経路では働かない（design.md の 35.12 の節も「Redis を持たない RBACService を都度生成するため権限のキャッシュに当たらず」と記す）。24.7 の警告（`rbac.service.ts:54` / `:120` ほか）はログのキーが `{ error }` で、本番の出力では障害の中身が失われる

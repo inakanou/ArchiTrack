@@ -219,8 +219,9 @@ describe('UserManagement Component', () => {
 
       // APIが呼ばれる
       await waitFor(() => {
+        // API の契約（user-roles.routes.ts の roleIds: string[] 必須）に揃えて送る（タスク36.1）
         expect(apiClient.post).toHaveBeenCalledWith('/api/v1/users/user-1/roles', {
-          roleId: 'role-3',
+          roleIds: ['role-3'],
         });
       });
 

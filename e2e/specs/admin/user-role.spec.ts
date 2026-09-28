@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
+import { loginAsUser } from '../../helpers/auth-actions';
+import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 
 /**
@@ -422,5 +424,56 @@ test.describe('ユーザーへのロール割り当て', () => {
 
     // 新しいロールの権限が反映されていることを確認
     expect(afterRolesResponse.ok()).toBeTruthy();
+  });
+
+  /**
+   * 要件20.1: 管理画面（/admin/users）のセレクトからユーザーにロールを追加する
+   * @requirement user-authentication/REQ-20.1
+   *
+   * タスク36.1: 画面が API の契約（`roleIds: string[]` 必須）と食い違う `{ roleId }` を送り、
+   * 画面からの追加が必ず 400 で「ロール追加に失敗しました」になっていた欠陥の回帰検出。
+   * API を直接呼ぶのでなく画面の操作を通し、成功の表示と DB の紐付けの保存を主張する。
+   */
+  test('管理者は管理画面のセレクトからユーザーにロールを追加できる', async ({ page }) => {
+    const prisma = getPrismaClient();
+
+    const testUser = await createTestUser('REGULAR_USER');
+    const newRole = await prisma.role.create({
+      data: {
+        name: 'UI Assigned Role',
+        description: '管理画面から割り当てるロール',
+      },
+    });
+
+    await loginAsUser(page, 'ADMIN_USER');
+    await page.goto('/admin/users');
+    await expect(page.getByRole('heading', { name: 'ユーザー一覧' })).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+
+    const roleSelect = page.locator(`#role-select-${testUser.id}`);
+    await expect(roleSelect).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(roleSelect.locator(`option[value="${newRole.id}"]`)).toHaveCount(1);
+
+    const assignResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname === `/api/v1/users/${testUser.id}/roles`
+    );
+    await roleSelect.selectOption(newRole.id);
+    const assignResponse = await assignResponsePromise;
+    expect(assignResponse.status()).toBe(204);
+
+    // 成功の表示
+    await expect(page.getByText('ロールを追加しました', { exact: true })).toBeVisible({
+      timeout: getTimeout(5000),
+    });
+    await expect(page.getByText('ロール追加に失敗しました')).toHaveCount(0);
+
+    // DB にユーザー・ロールの紐付けが保存されている
+    const assigned = await prisma.userRole.findUnique({
+      where: { userId_roleId: { userId: testUser.id, roleId: newRole.id } },
+    });
+    expect(assigned).not.toBeNull();
   });
 });
