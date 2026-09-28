@@ -8,7 +8,7 @@
  * 要件21: 権限チェック機能
  */
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { UserManagement } from '../../pages/UserManagement';
@@ -742,11 +742,12 @@ describe('UserManagement Component', () => {
         return Promise.resolve([]);
       });
 
+      // ApiError と同じ形（response は応答の本文そのもの。roles.routes.ts の 409 ROLE_NAME_CONFLICT）
       vi.mocked(apiClient.post).mockRejectedValue({
+        statusCode: 409,
         response: {
-          data: {
-            message: 'ロール名が重複しています',
-          },
+          error: "Role with name 'admin' already exists",
+          code: 'ROLE_NAME_CONFLICT',
         },
       });
 
@@ -771,9 +772,13 @@ describe('UserManagement Component', () => {
       const submitButton = screen.getByLabelText('ロールを作成');
       await user.click(submitButton);
 
-      // エラーメッセージが表示される
+      // 要件17.2: ロール名の重複の理由が表示される
       await waitFor(() => {
-        expect(screen.getByText('ロール名が重複しています')).toBeInTheDocument();
+        expect(
+          within(screen.getByRole('dialog')).getByText(
+            'ロールの保存に失敗しました。同じ名前のロールが既に存在します'
+          )
+        ).toBeInTheDocument();
       });
     });
   });

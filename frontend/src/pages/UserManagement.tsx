@@ -56,6 +56,71 @@ function isRoleConflictError(error: unknown): boolean {
   return (response as { code?: unknown }).code === 'ROLE_CONFLICT';
 }
 
+/**
+ * ロールの API の失敗の応答の本文（`ApiError.response`）から `code` と `details` を読む
+ *
+ * `ApiError.response` は応答の本文そのもの（`{ error, code, details? }`）で、`data` を持たない。
+ * `isRoleConflictError` と同じく `statusCode` と `response` を直接読む。
+ */
+function readRoleErrorBody(error: unknown): {
+  statusCode: unknown;
+  code: unknown;
+  details: unknown;
+} | null {
+  if (typeof error !== 'object' || error === null) {
+    return null;
+  }
+  const { statusCode, response } = error as { statusCode?: unknown; response?: unknown };
+  if (typeof response !== 'object' || response === null) {
+    return null;
+  }
+  const { code, details } = response as { code?: unknown; details?: unknown };
+  return { statusCode, code, details };
+}
+
+const ROLE_SAVE_FAILED = 'ロールの保存に失敗しました';
+const ROLE_DELETE_FAILED = 'ロール削除に失敗しました';
+
+/**
+ * 要件17.2: ロールの作成・更新の失敗の表示。ロール名の重複（409 `ROLE_NAME_CONFLICT`）は理由を添える
+ */
+function roleSaveFailureMessage(error: unknown): string {
+  const body = readRoleErrorBody(error);
+  if (body?.statusCode === 409 && body.code === 'ROLE_NAME_CONFLICT') {
+    return `${ROLE_SAVE_FAILED}。同じ名前のロールが既に存在します`;
+  }
+  if (body?.statusCode === 404 && body.code === 'ROLE_NOT_FOUND') {
+    return `${ROLE_SAVE_FAILED}。ロールが見つかりません。削除された可能性があります`;
+  }
+  return ROLE_SAVE_FAILED;
+}
+
+/**
+ * 要件17.5 / 17.6: ロールの削除の失敗の表示。使用中（`ROLE_IN_USE`）とシステムロール
+ * （`SYSTEM_ROLE_PROTECTED`）の拒否は理由を添える。使用中は割り当てのユーザー数があれば添える
+ */
+function roleDeleteFailureMessage(error: unknown): string {
+  const body = readRoleErrorBody(error);
+  if (body?.statusCode === 400 && body.code === 'SYSTEM_ROLE_PROTECTED') {
+    return `${ROLE_DELETE_FAILED}。システムロールは削除できません`;
+  }
+  if (body?.statusCode === 400 && body.code === 'ROLE_IN_USE') {
+    const userCount =
+      typeof body.details === 'object' && body.details !== null
+        ? (body.details as { userCount?: unknown }).userCount
+        : undefined;
+    const countSuffix =
+      typeof userCount === 'number' && Number.isInteger(userCount) && userCount > 0
+        ? `（割り当て中のユーザー: ${userCount}人）`
+        : '';
+    return `${ROLE_DELETE_FAILED}。このロールはユーザーに割り当てられているため削除できません${countSuffix}`;
+  }
+  if (body?.statusCode === 404 && body.code === 'ROLE_NOT_FOUND') {
+    return `${ROLE_DELETE_FAILED}。ロールが見つかりません。削除された可能性があります`;
+  }
+  return ROLE_DELETE_FAILED;
+}
+
 export function UserManagement() {
   // タブ選択
   type Tab = 'users' | 'roles' | 'permissions';
@@ -76,6 +141,8 @@ export function UserManagement() {
   const [roleReloading, setRoleReloading] = useState(false);
   // 編集ダイアログの中に出す通知（再読み込みの結果）
   const [roleDialogNotice, setRoleDialogNotice] = useState('');
+  // 要件17.2: ロールの保存（作成・更新）の失敗。ダイアログの前面で理由を読めるようダイアログの中に出す
+  const [roleSaveError, setRoleSaveError] = useState('');
   const [roleName, setRoleName] = useState('');
   const [roleDescription, setRoleDescription] = useState('');
   const [rolePriority, setRolePriority] = useState(50);
@@ -192,6 +259,7 @@ export function UserManagement() {
     setEditingRole(null);
     setRoleConflict(false);
     setRoleDialogNotice('');
+    setRoleSaveError('');
     setRoleName('');
     setRoleDescription('');
     setRolePriority(50);
@@ -208,6 +276,7 @@ export function UserManagement() {
     setRolePriority(role.priority);
     setRoleConflict(false);
     setRoleDialogNotice('');
+    setRoleSaveError('');
     setShowRoleDialog(true);
   };
 
@@ -218,6 +287,7 @@ export function UserManagement() {
     setShowRoleDialog(false);
     setRoleConflict(false);
     setRoleDialogNotice('');
+    setRoleSaveError('');
   };
 
   /**
@@ -226,6 +296,7 @@ export function UserManagement() {
   const handleSaveRole = async () => {
     setMessage('');
     setRoleDialogNotice('');
+    setRoleSaveError('');
 
     if (!roleName.trim()) {
       setMessage('ロール名を入力してください');
@@ -282,9 +353,9 @@ export function UserManagement() {
         setRoleConflict(true);
         return;
       }
-      const error = err as { response?: { data?: { message?: string } } };
-      /* v8 ignore next */
-      setMessage(error?.response?.data?.message || 'ロールの保存に失敗しました');
+      // 要件17.2: 応答の本文の code を読み、ロール名の重複などの理由を表示する。
+      // ページ上部の通知はダイアログの背後に隠れるため、ダイアログを開いたままその中に出す
+      setRoleSaveError(roleSaveFailureMessage(err));
     }
   };
 
@@ -321,12 +392,13 @@ export function UserManagement() {
   /**
    * ロール削除
    */
-  /* v8 ignore start - confirmキャンセル分岐とエラーハンドリング */
+  /* v8 ignore start - confirmキャンセル分岐はJSDOMでテスト困難 */
   const handleDeleteRole = async (roleId: string, roleName: string) => {
     setMessage('');
     if (!confirm(`ロール「${roleName}」を削除してもよろしいですか？`)) {
       return;
     }
+    /* v8 ignore stop */
 
     try {
       await apiClient.delete(`/api/v1/roles/${roleId}`);
@@ -334,11 +406,10 @@ export function UserManagement() {
       await fetchRoles();
       await fetchUsers();
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { message?: string } } };
-      setMessage(error?.response?.data?.message || 'ロール削除に失敗しました');
+      // 要件17.5 / 17.6: 応答の本文の code を読み、使用中・システムロールの拒否の理由を表示する
+      setMessage(roleDeleteFailureMessage(err));
     }
   };
-  /* v8 ignore stop */
 
   /**
    * ロールの権限一覧を取得
@@ -1104,6 +1175,23 @@ export function UserManagement() {
                 >
                   {roleReloading ? '読み込み中...' : '最新の内容を読み込む'}
                 </button>
+              </div>
+            )}
+
+            {/* 要件17.2: ロールの保存の失敗（ロール名の重複などの理由を添える） */}
+            {roleSaveError && (
+              <div
+                role="alert"
+                aria-live="assertive"
+                style={{
+                  marginTop: '1rem',
+                  padding: '0.75rem',
+                  borderRadius: '0.375rem',
+                  backgroundColor: '#fee2e2',
+                  color: '#991b1b',
+                }}
+              >
+                {roleSaveError}
               </div>
             )}
 

@@ -191,7 +191,12 @@ describe('UserManagement - ロール編集の楽観的ロック（要件25.8）'
     await user.click(screen.getByLabelText('ロールを更新'));
 
     await waitFor(() => expect(apiClient.patch).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText('ロールの保存に失敗しました')).toBeInTheDocument();
+    // 要件17.2: 版の競合ではなく、ロール名の重複の理由を表示する（37.3）
+    expect(
+      await within(screen.getByRole('dialog')).findByText(
+        'ロールの保存に失敗しました。同じ名前のロールが既に存在します'
+      )
+    ).toBeInTheDocument();
     expect(screen.queryByTestId('role-conflict')).not.toBeInTheDocument();
   });
 

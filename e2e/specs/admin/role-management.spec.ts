@@ -468,3 +468,240 @@ test.describe('ロール編集の楽観的ロック（要件25.8）', () => {
     expect(await storedDescription()).toBe('2回目の編集');
   });
 });
+
+// ===== ロールの保存・削除の失敗の表示（タスク 37.3） =====
+/**
+ * ロールの保存・削除が API に拒否されたとき、管理画面が応答の本文（`{ error, code, details? }`）の
+ * `code` を読み、拒否の理由を表示することを検証する。
+ *
+ * - 要件17.2: 既存の名前でロールを作成・更新すると 409 ROLE_NAME_CONFLICT となり、ロール名の重複を表示する
+ * - 要件17.5: 使用中のロールの削除は 400 ROLE_IN_USE となり、使用中であることと割り当てのユーザー数を表示する
+ * - 要件17.6: 画面はシステムロールの行に削除のボタンを出さない（画面から削除を送る経路が無い）。
+ *   SYSTEM_ROLE_PROTECTED の応答から表示への対応づけは単体テスト
+ *   （frontend/src/__tests__/pages/UserManagement.role-errors.test.tsx）で検証する
+ *
+ * @requirement user-authentication/REQ-17.2
+ * @requirement user-authentication/REQ-17.5
+ * @requirement user-authentication/REQ-17.6
+ */
+test.describe('ロールの保存・削除の失敗の表示', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  const TARGET_ROLE_NAME = 'Failure Display Role';
+
+  /** POST /api/v1/roles の応答をパスで捉える（オリジンに依存しない） */
+  const isRoleCreate = (request: Request): boolean =>
+    request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/roles';
+  /** PATCH / DELETE /api/v1/roles/:id の応答をパスで捉える */
+  const isRoleItem =
+    (method: 'PATCH' | 'DELETE') =>
+    (request: Request): boolean =>
+      request.method() === method &&
+      /^\/api\/v1\/roles\/[^/]+$/.test(new URL(request.url()).pathname);
+
+  let targetRoleId = '';
+
+  const SAVE_NAME_CONFLICT = 'ロールの保存に失敗しました。同じ名前のロールが既に存在します';
+
+  /**
+   * 要件17.2: 保存の失敗をダイアログの中に、前面で読める形で出していることを確かめる。
+   * toBeVisible は他の要素に覆われていても通るため、表示の中心で最前面の要素が
+   * 表示そのもの（またはその子孫）であること、クリックの試行が遮られないことを確かめる
+   */
+  async function expectSaveFailureInDialog(page: Page): Promise<void> {
+    const dialog = page.getByRole('dialog');
+    const failure = dialog.getByText(SAVE_NAME_CONFLICT, { exact: true });
+    await expect(failure, 'ロール名の重複の理由がダイアログの中に表示されない').toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await expect(failure).toHaveAttribute('role', 'alert');
+    // ページ上部の通知に重ねて出さない
+    await expect(page.getByText(SAVE_NAME_CONFLICT, { exact: true })).toHaveCount(1);
+
+    await failure.scrollIntoViewIfNeeded();
+    const topmostIsFailure = await failure.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return hit !== null && element.contains(hit);
+    });
+    expect(topmostIsFailure, 'ロール名の重複の理由が他の要素に覆われている').toBe(true);
+    await failure.click({ trial: true, timeout: getTimeout(5000) });
+  }
+
+  test.beforeEach(async ({ context }) => {
+    await context.clearCookies();
+    await cleanDatabase();
+    await createTestUser('ADMIN_USER');
+    const role = await getPrismaClient().role.create({
+      data: {
+        name: TARGET_ROLE_NAME,
+        description: '失敗の表示の検証用ロール',
+        priority: 30,
+        isSystem: false,
+      },
+    });
+    targetRoleId = role.id;
+  });
+
+  /** ユーザー管理画面のロールタブを開き、検証用ロールの行が出るまで待つ */
+  async function openRolesTab(page: Page): Promise<void> {
+    await page.goto('/admin/users');
+    await expect(page.getByRole('heading', { name: /ユーザー.*ロール管理/i })).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await page.getByRole('tab', { name: /ロール/i }).click();
+    await expect(page.getByRole('button', { name: `${TARGET_ROLE_NAME}を編集` })).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+  }
+
+  /**
+   * 要件17.2: 既存の名前（システムロール admin）でロールを作成すると、ロール名の重複を表示する
+   * @requirement user-authentication/REQ-17.2
+   */
+  async function createWithExistingName(page: Page): Promise<void> {
+    await loginAsUser(page, 'ADMIN_USER');
+    await openRolesTab(page);
+
+    await page.getByRole('button', { name: '新しいロールを作成' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByText('ロール作成')).toBeVisible({ timeout: getTimeout(5000) });
+    await dialog.getByLabel('ロール名 *').fill('admin');
+
+    const [response] = await Promise.all([
+      page.waitForResponse((res) => isRoleCreate(res.request()), {
+        timeout: getTimeout(15000),
+      }),
+      dialog.getByRole('button', { name: 'ロールを作成', exact: true }).click(),
+    ]);
+    expect(response.status()).toBe(409);
+    expect(((await response.json()) as { code?: string }).code).toBe('ROLE_NAME_CONFLICT');
+
+    await expectSaveFailureInDialog(page);
+    // ダイアログは開いたままで、入力は失われない。版の競合としては表示しない
+    await expect(dialog.getByLabel('ロール名 *')).toHaveValue('admin');
+    await expect(page.getByTestId('role-conflict')).toHaveCount(0);
+    // 同名のロールは増えていない
+    expect(await getPrismaClient().role.count({ where: { name: 'admin' } })).toBe(1);
+  }
+
+  /**
+   * 要件17.2: 既存の名前でロールを作成すると、ロール名の重複をダイアログの前面に表示する
+   * @requirement user-authentication/REQ-17.2
+   */
+  test('既存の名前でロールを作成すると、ロール名の重複を表示する', async ({ page }) => {
+    await createWithExistingName(page);
+  });
+
+  /**
+   * 要件17.2: スマートフォンの幅（375×667）でも、ロール名の重複の理由がダイアログの前面で読める
+   * @requirement user-authentication/REQ-17.2
+   */
+  test('スマートフォンの幅でも、ロールの作成の失敗の理由をダイアログの前面に表示する', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await createWithExistingName(page);
+  });
+
+  /**
+   * 要件17.2: 既存のロールの名前を既存の名前（admin）へ変えて更新すると、ロール名の重複を表示する
+   * @requirement user-authentication/REQ-17.2
+   */
+  test('ロールの名前を既存の名前へ変えて更新すると、ロール名の重複を表示する', async ({ page }) => {
+    await loginAsUser(page, 'ADMIN_USER');
+    await openRolesTab(page);
+
+    await page.getByRole('button', { name: `${TARGET_ROLE_NAME}を編集` }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByText('ロール編集')).toBeVisible({ timeout: getTimeout(5000) });
+    await dialog.getByLabel('ロール名 *').fill('admin');
+
+    const [response] = await Promise.all([
+      page.waitForResponse((res) => isRoleItem('PATCH')(res.request()), {
+        timeout: getTimeout(15000),
+      }),
+      dialog.getByRole('button', { name: 'ロールを更新', exact: true }).click(),
+    ]);
+    expect(response.status()).toBe(409);
+    expect(((await response.json()) as { code?: string }).code).toBe('ROLE_NAME_CONFLICT');
+
+    await expectSaveFailureInDialog(page);
+    await expect(page.getByTestId('role-conflict')).toHaveCount(0);
+    await expect(page.getByText('ロールを更新しました')).toHaveCount(0);
+    // 名前は変わっていない
+    const stored = await getPrismaClient().role.findUnique({
+      where: { id: targetRoleId },
+      select: { name: true },
+    });
+    expect(stored?.name).toBe(TARGET_ROLE_NAME);
+  });
+
+  /**
+   * 要件17.5: ユーザーに割り当てられているロールを削除すると、使用中であることと割り当てのユーザー数を表示する
+   * @requirement user-authentication/REQ-17.5
+   */
+  test('使用中のロールを削除すると、使用中であることと割り当てのユーザー数を表示する', async ({
+    page,
+  }) => {
+    const prisma = getPrismaClient();
+    const admin = await prisma.user.findUniqueOrThrow({
+      where: { email: 'admin@example.com' },
+      select: { id: true },
+    });
+    await prisma.userRole.create({ data: { userId: admin.id, roleId: targetRoleId } });
+
+    await loginAsUser(page, 'ADMIN_USER');
+    await openRolesTab(page);
+
+    // 削除の確認（window.confirm）を受け入れる
+    page.once('dialog', (confirmDialog) => void confirmDialog.accept());
+    const [response] = await Promise.all([
+      page.waitForResponse((res) => isRoleItem('DELETE')(res.request()), {
+        timeout: getTimeout(15000),
+      }),
+      page.getByRole('button', { name: `${TARGET_ROLE_NAME}を削除` }).click(),
+    ]);
+    expect(response.status()).toBe(400);
+    const body = (await response.json()) as { code?: string; details?: { userCount?: number } };
+    expect(body.code).toBe('ROLE_IN_USE');
+    expect(body.details?.userCount).toBe(1);
+
+    await expect(
+      page.getByText(
+        'ロール削除に失敗しました。このロールはユーザーに割り当てられているため削除できません（割り当て中のユーザー: 1人）',
+        { exact: true }
+      ),
+      '使用中の理由が表示されない'
+    ).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(page.getByText('ロールを削除しました')).toHaveCount(0);
+    // ロールは残っている
+    expect(await prisma.role.count({ where: { id: targetRoleId } })).toBe(1);
+  });
+
+  /**
+   * 要件17.6: システムロール（admin）の行には削除のボタンが無く、画面から削除を送れない。
+   * 対照として、同じ一覧のシステムロールでない行には削除のボタンがある
+   * @requirement user-authentication/REQ-17.6
+   */
+  test('システムロールの行には削除のボタンを出さない', async ({ page }) => {
+    await loginAsUser(page, 'ADMIN_USER');
+    await openRolesTab(page);
+
+    const adminEdit = page.getByRole('button', { name: 'adminを編集' });
+    await expect(adminEdit).toBeVisible({ timeout: getTimeout(10000) });
+    const adminRow = page.getByRole('row').filter({ has: adminEdit });
+    await expect(adminRow).toHaveCount(1);
+    await expect(adminRow).toContainText('システム');
+    // 行の操作は編集だけ
+    await expect(adminRow.getByRole('button')).toHaveCount(1);
+
+    const targetRow = page
+      .getByRole('row')
+      .filter({ has: page.getByRole('button', { name: `${TARGET_ROLE_NAME}を編集` }) });
+    await expect(
+      targetRow.getByRole('button', { name: `${TARGET_ROLE_NAME}を削除` })
+    ).toBeVisible();
+    await expect(targetRow.getByRole('button')).toHaveCount(2);
+  });
+});
