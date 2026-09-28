@@ -218,6 +218,12 @@ describe('User Role Routes', () => {
       const response = await request(app).delete(`/api/v1/users/${userId}/roles/${roleId}`);
 
       expect(response.status).toBe(204);
+      // 監査ログ（USER_ROLE_REVOKED）を削除と同じトランザクションで記録させるため、実行者をサービスへ渡す
+      expect(mockUserRoleService.removeRoleFromUser).toHaveBeenCalledWith(
+        userId,
+        roleId,
+        'admin-user-id'
+      );
     });
 
     it('should return 404 when user not found', async () => {

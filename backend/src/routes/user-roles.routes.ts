@@ -284,7 +284,8 @@ router.delete(
     try {
       const { id: userId, roleId } = req.params as { id: string; roleId: string };
 
-      const result = await userRoleService.removeRoleFromUser(userId, roleId);
+      // 監査ログ（USER_ROLE_REVOKED）は紐付けの削除と同じトランザクションで記録される（タスク36.4）
+      const result = await userRoleService.removeRoleFromUser(userId, roleId, req.user?.userId);
 
       if (!result.ok) {
         const error = result.error;

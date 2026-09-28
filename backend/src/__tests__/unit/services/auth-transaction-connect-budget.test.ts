@@ -5,6 +5,7 @@
  * トランザクションの開始が P2028 で打ち切られ、接続のタイムアウト（要件24.1 の 503）として扱えない。
  * - 予算の式（再試行の間隔の総和 + 試行回数 × 接続タイムアウト）と、maxWait = 予算 + 2000ms
  * - 認証系の 4 サービスの対話型トランザクション 7 か所がすべてその maxWait を渡すこと
+ *   （タスク36.4 でロールの作成・更新（版なし）・削除を監査ログと同じトランザクションにした 3 か所を加えた）
  *
  * 実エンドポイントが 503 を返すことは統合検証（auth-transaction-db-connection-timeout-503.integration.test.ts）で確かめる。
  */
@@ -87,7 +88,7 @@ function authService(prisma: PrismaClient): AuthService {
   );
 }
 
-/** 認証系の対話型トランザクション（7 か所）へ到達する呼び出し。[名前, findUnique の戻り値, 呼び出し] */
+/** 認証系の対話型トランザクション（10 か所）へ到達する呼び出し。[名前, findUnique の戻り値, 呼び出し] */
 const cases: Array<[string, unknown, (prisma: PrismaClient) => Promise<unknown>]> = [
   [
     'AuthService.register',
@@ -102,6 +103,21 @@ const cases: Array<[string, unknown, (prisma: PrismaClient) => Promise<unknown>]
         description: 'd',
         expectedUpdatedAt: new Date('2026-09-27T00:00:00.000Z'),
       }),
+  ],
+  [
+    'RoleService.createRole（タスク36.4）',
+    null,
+    (p) => new RoleService(p).createRole({ name: 'r', description: 'd' }, 'actor-1'),
+  ],
+  [
+    'RoleService.updateRole（版なし、タスク36.4）',
+    { id: 'role-1', name: 'r' },
+    (p) => new RoleService(p).updateRole('role-1', { description: 'd' }, 'actor-1'),
+  ],
+  [
+    'RoleService.deleteRole（タスク36.4）',
+    { id: 'role-1', name: 'r', isSystem: false },
+    (p) => new RoleService(p).deleteRole('role-1', 'actor-1'),
   ],
   [
     'RolePermissionService.addPermissionToRole',

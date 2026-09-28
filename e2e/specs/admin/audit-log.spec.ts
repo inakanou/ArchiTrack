@@ -84,6 +84,32 @@ test.describe('監査ログとコンプライアンス', () => {
     });
 
     expect(auditLog).not.toBeNull();
+
+    // タスク36.4: ロールの更新・削除も監査ログ（ROLE_UPDATED / ROLE_DELETED）に記録される
+    const admin = await prisma.user.findUniqueOrThrow({ where: { email: 'admin@example.com' } });
+    const createdRole = await prisma.role.findUniqueOrThrow({ where: { name: 'Audit Test Role' } });
+
+    const updateResponse = await request.patch(`${API_BASE_URL}/api/v1/roles/${createdRole.id}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      data: { description: 'Updated for audit log testing' },
+    });
+    expect(updateResponse.status()).toBe(200);
+    const updatedLog = await prisma.auditLog.findFirst({
+      where: { action: 'ROLE_UPDATED', targetId: createdRole.id },
+    });
+    expect(updatedLog).toMatchObject({ actorId: admin.id, targetType: 'role' });
+    expect(updatedLog?.before).toMatchObject({ description: 'Role for audit log testing' });
+    expect(updatedLog?.after).toMatchObject({ description: 'Updated for audit log testing' });
+
+    const deleteResponse = await request.delete(`${API_BASE_URL}/api/v1/roles/${createdRole.id}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(deleteResponse.status()).toBe(204);
+    const deletedLog = await prisma.auditLog.findFirst({
+      where: { action: 'ROLE_DELETED', targetId: createdRole.id },
+    });
+    expect(deletedLog).toMatchObject({ actorId: admin.id, targetType: 'role', after: null });
+    expect(deletedLog?.before).toMatchObject({ name: 'Audit Test Role' });
   });
 
   /**
@@ -132,6 +158,32 @@ test.describe('監査ログとコンプライアンス', () => {
     // 監査ログが増えたことを確認
     const afterCount = await prisma.auditLog.count();
     expect(afterCount).toBeGreaterThan(beforeCount);
+
+    // タスク36.4: ユーザーからのロールの削除は USER_ROLE_REVOKED を記録する
+    const admin = await prisma.user.findUniqueOrThrow({ where: { email: 'admin@example.com' } });
+    const removeResponse = await request.delete(
+      `${API_BASE_URL}/api/v1/users/${testUser.id}/roles/${newRole.id}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+    expect(removeResponse.status()).toBe(204);
+
+    const revokedLog = await prisma.auditLog.findFirst({
+      where: {
+        action: 'USER_ROLE_REVOKED',
+        targetType: 'user-role',
+        targetId: testUser.id,
+      },
+    });
+    expect(revokedLog).toMatchObject({ actorId: admin.id, after: null });
+    expect(revokedLog?.before).toMatchObject({
+      userId: testUser.id,
+      roleId: newRole.id,
+      roleName: 'Assignment Test Role',
+    });
   });
 
   /**

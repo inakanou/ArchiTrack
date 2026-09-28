@@ -368,6 +368,38 @@ describe('UserRoleService', () => {
       });
     });
 
+    it('ロール削除時に監査ログ（USER_ROLE_REVOKED）を紐付けと同じトランザクションで記録する', async () => {
+      // Arrange
+      const actorId = 'actor-123';
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.userRole.findFirst).mockResolvedValue(mockUserRole);
+      vi.mocked(prismaMock.userRole.delete).mockResolvedValue(mockUserRole);
+
+      // Act
+      const result = await userRoleService.removeRoleFromUser(mockUserId, mockRoleId, actorId);
+
+      // Assert（監査ログは紐付けの削除と同じトランザクションのクライアントで記録する）
+      expect(result).toEqual(Ok(undefined));
+      expect(auditLogServiceMock.createLog).toHaveBeenCalledWith(
+        {
+          action: 'USER_ROLE_REVOKED',
+          actorId,
+          targetType: 'user-role',
+          targetId: mockUserId,
+          before: {
+            userId: mockUserId,
+            userEmail: mockUser.email,
+            roleId: mockRoleId,
+            roleName: mockRole.name,
+          },
+          after: null,
+          metadata: null,
+        },
+        prismaMock
+      );
+    });
+
     it('最後の管理者からadminロールを削除しようとするとLAST_ADMIN_PROTECTEDエラーを返す', async () => {
       // Arrange
       vi.mocked(prismaMock.user.findUnique).mockResolvedValue(mockUser);
@@ -462,6 +494,7 @@ describe('UserRoleService', () => {
       const result = await userRoleService.removeRoleFromUser(
         mockUserId,
         mockAdminRoleId,
+        'actor-123',
         performedBy
       );
 
@@ -503,7 +536,12 @@ describe('UserRoleService', () => {
       emailServiceMock.sendAdminRoleChangedAlert = sendAdminRoleChangedAlertMock;
 
       // Act
-      const result = await userRoleService.removeRoleFromUser(mockUserId, mockRoleId, performedBy);
+      const result = await userRoleService.removeRoleFromUser(
+        mockUserId,
+        mockRoleId,
+        'actor-123',
+        performedBy
+      );
 
       // Assert
       expect(result).toEqual(Ok(undefined));
@@ -542,6 +580,7 @@ describe('UserRoleService', () => {
       const result = await userRoleService.removeRoleFromUser(
         mockUserId,
         mockAdminRoleId,
+        'actor-123',
         performedBy
       );
 

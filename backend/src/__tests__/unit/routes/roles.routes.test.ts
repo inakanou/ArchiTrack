@@ -180,6 +180,8 @@ describe('Role Routes', () => {
         id: 'role-3',
         name: 'Project Manager',
       });
+      // 監査ログ（ROLE_CREATED）を作成と同じトランザクションで記録させるため、実行者をサービスへ渡す
+      expect(mockRoleService.createRole).toHaveBeenCalledWith(newRole, 'admin-user-id');
     });
 
     it('should return 400 when required fields are missing', async () => {
@@ -291,11 +293,15 @@ describe('Role Routes', () => {
           .send({ description: 'Updated' });
 
         expect(response.status).toBe(200);
-        expect(mockRoleService.updateRole).toHaveBeenCalledWith(roleId, {
-          name: undefined,
-          description: 'Updated',
-          priority: undefined,
-        });
+        expect(mockRoleService.updateRole).toHaveBeenCalledWith(
+          roleId,
+          {
+            name: undefined,
+            description: 'Updated',
+            priority: undefined,
+          },
+          'admin-user-id'
+        );
       });
 
       /**
@@ -310,12 +316,16 @@ describe('Role Routes', () => {
 
         expect(response.status).toBe(200);
         expect(response.body.updatedAt).toBe(actual);
-        expect(mockRoleService.updateRole).toHaveBeenCalledWith(roleId, {
-          name: undefined,
-          description: 'Updated',
-          priority: undefined,
-          expectedUpdatedAt: new Date(expected),
-        });
+        expect(mockRoleService.updateRole).toHaveBeenCalledWith(
+          roleId,
+          {
+            name: undefined,
+            description: 'Updated',
+            priority: undefined,
+            expectedUpdatedAt: new Date(expected),
+          },
+          'admin-user-id'
+        );
       });
 
       /**
@@ -384,6 +394,8 @@ describe('Role Routes', () => {
       const response = await request(app).delete(`/api/v1/roles/${roleId}`);
 
       expect(response.status).toBe(204);
+      // 監査ログ（ROLE_DELETED）を削除と同じトランザクションで記録させるため、実行者をサービスへ渡す
+      expect(mockRoleService.deleteRole).toHaveBeenCalledWith(roleId, 'admin-user-id');
     });
 
     it('should return 404 when role not found', async () => {

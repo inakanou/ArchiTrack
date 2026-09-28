@@ -28,20 +28,24 @@ describe('RoleService.updateRole の楽観的ロック', () => {
   let prismaMock: PrismaClient;
   let tx: {
     role: {
+      update: ReturnType<typeof vi.fn>;
       updateMany: ReturnType<typeof vi.fn>;
       findUnique: ReturnType<typeof vi.fn>;
       findUniqueOrThrow: ReturnType<typeof vi.fn>;
     };
+    $queryRaw: ReturnType<typeof vi.fn>;
   };
   let service: RoleService;
 
   beforeEach(() => {
     tx = {
       role: {
+        update: vi.fn(),
         updateMany: vi.fn(),
         findUnique: vi.fn(),
         findUniqueOrThrow: vi.fn(),
       },
+      $queryRaw: vi.fn().mockResolvedValue([role]),
     };
     prismaMock = {
       role: {
@@ -109,15 +113,17 @@ describe('RoleService.updateRole の楽観的ロック', () => {
    * @requirement user-authentication/REQ-25.8
    */
   it('版を与えなければ従来どおり版を比べずに id だけで更新する', async () => {
-    vi.mocked(prismaMock.role.update).mockResolvedValue({ ...role, description: 'new' });
+    tx.role.update.mockResolvedValue({ ...role, description: 'new' });
 
     const result = await service.updateRole(roleId, { description: 'new' });
 
     expect(result.ok).toBe(true);
-    expect(prismaMock.role.update).toHaveBeenCalledWith({
+    // 監査ログと同じトランザクションで更新する（タスク36.4）。版は条件に含めない
+    expect(tx.role.update).toHaveBeenCalledWith({
       where: { id: roleId },
       data: { description: 'new' },
     });
-    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+    expect(tx.role.updateMany).not.toHaveBeenCalled();
+    expect(prismaMock.role.update).not.toHaveBeenCalled();
   });
 });

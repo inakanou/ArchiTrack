@@ -9,6 +9,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { PrismaClient, Role } from '../../../generated/prisma/client.js';
 import { RoleService } from '../../../services/role.service.js';
 import { Err, Ok } from '../../../types/result.js';
+import type { IAuditLogService } from '../../../types/audit-log.types.js';
 
 // モックデータ
 const mockRoleId = 'role-123';
@@ -51,6 +52,10 @@ describe('RoleService', () => {
       userRole: {
         count: vi.fn(),
       },
+      // 変更前の値の行ロックつきの読み出し（版なしの更新）
+      $queryRaw: vi.fn().mockResolvedValue([mockRole]),
+      // 書き込みと監査ログのトランザクション。コールバックへ同じモックをクライアントとして渡す
+      $transaction: vi.fn((callback: (tx: unknown) => Promise<unknown>) => callback(prismaMock)),
     } as unknown as PrismaClient;
 
     roleService = new RoleService(prismaMock);
@@ -520,6 +525,115 @@ describe('RoleService', () => {
           message: 'Database query failed',
         })
       );
+    });
+  });
+  describe('監査ログ（要件22.1）', () => {
+    let auditLogServiceMock: IAuditLogService;
+    let auditedService: RoleService;
+    const actorId = 'actor-123';
+    const snapshot = {
+      id: mockRoleId,
+      name: 'developer',
+      description: '開発者ロール',
+      priority: 50,
+    };
+
+    beforeEach(() => {
+      auditLogServiceMock = {
+        createLog: vi.fn().mockResolvedValue({}),
+        getLogs: vi.fn(),
+        exportLogs: vi.fn(),
+      };
+      auditedService = new RoleService(prismaMock, auditLogServiceMock);
+    });
+
+    it('ロールの作成は ROLE_CREATED を作成と同じトランザクションのクライアントで記録する', async () => {
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(null);
+      vi.mocked(prismaMock.role.create).mockResolvedValue(mockRole);
+
+      const result = await auditedService.createRole(
+        { name: 'developer', description: '開発者ロール', priority: 50 },
+        actorId
+      );
+
+      expect(result.ok).toBe(true);
+      expect(auditLogServiceMock.createLog).toHaveBeenCalledWith(
+        {
+          action: 'ROLE_CREATED',
+          actorId,
+          targetType: 'role',
+          targetId: mockRoleId,
+          before: null,
+          after: snapshot,
+          metadata: null,
+        },
+        prismaMock
+      );
+    });
+
+    it('ロールの更新（版なし）は ROLE_UPDATED を変更前後の値とともに記録する', async () => {
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.role.update).mockResolvedValue({ ...mockRole, priority: 60 });
+
+      const result = await auditedService.updateRole(mockRoleId, { priority: 60 }, actorId);
+
+      expect(result.ok).toBe(true);
+      expect(auditLogServiceMock.createLog).toHaveBeenCalledWith(
+        {
+          action: 'ROLE_UPDATED',
+          actorId,
+          targetType: 'role',
+          targetId: mockRoleId,
+          before: snapshot,
+          after: { ...snapshot, priority: 60 },
+          metadata: null,
+        },
+        prismaMock
+      );
+    });
+
+    it('ロールの削除は ROLE_DELETED を削除前の値とともに記録する', async () => {
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.userRole.count).mockResolvedValue(0);
+      vi.mocked(prismaMock.role.delete).mockResolvedValue(mockRole);
+
+      const result = await auditedService.deleteRole(mockRoleId, actorId);
+
+      expect(result).toEqual(Ok(undefined));
+      expect(auditLogServiceMock.createLog).toHaveBeenCalledWith(
+        {
+          action: 'ROLE_DELETED',
+          actorId,
+          targetType: 'role',
+          targetId: mockRoleId,
+          before: snapshot,
+          after: null,
+          metadata: null,
+        },
+        prismaMock
+      );
+    });
+
+    it('監査ログの記録に失敗すると DATABASE_ERROR を返す', async () => {
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.userRole.count).mockResolvedValue(0);
+      vi.mocked(prismaMock.role.delete).mockResolvedValue(mockRole);
+      vi.mocked(auditLogServiceMock.createLog).mockRejectedValue(new Error('audit write failed'));
+
+      const result = await auditedService.deleteRole(mockRoleId, actorId);
+
+      expect(result).toEqual(Err({ type: 'DATABASE_ERROR', message: 'audit write failed' }));
+    });
+
+    it('実行者が無ければ監査ログを記録しない', async () => {
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.userRole.count).mockResolvedValue(0);
+      vi.mocked(prismaMock.role.delete).mockResolvedValue(mockRole);
+
+      const result = await auditedService.deleteRole(mockRoleId);
+
+      expect(result).toEqual(Ok(undefined));
+      expect(auditLogServiceMock.createLog).not.toHaveBeenCalled();
     });
   });
 });

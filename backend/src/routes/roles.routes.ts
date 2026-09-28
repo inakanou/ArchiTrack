@@ -26,7 +26,8 @@ const prisma = getPrismaClient();
 // モジュールの読み込みの時点では Redis は未初期化のため、クライアントは呼び出しの時点で解決される
 const rbacService = getSharedRBACService();
 const auditLogService = new AuditLogService({ prisma });
-const roleService = new RoleService(prisma);
+// ロールの作成・更新・削除は書き込みと監査ログを同じトランザクションで記録する（タスク36.4）
+const roleService = new RoleService(prisma, auditLogService);
 const rolePermissionService = new RolePermissionService(prisma, rbacService, auditLogService);
 
 // Zodバリデーションスキーマ
@@ -126,11 +127,15 @@ router.post(
     try {
       const { name, description, priority } = req.body;
 
-      const result = await roleService.createRole({
-        name,
-        description,
-        priority,
-      });
+      // 監査ログ（ROLE_CREATED）はロールの作成と同じトランザクションで記録される
+      const result = await roleService.createRole(
+        {
+          name,
+          description,
+          priority,
+        },
+        req.user?.userId
+      );
 
       if (!result.ok) {
         const error = result.error;
@@ -143,22 +148,6 @@ router.post(
         }
         res.status(500).json({ error: 'Failed to create role', details: error });
         return;
-      }
-
-      // 監査ログ記録
-      if (req.user?.userId) {
-        await auditLogService.createLog({
-          action: 'ROLE_CREATED',
-          actorId: req.user.userId,
-          targetType: 'role',
-          targetId: result.value.id,
-          before: null,
-          after: {
-            id: result.value.id,
-            name: result.value.name,
-            description: result.value.description,
-          },
-        });
       }
 
       logger.info(
@@ -236,15 +225,20 @@ router.patch(
         expectedUpdatedAt?: string;
       };
 
-      const result = await roleService.updateRole(roleId, {
-        name,
-        description,
-        priority,
-        // 楽観的ロックの版は任意。送られたときだけ条件付きの更新になる
-        ...(expectedUpdatedAt !== undefined && {
-          expectedUpdatedAt: new Date(expectedUpdatedAt),
-        }),
-      });
+      // 監査ログ（ROLE_UPDATED）はロールの更新と同じトランザクションで記録される
+      const result = await roleService.updateRole(
+        roleId,
+        {
+          name,
+          description,
+          priority,
+          // 楽観的ロックの版は任意。送られたときだけ条件付きの更新になる
+          ...(expectedUpdatedAt !== undefined && {
+            expectedUpdatedAt: new Date(expectedUpdatedAt),
+          }),
+        },
+        req.user?.userId
+      );
 
       if (!result.ok) {
         const error = result.error;
@@ -326,7 +320,8 @@ router.delete(
     try {
       const { id: roleId } = req.params as { id: string };
 
-      const result = await roleService.deleteRole(roleId);
+      // 監査ログ（ROLE_DELETED）はロールの削除と同じトランザクションで記録される
+      const result = await roleService.deleteRole(roleId, req.user?.userId);
 
       if (!result.ok) {
         const error = result.error;

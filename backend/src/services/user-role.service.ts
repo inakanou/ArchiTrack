@@ -107,15 +107,17 @@ export class UserRoleService implements IUserRoleService {
    *
    * @param userId - ユーザーID
    * @param roleId - ロールID
+   * @param actorId - 実行者ユーザーID（監査ログ用、オプション）
    * @param performedBy - 実行者情報（アラート用、オプション）
    * @returns 成功またはエラー
    */
   async removeRoleFromUser(
     userId: string,
     roleId: string,
+    actorId?: string,
     performedBy?: PerformedBy
   ): Promise<Result<void, UserRoleError>> {
-    return this.removeRoles(userId, [roleId], performedBy);
+    return this.removeRoles(userId, [roleId], actorId, performedBy);
   }
 
   /**
@@ -204,20 +206,23 @@ export class UserRoleService implements IUserRoleService {
   /**
    * 複数のロールを一括でユーザーから削除（トランザクション）
    *
-   * 全ロールの削除を一つのトランザクションで行う。途中で1件でも失敗すれば全件をロールバックする。
+   * 全ロールの削除と監査ログを一つのトランザクションで行う。途中で1件でも失敗
+   * （書き込みや監査ログの失敗を含む）すれば全件をロールバックする。
    * 最後の管理者の保護はトランザクション内の件数で判定するため、一括削除の途中の削除も数に入る。
    *
    * @param userId - ユーザーID
    * @param roleIds - ロールIDの配列
+   * @param actorId - 実行者ユーザーID（監査ログ用、オプション）
    * @param performedBy - 実行者情報（アラート用、オプション）
    * @returns 成功またはエラー
    */
   async removeRolesFromUser(
     userId: string,
     roleIds: string[],
+    actorId?: string,
     performedBy?: PerformedBy
   ): Promise<Result<void, UserRoleError>> {
-    const result = await this.removeRoles(userId, roleIds, performedBy);
+    const result = await this.removeRoles(userId, roleIds, actorId, performedBy);
     if (result.ok) {
       logger.info({ userId, count: roleIds.length }, 'Roles removed from user in bulk');
     }
@@ -264,6 +269,7 @@ export class UserRoleService implements IUserRoleService {
   private async removeRoles(
     userId: string,
     roleIds: string[],
+    actorId?: string,
     performedBy?: PerformedBy
   ): Promise<Result<void, UserRoleError>> {
     try {
@@ -281,7 +287,7 @@ export class UserRoleService implements IUserRoleService {
 
         const results: UserRoleChange[] = [];
         for (const roleId of roleIds) {
-          results.push(await this.removeRoleInTransaction(tx, userId, roleId));
+          results.push(await this.removeRoleInTransaction(tx, userId, roleId, actorId));
         }
         return results;
       }, connectBudgetTransactionOptions());
@@ -379,12 +385,13 @@ export class UserRoleService implements IUserRoleService {
   }
 
   /**
-   * トランザクション内でロールを1件削除する
+   * トランザクション内でロールを1件削除し、監査ログを同じトランザクションで記録する
    */
   private async removeRoleInTransaction(
     tx: Prisma.TransactionClient,
     userId: string,
-    roleId: string
+    roleId: string,
+    actorId?: string
   ): Promise<UserRoleChange> {
     // ユーザーの存在チェック (optimized: only fetch necessary fields)
     const user = await tx.user.findUnique({
@@ -439,6 +446,27 @@ export class UserRoleService implements IUserRoleService {
     await tx.userRole.delete({
       where: { id: userRole.id },
     });
+
+    // 監査ログ記録（同じトランザクション。失敗すれば紐付けの削除もロールバックされる）
+    if (this.auditLogService && actorId) {
+      await this.auditLogService.createLog(
+        {
+          action: 'USER_ROLE_REVOKED',
+          actorId,
+          targetType: 'user-role',
+          targetId: userId,
+          before: {
+            userId,
+            userEmail: user.email,
+            roleId,
+            roleName: role.name,
+          },
+          after: null,
+          metadata: null,
+        },
+        tx
+      );
+    }
 
     logger.info(
       { userId, roleId, userEmail: user.email, roleName: role.name },
