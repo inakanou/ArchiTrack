@@ -120,7 +120,7 @@ export class PermissionService implements IPermissionService {
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
-      logger.error({ error, input }, 'Failed to create permission');
+      logger.error({ err: error, input }, 'Failed to create permission');
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -162,7 +162,7 @@ export class PermissionService implements IPermissionService {
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
-      logger.error({ error, permissionId }, 'Failed to get permission');
+      logger.error({ err: error, permissionId }, 'Failed to get permission');
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -229,7 +229,7 @@ export class PermissionService implements IPermissionService {
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
-      logger.error({ error, permissionId }, 'Failed to delete permission');
+      logger.error({ err: error, permissionId }, 'Failed to delete permission');
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',

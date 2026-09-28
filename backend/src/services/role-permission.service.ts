@@ -139,7 +139,7 @@ export class RolePermissionService implements IRolePermissionService {
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
-      logger.error({ error, roleId }, 'Failed to get role permissions');
+      logger.error({ err: error, roleId }, 'Failed to get role permissions');
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -219,7 +219,7 @@ export class RolePermissionService implements IRolePermissionService {
       if (error instanceof RolePermissionRollback) {
         return Err(error.error);
       }
-      logger.error({ error, roleId, permissionIds }, 'Failed to add permission to role');
+      logger.error({ err: error, roleId, permissionIds }, 'Failed to add permission to role');
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -251,7 +251,7 @@ export class RolePermissionService implements IRolePermissionService {
       if (error instanceof RolePermissionRollback) {
         return Err(error.error);
       }
-      logger.error({ error, roleId, permissionIds }, 'Failed to remove permission from role');
+      logger.error({ err: error, roleId, permissionIds }, 'Failed to remove permission from role');
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',

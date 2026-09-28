@@ -2,6 +2,8 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
+_最終更新: 2026-09-28（Steering Sync: user-authentication のタスク36.8。backend の `utils/` のツリーに、DB 接続障害の扱いを担う二つのモジュール（再試行の予算と対話型トランザクションの `maxWait`、接続のタイムアウトの判定と投げ直し）を加え、「主要ファイルの説明」の `db.ts`（`RetryingPool`）とエラーハンドラー（P1008 を含む接続のタイムアウトの 503）へ注記を足した。層ごとの規約は `.kiro/steering/tech.md` の「接続障害への耐性」節に一本化した）_
+
 _最終更新: 2026-09-25（Steering Sync: quantity-table-generation のタスク 97.14。数量表コンポーネントのツリーとストーリーの列挙から、本番の経路から到達しない一部品（写真変更ダイアログ）の行を外した。同部品は同タスクで撤去した——本番コードからの取り込みは0件で、撤去を阻んでいた site-survey の設計文書の名指しは同スペックの Task 115.326 が解いた。下の 2026-09-14 の項が「残置とした」「本書の列挙は残す」と書くのは当時の記録である）_
 
 _最終更新: 2026-09-25（Steering Sync: quantity-table-generation のタスク 89.1 の続き。数量表コンポーネントのツリーとストーリーの列挙から、本番の経路から到達しない一部品（バリデーション付き項目行）の行を外した。同部品は同タスクで撤去した——本番コードからの取り込みは0件で、撤去を阻んでいた site-survey 側の二つの依存は同スペックの Task 115.325 が解いた。下の 2026-09-12 の項が「残置であり、本書の列挙も残す」と書くのは当時の記録である）_
@@ -1053,6 +1055,8 @@ backend/
 │   │   ├── logger.ts      # Pinoロガー設定（Railway環境対応、pino-pretty統合）
 │   │   ├── sentry.ts      # Sentryエラートラッキング
 │   │   ├── cache.ts       # キャッシュユーティリティ
+│   │   ├── db-connect-budget.ts # DB 接続の再試行の間隔・予算と対話型トランザクションの maxWait
+│   │   ├── db-connection-timeout.ts # DB 接続のタイムアウトの判定と投げ直し（503 へ届ける）
 │   │   ├── controller-helpers.ts # コントローラーヘルパー
 │   │   ├── result-mapper.ts # Result型マッパー
 │   │   ├── kana-converter.ts # かな変換ユーティリティ
@@ -1113,9 +1117,11 @@ backend/src/
 - `performance/health-check.perf.ts`: autocannonを使用したヘルスチェックエンドポイントの負荷テスト（目標: <100ms、>1000req/s）
 - `performance/autocannon.d.ts`: autocannonライブラリのカスタム型定義ファイル（TypeScript型安全性）
 - `db.ts`: Prisma 7 Driver Adapter Patternによる接続管理。`@prisma/adapter-pg`と`PrismaPg`を使用し、lazy initializationにより初回アクセス時に接続確立。Prisma Clientは`./generated/prisma/client.js`からインポート
+  - 接続の確立のタイムアウトだけを再試行する `RetryingPool` を `PrismaPg` へ渡す。再試行の間隔と予算は `utils/db-connect-budget.ts`、タイムアウトの判定は `utils/db-connection-timeout.ts` に置く（`db.ts` は多くの単体検証で丸ごとモックされるため、サービスやエラーハンドラーが使う関数は `db.ts` に依存しないモジュールに置き、`db.ts` は再輸出する）。層ごとの扱いは `.kiro/steering/tech.md` の「接続障害への耐性」節を参照
 - `redis.ts`: Redisクライアントのlazy initialization実装。初回アクセス時に接続確立
 - `errors/apiError.ts`: カスタムAPIエラークラス。BadRequestError、ValidationError等を提供
 - `middleware/errorHandler.middleware.ts`: グローバルエラーハンドラー。Zod、Prisma、一般エラーを統一的に処理
+  - DB 接続のタイムアウト（Prisma の P1008 を含む）は Prisma の既知のエラーの分岐より前で判定し、503 の Problem Details を返す
 - `middleware/httpsRedirect.middleware.ts`: 本番環境でHTTPSへの強制リダイレクトとHSTSヘッダー設定
 - `middleware/validate.middleware.ts`: Zodスキーマによるリクエストバリデーション（body/query/params）
 - `routes/admin.routes.ts`: 管理者用ルート（ログレベル動的変更）。Swagger JSDocコメント付き

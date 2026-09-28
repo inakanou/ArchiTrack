@@ -2,6 +2,8 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
+_最終更新: 2026-09-28（Steering Sync: user-authentication のタスク36.8。スペック横断で効く DB 接続障害の扱い——接続の取得だけを再試行する `RetryingPool`（タスク35.2 / 35.9）、P1008 を含む接続のタイムアウトの 503（35.8）、サービスの投げ直し（35.11）、対話型トランザクションの `maxWait`（35.12）、`requirePermission` の 503 と共有の RBACService（35.13 / 36.2）、pino の `err` キー（36.8）——が steering に無かったため、「データベース・キャッシュ」節へ「接続障害への耐性」を追加した）_
+
 _最終更新: 2026-09-09（Steering Sync: `/kiro-steering`。「CI/CD」節の二つの列挙が実体から離れていた。(1)「主要ジョブ」の 7 件の列挙に対し `.github/workflows/ci.yml` が定義するジョブは 18 件で、欠けていた 11 件のうち 9 件はスペックと steering の関門ジョブ（`requirement-coverage`・`requirement-exclusions-schema`・`criterion-literal-presence`・`e2e-assertion-guard`・`design-reference-format`・`e2e-in-page-selfjudgement`・`counterfactual-evidence`・`dead-script-env`）と `test-storybook` であった。(2)「監視対象エコシステム（5つ、計85依存関係）」の内訳 7／42／36 に対し実測は root 24・backend 77・frontend 52（計 153）、`5 actions` に対し実測 6、`2 images` に対し実測 3 である（コミット `faa54052`、2026-09-09 にリポジトリルートで実測）。いずれも値を書き換える形は採らず、タスク 115.286 が「Pre-pushフック」節へ掛けた規約 (b)（列挙・数値を落として読み出す手段を書く）を同じ形で当てた。この二箇所が陳腐化したまま残っていたのは、`npm run check:steering-dir-counts` の走査対象が `structure.md` と `product.md` の二件で、本書は誤検出 1 件を避けるため所管の外に置かれているためである（`scripts/check-steering-dir-counts.ts` 冒頭の記述）。本書を所管へ加える案は今回は採っていない——「推奨事項」として起票のみ）_
 
 _最終更新: 2026-09-05（Steering Sync: タスク 115.288。「ES Module Validation」節が frontend 側にも同名の検証スクリプトが在るかのように書いていたが、`frontend/package.json` に `validate:esm` は無い。実測: 実際に叩くと `npm error Missing script: "validate:esm"` を出して終了コード 1 で終わり、`git log --all -S 'validate:esm' -- frontend/package.json` は空である（一度も存在したことがない）。frontend 側の記述を撤去し、併せて backend の `validate:esm` の実体——ビルドと、出力された `.js` を一つずつ `node --check` へ通すこと——へ節の散文を揃えた。同型の食い違いを機械で捕らえるため、steering の述べる検証の実行方法と実挙動の一致を見る関門 `check:steering-command-annotations` を新設し、押下前の関門と統合の両方へ算入した。見るのは `missing-script`（名指した npm スクリプトの実在）・`overclaimed-scope` と `underclaimed-scope`（全件／一部だけの主張と vitest の構成から導いた選択範囲の突き合わせ）・`divergent-executor`（同じ資材を名指す起動コマンドが一つの実行器を名乗ること）の四種である（コミット `511000a7`、2026-09-05 にリポジトリルートで実測））_
@@ -288,6 +290,17 @@ ArchiTrack/
 - **用途**: キャッシュ・セッション管理
 - **接続方式**: ioredisクライアントライブラリ経由
 - **ヘルスチェック**: `redis-cli ping`コマンド
+
+### 接続障害への耐性（backend 全体に効く規約）
+
+DB 接続の障害は、層ごとに次の形で扱う。個々のサービス・ルートに独自の再試行や状態コードの変換を書かない。
+
+- **接続の取得だけを再試行する**: `backend/src/db.ts` の `RetryingPool`（`pg.Pool` の派生）を `PrismaPg` へ渡し、接続の確立がタイムアウトしたとき（`ETIMEDOUT`・pg-pool のタイムアウト文言）に限って再試行する。間隔は `dbConnectRetryDelaysMs()`（`backend/src/utils/db-connect-budget.ts`）が 1000 × 2^(n−1) ms で求める。回数は `DATABASE_RETRY_COUNT`（既定 3、0〜10）、1 回の試行の上限は `DATABASE_CONNECTION_TIMEOUT`（既定 5000ms）で、検証は `backend/src/config/env.ts` の解析関数に一本化する。SQL の実行は再試行しない（送信前に失敗した接続だけを対象にするため、書き込みが二重にならない）
+- **接続のタイムアウトは 503**: 判定は `backend/src/utils/db-connection-timeout.ts` の `isDatabaseConnectionTimeout()`（再試行を使い切った pg-pool のタイムアウトと Prisma の P1008）ひとつに置く。エラーハンドラー（`backend/src/middleware/errorHandler.middleware.ts`）は Prisma の既知のエラーの分岐より**前**でこれを判定し、503 の Problem Details を返す（P1008 を 400「Database Error」にしない）
+- **サービスは接続のタイムアウトを飲み込まない**: DB 例外を `DATABASE_ERROR` などの Result へ変える catch の先頭で `rethrowIfDatabaseConnectionTimeout()` を呼び、ルートの `next(error)` からエラーハンドラーの 503 へ届ける。それ以外の DB 例外の扱いは変えない
+- **対話型トランザクションは接続の予算を待つ**: 認証系のサービスの `$transaction(async (tx) => …)` には `connectBudgetTransactionOptions()` を渡す。`maxWait` を「再試行の予算 + Prisma の既定 2000ms」にし、開始の待ちが先に切れて原因を持たない P2028 になるのを避ける
+- **権限の確認も同じ経路へ**: `backend/src/middleware/authorize.middleware.ts` の `requirePermission()` は、接続のタイムアウトを自前の 500 にせず `next(error)` でエラーハンドラーの 503 へ渡す。権限の取得は `getSharedRBACService()`（`backend/src/services/rbac.service.ts`）が返す共有の `RBACService` を使い、Redis の権限キャッシュとロール・権限の変更時の無効化が同じインスタンスを読み書きする。Redis が `ready` でないときはキャッシュを使わず DB から取得する
+- **ログのキーは `err`**: Error をログへ載せるときは pino の `err` キーを使う（`logger.error({ err: error, … }, …)`）。`backend/src/utils/logger.ts` のシリアライザは `err` にだけ効き、`error` などの別のキーに載せた Error は本番の JSON で `{}` になり message と stack が失われる
 
 ## 単体テスト
 

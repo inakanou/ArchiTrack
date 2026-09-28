@@ -156,7 +156,7 @@ export class RoleService implements IRoleService {
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
-      logger.error({ error, input }, 'Failed to create role');
+      logger.error({ err: error, input }, 'Failed to create role');
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -292,7 +292,7 @@ export class RoleService implements IRoleService {
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
-      logger.error({ error, roleId, input }, 'Failed to update role');
+      logger.error({ err: error, roleId, input }, 'Failed to update role');
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -355,7 +355,7 @@ export class RoleService implements IRoleService {
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
-      logger.error({ error, roleId }, 'Failed to delete role');
+      logger.error({ err: error, roleId }, 'Failed to delete role');
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -430,7 +430,7 @@ export class RoleService implements IRoleService {
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
-      logger.error({ error, roleId }, 'Failed to get role');
+      logger.error({ err: error, roleId }, 'Failed to get role');
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',

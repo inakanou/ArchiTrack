@@ -139,7 +139,7 @@ export class TwoFactorService implements ITwoFactorService {
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
-      logger.error({ error, userId }, '2FA設定開始中にエラーが発生しました');
+      logger.error({ err: error, userId }, '2FA設定開始中にエラーが発生しました');
       return Err({ type: 'USER_NOT_FOUND' });
     }
   }
@@ -236,7 +236,7 @@ export class TwoFactorService implements ITwoFactorService {
       logger.debug('TOTP秘密鍵を暗号化しました');
       return result;
     } catch (error) {
-      logger.error({ error }, 'TOTP秘密鍵の暗号化に失敗しました');
+      logger.error({ err: error }, 'TOTP秘密鍵の暗号化に失敗しました');
       throw new Error('秘密鍵の暗号化に失敗しました');
     }
   }
@@ -280,7 +280,7 @@ export class TwoFactorService implements ITwoFactorService {
       logger.debug('TOTP秘密鍵を復号化しました');
       return decrypted;
     } catch (error) {
-      logger.error({ error }, 'TOTP秘密鍵の復号化に失敗しました');
+      logger.error({ err: error }, 'TOTP秘密鍵の復号化に失敗しました');
       throw new Error('秘密鍵の復号化に失敗しました');
     }
   }
@@ -306,7 +306,7 @@ export class TwoFactorService implements ITwoFactorService {
       logger.debug({ email }, 'QRコードを生成しました');
       return qrCodeDataUrl;
     } catch (error) {
-      logger.error({ error, email }, 'QRコード生成に失敗しました');
+      logger.error({ err: error, email }, 'QRコード生成に失敗しました');
       throw new Error('QRコード生成に失敗しました');
     }
   }
@@ -390,7 +390,7 @@ export class TwoFactorService implements ITwoFactorService {
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
-      logger.error({ error, userId }, 'TOTP検証中にエラーが発生しました');
+      logger.error({ err: error, userId }, 'TOTP検証中にエラーが発生しました');
       return Err({ type: 'INVALID_TOTP_CODE' });
     }
   }
@@ -475,7 +475,7 @@ export class TwoFactorService implements ITwoFactorService {
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
-      logger.error({ error, userId }, 'バックアップコード検証中にエラーが発生しました');
+      logger.error({ err: error, userId }, 'バックアップコード検証中にエラーが発生しました');
       return Err({ type: 'INVALID_BACKUP_CODE' });
     }
   }
@@ -589,7 +589,7 @@ export class TwoFactorService implements ITwoFactorService {
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
-      logger.error({ error, userId }, '2FA有効化中にエラーが発生しました');
+      logger.error({ err: error, userId }, '2FA有効化中にエラーが発生しました');
       return Err({ type: 'INVALID_TOTP_CODE' });
     }
   }
@@ -660,7 +660,7 @@ export class TwoFactorService implements ITwoFactorService {
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
-      logger.error({ error, userId }, '2FA無効化中にエラーが発生しました');
+      logger.error({ err: error, userId }, '2FA無効化中にエラーが発生しました');
       return Err({ type: 'INVALID_PASSWORD' });
     }
   }
@@ -719,7 +719,10 @@ export class TwoFactorService implements ITwoFactorService {
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
-      logger.error({ error, userId }, 'バックアップコードステータス取得中にエラーが発生しました');
+      logger.error(
+        { err: error, userId },
+        'バックアップコードステータス取得中にエラーが発生しました'
+      );
       return Err({ type: 'USER_NOT_FOUND' });
     }
   }
@@ -778,7 +781,7 @@ export class TwoFactorService implements ITwoFactorService {
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
-      logger.error({ error, userId }, 'バックアップコード再生成中にエラーが発生しました');
+      logger.error({ err: error, userId }, 'バックアップコード再生成中にエラーが発生しました');
       return Err({ type: 'USER_NOT_FOUND' });
     }
   }

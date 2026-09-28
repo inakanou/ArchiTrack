@@ -170,7 +170,7 @@ export class UserRoleService implements IUserRoleService {
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
-      logger.error({ error, userId }, 'Failed to get user roles');
+      logger.error({ err: error, userId }, 'Failed to get user roles');
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -255,7 +255,7 @@ export class UserRoleService implements IUserRoleService {
       if (error instanceof UserRoleRollback) {
         return Err(error.error);
       }
-      logger.error({ error, userId, roleIds }, 'Failed to add role to user');
+      logger.error({ err: error, userId, roleIds }, 'Failed to add role to user');
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -300,7 +300,7 @@ export class UserRoleService implements IUserRoleService {
       if (error instanceof UserRoleRollback) {
         return Err(error.error);
       }
-      logger.error({ error, userId, roleIds }, 'Failed to remove role from user');
+      logger.error({ err: error, userId, roleIds }, 'Failed to remove role from user');
       return Err({
         type: 'DATABASE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',

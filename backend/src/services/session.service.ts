@@ -64,7 +64,7 @@ export class SessionService implements ISessionService {
 
       return `${browserName} on ${osName}`;
     } catch (error) {
-      logger.warn({ error, userAgent }, 'Failed to parse User-Agent');
+      logger.warn({ err: error, userAgent }, 'Failed to parse User-Agent');
       return userAgent; // パース失敗時は元の文字列を返す
     }
   }
