@@ -33,6 +33,17 @@ type RoleAuditSnapshot = {
 };
 
 /**
+ * ロールの削除を途中で打ち切り、トランザクションをロールバックさせるための合図。
+ * 業務上のエラー（使用中など）を運ぶ。$transaction の外で Err へ戻す。
+ */
+class RoleRollback extends Error {
+  constructor(readonly error: RoleError) {
+    super(`Role change rolled back: ${error.type}`);
+    this.name = 'RoleRollback';
+  }
+}
+
+/**
  * ロール管理サービスの実装
  *
  * ロールの作成・更新・削除は、書き込みと監査ログ（ROLE_CREATED / ROLE_UPDATED / ROLE_DELETED）を
@@ -314,47 +325,63 @@ export class RoleService implements IRoleService {
    */
   async deleteRole(roleId: string, actorId?: string): Promise<Result<void, RoleError>> {
     try {
-      // Check role existence (optimized: only fetch necessary fields)
-      const existingRole = await this.prisma.role.findUnique({
-        where: { id: roleId },
-        select: { id: true, name: true, isSystem: true },
-      });
+      // 使用中の確認と削除を同じトランザクションで行い、並行する割り当てと直列化する（タスク37.1）
+      const deletedName = await this.prisma.$transaction(async (tx) => {
+        // Check role existence (optimized: only fetch necessary fields)
+        const existingRole = await tx.role.findUnique({
+          where: { id: roleId },
+          select: { id: true, name: true, isSystem: true },
+        });
 
-      if (!existingRole) {
-        logger.warn({ roleId }, 'Role not found');
-        return Err({ type: 'ROLE_NOT_FOUND' });
-      }
+        if (!existingRole) {
+          logger.warn({ roleId }, 'Role not found');
+          throw new RoleRollback({ type: 'ROLE_NOT_FOUND' });
+        }
 
-      // Protect system roles
-      if (existingRole.isSystem) {
-        logger.warn({ roleId, name: existingRole.name }, 'Cannot delete system role');
-        return Err({ type: 'SYSTEM_ROLE_PROTECTED' });
-      }
+        // Protect system roles（isSystem は作成後に変わらないため、ロックの前に判定してよい）
+        if (existingRole.isSystem) {
+          logger.warn({ roleId, name: existingRole.name }, 'Cannot delete system role');
+          throw new RoleRollback({ type: 'SYSTEM_ROLE_PROTECTED' });
+        }
 
-      // 使用中チェック（ユーザーに割り当てられているか）
-      const userCount = await this.prisma.userRole.count({
-        where: { roleId },
-      });
+        // ロールの行を FOR UPDATE でロックしてから数える。割り当て（user_roles への INSERT）は
+        // ロールの行に FOR KEY SHARE を取るため、ロックの後に新しい割り当ては入らず、
+        // ロックの前から未コミットの割り当てがあればそのコミット（またはロールバック）まで待つ
+        const locked = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM roles WHERE id = ${roleId} FOR UPDATE`;
+        if (locked.length === 0) {
+          // 確認とロックの間に他の要求が削除した
+          logger.warn({ roleId }, 'Role not found');
+          throw new RoleRollback({ type: 'ROLE_NOT_FOUND' });
+        }
 
-      if (userCount > 0) {
-        logger.warn({ roleId, name: existingRole.name, userCount }, 'Cannot delete role in use');
-        return Err({ type: 'ROLE_IN_USE', userCount });
-      }
+        // 使用中チェック（ユーザーに割り当てられているか）。待ちが明けた後の文は新しいスナップショットで読む
+        const userCount = await tx.userRole.count({
+          where: { roleId },
+        });
 
-      // ロール削除と監査ログを同じトランザクションで記録する
-      await this.prisma.$transaction(async (tx) => {
+        if (userCount > 0) {
+          logger.warn({ roleId, name: existingRole.name, userCount }, 'Cannot delete role in use');
+          throw new RoleRollback({ type: 'ROLE_IN_USE', userCount });
+        }
+
+        // ロール削除と監査ログを同じトランザクションで記録する
         const deleted = await tx.role.delete({
           where: { id: roleId },
         });
         await this.recordAuditLog(tx, 'ROLE_DELETED', roleId, deleted, null, actorId);
+        return existingRole.name;
       }, connectBudgetTransactionOptions());
 
-      logger.info({ roleId, name: existingRole.name }, 'Role deleted successfully');
+      logger.info({ roleId, name: deletedName }, 'Role deleted successfully');
 
       return Ok(undefined);
     } catch (error) {
       // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
       rethrowIfDatabaseConnectionTimeout(error);
+      if (error instanceof RoleRollback) {
+        return Err(error.error);
+      }
       logger.error({ err: error, roleId }, 'Failed to delete role');
       return Err({
         type: 'DATABASE_ERROR',

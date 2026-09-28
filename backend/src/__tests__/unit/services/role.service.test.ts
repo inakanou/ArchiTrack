@@ -366,6 +366,27 @@ describe('RoleService', () => {
       expect(prismaMock.role.delete).toHaveBeenCalledWith({
         where: { id: mockRoleId },
       });
+      // 使用中の件数を数える前に、同じトランザクションでロールの行を FOR UPDATE でロックしている（タスク37.1）
+      const lock = vi.mocked(prismaMock.$queryRaw);
+      expect(lock).toHaveBeenCalledTimes(1);
+      expect((lock.mock.calls[0]![0] as unknown as TemplateStringsArray).join('?')).toMatch(
+        /FROM roles WHERE id = \? FOR UPDATE/
+      );
+      expect(lock.mock.calls[0]![1]).toBe(mockRoleId);
+      expect(lock.mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(prismaMock.userRole.count).mock.invocationCallOrder[0]!
+      );
+    });
+
+    it('ロックの時点でロールが削除されていればROLE_NOT_FOUNDを返す', async () => {
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockRole);
+      vi.mocked(prismaMock.$queryRaw).mockResolvedValue([]);
+
+      const result = await roleService.deleteRole(mockRoleId);
+
+      expect(result).toEqual(Err({ type: 'ROLE_NOT_FOUND' }));
+      expect(prismaMock.userRole.count).not.toHaveBeenCalled();
+      expect(prismaMock.role.delete).not.toHaveBeenCalled();
     });
 
     it('システムロールの削除はSYSTEM_ROLE_PROTECTEDエラーを返す', async () => {

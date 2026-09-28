@@ -57,6 +57,20 @@ async function lockAdminRoleForLastAdminCheck(
   await tx.$queryRaw`SELECT id FROM roles WHERE id = ${adminRoleId} FOR NO KEY UPDATE`;
 }
 
+/**
+ * 割り当ての前に、割り当てるロールの roles の行を FOR KEY SHARE でロックする（タスク37.1）。
+ *
+ * ロールの削除は同じ行を FOR UPDATE でロックしてから使用中の件数を数える。削除が先にロックを
+ * 取っていれば割り当てはそのコミットまで待ち、待ちが明けた後のロールの存在の確認（新しい
+ * スナップショットで読む）が削除を反映して ROLE_NOT_FOUND を返す。ロックを取らずに挿入すると、
+ * 挿入の外部キーの検査が同じ待ちの後に外部キー違反（P2003）となり、DATABASE_ERROR（500）になる。
+ * FOR KEY SHARE は外部キーの検査が取るロックと同じため、割り当て・最後の管理者の判定
+ * （FOR NO KEY UPDATE）・ロールの更新とは衝突しない。存在の判定は続く findUnique が行う。
+ */
+async function lockRoleForAssignment(tx: Prisma.TransactionClient, roleId: string): Promise<void> {
+  await tx.$queryRaw`SELECT id FROM roles WHERE id = ${roleId} FOR KEY SHARE`;
+}
+
 /** ユーザー削除の業務上の失敗（データベースの例外は Err にせず投げる） */
 export type DeleteUserError = { type: 'USER_NOT_FOUND' } | { type: 'LAST_ADMIN_PROTECTED' };
 
@@ -326,6 +340,9 @@ export class UserRoleService implements IUserRoleService {
       logger.warn({ userId }, 'User not found');
       throw new UserRoleRollback({ type: 'USER_NOT_FOUND' });
     }
+
+    // ロールの削除との直列化（タスク37.1）。存在の確認より前にロールの行をロックする
+    await lockRoleForAssignment(tx, roleId);
 
     // ロールの存在チェック (optimized: only fetch necessary fields)
     const role = await tx.role.findUnique({
