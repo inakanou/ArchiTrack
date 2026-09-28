@@ -65,12 +65,12 @@
       "requirement": "REQ-24: フォールトトレランス（障害耐性）",
       "title": "データベース接続タイムアウト時の503エラー",
       "criterionText": "IF データベース接続がタイムアウト以内に確立できない THEN Authentication Serviceは503 Service Unavailableエラーを返さなければならない",
-      "reason": "データベース障害シミュレーションはE2E範囲外。カオスエンジニアリングで検証",
+      "reason": "E2E は共有の backend・DB に対して走り、DB への接続の確立だけを無応答にする手段を持たないためE2E範囲外。代替検証は従前カオスエンジニアリング（Docker network disconnect / Toxiproxy）を掲げていたがリポジトリに実体が無く、タスク36.5 で実在する統合検証（タスク35.11〜35.13・36.3 で追加）へ改めた",
       "category": "fault-tolerance",
       "alternativeVerification": {
-        "method": "chaos-engineering",
-        "tool": "Docker network disconnect / Toxiproxy",
-        "description": "DB接続を意図的に切断し、503エラーが返却されることを確認",
+        "method": "integration-test",
+        "tool": "Vitest / Supertest",
+        "description": "TCP 接続を受け付けるが一切応答しないローカルのサーバーを DATABASE_URL の接続先にして本物のアプリ（getPrismaClient・RetryingPool・errorHandler）を通し、認証系の実エンドポイントが 503 と Problem Details を返すことを主張する: backend/src/__tests__/integration/auth-db-connection-timeout-503.integration.test.ts（ログイン・現在のユーザーの取得・トークンの更新・ログアウトほか）、authorize-db-connection-timeout-503.integration.test.ts（権限の確認を通るエンドポイント。権限のキャッシュに当たる場合と当たらない場合）、auth-transaction-db-connection-timeout-503.integration.test.ts（対話型トランザクションの開始の打ち切り）、password-two-factor-db-connection-timeout-503.integration.test.ts と password-two-factor-transaction-db-connection-timeout-503.integration.test.ts（パスワードと二要素認証。実データベースへの TCP の中継で無応答を切り替える）。いずれも同じディレクトリにあり、各テストが @requirement user-authentication/REQ-24.1 を名乗る",
         "threshold": "http_status: 503"
       }
     },
@@ -79,12 +79,12 @@
       "requirement": "REQ-24: フォールトトレランス（障害耐性）",
       "title": "キャッシュ障害時のフォールバック",
       "criterionText": "IF キャッシュ接続が失敗する THEN Authentication Serviceはデータベースから直接権限情報を取得しなければならない",
-      "reason": "Redis障害シミュレーションはE2E範囲外。カオスエンジニアリングで検証",
+      "reason": "E2E は共有の backend・Redis に対して走り、実行中の backend の Redis の接続だけを落とす手段を持たないためE2E範囲外。代替検証は従前カオスエンジニアリング（Docker stop redis / Toxiproxy）を掲げていたがリポジトリに実体が無く、タスク36.5 で実在する統合検証（タスク36.2 で追加。本番の requirePermission が Redis を持つ共有の RBACService を使うようになった後の経路）へ改めた",
       "category": "fault-tolerance",
       "alternativeVerification": {
-        "method": "chaos-engineering",
-        "tool": "Docker stop redis / Toxiproxy",
-        "description": "Redis停止時にDBからの直接取得にフォールバックすることを確認",
+        "method": "integration-test",
+        "tool": "Vitest / Supertest",
+        "description": "backend/src/__tests__/integration/rbac-permission-cache.integration.test.ts の \"Redis の接続が失われているとき、権限を DB から取得して応答し、err 付きの警告ログを残す\" が、実 Redis・実 DB・本物の requirePermission の経路で、キャッシュに「権限なし」を置いたうえでアプリが使う本物の Redis クライアントを切断し（status が end）、DB の権限で 200 が返ること（キャッシュを読めば 403 になる状態からの許可）と、障害中にキャッシュを書き換えないことを主張する（@requirement user-authentication/REQ-24.2）",
         "threshold": "fallback_to_db: true"
       }
     },

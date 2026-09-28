@@ -1122,13 +1122,16 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `6393c
   - **検証**: 統合 `role-audit-log-atomicity.integration.test.ts`（19 件、実 DB。トリガーによる監査ログの保存失敗とコミット時点の失敗（遅延制約トリガー）で書き込みごと残らないことを主張）。E2E `admin/audit-log.spec.ts` に更新（22.1）と割り当ての削除（22.3）の監査ログを追加。**RED**: サービスを HEAD に戻すと統合 12/19 が赤、tx を渡さない変異で 7/19 が赤、ルートを HEAD に戻すと単体 5 件が赤、backend を HEAD に戻すと E2E の `ROLE_UPDATED` / `USER_ROLE_REVOKED` が null で赤（独立レビューも tx の変異と actorId の撤去を再現）。backend 単体 6083 件、統合、type-check、lint、E2E 11/11 が緑。`check:req-coverage` と `check:design-measurement-freshness` の赤は HEAD と同じ（本項の外）。独立レビューの提案（`IRoleService` / `IUserRoleService` に `actorId?` を宣言していない。全呼び出し元が具象クラスのため実害なし）は見送った
   - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test:unit` 6083/6083、統合 `role-audit-log-atomicity auth-write-atomicity` 39/39、type-check EXIT=0、lint EXIT=0、E2E `admin/audit-log.spec.ts` 11/11
 
-- [ ] 36.5 障害耐性の除外（REQ-24.1 / 24.2）を実際の検証へ揃える
+- [x] 36.5 障害耐性の除外（REQ-24.1 / 24.2）を実際の検証へ揃える
   - 実測: `e2e/requirement-exclusions.json` の REQ-24.1（:64）と REQ-24.2（:78）は、代替検証にリポジトリに実体の無い chaos-engineering / Toxiproxy を挙げたまま除外に残っている。24.1 は 35.11〜35.13 の統合検証の印で被覆にも数えられ、除外と被覆が二重になっている。24.2 の被覆は 36.2 の後に本物の経路で成り立つ。33.1 / 35.3 / 35.8 / 35.11 の記録が「後続の候補」としたまま起票していなかった
   - 実装: 24.1 の除外を取り下げるか、代替検証を実在の統合検証（`backend/src/__tests__/integration/auth-db-connection-timeout-503.integration.test.ts` ほか）へ書き直す。24.2 は 36.2 の結果に合わせる。除外の件数を錨にする site-survey の鮮度宣言（`requirement-exclusions-total` など）が動く場合は、site-survey の tasks.md へ起票して本項を `_Blocked:` にする（下流は上流の文書・宣言を書き換えない）
   - 検証: `npm run check:req-exclusions` と `:selftest`、`npm run check:req-coverage`、`npm run check:design-measurement-freshness`
   - _Requirements: 24.1, 24.2_
   - _Boundary: `e2e/requirement-exclusions.json` の REQ-24.1 / 24.2 の項目_
   - _Depends: 36.2_
+  - **処遇（2026-09-28）**: 取り下げではなく、代替検証の書き直しを採った。24.1 は `integration-test` / `Vitest / Supertest` とし、`auth-db-connection-timeout-503`・`authorize-db-connection-timeout-503`（権限のキャッシュに当たる場合と当たらない場合）・`auth-transaction-db-connection-timeout-503`・`password-two-factor-db-connection-timeout-503`・`password-two-factor-transaction-db-connection-timeout-503` の統合検証を挙げた。24.2 は 36.2 の `rbac-permission-cache.integration.test.ts` の「Redis の接続が失われているとき、権限を DB から取得して応答し、err 付きの警告ログを残す」を挙げた。実体の無い chaos-engineering / Toxiproxy の記述は消した。DB の無応答や Redis の切断は E2E では作れないため、除外（E2E 範囲外）には残す。前例は 32.2 の REQ-31.6 の書き直し（`8546b446`）で、33.1 の取り下げは代替検証が実在しなかった場合にあたる。同居の禁止の検査は `e2e/specs` の印だけが対象のため、統合検証の印との同居は違反にならない（HEAD でも 29 件ある通常の形）。取り下げると site-survey の錨 `requirement-exclusions-total`（143）が 141 に動き上流への起票が要るが、書き直しでは動かない。トップレベルの `lastUpdated` は過去のコミットでも更新がまちまちで、検査の要件でもないため据え置いた
+  - **検証**: `check:req-exclusions` と `:selftest`（70/70）は前後とも緑で、出力も同じ。`check:req-coverage` は前後とも HEAD の未被覆（5.6 / 11.3 ほか、36.6）で赤。差は除外の監査の「リポジトリ外の代替検証」32→30 と「リポジトリ内検証あり」29→31 の 2 行だけで、「掲げるが不在」は 82 件のまま動かない（検査器が 2 項目を実在の検証として認めた）。`check:design-measurement-freshness` は前後とも HEAD からの t13（1415 / 1416）だけで赤。独立レビューが HEAD の一時 worktree で比べ、参照先の各ファイルの `@requirement` の印と主張の中身を開いて確かめた。独立レビューは APPROVED
+  - **検証（親が承認後に新鮮な証拠で再実行）**: `check:req-exclusions` EXIT=0、`:selftest` EXIT=0、`check:req-coverage` EXIT=1（監査は外 30 / 内あり 31、HEAD からの赤）、`check:design-measurement-freshness` EXIT=1（t13 の 1415 / 1416 のみ、HEAD から）
 
 - [ ] 36.6 未被覆の受入基準 5.6 と 11.3 を検証する
   - 条文 5.6（逐語）: 「WHEN トークンにユーザー情報を含める THEN Authentication ServiceはユーザーID、メールアドレス、ロール情報を含めなければならない」。条文 11.3（逐語）: 「WHEN ユーザーが入力フィールドにフォーカスする THEN Frontend UIは視覚的なフィードバック（アウトライン表示）を提供しなければならない」
