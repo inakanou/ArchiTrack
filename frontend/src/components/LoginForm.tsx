@@ -3,6 +3,11 @@ import { Link } from 'react-router-dom';
 import type { LoginFormData, LoginResult } from '../types/auth.types';
 import { ApiError } from '../api/client';
 
+/**
+ * 入力フィールドのフォーカス時に表示するアウトライン（要件11.3: 視覚的フィードバック）
+ */
+const FOCUS_OUTLINE = '2px solid #2563eb';
+
 interface LoginFormProps {
   onLogin: (data: LoginFormData) => Promise<LoginResult>;
   error?: ApiError | null;
@@ -20,6 +25,7 @@ function LoginForm({ onLogin, error }: LoginFormProps) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [lockTimeRemaining, setLockTimeRemaining] = useState(0);
+  const [focusedField, setFocusedField] = useState<'email' | 'password' | null>(null);
 
   const emailRef = useRef<HTMLInputElement>(null);
 
@@ -168,7 +174,11 @@ function LoginForm({ onLogin, error }: LoginFormProps) {
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            onBlur={handleEmailBlur}
+            onFocus={() => setFocusedField('email')}
+            onBlur={() => {
+              setFocusedField(null);
+              handleEmailBlur();
+            }}
             aria-invalid={!!errors.email}
             aria-describedby={errors.email ? 'email-error' : undefined}
             style={{
@@ -177,7 +187,8 @@ function LoginForm({ onLogin, error }: LoginFormProps) {
               border: errors.email ? '2px solid #dc2626' : '1px solid #d1d5db',
               borderRadius: '0.375rem',
               fontSize: '1rem',
-              outline: 'none',
+              outline: focusedField === 'email' ? FOCUS_OUTLINE : 'none',
+              outlineOffset: '1px',
             }}
           />
           {errors.email && (
@@ -210,6 +221,8 @@ function LoginForm({ onLogin, error }: LoginFormProps) {
               type={showPassword ? 'text' : 'password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              onFocus={() => setFocusedField('password')}
+              onBlur={() => setFocusedField(null)}
               aria-invalid={!!errors.password}
               aria-describedby={errors.password ? 'password-error' : undefined}
               style={{
@@ -219,7 +232,8 @@ function LoginForm({ onLogin, error }: LoginFormProps) {
                 border: errors.password ? '2px solid #dc2626' : '1px solid #d1d5db',
                 borderRadius: '0.375rem',
                 fontSize: '1rem',
-                outline: 'none',
+                outline: focusedField === 'password' ? FOCUS_OUTLINE : 'none',
+                outlineOffset: '1px',
               }}
             />
             <button

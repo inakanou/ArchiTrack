@@ -234,6 +234,46 @@ test.describe('ログイン機能', () => {
   });
 
   /**
+   * 要件11.3: 入力フィールドのフォーカス時の視覚的フィードバック（アウトライン表示）
+   * @requirement user-authentication/REQ-11.3
+   * WHEN ユーザーが入力フィールドにフォーカスする
+   * THEN Frontend UIは視覚的なフィードバック（アウトライン表示）を提供しなければならない
+   *
+   * フォーカスの有無でアウトラインが切り替わることを、ブラウザが実際に描く計算済みスタイルで確かめる。
+   * キーボード（Tab / Shift+Tab）でフォーカスを移し、利用者の操作と同じ経路で主張する。
+   */
+  test('入力フィールドにフォーカスするとアウトラインが表示される', async ({ page }) => {
+    await page.goto('/login');
+
+    const emailInput = page.locator('input#email');
+    const passwordInput = page.locator('input#password');
+
+    /** 計算済みのアウトラインを取り出す（判定はテスト側で行う） */
+    const outlineOf = (locator: typeof emailInput) =>
+      locator.evaluate((el) => {
+        const style = window.getComputedStyle(el);
+        return { style: style.outlineStyle, width: style.outlineWidth };
+      });
+    const isVisibleOutline = (outline: { style: string; width: string }) =>
+      outline.style !== 'none' && parseFloat(outline.width) > 0;
+
+    // 初期状態: メールアドレスにフォーカスがある
+    await expect(emailInput).toBeFocused();
+
+    // Tab でパスワードへ移すと、パスワードにアウトラインが表示され、メールアドレスからは消える
+    await page.keyboard.press('Tab');
+    await expect(passwordInput).toBeFocused();
+    await expect.poll(async () => isVisibleOutline(await outlineOf(passwordInput))).toBe(true);
+    await expect.poll(async () => isVisibleOutline(await outlineOf(emailInput))).toBe(false);
+
+    // Shift+Tab でメールアドレスへ戻すと、メールアドレスにアウトラインが表示され、パスワードからは消える
+    await page.keyboard.press('Shift+Tab');
+    await expect(emailInput).toBeFocused();
+    await expect.poll(async () => isVisibleOutline(await outlineOf(emailInput))).toBe(true);
+    await expect.poll(async () => isVisibleOutline(await outlineOf(passwordInput))).toBe(false);
+  });
+
+  /**
    * 要件11.2: パスワードフィールドの表示/非表示切り替えボタン
    * @requirement user-authentication/REQ-11.2
    * WHEN パスワード入力フィールドが表示される

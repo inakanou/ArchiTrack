@@ -569,6 +569,65 @@ test.describe('トークンリフレッシュ機能', () => {
   });
 
   /**
+   * 要件5.6: トークンに含めるユーザー情報
+   * @requirement user-authentication/REQ-5.6
+   * WHEN トークンにユーザー情報を含める
+   * THEN Authentication ServiceはユーザーID、メールアドレス、ロール情報を含めなければならない
+   *
+   * 画面からログインし、アプリが実際に受け取ったアクセストークンのペイロードをデコードして、
+   * データベース上のユーザーID・メールアドレス・割り当て済みロールと一致することを確かめる。
+   * ロールが複数あるユーザー（admin と user）で、ロール情報の欠落・取り違えを検出できるようにする。
+   */
+  test('アクセストークンにユーザーID・メールアドレス・ロールが含まれる', async ({ page }) => {
+    const user = await createTestUser('ADMIN_USER');
+    const assignedRoles = await getPrismaClient().userRole.findMany({
+      where: { userId: user.id },
+      include: { role: true },
+    });
+    const expectedRoles = assignedRoles.map((ur) => ur.role.name).sort();
+    // 前提: 複数のロールが割り当てられている（ロールの欠落を検出できる状態）
+    expect(expectedRoles).toEqual(['admin', 'user']);
+
+    await page.goto('/login');
+    await page.getByLabel(/メールアドレス/i).fill(user.email);
+    await page.locator('input#password').fill('AdminPass123!');
+
+    // オリジンに依存しないよう、パスで照合する
+    const loginResponsePromise = page.waitForResponse(
+      (res) =>
+        new URL(res.url()).pathname === '/api/v1/auth/login' && res.request().method() === 'POST'
+    );
+    await page.getByRole('button', { name: /ログイン/i }).click();
+    const loginResponse = await loginResponsePromise;
+    expect(loginResponse.status()).toBe(200);
+
+    const body = (await loginResponse.json()) as { accessToken?: string };
+    const accessToken = body.accessToken;
+    expect(typeof accessToken).toBe('string');
+
+    // JWT（header.payload.signature）のペイロードをデコードする
+    const segments = (accessToken as string).split('.');
+    expect(segments).toHaveLength(3);
+    const payload = JSON.parse(
+      Buffer.from(segments[1] as string, 'base64url').toString('utf8')
+    ) as {
+      userId?: unknown;
+      email?: unknown;
+      roles?: unknown;
+    };
+
+    expect(payload.userId).toBe(user.id);
+    expect(payload.email).toBe(user.email);
+    expect(Array.isArray(payload.roles)).toBe(true);
+    expect([...(payload.roles as string[])].sort()).toEqual(expectedRoles);
+
+    // アプリが保持したトークンも同じもの（画面の後続の要求がこのペイロードで認証される）
+    await expect(page).toHaveURL(/\/dashboard|\/$/);
+    const storedToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+    expect(storedToken).toBe(accessToken);
+  });
+
+  /**
    * リフレッシュトークンのHTTPOnly Cookie検証
    * 要件26.5: トークンをCookieに保存する際にHttpOnly、Secure、SameSite=Strict属性を設定
    * @requirement user-authentication/REQ-26.5
