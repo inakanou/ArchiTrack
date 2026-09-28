@@ -14,6 +14,10 @@
  * （roles.routes.ts / user-roles.routes.ts）は、getSharedRBACService() が返す同じインスタンスを使う
  * （タスク36.2）。Redis のクライアントは呼び出しの時点で解決するため、ルートのモジュールの読み込みが
  * Redis の初期化（index.ts の initRedis）より先でもキャッシュが効く。
+ *
+ * 無効化はキャッシュの削除とユーザーごとの世代の INCR を不可分に行い、権限の確認は DB を読む前に
+ * 読んだ世代が書き込みの時点で変わっていないときだけキャッシュへ書き込む（無効化の後に古い権限を
+ * 書き戻さない）。無効化も読み書きと同じく、接続が ready でないときはコマンドを送らない（タスク37.2）。
  */
 
 import type { PrismaClient } from '../generated/prisma/client.js';
@@ -27,6 +31,47 @@ import logger from '../utils/logger.js';
  * Redis クライアントを呼び出しの時点で返す関数（未初期化・未設定なら null / undefined）
  */
 export type RedisClientProvider = () => Redis | null | undefined;
+
+/** 権限キャッシュのキー（値は権限の配列の JSON） */
+function permissionCacheKey(userId: string): string {
+  return `rbac:permissions:${userId}`;
+}
+
+/**
+ * 権限キャッシュの世代のキー（タスク37.2）。無効化のたびに INCR で進める。
+ * 権限の確認は DB を読む前に世代を読み、書き込みの時点で世代が変わっていなければだけ書き込む
+ */
+function permissionGenerationKey(userId: string): string {
+  return `rbac:permissions-generation:${userId}`;
+}
+
+/**
+ * 世代が読んだときのままならキャッシュへ書き込む（読み出しと書き込みを Redis の中で不可分に行う）。
+ * KEYS[1]: キャッシュのキー、KEYS[2]: 世代のキー
+ * ARGV[1]: DB を読む前に読んだ世代（無ければ空文字）、ARGV[2]: TTL（秒）、ARGV[3]: 値
+ * 書き込んだら 1、世代が変わっていて書き込まなかったら 0 を返す
+ */
+const WRITE_IF_GENERATION_UNCHANGED = `
+local current = redis.call('GET', KEYS[2])
+if (current or '') ~= ARGV[1] then
+  return 0
+end
+redis.call('SET', KEYS[1], ARGV[3], 'EX', tonumber(ARGV[2]))
+return 1
+`;
+
+/**
+ * キャッシュを消して世代を進める（ユーザーごとに不可分に行う）。
+ * KEYS: キャッシュのキーと世代のキーの組の並び、ARGV[1]: 世代のキーの TTL（秒）
+ */
+const DELETE_AND_ADVANCE_GENERATION = `
+for i = 1, #KEYS, 2 do
+  redis.call('DEL', KEYS[i])
+  redis.call('INCR', KEYS[i + 1])
+  redis.call('EXPIRE', KEYS[i + 1], tonumber(ARGV[1]))
+end
+return #KEYS / 2
+`;
 
 /**
  * RBACサービスの実装
@@ -67,7 +112,7 @@ export class RBACService implements IRBACService {
    */
   async getUserPermissions(userId: string): Promise<PermissionInfo[]> {
     // キャッシュキー
-    const cacheKey = `rbac:permissions:${userId}`;
+    const cacheKey = permissionCacheKey(userId);
 
     // Redisキャッシュをチェック（Cache-Aside Pattern）
     const redis = this.redis;
@@ -75,6 +120,9 @@ export class RBACService implements IRBACService {
     // クライアントへコマンドを送ると、ioredis はオフラインキューに積んで再接続の試行を待つため、
     // 権限の確認ごとに数秒の遅延が生じうる。その場合は障害として扱い、直ちに DB から取得する
     let cacheAvailable = false;
+    // DB を読む前の世代（無ければ空文字）。書き込みの時点で変わっていれば、読み出しの間に
+    // 無効化が走ったため書き込まない（無効化の後の古い権限の書き戻しを防ぐ。タスク37.2）
+    let generation = '';
     if (redis) {
       if (redis.status === 'ready') {
         cacheAvailable = true;
@@ -84,6 +132,9 @@ export class RBACService implements IRBACService {
             logger.debug({ userId }, 'Permission cache hit');
             return JSON.parse(cached) as PermissionInfo[];
           }
+          // 世代は DB を読む前に読む（無効化はコミットの後に世代を進めるため、ここで読んだ世代が
+          // 書き込みの時点まで変わらなければ、続く DB の読み出しはその無効化の元の変更を反映している）
+          generation = (await redis.get(permissionGenerationKey(userId))) ?? '';
         } catch (error) {
           // Graceful Degradation: Redisエラー時はログを出してDBフォールバック（要件24.2 / 24.7）
           cacheAvailable = false;
@@ -159,8 +210,23 @@ export class RBACService implements IRBACService {
     // Redisにキャッシュ（Cache-Aside Pattern）。読み出しで障害が起きたときは書き込まない
     if (redis && cacheAvailable) {
       try {
-        await redis.setex(cacheKey, this.PERMISSION_CACHE_TTL, JSON.stringify(permissions));
-        logger.debug({ userId, count: permissions.length }, 'Permissions cached to Redis');
+        const written = await redis.eval(
+          WRITE_IF_GENERATION_UNCHANGED,
+          2,
+          cacheKey,
+          permissionGenerationKey(userId),
+          generation,
+          this.PERMISSION_CACHE_TTL,
+          JSON.stringify(permissions)
+        );
+        if (written === 1) {
+          logger.debug({ userId, count: permissions.length }, 'Permissions cached to Redis');
+        } else {
+          logger.debug(
+            { userId },
+            'Permission cache not written: invalidated while reading permissions'
+          );
+        }
       } catch (error) {
         // Graceful Degradation: キャッシュ失敗してもエラーにしない
         logger.warn({ err: error, userId }, 'Failed to cache permissions to Redis');
@@ -282,10 +348,27 @@ export class RBACService implements IRBACService {
       return;
     }
 
-    const cacheKey = `rbac:permissions:${userId}`;
+    if (redis.status !== 'ready') {
+      // 接続が使えないときはコマンドを送らない。送るとオフラインキューに積まれ、再接続まで
+      // 変更の API の応答を待たせる。残ったエントリは TTL（15 分）で消える（タスク37.2）
+      logger.warn(
+        { err: new Error(`Redis connection is not ready (status: ${redis.status})`), userId },
+        'Failed to invalidate permission cache'
+      );
+      return;
+    }
+
+    const cacheKey = permissionCacheKey(userId);
 
     try {
-      await redis.del(cacheKey);
+      // キャッシュを消し、世代を進める（読み出しの途中の確認が古い権限を書き戻さないように）
+      await redis.eval(
+        DELETE_AND_ADVANCE_GENERATION,
+        2,
+        cacheKey,
+        permissionGenerationKey(userId),
+        this.PERMISSION_CACHE_TTL
+      );
       logger.debug({ userId }, 'Permission cache invalidated');
     } catch (error) {
       // Graceful Degradation: キャッシュ無効化失敗してもエラーにしない
@@ -308,6 +391,15 @@ export class RBACService implements IRBACService {
       return;
     }
 
+    if (redis.status !== 'ready') {
+      // 接続が使えないときはコマンドを送らない（invalidateUserPermissionsCache と同じ。タスク37.2）
+      logger.warn(
+        { err: new Error(`Redis connection is not ready (status: ${redis.status})`), roleId },
+        'Failed to invalidate permission cache for role'
+      );
+      return;
+    }
+
     try {
       // ロールを持つ全ユーザーを取得
       const userRoles = await this.prisma.userRole.findMany({
@@ -320,11 +412,17 @@ export class RBACService implements IRBACService {
         return;
       }
 
-      // 全ユーザーのキャッシュキーを生成
-      const cacheKeys = userRoles.map((ur) => `rbac:permissions:${ur.userId}`);
-
-      // 一括削除
-      await redis.del(...cacheKeys);
+      // 全ユーザーのキャッシュを消し、世代を進める（キャッシュのキーと世代のキーの組）
+      const keys = userRoles.flatMap((ur) => [
+        permissionCacheKey(ur.userId),
+        permissionGenerationKey(ur.userId),
+      ]);
+      await redis.eval(
+        DELETE_AND_ADVANCE_GENERATION,
+        keys.length,
+        ...keys,
+        this.PERMISSION_CACHE_TTL
+      );
 
       logger.debug(
         { roleId, userCount: userRoles.length },

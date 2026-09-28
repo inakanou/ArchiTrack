@@ -2,6 +2,8 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
+_最終更新: 2026-09-29（Steering Sync: user-authentication のタスク37.2。「接続障害への耐性」の「権限の確認も同じ経路へ」が権限キャッシュの読み込み側しか述べていなかったため、無効化の側の Redis の未接続時の振る舞い（送らずに警告して TTL に任せる）と、世代の照合による古い書き戻しの防止、コミット後の処理の順序を追記した）_
+
 _最終更新: 2026-09-28（Steering Sync: user-authentication のタスク36.8。スペック横断で効く DB 接続障害の扱い——接続の取得だけを再試行する `RetryingPool`（タスク35.2 / 35.9）、P1008 を含む接続のタイムアウトの 503（35.8）、サービスの投げ直し（35.11）、対話型トランザクションの `maxWait`（35.12）、`requirePermission` の 503 と共有の RBACService（35.13 / 36.2）、pino の `err` キー（36.8）——が steering に無かったため、「データベース・キャッシュ」節へ「接続障害への耐性」を追加した）_
 
 _最終更新: 2026-09-09（Steering Sync: `/kiro-steering`。「CI/CD」節の二つの列挙が実体から離れていた。(1)「主要ジョブ」の 7 件の列挙に対し `.github/workflows/ci.yml` が定義するジョブは 18 件で、欠けていた 11 件のうち 9 件はスペックと steering の関門ジョブ（`requirement-coverage`・`requirement-exclusions-schema`・`criterion-literal-presence`・`e2e-assertion-guard`・`design-reference-format`・`e2e-in-page-selfjudgement`・`counterfactual-evidence`・`dead-script-env`）と `test-storybook` であった。(2)「監視対象エコシステム（5つ、計85依存関係）」の内訳 7／42／36 に対し実測は root 24・backend 77・frontend 52（計 153）、`5 actions` に対し実測 6、`2 images` に対し実測 3 である（コミット `faa54052`、2026-09-09 にリポジトリルートで実測）。いずれも値を書き換える形は採らず、タスク 115.286 が「Pre-pushフック」節へ掛けた規約 (b)（列挙・数値を落として読み出す手段を書く）を同じ形で当てた。この二箇所が陳腐化したまま残っていたのは、`npm run check:steering-dir-counts` の走査対象が `structure.md` と `product.md` の二件で、本書は誤検出 1 件を避けるため所管の外に置かれているためである（`scripts/check-steering-dir-counts.ts` 冒頭の記述）。本書を所管へ加える案は今回は採っていない——「推奨事項」として起票のみ）_
@@ -299,7 +301,7 @@ DB 接続の障害は、層ごとに次の形で扱う。個々のサービス�
 - **接続のタイムアウトは 503**: 判定は `backend/src/utils/db-connection-timeout.ts` の `isDatabaseConnectionTimeout()`（再試行を使い切った pg-pool のタイムアウトと Prisma の P1008）ひとつに置く。エラーハンドラー（`backend/src/middleware/errorHandler.middleware.ts`）は Prisma の既知のエラーの分岐より**前**でこれを判定し、503 の Problem Details を返す（P1008 を 400「Database Error」にしない）
 - **サービスは接続のタイムアウトを飲み込まない**: DB 例外を `DATABASE_ERROR` などの Result へ変える catch の先頭で `rethrowIfDatabaseConnectionTimeout()` を呼び、ルートの `next(error)` からエラーハンドラーの 503 へ届ける。それ以外の DB 例外の扱いは変えない
 - **対話型トランザクションは接続の予算を待つ**: 認証系のサービスの `$transaction(async (tx) => …)` には `connectBudgetTransactionOptions()` を渡す。`maxWait` を「再試行の予算 + Prisma の既定 2000ms」にし、開始の待ちが先に切れて原因を持たない P2028 になるのを避ける
-- **権限の確認も同じ経路へ**: `backend/src/middleware/authorize.middleware.ts` の `requirePermission()` は、接続のタイムアウトを自前の 500 にせず `next(error)` でエラーハンドラーの 503 へ渡す。権限の取得は `getSharedRBACService()`（`backend/src/services/rbac.service.ts`）が返す共有の `RBACService` を使い、Redis の権限キャッシュとロール・権限の変更時の無効化が同じインスタンスを読み書きする。Redis が `ready` でないときはキャッシュを使わず DB から取得する
+- **権限の確認も同じ経路へ**: `backend/src/middleware/authorize.middleware.ts` の `requirePermission()` は、接続のタイムアウトを自前の 500 にせず `next(error)` でエラーハンドラーの 503 へ渡す。権限の取得は `getSharedRBACService()`（`backend/src/services/rbac.service.ts`）が返す共有の `RBACService` を使い、Redis の権限キャッシュとロール・権限の変更時の無効化が同じインスタンスを読み書きする。Redis が `ready` でないときはキャッシュを使わず DB から取得する。無効化の側も同じく、`ready` でないときはコマンドを送らず（ioredis のオフラインキューで変更の API の応答を待たせないため）`err` キー付きの警告ログを残して続行し、残ったエントリはキャッシュの TTL（15 分）で消える。無効化はキャッシュの削除とユーザーごとの世代の `INCR` を不可分に行い、権限の確認は DB を読む前に読んだ世代が書き込みの時点で変わっていないときだけキャッシュへ書き込む（無効化の後に古い権限を書き戻さない）。コミット後の処理では無効化をアラートの送信より先に行い、アラートの失敗はコミット済みの変更を失敗にしない（タスク37.2）
 - **ログのキーは `err`**: Error をログへ載せるときは pino の `err` キーを使う（`logger.error({ err: error, … }, …)`）。`backend/src/utils/logger.ts` のシリアライザは `err` にだけ効き、`error` などの別のキーに載せた Error は本番の JSON で `{}` になり message と stack が失われる
 
 ## 単体テスト

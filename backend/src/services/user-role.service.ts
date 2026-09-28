@@ -553,7 +553,10 @@ export class UserRoleService implements IUserRoleService {
   }
 
   /**
-   * コミット後の処理: システム管理者ロールの変更アラートと権限キャッシュの無効化
+   * コミット後の処理: 権限キャッシュの無効化とシステム管理者ロールの変更アラート
+   *
+   * 変更はコミット済みのため、ここでの失敗で呼び出し元へ失敗を返さない（タスク37.2）。
+   * 無効化を先に行い（アラートの送信の失敗や遅延に左右されない）、アラートの失敗は警告ログに留める。
    */
   private async afterCommit(
     userId: string,
@@ -566,62 +569,87 @@ export class UserRoleService implements IUserRoleService {
       return;
     }
 
-    // システム管理者ロール変更時のアラート通知（テスト環境では抑制）
-    for (const { user, role } of changed) {
-      if (
-        this.emailService &&
-        performedBy &&
-        role.name === 'admin' &&
-        process.env.NODE_ENV !== 'test'
-      ) {
-        // 全システム管理者のメールアドレスを取得
-        const adminUsers = await this.prisma.user.findMany({
-          where: {
-            userRoles: {
-              some: {
-                role: {
-                  name: 'admin',
-                },
-              },
-            },
-          },
-          select: {
-            email: true,
-            displayName: true,
-          },
-        });
-
-        const adminEmails = adminUsers.map((admin) => admin.email);
-
-        await this.emailService.sendAdminRoleChangedAlert(
-          adminEmails,
-          { email: user.email, displayName: user.displayName },
-          action,
-          'System Administrator',
-          performedBy
-        );
-
-        // Sentryにアラート通知を送信
-        captureMessage(
-          action === 'assigned'
-            ? 'Critical: System Administrator role assigned'
-            : 'Critical: System Administrator role removed',
-          'warning',
-          {
-            userId,
-            userEmail: user.email,
-            roleId: role.id,
-            roleName: role.name,
-            performedBy: performedBy.email,
-          }
-        );
+    // ユーザーの権限キャッシュを無効化（RBACService は障害を警告ログに留めるが、実装を問わず守る）
+    if (this.rbacService) {
+      try {
+        await this.rbacService.invalidateUserPermissionsCache(userId);
+      } catch (error) {
+        logger.warn({ err: error, userId }, 'Failed to invalidate permission cache after commit');
       }
     }
 
-    // ユーザーの権限キャッシュを無効化
-    if (this.rbacService) {
-      await this.rbacService.invalidateUserPermissionsCache(userId);
+    // システム管理者ロール変更時のアラート通知。送信の失敗はコミット済みの変更を失敗にしない
+    for (const change of changed) {
+      try {
+        await this.sendAdminRoleChangedAlert(userId, change, action, performedBy);
+      } catch (error) {
+        logger.warn(
+          { err: error, userId, roleId: change.role.id, action },
+          'Failed to send admin role change alert'
+        );
+      }
     }
+  }
+
+  /**
+   * システム管理者ロールの変更アラート（メールと Sentry）を送る（テスト環境では抑制）
+   */
+  private async sendAdminRoleChangedAlert(
+    userId: string,
+    { user, role }: UserRoleChange,
+    action: 'assigned' | 'revoked',
+    performedBy?: PerformedBy
+  ): Promise<void> {
+    if (
+      !this.emailService ||
+      !performedBy ||
+      role.name !== 'admin' ||
+      process.env.NODE_ENV === 'test'
+    ) {
+      return;
+    }
+
+    // 全システム管理者のメールアドレスを取得
+    const adminUsers = await this.prisma.user.findMany({
+      where: {
+        userRoles: {
+          some: {
+            role: {
+              name: 'admin',
+            },
+          },
+        },
+      },
+      select: {
+        email: true,
+        displayName: true,
+      },
+    });
+
+    const adminEmails = adminUsers.map((admin) => admin.email);
+
+    await this.emailService.sendAdminRoleChangedAlert(
+      adminEmails,
+      { email: user.email, displayName: user.displayName },
+      action,
+      'System Administrator',
+      performedBy
+    );
+
+    // Sentryにアラート通知を送信
+    captureMessage(
+      action === 'assigned'
+        ? 'Critical: System Administrator role assigned'
+        : 'Critical: System Administrator role removed',
+      'warning',
+      {
+        userId,
+        userEmail: user.email,
+        roleId: role.id,
+        roleName: role.name,
+        performedBy: performedBy.email,
+      }
+    );
   }
 
   /**

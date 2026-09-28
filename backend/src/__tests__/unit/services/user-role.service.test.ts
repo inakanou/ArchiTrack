@@ -6,7 +6,7 @@
  * - 22.9: センシティブな操作（システム管理者ロールの変更）実行時のアラート通知
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { PrismaClient, User, Role, UserRole } from '../../../generated/prisma/client.js';
 import { UserRoleService } from '../../../services/user-role.service.js';
 import { Err, Ok } from '../../../types/result.js';
@@ -14,6 +14,7 @@ import type { IAuditLogService } from '../../../types/audit-log.types.js';
 import type { IRBACService } from '../../../types/rbac.types.js';
 import type { EmailService } from '../../../services/email.service.js';
 import * as Sentry from '../../../utils/sentry.js';
+import logger from '../../../utils/logger.js';
 
 // Sentryモジュールをモック
 vi.mock('../../../utils/sentry.js', () => ({
@@ -849,6 +850,146 @@ describe('UserRoleService', () => {
 
       // Assert
       expect(result).toBe(false);
+    });
+  });
+
+  describe('コミット後の処理の失敗（タスク37.2）', () => {
+    const performedBy = { email: 'performer@example.com', displayName: 'Performer' };
+    let originalNodeEnv: typeof process.env.NODE_ENV;
+
+    beforeEach(() => {
+      // アラートは NODE_ENV=test で抑制されるため、本物の経路へ到達させる
+      originalNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      vi.mocked(logger.warn).mockClear();
+    });
+
+    afterEach(() => {
+      process.env.NODE_ENV = originalNodeEnv;
+    });
+
+    /** admin ロールの割り当てがコミットまで進む状態にする */
+    function arrangeAdminAssignment(): void {
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockAdminRole);
+      vi.mocked(prismaMock.userRole.findFirst).mockResolvedValue(null);
+      vi.mocked(prismaMock.userRole.create).mockResolvedValue({
+        ...mockUserRole,
+        roleId: mockAdminRoleId,
+      });
+      vi.mocked(prismaMock.user.findMany).mockResolvedValue([
+        { email: 'admin1@example.com', displayName: 'Admin 1' } as User,
+      ]);
+    }
+
+    function alertWarnings(): unknown[][] {
+      return vi
+        .mocked(logger.warn)
+        .mock.calls.filter(([, message]) => message === 'Failed to send admin role change alert');
+    }
+
+    it('アラートの送信が投げても成功を返し、無効化はアラートより先に行う', async () => {
+      arrangeAdminAssignment();
+      const failure = new Error('alert delivery failed');
+      vi.mocked(emailServiceMock.sendAdminRoleChangedAlert).mockRejectedValue(failure);
+
+      const result = await userRoleService.addRoleToUser(
+        mockUserId,
+        mockAdminRoleId,
+        'actor-123',
+        performedBy
+      );
+
+      expect(result).toEqual(Ok(undefined));
+      expect(rbacServiceMock.invalidateUserPermissionsCache).toHaveBeenCalledWith(mockUserId);
+      expect(emailServiceMock.sendAdminRoleChangedAlert).toHaveBeenCalledTimes(1);
+      expect(
+        rbacServiceMock.invalidateUserPermissionsCache.mock.invocationCallOrder[0]!
+      ).toBeLessThan(
+        vi.mocked(emailServiceMock.sendAdminRoleChangedAlert).mock.invocationCallOrder[0]!
+      );
+      expect(alertWarnings()).toEqual([
+        [
+          { err: failure, userId: mockUserId, roleId: mockAdminRoleId, action: 'assigned' },
+          'Failed to send admin role change alert',
+        ],
+      ]);
+    });
+
+    it('管理者の一覧の取得（prisma.user.findMany）が投げても成功を返し、キャッシュを無効化する', async () => {
+      arrangeAdminAssignment();
+      const failure = new Error('Connection terminated');
+      vi.mocked(prismaMock.user.findMany).mockRejectedValue(failure);
+
+      const result = await userRoleService.addRoleToUser(
+        mockUserId,
+        mockAdminRoleId,
+        'actor-123',
+        performedBy
+      );
+
+      expect(result).toEqual(Ok(undefined));
+      expect(rbacServiceMock.invalidateUserPermissionsCache).toHaveBeenCalledWith(mockUserId);
+      expect(emailServiceMock.sendAdminRoleChangedAlert).not.toHaveBeenCalled();
+      expect(alertWarnings()).toHaveLength(1);
+      expect(alertWarnings()[0]![0]).toMatchObject({ err: failure });
+    });
+
+    it('Sentry への通知が投げても、解除は成功を返しキャッシュを無効化する', async () => {
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(mockUser);
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(mockAdminRole);
+      vi.mocked(prismaMock.userRole.findFirst).mockResolvedValue({
+        ...mockUserRole,
+        roleId: mockAdminRoleId,
+      });
+      vi.mocked(prismaMock.userRole.count).mockResolvedValue(2);
+      vi.mocked(prismaMock.userRole.delete).mockResolvedValue({
+        ...mockUserRole,
+        roleId: mockAdminRoleId,
+      });
+      vi.mocked(prismaMock.user.findMany).mockResolvedValue([
+        { email: 'admin1@example.com', displayName: 'Admin 1' } as User,
+      ]);
+      const failure = new Error('sentry transport failed');
+      vi.mocked(Sentry.captureMessage).mockImplementationOnce(() => {
+        throw failure;
+      });
+
+      const result = await userRoleService.removeRoleFromUser(
+        mockUserId,
+        mockAdminRoleId,
+        'actor-123',
+        performedBy
+      );
+
+      expect(result).toEqual(Ok(undefined));
+      expect(rbacServiceMock.invalidateUserPermissionsCache).toHaveBeenCalledWith(mockUserId);
+      expect(alertWarnings()).toEqual([
+        [
+          { err: failure, userId: mockUserId, roleId: mockAdminRoleId, action: 'revoked' },
+          'Failed to send admin role change alert',
+        ],
+      ]);
+    });
+
+    it('無効化が投げても成功を返し、警告ログを残してアラートを送る', async () => {
+      arrangeAdminAssignment();
+      const failure = new Error('cache down');
+      rbacServiceMock.invalidateUserPermissionsCache.mockRejectedValue(failure);
+
+      const result = await userRoleService.addRoleToUser(
+        mockUserId,
+        mockAdminRoleId,
+        'actor-123',
+        performedBy
+      );
+
+      expect(result).toEqual(Ok(undefined));
+      expect(emailServiceMock.sendAdminRoleChangedAlert).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        { err: failure, userId: mockUserId },
+        'Failed to invalidate permission cache after commit'
+      );
     });
   });
 });
