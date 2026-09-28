@@ -476,8 +476,10 @@ export class AuthService implements IAuthService {
             },
           });
         } catch (updateError) {
+          // 接続のタイムアウトは検証の失敗として扱わず、エラーハンドラーの 503 へ届ける（要件24.1）
+          rethrowIfDatabaseConnectionTimeout(updateError);
           logger.error({ updateError, userId, newFailures }, '2FA失敗カウンター更新に失敗');
-          // 更新に失敗しても検証失敗として処理を続行
+          // 接続のタイムアウト以外の更新の失敗は、検証失敗として処理を続行
         }
 
         if (isLocked && lockedUntil) {
@@ -641,8 +643,10 @@ export class AuthService implements IAuthService {
             },
           });
         } catch (updateError) {
+          // 接続のタイムアウトは検証の失敗として扱わず、エラーハンドラーの 503 へ届ける（要件24.1）
+          rethrowIfDatabaseConnectionTimeout(updateError);
           logger.error({ updateError, userId, newFailures }, '2FA失敗カウンター更新に失敗');
-          // 更新に失敗しても検証失敗として処理を続行
+          // 接続のタイムアウト以外の更新の失敗は、検証失敗として処理を続行
         }
 
         if (isLocked && lockedUntil) {

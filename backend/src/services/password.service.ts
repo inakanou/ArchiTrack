@@ -25,6 +25,8 @@ import { EmailService } from './email.service.js';
 import { AuditLogService } from './audit-log.service.js';
 import type { IAuditLogService } from '../types/audit-log.types.js';
 import logger from '../utils/logger.js';
+import { rethrowIfDatabaseConnectionTimeout } from '../utils/db-connection-timeout.js';
+import { connectBudgetTransactionOptions } from '../utils/db-connect-budget.js';
 import { randomBytes } from 'crypto';
 
 /**
@@ -283,6 +285,7 @@ export class PasswordService {
    *
    * @param email - メールアドレス
    * @returns 成功レスポンス。DB の書き込みに失敗した場合のみ RESET_TOKEN_INVALID
+   *   （DB 接続のタイムアウトは投げ直し、エラーハンドラーの 503 へ届ける。要件24.1）
    */
   async requestPasswordReset(email: string): Promise<Result<void, PasswordError>> {
     try {
@@ -321,7 +324,7 @@ export class PasswordService {
           },
           tx
         );
-      });
+      }, connectBudgetTransactionOptions());
 
       // 5. コミット後にパスワードリセットメールをキューへ投入（失敗しても成功を返す）
       try {
@@ -334,8 +337,10 @@ export class PasswordService {
       }
 
       return Ok(undefined);
-    } catch {
-      // データベースエラーなどの場合
+    } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
+      // それ以外のデータベースエラーなどの場合
       return Err({ type: 'RESET_TOKEN_INVALID' });
     }
   }
@@ -466,10 +471,12 @@ export class PasswordService {
             usedAt: new Date(),
           },
         });
-      });
+      }, connectBudgetTransactionOptions());
 
       return Ok(undefined);
-    } catch {
+    } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
       return Err({ type: 'RESET_TOKEN_INVALID' });
     }
   }
@@ -532,10 +539,12 @@ export class PasswordService {
       await this.prisma.$transaction(async (tx) => {
         // 共通のパスワード更新処理
         await this.updatePasswordInTransaction(tx, userId, passwordHash);
-      });
+      }, connectBudgetTransactionOptions());
 
       return Ok(undefined);
-    } catch {
+    } catch (error) {
+      // 接続のタイムアウトは飲み込まず、エラーハンドラーの 503 へ届ける（要件24.1）
+      rethrowIfDatabaseConnectionTimeout(error);
       return Err({ type: 'RESET_TOKEN_INVALID' });
     }
   }
