@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page, type Request } from '@playwright/test';
 import { cleanDatabase, getPrismaClient } from '../../fixtures/database';
 import { createTestUser } from '../../fixtures/auth.fixtures';
 import { loginAsUser } from '../../helpers/auth-actions';
@@ -19,6 +19,7 @@ import { API_BASE_URL } from '../../config';
  * @requirement user-authentication/REQ-17.8 ロール優先順位を設定し整数値（高い値が高優先度）を受け入れ
  * @requirement user-authentication/REQ-17.9 新しいロールを作成しデフォルトで空の権限セットを割り当て
  * @requirement user-authentication/REQ-28.38 ロール管理リンククリック → ロール管理画面遷移
+ * @requirement user-authentication/REQ-25.8 楽観的ロック競合が発生する場合エラーレスポンスを返す（ロールの編集画面の競合の表示）
  *
  * このテストスイートは、ロールの作成・更新・削除機能を
  * End-to-Endで検証します。
@@ -280,5 +281,190 @@ test.describe('動的ロール管理', () => {
     expect(createResponse.ok()).toBeTruthy();
     const role = await createResponse.json();
     expect(role.priority).toBe(100);
+  });
+});
+
+// ===== ロール編集の楽観的ロック（要件25.8） =====
+/**
+ * 楽観的ロックの競合をロールの編集画面から検証する。
+ *
+ * ロールの一覧（GET /api/v1/roles）の updatedAt（版）を保持し、編集の保存時に
+ * expectedUpdatedAt として送る。同じ版からの2つ目の保存は 409 ROLE_CONFLICT となり、
+ * 編集ダイアログは競合を表示して最新の内容の再読み込みを促す。
+ *
+ * @requirement user-authentication/REQ-25.8
+ */
+test.describe('ロール編集の楽観的ロック（要件25.8）', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  const LOCK_ROLE_NAME = 'Optimistic Lock Role';
+  const ORIGINAL_DESCRIPTION = '楽観的ロックの検証用ロール';
+
+  /** PATCH /api/v1/roles/:id の要求をパスで捉える（オリジンに依存しない） */
+  const isRolePatch = (request: Request): boolean =>
+    request.method() === 'PATCH' &&
+    /^\/api\/v1\/roles\/[^/]+$/.test(new URL(request.url()).pathname);
+
+  let lockRoleId = '';
+
+  test.beforeEach(async ({ context }) => {
+    await context.clearCookies();
+    await cleanDatabase();
+    await createTestUser('ADMIN_USER');
+    const role = await getPrismaClient().role.create({
+      data: {
+        name: LOCK_ROLE_NAME,
+        description: ORIGINAL_DESCRIPTION,
+        priority: 40,
+        isSystem: false,
+      },
+    });
+    lockRoleId = role.id;
+  });
+
+  /** ユーザー管理画面のロールタブを開き、検証用ロールの行が出るまで待つ */
+  async function openRolesTab(page: Page): Promise<void> {
+    await page.goto('/admin/users');
+    await expect(page.getByRole('heading', { name: /ユーザー.*ロール管理/i })).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await page.getByRole('tab', { name: /ロール/i }).click();
+    await expect(page.getByRole('button', { name: `${LOCK_ROLE_NAME}を編集` })).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+  }
+
+  /** 検証用ロールの編集ダイアログを開き、説明を書き換えて保存し、PATCH の要求と応答を返す */
+  async function editDescription(page: Page, value: string) {
+    await page.getByRole('button', { name: `${LOCK_ROLE_NAME}を編集` }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByText('ロール編集')).toBeVisible({ timeout: getTimeout(5000) });
+    await dialog.getByLabel('説明').fill(value);
+    const [request, response] = await Promise.all([
+      page.waitForRequest(isRolePatch, { timeout: getTimeout(15000) }),
+      page.waitForResponse((res) => isRolePatch(res.request()), {
+        timeout: getTimeout(15000),
+      }),
+      dialog.getByRole('button', { name: 'ロールを更新', exact: true }).click(),
+    ]);
+    return { request, response, dialog };
+  }
+
+  async function storedDescription(): Promise<string | undefined> {
+    const role = await getPrismaClient().role.findUnique({
+      where: { id: lockRoleId },
+      select: { description: true },
+    });
+    return role?.description;
+  }
+
+  /**
+   * 2つの画面が同じ版でロールを開き、順に保存すると、後の方が競合の表示になり、保存値は先の方になる。
+   * 最新の内容を読み込むと、最新の内容と版を取り直し、保存できる。
+   * @requirement user-authentication/REQ-25.8
+   */
+  test('同じ版から2つの画面で順にロールを編集すると、後の方に競合を表示し先の保存値が残る', async ({
+    page,
+    browser,
+  }) => {
+    const otherContext = await browser.newContext();
+    const otherPage = await otherContext.newPage();
+    try {
+      await loginAsUser(page, 'ADMIN_USER');
+      await loginAsUser(otherPage, 'ADMIN_USER');
+      // 両方の画面が、どちらの保存よりも前に一覧（同じ版）を取得する
+      await openRolesTab(page);
+      await openRolesTab(otherPage);
+
+      // 先の画面の保存は成功する
+      const first = await editDescription(page, '先の画面の編集');
+      expect(first.response.status()).toBe(200);
+      await expect(page.getByText('ロールを更新しました')).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      // 後の画面（同じ版を保持）の保存は競合になる
+      const second = await editDescription(otherPage, '後の画面の編集');
+      const conflict = second.dialog.getByTestId('role-conflict');
+      await expect(conflict, '後の保存で競合の表示が出ない').toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await expect(conflict).toContainText('ロールを保存できませんでした');
+      await expect(conflict).toContainText('最新の内容を読み込んでから、もう一度保存してください');
+      await expect(otherPage.getByText('ロールを更新しました')).toHaveCount(0);
+      // ダイアログは開いたままで、入力は失われない
+      await expect(second.dialog.getByLabel('説明')).toHaveValue('後の画面の編集');
+
+      expect(second.response.status()).toBe(409);
+      const problem = (await second.response.json()) as { code?: string };
+      expect(problem.code).toBe('ROLE_CONFLICT');
+
+      // 両方の要求が同じ版（一覧を取得した時点の updatedAt）を送っている
+      const firstBody = first.request.postDataJSON() as { expectedUpdatedAt?: string };
+      const secondBody = second.request.postDataJSON() as { expectedUpdatedAt?: string };
+      expect(firstBody.expectedUpdatedAt, '先の保存が版を送っていない').toEqual(expect.any(String));
+      expect(secondBody.expectedUpdatedAt).toBe(firstBody.expectedUpdatedAt);
+
+      // 保存値は先の方
+      expect(await storedDescription()).toBe('先の画面の編集');
+
+      // 最新の内容を読み込むと、先の保存値と新しい版を取り直し、もう一度保存できる
+      await conflict.getByRole('button', { name: '最新の内容を読み込む' }).click();
+      await expect(second.dialog.getByLabel('説明')).toHaveValue('先の画面の編集', {
+        timeout: getTimeout(10000),
+      });
+      await expect(conflict).toHaveCount(0);
+
+      await second.dialog.getByLabel('説明').fill('後の画面の再編集');
+      const [retriedRequest, retriedResponse] = await Promise.all([
+        otherPage.waitForRequest(isRolePatch, { timeout: getTimeout(15000) }),
+        otherPage.waitForResponse((res) => isRolePatch(res.request()), {
+          timeout: getTimeout(15000),
+        }),
+        second.dialog.getByRole('button', { name: 'ロールを更新', exact: true }).click(),
+      ]);
+      expect(retriedResponse.status()).toBe(200);
+      const retriedBody = retriedRequest.postDataJSON() as { expectedUpdatedAt?: string };
+      const firstResult = (await first.response.json()) as { updatedAt?: string };
+      expect(retriedBody.expectedUpdatedAt).toBe(firstResult.updatedAt);
+      await expect(otherPage.getByText('ロールを更新しました')).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      expect(await storedDescription()).toBe('後の画面の再編集');
+    } finally {
+      await otherContext.close();
+    }
+  });
+
+  /**
+   * 保存に成功したら新しい版を採用するため、同じ画面で続けて編集しても競合にならない。
+   * @requirement user-authentication/REQ-25.8
+   */
+  test('同じ画面で続けて2回ロールを編集すると、どちらも成功する', async ({ page }) => {
+    await loginAsUser(page, 'ADMIN_USER');
+    await openRolesTab(page);
+
+    const first = await editDescription(page, '1回目の編集');
+    expect(first.response.status()).toBe(200);
+    await expect(page.getByText('ロールを更新しました')).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await expect(first.dialog).toHaveCount(0);
+
+    const second = await editDescription(page, '2回目の編集');
+    expect(second.response.status(), '2回目の保存が競合になった').toBe(200);
+    await expect(page.getByTestId('role-conflict')).toHaveCount(0);
+
+    // 2回目は1回目の保存後の新しい版を送っている
+    const firstBody = first.request.postDataJSON() as { expectedUpdatedAt?: string };
+    const firstResult = (await first.response.json()) as { updatedAt?: string };
+    const secondBody = second.request.postDataJSON() as { expectedUpdatedAt?: string };
+    expect(firstBody.expectedUpdatedAt, '1回目の保存が版を送っていない').toEqual(
+      expect.any(String)
+    );
+    expect(firstResult.updatedAt).toEqual(expect.any(String));
+    expect(secondBody.expectedUpdatedAt).toBe(firstResult.updatedAt);
+
+    expect(await storedDescription()).toBe('2回目の編集');
   });
 });
