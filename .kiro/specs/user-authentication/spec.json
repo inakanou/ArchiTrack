@@ -36,13 +36,13 @@
       "phase_4_gap_remediation": 10,
       "phase_5_e2e_improvements": 1,
       "phase_6_navigation_enhancement": 6,
-      "total_major_tasks": 36,
-      "total_sub_tasks": 110,
-      "pending_sub_tasks": 0,
+      "total_major_tasks": 37,
+      "total_sub_tasks": 113,
+      "pending_sub_tasks": 3,
       "requirements_coverage": "100%",
       "requirements_count": 37,
       "counted_at": "2026-09-28",
-      "counting_method": "tasks.md のチェック項目を数える。total_major_tasks は相異なる最上位番号（1〜36）、total_sub_tasks は N.M 形式の項目、pending_sub_tasks は未完了の N.M 形式の項目からタスク36.8 自身（本更新を行うタスク）を除いたもの（36.8 の時点で残るのは _Blocked:_ の 36.7 の 1 件。36.7 の完了で 0）。requirements_count は requirements.md の「### 要件N」見出し（16A・27A〜27E を含む）。requirements_coverage は tasks.md の各タスクの _Requirements:_ から見た要件の網羅であり、`npm run check:req-coverage` の被覆印の実測（2026-09-28 時点で受入基準 377/388）とは別の指標。phase_1_3_completed〜phase_6_navigation_enhancement は 2025-12-03 の生成時点の内訳で、total_* とは合わない"
+      "counting_method": "tasks.md のチェック項目を数える。total_major_tasks は相異なる最上位番号（1〜37）、total_sub_tasks は N.M 形式の項目、pending_sub_tasks は未完了の N.M 形式の項目からタスク36.8 自身（本更新を行うタスク）を除いたもの（36.8 の時点で残るのは _Blocked:_ の 36.7 の 1 件。36.7 の完了で 0）。requirements_count は requirements.md の「### 要件N」見出し（16A・27A〜27E を含む）。requirements_coverage は tasks.md の各タスクの _Requirements:_ から見た要件の網羅であり、`npm run check:req-coverage` の被覆印の実測（2026-09-28 時点で受入基準 377/388）とは別の指標。phase_1_3_completed〜phase_6_navigation_enhancement は 2025-12-03 の生成時点の内訳で、total_* とは合わない"
     },
     "design_update": {
       "updated_at": "2025-12-03T16:00:00Z",

@@ -1167,6 +1167,31 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `6393c
   - **範囲外の観測（未起票）**: (i) `backend/src/routes/auth.routes.ts` の 2 か所（独立レビューの実測で :888 / :1001）に `logger.error({ error }, …)` が残る（ルートは境界の外）。(ii) `backend/src/db.ts` の `DB_CONNECT_RETRY_DELAYS_MS` は本番コードから参照されない再輸出。(iii) steering の 2 文書は HEAD の時点で既に prettier の検査に通らない。独立レビューは APPROVED
   - **検証（親が承認後に新鮮な証拠で再実行）**: `npm --prefix backend run test:unit` 6110/6110、type-check EXIT=0、lint EXIT=0、`check:steering-*` 5 本と `check:design-path-refs` / `check:design-code-refs` が EXIT=0、`check:design-measurement-freshness` は t13 の 1 件のみ。親が検証の途中で誤って `check:design-path-refs:update` を実行し `scripts/design-path-exemption-baseline.json` を書き換えたため、同ファイルを HEAD へ戻し、`design-path-candidate-recorded` の赤が消えることを確かめた
 
+## タスク37: 機能検証（2026-09-28）の GO に残った指摘の是正
+
+_起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a476852e`）の GO に残った指摘 1〜3 と、利用者の指示「1〜3をタスク37として起票して」。行番号はいずれも HEAD `a476852e` での実測_
+
+- [ ] 37.1 ロールの削除の使用中の確認と削除を同じトランザクションで行う
+  - 実測: `RoleService.deleteRole` は使用中の確認 `this.prisma.userRole.count`（`backend/src/services/role.service.ts:335`）をトランザクションの外で行い、その後の `$transaction`（`:345`）の中で `tx.role.delete` する。`UserRole.role` は `onDelete: Cascade`（`backend/prisma/schema.prisma:132`）のため、確認から削除までの間に割り当てがコミットされると、条文 17.5 が拒否を求める「割り当てのあるロールの削除」が成立し、その割り当てはカスケードで黙って消える。消えた割り当てには `USER_ROLE_REVOKED` の監査ログ（22.3）が残らず、そのユーザーの権限キャッシュも無効化されない（21.8。design.md の「キャッシング戦略」の 36.2 の項は「ロールの削除は割り当て中なら拒否されるため無効化は不要」を前提にする）。36.4 より前から在る競合で、36.4 が削除をトランザクションにしたときに確認を中へ移していなかった（機能検証の設計と結合の観点が検出し、親がコードで確認）
+  - 実装: 使用中の確認と削除を同じトランザクションの中で行い、並行する割り当てと直列化する（例: ロールの行を `FOR UPDATE` でロックしてから数える。割り当ての挿入は外部キーの検査でロールの行に `FOR KEY SHARE` を取るため、削除のトランザクションと衝突する。外部キーを `Restrict` に改める案もある）。方式と、割り当ての側が負けたときの応答は design.md に日付付きで決める。`connectBudgetTransactionOptions()` と `rethrowIfDatabaseConnectionTimeout` の作法（35.11〜35.13・36.4）は保つ
+  - 検証: 実 DB の統合検証で、使用中の確認の直後・削除の前に割り当てをコミットさせる競合を再現し、削除が拒否される（または割り当ての側が失敗して割り当ても監査ログも矛盾しない）ことを主張する（`@requirement user-authentication/REQ-17.5`）。確認をトランザクションの外へ戻す変異で赤くなることを実測する
+  - _Requirements: 17.5, 21.8, 22.3_
+  - _Boundary: `backend/src/services/role.service.ts` の `deleteRole`（と、方式によっては `user-role.service.ts` の割り当て・`schema.prisma` の関係）とその統合検証_
+
+- [ ] 37.2 権限キャッシュの無効化を、読み込みとの競合・Redis の未接続・コミット後の処理の失敗に対して確実にする
+  - 実測: (i) 読み込み側の cache-aside（`backend/src/services/rbac.service.ts:104` の DB 読み出しから `:162` の `redis.setex` まで）の間に、別の操作のコミットと無効化（`user-role.service.ts:606`、`role-permission.service.ts:435`）が入ると、無効化の後に古い権限が書き戻され TTL（15 分）の間残る。design.md の「無効化の限界」は API を通さない変更・Redis 障害中の無効化の失敗・cache-aside の競合を TTL で上限が付くとまとめるが、この書き戻しを防ぐ手立ては無い。(ii) 読み込み側は `redis.status === 'ready'`（`:79`）を確かめるが、`invalidateUserPermissionsCache`（`:278`）と `invalidateUserPermissionsCacheForRole`（`:304`）は確かめずに `del` を送る。再接続中は ioredis のオフラインキューに積まれて変更の API の応答が遅れ、`maxRetriesPerRequest: 3`（`backend/src/redis.ts:29`）を使い切って失敗すると障害前のエントリが TTL まで残る。steering（`tech.md` の「接続障害への耐性」）は読み込み側しか述べていない。(iii) `UserRoleService.afterCommit`（`user-role.service.ts:541`〜`:607`）は、admin ロールの変更で `prisma.user.findMany`（`:561`）と `emailService.sendAdminRoleChangedAlert` を待ってから無効化（`:606`）する。これは `addRoles` / `removeRoles` の try（`:241` / `:274`）の中にあるため、どちらかが投げると、コミット済みなのに `DATABASE_ERROR`（500。接続のタイムアウトなら 503）を返し、無効化も飛ばす
+  - 実装: (i) 無効化の後の古い書き戻しを防ぐ方式（世代のキーを読んで書き込みの前に照合する、など）を design.md で決めて実装する。(ii) 無効化の経路の Redis の未接続時の振る舞い（待たずに警告して TTL に任せるか、オフラインキューを使わない呼び出しにするか）を決めて実装し、steering の記述を揃える。(iii) コミット後の処理は無効化を先に行い、アラートの送信の失敗は警告ログに留めて、コミット済みの変更を失敗として返さない。21.8 / 24.2 / 24.7 の既存の検証（36.2 の `rbac-permission-cache.integration.test.ts` ほか）を壊さない
+  - 検証: 実 Redis・実 DB の統合検証で、(i) 読み込みの DB 読み出しと書き込みの間に無効化を挟むと、次の権限確認が新しい権限で判定されること、(ii) Redis が `ready` でないとき無効化が変更の応答を待たせず警告を残すこと、(iii) アラートの送信が投げても割り当ての変更が成功として返り、キャッシュが無効化されることを主張する（`@requirement user-authentication/REQ-21.8` ほか）。それぞれの是正を戻す変異で赤くなることを実測する
+  - _Requirements: 21.8, 24.2, 24.7_
+  - _Boundary: `backend/src/services/rbac.service.ts` の無効化と cache-aside、`backend/src/services/user-role.service.ts` の `afterCommit`、その統合検証、design.md の「キャッシング戦略」、`.kiro/steering/tech.md` の該当の記述_
+
+- [ ] 37.3 ロールの保存・削除の失敗の表示が API の応答の内容を読むようにする
+  - 実測: `frontend/src/pages/UserManagement.tsx:287` と `:338` は `error?.response?.data?.message` を表示に使うが、`ApiError.response` は応答の本文そのもの（`frontend/src/api/client.ts:6-15`）で `data` を持たない。バックエンドの本文は `{ error, code }`（ロール名の重複の 409 `ROLE_NAME_CONFLICT` は `backend/src/routes/roles.routes.ts:142-147` / `:249-254`、削除の拒否の `SYSTEM_ROLE_PROTECTED` / `ROLE_IN_USE` は `:332-345`）で、`message` も無い。このため条文 17.2 のロール名の重複も、17.5 / 17.6 の削除の拒否も、画面では常に既定の「ロールの保存に失敗しました」「ロール削除に失敗しました」になり、理由が伝わらない。36.7 の独立レビューと機能検証が検出した（36.7 の範囲外の観測 (iii)）
+  - 実装: `ApiError` の `response` の `code` / `error` を読み、ロール名の重複と削除の拒否（システムロール・使用中）を利用者に分かる文言で表示する。36.7 の `ROLE_CONFLICT` の判定（`UserManagement.tsx:47-57`）と同じ読み方に揃える
+  - 検証: 管理画面から既存の名前でロールを作成・更新したとき、使用中のロールとシステムロールを削除したときに、それぞれの理由の表示が出ることを E2E で主張する（`@requirement user-authentication/REQ-17.2` / `REQ-17.5` / `REQ-17.6`）。単体の期待値も揃える。`data?.message` を読む形へ戻す変異で赤くなることを実測する。名前で要素を指す E2E を足すと site-survey の宣言 `t13-anchor-references-after-115303` が動くため、`check:design-measurement-freshness` の前後の差を測り、動けば site-survey へ起票する（Implementation Notes）
+  - _Requirements: 17.2, 17.5, 17.6_
+  - _Boundary: `frontend/src/pages/UserManagement.tsx` のロールの保存・削除の失敗の表示とその単体・E2E 検証_
+
 ## Implementation Notes
 
 - 宣言 `t13-anchor-references-after-115303` はリポジトリ全体の e2e の「肯定側から指す参照」（名前を文字列リテラルで与える `getByRole(..., { name })` / `getByLabel` など）を数える。本スペックで名前で指す E2E を足すと必ず動くため、E2E を足すタスクは `check:design-measurement-freshness` の前後の差を測り、動けば site-survey へ起票する。正規表現・testid への書き換えで避けるのは不当（36.7）
