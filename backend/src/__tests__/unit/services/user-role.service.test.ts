@@ -746,6 +746,49 @@ describe('UserRoleService', () => {
     });
   });
 
+  describe('deleteUser() の権限キャッシュの無効化（タスク36.2）', () => {
+    beforeEach(() => {
+      const tx = prismaMock as unknown as Record<string, unknown>;
+      tx.invitation = { deleteMany: vi.fn(), updateMany: vi.fn() };
+      (tx.user as Record<string, unknown>).delete = vi.fn();
+      vi.mocked(prismaMock.role.findUnique).mockResolvedValue(null);
+    });
+
+    it('削除をコミットした後に、削除したユーザーの権限キャッシュを無効化する', async () => {
+      const order: string[] = [];
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue({
+        id: mockUserId,
+        email: 'deleted@example.com',
+        userRoles: [],
+      } as unknown as never);
+      vi.mocked(prismaMock.$transaction).mockImplementation((async (
+        callback: (tx: PrismaClient) => Promise<unknown>
+      ) => {
+        const value = await callback(prismaMock);
+        order.push('commit');
+        return value;
+      }) as never);
+      rbacServiceMock.invalidateUserPermissionsCache.mockImplementation(async () => {
+        order.push('invalidate');
+      });
+
+      const result = await userRoleService.deleteUser(mockUserId);
+
+      expect(result.ok).toBe(true);
+      expect(rbacServiceMock.invalidateUserPermissionsCache).toHaveBeenCalledWith(mockUserId);
+      expect(order).toEqual(['commit', 'invalidate']);
+    });
+
+    it('ユーザーが存在しないときは無効化しない', async () => {
+      vi.mocked(prismaMock.user.findUnique).mockResolvedValue(null);
+
+      const result = await userRoleService.deleteUser(mockUserId);
+
+      expect(result.ok).toBe(false);
+      expect(rbacServiceMock.invalidateUserPermissionsCache).not.toHaveBeenCalled();
+    });
+  });
+
   describe('hasUserRole()', () => {
     it('ユーザーがロールを持っている場合trueを返す', async () => {
       // Arrange

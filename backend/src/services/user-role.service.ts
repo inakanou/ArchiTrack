@@ -462,7 +462,7 @@ export class UserRoleService implements IUserRoleService {
   async deleteUser(userId: string): Promise<Result<{ email: string }, DeleteUserError>> {
     // 業務上の結果（不在・最後の管理者）だけを Err で返す。データベースの例外は捕まえずに投げ、
     // 呼び出し側（ルート）がエラーハンドラーへ渡して Prisma のエラーコードごとに応答を分類させる
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const adminRole = await tx.role.findUnique({
         where: { name: 'admin' },
         select: { id: true },
@@ -497,6 +497,14 @@ export class UserRoleService implements IUserRoleService {
 
       return Ok({ email: user.email });
     }, connectBudgetTransactionOptions());
+
+    // コミット後に削除したユーザーの権限キャッシュを無効化する。アクセストークンは削除後も
+    // 有効期限まで検証を通るため、残ったキャッシュで権限の確認を通さない（タスク36.2）
+    if (result.ok && this.rbacService) {
+      await this.rbacService.invalidateUserPermissionsCache(userId);
+    }
+
+    return result;
   }
 
   /**

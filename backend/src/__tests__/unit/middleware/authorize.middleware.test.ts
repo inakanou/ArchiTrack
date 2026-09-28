@@ -9,8 +9,18 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
 import { Prisma, type PrismaClient } from '../../../generated/prisma/client.js';
 import { requirePermission } from '../../../middleware/authorize.middleware.js';
-import { RBACService } from '../../../services/rbac.service.js';
+import { RBACService, getSharedRBACService } from '../../../services/rbac.service.js';
+import getPrismaClient from '../../../db.js';
 import logger from '../../../utils/logger.js';
+
+vi.mock('../../../services/rbac.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../services/rbac.service.js')>()),
+  getSharedRBACService: vi.fn(),
+}));
+
+vi.mock('../../../db.js', () => ({
+  default: vi.fn(),
+}));
 
 /**
  * 本物のロガー（pino の設定を持つ実体）のシリアライザを、ログの第1引数へ当てて JSON にする。
@@ -465,6 +475,32 @@ describe('requirePermission middleware', () => {
           }),
         })
       );
+    });
+  });
+
+  describe('RBACService の既定（タスク36.2）', () => {
+    it('注入が無いときは、権限キャッシュを持つ共有の RBACService で判定する', async () => {
+      const shared = { hasPermission: vi.fn().mockResolvedValue(true) } as unknown as RBACService;
+      vi.mocked(getSharedRBACService).mockReturnValue(shared);
+      vi.mocked(getPrismaClient).mockReturnValue(mockPrisma);
+
+      const middleware = requirePermission('adr:read');
+      await middleware(mockRequest as Request, mockResponse as Response, mockNext);
+
+      expect(getSharedRBACService).toHaveBeenCalled();
+      expect(shared.hasPermission).toHaveBeenCalledWith('user-123', 'adr:read');
+      expect(mockNext).toHaveBeenCalledWith();
+    });
+
+    it('RBACService を注入したときは共有のインスタンスを使わない', async () => {
+      vi.mocked(getSharedRBACService).mockClear();
+      vi.mocked(mockRBACService.hasPermission).mockResolvedValue(true);
+
+      const middleware = requirePermission('adr:read', mockRBACService, mockPrisma);
+      await middleware(mockRequest as Request, mockResponse as Response, mockNext);
+
+      expect(getSharedRBACService).not.toHaveBeenCalled();
+      expect(mockNext).toHaveBeenCalledWith();
     });
   });
 });

@@ -8,11 +8,10 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import { UserRoleService } from '../services/user-role.service.js';
-import { RBACService } from '../services/rbac.service.js';
+import { getSharedRBACService } from '../services/rbac.service.js';
 import { AuditLogService } from '../services/audit-log.service.js';
 import { EmailService } from '../services/email.service.js';
 import getPrismaClient from '../db.js';
-import getRedisClient from '../redis.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
@@ -20,8 +19,9 @@ import logger from '../utils/logger.js';
 
 const router = Router();
 const prisma = getPrismaClient();
-const redisClient = getRedisClient.getClient() ?? undefined;
-const rbacService = new RBACService(prisma, redisClient);
+// 権限の確認（requirePermission）と同じインスタンスで権限キャッシュを無効化する（タスク36.2）。
+// モジュールの読み込みの時点では Redis は未初期化のため、クライアントは呼び出しの時点で解決される
+const rbacService = getSharedRBACService();
 const auditLogService = new AuditLogService({ prisma });
 const emailService = new EmailService();
 const userRoleService = new UserRoleService(prisma, rbacService, auditLogService, emailService);

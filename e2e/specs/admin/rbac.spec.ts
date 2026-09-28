@@ -34,7 +34,6 @@ test.describe('ロールベースアクセス制御（RBAC）', () => {
    * 要件6.2: 権限不足時の403エラー
    * @requirement user-authentication/REQ-6.1 @requirement user-authentication/REQ-6.2
    * @requirement user-authentication/REQ-21.8 ロール・権限変更時のキャッシュ無効化
-   * @requirement user-authentication/REQ-21.9 権限情報のキャッシュ機構
    * @requirement user-authentication/REQ-28.37 ユーザー管理リンククリック → ユーザー管理画面遷移
    * @requirement user-authentication/REQ-28.45 未認証状態で保護URL直接アクセス → ログイン画面リダイレクト
    */

@@ -47,6 +47,7 @@ vi.mock('../../../services/rbac.service', () => ({
       return {};
     }
   },
+  getSharedRBACService: () => ({}),
 }));
 
 vi.mock('../../../services/audit-log.service', () => ({
