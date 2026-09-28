@@ -6229,6 +6229,14 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - **検証（親が承認後に新鮮な証拠で再実行、HEAD `0e96252e`）**: `check:req-exclusions:selftest`・`check:design-measurement-freshness`・`:selftest`・`check:design-path-refs`・`check:design-code-refs` いずれも EXIT=0
   - **push の関門の残り（独立レビューが `.husky/scripts/pre-push.sh` の root 側の関門を全件実行）**: 赤は本項より前からの `check:req-coverage`（閾値の失敗3件）と `check:steering-idents:selftest`（1/41、見本を欠く同値類）の2本だけ
 
+- [ ] 115.335 下流 user-authentication の E2E の追加で動いた t13 の錨の件数を測り直す（**user-authentication の Task 36.7 からの起票依頼**）
+  - **出所**: 宣言 `t13-anchor-references-after-115303`（`scripts/design-measurements.json`。錨は本スペックの design.md の「タスク 115.334 の提出時点の再実測は肯定側から指す参照 1415 件」）は、`scripts/check-e2e-assertion-guards.ts` の `collectAccessibleNameRefs` がリポジトリ全体の e2e から数える「肯定側から指す参照」（名前を文字列リテラルで与え、零件なら失敗する使われ方の取得）の件数を引く。母集団が全体の e2e のため、下流が名前で指す E2E を足すたびに動く（115.330・115.334 と同じ種類の衝突）。**下流は本スペックの設計文書も `scripts/design-measurements.json` も書き換えていない**
+  - **実測（2026-09-28。下流のデバッグ調査が各コミットの e2e に作業ツリーの規則を当てて測り、親が作業ツリーの 1423 を再実測）**: `abe99026` 1415 → **`eeee7977`（user-authentication の Task 36.1、`e2e/specs/admin/user-role.spec.ts` への E2E の追加）で 1416（+1。以後 HEAD で赤）**。`f6dfb6e2`・`3cdb7395`・`f7341d93`・`ea9b8141` は 1416 のまま。**user-authentication の Task 36.7 の作業ツリーで 1423（+7）**: `e2e/specs/admin/role-management.spec.ts` の `getByLabel('説明')` 4 件、`getByRole('button', { name: 'ロールを更新', exact: true })` 2 件、`getByRole('button', { name: '最新の内容を読み込む' })` 1 件。本スペックのコミットは 0 件
+  - **下流の境界内での回避は成り立たない**: 名前を正規表現や testid へ書き換えれば件数は動かないが、検査器自身が「肯定側が正規表現へ緩められた場合は、その名前の錨が消えたものとして扱われる」と開示するとおり錨を弱める退行であり、件数を避けるための書き換えは不当である
+  - **依頼**: 115.330 / 115.334 の作法（規約 (a) で当時の値を残し、提出時点の再実測を並べる）に従い、本スペックの design.md の該当の実測の文と、宣言の anchor・expected・documentRendering・note を貼り直す。増分は `eeee7977` の +1 と Task 36.7 のコミットの +7 に帰属させる。36.7 のコミットより前に着手する場合は、着手時に測り直すこと（件数だけなら `npx tsx scripts/check-e2e-assertion-guards.ts --accessible-names | grep 肯定側`）
+  - **検証**: `npm run check:design-measurement-freshness`（EXIT=0）と `npm run check:design-measurement-freshness:selftest`
+  - _Boundary: 本スペックの design.md の当該の実測の文、`scripts/design-measurements.json` の当該 1 宣言_
+
 ## Implementation Notes（Task 115.30-115.52）
 
 - **「注記が言う未実装」を鵜呑みにしないこと**: 115.127 段4 で、八件の検証が「実装がセレクトボックスなので未実装」という注記つきの分岐で守られていたが、実装は入力欄であり**観測は一度も発火していなかった**。危険なのは発火しなかったことではなく、**実装が退行した瞬間に八件が緑のまま何も主張しなくなる**ことである。変異で実測すると、観測が発火する状況では八件が主張を一つも実行せずに通った。

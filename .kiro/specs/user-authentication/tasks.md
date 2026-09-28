@@ -1150,6 +1150,8 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `6393c
   - 検証: 2 画面から同じ版で順にロールを編集し後の方が競合の表示になること、保存値が先の方であること、同一画面の連続保存が成功することを E2E で主張する（`@requirement user-authentication/REQ-25.8`）。版を送らない変異で赤くなることを実測する
   - _Requirements: 25.8_
   - _Boundary: `frontend/src/pages/UserManagement.tsx` のロールの編集とその単体・E2E 検証_
+  - _Blocked: 追加した E2E（`e2e/specs/admin/role-management.spec.ts`）が、site-survey の鮮度宣言 `t13-anchor-references-after-115303`（リポジトリ全体の e2e の「肯定側から指す参照」の件数）を 1416 → 1423（+7）へ動かす。上流の貼り直しを site-survey の Task 115.335 へ起票した。HEAD の +1（1415→1416）は 36.1（`eeee7977`）に由来することもデバッグ調査で特定し、同じ起票に帰属させた_
+  - **経過（2026-09-28）**: 実装は済み、作業ツリーに未コミットで残す（`frontend/src/pages/UserManagement.tsx`、`frontend/src/__tests__/pages/UserManagement.optimistic-lock.test.tsx`（新規 8 件）、`e2e/specs/admin/role-management.spec.ts`（`@requirement user-authentication/REQ-25.8` の 2 件））。一覧の `updatedAt` を `expectedUpdatedAt` として送り、成功時は応答の新しい版を採用し、409 `ROLE_CONFLICT` ではダイアログに入力を残したまま競合の表示と「最新の内容を読み込む」を出す（`ROLE_NAME_CONFLICT` は従来の失敗の表示のまま）。実装者の報告では frontend 単体 11877 件・E2E `admin/` 58/58 が緑、版を送らない変異で E2E 2 件が赤。**独立レビューは未実施**（上流の解決後、レビューから再開する）。デバッグ調査は、名前を正規表現や testid へ書き換えて件数を避けることは錨を弱める退行で不当と判断した
 
 - [ ] 36.8 ログのキー・全体に効く変更の記載・spec.json を整える
   - 実測: 認証領域のサービスに `{ error }` キーの警告・エラーログが残る（two-factor 10・rbac 4・role 4・role-permission 3・user-role 3・permission 3・session 1 か所ほか。pino の `err` シリアライザが効かず本番の出力で中身が失われる）。全体に効く変更（35.2 / 35.9 の `RetryingPool` と接続の再試行、35.8 の P1008 の 400→503、35.12 の `maxWait`、35.13 の `requirePermission` の 503）が steering（`tech.md` / `structure.md` の utils 一覧）に記されていない。design.md :3443 は `RetryingPool` が `DB_CONNECT_RETRY_DELAYS_MS` を使うと記すが、実際は `dbConnectRetryDelaysMs(retryCount)` を使う。`spec.json` は `phase: tasks-generated`・`pending_sub_tasks: 6`・`requirements_count: 35` で実態（37 要件）と食い違う
@@ -1157,3 +1159,8 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `6393c
   - 検証: 本物の pino のシリアライザでキーの変更を主張する単体検証、`npm run check:steering-refs` ほか steering の関門、`check:design-path-refs` / `check:design-code-refs`
   - _Requirements: 24.7（ログ）_
   - _Boundary: 認証領域のサービスのログ呼び出し、`.kiro/steering/tech.md` / `structure.md`、本スペックの design.md と spec.json_
+
+## Implementation Notes
+
+- 宣言 `t13-anchor-references-after-115303` はリポジトリ全体の e2e の「肯定側から指す参照」（名前を文字列リテラルで与える `getByRole(..., { name })` / `getByLabel` など）を数える。本スペックで名前で指す E2E を足すと必ず動くため、E2E を足すタスクは `check:design-measurement-freshness` の前後の差を測り、動けば site-survey へ起票する。正規表現・testid への書き換えで避けるのは不当（36.7）
+- 検証の変異を戻すときの frontend の作り直しは `--force-recreate` とバンドルのハッシュの変化で確かめる。frontend の単体は `npm --prefix frontend run test` で起動する（repo のルートから vitest を起動すると CSS の相対パスで ENOENT の偽の赤が出る）（36.6）
