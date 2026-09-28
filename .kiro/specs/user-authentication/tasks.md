@@ -1200,6 +1200,8 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - 検証: 管理画面から既存の名前でロールを作成・更新したとき、使用中のロールとシステムロールを削除したときに、それぞれの理由の表示が出ることを E2E で主張する（`@requirement user-authentication/REQ-17.2` / `REQ-17.5` / `REQ-17.6`）。単体の期待値も揃える。`data?.message` を読む形へ戻す変異で赤くなることを実測する。名前で要素を指す E2E を足すと site-survey の宣言 `t13-anchor-references-after-115303` が動くため、`check:design-measurement-freshness` の前後の差を測り、動けば site-survey へ起票する（Implementation Notes）
   - _Requirements: 17.2, 17.5, 17.6_
   - _Boundary: `frontend/src/pages/UserManagement.tsx` のロールの保存・削除の失敗の表示とその単体・E2E 検証_
+  - _Blocked: 追加した E2E（`e2e/specs/admin/role-management.spec.ts`）が、site-survey の鮮度宣言 `t13-anchor-references-after-115303` を 1423 → 1430（+7）へ動かす。上流の貼り直しを site-survey の Task 115.336 へ起票した（36.7 / 115.335 と同じ種類。根本原因は Implementation Notes の 36.7 の項のとおりで、新たなデバッグ調査は行っていない）_
+  - **経過（2026-09-29）**: 実装は済み、作業ツリーに未コミットで残す（`frontend/src/pages/UserManagement.tsx`、単体 `UserManagement.role-errors.test.tsx`（新規）・`UserManagement.test.tsx`・`UserManagement.optimistic-lock.test.tsx`、E2E `admin/role-management.spec.ts`）。`readRoleErrorBody` が `ApiError` の `statusCode` と `response` から `code` / `details` を読み、409 `ROLE_NAME_CONFLICT`・404 `ROLE_NOT_FOUND`・400 `SYSTEM_ROLE_PROTECTED`・400 `ROLE_IN_USE`（`details.userCount` があれば人数を添える）の理由を表示する（36.7 の `ROLE_CONFLICT` の分岐は先に判定するため変わらない）。画面はシステムロールの行に削除ボタンを出さず、`isSystem` は API から変えられないため、17.6 の理由の表示は単体だけで検証し、E2E はシステムロールの行に削除ボタンが無いことを主張する（応答の差し替えによる偽装はしていない）。実装者の報告では、フラグ OFF で単体 9 件・E2E 3 件が赤、`data?.message` を読む形へ戻す変異で E2E 3 件が赤、frontend 単体 11888 件・E2E `admin/` 62/62 が緑。**独立レビューは未実施**（上流の解決後、レビューから再開する）
 
 ## Implementation Notes
 
