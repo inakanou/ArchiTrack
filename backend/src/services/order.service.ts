@@ -26,6 +26,17 @@ import {
 } from '../errors/orderError.js';
 
 /**
+ * 案分計算専用の Decimal
+ *
+ * 既定の Decimal（有効桁 20・ROUND_HALF_UP）では、比率（実行金額 ÷ 合計実行金額）や
+ * 積（実行金額 × 確定発注金額）が 20 桁で丸められ、切捨ての結果が真の値からずれる。
+ * 実行金額と確定発注金額は DECIMAL(15,0) のため積は高々 30 桁で、有効桁 64 なら積は正確に表せる。
+ * 割り算は ROUND_FLOOR で丸めるため、商は真の値以下かつ真の値の切捨て以上となり、
+ * floor() の結果は真の商の切捨てと一致する。
+ */
+const ProrationDecimal = Decimal.clone({ precision: 64, rounding: Decimal.ROUND_FLOOR });
+
+/**
  * OrderService依存関係
  */
 export interface OrderServiceDependencies {
@@ -819,31 +830,33 @@ export class OrderService {
     }[],
     confirmedAmount: Decimal
   ): { itemId: string; amount: string }[] {
+    // 案分の計算はすべて ProrationDecimal（有効桁 64）で行い、途中の丸めを避ける
+    const confirmed = new ProrationDecimal(confirmedAmount.toString());
+
     // 1. 各項目の実行金額を取得
     const itemAmounts = checkedItems.map((item) => ({
       itemId: item.id,
       executionAmount: item.executionBudgetItem.executionAmount
-        ? new Decimal(item.executionBudgetItem.executionAmount.toString())
-        : new Decimal(0),
+        ? new ProrationDecimal(item.executionBudgetItem.executionAmount.toString())
+        : new ProrationDecimal(0),
     }));
 
     // 2. 合計実行金額を計算
     const totalExecution = itemAmounts.reduce(
       (sum, item) => sum.add(item.executionAmount),
-      new Decimal(0)
+      new ProrationDecimal(0)
     );
 
     // 3. 各項目の案分額を計算（小数点以下切捨て）
     const results: { itemId: string; amount: Decimal; executionAmount: Decimal }[] = [];
-    let allocatedTotal = new Decimal(0);
+    let allocatedTotal = new ProrationDecimal(0);
 
     for (const item of itemAmounts) {
-      // 比率 = 項目の実行金額 / 合計実行金額
-      // 案分額 = 確定発注金額 * 比率（1円未満切捨て）
-      const ratio = totalExecution.isZero()
-        ? new Decimal(0)
-        : item.executionAmount.div(totalExecution);
-      const prorated = confirmedAmount.mul(ratio).floor();
+      // 案分額 = 実行金額 × 確定発注金額 ÷ 合計実行金額（1円未満切捨て）
+      // 比率を先に求めると有限桁で丸められて誤差が出るため、掛けてから割る
+      const prorated = totalExecution.isZero()
+        ? new ProrationDecimal(0)
+        : item.executionAmount.mul(confirmed).div(totalExecution).floor();
       allocatedTotal = allocatedTotal.add(prorated);
       results.push({
         itemId: item.itemId,
@@ -853,7 +866,7 @@ export class OrderService {
     }
 
     // 4. 端数処理: 残りを最も実行金額の大きい項目に加算
-    const remainder = confirmedAmount.sub(allocatedTotal);
+    const remainder = confirmed.sub(allocatedTotal);
     if (remainder.greaterThan(0)) {
       // 最も実行金額の大きい項目を見つける
       let maxIdx = 0;
@@ -868,9 +881,11 @@ export class OrderService {
     }
 
     // 5. 文字列に変換して返却
+    // ProrationDecimal の既定の丸め（ROUND_FLOOR）を引き継がないよう、四捨五入を明示する
+    // （確定発注金額に小数があるとき、端数を加えた項目は従来どおり四捨五入で整数にする）
     return results.map((r) => ({
       itemId: r.itemId,
-      amount: r.amount.toFixed(0),
+      amount: r.amount.toFixed(0, Decimal.ROUND_HALF_UP),
     }));
   }
 

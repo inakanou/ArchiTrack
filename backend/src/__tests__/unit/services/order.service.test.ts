@@ -1006,18 +1006,18 @@ describe('OrderService', () => {
       expect(result.status).toBe('ORDERED');
       // 案分結果の検証: orderItem.updateが2回（チェック済み項目のみ）呼ばれる
       expect(mockTx.orderItem.update).toHaveBeenCalledTimes(2);
-      // floor(100000/300000 * 270000) = floor(89999.999...) = 89999
-      // floor(200000/300000 * 270000) = floor(179999.999...) = 179999
-      // 残り: 270000 - 89999 - 179999 = 2 → 項目2(最大金額)に加算 → 180001
+      // 100000 × 270000 ÷ 300000 = 90000（割り切れる）
+      // 200000 × 270000 ÷ 300000 = 180000（割り切れる）
+      // 端数は生じないため、比率を先に丸めた誤差（89999 / 180001）が出てはならない
       expect(mockTx.orderItem.update).toHaveBeenCalledWith({
         where: { id: 'oi-1' },
-        data: { orderAmount: '89999' },
+        data: { orderAmount: '90000' },
       });
       expect(mockTx.orderItem.update).toHaveBeenCalledWith({
         where: { id: 'oi-2' },
-        data: { orderAmount: '180001' },
+        data: { orderAmount: '180000' },
       });
-      // 合計確認: 89999 + 180001 = 270000
+      // 合計確認: 90000 + 180000 = 270000
       const calls = (mockTx.orderItem.update as ReturnType<typeof vi.fn>).mock.calls;
       const total = calls.reduce(
         (sum: number, call: unknown[]) =>
@@ -1423,7 +1423,7 @@ describe('OrderService', () => {
     it('全項目の実行金額が同じ場合の均等案分', async () => {
       // Arrange
       // 3項目とも100000、確定発注金額: 100000
-      // 案分: 33333, 33333, 33334(端数加算)
+      // 案分: 33334(端数加算: 同額のときは先頭の項目), 33333, 33333
       const existingOrder = {
         ...sampleOrder,
         status: 'UNDER_REVIEW',
@@ -1483,6 +1483,180 @@ describe('OrderService', () => {
         totalProrated += parseInt(call[0].data.orderAmount, 10);
       }
       expect(totalProrated).toBe(100000);
+    });
+
+    // ========================================
+    // Task 16.2: 比率を先に丸めず、掛けてから割る案分
+    // ========================================
+
+    /**
+     * チェック済み項目の実行金額と確定発注金額から案分を実行し、項目ごとの発注金額を返す
+     */
+    async function prorate(executionAmounts: string[], confirmedAmount: string) {
+      const itemIds = [itemId1, itemId2, itemId3];
+      const existingOrder = { ...sampleOrder, status: 'UNDER_REVIEW' };
+      mockTx.order.findUnique.mockResolvedValue(existingOrder);
+      mockTx.orderItem.findMany.mockResolvedValue(
+        executionAmounts.map((amount, i) => ({
+          id: `oi-${i + 1}`,
+          orderId,
+          executionBudgetItemId: itemIds[i],
+          checked: true,
+          orderAmount: null,
+          executionBudgetItem: {
+            id: itemIds[i],
+            executionAmount: { toString: () => amount },
+          },
+        }))
+      );
+      mockTx.orderItem.update = vi.fn().mockResolvedValue({});
+      mockTx.order.update.mockResolvedValue({
+        ...existingOrder,
+        status: 'ORDERED',
+        confirmedAmount: { toString: () => confirmedAmount },
+      });
+
+      await service.updateStatus(orderId, 'ORDERED', confirmedAmount);
+
+      const calls = (mockTx.orderItem.update as ReturnType<typeof vi.fn>).mock.calls;
+      const byId = new Map<string, string>(
+        calls.map((call: unknown[]) => {
+          const arg = call[0] as { where: { id: string }; data: { orderAmount: string } };
+          return [arg.where.id, arg.data.orderAmount];
+        })
+      );
+      const amounts = executionAmounts.map((_, i) => byId.get(`oi-${i + 1}`));
+      // 2^53 を超える金額でも正確に合計するため BigInt で足す
+      const total = amounts.reduce((sum, a) => sum + BigInt(a ?? 'NaN'), 0n);
+      return { amounts, total };
+    }
+
+    it('全項目の実行金額が同じ場合は、割り切れる確定発注金額を均等に案分する (Req 8.3)', async () => {
+      // 300000 × 100000 ÷ 300000 = 100000（各項目とも割り切れる）
+      const { amounts, total } = await prorate(['100000', '100000', '100000'], '300000');
+
+      expect(amounts).toEqual(['100000', '100000', '100000']);
+      expect(total).toBe(300000n);
+    });
+
+    it('全項目の実行金額が同じで確定発注金額が項目数と同じ小額の場合も、1円ずつ案分する (Req 8.3)', async () => {
+      // 100000 × 3 ÷ 300000 = 1（各項目とも割り切れる）
+      const { amounts, total } = await prorate(['100000', '100000', '100000'], '3');
+
+      expect(amounts).toEqual(['1', '1', '1']);
+      expect(total).toBe(3n);
+    });
+
+    it('3項目の端数は、先頭でも末尾でもない最大の実行金額の項目に加算され、合計が一致する (Req 8.4, Req 18.3)', async () => {
+      // 10000 × 27 ÷ 60000 = 4.5 → 4
+      // 30000 × 27 ÷ 60000 = 13.5 → 13
+      // 20000 × 27 ÷ 60000 = 9（割り切れる）
+      // 切捨ての合計 26、残り 1 円 → 最大の項目2 に加算 → 14
+      const { amounts, total } = await prorate(['10000', '30000', '20000'], '27');
+
+      expect(amounts).toEqual(['4', '14', '9']);
+      expect(total).toBe(27n);
+    });
+
+    it('負の実行金額を含む場合も、実行金額の比率で正確に案分する (Req 8.3, Req 18.3)', async () => {
+      // 合計実行金額 = 50000 + 20000 - 10000 = 60000
+      // 50000 × 30000 ÷ 60000 = 25000
+      // 20000 × 30000 ÷ 60000 = 10000
+      // -10000 × 30000 ÷ 60000 = -5000（いずれも割り切れる）
+      const { amounts, total } = await prorate(['50000', '20000', '-10000'], '30000');
+
+      expect(amounts).toEqual(['25000', '10000', '-5000']);
+      expect(total).toBe(30000n);
+    });
+
+    it('負の実行金額を含み割り切れない場合は、負の案分額も切り捨てて端数を最大の項目に加算する (Req 8.4, Req 18.3)', async () => {
+      // 合計実行金額 = 60000
+      // 50000 × 100000 ÷ 60000 = 83333.33... → 83333
+      // 20000 × 100000 ÷ 60000 = 33333.33... → 33333
+      // -10000 × 100000 ÷ 60000 = -16666.66... → -16667（切捨て = 負の無限大方向）
+      // 切捨ての合計 99999、残り 1 円 → 最大の項目1 に加算 → 83334
+      const { amounts, total } = await prorate(['50000', '20000', '-10000'], '100000');
+
+      expect(amounts).toEqual(['83334', '33333', '-16667']);
+      expect(total).toBe(100000n);
+    });
+
+    it('確定発注金額が1円の場合も、各項目の比率どおりに案分し合計が一致する (Req 8.3, Req 18.3)', async () => {
+      // 合計実行金額 = 30000 + 10000 - 10000 = 30000
+      // 30000 × 1 ÷ 30000 = 1、10000 × 1 ÷ 30000 = 0.33... → 0、-10000 × 1 ÷ 30000 = -0.33... → -1
+      // 切捨ての合計 0、残り 1 円 → 最大の項目1 に加算 → 2
+      const { amounts, total } = await prorate(['30000', '10000', '-10000'], '1');
+
+      expect(amounts).toEqual(['2', '0', '-1']);
+      expect(total).toBe(1n);
+    });
+
+    it('確定発注金額が3円の場合、比率の丸めで端数の行き先が変わらない (Req 8.3, Req 8.4)', async () => {
+      // 30000 × 3 ÷ 30000 = 3、10000 × 3 ÷ 30000 = 1、-10000 × 3 ÷ 30000 = -1（割り切れる）
+      const { amounts, total } = await prorate(['30000', '10000', '-10000'], '3');
+
+      expect(amounts).toEqual(['3', '1', '-1']);
+      expect(total).toBe(3n);
+    });
+
+    it('15桁の金額でも、積と商を丸めずに案分する (Req 18.1, Req 18.3)', async () => {
+      // 実行金額と確定発注金額は DECIMAL(15,0)。積は 30 桁に達し、既定の有効桁 20 では丸められる
+      // 合計実行金額 = 753365973027208
+      // 314952022589505 × 998866395654771 ÷ 753365973027208 = 417585878406532.70... → 417585878406532
+      // 291682994220352 × 998866395654771 ÷ 753365973027208 = 386734139239060.29... → 386734139239060
+      // 146730956217351 × 998866395654771 ÷ 753365973027208 = 194546378009177.99999... → 194546378009177
+      // 切捨ての合計は 998866395654769、残り 2 円 → 最大の項目1 に加算 → 417585878406534
+      // （既定の Decimal（有効桁 20・四捨五入）で比率を丸めると、項目3 が 194546378009178 に
+      //   繰り上がり、端数の行き先が変わる）
+      const { amounts, total } = await prorate(
+        ['314952022589505', '291682994220352', '146730956217351'],
+        '998866395654771'
+      );
+
+      expect(amounts).toEqual(['417585878406534', '386734139239060', '194546378009177']);
+      expect(total).toBe(998866395654771n);
+    });
+
+    it('15桁の同額の3項目は、途中を切り捨てても端数を生まずに均等に案分する (Req 18.1, Req 18.3)', async () => {
+      // 999999999999999 × 999999999999999 ÷ 2999999999999997 = 333333333333333（割り切れる）
+      // 積（30 桁）や比率を有効桁 20 で切り捨てると、商が 333333333333332 に落ち、
+      // 残り 3 円が先頭の項目に寄って 333333333333335 になってしまう
+      const { amounts, total } = await prorate(
+        ['999999999999999', '999999999999999', '999999999999999'],
+        '999999999999999'
+      );
+
+      expect(amounts).toEqual(['333333333333333', '333333333333333', '333333333333333']);
+      expect(total).toBe(999999999999999n);
+    });
+
+    it('15桁の同額の2項目で確定発注金額が割り切れる場合は、端数を生まずに半分ずつ案分する (Req 18.1, Req 18.3)', async () => {
+      // 41341574795842 × 468103502234220 ÷ 82683149591684 = 234051751117110（割り切れる）
+      // 積を有効桁 20 で切り捨てると 234051751117109 に落ち、残り 1 円が先頭の項目に寄る
+      const { amounts, total } = await prorate(
+        ['41341574795842', '41341574795842'],
+        '468103502234220'
+      );
+
+      expect(amounts).toEqual(['234051751117110', '234051751117110']);
+      expect(total).toBe(468103502234220n);
+    });
+
+    it('確定発注金額に小数がある場合、端数を加えた項目は従来どおり四捨五入で整数にする (Req 8.4, Req 18.3)', async () => {
+      // 1 × 100.5 ÷ 2 = 50.25 → 50、1 × 100.5 ÷ 2 = 50.25 → 50
+      // 残り 0.5 → 同額のため先頭の項目に加算 → 50.5 → 四捨五入で 51
+      // 確定発注金額の列は DECIMAL(15,0) で 100.5 は 101 として保存されるため、合計 101 と一致する
+      const { amounts } = await prorate(['1', '1'], '100.5');
+
+      expect(amounts).toEqual(['51', '50']);
+    });
+
+    it('確定発注金額に小数がある場合、実行金額の比率で案分し端数を最大の項目で四捨五入する (Req 8.4)', async () => {
+      // 1 × 100.7 ÷ 3 = 33.56... → 33、2 × 100.7 ÷ 3 = 67.13... → 67
+      // 残り 0.7 → 最大の項目2 に加算 → 67.7 → 四捨五入で 68
+      const { amounts } = await prorate(['1', '2'], '100.7');
+
+      expect(amounts).toEqual(['33', '68']);
     });
   });
 });
