@@ -7,6 +7,7 @@
  *
  * Task 11.1: ScheduleExportServiceのExcel出力ロジックを実装する
  * Task 12.1: ScheduleExportServiceのPDF出力ロジックを実装する
+ * Task 18.4: PDF出力を複数ページに対応させ、全工程項目とガントチャートの全期間を含める
  *
  * Requirements (construction-schedule):
  * - REQ-7.1: Excelダウンロード
@@ -67,6 +68,30 @@ export interface ScheduleExportData {
   items: ScheduleExportItem[];
 }
 
+/**
+ * PDF の日付見出し1つ分（Task 18.4）
+ */
+interface PdfDateLabel {
+  /** 見出しを置く日付列の位置 */
+  colIdx: number;
+  /** 見出しの文字 */
+  text: string;
+  /** 区切り（週・月の始まり）ではない期間の先頭に置く見出しか（目盛り線を引かない） */
+  leading?: boolean;
+}
+
+/**
+ * PDF の日付列の幅と見出しの配置（Task 18.4）
+ */
+interface PdfDateLayout {
+  /** 1日あたりの幅（mm）。全期間がページ幅に収まるよう PDF_DAY_WIDTH を上限に縮める */
+  dayWidth: number;
+  /** 日付見出し（縮めた場合は重ならないよう間引いたもの） */
+  labels: PdfDateLabel[];
+  /** 見出しの位置に目盛り線を引くか（縮めた場合のみ） */
+  showTicks: boolean;
+}
+
 // ============================================================================
 // 定数定義
 // ============================================================================
@@ -108,6 +133,12 @@ const PDF_MARGIN_LEFT = 10;
 /** PDF: マージン下（mm） */
 const PDF_MARGIN_BOTTOM = 15;
 
+/** PDF: マージン右（mm）- ガントチャートの全期間をこの内側に収める */
+const PDF_MARGIN_RIGHT = 10;
+
+/** PDF: 2ページ目以降の表ヘッダーの上端（mm）- プロジェクト名・自社名は1ページ目のみ */
+const PDF_CONTINUATION_TABLE_TOP = PDF_MARGIN_TOP;
+
 /** PDF: ヘッダー領域の高さ（mm）- プロジェクト名・自社名を含む */
 const PDF_HEADER_HEIGHT = 25;
 
@@ -137,6 +168,15 @@ const PDF_SUNDAY_COLOR = { r: 0.949, g: 0.863, b: 0.859 }; // #F2DCDB
 
 /** PDF: 祝日背景色（RGB 0-1） */
 const PDF_HOLIDAY_COLOR = { r: 0.992, g: 0.914, b: 0.851 }; // #FDE9D9
+
+/** PDF: 日付見出しの文字の左右の余白（mm） */
+const PDF_DATE_LABEL_PADDING = 0.5;
+
+/** PDF: 日付見出しの目盛り線の色（RGB 0-255） */
+const PDF_DATE_TICK_GRAY = 150;
+
+/** PDF: 月単位の見出しの間引きの段階（何か月ごとに見出しを置くか） */
+const PDF_MONTH_LABEL_STEPS = [1, 2, 3, 6, 12] as const;
 
 /** PDF: フォントサイズ（pt） */
 const PDF_FONT_SIZE_TITLE = 12;
@@ -353,19 +393,8 @@ export class ScheduleExportService {
       format: 'a4',
     });
 
-    // ヘッダー描画（プロジェクト名・自社名）
-    this.drawPdfHeader(doc, data);
-
-    // テーブルヘッダー描画
-    const tableStartY = PDF_MARGIN_TOP + PDF_HEADER_HEIGHT;
-    this.drawPdfTableHeader(doc, tableStartY, dateColumns, holidayMap);
-
-    // 土日祝列の背景色矩形を描画（全行にわたって）
-    const dataStartY = tableStartY + PDF_ROW_HEIGHT;
-    this.drawPdfHolidayColumns(doc, dateColumns, holidayMap, dataStartY, exportItems.length);
-
-    // 各項目行を描画
-    this.drawPdfItemRows(doc, exportItems, dateColumns, dataStartY);
+    // 全項目をページへ割り付けて描画（ヘッダー・表ヘッダー・土日祝の背景・項目行）
+    this.drawPdfPages(doc, data, exportItems, dateColumns, holidayMap);
 
     // ArrayBufferからBufferへ変換
     const arrayBuffer = doc.output('arraybuffer');
@@ -375,6 +404,193 @@ export class ScheduleExportService {
   // ============================================================================
   // Private: PDF描画メソッド
   // ============================================================================
+
+  /**
+   * 全出力対象項目をページへ割り付けて描画する（Task 18.4）
+   *
+   * - 縦方向: ページの下端に収まる行数ごとに改ページし、ページごとに表のヘッダーと
+   *   土日祝の背景を描き直す。プロジェクト名・自社名は1ページ目のみに描く
+   * - 横方向: ガントチャートの全期間が1ページの幅に収まるよう日付列の幅を合わせる
+   *   （上限は PDF_DAY_WIDTH）。期間でページを分割しない
+   */
+  private drawPdfPages(
+    doc: jsPDF,
+    data: ScheduleExportData,
+    exportItems: ScheduleExportItem[],
+    dateColumns: Date[],
+    holidayMap: Map<string, string>
+  ): void {
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const layout = this.buildPdfDateLayout(doc, dateColumns, doc.internal.pageSize.getWidth());
+
+    this.drawPdfHeader(doc, data);
+
+    let tableStartY = PDF_MARGIN_TOP + PDF_HEADER_HEIGHT;
+    let drawnCount = 0;
+    for (;;) {
+      const dataStartY = tableStartY + PDF_ROW_HEIGHT;
+      const rowsPerPage = Math.max(
+        1,
+        Math.floor((pageHeight - PDF_MARGIN_BOTTOM - dataStartY) / PDF_ROW_HEIGHT)
+      );
+      const pageItems = exportItems.slice(drawnCount, drawnCount + rowsPerPage);
+
+      this.drawPdfTableHeader(doc, tableStartY, dateColumns, holidayMap, layout);
+      this.drawPdfHolidayColumns(
+        doc,
+        dateColumns,
+        holidayMap,
+        dataStartY,
+        pageItems.length,
+        layout.dayWidth
+      );
+      this.drawPdfItemRows(doc, pageItems, dateColumns, dataStartY, layout.dayWidth);
+
+      drawnCount += pageItems.length;
+      if (drawnCount >= exportItems.length) break;
+
+      doc.addPage('a4', 'landscape');
+      tableStartY = PDF_CONTINUATION_TABLE_TOP;
+    }
+  }
+
+  /**
+   * 日付列の幅と日付見出しの配置を決める（Task 18.4）
+   *
+   * 全期間がページ幅（左右の余白と固定列を除く）に収まる幅を、PDF_DAY_WIDTH を上限として採る。
+   * 上限のまま収まる短い期間は、従来どおり毎日「月/日」の見出しを置く。
+   * 縮めた場合は日ごとの見出しが重なるため、見出しが重ならない最も細かい段階を
+   * 「週（月曜日に 月/日）」→「月（1日に 年/月）」→「2・3・6・12か月ごと」の順に選ぶ。
+   */
+  private buildPdfDateLayout(doc: jsPDF, dateColumns: Date[], pageWidth: number): PdfDateLayout {
+    const ganttWidth = pageWidth - PDF_MARGIN_LEFT - PDF_FIXED_COLS_WIDTH - PDF_MARGIN_RIGHT;
+    const dayWidth =
+      dateColumns.length > 0
+        ? Math.min(PDF_DAY_WIDTH, ganttWidth / dateColumns.length)
+        : PDF_DAY_WIDTH;
+
+    if (dayWidth >= PDF_DAY_WIDTH) {
+      return { dayWidth, labels: this.buildPdfDailyLabels(dateColumns), showTicks: false };
+    }
+
+    doc.setFontSize(PDF_FONT_SIZE_SMALL);
+    const candidates: PdfDateLabel[][] = [
+      this.buildPdfBoundaryLabels(
+        dateColumns,
+        (date) => date.getDay() === 1,
+        (date) => `${date.getMonth() + 1}/${date.getDate()}`
+      ),
+      ...PDF_MONTH_LABEL_STEPS.map((step) =>
+        this.buildPdfBoundaryLabels(
+          dateColumns,
+          (date) =>
+            date.getDate() === 1 && (date.getFullYear() * 12 + date.getMonth()) % step === 0,
+          (date) => `${date.getFullYear()}/${date.getMonth() + 1}`
+        )
+      ),
+    ];
+
+    for (const candidate of candidates) {
+      const labels = this.dropLeadingLabelIfCrowded(doc, candidate, dayWidth);
+      if (this.pdfLabelsFit(doc, labels, dayWidth, dateColumns.length)) {
+        return { dayWidth, labels, showTicks: true };
+      }
+    }
+
+    // どの段階でも重なる極端に長い期間: 最も粗い段階から、重なる見出しを間引く
+    const coarsest = candidates[candidates.length - 1]!;
+    return {
+      dayWidth,
+      labels: this.dropOverlappingPdfLabels(doc, coarsest, dayWidth, dateColumns.length),
+      showTicks: true,
+    };
+  }
+
+  /**
+   * 毎日の「月/日」見出しを作る（縮尺を合わせない短い期間の従来の見た目）
+   */
+  private buildPdfDailyLabels(dateColumns: Date[]): PdfDateLabel[] {
+    return dateColumns.map((date, colIdx) => ({
+      colIdx,
+      text: `${date.getMonth() + 1}/${date.getDate()}`,
+    }));
+  }
+
+  /**
+   * 区切り（週の始まり・月の始まりなど）ごとの見出しを作る。
+   * 期間の先頭が区切りでない場合は先頭にも置く（次の見出しと重なるなら
+   * dropLeadingLabelIfCrowded / dropOverlappingPdfLabels が省く）。
+   */
+  private buildPdfBoundaryLabels(
+    dateColumns: Date[],
+    isBoundary: (date: Date) => boolean,
+    format: (date: Date) => string
+  ): PdfDateLabel[] {
+    const labels: PdfDateLabel[] = [];
+    dateColumns.forEach((date, colIdx) => {
+      if (colIdx === 0 || isBoundary(date)) {
+        labels.push({ colIdx, text: format(date), leading: colIdx === 0 && !isBoundary(date) });
+      }
+    });
+    return labels;
+  }
+
+  /**
+   * 見出しが隣の見出し（最後の見出しは右余白の手前）と重ならないかを判定する。
+   */
+  private pdfLabelsFit(
+    doc: jsPDF,
+    labels: PdfDateLabel[],
+    dayWidth: number,
+    columnCount: number
+  ): boolean {
+    return labels.every((label, i) => {
+      const nextColIdx = labels[i + 1]?.colIdx;
+      const available =
+        nextColIdx !== undefined
+          ? (nextColIdx - label.colIdx) * dayWidth
+          : (columnCount - label.colIdx) * dayWidth + PDF_MARGIN_RIGHT;
+      return doc.getTextWidth(label.text) + PDF_DATE_LABEL_PADDING * 2 <= available;
+    });
+  }
+
+  /**
+   * 区切りでない先頭の見出しが次の見出しと重なるなら省く
+   */
+  private dropLeadingLabelIfCrowded(
+    doc: jsPDF,
+    labels: PdfDateLabel[],
+    dayWidth: number
+  ): PdfDateLabel[] {
+    const [first, second] = labels;
+    if (!first?.leading || !second) return labels;
+    const available = (second.colIdx - first.colIdx) * dayWidth;
+    return doc.getTextWidth(first.text) + PDF_DATE_LABEL_PADDING * 2 <= available
+      ? labels
+      : labels.slice(1);
+  }
+
+  /**
+   * 前の見出しと重なる見出しを順に間引く（どの段階でも収まらない場合の最後の手段）
+   */
+  private dropOverlappingPdfLabels(
+    doc: jsPDF,
+    labels: PdfDateLabel[],
+    dayWidth: number,
+    columnCount: number
+  ): PdfDateLabel[] {
+    const kept: PdfDateLabel[] = [];
+    let nextFreeX = 0;
+    for (const label of labels) {
+      const x = label.colIdx * dayWidth;
+      const width = doc.getTextWidth(label.text) + PDF_DATE_LABEL_PADDING * 2;
+      if (x >= nextFreeX && x + width <= columnCount * dayWidth + PDF_MARGIN_RIGHT) {
+        kept.push(label);
+        nextFreeX = x + width;
+      }
+    }
+    return kept;
+  }
 
   /**
    * PDFヘッダーを描画する（プロジェクト名・自社名）
@@ -394,7 +610,8 @@ export class ScheduleExportService {
     doc: jsPDF,
     yPos: number,
     dateColumns: Date[],
-    holidayMap: Map<string, string>
+    holidayMap: Map<string, string>,
+    layout: PdfDateLayout
   ): void {
     doc.setFontSize(PDF_FONT_SIZE_HEADER);
 
@@ -416,23 +633,28 @@ export class ScheduleExportService {
     doc.text('End', xPos, yPos + PDF_ROW_HEIGHT - 2);
     xPos += PDF_END_DATE_COL_WIDTH;
 
-    // 日付列ヘッダー
-    doc.setFontSize(PDF_FONT_SIZE_SMALL);
+    // 日付列ヘッダー: 土日祝の背景色（日ごと）
+    const ganttAreaX = xPos;
     for (const date of dateColumns) {
-      const month = date.getMonth() + 1;
-      const day = date.getDate();
-      const label = `${month}/${day}`;
-
-      // 土日祝の背景色
       const bgColor = this.getPdfDateBackgroundColor(date, holidayMap);
       if (bgColor) {
         doc.setFillColor(bgColor.r * 255, bgColor.g * 255, bgColor.b * 255);
-        doc.rect(xPos, yPos, PDF_DAY_WIDTH, PDF_ROW_HEIGHT, 'F');
+        doc.rect(xPos, yPos, layout.dayWidth, PDF_ROW_HEIGHT, 'F');
       }
+      xPos += layout.dayWidth;
+    }
 
+    // 日付列ヘッダー: 見出し（縮尺に応じて間引いた位置のみ）と目盛り
+    doc.setFontSize(PDF_FONT_SIZE_SMALL);
+    doc.setDrawColor(PDF_DATE_TICK_GRAY, PDF_DATE_TICK_GRAY, PDF_DATE_TICK_GRAY);
+    doc.setLineWidth(0.1);
+    for (const label of layout.labels) {
+      const labelX = ganttAreaX + label.colIdx * layout.dayWidth;
+      if (layout.showTicks && !label.leading) {
+        doc.line(labelX, yPos, labelX, yPos + PDF_ROW_HEIGHT);
+      }
       doc.setTextColor(0, 0, 0);
-      doc.text(label, xPos + 0.5, yPos + PDF_ROW_HEIGHT - 2);
-      xPos += PDF_DAY_WIDTH;
+      doc.text(label.text, labelX + PDF_DATE_LABEL_PADDING, yPos + PDF_ROW_HEIGHT - 2);
     }
   }
 
@@ -444,7 +666,8 @@ export class ScheduleExportService {
     dateColumns: Date[],
     holidayMap: Map<string, string>,
     startY: number,
-    itemCount: number
+    itemCount: number,
+    dayWidth: number
   ): void {
     const totalHeight = itemCount * PDF_ROW_HEIGHT;
     if (totalHeight <= 0) return;
@@ -455,31 +678,25 @@ export class ScheduleExportService {
       const bgColor = this.getPdfDateBackgroundColor(date, holidayMap);
       if (bgColor) {
         doc.setFillColor(bgColor.r * 255, bgColor.g * 255, bgColor.b * 255);
-        doc.rect(xPos, startY, PDF_DAY_WIDTH, totalHeight, 'F');
+        doc.rect(xPos, startY, dayWidth, totalHeight, 'F');
       }
-      xPos += PDF_DAY_WIDTH;
+      xPos += dayWidth;
     }
   }
 
   /**
-   * 各項目行を描画する
+   * 各項目行を描画する（渡された項目はすべて1ページに収まる前提。割り付けは drawPdfPages）
    */
   private drawPdfItemRows(
     doc: jsPDF,
     exportItems: ScheduleExportItem[],
     dateColumns: Date[],
-    startY: number
+    startY: number,
+    dayWidth: number
   ): void {
-    const pageHeight = doc.internal.pageSize.getHeight();
-
     for (let rowIdx = 0; rowIdx < exportItems.length; rowIdx++) {
       const item = exportItems[rowIdx]!;
       const yPos = startY + rowIdx * PDF_ROW_HEIGHT;
-
-      // ページ下端チェック（簡易的なページ送り）
-      if (yPos + PDF_ROW_HEIGHT > pageHeight - PDF_MARGIN_BOTTOM) {
-        break; // 本バージョンでは1ページに収まる範囲のみ描画
-      }
 
       const endDate = this.calculateEndDate(item.startDate, item.duration);
       let xPos = PDF_MARGIN_LEFT;
@@ -512,18 +729,10 @@ export class ScheduleExportService {
 
       // 完了日
       doc.text(endDate ?? '', xPos, yPos + PDF_ROW_HEIGHT - 2);
-      xPos += PDF_END_DATE_COL_WIDTH;
 
       // ガントチャートバーの描画（rect()矩形描画）
       if (item.startDate && item.duration && endDate && dateColumns.length > 0) {
-        this.drawPdfGanttBar(
-          doc,
-          item,
-          dateColumns,
-          endDate,
-          xPos - PDF_FIXED_COLS_WIDTH + PDF_MARGIN_LEFT + PDF_FIXED_COLS_WIDTH,
-          yPos
-        );
+        this.drawPdfGanttBar(doc, item, dateColumns, endDate, dayWidth, yPos);
       }
     }
   }
@@ -536,7 +745,7 @@ export class ScheduleExportService {
     item: ScheduleExportItem,
     dateColumns: Date[],
     endDate: string,
-    _ganttStartX: number,
+    dayWidth: number,
     yPos: number
   ): void {
     if (!item.startDate || !item.duration) return;
@@ -559,8 +768,8 @@ export class ScheduleExportService {
     }
 
     if (barStartCol >= 0 && barEndCol >= 0) {
-      const barX = ganttAreaX + barStartCol * PDF_DAY_WIDTH;
-      const barWidth = (barEndCol - barStartCol + 1) * PDF_DAY_WIDTH;
+      const barX = ganttAreaX + barStartCol * dayWidth;
+      const barWidth = (barEndCol - barStartCol + 1) * dayWidth;
       const barY = yPos + 1;
       const barHeight = PDF_ROW_HEIGHT - 2;
 

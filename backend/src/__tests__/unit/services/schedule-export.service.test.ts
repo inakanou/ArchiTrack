@@ -94,6 +94,84 @@ function createTestScheduleData(overrides: Partial<ScheduleExportData> = {}): Sc
   };
 }
 
+/** 1 工程表あたりの最大項目数（REQ-12.1） */
+const MAX_ITEM_COUNT = 200;
+
+const ITEM_NAME_PATTERN = /^ITEM-\d{3}$/;
+
+/**
+ * 最大 200 項目の工程表データを作る。
+ * 着工日を 1.5 日ずつずらし各 60 日とし、日付列が約 1 年分に広がる現実的な最大規模にする。
+ * 項目名は出力物から数えられるよう ASCII の連番（ITEM-001 など）にする。
+ */
+function createMaxScheduleData(): ScheduleExportData {
+  const baseTime = Date.UTC(2026, 3, 1);
+  const dayMs = 24 * 60 * 60 * 1000;
+  return createTestScheduleData({
+    items: Array.from({ length: MAX_ITEM_COUNT }, (_, i) => ({
+      id: `item-${i + 1}`,
+      itemName: `ITEM-${String(i + 1).padStart(3, '0')}`,
+      labelText: `L${i + 1}`,
+      detailText: `D${i + 1}`,
+      startDate: new Date(baseTime + Math.floor(i * 1.5) * dayMs).toISOString().slice(0, 10),
+      duration: 60,
+      displayOrder: i,
+      isExportTarget: true,
+    })),
+  });
+}
+
+// ----------------------------------------------------------------------------
+// PDF の中身を読むヘルパー
+//
+// jsPDF は既定で内容のストリームを圧縮しない（compress: false）。そのため PDF のバイト列を
+// latin1 で読めば、描画の命令（`(ITEM-001) Tj`、`x y w h re` など）をそのまま拾える。
+// 圧縮を有効にすると以下は何も拾えなくなり、件数の主張で落ちる（素通りはしない）。
+// ----------------------------------------------------------------------------
+
+/** 1mm あたりのポイント数（jsPDF は mm で受けた座標を pt に換算して書く） */
+const PT_PER_MM = 72 / 25.4;
+
+/** バーの塗りつぶし色（#4472C4）を jsPDF が書き出した形 */
+const PDF_BAR_FILL_OPERATOR = '0.27 0.45 0.77 rg';
+
+/** PDF に描かれた項目名（ITEM-001 など）を描画順に取り出す */
+function extractPdfItemNames(pdfContent: string): string[] {
+  return Array.from(pdfContent.matchAll(/\((ITEM-\d{3})\) Tj/g), (m) => m[1]!);
+}
+
+/** PDF のページ数（/Type /Page の数。/Type /Pages は除く） */
+function countPdfPages(pdfContent: string): number {
+  return (pdfContent.match(/\/Type\s*\/Page(?!s)/g) || []).length;
+}
+
+/** PDF のページ幅（pt）。MediaBox から読む */
+function readPdfPageWidthPt(pdfContent: string): number {
+  const match = pdfContent.match(/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]/);
+  expect(match).not.toBeNull();
+  return parseFloat(match![1]!);
+}
+
+/**
+ * バーの色で塗られた矩形（ガントチャートのバー）を描画順に取り出す。
+ * 塗りつぶし色（`rg` / `g`）の設定を順に追い、バーの色のときに描かれた `re` をバーとみなす。
+ */
+function extractPdfBarRects(pdfContent: string): { xPt: number; widthPt: number }[] {
+  const bars: { xPt: number; widthPt: number }[] = [];
+  let currentFill = '';
+  for (const line of pdfContent.split('\n')) {
+    if (/ rg$/.test(line) || / g$/.test(line)) {
+      currentFill = line.trim();
+      continue;
+    }
+    const rect = line.match(/^(-?[\d.]+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+) re$/);
+    if (rect && currentFill === PDF_BAR_FILL_OPERATOR) {
+      bars.push({ xPt: parseFloat(rect[1]!), widthPt: parseFloat(rect[3]!) });
+    }
+  }
+  return bars;
+}
+
 // ============================================================================
 // テスト
 // ============================================================================
@@ -1807,6 +1885,51 @@ describe('ScheduleExportService', () => {
   });
 
   // ==========================================================================
+  // REQ-8.4, 8.5: 200 項目の工程表の PDF に全工程項目とガントチャートの全期間を含める（Task 18.4）
+  //
+  // 縦方向はページの下端で改ページし、横方向は全期間が 1 ページの幅に収まるよう
+  // 日付列の幅を合わせる（期間でページを分割しない）。
+  // ==========================================================================
+
+  describe('200項目のPDFの全工程項目と全期間 (Req 8.4, 8.5)', () => {
+    /** PDF の左右の余白（mm） */
+    const PDF_SIDE_MARGIN_MM = 10;
+
+    it('200項目すべての項目名（ITEM-001〜ITEM-200）を出力する', async () => {
+      const buffer = await service.exportToPdf(createMaxScheduleData());
+      const itemNames = extractPdfItemNames(buffer.toString('latin1'));
+
+      expect(new Set(itemNames).size).toBe(MAX_ITEM_COUNT);
+      expect(itemNames).toHaveLength(MAX_ITEM_COUNT);
+    });
+
+    it('1ページに収まらない項目を2ページ目以降へ改ページして出力する', async () => {
+      const buffer = await service.exportToPdf(createMaxScheduleData());
+
+      expect(countPdfPages(buffer.toString('latin1'))).toBeGreaterThanOrEqual(2);
+    });
+
+    it('全期間のバーがページの幅（右の余白の手前）に収まり、200項目すべてのバーを描く', async () => {
+      const buffer = await service.exportToPdf(createMaxScheduleData());
+      const pdfContent = buffer.toString('latin1');
+      const pageRightLimitMm = readPdfPageWidthPt(pdfContent) / PT_PER_MM - PDF_SIDE_MARGIN_MM;
+
+      const bars = extractPdfBarRects(pdfContent);
+      expect(bars.length).toBeGreaterThan(0);
+      const barRightEdgesMm = bars.map((bar) => (bar.xPt + bar.widthPt) / PT_PER_MM);
+      // 許容誤差 0.01mm は pt への換算の丸めの分
+      expect(Math.max(...barRightEdgesMm)).toBeLessThanOrEqual(pageRightLimitMm + 0.01);
+
+      expect(bars).toHaveLength(MAX_ITEM_COUNT);
+      // 最後に描かれたバーは最後の項目（ITEM-200）のバーで、その右端（完了日）が全期間の右端
+      expect(barRightEdgesMm[barRightEdgesMm.length - 1]).toBeCloseTo(
+        Math.max(...barRightEdgesMm),
+        2
+      );
+    });
+  });
+
+  // ==========================================================================
   // REQ-12.1, 12.3, 12.4: 200 項目の工程表の出力所要時間（Task 18.3）
   //
   // 本物の xlsx / jsPDF で 200 項目を実際に生成し、単調時計（performance.now）で
@@ -1818,34 +1941,8 @@ describe('ScheduleExportService', () => {
   describe('200項目の出力所要時間 (Req 12.3, 12.4)', () => {
     /** 要件の上限（REQ-12.3 / 12.4: 30 秒以内） */
     const EXPORT_TIME_LIMIT_MS = 30_000;
-    /** 1 工程表あたりの最大項目数（REQ-12.1） */
-    const MAX_ITEM_COUNT = 200;
     /** 上限を超えたときに所要時間の主張で落ちるよう、テストのタイムアウトは上限より長く取る */
     const TEST_TIMEOUT_MS = EXPORT_TIME_LIMIT_MS * 2;
-
-    /**
-     * 最大 200 項目の工程表データを作る。
-     * 着工日を 1.5 日ずつずらし各 60 日とし、日付列が約 1 年分に広がる現実的な最大規模にする。
-     * 項目名は出力物から数えられるよう ASCII の連番（ITEM-001 など）にする。
-     */
-    function createMaxScheduleData(): ScheduleExportData {
-      const baseTime = Date.UTC(2026, 3, 1);
-      const dayMs = 24 * 60 * 60 * 1000;
-      return createTestScheduleData({
-        items: Array.from({ length: MAX_ITEM_COUNT }, (_, i) => ({
-          id: `item-${i + 1}`,
-          itemName: `ITEM-${String(i + 1).padStart(3, '0')}`,
-          labelText: `L${i + 1}`,
-          detailText: `D${i + 1}`,
-          startDate: new Date(baseTime + Math.floor(i * 1.5) * dayMs).toISOString().slice(0, 10),
-          duration: 60,
-          displayOrder: i,
-          isExportTarget: true,
-        })),
-      });
-    }
-
-    const ITEM_NAME_PATTERN = /^ITEM-\d{3}$/;
 
     it(
       '200項目の工程表のExcel出力が30秒以内に完了し、200項目すべてが出力される',
@@ -1872,7 +1969,7 @@ describe('ScheduleExportService', () => {
     );
 
     it(
-      '200項目の工程表のPDF出力が30秒以内に完了する',
+      '200項目の工程表のPDF出力が30秒以内に完了し、200項目すべての項目とバーが出力される',
       async () => {
         const data = createMaxScheduleData();
 
@@ -1882,14 +1979,14 @@ describe('ScheduleExportService', () => {
 
         expect(elapsedMs).toBeLessThan(EXPORT_TIME_LIMIT_MS);
 
-        // 空のファイルが速いだけではないこと: 有効な PDF で、項目行とバー矩形が描画されている。
-        // 注: 現行の実装（drawPdfItemRows）は 1 ページに収まる行までしか描画しないため、
-        // 200 項目すべてが PDF に含まれることはここでは主張できない（REQ-8.4「全工程項目」
-        // との食い違いであり、本検証の範囲外として別途扱う）。
+        // 空のファイルや一部の描画が速いだけではないこと: 200 項目すべての項目名とバーが
+        // 描かれた有効な PDF である（測った時間が全項目を描画した時間であることの裏付け）
         expect(buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-');
         const pdfContent = buffer.toString('latin1');
-        expect(pdfContent).toContain('ITEM-001');
-        expect((pdfContent.match(/ re\n/g) || []).length).toBeGreaterThan(0);
+        const itemNames = extractPdfItemNames(pdfContent);
+        expect(itemNames).toHaveLength(MAX_ITEM_COUNT);
+        expect(new Set(itemNames).size).toBe(MAX_ITEM_COUNT);
+        expect(extractPdfBarRects(pdfContent)).toHaveLength(MAX_ITEM_COUNT);
       },
       TEST_TIMEOUT_MS
     );
