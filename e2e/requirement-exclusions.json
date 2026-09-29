@@ -1705,12 +1705,12 @@
       "requirement": "execution-budget-management/REQ-18: 数値計算の精度と表示",
       "title": "高精度10進数演算（Decimal型）",
       "criterionText": "The システム shall 金額計算において高精度10進数演算（Decimal型）を使用する",
-      "reason": "Decimal型の使用はバックエンド実装の検証。統合テストで計算精度を検証",
+      "reason": "Decimal型の使用はバックエンド実装の検証。backend の単体テストで、金額列の型と、浮動小数点では誤差の出る入力での計算精度を検証する（タスク16.1）",
       "category": "integration-test",
       "alternativeVerification": {
-        "method": "integration-test",
-        "tool": "Jest / Vitest",
-        "description": "金額計算においてDecimal型が使用され、浮動小数点誤差が発生しないことを確認",
+        "method": "unit-test",
+        "tool": "Vitest",
+        "description": "backend/src/__tests__/unit/models/execution-budget.model.test.ts と execution-budget.migration.test.ts が金額列の Decimal 型を確認し、backend/src/__tests__/unit/services/ の execution-budget / order / progress / cost / order-export の各 service のテストで「(Req 18.1)」を名乗る検証が、浮動小数点では誤差の出る入力（例: 数量 0.145 × 実行単価 100、2^53 を超える合計）でも金額計算が正確な値になることを確認",
         "threshold": "decimal_precision: exact"
       }
     },
@@ -1723,7 +1723,7 @@
       "category": "integration-test",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Vitest",
+        "tool": "Vitest",
         "description": "案分計算の端数処理後に合計金額と差異が発生しないことを確認",
         "threshold": "rounding_error: 0"
       }
@@ -1737,7 +1737,7 @@
       "category": "integration-test",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Supertest",
+        "tool": "Vitest / Supertest",
         "description": "実行予算のCRUD APIが正しく動作することを統合テストで確認",
         "threshold": "crud_operations: functional"
       }
@@ -1751,7 +1751,7 @@
       "category": "integration-test",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Supertest",
+        "tool": "Vitest / Supertest",
         "description": "発注データのCRUD APIが正しく動作することを統合テストで確認",
         "threshold": "crud_operations: functional"
       }
@@ -1765,7 +1765,7 @@
       "category": "integration-test",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Supertest",
+        "tool": "Vitest / Supertest",
         "description": "出来高データのCRUD APIが正しく動作することを統合テストで確認",
         "threshold": "crud_operations: functional"
       }
@@ -1779,7 +1779,7 @@
       "category": "integration-test",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Supertest",
+        "tool": "Vitest / Supertest",
         "description": "原価（支出実績）データのCRUD APIが正しく動作することを統合テストで確認",
         "threshold": "crud_operations: functional"
       }
@@ -1793,7 +1793,7 @@
       "category": "integration-test",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Supertest",
+        "tool": "Vitest / Supertest",
         "description": "月次締めデータのCRUD APIが正しく動作することを統合テストで確認",
         "threshold": "crud_operations: functional"
       }
@@ -1807,7 +1807,7 @@
       "category": "integration-test",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Vitest",
+        "tool": "Vitest",
         "description": "API入力値のバリデーションにZodスキーマが使用され、不正な入力が拒否されることを確認",
         "threshold": "validation: enforced"
       }
@@ -1821,7 +1821,7 @@
       "category": "integration-test",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Supertest",
+        "tool": "Vitest / Supertest",
         "description": "APIレスポンスに適切なHTTPステータスコードが返却されることを確認",
         "threshold": "status_codes: correct"
       }
