@@ -6240,13 +6240,16 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - **検証**: 編集前は `check:design-measurement-freshness` が t13（1415 / 1423）だけで赤、`:selftest` が 1/56 失敗。編集後は freshness EXIT=0（宣言 149 件）、`:selftest` 56/56、`check:design-path-refs` / `check:design-code-refs` EXIT=0。独立レビューが各版の件数と帰属を測り直して一致を確かめ APPROVED。`*:update` 系は実行していない
   - **検証（親が承認後に新鮮な証拠で再実行）**: 上の 4 本がいずれも EXIT=0、`--accessible-names` の肯定側 1423 件 / 相異なる名前 281 件
 
-- [ ] 115.336 下流 user-authentication の E2E の追加で再び動いた t13 の錨の件数を測り直す（**user-authentication の Task 37.3 からの起票依頼**）
+- [x] 115.336 下流 user-authentication の E2E の追加で再び動いた t13 の錨の件数を測り直す（**user-authentication の Task 37.3 からの起票依頼**）
   - **出所**: 115.335 と同じ種類の衝突。宣言 `t13-anchor-references-after-115303`（`scripts/design-measurements.json`。錨は本スペックの design.md の「タスク 115.335 の提出時点の再実測は肯定側から指す参照 1423 件」）は、`scripts/check-e2e-assertion-guards.ts` の `collectAccessibleNameRefs` がリポジトリ全体の e2e から数える「肯定側から指す参照」の件数を引く。**下流は本スペックの設計文書も `scripts/design-measurements.json` も書き換えていない**
   - **実測（2026-09-29。下流の実装者が測り、親が作業ツリーで再実測）**: HEAD `1d543c4a` で 1423 / 281（115.335 の貼り直しと一致、鮮度の検査は EXIT=0）。**user-authentication の Task 37.3 の作業ツリーで 1430 / 284（+7 / +3）**。増分はすべて `e2e/specs/admin/role-management.spec.ts` の describe「ロールの保存・削除の失敗の表示」の名前を文字列リテラルで与えた取得: `getByLabel('ロール名 *')` 3 件、`getByRole('button', { name: '新しいロールを作成' })` 1 件、`getByRole('button', { name: 'ロールを作成', exact: true })` 1 件、`getByRole('button', { name: 'ロールを更新', exact: true })` 1 件、`getByRole('button', { name: 'adminを編集' })` 1 件（新しい名前は「ロール名 *」「新しいロールを作成」「adminを編集」の 3 つ）。E2E のファイルだけを HEAD の版にすると 1423 に戻る。本スペックのコミットは 0 件
   - **下流の境界内での回避は成り立たない**: 115.335 と同じく、名前を正規表現や testid へ書き換えるのは錨を弱める退行であり、件数を避けるための書き換えは不当である
   - **依頼**: 115.335 の作法（規約 (a) で当時の値を残し、提出時点の再実測を並べる）に従い、本スペックの design.md の該当の実測の文と、宣言の anchor・expected・documentRendering・note を貼り直す。増分は Task 37.3 のコミットの +7 に帰属させる。37.3 のコミットより前に着手する場合は、着手時に測り直すこと（件数だけなら `npx tsx scripts/check-e2e-assertion-guards.ts --accessible-names | grep 肯定側`）
   - **検証**: `npm run check:design-measurement-freshness`（EXIT=0）と `npm run check:design-measurement-freshness:selftest`
   - _Boundary: 本スペックの design.md の当該の実測の文、`scripts/design-measurements.json` の当該 1 宣言_
+  - **処遇（2026-09-29、利用者の指示「115.336を実施して、37.3をレビューしてコミットして」により user-authentication の実行の中で実施。起点は HEAD `586919cc`）**: design.md の 115.330 / 115.334 / 115.335 の追記と同じ行の末尾に、規約 (a) で旧値（1423 件・281 件）を残したまま「**タスク 115.336 の提出時点の再実測は肯定側から指す参照 1430 件・相異なる名前 284 件である**」と増分の帰属を足した。宣言 `t13-anchor-references-after-115303` の anchor・expected（1430）・documentRendering を貼り直し、note に文を足した。user-authentication の 37.3 はレビューの後に改めたため、内訳はコミット `586919cc` の差分から導き直した。`role-management.spec.ts` の肯定側の参照は 8→15 件で、`getByLabel('ロール名 *')` 3 件・「新しいロールを作成」1 件・「ロールを作成」exact 1 件・「ロールを更新」exact 1 件・「adminを編集」1 件の +7（新しい名前は 3 つ）。起票の時点の内訳と同じだった。`8e4efd4c` の後に e2e を変えたコミットは `586919cc` だけで、各版の件数は `1d543c4a` / `ee192e29` 1423 / 281 → `586919cc` 1430 / 284。本スペックのコミットによる増減は 0 件。同じ行は実在のパスを名指すため、`ABSENCE_MARKERS` の語を避けた。四つの自己言及の網（274 / 849 / 287 / 652）は前後で同一
+  - **検証**: 編集前は `check:design-measurement-freshness` が t13（1423 / 1430）だけで赤、`:selftest` が 1/56 失敗。編集後は freshness EXIT=0（宣言 149 件）、`:selftest` 56/56、`check:design-path-refs`（免除は延べ 141・distinct 40 で基準どおり）/ `check:design-code-refs` EXIT=0。独立レビューが件数と内訳・帰属を測り直して一致を確かめ APPROVED。`*:update` 系は実行していない
+  - **検証（親が承認後に新鮮な証拠で再実行）**: 上の 4 本がいずれも EXIT=0、`--accessible-names` の肯定側 1430 件 / 相異なる名前 284 件
 
 ## Implementation Notes（Task 115.30-115.52）
 
