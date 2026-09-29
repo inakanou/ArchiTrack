@@ -1805,4 +1805,93 @@ describe('ScheduleExportService', () => {
       expect(pdfContent).toContain(' re');
     });
   });
+
+  // ==========================================================================
+  // REQ-12.1, 12.3, 12.4: 200 項目の工程表の出力所要時間（Task 18.3）
+  //
+  // 本物の xlsx / jsPDF で 200 項目を実際に生成し、単調時計（performance.now）で
+  // 所要時間を測る。WSL2 では壁時計（Date.now）が単調時計より遅れるため使わない。
+  // fake timers は使わない（実際の所要時間を測るのが目的）。
+  // テストのタイムアウトは上限 30 秒より長く取り、判定を所要時間の主張に委ねる。
+  // ==========================================================================
+
+  describe('200項目の出力所要時間 (Req 12.3, 12.4)', () => {
+    /** 要件の上限（REQ-12.3 / 12.4: 30 秒以内） */
+    const EXPORT_TIME_LIMIT_MS = 30_000;
+    /** 1 工程表あたりの最大項目数（REQ-12.1） */
+    const MAX_ITEM_COUNT = 200;
+    /** 上限を超えたときに所要時間の主張で落ちるよう、テストのタイムアウトは上限より長く取る */
+    const TEST_TIMEOUT_MS = EXPORT_TIME_LIMIT_MS * 2;
+
+    /**
+     * 最大 200 項目の工程表データを作る。
+     * 着工日を 1.5 日ずつずらし各 60 日とし、日付列が約 1 年分に広がる現実的な最大規模にする。
+     * 項目名は出力物から数えられるよう ASCII の連番（ITEM-001 など）にする。
+     */
+    function createMaxScheduleData(): ScheduleExportData {
+      const baseTime = Date.UTC(2026, 3, 1);
+      const dayMs = 24 * 60 * 60 * 1000;
+      return createTestScheduleData({
+        items: Array.from({ length: MAX_ITEM_COUNT }, (_, i) => ({
+          id: `item-${i + 1}`,
+          itemName: `ITEM-${String(i + 1).padStart(3, '0')}`,
+          labelText: `L${i + 1}`,
+          detailText: `D${i + 1}`,
+          startDate: new Date(baseTime + Math.floor(i * 1.5) * dayMs).toISOString().slice(0, 10),
+          duration: 60,
+          displayOrder: i,
+          isExportTarget: true,
+        })),
+      });
+    }
+
+    const ITEM_NAME_PATTERN = /^ITEM-\d{3}$/;
+
+    it(
+      '200項目の工程表のExcel出力が30秒以内に完了し、200項目すべてが出力される',
+      async () => {
+        const data = createMaxScheduleData();
+
+        const startedAt = performance.now();
+        const buffer = await service.exportToExcel(data);
+        const elapsedMs = performance.now() - startedAt;
+
+        expect(elapsedMs).toBeLessThan(EXPORT_TIME_LIMIT_MS);
+
+        // 空のファイルが速いだけではないこと: 200 項目の行がすべて出力されている
+        const workbook = XLSX.read(buffer, { type: 'buffer' });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]!]!;
+        const rows = XLSX.utils.sheet_to_json<(string | number | null)[]>(sheet, { header: 1 });
+        const itemNames = rows
+          .map((row) => row[1])
+          .filter((v): v is string => typeof v === 'string' && ITEM_NAME_PATTERN.test(v));
+        expect(itemNames).toHaveLength(MAX_ITEM_COUNT);
+        expect(new Set(itemNames).size).toBe(MAX_ITEM_COUNT);
+      },
+      TEST_TIMEOUT_MS
+    );
+
+    it(
+      '200項目の工程表のPDF出力が30秒以内に完了する',
+      async () => {
+        const data = createMaxScheduleData();
+
+        const startedAt = performance.now();
+        const buffer = await service.exportToPdf(data);
+        const elapsedMs = performance.now() - startedAt;
+
+        expect(elapsedMs).toBeLessThan(EXPORT_TIME_LIMIT_MS);
+
+        // 空のファイルが速いだけではないこと: 有効な PDF で、項目行とバー矩形が描画されている。
+        // 注: 現行の実装（drawPdfItemRows）は 1 ページに収まる行までしか描画しないため、
+        // 200 項目すべてが PDF に含まれることはここでは主張できない（REQ-8.4「全工程項目」
+        // との食い違いであり、本検証の範囲外として別途扱う）。
+        expect(buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+        const pdfContent = buffer.toString('latin1');
+        expect(pdfContent).toContain('ITEM-001');
+        expect((pdfContent.match(/ re\n/g) || []).length).toBeGreaterThan(0);
+      },
+      TEST_TIMEOUT_MS
+    );
+  });
 });
