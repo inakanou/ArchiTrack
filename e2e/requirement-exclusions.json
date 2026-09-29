@@ -232,7 +232,7 @@
       "id": "project-management/REQ-18.6",
       "requirement": "REQ-18: エラー回復とフィードバック",
       "title": "セッション期限切れ時のリダイレクト",
-      "criterionText": "If セッションが期限切れの場合, then the ArchiTrackシステム shall ログインページにリダイレクトし、「セッションが期限切れになりました。再度ログインしてください。」というメッセージを表示する",
+      "criterionText": "If セッションが期限切れの場合, then the ArchiTrackシステム shall ログインページにリダイレクトし、「セッションの有効期限が切れました。再度ログインしてください。」というメッセージを表示する",
       "reason": "セッション期限切れのシミュレーションはE2E範囲外。統合テストで検証",
       "category": "fault-tolerance",
       "alternativeVerification": {
