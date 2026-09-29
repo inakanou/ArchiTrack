@@ -226,7 +226,7 @@
 | `company-info/REQ-9.9` | `Jest / Supertest` |
 | `company-info/REQ-9.10` | `Jest / Supertest` |
 
-- [ ] 8.1 除外一覧の道具名を実体へ揃える
+- [x] 8.1 除外一覧の道具名を実体へ揃える
   - 上表 7 件の `alternativeVerification.tool` から、実在しない `Jest` を取り除く
   - **先例に揃えること**: site-survey は Task 115.121 で自機能分 32 件を「道具名の先頭 `Jest` を `Vitest` へ置換し、`React Testing Library` / `Supertest` などの併記部分は据え置く」形で是正した。`.kiro/specs/site-survey/design.md` の `**あわせて是正した除外一覧の記述**` に続く項が、その形を逐語で記録している
   - **併記の `Supertest` は実在する**（`backend/package.json` に `supertest@^7.1.4` と `@types/supertest@^6.0.3`。2026-09-02 に実測）ため据え置いてよい。7 件はいずれも同じ `Jest / Supertest` である
