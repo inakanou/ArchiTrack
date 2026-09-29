@@ -2355,4 +2355,327 @@ describe('ExecutionBudgetService', () => {
       expect(result!.executionAmountTotal).toBe('0');
     });
   });
+
+  // ========================================
+  // 金額計算の精度（Req 18.1）
+  // 浮動小数点（Number）では誤差が出る入力で、Decimal による正確な値になることを確かめる
+  // ========================================
+  describe('金額計算の精度 (Req 18.1)', () => {
+    /** 精度検証用のリーフ項目（子を持たないルート項目）を作る */
+    function createLeafItem(
+      id: string,
+      executionAmount: string,
+      overrides: Record<string, unknown> = {}
+    ) {
+      return {
+        id,
+        executionBudgetId: createdBudgetId,
+        parentId: null,
+        displayOrder: 0,
+        name: `項目${id}`,
+        specification: null,
+        unit: null,
+        quantity: null,
+        estimateUnitPrice: null,
+        estimateAmount: null,
+        executionUnitPrice: null,
+        executionAmount: { toString: () => executionAmount },
+        amendmentAmount: { toString: () => '0' },
+        previousMonthExpense: { toString: () => '0' },
+        currentMonthExpense: { toString: () => '0' },
+        plannedVendorId: null,
+        plannedVendor: null,
+        remarks: null,
+        amendmentStatus: null,
+        children: [],
+        orderItems: [],
+        ...overrides,
+      };
+    }
+
+    /** Decimal(15,0) の上限値。10件の合計に 1 を足すと 2^53 を超え、Number では下位桁が失われる */
+    const MAX_AMOUNT = '999999999999999';
+    /** MAX_AMOUNT x 10 + 1 の正確な合計 */
+    const EXACT_LARGE_TOTAL = '9999999999999991';
+
+    /** 発注済み・チェック済みの発注明細を作る */
+    function createOrderedOrderItem(orderAmount: string) {
+      return {
+        checked: true,
+        orderAmount: { toString: () => orderAmount },
+        order: { status: 'ORDERED', deletedAt: null },
+      };
+    }
+
+    /** 指定した項目を持つ実行予算を getWithItems の取得結果として返す */
+    function mockBudgetWithItems(items: unknown[]) {
+      (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: createdBudgetId,
+        projectId,
+        contractId,
+        version: 0,
+        createdAt: new Date('2026-03-18'),
+        updatedAt: new Date('2026-03-18'),
+        deletedAt: null,
+        contract: { id: contractId, contractAmount: { toString: () => '0' }, estimate: null },
+        items,
+      });
+    }
+
+    it('実行金額（数量 x 実行単価）を浮動小数点誤差なく算出する (Req 18.1)', async () => {
+      // Arrange: 数量 0.145 x 実行単価 100
+      // Number では 0.145 * 100 = 14.499999999999998 となり、整数へ丸めると 14 になる
+      (mockPrisma.executionBudgetItem.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'eb-item-precision',
+        executionBudgetId: createdBudgetId,
+        quantity: { toString: () => '0.145' },
+        executionUnitPrice: null,
+        executionAmount: null,
+        remarks: null,
+        executionBudget: { id: createdBudgetId, version: 0, deletedAt: null },
+      });
+      (mockPrisma.executionBudgetItem.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'eb-item-precision',
+      });
+      (mockPrisma.executionBudget.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: createdBudgetId,
+        version: 1,
+      });
+
+      // Act
+      await service.updateItem('eb-item-precision', { executionUnitPrice: '100', version: 0 });
+
+      // Assert: 正確な積 14.5 を整数へ四捨五入して 15
+      expect(mockPrisma.executionBudgetItem.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ executionAmount: '15' }),
+        })
+      );
+    });
+
+    // 23000 / 80000: Number では 23000 / 80000 * 100 = 28.749999999999996 となり 28.7 になる
+    //   （23000 * 100 / 80000 の順では 28.75 が二進数で正確に表せるため 28.8 になってしまう）
+    // 15 / 10000: 正確な率 0.15 は二進数で表せず、Number ではどちらの順でも 0.1 になる
+    it.each([
+      { progressAmount: '23000', executionAmount: '80000', expected: '28.8' },
+      { progressAmount: '15', executionAmount: '10000', expected: '0.2' },
+      // 正確な率は 99.8499…% で 99.8 になる。Number の割り算は 0.9985 と同じ倍精度の値へ丸められ 99.9 になる
+      { progressAmount: '998499999999334', executionAmount: '999999999999333', expected: '99.8' },
+    ])(
+      '項目の出来高率（出来高金額 $progressAmount / 実行金額 $executionAmount x 100）を浮動小数点誤差なく算出する (Req 18.1)',
+      async ({ progressAmount, executionAmount, expected }) => {
+        // Arrange
+        mockBudgetWithItems([createLeafItem('leaf-1', executionAmount)]);
+        (mockPrisma.progressRecord.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+          id: 'progress-record-1',
+          items: [{ executionBudgetItemId: 'leaf-1', amount: { toString: () => progressAmount } }],
+        });
+
+        // Act
+        const result = await service.getWithItems(projectId);
+
+        // Assert: 正確な率を小数点以下1桁へ四捨五入した値
+        expect(result!.items[0]!.progressRate).toBe(expected);
+      }
+    );
+
+    it('合計行の実行金額合計を浮動小数点誤差なく算出する (Req 18.1)', async () => {
+      // Arrange: 実行金額 999999999999999（Decimal(15,0) の上限）x 10 項目 + 1 の項目
+      // Number では 2^53 を超える合計の下位桁が失われる
+      const items = Array.from({ length: 10 }, (_, i) => createLeafItem(`big-${i}`, MAX_AMOUNT));
+      items.push(createLeafItem('one', '1'));
+      mockBudgetWithItems(items);
+      (mockPrisma.progressRecord.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+      // Act
+      const result = await service.getWithItems(projectId);
+
+      // Assert: 999999999999999 x 10 + 1 = 9999999999999991
+      expect(result!.totals.executionAmount).toBe(EXACT_LARGE_TOTAL);
+      // 残予算 = 実行金額合計 - 累計支出合計（0）
+      expect(result!.totals.remainingBudget).toBe(EXACT_LARGE_TOTAL);
+      // 利益見込額 = 契約金額（0）- 実行金額合計
+      expect(result!.totals.expectedProfit).toBe(`-${EXACT_LARGE_TOTAL}`);
+    });
+
+    it('合計行の発注金額合計を浮動小数点誤差なく算出する (Req 18.1)', async () => {
+      // Arrange: 発注金額 999999999999999 x 10 項目 + 1 の項目
+      const items = Array.from({ length: 10 }, (_, i) =>
+        createLeafItem(`big-${i}`, '0', { orderItems: [createOrderedOrderItem(MAX_AMOUNT)] })
+      );
+      items.push(createLeafItem('one', '0', { orderItems: [createOrderedOrderItem('1')] }));
+      mockBudgetWithItems(items);
+      (mockPrisma.progressRecord.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+      // Act
+      const result = await service.getWithItems(projectId);
+
+      // Assert
+      expect(result!.totals.orderAmount).toBe(EXACT_LARGE_TOTAL);
+    });
+
+    it('1項目に複数ある発注明細の発注金額を浮動小数点誤差なく合計する (Req 18.1)', async () => {
+      // Arrange: 1項目に発注金額 999999999999999 x 10 件 + 1 の発注明細
+      const orderItems = Array.from({ length: 10 }, () => createOrderedOrderItem(MAX_AMOUNT));
+      orderItems.push(createOrderedOrderItem('1'));
+      mockBudgetWithItems([createLeafItem('leaf-1', '0', { orderItems })]);
+      (mockPrisma.progressRecord.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+      // Act
+      const result = await service.getWithItems(projectId);
+
+      // Assert
+      expect(result!.items[0]!.orderAmount).toBe(EXACT_LARGE_TOTAL);
+    });
+
+    it('合計行の累計支出合計を浮動小数点誤差なく算出する (Req 18.1)', async () => {
+      // Arrange: 今月の支出 999999999999999 x 10 項目 + 先月までの支出 1 の項目
+      // （2^53 を超えた後の加算が、先月までの支出と今月の支出の両方の足し算を通るように並べる）
+      const items = Array.from({ length: 10 }, (_, i) =>
+        createLeafItem(`big-${i}`, '0', { currentMonthExpense: { toString: () => MAX_AMOUNT } })
+      );
+      items.push(createLeafItem('one', '0', { previousMonthExpense: { toString: () => '1' } }));
+      mockBudgetWithItems(items);
+      (mockPrisma.progressRecord.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+      // Act
+      const result = await service.getWithItems(projectId);
+
+      // Assert
+      expect(result!.totals.totalExpense).toBe(EXACT_LARGE_TOTAL);
+    });
+
+    it('合計行の出来高金額合計を浮動小数点誤差なく算出する (Req 18.1)', async () => {
+      // Arrange: 最新施工日の出来高金額 999999999999999 x 10 項目 + 1 の項目
+      const items = Array.from({ length: 10 }, (_, i) => createLeafItem(`big-${i}`, MAX_AMOUNT));
+      items.push(createLeafItem('one', '1'));
+      mockBudgetWithItems(items);
+      (mockPrisma.progressRecord.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'progress-record-1',
+        items: [
+          ...Array.from({ length: 10 }, (_, i) => ({
+            executionBudgetItemId: `big-${i}`,
+            amount: { toString: () => MAX_AMOUNT },
+          })),
+          { executionBudgetItemId: 'one', amount: { toString: () => '1' } },
+        ],
+      });
+
+      // Act
+      const result = await service.getWithItems(projectId);
+
+      // Assert
+      expect(result!.totals.progressAmount).toBe(EXACT_LARGE_TOTAL);
+    });
+
+    it('サマリーの実行金額合計を浮動小数点誤差なく算出する (Req 18.1)', async () => {
+      // Arrange: 実行金額 999999999999999（Decimal(15,0) の上限）x 10 項目 + 1 の項目
+      const createSummaryItem = (id: string, executionAmount: string) => ({
+        id,
+        parentId: null,
+        executionAmount: { toString: () => executionAmount },
+        orderItems: [],
+        children: [],
+      });
+      const items = Array.from({ length: 10 }, (_, i) =>
+        createSummaryItem(`big-${i}`, '999999999999999')
+      );
+      items.push(createSummaryItem('one', '1'));
+      mockTx.executionBudget.findFirst.mockResolvedValue({
+        id: createdBudgetId,
+        projectId,
+        contractId,
+        version: 0,
+        createdAt: new Date('2026-03-18'),
+        updatedAt: new Date('2026-03-18'),
+        deletedAt: null,
+        contract: {
+          id: contractId,
+          contractAmount: { toString: () => '0' },
+          estimate: { name: '見積書' },
+        },
+        items,
+      });
+
+      // Act
+      const result = await service.getSummaryByProjectId(projectId);
+
+      // Assert: 999999999999999 x 10 + 1 = 9999999999999991
+      expect(result!.executionAmountTotal).toBe('9999999999999991');
+      // 利益見込 = 契約金額（0）- 実行金額合計
+      expect(result!.profitForecast).toBe('-9999999999999991');
+    });
+
+    it('変更契約の反映で変更金額（新実行金額 - 旧実行金額）を浮動小数点誤差なく算出する (Req 18.1)', async () => {
+      // Arrange: 見積の金額は Decimal(15,2)。新実行金額 0.51 - 旧実行金額 600000000000000
+      // 正確な差は -599999999999999.49 で、整数へ四捨五入して -599999999999999。
+      // Number の引き算では 0.125 刻みへ丸められ -599999999999999.5 となり、-600000000000000 になる
+      const amendmentContractId = '550e8400-e29b-41d4-a716-446655440020';
+      const amendmentBudget = { id: createdBudgetId, projectId, contractId, deletedAt: null };
+      mockTx.executionBudget.findFirst.mockResolvedValue(amendmentBudget);
+      mockTx.amendmentApplyHistory.findFirst.mockResolvedValue(null);
+      mockTx.contract.findUnique = vi.fn().mockResolvedValue({
+        id: amendmentContractId,
+        projectId,
+        contractType: 'AMENDMENT',
+        status: 'CONTRACTED',
+        estimateId: 'est-amendment',
+        contractAmount: { toString: () => '6000000' },
+        deletedAt: null,
+        estimate: { name: '変更見積書1' },
+      });
+      mockTx.estimate.findUnique.mockResolvedValue({
+        id: 'est-amendment',
+        items: [
+          {
+            id: 'item-2',
+            estimateId: 'est-amendment',
+            parentId: null,
+            displayOrder: 1,
+            lines: [
+              {
+                lineType: 'EXECUTION',
+                name: '直接仮設工事',
+                specification: '一式',
+                unit: '式',
+                quantity: { toString: () => '1' },
+                unitPrice: { toString: () => '0.51' },
+                amount: { toString: () => '0.51' },
+              },
+            ],
+          },
+        ],
+      });
+      mockTx.executionBudgetItem.findMany.mockResolvedValue([
+        {
+          id: 'budget-item-2',
+          executionBudgetId: createdBudgetId,
+          estimateItemId: 'item-2',
+          name: '直接仮設工事',
+          quantity: { toString: () => '1' },
+          executionUnitPrice: { toString: () => '600000000000000' },
+          executionAmount: { toString: () => '600000000000000' },
+          amendmentAmount: { toString: () => '0' },
+          amendmentStatus: null,
+          deletedAt: null,
+          orderItems: [],
+          progressRecordItems: [],
+        },
+      ]);
+      mockTx.executionBudgetItem.update.mockResolvedValue({});
+      mockTx.amendmentApplyHistory.create.mockResolvedValue({ id: 'history-1' });
+      mockTx.executionBudget.update.mockResolvedValue({ ...amendmentBudget, version: 1 });
+
+      // Act
+      await service.applyAmendment(projectId, amendmentContractId);
+
+      // Assert
+      expect(mockTx.executionBudgetItem.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'budget-item-2' },
+          data: expect.objectContaining({ amendmentAmount: '-599999999999999' }),
+        })
+      );
+    });
+  });
 });

@@ -303,6 +303,65 @@ describe('OrderService', () => {
       // Assert
       expect(result).toHaveLength(0);
     });
+
+    it('チェック済み項目の合計実行金額を浮動小数点誤差なく計算する (Req 18.1)', async () => {
+      // Arrange
+      // 999999999999999 × 10 + 1 = 9999999999999991。Number で積み上げると 2^53 を超えた
+      // 最後の +1 が丸められて 9999999999999992 になる。未チェック項目は合計に含めない。
+      const bigItems = Array.from({ length: 10 }, (_, i) => ({
+        id: `oi-big-${i}`,
+        checked: true,
+        orderAmount: null,
+        executionBudgetItem: {
+          id: `ebi-big-${i}`,
+          executionAmount: { toString: () => '999999999999999' },
+        },
+      }));
+      const ordersWithItems = [
+        {
+          id: orderId,
+          executionBudgetId,
+          tradingPartnerId,
+          status: 'BEFORE_ORDER',
+          confirmedAmount: null,
+          version: 0,
+          createdAt: new Date('2026-01-01'),
+          updatedAt: new Date('2026-01-01'),
+          deletedAt: null,
+          tradingPartner: { id: tradingPartnerId, name: '協力業者A' },
+          items: [
+            ...bigItems,
+            {
+              id: 'oi-unchecked',
+              checked: false,
+              orderAmount: null,
+              executionBudgetItem: {
+                id: 'ebi-unchecked',
+                executionAmount: { toString: () => '5' },
+              },
+            },
+            {
+              id: 'oi-last',
+              checked: true,
+              orderAmount: null,
+              executionBudgetItem: {
+                id: 'ebi-last',
+                executionAmount: { toString: () => '1' },
+              },
+            },
+          ],
+        },
+      ];
+
+      (prisma.order.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(ordersWithItems);
+
+      // Act
+      const result = await service.findByExecutionBudgetId(executionBudgetId);
+
+      // Assert
+      expect(result[0]!.checkedItemCount).toBe(11);
+      expect(result[0]!.totalExecutionAmount).toBe('9999999999999991');
+    });
   });
 
   // ========================================
@@ -685,6 +744,50 @@ describe('OrderService', () => {
 
       // Assert
       expect(result!.totalExecutionAmount).toBe('0');
+    });
+
+    it('チェック済み項目の合計実行金額を浮動小数点誤差なく計算する (Req 18.1)', async () => {
+      // Arrange
+      // 999999999999999 × 10 + 1 = 9999999999999991（Number では 9999999999999992 になる）
+      const detailItem = (id: string, checked: boolean, executionAmount: string) => ({
+        id: `oi-${id}`,
+        checked,
+        orderAmount: null,
+        executionBudgetItem: {
+          id: `ebi-${id}`,
+          name: `項目${id}`,
+          specification: null,
+          unit: null,
+          quantity: null,
+          executionUnitPrice: null,
+          executionAmount: { toString: () => executionAmount },
+        },
+      });
+      const orderWithItems = {
+        id: orderId,
+        executionBudgetId,
+        tradingPartnerId,
+        status: 'BEFORE_ORDER',
+        confirmedAmount: null,
+        version: 0,
+        createdAt: new Date('2026-01-01'),
+        updatedAt: new Date('2026-01-01'),
+        deletedAt: null,
+        tradingPartner: { id: tradingPartnerId, name: '協力業者A' },
+        items: [
+          ...Array.from({ length: 10 }, (_, i) => detailItem(`big-${i}`, true, '999999999999999')),
+          detailItem('unchecked', false, '5'),
+          detailItem('last', true, '1'),
+        ],
+      };
+
+      (prisma.order.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(orderWithItems);
+
+      // Act
+      const result = await service.getWithItems(orderId);
+
+      // Assert
+      expect(result!.totalExecutionAmount).toBe('9999999999999991');
     });
   });
 

@@ -522,4 +522,154 @@ describe('CostService', () => {
       expect(result.isOverBudget).toBe(false);
     });
   });
+
+  // ========================================
+  // 金額計算の精度（Req 18.1）
+  // ========================================
+
+  describe('金額計算の精度 (Req 18.1)', () => {
+    // 23000 / 80000: Number では 23000 / 80000 * 100 = 28.749999999999996 となり 28.7 になる
+    //   （23000 * 100 / 80000 の順では 28.75 が二進数で正確に表せるため 28.8 になってしまう）
+    // 15 / 10000: 正確な比率 0.15 は二進数で表せず、Number ではどちらの順でも 0.1 になる
+    it.each([
+      {
+        progressAmount: '23000',
+        previousMonthExpense: '50000',
+        currentMonthExpense: '30000',
+        totalExpense: '80000',
+        expected: '28.8',
+      },
+      {
+        progressAmount: '15',
+        previousMonthExpense: '5000',
+        currentMonthExpense: '5000',
+        totalExpense: '10000',
+        expected: '0.2',
+      },
+      // 正確な比率は 99.8499…% で 99.8 になる。Number の割り算は 0.9985 と同じ倍精度の値へ丸められ 99.9 になる
+      {
+        progressAmount: '998499999999334',
+        previousMonthExpense: '999999999999333',
+        currentMonthExpense: '0',
+        totalExpense: '999999999999333',
+        expected: '99.8',
+      },
+    ])(
+      '出来高対支出比率（出来高金額 $progressAmount / 累計支出 $totalExpense x 100）を浮動小数点誤差なく算出する (Req 18.1)',
+      async ({
+        progressAmount,
+        previousMonthExpense,
+        currentMonthExpense,
+        totalExpense,
+        expected,
+      }) => {
+        const item = createBasicItem({
+          previousMonthExpense: { toString: () => previousMonthExpense },
+        });
+        const prisma = mockPrisma.prisma as unknown as {
+          executionBudgetItem: {
+            findUnique: ReturnType<typeof vi.fn>;
+            update: ReturnType<typeof vi.fn>;
+          };
+          executionBudget: {
+            update: ReturnType<typeof vi.fn>;
+          };
+          progressRecordItem: {
+            findFirst: ReturnType<typeof vi.fn>;
+          };
+        };
+
+        prisma.executionBudgetItem.findUnique.mockResolvedValue(item);
+        prisma.executionBudgetItem.update.mockResolvedValue({
+          ...item,
+          currentMonthExpense: { toString: () => currentMonthExpense },
+        });
+        prisma.executionBudget.update.mockResolvedValue({
+          id: 'budget-1',
+          version: 1,
+        });
+        prisma.progressRecordItem.findFirst.mockResolvedValue({
+          amount: { toString: () => progressAmount },
+        });
+
+        const result = await service.updateCost('item-1', {
+          currentMonthExpense,
+          version: 0,
+        });
+
+        // 累計支出 = 先月までの支出 + 今月の支出。正確な比率を小数点以下1桁へ四捨五入した値
+        expect(result.totalExpense).toBe(totalExpense);
+        expect(result.progressToExpenseRatio).toBe(expected);
+      }
+    );
+
+    it('累計支出と残予算を浮動小数点誤差なく算出する (Req 18.1)', async () => {
+      // Arrange: 先月までの支出 600000000000000 + 今月の支出 0.49（入力は小数を受け付ける）、実行金額 0
+      // 正確な累計支出は 600000000000000.49。Number の足し算では 0.125 刻みへ丸められ …000.5 になる
+      const item = createBasicItem({
+        executionAmount: { toString: () => '0' },
+        previousMonthExpense: { toString: () => '600000000000000' },
+      });
+      const prisma = mockPrisma.prisma as unknown as {
+        executionBudgetItem: {
+          findUnique: ReturnType<typeof vi.fn>;
+          update: ReturnType<typeof vi.fn>;
+        };
+        executionBudget: {
+          update: ReturnType<typeof vi.fn>;
+        };
+        progressRecordItem: {
+          findFirst: ReturnType<typeof vi.fn>;
+        };
+      };
+      prisma.executionBudgetItem.findUnique.mockResolvedValue(item);
+      prisma.executionBudgetItem.update.mockResolvedValue(item);
+      prisma.executionBudget.update.mockResolvedValue({ id: 'budget-1', version: 1 });
+      prisma.progressRecordItem.findFirst.mockResolvedValue(null);
+
+      // Act
+      const result = await service.updateCost('item-1', {
+        currentMonthExpense: '0.49',
+        version: 0,
+      });
+
+      // Assert: 正確な値を整数へ四捨五入する（Number では 600000000000001 / -600000000000001）
+      expect(result.totalExpense).toBe('600000000000000');
+      expect(result.remainingBudget).toBe('-600000000000000');
+    });
+
+    it('累計支出が実行金額をわずかに超えた場合に超過と判定する (Req 18.1)', async () => {
+      // Arrange: 実行金額 100000000000000、先月までの支出 0、今月の支出 100000000000000.001
+      // 正確な累計支出は実行金額を 0.001 上回る。Number では 100000000000000 へ丸められ超過にならない
+      const item = createBasicItem({
+        executionAmount: { toString: () => '100000000000000' },
+        previousMonthExpense: { toString: () => '0' },
+      });
+      const prisma = mockPrisma.prisma as unknown as {
+        executionBudgetItem: {
+          findUnique: ReturnType<typeof vi.fn>;
+          update: ReturnType<typeof vi.fn>;
+        };
+        executionBudget: {
+          update: ReturnType<typeof vi.fn>;
+        };
+        progressRecordItem: {
+          findFirst: ReturnType<typeof vi.fn>;
+        };
+      };
+      prisma.executionBudgetItem.findUnique.mockResolvedValue(item);
+      prisma.executionBudgetItem.update.mockResolvedValue(item);
+      prisma.executionBudget.update.mockResolvedValue({ id: 'budget-1', version: 1 });
+      prisma.progressRecordItem.findFirst.mockResolvedValue(null);
+
+      // Act
+      const result = await service.updateCost('item-1', {
+        currentMonthExpense: '100000000000000.001',
+        version: 0,
+      });
+
+      // Assert
+      expect(result.isOverBudget).toBe(true);
+    });
+  });
 });

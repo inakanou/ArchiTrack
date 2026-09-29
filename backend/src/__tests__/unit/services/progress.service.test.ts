@@ -967,4 +967,362 @@ describe('ProgressService', () => {
       expect(result[0]?.progressRate).toBe('0.0');
     });
   });
+
+  // ========================================
+  // 金額計算の精度（Req 18.1）
+  // ========================================
+  describe('金額計算の精度 (Req 18.1)', () => {
+    // 23000 / 80000: Number では 23000 / 80000 * 100 = 28.749999999999996 となり 28.7 になる
+    //   （23000 * 100 / 80000 の順では 28.75 が二進数で正確に表せるため 28.8 になってしまう）
+    // 15 / 10000: 正確な率 0.15 は二進数で表せず、Number ではどちらの順でも 0.1 になる
+    describe.each([
+      { amount: '23000', executionAmount: '80000', totalAmount: '46000', expectedRate: '28.8' },
+      { amount: '15', executionAmount: '10000', totalAmount: '30', expectedRate: '0.2' },
+      // 正確な率は 99.8499…% で 99.8 になる。Number の割り算は 0.9985 と同じ倍精度の値へ丸められ 99.9 になる
+      {
+        amount: '998499999999334',
+        executionAmount: '999999999999333',
+        totalAmount: '1996999999998668',
+        expectedRate: '99.8',
+      },
+    ])(
+      '出来高金額 $amount / 実行金額 $executionAmount の出来高率',
+      ({ amount, executionAmount, totalAmount, expectedRate }) => {
+        // 実行金額 executionAmount の項目を2件（出来高金額は各 amount、合計 totalAmount）。
+        // 合計率も項目別と同じ率になる
+        const precisionBudgetItems = [
+          {
+            id: ITEM_ID_1,
+            executionBudgetId: BUDGET_ID,
+            executionAmount: { toString: () => executionAmount },
+            parentId: null,
+            name: '項目A',
+          },
+          {
+            id: ITEM_ID_2,
+            executionBudgetId: BUDGET_ID,
+            executionAmount: { toString: () => executionAmount },
+            parentId: null,
+            name: '項目B',
+          },
+        ];
+        const precisionProgressItems = [
+          {
+            id: 'pri-1',
+            progressRecordId: RECORD_ID,
+            executionBudgetItemId: ITEM_ID_1,
+            amount: { toString: () => amount },
+            executionBudgetItem: precisionBudgetItems[0],
+          },
+          {
+            id: 'pri-2',
+            progressRecordId: RECORD_ID,
+            executionBudgetItemId: ITEM_ID_2,
+            amount: { toString: () => amount },
+            executionBudgetItem: precisionBudgetItems[1],
+          },
+        ];
+
+        it('出来高保存時の項目別出来高率と合計率を浮動小数点誤差なく算出する (Req 18.1)', async () => {
+          mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
+          mockTx.executionBudgetItem.findMany.mockResolvedValue(precisionBudgetItems);
+          mockTx.progressRecord.findFirst.mockResolvedValue(null);
+          mockTx.progressRecord.create.mockResolvedValue({
+            id: RECORD_ID,
+            executionBudgetId: BUDGET_ID,
+            constructionDate: new Date('2026-03-15'),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+          mockTx.progressRecordItem.createMany.mockResolvedValue({ count: 2 });
+          mockTx.progressRecordItem.findMany.mockResolvedValue(precisionProgressItems);
+
+          const result = await service.save(BUDGET_ID, {
+            constructionDate: '2026-03-15',
+            items: [
+              { itemId: ITEM_ID_1, amount },
+              { itemId: ITEM_ID_2, amount },
+            ],
+          });
+
+          expect(result.items.map((i) => i.progressRate)).toEqual([expectedRate, expectedRate]);
+          expect(result.totalAmount).toBe(totalAmount);
+          expect(result.totalRate).toBe(expectedRate);
+        });
+
+        it('施工日指定の取得時の項目別出来高率と合計率を浮動小数点誤差なく算出する (Req 18.1)', async () => {
+          mockPrisma.progressRecord.findFirst = vi.fn().mockResolvedValue({
+            id: RECORD_ID,
+            executionBudgetId: BUDGET_ID,
+            constructionDate: new Date('2026-03-15'),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            items: precisionProgressItems,
+          });
+          (mockPrisma.executionBudgetItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
+            precisionBudgetItems
+          );
+
+          const result = await service.getByDate(BUDGET_ID, new Date('2026-03-15'));
+
+          expect(result.items.map((i) => i.progressRate)).toEqual([expectedRate, expectedRate]);
+          expect(result.totalRate).toBe(expectedRate);
+        });
+
+        it('月別集計の累計出来高率を浮動小数点誤差なく算出する (Req 18.1)', async () => {
+          (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
+            mockBudget
+          );
+          (mockPrisma.executionBudgetItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
+            precisionBudgetItems
+          );
+          (mockPrisma.$queryRaw as ReturnType<typeof vi.fn>).mockResolvedValue([
+            { year_month: '2026-03', monthly_amount: totalAmount },
+          ]);
+
+          const result = await service.getMonthlyAggregation(BUDGET_ID);
+
+          expect(result[0]!.cumulativeAmount).toBe(totalAmount);
+          expect(result[0]!.cumulativeRate).toBe(expectedRate);
+        });
+
+        it('月別明細の項目別出来高率を浮動小数点誤差なく算出する (Req 18.1)', async () => {
+          (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
+            mockBudget
+          );
+          (mockPrisma.executionBudgetItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
+            precisionBudgetItems
+          );
+          mockPrisma.progressRecord.findMany = vi.fn().mockResolvedValue([
+            {
+              id: RECORD_ID,
+              executionBudgetId: BUDGET_ID,
+              constructionDate: new Date('2026-03-15'),
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              items: precisionProgressItems,
+            },
+          ]);
+
+          const result = await service.getMonthlyDetail(BUDGET_ID, '2026-03');
+
+          expect(result.map((i) => i.progressRate)).toEqual([expectedRate, expectedRate]);
+        });
+      }
+    );
+
+    // 出来高金額は Decimal(15,0)。上限値 999999999999999 を10件足して 1 を足すと 2^53 を超え、
+    // Number の加算では下位桁が失われる
+    describe('2^53 を超える合計', () => {
+      const MAX_AMOUNT = '999999999999999';
+      /** MAX_AMOUNT x 10 + 1 の正確な合計 */
+      const EXACT_LARGE_TOTAL = '9999999999999991';
+      /** 合計の元になる11件の金額（上限値 x 10 + 1） */
+      const LARGE_AMOUNTS = [...Array.from({ length: 10 }, () => MAX_AMOUNT), '1'];
+
+      const largeBudgetItems = LARGE_AMOUNTS.map((_, i) => ({
+        id: `large-item-${i}`,
+        executionBudgetId: BUDGET_ID,
+        executionAmount: { toString: () => MAX_AMOUNT },
+        parentId: null,
+        name: `項目${i}`,
+      }));
+      const largeProgressItems = LARGE_AMOUNTS.map((amount, i) => ({
+        id: `large-pri-${i}`,
+        progressRecordId: RECORD_ID,
+        executionBudgetItemId: `large-item-${i}`,
+        amount: { toString: () => amount },
+        executionBudgetItem: largeBudgetItems[i],
+      }));
+
+      it('出来高保存時の出来高金額合計を浮動小数点誤差なく算出する (Req 18.1)', async () => {
+        mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
+        mockTx.executionBudgetItem.findMany.mockResolvedValue(largeBudgetItems);
+        mockTx.progressRecord.findFirst.mockResolvedValue(null);
+        mockTx.progressRecord.create.mockResolvedValue({
+          id: RECORD_ID,
+          executionBudgetId: BUDGET_ID,
+          constructionDate: new Date('2026-03-15'),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+        mockTx.progressRecordItem.createMany.mockResolvedValue({ count: LARGE_AMOUNTS.length });
+        mockTx.progressRecordItem.findMany.mockResolvedValue(largeProgressItems);
+
+        const result = await service.save(BUDGET_ID, {
+          constructionDate: '2026-03-15',
+          items: LARGE_AMOUNTS.map((amount, i) => ({ itemId: `large-item-${i}`, amount })),
+        });
+
+        expect(result.totalAmount).toBe(EXACT_LARGE_TOTAL);
+      });
+
+      it('施工日指定の取得時の出来高金額合計を浮動小数点誤差なく算出する (Req 18.1)', async () => {
+        mockPrisma.progressRecord.findFirst = vi.fn().mockResolvedValue({
+          id: RECORD_ID,
+          executionBudgetId: BUDGET_ID,
+          constructionDate: new Date('2026-03-15'),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          items: largeProgressItems,
+        });
+        (mockPrisma.executionBudgetItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
+          largeBudgetItems
+        );
+
+        const result = await service.getByDate(BUDGET_ID, new Date('2026-03-15'));
+
+        expect(result.totalAmount).toBe(EXACT_LARGE_TOTAL);
+      });
+
+      it('出来高履歴一覧の施工日ごとの出来高金額合計を浮動小数点誤差なく算出する (Req 18.1)', async () => {
+        mockPrisma.progressRecord.findMany = vi.fn().mockResolvedValue([
+          {
+            id: RECORD_ID,
+            executionBudgetId: BUDGET_ID,
+            constructionDate: new Date('2026-03-15'),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            _count: { items: LARGE_AMOUNTS.length },
+            items: LARGE_AMOUNTS.map((amount) => ({ amount: { toString: () => amount } })),
+          },
+        ]);
+
+        const result = await service.findByExecutionBudgetId(BUDGET_ID);
+
+        expect(result[0]!.totalAmount).toBe(EXACT_LARGE_TOTAL);
+      });
+
+      it('月別集計の累計出来高金額を浮動小数点誤差なく算出する (Req 18.1)', async () => {
+        (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
+          mockBudget
+        );
+        (mockPrisma.executionBudgetItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
+          largeBudgetItems
+        );
+        // 11か月分の当月出来高金額（上限値 x 10 か月 + 1）
+        (mockPrisma.$queryRaw as ReturnType<typeof vi.fn>).mockResolvedValue(
+          LARGE_AMOUNTS.map((amount, i) => ({
+            year_month: `2025-${String(i + 1).padStart(2, '0')}`,
+            monthly_amount: amount,
+          }))
+        );
+
+        const result = await service.getMonthlyAggregation(BUDGET_ID);
+
+        expect(result[LARGE_AMOUNTS.length - 1]!.cumulativeAmount).toBe(EXACT_LARGE_TOTAL);
+      });
+
+      it('月別明細で同じ項目の月内の出来高金額を浮動小数点誤差なく合計する (Req 18.1)', async () => {
+        (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
+          mockBudget
+        );
+        (mockPrisma.executionBudgetItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+          largeBudgetItems[0],
+        ]);
+        // 同じ項目への11件の施工日の出来高（上限値 x 10 + 1）
+        mockPrisma.progressRecord.findMany = vi.fn().mockResolvedValue(
+          LARGE_AMOUNTS.map((amount, i) => ({
+            id: `large-record-${i}`,
+            executionBudgetId: BUDGET_ID,
+            constructionDate: new Date(`2026-03-${String(i + 1).padStart(2, '0')}`),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            items: [{ executionBudgetItemId: 'large-item-0', amount: { toString: () => amount } }],
+          }))
+        );
+
+        const result = await service.getMonthlyDetail(BUDGET_ID, '2026-03');
+
+        expect(result[0]!.progressAmount).toBe(EXACT_LARGE_TOTAL);
+      });
+    });
+
+    // 合計率の分母（実行金額合計）: 999999999999999 x 10 + 1 = 9999999999999991（Number の加算では …992）。
+    // 分子（出来高金額合計）: 999499999999999 x 9 + 999500000000001 + 0 = 9994999999999992。
+    // 正確な分母では 99.95000…% で 100.0、Number で足した分母では 99.94999…% で 99.9 になる
+    describe('2^53 を超える実行金額合計を分母とする合計率', () => {
+      const EXECUTION_AMOUNTS = [...Array.from({ length: 10 }, () => '999999999999999'), '1'];
+      const PROGRESS_AMOUNTS = [
+        ...Array.from({ length: 9 }, () => '999499999999999'),
+        '999500000000001',
+        '0',
+      ];
+      const EXACT_PROGRESS_TOTAL = '9994999999999992';
+
+      const rateBudgetItems = EXECUTION_AMOUNTS.map((executionAmount, i) => ({
+        id: `rate-item-${i}`,
+        executionBudgetId: BUDGET_ID,
+        executionAmount: { toString: () => executionAmount },
+        parentId: null,
+        name: `項目${i}`,
+      }));
+      const rateProgressItems = PROGRESS_AMOUNTS.map((amount, i) => ({
+        id: `rate-pri-${i}`,
+        progressRecordId: RECORD_ID,
+        executionBudgetItemId: `rate-item-${i}`,
+        amount: { toString: () => amount },
+        executionBudgetItem: rateBudgetItems[i],
+      }));
+
+      it('出来高保存時の合計率を浮動小数点誤差なく算出する (Req 18.1)', async () => {
+        mockTx.executionBudget.findFirst.mockResolvedValue(mockBudget);
+        mockTx.executionBudgetItem.findMany.mockResolvedValue(rateBudgetItems);
+        mockTx.progressRecord.findFirst.mockResolvedValue(null);
+        mockTx.progressRecord.create.mockResolvedValue({
+          id: RECORD_ID,
+          executionBudgetId: BUDGET_ID,
+          constructionDate: new Date('2026-03-15'),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+        mockTx.progressRecordItem.createMany.mockResolvedValue({ count: PROGRESS_AMOUNTS.length });
+        mockTx.progressRecordItem.findMany.mockResolvedValue(rateProgressItems);
+
+        const result = await service.save(BUDGET_ID, {
+          constructionDate: '2026-03-15',
+          items: PROGRESS_AMOUNTS.map((amount, i) => ({ itemId: `rate-item-${i}`, amount })),
+        });
+
+        expect(result.totalAmount).toBe(EXACT_PROGRESS_TOTAL);
+        expect(result.totalRate).toBe('100.0');
+      });
+
+      it('施工日指定の取得時の合計率を浮動小数点誤差なく算出する (Req 18.1)', async () => {
+        mockPrisma.progressRecord.findFirst = vi.fn().mockResolvedValue({
+          id: RECORD_ID,
+          executionBudgetId: BUDGET_ID,
+          constructionDate: new Date('2026-03-15'),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          items: rateProgressItems,
+        });
+        (mockPrisma.executionBudgetItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
+          rateBudgetItems
+        );
+
+        const result = await service.getByDate(BUDGET_ID, new Date('2026-03-15'));
+
+        expect(result.totalAmount).toBe(EXACT_PROGRESS_TOTAL);
+        expect(result.totalRate).toBe('100.0');
+      });
+
+      it('月別集計の累計出来高率を浮動小数点誤差なく算出する (Req 18.1)', async () => {
+        (mockPrisma.executionBudget.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(
+          mockBudget
+        );
+        (mockPrisma.executionBudgetItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(
+          rateBudgetItems
+        );
+        (mockPrisma.$queryRaw as ReturnType<typeof vi.fn>).mockResolvedValue([
+          { year_month: '2026-03', monthly_amount: EXACT_PROGRESS_TOTAL },
+        ]);
+
+        const result = await service.getMonthlyAggregation(BUDGET_ID);
+
+        expect(result[0]!.cumulativeAmount).toBe(EXACT_PROGRESS_TOTAL);
+        expect(result[0]!.cumulativeRate).toBe('100.0');
+      });
+    });
+  });
 });
