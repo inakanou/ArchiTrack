@@ -311,6 +311,7 @@
   - **本節が `_Requirements:` を持たないのは意図である。** 本スペックの tasks.md は HEAD（コミット `9e63637`）で `_Requirements:` を 30 件持ち、`_Depends:` と `_Boundary:` はいずれも 0 件である（`git show HEAD:.kiro/specs/construction-schedule/tasks.md | grep -c '_Requirements:'` ほか。2026-09-02 にリポジトリルートで実測）。**本節は受入基準を実装せず、除外一覧の記録の道具名を実体へ揃えるだけである。** 上表の id を `_Requirements:` に挙げると「当該受入基準を本タスクが被覆した」という偽の申告になり、被覆の集計にも入りうるため、依存と境界だけを書く
   - _Depends: site-survey スペックの Task 115.280（`64 0` の宣言の解除と台帳の追随）、18.1、18.2、18.3_
   - **18 の完了後に着手すること**（2026-09-29 の起票で追加）。道具名は 18.1〜18.3 が実際に置いた検証の走者に合わせる。`Jest / Vitest with mock` の 2 件は `Jest` を除去する形を基本とするが、18.1 / 18.2 の検証の実体と食い違うなら実体に合わせること。`k6 / Jest with timer` の 2 件は、18.3 の検証の走者名へ改めること
+  - **除外理由の見直しが要る（18.1 のレビューの所見。2026-09-29）**: REQ-7.6 / 8.6 の除外は理由を「出力失敗のシミュレーションはE2E範囲外」とするが、Playwright の `page.route` で export API を 500 にすれば E2E で前提を作れる（前例: `e2e/specs/site-surveys/site-survey-bulk-export.spec.ts` の `route.fulfill({ status: 500 })`）。**道具名の是正だけで終えず、`e2e/specs/schedules/construction-schedule-e2e.spec.ts` へ「500 → 再試行ボタン → route 解除 → ダウンロード」の E2E を足して除外を取り下げるかを判断すること**。取り下げるなら道具名の是正は不要になる
   - _Boundary: 本スペックが所管する除外項目の `alternativeVerification.tool`_
 
 ## タスク18: 除外一覧が約束する代替検証の欠落を埋める
@@ -325,7 +326,7 @@
   - backend の出力処理そのものが失敗したときに 500 を返す検証が無い（`schedules.routes.test.ts` の export は 200 / 400 / 404 のみ。design.md の「Export Errors (500)」の項に対応する検証が無い）
 - **REQ-12.3 / 12.4（200 項目の Excel / PDF 出力が 30 秒以内）**: **検証がリポジトリに存在しない。** k6 のスクリプト・設定は `git ls-files` に無く、`backend/performance/*.perf.ts`（autocannon、6 本）に工程表の出力を測るものは無い。工程表まわりのテストに `performance.now` / fake timers / 所要時間の閾値による計測は無い
 
-- [ ] 18.1 出力ダイアログに再試行の操作を実装し、失敗時の促しを形式ごとに検証する
+- [x] 18.1 出力ダイアログに再試行の操作を実装し、失敗時の促しを形式ごとに検証する
   - design.md の ExportDialog の項どおり、出力失敗時にエラーメッセージとともに**再試行ボタン**を提示する。再試行は直前に選んだ形式で出力をやり直すこと
   - 挙動の追加であるため、RED（再試行の検証が落ちる）→ GREEN の順に進めること
   - Excel と PDF の**両形式**で、失敗時にエラーメッセージと再試行の操作が現れ、再試行で出力が再度要求されることを検証する

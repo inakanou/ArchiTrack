@@ -6,6 +6,7 @@
  * Requirements (construction-schedule):
  * - REQ-7.1: Excel出力ボタン押下時にExcel形式（.xlsx）のファイルをダウンロード
  * - REQ-8.1: PDF出力ボタン押下時にPDF形式のファイルをダウンロード
+ * - REQ-7.6 / REQ-8.6: 出力失敗時にエラーメッセージを表示し、再試行ボタンで直前の形式の出力をやり直す（Task 18.1）
  *
  * @module components/schedule/ExportDialog
  */
@@ -144,6 +145,17 @@ const styles = {
     fontSize: '14px',
     margin: 0,
   } as React.CSSProperties,
+  retryButton: {
+    marginTop: '8px',
+    padding: '6px 14px',
+    borderRadius: '6px',
+    fontSize: '14px',
+    fontWeight: 500,
+    backgroundColor: '#ffffff',
+    color: '#991b1b',
+    border: '1px solid #fca5a5',
+    cursor: 'pointer',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -160,60 +172,74 @@ const styles = {
  * Requirements:
  * - REQ-7.1: Excel出力
  * - REQ-8.1: PDF出力
+ * - REQ-7.6 / REQ-8.6: 出力失敗時の再試行
  */
 export function ExportDialog({ isOpen, scheduleId, scheduleName, onClose }: ExportDialogProps) {
   const [selectedFormat, setSelectedFormat] = useState<ExportFormat>('xlsx');
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 直前に失敗した出力の形式（再試行で同じ形式をやり直すために保持する） */
+  const [failedFormat, setFailedFormat] = useState<ExportFormat | null>(null);
 
   /**
    * 出力実行
    * エクスポートAPIを呼び出し、レスポンスのBlobをファイルとしてダウンロードする
    */
-  const handleExport = useCallback(async () => {
-    if (!selectedFormat) return;
+  const runExport = useCallback(
+    async (format: ExportFormat) => {
+      setIsExporting(true);
+      setError(null);
+      setFailedFormat(null);
 
-    setIsExporting(true);
-    setError(null);
+      try {
+        const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+        const url = `${baseUrl}/api/schedules/${scheduleId}/export?format=${format}`;
 
-    try {
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-      const url = `${baseUrl}/api/schedules/${scheduleId}/export?format=${selectedFormat}`;
+        // fetchでAPIリクエストを実行しレスポンスを検証
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
+          },
+        });
 
-      // fetchでAPIリクエストを実行しレスポンスを検証
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
-        },
-      });
+        if (!response.ok) {
+          throw new Error('工程表の出力に失敗しました');
+        }
 
-      if (!response.ok) {
-        throw new Error('工程表の出力に失敗しました');
+        // レスポンスからBlobを取得してダウンロード
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+
+        const ext = format === 'pdf' ? 'pdf' : 'xlsx';
+        const fileName = `${scheduleName}.${ext}`;
+
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        URL.revokeObjectURL(blobUrl);
+        onClose();
+      } catch {
+        setError('工程表の出力に失敗しました');
+        setFailedFormat(format);
+      } finally {
+        setIsExporting(false);
       }
+    },
+    [scheduleId, scheduleName, onClose]
+  );
 
-      // レスポンスからBlobを取得してダウンロード
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
+  /** 選択中の形式で出力する */
+  const handleExport = useCallback(() => runExport(selectedFormat), [runExport, selectedFormat]);
 
-      const ext = selectedFormat === 'pdf' ? 'pdf' : 'xlsx';
-      const fileName = `${scheduleName}.${ext}`;
-
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      URL.revokeObjectURL(blobUrl);
-      onClose();
-    } catch {
-      setError('工程表の出力に失敗しました');
-    } finally {
-      setIsExporting(false);
-    }
-  }, [scheduleId, scheduleName, selectedFormat, onClose]);
+  /** 直前に失敗した形式で出力をやり直す（REQ-7.6, REQ-8.6） */
+  const handleRetry = useCallback(() => {
+    if (failedFormat) void runExport(failedFormat);
+  }, [runExport, failedFormat]);
 
   if (!isOpen) return null;
 
@@ -235,6 +261,16 @@ export function ExportDialog({ isOpen, scheduleId, scheduleName, onClose }: Expo
         {error && (
           <div role="alert" style={styles.errorContainer}>
             <p style={styles.errorText}>{error}</p>
+            {failedFormat && (
+              <button
+                type="button"
+                onClick={handleRetry}
+                disabled={isExporting}
+                style={styles.retryButton}
+              >
+                再試行
+              </button>
+            )}
           </div>
         )}
 
