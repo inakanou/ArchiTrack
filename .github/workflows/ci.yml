@@ -747,6 +747,12 @@ jobs:
 
           echo "✅ All ES modules are valid (no import errors detected)"
 
+      # The production image ships only dist/, so runtime assets read via fs (email templates)
+      # must be in the build output. Render them from dist the same way production does.
+      - name: Check runtime assets in build output (backend)
+        if: matrix.workspace == 'backend'
+        run: npm --prefix backend run check:dist-assets
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:

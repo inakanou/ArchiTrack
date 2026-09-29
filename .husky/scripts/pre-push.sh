@@ -334,6 +334,20 @@ if [ -d "backend" ]; then
   fi
 
   echo "✅ All ES modules are valid (no import errors detected)"
+
+  # ============================================================================
+  # ビルドの出力の実行時資産の検証（CIと同一: ci.yml build job）
+  # ============================================================================
+  # 本番のイメージは dist だけを運ぶため、fs で読むメールのテンプレートが
+  # dist に在り、dist の EmailService から描画できることを確かめる
+  # ============================================================================
+  echo "🔍 Checking runtime assets in backend build output..."
+  npm --prefix backend run check:dist-assets
+  if [ $? -ne 0 ]; then
+    echo "❌ Backend build output is missing runtime assets. Push aborted."
+    echo "💡 Hint: Files read via fs at runtime must be copied into dist by 'npm run build'"
+    exit 1
+  fi
 fi
 
 # Frontend build
