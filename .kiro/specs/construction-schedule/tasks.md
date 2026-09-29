@@ -309,5 +309,39 @@
   - **JSON の整形は `npm run format:check` では見られない。** リポジトリルートの `format:check` は `prettier --check "e2e/**/*.{js,ts}" "playwright.config.{js,ts}" "scripts/**/*.ts"` であって JSON を含まず、`lint-staged` も `*.{js,ts}` だけを対象とする（2026-09-02 に実測）。`npx prettier --check e2e/requirement-exclusions.json` を直接走らせること（現況は整形済みで終了コード 0。同日に実測）
   - **検証**: `npm run check:req-exclusions` が緑であること、および上の `node -e` の出力の第一値が本スペックの件数だけ減っていること
   - **本節が `_Requirements:` を持たないのは意図である。** 本スペックの tasks.md は HEAD（コミット `9e63637`）で `_Requirements:` を 30 件持ち、`_Depends:` と `_Boundary:` はいずれも 0 件である（`git show HEAD:.kiro/specs/construction-schedule/tasks.md | grep -c '_Requirements:'` ほか。2026-09-02 にリポジトリルートで実測）。**本節は受入基準を実装せず、除外一覧の記録の道具名を実体へ揃えるだけである。** 上表の id を `_Requirements:` に挙げると「当該受入基準を本タスクが被覆した」という偽の申告になり、被覆の集計にも入りうるため、依存と境界だけを書く
-  - _Depends: site-survey スペックの Task 115.280（`64 0` の宣言の解除と台帳の追随）_
+  - _Depends: site-survey スペックの Task 115.280（`64 0` の宣言の解除と台帳の追随）、18.1、18.2、18.3_
+  - **18 の完了後に着手すること**（2026-09-29 の起票で追加）。道具名は 18.1〜18.3 が実際に置いた検証の走者に合わせる。`Jest / Vitest with mock` の 2 件は `Jest` を除去する形を基本とするが、18.1 / 18.2 の検証の実体と食い違うなら実体に合わせること。`k6 / Jest with timer` の 2 件は、18.3 の検証の走者名へ改めること
   - _Boundary: 本スペックが所管する除外項目の `alternativeVerification.tool`_
+
+## タスク18: 除外一覧が約束する代替検証の欠落を埋める
+
+**経緯**: Task 17.1 の着手時（2026-09-29、HEAD `cab8d05e`）に、除外 4 件の `description` が約束する代替検証を一件ずつ確かめたところ、**道具名の是正では済まない欠落**が見つかった。17.1 の注意書き「存在しないなら道具名の是正ではなく除外の取り下げが要る」に当たる。利用者の判断（2026-09-29）により、除外は残したまま欠けた検証と実装を本節で補い、その後に 17.1 で道具名を実体へ揃える。
+
+**測った事実**（2026-09-29、HEAD `cab8d05e`、リポジトリルート）:
+
+- **REQ-7.6 / 8.6（出力失敗時の再試行の促し）**: `frontend/src/components/schedule/ExportDialog.test.tsx` に失敗時のエラー表示の検証が 2 本ある（fetch の reject と `ok:false`/500。いずれも既定の xlsx 形式）。一方で、
+  - `frontend/src/components/schedule/ExportDialog.tsx` に**再試行の操作が無い**（`grep -nE '再試行|retry|Retry'` の当たりが 0）。design.md の ExportDialog の項は「出力失敗時はエラーメッセージを表示し、再試行ボタンを提供（Req 7.6, 8.6）」と定めており、**実装が設計に届いていない**
+  - PDF 形式を選んで失敗させる検証が無い
+  - backend の出力処理そのものが失敗したときに 500 を返す検証が無い（`schedules.routes.test.ts` の export は 200 / 400 / 404 のみ。design.md の「Export Errors (500)」の項に対応する検証が無い）
+- **REQ-12.3 / 12.4（200 項目の Excel / PDF 出力が 30 秒以内）**: **検証がリポジトリに存在しない。** k6 のスクリプト・設定は `git ls-files` に無く、`backend/performance/*.perf.ts`（autocannon、6 本）に工程表の出力を測るものは無い。工程表まわりのテストに `performance.now` / fake timers / 所要時間の閾値による計測は無い
+
+- [ ] 18.1 出力ダイアログに再試行の操作を実装し、失敗時の促しを形式ごとに検証する
+  - design.md の ExportDialog の項どおり、出力失敗時にエラーメッセージとともに**再試行ボタン**を提示する。再試行は直前に選んだ形式で出力をやり直すこと
+  - 挙動の追加であるため、RED（再試行の検証が落ちる）→ GREEN の順に進めること
+  - Excel と PDF の**両形式**で、失敗時にエラーメッセージと再試行の操作が現れ、再試行で出力が再度要求されることを検証する
+  - 既存の 2 本（エラー表示）の検証を消さないこと
+  - _Requirements: 7.6, 8.6_
+  - _Boundary: `frontend/src/components/schedule/ExportDialog.tsx` とその検証_
+
+- [ ] 18.2 (P) backend の出力処理が失敗したときに 500 を返すことを検証する
+  - design.md の「Export Errors (500)」の項に対応する。Excel / PDF の生成処理が失敗したとき、export のエンドポイントが 500 とエラーの応答を返すことを検証する
+  - 現状の実装が既に 500 を返すなら検証の追加だけでよい。返さないなら実装を設計へ揃えること（その場合は RED → GREEN）
+  - _Requirements: 7.6, 8.6_
+  - _Boundary: 工程表の export ルートの失敗経路とその検証_
+
+- [ ] 18.3 (P) 200 項目の工程表の Excel / PDF 出力が 30 秒以内に完了することを計測で検証する
+  - 200 項目の工程表を用意し、Excel 出力・PDF 出力それぞれの所要時間を**単調時計**（`performance.now()` 等）で測り、30 秒以内であることを主張する検証を置く。WSL2 では壁時計が単調時計より遅れるため `Date.now()` で測らないこと
+  - 置き場所（サービス単位の Vitest か、統合テストか、`backend/performance/` の負荷試験か）は、既存の検証の構成と実行時間を見て決め、理由を報告に書くこと。**通常の `npm test` の所要時間を大きく延ばさないこと**
+  - 検証が意味を持つこと（例: 閾値を極端に小さくする変異で赤くなること）を実測で示すこと
+  - _Requirements: 12.3, 12.4_
+  - _Boundary: 工程表の出力の所要時間の検証_
