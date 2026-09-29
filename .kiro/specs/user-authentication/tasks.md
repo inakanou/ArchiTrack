@@ -1208,6 +1208,24 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - **範囲外の観測（未起票）**: (i) 保存の前の入力の検証「ロール名を入力してください」は今もページ上部に出ており、ダイアログの裏になりうる（着手前から同じ。API の応答の失敗の表示ではない）。(ii) 375 幅ではアプリのヘッダーがダイアログの覆いの上端を少し覆う（既存の挙動、警告の表示には影響しない）
   - **検証（親が承認後に新鮮な証拠で再実行）**: 単体 `UserManagement` 3 ファイル 43/43、E2E `admin/role-management.spec.ts` 14/14（配信中のバンドル `index-DzJTqIYN.js` は是正を含む版）、frontend とルートの type-check EXIT=0、`--accessible-names` の肯定側 1430 件 / 相異なる名前 284 件
 
+## タスク38: 本番のビルドでメールのテンプレートが配置されない状態を正す
+
+**経緯**: construction-schedule の Task 18.5 のレビュー（2026-09-29）が、本番のビルドの出力にメールのテンプレートが含まれないことを実測した。利用者の判断（2026-09-29、「起票して修正」）により本スペックで起票し、直す。
+
+**測った事実**（2026-09-29、HEAD `5dec01d9`）:
+
+- `backend/src/services/email.service.ts` は、招待・パスワードリセット・二要素認証の有効化・管理者ロール変更の通知のメール本文を、実行時に `join(__dirname, '../templates/<name>.hbs')` を `readFileSync` で読んで組み立てる（287・316・346・371 行付近）。テンプレートは `backend/src/templates/*.hbs` の 4 本
+- `backend/package.json` の `build` は `npm run prisma:generate && tsc && npm run docs:generate` で、`tsc` は `.hbs` を出力へ複製しない。`npm --prefix backend run build` の後の `dist` に `.hbs` は 0 件（レビューの実測）
+- 本番の `backend/Dockerfile` の最終段は `COPY --from=build /app/dist ./dist` だけを運ぶ。**本番のイメージではテンプレートが見つからず、メールの送信が失敗すると推定される**（本番のログでの確認はしていない）
+- 開発・テストの環境は `tsx` でソースを直接実行するため `src/templates` が読め、単体・統合・E2E では検出されない
+
+- [ ] 38.1 本番のビルドの出力にメールのテンプレートを含め、本番と同じ形で読めることを検証する
+  - ビルドの出力（`dist`）からテンプレートが読める形にする。方法（`build` にテンプレートの複製を足す、テンプレートを TS のモジュールにする、Dockerfile で複製する等）は、本番（Docker・Railway）と開発（tsx）の両方で同じパスの解決が成り立つかを比べて決め、理由を報告に書くこと。**テンプレートの読み出しの失敗が、メールを送らないまま成功として扱われていないか**も併せて確かめること
+  - 挙動の修正であるため RED → GREEN で進めること。`npm --prefix backend run build` の後の `dist` から `email.service` を読み込み、4 種のテンプレートが実際に描画できることを主張する検証（ビルドの出力を対象とする検証）を置き、現状で赤になることを先に示す。通常の `npm test` の所要時間を大きく延ばさないこと。必要ならビルドの出力を検査する専用のスクリプトを用意し、CI か pre-push のどちらで走らせるかを報告すること
+  - 本番の Dockerfile でイメージを作り、コンテナの中にテンプレートがあることを実測できるなら行うこと（できなければ理由を書く）
+  - _Requirements: 1.6_
+  - _Boundary: backend のビルドの出力へのメールのテンプレートの配置と、その検証_
+
 ## Implementation Notes
 
 - 宣言 `t13-anchor-references-after-115303` はリポジトリ全体の e2e の「肯定側から指す参照」（名前を文字列リテラルで与える `getByRole(..., { name })` / `getByLabel` など）を数える。本スペックで名前で指す E2E を足すと必ず動くため、E2E を足すタスクは `check:design-measurement-freshness` の前後の差を測り、動けば site-survey へ起票する。正規表現・testid への書き換えで避けるのは不当（36.7）
