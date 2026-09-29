@@ -1058,120 +1058,155 @@ test.describe('プロジェクト管理 追加要件', () => {
    * REQ-18: エラー回復とフィードバックのテスト
    */
   test.describe('エラー回復とフィードバック', () => {
+    /** 受入基準 18.1 の文言（ネットワークエラー） */
+    const NETWORK_ERROR_MESSAGE = '通信エラーが発生しました。再試行してください。';
+    /** 受入基準 18.3 の文言（サーバーエラー） */
+    const SERVER_ERROR_MESSAGE = 'システムエラーが発生しました。しばらくしてからお試しください。';
+    /** 受入基準 18.6 の文言（タスク 71.1 で上流 user-authentication 要件 16.8 へ揃えたもの） */
+    const SESSION_EXPIRED_MESSAGE = 'セッションの有効期限が切れました。再度ログインしてください。';
     /**
-     * 受入基準 18.1 は除外である（e2e/requirement-exclusions.json）。受入基準は「メッセージと再試行ボタン」の連言だが、本検証はメッセージの表示までしか主張しないため、被覆印は掲げない。
+     * 画面の 1 回の一覧取得が送る GET /api/projects の回数。
+     * apiClient はネットワークの失敗と 5xx を自動で再試行する
+     * （frontend/src/api/client.ts の DEFAULT_RETRY_CONFIG.maxRetries = 3）ため、
+     * 失敗し続ける取得は初回 1 回と自動再試行 3 回の計 4 回を送ってから画面へエラーを返す。
+     */
+    const REQUESTS_PER_FAILED_FETCH = 1 + 3;
+
+    /**
+     * 一覧取得の API（GET /api/projects）かどうか。
+     * CI とローカルで API のオリジンが異なるため、パスで一致させる。
+     */
+    const isProjectListUrl = (url: URL): boolean => url.pathname === '/api/projects';
+
+    /**
+     * @requirement project-management/REQ-18.1
      * ネットワークエラー発生時にエラーメッセージと再試行ボタンを表示
      */
-    test('ネットワークエラー発生時に「通信エラーが発生しました」メッセージが表示される', async ({
+    test('ネットワークエラー発生時に「通信エラーが発生しました。再試行してください。」と再試行ボタンを表示する (project-management/REQ-18.1)', async ({
       page,
     }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      // まずプロジェクト一覧に正常にアクセスして、ページが読み込まれることを確認
-      await page.goto('/projects');
-      await page.waitForLoadState('networkidle');
-
-      await expect(page.getByRole('heading', { name: /プロジェクト一覧/i })).toBeVisible({
-        timeout: getTimeout(10000),
+      // 一覧取得をネットワークの失敗にする（apiClient はこれを ApiError(0) として扱う）
+      const listRequests: string[] = [];
+      await page.route(isProjectListUrl, async (route) => {
+        if (route.request().method() !== 'GET') {
+          await route.continue();
+          return;
+        }
+        listRequests.push(route.request().url());
+        await route.abort('internetdisconnected');
       });
 
-      // サーバーエラーをシミュレートするルートを設定（GETリクエストのプロジェクト一覧のみ）
-      await page.route(
-        (url) => url.pathname === '/api/projects',
-        (route) => {
-          if (route.request().method() === 'GET') {
-            route.fulfill({
-              status: 500,
-              contentType: 'application/json',
-              body: JSON.stringify({ error: 'Internal Server Error' }),
-            });
-          } else {
-            route.continue();
-          }
-        }
-      );
+      await page.goto('/projects');
 
-      // ページをリロードしてエラーを発生させる
-      await page.reload();
-      await page.waitForLoadState('domcontentloaded');
+      // 受入基準の文言（完全一致）と再試行ボタンが、同じエラー表示の中に現れる
+      const errorAlert = page.getByRole('alert').filter({ hasText: NETWORK_ERROR_MESSAGE });
+      await expect(errorAlert.getByText(NETWORK_ERROR_MESSAGE, { exact: true })).toBeVisible({
+        timeout: getTimeout(30000),
+      });
+      await expect(errorAlert.getByRole('button', { name: '再試行', exact: true })).toBeVisible();
 
-      // エラーメッセージが表示されることを確認
-      // ProjectListPageは「エラーが発生しました」と「プロジェクト一覧を取得できませんでした」を表示
-      const errorMessage = page.getByText(/エラーが発生しました|取得できませんでした/i).first();
-      await expect(errorMessage).toBeVisible({ timeout: getTimeout(15000) });
-
-      // ルート設定を解除
-      await page.unroute((url) => url.pathname === '/api/projects');
+      // 表示されたのは一覧取得がネットワークの失敗で尽きた結果である（自動再試行を含む送信回数）
+      expect(listRequests).toHaveLength(REQUESTS_PER_FAILED_FETCH);
     });
 
     /**
-     * 受入基準 18.2 は除外である（e2e/requirement-exclusions.json）。再試行ボタンが無ければページの再読込で代替する分岐があり、失敗したリクエストの再実行を主張していないため、被覆印は掲げない。
+     * @requirement project-management/REQ-18.2
      * 再試行ボタンをクリックすると失敗したリクエストを再実行
      */
-    test('再試行ボタンをクリックすると失敗したリクエストを再実行する', async ({ page }) => {
+    test('再試行ボタンをクリックすると失敗したリクエストを再実行する (project-management/REQ-18.2)', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
-      // まずプロジェクト一覧に正常にアクセスして、ページが読み込まれることを確認
-      await page.goto('/projects');
-      await page.waitForLoadState('networkidle');
-
-      await expect(page.getByRole('heading', { name: /プロジェクト一覧/i })).toBeVisible({
-        timeout: getTimeout(10000),
+      // 最初は一覧取得をネットワークの失敗にし、再試行の前に正常へ戻す
+      let shouldFail = true;
+      const listRequests: string[] = [];
+      await page.route(isProjectListUrl, async (route) => {
+        if (route.request().method() !== 'GET') {
+          await route.continue();
+          return;
+        }
+        listRequests.push(route.request().url());
+        if (shouldFail) {
+          await route.abort('internetdisconnected');
+          return;
+        }
+        await route.continue();
       });
 
-      // サーバーエラーをシミュレートするルートを設定
-      let shouldFail = true;
-      await page.route(
-        (url) => url.pathname === '/api/projects',
-        (route) => {
-          if (shouldFail && route.request().method() === 'GET') {
-            route.fulfill({
-              status: 500,
-              contentType: 'application/json',
-              body: JSON.stringify({ error: 'Internal Server Error' }),
-            });
-          } else {
-            route.continue();
-          }
-        }
-      );
+      await page.goto('/projects');
 
-      // ページをリロードしてエラーを発生させる
-      await page.reload();
-      await page.waitForLoadState('domcontentloaded');
+      const errorAlert = page.getByRole('alert').filter({ hasText: NETWORK_ERROR_MESSAGE });
+      const retryButton = errorAlert.getByRole('button', { name: '再試行', exact: true });
+      await expect(retryButton).toBeVisible({ timeout: getTimeout(30000) });
+      expect(listRequests).toHaveLength(REQUESTS_PER_FAILED_FETCH);
+      const failedRequestUrl = new URL(listRequests[listRequests.length - 1]!);
 
-      // エラーメッセージの表示を待機
-      const errorMessage = page.getByText(/エラーが発生しました|取得できませんでした/i).first();
-      await expect(errorMessage).toBeVisible({ timeout: getTimeout(15000) });
+      // ページの再読込が起きないことを確かめるための目印（再読込すると消える）
+      await page.evaluate(() => {
+        (window as unknown as Record<string, unknown>).__e2eRetryMarker = true;
+      });
 
-      // フラグを変更してサーバーを正常化
       shouldFail = false;
 
-      // 再試行ボタンをクリック
-      const retryButton = page.getByRole('button', {
-        name: /再試行|もう一度|再読み込み|リトライ/i,
+      // 待ちはクリックの前に登録する
+      const retriedResponsePromise = page.waitForResponse(
+        (response) =>
+          isProjectListUrl(new URL(response.url())) && response.request().method() === 'GET',
+        { timeout: getTimeout(30000) }
+      );
+      await retryButton.click();
+      const retriedResponse = await retriedResponsePromise;
+
+      // 再試行は、失敗したのと同じ一覧取得（同じ検索条件）を 1 回だけ送り直し、成功する
+      expect(retriedResponse.status()).toBe(200);
+      const retriedUrl = new URL(retriedResponse.url());
+      expect(retriedUrl.pathname).toBe(failedRequestUrl.pathname);
+      expect(retriedUrl.search).toBe(failedRequestUrl.search);
+      expect(listRequests).toHaveLength(REQUESTS_PER_FAILED_FETCH + 1);
+
+      // エラー表示が消え、一覧の画面が表示される
+      await expect(errorAlert).toHaveCount(0, { timeout: getTimeout(15000) });
+      await expect(page.getByRole('heading', { name: /プロジェクト一覧/i })).toBeVisible();
+
+      // 再試行はページの再読込で代替されていない
+      const markerSurvived = await page.evaluate(
+        () => (window as unknown as Record<string, unknown>).__e2eRetryMarker === true
+      );
+      expect(markerSurvived).toBe(true);
+    });
+
+    /**
+     * @requirement project-management/REQ-18.3
+     * サーバーエラー（5xx）発生時にシステムエラーのメッセージを表示
+     */
+    test('サーバーエラー発生時に「システムエラーが発生しました。しばらくしてからお試しください。」を表示する (project-management/REQ-18.3)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 一覧取得をサーバーエラー（500）にする
+      await page.route(isProjectListUrl, async (route) => {
+        if (route.request().method() !== 'GET') {
+          await route.continue();
+          return;
+        }
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Internal Server Error' }),
+        });
       });
-      const reloadLink = page.getByRole('link', { name: /再試行|もう一度|再読み込み/i });
 
-      // 再試行ボタンまたはリンクが存在する場合はクリック
-      if (await retryButton.isVisible()) {
-        await retryButton.click();
-      } else if (await reloadLink.isVisible()) {
-        await reloadLink.click();
-      } else {
-        // 再試行ボタンがない場合はページをリロード
-        await page.reload();
-      }
+      await page.goto('/projects');
 
-      await page.waitForLoadState('networkidle');
-
-      // 正常にプロジェクト一覧が表示されることを確認
-      const heading = page.getByRole('heading', { name: /プロジェクト一覧/i });
-      const emptyMessage = page.getByText(/プロジェクトがありません/i);
-      await expect(heading.or(emptyMessage)).toBeVisible({ timeout: getTimeout(15000) });
-
-      // ルートを解除
-      await page.unroute((url) => url.pathname === '/api/projects');
+      // 受入基準の文言（完全一致）が表示される
+      const errorAlert = page.getByRole('alert').filter({ hasText: SERVER_ERROR_MESSAGE });
+      await expect(errorAlert.getByText(SERVER_ERROR_MESSAGE, { exact: true })).toBeVisible({
+        timeout: getTimeout(30000),
+      });
     });
 
     /**
@@ -1239,32 +1274,41 @@ test.describe('プロジェクト管理 追加要件', () => {
     });
 
     /**
-     * 受入基準 18.6 は除外である（e2e/requirement-exclusions.json）。受入基準は「リダイレクトとメッセージ」の連言だが、本検証はリダイレクトまでしか主張しないため、被覆印は掲げない。
-     * セッション期限切れ時にログインページへリダイレクト
+     * @requirement project-management/REQ-18.6
+     * セッション期限切れ時にログインページへリダイレクトし、メッセージを表示
      */
-    test('セッション期限切れ時にログインページにリダイレクトする', async ({ page, context }) => {
+    test('セッション期限切れ時にログインページにリダイレクトし「セッションの有効期限が切れました。再度ログインしてください。」を表示する (project-management/REQ-18.6)', async ({
+      page,
+      context,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // プロジェクト一覧にアクセス
       await page.goto('/projects');
-      await page.waitForLoadState('networkidle');
-
       await expect(page.getByRole('heading', { name: /プロジェクト一覧/i })).toBeVisible({
         timeout: getTimeout(10000),
       });
 
-      // セッションをクリア（ログアウト状態をシミュレート）
+      // セッションを期限切れにする: Cookie を消し、保存済みのトークンを失効したもの（無効な値）へ置き換える。
+      // トークンを単に削除すると「未ログイン」として扱われ、期限切れにはならない
       await context.clearCookies();
       await page.evaluate(() => {
-        localStorage.removeItem('refreshToken');
-        localStorage.removeItem('accessToken');
+        localStorage.setItem('accessToken', 'expired.access.token');
+        localStorage.setItem('refreshToken', 'expired.refresh.token');
       });
 
-      // ページをリロード
+      // 期限切れのセッションのまま、プロジェクト一覧を開き直す
       await page.reload();
 
-      // ログインページにリダイレクトされることを確認
-      await expect(page).toHaveURL(/\/login/, { timeout: getTimeout(15000) });
+      // ログインページへ、元のページを redirectUrl に保ってリダイレクトされる
+      await expect(page).toHaveURL(/\/login\?redirectUrl=%2Fprojects$/, {
+        timeout: getTimeout(15000),
+      });
+
+      // 受入基準の文言（完全一致）が表示される
+      await expect(page.getByText(SESSION_EXPIRED_MESSAGE, { exact: true })).toBeVisible({
+        timeout: getTimeout(10000),
+      });
     });
   });
 });
