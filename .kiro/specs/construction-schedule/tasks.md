@@ -334,7 +334,7 @@
   - _Requirements: 7.6, 8.6_
   - _Boundary: `frontend/src/components/schedule/ExportDialog.tsx` とその検証_
 
-- [ ] 18.2 (P) backend の出力処理が失敗したときに 500 を返すことを検証する
+- [x] 18.2 (P) backend の出力処理が失敗したときに 500 を返すことを検証する
   - design.md の「Export Errors (500)」の項に対応する。Excel / PDF の生成処理が失敗したとき、export のエンドポイントが 500 とエラーの応答を返すことを検証する
   - 現状の実装が既に 500 を返すなら検証の追加だけでよい。返さないなら実装を設計へ揃えること（その場合は RED → GREEN）
   - _Requirements: 7.6, 8.6_
@@ -344,5 +344,6 @@
   - 200 項目の工程表を用意し、Excel 出力・PDF 出力それぞれの所要時間を**単調時計**（`performance.now()` 等）で測り、30 秒以内であることを主張する検証を置く。WSL2 では壁時計が単調時計より遅れるため `Date.now()` で測らないこと
   - 置き場所（サービス単位の Vitest か、統合テストか、`backend/performance/` の負荷試験か）は、既存の検証の構成と実行時間を見て決め、理由を報告に書くこと。**通常の `npm test` の所要時間を大きく延ばさないこと**
   - 検証が意味を持つこと（例: 閾値を極端に小さくする変異で赤くなること）を実測で示すこと
+  - **設計の記述との食い違いを併せて扱うこと（18.2 のレビューの所見。2026-09-29）**: design.md の Performance & Scalability の節は Excel / PDF 出力を「バックエンドでのストリーミング生成」とするが、実装（`backend/src/routes/schedules.routes.ts` の export）は `Promise<Buffer>` の一括生成である。真にストリーミングにするとヘッダー送信後の失敗で 500 を返せず「Export Errors (500)」と両立しないため、**実装ではなく設計の記述を現況へ揃える**のが妥当。規約 (a)（歴史の記述は書き換えず現況を併記）に従うこと
   - _Requirements: 12.3, 12.4_
   - _Boundary: 工程表の出力の所要時間の検証_

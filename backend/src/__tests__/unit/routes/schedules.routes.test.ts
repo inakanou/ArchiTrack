@@ -99,6 +99,7 @@ vi.mock('../../../utils/logger.js', () => ({
 
 // ルートモジュールをインポート（モックが適用された状態）
 import schedulesRoutes from '../../../routes/schedules.routes.js';
+import { errorHandler } from '../../../middleware/errorHandler.middleware.js';
 
 // テストデータ
 const projectId = '550e8400-e29b-41d4-a716-446655440000';
@@ -579,5 +580,71 @@ describe('工程表ルート', () => {
 
       await request(app).get(`/api/schedules/${scheduleId}/export?format=xlsx`).expect(404);
     });
+  });
+
+  // =================================================================
+  // GET /api/schedules/:id/export - 出力処理の失敗
+  // Requirements: 7.6, 8.6（design.md「Export Errors (500)」）
+  //
+  // 応答の形式は本番と同じ大域のエラーハンドラー（RFC 7807 Problem Details）で確かめるため、
+  // 上の createTestApp の簡易ハンドラーではなく errorHandler を載せたアプリを使う。
+  // =================================================================
+  describe('GET /api/schedules/:id/export の出力処理の失敗 (Req 7.6, 8.6)', () => {
+    const mockExportData = {
+      id: scheduleId,
+      name: 'テスト工程表',
+      projectName: 'テストプロジェクト',
+      companyName: 'テスト建設',
+      items: [],
+    };
+
+    function createAppWithErrorHandler() {
+      const errorApp = express();
+      errorApp.use(express.json());
+      errorApp.use('/api/schedules', schedulesRoutes);
+      errorApp.use(errorHandler);
+      return errorApp;
+    }
+
+    it.each([
+      {
+        format: 'xlsx',
+        label: 'Excel',
+        arrange: () => mockExportToExcel.mockRejectedValue(new Error('workbook generation failed')),
+        generator: () => mockExportToExcel,
+        other: () => mockExportToPdf,
+      },
+      {
+        format: 'pdf',
+        label: 'PDF',
+        arrange: () => mockExportToPdf.mockRejectedValue(new Error('pdf generation failed')),
+        generator: () => mockExportToPdf,
+        other: () => mockExportToExcel,
+      },
+    ])(
+      '$label の生成処理が失敗したとき、500 とエラーメッセージを返しファイルを返さないこと',
+      async ({ format, arrange, generator, other }) => {
+        mockGetExportData.mockResolvedValue(mockExportData);
+        arrange();
+
+        const res = await request(createAppWithErrorHandler()).get(
+          `/api/schedules/${scheduleId}/export?format=${format}`
+        );
+
+        expect(res.status).toBe(500);
+        expect(res.headers['content-type']).toContain('application/json');
+        expect(res.headers['content-disposition']).toBeUndefined();
+        expect(res.body).toMatchObject({
+          status: 500,
+          title: 'Internal Server Error',
+          detail: 'Internal server error',
+          instance: `/api/schedules/${scheduleId}/export?format=${format}`,
+        });
+        // 生成処理の内部の失敗内容を応答へ漏らさないこと
+        expect(JSON.stringify(res.body)).not.toContain('generation failed');
+        expect(generator()).toHaveBeenCalledWith(mockExportData);
+        expect(other()).not.toHaveBeenCalled();
+      }
+    );
   });
 });
