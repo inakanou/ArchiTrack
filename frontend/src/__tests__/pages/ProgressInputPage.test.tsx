@@ -531,6 +531,116 @@ describe('ProgressInputPage', () => {
   });
 
   // ==========================================================================
+  // Task 16.3: 出来高率を backend と同じ精度（decimal.js の既定 ROUND_HALF_UP、
+  // 「割ってから ×100」の順、toFixed(1)）で算出する
+  // ==========================================================================
+
+  describe('Task 16.3: 出来高率の精度', () => {
+    /** 実行金額だけを指定したリーフ項目を作る */
+    const makeLeaf = (
+      id: string,
+      name: string,
+      executionAmount: string
+    ): executionBudgetApi.ExecutionBudgetItem => ({
+      ...mockBudget.items[0]!.children![0]!,
+      id,
+      estimateItemId: `ei-${id}`,
+      name,
+      executionAmount,
+      orderStatus: null,
+      orderAmount: null,
+      progressAmount: null,
+      progressRate: null,
+      children: undefined,
+    });
+
+    /** 指定したリーフ項目だけを持つ実行予算でページを描画する */
+    const renderWithLeaves = async (leaves: executionBudgetApi.ExecutionBudgetItem[]) => {
+      vi.mocked(executionBudgetApi.getExecutionBudget).mockResolvedValue({
+        ...mockBudget,
+        items: [{ ...mockBudget.items[0]!, children: leaves }],
+      });
+      renderPage();
+      await waitFor(() => {
+        expect(screen.getByText(String(leaves[0]!.name))).toBeInTheDocument();
+      });
+    };
+
+    const inputAmount = (name: string, value: string) => {
+      const row = screen.getByText(name).closest('tr');
+      expect(row).not.toBeNull();
+      fireEvent.change(within(row!).getByRole('spinbutton'), { target: { value } });
+      return row!;
+    };
+
+    it('REQ-18.1, 18.4: 出来高 23000 / 実行金額 80000 の出来高率と合計率を backend と同じ 28.8% で表示する', async () => {
+      // Number では (23000 / 80000) * 100 = 28.749999... となり '28.7' に落ちる
+      await renderWithLeaves([makeLeaf('leaf-a', '鉄骨工事', '80000')]);
+
+      const row = inputAmount('鉄骨工事', '23000');
+
+      await waitFor(() => {
+        expect(within(row).getByText('28.8%')).toBeInTheDocument();
+        expect(screen.getByTestId('total-rate')).toHaveTextContent('28.8%');
+      });
+    });
+
+    it('REQ-18.1, 18.4: 出来高 15 / 実行金額 10000 の出来高率と合計率を 0.2% で表示する', async () => {
+      // Number では 0.0015 * 100 = 0.15（二進で 0.1499...）となり '0.1' に落ちる
+      await renderWithLeaves([makeLeaf('leaf-b', '塗装工事', '10000')]);
+
+      const row = inputAmount('塗装工事', '15');
+
+      await waitFor(() => {
+        expect(within(row).getByText('0.2%')).toBeInTheDocument();
+        expect(screen.getByTestId('total-rate')).toHaveTextContent('0.2%');
+      });
+    });
+
+    it('REQ-18.1, 18.4: 実行金額の合計が 2^53 を超えても合計率を Decimal の合計から 11.2% で表示する', async () => {
+      // 実行金額の合計の真値は 9999999999999991 だが、Number の途中和は 2^53 を超えて
+      // 9999999999999992 に丸まる。出来高合計 1114999999999999 との比は真値で 11.1500000...01% となり
+      // '11.2' だが、Number の合計を分母にすると 11.1499...% で '11.1' に落ちる（割り算を Decimal にしても同じ）
+      const leaves = [
+        ...Array.from({ length: 10 }, (_, i) =>
+          makeLeaf(`big-${i}`, `大型工事${i + 1}`, '999999999999999')
+        ),
+        makeLeaf('small', '小口工事', '1'),
+      ];
+      await renderWithLeaves(leaves);
+
+      inputAmount('大型工事1', '999999999999999');
+      inputAmount('大型工事2', '115000000000000');
+
+      await waitFor(() => {
+        expect(screen.getByTestId('total-rate')).toHaveTextContent('11.2%');
+      });
+    });
+
+    it('REQ-18.1, 18.4: 出来高の合計が 2^53 を超えても合計率を Decimal の合計から 90.1% で表示する', async () => {
+      // 出来高合計の真値は 999999999999999 × 9 + 15000000000000 = 9014999999999991 だが、
+      // Number の途中和は 9014999999999992 に丸まり、実行金額合計 9999999999999991 との比が
+      // 90.1500000...01% となって '90.2' に上がる。真値の比は 90.14999...% で '90.1'
+      const leaves = [
+        ...Array.from({ length: 10 }, (_, i) =>
+          makeLeaf(`big-${i}`, `大型工事${i + 1}`, '999999999999999')
+        ),
+        makeLeaf('small', '小口工事', '1'),
+      ];
+      await renderWithLeaves(leaves);
+
+      for (let i = 1; i <= 9; i++) {
+        inputAmount(`大型工事${i}`, '999999999999999');
+      }
+      inputAmount('大型工事10', '15000000000000');
+
+      await waitFor(() => {
+        expect(screen.getByTestId('total-rate')).toHaveTextContent('90.1%');
+      });
+    });
+  });
+
+  // ==========================================================================
   // Task 10.2: 出来高履歴管理UI実装
   // ==========================================================================
 

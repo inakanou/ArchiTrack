@@ -1,7 +1,7 @@
 /**
  * @fileoverview 実行予算管理 - 出来高入力 / 出来高履歴 / 月別出来高集計 E2Eテスト
  *
- * Phase 5a 出来高関連 21 件
+ * Phase 5a 出来高関連 22 件
  *
  * Requirements coverage (execution-budget-management):
  * @requirement execution-budget-management/REQ-11.1: 出来高入力画面に施工日入力欄と各見積項目の出来高金額入力欄を表示する
@@ -25,6 +25,7 @@
  * @requirement execution-budget-management/REQ-16.3: 特定月選択で当該月の項目別出来高明細を表示する
  * @requirement execution-budget-management/REQ-16.4: 月別出来高データをExcelファイル（.xlsx形式）で出力する機能を提供する
  * @requirement execution-budget-management/REQ-16.5: 月別出来高データをPDFファイルで出力する機能を提供する
+ * @requirement execution-budget-management/REQ-18.4: 出来高率を小数点以下1桁で表示する
  *
  * @module e2e/specs/execution-budget/progress-input-e2e.spec
  */
@@ -399,6 +400,54 @@ test.describe('実行予算管理 - 出来高入力・履歴・月別集計', ()
     await expect(page.getByTestId('total-rate')).toHaveText(`${expectedRate}%`, {
       timeout: getTimeout(5000),
     });
+  });
+
+  test('出来高率と合計率を保存後の backend の値と同じ小数点以下1桁で表示する (execution-budget-management/REQ-11.10, REQ-11.11, REQ-18.4)', async ({
+    page,
+    request,
+  }) => {
+    // Number で計算すると表示が backend と食い違う入力を使う。
+    //   項目A: 20350 / 100000 → 真値 20.35%   → '20.4'（Number では 20.349999... で '20.3'）
+    //   項目B: 57500 / 200000 → 真値 28.75%   → '28.8'（Number では '28.7'）
+    //   合計 : 77850 / 300000 → 真値 25.95%   → '26.0'（Number では '25.9'）
+    // 期待値はテスト内で Number 計算せず、backend（decimal.js、ROUND_HALF_UP）と同じ値を定数で持つ。
+    await clearProgressHistory(request, token, projectId);
+
+    await loginAsUser(page, 'REGULAR_USER');
+    await gotoProgressInputPage(page, projectId);
+
+    const rowA = page.locator('tr').filter({ hasText: '出来高項目A' }).first();
+    const rowB = page.locator('tr').filter({ hasText: '出来高項目B' }).first();
+    await rowA.locator('input[type="number"]').fill('20350');
+    await rowB.locator('input[type="number"]').fill('57500');
+
+    // 出来高率の列（最終列）と合計率を画面で確かめる
+    await expect(rowA.locator('td').last()).toHaveText('20.4%', { timeout: getTimeout(5000) });
+    await expect(rowB.locator('td').last()).toHaveText('28.8%', { timeout: getTimeout(5000) });
+    await expect(page.getByTestId('total-rate')).toHaveText('26.0%', {
+      timeout: getTimeout(5000),
+    });
+
+    // 同じ入力を保存し、backend が返す出来高率・合計率と画面の表示が一致することを確かめる
+    await page.locator('input#construction-date').fill('2024-10-05');
+    const savePromise = page.waitForResponse(
+      (res) =>
+        res.url().includes(`/api/projects/${projectId}/execution-budget/progress`) &&
+        res.request().method() === 'POST',
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByRole('button', { name: '保存' }).click();
+    const saveRes = await savePromise;
+    expect([200, 201]).toContain(saveRes.status());
+    const saved = (await saveRes.json()) as {
+      items: Array<{ executionBudgetItemId: string; progressRate: string }>;
+      totalRate: string;
+    };
+    const savedRateOf = (itemId: string) =>
+      saved.items.find((i) => i.executionBudgetItemId === itemId)?.progressRate;
+    expect(savedRateOf(firstBudgetItemId)).toBe('20.4');
+    expect(savedRateOf(secondBudgetItemId)).toBe('28.8');
+    expect(saved.totalRate).toBe('26.0');
   });
 
   // ============================================================================
