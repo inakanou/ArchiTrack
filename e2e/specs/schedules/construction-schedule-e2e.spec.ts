@@ -12,16 +12,17 @@
  * - 出力対象チェックボックスの操作
  * - ラベル文字・詳細文字の入力と表示確認
  * - Excel/PDF出力のダウンロード
+ * - Excel/PDF出力の失敗時のエラーメッセージと再試行（Task 17.1）
  *
  * Requirements:
  * 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.3, 3.1, 3.2, 3.3,
- * 4.1, 4.2, 5.1, 5.2, 6.1, 6.2, 6.3, 6.4, 7.1, 8.1, 9.1,
- * 9.3, 9.5, 10.1, 10.2, 11.1, 11.2
+ * 4.1, 4.2, 5.1, 5.2, 6.1, 6.2, 6.3, 6.4, 7.1, 7.6, 8.1,
+ * 8.6, 9.1, 9.3, 9.5, 10.1, 10.2, 11.1, 11.2
  *
  * @module e2e/specs/schedules/construction-schedule-e2e
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page, type Response, type Route } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { getPrismaClient, disconnectDatabase } from '../../fixtures/database';
@@ -120,6 +121,22 @@ async function cleanupTestData(): Promise<void> {
       where: { id: testProjectId },
     });
   }
+}
+
+/**
+ * 工程表の一括保存（PUT /api/schedules/{id}/bulk-save）の応答を待つ Promise を返す。
+ *
+ * 保存ボタンの click より前に呼び、click の後に await すること。
+ * bulk-save は十数ミリ秒で返るため、click の後に待ち始めると応答を取り逃す。
+ * 一致はパス基準にする。CI とローカルで API のオリジンが違う（localhost と 127.0.0.1）ため。
+ */
+function waitForBulkSaveResponse(page: Page): Promise<Response> {
+  return page.waitForResponse(
+    (response) =>
+      response.request().method() === 'PUT' &&
+      /^\/api\/schedules\/[^/]+\/bulk-save$/.test(new URL(response.url()).pathname),
+    { timeout: getTimeout(15000) }
+  );
 }
 
 // ============================================================================
@@ -470,14 +487,13 @@ test.describe('工程表機能 E2Eテスト', () => {
         timeout: getTimeout(5000),
       });
 
-      // 保存ボタンをクリック
+      // 保存ボタンをクリックし、保存の応答を待つ。
+      // bulk-save は十数ミリ秒で返るため、応答待ちは click の前に登録しないと取り逃す。
+      // 一致はパス基準にする（CI とローカルで API のオリジンが localhost と 127.0.0.1 で違う）。
+      const saveResponsePromise = waitForBulkSaveResponse(page);
       await page.getByTestId('save-button').click();
-
-      // 保存完了を待機（成功通知またはネットワークアイドル）
-      await page.waitForResponse(
-        (response) => response.url().includes('/schedules') && response.status() === 200,
-        { timeout: getTimeout(15000) }
-      );
+      const saveResponse = await saveResponsePromise;
+      expect(saveResponse.status(), '前提: 出力対象の変更の保存が成功する').toBe(200);
 
       // ページをリロードして永続化を検証
       await page.reload({ waitUntil: 'networkidle' });
@@ -494,11 +510,10 @@ test.describe('工程表機能 E2Eテスト', () => {
       await expect(reloadedCheckbox, '後始末: 出力対象を既定のチェック済みへ戻す').toBeChecked({
         timeout: getTimeout(5000),
       });
+      const cleanupResponsePromise = waitForBulkSaveResponse(page);
       await page.getByTestId('save-button').click();
-      await page.waitForResponse(
-        (response) => response.url().includes('/schedules') && response.status() === 200,
-        { timeout: getTimeout(15000) }
-      );
+      const cleanupResponse = await cleanupResponsePromise;
+      expect(cleanupResponse.status(), '後始末: 既定の状態への保存が成功する').toBe(200);
     });
   });
 
@@ -663,6 +678,102 @@ test.describe('工程表機能 E2Eテスト', () => {
       // ダウンロードが開始されることを確認
       const download = await downloadPromise;
       expect(download.suggestedFilename()).toContain('.pdf');
+    });
+
+    /**
+     * 出力の失敗から再試行でダウンロードが成功するまでを、形式ごとに通しで確かめる。
+     *
+     * export API への応答だけを 500 に差し替えて失敗の前提を作り、エラーメッセージと
+     * 「再試行」ボタンが出ることを確かめる。差し替えを外してから再試行を押し、
+     * 直前に選んだ形式でダウンロードが成功することまでを見る。
+     *
+     * 差し替えの一致はパス基準である。CI とローカルで API のオリジンが違う
+     * （localhost と 127.0.0.1）ため、オリジンを含めると CI で一致せず空振りする。
+     * 空振りを見逃さないよう、差し替えた応答を返した回数を数えて主張する。
+     */
+    async function verifyExportFailureAndRetry(page: Page, format: 'xlsx' | 'pdf'): Promise<void> {
+      const exportRoutePattern = '**/api/schedules/*/export**';
+      let failedResponses = 0;
+      const failExport = async (route: Route): Promise<void> => {
+        failedResponses += 1;
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'forced failure for construction-schedule export E2E' }),
+        });
+      };
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/projects/${testProjectId}/schedules`, {
+        waitUntil: 'networkidle',
+      });
+
+      await page.getByText('E2Eテスト工程表').first().click();
+      await page.waitForURL(/\/schedules\//, { timeout: getTimeout(15000) });
+
+      // 1. export API を 500 にする
+      await page.route(exportRoutePattern, failExport);
+
+      await page.getByTestId('export-button').click();
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible({ timeout: getTimeout(5000) });
+
+      const formatRadio = page.locator(`input[value="${format}"]`);
+      await formatRadio.click();
+      await expect(formatRadio).toBeChecked({ timeout: getTimeout(5000) });
+
+      // 2. 出力を押す
+      await dialog.getByRole('button', { name: '出力', exact: true }).click();
+
+      // 3. エラーメッセージと「再試行」ボタンが出る
+      const alert = dialog.getByRole('alert');
+      await expect(alert).toHaveText(/工程表の出力に失敗しました/, {
+        timeout: getTimeout(10000),
+      });
+      const retryButton = alert.getByRole('button', { name: '再試行', exact: true });
+      await expect(retryButton).toBeVisible({ timeout: getTimeout(5000) });
+      expect(failedResponses).toBe(1);
+
+      // 4. 差し替えを外す（登録時と同じハンドラ参照で外す）
+      await page.unroute(exportRoutePattern, failExport);
+
+      // 5. 再試行を押す。再試行が直前の形式で出力を要求し直すことも確かめる
+      const retryRequestPromise = page.waitForRequest(
+        (request) =>
+          new URL(request.url()).pathname.endsWith('/export') &&
+          new URL(request.url()).searchParams.get('format') === format,
+        { timeout: getTimeout(30000) }
+      );
+      const downloadPromise = page.waitForEvent('download', {
+        timeout: getTimeout(30000),
+      });
+      await retryButton.click();
+
+      // 6. ダウンロードが成功する
+      await retryRequestPromise;
+      const download = await downloadPromise;
+      expect(download.suggestedFilename()).toContain(`.${format}`);
+      expect(await download.failure()).toBeNull();
+      await expect(dialog).toBeHidden({ timeout: getTimeout(10000) });
+      expect(failedResponses).toBe(1);
+    }
+
+    /**
+     * @requirement construction-schedule/REQ-7.6
+     */
+    test('Excel出力の失敗時にエラーメッセージと再試行が現れ、再試行でダウンロードできる (construction-schedule/REQ-7.6)', async ({
+      page,
+    }) => {
+      await verifyExportFailureAndRetry(page, 'xlsx');
+    });
+
+    /**
+     * @requirement construction-schedule/REQ-8.6
+     */
+    test('PDF出力の失敗時にエラーメッセージと再試行が現れ、再試行でダウンロードできる (construction-schedule/REQ-8.6)', async ({
+      page,
+    }) => {
+      await verifyExportFailureAndRetry(page, 'pdf');
     });
   });
 

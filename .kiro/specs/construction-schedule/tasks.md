@@ -300,7 +300,7 @@
 | `construction-schedule/REQ-12.3` | `k6 / Jest with timer` |
 | `construction-schedule/REQ-12.4` | `k6 / Jest with timer` |
 
-- [ ] 17.1 除外一覧の道具名を実体へ揃える
+- [x] 17.1 除外一覧の道具名を実体へ揃える
   - 上表 4 件の `alternativeVerification.tool` から、実在しない `Jest` を取り除く
   - **先例に揃えること**: site-survey は Task 115.121 で自機能分 32 件を「道具名の先頭 `Jest` を `Vitest` へ置換し、`React Testing Library` / `Supertest` などの併記部分は据え置く」形で是正した。`.kiro/specs/site-survey/design.md` の `**あわせて是正した除外一覧の記述**` に続く項が、その形を逐語で記録している
   - **`Jest / Vitest with mock` の 2 件は、`Jest` を落とすだけで `Vitest with mock` になる。** 先頭を置換すると `Vitest / Vitest with mock` という重複になるため、置換ではなく除去であること

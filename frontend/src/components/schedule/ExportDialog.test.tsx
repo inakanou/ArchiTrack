@@ -427,6 +427,50 @@ describe('ExportDialog', () => {
       }
     );
 
+    it('失敗の後にもう一方の形式を選び直しても、再試行は失敗した形式で出力を再度要求する', async () => {
+      const otherFormat = format === 'xlsx' ? 'pdf' : 'xlsx';
+      const user = userEvent.setup();
+      const { mockClick, downloaded } = spyDownloadLink();
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce({ ok: false, status: 500 })
+        .mockResolvedValueOnce({
+          ok: true,
+          blob: () => Promise.resolve(new Blob(['test'])),
+        });
+      globalThis.fetch = fetchMock;
+
+      render(<ExportDialog {...defaultProps} />);
+      await selectFormat(user);
+      await user.click(screen.getByRole('button', { name: '出力' }));
+
+      const alert = await screen.findByRole('alert');
+      const retryButton = within(alert).getByRole('button', { name: '再試行' });
+
+      // 失敗の後に、もう一方の形式へ選択を変える
+      const otherRadio = screen
+        .getAllByRole('radio')
+        .find((r) => (r as HTMLInputElement).value === otherFormat)!;
+      await user.click(otherRadio);
+      expect(otherRadio, '前提: 失敗の後に選択をもう一方の形式へ変えられる').toBeChecked();
+
+      // 再試行は、いま選んでいる形式ではなく、失敗した形式で要求し直す
+      await user.click(retryButton);
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      });
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
+        exportUrl,
+        expect.objectContaining({ method: 'GET' })
+      );
+      await waitFor(() => {
+        expect(mockClick).toHaveBeenCalledTimes(1);
+      });
+      expect(downloaded).toEqual([`テスト工程表.${format}`]);
+    });
+
     it('再試行がまた失敗した場合、エラーメッセージと再試行ボタンを表示し続ける', async () => {
       const user = userEvent.setup();
       const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500 });
