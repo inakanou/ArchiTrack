@@ -8,6 +8,7 @@
  * Task 11.1: ScheduleExportServiceのExcel出力ロジックを実装する
  * Task 12.1: ScheduleExportServiceのPDF出力ロジックを実装する
  * Task 18.4: PDF出力を複数ページに対応させ、全工程項目とガントチャートの全期間を含める
+ * Task 18.5: PDF出力に日本語フォントを埋め込み、日本語の文字列が読めるようにする
  *
  * Requirements (construction-schedule):
  * - REQ-7.1: Excelダウンロード
@@ -178,6 +179,12 @@ const PDF_DATE_TICK_GRAY = 150;
 /** PDF: 月単位の見出しの間引きの段階（何か月ごとに見出しを置くか） */
 const PDF_MONTH_LABEL_STEPS = [1, 2, 3, 6, 12] as const;
 
+/** PDF: 日本語フォントの jsPDF の VFS 上のファイル名 */
+const PDF_JAPANESE_FONT_FILE_NAME = 'NotoSansJP-Regular.ttf';
+
+/** PDF: 日本語フォントのフォントファミリー名 */
+const PDF_JAPANESE_FONT_FAMILY = 'NotoSansJP';
+
 /** PDF: フォントサイズ（pt） */
 const PDF_FONT_SIZE_TITLE = 12;
 const PDF_FONT_SIZE_HEADER = 8;
@@ -221,6 +228,31 @@ async function buildHolidayMap(startDate: Date, endDate: Date): Promise<Map<stri
   }
 
   return holidayMap;
+}
+
+// ============================================================================
+// PDF用日本語フォントの読み込み（Task 18.5）
+// ============================================================================
+
+/** 日本語フォント（Base64）の読み込み。初回の PDF 出力で読み、以降は同じ結果を使う */
+let japaneseFontBase64Promise: Promise<string> | null = null;
+
+/**
+ * 日本語フォント（Noto Sans JP、Base64）を読み込む。
+ *
+ * 約3MBのデータを起動時に読まないよう、PDF 出力の初回に動的 import で読む。
+ * 読み込みに失敗した場合は次回の出力で読み直せるよう保持を外し、エラーを呼び出し元へ返す
+ * （標準フォントで文字化けした PDF を返さず、出力の失敗として扱う）。
+ */
+function loadJapaneseFontBase64(): Promise<string> {
+  japaneseFontBase64Promise ??= import('../assets/fonts/noto-sans-jp-base64.js').then(
+    (module) => module.NotoSansJPBase64,
+    (error: unknown) => {
+      japaneseFontBase64Promise = null;
+      throw error;
+    }
+  );
+  return japaneseFontBase64Promise;
 }
 
 // ============================================================================
@@ -393,6 +425,10 @@ export class ScheduleExportService {
       format: 'a4',
     });
 
+    // 日本語フォントを埋め込み、以降の文字（見出し・項目・日付見出し）をすべてこのフォントで描く。
+    // 日付見出しの間引き（buildPdfDateLayout）が文字幅を測るため、描画より前に設定する
+    this.registerPdfJapaneseFont(doc, await loadJapaneseFontBase64());
+
     // 全項目をページへ割り付けて描画（ヘッダー・表ヘッダー・土日祝の背景・項目行）
     this.drawPdfPages(doc, data, exportItems, dateColumns, holidayMap);
 
@@ -404,6 +440,20 @@ export class ScheduleExportService {
   // ============================================================================
   // Private: PDF描画メソッド
   // ============================================================================
+
+  /**
+   * 日本語フォントを jsPDF に登録し、描画のフォントに設定する（Task 18.5）
+   *
+   * jsPDF はフォントを文書（インスタンス）ごとに持つため、出力のたびに登録する。
+   * 見積書 PDF（frontend の PdfFontService）と同じく addFileToVFS / addFont を使う。
+   * jsPDF は描いた文字の字形だけを埋め込む（サブセット化）ため、PDF の大きさは
+   * フォント全体（約2.2MB）にはならない。
+   */
+  private registerPdfJapaneseFont(doc: jsPDF, fontBase64: string): void {
+    doc.addFileToVFS(PDF_JAPANESE_FONT_FILE_NAME, fontBase64);
+    doc.addFont(PDF_JAPANESE_FONT_FILE_NAME, PDF_JAPANESE_FONT_FAMILY, 'normal');
+    doc.setFont(PDF_JAPANESE_FONT_FAMILY, 'normal');
+  }
 
   /**
    * 全出力対象項目をページへ割り付けて描画する（Task 18.4）

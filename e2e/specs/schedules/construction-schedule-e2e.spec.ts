@@ -23,6 +23,8 @@
  */
 
 import { test, expect, type Page, type Response, type Route } from '@playwright/test';
+import * as fs from 'fs';
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { getPrismaClient, disconnectDatabase } from '../../fixtures/database';
@@ -32,6 +34,26 @@ import { getPrismaClient, disconnectDatabase } from '../../fixtures/database';
 // ============================================================================
 
 let testProjectId: string;
+
+/** テスト用プロジェクトの名称（PDF 出力のヘッダーに日本語のまま読めることを確かめる） */
+const TEST_PROJECT_NAME = 'E2E工程表テスト用プロジェクト';
+
+/**
+ * ダウンロードした PDF の全ページから、描かれた文字列を pdfjs-dist で読み取る。
+ * 日本語フォントを埋め込んでいない PDF では、日本語は元の文字列に戻らない（Task 18.5）。
+ */
+async function readPdfTexts(pdfFilePath: string): Promise<string[]> {
+  const pdf = await pdfjs.getDocument({ data: new Uint8Array(fs.readFileSync(pdfFilePath)) })
+    .promise;
+  const texts: string[] = [];
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+    const content = await (await pdf.getPage(pageNumber)).getTextContent();
+    for (const item of content.items) {
+      if ('str' in item && item.str.trim() !== '') texts.push(item.str);
+    }
+  }
+  return texts;
+}
 
 /**
  * テスト用プロジェクトを作成
@@ -83,7 +105,7 @@ async function setupTestProject(): Promise<string> {
   // テスト用プロジェクトを作成
   const project = await prisma.project.create({
     data: {
-      name: 'E2E工程表テスト用プロジェクト',
+      name: TEST_PROJECT_NAME,
       status: 'PREPARING',
       salesPersonId: testUser.id,
       createdById: testUser.id,
@@ -645,7 +667,9 @@ test.describe('工程表機能 E2Eテスト', () => {
       expect(download.suggestedFilename()).toContain('.xlsx');
     });
 
-    test('PDFファイルのダウンロードが開始される (Req 8.1)', async ({ page }) => {
+    test('PDFファイルのダウンロードが開始され、日本語のプロジェクト名が読める (Req 8.1, 8.2)', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
       await page.goto(`/projects/${testProjectId}/schedules`, {
         waitUntil: 'networkidle',
@@ -678,6 +702,11 @@ test.describe('工程表機能 E2Eテスト', () => {
       // ダウンロードが開始されることを確認
       const download = await downloadPromise;
       expect(download.suggestedFilename()).toContain('.pdf');
+
+      // 実際の API が出力した PDF のヘッダーに、日本語のプロジェクト名が文字化けせずに読める
+      const downloadPath = await download.path();
+      expect(downloadPath).toBeTruthy();
+      expect(await readPdfTexts(downloadPath!)).toContain(TEST_PROJECT_NAME);
     });
 
     /**

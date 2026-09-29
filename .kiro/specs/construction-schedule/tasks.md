@@ -359,7 +359,7 @@
   - _Requirements: 8.4, 8.5, 12.4_
   - _Boundary: `schedule-export.service.ts` の PDF 描画とその検証、design.md の PDF 出力の記述_
 
-- [ ] 18.5 PDF 出力に日本語フォントを埋め込み、日本語の文字列が読めることを検証する
+- [x] 18.5 PDF 出力に日本語フォントを埋め込み、日本語の文字列が読めることを検証する
   - **経緯**: 機能レベル検証（2026-09-29、HEAD `c141d0e5`、NO-GO）が、実際の API で出力した PDF を画像化して**日本語が文字化けする**ことを確かめた（プロジェクト名「SMOKE-工程表検証」が「S M O K E -]åz ˆhi Š<」になる）。`backend/src/services/schedule-export.service.ts` に `addFileToVFS` / `addFont` が無く、jsPDF の標準フォントのまま描いている。Task 12.1 の注記「日本語フォントの対応（既存見積書PDF出力パターンに従う）」と design.md の Risks 欄が約束する埋め込みが実装されていないまま、12.1 は `[x]` になっていた（`20e673e3` より前の版にもフォント処理は無く、18.4 が起こしたものではない）。Excel は正常
   - **既存の検証が空振りしていた**: `schedule-export.service.test.ts` の REQ-8.2 / 8.3 の検証は `buffer.length > 0` しか主張しておらず、文字化けを検出できない
   - 日本語フォント（Noto Sans JP 等）を埋め込み、プロジェクト名・自社名・表の見出し・項目名・ラベル・詳細文字・日付見出しをそのフォントで描く。フォントの持ち方は既存の見積書 PDF（`frontend/src/services/export/PdfFontService.ts`）のパターンに従う。**backend から frontend のソースを取り込まないこと**（パッケージを越えた読み出しは Docker で壊れる）。backend 側でのフォントの配置と読み込み方（ファイル・バンドルの大きさ・起動時の読み込み）を決め、design.md へ規約 (a) の形で併記すること

@@ -125,7 +125,7 @@ function createMaxScheduleData(): ScheduleExportData {
 // PDF の中身を読むヘルパー
 //
 // jsPDF は既定で内容のストリームを圧縮しない（compress: false）。そのため PDF のバイト列を
-// latin1 で読めば、描画の命令（`(ITEM-001) Tj`、`x y w h re` など）をそのまま拾える。
+// latin1 で読めば、描画の命令（`<...> Tj`、`x y w h re` など）をそのまま拾える。
 // 圧縮を有効にすると以下は何も拾えなくなり、件数の主張で落ちる（素通りはしない）。
 // ----------------------------------------------------------------------------
 
@@ -134,11 +134,6 @@ const PT_PER_MM = 72 / 25.4;
 
 /** バーの塗りつぶし色（#4472C4）を jsPDF が書き出した形 */
 const PDF_BAR_FILL_OPERATOR = '0.27 0.45 0.77 rg';
-
-/** PDF に描かれた項目名（ITEM-001 など）を描画順に取り出す */
-function extractPdfItemNames(pdfContent: string): string[] {
-  return Array.from(pdfContent.matchAll(/\((ITEM-\d{3})\) Tj/g), (m) => m[1]!);
-}
 
 /** PDF のページ数（/Type /Page の数。/Type /Pages は除く） */
 function countPdfPages(pdfContent: string): number {
@@ -170,6 +165,113 @@ function extractPdfBarRects(pdfContent: string): { xPt: number; widthPt: number 
     }
   }
   return bars;
+}
+
+// ----------------------------------------------------------------------------
+// PDF に描かれた文字列を読むヘルパー（Task 18.5）
+//
+// 埋め込んだフォント（Identity-H）で描いた文字は、PDF の中では字形の番号の 16 進列
+// （`<0034002e...> Tj`）になり、元の文字列はバイト列に現れない。PDF を読むソフトと同じく、
+// 埋め込みフォントの ToUnicode CMap（字形の番号 → Unicode）で文字列へ戻す。
+// 標準フォント（Helvetica など）で描いた文字は `(...) Tj` の文字列のまま書かれるため、
+// WinAnsi（latin1 で近似）として読む。日本語を標準フォントで描くと元の文字列に戻らない。
+// ----------------------------------------------------------------------------
+
+/** PDF に描かれた文字列1つ分 */
+interface PdfDrawnText {
+  /** 読み取った文字列 */
+  text: string;
+  /** 埋め込みフォントの字形の番号で描かれたか（`<...> Tj`） */
+  embedded: boolean;
+}
+
+/** UTF-16BE の 16 進列を文字列へ戻す */
+function decodeUtf16BeHex(hex: string): string {
+  const codeUnits: number[] = [];
+  for (let i = 0; i + 4 <= hex.length; i += 4) {
+    codeUnits.push(parseInt(hex.slice(i, i + 4), 16));
+  }
+  return String.fromCharCode(...codeUnits);
+}
+
+/** 埋め込みフォントの ToUnicode CMap（bfchar / bfrange）から、字形の番号 → 文字の対応を集める */
+function readPdfToUnicodeMap(pdfContent: string): Map<number, string> {
+  const map = new Map<number, string>();
+  for (const block of pdfContent.matchAll(/beginbfchar\s*([\s\S]*?)endbfchar/g)) {
+    for (const entry of block[1]!.matchAll(/<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>/g)) {
+      map.set(parseInt(entry[1]!, 16), decodeUtf16BeHex(entry[2]!));
+    }
+  }
+  for (const block of pdfContent.matchAll(/beginbfrange\s*([\s\S]*?)endbfrange/g)) {
+    for (const entry of block[1]!.matchAll(
+      /<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>/g
+    )) {
+      const low = parseInt(entry[1]!, 16);
+      const high = parseInt(entry[2]!, 16);
+      const firstCodePoint = parseInt(entry[3]!, 16);
+      for (let code = low; code <= high; code++) {
+        map.set(code, String.fromCodePoint(firstCodePoint + code - low));
+      }
+    }
+  }
+  return map;
+}
+
+/** PDF の文字列リテラル `( ... )` のエスケープを戻す */
+function unescapePdfLiteral(literal: string): string {
+  return literal.replace(/\\([nrtbf()\\]|[0-7]{1,3})/g, (_, escaped: string) => {
+    const simple: Record<string, string> = {
+      n: '\n',
+      r: '\r',
+      t: '\t',
+      b: '\b',
+      f: '\f',
+      '(': '(',
+      ')': ')',
+      '\\': '\\',
+    };
+    return simple[escaped] ?? String.fromCharCode(parseInt(escaped, 8));
+  });
+}
+
+/** PDF に描かれた文字列（`Tj` の命令）を描画順に読み取る */
+function extractPdfDrawnTexts(pdfContent: string): PdfDrawnText[] {
+  const toUnicode = readPdfToUnicodeMap(pdfContent);
+  const texts: PdfDrawnText[] = [];
+  for (const line of pdfContent.split('\n')) {
+    const hex = line.match(/^<([0-9a-fA-F]*)> Tj$/);
+    if (hex) {
+      const glyphIds: number[] = [];
+      for (let i = 0; i + 4 <= hex[1]!.length; i += 4) {
+        glyphIds.push(parseInt(hex[1]!.slice(i, i + 4), 16));
+      }
+      texts.push({
+        // ToUnicode に無い字形は読めない文字（U+FFFD）として残し、主張で落ちるようにする
+        text: glyphIds.map((id) => toUnicode.get(id) ?? '\uFFFD').join(''),
+        embedded: true,
+      });
+      continue;
+    }
+    const literal = line.match(/^\(((?:\\.|[^\\])*)\) Tj$/);
+    if (literal) {
+      texts.push({ text: unescapePdfLiteral(literal[1]!), embedded: false });
+    }
+  }
+  return texts;
+}
+
+/** PDF に描かれた文字列だけを描画順に取り出す */
+function extractPdfTexts(pdfContent: string): string[] {
+  return extractPdfDrawnTexts(pdfContent).map((drawn) => drawn.text);
+}
+
+/**
+ * PDF に描かれた項目名（ITEM-001 など）を描画順に取り出す。
+ * 日本語フォントの埋め込み（Task 18.5）で文字は字形の番号の 16 進列として書かれるため、
+ * バイト列から `(ITEM-001) Tj` を拾うのではなく、読み取った文字列から拾う。
+ */
+function extractPdfItemNames(pdfContent: string): string[] {
+  return extractPdfTexts(pdfContent).filter((text) => ITEM_NAME_PATTERN.test(text));
 }
 
 // ============================================================================
@@ -524,22 +626,50 @@ describe('ScheduleExportService', () => {
     });
 
     // REQ-8.2: プロジェクト名を含むPDF
-    it('プロジェクト名をヘッダーに含む', async () => {
+    it('日本語のプロジェクト名をそのまま読める文字としてヘッダーに含む (Req 8.2)', async () => {
       const data = createTestScheduleData({ projectName: '渋谷駅前ビル新築工事PDF' });
       const buffer = await service.exportToPdf(data);
 
-      // PDFバイナリ内にプロジェクト名が含まれることを確認
-      // jsPDFはテキストをPDF内部に直接埋め込む
-      expect(buffer.length).toBeGreaterThan(0);
-      // PDF生成が正常に完了すること（テキスト内容の検証はPDFパース不要の範囲で）
+      expect(extractPdfTexts(buffer.toString('latin1'))).toContain('渋谷駅前ビル新築工事PDF');
     });
 
     // REQ-8.3: 自社名を含むPDF
-    it('自社名をヘッダーに含む', async () => {
+    it('日本語の自社名をそのまま読める文字としてヘッダーに含む (Req 8.3)', async () => {
       const data = createTestScheduleData({ companyName: '株式会社テスト建設PDF' });
       const buffer = await service.exportToPdf(data);
 
-      expect(buffer.length).toBeGreaterThan(0);
+      expect(extractPdfTexts(buffer.toString('latin1'))).toContain('株式会社テスト建設PDF');
+    });
+
+    // Task 18.5: すべての文字列を埋め込んだ日本語フォントで描く。
+    // jsPDF はフォントに無い文字を字形に置き換えず落とすため、フォントに無い文字があれば
+    // 読み取った文字列が元の文字列と一致しなくなり、下の文字列の主張で落ちる
+    it('日本語の文字列をすべて埋め込んだ日本語フォントの字形で描く (Req 8.2, 8.3, 8.4, 10.5, 11.5)', async () => {
+      const data = createTestScheduleData({
+        projectName: 'SMOKE-工程表検証',
+        companyName: '株式会社アーキトラック建設',
+      });
+      const buffer = await service.exportToPdf(data);
+      const drawn = extractPdfDrawnTexts(buffer.toString('latin1'));
+
+      const expectedTexts = [
+        'SMOKE-工程表検証',
+        '株式会社アーキトラック建設',
+        // 出力対象の項目（isExportTarget=true）の項目名・ラベル文字・詳細文字
+        '基礎工事',
+        '基礎',
+        'コンクリート打設',
+        '躯体工事',
+        '躯体',
+        '鉄骨建方',
+        // 日付見出し
+        '4/1',
+        '4/15',
+      ];
+      expect(drawn.map((d) => d.text)).toEqual(expect.arrayContaining(expectedTexts));
+      // すべての文字列（表の見出し・着工日などの ASCII を含む）を埋め込んだフォントで描く
+      expect(drawn.length).toBeGreaterThan(expectedTexts.length);
+      expect(drawn.filter((d) => !d.embedded)).toEqual([]);
     });
 
     // REQ-9.3: isExportTarget=falseの項目を除外
@@ -612,9 +742,10 @@ describe('ScheduleExportService', () => {
       });
 
       const buffer = await service.exportToPdf(data);
-      // PDFが正常に生成され、有効なフォーマットであること
-      expect(buffer).toBeInstanceOf(Buffer);
-      expect(buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+      // 項目名・着工日・日数・完了日（2026-04-01 から 5 日間 → 2026-04-05）を読み取れる
+      expect(extractPdfTexts(buffer.toString('latin1'))).toEqual(
+        expect.arrayContaining(['基礎工事', '2026-04-01', '5', '2026-04-05'])
+      );
     });
 
     // REQ-10.5: ラベル文字のPDF出力（バー左側のテキスト領域に配置）
@@ -624,7 +755,7 @@ describe('ScheduleExportService', () => {
           {
             id: 'item-1',
             itemName: '基礎工事',
-            labelText: '基礎ラベルPDFテスト',
+            labelText: '基礎ラベルPDF',
             detailText: '',
             startDate: '2026-04-01',
             duration: 5,
@@ -635,8 +766,8 @@ describe('ScheduleExportService', () => {
       });
 
       const buffer = await service.exportToPdf(data);
-      expect(buffer).toBeInstanceOf(Buffer);
-      expect(buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+      // ラベル列（幅 20mm）に収まる長さのラベル文字が、日本語のまま読める
+      expect(extractPdfTexts(buffer.toString('latin1'))).toContain('基礎ラベルPDF');
     });
 
     // REQ-11.5: 詳細文字のPDF出力（バー矩形の上にtext()で配置）
@@ -657,8 +788,8 @@ describe('ScheduleExportService', () => {
       });
 
       const buffer = await service.exportToPdf(data);
-      expect(buffer).toBeInstanceOf(Buffer);
-      expect(buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+      // バー（5日 × 5mm）に収まる長さの詳細文字が、日本語のまま読める
+      expect(extractPdfTexts(buffer.toString('latin1'))).toContain('詳細テキストPDFテスト');
     });
 
     // REQ-8.5: ガントチャート再現PDF（rect()による矩形描画）
