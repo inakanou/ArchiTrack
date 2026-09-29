@@ -26,6 +26,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getProject, updateProject } from '../api/projects';
 import { ApiError } from '../api/client';
+import { getNetworkOrServerErrorMessage } from '../hooks/useNetworkError';
 import type { ProjectDetail } from '../types/project.types';
 import { isDuplicateProjectNameErrorResponse } from '../types/project.types';
 import { Breadcrumb, ResourceNotFound } from '../components/common';
@@ -179,7 +180,9 @@ export default function ProjectEditPage() {
           setIsNotFound(true);
           return;
         }
-        setError(err.message || 'エラーが発生しました');
+        // ネットワークエラーとサーバーエラーは受入基準の文言、それ以外は従来の文言を表示する
+        const acceptanceMessage = getNetworkOrServerErrorMessage(err);
+        setError(acceptanceMessage ?? (err.message || 'エラーが発生しました'));
       } else {
         setError('エラーが発生しました');
       }

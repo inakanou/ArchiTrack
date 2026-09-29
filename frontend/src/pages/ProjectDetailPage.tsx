@@ -40,6 +40,7 @@ import type {
   ProjectConstructionPhotoSummary,
 } from '../api/projects';
 import { ApiError } from '../api/client';
+import { getNetworkOrServerErrorMessage } from '../hooks/useNetworkError';
 import type { ProjectSurveySummary } from '../types/site-survey.types';
 import type { ProjectQuantityTableSummary } from '../types/quantity-table.types';
 import type { ProjectItemizedStatementSummary } from '../types/itemized-statement.types';
@@ -480,7 +481,9 @@ export default function ProjectDetailPage() {
           navigate('/403', { replace: true });
           return;
         }
-        setError(err.message || 'エラーが発生しました');
+        // ネットワークエラーとサーバーエラーは受入基準の文言、それ以外は従来の文言を表示する
+        const acceptanceMessage = getNetworkOrServerErrorMessage(err);
+        setError(acceptanceMessage ?? (err.message || 'エラーが発生しました'));
       } else {
         setError('エラーが発生しました');
       }

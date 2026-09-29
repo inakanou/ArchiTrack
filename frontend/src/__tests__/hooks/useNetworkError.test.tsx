@@ -12,7 +12,11 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { useNetworkError, ErrorType } from '../../hooks/useNetworkError';
+import {
+  useNetworkError,
+  getNetworkOrServerErrorMessage,
+  ErrorType,
+} from '../../hooks/useNetworkError';
 import { ApiError } from '../../api/client';
 
 describe('useNetworkError', () => {
@@ -408,6 +412,33 @@ describe('useNetworkError', () => {
           result.current.clearError();
         });
       });
+    });
+  });
+
+  describe('getNetworkOrServerErrorMessage', () => {
+    it('ネットワークエラー（ステータス0）には通信エラーの文言を返す', () => {
+      expect(getNetworkOrServerErrorMessage(new ApiError(0, 'Network error'))).toBe(
+        '通信エラーが発生しました。再試行してください。'
+      );
+    });
+
+    it.each([500, 502, 503, 599])(
+      'サーバーエラー（%d）にはシステムエラーの文言を返す',
+      (status) => {
+        expect(getNetworkOrServerErrorMessage(new ApiError(status, 'Server Error'))).toBe(
+          'システムエラーが発生しました。しばらくしてからお試しください。'
+        );
+      }
+    );
+
+    it.each([400, 401, 403, 404, 409])('クライアントエラー（%d）には null を返す', (status) => {
+      expect(getNetworkOrServerErrorMessage(new ApiError(status, 'Client Error'))).toBeNull();
+    });
+
+    it('ApiError 以外には null を返す', () => {
+      expect(getNetworkOrServerErrorMessage(new Error('Network Error'))).toBeNull();
+      expect(getNetworkOrServerErrorMessage('string error')).toBeNull();
+      expect(getNetworkOrServerErrorMessage(undefined)).toBeNull();
     });
   });
 });

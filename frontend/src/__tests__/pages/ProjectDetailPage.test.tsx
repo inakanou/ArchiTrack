@@ -256,7 +256,11 @@ describe('ProjectDetailPage', () => {
         expect(screen.getByRole('alert')).toBeInTheDocument();
       });
 
-      expect(screen.getByText(/Server Error/)).toBeInTheDocument();
+      // 5xx はサーバーの文面ではなく、受入基準 18.3 の文言を表示する
+      expect(
+        screen.getByText('システムエラーが発生しました。しばらくしてからお試しください。')
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/Server Error/)).not.toBeInTheDocument();
     });
 
     it('再試行ボタンをクリックするとデータを再取得する', async () => {
@@ -909,6 +913,58 @@ describe('ProjectDetailPage', () => {
       });
 
       expect(projectsApi.getProjectDetailSummary).toHaveBeenCalledTimes(2);
+    });
+
+    it('取得がネットワークエラーのとき「通信エラーが発生しました。再試行してください。」と再試行ボタンを表示する', async () => {
+      vi.mocked(projectsApi.getProjectDetailSummary).mockRejectedValue(
+        new ApiError(0, 'Network error')
+      );
+
+      renderWithRouter();
+
+      const alert = await screen.findByRole('alert');
+      expect(
+        within(alert).getByText('通信エラーが発生しました。再試行してください。')
+      ).toBeInTheDocument();
+      expect(within(alert).getByRole('button', { name: '再試行' })).toBeInTheDocument();
+    });
+
+    it('取得がサーバーエラーのとき「システムエラーが発生しました。しばらくしてからお試しください。」を表示する', async () => {
+      vi.mocked(projectsApi.getProjectDetailSummary).mockRejectedValue(
+        new ApiError(503, 'Service Unavailable')
+      );
+
+      renderWithRouter();
+
+      const alert = await screen.findByRole('alert');
+      expect(
+        within(alert).getByText('システムエラーが発生しました。しばらくしてからお試しください。')
+      ).toBeInTheDocument();
+      expect(within(alert).queryByText('Service Unavailable')).not.toBeInTheDocument();
+    });
+
+    it('ネットワークエラー後に再試行ボタンを押すと、失敗した取得を同じプロジェクトで再実行する', async () => {
+      const user = userEvent.setup();
+      vi.mocked(projectsApi.getProjectDetailSummary)
+        .mockRejectedValueOnce(new ApiError(0, 'Network error'))
+        .mockResolvedValueOnce(createMockSummary());
+
+      renderWithRouter();
+
+      const alert = await screen.findByRole('alert');
+      const failedRequestArgs = vi.mocked(projectsApi.getProjectDetailSummary).mock.calls[0];
+
+      await user.click(within(alert).getByRole('button', { name: '再試行' }));
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('heading', { level: 1, name: 'テストプロジェクト' })
+        ).toBeInTheDocument();
+      });
+      expect(projectsApi.getProjectDetailSummary).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(projectsApi.getProjectDetailSummary).mock.calls[1]).toEqual(
+        failedRequestArgs
+      );
     });
 
     // Note: Task 19.5 により編集は /projects/:id/edit ページで行われるため、
@@ -1740,7 +1796,11 @@ describe('ProjectDetailPage', () => {
         expect(screen.getByRole('alert')).toBeInTheDocument();
       });
 
-      expect(screen.getByText(/Internal Server Error/)).toBeInTheDocument();
+      // 5xx はサーバーの文面ではなく、受入基準 18.3 の文言を表示する
+      expect(
+        screen.getByText('システムエラーが発生しました。しばらくしてからお試しください。')
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/Internal Server Error/)).not.toBeInTheDocument();
     });
   });
 

@@ -157,6 +157,18 @@ function createErrorState(error: unknown, retryFn?: RetryFunction): NetworkError
 }
 
 /**
+ * ネットワークエラーまたはサーバーエラー（5xx）なら、その表示文言を返す
+ *
+ * 判定は本フックと同じ（`ApiError` のステータスが 0 ならネットワークエラー、5xx ならサーバーエラー）。
+ * それ以外のエラー（4xx・セッション切れ・`ApiError` 以外）は `null` を返し、文言は呼び出し側に委ねる。
+ * 独自のエラー表示を持つ画面が、表示の形を変えずに文言だけをそろえるために使う。
+ */
+export function getNetworkOrServerErrorMessage(error: unknown): string | null {
+  const { type, message } = createErrorState(error);
+  return type === 'network' || type === 'server' ? message : null;
+}
+
+/**
  * ネットワークエラーハンドリングフック
  *
  * @example

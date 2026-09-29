@@ -24,6 +24,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import ProjectListPage from '../../pages/ProjectListPage';
+import { ApiError } from '../../api/client';
 import type {
   PaginatedProjects,
   ProjectInfo,
@@ -246,6 +247,78 @@ describe('ProjectListPage', () => {
       });
 
       expect(getProjects).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('エラー回復（ネットワークエラー・サーバーエラー）', () => {
+    it('ネットワークエラー時に「通信エラーが発生しました。再試行してください。」と再試行ボタンを表示する', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockRejectedValue(new ApiError(0, 'Network error'));
+
+      renderWithRouter();
+
+      const alert = await screen.findByRole('alert');
+      expect(
+        within(alert).getByText('通信エラーが発生しました。再試行してください。')
+      ).toBeInTheDocument();
+      expect(within(alert).getByRole('button', { name: '再試行' })).toBeInTheDocument();
+      expect(screen.queryByText('プロジェクト一覧を取得できませんでした')).not.toBeInTheDocument();
+    });
+
+    it('サーバーエラー時に「システムエラーが発生しました。しばらくしてからお試しください。」を表示する', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockRejectedValue(new ApiError(500, 'Internal Server Error'));
+
+      renderWithRouter();
+
+      const alert = await screen.findByRole('alert');
+      expect(
+        within(alert).getByText('システムエラーが発生しました。しばらくしてからお試しください。')
+      ).toBeInTheDocument();
+      expect(screen.queryByText('プロジェクト一覧を取得できませんでした')).not.toBeInTheDocument();
+    });
+
+    it('ネットワークエラー後に再試行ボタンを押すと、失敗したリクエストを同じ条件で再実行して一覧を表示する', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects)
+        .mockRejectedValueOnce(new ApiError(0, 'Network error'))
+        .mockResolvedValueOnce(mockPaginatedResponse);
+
+      renderWithRouter();
+
+      const alert = await screen.findByRole('alert');
+      expect(getProjects).toHaveBeenCalledTimes(1);
+      const failedRequestArgs = vi.mocked(getProjects).mock.calls[0];
+
+      await user.click(within(alert).getByRole('button', { name: '再試行' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('テストプロジェクト1')).toBeInTheDocument();
+      });
+      expect(getProjects).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(getProjects).mock.calls[1]).toEqual(failedRequestArgs);
+      expect(
+        screen.queryByText('通信エラーが発生しました。再試行してください。')
+      ).not.toBeInTheDocument();
+    });
+
+    it('再試行が再びネットワークエラーになった場合は、通信エラーの文言と再試行ボタンを表示し続ける', async () => {
+      const { getProjects } = await import('../../api/projects');
+      vi.mocked(getProjects).mockRejectedValue(new ApiError(0, 'Network error'));
+
+      renderWithRouter();
+
+      const alert = await screen.findByRole('alert');
+      await user.click(within(alert).getByRole('button', { name: '再試行' }));
+
+      await waitFor(() => {
+        expect(getProjects).toHaveBeenCalledTimes(2);
+      });
+      const alertAfterRetry = await screen.findByRole('alert');
+      expect(
+        within(alertAfterRetry).getByText('通信エラーが発生しました。再試行してください。')
+      ).toBeInTheDocument();
+      expect(within(alertAfterRetry).getByRole('button', { name: '再試行' })).toBeInTheDocument();
     });
   });
 
