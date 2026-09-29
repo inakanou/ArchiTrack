@@ -584,7 +584,7 @@ describe('工程表ルート', () => {
 
   // =================================================================
   // GET /api/schedules/:id/export - 出力処理の失敗
-  // Requirements: 7.6, 8.6（design.md「Export Errors (500)」）
+  // 対応する設計: design.md「Export Errors (500)」
   //
   // 応答の形式は本番と同じ大域のエラーハンドラー（RFC 7807 Problem Details）で確かめるため、
   // 上の createTestApp の簡易ハンドラーではなく errorHandler を載せたアプリを使う。
