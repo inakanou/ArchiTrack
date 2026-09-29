@@ -1649,7 +1649,7 @@
 | `project-management/REQ-18.3` | `Jest / Mock Service Worker` |
 | `project-management/REQ-18.6` | `Jest / Mock` |
 
-- [ ] 69.1 除外一覧の道具名を実体へ揃える
+- [x] 69.1 除外一覧の道具名を実体へ揃える
   - 上表 4 件の `alternativeVerification.tool` から、実在しない `Jest` を取り除く
   - **先例に揃えること**: site-survey は Task 115.121 で自機能分 32 件を「道具名の先頭 `Jest` を `Vitest` へ置換し、`React Testing Library` / `Supertest` などの併記部分は据え置く」形で是正した。`.kiro/specs/site-survey/design.md` の `**あわせて是正した除外一覧の記述**` に続く項が、その形を逐語で記録している
   - **併記の `Mock Service Worker` も実在しない可能性が高い。** `msw` は root / backend / frontend のいずれの `package.json` の依存にも無い（2026-09-02 に実測）。**依存に無いことは「使っていない」の証明ではない**が、走者と併せて実測してから書くこと。実際に使っているのが Vitest の模倣機構（`vi.mock` / `vi.fn`）であれば、併記ごと実体へ改めること
@@ -1729,7 +1729,7 @@
   - _Requirements: 18.1, 18.2, 18.3, 18.6_
   - _Boundary: プロジェクトのエラー回復の E2E_
 
-- [ ] 71.4 除外 4 件を取り下げ、件数の宣言の追随を site-survey へ依頼する
+- [x] 71.4 除外 4 件を取り下げ、件数の宣言の追随を site-survey へ依頼する
   - `e2e/requirement-exclusions.json` から `project-management/REQ-18.1`・`18.2`・`18.3`・`18.6` を削除し、`summary` の件数を揃える。`check:req-coverage` で 4 件が E2E の被覆側に数えられることを確かめる
   - 除外の総数の宣言（`requirement-exclusions-total`、site-survey の所有）と、E2E の参照の件数の宣言（`t13-anchor-references-after-115303`）が動く見込み。**宣言は書き換えず**、site-survey スペックへ起票して依頼すること（115.337 / 115.338 の前例）
   - _Depends: 71.2, 71.3_
