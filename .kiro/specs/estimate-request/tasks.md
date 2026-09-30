@@ -2153,9 +2153,8 @@
   - **道具名だけを機械的に置換して終えないこと。** 除外は受入基準を分母から丸ごと外すため、`description` が約束する代替検証が現に存在するかを一件ずつ確かめること。存在しないなら道具名の是正ではなく除外の取り下げが要る
   - **JSON の整形は `npm run format:check` では見られない。** リポジトリルートの `format:check` は `prettier --check "e2e/**/*.{js,ts}" "playwright.config.{js,ts}" "scripts/**/*.ts"` であって JSON を含まず、`lint-staged` も `*.{js,ts}` だけを対象とする（2026-09-02 に実測）。`npx prettier --check e2e/requirement-exclusions.json` を直接走らせること（現況は整形済みで終了コード 0。同日に実測）
   - **検証**: `npm run check:req-exclusions` が緑であること、および上の `node -e` の出力の第一値が本スペックの件数だけ減っていること
-  - _Depends: site-survey スペックの Task 115.280（`64 0` の宣言の解除と台帳の追随）_
   - **利用者の判断（2026-10-01）: Task 95 を先に行う。** 着手時（HEAD `9ea0a6da`）の確かめで、12 件のうち REQ-11.18 は合計の再計算の主張が無く、REQ-14.5 は論理削除（レコードの残存と deletedAt）の主張が無く、REQ-13.1 / 13.4 / 13.6 / 11.19 は除外の理由が事実と異なる（既存の E2E が同じ経路を通る）ことが分かった。Task 95 で 11.18・11.19・13.1・13.4・13.6 の除外を取り下げ、14.5 の検証を補ったのち、本項で残る 7 件（11.20・11.21・11.23・14.3・14.4・14.5・14.6）の道具名を実体へ揃える。REQ-14.6 は手法を description へ寄せて `Vitest / Supertest` とする
-  - _Depends: 95.1, 95.2, 95.3_
+  - _Depends: site-survey スペックの Task 115.280（`64 0` の宣言の解除と台帳の追随）、95.1、95.2、95.3_
   - _Boundary: 本スペックが所管する除外項目の `alternativeVerification.tool`_
 
 ## Implementation Notes
