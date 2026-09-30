@@ -374,7 +374,7 @@ sequenceDiagram
 | 15.1-15.5 | レスポンシブ | 全UIコンポーネント | - | - |
 | 16.1-16.13 | 取引先オートコンプリート（**ひらがな・カタカナ両対応（差分8）、ラベル「顧客名」**） | TradingPartnerSelect, kana-converter | GET /api/trading-partners | - |
 | 17.1-17.12 | 担当者選択 | UserSelect | GET /api/users/assignable | - |
-| 18.1-18.6 | エラー回復 | ErrorBoundary, ToastNotification | - | - |
+| 18.1-18.6 | エラー回復（**18.1-18.3: 画面内のエラー表示と再試行**（タスク 72.1）） | ErrorBoundary, ToastNotification, **useNetworkError（getNetworkOrServerErrorMessage）, ProjectListPage, ProjectDetailPage, ProjectEditPage** | - | - |
 | 19.1-19.5 | パフォーマンス | 全コンポーネント | - | - |
 | 20.1-20.6 | アクセシビリティ | 全UIコンポーネント | - | - |
 | 21.1-21.13 | ナビゲーション | AppHeader, Dashboard | - | - |
@@ -393,6 +393,8 @@ sequenceDiagram
 | 39.1-39.5 | **detail-summary APIの工程表セクション統合** | ProjectRoutes, ScheduleService | GET /api/projects/:id/detail-summary | - |
 | 40.1-40.10 | **実行予算セクション表示**（execution-budget-managementから集約） | ProjectDetailPage, ExecutionBudgetSectionCard | GET /api/projects/:id/detail-summary | - |
 | 41.1-41.5 | **detail-summary APIの実行予算セクション統合** | ProjectRoutes, ExecutionBudgetService | GET /api/projects/:id/detail-summary | - |
+
+**要件 18.1-18.6 の行への追記（タスク 72.1）**: 起票時の行は「エラー回復 | ErrorBoundary, ToastNotification」だけを挙げていた。この 2 部品の記述は現況でも誤りではないため取り消し線を引かずに残し、現況を同じ表の他の行（3.1-3.5 など）と同じ太字の追記の形で並べた（規約 (a)。`site-survey` の design.md「実測値の書き方（タスク 115.212）」に従う併記である）。**18.1-18.3 の実際の経路は、タスク 71.2（コミット `276a6289`）以後、プロジェクトの 3 画面の画面内のエラー表示と再試行ボタンである**——`grep -c 'getNetworkOrServerErrorMessage(err)' frontend/src/pages/ProjectListPage.tsx frontend/src/pages/ProjectDetailPage.tsx frontend/src/pages/ProjectEditPage.tsx` の出力は 3 ファイルとも `1` であり、文言は `frontend/src/hooks/useNetworkError.ts` の `getNetworkOrServerErrorMessage` が返す（ネットワークエラーは 18.1、5xx は 18.3 の文言。それ以外のエラーは `null` を返し、各画面が自前の文言を表示する）。再試行ボタンは失敗した取得を再実行する（18.2）——一覧は `handleRetry` が `fetchProjects` を呼び直し（`grep -c 'onClick={handleRetry}' frontend/src/pages/ProjectListPage.tsx` の出力が `1`）、詳細と編集は `fetchProject` を直に呼び直す（`grep -c 'onClick={fetchProject}' frontend/src/pages/ProjectDetailPage.tsx frontend/src/pages/ProjectEditPage.tsx` の出力は 2 ファイルとも `1`）。3 画面はいずれも `useNetworkError` フックそのものは使わず、判定の関数だけを使う（`grep -c 'useNetworkError()' frontend/src/pages/ProjectListPage.tsx frontend/src/pages/ProjectDetailPage.tsx frontend/src/pages/ProjectEditPage.tsx` の出力は 3 ファイルとも `0`）。5xx での再試行ボタンの扱いは本書の `## Error Handling` の `**System Errors (5xx)**` を参照。コミット `027410af`。2026-09-30 にリポジトリルートで実測
 
 ## Components and Interfaces
 
@@ -3007,7 +3009,13 @@ enum TransitionType {
 
 **System Errors (5xx)**:
 - 500 Internal Server Error: サーバーエラー → 「しばらくしてからお試しください」メッセージ
-- 503 Service Unavailable: サービス停止 → メンテナンスメッセージ
+- ~~503 Service Unavailable: サービス停止 → メンテナンスメッセージ~~ 503 Service Unavailable: 500 と同じく要件 18.3 の文言「システムエラーが発生しました。しばらくしてからお試しください。」を表示する（タスク 72.1）。**再実測ではメンテナンスメッセージの経路は実装されていない**——`grep -rlE 'メンテナンス' frontend/src --include=*.ts --include=*.tsx | wc -l` の出力が `0` であり、これはタスク 71 より前からである。タスク 71.2（コミット `276a6289`）以後、プロジェクトの一覧・詳細・編集の画面は `frontend/src/hooks/useNetworkError.ts` の `getNetworkOrServerErrorMessage` を通し、503 を含む 5xx（`getErrorTypeFromStatusCode` がステータス 500 以上 600 未満を `server` に分類する）に 18.3 の文言を表示する。起票時の記述は取り消し線の内側に残し、現況を同じ行に並べた（規約 (a)。`site-survey` の design.md「実測値の書き方（タスク 115.212）」に従う併記である）。コミット `027410af`。2026-09-30 にリポジトリルートで実測
+
+**設計判断: 5xx でもプロジェクトの画面は再試行ボタンを表示する（タスク 72.1 が記録。判断はタスク 71.2）**:
+- `frontend/src/hooks/useNetworkError.ts` の分類は `server` の種別に `canRetry = false` を与える（`grep -A2 "case 'server':" frontend/src/hooks/useNetworkError.ts | grep -c 'canRetry = false;'` の出力が `1`。`network` の種別は `canRetry = true`）。この値は同フックの `retry` と、それを使う取引先の画面の `NetworkErrorDisplay` の再試行ボタンの表示を決める
+- プロジェクトの一覧・詳細・編集の画面は、このフックを使わず `getNetworkOrServerErrorMessage` で**文言だけ**を揃えた。画面内の再試行ボタンは 71.2 より前から、エラーの種別を問わず表示されていた（コミット `276a6289` の親の版でも一覧は `onClick={handleRetry}`、詳細・編集は `onClick={fetchProject}` のボタンを持つ）。71.2 は既存の機能を維持し、5xx でもボタンを残した
+- **`canRetry` を採らなかった理由**: 要件 18.3 は 5xx で再試行ボタンを求めも禁じもしない（18.1 はネットワークエラーでのボタンを求める）。5xx の多くは一時的であり、表示を狭めると既存の回復手段を減らすことになる。ボタンは失敗した取得を再実行するだけで（18.2）、副作用を持たない読み込みである
+- **帰結**: 5xx での再試行ボタンの有無は、取引先の画面（`canRetry` に従い表示しない）とプロジェクトの画面（表示する）で異なる。`canRetry` はフックの利用者のための値であり、プロジェクトの画面の表示を縛るものではない。取引先の画面の所管は `trading-partner-management` であり、両者を揃えるかどうかは本タスクの境界の外である
 
 **Business Logic Errors (422)**:
 - 無効なステータス遷移 → 現在のステータスと許可された遷移先を表示

@@ -1739,7 +1739,7 @@
 
 **経緯**: Task 71・70 の完了後の機能レベル検証が NO-GO を返した。今日の変更に退行は無く、テスト（backend 単体 6179・統合 43・frontend 単体 11923・E2E projects 285 / trading-partners 164）と関門は `check:req-coverage` を除き緑。NO-GO の理由は、以前からの E2E の被覆の穴と、設計文書のドリフトである。利用者の判断（2026-09-30、「文書は直し被覆は起票」）により、72.1 はこの実行で直し、72.2・72.3 は起票に留める。
 
-- [ ] 72.1 エラー回復の設計の記述を実装と要件 18 へ揃える
+- [x] 72.1 エラー回復の設計の記述を実装と要件 18 へ揃える
   - design.md の要件対応表（377 行付近）の「18.1-18.6 | エラー回復 | ErrorBoundary, ToastNotification」に、Task 71.2 で実際の経路になった `useNetworkError` の `getNetworkOrServerErrorMessage` と、ProjectListPage / ProjectDetailPage / ProjectEditPage の画面内のエラー表示と再試行を加える
   - design.md の Error Handling（3010 行付近）の「503 Service Unavailable → メンテナンスメッセージ」は実装されておらず（Task 71 より前から）、71.2 以後の 503 は要件 18.3 の文言を表示する。記述を要件 18.3 と実装へ揃える。あわせて、5xx でも再試行ボタンを表示する方針（71.2 の判断。既存の機能の維持）と、`useNetworkError` の分類 `server: canRetry=false` との関係を設計の判断として記す
   - いずれも規約 (a) に従い、当時の記述を残して現況を併記する
