@@ -2082,7 +2082,7 @@
   - _Requirements: 21.5, 21.6, 21.7, 26.5, 26.6, 26.7, 26.8_
   - _Boundary: 外部AIの応答形式に対する契約検証_
 
-- [ ] 91.2 日次で実行し失敗を通知する
+- [x] 91.2 日次で実行し失敗を通知する
   - `.github/workflows/` に日次実行のワークフローを追加する。**既存の `ci.yml` を変更せず別ファイルとすること**（通常のCIとpre-pushの所要時間を変えない）
   - トリガは `schedule` と `workflow_dispatch` のみとする。**`pull_request` および `pull_request_target` を入れないこと**
   - `permissions` は `id-token: write` と `contents: read` のみとする。前者はOIDCトークンの発行に必要、後者は既定の広い権限を絞るため
