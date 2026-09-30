@@ -895,7 +895,7 @@
       "alternativeVerification": {
         "method": "unit-test",
         "tool": "Vitest",
-        "description": "backend/src/__tests__/unit/services/claude-vision.service.test.ts の \"should parse JSON response with ```json markers\" と \"should parse JSON response with direct array format\" が、Anthropic SDKをモックした応答からJSON表データを抽出できることを検証（26件緑・2026-08-21実測）"
+        "description": "backend/src/__tests__/unit/services/claude-vision.service.test.ts の \"should parse JSON response with ```json markers\" と \"should parse JSON response with direct array format\" が、Anthropic SDKをモックした応答からJSON表データを抽出できることを検証（26件緑・2026-08-21実測）。加えて、backend/src/__tests__/contract/claude-vision.contract.ts（backend の npm run test:contract。.github/workflows/claude-vision-contract.yml が schedule で日次に、workflow_dispatch で手動で実行し、失敗は通知に留める）が、固定の見積書の画像2枚を本番の ClaudeVisionService.extractLineItems に通して実APIの応答の構造だけを主張し、応答が完了し（stop_reason が end_turn）、テキストのブロックから本番の解析関数（extractJsonArray）が JSON 配列を取り出せ、各要素がオブジェクトであることを確かめる。モックの単体テストは応答の解釈の正しさを、契約検証はモデルの更新などによる実APIの応答形式の変化を守る。抽出された値の正しさは主張しない。契約検証のワークフローは main へのマージの後に有効となり、実APIでの初回の実行は main での workflow_dispatch に委ねており未実施（2026-09-30時点）"
       }
     },
     {
@@ -908,7 +908,7 @@
       "alternativeVerification": {
         "method": "unit-test",
         "tool": "Vitest",
-        "description": "backend/src/__tests__/unit/services/claude-vision.service.test.ts の \"should parse JSON response with ```json markers\" が、抽出結果がname/workType/quantity等を持つlineItems配列へ変換されることを検証（26件緑・2026-08-21実測）"
+        "description": "backend/src/__tests__/unit/services/claude-vision.service.test.ts の \"should parse JSON response with ```json markers\" が、抽出結果がname/workType/quantity等を持つlineItems配列へ変換されることを検証（26件緑・2026-08-21実測）。加えて、backend/src/__tests__/contract/claude-vision.contract.ts（backend の npm run test:contract。.github/workflows/claude-vision-contract.yml が schedule で日次に、workflow_dispatch で手動で実行し、失敗は通知に留める）が、固定の見積書の画像2枚を本番の ClaudeVisionService.extractLineItems に通して実APIの応答の構造だけを主張し、本番の変換後の lineItems が空でない配列で、その件数が応答の配列の要素数と一致し、pageCount が整数で送った画像の枚数と一致することを確かめる。モックの単体テストは応答の解釈の正しさを、契約検証はモデルの更新などによる実APIの応答形式の変化を守る。抽出された値の正しさは主張しない。契約検証のワークフローは main へのマージの後に有効となり、実APIでの初回の実行は main での workflow_dispatch に委ねており未実施（2026-09-30時点）"
       }
     },
     {
@@ -921,7 +921,7 @@
       "alternativeVerification": {
         "method": "unit-test",
         "tool": "Vitest",
-        "description": "backend/src/__tests__/unit/services/claude-vision.service.test.ts の \"should handle null fields in response\" が、customCategory/workType/name/specification/unit/quantity/unitPrice/amount/remarksの9フィールド構成を検証（26件緑・2026-08-21実測）"
+        "description": "backend/src/__tests__/unit/services/claude-vision.service.test.ts の \"should handle null fields in response\" が、customCategory/workType/name/specification/unit/quantity/unitPrice/amount/remarksの9フィールド構成を検証（26件緑・2026-08-21実測）。加えて、backend/src/__tests__/contract/claude-vision.contract.ts（backend の npm run test:contract。.github/workflows/claude-vision-contract.yml が schedule で日次に、workflow_dispatch で手動で実行し、失敗は通知に留める）が、固定の見積書の画像2枚を本番の ClaudeVisionService.extractLineItems に通して実APIの応答の構造だけを主張し、本番の変換後の各明細が customCategory/workType/name/specification/unit/quantity/unitPrice/amount/remarks の9項目をちょうど持ち、name が文字列、他の文字列項目が文字列か null、数量・単価・金額が有限の数値か null であることを確かめる。モックの単体テストは応答の解釈の正しさを、契約検証はモデルの更新などによる実APIの応答形式の変化を守る。抽出された値の正しさは主張しない。契約検証のワークフローは main へのマージの後に有効となり、実APIでの初回の実行は main での workflow_dispatch に委ねており未実施（2026-09-30時点）"
       }
     },
     {
@@ -934,7 +934,7 @@
       "alternativeVerification": {
         "method": "unit-test",
         "tool": "Vitest",
-        "description": "backend/src/__tests__/unit/services/claude-vision.service.test.ts の \"should throw ClaudeVisionError.parseError() when response is not valid JSON\" と \"when parsed result is not an array\" が、パースエラーの返却を検証（26件緑・2026-08-21実測）"
+        "description": "backend/src/__tests__/unit/services/claude-vision.service.test.ts の \"should throw ClaudeVisionError.parseError() when response is not valid JSON\" と \"when parsed result is not an array\" が、パースエラーの返却を検証（26件緑・2026-08-21実測）。加えて、backend/src/__tests__/contract/claude-vision.contract.ts（backend の npm run test:contract。.github/workflows/claude-vision-contract.yml が schedule で日次に、workflow_dispatch で手動で実行し、失敗は通知に留める）が、固定の見積書の画像2枚を本番の ClaudeVisionService.extractLineItems に通して実APIの応答の構造だけを主張し、実APIの通常の応答に本番の解析関数（extractJsonArray）が取り出せる JSON 配列が含まれ、パースエラーの側へ落ちない（本番の経路の抽出が ClaudeVisionError を投げない）ことを確かめる。JSON 形式でない応答をパースエラーとして返すこと自体は契約検証では確かめず、上記のモックの単体テストが担う。なお、タスク91.1 の _Requirements_ に 23.4 は含まれない。モックの単体テストは応答の解釈の正しさを、契約検証はモデルの更新などによる実APIの応答形式の変化を守る。抽出された値の正しさは主張しない。契約検証のワークフローは main へのマージの後に有効となり、実APIでの初回の実行は main での workflow_dispatch に委ねており未実施（2026-09-30時点）"
       }
     },
     {
@@ -947,7 +947,7 @@
       "alternativeVerification": {
         "method": "unit-test",
         "tool": "Vitest",
-        "description": "backend/src/__tests__/unit/services/claude-vision.service.test.ts の \"should parse JSON response with ```json markers\" と \"should parse JSON response with direct array format\" が、コードフェンス付き／素の配列いずれの応答でもパースできることを検証（26件緑・2026-08-21実測）"
+        "description": "backend/src/__tests__/unit/services/claude-vision.service.test.ts の \"should parse JSON response with ```json markers\" と \"should parse JSON response with direct array format\" が、コードフェンス付き／素の配列いずれの応答でもパースできることを検証（26件緑・2026-08-21実測）。加えて、backend/src/__tests__/contract/claude-vision.contract.ts（backend の npm run test:contract。.github/workflows/claude-vision-contract.yml が schedule で日次に、workflow_dispatch で手動で実行し、失敗は通知に留める）が、固定の見積書の画像2枚を本番の ClaudeVisionService.extractLineItems に通して実APIの応答の構造だけを主張し、実APIの応答の本文から本番の解析関数（extractJsonArray）が JSON 配列を取り出せることを確かめる。モックの単体テストは応答の解釈の正しさを、契約検証はモデルの更新などによる実APIの応答形式の変化を守る。抽出された値の正しさは主張しない。契約検証のワークフローは main へのマージの後に有効となり、実APIでの初回の実行は main での workflow_dispatch に委ねており未実施（2026-09-30時点）"
       }
     },
     {
@@ -960,7 +960,7 @@
       "alternativeVerification": {
         "method": "unit-test",
         "tool": "Vitest",
-        "description": "backend/src/__tests__/unit/services/claude-vision.service.test.ts の \"should throw ClaudeVisionError.parseError() when parsed result is not an array\" が、配列でない応答をパースエラーにすることを検証（26件緑・2026-08-21実測）"
+        "description": "backend/src/__tests__/unit/services/claude-vision.service.test.ts の \"should throw ClaudeVisionError.parseError() when parsed result is not an array\" が、配列でない応答をパースエラーにすることを検証（26件緑・2026-08-21実測）。加えて、backend/src/__tests__/contract/claude-vision.contract.ts（backend の npm run test:contract。.github/workflows/claude-vision-contract.yml が schedule で日次に、workflow_dispatch で手動で実行し、失敗は通知に留める）が、固定の見積書の画像2枚を本番の ClaudeVisionService.extractLineItems に通して実APIの応答の構造だけを主張し、実APIの通常の応答に本番の解析関数が取り出せる JSON 配列が含まれ、パースエラーの側へ落ちないことを確かめる。JSON 配列を含まない応答をパースエラーとすること自体は契約検証では確かめず、上記のモックの単体テストが担う。モックの単体テストは応答の解釈の正しさを、契約検証はモデルの更新などによる実APIの応答形式の変化を守る。抽出された値の正しさは主張しない。契約検証のワークフローは main へのマージの後に有効となり、実APIでの初回の実行は main での workflow_dispatch に委ねており未実施（2026-09-30時点）"
       }
     },
     {
@@ -973,7 +973,7 @@
       "alternativeVerification": {
         "method": "unit-test",
         "tool": "Vitest",
-        "description": "backend/src/__tests__/unit/services/claude-vision.service.test.ts の \"should convert string number fields to Number type\" が、文字列の数量・単価・金額がNumber型へ変換されることを検証（26件緑・2026-08-21実測）"
+        "description": "backend/src/__tests__/unit/services/claude-vision.service.test.ts の \"should convert string number fields to Number type\" が、文字列の数量・単価・金額がNumber型へ変換されることを検証（26件緑・2026-08-21実測）。加えて、backend/src/__tests__/contract/claude-vision.contract.ts（backend の npm run test:contract。.github/workflows/claude-vision-contract.yml が schedule で日次に、workflow_dispatch で手動で実行し、失敗は通知に留める）が、固定の見積書の画像2枚を本番の ClaudeVisionService.extractLineItems に通して実APIの応答の構造だけを主張し、応答の数量・単価・金額が null（または欠落）でなければ本番の数値変換（parseNumericField）で数値として解釈でき、変換後に有限の数値か null であり、少なくとも1行で三つとも数値であることを確かめる。モックの単体テストは応答の解釈の正しさを、契約検証はモデルの更新などによる実APIの応答形式の変化を守る。抽出された値の正しさは主張しない。契約検証のワークフローは main へのマージの後に有効となり、実APIでの初回の実行は main での workflow_dispatch に委ねており未実施（2026-09-30時点）"
       }
     },
     {
@@ -986,7 +986,7 @@
       "alternativeVerification": {
         "method": "unit-test",
         "tool": "Vitest",
-        "description": "backend/src/__tests__/unit/services/claude-vision.service.test.ts の \"should handle comma-separated numbers (e.g., \\\"1,234,567\\\" -> 1234567)\" が、カンマ区切り数値の変換を検証（26件緑・2026-08-21実測）"
+        "description": "backend/src/__tests__/unit/services/claude-vision.service.test.ts の \"should handle comma-separated numbers (e.g., \\\"1,234,567\\\" -> 1234567)\" が、カンマ区切り数値の変換を検証（26件緑・2026-08-21実測）。加えて、backend/src/__tests__/contract/claude-vision.contract.ts（backend の npm run test:contract。.github/workflows/claude-vision-contract.yml が schedule で日次に、workflow_dispatch で手動で実行し、失敗は通知に留める）が、固定の見積書の画像2枚を本番の ClaudeVisionService.extractLineItems に通して実APIの応答の構造だけを主張し、応答の数量・単価・金額が null（または欠落）でなければカンマの除去を含む本番の数値変換（parseNumericField）で数値として解釈できることを確かめる（固定の画像はカンマ区切りの金額を含むが、応答がカンマ付きの文字列で返るかはモデル次第である。カンマの除去そのものの正しさは上記のモックの単体テストが担う）。モックの単体テストは応答の解釈の正しさを、契約検証はモデルの更新などによる実APIの応答形式の変化を守る。抽出された値の正しさは主張しない。契約検証のワークフローは main へのマージの後に有効となり、実APIでの初回の実行は main での workflow_dispatch に委ねており未実施（2026-09-30時点）"
       }
     },
     {
