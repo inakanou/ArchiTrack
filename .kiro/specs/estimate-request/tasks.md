@@ -2246,7 +2246,7 @@
   - _Requirements: 13.1, 13.4, 13.6_
   - _Boundary: 受領見積書のファイルの取り込みの E2E_
 
-- [ ] 95.4 E2E で被覆した除外 5 件を取り下げ、件数の追随を site-survey へ依頼する
+- [x] 95.4 E2E で被覆した除外 5 件を取り下げ、件数の追随を site-survey へ依頼する
   - `e2e/requirement-exclusions.json` から REQ-11.18・11.19・13.1・13.4・13.6 を削除し、`summary` と note を揃える（前例 15c47ac3、00a52fc8）。`check:req-coverage` で 5 件が E2E の被覆側に数えられることを確かめる
   - 除外の総数（`requirement-exclusions-total`、137）と、E2E の参照の件数（`t13-anchor-references-after-115303`）の宣言が動く見込み。宣言は書き換えず、site-survey へ起票すること（115.339 の前例）
   - _Depends: 95.2, 95.3_
