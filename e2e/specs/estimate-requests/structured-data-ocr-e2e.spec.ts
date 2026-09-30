@@ -23,12 +23,59 @@ import {
   waitForOcrProgressIndicator,
   hasOcrProgressIndicatorAppeared,
 } from '../../helpers/ocr-observations';
-import { expectPdfPreviewRendered } from '../../helpers/pdf-preview';
+import { expectPdfPreviewRendered, PDF_PAGE_CANVAS_SELECTOR } from '../../helpers/pdf-preview';
 import { expectImagePreviewRendered } from '../../helpers/image-preview';
+import ExcelJS from 'exceljs';
 
 // ESM環境での__dirname代替
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/**
+ * 明細表を持つ Excel の資材（REQ-13.1 / 13.4 / 13.6）
+ *
+ * 先頭シート「明細」は見出し行（名称・規格・単位・数量・単価）と 2 行のデータを持つ。
+ * `number-format-e2e.spec.ts` の REQ-18.10 と同じ資材である。
+ */
+const LINE_ITEM_WORKBOOK_PATH = path.resolve(__dirname, '../../fixtures/test-lineitem-table.xlsx');
+
+/**
+ * Excel の先頭シートを、各セルの値をそのまま文字列にした行の配列として読む。
+ *
+ * 期待値を資材そのものから導くための補助である。実装（SheetJS）とは別のライブラリ（exceljs）で
+ * 読むため、実装の読み取りの誤りを期待値へ持ち込まない。
+ *
+ * @param filePath 読み込む .xlsx のパス
+ * @returns 行ごとのセルの文字列
+ */
+async function readFirstSheetCellTexts(filePath: string): Promise<string[][]> {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(filePath);
+  const sheet = workbook.worksheets[0];
+  if (!sheet) {
+    throw new Error(`資材 ${filePath} にシートが無い`);
+  }
+  const rows: string[][] = [];
+  sheet.eachRow({ includeEmpty: false }, (row) => {
+    const cells: string[] = [];
+    for (let column = 1; column <= row.cellCount; column++) {
+      const value = row.getCell(column).value;
+      cells.push(value === null || value === undefined ? '' : String(value));
+    }
+    rows.push(cells);
+  });
+  return rows;
+}
+
+/**
+ * OCR の処理が走ったことを示す通信（パスで判定する）
+ *
+ * - `/api/claude-vision/`: PDF・画像の抽出が最初に試みる Claude Vision（REQ-24）
+ * - `tesseract` / `tessdata` / `traineddata`: Tesseract.js のワーカー・コア・言語資材（REQ-25 のフォールバック）
+ *
+ * オリジンでは判定しない（CI とローカルで API のオリジンが食い違うため）。
+ */
+const OCR_REQUEST_PATH_PATTERN = /\/api\/claude-vision\/|tesseract|tessdata|traineddata/i;
 
 /**
  * Claude Vision の抽出結果として固定で返す明細行
@@ -680,8 +727,12 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
 
   test.describe('29.2 ファイルインラインプレビュー', () => {
     /**
+     * @requirement estimate-request/REQ-13.1
      * @requirement estimate-request/REQ-13.3
      * 画像ファイルアップロード後のインライン画像表示確認
+     *
+     * タスク 95.3 の追記: 受入基準13.1 は「登録フォーム内に」表示することを求めるため、
+     * 表示に成功した画像が受領見積書の登録フォームの内側にあることも主張する。
      */
     test('REQ-13.3: 画像ファイルアップロード後にインライン画像が表示される', async ({ page }) => {
       expect(createdEstimateRequestId).toBeTruthy();
@@ -705,11 +756,21 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
       // 可視条件を満たして **6〜7ミリ秒で緑**になっていた。
       // 実測値と再現手順は `e2e/helpers/image-preview.ts` の冒頭に置いた。
       await expectImagePreviewRendered(page, 'test-image.png');
+
+      // REQ-13.1: プレビューは登録フォームの内側に表示される
+      const registrationForm = page
+        .locator('form')
+        .filter({ has: page.locator('#quotation-name') });
+      await expect(registrationForm.locator('img[alt="test-image.png"]')).toBeVisible();
     });
 
     /**
+     * @requirement estimate-request/REQ-13.1
      * @requirement estimate-request/REQ-13.2
      * PDFファイルアップロード後のインラインプレビュー表示確認
+     *
+     * タスク 95.3 の追記: 受入基準13.1 の「登録フォーム内に」を、
+     * 描画されたページの canvas が登録フォームの内側にあることで主張する。
      */
     test('REQ-13.2: PDFファイルアップロード後にインラインプレビューが表示される', async ({
       page,
@@ -741,6 +802,70 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
       //     （CPU 8 倍抑制の実測で 0.7〜1.4 秒）、の2点である。
       // 実測値と再現手順は `e2e/helpers/pdf-preview.ts` の冒頭に置いた。
       await expectPdfPreviewRendered(page);
+
+      // REQ-13.1: プレビューは登録フォームの内側に表示される
+      const registrationForm = page
+        .locator('form')
+        .filter({ has: page.locator('#quotation-name') });
+      await expect(registrationForm.locator(PDF_PAGE_CANVAS_SELECTOR).first()).toBeVisible();
+    });
+
+    /**
+     * @requirement estimate-request/REQ-13.1
+     * @requirement estimate-request/REQ-13.4
+     * Excelファイルアップロード後に表データがテーブル形式で登録フォーム内に表示されることの確認
+     *
+     * タスク 95.3 で追加。受入基準13.4 は「表データをテーブル形式でインライン表示する」ことを求める。
+     * 表であること（表・列見出し・行・セルの役割）と、表の中身が資材のセルの値と一致することの両方を主張する。
+     * 期待値は資材を exceljs で読んで導く（実装は SheetJS で読むため、実装の読み取りを期待値へ持ち込まない）。
+     * `FileInlinePreview.tsx` の Excel のプレビューは先頭列に行番号の列「#」を置き、
+     * 先頭行を見出しとして扱う。明細行エディタの表（先頭列「No」）とは「#」の列見出しで区別する。
+     */
+    test('REQ-13.1/4: Excelファイルアップロード後に表データがテーブル形式で登録フォーム内に表示される', async ({
+      page,
+    }) => {
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      // 資材の中身。見出し行と 1 行以上のデータ行が無ければ以降の主張が空振りするため、先に確かめる
+      const sheetRows = await readFirstSheetCellTexts(LINE_ITEM_WORKBOOK_PATH);
+      const [headerRow, ...dataRows] = sheetRows;
+      expect(headerRow?.length ?? 0).toBeGreaterThan(0);
+      expect(dataRows.length).toBeGreaterThan(0);
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      await openReceivedQuotationForm(page);
+
+      const registrationForm = page
+        .locator('form')
+        .filter({ has: page.locator('#quotation-name') });
+      const previewTable = registrationForm
+        .getByRole('table')
+        .filter({ has: page.getByRole('columnheader', { name: '#', exact: true }) });
+
+      // 前提: アップロード前にはプレビューの表は無い（アップロードが表示を生んだことを主張するため）
+      await expect(previewTable).toHaveCount(0);
+
+      await page.locator('input[type="file"]').setInputFiles(LINE_ITEM_WORKBOOK_PATH);
+
+      // REQ-13.1 / 13.4: 登録フォームの内側に表として表示される
+      await expect(previewTable).toBeVisible({ timeout: getTimeout(15000) });
+
+      // REQ-13.4: 列見出しは行番号の列「#」と、資材の先頭行のセルの値
+      await expect(previewTable.getByRole('columnheader')).toHaveText(['#', ...headerRow!]);
+
+      // REQ-13.4: 各行は行番号と、資材のデータ行のセルの値を順に持つ
+      const bodyRows = previewTable.locator('tbody').getByRole('row');
+      await expect(bodyRows).toHaveCount(dataRows.length);
+      for (const [index, cells] of dataRows.entries()) {
+        await expect(bodyRows.nth(index).getByRole('cell')).toHaveText([
+          String(index + 1),
+          ...cells,
+        ]);
+      }
     });
   });
 
@@ -787,6 +912,112 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
         await hasOcrProgressIndicatorAppeared(page),
         '画像アップロード後にOCR処理中インジケーターが一度も表示されなかった'
       ).toBe(true);
+    });
+
+    /**
+     * @requirement estimate-request/REQ-13.6
+     * Excelファイルアップロード時にOCRではなくデータパースで構造化データを抽出することの確認
+     *
+     * タスク 95.3 で追加。「OCR ではなくデータパース（直接データ読み取り）」を次の 3 点で観測する。
+     *
+     * 1. **直接読み取りであること**: 抽出結果のテキストが、資材の各セルの値をタブと改行で
+     *    つないだものと**文字単位で一致**する。OCR（Tesseract の文字認識・Claude Vision の JSON）では
+     *    この形は生まれない。期待値は資材を exceljs で読んで導く。
+     * 2. **構造化データの抽出**: 一括取り込みで、見出し（名称・規格・単位・数量）の列のセルの値が
+     *    同じ行の明細行のフィールドへ入る。
+     * 3. **OCR が走らないこと**: アップロードから取り込み完了まで、OCR の処理が必ず発する通信
+     *    （Claude Vision の `/api/claude-vision/`、Tesseract のワーカー・コア・言語資材）が 1 件も無く、
+     *    Web Worker（Tesseract.js はワーカーで認識する）も 1 つも作られない。
+     *    Claude Vision の成否を示す表示（`claude-vision-info-banner`・`fallback-warning-banner`）も出ない。
+     *
+     * 限界: 3 は「OCR の経路が外部資材・API・ワーカーを使う」ことに依拠する。同一スレッドで
+     * 通信なしに動く OCR があったとしても、この観測では検出できない（現実装にそのような経路は無い）。
+     */
+    test('REQ-13.6: ExcelファイルはOCRではなくデータパースでセルの値を直接読み取る', async ({
+      page,
+      context,
+    }) => {
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      // 資材の中身。見出し行と 1 行以上のデータ行が無ければ以降の主張が空振りするため、先に確かめる
+      const sheetRows = await readFirstSheetCellTexts(LINE_ITEM_WORKBOOK_PATH);
+      const [headerRow, ...dataRows] = sheetRows;
+      expect(dataRows.length).toBeGreaterThan(0);
+      const columnOf = (label: string): number => {
+        const column = headerRow?.indexOf(label) ?? -1;
+        expect(column, `資材の見出しに「${label}」が無い`).toBeGreaterThanOrEqual(0);
+        return column;
+      };
+      const nameColumn = columnOf('名称');
+      const specificationColumn = columnOf('規格');
+      const unitColumn = columnOf('単位');
+      const quantityColumn = columnOf('数量');
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      await openReceivedQuotationForm(page);
+
+      // OCR の処理が発する通信と Web Worker の生成を、アップロードの前から記録する
+      const ocrRequests: string[] = [];
+      context.on('request', (request) => {
+        const url = request.url();
+        const pathname = url.startsWith('http') ? new URL(url).pathname : url;
+        if (OCR_REQUEST_PATH_PATTERN.test(pathname)) {
+          ocrRequests.push(url);
+        }
+      });
+      const createdWorkers: string[] = [];
+      page.on('worker', (worker) => createdWorkers.push(worker.url()));
+
+      await page.locator('input[type="file"]').setInputFiles(LINE_ITEM_WORKBOOK_PATH);
+
+      // Excel のデータパースとして処理される
+      await expect(page.getByText('データ抽出（Excelパース）')).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      // 1. 抽出結果は資材のセルの値を直接読み取ったもの（タブ・改行を含め文字単位で一致）
+      const extractedText = page.locator('[data-testid="ocr-extracted-text"]');
+      await expect(extractedText).toBeVisible({ timeout: getTimeout(60000) });
+      expect(await extractedText.textContent()).toBe(
+        sheetRows.map((cells) => cells.join('\t')).join('\n')
+      );
+
+      // 2. 構造化データとして抽出され、一括取り込みで各行のフィールドに入る
+      const importButton = page.locator('[data-testid="ocr-import-button"]');
+      await expect(importButton).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(page.getByText(`${dataRows.length}件のデータが検出されました`)).toBeVisible();
+      await importButton.click();
+      await expect(page.locator('[data-testid="ocr-import-success"]')).toBeVisible({
+        timeout: getTimeout(5000),
+      });
+      for (const [index, cells] of dataRows.entries()) {
+        const row = index + 1;
+        await expect(page.getByRole('textbox', { name: `行${row} 名称` })).toHaveValue(
+          cells[nameColumn] ?? ''
+        );
+        await expect(page.getByRole('textbox', { name: `行${row} 規格` })).toHaveValue(
+          cells[specificationColumn] ?? ''
+        );
+        await expect(page.getByRole('textbox', { name: `行${row} 単位` })).toHaveValue(
+          cells[unitColumn] ?? ''
+        );
+        // 数量は小数2桁の表示へ整形される（REQ-18.10）ため、数値として一致を問う
+        const quantityValue = await page
+          .getByRole('textbox', { name: `行${row} 数量` })
+          .inputValue();
+        expect(Number(quantityValue)).toBe(Number(cells[quantityColumn]));
+      }
+
+      // 3. OCR の処理は走っていない
+      expect(ocrRequests, 'Excel の取り込みで OCR の通信が発生した').toEqual([]);
+      expect(createdWorkers, 'Excel の取り込みで Web Worker が作られた').toEqual([]);
+      await expect(page.locator('[data-testid="claude-vision-info-banner"]')).toHaveCount(0);
+      await expect(page.locator('[data-testid="fallback-warning-banner"]')).toHaveCount(0);
+      await expect(page.getByText('データ抽出（OCR）')).toHaveCount(0);
     });
 
     /**
