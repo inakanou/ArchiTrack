@@ -50,7 +50,7 @@
 - 主要変更（2025-12-15 gap analysis結果）:
   - ~~フィールドラベル変更:「取引先」→「顧客名」（TradingPartnerSelect、ProjectDetailPage）~~（実装済み）
   - ~~プロジェクト検索でのひらがな・カタカナ両対応（project.service.ts）~~（実装済み）
-  - **TradingPartnerSelectのクライアントサイドフィルタリングでひらがな・カタカナ両対応**（未実装・要対応）
+  - ~~**TradingPartnerSelectのクライアントサイドフィルタリングでひらがな・カタカナ両対応**（未実装・要対応）~~（実装済み）。**再実測では実装済みである**——`grep -c "from '../../utils/kana-converter'" frontend/src/components/projects/TradingPartnerSelect.tsx` の出力が `1` であり、同ファイルの `matchesSearchQuery` が `toKatakana` / `toHiragana` を呼ぶ（取り込み先の `frontend/src/utils/kana-converter.ts` も実在する）。起票時の状態記録「（未実装・要対応）」は取り消し線の内側に残し、同じ箇条の上の 2 件と同じ「取り消し線＋（実装済み）」の形に揃えた（同じ節の中で同じ意味を二通りに書かないため）。タスク 70.1。コミット `86b89517`。2026-09-30 にリポジトリルートで実測。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である
   - フロントエンドに`kana-converter.ts`を新規作成（バックエンドから移植）
 - 主要変更（2025-12-13要件更新）:
   - 一覧画面からID列を削除、営業担当者・工事担当者列を追加（2.2）
@@ -795,7 +795,7 @@ if (filter.search) {
 
 ### 差分8: TradingPartnerSelectのクライアントサイドフィルタリングでひらがな・カタカナ両対応（2025-12-15 gap analysis結果）
 
-**ステータス**: ❌ **未実装・要対応**
+**ステータス**: ~~❌ **未実装・要対応**~~ ✅ **実装済み**。**再実測では実装済みである**——`grep -c "from '../../utils/kana-converter'" frontend/src/components/projects/TradingPartnerSelect.tsx` の出力が `1` であり、同ファイルの `matchesSearchQuery` が `toKatakana` / `toHiragana` を呼ぶ（`frontend/src/utils/kana-converter.ts` も実在する）。本 tasks.md の側では Task 32.1〜35.1 が担った。起票時の状態記録は取り消し線の内側に残し、現況は差分6・差分7 と同じ `✅ **実装済み**` の形で並べる。タスク 70.1。コミット `86b89517`。2026-09-30 にリポジトリルートで実測。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である
 
 **変更内容**:
 - `TradingPartnerSelect`コンポーネントのクライアントサイドフィルタリング（`matchesSearchQuery`関数）にかな変換を追加
@@ -930,7 +930,7 @@ function matchesSearchQuery(partner: TradingPartnerInfo, query: string): boolean
 
 ### 差分9: 顧客選択時の現場住所自動入力（1.6, 1.7）
 
-**ステータス**: :x: **未実装・要対応**
+**ステータス**: ~~:x: **未実装・要対応**~~ ✅ **実装済み**。**再実測では実装済みである**——`grep -c 'setSiteAddress(partner.address)' frontend/src/components/projects/ProjectForm.tsx` の出力が `1` であり、`grep -c 'onSelect?.(partner)' frontend/src/components/projects/TradingPartnerSelect.tsx` の出力も `1` である。本 tasks.md の側では Task 36.1〜38.1 が担った。起票時の状態記録は取り消し線の内側に残し、現況は差分6・差分7 と同じ `✅ **実装済み**` の形で並べる。タスク 70.1。コミット `86b89517`。2026-09-30 にリポジトリルートで実測。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である
 
 **変更内容**:
 - プロジェクト作成フォームで顧客を選択した際、現場住所フィールドが空欄であれば、選択された取引先の住所（`address`）を現場住所に自動入力する
@@ -1079,7 +1079,7 @@ sequenceDiagram
 
 ### 差分10: デフォルト表示時に終端ステータス（完了・中止・失注）を除外（2.7, 2.8）
 
-**ステータス**: :x: **未実装・要対応**
+**ステータス**: ~~:x: **未実装・要対応**~~ ✅ **実装済み**。**再実測では実装済みである**——`grep -c excludeTerminalStatuses backend/src/services/project.service.ts backend/src/schemas/project.schema.ts frontend/src/api/projects.ts` の出力は挙げた順に `3`・`1`・`2` で、3 ファイルとも 1 以上である。本 tasks.md の側では Task 39.1〜45.1 が担った。起票時の状態記録は取り消し線の内側に残し、現況は差分6・差分7 と同じ `✅ **実装済み**` の形で並べる。タスク 70.1。コミット `86b89517`。2026-09-30 にリポジトリルートで実測。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である
 
 **変更内容**:
 - プロジェクト一覧APIで、ステータスフィルタが未指定の場合、終端ステータス（COMPLETED, CANCELLED, LOST）のプロジェクトをデフォルトで除外する
@@ -1179,7 +1179,7 @@ if (filter?.excludeTerminalStatuses) {
 
 ### 差分11: デフォルト表示件数を100件に変更（3.1）
 
-**ステータス**: :x: **未実装・要対応**
+**ステータス**: ~~:x: **未実装・要対応**~~ ✅ **実装済み**。**再実測では実装済みである**——`grep -c 'const DEFAULT_LIMIT = 100;' frontend/src/pages/ProjectListPage.tsx` の出力が `1` であり、`grep -c '.default(100)' backend/src/schemas/project.schema.ts` の出力も `1` である。本 tasks.md の側では Task 39.1〜45.1 が担った。起票時の状態記録は取り消し線の内側に残し、現況は差分6・差分7 と同じ `✅ **実装済み**` の形で並べる。タスク 70.1。コミット `86b89517`。2026-09-30 にリポジトリルートで実測。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である
 
 **変更内容**:
 - バックエンドのページネーションデフォルト値を20件から100件に変更
@@ -1235,7 +1235,7 @@ const DEFAULT_LIMIT = 100;  // Requirements: 3.1 - デフォルト表示件数�
 
 ### 差分12: フィルタクリア時のデフォルト状態復帰と終端ステータスフィルタの動作（5.5, 5.7, 5.8）
 
-**ステータス**: :x: **未実装・要対応**
+**ステータス**: ~~:x: **未実装・要対応**~~ ✅ **実装済み**。**再実測では実装済みである**——`grep -c 'handleClearFilters' frontend/src/components/projects/ProjectSearchFilter.tsx` の出力が `2` であり、同ファイルは `status: []` へのリセットを持つ（`grep -c 'status: \[\]' frontend/src/components/projects/ProjectSearchFilter.tsx` の出力が `1`）。本 tasks.md の側では Task 39.1〜45.1 が担った。起票時の状態記録は取り消し線の内側に残し、現況は差分6・差分7 と同じ `✅ **実装済み**` の形で並べる。タスク 70.1。コミット `86b89517`。2026-09-30 にリポジトリルートで実測。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である
 
 **変更内容**:
 - フィルタクリア時にデフォルト表示状態（終端ステータス除外）に復帰する
@@ -1277,7 +1277,7 @@ flowchart TD
 
 ### 差分13: ステータス別件数表示を全プロジェクト対象に変更（23.1-23.6）
 
-**ステータス**: :x: **未実装・要対応**
+**ステータス**: ~~:x: **未実装・要対応**~~ ✅ **実装済み**。**再実測では実装済みである**——`grep -c 'async getStatusCounts' backend/src/services/project.service.ts` の出力が `1` であり、`backend/src/routes/projects.routes.ts` が `'/status-counts'` を登録し（`grep -c "'/status-counts'" backend/src/routes/projects.routes.ts` の出力が `1`）、`frontend/src/api/projects.ts` が `/api/projects/status-counts` を呼ぶ（`grep -c 'status-counts' frontend/src/api/projects.ts` の出力が `1`）。本 tasks.md の側では Task 39.1〜45.1 が担った。起票時の状態記録は取り消し線の内側に残し、現況は差分6・差分7 と同じ `✅ **実装済み**` の形で並べる。タスク 70.1。コミット `86b89517`。2026-09-30 にリポジトリルートで実測。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である
 
 **変更内容**:
 - 現在、`StatsSummary`コンポーネントは画面に表示されている`projects`配列からステータス別件数を集計している
@@ -2328,11 +2328,11 @@ interface ProjectFormData {
 - 取引先管理機能（`trading-partner-management`）との外部キー連携 ✅ 実装済み
 - 取引先種別に「顧客」を含む取引先一覧を候補として表示 ✅ 実装済み
 - 取引先名またはフリガナで部分一致検索（オートコンプリート） ✅ 実装済み
-- **ひらがな入力でもカタカナフリガナを検索（16.3, 22.5）** :x: **クライアントサイドフィルタリング未対応（差分8で対応）**
+- **ひらがな入力でもカタカナフリガナを検索（16.3, 22.5）** ~~:x: **クライアントサイドフィルタリング未対応（差分8で対応）**~~ ✅ 実装済み。**再実測では実装済みである**——`grep -c "from '../../utils/kana-converter'" frontend/src/components/projects/TradingPartnerSelect.tsx` の出力が `1` であり、同ファイルの `matchesSearchQuery` が `toKatakana` / `toHiragana` を呼ぶ。起票時の状態記録は取り消し線の内側に残し、現況は同じ箇条の他の行と同じ `✅ 実装済み` の形で並べる。タスク 70.1。コミット `86b89517`。2026-09-30 にリポジトリルートで実測
 - 入力文字列に部分一致する取引先を最大10件まで候補表示 ✅ 実装済み
 - 任意選択（null許容） ✅ 実装済み
 - キーボード操作（上下キー選択、Enter確定）とマウス操作の両方に対応 ✅ 実装済み
-- **取引先選択時に`onSelect`コールバックで取引先オブジェクト全体を通知**（1.6, 1.7）:x: **未実装（差分9で対応）**
+- **取引先選択時に`onSelect`コールバックで取引先オブジェクト全体を通知**（1.6, 1.7）~~:x: **未実装（差分9で対応）**~~ ✅ 実装済み。**再実測では実装済みである**——`grep -c 'onSelect?.(partner)' frontend/src/components/projects/TradingPartnerSelect.tsx` の出力が `1` であり、通知を受ける `frontend/src/components/projects/ProjectForm.tsx` は住所の自動入力を持つ（`grep -c 'setSiteAddress(partner.address)' frontend/src/components/projects/ProjectForm.tsx` の出力が `1`）。起票時の状態記録は取り消し線の内側に残し、現況は同じ箇条の他の行と同じ `✅ 実装済み` の形で並べる。タスク 70.1。コミット `86b89517`。2026-09-30 にリポジトリルートで実測
 
 **Dependencies**
 - Inbound: ProjectForm — 取引先選択 (P0)
