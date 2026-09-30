@@ -473,10 +473,17 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
 
     /**
      * @requirement estimate-request/REQ-11.17
-     * 受入基準 11.18 は除外である（e2e/requirement-exclusions.json）。行の削除と削除ボタンの非活性は主張するが、合計金額の再計算を主張していないため、被覆印は掲げない。
-     * 明細行の削除と削除ボタン非活性
+     * @requirement estimate-request/REQ-11.18
+     * @requirement estimate-request/REQ-11.19
+     * 明細行の削除と合計金額の再計算、削除ボタン非活性
+     *
+     * タスク 95.2 の是正: 従前は合計金額の再計算を主張しておらず、受入基準 11.18 の被覆印を掲げていなかった。
+     * 削除する行と残る行に異なる金額を入れ、削除の前後の合計金額を具体的な値で主張する（受入基準 11.18）。
+     * 1 行のみのときに削除が非活性であること（受入基準 11.19）は従前から主張していたが、印が無かった。
      */
-    test('REQ-11.17/18: 行削除が機能し、1行のみの場合は削除ボタンが非活性', async ({ page }) => {
+    test('REQ-11.17/18/19: 行削除で合計金額が再計算され、1行のみの場合は削除ボタンが非活性', async ({
+      page,
+    }) => {
       expect(createdEstimateRequestId).toBeTruthy();
 
       await loginAsUser(page, 'REGULAR_USER');
@@ -487,7 +494,7 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
       await openReceivedQuotationForm(page);
 
       // REQ-37.7 で削除はスタンドアロンボタンから「行N の操作メニュー」内 menuitem に集約された。
-      // REQ-11.17/18 の本質「行削除機能 + 1 行時の非活性」をメニュー UI ベースで検証する。
+      // REQ-11.17〜11.19（削除導線・削除と合計金額の再計算・1 行時の非活性）をメニュー UI ベースで検証する。
       const lineItemTable = page.locator('form table');
       const rowMenuButtons = lineItemTable.getByRole('button', { name: /行\d+の操作メニュー/ });
 
@@ -497,9 +504,23 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
       await expect(page.getByRole('menuitem', { name: '削除' })).toBeDisabled();
       await page.keyboard.press('Escape'); // メニュー閉じる
 
+      // 1 行目に削除する行の金額（10 * 1000 = 10,000）を入れる
+      await page.locator('[data-row="0"][data-field="name"]').fill('削除する品目');
+      await page.locator('[data-row="0"][data-field="quantity"]').fill('10');
+      await page.locator('[data-row="0"][data-field="unitPrice"]').fill('1000');
+
       // 行を追加 → 行 2 つ
       await page.getByRole('button', { name: /行を追加/i }).click();
       await expect(rowMenuButtons).toHaveCount(2);
+
+      // 2 行目に残る行の金額（5 * 3000 = 15,000）を入れる
+      await page.locator('[data-row="1"][data-field="name"]').fill('残る品目');
+      await page.locator('[data-row="1"][data-field="quantity"]').fill('5');
+      await page.locator('[data-row="1"][data-field="unitPrice"]').fill('3000');
+
+      // 削除前の合計金額（10,000 + 15,000 = 25,000）
+      const totalAmount = page.locator('[data-testid="total-amount"]');
+      await expect(totalAmount).toHaveText('25,000');
 
       // 2 行の場合 → 「削除」menuitem は enabled で、押すと該当行が削除される
       await rowMenuButtons.first().click();
@@ -507,8 +528,15 @@ test.describe('受領見積書構造化データ入力・OCR対応', () => {
       await expect(deleteMenuItem).toBeEnabled();
       await deleteMenuItem.click();
 
-      // 1 行に戻る + 削除 menuitem は再び disabled
+      // 1 行に戻り、残ったのは 2 行目だった行である
       await expect(rowMenuButtons).toHaveCount(1);
+      await expect(page.locator('[data-row="0"][data-field="name"]')).toHaveValue('残る品目');
+
+      // 削除した行の金額（10,000）の分だけ合計金額が減る（25,000 → 15,000）
+      await expect(page.locator('[data-testid="line-item-amount"]')).toHaveText(['15,000']);
+      await expect(totalAmount).toHaveText('15,000');
+
+      // 削除 menuitem は再び disabled
       await rowMenuButtons.first().click();
       await expect(page.getByRole('menuitem', { name: '削除' })).toBeDisabled();
     });

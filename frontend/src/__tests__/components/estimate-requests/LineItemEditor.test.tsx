@@ -22,6 +22,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { useState } from 'react';
 import { render, screen, waitFor, cleanup, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
@@ -358,6 +359,50 @@ describe('LineItemEditor', () => {
       const newItems = mockOnLineItemsChange.mock.calls[0]?.[0] as LineItemFormData[] | undefined;
       expect(newItems).toHaveLength(1);
       expect(newItems?.[0]?.id).toBe('2');
+    });
+
+    // 現行の受入基準 11.18（本ファイルの旧番号では 11.17）は「該当行を削除し合計金額を再計算する」。
+    // 上の検証は行の削除だけを主張するため、合計の再計算を壊しても通ってしまう。
+    // 削除を親の状態へ反映させ、表示される合計が残った行の金額だけになることを主張する。
+    it('削除後に合計金額が残った行の金額合計へ再計算される（現行の受入基準 11.18）', async () => {
+      const user = userEvent.setup();
+      const initialItems: LineItemFormData[] = [
+        {
+          ...createEmptyLineItem(0),
+          id: 'delete-target',
+          name: '削除する項目',
+          quantity: '10',
+          unitPrice: '1000',
+          amount: 10000,
+        },
+        {
+          ...createEmptyLineItem(1),
+          id: 'remaining',
+          name: '残る項目',
+          quantity: '5',
+          unitPrice: '3000',
+          amount: 15000,
+        },
+      ];
+
+      function StatefulEditor() {
+        const [items, setItems] = useState<LineItemFormData[]>(initialItems);
+        return <LineItemEditor lineItems={items} onLineItemsChange={setItems} />;
+      }
+
+      render(<StatefulEditor />);
+
+      const totalAmount = screen.getByTestId('total-amount');
+      expect(totalAmount.textContent).toBe('25,000');
+
+      const toggles = screen.getAllByRole('button', { name: /の操作メニュー$/ });
+      await user.click(toggles[0]!);
+      await user.click(screen.getByRole('menuitem', { name: '削除' }));
+
+      // 削除した行の金額（10,000）の分だけ合計が減る
+      expect(screen.getAllByTestId('line-item-amount')).toHaveLength(1);
+      expect(screen.getByDisplayValue('残る項目')).toBeInTheDocument();
+      expect(screen.getByTestId('total-amount').textContent).toBe('15,000');
     });
 
     it('明細行が1行のみの場合は削除ボタンが非活性になる（Requirements: 11.18）', async () => {
