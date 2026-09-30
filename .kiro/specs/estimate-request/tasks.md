@@ -2154,6 +2154,8 @@
   - **JSON の整形は `npm run format:check` では見られない。** リポジトリルートの `format:check` は `prettier --check "e2e/**/*.{js,ts}" "playwright.config.{js,ts}" "scripts/**/*.ts"` であって JSON を含まず、`lint-staged` も `*.{js,ts}` だけを対象とする（2026-09-02 に実測）。`npx prettier --check e2e/requirement-exclusions.json` を直接走らせること（現況は整形済みで終了コード 0。同日に実測）
   - **検証**: `npm run check:req-exclusions` が緑であること、および上の `node -e` の出力の第一値が本スペックの件数だけ減っていること
   - _Depends: site-survey スペックの Task 115.280（`64 0` の宣言の解除と台帳の追随）_
+  - **利用者の判断（2026-10-01）: Task 95 を先に行う。** 着手時（HEAD `9ea0a6da`）の確かめで、12 件のうち REQ-11.18 は合計の再計算の主張が無く、REQ-14.5 は論理削除（レコードの残存と deletedAt）の主張が無く、REQ-13.1 / 13.4 / 13.6 / 11.19 は除外の理由が事実と異なる（既存の E2E が同じ経路を通る）ことが分かった。Task 95 で 11.18・11.19・13.1・13.4・13.6 の除外を取り下げ、14.5 の検証を補ったのち、本項で残る 7 件（11.20・11.21・11.23・14.3・14.4・14.5・14.6）の道具名を実体へ揃える。REQ-14.6 は手法を description へ寄せて `Vitest / Supertest` とする
+  - _Depends: 95.1, 95.2, 95.3_
   - _Boundary: 本スペックが所管する除外項目の `alternativeVerification.tool`_
 
 ## Implementation Notes
@@ -2217,3 +2219,36 @@
     - `frontend/src/components/estimate-requests/pdf-text-extractor.ts` の `extractPdfHybrid` / `extractPdfWithOcrFallback` に、下流の Task 97.8 が任意の3番目の引数 `options: { signal?: AbortSignal }` を足した（中断されると工程の区切りと認識の待ちで打ち切り、Tesseract の worker を終了して `AbortError` で失敗する）。本スペックの `OcrDataExtractor.tsx` はシグナルを渡さず、時間切れ後も OCR が裏で完走しうる挙動は従来どおり
   - **依頼**: 上記の差し替え口を本スペックの設計文書（`FileInlinePreviewProps` と `pdf-text-extractor` の項）へ規約 (a) の形で記録するか、下流の利用者として別の形で記すかを決めること。あわせて、これらの部品を変更するときに下流の取り込みダイアログの再検証が要ることを、本スペックの再検証の契機として記すかを決めること
   - _Boundary: 本スペックの設計文書が `FileInlinePreview` と `pdf-text-extractor` の公開面を記す箇所_
+
+## タスク95: 除外一覧が約束する代替検証の欠落を補い、E2E で前提を作れる除外を取り下げる
+
+**経緯**: Task 92.1 の着手時（2026-09-30、HEAD `9ea0a6da`）に、`Jest` を名乗る除外 12 件の代替検証を一件ずつ確かめたところ、次が分かった。利用者の判断（2026-10-01、「推奨の組合せで今回実装」）により、E2E で前提を作れるものは除外を取り下げて E2E で被覆し、代替検証の欠落は補う。
+
+- **REQ-11.18（明細行を削除し合計金額を再計算する）**: 単体テスト（`LineItemEditor.test.tsx` の削除の検証）は行の削除だけを主張し、合計の再計算を主張する検証が単体にも E2E にも無い。`LineItemEditor.tsx` の合計の useMemo の依存を空にする変異で 193 件が全通過した。E2E（`structured-data-ocr-e2e.spec.ts`）は既に削除の操作を行っており、コメント自身が「合計金額の再計算を主張していないため被覆印は掲げない」とする
+- **REQ-11.19（1 行のみのとき削除を非活性にする）**: 既存の E2E が `toBeDisabled` で既に主張しているが、被覆印は REQ-11.17 だけを掲げている
+- **REQ-13.1 / 13.4 / 13.6**: 除外の理由は「外部ライブラリ依存」だが、`structured-data-ocr-e2e.spec.ts` はファイルのアップロードとインラインプレビューを、`number-format-e2e.spec.ts` は `test-lineitem-table.xlsx` による Excel のデータパースの経路を、既に E2E で通している
+- **REQ-14.5（論理削除。削除後もレコードが DB に残り deletedAt が設定される）**: 統合テスト「受領見積書を削除できる」は 204 と後続の GET の 404 だけを見ており、物理削除でも成り立つ。`deletedAt` の設定を外す変異で単体テスト 53 件が全通過した
+
+- [ ] 95.1 受領見積書の論理削除（レコードの残存と deletedAt）を検証する
+  - 統合テスト（`backend/src/__tests__/integration/received-quotation-status.api.integration.test.ts` など）で、削除後に `prisma.receivedQuotation.findUnique` でレコードが残り `deletedAt` が非 null であることを主張する。単体テストでも、update が `deletedAt` 付きで呼ばれることを主張する
+  - 論理削除の設定を外す変異・物理削除へ替える変異で赤になることを実測する。実装が既に正しければ検証の追加のみ
+  - _Requirements: 14.5_
+  - _Boundary: 受領見積書の削除の検証_
+
+- [ ] 95.2 明細行の削除と合計の再計算、1 行時の削除の非活性を E2E で被覆する
+  - 既存の削除の E2E に、削除の前後の合計金額（`total-amount` など）の主張を足し、`@requirement estimate-request/REQ-11.18` を掲げる。合計が再計算されないなら実装の不具合として報告すること（RED → GREEN で直すかは判断を仰ぐ）
+  - 1 行のみのときの削除の非活性を主張している既存の test に `@requirement estimate-request/REQ-11.19` を掲げる
+  - 単体でも、削除後の合計を主張する検証を足す（合計の useMemo の依存を空にする変異で赤になることを実測する）
+  - _Requirements: 11.18, 11.19_
+  - _Boundary: 受領見積書の明細行の削除の検証_
+
+- [ ] 95.3 ファイルのアップロード・プレビュー・データパースを E2E で被覆する
+  - 既存の E2E（`structured-data-ocr-e2e.spec.ts`、`number-format-e2e.spec.ts`）に、REQ-13.1（ファイルのアップロードとフォーム内のプレビュー）、13.4（表形式のプレビュー）、13.6（Excel は OCR ではなくデータパースで取り込む）を受入基準どおりに主張する検証と被覆の印を足す。requirements.md の原文を読み、主張が受入基準に届いていることを確かめること
+  - _Requirements: 13.1, 13.4, 13.6_
+  - _Boundary: 受領見積書のファイルの取り込みの E2E_
+
+- [ ] 95.4 E2E で被覆した除外 5 件を取り下げ、件数の追随を site-survey へ依頼する
+  - `e2e/requirement-exclusions.json` から REQ-11.18・11.19・13.1・13.4・13.6 を削除し、`summary` と note を揃える（前例 15c47ac3、00a52fc8）。`check:req-coverage` で 5 件が E2E の被覆側に数えられることを確かめる
+  - 除外の総数（`requirement-exclusions-total`、137）と、E2E の参照の件数（`t13-anchor-references-after-115303`）の宣言が動く見込み。宣言は書き換えず、site-survey へ起票すること（115.339 の前例）
+  - _Depends: 95.2, 95.3_
+  - _Boundary: 本スペックが所管する除外項目_
