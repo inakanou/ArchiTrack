@@ -1734,3 +1734,26 @@
   - 除外の総数の宣言（`requirement-exclusions-total`、site-survey の所有）と、E2E の参照の件数の宣言（`t13-anchor-references-after-115303`）が動く見込み。**宣言は書き換えず**、site-survey スペックへ起票して依頼すること（115.337 / 115.338 の前例）
   - _Depends: 71.2, 71.3_
   - _Boundary: 本スペックが所管する除外項目_
+
+## Task 72: 機能レベル検証（2026-09-30、HEAD `770714e7`、NO-GO）の指摘の是正
+
+**経緯**: Task 71・70 の完了後の機能レベル検証が NO-GO を返した。今日の変更に退行は無く、テスト（backend 単体 6179・統合 43・frontend 単体 11923・E2E projects 285 / trading-partners 164）と関門は `check:req-coverage` を除き緑。NO-GO の理由は、以前からの E2E の被覆の穴と、設計文書のドリフトである。利用者の判断（2026-09-30、「文書は直し被覆は起票」）により、72.1 はこの実行で直し、72.2・72.3 は起票に留める。
+
+- [ ] 72.1 エラー回復の設計の記述を実装と要件 18 へ揃える
+  - design.md の要件対応表（377 行付近）の「18.1-18.6 | エラー回復 | ErrorBoundary, ToastNotification」に、Task 71.2 で実際の経路になった `useNetworkError` の `getNetworkOrServerErrorMessage` と、ProjectListPage / ProjectDetailPage / ProjectEditPage の画面内のエラー表示と再試行を加える
+  - design.md の Error Handling（3010 行付近）の「503 Service Unavailable → メンテナンスメッセージ」は実装されておらず（Task 71 より前から）、71.2 以後の 503 は要件 18.3 の文言を表示する。記述を要件 18.3 と実装へ揃える。あわせて、5xx でも再試行ボタンを表示する方針（71.2 の判断。既存の機能の維持）と、`useNetworkError` の分類 `server: canRetry=false` との関係を設計の判断として記す
+  - いずれも規約 (a) に従い、当時の記述を残して現況を併記する
+  - _Requirements: 18.1, 18.2, 18.3_
+  - _Boundary: 本スペックの設計文書のエラー回復の記述_
+
+- [ ] 72.2 E2E で被覆されていない受入基準 11 件を被覆する（**起票のみ。着手は利用者の判断による**）
+  - 対象（機能レベル検証の `check:req-coverage` の実測）: 1.5、8.3、22.3、22.6、26.3、27.5、29.6、40.3、40.4、40.5、41.2。いずれも Task 71 より前からの未被覆で、どのタスクも追跡していなかった。22.6 は site-survey の Task 115.188 が番号の誤りを正したときに 22.10 へ名乗り替えられて空いた
+  - 各受入基準について、原文どおりに主張する E2E を置き `@requirement project-management/REQ-N.M` を掲げる。E2E で前提を作れないものは、除外とするか（理由と代替検証の実在を確かめること）を個別に判断する
+  - E2E を足すと site-survey 所有の件数の宣言（t13 など）が動きうる。動いたら site-survey へ起票して依頼すること
+  - _Requirements: 1.5, 8.3, 22.3, 22.6, 26.3, 27.5, 29.6, 40.3, 40.4, 40.5, 41.2_
+  - _Boundary: 本スペックの E2E の被覆_
+
+- [ ] 72.3 要件 20.4 の被覆の印が本番から到達しない部品を名乗っている状態を解消する（**起票のみ。着手は利用者の判断による**）
+  - `frontend/src/utils/keyboard-navigation.ts` は本番の経路から到達しない（site-survey の design.md 11021 / 11084 行付近に記載）。本番の経路へ結線するか、撤去して被覆の印を実際に使われている部品へ移すかを決める。site-survey の計画と足並みを揃えること
+  - _Requirements: 20.4_
+  - _Boundary: 要件 20.4 の実装とその被覆_
