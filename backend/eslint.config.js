@@ -44,11 +44,21 @@ export default [
   ...tseslint.configs.recommended.map((config) => ({
     ...config,
     files: ['**/*.ts'],
-    ignores: ['vitest.config.ts', 'vitest.integration.config.ts', 'prisma.config.ts'],
+    ignores: [
+      'vitest.config.ts',
+      'vitest.integration.config.ts',
+      'vitest.contract.config.ts',
+      'prisma.config.ts',
+    ],
   })),
   {
     files: ['**/*.ts'],
-    ignores: ['vitest.config.ts', 'vitest.integration.config.ts', 'prisma.config.ts'],
+    ignores: [
+      'vitest.config.ts',
+      'vitest.integration.config.ts',
+      'vitest.contract.config.ts',
+      'prisma.config.ts',
+    ],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
@@ -90,10 +100,20 @@ export default [
   // vitest.config.ts / vitest.integration.config.ts and prisma.config.ts (without project reference)
   ...tseslint.configs.recommended.map((config) => ({
     ...config,
-    files: ['vitest.config.ts', 'vitest.integration.config.ts', 'prisma.config.ts'],
+    files: [
+      'vitest.config.ts',
+      'vitest.integration.config.ts',
+      'vitest.contract.config.ts',
+      'prisma.config.ts',
+    ],
   })),
   {
-    files: ['vitest.config.ts', 'vitest.integration.config.ts', 'prisma.config.ts'],
+    files: [
+      'vitest.config.ts',
+      'vitest.integration.config.ts',
+      'vitest.contract.config.ts',
+      'prisma.config.ts',
+    ],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {

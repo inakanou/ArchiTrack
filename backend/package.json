@@ -26,6 +26,8 @@
     "coverage:check": "node scripts/check-coverage-gaps.cjs",
     "test:integration:coverage": "rm -rf coverage && mkdir -p coverage/.tmp && vitest run --coverage --config vitest.integration.config.ts",
     "test:all": "sh scripts/run-all-tests.sh",
+    "test:contract": "vitest run --config vitest.contract.config.ts",
+    "test:contract:selftest": "vitest run --config vitest.contract.config.ts src/__tests__/contract/claude-vision-contract-shape.selftest.ts",
     "test:perf": "tsx performance/health-check.perf.ts",
     "test:perf:login": "tsx performance/login.perf.ts",
     "test:perf:project": "tsx performance/project-crud.perf.ts",
