@@ -751,6 +751,51 @@ describe('ReceivedQuotationService', () => {
       expect(mockStorageProvider.delete).not.toHaveBeenCalled();
     });
 
+    it('レコードを物理削除せず deletedAt を設定して論理削除する（Req 14.5）', async () => {
+      // Arrange
+      const quotationId = 'rq-001';
+      const expectedUpdatedAt = new Date('2026-01-23T00:00:00Z');
+
+      const mockQuotation = {
+        id: 'rq-001',
+        estimateRequestId: 'er-001',
+        name: 'テスト受領見積書',
+        submittedAt: new Date('2026-01-23'),
+        filePath: null,
+        fileName: null,
+        fileMimeType: null,
+        fileSize: null,
+        createdAt: new Date(),
+        updatedAt: expectedUpdatedAt,
+        deletedAt: null,
+      };
+
+      const txUpdate = vi.fn().mockResolvedValue({ ...mockQuotation, deletedAt: new Date() });
+      // 物理削除へ替わった場合も TypeError でなく主張で落ちるよう delete を用意する
+      const txDelete = vi.fn().mockResolvedValue(mockQuotation);
+
+      vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {
+        const txClient = {
+          receivedQuotation: {
+            findUnique: vi.fn().mockResolvedValue(mockQuotation),
+            update: txUpdate,
+            delete: txDelete,
+          },
+        };
+        return fn(txClient as unknown as PrismaClient);
+      });
+
+      // Act
+      await service.delete(quotationId, expectedUpdatedAt);
+
+      // Assert
+      expect(txUpdate).toHaveBeenCalledWith({
+        where: { id: quotationId },
+        data: expect.objectContaining({ deletedAt: expect.any(Date) }),
+      });
+      expect(txDelete).not.toHaveBeenCalled();
+    });
+
     it('存在しない受領見積書の場合、エラーを発生させる', async () => {
       // Arrange
       vi.mocked(mockPrisma.$transaction).mockImplementation(async (fn) => {

@@ -2228,7 +2228,7 @@
 - **REQ-13.1 / 13.4 / 13.6**: 除外の理由は「外部ライブラリ依存」だが、`structured-data-ocr-e2e.spec.ts` はファイルのアップロードとインラインプレビューを、`number-format-e2e.spec.ts` は `test-lineitem-table.xlsx` による Excel のデータパースの経路を、既に E2E で通している
 - **REQ-14.5（論理削除。削除後もレコードが DB に残り deletedAt が設定される）**: 統合テスト「受領見積書を削除できる」は 204 と後続の GET の 404 だけを見ており、物理削除でも成り立つ。`deletedAt` の設定を外す変異で単体テスト 53 件が全通過した
 
-- [ ] 95.1 受領見積書の論理削除（レコードの残存と deletedAt）を検証する
+- [x] 95.1 受領見積書の論理削除（レコードの残存と deletedAt）を検証する
   - 統合テスト（`backend/src/__tests__/integration/received-quotation-status.api.integration.test.ts` など）で、削除後に `prisma.receivedQuotation.findUnique` でレコードが残り `deletedAt` が非 null であることを主張する。単体テストでも、update が `deletedAt` 付きで呼ばれることを主張する
   - 論理削除の設定を外す変異・物理削除へ替える変異で赤になることを実測する。実装が既に正しければ検証の追加のみ
   - _Requirements: 14.5_
