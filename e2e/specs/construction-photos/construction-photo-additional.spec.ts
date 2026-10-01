@@ -45,6 +45,8 @@
  *     ダイアログの本文が水平にはみ出さない（R19.1）
  * 15. モバイル幅の看板配置ダイアログ: 区切りの無い英数字の長い工事件名でも、操作列の「保存」が
  *     画面外へ押し出されず、案内文が潰れず、件名のバッジが画面内に収まる（R19.1）
+ * 16. モバイル幅のアルバムを取り除く確認ダイアログ: 区切りの無い英数字の長いアルバム名でも、
+ *     ダイアログとその中のパネルが水平にはみ出さず、名前の文字列が画面内に収まる（R19.1）
  *
  * 縮退した要素（理由明記）:
  *  - パンの座標厳密検証: 拡大時に画像 transform の translate 成分が変化することまでを確認し、
@@ -1572,5 +1574,101 @@ test.describe('工事写真 追加機能フロー', () => {
     );
     // 件名のバッジの文字列が画面幅の内側に収まる
     expect(m.badge.textRight, report).toBeLessThanOrEqual(m.viewportWidth + 1);
+  });
+
+  /**
+   * R19.1 モバイル幅のアルバムを取り除く確認ダイアログ:
+   * 375 幅で工事写真の詳細画面を開き、区切りの無い英数字の長い一語（100 文字超）のアルバム名で
+   * アルバムを取り除く確認ダイアログを開いたとき、ダイアログが水平にはみ出さないことを検証する。
+   *
+   * @requirement construction-photo/REQ-19.1
+   *
+   * 前提として、アルバム名の一行の自然幅がダイアログの幅（clientWidth）を超えること（折り返さ
+   * なければダイアログに収まらない長さであること）を主張する。自然幅は画面の計算済みフォントで
+   * canvas の measureText により測る（タスク 19.2・20.1・20.3・20.4 と同じ手法）。そのうえで次を
+   * 主張する。
+   *  - ダイアログ（role=dialog）の scrollWidth が clientWidth を超えない。
+   *  - ダイアログの中のパネル（ダイアログ直下の内容の箱）の scrollWidth が clientWidth を超えない。
+   *  - アルバム名の文字列の右端（Range の外接矩形）が画面幅の内側にある（許容誤差1px）。
+   *    ダイアログの箱は画面幅の 90% に固定され、はみ出すのは中の文字列であるため、右端は箱ではなく
+   *    文字列で測る（タスク 20.3 と同じ理由）。
+   *
+   * 是正の経緯（2026-10-01、タスク 20.5）: 本テストを書いた時点の実装（`AlbumDeleteDialog.tsx` の
+   * `styles.albumName` に折り返しの指定が無い形）では赤だった。是正は `styles.albumName` に
+   * overflowWrap:anywhere を足し、語の中にも折り返し位置を与えたことである。
+   * 是正前の実測は、名前の自然幅 821.8、ダイアログの scrollWidth 866 / clientWidth 338、パネルの
+   * scrollWidth 846 / clientWidth 298、文字列の右端 884.5（ダイアログの箱の右端は 356.3）である。
+   * 是正後は、ダイアログ 338 / 338、パネル 298 / 298、文字列の右端 309.6 になる。
+   * 検出力（変異で実測）: 是正の指定だけを外し、三つの主張を一時的に soft にして流すと、三つとも
+   * それぞれ赤になる（ダイアログ 866 > 338、パネル 846 > 298、右端 884.5 > 376）。
+   *
+   * ダイアログは「キャンセル」で閉じ、アルバムは取り除かない。文書全体（documentElement）の
+   * scrollWidth は測らない。アプリ共通ヘッダ（全画面共通のクロムで工事写真機能の範囲外）が
+   * 375 幅で水平にはみ出すためである（上のテストの注記と同じ理由）。
+   */
+  test('モバイル幅で区切りの無い長いアルバム名でもアルバムを取り除く確認ダイアログが水平にはみ出さない', async ({
+    page,
+  }) => {
+    const stamp = Date.now();
+    const albumName = `FoundationRebarInspectionAndFormworkInstallationRecordAlbumForThirdZoneConcretePlacementSchedule${stamp}`;
+
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'album-dialog');
+    const albumId = await createAlbum(page, projectId, albumName);
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    const heading = page.getByRole('heading', { level: 1, name: albumName });
+    await expect(heading).toBeVisible({ timeout: getTimeout(15000) });
+
+    await page.getByRole('button', { name: '削除', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'アルバムの削除' });
+    await expect(dialog).toBeVisible({ timeout: getTimeout(10000) });
+    const nameEl = dialog.locator('span').filter({ hasText: albumName });
+    await expect(nameEl).toHaveCount(1);
+
+    const m = await nameEl.evaluate((span) => {
+      const dialogEl = span.closest('[role="dialog"]') as HTMLElement;
+      const panel = dialogEl.firstElementChild as HTMLElement;
+      const context = document.createElement('canvas').getContext('2d');
+      const style = getComputedStyle(span);
+      let naturalWidth = -1;
+      if (context) {
+        context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+        naturalWidth = context.measureText(span.textContent ?? '').width;
+      }
+      const range = document.createRange();
+      range.selectNodeContents(span);
+      const box = (el: HTMLElement) => ({
+        scrollWidth: el.scrollWidth,
+        clientWidth: el.clientWidth,
+        right: el.getBoundingClientRect().right,
+      });
+      return {
+        viewportWidth: window.innerWidth,
+        naturalWidth,
+        dialog: box(dialogEl),
+        panel: box(panel),
+        textRight: range.getBoundingClientRect().right,
+      };
+    });
+    const report = JSON.stringify(m);
+
+    expect(m.viewportWidth).toBe(375);
+    expect(m.dialog.clientWidth, report).toBeGreaterThan(0);
+    expect(m.panel.clientWidth, report).toBeGreaterThan(0);
+    // 前提: アルバム名の一語の自然幅がダイアログの幅を超える（折り返さなければはみ出す長さ）
+    expect(m.naturalWidth, report).toBeGreaterThan(m.dialog.clientWidth);
+    // R19.1: ダイアログとその中のパネルに水平のはみ出しが無い
+    expect(m.dialog.scrollWidth, report).toBeLessThanOrEqual(m.dialog.clientWidth);
+    expect(m.panel.scrollWidth, report).toBeLessThanOrEqual(m.panel.clientWidth);
+    // アルバム名の文字列が画面幅の内側に収まる
+    expect(m.textRight, report).toBeLessThanOrEqual(m.viewportWidth + 1);
+
+    // 後始末: 取り除かずにダイアログを閉じる
+    await dialog.getByRole('button', { name: 'キャンセル' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(heading).toBeVisible();
   });
 });

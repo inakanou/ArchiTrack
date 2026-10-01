@@ -211,5 +211,16 @@ describe('AlbumDeleteDialog', () => {
         )
       ).toBeInTheDocument();
     });
+
+    it('R19.1: 区切りの無い長いアルバム名を本文の中で折り返すこと', () => {
+      // 英数字一語の長いアルバム名は折り返し位置を持たず、指定が無いとモバイル幅でダイアログを
+      // 水平にはみ出させる（タスク 20.5）
+      const longName = `FoundationRebarInspectionAndFormworkInstallationRecordAlbumForThirdZone${'X'.repeat(40)}`;
+      render(<AlbumDeleteDialog {...defaultProps} albumName={longName} />);
+
+      const name = screen.getByText(longName);
+      expect(name.tagName).toBe('SPAN');
+      expect(name.style.overflowWrap).toBe('anywhere');
+    });
   });
 });

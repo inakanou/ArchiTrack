@@ -59,9 +59,13 @@ const styles = {
     color: '#374151',
     lineHeight: '1.6',
   } as React.CSSProperties,
+  // overflowWrap:anywhere は区切りの無い長い語にも折り返し位置を与える。アルバム名は最大 200 文字
+  // まで入力でき、英数字一語の名前はこれが無いと折り返されず、モバイル幅でダイアログを水平に
+  // はみ出させる（タスク 20.5 の E2E で実測, R19.1）
   albumName: {
     fontWeight: 'bold',
     color: '#1f2937',
+    overflowWrap: 'anywhere' as const,
   } as React.CSSProperties,
   warningBox: {
     marginBottom: '16px',
