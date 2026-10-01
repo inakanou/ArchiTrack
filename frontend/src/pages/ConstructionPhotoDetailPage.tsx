@@ -122,9 +122,14 @@ const styles = {
   } as React.CSSProperties,
   // overflowX:auto は常時付与し、長いパンくず行を水平スクロール内に収めて
   // 祖先(コンテナ)の scrollWidth への寄与を断つ（デスクトップ幅でも回帰しない, R19.4）
+  // overflowWrap:anywhere は共通 Breadcrumb の各項目（折り返さない flex 行の項目）へ継承され、
+  // 区切りの無い英数字の語にも折り返し位置を与えて項目の最小幅を縮める。これが無いと
+  // 「…工事_1790846187373」のような名前で項目の最小幅の和が狭幅を超え、ブレッドクラム
+  // 自身が水平にはみ出す（タスク 19.2 の E2E で実測, R19.4）
   breadcrumbWrapper: {
     marginBottom: '16px',
     overflowX: 'auto' as const,
+    overflowWrap: 'anywhere' as const,
   } as React.CSSProperties,
   header: {
     marginBottom: '24px',

@@ -482,8 +482,9 @@ _申し送り元: quantity-table-generation スペックの Task 100.24_
   - _Requirements: 17.1_
   - _Boundary: 工事写真の詳細画面の権限連動の E2E_
 
-- [ ] 19.2 モバイル幅でブレッドクラムが水平にはみ出さないことを E2E で主張する
+- [x] 19.2 モバイル幅でブレッドクラムが水平にはみ出さないことを E2E で主張する
   - 375 幅で工事写真の画面を開き、ブレッドクラムの `scrollWidth` が `clientWidth` を超えないこと（または文書全体に水平スクロールが生じないこと）を主張すること。対象画面は requirements.md の Requirement 19 の 4 を読んで確定すること
   - 被覆印は `@requirement construction-photo/REQ-19.4` とする。長いプロジェクト名・アルバム名を与え、はみ出しうる条件で測ること
   - _Requirements: 19.4_
   - _Boundary: 工事写真のモバイル幅のブレッドクラムの E2E_
+  - **【完了時の注記（2026-10-01）】E2E は書いた時点で赤だった**（375 幅で nav の scrollWidth 389 / clientWidth 319。区切りの無い語の最小幅の和が折り返さない flex 行を押し広げていた）。`ConstructionPhotoDetailPage.tsx` の `breadcrumbWrapper` に `overflowWrap: 'anywhere'` を1行加えて是正し、共通の Breadcrumb には触れていない。文書全体の scrollWidth は共通ヘッダが 400/375 ではみ出すため主張に使っていない

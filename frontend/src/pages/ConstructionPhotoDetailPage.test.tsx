@@ -1027,6 +1027,8 @@ describe('ConstructionPhotoDetailPage', () => {
       const breadcrumbWrapper = breadcrumbNav.parentElement;
       expect(breadcrumbWrapper).not.toBeNull();
       expect(breadcrumbWrapper!.style.overflowX).toBe('auto');
+      // 区切りの無い長い語も折り返して幅に収める（タスク 19.2）
+      expect(breadcrumbWrapper!.style.overflowWrap).toBe('anywhere');
     });
 
     it('R19.2/19.3/19.5: モバイル幅では写真項目パネルが縦積み・タップ領域確保・16px入力で描画される', async () => {

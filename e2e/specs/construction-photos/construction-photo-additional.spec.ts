@@ -37,6 +37,8 @@
  *     `window.addEventListener('beforeunload', e => e.preventDefault())`）へ移行済みで、
  *     site-survey の site-survey-responsive.spec.ts の確立済みパターンを流用する。
  * 11. モバイル縦積み: 狭幅で横スクロールなし・写真項目が縦積み（R19.1, R19.2, R19.4）
+ * 12. モバイル幅のブレッドクラム: 長いプロジェクト名・アルバム名でもブレッドクラムが水平に
+ *     はみ出さない（折り返して収まる／折り返せない語は自身の領域内に収まる）（R19.4）
  *
  * 縮退した要素（理由明記）:
  *  - パンの座標厳密検証: 拡大時に画像 transform の translate 成分が変化することまでを確認し、
@@ -71,10 +73,11 @@ const FIXTURE_PNG = path.join(__dirname, '../../fixtures/test-image.png');
 // 共通ヘルパー（site-survey / construction-photo-workflow 規約踏襲）
 // ============================================================================
 
-/** UIでテスト用プロジェクトを作成し projectId を返す。 */
+/** UIでテスト用プロジェクトを作成し projectId を返す。name を渡すとその名前で作成する。 */
 async function createProject(
   page: import('@playwright/test').Page,
-  label: string
+  label: string,
+  name?: string
 ): Promise<string> {
   await page.goto('/projects');
   await page.waitForLoadState('networkidle');
@@ -85,7 +88,7 @@ async function createProject(
     timeout: getTimeout(15000),
   });
 
-  const projectName = `工事写真追加E2E_${label}_${Date.now()}`;
+  const projectName = name ?? `工事写真追加E2E_${label}_${Date.now()}`;
   await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
   const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
@@ -1031,5 +1034,166 @@ test.describe('工事写真 追加機能フロー', () => {
       .first()
       .evaluate((el) => getComputedStyle(el as HTMLElement).flexDirection);
     expect(flexDirection).toBe('column');
+  });
+
+  /**
+   * R19.4 モバイル幅のブレッドクラム:
+   * 375 幅で工事写真の詳細画面を開き、長いプロジェクト名・アルバム名を載せたブレッドクラムが
+   * 水平にはみ出さないことを検証する。対象画面は Requirement 19（工事写真詳細画面の
+   * レスポンシブ対応）の所管である詳細画面とする。
+   *
+   * @requirement construction-photo/REQ-19.4
+   *
+   * はみ出しうる条件を二つ測り、どちらでも同じ主張を課す。主張は、ブレッドクラム（nav）・
+   * そのリスト（ol）・詳細画面がブレッドクラムを包む領域のいずれも scrollWidth が clientWidth を
+   * 超えないこと（許容誤差1px）、ブレッドクラムが画面幅の内側にあること、詳細画面のコンテナ
+   * （<main>）に水平のはみ出しが生じないことである。
+   *  (1) 日本語の長い名前（区切りの無い数字の語を末尾に含む）: 前提として、最長の項目名の一行の
+   *      自然幅がブレッドクラムの幅を超えること（折り返しが要る長さであること）と、ブレッドクラムが
+   *      実際に複数行へ折り返されていることを主張する。
+   *  (2) 区切りの無い英数字の長い一語のプロジェクト名（プロジェクト名は詳細画面ではブレッドクラムに
+   *      しか現れないため、見出し等の他要素のはみ出しが混ざらない）: 前提として、その語の一行の
+   *      自然幅がブレッドクラムの領域の幅を超えることを主張する。
+   * 自然幅は画面の計算済みフォントで canvas の measureText により測る（折り返しの有無に依らない）。
+   *
+   * 是正の経緯（2026-10-01、タスク 19.2）: 本テストを書いた時点の実装（ブレッドクラムを包む領域に
+   * overflow-x:auto だけを与える形）では (1) が赤だった。共通 Breadcrumb の項目は折り返さない flex
+   * 行に並び、各項目の最小幅は区切りの無い語（末尾の「_」＋13桁の数字）の幅になる。その和が
+   * 狭幅を超え、ブレッドクラム自身が水平にはみ出していた（nav の scrollWidth 389 / clientWidth 319）。
+   * はみ出しは包む領域の水平スクロールへ収まり <main> へは及ばないが、ブレッドクラム自体は
+   * 水平にはみ出していた。是正は `ConstructionPhotoDetailPage.tsx` の `breadcrumbWrapper` に
+   * overflowWrap:anywhere を足し、項目へ継承させて語の中にも折り返し位置を与えたことである。
+   *
+   * 文書全体（documentElement）の scrollWidth は測らない。アプリ共通ヘッダ（全画面共通の
+   * クロムで工事写真機能の範囲外）が 375 幅で水平にはみ出すため、本機能の判定に使えない
+   * （上の「モバイル狭幅で横スクロールなし」の注記と同じ理由。2026-10-01 の実測で
+   * documentElement は scrollWidth 400 / clientWidth 375）。
+   *
+   * 測定の前に、詳細画面のモバイル分岐（`containerMobile` の maxWidth:100%）が適用されるまで
+   * 待つ。`useMediaQuery` は初期描画でデスクトップ側になり得るためである。
+   */
+  test('モバイル幅で長いプロジェクト名・アルバム名のブレッドクラムが水平にはみ出さない', async ({
+    page,
+  }) => {
+    const stamp = Date.now();
+    const japaneseProjectName = `東京都千代田区丸の内二丁目再開発計画に伴う超高層複合ビル新築工事および周辺道路整備工事_${stamp}`;
+    const albumName = `外構工事における基礎配筋検査および型枠設置状況の記録写真アルバム第三工区_${stamp}`;
+    const unbreakableProjectName = `MarunouchiRedevelopmentSkyscraperConstructionProject${stamp}`;
+    const prisma = getPrismaClient();
+
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'breadcrumb', japaneseProjectName);
+    const albumId = await createAlbum(page, projectId, albumName);
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    const breadcrumb = page.getByRole('navigation', { name: 'パンくずナビゲーション' });
+
+    /** 詳細画面を開き、モバイル分岐の適用を待ってからブレッドクラムを測る。 */
+    const openAndMeasure = async (projectName: string) => {
+      await page.goto(`/construction-photos/${albumId}`);
+      await page.waitForLoadState('networkidle');
+      await expect(page.getByRole('heading', { name: albumName })).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+      await expect(breadcrumb).toBeVisible();
+      await expect(breadcrumb).toContainText(projectName);
+      await expect(breadcrumb).toContainText(albumName);
+      await expect
+        .poll(
+          async () =>
+            breadcrumb.evaluate((nav) => {
+              const main = nav.closest('main');
+              return main ? getComputedStyle(main).maxWidth : null;
+            }),
+          { timeout: getTimeout(15000) }
+        )
+        .toBe('100%');
+
+      return breadcrumb.evaluate((nav) => {
+        const area = nav.parentElement as HTMLElement;
+        const list = nav.querySelector('ol') as HTMLElement;
+        const main = nav.closest('main') as HTMLElement;
+        const context = document.createElement('canvas').getContext('2d');
+        const labels = Array.from(nav.querySelectorAll('li > a, li > span:not([aria-hidden])'));
+        const naturalWidths = labels.map((label) => {
+          const style = getComputedStyle(label);
+          if (!context) return -1;
+          context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+          return context.measureText(label.textContent ?? '').width;
+        });
+        const navRect = nav.getBoundingClientRect();
+        const areaRect = area.getBoundingClientRect();
+        return {
+          viewportWidth: window.innerWidth,
+          labels: labels.map((label) => label.textContent ?? ''),
+          naturalWidths,
+          lineHeight: parseFloat(getComputedStyle(list).lineHeight),
+          nav: {
+            scrollWidth: nav.scrollWidth,
+            clientWidth: nav.clientWidth,
+            height: navRect.height,
+            left: navRect.left,
+            right: navRect.right,
+          },
+          list: { scrollWidth: list.scrollWidth, clientWidth: list.clientWidth },
+          area: {
+            scrollWidth: area.scrollWidth,
+            clientWidth: area.clientWidth,
+            left: areaRect.left,
+            right: areaRect.right,
+          },
+          main: { scrollWidth: main.scrollWidth, clientWidth: main.clientWidth },
+        };
+      });
+    };
+
+    /** R19.4 の主張: ブレッドクラムとその周囲に水平のはみ出しが無い（許容誤差1px）。 */
+    const expectNoHorizontalOverflow = (
+      m: Awaited<ReturnType<typeof openAndMeasure>>,
+      report: string
+    ): void => {
+      expect(m.nav.clientWidth).toBeGreaterThan(0);
+      expect(m.nav.scrollWidth - m.nav.clientWidth, report).toBeLessThanOrEqual(1);
+      expect(m.list.scrollWidth - m.list.clientWidth, report).toBeLessThanOrEqual(1);
+      expect(m.area.scrollWidth - m.area.clientWidth, report).toBeLessThanOrEqual(1);
+      expect(m.nav.left, report).toBeGreaterThanOrEqual(0);
+      expect(m.nav.right, report).toBeLessThanOrEqual(m.viewportWidth + 1);
+      expect(m.main.scrollWidth - m.main.clientWidth, report).toBeLessThanOrEqual(1);
+    };
+
+    // (1) 日本語の長い名前
+    const wrapped = await openAndMeasure(japaneseProjectName);
+    const wrappedReport = JSON.stringify(wrapped);
+    expect(wrapped.viewportWidth).toBe(375);
+    expect(wrapped.labels).toEqual([
+      'ダッシュボード',
+      'プロジェクト一覧',
+      japaneseProjectName,
+      '工事写真一覧',
+      albumName,
+    ]);
+    // 前提: 名前は一行に収まらない長さであり、ブレッドクラムは実際に複数行へ折り返されている
+    expect(Math.min(...wrapped.naturalWidths)).toBeGreaterThan(0);
+    expect(Math.max(...wrapped.naturalWidths), wrappedReport).toBeGreaterThan(
+      wrapped.nav.clientWidth
+    );
+    expect(wrapped.lineHeight).toBeGreaterThan(0);
+    expect(wrapped.nav.height, wrappedReport).toBeGreaterThanOrEqual(wrapped.lineHeight * 2);
+    expectNoHorizontalOverflow(wrapped, wrappedReport);
+
+    // (2) 区切りの無い英数字の長い一語のプロジェクト名
+    await prisma.project.update({
+      where: { id: projectId },
+      data: { name: unbreakableProjectName },
+    });
+    const unbreakable = await openAndMeasure(unbreakableProjectName);
+    const unbreakableReport = JSON.stringify(unbreakable);
+    expect(unbreakable.labels[2]).toBe(unbreakableProjectName);
+    // 前提: プロジェクト名の一語の自然幅がブレッドクラムの領域の幅を超える
+    expect(unbreakable.area.clientWidth).toBeGreaterThan(0);
+    expect(unbreakable.naturalWidths[2], unbreakableReport).toBeGreaterThan(
+      unbreakable.area.clientWidth
+    );
+    expectNoHorizontalOverflow(unbreakable, unbreakableReport);
   });
 });
