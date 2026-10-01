@@ -86,7 +86,7 @@ export class EstimateRequestTextService {
    * @returns メール見積依頼テキスト
    * @throws EstimateRequestNotFoundError 見積依頼が存在しない場合
    * @throws MissingContactInfoError メールアドレスが登録されていない場合
-   * @throws NoItemsSelectedError 項目が選択されていない場合
+   * @throws NoItemsSelectedError 「内訳書を本文に含める」がチェックされ項目が選択されていない場合
    */
   async generateEmailText(estimateRequestId: string): Promise<EmailEstimateRequestText> {
     // 1. 見積依頼の取得
@@ -100,7 +100,9 @@ export class EstimateRequestTextService {
     // 3. 選択された項目の取得
     const selectedItems = await this.getSelectedItems(estimateRequestId);
 
-    if (selectedItems.length === 0) {
+    // 本文に項目を並べる場合だけ、選択項目が必要になる（「含めない」と内訳書未紐付けは
+    // 項目の代わりに「添付内訳書の通り」を置くため、0 件でも本文を生成する）
+    if (selectedItems.length === 0 && this.listsSelectedItems(request)) {
       throw new NoItemsSelectedError(estimateRequestId);
     }
 
@@ -125,7 +127,7 @@ export class EstimateRequestTextService {
    * @returns FAX見積依頼テキスト
    * @throws EstimateRequestNotFoundError 見積依頼が存在しない場合
    * @throws MissingContactInfoError FAX番号が登録されていない場合
-   * @throws NoItemsSelectedError 項目が選択されていない場合
+   * @throws NoItemsSelectedError 「内訳書を本文に含める」がチェックされ項目が選択されていない場合
    */
   async generateFaxText(estimateRequestId: string): Promise<FaxEstimateRequestText> {
     // 1. 見積依頼の取得
@@ -139,7 +141,9 @@ export class EstimateRequestTextService {
     // 3. 選択された項目の取得
     const selectedItems = await this.getSelectedItems(estimateRequestId);
 
-    if (selectedItems.length === 0) {
+    // 本文に項目を並べる場合だけ、選択項目が必要になる（「含めない」と内訳書未紐付けは
+    // 項目の代わりに「添付内訳書の通り」を置くため、0 件でも本文を生成する）
+    if (selectedItems.length === 0 && this.listsSelectedItems(request)) {
       throw new NoItemsSelectedError(estimateRequestId);
     }
 
@@ -244,12 +248,26 @@ export class EstimateRequestTextService {
   }
 
   /**
+   * 本文に選択項目を並べるか（「内訳書を本文に含める」がチェックされ、かつ内訳書が紐付いている）
+   *
+   * 内訳書未紐付けの見積依頼は `includeBreakdownInBody` が残っていても項目を並べない
+   * （作成・更新時に false へ正規化されるが、本文生成の側でも同じ判定を課す）。
+   */
+  private listsSelectedItems(request: {
+    includeBreakdownInBody: boolean;
+    itemizedStatement: { id: string; name: string } | null;
+  }): boolean {
+    return request.includeBreakdownInBody && request.itemizedStatement !== null;
+  }
+
+  /**
    * メール本文を生成する
    */
   private generateEmailBody(
     request: {
       name: string;
       includeBreakdownInBody: boolean;
+      itemizedStatement: { id: string; name: string } | null;
       tradingPartner: { name: string };
       project: { name: string; siteAddress: string | null };
     },
@@ -273,10 +291,14 @@ export class EstimateRequestTextService {
     }
     lines.push('');
 
-    // 内訳書を本文に含める場合
-    // Requirements 39.9: 二重ガード（includeBreakdownInBody=false 強制保存 + selectedItems.length=0）で
-    // 内訳書未紐付けの見積依頼では【見積対象項目】セクションを確実に省略する
-    if (request.includeBreakdownInBody && selectedItems.length > 0) {
+    // 「内訳書を本文に含める」が未チェック、または内訳書未紐付けの場合（Task 93.1 で R-39-1 を消化）
+    // 【内容】セクションに「添付内訳書の通り」を置く（Requirements 6.9 / 39.9）
+    if (!this.listsSelectedItems(request)) {
+      lines.push('【内容】');
+      lines.push('添付内訳書の通り');
+      lines.push('');
+    } else if (selectedItems.length > 0) {
+      // 内訳書を本文に含める場合（既存の【見積対象項目】セクションは変えない）
       lines.push('【見積対象項目】');
       lines.push('');
       for (const item of selectedItems) {
@@ -306,6 +328,7 @@ export class EstimateRequestTextService {
     request: {
       name: string;
       includeBreakdownInBody: boolean;
+      itemizedStatement: { id: string; name: string } | null;
       tradingPartner: { name: string };
       project: { name: string; siteAddress: string | null };
     },
@@ -339,10 +362,14 @@ export class EstimateRequestTextService {
     }
     lines.push('');
 
-    // 内訳書を本文に含める場合
-    // Requirements 39.9: 二重ガード（includeBreakdownInBody=false 強制保存 + selectedItems.length=0）で
-    // 内訳書未紐付けの見積依頼では【見積対象項目】セクションを確実に省略する
-    if (request.includeBreakdownInBody && selectedItems.length > 0) {
+    // 「内訳書を本文に含める」が未チェック、または内訳書未紐付けの場合（Task 93.1 で R-39-1 を消化）
+    // 【内容】セクションに「添付内訳書の通り」を置く（Requirements 6.9 / 39.9）
+    if (!this.listsSelectedItems(request)) {
+      lines.push('【内容】');
+      lines.push('添付内訳書の通り');
+      lines.push('');
+    } else if (selectedItems.length > 0) {
+      // 内訳書を本文に含める場合（既存の【見積対象項目】セクションは変えない）
       lines.push('【見積対象項目】');
       lines.push('');
       for (const item of selectedItems) {

@@ -49,18 +49,6 @@
       "unverified": false
     },
     {
-      "id": "estimate-request/REQ-6.9",
-      "literal": "添付内訳書の通り",
-      "criterionText": "While 「内訳書を本文に含める」がチェックされていないとき, the システム shall 本文の【内容】セクションに「添付内訳書の通り」と表示する",
-      "category": "implementation-divergence",
-      "reason": "実装は本文に【内容】というセクションを持たず、内訳書を本文に含めない場合は見積対象項目のセクションを丸ごと省略する。条文が求める代替の文言は一度も出力されない。近似形も無い。",
-      "alternativeBasis": "支えは無い。estimate-request-text.service.ts の本文生成は内訳書を含める場合だけ項目のセクションを積み、含めない場合は何も積まない。是正には本文生成側か条文側のどちらかを動かす別タスクが要る。",
-      "evidence": [
-        "backend/src/services/estimate-request-text.service.ts"
-      ],
-      "unverified": true
-    },
-    {
       "id": "estimate-request/REQ-29.1",
       "literal": "ダッシュボード > プロジェクト一覧 > プロジェクト > 見積依頼一覧",
       "criterionText": "The システム shall 見積依頼一覧画面のパンくずナビゲーションを「ダッシュボード > プロジェクト一覧 > プロジェクト > 見積依頼一覧」の階層構造で表示する",
@@ -98,18 +86,6 @@
         "frontend/src/components/common/Breadcrumb.tsx"
       ],
       "unverified": false
-    },
-    {
-      "id": "estimate-request/REQ-39.9",
-      "literal": "添付内訳書の通り",
-      "criterionText": "While 表示中の見積依頼が内訳書未紐付けのとき, the システム shall 見積依頼文表示（Requirement 6 AC 1）の本文【内容】セクションに「添付内訳書の通り」と表示する（Requirement 6 AC 9 と同等の挙動）",
-      "category": "implementation-divergence",
-      "reason": "要件 6 の受入基準 9 と同等の挙動を求める条文であり、同じ理由で実装に現れない。内訳書未紐付けのとき実装は二重の守りでセクションを省略する側へ倒しており、代替の文言を出す経路が無い。",
-      "alternativeBasis": "支えは無い。estimate-request-text.service.ts は内訳書未紐付けの見積依頼で見積対象項目のセクションを確実に省略する註釈を持つが、その代わりに文言を置く分岐は無い。是正は要件 6 の受入基準 9 と同じ判断に従う。",
-      "evidence": [
-        "backend/src/services/estimate-request-text.service.ts"
-      ],
-      "unverified": true
     },
     {
       "id": "project-management/REQ-2.5",

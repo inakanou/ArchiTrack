@@ -2065,7 +2065,7 @@ test.describe('見積依頼機能', () => {
      * @requirement estimate-request/REQ-6.9
      * 「内訳書を本文に含める」がチェックされていないとき、本文の【内容】セクションに「添付内訳書の通り」と表示する
      */
-    test('REQ-6.9: 「内訳書を本文に含める」未チェック時に「添付内訳書の通り」が表示される', async ({
+    test('REQ-6.9: 「内訳書を本文に含める」未チェック時に本文の【内容】へ「添付内訳書の通り」が表示される', async ({
       page,
     }) => {
       expect(createdProjectId).toBeTruthy();
@@ -2114,30 +2114,36 @@ test.describe('見積依頼機能', () => {
       // 保存ボタンクリックで項目選択を永続化（Task 30改修: debounce自動保存 -> 保存ボタン方式）
       await clickSaveSelectionButton(page);
 
-      // 「内訳書を本文に含める」がチェックされていないことを確認し、チェックされている場合は外す
+      // 「内訳書を本文に含める」は新規作成時に未チェックである（作成フォームはこの値を送らず、
+      // サーバーは false で保存する）。前提を分岐で吸収せず、未チェックであることを主張する
       const includeBreakdownCheckbox = page.getByLabel(/内訳書を本文に含める/i);
-      const isChecked = await includeBreakdownCheckbox.isChecked().catch(() => false);
-      if (isChecked) {
-        await includeBreakdownCheckbox.click();
-        await page.waitForTimeout(500);
-      }
+      await expect(includeBreakdownCheckbox).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(includeBreakdownCheckbox).not.toBeChecked();
 
-      // 見積依頼文表示ボタンをクリック
+      // 見積依頼文表示ボタンをクリックし、本文の取得が成功することを待つ
       const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
       await expect(showTextButton).toBeVisible({ timeout: getTimeout(10000) });
+      const textResponsePromise = page.waitForResponse(
+        (response) =>
+          /\/estimate-requests\/[0-9a-f-]+\/text$/.test(new URL(response.url()).pathname) &&
+          response.request().method() === 'GET',
+        { timeout: getTimeout(30000) }
+      );
       await showTextButton.click();
+      const textResponse = await textResponsePromise;
+      expect(textResponse.status()).toBe(200);
 
       // 見積依頼文パネルが表示されるまで待機
       const panel = page.locator('[role="region"][aria-label="見積依頼文"]');
       await expect(panel).toBeVisible({ timeout: getTimeout(10000) });
 
-      // 本文が表示されていることを確認
-      const bodySection = panel.locator('text=本文').locator('..').locator('..');
-      await expect(bodySection).toBeVisible({ timeout: getTimeout(10000) });
+      // 本文（pre）の【内容】セクションに「添付内訳書の通り」が表示される
+      const bodyPre = panel.locator('pre');
+      await expect(bodyPre).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(bodyPre).toContainText('【内容】\n添付内訳書の通り');
 
-      // 「内訳書を本文に含める」がオフの場合、項目詳細（テスト項目）が本文に含まれないことを確認
-      // 現在の実装では「添付内訳書の通り」というテキストは表示されない
-      await expect(panel.getByText(/テスト項目1/i)).not.toBeVisible({ timeout: getTimeout(5000) });
+      // 未チェックなので、選択した項目（テスト項目）は本文に並ばない
+      await expect(bodyPre).not.toContainText('テスト項目');
     });
   });
 
@@ -3533,7 +3539,6 @@ test.describe('見積依頼機能', () => {
      * @requirement estimate-request/REQ-39.4 データモデルで参照内訳書を任意（NULL 許容）として扱う（API レスポンスの itemizedStatementId === null で担保）
      * @requirement estimate-request/REQ-39.7
      * @requirement estimate-request/REQ-39.8
-     * @requirement estimate-request/REQ-39.9 内訳書未紐付け時の見積依頼文表示（「内訳書を本文に含める」非表示で担保）
      * @requirement estimate-request/REQ-39.10
      * @requirement estimate-request/REQ-39.11
      * シナリオ 1: クイック作成→詳細
@@ -3634,6 +3639,54 @@ test.describe('見積依頼機能', () => {
       await expect(page.getByText(/受領見積書/).first()).toBeVisible({
         timeout: getTimeout(5000),
       });
+    });
+
+    /**
+     * @requirement estimate-request/REQ-39.9
+     * シナリオ 1b: 内訳書未紐付けの見積依頼の見積依頼文
+     * シナリオ 1 でクイック作成した見積依頼の詳細画面で見積依頼文を表示し、
+     * 本文の取得が成功して（「見積依頼文を取得できませんでした」ではない）、
+     * 本文の【内容】セクションに「添付内訳書の通り」が表示されることを確認する
+     */
+    test('REQ-39.9: 内訳書未紐付けの見積依頼で本文の【内容】に「添付内訳書の通り」が表示される', async ({
+      page,
+    }) => {
+      expect(quickEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      await page.goto(`/estimate-requests/${quickEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      // 前提: 内訳書未紐付けであり、項目選択セクションが無い（Req 39.7）
+      await expect(page.locator('table[aria-label="内訳書項目一覧"]')).toHaveCount(0);
+
+      const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
+      await expect(showTextButton).toBeVisible({ timeout: getTimeout(10000) });
+      const textResponsePromise = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname.endsWith(
+            `/estimate-requests/${quickEstimateRequestId}/text`
+          ) && response.request().method() === 'GET',
+        { timeout: getTimeout(30000) }
+      );
+      await showTextButton.click();
+      const textResponse = await textResponsePromise;
+      // 本文の取得が成功する（項目が無いことによる 422 NO_ITEMS_SELECTED ではない）
+      expect(textResponse.status()).toBe(200);
+
+      const panel = page.locator('[role="region"][aria-label="見積依頼文"]');
+      await expect(panel).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(panel.getByText('見積依頼文を取得できませんでした')).toHaveCount(0);
+
+      // 本文の【内容】セクションに「添付内訳書の通り」が表示される
+      const bodyPre = panel.locator('pre');
+      await expect(bodyPre).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(bodyPre).toContainText('【内容】\n添付内訳書の通り');
     });
 
     /**

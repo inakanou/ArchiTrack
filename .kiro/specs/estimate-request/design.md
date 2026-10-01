@@ -772,6 +772,7 @@ interface EstimateRequestService {
 - 表題の生成（[プロジェクト名] 御見積依頼）
 - 本文の生成（所定フォーマット）
 - 内訳書項目の成形（チェック有無で出力内容を切り替え）
+  - **2026-10-01 の再実測（Task 93.1、コミット `b85e9833` に同タスクの変更を載せた作業ツリー）**: 切り替えの未チェック側は、Task 93.1 まで項目のセクションを省くだけで「添付内訳書の通り」を出していなかった（R-39-1 の持ち越し）。現況はチェックされていないときと内訳書未紐付けのときに【内容】へ「添付内訳書の通り」を置く（Req 6 AC 9 / Req 39 AC 9）。詳細は `#### EstimateRequestTextService（改訂）` の Implementation Notes と R-39-1 を参照
 
 **Dependencies**
 - Inbound: estimate-requests.routes -- API呼び出し (P0)
@@ -5060,6 +5061,7 @@ const handleSave = useCallback(async () => {
 - 既存見積依頼に対する内訳書後付け機能（ユーザー回答により撤廃）
 - 受領見積書から内訳書を自動生成する機能（後段の見積書作成スペックの領域）
 - Req 6 AC 9（「添付内訳書の通り」表示）の実装ギャップ解消（既存ドリフトとして本要件のスコープ外、R-39-1 で確定）
+  - **2026-10-01 の再実測（Task 93.1、コミット `b85e9833` に同タスクの変更を載せた作業ツリー）**: 本項は追記7の時点の判断として残す。R-39-1 は Task 93.1 で消化した（利用者の判断、2026-10-01）。現況は `EstimateRequestTextService` が「内訳書を本文に含める」未チェックのときと内訳書未紐付けのときに本文の【内容】へ「添付内訳書の通り」を置く。詳細は本節末尾の R-39-1 を参照
 - 内訳書なし専用のクイック作成画面・専用フォームの新設（既存フォームの条件レンダリングで対応、Option B を Gap Analysis で却下）
 - `EstimateRequestStatus` 遷移ロジックの変更（R-39-7 で内訳書非依存を確認済み）
 
@@ -5079,6 +5081,7 @@ const handleSave = useCallback(async () => {
 
 - 内訳書あり ↔ なし の編集による相互変換（編集画面では内訳書フィールドは引き続き読み取り専用、R-39-4）
 - Req 6 AC 9 と現行実装のドリフト解消
+  - **2026-10-01 の再実測（Task 93.1、コミット `b85e9833` に同タスクの変更を載せた作業ツリー）**: 追記7の境界としては残す。ドリフトは Task 93.1 で解消した（R-39-1 を参照）
 - `ItemizedStatement` モデル・関連サービス・関連画面の変更
 - `EstimateRequestStatus` の遷移条件・StatusTransitionButton の変更
 - 監査ログ閲覧 UI の変更
@@ -5096,6 +5099,7 @@ const handleSave = useCallback(async () => {
 - `includeBreakdownInBody` を内訳書なしでも true 設定可能にする要件が出たとき → DB の制約強化（CHECK 制約等）を検討
 - `EstimateRequestItem` の auto-create を内訳書なしでも生成する要件が出たとき → 現設計の skip 分岐を解除
 - Req 6 AC 9 を実装と整合させる要件が出たとき → `EstimateRequestTextService` の generate*Body の本文生成ロジックを再設計
+  - **2026-10-01 の再実測（Task 93.1、コミット `b85e9833` に同タスクの変更を載せた作業ツリー）**: このトリガーは Task 93.1 で成立し、本文生成を改めた（R-39-1 を参照）
 
 ### Architecture（追記7）
 
@@ -5202,7 +5206,7 @@ flowchart TD
 | 39.6 | 一覧の参照内訳書名列に「-」表示 | EstimateRequestListPage | `request.itemizedStatementName ?? '-'` レンダリング | - |
 | 39.7 | 詳細画面の項目選択セクション非表示 | EstimateRequestDetailPage | `itemizedStatementId === null` ガード | 内訳書未紐付け詳細画面の表示フロー |
 | 39.8 | 「本文に含める」「Excel出力」非表示 | EstimateRequestDetailPage, EstimateRequestTextPanel, ExcelExportButton | `itemizedStatementId === null` ガード | 内訳書未紐付け詳細画面の表示フロー |
-| 39.9 | 本文【内容】が「添付内訳書の通り」固定（Req 6 AC 9 と同等） | EstimateRequestTextService.generateEmailBody/generateFaxBody, EstimateRequestService.update | `includeBreakdownInBody && itemizedStatement !== null` ガード（実装現状: 該当時セクション省略）／update() の `includeBreakdownInBody` 強制 false 正規化（design review Issue 1） | クイックリクエスト作成フロー |
+| 39.9 | 本文【内容】が「添付内訳書の通り」固定（Req 6 AC 9 と同等） | EstimateRequestTextService.generateEmailBody/generateFaxBody, EstimateRequestService.update | `includeBreakdownInBody && itemizedStatement !== null` ガード（実装現状: 該当時セクション省略）／update() の `includeBreakdownInBody` 強制 false 正規化（design review Issue 1）。**2026-10-01 の再実測（Task 93.1、コミット `b85e9833` に同タスクの変更を載せた作業ツリー）**: 該当時は【内容】に「添付内訳書の通り」を置く（セクション省略ではない） | クイックリクエスト作成フロー |
 | 39.10 | 見積依頼方法・保存ボタン利用可能 | EstimateRequestDetailPage, EstimateRequestService.update | 既存の updateEstimateRequestSchema（method/name のみ）を継続利用 | - |
 | 39.11 | 受領見積書セクション利用可 | EstimateRequestDetailPage（受領見積書セクション部分） | 既存リレーション・既存 UI 変更なし | - |
 | 39.12 | 既存（内訳書あり）見積依頼の挙動・データ・表示無変更 | 全コンポーネント | nullable 分岐を「null の場合のみ追加挙動」として閉じる | - |
@@ -5473,6 +5477,12 @@ if (request.includeBreakdownInBody && selectedItems.length > 0) { // 旧: includ
 **Implementation Notes**
 - Behavior: 内訳書未紐付けでは `EstimateRequestItem` が存在しない＋ `includeBreakdownInBody=false` 強制保存のため、二重ガードで【見積対象項目】セクションは確実に省略される
 - 既存ドリフト: Req 6 AC 9（「添付内訳書の通り」表示）と現行実装の不一致は本要件のスコープ外（Out of Boundary）
+- **2026-10-01 の再実測（Task 93.1、コミット `b85e9833` に同タスクの変更を載せた作業ツリー）**: 上の二項は追記7の時点の記述として残す。現況の本文生成は次のとおり（R-39-1 の消化）
+  - 判定 `listsSelectedItems`: 「内訳書を本文に含める」がチェックされ、かつ `itemizedStatement` が null でないときだけ選択項目を並べる。内訳書未紐付けは `includeBreakdownInBody` が残っていても並べない
+  - 並べないとき: 【内容】の見出しの直後に「添付内訳書の通り」を置く（Req 6 AC 9 / Req 39 AC 9。メールと FAX の両方）
+  - 並べるとき: 既存の【見積対象項目】セクションをそのまま出す（見出し・行の形は変えない。Req 39 AC 12）
+  - 入口の `NoItemsSelectedError` は、並べる場合に選択項目が 0 件のときだけ投げる。内訳書未紐付けの見積依頼と、紐付いていても項目を 1 件も選ばず「含めない」の見積依頼は、例外にならず本文を生成する
+  - 「含める」がチェックされ項目が 0 件のときは 422 `NO_ITEMS_SELECTED` を保つ。Req 6 AC 8 は【内容】へ「チェックされた内訳書項目」を出すと定めるだけで 0 件の内容を定めず、Req 6 AC 9 の文言は未チェックのときに限られるため（Task 93.1 の判断。利用者へ報告済み）
 - Type safety: `request.itemizedStatement` は Prisma の optional relation として `{ id: string; name: string } | null` 型で取得され、生成関数内で参照する箇所はないため追加修正なし
 
 #### EstimateRequestForm（改訂2）
@@ -5628,6 +5638,7 @@ const input: CreateEstimateRequestInput = {
 - `EstimateRequestService.create()` 内訳書ありケース（既存）: 挙動変更なしの回帰確認（Req 39.3, 39.12）
 - `EstimateRequestService.update()` 内訳書なし対象に `includeBreakdownInBody=true` を渡すケース: 永続化された値が `false` に正規化され、監査ログ `after.includeBreakdownInBody=false` で記録されることの確認（Req 39.9, R-39-3, design review Issue 1）
 - `EstimateRequestTextService.generate{Email,Fax}Body()`: 内訳書なし＋ `includeBreakdownInBody=false`（強制）で【見積対象項目】セクションが省略されることの確認（Req 39.9）
+  - **2026-10-01 の再実測（Task 93.1、コミット `b85e9833` に同タスクの変更を載せた作業ツリー）**: 確認の内容を改めた。内訳書なしで【見積対象項目】が無いことに加え、【内容】に「添付内訳書の通り」が在ること、`generateText()` が例外にならず本文を返すことを確かめる。「含める」がチェックされ項目がある本文は全文一致で変わらないことを確かめる（Req 39.12）
 - `createEstimateRequestSchema`: `itemizedStatementId` 未指定／null／空文字／UUID で各々 valid（Req 39.1）。不正な UUID 文字列のみ invalid
 
 #### Backend Integration Tests（追記7）
@@ -5689,6 +5700,7 @@ const input: CreateEstimateRequestInput = {
 ### Open Questions / Risks（追記7）
 
 - **R-39-1（既存ドリフト）**: Req 6 AC 9 と現行実装の不一致は本要件のスコープ外として持ち越す。Req 39 AC 9 は「内訳書未紐付け時に【見積対象項目】セクションを省略する」と読み替え、実装は `selectedItems.length > 0 && includeBreakdownInBody` ガードで統一。後段で Req 6 AC 9 を実装と整合させる場合は別タスクで `EstimateRequestTextService` の追補設計が必要
+  - **2026-10-01 の再実測（Task 93.1、コミット `b85e9833` に同タスクの変更を載せた作業ツリー）**: **消化済み**。上の行は追記7の時点の判断として残す。利用者が 2026-10-01 に消化を決め、Task 93.1 が `EstimateRequestTextService` の本文生成を改めた（現況の振る舞いは `#### EstimateRequestTextService（改訂）` の Implementation Notes に並べた）。消化前の測定は `grep -rn '添付内訳書の通り' backend/src frontend/src` の当たりが 0 件（Task 93 の起票、2026-09-02・コミット `5176ee4`）。消化後の同じコマンドの当たりは 21 件（うち `backend/src/services/estimate-request-text.service.ts` が 6 件、残る 15 件は同サービスの単体テスト）。E2E は REQ-6.9 の test が本文に「添付内訳書の通り」が在ることを照合し、REQ-39.9 を名乗る test を独立させた。`scripts/criterion-literal-adjudication.json` の 6.9・39.9 の裁定は取り下げた
 - **デプロイ順序**: BE 先行 → FE の順を厳守（FE 先行だと旧 BE の 422 で作成失敗）
 - **既存 E2E 環境のデータ依存**: 既存の `estimate-request-e2e.spec.ts` の前提データに「内訳書必須」が組まれている場合、テストデータ整備（fixtures）も併せて更新が必要
 
