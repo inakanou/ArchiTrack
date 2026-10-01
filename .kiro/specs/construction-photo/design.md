@@ -366,7 +366,7 @@ frontend/src/
 - `hooks/useConstructionPhotoPermission.ts` — `usePermission('construction_photo:*')` を包む canView/canCreate/canEdit/canDelete/getPermissionError (R17)
 
 **変更（frontend）**
-- `pages/ConstructionPhotoDetailPage.tsx` — `onPhotoClick`→ビューア遷移結線(R14)、ZIP起動＋対象選択(R15)、アルバム編集/削除導線(R16)、`useConstructionPhotoPermission` で `readOnly`/ボタン出し分け(R17)、独自 `isDirty` state を `useUnsavedChanges` へ置換(R18)、`useMediaQuery` でモバイル分岐(R19)
+- `pages/ConstructionPhotoDetailPage.tsx` — `onPhotoClick`→ビューア遷移結線(R14)、ZIP起動＋対象選択(R15)、アルバム編集/削除導線(R16)、`useConstructionPhotoPermission` で `readOnly`/ボタン出し分け(R17)、画面の `isDirty` state を `useUnsavedChanges({ isDirty })` へ渡して離脱警告を結線(R18)、`useMediaQuery` でモバイル分岐(R19)
 - `components/construction-photos/PhotoItemPanel.tsx` — エクスポート対象の選択チェック(R15)、モバイルスタイル分岐(R19)、`readOnly` 結線の実効化(R17)
 - `pages/ConstructionPhotoListPage.tsx` / `components/construction-photos/ConstructionPhotoListTable.tsx` / `ConstructionPhotoListCard.tsx` — アルバム編集/削除の行導線（権限連動）(R16,R17)
 - `routes.tsx` — CPビューアルート `/construction-photos/:albumId/photos/:photoId` を追加 (R14)
@@ -665,8 +665,16 @@ function useConstructionPhotoPermission(): ConstructionPhotoPermission;
 // usePermission('construction_photo:<action>') で判定（RBAC権限駆動）。
 
 // 未保存離脱警告 (R18) — 既存フックを利用（新規IFなし）
-// DetailPage で const uc = useUnsavedChanges({ enabled: canEdit }); を用い、
-// 変更発生で uc.markAsChanged()、保存成功で uc.markAsSaved()。
+// DetailPage が未保存判定を自前の state で持ち、共有フックへ渡す:
+//   const [isDirty, setIsDirty] = useState(false);
+//   const markAsChanged = useCallback(() => setIsDirty(true), []);
+//   const markAsSaved = useCallback(() => setIsDirty(false), []);
+//   useUnsavedChanges({ isDirty: canEdit && isDirty });  // beforeunload（R18.1, R18.4）
+//   const blocker = useBlocker(isDirty);                 // アプリ内遷移（R18.2）
+// 変更発生で markAsChanged()、保存成功で markAsSaved()（R18.3）。
+// 本記述は数量表生成スペックの Task 100.24（2026-09-24、コミット 23d83871）が共有フックを
+// useUnsavedChanges({ isDirty, message? }): void へ一本化したのに合わせて改訂した
+// （それまでは useUnsavedChanges({ enabled: canEdit }) の戻り値の markAsChanged/markAsSaved を呼ぶ形）。
 ```
 - Preconditions: `export()` は `photos.length>0`（0件は呼び出し側で非実行・通知 R15.11）。ビューアは対象写真が要求プロジェクト配下であること。
 - Postconditions: `export()` は ZIP Blob とダウンロードをもたらし、`failed` を通知に反映。`useConstructionPhotoPermission` は権限ロード完了まで全 `false`（安全側 R17.5）。

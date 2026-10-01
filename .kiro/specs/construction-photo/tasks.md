@@ -465,7 +465,7 @@ _申し送り元: site-survey スペックの Task 115.214（同スペックで�
 
 **測った事実**（2026-09-24、下流の独立レビュー）: `.kiro/specs/construction-photo/design.md` の R18 の説明（L668 付近）が `const uc = useUnsavedChanges({ enabled: canEdit });` と `uc.markAsChanged()` / `uc.markAsSaved()` を名指したままである。機械の関門は赤くならない。
 
-- [ ] 18.1 R18 の未保存離脱警告の設計記述を現況の API へ揃える
+- [x] 18.1 R18 の未保存離脱警告の設計記述を現況の API へ揃える
   - 規約 (a)（歴史の記述は書き換えず現況を併記する）に照らし、併記か改訂かを決めること。着手時に当該行を測り直すこと
   - **`_Requirements:` を持たないのは意図である**（挙動は変わらず、記述の鮮度のみを扱う）
   - _Boundary: 本スペックの `design.md` の R18 の記述_
