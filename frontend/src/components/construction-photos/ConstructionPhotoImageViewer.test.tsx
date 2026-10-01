@@ -312,7 +312,7 @@ describe('ConstructionPhotoImageViewer', () => {
    * 持たないため、以下のテスト名は受入基準の番号を名乗らない。
    *
    * 44 は実装から取り込まず自前で綴る（site-survey の Task 115.217 の切り分け。理由は
-   * `frontend/src/components/site-surveys/tap-target.constants.ts` の冒頭）。取り込むと
+   * `frontend/src/utils/tap-target.ts` の冒頭）。取り込むと
    * 主張が「実装は実装に等しい」へ弱まる。寸法の測り方は `PhotoItemPanel.test.tsx` の
    * `tapWidth` / `tapHeight` と同じ形に揃えた。
    */

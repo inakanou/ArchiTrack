@@ -1,6 +1,16 @@
 /**
  * @fileoverview タップ領域の下限（44 論理ピクセル）の単一の出所
  *
+ * **出所の位置づけ（construction-photo スペックのタスク 16.3 で改めた）**: 本モジュールは
+ * 横断ルール——`.kiro/steering/tech.md` の「レスポンシブ・ビューポート方針」の箇条
+ * 「モバイルの下限値」（操作系コントロールのタップ領域は最小 44×44 論理ピクセル。
+ * WCAG 2.2 SC 2.5.5）——の、実装の側の単一の出所である。site-survey の要件28.3 系
+ * （28.3 と、同じ数値を引く 29.4・34.5・35.5）と、工事写真（construction-photo）の画面が
+ * ここを参照する。ブレークポイントの単一情報源 `utils/responsive.ts` と同じ層に置くのは、
+ * 横断ルール由来の値を一機能のフォルダから借りる形にしないためである。下に続く記述の
+ * うち「site-survey の所有物」「工事写真は射程外」と読める箇所は、site-survey のタスク
+ * 115.217 / 115.249 の時点の記録であり、書き換えずに残す（現況は末尾の節を参照）。
+ *
  * 要件28.3 は「モバイル幅ツールバーの各項目のタップ領域を最小44x44論理ピクセル以上の
  * サイズで提供する」と定める。要件29.4・34.5・35.5 はいずれも同じ数値を
  * 「Requirement 28.3 と整合」として引いており、**仕様の側では 44 の出所は 28.3 の一箇所**
@@ -121,10 +131,40 @@
  * **本タスクは工事写真の実装コードを一行も変更していない。** 是正は construction-photo
  * スペックの側で行う。移設（上記 Task 16 の選択肢 b）が選ばれた場合は本モジュールの参照元も
  * 併せて追随させること。
+ *
+ * ## 現況: 横断ルールの層へ置き、工事写真も参照する（construction-photo タスク 16.3）
+ *
+ * 上の節までは site-survey のタスクの時点の記録であり、書き換えていない。現況は次のとおり
+ * である（2026-10-01、コミット `3b26ad14` の作業ツリーへタスク 16.3 の変更を載せて
+ * リポジトリルートで実測）。
+ *
+ * - **置き場所**: Task 16 の選択肢 (b) が選ばれ、本モジュールは `utils/responsive.ts` と同じ
+ *   層の `frontend/src/utils/tap-target.ts` に在る（`git mv` で移したので
+ *   `git log --follow` で 115.217 以来の履歴を辿れる）。site-survey の参照元 6 ファイル
+ *   （`annotation-visual-feedback.ts` / `AnnotationContextMenu.tsx` / `PhotoManagementPanel.tsx`
+ *   / `ZoomControls.tsx` / `AnnotationToolbar.tsx` / `PendingUploadPanel.tsx`）は
+ *   `../../utils/tap-target` から取り込む
+ * - **工事写真の実装も本モジュールを参照する**: `PhotoItemPanel.tsx` のモバイル用の四つ
+ *   （`checkboxMobile` / `orderButtonMobile` / `deleteButtonMobile` / `dragHandleMobile`）と
+ *   `ConstructionPhotoImageViewer.tsx` の `rotationButton` である。上段の「射程外」は現況では
+ *   成り立たない。根拠の帰属は construction-photo の requirements.md の注記（写真項目の
+ *   モバイル表示の要件の直後）に記録してある
+ * - **検証は 44 を自前で持つ**という上の切り分けは工事写真でも変えていない。本定数を 44 から
+ *   20 へ変えて `npm --prefix frontend run test -- --run src/components/construction-photos/ConstructionPhotoImageViewer.test.tsx src/components/construction-photos/PhotoItemPanel.test.tsx`
+ *   を実行すると、58 件中 7 件が落ちる（回転ボタンの 2 件と `R19.3:` を名乗る 5 件。
+ *   2026-10-01 に実測）。同じ変異で site-survey の
+ *   `src/__tests__/components/site-surveys src/__tests__/site-surveys` は 89 ファイル 2473 件の
+ *   うち 8 ファイル 27 件が落ち、上の 2026-08-31 の記録と同じ値である（2026-10-01 に実測）。
+ *   変異は退避した控えからの書き戻しで復元し、`sha256sum -c` で一致を確かめた
+ * - **母集団の走査の現況**: 上の「母集団の走査」のコマンドは走査根に本ファイルを含まなく
+ *   なった。同じコマンドの当たりは 20 ファイル 141 行である（移す前の HEAD では 21 ファイル
+ *   159 行で、差の 18 行は本ファイルが当時持っていた行である。2026-10-01 に実測）。注釈行
+ *   以外へ絞ると `frontend/src/components/site-surveys` で 44 を綴る行は 0 行になる
  */
 
 /**
- * 要件28.3 が定めるタップ領域の下限（論理ピクセル）。
+ * 操作系コントロールのタップ領域の下限（論理ピクセル）。横断ルール（tech.md
+ * 「モバイルの下限値」）の値であり、site-survey では要件28.3 が条文で同じ値を運ぶ。
  * CSS へ渡す際は各参照元で `` `${TAP_TARGET_MIN_PX}px` `` と綴る（長さ表現を別名で
  * 二重に持たせると、本モジュールが解消したはずの名前の並立が戻るため）。
  */

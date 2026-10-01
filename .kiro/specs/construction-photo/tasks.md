@@ -419,7 +419,7 @@
   - _Depends: 16.1_
   - _Boundary: `ConstructionPhotoImageViewer` の回転操作のタップ領域の検証_
 
-- [ ] 16.3 実装側の下限を単一の出所から得る形にするかを決める
+- [x] 16.3 実装側の下限を単一の出所から得る形にするかを決める
   - **16.1 の後に着手すること。** 帰属が記録されていない状態で一本化すると、要件 19.3 の対象でない箇所まで 19.3 の名前で下限を得ているように読める状態が固定される
   - 選択肢は三つある。(a) `frontend/src/components/site-surveys/tap-target.constants.ts` を取り込む（設計の R20 制約が許す向きであり、`image-viewer.constants` / `ZoomControls` の取り込みという先例もある。ただし同モジュールは自身を site-survey の所有物と宣言しており、横断ルール由来の下限を一機能のフォルダから借りる形になる）、(b) 横断ルールにふさわしい層（`frontend/src/utils/` — `.kiro/steering/tech.md` がブレークポイントの単一情報源をこの層に定めている）へ移設し、site-survey / 工事写真の双方がそこを参照する、(c) 現状のまま複製を残し、複製してよい理由を一箇所へ書く
   - **(b) を選ぶ場合は site-survey スペックの所有物（`tap-target.constants.ts` とその参照元 6 ファイル）に触れるため、本スペック単独では決められない。** site-survey 側と調整すること

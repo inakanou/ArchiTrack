@@ -266,9 +266,9 @@
       "file": ".kiro/specs/site-survey/design.md",
       "anchor": "の合成を `sort -u | wc -l` で数える（53件",
       "command": "( git ls-files 'frontend/src/components/site-surveys/*' 'frontend/src/components/site-survey/*' 'frontend/src/pages/SiteSurvey*.tsx' 'frontend/src/components/projects/SiteSurveySectionCard.tsx' 'frontend/src/utils/siteSurveyBreadcrumb.ts'; grep -rl '@requirement site-survey/REQ-' frontend/src ) | grep -vE '\\.test\\.tsx?$|\\.stories\\.tsx$' | sort -u | wc -l",
-      "expected": "51",
-      "documentRendering": "再実測は 51 件",
-      "note": "部品の自己申告と追跡表の突き合わせ（115.113）が監査した実装ファイルの現況。同じ行が持つ 53 件は 115.113 当時の母集団の記録であり書き換えない。文書の再現手順は brace group ({ ...; ...; }) で書かれているが、READ_ONLY_COMMANDS の先頭語判定が `{` を許さないため、宣言では出力の等しい subshell ( ...; ... ) へ置き換えている（本体注釈の「コマンドを走らせることについて」を見よ）"
+      "expected": "50",
+      "documentRendering": "2026-10-01 の再実測は 50 件",
+      "note": "部品の自己申告と追跡表の突き合わせ（115.113）が監査した実装ファイルの現況。同じ行が持つ 53 件は 115.113 当時の母集団の記録であり書き換えない。文書の再現手順は brace group ({ ...; ...; }) で書かれているが、READ_ONLY_COMMANDS の先頭語判定が `{` を許さないため、宣言では出力の等しい subshell ( ...; ... ) へ置き換えている（本体注釈の「コマンドを走らせることについて」を見よ） construction-photo スペックのタスク 16.3 が値を提出時点へ貼り直した（2026-09-02 の 51 件は文書に残る）。向きは減であり、減分は 1 件である。同タスクがタップ領域の下限の定数を site-survey の部品フォルダから utils の層へ移し、手順1 の対象から 1 ファイルが外れた（2026-10-01、コミット 3b26ad14 の作業ツリーで実測）。"
     },
     {
       "id": "self-reference-emphasised-net",

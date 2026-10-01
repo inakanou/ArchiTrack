@@ -155,7 +155,7 @@ ArchiTrack/
 
 - **ブレークポイントの単一情報源**: `utils/responsive.ts` の `BREAKPOINTS` / `MEDIA_QUERIES` に集約する。JS 側は `useMediaQuery(MEDIA_QUERIES.isMobile)`（`max-width: 767px`）で判定し、CSS の `@media` を書く場合も同じ境界値に揃える。コンポーネント内にブレークポイント値をハードコードしない
 - **モバイルスタイルの合成パターン**: 基底の `STYLES` に `...Mobile` サフィックスのオーバーライドを併置し、`{ ...styles.base, ...(isMobile ? styles.baseMobile : {}) }` の spread 合成で適用する（例: `PhotoManagementPanel`、`AnnotationToolbar`）。デスクトップの既存レイアウトは基底側を変更せずに維持する
-- **モバイルの下限値**: 入力系コントロールは `fontSize: 16px` 以上（フォーカス時のモバイルブラウザ自動ズームを抑止）、操作系コントロールのタップ領域は最小 44×44 論理ピクセル（WCAG 2.2 SC 2.5.5 Target Size (Enhanced)）
+- **モバイルの下限値**: 入力系コントロールは `fontSize: 16px` 以上（フォーカス時のモバイルブラウザ自動ズームを抑止）、操作系コントロールのタップ領域は最小 44×44 論理ピクセル（WCAG 2.2 SC 2.5.5 Target Size (Enhanced)）。タップ領域の下限の実装側の単一情報源は `utils/tap-target.ts` の `TAP_TARGET_MIN_PX` であり、コンポーネントは値を直書きせずここから取り込む（テストは実装から独立した立会人として 44 を自前で持つ）
 - **動的ビューポート高**: モバイルのアドレスバー伸縮に追従させるため `svh` を基準にし、非対応ブラウザ向けに `vh` を先に宣言して `svh` で上書きする「二段宣言」でフォールバックする。React のインライン style オブジェクトは同一プロパティを二重宣言できずこのフォールバックを表現できないため、**この用途に限り** CSS ファイルを併置する（例: `pages/SiteSurveyImageViewerPage.css`）
 - **画像フィット倍率**: `utils/imageFitScale` の `computeFitScale`（純関数・React 非依存）に一元化する。`allowUpscale=false`（既定）は原寸頭打ちでデスクトップの現行挙動を維持し、`allowUpscale=true` は `maxUpscale`（既定 3）までフィット拡大して小画像の過小表示を防ぐ。表示領域の実寸は `hooks/useElementSize`（ResizeObserver、非対応環境では購読せず例外も出さない）で購読し、コンテナ寸法の変化に追従して再フィットする
 - **責務の分離**: 「画像→コンテナのフィット」（`computeFitScale` によるキャンバス寸法算出）と「コンテナ内のズーム/パン」（`gestures/canvasViewportController`）は別レイヤとして扱い、混在させない。`AnnotationEditor`（閲覧/編集の両モード）と `ConstructionPhotoImageViewer` はこの two-layer 構成を共有する

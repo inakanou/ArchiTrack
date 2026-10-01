@@ -24,7 +24,7 @@
 
 import React, { useCallback } from 'react';
 
-import { TAP_TARGET_MIN_PX } from './tap-target.constants';
+import { TAP_TARGET_MIN_PX } from '../../utils/tap-target';
 
 /**
  * ZoomControls の Props。
@@ -84,7 +84,14 @@ const STYLES = {
     alignItems: 'center',
     justifyContent: 'center',
     // Req 34.5: 44x44 論理ピクセル以上のタップ領域（Req 28.3 と整合）。
-    // 下限の宣言元は `./tap-target.constants`（要件28.3）。
+    // 下限の宣言元は `utils/tap-target`（要件28.3）。
+    // 根拠の帰属は描画する画面で分かれる: site-survey の注釈編集の画面では、上の行が
+    // 名乗る site-survey の受入基準が根拠である。工事写真のビューア
+    // （`ConstructionPhotoImageViewer`）が本部品を描画する画面では、その番号は根拠に
+    // ならない（construction-photo スペックの受入基準ではない）。そこでの根拠は
+    // `.kiro/steering/tech.md` の「レスポンシブ・ビューポート方針」の箇条
+    // 「モバイルの下限値」という横断ルールである（construction-photo の requirements.md の
+    // 写真項目のモバイル表示の要件に置いた注記。同スペックのタスク 16.3 で決着）。
     minWidth: `${TAP_TARGET_MIN_PX}px`,
     minHeight: `${TAP_TARGET_MIN_PX}px`,
     padding: '8px',

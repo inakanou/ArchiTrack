@@ -29,7 +29,7 @@
 
 import React, { useCallback, useEffect, useRef } from 'react';
 import type { FabricObject } from 'fabric';
-import { TAP_TARGET_MIN_PX } from './tap-target.constants';
+import { TAP_TARGET_MIN_PX } from '../../utils/tap-target';
 
 // ============================================================================
 // 型定義
@@ -93,7 +93,7 @@ const STYLES = {
     zIndex: 1001,
   } satisfies React.CSSProperties,
   button: {
-    // タップ領域の下限。宣言元は `./tap-target.constants`。
+    // タップ領域の下限。宣言元は `utils/tap-target`。
     // 要件28.3 の条文の対象は同要件の注記により「モバイル幅ツールバー」に限られ、本メニュー
     // は含まない。本メニューを所管する要件27 もタップ領域の条項を持たない。
     // **根拠は受入基準ではなく、`.kiro/steering/tech.md` の「レスポンシブ・ビューポート方針」

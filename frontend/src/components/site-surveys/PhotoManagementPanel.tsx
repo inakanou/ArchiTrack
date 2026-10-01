@@ -27,7 +27,7 @@ import type {
 import { AnnotatedImageThumbnail } from './AnnotatedImageThumbnail';
 import useMediaQuery from '../../hooks/useMediaQuery';
 import { MEDIA_QUERIES } from '../../utils/responsive';
-import { TAP_TARGET_MIN_PX } from './tap-target.constants';
+import { TAP_TARGET_MIN_PX } from '../../utils/tap-target';
 
 // ============================================================================
 // 型定義
@@ -457,7 +457,7 @@ const styles = {
   } as React.CSSProperties,
   /**
    * Req35.5: 操作系コントロールのタップ領域を下限まで拡大。
-   * 下限の宣言元は `./tap-target.constants`（要件28.3。Req35.5 が同じ数値を引く）。
+   * 下限の宣言元は `utils/tap-target`（要件28.3。Req35.5 が同じ数値を引く）。
    */
   checkboxMobile: {
     minWidth: `${TAP_TARGET_MIN_PX}px`,

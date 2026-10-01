@@ -27,7 +27,7 @@
  */
 
 import type { PendingUpload } from '../../types/upload.types';
-import { TAP_TARGET_MIN_PX } from './tap-target.constants';
+import { TAP_TARGET_MIN_PX } from '../../utils/tap-target';
 
 // ============================================================================
 // 型定義
@@ -120,7 +120,7 @@ const styles = {
     marginTop: '12px',
   } as React.CSSProperties,
   button: {
-    // 操作要素の最小タップ領域。下限の宣言元は `./tap-target.constants`。
+    // 操作要素の最小タップ領域。下限の宣言元は `utils/tap-target`。
     // **この下限を課す受入基準は無い。** 本パネルを所管する要件37 はタップ領域の受入基準を
     // 持たず、要件28.3 の対象は同要件の注記により「モバイル幅ツールバー」に限られる。
     // **根拠は受入基準ではなく、`.kiro/steering/tech.md` の「レスポンシブ・ビューポート方針」

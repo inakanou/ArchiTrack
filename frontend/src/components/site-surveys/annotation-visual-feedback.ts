@@ -18,7 +18,7 @@
 import { FabricObject } from 'fabric';
 import type { Canvas } from 'fabric';
 import type { ToolType } from './annotation-toolbar.constants';
-import { TAP_TARGET_MIN_PX } from './tap-target.constants';
+import { TAP_TARGET_MIN_PX } from '../../utils/tap-target';
 
 // ============================================================================
 // ハンドルサイズ既定値 (Task 71.1 / Req 29.4, 29.5)
@@ -33,7 +33,7 @@ import { TAP_TARGET_MIN_PX } from './tap-target.constants';
  */
 const TOUCH_HANDLE = {
   cornerSize: 20,
-  // 下限の宣言元は `./tap-target.constants`（要件28.3。要件29.4 が同じ数値を引く）。
+  // 下限の宣言元は `utils/tap-target`（要件28.3。要件29.4 が同じ数値を引く）。
   touchCornerSize: TAP_TARGET_MIN_PX,
 } as const;
 

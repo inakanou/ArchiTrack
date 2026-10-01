@@ -38,6 +38,7 @@ import type {
 } from '../../types/construction-photo.types';
 import useMediaQuery from '../../hooks/useMediaQuery';
 import { MEDIA_QUERIES } from '../../utils/responsive';
+import { TAP_TARGET_MIN_PX } from '../../utils/tap-target';
 
 // ============================================================================
 // 型定義
@@ -435,22 +436,26 @@ const styles = {
   textareaMobile: {
     fontSize: '16px',
   } as React.CSSProperties,
-  /** R19.3: 操作系コントロールのタップ領域を44px以上に拡大 */
+  /**
+   * R19.3: 操作系コントロールのタップ領域を44px以上に拡大。同基準は寸法を課さず、44 の根拠は
+   * `.kiro/steering/tech.md` の「モバイルの下限値」（requirements.md の同基準の直後の注記）。
+   * 値の宣言元は `utils/tap-target`（タスク 16.3）。
+   */
   checkboxMobile: {
-    minWidth: '44px',
-    minHeight: '44px',
+    minWidth: `${TAP_TARGET_MIN_PX}px`,
+    minHeight: `${TAP_TARGET_MIN_PX}px`,
   } as React.CSSProperties,
   orderButtonMobile: {
-    minWidth: '44px',
-    minHeight: '44px',
+    minWidth: `${TAP_TARGET_MIN_PX}px`,
+    minHeight: `${TAP_TARGET_MIN_PX}px`,
   } as React.CSSProperties,
   deleteButtonMobile: {
-    minWidth: '44px',
-    minHeight: '44px',
+    minWidth: `${TAP_TARGET_MIN_PX}px`,
+    minHeight: `${TAP_TARGET_MIN_PX}px`,
   } as React.CSSProperties,
   dragHandleMobile: {
-    minWidth: '44px',
-    minHeight: '44px',
+    minWidth: `${TAP_TARGET_MIN_PX}px`,
+    minHeight: `${TAP_TARGET_MIN_PX}px`,
   } as React.CSSProperties,
 };
 

@@ -57,7 +57,7 @@ import useMediaQuery from '../../../hooks/useMediaQuery';
 
 /** 要件28.3 が定めるタップ領域の下限（論理ピクセル） */
 // 実装から取り込まず 44 を自前で持つ。理由は
-// `frontend/src/components/site-surveys/tap-target.constants.ts` に一箇所だけ書いてある。
+// `frontend/src/utils/tap-target.ts` に一箇所だけ書いてある。
 const TAP_TARGET_MIN_PX = 44;
 
 const parsePx = (value: string | null): number => {

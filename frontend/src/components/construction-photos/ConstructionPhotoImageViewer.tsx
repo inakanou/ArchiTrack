@@ -33,6 +33,7 @@ import type {
 } from '../site-surveys/gestures/canvasViewportController';
 import ZoomControls from '../site-surveys/ZoomControls';
 import { computeFitScale } from '../../utils/imageFitScale';
+import { TAP_TARGET_MIN_PX } from '../../utils/tap-target';
 import { ROTATION_CONSTANTS, type RotationAngle } from '../site-surveys/image-viewer.constants';
 
 // ============================================================================
@@ -230,8 +231,12 @@ const STYLES = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: '44px',
-    minHeight: '44px',
+    // タップ領域の下限。根拠は本スペックの受入基準ではなく、`.kiro/steering/tech.md` の
+    // 「レスポンシブ・ビューポート方針」の箇条「モバイルの下限値」という横断ルールである
+    // （requirements.md の写真項目のモバイル表示の要件に置いた注記を参照）。値の宣言元は
+    // `utils/tap-target`（タスク 16.3）。画面幅によらず適用する。
+    minWidth: `${TAP_TARGET_MIN_PX}px`,
+    minHeight: `${TAP_TARGET_MIN_PX}px`,
     backgroundColor: 'transparent',
     border: '1px solid rgba(255, 255, 255, 0.3)',
     borderRadius: '6px',

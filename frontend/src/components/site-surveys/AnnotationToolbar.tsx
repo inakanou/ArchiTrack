@@ -45,7 +45,7 @@ import {
   TOOL_ORDER,
   DEFAULT_STYLE_OPTIONS,
 } from './annotation-toolbar.constants';
-import { TAP_TARGET_MIN_PX } from './tap-target.constants';
+import { TAP_TARGET_MIN_PX } from '../../utils/tap-target';
 
 // 型の再エクスポート（後方互換性のため）
 export type { ToolType, ToolDefinition, StyleOptions, OutlineCapableTool, BalloonStyleType };
@@ -131,7 +131,7 @@ export interface AnnotationToolbarProps {
 // スタイル定義
 // ============================================================================
 
-// タップ領域の下限（要件28.3 の 44）は `./tap-target.constants` が唯一の宣言元である。
+// タップ領域の下限（要件28.3 の 44）は `utils/tap-target` が唯一の宣言元である。
 // 道具のボタン（`button.base`）とモバイル幅の各項目（`mobileTapTarget`）が同じ値を参照する。
 // 検証側が同じ値を自前で持つ理由も当該モジュールに書いてある。
 const STYLES = {

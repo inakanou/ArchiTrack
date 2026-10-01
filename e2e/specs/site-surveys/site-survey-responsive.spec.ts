@@ -130,7 +130,7 @@ const PRIVATE_BROWSING_OBSERVATION_MS = Math.ceil(DEFAULT_AUTO_SAVE_INTERVAL_MS 
  * 厳しい下限をタブレット幅へ適用しており、現時点で実際に満たされている。
  */
 // 実装から取り込まず 44 を自前で持つ。理由は
-// `frontend/src/components/site-surveys/tap-target.constants.ts` に一箇所だけ書いてある。
+// `frontend/src/utils/tap-target.ts` に一箇所だけ書いてある。
 const TAP_TARGET_MIN_PX = 44;
 
 // ESモジュールでの__dirname代替
