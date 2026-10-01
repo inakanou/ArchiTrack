@@ -2144,7 +2144,7 @@
 
 **タスク91.3 との境界**: 91.3 は `REQ-21.5` / `21.6` / `21.7` / `23.4` / `26.5` / `26.6` / `26.7` / `26.8` の 8 件の `description` へ日次の契約検証を追記するタスクであり、**その 8 件の `tool` は既に `Vitest` である**（上表に一件も現れない。2026-09-02 に実測）。対象集合も編集する欄も重ならない。
 
-- [ ] 92.1 除外一覧の道具名を実体へ揃える
+- [x] 92.1 除外一覧の道具名を実体へ揃える
   - 上表 12 件の `alternativeVerification.tool` から、実在しない `Jest` を取り除く
   - **先例に揃えること**: site-survey は Task 115.121 で自機能分 32 件を「道具名の先頭 `Jest` を `Vitest` へ置換し、`React Testing Library` / `Supertest` などの併記部分は据え置く」形で是正した。`.kiro/specs/site-survey/design.md` の `**あわせて是正した除外一覧の記述**` に続く項が、その形を逐語で記録している
   - **併記の `React Testing Library`（`@testing-library/react@^16.3.0`）と `Prisma`（`backend/package.json`）はいずれも実在する**（2026-09-02 に実測）ため据え置いてよい

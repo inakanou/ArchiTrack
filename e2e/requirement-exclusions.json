@@ -713,7 +713,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "Tabキーでフィールド間を順次移動できることを確認",
         "threshold": "tab_navigation: functional"
       }
@@ -727,7 +727,7 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "最終フィールドでTabキーを押すと次の明細行に移動することを確認",
         "threshold": "tab_to_next_row: functional"
       }
@@ -741,7 +741,7 @@
       "category": "data-integrity",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / React Testing Library",
+        "tool": "Vitest / React Testing Library",
         "description": "必須項目（受領見積書名、提出日）が未入力の場合にバリデーションエラーが表示されることを確認",
         "threshold": "validation_error: displayed"
       }
@@ -755,8 +755,8 @@
       "category": "infrastructure",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Prisma",
-        "description": "アップロードファイルがストレージに保存され、受領見積書レコードと関連付けられることを確認",
+        "tool": "Vitest / Supertest / Prisma",
+        "description": "backend/src/__tests__/integration/received-quotation-status.api.integration.test.ts の「ファイル付きで受領見積書を作成できる（multipart/form-data）」が、実 DB と構成済みのストレージプロバイダを通る作成 API へ PDF を添えて 201 を受け、応答の fileName / fileMimeType が受領見積書に関連付いていることを確認する。ストレージへの保存は backend/src/__tests__/unit/services/received-quotation.service.test.ts の「ファイル付きで受領見積書を作成する（Requirements: 11.6, 11.8）」が StorageProvider（モック）の upload の呼び出しで確認する。保存先のファイルの実在と DB の filePath は照合していない",
         "threshold": "file_association: true"
       }
     },
@@ -769,7 +769,7 @@
       "category": "data-integrity",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Prisma",
+        "tool": "Vitest / Supertest / Prisma",
         "description": "受領見積書の作成日時と更新日時がDBに記録されることを確認",
         "threshold": "timestamps: recorded"
       }
@@ -783,7 +783,7 @@
       "category": "data-integrity",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Prisma",
+        "tool": "Vitest / Supertest / Prisma",
         "description": "削除後も受領見積書レコードがDBに残り、deletedAtが設定されることを確認",
         "threshold": "soft_delete: true"
       }
@@ -797,8 +797,8 @@
       "category": "data-integrity",
       "alternativeVerification": {
         "method": "integration-test",
-        "tool": "Jest / Concurrent requests",
-        "description": "同時更新時にバージョン競合が検出され、適切にエラーを返すことを確認",
+        "tool": "Vitest / Supertest",
+        "description": "backend/src/__tests__/integration/received-quotation-status.api.integration.test.ts の「受領見積書の楽観的排他制御テスト（409エラー）」が、同時更新を逐次のリクエストで模擬し（先行の更新で updatedAt が進んだ後に古い updatedAt を添えた更新を送る。削除は過去の updatedAt を添えて送る）、いずれも 409（RECEIVED_QUOTATION_CONFLICT）で拒否されることを確認する。並行のリクエストは発行しない。単体では backend/src/__tests__/unit/services/received-quotation.service.test.ts の「楽観的排他制御エラー時はConflictErrorを発生させる」が確認する",
         "threshold": "optimistic_lock: handled"
       }
     },
