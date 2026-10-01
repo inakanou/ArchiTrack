@@ -997,6 +997,10 @@ describe('ConstructionPhotoDetailPage', () => {
   describe('モバイルレイアウト対応 (Task 12.6, Requirement 19)', () => {
     it('R19.1: モバイル幅ではページコンテナが固定maxWidth:1200pxに縛られず画面幅にフィットする', async () => {
       vi.mocked(useMediaQuery).mockReturnValue(true);
+      vi.mocked(albumsApi.getConstructionPhotoAlbum).mockResolvedValue({
+        ...mockAlbum,
+        memo: '基礎配筋の記録',
+      });
 
       renderPage();
       await screen.findByRole('img', { name: /a\.jpg/ });
@@ -1004,6 +1008,9 @@ describe('ConstructionPhotoDetailPage', () => {
       const main = screen.getByRole('main');
       expect(main.style.maxWidth).not.toBe('1200px');
       expect(main.style.maxWidth).toBe('100%');
+      // 区切りの無い長いアルバム名・メモも折り返して幅に収める（タスク 20.1）
+      expect(screen.getByRole('heading', { level: 1 }).style.overflowWrap).toBe('anywhere');
+      expect(screen.getByText('基礎配筋の記録').style.overflowWrap).toBe('anywhere');
     });
 
     it('R19.1: デスクトップ幅では既存のmaxWidth:1200pxレイアウトを維持する（回帰）', async () => {

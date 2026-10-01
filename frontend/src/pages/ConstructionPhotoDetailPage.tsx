@@ -166,15 +166,20 @@ const styles = {
     borderRadius: '6px',
     cursor: 'pointer',
   } as React.CSSProperties,
+  // overflowWrap:anywhere は区切りの無い英数字の長い語（アルバム名は最大 200 文字）にも折り返し
+  // 位置を与え、見出しの最小幅を縮める。これが無いと見出しが折り返さずに <main> を押し広げ、
+  // 詳細画面に横スクロールが生じる（タスク 20.1 の E2E で実測, R19.1）。メモも同じ扱いとする
   title: {
     fontSize: '24px',
     fontWeight: 'bold',
     color: '#1f2937',
     marginBottom: '8px',
+    overflowWrap: 'anywhere' as const,
   } as React.CSSProperties,
   memo: {
     fontSize: '14px',
     color: '#6b7280',
+    overflowWrap: 'anywhere' as const,
   } as React.CSSProperties,
   section: {
     backgroundColor: '#ffffff',

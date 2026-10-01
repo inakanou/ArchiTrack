@@ -39,6 +39,8 @@
  * 11. モバイル縦積み: 狭幅で横スクロールなし・写真項目が縦積み（R19.1, R19.2, R19.4）
  * 12. モバイル幅のブレッドクラム: 長いプロジェクト名・アルバム名でもブレッドクラムが水平に
  *     はみ出さない（折り返して収まる／折り返せない語は自身の領域内に収まる）（R19.4）
+ * 13. モバイル幅の見出し: 区切りの無い英数字の長いアルバム名・メモでも、詳細画面の見出し領域が
+ *     水平にはみ出さない（R19.1）
  *
  * 縮退した要素（理由明記）:
  *  - パンの座標厳密検証: 拡大時に画像 transform の translate 成分が変化することまでを確認し、
@@ -1195,5 +1197,110 @@ test.describe('工事写真 追加機能フロー', () => {
       unbreakable.area.clientWidth
     );
     expectNoHorizontalOverflow(unbreakable, unbreakableReport);
+  });
+
+  /**
+   * R19.1 モバイル幅の見出し領域:
+   * 375 幅で工事写真の詳細画面を開き、区切りの無い英数字の長い一語のアルバム名とメモを載せた
+   * 見出し領域（h1 のアルバム名・p のメモ）が、詳細画面に横スクロールを生じさせないことを検証する。
+   *
+   * @requirement construction-photo/REQ-19.1
+   *
+   * 前提として、アルバム名とメモの一行の自然幅がいずれも詳細画面のコンテナ（<main>）の幅を
+   * 超えること（折り返さなければはみ出す長さであること）を主張する。自然幅は画面の計算済み
+   * フォントで canvas の measureText により測る（折り返しの有無に依らない。タスク 19.2 と同じ手法）。
+   * そのうえで、<main> に水平のはみ出しが無いこと（許容誤差1px）、メモの段落の scrollWidth が
+   * clientWidth を超えないこと、h1 とメモの右端が画面幅の内側にあることを主張する。
+   *
+   * 是正の経緯（2026-10-01、タスク 20.1）: 本テストを書いた時点の実装（`styles.title` /
+   * `styles.memo` に折り返しの指定が無い形）では赤だった。アルバム名は最大 200 文字まで入力でき、
+   * 区切りの無い一語は折り返されず、見出しが <main> を押し広げていた。是正は
+   * `ConstructionPhotoDetailPage.tsx` の `styles.title` と `styles.memo` に overflowWrap:anywhere を
+   * 足し、語の中にも折り返し位置を与えたことである。
+   *
+   * 文書全体（documentElement）の scrollWidth は測らない。アプリ共通ヘッダ（全画面共通の
+   * クロムで工事写真機能の範囲外）が 375 幅で水平にはみ出すためである（上の二つのテストの注記と
+   * 同じ理由）。測定の前に、詳細画面のモバイル分岐（`containerMobile` の maxWidth:100%）が
+   * 適用されるまで待つ。
+   */
+  test('モバイル幅で区切りの無い長いアルバム名・メモの見出しが水平にはみ出さない', async ({
+    page,
+  }) => {
+    const stamp = Date.now();
+    const albumName = `FoundationRebarInspectionAndFormworkInstallationRecordAlbumForThirdZone${stamp}`;
+    const memo = `ExteriorWorksFoundationRebarInspectionMemorandumConcerningFormworkInstallationAndConcretePlacementSchedule${stamp}`;
+    const prisma = getPrismaClient();
+
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'heading');
+    const albumId = await createAlbum(page, projectId, albumName);
+    await prisma.constructionPhotoAlbum.update({ where: { id: albumId }, data: { memo } });
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    const heading = page.getByRole('heading', { level: 1, name: albumName });
+    await expect(heading).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(page.getByText(memo, { exact: true })).toBeVisible();
+    await expect
+      .poll(
+        async () =>
+          heading.evaluate((h1) => {
+            const main = h1.closest('main');
+            return main ? getComputedStyle(main).maxWidth : null;
+          }),
+        { timeout: getTimeout(15000) }
+      )
+      .toBe('100%');
+
+    const m = await heading.evaluate((h1, memoText) => {
+      const main = h1.closest('main') as HTMLElement;
+      const memoEl = Array.from(main.querySelectorAll('p')).find(
+        (p) => p.textContent === memoText
+      ) as HTMLElement | undefined;
+      const context = document.createElement('canvas').getContext('2d');
+      const naturalWidth = (el: Element | undefined): number => {
+        if (!el || !context) return -1;
+        const style = getComputedStyle(el);
+        context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+        return context.measureText(el.textContent ?? '').width;
+      };
+      const box = (el: HTMLElement | undefined) =>
+        el
+          ? {
+              scrollWidth: el.scrollWidth,
+              clientWidth: el.clientWidth,
+              right: el.getBoundingClientRect().right,
+            }
+          : null;
+      return {
+        viewportWidth: window.innerWidth,
+        titleNaturalWidth: naturalWidth(h1),
+        memoNaturalWidth: naturalWidth(memoEl),
+        title: box(h1 as HTMLElement),
+        memo: box(memoEl),
+        main: { scrollWidth: main.scrollWidth, clientWidth: main.clientWidth },
+      };
+    }, memo);
+    const report = JSON.stringify(m);
+
+    expect(m.viewportWidth).toBe(375);
+    expect(m.title, report).not.toBeNull();
+    expect(m.memo, report).not.toBeNull();
+    expect(m.main.clientWidth, report).toBeGreaterThan(0);
+    // 前提: アルバム名とメモの一語の自然幅が、いずれも詳細画面のコンテナの幅を超える
+    expect(m.titleNaturalWidth, report).toBeGreaterThan(m.main.clientWidth);
+    expect(m.memoNaturalWidth, report).toBeGreaterThan(m.main.clientWidth);
+
+    // R19.1: 詳細画面のコンテナに水平のはみ出しが無い（許容誤差1px）
+    expect(m.main.scrollWidth - m.main.clientWidth, report).toBeLessThanOrEqual(1);
+    // 見出し・メモ自身も画面幅の内側に収まる。h1 は flex item として箱ごと広がる
+    // （是正前も scrollWidth=clientWidth=1083 だった）ため、h1 のはみ出しは右端と <main> の主張で
+    // 捉える。h1 の scrollWidth の主張に検出力は無い（タスク 20.1 のレビューで実測）
+    expect(m.title!.clientWidth, report).toBeGreaterThan(0);
+    expect(m.title!.right, report).toBeLessThanOrEqual(m.viewportWidth + 1);
+    expect(m.memo!.clientWidth, report).toBeGreaterThan(0);
+    expect(m.memo!.scrollWidth, report).toBeLessThanOrEqual(m.memo!.clientWidth);
+    expect(m.memo!.right, report).toBeLessThanOrEqual(m.viewportWidth + 1);
   });
 });
