@@ -594,3 +594,13 @@
   - **本節が `_Requirements:` を持たないのは意図である。** 本節は受入基準を実装せず、設計文書の状態記録を現況へ追随させるだけである。表が名乗る受入基準番号（12.1-12.27 ほか）を `_Requirements:` に挙げると「当該受入基準を本タスクが被覆した」という偽の申告になり、被覆の集計にも入りうるため、依存と境界だけを書く
   - _Depends: site-survey スペックの Task 115.240（状態記録の走査と申し送り）_
   - _Boundary: 本スペックの設計文書に残る状態記録_
+
+## タスク28: frontend の型に残るフリガナの項目を本書のインターフェースへ揃える（27.1 のレビューからの起票。着手は利用者の判断による）
+
+**経緯**: Task 27.1 の独立レビュー（2026-10-01、HEAD `e09cd61b`）が、`frontend/src/types/trading-partner.types.ts` の `TradingPartnerInfo`（必須の `string | null`）と `CreateTradingPartnerInput`（任意）が `branchNameKana` / `representativeNameKana` を持ち続けていることを確かめた（grep の出力 4）。本書の TradingPartnerService の「Service Interface」の節の `TradingPartnerInfo` はこの二つを持たず、backend の schema.prisma にも無い（マイグレーション `20251212105900_remove_kana_fields_from_trading_partner`）。API は値を返さないため、project-management が所有する `frontend/src/components/projects/TradingPartnerSelect.tsx` の絞り込みの照合（`?.… ?? false` の 2 箇所）は常に偽の死んだ分岐であり、表示・検索への実害は無い。約 15 のテスト・stories の fixture が二つの項目を使い続けて、ずれを覆い隠している
+
+- [ ] 28.1 型から二つの項目を外し、fixture と照合の死んだ分岐を揃える
+  - 型から外すと `TradingPartnerSelect.tsx` が型エラーになるため、同じ変更で照合の死んだ分岐を外す（project-management の所有。同スペックへ申し送ること）。fixture と stories からも二つの項目を外す
+  - 取引先の選択の振る舞い（かな検索を含む）が変わらないことを、既存の単体と E2E で確かめる
+  - _Requirements: 11_
+  - _Boundary: frontend の取引先の型と、それを使う fixture・照合_
