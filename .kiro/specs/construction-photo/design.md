@@ -722,7 +722,7 @@ type PhotoUploadHandler = (files: File[]) => Promise<UploadOutcome>;
 | GET | /api/construction-photos/images/:imageId/print-image | - | image/jpeg（看板ありはオンデマンド合成） | 401,403,404 |
 | GET | /api/construction-photos/images/:imageId/original | - | image/*（看板配置有無に関わらず非合成の原本をストリーム。ビューア/ZIP用） | 401,403,404 |
 | POST | /api/construction-photos/:id/images | multipart images[] (≤10, ≤10MB) | ConstructionPhotoWithUrls[] | 400,401,403,413 |
-| POST | /api/construction-photos/:id/images/from-surveys | {surveyImageIds[]} | ConstructionPhotoWithUrls[] | 400,401,403,404 |
+| POST | /api/construction-photos/:id/images/from-surveys | {surveyImageIds[]} | {successful, failed}（全件成功 201・部分失敗 207） | 400,401,403,404,410（親の現場調査が論理削除済み。SURVEY_DELETED、Task 17.1）,503 |
 | PATCH | /api/construction-photos/images/batch | metadata batch | ConstructionPhotoWithUrls[] | 400,401,403 |
 | PUT | /api/construction-photos/:id/images/order | {orders[]} | 204 | 400,401,403 |
 | DELETE | /api/construction-photos/images/:imageId | - | 204 | 401,403,404 |
