@@ -2206,6 +2206,9 @@
   - **検証**: `npm run check:req-exclusions` / `check:trace-coverage` / `check:req-coverage` の出力を基線と `diff` で突き合わせ、動いた行を実出力で示すこと。`npm run check:design-refs` / `check:design-code-refs` / `check:design-path-refs` / `check:design-measurement-freshness` / `check:cf-evidence` が基線と同じ終了コードであること
   - **本節が `_Requirements:` を持たないのは意図である。** 本節は消化の道筋を決める起票であり、`6.9` / `39.9` を `_Requirements:` に挙げると「当該受入基準を本タスクが被覆した」という偽の申告になる。**当該受入基準が偽の被覆に数えられていることこそが本節の対象である**ため、同じ形を本節が繰り返してはならない。依存と境界だけを書く
   - _Depends: site-survey スペックの Task 115.240（持ち越しの走査と申し送り）_
+  - **利用者の判断（2026-10-01）: 持ち越しを消化する（実装する）。** 着手時（HEAD `13d8e9b4`）の調査で、`grep -rn '添付内訳書の通り' backend/src frontend/src` の当たりは今も 0 件であり、加えて、内訳書に紐付いていない見積依頼は `EstimateRequestItem` を持たないため本文の生成が `NoItemsSelectedError`（422 `NO_ITEMS_SELECTED`）で必ず失敗し、詳細画面は「見積依頼文を取得できませんでした」だけを表示する（コピーとメーラー起動（Req 41）も使えない）ことが分かった。E2E の REQ-6.9 は test 名が「表示される」、註が「表示されない」、照合はどちらも確かめず、REQ-39.9 の注釈は REQ-39.2 の test に付き、本文が出ないエラーの状態のまま空の成功で通っている
+  - **設計の判断（利用者、2026-10-01）**: (1) 見出しは要件どおり【内容】とする（既存の【見積対象項目】はそのまま）。(2) 内訳書に紐付いていても項目を 1 件も選んでおらず「含めない」のときも、本文を生成する（6.9 の文面に忠実に）
+  - **消化の範囲**: `backend/src/services/estimate-request-text.service.ts` の本文生成（`generateEmailBody` / `generateFaxBody` と入口の `NoItemsSelectedError` のガード）、その単体テスト、E2E（`estimate-request-e2e.spec.ts` の REQ-6.9 と、REQ-39.9 を名乗る test の独立）、`scripts/criterion-literal-adjudication.json` の 6.9・39.9 の裁定の取り下げと `LEDGER_ENTRY_LIMIT` の追随、design.md の R-39-1 ほかの記述（規約 (a)）
   - _Boundary: 本スペックの設計文書に残る持ち越し R-39-1 と、その受入基準を名乗る E2E・除外一覧の整合_
 
 ## Task 94: 下流が転用のために足した共有部品の任意 props と引数が設計文書に記されていない状態を解消する
