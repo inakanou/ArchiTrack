@@ -471,3 +471,19 @@ _申し送り元: site-survey スペックの Task 115.214（同スペックで�
   - _Boundary: 本スペックの `design.md` の R18 の記述_
 
 _申し送り元: quantity-table-generation スペックの Task 100.24_
+
+## Task 19: 機能レベル検証の no-go の被覆の穴を埋める
+
+**経緯**: Task 16〜18 の完了後に行った機能レベル検証（2026-10-01、コミット `d6690d07`）は NO-GO を返した。今回の変更が原因の失敗は 0 件で、原因は E2E の被覆印を持たない既存の受入基準 2 件だけである。機械検査は全件緑だった（backend 単体 6190 件、frontend 単体 11926 件、工事写真の統合 66 件、E2E の construction-photos 28 件）。`npm run check:req-coverage` の本機能分は、要件 20/20、受入基準 143/145 である。`e2e/requirement-exclusions.json` に本機能の除外は無い。
+
+- [ ] 19.1 編集権限の無い利用者に操作手段を表示しないことを E2E で主張する
+  - 編集権限の無いロールで工事写真の詳細画面を開き、要件 17.1 が列挙する操作手段が表示されないことを主張すること。列挙の正本は requirements.md の Requirement 17 とし、着手時に読み直すこと
+  - 被覆印は `@requirement construction-photo/REQ-17.1` とする。権限のあるロールでは同じ操作手段が表示されることも併せて主張し、偽の緑（画面が描かれていないだけ）を排すること
+  - _Requirements: 17.1_
+  - _Boundary: 工事写真の詳細画面の権限連動の E2E_
+
+- [ ] 19.2 モバイル幅でブレッドクラムが水平にはみ出さないことを E2E で主張する
+  - 375 幅で工事写真の画面を開き、ブレッドクラムの `scrollWidth` が `clientWidth` を超えないこと（または文書全体に水平スクロールが生じないこと）を主張すること。対象画面は requirements.md の Requirement 19 の 4 を読んで確定すること
+  - 被覆印は `@requirement construction-photo/REQ-19.4` とする。長いプロジェクト名・アルバム名を与え、はみ出しうる条件で測ること
+  - _Requirements: 19.4_
+  - _Boundary: 工事写真のモバイル幅のブレッドクラムの E2E_
