@@ -411,7 +411,7 @@
   - _Depends: site-survey スペックの Task 115.249（下限の出所の判断と申し送り）_
   - _Boundary: 本スペックの文書におけるタップ領域の下限の帰属_
 
-- [ ] 16.2 帰属の無い 2 箇所に立会人を置く
+- [x] 16.2 帰属の無い 2 箇所に立会人を置く
   - 対象は `frontend/src/components/construction-photos/ConstructionPhotoImageViewer.tsx` の `rotationButton` の `minWidth` / `minHeight` である。**現状は変異を当てても 16 ファイル 208 件が緑のまま通る**（上の実測）
   - **検証側は 44 を自前で綴ること**（site-survey の Task 115.217 が確立した切り分け。理由は `frontend/src/components/site-surveys/tap-target.constants.ts` の冒頭にある）。実装から定数を取り込むと、主張が「実装は実装に等しい」へ弱まる
   - **是正後は同じ置換の変異を当てて、実際に赤くなることを実測すること**

@@ -301,4 +301,48 @@ describe('ConstructionPhotoImageViewer', () => {
     expect(after.x).toBeGreaterThan(before.x);
     expect(after.y).toBeGreaterThan(before.y);
   });
+
+  /**
+   * 回転ボタンのタップ領域の下限（Task 16.2）
+   *
+   * 下限の根拠は本スペックの受入基準ではなく、`.kiro/steering/tech.md` の
+   * 「レスポンシブ・ビューポート方針」の箇条「モバイルの下限値」という横断ルールである
+   * （requirements.md の Requirement 19 の受入基準3 の注記。Task 16.1 で記録）。
+   * 回転ボタンは 19.3 の対象外であり、所管する Requirement 14 もタップ領域の条項を
+   * 持たないため、以下のテスト名は受入基準の番号を名乗らない。
+   *
+   * 44 は実装から取り込まず自前で綴る（site-survey の Task 115.217 の切り分け。理由は
+   * `frontend/src/components/site-surveys/tap-target.constants.ts` の冒頭）。取り込むと
+   * 主張が「実装は実装に等しい」へ弱まる。寸法の測り方は `PhotoItemPanel.test.tsx` の
+   * `tapWidth` / `tapHeight` と同じ形に揃えた。
+   */
+  describe('回転ボタンのタップ領域（横断ルールの下限）', () => {
+    /** インラインスタイルの寸法値（px）を数値化する */
+    const pxValue = (raw: string): number => {
+      const parsed = parseFloat(raw);
+      return Number.isNaN(parsed) ? 0 : parsed;
+    };
+
+    /** 要素の有効な最小タップ領域（min-width/width, min-height/height の大きい方）を返す */
+    const tapWidth = (el: HTMLElement): number =>
+      Math.max(pxValue(el.style.minWidth), pxValue(el.style.width));
+    const tapHeight = (el: HTMLElement): number =>
+      Math.max(pxValue(el.style.minHeight), pxValue(el.style.height));
+
+    it('左に回転ボタンのタップ領域を44px以上にすること', () => {
+      render(<ConstructionPhotoImageViewer imageUrl="blob:mock-original-1" onClose={onClose} />);
+
+      const rotateLeft = screen.getByRole('button', { name: '左に回転' });
+      expect(tapWidth(rotateLeft)).toBeGreaterThanOrEqual(44);
+      expect(tapHeight(rotateLeft)).toBeGreaterThanOrEqual(44);
+    });
+
+    it('右に回転ボタンのタップ領域を44px以上にすること', () => {
+      render(<ConstructionPhotoImageViewer imageUrl="blob:mock-original-1" onClose={onClose} />);
+
+      const rotateRight = screen.getByRole('button', { name: '右に回転' });
+      expect(tapWidth(rotateRight)).toBeGreaterThanOrEqual(44);
+      expect(tapHeight(rotateRight)).toBeGreaterThanOrEqual(44);
+    });
+  });
 });
