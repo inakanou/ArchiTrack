@@ -43,6 +43,8 @@
  *     水平にはみ出さない（R19.1）
  * 14. モバイル幅のファイル名: 区切りの無い現実的な長さのファイル名でも、写真項目の見出しと削除確認
  *     ダイアログの本文が水平にはみ出さない（R19.1）
+ * 15. モバイル幅の看板配置ダイアログ: 区切りの無い英数字の長い工事件名でも、操作列の「保存」が
+ *     画面外へ押し出されず、案内文が潰れず、件名のバッジが画面内に収まる（R19.1）
  *
  * 縮退した要素（理由明記）:
  *  - パンの座標厳密検証: 拡大時に画像 transform の translate 成分が変化することまでを確認し、
@@ -1433,5 +1435,142 @@ test.describe('工事写真 追加機能フロー', () => {
     await dialog.getByRole('button', { name: 'キャンセル' }).click();
     await expect(dialog).toBeHidden();
     await expect(items).toHaveCount(1);
+  });
+
+  /**
+   * R19.1 モバイル幅の看板配置ダイアログの操作列:
+   * 375 幅で工事写真の詳細画面から看板配置ダイアログを開き、区切りの無い英数字の長い工事件名の
+   * 看板を選んだとき、配置エディタの操作列（看板バッジ・案内文・「保存」）が画面幅に収まることを
+   * 検証する。
+   *
+   * @requirement construction-photo/REQ-19.1
+   *
+   * 前提として、バッジの文字列の一行の自然幅が操作列の幅（clientWidth）を超えること（折り返さ
+   * なければ操作列に収まらない長さであること）を主張する。自然幅は画面の計算済みフォントで canvas
+   * の measureText により測る（タスク 19.2・20.1・20.3 と同じ手法）。そのうえで次を主張する。
+   *  - 「保存」ボタンの箱の右端が画面幅の内側にある（許容誤差1px）。
+   *  - 案内文の幅が、案内文の一行の自然幅と操作列の幅の小さい方を下回らない（許容誤差1px）。
+   *    案内文は和文で文字ごとに折り返せるため、押し縮められても箱の外へははみ出さず、右端の主張
+   *    では潰れを検出できない。操作列が折り返せるなら、案内文は一行に収まる幅か、収まらなければ
+   *    操作列の全幅を得られる。これを下回るのは、同じ行の他の要素に幅を奪われて縦長に潰れている
+   *    ことを意味する。
+   *  - バッジの文字列の右端（Range の外接矩形）が画面幅の内側にある（許容誤差1px）。
+   *
+   * 是正の経緯（2026-10-01、タスク 20.4）: 本テストを書いた時点の実装（`SignboardPlacementEditor.tsx`
+   * の `styles.toolbar` に flexWrap が無く、`styles.badge` に折り返しの指定が無い形）では赤だった。
+   * 実測は、操作列の scrollWidth 572 / clientWidth 295、バッジの幅 477.5・文字列の右端 509.5、
+   * 案内文の幅 24（自然幅 276）・高さ 216、「保存」の右端 611.5 である。是正は操作列に
+   * flexWrap:wrap、バッジに overflowWrap:anywhere を足したことである。是正後は、バッジ・案内文・
+   * 「保存」が別の行に並び、それぞれ幅 295・276・60 になる。
+   * 検出力（変異で実測）: 操作列の flexWrap だけを外すと、案内文が幅 75.2 に潰れて案内文の主張が
+   * 赤になる（バッジは自身の箱の中で折り返し、「保存」は右端 335 で画面内に残る）。バッジの
+   * overflowWrap だけを外すと、バッジの文字列の右端が 509.5 になってバッジの主張が赤になる（操作列が
+   * 折り返すため「保存」と案内文は次の行で画面内に収まる）。「保存」の主張は両方を欠く是正前の形で
+   * 赤になる。
+   *
+   * 文書全体（documentElement）の scrollWidth は測らない。アプリ共通ヘッダ（全画面共通の
+   * クロムで工事写真機能の範囲外）が 375 幅で水平にはみ出すためである（上のテストの注記と
+   * 同じ理由）。
+   */
+  test('モバイル幅で区切りの無い長い工事件名でも看板配置ダイアログの操作列が画面内に収まる', async ({
+    page,
+  }) => {
+    const stamp = Date.now();
+    const workName = `SignboardWorkName${stamp}WithoutAnyBreakOpportunityForMobileToolbar`;
+
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'signboard-toolbar');
+    const albumId = await createAlbum(page, projectId, `看板操作列_${stamp}`);
+
+    // 配置用の工事看板を登録する（上の看板配置のテストと同じ手順）
+    await page.goto(`/projects/${projectId}/construction-signboards`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { name: '工事看板マスタ' })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await page.getByRole('button', { name: '新規登録' }).click();
+    await page.getByLabel('工事件名').fill(workName);
+    await page.getByLabel('工事場所').fill('看板操作列E2E現場');
+    const createSignboardResp = page.waitForResponse(
+      (r) => r.request().method() === 'POST' && /\/construction-signboards/.test(r.url()),
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByRole('button', { name: '登録' }).click();
+    await createSignboardResp;
+    await expect(page.getByRole('row').filter({ hasText: workName })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    await uploadPhoto(page, FIXTURE_JPG, 1);
+
+    await page
+      .getByTestId('construction-photo-item')
+      .first()
+      .getByRole('button', { name: /看板を(配置|変更)/ })
+      .click();
+    const assignDialog = page.getByRole('dialog', { name: '看板を配置' });
+    await expect(assignDialog).toBeVisible({ timeout: getTimeout(10000) });
+    await assignDialog.locator('#signboard-assign-select').selectOption({ label: workName });
+    const editor = assignDialog.getByTestId('signboard-placement-editor');
+    await expect(editor).toBeVisible({ timeout: getTimeout(10000) });
+    const badge = editor.getByTestId('signboard-indicator');
+    await expect(badge).toContainText(workName);
+    const saveButton = editor.getByRole('button', { name: '保存' });
+    await expect(saveButton).toBeVisible();
+    const hint = editor.getByText('ドラッグで移動、ハンドルで大きさを調整できます');
+    await expect(hint).toBeVisible();
+
+    const m = await editor.evaluate((root) => {
+      const badgeEl = root.querySelector('[data-testid="signboard-indicator"]') as HTMLElement;
+      const toolbar = badgeEl.parentElement as HTMLElement;
+      const hintEl = Array.from(toolbar.querySelectorAll('span')).find((el) =>
+        (el.textContent ?? '').startsWith('ドラッグで移動')
+      ) as HTMLElement;
+      const button = Array.from(toolbar.querySelectorAll('button')).find(
+        (el) => (el.textContent ?? '').trim() === '保存'
+      ) as HTMLElement;
+      const context = document.createElement('canvas').getContext('2d');
+      const natural = (el: HTMLElement): number => {
+        if (!context) return -1;
+        const style = getComputedStyle(el);
+        context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+        return context.measureText(el.textContent ?? '').width;
+      };
+      const range = document.createRange();
+      range.selectNodeContents(badgeEl);
+      const rect = (el: HTMLElement) => {
+        const r = el.getBoundingClientRect();
+        return { left: r.left, right: r.right, width: r.width, height: r.height };
+      };
+      return {
+        viewportWidth: window.innerWidth,
+        toolbar: { clientWidth: toolbar.clientWidth, scrollWidth: toolbar.scrollWidth },
+        badge: {
+          natural: natural(badgeEl),
+          box: rect(badgeEl),
+          textRight: range.getBoundingClientRect().right,
+        },
+        hint: { natural: natural(hintEl), box: rect(hintEl) },
+        button: rect(button),
+      };
+    });
+    const report = JSON.stringify(m);
+
+    expect(m.viewportWidth).toBe(375);
+    expect(m.toolbar.clientWidth, report).toBeGreaterThan(0);
+    // 前提: 件名の一語の自然幅が操作列の幅を超える（折り返さなければ操作列に収まらない長さ）
+    expect(m.badge.natural, report).toBeGreaterThan(m.toolbar.clientWidth);
+    // R19.1: 「保存」が画面外へ押し出されない
+    expect(m.button.right, report).toBeLessThanOrEqual(m.viewportWidth + 1);
+    // 案内文が縦長に潰れない（一行の自然幅か操作列の全幅の小さい方を確保する）
+    expect(m.hint.natural, report).toBeGreaterThan(0);
+    expect(m.hint.box.width, report).toBeGreaterThanOrEqual(
+      Math.min(m.hint.natural, m.toolbar.clientWidth) - 1
+    );
+    // 件名のバッジの文字列が画面幅の内側に収まる
+    expect(m.badge.textRight, report).toBeLessThanOrEqual(m.viewportWidth + 1);
   });
 });

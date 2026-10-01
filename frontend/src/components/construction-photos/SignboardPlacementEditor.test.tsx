@@ -228,6 +228,26 @@ describe('SignboardPlacementEditor', () => {
     expect(rect.width).toBeCloseTo(180, 5);
     expect(rect.height).toBeCloseTo(90, 5);
   });
+
+  it('R19.1: 区切りの無い長い工事件名でも操作列を折り返せ、バッジの件名を折り返すこと', async () => {
+    // 英数字の一語の件名は折り返し位置を持たない（タスク 20.4。実寸の主張は E2E が担う）
+    const workName = 'SignboardWorkName1759300000000WithoutAnyBreakOpportunityForMobileToolbar';
+    render(
+      <SignboardPlacementEditor
+        photo={photo}
+        signboard={{ ...signboard, workName }}
+        maxDisplayWidth={600}
+      />
+    );
+
+    await waitFor(() => expect(rectInstances.length).toBe(1));
+    const badge = screen.getByTestId('signboard-indicator');
+    expect(badge).toHaveTextContent(workName);
+    expect(badge.style.overflowWrap).toBe('anywhere');
+    const toolbar = badge.parentElement as HTMLElement;
+    expect(toolbar).toContainElement(screen.getByRole('button', { name: '保存' }));
+    expect(toolbar.style.flexWrap).toBe('wrap');
+  });
 });
 
 /**

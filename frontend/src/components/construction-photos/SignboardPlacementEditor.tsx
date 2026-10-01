@@ -85,8 +85,13 @@ const styles = {
     overflow: 'hidden',
     alignSelf: 'flex-start',
   } as React.CSSProperties,
+  // flexWrap:wrap と badge の overflowWrap:anywhere は、区切りの無い長い工事件名（英数字の一語）でも
+  // 操作列を画面幅に収めるためのもの。これが無いと 375 幅でバッジが一行に広がり、案内文が幅 24px の
+  // 縦長に潰れ、「保存」が画面外（right=611）へ押し出される（タスク 20.4 の E2E で実測, R19.1）。
+  // デスクトップ幅では普通の長さの件名は一行に収まり、配置は変わらない
   toolbar: {
     display: 'flex',
+    flexWrap: 'wrap' as const,
     alignItems: 'center',
     gap: '12px',
   } as React.CSSProperties,
@@ -99,6 +104,7 @@ const styles = {
     backgroundColor: '#065f46',
     color: '#ffffff',
     fontSize: '12px',
+    overflowWrap: 'anywhere' as const,
   } as React.CSSProperties,
   hint: {
     color: '#6b7280',
