@@ -2254,3 +2254,13 @@
   - 除外の総数（`requirement-exclusions-total`、137）と、E2E の参照の件数（`t13-anchor-references-after-115303`）の宣言が動く見込み。宣言は書き換えず、site-survey へ起票すること（115.339 の前例）
   - _Depends: 95.2, 95.3_
   - _Boundary: 本スペックが所管する除外項目_
+
+## タスク96: PDF の OCR を時間切れとアンマウントで止める（94.1 のレビューからの起票。着手は利用者の判断による）
+
+**経緯**: Task 94.1 の独立レビュー（2026-10-01、HEAD `05ba46fb`）が、`OcrDataExtractor.tsx` の PDF 経路（`processPdfHybrid`）の 30 秒のタイムアウトは `Promise.race` を reject するだけで、`extractPdfWithOcrFallback` の中で作られる Tesseract のワーカーは `workerRef` に登録されないため `cleanup()` で止まらず、全ページの認識が終わるまで走り続けることを確かめた（アンマウントしたときも同じ）。画像経路（`processOcr`）はタイムアウトの後に terminate する。要件 17.8（超過したらエラーを表示する）には違反しないが、CPU とメモリの浪費である
+
+- [ ] 96.1 PDF の OCR を時間切れとアンマウントで中断する
+  - `AbortController` を作り、時間切れのときとアンマウントのときに abort し、その signal を `extractPdfHybrid` の第 3 引数（`options.signal`）へ渡す。下流の `quantity-table-import` の `pdf-ocr-extractor.ts` が同じ形を実装している
+  - 挙動の修正であるため RED → GREEN で進めること。中断後にワーカーが terminate されることを単体で主張する
+  - _Requirements: 17.8_
+  - _Boundary: OcrDataExtractor の PDF 経路の中断_
