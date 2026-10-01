@@ -604,3 +604,20 @@
   - 取引先の選択の振る舞い（かな検索を含む）が変わらないことを、既存の単体と E2E で確かめる
   - _Requirements: 11_
   - _Boundary: frontend の取引先の型と、それを使う fixture・照合_
+
+## タスク29: 機能レベル検証（2026-10-01、HEAD `7258ce26`、NO-GO）で残った被覆の穴と被覆印の番号のずれ（起票のみ。着手は利用者の判断による）
+
+**経緯**: Task 27.1 の後の機能レベル検証が NO-GO を返した。テスト（backend 単体 6187・統合 100・frontend 単体 11924・E2E trading-partners 164）と関門は `check:req-coverage` を除き緑。NO-GO の理由は、site-survey の Task 115.188（`86882dd6`、2026-08-29）が被覆印の指し先を是正したときに露見して以来どのタスクも追跡していない被覆の穴 3 件である。project-management の Task 72.2・estimate-request の Task 97.1 と同じ扱い（利用者の判断「文書は直し被覆は起票」に倣う）として、起票に留める
+
+- [ ] 29.1 受入基準 11.9・12.19・12.26 を被覆する
+  - 11.9（請求締日を 1〜31 または末日として管理する）: `backend/src/__tests__/unit/schemas/trading-partner.schema.test.ts` の「請求締日のバリデーション」群が検証しているが被覆の印が無い。印を掲げる
+  - 12.19（一覧から選ぶと詳細ページへ遷移する）: 単体（`TradingPartnerListPage.test.tsx` の行クリックで遷移）に印を掲げるか、一覧の行のクリックで `/trading-partners/:id` へ遷移することを主張する E2E を足す
+  - 12.26（取引先の画面群に ProtectedLayout（AppHeader 付き）を当てる）: 4 ページで AppHeader が表示されることを主張する E2E を足す
+  - 印を掲げるたびに変異でテストが赤になることを確かめ、`check:req-coverage` で本スペックが 104/104 になることを実測する。E2E を足して site-survey 所有の件数の宣言が動いたら、site-survey へ起票して追随する
+  - _Requirements: 11.9, 12.19, 12.26_
+  - _Boundary: 本スペックの被覆_
+
+- [ ] 29.2 テストの見出しの要件番号を現在の要件定義書へ揃える
+  - `backend/src/__tests__/unit/models/trading-partner.model.test.ts` の見出し（フリガナ 2 項目の削除前の 14 項目の番号のまま。実在しない 11.13 / 11.14 を名乗る）と、`trading-partner.integration.test.ts` の `REQ-11.14`（正しくは 11.12）を揃える
+  - _Requirements: 11_
+  - _Boundary: 本スペックのテストの被覆印の番号_
