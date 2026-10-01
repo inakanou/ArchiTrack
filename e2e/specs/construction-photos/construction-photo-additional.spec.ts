@@ -25,6 +25,9 @@
  *     （R16.1, R16.2, R16.3, R16.4, R16.5）＋一覧の行アクション導線（R16.6）
  *  8. 権限出し分け: user は削除導線（アルバム削除・写真項目削除）が非表示、編集導線は表示
  *     （R17.2、対比として R17.1 の編集系表示も確認）
+ *  8b. 権限出し分け（編集権限なし）: construction_photo:update を持たないロールでは、写真項目の
+ *     追加・コメント編集・並び替え・印刷対象変更・看板配置・保存・写真項目削除の操作手段が
+ *     表示されず、閲覧の要素は表示される。対照として admin では同じ操作手段が表示される（R17.1）
  *  9. 未保存離脱警告（アプリ内遷移）: 未保存状態でのアプリ内遷移で確認ダイアログ→とどまる／
  *     保存後は警告なし（R18.2, R18.3）
  * 10. 未保存離脱警告（ブラウザ reload/タブ閉じ = beforeunload）: 未保存状態で beforeunload の
@@ -51,9 +54,11 @@ import { test, expect, type Request } from '@playwright/test';
 import * as path from 'path';
 import * as fs from 'fs';
 import { fileURLToPath } from 'url';
-import { loginAsUser } from '../../helpers/auth-actions';
+import { loginAsUser, loginWithCredentials } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { hashPassword } from '../../helpers/test-users';
+import { getPrismaClient } from '../../fixtures/database';
 
 // ESモジュールでの __dirname 代替
 const __filename = fileURLToPath(import.meta.url);
@@ -635,6 +640,209 @@ test.describe('工事写真 追加機能フロー', () => {
     await expect(userRow).toBeVisible({ timeout: getTimeout(15000) });
     await expect(userRow.getByRole('button', { name: `${userAlbumName}を編集` })).toBeVisible();
     await expect(userRow.getByRole('button', { name: `${userAlbumName}を削除` })).toHaveCount(0);
+  });
+
+  /**
+   * R17.1 権限出し分け（編集権限なし）:
+   * `construction_photo:update` を持たないロールで工事写真の詳細画面を開くと、要件17.1 が列挙する
+   * 操作手段（写真項目の追加・コメント編集・並び替え・印刷対象変更・看板配置・保存・写真項目削除）が
+   * 表示されない。閲覧の要素（アルバム名・写真項目・ファイル名・拡大表示の入口）は表示される。
+   *
+   * @requirement construction-photo/REQ-17.1
+   *
+   * 前件「編集権限を持たない」に入るロールは既存のシードに無い（admin は `*:*`、user は
+   * `construction_photo:update` を持つ）。そこで本テスト専用の非システムロールを作り、閲覧に
+   * 要る権限に `construction_photo:delete` を加え、`construction_photo:update` だけを与えない。
+   * 削除権限を与えるのは、写真項目削除の不在を R17.2（削除権限なしで削除ハンドラを渡さない）では
+   * なく R17.1（編集権限なしの読み取り専用）に帰属させるためである。削除権限を欠くロールでは
+   * 削除ハンドラが渡らないため、読み取り専用の抑止が壊れても削除ボタンは出ず、主張が検出力を
+   * 持たない。削除権限で現れるアルバム削除の導線は 17.1 の列挙に無いため主張しない。
+   * user ロールの権限を書き換えないのは、永続テストDBに権限が固着した
+   * 前例（seedRolePermissions の notIn による是正で解消）を再び作らないためである。非システム
+   * ロールは cleanDatabase が消すうえ、本テストの finally でも消す。
+   * 前件が実際の権限で成り立つことは、詳細画面の読み込みで画面自身が受け取った
+   * GET /api/v1/auth/me の permissions を集合として照合して主張する。
+   *
+   * 偽の緑（画面が描かれていないだけ）を排すため、同じアルバムを admin で開いた対照で、同じ
+   * 操作手段がすべて表示される（または操作可能である）ことを先に主張する。
+   * コメント欄と印刷対象のチェックは、設計（R17.3 の読み取り専用表示）に従い欄そのものは
+   * 表示したまま操作を抑止する実装のため、「操作手段が無い」を編集不能・無効として主張する。
+   *
+   * 検出力の実測（2026-10-01、タスク 19.1）: `ConstructionPhotoDetailPage.tsx` の `canEdit` を
+   * true 固定に変異させた本番ビルドで本テストを実行すると、`photo-uploader` の toHaveCount(0) で
+   * 落ちた（Expected 0 / Received 1、1 failed）。変異を戻して作り直すと 1 passed に戻った。
+   * この実測は閲覧ロールへ `construction_photo:delete` を加える前の版で行った。
+   * 追記（2026-10-01、タスク 19.1 のレビュー差し戻し）: 削除権限を欠く版では、`PhotoItemPanel.tsx` で
+   * readOnly でも削除ハンドラがあれば削除の行を出す変異（看板配置は readOnly で隠したまま）を当てた
+   * 本番ビルドでも本テストは 1 passed で生き残った（レビュアーの実測）。閲覧ロールへ削除権限を加えた
+   * 現行の版で同じ変異を当てて実行すると、`写真項目を削除:` の toHaveCount(0) で落ちた
+   * （Expected 0 / Received 1、1 failed）。変異を戻して作り直すと 1 passed に戻った。
+   */
+  test('権限出し分け: 編集権限の無いロールでは編集系の操作手段が表示されない', async ({ page }) => {
+    const prisma = getPrismaClient();
+    const stamp = Date.now();
+    const albumName = `追加機能_閲覧のみ_${stamp}`;
+    const viewerEmail = `cp-viewer-${stamp}@example.com`;
+    const viewerPassword = 'ViewerPass123!';
+    const viewerRoleName = `e2e_construction_photo_viewer_${stamp}`;
+    const viewerPermissionKeys = [
+      'construction_photo:read',
+      'construction_photo:delete',
+      'construction_signboard:read',
+      'project:read',
+    ];
+
+    /** 詳細画面の読み込みで画面が受け取る /api/v1/auth/me の permissions を得る。 */
+    const openDetailAndReadPermissions = async (albumId: string): Promise<string[]> => {
+      const meResponse = page.waitForResponse(
+        (r) =>
+          r.request().method() === 'GET' &&
+          new URL(r.url()).pathname === '/api/v1/auth/me' &&
+          r.status() === 200,
+        { timeout: getTimeout(30000) }
+      );
+      await page.goto(`/construction-photos/${albumId}`);
+      const body = (await (await meResponse).json()) as { permissions?: string[] };
+      await page.waitForLoadState('networkidle');
+      expect(Array.isArray(body.permissions)).toBe(true);
+      return body.permissions ?? [];
+    };
+
+    // 17.1 が列挙する操作手段（詳細画面）
+    const photoItems = page.getByTestId('construction-photo-item');
+    const uploader = page.getByTestId('photo-uploader');
+    const fileInput = page.getByTestId('file-input');
+    const commentBox = photoItems.first().getByRole('textbox', { name: 'コメント' });
+    const dragHandle = page.getByTestId('construction-photo-drag-handle');
+    const orderButtons = page.getByTestId('order-buttons');
+    const includeInReport = photoItems.first().getByRole('checkbox', { name: '印刷対象に含める' });
+    const assignSignboard = page.getByRole('button', { name: /^看板を(配置|変更): / });
+    const saveButton = page.getByRole('button', { name: '保存', exact: true });
+    const deletePhotoItem = page.getByRole('button', { name: /^写真項目を削除: / });
+
+    const cleanupErrors: string[] = [];
+    const runCleanup = async (step: () => Promise<unknown>): Promise<void> => {
+      try {
+        await step();
+      } catch (error) {
+        cleanupErrors.push(error instanceof Error ? error.message : String(error));
+      }
+    };
+
+    let viewerUserId: string | null = null;
+    let viewerRoleId: string | null = null;
+    let projectId: string | null = null;
+    try {
+      // 準備: admin でプロジェクト・アルバムを作り、写真項目を1枚追加する
+      await loginAsUser(page, 'ADMIN_USER');
+      projectId = await createProject(page, 'viewer');
+      const albumId = await createAlbum(page, projectId, albumName);
+
+      // 対照: admin（編集権限あり）では同じ操作手段が表示される
+      const adminPermissions = await openDetailAndReadPermissions(albumId);
+      expect(adminPermissions).toContain('*:*');
+      await expect(page.getByRole('heading', { name: albumName })).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+      await uploadPhoto(page, FIXTURE_JPG, 1);
+      await expect(uploader).toBeVisible();
+      await expect(fileInput.first()).toBeAttached();
+      await expect(commentBox).toBeEditable();
+      await expect(dragHandle).toBeVisible();
+      await expect(orderButtons).toBeVisible();
+      await expect(includeInReport).toBeEnabled();
+      await expect(assignSignboard).toBeVisible();
+      await expect(saveButton).toBeVisible();
+      await expect(deletePhotoItem).toBeVisible();
+
+      // 編集権限を持たない閲覧専用ロールと利用者を用意し、プロジェクトの工事担当者に据える
+      // （プロジェクトへのアクセスは作成者・営業担当・工事担当・admin に限られる）
+      const permissions = await prisma.permission.findMany({
+        where: {
+          OR: viewerPermissionKeys.map((key) => {
+            const [resource, action] = key.split(':');
+            return { resource, action };
+          }),
+        },
+      });
+      expect(permissions.map((p) => `${p.resource}:${p.action}`).sort()).toEqual(
+        [...viewerPermissionKeys].sort()
+      );
+      const viewerRole = await prisma.role.create({
+        data: {
+          name: viewerRoleName,
+          description: 'E2E: 工事写真の閲覧と削除、編集なし（construction-photo/REQ-17.1）',
+          isSystem: false,
+        },
+      });
+      viewerRoleId = viewerRole.id;
+      await prisma.rolePermission.createMany({
+        data: permissions.map((p) => ({ roleId: viewerRole.id, permissionId: p.id })),
+      });
+      const viewer = await prisma.user.create({
+        data: {
+          email: viewerEmail,
+          displayName: 'E2E 閲覧専用',
+          passwordHash: await hashPassword(viewerPassword),
+        },
+      });
+      viewerUserId = viewer.id;
+      await prisma.userRole.create({ data: { userId: viewer.id, roleId: viewerRole.id } });
+      await prisma.project.update({
+        where: { id: projectId },
+        data: { constructionPersonId: viewer.id },
+      });
+
+      // 閲覧専用の利用者へ切り替える
+      await page.context().clearCookies();
+      await page.evaluate(() => localStorage.clear());
+      await loginWithCredentials(page, viewerEmail, viewerPassword);
+
+      // 前件: 画面が受け取った権限は閲覧に要る権限そのもので、編集権限を含まない
+      const viewerPermissions = await openDetailAndReadPermissions(albumId);
+      expect([...viewerPermissions].sort()).toEqual([...viewerPermissionKeys].sort());
+
+      // 閲覧の要素は表示される（画面が描かれていることの確認）
+      await expect(page.getByRole('heading', { name: albumName })).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+      await expect(photoItems).toHaveCount(1, { timeout: getTimeout(20000) });
+      await expect(
+        photoItems.first().getByRole('button', { name: /^画像を拡大表示: / })
+      ).toBeVisible();
+      await expect(photoItems.first().getByRole('heading', { level: 3 })).toBeVisible();
+      await expect(commentBox).toBeVisible();
+
+      // R17.1: 操作手段は表示されない（欄を残す2つは操作できない）
+      await expect(uploader).toHaveCount(0);
+      await expect(fileInput).toHaveCount(0);
+      await expect(commentBox).not.toBeEditable();
+      await expect(dragHandle).toHaveCount(0);
+      await expect(orderButtons).toHaveCount(0);
+      await expect(includeInReport).toBeDisabled();
+      await expect(assignSignboard).toHaveCount(0);
+      await expect(saveButton).toHaveCount(0);
+      await expect(deletePhotoItem).toHaveCount(0);
+    } finally {
+      // 後始末の失敗が本体の失敗を上書きしないよう、各段を個別に捕まえて記録する
+      if (projectId && viewerUserId) {
+        const id = projectId;
+        await runCleanup(() =>
+          prisma.project.update({ where: { id }, data: { constructionPersonId: null } })
+        );
+      }
+      if (viewerUserId) {
+        const id = viewerUserId;
+        await runCleanup(() => prisma.user.delete({ where: { id } }));
+      }
+      if (viewerRoleId) {
+        const roleId = viewerRoleId;
+        await runCleanup(() => prisma.rolePermission.deleteMany({ where: { roleId } }));
+        await runCleanup(() => prisma.role.delete({ where: { id: roleId } }));
+      }
+    }
+    // 本体が成功したときだけ到達する。後始末の失敗はここで失敗として表に出す
+    expect(cleanupErrors).toEqual([]);
   });
 
   /**
