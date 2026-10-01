@@ -268,11 +268,16 @@ const styles = {
     flexDirection: 'column' as const,
     gap: '12px',
   } as React.CSSProperties,
+  // overflowWrap:anywhere は区切りの無い長い語にも折り返し位置を与え、見出しの最小幅を縮める。
+  // カメラ由来のファイル名（IMG_20261001_143052_... など）はアンダースコアが折り返し位置にならず
+  // 一語として扱われ、これが無いと見出しが折り返さずに詳細画面の <main> を押し広げる
+  // （タスク 20.3 の E2E で実測, R19.1）。削除確認ダイアログの本文も同じ扱いとする
   fileName: {
     fontSize: '14px',
     fontWeight: 500,
     color: '#374151',
     margin: 0,
+    overflowWrap: 'anywhere' as const,
   } as React.CSSProperties,
   checkboxContainer: {
     display: 'flex',
@@ -393,6 +398,7 @@ const styles = {
     fontSize: '14px',
     color: '#6b7280',
     marginBottom: '20px',
+    overflowWrap: 'anywhere' as const,
   } as React.CSSProperties,
   deleteDialogButtons: {
     display: 'flex',

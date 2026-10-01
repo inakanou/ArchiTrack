@@ -41,6 +41,8 @@
  *     はみ出さない（折り返して収まる／折り返せない語は自身の領域内に収まる）（R19.4）
  * 13. モバイル幅の見出し: 区切りの無い英数字の長いアルバム名・メモでも、詳細画面の見出し領域が
  *     水平にはみ出さない（R19.1）
+ * 14. モバイル幅のファイル名: 区切りの無い現実的な長さのファイル名でも、写真項目の見出しと削除確認
+ *     ダイアログの本文が水平にはみ出さない（R19.1）
  *
  * 縮退した要素（理由明記）:
  *  - パンの座標厳密検証: 拡大時に画像 transform の translate 成分が変化することまでを確認し、
@@ -1302,5 +1304,134 @@ test.describe('工事写真 追加機能フロー', () => {
     expect(m.memo!.clientWidth, report).toBeGreaterThan(0);
     expect(m.memo!.scrollWidth, report).toBeLessThanOrEqual(m.memo!.clientWidth);
     expect(m.memo!.right, report).toBeLessThanOrEqual(m.viewportWidth + 1);
+  });
+
+  /**
+   * R19.1 モバイル幅の写真項目のファイル名:
+   * 375 幅で工事写真の詳細画面を開き、カメラ由来の現実的な長さの区切りの無いファイル名の画像を
+   * 写真項目として追加したとき、写真項目のファイル名の見出し（h3）と、削除確認ダイアログの本文が
+   * 詳細画面に横スクロールを生じさせないことを検証する。
+   *
+   * @requirement construction-photo/REQ-19.1
+   *
+   * アンダースコアは折り返し位置にならないため、`IMG_20261001_143052_..._<stamp>.jpg` は一語として
+   * 扱われる。前提として、ファイル名の一行の自然幅が見出しの幅（clientWidth）を超えること（折り返さ
+   * なければはみ出す長さであること）を主張する。自然幅は画面の計算済みフォントで canvas の
+   * measureText により測る（タスク 19.2・20.1 と同じ手法）。そのうえで、<main> に水平のはみ出しが
+   * 無いこと（許容誤差1px）、見出しの scrollWidth が clientWidth を超えないこと、見出しの文字列の
+   * 右端が画面幅の内側にあることを主張する。削除確認ダイアログでは、本文の段落の scrollWidth が
+   * clientWidth を超えないことと、本文の文字列の右端が画面幅の内側にあることを主張する。見出しも
+   * 段落も箱は親の幅に固定され、はみ出すのは中の文字列であるため、右端は箱ではなく文字列（Range の
+   * 外接矩形）で測る（20.1 の h1 は flex item として箱ごと広がったが、ここでは逆に箱が広がらない）。
+   *
+   * 是正の経緯（2026-10-01、タスク 20.3）: 本テストを書いた時点の実装（`PhotoItemPanel.tsx` の
+   * `styles.fileName` と `styles.deleteDialogMessage` に折り返しの指定が無い形）では赤だった。
+   * 実測は、<main> の scrollWidth 473 / clientWidth 343、見出しの scrollWidth 403 / clientWidth 203・
+   * 文字列の右端 488.6（箱の右端は 289）、ダイアログ本文の scrollWidth 427 / clientWidth 290・
+   * 文字列の右端 470.1（箱の右端は 332.3）である。是正は両者に overflowWrap:anywhere を足し、
+   * 語の中にも折り返し位置を与えたことである。
+   *
+   * 文書全体（documentElement）の scrollWidth は測らない。アプリ共通ヘッダ（全画面共通の
+   * クロムで工事写真機能の範囲外）が 375 幅で水平にはみ出すためである（上のテストの注記と
+   * 同じ理由）。測定の前に、写真項目が縦積みのモバイル分岐に確定するまで待つ。
+   */
+  test('モバイル幅で区切りの無い長いファイル名の写真項目が水平にはみ出さない', async ({ page }) => {
+    const stamp = Date.now();
+    const fileName = `IMG_20261001_143052_foundation_rebar_${stamp}.jpg`;
+
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'filename');
+    const albumId = await createAlbum(page, projectId, `ファイル名_${stamp}`);
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    const upload = page.waitForResponse(
+      (r) => r.request().method() === 'POST' && /\/construction-photos\/.+\/images$/.test(r.url()),
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByTestId('file-input').setInputFiles({
+      name: fileName,
+      mimeType: 'image/jpeg',
+      buffer: fs.readFileSync(FIXTURE_JPG),
+    });
+    await upload;
+    const items = page.getByTestId('construction-photo-item');
+    await expect(items).toHaveCount(1, { timeout: getTimeout(20000) });
+    const heading = items.getByRole('heading', { level: 3, name: fileName });
+    await expect(heading).toBeVisible({ timeout: getTimeout(15000) });
+    await expect
+      .poll(
+        async () =>
+          items.first().evaluate((el) => getComputedStyle(el as HTMLElement).flexDirection),
+        { timeout: getTimeout(15000) }
+      )
+      .toBe('column');
+
+    const m = await heading.evaluate((h3) => {
+      const main = h3.closest('main') as HTMLElement;
+      const context = document.createElement('canvas').getContext('2d');
+      const style = getComputedStyle(h3);
+      let naturalWidth = -1;
+      if (context) {
+        context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+        naturalWidth = context.measureText(h3.textContent ?? '').width;
+      }
+      const range = document.createRange();
+      range.selectNodeContents(h3);
+      return {
+        viewportWidth: window.innerWidth,
+        naturalWidth,
+        title: {
+          scrollWidth: h3.scrollWidth,
+          clientWidth: h3.clientWidth,
+          boxRight: h3.getBoundingClientRect().right,
+          textRight: range.getBoundingClientRect().right,
+        },
+        main: { scrollWidth: main.scrollWidth, clientWidth: main.clientWidth },
+      };
+    });
+    const report = JSON.stringify(m);
+
+    expect(m.viewportWidth).toBe(375);
+    expect(m.title.clientWidth, report).toBeGreaterThan(0);
+    expect(m.main.clientWidth, report).toBeGreaterThan(0);
+    // 前提: ファイル名の一語の自然幅が見出しの幅を超える（折り返さなければはみ出す長さ）
+    expect(m.naturalWidth, report).toBeGreaterThan(m.title.clientWidth);
+    // R19.1: 詳細画面のコンテナに水平のはみ出しが無い（許容誤差1px）
+    expect(m.main.scrollWidth - m.main.clientWidth, report).toBeLessThanOrEqual(1);
+    // 見出しのファイル名が見出しの箱からはみ出さず、その右端が画面幅の内側にある。見出しの箱は
+    // 縦積みの写真項目の幅に固定され（是正前も clientWidth 203・箱の右端 289 で画面の内側）、
+    // はみ出すのは中の文字列であるため、箱の右端ではなく文字列の右端（Range の外接矩形）を測る。
+    // 箱の右端の主張に検出力は無い（タスク 20.3 で実測）
+    expect(m.title.scrollWidth, report).toBeLessThanOrEqual(m.title.clientWidth);
+    expect(m.title.textRight, report).toBeLessThanOrEqual(m.viewportWidth + 1);
+
+    // 削除確認ダイアログの本文もファイル名を載せる
+    await items.getByRole('button', { name: `写真項目を削除: ${fileName}` }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    const message = dialog.locator('p').filter({ hasText: fileName });
+    await expect(message).toHaveCount(1);
+    const d = await message.evaluate((p) => {
+      const range = document.createRange();
+      range.selectNodeContents(p);
+      return {
+        viewportWidth: window.innerWidth,
+        scrollWidth: p.scrollWidth,
+        clientWidth: p.clientWidth,
+        boxRight: p.getBoundingClientRect().right,
+        textRight: range.getBoundingClientRect().right,
+      };
+    });
+    const dialogReport = JSON.stringify(d);
+    expect(d.clientWidth, dialogReport).toBeGreaterThan(0);
+    expect(d.scrollWidth, dialogReport).toBeLessThanOrEqual(d.clientWidth);
+    expect(d.textRight, dialogReport).toBeLessThanOrEqual(d.viewportWidth + 1);
+
+    // 後始末: 削除せずにダイアログを閉じる
+    await dialog.getByRole('button', { name: 'キャンセル' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(items).toHaveCount(1);
   });
 });

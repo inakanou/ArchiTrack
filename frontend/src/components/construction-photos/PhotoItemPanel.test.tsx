@@ -404,6 +404,25 @@ describe('PhotoItemPanel', () => {
         expect(tapHeight(dragHandle)).toBeGreaterThanOrEqual(44);
       });
 
+      it('R19.1: 区切りの無い長いファイル名を見出しと削除確認ダイアログの本文で折り返すこと', () => {
+        // カメラ由来のファイル名はアンダースコアが折り返し位置にならず一語として扱われる（タスク 20.3）
+        const fileName = 'IMG_20261001_143052_foundation_rebar_1759300000000.jpg';
+        render(
+          <PhotoItemPanel
+            photos={[makePhoto({ id: 'p1', fileName })]}
+            onPhotoMetadataChange={vi.fn()}
+            onDelete={vi.fn()}
+          />
+        );
+        const heading = screen.getByRole('heading', { level: 3, name: fileName });
+        expect(heading.style.overflowWrap).toBe('anywhere');
+
+        fireEvent.click(screen.getByRole('button', { name: /写真項目を削除/ }));
+        const message = within(screen.getByRole('dialog')).getByText(new RegExp(fileName));
+        expect(message.tagName).toBe('P');
+        expect(message.style.overflowWrap).toBe('anywhere');
+      });
+
       it('モバイル幅でも印刷対象操作は既存挙動（メタデータ変更通知）を維持すること（回帰）', () => {
         const onChange = vi.fn();
         render(
