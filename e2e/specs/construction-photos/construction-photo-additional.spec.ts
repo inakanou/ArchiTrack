@@ -47,6 +47,8 @@
  *     画面外へ押し出されず、案内文が潰れず、件名のバッジが画面内に収まる（R19.1）
  * 16. モバイル幅のアルバムを取り除く確認ダイアログ: 区切りの無い英数字の長いアルバム名でも、
  *     ダイアログとその中のパネルが水平にはみ出さず、名前の文字列が画面内に収まる（R19.1）
+ * 17. モバイル幅の現場調査写真の選択ダイアログ: 区切りの無い英数字の長い調査名でも、候補一覧の
+ *     本文が水平にはみ出さず、調査名の文字列と右の枚数表示が画面内に収まる（R19.1）
  *
  * 縮退した要素（理由明記）:
  *  - パンの座標厳密検証: 拡大時に画像 transform の translate 成分が変化することまでを確認し、
@@ -1670,5 +1672,139 @@ test.describe('工事写真 追加機能フロー', () => {
     await dialog.getByRole('button', { name: 'キャンセル' }).click();
     await expect(dialog).toBeHidden();
     await expect(heading).toBeVisible();
+  });
+
+  /**
+   * R19.1 モバイル幅の現場調査写真の選択ダイアログ:
+   * 375 幅で工事写真の詳細画面から「現場調査写真から選択」のダイアログを開き、区切りの無い英数字の
+   * 長い一語（100 文字超）の調査名を持つ現場調査が候補に出たとき、候補一覧が水平にはみ出さず、
+   * 調査名の右の枚数表示が見えない位置へ押し出されないことを検証する。
+   *
+   * @requirement construction-photo/REQ-19.1
+   *
+   * 現場調査は同じプロジェクトに UI で作成し、画像を1枚アップロードする（site-survey の
+   * site-survey-responsive.spec.ts と同じ手順）。調査名は 200 文字まで入力できる。
+   *
+   * 前提として、調査名の一行の自然幅がダイアログの本文（候補一覧を包む縦スクロールの箱）の
+   * clientWidth を超えること（折り返さなければ本文に収まらない長さであること）を主張する。
+   * 自然幅は画面の計算済みフォントで canvas の measureText により測る（タスク 20.5 と同じ手法）。
+   * そのうえで次を主張する。
+   *  - 本文の scrollWidth が clientWidth を超えない（ダイアログ内に横スクロールが出ない）。
+   *  - 調査名の文字列の右端（Range の外接矩形）が画面幅の内側にある（許容誤差1px）。
+   *  - 枚数表示の右端が画面幅の内側にある（許容誤差1px。押し出されていない）。
+   *  - 枚数表示の文字列の幅が一行の自然幅を下回らない（許容誤差1px。縮められて「1」と「枚」が
+   *    縦に割れていない）。
+   * ダイアログの箱は画面幅の 90% に固定され、広がるのは中の本文であるため、ダイアログの箱ではなく
+   * 本文と文字列で測る。
+   *
+   * 是正の経緯（2026-10-02、タスク 20.7）: 本テストを書いた時点の実装（`SurveyImagePicker.tsx` の
+   * 調査名の span に折り返しの指定が無い形）では赤だった。是正は二つである。調査名に
+   * overflowWrap:anywhere を足して語の中にも折り返し位置を与えたことと、枚数表示に flexShrink:0 を
+   * 足して長い調査名と同じ行で縮められないようにしたことである。調査名の側に minWidth:0 は要らない
+   * （overflowWrap:anywhere で最小内容幅そのものが小さくなるため、本文は 290 / 290 に収まる）。
+   * 是正前の実測は、名前の自然幅 769.3、本文の scrollWidth 800 / clientWidth 290、調査名の右端
+   * 829.1、枚数表示の右端 843.1（幅 14・高さ 37 の二行に割れていた）である。是正後は、本文
+   * 290 / 290、調査名の右端 289.0、枚数表示の右端 315.3（幅 25.1 で自然幅 25.1 と一致）になる。
+   * 検出力（変異で実測）: 主張を一時的に soft にして流すと、overflowWrap だけを外した変異では
+   * 本文（811 > 290）・調査名の右端（829.1 > 376）・枚数表示の右端（854.2 > 376）の三つが赤になり、
+   * flexShrink だけを外した変異では枚数表示の幅（14 < 24.1）が赤になる。
+   *
+   * ダイアログは「キャンセル」で閉じ、写真は追加しない。文書全体（documentElement）の scrollWidth は
+   * 測らない（上のテストの注記と同じ理由）。
+   */
+  test('モバイル幅で区切りの無い長い調査名でも現場調査写真の選択ダイアログが水平にはみ出さない', async ({
+    page,
+  }) => {
+    const stamp = Date.now();
+    const surveyName = `FoundationRebarInspectionAndFormworkInstallationSiteSurveyForThirdZoneConcretePlacementSchedule${stamp}`;
+
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'survey-picker');
+
+    // 同じプロジェクトに長い調査名の現場調査を作り、画像を1枚登録する
+    await page.goto(`/projects/${projectId}/site-surveys/new`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByLabel(/調査名/i)).toBeVisible({ timeout: getTimeout(10000) });
+    await page.getByLabel(/調査名/i).fill(surveyName);
+    await page.getByLabel(/調査日/i).fill(new Date().toISOString().split('T')[0]!);
+    const createSurvey = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'POST' &&
+        /\/api\/projects\/[0-9a-f-]+\/site-surveys$/.test(r.url()),
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByRole('button', { name: /^作成$/i }).click();
+    expect((await createSurvey).ok()).toBe(true);
+    await page.waitForURL(/\/site-surveys\/[0-9a-f-]+$/, { timeout: getTimeout(15000) });
+    await page.waitForLoadState('networkidle');
+    const surveyUpload = page.waitForResponse(
+      (r) => r.request().method() === 'POST' && /\/api\/site-surveys\/.+\/images$/.test(r.url()),
+      { timeout: getTimeout(60000) }
+    );
+    await page.locator('input[type="file"]').first().setInputFiles(FIXTURE_JPG);
+    expect((await surveyUpload).ok()).toBe(true);
+
+    const albumId = await createAlbum(page, projectId, `調査選択_${stamp}`);
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { level: 1, name: `調査選択_${stamp}` })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    await page.getByRole('button', { name: /現場調査写真から選択/ }).click();
+    const dialog = page.getByRole('dialog', { name: '現場調査写真から選択' });
+    await expect(dialog).toBeVisible({ timeout: getTimeout(10000) });
+    const candidate = dialog.getByRole('button', { name: new RegExp(surveyName) });
+    await expect(candidate).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(candidate).toContainText('1 枚');
+
+    const m = await candidate.evaluate((button, name) => {
+      const spans = Array.from(button.querySelectorAll(':scope > span')) as HTMLElement[];
+      const nameEl = spans.find((el) => el.textContent === name) as HTMLElement;
+      const countEl = spans.find((el) => /枚$/.test(el.textContent ?? '')) as HTMLElement;
+      const body = button.parentElement!.parentElement as HTMLElement;
+      const context = document.createElement('canvas').getContext('2d');
+      const measure = (el: HTMLElement) => {
+        if (!context) return -1;
+        const style = getComputedStyle(el);
+        context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+        return context.measureText(el.textContent ?? '').width;
+      };
+      const textRect = (el: HTMLElement) => {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const r = range.getBoundingClientRect();
+        return { left: r.left, right: r.right, width: r.width, height: r.height };
+      };
+      return {
+        viewportWidth: window.innerWidth,
+        naturalWidth: measure(nameEl),
+        countNaturalWidth: measure(countEl),
+        body: { scrollWidth: body.scrollWidth, clientWidth: body.clientWidth },
+        name: textRect(nameEl),
+        count: textRect(countEl),
+      };
+    }, surveyName);
+    const report = JSON.stringify(m);
+
+    expect(m.viewportWidth).toBe(375);
+    expect(m.body.clientWidth, report).toBeGreaterThan(0);
+    // 前提: 調査名の一語の自然幅が本文の幅を超える（折り返さなければはみ出す長さ）
+    expect(m.naturalWidth, report).toBeGreaterThan(m.body.clientWidth);
+    // R19.1: 本文に水平のはみ出しが無い（ダイアログ内に横スクロールが出ない）
+    expect(m.body.scrollWidth, report).toBeLessThanOrEqual(m.body.clientWidth);
+    // 調査名の文字列が画面幅の内側に収まる
+    expect(m.name.right, report).toBeLessThanOrEqual(m.viewportWidth + 1);
+    // 枚数表示が見えない位置へ押し出されず、画面幅の内側に収まる
+    expect(m.count.right, report).toBeLessThanOrEqual(m.viewportWidth + 1);
+    // 枚数表示が縮められず、一行の自然幅を保つ（「1」と「枚」が縦に割れない）
+    expect(m.countNaturalWidth, report).toBeGreaterThan(0);
+    expect(m.count.width, report).toBeGreaterThanOrEqual(m.countNaturalWidth - 1);
+
+    // 後始末: 写真を追加せずにダイアログを閉じる
+    await dialog.getByRole('button', { name: 'キャンセル' }).click();
+    await expect(dialog).toBeHidden();
   });
 });

@@ -152,6 +152,24 @@ describe('SurveyImagePicker', () => {
     });
   });
 
+  it('R19.1: 区切りの無い長い調査名を折り返し、枚数表示は縮めないこと', async () => {
+    // 英数字一語の長い調査名は折り返し位置を持たず、指定が無いとモバイル幅で候補一覧を水平に
+    // 広げ、右の枚数表示を見えない位置へ押し出す（タスク 20.7）
+    const longName = `FoundationRebarInspectionAndFormworkInstallationSiteSurvey${'X'.repeat(40)}`;
+    vi.mocked(siteSurveysApi.getSiteSurveys).mockResolvedValue({
+      ...mockSurveys,
+      data: [{ ...mockSurveys.data[0]!, name: longName }],
+    });
+    render(<SurveyImagePicker projectId="project-1" open onClose={vi.fn()} onSelect={vi.fn()} />);
+
+    const name = await screen.findByText(longName);
+    expect(name.tagName).toBe('SPAN');
+    expect(name.style.overflowWrap).toBe('anywhere');
+    const count = screen.getByText('2 枚');
+    expect(count.tagName).toBe('SPAN');
+    expect(count.style.flexShrink).toBe('0');
+  });
+
   it('open=false のときは何も描画しない', () => {
     const { container } = render(
       <SurveyImagePicker projectId="project-1" open={false} onClose={vi.fn()} onSelect={vi.fn()} />

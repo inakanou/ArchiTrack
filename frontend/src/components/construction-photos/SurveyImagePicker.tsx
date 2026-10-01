@@ -87,6 +87,16 @@ const styles = {
     color: '#374151',
     textAlign: 'left' as const,
   } as React.CSSProperties,
+  // overflowWrap:anywhere は区切りの無い長い語にも折り返し位置を与える。調査名は最大 200 文字まで
+  // 入力でき、英数字一語の名前はこれが無いと折り返されず、モバイル幅で候補一覧を水平に広げて右の
+  // 枚数表示を見えない位置へ押し出す（タスク 20.7 の E2E で実測, R19.1）
+  surveyName: {
+    overflowWrap: 'anywhere' as const,
+  } as React.CSSProperties,
+  // 枚数表示は縮めない。長い調査名と同じ行で縮められると「1」と「枚」が縦に割れる（タスク 20.7）
+  surveyImageCount: {
+    flexShrink: 0,
+  } as React.CSSProperties,
   backLink: {
     background: 'none',
     border: 'none',
@@ -330,8 +340,8 @@ export function SurveyImagePicker({
                     style={styles.surveyButton}
                     onClick={() => handleSelectSurvey(survey.id)}
                   >
-                    <span>{survey.name}</span>
-                    <span>{survey.imageCount} 枚</span>
+                    <span style={styles.surveyName}>{survey.name}</span>
+                    <span style={styles.surveyImageCount}>{survey.imageCount} 枚</span>
                   </button>
                 ))}
               </div>
