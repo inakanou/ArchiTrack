@@ -1606,7 +1606,7 @@
 
 ## 受領見積書ダイアログ改善2（Requirements 36-38）
 
-- [ ] 76. 受領見積書ダイアログ改善2 の事前調査と既存データ整合化
+- [x] 76. 受領見積書ダイアログ改善2 の事前調査と既存データ整合化
 - [x] 76.1 (P) received_quotation_line_items.sort_order の既存 NULL データ調査と必要時の整合化
   - 既存テーブル `received_quotation_line_items` に対し `sort_order IS NULL` のレコード件数を SQL クエリで確認する
   - **0 件の場合**: design.md「Migration Strategy: データ移行不要」と整合するためマイグレーション SQL の発行はスキップする
@@ -1624,7 +1624,7 @@
   - _Boundary: OcrDataExtractor_
   - _Requirements: 38.11_
 
-- [ ] 77. FileInlinePreview にプレビュー縦幅リサイズ機能を追加（Requirement 36）
+- [x] 77. FileInlinePreview にプレビュー縦幅リサイズ機能を追加（Requirement 36）
 - [x] 77.1 (P) useResizableHeight カスタムフックを実装
   - 高さ state を初期マウント時に localStorage（キー: `architrack:received-quotation:preview-height`）から復元、保存値なし時はデフォルト値 400px を採用する
   - heightRef を毎レンダで height と同期し、Pointer Events のクロージャから常に最新値を参照可能にする（design review Issue 3 対応）
@@ -1647,7 +1647,7 @@
   - _Depends: 77.1_
   - _Requirements: 36.1, 36.2, 36.3, 36.12, 36.13, 36.14_
 
-- [ ] 78. LineItemEditor に並び順保持と上下移動・アクションメニューを追加（Requirement 37）
+- [x] 78. LineItemEditor に並び順保持と上下移動・アクションメニューを追加（Requirement 37）
 - [x] 78.1 (P) LineItemFormData 型拡張と sortOrder ヘルパー関数の実装
   - LineItemFormData に sortOrder: number フィールドを追加する
   - createEmptyLineItem(sortOrder: number) ファクトリ関数を定義する
@@ -1683,7 +1683,7 @@
   - _Depends: 78.1, 78.2_
   - _Requirements: 37.2, 37.3, 37.6, 37.7, 37.8, 37.12, 37.15, 37.17_
 
-- [ ] 79. ReceivedQuotationForm にセッション保護・未保存変更ガード・並び順送信を統合（Requirements 38, 36.13, 37.13-37.14）
+- [x] 79. ReceivedQuotationForm にセッション保護・未保存変更ガード・並び順送信を統合（Requirements 38, 36.13, 37.13-37.14）
 - [x] 79.1 (P) usePendingSaveAfterReauth カスタムフックの実装
   - pendingRef を useRef で保持し、setPendingSave/clearPendingSave コールバックを返却する
   - useAuth().sessionExpiredDuringOperation を購読し、prevReauthRef で true→false 遷移エッジを検知する
@@ -1718,7 +1718,7 @@
   - _Depends: 78.1, 79.1, 79.2_
   - _Requirements: 36.13, 37.3, 37.13, 37.14, 38.2, 38.4, 38.5, 38.10_
 
-- [ ] 80. OcrDataExtractor のセッション切れ時連携（Requirement 38.11）
+- [x] 80. OcrDataExtractor のセッション切れ時連携（Requirement 38.11）
 - [x] 80.1 OcrDataExtractor で sessionExpiredDuringOperation を購読しボタン非活性化
   - useAuth().sessionExpiredDuringOperation を購読する
   - true の間「OCR 実行」「OCR リトライ」「データパース実行」ボタンを isExtracting と OR 結合した条件で disabled にする
@@ -1728,7 +1728,7 @@
   - _Depends: 76.2_
   - _Requirements: 38.11_
 
-- [ ] 81. 受領見積書ダイアログ改善2 のテスト
+- [x] 81. 受領見積書ダイアログ改善2 のテスト
 - [x] 81.1 (P) FileInlinePreview リサイズ機能のユニットテスト
   - 各プレビューモード（PDF/画像/Excel）でリサイズハンドルが表示されることのテスト
   - pointerdown→pointermove→pointerup イベントで height がドラッグ位置に追従することのテスト
@@ -2011,7 +2011,7 @@
   - _Depends: 88_
   - _Boundary: EstimateRequestDetailPage_
 
-- [ ] 90. メーラー転記機能のテスト（Requirement 41）
+- [x] 90. メーラー転記機能のテスト（Requirement 41）
 - [x] 90.1 (P) URL ビルダーのユニットテスト
   - frontend/src/utils/mail-launcher.test.ts を新規作成
   - テストケース: (1) mailto 基本形式、(2) mailto 本文改行が `%0D%0A`、(3) mailto スペースが `%20`、(4) mailto 全角・特殊文字エンコード、(5) Gmail compose 基本形式（`view=cm&fs=1` と to/su/body）、(6) Gmail 本文改行・全角の保持
@@ -2264,3 +2264,20 @@
   - 挙動の修正であるため RED → GREEN で進めること。中断後にワーカーが terminate されることを単体で主張する
   - _Requirements: 17.8_
   - _Boundary: OcrDataExtractor の PDF 経路の中断_
+
+## タスク97: 機能レベル検証（2026-10-01、HEAD `caafeb50`、NO-GO）で残った E2E の被覆の穴（起票のみ。着手は利用者の判断による）
+
+**経緯**: タスク 91〜95 の完了後の機能レベル検証が NO-GO を返した。今日の変更に退行は無く、テスト（backend 単体 6187・統合 99・frontend 単体 11924・E2E estimate-requests 324・下流 import-e2e 46）と関門は `check:req-coverage` を除き緑。NO-GO の理由は、以前（2026-08-29 の `86882dd6` で被覆の印が外れて以来）から残る E2E の被覆の穴で、どのタスクも追跡していなかった。project-management の Task 72.2 と同じ扱い（利用者の判断「文書は直し被覆は起票」に倣う）として、起票に留める
+
+- [ ] 97.1 E2E で被覆されていない受入基準 5 件を被覆する
+  - 対象: Requirement 4 の受入基準 8・9（項目選択の保存成功のフィードバック・保存失敗のエラー表示）、Requirement 15 の受入基準 5・6（一括転記の完了メッセージの行数・確認を促すメッセージ）、Requirement 36 の受入基準 8（縦幅が最大のときに拡大を抑止する）
+  - 各受入基準について原文どおりに主張する E2E を置き `@requirement estimate-request/REQ-N.M` を掲げる。E2E で前提を作れないものは、代替検証の実在を確かめたうえで除外に登録する
+  - E2E を足すと site-survey 所有の件数の宣言が動きうる。動いたら site-survey へ起票して追随する
+  - _Requirements: 4.8, 4.9, 15.5, 15.6, 36.8_
+  - _Boundary: 本スペックの E2E の被覆_
+
+- [ ] 97.2 「内訳書を本文に含める」が ON で項目 0 件のときの扱いを確定する（利用者の判断待ち）
+  - Task 93.1 は、この場合を従来どおり 422 `NO_ITEMS_SELECTED` のままとした（6.8 は 0 件の内容を定めず、6.9 は未チェックのときに限られるため）。要件 6.1（表示ボタンで本文を表示する）との緊張が残り、frontend は汎用の「見積依頼文を取得できませんでした」だけを表示して理由を伝えない
+  - 422 を保つか、保つ場合に `NO_ITEMS_SELECTED` を判別して「項目を選択してください」と案内するかを決める
+  - _Requirements: 6.1, 6.8, 6.9_
+  - _Boundary: 見積依頼文の生成と表示の、項目 0 件の扱い_
