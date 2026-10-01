@@ -1321,35 +1321,50 @@ ALTER TABLE trading_partners ADD CONSTRAINT "name_branchName_deletedAt"
 | Frontend | TradingPartnerForm | branchNameKana, representativeNameKana入力欄削除 | P0 | 2.3, 4.2 |
 | Frontend | TradingPartnerDetailView | branchNameKana, representativeNameKana表示削除 | P0 | 3.2 |
 
-### 未実装コンポーネント（Requirement 12関連）
+### 未実装コンポーネント（Requirement 12関連）——見出しは 2025-12-12 の Gap Analysis 時点の記録。現況は 8 件とも実装済み（タスク 27.1。コミット `e09cd61b`。2026-10-01 にリポジトリルートで再実測）
 
-| Layer | Component | Priority | Requirements | Notes |
-|-------|-----------|----------|--------------|-------|
-| Frontend | Breadcrumb（共通） | P0 | 12.14-12.17 | 再利用可能な共通コンポーネント |
-| Frontend | ResourceNotFound（共通） | P0 | 12.13 | 再利用可能な共通コンポーネント |
-| Frontend | TradingPartnerDetailPage | P0 | 3, 12.11, 12.15, 12.20 | 詳細表示ページ（既存DetailView活用） |
-| Frontend | TradingPartnerCreatePage | P0 | 2, 12.10, 12.16, 12.19, 12.21 | 新規作成ページ（既存Form活用） |
-| Frontend | TradingPartnerEditPage | P0 | 4, 12.12, 12.22 | 編集ページ（既存Form活用） |
-| Frontend | routes.tsx 拡張 | P0 | 12.9-12.12, 12.24-12.27 | 取引先ルート追加 |
-| Frontend | AppHeader 拡張 | P0 | 12.1-12.4 | 取引先リンク追加 |
-| Frontend | Dashboard 拡張 | P0 | 12.5-12.8 | クイックアクセスカード追加 |
+> **見出しと表の左 5 列は起票時の状態記録であり、書き換えない**——Requirement 12 の実装がどの範囲を起票したかの記録だからである。現況は右端の `Status（現況）` 列へ、再現コマンドと出力を添えて並べる。現況の語は見出しと同じ `実装済み` に揃え、測ったもの（ファイルの実在と、ページ・ルート・リンクとして描画される箇所）に限って述べる。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である。
 
-### テスト未完了
+| Layer | Component | Priority | Requirements | Notes | Status（現況） |
+|-------|-----------|----------|--------------|-------|----------------|
+| Frontend | Breadcrumb（共通） | P0 | 12.14-12.17 | 再利用可能な共通コンポーネント | 実装済み。`test -f frontend/src/components/common/Breadcrumb.tsx` の終了コードが `0`。`grep -l '<Breadcrumb' frontend/src/pages/TradingPartner*Page.tsx` が 4 ファイル（一覧・詳細・作成・編集）を返し、各ページが描画する。タスク 27.1。コミット `e09cd61b`。2026-10-01 実測 |
+| Frontend | ResourceNotFound（共通） | P0 | 12.13 | 再利用可能な共通コンポーネント | 実装済み。`test -f frontend/src/components/common/ResourceNotFound.tsx` の終了コードが `0`。`grep -l '<ResourceNotFound' frontend/src/pages/TradingPartner*Page.tsx` が 2 ファイル（詳細・編集）を返し、各ページが描画する。タスク 27.1。コミット `e09cd61b`。2026-10-01 実測 |
+| Frontend | TradingPartnerDetailPage | P0 | 3, 12.11, 12.15, 12.20 | 詳細表示ページ（既存DetailView活用） | 実装済み。`test -f frontend/src/pages/TradingPartnerDetailPage.tsx` の終了コードが `0`。`grep -c '<TradingPartnerDetailPage />' frontend/src/routes.tsx` の出力が `1` であり、ルートの要素として描画される。タスク 27.1。コミット `e09cd61b`。2026-10-01 実測 |
+| Frontend | TradingPartnerCreatePage | P0 | 2, 12.10, 12.16, 12.19, 12.21 | 新規作成ページ（既存Form活用） | 実装済み。`test -f frontend/src/pages/TradingPartnerCreatePage.tsx` の終了コードが `0`。`grep -c '<TradingPartnerCreatePage />' frontend/src/routes.tsx` の出力が `1` であり、ルートの要素として描画される。タスク 27.1。コミット `e09cd61b`。2026-10-01 実測 |
+| Frontend | TradingPartnerEditPage | P0 | 4, 12.12, 12.22 | 編集ページ（既存Form活用） | 実装済み。`test -f frontend/src/pages/TradingPartnerEditPage.tsx` の終了コードが `0`。`grep -c '<TradingPartnerEditPage />' frontend/src/routes.tsx` の出力が `1` であり、ルートの要素として描画される。タスク 27.1。コミット `e09cd61b`。2026-10-01 実測 |
+| Frontend | routes.tsx 拡張 | P0 | 12.9-12.12, 12.24-12.27 | 取引先ルート追加 | 実装済み。`grep -c "'/trading-partners'" frontend/src/routes.tsx` の出力が `1`、`grep -c "path: '/trading-partners" frontend/src/routes.tsx` の出力が `4`（一覧・`/new`・`/:id/edit`・`/:id` の 4 ルート）。タスク 27.1。コミット `e09cd61b`。2026-10-01 実測 |
+| Frontend | AppHeader 拡張 | P0 | 12.1-12.4 | 取引先リンク追加 | 実装済み。`grep -c 'trading-partners' frontend/src/components/Navigation/AppHeader.tsx` の出力が `1` であり、その 1 件は描画される `<Link>` の遷移先である（`grep -c 'to="/trading-partners"' frontend/src/components/Navigation/AppHeader.tsx` の出力も `1`）。タスク 27.1。コミット `e09cd61b`。2026-10-01 実測 |
+| Frontend | Dashboard 拡張 | P0 | 12.5-12.8 | クイックアクセスカード追加 | 実装済み。`grep -c 'trading-partners' frontend/src/pages/Dashboard.tsx` の出力が `3`（注釈・遷移先・`data-testid` の三つ）であり、うち描画される `<Link>` の遷移先は `grep -c 'to="/trading-partners"' frontend/src/pages/Dashboard.tsx` の出力 `1` である。タスク 27.1。コミット `e09cd61b`。2026-10-01 実測 |
+
+### テスト未完了——見出しは 2025-12-12 の Gap Analysis 時点の記録。現況は 4 件ともテストが実在する（タスク 27.1。コミット `e09cd61b`。2026-10-01 にリポジトリルートで再実測）
+
+> **見出しと `Status` 列の起票時の値は取り消し線の内側に残し、書き換えない。** 現況は同じ `Status` 列へ、見出しと同じ `テストが実在する` を語として並べ、走らせた単体テストだけに `単体テスト通過` を添える。`site-survey` の design.md「実測値の書き方（タスク 115.212）」の (a) に従う併記である。結合テストと E2E は本タスクでは走らせておらず（DB と test 環境を要する）、実在とテスト件数だけを測った。
 
 | Category | Status | Notes |
 |----------|--------|-------|
-| Unit Tests（KanaConverter） | 未実装 | 新規コンポーネント |
-| Unit Tests（サービス層かな変換） | 未実装 | 検索ロジック更新に伴う追加テスト |
-| Integration Tests（かな変換検索） | 未実装 | ひらがな入力での検索結果一致テスト |
-| E2E Tests（かな変換検索） | 未実装 | ひらがな・カタカナ両方での検索テスト |
+| Unit Tests（KanaConverter） | ~~未実装~~ テストが実在し、単体テスト通過。`test -f backend/src/__tests__/unit/utils/kana-converter.test.ts` と `test -f frontend/src/__tests__/utils/kana-converter.test.ts` の終了コードがどちらも `0`。`backend` で `npx vitest run src/__tests__/unit/utils/kana-converter.test.ts` を走らせると `69 passed`、`frontend` で `npx vitest run src/__tests__/utils/kana-converter.test.ts` を走らせると `47 passed` である。タスク 27.1。コミット `e09cd61b`。2026-10-01 実測 | 新規コンポーネント |
+| Unit Tests（サービス層かな変換） | ~~未実装~~ テストが実在し、単体テスト通過。`grep -c -e toKatakana -e toHiragana backend/src/services/trading-partner.service.ts` の出力が `5`（`getPartners` と `searchPartners` の二つの検索経路が変換する）。単体検証は `backend/src/__tests__/unit/services/trading-partner.service.test.ts` にあり、`backend` で `npx vitest run src/__tests__/unit/services/trading-partner.service.test.ts -t かな` を走らせると `9 passed` である。タスク 27.1。コミット `e09cd61b`。2026-10-01 実測 | 検索ロジック更新に伴う追加テスト |
+| Integration Tests（かな変換検索） | ~~未実装~~ テストが実在する（走らせていない）。`test -f backend/src/__tests__/integration/trading-partner-kana-search.integration.test.ts` の終了コードが `0`。`grep -cE '^\s*it\(' backend/src/__tests__/integration/trading-partner-kana-search.integration.test.ts` の出力が `16`。本タスクでは走らせていない。タスク 27.1。コミット `e09cd61b`。2026-10-01 実測 | ひらがな入力での検索結果一致テスト |
+| E2E Tests（かな変換検索） | ~~未実装~~ テストが実在する（走らせていない）。`test -f e2e/specs/trading-partners/trading-partner-kana-search.spec.ts` の終了コードが `0`。`grep -cE '^\s*test\(' e2e/specs/trading-partners/trading-partner-kana-search.spec.ts` の出力が `8`。本タスクでは走らせていない。タスク 27.1。コミット `e09cd61b`。2026-10-01 実測 | ひらがな・カタカナ両方での検索テスト |
 
-### 次のステップ
+### 次のステップ——起票時の計画の記録。現況は Phase 1〜8 を担ったタスクがすべて完了（Phase 4 に但し書きあり。タスク 27.1。コミット `e09cd61b`。2026-10-01 にリポジトリルートで再実測）
+
+> **この一覧も上の二つの表と同じ扱いにした。** 理由は二つある。(1) 計画の一覧は「これから行う作業」として読まれるため、上の二つの表を現況へ揃えてもこの一覧だけが起票時のままでは、読み手は Phase 1〜8 が残っていると読む——上の二つの表と同じ性質の状態記録である。(2) 状態の語を持たないため上の二つの表を捕まえた網には掛からず、ここで扱わなければ以後も網の外に置かれ続ける。各 Phase の文言は起票時の記録として書き換えず、現況を直下に並べる。本スペックの `tasks.md` の側では `grep -cE '^- \[x\] (1[6-9]|2[0-6])(\.[0-9]+)? ' .kiro/specs/trading-partner-management/tasks.md` の出力が `21`、`grep -cE '^- \[ \] (1[6-9]|2[0-6])(\.[0-9]+)? ' .kiro/specs/trading-partner-management/tasks.md` の出力が `0` であり、Task 16〜26 はすべて `[x]` である（タスク 27.1。コミット `e09cd61b`。2026-10-01 実測）。
 
 1. **Phase 1**: かな変換ユーティリティ実装（KanaConverter）
+   - 現況: 完了。Task 16.1・16.2 が `[x]`。`test -f backend/src/utils/kana-converter.ts` と `test -f frontend/src/utils/kana-converter.ts` の終了コードがどちらも `0`。タスク 27.1。コミット `e09cd61b`。2026-10-01 実測
 2. **Phase 2**: フィールド削除マイグレーション（branchNameKana, representativeNameKana）
+   - 現況: 完了。Task 17.1 が `[x]`。`ls -d backend/prisma/migrations/*remove_kana_fields*` が `backend/prisma/migrations/20251212105900_remove_kana_fields_from_trading_partner` を返し、`grep -cE 'branchNameKana|representativeNameKana' backend/prisma/schema.prisma` の出力が `0`。タスク 27.1。コミット `e09cd61b`。2026-10-01 実測
 3. **Phase 3**: サービス層更新（検索時のかな変換ロジック追加）
+   - 現況: 完了。Task 18.1・18.2 が `[x]`。`grep -c -e toKatakana -e toHiragana backend/src/services/trading-partner.service.ts` の出力が `5`（`getPartners` と `searchPartners` の二つの検索経路）。タスク 27.1。コミット `e09cd61b`。2026-10-01 実測
 4. **Phase 4**: フロントエンド更新（フリガナ列削除、フィールド削除）
+   - 現況: 画面の 4 部品と検証スキーマは完了。Task 19.1〜19.4 が `[x]`。`grep -hE 'branchNameKana|representativeNameKana' frontend/src/components/trading-partners/TradingPartnerListTable.tsx frontend/src/components/trading-partners/TradingPartnerForm.tsx frontend/src/components/trading-partners/TradingPartnerDetailView.tsx frontend/src/components/trading-partners/TradingPartnerFormContainer.tsx | grep -cvE '^\s*(//|\*|/\*)'` の出力が `0`（4 ファイルでの出現は注釈行だけである）。`grep -cE 'branchNameKana|representativeNameKana' backend/src/schemas/trading-partner.schema.ts` の出力も `0`。タスク 27.1。コミット `e09cd61b`。2026-10-01 実測
+   - 但し書き: 型定義はこの二つのフィールドを持ち続けている。`grep -cE 'branchNameKana|representativeNameKana' frontend/src/types/trading-partner.types.ts` の出力が `4`、`grep -cE 'branchNameKana|representativeNameKana' frontend/src/components/projects/TradingPartnerSelect.tsx` の出力が `2`（絞り込みの照合で参照する）。Phase 4 を担ったタスクのうち、Task 19.1〜19.3 は画面の部品（一覧表・フォーム・フォームコンテナ・詳細表示の 4 ファイル）、Task 19.4 はバックエンドの検証スキーマであり、いずれも `frontend/src/types/trading-partner.types.ts` を範囲に含まない。このため Phase 4 の「完了」はこれらの範囲に限って述べる。型がこの二つの項目を保持していることは、本書の TradingPartnerService の「Service Interface」の節に示す `TradingPartnerInfo`（二つの項目を持たない）とのずれである。タスク 27.1。コミット `e09cd61b`。2026-10-01 実測
 5. **Phase 5**: 共通コンポーネント実装（Breadcrumb、ResourceNotFound）
+   - 現況: 実装済み。上の Requirement 12 関連の表の Breadcrumb・ResourceNotFound の 2 行の `Status（現況）` 列を参照（タスク 27.1。コミット `e09cd61b`。2026-10-01 実測）
 6. **Phase 6**: ページコンポーネント実装（DetailPage、CreatePage、EditPage）
+   - 現況: 実装済み。上の Requirement 12 関連の表の 3 ページの行の `Status（現況）` 列を参照（タスク 27.1。コミット `e09cd61b`。2026-10-01 実測）
 7. **Phase 7**: ナビゲーション統合（routes.tsx、AppHeader、Dashboard）
+   - 現況: 実装済み。上の Requirement 12 関連の表の routes.tsx・AppHeader・Dashboard の 3 行の `Status（現況）` 列を参照（タスク 27.1。コミット `e09cd61b`。2026-10-01 実測）
 8. **Phase 8**: テスト実装（Unit、Integration、E2E）
+   - 現況: Task 20.1〜20.3 が `[x]`。上のテストの表の 4 行の `Status` 列のとおりテストが実在し、単体テストは走らせて通過を確かめた。結合テストと E2E は本タスクでは走らせておらず、実在とテスト件数だけを測った（タスク 27.1。コミット `e09cd61b`。2026-10-01 実測）
