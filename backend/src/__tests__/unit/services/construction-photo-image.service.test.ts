@@ -29,6 +29,7 @@ import {
 import { ConstructionPhotoAlbumNotFoundError } from '../../../services/construction-photo-album.service.js';
 import { SurveyImageService } from '../../../services/survey-image.service.js';
 import { SignboardCompositeService } from '../../../services/signboard-composite.service.js';
+import { SurveyDeletedError } from '../../../utils/survey-deleted-guard.js';
 import type { PrismaClient } from '../../../generated/prisma/client.js';
 
 const ALBUM_ID = '123e4567-e89b-12d3-a456-426614174000';
@@ -658,6 +659,102 @@ describe('ConstructionPhotoImageService.addFromSurveyImage', () => {
       service.addFromSurveyImage(ALBUM_ID, [SURVEY_IMAGE_ID_1, SURVEY_IMAGE_ID_2])
     ).rejects.toThrow(SurveyImageCopyNotAllowedError);
     expect(mockPrisma.constructionPhoto.create).not.toHaveBeenCalled();
+  });
+
+  // 親の現場調査の論理削除の検査（Task 17.1）。
+  // 守る不変条件は site-survey スペックの論理削除の意味であり、本スペックの受入基準ではない。
+  // 判定は survey-deleted-guard の共通機構に委ね、site-survey・数量表の経路と同じ
+  // SurveyDeletedError（経路側で 410 へ写す）で全体を拒否する。
+  describe('親の現場調査の論理削除の検査', () => {
+    const LIVE_SURVEY_ID = 'a23e4567-e89b-12d3-a456-426614174001';
+    const DELETED_SURVEY_ID = 'a23e4567-e89b-12d3-a456-426614174002';
+
+    /**
+     * findMany の select を入れ子まで尊重して射影する。
+     *
+     * DB 上は親の削除状態を持たせたうえで、サービスが `survey.select` に `deletedAt` を
+     * 置かない限りそれを読めないことを再現する（select の欠落を検査の素通りとして露出させる）。
+     */
+    function project(row: unknown, select: Record<string, unknown>): Record<string, unknown> {
+      const src = row as Record<string, unknown>;
+      return Object.fromEntries(
+        Object.entries(select).map(([key, spec]) => {
+          const value = src[key];
+          if (spec && typeof spec === 'object' && 'select' in spec && value) {
+            return [key, project(value, (spec as { select: Record<string, unknown> }).select)];
+          }
+          return [key, value];
+        })
+      );
+    }
+
+    function mockNestedSelectAware(dbRows: Array<Record<string, unknown>>) {
+      (mockPrisma.surveyImage.findMany as ReturnType<typeof vi.fn>).mockImplementation(
+        (args: { select?: Record<string, unknown> }) =>
+          Promise.resolve(args.select ? dbRows.map((r) => project(r, args.select!)) : dbRows)
+      );
+    }
+
+    it('親の現場調査が論理削除済みの参照を含むと SurveyDeletedError で全体を拒否し、複製・登録を一切行わない', async () => {
+      mockNestedSelectAware([
+        surveyImageRow({
+          id: SURVEY_IMAGE_ID_1,
+          surveyId: LIVE_SURVEY_ID,
+          survey: { projectId: PROJECT_ID, deletedAt: null },
+        }),
+        surveyImageRow({
+          id: SURVEY_IMAGE_ID_2,
+          surveyId: DELETED_SURVEY_ID,
+          survey: { projectId: PROJECT_ID, deletedAt: new Date('2026-09-01T00:00:00Z') },
+        }),
+      ]);
+
+      const error = await service
+        .addFromSurveyImage(ALBUM_ID, [SURVEY_IMAGE_ID_1, SURVEY_IMAGE_ID_2])
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(SurveyDeletedError);
+      expect((error as SurveyDeletedError).surveyId).toBe(DELETED_SURVEY_ID);
+      expect((error as SurveyDeletedError).message).toBe(
+        `削除された現場調査の画像は追加できません: ${DELETED_SURVEY_ID}`
+      );
+      // 生きている参照が先にあっても、部分的に複製しない（全体の拒否）
+      expect(mockStorage.copy).not.toHaveBeenCalled();
+      expect(mockPrisma.constructionPhoto.create).not.toHaveBeenCalled();
+    });
+
+    it('他プロジェクトかつ親が論理削除済みの参照は、存在有無を漏らさない 404 側の拒否を優先する', async () => {
+      mockNestedSelectAware([
+        surveyImageRow({
+          id: SURVEY_IMAGE_ID_1,
+          surveyId: DELETED_SURVEY_ID,
+          survey: { projectId: OTHER_PROJECT_ID, deletedAt: new Date('2026-09-01T00:00:00Z') },
+        }),
+      ]);
+
+      await expect(service.addFromSurveyImage(ALBUM_ID, [SURVEY_IMAGE_ID_1])).rejects.toThrow(
+        SurveyImageCopyNotAllowedError
+      );
+      expect(mockStorage.copy).not.toHaveBeenCalled();
+    });
+
+    it('親の現場調査が生きている参照は従来どおり複製される（対照）', async () => {
+      mockNestedSelectAware([
+        surveyImageRow({
+          id: SURVEY_IMAGE_ID_1,
+          surveyId: LIVE_SURVEY_ID,
+          survey: { projectId: PROJECT_ID, deletedAt: null },
+        }),
+      ]);
+      (mockPrisma.constructionPhoto.create as ReturnType<typeof vi.fn>).mockResolvedValue(
+        copiedPhotoRow({ id: 'copied-live' })
+      );
+
+      const result = await service.addFromSurveyImage(ALBUM_ID, [SURVEY_IMAGE_ID_1]);
+
+      expect(result.successful).toHaveLength(1);
+      expect(result.failed).toHaveLength(0);
+    });
   });
 
   it('(f) site-survey テーブルへは一切書込まない（Requirements: 6.3）', async () => {

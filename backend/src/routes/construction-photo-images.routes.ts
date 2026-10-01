@@ -34,6 +34,7 @@ import { authenticate } from '../middleware/authenticate.middleware.js';
 import { requirePermission } from '../middleware/authorize.middleware.js';
 import { validate } from '../middleware/validate.middleware.js';
 import logger from '../utils/logger.js';
+import { SurveyDeletedError, sendSurveyDeletedProblem } from '../utils/survey-deleted-guard.js';
 
 import { SurveyImageService } from '../services/survey-image.service.js';
 import { ImageProcessorService } from '../services/image-processor.service.js';
@@ -429,6 +430,8 @@ router.post(
  *         description: 権限不足
  *       404:
  *         description: アルバムが見つからない、または他プロジェクト/存在しない現調写真を含む
+ *       410:
+ *         description: 親の現場調査が論理削除済みの現調写真を含む（code SURVEY_DELETED。複製は一切行わない）
  *       503:
  *         description: ストレージ未設定
  */
@@ -490,6 +493,11 @@ router.post(
           code: 'SURVEY_IMAGE_NOT_ALLOWED',
           surveyImageIds: error.surveyImageIds,
         });
+        return;
+      }
+      // 親の現場調査が論理削除済み: site-survey・数量表の経路と同じ 410 本文で返す
+      if (error instanceof SurveyDeletedError) {
+        sendSurveyDeletedProblem(res, error);
         return;
       }
       next(error);

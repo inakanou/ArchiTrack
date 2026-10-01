@@ -47,6 +47,7 @@ import type {
   SignboardPlacement,
 } from '../types/construction-photo.types.js';
 import logger from '../utils/logger.js';
+import { assertSurveyNotDeleted } from '../utils/survey-deleted-guard.js';
 
 /**
  * 現調写真コピーで参照した SurveyImage が存在しない、または対象アルバムと
@@ -133,7 +134,10 @@ interface SurveyImageSource {
   fileSize: number;
   width: number;
   height: number;
-  survey: { projectId: string };
+  /** 親の現場調査ID（論理削除の拒否応答で名指す） */
+  surveyId: string;
+  /** 親の現場調査の所属プロジェクトと論理削除の状態 */
+  survey: { projectId: string; deletedAt: Date | null };
 }
 
 /**
@@ -269,6 +273,7 @@ export class ConstructionPhotoImageService {
    * @returns 成功/失敗を含むコピー結果
    * @throws {ConstructionPhotoAlbumNotFoundError} アルバムが存在しない、または論理削除済みの場合
    * @throws {SurveyImageCopyNotAllowedError} 参照が存在しない、または他プロジェクトの現調写真を含む場合
+   * @throws {SurveyDeletedError} 親の現場調査が論理削除済みの現調写真を含む場合（Task 17.1）
    */
   async addFromSurveyImage(
     albumId: string,
@@ -295,7 +300,8 @@ export class ConstructionPhotoImageService {
         fileSize: true,
         width: true,
         height: true,
-        survey: { select: { projectId: true } },
+        surveyId: true,
+        survey: { select: { projectId: true, deletedAt: true } },
       },
     })) as SurveyImageSource[];
 
@@ -307,6 +313,22 @@ export class ConstructionPhotoImageService {
     });
     if (rejected.length > 0) {
       throw new SurveyImageCopyNotAllowedError(rejected);
+    }
+
+    // 親の現場調査が論理削除済みの参照が1件でもあれば、複製を一切行わず拒否する
+    // （site-survey スペックの論理削除の不変条件）。判定は survey-deleted-guard の
+    // 共通機構をそのまま用い、site-survey・数量表の経路と同じ SurveyDeletedError
+    // （経路側で 410 へ写す）を投げる。不存在・他プロジェクトの拒否（404）を先に
+    // 済ませるのは、他プロジェクトの現場調査の削除状態を漏らさないためである。
+    // `failed` へ積まないのは、`failed` が個々の複製の一過性の失敗（保存基盤）を
+    // 表す場であり、参照の正当性は送信前に確定する前提条件だからである。
+    for (const id of surveyImageIds) {
+      const source = sourceById.get(id)!;
+      assertSurveyNotDeleted(
+        source.survey,
+        source.surveyId,
+        `削除された現場調査の画像は追加できません: ${source.surveyId}`
+      );
     }
 
     // 末尾採番の起点（既存の最大 displayOrder + 1）（R6.2, 4.7）

@@ -317,6 +317,77 @@ describe('Construction Photo Survey Copy API Integration Tests', () => {
     expect(count).toBe(0);
   });
 
+  // 親の現場調査の論理削除の検査（Task 17.1）。守る不変条件は site-survey スペックの
+  // 論理削除の意味であり、応答は site-survey・数量表の経路と同じ 410 本文に揃える。
+  it('親の現場調査が論理削除済みの現調写真を含むコピーは410（SURVEY_DELETED）で全体を拒否する', async () => {
+    const liveSurvey = await prisma.siteSurvey.create({
+      data: { projectId, name: '生存する現場調査', surveyDate: new Date('2024-05-02') },
+    });
+    // 生存する参照は実在の保存物を持たせ、検査が無ければ実際に複製されうる状態にする
+    // （拒否が「保存物の欠落による部分失敗」でなく検査によることを区別するため）
+    const storage = getStorageProvider()!;
+    const liveOriginalKey = `survey-images/copy-test/${Date.now()}_live_orig.jpg`;
+    const liveThumbKey = `survey-images/copy-test/${Date.now()}_live_thumb.jpg`;
+    await storage.upload(liveOriginalKey, originalBytes, { contentType: 'image/jpeg' });
+    await storage.upload(liveThumbKey, thumbBytes, { contentType: 'image/jpeg' });
+    const liveImage = await prisma.surveyImage.create({
+      data: {
+        surveyId: liveSurvey.id,
+        originalPath: liveOriginalKey,
+        thumbnailPath: liveThumbKey,
+        fileName: 'live.jpg',
+        fileSize: 100,
+        width: 100,
+        height: 100,
+        displayOrder: 1,
+      },
+    });
+    const deletedSurvey = await prisma.siteSurvey.create({
+      data: {
+        projectId,
+        name: '論理削除済みの現場調査',
+        surveyDate: new Date('2024-05-03'),
+        deletedAt: new Date(),
+      },
+    });
+    const deletedImage = await prisma.surveyImage.create({
+      data: {
+        surveyId: deletedSurvey.id,
+        originalPath: 'survey-images/deleted/orig.jpg',
+        thumbnailPath: 'survey-images/deleted/thumb.jpg',
+        fileName: 'deleted.jpg',
+        fileSize: 100,
+        width: 100,
+        height: 100,
+        displayOrder: 1,
+      },
+    });
+
+    const res = await request(app)
+      .post(`/api/construction-photos/${albumId}/images/from-surveys`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ surveyImageIds: [liveImage.id, deletedImage.id] });
+
+    expect(res.status).toBe(410);
+    expect(res.body).toEqual({
+      type: 'https://architrack.example.com/problems/survey-deleted',
+      title: 'SURVEY DELETED',
+      status: 410,
+      detail: `削除された現場調査の画像は追加できません: ${deletedSurvey.id}`,
+      code: 'SURVEY_DELETED',
+      surveyId: deletedSurvey.id,
+    });
+
+    // 生存する参照も含め、一件も複製されていない
+    const count = await prisma.constructionPhoto.count({
+      where: { albumId, sourceSurveyImageId: { in: [liveImage.id, deletedImage.id] } },
+    });
+    expect(count).toBe(0);
+
+    await storage.delete(liveOriginalKey).catch(() => undefined);
+    await storage.delete(liveThumbKey).catch(() => undefined);
+  });
+
   it('存在しないアルバムへのコピーは404を返す', async () => {
     const res = await request(app)
       .post('/api/construction-photos/99999999-9999-4999-8999-999999999999/images/from-surveys')

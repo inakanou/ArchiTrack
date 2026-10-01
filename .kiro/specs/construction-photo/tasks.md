@@ -447,7 +447,7 @@
 
 **着手前に測り直すこと**: 本節が引く所在と件数は 2026-09-08・コミット `c3f3e9f6` の値である。**起票が挙げた所在は、着手時には既に直っていることがある**（site-survey の Task 115.155 の実例）。
 
-- [ ] 17.1 現調コピーの参照候補の検証に親の論理削除の検査を加える
+- [x] 17.1 現調コピーの参照候補の検証に親の論理削除の検査を加える
   - 対象は `backend/src/services/construction-photo-image.service.ts` の `addFromSurveyImage` である。参照候補の `select` へ `survey: { select: { projectId: true, deletedAt: true } }` を加え、親が論理削除済みの候補を拒否すること
   - **道具は既に在る。新たに判定を書き起こさないこと**——`backend/src/utils/survey-deleted-guard.ts` を取り込むこと。site-survey の5経路と同じ不変条件であることが、道具の共有で示せる
   - **部分失敗の扱いを決めること。** 本経路は入力順を保ちつつ複製し、部分失敗を `failed` へ積んで継続する形である。一方でプロジェクト不一致・不存在は `SurveyImageCopyNotAllowedError` で**一件でもあれば全体を拒否**する。**論理削除済みの参照をどちらの扱いに寄せるかを、理由つきで決めること**。既存の拒否集合へ足すのが素直だが、応答の形（`surveyImageIds` を返す）と利用者への伝わり方を確かめてから決めること
