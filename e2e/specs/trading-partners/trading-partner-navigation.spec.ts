@@ -219,18 +219,21 @@ function expectSingleLineItems(layout: BreadcrumbLayout, labels: string[], conte
       `「${labelText}」の幅 ${item.labelWidth} が自然幅 ${item.naturalWidth} より狭い。${report}`
     ).toBeGreaterThanOrEqual(item.naturalWidth - LAYOUT_TOLERANCE_PX);
   }
-  layout.items.forEach((item, index) => {
-    if (index === 0) {
-      expect(item.separator, `先頭の項目に区切り記号が在る。${report}`).toBeNull();
-      return;
-    }
+  // 項目の位置で主張を分岐させず、項目を先頭と二番目以降へ分けてから、それぞれに無条件に主張する。
+  // 二番目以降が空であれば区切り記号の主張は一件も実行されないため、1 件以上在ることを先に主張する
+  // （本ファイルが測るパンくずは、どれも 2 項目以上である）。
+  const [firstItem, ...followingItems] = layout.items;
+  assertPresent(firstItem, `パンくずの先頭の項目の実測（${context}）`);
+  expect(firstItem.separator, `先頭の項目に区切り記号が在る。${report}`).toBeNull();
+  expect(followingItems.length, `二番目以降の項目が無い。${report}`).toBeGreaterThanOrEqual(1);
+  for (const item of followingItems) {
     const separator = item.separator;
     assertPresent(separator, `「${item.text}」の区切り記号の実測（${context}）`);
     expect(separator.width, report).toBeGreaterThan(0);
     expect(separator.right, report).toBeLessThanOrEqual(item.labelLeft + LAYOUT_TOLERANCE_PX);
     expect(separator.top, report).toBeGreaterThanOrEqual(item.labelTop - LAYOUT_TOLERANCE_PX);
     expect(separator.bottom, report).toBeLessThanOrEqual(item.labelBottom + LAYOUT_TOLERANCE_PX);
-  });
+  }
 }
 
 /**

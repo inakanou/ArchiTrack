@@ -2559,10 +2559,11 @@ test.describe('工事写真 追加機能フロー', () => {
       expect(m.document.clientWidth, report).toBeLessThanOrEqual(width);
       expect(m.main, report).not.toBeNull();
       expect(m.main!.clientWidth, report).toBeGreaterThan(0);
-      if (nameKind === '区切りの無い長い名前') {
-        // 前提: 名前の一語の自然幅が <main> の幅を超える（折り返さなければはみ出す長さ）
-        expect(m.titleNaturalWidth, report).toBeGreaterThan(m.main!.clientWidth);
-      }
+      // 前提: 名前の自然幅を測れている（測れなければ -1）。区切りの無い長い名前では、その一語の自然幅が
+      // <main> の幅を超える（折り返さなければはみ出す長さ）。名前の種類で主張を分岐させず、下回っては
+      // ならない幅を種類ごとに決めて無条件に主張する（普通の名前は 0、長い名前は <main> の幅）
+      const titleNaturalWidthFloor = nameKind === '区切りの無い長い名前' ? m.main!.clientWidth : 0;
+      expect(m.titleNaturalWidth, report).toBeGreaterThan(titleNaturalWidthFloor);
 
       measurements.push({ label, document: m.document, main: m.main! });
     };
@@ -2639,6 +2640,8 @@ test.describe('工事写真 追加機能フロー', () => {
    * 前提（満たされなければ失敗させる。条件付きで飛ばさない）:
    *  - 画面幅（window.innerWidth）が設定した幅に一致する。
    *  - ブレッドクラムの項目が、その画面の階層どおりの文言で並んでいる。
+   *  - 見出しを含む <main> の maxWidth が、その画面のモバイル幅での値に確定している（一覧は 1200px、
+   *    作成・編集は 768px、詳細はモバイル分岐の適用後の 100%）。
    *  - 長い名前の二通りでは、プロジェクト名の一行の自然幅がブレッドクラムの幅を超える（折り返さ
    *    なければはみ出す長さである）。自然幅は画面の計算済みフォントで canvas の measureText により測る。
    *  - 各項目の文字列と、その先頭の一文字を Range で測れている。
@@ -2687,30 +2690,36 @@ test.describe('工事写真 追加機能フロー', () => {
     const projectId = await createProject(page, 'breadcrumb-sweep', projectNames['普通の名前']);
     const albumId = await createAlbum(page, projectId, albumName);
 
+    // mobileMainMaxWidth は、見出しを含む <main> の maxWidth の、モバイル幅での計算済みの値である。
+    // 一覧・作成・編集のコンテナは幅に依らず固定の上限を持ち、詳細だけがモバイル分岐で 100% に変わる
     const screens = [
       {
         screen: '一覧',
         path: `/projects/${projectId}/construction-photos`,
         heading: '工事写真一覧',
         tail: ['工事写真一覧'],
+        mobileMainMaxWidth: '1200px',
       },
       {
         screen: '作成',
         path: `/projects/${projectId}/construction-photos/new`,
         heading: '新規アルバム',
         tail: ['工事写真一覧', '新規アルバム'],
+        mobileMainMaxWidth: '768px',
       },
       {
         screen: '編集',
         path: `/construction-photos/${albumId}/edit`,
         heading: 'アルバムを編集',
         tail: ['工事写真一覧', 'アルバムを編集'],
+        mobileMainMaxWidth: '768px',
       },
       {
         screen: '詳細',
         path: `/construction-photos/${albumId}`,
         heading: albumName,
         tail: ['工事写真一覧', albumName],
+        mobileMainMaxWidth: '100%',
       },
     ];
 
@@ -2782,19 +2791,19 @@ test.describe('工事写真 追加機能フロー', () => {
           await expect(heading, label).toBeVisible({ timeout: getTimeout(15000) });
           await expect(breadcrumb, label).toBeVisible();
           await expect(breadcrumb, label).toContainText(projectName);
-          if (s.screen === '詳細') {
-            // 詳細画面はモバイル分岐（`containerMobile` の maxWidth:100%）の適用を待ってから測る
-            await expect
-              .poll(
-                async () =>
-                  heading.evaluate((h1) => {
-                    const main = h1.closest('main');
-                    return main ? getComputedStyle(main).maxWidth : null;
-                  }),
-                { message: label, timeout: getTimeout(15000) }
-              )
-              .toBe('100%');
-          }
+          // 前提: 見出しを含む <main> の maxWidth が、その画面のモバイル幅での値に確定している。
+          // 詳細画面はモバイル分岐（`containerMobile` の maxWidth:100%）の適用を待ってから測る。
+          // 画面で主張を分岐させず、画面ごとの期待値（上の表の mobileMainMaxWidth）で無条件に主張する
+          await expect
+            .poll(
+              async () =>
+                heading.evaluate((h1) => {
+                  const main = h1.closest('main');
+                  return main ? getComputedStyle(main).maxWidth : null;
+                }),
+              { message: label, timeout: getTimeout(15000) }
+            )
+            .toBe(s.mobileMainMaxWidth);
 
           const m = await measureBreadcrumb();
           const report = `${label} ${JSON.stringify(m)}`;
@@ -2815,10 +2824,11 @@ test.describe('工事写真 追加機能フロー', () => {
             expect(item.naturalWidth, report).toBeGreaterThan(0);
           }
           const nameItem = m.items[2]!;
-          if (kind !== '普通の名前') {
-            // 前提: 名前の一行の自然幅がブレッドクラムの幅を超える（折り返さなければはみ出す長さ）
-            expect(nameItem.naturalWidth, report).toBeGreaterThan(m.nav.clientWidth);
-          }
+          // 前提: 長い名前の二通りでは、名前の一行の自然幅がブレッドクラムの幅を超える（折り返さなければ
+          // はみ出す長さ）。名前の種類で主張を分岐させず、下回ってはならない幅を種類ごとに決めて無条件に
+          // 主張する（普通の名前は 0 で、上の「測れている」の前提と同じ。長い名前はブレッドクラムの幅）
+          const nameNaturalWidthFloor = kind !== '普通の名前' ? m.nav.clientWidth : 0;
+          expect(nameItem.naturalWidth, report).toBeGreaterThan(nameNaturalWidthFloor);
 
           // 固定の文言の項目（プロジェクト名と、詳細画面の末尾のアルバム名を除く）
           const fixedItems = m.items.filter(

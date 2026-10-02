@@ -588,9 +588,16 @@ test.describe('AppHeader ナビゲーション', () => {
             }
             await expectReachableWithinViewport(userMenuButton, 'ユーザーメニューのボタン');
 
-            if (role.isAdmin) {
+            // 管理メニュー: ロールで主張を分岐させず、ユーザーメニューより前に並ぶトリガー（管理メニューの
+            // ボタン）を実際の画面から集め、その件数をロールごとの期待値（管理者 1・一般ユーザー 0）で
+            // 無条件に主張してから、集めたボタンのそれぞれに無条件に主張する。件数の主張があるため、
+            // 管理者でボタンが 1 件も集まらずに以下の主張が空振りすることは無い。
+            const adminMenuButtons = (await menuTriggers.all()).slice(0, -1);
+            expect(adminMenuButtons, `${role.label}の管理メニューのボタンの数`).toHaveLength(
+              role.isAdmin ? 1 : 0
+            );
+            for (const adminMenuButton of adminMenuButtons) {
               // 管理者: 管理メニューのボタンが画面幅の内側にあり、開いた各項目も内側にある
-              const adminMenuButton = menuTriggers.first();
               await expect(adminMenuButton).toBeVisible();
               await expectReachableWithinViewport(adminMenuButton, '管理メニューのボタン');
               await adminMenuButton.click();
