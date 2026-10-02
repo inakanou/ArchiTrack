@@ -52,6 +52,8 @@
  * 18. モバイル幅の通知とエラー表示: 区切りの無い現実的な長さのファイル名・長い文言でも、アップ
  *     ロード失敗の通知、アップロードできないファイルの表示、アルバムを取得できないときのエラー
  *     表示が水平にはみ出さず、文字列が枠の内側に収まる（R19.1）
+ * 19. モバイル幅の文書全体: admin と user のそれぞれで、375 幅と 320 幅の詳細画面が文書全体
+ *     （documentElement）を水平にはみ出させない（R19.1）
  *
  * 縮退した要素（理由明記）:
  *  - パンの座標厳密検証: 拡大時に画像 transform の translate 成分が変化することまでを確認し、
@@ -1063,9 +1065,11 @@ test.describe('工事写真 追加機能フロー', () => {
 
     // R19.1/R19.4: 工事写真詳細画面のレイアウトで横スクロールが発生しない（許容誤差1px）。
     // 判定対象は工事写真機能が描画する詳細コンテナ（写真項目を含む <main>）に限定する。
-    // ページ全体（document）はアプリ共通ヘッダ（app-header-nav 等の全画面共通クロム。狭幅で
-    // 水平にはみ出すが工事写真機能=Req14〜19 の範囲外）の影響を受けるため、詳細画面の
-    // レイアウト要件（R19.1）は当該機能のコンテナ基準で検証する。
+    // 本テストを書いた時点では、ページ全体（document）がアプリ共通ヘッダ（app-header-nav 等の
+    // 全画面共通クロム。工事写真機能=Req14〜19 の範囲外）によって狭幅で水平にはみ出していたため、
+    // 当該機能のコンテナ基準で検証した。共通ヘッダは user-authentication の Task 39.1 で是正済みで
+    // あり、文書全体（documentElement）の主張は末尾の「文書全体を水平にはみ出させない」のテストが
+    // 担う（タスク 21.1）。
     const detailOverflow = await page.evaluate(() => {
       const item = document.querySelector('[data-testid="construction-photo-item"]');
       const main = item ? item.closest('main') : document.querySelector('main');
@@ -1109,10 +1113,12 @@ test.describe('工事写真 追加機能フロー', () => {
    * 水平にはみ出していた。是正は `ConstructionPhotoDetailPage.tsx` の `breadcrumbWrapper` に
    * overflowWrap:anywhere を足し、項目へ継承させて語の中にも折り返し位置を与えたことである。
    *
-   * 文書全体（documentElement）の scrollWidth は測らない。アプリ共通ヘッダ（全画面共通の
-   * クロムで工事写真機能の範囲外）が 375 幅で水平にはみ出すため、本機能の判定に使えない
-   * （上の「モバイル狭幅で横スクロールなし」の注記と同じ理由。2026-10-01 の実測で
-   * documentElement は scrollWidth 400 / clientWidth 375）。
+   * 文書全体（documentElement）の scrollWidth は本テストでは測らない。本テストを書いた時点では、
+   * アプリ共通ヘッダ（全画面共通のクロムで工事写真機能の範囲外）が 375 幅で水平にはみ出し、
+   * 本機能の判定に使えなかった（2026-10-01 の実測で documentElement は scrollWidth 400 /
+   * clientWidth 375）。共通ヘッダは user-authentication の Task 39.1 で是正済みであり
+   * （2026-10-02 の実測で 375 / 375）、文書全体の主張は末尾の「文書全体を水平にはみ出させない」の
+   * テストが担う（タスク 21.1）。
    *
    * 測定の前に、詳細画面のモバイル分岐（`containerMobile` の maxWidth:100%）が適用されるまで
    * 待つ。`useMediaQuery` は初期描画でデスクトップ側になり得るためである。
@@ -1261,10 +1267,10 @@ test.describe('工事写真 追加機能フロー', () => {
    * `ConstructionPhotoDetailPage.tsx` の `styles.title` と `styles.memo` に overflowWrap:anywhere を
    * 足し、語の中にも折り返し位置を与えたことである。
    *
-   * 文書全体（documentElement）の scrollWidth は測らない。アプリ共通ヘッダ（全画面共通の
-   * クロムで工事写真機能の範囲外）が 375 幅で水平にはみ出すためである（上の二つのテストの注記と
-   * 同じ理由）。測定の前に、詳細画面のモバイル分岐（`containerMobile` の maxWidth:100%）が
-   * 適用されるまで待つ。
+   * 文書全体（documentElement）の scrollWidth は本テストでは測らない（上のブレッドクラムのテストの
+   * 注記と同じ経緯。共通ヘッダの是正後の文書全体の主張は、末尾の「文書全体を水平にはみ出させない」の
+   * テストが、区切りの無い長いアルバム名の状態を含めて担う）。測定の前に、詳細画面のモバイル分岐
+   * （`containerMobile` の maxWidth:100%）が適用されるまで待つ。
    */
   test('モバイル幅で区切りの無い長いアルバム名・メモの見出しが水平にはみ出さない', async ({
     page,
@@ -1372,9 +1378,9 @@ test.describe('工事写真 追加機能フロー', () => {
    * 文字列の右端 470.1（箱の右端は 332.3）である。是正は両者に overflowWrap:anywhere を足し、
    * 語の中にも折り返し位置を与えたことである。
    *
-   * 文書全体（documentElement）の scrollWidth は測らない。アプリ共通ヘッダ（全画面共通の
-   * クロムで工事写真機能の範囲外）が 375 幅で水平にはみ出すためである（上のテストの注記と
-   * 同じ理由）。測定の前に、写真項目が縦積みのモバイル分岐に確定するまで待つ。
+   * 文書全体（documentElement）の scrollWidth は本テストでは測らない（上のブレッドクラムのテストの
+   * 注記と同じ経緯。共通ヘッダは是正済みで、文書全体の主張は末尾のテストが担う）。測定の前に、
+   * 写真項目が縦積みのモバイル分岐に確定するまで待つ。
    */
   test('モバイル幅で区切りの無い長いファイル名の写真項目が水平にはみ出さない', async ({ page }) => {
     const stamp = Date.now();
@@ -1507,9 +1513,8 @@ test.describe('工事写真 追加機能フロー', () => {
    * 折り返すため「保存」と案内文は次の行で画面内に収まる）。「保存」の主張は両方を欠く是正前の形で
    * 赤になる。
    *
-   * 文書全体（documentElement）の scrollWidth は測らない。アプリ共通ヘッダ（全画面共通の
-   * クロムで工事写真機能の範囲外）が 375 幅で水平にはみ出すためである（上のテストの注記と
-   * 同じ理由）。
+   * 文書全体（documentElement）の scrollWidth は本テストでは測らない（上のブレッドクラムのテストの
+   * 注記と同じ経緯。共通ヘッダは是正済みで、文書全体の主張は末尾のテストが担う）。
    */
   test('モバイル幅で区切りの無い長い工事件名でも看板配置ダイアログの操作列が画面内に収まる', async ({
     page,
@@ -1640,8 +1645,8 @@ test.describe('工事写真 追加機能フロー', () => {
    * それぞれ赤になる（ダイアログ 866 > 338、パネル 846 > 298、右端 884.5 > 376）。
    *
    * ダイアログは「キャンセル」で閉じ、アルバムは取り除かない。文書全体（documentElement）の
-   * scrollWidth は測らない。アプリ共通ヘッダ（全画面共通のクロムで工事写真機能の範囲外）が
-   * 375 幅で水平にはみ出すためである（上のテストの注記と同じ理由）。
+   * scrollWidth は本テストでは測らない（上のブレッドクラムのテストの注記と同じ経緯。共通ヘッダは
+   * 是正済みで、文書全体の主張は末尾のテストが担う）。
    */
   test('モバイル幅で区切りの無い長いアルバム名でもアルバムを取り除く確認ダイアログが水平にはみ出さない', async ({
     page,
@@ -1745,7 +1750,7 @@ test.describe('工事写真 追加機能フロー', () => {
    * flexShrink だけを外した変異では枚数表示の幅（14 < 24.1）が赤になる。
    *
    * ダイアログは「キャンセル」で閉じ、写真は追加しない。文書全体（documentElement）の scrollWidth は
-   * 測らない（上のテストの注記と同じ理由）。
+   * 本テストでは測らない（上のブレッドクラムのテストの注記と同じ経緯）。
    */
   test('モバイル幅で区切りの無い長い調査名でも現場調査写真の選択ダイアログが水平にはみ出さない', async ({
     page,
@@ -1886,10 +1891,9 @@ test.describe('工事写真 追加機能フロー', () => {
    * 是正後は、<main> がいずれも 343 / 343、箱と枠の scrollWidth が clientWidth に一致し、文字列の
    * 右端は (1) 303.0、(2) 307.3、(3) 321.9 になる。
    *
-   * 文書全体（documentElement）の scrollWidth は測らない。アプリ共通ヘッダ（全画面共通の
-   * クロムで工事写真機能の範囲外）が 375 幅で水平にはみ出すためである（上のテストの注記と
-   * 同じ理由）。測定の前に、詳細画面のモバイル分岐（`containerMobile` の maxWidth:100%）が
-   * 適用されるまで待つ。
+   * 文書全体（documentElement）の scrollWidth は本テストでは測らない（上のブレッドクラムのテストの
+   * 注記と同じ経緯。共通ヘッダは是正済みで、文書全体の主張は末尾のテストが担う）。測定の前に、
+   * 詳細画面のモバイル分岐（`containerMobile` の maxWidth:100%）が適用されるまで待つ。
    */
   test('モバイル幅で区切りの無い長いファイル名・文言でも通知とエラー表示が水平にはみ出さない', async ({
     page,
@@ -2086,5 +2090,211 @@ test.describe('工事写真 追加機能フロー', () => {
     } finally {
       await page.unroute(albumUrlMatcher, failAlbumFetch);
     }
+  });
+
+  /**
+   * R19.1 モバイル幅の文書全体:
+   * admin と user（一般の利用者ロール）のそれぞれで、375 幅と 320 幅の工事写真の詳細画面を開き、
+   * 文書全体（`document.documentElement`）に水平のはみ出しが無いこと（scrollWidth と clientWidth の
+   * 差が許容誤差 1px 以内）を検証する。詳細画面のコンテナ（<main>）についても同じ主張を課す。
+   *
+   * @requirement construction-photo/REQ-19.1
+   *
+   * 経緯（2026-10-02、タスク 21.1）: 受入基準 19.1 は「工事写真詳細画面を横スクロールが発生しない
+   * レイアウトで表示する」であり、利用者が実際に横へ動かせるのは文書全体である。上の 19.1 の
+   * テストはいずれも <main> で測っており、文書全体は主張の外にあった。アプリ共通ヘッダ
+   * （`frontend/src/components/Navigation/AppHeader.css`。所有は user-authentication）がモバイル幅で
+   * 文書全体を押し広げていたためである。共通ヘッダは user-authentication の Task 39.1（コミット
+   * `d7701b08`）で是正されたので、本テストが文書全体の主張を足す。
+   *
+   * 測る状態は五つである。名前は、四つが普通の長さ、一つが区切りの無い英数字の長い一語である。
+   *  - admin・375 幅、admin・320 幅（管理メニューを持ち、ヘッダの項目が最も多い）
+   *  - user・375 幅、user・320 幅（user 自身が所有するプロジェクトのアルバム。プロジェクトへの
+   *    アクセスは所有者と admin に限られるため、R17.2 のテストと同じく user 自身に作らせる）
+   *  - admin・375 幅・区切りの無い長いアルバム名（<main> の水準では上の見出しのテストが扱う。
+   *    ここでは、ヘッダの是正後に文書全体を押し広げるものが他に無いことを主張する）
+   * どのアルバムにも写真項目を 1 枚置き、写真項目が描かれた状態で測る。
+   *
+   * 前提（満たされなければ失敗させる。条件付きで飛ばさない）:
+   *  - 画面幅（window.innerWidth）が設定した幅に一致する。
+   *  - 共通ヘッダ（header[role="banner"]）が表示されている。admin では管理メニューのトリガーが在り、
+   *    user では無い（ログインした利用者のロールがヘッダへ届いていることの確認）。
+   *  - 詳細画面の見出し（h1 のアルバム名）と写真項目が表示されている。
+   *  - 見出しを含む <main> が在り、モバイル分岐（`containerMobile` の maxWidth:100%）が適用済みで、
+   *    写真項目が縦積みに確定している（`useMediaQuery` は初期描画でデスクトップ側になり得る）。
+   *  - 長い名前の状態では、名前の一行の自然幅が <main> の幅を超える（canvas の measureText）。
+   *
+   * 五つの状態をすべて測ってから主張する。赤になるときに、どの状態が何 px だったかを一度の
+   * 失敗で読めるようにするためである。
+   *
+   * 検出力の実測（2026-10-02、タスク 21.1）: `AppHeader.css` だけを Task 39.1 の是正前
+   * （コミット `116b4ddb` 時点）の内容へ戻した本番ビルドで本テストを実行すると、文書全体の主張が
+   * 赤になった。documentElement の scrollWidth / clientWidth は、admin・375 幅が 400 / 375、
+   * admin・320 幅が 400 / 320、user・320 幅が 350 / 320、admin・375 幅・長い名前が 400 / 375 である。
+   * user・375 幅は是正前も 375 / 375 で赤にならない（是正前から収まっていた状態であり、本テストの
+   * この状態の主張は是正への依存を示さない。退行の検出のために残す）。<main> は五つとも是正前から
+   * scrollWidth と clientWidth が一致していた（375 幅は 343 / 343、320 幅は 288 / 288）。
+   * ファイルを戻して作り直すと、五つとも文書全体の scrollWidth と clientWidth が一致し、緑に戻った。
+   */
+  test('モバイル幅（375・320）で admin と user のどちらでも詳細画面が文書全体を水平にはみ出させない', async ({
+    page,
+  }) => {
+    const stamp = Date.now();
+    const adminAlbum = `文書全体_admin_${stamp}`;
+    const userAlbum = `文書全体_user_${stamp}`;
+    const longAlbum = `FoundationRebarInspectionAndFormworkInstallationRecordAlbumForThirdZone${stamp}`;
+    const HORIZONTAL_TOLERANCE_PX = 1;
+
+    const desktopViewport = page.viewportSize();
+    expect(desktopViewport).not.toBeNull();
+
+    interface Box {
+      scrollWidth: number;
+      clientWidth: number;
+    }
+    const measurements: Array<{ label: string; document: Box; main: Box }> = [];
+
+    /** アルバムを作り、詳細画面で写真項目を 1 枚追加する。 */
+    const createAlbumWithPhoto = async (projectId: string, albumName: string): Promise<string> => {
+      const albumId = await createAlbum(page, projectId, albumName);
+      await page.goto(`/construction-photos/${albumId}`);
+      await page.waitForLoadState('networkidle');
+      await expect(page.getByRole('heading', { level: 1, name: albumName })).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+      await uploadPhoto(page, FIXTURE_JPG, 1);
+      return albumId;
+    };
+
+    /** 指定の幅で詳細画面を開き、前提を確かめてから文書全体と <main> の幅を測って記録する。 */
+    const measure = async (
+      role: 'admin' | 'user',
+      width: number,
+      albumId: string,
+      albumName: string,
+      nameKind: '普通の名前' | '区切りの無い長い名前'
+    ): Promise<void> => {
+      const label = `${role}・${width} 幅・${nameKind}`;
+      await page.setViewportSize({ width, height: 812 });
+      await page.goto(`/construction-photos/${albumId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 前提: 共通ヘッダと詳細画面の見出し・写真項目が表示されている
+      const header = page.locator('header[role="banner"]');
+      await expect(header, label).toBeVisible();
+      const heading = page.getByRole('heading', { level: 1, name: albumName });
+      await expect(heading, label).toBeVisible({ timeout: getTimeout(15000) });
+      const items = page.getByTestId('construction-photo-item');
+      await expect(items, label).toHaveCount(1, { timeout: getTimeout(20000) });
+      await expect(items.first(), label).toBeVisible();
+      // 前提: ログインした利用者のロールがヘッダへ届いている（管理メニューは admin だけが持つ）
+      await expect(header.locator('.app-header-admin-trigger'), label).toHaveCount(
+        role === 'admin' ? 1 : 0
+      );
+
+      // 前提: 見出しを含む <main> が在り、モバイル分岐が適用済みで、写真項目が縦積みに確定している
+      await expect
+        .poll(
+          async () =>
+            heading.evaluate((h1) => {
+              const main = h1.closest('main');
+              return main ? getComputedStyle(main).maxWidth : null;
+            }),
+          { message: label, timeout: getTimeout(15000) }
+        )
+        .toBe('100%');
+      await expect
+        .poll(
+          async () =>
+            items.first().evaluate((el) => getComputedStyle(el as HTMLElement).flexDirection),
+          { message: label, timeout: getTimeout(15000) }
+        )
+        .toBe('column');
+
+      const m = await heading.evaluate((h1) => {
+        const main = h1.closest('main');
+        const root = document.documentElement;
+        const context = document.createElement('canvas').getContext('2d');
+        let titleNaturalWidth = -1;
+        if (context) {
+          const style = getComputedStyle(h1);
+          context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+          titleNaturalWidth = context.measureText(h1.textContent ?? '').width;
+        }
+        return {
+          viewportWidth: window.innerWidth,
+          titleNaturalWidth,
+          document: { scrollWidth: root.scrollWidth, clientWidth: root.clientWidth },
+          main: main ? { scrollWidth: main.scrollWidth, clientWidth: main.clientWidth } : null,
+        };
+      });
+      const report = `${label} ${JSON.stringify(m)}`;
+
+      // 前提: 画面幅が設定した幅であり、文書全体と <main> を測れている
+      expect(m.viewportWidth, report).toBe(width);
+      expect(m.document.clientWidth, report).toBeGreaterThan(0);
+      expect(m.document.clientWidth, report).toBeLessThanOrEqual(width);
+      expect(m.main, report).not.toBeNull();
+      expect(m.main!.clientWidth, report).toBeGreaterThan(0);
+      if (nameKind === '区切りの無い長い名前') {
+        // 前提: 名前の一語の自然幅が <main> の幅を超える（折り返さなければはみ出す長さ）
+        expect(m.titleNaturalWidth, report).toBeGreaterThan(m.main!.clientWidth);
+      }
+
+      measurements.push({ label, document: m.document, main: m.main! });
+    };
+
+    // admin: 自身のプロジェクトに、普通の名前と区切りの無い長い名前のアルバムを作る
+    await loginAsUser(page, 'ADMIN_USER');
+    const adminProject = await createProject(page, 'document-admin');
+    const adminAlbumIdForDocument = await createAlbumWithPhoto(adminProject, adminAlbum);
+    const longAlbumId = await createAlbumWithPhoto(adminProject, longAlbum);
+
+    await measure('admin', 375, adminAlbumIdForDocument, adminAlbum, '普通の名前');
+    await measure('admin', 320, adminAlbumIdForDocument, adminAlbum, '普通の名前');
+    await measure('admin', 375, longAlbumId, longAlbum, '区切りの無い長い名前');
+
+    // user へ切り替える（プロジェクトの作成はデスクトップ幅で行う）
+    await page.setViewportSize(desktopViewport!);
+    await page.context().clearCookies();
+    await page.evaluate(() => localStorage.clear());
+    await loginAsUser(page, 'REGULAR_USER');
+    const userProject = await createProject(page, 'document-user');
+    const userAlbumId = await createAlbumWithPhoto(userProject, userAlbum);
+
+    await measure('user', 375, userAlbumId, userAlbum, '普通の名前');
+    await measure('user', 320, userAlbumId, userAlbum, '普通の名前');
+
+    // 五つの状態をすべて測れている（測り漏らした状態を緑に数えない）
+    expect(measurements.map((m) => m.label)).toEqual([
+      'admin・375 幅・普通の名前',
+      'admin・320 幅・普通の名前',
+      'admin・375 幅・区切りの無い長い名前',
+      'user・375 幅・普通の名前',
+      'user・320 幅・普通の名前',
+    ]);
+
+    const report = measurements
+      .map(
+        (m) =>
+          `${m.label}: documentElement ${m.document.scrollWidth}/${m.document.clientWidth}、` +
+          `<main> ${m.main.scrollWidth}/${m.main.clientWidth}`
+      )
+      .join(' ｜ ');
+    const overflowing = (pick: (m: (typeof measurements)[number]) => Box): string[] =>
+      measurements
+        .filter((m) => pick(m).scrollWidth - pick(m).clientWidth > HORIZONTAL_TOLERANCE_PX)
+        .map((m) => `${m.label}: ${pick(m).scrollWidth}/${pick(m).clientWidth}`);
+
+    // R19.1: 詳細画面のコンテナ（<main>）に水平のはみ出しが無い（許容誤差1px）
+    expect(
+      overflowing((m) => m.main),
+      report
+    ).toEqual([]);
+    // R19.1: 文書全体（documentElement）に水平のはみ出しが無い（許容誤差1px）
+    expect(
+      overflowing((m) => m.document),
+      report
+    ).toEqual([]);
   });
 });
