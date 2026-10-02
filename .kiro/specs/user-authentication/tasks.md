@@ -1226,6 +1226,23 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Requirements: 1.6_
   - _Boundary: backend のビルドの出力へのメールのテンプレートの配置と、その検証_
 
+## タスク39: 共通ヘッダがモバイル幅で文書全体を水平にはみ出させる状態を正す
+
+**経緯**: construction-photo の Task 20.8 の後の機能レベル検証（2026-10-02、HEAD `2503b7d3`）が、共通ヘッダ由来の文書全体の水平スクロールを実測した。利用者の判断（2026-10-02、「共通ヘッダを直す」）により本スペックへ起票する。共通ヘッダ `frontend/src/components/Navigation/AppHeader.tsx` は本スペックの design.md が定義する（導入はコミット `058aa97c`）
+
+**測った事実**（同検証、test 環境の実ブラウザ）:
+
+- admin で 375 幅の画面を開くと、文書が 400/375 になり横へ 25px 動く。320 幅では 80px 動き、400 幅以上で解消する。はみ出すのは利用者メニューである
+- user ロールは 375 幅で 375/375 に収まるが、320 幅では 350/320 になる
+- 下流の画面の `<main>` 自体は収まっている。construction-photo の要件 19.1 の E2E は、この理由で文書全体を主張に使えていない（同スペックの Task 19.2 の完了時の注記）
+
+- [ ] 39.1 共通ヘッダが 320 幅以上で文書全体を水平にはみ出させないようにする
+  - 共通ヘッダ（`AppHeader.tsx` / `AppHeader.css`）を、admin と user の双方で、320・375 幅の文書全体（`document.documentElement` の scrollWidth と clientWidth）が一致する形にすること。方法（折り返す、項目を畳む、名前を省略表示する等）は、要件 28 の受入基準 21・22 が課すリンクとメニューの到達性を保つ範囲で選ぶ。長い表示名（区切りの無い英数字一語・長い和文）でも破れないこと
+  - 挙動（表示）の修正であるため RED → GREEN で進めること。E2E で admin と user、320 幅と 375 幅について、前提（ヘッダが表示され利用者メニューを開ける）を主張したうえで文書全体の水平のはみ出しが無いこと（許容誤差 1px）と、メニューの各項目が画面幅の内側にあることを主張する。是正前に赤になることを実測すること
+  - 共通ヘッダは保護された全画面に出る。デスクトップ幅（1280）の表示が変わらないことを是正の前後の実測で示し、ヘッダを操作する既存の E2E（`e2e/specs/navigation/app-header.spec.ts`・`e2e/specs/auth/navigation.spec.ts` ほか）を回すこと
+  - _Requirements: 15.1, 28.21, 28.22_
+  - _Boundary: 共通ヘッダ（AppHeader）のモバイル幅の表示_
+
 ## Implementation Notes
 
 - 宣言 `t13-anchor-references-after-115303` はリポジトリ全体の e2e の「肯定側から指す参照」（名前を文字列リテラルで与える `getByRole(..., { name })` / `getByLabel` など）を数える。本スペックで名前で指す E2E を足すと必ず動くため、E2E を足すタスクは `check:design-measurement-freshness` の前後の差を測り、動けば site-survey へ起票する。正規表現・testid への書き換えで避けるのは不当（36.7）
