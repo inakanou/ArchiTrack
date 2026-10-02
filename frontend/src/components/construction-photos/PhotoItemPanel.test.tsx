@@ -562,6 +562,49 @@ describe('PhotoItemPanel', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  it('onDelete が失敗したときは確認ダイアログを閉じ、同じ写真項目の削除をやり直せる（タスク 21.3）', async () => {
+    // 失敗の通知は呼び出し元が画面の通知の枠に出す。モーダルの確認ダイアログを開いたままに
+    // すると、その通知が背後に隠れるため、失敗時も閉じる
+    const onDelete = vi
+      .fn<(photoId: string) => Promise<void>>()
+      .mockRejectedValueOnce(new Error('delete failed'))
+      .mockResolvedValue(undefined);
+    render(
+      <PhotoItemPanel
+        photos={[makePhoto({ id: 'p1', fileName: 'target.jpg' })]}
+        onPhotoMetadataChange={vi.fn()}
+        onDelete={onDelete}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '写真項目を削除: target.jpg' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '削除する' }));
+    });
+
+    // 前提: 失敗する onDelete が対象のIDで呼ばれている
+    expect(onDelete).toHaveBeenCalledTimes(1);
+    expect(onDelete).toHaveBeenCalledWith('p1');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    // 写真項目と削除の操作手段は残る
+    expect(screen.getByRole('heading', { level: 3, name: 'target.jpg' })).toBeInTheDocument();
+
+    // やり直し: 同じ操作手段から確認ダイアログを開き直せ、実行ボタンは実行中の表示に固着していない
+    fireEvent.click(screen.getByRole('button', { name: '写真項目を削除: target.jpg' }));
+    const retryButton = within(screen.getByRole('dialog')).getByRole('button', {
+      name: '削除する',
+    });
+    expect(retryButton).not.toBeDisabled();
+    await act(async () => {
+      fireEvent.click(retryButton);
+    });
+
+    expect(onDelete).toHaveBeenCalledTimes(2);
+    expect(onDelete).toHaveBeenLastCalledWith('p1');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   // ==========================================================================
   // 「上へ移動」（R7.4）
   // ==========================================================================

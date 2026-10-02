@@ -45,6 +45,12 @@
  *     遷移全般を汎用的に捕捉し、`UnsavedChangesDialog` で確認、「離れる」選択時のみ
  *     `blocker.proceed()` で遷移を継続する（R18.2）
  *
+ * Task 21.3 追加: 写真項目の削除が失敗したときに、失敗を通知の枠（`styles.notice`、role=alert）へ
+ *   出す。受入基準 7.7 は失敗時の表示を定めておらず、利用者の判断（2026-10-02）で加えた挙動である。
+ *   文言と状態は同じ画面のアルバム削除の失敗と同じ形（`error`。サーバーが返した理由を優先し、
+ *   無ければ既定の文言）で、セッション切れ（401）も他の失敗と区別しない。確認ダイアログは
+ *   `PhotoItemPanel` が失敗時にも閉じ、通知は画面内へ送る
+ *
  * Requirements: 4.1, 4.2, 5.1, 5.3, 6.1, 7.1, 7.3, 7.4, 7.5, 7.6, 7.8, 11.3, 11.4, 11.5,
  *   10.1, 10.3, 10.12, 10.13, 15.1, 15.5, 15.6, 15.7, 15.8, 15.9, 15.11, 17.1, 17.2, 17.3,
  *   17.4, 17.5, 18.1, 18.2, 18.3, 18.4
@@ -300,6 +306,9 @@ const styles = {
   } as React.CSSProperties,
 };
 
+/** 写真項目の削除が失敗し、サーバーが理由を返さなかったときの通知の文言（タスク 21.3） */
+const PHOTO_DELETE_FAILED_MESSAGE = '写真項目の削除に失敗しました';
+
 // ============================================================================
 // コンポーネント
 // ============================================================================
@@ -344,6 +353,10 @@ export default function ConstructionPhotoDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // 通知の枠の要素と、通知を画面内へ送る要求の通し番号（0 は要求なし）。写真項目の削除は通知の枠
+  // より下の一覧から操作するため、失敗の通知が画面の外に出たままになりうる（タスク 21.3）
+  const noticeRef = useRef<HTMLDivElement | null>(null);
+  const [noticeRevealRequest, setNoticeRevealRequest] = useState(0);
 
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -630,9 +643,33 @@ export default function ConstructionPhotoDetailPage() {
 
   /**
    * 写真項目削除ハンドラ（R7.7）
+   *
+   * 失敗したときは通知の枠に失敗を出し、写真項目・未保存の変更・選択集合には触れない（タスク 21.3）。
+   * 失敗は同じ画面のアルバム削除の失敗と同じ形で `error` に載せる（サーバーが返した理由を優先し、
+   * 無ければ既定の文言）。`error` に載せるのは、後の保存が冒頭の `setError(null)` と失敗時の
+   * `setError(...)` で置き換えられるようにするためである。`notice` に載せると、描画が
+   * `notice ?? error` であるため、後の保存の失敗が古い削除の失敗の背後に隠れる。
+   * セッション切れ（401）も区別しない。この画面は操作を保持して再送しないため、同じ画面の保存・
+   * アルバム削除と同じく、共通のセッション切れの表示とは別に通知を残す。
+   * 操作の開始時に `notice` と `error` の両方を消す。`notice` を消すのは、先に出ている通知
+   * （アップロードの失敗など）が削除の失敗を隠さないようにするためで、`error` を消すのは、
+   * やり直しが成功したときに古い失敗の表示を残さないためである（保存の開始と同じ扱い）。
+   * 失敗は `PhotoItemPanel` へ伝播させる（同部品が確認ダイアログを閉じる）。
    */
   const handleDelete = useCallback(async (photoId: string) => {
-    await deleteConstructionPhoto(photoId);
+    setNotice(null);
+    setError(null);
+    try {
+      await deleteConstructionPhoto(photoId);
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message || PHOTO_DELETE_FAILED_MESSAGE
+          : PHOTO_DELETE_FAILED_MESSAGE
+      );
+      setNoticeRevealRequest((prev) => prev + 1);
+      throw err;
+    }
     setPhotos((prev) => prev.filter((p) => p.id !== photoId));
     pendingChangesRef.current.delete(photoId);
     if (pendingOrderRef.current) {
@@ -647,6 +684,21 @@ export default function ConstructionPhotoDetailPage() {
       return next;
     });
   }, []);
+
+  /**
+   * 写真項目の削除が失敗したときに、通知の枠を画面内へ送る（タスク 21.3）。
+   * 通知が描画された後に実行する必要があるため、要求の通し番号の変化を契機にする。
+   */
+  useEffect(() => {
+    if (noticeRevealRequest === 0) return;
+    const element = noticeRef.current;
+    // jsdom など scrollIntoView を持たない環境では何もしない（utils/accessibility と同じ扱い）。
+    // 位置は画面の中央にする。上端へ寄せる指定（nearest / start）では、画面の上端に貼り付く共通
+    // ヘッダ（position: sticky）の下に通知が隠れる（タスク 21.3 の E2E で実測）
+    if (element && typeof element.scrollIntoView === 'function') {
+      element.scrollIntoView({ block: 'center' });
+    }
+  }, [noticeRevealRequest]);
 
   /**
    * エクスポート対象の選択チェックのトグルハンドラ（R15.6）
@@ -864,9 +916,9 @@ export default function ConstructionPhotoDetailPage() {
           </div>
         </div>
 
-        {/* 通知（部分失敗・保存エラーなど） */}
+        {/* 通知（部分失敗・保存エラー・写真項目の削除の失敗など） */}
         {(notice || error) && (
-          <div role="alert" style={styles.notice}>
+          <div ref={noticeRef} role="alert" style={styles.notice}>
             {notice ?? error}
           </div>
         )}

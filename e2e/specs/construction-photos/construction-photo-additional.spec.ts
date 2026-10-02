@@ -63,6 +63,10 @@
  * 22. モバイル幅のタップ領域: 375 幅と 320 幅で、写真項目の看板の操作ボタンが「看板を配置」
  *     「看板を変更」のどちらの表示でも 44×44 以上で描かれ、同じ写真項目の他の操作コントロールも
  *     同じ下限を満たし、隣のボタンと重ならない（R19.3。タスク 21.2）
+ * 23. 写真項目の削除の失敗と、やり直し: 写真項目の削除の応答を失敗へ差し替えると、確認ダイアログが
+ *     閉じ、詳細画面の通知の枠（role=alert）に失敗が表示され、写真項目は残る。差し替えを解いて
+ *     やり直すと、写真項目と看板配置のデータが削除され、古い失敗の通知が消える（R7.7。失敗時の
+ *     通知は受入基準の外で、タスク 21.3 の利用者の判断による）
  *
  * 縮退した要素（理由明記）:
  *  - パンの座標厳密検証: 拡大時に画像 transform の translate 成分が変化することまでを確認し、
@@ -3216,5 +3220,258 @@ test.describe('工事写真 追加機能フロー', () => {
 
     // 六つの表示が水平にはみ出さず、文字列が枠の内側に収まる
     expect(failures, reports.join(' ｜ ')).toEqual([]);
+  });
+
+  /**
+   * R7.7 写真項目の削除と、削除が失敗したときの通知（タスク 21.3）:
+   * 375 幅の詳細画面で、看板配置のデータを持つ写真項目の削除を実行する。1 回目は削除の応答を
+   * 失敗（500）へ差し替え、2 回目は差し替えを解いて実際に削除する。
+   *
+   * @requirement construction-photo/REQ-7.7
+   *
+   * 受入基準 7.7（写真項目と関連する看板配置データを削除する）は 2 回目で主張する。削除の後に
+   * 写真項目が一覧から消え、DB から当該の行（看板の指定と配置の座標を持つ行）が無くなり、読み込み
+   * 直しても戻らないことを確かめる。看板マスタの行と、もう一方の写真項目は残る。
+   *
+   * 1 回目の失敗時の表示は受入基準 7.7 の外にある。利用者の判断（2026-10-02、タスク 21.3）により、
+   * 同じ詳細画面の既存の失敗の通知（`styles.notice` の枠、role=alert）に揃えて知らせる。主張は次の
+   * とおり。
+   *  - 確認ダイアログが閉じる（モーダルの背後に通知を隠さない。同じ画面のアルバムを取り除く確認
+   *    ダイアログと同じ扱い）。
+   *  - 通知の枠に、応答の理由（`detail`）が表示される（同じ画面の他の失敗の通知と同じ扱い）。
+   *  - 通知が画面内にあり、他の要素に覆われていない。写真項目は縦に積まれ、削除の操作手段は通知の
+   *    枠より下にある。前提として、削除を実行する時点で通知の枠の位置（見出し「写真項目」）が画面の
+   *    外にあることを主張する。
+   *  - 写真項目は 2 件とも残り、DB の行も看板配置のデータごと残る。
+   *  - <main> に水平のはみ出しが無い（許容誤差1px）。通知はファイル名を載せないため、長いファイル
+   *    名での測定は行わない（長い文字列の折り返しは、同じ枠を測る上の通知のテストが担う）。
+   *
+   * 削除の DELETE だけを差し替える。判定はオリジンではなくパスで行い、DELETE 以外は素通しする。
+   * 500 は API クライアントの自動再試行の対象であるため、差し替えた応答は複数回返る（回数は主張
+   * しない。1 回以上であることだけを前提として主張する）。解除は登録時と同じ参照で行う。
+   *
+   * 是正の経緯（2026-10-03、タスク 21.3）: 本テストを書いた時点の実装（`PhotoItemPanel` が失敗を
+   * 握りつぶし、`ConstructionPhotoDetailPage.handleDelete` が捕捉も表示もしない形）では、確認
+   * ダイアログが開いたまま通知が 0 件で、「確認ダイアログが閉じる」の主張で赤だった。是正の途中で、
+   * 通知を画面の上端へ寄せて送る形（scrollIntoView の block: 'nearest'）を試したところ、通知の上端が
+   * 0 になり、画面の上端に貼り付く共通ヘッダのリンクに覆われて「覆われていない」の主張で赤だった
+   * （通知の中心の位置の要素が A）。画面の中央へ送る形（block: 'center'）で緑になった。
+   */
+  test('写真項目の削除が失敗すると通知の枠に失敗が表示されて写真項目が残り、やり直すと写真項目と看板配置のデータが削除される', async ({
+    page,
+  }) => {
+    const prisma = getPrismaClient();
+    const stamp = Date.now();
+    const albumName = `削除失敗_${stamp}`;
+    const keepFileName = `delete-keep-${stamp}.jpg`;
+    const targetFileName = `delete-target-${stamp}.jpg`;
+    const failureDetail = 'サーバー内部エラーが発生しました';
+    const placement = { left: 10, top: 20, width: 120, height: 80 };
+
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'delete-fail');
+    const albumId = await createAlbum(page, projectId, albumName);
+
+    await page.setViewportSize({ width: 375, height: 812 });
+
+    /** 詳細画面を開き、モバイル分岐の適用を待つ。 */
+    const openDetail = async (): Promise<void> => {
+      await page.goto(`/construction-photos/${albumId}`);
+      await page.waitForLoadState('networkidle');
+      const heading = page.getByRole('heading', { level: 1, name: albumName });
+      await expect(heading).toBeVisible({ timeout: getTimeout(15000) });
+      await expect
+        .poll(
+          async () =>
+            heading.evaluate((h1) => {
+              const main = h1.closest('main');
+              return main ? getComputedStyle(main).maxWidth : null;
+            }),
+          { timeout: getTimeout(15000) }
+        )
+        .toBe('100%');
+    };
+
+    /** 指定の名前でローカル画像を 1 枚追加し、写真項目の総数が expectedCount になるのを待つ。 */
+    const uploadNamed = async (name: string, expectedCount: number): Promise<void> => {
+      const upload = page.waitForResponse(
+        (r) => r.request().method() === 'POST' && UPLOAD_URL_MATCHER(new URL(r.url())),
+        { timeout: getTimeout(30000) }
+      );
+      await page.getByTestId('file-input').setInputFiles({
+        name,
+        mimeType: 'image/jpeg',
+        buffer: fs.readFileSync(FIXTURE_JPG),
+      });
+      await upload;
+      await expect(page.getByTestId('construction-photo-item')).toHaveCount(expectedCount, {
+        timeout: getTimeout(20000),
+      });
+    };
+
+    // 前準備: 写真項目を 2 件追加し、後ろの 1 件（削除の対象）に看板の指定と配置の座標を持たせる
+    await openDetail();
+    await uploadNamed(keepFileName, 1);
+    await uploadNamed(targetFileName, 2);
+
+    const uploaded = await prisma.constructionPhoto.findMany({
+      where: { albumId },
+      select: { id: true, fileName: true },
+    });
+    const targetId = uploaded.find((photo) => photo.fileName === targetFileName)?.id;
+    const keepId = uploaded.find((photo) => photo.fileName === keepFileName)?.id;
+    expect(targetId, JSON.stringify(uploaded)).toBeTruthy();
+    expect(keepId, JSON.stringify(uploaded)).toBeTruthy();
+
+    const signboard = await prisma.constructionSignboard.create({
+      data: { projectId, workName: `削除失敗_看板_${stamp}`, workLocation: '東京都千代田区' },
+      select: { id: true },
+    });
+    await prisma.constructionPhoto.update({
+      where: { id: targetId! },
+      data: { signboardId: signboard.id, signboardPlacement: placement },
+    });
+
+    await openDetail();
+    const items = page.getByTestId('construction-photo-item');
+    await expect(items).toHaveCount(2, { timeout: getTimeout(20000) });
+    const targetHeading = items.getByRole('heading', { level: 3, name: targetFileName });
+    const keepHeading = items.getByRole('heading', { level: 3, name: keepFileName });
+    await expect(targetHeading).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(keepHeading).toBeVisible();
+    const deleteTarget = items.getByRole('button', { name: `写真項目を削除: ${targetFileName}` });
+    const dialog = page.getByRole('dialog');
+    const notices = page.getByRole('main').getByRole('alert');
+    // 確認ダイアログの見出し「写真項目を削除」と区別するため、完全一致で指す
+    const sectionHeading = page.getByRole('heading', {
+      level: 2,
+      name: '写真項目',
+      exact: true,
+    });
+    // 前提: 失敗の前に、通知は出ていない
+    await expect(sectionHeading).toBeVisible();
+    await expect(notices).toHaveCount(0);
+
+    // --- 1 回目: 削除の DELETE だけを失敗させる ---
+    const deleteMatcher = (url: URL): boolean =>
+      url.pathname.endsWith(`/api/construction-photos/images/${targetId}`);
+    let failedDeleteCount = 0;
+    const failDelete = async (route: Route): Promise<void> => {
+      if (route.request().method() !== 'DELETE') {
+        await route.fallback();
+        return;
+      }
+      failedDeleteCount += 1;
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          type: 'https://architrack.example.com/problems/internal-server-error',
+          title: 'Internal Server Error',
+          status: 500,
+          detail: failureDetail,
+          code: 'INTERNAL_SERVER_ERROR',
+        }),
+      });
+    };
+
+    await page.route(deleteMatcher, failDelete);
+    try {
+      await deleteTarget.click();
+      await expect(dialog).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(dialog).toContainText(targetFileName);
+      // 前提: 削除を実行する時点で、通知の枠の位置（見出し「写真項目」の直下）は画面の外にある
+      await expect(sectionHeading).not.toBeInViewport();
+
+      await dialog.getByRole('button', { name: '削除する' }).click();
+
+      // 確認ダイアログが閉じ、通知の枠に失敗の理由が表示される
+      // （自動再試行の待ち時間は合わせて 7 秒ほどである）
+      await expect(dialog).toBeHidden({ timeout: getTimeout(30000) });
+      await expect(notices).toHaveCount(1, { timeout: getTimeout(20000) });
+      await expect(notices).toHaveText(failureDetail);
+      await expect(notices).toBeInViewport({ ratio: 1, timeout: getTimeout(10000) });
+      // 前提: 失敗は差し替えた応答によるもので、削除はサーバーへ届いていない
+      expect(failedDeleteCount).toBeGreaterThanOrEqual(1);
+
+      const shown = await notices.evaluate((el) => {
+        const rect = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(
+          rect.left + rect.width / 2,
+          rect.top + rect.height / 2
+        );
+        const main = el.closest('main') as HTMLElement;
+        return {
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+          top: rect.top,
+          bottom: rect.bottom,
+          right: rect.right,
+          coveredBy: hit === null ? 'null' : el.contains(hit) ? 'notice' : hit.tagName,
+          main: { scrollWidth: main.scrollWidth, clientWidth: main.clientWidth },
+        };
+      });
+      const shownReport = JSON.stringify(shown);
+      expect(shown.viewportWidth, shownReport).toBe(375);
+      expect(shown.main.clientWidth, shownReport).toBeGreaterThan(0);
+      // 通知が画面内にあり、他の要素に覆われていない
+      expect(shown.top, shownReport).toBeGreaterThanOrEqual(0);
+      expect(shown.bottom, shownReport).toBeLessThanOrEqual(shown.viewportHeight);
+      expect(shown.right, shownReport).toBeLessThanOrEqual(shown.viewportWidth + 1);
+      expect(shown.coveredBy, shownReport).toBe('notice');
+      // <main> に水平のはみ出しが無い（許容誤差1px）
+      expect(shown.main.scrollWidth - shown.main.clientWidth, shownReport).toBeLessThanOrEqual(1);
+
+      // 写真項目は 2 件とも残り、DB の行も看板配置のデータごと残る
+      await expect(items).toHaveCount(2);
+      await expect(targetHeading).toBeVisible();
+      await expect(keepHeading).toBeVisible();
+      const remaining = await prisma.constructionPhoto.findUnique({
+        where: { id: targetId! },
+        select: { signboardId: true, signboardPlacement: true },
+      });
+      expect(remaining).toEqual({ signboardId: signboard.id, signboardPlacement: placement });
+    } finally {
+      await page.unroute(deleteMatcher, failDelete);
+    }
+
+    // --- 2 回目: 差し替えを解いてやり直す（R7.7） ---
+    const failedBeforeRetry = failedDeleteCount;
+    await deleteTarget.click();
+    await expect(dialog).toBeVisible({ timeout: getTimeout(10000) });
+    const deleted = page.waitForResponse(
+      (r) => r.request().method() === 'DELETE' && deleteMatcher(new URL(r.url())),
+      { timeout: getTimeout(30000) }
+    );
+    await dialog.getByRole('button', { name: '削除する' }).click();
+    const deleteResponse = await deleted;
+    expect(deleteResponse.status()).toBe(204);
+    // 前提: やり直しの応答は差し替えたものではない
+    expect(failedDeleteCount).toBe(failedBeforeRetry);
+
+    await expect(dialog).toBeHidden({ timeout: getTimeout(10000) });
+    await expect(items).toHaveCount(1, { timeout: getTimeout(20000) });
+    await expect(targetHeading).toHaveCount(0);
+    await expect(keepHeading).toBeVisible();
+    // 古い失敗の通知が消える
+    await expect(notices).toHaveCount(0);
+
+    // R7.7: 写真項目の行が、看板配置のデータごと DB から無くなる。看板マスタともう一方の行は残る
+    expect(await prisma.constructionPhoto.findUnique({ where: { id: targetId! } })).toBeNull();
+    expect(
+      await prisma.constructionPhoto.findMany({ where: { albumId }, select: { id: true } })
+    ).toEqual([{ id: keepId }]);
+    expect(
+      await prisma.constructionSignboard.findUnique({
+        where: { id: signboard.id },
+        select: { id: true, deletedAt: true },
+      })
+    ).toEqual({ id: signboard.id, deletedAt: null });
+
+    // 読み込み直しても、削除した写真項目は戻らない
+    await openDetail();
+    await expect(items).toHaveCount(1, { timeout: getTimeout(20000) });
+    await expect(keepHeading).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(targetHeading).toHaveCount(0);
   });
 });

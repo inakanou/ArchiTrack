@@ -75,7 +75,14 @@ export interface PhotoItemPanelProps {
   isDirty?: boolean;
   /** 保存中かどうか */
   isSaving?: boolean;
-  /** 写真項目削除時のハンドラ */
+  /**
+   * 写真項目削除時のハンドラ。
+   *
+   * 削除に失敗したときは reject する。失敗を利用者へ知らせるのは呼び出し元の責務であり、本部品は
+   * 失敗を表示しない。確認ダイアログは成功・失敗のどちらでも閉じる（呼び出し元が出す通知を
+   * モーダルの背後に隠さないため。タスク 21.3）。写真項目と削除の操作手段は残るため、利用者は
+   * 同じ操作でやり直せる。
+   */
   onDelete?: (photoId: string) => Promise<void>;
   /** 上下移動ボタンを表示するか */
   showOrderButtons?: boolean;
@@ -1013,10 +1020,13 @@ export function PhotoItemPanel({
     setIsDeleting(true);
     try {
       await onDelete(deleteTargetId);
-      setDeleteTargetId(null);
     } catch {
-      // エラーは呼び出し元で処理
+      // 失敗の通知は呼び出し元が行う（ConstructionPhotoDetailPage.handleDelete が通知の枠に出す）。
+      // ここでは握りつぶすのではなく、下の finally で確認ダイアログを閉じて通知を見える状態にする
     } finally {
+      // 成功・失敗のどちらでも閉じる。失敗時に開いたままにすると、モーダルの背後に通知が隠れる
+      // （タスク 21.3。同じ画面のアルバムを取り除く確認ダイアログも失敗時に閉じる）
+      setDeleteTargetId(null);
       setIsDeleting(false);
     }
   }, [deleteTargetId, onDelete]);

@@ -21,6 +21,7 @@ import * as siteSurveysApi from '../api/site-surveys';
 import * as signboardsApi from '../api/construction-signboards';
 import * as ledgerExportApi from '../services/export/ConstructionPhotoLedgerExportService';
 import { constructionPhotoBulkExportService } from '../services/export/ConstructionPhotoBulkExportService';
+import { ApiError } from '../api/client';
 import useMediaQuery from '../hooks/useMediaQuery';
 import type {
   ConstructionPhotoAlbum,
@@ -1122,6 +1123,258 @@ describe('ConstructionPhotoDetailPage', () => {
       });
       await waitFor(() => {
         expect(screen.queryByRole('img', { name: /a\.jpg/ })).not.toBeInTheDocument();
+      });
+    });
+
+    // ------------------------------------------------------------------------
+    // 写真項目の削除が失敗したときの通知（タスク 21.3）
+    // 受入基準 7.7 は失敗時の表示を定めていない。利用者の判断（2026-10-02）により、同じ画面の
+    // 既存の失敗の通知（role=alert の通知の枠）に揃えて知らせる。
+    // ------------------------------------------------------------------------
+    describe('写真項目の削除の失敗時の通知（タスク 21.3）', () => {
+      const DELETE_FAILED = '写真項目の削除に失敗しました';
+
+      /** 写真項目 a.jpg の削除導線から確認ダイアログを開き、「削除する」を押す。 */
+      const confirmDeleteOfFirstPhoto = async (): Promise<void> => {
+        fireEvent.click(screen.getByRole('button', { name: '写真項目を削除: a.jpg' }));
+        const dialog = await screen.findByRole('dialog', { name: '写真項目を削除' });
+        fireEvent.click(within(dialog).getByRole('button', { name: '削除する' }));
+      };
+
+      /** 削除APIの呼び出しが済み、確認ダイアログが閉じるまで待つ。 */
+      const waitForDeleteSettled = async (calls: number): Promise<void> => {
+        await waitFor(() => {
+          expect(imagesApi.deleteConstructionPhoto).toHaveBeenCalledTimes(calls);
+        });
+        await waitFor(() => {
+          expect(screen.queryByRole('dialog', { name: '写真項目を削除' })).not.toBeInTheDocument();
+        });
+      };
+
+      it('削除APIが失敗すると通知の枠に失敗を表示し、確認ダイアログを閉じ、写真項目を一覧に残す', async () => {
+        vi.mocked(imagesApi.deleteConstructionPhoto).mockRejectedValue(new Error('boom'));
+
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+        // 前提: 失敗の前に通知は出ていない
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+        await confirmDeleteOfFirstPhoto();
+
+        const alert = await screen.findByRole('alert');
+        expect(alert).toHaveTextContent(DELETE_FAILED);
+        await waitForDeleteSettled(1);
+        expect(imagesApi.deleteConstructionPhoto).toHaveBeenCalledWith('photo-1');
+        // 写真項目は 2 件とも残り、削除の操作手段からやり直せる
+        expect(screen.getAllByTestId('construction-photo-item')).toHaveLength(2);
+        expect(screen.getByRole('img', { name: /a\.jpg/ })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: '写真項目を削除: a.jpg' })).toBeInTheDocument();
+      });
+
+      it('サーバーが理由を返した失敗では、その理由を通知に表示する（同じ画面の他の失敗の通知と同じ扱い）', async () => {
+        vi.mocked(imagesApi.deleteConstructionPhoto).mockRejectedValue(
+          new ApiError(500, 'サーバー内部エラーが発生しました')
+        );
+
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+        await confirmDeleteOfFirstPhoto();
+
+        const alert = await screen.findByRole('alert');
+        expect(alert).toHaveTextContent('サーバー内部エラーが発生しました');
+        expect(alert).not.toHaveTextContent(DELETE_FAILED);
+      });
+
+      it('サーバーが理由を返さない失敗では、既定の文言を通知に表示する', async () => {
+        vi.mocked(imagesApi.deleteConstructionPhoto).mockRejectedValue(new ApiError(500, ''));
+
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+        await confirmDeleteOfFirstPhoto();
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(DELETE_FAILED);
+      });
+
+      it('失敗の後にやり直した削除が成功すると、古い失敗の通知が消え、写真項目が一覧から除かれる', async () => {
+        vi.mocked(imagesApi.deleteConstructionPhoto)
+          .mockRejectedValueOnce(new Error('boom'))
+          .mockResolvedValue(undefined);
+
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+        await confirmDeleteOfFirstPhoto();
+        // 前提: 1 回目は失敗し、通知が出ている
+        expect(await screen.findByRole('alert')).toHaveTextContent(DELETE_FAILED);
+        await waitForDeleteSettled(1);
+
+        await confirmDeleteOfFirstPhoto();
+        await waitForDeleteSettled(2);
+
+        await waitFor(() => {
+          expect(screen.queryByRole('img', { name: /a\.jpg/ })).not.toBeInTheDocument();
+        });
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(screen.getAllByTestId('construction-photo-item')).toHaveLength(1);
+      });
+
+      it('セッション切れ（401）の失敗でも、他の失敗と同じく通知を表示する（同じ画面の保存・アルバム削除と同じ扱い）', async () => {
+        // 共通のセッション切れの表示は API クライアントが別に出す。この画面は操作を保持して再送
+        // しないため、再ログインの後に何が起きたかを通知で残す
+        vi.mocked(imagesApi.deleteConstructionPhoto).mockRejectedValue(
+          new ApiError(401, '認証の有効期限が切れました')
+        );
+
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+        await confirmDeleteOfFirstPhoto();
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('認証の有効期限が切れました');
+        await waitForDeleteSettled(1);
+        // 写真項目は残る
+        expect(screen.getAllByTestId('construction-photo-item')).toHaveLength(2);
+      });
+
+      it('削除の失敗の後に保存が別の理由で失敗すると、保存の失敗が表示される（古い削除の失敗に隠れない）', async () => {
+        vi.mocked(imagesApi.deleteConstructionPhoto).mockRejectedValue(
+          new ApiError(500, '削除の処理でエラーが発生しました')
+        );
+        vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockRejectedValue(
+          new ApiError(409, '他の利用者が先に更新しました')
+        );
+
+        renderPage();
+        const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+        await confirmDeleteOfFirstPhoto();
+        // 前提: 削除の失敗が表示されている
+        expect(await screen.findByRole('alert')).toHaveTextContent(
+          '削除の処理でエラーが発生しました'
+        );
+        await waitForDeleteSettled(1);
+
+        fireEvent.click(within(firstItem).getByLabelText('印刷対象に含める'));
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+        await waitFor(() => {
+          expect(imagesApi.updateConstructionPhotoMetadataBatch).toHaveBeenCalledTimes(1);
+        });
+
+        await waitFor(() => {
+          expect(screen.getByRole('alert')).toHaveTextContent('他の利用者が先に更新しました');
+        });
+        expect(screen.getByRole('alert')).not.toHaveTextContent('削除の処理でエラーが発生しました');
+      });
+
+      it('削除の失敗の後に保存が成功すると、古い削除の失敗の表示が消える', async () => {
+        vi.mocked(imagesApi.deleteConstructionPhoto).mockRejectedValue(new Error('boom'));
+        vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockResolvedValue([]);
+
+        renderPage();
+        const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+        await confirmDeleteOfFirstPhoto();
+        // 前提: 削除の失敗が表示されている
+        expect(await screen.findByRole('alert')).toHaveTextContent(DELETE_FAILED);
+        await waitForDeleteSettled(1);
+
+        fireEvent.click(within(firstItem).getByLabelText('印刷対象に含める'));
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(true));
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+        // 保存が成功し（未保存の状態が解消し）、通知は残らない
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(false));
+        expect(imagesApi.updateConstructionPhotoMetadataBatch).toHaveBeenCalledTimes(1);
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      });
+
+      it('アップロードの失敗の通知が出ている状態で削除が失敗すると、削除の失敗が表示される', async () => {
+        vi.mocked(imagesApi.uploadConstructionPhotos).mockResolvedValue({
+          successful: [],
+          failed: [{ fileName: 'ng.jpg', error: 'アップロード失敗' }],
+        });
+        vi.mocked(imagesApi.deleteConstructionPhoto).mockRejectedValue(new Error('boom'));
+
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+        await act(async () => {
+          fireEvent.change(screen.getByTestId('file-input'), {
+            target: { files: [new File(['x'], 'ng.jpg', { type: 'image/jpeg' })] },
+          });
+        });
+        // 前提: アップロードの失敗の通知（Requirement 20 の通知）が出ている
+        expect(await screen.findByText(/全1件の追加に失敗しました/)).toBeInTheDocument();
+
+        await confirmDeleteOfFirstPhoto();
+        await waitForDeleteSettled(1);
+
+        // 通知の枠は一つで、削除の失敗を表示している
+        const alerts = screen
+          .getAllByRole('alert')
+          .filter((el) => el.textContent?.includes(DELETE_FAILED));
+        expect(alerts).toHaveLength(1);
+        expect(screen.queryByText(/全1件の追加に失敗しました/)).not.toBeInTheDocument();
+      });
+
+      it('失敗の通知を画面内へ送る（一覧の下の写真項目から操作しても通知が画面の外に残らない）', async () => {
+        // jsdom は scrollIntoView を実装していないため、呼び出しを観測できる形で差し込む
+        const scrollIntoView = vi.fn();
+        const original = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');
+        Object.defineProperty(Element.prototype, 'scrollIntoView', {
+          configurable: true,
+          writable: true,
+          value: scrollIntoView,
+        });
+        try {
+          vi.mocked(imagesApi.deleteConstructionPhoto).mockRejectedValue(new Error('boom'));
+
+          renderPage();
+          await screen.findByRole('img', { name: /a\.jpg/ });
+          await confirmDeleteOfFirstPhoto();
+
+          const alert = await screen.findByRole('alert');
+          await waitFor(() => {
+            expect(scrollIntoView).toHaveBeenCalledTimes(1);
+          });
+          // 画面内へ送られるのは通知の枠そのものである
+          expect(scrollIntoView.mock.contexts[0]).toBe(alert);
+          // 上端へ寄せると、画面の上端に貼り付く共通ヘッダの下に隠れるため、中央へ送る
+          expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' });
+        } finally {
+          if (original) {
+            Object.defineProperty(Element.prototype, 'scrollIntoView', original);
+          } else {
+            delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+          }
+        }
+      });
+
+      it('失敗しても未保存の状態と未保存の変更は変わらない (R18.1, R18.3)', async () => {
+        vi.mocked(imagesApi.deleteConstructionPhoto).mockRejectedValue(new Error('boom'));
+        vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockResolvedValue([]);
+
+        renderPage();
+        const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+        // 前提: 変更の無い状態では未保存ではない
+        expect(lastUnsavedDirty()).toBe(false);
+
+        // 変更の無い状態で失敗しても、未保存にならない
+        await confirmDeleteOfFirstPhoto();
+        expect(await screen.findByRole('alert')).toHaveTextContent(DELETE_FAILED);
+        await waitForDeleteSettled(1);
+        expect(lastUnsavedDirty()).toBe(false);
+
+        // 未保存の変更がある状態で失敗しても、未保存のままで、変更は保存の対象に残る
+        fireEvent.click(within(firstItem).getByLabelText('印刷対象に含める'));
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(true));
+        await confirmDeleteOfFirstPhoto();
+        await waitForDeleteSettled(2);
+        expect(await screen.findByRole('alert')).toHaveTextContent(DELETE_FAILED);
+        expect(lastUnsavedDirty()).toBe(true);
+
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+        await waitFor(() => {
+          expect(imagesApi.updateConstructionPhotoMetadataBatch).toHaveBeenCalledWith([
+            { id: 'photo-1', includeInReport: true },
+          ]);
+        });
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(false));
       });
     });
 
