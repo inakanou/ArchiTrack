@@ -1002,6 +1002,104 @@ describe('ConstructionPhotoImageService.listWithUrls', () => {
     expect(result[0]!.thumbnailUrl).toBeNull();
   });
 
+  // --------------------------------------------------------------------------
+  // 看板の指定の解決（Requirements: 9.7）
+  //
+  // 看板の削除は論理削除であり、削除の処理が参照側を解除する。それでも、本修正より前に
+  // 作られた行や、削除と保存が競合した行には、論理削除済みの看板を指す指定が残りうる。
+  // 一覧は読み出しの時点で看板の生死を確かめ、生きていない看板の指定を「看板なし」として返す。
+  // --------------------------------------------------------------------------
+  const LIST_SIGNBOARD_ID = '923e4567-e89b-12d3-a456-426614174099';
+  const LIST_PLACEMENT = { left: 10, top: 20, width: 300, height: 200 };
+
+  it('生きている看板の指定は signboardId と配置をそのまま返す（Requirements: 9.6）', async () => {
+    (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      listPhotoRow({
+        id: 'p1',
+        signboardId: LIST_SIGNBOARD_ID,
+        signboardPlacement: LIST_PLACEMENT,
+        signboard: { deletedAt: null },
+      }),
+    ]);
+
+    const result = await service.listWithUrls(ALBUM_ID, LIST_USER_ID);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.signboardId).toBe(LIST_SIGNBOARD_ID);
+    expect(result[0]!.signboardPlacement).toEqual(LIST_PLACEMENT);
+  });
+
+  it('論理削除済みの看板を指す指定は、看板なし（signboardId と配置が null）として返す（Requirements: 9.7）', async () => {
+    (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      listPhotoRow({
+        id: 'p-dangling',
+        displayOrder: 1,
+        signboardId: LIST_SIGNBOARD_ID,
+        signboardPlacement: LIST_PLACEMENT,
+        signboard: { deletedAt: new Date('2024-02-01T00:00:00.000Z') },
+      }),
+      listPhotoRow({
+        id: 'p-live',
+        displayOrder: 2,
+        signboardId: LIST_SIGNBOARD_ID,
+        signboardPlacement: LIST_PLACEMENT,
+        signboard: { deletedAt: null },
+      }),
+    ]);
+
+    const result = await service.listWithUrls(ALBUM_ID, LIST_USER_ID);
+
+    expect(result.map((p) => p.id)).toEqual(['p-dangling', 'p-live']);
+    expect(result[0]!.signboardId).toBeNull();
+    expect(result[0]!.signboardPlacement).toBeNull();
+    // 同じ一覧の中の生きている指定は巻き添えにしない
+    expect(result[1]!.signboardId).toBe(LIST_SIGNBOARD_ID);
+    expect(result[1]!.signboardPlacement).toEqual(LIST_PLACEMENT);
+  });
+
+  it('看板の実体を確かめられない指定（参照先の行が無い）も看板なしとして返す（Requirements: 9.7）', async () => {
+    (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      listPhotoRow({
+        id: 'p1',
+        signboardId: LIST_SIGNBOARD_ID,
+        signboardPlacement: LIST_PLACEMENT,
+        signboard: null,
+      }),
+    ]);
+
+    const result = await service.listWithUrls(ALBUM_ID, LIST_USER_ID);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.signboardId).toBeNull();
+    expect(result[0]!.signboardPlacement).toBeNull();
+  });
+
+  it('看板の生死は一覧の1クエリの中で読み、看板を引く追加のクエリを発行しない（Requirements: 9.7, 11.2）', async () => {
+    const signboardFindMany = vi.fn();
+    const signboardFindUnique = vi.fn();
+    (mockPrisma as unknown as Record<string, unknown>).constructionSignboard = {
+      findMany: signboardFindMany,
+      findUnique: signboardFindUnique,
+    };
+    (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      listPhotoRow({
+        id: 'p1',
+        signboardId: LIST_SIGNBOARD_ID,
+        signboardPlacement: LIST_PLACEMENT,
+        signboard: { deletedAt: null },
+      }),
+    ]);
+
+    await service.listWithUrls(ALBUM_ID, LIST_USER_ID);
+
+    expect(mockPrisma.constructionPhoto.findMany).toHaveBeenCalledTimes(1);
+    const findManyArgs = (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mock
+      .calls[0]![0] as { select?: Record<string, unknown> };
+    expect(findManyArgs.select?.signboard).toEqual({ select: { deletedAt: true } });
+    expect(signboardFindMany).not.toHaveBeenCalled();
+    expect(signboardFindUnique).not.toHaveBeenCalled();
+  });
+
   it('(d) ユーザーがアクセスできないプロジェクト（他プロジェクト）のアルバムは 404 とする（Requirements: 13.2）', async () => {
     // アルバムは存在するが、リクエストユーザーは当該プロジェクトの関係者でなく admin でもない
     (mockPrisma.project.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -1517,6 +1615,7 @@ describe('ConstructionPhotoImageService.getOriginalImage', () => {
  * @requirement construction-photo/REQ-4.6
  * @requirement construction-photo/REQ-4.7
  * @requirement construction-photo/REQ-7.7
+ * @requirement construction-photo/REQ-9.7
  * @requirement construction-photo/REQ-11.6
  * @requirement construction-photo/REQ-12.5
  */

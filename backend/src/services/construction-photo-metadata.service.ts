@@ -27,7 +27,12 @@
 import { Prisma, type PrismaClient } from '../generated/prisma/client.js';
 import type { StorageProvider } from '../storage/storage-provider.interface.js';
 import { NotFoundError, BadRequestError } from '../errors/apiError.js';
-import { ConstructionPhotoNotFoundError } from './construction-photo-image.service.js';
+import {
+  ConstructionPhotoNotFoundError,
+  resolveSignboardAssignment,
+  SIGNBOARD_LIVENESS_SELECT,
+  type SignboardLivenessRecord,
+} from './construction-photo-image.service.js';
 import type {
   ConstructionPhotoWithUrls,
   SignboardPlacement,
@@ -140,6 +145,8 @@ interface ConstructionPhotoRecord {
   includeInReport: boolean;
   signboardId: string | null;
   signboardPlacement: unknown;
+  /** 参照先の看板の生死（応答の看板の指定の解決に使う, R9.7） */
+  signboard?: SignboardLivenessRecord | null;
   thumbnailPath: string;
   createdAt: Date;
 }
@@ -157,6 +164,8 @@ const PHOTO_DTO_SELECT = {
   includeInReport: true,
   signboardId: true,
   signboardPlacement: true,
+  // 参照先の看板の生死を同じ読み出しに含める（削除済みは看板なしとして返す, R9.7）
+  signboard: SIGNBOARD_LIVENESS_SELECT,
   thumbnailPath: true,
   createdAt: true,
 } as const;
@@ -467,6 +476,7 @@ export class ConstructionPhotoMetadataService {
    *
    * thumbnailUrl はサムネの署名付きURL（TTL 900s、失敗時 null）。原本URLは含めない
    * （サムネ優先, R11.3）。printImageUrl は PDF 用の印字画像取得エンドポイント。
+   * 看板の指定と配置は、写真一覧と同じく参照先の看板の生死を踏まえて解決する（R9.7）。
    */
   private async toDtoWithUrls(photo: ConstructionPhotoRecord): Promise<ConstructionPhotoWithUrls> {
     const thumbnailUrl = await this.storageProvider
@@ -483,8 +493,7 @@ export class ConstructionPhotoMetadataService {
       displayOrder: photo.displayOrder,
       comment: photo.comment ?? null,
       includeInReport: photo.includeInReport,
-      signboardId: photo.signboardId ?? null,
-      signboardPlacement: (photo.signboardPlacement as SignboardPlacement | null) ?? null,
+      ...resolveSignboardAssignment(photo),
       thumbnailUrl,
       printImageUrl: `/api/construction-photos/images/${photo.id}/print-image`,
       createdAt: photo.createdAt.toISOString(),

@@ -212,7 +212,13 @@ describe('Construction Signboard API Integration Tests', () => {
     }
   });
 
-  const createPhotoUsingSignboard = async (signboardId: string): Promise<string> => {
+  /** 看板の配置（画像ピクセル座標）。看板を指定した写真項目が持つ値の代表 */
+  const PLACEMENT = { left: 40, top: 30, width: 320, height: 180 };
+
+  const createPhotoUsingSignboard = async (
+    signboardId: string | null,
+    displayOrder = 1
+  ): Promise<string> => {
     const photo = await prisma.constructionPhoto.create({
       data: {
         albumId: albumAId,
@@ -222,11 +228,29 @@ describe('Construction Signboard API Integration Tests', () => {
         fileSize: 1024,
         width: 800,
         height: 600,
-        displayOrder: 1,
+        displayOrder,
         signboardId,
+        ...(signboardId !== null && { signboardPlacement: PLACEMENT }),
       },
     });
     return photo.id;
+  };
+
+  /** 写真一覧の API（詳細画面が読む経路）から、写真項目ごとの看板の指定を取り出す */
+  const listPhotoAssignments = async (): Promise<
+    Array<{ id: string; signboardId: string | null; signboardPlacement: unknown }>
+  > => {
+    const res = await request(app)
+      .get(`/api/construction-photos/${albumAId}/images`)
+      .set('Authorization', `Bearer ${accessToken}`);
+    expect(res.status).toBe(200);
+    return (
+      res.body as Array<{ id: string; signboardId: string | null; signboardPlacement: unknown }>
+    ).map((p) => ({
+      id: p.id,
+      signboardId: p.signboardId,
+      signboardPlacement: p.signboardPlacement,
+    }));
   };
 
   describe('Authentication (REQ 13.1, 13.3)', () => {
@@ -410,6 +434,172 @@ describe('Construction Signboard API Integration Tests', () => {
     });
   });
 
+  describe('使用中の看板の削除と、参照する写真項目の看板の指定（REQ 9.7）', () => {
+    const createSignboard = async (workName: string): Promise<string> => {
+      const created = await request(app)
+        .post(`/api/projects/${projectAId}/construction-signboards`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ workName, workLocation: '場所' });
+      expect(created.status).toBe(201);
+      return created.body.id as string;
+    };
+
+    it('使用中の看板を削除すると、写真一覧は当該写真項目の看板の指定と配置を null で返す', async () => {
+      const targetId = await createSignboard('取り除く看板');
+      const keptId = await createSignboard('残す看板');
+      const photoUsingTarget1 = await createPhotoUsingSignboard(targetId, 1);
+      const photoUsingTarget2 = await createPhotoUsingSignboard(targetId, 2);
+      const photoUsingKept = await createPhotoUsingSignboard(keptId, 3);
+      const photoWithout = await createPhotoUsingSignboard(null, 4);
+
+      // 削除の前: 写真一覧は看板の指定と配置を返している（解除の主張が空振りでないことの前提）
+      expect(await listPhotoAssignments()).toEqual([
+        { id: photoUsingTarget1, signboardId: targetId, signboardPlacement: PLACEMENT },
+        { id: photoUsingTarget2, signboardId: targetId, signboardPlacement: PLACEMENT },
+        { id: photoUsingKept, signboardId: keptId, signboardPlacement: PLACEMENT },
+        { id: photoWithout, signboardId: null, signboardPlacement: null },
+      ]);
+
+      const del = await request(app)
+        .delete(`/api/construction-signboards/${targetId}`)
+        .set('Authorization', `Bearer ${accessToken}`);
+      expect(del.status).toBe(200);
+      // 使用件数は、看板の指定を解除した写真項目の件数（REQ 8.8）
+      expect(del.body.inUseCount).toBe(2);
+
+      // 削除の後: 取り除いた看板を指していた写真項目だけが「看板なし」になる
+      expect(await listPhotoAssignments()).toEqual([
+        { id: photoUsingTarget1, signboardId: null, signboardPlacement: null },
+        { id: photoUsingTarget2, signboardId: null, signboardPlacement: null },
+        { id: photoUsingKept, signboardId: keptId, signboardPlacement: PLACEMENT },
+        { id: photoWithout, signboardId: null, signboardPlacement: null },
+      ]);
+
+      // 表示の上だけでなく、行そのものから指定と配置が消えている（参照側の SetNull）
+      const rows = await prisma.constructionPhoto.findMany({
+        where: { id: { in: [photoUsingTarget1, photoUsingTarget2, photoUsingKept] } },
+        orderBy: { displayOrder: 'asc' },
+        select: { id: true, signboardId: true, signboardPlacement: true },
+      });
+      expect(rows).toEqual([
+        { id: photoUsingTarget1, signboardId: null, signboardPlacement: null },
+        { id: photoUsingTarget2, signboardId: null, signboardPlacement: null },
+        { id: photoUsingKept, signboardId: keptId, signboardPlacement: PLACEMENT },
+      ]);
+
+      // 残した看板の使用件数は変わらない（REQ 8.8）
+      const list = await request(app)
+        .get(`/api/projects/${projectAId}/construction-signboards`)
+        .set('Authorization', `Bearer ${accessToken}`);
+      expect(list.status).toBe(200);
+      expect(
+        (list.body as Array<{ id: string; inUseCount: number }>).map((s) => ({
+          id: s.id,
+          inUseCount: s.inUseCount,
+        }))
+      ).toEqual([{ id: keptId, inUseCount: 1 }]);
+    });
+
+    it('本修正より前に残った、論理削除済みの看板を指す指定も、写真一覧は看板なしとして返す', async () => {
+      const deletedId = await createSignboard('先に取り除かれていた看板');
+      const liveId = await createSignboard('生きている看板');
+      const danglingPhoto = await createPhotoUsingSignboard(deletedId, 1);
+      const livePhoto = await createPhotoUsingSignboard(liveId, 2);
+
+      // 修正前の削除の結果を再現する: 看板だけを論理削除し、参照側の行は触らない
+      await prisma.constructionSignboard.update({
+        where: { id: deletedId },
+        data: { deletedAt: new Date() },
+      });
+      const danglingRow = await prisma.constructionPhoto.findUnique({
+        where: { id: danglingPhoto },
+        select: { signboardId: true, signboardPlacement: true },
+      });
+      // 行には論理削除済みの看板を指す指定が残っている（前提）
+      expect(danglingRow).toEqual({ signboardId: deletedId, signboardPlacement: PLACEMENT });
+
+      expect(await listPhotoAssignments()).toEqual([
+        { id: danglingPhoto, signboardId: null, signboardPlacement: null },
+        { id: livePhoto, signboardId: liveId, signboardPlacement: PLACEMENT },
+      ]);
+    });
+
+    it('削除の後、当該写真項目の未保存だった変更の保存は、看板の指定を戻さずに成功する', async () => {
+      const targetId = await createSignboard('取り除く看板');
+      const photoId = await createPhotoUsingSignboard(targetId, 1);
+
+      const del = await request(app)
+        .delete(`/api/construction-signboards/${targetId}`)
+        .set('Authorization', `Bearer ${accessToken}`);
+      expect(del.status).toBe(200);
+      expect(del.body.inUseCount).toBe(1);
+
+      // 画面は変更した項目だけを送る（看板に触れていなければ signboardId を送らない）
+      const save = await request(app)
+        .patch('/api/construction-photos/images/batch')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ items: [{ id: photoId, comment: '削除をまたいだコメント' }] });
+      expect(save.status).toBe(200);
+      expect(
+        (save.body as Array<Record<string, unknown>>).map((p) => ({
+          id: p.id,
+          comment: p.comment,
+          signboardId: p.signboardId,
+          signboardPlacement: p.signboardPlacement,
+        }))
+      ).toEqual([
+        {
+          id: photoId,
+          comment: '削除をまたいだコメント',
+          signboardId: null,
+          signboardPlacement: null,
+        },
+      ]);
+      expect(await listPhotoAssignments()).toEqual([
+        { id: photoId, signboardId: null, signboardPlacement: null },
+      ]);
+    });
+
+    it('削除の後、取り除いた看板を指定する保存は 404 で拒否され、同じ保存の他の変更も書き込まれない', async () => {
+      const targetId = await createSignboard('取り除く看板');
+      const photoId = await createPhotoUsingSignboard(targetId, 1);
+      const otherPhotoId = await createPhotoUsingSignboard(null, 2);
+
+      const del = await request(app)
+        .delete(`/api/construction-signboards/${targetId}`)
+        .set('Authorization', `Bearer ${accessToken}`);
+      expect(del.status).toBe(200);
+
+      // 削除の前から画面を開いていた利用者が、取り除かれた看板への配置の変更を保存する
+      const save = await request(app)
+        .patch('/api/construction-photos/images/batch')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          items: [
+            { id: otherPhotoId, comment: '同じ保存に載った別の変更' },
+            {
+              id: photoId,
+              signboardId: targetId,
+              signboardPlacement: { left: 1, top: 2, width: 30, height: 40 },
+            },
+          ],
+        });
+      expect(save.status).toBe(404);
+      expect(save.body.code).toBe('SIGNBOARD_NOT_ALLOWED');
+
+      // 何も書き込まれていない（黙って一部だけ保存しない。利用者の未保存の変更は画面に残る）
+      const rows = await prisma.constructionPhoto.findMany({
+        where: { id: { in: [photoId, otherPhotoId] } },
+        orderBy: { displayOrder: 'asc' },
+        select: { id: true, comment: true, signboardId: true, signboardPlacement: true },
+      });
+      expect(rows).toEqual([
+        { id: photoId, comment: null, signboardId: null, signboardPlacement: null },
+        { id: otherPhotoId, comment: null, signboardId: null, signboardPlacement: null },
+      ]);
+    });
+  });
+
   describe('一覧（REQ 8.10）', () => {
     it('当該プロジェクトの看板一覧を返す', async () => {
       await request(app)
@@ -520,4 +710,5 @@ describe('Construction Signboard API Integration Tests', () => {
  * Requirements coverage (construction-photo) — requirement-coverage tags.
  * 各IDは本ファイル内の対応テストが検証する受入基準（監査でエビデンス確認済み）。
  * @requirement construction-photo/REQ-8.9
+ * @requirement construction-photo/REQ-9.7
  */

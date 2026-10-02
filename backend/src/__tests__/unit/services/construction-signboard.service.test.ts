@@ -26,7 +26,7 @@ import {
   ConstructionSignboardConflictError,
   type ConstructionSignboardServiceDependencies,
 } from '../../../services/construction-signboard.service.js';
-import type { PrismaClient } from '../../../generated/prisma/client.js';
+import { Prisma, type PrismaClient } from '../../../generated/prisma/client.js';
 
 function createMockPrisma() {
   return {
@@ -314,100 +314,92 @@ describe('ConstructionSignboardService', () => {
   });
 
   describe('delete', () => {
+    /**
+     * 削除のトランザクションの中で使う tx の模擬を作る。
+     * 参照する写真項目の解除（updateMany）が返す件数を inUseCount の出どころとする。
+     */
+    const createDeleteTx = (options: { signboard: unknown; releasedCount?: number }) => {
+      const tx = {
+        constructionSignboard: {
+          findUnique: vi.fn().mockResolvedValue(options.signboard),
+          update: vi.fn().mockResolvedValue({ ...mockSignboard, deletedAt: new Date() }),
+        },
+        constructionPhoto: {
+          updateMany: vi.fn().mockResolvedValue({ count: options.releasedCount ?? 0 }),
+        },
+      };
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => fn(tx));
+      return tx;
+    };
+
     it('未使用の看板を論理削除し inUseCount=0 を返す（Requirements: 8.7, 8.8）', async () => {
-      const updateMock = vi.fn().mockResolvedValue({ ...mockSignboard, deletedAt: new Date() });
-      const countMock = vi.fn().mockResolvedValue(0);
-      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
-        const tx = {
-          constructionSignboard: {
-            findUnique: vi.fn().mockResolvedValue(mockSignboard),
-            update: updateMock,
-          },
-          constructionPhoto: { count: countMock },
-        };
-        return fn(tx);
-      });
+      const tx = createDeleteTx({ signboard: mockSignboard, releasedCount: 0 });
 
       const result = await service.delete('signboard-123');
 
       expect(result.inUseCount).toBe(0);
-      expect(updateMock).toHaveBeenCalledWith({
+      expect(tx.constructionSignboard.update).toHaveBeenCalledWith({
         where: { id: 'signboard-123' },
         data: { deletedAt: expect.any(Date) },
       });
     });
 
     it('使用中の看板削除で使用件数（inUseCount>0）を返す（Requirements: 8.8）', async () => {
-      const countMock = vi.fn().mockResolvedValue(3);
-      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
-        const tx = {
-          constructionSignboard: {
-            findUnique: vi.fn().mockResolvedValue(mockSignboard),
-            update: vi.fn().mockResolvedValue({ ...mockSignboard, deletedAt: new Date() }),
-          },
-          constructionPhoto: { count: countMock },
-        };
-        return fn(tx);
-      });
+      const tx = createDeleteTx({ signboard: mockSignboard, releasedCount: 3 });
 
       const result = await service.delete('signboard-123');
 
+      // 使用件数は、当該看板を参照していて看板の指定を解除した写真項目の件数である
       expect(result.inUseCount).toBe(3);
-      // 使用件数は当該看板を参照する写真項目を数える
-      expect(countMock).toHaveBeenCalledWith(
+      expect(tx.constructionPhoto.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ signboardId: 'signboard-123' }),
+          where: { signboardId: 'signboard-123' },
         })
       );
     });
 
-    it('存在しない看板を削除しようとするとエラーを返す', async () => {
-      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
-        const tx = {
-          constructionSignboard: {
-            findUnique: vi.fn().mockResolvedValue(null),
-            update: vi.fn(),
-          },
-          constructionPhoto: { count: vi.fn() },
-        };
-        return fn(tx);
-      });
+    it('使用中の看板を取り除くと、参照する写真項目の看板の指定と配置を同じトランザクションで解除する（Requirements: 9.7）', async () => {
+      const tx = createDeleteTx({ signboard: mockSignboard, releasedCount: 2 });
 
-      await expect(service.delete('nope')).rejects.toThrow(ConstructionSignboardNotFoundError);
+      await service.delete('signboard-123');
+
+      // 看板の指定（signboardId）と配置（signboardPlacement）の両方を空にする
+      expect(tx.constructionPhoto.updateMany).toHaveBeenCalledTimes(1);
+      expect(tx.constructionPhoto.updateMany).toHaveBeenCalledWith({
+        where: { signboardId: 'signboard-123' },
+        data: { signboardId: null, signboardPlacement: Prisma.JsonNull },
+      });
+      // 論理削除と同じトランザクション（同じ tx）で行う
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(tx.constructionSignboard.update).toHaveBeenCalledTimes(1);
     });
 
-    it('既に論理削除された看板を削除しようとするとエラーを返す', async () => {
-      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
-        const tx = {
-          constructionSignboard: {
-            findUnique: vi.fn().mockResolvedValue({ ...mockSignboard, deletedAt: new Date() }),
-            update: vi.fn(),
-          },
-          constructionPhoto: { count: vi.fn() },
-        };
-        return fn(tx);
-      });
+    it('存在しない看板を削除しようとするとエラーを返し、写真項目に触れない', async () => {
+      const tx = createDeleteTx({ signboard: null });
+
+      await expect(service.delete('nope')).rejects.toThrow(ConstructionSignboardNotFoundError);
+      expect(tx.constructionPhoto.updateMany).not.toHaveBeenCalled();
+      expect(tx.constructionSignboard.update).not.toHaveBeenCalled();
+    });
+
+    it('既に論理削除された看板を削除しようとするとエラーを返し、写真項目に触れない', async () => {
+      const tx = createDeleteTx({ signboard: { ...mockSignboard, deletedAt: new Date() } });
 
       await expect(service.delete('signboard-123')).rejects.toThrow(
         ConstructionSignboardNotFoundError
       );
+      expect(tx.constructionPhoto.updateMany).not.toHaveBeenCalled();
+      expect(tx.constructionSignboard.update).not.toHaveBeenCalled();
     });
 
-    it('要求プロジェクト配下でない看板は削除できない（Requirements: 13.2）', async () => {
-      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) => {
-        const tx = {
-          constructionSignboard: {
-            findUnique: vi.fn().mockResolvedValue(mockSignboard),
-            update: vi.fn(),
-          },
-          constructionPhoto: { count: vi.fn() },
-        };
-        return fn(tx);
-      });
+    it('要求プロジェクト配下でない看板は削除できず、写真項目に触れない（Requirements: 13.2）', async () => {
+      const tx = createDeleteTx({ signboard: mockSignboard });
 
       await expect(service.delete('signboard-123', 'project-999')).rejects.toThrow(
         ConstructionSignboardNotFoundError
       );
+      expect(tx.constructionPhoto.updateMany).not.toHaveBeenCalled();
+      expect(tx.constructionSignboard.update).not.toHaveBeenCalled();
     });
   });
 
@@ -511,4 +503,5 @@ describe('ConstructionSignboardService', () => {
  * 各IDは本ファイル内の対応テストが検証する受入基準（監査でエビデンス確認済み）。
  * @requirement construction-photo/REQ-8.2
  * @requirement construction-photo/REQ-8.3
+ * @requirement construction-photo/REQ-9.7
  */

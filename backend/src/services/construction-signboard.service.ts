@@ -3,7 +3,8 @@
  *
  * プロジェクト単位の工事看板（電子小黒板調・構造化テキスト）マスタの CRUD・一覧・
  * 楽観的排他制御・論理削除を担当する。使用中看板の削除では、当該看板を参照する
- * 写真項目の件数（inUseCount）を返す。既存の工事写真アルバムサービス
+ * 写真項目の看板の指定と配置を同じトランザクションで解除し、解除した件数（inUseCount）を
+ * 返す。既存の工事写真アルバムサービス
  * （construction-photo-album.service.ts）の実装パターンを踏襲する。
  *
  * Requirements:
@@ -21,7 +22,7 @@
  * @module services/construction-signboard
  */
 
-import type { PrismaClient, Prisma } from '../generated/prisma/client.js';
+import { Prisma, type PrismaClient } from '../generated/prisma/client.js';
 import { NotFoundError, ConflictError } from '../errors/apiError.js';
 import type {
   ConstructionSignboardDto,
@@ -110,7 +111,10 @@ export interface UpdateSignboardInput {
  * Requirements: 8.8
  */
 export interface DeleteSignboardResult {
-  /** 当該看板を参照している写真項目の件数（>0 は使用中） */
+  /**
+   * 削除の時点で当該看板を参照していた写真項目の件数（>0 は使用中）。
+   * 削除はこれらの写真項目の看板の指定を解除するため、解除した件数と一致する。
+   */
   inUseCount: number;
 }
 
@@ -259,12 +263,24 @@ export class ConstructionSignboardService {
   }
 
   /**
-   * 看板論理削除（使用件数を返す）
+   * 看板論理削除（参照する写真項目の看板の指定を解除し、使用件数を返す）
    *
-   * deletedAt を設定して論理削除する。削除に先立ち、当該看板を参照する写真項目
-   * （ConstructionPhoto.signboardId）の件数を数えて返す。呼び出し側（ルート/UI）は
-   * inUseCount>0 のとき使用中である旨を警告する（Requirements: 8.8）。看板削除後の
-   * 写真項目は看板なしとして扱われる（参照側の解決は印字画像生成時に行う）。
+   * deletedAt を設定して論理削除する。論理削除ではスキーマの `onDelete: SetNull` が
+   * 発火しないため、同じトランザクションの中で、当該看板を参照する写真項目
+   * （ConstructionPhoto.signboardId）の看板の指定と配置（signboardPlacement）を明示的に
+   * 解除する（Requirements: 9.7。design.md「看板削除時は参照側を SetNull」）。配置は看板の
+   * 指定に従属する値であり、看板なしの写真項目に残さない。
+   *
+   * 返す inUseCount は、解除した写真項目の件数（＝削除の時点で当該看板を参照していた件数）
+   * である。件数の取得と解除を1文（updateMany）で行うため、両者が食い違わない。削除前の
+   * 警告（Requirements: 8.8）は一覧の inUseCount が担い、本メソッドの値は結果の報告である。
+   *
+   * 写真項目（ConstructionPhoto）は更新日時の列を持たず、メタの一括更新は版の照合をしない
+   * （送られた項目だけを書く）。したがって本メソッドが写真項目の版を進める必要は無く、
+   * 削除をまたいだ保存は次のようになる:
+   * - 看板に触れていない未保存の変更（コメント・印刷対象・順序）の保存は成功し、解除は保たれる
+   * - 取り除いた看板を指定する保存は、メタの一括更新の検証が 404（SIGNBOARD_NOT_ALLOWED）で
+   *   拒否し、同じ保存の他の変更も書き込まない（未保存の変更は画面に残る）
    *
    * Requirements:
    * - 8.7: 工事看板を削除する（論理削除）
@@ -292,17 +308,19 @@ export class ConstructionSignboardService {
         throw new ConstructionSignboardNotFoundError(id);
       }
 
-      // 使用件数（当該看板を参照する写真項目）を数える（Requirements: 8.8）
-      const inUseCount = await tx.constructionPhoto.count({
-        where: { signboardId: id },
-      });
-
       await tx.constructionSignboard.update({
         where: { id },
         data: { deletedAt: new Date() },
       });
 
-      return { inUseCount };
+      // 参照する写真項目の看板の指定と配置を解除する（Requirements: 9.7）。
+      // 解除した件数が使用件数である（Requirements: 8.8）
+      const released = await tx.constructionPhoto.updateMany({
+        where: { signboardId: id },
+        data: { signboardId: null, signboardPlacement: Prisma.JsonNull },
+      });
+
+      return { inUseCount: released.count };
     });
   }
 

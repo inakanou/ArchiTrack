@@ -173,8 +173,65 @@ interface ConstructionPhotoRecord {
   includeInReport: boolean;
   signboardId: string | null;
   signboardPlacement: unknown;
+  /** 参照先の看板の生死。作成直後の行（看板の指定が無い）では読み込まない */
+  signboard?: SignboardLivenessRecord | null;
   thumbnailPath: string;
   createdAt: Date;
+}
+
+/**
+ * 写真項目が参照する看板の生死（論理削除の有無）だけを運ぶ読取形状。
+ */
+export interface SignboardLivenessRecord {
+  deletedAt: Date | null;
+}
+
+/**
+ * 写真項目の読み出しに、参照先の看板の生死を同じクエリで含めるための選択。
+ *
+ * 写真項目の DTO を作る読み出し（一覧・メタの一括更新の応答）はこれを select に加え、
+ * {@link resolveSignboardAssignment} へ渡す。看板を引く追加のクエリを発行しない（R11.2）。
+ */
+export const SIGNBOARD_LIVENESS_SELECT = { select: { deletedAt: true } } as const;
+
+/**
+ * 写真項目の看板の指定を、参照先の看板の生死を踏まえて解決する（Requirements: 9.7）。
+ *
+ * 看板の削除は論理削除であり、削除の処理（ConstructionSignboardService.delete）が参照側の
+ * 指定と配置を解除する。それでも次の行には、論理削除済みの看板を指す指定が残りうる:
+ * - 削除の処理が参照側を解除するようになる前に作られた行
+ * - 削除と、同じ看板を指定するメタの一括更新が競合した行（一括更新の看板の検証は
+ *   トランザクションの外にあり、検証の後・書き込みの前に削除が確定しうる）
+ *
+ * データ移行で一度きり掃除する方式では後者を防げないため、読み出しの時点で解決する。
+ * 看板が指定されているのに生きている看板を確かめられない（論理削除済み、または参照先を
+ * 読めていない）ときは、看板の指定と配置の両方を null として返す。配置は看板の指定に
+ * 従属するため、片方だけを残さない。印字画像の生成（getPrintImage）が削除済みの看板を
+ * 看板なしとして扱うのと同じ判定である。
+ *
+ * 看板が指定されていない行は、配置を従来どおりそのまま返す。
+ *
+ * @param photo - 看板の指定・配置と、参照先の看板の生死
+ * @returns 一覧 DTO に載せる看板の指定と配置
+ */
+export function resolveSignboardAssignment(photo: {
+  signboardId: string | null;
+  signboardPlacement: unknown;
+  signboard?: SignboardLivenessRecord | null;
+}): { signboardId: string | null; signboardPlacement: SignboardPlacement | null } {
+  const placement = (photo.signboardPlacement as SignboardPlacement | null) ?? null;
+
+  if (photo.signboardId === null) {
+    return { signboardId: null, signboardPlacement: placement };
+  }
+
+  const isLive =
+    photo.signboard !== undefined && photo.signboard !== null && photo.signboard.deletedAt === null;
+  if (!isLive) {
+    return { signboardId: null, signboardPlacement: null };
+  }
+
+  return { signboardId: photo.signboardId, signboardPlacement: placement };
 }
 
 /**
@@ -373,11 +430,14 @@ export class ConstructionPhotoImageService {
    * 個別リクエストを発生させない（N+1回避, R7.8/R11.2）。一覧では原本URLは返さず
    * サムネイルを優先する（R11.3）。原本/印字画像は必要時にのみ別エンドポイントで取得する。
    *
+   * 看板の指定は、参照先の看板が生きているときだけ返す。論理削除済みの看板を指す指定が行に
+   * 残っていても、看板の指定と配置を null（看板なし）として返す（R9.7）。
+   *
    * 取得対象はリクエストユーザーがアクセス可能なプロジェクト配下のアルバムに限定する。
    * アルバムが存在しない・論理削除済み・ユーザーがアクセスできないプロジェクトの場合は、
    * 存在有無を漏らさないためいずれも NotFound(404) として扱う（R13.2, R13.3）。
    *
-   * Requirements: 7.8, 11.2, 11.3, 13.2
+   * Requirements: 7.8, 9.7, 11.2, 11.3, 13.2
    *
    * @param albumId - 対象アルバムID
    * @param userId - リクエストユーザーID（プロジェクト境界検証用）
@@ -416,6 +476,8 @@ export class ConstructionPhotoImageService {
         includeInReport: true,
         signboardId: true,
         signboardPlacement: true,
+        // 参照先の看板の生死を同じクエリで読む（削除済みは看板なしとして返す, R9.7）
+        signboard: SIGNBOARD_LIVENESS_SELECT,
         thumbnailPath: true,
         createdAt: true,
       },
@@ -802,6 +864,7 @@ export class ConstructionPhotoImageService {
    *
    * thumbnailUrl はサムネの署名付きURL（TTL 900s、失敗時 null）。
    * printImageUrl は PDF 用の印字画像取得エンドポイント（看板ありはサーバでオンデマンド合成）。
+   * 看板の指定と配置は、参照先の看板の生死を踏まえて解決した値を載せる（R9.7）。
    */
   private async toDtoWithUrls(photo: ConstructionPhotoRecord): Promise<ConstructionPhotoWithUrls> {
     const thumbnailUrl = await this.storageProvider
@@ -818,8 +881,7 @@ export class ConstructionPhotoImageService {
       displayOrder: photo.displayOrder,
       comment: photo.comment ?? null,
       includeInReport: photo.includeInReport,
-      signboardId: photo.signboardId ?? null,
-      signboardPlacement: (photo.signboardPlacement as SignboardPlacement | null) ?? null,
+      ...resolveSignboardAssignment(photo),
       thumbnailUrl,
       printImageUrl: `/api/construction-photos/images/${photo.id}/print-image`,
       createdAt: photo.createdAt.toISOString(),

@@ -19,6 +19,7 @@
  *  8. 看板配置: 看板登録→写真項目の「看板を配置」導線→ダイアログで看板選択→プレビュー上で配置
  *     →保存→再読込で看板割当インジケータが保持される（R9.1, R9.2, R9.5, R9.6）
  *  9. 看板割当ありの印刷対象でPDF出力（ダウンロード発火＋PDF非空, R10.1, R10.3）
+ * 10. 使用中の看板を看板マスタで削除→詳細画面の写真項目が看板なしへ戻り、再読込でも保たれる（R9.7, R8.8）
  *
  * 縮退した要素（理由明記）:
  *  - 現調写真コピー（R6.1 の実データ複製）: 同一プロジェクト配下に画像付き現場調査を用意する
@@ -593,5 +594,106 @@ test.describe('工事写真 主要ユーザーフロー', () => {
     expect(savedPath).toBeTruthy();
     const size = fs.statSync(savedPath).size;
     expect(size).toBeGreaterThan(0);
+  });
+
+  /**
+   * R9.7: 写真項目に関連付けられていた工事看板が削除されると、当該写真項目の看板の指定を解除し
+   * 看板なしとして扱う。R8.8: 使用中の看板の削除では、使用件数を示して可否を確認する。
+   *
+   * 直前までのテストで、先頭の写真項目に `assignSignboardName` の看板を配置して保存済みである。
+   * ここでは看板マスタでその看板を削除し、詳細画面の先頭の写真項目から「看板あり」の表示が消え、
+   * 看板の操作ボタンの文言が「看板を配置」へ戻ること、再読込の後も写真一覧の API が看板の指定と
+   * 配置を返さないことを確かめる。
+   *
+   * 看板の操作ボタンのアクセシブル名は aria-label（「看板を配置: <ファイル名>」）であり、看板の有無で
+   * 変わるのは表示文言の側である。そのため、ボタンは aria-label で特定し、文言を `toHaveText` で主張する。
+   * 看板マスタへは他のテストと同じく URL で直接入る（画面の導線は別タスクが足す）。
+   *
+   * @requirement construction-photo/REQ-9.7
+   */
+  test('使用中の看板を看板マスタで削除すると、写真項目の看板の指定が解除され看板なしになる', async ({
+    page,
+  }) => {
+    expect(projectId).toBeTruthy();
+    expect(albumId).toBeTruthy();
+    await loginAsUser(page, 'ADMIN_USER');
+
+    // 1) 前提: 先頭の写真項目は看板が指定されている（「看板あり」の表示と「看板を変更」の文言）
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    const items = page.getByTestId('construction-photo-item');
+    await expect(items).toHaveCount(2, { timeout: getTimeout(20000) });
+    const targetItem = items.nth(0);
+    const signboardButton = targetItem.getByRole('button', { name: /^看板を配置: / });
+    await expect(targetItem.getByTestId('signboard-indicator')).toHaveText('看板あり', {
+      timeout: getTimeout(15000),
+    });
+    await expect(signboardButton).toHaveText('看板を変更');
+
+    // 2) 看板マスタで、使用中の看板を削除する。確認は使用件数を示す（R8.8）
+    await page.goto(`/projects/${projectId}/construction-signboards`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { name: /^工事看板マスタ$/ })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    const signboardRow = page.getByRole('row').filter({ hasText: assignSignboardName });
+    await expect(signboardRow).toHaveCount(1, { timeout: getTimeout(15000) });
+    await expect(signboardRow).toContainText('1件');
+
+    await signboardRow.getByRole('button', { name: /^削除$/ }).click();
+    const deleteDialog = page.getByRole('dialog');
+    await expect(deleteDialog).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(deleteDialog).toContainText('1件の写真項目で使用中です');
+
+    const deleteResponsePromise = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'DELETE' &&
+        /\/api\/construction-signboards\/[0-9a-f-]+$/.test(new URL(r.url()).pathname),
+      { timeout: getTimeout(30000) }
+    );
+    await deleteDialog.getByRole('button', { name: /^削除する$/ }).click();
+    const deleteResponse = await deleteResponsePromise;
+    expect(deleteResponse.status()).toBe(200);
+    // 応答の使用件数は、看板の指定を解除した写真項目の件数である
+    expect(await deleteResponse.json()).toEqual({ inUseCount: 1 });
+    await expect(signboardRow).toHaveCount(0, { timeout: getTimeout(15000) });
+
+    // 3) 詳細画面へ戻ると、先頭の写真項目は看板なしになっている（R9.7）
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    await expect(items).toHaveCount(2, { timeout: getTimeout(20000) });
+    await expect(signboardButton).toHaveText('看板を配置', { timeout: getTimeout(15000) });
+    await expect(targetItem.getByTestId('signboard-indicator')).toHaveCount(0);
+    // サーバーの側の解除であり、画面に未保存の変更は生じない（R18）
+    await expect(page.getByTestId('dirty-indicator')).toHaveCount(0);
+
+    // 4) 再読込の後も保たれる。写真一覧の API は看板の指定と配置を返さない（永続化）
+    const listResponsePromise = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'GET' &&
+        new URL(r.url()).pathname === `/api/construction-photos/${albumId}/images`,
+      { timeout: getTimeout(30000) }
+    );
+    await page.reload();
+    const listResponse = await listResponsePromise;
+    expect(listResponse.status()).toBe(200);
+    const listedPhotos = (await listResponse.json()) as Array<{
+      signboardId: string | null;
+      signboardPlacement: unknown;
+    }>;
+    expect(
+      listedPhotos.map((p) => ({
+        signboardId: p.signboardId,
+        signboardPlacement: p.signboardPlacement,
+      }))
+    ).toEqual([
+      { signboardId: null, signboardPlacement: null },
+      { signboardId: null, signboardPlacement: null },
+    ]);
+
+    await page.waitForLoadState('networkidle');
+    await expect(items).toHaveCount(2, { timeout: getTimeout(20000) });
+    await expect(signboardButton).toHaveText('看板を配置', { timeout: getTimeout(15000) });
+    await expect(targetItem.getByTestId('signboard-indicator')).toHaveCount(0);
   });
 });

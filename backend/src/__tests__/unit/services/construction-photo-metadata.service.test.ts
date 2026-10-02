@@ -347,6 +347,60 @@ describe('ConstructionPhotoMetadataService.updateMetadataBatch', () => {
     // 原本URLは含まない（サムネ優先, 11.3）
     expect(Object.keys(dto)).not.toContain('originalUrl');
   });
+
+  // --------------------------------------------------------------------------
+  // 応答の看板の指定の解決（Requirements: 9.7）
+  //
+  // 一括更新の応答も写真一覧と同じ DTO を返す。論理削除済みの看板を指す指定が行に残って
+  // いても（本修正より前の行、削除と保存の競合）、応答は一覧と同じく「看板なし」として返す。
+  // --------------------------------------------------------------------------
+  it('応答は、論理削除済みの看板を指す指定を看板なし（signboardId と配置が null）として返す（Requirements: 9.7）', async () => {
+    (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      photoRef(PHOTO_1),
+      photoRef(PHOTO_2),
+    ]);
+    const placement = { left: 10, top: 20, width: 100, height: 80 };
+    (mockPrisma.constructionPhoto.update as ReturnType<typeof vi.fn>).mockImplementation(
+      async ({ where }) =>
+        photoRow(where.id as string, {
+          signboardId: SIGNBOARD_ID,
+          signboardPlacement: placement,
+          signboard: { deletedAt: where.id === PHOTO_1 ? new Date() : null },
+        })
+    );
+
+    const result = await service.updateMetadataBatch(
+      [
+        { id: PHOTO_1, comment: 'a' },
+        { id: PHOTO_2, comment: 'b' },
+      ],
+      USER_ID
+    );
+
+    expect(result.map((p) => p.id)).toEqual([PHOTO_1, PHOTO_2]);
+    expect(result[0]!.signboardId).toBeNull();
+    expect(result[0]!.signboardPlacement).toBeNull();
+    // 生きている看板の指定はそのまま返す
+    expect(result[1]!.signboardId).toBe(SIGNBOARD_ID);
+    expect(result[1]!.signboardPlacement).toEqual(placement);
+  });
+
+  it('看板の生死は更新の応答の読み出しに含め、看板を引く追加のクエリを発行しない（Requirements: 9.7, 11.4）', async () => {
+    (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      photoRef(PHOTO_1),
+    ]);
+    (mockPrisma.constructionPhoto.update as ReturnType<typeof vi.fn>).mockImplementation(
+      async ({ where }) => photoRow(where.id as string)
+    );
+
+    await service.updateMetadataBatch([{ id: PHOTO_1, comment: 'c' }], USER_ID);
+
+    const updateArgs = (mockPrisma.constructionPhoto.update as ReturnType<typeof vi.fn>).mock
+      .calls[0]![0] as { select?: Record<string, unknown> };
+    expect(updateArgs.select?.signboard).toEqual({ select: { deletedAt: true } });
+    // 看板の指定を送っていない更新では、看板の表を一度も引かない
+    expect(mockPrisma.constructionSignboard.findMany).not.toHaveBeenCalled();
+  });
 });
 
 describe('ConstructionPhotoMetadataService.updateOrder', () => {
