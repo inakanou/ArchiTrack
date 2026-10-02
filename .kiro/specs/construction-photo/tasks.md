@@ -606,10 +606,12 @@ _申し送り元: quantity-table-generation スペックの Task 100.24_
   - _Depends: 21.2_
   - _Boundary: `frontend/src/utils/tap-target.ts` の冒頭の注釈_
 
-- [ ] 21.4 design.md の File Structure Plan に載っていない本番ファイル 4 件を追記する
+- [x] 21.4 design.md の File Structure Plan に載っていない本番ファイル 4 件を追記する
   - `SignboardAssignDialog.tsx`・`signboard-placement-geometry.ts`・`ConstructionPhotoLedgerExportService.ts`・`loadConstructionPhotoLedgerExportService.ts`。いずれも本番から到達しており孤児ではない。計画に載る全ファイルは実在する
   - **利用者の判断（2026-10-02）**: 追記する。21.3 が削除失敗時の通知を足すなら、その設計の記述も同じ文書へ反映する
   - _Boundary: 本スペックの design.md の File Structure Plan_
+  - **【完了時の注記（2026-10-03）】** File Structure Plan へ **5 件**を追記した。起票が名指した 4 件に加え、計画と `git ls-files` の突き合わせ（名前に construction-photo / signboard を含む本番ファイル 46 件）で `frontend/src/pages/ConstructionPhotoEditPage.tsx` が計画に無いと分かり、併せて追記した（Requirements Traceability の 16 の行に名前があるだけだった）。各ファイルの責務と要件番号は、冒頭の注釈・取り込み元・テストの印から導いた（`SignboardAssignDialog.tsx` と `signboard-placement-geometry.ts` は R9、`ConstructionPhotoLedgerExportService.ts` とその動的 import の境界 `loadConstructionPhotoLedgerExportService.ts` は R10、編集ページは R1）。動的 import の境界は estimate-creation のタスク 56.13 が導入したもので、その旨を行に書いた。独立レビューが別の突き合わせ（backend 13 件・frontend 33 件と、工事写真の識別子を参照する非テストのファイル）で、ほかに漏れが無いことを確かめた。`ConstructionPhotoSearchFilter.tsx` は既存の行に省略形で載っている。`frontend/src/utils/tap-target.ts` は site-survey が作った横断の出所で、本機能のファイルとして載せていない
+  - 利用者の判断に従い、21.3 の挙動を「Error Handling > Error Categories and Responses」へ 1 項足し、該当 2 ファイルの変更の項へ 21.2・21.3 の変更を足した。親が渡した文面のうちコードと食い違う 3 節は、コードに合わせて直してある（文言の規則は `ApiError` でない例外も既定の文言になる、後の保存が `error` を消すのは未保存の変更があるときだけ、取り除く操作のボタンが画面の外へ出るかは写真項目の数による）。パスを名指す行では不在の語を避けた（`check:design-path-refs` の面は 189 件のまま、自己検査は 53/53）。Requirements Traceability は部品名の粒度のため変えていない——9 の行に `SignboardAssignDialog`、10 の行に `ConstructionPhotoLedgerExportService` を足す余地はあるが、`check:design-component-reqs` がこの表を読むため、足すなら影響を測って別タスクにすること（レビューの勧め）
 
 ## Task 22: Task 21.3 の独立レビューで判明した、詳細画面の失敗の表示の既存の問題（起票のみ。着手は利用者の判断による）
 

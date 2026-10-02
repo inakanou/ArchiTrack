@@ -336,6 +336,7 @@ frontend/src/
 │   ├── ConstructionPhotoListPage.tsx            # 一覧 (R2,R3)
 │   ├── ConstructionPhotoDetailPage.tsx          # 詳細: 写真項目管理+保存+PDF (R1,R7,R9,R10)
 │   ├── ConstructionPhotoCreatePage.tsx          # アルバム作成 (R1)
+│   ├── ConstructionPhotoEditPage.tsx            # アルバム編集: アルバム名・メモの更新（楽観的排他・競合表示）(R1)
 │   └── ConstructionSignboardListPage.tsx        # 看板マスタ一覧+編集 (R8)
 ├── components/construction-photos/
 │   ├── ConstructionPhotoResponsiveView.tsx      # Table/Card切替（clone）(R3)
@@ -344,11 +345,15 @@ frontend/src/
 │   ├── PhotoUploader.tsx                         # 3系統追加UI（ImageUploader踏襲, 現調選択追加）(R4,R5,R6)
 │   ├── SurveyImagePicker.tsx                     # 現調写真選択モーダル (R6)
 │   ├── SignboardPlacementEditor.tsx             # fabric 1枚Rect配置プレビュー (R9)
+│   ├── signboard-placement-geometry.ts          # 表示座標と画像ピクセル座標の相互換算（純関数, SignboardPlacementEditor が使用）(R9)
+│   ├── SignboardAssignDialog.tsx                # 詳細画面の「看板を配置」ダイアログ: 看板選択＋SignboardPlacementEditor の結線 (R9)
 │   └── SignboardForm.tsx                         # 看板 標準項目+自由項目+固定テキスト (R8)
 ├── components/projects/
 │   └── ConstructionPhotoSectionCard.tsx         # 工程表パネル直下パネル (R2)
 ├── services/export/
-│   └── ConstructionPhotoLedgerService.ts        # 台帳PDF: 表紙+3枠+No.連番 (R10)
+│   ├── ConstructionPhotoLedgerService.ts        # 台帳PDF: 表紙+3枠+No.連番 (R10)
+│   ├── ConstructionPhotoLedgerExportService.ts  # PDF出力の結線: 印刷対象の抽出（保存順）・印字画像のオンデマンド取得・0件は非実行（通知は詳細画面）(R10)
+│   └── loadConstructionPhotoLedgerExportService.ts  # 上記の動的 import 境界（日本語フォント資産を初期チャンクへ載せない。導入は estimate-creation のタスク 56.13）(R10)
 ├── api/
 │   ├── construction-photos.ts / construction-photo-images.ts / construction-signboards.ts
 └── types/construction-photo.types.ts
@@ -366,8 +371,8 @@ frontend/src/
 - `hooks/useConstructionPhotoPermission.ts` — `usePermission('construction_photo:*')` を包む canView/canCreate/canEdit/canDelete/getPermissionError (R17)
 
 **変更（frontend）**
-- `pages/ConstructionPhotoDetailPage.tsx` — `onPhotoClick`→ビューア遷移結線(R14)、ZIP起動＋対象選択(R15)、アルバム編集/削除導線(R16)、`useConstructionPhotoPermission` で `readOnly`/ボタン出し分け(R17)、画面の `isDirty` state を `useUnsavedChanges({ isDirty })` へ渡して離脱警告を結線(R18)、`useMediaQuery` でモバイル分岐(R19)
-- `components/construction-photos/PhotoItemPanel.tsx` — エクスポート対象の選択チェック(R15)、モバイルスタイル分岐(R19)、`readOnly` 結線の実効化(R17)
+- `pages/ConstructionPhotoDetailPage.tsx` — `onPhotoClick`→ビューア遷移結線(R14)、ZIP起動＋対象選択(R15)、アルバム編集/削除導線(R16)、`useConstructionPhotoPermission` で `readOnly`/ボタン出し分け(R17)、画面の `isDirty` state を `useUnsavedChanges({ isDirty })` へ渡して離脱警告を結線(R18)、`useMediaQuery` でモバイル分岐(R19)、写真項目を取り除く操作の失敗を通知の枠へ表示（R7.7 の失敗時, タスク 21.3。Error Handling を参照）
+- `components/construction-photos/PhotoItemPanel.tsx` — エクスポート対象の選択チェック(R15)、モバイルスタイル分岐(R19)、`readOnly` 結線の実効化(R17)、看板の操作ボタン（「看板を配置」／「看板を変更」）のモバイル幅のタップ領域を `TAP_TARGET_MIN_PX` 以上にする上書き（`assignSignboardButtonMobile`, R19.3, タスク 21.2）、写真項目を取り除く操作の成功・失敗のどちらでも確認ダイアログを閉じる（タスク 21.3）
 - `pages/ConstructionPhotoListPage.tsx` / `components/construction-photos/ConstructionPhotoListTable.tsx` / `ConstructionPhotoListCard.tsx` — アルバム編集/削除の行導線（権限連動）(R16,R17)
 - `routes.tsx` — CPビューアルート `/construction-photos/:albumId/photos/:photoId` を追加 (R14)
 
@@ -746,6 +751,7 @@ type PhotoUploadHandler = (files: File[]) => Promise<UploadOutcome>;
 - **User (4xx)**: 形式外/サイズ超過/件数超過→413/400 でフィールド単位エラー（R4.5,R12.3）。未認証401・権限なし403（R13）。対象アルバム/写真なし404。楽観排他競合409（R1.5）。
 - **System (5xx)**: ストレージ保存失敗→当該写真は未登録として通知し他は維持（R12.5）。合成失敗→当該写真は看板なしにフォールバックせず、エラー通知し保存を中断（データ不整合回避）。
 - **Business (422相当)**: 印刷対象0件→PDF実行せず通知（R10.13）。使用中看板の削除→使用件数を返し確認（R8.8）。
+- **写真項目の削除の失敗（R7.7 の失敗時、タスク 21.3）**: `ConstructionPhotoDetailPage.handleDelete` は、失敗をアルバム削除の失敗と同じ状態（`error`）に載せ、詳細画面の通知の枠（role=alert）へサーバーが返した理由（`ApiError` の文言。空のとき、および `ApiError` でない例外のときは「写真項目の削除に失敗しました」）を表示する。セッション切れ（401）も区別せず、共通のセッション切れの表示とは別に通知を残す。削除の開始時に `notice` と `error` の両方を消すため、先に出ている通知が削除の失敗を隠さず、やり直しの成功で古い失敗は残らない。後の保存（未保存の変更があるとき）は開始時に `error` を消し、失敗すればその理由で置き換える。失敗時は通知の枠を画面の中央へ送る（`scrollIntoView({ block: 'center' })`。上端へ寄せると sticky の共通ヘッダに隠れる）。その代償として、操作した削除ボタンは画面の外へ出うるため、やり直しには一覧までスクロールし直す必要がある（375 幅・写真項目 5 件の実測で約 3,700px。タスク 21.3 の独立レビューの実測、2026-10-03）。失敗は `PhotoItemPanel` へ伝播し、同部品（`handleDeleteConfirm`）は成功・失敗のどちらでも確認ダイアログを閉じる。写真項目・未保存の変更・選択集合は変えない。
 
 ### アップロード失敗の分類（R20.16, R20.21）
 
