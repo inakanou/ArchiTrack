@@ -2,6 +2,8 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
+_最終更新: 2026-10-02（Steering Sync: cc-sdd を 3.1 の Skills モードへ揃え、v2 系の旧コマンド方式（`.claude/commands/kiro/`・`.claude/agents/kiro/`・`.kiro/settings/rules/`）を撤去したことに伴い、ルートのツリーと「主要ディレクトリの詳細」の `.claude/commands/kiro/` の記載を、現行の `.claude/skills/` の記載へ改めた）_
+
 _最終更新: 2026-09-28（Steering Sync: user-authentication のタスク36.8。backend の `utils/` のツリーに、DB 接続障害の扱いを担う二つのモジュール（再試行の予算と対話型トランザクションの `maxWait`、接続のタイムアウトの判定と投げ直し）を加え、「主要ファイルの説明」の `db.ts`（`RetryingPool`）とエラーハンドラー（P1008 を含む接続のタイムアウトの 503）へ注記を足した。層ごとの規約は `.kiro/steering/tech.md` の「接続障害への耐性」節に一本化した）_
 
 _最終更新: 2026-09-25（Steering Sync: quantity-table-generation のタスク 97.14。数量表コンポーネントのツリーとストーリーの列挙から、本番の経路から到達しない一部品（写真変更ダイアログ）の行を外した。同部品は同タスクで撤去した——本番コードからの取り込みは0件で、撤去を阻んでいた site-survey の設計文書の名指しは同スペックの Task 115.326 が解いた。下の 2026-09-14 の項が「残置とした」「本書の列挙は残す」と書くのは当時の記録である）_
@@ -44,8 +46,8 @@ _2026-04-08（Steering Sync: テストファイル数・Storybookカウント・
 ArchiTrack/
 ├── .claude/                 # Claude Codeカスタマイズ
 │   ├── CLAUDE.md           # プロジェクト固有AI運用ルール（AI運用7原則）
-│   ├── commands/           # カスタムスラッシュコマンド
-│   │   └── kiro/           # Kiro開発コマンド群
+│   ├── skills/             # スキル（スラッシュコマンドとして起動）
+│   │   └── kiro-*/         # Kiro開発スキル群（ほかにプロジェクト固有スキル）
 │   └── hooks/              # Claude Code フック
 │       └── hook_pre_commands.sh  # コマンド実行前フック
 ├── .github/                # GitHub設定
@@ -154,22 +156,31 @@ ArchiTrack/
 
 ## 主要ディレクトリの詳細
 
-### `.claude/commands/kiro/`
+### `.claude/skills/`
 
-Kiro-styleスペック駆動開発のカスタムコマンドを格納します。
+Claude Codeのスキルを格納します。各スキルは `SKILL.md` を持つディレクトリで、ディレクトリ名の先頭にスラッシュを付けたコマンドとして起動します（起動の書式は `tech.md` の「Kiroスキル（スラッシュコマンド）」を参照）。
 
-**主要コマンド:**
+**Kiro-styleスペック駆動開発のスキル（`kiro-*/`。cc-sdd の Skills モードが配置）:**
 
-- `steering.md` - ステアリングドキュメント管理
-- `steering-custom.md` - カスタムステアリング作成
-- `spec-init.md` - 新規仕様初期化
-- `spec-requirements.md` - 要件定義生成
-- `spec-design.md` - 技術設計作成
-- `spec-tasks.md` - 実装タスク生成
-- `spec-impl.md` - タスク実装実行
-- `spec-status.md` - 仕様進捗確認
-- `validate-design.md` - 設計品質レビュー
-- `validate-gap.md` - 実装ギャップ分析
+- `kiro-discovery/` - 新規作業の入口（スペックの要否・分割の判断）
+- `kiro-steering/` - ステアリングドキュメント管理
+- `kiro-steering-custom/` - カスタムステアリング作成
+- `kiro-spec-init/` - 新規仕様初期化
+- `kiro-spec-requirements/` - 要件定義生成
+- `kiro-spec-design/` - 技術設計作成
+- `kiro-spec-tasks/` - 実装タスク生成
+- `kiro-spec-quick/` - 仕様の一括生成（初期化からタスク生成まで）
+- `kiro-spec-batch/` - ロードマップに基づく複数仕様の一括生成
+- `kiro-impl/` - タスク実装実行（実装・レビュー・デバッグのサブエージェントを起動）
+- `kiro-spec-status/` - 仕様進捗確認
+- `kiro-validate-design/` - 設計品質レビュー
+- `kiro-validate-gap/` - 実装ギャップ分析
+- `kiro-validate-impl/` - 実装の統合検証
+- `kiro-review/`・`kiro-debug/`・`kiro-verify-completion/` - レビュー・デバッグ・完了確認の手順（`kiro-impl/` などから用いる）
+
+各スキルが読むルールはそのスキル配下の `rules/` に、仕様・ステアリングのテンプレートは `.kiro/settings/templates/` にあります。
+
+**プロジェクト固有のスキル:** `create-branch/`・`create-pr/`・`merge-pr/`・`fix-push-hook/`・`e2e-quality/`・`local-dev-env/`・`readme-update/`・`verify-requirements/`
 
 ### `.claude/hooks/`
 

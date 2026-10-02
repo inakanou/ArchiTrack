@@ -271,7 +271,7 @@
 ### 次のアクション
 1. Phase 6（画面遷移・ナビゲーション強化）のタスク23-25を実装
 2. 総合E2Eテストを実行し、全要件が満たされていることを確認
-3. `/kiro:validate-impl user-authentication`を実行し、実装品質を検証
+3. `/kiro-validate-impl user-authentication`を実行し、実装品質を検証
 
 ---
 

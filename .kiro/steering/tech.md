@@ -2,6 +2,8 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
+_最終更新: 2026-10-02（Steering Sync: cc-sdd を 3.1 の Skills モードへ揃え、v2 系の旧コマンド方式（`.claude/commands/kiro/`・`.claude/agents/kiro/`・`.kiro/settings/rules/`）を撤去したことに伴い、「Kiroスキル（スラッシュコマンド）」と「ワークフロー」の旧コマンド表記 `/kiro:*` を現行スキル（`kiro-*`）の表記へ改め、Skills モードで加わった入口・実装・統合検証のスキルを一覧へ加えた）_
+
 _最終更新: 2026-09-29（Steering Sync: user-authentication のタスク37.2。「接続障害への耐性」の「権限の確認も同じ経路へ」が権限キャッシュの読み込み側しか述べていなかったため、無効化の側の Redis の未接続時の振る舞い（送らずに警告して TTL に任せる）と、世代の照合による古い書き戻しの防止、コミット後の処理の順序を追記した）_
 
 _最終更新: 2026-09-28（Steering Sync: user-authentication のタスク36.8。スペック横断で効く DB 接続障害の扱い——接続の取得だけを再試行する `RetryingPool`（タスク35.2 / 35.9）、P1008 を含む接続のタイムアウトの 503（35.8）、サービスの投げ直し（35.11）、対話型トランザクションの `maxWait`（35.12）、`requirePermission` の 503 と共有の RBACService（35.13 / 36.2）、pino の `err` キー（36.8）——が steering に無かったため、「データベース・キャッシュ」節へ「接続障害への耐性」を追加した）_
@@ -997,32 +999,41 @@ npm --prefix backend run test:perf:project     # プロジェクトCRUD
 npm --prefix backend run test:perf:trading-partner  # 取引先CRUD
 ```
 
-### Kiroスラッシュコマンド
+### Kiroスキル（スラッシュコマンド）
 
 ```bash
 # ステアリングドキュメント作成・更新
-/kiro:steering
+/kiro-steering
+
+# 新規作業の入口（スペックの要否・分割の判断）
+/kiro-discovery [アイデア]
 
 # 新規仕様の初期化
-/kiro:spec-init [詳細な説明]
+/kiro-spec-init [詳細な説明]
 
 # 要件定義の生成
-/kiro:spec-requirements [feature-name]
+/kiro-spec-requirements [feature-name]
 
 # 技術設計の作成
-/kiro:spec-design [feature-name]
+/kiro-spec-design [feature-name]
 
 # 実装タスクの生成
-/kiro:spec-tasks [feature-name]
+/kiro-spec-tasks [feature-name]
+
+# タスクの実装
+/kiro-impl [feature-name] [タスク番号]
 
 # 仕様の進捗確認
-/kiro:spec-status [feature-name]
+/kiro-spec-status [feature-name]
 
 # 設計品質レビュー
-/kiro:validate-design [feature-name]
+/kiro-validate-design [feature-name]
 
 # 実装ギャップ分析
-/kiro:validate-gap [feature-name]
+/kiro-validate-gap [feature-name]
+
+# 実装の統合検証
+/kiro-validate-impl [feature-name]
 ```
 
 ### TypeScript開発
@@ -1487,8 +1498,8 @@ WSL2向けの `NODE_OPTIONS` も同様に書き写さない。値は
 
 ### ワークフロー
 
-1. `/kiro:steering` でプロジェクトコンテキストを最新化
-2. `/kiro:spec-init` で新機能の仕様を初期化
+1. スキル `kiro-steering` でプロジェクトコンテキストを最新化（起動の書式は「Kiroスキル（スラッシュコマンド）」を参照）
+2. スキル `kiro-spec-init` で新機能の仕様を初期化（1スペックにすべきか迷う場合は先に `kiro-discovery`）
 3. 要件 → 設計 → タスク → 実装の順に進める
 4. 各フェーズで人間のレビューを実施
 5. タスク完了時にステータスを更新

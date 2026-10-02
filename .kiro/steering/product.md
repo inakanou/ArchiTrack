@@ -6,7 +6,9 @@ ArchiTrackは、建設プロジェクトの管理・積算業務を効率化す�
 
 Claude Codeを活用したKiro-style Spec Driven Development（スペック駆動開発）で開発されており、スラッシュコマンド、フック、エージェント機能を統合した体系的な開発ワークフローを実現しています。
 
-_最終更新: 2026-09-05（Steering Sync: タスク 115.276。Storybook の `141ストーリーファイル` を規約 (b)（数値を落として数える手段を書く）へ置き換えた。実測は 157 で、書かれていた 141 は既に偽であった（`git ls-files "frontend/src/**/*.stories.tsx" | wc -l` をリポジトリルートで実行。コミット `079604bb`、2026-09-05 に実測）。タスク 115.275 が `structure.md` の同じ値（132→157）へ当てた是正と揃えたものであり、併せて本書を `npm run check:steering-dir-counts` の走査対象へ加えた——是正前の本書は同検査で 1 件を指摘され、その 1 件がこの行であった。数値を残したまま鮮度を機械で見る案（作業ツリーを数える宣言を `npm run check:design-measurement-freshness` へ置く）は採らなかった。この値を宣言に固定すると直近 500 コミットのうち 373 件（74.6%）で押下が止まるためである。同日に実測）_
+_最終更新: 2026-10-02（Steering Sync: cc-sdd を 3.1 の Skills モードへ揃え、v2 系の旧コマンド方式（`.claude/commands/kiro/`・`.claude/agents/kiro/`・`.kiro/settings/rules/`）を撤去したことに伴い、「開発ワークフロー機能」の旧コマンド表記 `/kiro:*` を現行のスキル名 `kiro-*` へ改めた。本文行でスラッシュ付きのコマンド形を逆引用符で囲むと `npm run check:steering-idents` がモジュール経路の主張として読むため、本文行はスキル名で書く）_
+
+_2026-09-05（Steering Sync: タスク 115.276。Storybook の `141ストーリーファイル` を規約 (b)（数値を落として数える手段を書く）へ置き換えた。実測は 157 で、書かれていた 141 は既に偽であった（`git ls-files "frontend/src/**/*.stories.tsx" | wc -l` をリポジトリルートで実行。コミット `079604bb`、2026-09-05 に実測）。タスク 115.275 が `structure.md` の同じ値（132→157）へ当てた是正と揃えたものであり、併せて本書を `npm run check:steering-dir-counts` の走査対象へ加えた——是正前の本書は同検査で 1 件を指摘され、その 1 件がこの行であった。数値を残したまま鮮度を機械で見る案（作業ツリーを数える宣言を `npm run check:design-measurement-freshness` へ置く）は採らなかった。この値を宣言に固定すると直近 500 コミットのうち 373 件（74.6%）で押下が止まるためである。同日に実測）_
 
 _2026-09-02（Steering Sync: タスク 115.243。「件数は `npm --prefix backend run test` / `npm --prefix frontend run test` で数える」が、タスク 115.216 の分離以降は backend 側で既定しか数えないため、`structure.md` と同じく手段ごとに何を選ぶかを併記する形へ是正した。`structure.md` 側だけを是正すると同じ構文が二様に併存するため同時に揃えた）_
 
@@ -70,8 +72,8 @@ _2026-06-04（Steering Sync: 数量表のクライアントサイド編集・明
 
 - **ステアリングドキュメント管理**: プロジェクト全体のルールとコンテキストを`.kiro/steering/`で管理
 - **スペック駆動開発ワークフロー**: 要件定義 → 設計 → タスク分解 → 実装のフェーズ管理
-- **カスタムスラッシュコマンド**: `/kiro:spec-init`, `/kiro:spec-requirements`, `/kiro:spec-design`など、開発プロセスを支援するコマンド群
-- **進捗追跡**: `/kiro:spec-status`による仕様の進捗確認
+- **カスタムスキル**: `kiro-discovery`, `kiro-spec-init`, `kiro-spec-requirements`, `kiro-spec-design`など、開発プロセスを支援するスキル群（`.claude/skills/` 配下。スキル名の先頭にスラッシュを付けたコマンドとして起動）
+- **進捗追跡**: スキル `kiro-spec-status` による仕様の進捗確認
 - **バリデーション機能**: 設計品質レビューとギャップ分析
 
 ### 技術基盤機能
