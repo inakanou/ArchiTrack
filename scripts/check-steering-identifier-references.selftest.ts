@@ -253,7 +253,7 @@ const MUST_NOT_DETECT: Case[] = [
     keys: ['body/rejected:bare-non-component'],
   },
   {
-    name: 'カスタムスラッシュコマンド（コロンを含み識別子の形をしていない。product.md:67 の逐語）',
+    name: '旧コマンド方式のスラッシュコマンド（コロンを含み識別子の形をしていない。2026-10-02 に旧コマンド方式を撤去する前の product.md:73 の逐語）',
     line: '- **カスタムスラッシュコマンド**: `/kiro:spec-init`, `/kiro:spec-requirements`, `/kiro:spec-design`など、開発プロセスを支援するコマンド群',
     expected: false,
     keys: ['body/rejected:punctuation'],
@@ -279,6 +279,22 @@ const MUST_NOT_DETECT: Case[] = [
     line: '_2026-06-05（Steering Sync: 全Dockerfileでcorepackによるnpm版固定（packageManager `npm@11.6.2`）でnpm ci決定性を確保するパターン、backend entrypointでのsharpネイティブバイナリ自己修復パターンを反映）_',
     expected: false,
     keys: ['sync-note/rejected:punctuation'],
+  },
+  {
+    name: '同期記録の行にスラッシュ始まりのスキル起動形がある（形はモジュール経路だが現存の主張ではない。tech.md:11 の逐語）',
+    line: '_最終更新: 2026-09-09（Steering Sync: `/kiro-steering`。「CI/CD」節の二つの列挙が実体から離れていた。(1)「主要ジョブ」の 7 件の列挙に対し `.github/workflows/ci.yml` が定義するジョブは 18 件で、欠けていた 11 件のうち 9 件はスペックと steering の関門ジョブ（`requirement-coverage`・`requirement-exclusions-schema`・`criterion-literal-presence`・`e2e-assertion-guard`・`design-reference-format`・`e2e-in-page-selfjudgement`・`counterfactual-evidence`・`dead-script-env`）と `test-storybook` であった。(2)「監視対象エコシステム（5つ、計85依存関係）」の内訳 7／42／36 に対し実測は root 24・backend 77・frontend 52（計 153）、`5 actions` に対し実測 6、`2 images` に対し実測 3 である（コミット `faa54052`、2026-09-09 にリポジトリルートで実測）。いずれも値を書き換える形は採らず、タスク 115.286 が「Pre-pushフック」節へ掛けた規約 (b)（列挙・数値を落として読み出す手段を書く）を同じ形で当てた。この二箇所が陳腐化したまま残っていたのは、`npm run check:steering-dir-counts` の走査対象が `structure.md` と `product.md` の二件で、本書は誤検出 1 件を避けるため所管の外に置かれているためである（`scripts/check-steering-dir-counts.ts` 冒頭の記述）。本書を所管へ加える案は今回は採っていない——「推奨事項」として起票のみ）_',
+    expected: false,
+    keys: ['sync-note/module-claim'],
+  },
+  {
+    name: 'コードフェンス内のディレクトリツリーの註にディレクトリ名がある（structure.md:137 の逐語。逆引用符はコードを成さない）',
+    line: [
+      '```',
+      '├── docs/                   # 人間向けドキュメント（`api/`・`architecture/` ほか）',
+      '```',
+    ].join('\n'),
+    expected: false,
+    keys: ['fenced/rejected:directory'],
   },
   {
     name: 'コードフェンス内のディレクトリツリーの葉（structure.md:631 の逐語。逆引用符はコードを成さない）',
@@ -1019,9 +1035,13 @@ function polarityOf(one: Case): 'positive' | 'negative' | undefined {
  * **遊びを持たせない**（タスク 115.298 が 115.262 / 115.271 の作法へ揃えた）。下限を
  * **上回っても**赤くする——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
  * 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
+ *
+ * 2026-10-02 に陰性対照を 24 件から 26 件へ貼り直した。2026-09-09 に steering へ入った二つの類
+ * （同期記録の行のモジュール識別子の形・コードフェンス内のディレクトリ）の見本が無く、
+ * (A) の数え上げが赤のままだったため、実データの逐語を見本として 2 件足したことによる。
  */
 const MINIMUM_POSITIVE_CONTROLS = 5;
-const MINIMUM_NEGATIVE_CONTROLS = 24;
+const MINIMUM_NEGATIVE_CONTROLS = 26;
 
 /**
  * 確認の総数の下限（タスク 115.252）
@@ -1036,8 +1056,10 @@ const MINIMUM_NEGATIVE_CONTROLS = 24;
  * **遊びを持たせない**（タスク 115.298 が 115.262 / 115.271 の作法へ揃えた）。下限を
  * **上回っても**赤くする——遊びを持つ下限は、その幅ぶんの対照の無言の削除を吸収する。
  * 二方向を合わせると、対照を増やす向きも減らす向きも定数の書き換えを伴う。
+ *
+ * 2026-10-02 に 41 件から 43 件へ貼り直した（陰性対照を 2 件足したことによる）。
  */
-const MINIMUM_TOTAL_CASES = 41;
+const MINIMUM_TOTAL_CASES = 43;
 
 /**
  * 対照群そのものが在ることの関門（AI運用7原則 第3原則。タスク 115.252）
