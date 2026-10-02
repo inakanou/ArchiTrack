@@ -235,9 +235,18 @@ const styles = {
     border: '1px solid #d1d5db',
     cursor: 'not-allowed',
   } as React.CSSProperties,
+  // overflowWrap:anywhere は共有のアップロード部品（ImageUploader）へ継承され、同部品が出す
+  // 「アップロードできないファイルがあります」の表示（<ファイル名>: ファイルサイズが…）に折り返し
+  // 位置を与える。これが無いと、区切りの無い長いファイル名でサイズ上限を超えるファイルを選んだ
+  // ときに <main> が押し広げられる（タスク 20.8 の E2E で実測, R19.1）
   uploaderWrapper: {
     marginBottom: '24px',
+    overflowWrap: 'anywhere' as const,
   } as React.CSSProperties,
+  // overflowWrap:anywhere は区切りの無い長い語にも折り返し位置を与える。通知はアップロードに
+  // 失敗したファイル名を並べ、カメラ由来のファイル名はアンダースコア区切りで一語として扱われる。
+  // これが無いとファイル名が通知の枠の外へ描かれ、<main> を押し広げて詳細画面に横スクロールが
+  // 生じる（タスク 20.8 の E2E で実測, R19.1）。保存エラーなどの文言も同じ枠に出る
   notice: {
     backgroundColor: '#fef2f2',
     border: '1px solid #fecaca',
@@ -245,6 +254,7 @@ const styles = {
     padding: '16px',
     marginBottom: '16px',
     whiteSpace: 'pre-line' as const,
+    overflowWrap: 'anywhere' as const,
     color: '#991b1b',
     fontSize: '14px',
   } as React.CSSProperties,
@@ -270,10 +280,13 @@ const styles = {
     padding: '24px',
     textAlign: 'center' as const,
   } as React.CSSProperties,
+  // overflowWrap:anywhere は、アルバムを取得できないときのエラー表示が区切りの無い長い文言で
+  // <main> を押し広げないようにする（タスク 20.8 の E2E で実測, R19.1）
   errorText: {
     color: '#991b1b',
     fontSize: '14px',
     marginBottom: '16px',
+    overflowWrap: 'anywhere' as const,
   } as React.CSSProperties,
   retryButton: {
     backgroundColor: '#dc2626',

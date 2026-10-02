@@ -49,6 +49,9 @@
  *     ダイアログとその中のパネルが水平にはみ出さず、名前の文字列が画面内に収まる（R19.1）
  * 17. モバイル幅の現場調査写真の選択ダイアログ: 区切りの無い英数字の長い調査名でも、候補一覧の
  *     本文が水平にはみ出さず、調査名の文字列と右の枚数表示が画面内に収まる（R19.1）
+ * 18. モバイル幅の通知とエラー表示: 区切りの無い現実的な長さのファイル名・長い文言でも、アップ
+ *     ロード失敗の通知、アップロードできないファイルの表示、アルバムを取得できないときのエラー
+ *     表示が水平にはみ出さず、文字列が枠の内側に収まる（R19.1）
  *
  * 縮退した要素（理由明記）:
  *  - パンの座標厳密検証: 拡大時に画像 transform の translate 成分が変化することまでを確認し、
@@ -62,7 +65,7 @@
  *    表示・ボタン操作」の検証のみで、これは Playwright での自動化が不安定なため対象外とする。
  */
 
-import { test, expect, type Request } from '@playwright/test';
+import { test, expect, type Request, type Route } from '@playwright/test';
 import * as path from 'path';
 import * as fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -161,6 +164,38 @@ async function uploadPhoto(
     timeout: getTimeout(20000),
   });
 }
+
+/**
+ * 工事写真の画像アップロードのエンドポイントの URL 判定。
+ *
+ * `page.route` / `page.unroute` は同一の参照でのみ対応付くため、判定と応答の差し替えを
+ * モジュールスコープの定数として共有する。オリジンではなくパスで判定するのは、CI とローカルで
+ * API のオリジンが異なるためである（construction-photo-upload-retry.spec.ts と同じ規約）。
+ */
+const UPLOAD_URL_MATCHER = (url: URL): boolean =>
+  /\/api\/construction-photos\/[^/]+\/images$/.test(url.pathname);
+
+/**
+ * アップロードの POST を、サーバーの処理中の失敗（500）の応答へ差し替える。
+ * POST 以外（同じパスの一覧取得）は素通しする。
+ */
+const failUploadPost = async (route: Route): Promise<void> => {
+  if (route.request().method() !== 'POST') {
+    await route.fallback();
+    return;
+  }
+  await route.fulfill({
+    status: 500,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      type: 'https://architrack.example.com/problems/internal-server-error',
+      title: 'Internal Server Error',
+      status: 500,
+      detail: 'サーバー内部エラーが発生しました',
+      code: 'INTERNAL_SERVER_ERROR',
+    }),
+  });
+};
 
 // ============================================================================
 // テスト本体
@@ -1806,5 +1841,250 @@ test.describe('工事写真 追加機能フロー', () => {
     // 後始末: 写真を追加せずにダイアログを閉じる
     await dialog.getByRole('button', { name: 'キャンセル' }).click();
     await expect(dialog).toBeHidden();
+  });
+
+  /**
+   * R19.1 モバイル幅の通知とエラー表示:
+   * 375 幅で工事写真の詳細画面を開き、区切りの無い長い文字列を載せた通知とエラー表示が、詳細画面に
+   * 横スクロールを生じさせず、文字列が枠の外へ描かれないことを検証する。対象は次の三つである。
+   *  (1) アップロード失敗の通知（role=alert）: カメラ由来の現実的な長さの区切りの無いファイル名の
+   *      画像のアップロードを失敗させる。通知の本文は「全1件の追加に失敗しました。」の次の行に
+   *      ファイル名を置く（`PhotoUploader.tsx` の `buildNotice`）。
+   *  (2) アップロードできないファイルの表示（共有のアップロード部品が出す role=alert）: 同じ形の
+   *      ファイル名で、サイズ上限（50MB）を超えるファイルを選ぶ。表示は「<ファイル名>: ファイル
+   *      サイズが50MBを超えています。」となる。
+   *  (3) アルバムを取得できないときのエラー表示（role=alert）: アルバムの取得を、区切りの無い長い
+   *      一語を理由に持つ応答へ差し替える。画面は応答の理由をそのまま表示する。
+   *
+   * @requirement construction-photo/REQ-19.1
+   *
+   * アンダースコアは折り返し位置にならないため、ファイル名は一語として扱われる。(1) のアップロードの
+   * POST は `page.route` で 500 の応答へ差し替える。サーバーの処理中の失敗は自動再試行の対象外で
+   * あるため、差し替えた1回の応答で失敗が確定し、通知と未送信画像の表示が出る。(2) は送信前の検査で
+   * 拒まれるため、POST は発生しない。ファイルは中身の無い 50MB+1 バイトの疎なファイルをテストの
+   * 出力先に作り、終わりに消す。
+   *
+   * 三つとも同じ主張を課す。前提として、文字列の一行の自然幅が、それを載せる箱の幅（clientWidth）を
+   * 超えること（折り返さなければ箱に収まらない長さであること）を主張する。自然幅は画面の計算済み
+   * フォントで canvas の measureText により測る（タスク 20.3・20.5・20.7 と同じ手法）。そのうえで
+   * 次を主張する。
+   *  - <main> に水平のはみ出しが無い（許容誤差1px）。
+   *  - 文字列を載せる箱と、それを包む枠（role=alert）の scrollWidth が clientWidth を超えない。
+   *  - 文字列の右端（Range の外接矩形）が、箱の右端と画面幅の内側にある（許容誤差1px）。箱は
+   *    写真項目の区画の幅に固定され、はみ出すのは中の文字列であるため、右端は箱ではなく文字列で
+   *    測る（タスク 20.3 と同じ理由）。
+   *
+   * 是正の経緯（2026-10-02、タスク 20.8）: 本テストを書いた時点の実装（`ConstructionPhotoDetailPage.tsx`
+   * の `styles.notice`・`styles.errorText` に折り返しの指定が無く、アップロード部品を包む
+   * `styles.uploaderWrapper` にも無い形）では、三つとも赤だった。是正は三つのスタイルに
+   * overflowWrap:anywhere を足したことである。(2) の表示は共有の部品が描くため、包む側に指定して
+   * 継承させた（タスク 19.2 のブレッドクラムと同じ手法）。
+   * 是正前の実測（主張を一時的に soft にして流し、三つの表示のすべての主張が赤になることを確認）:
+   *  (1) 自然幅 399.4、<main> 453 / 343、通知 415 / 267、文字列の右端 469.4（箱の右端 322）。
+   *  (2) 自然幅 425.1、<main> 498 / 343、項目 428 / 223、枠 460 / 267、文字列の右端 511.1（箱の右端 309）。
+   *  (3) 自然幅 636.0、<main> 673 / 343、段落 636 / 269、枠 660 / 317、文字列の右端 689.0（箱の右端 322）。
+   * 是正後は、<main> がいずれも 343 / 343、箱と枠の scrollWidth が clientWidth に一致し、文字列の
+   * 右端は (1) 303.0、(2) 307.3、(3) 321.9 になる。
+   *
+   * 文書全体（documentElement）の scrollWidth は測らない。アプリ共通ヘッダ（全画面共通の
+   * クロムで工事写真機能の範囲外）が 375 幅で水平にはみ出すためである（上のテストの注記と
+   * 同じ理由）。測定の前に、詳細画面のモバイル分岐（`containerMobile` の maxWidth:100%）が
+   * 適用されるまで待つ。
+   */
+  test('モバイル幅で区切りの無い長いファイル名・文言でも通知とエラー表示が水平にはみ出さない', async ({
+    page,
+  }, testInfo) => {
+    const stamp = Date.now();
+    const fileName = `IMG_20261001_143052_foundation_rebar_${stamp}.jpg`;
+    const oversizeFileName = `IMG_20261001_143052_foundation_rebar_oversize_${stamp}.jpg`;
+    const albumName = `失敗通知_${stamp}`;
+    const fetchErrorDetail = `AlbumFetchFailureReasonWithoutAnyBreakOpportunityForMobileWidthErrorDisplay${stamp}`;
+
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'upload-notice');
+    const albumId = await createAlbum(page, projectId, albumName);
+
+    await page.setViewportSize({ width: 375, height: 812 });
+
+    /** 詳細画面を開き、モバイル分岐の適用を待つ。 */
+    const openDetail = async (): Promise<void> => {
+      await page.goto(`/construction-photos/${albumId}`);
+      await page.waitForLoadState('networkidle');
+      const heading = page.getByRole('heading', { level: 1, name: albumName });
+      await expect(heading).toBeVisible({ timeout: getTimeout(15000) });
+      await expect
+        .poll(
+          async () =>
+            heading.evaluate((h1) => {
+              const main = h1.closest('main');
+              return main ? getComputedStyle(main).maxWidth : null;
+            }),
+          { timeout: getTimeout(15000) }
+        )
+        .toBe('100%');
+    };
+
+    /**
+     * 文字列 text を直に載せる箱 box について、文字列の自然幅・右端と、箱・枠（role=alert）・
+     * <main> の幅を測る。
+     */
+    const measureText = (box: import('@playwright/test').Locator, text: string) =>
+      box.evaluate((el, target) => {
+        const main = el.closest('main') as HTMLElement;
+        const frame = el.closest('[role="alert"]') as HTMLElement;
+        const context = document.createElement('canvas').getContext('2d');
+        const style = getComputedStyle(el);
+        let naturalWidth = -1;
+        if (context) {
+          context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+          naturalWidth = context.measureText(target).width;
+        }
+        // 箱の本文のうち、対象の文字列の部分だけを Range で囲む
+        let textRight = -1;
+        const textNode = Array.from(el.childNodes).find(
+          (node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? '').includes(target)
+        );
+        if (textNode) {
+          const start = (textNode.textContent ?? '').indexOf(target);
+          const range = document.createRange();
+          range.setStart(textNode, start);
+          range.setEnd(textNode, start + target.length);
+          textRight = range.getBoundingClientRect().right;
+        }
+        return {
+          viewportWidth: window.innerWidth,
+          naturalWidth,
+          box: {
+            scrollWidth: el.scrollWidth,
+            clientWidth: el.clientWidth,
+            right: el.getBoundingClientRect().right,
+          },
+          frame: { scrollWidth: frame.scrollWidth, clientWidth: frame.clientWidth },
+          textRight,
+          main: { scrollWidth: main.scrollWidth, clientWidth: main.clientWidth },
+        };
+      }, text);
+
+    /** 前提と R19.1 の主張（三つの表示に共通）。 */
+    const expectTextFits = (m: Awaited<ReturnType<typeof measureText>>, label: string): void => {
+      const report = `${label} ${JSON.stringify(m)}`;
+      expect(m.viewportWidth, report).toBe(375);
+      expect(m.box.clientWidth, report).toBeGreaterThan(0);
+      expect(m.frame.clientWidth, report).toBeGreaterThan(0);
+      expect(m.main.clientWidth, report).toBeGreaterThan(0);
+      // 前提: 文字列の一語の自然幅が箱の幅を超える（折り返さなければはみ出す長さ）
+      expect(m.naturalWidth, report).toBeGreaterThan(m.box.clientWidth);
+      // 前提: 文字列を箱の本文の中に見つけ、その位置を測れている
+      expect(m.textRight, report).toBeGreaterThan(0);
+      // R19.1: 詳細画面のコンテナに水平のはみ出しが無い（許容誤差1px）
+      expect(m.main.scrollWidth - m.main.clientWidth, report).toBeLessThanOrEqual(1);
+      // 箱と枠に水平のはみ出しが無い
+      expect(m.box.scrollWidth, report).toBeLessThanOrEqual(m.box.clientWidth);
+      expect(m.frame.scrollWidth, report).toBeLessThanOrEqual(m.frame.clientWidth);
+      // 文字列が箱と画面幅の内側に収まる
+      expect(m.textRight, report).toBeLessThanOrEqual(m.box.right + 1);
+      expect(m.textRight, report).toBeLessThanOrEqual(m.viewportWidth + 1);
+    };
+
+    // (1) アップロード失敗の通知。アップロードの POST だけを失敗させる（同じパスの GET は素通しする）
+    await openDetail();
+    await page.route(UPLOAD_URL_MATCHER, failUploadPost);
+    try {
+      const failed = page.waitForResponse(
+        (r) =>
+          r.request().method() === 'POST' &&
+          UPLOAD_URL_MATCHER(new URL(r.url())) &&
+          r.status() === 500,
+        { timeout: getTimeout(60000) }
+      );
+      await page.getByTestId('file-input').setInputFiles({
+        name: fileName,
+        mimeType: 'image/jpeg',
+        buffer: fs.readFileSync(FIXTURE_JPG),
+      });
+      await failed;
+
+      const notice = page.getByRole('alert').filter({ hasText: '全1件の追加に失敗しました。' });
+      await expect(notice).toHaveCount(1, { timeout: getTimeout(20000) });
+      await expect(notice).toContainText(fileName);
+      // 未送信画像の表示が出そろってから測る（通知の下の配置が確定した状態で測る）
+      await expect(page.getByTestId('pending-upload-panel')).toBeVisible({
+        timeout: getTimeout(20000),
+      });
+      await expect(page.getByTestId('construction-photo-item')).toHaveCount(0);
+
+      expectTextFits(await measureText(notice, fileName), '(1) アップロード失敗の通知');
+    } finally {
+      await page.unroute(UPLOAD_URL_MATCHER, failUploadPost);
+    }
+
+    // (2) アップロードできないファイルの表示。サイズ上限（50MB）を1バイト超える疎なファイルを選ぶ
+    await openDetail();
+    const oversizePath = testInfo.outputPath(oversizeFileName);
+    fs.mkdirSync(path.dirname(oversizePath), { recursive: true });
+    fs.writeFileSync(oversizePath, '');
+    fs.truncateSync(oversizePath, 50 * 1024 * 1024 + 1);
+    try {
+      await page.getByTestId('file-input').setInputFiles(oversizePath);
+      const validation = page.getByTestId('validation-errors');
+      await expect(validation).toBeVisible({ timeout: getTimeout(20000) });
+      const rejected = validation.getByRole('listitem').filter({ hasText: oversizeFileName });
+      await expect(rejected).toHaveCount(1);
+      await expect(rejected).toContainText('ファイルサイズが50MBを超えています');
+
+      expectTextFits(
+        await measureText(rejected, oversizeFileName),
+        '(2) アップロードできないファイルの表示'
+      );
+    } finally {
+      fs.rmSync(oversizePath, { force: true });
+    }
+
+    // (3) アルバムを取得できないときのエラー表示。アルバムの取得だけを失敗させる
+    const albumUrlMatcher = (url: URL): boolean =>
+      url.pathname.endsWith(`/api/construction-photos/${albumId}`);
+    const failAlbumFetch = async (route: Route): Promise<void> => {
+      if (route.request().method() !== 'GET') {
+        await route.fallback();
+        return;
+      }
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          type: 'https://architrack.example.com/problems/not-found',
+          title: 'Not Found',
+          status: 404,
+          detail: fetchErrorDetail,
+          code: 'NOT_FOUND',
+        }),
+      });
+    };
+    await page.route(albumUrlMatcher, failAlbumFetch);
+    try {
+      await page.goto(`/construction-photos/${albumId}`);
+      const errorDisplay = page.getByRole('alert').filter({ hasText: fetchErrorDetail });
+      await expect(errorDisplay).toHaveCount(1, { timeout: getTimeout(20000) });
+      await expect(errorDisplay.getByRole('button', { name: '再試行' })).toBeVisible();
+      await expect
+        .poll(
+          async () =>
+            errorDisplay.evaluate((el) => {
+              const main = el.closest('main');
+              return main ? getComputedStyle(main).maxWidth : null;
+            }),
+          { timeout: getTimeout(15000) }
+        )
+        .toBe('100%');
+      const errorText = errorDisplay.locator('p').filter({ hasText: fetchErrorDetail });
+      await expect(errorText).toHaveCount(1);
+
+      expectTextFits(
+        await measureText(errorText, fetchErrorDetail),
+        '(3) アルバムを取得できないときのエラー表示'
+      );
+    } finally {
+      await page.unroute(albumUrlMatcher, failAlbumFetch);
+    }
   });
 });
