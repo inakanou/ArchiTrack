@@ -28,10 +28,255 @@
  * - 12.24-12.27: URLルーティング
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
 import { assertPresent } from '../../helpers/preconditions';
+import { breadcrumbNav, readBreadcrumbTrail } from '../../helpers/breadcrumb';
+
+/** モバイル幅の折り返しを測る画面幅（タスク 30.1）。 */
+const MOBILE_WIDTHS = [375, 320] as const;
+
+/** 水平のはみ出しと高さの比較に許す誤差（px）。 */
+const LAYOUT_TOLERANCE_PX = 1;
+
+/**
+ * 取引先を新規作成画面から作成し、その ID を返す（モバイル幅の折り返しの検証の準備）。
+ *
+ * 作成に失敗した場合は応答待ちが時間切れで失敗する（前提を満たせないまま先へ進まない）。
+ */
+async function createTradingPartnerForBreadcrumb(page: Page, partnerName: string): Promise<string> {
+  await page.goto('/trading-partners/new');
+  await page.waitForLoadState('networkidle');
+
+  await page.getByLabel('取引先名').fill(partnerName);
+  await page.getByLabel('フリガナ', { exact: true }).fill('パンクズオリカエシトリヒキサキ');
+  await page.getByLabel('住所').fill('東京都渋谷区パンくず折り返し1-2-3');
+  await page.getByRole('checkbox', { name: /顧客/i }).check();
+
+  const createPromise = page.waitForResponse(
+    (response) =>
+      response.url().includes('/api/trading-partners') &&
+      response.request().method() === 'POST' &&
+      response.status() === 201,
+    { timeout: getTimeout(30000) }
+  );
+  await page.getByRole('button', { name: /^作成$/i }).click();
+  const createResponse = await createPromise;
+  const responseData = (await createResponse.json()) as { id?: string };
+  const partnerId = responseData.id;
+  expect(partnerId, '作成した取引先の ID が応答に無い').toBeTruthy();
+  return partnerId as string;
+}
+
+/**
+ * パンくずナビゲーションの配置を実ブラウザで測る。
+ *
+ * - 各項目の文字列の箱（リンクまたは現在項目）の高さと、同じ文字列を折り返させずに置いたときの
+ *   高さ・幅（一行ぶんの高さと自然幅）を測る。一行ぶんの高さは固定値ではなく、同じ要素の複製を
+ *   `white-space: nowrap` で同じ場所に置いて測る。
+ * - 文字列の右端は箱ではなく文字列そのもの（Range の外接矩形）で測る。flex の項目は中身に合わせて
+ *   伸びるため、箱の scrollWidth だけでははみ出しを取りこぼすからである。
+ * - nav・一覧（ol）・画面のコンテナ（main）の scrollWidth と clientWidth を測る。
+ */
+async function measureBreadcrumbLayout(nav: Locator) {
+  return nav.evaluate(async (navElement) => {
+    await document.fonts.ready;
+
+    const list = navElement.querySelector('ol');
+    const main = navElement.closest('main');
+    if (!list || !main) {
+      throw new Error('パンくずの一覧（ol）または画面のコンテナ（main）が見つからない');
+    }
+
+    const items = Array.from(list.children).map((item) => {
+      const label = item.querySelector<HTMLElement>('a, span:not([aria-hidden])');
+      if (!label) {
+        throw new Error('パンくずの項目に文字列の要素が無い');
+      }
+      const separator = item.querySelector<HTMLElement>('span[aria-hidden="true"]');
+
+      // 同じ文字列を折り返させずに置いた複製で、一行ぶんの高さと自然幅を測る
+      const probe = label.cloneNode(true) as HTMLElement;
+      probe.removeAttribute('aria-current');
+      probe.setAttribute('aria-hidden', 'true');
+      probe.style.position = 'absolute';
+      probe.style.visibility = 'hidden';
+      probe.style.whiteSpace = 'nowrap';
+      item.appendChild(probe);
+      const probeRect = probe.getBoundingClientRect();
+      item.removeChild(probe);
+
+      const range = document.createRange();
+      range.selectNodeContents(label);
+      const textRect = range.getBoundingClientRect();
+      const labelRect = label.getBoundingClientRect();
+      const itemRect = item.getBoundingClientRect();
+      const separatorRect = separator ? separator.getBoundingClientRect() : null;
+
+      return {
+        text: label.textContent ?? '',
+        isCurrent: label.getAttribute('aria-current') === 'page',
+        labelWidth: labelRect.width,
+        labelHeight: labelRect.height,
+        labelLeft: labelRect.left,
+        labelTop: labelRect.top,
+        labelBottom: labelRect.bottom,
+        itemRight: itemRect.right,
+        singleLineHeight: probeRect.height,
+        naturalWidth: probeRect.width,
+        textLeft: textRect.left,
+        textRight: textRect.right,
+        separator: separatorRect
+          ? {
+              left: separatorRect.left,
+              right: separatorRect.right,
+              top: separatorRect.top,
+              bottom: separatorRect.bottom,
+              width: separatorRect.width,
+            }
+          : null,
+      };
+    });
+
+    const navRect = navElement.getBoundingClientRect();
+    const mainRect = main.getBoundingClientRect();
+    return {
+      viewportWidth: window.innerWidth,
+      nav: {
+        scrollWidth: navElement.scrollWidth,
+        clientWidth: navElement.clientWidth,
+        left: navRect.left,
+        right: navRect.right,
+        height: navRect.height,
+      },
+      list: { scrollWidth: list.scrollWidth, clientWidth: list.clientWidth },
+      main: {
+        scrollWidth: main.scrollWidth,
+        clientWidth: main.clientWidth,
+        left: mainRect.left,
+        right: mainRect.right,
+      },
+      items,
+    };
+  });
+}
+
+type BreadcrumbLayout = Awaited<ReturnType<typeof measureBreadcrumbLayout>>;
+
+/**
+ * 指定の画面幅でパンくずを開き直して測る。
+ *
+ * 前提（満たせなければ失敗する）: 画面幅が指定どおりであること、パンくずが表示されていること、
+ * 項目の並びが期待どおりであること、どの項目も一行ぶんの高さと自然幅が正の値で測れていること。
+ */
+async function openAndMeasureBreadcrumb(
+  page: Page,
+  path: string,
+  width: number,
+  expectedTrail: string[]
+): Promise<BreadcrumbLayout> {
+  await page.setViewportSize({ width, height: 812 });
+  await page.goto(path);
+  await page.waitForLoadState('networkidle');
+
+  const nav = breadcrumbNav(page);
+  await expect(nav).toBeVisible({ timeout: getTimeout(15000) });
+  await expect
+    .poll(async () => readBreadcrumbTrail(nav), { timeout: getTimeout(15000) })
+    .toEqual(expectedTrail);
+
+  const layout = await measureBreadcrumbLayout(nav);
+  const report = JSON.stringify(layout);
+  expect(layout.viewportWidth, report).toBe(width);
+  expect(
+    layout.items.map((item) => item.text),
+    report
+  ).toEqual(expectedTrail);
+  expect(layout.nav.clientWidth, report).toBeGreaterThan(0);
+  for (const item of layout.items) {
+    expect(item.singleLineHeight, report).toBeGreaterThan(0);
+    expect(item.naturalWidth, report).toBeGreaterThan(0);
+  }
+  return layout;
+}
+
+/**
+ * 短い項目が縦長に潰れていないこと（文字列の箱の高さが一行ぶんであること）と、区切り記号が
+ * 潰れずに自身の項目の文字列の左隣（同じ行の高さの範囲）に在ることを主張する。
+ */
+function expectSingleLineItems(layout: BreadcrumbLayout, labels: string[], context: string): void {
+  const report = `${context}: ${JSON.stringify(layout)}`;
+  for (const labelText of labels) {
+    const item = layout.items.find((candidate) => candidate.text === labelText);
+    assertPresent(item, `パンくずの項目「${labelText}」の実測（${context}）`);
+    expect(
+      Math.abs(item.labelHeight - item.singleLineHeight),
+      `「${labelText}」の高さ ${item.labelHeight} が一行ぶん ${item.singleLineHeight} と異なる。${report}`
+    ).toBeLessThanOrEqual(LAYOUT_TOLERANCE_PX);
+    expect(
+      item.labelWidth,
+      `「${labelText}」の幅 ${item.labelWidth} が自然幅 ${item.naturalWidth} より狭い。${report}`
+    ).toBeGreaterThanOrEqual(item.naturalWidth - LAYOUT_TOLERANCE_PX);
+  }
+  layout.items.forEach((item, index) => {
+    if (index === 0) {
+      expect(item.separator, `先頭の項目に区切り記号が在る。${report}`).toBeNull();
+      return;
+    }
+    const separator = item.separator;
+    assertPresent(separator, `「${item.text}」の区切り記号の実測（${context}）`);
+    expect(separator.width, report).toBeGreaterThan(0);
+    expect(separator.right, report).toBeLessThanOrEqual(item.labelLeft + LAYOUT_TOLERANCE_PX);
+    expect(separator.top, report).toBeGreaterThanOrEqual(item.labelTop - LAYOUT_TOLERANCE_PX);
+    expect(separator.bottom, report).toBeLessThanOrEqual(item.labelBottom + LAYOUT_TOLERANCE_PX);
+  });
+}
+
+/**
+ * パンくずが水平にはみ出していないことを主張する（許容誤差 1px）。
+ *
+ * - nav と一覧（ol）の scrollWidth が clientWidth を超えない。
+ * - nav が画面幅の内側に在る。
+ * - どの項目も、箱の右端と文字列の右端（Range の外接矩形）が、画面幅と画面のコンテナ（main）の
+ *   右端の内側に在る。すなわちパンくずは main に水平のはみ出しを生じさせない。
+ *
+ * main 自身の scrollWidth と clientWidth の差は主張しない。取引先の画面には、パンくずと無関係に
+ * main を押し広げる原因が、パンくずの外に互いに独立して在るためである（いずれも本タスクの境界の外。
+ * 2026-10-02 の実測。パンくずを包む領域を消しても main の scrollWidth は変わらず、nav は
+ * 375 幅で 311/311、320 幅で 256/256）。
+ *  1. 作成・編集画面: 入力欄「支払日 - 日」の select（右端 416）。main は 375 幅で 400/343、
+ *     320 幅で 400/288。データに依らない。
+ *  2. 詳細画面: プロジェクト一覧の表。表が 10 行を載せた状態で、表の幅 608・右端 665、main は
+ *     375 幅で 649/343、320 幅で 649/288。データに依る（表が描かれない状態では 343/343）。
+ *  3. 詳細画面: 区切りの無い長い一語の取引先名を折り返さない表題と「取引先名」の値
+ *     （TradingPartnerDetailView）。本ファイルの長い名前（74 文字）で、表題の文字列の右端 1003、
+ *     値の文字列の右端 602、main は 375 幅で 987/343、320 幅で 987/288、768 幅で 987/720。
+ *     表を消しても 987 のままである。名前の長さに依る。
+ * このほか 320 幅の詳細画面では、基本情報の各欄（幅 250）の右端が 307 で、main の右端 304 を越える。
+ * ゆえに本関数は、パンくずが main のはみ出しに寄与しないこと（どの項目の箱も文字列も main の
+ * 右端と画面幅の内側に在ること）を主張する。main の実測値は失敗時の報告に載せる。
+ */
+function expectNoHorizontalOverflow(layout: BreadcrumbLayout, context: string): void {
+  const report = `${context}: ${JSON.stringify(layout)}`;
+  expect(layout.nav.scrollWidth - layout.nav.clientWidth, report).toBeLessThanOrEqual(
+    LAYOUT_TOLERANCE_PX
+  );
+  expect(layout.list.scrollWidth - layout.list.clientWidth, report).toBeLessThanOrEqual(
+    LAYOUT_TOLERANCE_PX
+  );
+  expect(layout.nav.left, report).toBeGreaterThanOrEqual(0);
+  expect(layout.nav.right, report).toBeLessThanOrEqual(layout.viewportWidth + LAYOUT_TOLERANCE_PX);
+  expect(layout.main.clientWidth, report).toBeGreaterThan(0);
+  const rightLimit = Math.min(layout.viewportWidth, layout.main.right) + LAYOUT_TOLERANCE_PX;
+  for (const item of layout.items) {
+    expect(item.itemRight, `「${item.text}」の箱の右端。${report}`).toBeLessThanOrEqual(rightLimit);
+    expect(item.textRight, `「${item.text}」の文字列の右端。${report}`).toBeLessThanOrEqual(
+      rightLimit
+    );
+    expect(item.textLeft, `「${item.text}」の文字列の左端。${report}`).toBeGreaterThanOrEqual(0);
+  }
+}
 
 /**
  * 取引先ナビゲーション・画面遷移のE2Eテスト
@@ -603,6 +848,167 @@ test.describe('取引先ナビゲーション・画面遷移', () => {
 
       // 一覧ページに遷移することを確認
       await expect(page).toHaveURL(/\/trading-partners$/, { timeout: getTimeout(10000) });
+    });
+  });
+
+  /**
+   * パンくずナビゲーションのモバイル幅での折り返し（タスク 30.1）
+   *
+   * 共通の Breadcrumb は、一覧（ol）が折り返さない flex 行だったため、モバイル幅で項目が一行の中で
+   * 縮められて縦長に潰れ、区切りの無い長い名前では項目の最小幅の和が行を画面幅の外へ押し広げて
+   * いた。取引先の 4 画面（受入基準 12.14〜12.17）について、375 幅と 320 幅で次を主張する。
+   *
+   *  - 短い項目が縦長に潰れない（文字列の箱の高さが、同じ文字列を折り返させずに置いて測った
+   *    一行ぶんの高さに等しく、幅が自然幅を下回らない）。
+   *  - 区切りの無い長い英数字一語の取引先名（詳細・編集）でも、パンくずが水平にはみ出さない
+   *    （nav と一覧の scrollWidth が clientWidth を超えず、文字列の右端が画面幅の内側に在る）。
+   *    前提として、その名前の自然幅が nav の幅を超えること（折り返しが要る長さであること）と、
+   *    名前の項目が実際に複数行へ折り返されていることを主張する。
+   */
+  test.describe('パンくずナビゲーションのモバイル幅での折り返し', () => {
+    /**
+     * @requirement trading-partner-management/REQ-12.14
+     */
+    test('一覧画面のパンくずがモバイル幅で縦長に潰れず水平にはみ出さない (trading-partner-management/REQ-12.14)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 回帰の番のみ: 2 項目は 375・320 幅でも是正の前後とも一行に収まるため、本是正の検出力は無い。
+      const trail = ['ダッシュボード', '取引先'];
+      for (const width of MOBILE_WIDTHS) {
+        const layout = await openAndMeasureBreadcrumb(page, '/trading-partners', width, trail);
+        expectSingleLineItems(layout, trail, `一覧 ${width} 幅`);
+        expectNoHorizontalOverflow(layout, `一覧 ${width} 幅`);
+      }
+    });
+
+    /**
+     * @requirement trading-partner-management/REQ-12.16
+     */
+    test('新規作成画面のパンくずがモバイル幅で縦長に潰れず水平にはみ出さない (trading-partner-management/REQ-12.16)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const trail = ['ダッシュボード', '取引先', '新規作成'];
+      for (const width of MOBILE_WIDTHS) {
+        const layout = await openAndMeasureBreadcrumb(page, '/trading-partners/new', width, trail);
+        expectSingleLineItems(layout, trail, `新規作成 ${width} 幅`);
+        expectNoHorizontalOverflow(layout, `新規作成 ${width} 幅`);
+      }
+    });
+
+    /**
+     * @requirement trading-partner-management/REQ-12.15
+     */
+    test('詳細画面のパンくずがモバイル幅で縦長に潰れず、長い一語の取引先名でも水平にはみ出さない (trading-partner-management/REQ-12.15)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const stamp = Date.now();
+      const ordinaryName = `折返し確認_${stamp}`;
+      const unbrokenName = `TradingPartnerRedevelopmentSkyscraperConstructionUnbrokenName${stamp}`;
+      const ordinaryId = await createTradingPartnerForBreadcrumb(page, ordinaryName);
+      const unbrokenId = await createTradingPartnerForBreadcrumb(page, unbrokenName);
+
+      for (const width of MOBILE_WIDTHS) {
+        // 普通の名前: どの項目も一行ぶんの高さで、縦長に潰れない
+        const ordinaryTrail = ['ダッシュボード', '取引先', ordinaryName];
+        const ordinary = await openAndMeasureBreadcrumb(
+          page,
+          `/trading-partners/${ordinaryId}`,
+          width,
+          ordinaryTrail
+        );
+        const ordinaryContext = `詳細（普通の名前） ${width} 幅`;
+        // 前提: 普通の名前は nav の幅に一行で収まる長さである
+        expect(ordinary.items[2]?.naturalWidth, JSON.stringify(ordinary)).toBeLessThan(
+          ordinary.nav.clientWidth
+        );
+        expectSingleLineItems(ordinary, ordinaryTrail, ordinaryContext);
+        expectNoHorizontalOverflow(ordinary, ordinaryContext);
+
+        // 区切りの無い長い一語の名前: 名前は項目の中で折り返し、行を押し広げない
+        const unbrokenTrail = ['ダッシュボード', '取引先', unbrokenName];
+        const unbroken = await openAndMeasureBreadcrumb(
+          page,
+          `/trading-partners/${unbrokenId}`,
+          width,
+          unbrokenTrail
+        );
+        const unbrokenContext = `詳細（長い一語の名前） ${width} 幅`;
+        const unbrokenReport = `${unbrokenContext}: ${JSON.stringify(unbroken)}`;
+        const nameItem = unbroken.items[2];
+        assertPresent(nameItem, `取引先名の項目の実測（${unbrokenContext}）`);
+        expect(nameItem.isCurrent, unbrokenReport).toBe(true);
+        // 前提: 名前の自然幅が nav の幅を超える（折り返さなければ収まらない）
+        expect(nameItem.naturalWidth, unbrokenReport).toBeGreaterThan(unbroken.nav.clientWidth);
+        expectSingleLineItems(unbroken, ['ダッシュボード', '取引先'], unbrokenContext);
+        expectNoHorizontalOverflow(unbroken, unbrokenContext);
+        // 名前は実際に複数行へ折り返されている
+        expect(nameItem.labelHeight, unbrokenReport).toBeGreaterThanOrEqual(
+          nameItem.singleLineHeight * 2 - LAYOUT_TOLERANCE_PX
+        );
+      }
+    });
+
+    /**
+     * @requirement trading-partner-management/REQ-12.17
+     */
+    test('編集画面のパンくずがモバイル幅で縦長に潰れず、長い一語の取引先名でも水平にはみ出さない (trading-partner-management/REQ-12.17)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const stamp = Date.now();
+      const ordinaryName = `折返し確認_${stamp}`;
+      const unbrokenName = `TradingPartnerRedevelopmentSkyscraperConstructionUnbrokenName${stamp}`;
+      const ordinaryId = await createTradingPartnerForBreadcrumb(page, ordinaryName);
+      const unbrokenId = await createTradingPartnerForBreadcrumb(page, unbrokenName);
+
+      for (const width of MOBILE_WIDTHS) {
+        // 普通の名前: どの項目も一行ぶんの高さで、縦長に潰れない
+        const ordinaryTrail = ['ダッシュボード', '取引先', ordinaryName, '編集'];
+        const ordinary = await openAndMeasureBreadcrumb(
+          page,
+          `/trading-partners/${ordinaryId}/edit`,
+          width,
+          ordinaryTrail
+        );
+        const ordinaryContext = `編集（普通の名前） ${width} 幅`;
+        // 前提: 普通の名前は nav の幅に一行で収まる長さである
+        expect(ordinary.items[2]?.naturalWidth, JSON.stringify(ordinary)).toBeLessThan(
+          ordinary.nav.clientWidth
+        );
+        expectSingleLineItems(ordinary, ordinaryTrail, ordinaryContext);
+        expectNoHorizontalOverflow(ordinary, ordinaryContext);
+
+        // 区切りの無い長い一語の名前: 名前は項目の中で折り返し、行を押し広げない
+        const unbrokenTrail = ['ダッシュボード', '取引先', unbrokenName, '編集'];
+        const unbroken = await openAndMeasureBreadcrumb(
+          page,
+          `/trading-partners/${unbrokenId}/edit`,
+          width,
+          unbrokenTrail
+        );
+        const unbrokenContext = `編集（長い一語の名前） ${width} 幅`;
+        const unbrokenReport = `${unbrokenContext}: ${JSON.stringify(unbroken)}`;
+        const nameItem = unbroken.items[2];
+        assertPresent(nameItem, `取引先名の項目の実測（${unbrokenContext}）`);
+        const editItem = unbroken.items[3];
+        assertPresent(editItem, `「編集」の項目の実測（${unbrokenContext}）`);
+        expect(editItem.isCurrent, unbrokenReport).toBe(true);
+        // 前提: 名前の自然幅が nav の幅を超える（折り返さなければ収まらない）
+        expect(nameItem.naturalWidth, unbrokenReport).toBeGreaterThan(unbroken.nav.clientWidth);
+        expectSingleLineItems(unbroken, ['ダッシュボード', '取引先', '編集'], unbrokenContext);
+        expectNoHorizontalOverflow(unbroken, unbrokenContext);
+        // 名前は実際に複数行へ折り返されている
+        expect(nameItem.labelHeight, unbrokenReport).toBeGreaterThanOrEqual(
+          nameItem.singleLineHeight * 2 - LAYOUT_TOLERANCE_PX
+        );
+      }
     });
   });
 

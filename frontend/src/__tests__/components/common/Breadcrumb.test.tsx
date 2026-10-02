@@ -140,6 +140,47 @@ describe('Breadcrumb', () => {
     });
   });
 
+  // タスク 30.1: モバイル幅で項目が一行の中で縮められて縦長に潰れないよう、一覧を折り返せるようにする。
+  // jsdom は配置を計算しないため、ここでは折り返しを成り立たせる指定が要素に付いていることだけを
+  // 主張する。実際の配置（項目の高さ・水平のはみ出し）は E2E の
+  // trading-partner-navigation.spec.ts が実ブラウザで測る。
+  describe('モバイル幅での折り返し', () => {
+    const longName = 'TradingPartnerRedevelopmentSkyscraperConstructionUnbrokenName1234567890123';
+
+    const renderEditTrail = () =>
+      renderWithRouter(
+        <Breadcrumb
+          items={[
+            { label: 'ダッシュボード', path: '/' },
+            { label: '取引先', path: '/trading-partners' },
+            { label: longName, path: '/trading-partners/123' },
+            { label: '編集' },
+          ]}
+        />
+      );
+
+    it('一覧が複数行へ折り返せること（項目を一行の中で縮めない）', () => {
+      renderEditTrail();
+
+      const list = screen.getByRole('list');
+      expect(list).toHaveClass('flex', 'flex-wrap');
+    });
+
+    it('リンクの項目と現在項目の文字列が、区切りの無い長い語の中でも折り返せること', () => {
+      renderEditTrail();
+
+      const labels = [
+        screen.getByRole('link', { name: 'ダッシュボード' }),
+        screen.getByRole('link', { name: '取引先' }),
+        screen.getByRole('link', { name: longName }),
+        screen.getByText('編集'),
+      ];
+      for (const label of labels) {
+        expect(label).toHaveClass('wrap-anywhere');
+      }
+    });
+  });
+
   describe('取引先管理のユースケース', () => {
     it('取引先一覧ページのパンくずを正しく表示すること', () => {
       renderWithRouter(

@@ -60,7 +60,13 @@ export interface BreadcrumbProps {
 export function Breadcrumb({ items }: BreadcrumbProps): ReactElement {
   return (
     <nav aria-label="パンくずナビゲーション" className="breadcrumb">
-      <ol className="flex items-center space-x-2 text-sm text-gray-500">
+      {/*
+        狭い画面幅では一覧を複数行へ折り返す（flex-wrap）。行に収まらない項目は、一行の中で
+        縮められる前に次の行へ送られるため、短い項目が縦長に潰れない。区切りの無い長い名前は、
+        文字列の overflow-wrap:anywhere（wrap-anywhere）が項目の最小内容幅を下げるため、項目の
+        中で折り返して、行を画面幅の外へ押し広げない。一行に収まる幅では従来と同じ配置になる。
+      */}
+      <ol className="flex flex-wrap items-center space-x-2 text-sm text-gray-500">
         {items.map((item, index) => {
           const isLast = index === items.length - 1;
 
@@ -75,12 +81,12 @@ export function Breadcrumb({ items }: BreadcrumbProps): ReactElement {
 
               {/* リンクまたはテキスト */}
               {item.path && !isLast ? (
-                <Link to={item.path} className="hover:text-gray-700 hover:underline">
+                <Link to={item.path} className="wrap-anywhere hover:text-gray-700 hover:underline">
                   {item.label}
                 </Link>
               ) : (
                 <span
-                  className={isLast ? 'text-gray-900 font-medium' : ''}
+                  className={isLast ? 'wrap-anywhere text-gray-900 font-medium' : 'wrap-anywhere'}
                   aria-current={isLast ? 'page' : undefined}
                 >
                   {item.label}
