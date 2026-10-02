@@ -60,6 +60,9 @@
  * 21. モバイル幅の取得エラーの表示（一覧・作成・編集・看板マスタ・ビューア）と一覧の通知: 区切りの
  *     無い長い文言でも、表示が水平にはみ出さず、文字列が枠の内側に収まる（要件の印は掲げない。
  *     タスク 20.6）
+ * 22. モバイル幅のタップ領域: 375 幅と 320 幅で、写真項目の看板の操作ボタンが「看板を配置」
+ *     「看板を変更」のどちらの表示でも 44×44 以上で描かれ、同じ写真項目の他の操作コントロールも
+ *     同じ下限を満たし、隣のボタンと重ならない（R19.3。タスク 21.2）
  *
  * 縮退した要素（理由明記）:
  *  - パンの座標厳密検証: 拡大時に画像 transform の translate 成分が変化することまでを確認し、
@@ -1089,6 +1092,316 @@ test.describe('工事写真 追加機能フロー', () => {
       .first()
       .evaluate((el) => getComputedStyle(el as HTMLElement).flexDirection);
     expect(flexDirection).toBe('column');
+  });
+
+  /**
+   * R19.3 モバイル幅の写真項目の操作コントロールのタップ領域:
+   * 375 幅と 320 幅で工事写真の詳細画面を開き、写真項目の看板の操作ボタンが、表示の文言の二つの
+   * 状態（看板を指定していない写真項目の「看板を配置」と、指定済みの写真項目の「看板を変更」）の
+   * どちらでも、44×44 論理ピクセル以上のタップ領域で描かれることを実ブラウザの外接矩形で検証する。
+   * 同じ写真項目の他の操作コントロール（ドラッグハンドル・上へ移動・下へ移動・二つのチェック
+   * ボックス・写真項目を取り除くボタン）にも同じ下限を課す。
+   *
+   * @requirement construction-photo/REQ-19.3
+   *
+   * 経緯（2026-10-02、タスク 21.2）: 看板の操作ボタン（`PhotoItemPanel.tsx` の
+   * `styles.assignSignboardButton`）だけがモバイル用の上書きを持たず、375 幅で 78×28 だった。
+   * 利用者の判断（2026-10-02）で受入基準 19.3 の対象に含め、他の操作コントロールと同じ上書き
+   * （`utils/tap-target` の下限を min-width / min-height に課す形）を足した。単体テストは
+   * インラインスタイルの値しか見られない（jsdom はレイアウトを持たない）ため、実寸はここで測る。
+   *
+   * 44 は本テストが自前で綴る。受入基準 19.3 は寸法を課さず、44 の根拠は `.kiro/steering/tech.md` の
+   * 「モバイルの下限値」（WCAG 2.2 SC 2.5.5）という外部の下限である。実装の定数を取り込むと、主張が
+   * 「実装は実装に等しい」へ弱まる（`frontend/src/utils/tap-target.ts` の冒頭の切り分け）。
+   *
+   * 前提（満たされなければ失敗させる。条件付きで飛ばさない）:
+   *  - 画面幅（window.innerWidth）が設定した幅に一致し、写真項目が縦積みのモバイル分岐に確定している。
+   *  - 写真項目が 2 件あり、看板の操作ボタンがどちらにも表示されている。看板を指定して保存した
+   *    写真項目は「看板あり」の表示を持ち、ボタンの文言が「看板を変更」である。もう一方は「看板あり」の
+   *    表示を持たず、文言が「看板を配置」である。
+   *  - 他の操作コントロールが写真項目ごとに 6 個そろっている（測り漏らしを緑に数えない）。
+   *
+   * 併せて、上書きが写真項目の配置を崩さないことを主張する。看板の操作ボタンと隣の取り除くボタンの
+   * 外接矩形が重ならないこと、どちらも写真項目の箱の左右の内側にあること、写真項目と <main> に
+   * 水平のはみ出しが無いこと（許容誤差 1px）である。看板を指定する側の写真項目には、区切りの無い
+   * 現実的な長さのファイル名を与える（タスク 20.3 が是正した見出しと同じ条件）。
+   *
+   * 二つの幅・二つの状態をすべて測ってから主張する。赤になるときに、どの状態が何 px だったかを
+   * 一度の失敗で読めるようにするためである。
+   *
+   * 是正の経緯（2026-10-02、タスク 21.2）: 上書きを足す前の本番ビルドでは赤だった。看板の操作
+   * ボタンは 375 幅・320 幅とも、二つの文言のどちらでも幅 78・高さ 28 で、高さが下限に届かない。
+   * 他の操作コントロールは是正前から 44×44 である。
+   */
+  test('モバイル幅（375・320）で写真項目の看板の操作ボタンが「看板を配置」「看板を変更」のどちらの表示でも 44×44 以上のタップ領域を持つ', async ({
+    page,
+  }) => {
+    // 検証の側の下限。実装の定数は取り込まない（上の注記）
+    const TAP_TARGET_MIN_PX = 44;
+    const HORIZONTAL_TOLERANCE_PX = 1;
+    const stamp = Date.now();
+    const signboardName = `タップ領域E2E看板_${stamp}`;
+    const assignedFileName = `IMG_20261002_101500_signboard_assigned_${stamp}.jpg`;
+    const unassignedFileName = `unassigned_${stamp}.jpg`;
+
+    const desktopViewport = page.viewportSize();
+    expect(desktopViewport).not.toBeNull();
+
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'tap-target');
+    const albumId = await createAlbum(page, projectId, `タップ領域_${stamp}`);
+
+    // 配置用の工事看板を登録する（上の看板配置のテストと同じ手順）
+    await page.goto(`/projects/${projectId}/construction-signboards`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { name: '工事看板マスタ' })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await page.getByRole('button', { name: '新規登録' }).click();
+    await page.getByLabel('工事件名').fill(signboardName);
+    await page.getByLabel('工事場所').fill('タップ領域E2E現場');
+    const createSignboardResp = page.waitForResponse(
+      (r) => r.request().method() === 'POST' && /\/construction-signboards/.test(r.url()),
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByRole('button', { name: '登録' }).click();
+    await createSignboardResp;
+    await expect(page.getByRole('row').filter({ hasText: signboardName })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    // 写真項目を 2 件追加し、片方にだけ看板を指定して保存する（デスクトップ幅で行う）
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    const items = page.getByTestId('construction-photo-item');
+    for (const [index, name] of [assignedFileName, unassignedFileName].entries()) {
+      const upload = page.waitForResponse(
+        (r) =>
+          r.request().method() === 'POST' && /\/construction-photos\/.+\/images$/.test(r.url()),
+        { timeout: getTimeout(30000) }
+      );
+      await page.getByTestId('file-input').setInputFiles({
+        name,
+        mimeType: 'image/jpeg',
+        buffer: fs.readFileSync(FIXTURE_JPG),
+      });
+      await upload;
+      await expect(items).toHaveCount(index + 1, { timeout: getTimeout(20000) });
+    }
+    const assignedItem = items.filter({
+      has: page.getByRole('heading', { level: 3, name: assignedFileName }),
+    });
+    const unassignedItem = items.filter({
+      has: page.getByRole('heading', { level: 3, name: unassignedFileName }),
+    });
+    await expect(assignedItem).toHaveCount(1);
+    await expect(unassignedItem).toHaveCount(1);
+    // 看板の操作ボタンのアクセシブルネームは、文言の状態によらず「看板を配置: <ファイル名>」である
+    const assignedButton = assignedItem.getByRole('button', {
+      name: `看板を配置: ${assignedFileName}`,
+    });
+    const unassignedButton = unassignedItem.getByRole('button', {
+      name: `看板を配置: ${unassignedFileName}`,
+    });
+
+    await assignedButton.click();
+    const assignDialog = page.getByRole('dialog', { name: '看板を配置' });
+    await expect(assignDialog).toBeVisible({ timeout: getTimeout(10000) });
+    await assignDialog.locator('#signboard-assign-select').selectOption({ label: signboardName });
+    const editor = assignDialog.getByTestId('signboard-placement-editor');
+    await expect(editor).toBeVisible({ timeout: getTimeout(10000) });
+    await editor.getByRole('button', { name: '保存' }).click();
+    await expect(assignDialog).toBeHidden({ timeout: getTimeout(10000) });
+    const batchResp = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'PATCH' &&
+        r.url().includes('/api/construction-photos/images/batch'),
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await batchResp;
+    await expect(page.getByTestId('dirty-indicator')).toBeHidden({ timeout: getTimeout(15000) });
+
+    interface Rect {
+      left: number;
+      right: number;
+      top: number;
+      bottom: number;
+      width: number;
+      height: number;
+    }
+    interface ItemMeasurement {
+      label: string;
+      viewportWidth: number;
+      item: Rect & { scrollWidth: number; clientWidth: number };
+      main: { scrollWidth: number; clientWidth: number } | null;
+      signboardButton: Rect | null;
+      removeButton: Rect | null;
+      others: Array<{ name: string; rect: Rect }>;
+    }
+    const measurements: ItemMeasurement[] = [];
+
+    /** 写真項目の操作コントロールの外接矩形を測る。 */
+    const measureItem = async (
+      item: import('@playwright/test').Locator,
+      label: string
+    ): Promise<void> => {
+      const m = await item.evaluate((el) => {
+        const rect = (target: Element) => {
+          const r = target.getBoundingClientRect();
+          return {
+            left: r.left,
+            right: r.right,
+            top: r.top,
+            bottom: r.bottom,
+            width: r.width,
+            height: r.height,
+          };
+        };
+        const optionalRect = (target: Element | null) => (target ? rect(target) : null);
+        const main = el.closest('main');
+        const others = [
+          ...Array.from(el.querySelectorAll('[data-testid="construction-photo-drag-handle"]')),
+          ...Array.from(el.querySelectorAll('[data-testid="order-buttons"] button')),
+          ...Array.from(el.querySelectorAll('input[type="checkbox"]')),
+          ...Array.from(el.querySelectorAll('button[aria-label^="写真項目を削除: "]')),
+        ];
+        return {
+          viewportWidth: window.innerWidth,
+          item: { ...rect(el), scrollWidth: el.scrollWidth, clientWidth: el.clientWidth },
+          main: main ? { scrollWidth: main.scrollWidth, clientWidth: main.clientWidth } : null,
+          signboardButton: optionalRect(el.querySelector('button[aria-label^="看板を配置: "]')),
+          removeButton: optionalRect(el.querySelector('button[aria-label^="写真項目を削除: "]')),
+          others: others.map((control) => ({
+            name: control.getAttribute('aria-label') ?? control.tagName,
+            rect: rect(control),
+          })),
+        };
+      });
+      measurements.push({ label, ...m });
+    };
+
+    for (const width of [375, 320]) {
+      await page.setViewportSize({ width, height: 812 });
+      await page.goto(`/construction-photos/${albumId}`);
+      await page.waitForLoadState('networkidle');
+      await expect(items, `${width} 幅`).toHaveCount(2, { timeout: getTimeout(20000) });
+      // 前提: 写真項目が縦積みのモバイル分岐に確定している（`useMediaQuery` は初期描画で
+      // デスクトップ側になり得る）
+      for (const item of [assignedItem, unassignedItem]) {
+        await expect
+          .poll(
+            async () => item.evaluate((el) => getComputedStyle(el as HTMLElement).flexDirection),
+            {
+              message: `${width} 幅`,
+              timeout: getTimeout(15000),
+            }
+          )
+          .toBe('column');
+      }
+      // 前提: 看板の操作ボタンが二つの文言の状態をそれぞれ表示している
+      await expect(assignedItem.getByTestId('signboard-indicator'), `${width} 幅`).toContainText(
+        '看板あり'
+      );
+      await expect(unassignedItem.getByTestId('signboard-indicator'), `${width} 幅`).toHaveCount(0);
+      await expect(assignedButton, `${width} 幅`).toBeVisible();
+      await expect(assignedButton, `${width} 幅`).toHaveText('看板を変更');
+      await expect(unassignedButton, `${width} 幅`).toBeVisible();
+      await expect(unassignedButton, `${width} 幅`).toHaveText('看板を配置');
+
+      await measureItem(assignedItem, `${width} 幅・「看板を変更」`);
+      await measureItem(unassignedItem, `${width} 幅・「看板を配置」`);
+    }
+    await page.setViewportSize(desktopViewport!);
+
+    // 二つの幅・二つの状態をすべて測れている（測り漏らした状態を緑に数えない）
+    expect(measurements.map((m) => m.label)).toEqual([
+      '375 幅・「看板を変更」',
+      '375 幅・「看板を配置」',
+      '320 幅・「看板を変更」',
+      '320 幅・「看板を配置」',
+    ]);
+
+    const size = (r: Rect): string => `${r.width}×${r.height}`;
+    const report = measurements
+      .map(
+        (m) =>
+          `${m.label}: 看板の操作ボタン ${m.signboardButton ? size(m.signboardButton) : 'なし'}` +
+          `（左 ${m.signboardButton?.left}・右 ${m.signboardButton?.right}）、` +
+          `取り除くボタン ${m.removeButton ? size(m.removeButton) : 'なし'}` +
+          `（左 ${m.removeButton?.left}・右 ${m.removeButton?.right}）、` +
+          `写真項目 左 ${m.item.left}・右 ${m.item.right}・${m.item.scrollWidth}/${m.item.clientWidth}、` +
+          `<main> ${m.main?.scrollWidth}/${m.main?.clientWidth}、` +
+          `他の操作コントロール ${m.others.map((o) => `${o.name} ${size(o.rect)}`).join('・')}`
+      )
+      .join(' ｜ ');
+    const tooSmall = (r: Rect): boolean =>
+      r.width < TAP_TARGET_MIN_PX || r.height < TAP_TARGET_MIN_PX;
+
+    // 前提: 画面幅が設定した幅であり、測る対象がすべて在る
+    expect(
+      measurements.map((m) => m.viewportWidth),
+      report
+    ).toEqual([375, 375, 320, 320]);
+    for (const m of measurements) {
+      expect(m.signboardButton, `${m.label} ｜ ${report}`).not.toBeNull();
+      expect(m.removeButton, `${m.label} ｜ ${report}`).not.toBeNull();
+      expect(m.main, `${m.label} ｜ ${report}`).not.toBeNull();
+      expect(m.main!.clientWidth, `${m.label} ｜ ${report}`).toBeGreaterThan(0);
+      // ドラッグハンドル 1・並び替え 2・チェックボックス 2・取り除くボタン 1
+      expect(m.others, `${m.label} ｜ ${report}`).toHaveLength(6);
+    }
+
+    // R19.3: 看板の操作ボタンのタップ領域が、二つの文言のどちらでも 44×44 以上である
+    expect(
+      measurements
+        .filter((m) => tooSmall(m.signboardButton!))
+        .map((m) => `${m.label}: ${size(m.signboardButton!)}`),
+      report
+    ).toEqual([]);
+    // R19.3: 同じ写真項目の他の操作コントロールのタップ領域も 44×44 以上である
+    expect(
+      measurements.flatMap((m) =>
+        m.others.filter((o) => tooSmall(o.rect)).map((o) => `${m.label}: ${o.name} ${size(o.rect)}`)
+      ),
+      report
+    ).toEqual([]);
+
+    // 上書きが配置を崩さない: 看板の操作ボタンと隣の取り除くボタンが重ならない
+    expect(
+      measurements
+        .filter((m) => {
+          const a = m.signboardButton!;
+          const b = m.removeButton!;
+          return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+        })
+        .map((m) => m.label),
+      report
+    ).toEqual([]);
+    // 上書きが配置を崩さない: 二つのボタンが写真項目の箱の左右の内側にある
+    expect(
+      measurements
+        .filter((m) =>
+          [m.signboardButton!, m.removeButton!].some(
+            (r) =>
+              r.left < m.item.left - HORIZONTAL_TOLERANCE_PX ||
+              r.right > m.item.right + HORIZONTAL_TOLERANCE_PX
+          )
+        )
+        .map((m) => m.label),
+      report
+    ).toEqual([]);
+    // 上書きが配置を崩さない: 写真項目と <main> に水平のはみ出しが無い（許容誤差1px）
+    expect(
+      measurements
+        .filter(
+          (m) =>
+            m.item.scrollWidth - m.item.clientWidth > HORIZONTAL_TOLERANCE_PX ||
+            m.main!.scrollWidth - m.main!.clientWidth > HORIZONTAL_TOLERANCE_PX
+        )
+        .map((m) => m.label),
+      report
+    ).toEqual([]);
   });
 
   /**

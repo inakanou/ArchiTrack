@@ -463,6 +463,14 @@ const styles = {
     minWidth: `${TAP_TARGET_MIN_PX}px`,
     minHeight: `${TAP_TARGET_MIN_PX}px`,
   } as React.CSSProperties,
+  /**
+   * R19.3: 看板の操作ボタン（「看板を配置」／「看板を変更」）にも同じ下限を課す。是正前は 375 幅で
+   * 78×28 だった。利用者の判断（2026-10-02）で同基準の対象に含めた（タスク 21.2）。
+   */
+  assignSignboardButtonMobile: {
+    minWidth: `${TAP_TARGET_MIN_PX}px`,
+    minHeight: `${TAP_TARGET_MIN_PX}px`,
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -828,7 +836,10 @@ function PhotoItem({
               <button
                 type="button"
                 onClick={() => onAssignSignboard(photo)}
-                style={styles.assignSignboardButton}
+                style={{
+                  ...styles.assignSignboardButton,
+                  ...(isMobile ? styles.assignSignboardButtonMobile : {}),
+                }}
                 aria-label={`看板を配置: ${photo.fileName}`}
               >
                 {photo.signboardId ? '看板を変更' : '看板を配置'}

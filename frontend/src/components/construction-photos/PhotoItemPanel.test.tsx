@@ -389,6 +389,34 @@ describe('PhotoItemPanel', () => {
         expect(tapHeight(deleteButton)).toBeGreaterThanOrEqual(44);
       });
 
+      it('R19.3: 看板の操作ボタン（「看板を配置」「看板を変更」）のタップ領域を44px以上にすること', () => {
+        // 表示の文言は看板の指定の有無で切り替わる。どちらの状態でも下限を満たすこと（タスク 21.2）
+        const photos = [
+          makePhoto({ id: 'p1', fileName: 'unassigned.jpg', displayOrder: 1, signboardId: null }),
+          makePhoto({ id: 'p2', fileName: 'assigned.jpg', displayOrder: 2, signboardId: 'sb-1' }),
+        ];
+        render(
+          <PhotoItemPanel
+            photos={photos}
+            onPhotoMetadataChange={vi.fn()}
+            onAssignSignboard={vi.fn()}
+          />
+        );
+        const assignButton = screen.getByRole('button', {
+          name: '看板を配置: unassigned.jpg',
+        }) as HTMLElement;
+        const changeButton = screen.getByRole('button', {
+          name: '看板を配置: assigned.jpg',
+        }) as HTMLElement;
+        // 前提: 二つのボタンが、文言の二つの状態をそれぞれ表示している
+        expect(assignButton).toHaveTextContent('看板を配置');
+        expect(changeButton).toHaveTextContent('看板を変更');
+        expect(tapWidth(assignButton)).toBeGreaterThanOrEqual(44);
+        expect(tapHeight(assignButton)).toBeGreaterThanOrEqual(44);
+        expect(tapWidth(changeButton)).toBeGreaterThanOrEqual(44);
+        expect(tapHeight(changeButton)).toBeGreaterThanOrEqual(44);
+      });
+
       it('R19.3: ドラッグハンドルのタップ領域を44px以上にすること', () => {
         const photos = [
           makePhoto({ id: 'p1', displayOrder: 1 }),
