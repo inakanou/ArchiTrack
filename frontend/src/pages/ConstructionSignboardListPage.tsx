@@ -149,9 +149,13 @@ const styles = {
     borderRadius: '8px',
     padding: '16px',
   } as React.CSSProperties,
+  // overflowWrap:anywhere は区切りの無い長い語にも折り返し位置を与える。取得エラーの文言は
+  // サーバーの応答をそのまま表示するため、区切りの無い長い文言でも <main> を押し広げないように
+  // する（タスク 20.6 の E2E で実測）
   errorText: {
     color: '#991b1b',
     fontSize: '14px',
+    overflowWrap: 'anywhere' as const,
   } as React.CSSProperties,
   loadingContainer: {
     display: 'flex',

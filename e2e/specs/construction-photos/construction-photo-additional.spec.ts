@@ -54,6 +54,12 @@
  *     表示が水平にはみ出さず、文字列が枠の内側に収まる（R19.1）
  * 19. モバイル幅の文書全体: admin と user のそれぞれで、375 幅と 320 幅の詳細画面が文書全体
  *     （documentElement）を水平にはみ出させない（R19.1）
+ * 20. モバイル幅のブレッドクラム（一覧・作成・編集・詳細）: 375 幅と 320 幅で、普通の名前・区切りの
+ *     無い英数字の長い一語・長い和文のプロジェクト名のいずれでも、ブレッドクラムと画面が水平に
+ *     はみ出さず、固定の文言の短い項目が一行に収まる（要件の印は掲げない。タスク 20.2・20.6）
+ * 21. モバイル幅の取得エラーの表示（一覧・作成・編集・看板マスタ・ビューア）と一覧の通知: 区切りの
+ *     無い長い文言でも、表示が水平にはみ出さず、文字列が枠の内側に収まる（要件の印は掲げない。
+ *     タスク 20.6）
  *
  * 縮退した要素（理由明記）:
  *  - パンの座標厳密検証: 拡大時に画像 transform の translate 成分が変化することまでを確認し、
@@ -2296,5 +2302,606 @@ test.describe('工事写真 追加機能フロー', () => {
       overflowing((m) => m.document),
       report
     ).toEqual([]);
+  });
+
+  /**
+   * モバイル幅のブレッドクラム（一覧・作成・編集・詳細）:
+   * 375 幅と 320 幅で、工事写真の一覧・アルバム作成・アルバム編集・詳細の各画面を開き、共通の
+   * ブレッドクラムが水平にはみ出さず、固定の文言の短い項目（「ダッシュボード」「プロジェクト一覧」
+   * 「工事写真一覧」「新規アルバム」「アルバムを編集」）が一行に収まることを検証する。
+   *
+   * 要件の印は掲げない。一覧（Requirement 3）のモバイルの受入基準はカード形式（3.2）だけで、作成・
+   * 編集（Requirement 1・2）はモバイルの受入基準を持たない。Requirement 19 の対象は詳細画面で、
+   * その受入基準 4（ブレッドクラムが水平にはみ出さない）は上の「長いプロジェクト名・アルバム名の
+   * ブレッドクラム」のテストが担う。短い項目が縦長にならないことは、どの受入基準にも当たらない
+   * （タスク 20.2・20.6 の利用者の判断: 被覆印は受入基準を持つ画面に限って掲げる）。
+   *
+   * プロジェクト名は三通りを測る。普通の名前、区切りの無い英数字の長い一語（200 文字）、長い和文で
+   * ある。名前はデータベースで差し替える（タスク 19.2 のテストと同じ手法）。
+   *
+   * 前提（満たされなければ失敗させる。条件付きで飛ばさない）:
+   *  - 画面幅（window.innerWidth）が設定した幅に一致する。
+   *  - ブレッドクラムの項目が、その画面の階層どおりの文言で並んでいる。
+   *  - 長い名前の二通りでは、プロジェクト名の一行の自然幅がブレッドクラムの幅を超える（折り返さ
+   *    なければはみ出す長さである）。自然幅は画面の計算済みフォントで canvas の measureText により測る。
+   *  - 各項目の文字列と、その先頭の一文字を Range で測れている。
+   *
+   * 主張（24 の状態をすべて測ってから主張する。赤になるときに、どの状態が何 px だったかを一度の
+   * 失敗で読めるようにするためである）:
+   *  - ブレッドクラム（nav）・画面のコンテナ（<main>）・文書全体（documentElement）の scrollWidth が
+   *    clientWidth を超えない（許容誤差 1px）。
+   *  - どの項目の文字列（Range の外接矩形）も、ブレッドクラムと画面幅の内側にある（許容誤差 1px）。
+   *    項目は flex の子で中身に合わせて広がるため、位置は項目の箱ではなく文字列で測る。
+   *  - 固定の文言の項目は、文字列全体の高さが一行の高さを超えない（許容誤差 1px）。一行の高さは、
+   *    同じ項目の先頭の一文字を Range で囲んで実測する（決め打ちの数値を使わない）。
+   *  - 長い名前の二通りでは、名前が項目の中で複数行へ折り返されている（文字列全体の高さが一行の
+   *    高さの 2 倍以上）。
+   *
+   * 経緯（2026-10-02、タスク 20.2・20.6）: 共通の Breadcrumb は ol に flex-wrap が無く、各項目が一行の
+   * 中で縮められていた。375 幅では普通の名前でも「ダッシュボード」が幅 32px・高さ 80px の縦長になり、
+   * 区切りの無い長いプロジェクト名では一覧の <main> が 913 / 375、作成・編集が 959 / 375 になっていた。
+   * 是正は共通部品の側で行われた（trading-partner-management の Task 30.1、コミット `6533ce34`。ol に
+   * flex-wrap、各項目の文字列に overflow-wrap:anywhere）。本テストは、その是正が本スペックの画面で
+   * 効いていることを固定する。本スペックの画面の側に足した是正は無い。
+   */
+  test('モバイル幅（375・320）で一覧・作成・編集・詳細のブレッドクラムが水平にはみ出さず、短い項目が一行に収まる', async ({
+    page,
+  }) => {
+    const stamp = Date.now();
+    const HORIZONTAL_TOLERANCE_PX = 1;
+    const albumName = `ブレッドクラム測定_${stamp}`;
+    const projectNames = {
+      普通の名前: `丸の内ビル新築工事_${stamp}`,
+      区切りの無い長い名前:
+        `P${stamp}${'MarunouchiRedevelopmentSkyscraperConstructionProject'.repeat(4)}`.slice(
+          0,
+          200
+        ),
+      長い和文の名前: `${'東京都千代田区丸の内二丁目再開発計画に伴う超高層複合ビル新築工事および周辺道路整備工事'.repeat(3)}_${stamp}`,
+    } as const;
+    type NameKind = keyof typeof projectNames;
+    const nameKinds = Object.keys(projectNames) as NameKind[];
+    const prisma = getPrismaClient();
+
+    const desktopViewport = page.viewportSize();
+    expect(desktopViewport).not.toBeNull();
+
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'breadcrumb-sweep', projectNames['普通の名前']);
+    const albumId = await createAlbum(page, projectId, albumName);
+
+    const screens = [
+      {
+        screen: '一覧',
+        path: `/projects/${projectId}/construction-photos`,
+        heading: '工事写真一覧',
+        tail: ['工事写真一覧'],
+      },
+      {
+        screen: '作成',
+        path: `/projects/${projectId}/construction-photos/new`,
+        heading: '新規アルバム',
+        tail: ['工事写真一覧', '新規アルバム'],
+      },
+      {
+        screen: '編集',
+        path: `/construction-photos/${albumId}/edit`,
+        heading: 'アルバムを編集',
+        tail: ['工事写真一覧', 'アルバムを編集'],
+      },
+      {
+        screen: '詳細',
+        path: `/construction-photos/${albumId}`,
+        heading: albumName,
+        tail: ['工事写真一覧', albumName],
+      },
+    ];
+
+    const breadcrumb = page.getByRole('navigation', { name: 'パンくずナビゲーション' });
+
+    /** ブレッドクラムと、その各項目の文字列（Range）を測る。 */
+    const measureBreadcrumb = () =>
+      breadcrumb.evaluate((nav) => {
+        const main = nav.closest('main') as HTMLElement | null;
+        const root = document.documentElement;
+        const context = document.createElement('canvas').getContext('2d');
+        const navRect = nav.getBoundingClientRect();
+        const items = Array.from(nav.querySelectorAll('li > a, li > span:not([aria-hidden])')).map(
+          (label) => {
+            const text = label.textContent ?? '';
+            let naturalWidth = -1;
+            if (context) {
+              const style = getComputedStyle(label);
+              context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+              naturalWidth = context.measureText(text).width;
+            }
+            // 文字列全体と、その先頭の一文字（一行ぶんの高さの実測）を Range で囲む
+            const node = label.firstChild;
+            let rect: { left: number; right: number; height: number } | null = null;
+            let singleLineHeight = -1;
+            if (node && node.nodeType === Node.TEXT_NODE && text.length > 0) {
+              const whole = document.createRange();
+              whole.selectNodeContents(node);
+              const wholeRect = whole.getBoundingClientRect();
+              rect = { left: wholeRect.left, right: wholeRect.right, height: wholeRect.height };
+              const first = document.createRange();
+              first.setStart(node, 0);
+              first.setEnd(node, 1);
+              singleLineHeight = first.getBoundingClientRect().height;
+            }
+            return { text, naturalWidth, rect, singleLineHeight };
+          }
+        );
+        return {
+          viewportWidth: window.innerWidth,
+          nav: {
+            scrollWidth: nav.scrollWidth,
+            clientWidth: nav.clientWidth,
+            left: navRect.left,
+            right: navRect.right,
+          },
+          main: main ? { scrollWidth: main.scrollWidth, clientWidth: main.clientWidth } : null,
+          document: { scrollWidth: root.scrollWidth, clientWidth: root.clientWidth },
+          items,
+        };
+      });
+
+    const measured: string[] = [];
+    const reports: string[] = [];
+    const failures: string[] = [];
+
+    for (const kind of nameKinds) {
+      const projectName = projectNames[kind];
+      await prisma.project.update({ where: { id: projectId }, data: { name: projectName } });
+
+      for (const width of [375, 320]) {
+        await page.setViewportSize({ width, height: 812 });
+
+        for (const s of screens) {
+          const label = `${s.screen}・${width} 幅・${kind}`;
+          await page.goto(s.path);
+          await page.waitForLoadState('networkidle');
+          const heading = page.getByRole('heading', { level: 1, name: s.heading });
+          await expect(heading, label).toBeVisible({ timeout: getTimeout(15000) });
+          await expect(breadcrumb, label).toBeVisible();
+          await expect(breadcrumb, label).toContainText(projectName);
+          if (s.screen === '詳細') {
+            // 詳細画面はモバイル分岐（`containerMobile` の maxWidth:100%）の適用を待ってから測る
+            await expect
+              .poll(
+                async () =>
+                  heading.evaluate((h1) => {
+                    const main = h1.closest('main');
+                    return main ? getComputedStyle(main).maxWidth : null;
+                  }),
+                { message: label, timeout: getTimeout(15000) }
+              )
+              .toBe('100%');
+          }
+
+          const m = await measureBreadcrumb();
+          const report = `${label} ${JSON.stringify(m)}`;
+
+          // 前提: 画面幅が設定した幅であり、項目がその画面の階層どおりに並んでいる
+          expect(m.viewportWidth, report).toBe(width);
+          expect(
+            m.items.map((item) => item.text),
+            report
+          ).toEqual(['ダッシュボード', 'プロジェクト一覧', projectName, ...s.tail]);
+          expect(m.nav.clientWidth, report).toBeGreaterThan(0);
+          expect(m.main, report).not.toBeNull();
+          expect(m.main!.clientWidth, report).toBeGreaterThan(0);
+          // 前提: 各項目の文字列と、その先頭の一文字を測れている
+          for (const item of m.items) {
+            expect(item.rect, report).not.toBeNull();
+            expect(item.singleLineHeight, report).toBeGreaterThan(0);
+            expect(item.naturalWidth, report).toBeGreaterThan(0);
+          }
+          const nameItem = m.items[2]!;
+          if (kind !== '普通の名前') {
+            // 前提: 名前の一行の自然幅がブレッドクラムの幅を超える（折り返さなければはみ出す長さ）
+            expect(nameItem.naturalWidth, report).toBeGreaterThan(m.nav.clientWidth);
+          }
+
+          // 固定の文言の項目（プロジェクト名と、詳細画面の末尾のアルバム名を除く）
+          const fixedItems = m.items.filter(
+            (item) => item.text !== projectName && item.text !== albumName
+          );
+          expect(fixedItems.length, report).toBeGreaterThanOrEqual(3);
+
+          measured.push(label);
+          reports.push(
+            `${label}: nav ${m.nav.scrollWidth}/${m.nav.clientWidth}、<main> ` +
+              `${m.main!.scrollWidth}/${m.main!.clientWidth}、documentElement ` +
+              `${m.document.scrollWidth}/${m.document.clientWidth}、項目（文字列の高さ/一行の高さ/右端） ` +
+              m.items
+                .map(
+                  (item) =>
+                    `${item.text.slice(0, 8)}=${item.rect!.height.toFixed(1)}/` +
+                    `${item.singleLineHeight.toFixed(1)}/${item.rect!.right.toFixed(1)}`
+                )
+                .join(' ')
+          );
+
+          const boxes: Array<[string, { scrollWidth: number; clientWidth: number }]> = [
+            ['nav', m.nav],
+            ['<main>', m.main!],
+            ['documentElement', m.document],
+          ];
+          for (const [name, box] of boxes) {
+            if (box.scrollWidth - box.clientWidth > HORIZONTAL_TOLERANCE_PX) {
+              failures.push(
+                `${label}: ${name} が水平にはみ出す ${box.scrollWidth}/${box.clientWidth}`
+              );
+            }
+          }
+          if (kind !== '普通の名前' && nameItem.rect!.height < nameItem.singleLineHeight * 2) {
+            failures.push(
+              `${label}: 長い名前が項目の中で折り返されていない 高さ ` +
+                `${nameItem.rect!.height.toFixed(1)} / 一行 ${nameItem.singleLineHeight.toFixed(1)}`
+            );
+          }
+          const rightLimit = Math.min(m.nav.right, m.viewportWidth) + HORIZONTAL_TOLERANCE_PX;
+          for (const item of m.items) {
+            if (
+              item.rect!.left < m.nav.left - HORIZONTAL_TOLERANCE_PX ||
+              item.rect!.right > rightLimit
+            ) {
+              failures.push(
+                `${label}: 「${item.text.slice(0, 8)}」の文字列が枠の外へ出る ` +
+                  `${item.rect!.left.toFixed(1)}..${item.rect!.right.toFixed(1)}`
+              );
+            }
+          }
+          for (const item of fixedItems) {
+            if (item.rect!.height > item.singleLineHeight + HORIZONTAL_TOLERANCE_PX) {
+              failures.push(
+                `${label}: 「${item.text}」が一行に収まらない 高さ ${item.rect!.height.toFixed(1)} / ` +
+                  `一行 ${item.singleLineHeight.toFixed(1)}`
+              );
+            }
+          }
+        }
+      }
+      await page.setViewportSize(desktopViewport!);
+    }
+
+    // 24 の状態（名前 3 通り × 幅 2 通り × 画面 4 つ）をすべて測れている（測り漏らしを緑に数えない）
+    expect(measured).toEqual(
+      nameKinds.flatMap((kind) =>
+        [375, 320].flatMap((width) => screens.map((s) => `${s.screen}・${width} 幅・${kind}`))
+      )
+    );
+
+    // ブレッドクラムと画面が水平にはみ出さず、固定の文言の短い項目が一行に収まる
+    expect(failures, reports.join(' ｜ ')).toEqual([]);
+  });
+
+  /**
+   * モバイル幅の取得エラーの表示（一覧・作成・編集・看板マスタ・ビューア）と一覧の通知:
+   * 375 幅で、区切りの無い英数字の長い一語を理由に持つ応答を返させ、それをそのまま表示する六つの
+   * 表示が水平にはみ出さず、文字列が枠の内側に収まることを検証する。
+   *  (1) 一覧の取得エラー（アルバム一覧の取得の失敗）
+   *  (2) 一覧の通知（アルバムを取り除く操作の失敗）
+   *  (3) 作成画面の取得エラー（プロジェクトの取得の失敗）
+   *  (4) 編集画面の取得エラー（アルバムの取得の失敗）
+   *  (5) 看板マスタの取得エラー（看板一覧の取得の失敗）
+   *  (6) ビューアの取得エラー（原本画像の取得の失敗）
+   *
+   * 要件の印は掲げない。一覧（Requirement 3）のモバイルの受入基準はカード形式（3.2）だけで、作成・
+   * 編集（Requirement 1・2）、看板マスタ（Requirement 8）、ビューア（Requirement 14）はモバイルの
+   * 受入基準を持たない。Requirement 19 の対象は詳細画面である（タスク 20.6 の利用者の判断: 被覆印は
+   * 受入基準を持つ画面に限って掲げる）。詳細画面の同じ型の表示は、上の「通知とエラー表示」のテストが
+   * 要件 19.1 の印のもとで扱う。
+   *
+   * 応答は `page.route` で差し替える。判定と応答の差し替えは同じ参照を `page.unroute` へ渡す。取得
+   * （GET）は 500 の応答にする（クライアントは再試行の後に失敗を確定させる）。取り除く操作（DELETE）は
+   * 再試行の対象外の 409 の応答にする。
+   *
+   * 前提（満たされなければ失敗させる。条件付きで飛ばさない）:
+   *  - 画面幅（window.innerWidth）が 375 である。
+   *  - 文字列の一行の自然幅が、コンテナの幅（clientWidth）を超える（折り返さなければコンテナに
+   *    収まらない長さである）。自然幅は画面の計算済みフォントで canvas の measureText により測る。
+   *    箱の幅ではなくコンテナの幅と比べるのは、ビューアの箱が中身に合わせて広がるためである
+   *    （折り返しの指定が無いと、箱そのものが自然幅より広くなる）。
+   *  - 文字列を箱の本文の中に見つけ、その位置を Range で測れている。
+   *  - (2) では、一覧がカード形式（モバイルの表示）に確定している。
+   *
+   * 主張（六つをすべて測ってから主張する。赤になるときに、どの表示が何 px だったかを一度の失敗で
+   * 読めるようにするためである）:
+   *  - 画面のコンテナ（<main>。ビューアでは画像の表示領域）と文書全体（documentElement）に水平の
+   *    はみ出しが無い（許容誤差 1px）。
+   *  - 文字列を載せる箱と、それを包む枠（role=alert）の scrollWidth が clientWidth を超えない。
+   *  - 枠がコンテナの左右の内側にある（許容誤差 1px）。ビューアの表示領域は overflow:hidden で、枠が
+   *    広がると両端が切れて見えなくなるため、枠の位置も測る。
+   *  - 文字列の左端・右端（Range の外接矩形）が、箱と画面幅の内側にある（許容誤差 1px）。箱は flex の
+   *    子や中央寄せで中身に合わせて広がりうるため、位置は箱ではなく文字列で測る。
+   *
+   * 是正の経緯（2026-10-02、タスク 20.6）: 本テストを書いた時点の実装（下の六つのスタイルに折り返しの
+   * 指定が無い形）では、六つとも赤だった。是正は六つのスタイルに overflowWrap:anywhere を足したこと
+   * である（`ConstructionPhotoListPage.tsx` の `STYLES.errorText`・`STYLES.notice`、
+   * `ConstructionPhotoCreatePage.tsx`・`ConstructionPhotoEditPage.tsx`・
+   * `ConstructionSignboardListPage.tsx` の `styles.errorText`、`ConstructionPhotoImageViewer.tsx` の
+   * `STYLES.errorContainer`）。
+   * 是正前の実測（自然幅は (1)〜(5) が 779.3、(6) が 890.6）:
+   *  (1) <main> 820 / 343、文書全体 836 / 375、段落 779 / 261、枠 803 / 309、文字列 57.0〜836.3。
+   *  (2) <main> 812 / 343、文書全体 828 / 375、通知 795 / 309、文字列 49.0〜828.3。
+   *  (3)(4)(5) <main> 812 / 343、文書全体 828 / 375、段落 779 / 277、枠 795 / 309、文字列 49.0〜828.3。
+   *  (6) 表示領域 658 / 375、枠 -282.8〜657.8（幅 939）、文字列 -257.8〜632.8。文書全体は 375 / 375
+   *      （表示領域の overflow:hidden が両端を切るため、はみ出しではなく読めない状態になる）。
+   * 是正後は、<main> がいずれも 343 / 343、文書全体が 375 / 375、箱と枠の scrollWidth が clientWidth に
+   * 一致し、文字列は (1) 60.0〜315.0、(2)(3)(5) 49.0〜324.5、(4) 49.7〜325.3 に収まる。(6) は表示領域が
+   * 375 / 375、枠が 0.0〜375.0、文字列が 25.4〜349.6 になる。
+   */
+  test('モバイル幅で区切りの無い長い文言でも一覧・作成・編集・看板マスタ・ビューアの取得エラーの表示と一覧の通知が水平にはみ出さない', async ({
+    page,
+  }) => {
+    const stamp = Date.now();
+    const HORIZONTAL_TOLERANCE_PX = 1;
+    const albumName = `取得エラー表示_${stamp}`;
+    const detail = `FetchFailureReasonWithoutAnyBreakOpportunityForMobileWidthErrorDisplayOfConstructionPhotoScreens${stamp}`;
+    const prisma = getPrismaClient();
+
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'fetch-error');
+    const albumId = await createAlbum(page, projectId, albumName);
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { level: 1, name: albumName })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await uploadPhoto(page, FIXTURE_JPG, 1);
+    const photo = await prisma.constructionPhoto.findFirst({ where: { albumId } });
+    expect(photo).not.toBeNull();
+    const photoId = photo!.id;
+
+    await page.setViewportSize({ width: 375, height: 812 });
+
+    /** 指定のメソッドの要求だけを、detail を理由に持つ失敗の応答へ差し替える。ほかは素通しする。 */
+    const failWith =
+      (method: string, status: number) =>
+      async (route: Route): Promise<void> => {
+        if (route.request().method() !== method) {
+          await route.fallback();
+          return;
+        }
+        await route.fulfill({
+          status,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            type: 'https://architrack.example.com/problems/request-failed',
+            title: 'Request Failed',
+            status,
+            detail,
+            code: 'REQUEST_FAILED',
+          }),
+        });
+      };
+    const failGet = failWith('GET', 500);
+    const failDelete = failWith('DELETE', 409);
+
+    /** 文字列 text を直に載せる箱 box について、文字列の自然幅・両端と、箱・枠・コンテナ・文書全体を測る。 */
+    const measureText = (box: import('@playwright/test').Locator, text: string) =>
+      box.evaluate((el, target) => {
+        const sizeOf = (e: Element) => {
+          const rect = e.getBoundingClientRect();
+          return {
+            scrollWidth: e.scrollWidth,
+            clientWidth: e.clientWidth,
+            left: rect.left,
+            right: rect.right,
+          };
+        };
+        const container =
+          el.closest('[data-testid="construction-photo-viewer-stage"]') ?? el.closest('main');
+        const frame = el.closest('[role="alert"]');
+        const root = document.documentElement;
+        const context = document.createElement('canvas').getContext('2d');
+        let naturalWidth = -1;
+        if (context) {
+          const style = getComputedStyle(el);
+          context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+          naturalWidth = context.measureText(target).width;
+        }
+        // 箱の本文のうち、対象の文字列の部分だけを Range で囲む
+        let textEdges: { left: number; right: number } | null = null;
+        const textNode = Array.from(el.childNodes).find(
+          (node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? '').includes(target)
+        );
+        if (textNode) {
+          const start = (textNode.textContent ?? '').indexOf(target);
+          const range = document.createRange();
+          range.setStart(textNode, start);
+          range.setEnd(textNode, start + target.length);
+          const rect = range.getBoundingClientRect();
+          textEdges = { left: rect.left, right: rect.right };
+        }
+        return {
+          viewportWidth: window.innerWidth,
+          naturalWidth,
+          text: textEdges,
+          box: sizeOf(el),
+          frame: frame ? sizeOf(frame) : null,
+          container: container ? sizeOf(container) : null,
+          document: { scrollWidth: root.scrollWidth, clientWidth: root.clientWidth },
+        };
+      }, text);
+
+    const measured: string[] = [];
+    const reports: string[] = [];
+    const failures: string[] = [];
+
+    /** 前提を確かめ、主張に反する点を集める。 */
+    const collect = (label: string, m: Awaited<ReturnType<typeof measureText>>): void => {
+      const report = `${label} ${JSON.stringify(m)}`;
+      // 前提: 画面幅が 375 であり、箱・枠・コンテナ・文字列を測れている
+      expect(m.viewportWidth, report).toBe(375);
+      expect(m.box.clientWidth, report).toBeGreaterThan(0);
+      expect(m.frame, report).not.toBeNull();
+      expect(m.container, report).not.toBeNull();
+      expect(m.container!.clientWidth, report).toBeGreaterThan(0);
+      expect(m.text, report).not.toBeNull();
+      // 前提: 文字列の一語の自然幅がコンテナの幅を超える（折り返さなければ収まらない長さ）
+      expect(m.naturalWidth, report).toBeGreaterThan(m.container!.clientWidth);
+
+      const frame = m.frame!;
+      const container = m.container!;
+      const text = m.text!;
+      measured.push(label);
+      reports.push(
+        `${label}: 自然幅 ${m.naturalWidth.toFixed(1)}、コンテナ ${container.scrollWidth}/` +
+          `${container.clientWidth}、documentElement ${m.document.scrollWidth}/` +
+          `${m.document.clientWidth}、箱 ${m.box.scrollWidth}/${m.box.clientWidth}、枠 ` +
+          `${frame.scrollWidth}/${frame.clientWidth}（${frame.left.toFixed(1)}..` +
+          `${frame.right.toFixed(1)}）、文字列 ${text.left.toFixed(1)}..${text.right.toFixed(1)}`
+      );
+
+      if (container.scrollWidth - container.clientWidth > HORIZONTAL_TOLERANCE_PX) {
+        failures.push(
+          `${label}: コンテナが水平にはみ出す ${container.scrollWidth}/${container.clientWidth}`
+        );
+      }
+      if (m.document.scrollWidth - m.document.clientWidth > HORIZONTAL_TOLERANCE_PX) {
+        failures.push(
+          `${label}: 文書全体が水平にはみ出す ${m.document.scrollWidth}/${m.document.clientWidth}`
+        );
+      }
+      if (m.box.scrollWidth > m.box.clientWidth) {
+        failures.push(`${label}: 箱が水平にはみ出す ${m.box.scrollWidth}/${m.box.clientWidth}`);
+      }
+      if (frame.scrollWidth > frame.clientWidth) {
+        failures.push(`${label}: 枠が水平にはみ出す ${frame.scrollWidth}/${frame.clientWidth}`);
+      }
+      if (
+        frame.left < container.left - HORIZONTAL_TOLERANCE_PX ||
+        frame.right > container.right + HORIZONTAL_TOLERANCE_PX
+      ) {
+        failures.push(
+          `${label}: 枠がコンテナの外へ出る ${frame.left.toFixed(1)}..${frame.right.toFixed(1)}` +
+            `（コンテナ ${container.left.toFixed(1)}..${container.right.toFixed(1)}）`
+        );
+      }
+      if (
+        text.left < Math.max(m.box.left, 0) - HORIZONTAL_TOLERANCE_PX ||
+        text.right > Math.min(m.box.right, m.viewportWidth) + HORIZONTAL_TOLERANCE_PX
+      ) {
+        failures.push(
+          `${label}: 文字列が箱か画面幅の外へ出る ${text.left.toFixed(1)}..${text.right.toFixed(1)}` +
+            `（箱 ${m.box.left.toFixed(1)}..${m.box.right.toFixed(1)}）`
+        );
+      }
+    };
+
+    /** 取得を失敗させて画面を開き、エラー表示（role=alert の中の段落）を測る。 */
+    const measureFetchError = async (
+      label: string,
+      screenPath: string,
+      matcher: (url: URL) => boolean
+    ): Promise<void> => {
+      await page.route(matcher, failGet);
+      try {
+        await page.goto(screenPath);
+        const errorDisplay = page.getByRole('alert').filter({ hasText: detail });
+        await expect(errorDisplay, label).toHaveCount(1, { timeout: getTimeout(30000) });
+        const errorText = errorDisplay.locator('p').filter({ hasText: detail });
+        await expect(errorText, label).toHaveCount(1);
+        collect(label, await measureText(errorText, detail));
+      } finally {
+        await page.unroute(matcher, failGet);
+      }
+    };
+
+    // (1) 一覧の取得エラー
+    const albumListMatcher = (url: URL): boolean =>
+      url.pathname.endsWith(`/api/projects/${projectId}/construction-photos`);
+    await measureFetchError(
+      '(1) 一覧の取得エラー',
+      `/projects/${projectId}/construction-photos`,
+      albumListMatcher
+    );
+
+    // (2) 一覧の通知。アルバムを取り除く操作だけを失敗させる
+    const albumMatcher = (url: URL): boolean =>
+      url.pathname.endsWith(`/api/construction-photos/${albumId}`);
+    await page.goto(`/projects/${projectId}/construction-photos`);
+    await page.waitForLoadState('networkidle');
+    // 前提: 一覧がカード形式（モバイルの表示）に確定している
+    await expect(page.getByTestId(`album-card-${albumId}`)).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await page.route(albumMatcher, failDelete);
+    try {
+      await page.getByRole('button', { name: `${albumName}を削除` }).click();
+      const deleteDialog = page.getByRole('dialog');
+      await expect(deleteDialog).toBeVisible({ timeout: getTimeout(10000) });
+      const rejected = page.waitForResponse(
+        (r) =>
+          r.request().method() === 'DELETE' && albumMatcher(new URL(r.url())) && r.status() === 409,
+        { timeout: getTimeout(30000) }
+      );
+      await deleteDialog.getByRole('button', { name: '削除', exact: true }).click();
+      await rejected;
+      await expect(deleteDialog).toBeHidden({ timeout: getTimeout(10000) });
+      const notice = page.getByRole('alert').filter({ hasText: detail });
+      await expect(notice).toHaveCount(1, { timeout: getTimeout(20000) });
+      // 前提: 通知の下の一覧がカード形式のまま表示されている（アルバムは取り除かれていない）
+      await expect(page.getByTestId(`album-card-${albumId}`)).toBeVisible();
+      collect('(2) 一覧の通知', await measureText(notice, detail));
+    } finally {
+      await page.unroute(albumMatcher, failDelete);
+    }
+
+    // (3) 作成画面の取得エラー
+    const projectMatcher = (url: URL): boolean =>
+      url.pathname.endsWith(`/api/projects/${projectId}`);
+    await measureFetchError(
+      '(3) 作成画面の取得エラー',
+      `/projects/${projectId}/construction-photos/new`,
+      projectMatcher
+    );
+
+    // (4) 編集画面の取得エラー
+    await measureFetchError(
+      '(4) 編集画面の取得エラー',
+      `/construction-photos/${albumId}/edit`,
+      albumMatcher
+    );
+
+    // (5) 看板マスタの取得エラー
+    const signboardListMatcher = (url: URL): boolean =>
+      url.pathname.endsWith(`/api/projects/${projectId}/construction-signboards`);
+    await measureFetchError(
+      '(5) 看板マスタの取得エラー',
+      `/projects/${projectId}/construction-signboards`,
+      signboardListMatcher
+    );
+
+    // (6) ビューアの取得エラー。原本画像の取得だけを失敗させる
+    const originalMatcher = (url: URL): boolean =>
+      url.pathname.endsWith(`/api/construction-photos/images/${photoId}/original`);
+    await page.route(originalMatcher, failGet);
+    try {
+      await page.goto(`/construction-photos/${albumId}/photos/${photoId}`);
+      const stage = page.getByTestId('construction-photo-viewer-stage');
+      await expect(stage).toBeVisible({ timeout: getTimeout(15000) });
+      const viewerError = stage.getByRole('alert').filter({ hasText: detail });
+      await expect(viewerError).toHaveCount(1, { timeout: getTimeout(30000) });
+      collect('(6) ビューアの取得エラー', await measureText(viewerError, detail));
+    } finally {
+      await page.unroute(originalMatcher, failGet);
+    }
+
+    // 六つの表示をすべて測れている（測り漏らした表示を緑に数えない）
+    expect(measured).toEqual([
+      '(1) 一覧の取得エラー',
+      '(2) 一覧の通知',
+      '(3) 作成画面の取得エラー',
+      '(4) 編集画面の取得エラー',
+      '(5) 看板マスタの取得エラー',
+      '(6) ビューアの取得エラー',
+    ]);
+
+    // 六つの表示が水平にはみ出さず、文字列が枠の内側に収まる
+    expect(failures, reports.join(' ｜ ')).toEqual([]);
   });
 });

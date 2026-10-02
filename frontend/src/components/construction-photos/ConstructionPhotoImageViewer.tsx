@@ -207,6 +207,9 @@ const STYLES = {
     borderRadius: '50%',
     animation: 'construction-photo-viewer-spin 1s linear infinite',
   },
+  // overflowWrap:anywhere は区切りの無い長い語にも折り返し位置を与え、枠の最小幅を縮める。枠は
+  // 中央寄せの flex の子で、これが無いと区切りの無い長い文言で枠が表示領域より広がり、表示領域の
+  // overflow:hidden に両端を切られて読めなくなる（タスク 20.6 の E2E で実測）
   errorContainer: {
     backgroundColor: '#fef2f2',
     border: '1px solid #fecaca',
@@ -214,6 +217,7 @@ const STYLES = {
     padding: '16px 24px',
     color: '#991b1b',
     textAlign: 'center' as const,
+    overflowWrap: 'anywhere' as const,
   },
   rotationControls: {
     position: 'absolute' as const,

@@ -111,10 +111,14 @@ const STYLES = {
     padding: '24px',
     textAlign: 'center' as const,
   } as React.CSSProperties,
+  // overflowWrap:anywhere は区切りの無い長い語にも折り返し位置を与える。取得エラーの文言は
+  // サーバーの応答をそのまま表示するため、区切りの無い長い文言でも <main> を押し広げないように
+  // する（タスク 20.6 の E2E で実測）。下の通知（アルバムを取り除く操作の失敗など）も同じ扱いとする
   errorText: {
     color: '#991b1b',
     fontSize: '14px',
     marginBottom: '16px',
+    overflowWrap: 'anywhere' as const,
   } as React.CSSProperties,
   notice: {
     backgroundColor: '#fef2f2',
@@ -123,6 +127,7 @@ const STYLES = {
     padding: '16px',
     marginBottom: '16px',
     whiteSpace: 'pre-line' as const,
+    overflowWrap: 'anywhere' as const,
     color: '#991b1b',
     fontSize: '14px',
   } as React.CSSProperties,
