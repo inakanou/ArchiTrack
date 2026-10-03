@@ -24,6 +24,9 @@
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { ConstructionPhotoAlbumService } from '../services/construction-photo-album.service.js';
+// 代表サムネイルの署名付きURLの有効期限（秒）。工事写真の全呼び出しで一つの出所を引く
+// （Requirements: 11.3, 11.6）
+import { SIGNED_URL_EXPIRES_IN } from '../services/construction-photo-image.service.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
@@ -43,11 +46,6 @@ import {
 const router = Router({ mergeParams: true });
 const prisma = getPrismaClient();
 const albumService = new ConstructionPhotoAlbumService({ prisma });
-
-/**
- * 代表サムネイルの署名付きURL有効期限（秒）。Requirements: 11.3, 11.6
- */
-const SIGNED_URL_EXPIRES_IN = 900;
 
 /**
  * @swagger

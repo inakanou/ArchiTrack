@@ -36,6 +36,8 @@ import {
   isAddressedAlbum,
   resolveSignboardAssignment,
   SIGNBOARD_LIVENESS_SELECT,
+  // 署名付きURLの有効期限（秒）。工事写真の全呼び出しで一つの出所を引く（Requirements: 11.6）
+  SIGNED_URL_EXPIRES_IN,
   type SignboardLivenessRecord,
 } from './construction-photo-image.service.js';
 import {
@@ -51,11 +53,6 @@ import type {
  * コメントの最大長（schema/COMMENT_MAX_LENGTH と一致）。Requirements: 7.2
  */
 const MAX_COMMENT_LENGTH = 2000;
-
-/**
- * 署名付きURLの有効期限（秒）。Requirements: 11.6
- */
-const SIGNED_URL_EXPIRES_IN = 900;
 
 /**
  * バッチ更新対象のIDが複数アルバムにまたがる（precondition 違反）場合のエラー。
