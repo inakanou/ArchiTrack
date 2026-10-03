@@ -48,6 +48,7 @@ const fullPermission = {
   canCreate: true,
   canEdit: true,
   canDelete: true,
+  canViewSignboards: true,
   isLoading: false,
   getPermissionError: () => null,
 };
@@ -396,6 +397,92 @@ describe('ConstructionPhotoListPage', () => {
       const row = await screen.findByTestId('album-row-album-1');
       expect(within(row).getByRole('button', { name: /編集/ })).toBeInTheDocument();
       expect(within(row).getByRole('button', { name: /削除/ })).toBeInTheDocument();
+    });
+  });
+
+  // タスク 23.2: 看板マスタ（工事看板の一覧・登録）へ画面の操作だけで到達できるようにする。
+  // 看板マスタはブレッドクラムの階層で工事写真一覧の配下に位置するため、一覧の見出しの行に
+  // 常設の導線を置く。導線は看板の閲覧の権限（construction_signboard:read）を持つ利用者にだけ出す
+  describe('看板マスタへの導線（タスク 23.2）', () => {
+    const MASTER_PATH = '/projects/project-123/construction-signboards';
+
+    const renderWithMasterRoute = () =>
+      render(
+        <MemoryRouter initialEntries={['/projects/project-123/construction-photos']}>
+          <Routes>
+            <Route
+              path="/projects/:projectId/construction-photos"
+              element={<ConstructionPhotoListPage />}
+            />
+            <Route
+              path="/projects/:projectId/construction-signboards"
+              element={<h1>看板マスタの画面の代役</h1>}
+            />
+          </Routes>
+        </MemoryRouter>
+      );
+
+    it('看板の閲覧の権限があれば、見出しの行に当該プロジェクトの看板マスタへのリンクを表示する', async () => {
+      renderWithRouter('/projects/project-123/construction-photos');
+
+      const link = await screen.findByRole('link', { name: '工事看板マスタ' });
+      expect(link).toHaveAttribute('href', MASTER_PATH);
+    });
+
+    it('リンクを押すと看板マスタの画面へ遷移する', async () => {
+      renderWithMasterRoute();
+
+      fireEvent.click(await screen.findByRole('link', { name: '工事看板マスタ' }));
+
+      expect(
+        await screen.findByRole('heading', { name: '看板マスタの画面の代役' })
+      ).toBeInTheDocument();
+    });
+
+    it('アルバムが0件の空の状態でもリンクを表示する', async () => {
+      vi.mocked(constructionPhotosApi.getConstructionPhotoAlbums).mockResolvedValue({
+        data: [],
+        pagination: { page: 1, limit: 50, total: 0, totalPages: 0 },
+      } as unknown as PaginatedConstructionPhotoAlbums);
+
+      renderWithRouter('/projects/project-123/construction-photos');
+
+      expect(await screen.findByText('工事写真アルバムがありません')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: '工事看板マスタ' })).toHaveAttribute(
+        'href',
+        MASTER_PATH
+      );
+    });
+
+    it('看板の閲覧の権限が無ければ、写真の権限を全て持っていてもリンクを表示しない', async () => {
+      mockUseConstructionPhotoPermission.mockReturnValue({
+        ...fullPermission,
+        canViewSignboards: false,
+      });
+
+      renderWithRouter('/projects/project-123/construction-photos');
+
+      expect(await screen.findByRole('heading', { name: '工事写真一覧' })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: '工事看板マスタ' })).not.toBeInTheDocument();
+      // 新規作成の導線は従来どおり表示されている（画面は描画済みである）
+      expect(screen.getAllByRole('link', { name: /新規作成/ }).length).toBeGreaterThan(0);
+    });
+
+    it('権限情報のロード中は安全側でリンクを表示しない (R17.5)', async () => {
+      mockUseConstructionPhotoPermission.mockReturnValue({
+        canView: false,
+        canCreate: false,
+        canEdit: false,
+        canDelete: false,
+        canViewSignboards: false,
+        isLoading: true,
+        getPermissionError: () => null,
+      });
+
+      renderWithRouter('/projects/project-123/construction-photos');
+
+      expect(await screen.findByRole('heading', { name: '工事写真一覧' })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: '工事看板マスタ' })).not.toBeInTheDocument();
     });
   });
 });

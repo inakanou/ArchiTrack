@@ -7,6 +7,11 @@
  * canView/canCreate/canEdit/canDelete と権限エラーメッセージ取得
  * (getPermissionError) を提供する。
  *
+ * タスク 23.2 追加: 看板マスタ（工事看板の一覧・登録）への導線の出し分けのため、
+ * `construction_signboard:read` の保持状況を canViewSignboards として返す。看板は写真と別の
+ * 資源の権限で守られている（backend の看板の全ルートが `construction_signboard:*` を要求する）ため、
+ * 写真の権限からは導かない。
+ *
  * 判定は既存の汎用 usePermission（RBAC権限駆動、ワイルドカード対応、
  * 未ロード時false）に委譲し、ロールを直書きしない。
  *
@@ -37,6 +42,11 @@ export interface ConstructionPhotoPermission {
   canEdit: boolean;
   /** 削除権限があるか */
   canDelete: boolean;
+  /**
+   * 工事看板の閲覧権限（construction_signboard:read）があるか。
+   * 看板マスタへの導線を出すかどうかの判定に使う（タスク 23.2）
+   */
+  canViewSignboards: boolean;
   /** 権限情報がロード中か */
   isLoading: boolean;
   /** 権限エラーメッセージを取得する */
@@ -123,6 +133,15 @@ export function useConstructionPhotoPermission(): ConstructionPhotoPermission {
   }, [hasPermission, isLoading]);
 
   /**
+   * 工事看板の閲覧権限（construction_signboard:read）
+   * ロード中は安全側でfalse（R17.5）
+   */
+  const canViewSignboards = useMemo(() => {
+    if (isLoading) return false;
+    return hasPermission('construction_signboard:read');
+  }, [hasPermission, isLoading]);
+
+  /**
    * 権限エラーメッセージを取得
    *
    * 指定されたアクションに対する権限がない場合、エラーメッセージを返す。
@@ -151,6 +170,7 @@ export function useConstructionPhotoPermission(): ConstructionPhotoPermission {
     canCreate,
     canEdit,
     canDelete,
+    canViewSignboards,
     isLoading,
     getPermissionError,
   };

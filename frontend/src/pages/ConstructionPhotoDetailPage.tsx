@@ -88,6 +88,7 @@ import {
   type PhotoMetadataChange,
 } from '../components/construction-photos/PhotoItemPanel';
 import { SignboardAssignDialog } from '../components/construction-photos/SignboardAssignDialog';
+import type { SignboardsLoadStatus } from '../components/construction-photos/SignboardAssignDialog';
 import AlbumDeleteDialog from '../components/construction-photos/AlbumDeleteDialog';
 import {
   BulkExportDialog,
@@ -321,7 +322,12 @@ export default function ConstructionPhotoDetailPage() {
   const navigate = useNavigate();
 
   // 権限（R17.1, R17.2, R17.3, R17.5: ロード中は canEdit/canDelete が安全側でfalseになる）
-  const { canEdit, canDelete } = useConstructionPhotoPermission();
+  const {
+    canEdit,
+    canDelete,
+    canViewSignboards,
+    isLoading: isPermissionLoading,
+  } = useConstructionPhotoPermission();
 
   // モバイル幅判定（Requirement 19 / Task 12.6）。固定幅の支配を解消するため、
   // ページコンテナの maxWidth/padding をモバイル幅で切り替える（R19.1）。
@@ -344,6 +350,8 @@ export default function ConstructionPhotoDetailPage() {
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [photos, setPhotos] = useState<ConstructionPhotoWithUrls[]>([]);
   const [signboards, setSignboards] = useState<ConstructionSignboard[]>([]);
+  // 看板の一覧の取得の状態（是正 1 巡目）。取得の失敗・権限なしを「0件」と取り違えないために持つ
+  const [signboardsStatus, setSignboardsStatus] = useState<SignboardsLoadStatus>('loading');
 
   // 看板配置ダイアログの対象写真項目（null=閉）
   const [assignTargetPhoto, setAssignTargetPhoto] = useState<ConstructionPhotoWithUrls | null>(
@@ -399,10 +407,9 @@ export default function ConstructionPhotoDetailPage() {
       const albumData = await getConstructionPhotoAlbum(id);
       setAlbum(albumData);
 
-      const [photosResult, projectResult, signboardsResult] = await Promise.allSettled([
+      const [photosResult, projectResult] = await Promise.allSettled([
         getConstructionPhotos(id),
         getProject(albumData.projectId),
-        getConstructionSignboards(albumData.projectId),
       ]);
 
       if (photosResult.status === 'fulfilled') {
@@ -413,9 +420,6 @@ export default function ConstructionPhotoDetailPage() {
 
       // プロジェクト取得失敗はブレッドクラムのみに影響するため致命的ではない
       setProject(projectResult.status === 'fulfilled' ? projectResult.value : null);
-
-      // 看板一覧取得失敗は配置ダイアログの選択肢のみに影響するため致命的ではない
-      setSignboards(signboardsResult.status === 'fulfilled' ? signboardsResult.value : []);
     } catch (err) {
       setError(
         err instanceof ApiError
@@ -430,6 +434,47 @@ export default function ConstructionPhotoDetailPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  /**
+   * 看板配置ダイアログの選択肢となる、当該プロジェクトの工事看板の一覧を取得する（是正 1 巡目）。
+   *
+   * 看板の閲覧の権限（construction_signboard:read）が無ければ取得しない（取得しても 403 であり、
+   * 「0件」ではない）。権限情報のロード中は取得中として扱う。取得の失敗は致命的ではない
+   * （配置ダイアログの選択肢にだけ影響する）が、状態を `failed` として残し、ダイアログが
+   * 「登録されていません」と偽って述べないようにする。写真項目の「看板あり」の表示は
+   * 写真項目の `signboardId` から出るため、この一覧に依存しない。
+   */
+  const signboardsProjectId = album?.projectId;
+  useEffect(() => {
+    if (isPermissionLoading) {
+      setSignboardsStatus('loading');
+      return;
+    }
+    if (!canViewSignboards) {
+      setSignboards([]);
+      setSignboardsStatus('not-permitted');
+      return;
+    }
+    if (!signboardsProjectId) return;
+
+    let cancelled = false;
+    setSignboardsStatus('loading');
+    getConstructionSignboards(signboardsProjectId).then(
+      (data) => {
+        if (cancelled) return;
+        setSignboards(data);
+        setSignboardsStatus('loaded');
+      },
+      () => {
+        if (cancelled) return;
+        setSignboards([]);
+        setSignboardsStatus('failed');
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [signboardsProjectId, canViewSignboards, isPermissionLoading]);
 
   /**
    * 3系統アップローダから追加された写真項目をローカル状態へ追記する。
@@ -956,13 +1001,18 @@ export default function ConstructionPhotoDetailPage() {
         />
       </div>
 
-      {/* 看板配置ダイアログ（R9.1, R9.2, R9.5） */}
+      {/* 看板配置ダイアログ（R9.1, R9.2, R9.5）。看板の閲覧の権限があれば、当該プロジェクトの
+          看板マスタへのリンクを示す（タスク 23.2）。リンクの遷移は上の useBlocker の確認を経る（R18.2） */}
       {assignTargetPhoto && (
         <SignboardAssignDialog
           photo={assignTargetPhoto}
           signboards={signboards}
+          signboardsStatus={signboardsStatus}
           onSave={handleSignboardSave}
           onClose={() => setAssignTargetPhoto(null)}
+          signboardMasterPath={
+            canViewSignboards ? `/projects/${album.projectId}/construction-signboards` : undefined
+          }
         />
       )}
 

@@ -118,6 +118,7 @@ const fullPermission = {
   canCreate: true,
   canEdit: true,
   canDelete: true,
+  canViewSignboards: true,
   isLoading: false,
   getPermissionError: () => null,
 };
@@ -413,6 +414,146 @@ describe('ConstructionPhotoDetailPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
 
     expect(await screen.findByText(/印刷対象の写真がありません/)).toBeInTheDocument();
+  });
+
+  // タスク 23.2: 看板が0件のプロジェクトで「看板を配置」を開くと、案内と看板マスタへのリンクが出る。
+  // リンクは看板の閲覧の権限（canViewSignboards）を持つときだけ出し、行き先は当該アルバムの
+  // プロジェクトの看板マスタである。押すと配置のダイアログは閉じる（遷移は useBlocker の確認を経る）
+  describe('看板の配置のダイアログから看板マスタへの導線（タスク 23.2）', () => {
+    it('看板が0件なら、ダイアログに案内と当該プロジェクトの看板マスタへのリンクを示す', async () => {
+      vi.mocked(signboardsApi.getConstructionSignboards).mockResolvedValue([]);
+
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      fireEvent.click(within(firstItem).getByRole('button', { name: /看板を配置/ }));
+
+      const dialog = await screen.findByRole('dialog', { name: /看板を配置/ });
+      expect(
+        within(dialog).getByText(/このプロジェクトには工事看板が登録されていません/)
+      ).toBeInTheDocument();
+      expect(within(dialog).getByRole('link', { name: '工事看板マスタを開く' })).toHaveAttribute(
+        'href',
+        '/projects/project-1/construction-signboards'
+      );
+    });
+
+    it('看板の閲覧の権限が無ければ、看板の一覧を取得せず、0件とは述べずに権限が無い旨を示し、リンクも出さない', async () => {
+      mockUseConstructionPhotoPermission.mockReturnValue({
+        ...fullPermission,
+        canViewSignboards: false,
+      });
+
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      fireEvent.click(within(firstItem).getByRole('button', { name: /看板を配置/ }));
+
+      const dialog = await screen.findByRole('dialog', { name: /看板を配置/ });
+      // 403 になる取得を送らない（403 は「0件」ではない）
+      expect(signboardsApi.getConstructionSignboards).not.toHaveBeenCalled();
+      expect(
+        within(dialog).queryByText(/このプロジェクトには工事看板が登録されていません/)
+      ).not.toBeInTheDocument();
+      expect(
+        within(dialog).getByText('工事看板を閲覧する権限が無いため、看板を選択できません。')
+      ).toBeInTheDocument();
+      expect(within(dialog).queryByRole('link')).not.toBeInTheDocument();
+    });
+
+    it('看板の閲覧の権限が無くても、写真項目の「看板あり」の表示は写真項目の指定から出る', async () => {
+      mockUseConstructionPhotoPermission.mockReturnValue({
+        ...fullPermission,
+        canViewSignboards: false,
+      });
+      vi.mocked(imagesApi.getConstructionPhotos).mockResolvedValue([
+        makePhoto({
+          id: 'photo-1',
+          displayOrder: 1,
+          fileName: 'a.jpg',
+          signboardId: 'sb-1',
+          signboardPlacement: { left: 1, top: 2, width: 3, height: 4 },
+        }),
+      ]);
+
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+
+      expect(within(firstItem).getByTestId('signboard-indicator')).toHaveTextContent('看板あり');
+      expect(signboardsApi.getConstructionSignboards).not.toHaveBeenCalled();
+    });
+
+    it('看板の一覧の取得中は、看板の指定と配置を持つ写真項目のダイアログで指定を変える操作を出さず、未保存にもならない（是正 2 巡目）', async () => {
+      // 取得を終わらせない（取得中の窓を作る）
+      vi.mocked(signboardsApi.getConstructionSignboards).mockReturnValue(new Promise(() => {}));
+      vi.mocked(imagesApi.getConstructionPhotos).mockResolvedValue([
+        makePhoto({
+          id: 'photo-1',
+          displayOrder: 1,
+          fileName: 'a.jpg',
+          signboardId: 'sb-1',
+          signboardPlacement: { left: 10, top: 20, width: 200, height: 150 },
+        }),
+      ]);
+
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      fireEvent.click(within(firstItem).getByRole('button', { name: /看板を配置/ }));
+
+      const dialog = await screen.findByRole('dialog', { name: /看板を配置/ });
+      expect(within(dialog).getByLabelText('看板を選択')).toBeDisabled();
+      expect(within(dialog).queryByTestId('signboard-placement-editor')).not.toBeInTheDocument();
+      expect(within(dialog).getByRole('status')).toHaveTextContent('工事看板を読み込んでいます');
+
+      fireEvent.click(within(dialog).getByRole('button', { name: 'キャンセル' }));
+      await waitFor(() =>
+        expect(screen.queryByRole('dialog', { name: /看板を配置/ })).not.toBeInTheDocument()
+      );
+      expect(lastUnsavedDirty()).toBe(false);
+      expect(within(firstItem).getByTestId('signboard-indicator')).toHaveTextContent('看板あり');
+    });
+
+    it('看板の一覧の取得に失敗したら、看板が登録済みでも0件とは述べず、失敗の文言を role=alert で示す', async () => {
+      vi.mocked(signboardsApi.getConstructionSignboards).mockRejectedValue(
+        new ApiError(500, 'Internal Server Error')
+      );
+
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      await waitFor(() => {
+        expect(signboardsApi.getConstructionSignboards).toHaveBeenCalledWith('project-1');
+      });
+      fireEvent.click(within(firstItem).getByRole('button', { name: /看板を配置/ }));
+
+      const dialog = await screen.findByRole('dialog', { name: /看板を配置/ });
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+        '工事看板を読み込めませんでした。時間をおいて再度お試しください。'
+      );
+      expect(
+        within(dialog).queryByText(/このプロジェクトには工事看板が登録されていません/)
+      ).not.toBeInTheDocument();
+    });
+
+    it('リンクを押すと配置のダイアログが閉じ、未保存の変更は保たれたまま遷移の確認（useBlocker）へ委ねる', async () => {
+      vi.mocked(signboardsApi.getConstructionSignboards).mockResolvedValue([]);
+
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      // 未保存の変更を作る
+      fireEvent.click(within(firstItem).getByLabelText('印刷対象に含める'));
+      await waitFor(() => {
+        expect(lastUnsavedDirty()).toBe(true);
+      });
+
+      fireEvent.click(within(firstItem).getByRole('button', { name: /看板を配置/ }));
+      const dialog = await screen.findByRole('dialog', { name: /看板を配置/ });
+      fireEvent.click(within(dialog).getByRole('link', { name: '工事看板マスタを開く' }));
+
+      await waitFor(() =>
+        expect(screen.queryByRole('dialog', { name: /看板を配置/ })).not.toBeInTheDocument()
+      );
+      // 画面の遷移の判定は useBlocker が未保存の状態で受け持つ（実際の遮断は E2E で確かめる）
+      expect(mockUseBlocker.mock.calls[mockUseBlocker.mock.calls.length - 1]?.[0]).toBe(true);
+      expect(lastUnsavedDirty()).toBe(true);
+    });
   });
 
   it('写真項目の「看板を配置」導線でダイアログが開き看板選択と配置エディタが表示される (R9.1)', async () => {

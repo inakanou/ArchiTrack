@@ -23,6 +23,12 @@
  * canEdit/canDelete と連動させる。権限がない場合はハンドラ自体を渡さず、子部品
  * （`ConstructionPhotoListTable`/`ConstructionPhotoListCard`）側でボタンを非表示にする
  * （権限ロード中も当該フックが安全側でfalseを返すため非表示になる, R17.1, R17.2, R17.5）。
+ *
+ * タスク 23.2 追加: 見出しの行に看板マスタ（`/projects/:projectId/construction-signboards`）への
+ * 常設のリンク「工事看板マスタ」を置く。看板マスタのブレッドクラムは本画面の配下に位置し
+ * （…> 工事写真一覧 > 工事看板マスタ）、看板はプロジェクト単位で登録するため、プロジェクトの
+ * 工事写真の入口である本画面に置く。リンクは看板の閲覧の権限（construction_signboard:read）を
+ * 持つ利用者にだけ出す（権限ロード中は安全側で出さない, R17.5）。
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -64,11 +70,21 @@ const STYLES = {
   breadcrumbWrapper: {
     marginBottom: '16px',
   } as React.CSSProperties,
+  // flexWrap:wrap は、狭幅で見出しと操作の列が一行に収まらないときに操作の列を次の行へ送り、
+  // <main> を水平に押し広げないようにする（タスク 23.2 で操作の列にリンクを足した）
   header: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
+    flexWrap: 'wrap' as const,
+    gap: '12px',
     marginBottom: '24px',
+  } as React.CSSProperties,
+  headerActions: {
+    display: 'flex',
+    alignItems: 'center',
+    flexWrap: 'wrap' as const,
+    gap: '8px',
   } as React.CSSProperties,
   title: {
     fontSize: '24px',
@@ -83,6 +99,20 @@ const STYLES = {
     backgroundColor: '#2563eb',
     color: '#ffffff',
     border: 'none',
+    borderRadius: '6px',
+    fontSize: '14px',
+    fontWeight: '600',
+    textDecoration: 'none',
+    cursor: 'pointer',
+  } as React.CSSProperties,
+  // 看板マスタへのリンク（タスク 23.2）。新規作成より控えめな副次の操作として白地に青の枠で描く
+  signboardMasterLink: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '10px 20px',
+    backgroundColor: '#ffffff',
+    color: '#1d4ed8',
+    border: '1px solid #1d4ed8',
     borderRadius: '6px',
     fontSize: '14px',
     fontWeight: '600',
@@ -203,7 +233,7 @@ export default function ConstructionPhotoListPage() {
   const navigate = useNavigate();
 
   // 権限（R17.1, R17.2, R17.5: ロード中は canEdit/canDelete が安全側でfalseになる）
-  const { canEdit, canDelete } = useConstructionPhotoPermission();
+  const { canEdit, canDelete, canViewSignboards } = useConstructionPhotoPermission();
 
   // データ状態
   const [project, setProject] = useState<ProjectDetail | null>(null);
@@ -432,9 +462,20 @@ export default function ConstructionPhotoListPage() {
       {/* ヘッダー */}
       <div style={STYLES.header}>
         <h1 style={STYLES.title}>工事写真一覧</h1>
-        <Link to={`/projects/${projectId}/construction-photos/new`} style={STYLES.createButton}>
-          + 新規作成
-        </Link>
+        <div style={STYLES.headerActions}>
+          {/* 看板マスタへの常設の導線（タスク 23.2、看板の閲覧の権限で出し分け） */}
+          {canViewSignboards && (
+            <Link
+              to={`/projects/${projectId}/construction-signboards`}
+              style={STYLES.signboardMasterLink}
+            >
+              工事看板マスタ
+            </Link>
+          )}
+          <Link to={`/projects/${projectId}/construction-photos/new`} style={STYLES.createButton}>
+            + 新規作成
+          </Link>
+        </div>
       </div>
 
       {/* 通知（アルバム削除失敗など, R16.5関連） */}

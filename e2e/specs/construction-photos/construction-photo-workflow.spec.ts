@@ -20,6 +20,11 @@
  *     →保存→再読込で看板割当インジケータが保持される（R9.1, R9.2, R9.5, R9.6）
  *  9. 看板割当ありの印刷対象でPDF出力（ダウンロード発火＋PDF非空, R10.1, R10.3）
  * 10. 使用中の看板を看板マスタで削除→詳細画面の写真項目が看板なしへ戻り、再読込でも保たれる（R9.7, R8.8）
+ * 11. 看板マスタへの導線（タスク 23.2）: 看板が0件の「看板を配置」のダイアログの案内とリンク、
+ *     未保存の変更があるときの離脱の確認、モバイル幅のはみ出しとタップ領域、プロジェクト詳細から
+ *     クリックだけで看板マスタへ到達→登録→詳細画面へ戻って配置（R8.1, R8.10）
+ *     看板の一覧の取得に失敗したときに「登録されていません」と偽らず失敗の文言を示す（是正 1 巡目）
+ *     看板の一覧の取得中に看板の指定を変える操作を出さず、配置を消す保存を送らない（是正 2 巡目）
  *
  * 縮退した要素（理由明記）:
  *  - 現調写真コピー（R6.1 の実データ複製）: 同一プロジェクト配下に画像付き現場調査を用意する
@@ -37,6 +42,7 @@ import { fileURLToPath } from 'url';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { API_BASE_URL } from '../../config';
 
 // ESモジュールでの __dirname 代替
 const __filename = fileURLToPath(import.meta.url);
@@ -695,5 +701,552 @@ test.describe('工事写真 主要ユーザーフロー', () => {
     await expect(items).toHaveCount(2, { timeout: getTimeout(20000) });
     await expect(signboardButton).toHaveText('看板を配置', { timeout: getTimeout(15000) });
     await expect(targetItem.getByTestId('signboard-indicator')).toHaveCount(0);
+  });
+
+  // ==========================================================================
+  // タスク 23.2: 看板マスタの画面へ画面の操作だけで到達できる
+  //
+  // 看板マスタ（`/projects/:projectId/construction-signboards`）の導線は二つある。
+  //  - 常設: 工事写真一覧の見出しの行のリンク「工事看板マスタ」（看板マスタのブレッドクラムは
+  //    工事写真一覧の配下に位置し、看板はプロジェクト単位で登録するため）
+  //  - 文脈: 詳細画面の「看板を配置」のダイアログのリンク「工事看板マスタを開く」。看板が0件の
+  //    ときは、選択肢が「未指定」だけになる理由の案内を添える
+  // 以下のテストは、看板マスタへ `page.goto` で入らない。直前のテスト（R9.7）が配置済みの看板を
+  // 取り除いたため、この時点で当該プロジェクトの看板は0件である（下で前提として主張する）。
+  // ==========================================================================
+
+  const EMPTY_SIGNBOARD_GUIDANCE = 'このプロジェクトには工事看板が登録されていません';
+
+  /**
+   * 看板が0件のプロジェクトで「看板を配置」を開くと、案内と看板マスタへのリンクが出る。
+   * 未保存の変更があるときは、リンクを押しても離脱の確認（R18.2）を経てからしか遷移しない。
+   * 「とどまる」で詳細画面と未保存の状態が保たれ、「離れる」で看板マスタへ遷移する。
+   */
+  test('看板が0件で「看板を配置」を開くと案内と看板マスタへのリンクが出て、未保存の変更があれば離脱の確認を経て看板マスタへ遷移する', async ({
+    page,
+  }) => {
+    expect(projectId).toBeTruthy();
+    expect(albumId).toBeTruthy();
+    await loginAsUser(page, 'ADMIN_USER');
+
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    const items = page.getByTestId('construction-photo-item');
+    await expect(items).toHaveCount(2, { timeout: getTimeout(20000) });
+
+    // 未保存の変更を作る（印刷対象の切り替え）
+    await items.nth(1).getByLabel('印刷対象に含める').click();
+    await expect(page.getByTestId('dirty-indicator')).toBeVisible({ timeout: getTimeout(10000) });
+
+    // 1) 看板が0件のダイアログ: 選択肢は「未指定」だけで、案内とリンクが出る
+    const signboardButton = items.nth(0).getByRole('button', { name: /^看板を配置: / });
+    await signboardButton.click();
+    const assignDialog = page.getByRole('dialog', { name: '看板を配置' });
+    await expect(assignDialog).toBeVisible({ timeout: getTimeout(10000) });
+    const options = assignDialog.locator('#signboard-assign-select option');
+    await expect(options).toHaveCount(1);
+    await expect(options).toHaveText(['未指定']);
+    await expect(assignDialog.getByText(EMPTY_SIGNBOARD_GUIDANCE)).toBeVisible();
+    const masterLink = assignDialog.getByRole('link', { name: '工事看板マスタを開く' });
+    await expect(masterLink).toHaveAttribute(
+      'href',
+      `/projects/${projectId}/construction-signboards`
+    );
+
+    // 2) 未保存の変更があるので、リンクを押すと離脱の確認が出る。「とどまる」で詳細画面に残る
+    await masterLink.click();
+    await expect(assignDialog).toBeHidden({ timeout: getTimeout(10000) });
+    const unsavedDialog = page.getByRole('dialog', { name: '変更が保存されていません' });
+    await expect(unsavedDialog).toBeVisible({ timeout: getTimeout(10000) });
+    await unsavedDialog.getByRole('button', { name: 'このページにとどまる' }).click();
+    await expect(unsavedDialog).toBeHidden({ timeout: getTimeout(10000) });
+    await expect(page).toHaveURL(new RegExp(`/construction-photos/${albumId}$`));
+    await expect(page.getByTestId('dirty-indicator')).toBeVisible();
+
+    // 3) もう一度リンクを押し、「ページを離れる」を選ぶと看板マスタへ遷移する
+    await signboardButton.click();
+    await expect(assignDialog).toBeVisible({ timeout: getTimeout(10000) });
+    await masterLink.click();
+    await expect(unsavedDialog).toBeVisible({ timeout: getTimeout(10000) });
+    await unsavedDialog.getByRole('button', { name: 'ページを離れる' }).click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/construction-signboards$`), {
+      timeout: getTimeout(15000),
+    });
+    await expect(page.getByRole('heading', { name: /^工事看板マスタ$/ })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await expect(page.getByText('登録済みの工事看板はありません')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+  });
+
+  /**
+   * モバイル幅（375・320）で、工事写真一覧の看板マスタへのリンクと、看板の配置のダイアログの
+   * 案内とリンクが水平にはみ出さない。ダイアログのリンクは 44×44 以上のタップ領域を持つ
+   * （横断ルールの下限。検証の側は 44 を自前で綴る）。看板は0件のままで、案内が出る状態を測る。
+   */
+  test('モバイル幅（375・320）で看板マスタへのリンクと看板が0件の案内が水平にはみ出さず、ダイアログのリンクは 44×44 以上のタップ領域を持つ', async ({
+    page,
+  }) => {
+    expect(projectId).toBeTruthy();
+    expect(albumId).toBeTruthy();
+    // 検証の側の下限。実装の定数は取り込まない
+    const TAP_TARGET_MIN_PX = 44;
+    const HORIZONTAL_TOLERANCE_PX = 1;
+    await loginAsUser(page, 'ADMIN_USER');
+
+    interface Measurement {
+      viewportWidth: number;
+      documentScrollWidth: number;
+      documentClientWidth: number;
+      mainScrollWidth: number;
+      mainClientWidth: number;
+      targets: Array<{
+        name: string;
+        left: number;
+        right: number;
+        textLeft: number;
+        textRight: number;
+        width: number;
+        height: number;
+      }>;
+    }
+
+    /** 文書・<main> の横幅と、対象の要素の外接矩形・文字列の端（DOM Range）を測る */
+    const measure = async (selectors: Array<{ name: string; selector: string }>) =>
+      page.evaluate((sels): Measurement => {
+        const main = document.querySelector('main');
+        return {
+          viewportWidth: window.innerWidth,
+          documentScrollWidth: document.documentElement.scrollWidth,
+          documentClientWidth: document.documentElement.clientWidth,
+          mainScrollWidth: main ? main.scrollWidth : -1,
+          mainClientWidth: main ? main.clientWidth : -1,
+          targets: sels.map(({ name, selector }) => {
+            const el = document.querySelector(selector);
+            if (!el) {
+              return {
+                name,
+                left: NaN,
+                right: NaN,
+                textLeft: NaN,
+                textRight: NaN,
+                width: NaN,
+                height: NaN,
+              };
+            }
+            const r = el.getBoundingClientRect();
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            const t = range.getBoundingClientRect();
+            return {
+              name,
+              left: r.left,
+              right: r.right,
+              textLeft: t.left,
+              textRight: t.right,
+              width: r.width,
+              height: r.height,
+            };
+          }),
+        };
+      }, selectors);
+
+    for (const width of [375, 320]) {
+      await page.setViewportSize({ width, height: 800 });
+
+      // 1) 工事写真一覧: 見出しの行の看板マスタへのリンク
+      await page.goto(`/projects/${projectId}/construction-photos`);
+      await page.waitForLoadState('networkidle');
+      const listLink = page.getByRole('link', { name: '工事看板マスタ' });
+      await expect(listLink).toBeVisible({ timeout: getTimeout(15000) });
+      await expect(listLink).toHaveAttribute(
+        'href',
+        `/projects/${projectId}/construction-signboards`
+      );
+      const listMeasurement = await measure([
+        {
+          name: '一覧のリンク',
+          selector: `main a[href="/projects/${projectId}/construction-signboards"]`,
+        },
+      ]);
+      expect(listMeasurement.viewportWidth).toBe(width);
+      expect(listMeasurement.documentScrollWidth).toBeLessThanOrEqual(
+        listMeasurement.documentClientWidth + HORIZONTAL_TOLERANCE_PX
+      );
+      expect(listMeasurement.mainScrollWidth).toBeLessThanOrEqual(
+        listMeasurement.mainClientWidth + HORIZONTAL_TOLERANCE_PX
+      );
+      expect(listMeasurement.targets).toHaveLength(1);
+      for (const target of listMeasurement.targets) {
+        expect(target.left).toBeGreaterThanOrEqual(0);
+        expect(target.right).toBeLessThanOrEqual(width + HORIZONTAL_TOLERANCE_PX);
+        expect(target.textLeft).toBeGreaterThanOrEqual(0);
+        expect(target.textRight).toBeLessThanOrEqual(width + HORIZONTAL_TOLERANCE_PX);
+      }
+
+      // 2) 詳細画面の「看板を配置」のダイアログ: 案内とリンク
+      await page.goto(`/construction-photos/${albumId}`);
+      await page.waitForLoadState('networkidle');
+      const items = page.getByTestId('construction-photo-item');
+      await expect(items).toHaveCount(2, { timeout: getTimeout(20000) });
+      await items
+        .nth(0)
+        .getByRole('button', { name: /^看板を配置: / })
+        .click();
+      const assignDialog = page.getByRole('dialog', { name: '看板を配置' });
+      await expect(assignDialog).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(assignDialog.getByText(EMPTY_SIGNBOARD_GUIDANCE)).toBeVisible();
+      await expect(assignDialog.getByRole('link', { name: '工事看板マスタを開く' })).toBeVisible();
+
+      const dialogMeasurement = await measure([
+        {
+          name: 'ダイアログのリンク',
+          selector: '[role="dialog"] a[data-testid="signboard-master-link"]',
+        },
+        {
+          name: '看板が0件の案内',
+          selector: '[role="dialog"] [data-testid="signboard-empty-guidance"]',
+        },
+        {
+          name: 'ダイアログの本体',
+          selector: '[role="dialog"] [data-testid="signboard-assign-content"]',
+        },
+      ]);
+      expect(dialogMeasurement.documentScrollWidth).toBeLessThanOrEqual(
+        dialogMeasurement.documentClientWidth + HORIZONTAL_TOLERANCE_PX
+      );
+      expect(dialogMeasurement.targets).toHaveLength(3);
+      const [link, guidance, content] = dialogMeasurement.targets;
+      // 本体は画面内に収まり、案内とリンクは本体の内側に収まる（文字列の端も含む）
+      expect(content!.left).toBeGreaterThanOrEqual(0);
+      expect(content!.right).toBeLessThanOrEqual(width + HORIZONTAL_TOLERANCE_PX);
+      for (const target of [link!, guidance!]) {
+        expect(target.left).toBeGreaterThanOrEqual(content!.left - HORIZONTAL_TOLERANCE_PX);
+        expect(target.right).toBeLessThanOrEqual(content!.right + HORIZONTAL_TOLERANCE_PX);
+        expect(target.textLeft).toBeGreaterThanOrEqual(content!.left - HORIZONTAL_TOLERANCE_PX);
+        expect(target.textRight).toBeLessThanOrEqual(content!.right + HORIZONTAL_TOLERANCE_PX);
+      }
+      // ダイアログのリンクのタップ領域
+      expect(link!.width).toBeGreaterThanOrEqual(TAP_TARGET_MIN_PX);
+      expect(link!.height).toBeGreaterThanOrEqual(TAP_TARGET_MIN_PX);
+    }
+  });
+
+  // 画面の操作だけで登録し配置する工事看板の件名
+  const navigatedSignboardName = `E2E導線看板_${Date.now()}`;
+
+  /**
+   * プロジェクト詳細から、クリックだけで 工事写真パネル → 工事写真一覧 → 工事看板マスタ へ到達し、
+   * 看板を登録する（R8.1）。登録した看板は看板マスタの一覧に表示される（R8.10）。続けて、
+   * クリックだけで 工事写真一覧 → 詳細画面 へ戻り、登録した看板を「看板を配置」の選択肢から選んで
+   * 写真項目へ配置し、保存する。
+   *
+   * @requirement construction-photo/REQ-8.1
+   * @requirement construction-photo/REQ-8.10
+   */
+  test('プロジェクト詳細から画面の操作だけで看板マスタへ到達して看板を登録し、詳細画面へ戻って写真項目へ配置できる', async ({
+    page,
+  }) => {
+    expect(projectId).toBeTruthy();
+    expect(albumId).toBeTruthy();
+    await loginAsUser(page, 'ADMIN_USER');
+
+    // 1) プロジェクト詳細 → 工事写真パネルの「すべて見る」→ 工事写真一覧
+    await page.goto(`/projects/${projectId}`);
+    await page.waitForLoadState('networkidle');
+    const photoSection = page.getByTestId('construction-photo-section');
+    await expect(photoSection).toBeVisible({ timeout: getTimeout(15000) });
+    await photoSection.getByRole('link', { name: 'すべて見る' }).click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/construction-photos$`), {
+      timeout: getTimeout(10000),
+    });
+    await expect(page.getByRole('heading', { name: '工事写真一覧' })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    // 2) 工事写真一覧 → 「工事看板マスタ」のリンク → 看板マスタ
+    await page.getByRole('link', { name: '工事看板マスタ' }).click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/construction-signboards$`), {
+      timeout: getTimeout(10000),
+    });
+    await expect(page.getByRole('heading', { name: /^工事看板マスタ$/ })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    // 前提: この時点の看板は0件である
+    await expect(page.getByText('登録済みの工事看板はありません')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    // 3) 看板を新規登録する（R8.1）。一覧に表示される（R8.10）
+    await page.getByRole('button', { name: '新規登録' }).click();
+    await page.getByLabel('工事件名').fill(navigatedSignboardName);
+    await page.getByLabel('工事場所').fill('E2E導線現場');
+    const createResponsePromise = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'POST' &&
+        new URL(r.url()).pathname === `/api/projects/${projectId}/construction-signboards`,
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByRole('button', { name: '登録' }).click();
+    const createResponse = await createResponsePromise;
+    expect(createResponse.status()).toBe(201);
+    const createdRow = page.getByRole('row').filter({ hasText: navigatedSignboardName });
+    await expect(createdRow).toHaveCount(1, { timeout: getTimeout(15000) });
+    await expect(createdRow).toContainText('E2E導線現場');
+
+    // 4) 「工事写真一覧に戻る」→ アルバムを選ぶ → 詳細画面
+    await page.getByRole('link', { name: /工事写真一覧に戻る/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/construction-photos$`), {
+      timeout: getTimeout(10000),
+    });
+    await page.getByText(albumName).first().click();
+    await expect(page).toHaveURL(new RegExp(`/construction-photos/${albumId}$`), {
+      timeout: getTimeout(15000),
+    });
+    const items = page.getByTestId('construction-photo-item');
+    await expect(items).toHaveCount(2, { timeout: getTimeout(20000) });
+
+    // 5) 「看板を配置」の選択肢に登録した看板が並び、0件の案内は出ない
+    const targetItem = items.nth(0);
+    await targetItem.getByRole('button', { name: /^看板を配置: / }).click();
+    const assignDialog = page.getByRole('dialog', { name: '看板を配置' });
+    await expect(assignDialog).toBeVisible({ timeout: getTimeout(10000) });
+    const options = assignDialog.locator('#signboard-assign-select option');
+    await expect(options).toHaveText(['未指定', navigatedSignboardName]);
+    await expect(assignDialog.getByText(EMPTY_SIGNBOARD_GUIDANCE)).toHaveCount(0);
+
+    // 6) 選んで配置し、保存する
+    await assignDialog
+      .locator('#signboard-assign-select')
+      .selectOption({ label: navigatedSignboardName });
+    const editor = assignDialog.getByTestId('signboard-placement-editor');
+    await expect(editor.getByTestId('signboard-indicator')).toContainText(navigatedSignboardName, {
+      timeout: getTimeout(10000),
+    });
+    await editor.getByRole('button', { name: '保存' }).click();
+    await expect(assignDialog).toBeHidden({ timeout: getTimeout(10000) });
+    const batchResponsePromise = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'PATCH' &&
+        new URL(r.url()).pathname === '/api/construction-photos/images/batch',
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    const batchResponse = await batchResponsePromise;
+    expect(batchResponse.status()).toBe(200);
+    await expect(page.getByTestId('dirty-indicator')).toBeHidden({ timeout: getTimeout(15000) });
+
+    // 7) 再読込の後も配置は保たれる
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+    await expect(items).toHaveCount(2, { timeout: getTimeout(20000) });
+    await expect(targetItem.getByTestId('signboard-indicator')).toHaveText('看板あり', {
+      timeout: getTimeout(15000),
+    });
+  });
+
+  /**
+   * 看板の一覧の取得に失敗したときは、看板が登録済みのプロジェクトで「登録されていません」と
+   * 偽って述べない。失敗の文言を role=alert で示す（是正 1 巡目）。直前のテストで看板を1件登録済みで
+   * ある。取得の失敗は `page.route` で看板の一覧の GET に 500 を返して作る。経路の照合と応答の
+   * ハンドラは参照で共有し、`unroute` で外したあとに同じ画面で看板が選択肢に並ぶこと
+   * （＝前提として看板が実在すること）を確かめる。
+   */
+  test('看板の一覧の取得に失敗すると、看板が登録済みのプロジェクトで「登録されていません」と述べず、失敗の文言を示す', async ({
+    page,
+  }) => {
+    expect(projectId).toBeTruthy();
+    expect(albumId).toBeTruthy();
+    await loginAsUser(page, 'ADMIN_USER');
+
+    const signboardListPath = `/api/projects/${projectId}/construction-signboards`;
+    let failedResponses = 0;
+    const isSignboardListRequest = (url: URL): boolean => url.pathname === signboardListPath;
+    const failSignboardList = async (route: import('@playwright/test').Route): Promise<void> => {
+      if (route.request().method() !== 'GET') {
+        await route.fallback();
+        return;
+      }
+      failedResponses += 1;
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Internal Server Error' }),
+      });
+    };
+    await page.route(isSignboardListRequest, failSignboardList);
+
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    const items = page.getByTestId('construction-photo-item');
+    await expect(items).toHaveCount(2, { timeout: getTimeout(20000) });
+    await expect.poll(() => failedResponses, { timeout: getTimeout(15000) }).toBeGreaterThan(0);
+
+    const signboardButton = items.nth(1).getByRole('button', { name: /^看板を配置: / });
+    await signboardButton.click();
+    const assignDialog = page.getByRole('dialog', { name: '看板を配置' });
+    await expect(assignDialog).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(assignDialog.getByRole('alert')).toHaveText(
+      '工事看板を読み込めませんでした。時間をおいて再度お試しください。'
+    );
+    await expect(assignDialog.getByText(EMPTY_SIGNBOARD_GUIDANCE)).toHaveCount(0);
+    await assignDialog.getByRole('button', { name: 'キャンセル' }).click();
+    await expect(assignDialog).toBeHidden({ timeout: getTimeout(10000) });
+
+    // 前提の確認: 失敗を外して読み込み直すと、登録済みの看板が選択肢に並ぶ
+    await page.unroute(isSignboardListRequest, failSignboardList);
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+    await expect(items).toHaveCount(2, { timeout: getTimeout(20000) });
+    await signboardButton.click();
+    await expect(assignDialog).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(assignDialog.locator('#signboard-assign-select option')).toHaveText([
+      '未指定',
+      navigatedSignboardName,
+    ]);
+    await expect(assignDialog.getByRole('alert')).toHaveCount(0);
+  });
+
+  /**
+   * 看板の一覧の取得中に、看板の指定と配置を持つ写真項目の「看板を変更」を開いても、看板の指定を
+   * 変える・解除する操作は出ず、配置を消す保存は送られない（是正 2 巡目）。一覧が届くと、選択は
+   * 写真項目の現在の看板を指し、操作できるようになる。読み込み直した後も配置は保たれている。
+   *
+   * 取得中の窓は、看板の一覧の GET を、テストが解き放つまで待たせる `page.route` で作る（固定の
+   * 待ち時間は使わない）。経路の照合と応答のハンドラは参照で共有し、`unroute` で外す。直前までの
+   * テストで、先頭の写真項目に看板（`navigatedSignboardName`）を指定済みである。配置はエディタで
+   * 動かさずに保存すると null のまま残るため、本テストの冒頭で API から配置を与えておく。
+   */
+  test('看板の一覧の取得中は「看板を変更」のダイアログで看板の指定を変える操作が出ず、配置を消す保存は送られず、一覧が届くと現在の看板が選ばれる', async ({
+    page,
+  }) => {
+    expect(projectId).toBeTruthy();
+    expect(albumId).toBeTruthy();
+    await loginAsUser(page, 'ADMIN_USER');
+
+    // 0) 準備: 先頭の写真項目に配置を与える（看板の指定は直前のテストのまま）
+    const seededPlacement = { left: 10, top: 20, width: 200, height: 150 };
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    const preparedItems = page.getByTestId('construction-photo-item');
+    await expect(preparedItems).toHaveCount(2, { timeout: getTimeout(20000) });
+    await expect(preparedItems.nth(0).getByTestId('signboard-indicator')).toHaveText('看板あり', {
+      timeout: getTimeout(15000),
+    });
+    const seededPhotoId = await preparedItems.nth(0).getAttribute('data-photo-id');
+    expect(seededPhotoId).toBeTruthy();
+    const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+    expect(accessToken).toBeTruthy();
+    const seedResponse = await page.request.patch(
+      `${API_BASE_URL}/api/construction-photos/images/batch`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { items: [{ id: seededPhotoId, signboardPlacement: seededPlacement }] },
+      }
+    );
+    expect(seedResponse.status()).toBe(200);
+
+    const signboardListPath = `/api/projects/${projectId}/construction-signboards`;
+    let releaseSignboardList: () => void = () => {};
+    const signboardListGate = new Promise<void>((resolve) => {
+      releaseSignboardList = resolve;
+    });
+    let heldRequests = 0;
+    const isSignboardListRequest = (url: URL): boolean => url.pathname === signboardListPath;
+    const holdSignboardList = async (route: import('@playwright/test').Route): Promise<void> => {
+      if (route.request().method() === 'GET') {
+        heldRequests += 1;
+        await signboardListGate;
+      }
+      await route.fallback();
+    };
+    await page.route(isSignboardListRequest, holdSignboardList);
+
+    // 写真項目のメタの一括更新（配置を消しうる保存）の送信を数える
+    const batchRequests: string[] = [];
+    page.on('request', (request) => {
+      if (
+        request.method() === 'PATCH' &&
+        new URL(request.url()).pathname === '/api/construction-photos/images/batch'
+      ) {
+        batchRequests.push(request.postData() ?? '');
+      }
+    });
+
+    interface ListedPhoto {
+      id: string;
+      signboardId: string | null;
+      signboardPlacement: { left: number; top: number; width: number; height: number } | null;
+    }
+    const photoListPath = `/api/construction-photos/${albumId}/images`;
+    const isPhotoListResponse = (r: import('@playwright/test').Response): boolean =>
+      r.request().method() === 'GET' && new URL(r.url()).pathname === photoListPath;
+
+    // 1) 前提: 先頭の写真項目は看板の指定と配置を持つ
+    const firstListPromise = page.waitForResponse(isPhotoListResponse, {
+      timeout: getTimeout(30000),
+    });
+    await page.goto(`/construction-photos/${albumId}`);
+    const firstList = (await (await firstListPromise).json()) as ListedPhoto[];
+    const items = page.getByTestId('construction-photo-item');
+    await expect(items).toHaveCount(2, { timeout: getTimeout(20000) });
+    const targetPhotoId = await items.nth(0).getAttribute('data-photo-id');
+    expect(targetPhotoId).toBeTruthy();
+    const before = firstList.filter((p) => p.id === targetPhotoId);
+    expect(before).toHaveLength(1);
+    expect(before[0]!.signboardId).toBeTruthy();
+    expect(before[0]!.signboardPlacement).toEqual(seededPlacement);
+    await expect.poll(() => heldRequests, { timeout: getTimeout(15000) }).toBeGreaterThan(0);
+
+    // 2) 取得中に「看板を変更」を開く: 選択は操作できず現在の看板を指し、配置エディタは出ない
+    const signboardButton = items.nth(0).getByRole('button', { name: /^看板を配置: / });
+    await expect(signboardButton).toHaveText('看板を変更');
+    await signboardButton.click();
+    const assignDialog = page.getByRole('dialog', { name: '看板を配置' });
+    await expect(assignDialog).toBeVisible({ timeout: getTimeout(10000) });
+    const select = assignDialog.locator('#signboard-assign-select');
+    await expect(select).toBeDisabled();
+    await expect(select).toHaveValue(before[0]!.signboardId!);
+    await expect(assignDialog.getByRole('status')).toHaveText(/工事看板を読み込んでいます/);
+    await expect(assignDialog.getByTestId('signboard-placement-editor')).toHaveCount(0);
+    await expect(assignDialog.getByRole('button', { name: 'キャンセル' })).toBeEnabled();
+
+    // 3) キャンセルしても未保存にはならず、画面の「保存」は押せない（配置を消す保存は送られない）
+    await assignDialog.getByRole('button', { name: 'キャンセル' }).click();
+    await expect(assignDialog).toBeHidden({ timeout: getTimeout(10000) });
+    await expect(page.getByTestId('dirty-indicator')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '保存', exact: true })).toBeDisabled();
+    expect(batchRequests).toEqual([]);
+
+    // 4) 取得中にもう一度開き、一覧を届けると、現在の看板が選ばれた状態で操作できるようになる
+    await signboardButton.click();
+    await expect(assignDialog).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(select).toBeDisabled();
+    releaseSignboardList();
+    await expect(select).toBeEnabled({ timeout: getTimeout(15000) });
+    await expect(select).toHaveValue(before[0]!.signboardId!);
+    await expect(
+      assignDialog.getByTestId('signboard-placement-editor').getByTestId('signboard-indicator')
+    ).toContainText(navigatedSignboardName, { timeout: getTimeout(10000) });
+    await assignDialog.getByRole('button', { name: 'キャンセル' }).click();
+    await expect(assignDialog).toBeHidden({ timeout: getTimeout(10000) });
+    expect(batchRequests).toEqual([]);
+
+    // 5) 読み込み直した後も、看板の指定と配置は元のまま保たれている
+    await page.unroute(isSignboardListRequest, holdSignboardList);
+    const secondListPromise = page.waitForResponse(isPhotoListResponse, {
+      timeout: getTimeout(30000),
+    });
+    await page.reload();
+    const secondList = (await (await secondListPromise).json()) as ListedPhoto[];
+    const after = secondList.filter((p) => p.id === targetPhotoId);
+    expect(after).toHaveLength(1);
+    expect(after[0]!.signboardId).toBe(before[0]!.signboardId);
+    expect(after[0]!.signboardPlacement).toEqual(before[0]!.signboardPlacement);
+    await expect(items.nth(0).getByTestId('signboard-indicator')).toHaveText('看板あり', {
+      timeout: getTimeout(15000),
+    });
+    expect(batchRequests).toEqual([]);
   });
 });

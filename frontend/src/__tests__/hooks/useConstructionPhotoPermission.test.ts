@@ -137,6 +137,46 @@ describe('useConstructionPhotoPermission', () => {
     });
   });
 
+  // タスク 23.2: 看板マスタへの導線は、看板の閲覧の権限を持つ利用者にだけ出す。
+  // 看板の権限は写真の権限と別の資源（construction_signboard）で判定する
+  describe('canViewSignboards（看板マスタへの導線の出し分け, タスク 23.2）', () => {
+    it('construction_signboard:read権限を持つ場合、canViewSignboardsはtrue', () => {
+      vi.mocked(usePermissionModule.usePermission).mockReturnValue(
+        createMockUsePermission(['construction_signboard:read'])
+      );
+
+      const { result } = renderHook(() => useConstructionPhotoPermission());
+
+      expect(result.current.canViewSignboards).toBe(true);
+    });
+
+    it('写真の権限を全て持っていても construction_signboard:read が無ければ canViewSignboards はfalse', () => {
+      vi.mocked(usePermissionModule.usePermission).mockReturnValue(
+        createMockUsePermission([
+          'construction_photo:read',
+          'construction_photo:create',
+          'construction_photo:update',
+          'construction_photo:delete',
+          'construction_signboard:create',
+        ])
+      );
+
+      const { result } = renderHook(() => useConstructionPhotoPermission());
+
+      expect(result.current.canViewSignboards).toBe(false);
+    });
+
+    it('権限情報のロード中は construction_signboard:read を持っていても false（安全側, R17.5）', () => {
+      vi.mocked(usePermissionModule.usePermission).mockReturnValue(
+        createMockUsePermission(['construction_signboard:read'], { isLoading: true })
+      );
+
+      const { result } = renderHook(() => useConstructionPhotoPermission());
+
+      expect(result.current.canViewSignboards).toBe(false);
+    });
+  });
+
   describe('権限ロード中 (Requirement 17.5)', () => {
     it('isLoadingがtrueの場合、権限を保持していても全てfalseを返す（安全側）', () => {
       vi.mocked(usePermissionModule.usePermission).mockReturnValue(
