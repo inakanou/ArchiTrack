@@ -96,6 +96,14 @@ export interface ImageUploaderProps {
   compact?: boolean;
   /** カスタムクラス名 */
   className?: string;
+  /**
+   * カメラ撮影の導線（「カメラで撮影」ボタンと capture 付きの入力）を描くかどうか。
+   *
+   * 既定は `true`（従来どおり描く）。`false` のときはどちらも描かず、ファイル選択と
+   * ドラッグ＆ドロップだけを残す。工事写真がカメラの無い端末で導線を出さないために
+   * 追加した任意の口である（construction-photo 5.3, タスク 23.5）。
+   */
+  showCameraCapture?: boolean;
 }
 
 // ============================================================================
@@ -283,6 +291,7 @@ export function ImageUploader({
   disabled = false,
   compact = false,
   className = '',
+  showCameraCapture = true,
 }: ImageUploaderProps) {
   // 状態管理
   const [isDragActive, setIsDragActive] = useState(false);
@@ -593,31 +602,33 @@ export function ImageUploader({
       </div>
 
       {/* カメラボタン - アップロードエリア外に配置（nested-interactive回避） */}
-      <div style={styles.buttonContainer}>
-        <button
-          type="button"
-          data-testid="camera-button"
-          style={styles.cameraButton}
-          onClick={handleCameraClick}
-          disabled={disabled || isBusy}
-        >
-          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
-            />
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
-            />
-          </svg>
-          カメラで撮影
-        </button>
-      </div>
+      {showCameraCapture && (
+        <div style={styles.buttonContainer}>
+          <button
+            type="button"
+            data-testid="camera-button"
+            style={styles.cameraButton}
+            onClick={handleCameraClick}
+            disabled={disabled || isBusy}
+          >
+            <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
+              />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
+              />
+            </svg>
+            カメラで撮影
+          </button>
+        </div>
+      )}
 
       {/* 隠しファイル入力 */}
       <input
@@ -633,17 +644,19 @@ export function ImageUploader({
       />
 
       {/* カメラ入力（モバイル対応） */}
-      <input
-        ref={cameraInputRef}
-        type="file"
-        data-testid="camera-input"
-        accept="image/*"
-        capture="environment"
-        disabled={disabled || isBusy}
-        onChange={handleFileChange}
-        style={styles.hiddenInput}
-        aria-label="カメラで撮影"
-      />
+      {showCameraCapture && (
+        <input
+          ref={cameraInputRef}
+          type="file"
+          data-testid="camera-input"
+          accept="image/*"
+          capture="environment"
+          disabled={disabled || isBusy}
+          onChange={handleFileChange}
+          style={styles.hiddenInput}
+          aria-label="カメラで撮影"
+        />
+      )}
 
       {/* アップロード進捗表示 */}
       {isUploading && (

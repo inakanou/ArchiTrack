@@ -336,39 +336,134 @@ describe('PhotoUploader コンポーネント', () => {
     });
   });
 
-  // @requirement construction-photo/REQ-5.3
-  it('カメラ手段はネイティブcapture属性への委譲で、非カメラ端末ではローカルアップロードに縮退する (R5.3)', async () => {
-    // R5.3: 「デバイスがカメラをサポートしない場合、カメラ撮影手段を提供せずローカルアップロード
-    // 手段のみを提示する」を、独自のライブカメラ実装（getUserMedia 等）を持たず、標準の
-    // file input + capture="environment" にキャプチャ可否の判定をブラウザへ委譲する設計で満たす。
-    // カメラ非対応端末では capture 属性が無視され同 input が通常のファイル選択（＝ローカル
-    // アップロード）として振る舞うため、追加手段はローカルアップロードのみに縮退する。
-    vi.mocked(imagesApi.uploadConstructionPhotos).mockResolvedValue({
-      successful: [makePhoto('deg-1', 'picked.jpg')],
-      failed: [],
-    });
-    const onPhotosAdded = vi.fn();
-    render(<PhotoUploader albumId="album-1" projectId="project-1" onPhotosAdded={onPhotosAdded} />);
+  // ==========================================================================
+  // カメラの導線の出し分け（Task 23.5, R5.3）
+  //
+  // 端末のカメラの有無は navigator.mediaDevices.enumerateDevices() の videoinput で
+  // 判定する。jsdom は navigator.mediaDevices を実装しないため、各ケースで端末の状態を
+  // 明示的に差し替える（差し替えない他のケースは「判定できない」= 導線を出す側になる）。
+  // ==========================================================================
 
-    // カメラ入力は標準の file input（type=file / accept=image/*）であり、キャプチャは
-    // capture="environment" によりOSへ委譲される（独自のカメラUIを持たない）。
-    const cameraInput = screen.getByTestId('camera-input') as HTMLInputElement;
-    expect(cameraInput.tagName).toBe('INPUT');
-    expect(cameraInput.getAttribute('type')).toBe('file');
-    expect(cameraInput.getAttribute('capture')).toBe('environment');
-    expect(cameraInput.getAttribute('accept')).toBe('image/*');
+  describe('カメラの導線の出し分け (R5.3)', () => {
+    const originalMediaDevices = Object.getOwnPropertyDescriptor(navigator, 'mediaDevices');
 
-    // 非カメラ端末を想定し、capture が無視されて「ファイル選択（ローカルアップロード）」として
-    // 使われても、ローカルアップロードと同一の経路（uploadConstructionPhotos）へ合流する
-    // （＝カメラ専用の別経路が存在せず、追加手段がローカルアップロードのみに縮退する）。
-    await act(async () => {
-      fireEvent.change(cameraInput, { target: { files: [makeFile('picked.jpg')] } });
+    function stubDevices(kinds: MediaDeviceKind[]): void {
+      const media = new EventTarget() as EventTarget & {
+        enumerateDevices: () => Promise<MediaDeviceInfo[]>;
+      };
+      media.enumerateDevices = () =>
+        Promise.resolve(
+          kinds.map(
+            (kind) =>
+              ({
+                kind,
+                deviceId: '',
+                groupId: '',
+                label: '',
+                toJSON: () => ({}),
+              }) as MediaDeviceInfo
+          )
+        );
+      Object.defineProperty(navigator, 'mediaDevices', { value: media, configurable: true });
+    }
+
+    afterEach(() => {
+      if (originalMediaDevices) {
+        Object.defineProperty(navigator, 'mediaDevices', originalMediaDevices);
+      } else {
+        delete (navigator as { mediaDevices?: unknown }).mediaDevices;
+      }
     });
-    await waitFor(() => {
-      expect(imagesApi.uploadConstructionPhotos).toHaveBeenCalled();
+
+    // @requirement construction-photo/REQ-5.3
+    it('カメラをサポートしない端末では、カメラ撮影による追加手段を提供せずローカルアップロード手段のみを提示する (R5.3)', async () => {
+      // 機器は列挙されるが videoinput（カメラ）が無い端末
+      stubDevices(['audioinput', 'audiooutput']);
+      vi.mocked(imagesApi.uploadConstructionPhotos).mockResolvedValue({
+        successful: [makePhoto('local-1', 'picked.jpg')],
+        failed: [],
+      });
+      const onPhotosAdded = vi.fn();
+      render(
+        <PhotoUploader albumId="album-1" projectId="project-1" onPhotosAdded={onPhotosAdded} />
+      );
+
+      // カメラ撮影の手段（ボタンと capture 付きの入力）が提供されない
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'カメラで撮影' })).not.toBeInTheDocument();
+      });
+      expect(screen.queryByTestId('camera-button')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('camera-input')).not.toBeInTheDocument();
+      expect(document.querySelectorAll('input[capture]')).toHaveLength(0);
+
+      // ローカルアップロードの手段は提示され、選択した画像が写真項目として追加される
+      expect(screen.getByTestId('upload-area')).toBeInTheDocument();
+      const fileInput = screen.getByLabelText('画像ファイルを選択');
+      expect(fileInput).not.toHaveAttribute('capture');
+      await act(async () => {
+        fireEvent.change(fileInput, { target: { files: [makeFile('picked.jpg')] } });
+      });
+      await waitFor(() => {
+        expect(imagesApi.uploadConstructionPhotos).toHaveBeenCalledTimes(1);
+      });
+      await waitFor(() => {
+        expect(onPhotosAdded).toHaveBeenCalledWith([expect.objectContaining({ id: 'local-1' })]);
+      });
     });
-    await waitFor(() => {
-      expect(onPhotosAdded).toHaveBeenCalledWith([expect.objectContaining({ id: 'deg-1' })]);
+
+    it('カメラを持つ端末では、ローカルアップロードとカメラ撮影の両方の手段を提示する (R5.1)', async () => {
+      stubDevices(['audioinput', 'videoinput']);
+      render(<PhotoUploader albumId="album-1" projectId="project-1" onPhotosAdded={vi.fn()} />);
+
+      expect(await screen.findByRole('button', { name: 'カメラで撮影' })).toBeInTheDocument();
+      expect(screen.getByTestId('camera-input')).toHaveAttribute('capture', 'environment');
+      expect(screen.getByTestId('upload-area')).toBeInTheDocument();
+      expect(screen.getByLabelText('画像ファイルを選択')).toBeInTheDocument();
+    });
+
+    it('カメラの有無を判定できない端末（API が無い・列挙が空）では、カメラの導線を出す側へ倒す', async () => {
+      // API が無い（非セキュアコンテキスト・未対応ブラウザ）
+      Object.defineProperty(navigator, 'mediaDevices', { value: undefined, configurable: true });
+      const { unmount } = render(
+        <PhotoUploader albumId="album-1" projectId="project-1" onPhotosAdded={vi.fn()} />
+      );
+      await act(async () => {
+        // 問い合わせのマイクロタスクをすべて流しきる
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(screen.getByRole('button', { name: 'カメラで撮影' })).toBeInTheDocument();
+      expect(screen.getByTestId('camera-input')).toBeInTheDocument();
+      unmount();
+
+      // 列挙が空（許可の前に何も列挙しない実装と区別できない）
+      stubDevices([]);
+      render(<PhotoUploader albumId="album-1" projectId="project-1" onPhotosAdded={vi.fn()} />);
+      await act(async () => {
+        // 問い合わせのマイクロタスクをすべて流しきる
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(screen.getByRole('button', { name: 'カメラで撮影' })).toBeInTheDocument();
+      expect(screen.getByTestId('camera-input')).toBeInTheDocument();
+    });
+
+    it('権限ポリシーが camera を許さない文書では、videoinput の無い列挙でもカメラの導線を隠さない', async () => {
+      // 権限ポリシーで列挙からカメラが省かれた状態（カメラを持つ端末でも audioinput だけになる）
+      Object.defineProperty(document, 'permissionsPolicy', {
+        value: { allowsFeature: (feature: string) => feature !== 'camera' },
+        configurable: true,
+      });
+      try {
+        stubDevices(['audioinput']);
+        render(<PhotoUploader albumId="album-1" projectId="project-1" onPhotosAdded={vi.fn()} />);
+        await act(async () => {
+          // 問い合わせのマイクロタスクをすべて流しきる
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        expect(screen.getByRole('button', { name: 'カメラで撮影' })).toBeInTheDocument();
+        expect(screen.getByTestId('camera-input')).toHaveAttribute('capture', 'environment');
+      } finally {
+        delete (document as { permissionsPolicy?: unknown }).permissionsPolicy;
+      }
     });
   });
 

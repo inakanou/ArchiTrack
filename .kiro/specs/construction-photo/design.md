@@ -369,6 +369,7 @@ frontend/src/
 - `services/export/constructionPhotoZipNaming.ts` — ZIPエントリ命名（`zip-naming` 相当のクローン）(R15)
 - `components/construction-photos/AlbumDeleteDialog.tsx` — アルバム削除確認（FocusManagerパターン踏襲）(R16)
 - `hooks/useConstructionPhotoPermission.ts` — `usePermission('construction_photo:*')` を包む canView/canCreate/canEdit/canDelete/getPermissionError (R17)
+- `hooks/useCameraAvailability.ts` — 端末のカメラの有無を `enumerateDevices` の `videoinput` で判定する。判定できないときは `unknown`（導線を出す側）。`PhotoUploader` が使う (R5.3, タスク 23.5)
 
 **変更（frontend）**
 - `pages/ConstructionPhotoDetailPage.tsx` — `onPhotoClick`→ビューア遷移結線(R14)、ZIP起動＋対象選択(R15)、アルバム編集/削除導線(R16)、`useConstructionPhotoPermission` で `readOnly`/ボタン出し分け(R17)、画面の `isDirty` state を `useUnsavedChanges({ isDirty })` へ渡して離脱警告を結線(R18)、`useMediaQuery` でモバイル分岐(R19)、写真項目を取り除く操作の失敗は捕捉せずに `PhotoItemPanel` へ伝播させ、上部の通知の枠と `error` には載せず、画面も送らない（R7.7 の失敗時, タスク 21.3・23.9。Error Handling を参照）
@@ -383,7 +384,7 @@ frontend/src/
 - `frontend/src/utils/upload-failure.ts` — `toFailedUpload`/`classifyUploadFailure`/`isUnsupportedFormatMessage`
 - `frontend/src/hooks/usePendingUploads.ts` — 保持・重複排除・ObjectURL 生存管理
 - `frontend/src/components/site-surveys/PendingUploadPanel.tsx` — 未送信一覧の表示と再送・破棄の操作面
-- `frontend/src/components/site-surveys/ImageUploader.tsx` — 保持と再送・破棄の結線、圧縮の有無の切替
+- `frontend/src/components/site-surveys/ImageUploader.tsx` — 保持と再送・破棄の結線、圧縮の有無の切替（例外として、タスク 23.5 がカメラの導線を描くかの任意の口 `showCameraCapture` を既定 `true` で足した。既定の挙動は変えていない。R5.3）
 - `frontend/src/api/client.ts` — `sendFormData`／`UPLOAD_TIMEOUT_MS`／`UPLOAD_RETRYABLE_STATUS_CODES`／401 リフレッシュ待ち合わせ
 
 **本 spec が所有する送信アダプタ（結線済み・回帰時の修正対象）**
@@ -549,7 +550,7 @@ flowchart TD
 | 2 | ナビ/パネル(工程表直下) | ConstructionPhotoSectionCard, SummaryService, routes.tsx, ProjectDetailPage | Summary API | - |
 | 3 | 一覧・検索(50件) | ResponsiveView/Table/Card/SearchFilter, AlbumService | list API | - |
 | 4 | ローカルUP | ConstructionPhotoImageService.addFromUpload, PhotoUploader | upload API | 追加フロー |
-| 5 | カメラ撮影 | PhotoUploader(camera input) | upload API | 追加フロー |
+| 5 | カメラ撮影 | PhotoUploader(camera input), useCameraAvailability | upload API | 追加フロー |
 | 6 | 現調コピー | ImageService.addFromSurveyImage, SurveyImagePicker | copy API | 追加フロー |
 | 7 | 項目管理 | MetadataService, PhotoItemPanel | metadata/order API | 保存フロー |
 | 8 | 看板マスタ | ConstructionSignboardService, SignboardForm, SvgService | signboard API | - |
@@ -605,8 +606,8 @@ R20 の機構は site-survey spec の Requirement 37 が所有する。共有部
 | BulkExportDialog / ProgressDialog / ExportSettingsForm | UI | エクスポート設定・進捗・中断UI(clone) | 15 | ExportService(P0) | State |
 | useConstructionPhotoPermission | UI(hook) | 権限出し分け(canView/Create/Edit/Delete) | 17 | usePermission(P0) | Hook |
 | AlbumDeleteDialog | UI | アルバム削除確認 | 16 | album API(P0) | State |
-| PhotoUploader | UI | 3系統追加＋**送信アダプタ**（失敗画像の実体と再送可否を返す） | 4,5,6,20 | ImageUploader(P0), ImageApi(P0), upload-failure(P0) | State |
-| ImageUploader（借用） | UI | 未送信保持・再送・破棄の結線 | 20 | usePendingUploads(P0), PendingUploadPanel(P0) | State |
+| PhotoUploader | UI | 3系統追加＋**送信アダプタ**（失敗画像の実体と再送可否を返す）＋カメラの導線の出し分け（端末のカメラの有無の判定は内部のフック `useCameraAvailability`） | 4,5,6,20 | ImageUploader(P0), ImageApi(P0), upload-failure(P0), useCameraAvailability(P0) | State |
+| ImageUploader（借用） | UI | 未送信保持・再送・破棄の結線、カメラの導線を描くかの任意の口 `showCameraCapture`（既定 `true`） | 20 | usePendingUploads(P0), PendingUploadPanel(P0) | State |
 | usePendingUploads（借用） | UI(hook) | 保持・重複排除・ObjectURL 生存管理 | 20 | upload.types(P0) | Hook |
 | PendingUploadPanel（借用） | UI | 未送信一覧の表示と操作面 | 20 | upload.types(P0) | State |
 | ApiClient.sendFormData（借用） | API(client) | multipart 送信の再試行・猶予・401更新 | 20 | ApiClient(P0) | Service |
@@ -726,6 +727,29 @@ type PhotoUploadHandler = (files: File[]) => Promise<UploadOutcome>;
   - **成功分の通知（`onPhotosAdded`）および失敗通知（`onNotify`）の例外を、送信の失敗として扱わない**。`ImageUploader.submitFiles` の catch は試行対象の**全ファイル**を保持へ回すため、成功分の通知で例外が伝播すると、サーバー登録済みの画像まで未送信画像として保持され、再送で重複登録される。`handleUpload` は通知の呼び出しを個別に保護し、通知の失敗が `UploadOutcome` の `failed[]` を汚染しないようにする。これは R20.14 が守る「同一画像の重複登録を避ける」不変条件をアダプタ層でも維持するためである。
   - `uploadFilesInWaves` 自体は例外を投げない（各リクエストを個別に捕捉し `failed[]` へ集約する）。したがって `handleUpload` が reject しうるのは通知経路のみであり、上記の保護でアダプタ層の例外経路は塞がれる。
 - **決定: 権限喪失時の保持の扱い（R17 との相互作用）** — `PhotoUploader` は `canEdit` 配下に描画されるため、編集権限を失うとアンマウントで保持中の未送信画像が解放される。R17.1（編集権限なしは操作手段を表示しない）を優先する。編集権限のないユーザーが再送してもバックエンドが 403 で拒否するため、保持を続けても再送は成立せず「再送できるはず」という誤った期待を生むからである。
+
+### Frontend Interfaces（R5.3 カメラの導線の出し分け）
+
+タスク 23.5 で追加した。利用者の判断（2026-10-03）は「工事写真の側で出し分け、共有の `ImageUploader` の既定の挙動は変えない」である。判定の方法と限界は requirements.md の Requirement 5 の受入基準3 の注記にも記録してある。
+
+```typescript
+// frontend/src/hooks/useCameraAvailability.ts (R5.3)
+type CameraAvailability = 'available' | 'unavailable' | 'unknown';
+function classifyCameraAvailability(devices: ReadonlyArray<Pick<MediaDeviceInfo, 'kind'>>): CameraAvailability;
+function queryCameraPermissionsPolicy(): boolean | null | 'error';  // 権限ポリシーが camera を許すか。API が無ければ null
+function probeCameraAvailability(): Promise<CameraAvailability>;   // 例外を投げない
+function useCameraAvailability(): CameraAvailability;               // 確定までは 'unknown'
+
+// 共有の ImageUploader（所有は site-survey）へ足した任意の口。既定 true で従来どおり描く
+interface ImageUploaderProps { /* 既存の口… */ showCameraCapture?: boolean }
+```
+
+- **判定の方法**: `navigator.mediaDevices.enumerateDevices()` が列挙する機器の種類を見る。許可の前でも種類は列挙される（`deviceId` と `label` は空）。`videoinput` が一つ以上で `available`、機器は列挙されたが `videoinput` が無ければ `unavailable`、API が無い・列挙が失敗した・列挙が空・判定の途中は `unknown`。列挙の前に `document.permissionsPolicy.allowsFeature('camera')`（無ければ `document.featurePolicy.allowsFeature('camera')`）を問い、偽または例外なら列挙を信じず `unknown` とする（`queryCameraPermissionsPolicy`）。`devicechange` で判定し直し、先に始めた問い合わせが後から解決しても新しい判定を上書きしない。アンマウントで購読を外す。
+- **出し分け**: `PhotoUploader` は `showCameraCapture={availability !== 'unavailable'}` を `ImageUploader` へ渡す。`false` のとき `ImageUploader` は「カメラで撮影」のボタンと `capture` 付きのファイル入力のどちらも描かず、ファイルの選択とドラッグ＆ドロップ（ローカルアップロード）だけを残す。site-survey の画面は口を渡さないため、従来どおり常に描く。
+- **決定: 判定できないときは導線を出す側へ倒す** — カメラの導線は `<input type="file" accept="image/*" capture>` であり、カメラの無い端末で押されても `capture` が無視されてファイルの選択が開くだけである（R5.3 には反するが、写真項目はローカルアップロードと同じ経路で追加できる）。誤って隠すと、カメラを持つ端末から R5.1・R5.2 の撮影の手段を奪う。誤りの重さの差から、`unknown` は出す側とする。判定の途中も同じ扱いで、カメラの無い端末では表示の直後に導線が出て、判定が確定すると消える。
+- **限界**: 列挙が空の環境（許可の前に何も列挙しないブラウザ。E2E の実行環境のヘッドレスの Chromium も列挙が空である。2026-10-03 に実測）では、カメラが無くても導線が出る。`videoinput` は機器の在否を示すだけで、`capture` による撮影の起動が効くかは示さない。**権限ポリシーによる絞り込み（誤って隠す向き）**: W3C Media Capture and Streams の「creating a list of device info objects」は「If device is not a camera, or document is not allowed to use the feature identified by 'camera', abort」と定め、MDN も「The returned list will omit any devices that are blocked by the document Permission Policy: microphone, camera …」と書く。`Permissions-Policy: camera=()` の文書や `allow="camera"` の無い iframe では、カメラを持つ端末でも列挙が `audioinput` だけになるが、`capture` 付きのファイル入力はこのポリシーの対象外で OS のカメラを起動できる。これに対し、ポリシーの API が `camera` を許さないと答えたときは `unknown`（導線を出す）へ倒す。どちらの API も持たないブラウザでは列挙だけで判定するため、絞り込まれた文書ではカメラを持つ端末でも導線が消える（残る限界）。現在の配信はこのヘッダーを送らず（nginx の設定・helmet の既定）、最上位の文書として表示される（X-Frame-Options SAMEORIGIN）。後から権限ポリシーを足す場合は `camera=(self)` とするか、この防御を保つこと。**実機で確かめていない事項**: Safari の許可の前の列挙、Android の Chrome で OS のカメラの権限が与えられていないときの列挙（いずれも `videoinput` を省きつつ他の種類を列挙するなら、カメラを持つ端末でも導線が消える）。
+- **検証**: 判定の各場合（`videoinput` あり・なし・列挙が空・API が無い・失敗・権限ポリシーが `camera` を許さない／許す／API が無い／例外・`devicechange`・古い問い合わせの上書き防止）は `useCameraAvailability` の単体テスト、出し分けは `PhotoUploader` と `ImageUploader` の単体テスト、画面の結線は E2E（`construction-photo-workflow.spec.ts` で `page.addInitScript` により `enumerateDevices` を差し替え、`videoinput` の無い端末で導線が無くローカルアップロードで追加できること、`videoinput` のある端末で導線が在ること、`document.permissionsPolicy.allowsFeature('camera')` を偽にした文書では `audioinput` だけの列挙でも導線が在ること）で主張する。
+- **部品表の扱い**: `useConstructionPhotoPermission` は部品表に自身の行を持つが、`useCameraAvailability` は `PhotoUploader` の行へ畳んだ。部品表の行を足すと `check:design-component-reqs` の本スペックの下限（`scripts/check-design-component-requirements.ts` の宣言。site-survey が所有する統制）を同時に上げる必要があり、本タスクの境界の外であるためである。フックは `PhotoUploader` だけが使う内部の依存である。
 
 ### API Contracts
 

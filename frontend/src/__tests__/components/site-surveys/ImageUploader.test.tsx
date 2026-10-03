@@ -581,6 +581,37 @@ describe('ImageUploader', () => {
 
       expect(clickSpy).toHaveBeenCalled();
     });
+
+    // 任意の口 showCameraCapture（construction-photo のタスク 23.5 が追加）。
+    // 既定（未指定）は従来どおりカメラの導線を描き、false を渡したときだけ描かない。
+    it('showCameraCapture を指定しなければ、従来どおりカメラのボタンと入力を描く', () => {
+      render(<ImageUploader {...defaultProps} />);
+      expect(screen.getByRole('button', { name: 'カメラで撮影' })).toBeInTheDocument();
+      expect(screen.getByTestId('camera-input')).toHaveAttribute('capture', 'environment');
+    });
+
+    it('showCameraCapture={true} はカメラのボタンと入力を描く', () => {
+      render(<ImageUploader {...defaultProps} showCameraCapture />);
+      expect(screen.getByTestId('camera-button')).toBeInTheDocument();
+      expect(screen.getByTestId('camera-input')).toBeInTheDocument();
+    });
+
+    it('showCameraCapture={false} はカメラのボタンと入力を描かず、ファイル選択とドロップは残す', async () => {
+      const onUpload = vi.fn().mockResolvedValue(undefined);
+      render(<ImageUploader {...defaultProps} onUpload={onUpload} showCameraCapture={false} />);
+
+      expect(screen.queryByRole('button', { name: 'カメラで撮影' })).not.toBeInTheDocument();
+      expect(screen.queryByTestId('camera-button')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('camera-input')).not.toBeInTheDocument();
+      expect(document.querySelectorAll('input[capture]')).toHaveLength(0);
+
+      expect(screen.getByTestId('upload-area')).toBeInTheDocument();
+      const file = createMockFile('local.jpg', 1024);
+      fireEvent.change(screen.getByTestId('file-input'), { target: { files: [file] } });
+      await waitFor(() => {
+        expect(onUpload).toHaveBeenCalledWith([file]);
+      });
+    });
   });
 
   // ==========================================================================

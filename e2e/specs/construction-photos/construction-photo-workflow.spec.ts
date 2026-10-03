@@ -25,6 +25,10 @@
  *     クリックだけで看板マスタへ到達→登録→詳細画面へ戻って配置（R8.1, R8.10）
  *     看板の一覧の取得に失敗したときに「登録されていません」と偽らず失敗の文言を示す（是正 1 巡目）
  *     看板の一覧の取得中に看板の指定を変える操作を出さず、配置を消す保存を送らない（是正 2 巡目）
+ * 12. カメラの導線の出し分け（タスク 23.5）: enumerateDevices を差し替え、videoinput の無い端末では
+ *     カメラ撮影の導線を出さずローカルアップロードだけで追加でき（R5.3）、videoinput のある端末では
+ *     導線を出す（R5.1）。権限ポリシーが camera を許さない文書では、videoinput の無い列挙でも導線を
+ *     隠さない（R5.1、是正 1 巡目）
  *
  * 縮退した要素（理由明記）:
  *  - 現調写真コピー（R6.1 の実データ複製）: 同一プロジェクト配下に画像付き現場調査を用意する
@@ -35,7 +39,7 @@
  *    を検証し、重畳画像そのものの画素比較は行わない（サーバ側単体/統合テストの責務）。
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import * as path from 'path';
 import * as fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -50,6 +54,83 @@ const __dirname = path.dirname(__filename);
 
 const FIXTURE_JPG = path.join(__dirname, '../../fixtures/test-image.jpg');
 const FIXTURE_PNG = path.join(__dirname, '../../fixtures/test-image.png');
+
+/**
+ * ページの読み込みより前に `navigator.mediaDevices.enumerateDevices()` を差し替え、
+ * 指定した種類の機器だけを列挙する端末を作る（タスク 23.5, R5.3）。
+ *
+ * 許可の前の実ブラウザと同じく `deviceId` / `label` は空にする。呼び出し回数を
+ * `window.__enumerateDevicesCalls` に数え、アプリが問い合わせたことを確かめられるようにする。
+ * `navigator.mediaDevices` が無い環境では差し替えず、前提の確認で失敗させる。
+ */
+async function stubEnumerateDevices(page: Page, kinds: string[]): Promise<void> {
+  await page.addInitScript((deviceKinds: string[]) => {
+    const scope = window as unknown as { __enumerateDevicesCalls: number };
+    scope.__enumerateDevicesCalls = 0;
+    const mediaDevices = navigator.mediaDevices;
+    if (!mediaDevices) return;
+    Object.defineProperty(mediaDevices, 'enumerateDevices', {
+      configurable: true,
+      value: () => {
+        scope.__enumerateDevicesCalls += 1;
+        return Promise.resolve(
+          deviceKinds.map((kind) => ({
+            kind,
+            deviceId: '',
+            groupId: '',
+            label: '',
+            toJSON: () => ({}),
+          }))
+        );
+      },
+    });
+  }, kinds);
+}
+
+/**
+ * ページの読み込みより前に `document.permissionsPolicy.allowsFeature` を差し替え、
+ * `camera` を許さない文書を作る（`Permissions-Policy: camera=()` の応答ヘッダー相当）。
+ * 問い合わせの回数を `window.__cameraPolicyQueries` に数える。
+ */
+async function stubCameraDisallowedByPermissionsPolicy(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const scope = window as unknown as { __cameraPolicyQueries: number };
+    scope.__cameraPolicyQueries = 0;
+    Object.defineProperty(document, 'permissionsPolicy', {
+      configurable: true,
+      value: {
+        allowsFeature: (feature: string) => {
+          if (feature === 'camera') {
+            scope.__cameraPolicyQueries += 1;
+            return false;
+          }
+          return true;
+        },
+      },
+    });
+  });
+}
+
+/** アプリ（と本テスト）が権限ポリシーへ `camera` を問い合わせた回数 */
+async function readCameraPolicyQueries(page: Page): Promise<number> {
+  return page.evaluate(
+    () => (window as unknown as { __cameraPolicyQueries?: number }).__cameraPolicyQueries ?? 0
+  );
+}
+
+/** アプリ（と本テスト）が `enumerateDevices` を呼んだ回数 */
+async function readEnumerateDevicesCalls(page: Page): Promise<number> {
+  return page.evaluate(
+    () => (window as unknown as { __enumerateDevicesCalls?: number }).__enumerateDevicesCalls ?? 0
+  );
+}
+
+/** ページから見える `enumerateDevices` の列挙結果の種類 */
+async function readEnumeratedKinds(page: Page): Promise<string[]> {
+  return page.evaluate(async () =>
+    (await navigator.mediaDevices.enumerateDevices()).map((device) => device.kind)
+  );
+}
 
 test.describe('工事写真 主要ユーザーフロー', () => {
   // DB状態を跨いで共有するためシリアル実行
@@ -1248,5 +1329,139 @@ test.describe('工事写真 主要ユーザーフロー', () => {
       timeout: getTimeout(15000),
     });
     expect(batchRequests).toEqual([]);
+  });
+
+  /**
+   * R5.3: カメラをサポートしない端末では、カメラ撮影による追加手段を提供せず、ローカル
+   * アップロード手段のみを提示する（タスク 23.5）。
+   *
+   * 端末のカメラの有無は `navigator.mediaDevices.enumerateDevices()` の `videoinput` で
+   * 判定する。ページの読み込みより前に `enumerateDevices` を差し替え、機器は列挙されるが
+   * `videoinput` が無い端末を作る。差し替えが効いていることを前提として主張する。
+   * 本テストは写真項目を 1 件足すため、写真項目の件数を 2 件と前提する他のテストより後に置く。
+   *
+   * @requirement construction-photo/REQ-5.3
+   */
+  test('カメラをサポートしない端末では、カメラ撮影の導線を出さずローカルアップロードだけで写真項目を追加できる', async ({
+    page,
+  }) => {
+    expect(albumId).toBeTruthy();
+    await loginAsUser(page, 'ADMIN_USER');
+    await stubEnumerateDevices(page, ['audioinput', 'audiooutput']);
+
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { name: albumName })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    const items = page.getByTestId('construction-photo-item');
+    await expect(items).toHaveCount(2, { timeout: getTimeout(20000) });
+
+    // 前提: アプリが端末へ問い合わせ、差し替えた列挙（videoinput 無し）を受け取っている
+    await expect
+      .poll(() => readEnumerateDevicesCalls(page), { timeout: getTimeout(10000) })
+      .toBeGreaterThan(0);
+    expect(await readEnumeratedKinds(page)).toEqual(['audioinput', 'audiooutput']);
+
+    // カメラ撮影の手段（ボタンと capture 付きの入力）が提供されない
+    const uploader = page.getByTestId('photo-uploader');
+    await expect(uploader).toBeVisible();
+    await expect(uploader.getByTestId('camera-button')).toHaveCount(0, {
+      timeout: getTimeout(10000),
+    });
+    await expect(uploader.getByTestId('camera-input')).toHaveCount(0);
+    await expect(uploader.locator('input[capture]')).toHaveCount(0);
+
+    // ローカルアップロードの手段は提示され、選択した画像が写真項目として追加される
+    await expect(uploader.getByTestId('upload-area')).toBeVisible();
+    const fileInput = uploader.getByTestId('file-input');
+    await expect(fileInput).toHaveCount(1);
+    const upload = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'POST' &&
+        /\/construction-photos\/.+\/images$/.test(new URL(r.url()).pathname),
+      { timeout: getTimeout(30000) }
+    );
+    await fileInput.setInputFiles(FIXTURE_JPG);
+    expect((await upload).status()).toBeLessThan(300);
+    await expect(items).toHaveCount(3, { timeout: getTimeout(20000) });
+
+    // 判定の後も導線は出ないまま（アップロードの後の再描画で戻らない）
+    await expect(uploader.getByTestId('camera-button')).toHaveCount(0);
+  });
+
+  /**
+   * R5.1: カメラを持つ端末では、ローカルアップロードに加えてカメラ撮影の導線を出す
+   * （タスク 23.5 の出し分けがカメラを持つ端末から撮影の手段を奪わないこと）。
+   *
+   * 判定の前（unknown）も導線は出るため、アプリが差し替えた列挙を受け取ったことを
+   * 確かめてから主張する。
+   *
+   * @requirement construction-photo/REQ-5.1
+   */
+  test('カメラを持つ端末では、カメラ撮影の導線とローカルアップロードの両方を出す', async ({
+    page,
+  }) => {
+    expect(albumId).toBeTruthy();
+    await loginAsUser(page, 'ADMIN_USER');
+    await stubEnumerateDevices(page, ['audioinput', 'videoinput']);
+
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { name: albumName })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    await expect
+      .poll(() => readEnumerateDevicesCalls(page), { timeout: getTimeout(10000) })
+      .toBeGreaterThan(0);
+    expect(await readEnumeratedKinds(page)).toEqual(['audioinput', 'videoinput']);
+
+    const uploader = page.getByTestId('photo-uploader');
+    await expect(uploader.getByTestId('camera-button')).toBeVisible();
+    await expect(uploader.getByTestId('camera-button')).toHaveText('カメラで撮影');
+    await expect(uploader.getByTestId('camera-input')).toHaveAttribute('capture', 'environment');
+    await expect(uploader.getByTestId('upload-area')).toBeVisible();
+    await expect(uploader.getByTestId('file-input')).toHaveCount(1);
+  });
+
+  /**
+   * R5.1: 権限ポリシーが `camera` を許さない文書では、カメラを持つ端末でも列挙から
+   * `videoinput` が省かれる（W3C Media Capture and Streams）。`capture` 付きのファイル入力は
+   * このポリシーの対象外であるため、その列挙を信じて導線を隠さない（タスク 23.5 の是正）。
+   *
+   * @requirement construction-photo/REQ-5.1
+   */
+  test('権限ポリシーが camera を許さない文書では、videoinput の無い列挙でもカメラ撮影の導線を隠さない', async ({
+    page,
+  }) => {
+    expect(albumId).toBeTruthy();
+    await loginAsUser(page, 'ADMIN_USER');
+    await stubCameraDisallowedByPermissionsPolicy(page);
+    await stubEnumerateDevices(page, ['audioinput']);
+
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { name: albumName })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    // 前提: アプリが権限ポリシーへ camera を問い合わせ、許されないと答えられている
+    await expect
+      .poll(() => readCameraPolicyQueries(page), { timeout: getTimeout(10000) })
+      .toBeGreaterThan(0);
+    expect(
+      await page.evaluate(() =>
+        (
+          document as unknown as { permissionsPolicy: { allowsFeature: (f: string) => boolean } }
+        ).permissionsPolicy.allowsFeature('camera')
+      )
+    ).toBe(false);
+    expect(await readEnumeratedKinds(page)).toEqual(['audioinput']);
+
+    const uploader = page.getByTestId('photo-uploader');
+    await expect(uploader.getByTestId('camera-button')).toBeVisible();
+    await expect(uploader.getByTestId('camera-input')).toHaveAttribute('capture', 'environment');
+    await expect(uploader.getByTestId('upload-area')).toBeVisible();
   });
 });
