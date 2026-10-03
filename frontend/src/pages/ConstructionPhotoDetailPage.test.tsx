@@ -1050,6 +1050,144 @@ describe('ConstructionPhotoDetailPage', () => {
     });
 
     // --------------------------------------------------------------------
+    // タスク 23.6: 写真項目の削除の成功の後の未保存の状態
+    // 未保存の状態は、保留中の変更（写真項目ごとのメタ変更と順序の変更）が一つでも残っている
+    // ときに限る。削除で保留が空になれば未保存を解消し、他の保留が残れば未保存のまま保つ。
+    // 削除の失敗で未保存の状態が変わらないことは、21.3 の「失敗しても未保存の状態と未保存の
+    // 変更は変わらない」が主張する。
+    // --------------------------------------------------------------------
+    describe('写真項目の削除の成功の後の未保存の状態（タスク 23.6）', () => {
+      /** 直近の描画で画面が useBlocker へ渡した遮断の要否 */
+      const lastBlockerArg = (): boolean | undefined =>
+        mockUseBlocker.mock.calls[mockUseBlocker.mock.calls.length - 1]?.[0];
+
+      /** 指定の写真項目のコメントを編集する（入力の後に確定する） */
+      const editComment = (item: HTMLElement, value: string): void => {
+        const textarea = within(item).getByLabelText('コメント');
+        fireEvent.change(textarea, { target: { value } });
+        fireEvent.blur(textarea);
+      };
+
+      /** 指定のファイル名の写真項目を削除する（確認ダイアログで「削除する」を押し、閉じるまで待つ） */
+      const deletePhoto = async (fileName: string): Promise<void> => {
+        fireEvent.click(screen.getByRole('button', { name: `写真項目を削除: ${fileName}` }));
+        const dialog = await screen.findByRole('dialog', { name: '写真項目を削除' });
+        fireEvent.click(within(dialog).getByRole('button', { name: '削除する' }));
+        await waitFor(() => {
+          expect(screen.queryByRole('dialog', { name: '写真項目を削除' })).not.toBeInTheDocument();
+        });
+      };
+
+      beforeEach(() => {
+        vi.mocked(imagesApi.deleteConstructionPhoto).mockResolvedValue(undefined);
+        vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockResolvedValue([]);
+        vi.mocked(imagesApi.updateConstructionPhotoOrder).mockResolvedValue(undefined);
+      });
+
+      it('コメントを編集した写真項目を取り除き、保留が空になると、未保存の状態が解消する（表示・保存・離脱の確認） (R18.3)', async () => {
+        renderPage();
+        const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+        editComment(firstItem, '配筋検査');
+        // 前提: 未保存である
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(true));
+        expect(screen.getByText('未保存の変更があります')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
+
+        await deletePhoto('a.jpg');
+
+        await waitFor(() => {
+          expect(screen.getAllByTestId('construction-photo-item')).toHaveLength(1);
+        });
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(false));
+        expect(lastBlockerArg()).toBe(false);
+        expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument();
+        // 送るものが無いため、保存は押せない（押して未保存のまま残る状態にならない）
+        expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
+        expect(imagesApi.updateConstructionPhotoMetadataBatch).not.toHaveBeenCalled();
+        expect(imagesApi.updateConstructionPhotoOrder).not.toHaveBeenCalled();
+      });
+
+      it('他の写真項目の編集が残るときは未保存のままで、保存はその編集だけを送る', async () => {
+        renderPage();
+        const [firstItem, secondItem] = await screen.findAllByTestId('construction-photo-item');
+        editComment(firstItem!, '取り除く写真の編集');
+        editComment(secondItem!, '残る写真の編集');
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(true));
+
+        await deletePhoto('a.jpg');
+
+        await waitFor(() => {
+          expect(screen.getAllByTestId('construction-photo-item')).toHaveLength(1);
+        });
+        expect(lastUnsavedDirty()).toBe(true);
+        expect(lastBlockerArg()).toBe(true);
+        expect(screen.getByText('未保存の変更があります')).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+        await waitFor(() => {
+          expect(imagesApi.updateConstructionPhotoMetadataBatch).toHaveBeenCalledWith([
+            { id: 'photo-2', comment: '残る写真の編集' },
+          ]);
+        });
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(false));
+        expect(imagesApi.updateConstructionPhotoOrder).not.toHaveBeenCalled();
+      });
+
+      it('順序の変更が残るときは、メタ変更の保留が空になっても未保存のままで、保存は順序だけを送る', async () => {
+        vi.mocked(imagesApi.getConstructionPhotos).mockResolvedValue([
+          makePhoto({ id: 'photo-1', displayOrder: 1, fileName: 'a.jpg' }),
+          makePhoto({ id: 'photo-2', displayOrder: 2, fileName: 'b.jpg' }),
+          makePhoto({ id: 'photo-3', displayOrder: 3, fileName: 'c.jpg' }),
+        ]);
+
+        renderPage();
+        const items = await screen.findAllByTestId('construction-photo-item');
+        expect(items).toHaveLength(3);
+        // c.jpg を一つ上へ（a, c, b）。その後に a.jpg のコメントを編集する
+        fireEvent.click(within(items[2]!).getByRole('button', { name: '上へ移動' }));
+        editComment(screen.getAllByTestId('construction-photo-item')[0]!, '取り除く写真の編集');
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(true));
+
+        await deletePhoto('a.jpg');
+
+        await waitFor(() => {
+          expect(screen.getAllByTestId('construction-photo-item')).toHaveLength(2);
+        });
+        expect(lastUnsavedDirty()).toBe(true);
+        expect(lastBlockerArg()).toBe(true);
+        expect(screen.getByText('未保存の変更があります')).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+        await waitFor(() => {
+          expect(imagesApi.updateConstructionPhotoOrder).toHaveBeenCalledWith('album-1', [
+            { id: 'photo-3', order: 1 },
+            { id: 'photo-2', order: 2 },
+          ]);
+        });
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(false));
+        expect(imagesApi.updateConstructionPhotoMetadataBatch).not.toHaveBeenCalled();
+      });
+
+      it('並び替えた写真項目をすべて取り除き、順序の保留に写真項目が残らなくなると、未保存の状態が解消する', async () => {
+        renderPage();
+        const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+        fireEvent.click(within(firstItem).getByRole('button', { name: '下へ移動' }));
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(true));
+
+        await deletePhoto('a.jpg');
+        await deletePhoto('b.jpg');
+
+        await waitFor(() => {
+          expect(screen.queryAllByTestId('construction-photo-item')).toHaveLength(0);
+        });
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(false));
+        expect(lastBlockerArg()).toBe(false);
+        expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument();
+        expect(imagesApi.updateConstructionPhotoOrder).not.toHaveBeenCalled();
+      });
+    });
+
+    // --------------------------------------------------------------------
     // R18.2: アプリ内遷移全般（Breadcrumbのリンククリック含む）のガードは
     // useBlocker(isDirty) が担う。jsdom にはデータルーター連携の実遷移
     // ブロックが無いため、QuantityTableEditPage/CompanyInfoPage/

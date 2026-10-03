@@ -44,6 +44,11 @@
  *     ItemizedStatementDetailPage の確立済みパターン）で `Breadcrumb` のリンククリックを含む
  *     遷移全般を汎用的に捕捉し、`UnsavedChangesDialog` で確認、「離れる」選択時のみ
  *     `blocker.proceed()` で遷移を継続する（R18.2）
+ *   - タスク 23.6 で、`markAsChanged()` / `markAsSaved()` を `syncDirtyWithPending()` へ置き換えた。
+ *     `isDirty` は保留中の変更（`pendingChangesRef` のメタ変更と `pendingOrderRef` の順序変更）が
+ *     一つでも残っているときに限って真で、保留を足す・消すすべての箇所（メタ変更・順序変更・保存・
+ *     写真項目の削除の成功）でこの関数が保留から決め直す。変更前は削除の成功が保留を消しても
+ *     フラグを戻さず、送るものの無い「保存」は冒頭で戻るため、読み込み直すまで未保存のまま残った
  *
  * Task 21.3 追加: 写真項目の削除が失敗したときに、失敗を通知の枠（`styles.notice`、role=alert）へ
  *   出す。受入基準 7.7 は失敗時の表示を定めておらず、利用者の判断（2026-10-02）で加えた挙動である。
@@ -337,10 +342,20 @@ export default function ConstructionPhotoDetailPage() {
     ...(isMobile ? styles.containerMobile : {}),
   };
 
+  // 未保存のメタデータ変更（photoId -> {comment?, includeInReport?, signboardId?, signboardPlacement?}）
+  const pendingChangesRef = useRef<Map<string, PhotoMetadataChange>>(new Map());
+  // 未保存の順序変更
+  const pendingOrderRef = useRef<PhotoOrderItem[] | null>(null);
+
   // 未保存離脱警告（R18.1, R18.3, R18.4）。編集権限が無ければ未保存変更が生じないため無効化する。
   const [isDirty, setIsDirty] = useState(false);
-  const markAsChanged = useCallback(() => setIsDirty(true), []);
-  const markAsSaved = useCallback(() => setIsDirty(false), []);
+  /**
+   * 未保存の状態を保留中の変更から決め直す（タスク 23.6）。保留（メタ変更・順序変更）が一つでも
+   * 残っていれば未保存、空なら未保存でない。保留を足す・消す箇所は必ずこの関数を呼ぶ。
+   */
+  const syncDirtyWithPending = useCallback(() => {
+    setIsDirty(pendingChangesRef.current.size > 0 || pendingOrderRef.current !== null);
+  }, []);
   useUnsavedChanges({ isDirty: canEdit && isDirty });
   // アプリ内遷移の汎用ガード（Breadcrumbのリンククリック含む全遷移を捕捉, R18.2）。
   // QuantityTableEditPage/CompanyInfoPage/ItemizedStatementDetailPage の確立済みパターンに準拠。
@@ -387,11 +402,6 @@ export default function ConstructionPhotoDetailPage() {
   const [isExportRunning, setIsExportRunning] = useState(false);
   // 実行中の AbortController（中断操作で abort() を呼ぶ, R15.9）
   const exportControllerRef = useRef<AbortController | null>(null);
-
-  // 未保存のメタデータ変更（photoId -> {comment?, includeInReport?}）
-  const pendingChangesRef = useRef<Map<string, PhotoMetadataChange>>(new Map());
-  // 未保存の順序変更
-  const pendingOrderRef = useRef<PhotoOrderItem[] | null>(null);
 
   /**
    * アルバム・プロジェクト・写真項目一覧を取得する。
@@ -517,9 +527,9 @@ export default function ConstructionPhotoDetailPage() {
 
       const existing = pendingChangesRef.current.get(photoId) ?? {};
       pendingChangesRef.current.set(photoId, { ...existing, ...metadata });
-      markAsChanged();
+      syncDirtyWithPending();
     },
-    [markAsChanged]
+    [syncDirtyWithPending]
   );
 
   /**
@@ -617,9 +627,9 @@ export default function ConstructionPhotoDetailPage() {
         }));
       });
       pendingOrderRef.current = newOrders;
-      markAsChanged();
+      syncDirtyWithPending();
     },
-    [markAsChanged]
+    [syncDirtyWithPending]
   );
 
   /**
@@ -631,7 +641,12 @@ export default function ConstructionPhotoDetailPage() {
     if (!id) return;
     const hasMetadataChanges = pendingChangesRef.current.size > 0;
     const hasOrderChanges = pendingOrderRef.current !== null;
-    if (!hasMetadataChanges && !hasOrderChanges) return;
+    if (!hasMetadataChanges && !hasOrderChanges) {
+      // 送るものが無い。保存ボタンは未保存でない間は押せないが、押せた場合も未保存の状態を
+      // 保留（空）に揃え、押した後に未保存のまま残らないようにする（R18.3, タスク 23.6）
+      syncDirtyWithPending();
+      return;
+    }
 
     setIsSaving(true);
     setError(null);
@@ -652,13 +667,13 @@ export default function ConstructionPhotoDetailPage() {
 
       pendingChangesRef.current.clear();
       pendingOrderRef.current = null;
-      markAsSaved();
+      syncDirtyWithPending();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '保存に失敗しました');
     } finally {
       setIsSaving(false);
     }
-  }, [id, markAsSaved]);
+  }, [id, syncDirtyWithPending]);
 
   /**
    * PDF出力ハンドラ（R10.1, R10.3, R10.12, R10.13）
@@ -700,35 +715,47 @@ export default function ConstructionPhotoDetailPage() {
    * （アップロードの失敗など）が削除の失敗を隠さないようにするためで、`error` を消すのは、
    * やり直しが成功したときに古い失敗の表示を残さないためである（保存の開始と同じ扱い）。
    * 失敗は `PhotoItemPanel` へ伝播させる（同部品が確認ダイアログを閉じる）。
+   *
+   * 成功したときは、取り除いた写真項目の保留（メタ変更と順序変更の該当の行）を消し、未保存の
+   * 状態を残りの保留から決め直す（タスク 23.6）。他の写真項目の編集や順序変更が残れば未保存の
+   * まま、残らなければ未保存を解消する。順序変更の保留から写真項目がすべて消えたときは、送る
+   * 順序が無いため保留そのものを無くす。
    */
-  const handleDelete = useCallback(async (photoId: string) => {
-    setNotice(null);
-    setError(null);
-    try {
-      await deleteConstructionPhoto(photoId);
-    } catch (err) {
-      setError(
-        err instanceof ApiError
-          ? err.message || PHOTO_DELETE_FAILED_MESSAGE
-          : PHOTO_DELETE_FAILED_MESSAGE
-      );
-      setNoticeRevealRequest((prev) => prev + 1);
-      throw err;
-    }
-    setPhotos((prev) => prev.filter((p) => p.id !== photoId));
-    pendingChangesRef.current.delete(photoId);
-    if (pendingOrderRef.current) {
-      pendingOrderRef.current = pendingOrderRef.current
-        .filter((o) => o.id !== photoId)
-        .map((o, index) => ({ ...o, order: index + 1 }));
-    }
-    setSelectedPhotoIds((prev) => {
-      if (!prev.has(photoId)) return prev;
-      const next = new Set(prev);
-      next.delete(photoId);
-      return next;
-    });
-  }, []);
+  const handleDelete = useCallback(
+    async (photoId: string) => {
+      setNotice(null);
+      setError(null);
+      try {
+        await deleteConstructionPhoto(photoId);
+      } catch (err) {
+        setError(
+          err instanceof ApiError
+            ? err.message || PHOTO_DELETE_FAILED_MESSAGE
+            : PHOTO_DELETE_FAILED_MESSAGE
+        );
+        setNoticeRevealRequest((prev) => prev + 1);
+        throw err;
+      }
+      setPhotos((prev) => prev.filter((p) => p.id !== photoId));
+      pendingChangesRef.current.delete(photoId);
+      if (pendingOrderRef.current) {
+        pendingOrderRef.current = pendingOrderRef.current
+          .filter((o) => o.id !== photoId)
+          .map((o, index) => ({ ...o, order: index + 1 }));
+        if (pendingOrderRef.current.length === 0) {
+          pendingOrderRef.current = null;
+        }
+      }
+      syncDirtyWithPending();
+      setSelectedPhotoIds((prev) => {
+        if (!prev.has(photoId)) return prev;
+        const next = new Set(prev);
+        next.delete(photoId);
+        return next;
+      });
+    },
+    [syncDirtyWithPending]
+  );
 
   /**
    * 写真項目の削除が失敗したときに、通知の枠を画面内へ送る（タスク 21.3）。

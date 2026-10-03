@@ -71,6 +71,9 @@
  *     user が一覧から開いて写真項目を見る・原本を開く・写真を追加する・コメントと並び替えを保存
  *     でき、削除の操作手段は表示されない（R1.2, R17.2。アクセスはロールの権限の表だけで判定する
  *     タスク 23.1 の利用者の判断）
+ * 25. 写真項目の削除の成功の後の未保存の状態: コメントを編集した写真項目を取り除いたとき、他の
+ *     写真項目の編集が残る間は未保存のままで保存はその編集だけを送り、保留が空になれば未保存の
+ *     表示が消え「保存」は押せず、ブレッドクラムの遷移で離脱の確認が出ない（R18.3。タスク 23.6）
  *
  * 縮退した要素（理由明記）:
  *  - パンの座標厳密検証: 拡大時に画像 transform の translate 成分が変化することまでを確認し、
@@ -3670,5 +3673,191 @@ test.describe('工事写真 追加機能フロー', () => {
     await expect(items).toHaveCount(1, { timeout: getTimeout(20000) });
     await expect(keepHeading).toBeVisible({ timeout: getTimeout(15000) });
     await expect(targetHeading).toHaveCount(0);
+  });
+
+  /**
+   * 写真項目の削除の成功の後の未保存の状態（タスク 23.6）:
+   * 1280 幅の詳細画面で、コメントを編集した写真項目を取り除く。
+   *
+   * @requirement construction-photo/REQ-18.3
+   *
+   * 未保存の状態は、保留中の変更が一つでも残っているときに限る。主張は 2 段である。
+   *  - 段 1（他の保留が残る）: 写真項目 X と K のコメントを編集し、X を取り除く。K の編集が残るため
+   *    未保存の表示は残り、ブレッドクラムの遷移で離脱の確認が出る（とどまる）。保存は K の編集だけを
+   *    送り（取り除いた X を送らない）、保存で未保存の状態が解消する（受入基準 18.3 の文言は
+   *    この保存で主張する）。
+   *  - 段 2（保留が空になる）: 写真項目 Y のコメントを編集し、Y を取り除く。保留が空になるため、
+   *    未保存の表示が消え、「保存」は押せず、ブレッドクラムの遷移で離脱の確認が出ずに一覧へ移る。
+   *    この間にメタの一括更新は送られない。
+   *
+   * 是正の経緯（2026-10-03、タスク 23.6）: 是正前の実装（`handleDelete` が保留を消しても未保存の
+   * フラグを戻さない形）では、段 2 で取り除いた後も未保存の表示が残り、「未保存の表示が消える」の
+   * 主張で赤だった（機能レベル検証の実測と同じ。「保存」は押せるが送信は 0 件で、ブレッドクラムで
+   * 離脱の確認が出続ける）。
+   */
+  test('コメントを編集した写真項目を取り除くと、他の保留が残る間は未保存のままで、保留が空になれば未保存の状態が解消して離脱の確認が出ない', async ({
+    page,
+  }) => {
+    const prisma = getPrismaClient();
+    const stamp = Date.now();
+    const albumName = `削除と未保存_${stamp}`;
+    const keepFileName = `unsaved-keep-${stamp}.jpg`;
+    const firstTargetFileName = `unsaved-target1-${stamp}.jpg`;
+    const secondTargetFileName = `unsaved-target2-${stamp}.jpg`;
+    const keepComment = `残る写真の編集_${stamp}`;
+
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'delete-unsaved');
+    const albumId = await createAlbum(page, projectId, albumName);
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { level: 1, name: albumName })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    /** 指定の名前でローカル画像を 1 枚追加し、写真項目の総数が expectedCount になるのを待つ。 */
+    const uploadNamed = async (name: string, expectedCount: number): Promise<void> => {
+      const upload = page.waitForResponse(
+        (r) => r.request().method() === 'POST' && UPLOAD_URL_MATCHER(new URL(r.url())),
+        { timeout: getTimeout(30000) }
+      );
+      await page.getByTestId('file-input').setInputFiles({
+        name,
+        mimeType: 'image/jpeg',
+        buffer: fs.readFileSync(FIXTURE_JPG),
+      });
+      await upload;
+      await expect(page.getByTestId('construction-photo-item')).toHaveCount(expectedCount, {
+        timeout: getTimeout(20000),
+      });
+    };
+
+    await uploadNamed(keepFileName, 1);
+    await uploadNamed(firstTargetFileName, 2);
+    await uploadNamed(secondTargetFileName, 3);
+
+    const uploaded = await prisma.constructionPhoto.findMany({
+      where: { albumId },
+      select: { id: true, fileName: true },
+    });
+    const keepId = uploaded.find((photo) => photo.fileName === keepFileName)?.id;
+    expect(keepId, JSON.stringify(uploaded)).toBeTruthy();
+
+    const items = page.getByTestId('construction-photo-item');
+    const itemOf = (fileName: string) =>
+      items.filter({ has: page.getByRole('heading', { level: 3, name: fileName }) });
+    const dirtyIndicator = page.getByTestId('dirty-indicator');
+    const saveButton = page.getByRole('button', { name: '保存', exact: true });
+    const breadcrumbToList = page.getByRole('link', { name: '工事写真一覧' });
+    const dialog = page.getByRole('dialog');
+
+    /** 指定の写真項目のコメントを編集する（入力の後に確定する）。 */
+    const editComment = async (fileName: string, comment: string): Promise<void> => {
+      const item = itemOf(fileName);
+      await expect(item).toHaveCount(1);
+      const textarea = item.getByPlaceholder('コメントを入力...');
+      await textarea.click();
+      await textarea.fill(comment);
+      await textarea.blur();
+    };
+
+    /** 指定の写真項目を取り除き、一覧の件数が expectedCount になるのを待つ。 */
+    const deletePhoto = async (fileName: string, expectedCount: number): Promise<void> => {
+      await page.getByRole('button', { name: `写真項目を削除: ${fileName}` }).click();
+      await expect(dialog).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(dialog).toContainText(fileName);
+      const deleted = page.waitForResponse(
+        (r) =>
+          r.request().method() === 'DELETE' &&
+          /\/api\/construction-photos\/images\/[0-9a-f-]+$/.test(new URL(r.url()).pathname),
+        { timeout: getTimeout(30000) }
+      );
+      await dialog.getByRole('button', { name: '削除する' }).click();
+      expect((await deleted).status()).toBe(204);
+      await expect(dialog).toBeHidden({ timeout: getTimeout(10000) });
+      await expect(items).toHaveCount(expectedCount, { timeout: getTimeout(20000) });
+      await expect(itemOf(fileName)).toHaveCount(0);
+    };
+
+    // メタの一括更新の送信を数える（判定はオリジンではなくパスで行う）
+    const batchRequests: Request[] = [];
+    page.on('request', (request) => {
+      if (
+        request.method() === 'PATCH' &&
+        new URL(request.url()).pathname.endsWith('/api/construction-photos/images/batch')
+      ) {
+        batchRequests.push(request);
+      }
+    });
+
+    // 前提: 編集の前は未保存ではなく、「保存」は押せない
+    await expect(items).toHaveCount(3);
+    await expect(dirtyIndicator).toBeHidden();
+    await expect(saveButton).toBeDisabled();
+
+    // --- 段 1: 他の写真項目の編集が残る ---
+    await editComment(firstTargetFileName, `取り除く写真の編集_${stamp}`);
+    await editComment(keepFileName, keepComment);
+    await expect(dirtyIndicator).toBeVisible({ timeout: getTimeout(10000) });
+
+    await deletePhoto(firstTargetFileName, 2);
+
+    // K の編集が残るため、未保存のままで、ブレッドクラムの遷移で離脱の確認が出る
+    await expect(dirtyIndicator).toBeVisible();
+    await expect(saveButton).toBeEnabled();
+    await breadcrumbToList.click();
+    await expect(dialog).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(dialog.getByText('変更が保存されていません。ページを離れますか？')).toBeVisible();
+    await dialog.getByRole('button', { name: 'このページにとどまる' }).click();
+    await expect(dialog).toBeHidden({ timeout: getTimeout(10000) });
+    await expect(page).toHaveURL(new RegExp(`/construction-photos/${albumId}$`));
+
+    // R18.3: 保存は残った K の編集だけを送り、未保存の状態を解消する
+    const batchResponse = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'PATCH' &&
+        new URL(r.url()).pathname.endsWith('/api/construction-photos/images/batch'),
+      { timeout: getTimeout(30000) }
+    );
+    await saveButton.click();
+    expect((await batchResponse).status()).toBe(200);
+    await expect(dirtyIndicator).toBeHidden({ timeout: getTimeout(15000) });
+    expect(batchRequests).toHaveLength(1);
+    expect(batchRequests[0]!.postDataJSON()).toEqual({
+      items: [{ id: keepId, comment: keepComment }],
+    });
+    expect(
+      await prisma.constructionPhoto.findUnique({
+        where: { id: keepId! },
+        select: { comment: true },
+      })
+    ).toEqual({ comment: keepComment });
+
+    // --- 段 2: 取り除いた後に保留が空になる ---
+    await editComment(secondTargetFileName, `取り除く写真の編集_2_${stamp}`);
+    await expect(dirtyIndicator).toBeVisible({ timeout: getTimeout(10000) });
+
+    await deletePhoto(secondTargetFileName, 1);
+
+    // 未保存の表示が消え、「保存」は押せない
+    await expect(dirtyIndicator).toBeHidden({ timeout: getTimeout(10000) });
+    await expect(saveButton).toBeDisabled();
+
+    // ブレッドクラムの遷移で離脱の確認が出ずに一覧へ移る
+    await breadcrumbToList.click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/construction-photos$`), {
+      timeout: getTimeout(15000),
+    });
+    await expect(page.getByRole('heading', { name: '工事写真一覧' })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await expect(dialog).toHaveCount(0);
+    // 段 2 の間にメタの一括更新は送られていない（段 1 の保存の 1 件だけ）
+    expect(batchRequests).toHaveLength(1);
+    expect(
+      await prisma.constructionPhoto.findMany({ where: { albumId }, select: { id: true } })
+    ).toEqual([{ id: keepId }]);
   });
 });
