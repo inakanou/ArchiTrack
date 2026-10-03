@@ -16,6 +16,9 @@
  * - 11.1: 一覧は最大50件のページネーション（既定limit=50）
  * - 13.2: 取得系は対象が要求プロジェクト配下であることを検証する
  *
+ * Task 23.1: 一覧・取得・更新・削除は、所属プロジェクトが取り除かれている（論理削除済み）なら
+ * 404 とする。更新・削除もプロジェクトの配下として指したときは配下を検証する。
+ *
  * Task 2.1: アルバムCRUD・一覧サービス
  */
 
@@ -31,8 +34,9 @@ import type { PrismaClient } from '../../../generated/prisma/client.js';
 
 function createMockPrisma() {
   return {
+    // 一覧の前に引くプロジェクト（既定は生きているプロジェクト）
     project: {
-      findUnique: vi.fn(),
+      findUnique: vi.fn().mockResolvedValue({ deletedAt: null }),
     },
     constructionPhotoAlbum: {
       findUnique: vi.fn(),
@@ -68,6 +72,14 @@ const mockAlbum = {
   createdAt: new Date('2024-01-01T00:00:00.000Z'),
   updatedAt: new Date('2024-01-02T10:00:00.000Z'),
   deletedAt: null,
+  // 所属プロジェクトの論理削除の状態（取得・更新・削除の読み出しに含める）
+  project: { deletedAt: null as Date | null },
+};
+
+/** 所属プロジェクトが取り除かれた（論理削除済みの）アルバム */
+const albumOfRemovedProject = {
+  ...mockAlbum,
+  project: { deletedAt: new Date('2026-10-01T00:00:00.000Z') },
 };
 
 describe('ConstructionPhotoAlbumService', () => {
@@ -249,6 +261,52 @@ describe('ConstructionPhotoAlbumService', () => {
         service.update('album-123', { name: 'x', updatedAt: '2024-01-02T10:00:00.000Z' })
       ).rejects.toThrow(ConstructionPhotoAlbumNotFoundError);
     });
+
+    it('所属プロジェクトが取り除かれたアルバムは更新せず NotFound を返す（Requirements: 13.2, 13.3）', async () => {
+      const updateMock = vi.fn();
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) =>
+        fn({
+          constructionPhotoAlbum: {
+            findUnique: vi.fn().mockResolvedValue(albumOfRemovedProject),
+            update: updateMock,
+          },
+        })
+      );
+
+      await expect(
+        service.update('album-123', { name: 'x', updatedAt: '2024-01-02T10:00:00.000Z' })
+      ).rejects.toThrow(ConstructionPhotoAlbumNotFoundError);
+      expect(updateMock).not.toHaveBeenCalled();
+    });
+
+    it('要求プロジェクト配下でないアルバムは更新しない（Requirements: 13.2）', async () => {
+      const updateMock = vi.fn().mockResolvedValue(mockAlbum);
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) =>
+        fn({
+          constructionPhotoAlbum: {
+            findUnique: vi.fn().mockResolvedValue(mockAlbum),
+            update: updateMock,
+          },
+        })
+      );
+
+      await expect(
+        service.update(
+          'album-123',
+          { name: 'x', updatedAt: '2024-01-02T10:00:00.000Z' },
+          'project-999'
+        )
+      ).rejects.toThrow(ConstructionPhotoAlbumNotFoundError);
+      expect(updateMock).not.toHaveBeenCalled();
+
+      // 要求プロジェクト配下なら更新する
+      await service.update(
+        'album-123',
+        { name: 'x', updatedAt: '2024-01-02T10:00:00.000Z' },
+        'project-123'
+      );
+      expect(updateMock).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('softDelete', () => {
@@ -301,6 +359,44 @@ describe('ConstructionPhotoAlbumService', () => {
         ConstructionPhotoAlbumNotFoundError
       );
     });
+
+    it('所属プロジェクトが取り除かれたアルバムは削除せず NotFound を返す（Requirements: 13.2, 13.3）', async () => {
+      const updateMock = vi.fn();
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) =>
+        fn({
+          constructionPhotoAlbum: {
+            findUnique: vi.fn().mockResolvedValue(albumOfRemovedProject),
+            update: updateMock,
+          },
+        })
+      );
+
+      await expect(service.softDelete('album-123')).rejects.toThrow(
+        ConstructionPhotoAlbumNotFoundError
+      );
+      expect(updateMock).not.toHaveBeenCalled();
+    });
+
+    it('要求プロジェクト配下でないアルバムは削除しない（Requirements: 13.2）', async () => {
+      const updateMock = vi.fn().mockResolvedValue({ ...mockAlbum, deletedAt: new Date() });
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) =>
+        fn({
+          constructionPhotoAlbum: {
+            findUnique: vi.fn().mockResolvedValue(mockAlbum),
+            update: updateMock,
+          },
+        })
+      );
+
+      await expect(service.softDelete('album-123', 'project-999')).rejects.toThrow(
+        ConstructionPhotoAlbumNotFoundError
+      );
+      expect(updateMock).not.toHaveBeenCalled();
+
+      // 要求プロジェクト配下なら削除する
+      await service.softDelete('album-123', 'project-123');
+      expect(updateMock).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('findById', () => {
@@ -345,6 +441,20 @@ describe('ConstructionPhotoAlbumService', () => {
       const result = await service.findById('album-123', 'project-123');
 
       expect(result.id).toBe('album-123');
+    });
+
+    it('所属プロジェクトが取り除かれたアルバムは NotFound を返す（Requirements: 13.2, 13.3）', async () => {
+      mockPrisma.constructionPhotoAlbum.findUnique = vi
+        .fn()
+        .mockResolvedValue(albumOfRemovedProject);
+
+      await expect(service.findById('album-123')).rejects.toThrow(
+        ConstructionPhotoAlbumNotFoundError
+      );
+      // 所属プロジェクトの論理削除の状態を同じ読み出しで引く
+      expect(mockPrisma.constructionPhotoAlbum.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ include: { project: { select: { deletedAt: true } } } })
+      );
     });
   });
 
@@ -444,6 +554,25 @@ describe('ConstructionPhotoAlbumService', () => {
           where: expect.objectContaining({ projectId: 'project-abc', deletedAt: null }),
         })
       );
+    });
+
+    it('取り除かれた（論理削除済みの）プロジェクトの一覧は ProjectNotFound とし、アルバムを読まない（Requirements: 13.2, 13.3）', async () => {
+      mockPrisma.project.findUnique = vi.fn().mockResolvedValue({ deletedAt: new Date() });
+
+      await expect(service.findByProject('project-123', {})).rejects.toThrow(
+        ProjectNotFoundForAlbumError
+      );
+      expect(mockPrisma.constructionPhotoAlbum.findMany).not.toHaveBeenCalled();
+      expect(mockPrisma.constructionPhotoAlbum.count).not.toHaveBeenCalled();
+    });
+
+    it('存在しないプロジェクトの一覧も ProjectNotFound とし、アルバムを読まない（Requirements: 13.2）', async () => {
+      mockPrisma.project.findUnique = vi.fn().mockResolvedValue(null);
+
+      await expect(service.findByProject('project-none', {})).rejects.toThrow(
+        ProjectNotFoundForAlbumError
+      );
+      expect(mockPrisma.constructionPhotoAlbum.findMany).not.toHaveBeenCalled();
     });
 
     it('他プロジェクトのアルバムは一覧に含まれない（Requirements: 13.2）', async () => {

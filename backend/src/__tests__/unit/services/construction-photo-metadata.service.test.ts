@@ -14,7 +14,8 @@
  * - 9.1: 写真項目への工事看板の関連付け（signboardId）
  * - 9.5: 看板・表示位置・大きさの指定を確定（保持のみ、合成しない）
  * - 11.4: メタ一括更新＋順序更新の最大2リクエストで反映
- * - 13.2: 対象アルバムのプロジェクト境界検証
+ * - 13.2: 対象アルバムが実在し取り除かれていないプロジェクト配下であることの検証（担当者や admin
+ *   ロールでの絞り込みは行わず、認可はルートの RBAC 権限が担う）
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -32,7 +33,6 @@ const ALBUM_ID = '123e4567-e89b-12d3-a456-426614174000';
 const OTHER_ALBUM_ID = '133e4567-e89b-12d3-a456-426614174000';
 const PROJECT_ID = '223e4567-e89b-12d3-a456-426614174000';
 const OTHER_PROJECT_ID = '323e4567-e89b-12d3-a456-426614174000';
-const USER_ID = '523e4567-e89b-12d3-a456-426614174010';
 const SIGNBOARD_ID = '623e4567-e89b-12d3-a456-426614174020';
 const OTHER_SIGNBOARD_ID = '723e4567-e89b-12d3-a456-426614174021';
 
@@ -45,7 +45,7 @@ function photoRef(id: string, overrides: Record<string, unknown> = {}) {
   return {
     id,
     albumId: ALBUM_ID,
-    album: { projectId: PROJECT_ID, deletedAt: null },
+    album: { projectId: PROJECT_ID, deletedAt: null, project: { deletedAt: null } },
     ...overrides,
   };
 }
@@ -96,18 +96,11 @@ function createMockPrisma() {
     constructionSignboard: {
       findMany: vi.fn().mockResolvedValue([]),
     },
-    project: {
-      findUnique: vi.fn().mockResolvedValue({
-        id: PROJECT_ID,
-        deletedAt: null,
-        createdById: USER_ID,
-        salesPersonId: 'someone-else',
-        constructionPersonId: null,
-      }),
-    },
-    userRole: {
-      findMany: vi.fn().mockResolvedValue([]),
-    },
+    // プロジェクトの担当者と利用者のロールを引く問い合わせの口（スパイ）。認可はルートの RBAC
+    // 権限だけが担い、サービスは担当者（作成者・営業担当・工事担当）や admin ロールでの絞り込みを
+    // 行わない（Task 23.1 の利用者の判断）。呼ばれないことを主張するために置き、戻り値は与えない
+    project: { findUnique: vi.fn() },
+    userRole: { findMany: vi.fn() },
     $transaction: vi.fn(),
   } as unknown as PrismaClient;
 
@@ -138,10 +131,10 @@ describe('ConstructionPhotoMetadataService.updateMetadataBatch', () => {
       photoRef(PHOTO_1),
     ]);
     await expect(
-      service.updateMetadataBatch(
-        [{ id: PHOTO_1 }, { id: PHOTO_2 }] as BatchUpdatePhotoMetadataInput[],
-        USER_ID
-      )
+      service.updateMetadataBatch([
+        { id: PHOTO_1 },
+        { id: PHOTO_2 },
+      ] as BatchUpdatePhotoMetadataInput[])
     ).rejects.toThrow(ConstructionPhotoNotFoundError);
   });
 
@@ -151,10 +144,10 @@ describe('ConstructionPhotoMetadataService.updateMetadataBatch', () => {
       photoRef(PHOTO_2, { albumId: OTHER_ALBUM_ID }),
     ]);
     await expect(
-      service.updateMetadataBatch(
-        [{ id: PHOTO_1 }, { id: PHOTO_2 }] as BatchUpdatePhotoMetadataInput[],
-        USER_ID
-      )
+      service.updateMetadataBatch([
+        { id: PHOTO_1 },
+        { id: PHOTO_2 },
+      ] as BatchUpdatePhotoMetadataInput[])
     ).rejects.toThrow(ConstructionPhotoBatchAlbumMismatchError);
   });
 
@@ -186,7 +179,7 @@ describe('ConstructionPhotoMetadataService.updateMetadataBatch', () => {
       { id: PHOTO_3, displayOrder: 20 },
     ];
 
-    const result = await service.updateMetadataBatch(inputs, USER_ID);
+    const result = await service.updateMetadataBatch(inputs);
 
     expect(result).toHaveLength(3);
 
@@ -228,16 +221,13 @@ describe('ConstructionPhotoMetadataService.updateMetadataBatch', () => {
       async ({ where, data }) => photoRow(where.id as string, data as Record<string, unknown>)
     );
 
-    await service.updateMetadataBatch(
-      [
-        {
-          id: PHOTO_1,
-          signboardId: SIGNBOARD_ID,
-          signboardPlacement: { left: 0, top: 0, width: 50, height: 50 },
-        },
-      ],
-      USER_ID
-    );
+    await service.updateMetadataBatch([
+      {
+        id: PHOTO_1,
+        signboardId: SIGNBOARD_ID,
+        signboardPlacement: { left: 0, top: 0, width: 50, height: 50 },
+      },
+    ]);
 
     // 合成は原本取得＋書込みを伴う。メタ保存では一切発生しない（オンデマンド合成）
     expect(mockStorage.get).not.toHaveBeenCalled();
@@ -252,10 +242,9 @@ describe('ConstructionPhotoMetadataService.updateMetadataBatch', () => {
     const updateMock = mockPrisma.constructionPhoto.update as ReturnType<typeof vi.fn>;
     updateMock.mockImplementation(async ({ where }) => photoRow(where.id as string));
 
-    await service.updateMetadataBatch(
-      [{ id: PHOTO_1, signboardId: null, signboardPlacement: null }],
-      USER_ID
-    );
+    await service.updateMetadataBatch([
+      { id: PHOTO_1, signboardId: null, signboardPlacement: null },
+    ]);
 
     const data = (updateMock.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
     expect(data.signboardId).toBeNull();
@@ -272,7 +261,7 @@ describe('ConstructionPhotoMetadataService.updateMetadataBatch', () => {
     (mockPrisma.constructionSignboard.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
     await expect(
-      service.updateMetadataBatch([{ id: PHOTO_1, signboardId: SIGNBOARD_ID }], USER_ID)
+      service.updateMetadataBatch([{ id: PHOTO_1, signboardId: SIGNBOARD_ID }])
     ).rejects.toThrow(SignboardNotAllowedError);
     expect(mockPrisma.constructionPhoto.update).not.toHaveBeenCalled();
   });
@@ -286,50 +275,70 @@ describe('ConstructionPhotoMetadataService.updateMetadataBatch', () => {
     ]);
 
     await expect(
-      service.updateMetadataBatch([{ id: PHOTO_1, signboardId: OTHER_SIGNBOARD_ID }], USER_ID)
+      service.updateMetadataBatch([{ id: PHOTO_1, signboardId: OTHER_SIGNBOARD_ID }])
     ).rejects.toThrow(SignboardNotAllowedError);
     expect(mockPrisma.constructionPhoto.update).not.toHaveBeenCalled();
   });
 
-  it('(f) アクセスできないプロジェクトのアルバムは 404 とする（Requirements: 13.2）', async () => {
+  it('(f) 担当者（作成者・営業担当・工事担当）や admin ロールを問い合わせずに更新する（Requirements: 13.2）', async () => {
+    // 更新できる利用者はルートの RBAC 権限（construction_photo:update）が決め、サービスは利用者を
+    // 受け取らない。担当でない一般ユーザーの要求でも、アルバムとプロジェクトが実在すれば更新する
     (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
       photoRef(PHOTO_1),
-    ]);
-    (mockPrisma.project.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: PROJECT_ID,
-      deletedAt: null,
-      createdById: 'other-user',
-      salesPersonId: 'another-user',
-      constructionPersonId: null,
-    });
-    (mockPrisma.userRole.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-
-    await expect(
-      service.updateMetadataBatch([{ id: PHOTO_1, comment: 'x' }], USER_ID)
-    ).rejects.toThrow(ConstructionPhotoNotFoundError);
-    expect(mockPrisma.constructionPhoto.update).not.toHaveBeenCalled();
-  });
-
-  it('admin ロールは関係者でなくても更新できる（Requirements: 13.2）', async () => {
-    (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
-      photoRef(PHOTO_1),
-    ]);
-    (mockPrisma.project.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: PROJECT_ID,
-      deletedAt: null,
-      createdById: 'other-user',
-      salesPersonId: 'another-user',
-      constructionPersonId: null,
-    });
-    (mockPrisma.userRole.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { role: { name: 'admin' } },
     ]);
     (mockPrisma.constructionPhoto.update as ReturnType<typeof vi.fn>).mockImplementation(
       async ({ where, data }) => photoRow(where.id as string, data as Record<string, unknown>)
     );
 
-    const result = await service.updateMetadataBatch([{ id: PHOTO_1, comment: 'ok' }], USER_ID);
-    expect(result).toHaveLength(1);
+    const result = await service.updateMetadataBatch([{ id: PHOTO_1, comment: 'ok' }]);
+
+    expect(result.map((p) => p.comment)).toEqual(['ok']);
+    expect(mockPrisma.project.findUnique).not.toHaveBeenCalled();
+    expect(mockPrisma.userRole.findMany).not.toHaveBeenCalled();
+  });
+
+  it('アルバムの配下として指したときは、写真項目がそのアルバムに属さなければ 404 とし書き込まない（Requirements: 13.2）', async () => {
+    (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      photoRef(PHOTO_1),
+    ]);
+    (mockPrisma.constructionPhoto.update as ReturnType<typeof vi.fn>).mockImplementation(
+      async ({ where, data }) => photoRow(where.id as string, data as Record<string, unknown>)
+    );
+
+    await expect(
+      service.updateMetadataBatch([{ id: PHOTO_1, comment: 'x' }], OTHER_ALBUM_ID)
+    ).rejects.toThrow(ConstructionPhotoNotFoundError);
+    expect(mockPrisma.constructionPhoto.update).not.toHaveBeenCalled();
+
+    // 属するアルバムの配下として指したときは更新する
+    const result = await service.updateMetadataBatch([{ id: PHOTO_1, comment: 'y' }], ALBUM_ID);
+    expect(result.map((p) => p.comment)).toEqual(['y']);
+  });
+
+  it('論理削除済みアルバム配下の写真項目の更新は 404 とし書き込まない', async () => {
+    (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      photoRef(PHOTO_1, {
+        album: { projectId: PROJECT_ID, deletedAt: new Date(), project: { deletedAt: null } },
+      }),
+    ]);
+
+    await expect(service.updateMetadataBatch([{ id: PHOTO_1, comment: 'x' }])).rejects.toThrow(
+      ConstructionPhotoNotFoundError
+    );
+    expect(mockPrisma.constructionPhoto.update).not.toHaveBeenCalled();
+  });
+
+  it('取り除かれた（論理削除済みの）プロジェクトの写真項目の更新は 404 とし書き込まない（Requirements: 13.2, 13.3）', async () => {
+    (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      photoRef(PHOTO_1, {
+        album: { projectId: PROJECT_ID, deletedAt: null, project: { deletedAt: new Date() } },
+      }),
+    ]);
+
+    await expect(service.updateMetadataBatch([{ id: PHOTO_1, comment: 'x' }])).rejects.toThrow(
+      ConstructionPhotoNotFoundError
+    );
+    expect(mockPrisma.constructionPhoto.update).not.toHaveBeenCalled();
   });
 
   it('DTO に thumbnailUrl と印字画像エンドポイントURLを含む', async () => {
@@ -340,7 +349,7 @@ describe('ConstructionPhotoMetadataService.updateMetadataBatch', () => {
       async ({ where }) => photoRow(where.id as string, { id: 'updated-xyz' })
     );
 
-    const result = await service.updateMetadataBatch([{ id: PHOTO_1, comment: 'c' }], USER_ID);
+    const result = await service.updateMetadataBatch([{ id: PHOTO_1, comment: 'c' }]);
     const dto = result[0]!;
     expect(dto.thumbnailUrl).toBe('https://signed.example/thumb.jpg');
     expect(dto.printImageUrl).toBe('/api/construction-photos/images/updated-xyz/print-image');
@@ -369,13 +378,10 @@ describe('ConstructionPhotoMetadataService.updateMetadataBatch', () => {
         })
     );
 
-    const result = await service.updateMetadataBatch(
-      [
-        { id: PHOTO_1, comment: 'a' },
-        { id: PHOTO_2, comment: 'b' },
-      ],
-      USER_ID
-    );
+    const result = await service.updateMetadataBatch([
+      { id: PHOTO_1, comment: 'a' },
+      { id: PHOTO_2, comment: 'b' },
+    ]);
 
     expect(result.map((p) => p.id)).toEqual([PHOTO_1, PHOTO_2]);
     expect(result[0]!.signboardId).toBeNull();
@@ -393,7 +399,7 @@ describe('ConstructionPhotoMetadataService.updateMetadataBatch', () => {
       async ({ where }) => photoRow(where.id as string)
     );
 
-    await service.updateMetadataBatch([{ id: PHOTO_1, comment: 'c' }], USER_ID);
+    await service.updateMetadataBatch([{ id: PHOTO_1, comment: 'c' }]);
 
     const updateArgs = (mockPrisma.constructionPhoto.update as ReturnType<typeof vi.fn>).mock
       .calls[0]![0] as { select?: Record<string, unknown> };
@@ -421,9 +427,9 @@ describe('ConstructionPhotoMetadataService.updateOrder', () => {
   it('存在しないアルバムの順序更新は NotFound を投げる', async () => {
     (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     // アルバム参照は findMany 経由（写真から albumId 検証）。空 → NotFound
-    await expect(
-      service.updateOrder(ALBUM_ID, [{ id: PHOTO_1, order: 1 }], USER_ID)
-    ).rejects.toThrow(ConstructionPhotoNotFoundError);
+    await expect(service.updateOrder(ALBUM_ID, [{ id: PHOTO_1, order: 1 }])).rejects.toThrow(
+      ConstructionPhotoNotFoundError
+    );
   });
 
   it('(c) 順序更新1リクエストで全件を 1..n に正規化して反映する（Requirements: 7.3, 7.4, 7.6, 11.4）', async () => {
@@ -436,15 +442,11 @@ describe('ConstructionPhotoMetadataService.updateOrder', () => {
     updateMock.mockResolvedValue(photoRow(PHOTO_1));
 
     // 相対順序 30/10/20 → 正規化 3/1/2
-    await service.updateOrder(
-      ALBUM_ID,
-      [
-        { id: PHOTO_1, order: 30 },
-        { id: PHOTO_2, order: 10 },
-        { id: PHOTO_3, order: 20 },
-      ],
-      USER_ID
-    );
+    await service.updateOrder(ALBUM_ID, [
+      { id: PHOTO_1, order: 30 },
+      { id: PHOTO_2, order: 10 },
+      { id: PHOTO_3, order: 20 },
+    ]);
 
     const dataById = new Map<string, number>();
     for (const call of updateMock.mock.calls) {
@@ -464,33 +466,53 @@ describe('ConstructionPhotoMetadataService.updateOrder', () => {
       photoRef(PHOTO_1),
     ]);
     await expect(
-      service.updateOrder(
-        ALBUM_ID,
-        [
-          { id: PHOTO_1, order: 1 },
-          { id: PHOTO_2, order: 2 },
-        ],
-        USER_ID
-      )
+      service.updateOrder(ALBUM_ID, [
+        { id: PHOTO_1, order: 1 },
+        { id: PHOTO_2, order: 2 },
+      ])
     ).rejects.toThrow(ConstructionPhotoNotFoundError);
   });
 
-  it('(f) アクセスできないプロジェクトのアルバムは 404 とする（Requirements: 13.2）', async () => {
+  it('(f) 担当者（作成者・営業担当・工事担当）や admin ロールを問い合わせずに順序を更新する（Requirements: 13.2）', async () => {
+    // 更新できる利用者はルートの RBAC 権限（construction_photo:update）が決める
     (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
       photoRef(PHOTO_1),
     ]);
-    (mockPrisma.project.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: PROJECT_ID,
-      deletedAt: null,
-      createdById: 'other-user',
-      salesPersonId: 'another-user',
-      constructionPersonId: null,
-    });
-    (mockPrisma.userRole.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    const updateMock = mockPrisma.constructionPhoto.update as ReturnType<typeof vi.fn>;
+    updateMock.mockResolvedValue(photoRow(PHOTO_1));
 
     await expect(
-      service.updateOrder(ALBUM_ID, [{ id: PHOTO_1, order: 1 }], USER_ID)
-    ).rejects.toThrow(ConstructionPhotoNotFoundError);
+      service.updateOrder(ALBUM_ID, [{ id: PHOTO_1, order: 1 }])
+    ).resolves.toBeUndefined();
+
+    expect(updateMock).toHaveBeenCalledWith({ where: { id: PHOTO_1 }, data: { displayOrder: 1 } });
+    expect(mockPrisma.project.findUnique).not.toHaveBeenCalled();
+    expect(mockPrisma.userRole.findMany).not.toHaveBeenCalled();
+  });
+
+  it('論理削除済みアルバムの順序更新は 404 とし書き込まない', async () => {
+    (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      photoRef(PHOTO_1, {
+        album: { projectId: PROJECT_ID, deletedAt: new Date(), project: { deletedAt: null } },
+      }),
+    ]);
+
+    await expect(service.updateOrder(ALBUM_ID, [{ id: PHOTO_1, order: 1 }])).rejects.toThrow(
+      ConstructionPhotoNotFoundError
+    );
+    expect(mockPrisma.constructionPhoto.update).not.toHaveBeenCalled();
+  });
+
+  it('取り除かれた（論理削除済みの）プロジェクトのアルバムの順序更新は 404 とし書き込まない（Requirements: 13.2, 13.3）', async () => {
+    (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      photoRef(PHOTO_1, {
+        album: { projectId: PROJECT_ID, deletedAt: null, project: { deletedAt: new Date() } },
+      }),
+    ]);
+
+    await expect(service.updateOrder(ALBUM_ID, [{ id: PHOTO_1, order: 1 }])).rejects.toThrow(
+      ConstructionPhotoNotFoundError
+    );
     expect(mockPrisma.constructionPhoto.update).not.toHaveBeenCalled();
   });
 });

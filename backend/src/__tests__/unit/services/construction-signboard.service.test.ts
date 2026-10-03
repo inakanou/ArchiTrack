@@ -30,8 +30,9 @@ import { Prisma, type PrismaClient } from '../../../generated/prisma/client.js';
 
 function createMockPrisma() {
   return {
+    // 一覧の前に引くプロジェクト（既定は生きているプロジェクト）
     project: {
-      findUnique: vi.fn(),
+      findUnique: vi.fn().mockResolvedValue({ deletedAt: null }),
     },
     constructionSignboard: {
       findUnique: vi.fn(),
@@ -77,6 +78,14 @@ const mockSignboard = {
   createdAt: new Date('2024-01-01T00:00:00.000Z'),
   updatedAt: new Date('2024-01-02T10:00:00.000Z'),
   deletedAt: null,
+  // 所属プロジェクトの論理削除の状態（更新・削除の読み出しに含める, Task 23.1）
+  project: { deletedAt: null as Date | null },
+};
+
+/** 所属プロジェクトが取り除かれた（論理削除済みの）看板 */
+const signboardOfRemovedProject = {
+  ...mockSignboard,
+  project: { deletedAt: new Date('2026-10-01T00:00:00.000Z') },
 };
 
 describe('ConstructionSignboardService', () => {
@@ -311,6 +320,23 @@ describe('ConstructionSignboardService', () => {
         )
       ).rejects.toThrow(ConstructionSignboardNotFoundError);
     });
+
+    it('所属プロジェクトが取り除かれた看板は更新せず NotFound を返す（Requirements: 13.2, 13.3）', async () => {
+      const updateMock = vi.fn();
+      mockPrisma.$transaction = vi.fn().mockImplementation(async (fn) =>
+        fn({
+          constructionSignboard: {
+            findUnique: vi.fn().mockResolvedValue(signboardOfRemovedProject),
+            update: updateMock,
+          },
+        })
+      );
+
+      await expect(
+        service.update('signboard-123', { workName: 'x', updatedAt: '2024-01-02T10:00:00.000Z' })
+      ).rejects.toThrow(ConstructionSignboardNotFoundError);
+      expect(updateMock).not.toHaveBeenCalled();
+    });
   });
 
   describe('delete', () => {
@@ -392,6 +418,16 @@ describe('ConstructionSignboardService', () => {
       expect(tx.constructionSignboard.update).not.toHaveBeenCalled();
     });
 
+    it('所属プロジェクトが取り除かれた看板は削除せず、写真項目の看板の指定も解除しない（Requirements: 13.2, 13.3）', async () => {
+      const tx = createDeleteTx({ signboard: signboardOfRemovedProject, releasedCount: 2 });
+
+      await expect(service.delete('signboard-123')).rejects.toThrow(
+        ConstructionSignboardNotFoundError
+      );
+      expect(tx.constructionPhoto.updateMany).not.toHaveBeenCalled();
+      expect(tx.constructionSignboard.update).not.toHaveBeenCalled();
+    });
+
     it('要求プロジェクト配下でない看板は削除できず、写真項目に触れない（Requirements: 13.2）', async () => {
       const tx = createDeleteTx({ signboard: mockSignboard });
 
@@ -431,6 +467,25 @@ describe('ConstructionSignboardService', () => {
           where: expect.objectContaining({ projectId: 'project-abc', deletedAt: null }),
         })
       );
+    });
+
+    it('取り除かれた（論理削除済みの）プロジェクトの一覧は ProjectNotFound とし、看板を読まない（Requirements: 13.2, 13.3）', async () => {
+      mockPrisma.project.findUnique = vi.fn().mockResolvedValue({ deletedAt: new Date() });
+
+      await expect(service.findByProject('project-123')).rejects.toThrow(
+        ProjectNotFoundForSignboardError
+      );
+      expect(mockPrisma.constructionSignboard.findMany).not.toHaveBeenCalled();
+      expect(mockPrisma.constructionPhoto.groupBy).not.toHaveBeenCalled();
+    });
+
+    it('存在しないプロジェクトの一覧も ProjectNotFound とし、看板を読まない（Requirements: 13.2）', async () => {
+      mockPrisma.project.findUnique = vi.fn().mockResolvedValue(null);
+
+      await expect(service.findByProject('project-none')).rejects.toThrow(
+        ProjectNotFoundForSignboardError
+      );
+      expect(mockPrisma.constructionSignboard.findMany).not.toHaveBeenCalled();
     });
 
     it('他プロジェクトの看板は一覧に含まれない（Requirements: 8.9, 13.2）', async () => {

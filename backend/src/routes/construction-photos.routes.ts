@@ -348,7 +348,10 @@ router.patch(
         updatedAt: string;
       };
 
-      const album = await albumService.update(id, validatedBody);
+      // nested マウント時は projectId が付与されるため、配下検証に用いる（Requirements: 13.2）
+      const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : undefined;
+
+      const album = await albumService.update(id, validatedBody, projectId);
 
       logger.info({ userId: req.user?.userId, albumId: id }, 'Construction photo album updated');
 
@@ -395,7 +398,10 @@ router.delete(
     try {
       const { id } = req.validatedParams as { id: string };
 
-      await albumService.softDelete(id);
+      // nested マウント時は projectId が付与されるため、配下検証に用いる（Requirements: 13.2）
+      const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : undefined;
+
+      await albumService.softDelete(id, projectId);
 
       logger.info({ userId: req.user?.userId, albumId: id }, 'Construction photo album deleted');
 

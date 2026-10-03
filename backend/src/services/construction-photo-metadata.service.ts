@@ -19,7 +19,11 @@
  * - 9.1: 写真項目への工事看板の関連付け（signboardId、同一プロジェクトのみ許可）
  * - 9.5: 看板・表示位置・大きさの指定を確定（保持のみ、合成しない）
  * - 11.4: メタ一括更新と表示順序更新の最大2リクエストにまとめて反映
- * - 13.2: 対象アルバムがアクセス可能なプロジェクト配下であることを検証
+ * - 13.2: 対象アルバムが、実在し取り除かれていないプロジェクト配下であることを検証する（取り除かれた
+ *   プロジェクト・論理削除済みのアルバムの配下は拒否する）。
+ *   更新できる利用者はルートの RBAC 権限（requirePermission）だけで決め、本サービスは
+ *   プロジェクトの担当者（作成者・営業担当・工事担当）や admin ロールでの絞り込みを行わない
+ *   （Task 23.1 の利用者の判断）
  *
  * @module services/construction-photo-metadata
  */
@@ -29,10 +33,15 @@ import type { StorageProvider } from '../storage/storage-provider.interface.js';
 import { NotFoundError, BadRequestError } from '../errors/apiError.js';
 import {
   ConstructionPhotoNotFoundError,
+  isAddressedAlbum,
   resolveSignboardAssignment,
   SIGNBOARD_LIVENESS_SELECT,
   type SignboardLivenessRecord,
 } from './construction-photo-image.service.js';
+import {
+  AVAILABILITY_IN_PROJECT_SELECT,
+  isAvailableInLiveProject,
+} from './construction-photo-availability.js';
 import type {
   ConstructionPhotoWithUrls,
   SignboardPlacement,
@@ -185,8 +194,10 @@ export class ConstructionPhotoMetadataService {
   /**
    * 写真項目のメタデータ（コメント/印刷対象/看板ID/看板配置/表示順序）を一括更新する。
    *
-   * 全idが同一アルバムに属することを検証し（design Precondition）、対象アルバムが
-   * アクセス可能なプロジェクト配下であることを確認する（R13.2）。signboardId 指定時は
+   * 全idが同一アルバムに属することを検証し（design Precondition）、対象アルバムとその
+   * プロジェクトが論理削除されていないことを確認する（R13.2, R13.3）。更新できる利用者はルートの
+   * RBAC 権限（construction_photo:update）が決め、プロジェクトの担当者での絞り込みは行わない。
+   * signboardId 指定時は
    * 当該看板が同一プロジェクトに存在することを検証し、不正なら弾く（R9.1, R8.9）。
    * displayOrder が指定された項目は 1..n に正規化する（R7.6）。すべての更新は1つの
    * トランザクションで確定する（11.4 のメタ側=1リクエスト）。
@@ -197,16 +208,16 @@ export class ConstructionPhotoMetadataService {
    * Requirements: 7.1, 7.5, 7.6, 9.1, 9.5, 11.4, 13.2
    *
    * @param inputs - 更新項目の配列（全て同一アルバムの写真項目）
-   * @param userId - リクエストユーザーID（プロジェクト境界検証用）
+   * @param albumId - （任意）写真項目をアルバムの配下として指したときのアルバムID。指定時は所属を検証する
    * @returns 更新後の写真項目（署名付きサムネURL同梱）
-   * @throws {ConstructionPhotoNotFoundError} 存在しない写真・論理削除済み・アクセス不可の場合
+   * @throws {ConstructionPhotoNotFoundError} 存在しない写真・指定アルバムに属さない・アルバムかプロジェクトが論理削除済みの場合
    * @throws {ConstructionPhotoBatchAlbumMismatchError} 複数アルバムにまたがる場合
    * @throws {SignboardNotAllowedError} 存在しない/他プロジェクトの signboardId を含む場合
    * @throws {CommentTooLongError} コメントが2000文字を超える場合
    */
   async updateMetadataBatch(
     inputs: BatchUpdatePhotoMetadataInput[],
-    userId: string
+    albumId?: string
   ): Promise<ConstructionPhotoWithUrls[]> {
     if (inputs.length === 0) {
       return [];
@@ -223,14 +234,14 @@ export class ConstructionPhotoMetadataService {
       }
     }
 
-    // 対象写真の存在確認＋所属アルバム/プロジェクト取得
+    // 対象写真の存在確認＋所属アルバム/プロジェクトの特定と論理削除状態の取得
     const ids = inputs.map((i) => i.id);
     const photos = await this.prisma.constructionPhoto.findMany({
       where: { id: { in: ids } },
       select: {
         id: true,
         albumId: true,
-        album: { select: { projectId: true, deletedAt: true } },
+        album: { select: { projectId: true, ...AVAILABILITY_IN_PROJECT_SELECT } },
       },
     });
 
@@ -248,14 +259,8 @@ export class ConstructionPhotoMetadataService {
     }
 
     const album = photos[0]!.album;
-    // 論理削除済みアルバム配下は 404
-    if (album.deletedAt !== null) {
-      throw new ConstructionPhotoNotFoundError(inputs[0]!.id);
-    }
-
-    // プロジェクト境界検証（R13.2）。アクセス不可は存在秘匿のため 404 とする
-    const hasAccess = await this.canAccessProject(album.projectId, userId);
-    if (!hasAccess) {
+    // 指定アルバムに属さない、またはアルバムかプロジェクトが論理削除済みなら 404（R13.2, R13.3）
+    if (!isAddressedAlbum(photos[0]!.albumId, albumId) || !isAvailableInLiveProject(album)) {
       throw new ConstructionPhotoNotFoundError(inputs[0]!.id);
     }
 
@@ -343,47 +348,41 @@ export class ConstructionPhotoMetadataService {
   /**
    * アルバム配下の写真項目の表示順序を一括更新する。
    *
-   * 指定アルバムがアクセス可能なプロジェクト配下であることを確認し（R13.2）、
-   * 全ての順序対象が当該アルバムに属することを検証する。送信された相対順序を
+   * 全ての順序対象が当該アルバムに属し、アルバムとそのプロジェクトが論理削除されていない
+   * ことを検証する（R13.2, R13.3）。更新できる利用者はルートの RBAC 権限
+   * （construction_photo:update）が決め、プロジェクトの担当者での絞り込みは行わない。送信された相対順序を
    * 1..n に正規化して1トランザクションで確定する（R7.3, R7.4, R7.6, 11.4 の順序側）。
    *
    * Requirements: 7.3, 7.4, 7.6, 11.4, 13.2
    *
    * @param albumId - 対象アルバムID
    * @param orders - 順序更新の配列
-   * @param userId - リクエストユーザーID（プロジェクト境界検証用）
-   * @throws {ConstructionPhotoNotFoundError} アルバム未特定・写真がアルバム外・アクセス不可の場合
+   * @throws {ConstructionPhotoNotFoundError} 写真が存在しない・アルバム外・アルバムかプロジェクトが論理削除済みの場合
    */
-  async updateOrder(albumId: string, orders: PhotoOrderUpdate[], userId: string): Promise<void> {
+  async updateOrder(albumId: string, orders: PhotoOrderUpdate[]): Promise<void> {
     if (orders.length === 0) {
       return;
     }
 
-    // 対象写真の存在確認＋所属アルバム/プロジェクト取得
+    // 対象写真の存在確認＋所属アルバムとプロジェクトの論理削除状態の取得
     const ids = orders.map((o) => o.id);
     const photos = await this.prisma.constructionPhoto.findMany({
       where: { id: { in: ids } },
       select: {
         id: true,
         albumId: true,
-        album: { select: { projectId: true, deletedAt: true } },
+        album: { select: AVAILABILITY_IN_PROJECT_SELECT },
       },
     });
 
-    // 存在しない、または指定アルバムに属さない写真が1件でもあれば 404
+    // 存在しない・指定アルバムに属さない・アルバムかプロジェクトが論理削除済みの写真が
+    // 1件でもあれば 404（R13.2, R13.3）
     const byId = new Map(photos.map((p) => [p.id, p]));
     for (const order of orders) {
       const photo = byId.get(order.id);
-      if (!photo || photo.albumId !== albumId || photo.album.deletedAt !== null) {
+      if (!photo || photo.albumId !== albumId || !isAvailableInLiveProject(photo.album)) {
         throw new ConstructionPhotoNotFoundError(order.id);
       }
-    }
-
-    // プロジェクト境界検証（R13.2）。アクセス不可は存在秘匿のため 404 とする
-    const projectId = photos[0]!.album.projectId;
-    const hasAccess = await this.canAccessProject(projectId, userId);
-    if (!hasAccess) {
-      throw new ConstructionPhotoNotFoundError(orders[0]!.id);
     }
 
     // 相対順序を 1..n に正規化（R7.6）
@@ -429,46 +428,6 @@ export class ConstructionPhotoMetadataService {
     });
 
     return result;
-  }
-
-  /**
-   * ユーザーが指定プロジェクトにアクセス可能かを判定する（R13.2, R13.3）。
-   *
-   * 以下のいずれかを満たす場合に true:
-   * 1. プロジェクトの作成者/営業担当者/工事担当者である
-   * 2. admin ロールを持つ
-   *
-   * 注: プロジェクトアクセス判定の共有ヘルパーが未整備のため、ConstructionPhotoImageService
-   * と同一ポリシーを本サービスでも適用する（将来は共通化候補）。
-   */
-  private async canAccessProject(projectId: string, userId: string): Promise<boolean> {
-    const project = await this.prisma.project.findUnique({
-      where: { id: projectId },
-      select: {
-        id: true,
-        deletedAt: true,
-        createdById: true,
-        salesPersonId: true,
-        constructionPersonId: true,
-      },
-    });
-    if (!project || project.deletedAt !== null) {
-      return false;
-    }
-
-    if (
-      project.createdById === userId ||
-      project.salesPersonId === userId ||
-      project.constructionPersonId === userId
-    ) {
-      return true;
-    }
-
-    const userRoles = await this.prisma.userRole.findMany({
-      where: { userId },
-      select: { role: { select: { name: true } } },
-    });
-    return userRoles.some((ur) => ur.role.name === 'admin');
   }
 
   /**

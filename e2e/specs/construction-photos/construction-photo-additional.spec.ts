@@ -67,6 +67,10 @@
  *     閉じ、詳細画面の通知の枠（role=alert）に失敗が表示され、写真項目は残る。差し替えを解いて
  *     やり直すと、写真項目と看板配置のデータが削除され、古い失敗の通知が消える（R7.7。失敗時の
  *     通知は受入基準の外で、タスク 21.3 の利用者の判断による）
+ * 24. 担当でない一般ユーザー: admin が作り、営業担当も工事担当も別人のプロジェクトのアルバムを、
+ *     user が一覧から開いて写真項目を見る・原本を開く・写真を追加する・コメントと並び替えを保存
+ *     でき、削除の操作手段は表示されない（R1.2, R17.2。アクセスはロールの権限の表だけで判定する
+ *     タスク 23.1 の利用者の判断）
  *
  * 縮退した要素（理由明記）:
  *  - パンの座標厳密検証: 拡大時に画像 transform の translate 成分が変化することまでを確認し、
@@ -87,7 +91,7 @@ import { fileURLToPath } from 'url';
 import { loginAsUser, loginWithCredentials } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
-import { hashPassword } from '../../helpers/test-users';
+import { hashPassword, TEST_USERS } from '../../helpers/test-users';
 import { getPrismaClient } from '../../fixtures/database';
 
 // ESモジュールでの __dirname 代替
@@ -662,7 +666,8 @@ test.describe('工事写真 追加機能フロー', () => {
   /**
    * R17.2 権限出し分け:
    * user は削除導線（アルバム削除・写真項目削除）が非表示、編集導線（アルバム編集・アップローダ）は表示。
-   * user 自身が所有するプロジェクト/アルバムで検証する（プロジェクトアクセスは所有者/管理者に限定）。
+   * user 自身が所有するプロジェクト/アルバムで検証する（担当でないプロジェクトでの同じ出し分けは、
+   * 「担当でない一般ユーザー」のテストが確かめる）。
    *
    * @requirement construction-photo/REQ-17.2
    *
@@ -720,6 +725,8 @@ test.describe('工事写真 追加機能フロー', () => {
    * なく R17.1（編集権限なしの読み取り専用）に帰属させるためである。削除権限を欠くロールでは
    * 削除ハンドラが渡らないため、読み取り専用の抑止が壊れても削除ボタンは出ず、主張が検出力を
    * 持たない。削除権限で現れるアルバム削除の導線は 17.1 の列挙に無いため主張しない。
+   * 閲覧専用の利用者はプロジェクトの担当者（作成者・営業担当・工事担当）に据えない。アクセスは
+   * ロールの権限の表だけで判定し、担当者での絞り込みは無い（タスク 23.1 の利用者の判断）。
    * user ロールの権限を書き換えないのは、永続テストDBに権限が固着した
    * 前例（seedRolePermissions の notIn による是正で解消）を再び作らないためである。非システム
    * ロールは cleanDatabase が消すうえ、本テストの finally でも消す。
@@ -794,11 +801,10 @@ test.describe('工事写真 追加機能フロー', () => {
 
     let viewerUserId: string | null = null;
     let viewerRoleId: string | null = null;
-    let projectId: string | null = null;
     try {
       // 準備: admin でプロジェクト・アルバムを作り、写真項目を1枚追加する
       await loginAsUser(page, 'ADMIN_USER');
-      projectId = await createProject(page, 'viewer');
+      const projectId = await createProject(page, 'viewer');
       const albumId = await createAlbum(page, projectId, albumName);
 
       // 対照: admin（編集権限あり）では同じ操作手段が表示される
@@ -818,8 +824,8 @@ test.describe('工事写真 追加機能フロー', () => {
       await expect(saveButton).toBeVisible();
       await expect(deletePhotoItem).toBeVisible();
 
-      // 編集権限を持たない閲覧専用ロールと利用者を用意し、プロジェクトの工事担当者に据える
-      // （プロジェクトへのアクセスは作成者・営業担当・工事担当・admin に限られる）
+      // 編集権限を持たない閲覧専用ロールと利用者を用意する。プロジェクトの担当者には据えない
+      // （アクセスはロールの権限の表だけで判定する。タスク 23.1 の利用者の判断）
       const permissions = await prisma.permission.findMany({
         where: {
           OR: viewerPermissionKeys.map((key) => {
@@ -851,10 +857,6 @@ test.describe('工事写真 追加機能フロー', () => {
       });
       viewerUserId = viewer.id;
       await prisma.userRole.create({ data: { userId: viewer.id, roleId: viewerRole.id } });
-      await prisma.project.update({
-        where: { id: projectId },
-        data: { constructionPersonId: viewer.id },
-      });
 
       // 閲覧専用の利用者へ切り替える
       await page.context().clearCookies();
@@ -888,12 +890,6 @@ test.describe('工事写真 追加機能フロー', () => {
       await expect(deletePhotoItem).toHaveCount(0);
     } finally {
       // 後始末の失敗が本体の失敗を上書きしないよう、各段を個別に捕まえて記録する
-      if (projectId && viewerUserId) {
-        const id = projectId;
-        await runCleanup(() =>
-          prisma.project.update({ where: { id }, data: { constructionPersonId: null } })
-        );
-      }
       if (viewerUserId) {
         const id = viewerUserId;
         await runCleanup(() => prisma.user.delete({ where: { id } }));
@@ -906,6 +902,197 @@ test.describe('工事写真 追加機能フロー', () => {
     }
     // 本体が成功したときだけ到達する。後始末の失敗はここで失敗として表に出す
     expect(cleanupErrors).toEqual([]);
+  });
+
+  /**
+   * 担当でない一般ユーザー（タスク 23.1）:
+   * admin が作り、営業担当も工事担当も admin のプロジェクトのアルバムを、user（担当者のいずれでもない
+   * 一般ユーザー）がアルバムの一覧から開く。詳細画面にアルバムの基本情報と写真項目が表示され（R1.2）、
+   * 権限の表が user に許す操作——原本の表示・写真の追加・コメントと並び替えの保存——ができ、許さない
+   * 操作（削除）の操作手段は表示されない（R17.2）。
+   *
+   * @requirement construction-photo/REQ-1.2
+   * @requirement construction-photo/REQ-17.2
+   *
+   * 経緯: タスク 23.1 の前は、写真一覧・メタの一括更新・並び替え・写真項目の削除・印字画像・原本だけが
+   * プロジェクトの担当者（作成者・営業担当・工事担当）と admin に限られていた。担当でない user には
+   * アルバムの一覧と取得・アップロードは通る一方で、写真一覧が 404 になり、詳細画面は英語の
+   * not found の文言を出して写真項目 0 件になっていた。利用者の判断で、アクセスはロールの権限の表
+   * （RBAC）だけで判定する。
+   *
+   * 前提（満たされなければ失敗させる。条件付きで飛ばさない）:
+   *  - プロジェクトの作成者・営業担当・工事担当のいずれも user ではない（DB で確かめる。
+   *    `createProject` は営業担当に先頭の利用者を選ぶため、admin を営業担当に据え直す）
+   *  - 画面が受け取った user の権限は閲覧・作成・編集を含み、削除を含まない（権限の表の user の行）
+   *  - 削除の操作手段の不在を主張する前に、同じ画面を admin で開くと写真項目の削除の操作手段が
+   *    表示されることを確かめる（不在の主張が、画面が描かれていないだけで成り立たないように）
+   */
+  test('担当でない一般ユーザーが他の利用者のプロジェクトのアルバムを一覧から開き、写真項目の閲覧・追加・コメントと並び替えの保存ができ、削除の操作手段は表示されない', async ({
+    page,
+  }) => {
+    const prisma = getPrismaClient();
+    const stamp = Date.now();
+    const albumName = `追加機能_担当外_${stamp}`;
+    const comment = `担当でない利用者のコメント_${stamp}`;
+
+    const photoItems = page.getByTestId('construction-photo-item');
+    const deletePhotoItem = page.getByRole('button', { name: /^写真項目を削除: / });
+    const commentBox = photoItems.first().getByRole('textbox', { name: 'コメント' });
+    const saveButton = page.getByRole('button', { name: '保存', exact: true });
+
+    // 準備: admin がプロジェクト・アルバムを作り、写真項目を1枚追加する
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'outsider');
+    const albumId = await createAlbum(page, projectId, albumName);
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { name: albumName })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await uploadPhoto(page, FIXTURE_JPG, 1);
+    // 対照: 削除の権限を持つ admin には写真項目の削除の操作手段が表示される
+    await expect(deletePhotoItem).toHaveCount(1);
+    const firstPhotoId = await photoItems.first().getAttribute('data-photo-id');
+    expect(firstPhotoId).toBeTruthy();
+
+    // 前提: user はプロジェクトの担当者のいずれでもない
+    const adminUser = await prisma.user.findUniqueOrThrow({
+      where: { email: TEST_USERS.ADMIN_USER.email },
+    });
+    const regularUser = await prisma.user.findUniqueOrThrow({
+      where: { email: TEST_USERS.REGULAR_USER.email },
+    });
+    await prisma.project.update({
+      where: { id: projectId },
+      data: { salesPersonId: adminUser.id, constructionPersonId: null },
+    });
+    const assignees = await prisma.project.findUniqueOrThrow({
+      where: { id: projectId },
+      select: { createdById: true, salesPersonId: true, constructionPersonId: true },
+    });
+    expect(assignees).toEqual({
+      createdById: adminUser.id,
+      salesPersonId: adminUser.id,
+      constructionPersonId: null,
+    });
+    expect(regularUser.id).not.toBe(adminUser.id);
+
+    // user へ切り替え、アルバムの一覧を開く
+    await page.context().clearCookies();
+    await page.evaluate(() => localStorage.clear());
+    await loginAsUser(page, 'REGULAR_USER');
+    const meResponse = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'GET' &&
+        new URL(r.url()).pathname === '/api/v1/auth/me' &&
+        r.status() === 200,
+      { timeout: getTimeout(30000) }
+    );
+    await page.goto(`/projects/${projectId}/construction-photos`);
+    const me = (await (await meResponse).json()) as { permissions?: string[] };
+    await page.waitForLoadState('networkidle');
+
+    // 前提: 画面が受け取った権限は、閲覧・作成・編集を含み、削除を含まない
+    expect(Array.isArray(me.permissions)).toBe(true);
+    expect(me.permissions).toEqual(
+      expect.arrayContaining([
+        'construction_photo:read',
+        'construction_photo:create',
+        'construction_photo:update',
+      ])
+    );
+    expect(me.permissions).not.toContain('construction_photo:delete');
+    expect(me.permissions).not.toContain('*:*');
+
+    // 一覧の行から詳細画面を開く。写真一覧の取得は 200 である
+    const listResponse = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'GET' &&
+        new URL(r.url()).pathname === `/api/construction-photos/${albumId}/images`,
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByTestId(`album-row-${albumId}`).click();
+    await expect(page).toHaveURL(new RegExp(`/construction-photos/${albumId}$`), {
+      timeout: getTimeout(15000),
+    });
+    expect((await listResponse).status()).toBe(200);
+
+    // R1.2: アルバムの基本情報と写真項目の一覧が表示される
+    await expect(page.getByRole('heading', { level: 1, name: albumName })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await expect(photoItems).toHaveCount(1, { timeout: getTimeout(20000) });
+    await expect(photoItems.first()).toHaveAttribute('data-photo-id', firstPhotoId!);
+    await expect(photoItems.first().getByRole('heading', { level: 3 })).toBeVisible();
+
+    // R17.2: 削除の権限を持たないため、写真項目の削除とアルバムの削除の操作手段は表示されない
+    await expect(deletePhotoItem).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '削除', exact: true })).toHaveCount(0);
+
+    // 原本の表示: ビューアが取得する原本は 200 で画像を返す
+    const originalResponse = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'GET' &&
+        new URL(r.url()).pathname === `/api/construction-photos/images/${firstPhotoId}/original`,
+      { timeout: getTimeout(30000) }
+    );
+    await photoItems.first().getByTestId('construction-photo-image-button').click();
+    await expect(page.getByTestId('construction-photo-viewer-overlay')).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    const original = await originalResponse;
+    expect(original.status()).toBe(200);
+    expect(original.headers()['content-type'] ?? '').toMatch(/^image\//);
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    await expect(photoItems).toHaveCount(1, { timeout: getTimeout(20000) });
+
+    // 写真の追加: アップロードは 201 で、写真項目が 2 件になる
+    const uploadResponse = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'POST' &&
+        new URL(r.url()).pathname === `/api/construction-photos/${albumId}/images`,
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByTestId('file-input').setInputFiles(FIXTURE_PNG);
+    expect((await uploadResponse).status()).toBe(201);
+    await expect(photoItems).toHaveCount(2, { timeout: getTimeout(20000) });
+    const secondPhotoId = await photoItems.nth(1).getAttribute('data-photo-id');
+    expect(secondPhotoId).toBeTruthy();
+
+    // コメントの編集と並び替え（2 件目を先頭へ）を、1 回の保存で確定する
+    await commentBox.fill(comment);
+    await photoItems.nth(1).getByRole('button', { name: '上へ移動' }).click();
+    await expect(photoItems.first()).toHaveAttribute('data-photo-id', secondPhotoId!);
+    await expect(page.getByTestId('dirty-indicator')).toBeVisible();
+
+    const batchResponse = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'PATCH' &&
+        new URL(r.url()).pathname === '/api/construction-photos/images/batch',
+      { timeout: getTimeout(30000) }
+    );
+    const orderResponse = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'PUT' &&
+        new URL(r.url()).pathname === `/api/construction-photos/${albumId}/images/order`,
+      { timeout: getTimeout(30000) }
+    );
+    await saveButton.click();
+    const [batch, order] = await Promise.all([batchResponse, orderResponse]);
+    expect(batch.status()).toBe(200);
+    expect(order.status()).toBe(204);
+    await expect(page.getByTestId('dirty-indicator')).toBeHidden({ timeout: getTimeout(15000) });
+
+    // 永続化: 読み込み直しても並び順とコメントが保たれている
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+    await expect(photoItems).toHaveCount(2, { timeout: getTimeout(20000) });
+    await expect(photoItems.nth(0)).toHaveAttribute('data-photo-id', secondPhotoId!);
+    await expect(photoItems.nth(1)).toHaveAttribute('data-photo-id', firstPhotoId!);
+    await expect(photoItems.nth(1).getByRole('textbox', { name: 'コメント' })).toHaveValue(comment);
+    // 写真項目が増えても、削除の操作手段は表示されないまま
+    await expect(deletePhotoItem).toHaveCount(0);
   });
 
   /**
@@ -2432,8 +2619,8 @@ test.describe('工事写真 追加機能フロー', () => {
    *
    * 測る状態は五つである。名前は、四つが普通の長さ、一つが区切りの無い英数字の長い一語である。
    *  - admin・375 幅、admin・320 幅（管理メニューを持ち、ヘッダの項目が最も多い）
-   *  - user・375 幅、user・320 幅（user 自身が所有するプロジェクトのアルバム。プロジェクトへの
-   *    アクセスは所有者と admin に限られるため、R17.2 のテストと同じく user 自身に作らせる）
+   *  - user・375 幅、user・320 幅（user 自身が所有するプロジェクトのアルバム。R17.2 のテストと
+   *    同じく user 自身に作らせる）
    *  - admin・375 幅・区切りの無い長いアルバム名（<main> の水準では上の見出しのテストが扱う。
    *    ここでは、ヘッダの是正後に文書全体を押し広げるものが他に無いことを主張する）
    * どのアルバムにも写真項目を 1 枚置き、写真項目が描かれた状態で測る。

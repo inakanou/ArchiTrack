@@ -14,7 +14,7 @@
  * - 12.2, 12.3: サイズ上限（10MB）超過を拒否
  * - 12.4, 4.5: 不正な画像形式（マジックバイト不一致）を拒否
  * - 12.5: 部分失敗時、成功分は登録を維持
- * - 13.1, 13.2, 13.3: 認証・認可（401）・プロジェクト境界（404）
+ * - 13.1, 13.2, 13.3: 認証・認可（401）。担当でない一般ユーザーも権限があれば一覧を取得できる
  * - 20.16: 部分失敗（207）の形式エラー文言が共有の画像検証エラー定義と一致する（フロントの
  *   再送不可分類の根拠を固定する）
  *
@@ -378,7 +378,8 @@ describe('Construction Photo Image Upload API Integration Tests', () => {
     let outsiderToken: string;
 
     beforeAll(async () => {
-      // 当該プロジェクトの関係者でなく admin でもないユーザー（プロジェクト境界検証用）
+      // 当該プロジェクトの担当者（作成者・営業担当・工事担当）でなく admin でもない一般ユーザー。
+      // アクセスはロールの権限の表（RBAC）だけで判定する（Task 23.1 の利用者の判断）
       const outsider = await createAuthenticatedUser(
         OUTSIDER_EMAIL,
         'Construction Photo Image Outsider',
@@ -429,11 +430,15 @@ describe('Construction Photo Image Upload API Integration Tests', () => {
       expect(res.status).toBe(404);
     });
 
-    it('アクセス権のないプロジェクトのアルバム一覧は404を返す（REQ 13.2, 13.3）', async () => {
+    it('担当でない一般ユーザーも、閲覧の権限（construction_photo:read）があれば写真一覧を取得できる', async () => {
       const res = await request(app)
         .get(`/api/construction-photos/${albumId}/images`)
         .set('Authorization', `Bearer ${outsiderToken}`);
-      expect(res.status).toBe(404);
+
+      expect(res.status).toBe(200);
+      const dbCount = await prisma.constructionPhoto.count({ where: { albumId } });
+      expect(dbCount).toBeGreaterThan(1);
+      expect(res.body).toHaveLength(dbCount);
     });
   });
 });

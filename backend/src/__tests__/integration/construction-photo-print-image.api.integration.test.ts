@@ -8,7 +8,7 @@
  * - 9.7: 参照先の看板が削除済みなら看板なしとして原本を返す
  * - 10.8: 看板の登録内容を指定位置・大きさで重畳する
  * - 10.9: 看板なしの写真は重畳なしで原本を返す
- * - 13.1, 13.2, 13.3: 認証（401）・プロジェクト境界（404）
+ * - 13.1, 13.2, 13.3: 認証（401）。担当でない一般ユーザーも権限があれば印字画像を取得できる
  *
  * Scope:
  * - flat マウント GET /api/construction-photos/images/:imageId/print-image
@@ -287,11 +287,24 @@ describe('Construction Photo Print Image API Integration Tests', () => {
     expect(res.status).toBe(404);
   });
 
-  it('(e) アクセス権のないプロジェクトの写真の印字画像は404を返す（Requirements: 13.2, 13.3）', async () => {
+  it('(e) 担当でない一般ユーザーも、閲覧の権限（construction_photo:read）があれば印字画像を取得できる', async () => {
+    // outsider は当該プロジェクトの作成者・営業担当・工事担当のいずれでもない user ロールの利用者。
+    // アクセスはロールの権限の表（RBAC）だけで判定する（Task 23.1 の利用者の判断）
+    const asOwner = await request(app)
+      .get(`/api/construction-photos/images/${plainPhotoId}/print-image`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .responseType('blob');
+    expect(asOwner.status).toBe(200);
+
     const res = await request(app)
       .get(`/api/construction-photos/images/${plainPhotoId}/print-image`)
-      .set('Authorization', `Bearer ${outsiderToken}`);
-    expect(res.status).toBe(404);
+      .set('Authorization', `Bearer ${outsiderToken}`)
+      .responseType('blob');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('image/jpeg');
+    expect((res.body as Buffer).length).toBeGreaterThan(0);
+    expect(Buffer.compare(res.body as Buffer, asOwner.body as Buffer)).toBe(0);
   });
 });
 

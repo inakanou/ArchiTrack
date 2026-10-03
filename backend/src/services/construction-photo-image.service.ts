@@ -25,7 +25,11 @@
  * - 11.6: 表示用の署名付きURLに有効期限を設定する（TTL 900s）
  * - 7.8, 11.2: 写真項目一覧＋署名付きURLを1リクエストでまとめて取得する（N+1回避, listWithUrls）
  * - 11.3: 一覧・詳細はサムネ優先（一覧では原本URLを返さない）
- * - 13.2: 取得対象がユーザーのアクセス可能なプロジェクト配下であることを検証する
+ * - 13.2: 対象が、実在し取り除かれていないプロジェクト配下であることを検証する（取り除かれた
+ *   プロジェクト・論理削除済みのアルバムの配下は拒否する）。
+ *   アクセスできる利用者はルートの RBAC 権限（requirePermission）だけで決め、本サービスは
+ *   プロジェクトの担当者（作成者・営業担当・工事担当）や admin ロールでの絞り込みを行わない
+ *   （Task 23.1 の利用者の判断）
  * - 13.4: 画像を公開パスではなく署名付きURL/専用エンドポイント経由でのみ配信する
  * - 14.6: ビューアで表示する原本画像を必要時にのみ取得する（getOriginalImage）
  * - 15.4: ZIPエクスポートの「アップロード原本そのまま」モードを成立させる（getOriginalImage）
@@ -48,6 +52,10 @@ import type {
 } from '../types/construction-photo.types.js';
 import logger from '../utils/logger.js';
 import { assertSurveyNotDeleted } from '../utils/survey-deleted-guard.js';
+import {
+  AVAILABILITY_IN_PROJECT_SELECT,
+  isAvailableInLiveProject,
+} from './construction-photo-availability.js';
 
 /**
  * 現調写真コピーで参照した SurveyImage が存在しない、または対象アルバムと
@@ -68,16 +76,33 @@ export class SurveyImageCopyNotAllowedError extends NotFoundError {
 
 /**
  * 写真項目（ConstructionPhoto）が存在しない、または論理削除済みアルバム配下・
- * アクセス不可プロジェクト配下だった場合のエラー。
+ * 取り除かれた（論理削除済みの）プロジェクト配下だった場合のエラー。
  *
- * 情報漏洩を避けるため、存在しない場合と権限がない場合を区別せず 404 として扱う
- * （Requirements: 13.2, 13.3）。メタ更新・並び替え・削除で共有する。
+ * いずれも区別せず 404 として扱う（Requirements: 13.2, 13.3）。メタ更新・並び替え・削除で共有する。
  */
 export class ConstructionPhotoNotFoundError extends NotFoundError {
   constructor(public readonly photoId: string) {
     super(`Construction photo not found: ${photoId}`, 'CONSTRUCTION_PHOTO_NOT_FOUND');
     this.name = 'ConstructionPhotoNotFoundError';
   }
+}
+
+/**
+ * 写真項目が、指し示されたアルバムに属するかを判定する（プロジェクトの境界, Requirements: 13.2）。
+ *
+ * 写真項目の操作（原本・印字画像・削除・メタの一括更新）は `/api/construction-photos/images/...` で
+ * 提供するが、同じルーターをアルバムの配下（`/api/construction-photos/:id/images/...`）にも載せている。
+ * アルバムの配下として指したときは、写真項目がそのアルバムに属さなければ解決しない。
+ *
+ * @param photoAlbumId - 写真項目が属するアルバムID
+ * @param addressedAlbumId - 要求のパスが指したアルバムID（アルバムの配下として指していなければ undefined）
+ * @returns 指されていない、または指されたアルバムに属すれば true
+ */
+export function isAddressedAlbum(
+  photoAlbumId: string,
+  addressedAlbumId: string | undefined
+): boolean {
+  return addressedAlbumId === undefined || photoAlbumId === addressedAlbumId;
 }
 
 /**
@@ -264,18 +289,18 @@ export class ConstructionPhotoImageService {
    * @param albumId - 追加先アルバムID
    * @param files - アップロードファイル配列
    * @returns 成功/失敗を含むアップロード結果
-   * @throws {ConstructionPhotoAlbumNotFoundError} アルバムが存在しない、または論理削除済みの場合
+   * @throws {ConstructionPhotoAlbumNotFoundError} アルバムが存在しない、またはアルバムかプロジェクトが論理削除済みの場合
    */
   async addFromUpload(
     albumId: string,
     files: ConstructionPhotoUploadFile[]
   ): Promise<ConstructionPhotoUploadResult> {
-    // アルバムの存在確認（論理削除済みは対象外）
+    // アルバムの存在確認（アルバムかプロジェクトが論理削除済みなら対象外, R13.2, R13.3）
     const album = await this.prisma.constructionPhotoAlbum.findUnique({
       where: { id: albumId },
-      select: { id: true, deletedAt: true },
+      select: { id: true, ...AVAILABILITY_IN_PROJECT_SELECT },
     });
-    if (!album || album.deletedAt !== null) {
+    if (!album || !isAvailableInLiveProject(album)) {
       throw new ConstructionPhotoAlbumNotFoundError(albumId);
     }
 
@@ -328,7 +353,7 @@ export class ConstructionPhotoImageService {
    * @param albumId - 追加先アルバムID
    * @param surveyImageIds - コピー元の現場調査画像ID配列
    * @returns 成功/失敗を含むコピー結果
-   * @throws {ConstructionPhotoAlbumNotFoundError} アルバムが存在しない、または論理削除済みの場合
+   * @throws {ConstructionPhotoAlbumNotFoundError} アルバムが存在しない、またはアルバムかプロジェクトが論理削除済みの場合
    * @throws {SurveyImageCopyNotAllowedError} 参照が存在しない、または他プロジェクトの現調写真を含む場合
    * @throws {SurveyDeletedError} 親の現場調査が論理削除済みの現調写真を含む場合（Task 17.1）
    */
@@ -336,12 +361,12 @@ export class ConstructionPhotoImageService {
     albumId: string,
     surveyImageIds: string[]
   ): Promise<ConstructionPhotoCopyResult> {
-    // アルバムの存在確認＋プロジェクト特定（論理削除済みは対象外）
+    // アルバムの存在確認＋プロジェクト特定（アルバムかプロジェクトが論理削除済みなら対象外, R13.2, R13.3）
     const album = await this.prisma.constructionPhotoAlbum.findUnique({
       where: { id: albumId },
-      select: { id: true, deletedAt: true, projectId: true },
+      select: { id: true, projectId: true, ...AVAILABILITY_IN_PROJECT_SELECT },
     });
-    if (!album || album.deletedAt !== null) {
+    if (!album || !isAvailableInLiveProject(album)) {
       throw new ConstructionPhotoAlbumNotFoundError(albumId);
     }
 
@@ -433,30 +458,24 @@ export class ConstructionPhotoImageService {
    * 看板の指定は、参照先の看板が生きているときだけ返す。論理削除済みの看板を指す指定が行に
    * 残っていても、看板の指定と配置を null（看板なし）として返す（R9.7）。
    *
-   * 取得対象はリクエストユーザーがアクセス可能なプロジェクト配下のアルバムに限定する。
-   * アルバムが存在しない・論理削除済み・ユーザーがアクセスできないプロジェクトの場合は、
-   * 存在有無を漏らさないためいずれも NotFound(404) として扱う（R13.2, R13.3）。
+   * 取得対象は、実在し取り除かれていないプロジェクト配下の、論理削除されていないアルバムに
+   * 限定する。アルバムが存在しない・アルバムかプロジェクトが論理削除済みの場合は NotFound(404)
+   * として扱う（R13.2, R13.3）。取得できる利用者はルートの RBAC 権限（construction_photo:read）
+   * が決め、プロジェクトの担当者での絞り込みは行わない。
    *
    * Requirements: 7.8, 9.7, 11.2, 11.3, 13.2
    *
    * @param albumId - 対象アルバムID
-   * @param userId - リクエストユーザーID（プロジェクト境界検証用）
    * @returns displayOrder 昇順の写真項目（署名付きサムネURL同梱）
-   * @throws {ConstructionPhotoAlbumNotFoundError} 未存在・論理削除済み・アクセス不可の場合
+   * @throws {ConstructionPhotoAlbumNotFoundError} 未存在、またはアルバムかプロジェクトが論理削除済みの場合
    */
-  async listWithUrls(albumId: string, userId: string): Promise<ConstructionPhotoWithUrls[]> {
-    // アルバムの存在確認＋プロジェクト特定（論理削除済みは対象外）
+  async listWithUrls(albumId: string): Promise<ConstructionPhotoWithUrls[]> {
+    // アルバムの存在確認（アルバムかプロジェクトが論理削除済みなら対象外, R13.2, R13.3）
     const album = await this.prisma.constructionPhotoAlbum.findUnique({
       where: { id: albumId },
-      select: { id: true, deletedAt: true, projectId: true },
+      select: { id: true, ...AVAILABILITY_IN_PROJECT_SELECT },
     });
-    if (!album || album.deletedAt !== null) {
-      throw new ConstructionPhotoAlbumNotFoundError(albumId);
-    }
-
-    // プロジェクト境界の検証（R13.2, R13.3）。アクセス不可も存在秘匿のため 404 とする
-    const hasAccess = await this.canAccessProject(album.projectId, userId);
-    if (!hasAccess) {
+    if (!album || !isAvailableInLiveProject(album)) {
       throw new ConstructionPhotoAlbumNotFoundError(albumId);
     }
 
@@ -496,34 +515,35 @@ export class ConstructionPhotoImageService {
    * ベストエフォートとし、失敗しても DB 行削除は確定させる（孤立オブジェクトは残るが
    * データの整合性=行の消去を優先）。
    *
-   * 対象写真がアクセス可能なプロジェクト配下のアルバムに属することを検証する。
-   * 未存在・論理削除済みアルバム配下・アクセス不可のいずれも、存在有無を漏らさない
-   * ため 404（ConstructionPhotoNotFoundError）として扱う（R13.2, R13.3）。
+   * 対象写真が、実在し取り除かれていないプロジェクト配下の、論理削除されていないアルバムに
+   * 属することを検証する。未存在・アルバムかプロジェクトが論理削除済みのいずれも
+   * 404（ConstructionPhotoNotFoundError）として扱う（R13.2, R13.3）。削除できる利用者は
+   * ルートの RBAC 権限（construction_photo:delete）が決め、プロジェクトの担当者での絞り込みは
+   * 行わない。
    *
    * Requirements: 7.7, 13.2
    *
    * @param photoId - 削除対象の写真項目ID
-   * @param userId - リクエストユーザーID（プロジェクト境界検証用）
-   * @throws {ConstructionPhotoNotFoundError} 未存在・論理削除済み・アクセス不可の場合
+   * @param albumId - （任意）写真項目をアルバムの配下として指したときのアルバムID。指定時は所属を検証する
+   * @throws {ConstructionPhotoNotFoundError} 未存在・指定アルバムに属さない・アルバムかプロジェクトが論理削除済みの場合
    */
-  async delete(photoId: string, userId: string): Promise<void> {
-    // 写真項目＋所属アルバムのプロジェクト/論理削除状態を取得
+  async delete(photoId: string, albumId?: string): Promise<void> {
+    // 写真項目＋所属アルバムとプロジェクトの論理削除状態を取得
     const photo = await this.prisma.constructionPhoto.findUnique({
       where: { id: photoId },
       select: {
         id: true,
+        albumId: true,
         originalPath: true,
         thumbnailPath: true,
-        album: { select: { projectId: true, deletedAt: true } },
+        album: { select: AVAILABILITY_IN_PROJECT_SELECT },
       },
     });
-    if (!photo || photo.album.deletedAt !== null) {
-      throw new ConstructionPhotoNotFoundError(photoId);
-    }
-
-    // プロジェクト境界の検証（R13.2, R13.3）。アクセス不可も存在秘匿のため 404 とする
-    const hasAccess = await this.canAccessProject(photo.album.projectId, userId);
-    if (!hasAccess) {
+    if (
+      !photo ||
+      !isAddressedAlbum(photo.albumId, albumId) ||
+      !isAvailableInLiveProject(photo.album)
+    ) {
       throw new ConstructionPhotoNotFoundError(photoId);
     }
 
@@ -540,7 +560,7 @@ export class ConstructionPhotoImageService {
       });
     }
 
-    logger.info({ photoId, userId }, 'Construction photo deleted');
+    logger.info({ photoId }, 'Construction photo deleted');
   }
 
   /**
@@ -552,36 +572,37 @@ export class ConstructionPhotoImageService {
    * 合成はサーバ権威かつオンデマンドのため、看板マスタ編集・配置変更でも常に最新内容で
    * 焼き込まれ、キャッシュ無効化が不要となる。
    *
-   * 対象写真がアクセス可能なプロジェクト配下のアルバムに属することを検証する。
-   * 未存在・論理削除済みアルバム配下・アクセス不可のいずれも、存在有無を漏らさない
-   * ため 404（ConstructionPhotoNotFoundError）として扱う（R13.2, R13.3）。
+   * 対象写真が、実在し取り除かれていないプロジェクト配下の、論理削除されていないアルバムに
+   * 属することを検証する。未存在・アルバムかプロジェクトが論理削除済みのいずれも
+   * 404（ConstructionPhotoNotFoundError）として扱う（R13.2, R13.3）。取得できる利用者は
+   * ルートの RBAC 権限（construction_photo:read）が決め、プロジェクトの担当者での絞り込みは
+   * 行わない。
    *
    * Requirements: 9.6, 9.7, 10.8, 10.9, 13.2
    *
    * @param photoId - 対象写真項目ID
-   * @param userId - リクエストユーザーID（プロジェクト境界検証用）
+   * @param albumId - （任意）写真項目をアルバムの配下として指したときのアルバムID。指定時は所属を検証する
    * @returns 印字用画像バッファ（看板ありは合成後 JPEG、なしは原本）
-   * @throws {ConstructionPhotoNotFoundError} 未存在・論理削除済み・アクセス不可・原本欠損の場合
+   * @throws {ConstructionPhotoNotFoundError} 未存在・指定アルバムに属さない・アルバムかプロジェクトが論理削除済み・原本欠損の場合
    */
-  async getPrintImage(photoId: string, userId: string): Promise<Buffer> {
-    // 写真項目＋所属アルバムのプロジェクト/論理削除状態＋看板指定を取得
+  async getPrintImage(photoId: string, albumId?: string): Promise<Buffer> {
+    // 写真項目＋所属アルバムとプロジェクトの論理削除状態＋看板指定を取得
     const photo = await this.prisma.constructionPhoto.findUnique({
       where: { id: photoId },
       select: {
         id: true,
+        albumId: true,
         originalPath: true,
         signboardId: true,
         signboardPlacement: true,
-        album: { select: { projectId: true, deletedAt: true } },
+        album: { select: AVAILABILITY_IN_PROJECT_SELECT },
       },
     });
-    if (!photo || photo.album.deletedAt !== null) {
-      throw new ConstructionPhotoNotFoundError(photoId);
-    }
-
-    // プロジェクト境界の検証（R13.2, R13.3）。アクセス不可も存在秘匿のため 404 とする
-    const hasAccess = await this.canAccessProject(photo.album.projectId, userId);
-    if (!hasAccess) {
+    if (
+      !photo ||
+      !isAddressedAlbum(photo.albumId, albumId) ||
+      !isAvailableInLiveProject(photo.album)
+    ) {
       throw new ConstructionPhotoNotFoundError(photoId);
     }
 
@@ -654,34 +675,35 @@ export class ConstructionPhotoImageService {
    * モードを成立させる）。原本は一覧DTO（`ConstructionPhotoWithUrls`）には含めず、
    * 本メソッド専用の配信エンドポイントを経由してのみ取得可能とする（R13.4）。
    *
-   * 対象写真がアクセス可能なプロジェクト配下のアルバムに属することを検証する。
-   * 未存在・論理削除済みアルバム配下・アクセス不可・原本欠損のいずれも、存在有無を
-   * 漏らさないため 404（ConstructionPhotoNotFoundError）として扱う（R13.2, R13.3）。
+   * 対象写真が、実在し取り除かれていないプロジェクト配下の、論理削除されていないアルバムに
+   * 属することを検証する。未存在・アルバムかプロジェクトが論理削除済み・原本欠損のいずれも
+   * 404（ConstructionPhotoNotFoundError）として扱う（R13.2, R13.3）。取得できる利用者は
+   * ルートの RBAC 権限（construction_photo:read）が決め、プロジェクトの担当者での絞り込みは
+   * 行わない。
    *
    * Requirements: 14.6, 15.4, 13.2, 13.4
    *
    * @param photoId - 対象写真項目ID
-   * @param userId - リクエストユーザーID（プロジェクト境界検証用）
+   * @param albumId - （任意）写真項目をアルバムの配下として指したときのアルバムID。指定時は所属を検証する
    * @returns 非合成の原本画像バッファ
-   * @throws {ConstructionPhotoNotFoundError} 未存在・論理削除済み・アクセス不可・原本欠損の場合
+   * @throws {ConstructionPhotoNotFoundError} 未存在・指定アルバムに属さない・アルバムかプロジェクトが論理削除済み・原本欠損の場合
    */
-  async getOriginalImage(photoId: string, userId: string): Promise<Buffer> {
-    // 写真項目＋所属アルバムのプロジェクト/論理削除状態を取得（看板情報は不要）
+  async getOriginalImage(photoId: string, albumId?: string): Promise<Buffer> {
+    // 写真項目＋所属アルバムとプロジェクトの論理削除状態を取得（看板情報は不要）
     const photo = await this.prisma.constructionPhoto.findUnique({
       where: { id: photoId },
       select: {
         id: true,
+        albumId: true,
         originalPath: true,
-        album: { select: { projectId: true, deletedAt: true } },
+        album: { select: AVAILABILITY_IN_PROJECT_SELECT },
       },
     });
-    if (!photo || photo.album.deletedAt !== null) {
-      throw new ConstructionPhotoNotFoundError(photoId);
-    }
-
-    // プロジェクト境界の検証（R13.2, R13.3）。アクセス不可も存在秘匿のため 404 とする
-    const hasAccess = await this.canAccessProject(photo.album.projectId, userId);
-    if (!hasAccess) {
+    if (
+      !photo ||
+      !isAddressedAlbum(photo.albumId, albumId) ||
+      !isAvailableInLiveProject(photo.album)
+    ) {
       throw new ConstructionPhotoNotFoundError(photoId);
     }
 
@@ -696,47 +718,6 @@ export class ConstructionPhotoImageService {
     }
 
     return originalBuffer;
-  }
-
-  /**
-   * ユーザーが指定プロジェクトにアクセス可能かを判定する（R13.2, R13.3）。
-   *
-   * 以下のいずれかを満たす場合に true:
-   * 1. プロジェクトの作成者/営業担当者/工事担当者である
-   * 2. admin ロールを持つ
-   *
-   * 注: 現時点でプロジェクトアクセス判定の共有ヘルパーは存在せず、SignedUrlService が
-   * SurveyImage 固有の同等ロジックを持つのみのため、ここでは同一ポリシーをアルバムの
-   * プロジェクトに対して適用する。
-   */
-  private async canAccessProject(projectId: string, userId: string): Promise<boolean> {
-    const project = await this.prisma.project.findUnique({
-      where: { id: projectId },
-      select: {
-        id: true,
-        deletedAt: true,
-        createdById: true,
-        salesPersonId: true,
-        constructionPersonId: true,
-      },
-    });
-    if (!project || project.deletedAt !== null) {
-      return false;
-    }
-
-    if (
-      project.createdById === userId ||
-      project.salesPersonId === userId ||
-      project.constructionPersonId === userId
-    ) {
-      return true;
-    }
-
-    const userRoles = await this.prisma.userRole.findMany({
-      where: { userId },
-      select: { role: { select: { name: true } } },
-    });
-    return userRoles.some((ur) => ur.role.name === 'admin');
   }
 
   /**

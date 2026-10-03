@@ -33,6 +33,8 @@ import { SurveyDeletedError } from '../../../utils/survey-deleted-guard.js';
 import type { PrismaClient } from '../../../generated/prisma/client.js';
 
 const ALBUM_ID = '123e4567-e89b-12d3-a456-426614174000';
+/** 写真項目が属さないアルバム（アルバムの配下として指したときの境界の検証用） */
+const OTHER_ALBUM_ID = '133e4567-e89b-12d3-a456-426614174000';
 
 /**
  * テスト用画像バッファ生成（先頭にマジックバイトを配置）
@@ -65,7 +67,11 @@ function gifFile(name: string): ConstructionPhotoUploadFile {
 function createMockPrisma() {
   return {
     constructionPhotoAlbum: {
-      findUnique: vi.fn().mockResolvedValue({ id: ALBUM_ID, deletedAt: null }),
+      findUnique: vi.fn().mockResolvedValue({
+        id: ALBUM_ID,
+        deletedAt: null,
+        project: { deletedAt: null },
+      }),
     },
     constructionPhoto: {
       findFirst: vi.fn().mockResolvedValue(null), // 既存写真なし → 末尾は 1 から
@@ -102,6 +108,20 @@ function createMockProcessor() {
     }),
     getMetadata: vi.fn(),
     generateThumbnail: vi.fn(),
+  };
+}
+
+/**
+ * プロジェクトの担当者と利用者のロールを引く問い合わせの口（スパイ）。
+ *
+ * 工事写真の認可はルートの RBAC 権限だけが担い、サービスは担当者（作成者・営業担当・工事担当）や
+ * admin ロールでの絞り込みを行わない（Task 23.1 の利用者の判断）。サービスがこれらを呼ばないことを
+ * 主張するために置く。戻り値は与えない——呼ばれたら、担当でない利用者として扱われる。
+ */
+function createAssigneeLookupSpies() {
+  return {
+    project: { findUnique: vi.fn() },
+    userRole: { findMany: vi.fn() },
   };
 }
 
@@ -168,10 +188,24 @@ describe('ConstructionPhotoImageService.addFromUpload', () => {
     (mockPrisma.constructionPhotoAlbum.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: ALBUM_ID,
       deletedAt: new Date(),
+      project: { deletedAt: null },
     });
     await expect(service.addFromUpload(ALBUM_ID, [jpegFile('a.jpg')])).rejects.toThrow(
       ConstructionPhotoAlbumNotFoundError
     );
+  });
+
+  it('取り除かれた（論理削除済みの）プロジェクトのアルバムへのアップロードは NotFound を投げ、保存も登録もしない（Requirements: 13.2, 13.3）', async () => {
+    (mockPrisma.constructionPhotoAlbum.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: ALBUM_ID,
+      deletedAt: null,
+      project: { deletedAt: new Date() },
+    });
+    await expect(service.addFromUpload(ALBUM_ID, [jpegFile('a.jpg')])).rejects.toThrow(
+      ConstructionPhotoAlbumNotFoundError
+    );
+    expect(mockStorage.upload).not.toHaveBeenCalled();
+    expect(mockPrisma.constructionPhoto.create).not.toHaveBeenCalled();
   });
 
   it('複数画像を写真項目として登録しサムネを生成する（Requirements: 4.1, 4.2, 4.3）', async () => {
@@ -347,6 +381,7 @@ function createSurveyMockPrisma() {
         id: ALBUM_ID,
         deletedAt: null,
         projectId: PROJECT_ID,
+        project: { deletedAt: null },
       }),
     },
     constructionPhoto: {
@@ -415,10 +450,28 @@ describe('ConstructionPhotoImageService.addFromSurveyImage', () => {
       id: ALBUM_ID,
       deletedAt: new Date(),
       projectId: PROJECT_ID,
+      project: { deletedAt: null },
     });
     await expect(service.addFromSurveyImage(ALBUM_ID, [SURVEY_IMAGE_ID_1])).rejects.toThrow(
       ConstructionPhotoAlbumNotFoundError
     );
+  });
+
+  it('取り除かれた（論理削除済みの）プロジェクトのアルバムへのコピーは NotFound を投げ、複製も登録もしない（Requirements: 13.2, 13.3）', async () => {
+    (mockPrisma.constructionPhotoAlbum.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: ALBUM_ID,
+      deletedAt: null,
+      projectId: PROJECT_ID,
+      project: { deletedAt: new Date() },
+    });
+    (mockPrisma.surveyImage.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      surveyImageRow({ id: SURVEY_IMAGE_ID_1 }),
+    ]);
+    await expect(service.addFromSurveyImage(ALBUM_ID, [SURVEY_IMAGE_ID_1])).rejects.toThrow(
+      ConstructionPhotoAlbumNotFoundError
+    );
+    expect(mockStorage.copy).not.toHaveBeenCalled();
+    expect(mockPrisma.constructionPhoto.create).not.toHaveBeenCalled();
   });
 
   it('(a) 現調写真をコピーすると独立写真項目が生成され original/thumbnail の2キーが複製される（Requirements: 6.2）', async () => {
@@ -822,10 +875,9 @@ describe('ConstructionPhotoImageService.addFromSurveyImage', () => {
 // - 7.8: 写真項目一覧＋表示用署名付きURLを個別リクエストに分割せずまとめて取得する
 // - 11.2: 詳細は写真項目一覧＋署名URLを1リクエストで返し、写真ごとの個別取得を発生させない（N+1回避）
 // - 11.3: 一覧・詳細はサムネ優先。原本は必要時のみ（一覧では原本URLを返さない）
-// - 13.2: 取得対象がユーザーのアクセス可能なプロジェクト配下であることを検証（他プロジェクトは404）
+// - 13.2: 取得対象が実在し取り除かれていないプロジェクト配下であることを検証する。担当者（作成者・
+//   営業担当・工事担当）や admin ロールでの絞り込みは行わず、認可はルートの RBAC 権限が担う
 // ============================================================================
-
-const LIST_USER_ID = '523e4567-e89b-12d3-a456-426614174010';
 
 /** 工事写真一覧（findMany）の読取形状。原本パスは一覧では取得しない（サムネ優先） */
 function listPhotoRow(overrides: Record<string, unknown> = {}) {
@@ -853,25 +905,13 @@ function createListMockPrisma() {
       findUnique: vi.fn().mockResolvedValue({
         id: ALBUM_ID,
         deletedAt: null,
-        projectId: PROJECT_ID,
+        project: { deletedAt: null },
       }),
     },
     constructionPhoto: {
       findMany: vi.fn().mockResolvedValue([]),
     },
-    // プロジェクト境界検証（13.2）用: 既定はリクエストユーザーが作成者 → アクセス可
-    project: {
-      findUnique: vi.fn().mockResolvedValue({
-        id: PROJECT_ID,
-        deletedAt: null,
-        createdById: LIST_USER_ID,
-        salesPersonId: 'someone-else',
-        constructionPersonId: null,
-      }),
-    },
-    userRole: {
-      findMany: vi.fn().mockResolvedValue([]),
-    },
+    ...createAssigneeLookupSpies(),
   } as unknown as PrismaClient;
 }
 
@@ -904,7 +944,7 @@ describe('ConstructionPhotoImageService.listWithUrls', () => {
     (mockPrisma.constructionPhotoAlbum.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
       null
     );
-    await expect(service.listWithUrls(ALBUM_ID, LIST_USER_ID)).rejects.toThrow(
+    await expect(service.listWithUrls(ALBUM_ID)).rejects.toThrow(
       ConstructionPhotoAlbumNotFoundError
     );
   });
@@ -913,9 +953,9 @@ describe('ConstructionPhotoImageService.listWithUrls', () => {
     (mockPrisma.constructionPhotoAlbum.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: ALBUM_ID,
       deletedAt: new Date(),
-      projectId: PROJECT_ID,
+      project: { deletedAt: null },
     });
-    await expect(service.listWithUrls(ALBUM_ID, LIST_USER_ID)).rejects.toThrow(
+    await expect(service.listWithUrls(ALBUM_ID)).rejects.toThrow(
       ConstructionPhotoAlbumNotFoundError
     );
   });
@@ -927,7 +967,7 @@ describe('ConstructionPhotoImageService.listWithUrls', () => {
       listPhotoRow({ id: 'p3', displayOrder: 3 }),
     ]);
 
-    const result = await service.listWithUrls(ALBUM_ID, LIST_USER_ID);
+    const result = await service.listWithUrls(ALBUM_ID);
 
     expect(result).toHaveLength(3);
     expect(result.map((p) => p.id)).toEqual(['p1', 'p2', 'p3']);
@@ -941,7 +981,7 @@ describe('ConstructionPhotoImageService.listWithUrls', () => {
   it('写真0件のアルバムは空配列を返し署名URL生成を行わない', async () => {
     (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
-    const result = await service.listWithUrls(ALBUM_ID, LIST_USER_ID);
+    const result = await service.listWithUrls(ALBUM_ID);
 
     expect(result).toEqual([]);
     expect(mockStorage.getSignedUrl).not.toHaveBeenCalled();
@@ -954,7 +994,7 @@ describe('ConstructionPhotoImageService.listWithUrls', () => {
       listPhotoRow({ id: 'p3', displayOrder: 3 }),
     ]);
 
-    await service.listWithUrls(ALBUM_ID, LIST_USER_ID);
+    await service.listWithUrls(ALBUM_ID);
 
     // 写真件数に関わらず findMany は1回のみ（写真ごとの個別クエリを発生させない）
     expect(mockPrisma.constructionPhoto.findMany).toHaveBeenCalledTimes(1);
@@ -970,7 +1010,7 @@ describe('ConstructionPhotoImageService.listWithUrls', () => {
       }),
     ]);
 
-    const result = await service.listWithUrls(ALBUM_ID, LIST_USER_ID);
+    const result = await service.listWithUrls(ALBUM_ID);
     const dto = result[0]!;
 
     expect(dto.thumbnailUrl).toBe('https://signed.example/thumb.jpg');
@@ -996,7 +1036,7 @@ describe('ConstructionPhotoImageService.listWithUrls', () => {
       new Error('sign fail')
     );
 
-    const result = await service.listWithUrls(ALBUM_ID, LIST_USER_ID);
+    const result = await service.listWithUrls(ALBUM_ID);
 
     expect(result).toHaveLength(1);
     expect(result[0]!.thumbnailUrl).toBeNull();
@@ -1022,7 +1062,7 @@ describe('ConstructionPhotoImageService.listWithUrls', () => {
       }),
     ]);
 
-    const result = await service.listWithUrls(ALBUM_ID, LIST_USER_ID);
+    const result = await service.listWithUrls(ALBUM_ID);
 
     expect(result).toHaveLength(1);
     expect(result[0]!.signboardId).toBe(LIST_SIGNBOARD_ID);
@@ -1047,7 +1087,7 @@ describe('ConstructionPhotoImageService.listWithUrls', () => {
       }),
     ]);
 
-    const result = await service.listWithUrls(ALBUM_ID, LIST_USER_ID);
+    const result = await service.listWithUrls(ALBUM_ID);
 
     expect(result.map((p) => p.id)).toEqual(['p-dangling', 'p-live']);
     expect(result[0]!.signboardId).toBeNull();
@@ -1067,7 +1107,7 @@ describe('ConstructionPhotoImageService.listWithUrls', () => {
       }),
     ]);
 
-    const result = await service.listWithUrls(ALBUM_ID, LIST_USER_ID);
+    const result = await service.listWithUrls(ALBUM_ID);
 
     expect(result).toHaveLength(1);
     expect(result[0]!.signboardId).toBeNull();
@@ -1090,7 +1130,7 @@ describe('ConstructionPhotoImageService.listWithUrls', () => {
       }),
     ]);
 
-    await service.listWithUrls(ALBUM_ID, LIST_USER_ID);
+    await service.listWithUrls(ALBUM_ID);
 
     expect(mockPrisma.constructionPhoto.findMany).toHaveBeenCalledTimes(1);
     const findManyArgs = (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mock
@@ -1100,41 +1140,35 @@ describe('ConstructionPhotoImageService.listWithUrls', () => {
     expect(signboardFindUnique).not.toHaveBeenCalled();
   });
 
-  it('(d) ユーザーがアクセスできないプロジェクト（他プロジェクト）のアルバムは 404 とする（Requirements: 13.2）', async () => {
-    // アルバムは存在するが、リクエストユーザーは当該プロジェクトの関係者でなく admin でもない
-    (mockPrisma.project.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: PROJECT_ID,
-      deletedAt: null,
-      createdById: 'other-user',
-      salesPersonId: 'another-user',
-      constructionPersonId: null,
-    });
-    (mockPrisma.userRole.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-
-    await expect(service.listWithUrls(ALBUM_ID, LIST_USER_ID)).rejects.toThrow(
-      ConstructionPhotoAlbumNotFoundError
-    );
-    // 境界外は写真取得を一切行わない
-    expect(mockPrisma.constructionPhoto.findMany).not.toHaveBeenCalled();
-  });
-
-  it('admin ロールのユーザーは関係者でなくても一覧取得できる（Requirements: 13.2）', async () => {
-    (mockPrisma.project.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: PROJECT_ID,
-      deletedAt: null,
-      createdById: 'other-user',
-      salesPersonId: 'another-user',
-      constructionPersonId: null,
-    });
-    (mockPrisma.userRole.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { role: { name: 'admin' } },
-    ]);
+  it('(d) 担当者（作成者・営業担当・工事担当）や admin ロールを問い合わせずに一覧を返す（Requirements: 13.2）', async () => {
+    // 認可はルートの RBAC 権限（construction_photo:read）が担い、サービスは利用者を受け取らない。
+    // 担当でない一般ユーザーの要求でも、アルバムとプロジェクトが実在すれば一覧を返す
     (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
       listPhotoRow({ id: 'p1' }),
     ]);
 
-    const result = await service.listWithUrls(ALBUM_ID, LIST_USER_ID);
-    expect(result).toHaveLength(1);
+    const result = await service.listWithUrls(ALBUM_ID);
+
+    expect(result.map((p) => p.id)).toEqual(['p1']);
+    expect(mockPrisma.project.findUnique).not.toHaveBeenCalled();
+    expect(mockPrisma.userRole.findMany).not.toHaveBeenCalled();
+    // アルバムの読み出しは、プロジェクトの担当者の列を読まない（論理削除の状態だけを読む）
+    const albumArgs = (mockPrisma.constructionPhotoAlbum.findUnique as ReturnType<typeof vi.fn>)
+      .mock.calls[0]![0] as { select: { project: unknown } };
+    expect(albumArgs.select.project).toEqual({ select: { deletedAt: true } });
+  });
+
+  it('取り除かれた（論理削除済みの）プロジェクトのアルバムは 404 とし、写真項目を読み出さない（Requirements: 13.2, 13.3）', async () => {
+    (mockPrisma.constructionPhotoAlbum.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: ALBUM_ID,
+      deletedAt: null,
+      project: { deletedAt: new Date() },
+    });
+
+    await expect(service.listWithUrls(ALBUM_ID)).rejects.toThrow(
+      ConstructionPhotoAlbumNotFoundError
+    );
+    expect(mockPrisma.constructionPhoto.findMany).not.toHaveBeenCalled();
   });
 });
 
@@ -1144,19 +1178,20 @@ describe('ConstructionPhotoImageService.listWithUrls', () => {
 // Requirements:
 // - 7.7: 写真項目と関連する看板配置データを削除する（配置は行のカラムのため行削除で消える）
 // - 9.5: 保持のみ（削除では合成物は存在しない=オンデマンドのため）
-// - 13.2: 対象アルバムがアクセス可能なプロジェクト配下であることを検証（他プロジェクトは404）
+// - 13.2: 対象アルバムが実在し取り除かれていないプロジェクト配下であることを検証する（担当者や
+//   admin ロールでの絞り込みは行わない）
 // ============================================================================
 
-const DELETE_USER_ID = '523e4567-e89b-12d3-a456-426614174010';
 const PHOTO_ID = '623e4567-e89b-12d3-a456-426614174099';
 
-/** delete 対象写真の読取形状（album.projectId/deletedAt 同梱） */
+/** delete 対象写真の読取形状（アルバムと所属プロジェクトの論理削除の状態を同梱） */
 function deletePhotoRow(overrides: Record<string, unknown> = {}) {
   return {
     id: PHOTO_ID,
+    albumId: ALBUM_ID,
     originalPath: `construction-photos/${ALBUM_ID}/1_photo.jpg`,
     thumbnailPath: `construction-photos/${ALBUM_ID}/1_thumb_photo.jpg`,
-    album: { projectId: PROJECT_ID, deletedAt: null },
+    album: { deletedAt: null, project: { deletedAt: null } },
     ...overrides,
   };
 }
@@ -1167,18 +1202,7 @@ function createDeleteMockPrisma() {
       findUnique: vi.fn().mockResolvedValue(deletePhotoRow()),
       delete: vi.fn().mockResolvedValue(deletePhotoRow()),
     },
-    project: {
-      findUnique: vi.fn().mockResolvedValue({
-        id: PROJECT_ID,
-        deletedAt: null,
-        createdById: DELETE_USER_ID,
-        salesPersonId: 'someone-else',
-        constructionPersonId: null,
-      }),
-    },
-    userRole: {
-      findMany: vi.fn().mockResolvedValue([]),
-    },
+    ...createAssigneeLookupSpies(),
   } as unknown as PrismaClient;
 }
 
@@ -1208,14 +1232,12 @@ describe('ConstructionPhotoImageService.delete', () => {
 
   it('存在しない写真項目の削除は NotFound を投げる', async () => {
     (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-    await expect(service.delete(PHOTO_ID, DELETE_USER_ID)).rejects.toThrow(
-      ConstructionPhotoNotFoundError
-    );
+    await expect(service.delete(PHOTO_ID)).rejects.toThrow(ConstructionPhotoNotFoundError);
     expect(mockPrisma.constructionPhoto.delete).not.toHaveBeenCalled();
   });
 
   it('(d) 写真行を削除し original/thumbnail のストレージも削除する（Requirements: 7.7）', async () => {
-    await service.delete(PHOTO_ID, DELETE_USER_ID);
+    await service.delete(PHOTO_ID);
 
     // DB 行削除
     expect(mockPrisma.constructionPhoto.delete).toHaveBeenCalledWith({ where: { id: PHOTO_ID } });
@@ -1229,34 +1251,50 @@ describe('ConstructionPhotoImageService.delete', () => {
 
   it('ストレージ削除が失敗しても DB 行削除は完了する（ベストエフォート）', async () => {
     (mockStorage.delete as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('storage down'));
-    await expect(service.delete(PHOTO_ID, DELETE_USER_ID)).resolves.toBeUndefined();
+    await expect(service.delete(PHOTO_ID)).resolves.toBeUndefined();
     expect(mockPrisma.constructionPhoto.delete).toHaveBeenCalledWith({ where: { id: PHOTO_ID } });
   });
 
-  it('(f) アクセスできないプロジェクトの写真は 404 とし削除しない（Requirements: 13.2）', async () => {
-    (mockPrisma.project.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: PROJECT_ID,
-      deletedAt: null,
-      createdById: 'other-user',
-      salesPersonId: 'another-user',
-      constructionPersonId: null,
-    });
-    (mockPrisma.userRole.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+  it('(f) 担当者（作成者・営業担当・工事担当）や admin ロールを問い合わせずに削除する（Requirements: 13.2）', async () => {
+    // 削除できる利用者はルートの RBAC 権限（construction_photo:delete）が決める
+    await expect(service.delete(PHOTO_ID)).resolves.toBeUndefined();
 
-    await expect(service.delete(PHOTO_ID, DELETE_USER_ID)).rejects.toThrow(
-      ConstructionPhotoNotFoundError
+    expect(mockPrisma.constructionPhoto.delete).toHaveBeenCalledWith({ where: { id: PHOTO_ID } });
+    expect(mockPrisma.project.findUnique).not.toHaveBeenCalled();
+    expect(mockPrisma.userRole.findMany).not.toHaveBeenCalled();
+  });
+
+  it('取り除かれた（論理削除済みの）プロジェクトの写真は 404 とし削除しない（Requirements: 13.2, 13.3）', async () => {
+    (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+      deletePhotoRow({
+        album: { deletedAt: null, project: { deletedAt: new Date() } },
+      })
     );
+
+    await expect(service.delete(PHOTO_ID)).rejects.toThrow(ConstructionPhotoNotFoundError);
     expect(mockPrisma.constructionPhoto.delete).not.toHaveBeenCalled();
     expect(mockStorage.delete).not.toHaveBeenCalled();
   });
 
-  it('論理削除済みアルバム配下の写真は 404 とする', async () => {
-    (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
-      deletePhotoRow({ album: { projectId: PROJECT_ID, deletedAt: new Date() } })
-    );
-    await expect(service.delete(PHOTO_ID, DELETE_USER_ID)).rejects.toThrow(
+  it('アルバムの配下として指したときは、写真項目がそのアルバムに属さなければ 404 とし削除しない（Requirements: 13.2）', async () => {
+    await expect(service.delete(PHOTO_ID, OTHER_ALBUM_ID)).rejects.toThrow(
       ConstructionPhotoNotFoundError
     );
+    expect(mockPrisma.constructionPhoto.delete).not.toHaveBeenCalled();
+    expect(mockStorage.delete).not.toHaveBeenCalled();
+
+    // 属するアルバムの配下として指したときは削除する
+    await service.delete(PHOTO_ID, ALBUM_ID);
+    expect(mockPrisma.constructionPhoto.delete).toHaveBeenCalledWith({ where: { id: PHOTO_ID } });
+  });
+
+  it('論理削除済みアルバム配下の写真は 404 とする', async () => {
+    (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+      deletePhotoRow({
+        album: { deletedAt: new Date(), project: { deletedAt: null } },
+      })
+    );
+    await expect(service.delete(PHOTO_ID)).rejects.toThrow(ConstructionPhotoNotFoundError);
     expect(mockPrisma.constructionPhoto.delete).not.toHaveBeenCalled();
   });
 });
@@ -1269,10 +1307,9 @@ describe('ConstructionPhotoImageService.delete', () => {
 // - 9.7: 参照先の看板が削除済みなら看板なしとして扱い原本を返す
 // - 10.8: 看板の登録内容を指定位置・大きさで重畳する
 // - 10.9: 看板なしの写真は重畳なしで原本を返す
-// - 13.2: アクセスできないプロジェクトの写真は 404
+// - 13.2: 取り除かれたプロジェクトの写真は 404（担当者や admin ロールでの絞り込みは行わない）
 // ============================================================================
 
-const PRINT_USER_ID = '523e4567-e89b-12d3-a456-426614174010';
 const PRINT_PHOTO_ID = '723e4567-e89b-12d3-a456-426614174099';
 const SIGNBOARD_ID = '823e4567-e89b-12d3-a456-426614174011';
 
@@ -1283,10 +1320,11 @@ const COMPOSITED_BUFFER = Buffer.from('composited-jpeg-bytes');
 function printPhotoRow(overrides: Record<string, unknown> = {}) {
   return {
     id: PRINT_PHOTO_ID,
+    albumId: ALBUM_ID,
     originalPath: `construction-photos/${ALBUM_ID}/1_photo.jpg`,
     signboardId: null,
     signboardPlacement: null,
-    album: { projectId: PROJECT_ID, deletedAt: null },
+    album: { deletedAt: null, project: { deletedAt: null } },
     ...overrides,
   };
 }
@@ -1315,18 +1353,7 @@ function createPrintMockPrisma() {
     constructionSignboard: {
       findUnique: vi.fn().mockResolvedValue(signboardRow()),
     },
-    project: {
-      findUnique: vi.fn().mockResolvedValue({
-        id: PROJECT_ID,
-        deletedAt: null,
-        createdById: PRINT_USER_ID,
-        salesPersonId: 'someone-else',
-        constructionPersonId: null,
-      }),
-    },
-    userRole: {
-      findMany: vi.fn().mockResolvedValue([]),
-    },
+    ...createAssigneeLookupSpies(),
   } as unknown as PrismaClient;
 }
 
@@ -1373,7 +1400,7 @@ describe('ConstructionPhotoImageService.getPrintImage', () => {
       printPhotoRow({ signboardId: SIGNBOARD_ID, signboardPlacement: PLACEMENT })
     );
 
-    const result = await service.getPrintImage(PRINT_PHOTO_ID, PRINT_USER_ID);
+    const result = await service.getPrintImage(PRINT_PHOTO_ID);
 
     // 原本取得
     expect(mockStorage.get).toHaveBeenCalledWith(`construction-photos/${ALBUM_ID}/1_photo.jpg`);
@@ -1394,7 +1421,7 @@ describe('ConstructionPhotoImageService.getPrintImage', () => {
       printPhotoRow({ signboardId: null, signboardPlacement: null })
     );
 
-    const result = await service.getPrintImage(PRINT_PHOTO_ID, PRINT_USER_ID);
+    const result = await service.getPrintImage(PRINT_PHOTO_ID);
 
     expect(result).toEqual(ORIGINAL_BUFFER);
     expect(compositeSpy).not.toHaveBeenCalled();
@@ -1411,7 +1438,7 @@ describe('ConstructionPhotoImageService.getPrintImage', () => {
       signboardRow({ deletedAt: new Date() })
     );
 
-    const result = await service.getPrintImage(PRINT_PHOTO_ID, PRINT_USER_ID);
+    const result = await service.getPrintImage(PRINT_PHOTO_ID);
 
     expect(result).toEqual(ORIGINAL_BUFFER);
     expect(compositeSpy).not.toHaveBeenCalled();
@@ -1425,7 +1452,7 @@ describe('ConstructionPhotoImageService.getPrintImage', () => {
       null
     );
 
-    const result = await service.getPrintImage(PRINT_PHOTO_ID, PRINT_USER_ID);
+    const result = await service.getPrintImage(PRINT_PHOTO_ID);
 
     expect(result).toEqual(ORIGINAL_BUFFER);
     expect(compositeSpy).not.toHaveBeenCalled();
@@ -1436,7 +1463,7 @@ describe('ConstructionPhotoImageService.getPrintImage', () => {
       printPhotoRow({ signboardId: SIGNBOARD_ID, signboardPlacement: null })
     );
 
-    const result = await service.getPrintImage(PRINT_PHOTO_ID, PRINT_USER_ID);
+    const result = await service.getPrintImage(PRINT_PHOTO_ID);
 
     expect(result).toEqual(ORIGINAL_BUFFER);
     expect(compositeSpy).not.toHaveBeenCalled();
@@ -1444,36 +1471,55 @@ describe('ConstructionPhotoImageService.getPrintImage', () => {
 
   it('存在しない写真は 404 を投げる', async () => {
     (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-    await expect(service.getPrintImage(PRINT_PHOTO_ID, PRINT_USER_ID)).rejects.toThrow(
+    await expect(service.getPrintImage(PRINT_PHOTO_ID)).rejects.toThrow(
       ConstructionPhotoNotFoundError
     );
   });
 
   it('論理削除済みアルバム配下の写真は 404 を投げる', async () => {
     (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
-      printPhotoRow({ album: { projectId: PROJECT_ID, deletedAt: new Date() } })
+      printPhotoRow({
+        album: { deletedAt: new Date(), project: { deletedAt: null } },
+      })
     );
-    await expect(service.getPrintImage(PRINT_PHOTO_ID, PRINT_USER_ID)).rejects.toThrow(
+    await expect(service.getPrintImage(PRINT_PHOTO_ID)).rejects.toThrow(
       ConstructionPhotoNotFoundError
     );
   });
 
-  it('(e) アクセスできないプロジェクトの写真は 404 を投げる（Requirements: 13.2）', async () => {
-    (mockPrisma.project.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: PROJECT_ID,
-      deletedAt: null,
-      createdById: 'other-user',
-      salesPersonId: 'another-user',
-      constructionPersonId: null,
-    });
-    (mockPrisma.userRole.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+  it('(e) 担当者（作成者・営業担当・工事担当）や admin ロールを問い合わせずに印字画像を返す（Requirements: 13.2）', async () => {
+    // 取得できる利用者はルートの RBAC 権限（construction_photo:read）が決める
+    const result = await service.getPrintImage(PRINT_PHOTO_ID);
 
-    await expect(service.getPrintImage(PRINT_PHOTO_ID, PRINT_USER_ID)).rejects.toThrow(
+    expect(result).toEqual(ORIGINAL_BUFFER);
+    expect(mockPrisma.project.findUnique).not.toHaveBeenCalled();
+    expect(mockPrisma.userRole.findMany).not.toHaveBeenCalled();
+  });
+
+  it('取り除かれた（論理削除済みの）プロジェクトの写真は 404 を投げ、原本取得も合成も行わない（Requirements: 13.2, 13.3）', async () => {
+    (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+      printPhotoRow({
+        signboardId: SIGNBOARD_ID,
+        signboardPlacement: PLACEMENT,
+        album: { deletedAt: null, project: { deletedAt: new Date() } },
+      })
+    );
+
+    await expect(service.getPrintImage(PRINT_PHOTO_ID)).rejects.toThrow(
       ConstructionPhotoNotFoundError
     );
-    // 境界外は原本取得も合成も行わない
     expect(mockStorage.get).not.toHaveBeenCalled();
     expect(compositeSpy).not.toHaveBeenCalled();
+  });
+
+  it('アルバムの配下として指したときは、写真項目がそのアルバムに属さなければ 404 を投げ、原本を読まない（Requirements: 13.2）', async () => {
+    await expect(service.getPrintImage(PRINT_PHOTO_ID, OTHER_ALBUM_ID)).rejects.toThrow(
+      ConstructionPhotoNotFoundError
+    );
+    expect(mockStorage.get).not.toHaveBeenCalled();
+
+    // 属するアルバムの配下として指したときは返す
+    await expect(service.getPrintImage(PRINT_PHOTO_ID, ALBUM_ID)).resolves.toEqual(ORIGINAL_BUFFER);
   });
 
   it('原本がストレージに存在しない場合は 404 を投げる', async () => {
@@ -1482,7 +1528,7 @@ describe('ConstructionPhotoImageService.getPrintImage', () => {
     );
     (mockStorage.get as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
-    await expect(service.getPrintImage(PRINT_PHOTO_ID, PRINT_USER_ID)).rejects.toThrow(
+    await expect(service.getPrintImage(PRINT_PHOTO_ID)).rejects.toThrow(
       ConstructionPhotoNotFoundError
     );
   });
@@ -1495,7 +1541,7 @@ describe('ConstructionPhotoImageService.getPrintImage', () => {
 // Requirements:
 // - 14.6: ビューアで表示する原本画像を必要時にのみ取得する
 // - 15.4: 「アップロード原本そのまま」の看板重畳モードを成立させる
-// - 13.2: アクセスできないプロジェクトの写真は 404
+// - 13.2: 取り除かれたプロジェクトの写真は 404（担当者や admin ロールでの絞り込みは行わない）
 // - 13.4: 画像は署名付きURLではなく、この専用エンドポイント経由でのみ配信する
 // ============================================================================
 
@@ -1542,7 +1588,7 @@ describe('ConstructionPhotoImageService.getOriginalImage', () => {
       printPhotoRow({ signboardId: null, signboardPlacement: null })
     );
 
-    const result = await service.getOriginalImage(PRINT_PHOTO_ID, PRINT_USER_ID);
+    const result = await service.getOriginalImage(PRINT_PHOTO_ID);
 
     expect(mockStorage.get).toHaveBeenCalledWith(`construction-photos/${ALBUM_ID}/1_photo.jpg`);
     expect(result).toEqual(ORIGINAL_BUFFER);
@@ -1554,7 +1600,7 @@ describe('ConstructionPhotoImageService.getOriginalImage', () => {
       printPhotoRow({ signboardId: SIGNBOARD_ID, signboardPlacement: PLACEMENT })
     );
 
-    const result = await service.getOriginalImage(PRINT_PHOTO_ID, PRINT_USER_ID);
+    const result = await service.getOriginalImage(PRINT_PHOTO_ID);
 
     expect(result).toEqual(ORIGINAL_BUFFER);
     // 看板配置があっても合成サービス・看板マスタ参照は一切行わない
@@ -1564,35 +1610,54 @@ describe('ConstructionPhotoImageService.getOriginalImage', () => {
 
   it('存在しない写真は 404 を投げる', async () => {
     (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-    await expect(service.getOriginalImage(PRINT_PHOTO_ID, PRINT_USER_ID)).rejects.toThrow(
+    await expect(service.getOriginalImage(PRINT_PHOTO_ID)).rejects.toThrow(
       ConstructionPhotoNotFoundError
     );
   });
 
   it('論理削除済みアルバム配下の写真は 404 を投げる', async () => {
     (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
-      printPhotoRow({ album: { projectId: PROJECT_ID, deletedAt: new Date() } })
+      printPhotoRow({
+        album: { deletedAt: new Date(), project: { deletedAt: null } },
+      })
     );
-    await expect(service.getOriginalImage(PRINT_PHOTO_ID, PRINT_USER_ID)).rejects.toThrow(
+    await expect(service.getOriginalImage(PRINT_PHOTO_ID)).rejects.toThrow(
       ConstructionPhotoNotFoundError
     );
   });
 
-  it('(c) アクセスできないプロジェクトの写真は 404 を投げる（Requirements: 13.2）', async () => {
-    (mockPrisma.project.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: PROJECT_ID,
-      deletedAt: null,
-      createdById: 'other-user',
-      salesPersonId: 'another-user',
-      constructionPersonId: null,
-    });
-    (mockPrisma.userRole.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+  it('(c) 担当者（作成者・営業担当・工事担当）や admin ロールを問い合わせずに原本を返す（Requirements: 13.2）', async () => {
+    // 取得できる利用者はルートの RBAC 権限（construction_photo:read）が決める
+    const result = await service.getOriginalImage(PRINT_PHOTO_ID);
 
-    await expect(service.getOriginalImage(PRINT_PHOTO_ID, PRINT_USER_ID)).rejects.toThrow(
+    expect(result).toEqual(ORIGINAL_BUFFER);
+    expect(mockPrisma.project.findUnique).not.toHaveBeenCalled();
+    expect(mockPrisma.userRole.findMany).not.toHaveBeenCalled();
+  });
+
+  it('取り除かれた（論理削除済みの）プロジェクトの写真は 404 を投げ、原本取得を行わない（Requirements: 13.2, 13.3）', async () => {
+    (mockPrisma.constructionPhoto.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+      printPhotoRow({
+        album: { deletedAt: null, project: { deletedAt: new Date() } },
+      })
+    );
+
+    await expect(service.getOriginalImage(PRINT_PHOTO_ID)).rejects.toThrow(
       ConstructionPhotoNotFoundError
     );
-    // 境界外は原本取得を行わない
     expect(mockStorage.get).not.toHaveBeenCalled();
+  });
+
+  it('アルバムの配下として指したときは、写真項目がそのアルバムに属さなければ 404 を投げ、原本を読まない（Requirements: 13.2）', async () => {
+    await expect(service.getOriginalImage(PRINT_PHOTO_ID, OTHER_ALBUM_ID)).rejects.toThrow(
+      ConstructionPhotoNotFoundError
+    );
+    expect(mockStorage.get).not.toHaveBeenCalled();
+
+    // 属するアルバムの配下として指したときは返す
+    await expect(service.getOriginalImage(PRINT_PHOTO_ID, ALBUM_ID)).resolves.toEqual(
+      ORIGINAL_BUFFER
+    );
   });
 
   it('原本がストレージに存在しない場合は 404 を投げる', async () => {
@@ -1601,7 +1666,7 @@ describe('ConstructionPhotoImageService.getOriginalImage', () => {
     );
     (mockStorage.get as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
-    await expect(service.getOriginalImage(PRINT_PHOTO_ID, PRINT_USER_ID)).rejects.toThrow(
+    await expect(service.getOriginalImage(PRINT_PHOTO_ID)).rejects.toThrow(
       ConstructionPhotoNotFoundError
     );
   });

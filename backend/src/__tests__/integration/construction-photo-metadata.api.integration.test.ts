@@ -9,7 +9,7 @@
  * - 7.7: 写真項目削除で写真と関連データ（看板配置）が消える
  * - 9.1, 9.5: 看板の関連付け・配置の保持（合成しない）
  * - 11.4: メタ一括更新＋順序更新の最大2リクエストで確定
- * - 13.1, 13.2: 認証(401)・プロジェクト境界(404)
+ * - 13.1, 13.2: 認証(401)。担当でない一般ユーザーも権限があれば更新・削除できる。他プロジェクトの看板は404
  *
  * Scope:
  * - flat/nested 二重マウント（PATCH /images/batch, PUT /:id/images/order, DELETE /images/:imageId）
@@ -280,13 +280,17 @@ describe('Construction Photo Metadata/Order/Delete API Integration Tests', () =>
       await prisma.constructionPhoto.deleteMany({ where: { id: { in: [p1, p2, p3] } } });
     });
 
-    it('他プロジェクト（アクセス不可）ユーザーのメタ更新は404（REQ 13.2）', async () => {
+    it('担当でない一般ユーザーも、編集の権限（construction_photo:update）があればメタを更新できる', async () => {
+      // outsider は当該プロジェクトの作成者・営業担当・工事担当のいずれでもない user ロールの利用者。
+      // アクセスはロールの権限の表（RBAC）だけで判定する（Task 23.1 の利用者の判断）
       const p1 = await uploadPhoto('boundary.jpg');
       const res = await request(app)
         .patch('/api/construction-photos/images/batch')
         .set('Authorization', `Bearer ${outsiderToken}`)
         .send({ items: [{ id: p1, comment: 'x' }] });
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(200);
+      const row = await prisma.constructionPhoto.findUnique({ where: { id: p1 } });
+      expect(row?.comment).toBe('x');
       await prisma.constructionPhoto.deleteMany({ where: { id: p1 } });
     });
 
@@ -368,15 +372,17 @@ describe('Construction Photo Metadata/Order/Delete API Integration Tests', () =>
       expect(res.status).toBe(404);
     });
 
-    it('他プロジェクト（アクセス不可）ユーザーの削除は404で削除しない（REQ 13.2）', async () => {
+    it('担当でない利用者も、削除の権限（construction_photo:delete）を持てば削除できる', async () => {
+      // 本ファイルの beforeAll は user ロールへ construction_photo:delete を足している（削除の
+      // 検証のため）。outsider は担当者ではないが、その権限を持つため削除できる。
+      // 権限を持たない user ロール（シードの定義）が 403 になることは
+      // construction-photo-access.api.integration.test.ts が確かめる
       const p1 = await uploadPhoto('delboundary.jpg');
       const res = await request(app)
         .delete(`/api/construction-photos/images/${p1}`)
         .set('Authorization', `Bearer ${outsiderToken}`);
-      expect(res.status).toBe(404);
-      // 削除されていない
-      expect(await prisma.constructionPhoto.findUnique({ where: { id: p1 } })).not.toBeNull();
-      await prisma.constructionPhoto.deleteMany({ where: { id: p1 } });
+      expect(res.status).toBe(204);
+      expect(await prisma.constructionPhoto.findUnique({ where: { id: p1 } })).toBeNull();
     });
   });
 });
