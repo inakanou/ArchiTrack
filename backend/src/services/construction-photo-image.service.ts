@@ -107,8 +107,9 @@ export function isAddressedAlbum(
 
 /**
  * 署名付きURLの有効期限（秒）。Requirements: 11.6（15分程度）
+ * プロジェクト詳細サマリの工事写真のサムネイル（projects.routes.ts）も同じ値を使う。
  */
-const SIGNED_URL_EXPIRES_IN = 900;
+export const SIGNED_URL_EXPIRES_IN = 900;
 
 /**
  * アップロードファイル（multer 受信後の実体）

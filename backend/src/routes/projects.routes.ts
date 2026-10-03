@@ -34,6 +34,7 @@ import {
   ConstructionPhotoSummaryService,
   type ConstructionPhotoAlbumSummaryInfo,
 } from '../services/construction-photo-summary.service.js';
+import { SIGNED_URL_EXPIRES_IN as CONSTRUCTION_PHOTO_SIGNED_URL_EXPIRES_IN } from '../services/construction-photo-image.service.js';
 import getPrismaClient from '../db.js';
 import { validate } from '../middleware/validate.middleware.js';
 import { authenticate } from '../middleware/authenticate.middleware.js';
@@ -380,7 +381,10 @@ async function getProjectSections(projectId: string) {
             let thumbnailUrl: string | null = null;
             if (album.thumbnailUrl) {
               try {
-                thumbnailUrl = await storageProvider.getSignedUrl(album.thumbnailUrl);
+                // 写真一覧・アルバム一覧と同じ有効期限（15 分。工事写真の受入基準 11.6）
+                thumbnailUrl = await storageProvider.getSignedUrl(album.thumbnailUrl, {
+                  expiresIn: CONSTRUCTION_PHOTO_SIGNED_URL_EXPIRES_IN,
+                });
               } catch (error) {
                 logger.warn(
                   { albumId: album.id, thumbnailPath: album.thumbnailUrl, error },
