@@ -64,9 +64,16 @@
  *     「看板を変更」のどちらの表示でも 44×44 以上で描かれ、同じ写真項目の他の操作コントロールも
  *     同じ下限を満たし、隣のボタンと重ならない（R19.3。タスク 21.2）
  * 23. 写真項目の削除の失敗と、やり直し: 写真項目の削除の応答を失敗へ差し替えると、確認ダイアログが
- *     閉じ、詳細画面の通知の枠（role=alert）に失敗が表示され、写真項目は残る。差し替えを解いて
- *     やり直すと、写真項目と看板配置のデータが削除され、古い失敗の通知が消える（R7.7。失敗時の
- *     通知は受入基準の外で、タスク 21.3 の利用者の判断による）
+ *     閉じ、取り除こうとした写真項目の中（削除ボタンの下）に失敗（role=alert）が表示され、上部の
+ *     通知の枠には出ず、画面は送られず（scrollY が変わらない）、写真項目は残る。差し替えを解いて
+ *     やり直すと、写真項目と看板配置のデータが削除され、失敗の表示も写真項目ごと消える（R7.7。
+ *     失敗時の表示は受入基準の外で、タスク 21.3 とそれを改めたタスク 23.9 の利用者の判断による）
+ * 23b. 写真項目の削除の失敗の長い文言: 区切りの無い英数字の一語と長い和文の理由で、375・320・1280 幅の
+ *     いずれでも失敗の表示が写真項目・<main>・文書全体からはみ出さず、モバイル幅で写真項目の操作部品が
+ *     44×44 以上を保つ（要件の印は掲げない。タスク 23.9）
+ * 23c. 画面の下端の近くでの写真項目の削除の失敗: 375・320 幅で最後の写真項目の削除ボタンが画面の下端の
+ *     近くにあるとき、失敗の表示の分だけ画面が下へ動いて表示が画面内に入り、フォーカスは削除ボタンに
+ *     ある（要件の印は掲げない。タスク 23.9 の是正 1 巡目、利用者の判断（2026-10-04））
  * 24. 担当でない一般ユーザー: admin が作り、営業担当も工事担当も別人のプロジェクトのアルバムを、
  *     user が一覧から開いて写真項目を見る・原本を開く・写真を追加する・コメントと並び替えを保存
  *     でき、削除の操作手段は表示されない（R1.2, R17.2。アクセスはロールの権限の表だけで判定する
@@ -3423,7 +3430,7 @@ test.describe('工事写真 追加機能フロー', () => {
   });
 
   /**
-   * R7.7 写真項目の削除と、削除が失敗したときの通知（タスク 21.3）:
+   * R7.7 写真項目の削除と、削除が失敗したときの表示（タスク 21.3、23.9）:
    * 375 幅の詳細画面で、看板配置のデータを持つ写真項目の削除を実行する。1 回目は削除の応答を
    * 失敗（500）へ差し替え、2 回目は差し替えを解いて実際に削除する。
    *
@@ -3433,31 +3440,33 @@ test.describe('工事写真 追加機能フロー', () => {
    * 写真項目が一覧から消え、DB から当該の行（看板の指定と配置の座標を持つ行）が無くなり、読み込み
    * 直しても戻らないことを確かめる。看板マスタの行と、もう一方の写真項目は残る。
    *
-   * 1 回目の失敗時の表示は受入基準 7.7 の外にある。利用者の判断（2026-10-02、タスク 21.3）により、
-   * 同じ詳細画面の既存の失敗の通知（`styles.notice` の枠、role=alert）に揃えて知らせる。主張は次の
-   * とおり。
-   *  - 確認ダイアログが閉じる（モーダルの背後に通知を隠さない。同じ画面のアルバムを取り除く確認
-   *    ダイアログと同じ扱い）。
-   *  - 通知の枠に、応答の理由（`detail`）が表示される（同じ画面の他の失敗の通知と同じ扱い）。
-   *  - 通知が画面内にあり、他の要素に覆われていない。写真項目は縦に積まれ、削除の操作手段は通知の
-   *    枠より下にある。前提として、削除を実行する時点で通知の枠の位置（見出し「写真項目」）が画面の
-   *    外にあることを主張する。
+   * 1 回目の失敗時の表示は受入基準 7.7 の外にある。タスク 23.9 の利用者の判断（2026-10-03）により、
+   * 失敗は取り除こうとした写真項目の中（その写真項目の操作の近く）に role=alert で出し、上部の
+   * 通知の枠には出さず、画面も送らない（21.3 の「通知の枠へ出して画面をそこへ送る」形を改めた）。
+   * 主張は次のとおり。
+   *  - 確認ダイアログが閉じる（モーダルの背後に表示を隠さない。21.3 から変わらない）。
+   *  - 失敗の表示は対象の写真項目の中の 1 件だけで、応答の理由（`detail`）を表示する。`<main>` の
+   *    中の role=alert はこの 1 件だけである（上部の通知の枠にも、もう一方の写真項目にも出ない）。
+   *  - 画面は送られない。「削除する」を押す直前と失敗の表示の後で `window.scrollY` が等しく、
+   *    その間に scroll イベントが 0 回である。前提として、削除を実行する時点で上部の通知の枠の
+   *    位置（見出し「写真項目」）が画面の外にあることを主張する（21.3 の形なら送られていた状況）。
+   *  - 失敗の表示が送らずに画面内にあり、中心と四隅の内側の点のいずれでも他の要素に覆われていない。
+   *    表示は削除ボタンより下にあり、写真項目の矩形の内側に収まる。削除ボタンも画面内にあり覆われて
+   *    いない（その場でやり直せる）。
    *  - 写真項目は 2 件とも残り、DB の行も看板配置のデータごと残る。
-   *  - <main> に水平のはみ出しが無い（許容誤差1px）。通知はファイル名を載せないため、長いファイル
-   *    名での測定は行わない（長い文字列の折り返しは、同じ枠を測る上の通知のテストが担う）。
+   *  - <main> と文書全体に水平のはみ出しが無い（許容誤差1px）。長い文言での測定は次のテストが担う。
    *
    * 削除の DELETE だけを差し替える。判定はオリジンではなくパスで行い、DELETE 以外は素通しする。
    * 500 は API クライアントの自動再試行の対象であるため、差し替えた応答は複数回返る（回数は主張
    * しない。1 回以上であることだけを前提として主張する）。解除は登録時と同じ参照で行う。
    *
-   * 是正の経緯（2026-10-03、タスク 21.3）: 本テストを書いた時点の実装（`PhotoItemPanel` が失敗を
-   * 握りつぶし、`ConstructionPhotoDetailPage.handleDelete` が捕捉も表示もしない形）では、確認
-   * ダイアログが開いたまま通知が 0 件で、「確認ダイアログが閉じる」の主張で赤だった。是正の途中で、
-   * 通知を画面の上端へ寄せて送る形（scrollIntoView の block: 'nearest'）を試したところ、通知の上端が
-   * 0 になり、画面の上端に貼り付く共通ヘッダのリンクに覆われて「覆われていない」の主張で赤だった
-   * （通知の中心の位置の要素が A）。画面の中央へ送る形（block: 'center'）で緑になった。
+   * 是正の経緯: 21.3 の時点の実装（`PhotoItemPanel` が失敗を握りつぶし、
+   * `ConstructionPhotoDetailPage.handleDelete` が捕捉も表示もしない形）では、確認ダイアログが開いた
+   * まま表示が 0 件で赤だった。21.3 は通知の枠へ出して画面の中央へ送る形で緑にした。23.9 の本テストは
+   * 21.3 の形のビルドに対して、写真項目の中の表示が 0 件であることで赤になる（その時点で画面は
+   * 通知の枠へ送られていた）。
    */
-  test('写真項目の削除が失敗すると通知の枠に失敗が表示されて写真項目が残り、やり直すと写真項目と看板配置のデータが削除される', async ({
+  test('写真項目の削除が失敗すると、その写真項目の中に失敗が表示されて画面は送られず、やり直すと写真項目と看板配置のデータが削除される', async ({
     page,
   }) => {
     const prisma = getPrismaClient();
@@ -3539,18 +3548,31 @@ test.describe('工事写真 追加機能フロー', () => {
     const keepHeading = items.getByRole('heading', { level: 3, name: keepFileName });
     await expect(targetHeading).toBeVisible({ timeout: getTimeout(15000) });
     await expect(keepHeading).toBeVisible();
-    const deleteTarget = items.getByRole('button', { name: `写真項目を削除: ${targetFileName}` });
+    // filter の has は絞り込む要素からの相対で解決されるため、page 起点の見出しで指す
+    const targetItem = items.filter({
+      has: page.getByRole('heading', { level: 3, name: targetFileName }),
+    });
+    const keepItem = items.filter({
+      has: page.getByRole('heading', { level: 3, name: keepFileName }),
+    });
+    await expect(targetItem).toHaveCount(1);
+    await expect(keepItem).toHaveCount(1);
+    const deleteTarget = targetItem.getByRole('button', {
+      name: `写真項目を削除: ${targetFileName}`,
+    });
     const dialog = page.getByRole('dialog');
-    const notices = page.getByRole('main').getByRole('alert');
+    const mainAlerts = page.getByRole('main').getByRole('alert');
+    const targetAlerts = targetItem.getByRole('alert');
+    const keepAlerts = keepItem.getByRole('alert');
     // 確認ダイアログの見出し「写真項目を削除」と区別するため、完全一致で指す
     const sectionHeading = page.getByRole('heading', {
       level: 2,
       name: '写真項目',
       exact: true,
     });
-    // 前提: 失敗の前に、通知は出ていない
+    // 前提: 失敗の前に、失敗の表示は出ていない
     await expect(sectionHeading).toBeVisible();
-    await expect(notices).toHaveCount(0);
+    await expect(mainAlerts).toHaveCount(0);
 
     // --- 1 回目: 削除の DELETE だけを失敗させる ---
     const deleteMatcher = (url: URL): boolean =>
@@ -3580,47 +3602,105 @@ test.describe('工事写真 追加機能フロー', () => {
       await deleteTarget.click();
       await expect(dialog).toBeVisible({ timeout: getTimeout(10000) });
       await expect(dialog).toContainText(targetFileName);
-      // 前提: 削除を実行する時点で、通知の枠の位置（見出し「写真項目」の直下）は画面の外にある
+      // 前提: 削除を実行する時点で、上部の通知の枠の位置（見出し「写真項目」の直下）は画面の外にある
       await expect(sectionHeading).not.toBeInViewport();
+
+      // 「削除する」を押す直前のスクロール位置を記録し、以後の scroll イベントを数える
+      const scrollBefore = await page.evaluate(() => {
+        const w = window as unknown as { __deleteFailureScrollEvents: number };
+        w.__deleteFailureScrollEvents = 0;
+        window.addEventListener('scroll', () => {
+          w.__deleteFailureScrollEvents += 1;
+        });
+        return window.scrollY;
+      });
 
       await dialog.getByRole('button', { name: '削除する' }).click();
 
-      // 確認ダイアログが閉じ、通知の枠に失敗の理由が表示される
+      // 確認ダイアログが閉じ、対象の写真項目の中に失敗の理由が表示される
       // （自動再試行の待ち時間は合わせて 7 秒ほどである）
       await expect(dialog).toBeHidden({ timeout: getTimeout(30000) });
-      await expect(notices).toHaveCount(1, { timeout: getTimeout(20000) });
-      await expect(notices).toHaveText(failureDetail);
-      await expect(notices).toBeInViewport({ ratio: 1, timeout: getTimeout(10000) });
+      await expect(targetAlerts).toHaveCount(1, { timeout: getTimeout(20000) });
+      await expect(targetAlerts).toHaveText(failureDetail);
+      // <main> の中の role=alert はこの 1 件だけ（上部の通知の枠にも、もう一方の写真項目にも出ない）
+      await expect(mainAlerts).toHaveCount(1);
+      await expect(keepAlerts).toHaveCount(0);
       // 前提: 失敗は差し替えた応答によるもので、削除はサーバーへ届いていない
       expect(failedDeleteCount).toBeGreaterThanOrEqual(1);
 
-      const shown = await notices.evaluate((el) => {
+      const scrollAfter = await page.evaluate(() => ({
+        scrollY: window.scrollY,
+        events: (window as unknown as { __deleteFailureScrollEvents: number })
+          .__deleteFailureScrollEvents,
+      }));
+      const scrollReport = JSON.stringify({ scrollBefore, scrollAfter });
+      // 画面は送られない
+      expect(scrollAfter.scrollY, scrollReport).toBe(scrollBefore);
+      expect(scrollAfter.events, scrollReport).toBe(0);
+
+      const shown = await targetAlerts.evaluate((el) => {
         const rect = el.getBoundingClientRect();
-        const hit = document.elementFromPoint(
-          rect.left + rect.width / 2,
-          rect.top + rect.height / 2
-        );
+        const item = el.closest('[data-testid="construction-photo-item"]') as HTMLElement;
+        const itemRect = item.getBoundingClientRect();
+        const button = item.querySelector(
+          'button[aria-label^="写真項目を削除: "]'
+        ) as HTMLButtonElement;
+        const buttonRect = button.getBoundingClientRect();
+        const inset = 2;
+        const probe = (x: number, y: number, target: Element): string => {
+          const hit = document.elementFromPoint(x, y);
+          return hit === null ? 'null' : target.contains(hit) ? 'self' : hit.tagName;
+        };
         const main = el.closest('main') as HTMLElement;
         return {
           viewportWidth: window.innerWidth,
           viewportHeight: window.innerHeight,
-          top: rect.top,
-          bottom: rect.bottom,
-          right: rect.right,
-          coveredBy: hit === null ? 'null' : el.contains(hit) ? 'notice' : hit.tagName,
+          alert: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
+          item: {
+            top: itemRect.top,
+            bottom: itemRect.bottom,
+            left: itemRect.left,
+            right: itemRect.right,
+          },
+          button: { top: buttonRect.top, bottom: buttonRect.bottom },
+          alertHits: [
+            probe(rect.left + rect.width / 2, rect.top + rect.height / 2, el),
+            probe(rect.left + inset, rect.top + inset, el),
+            probe(rect.right - inset, rect.top + inset, el),
+            probe(rect.left + inset, rect.bottom - inset, el),
+            probe(rect.right - inset, rect.bottom - inset, el),
+          ],
+          buttonHit: probe(
+            buttonRect.left + buttonRect.width / 2,
+            buttonRect.top + buttonRect.height / 2,
+            button
+          ),
           main: { scrollWidth: main.scrollWidth, clientWidth: main.clientWidth },
+          doc: {
+            scrollWidth: document.documentElement.scrollWidth,
+            clientWidth: document.documentElement.clientWidth,
+          },
         };
       });
       const shownReport = JSON.stringify(shown);
       expect(shown.viewportWidth, shownReport).toBe(375);
       expect(shown.main.clientWidth, shownReport).toBeGreaterThan(0);
-      // 通知が画面内にあり、他の要素に覆われていない
-      expect(shown.top, shownReport).toBeGreaterThanOrEqual(0);
-      expect(shown.bottom, shownReport).toBeLessThanOrEqual(shown.viewportHeight);
-      expect(shown.right, shownReport).toBeLessThanOrEqual(shown.viewportWidth + 1);
-      expect(shown.coveredBy, shownReport).toBe('notice');
-      // <main> に水平のはみ出しが無い（許容誤差1px）
+      // 送らずに画面内にあり、他の要素に覆われていない
+      expect(shown.alert.top, shownReport).toBeGreaterThanOrEqual(0);
+      expect(shown.alert.bottom, shownReport).toBeLessThanOrEqual(shown.viewportHeight);
+      expect(shown.alertHits, shownReport).toEqual(['self', 'self', 'self', 'self', 'self']);
+      // 削除ボタンより下にあり、写真項目の矩形の内側に収まる
+      expect(shown.alert.top, shownReport).toBeGreaterThanOrEqual(shown.button.bottom);
+      expect(shown.alert.left, shownReport).toBeGreaterThanOrEqual(shown.item.left);
+      expect(shown.alert.right, shownReport).toBeLessThanOrEqual(shown.item.right);
+      expect(shown.alert.bottom, shownReport).toBeLessThanOrEqual(shown.item.bottom);
+      // 削除ボタンも画面内にあり覆われていない（その場でやり直せる）
+      expect(shown.button.top, shownReport).toBeGreaterThanOrEqual(0);
+      expect(shown.button.bottom, shownReport).toBeLessThanOrEqual(shown.viewportHeight);
+      expect(shown.buttonHit, shownReport).toBe('self');
+      // <main> と文書全体に水平のはみ出しが無い（許容誤差1px）
       expect(shown.main.scrollWidth - shown.main.clientWidth, shownReport).toBeLessThanOrEqual(1);
+      expect(shown.doc.scrollWidth - shown.doc.clientWidth, shownReport).toBeLessThanOrEqual(1);
 
       // 写真項目は 2 件とも残り、DB の行も看板配置のデータごと残る
       await expect(items).toHaveCount(2);
@@ -3653,8 +3733,8 @@ test.describe('工事写真 追加機能フロー', () => {
     await expect(items).toHaveCount(1, { timeout: getTimeout(20000) });
     await expect(targetHeading).toHaveCount(0);
     await expect(keepHeading).toBeVisible();
-    // 古い失敗の通知が消える
-    await expect(notices).toHaveCount(0);
+    // 古い失敗の表示は写真項目ごと消え、<main> に role=alert は残らない
+    await expect(mainAlerts).toHaveCount(0);
 
     // R7.7: 写真項目の行が、看板配置のデータごと DB から無くなる。看板マスタともう一方の行は残る
     expect(await prisma.constructionPhoto.findUnique({ where: { id: targetId! } })).toBeNull();
@@ -3673,6 +3753,402 @@ test.describe('工事写真 追加機能フロー', () => {
     await expect(items).toHaveCount(1, { timeout: getTimeout(20000) });
     await expect(keepHeading).toBeVisible({ timeout: getTimeout(15000) });
     await expect(targetHeading).toHaveCount(0);
+  });
+
+  /**
+   * 写真項目の削除の失敗の表示の、長い文言での収まりとタップ領域（タスク 23.9）:
+   * 写真項目 1 件の詳細画面で、削除の応答を失敗（500）へ差し替え、理由（`detail`）を
+   * 区切りの無い英数字の一語 200 文字と、長い和文 200 文字の 2 通りにする。それぞれの失敗を 375 幅で
+   * 起こし、同じ表示のまま 320 幅と 1280 幅へ幅を変えて測る（幅の変更は写真項目への操作ではない
+   * ため、表示はそのまま残る）。
+   *
+   * 要件の印は掲げない（失敗の表示は受入基準 7.7 の外で、タスク 23.9 の利用者の判断による。
+   * モバイル幅の収まりとタップ領域の下限は要件 19 の基準を同じ表示へ当てたもの）。主張は次のとおり。
+   *  - 3 幅のいずれでも、表示の矩形が写真項目の矩形の内側に収まり、文字列（DOM Range）の左右端が
+   *    表示の内容の箱の内側に収まり、写真項目・<main>・文書全体に水平のはみ出しが無い（許容誤差1px）。
+   *  - 375 幅と 320 幅で、同じ写真項目の操作部品 7 つ（ドラッグハンドル・上下の移動・二つの
+   *    チェックボックス・看板の操作・削除）が 44×44 以上で描かれる（下限は TAP_TARGET_MIN_PX）。
+   *    1280 幅は下限の対象外である（モバイル用の上書きはモバイル幅だけに当たる）。
+   */
+  test('モバイル幅（375・320）と 1280 幅で、写真項目の削除の失敗の長い文言が写真項目からはみ出さず、操作のタップ領域が下限を保つ', async ({
+    page,
+  }) => {
+    const prisma = getPrismaClient();
+    const stamp = Date.now();
+    const albumName = `削除失敗_長い文言_${stamp}`;
+    const fileName = `delete-long-${stamp}.jpg`;
+    const reasons = [
+      {
+        kind: '区切りの無い英数字の一語',
+        detail: `PhotoItemDeleteFailureReason${stamp}`.padEnd(200, 'X'),
+      },
+      {
+        kind: '長い和文',
+        detail: '写真項目の削除の処理で想定していない状態が見つかったため削除できませんでした'
+          .repeat(6)
+          .slice(0, 200),
+      },
+    ];
+    expect(reasons.map((r) => r.detail.length)).toEqual([200, 200]);
+
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'delete-fail-long');
+    const albumId = await createAlbum(page, projectId, albumName);
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { level: 1, name: albumName })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    const upload = page.waitForResponse(
+      (r) => r.request().method() === 'POST' && UPLOAD_URL_MATCHER(new URL(r.url())),
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByTestId('file-input').setInputFiles({
+      name: fileName,
+      mimeType: 'image/jpeg',
+      buffer: fs.readFileSync(FIXTURE_JPG),
+    });
+    await upload;
+    const items = page.getByTestId('construction-photo-item');
+    await expect(items).toHaveCount(1, { timeout: getTimeout(20000) });
+    const photo = await prisma.constructionPhoto.findFirst({
+      where: { albumId, fileName },
+      select: { id: true },
+    });
+    expect(photo, fileName).not.toBeNull();
+
+    const item = items.first();
+    const itemAlerts = item.getByRole('alert');
+    const deleteButton = item.getByRole('button', { name: `写真項目を削除: ${fileName}` });
+    const dialog = page.getByRole('dialog');
+
+    /** 幅を変え、写真項目の配置（モバイルは縦積み、1280 は横並び）の確定を待つ。 */
+    const resizeTo = async (width: number): Promise<void> => {
+      await page.setViewportSize({ width, height: 812 });
+      const expected = width <= 767 ? 'column' : 'row';
+      await expect
+        .poll(async () => item.evaluate((el) => getComputedStyle(el).flexDirection), {
+          timeout: getTimeout(15000),
+        })
+        .toBe(expected);
+    };
+
+    let currentDetail = '';
+    const deleteMatcher = (url: URL): boolean =>
+      url.pathname.endsWith(`/api/construction-photos/images/${photo!.id}`);
+    const failDelete = async (route: Route): Promise<void> => {
+      if (route.request().method() !== 'DELETE') {
+        await route.fallback();
+        return;
+      }
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          type: 'https://architrack.example.com/problems/internal-server-error',
+          title: 'Internal Server Error',
+          status: 500,
+          detail: currentDetail,
+          code: 'INTERNAL_SERVER_ERROR',
+        }),
+      });
+    };
+
+    type Measure = {
+      alertInItem: { leftGap: number; rightGap: number };
+      textInAlert: { leftGap: number; rightGap: number };
+      itemOverflow: number;
+      mainOverflow: number;
+      docOverflow: number;
+      controls: Array<{ label: string; width: number; height: number }>;
+    };
+    const measures = new Map<string, Measure>();
+    const measureAt = async (key: string): Promise<void> => {
+      const m = await itemAlerts.evaluate((el): Measure => {
+        const rect = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        const itemEl = el.closest('[data-testid="construction-photo-item"]') as HTMLElement;
+        const itemRect = itemEl.getBoundingClientRect();
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const textRect = range.getBoundingClientRect();
+        const contentLeft =
+          rect.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
+        const contentRight =
+          rect.right - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight);
+        const main = el.closest('main') as HTMLElement;
+        const controlSelectors: Array<[string, string]> = [
+          ['ドラッグハンドル', '[data-testid="construction-photo-drag-handle"]'],
+          ['上へ移動', 'button[aria-label="上へ移動"]'],
+          ['下へ移動', 'button[aria-label="下へ移動"]'],
+          ['エクスポート対象', 'input[aria-label="エクスポート対象に含める"]'],
+          ['印刷対象', 'input[aria-label="印刷対象に含める"]'],
+          ['看板の操作', 'button[aria-label^="看板を配置: "]'],
+          ['削除', 'button[aria-label^="写真項目を削除: "]'],
+        ];
+        return {
+          alertInItem: {
+            leftGap: rect.left - itemRect.left,
+            rightGap: itemRect.right - rect.right,
+          },
+          textInAlert: {
+            leftGap: textRect.left - contentLeft,
+            rightGap: contentRight - textRect.right,
+          },
+          itemOverflow: itemEl.scrollWidth - itemEl.clientWidth,
+          mainOverflow: main.scrollWidth - main.clientWidth,
+          docOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          controls: controlSelectors.map(([label, selector]) => {
+            const control = itemEl.querySelector(selector) as HTMLElement | null;
+            const r = control?.getBoundingClientRect();
+            return { label, width: r?.width ?? 0, height: r?.height ?? 0 };
+          }),
+        };
+      });
+      measures.set(key, m);
+    };
+
+    await page.route(deleteMatcher, failDelete);
+    try {
+      for (const reason of reasons) {
+        await resizeTo(375);
+        currentDetail = reason.detail;
+        await deleteButton.click();
+        await expect(dialog).toBeVisible({ timeout: getTimeout(10000) });
+        await dialog.getByRole('button', { name: '削除する' }).click();
+        await expect(dialog).toBeHidden({ timeout: getTimeout(30000) });
+        await expect(itemAlerts).toHaveCount(1, { timeout: getTimeout(20000) });
+        await expect(itemAlerts).toHaveText(reason.detail);
+
+        for (const width of [375, 320, 1280]) {
+          await resizeTo(width);
+          // 幅の変更は写真項目への操作ではないため、表示はそのまま残る
+          await expect(itemAlerts).toHaveText(reason.detail);
+          await measureAt(`${reason.kind} / ${width}`);
+        }
+      }
+    } finally {
+      await page.unroute(deleteMatcher, failDelete);
+    }
+
+    const allKeys = reasons.flatMap((r) => [375, 320, 1280].map((w) => `${r.kind} / ${w}`));
+    const mobileKeys = reasons.flatMap((r) => [375, 320].map((w) => `${r.kind} / ${w}`));
+    // 6 状態をすべて測れている（測り漏らした状態を緑に数えない）
+    expect([...measures.keys()]).toEqual(allKeys);
+    expect(mobileKeys).toHaveLength(4);
+
+    for (const key of allKeys) {
+      const m = measures.get(key)!;
+      const report = `${key}: ${JSON.stringify(m)}`;
+      expect(m.alertInItem.leftGap, report).toBeGreaterThanOrEqual(0);
+      expect(m.alertInItem.rightGap, report).toBeGreaterThanOrEqual(0);
+      expect(m.textInAlert.leftGap, report).toBeGreaterThanOrEqual(-1);
+      expect(m.textInAlert.rightGap, report).toBeGreaterThanOrEqual(-1);
+      expect(m.itemOverflow, report).toBeLessThanOrEqual(1);
+      expect(m.mainOverflow, report).toBeLessThanOrEqual(1);
+      expect(m.docOverflow, report).toBeLessThanOrEqual(1);
+    }
+    for (const key of mobileKeys) {
+      const m = measures.get(key)!;
+      const report = `${key}: ${JSON.stringify(m.controls)}`;
+      expect(m.controls, report).toHaveLength(7);
+      for (const control of m.controls) {
+        expect(control.width, `${report} ${control.label}`).toBeGreaterThanOrEqual(44);
+        expect(control.height, `${report} ${control.label}`).toBeGreaterThanOrEqual(44);
+      }
+    }
+  });
+
+  /**
+   * 画面の下端の近くで写真項目の削除が失敗したとき（タスク 23.9 の是正 1 巡目）:
+   * 利用者の判断（2026-10-04）「文言の分だけ動かす」により、写真項目の中の失敗の表示が画面の外へ
+   * 出るときだけ、表示を最小の移動（`scrollIntoView({ block: 'nearest' })`）で画面内へ入れる。
+   * 通常の位置（表示が画面内に収まる）では画面が動かないことは、上の REQ-7.7 のテストが主張する。
+   *
+   * 要件の印は掲げない（失敗の表示は受入基準 7.7 の外で、利用者の判断による）。375 幅と 320 幅で、
+   * 最後の写真項目の削除ボタンの下端が画面の下端から 51px 以内（20px 上）に来るよう画面を送って
+   * から、削除の応答を失敗（500）へ差し替えて実行する。主張は次のとおり。
+   *  - 前提: 削除ボタンの下端が画面の下端から 51px 以内にある。測った表示の高さと、操作の行と表示の
+   *    間隔（操作の行の下端から表示の上端まで）から求めた「動かさなかった場合の表示の下端」が画面の
+   *    下端を超える（動かさなければ表示が画面の外へ出る状況である）。
+   *  - 表示が画面の内側に収まり、中心が他の要素に覆われていない。
+   *  - 画面は下へだけ動き、動いた量は 0 より大きく、表示の高さに 16px の余裕を足した値以下である
+   *    （上部の通知の枠や画面の上端へは送らない）。
+   *  - フォーカスは失敗した写真項目の削除ボタンにある（フォーカスの復帰が移動を打ち消さない）。
+   */
+  test('モバイル幅（375・320）で画面の下端の近くの写真項目の削除が失敗すると、失敗の表示の分だけ画面が動いて表示が画面内に入る', async ({
+    page,
+  }) => {
+    const prisma = getPrismaClient();
+    const stamp = Date.now();
+    const albumName = `削除失敗_下端_${stamp}`;
+    const fileNames = [`delete-bottom-a-${stamp}.jpg`, `delete-bottom-b-${stamp}.jpg`];
+    const failureDetail = 'サーバー内部エラーが発生しました';
+    const bottomGap = 20;
+
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'delete-fail-bottom');
+    const albumId = await createAlbum(page, projectId, albumName);
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { level: 1, name: albumName })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    const items = page.getByTestId('construction-photo-item');
+    for (const [index, name] of fileNames.entries()) {
+      const upload = page.waitForResponse(
+        (r) => r.request().method() === 'POST' && UPLOAD_URL_MATCHER(new URL(r.url())),
+        { timeout: getTimeout(30000) }
+      );
+      await page.getByTestId('file-input').setInputFiles({
+        name,
+        mimeType: 'image/jpeg',
+        buffer: fs.readFileSync(FIXTURE_JPG),
+      });
+      await upload;
+      await expect(items).toHaveCount(index + 1, { timeout: getTimeout(20000) });
+    }
+    const lastFileName = fileNames[1]!;
+    const lastPhoto = await prisma.constructionPhoto.findFirst({
+      where: { albumId, fileName: lastFileName },
+      select: { id: true },
+    });
+    expect(lastPhoto, lastFileName).not.toBeNull();
+
+    const lastItem = items.filter({
+      has: page.getByRole('heading', { level: 3, name: lastFileName }),
+    });
+    await expect(lastItem).toHaveCount(1);
+    const lastAlerts = lastItem.getByRole('alert');
+    const deleteButton = lastItem.getByRole('button', { name: `写真項目を削除: ${lastFileName}` });
+    const dialog = page.getByRole('dialog');
+
+    const deleteMatcher = (url: URL): boolean =>
+      url.pathname.endsWith(`/api/construction-photos/images/${lastPhoto!.id}`);
+    const failDelete = async (route: Route): Promise<void> => {
+      if (route.request().method() !== 'DELETE') {
+        await route.fallback();
+        return;
+      }
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          type: 'https://architrack.example.com/problems/internal-server-error',
+          title: 'Internal Server Error',
+          status: 500,
+          detail: failureDetail,
+          code: 'INTERNAL_SERVER_ERROR',
+        }),
+      });
+    };
+
+    type BottomCase = {
+      width: number;
+      viewportHeight: number;
+      buttonBottomBefore: number;
+      rowBottomBefore: number;
+      scrollBefore: number;
+      scrollAfter: number;
+      gapRowToAlert: number;
+      alert: { top: number; bottom: number; height: number };
+      hit: string;
+      focusedIsDeleteButton: boolean;
+    };
+    const cases: BottomCase[] = [];
+
+    await page.route(deleteMatcher, failDelete);
+    try {
+      for (const width of [375, 320]) {
+        await page.setViewportSize({ width, height: 812 });
+        await expect
+          .poll(async () => lastItem.evaluate((el) => getComputedStyle(el).flexDirection), {
+            timeout: getTimeout(15000),
+          })
+          .toBe('column');
+        await expect(deleteButton).toBeVisible();
+
+        // 削除ボタンの下端が画面の下端から bottomGap 上に来るよう、画面を送る
+        await deleteButton.evaluate((button, gap) => {
+          const rect = button.getBoundingClientRect();
+          window.scrollBy(0, rect.bottom - (window.innerHeight - gap));
+        }, bottomGap);
+        // 削除ボタンを押す（画面内にあるため、押す操作で画面は動かない）
+        await deleteButton.click();
+        await expect(dialog).toBeVisible({ timeout: getTimeout(10000) });
+        const before = await deleteButton.evaluate((button) => ({
+          scrollY: window.scrollY,
+          buttonBottom: button.getBoundingClientRect().bottom,
+          rowBottom: (button.parentElement as HTMLElement).getBoundingClientRect().bottom,
+          viewportHeight: window.innerHeight,
+        }));
+
+        await dialog.getByRole('button', { name: '削除する' }).click();
+        await expect(dialog).toBeHidden({ timeout: getTimeout(30000) });
+        await expect(lastAlerts).toHaveCount(1, { timeout: getTimeout(20000) });
+        await expect(lastAlerts).toHaveText(failureDetail);
+        await expect(lastAlerts).toBeInViewport({ ratio: 1, timeout: getTimeout(10000) });
+
+        const after = await lastAlerts.evaluate((el) => {
+          const rect = el.getBoundingClientRect();
+          const row = el.previousElementSibling as HTMLElement;
+          const hit = document.elementFromPoint(
+            rect.left + rect.width / 2,
+            rect.top + rect.height / 2
+          );
+          const button = row.querySelector('button[aria-label^="写真項目を削除: "]');
+          return {
+            scrollY: window.scrollY,
+            gapRowToAlert: rect.top - row.getBoundingClientRect().bottom,
+            alert: { top: rect.top, bottom: rect.bottom, height: rect.height },
+            hit: hit === null ? 'null' : el.contains(hit) ? 'self' : hit.tagName,
+            focusedIsDeleteButton: button !== null && document.activeElement === button,
+          };
+        });
+        cases.push({
+          width,
+          viewportHeight: before.viewportHeight,
+          buttonBottomBefore: before.buttonBottom,
+          rowBottomBefore: before.rowBottom,
+          scrollBefore: before.scrollY,
+          scrollAfter: after.scrollY,
+          gapRowToAlert: after.gapRowToAlert,
+          alert: after.alert,
+          hit: after.hit,
+          focusedIsDeleteButton: after.focusedIsDeleteButton,
+        });
+      }
+    } finally {
+      await page.unroute(deleteMatcher, failDelete);
+    }
+
+    // 2 幅とも測れている
+    expect(cases.map((c) => c.width)).toEqual([375, 320]);
+    for (const c of cases) {
+      const report = JSON.stringify(c);
+      const delta = c.scrollAfter - c.scrollBefore;
+      // 前提: 削除ボタンの下端が画面の下端から 51px 以内にあり、動かさなければ表示の下端（動かす前の
+      // 操作の行の下端＋行と表示の間隔＋表示の高さ）が画面の下端を超えていた
+      expect(c.viewportHeight - c.buttonBottomBefore, report).toBeGreaterThanOrEqual(0);
+      expect(c.viewportHeight - c.buttonBottomBefore, report).toBeLessThanOrEqual(51);
+      expect(c.rowBottomBefore + c.gapRowToAlert + c.alert.height, report).toBeGreaterThan(
+        c.viewportHeight
+      );
+      // 表示が画面の内側に収まり、覆われていない
+      expect(c.alert.top, report).toBeGreaterThanOrEqual(0);
+      expect(c.alert.bottom, report).toBeLessThanOrEqual(c.viewportHeight);
+      expect(c.hit, report).toBe('self');
+      // 下へだけ、表示の分だけ動く
+      expect(delta, report).toBeGreaterThan(0);
+      expect(delta, report).toBeLessThanOrEqual(c.alert.height + 16);
+      // フォーカスは削除ボタンにある
+      expect(c.focusedIsDeleteButton, report).toBe(true);
+    }
   });
 
   /**

@@ -1406,19 +1406,38 @@ describe('ConstructionPhotoDetailPage', () => {
     });
 
     // ------------------------------------------------------------------------
-    // 写真項目の削除が失敗したときの通知（タスク 21.3）
-    // 受入基準 7.7 は失敗時の表示を定めていない。利用者の判断（2026-10-02）により、同じ画面の
-    // 既存の失敗の通知（role=alert の通知の枠）に揃えて知らせる。
+    // 写真項目の削除が失敗したときの表示（タスク 21.3、23.9）
+    // 受入基準 7.7 は失敗時の表示を定めていない。タスク 21.3 は利用者の判断（2026-10-02）により
+    // 失敗を詳細画面の上部の通知の枠へ出して画面をそこへ送った。タスク 23.9 の利用者の判断
+    // （2026-10-03）により、失敗は取り除こうとした写真項目の中（その写真項目の操作の近く）に
+    // role=alert で出し、上部の通知の枠と失敗の状態（`error`）には載せず、画面も送らない。
+    // 文言の規則（サーバーの理由、無ければ既定の文言）と、セッション切れを区別しないことは
+    // 21.3 のまま保つ。
     // ------------------------------------------------------------------------
-    describe('写真項目の削除の失敗時の通知（タスク 21.3）', () => {
+    describe('写真項目の削除の失敗の表示（タスク 21.3、23.9）', () => {
       const DELETE_FAILED = '写真項目の削除に失敗しました';
 
-      /** 写真項目 a.jpg の削除導線から確認ダイアログを開き、「削除する」を押す。 */
-      const confirmDeleteOfFirstPhoto = async (): Promise<void> => {
-        fireEvent.click(screen.getByRole('button', { name: '写真項目を削除: a.jpg' }));
+      /** 指定のファイル名の写真項目（article。名前はファイル名の見出し）を返す。 */
+      const photoItem = (fileName: string): HTMLElement =>
+        screen.getByRole('article', { name: fileName });
+
+      /**
+       * 写真項目の外にある role=alert（上部の通知の枠）を返す。削除の失敗はここに出てはならない。
+       */
+      const noticeFrameAlerts = (): HTMLElement[] =>
+        screen
+          .queryAllByRole('alert')
+          .filter((el) => el.closest('[data-testid="construction-photo-item"]') === null);
+
+      /** 指定の写真項目の削除導線から確認ダイアログを開き、「削除する」を押す。 */
+      const confirmDeleteOf = async (fileName: string): Promise<void> => {
+        fireEvent.click(screen.getByRole('button', { name: `写真項目を削除: ${fileName}` }));
         const dialog = await screen.findByRole('dialog', { name: '写真項目を削除' });
         fireEvent.click(within(dialog).getByRole('button', { name: '削除する' }));
       };
+
+      /** 写真項目 a.jpg の削除導線から確認ダイアログを開き、「削除する」を押す。 */
+      const confirmDeleteOfFirstPhoto = (): Promise<void> => confirmDeleteOf('a.jpg');
 
       /** 削除APIの呼び出しが済み、確認ダイアログが閉じるまで待つ。 */
       const waitForDeleteSettled = async (calls: number): Promise<void> => {
@@ -1430,27 +1449,35 @@ describe('ConstructionPhotoDetailPage', () => {
         });
       };
 
-      it('削除APIが失敗すると通知の枠に失敗を表示し、確認ダイアログを閉じ、写真項目を一覧に残す', async () => {
+      // 21.3 の版は、失敗を上部の通知の枠（写真項目の外の role=alert）に出すことを主張していた。
+      // 23.9 では、取り除こうとした写真項目の中に出し、通知の枠には出さないことを主張する
+      it('削除APIが失敗すると、その写真項目の中に失敗を表示し、確認ダイアログを閉じ、写真項目を一覧に残す（上部の通知の枠には出さない）', async () => {
         vi.mocked(imagesApi.deleteConstructionPhoto).mockRejectedValue(new Error('boom'));
 
         renderPage();
         await screen.findByRole('img', { name: /a\.jpg/ });
-        // 前提: 失敗の前に通知は出ていない
+        // 前提: 失敗の前に失敗の表示は出ていない
         expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
         await confirmDeleteOfFirstPhoto();
 
-        const alert = await screen.findByRole('alert');
+        const alert = await within(photoItem('a.jpg')).findByRole('alert');
         expect(alert).toHaveTextContent(DELETE_FAILED);
         await waitForDeleteSettled(1);
         expect(imagesApi.deleteConstructionPhoto).toHaveBeenCalledWith('photo-1');
-        // 写真項目は 2 件とも残り、削除の操作手段からやり直せる
+        // 失敗の表示は取り除こうとした写真項目の中の一つだけで、通知の枠と他の写真項目には出ない
+        expect(screen.getAllByRole('alert')).toEqual([alert]);
+        expect(noticeFrameAlerts()).toHaveLength(0);
+        expect(within(photoItem('b.jpg')).queryByRole('alert')).not.toBeInTheDocument();
+        // 写真項目は 2 件とも残り、その場の削除の操作手段からやり直せる
         expect(screen.getAllByTestId('construction-photo-item')).toHaveLength(2);
-        expect(screen.getByRole('img', { name: /a\.jpg/ })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: '写真項目を削除: a.jpg' })).toBeInTheDocument();
+        expect(
+          within(photoItem('a.jpg')).getByRole('button', { name: '写真項目を削除: a.jpg' })
+        ).toBeEnabled();
       });
 
-      it('サーバーが理由を返した失敗では、その理由を通知に表示する（同じ画面の他の失敗の通知と同じ扱い）', async () => {
+      // 21.3 の版は通知の枠の文言を主張していた。23.9 では写真項目の中の文言を主張する（規則は同じ）
+      it('サーバーが理由を返した失敗では、その理由を写真項目の中に表示する（21.3 の文言の規則）', async () => {
         vi.mocked(imagesApi.deleteConstructionPhoto).mockRejectedValue(
           new ApiError(500, 'サーバー内部エラーが発生しました')
         );
@@ -1459,22 +1486,28 @@ describe('ConstructionPhotoDetailPage', () => {
         await screen.findByRole('img', { name: /a\.jpg/ });
         await confirmDeleteOfFirstPhoto();
 
-        const alert = await screen.findByRole('alert');
+        const alert = await within(photoItem('a.jpg')).findByRole('alert');
         expect(alert).toHaveTextContent('サーバー内部エラーが発生しました');
         expect(alert).not.toHaveTextContent(DELETE_FAILED);
+        expect(noticeFrameAlerts()).toHaveLength(0);
       });
 
-      it('サーバーが理由を返さない失敗では、既定の文言を通知に表示する', async () => {
+      it('サーバーが理由を返さない失敗では、既定の文言を写真項目の中に表示する（21.3 の文言の規則）', async () => {
         vi.mocked(imagesApi.deleteConstructionPhoto).mockRejectedValue(new ApiError(500, ''));
 
         renderPage();
         await screen.findByRole('img', { name: /a\.jpg/ });
         await confirmDeleteOfFirstPhoto();
 
-        expect(await screen.findByRole('alert')).toHaveTextContent(DELETE_FAILED);
+        expect(await within(photoItem('a.jpg')).findByRole('alert')).toHaveTextContent(
+          DELETE_FAILED
+        );
+        expect(noticeFrameAlerts()).toHaveLength(0);
       });
 
-      it('失敗の後にやり直した削除が成功すると、古い失敗の通知が消え、写真項目が一覧から除かれる', async () => {
+      // 21.3 の版は「やり直しの成功で通知の枠の古い失敗が消える」を主張していた。23.9 では
+      // 写真項目の中の失敗が写真項目ごと消え、画面のどこにも失敗の表示が残らないことを主張する
+      it('失敗の後にやり直した削除が成功すると、写真項目が失敗の表示ごと一覧から除かれ、失敗の表示はどこにも残らない', async () => {
         vi.mocked(imagesApi.deleteConstructionPhoto)
           .mockRejectedValueOnce(new Error('boom'))
           .mockResolvedValue(undefined);
@@ -1482,8 +1515,10 @@ describe('ConstructionPhotoDetailPage', () => {
         renderPage();
         await screen.findByRole('img', { name: /a\.jpg/ });
         await confirmDeleteOfFirstPhoto();
-        // 前提: 1 回目は失敗し、通知が出ている
-        expect(await screen.findByRole('alert')).toHaveTextContent(DELETE_FAILED);
+        // 前提: 1 回目は失敗し、写真項目の中に失敗が出ている
+        expect(await within(photoItem('a.jpg')).findByRole('alert')).toHaveTextContent(
+          DELETE_FAILED
+        );
         await waitForDeleteSettled(1);
 
         await confirmDeleteOfFirstPhoto();
@@ -1496,9 +1531,71 @@ describe('ConstructionPhotoDetailPage', () => {
         expect(screen.getAllByTestId('construction-photo-item')).toHaveLength(1);
       });
 
-      it('セッション切れ（401）の失敗でも、他の失敗と同じく通知を表示する（同じ画面の保存・アルバム削除と同じ扱い）', async () => {
+      it('やり直しを始めると、その写真項目の古い失敗の表示は削除の応答を待たずに消える', async () => {
+        let resolveRetry: () => void = () => {};
+        vi.mocked(imagesApi.deleteConstructionPhoto)
+          .mockRejectedValueOnce(new Error('boom'))
+          .mockImplementationOnce(
+            () =>
+              new Promise<void>((resolve) => {
+                resolveRetry = resolve;
+              })
+          );
+
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+        await confirmDeleteOfFirstPhoto();
+        expect(await within(photoItem('a.jpg')).findByRole('alert')).toHaveTextContent(
+          DELETE_FAILED
+        );
+        await waitForDeleteSettled(1);
+
+        // やり直し: 応答はまだ返らない（確認ダイアログは「削除中...」）
+        await confirmDeleteOfFirstPhoto();
+        await waitFor(() => {
+          expect(imagesApi.deleteConstructionPhoto).toHaveBeenCalledTimes(2);
+        });
+        expect(screen.getByRole('button', { name: '削除中...' })).toBeDisabled();
+        expect(within(photoItem('a.jpg')).queryByRole('alert')).not.toBeInTheDocument();
+
+        await act(async () => {
+          resolveRetry();
+        });
+        await waitFor(() => {
+          expect(screen.getAllByTestId('construction-photo-item')).toHaveLength(1);
+        });
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      });
+
+      it('複数の写真項目で削除が失敗すると、それぞれの写真項目の中に、それぞれの失敗が表示される', async () => {
+        vi.mocked(imagesApi.deleteConstructionPhoto).mockImplementation(async (photoId) => {
+          throw new ApiError(500, `削除できませんでした: ${photoId}`);
+        });
+
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+        await confirmDeleteOf('a.jpg');
+        await waitForDeleteSettled(1);
+        await confirmDeleteOf('b.jpg');
+        await waitForDeleteSettled(2);
+
+        const alerts = screen.getAllByRole('alert');
+        expect(alerts).toHaveLength(2);
+        expect(within(photoItem('a.jpg')).getByRole('alert')).toHaveTextContent(
+          '削除できませんでした: photo-1'
+        );
+        expect(within(photoItem('b.jpg')).getByRole('alert')).toHaveTextContent(
+          '削除できませんでした: photo-2'
+        );
+        expect(noticeFrameAlerts()).toHaveLength(0);
+        expect(screen.getAllByTestId('construction-photo-item')).toHaveLength(2);
+      });
+
+      // 21.3 の版は通知の枠に出ることを主張していた。23.9 では写真項目の中に出し、通知の枠には
+      // 出さないことを主張する（セッション切れを区別しない点は同じ）
+      it('セッション切れ（401）の失敗でも、他の失敗と同じく写真項目の中に表示する（21.3 と同じく区別しない）', async () => {
         // 共通のセッション切れの表示は API クライアントが別に出す。この画面は操作を保持して再送
-        // しないため、再ログインの後に何が起きたかを通知で残す
+        // しないため、再ログインの後に何が起きたかを写真項目の中に残す
         vi.mocked(imagesApi.deleteConstructionPhoto).mockRejectedValue(
           new ApiError(401, '認証の有効期限が切れました')
         );
@@ -1507,13 +1604,20 @@ describe('ConstructionPhotoDetailPage', () => {
         await screen.findByRole('img', { name: /a\.jpg/ });
         await confirmDeleteOfFirstPhoto();
 
-        expect(await screen.findByRole('alert')).toHaveTextContent('認証の有効期限が切れました');
+        expect(await within(photoItem('a.jpg')).findByRole('alert')).toHaveTextContent(
+          '認証の有効期限が切れました'
+        );
         await waitForDeleteSettled(1);
+        expect(noticeFrameAlerts()).toHaveLength(0);
         // 写真項目は残る
         expect(screen.getAllByTestId('construction-photo-item')).toHaveLength(2);
       });
 
-      it('削除の失敗の後に保存が別の理由で失敗すると、保存の失敗が表示される（古い削除の失敗に隠れない）', async () => {
+      // 21.3 の版は、削除の失敗が `error` に載ることを前提に「後の保存の失敗が通知の枠で古い削除の
+      // 失敗を置き換える」を主張していた。23.9 では削除の失敗は `error` に載らないため、
+      // 「保存の失敗は通知の枠に出て、削除の失敗とは別の要素で並び、互いに隠さない」を主張する。
+      // 保存の対象の変更は他の写真項目（b.jpg）に加える（a.jpg への操作は a.jpg の失敗を消すため）
+      it('削除の失敗の後に保存が別の理由で失敗すると、保存の失敗は通知の枠に表示され、削除の失敗は写真項目の中に残る（互いに隠さない）', async () => {
         vi.mocked(imagesApi.deleteConstructionPhoto).mockRejectedValue(
           new ApiError(500, '削除の処理でエラーが発生しました')
         );
@@ -1522,48 +1626,66 @@ describe('ConstructionPhotoDetailPage', () => {
         );
 
         renderPage();
-        const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+        await screen.findByRole('img', { name: /a\.jpg/ });
         await confirmDeleteOfFirstPhoto();
-        // 前提: 削除の失敗が表示されている
-        expect(await screen.findByRole('alert')).toHaveTextContent(
+        // 前提: 削除の失敗が写真項目の中に表示されている
+        expect(await within(photoItem('a.jpg')).findByRole('alert')).toHaveTextContent(
           '削除の処理でエラーが発生しました'
         );
         await waitForDeleteSettled(1);
 
-        fireEvent.click(within(firstItem).getByLabelText('印刷対象に含める'));
+        fireEvent.click(within(photoItem('b.jpg')).getByLabelText('印刷対象に含める'));
         fireEvent.click(screen.getByRole('button', { name: '保存' }));
         await waitFor(() => {
           expect(imagesApi.updateConstructionPhotoMetadataBatch).toHaveBeenCalledTimes(1);
         });
 
         await waitFor(() => {
-          expect(screen.getByRole('alert')).toHaveTextContent('他の利用者が先に更新しました');
+          expect(noticeFrameAlerts()).toHaveLength(1);
         });
-        expect(screen.getByRole('alert')).not.toHaveTextContent('削除の処理でエラーが発生しました');
+        const [frame] = noticeFrameAlerts();
+        expect(frame).toHaveTextContent('他の利用者が先に更新しました');
+        expect(frame).not.toHaveTextContent('削除の処理でエラーが発生しました');
+        expect(within(photoItem('a.jpg')).getByRole('alert')).toHaveTextContent(
+          '削除の処理でエラーが発生しました'
+        );
       });
 
-      it('削除の失敗の後に保存が成功すると、古い削除の失敗の表示が消える', async () => {
+      // 21.3 の版は「保存の成功で通知の枠の古い削除の失敗が消える」を主張していた。23.9 では削除の
+      // 失敗は通知の枠に載らないため、「保存が成功しても通知の枠に何も出ない」ことと、保存は
+      // a.jpg への操作ではないため a.jpg の失敗の表示は残る（消える契機は a.jpg への操作・やり直し・
+      // 画面の離脱である）ことを主張する
+      it('削除の失敗の後に他の写真項目の変更の保存が成功すると、通知の枠には何も出ず、削除の失敗は写真項目の中に残る', async () => {
         vi.mocked(imagesApi.deleteConstructionPhoto).mockRejectedValue(new Error('boom'));
         vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockResolvedValue([]);
 
         renderPage();
-        const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+        await screen.findByRole('img', { name: /a\.jpg/ });
         await confirmDeleteOfFirstPhoto();
-        // 前提: 削除の失敗が表示されている
-        expect(await screen.findByRole('alert')).toHaveTextContent(DELETE_FAILED);
+        // 前提: 削除の失敗が写真項目の中に表示されている
+        expect(await within(photoItem('a.jpg')).findByRole('alert')).toHaveTextContent(
+          DELETE_FAILED
+        );
         await waitForDeleteSettled(1);
 
-        fireEvent.click(within(firstItem).getByLabelText('印刷対象に含める'));
+        fireEvent.click(within(photoItem('b.jpg')).getByLabelText('印刷対象に含める'));
         await waitFor(() => expect(lastUnsavedDirty()).toBe(true));
         fireEvent.click(screen.getByRole('button', { name: '保存' }));
 
-        // 保存が成功し（未保存の状態が解消し）、通知は残らない
+        // 保存が成功し（未保存の状態が解消し）、通知の枠には何も出ない
         await waitFor(() => expect(lastUnsavedDirty()).toBe(false));
-        expect(imagesApi.updateConstructionPhotoMetadataBatch).toHaveBeenCalledTimes(1);
-        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(imagesApi.updateConstructionPhotoMetadataBatch).toHaveBeenCalledWith([
+          { id: 'photo-2', includeInReport: true },
+        ]);
+        expect(noticeFrameAlerts()).toHaveLength(0);
+        expect(within(photoItem('a.jpg')).getByRole('alert')).toHaveTextContent(DELETE_FAILED);
       });
 
-      it('アップロードの失敗の通知が出ている状態で削除が失敗すると、削除の失敗が表示される', async () => {
+      // 21.3 の版は、削除の開始が先の通知（アップロードの失敗）を消し、通知の枠が削除の失敗に
+      // 置き換わることを主張していた。消していたのは削除の失敗を通知の枠で隠さないためで、23.9 で
+      // 削除の失敗が通知の枠を使わなくなったため理由が無くなった。23.9 では、先の通知は残り、
+      // 削除の失敗は写真項目の中に別に出ることを主張する
+      it('アップロードの失敗の通知が出ている状態で削除が失敗すると、通知は残り、削除の失敗は写真項目の中に別に表示される', async () => {
         vi.mocked(imagesApi.uploadConstructionPhotos).mockResolvedValue({
           successful: [],
           failed: [{ fileName: 'ng.jpg', error: 'アップロード失敗' }],
@@ -1583,15 +1705,26 @@ describe('ConstructionPhotoDetailPage', () => {
         await confirmDeleteOfFirstPhoto();
         await waitForDeleteSettled(1);
 
-        // 通知の枠は一つで、削除の失敗を表示している
-        const alerts = screen
+        expect(await within(photoItem('a.jpg')).findByRole('alert')).toHaveTextContent(
+          DELETE_FAILED
+        );
+        // 先の通知は消えず、削除の失敗とは別の要素である
+        expect(screen.getByText(/全1件の追加に失敗しました/)).toBeInTheDocument();
+        const deleteFailures = screen
           .getAllByRole('alert')
           .filter((el) => el.textContent?.includes(DELETE_FAILED));
-        expect(alerts).toHaveLength(1);
-        expect(screen.queryByText(/全1件の追加に失敗しました/)).not.toBeInTheDocument();
+        expect(deleteFailures).toHaveLength(1);
+        expect(deleteFailures[0]).not.toHaveTextContent(/全1件の追加に失敗しました/);
+        expect(
+          noticeFrameAlerts().filter((el) => el.textContent?.includes(DELETE_FAILED))
+        ).toHaveLength(0);
       });
 
-      it('失敗の通知を画面内へ送る（一覧の下の写真項目から操作しても通知が画面の外に残らない）', async () => {
+      // 21.3 の版は、失敗時に上部の通知の枠へ scrollIntoView({ block: 'center' }) が 1 回呼ばれる
+      // ことを主張していた。23.9 では、上部の通知の枠へは送らず、写真項目の中の失敗の表示だけに
+      // scrollIntoView({ block: 'nearest' }) を 1 回呼ぶ（表示が既に画面内なら画面は動かず、画面の
+      // 外なら最小の量だけ動く。利用者の判断（2026-10-04）「文言の分だけ動かす」）ことを主張する
+      it('失敗しても上部の通知の枠へは送らず、写真項目の中の失敗の表示だけを最小の移動（block: nearest）で画面内へ入れる', async () => {
         // jsdom は scrollIntoView を実装していないため、呼び出しを観測できる形で差し込む
         const scrollIntoView = vi.fn();
         const original = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');
@@ -1607,14 +1740,18 @@ describe('ConstructionPhotoDetailPage', () => {
           await screen.findByRole('img', { name: /a\.jpg/ });
           await confirmDeleteOfFirstPhoto();
 
-          const alert = await screen.findByRole('alert');
-          await waitFor(() => {
-            expect(scrollIntoView).toHaveBeenCalledTimes(1);
-          });
-          // 画面内へ送られるのは通知の枠そのものである
+          const alert = await within(photoItem('a.jpg')).findByRole('alert');
+          await waitForDeleteSettled(1);
+          expect(alert).toHaveTextContent(DELETE_FAILED);
+          // 呼ぶのは写真項目の中の失敗の表示に対する 1 回だけで、中央・上端へ寄せる指定ではない
+          expect(scrollIntoView).toHaveBeenCalledTimes(1);
           expect(scrollIntoView.mock.contexts[0]).toBe(alert);
-          // 上端へ寄せると、画面の上端に貼り付く共通ヘッダの下に隠れるため、中央へ送る
-          expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' });
+          expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+          expect(noticeFrameAlerts()).toHaveLength(0);
+          // フォーカスは操作した写真項目の削除ボタンへ戻る（その場でやり直せる。タスク 23.9 の是正 1 巡目）
+          expect(document.activeElement).toBe(
+            within(photoItem('a.jpg')).getByRole('button', { name: '写真項目を削除: a.jpg' })
+          );
         } finally {
           if (original) {
             Object.defineProperty(Element.prototype, 'scrollIntoView', original);
@@ -1624,28 +1761,35 @@ describe('ConstructionPhotoDetailPage', () => {
         }
       });
 
+      // 23.6 の未保存の状態の導出に対する回帰の番。主張は 21.3 の版と同じで、失敗の表示の場所だけを
+      // 写真項目の中へ改めた
       it('失敗しても未保存の状態と未保存の変更は変わらない (R18.1, R18.3)', async () => {
         vi.mocked(imagesApi.deleteConstructionPhoto).mockRejectedValue(new Error('boom'));
         vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockResolvedValue([]);
 
         renderPage();
-        const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+        await screen.findByRole('img', { name: /a\.jpg/ });
         // 前提: 変更の無い状態では未保存ではない
         expect(lastUnsavedDirty()).toBe(false);
 
         // 変更の無い状態で失敗しても、未保存にならない
         await confirmDeleteOfFirstPhoto();
-        expect(await screen.findByRole('alert')).toHaveTextContent(DELETE_FAILED);
+        expect(await within(photoItem('a.jpg')).findByRole('alert')).toHaveTextContent(
+          DELETE_FAILED
+        );
         await waitForDeleteSettled(1);
         expect(lastUnsavedDirty()).toBe(false);
 
         // 未保存の変更がある状態で失敗しても、未保存のままで、変更は保存の対象に残る
-        fireEvent.click(within(firstItem).getByLabelText('印刷対象に含める'));
+        fireEvent.click(within(photoItem('a.jpg')).getByLabelText('印刷対象に含める'));
         await waitFor(() => expect(lastUnsavedDirty()).toBe(true));
         await confirmDeleteOfFirstPhoto();
         await waitForDeleteSettled(2);
-        expect(await screen.findByRole('alert')).toHaveTextContent(DELETE_FAILED);
+        expect(await within(photoItem('a.jpg')).findByRole('alert')).toHaveTextContent(
+          DELETE_FAILED
+        );
         expect(lastUnsavedDirty()).toBe(true);
+        expect(screen.getByText('未保存の変更があります')).toBeInTheDocument();
 
         fireEvent.click(screen.getByRole('button', { name: '保存' }));
         await waitFor(() => {

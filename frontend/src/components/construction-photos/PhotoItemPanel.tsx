@@ -26,6 +26,21 @@
  *   - 操作系コントロール（印刷対象/エクスポート対象チェック・並替ボタン・削除ボタン・
  *     ドラッグハンドル）のタップ領域を44px以上に拡大 (R19.3)
  *
+ * Task 23.9 追加: 写真項目の削除が失敗したときに、失敗をその写真項目の中（操作の行の直後、削除
+ *   ボタンの下）に role=alert で表示する。受入基準 7.7 は失敗時の表示を定めておらず、利用者の判断
+ *   （2026-10-03）で、タスク 21.3 の「詳細画面の上部の通知の枠へ出して画面をそこへ送る」形を改めた。
+ *   文言の規則は 21.3 のまま（サーバーが返した理由、無ければ既定の文言。セッション切れ（401）も
+ *   区別しない）。失敗は写真項目ごとに本部品が持ち、複数の写真項目の失敗を同時に表示する。表示が
+ *   消えるのは、その写真項目の削除のやり直しを始めたとき（成功すれば写真項目ごと消える）、その
+ *   写真項目へ別の操作をしたとき（コメントの編集・印刷対象とエクスポート対象の切り替え・上下の
+ *   移動・ドラッグの開始・「看板を配置」）、本部品が外れたとき（画面の離脱）である。削除の確認
+ *   ダイアログを開いて取り消すことは操作に数えない（何も変わらないため）。他の写真項目への操作と、
+ *   その結果として位置が入れ替わることも数えない（失敗した写真項目の状態は変わらないため）
+ *   是正 1 巡目（2026-10-04）: 失敗して確認ダイアログが閉じた後、フォーカスをその写真項目の削除
+ *   ボタンへ `focus({ preventScroll: true })` で戻す（成功したときは戻さない）。画面は通常は
+ *   動かさず、表示が画面の外へ出るときだけ表示に `scrollIntoView({ block: 'nearest' })` を呼び、
+ *   表示の分だけ動かす（利用者の判断（2026-10-04）「文言の分だけ動かす」）
+ *
  * Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 9.6, 11.3, 15.6, 15.7,
  *   19.2, 19.3, 19.5
  */
@@ -39,6 +54,7 @@ import type {
 import useMediaQuery from '../../hooks/useMediaQuery';
 import { MEDIA_QUERIES } from '../../utils/responsive';
 import { TAP_TARGET_MIN_PX } from '../../utils/tap-target';
+import { ApiError } from '../../api/client';
 
 // ============================================================================
 // 型定義
@@ -78,10 +94,10 @@ export interface PhotoItemPanelProps {
   /**
    * 写真項目削除時のハンドラ。
    *
-   * 削除に失敗したときは reject する。失敗を利用者へ知らせるのは呼び出し元の責務であり、本部品は
-   * 失敗を表示しない。確認ダイアログは成功・失敗のどちらでも閉じる（呼び出し元が出す通知を
-   * モーダルの背後に隠さないため。タスク 21.3）。写真項目と削除の操作手段は残るため、利用者は
-   * 同じ操作でやり直せる。
+   * 削除に失敗したときは reject する。本部品が失敗をその写真項目の中に表示する（タスク 23.9。
+   * 文言は reject の理由から決める: `ApiError` の message、空なら既定の文言、`ApiError` でなければ
+   * 既定の文言）。確認ダイアログは成功・失敗のどちらでも閉じる（表示をモーダルの背後に隠さない
+   * ため。タスク 21.3）。写真項目と削除の操作手段は残るため、利用者はその場でやり直せる。
    */
   onDelete?: (photoId: string) => Promise<void>;
   /** 上下移動ボタンを表示するか */
@@ -106,6 +122,22 @@ export interface PhotoItemPanelProps {
 
 const MAX_COMMENT_LENGTH = 2000;
 const DEBOUNCE_DELAY = 500;
+
+/** 写真項目の削除が失敗し、サーバーが理由を返さなかったときの文言（タスク 21.3） */
+const PHOTO_DELETE_FAILED_MESSAGE = '写真項目の削除に失敗しました';
+
+/**
+ * 写真項目の削除の失敗の理由から、表示する文言を決める（タスク 21.3 の規則。23.9 で本部品へ移した）。
+ * `ApiError` の message を優先し、空なら既定の文言にする。セッション切れ（401）も区別しない。
+ * `ApiError` でない例外は既定の文言にする。通信の失敗（ネットワークの断など）は共通の API クライアント
+ * （`api/client.ts`）が `ApiError(0, 'Network error')` に包んで投げるため、既定の文言ではなく
+ * 「Network error」が表示される（規則は 21.3 のまま変えていない）。
+ */
+function toPhotoDeleteFailureMessage(error: unknown): string {
+  return error instanceof ApiError
+    ? error.message || PHOTO_DELETE_FAILED_MESSAGE
+    : PHOTO_DELETE_FAILED_MESSAGE;
+}
 
 // ============================================================================
 // スタイル定義
@@ -345,6 +377,20 @@ const styles = {
     color: '#065f46',
     border: '1px solid #065f46',
   } as React.CSSProperties,
+  // 写真項目の削除の失敗の表示（タスク 23.9）。色と枠は詳細画面の通知の枠（styles.notice）に揃える。
+  // overflowWrap:anywhere と minWidth:0 は、区切りの無い長い理由（英数字の一語など）にも折り返し
+  // 位置を与え、写真項目と詳細画面の <main> を押し広げないためである（R19.1 と同じ扱い）
+  deleteFailure: {
+    margin: 0,
+    padding: '8px 12px',
+    minWidth: 0,
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fecaca',
+    borderRadius: '6px',
+    color: '#991b1b',
+    fontSize: '14px',
+    overflowWrap: 'anywhere' as const,
+  } as React.CSSProperties,
   deleteButton: {
     alignSelf: 'flex-start',
     padding: '4px 8px',
@@ -511,6 +557,10 @@ interface PhotoItemProps {
   isSelected: boolean;
   /** エクスポート対象の選択チェックのトグルハンドラ（未指定時は選択UIを表示しない） */
   onToggleSelect?: (photoId: string) => void;
+  /** この写真項目の削除の失敗の文言（無ければ null, タスク 23.9） */
+  deleteFailure: string | null;
+  /** この写真項目への操作を親へ知らせる（削除の失敗の表示を消す契機, タスク 23.9） */
+  onOperate: (photoId: string) => void;
 }
 
 function PhotoItem({
@@ -537,6 +587,8 @@ function PhotoItem({
   onAssignSignboard,
   isSelected,
   onToggleSelect,
+  deleteFailure,
+  onOperate,
 }: PhotoItemProps) {
   const [comment, setComment] = useState(photo.comment ?? '');
   const [commentError, setCommentError] = useState<string | null>(null);
@@ -556,10 +608,31 @@ function PhotoItem({
   const exportSelectId = `export-select-${photo.id}`;
   const textareaId = `comment-${photo.id}`;
   const fileNameId = `filename-${photo.id}`;
+  const deleteFailureId = `delete-failure-${photo.id}`;
+  const deleteFailureRef = useRef<HTMLParagraphElement | null>(null);
+
+  /**
+   * 削除の失敗の表示が現れたら、その表示だけを最小の移動で画面内へ入れる（利用者の判断
+   * （2026-10-04）「文言の分だけ動かす」）。`block: 'nearest'` は、表示が既に画面内なら画面を
+   * 動かさず、押したボタンが画面の下端の近くにあって表示が画面の外へ出るときだけ、その分だけ
+   * 動かす。上部の通知の枠や画面の上端へは送らない。滑らかな移動は指定しない（即時に動く）。
+   * 描画の後に走らせるため、この写真項目の失敗の文言を契機にする（やり直しの開始で一度 null に
+   * なるため、同じ文言の再度の失敗でも走る）。親のフォーカスの復帰（`preventScroll`）はこの後に
+   * 走り、画面を動かさないため、この移動を打ち消さない
+   */
+  useEffect(() => {
+    if (!deleteFailure) return;
+    const element = deleteFailureRef.current;
+    // jsdom など scrollIntoView を持たない環境では何もしない
+    if (element && typeof element.scrollIntoView === 'function') {
+      element.scrollIntoView({ block: 'nearest' });
+    }
+  }, [deleteFailure]);
 
   const handleToggleSelectChange = useCallback(() => {
+    onOperate(photo.id);
     onToggleSelect?.(photo.id);
-  }, [photo.id, onToggleSelect]);
+  }, [photo.id, onToggleSelect, onOperate]);
 
   const validateComment = useCallback((value: string): boolean => {
     if (value.length > MAX_COMMENT_LENGTH) {
@@ -573,6 +646,7 @@ function PhotoItem({
   const handleCommentChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const value = e.target.value;
+      onOperate(photo.id);
       setComment(value);
       validateComment(value);
 
@@ -586,7 +660,7 @@ function PhotoItem({
         }, DEBOUNCE_DELAY);
       }
     },
-    [photo.id, lastSavedComment, onMetadataChange, validateComment]
+    [photo.id, lastSavedComment, onMetadataChange, validateComment, onOperate]
   );
 
   const handleCommentBlur = useCallback(() => {
@@ -602,9 +676,10 @@ function PhotoItem({
 
   const handleIncludeInReportChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
+      onOperate(photo.id);
       onMetadataChange(photo.id, { includeInReport: e.target.checked });
     },
-    [photo.id, onMetadataChange]
+    [photo.id, onMetadataChange, onOperate]
   );
 
   const handleImageClick = useCallback(() => {
@@ -643,7 +718,10 @@ function PhotoItem({
           role="button"
           tabIndex={0}
           draggable
-          onDragStart={(e) => onDragStart(e, photo.id)}
+          onDragStart={(e) => {
+            onOperate(photo.id);
+            onDragStart(e, photo.id);
+          }}
           onDragEnd={onDragEnd}
           style={{
             ...styles.dragHandle,
@@ -663,7 +741,10 @@ function PhotoItem({
         <div style={styles.orderButtonsContainer} data-testid="order-buttons">
           <button
             type="button"
-            onClick={() => onMoveUp?.(photo.id)}
+            onClick={() => {
+              onOperate(photo.id);
+              onMoveUp?.(photo.id);
+            }}
             disabled={index === 0}
             style={{
               ...styles.orderButton,
@@ -691,7 +772,10 @@ function PhotoItem({
           </button>
           <button
             type="button"
-            onClick={() => onMoveDown?.(photo.id)}
+            onClick={() => {
+              onOperate(photo.id);
+              onMoveDown?.(photo.id);
+            }}
             disabled={index === totalPhotos - 1}
             style={{
               ...styles.orderButton,
@@ -842,7 +926,10 @@ function PhotoItem({
             {onAssignSignboard && (
               <button
                 type="button"
-                onClick={() => onAssignSignboard(photo)}
+                onClick={() => {
+                  onOperate(photo.id);
+                  onAssignSignboard(photo);
+                }}
                 style={{
                   ...styles.assignSignboardButton,
                   ...(isMobile ? styles.assignSignboardButtonMobile : {}),
@@ -863,11 +950,21 @@ function PhotoItem({
                   ...(isMobile ? styles.deleteButtonMobile : {}),
                 }}
                 aria-label={`写真項目を削除: ${photo.fileName}`}
+                aria-describedby={deleteFailure ? deleteFailureId : undefined}
+                data-delete-button
               >
                 削除
               </button>
             )}
           </div>
+        )}
+
+        {/* 削除の失敗（タスク 23.9）。操作の行の直後（削除ボタンの下）に置き、どの写真項目の失敗かを
+            位置で示す。ボタンより上に置くと、表示の出現でボタンが下へずれ、押した位置でやり直せない */}
+        {deleteFailure && (
+          <p ref={deleteFailureRef} id={deleteFailureId} role="alert" style={styles.deleteFailure}>
+            {deleteFailure}
+          </p>
         )}
       </div>
     </article>
@@ -902,6 +999,13 @@ export function PhotoItemPanel({
   const isMobile = useMediaQuery(MEDIA_QUERIES.isMobile);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  // 写真項目ごとの削除の失敗の文言（写真項目ID -> 文言, タスク 23.9）。本部品が外れると（画面の
+  // 離脱）失われる
+  const [deleteFailures, setDeleteFailures] = useState<Readonly<Record<string, string>>>({});
+  // 削除の失敗の後にフォーカスを戻す先の写真項目（タスク 23.9 の是正 1 巡目）。失敗のたびに新しい
+  // オブジェクトにし、同じ写真項目の再度の失敗でも effect を走らせる
+  const [focusAfterFailure, setFocusAfterFailure] = useState<{ photoId: string } | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
@@ -1007,6 +1111,16 @@ export function PhotoItemPanel({
     [sortedPhotos, computeReorder, onOrderChange]
   );
 
+  /** 指定の写真項目の削除の失敗の表示を消す（無ければ状態を変えない, タスク 23.9） */
+  const clearDeleteFailure = useCallback((photoId: string) => {
+    setDeleteFailures((prev) => {
+      if (!(photoId in prev)) return prev;
+      const next = { ...prev };
+      delete next[photoId];
+      return next;
+    });
+  }, []);
+
   const handleDeleteClick = useCallback((photoId: string) => {
     setDeleteTargetId(photoId);
   }, []);
@@ -1017,19 +1131,42 @@ export function PhotoItemPanel({
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!deleteTargetId || !onDelete) return;
+    const targetId = deleteTargetId;
+    // やり直しを始めた時点で、その写真項目の古い失敗の表示を消す（タスク 23.9）
+    clearDeleteFailure(targetId);
     setIsDeleting(true);
     try {
-      await onDelete(deleteTargetId);
-    } catch {
-      // 失敗の通知は呼び出し元が行う（ConstructionPhotoDetailPage.handleDelete が通知の枠に出す）。
-      // ここでは握りつぶすのではなく、下の finally で確認ダイアログを閉じて通知を見える状態にする
+      await onDelete(targetId);
+    } catch (error) {
+      // 失敗はその写真項目の中に表示する（タスク 23.9）。上部の通知の枠へは送らない。表示が画面の
+      // 外へ出るときだけ、PhotoItem の effect が表示の分だけ動かす
+      setDeleteFailures((prev) => ({ ...prev, [targetId]: toPhotoDeleteFailureMessage(error) }));
+      setFocusAfterFailure({ photoId: targetId });
     } finally {
-      // 成功・失敗のどちらでも閉じる。失敗時に開いたままにすると、モーダルの背後に通知が隠れる
+      // 成功・失敗のどちらでも閉じる。失敗時に開いたままにすると、モーダルの背後に表示が隠れる
       // （タスク 21.3。同じ画面のアルバムを取り除く確認ダイアログも失敗時に閉じる）
       setDeleteTargetId(null);
       setIsDeleting(false);
     }
-  }, [deleteTargetId, onDelete]);
+  }, [deleteTargetId, onDelete, clearDeleteFailure]);
+
+  /**
+   * 削除が失敗して確認ダイアログが閉じた後に、フォーカスをその写真項目の削除ボタンへ戻す
+   * （タスク 23.9 の是正 1 巡目）。キーボードの利用者がその場でやり直せ、ボタンの説明
+   * （`aria-describedby` の失敗の表示）が読み上げられる。`preventScroll` で画面を送らない。
+   * 成功したときは写真項目ごと無くなるため戻さない。
+   */
+  useEffect(() => {
+    if (!focusAfterFailure) return;
+    const articles = listRef.current?.querySelectorAll<HTMLElement>(
+      '[data-testid="construction-photo-item"]'
+    );
+    const article = Array.from(articles ?? []).find(
+      (el) => el.dataset.photoId === focusAfterFailure.photoId
+    );
+    const button = article?.querySelector<HTMLButtonElement>('button[data-delete-button]');
+    button?.focus({ preventScroll: true });
+  }, [focusAfterFailure]);
 
   const deleteTargetPhoto = deleteTargetId ? photos.find((p) => p.id === deleteTargetId) : null;
 
@@ -1095,7 +1232,7 @@ export function PhotoItemPanel({
         </div>
       )}
 
-      <div style={styles.panelList}>
+      <div ref={listRef} style={styles.panelList}>
         {sortedPhotos.map((photo, index) => (
           <PhotoItem
             key={photo.id}
@@ -1122,6 +1259,8 @@ export function PhotoItemPanel({
             onAssignSignboard={onAssignSignboard}
             isSelected={selectedPhotoIds?.has(photo.id) ?? false}
             onToggleSelect={onToggleSelect}
+            deleteFailure={deleteFailures[photo.id] ?? null}
+            onOperate={clearDeleteFailure}
           />
         ))}
       </div>
