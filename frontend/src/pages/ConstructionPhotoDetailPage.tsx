@@ -63,6 +63,16 @@
  *   `error` の消去は、いずれも削除の失敗を通知の枠に出すための仕組みだったため外した。文言の規則と
  *   セッション切れを区別しないことは 21.3 のまま（規則は `PhotoItemPanel` へ移した）
  *
+ * Task 23.4 変更: 利用者の判断（2026-10-03）で、ZIP の一括エクスポートの一部失敗時に自動では
+ *   ダウンロードしないようにした（受入基準 15.10）。生成が終わった ZIP に失敗が一件でもあれば、
+ *   Blob とファイル名を参照（`pendingExportRef`）に保留し、進捗ダイアログの結果の段（`exportOutcome`）で
+ *   失敗した写真項目をファイル名と順番で示す。成功と失敗が混在するときは「成功した項目だけで
+ *   ダウンロードする」で保留した ZIP をダウンロードして従来の部分失敗の通知を出し、「ダウンロードしない」
+ *   （Escape を含む）では何もダウンロードせずに閉じる。すべて失敗したときはダウンロードせず、失敗の
+ *   一覧と「閉じる」だけを示す。全件成功は従来どおり即座にダウンロードする。保留はダイアログを閉じる
+ *   すべての経路・次のエクスポートの開始・画面の破棄で手放し、オブジェクトURLはダウンロードの瞬間に
+ *   作ってその場で解放する（保留中は作らない）。画面の破棄時は実行中のエクスポートも中断する
+ *
  * Requirements: 4.1, 4.2, 5.1, 5.3, 6.1, 7.1, 7.3, 7.4, 7.5, 7.6, 7.8, 11.3, 11.4, 11.5,
  *   10.1, 10.3, 10.12, 10.13, 15.1, 15.5, 15.6, 15.7, 15.8, 15.9, 15.11, 17.1, 17.2, 17.3,
  *   17.4, 17.5, 18.1, 18.2, 18.3, 18.4
@@ -106,7 +116,10 @@ import {
   BulkExportDialog,
   type BulkExportDialogMode,
 } from '../components/construction-photos/BulkExportDialog';
-import { BulkExportProgressDialog } from '../components/construction-photos/BulkExportProgressDialog';
+import {
+  BulkExportProgressDialog,
+  type BulkExportOutcome,
+} from '../components/construction-photos/BulkExportProgressDialog';
 import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
 import { useConstructionPhotoPermission } from '../hooks/useConstructionPhotoPermission';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
@@ -324,6 +337,20 @@ const styles = {
 // ============================================================================
 
 /**
+ * ZIP の Blob をファイルとしてダウンロードさせる。オブジェクトURLはその場で解放する（R15.1）
+ */
+function downloadZip(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/**
  * 工事写真アルバム詳細ページ
  */
 export default function ConstructionPhotoDetailPage() {
@@ -402,6 +429,19 @@ export default function ConstructionPhotoDetailPage() {
   const [isExportRunning, setIsExportRunning] = useState(false);
   // 実行中の AbortController（中断操作で abort() を呼ぶ, R15.9）
   const exportControllerRef = useRef<AbortController | null>(null);
+  // 一部失敗時に利用者の選択を待つ間だけ保留する ZIP（R15.10, タスク 23.4）
+  const pendingExportRef = useRef<{ blob: Blob; fileName: string } | null>(null);
+  // 一部失敗・全件失敗の結果（進捗ダイアログの結果の段に出す, R15.10）
+  const [exportOutcome, setExportOutcome] = useState<BulkExportOutcome | null>(null);
+
+  // 画面の破棄時は、実行中のエクスポートを中断し、保留中の ZIP を手放す
+  useEffect(() => {
+    return () => {
+      exportControllerRef.current?.abort();
+      exportControllerRef.current = null;
+      pendingExportRef.current = null;
+    };
+  }, []);
 
   /**
    * アルバム・プロジェクト・写真項目一覧を取得する。
@@ -798,6 +838,8 @@ export default function ConstructionPhotoDetailPage() {
 
       const controller = new AbortController();
       exportControllerRef.current = controller;
+      pendingExportRef.current = null;
+      setExportOutcome(null);
       setNotice(null);
       setExportProgress(null);
       setIsExportRunning(true);
@@ -809,19 +851,37 @@ export default function ConstructionPhotoDetailPage() {
           signal: controller.signal,
         })
         .then((result) => {
+          // 生成の完了と行き違いに中断されたときは、中断として扱いダウンロードしない
+          if (controller.signal.aborted) {
+            setNotice('エクスポートを中断しました。');
+            return;
+          }
           const fileName = buildConstructionPhotoZipFileName(album.name, new Date());
-          const url = URL.createObjectURL(result.blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = fileName;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
 
-          if (result.failed.length > 0) {
+          if (result.failed.length === 0) {
+            downloadZip(result.blob, fileName);
+            return;
+          }
+
+          // 失敗した写真項目を、利用者が特定できる形（ファイル名とエクスポート対象の中での順番）にする
+          const failedIds = new Set(result.failed);
+          const failedItems = targets
+            .map((photo, index) => ({
+              id: photo.id,
+              fileName: photo.fileName,
+              position: index + 1,
+            }))
+            .filter((item) => failedIds.has(item.id));
+          const succeededCount = targets.length - failedItems.length;
+
+          if (succeededCount > 0) {
+            // 自動ではダウンロードせず、利用者の選択を待つ（R15.10）
+            pendingExportRef.current = { blob: result.blob, fileName };
+            setExportOutcome({ kind: 'partial', failedItems, succeededCount });
+          } else {
+            setExportOutcome({ kind: 'allFailed', failedItems });
             setNotice(
-              `一部の写真項目（${result.failed.length}件）のエクスポートに失敗しました。成功した項目のみでZIPをダウンロードしました。`
+              `すべての写真項目（${failedItems.length}件）のエクスポートに失敗しました。ZIPはダウンロードしていません。`
             );
           }
         })
@@ -845,11 +905,31 @@ export default function ConstructionPhotoDetailPage() {
     exportControllerRef.current?.abort();
   }, []);
 
-  /** 進捗ダイアログの「閉じる」（完了/中断確定後） */
+  /**
+   * 進捗ダイアログを閉じる（完了/中断確定後の「閉じる」、結果の段の「ダウンロードしない」・
+   * 「閉じる」・Escape）。保留中の ZIP はここで手放し、ダウンロードしない（R15.10）
+   */
   const handleExportProgressClose = useCallback(() => {
+    pendingExportRef.current = null;
+    setExportOutcome(null);
     setExportProgressOpen(false);
     setExportProgress(null);
   }, []);
+
+  /** 結果の段の「成功した項目だけでダウンロードする」（R15.10） */
+  const handleExportContinue = useCallback(() => {
+    const pending = pendingExportRef.current;
+    const failedCount = exportOutcome?.failedItems.length ?? 0;
+    pendingExportRef.current = null;
+    setExportOutcome(null);
+    setExportProgressOpen(false);
+    setExportProgress(null);
+    if (!pending) return;
+    downloadZip(pending.blob, pending.fileName);
+    setNotice(
+      `一部の写真項目（${failedCount}件）のエクスポートに失敗しました。成功した項目のみでZIPをダウンロードしました。`
+    );
+  }, [exportOutcome]);
 
   // ローディング
   if (isLoading && !album) {
@@ -1030,8 +1110,10 @@ export default function ConstructionPhotoDetailPage() {
           open
           progress={exportProgress}
           isRunning={isExportRunning}
+          outcome={exportOutcome}
           onCancel={handleExportCancel}
           onClose={handleExportProgressClose}
+          onContinue={handleExportContinue}
         />
       )}
 

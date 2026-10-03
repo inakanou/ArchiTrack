@@ -1885,35 +1885,179 @@ describe('ConstructionPhotoDetailPage', () => {
       );
     });
 
-    it('一部失敗時は部分失敗を通知し完了後に進捗ダイアログを閉じられる (R15.8)', async () => {
-      vi.mocked(constructionPhotoBulkExportService.export).mockResolvedValue({
-        blob: new Blob(['zip']),
-        failed: ['photo-2'],
-      });
+    /**
+     * タスク 23.4: 一部失敗・全件失敗のときは自動ではダウンロードせず、失敗した写真項目を示して
+     * 利用者に選ばせる（利用者の判断（2026-10-03））。
+     *
+     * @requirement construction-photo/REQ-15.10
+     */
+    describe('一部失敗時の継続の選択 (R15.10)', () => {
+      const startExportAll = async () => {
+        fireEvent.click(screen.getByRole('button', { name: '全件エクスポート' }));
+        const settingsDialog = await screen.findByRole('dialog', { name: /全件一括エクスポート/ });
+        fireEvent.click(within(settingsDialog).getByRole('button', { name: '開始' }));
+      };
+      const partialDialogName = '一部の写真項目をエクスポートできませんでした';
 
-      renderPage();
-      await screen.findByRole('img', { name: /a\.jpg/ });
+      it('一部失敗では自動でダウンロードせず、失敗した写真項目のファイル名を示して選択を求める', async () => {
+        vi.mocked(constructionPhotoBulkExportService.export).mockResolvedValue({
+          blob: new Blob(['zip']),
+          failed: ['photo-2'],
+        });
 
-      fireEvent.click(screen.getByRole('button', { name: '全件エクスポート' }));
-      const settingsDialog = await screen.findByRole('dialog', { name: /全件一括エクスポート/ });
-      fireEvent.click(within(settingsDialog).getByRole('button', { name: '開始' }));
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+        await startExportAll();
 
-      // 部分失敗通知
-      expect(
-        await screen.findByText(/一部の写真項目（1件）のエクスポートに失敗しました/)
-      ).toBeInTheDocument();
-
-      // 完了後に進捗ダイアログを閉じる
-      const progressDialog = await screen.findByRole('dialog', {
-        name: /一括エクスポート完了/,
-      });
-      fireEvent.click(within(progressDialog).getByRole('button', { name: '閉じる' }));
-
-      await waitFor(() =>
+        const dialog = await screen.findByRole('dialog', { name: partialDialogName });
+        const items = within(
+          within(dialog).getByRole('list', { name: 'エクスポートに失敗した写真項目' })
+        ).getAllByRole('listitem');
+        expect(items).toHaveLength(1);
+        expect(items[0]).toHaveTextContent('b.jpg');
+        expect(items[0]).toHaveTextContent('2番目');
         expect(
-          screen.queryByRole('dialog', { name: /一括エクスポート完了/ })
-        ).not.toBeInTheDocument()
-      );
+          within(dialog).getByText('成功した1件の写真項目だけでZIPをダウンロードしますか？')
+        ).toBeInTheDocument();
+        expect(URL.createObjectURL).not.toHaveBeenCalled();
+        expect(
+          screen.queryByText(/一部の写真項目（1件）のエクスポートに失敗しました/)
+        ).not.toBeInTheDocument();
+      });
+
+      it('「成功した項目だけでダウンロードする」で成功分のZIPを1回だけダウンロードし、ダイアログを閉じて通知する', async () => {
+        const blob = new Blob(['zip']);
+        vi.mocked(constructionPhotoBulkExportService.export).mockResolvedValue({
+          blob,
+          failed: ['photo-2'],
+        });
+        const clickSpy = vi
+          .spyOn(HTMLAnchorElement.prototype, 'click')
+          .mockImplementation(() => {});
+
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+        await startExportAll();
+
+        const dialog = await screen.findByRole('dialog', { name: partialDialogName });
+        fireEvent.click(
+          within(dialog).getByRole('button', { name: '成功した項目だけでダウンロードする' })
+        );
+
+        expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+        expect(URL.createObjectURL).toHaveBeenCalledWith(blob);
+        expect(clickSpy).toHaveBeenCalledTimes(1);
+        const anchor = clickSpy.mock.contexts[0] as HTMLAnchorElement;
+        expect(anchor.download).toMatch(/^基礎工事アルバム_\d{8}_\d{6}\.zip$/);
+        // 作ったオブジェクトURLはその場で解放する
+        expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
+        await waitFor(() =>
+          expect(screen.queryByRole('dialog', { name: partialDialogName })).not.toBeInTheDocument()
+        );
+        expect(
+          screen.getByText(
+            '一部の写真項目（1件）のエクスポートに失敗しました。成功した項目のみでZIPをダウンロードしました。'
+          )
+        ).toBeInTheDocument();
+        clickSpy.mockRestore();
+      });
+
+      it('「ダウンロードしない」でダウンロードせずにダイアログを閉じ、次のエクスポートは前の結果を持ち越さない', async () => {
+        const firstBlob = new Blob(['first']);
+        const secondBlob = new Blob(['second']);
+        vi.mocked(constructionPhotoBulkExportService.export)
+          .mockResolvedValueOnce({ blob: firstBlob, failed: ['photo-2'] })
+          .mockResolvedValueOnce({ blob: secondBlob, failed: [] });
+
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+        await startExportAll();
+
+        const dialog = await screen.findByRole('dialog', { name: partialDialogName });
+        fireEvent.click(within(dialog).getByRole('button', { name: 'ダウンロードしない' }));
+
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+        expect(URL.createObjectURL).not.toHaveBeenCalled();
+        expect(screen.queryByText(/ZIPをダウンロードしました/)).not.toBeInTheDocument();
+
+        // 新しいエクスポートを始められ、全件成功ならその結果だけが即座にダウンロードされる
+        await startExportAll();
+        await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalledTimes(1));
+        expect(URL.createObjectURL).toHaveBeenCalledWith(secondBlob);
+        expect(screen.queryByRole('dialog', { name: partialDialogName })).not.toBeInTheDocument();
+      });
+
+      it('選択の段で Escape を押すとダウンロードせずにダイアログを閉じる', async () => {
+        vi.mocked(constructionPhotoBulkExportService.export).mockResolvedValue({
+          blob: new Blob(['zip']),
+          failed: ['photo-2'],
+        });
+
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+        await startExportAll();
+
+        const dialog = await screen.findByRole('dialog', { name: partialDialogName });
+        fireEvent.keyDown(dialog, { key: 'Escape' });
+
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+        expect(URL.createObjectURL).not.toHaveBeenCalled();
+      });
+
+      it('全件失敗ではダウンロードせず、失敗した写真項目を示し、続ける操作を出さない', async () => {
+        vi.mocked(constructionPhotoBulkExportService.export).mockResolvedValue({
+          blob: new Blob([]),
+          failed: ['photo-1', 'photo-2'],
+        });
+
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+        await startExportAll();
+
+        const dialog = await screen.findByRole('dialog', {
+          name: '写真項目をエクスポートできませんでした',
+        });
+        const items = within(
+          within(dialog).getByRole('list', { name: 'エクスポートに失敗した写真項目' })
+        ).getAllByRole('listitem');
+        expect(items).toHaveLength(2);
+        expect(items[0]).toHaveTextContent('a.jpg');
+        expect(items[1]).toHaveTextContent('b.jpg');
+        expect(
+          within(dialog).queryByRole('button', { name: '成功した項目だけでダウンロードする' })
+        ).not.toBeInTheDocument();
+        expect(URL.createObjectURL).not.toHaveBeenCalled();
+
+        fireEvent.click(within(dialog).getByRole('button', { name: '閉じる' }));
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+        expect(URL.createObjectURL).not.toHaveBeenCalled();
+        expect(
+          screen.getByText(
+            'すべての写真項目（2件）のエクスポートに失敗しました。ZIPはダウンロードしていません。'
+          )
+        ).toBeInTheDocument();
+      });
+
+      it('エクスポートの実行中に画面を離れると、処理を中断する', async () => {
+        let capturedSignal: AbortSignal | null = null;
+        vi.mocked(constructionPhotoBulkExportService.export).mockImplementation(
+          (_photos, _settings, handlers) => {
+            capturedSignal = handlers.signal;
+            return new Promise(() => {});
+          }
+        );
+
+        const { unmount } = renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+        await startExportAll();
+        await screen.findByRole('dialog', { name: /一括エクスポート処理中/ });
+        expect(capturedSignal).not.toBeNull();
+        expect(capturedSignal!.aborted).toBe(false);
+
+        unmount();
+
+        expect(capturedSignal!.aborted).toBe(true);
+      });
     });
 
     it('エクスポート処理が失敗（非中断）すると失敗通知を表示する', async () => {

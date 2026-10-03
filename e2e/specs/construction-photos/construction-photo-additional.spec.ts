@@ -81,6 +81,12 @@
  * 25. 写真項目の削除の成功の後の未保存の状態: コメントを編集した写真項目を取り除いたとき、他の
  *     写真項目の編集が残る間は未保存のままで保存はその編集だけを送り、保留が空になれば未保存の
  *     表示が消え「保存」は押せず、ブレッドクラムの遷移で離脱の確認が出ない（R18.3。タスク 23.6）
+ * 26. ZIP の一括エクスポートの一部失敗時の継続の選択: 3 件中の写真項目の画像の取得を 404 へ差し替え、
+ *     一部失敗では自動でダウンロードせず失敗した写真項目をファイル名と順番で示し、「成功した項目だけで
+ *     ダウンロードする」で成功分だけの ZIP（エントリ名で確認）を 1 回ダウンロードし、「ダウンロードしない」
+ *     ではダウンロードせずに閉じて次のエクスポートへ持ち越さない。全件成功は即座にダウンロードし、
+ *     全件失敗はダウンロードせず失敗の一覧だけを示す。375・320 幅で長いファイル名の一覧と二つの操作が
+ *     画面内に収まる（R15.10。タスク 23.4 の利用者の判断（2026-10-03））
  *
  * 縮退した要素（理由明記）:
  *  - パンの座標厳密検証: 拡大時に画像 transform の translate 成分が変化することまでを確認し、
@@ -4335,5 +4341,442 @@ test.describe('工事写真 追加機能フロー', () => {
     expect(
       await prisma.constructionPhoto.findMany({ where: { albumId }, select: { id: true } })
     ).toEqual([{ id: keepId }]);
+  });
+});
+
+// ============================================================================
+// ZIP の一括エクスポートの一部失敗時の継続の選択（タスク 23.4）
+// ============================================================================
+
+/**
+ * ZIP ファイルの中央ディレクトリからエントリ名を読み出す。
+ *
+ * 実装（JSZip）と別の読み方で中身を確かめるため、ZIP の書式（終端レコード 0x06054b50 と
+ * 中央ディレクトリのヘッダ 0x02014b50）を直接読む。名前は UTF-8 として読む（JSZip は日本語の
+ * 名前に UTF-8 のフラグを立てて書く）。
+ */
+function readZipEntryNames(buffer: Buffer): string[] {
+  let eocd = -1;
+  for (let i = buffer.length - 22; i >= 0; i -= 1) {
+    if (buffer.readUInt32LE(i) === 0x06054b50) {
+      eocd = i;
+      break;
+    }
+  }
+  expect(eocd, 'ZIP の終端レコードが見つからない').toBeGreaterThanOrEqual(0);
+  const entryCount = buffer.readUInt16LE(eocd + 10);
+  let offset = buffer.readUInt32LE(eocd + 16);
+  const names: string[] = [];
+  for (let n = 0; n < entryCount; n += 1) {
+    expect(buffer.readUInt32LE(offset), '中央ディレクトリのヘッダの署名').toBe(0x02014b50);
+    const nameLength = buffer.readUInt16LE(offset + 28);
+    const extraLength = buffer.readUInt16LE(offset + 30);
+    const commentLength = buffer.readUInt16LE(offset + 32);
+    names.push(buffer.toString('utf8', offset + 46, offset + 46 + nameLength));
+    offset += 46 + nameLength + extraLength + commentLength;
+  }
+  return names;
+}
+
+/**
+ * タスク 23.4: ZIP の一括エクスポートで一部の写真項目の画像の取得が失敗したとき、自動では
+ * ダウンロードせず、失敗した写真項目をファイル名で示して、成功した項目だけでダウンロードを
+ * 続けるか、やめるかを利用者に選ばせる（利用者の判断（2026-10-03））。
+ *
+ * 3 件の写真項目のうち指定した写真項目の画像（看板重畳モードの既定 composited が取得する
+ * print-image と、plain/original が取得する original の双方）を 404 へ差し替えて失敗させる。
+ * 差し替えの判定と応答は `page.unroute` で外せるよう、各テストの中で同じ参照を共有する。
+ * 判定はオリジンではなくパスで行う（CI とローカルで API のオリジンが異なるため）。
+ */
+test.describe('工事写真 ZIP一括エクスポートの一部失敗時の継続の選択', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  const stamp = Date.now();
+  // カメラ由来の現実的な長さの区切りの無いファイル名と、区切りの無い英数字の長い一語のファイル名
+  const realisticBase = `IMG_20261001_143052_foundation_rebar_${stamp}`;
+  const alnumBase = `Zx9Qw7Er5Ty3Ui1Op8As6Df4Gh2Jk0LmNbVcXz${stamp}`;
+  const plainBase = `foundation_overview_${stamp}`;
+  const fileNames = [`${realisticBase}.jpg`, `${alnumBase}.jpg`, `${plainBase}.jpg`];
+  // 既定の形式（JPEG）での ZIP のエントリ名（エクスポート対象の中での 0 始まりの順番 3 桁＋ベース名）
+  const entryNames = [`000_${realisticBase}.jpg`, `001_${alnumBase}.jpg`, `002_${plainBase}.jpg`];
+
+  let albumId: string | null = null;
+  let photoIds: string[] = [];
+
+  test.beforeEach(async ({ context }) => {
+    await context.clearCookies();
+  });
+
+  /** 指定した写真項目の画像の取得を 404 へ差し替える判定と応答を作る（unroute 用に同じ参照を返す） */
+  const makeImageFailure = (failingIds: string[]) => {
+    const hits: string[] = [];
+    const matcher = (url: URL): boolean => {
+      const m = url.pathname.match(
+        /\/api\/construction-photos\/images\/([0-9a-f-]+)\/(print-image|original)$/
+      );
+      return m !== null && failingIds.includes(m[1]!);
+    };
+    const handler = async (route: Route): Promise<void> => {
+      hits.push(new URL(route.request().url()).pathname);
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          type: 'https://architrack.example.com/problems/not-found',
+          title: 'Not Found',
+          status: 404,
+          detail: '写真が見つかりません',
+          code: 'NOT_FOUND',
+        }),
+      });
+    };
+    return { matcher, handler, hits };
+  };
+
+  /** 詳細画面を開き、写真項目が 3 件そろうのを待つ */
+  const openAlbum = async (page: import('@playwright/test').Page): Promise<void> => {
+    expect(albumId).toBeTruthy();
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByTestId('construction-photo-item')).toHaveCount(3, {
+      timeout: getTimeout(20000),
+    });
+  };
+
+  /** 全件エクスポートを既定の設定で開始する */
+  const startExportAll = async (page: import('@playwright/test').Page): Promise<void> => {
+    await page.getByRole('button', { name: '全件エクスポート' }).click();
+    const settings = page.getByRole('dialog', { name: /全件一括エクスポート/ });
+    await expect(settings).toBeVisible({ timeout: getTimeout(10000) });
+    await settings.getByRole('button', { name: '開始' }).click();
+  };
+
+  test('事前準備: アルバムを作成し、名前の異なる写真を3枚追加する', async ({ page }) => {
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'zip-partial');
+    albumId = await createAlbum(page, projectId, `ZIP一部失敗_${stamp}`);
+
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    for (let i = 0; i < fileNames.length; i += 1) {
+      const upload = page.waitForResponse(
+        (r) =>
+          r.request().method() === 'POST' && /\/construction-photos\/.+\/images$/.test(r.url()),
+        { timeout: getTimeout(30000) }
+      );
+      await page.getByTestId('file-input').setInputFiles({
+        name: fileNames[i]!,
+        mimeType: 'image/jpeg',
+        buffer: fs.readFileSync(FIXTURE_JPG),
+      });
+      expect((await upload).status()).toBeLessThan(300);
+      await expect(page.getByTestId('construction-photo-item')).toHaveCount(i + 1, {
+        timeout: getTimeout(20000),
+      });
+    }
+
+    const prisma = getPrismaClient();
+    const photos = await prisma.constructionPhoto.findMany({
+      where: { albumId: albumId! },
+      orderBy: { displayOrder: 'asc' },
+      select: { id: true, fileName: true },
+    });
+    expect(
+      photos.map((p) => p.fileName),
+      JSON.stringify(photos)
+    ).toEqual(fileNames);
+    photoIds = photos.map((p) => p.id);
+  });
+
+  /**
+   * 続ける: 1 件の失敗では自動でダウンロードせず、失敗した写真項目をファイル名で示し、
+   * 「成功した項目だけでダウンロードする」で成功した 2 件だけの ZIP がちょうど 1 回ダウンロードされる。
+   *
+   * @requirement construction-photo/REQ-15.10
+   */
+  test('一部失敗: 失敗した写真項目を示し、「成功した項目だけでダウンロードする」で成功分だけのZIPを1回ダウンロードする', async ({
+    page,
+  }) => {
+    expect(photoIds).toHaveLength(3);
+    await loginAsUser(page, 'ADMIN_USER');
+    await openAlbum(page);
+
+    const failure = makeImageFailure([photoIds[0]!]);
+    await page.route(failure.matcher, failure.handler);
+    const downloads: import('@playwright/test').Download[] = [];
+    page.on('download', (d) => downloads.push(d));
+
+    await startExportAll(page);
+
+    const dialog = page.getByRole('dialog', {
+      name: '一部の写真項目をエクスポートできませんでした',
+    });
+    await expect(dialog).toBeVisible({ timeout: getTimeout(30000) });
+    expect(failure.hits).toHaveLength(1);
+    const failedItems = dialog
+      .getByRole('list', { name: 'エクスポートに失敗した写真項目' })
+      .getByRole('listitem');
+    await expect(failedItems).toHaveCount(1);
+    await expect(failedItems.first()).toHaveText(`${fileNames[0]}（1番目）`);
+    await expect(
+      dialog.getByText('1件の写真項目の画像を取得または加工できませんでした。')
+    ).toBeVisible();
+    await expect(
+      dialog.getByText('成功した2件の写真項目だけでZIPをダウンロードしますか？')
+    ).toBeVisible();
+    // 段が出た時点ではダウンロードしていない
+    expect(downloads).toHaveLength(0);
+
+    const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(30000) });
+    await dialog.getByRole('button', { name: '成功した項目だけでダウンロードする' }).click();
+    const download = await downloadPromise;
+
+    await expect(dialog).toHaveCount(0);
+    await expect(
+      page.getByRole('alert').filter({
+        hasText:
+          '一部の写真項目（1件）のエクスポートに失敗しました。成功した項目のみでZIPをダウンロードしました。',
+      })
+    ).toBeVisible({ timeout: getTimeout(10000) });
+    expect(downloads).toHaveLength(1);
+    expect(download.suggestedFilename()).toMatch(/^ZIP一部失敗_\d+_\d{8}_\d{6}\.zip$/);
+    const zipPath = await download.path();
+    expect(readZipEntryNames(fs.readFileSync(zipPath))).toEqual([entryNames[1], entryNames[2]]);
+
+    await page.unroute(failure.matcher, failure.handler);
+  });
+
+  /**
+   * やめる: 「ダウンロードしない」でダウンロードせずに閉じる。続けて差し替えを外して全件エクスポート
+   * すると、選択の段を経ずに即座にダウンロードされ、そのダウンロードが最初で唯一のもの（3 件すべてを
+   * 含む ZIP）であることから、取りやめた ZIP がダウンロードされていないことを確かめる。
+   *
+   * @requirement construction-photo/REQ-15.10
+   */
+  test('一部失敗: 「ダウンロードしない」でダウンロードせずに閉じ、次のエクスポートは前の結果を持ち越さない', async ({
+    page,
+  }) => {
+    expect(photoIds).toHaveLength(3);
+    await loginAsUser(page, 'ADMIN_USER');
+    await openAlbum(page);
+
+    const failure = makeImageFailure([photoIds[0]!]);
+    await page.route(failure.matcher, failure.handler);
+    const downloads: import('@playwright/test').Download[] = [];
+    page.on('download', (d) => downloads.push(d));
+
+    await startExportAll(page);
+    const dialog = page.getByRole('dialog', {
+      name: '一部の写真項目をエクスポートできませんでした',
+    });
+    await expect(dialog).toBeVisible({ timeout: getTimeout(30000) });
+    expect(failure.hits).toHaveLength(1);
+    await dialog.getByRole('button', { name: 'ダウンロードしない' }).click();
+
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(
+      page.getByRole('alert').filter({ hasText: 'ZIPをダウンロードしました' })
+    ).toHaveCount(0);
+
+    // 差し替えを外して新しいエクスポートを始める（全件成功）
+    await page.unroute(failure.matcher, failure.handler);
+    const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(60000) });
+    await startExportAll(page);
+    await downloadPromise;
+
+    // 最初で唯一のダウンロードが、3 件すべてを含む新しいエクスポートの ZIP である
+    expect(downloads).toHaveLength(1);
+    expect(readZipEntryNames(fs.readFileSync(await downloads[0]!.path()))).toEqual(entryNames);
+    await expect(
+      page.getByRole('dialog', { name: '一部の写真項目をエクスポートできませんでした' })
+    ).toHaveCount(0);
+  });
+
+  /**
+   * 全件成功: 選択の段を経ずに即座にダウンロードされ、ZIP は 3 件すべてを含む。
+   *
+   * @requirement construction-photo/REQ-15.10
+   */
+  test('全件成功: 選択の段を経ずに即座に全件のZIPをダウンロードする', async ({ page }) => {
+    expect(photoIds).toHaveLength(3);
+    await loginAsUser(page, 'ADMIN_USER');
+    await openAlbum(page);
+
+    const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(60000) });
+    await startExportAll(page);
+    const download = await downloadPromise;
+
+    expect(readZipEntryNames(fs.readFileSync(await download.path()))).toEqual(entryNames);
+    await expect(page.getByRole('dialog', { name: '一括エクスポート完了' })).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await expect(
+      page.getByRole('button', { name: '成功した項目だけでダウンロードする' })
+    ).toHaveCount(0);
+    await expect(page.getByRole('list', { name: 'エクスポートに失敗した写真項目' })).toHaveCount(0);
+  });
+
+  /**
+   * 全件失敗: ダウンロードせず、失敗した写真項目をすべて示し、続ける操作を出さない。
+   *
+   * @requirement construction-photo/REQ-15.10
+   */
+  test('全件失敗: ダウンロードせず、失敗した写真項目をすべて示し、続ける操作を出さない', async ({
+    page,
+  }) => {
+    expect(photoIds).toHaveLength(3);
+    await loginAsUser(page, 'ADMIN_USER');
+    await openAlbum(page);
+
+    const failure = makeImageFailure(photoIds);
+    await page.route(failure.matcher, failure.handler);
+    const downloads: import('@playwright/test').Download[] = [];
+    page.on('download', (d) => downloads.push(d));
+
+    await startExportAll(page);
+    const dialog = page.getByRole('dialog', { name: '写真項目をエクスポートできませんでした' });
+    await expect(dialog).toBeVisible({ timeout: getTimeout(30000) });
+    expect(failure.hits).toHaveLength(3);
+    const failedItems = dialog
+      .getByRole('list', { name: 'エクスポートに失敗した写真項目' })
+      .getByRole('listitem');
+    await expect(failedItems).toHaveCount(3);
+    await expect(failedItems).toHaveText([
+      `${fileNames[0]}（1番目）`,
+      `${fileNames[1]}（2番目）`,
+      `${fileNames[2]}（3番目）`,
+    ]);
+    await expect(
+      dialog.getByText(
+        'すべての写真項目（3件）の画像を取得または加工できませんでした。ZIPはダウンロードしていません。'
+      )
+    ).toBeVisible();
+    await expect(
+      dialog.getByRole('button', { name: '成功した項目だけでダウンロードする' })
+    ).toHaveCount(0);
+
+    await dialog.getByRole('button', { name: '閉じる' }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(
+      page.getByRole('alert').filter({
+        hasText:
+          'すべての写真項目（3件）のエクスポートに失敗しました。ZIPはダウンロードしていません。',
+      })
+    ).toBeVisible();
+    expect(downloads).toHaveLength(0);
+
+    await page.unroute(failure.matcher, failure.handler);
+  });
+
+  /**
+   * モバイル幅（375・320）: 区切りの無い長いファイル名（カメラ由来の現実的な名前と英数字の長い一語）の
+   * 2 件を失敗させたとき、選択の段が文書全体・ダイアログを水平にはみ出させず、ファイル名の文字列が
+   * 一覧の内側に収まり、二つの操作が 44×44 以上で画面内に描かれる（R19 の詳細画面の扱い）。
+   *
+   * 前提として、各ファイル名の一行の自然幅が一覧の幅を超える（折り返さなければはみ出す長さである）
+   * ことを canvas の measureText で主張する。文字列の右端は箱ではなく Range の外接矩形で測る。
+   *
+   * @requirement construction-photo/REQ-15.10
+   */
+  test('モバイル幅（375・320）で長いファイル名の失敗の一覧と二つの操作が画面内に収まる', async ({
+    page,
+  }) => {
+    expect(photoIds).toHaveLength(3);
+    await loginAsUser(page, 'ADMIN_USER');
+
+    const failure = makeImageFailure([photoIds[0]!, photoIds[1]!]);
+    await page.route(failure.matcher, failure.handler);
+
+    for (const width of [375, 320]) {
+      await page.setViewportSize({ width, height: 640 });
+      await openAlbum(page);
+      await startExportAll(page);
+
+      const dialog = page.getByRole('dialog', {
+        name: '一部の写真項目をエクスポートできませんでした',
+      });
+      await expect(dialog).toBeVisible({ timeout: getTimeout(30000) });
+      const list = dialog.getByRole('list', { name: 'エクスポートに失敗した写真項目' });
+      await expect(list.getByRole('listitem')).toHaveCount(2);
+
+      const m = await list.evaluate((ul) => {
+        const context = document.createElement('canvas').getContext('2d');
+        const listRect = ul.getBoundingClientRect();
+        const names = Array.from(ul.querySelectorAll('li > span:first-child')).map((span) => {
+          const style = getComputedStyle(span);
+          let naturalWidth = -1;
+          if (context) {
+            context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+            naturalWidth = context.measureText(span.textContent ?? '').width;
+          }
+          const range = document.createRange();
+          range.selectNodeContents(span);
+          const r = range.getBoundingClientRect();
+          return { text: span.textContent, naturalWidth, textLeft: r.left, textRight: r.right };
+        });
+        const dialogEl = ul.closest('[role="dialog"]') as HTMLElement;
+        const content = dialogEl.firstElementChild as HTMLElement;
+        return {
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+          doc: {
+            scrollWidth: document.documentElement.scrollWidth,
+            clientWidth: document.documentElement.clientWidth,
+          },
+          content: {
+            scrollWidth: content.scrollWidth,
+            clientWidth: content.clientWidth,
+            right: content.getBoundingClientRect().right,
+          },
+          list: {
+            scrollWidth: ul.scrollWidth,
+            clientWidth: ul.clientWidth,
+            left: listRect.left,
+            right: listRect.right,
+            overflowY: getComputedStyle(ul).overflowY,
+          },
+          names,
+        };
+      });
+      const report = JSON.stringify(m);
+
+      expect(m.viewportWidth, report).toBe(width);
+      expect(m.names, report).toHaveLength(2);
+      expect(
+        m.names.map((n) => n.text),
+        report
+      ).toEqual([fileNames[0], fileNames[1]]);
+      expect(m.list.clientWidth, report).toBeGreaterThan(0);
+      for (const n of m.names) {
+        // 前提: 一語の自然幅が一覧の幅を超える（折り返さなければはみ出す長さ）
+        expect(n.naturalWidth, report).toBeGreaterThan(m.list.clientWidth);
+        // ファイル名の文字列が一覧の内側に収まる
+        expect(n.textLeft, report).toBeGreaterThanOrEqual(m.list.left - 1);
+        expect(n.textRight, report).toBeLessThanOrEqual(m.list.right + 1);
+      }
+      expect(m.list.scrollWidth, report).toBeLessThanOrEqual(m.list.clientWidth);
+      expect(m.list.overflowY, report).toBe('auto');
+      expect(m.content.scrollWidth, report).toBeLessThanOrEqual(m.content.clientWidth);
+      expect(m.content.right, report).toBeLessThanOrEqual(m.viewportWidth + 1);
+      expect(m.doc.scrollWidth - m.doc.clientWidth, report).toBeLessThanOrEqual(1);
+
+      // 二つの操作が 44×44 以上で、画面内（水平・垂直）に描かれる
+      for (const name of ['ダウンロードしない', '成功した項目だけでダウンロードする']) {
+        const box = await dialog.getByRole('button', { name }).boundingBox();
+        expect(box, `${name} @${width}`).not.toBeNull();
+        expect(box!.width, `${name} @${width}`).toBeGreaterThanOrEqual(44);
+        expect(box!.height, `${name} @${width}`).toBeGreaterThanOrEqual(44);
+        expect(box!.x, `${name} @${width}`).toBeGreaterThanOrEqual(0);
+        expect(box!.x + box!.width, `${name} @${width}`).toBeLessThanOrEqual(width + 1);
+        expect(box!.y + box!.height, `${name} @${width}`).toBeLessThanOrEqual(m.viewportHeight + 1);
+      }
+
+      // 後始末: ダウンロードせずに閉じる
+      await dialog.getByRole('button', { name: 'ダウンロードしない' }).click();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+    }
+
+    expect(failure.hits).toHaveLength(4);
+    await page.unroute(failure.matcher, failure.handler);
   });
 });
