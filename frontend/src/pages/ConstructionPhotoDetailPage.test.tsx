@@ -2414,6 +2414,201 @@ describe('ConstructionPhotoDetailPage', () => {
       expect(await screen.findByText('エクスポートに失敗しました')).toBeInTheDocument();
     });
   });
+
+  // タスク 22.1: 利用者の判断（2026-10-04）で、通知の枠の通知（PDF・ZIP・アップロード）と失敗
+  // （保存・アルバムの削除・写真項目一覧の取得）を一つの状態にまとめ、後から出たものが前のものを
+  // 置き換える。消えた後に古いものが再び現れない。消去はその種類のものだけを消す（変更前と同じ契機）
+  describe('通知の枠の通知と失敗の置き換え（タスク 22.1）', () => {
+    /** 写真項目セクションの通知の枠（role=alert）の一覧 */
+    const frameAlerts = () => screen.queryAllByRole('alert');
+
+    async function failSave(message: string) {
+      vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockRejectedValueOnce(
+        new ApiError(500, message)
+      );
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      fireEvent.click(within(firstItem).getByLabelText('印刷対象に含める'));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+      });
+    }
+
+    async function showNoPrintableNotice() {
+      vi.mocked(ledgerExportApi.exportConstructionPhotoLedger).mockResolvedValueOnce({
+        generated: false,
+        reason: 'no-printable',
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
+      });
+      await screen.findByText(/印刷対象の写真がありません/);
+    }
+
+    it('通知が出ている間に保存が失敗すると、保存の失敗が見え、通知は置き換えられる', async () => {
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      await showNoPrintableNotice();
+      await failSave('保存の失敗の理由');
+
+      expect(await screen.findByText('保存の失敗の理由')).toBeInTheDocument();
+      expect(screen.queryByText(/印刷対象の写真がありません/)).not.toBeInTheDocument();
+      expect(frameAlerts()).toHaveLength(1);
+    });
+
+    it('保存の失敗が出ている間に通知が出ると、通知が見え、保存の失敗は置き換えられる', async () => {
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      await failSave('保存の失敗の理由');
+      expect(await screen.findByText('保存の失敗の理由')).toBeInTheDocument();
+
+      await showNoPrintableNotice();
+
+      expect(screen.queryByText('保存の失敗の理由')).not.toBeInTheDocument();
+      expect(frameAlerts()).toHaveLength(1);
+    });
+
+    it('保存の失敗を置き換えた通知が消えても、古い保存の失敗は再び現れない', async () => {
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      await failSave('保存の失敗の理由');
+      await showNoPrintableNotice();
+
+      // PDF 出力の開始は通知を消す。生成に成功すれば新しい通知は出ない
+      vi.mocked(ledgerExportApi.exportConstructionPhotoLedger).mockResolvedValueOnce({
+        generated: true,
+        itemCount: 1,
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
+      });
+      await waitFor(() => {
+        expect(screen.queryByText(/印刷対象の写真がありません/)).not.toBeInTheDocument();
+      });
+
+      expect(screen.queryByText('保存の失敗の理由')).not.toBeInTheDocument();
+      expect(frameAlerts()).toHaveLength(0);
+    });
+
+    it('通知を置き換えた保存の失敗が、やり直しの保存で消えても、古い通知は再び現れない', async () => {
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      await showNoPrintableNotice();
+      await failSave('保存の失敗の理由');
+      expect(await screen.findByText('保存の失敗の理由')).toBeInTheDocument();
+
+      // 未保存の変更は残っているため、保存をやり直せる。開始で失敗は消える
+      vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockResolvedValueOnce(
+        undefined as never
+      );
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+      });
+      await waitFor(() => {
+        expect(screen.queryByText('保存の失敗の理由')).not.toBeInTheDocument();
+      });
+
+      expect(screen.queryByText(/印刷対象の写真がありません/)).not.toBeInTheDocument();
+      expect(frameAlerts()).toHaveLength(0);
+    });
+
+    it('アップロードの失敗の通知が出ている間にアルバムの削除が失敗すると、削除の失敗が見える', async () => {
+      vi.mocked(imagesApi.uploadConstructionPhotos).mockResolvedValue({
+        successful: [],
+        failed: [{ fileName: 'ng.jpg', error: 'アップロード失敗' }],
+      });
+      vi.mocked(albumsApi.deleteConstructionPhotoAlbum).mockRejectedValue(new Error('del fail'));
+
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      await act(async () => {
+        fireEvent.change(screen.getByTestId('file-input'), {
+          target: { files: [new File(['x'], 'ng.jpg', { type: 'image/jpeg' })] },
+        });
+      });
+      expect(await screen.findByText(/全1件の追加に失敗しました/)).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: '削除' }));
+      const dialog = await screen.findByRole('dialog');
+      await act(async () => {
+        fireEvent.click(within(dialog).getByRole('button', { name: '削除' }));
+      });
+
+      expect(await screen.findByText('アルバムの削除に失敗しました')).toBeInTheDocument();
+      expect(screen.queryByText(/全1件の追加に失敗しました/)).not.toBeInTheDocument();
+      expect(frameAlerts()).toHaveLength(1);
+    });
+
+    it('ZIP の失敗の通知が出ている間に保存が失敗すると、保存の失敗が見える', async () => {
+      vi.mocked(constructionPhotoBulkExportService.export).mockRejectedValue(new Error('zip fail'));
+
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      fireEvent.click(screen.getByRole('button', { name: '全件エクスポート' }));
+      const settingsDialog = await screen.findByRole('dialog', { name: /全件一括エクスポート/ });
+      await act(async () => {
+        fireEvent.click(within(settingsDialog).getByRole('button', { name: '開始' }));
+      });
+      expect(await screen.findByText('エクスポートに失敗しました')).toBeInTheDocument();
+      // 進捗ダイアログを閉じてから保存する
+      const progressDialog = screen.getByRole('dialog');
+      fireEvent.click(within(progressDialog).getByRole('button', { name: '閉じる' }));
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+      await failSave('保存の失敗の理由');
+
+      expect(await screen.findByText('保存の失敗の理由')).toBeInTheDocument();
+      expect(screen.queryByText('エクスポートに失敗しました')).not.toBeInTheDocument();
+    });
+
+    it('消去はその種類のものだけを消す: 写真項目の追加（通知の消去）は保存の失敗を消さない', async () => {
+      vi.mocked(imagesApi.uploadConstructionPhotos).mockResolvedValue({
+        successful: [makePhoto({ id: 'photo-3', displayOrder: 3, fileName: 'c.jpg' })],
+        failed: [],
+      });
+
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      await failSave('保存の失敗の理由');
+      expect(await screen.findByText('保存の失敗の理由')).toBeInTheDocument();
+
+      await act(async () => {
+        fireEvent.change(screen.getByTestId('file-input'), {
+          target: { files: [new File(['x'], 'c.jpg', { type: 'image/jpeg' })] },
+        });
+      });
+      expect(await screen.findByRole('img', { name: /c\.jpg/ })).toBeInTheDocument();
+
+      expect(screen.getByText('保存の失敗の理由')).toBeInTheDocument();
+    });
+
+    it('消去はその種類のものだけを消す: 保存の開始（失敗の消去）は表示中の通知を消さない', async () => {
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      await showNoPrintableNotice();
+
+      vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockResolvedValueOnce(
+        undefined as never
+      );
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      fireEvent.click(within(firstItem).getByLabelText('印刷対象に含める'));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+      });
+      await waitFor(() => {
+        expect(lastUnsavedDirty()).toBe(false);
+      });
+
+      expect(screen.getByText(/印刷対象の写真がありません/)).toBeInTheDocument();
+    });
+  });
 });
 
 /**

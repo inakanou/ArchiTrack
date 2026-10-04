@@ -90,6 +90,9 @@
  *     ではダウンロードせずに閉じて次のエクスポートへ持ち越さない。全件成功は即座にダウンロードし、
  *     全件失敗はダウンロードせず失敗の一覧だけを示す。375・320 幅で長いファイル名の一覧と二つの操作が
  *     画面内に収まる（R15.10。タスク 23.4 の利用者の判断（2026-10-03））
+ * 27. 通知の枠の通知と失敗の置き換え: 印刷対象 0 件の PDF 出力の通知の後に保存が失敗すると保存の
+ *     失敗へ、保存の失敗の後に通知が出ると通知へ置き換わり、通知の枠は常に一つで、消えた後に置き換え
+ *     られた古いものが再び現れない（要件の印は掲げない。タスク 22.1 の利用者の判断（2026-10-04））
  *
  * 縮退した要素（理由明記）:
  *  - パンの座標厳密検証: 拡大時に画像 transform の translate 成分が変化することまでを確認し、
@@ -5224,6 +5227,138 @@ test.describe('工事写真 追加機能フロー', () => {
     expect(
       await prisma.constructionPhoto.findMany({ where: { albumId }, select: { id: true } })
     ).toEqual([{ id: keepId }]);
+  });
+
+  /**
+   * タスク 22.1: 詳細画面の通知の枠は、通知（PDF・ZIP・アップロードの結果）と失敗（保存など）を
+   * 一つの表示で示し、後から出たものが前のものを置き換え、消えた後に古いものが再び現れない
+   * （利用者の判断（2026-10-04））。変更前は `notice ?? error` を描いたため、通知が出ている間は
+   * 保存の失敗が隠れ、通知が消えると古い保存の失敗が再び現れた。
+   *
+   * 通知は印刷対象 0 件の PDF 出力（R10.13）で、失敗はメタの一括更新の応答を 400 へ差し替えた保存で
+   * 作る（判定はオリジンではなくパスで行う）。要件の印は掲げない（受入基準は通知の枠の置き換えを
+   * 定めておらず、タスク 22.1 の利用者の判断による）。
+   */
+  test('通知の後に保存が失敗すると保存の失敗へ、失敗の後に通知が出ると通知へ置き換わり、消えた後に古いものが現れない', async ({
+    page,
+  }) => {
+    const stamp = Date.now();
+    const albumName = `通知と失敗_${stamp}`;
+    const saveFailure = `保存の失敗の理由_${stamp}`;
+    const noPrintable = '印刷対象の写真がありません。印刷対象を選択してからPDF出力してください。';
+
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'notice-error');
+    const albumId = await createAlbum(page, projectId, albumName);
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { level: 1, name: albumName })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    const items = page.getByTestId('construction-photo-item');
+    /** 指定の名前でローカル画像を 1 枚追加し、写真項目の総数が expectedCount になるのを待つ。 */
+    const uploadNamed = async (name: string, expectedCount: number): Promise<void> => {
+      const upload = page.waitForResponse(
+        (r) => r.request().method() === 'POST' && UPLOAD_URL_MATCHER(new URL(r.url())),
+        { timeout: getTimeout(30000) }
+      );
+      await page.getByTestId('file-input').setInputFiles({
+        name,
+        mimeType: 'image/jpeg',
+        buffer: fs.readFileSync(FIXTURE_JPG),
+      });
+      expect((await upload).status()).toBe(201);
+      await expect(items).toHaveCount(expectedCount, { timeout: getTimeout(20000) });
+    };
+    await uploadNamed(`notice-error-1-${stamp}.jpg`, 1);
+
+    const alerts = page.getByRole('main').getByRole('alert');
+    const noticeAlert = alerts.filter({ hasText: noPrintable });
+    const saveFailureAlert = alerts.filter({ hasText: saveFailure });
+    const saveButton = page.getByRole('button', { name: '保存', exact: true });
+    const pdfButton = page.getByRole('button', { name: 'PDF出力' });
+    const textarea = items.nth(0).getByPlaceholder('コメントを入力...');
+    const isBatchPath = (url: string): boolean =>
+      new URL(url).pathname === '/api/construction-photos/images/batch';
+    // unroute は参照の等価で照合するため、route と同じ述語を渡す
+    const batchRouteMatcher = (url: URL): boolean => isBatchPath(url.toString());
+    const failBatch = async (route: Route): Promise<void> => {
+      if (route.request().method() !== 'PATCH') {
+        await route.continue();
+        return;
+      }
+      await route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: saveFailure }),
+      });
+    };
+
+    /** コメントを編集して未保存にする。 */
+    const editComment = async (comment: string): Promise<void> => {
+      await textarea.click();
+      await textarea.fill(comment);
+      await textarea.blur();
+      await expect(page.getByTestId('dirty-indicator')).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+    };
+    /** 保存を押し、メタの一括更新の応答が expectedStatus であることを確かめる。 */
+    const save = async (expectedStatus: number): Promise<void> => {
+      const response = page.waitForResponse(
+        (r) => r.request().method() === 'PATCH' && isBatchPath(r.url()),
+        { timeout: getTimeout(30000) }
+      );
+      await saveButton.click();
+      expect((await response).status()).toBe(expectedStatus);
+    };
+
+    // 前提: 通知の枠には何も出ていない
+    await expect(alerts).toHaveCount(0);
+
+    // --- 経路 1: 通知の後に保存の失敗 ---
+    await pdfButton.click();
+    await expect(noticeAlert).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(alerts).toHaveCount(1);
+
+    await editComment(`編集_1_${stamp}`);
+    await page.route(batchRouteMatcher, failBatch);
+    await save(400);
+    // 後から出た保存の失敗が見え、通知は置き換えられている
+    await expect(saveFailureAlert).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(noticeAlert).toHaveCount(0);
+    await expect(alerts).toHaveCount(1);
+
+    // 保存をやり直して成功すると失敗は消え、置き換えられた通知は再び現れない
+    await page.unroute(batchRouteMatcher, failBatch);
+    await save(200);
+    await expect(page.getByTestId('dirty-indicator')).toBeHidden({ timeout: getTimeout(15000) });
+    await expect(saveFailureAlert).toHaveCount(0);
+    await expect(noticeAlert).toHaveCount(0);
+    await expect(alerts).toHaveCount(0);
+
+    // --- 経路 2: 保存の失敗の後に通知 ---
+    await editComment(`編集_2_${stamp}`);
+    await page.route(batchRouteMatcher, failBatch);
+    await save(400);
+    await expect(saveFailureAlert).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(alerts).toHaveCount(1);
+    await page.unroute(batchRouteMatcher, failBatch);
+
+    await pdfButton.click();
+    // 後から出た通知が見え、保存の失敗は置き換えられている
+    await expect(noticeAlert).toBeVisible({ timeout: getTimeout(15000) });
+    await expect(saveFailureAlert).toHaveCount(0);
+    await expect(alerts).toHaveCount(1);
+
+    // 写真項目の追加は通知を消す。置き換えられた保存の失敗は再び現れない
+    await uploadNamed(`notice-error-2-${stamp}.jpg`, 2);
+    await expect(noticeAlert).toHaveCount(0);
+    await expect(saveFailureAlert).toHaveCount(0);
+    await expect(alerts).toHaveCount(0);
   });
 });
 

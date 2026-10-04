@@ -78,6 +78,13 @@
  *   すべての経路・次のエクスポートの開始・画面の破棄で手放し、オブジェクトURLはダウンロードの瞬間に
  *   作ってその場で解放する（保留中は作らない）。画面の破棄時は実行中のエクスポートも中断する
  *
+ * Task 22.1 変更: 利用者の判断（2026-10-04）で、通知の枠の通知（PDF・ZIP・アップロードの結果）と
+ *   失敗（保存・アルバムの削除・取得）を一つの状態（`pageMessage`）にまとめた。変更前は二つの状態を
+ *   `notice ?? error` で描いたため、通知が出ている間は失敗が隠れ、通知が消えると古い失敗が再び
+ *   現れた。後から出たものが前のものを置き換え、消えた後に古いものは現れない。各操作の開始時の
+ *   消去は変更前と同じくその種類だけを消す（保存の開始は失敗だけ、PDF・ZIP の開始と写真項目の
+ *   追加は通知だけ）。自動で消えるタイマーは持たない
+ *
  * Requirements: 4.1, 4.2, 5.1, 5.3, 6.1, 7.1, 7.3, 7.4, 7.5, 7.6, 7.8, 11.3, 11.4, 11.5,
  *   10.1, 10.3, 10.12, 10.13, 15.1, 15.5, 15.6, 15.7, 15.8, 15.9, 15.11, 17.1, 17.2, 17.3,
  *   17.4, 17.5, 18.1, 18.2, 18.3, 18.4
@@ -417,6 +424,18 @@ function removeSentFromPending(
 /**
  * 工事写真アルバム詳細ページ
  */
+/**
+ * 通知の枠に出す表示の種類（タスク 22.1）。`notice` は PDF・ZIP・アップロードの結果の通知、
+ * `error` は保存・アルバムの削除・取得の失敗である。描画はどちらも同じ枠（role=alert）で、
+ * 種類は消去の対象を決めるために持つ（各操作の開始時の消去は、変更前と同じくその種類だけを消す）
+ */
+type PageMessageKind = 'notice' | 'error';
+
+interface PageMessage {
+  kind: PageMessageKind;
+  text: string;
+}
+
 export default function ConstructionPhotoDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -469,8 +488,17 @@ export default function ConstructionPhotoDetailPage() {
   );
 
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  // 通知の枠に出す一つの表示（タスク 22.1）。通知（PDF・ZIP・アップロードの結果）と失敗（保存・
+  // アルバムの削除・取得）を一つの状態に持ち、後から出たものが前のものを置き換える。消去は
+  // その種類のものだけを消す（`clearPageMessage`）。アルバムの取得の失敗も失敗としてここに載り、
+  // アルバムが無いときは本体の代わりにエラー画面を描く
+  const [pageMessage, setPageMessage] = useState<PageMessage | null>(null);
+  const showPageMessage = useCallback((kind: PageMessageKind, text: string) => {
+    setPageMessage({ kind, text });
+  }, []);
+  const clearPageMessage = useCallback((kind: PageMessageKind) => {
+    setPageMessage((prev) => (prev?.kind === kind ? null : prev));
+  }, []);
 
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -515,7 +543,7 @@ export default function ConstructionPhotoDetailPage() {
     if (!id) return;
 
     setIsLoading(true);
-    setError(null);
+    clearPageMessage('error');
 
     try {
       const albumData = await getConstructionPhotoAlbum(id);
@@ -535,7 +563,8 @@ export default function ConstructionPhotoDetailPage() {
       // プロジェクト取得失敗はブレッドクラムのみに影響するため致命的ではない
       setProject(projectResult.status === 'fulfilled' ? projectResult.value : null);
     } catch (err) {
-      setError(
+      showPageMessage(
+        'error',
         err instanceof ApiError
           ? err.message || '工事写真アルバムの取得に失敗しました'
           : '工事写真アルバムの取得に失敗しました'
@@ -543,7 +572,7 @@ export default function ConstructionPhotoDetailPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [id]);
+  }, [id, clearPageMessage, showPageMessage]);
 
   useEffect(() => {
     fetchData();
@@ -594,15 +623,21 @@ export default function ConstructionPhotoDetailPage() {
    * 3系統アップローダから追加された写真項目をローカル状態へ追記する。
    * 応答には署名付きサムネURLが含まれるため再取得なしで即座に一覧へ反映する。
    */
-  const handlePhotosAdded = useCallback((added: ConstructionPhotoWithUrls[]) => {
-    if (added.length === 0) return;
-    setNotice(null);
-    setPhotos((prev) => [...prev, ...added].sort((a, b) => a.displayOrder - b.displayOrder));
-  }, []);
+  const handlePhotosAdded = useCallback(
+    (added: ConstructionPhotoWithUrls[]) => {
+      if (added.length === 0) return;
+      clearPageMessage('notice');
+      setPhotos((prev) => [...prev, ...added].sort((a, b) => a.displayOrder - b.displayOrder));
+    },
+    [clearPageMessage]
+  );
 
-  const handleUploaderNotify = useCallback((message: string) => {
-    setNotice(message);
-  }, []);
+  const handleUploaderNotify = useCallback(
+    (message: string) => {
+      showPageMessage('notice', message);
+    },
+    [showPageMessage]
+  );
 
   /**
    * メタデータ（コメント/印刷対象）変更ハンドラ（未保存状態で保持, R7.1, R7.5）
@@ -683,7 +718,8 @@ export default function ConstructionPhotoDetailPage() {
       await deleteConstructionPhotoAlbum(album.id);
       navigate(`/projects/${album.projectId}/construction-photos`);
     } catch (err) {
-      setError(
+      showPageMessage(
+        'error',
         err instanceof ApiError
           ? err.message || 'アルバムの削除に失敗しました'
           : 'アルバムの削除に失敗しました'
@@ -692,7 +728,7 @@ export default function ConstructionPhotoDetailPage() {
     } finally {
       setIsDeletingAlbum(false);
     }
-  }, [album, navigate]);
+  }, [album, navigate, showPageMessage]);
 
   /**
    * 「看板を配置」導線ハンドラ（R9.1）。対象写真項目の配置ダイアログを開く。
@@ -758,7 +794,7 @@ export default function ConstructionPhotoDetailPage() {
     const sentOrder = pendingOrderRef.current;
 
     setIsSaving(true);
-    setError(null);
+    clearPageMessage('error');
     try {
       // メタデータ一括更新（1リクエスト）
       if (hasMetadataChanges) {
@@ -781,11 +817,11 @@ export default function ConstructionPhotoDetailPage() {
       }
       syncDirtyWithPending();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : '保存に失敗しました');
+      showPageMessage('error', err instanceof ApiError ? err.message : '保存に失敗しました');
     } finally {
       setIsSaving(false);
     }
-  }, [id, syncDirtyWithPending]);
+  }, [id, syncDirtyWithPending, clearPageMessage, showPageMessage]);
 
   /**
    * PDF出力ハンドラ（R10.1, R10.3, R10.12, R10.13）
@@ -795,7 +831,7 @@ export default function ConstructionPhotoDetailPage() {
    */
   const handleExportPdf = useCallback(async () => {
     if (!album) return;
-    setNotice(null);
+    clearPageMessage('notice');
     setIsExporting(true);
     try {
       const { exportConstructionPhotoLedger } = await loadConstructionPhotoLedgerExportService();
@@ -804,22 +840,25 @@ export default function ConstructionPhotoDetailPage() {
         workName: project?.name ?? album.name,
       });
       if (!result.generated) {
-        setNotice('印刷対象の写真がありません。印刷対象を選択してからPDF出力してください。');
+        showPageMessage(
+          'notice',
+          '印刷対象の写真がありません。印刷対象を選択してからPDF出力してください。'
+        );
       }
     } catch (err) {
-      setNotice(err instanceof ApiError ? err.message : 'PDF出力に失敗しました');
+      showPageMessage('notice', err instanceof ApiError ? err.message : 'PDF出力に失敗しました');
     } finally {
       setIsExporting(false);
     }
-  }, [album, project, photos]);
+  }, [album, project, photos, clearPageMessage, showPageMessage]);
 
   /**
    * 写真項目削除ハンドラ（R7.7）
    *
    * 失敗は捕捉せず `PhotoItemPanel` へ伝播させる。同部品が確認ダイアログを閉じ、失敗をその写真
-   * 項目の中に表示する（タスク 23.9）。本画面は失敗を通知の枠と失敗の状態（`error`）に載せず
-   * （載せると、`notice ?? error` の描画で他の通知と互いに隠し合う。タスク 22.1）、写真項目・
-   * 未保存の変更・選択集合にも触れない。先に出ている通知（アップロードの失敗など）と失敗の表示
+   * 項目の中に表示する（タスク 23.9）。本画面は失敗を通知の枠（`pageMessage`）に載せず
+   * （載せると、どの写真項目の失敗かが分からず、後から出た通知に置き換えられる。タスク 22.1）、
+   * 写真項目・未保存の変更・選択集合にも触れない。先に出ている通知（アップロードの失敗など）と失敗の表示
    * （保存の失敗など）も消さない（21.3 は削除の失敗を通知の枠に出すために消していた）。
    *
    * 成功したときは、取り除いた写真項目の保留（メタ変更と順序変更の該当の行）を消し、未保存の
@@ -883,8 +922,8 @@ export default function ConstructionPhotoDetailPage() {
 
   /** 対象0件時の通知（R15.11） */
   const handleExportEmptyTarget = useCallback(() => {
-    setNotice('エクスポート対象の写真項目がありません。');
-  }, []);
+    showPageMessage('notice', 'エクスポート対象の写真項目がありません。');
+  }, [showPageMessage]);
 
   /**
    * ZIP一括エクスポートの実行オーケストレーション（R15.1, R15.5, R15.6, R15.8, R15.9）
@@ -904,7 +943,7 @@ export default function ConstructionPhotoDetailPage() {
 
       if (targets.length === 0) {
         // BulkExportDialog 側で開始ボタン非活性により既に防止済みだが念のため二重防御する
-        setNotice('エクスポート対象の写真項目がありません。');
+        showPageMessage('notice', 'エクスポート対象の写真項目がありません。');
         return;
       }
 
@@ -912,7 +951,7 @@ export default function ConstructionPhotoDetailPage() {
       exportControllerRef.current = controller;
       pendingExportRef.current = null;
       setExportOutcome(null);
-      setNotice(null);
+      clearPageMessage('notice');
       setExportProgress(null);
       setIsExportRunning(true);
       setExportProgressOpen(true);
@@ -925,7 +964,7 @@ export default function ConstructionPhotoDetailPage() {
         .then((result) => {
           // 生成の完了と行き違いに中断されたときは、中断として扱いダウンロードしない
           if (controller.signal.aborted) {
-            setNotice('エクスポートを中断しました。');
+            showPageMessage('notice', 'エクスポートを中断しました。');
             return;
           }
           const fileName = buildConstructionPhotoZipFileName(album.name, new Date());
@@ -952,16 +991,20 @@ export default function ConstructionPhotoDetailPage() {
             setExportOutcome({ kind: 'partial', failedItems, succeededCount });
           } else {
             setExportOutcome({ kind: 'allFailed', failedItems });
-            setNotice(
+            showPageMessage(
+              'notice',
               `すべての写真項目（${failedItems.length}件）のエクスポートに失敗しました。ZIPはダウンロードしていません。`
             );
           }
         })
         .catch((err: unknown) => {
           if (err instanceof DOMException && err.name === 'AbortError') {
-            setNotice('エクスポートを中断しました。');
+            showPageMessage('notice', 'エクスポートを中断しました。');
           } else {
-            setNotice(err instanceof ApiError ? err.message : 'エクスポートに失敗しました');
+            showPageMessage(
+              'notice',
+              err instanceof ApiError ? err.message : 'エクスポートに失敗しました'
+            );
           }
         })
         .finally(() => {
@@ -969,7 +1012,7 @@ export default function ConstructionPhotoDetailPage() {
           exportControllerRef.current = null;
         });
     },
-    [album, bulkExportMode, photos, selectedPhotoIds]
+    [album, bulkExportMode, photos, selectedPhotoIds, clearPageMessage, showPageMessage]
   );
 
   /** 進捗ダイアログの中断ボタン（R15.9） */
@@ -998,10 +1041,11 @@ export default function ConstructionPhotoDetailPage() {
     setExportProgress(null);
     if (!pending) return;
     downloadZip(pending.blob, pending.fileName);
-    setNotice(
+    showPageMessage(
+      'notice',
       `一部の写真項目（${failedCount}件）のエクスポートに失敗しました。成功した項目のみでZIPをダウンロードしました。`
     );
-  }, [exportOutcome]);
+  }, [exportOutcome, showPageMessage]);
 
   // ローディング
   if (isLoading && !album) {
@@ -1017,11 +1061,11 @@ export default function ConstructionPhotoDetailPage() {
   }
 
   // エラー（データ未取得）
-  if (error && !album) {
+  if (pageMessage?.kind === 'error' && !album) {
     return (
       <main role="main" style={containerStyle}>
         <div role="alert" style={styles.errorContainer}>
-          <p style={styles.errorText}>{error}</p>
+          <p style={styles.errorText}>{pageMessage.text}</p>
           <button type="button" onClick={fetchData} style={styles.retryButton}>
             再試行
           </button>
@@ -1107,11 +1151,12 @@ export default function ConstructionPhotoDetailPage() {
           </div>
         </div>
 
-        {/* 通知（部分失敗・保存エラーなど）。写真項目の削除の失敗は、その写真項目の中に
-            PhotoItemPanel が表示する（タスク 23.9） */}
-        {(notice || error) && (
+        {/* 通知（部分失敗・保存エラーなど）。通知と失敗は一つの表示で、後から出たものが前のものを
+            置き換える（タスク 22.1）。写真項目の削除の失敗は、その写真項目の中に PhotoItemPanel が
+            表示する（タスク 23.9） */}
+        {pageMessage && (
           <div role="alert" style={styles.notice}>
-            {notice ?? error}
+            {pageMessage.text}
           </div>
         )}
 
