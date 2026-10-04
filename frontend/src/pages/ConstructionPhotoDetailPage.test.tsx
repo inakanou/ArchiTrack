@@ -2809,6 +2809,133 @@ describe('ConstructionPhotoDetailPage', () => {
       expect(screen.getByRole('button', { name: '保存' })).not.toHaveAttribute('aria-describedby');
     });
   });
+
+  describe('取り除かれた看板を指定した保存の失敗の文言（タスク 24.2）', () => {
+    const panel = () => screen.getByRole('region', { name: '写真項目管理パネル' });
+    const REMOVED_ID = 'sb-1';
+    const ENGLISH = `Signboard not found in the album's project: ${REMOVED_ID}`;
+    /** バックエンドが取り除かれた看板の指定に返す 404 の応答 */
+    const removedSignboardError = () =>
+      new ApiError(404, ENGLISH, {
+        status: 404,
+        code: 'SIGNBOARD_NOT_ALLOWED',
+        detail: ENGLISH,
+        message: ENGLISH,
+      });
+
+    /** 指定の写真項目の看板の配置のダイアログで看板を選び、配置を保存して閉じる */
+    async function assignSignboard(item: HTMLElement, signboardId: string) {
+      fireEvent.click(within(item).getByRole('button', { name: /看板を配置/ }));
+      const dialog = await screen.findByRole('dialog', { name: /看板を配置/ });
+      fireEvent.change(within(dialog).getByLabelText('看板を選択'), {
+        target: { value: signboardId },
+      });
+      fireEvent.click(within(dialog).getByRole('button', { name: '配置を保存' }));
+      await waitFor(() =>
+        expect(screen.queryByRole('dialog', { name: /看板を配置/ })).not.toBeInTheDocument()
+      );
+    }
+
+    async function clickSave() {
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+      });
+    }
+
+    it('送った看板が一つなら、その看板の名前と、取り除かれていること・選び直すか読み込み直すことを日本語で示し、英語の文言と ID を出さない', async () => {
+      vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockRejectedValueOnce(
+        removedSignboardError()
+      );
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      await assignSignboard(firstItem, REMOVED_ID);
+
+      await clickSave();
+
+      const expected =
+        '工事看板「基礎配筋工事」は取り除かれています。看板を選び直すか、画面を読み込み直してください。';
+      // 22.1/22.2 の経路のまま、上部の枠と保存ボタンの近くの両方に出る
+      expect(await screen.findAllByText(expected)).toHaveLength(2);
+      expect(within(panel()).getByRole('alert')).toHaveTextContent(expected);
+      expect(screen.queryByText(/Signboard not found/)).not.toBeInTheDocument();
+      expect(document.body.textContent).not.toContain(ENGLISH);
+      // 失敗のときは保留を消さない（R18）
+      expect(screen.getByRole('button', { name: '保存' })).toBeEnabled();
+    });
+
+    it('送った看板が二つ以上なら、どの看板かを言わない一般的な日本語の文言を出す', async () => {
+      vi.mocked(signboardsApi.getConstructionSignboards).mockResolvedValue([
+        mockSignboard,
+        { ...mockSignboard, id: 'sb-2', workName: '外構工事' },
+      ]);
+      vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockRejectedValueOnce(
+        removedSignboardError()
+      );
+      renderPage();
+      const items = await screen.findAllByTestId('construction-photo-item');
+      await assignSignboard(items[0]!, 'sb-1');
+      await assignSignboard(items[1]!, 'sb-2');
+
+      await clickSave();
+
+      const expected =
+        '選択した工事看板は取り除かれています。看板を選び直すか、画面を読み込み直してください。';
+      expect(await screen.findAllByText(expected)).toHaveLength(2);
+      expect(screen.queryByText(/基礎配筋工事|外構工事/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Signboard not found/)).not.toBeInTheDocument();
+    });
+
+    it('送った看板の名前が一覧で分からないときは、一般的な日本語の文言を出す', async () => {
+      vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockRejectedValueOnce(
+        removedSignboardError()
+      );
+      renderPage();
+      // 看板に触れない変更だけを送る（送った看板が無いため名前は分からない）
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      fireEvent.click(within(firstItem).getByLabelText('印刷対象に含める'));
+
+      await clickSave();
+
+      expect(
+        await screen.findAllByText(
+          '選択した工事看板は取り除かれています。看板を選び直すか、画面を読み込み直してください。'
+        )
+      ).toHaveLength(2);
+    });
+
+    it('同じ 404 でも写真項目が見つからない失敗（CONSTRUCTION_PHOTO_NOT_FOUND）は看板の文言に置き換えない', async () => {
+      const photoNotFound = 'Construction photo not found: photo-1';
+      vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockRejectedValueOnce(
+        new ApiError(404, photoNotFound, {
+          status: 404,
+          code: 'CONSTRUCTION_PHOTO_NOT_FOUND',
+          detail: photoNotFound,
+        })
+      );
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      await assignSignboard(firstItem, REMOVED_ID);
+
+      await clickSave();
+
+      expect(await screen.findAllByText(photoNotFound)).toHaveLength(2);
+      expect(screen.queryByText(/取り除かれています/)).not.toBeInTheDocument();
+    });
+
+    it('符号が SIGNBOARD_NOT_ALLOWED でも 404 でない失敗は看板の文言に置き換えない', async () => {
+      vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockRejectedValueOnce(
+        new ApiError(500, 'サーバーの失敗', { code: 'SIGNBOARD_NOT_ALLOWED' })
+      );
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      await assignSignboard(firstItem, REMOVED_ID);
+
+      await clickSave();
+
+      expect(await screen.findAllByText('サーバーの失敗')).toHaveLength(2);
+      expect(screen.queryByText(/取り除かれています/)).not.toBeInTheDocument();
+    });
+  });
 });
 
 /**

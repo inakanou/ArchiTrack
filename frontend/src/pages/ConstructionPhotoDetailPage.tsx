@@ -431,6 +431,41 @@ function removeSentFromPending(
 }
 
 /**
+ * 取り除かれた看板を指定した保存の失敗か（タスク 24.2）。メタの一括更新は、指定された看板が
+ * 取り除かれている（または当該プロジェクトに無い）とき 404 の `code: 'SIGNBOARD_NOT_ALLOWED'` を
+ * 返す。同じ 404 でも写真項目が見つからない失敗（`CONSTRUCTION_PHOTO_NOT_FOUND`）とは符号で分ける
+ */
+function isRemovedSignboardError(err: unknown): err is ApiError {
+  if (!(err instanceof ApiError) || err.statusCode !== 404) return false;
+  const { response } = err;
+  if (typeof response !== 'object' || response === null) return false;
+  return (response as { code?: unknown }).code === 'SIGNBOARD_NOT_ALLOWED';
+}
+
+/**
+ * 取り除かれた看板を指定した保存の失敗の文言（タスク 24.2、利用者の判断（2026-10-04））。
+ * 応答の英語の文言と看板の ID は出さない。送った看板の指定が一つに定まり、看板の一覧で名前が
+ * 分かるときだけ名前を示す（応答は最初に見つけた一つの ID しか持たないため、二つ以上を送ったときは
+ * どれが取り除かれたかを言わない）
+ */
+function toRemovedSignboardMessage(
+  sentChanges: Map<string, PhotoMetadataChange>,
+  signboards: ConstructionSignboard[]
+): string {
+  const sentIds = new Set<string>();
+  sentChanges.forEach((change) => {
+    if (change.signboardId) sentIds.add(change.signboardId);
+  });
+  const guidance = '看板を選び直すか、画面を読み込み直してください。';
+  if (sentIds.size === 1) {
+    const [sentId] = sentIds;
+    const name = signboards.find((s) => s.id === sentId)?.workName;
+    if (name) return `工事看板「${name}」は取り除かれています。${guidance}`;
+  }
+  return `選択した工事看板は取り除かれています。${guidance}`;
+}
+
+/**
  * 工事写真アルバム詳細ページ
  */
 /**
@@ -835,13 +870,17 @@ export default function ConstructionPhotoDetailPage() {
       }
       syncDirtyWithPending();
     } catch (err) {
-      showPageMessage('error', err instanceof ApiError ? err.message : '保存に失敗しました', {
-        isSaveFailure: true,
-      });
+      // 取り除かれた看板を指定した失敗は英語の応答の文言に代えて日本語で示す（タスク 24.2）
+      const message = isRemovedSignboardError(err)
+        ? toRemovedSignboardMessage(sentChanges, signboards)
+        : err instanceof ApiError
+          ? err.message
+          : '保存に失敗しました';
+      showPageMessage('error', message, { isSaveFailure: true });
     } finally {
       setIsSaving(false);
     }
-  }, [id, syncDirtyWithPending, clearPageMessage, showPageMessage]);
+  }, [id, syncDirtyWithPending, clearPageMessage, showPageMessage, signboards]);
 
   /**
    * PDF出力ハンドラ（R10.1, R10.3, R10.12, R10.13）

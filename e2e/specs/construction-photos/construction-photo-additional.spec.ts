@@ -97,6 +97,11 @@
  *     保存の失敗（role=alert）が画面内に見えて共通ヘッダに覆われず、長い文言でもはみ出さず、
  *     上部の通知の枠は同じ文言を残し、やり直しの成功で消える（要件の印は掲げない。タスク 22.2 の
  *     利用者の判断（2026-10-04））
+ * 29. 取り除かれた看板を指定した保存の失敗の文言: 詳細画面を開いた後に API で看板を取り除き、
+ *     画面上でその看板の配置を保存すると、保存は 404（SIGNBOARD_NOT_ALLOWED）で失敗し、保存ボタンの
+ *     近くと上部の枠に、看板の名前と、取り除かれていること・選び直すか読み込み直すことを示す日本語の
+ *     文言が出て、応答の英語の文言と看板の ID は出ない（要件の印は掲げない。タスク 24.2 の利用者の
+ *     判断（2026-10-04））
  *
  * 縮退した要素（理由明記）:
  *  - パンの座標厳密検証: 拡大時に画像 transform の translate 成分が変化することまでを確認し、
@@ -119,6 +124,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { hashPassword, TEST_USERS } from '../../helpers/test-users';
 import { getPrismaClient } from '../../fixtures/database';
+import { API_BASE_URL } from '../../config';
 
 // ESモジュールでの __dirname 代替
 const __filename = fileURLToPath(import.meta.url);
@@ -5588,6 +5594,123 @@ test.describe('工事写真 追加機能フロー', () => {
       expect(m.mainOverflow, report).toBeLessThanOrEqual(1);
       expect(m.docOverflow, report).toBeLessThanOrEqual(1);
     }
+  });
+
+  /**
+   * タスク 24.2: 取り除かれた看板を指定した保存の失敗の文言（利用者の判断（2026-10-04）: 文言だけを
+   * 日本語にし、看板なしへ戻す導線は足さない）。
+   *
+   * 看板の取り除きより前から開いていた詳細画面を、詳細画面を開いた後に API で看板を取り除くことで
+   * 作る（他の利用者の操作の代わり）。画面の看板の一覧は開いた時点のものであるため、取り除かれた看板を
+   * 選んで配置を保存できる。保存のメタの一括更新は 404（`SIGNBOARD_NOT_ALLOWED`）で失敗し、22.1/22.2
+   * の経路のまま、保存ボタンの近く（role=alert）と上部の枠に日本語の文言が出る。応答の英語の文言と
+   * 看板の ID は画面に出ない。応答はパスで観測する（オリジンに依存しない）。
+   * 要件の印は掲げない（受入基準 9.5 は保存の失敗の文言を定めておらず、タスク 24.2 の利用者の判断に
+   * よる）。
+   */
+  test('詳細画面を開いた後に看板が取り除かれると、その看板の配置の保存の失敗に日本語の文言が出て、英語の文言と ID は出ない', async ({
+    page,
+  }) => {
+    const stamp = Date.now();
+    const signboardName = `取り除かれる看板_${stamp}`;
+    const fileName = `removed-signboard-${stamp}.jpg`;
+
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'removed-signboard');
+    const albumId = await createAlbum(page, projectId, `取り除かれた看板_${stamp}`);
+
+    // 工事看板を登録する
+    await page.goto(`/projects/${projectId}/construction-signboards`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { name: '工事看板マスタ' })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await page.getByRole('button', { name: '新規登録' }).click();
+    await page.getByLabel('工事件名').fill(signboardName);
+    await page.getByLabel('工事場所').fill('取り除かれた看板E2E現場');
+    const createSignboardResp = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'POST' &&
+        new URL(r.url()).pathname === `/api/projects/${projectId}/construction-signboards`,
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByRole('button', { name: '登録' }).click();
+    const createdSignboard = (await (await createSignboardResp).json()) as { id: string };
+    const signboardId = createdSignboard.id;
+    expect(signboardId).toBeTruthy();
+
+    // 詳細画面を開き、写真項目を 1 件追加する（看板の一覧はこの時点で読み込まれる）
+    const signboardListPath = `/api/projects/${projectId}/construction-signboards`;
+    const signboardList = page.waitForResponse(
+      (r) => r.request().method() === 'GET' && new URL(r.url()).pathname === signboardListPath,
+      { timeout: getTimeout(30000) }
+    );
+    await page.goto(`/construction-photos/${albumId}`);
+    expect((await signboardList).status()).toBe(200);
+    await page.waitForLoadState('networkidle');
+    const upload = page.waitForResponse(
+      (r) => r.request().method() === 'POST' && UPLOAD_URL_MATCHER(new URL(r.url())),
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByTestId('file-input').setInputFiles({
+      name: fileName,
+      mimeType: 'image/jpeg',
+      buffer: fs.readFileSync(FIXTURE_JPG),
+    });
+    expect((await upload).status()).toBe(201);
+    const items = page.getByTestId('construction-photo-item');
+    await expect(items).toHaveCount(1, { timeout: getTimeout(20000) });
+
+    // 他の利用者の操作の代わりに、API で看板を取り除く（画面は読み込み直さない）
+    const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+    expect(accessToken).toBeTruthy();
+    const removal = await page.request.delete(
+      `${API_BASE_URL}/api/construction-signboards/${signboardId}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    expect(removal.status()).toBe(200);
+
+    // 画面の看板の一覧は開いた時点のもので、取り除かれた看板を選んで配置を保存できる
+    await items
+      .first()
+      .getByRole('button', { name: `看板を配置: ${fileName}` })
+      .click();
+    const assignDialog = page.getByRole('dialog', { name: '看板を配置' });
+    await expect(assignDialog).toBeVisible({ timeout: getTimeout(10000) });
+    await assignDialog.locator('#signboard-assign-select').selectOption({ label: signboardName });
+    const editor = assignDialog.getByTestId('signboard-placement-editor');
+    await expect(editor).toBeVisible({ timeout: getTimeout(10000) });
+    await editor.getByRole('button', { name: '保存' }).click();
+    await expect(assignDialog).toBeHidden({ timeout: getTimeout(10000) });
+    await expect(page.getByTestId('dirty-indicator')).toBeVisible({ timeout: getTimeout(10000) });
+
+    // 保存は 404（SIGNBOARD_NOT_ALLOWED）で失敗する
+    const batchResponse = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'PATCH' &&
+        new URL(r.url()).pathname === '/api/construction-photos/images/batch',
+      { timeout: getTimeout(30000) }
+    );
+    const saveButton = page.getByRole('button', { name: '保存', exact: true });
+    await saveButton.click();
+    const response = await batchResponse;
+    expect(response.status()).toBe(404);
+    const body = (await response.json()) as { code?: string };
+    expect(body.code).toBe('SIGNBOARD_NOT_ALLOWED');
+
+    // 保存ボタンの近く（role=alert）と上部の枠に、日本語の文言が出る
+    const expected = `工事看板「${signboardName}」は取り除かれています。看板を選び直すか、画面を読み込み直してください。`;
+    const main = page.getByRole('main');
+    const panel = page.getByRole('region', { name: '写真項目管理パネル' });
+    const nearAlert = panel.getByRole('alert');
+    await expect(nearAlert).toHaveCount(1, { timeout: getTimeout(15000) });
+    await expect(nearAlert).toHaveText(expected);
+    await expect(main.getByText(expected, { exact: true })).toHaveCount(2);
+    // 応答の英語の文言と看板の ID は出ない
+    await expect(main.getByText(/Signboard not found/)).toHaveCount(0);
+    await expect(page.locator('body')).not.toContainText(signboardId);
+    // 失敗のときは未保存の変更が残る（R18）
+    await expect(page.getByTestId('dirty-indicator')).toBeVisible();
   });
 });
 
