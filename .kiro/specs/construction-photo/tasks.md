@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. Foundation: データモデル・権限・共有型
+- [x] 1. Foundation: データモデル・権限・共有型
 - [x] 1.1 Prisma に3モデルを追加しマイグレーションを作成
   - `ConstructionPhotoAlbum` / `ConstructionPhoto` / `ConstructionSignboard` を既存規約（uuid・`@@map` snake_case・`@@index`）で定義
   - `signboardId` は nullable ＋ `onDelete: SetNull`、`albumId`/`projectId` は `onDelete: Cascade`、`displayOrder`/`comment`/`includeInReport`/`deletedAt` を配置
@@ -17,7 +17,7 @@
   - 完了: 不正形式・サイズ・件数・長さ超過を境界スキーマで拒否できる
   - _Requirements: 7.2, 8.3, 12.1, 12.2, 12.4_
 
-- [ ] 2. Core: アルバム・写真バックエンド
+- [x] 2. Core: アルバム・写真バックエンド
 - [x] 2.1 (P) アルバムCRUD・一覧サービス＋ルート
   - 二重マウント、ページ最大50、名称検索・作成日/更新日ソート、楽観的排他（`updatedAt`）、論理削除
   - 取得系は対象が要求プロジェクト配下であることをサービスで検証
@@ -49,7 +49,7 @@
   - _Depends: 2.4_
   - _Boundary: ConstructionPhotoMetadataService_
 
-- [ ] 3. Core: 工事看板バックエンド
+- [x] 3. Core: 工事看板バックエンド
 - [x] 3.1 (P) 看板マスタCRUD・一覧サービス＋ルート
   - プロジェクト単位、工事件名/工事場所＋自由項目行＋固定テキスト、使用中削除は使用件数を返す、当該プロジェクト配下でのみ選択・参照可
   - 完了: 看板の作成/編集/削除/一覧が動作し、使用中削除で件数>0を返し、他プロジェクトの看板は参照できない
@@ -67,7 +67,7 @@
   - _Depends: 3.2, 2.2_
   - _Boundary: SignboardCompositeService, ConstructionPhotoImageService_
 
-- [ ] 4. Integration: プロジェクトサマリ
+- [x] 4. Integration: プロジェクトサマリ
 - [x] 4.1 (P) detail-summary に工事写真セクションを追加
   - `ConstructionPhotoSummaryService.findLatestByProjectId` を用意し、`constructionPhotos: {totalCount, latest...}` を既存セクションと同型で `allSettled` に組み込む
   - 完了: プロジェクト詳細サマリAPIに `constructionPhotos` が含まれる
@@ -75,14 +75,14 @@
   - _Requirements: 2.3_
   - _Boundary: ConstructionPhotoSummaryService, projects.routes detail-summary_
 
-- [ ] 5. Core: フロントAPIクライアント
+- [x] 5. Core: フロントAPIクライアント
 - [x] 5.1 API クライアントと型の実装
   - 一覧/CRUD/アップロード/現調コピー/一覧取得/メタ更新/並び替え/看板CRUD/印字画像 の各呼び出しを型付きで用意
   - 完了: 各エンドポイントを型安全に呼び出せるクライアントが揃う
   - _Depends: 2.1, 2.5, 3.1, 3.3_
   - _Requirements: 1.1, 3.1, 4.1, 6.1, 7.1, 8.1_
 
-- [ ] 6. Core: 画面
+- [x] 6. Core: 画面
 - [x] 6.1 (P) 工事写真一覧画面
   - 他機能同様のレスポンシブUI（表/カード切替）、検索・ソート・ページング、タイトル「工事写真一覧」、代表サムネ優先表示
   - 完了: 一覧がデスクトップ表/モバイルカードで表示され、検索・ページングが動作する
@@ -113,7 +113,7 @@
   - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.6, 8.8, 8.9, 8.10_
   - _Boundary: ConstructionSignboardListPage_
 
-- [ ] 7. Integration: ナビ・パネル・ルート
+- [x] 7. Integration: ナビ・パネル・ルート
 - [x] 7.1 ルート登録とブレッドクラム
   - `routes.tsx` に一覧/詳細/作成/看板の各ルートを site-survey 順序規約で追加、各画面のブレッドクラム表示
   - 完了: 各URLへ遷移でき、ブレッドクラムが規定の階層表示になる
@@ -125,7 +125,7 @@
   - _Depends: 4.1, 6.1_
   - _Requirements: 2.1, 2.2, 2.3, 2.4_
 
-- [ ] 8. Integration: 台帳PDF
+- [x] 8. Integration: 台帳PDF
 - [x] 8.1 台帳版組・表紙・写真ページレンダラ
   - A4寸法・写真枠/右カラム比率・点線本数・行高を定数化し参考書式に合わせる。表紙（外枠＋「工事写真」＋工事名＋工事施工者[company-info]）、写真ページ（1ページ3枠・左写真/右No.＋点線コメント欄）、No.通し番号、余白枠、日本語フォント
   - 完了: 表紙付き・1ページ3枠・No.連番の台帳レイアウトが定数化されて描画される
@@ -139,7 +139,7 @@
   - _Requirements: 10.1, 10.3, 10.12, 10.13_
   - _Boundary: ConstructionPhotoLedgerService_
 
-- [ ] 9. Validation: テスト
+- [x] 9. Validation: テスト
 - [x] 9.1 (P) バックエンド単体テスト
   - 現調コピーの複製・独立性、メタの `displayOrder` 正規化と合成非実行、SVG生成、看板使用中削除の件数返却、印字画像のオンデマンド合成
   - 完了: 対象サービスの単体テストが緑になる
@@ -154,7 +154,7 @@
   - _Depends: 7.1, 7.2, 8.2_
   - _Requirements: 2.1, 2.2, 4.1, 5.1, 6.1, 7.1, 8.1, 9.1, 10.1, 10.13_
 
-- [ ] 10. Foundation（追加機能）: 非合成原本の配信路
+- [x] 10. Foundation（追加機能）: 非合成原本の配信路
 - [x] 10.1 非合成原本エンドポイント＋サービス
   - `getOriginalImage(photoId)` を追加し、看板配置の有無に関わらず看板を合成しない生原本を返す
   - 配信ルート `GET /api/construction-photos/images/:imageId/original` を追加。`authenticate`＋`requirePermission('construction_photo:read')`＋対象が要求プロジェクト配下であることを検証
@@ -169,7 +169,7 @@
   - _Requirements: 14.6, 15.4_
   - _Boundary: construction-photo-images api_
 
-- [ ] 11. Core（追加機能）: フロント基盤・部品
+- [x] 11. Core（追加機能）: フロント基盤・部品
 - [x] 11.1 (P) 工事写真権限フック
   - `construction_photo:{read,create,update,delete}` の保持状況から canView/canCreate/canEdit/canDelete と権限エラーメッセージ取得を提供、権限ロード中は全て false（安全側）
   - 完了: 権限保持で canEdit=true・非保持で false、`construction_photo:delete` 非保持で canDelete=false、ロード中は全 false を返す
@@ -199,7 +199,7 @@
   - _Requirements: 16.4_
   - _Boundary: AlbumDeleteDialog_
 
-- [ ] 12. Integration（追加機能）: 詳細・一覧への結線
+- [x] 12. Integration（追加機能）: 詳細・一覧への結線
 - [x] 12.1 詳細画面に画像ビューア導線を結線
   - 写真項目パネルの画像クリックからビューアページへ遷移する導線を結線
   - 完了: 詳細画面で写真サムネをクリックするとビューアが開く
@@ -236,7 +236,7 @@
   - _Requirements: 19.1, 19.2, 19.3, 19.4, 19.5_
   - _Boundary: ConstructionPhotoDetailPage, PhotoItemPanel_
 
-- [ ] 13. Validation（追加機能）: テスト
+- [x] 13. Validation（追加機能）: テスト
 - [x] 13.1 (P) ZIPエクスポートサービス単体テスト
   - 看板モード別の取得元切替、解像度/形式変換、original の原本バイト維持、進捗通知、AbortSignalでの中断（AbortError）、1件失敗時の継続と失敗集約を検証
   - 完了: 対象サービスの単体テストが緑になる
@@ -262,7 +262,7 @@
   - _Requirements: 20.5, 20.14_
   - _Boundary: PhotoUploader_
 
-- [ ] 15. Validation（R20）: 工事写真経路の検証
+- [x] 15. Validation（R20）: 工事写真経路の検証
 - [x] 15.1 (P) 未送信画像の保持・再送・破棄・抑止を単体テストで検証
   - 再送では送信前の画像圧縮が再実行されず、初回送信と同一の画像データが送られること
   - 再送で成功した画像のみが保持から取り除かれ、失敗した画像は保持され続けること

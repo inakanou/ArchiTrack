@@ -466,12 +466,11 @@ function toRemovedSignboardMessage(
 }
 
 /**
- * 工事写真アルバム詳細ページ
- */
-/**
  * 通知の枠に出す表示の種類（タスク 22.1）。`notice` は PDF・ZIP・アップロードの結果の通知、
- * `error` は保存・アルバムの削除・取得の失敗である。描画はどちらも同じ枠（role=alert）で、
- * 種類は消去の対象を決めるために持つ（各操作の開始時の消去は、変更前と同じくその種類だけを消す）
+ * `error` は保存・アルバムの削除・取得の失敗である。描画はどちらも同じ枠・同じ見た目で、枠は
+ * role=alert を持つ（保存の失敗を保存ボタンの近くに表示している間だけは role を持たない。
+ * {@link PageMessage.isSaveFailure}、タスク 22.2）。種類は消去の対象を決めるために持つ
+ * （各操作の開始時の消去は、変更前と同じくその種類だけを消す）
  */
 type PageMessageKind = 'notice' | 'error';
 
@@ -486,6 +485,9 @@ interface PageMessage {
   isSaveFailure?: boolean;
 }
 
+/**
+ * 工事写真アルバム詳細ページ
+ */
 export default function ConstructionPhotoDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
