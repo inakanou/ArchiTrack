@@ -563,6 +563,130 @@ describe('PhotoItemPanel', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  it('削除の実行中でなければ、確認ダイアログはオーバーレイのクリックで onDelete を呼ばずに閉じる (R7.7)', () => {
+    const onDelete = vi.fn();
+    render(
+      <PhotoItemPanel
+        photos={[makePhoto({ id: 'p1' })]}
+        onPhotoMetadataChange={vi.fn()}
+        onDelete={onDelete}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /写真項目を削除/ }));
+    fireEvent.click(screen.getByTestId('cp-delete-dialog-overlay'));
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  // ==========================================================================
+  // 削除の実行中の確認ダイアログ（タスク 22.3）
+  // 利用者の判断（2026-10-04）: 実行中はオーバーレイのクリック・Esc・キャンセルを受け付けない
+  // ==========================================================================
+
+  describe('削除の実行中の確認ダイアログ（タスク 22.3）', () => {
+    /** 外から完了を決められる onDelete を作る */
+    const deferredDelete = () => {
+      let resolve: () => void = () => undefined;
+      let reject: (error: unknown) => void = () => undefined;
+      const onDelete = vi.fn<(photoId: string) => Promise<void>>(
+        () =>
+          new Promise<void>((res, rej) => {
+            resolve = res;
+            reject = rej;
+          })
+      );
+      return { onDelete, resolve: () => resolve(), reject: (e: unknown) => reject(e) };
+    };
+
+    const twoPhotos = [
+      makePhoto({ id: 'p1', fileName: 'first.jpg', displayOrder: 1 }),
+      makePhoto({ id: 'p2', fileName: 'second.jpg', displayOrder: 2 }),
+    ];
+
+    /** 実行中のダイアログを閉じようとする操作（オーバーレイ・Esc・キャンセル）をすべて行う */
+    const tryToCloseDialog = () => {
+      const dialog = screen.getByRole('dialog');
+      fireEvent.click(screen.getByTestId('cp-delete-dialog-overlay'));
+      fireEvent.keyDown(dialog, { key: 'Escape', code: 'Escape' });
+      fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'キャンセル' }));
+    };
+
+    it('成功する削除の実行中は、オーバーレイのクリック・Esc・キャンセルで閉じず、完了後に閉じる', async () => {
+      const { onDelete, resolve } = deferredDelete();
+      render(
+        <PhotoItemPanel photos={twoPhotos} onPhotoMetadataChange={vi.fn()} onDelete={onDelete} />
+      );
+      fireEvent.click(screen.getByRole('button', { name: '写真項目を削除: first.jpg' }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '削除する' }));
+      });
+      expect(onDelete).toHaveBeenCalledWith('p1');
+
+      tryToCloseDialog();
+
+      const dialog = screen.getByRole('dialog');
+      expect(within(dialog).getByText(/first\.jpg/)).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: '削除中...' })).toBeDisabled();
+
+      await act(async () => {
+        resolve();
+      });
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(onDelete).toHaveBeenCalledTimes(1);
+    });
+
+    it('失敗する削除の実行中も閉じず、完了後に閉じてその写真項目の中に失敗を表示する（23.9 のまま）', async () => {
+      const { onDelete, reject } = deferredDelete();
+      render(
+        <PhotoItemPanel photos={twoPhotos} onPhotoMetadataChange={vi.fn()} onDelete={onDelete} />
+      );
+      fireEvent.click(screen.getByRole('button', { name: '写真項目を削除: first.jpg' }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '削除する' }));
+      });
+
+      tryToCloseDialog();
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+      await act(async () => {
+        reject(new Error('delete failed'));
+      });
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      const item = screen.getByRole('article', { name: 'first.jpg' });
+      expect(within(item).getByRole('alert')).toHaveTextContent('写真項目の削除に失敗しました');
+      expect(within(item).getByRole('button', { name: '写真項目を削除: first.jpg' })).toHaveFocus();
+    });
+
+    it('実行中に別の写真項目の削除ボタンを押しても（キーボードで到達できる）確認の対象は変わらず、先行する削除の完了後に別の写真項目の確認を開ける', async () => {
+      const { onDelete, resolve } = deferredDelete();
+      render(
+        <PhotoItemPanel photos={twoPhotos} onPhotoMetadataChange={vi.fn()} onDelete={onDelete} />
+      );
+      fireEvent.click(screen.getByRole('button', { name: '写真項目を削除: first.jpg' }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '削除する' }));
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: '写真項目を削除: second.jpg' }));
+      const dialog = screen.getByRole('dialog');
+      expect(within(dialog).getByText(/first\.jpg/)).toBeInTheDocument();
+      expect(within(dialog).queryByText(/second\.jpg/)).not.toBeInTheDocument();
+
+      await act(async () => {
+        resolve();
+      });
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(onDelete).toHaveBeenCalledTimes(1);
+
+      // 完了後は別の写真項目の確認を開け、それは開いたまま残る
+      fireEvent.click(screen.getByRole('button', { name: '写真項目を削除: second.jpg' }));
+      const next = screen.getByRole('dialog');
+      expect(within(next).getByText(/second\.jpg/)).toBeInTheDocument();
+      expect(within(next).getByRole('button', { name: '削除する' })).not.toBeDisabled();
+    });
+  });
+
   // 21.3 の版は「失敗時に確認ダイアログを閉じ、やり直せる」だけを主張していた（失敗の表示は呼び出し
   // 元の通知の枠が担った）。23.9 では本部品が失敗をその写真項目の中に出すため、表示の場所と、
   // やり直しの開始で表示が消えることを併せて主張する

@@ -3876,6 +3876,228 @@ test.describe('工事写真 追加機能フロー', () => {
   });
 
   /**
+   * 写真項目の削除の実行中の確認ダイアログ（タスク 22.3）:
+   * 利用者の判断（2026-10-04）により、削除の実行中は確認ダイアログを閉じられない（オーバーレイの
+   * クリック・Esc・キャンセルを受け付けない）。375 幅の詳細画面で写真項目を 2 件置き、削除の DELETE
+   * を `page.route` で止めた間に閉じる操作をすべて行い、ダイアログが残ることを主張する。止めを解くと
+   * 完了の後に閉じる。失敗（500）と成功の両方で確かめる（失敗時にも起きた点が 21.3 で新しかった）。
+   *
+   * 要件の印は掲げない（確認ダイアログの実行中の扱いは受入基準 7.7 の文言の外で、利用者の判断に
+   * よる。削除そのもの（7.7）は 23.9 の上のテストが主張する）。主張は次のとおり。
+   *  - 実行中は「削除中...」が無効のまま表示され、オーバーレイの隅のクリック（その点の受け手が
+   *    オーバーレイであることは Playwright の実行可能性の検査が確かめる）、Esc、キャンセル
+   *    （実行中は無効）のどれでも閉じず、確認の対象の名前も変わらない。
+   *  - 実行中に、背後のもう一方の写真項目の削除ボタンへキーボードで到達して Enter を押しても、確認の
+   *    対象は変わらない（先行する削除の完了が別の写真項目の確認を閉じる経路が無い）。
+   *  - 失敗のときは、完了の後に閉じ、その写真項目の中に失敗の表示が 1 件出て、フォーカスがその削除
+   *    ボタンへ戻る（23.9 のまま）。成功のときは、完了の後に閉じて写真項目が 1 件になる。
+   *  - 実行中でなければ、オーバーレイのクリックで閉じる（従前のまま）。
+   *
+   * 是正の経緯: 22.3 より前の版では、実行中のオーバーレイのクリックでダイアログが閉じ、もう一方の
+   * 写真項目の削除ボタンの Enter で確認の対象が入れ替わった。
+   */
+  test('写真項目の削除の実行中は、オーバーレイのクリック・Esc・キャンセルで確認ダイアログが閉じず、失敗でも成功でも完了の後に閉じる', async ({
+    page,
+  }) => {
+    const prisma = getPrismaClient();
+    const stamp = Date.now();
+    const albumName = `削除中_${stamp}`;
+    const keepFileName = `deleting-keep-${stamp}.jpg`;
+    const targetFileName = `deleting-target-${stamp}.jpg`;
+    const failureDetail = 'サーバー内部エラーが発生しました';
+
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'deleting-lock');
+    const albumId = await createAlbum(page, projectId, albumName);
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { level: 1, name: albumName })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    const items = page.getByTestId('construction-photo-item');
+    for (const [index, name] of [keepFileName, targetFileName].entries()) {
+      const upload = page.waitForResponse(
+        (r) => r.request().method() === 'POST' && UPLOAD_URL_MATCHER(new URL(r.url())),
+        { timeout: getTimeout(30000) }
+      );
+      await page.getByTestId('file-input').setInputFiles({
+        name,
+        mimeType: 'image/jpeg',
+        buffer: fs.readFileSync(FIXTURE_JPG),
+      });
+      await upload;
+      await expect(items).toHaveCount(index + 1, { timeout: getTimeout(20000) });
+    }
+    const uploaded = await prisma.constructionPhoto.findMany({
+      where: { albumId },
+      select: { id: true, fileName: true },
+    });
+    const targetId = uploaded.find((photo) => photo.fileName === targetFileName)?.id;
+    expect(targetId, JSON.stringify(uploaded)).toBeTruthy();
+
+    const targetItem = items.filter({
+      has: page.getByRole('heading', { level: 3, name: targetFileName }),
+    });
+    const keepItem = items.filter({
+      has: page.getByRole('heading', { level: 3, name: keepFileName }),
+    });
+    await expect(targetItem).toHaveCount(1, { timeout: getTimeout(15000) });
+    await expect(keepItem).toHaveCount(1);
+    const deleteTarget = targetItem.getByRole('button', {
+      name: `写真項目を削除: ${targetFileName}`,
+    });
+    const deleteKeep = keepItem.getByRole('button', { name: `写真項目を削除: ${keepFileName}` });
+    const dialog = page.getByRole('dialog');
+    const overlay = page.getByTestId('cp-delete-dialog-overlay');
+
+    /** 確認ダイアログの開いている状態（対象の名前と、実行中なら「削除中...」）を主張する */
+    const expectDialogOpenFor = async (fileName: string, otherName: string): Promise<void> => {
+      await expect(dialog).toBeVisible();
+      await expect(dialog).toContainText(fileName);
+      await expect(dialog).not.toContainText(otherName);
+    };
+
+    /** オーバーレイの左下の隅をクリックする（中央はダイアログの本体が覆う） */
+    const clickOverlayCorner = async (): Promise<void> => {
+      const box = await overlay.boundingBox();
+      expect(box, 'オーバーレイの矩形').not.toBeNull();
+      await overlay.click({ position: { x: 5, y: box!.height - 5 } });
+    };
+
+    /** 実行中に、閉じる操作と、もう一方の写真項目の確認を開く操作をすべて行う */
+    const tryToCloseOrRetarget = async (): Promise<void> => {
+      const running = dialog.getByRole('button', { name: '削除中...' });
+      await expect(running).toBeVisible();
+      await expect(running).toBeDisabled();
+
+      await clickOverlayCorner();
+      await expectDialogOpenFor(targetFileName, keepFileName);
+
+      await page.keyboard.press('Escape');
+      await expectDialogOpenFor(targetFileName, keepFileName);
+
+      const cancel = dialog.getByRole('button', { name: 'キャンセル' });
+      await expect(cancel).toBeDisabled();
+      await cancel.click({ force: true });
+      await expectDialogOpenFor(targetFileName, keepFileName);
+
+      // 背後の写真項目の削除ボタンへキーボードで到達して押す
+      await deleteKeep.focus();
+      await page.keyboard.press('Enter');
+      await expectDialogOpenFor(targetFileName, keepFileName);
+      await expect(running).toBeVisible();
+    };
+
+    /**
+     * 対象の DELETE の最初の 1 回を止める route を作る。止めを解くと `onRelease` で応答を決める。
+     * 判定はパスで行い、DELETE 以外は素通しする。解除は登録時と同じ参照で行う。
+     */
+    const deleteMatcher = (url: URL): boolean =>
+      url.pathname.endsWith(`/api/construction-photos/images/${targetId}`);
+    const holdFirstDelete = (onRelease: (route: Route) => Promise<void>) => {
+      let release: () => void = () => undefined;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let arrived: () => void = () => undefined;
+      const arrivedPromise = new Promise<void>((resolve) => {
+        arrived = resolve;
+      });
+      let calls = 0;
+      const handler = async (route: Route): Promise<void> => {
+        if (route.request().method() !== 'DELETE') {
+          await route.fallback();
+          return;
+        }
+        calls += 1;
+        if (calls === 1) {
+          arrived();
+          await released;
+        }
+        await onRelease(route);
+      };
+      return { handler, release: () => release(), arrived: arrivedPromise, calls: () => calls };
+    };
+
+    // --- 1 回目: 失敗（500）。止めた間に閉じる操作をしても残り、完了の後に閉じる ---
+    const failing = holdFirstDelete(async (route) => {
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          type: 'https://architrack.example.com/problems/internal-server-error',
+          title: 'Internal Server Error',
+          status: 500,
+          detail: failureDetail,
+          code: 'INTERNAL_SERVER_ERROR',
+        }),
+      });
+    });
+    await page.route(deleteMatcher, failing.handler);
+    try {
+      await deleteTarget.click();
+      await expectDialogOpenFor(targetFileName, keepFileName);
+      await dialog.getByRole('button', { name: '削除する' }).click();
+      await failing.arrived;
+
+      await tryToCloseOrRetarget();
+
+      failing.release();
+      // 自動再試行の待ち時間は合わせて 7 秒ほどである
+      await expect(dialog).toBeHidden({ timeout: getTimeout(30000) });
+      await expect(targetItem.getByRole('alert')).toHaveText(failureDetail, {
+        timeout: getTimeout(20000),
+      });
+      await expect(keepItem.getByRole('alert')).toHaveCount(0);
+      await expect(deleteTarget).toBeFocused();
+      await expect(items).toHaveCount(2);
+      // 前提: 失敗は差し替えた応答によるもので、削除はサーバーへ届いていない
+      expect(failing.calls()).toBeGreaterThanOrEqual(1);
+      expect(await prisma.constructionPhoto.count({ where: { albumId } })).toBe(2);
+    } finally {
+      await page.unroute(deleteMatcher, failing.handler);
+    }
+
+    // --- 2 回目: 成功。止めた間に閉じる操作をしても残り、完了の後に閉じる ---
+    const succeeding = holdFirstDelete(async (route) => {
+      await route.fallback();
+    });
+    await page.route(deleteMatcher, succeeding.handler);
+    try {
+      await deleteTarget.click();
+      await expectDialogOpenFor(targetFileName, keepFileName);
+      const deleted = page.waitForResponse(
+        (r) => r.request().method() === 'DELETE' && deleteMatcher(new URL(r.url())),
+        { timeout: getTimeout(30000) }
+      );
+      await dialog.getByRole('button', { name: '削除する' }).click();
+      await succeeding.arrived;
+
+      await tryToCloseOrRetarget();
+
+      succeeding.release();
+      expect((await deleted).status()).toBe(204);
+      await expect(dialog).toBeHidden({ timeout: getTimeout(10000) });
+      await expect(items).toHaveCount(1, { timeout: getTimeout(20000) });
+      await expect(keepItem).toHaveCount(1);
+      expect(succeeding.calls()).toBe(1);
+    } finally {
+      await page.unroute(deleteMatcher, succeeding.handler);
+    }
+
+    // 実行中でなければ、オーバーレイのクリックで閉じる（従前のまま）
+    await deleteKeep.click();
+    await expectDialogOpenFor(keepFileName, targetFileName);
+    await expect(dialog.getByRole('button', { name: '削除する' })).toBeEnabled();
+    await clickOverlayCorner();
+    await expect(dialog).toBeHidden();
+    await expect(items).toHaveCount(1);
+  });
+
+  /**
    * 写真項目の削除の失敗の表示の、長い文言での収まりとタップ領域（タスク 23.9）:
    * 写真項目 1 件の詳細画面で、削除の応答を失敗（500）へ差し替え、理由（`detail`）を
    * 区切りの無い英数字の一語 200 文字と、長い和文 200 文字の 2 通りにする。それぞれの失敗を 375 幅で

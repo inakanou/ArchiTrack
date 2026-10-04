@@ -41,6 +41,11 @@
  *   動かさず、表示が画面の外へ出るときだけ表示に `scrollIntoView({ block: 'nearest' })` を呼び、
  *   表示の分だけ動かす（利用者の判断（2026-10-04）「文言の分だけ動かす」）
  *
+ * Task 22.3 追加: 削除の実行中は確認ダイアログを閉じない（利用者の判断（2026-10-04））。実行中は
+ *   オーバーレイのクリックとキャンセルを受け付けず（Esc で閉じる処理は元から無い）、完了（成功・
+ *   失敗）の後に閉じる。実行中は背後の別の写真項目の削除ボタン（キーボードで到達できる）を押しても
+ *   確認の対象を変えないため、先行する削除の完了が別の写真項目の確認を閉じる経路も無い
+ *
  * Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 9.6, 11.3, 15.6, 15.7,
  *   19.2, 19.3, 19.5
  */
@@ -999,6 +1004,8 @@ export function PhotoItemPanel({
   const isMobile = useMediaQuery(MEDIA_QUERIES.isMobile);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  // 実行中かの判定は ref で行う（タスク 22.3）。同じ描画の間に続けて届くイベントでも最新の値を読む
+  const isDeletingRef = useRef(false);
   // 写真項目ごとの削除の失敗の文言（写真項目ID -> 文言, タスク 23.9）。本部品が外れると（画面の
   // 離脱）失われる
   const [deleteFailures, setDeleteFailures] = useState<Readonly<Record<string, string>>>({});
@@ -1121,11 +1128,20 @@ export function PhotoItemPanel({
     });
   }, []);
 
+  // 削除の実行中は確認の対象を変えない（タスク 22.3）。ダイアログに焦点の閉じ込めが無く、キーボード
+  // では背後の別の写真項目の削除ボタンへ到達できる。対象を変えると、先行する削除の完了がその確認を
+  // 閉じてしまう
   const handleDeleteClick = useCallback((photoId: string) => {
+    if (isDeletingRef.current) return;
     setDeleteTargetId(photoId);
   }, []);
 
+  // 削除の実行中は閉じない（タスク 22.3、利用者の判断 2026-10-04）。オーバーレイのクリックと
+  // キャンセルの両方がここを通る（キャンセルは実行中は無効でもある）。Esc で閉じる処理は元から無い。
+  // 実行中は 500 系の再試行で約 7 秒続くことがあり、閉じると完了の結果が見えないまま別の確認を
+  // 開けてしまう
   const handleDeleteCancel = useCallback(() => {
+    if (isDeletingRef.current) return;
     setDeleteTargetId(null);
   }, []);
 
@@ -1134,6 +1150,7 @@ export function PhotoItemPanel({
     const targetId = deleteTargetId;
     // やり直しを始めた時点で、その写真項目の古い失敗の表示を消す（タスク 23.9）
     clearDeleteFailure(targetId);
+    isDeletingRef.current = true;
     setIsDeleting(true);
     try {
       await onDelete(targetId);
@@ -1145,6 +1162,7 @@ export function PhotoItemPanel({
     } finally {
       // 成功・失敗のどちらでも閉じる。失敗時に開いたままにすると、モーダルの背後に表示が隠れる
       // （タスク 21.3。同じ画面のアルバムを取り除く確認ダイアログも失敗時に閉じる）
+      isDeletingRef.current = false;
       setDeleteTargetId(null);
       setIsDeleting(false);
     }
@@ -1273,7 +1291,12 @@ export function PhotoItemPanel({
           aria-modal="true"
           aria-labelledby="cp-delete-dialog-title"
         >
-          <div style={styles.deleteDialogOverlay} onClick={handleDeleteCancel} aria-hidden="true" />
+          <div
+            style={styles.deleteDialogOverlay}
+            onClick={handleDeleteCancel}
+            aria-hidden="true"
+            data-testid="cp-delete-dialog-overlay"
+          />
           <div style={styles.deleteDialogContent}>
             <h2 id="cp-delete-dialog-title" style={styles.deleteDialogTitle}>
               写真項目を削除
