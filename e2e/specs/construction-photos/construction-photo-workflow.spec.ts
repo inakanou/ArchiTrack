@@ -25,6 +25,7 @@
  *     クリックだけで看板マスタへ到達→登録→詳細画面へ戻って配置（R8.1, R8.10）
  *     看板の一覧の取得に失敗したときに「登録されていません」と偽らず失敗の文言を示す（是正 1 巡目）
  *     看板の一覧の取得中に看板の指定を変える操作を出さず、配置を消す保存を送らない（是正 2 巡目）
+ *     看板を選んで配置を動かさずに保存すると既定の配置が保存され、印字画像に看板が重なる（タスク 24.4）
  * 12. カメラの導線の出し分け（タスク 23.5）: enumerateDevices を差し替え、videoinput の無い端末では
  *     カメラ撮影の導線を出さずローカルアップロードだけで追加でき（R5.3）、videoinput のある端末では
  *     導線を出す（R5.1）。権限ポリシーが camera を許さない文書では、videoinput の無い列挙でも導線を
@@ -1197,7 +1198,8 @@ test.describe('工事写真 主要ユーザーフロー', () => {
    * 取得中の窓は、看板の一覧の GET を、テストが解き放つまで待たせる `page.route` で作る（固定の
    * 待ち時間は使わない）。経路の照合と応答のハンドラは参照で共有し、`unroute` で外す。直前までの
    * テストで、先頭の写真項目に看板（`navigatedSignboardName`）を指定済みである。配置はエディタで
-   * 動かさずに保存すると null のまま残るため、本テストの冒頭で API から配置を与えておく。
+   * 動かさずに保存した既定の配置（タスク 24.4）であり、本テストの冒頭で API から既知の配置へ
+   * 置き換え、読み込み直した後もその配置が保たれることを主張する。
    */
   test('看板の一覧の取得中は「看板を変更」のダイアログで看板の指定を変える操作が出ず、配置を消す保存は送られず、一覧が届くと現在の看板が選ばれる', async ({
     page,
@@ -1329,6 +1331,154 @@ test.describe('工事写真 主要ユーザーフロー', () => {
       timeout: getTimeout(15000),
     });
     expect(batchRequests).toEqual([]);
+  });
+
+  /**
+   * R9.1 / R9.3（タスク 24.4）: 看板を選び、配置のエディタでドラッグせずに保存すると、エディタが
+   * 表示している既定の矩形を画像の座標へ換算した配置が保存され、印字画像（台帳 PDF も同じ
+   * print-image を取得して版組する）に看板が重なる。従来は看板の指定だけが保存されて配置が null の
+   * まま残り、印字画像は原本のままだった。
+   *
+   * 対象は看板も配置も持たない 2 番目の写真項目である（直前までのテストは指定しない）。保存の要求は
+   * パス基準で観測する。既定の矩形は表示の幅の 40%・高さの 25% を中央に置くもので、画像の座標では
+   * left=0.3W, top=0.375H, width=0.4W, height=0.25H（整数へ丸める）になる。期待値は写真一覧の API が
+   * 返す実寸から検証の側で計算する（換算の浮動小数の誤差に 1px を許す）。印字画像の比較はバイト列の
+   * 一致/不一致で行い、フォントに依存する値は使わない。
+   *
+   * @requirement construction-photo/REQ-9.1
+   * @requirement construction-photo/REQ-9.3
+   */
+  test('看板を選んで配置を動かさずに保存すると、既定の配置が保存され印字画像に看板が重なる', async ({
+    page,
+  }) => {
+    expect(projectId).toBeTruthy();
+    expect(albumId).toBeTruthy();
+    await loginAsUser(page, 'ADMIN_USER');
+
+    interface ListedPhoto {
+      id: string;
+      width: number;
+      height: number;
+      signboardId: string | null;
+      signboardPlacement: { left: number; top: number; width: number; height: number } | null;
+    }
+    const photoListPath = `/api/construction-photos/${albumId}/images`;
+    const isPhotoListResponse = (r: import('@playwright/test').Response): boolean =>
+      r.request().method() === 'GET' && new URL(r.url()).pathname === photoListPath;
+
+    // 写真項目のメタの一括更新の送信を、パス基準で観測する
+    const batchBodies: string[] = [];
+    page.on('request', (request) => {
+      if (
+        request.method() === 'PATCH' &&
+        new URL(request.url()).pathname === '/api/construction-photos/images/batch'
+      ) {
+        batchBodies.push(request.postData() ?? '');
+      }
+    });
+
+    // 1) 前提: 2 番目の写真項目は看板の指定も配置も持たない
+    const listPromise = page.waitForResponse(isPhotoListResponse, { timeout: getTimeout(30000) });
+    await page.goto(`/construction-photos/${albumId}`);
+    const listed = (await (await listPromise).json()) as ListedPhoto[];
+    const items = page.getByTestId('construction-photo-item');
+    await expect(items).toHaveCount(2, { timeout: getTimeout(20000) });
+    const targetItem = items.nth(1);
+    const targetPhotoId = await targetItem.getAttribute('data-photo-id');
+    expect(targetPhotoId).toBeTruthy();
+    const target = listed.find((p) => p.id === targetPhotoId);
+    expect(target).toBeDefined();
+    expect(target!.signboardId).toBeNull();
+    expect(target!.signboardPlacement).toBeNull();
+    expect(target!.width).toBeGreaterThan(0);
+    expect(target!.height).toBeGreaterThan(0);
+
+    // 印字画像と原本を取得する（Bearer の認証で API を直接呼ぶ）
+    const accessToken = await page.evaluate(() => localStorage.getItem('accessToken'));
+    expect(accessToken).toBeTruthy();
+    const fetchImage = async (kind: 'print-image' | 'original'): Promise<Buffer> => {
+      const response = await page.request.get(
+        `${API_BASE_URL}/api/construction-photos/images/${targetPhotoId}/${kind}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      expect(response.status()).toBe(200);
+      return response.body();
+    };
+    const original = await fetchImage('original');
+    expect(original.length).toBeGreaterThan(0);
+    // 前提: 看板の無い写真項目の印字画像は原本そのものである（比較が意味を持つことの確認）
+    expect((await fetchImage('print-image')).equals(original)).toBe(true);
+
+    // 2) 看板を選び、ドラッグせずにエディタの「保存」を押す
+    await targetItem.getByRole('button', { name: /^看板を配置: / }).click();
+    const assignDialog = page.getByRole('dialog', { name: '看板を配置' });
+    await expect(assignDialog).toBeVisible({ timeout: getTimeout(10000) });
+    const select = assignDialog.locator('#signboard-assign-select');
+    await expect(select).toBeEnabled({ timeout: getTimeout(15000) });
+    await select.selectOption({ label: navigatedSignboardName });
+    const signboardId = await select.inputValue();
+    expect(signboardId).toBeTruthy();
+    const editor = assignDialog.getByTestId('signboard-placement-editor');
+    await expect(editor.getByTestId('signboard-indicator')).toContainText(navigatedSignboardName, {
+      timeout: getTimeout(10000),
+    });
+    await editor.getByRole('button', { name: '保存' }).click();
+    await expect(assignDialog).toBeHidden({ timeout: getTimeout(10000) });
+
+    // 3) 画面の「保存」で確定する。送られた配置は既定の矩形を換算したもの
+    const batchResponsePromise = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'PATCH' &&
+        new URL(r.url()).pathname === '/api/construction-photos/images/batch',
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    expect((await batchResponsePromise).status()).toBe(200);
+    await expect(page.getByTestId('dirty-indicator')).toBeHidden({ timeout: getTimeout(15000) });
+
+    expect(batchBodies).toHaveLength(1);
+    const sent = (
+      JSON.parse(batchBodies[0]!) as {
+        items: Array<{
+          id: string;
+          signboardId?: string | null;
+          signboardPlacement?: ListedPhoto['signboardPlacement'];
+        }>;
+      }
+    ).items.find((item) => item.id === targetPhotoId);
+    expect(sent).toBeDefined();
+    expect(sent!.signboardId).toBe(signboardId);
+    const placement = sent!.signboardPlacement;
+    expect(placement).not.toBeNull();
+    expect(placement).toBeDefined();
+    const W = target!.width;
+    const H = target!.height;
+    const expectedPlacement = {
+      left: Math.round(W * 0.3),
+      top: Math.round(H * 0.375),
+      width: Math.round(W * 0.4),
+      height: Math.round(H * 0.25),
+    };
+    for (const key of ['left', 'top', 'width', 'height'] as const) {
+      expect(Math.abs(placement![key] - expectedPlacement[key])).toBeLessThanOrEqual(1);
+    }
+
+    // 4) 読み込み直した後も、看板の指定と送った配置が保たれている
+    const reloadListPromise = page.waitForResponse(isPhotoListResponse, {
+      timeout: getTimeout(30000),
+    });
+    await page.reload();
+    const reloaded = ((await (await reloadListPromise).json()) as ListedPhoto[]).find(
+      (p) => p.id === targetPhotoId
+    );
+    expect(reloaded).toBeDefined();
+    expect(reloaded!.signboardId).toBe(signboardId);
+    expect(reloaded!.signboardPlacement).toEqual(placement);
+
+    // 5) 印字画像は原本と異なる（看板が重なっている）。台帳 PDF は同じ print-image を取得して版組する
+    const printed = await fetchImage('print-image');
+    expect(printed.length).toBeGreaterThan(0);
+    expect(printed.equals(original)).toBe(false);
   });
 
   /**

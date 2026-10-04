@@ -15,6 +15,12 @@
  * する（R19.3。利用者の判断（2026-10-04）で看板の配置のダイアログの操作ボタンを対象に含めた）。
  * デスクトップ幅の寸法は変えない。
  *
+ * タスク 24.4: 利用者の判断（2026-10-04）で、看板を選んだときに既定の配置を与える。初期配置の
+ * 無いときは、表示している既定の矩形を画像px座標へ換算した配置を確定値の初期値とする（ドラッグ等の
+ * 操作をせずに保存しても、表示されている位置がそのまま保存される）。従来は確定値が null のまま
+ * 残り、看板の指定だけが保存されて印字画像・PDF に看板が重ならなかった。換算は操作後と同じ
+ * `displayRectToPlacement` を使う。初期配置があればそれを保ち、看板未指定なら null のままである。
+ *
  * Requirements:
  * - 9.1: 看板の表示位置・大きさを画像ピクセル座標で確定する
  * - 9.2: 看板の指定は任意（未指定を許可）
@@ -28,7 +34,7 @@
  * @module components/construction-photos/SignboardPlacementEditor
  */
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Canvas as FabricCanvas, FabricImage, Rect } from 'fabric';
 import type {
   ConstructionPhotoWithUrls,
@@ -165,7 +171,19 @@ export default function SignboardPlacementEditor({
 
   // 確定用に最新 placement を保持（保存操作で参照）。
   // ref は fabric ハンドラから同期的に更新し、レンダリングに依存させない。
-  const placementRef = useRef<SignboardPlacement | null>(signboard ? initialPlacement : null);
+  // 初期配置の無いときに表示する既定の矩形と、それを画像px座標へ換算した既定の配置（タスク 24.4）。
+  // 看板を選んだまま操作せずに保存しても、表示している位置がそのまま保存される
+  const defaultRect = useMemo(
+    () => defaultDisplayRect(displaySize.width, displaySize.height),
+    [displaySize.width, displaySize.height]
+  );
+  const defaultPlacement = useMemo(
+    () => displayRectToPlacement(defaultRect, scale, photo.width, photo.height),
+    [defaultRect, scale, photo.width, photo.height]
+  );
+  const placementRef = useRef<SignboardPlacement | null>(
+    signboard ? (initialPlacement ?? defaultPlacement) : null
+  );
 
   const backgroundUrl = photo.thumbnailUrl ?? photo.printImageUrl;
   const hasSignboard = signboard !== null;
@@ -220,7 +238,7 @@ export default function SignboardPlacementEditor({
     if (hasSignboard) {
       const displayRect = initialPlacement
         ? placementToDisplayRect(initialPlacement, scale)
-        : defaultDisplayRect(displaySize.width, displaySize.height);
+        : defaultRect;
 
       const rect = new Rect({
         left: displayRect.left,
@@ -273,10 +291,10 @@ export default function SignboardPlacementEditor({
     emitFromRect,
   ]);
 
-  // 看板の有無・初期配置が変われば確定値を同期（未指定は null）
+  // 看板の有無・初期配置が変われば確定値を同期（未指定は null、初期配置が無ければ既定の配置）
   useEffect(() => {
-    placementRef.current = hasSignboard ? initialPlacement : null;
-  }, [hasSignboard, initialPlacement]);
+    placementRef.current = hasSignboard ? (initialPlacement ?? defaultPlacement) : null;
+  }, [hasSignboard, initialPlacement, defaultPlacement]);
 
   const handleSave = useCallback(() => {
     onSaveRef.current?.(hasSignboard ? placementRef.current : null);

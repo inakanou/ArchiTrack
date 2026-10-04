@@ -29,7 +29,11 @@ vi.mock('../../hooks/useMediaQuery', () => ({
 }));
 
 // fabric を含む配置エディタはスタブ化する。実物と同じく、看板が無ければ placement=null を、
-// 看板があれば初期配置を「保存」で返す（実物の handleSave の契約）
+// 看板があれば初期配置を（初期配置が無ければ既定の配置を, タスク 24.4）「保存」で返す
+// （実物の handleSave の契約）。既定の配置の値そのものは実物のテストが主張する
+const { STUB_DEFAULT_PLACEMENT } = vi.hoisted(() => ({
+  STUB_DEFAULT_PLACEMENT: { left: 240, top: 225, width: 320, height: 150 },
+}));
 vi.mock('./SignboardPlacementEditor', () => ({
   default: ({
     signboard,
@@ -42,7 +46,10 @@ vi.mock('./SignboardPlacementEditor', () => ({
   }) => (
     <div data-testid="signboard-placement-editor">
       <span data-testid="editor-signboard-id">{signboard ? signboard.id : 'none'}</span>
-      <button type="button" onClick={() => onSave?.(signboard ? (initialPlacement ?? null) : null)}>
+      <button
+        type="button"
+        onClick={() => onSave?.(signboard ? (initialPlacement ?? STUB_DEFAULT_PLACEMENT) : null)}
+      >
         保存
       </button>
     </div>

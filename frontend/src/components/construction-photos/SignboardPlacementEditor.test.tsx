@@ -256,6 +256,182 @@ describe('SignboardPlacementEditor', () => {
     expect(toolbar.style.flexWrap).toBe('wrap');
   });
 
+  // タスク 24.4: 利用者の判断（2026-10-04）で、看板を選んだときに既定の配置を与える。既定の配置は、
+  // 初期配置の無いときに表示している既定の矩形を画像の座標へ換算したもの（表示されている位置が
+  // そのまま保存される）。ドラッグせずに保存すると、従来は配置が null のまま保存され、印字画像と
+  // PDF に看板が重ならなかった
+  describe('看板の配置の既定値（タスク 24.4）', () => {
+    type MockRectShape = {
+      left: number;
+      top: number;
+      width: number;
+      height: number;
+      scaleX: number;
+      scaleY: number;
+    };
+
+    it('REQ-9.1: 初期配置の無い写真項目で看板を選び、ドラッグせずに保存すると、表示している既定の矩形を画像の座標へ換算した配置を返す', async () => {
+      // 画像 2000×1000、最大表示幅 600 → scale=0.3、表示 600×300。
+      // 既定の矩形は表示の 40%×25% を中央に置く → 表示 left=180, top=112.5, 240×75
+      // → 画像の座標 left=600, top=375, 800×250
+      const onSave = vi.fn();
+      render(
+        <SignboardPlacementEditor
+          photo={photo}
+          signboard={signboard}
+          maxDisplayWidth={600}
+          onSave={onSave}
+        />
+      );
+
+      await waitFor(() => expect(rectInstances.length).toBe(1));
+      const rect = rectInstances[0] as MockRectShape;
+      // 表示している矩形（検証の側で綴った既定の位置）
+      expect(rect.left).toBeCloseTo(180, 5);
+      expect(rect.top).toBeCloseTo(112.5, 5);
+      expect(rect.width).toBeCloseTo(240, 5);
+      expect(rect.height).toBeCloseTo(75, 5);
+
+      fireEvent.click(screen.getByRole('button', { name: '保存' }));
+      const expected: SignboardPlacement = { left: 600, top: 375, width: 800, height: 250 };
+      expect(onSave).toHaveBeenCalledTimes(1);
+      expect(onSave).toHaveBeenCalledWith(expected);
+    });
+
+    it('REQ-9.1: 端数の出る寸法でも、保存される配置は表示している矩形を換算の規約（scale で割って整数へ丸める）で写したものと一致する', async () => {
+      // 4032×3024 の写真、最大表示幅 600 → scale=600/4032（割り切れない）
+      const oddPhoto: ConstructionPhotoWithUrls = { ...photo, width: 4032, height: 3024 };
+      const onSave = vi.fn();
+      render(
+        <SignboardPlacementEditor
+          photo={oddPhoto}
+          signboard={signboard}
+          maxDisplayWidth={600}
+          onSave={onSave}
+        />
+      );
+
+      await waitFor(() => expect(rectInstances.length).toBe(1));
+      const rect = rectInstances[0] as MockRectShape;
+      const scale = 600 / 4032;
+
+      fireEvent.click(screen.getByRole('button', { name: '保存' }));
+      expect(onSave).toHaveBeenCalledWith({
+        left: Math.round(rect.left / scale),
+        top: Math.round(rect.top / scale),
+        width: Math.round((rect.width * rect.scaleX) / scale),
+        height: Math.round((rect.height * rect.scaleY) / scale),
+      });
+      // 自明な 0 や null でないこと（検証の側で計算した値: 180/s=1209.6→1210 等）
+      expect(onSave).toHaveBeenCalledWith({ left: 1210, top: 1134, width: 1613, height: 756 });
+    });
+
+    it('REQ-9.1: 未指定から看板を選び直したときも、ドラッグせずに保存すると既定の配置を返す', async () => {
+      const onSave = vi.fn();
+      const { rerender } = render(
+        <SignboardPlacementEditor
+          photo={photo}
+          signboard={null}
+          maxDisplayWidth={600}
+          onSave={onSave}
+        />
+      );
+      await waitFor(() => expect(mockFromURL).toHaveBeenCalled());
+
+      rerender(
+        <SignboardPlacementEditor
+          photo={photo}
+          signboard={signboard}
+          maxDisplayWidth={600}
+          onSave={onSave}
+        />
+      );
+      await waitFor(() => expect(rectInstances.length).toBe(1));
+
+      fireEvent.click(screen.getByRole('button', { name: '保存' }));
+      expect(onSave).toHaveBeenLastCalledWith({ left: 600, top: 375, width: 800, height: 250 });
+    });
+
+    it('REQ-9.3: ドラッグの後に親が同じ props で再描画しても、保存はドラッグ後の配置を返す（既定へ戻さない）', async () => {
+      const onSave = vi.fn();
+      const element = (
+        <SignboardPlacementEditor
+          photo={photo}
+          signboard={signboard}
+          maxDisplayWidth={600}
+          onSave={onSave}
+        />
+      );
+      const { rerender } = render(element);
+      await waitFor(() => expect(rectInstances.length).toBe(1));
+      const rect = rectInstances[0] as MockRectShape;
+
+      // ドラッグの確定（scale=0.3 → 画像の座標 100/200/300/150）
+      rect.left = 30;
+      rect.top = 60;
+      rect.width = 90;
+      rect.height = 45;
+      rect.scaleX = 1;
+      rect.scaleY = 1;
+      mockCanvasInstance.__getHandler('object:modified')!({ target: rect });
+
+      // 親の再描画（看板の一覧の再取得など）。props の値は同じで、オブジェクトも同じ参照
+      rerender(
+        <SignboardPlacementEditor
+          photo={photo}
+          signboard={signboard}
+          maxDisplayWidth={600}
+          onSave={onSave}
+        />
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: '保存' }));
+      expect(onSave).toHaveBeenLastCalledWith({ left: 100, top: 200, width: 300, height: 150 });
+    });
+
+    it('既に配置のある写真項目の再編集では、ドラッグせずに保存すると既存の配置を保つ', async () => {
+      const initialPlacement: SignboardPlacement = { left: 200, top: 100, width: 600, height: 300 };
+      const onSave = vi.fn();
+      render(
+        <SignboardPlacementEditor
+          photo={photo}
+          signboard={signboard}
+          maxDisplayWidth={600}
+          initialPlacement={initialPlacement}
+          onSave={onSave}
+        />
+      );
+      await waitFor(() => expect(rectInstances.length).toBe(1));
+
+      fireEvent.click(screen.getByRole('button', { name: '保存' }));
+      expect(onSave).toHaveBeenCalledWith(initialPlacement);
+    });
+
+    it('看板を未指定へ戻して保存すると、従来どおり配置は null を返す', async () => {
+      const onSave = vi.fn();
+      const { rerender } = render(
+        <SignboardPlacementEditor
+          photo={photo}
+          signboard={signboard}
+          maxDisplayWidth={600}
+          onSave={onSave}
+        />
+      );
+      await waitFor(() => expect(rectInstances.length).toBe(1));
+
+      rerender(
+        <SignboardPlacementEditor
+          photo={photo}
+          signboard={null}
+          maxDisplayWidth={600}
+          onSave={onSave}
+        />
+      );
+      fireEvent.click(screen.getByRole('button', { name: '保存' }));
+      expect(onSave).toHaveBeenLastCalledWith(null);
+    });
+  });
+
   // タスク 24.3: 利用者の判断（2026-10-04）で看板の配置のダイアログの操作ボタンを受入基準 19.3 の
   // 対象に含め、モバイル幅でのみ「保存」にタップ領域の下限を合成する。デスクトップ幅の寸法は
   // 変えない。44 は検証の側が自前で綴る（実装の定数を取り込まない）。実寸の主張は E2E が担う
@@ -296,6 +472,7 @@ describe('SignboardPlacementEditor', () => {
 /**
  * Requirements coverage (construction-photo) — requirement-coverage tags.
  * 各IDは本ファイル内の対応テストが検証する受入基準（監査でエビデンス確認済み）。
+ * @requirement construction-photo/REQ-9.1
  * @requirement construction-photo/REQ-9.2
  * @requirement construction-photo/REQ-9.3
  * @requirement construction-photo/REQ-9.4

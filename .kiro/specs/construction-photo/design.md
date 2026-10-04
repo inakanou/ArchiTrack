@@ -826,7 +826,7 @@ interface SignboardAssignDialogProps {
 - Risks: PDF出力時の写真ごとオンデマンド合成のため、印刷対象が多いと export 時のサーバ処理が増える（低頻度操作のため許容、必要なら将来キャッシュ導入）。合成失敗は当該写真でエラー通知し export を中断。
 
 ### UI Components（Summary-only）
-`ConstructionPhotoResponsiveView/ListTable/ListCard/SearchFilter` は site-survey 同名部品のクローン。`PhotoItemPanel` は `PhotoManagementPanel`（コメント500msデバウンス＋フォーカス離脱flush、未保存→手動保存、HTML5ドラッグ並び替え）を踏襲。`SignboardPlacementEditor` は fabric キャンバスに写真背景＋1枚の緑Rectを可動・拡縮し、保存時に `{left,top,width,height}` を画像ピクセル座標へ換算。`ConstructionPhotoSectionCard` は `ProjectSurveySummary` 相当のサマリを受けて `ScheduleSectionCard` 直下に描画。
+`ConstructionPhotoResponsiveView/ListTable/ListCard/SearchFilter` は site-survey 同名部品のクローン。`PhotoItemPanel` は `PhotoManagementPanel`（コメント500msデバウンス＋フォーカス離脱flush、未保存→手動保存、HTML5ドラッグ並び替え）を踏襲。`SignboardPlacementEditor` は fabric キャンバスに写真背景＋1枚の緑Rectを可動・拡縮し、保存時に `{left,top,width,height}` を画像ピクセル座標へ換算。初期配置の無いときは既定の矩形（表示の幅の 40%・高さの 25% を中央に置く）を表示し、看板を選んだまま操作せずに保存しても、その矩形を操作後と同じ換算（`displayRectToPlacement`）で画像ピクセル座標へ写した配置を返す。表示されている位置がそのまま保存され、看板の指定だけが残って配置が null のまま印字画像・PDF に看板が重ならない状態を作らない（R9.1, R9.3, タスク 24.4）。初期配置がある写真項目の再編集ではその配置を保ち、看板未指定は配置を null で返す。`ConstructionPhotoSectionCard` は `ProjectSurveySummary` 相当のサマリを受けて `ScheduleSectionCard` 直下に描画。
 
 ## Error Handling
 
@@ -911,6 +911,7 @@ interface SignboardAssignDialogProps {
 - 担当でない一般ユーザーが一覧から他の利用者のアルバムを開き、写真項目を見て、アップロード・コメント・並び替えを保存でき、写真項目を取り除く操作手段は表示されない（R1.2, R17.2, タスク 23.1）。
 - クリックだけでプロジェクト詳細 → 一覧 → 看板マスタ → 登録 → アルバム → 「看板を配置」→ 保存まで到達できる。看板の一覧の取得に失敗しても「登録されていません」と述べず失敗の文言を示し、取得中は看板の指定を変える操作が出ず配置を消す保存が送られない（R8.1, R8.10, タスク 23.2）。
 - 使用中の看板を看板マスタで取り除くと、詳細画面の写真項目のバッジと文言が「看板なし」の側へ変わる（R9.7, タスク 23.3）。
+- 看板を選んで配置をドラッグせずに保存すると、保存の要求に既定の矩形を換算した配置が含まれ、読み込み直した後も保たれ、印字画像が原本と異なる（看板が重なる）。比較はバイト列で行う（R9.1, R9.3, タスク 24.4）。
 - 未保存変更ありでアプリ内遷移/リロード時に離脱警告が出て、保存後は警告が出ない（R18）。編集した写真項目を取り除いて保留が空になると未保存の表示と離脱の確認が消え、他の写真項目の保留が残るときは残る（R18.3, タスク 23.6）。保存の要求の応答を遅らせてその間にコメントを編集すると、保存の成功の後も未保存の表示・離脱の警告・アプリ内遷移の確認が残り、再保存でその編集が送られて読み込み直しても反映されている（R18.1, R18.3, タスク 24.5）。
 - モバイル幅で詳細画面が横スクロールせず縦積み表示になる（R19）。
 - アップロード応答をサーバーエラーへ差し替えて失敗させ、未送信件数とサムネイル・ファイル名・失敗理由が表示される（R20.1,R20.2）。
