@@ -124,6 +124,11 @@ const fullPermission = {
 };
 
 // fabric を含む配置エディタはスタブ化し、看板選択＋保存の結線契約のみを検証する。
+// 「配置を保存」が渡す配置は既定で { left: 1, top: 2, width: 3, height: 4 }。テストが
+// mockEditorPlacement.current を差し替えると、その配置を渡す（タスク 24.5 の配置だけの変更）。
+const mockEditorPlacement = vi.hoisted(() => ({
+  current: { left: 1, top: 2, width: 3, height: 4 },
+}));
 vi.mock('../components/construction-photos/SignboardPlacementEditor', () => ({
   default: ({
     signboard,
@@ -136,7 +141,7 @@ vi.mock('../components/construction-photos/SignboardPlacementEditor', () => ({
       <span data-testid="editor-signboard-id">{signboard ? signboard.id : 'none'}</span>
       <button
         type="button"
-        onClick={() => onSave?.(signboard ? { left: 1, top: 2, width: 3, height: 4 } : null)}
+        onClick={() => onSave?.(signboard ? { ...mockEditorPlacement.current } : null)}
       >
         配置を保存
       </button>
@@ -210,6 +215,7 @@ function renderPage() {
 describe('ConstructionPhotoDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockEditorPlacement.current = { left: 1, top: 2, width: 3, height: 4 };
     mockUseBlocker.mockReturnValue({ state: 'unblocked', proceed: mockProceed, reset: mockReset });
     mockUseConstructionPhotoPermission.mockReturnValue(fullPermission);
     vi.mocked(useMediaQuery).mockReturnValue(false);
@@ -1184,6 +1190,341 @@ describe('ConstructionPhotoDetailPage', () => {
         expect(lastBlockerArg()).toBe(false);
         expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument();
         expect(imagesApi.updateConstructionPhotoOrder).not.toHaveBeenCalled();
+      });
+    });
+
+    // --------------------------------------------------------------------
+    // タスク 24.5: 保存の実行中の編集と、保存の成功の後の保留の消去
+    // 保存は開始時に送る保留を取り出し、成功の後は送ったものだけを保留から消す。実行中の編集は
+    // 送った内容と比べ、違えば未保存として残し、次の保存で送る。送った内容と同じ値へ戻した編集は
+    // サーバーの値と表示が一致するため消す。失敗のときは送った保留も実行中の編集も残す。
+    // --------------------------------------------------------------------
+    describe('保存の実行中の編集（タスク 24.5）', () => {
+      /** 直近の描画で画面が useBlocker へ渡した遮断の要否 */
+      const lastBlockerArg = (): boolean | undefined =>
+        mockUseBlocker.mock.calls[mockUseBlocker.mock.calls.length - 1]?.[0];
+
+      /** 指定の写真項目のコメントを編集する（入力の後に確定する） */
+      const editComment = (item: HTMLElement, value: string): void => {
+        const textarea = within(item).getByLabelText('コメント');
+        fireEvent.change(textarea, { target: { value } });
+        fireEvent.blur(textarea);
+      };
+
+      /** 応答を手元で決める保存の要求（メタバッチ）。呼ばれた順に resolve/reject を積む */
+      const holdMetadataBatch = () => {
+        const settlers: Array<{ resolve: () => void; reject: (err: unknown) => void }> = [];
+        vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockImplementation(
+          () =>
+            new Promise((resolve, reject) => {
+              settlers.push({ resolve: () => resolve([]), reject });
+            })
+        );
+        return settlers;
+      };
+
+      /** 保存を押し、要求の実行中（「保存中...」）になるまで待つ */
+      const startSave = async (): Promise<void> => {
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+        await screen.findByRole('button', { name: '保存中...' });
+      };
+
+      beforeEach(() => {
+        vi.mocked(imagesApi.updateConstructionPhotoOrder).mockResolvedValue(undefined);
+      });
+
+      it('実行中に同じ写真項目のコメントを編集すると、成功の後も未保存のままで、次の保存でその編集を送る (R18.1, R18.3)', async () => {
+        const settlers = holdMetadataBatch();
+        renderPage();
+        const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+        editComment(firstItem, '一回目');
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(true));
+
+        await startSave();
+        expect(imagesApi.updateConstructionPhotoMetadataBatch).toHaveBeenLastCalledWith([
+          { id: 'photo-1', comment: '一回目' },
+        ]);
+        editComment(screen.getAllByTestId('construction-photo-item')[0]!, '二回目');
+
+        await act(async () => {
+          settlers[0]!.resolve();
+        });
+        await screen.findByRole('button', { name: '保存' });
+
+        expect(lastUnsavedDirty()).toBe(true);
+        expect(lastBlockerArg()).toBe(true);
+        expect(screen.getByText('未保存の変更があります')).toBeInTheDocument();
+        expect(
+          within(screen.getAllByTestId('construction-photo-item')[0]!).getByLabelText('コメント')
+        ).toHaveValue('二回目');
+
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+        await waitFor(() => expect(settlers).toHaveLength(2));
+        expect(imagesApi.updateConstructionPhotoMetadataBatch).toHaveBeenLastCalledWith([
+          { id: 'photo-1', comment: '二回目' },
+        ]);
+        await act(async () => {
+          settlers[1]!.resolve();
+        });
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(false));
+        expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument();
+      });
+
+      it('実行中に別の写真項目のコメントを編集すると、成功の後も未保存のままで、次の保存はその編集だけを送る (R18.1, R18.3)', async () => {
+        const settlers = holdMetadataBatch();
+        renderPage();
+        const [firstItem] = await screen.findAllByTestId('construction-photo-item');
+        editComment(firstItem!, '送った編集');
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(true));
+
+        await startSave();
+        editComment(screen.getAllByTestId('construction-photo-item')[1]!, '実行中の編集');
+
+        await act(async () => {
+          settlers[0]!.resolve();
+        });
+        await screen.findByRole('button', { name: '保存' });
+
+        expect(lastUnsavedDirty()).toBe(true);
+        expect(lastBlockerArg()).toBe(true);
+        expect(screen.getByText('未保存の変更があります')).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+        await waitFor(() => expect(settlers).toHaveLength(2));
+        expect(imagesApi.updateConstructionPhotoMetadataBatch).toHaveBeenLastCalledWith([
+          { id: 'photo-2', comment: '実行中の編集' },
+        ]);
+        await act(async () => {
+          settlers[1]!.resolve();
+        });
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(false));
+      });
+
+      it('実行中に送った値から編集し、送った値と同じ値へ戻すと、成功の後に未保存を解消する (R18.3)', async () => {
+        const settlers = holdMetadataBatch();
+        renderPage();
+        const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+        editComment(firstItem, '送った値');
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(true));
+
+        await startSave();
+        editComment(screen.getAllByTestId('construction-photo-item')[0]!, '途中の値');
+        editComment(screen.getAllByTestId('construction-photo-item')[0]!, '送った値');
+
+        await act(async () => {
+          settlers[0]!.resolve();
+        });
+        await screen.findByRole('button', { name: '保存' });
+
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(false));
+        expect(lastBlockerArg()).toBe(false);
+        expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
+      });
+
+      it('実行中に並び替えると、成功の後も未保存のままで、次の保存でその順序を送る (R18.1, R18.3)', async () => {
+        const settlers = holdMetadataBatch();
+        renderPage();
+        const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+        editComment(firstItem, '送った編集');
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(true));
+
+        await startSave();
+        fireEvent.click(
+          within(screen.getAllByTestId('construction-photo-item')[0]!).getByRole('button', {
+            name: '下へ移動',
+          })
+        );
+
+        await act(async () => {
+          settlers[0]!.resolve();
+        });
+        await screen.findByRole('button', { name: '保存' });
+
+        // 開始時に順序の保留は無かったため、この保存では順序を送らない
+        expect(imagesApi.updateConstructionPhotoOrder).not.toHaveBeenCalled();
+        expect(lastUnsavedDirty()).toBe(true);
+        expect(screen.getByText('未保存の変更があります')).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+        await waitFor(() => {
+          expect(imagesApi.updateConstructionPhotoOrder).toHaveBeenCalledWith('album-1', [
+            { id: 'photo-2', order: 1 },
+            { id: 'photo-1', order: 2 },
+          ]);
+        });
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(false));
+        // メタ変更は先の保存で確定したため、二度目は送らない
+        expect(settlers).toHaveLength(1);
+      });
+
+      it('開始時に順序の保留があり、実行中にもう一度並び替えると、成功の後も未保存のままで、次の保存で新しい順序を送る (R18.1, R18.3)', async () => {
+        // 順序の保存の要求を手元で止める
+        const orderSettlers: Array<() => void> = [];
+        vi.mocked(imagesApi.updateConstructionPhotoOrder).mockImplementation(
+          () =>
+            new Promise<void>((resolve) => {
+              orderSettlers.push(() => resolve());
+            })
+        );
+        renderPage();
+        const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+        // a, b → b, a（開始時の順序の保留）
+        fireEvent.click(within(firstItem).getByRole('button', { name: '下へ移動' }));
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(true));
+
+        await startSave();
+        expect(imagesApi.updateConstructionPhotoOrder).toHaveBeenLastCalledWith('album-1', [
+          { id: 'photo-2', order: 1 },
+          { id: 'photo-1', order: 2 },
+        ]);
+        // 実行中に b, a → a, b
+        fireEvent.click(
+          within(screen.getAllByTestId('construction-photo-item')[0]!).getByRole('button', {
+            name: '下へ移動',
+          })
+        );
+
+        await act(async () => {
+          orderSettlers[0]!();
+        });
+        await screen.findByRole('button', { name: '保存' });
+
+        expect(lastUnsavedDirty()).toBe(true);
+        expect(lastBlockerArg()).toBe(true);
+        expect(screen.getByText('未保存の変更があります')).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+        await waitFor(() => expect(orderSettlers).toHaveLength(2));
+        expect(imagesApi.updateConstructionPhotoOrder).toHaveBeenLastCalledWith('album-1', [
+          { id: 'photo-1', order: 1 },
+          { id: 'photo-2', order: 2 },
+        ]);
+        await act(async () => {
+          orderSettlers[1]!();
+        });
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(false));
+        // メタ変更は無いため送らない
+        expect(imagesApi.updateConstructionPhotoMetadataBatch).not.toHaveBeenCalled();
+      });
+
+      it('コメントだけを送った写真項目で、実行中に印刷対象を切り替えると、成功の後も未保存のままで、次の保存で送る (R18.1, R18.3)', async () => {
+        const settlers = holdMetadataBatch();
+        renderPage();
+        const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+        editComment(firstItem, '送った編集');
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(true));
+
+        await startSave();
+        expect(imagesApi.updateConstructionPhotoMetadataBatch).toHaveBeenLastCalledWith([
+          { id: 'photo-1', comment: '送った編集' },
+        ]);
+        fireEvent.click(
+          within(screen.getAllByTestId('construction-photo-item')[0]!).getByLabelText(
+            '印刷対象に含める'
+          )
+        );
+
+        await act(async () => {
+          settlers[0]!.resolve();
+        });
+        await screen.findByRole('button', { name: '保存' });
+
+        expect(lastUnsavedDirty()).toBe(true);
+        expect(lastBlockerArg()).toBe(true);
+        expect(screen.getByText('未保存の変更があります')).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+        await waitFor(() => expect(settlers).toHaveLength(2));
+        expect(imagesApi.updateConstructionPhotoMetadataBatch).toHaveBeenLastCalledWith([
+          { id: 'photo-1', comment: '送った編集', includeInReport: true },
+        ]);
+        await act(async () => {
+          settlers[1]!.resolve();
+        });
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(false));
+      });
+
+      it('同じ看板のまま、実行中に配置だけを変えると、成功の後も未保存のままで、次の保存で新しい配置を送る (R18.1, R18.3)', async () => {
+        const settlers = holdMetadataBatch();
+        /** 写真項目の看板の配置のダイアログを開き、看板を選んで配置を保存する */
+        const placeSignboard = async (item: HTMLElement): Promise<void> => {
+          fireEvent.click(within(item).getByRole('button', { name: /看板を(配置|変更)/ }));
+          const dialog = await screen.findByRole('dialog', { name: /看板を配置/ });
+          fireEvent.change(within(dialog).getByLabelText('看板を選択'), {
+            target: { value: 'sb-1' },
+          });
+          fireEvent.click(within(dialog).getByRole('button', { name: '配置を保存' }));
+          await waitFor(() => {
+            expect(screen.queryByRole('dialog', { name: /看板を配置/ })).not.toBeInTheDocument();
+          });
+        };
+
+        renderPage();
+        const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+        await placeSignboard(firstItem);
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(true));
+
+        await startSave();
+        expect(imagesApi.updateConstructionPhotoMetadataBatch).toHaveBeenLastCalledWith([
+          {
+            id: 'photo-1',
+            signboardId: 'sb-1',
+            signboardPlacement: { left: 1, top: 2, width: 3, height: 4 },
+          },
+        ]);
+        // 実行中に、同じ看板のまま配置のジオメトリだけを変える
+        mockEditorPlacement.current = { left: 10, top: 20, width: 30, height: 40 };
+        await placeSignboard(screen.getAllByTestId('construction-photo-item')[0]!);
+
+        await act(async () => {
+          settlers[0]!.resolve();
+        });
+        await screen.findByRole('button', { name: '保存' });
+
+        expect(lastUnsavedDirty()).toBe(true);
+        expect(lastBlockerArg()).toBe(true);
+        expect(screen.getByText('未保存の変更があります')).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+        await waitFor(() => expect(settlers).toHaveLength(2));
+        expect(imagesApi.updateConstructionPhotoMetadataBatch).toHaveBeenLastCalledWith([
+          {
+            id: 'photo-1',
+            signboardId: 'sb-1',
+            signboardPlacement: { left: 10, top: 20, width: 30, height: 40 },
+          },
+        ]);
+        await act(async () => {
+          settlers[1]!.resolve();
+        });
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(false));
+      });
+
+      it('保存が失敗したときは、送った保留も実行中の編集も残り、次の保存で両方を送る (R18.1)', async () => {
+        const settlers = holdMetadataBatch();
+        renderPage();
+        const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+        editComment(firstItem, '送った編集');
+        await waitFor(() => expect(lastUnsavedDirty()).toBe(true));
+
+        await startSave();
+        editComment(screen.getAllByTestId('construction-photo-item')[1]!, '実行中の編集');
+
+        await act(async () => {
+          settlers[0]!.reject(new Error('network'));
+        });
+        await screen.findByRole('button', { name: '保存' });
+
+        expect(lastUnsavedDirty()).toBe(true);
+        expect(screen.getByText('未保存の変更があります')).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+        await waitFor(() => expect(settlers).toHaveLength(2));
+        expect(imagesApi.updateConstructionPhotoMetadataBatch).toHaveBeenLastCalledWith([
+          { id: 'photo-1', comment: '送った編集' },
+          { id: 'photo-2', comment: '実行中の編集' },
+        ]);
       });
     });
 

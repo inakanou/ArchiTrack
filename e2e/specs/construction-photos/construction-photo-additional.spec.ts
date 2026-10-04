@@ -1241,6 +1241,120 @@ test.describe('工事写真 追加機能フロー', () => {
   });
 
   /**
+   * タスク 24.5 保存の実行中の編集:
+   * 保存の要求（PATCH /api/construction-photos/images/batch）の応答を遅らせ、その間に同じ写真項目の
+   * コメントを編集する。保存の成功の後も、実行中の編集は未保存として残り（表示・離脱の警告・
+   * アプリ内遷移の確認）、次の保存でその編集が送られ、読み込み直しても反映されている。
+   * 変更前は成功の後に保留をすべて消したため、表示は編集されたままなのに未保存が解消していた。
+   *
+   * @requirement construction-photo/REQ-18.1
+   * @requirement construction-photo/REQ-18.3
+   */
+  test('保存の実行中にコメントを編集すると、保存の成功の後も未保存のまま残り、再保存で反映される', async ({
+    page,
+  }) => {
+    expect(adminAlbumId).toBeTruthy();
+    await loginAsUser(page, 'ADMIN_USER');
+
+    await page.goto(`/construction-photos/${adminAlbumId}`);
+    await page.waitForLoadState('networkidle');
+    const items = page.getByTestId('construction-photo-item');
+    await expect(items).toHaveCount(2, { timeout: getTimeout(20000) });
+    const textarea = items.nth(0).getByPlaceholder('コメントを入力...');
+    const stamp = Date.now();
+    const sentComment = `送った編集_${stamp}`;
+    const inflightComment = `実行中の編集_${stamp}`;
+
+    await textarea.click();
+    await textarea.fill(sentComment);
+    await textarea.blur();
+    await expect(page.getByTestId('dirty-indicator')).toBeVisible({ timeout: getTimeout(10000) });
+
+    // 保存の要求を手元で止める（パス基準で判定する）
+    let releaseBatch: () => void = () => {};
+    const batchGate = new Promise<void>((resolve) => {
+      releaseBatch = resolve;
+    });
+    const isBatchPath = (url: string): boolean =>
+      new URL(url).pathname === '/api/construction-photos/images/batch';
+    // unroute は参照の等価で照合するため、route と同じ述語を渡す
+    const batchRouteMatcher = (url: URL): boolean => isBatchPath(url.toString());
+    await page.route(batchRouteMatcher, async (route) => {
+      if (route.request().method() === 'PATCH') {
+        await batchGate;
+      }
+      await route.continue();
+    });
+
+    const firstRequest = page.waitForRequest(
+      (r) => r.method() === 'PATCH' && isBatchPath(r.url()),
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    const firstBody = (await firstRequest).postDataJSON() as {
+      items: Array<{ id: string; comment?: string | null }>;
+    };
+    expect(firstBody.items.map((item) => item.comment)).toContain(sentComment);
+    await expect(page.getByRole('button', { name: '保存中...' })).toBeVisible();
+
+    // 保存の要求の実行中に同じ写真項目のコメントを編集する
+    await textarea.click();
+    await textarea.fill(inflightComment);
+    await textarea.blur();
+
+    const firstResponse = page.waitForResponse(
+      (r) => r.request().method() === 'PATCH' && isBatchPath(r.url()),
+      { timeout: getTimeout(30000) }
+    );
+    releaseBatch();
+    expect((await firstResponse).ok()).toBe(true);
+    await expect(page.getByRole('button', { name: '保存', exact: true })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    // 成功の後も実行中の編集は未保存のまま残る（表示・離脱の警告・アプリ内遷移の確認）
+    await expect(textarea).toHaveValue(inflightComment);
+    await expect(page.getByTestId('dirty-indicator')).toBeVisible();
+    await expect(page.getByRole('button', { name: '保存', exact: true })).toBeEnabled();
+    const warnAfterFirstSave = await page.evaluate(() => {
+      const event = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+    expect(warnAfterFirstSave).toBe(true);
+    await page.getByRole('link', { name: '工事写真一覧' }).click();
+    const unsavedDialog = page.getByRole('dialog');
+    await expect(unsavedDialog).toBeVisible({ timeout: getTimeout(10000) });
+    await unsavedDialog.getByRole('button', { name: 'このページにとどまる' }).click();
+    await expect(unsavedDialog).toBeHidden({ timeout: getTimeout(10000) });
+    await expect(page).toHaveURL(new RegExp(`/construction-photos/${adminAlbumId}$`));
+
+    // 再保存で実行中の編集が送られ、未保存が解消する
+    await page.unroute(batchRouteMatcher);
+    const secondRequest = page.waitForRequest(
+      (r) => r.method() === 'PATCH' && isBatchPath(r.url()),
+      { timeout: getTimeout(30000) }
+    );
+    const secondResponse = page.waitForResponse(
+      (r) => r.request().method() === 'PATCH' && isBatchPath(r.url()),
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    const secondBody = (await secondRequest).postDataJSON() as {
+      items: Array<{ id: string; comment?: string | null }>;
+    };
+    expect(secondBody.items.map((item) => item.comment)).toEqual([inflightComment]);
+    expect((await secondResponse).ok()).toBe(true);
+    await expect(page.getByTestId('dirty-indicator')).toBeHidden({ timeout: getTimeout(15000) });
+
+    // 読み込み直しても実行中の編集が保存されている
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+    await expect(items).toHaveCount(2, { timeout: getTimeout(20000) });
+    await expect(items.nth(0).getByPlaceholder('コメントを入力...')).toHaveValue(inflightComment);
+  });
+
+  /**
    * R19.1/R19.2（＋R19.4）モバイル縦積み:
    * 狭幅（375px）で詳細画面を表示し、横スクロールが発生せず、写真項目が縦積み（column）で
    * 配置されることを検証する。

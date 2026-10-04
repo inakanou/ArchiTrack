@@ -49,6 +49,11 @@
  *     一つでも残っているときに限って真で、保留を足す・消すすべての箇所（メタ変更・順序変更・保存・
  *     写真項目の削除の成功）でこの関数が保留から決め直す。変更前は削除の成功が保留を消しても
  *     フラグを戻さず、送るものの無い「保存」は冒頭で戻るため、読み込み直すまで未保存のまま残った
+ *   - タスク 24.5 で、利用者の判断（2026-10-04）により、保存は開始時に送る保留を取り出し、成功の
+ *     後は送ったものだけを保留から消す形へ改めた。変更前は成功の後に保留をすべて消したため、要求の
+ *     実行中にした編集も消え、表示は編集されたままなのに未保存が解消し、離脱すると編集が失われた。
+ *     実行中の編集は送った内容と比べ、違えば未保存として残して次の保存で送り、送った内容と同じ
+ *     値へ戻したものは消す。失敗のときは従来どおり保留を何も消さない
  *
  * Task 21.3 追加: 写真項目の削除が失敗したときに、失敗を通知の枠（`styles.notice`、role=alert）へ
  *   出す。受入基準 7.7 は失敗時の表示を定めておらず、利用者の判断（2026-10-02）で加えた挙動である。
@@ -348,6 +353,65 @@ function downloadZip(blob: Blob, fileName: string): void {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+/** 看板の配置が同じか（null 同士も同じとする） */
+function isSamePlacement(
+  a: SignboardPlacement | null | undefined,
+  b: SignboardPlacement | null | undefined
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height;
+}
+
+/**
+ * メタ変更の項目の一覧。`PhotoMetadataChange` へ項目が足されたら型の検査で漏れが分かるよう、
+ * 全項目を持つ形で書く（比べる項目が漏れると、実行中の編集を送った内容と同じとみなして消しうる）
+ */
+const METADATA_CHANGE_KEYS = Object.keys({
+  comment: true,
+  includeInReport: true,
+  signboardId: true,
+  signboardPlacement: true,
+} satisfies Record<keyof PhotoMetadataChange, true>) as Array<keyof PhotoMetadataChange>;
+
+/** 写真項目のメタ変更が同じ内容か（持つ項目の組と各値で比べる） */
+function isSameMetadataChange(a: PhotoMetadataChange, b: PhotoMetadataChange): boolean {
+  return METADATA_CHANGE_KEYS.every((key) => {
+    if (key in a !== key in b) return false;
+    if (key === 'signboardPlacement') {
+      return isSamePlacement(a.signboardPlacement, b.signboardPlacement);
+    }
+    return a[key] === b[key];
+  });
+}
+
+/** 順序の保留が同じ内容か（写真項目の並びと各順序で比べる） */
+function isSameOrder(a: PhotoOrderItem[], b: PhotoOrderItem[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((item, i) => item.id === b[i]!.id && item.order === b[i]!.order)
+  );
+}
+
+/**
+ * 保存の成功の後に、送った保留だけを保留から消す（タスク 24.5）。
+ * 写真項目ごとに、現在の保留が送った内容と同じなら消す。保存の要求の実行中に編集され、送った
+ * 内容と違えば、その写真項目の保留はそのまま残し、次の保存で送る（送った項目を再び送っても
+ * 結果は変わらない）。実行中に送った値から編集して送った値へ戻したときは、保存された値と表示が
+ * 一致するため消す。実行中に取り除かれた写真項目は保留に無いため何もしない。
+ */
+function removeSentFromPending(
+  pending: Map<string, PhotoMetadataChange>,
+  sent: Map<string, PhotoMetadataChange>
+): void {
+  sent.forEach((sentChange, photoId) => {
+    const current = pending.get(photoId);
+    if (current && isSameMetadataChange(current, sentChange)) {
+      pending.delete(photoId);
+    }
+  });
 }
 
 /**
@@ -688,25 +752,33 @@ export default function ConstructionPhotoDetailPage() {
       return;
     }
 
+    // 送る保留を開始時に取り出す（タスク 24.5）。要求の実行中の編集は保留へ足されるが、
+    // ここで取り出した内容には入らない
+    const sentChanges = new Map(pendingChangesRef.current);
+    const sentOrder = pendingOrderRef.current;
+
     setIsSaving(true);
     setError(null);
     try {
       // メタデータ一括更新（1リクエスト）
       if (hasMetadataChanges) {
         const items: BatchUpdatePhotoMetadataItem[] = [];
-        pendingChangesRef.current.forEach((changes, photoId) => {
+        sentChanges.forEach((changes, photoId) => {
           items.push({ id: photoId, ...changes });
         });
         await updateConstructionPhotoMetadataBatch(items);
       }
 
       // 表示順序更新（1リクエスト）
-      if (hasOrderChanges && pendingOrderRef.current) {
-        await updateConstructionPhotoOrder(id, pendingOrderRef.current);
+      if (sentOrder) {
+        await updateConstructionPhotoOrder(id, sentOrder);
       }
 
-      pendingChangesRef.current.clear();
-      pendingOrderRef.current = null;
+      // 送った保留だけを消す。実行中の編集で送った内容と違うものは未保存として残す（タスク 24.5）
+      removeSentFromPending(pendingChangesRef.current, sentChanges);
+      if (pendingOrderRef.current && sentOrder && isSameOrder(pendingOrderRef.current, sentOrder)) {
+        pendingOrderRef.current = null;
+      }
       syncDirtyWithPending();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '保存に失敗しました');

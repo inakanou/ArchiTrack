@@ -379,7 +379,7 @@ frontend/src/
 - `hooks/useCameraAvailability.ts` — 端末のカメラの有無を `enumerateDevices` の `videoinput` で判定する。判定できないときは `unknown`（導線を出す側）。`PhotoUploader` が使う (R5.3, タスク 23.5)
 
 **変更（frontend）**
-- `pages/ConstructionPhotoDetailPage.tsx` — `onPhotoClick`→ビューア遷移結線(R14)、ZIP起動＋対象選択(R15)、アルバム編集/削除導線(R16)、`useConstructionPhotoPermission` で `readOnly`/ボタン出し分け(R17)、画面の `isDirty` state を `useUnsavedChanges({ isDirty })` へ渡して離脱警告を結線(R18)、`isDirty` は保留（`pendingChangesRef`・`pendingOrderRef`）から `syncDirtyWithPending` で決め直す（R18.3, タスク 23.6。Frontend Interfaces の R18 を参照）、看板の一覧を写真項目の取得とは別の effect で取得し、取得の状態（`signboardsStatus`）と看板マスタの経路を「看板を配置」のダイアログへ渡す（R8, R9, タスク 23.2）、`useMediaQuery` でモバイル分岐(R19)、写真項目を取り除く操作の失敗は捕捉せずに `PhotoItemPanel` へ伝播させ、上部の通知の枠と `error` には載せず、画面も送らない（R7.7 の失敗時, タスク 21.3・23.9。Error Handling を参照）
+- `pages/ConstructionPhotoDetailPage.tsx` — `onPhotoClick`→ビューア遷移結線(R14)、ZIP起動＋対象選択(R15)、アルバム編集/削除導線(R16)、`useConstructionPhotoPermission` で `readOnly`/ボタン出し分け(R17)、画面の `isDirty` state を `useUnsavedChanges({ isDirty })` へ渡して離脱警告を結線(R18)、`isDirty` は保留（`pendingChangesRef`・`pendingOrderRef`）から `syncDirtyWithPending` で決め直す（R18.3, タスク 23.6。Frontend Interfaces の R18 を参照）、保存は開始時に送る保留を取り出し、成功の後は送ったものだけを保留から消す（R18.1, R18.3, タスク 24.5）、看板の一覧を写真項目の取得とは別の effect で取得し、取得の状態（`signboardsStatus`）と看板マスタの経路を「看板を配置」のダイアログへ渡す（R8, R9, タスク 23.2）、`useMediaQuery` でモバイル分岐(R19)、写真項目を取り除く操作の失敗は捕捉せずに `PhotoItemPanel` へ伝播させ、上部の通知の枠と `error` には載せず、画面も送らない（R7.7 の失敗時, タスク 21.3・23.9。Error Handling を参照）
 - `components/construction-photos/PhotoItemPanel.tsx` — エクスポート対象の選択チェック(R15)、モバイルスタイル分岐(R19)、`readOnly` 結線の実効化(R17)、看板の操作ボタン（「看板を配置」／「看板を変更」）のモバイル幅のタップ領域を `TAP_TARGET_MIN_PX` 以上にする上書き（`assignSignboardButtonMobile`, R19.3, タスク 21.2）、写真項目を取り除く操作の成功・失敗のどちらでも確認ダイアログを閉じる（タスク 21.3）。失敗はその写真項目の操作の行の直後に role=alert で表示し、失敗の間だけ取り除くボタンの `aria-describedby` で結び付け、フォーカスを画面を送らずにそのボタンへ戻す。表示が画面の外へ出るときだけ表示の分だけ画面を動かす。失敗の文言は写真項目ごとの状態に持ち、文言の規則もこの部品が持つ（R7.7 の失敗時, タスク 21.3・23.9。Error Handling を参照）
 - `pages/ConstructionPhotoListPage.tsx` / `components/construction-photos/ConstructionPhotoListTable.tsx` / `ConstructionPhotoListCard.tsx` — アルバム編集/削除の行導線（権限連動）(R16,R17)。一覧の見出しの行に看板マスタへの常設のリンク「工事看板マスタ」（`canViewSignboards` のときだけ。R8, タスク 23.2）
 - `routes.tsx` — CPビューアルート `/construction-photos/:albumId/photos/:photoId` を追加 (R14)
@@ -711,6 +711,8 @@ function useConstructionPhotoPermission(): ConstructionPhotoPermission;
 // コメント・印刷対象・看板の指定と配置）と順序の変更（pendingOrderRef）の 2 種だけで、受入基準 18.1 の
 // 4 つと一致する。保留を足す・消すすべての箇所（メタの変更・順序の変更・保存の成功・写真項目の削除の
 // 成功）で syncDirtyWithPending() を呼ぶ。
+// 保存は開始時に送る保留を取り出し、成功の後は送ったものだけを保留から消す（タスク 24.5）。要求の
+// 実行中の編集は送った内容と比べ、違えば保留に残して未保存のままとし、次の保存で送る。
 // 本記述は数量表生成スペックの Task 100.24（2026-09-24、コミット 23d83871）が共有フックを
 // useUnsavedChanges({ isDirty, message? }): void へ一本化したのに合わせて改訂した
 // （それまでは useUnsavedChanges({ enabled: canEdit }) の戻り値の markAsChanged/markAsSaved を呼ぶ形）。
@@ -719,7 +721,7 @@ function useConstructionPhotoPermission(): ConstructionPhotoPermission;
 // 「保存」は送るものが無いため冒頭で戻り、読み込み直すまで未保存の表示と離脱の確認が残った。
 ```
 - Preconditions: `export()` は `photos.length>0`（0件は呼び出し側で非実行・通知 R15.11）。ビューアは対象写真が要求プロジェクト配下であること。
-- Postconditions（未保存の状態, R18.3, タスク 23.6）: 写真項目の削除が成功すると、その写真項目のメタの変更と順序の行を保留から除き（順序の行が残らなければ順序の保留そのものを無くす）、他の保留が残れば未保存のまま、残らなければ未保存を解消する（表示が消え、「保存」が押せなくなり、離脱の確認も出ない）。削除が失敗したときは保留も未保存の状態も変えない。「保存」は未保存でない間は押せず（`PhotoItemPanel` の `disabled={!isDirty || isSaving}`）、送るものが無い呼び出しも未保存の状態を保留（空）に揃えて戻る。保存の実行中の編集が保存の成功後の保留の消去で失われうる競合は残る（Task 24.5 に起票）。
+- Postconditions（未保存の状態, R18.3, タスク 23.6）: 写真項目の削除が成功すると、その写真項目のメタの変更と順序の行を保留から除き（順序の行が残らなければ順序の保留そのものを無くす）、他の保留が残れば未保存のまま、残らなければ未保存を解消する（表示が消え、「保存」が押せなくなり、離脱の確認も出ない）。削除が失敗したときは保留も未保存の状態も変えない。「保存」は未保存でない間は押せず（`PhotoItemPanel` の `disabled={!isDirty || isSaving}`）、送るものが無い呼び出しも未保存の状態を保留（空）に揃えて戻る。保存は開始時に送る保留（メタの変更の写し・順序の変更）を取り出し、成功すると送ったものだけを保留から消す（Task 24.5、利用者の判断 2026-10-04）。写真項目ごとに、現在の保留が送った内容と同じ（持つ項目の組と各値が一致する。看板の配置は座標と大きさで比べる）なら消し、要求の実行中に編集されて違えばその写真項目の保留をそのまま残す。順序の保留も送った並びと同じなら消し、違えば残す。残った保留があれば未保存のままで、離脱の確認も続き、次の保存で送る（送った項目を再び送っても結果は変わらない）。実行中に送った値から編集し送った値へ戻したときは、保存された値と表示が一致するため消して未保存を解消する。実行中の編集が無ければ、従来どおり保留が空になり未保存を解消する。保存が失敗したときは、送った保留も実行中の編集も残す（成功の前に保留を消さない）。以前の形は成功の後に保留をすべて消したため、実行中の編集も消え、表示は編集されたままなのに未保存が解消し、離脱するとその編集が失われた。
 - Postconditions: `export()` は ZIP Blob と `failed` を返す。詳細画面は `failed` が空なら即座にダウンロードし、一部または全部が失敗したときは自動でダウンロードせず、利用者の選択に委ねる（R15.10, タスク 23.4。System Flows の「ZIP一括エクスポート（クライアント生成・中断可能）」節の部分失敗時の選択を参照）。`useConstructionPhotoPermission` は権限ロード完了まで全 `false`（安全側 R17.5）。
 
 ### Frontend Interfaces（R20 送信アダプタ）
@@ -905,7 +907,7 @@ interface SignboardAssignDialogProps {
 - 担当でない一般ユーザーが一覧から他の利用者のアルバムを開き、写真項目を見て、アップロード・コメント・並び替えを保存でき、写真項目を取り除く操作手段は表示されない（R1.2, R17.2, タスク 23.1）。
 - クリックだけでプロジェクト詳細 → 一覧 → 看板マスタ → 登録 → アルバム → 「看板を配置」→ 保存まで到達できる。看板の一覧の取得に失敗しても「登録されていません」と述べず失敗の文言を示し、取得中は看板の指定を変える操作が出ず配置を消す保存が送られない（R8.1, R8.10, タスク 23.2）。
 - 使用中の看板を看板マスタで取り除くと、詳細画面の写真項目のバッジと文言が「看板なし」の側へ変わる（R9.7, タスク 23.3）。
-- 未保存変更ありでアプリ内遷移/リロード時に離脱警告が出て、保存後は警告が出ない（R18）。編集した写真項目を取り除いて保留が空になると未保存の表示と離脱の確認が消え、他の写真項目の保留が残るときは残る（R18.3, タスク 23.6）。
+- 未保存変更ありでアプリ内遷移/リロード時に離脱警告が出て、保存後は警告が出ない（R18）。編集した写真項目を取り除いて保留が空になると未保存の表示と離脱の確認が消え、他の写真項目の保留が残るときは残る（R18.3, タスク 23.6）。保存の要求の応答を遅らせてその間にコメントを編集すると、保存の成功の後も未保存の表示・離脱の警告・アプリ内遷移の確認が残り、再保存でその編集が送られて読み込み直しても反映されている（R18.1, R18.3, タスク 24.5）。
 - モバイル幅で詳細画面が横スクロールせず縦積み表示になる（R19）。
 - アップロード応答をサーバーエラーへ差し替えて失敗させ、未送信件数とサムネイル・ファイル名・失敗理由が表示される（R20.1,R20.2）。
 - 差し替えを解除して再送し、写真項目が一覧へ追加され未送信の表示が解消する（R20.3,R20.5,R20.6）。
