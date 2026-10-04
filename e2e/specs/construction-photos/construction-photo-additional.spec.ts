@@ -93,6 +93,10 @@
  * 27. 通知の枠の通知と失敗の置き換え: 印刷対象 0 件の PDF 出力の通知の後に保存が失敗すると保存の
  *     失敗へ、保存の失敗の後に通知が出ると通知へ置き換わり、通知の枠は常に一つで、消えた後に置き換え
  *     られた古いものが再び現れない（要件の印は掲げない。タスク 22.1 の利用者の判断（2026-10-04））
+ * 28. 保存の失敗の保存ボタンの近くの表示: 375・320・1280 幅で保存ボタンを押した直後の位置に、
+ *     保存の失敗（role=alert）が画面内に見えて共通ヘッダに覆われず、長い文言でもはみ出さず、
+ *     上部の通知の枠は同じ文言を残し、やり直しの成功で消える（要件の印は掲げない。タスク 22.2 の
+ *     利用者の判断（2026-10-04））
  *
  * 縮退した要素（理由明記）:
  *  - パンの座標厳密検証: 拡大時に画像 transform の translate 成分が変化することまでを確認し、
@@ -5359,6 +5363,231 @@ test.describe('工事写真 追加機能フロー', () => {
     await expect(noticeAlert).toHaveCount(0);
     await expect(saveFailureAlert).toHaveCount(0);
     await expect(alerts).toHaveCount(0);
+  });
+
+  /**
+   * タスク 22.2: 保存の失敗を保存ボタンの近くにも表示する（利用者の判断（2026-10-04）。23.9 と同じ
+   * 考え方）。上部の通知の枠は、押した直後の位置で 375 幅では共通ヘッダの下、1280 幅では共通ヘッダに
+   * 覆われ、320 幅では画面の外になる（レビューの実測）。上部の枠の表示は 22.1 の形のまま残し、読み上げ
+   * を二重にしないため、保存の失敗の間は保存ボタンの近くの表示だけが role=alert である。
+   *
+   * 写真項目 1 件の詳細画面で、メタの一括更新の応答を 400 へ差し替えて保存を失敗させる（判定は
+   * オリジンではなくパスで行う）。理由は区切りの無い英数字の一語 200 文字と長い和文 200 文字の
+   * 2 通りで、それぞれを 375・320・1280 幅で起こす。主張は次のとおり（寸法はフォントに依存する
+   * 固定値を使わず、ビューポート・要素の矩形と当たり判定で測る）。
+   *  - 保存ボタンを押した直後の位置（応答を待つ以外に画面を動かさない）で、表示の矩形が
+   *    ビューポートの内側にあり、表示の上の 5 点（中心と内側の四隅）の `elementFromPoint` が
+   *    表示（またはその子孫）を返す（共通ヘッダなどに覆われていない）。
+   *  - 表示は保存ボタンの下にあり、role=alert は表示の一つだけで、上部の枠は同じ文言を残す。
+   *  - 表示の矩形が写真項目管理パネルの内側に収まり、文字列（DOM Range）の左右端が表示の内容の箱の
+   *    内側に収まり、<main> と文書全体に水平のはみ出しが無い（許容誤差 1px）。
+   *  - 差し替えを解いて保存をやり直すと成功し、表示も上部の枠も消える。
+   * 要件の印は掲げない（受入基準 18 は保存の失敗の表示の位置を定めておらず、タスク 22.2 の利用者の
+   * 判断による）。
+   */
+  test('保存が失敗すると、375・320・1280 幅で保存ボタンを押した直後の位置に失敗が見え、長い文言でもはみ出さず、やり直しの成功で消える', async ({
+    page,
+  }) => {
+    const stamp = Date.now();
+    const albumName = `保存の失敗の近く_${stamp}`;
+    const reasons = [
+      {
+        kind: '区切りの無い英数字の一語',
+        detail: `SaveFailureReason${stamp}`.padEnd(200, 'X'),
+      },
+      {
+        kind: '長い和文',
+        detail:
+          '写真項目のメタデータの保存の処理で想定していない状態が見つかったため保存できませんでした'
+            .repeat(5)
+            .slice(0, 200),
+      },
+    ];
+    expect(reasons.map((r) => r.detail.length)).toEqual([200, 200]);
+
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'save-failure-near');
+    const albumId = await createAlbum(page, projectId, albumName);
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { level: 1, name: albumName })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    const upload = page.waitForResponse(
+      (r) => r.request().method() === 'POST' && UPLOAD_URL_MATCHER(new URL(r.url())),
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByTestId('file-input').setInputFiles({
+      name: `save-failure-near-${stamp}.jpg`,
+      mimeType: 'image/jpeg',
+      buffer: fs.readFileSync(FIXTURE_JPG),
+    });
+    expect((await upload).status()).toBe(201);
+    const items = page.getByTestId('construction-photo-item');
+    await expect(items).toHaveCount(1, { timeout: getTimeout(20000) });
+
+    const main = page.getByRole('main');
+    const panel = page.getByRole('region', { name: '写真項目管理パネル' });
+    const panelAlerts = panel.getByRole('alert');
+    const mainAlerts = main.getByRole('alert');
+    const saveButton = page.getByRole('button', { name: '保存', exact: true });
+    const textarea = items.first().getByPlaceholder('コメントを入力...');
+    const isBatchPath = (url: string): boolean =>
+      new URL(url).pathname === '/api/construction-photos/images/batch';
+    // unroute は参照の等価で照合するため、route と同じ述語を渡す
+    const batchRouteMatcher = (url: URL): boolean => isBatchPath(url.toString());
+    let currentDetail = '';
+    const failBatch = async (route: Route): Promise<void> => {
+      if (route.request().method() !== 'PATCH') {
+        await route.continue();
+        return;
+      }
+      await route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: currentDetail }),
+      });
+    };
+    /** 保存を押し、メタの一括更新の応答が expectedStatus であることを確かめる。 */
+    const save = async (expectedStatus: number): Promise<void> => {
+      const response = page.waitForResponse(
+        (r) => r.request().method() === 'PATCH' && isBatchPath(r.url()),
+        { timeout: getTimeout(30000) }
+      );
+      await saveButton.click();
+      expect((await response).status()).toBe(expectedStatus);
+    };
+
+    type Measure = {
+      viewport: { width: number; height: number };
+      alertRect: { top: number; bottom: number; left: number; right: number };
+      saveButtonBottom: number;
+      hits: boolean[];
+      alertInPanel: { leftGap: number; rightGap: number };
+      textInAlert: { leftGap: number; rightGap: number };
+      mainOverflow: number;
+      docOverflow: number;
+    };
+    const measures = new Map<string, Measure>();
+
+    let round = 0;
+    for (const reason of reasons) {
+      for (const width of [375, 320, 1280]) {
+        round += 1;
+        const key = `${reason.kind} / ${width}`;
+        await page.setViewportSize({ width, height: width <= 767 ? 812 : 800 });
+        currentDetail = reason.detail;
+
+        // コメントを編集して未保存にする
+        await textarea.click();
+        await textarea.fill(`編集_${round}_${stamp}`);
+        await textarea.blur();
+        await expect(page.getByTestId('dirty-indicator')).toBeVisible({
+          timeout: getTimeout(10000),
+        });
+
+        await page.route(batchRouteMatcher, failBatch);
+        try {
+          await save(400);
+          await expect(panelAlerts).toHaveCount(1, { timeout: getTimeout(10000) });
+        } finally {
+          await page.unroute(batchRouteMatcher, failBatch);
+        }
+        await expect(panelAlerts).toHaveText(reason.detail);
+        // role=alert は保存ボタンの近くの一つだけで、上部の枠は同じ文言を残す（22.1 の形）
+        await expect(mainAlerts).toHaveCount(1);
+        await expect(main.getByText(reason.detail, { exact: true })).toHaveCount(2);
+        await expect(saveButton).toHaveAttribute(
+          'aria-describedby',
+          (await panelAlerts.getAttribute('id'))!
+        );
+
+        // 押した直後の位置のまま測る（画面は動かさない）
+        const m = await panelAlerts.evaluate((el): Measure => {
+          const rect = el.getBoundingClientRect();
+          const style = getComputedStyle(el);
+          const panelEl = el.closest('[aria-label="写真項目管理パネル"]') as HTMLElement;
+          const panelRect = panelEl.getBoundingClientRect();
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          const textRect = range.getBoundingClientRect();
+          const contentLeft =
+            rect.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
+          const contentRight =
+            rect.right - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight);
+          const button = document.querySelector(
+            `[aria-describedby="${el.id}"]`
+          ) as HTMLElement | null;
+          // 中心と、内側へ 4px 寄せた四隅で当たり判定をする
+          const inset = 4;
+          const points: Array<[number, number]> = [
+            [rect.left + rect.width / 2, rect.top + rect.height / 2],
+            [rect.left + inset, rect.top + inset],
+            [rect.right - inset, rect.top + inset],
+            [rect.left + inset, rect.bottom - inset],
+            [rect.right - inset, rect.bottom - inset],
+          ];
+          const mainEl = el.closest('main') as HTMLElement;
+          return {
+            viewport: { width: window.innerWidth, height: window.innerHeight },
+            alertRect: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
+            saveButtonBottom: button?.getBoundingClientRect().bottom ?? Number.NaN,
+            hits: points.map(([x, y]) => {
+              const hit = document.elementFromPoint(x, y);
+              return hit !== null && (hit === el || el.contains(hit));
+            }),
+            alertInPanel: {
+              leftGap: rect.left - panelRect.left,
+              rightGap: panelRect.right - rect.right,
+            },
+            textInAlert: {
+              leftGap: textRect.left - contentLeft,
+              rightGap: contentRight - textRect.right,
+            },
+            mainOverflow: mainEl.scrollWidth - mainEl.clientWidth,
+            docOverflow:
+              document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          };
+        });
+        measures.set(key, m);
+
+        // やり直しの保存が成功すると、保存ボタンの近くの表示も上部の枠も消える
+        await save(200);
+        await expect(page.getByTestId('dirty-indicator')).toBeHidden({
+          timeout: getTimeout(15000),
+        });
+        await expect(panelAlerts).toHaveCount(0);
+        await expect(mainAlerts).toHaveCount(0);
+        await expect(main.getByText(reason.detail, { exact: true })).toHaveCount(0);
+        await expect(saveButton).not.toHaveAttribute('aria-describedby');
+      }
+    }
+
+    const allKeys = reasons.flatMap((r) => [375, 320, 1280].map((w) => `${r.kind} / ${w}`));
+    // 6 状態をすべて測れている（測り漏らした状態を緑に数えない）
+    expect([...measures.keys()]).toEqual(allKeys);
+    for (const key of allKeys) {
+      const m = measures.get(key)!;
+      const report = `${key}: ${JSON.stringify(m)}`;
+      // ビューポートの内側にあり、共通ヘッダなどに覆われていない
+      expect(m.alertRect.top, report).toBeGreaterThanOrEqual(0);
+      expect(m.alertRect.bottom, report).toBeLessThanOrEqual(m.viewport.height);
+      expect(m.alertRect.left, report).toBeGreaterThanOrEqual(0);
+      expect(m.alertRect.right, report).toBeLessThanOrEqual(m.viewport.width);
+      expect(m.hits, report).toEqual([true, true, true, true, true]);
+      // 保存ボタンの下にある
+      expect(m.alertRect.top, report).toBeGreaterThanOrEqual(m.saveButtonBottom);
+      // はみ出さず、長い文言でも破れない
+      expect(m.alertInPanel.leftGap, report).toBeGreaterThanOrEqual(0);
+      expect(m.alertInPanel.rightGap, report).toBeGreaterThanOrEqual(0);
+      expect(m.textInAlert.leftGap, report).toBeGreaterThanOrEqual(-1);
+      expect(m.textInAlert.rightGap, report).toBeGreaterThanOrEqual(-1);
+      expect(m.mainOverflow, report).toBeLessThanOrEqual(1);
+      expect(m.docOverflow, report).toBeLessThanOrEqual(1);
+    }
   });
 });
 

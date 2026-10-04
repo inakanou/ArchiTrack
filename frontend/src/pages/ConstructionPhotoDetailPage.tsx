@@ -85,6 +85,15 @@
  *   消去は変更前と同じくその種類だけを消す（保存の開始は失敗だけ、PDF・ZIP の開始と写真項目の
  *   追加は通知だけ）。自動で消えるタイマーは持たない
  *
+ * Task 22.2 変更: 利用者の判断（2026-10-04）で、保存の失敗を保存ボタンの近く（`PhotoItemPanel` の
+ *   保存ボタンの直後）にも表示する。上部の通知の枠は押した直後の位置で、375 幅で共通ヘッダの下、
+ *   1280 幅で共通ヘッダに覆われ、320 幅で画面の外になるためである。上部の枠の表示は 22.1 の形のまま
+ *   残す。近くの表示は `pageMessage` の保存の失敗（`isSaveFailure`）から描き、上部の枠と同じ契機で
+ *   消え、後から出たものに置き換わる。読み上げを二重にしないため、近くの表示がある間は近くの表示
+ *   だけを role=alert にし、上部の枠は同じ文言を role を持たずに描く。枠の role が変わるときは key で
+ *   要素を作り直し、role=alert の枠は常に新しく挿入する（既存の要素へ後から付けると支援技術によって
+ *   は読み上げられない）
+ *
  * Requirements: 4.1, 4.2, 5.1, 5.3, 6.1, 7.1, 7.3, 7.4, 7.5, 7.6, 7.8, 11.3, 11.4, 11.5,
  *   10.1, 10.3, 10.12, 10.13, 15.1, 15.5, 15.6, 15.7, 15.8, 15.9, 15.11, 17.1, 17.2, 17.3,
  *   17.4, 17.5, 18.1, 18.2, 18.3, 18.4
@@ -434,6 +443,12 @@ type PageMessageKind = 'notice' | 'error';
 interface PageMessage {
   kind: PageMessageKind;
   text: string;
+  /**
+   * 保存の失敗か（タスク 22.2）。真のとき、同じ文言を保存ボタンの近くにも role=alert で表示し、
+   * 上部の枠は role を持たずに描く（読み上げを二重にしない）。上部の枠と近くの表示は同じこの
+   * 状態から描くため、消える契機と後からの置き換えは揃う
+   */
+  isSaveFailure?: boolean;
 }
 
 export default function ConstructionPhotoDetailPage() {
@@ -493,9 +508,12 @@ export default function ConstructionPhotoDetailPage() {
   // その種類のものだけを消す（`clearPageMessage`）。アルバムの取得の失敗も失敗としてここに載り、
   // アルバムが無いときは本体の代わりにエラー画面を描く
   const [pageMessage, setPageMessage] = useState<PageMessage | null>(null);
-  const showPageMessage = useCallback((kind: PageMessageKind, text: string) => {
-    setPageMessage({ kind, text });
-  }, []);
+  const showPageMessage = useCallback(
+    (kind: PageMessageKind, text: string, options?: { isSaveFailure?: boolean }) => {
+      setPageMessage({ kind, text, isSaveFailure: options?.isSaveFailure ?? false });
+    },
+    []
+  );
   const clearPageMessage = useCallback((kind: PageMessageKind) => {
     setPageMessage((prev) => (prev?.kind === kind ? null : prev));
   }, []);
@@ -817,7 +835,9 @@ export default function ConstructionPhotoDetailPage() {
       }
       syncDirtyWithPending();
     } catch (err) {
-      showPageMessage('error', err instanceof ApiError ? err.message : '保存に失敗しました');
+      showPageMessage('error', err instanceof ApiError ? err.message : '保存に失敗しました', {
+        isSaveFailure: true,
+      });
     } finally {
       setIsSaving(false);
     }
@@ -1078,6 +1098,16 @@ export default function ConstructionPhotoDetailPage() {
     return null;
   }
 
+  // 保存の失敗は保存ボタンの近く（PhotoItemPanel）にも出す（タスク 22.2）。その間、上部の枠は同じ
+  // 文言を role を持たずに描き、読み上げは近くの表示（role=alert）の一度にする。保存ボタンが描かれ
+  // ない間（編集権限が無い・写真項目が無い）は近くの表示も無いため、上部の枠を role=alert で描く
+  // （role が変わるときは枠を作り直すため、新しく挿入された role=alert の枠として読み上げられる）
+  const isSaveFailureShown =
+    pageMessage?.kind === 'error' &&
+    pageMessage.isSaveFailure === true &&
+    canEdit &&
+    photos.length > 0;
+
   // ブレッドクラム（階層規約の共通化は Task 7.1 で実施予定）
   const breadcrumbItems: BreadcrumbItem[] = [
     { label: 'ダッシュボード', path: '/' },
@@ -1154,8 +1184,15 @@ export default function ConstructionPhotoDetailPage() {
         {/* 通知（部分失敗・保存エラーなど）。通知と失敗は一つの表示で、後から出たものが前のものを
             置き換える（タスク 22.1）。写真項目の削除の失敗は、その写真項目の中に PhotoItemPanel が
             表示する（タスク 23.9） */}
+        {/* role の有無が変わるときは key で要素を作り直す（タスク 22.2）。既存の要素へ後から
+            role=alert を付けると、支援技術によっては読み上げられないため、role=alert の枠は
+            常に新しく挿入する */}
         {pageMessage && (
-          <div role="alert" style={styles.notice}>
+          <div
+            key={isSaveFailureShown ? 'save-failure' : 'frame'}
+            role={isSaveFailureShown ? undefined : 'alert'}
+            style={styles.notice}
+          >
             {pageMessage.text}
           </div>
         )}
@@ -1185,6 +1222,7 @@ export default function ConstructionPhotoDetailPage() {
           onAssignSignboard={handleAssignSignboard}
           isDirty={isDirty}
           isSaving={isSaving}
+          saveFailure={isSaveFailureShown ? pageMessage.text : null}
           isLoading={isLoading}
           readOnly={!canEdit}
           showOrderNumbers

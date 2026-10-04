@@ -1240,6 +1240,187 @@ describe('PhotoItemPanel', () => {
   });
 
   // ==========================================================================
+  // 保存の失敗の表示（タスク 22.2）
+  // ==========================================================================
+
+  // 利用者の判断（2026-10-04）: 23.9 と同じ考え方で、保存の失敗を保存ボタンの近くにも表示する
+  // （上部の通知の枠は詳細画面に残る）。文言と消える契機は詳細画面が決め、本部品は渡された文言を
+  // 保存ボタンの直後に role=alert で描く
+  describe('保存の失敗の表示（タスク 22.2）', () => {
+    const SAVE_FAILED = '保存の失敗の理由';
+
+    function renderWithSaveFailure(saveFailure: string | null, extra: { readOnly?: boolean } = {}) {
+      return render(
+        <PhotoItemPanel
+          photos={[makePhoto({ id: 'p1' })]}
+          onPhotoMetadataChange={vi.fn()}
+          onSave={vi.fn()}
+          isDirty
+          saveFailure={saveFailure}
+          {...extra}
+        />
+      );
+    }
+
+    /** jsdom は scrollIntoView を実装していないため、呼び出しを観測できる形で差し込む */
+    function stubScrollIntoView() {
+      const scrollIntoView = vi.fn();
+      const original = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');
+      Object.defineProperty(Element.prototype, 'scrollIntoView', {
+        configurable: true,
+        writable: true,
+        value: scrollIntoView,
+      });
+      const restore = () => {
+        if (original) {
+          Object.defineProperty(Element.prototype, 'scrollIntoView', original);
+        } else {
+          delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+        }
+      };
+      return { scrollIntoView, restore };
+    }
+
+    it('保存の失敗を保存ボタンの直後に role=alert で表示し、保存ボタンの aria-describedby がその表示を指す', () => {
+      renderWithSaveFailure(SAVE_FAILED);
+
+      const saveButton = screen.getByRole('button', { name: '保存' });
+      const alert = screen.getByRole('alert');
+      expect(alert).toHaveTextContent(SAVE_FAILED);
+      // 写真項目の中ではなく、保存ボタンの近く（文書の順で保存ボタンの直後、写真項目より前）にある
+      expect(alert.closest('[data-testid="construction-photo-item"]')).toBeNull();
+      expect(saveButton.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING
+      );
+      const firstItem = screen.getByTestId('construction-photo-item');
+      expect(alert.compareDocumentPosition(firstItem) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING
+      );
+      expect(alert.id).not.toBe('');
+      expect(saveButton).toHaveAttribute('aria-describedby', alert.id);
+    });
+
+    it('区切りの無い長い文言でも折り返す（overflowWrap: anywhere と minWidth: 0）', () => {
+      renderWithSaveFailure('X'.repeat(300));
+      const alert = screen.getByRole('alert');
+      expect(alert.style.overflowWrap).toBe('anywhere');
+      expect(alert.style.minWidth).toBe('0px');
+    });
+
+    it('保存の失敗が無いときは表示せず、保存ボタンは aria-describedby を持たない', () => {
+      renderWithSaveFailure(null);
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '保存' })).not.toHaveAttribute('aria-describedby');
+    });
+
+    it('文言が消えると表示も aria-describedby も消える', () => {
+      const { rerender } = renderWithSaveFailure(SAVE_FAILED);
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+
+      rerender(
+        <PhotoItemPanel
+          photos={[makePhoto({ id: 'p1' })]}
+          onPhotoMetadataChange={vi.fn()}
+          onSave={vi.fn()}
+          isDirty
+          saveFailure={null}
+        />
+      );
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '保存' })).not.toHaveAttribute('aria-describedby');
+    });
+
+    it('表示が現れるたびに、その表示へ scrollIntoView({ block: "nearest" }) を 1 回だけ呼ぶ', () => {
+      const { scrollIntoView, restore } = stubScrollIntoView();
+      try {
+        const { rerender } = renderWithSaveFailure(null);
+        expect(scrollIntoView).not.toHaveBeenCalled();
+
+        const renderWith = (saveFailure: string | null) =>
+          rerender(
+            <PhotoItemPanel
+              photos={[makePhoto({ id: 'p1' })]}
+              onPhotoMetadataChange={vi.fn()}
+              onSave={vi.fn()}
+              isDirty
+              saveFailure={saveFailure}
+            />
+          );
+
+        renderWith(SAVE_FAILED);
+        expect(scrollIntoView).toHaveBeenCalledTimes(1);
+        expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole('alert'));
+        expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+
+        // やり直しの開始で一度消え、同じ文言で再び失敗したときも呼ぶ
+        renderWith(null);
+        expect(scrollIntoView).toHaveBeenCalledTimes(1);
+        renderWith(SAVE_FAILED);
+        expect(scrollIntoView).toHaveBeenCalledTimes(2);
+      } finally {
+        restore();
+      }
+    });
+
+    it('フォーカスを失っているときは、保存ボタンへ画面を送らずに戻す', () => {
+      const { restore } = stubScrollIntoView();
+      const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus');
+      try {
+        const { rerender } = renderWithSaveFailure(null);
+        (document.activeElement as HTMLElement | null)?.blur();
+        expect(document.activeElement).toBe(document.body);
+
+        rerender(
+          <PhotoItemPanel
+            photos={[makePhoto({ id: 'p1' })]}
+            onPhotoMetadataChange={vi.fn()}
+            onSave={vi.fn()}
+            isDirty
+            saveFailure={SAVE_FAILED}
+          />
+        );
+
+        const saveButton = screen.getByRole('button', { name: '保存' });
+        expect(document.activeElement).toBe(saveButton);
+        const calls = focusSpy.mock.contexts
+          .map((context, index) => ({ context, args: focusSpy.mock.calls[index] }))
+          .filter(({ context }) => context === saveButton);
+        expect(calls).toHaveLength(1);
+        expect(calls[0]!.args).toEqual([{ preventScroll: true }]);
+      } finally {
+        focusSpy.mockRestore();
+        restore();
+      }
+    });
+
+    it('保存の実行中に別の入力欄へ移ったフォーカスは奪わず、画面も動かさない（編集中の欄を画面の外へ出さない）', () => {
+      const { scrollIntoView, restore } = stubScrollIntoView();
+      try {
+        const { rerender } = renderWithSaveFailure(null);
+        const textarea = screen.getByLabelText('コメント');
+        textarea.focus();
+        expect(document.activeElement).toBe(textarea);
+
+        rerender(
+          <PhotoItemPanel
+            photos={[makePhoto({ id: 'p1' })]}
+            onPhotoMetadataChange={vi.fn()}
+            onSave={vi.fn()}
+            isDirty
+            saveFailure={SAVE_FAILED}
+          />
+        );
+
+        expect(screen.getByRole('alert')).toHaveTextContent(SAVE_FAILED);
+        expect(document.activeElement).toBe(textarea);
+        expect(scrollIntoView).not.toHaveBeenCalled();
+      } finally {
+        restore();
+      }
+    });
+  });
+
+  // ==========================================================================
   // コメントバリデーション（R7.2）とデバウンス再設定
   // ==========================================================================
 

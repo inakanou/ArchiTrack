@@ -46,11 +46,18 @@
  *   失敗）の後に閉じる。実行中は背後の別の写真項目の削除ボタン（キーボードで到達できる）を押しても
  *   確認の対象を変えないため、先行する削除の完了が別の写真項目の確認を閉じる経路も無い
  *
+ * Task 22.2 追加: 保存の失敗（`saveFailure`）を保存ボタンの直後に role=alert で表示し、保存ボタンの
+ *   `aria-describedby` で結び付ける（利用者の判断（2026-10-04）。23.9 と同じ考え方）。文言と消える
+ *   契機は詳細画面が決める。表示が現れたとき、フォーカスを失っているとき（保存の実行中はボタンが
+ *   無効）か保存ボタンにあるときだけ、画面の外へ出るなら `scrollIntoView({ block: 'nearest' })` で
+ *   表示の分だけ動かし、保存ボタンへ `focus({ preventScroll: true })` で戻す。別の欄へ移っていれば
+ *   どちらもしない
+ *
  * Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 9.6, 11.3, 15.6, 15.7,
  *   19.2, 19.3, 19.5
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type {
   ConstructionPhotoWithUrls,
   PhotoOrderItem,
@@ -96,6 +103,12 @@ export interface PhotoItemPanelProps {
   isDirty?: boolean;
   /** 保存中かどうか */
   isSaving?: boolean;
+  /**
+   * 保存の失敗の文言（タスク 22.2）。指定されている間、保存ボタンの直後に role=alert で表示し、
+   * 保存ボタンの `aria-describedby` で結び付ける。文言と消える契機は呼び出し元が決める（詳細画面は
+   * 上部の通知の枠と同じ一つの状態から渡す）。null・未指定のときは表示しない
+   */
+  saveFailure?: string | null;
   /**
    * 写真項目削除時のハンドラ。
    *
@@ -387,6 +400,20 @@ const styles = {
   // 位置を与え、写真項目と詳細画面の <main> を押し広げないためである（R19.1 と同じ扱い）
   deleteFailure: {
     margin: 0,
+    padding: '8px 12px',
+    minWidth: 0,
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fecaca',
+    borderRadius: '6px',
+    color: '#991b1b',
+    fontSize: '14px',
+    overflowWrap: 'anywhere' as const,
+  } as React.CSSProperties,
+  // 保存の失敗の表示（タスク 22.2）。色と枠は写真項目の削除の失敗の表示（deleteFailure）に揃える。
+  // overflowWrap:anywhere と minWidth:0 は、区切りの無い長い理由にも折り返し位置を与え、パネルと
+  // 詳細画面の <main> を押し広げないためである（R19.1 と同じ扱い）
+  saveFailure: {
+    margin: '0 0 16px',
     padding: '8px 12px',
     minWidth: 0,
     backgroundColor: '#fef2f2',
@@ -994,6 +1021,7 @@ export function PhotoItemPanel({
   onSave,
   isDirty = false,
   isSaving = false,
+  saveFailure = null,
   onDelete,
   showOrderButtons = true,
   onAssignSignboard,
@@ -1013,6 +1041,10 @@ export function PhotoItemPanel({
   // オブジェクトにし、同じ写真項目の再度の失敗でも effect を走らせる
   const [focusAfterFailure, setFocusAfterFailure] = useState<{ photoId: string } | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+  // 保存の失敗の表示（タスク 22.2）
+  const saveFailureId = `save-failure-${useId()}`;
+  const saveButtonRef = useRef<HTMLButtonElement | null>(null);
+  const saveFailureRef = useRef<HTMLParagraphElement | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
@@ -1186,6 +1218,29 @@ export function PhotoItemPanel({
     button?.focus({ preventScroll: true });
   }, [focusAfterFailure]);
 
+  /**
+   * 保存の失敗の表示が現れたら（タスク 22.2）、写真項目の削除の失敗（タスク 23.9）と同じく、表示が
+   * 画面の外へ出るときだけ表示の分だけ画面を動かし（`block: 'nearest'`。表示が画面内なら動かない）、
+   * 保存ボタンへ `focus({ preventScroll: true })` で戻して `aria-describedby` の表示を読ませ、その場で
+   * やり直せるようにする。どちらも、フォーカスを失っているとき（保存の実行中は保存ボタンが無効に
+   * なる）と保存ボタンにあるときだけ行う。実行中に利用者が別の欄（コメントの入力欄など）へ移って
+   * いれば、フォーカスを奪わず画面も動かさない（編集中の欄を画面の外へ出さない）。やり直しの開始で
+   * 文言が一度 null になるため、同じ文言の再度の失敗でも走る
+   */
+  useEffect(() => {
+    if (!saveFailure) return;
+    const button = saveButtonRef.current;
+    const active = document.activeElement;
+    // 実行中に利用者が別の欄へ移っていれば、画面もフォーカスも動かさない
+    if (!button || !(active === null || active === document.body || active === button)) return;
+    const element = saveFailureRef.current;
+    // jsdom など scrollIntoView を持たない環境では何もしない
+    if (element && typeof element.scrollIntoView === 'function') {
+      element.scrollIntoView({ block: 'nearest' });
+    }
+    button.focus({ preventScroll: true });
+  }, [saveFailure]);
+
   const deleteTargetPhoto = deleteTargetId ? photos.find((p) => p.id === deleteTargetId) : null;
 
   // ローディング（スケルトン）
@@ -1236,6 +1291,7 @@ export function PhotoItemPanel({
             )}
           </div>
           <button
+            ref={saveButtonRef}
             type="button"
             onClick={onSave}
             disabled={!isDirty || isSaving}
@@ -1244,10 +1300,19 @@ export function PhotoItemPanel({
               ...(!isDirty || isSaving ? styles.saveButtonDisabled : {}),
             }}
             aria-busy={isSaving}
+            aria-describedby={saveFailure ? saveFailureId : undefined}
           >
             {isSaving ? '保存中...' : '保存'}
           </button>
         </div>
+      )}
+
+      {/* 保存の失敗（タスク 22.2）。保存ボタンの直後（手動保存ヘッダの下、写真項目より前）に置き、
+          押した直後の位置で見えるようにする。上部の通知の枠は詳細画面に残る */}
+      {showSaveButton && saveFailure && (
+        <p ref={saveFailureRef} id={saveFailureId} role="alert" style={styles.saveFailure}>
+          {saveFailure}
+        </p>
       )}
 
       <div ref={listRef} style={styles.panelList}>

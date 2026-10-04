@@ -2182,7 +2182,7 @@ describe('ConstructionPhotoDetailPage', () => {
 
       fireEvent.click(screen.getByRole('button', { name: '保存' }));
 
-      expect(await screen.findByText('保存に失敗しました')).toBeInTheDocument();
+      expect(await screen.findAllByText('保存に失敗しました')).toHaveLength(2);
     });
 
     it('アルバム削除APIが失敗するとエラー通知を表示しダイアログを閉じる (R16.5)', async () => {
@@ -2419,8 +2419,11 @@ describe('ConstructionPhotoDetailPage', () => {
   // （保存・アルバムの削除・写真項目一覧の取得）を一つの状態にまとめ、後から出たものが前のものを
   // 置き換える。消えた後に古いものが再び現れない。消去はその種類のものだけを消す（変更前と同じ契機）
   describe('通知の枠の通知と失敗の置き換え（タスク 22.1）', () => {
-    /** 写真項目セクションの通知の枠（role=alert）の一覧 */
-    const frameAlerts = () => screen.queryAllByRole('alert');
+    /**
+     * 画面の role=alert の一覧（上部の枠と、保存の失敗の間の保存ボタンの近くの表示）。保存の失敗の
+     * 間は上部の枠が role を持たないため、読み上げられる表示の数を数える（タスク 22.2）
+     */
+    const announcedAlerts = () => screen.queryAllByRole('alert');
 
     async function failSave(message: string) {
       vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockRejectedValueOnce(
@@ -2451,9 +2454,9 @@ describe('ConstructionPhotoDetailPage', () => {
       await showNoPrintableNotice();
       await failSave('保存の失敗の理由');
 
-      expect(await screen.findByText('保存の失敗の理由')).toBeInTheDocument();
+      expect(await screen.findAllByText('保存の失敗の理由')).toHaveLength(2);
       expect(screen.queryByText(/印刷対象の写真がありません/)).not.toBeInTheDocument();
-      expect(frameAlerts()).toHaveLength(1);
+      expect(announcedAlerts()).toHaveLength(1);
     });
 
     it('保存の失敗が出ている間に通知が出ると、通知が見え、保存の失敗は置き換えられる', async () => {
@@ -2461,12 +2464,12 @@ describe('ConstructionPhotoDetailPage', () => {
       await screen.findByRole('img', { name: /a\.jpg/ });
 
       await failSave('保存の失敗の理由');
-      expect(await screen.findByText('保存の失敗の理由')).toBeInTheDocument();
+      expect(await screen.findAllByText('保存の失敗の理由')).toHaveLength(2);
 
       await showNoPrintableNotice();
 
-      expect(screen.queryByText('保存の失敗の理由')).not.toBeInTheDocument();
-      expect(frameAlerts()).toHaveLength(1);
+      expect(screen.queryAllByText('保存の失敗の理由')).toHaveLength(0);
+      expect(announcedAlerts()).toHaveLength(1);
     });
 
     it('保存の失敗を置き換えた通知が消えても、古い保存の失敗は再び現れない', async () => {
@@ -2488,8 +2491,8 @@ describe('ConstructionPhotoDetailPage', () => {
         expect(screen.queryByText(/印刷対象の写真がありません/)).not.toBeInTheDocument();
       });
 
-      expect(screen.queryByText('保存の失敗の理由')).not.toBeInTheDocument();
-      expect(frameAlerts()).toHaveLength(0);
+      expect(screen.queryAllByText('保存の失敗の理由')).toHaveLength(0);
+      expect(announcedAlerts()).toHaveLength(0);
     });
 
     it('通知を置き換えた保存の失敗が、やり直しの保存で消えても、古い通知は再び現れない', async () => {
@@ -2498,7 +2501,7 @@ describe('ConstructionPhotoDetailPage', () => {
 
       await showNoPrintableNotice();
       await failSave('保存の失敗の理由');
-      expect(await screen.findByText('保存の失敗の理由')).toBeInTheDocument();
+      expect(await screen.findAllByText('保存の失敗の理由')).toHaveLength(2);
 
       // 未保存の変更は残っているため、保存をやり直せる。開始で失敗は消える
       vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockResolvedValueOnce(
@@ -2508,11 +2511,11 @@ describe('ConstructionPhotoDetailPage', () => {
         fireEvent.click(screen.getByRole('button', { name: '保存' }));
       });
       await waitFor(() => {
-        expect(screen.queryByText('保存の失敗の理由')).not.toBeInTheDocument();
+        expect(screen.queryAllByText('保存の失敗の理由')).toHaveLength(0);
       });
 
       expect(screen.queryByText(/印刷対象の写真がありません/)).not.toBeInTheDocument();
-      expect(frameAlerts()).toHaveLength(0);
+      expect(announcedAlerts()).toHaveLength(0);
     });
 
     it('アップロードの失敗の通知が出ている間にアルバムの削除が失敗すると、削除の失敗が見える', async () => {
@@ -2540,7 +2543,7 @@ describe('ConstructionPhotoDetailPage', () => {
 
       expect(await screen.findByText('アルバムの削除に失敗しました')).toBeInTheDocument();
       expect(screen.queryByText(/全1件の追加に失敗しました/)).not.toBeInTheDocument();
-      expect(frameAlerts()).toHaveLength(1);
+      expect(announcedAlerts()).toHaveLength(1);
     });
 
     it('ZIP の失敗の通知が出ている間に保存が失敗すると、保存の失敗が見える', async () => {
@@ -2562,7 +2565,7 @@ describe('ConstructionPhotoDetailPage', () => {
 
       await failSave('保存の失敗の理由');
 
-      expect(await screen.findByText('保存の失敗の理由')).toBeInTheDocument();
+      expect(await screen.findAllByText('保存の失敗の理由')).toHaveLength(2);
       expect(screen.queryByText('エクスポートに失敗しました')).not.toBeInTheDocument();
     });
 
@@ -2576,7 +2579,7 @@ describe('ConstructionPhotoDetailPage', () => {
       await screen.findByRole('img', { name: /a\.jpg/ });
 
       await failSave('保存の失敗の理由');
-      expect(await screen.findByText('保存の失敗の理由')).toBeInTheDocument();
+      expect(await screen.findAllByText('保存の失敗の理由')).toHaveLength(2);
 
       await act(async () => {
         fireEvent.change(screen.getByTestId('file-input'), {
@@ -2585,7 +2588,7 @@ describe('ConstructionPhotoDetailPage', () => {
       });
       expect(await screen.findByRole('img', { name: /c\.jpg/ })).toBeInTheDocument();
 
-      expect(screen.getByText('保存の失敗の理由')).toBeInTheDocument();
+      expect(screen.getAllByText('保存の失敗の理由')).toHaveLength(2);
     });
 
     it('消去はその種類のものだけを消す: 保存の開始（失敗の消去）は表示中の通知を消さない', async () => {
@@ -2607,6 +2610,203 @@ describe('ConstructionPhotoDetailPage', () => {
       });
 
       expect(screen.getByText(/印刷対象の写真がありません/)).toBeInTheDocument();
+    });
+  });
+
+  // タスク 22.2: 利用者の判断（2026-10-04）で、保存の失敗を保存ボタンの近くにも表示する。上部の
+  // 通知の枠の表示は 22.1 の形のまま残す。読み上げが二重にならないよう、保存の失敗のときは保存
+  // ボタンの近くの表示だけを role=alert にし、上部の枠は同じ文言を role を持たずに描く。近くの表示は
+  // 上部の枠と同じ一つの状態（pageMessage）から描くため、消える契機と置き換えは上部の枠と揃う
+  describe('保存の失敗の保存ボタンの近くの表示（タスク 22.2）', () => {
+    const SAVE_FAILED = '保存の失敗の理由';
+    const panel = () => screen.getByRole('region', { name: '写真項目管理パネル' });
+
+    async function failSave(message: string) {
+      vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockRejectedValueOnce(
+        new ApiError(500, message)
+      );
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      fireEvent.click(within(firstItem).getByLabelText('印刷対象に含める'));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+      });
+    }
+
+    it('保存が失敗すると、同じ文言が上部の枠と保存ボタンの近くに出て、role=alert は保存ボタンの近くの一つだけ', async () => {
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      await failSave(SAVE_FAILED);
+
+      const shown = await screen.findAllByText(SAVE_FAILED);
+      expect(shown).toHaveLength(2);
+      const alerts = screen.getAllByRole('alert');
+      expect(alerts).toHaveLength(1);
+      const [nearAlert] = alerts;
+      // 保存ボタンの近く（写真項目管理パネルの中、写真項目の外）にあり、保存ボタンが指す
+      expect(within(panel()).getByRole('alert')).toBe(nearAlert);
+      expect(nearAlert!.closest('[data-testid="construction-photo-item"]')).toBeNull();
+      expect(nearAlert).toHaveTextContent(SAVE_FAILED);
+      expect(screen.getByRole('button', { name: '保存' })).toHaveAttribute(
+        'aria-describedby',
+        nearAlert!.id
+      );
+      // 上部の枠はパネルの外に同じ文言で残る（role は持たない）
+      const frame = shown.find((el) => !panel().contains(el));
+      expect(frame).toBeDefined();
+      expect(frame).not.toHaveAttribute('role');
+    });
+
+    it('保存のやり直しが成功すると、上部の枠と保存ボタンの近くの両方が消える', async () => {
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      await failSave(SAVE_FAILED);
+      expect(await screen.findAllByText(SAVE_FAILED)).toHaveLength(2);
+
+      vi.mocked(imagesApi.updateConstructionPhotoMetadataBatch).mockResolvedValueOnce(
+        undefined as never
+      );
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+      });
+      await waitFor(() => {
+        expect(screen.queryAllByText(SAVE_FAILED)).toHaveLength(0);
+      });
+      expect(screen.queryAllByRole('alert')).toHaveLength(0);
+      expect(screen.getByRole('button', { name: '保存' })).not.toHaveAttribute('aria-describedby');
+    });
+
+    it('保存の失敗が後の通知に置き換わると、保存ボタンの近くの表示も消え、通知は上部の枠に role=alert で出る', async () => {
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      await failSave(SAVE_FAILED);
+      expect(await screen.findAllByText(SAVE_FAILED)).toHaveLength(2);
+
+      vi.mocked(ledgerExportApi.exportConstructionPhotoLedger).mockResolvedValueOnce({
+        generated: false,
+        reason: 'no-printable',
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
+      });
+      await screen.findByText(/印刷対象の写真がありません/);
+
+      expect(screen.queryAllByText(SAVE_FAILED)).toHaveLength(0);
+      expect(within(panel()).queryAllByRole('alert')).toHaveLength(0);
+      const alerts = screen.getAllByRole('alert');
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]).toHaveTextContent(/印刷対象の写真がありません/);
+    });
+
+    /** 上部の枠（写真項目管理パネルの外にある、指定の文言の要素）を返す */
+    const topFrameWith = (text: string | RegExp): HTMLElement => {
+      const found = screen.getAllByText(text).filter((el) => !panel().contains(el));
+      expect(found).toHaveLength(1);
+      return found[0]!;
+    };
+
+    it('保存の失敗の後の通知は、新しく挿入された role=alert の枠で出る（role を後から付け直さない）', async () => {
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      await failSave(SAVE_FAILED);
+      expect(await screen.findAllByText(SAVE_FAILED)).toHaveLength(2);
+      const frameDuringSaveFailure = topFrameWith(SAVE_FAILED);
+      expect(frameDuringSaveFailure).not.toHaveAttribute('role');
+
+      vi.mocked(ledgerExportApi.exportConstructionPhotoLedger).mockResolvedValueOnce({
+        generated: false,
+        reason: 'no-printable',
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
+      });
+      await screen.findByText(/印刷対象の写真がありません/);
+
+      const [noticeFrame] = screen.getAllByRole('alert');
+      expect(noticeFrame).toHaveTextContent(/印刷対象の写真がありません/);
+      // 保存の失敗の間の枠の要素は外れ、通知は別の要素として挿入されている
+      expect(noticeFrame).not.toBe(frameDuringSaveFailure);
+      expect(frameDuringSaveFailure.isConnected).toBe(false);
+    });
+
+    it('写真項目を 0 件まで取り除くと（保存ボタンが描かれない）、上部の枠は新しく挿入された role=alert の枠で保存の失敗を示す', async () => {
+      vi.mocked(imagesApi.deleteConstructionPhoto).mockResolvedValue(undefined as never);
+
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      await failSave(SAVE_FAILED);
+      expect(await screen.findAllByText(SAVE_FAILED)).toHaveLength(2);
+      const frameDuringSaveFailure = topFrameWith(SAVE_FAILED);
+
+      for (const fileName of ['a.jpg', 'b.jpg']) {
+        fireEvent.click(screen.getByRole('button', { name: `写真項目を削除: ${fileName}` }));
+        const dialog = await screen.findByRole('dialog', { name: '写真項目を削除' });
+        await act(async () => {
+          fireEvent.click(within(dialog).getByRole('button', { name: '削除する' }));
+        });
+        await waitFor(() => {
+          expect(screen.queryByRole('dialog', { name: '写真項目を削除' })).not.toBeInTheDocument();
+        });
+      }
+      expect(await screen.findByText('写真項目がありません')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '保存' })).not.toBeInTheDocument();
+
+      // 保存ボタンの近くの表示が無いため、上部の枠が role=alert で示す（読み上げを失わない）
+      const alerts = screen.getAllByRole('alert');
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]).toHaveTextContent(SAVE_FAILED);
+      expect(screen.getAllByText(SAVE_FAILED)).toHaveLength(1);
+      expect(alerts[0]).not.toBe(frameDuringSaveFailure);
+      expect(frameDuringSaveFailure.isConnected).toBe(false);
+    });
+
+    it('編集権限が無くなると（保存ボタンが描かれない）、上部の枠が role=alert で保存の失敗を示す', async () => {
+      const { rerender } = renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      await failSave(SAVE_FAILED);
+      expect(await screen.findAllByText(SAVE_FAILED)).toHaveLength(2);
+
+      mockUseConstructionPhotoPermission.mockReturnValue({
+        ...fullPermission,
+        canEdit: false,
+        canDelete: false,
+      });
+      rerender(
+        <BrowserRouter>
+          <ConstructionPhotoDetailPage />
+        </BrowserRouter>
+      );
+
+      expect(screen.queryByRole('button', { name: '保存' })).not.toBeInTheDocument();
+      const alerts = screen.getAllByRole('alert');
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]).toHaveTextContent(SAVE_FAILED);
+      expect(panel().contains(alerts[0]!)).toBe(false);
+    });
+
+    it('保存でない失敗（アルバムの削除の失敗）は上部の枠に role=alert で出て、保存ボタンの近くには出ない', async () => {
+      vi.mocked(albumsApi.deleteConstructionPhotoAlbum).mockRejectedValue(new Error('del fail'));
+
+      renderPage();
+      await screen.findByRole('img', { name: /a\.jpg/ });
+
+      fireEvent.click(screen.getByRole('button', { name: '削除' }));
+      const dialog = await screen.findByRole('dialog');
+      await act(async () => {
+        fireEvent.click(within(dialog).getByRole('button', { name: '削除' }));
+      });
+
+      expect(await screen.findAllByText('アルバムの削除に失敗しました')).toHaveLength(1);
+      const alerts = screen.getAllByRole('alert');
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]).toHaveTextContent('アルバムの削除に失敗しました');
+      expect(panel().contains(alerts[0]!)).toBe(false);
+      expect(screen.getByRole('button', { name: '保存' })).not.toHaveAttribute('aria-describedby');
     });
   });
 });
