@@ -1726,6 +1726,375 @@ test.describe('工事写真 追加機能フロー', () => {
   });
 
   /**
+   * R19.3 モバイル幅の看板の配置のダイアログの操作ボタンのタップ領域:
+   * 375 幅と 320 幅で工事写真の詳細画面から看板の配置のダイアログを開き、ダイアログの操作ボタン
+   * （ダイアログの末尾の「キャンセル」と、配置エディタの操作列の「保存」）が、44×44 論理ピクセル
+   * 以上のタップ領域で描かれることを実ブラウザの外接矩形で検証する。看板が「未指定」の状態（開いた
+   * 直後）と、看板を選んだ状態（操作列に看板のバッジと案内文が並ぶ）の両方で測る。
+   *
+   * @requirement construction-photo/REQ-19.3
+   *
+   * 経緯（2026-10-04、タスク 24.3）: ダイアログの「キャンセル」（`SignboardAssignDialog.tsx` の
+   * `styles.cancelButton`）と「保存」（`SignboardPlacementEditor.tsx` の `styles.saveButton`）は
+   * モバイル用の上書きを持たず、下限に届かなかった。利用者の判断（2026-10-04）で受入基準 19.3 の
+   * 対象に含め、写真項目の操作ボタン（タスク 21.2）と同じ上書き（`utils/tap-target` の下限を
+   * min-width / min-height に課す形）をモバイル幅でのみ合成した。ダイアログの末尾の行の操作ボタンは
+   * 「キャンセル」だけであり、「保存」は配置エディタの操作列にある（ダイアログのもう一つの操作
+   * ボタンとして含めた）。看板マスタへのリンクはタスク 23.2 で既に下限を持つ。
+   *
+   * 44 は本テストが自前で綴る（上の写真項目の操作のテストの注記と同じ理由）。
+   *
+   * 前提（満たされなければ失敗させる。条件付きで飛ばさない）:
+   *  - 画面幅（window.innerWidth）が設定した幅に一致し、写真項目が縦積みのモバイル分岐に確定
+   *    している（デスクトップ幅では縦積みでない）。
+   *  - 二つの状態の測定がすべての幅で揃い、測る対象の要素がすべて在る。
+   *
+   * 併せて、上書きが配置を崩さないことを主張する。二つのボタンが、ダイアログの他の要素（看板の
+   * 選択・看板マスタへのリンク・配置エディタの画像の枠・操作列の他の要素）および互いと重ならない
+   * こと、ダイアログの本体の左右の内側にあること、ダイアログの本体と文書全体に水平のはみ出しが
+   * 無いこと（許容誤差 1px）である。
+   *
+   * デスクトップ幅（768・1280）では寸法を変えない。二つのボタンの計算済みの min-width /
+   * min-height が上書きの無い既定値（auto）のままであり、高さが 44 未満である（モバイル用の上書きが
+   * 当たっていない）ことを主張する。外接矩形の寸法の固定値は主張しない（寸法は描画のフォントに
+   * 依存し、ローカルと CI の E2E でフォントが異なるため）。
+   *
+   * 二つの状態・四つの幅をすべて測ってから主張する。赤になるときに、どの状態が何 px だったかを
+   * 一度の失敗で読めるようにするためである。
+   *
+   * 写真は 100×100 の PNG を使う。配置エディタの画像の枠は写真の幅（上限 600）で描かれるため、
+   * 実寸の大きい写真ではモバイル幅で枠がダイアログの本体より広くなる（1920×1080 の写真で枠 602、
+   * 本体の scrollWidth 626 / clientWidth 343。タスク 24.3 の前からある挙動で、本テストの境界の外）。
+   *
+   * 是正の経緯（2026-10-04、タスク 24.3）: 上書きを足す前の本番ビルドでは赤だった。375・320 幅の
+   * 二つの状態のすべてで「キャンセル」104×39・「保存」60×33 であり、高さが下限に届かない。是正後は
+   * 「キャンセル」104×44・「保存」60×44 で（幅は文言の内容で 44 を超えており、動いたのは高さだけ
+   * である）、768・1280 幅は 104×39・60×33 のまま変わらない（いずれもローカルの test 環境のフォント
+   * での実測の記録であり、主張には用いない）。
+   */
+  test('モバイル幅（375・320）で看板の配置のダイアログの操作ボタン（キャンセル・保存）が 44×44 以上のタップ領域を持ち、デスクトップ幅では寸法が変わらない', async ({
+    page,
+  }) => {
+    // 検証の側の下限。実装の定数は取り込まない
+    const TAP_TARGET_MIN_PX = 44;
+    const HORIZONTAL_TOLERANCE_PX = 1;
+    const MOBILE_WIDTHS = [375, 320];
+    const DESKTOP_WIDTHS = [768, 1280];
+    const stamp = Date.now();
+    const signboardName = `ダイアログ操作E2E看板_${stamp}`;
+    // 配置エディタの画像の枠が隣の要素として意味のある大きさを持つよう、100×100 の写真を使う
+    // （1×1 の JPEG では枠が 3×3 になる）
+    const fileName = `dialog_tap_${stamp}.png`;
+
+    const desktopViewport = page.viewportSize();
+    expect(desktopViewport).not.toBeNull();
+
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'dialog-tap-target');
+    const albumId = await createAlbum(page, projectId, `ダイアログ操作_${stamp}`);
+
+    // 配置用の工事看板を登録する（上の看板配置のテストと同じ手順）
+    await page.goto(`/projects/${projectId}/construction-signboards`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { name: '工事看板マスタ' })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await page.getByRole('button', { name: '新規登録' }).click();
+    await page.getByLabel('工事件名').fill(signboardName);
+    await page.getByLabel('工事場所').fill('ダイアログ操作E2E現場');
+    const createSignboardResp = page.waitForResponse(
+      (r) => r.request().method() === 'POST' && /\/construction-signboards/.test(r.url()),
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByRole('button', { name: '登録' }).click();
+    await createSignboardResp;
+    await expect(page.getByRole('row').filter({ hasText: signboardName })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    const upload = page.waitForResponse(
+      (r) => r.request().method() === 'POST' && /\/construction-photos\/.+\/images$/.test(r.url()),
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByTestId('file-input').setInputFiles({
+      name: fileName,
+      mimeType: 'image/png',
+      buffer: fs.readFileSync(FIXTURE_PNG),
+    });
+    await upload;
+    const items = page.getByTestId('construction-photo-item');
+    await expect(items).toHaveCount(1, { timeout: getTimeout(20000) });
+
+    interface Rect {
+      left: number;
+      right: number;
+      top: number;
+      bottom: number;
+      width: number;
+      height: number;
+    }
+    interface ButtonMeasurement {
+      rect: Rect;
+      minWidth: string;
+      minHeight: string;
+    }
+    interface DialogMeasurement {
+      label: string;
+      width: number;
+      viewportWidth: number;
+      documentOverflow: number;
+      content: Rect & { scrollWidth: number; clientWidth: number };
+      cancel: ButtonMeasurement | null;
+      save: ButtonMeasurement | null;
+      neighbours: Array<{ name: string; rect: Rect }>;
+    }
+    const measurements: DialogMeasurement[] = [];
+
+    const measureDialog = async (
+      dialog: import('@playwright/test').Locator,
+      width: number,
+      label: string
+    ): Promise<void> => {
+      const m = await dialog.evaluate((root) => {
+        const rect = (target: Element): Rect => {
+          const r = target.getBoundingClientRect();
+          return {
+            left: r.left,
+            right: r.right,
+            top: r.top,
+            bottom: r.bottom,
+            width: r.width,
+            height: r.height,
+          };
+        };
+        const button = (target: Element | undefined) => {
+          if (!target) return null;
+          const style = getComputedStyle(target);
+          return { rect: rect(target), minWidth: style.minWidth, minHeight: style.minHeight };
+        };
+        const content = root.querySelector('[data-testid="signboard-assign-content"]') as Element;
+        const editorEl = root.querySelector('[data-testid="signboard-placement-editor"]');
+        const buttons = Array.from(root.querySelectorAll('button'));
+        const cancelEl = buttons.find((el) => (el.textContent ?? '').trim() === 'キャンセル');
+        const saveEl = buttons.find((el) => (el.textContent ?? '').trim() === '保存');
+        const toolbar = saveEl?.parentElement ?? null;
+        const neighbours: Array<{ name: string; rect: Rect }> = [];
+        const select = root.querySelector('#signboard-assign-select');
+        if (select) neighbours.push({ name: '看板の選択', rect: rect(select) });
+        const masterLink = root.querySelector('[data-testid="signboard-master-link"]');
+        if (masterLink) neighbours.push({ name: '看板マスタへのリンク', rect: rect(masterLink) });
+        // 配置エディタの最初の子が画像の枠（canvas を包む）である
+        const canvasFrame = editorEl?.firstElementChild ?? null;
+        if (canvasFrame?.querySelector('canvas')) {
+          neighbours.push({ name: '画像の枠', rect: rect(canvasFrame) });
+        }
+        if (toolbar) {
+          Array.from(toolbar.children)
+            .filter((el) => el !== saveEl)
+            .forEach((el) =>
+              neighbours.push({ name: `操作列の ${(el.textContent ?? '').trim()}`, rect: rect(el) })
+            );
+        }
+        return {
+          viewportWidth: window.innerWidth,
+          documentOverflow:
+            document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          content: {
+            ...rect(content),
+            scrollWidth: content.scrollWidth,
+            clientWidth: content.clientWidth,
+          },
+          cancel: button(cancelEl),
+          save: button(saveEl),
+          neighbours,
+        };
+      });
+      measurements.push({ label, width, ...m });
+    };
+
+    for (const width of [...MOBILE_WIDTHS, ...DESKTOP_WIDTHS]) {
+      const isMobileWidth = MOBILE_WIDTHS.includes(width);
+      await page.setViewportSize({ width, height: 812 });
+      await page.goto(`/construction-photos/${albumId}`);
+      await page.waitForLoadState('networkidle');
+      await expect(items, `${width} 幅`).toHaveCount(1, { timeout: getTimeout(20000) });
+      // 前提: 画面がその幅の分岐に確定している（`useMediaQuery` は初期描画でデスクトップ側に
+      // なり得るため、モバイル幅では写真項目の縦積みを待つ）
+      await expect
+        .poll(
+          async () =>
+            items
+              .first()
+              .evaluate((el) => getComputedStyle(el as HTMLElement).flexDirection === 'column'),
+          { message: `${width} 幅`, timeout: getTimeout(15000) }
+        )
+        .toBe(isMobileWidth);
+
+      await items
+        .first()
+        .getByRole('button', { name: `看板を配置: ${fileName}` })
+        .click();
+      const assignDialog = page.getByRole('dialog', { name: '看板を配置' });
+      await expect(assignDialog, `${width} 幅`).toBeVisible({ timeout: getTimeout(10000) });
+      const editor = assignDialog.getByTestId('signboard-placement-editor');
+      await expect(editor, `${width} 幅`).toBeVisible({ timeout: getTimeout(10000) });
+      // 前提: 配置エディタの画像の枠が写真の大きさで描かれている（枠が潰れていると、隣の要素の
+      // 重なりの主張が空振りする）
+      const frameHeight = async (): Promise<number> =>
+        editor.evaluate((el) => el.firstElementChild?.getBoundingClientRect().height ?? 0);
+      await expect(editor.getByText('看板は未指定です'), `${width} 幅`).toBeVisible();
+      await expect
+        .poll(frameHeight, { message: `${width} 幅`, timeout: getTimeout(15000) })
+        .toBeGreaterThan(TAP_TARGET_MIN_PX);
+      await measureDialog(assignDialog, width, `${width} 幅・看板が未指定`);
+
+      await assignDialog.locator('#signboard-assign-select').selectOption({ label: signboardName });
+      await expect(editor.getByTestId('signboard-indicator'), `${width} 幅`).toContainText(
+        signboardName
+      );
+      await expect
+        .poll(frameHeight, { message: `${width} 幅`, timeout: getTimeout(15000) })
+        .toBeGreaterThan(TAP_TARGET_MIN_PX);
+      await measureDialog(assignDialog, width, `${width} 幅・看板を選択`);
+
+      // 「キャンセル」で閉じる（保存しない）
+      await assignDialog.getByRole('button', { name: 'キャンセル' }).click();
+      await expect(assignDialog, `${width} 幅`).toBeHidden({ timeout: getTimeout(10000) });
+    }
+    await page.setViewportSize(desktopViewport!);
+
+    // 二つの状態・四つの幅をすべて測れている（測り漏らした状態を緑に数えない）
+    expect(measurements.map((m) => m.label)).toEqual(
+      [...MOBILE_WIDTHS, ...DESKTOP_WIDTHS].flatMap((w) => [
+        `${w} 幅・看板が未指定`,
+        `${w} 幅・看板を選択`,
+      ])
+    );
+
+    const size = (r: Rect): string => `${r.width}×${r.height}`;
+    const report = measurements
+      .map(
+        (m) =>
+          `${m.label}: キャンセル ${m.cancel ? size(m.cancel.rect) : 'なし'}` +
+          `（min ${m.cancel?.minWidth}/${m.cancel?.minHeight}・左 ${m.cancel?.rect.left}・右 ${m.cancel?.rect.right}）、` +
+          `保存 ${m.save ? size(m.save.rect) : 'なし'}` +
+          `（min ${m.save?.minWidth}/${m.save?.minHeight}・左 ${m.save?.rect.left}・右 ${m.save?.rect.right}）、` +
+          `本体 左 ${m.content.left}・右 ${m.content.right}・${m.content.scrollWidth}/${m.content.clientWidth}、` +
+          `文書のはみ出し ${m.documentOverflow}、` +
+          `隣 ${m.neighbours.map((n) => `${n.name} ${size(n.rect)}@${n.rect.top}`).join('・')}`
+      )
+      .join(' ｜ ');
+
+    // 前提: 画面幅が設定した幅であり、測る対象がすべて在る
+    expect(
+      measurements.map((m) => m.viewportWidth),
+      report
+    ).toEqual(measurements.map((m) => m.width));
+    for (const m of measurements) {
+      expect(m.cancel, `${m.label} ｜ ${report}`).not.toBeNull();
+      expect(m.save, `${m.label} ｜ ${report}`).not.toBeNull();
+      // 看板の選択・看板マスタへのリンク・画像の枠と、操作列の他の要素（1〜2 個）
+      expect(m.neighbours.length, `${m.label} ｜ ${report}`).toBeGreaterThanOrEqual(4);
+    }
+
+    const mobile = measurements.filter((m) => MOBILE_WIDTHS.includes(m.width));
+    const desktop = measurements.filter((m) => DESKTOP_WIDTHS.includes(m.width));
+    const tooSmall = (r: Rect): boolean =>
+      r.width < TAP_TARGET_MIN_PX || r.height < TAP_TARGET_MIN_PX;
+    const overlaps = (a: Rect, b: Rect): boolean =>
+      a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+
+    // R19.3: モバイル幅でダイアログの操作ボタンのタップ領域が 44×44 以上である
+    expect(
+      mobile.flatMap((m) =>
+        (
+          [
+            ['キャンセル', m.cancel!],
+            ['保存', m.save!],
+          ] as const
+        )
+          .filter(([, b]) => tooSmall(b.rect))
+          .map(([name, b]) => `${m.label}: ${name} ${size(b.rect)}`)
+      ),
+      report
+    ).toEqual([]);
+
+    // 上書きが配置を崩さない: 二つのボタンが互いと、ダイアログの他の要素と重ならない
+    expect(
+      measurements.flatMap((m) => [
+        ...(overlaps(m.cancel!.rect, m.save!.rect) ? [`${m.label}: キャンセル×保存`] : []),
+        ...m.neighbours.flatMap((n) =>
+          (
+            [
+              ['キャンセル', m.cancel!],
+              ['保存', m.save!],
+            ] as const
+          )
+            .filter(([, b]) => overlaps(b.rect, n.rect))
+            .map(([name]) => `${m.label}: ${name}×${n.name}`)
+        ),
+      ]),
+      report
+    ).toEqual([]);
+    // 上書きが配置を崩さない: 二つのボタンがダイアログの本体の左右の内側にある
+    expect(
+      measurements
+        .filter((m) =>
+          [m.cancel!.rect, m.save!.rect].some(
+            (r) =>
+              r.left < m.content.left - HORIZONTAL_TOLERANCE_PX ||
+              r.right > m.content.right + HORIZONTAL_TOLERANCE_PX
+          )
+        )
+        .map((m) => m.label),
+      report
+    ).toEqual([]);
+    // 上書きが配置を崩さない: ダイアログの本体と文書全体に水平のはみ出しが無い（許容誤差1px）
+    expect(
+      measurements
+        .filter(
+          (m) =>
+            m.content.scrollWidth - m.content.clientWidth > HORIZONTAL_TOLERANCE_PX ||
+            m.documentOverflow > HORIZONTAL_TOLERANCE_PX
+        )
+        .map((m) => m.label),
+      report
+    ).toEqual([]);
+
+    // デスクトップ幅では上書きが当たらない（計算済みの min-width / min-height が既定値のまま）
+    expect(
+      desktop.flatMap((m) =>
+        (
+          [
+            ['キャンセル', m.cancel!],
+            ['保存', m.save!],
+          ] as const
+        )
+          .filter(([, b]) => b.minWidth !== 'auto' || b.minHeight !== 'auto')
+          .map(([name, b]) => `${m.label}: ${name} min ${b.minWidth}/${b.minHeight}`)
+      ),
+      report
+    ).toEqual([]);
+    // デスクトップ幅では上書きが当たらない: 二つのボタンの高さが 44 未満のまま（フォントに依存する
+    // 固定値は主張しない）
+    expect(
+      desktop.flatMap((m) =>
+        (
+          [
+            ['キャンセル', m.cancel!],
+            ['保存', m.save!],
+          ] as const
+        )
+          .filter(([, b]) => b.rect.height >= TAP_TARGET_MIN_PX)
+          .map(([name, b]) => `${m.label}: ${name} ${size(b.rect)}`)
+      ),
+      report
+    ).toEqual([]);
+  });
+
+  /**
    * R19.4 モバイル幅のブレッドクラム:
    * 375 幅で工事写真の詳細画面を開き、長いプロジェクト名・アルバム名を載せたブレッドクラムが
    * 水平にはみ出さないことを検証する。対象画面は Requirement 19（工事写真詳細画面の

@@ -102,7 +102,12 @@ vi.mock('fabric', () => {
   };
 });
 
+vi.mock('../../hooks/useMediaQuery', () => ({
+  default: vi.fn(() => false),
+}));
+
 import SignboardPlacementEditor from './SignboardPlacementEditor';
+import useMediaQuery from '../../hooks/useMediaQuery';
 
 // ============================================================================
 // フィクスチャ
@@ -142,6 +147,8 @@ beforeEach(() => {
   addedObjects.length = 0;
   mockCanvasInstance.__clearHandlers();
   vi.clearAllMocks();
+  // 既定はデスクトップ幅。テストの順序に依存しないよう毎回戻す
+  vi.mocked(useMediaQuery).mockReturnValue(false);
   mockCanvasInstance.backgroundImage = null;
 });
 
@@ -247,6 +254,42 @@ describe('SignboardPlacementEditor', () => {
     const toolbar = badge.parentElement as HTMLElement;
     expect(toolbar).toContainElement(screen.getByRole('button', { name: '保存' }));
     expect(toolbar.style.flexWrap).toBe('wrap');
+  });
+
+  // タスク 24.3: 利用者の判断（2026-10-04）で看板の配置のダイアログの操作ボタンを受入基準 19.3 の
+  // 対象に含め、モバイル幅でのみ「保存」にタップ領域の下限を合成する。デスクトップ幅の寸法は
+  // 変えない。44 は検証の側が自前で綴る（実装の定数を取り込まない）。実寸の主張は E2E が担う
+  describe('「保存」のタップ領域（タスク 24.3）', () => {
+    const px = (raw: string): number => {
+      const parsed = parseFloat(raw);
+      return Number.isNaN(parsed) ? 0 : parsed;
+    };
+
+    it('R19.3: モバイル幅では「保存」のタップ領域が 44×44 以上になる（看板の未指定・指定のどちらでも）', async () => {
+      vi.mocked(useMediaQuery).mockReturnValue(true);
+      for (const target of [null, signboard]) {
+        const { unmount } = render(
+          <SignboardPlacementEditor photo={photo} signboard={target} onSave={vi.fn()} />
+        );
+        await waitFor(() => expect(mockFromURL).toHaveBeenCalled());
+        const save = screen.getByRole('button', { name: '保存' });
+        expect(Math.max(px(save.style.minWidth), px(save.style.width))).toBeGreaterThanOrEqual(44);
+        expect(Math.max(px(save.style.minHeight), px(save.style.height))).toBeGreaterThanOrEqual(
+          44
+        );
+        unmount();
+      }
+    });
+
+    it('デスクトップ幅では「保存」にタップ領域の下限を合成しない（寸法を変えない）', async () => {
+      vi.mocked(useMediaQuery).mockReturnValue(false);
+      render(<SignboardPlacementEditor photo={photo} signboard={signboard} onSave={vi.fn()} />);
+      await waitFor(() => expect(mockFromURL).toHaveBeenCalled());
+
+      const save = screen.getByRole('button', { name: '保存' });
+      expect(save.style.minWidth).toBe('');
+      expect(save.style.minHeight).toBe('');
+    });
   });
 });
 

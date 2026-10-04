@@ -348,4 +348,33 @@ describe('SignboardAssignDialog の看板マスタへの導線（タスク 23.2�
       expect(onSave).toHaveBeenCalledWith(null, null);
     });
   });
+
+  // タスク 24.3: 利用者の判断（2026-10-04）でダイアログの操作ボタンを受入基準 19.3 の対象に含め、
+  // モバイル幅でのみタップ領域の下限を合成する（写真項目の操作ボタンと同じ扱い）。デスクトップ幅の
+  // 寸法は変えない。実寸の主張は E2E が担う（jsdom はレイアウトを持たない）
+  describe('ダイアログの操作ボタンのタップ領域（タスク 24.3）', () => {
+    it('R19.3: モバイル幅では「キャンセル」のタップ領域が 44×44 以上になる', () => {
+      vi.mocked(useMediaQuery).mockReturnValue(true);
+      renderDialog({ signboards: [signboard], signboardMasterPath: MASTER_PATH });
+
+      const cancel = within(screen.getByRole('dialog', { name: '看板を配置' })).getByRole(
+        'button',
+        { name: 'キャンセル' }
+      );
+      expect(tapWidth(cancel)).toBeGreaterThanOrEqual(44);
+      expect(tapHeight(cancel)).toBeGreaterThanOrEqual(44);
+    });
+
+    it('デスクトップ幅では「キャンセル」にタップ領域の下限を合成しない（寸法を変えない）', () => {
+      vi.mocked(useMediaQuery).mockReturnValue(false);
+      renderDialog({ signboards: [signboard], signboardMasterPath: MASTER_PATH });
+
+      const cancel = within(screen.getByRole('dialog', { name: '看板を配置' })).getByRole(
+        'button',
+        { name: 'キャンセル' }
+      );
+      expect(cancel.style.minWidth).toBe('');
+      expect(cancel.style.minHeight).toBe('');
+    });
+  });
 });

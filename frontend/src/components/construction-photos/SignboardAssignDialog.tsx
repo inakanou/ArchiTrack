@@ -19,6 +19,10 @@
  * 確認のダイアログをこのダイアログの背後に隠さないためである。モバイル幅では、リンクのタップ
  * 領域を横断ルールの下限（`TAP_TARGET_MIN_PX`）以上にする（R19、詳細画面の他の操作と同じ扱い）。
  *
+ * タスク 24.3: 利用者の判断（2026-10-04）でダイアログの操作ボタンを受入基準 19.3 の対象に含めた。
+ * モバイル幅でのみ「キャンセル」へ同じ下限を合成する（配置エディタの「保存」はエディタの側で合成
+ * する）。デスクトップ幅の寸法は変えない。
+ *
  * 「登録されていません」は、看板の一覧の取得が成功して0件だったときだけ述べる（是正 1 巡目）。
  * 親は取得の状態（`signboardsStatus`）を渡す。取得の失敗は詳細画面の他の失敗の表示と同じく
  * role=alert で示し、0件とは述べない。看板の閲覧の権限が無い（親は取得しない。取得しても 403 で
@@ -210,6 +214,11 @@ const styles = {
     color: '#374151',
     border: '1px solid #d1d5db',
   } as React.CSSProperties,
+  // モバイル幅でのみ合成するタップ領域の下限（R19.3, タスク 24.3。写真項目の操作ボタンと同じ出所）
+  cancelButtonMobile: {
+    minWidth: `${TAP_TARGET_MIN_PX}px`,
+    minHeight: `${TAP_TARGET_MIN_PX}px`,
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -352,7 +361,14 @@ export function SignboardAssignDialog({
         )}
 
         <div style={styles.footer}>
-          <button type="button" onClick={onClose} style={styles.cancelButton}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              ...styles.cancelButton,
+              ...(isMobile ? styles.cancelButtonMobile : {}),
+            }}
+          >
             キャンセル
           </button>
         </div>

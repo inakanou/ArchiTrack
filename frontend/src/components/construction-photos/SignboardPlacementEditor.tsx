@@ -11,6 +11,10 @@
  * 座標換算は純関数 {@link module:components/construction-photos/signboard-placement-geometry}
  * に集約し、本コンポーネントは fabric 連携とコールバック契約のみを担う。
  *
+ * タスク 24.3: モバイル幅でのみ「保存」のタップ領域を横断ルールの下限（`TAP_TARGET_MIN_PX`）以上に
+ * する（R19.3。利用者の判断（2026-10-04）で看板の配置のダイアログの操作ボタンを対象に含めた）。
+ * デスクトップ幅の寸法は変えない。
+ *
  * Requirements:
  * - 9.1: 看板の表示位置・大きさを画像ピクセル座標で確定する
  * - 9.2: 看板の指定は任意（未指定を許可）
@@ -31,6 +35,9 @@ import type {
   ConstructionSignboard,
   SignboardPlacement,
 } from '../../types/construction-photo.types';
+import useMediaQuery from '../../hooks/useMediaQuery';
+import { MEDIA_QUERIES } from '../../utils/responsive';
+import { TAP_TARGET_MIN_PX } from '../../utils/tap-target';
 import {
   computeDisplaySize,
   displayRectToPlacement,
@@ -119,6 +126,12 @@ const styles = {
     fontSize: '14px',
     cursor: 'pointer',
   } as React.CSSProperties,
+  // モバイル幅でのみ合成するタップ領域の下限（R19.3, タスク 24.3。看板の配置のダイアログの
+  // 「キャンセル」・写真項目の操作ボタンと同じ出所）。デスクトップ幅の寸法は変えない
+  saveButtonMobile: {
+    minWidth: `${TAP_TARGET_MIN_PX}px`,
+    minHeight: `${TAP_TARGET_MIN_PX}px`,
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -136,6 +149,7 @@ export default function SignboardPlacementEditor({
   onChange,
   onSave,
 }: SignboardPlacementEditorProps): React.ReactElement {
+  const isMobile = useMediaQuery(MEDIA_QUERIES.isMobile);
   const canvasElRef = useRef<HTMLCanvasElement | null>(null);
   const canvasRef = useRef<FabricCanvas | null>(null);
   const rectRef = useRef<Rect | null>(null);
@@ -284,7 +298,14 @@ export default function SignboardPlacementEditor({
         {hasSignboard && (
           <span style={styles.hint}>ドラッグで移動、ハンドルで大きさを調整できます</span>
         )}
-        <button type="button" style={styles.saveButton} onClick={handleSave}>
+        <button
+          type="button"
+          style={{
+            ...styles.saveButton,
+            ...(isMobile ? styles.saveButtonMobile : {}),
+          }}
+          onClick={handleSave}
+        >
           保存
         </button>
       </div>
