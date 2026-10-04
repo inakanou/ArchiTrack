@@ -28,6 +28,9 @@
  *  8b. 権限出し分け（編集権限なし）: construction_photo:update を持たないロールでは、写真項目の
  *     追加・コメント編集・並び替え・印刷対象変更・看板配置・保存・写真項目削除の操作手段が
  *     表示されず、閲覧の要素は表示される。対照として admin では同じ操作手段が表示される（R17.1）
+ *  8c. 看板マスタの権限の出し分け: admin では「新規登録」と各行の「編集」「削除」が表示され、
+ *     user（construction_signboard:delete を持たない）では削除だけが表示されず、看板の閲覧の
+ *     権限だけのロールでは三つの操作のいずれも表示されない（R17.4, タスク 23.8）
  *  9. 未保存離脱警告（アプリ内遷移）: 未保存状態でのアプリ内遷移で確認ダイアログ→とどまる／
  *     保存後は警告なし（R18.2, R18.3）
  * 10. 未保存離脱警告（ブラウザ reload/タブ閉じ = beforeunload）: 未保存状態で beforeunload の
@@ -904,6 +907,181 @@ test.describe('工事写真 追加機能フロー', () => {
       await expect(assignSignboard).toHaveCount(0);
       await expect(saveButton).toHaveCount(0);
       await expect(deletePhotoItem).toHaveCount(0);
+    } finally {
+      // 後始末の失敗が本体の失敗を上書きしないよう、各段を個別に捕まえて記録する
+      if (viewerUserId) {
+        const id = viewerUserId;
+        await runCleanup(() => prisma.user.delete({ where: { id } }));
+      }
+      if (viewerRoleId) {
+        const roleId = viewerRoleId;
+        await runCleanup(() => prisma.rolePermission.deleteMany({ where: { roleId } }));
+        await runCleanup(() => prisma.role.delete({ where: { id: roleId } }));
+      }
+    }
+    // 本体が成功したときだけ到達する。後始末の失敗はここで失敗として表に出す
+    expect(cleanupErrors).toEqual([]);
+  });
+
+  /**
+   * 看板マスタの権限の出し分け（タスク 23.8）:
+   * 看板マスタの画面は、権限の無い操作（新規登録・編集・削除）を表示しない。判定は
+   * `useConstructionPhotoPermission`（`usePermission` 経由）の `construction_signboard:*` で行い、
+   * 権威はバックエンドの RBAC のままである。
+   *
+   * @requirement construction-photo/REQ-17.4
+   *
+   * シードの実際の権限に沿って主張する（前提は画面が受け取った GET /api/v1/auth/me の
+   * permissions で確かめ、満たされなければ失敗させる。条件付きで飛ばさない）:
+   *  - admin は `*:*` を持ち、三つの操作がすべて表示される（不在の主張が、画面が描かれていない
+   *    だけで成り立たないための対照を兼ねる）
+   *  - user は `construction_signboard:{create,read,update}` を持ち `construction_signboard:delete` を
+   *    持たない。「新規登録」と「編集」は表示され、「削除」だけが表示されない
+   *  - 看板の閲覧の権限だけのロール（既存のシードに無いため本テスト専用の非システムロールを作る。
+   *    user ロールの権限は書き換えない）では、三つの操作のいずれも表示されず、操作の列も出ない。
+   *    一覧そのもの（工事件名）は表示される
+   */
+  test('権限出し分け: 看板マスタは admin では新規登録・編集・削除を表示し、user では削除を表示せず、閲覧だけのロールではいずれも表示しない', async ({
+    page,
+  }) => {
+    const prisma = getPrismaClient();
+    const stamp = Date.now();
+    const signboardName = `看板権限E2E_${stamp}`;
+    const viewerEmail = `cs-viewer-${stamp}@example.com`;
+    const viewerPassword = 'ViewerPass123!';
+    const viewerRoleName = `e2e_construction_signboard_viewer_${stamp}`;
+    const viewerPermissionKeys = ['construction_signboard:read', 'project:read'];
+
+    /** 看板マスタを開き、画面の読み込みで画面が受け取る /api/v1/auth/me の permissions を得る。 */
+    const openMasterAndReadPermissions = async (projectId: string): Promise<string[]> => {
+      const meResponse = page.waitForResponse(
+        (r) =>
+          r.request().method() === 'GET' &&
+          new URL(r.url()).pathname === '/api/v1/auth/me' &&
+          r.status() === 200,
+        { timeout: getTimeout(30000) }
+      );
+      await page.goto(`/projects/${projectId}/construction-signboards`);
+      const body = (await (await meResponse).json()) as { permissions?: string[] };
+      await page.waitForLoadState('networkidle');
+      await expect(page.getByRole('heading', { name: '工事看板マスタ' })).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+      expect(Array.isArray(body.permissions)).toBe(true);
+      return body.permissions ?? [];
+    };
+
+    const switchUser = async (): Promise<void> => {
+      await page.context().clearCookies();
+      await page.evaluate(() => localStorage.clear());
+    };
+
+    const newButton = page.getByRole('button', { name: '新規登録' });
+    const row = page.getByRole('row').filter({ hasText: signboardName });
+    const editButton = row.getByRole('button', { name: '編集', exact: true });
+    const deleteButton = row.getByRole('button', { name: '削除', exact: true });
+    const actionsHeader = page.getByRole('columnheader', { name: '操作' });
+
+    const cleanupErrors: string[] = [];
+    const runCleanup = async (step: () => Promise<unknown>): Promise<void> => {
+      try {
+        await step();
+      } catch (error) {
+        cleanupErrors.push(error instanceof Error ? error.message : String(error));
+      }
+    };
+
+    let viewerUserId: string | null = null;
+    let viewerRoleId: string | null = null;
+    try {
+      // admin: 前件（*:*）を確かめ、看板を1件登録し、三つの操作がすべて表示されることを主張する
+      await loginAsUser(page, 'ADMIN_USER');
+      const projectId = await createProject(page, 'signboard-permission');
+      const adminPermissions = await openMasterAndReadPermissions(projectId);
+      expect(adminPermissions).toContain('*:*');
+
+      await expect(newButton).toBeVisible();
+      await newButton.click();
+      await page.getByLabel('工事件名').fill(signboardName);
+      await page.getByLabel('工事場所').fill('看板権限E2E現場');
+      const createSignboardResp = page.waitForResponse(
+        (r) =>
+          r.request().method() === 'POST' &&
+          /\/api\/projects\/[0-9a-f-]+\/construction-signboards$/.test(new URL(r.url()).pathname),
+        { timeout: getTimeout(30000) }
+      );
+      await page.getByRole('button', { name: '登録' }).click();
+      expect((await createSignboardResp).status()).toBe(201);
+      await expect(row).toBeVisible({ timeout: getTimeout(15000) });
+      await expect(newButton).toBeVisible();
+      await expect(actionsHeader).toBeVisible();
+      await expect(editButton).toBeVisible();
+      await expect(deleteButton).toBeVisible();
+
+      // user: 前件（看板の作成・閲覧・編集を持ち、削除を持たない）を確かめ、削除だけが表示されない
+      await switchUser();
+      await loginAsUser(page, 'REGULAR_USER');
+      const userPermissions = await openMasterAndReadPermissions(projectId);
+      expect(userPermissions).toEqual(
+        expect.arrayContaining([
+          'construction_signboard:create',
+          'construction_signboard:read',
+          'construction_signboard:update',
+        ])
+      );
+      expect(userPermissions).not.toContain('construction_signboard:delete');
+      expect(userPermissions).not.toContain('*:*');
+
+      await expect(row).toBeVisible({ timeout: getTimeout(15000) });
+      await expect(newButton).toBeVisible();
+      await expect(actionsHeader).toBeVisible();
+      await expect(editButton).toBeVisible();
+      await expect(deleteButton).toHaveCount(0);
+
+      // 看板の閲覧の権限だけのロールと利用者を用意する
+      const permissions = await prisma.permission.findMany({
+        where: {
+          OR: viewerPermissionKeys.map((key) => {
+            const [resource, action] = key.split(':');
+            return { resource, action };
+          }),
+        },
+      });
+      expect(permissions.map((p) => `${p.resource}:${p.action}`).sort()).toEqual(
+        [...viewerPermissionKeys].sort()
+      );
+      const viewerRole = await prisma.role.create({
+        data: {
+          name: viewerRoleName,
+          description: 'E2E: 工事看板の閲覧のみ（construction-photo/REQ-17.4, タスク 23.8）',
+          isSystem: false,
+        },
+      });
+      viewerRoleId = viewerRole.id;
+      await prisma.rolePermission.createMany({
+        data: permissions.map((p) => ({ roleId: viewerRole.id, permissionId: p.id })),
+      });
+      const viewer = await prisma.user.create({
+        data: {
+          email: viewerEmail,
+          displayName: 'E2E 看板閲覧専用',
+          passwordHash: await hashPassword(viewerPassword),
+        },
+      });
+      viewerUserId = viewer.id;
+      await prisma.userRole.create({ data: { userId: viewer.id, roleId: viewerRole.id } });
+
+      // 閲覧だけのロール: 前件（画面が受け取った権限が閲覧の権限そのもの）を確かめ、いずれも表示しない
+      await switchUser();
+      await loginWithCredentials(page, viewerEmail, viewerPassword);
+      const viewerPermissions = await openMasterAndReadPermissions(projectId);
+      expect([...viewerPermissions].sort()).toEqual([...viewerPermissionKeys].sort());
+
+      await expect(row).toBeVisible({ timeout: getTimeout(15000) });
+      await expect(newButton).toHaveCount(0);
+      await expect(actionsHeader).toHaveCount(0);
+      await expect(page.getByRole('button', { name: '編集', exact: true })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: '削除', exact: true })).toHaveCount(0);
     } finally {
       // 後始末の失敗が本体の失敗を上書きしないよう、各段を個別に捕まえて記録する
       if (viewerUserId) {

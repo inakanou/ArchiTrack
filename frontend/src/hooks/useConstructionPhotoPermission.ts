@@ -12,6 +12,11 @@
  * 資源の権限で守られている（backend の看板の全ルートが `construction_signboard:*` を要求する）ため、
  * 写真の権限からは導かない。
  *
+ * タスク 23.8 追加: 看板マスタの画面が権限の無い操作（新規登録・編集・削除）を表示しないため、
+ * `construction_signboard:{create,update,delete}` の保持状況を canCreateSignboards /
+ * canEditSignboards / canDeleteSignboards として返す。23.2 と同じく写真の権限からは導かない。
+ * UI の出し分けは体験の向上であり、権威はバックエンドの RBAC（requirePermission）である。
+ *
  * 判定は既存の汎用 usePermission（RBAC権限駆動、ワイルドカード対応、
  * 未ロード時false）に委譲し、ロールを直書きしない。
  *
@@ -47,6 +52,21 @@ export interface ConstructionPhotoPermission {
    * 看板マスタへの導線を出すかどうかの判定に使う（タスク 23.2）
    */
   canViewSignboards: boolean;
+  /**
+   * 工事看板の作成権限（construction_signboard:create）があるか。
+   * 看板マスタの「新規登録」を出すかどうかの判定に使う（タスク 23.8）
+   */
+  canCreateSignboards: boolean;
+  /**
+   * 工事看板の編集権限（construction_signboard:update）があるか。
+   * 看板マスタの各行の「編集」を出すかどうかの判定に使う（タスク 23.8）
+   */
+  canEditSignboards: boolean;
+  /**
+   * 工事看板の削除権限（construction_signboard:delete）があるか。
+   * 看板マスタの各行の「削除」を出すかどうかの判定に使う（タスク 23.8）
+   */
+  canDeleteSignboards: boolean;
   /** 権限情報がロード中か */
   isLoading: boolean;
   /** 権限エラーメッセージを取得する */
@@ -142,6 +162,25 @@ export function useConstructionPhotoPermission(): ConstructionPhotoPermission {
   }, [hasPermission, isLoading]);
 
   /**
+   * 工事看板の作成・編集・削除の権限（construction_signboard:create/update/delete）
+   * ロード中は安全側でfalse（R17.5）
+   */
+  const canCreateSignboards = useMemo(() => {
+    if (isLoading) return false;
+    return hasPermission('construction_signboard:create');
+  }, [hasPermission, isLoading]);
+
+  const canEditSignboards = useMemo(() => {
+    if (isLoading) return false;
+    return hasPermission('construction_signboard:update');
+  }, [hasPermission, isLoading]);
+
+  const canDeleteSignboards = useMemo(() => {
+    if (isLoading) return false;
+    return hasPermission('construction_signboard:delete');
+  }, [hasPermission, isLoading]);
+
+  /**
    * 権限エラーメッセージを取得
    *
    * 指定されたアクションに対する権限がない場合、エラーメッセージを返す。
@@ -171,6 +210,9 @@ export function useConstructionPhotoPermission(): ConstructionPhotoPermission {
     canEdit,
     canDelete,
     canViewSignboards,
+    canCreateSignboards,
+    canEditSignboards,
+    canDeleteSignboards,
     isLoading,
     getPermissionError,
   };

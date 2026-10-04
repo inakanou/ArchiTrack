@@ -20,6 +20,7 @@ import * as signboardsApi from '../api/construction-signboards';
 import { ApiError } from '../api/client';
 import type { ProjectDetail } from '../types/project.types';
 import type { ConstructionSignboard } from '../types/construction-photo.types';
+import type { ConstructionPhotoPermission } from '../hooks/useConstructionPhotoPermission';
 
 const routerState = vi.hoisted(() => ({ projectId: 'project-123' as string | undefined }));
 vi.mock('react-router-dom', async () => {
@@ -42,6 +43,25 @@ const mockToast = {
 vi.mock('../hooks/useToast', () => ({
   useToast: () => mockToast,
 }));
+
+const mockUseConstructionPhotoPermission = vi.fn();
+vi.mock('../hooks/useConstructionPhotoPermission', () => ({
+  useConstructionPhotoPermission: () => mockUseConstructionPhotoPermission(),
+}));
+
+/** admin 相当（看板の全操作の権限を持つ） */
+const fullPermission: ConstructionPhotoPermission = {
+  canView: true,
+  canCreate: true,
+  canEdit: true,
+  canDelete: true,
+  canViewSignboards: true,
+  canCreateSignboards: true,
+  canEditSignboards: true,
+  canDeleteSignboards: true,
+  isLoading: false,
+  getPermissionError: () => null,
+};
 
 const mockProject: ProjectDetail = {
   id: 'project-123',
@@ -93,6 +113,7 @@ describe('ConstructionSignboardListPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     routerState.projectId = 'project-123';
+    mockUseConstructionPhotoPermission.mockReturnValue(fullPermission);
     vi.mocked(projectsApi.getProject).mockResolvedValue(mockProject);
     vi.mocked(signboardsApi.getConstructionSignboards).mockResolvedValue([
       signboardUnused,
@@ -358,10 +379,197 @@ describe('ConstructionSignboardListPage', () => {
       });
     });
   });
+
+  describe('権限に基づく看板の操作の出し分け（タスク 23.8）', () => {
+    /** 一覧の描画を待ち、看板の行を返す */
+    const waitForRows = async (): Promise<[HTMLElement, HTMLElement]> => {
+      await waitFor(() => expect(screen.getByText('基礎工事')).toBeInTheDocument());
+      return [
+        screen.getByText('基礎工事').closest('tr') as HTMLElement,
+        screen.getByText('鉄骨工事').closest('tr') as HTMLElement,
+      ];
+    };
+
+    it('看板の作成・編集・削除の権限を全て持つ（admin 相当）と、新規登録と各行の編集・削除を表示する', async () => {
+      renderComponent();
+      const rows = await waitForRows();
+
+      expect(screen.getByRole('button', { name: '新規登録' })).toBeInTheDocument();
+      expect(screen.getByRole('columnheader', { name: '操作' })).toBeInTheDocument();
+      for (const row of rows) {
+        expect(within(row).getByRole('button', { name: '編集' })).toBeInTheDocument();
+        expect(within(row).getByRole('button', { name: '削除' })).toBeInTheDocument();
+      }
+    });
+
+    it('削除の権限を持たない（user 相当）と、各行の削除を表示せず、新規登録と編集は表示する', async () => {
+      mockUseConstructionPhotoPermission.mockReturnValue({
+        ...fullPermission,
+        canDelete: false,
+        canDeleteSignboards: false,
+      });
+
+      renderComponent();
+      const rows = await waitForRows();
+
+      expect(screen.getByRole('button', { name: '新規登録' })).toBeInTheDocument();
+      for (const row of rows) {
+        expect(within(row).getByRole('button', { name: '編集' })).toBeInTheDocument();
+        expect(within(row).queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
+      }
+    });
+
+    it('作成の権限を持たないと新規登録を表示しない', async () => {
+      mockUseConstructionPhotoPermission.mockReturnValue({
+        ...fullPermission,
+        canCreateSignboards: false,
+      });
+
+      renderComponent();
+      const rows = await waitForRows();
+
+      expect(screen.queryByRole('button', { name: '新規登録' })).not.toBeInTheDocument();
+      expect(within(rows[0]).getByRole('button', { name: '編集' })).toBeInTheDocument();
+      expect(within(rows[0]).getByRole('button', { name: '削除' })).toBeInTheDocument();
+    });
+
+    it('編集の権限を持たないと各行の編集を表示せず、削除は表示する', async () => {
+      mockUseConstructionPhotoPermission.mockReturnValue({
+        ...fullPermission,
+        canEditSignboards: false,
+      });
+
+      renderComponent();
+      const rows = await waitForRows();
+
+      expect(screen.getByRole('button', { name: '新規登録' })).toBeInTheDocument();
+      for (const row of rows) {
+        expect(within(row).queryByRole('button', { name: '編集' })).not.toBeInTheDocument();
+        expect(within(row).getByRole('button', { name: '削除' })).toBeInTheDocument();
+      }
+    });
+
+    it('閲覧の権限だけでは新規登録・編集・削除のいずれも表示せず、操作の列も出さない', async () => {
+      mockUseConstructionPhotoPermission.mockReturnValue({
+        ...fullPermission,
+        canCreate: false,
+        canEdit: false,
+        canDelete: false,
+        canCreateSignboards: false,
+        canEditSignboards: false,
+        canDeleteSignboards: false,
+      });
+
+      renderComponent();
+      await waitForRows();
+
+      // 一覧そのもの（工事件名・工事場所・使用件数）は表示する
+      expect(screen.getByText('鉄骨工事')).toBeInTheDocument();
+      expect(screen.getByText('3件')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '新規登録' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '編集' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('columnheader', { name: '操作' })).not.toBeInTheDocument();
+    });
+
+    it('権限情報のロード中は権限を持っていても操作を表示しない（安全側）', async () => {
+      mockUseConstructionPhotoPermission.mockReturnValue({
+        ...fullPermission,
+        canView: false,
+        canCreate: false,
+        canEdit: false,
+        canDelete: false,
+        canViewSignboards: false,
+        canCreateSignboards: false,
+        canEditSignboards: false,
+        canDeleteSignboards: false,
+        isLoading: true,
+      });
+
+      renderComponent();
+      await waitForRows();
+
+      expect(screen.queryByRole('button', { name: '新規登録' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '編集' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '削除' })).not.toBeInTheDocument();
+    });
+
+    // 権限が画面を開いた後に取り上げられた等の競合で 403 が返ったときも、権威はバックエンドの
+    // RBAC である。そのとき応答の英語の符号（FORBIDDEN）でなく、権限が無い旨を日本語で示す
+    it('新規登録が 403 で拒否されると、権限が無い旨をトーストで示す', async () => {
+      vi.mocked(signboardsApi.createConstructionSignboard).mockRejectedValue(
+        new ApiError(403, 'FORBIDDEN')
+      );
+
+      renderComponent();
+      await waitForRows();
+
+      fireEvent.click(screen.getByRole('button', { name: '新規登録' }));
+      fireEvent.change(screen.getByLabelText(/工事件名/), { target: { value: '内装工事' } });
+      fireEvent.change(screen.getByLabelText(/工事場所/), { target: { value: '港区' } });
+      fireEvent.click(screen.getByRole('button', { name: '登録' }));
+
+      await waitFor(() => {
+        expect(mockToast.error).toHaveBeenCalledWith('工事看板を登録する権限がありません');
+      });
+      expect(mockToast.error).not.toHaveBeenCalledWith('FORBIDDEN');
+    });
+
+    it('編集の更新が 403 で拒否されると、権限が無い旨をトーストで示す', async () => {
+      vi.mocked(signboardsApi.updateConstructionSignboard).mockRejectedValue(
+        new ApiError(403, 'FORBIDDEN')
+      );
+
+      renderComponent();
+      const rows = await waitForRows();
+
+      fireEvent.click(within(rows[1]).getByRole('button', { name: '編集' }));
+      await waitFor(() => {
+        expect(screen.getByLabelText(/工事件名/)).toHaveValue('鉄骨工事');
+      });
+      fireEvent.click(screen.getByRole('button', { name: '更新' }));
+
+      await waitFor(() => {
+        expect(mockToast.error).toHaveBeenCalledWith('工事看板を編集する権限がありません');
+      });
+      expect(mockToast.error).not.toHaveBeenCalledWith('FORBIDDEN');
+    });
+
+    it('削除が 403 で拒否されると、権限が無い旨をトーストで示す', async () => {
+      vi.mocked(signboardsApi.deleteConstructionSignboard).mockRejectedValue(
+        new ApiError(403, 'FORBIDDEN')
+      );
+
+      renderComponent();
+      const rows = await waitForRows();
+
+      fireEvent.click(within(rows[0]).getByRole('button', { name: '削除' }));
+      const dialog = await screen.findByRole('dialog');
+      fireEvent.click(within(dialog).getByRole('button', { name: '削除する' }));
+
+      await waitFor(() => {
+        expect(mockToast.error).toHaveBeenCalledWith('工事看板を削除する権限がありません');
+      });
+      expect(mockToast.error).not.toHaveBeenCalledWith('FORBIDDEN');
+    });
+
+    it('看板の一覧の取得が 403 で拒否されると、権限が無い旨をエラーとして示す', async () => {
+      vi.mocked(signboardsApi.getConstructionSignboards).mockRejectedValue(
+        new ApiError(403, 'FORBIDDEN')
+      );
+
+      renderComponent();
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent('工事看板を閲覧する権限がありません');
+      expect(alert).not.toHaveTextContent('FORBIDDEN');
+    });
+  });
 });
 
 /**
  * Requirements coverage (construction-photo) — requirement-coverage tags.
  * 各IDは本ファイル内の対応テストが検証する受入基準（監査でエビデンス確認済み）。
  * @requirement construction-photo/REQ-8.8
+ * @requirement construction-photo/REQ-17.4
  */

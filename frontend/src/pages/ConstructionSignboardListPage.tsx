@@ -10,6 +10,10 @@
  * 注: ルート登録（routes.tsx）はこのタスクの境界外（Task 7.1）。フォームは本ページ内に
  * SignboardForm として描画する。
  *
+ * タスク 23.8: 権限の無い操作（新規登録・編集・削除）は表示しない。判定は
+ * useConstructionPhotoPermission（usePermission 経由、ロード中は false）に揃える。権威は
+ * バックエンドの RBAC で、競合で 403 が返ったときは応答の符号でなく権限が無い旨を日本語で示す。
+ *
  * Requirements:
  * - 8.1: 看板の新規登録
  * - 8.2, 8.3, 8.4: 標準項目＋自由項目＋固定テキスト（SignboardForm）
@@ -32,6 +36,7 @@ import {
 import { getProject } from '../api/projects';
 import { ApiError } from '../api/client';
 import { useToast } from '../hooks/useToast';
+import { useConstructionPhotoPermission } from '../hooks/useConstructionPhotoPermission';
 import { SignboardForm } from '../components/construction-photos/SignboardForm';
 import { Breadcrumb } from '../components/common';
 import type { BreadcrumbItem } from '../components/common';
@@ -236,6 +241,35 @@ const styles = {
 };
 
 // ============================================================================
+// 権限の無い操作の文言（R17.4, タスク 23.8）
+// ============================================================================
+
+/** 看板の操作の種類ごとの、権限が無い旨の文言 */
+const SIGNBOARD_FORBIDDEN_MESSAGES = {
+  view: '工事看板を閲覧する権限がありません',
+  create: '工事看板を登録する権限がありません',
+  edit: '工事看板を編集する権限がありません',
+  delete: '工事看板を削除する権限がありません',
+} as const;
+
+/**
+ * 看板の API の失敗を表示する文言にする。
+ *
+ * 権限の無い操作は表示しないが、画面を開いた後に権限が取り上げられた等の競合ではバックエンドの
+ * RBAC が 403 を返す。そのときは応答の符号（FORBIDDEN）でなく、権限が無い旨を日本語で示す。
+ */
+function toSignboardErrorMessage(
+  err: unknown,
+  action: keyof typeof SIGNBOARD_FORBIDDEN_MESSAGES,
+  fallback: string
+): string {
+  if (err instanceof ApiError && err.statusCode === 403) {
+    return SIGNBOARD_FORBIDDEN_MESSAGES[action];
+  }
+  return err instanceof ApiError && err.message ? err.message : fallback;
+}
+
+// ============================================================================
 // コンポーネント
 // ============================================================================
 
@@ -250,6 +284,9 @@ type FormMode =
 export default function ConstructionSignboardListPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const toast = useToast();
+  const { canCreateSignboards, canEditSignboards, canDeleteSignboards } =
+    useConstructionPhotoPermission();
+  const hasRowActions = canEditSignboards || canDeleteSignboards;
 
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [signboards, setSignboards] = useState<ConstructionSignboard[]>([]);
@@ -288,9 +325,7 @@ export default function ConstructionSignboardListPage() {
         setProject(projectData);
         setSignboards(signboardData);
       } catch (err) {
-        const message =
-          err instanceof ApiError && err.message ? err.message : '看板一覧の取得に失敗しました';
-        setError(message);
+        setError(toSignboardErrorMessage(err, 'view', '看板一覧の取得に失敗しました'));
       } finally {
         setIsLoading(false);
       }
@@ -311,9 +346,7 @@ export default function ConstructionSignboardListPage() {
         setFormMode({ type: 'closed' });
         await reloadSignboards();
       } catch (err) {
-        const message =
-          err instanceof ApiError && err.message ? err.message : '登録中にエラーが発生しました';
-        toast.error(message);
+        toast.error(toSignboardErrorMessage(err, 'create', '登録中にエラーが発生しました'));
       } finally {
         setIsSubmitting(false);
       }
@@ -342,9 +375,7 @@ export default function ConstructionSignboardListPage() {
         setFormMode({ type: 'closed' });
         await reloadSignboards();
       } catch (err) {
-        const message =
-          err instanceof ApiError && err.message ? err.message : '更新中にエラーが発生しました';
-        toast.error(message);
+        toast.error(toSignboardErrorMessage(err, 'edit', '更新中にエラーが発生しました'));
       } finally {
         setIsSubmitting(false);
       }
@@ -364,9 +395,7 @@ export default function ConstructionSignboardListPage() {
       setDeleteTarget(null);
       await reloadSignboards();
     } catch (err) {
-      const message =
-        err instanceof ApiError && err.message ? err.message : '削除中にエラーが発生しました';
-      toast.error(message);
+      toast.error(toSignboardErrorMessage(err, 'delete', '削除中にエラーが発生しました'));
     } finally {
       setIsDeleting(false);
     }
@@ -420,7 +449,8 @@ export default function ConstructionSignboardListPage() {
       {/* ヘッダー */}
       <div style={styles.header}>
         <h1 style={styles.title}>工事看板マスタ</h1>
-        {formMode.type === 'closed' && (
+        {/* R17.4: 作成の権限が無ければ新規登録を表示しない（ロード中も表示しない, R17.5） */}
+        {canCreateSignboards && formMode.type === 'closed' && (
           <button
             type="button"
             onClick={() => setFormMode({ type: 'create' })}
@@ -467,7 +497,8 @@ export default function ConstructionSignboardListPage() {
                 <th style={styles.th}>工事件名</th>
                 <th style={styles.th}>工事場所</th>
                 <th style={styles.th}>使用件数</th>
-                <th style={styles.th}>操作</th>
+                {/* 行の操作が一つも無い利用者には操作の列そのものを出さない */}
+                {hasRowActions && <th style={styles.th}>操作</th>}
               </tr>
             </thead>
             <tbody>
@@ -478,24 +509,30 @@ export default function ConstructionSignboardListPage() {
                   <td style={styles.td}>
                     {signboard.inUseCount > 0 ? `${signboard.inUseCount}件` : '未使用'}
                   </td>
-                  <td style={styles.td}>
-                    <div style={styles.rowActions}>
-                      <button
-                        type="button"
-                        onClick={() => setFormMode({ type: 'edit', signboard })}
-                        style={styles.editButton}
-                      >
-                        編集
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDeleteTarget(signboard)}
-                        style={styles.deleteButton}
-                      >
-                        削除
-                      </button>
-                    </div>
-                  </td>
+                  {hasRowActions && (
+                    <td style={styles.td}>
+                      <div style={styles.rowActions}>
+                        {canEditSignboards && (
+                          <button
+                            type="button"
+                            onClick={() => setFormMode({ type: 'edit', signboard })}
+                            style={styles.editButton}
+                          >
+                            編集
+                          </button>
+                        )}
+                        {canDeleteSignboards && (
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget(signboard)}
+                            style={styles.deleteButton}
+                          >
+                            削除
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

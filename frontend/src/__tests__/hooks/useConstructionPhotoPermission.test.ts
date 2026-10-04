@@ -177,6 +177,80 @@ describe('useConstructionPhotoPermission', () => {
     });
   });
 
+  // タスク 23.8: 看板マスタの画面は、権限の無い操作（新規登録・編集・削除）を表示しない。
+  // 看板の操作の権限も写真の権限と別の資源（construction_signboard）で判定する
+  describe('canCreateSignboards / canEditSignboards / canDeleteSignboards（看板マスタの操作の出し分け, タスク 23.8）', () => {
+    it('construction_signboard:create/update/delete を持つ場合、それぞれ true', () => {
+      vi.mocked(usePermissionModule.usePermission).mockReturnValue(
+        createMockUsePermission([
+          'construction_signboard:read',
+          'construction_signboard:create',
+          'construction_signboard:update',
+          'construction_signboard:delete',
+        ])
+      );
+
+      const { result } = renderHook(() => useConstructionPhotoPermission());
+
+      expect(result.current.canCreateSignboards).toBe(true);
+      expect(result.current.canEditSignboards).toBe(true);
+      expect(result.current.canDeleteSignboards).toBe(true);
+    });
+
+    it('user ロール相当（construction_signboard:delete を欠く）では canDeleteSignboards だけ false', () => {
+      vi.mocked(usePermissionModule.usePermission).mockReturnValue(
+        createMockUsePermission([
+          'construction_signboard:read',
+          'construction_signboard:create',
+          'construction_signboard:update',
+        ])
+      );
+
+      const { result } = renderHook(() => useConstructionPhotoPermission());
+
+      expect(result.current.canCreateSignboards).toBe(true);
+      expect(result.current.canEditSignboards).toBe(true);
+      expect(result.current.canDeleteSignboards).toBe(false);
+    });
+
+    it('写真の権限を全て持っていても看板の操作の権限が無ければ全て false', () => {
+      vi.mocked(usePermissionModule.usePermission).mockReturnValue(
+        createMockUsePermission([
+          'construction_photo:read',
+          'construction_photo:create',
+          'construction_photo:update',
+          'construction_photo:delete',
+          'construction_signboard:read',
+        ])
+      );
+
+      const { result } = renderHook(() => useConstructionPhotoPermission());
+
+      expect(result.current.canCreateSignboards).toBe(false);
+      expect(result.current.canEditSignboards).toBe(false);
+      expect(result.current.canDeleteSignboards).toBe(false);
+    });
+
+    it('権限情報のロード中は看板の操作の権限を持っていても全て false（安全側）', () => {
+      vi.mocked(usePermissionModule.usePermission).mockReturnValue(
+        createMockUsePermission(
+          [
+            'construction_signboard:create',
+            'construction_signboard:update',
+            'construction_signboard:delete',
+          ],
+          { isLoading: true }
+        )
+      );
+
+      const { result } = renderHook(() => useConstructionPhotoPermission());
+
+      expect(result.current.canCreateSignboards).toBe(false);
+      expect(result.current.canEditSignboards).toBe(false);
+      expect(result.current.canDeleteSignboards).toBe(false);
+    });
+  });
+
   describe('権限ロード中 (Requirement 17.5)', () => {
     it('isLoadingがtrueの場合、権限を保持していても全てfalseを返す（安全側）', () => {
       vi.mocked(usePermissionModule.usePermission).mockReturnValue(

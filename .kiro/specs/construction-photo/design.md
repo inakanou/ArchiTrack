@@ -279,6 +279,8 @@ type ConstructionPhotoPermissionAction = 'view' | 'create' | 'edit' | 'delete';
 interface ConstructionPhotoPermission {
   canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean;
   canViewSignboards: boolean;  // construction_signboard:read。看板マスタへの導線の出し分け（タスク 23.2）。ロード中は false
+  canCreateSignboards: boolean; canEditSignboards: boolean; canDeleteSignboards: boolean;
+  // construction_signboard:create / update / delete。看板マスタの「新規登録」・各行の「編集」「削除」の出し分け（タスク 23.8）。ロード中は false
   isLoading: boolean;
   getPermissionError: (action: ConstructionPhotoPermissionAction) => string | null;
 }
@@ -375,7 +377,7 @@ frontend/src/
 - `services/export/ConstructionPhotoBulkExportService.ts` — JSZip束ね・解像度/形式変換（canvas再エンコード）・看板モード分岐（composited=print-image取得, plain/original=原本取得）・進捗callback/AbortSignal (R15)
 - `services/export/constructionPhotoZipNaming.ts` — ZIPエントリ命名（`zip-naming` 相当のクローン）(R15)
 - `components/construction-photos/AlbumDeleteDialog.tsx` — アルバム削除確認（FocusManagerパターン踏襲）(R16)
-- `hooks/useConstructionPhotoPermission.ts` — `usePermission('construction_photo:*')` を包む canView/canCreate/canEdit/canDelete/getPermissionError (R17)
+- `hooks/useConstructionPhotoPermission.ts` — `usePermission('construction_photo:*')` を包む canView/canCreate/canEdit/canDelete/getPermissionError (R17)。看板の権限は写真の権限から導かず、`construction_signboard:*` から canViewSignboards（タスク 23.2）と canCreateSignboards/canEditSignboards/canDeleteSignboards（タスク 23.8）を返す
 - `hooks/useCameraAvailability.ts` — 端末のカメラの有無を `enumerateDevices` の `videoinput` で判定する。判定できないときは `unknown`（導線を出す側）。`PhotoUploader` が使う (R5.3, タスク 23.5)
 
 **変更（frontend）**
@@ -383,6 +385,7 @@ frontend/src/
 - `components/construction-photos/PhotoItemPanel.tsx` — エクスポート対象の選択チェック(R15)、モバイルスタイル分岐(R19)、`readOnly` 結線の実効化(R17)、看板の操作ボタン（「看板を配置」／「看板を変更」）のモバイル幅のタップ領域を `TAP_TARGET_MIN_PX` 以上にする上書き（`assignSignboardButtonMobile`, R19.3, タスク 21.2）、写真項目を取り除く操作の成功・失敗のどちらでも、その完了の後に確認ダイアログを閉じる（タスク 21.3）。取り除く操作の実行中は確認ダイアログを閉じず、オーバーレイのクリックとキャンセルを受け付けず、別の写真項目の確認も開かない（タスク 22.3）。失敗はその写真項目の操作の行の直後に role=alert で表示し、失敗の間だけ取り除くボタンの `aria-describedby` で結び付け、フォーカスを画面を送らずにそのボタンへ戻す。表示が画面の外へ出るときだけ表示の分だけ画面を動かす。失敗の文言は写真項目ごとの状態に持ち、文言の規則もこの部品が持つ（R7.7 の失敗時, タスク 21.3・23.9。Error Handling を参照）
 - `pages/ConstructionPhotoListPage.tsx` / `components/construction-photos/ConstructionPhotoListTable.tsx` / `ConstructionPhotoListCard.tsx` — アルバム編集/削除の行導線（権限連動）(R16,R17)。一覧の見出しの行に看板マスタへの常設のリンク「工事看板マスタ」（`canViewSignboards` のときだけ。R8, タスク 23.2）
 - `routes.tsx` — CPビューアルート `/construction-photos/:albumId/photos/:photoId` を追加 (R14)
+- `pages/ConstructionSignboardListPage.tsx` — 権限の無い操作の手段を表示しない（「新規登録」は canCreateSignboards、各行の編集の操作は canEditSignboards、各行の取り除く操作は canDeleteSignboards のときだけ。行の操作が一つも無い利用者には操作の列を出さない）。看板の API が 403 を返したときは応答の符号でなく、操作ごとに権限が無い旨の日本語の文言を示す（R17.4, R17.5, タスク 23.8。Error Handling を参照）
 
 ### アップロード失敗の保持と再送のファイル（Req 20）
 
@@ -792,7 +795,7 @@ interface SignboardAssignDialogProps {
 ```
 
 - **導線は二つ**: 常設の導線は工事写真一覧（`ConstructionPhotoListPage`）の見出しの行のリンク「工事看板マスタ」である。看板マスタのパンくずは工事写真一覧の配下に位置し（… > 工事写真一覧 > 工事看板マスタ）、看板はプロジェクト単位で登録するため、プロジェクトの工事写真の入口である一覧に置く。文脈の導線は詳細画面の「看板を配置」のダイアログ（`SignboardAssignDialog`）のリンク「工事看板マスタを開く」である。看板を指定する場面は、利用者が看板の登録の必要に気付く場面であるため置く。プロジェクト詳細の工事写真のパネルには置かない（「すべて見る」で一覧へ一手で届く）。
-- **権限による出し分け**: 両導線は `useConstructionPhotoPermission` の `canViewSignboards`（`construction_signboard:read`、権限のロード中は false）のときだけ示す。ダイアログのリンクはダイアログを閉じてから react-router の遷移を行うため、詳細画面の未保存の変更の確認（`useBlocker`, R18.2）を経る。モバイル幅ではリンクのタップ領域を `TAP_TARGET_MIN_PX` 以上にする（`useMediaQuery` で切り替える。R19）。看板マスタの画面そのものは権限で操作を出し分けておらず、閲覧だけの利用者が実行できない操作に触れうる（Task 23.8 に起票。着手は利用者の判断を待つ）。
+- **権限による出し分け**: 両導線は `useConstructionPhotoPermission` の `canViewSignboards`（`construction_signboard:read`、権限のロード中は false）のときだけ示す。ダイアログのリンクはダイアログを閉じてから react-router の遷移を行うため、詳細画面の未保存の変更の確認（`useBlocker`, R18.2）を経る。モバイル幅ではリンクのタップ領域を `TAP_TARGET_MIN_PX` 以上にする（`useMediaQuery` で切り替える。R19）。看板マスタの画面は、権限の無い操作（「新規登録」・各行の「編集」「削除」）を表示しない（利用者の判断（2026-10-04）、タスク 23.8）。判定は `useConstructionPhotoPermission` の canCreateSignboards/canEditSignboards/canDeleteSignboards（`construction_signboard:create/update/delete`、権限のロード中は false）で行い、権威はバックエンドの RBAC のままである。シードの権限の表では admin は三つとも表示され、user（`construction_signboard:delete` を持たない）では「削除」だけが表示されない。
 - **看板の一覧の取得の状態**: 詳細画面は看板の一覧を写真項目の取得とは別の effect で取得し、取得の状態（`signboardsStatus`）をダイアログへ渡す。看板の閲覧の権限が無ければ取得しない（取得しても 403 であり 0 件ではない）。ダイアログは、取得に成功して 0 件のときだけ「このプロジェクトには工事看板が登録されていません。」と案内し（リンクを示すときは登録を促す一文を添える）、取得に失敗したときは「工事看板を読み込めませんでした。時間をおいて再度お試しください。」を role=alert で示し、0 件とは述べない。権限が無いときは「工事看板を閲覧する権限が無いため、看板を選択できません。」を示し、取得中は role=status で読み込み中である旨を示す。取得に失敗しても看板マスタへのリンクは残す（看板マスタは自前で一覧を取得するため、登録済みの看板を確かめる手段になる）。写真項目の「看板あり」の表示は写真項目の `signboardId` から出るため、看板の一覧の取得の成否に依存しない。アルバムの取得の失敗時に出る「再試行」は看板の一覧を取り直さない（画面の読み込み直しで取り直す）。
 - **決定: 一覧が取得済みでない間は看板の指定を変えさせない**（是正の 2 巡目。是正前は、取得中・失敗中に保存すると、利用者が触れていない配置が null で上書きされた）: `signboardsStatus` が `loaded` でない間は、選択を disabled にし、配置のエディタ（その唯一の出力である「保存」を含む）を描画しない。「キャンセル」は常に押せる。選択は「未指定」を装わず写真項目の現在の看板を指す（一覧で解決できない間は、選べない選択肢「現在の看板（一覧で確認できません）」として示す）。取得済みの一覧に写真項目の看板が無いときも黙って解除せず、その旨を示し、利用者が別の看板か「未指定」を明示的に選ぶまでエディタを描画しない。多重の防御として、解決できない看板を指したままではダイアログは保存の通知（`onSave`）を呼ばず、未保存の状態も立てない。
 - **残る性質**: 看板を選んで配置をドラッグせずに保存すると、配置は null のまま保存される（以前からの挙動。Task 24.4 に起票）。
@@ -835,6 +838,7 @@ interface SignboardAssignDialogProps {
 - **User (4xx)**: 形式外/サイズ超過/件数超過→413/400 でフィールド単位エラー（R4.5,R12.3）。未認証401・権限なし403（R13）。対象アルバム/写真なし404（対象か所属プロジェクトが論理削除済みのとき、配下として指した親に属さないときも 404。タスク 23.1）。楽観排他競合409（R1.5）。
 - **System (5xx)**: ストレージ保存失敗→当該写真は未登録として通知し他は維持（R12.5）。合成失敗→当該写真は看板なしにフォールバックせず、エラー通知し保存を中断（データ不整合回避）。
 - **Business (422相当)**: 印刷対象0件→PDF実行せず通知（R10.13）。使用中看板の削除→使用件数を返し確認（R8.8）。削除は参照する写真項目の看板の指定と配置を同じトランザクションで解除する（R9.7, タスク 23.3）。
+- **看板マスタの権限なし（R17.4、タスク 23.8）**: 権限の無い操作は表示しない（Frontend Interfaces の R8・R9 看板マスタへの導線を参照）。画面を開いた後に権限が取り上げられた等の競合でバックエンドが 403 を返したときは、応答の符号（`FORBIDDEN`）をそのまま出さず、看板の一覧の取得は「工事看板を閲覧する権限がありません」を role=alert の取得エラーとして、新規登録・編集・削除はそれぞれ「工事看板を登録する権限がありません」「工事看板を編集する権限がありません」「工事看板を削除する権限がありません」をトーストで示す。`getPermissionError` は写真の権限の文言であり、また権限を持つと判定している間（403 の競合時）は null を返すため、この経路には使わない。
 - **写真項目の削除の失敗（R7.7 の失敗時、タスク 21.3・23.9・22.3）**: 失敗は取り除こうとした写真項目の中に表示する（利用者の判断（2026-10-03、タスク 23.9）で、21.3 の「詳細画面の上部の通知の枠（`error`）へ出して画面の中央へ送る」形を改めた）。`ConstructionPhotoDetailPage.handleDelete` は失敗を捕捉せず `PhotoItemPanel` へ伝播させ、上部の通知の枠と失敗の状態（`error`）には載せない（`notice ?? error` の二つの状態の穴（タスク 22.1）へ経路を足さない）。21.3 が入れた削除の開始時の `notice` と `error` の消去は外したため、先に出ている通知（アップロードの失敗など）と失敗の表示（保存の失敗など）は削除で消えない。`PhotoItemPanel` の `handleDeleteConfirm` は削除の完了の後に、成功・失敗のどちらでも確認ダイアログを閉じ、失敗の文言を写真項目ごとの状態に持ち、その写真項目の操作の行の直後（取り除くボタンの下）に role=alert の段落として表示する。取り除くボタンは失敗の表示がある間だけ `aria-describedby` でその段落を指す。ダイアログが閉じた後、フォーカスをその写真項目の取り除くボタンへ `focus({ preventScroll: true })` で戻す（成功したときは写真項目ごと無くなるため戻さない）。文言の規則は 21.3 のままで、`PhotoItemPanel` へ移した: `ApiError` の文言を優先し、空のとき、および `ApiError` でない例外のときは「写真項目の削除に失敗しました」。セッション切れ（401）も区別しない。なお通信の失敗は共通の API クライアントが `ApiError(0, 'Network error')` に包んで投げるため、写真項目には「Network error」が表示される（既定の文言にはならない）。複数の写真項目の失敗は、それぞれの写真項目に同時に表示する。表示が消えるのは、その写真項目のやり直しを始めたとき（成功すれば写真項目ごと消える）、その写真項目への別の操作（コメントの編集・印刷対象とエクスポート対象の切り替え・上下の移動・ドラッグの開始・「看板を配置」）のとき、画面を離れたとき（`PhotoItemPanel` が外れる）である。確認ダイアログを開いて取り消すこと、他の写真項目への操作とその結果の位置の入れ替わり、保存は消す契機にしない。画面は上部の通知の枠や画面の上端へは送らない。表示が画面内に収まるとき（通常の位置）は画面を動かさず（失敗の前後で `scrollY` は変わらない）、押したボタンが画面の下端の近くにあって表示が画面の外へ出るときだけ、表示に `scrollIntoView({ block: 'nearest' })` を呼んで表示の分だけ下へ動かす（利用者の判断（2026-10-04）「文言の分だけ動かす」。滑らかな移動は指定しない）。この移動は表示が現れたときに写真項目の側で走り、その後のフォーカスの復帰（`preventScroll`）はこの移動を打ち消さない。表示は `overflowWrap: anywhere` と `minWidth: 0` で区切りの無い長い理由も折り返し、モバイル幅の操作部品のタップ領域（`TAP_TARGET_MIN_PX`）を変えない。写真項目・未保存の変更・選択集合は変えない。削除の実行中（500 系の応答では API クライアントの自動再試行を含め、約 7 秒続くことがある）は確認ダイアログを閉じない（利用者の判断（2026-10-04）、タスク 22.3）。実行中はオーバーレイのクリックとキャンセル（実行中は無効）を受け付けず、Esc で閉じる処理は元から持たない。確認ダイアログは焦点を閉じ込めないため、実行中もキーボードで背後の別の写真項目の取り除くボタンへ到達できるが、実行中はその押下で確認の対象を変えない。これにより、先行する削除の完了が別の写真項目の確認を閉じる経路は無い。実行中かの判定は描画を待たない参照（`useRef`）で行う。
 
 ### アップロード失敗の分類（R20.16, R20.21）
@@ -870,7 +874,7 @@ interface SignboardAssignDialogProps {
 - `ConstructionPhotoBulkExportService.export`: signboardMode 別に取得元を切替（composited=print-image, plain/original=原本）、resolution/format を canvas 再エンコードで適用、進捗通知、1件失敗は `failed` に積み継続（R15.2,R15.3,R15.4,R15.10）。
 - `ConstructionPhotoBulkExportService.export`: `AbortSignal` abort で AbortError により処理中断し途中生成を破棄する（R15.9）。
 - `BulkExportProgressDialog` と詳細画面: 一部失敗では自動でダウンロードせず失敗した写真項目のファイル名と順番を示し、「成功した項目だけでダウンロードする」で保留した ZIP を 1 回だけダウンロードし、「ダウンロードしない」・Escape ではダウンロードせずに閉じ、次のエクスポートへ結果を持ち越さない。全件失敗は続ける操作を出さず、全件成功・中断は結果の段を出さない。詳細画面の破棄で実行中のエクスポートを中断する（R15.10, R15.9）。
-- `useConstructionPhotoPermission`: `construction_photo:update` 保持で canEdit、`construction_photo:delete` 保持で canDelete、権限ロード中は全 false（R17.1,R17.2,R17.5）。
+- `useConstructionPhotoPermission`: `construction_photo:update` 保持で canEdit、`construction_photo:delete` 保持で canDelete、権限ロード中は全 false（R17.1,R17.2,R17.5）。`construction_signboard:create/update/delete` 保持でそれぞれ canCreateSignboards/canEditSignboards/canDeleteSignboards、写真の権限からは導かない（タスク 23.8）。
 - `uploadFilesInWaves`: 送信例外で失敗した画像の `File` 実体と再送可否区分を返す。413 は `permanent`、通信エラーは `retriable`（R20.1,R20.16）。
 - `uploadFilesInWaves`: サーバーが 207 で per-file 失敗を返した場合も対応する `File` を返し、画像形式の非対応のみ `permanent`、ストレージ障害は `retriable` に分類する（R20.16,R20.21）。
 - `PhotoUploader`: 一部失敗・全件失敗のいずれでも失敗画像が未送信一覧へ反映され、成功分の登録と失敗通知の文言が変わらない（R20.1,R12.5）。
