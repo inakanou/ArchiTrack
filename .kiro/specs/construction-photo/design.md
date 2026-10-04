@@ -354,7 +354,7 @@ frontend/src/
 │   ├── PhotoUploader.tsx                         # 3系統追加UI（ImageUploader踏襲, 現調選択追加）(R4,R5,R6)
 │   ├── SurveyImagePicker.tsx                     # 現調写真選択モーダル (R6)
 │   ├── SignboardPlacementEditor.tsx             # fabric 1枚Rect配置プレビュー (R9)
-│   ├── signboard-placement-geometry.ts          # 表示座標と画像ピクセル座標の相互換算（純関数, SignboardPlacementEditor が使用）(R9)
+│   ├── signboard-placement-geometry.ts          # 表示座標と画像ピクセル座標の相互換算と、置かれた場所の幅による表示幅の上限（純関数, SignboardPlacementEditor が使用）(R9, R19.1)
 │   ├── SignboardAssignDialog.tsx                # 詳細画面の「看板を配置」ダイアログ: 看板選択＋SignboardPlacementEditor の結線 (R9)。看板マスタへのリンク「工事看板マスタを開く」と、看板の一覧の取得の状態（signboardsStatus）に応じた表示 (R8, タスク 23.2)
 │   └── SignboardForm.tsx                         # 看板 標準項目+自由項目+固定テキスト (R8)
 ├── components/projects/
@@ -826,7 +826,7 @@ interface SignboardAssignDialogProps {
 - Risks: PDF出力時の写真ごとオンデマンド合成のため、印刷対象が多いと export 時のサーバ処理が増える（低頻度操作のため許容、必要なら将来キャッシュ導入）。合成失敗は当該写真でエラー通知し export を中断。
 
 ### UI Components（Summary-only）
-`ConstructionPhotoResponsiveView/ListTable/ListCard/SearchFilter` は site-survey 同名部品のクローン。`PhotoItemPanel` は `PhotoManagementPanel`（コメント500msデバウンス＋フォーカス離脱flush、未保存→手動保存、HTML5ドラッグ並び替え）を踏襲。`SignboardPlacementEditor` は fabric キャンバスに写真背景＋1枚の緑Rectを可動・拡縮し、保存時に `{left,top,width,height}` を画像ピクセル座標へ換算。初期配置の無いときは既定の矩形（表示の幅の 40%・高さの 25% を中央に置く）を表示し、看板を選んだまま操作せずに保存しても、その矩形を操作後と同じ換算（`displayRectToPlacement`）で画像ピクセル座標へ写した配置を返す。表示されている位置がそのまま保存され、看板の指定だけが残って配置が null のまま印字画像・PDF に看板が重ならない状態を作らない（R9.1, R9.3, タスク 24.4）。初期配置がある写真項目の再編集ではその配置を保ち、看板未指定は配置を null で返す。`ConstructionPhotoSectionCard` は `ProjectSurveySummary` 相当のサマリを受けて `ScheduleSectionCard` 直下に描画。
+`ConstructionPhotoResponsiveView/ListTable/ListCard/SearchFilter` は site-survey 同名部品のクローン。`PhotoItemPanel` は `PhotoManagementPanel`（コメント500msデバウンス＋フォーカス離脱flush、未保存→手動保存、HTML5ドラッグ並び替え）を踏襲。`SignboardPlacementEditor` は fabric キャンバスに写真背景＋1枚の緑Rectを可動・拡縮し、保存時に `{left,top,width,height}` を画像ピクセル座標へ換算。初期配置の無いときは既定の矩形（表示の幅の 40%・高さの 25% を中央に置く）を表示し、看板を選んだまま操作せずに保存しても、その矩形を操作後と同じ換算（`displayRectToPlacement`）で画像ピクセル座標へ写した配置を返す。表示されている位置がそのまま保存され、看板の指定だけが残って配置が null のまま印字画像・PDF に看板が重ならない状態を作らない（R9.1, R9.3, タスク 24.4）。初期配置がある写真項目の再編集ではその配置を保ち、看板未指定は配置を null で返す。画像の枠の幅は置かれた場所の幅に追従する。エディタの外枠の幅を `useElementSize`（ResizeObserver）で測り、枠線の内側に収まる幅を最大表示幅（`maxDisplayWidth`、既定 600）の上限へ重ねる（`fitMaxDisplayWidth`。縮めるだけで拡大はせず、未計測のときは最大表示幅で描く）。モバイル幅では実寸の写真（幅 1920 など）でも枠が看板の配置のダイアログの本体の内側に収まり、本体に横スクロールを生じさせない。デスクトップ幅（768 以上）では本体の内側の幅が最大表示幅を超えるため、表示は変わらない（R19.1, タスク 25.1）。表示の縮尺が変わるだけで、保存する配置は画像ピクセル座標のままであり、既定の矩形の換算とドラッグ後の換算はどの縮尺でも同じ規約で行う。幅の変化（端末の回転など）で縮尺が変わったとき、ドラッグ等で確定した配置は既定へ戻さず、新しい縮尺で描き直す。確定値を既定・初期配置へ戻すのは、写真・看板の有無・初期配置が変わったときだけである（R9.1, R9.3）。`ConstructionPhotoSectionCard` は `ProjectSurveySummary` 相当のサマリを受けて `ScheduleSectionCard` 直下に描画。
 
 ## Error Handling
 

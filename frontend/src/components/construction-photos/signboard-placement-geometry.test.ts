@@ -17,6 +17,7 @@ import { describe, it, expect } from 'vitest';
 import {
   computeDisplaySize,
   displayRectToPlacement,
+  fitMaxDisplayWidth,
   placementToDisplayRect,
 } from './signboard-placement-geometry';
 
@@ -96,5 +97,48 @@ describe('placementToDisplayRect', () => {
     const display = placementToDisplayRect(original, 0.3);
     const roundTrip = displayRectToPlacement(display, 0.3, 2000, 1000);
     expect(roundTrip).toEqual(original);
+  });
+});
+
+// タスク 25.1: 画像の枠の幅の上限を、置かれた場所で使える幅（モバイル幅のダイアログの本体の内側）
+// へ縮める。使える幅が未計測のときは従来どおり最大表示幅を使う
+describe('fitMaxDisplayWidth（タスク 25.1）', () => {
+  it('REQ-19.1: 使える幅が最大表示幅より狭いときは、使える幅（整数へ切り捨て）を上限にする', () => {
+    expect(fitMaxDisplayWidth(600, 293)).toBe(293);
+    expect(fitMaxDisplayWidth(600, 238.6)).toBe(238);
+  });
+
+  it('使える幅が最大表示幅以上のときは最大表示幅のまま（デスクトップ幅の表示を変えない）', () => {
+    expect(fitMaxDisplayWidth(600, 670)).toBe(600);
+    expect(fitMaxDisplayWidth(600, 600)).toBe(600);
+  });
+
+  it('使える幅が未計測（null）・非有限のときは最大表示幅を使う', () => {
+    expect(fitMaxDisplayWidth(600, null)).toBe(600);
+    expect(fitMaxDisplayWidth(600, Number.NaN)).toBe(600);
+  });
+
+  it('使える幅が 1 未満でも上限は 1 以上（0 幅のキャンバスにしない）', () => {
+    expect(fitMaxDisplayWidth(600, 0)).toBe(1);
+    expect(fitMaxDisplayWidth(600, -5)).toBe(1);
+  });
+
+  it('REQ-9.1: 縮めた上限でも、既定の矩形（表示の中央 40%×25%）の画像の座標は同じ比率になる', () => {
+    // 1920×1440 の写真を 293・238・600 の各上限で表示し、既定の矩形を画像の座標へ換算する
+    for (const max of [293, 238, 600]) {
+      const size = computeDisplaySize(1920, 1440, fitMaxDisplayWidth(600, max));
+      const w = size.width * 0.4;
+      const h = size.height * 0.25;
+      const placement = displayRectToPlacement(
+        { left: (size.width - w) / 2, top: (size.height - h) / 2, width: w, height: h },
+        size.scale,
+        1920,
+        1440
+      );
+      expect(Math.abs(placement.left - 576)).toBeLessThanOrEqual(1);
+      expect(Math.abs(placement.top - 540)).toBeLessThanOrEqual(1);
+      expect(Math.abs(placement.width - 768)).toBeLessThanOrEqual(1);
+      expect(Math.abs(placement.height - 360)).toBeLessThanOrEqual(1);
+    }
   });
 });

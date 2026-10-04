@@ -21,6 +21,14 @@
  * 残り、看板の指定だけが保存されて印字画像・PDF に看板が重ならなかった。換算は操作後と同じ
  * `displayRectToPlacement` を使う。初期配置があればそれを保ち、看板未指定なら null のままである。
  *
+ * タスク 25.1: 利用者の判断（2026-10-04）で、画像の枠の幅を置かれた場所の幅に追従させる。エディタの
+ * 外枠の幅を `useElementSize`（ResizeObserver）で測り、画像の枠の枠線の内側に収まる幅を
+ * `maxDisplayWidth` の上限へ重ねる（`fitMaxDisplayWidth`）。モバイル幅のダイアログの本体の内側で
+ * 実寸の写真（幅 1920 など）を描いても横にはみ出さない（R19.1）。デスクトップ幅では置かれた場所の幅が
+ * `maxDisplayWidth` を超えるため表示は変わらない。表示の縮尺が変わるだけで、保存する配置は画像px座標
+ * のままである。幅の変化（端末の回転など）で縮尺が変わったとき、ドラッグ等で確定した配置は既定へ
+ * 戻さず、新しい縮尺で描き直す（写真・看板の有無・初期配置が変わったときだけ戻す）。
+ *
  * Requirements:
  * - 9.1: 看板の表示位置・大きさを画像ピクセル座標で確定する
  * - 9.2: 看板の指定は任意（未指定を許可）
@@ -42,11 +50,13 @@ import type {
   SignboardPlacement,
 } from '../../types/construction-photo.types';
 import useMediaQuery from '../../hooks/useMediaQuery';
+import useElementSize from '../../hooks/useElementSize';
 import { MEDIA_QUERIES } from '../../utils/responsive';
 import { TAP_TARGET_MIN_PX } from '../../utils/tap-target';
 import {
   computeDisplaySize,
   displayRectToPlacement,
+  fitMaxDisplayWidth,
   placementToDisplayRect,
 } from './signboard-placement-geometry';
 
@@ -56,6 +66,9 @@ import {
 
 /** プレビューの既定最大表示幅（px） */
 const DEFAULT_MAX_DISPLAY_WIDTH = 600;
+
+/** 画像の枠の枠線の太さ（px）。枠の幅は外枠の幅からこの左右の分を除いた幅に収める（タスク 25.1） */
+const CANVAS_FRAME_BORDER_PX = 1;
 
 /** 緑ボードの塗り（電子小黒板の濃緑・半透明で背景写真を透過確認可能に） */
 const BOARD_FILL = 'rgba(0, 77, 38, 0.55)';
@@ -72,7 +85,7 @@ export interface SignboardPlacementEditorProps {
   signboard: ConstructionSignboard | null;
   /** 既存配置（あれば表示座標へ復元して Rect を初期配置） */
   initialPlacement?: SignboardPlacement | null;
-  /** プレビューの最大表示幅（px、既定 600） */
+  /** プレビューの最大表示幅（px、既定 600）。置かれた場所の幅が狭ければさらに縮める（タスク 25.1） */
   maxDisplayWidth?: number;
   /** ドラッグ/拡縮のたびに算出した画像px座標の placement を通知 */
   onChange?: (placement: SignboardPlacement | null) => void;
@@ -93,7 +106,7 @@ const styles = {
   canvasWrapper: {
     position: 'relative' as const,
     lineHeight: 0,
-    border: '1px solid #d1d5db',
+    border: `${CANVAS_FRAME_BORDER_PX}px solid #d1d5db`,
     borderRadius: '4px',
     overflow: 'hidden',
     alignSelf: 'flex-start',
@@ -156,6 +169,7 @@ export default function SignboardPlacementEditor({
   onSave,
 }: SignboardPlacementEditorProps): React.ReactElement {
   const isMobile = useMediaQuery(MEDIA_QUERIES.isMobile);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasElRef = useRef<HTMLCanvasElement | null>(null);
   const canvasRef = useRef<FabricCanvas | null>(null);
   const rectRef = useRef<Rect | null>(null);
@@ -166,7 +180,13 @@ export default function SignboardPlacementEditor({
   onChangeRef.current = onChange;
   onSaveRef.current = onSave;
 
-  const displaySize = computeDisplaySize(photo.width, photo.height, maxDisplayWidth);
+  // 置かれた場所の幅（エディタの外枠の幅）。未計測（0）のときは maxDisplayWidth で描く（タスク 25.1）
+  const { width: containerWidth } = useElementSize(containerRef);
+  const displayWidthLimit = fitMaxDisplayWidth(
+    maxDisplayWidth,
+    containerWidth > 0 ? containerWidth - CANVAS_FRAME_BORDER_PX * 2 : null
+  );
+  const displaySize = computeDisplaySize(photo.width, photo.height, displayWidthLimit);
   const scale = displaySize.scale;
 
   // 確定用に最新 placement を保持（保存操作で参照）。
@@ -184,9 +204,21 @@ export default function SignboardPlacementEditor({
   const placementRef = useRef<SignboardPlacement | null>(
     signboard ? (initialPlacement ?? defaultPlacement) : null
   );
+  // ドラッグ等の操作で確定値を作ったか（タスク 25.1）。立っている間は、幅の変化で縮尺が変わっても
+  // 確定値を既定へ戻さず、枠もその配置で描き直す。写真・看板の有無・初期配置が変わると下ろす
+  const modifiedRef = useRef(false);
 
   const backgroundUrl = photo.thumbnailUrl ?? photo.printImageUrl;
   const hasSignboard = signboard !== null;
+
+  // 確定値を戻す契機（写真・看板の有無・初期配置）の前回の値
+  const syncInputsRef = useRef({
+    photoId: photo.id,
+    photoWidth: photo.width,
+    photoHeight: photo.height,
+    hasSignboard,
+    initialPlacement,
+  });
 
   /** Rect の現在の表示座標から画像px placement を算出して通知・保持する */
   const emitFromRect = useCallback(
@@ -205,10 +237,34 @@ export default function SignboardPlacementEditor({
         photo.height
       );
       placementRef.current = next;
+      modifiedRef.current = true;
       onChangeRef.current?.(next);
     },
     [scale, photo.width, photo.height]
   );
+
+  // 看板の有無・初期配置が変われば確定値を同期（未指定は null、初期配置が無ければ既定の配置）。
+  // 縮尺だけが変わった（置かれた場所の幅の変化）ときは、操作で作った確定値を保つ（タスク 25.1）。
+  // キャンバスの構築より先に走らせ、構築が下ろした後の印を読むようにする
+  useEffect(() => {
+    const prev = syncInputsRef.current;
+    const inputsChanged =
+      prev.photoId !== photo.id ||
+      prev.photoWidth !== photo.width ||
+      prev.photoHeight !== photo.height ||
+      prev.hasSignboard !== hasSignboard ||
+      prev.initialPlacement !== initialPlacement;
+    syncInputsRef.current = {
+      photoId: photo.id,
+      photoWidth: photo.width,
+      photoHeight: photo.height,
+      hasSignboard,
+      initialPlacement,
+    };
+    if (inputsChanged) modifiedRef.current = false;
+    if (modifiedRef.current) return;
+    placementRef.current = hasSignboard ? (initialPlacement ?? defaultPlacement) : null;
+  }, [photo.id, photo.width, photo.height, hasSignboard, initialPlacement, defaultPlacement]);
 
   // fabric キャンバスの初期化と Rect 配置。写真・看板・初期配置・表示幅の変化で再構築。
   useEffect(() => {
@@ -236,9 +292,13 @@ export default function SignboardPlacementEditor({
 
     // 看板ありのときのみ 1 枚の緑ボード Rect を配置
     if (hasSignboard) {
-      const displayRect = initialPlacement
-        ? placementToDisplayRect(initialPlacement, scale)
-        : defaultRect;
+      // 操作で作った確定値があればそれを新しい縮尺で描く（幅の変化で既定へ戻さない, タスク 25.1）
+      const displayRect =
+        modifiedRef.current && placementRef.current
+          ? placementToDisplayRect(placementRef.current, scale)
+          : initialPlacement
+            ? placementToDisplayRect(initialPlacement, scale)
+            : defaultRect;
 
       const rect = new Rect({
         left: displayRect.left,
@@ -277,7 +337,7 @@ export default function SignboardPlacementEditor({
       canvasRef.current = null;
       canvas.dispose();
     };
-    // displaySize は photo/maxDisplayWidth から導出されるため依存に含めない
+    // defaultRect は表示の寸法から導出されるため依存に含めない
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     photo.id,
@@ -286,22 +346,18 @@ export default function SignboardPlacementEditor({
     backgroundUrl,
     hasSignboard,
     initialPlacement,
-    maxDisplayWidth,
+    displaySize.width,
+    displaySize.height,
     scale,
     emitFromRect,
   ]);
-
-  // 看板の有無・初期配置が変われば確定値を同期（未指定は null、初期配置が無ければ既定の配置）
-  useEffect(() => {
-    placementRef.current = hasSignboard ? (initialPlacement ?? defaultPlacement) : null;
-  }, [hasSignboard, initialPlacement, defaultPlacement]);
 
   const handleSave = useCallback(() => {
     onSaveRef.current?.(hasSignboard ? placementRef.current : null);
   }, [hasSignboard]);
 
   return (
-    <div style={styles.container} data-testid="signboard-placement-editor">
+    <div ref={containerRef} style={styles.container} data-testid="signboard-placement-editor">
       <div style={styles.canvasWrapper}>
         <canvas ref={canvasElRef} />
       </div>

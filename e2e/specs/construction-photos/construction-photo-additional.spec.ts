@@ -102,6 +102,10 @@
  *     近くと上部の枠に、看板の名前と、取り除かれていること・選び直すか読み込み直すことを示す日本語の
  *     文言が出て、応答の英語の文言と看板の ID は出ない（要件の印は掲げない。タスク 24.2 の利用者の
  *     判断（2026-10-04））
+ * 30. 看板の配置のエディタの画像の枠の幅の追従: 実寸の写真（1920×1440）で、375・320 幅では画像の枠が
+ *     ダイアログの本体の内側の幅へ縮み、本体と文書全体に水平のはみ出しが無く、1280 幅では従来の幅
+ *     600 のまま。320 幅で看板を選んで動かさずに保存した配置は、画像の座標で既定の比率になる
+ *     （R19.1, R9.1, R9.3。タスク 25.1 の利用者の判断（2026-10-04））
  *
  * 縮退した要素（理由明記）:
  *  - パンの座標厳密検証: 拡大時に画像 transform の translate 成分が変化することまでを確認し、
@@ -118,6 +122,7 @@
 import { test, expect, type Request, type Route } from '@playwright/test';
 import * as path from 'path';
 import * as fs from 'fs';
+import zlib from 'zlib';
 import { fileURLToPath } from 'url';
 import { loginAsUser, loginWithCredentials } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
@@ -214,6 +219,65 @@ async function uploadPhoto(
   await expect(page.getByTestId('construction-photo-item')).toHaveCount(expectedCount, {
     timeout: getTimeout(20000),
   });
+}
+
+/** PNG のチャンクの CRC32（site-survey-image-rotation.spec.ts の生成と同じ規約） */
+function pngCrc32(buffer: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of buffer) {
+    let c = (crc ^ byte) & 0xff;
+    for (let k = 0; k < 8; k++) {
+      c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    }
+    crc = (c ^ (crc >>> 8)) >>> 0;
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length, 0);
+  const typeBuffer = Buffer.from(type, 'ascii');
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(pngCrc32(Buffer.concat([typeBuffer, data])), 0);
+  return Buffer.concat([length, typeBuffer, data, crc]);
+}
+
+/**
+ * 実寸の大きい写真に当たる PNG を生成する（タスク 25.1）。
+ *
+ * 既存の `test-image-large.jpg`（1920×1080、約 2MB）は、アップロードの圧縮（300KB 超で品質を
+ * 下げ、収まらなければ縮める。要件 4.6）で幅 960 へ縮められて保存されるため、実寸の大きい写真の
+ * 前提を作れない。色の区画を並べた低エントロピーの画像にして、圧縮の閾値を下回る大きさで実寸の
+ * まま保存させる（前提は写真一覧の API が返す幅で確かめる）。
+ */
+function buildLargePhotoPng(width: number, height: number): Buffer {
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; // ビット深度
+  ihdr[9] = 2; // カラータイプ: トゥルーカラー（RGB）
+  const stride = width * 3 + 1;
+  const raw = Buffer.alloc(stride * height);
+  for (let y = 0; y < height; y++) {
+    const rowStart = y * stride;
+    raw[rowStart] = 0; // フィルタータイプ: None
+    const band = Math.floor((y * 4) / height);
+    for (let x = 0; x < width; x++) {
+      const column = Math.floor((x * 6) / width);
+      const pixel = rowStart + 1 + x * 3;
+      raw[pixel] = 40 + column * 35;
+      raw[pixel + 1] = 60 + band * 45;
+      raw[pixel + 2] = 120;
+    }
+  }
+  return Buffer.concat([
+    signature,
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', zlib.deflateSync(raw, { level: 9 })),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ]);
 }
 
 /**
@@ -1953,9 +2017,10 @@ test.describe('工事写真 追加機能フロー', () => {
    * 二つの状態・四つの幅をすべて測ってから主張する。赤になるときに、どの状態が何 px だったかを
    * 一度の失敗で読めるようにするためである。
    *
-   * 写真は 100×100 の PNG を使う。配置エディタの画像の枠は写真の幅（上限 600）で描かれるため、
-   * 実寸の大きい写真ではモバイル幅で枠がダイアログの本体より広くなる（1920×1080 の写真で枠 602、
-   * 本体の scrollWidth 626 / clientWidth 343。タスク 24.3 の前からある挙動で、本テストの境界の外）。
+   * 写真は 100×100 の PNG を使う。タスク 24.3 の時点では、配置エディタの画像の枠は写真の幅（上限
+   * 600）で描かれ、実寸の大きい写真ではモバイル幅で枠がダイアログの本体より広くなった（1920×1080 の
+   * 写真で枠 602、本体の scrollWidth 626 / clientWidth 343）。タスク 25.1 で枠を本体の内側の幅へ
+   * 縮めた（実寸の写真での主張は下のタスク 25.1 のテストが担う）。
    *
    * 是正の経緯（2026-10-04、タスク 24.3）: 上書きを足す前の本番ビルドでは赤だった。375・320 幅の
    * 二つの状態のすべてで「キャンセル」104×39・「保存」60×33 であり、高さが下限に届かない。是正後は
@@ -2283,6 +2348,388 @@ test.describe('工事写真 追加機能フロー', () => {
       ),
       report
     ).toEqual([]);
+  });
+
+  /**
+   * R19.1 / R9.1 / R9.3 看板の配置のエディタの画像の枠の幅の追従（タスク 25.1）:
+   * 実寸の写真（テストの中で生成する 1920×1440 の PNG。スマートフォンで撮った写真の寸法に当たる）を
+   * 1 枚追加し、375・320・1280 幅で看板の配置のダイアログを開いて看板を選び、画像の枠の寸法と
+   * ダイアログの本体・文書全体の水平のはみ出しを実ブラウザで測る。
+   *
+   * @requirement construction-photo/REQ-19.1
+   * @requirement construction-photo/REQ-9.1
+   * @requirement construction-photo/REQ-9.3
+   *
+   * 経緯（2026-10-04、タスク 25.1）: 配置のエディタの画像の枠は最大表示幅 600 を上限に写真の幅で
+   * 描かれ、画面の幅に追従しなかった。実寸の写真では 375・320 幅でダイアログの本体に横スクロールが
+   * 出た（scrollWidth 626 に対して clientWidth 343 / 288。タスク 24.3 の実測）。利用者の判断
+   * （2026-10-04）で、画像の枠をエディタの置かれた場所の幅（ダイアログの本体の内側）へ縮める。
+   * 表示の縮尺が変わるだけで、保存される配置は画像の座標のままである。
+   *
+   * 主張:
+   *  - 375・320 幅: ダイアログの本体と文書全体に水平のはみ出しが無い（許容誤差 1px）。画像の枠が
+   *    本体の内側（padding の内側）の左右に収まる。画像の枠の中の画像は本体の内側の幅を埋める
+   *    （写真の幅が本体より広いため、縮めた枠は内側の幅から枠線の分を除いた幅になる。潰れていない
+   *    ことの確認）。画像の縦横の比は写真の比のまま。
+   *  - 1280 幅: 画像の幅は最大表示幅 600 のまま、高さは 600 × 1440 / 1920 のまま（デスクトップ幅の
+   *    表示を変えない）。600 は描画のフォントに依存しない、エディタの既定の最大表示幅である。
+   *  - 320 幅（最も縮尺の小さい幅）で看板を選んで動かさずに保存すると、送られた配置は写真一覧の
+   *    API が返す実寸 W×H に対して left=0.3W, top=0.375H, width=0.4W, height=0.25H（整数へ丸め、
+   *    換算の浮動小数の誤差に 1px を許す）になり、読み込み直しても残る（タスク 24.4 の既定の配置が
+   *    新しい縮尺でも同じであること）。
+   *
+   * 寸法の主張にフォントに依存する固定値は使わない。三つの幅をすべて測ってから主張する。
+   *
+   * 前提（満たされなければ失敗させる。条件付きで飛ばさない）:
+   *  - 写真一覧の API が返す写真の寸法が 1920×1440 である（写真が縮められて保存されていない）。
+   *  - 画面幅（window.innerWidth）が設定した幅に一致し、写真項目の並びがその幅の分岐に確定している。
+   *  - 画像の枠の中に canvas があり、高さが 0 でない。
+   */
+  test('実寸の写真でもモバイル幅（375・320）で看板の配置のエディタの画像の枠がダイアログの本体に収まり、1280 幅では幅が変わらず、動かさずに保存した配置は画像の座標で既定の比率になる', async ({
+    page,
+  }) => {
+    const HORIZONTAL_TOLERANCE_PX = 1;
+    const MOBILE_WIDTHS = [375, 320];
+    const DESKTOP_WIDTH = 1280;
+    // エディタの既定の最大表示幅（フォントに依存しない、検証の側で綴る値）
+    const DEFAULT_MAX_DISPLAY_WIDTH = 600;
+    const stamp = Date.now();
+    const signboardName = `画像の枠E2E看板_${stamp}`;
+    const fileName = `large_frame_${stamp}.png`;
+    // スマートフォンの写真に多い 4:3 の 1920×1440
+    const PHOTO_WIDTH = 1920;
+    const PHOTO_HEIGHT = 1440;
+
+    const desktopViewport = page.viewportSize();
+    expect(desktopViewport).not.toBeNull();
+
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'placement-frame-width');
+    const albumId = await createAlbum(page, projectId, `画像の枠_${stamp}`);
+
+    // 配置用の工事看板を登録する（上の看板配置のテストと同じ手順）
+    await page.goto(`/projects/${projectId}/construction-signboards`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { name: '工事看板マスタ' })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await page.getByRole('button', { name: '新規登録' }).click();
+    await page.getByLabel('工事件名').fill(signboardName);
+    await page.getByLabel('工事場所').fill('画像の枠E2E現場');
+    const createSignboardResp = page.waitForResponse(
+      (r) => r.request().method() === 'POST' && /\/construction-signboards/.test(r.url()),
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByRole('button', { name: '登録' }).click();
+    await createSignboardResp;
+    await expect(page.getByRole('row').filter({ hasText: signboardName })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    interface ListedPhoto {
+      id: string;
+      width: number;
+      height: number;
+      signboardId: string | null;
+      signboardPlacement: { left: number; top: number; width: number; height: number } | null;
+    }
+    const photoListPath = `/api/construction-photos/${albumId}/images`;
+    const isPhotoListResponse = (r: import('@playwright/test').Response): boolean =>
+      r.request().method() === 'GET' && new URL(r.url()).pathname === photoListPath;
+
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    const upload = page.waitForResponse(
+      (r) => r.request().method() === 'POST' && /\/construction-photos\/.+\/images$/.test(r.url()),
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByTestId('file-input').setInputFiles({
+      name: fileName,
+      mimeType: 'image/png',
+      buffer: buildLargePhotoPng(PHOTO_WIDTH, PHOTO_HEIGHT),
+    });
+    expect((await upload).status()).toBeLessThan(300);
+    const items = page.getByTestId('construction-photo-item');
+    await expect(items).toHaveCount(1, { timeout: getTimeout(20000) });
+
+    interface Rect {
+      left: number;
+      right: number;
+      top: number;
+      bottom: number;
+      width: number;
+      height: number;
+    }
+    interface FrameMeasurement {
+      width: number;
+      viewportWidth: number;
+      documentOverflow: number;
+      content: Rect & {
+        scrollWidth: number;
+        clientWidth: number;
+        innerLeft: number;
+        innerRight: number;
+      };
+      frame: Rect | null;
+      canvas: Rect | null;
+    }
+    const measurements: FrameMeasurement[] = [];
+    let photo: ListedPhoto | undefined;
+
+    const measureFrame = (dialog: import('@playwright/test').Locator) =>
+      dialog.evaluate((root) => {
+        const rect = (target: Element): Rect => {
+          const r = target.getBoundingClientRect();
+          return {
+            left: r.left,
+            right: r.right,
+            top: r.top,
+            bottom: r.bottom,
+            width: r.width,
+            height: r.height,
+          };
+        };
+        const content = root.querySelector('[data-testid="signboard-assign-content"]') as Element;
+        const style = getComputedStyle(content);
+        const contentRect = rect(content);
+        const editorEl = root.querySelector('[data-testid="signboard-placement-editor"]');
+        // 配置エディタの最初の子が画像の枠（canvas を包む）である
+        const frameEl = editorEl?.firstElementChild ?? null;
+        const canvasEl = frameEl?.querySelector('canvas') ?? null;
+        return {
+          viewportWidth: window.innerWidth,
+          documentOverflow:
+            document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          content: {
+            ...contentRect,
+            scrollWidth: content.scrollWidth,
+            clientWidth: content.clientWidth,
+            innerLeft: contentRect.left + parseFloat(style.paddingLeft),
+            innerRight: contentRect.right - parseFloat(style.paddingRight),
+          },
+          frame: frameEl ? rect(frameEl) : null,
+          canvas: canvasEl ? rect(canvasEl) : null,
+        };
+      });
+
+    const openDialogWithSignboard = async (width: number) => {
+      const isMobileWidth = MOBILE_WIDTHS.includes(width);
+      await page.setViewportSize({ width, height: 812 });
+      const listPromise = page.waitForResponse(isPhotoListResponse, {
+        timeout: getTimeout(30000),
+      });
+      await page.goto(`/construction-photos/${albumId}`);
+      const listed = (await (await listPromise).json()) as ListedPhoto[];
+      await page.waitForLoadState('networkidle');
+      await expect(items, `${width} 幅`).toHaveCount(1, { timeout: getTimeout(20000) });
+      // アルバムの写真項目は追加した 1 件だけである
+      expect(listed, `${width} 幅`).toHaveLength(1);
+      photo = listed[0];
+      // 前提: 画面がその幅の分岐に確定している
+      await expect
+        .poll(
+          async () =>
+            items
+              .first()
+              .evaluate((el) => getComputedStyle(el as HTMLElement).flexDirection === 'column'),
+          { message: `${width} 幅`, timeout: getTimeout(15000) }
+        )
+        .toBe(isMobileWidth);
+
+      await items
+        .first()
+        .getByRole('button', { name: `看板を配置: ${fileName}` })
+        .click();
+      const assignDialog = page.getByRole('dialog', { name: '看板を配置' });
+      await expect(assignDialog, `${width} 幅`).toBeVisible({ timeout: getTimeout(10000) });
+      const select = assignDialog.locator('#signboard-assign-select');
+      await expect(select, `${width} 幅`).toBeEnabled({ timeout: getTimeout(15000) });
+      await select.selectOption({ label: signboardName });
+      const editor = assignDialog.getByTestId('signboard-placement-editor');
+      await expect(editor.getByTestId('signboard-indicator'), `${width} 幅`).toContainText(
+        signboardName,
+        { timeout: getTimeout(10000) }
+      );
+      // 前提: 画像の枠に高さのある canvas が描かれている
+      await expect
+        .poll(async () => (await measureFrame(assignDialog)).canvas?.height ?? 0, {
+          message: `${width} 幅`,
+          timeout: getTimeout(15000),
+        })
+        .toBeGreaterThan(0);
+      return assignDialog;
+    };
+
+    for (const width of [...MOBILE_WIDTHS, DESKTOP_WIDTH]) {
+      const assignDialog = await openDialogWithSignboard(width);
+      // 幅の追従（置かれた場所の幅の計測の後の描き直し）が落ち着くまで待つ。どの幅でも本体の
+      // 水平のはみ出しが消えるまで待つ（デスクトップ幅の寸法は下でまとめて主張する）
+      await expect
+        .poll(
+          async () => {
+            const m = await measureFrame(assignDialog);
+            return m.content.scrollWidth - m.content.clientWidth;
+          },
+          { message: `${width} 幅の本体の水平のはみ出し`, timeout: getTimeout(10000) }
+        )
+        .toBeLessThanOrEqual(HORIZONTAL_TOLERANCE_PX);
+      measurements.push({ width, ...(await measureFrame(assignDialog)) });
+
+      await assignDialog.getByRole('button', { name: 'キャンセル' }).click();
+      await expect(assignDialog, `${width} 幅`).toBeHidden({ timeout: getTimeout(10000) });
+    }
+
+    const report = measurements
+      .map(
+        (m) =>
+          `${m.width} 幅: 本体 ${m.content.scrollWidth}/${m.content.clientWidth}` +
+          `（内側 ${m.content.innerLeft}〜${m.content.innerRight}）、文書のはみ出し ${m.documentOverflow}、` +
+          `枠 ${m.frame?.left}〜${m.frame?.right}、画像 ${m.canvas?.width}×${m.canvas?.height}`
+      )
+      .join(' ｜ ');
+
+    // 前提: 写真は実寸のまま保存され、画面幅が設定した幅であり、測る対象がすべて在る
+    expect(photo, report).toBeDefined();
+    expect(photo!.width, report).toBe(PHOTO_WIDTH);
+    expect(photo!.height, report).toBe(PHOTO_HEIGHT);
+    expect(
+      measurements.map((m) => m.viewportWidth),
+      report
+    ).toEqual([...MOBILE_WIDTHS, DESKTOP_WIDTH]);
+    for (const m of measurements) {
+      expect(m.frame, `${m.width} 幅 ｜ ${report}`).not.toBeNull();
+      expect(m.canvas, `${m.width} 幅 ｜ ${report}`).not.toBeNull();
+      expect(m.canvas!.height, `${m.width} 幅 ｜ ${report}`).toBeGreaterThan(0);
+      // 画像の縦横の比は写真の比のまま（縮尺は幅と高さで同じ）
+      expect(
+        Math.abs(m.canvas!.height - (m.canvas!.width * photo!.height) / photo!.width),
+        `${m.width} 幅 ｜ ${report}`
+      ).toBeLessThanOrEqual(HORIZONTAL_TOLERANCE_PX);
+    }
+
+    const mobile = measurements.filter((m) => MOBILE_WIDTHS.includes(m.width));
+    // R19.1: モバイル幅でダイアログの本体と文書全体に水平のはみ出しが無い（許容誤差1px）
+    expect(
+      mobile
+        .filter(
+          (m) =>
+            m.content.scrollWidth - m.content.clientWidth > HORIZONTAL_TOLERANCE_PX ||
+            m.documentOverflow > HORIZONTAL_TOLERANCE_PX
+        )
+        .map((m) => `${m.width} 幅`),
+      report
+    ).toEqual([]);
+    // R19.1: 画像の枠が本体の内側の左右に収まる
+    expect(
+      mobile
+        .filter(
+          (m) =>
+            m.frame!.left < m.content.innerLeft - HORIZONTAL_TOLERANCE_PX ||
+            m.frame!.right > m.content.innerRight + HORIZONTAL_TOLERANCE_PX
+        )
+        .map((m) => `${m.width} 幅`),
+      report
+    ).toEqual([]);
+    // 画像の枠は本体の内側の幅を埋める（潰れていない）。写真は本体より広いため、縮めた枠は
+    // 内側の幅いっぱいになる（枠線と整数への切り捨ての分として 3px を許す）
+    expect(
+      mobile
+        .filter((m) => m.frame!.width < m.content.innerRight - m.content.innerLeft - 3)
+        .map((m) => `${m.width} 幅`),
+      report
+    ).toEqual([]);
+
+    // デスクトップ幅の表示は変えない: 画像は最大表示幅 600 のまま
+    const desktop = measurements.find((m) => m.width === DESKTOP_WIDTH)!;
+    expect(desktop.canvas!.width, report).toBe(DEFAULT_MAX_DISPLAY_WIDTH);
+    expect(
+      Math.abs(desktop.canvas!.height - (DEFAULT_MAX_DISPLAY_WIDTH * photo!.height) / photo!.width),
+      report
+    ).toBeLessThanOrEqual(HORIZONTAL_TOLERANCE_PX);
+
+    // R9.1 / R9.3: 最も縮尺の小さい 320 幅で看板を選び、動かさずに保存した配置は画像の座標で
+    // 既定の比率になる
+    const batchBodies: string[] = [];
+    page.on('request', (request) => {
+      if (
+        request.method() === 'PATCH' &&
+        new URL(request.url()).pathname === '/api/construction-photos/images/batch'
+      ) {
+        batchBodies.push(request.postData() ?? '');
+      }
+    });
+    const narrowest = Math.min(...MOBILE_WIDTHS);
+    const saveDialog = await openDialogWithSignboard(narrowest);
+    await expect
+      .poll(
+        async () => {
+          const m = await measureFrame(saveDialog);
+          return m.content.scrollWidth - m.content.clientWidth;
+        },
+        { message: `${narrowest} 幅の本体の水平のはみ出し`, timeout: getTimeout(10000) }
+      )
+      .toBeLessThanOrEqual(HORIZONTAL_TOLERANCE_PX);
+    const signboardId = await saveDialog.locator('#signboard-assign-select').inputValue();
+    expect(signboardId).toBeTruthy();
+    await saveDialog
+      .getByTestId('signboard-placement-editor')
+      .getByRole('button', { name: '保存' })
+      .click();
+    await expect(saveDialog).toBeHidden({ timeout: getTimeout(10000) });
+
+    const batchResponsePromise = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'PATCH' &&
+        new URL(r.url()).pathname === '/api/construction-photos/images/batch',
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    expect((await batchResponsePromise).status()).toBe(200);
+    await expect(page.getByTestId('dirty-indicator')).toBeHidden({ timeout: getTimeout(15000) });
+
+    expect(batchBodies).toHaveLength(1);
+    const sent = (
+      JSON.parse(batchBodies[0]!) as {
+        items: Array<{
+          id: string;
+          signboardId?: string | null;
+          signboardPlacement?: ListedPhoto['signboardPlacement'];
+        }>;
+      }
+    ).items.find((item) => item.id === photo!.id);
+    expect(sent).toBeDefined();
+    expect(sent!.signboardId).toBe(signboardId);
+    const placement = sent!.signboardPlacement;
+    expect(placement).toBeDefined();
+    expect(placement).not.toBeNull();
+    const W = photo!.width;
+    const H = photo!.height;
+    const expectedPlacement = {
+      left: Math.round(W * 0.3),
+      top: Math.round(H * 0.375),
+      width: Math.round(W * 0.4),
+      height: Math.round(H * 0.25),
+    };
+    for (const key of ['left', 'top', 'width', 'height'] as const) {
+      expect(
+        Math.abs(placement![key] - expectedPlacement[key]),
+        `${key}: ${JSON.stringify(placement)} / ${JSON.stringify(expectedPlacement)}`
+      ).toBeLessThanOrEqual(1);
+    }
+
+    // 読み込み直した後も、看板の指定と送った配置が保たれている
+    const reloadListPromise = page.waitForResponse(isPhotoListResponse, {
+      timeout: getTimeout(30000),
+    });
+    await page.reload();
+    const reloaded = ((await (await reloadListPromise).json()) as ListedPhoto[]).find(
+      (p) => p.id === photo!.id
+    );
+    expect(reloaded).toBeDefined();
+    expect(reloaded!.signboardId).toBe(signboardId);
+    expect(reloaded!.signboardPlacement).toEqual(placement);
+
+    await page.setViewportSize(desktopViewport!);
   });
 
   /**
