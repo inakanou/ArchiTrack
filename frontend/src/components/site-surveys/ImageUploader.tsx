@@ -342,11 +342,22 @@ export function ImageUploader({
    * 初回送信と再送の後処理（失敗の記録・エラー表示）を1箇所に集約し、
    * 「試行して失敗しなかった画像は保持に残らない」という不変条件を共通化する。
    *
-   * 例外で失敗した場合も試行対象の File を保持へ回す（37.1）。呼び出し側の
-   * `onUpload`（`SiteSurveyDetailPage.handleImageUpload` /
-   * `PhotoUploader.handleUpload`）は catch を持たず、通信断・認証切れ・
-   * `onPhotosAdded` の例外がそのままここへ伝播する。ここで File 参照を捨てると
-   * 撮影済みの画像が復元不能に失われるため、メッセージの state 化だけでは足りない。
+   * 例外で失敗した場合も試行対象の File を保持へ回す（37.1）。`onUpload` の契約は
+   * 例外の送出を禁じておらず、例外がここへ届いた時点で File 参照を捨てると撮影済みの
+   * 画像が復元不能に失われるため、メッセージの state 化だけでは足りない。
+   *
+   * 現行の呼び出し側はいずれも catch を持たない（try/finally のみ）が、送信の失敗
+   * （通信断・認証切れ・207 の個別失敗）は API 層が画像ごとに捕捉して戻り値の
+   * `failed` へ集約するため、ここへは伝播しない。呼び出し側ごとの現況は次のとおり。
+   * - `SiteSurveyDetailPage.handleImageUpload`: 送信の失敗は `uploadSurveyImages` が
+   *   集約する。ここへ伝播しうるのは送信の失敗以外の想定外の例外（送信後の一覧の
+   *   state 更新・失敗の通知文の組み立て・監視への送出など）である。
+   * - `PhotoUploader.handleUpload`: 送信の失敗は `uploadFilesInWaves` が集約し、
+   *   親への通知（`onPhotosAdded` / `onNotify`）の例外は `notifySafely` が捕捉して
+   *   伝播させない。ここへ伝播しうるのは、それらの保護の外に残る想定外の例外
+   *   （通知文の組み立てなど）に限られる。
+   * 送信前の圧縮（`compressImagesForUpload`）も失敗時は元ファイルへ戻すため例外を
+   * 投げない。
    *
    * @param files - 送信対象の画像
    * @param compress - 送信前に圧縮するかどうか。再送では false を指定する（37.4）
