@@ -358,14 +358,27 @@
  * フォントの差を見込んで 1200px 以上で文言を出す。
  * ユーザー名は隠さず、全幅に効く .app-header-user-name の上限幅と省略表示（ellipsis）で出す
  * （768px 以下では下のモバイル対応が隠す）。
+ *
+ * 文言は display: none でなく、見た目だけを隠して支援技術には残す（visually hidden）。
+ * アイコンの SVG は aria-hidden のため、display: none ではリンクとボタンがアクセシブルネームを失い、
+ * スクリーンリーダーの利用者が行き先を知れなかった（Task 40.2、要件15.4）。
+ * 見えている文言を名前の出どころのまま残すため、名前は全幅でデスクトップ幅の文言と同じになる
+ * （WCAG 2.5.3 Label in Name）。絶対配置で行の流れから外れるため、並び・間隔・大きさは
+ * display: none のときと変わらず、1px の箱に切り取るため水平のはみ出しも生まない。
  */
 @media (max-width: 1199px) {
-  .app-header-nav-link span {
-    display: none;
-  }
-
+  .app-header-nav-link span,
   .app-header-admin-trigger span {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
   }
 }
 
@@ -375,12 +388,23 @@
     height: 56px;
   }
 
-  .app-header-logo-text {
-    display: none;
-  }
-
+  /*
+   * ロゴの文字とユーザー名は、見た目だけを隠して支援技術には残す（上のアイコンのみの表示と同じ指定）。
+   * display: none では、ロゴのリンクが名前を失い、ユーザーメニューのボタンの名前がイニシャルだけになる
+   * （Task 40.2）。
+   */
+  .app-header-logo-text,
   .app-header-user-name {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
   }
 
   .app-header-separator {

@@ -106,6 +106,71 @@ const TABLET_DISPLAY_NAME_CASES = [
   },
 ] as const;
 
+/**
+ * アクセシブルネームの検証（Task 40.2）で測る画面幅
+ *
+ * アイコンのみの表示（1199px 以下）の全範囲から、モバイル幅の下限 320、機能レベル検証の 375、
+ * モバイル対応（ロゴの文字とユーザー名も隠す）の上端 768、タブレット幅の代表 1024、
+ * アイコンのみの表示の上端 1199 を取り、文言を出すデスクトップ幅 1280 を対照として加える。
+ */
+const ACCESSIBLE_NAME_WIDTHS = [320, 375, 768, 1024, 1199, 1280] as const;
+
+/**
+ * リンクと管理メニューの文言を隠す幅の上限（AppHeader.css の @media (max-width: 1199px)。
+ * frontend/src/utils/responsive.ts の APP_HEADER_ICON_ONLY_MAX_WIDTH と同値）
+ */
+const ICON_ONLY_MAX_WIDTH = 1199;
+
+/** ロゴの文字とユーザー名も隠す幅の上限（AppHeader.css の @media (max-width: 768px)） */
+const HEADER_MOBILE_MAX_WIDTH = 768;
+
+/**
+ * 共通ヘッダーのリンクの名前（デスクトップ幅で見えている文言）と行き先
+ *
+ * アクセシブルネームは画面幅によらずデスクトップ幅の名前と同じであること（見えている文言と
+ * 名前の一致。WCAG 2.5.3 Label in Name）を求めるため、各リンクの文言をそのまま名前として指す。
+ */
+const HEADER_LINKS = [
+  {
+    name: 'ArchiTrack',
+    href: '/',
+    textSelector: '.app-header-logo-text',
+    hideMaxWidth: HEADER_MOBILE_MAX_WIDTH,
+  },
+  { name: 'ダッシュボード', href: '/', textSelector: 'span', hideMaxWidth: ICON_ONLY_MAX_WIDTH },
+  {
+    name: 'プロジェクト',
+    href: '/projects',
+    textSelector: 'span',
+    hideMaxWidth: ICON_ONLY_MAX_WIDTH,
+  },
+  {
+    name: '取引先',
+    href: '/trading-partners',
+    textSelector: 'span',
+    hideMaxWidth: ICON_ONLY_MAX_WIDTH,
+  },
+  {
+    name: '自社情報',
+    href: '/company-info',
+    textSelector: 'span',
+    hideMaxWidth: ICON_ONLY_MAX_WIDTH,
+  },
+] as const;
+
+/**
+ * 要素が見た目の上で隠れている（描かれる箱が 1px 以下）かを測る
+ *
+ * display: none（箱が 0×0）と、支援技術に名前を残して見た目だけ隠す指定（1px の箱に切り取る）の
+ * どちらも「隠れている」と読む。文言が読める大きさで描かれていれば幅と高さは 1px を超える。
+ */
+async function isVisuallyHidden(target: Locator): Promise<boolean> {
+  return target.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return r.width <= 1 && r.height <= 1;
+  });
+}
+
 /** 一行のヘッダーの高さを測る基準のデスクトップ幅 */
 const DESKTOP_REFERENCE_WIDTH = 1280;
 
@@ -291,7 +356,9 @@ async function expectReachableWithinViewport(target: Locator, description: strin
  * 呼び出し側は、ヘッダーとナビゲーションが表示されていることを先に主張しておくこと。
  *
  * ヘッダーのリンクと管理メニューのボタンは、名前でなく href と構造で指す。
- * 文言が display: none の幅では、リンクと管理メニューのボタンがアクセシブルネームを持たないためである。
+ * 本検証の導入時（Task 39.1）は、文言が display: none の幅でリンクと管理メニューのボタンが
+ * アクセシブルネームを持たなかったためである。名前は Task 40.2 の是正で全幅に戻り、その判定は
+ * 「アイコンのみの表示のアクセシブルネーム」が受け持つ。本関数は配置と到達性だけを判定する。
  * 開いたメニューの項目は文言が表示されるので名前で指す。
  */
 async function expectHeaderItemsReachable(
@@ -730,9 +797,11 @@ test.describe('AppHeader ナビゲーション', () => {
    * 一般ユーザーは 320 幅で 350 / 320）。右へはみ出していたのはユーザーメニューである。
    *
    * ヘッダーのリンクと管理メニューのボタンは、名前でなく href と構造で指す。
-   * モバイル幅（768px 以下）ではリンクと管理メニューの文言が display: none になり、
-   * アクセシブルネームを持たない（375 幅の実測で getByRole('link', { name: 'ダッシュボード' }) と
-   * getByRole('button', { name: '管理メニュー' }) はともに 0 件）ため、名前では指せない。
+   * 本検証の導入時（Task 39.1）は、モバイル幅（768px 以下）でリンクと管理メニューの文言が
+   * display: none になり、アクセシブルネームを持たなかった（375 幅の実測で
+   * getByRole('link', { name: 'ダッシュボード' }) と getByRole('button', { name: '管理メニュー' }) は
+   * ともに 0 件）ためである。名前の欠落は Task 40.2 で是正し、下の「アイコンのみの表示の
+   * アクセシブルネーム」が判定する。
    * 開いたメニューの項目は文言が表示されるので名前で指す。
    */
   test.describe('モバイル幅の表示', () => {
@@ -896,6 +965,107 @@ test.describe('AppHeader ナビゲーション', () => {
             await expectHeaderSingleRow(header, desktopRow, `画面幅 ${width}・メニューを閉じた後`);
           });
         }
+      }
+    }
+  });
+
+  /**
+   * 共通ヘッダーのアイコンのみの表示のアクセシブルネーム（Task 40.2）
+   *
+   * 経緯: 是正前は、アイコンのみの表示（1199px 以下）でリンクと管理メニューのボタンの文言が
+   * display: none になり、アイコンの SVG は aria-hidden のため、アクセシブルネームを持たなかった
+   * （375 幅と 1024 幅の実測で getByRole('link', { name: 'ダッシュボード' }) と
+   * getByRole('button', { name: '管理メニュー' }) はともに 0 件、1280 幅では各 1 件）。
+   * 768px 以下ではロゴの文字とユーザー名も display: none で、ロゴのリンクは名前を持たず、
+   * ユーザーメニューのボタンの名前はイニシャルだけになっていた。
+   */
+  test.describe('アイコンのみの表示のアクセシブルネーム', () => {
+    for (const role of MOBILE_HEADER_ROLES) {
+      for (const width of ACCESSIBLE_NAME_WIDTHS) {
+        /**
+         * @requirement user-authentication/REQ-15.4: ページ読み込み時に適切な aria-label・aria-describedby・role 属性を提供する
+         *
+         * 判定根拠: 共通ヘッダーのロゴ・四つのリンク・管理メニューのボタン・ユーザーメニューのボタンを、
+         * デスクトップ幅で見えている文言と同じ名前の getByRole でヘッダーの中から 1 件ずつ指せることを、
+         * アイコンのみの表示の各幅と対照のデスクトップ幅で主張している。名前で指したリンクの行き先も主張する。
+         * 前提として、各幅で文言が実際に見た目の上で隠れている（アイコンのみである）か出ているかを
+         * 幅から決まる期待値で主張しており、文言を出したまま名前を得る形で緑になることは無い。
+         * 是正前は 1199px 以下で赤になる（上の経緯の実測値）。
+         */
+        test(`画面幅 ${width}px・${role.label}: 共通ヘッダーのリンクとメニューのボタンが文言と同じアクセシブルネームを持つ`, async ({
+          page,
+        }) => {
+          const testUser = TEST_USERS[role.userKey];
+          await loginAsUser(page, role.userKey);
+          await page.setViewportSize({ width, height: 812 });
+          await page.goto('/dashboard');
+          await expect(page).toHaveURL(/\/dashboard$/);
+
+          // 前提: 共通ヘッダーが表示され、画面幅の設定が効いている
+          const header = page.locator('header[role="banner"]');
+          await expect(header).toBeVisible();
+          const nav = header.locator('nav[role="navigation"]');
+          await expect(nav).toBeVisible();
+          expect(await page.evaluate(() => document.documentElement.clientWidth)).toBe(width);
+
+          // 前提: 各リンクの文言が、幅から決まる通りに隠れている（アイコンのみ）か出ている
+          for (const link of HEADER_LINKS) {
+            const structural =
+              link.name === 'ArchiTrack'
+                ? header.locator('a.app-header-logo')
+                : nav.locator(`a.app-header-nav-link[href="${link.href}"]`);
+            await expect(structural, `${link.name}のリンク`).toBeVisible();
+            const text = structural.locator(link.textSelector);
+            await expect(text, `${link.name}のリンクの文言`).toHaveText(link.name);
+            expect(
+              await isVisuallyHidden(text),
+              `画面幅 ${width} で${link.name}の文言が隠れているか`
+            ).toBe(width <= link.hideMaxWidth);
+          }
+
+          // 各リンクを、見えている文言と同じ名前でヘッダーの中から 1 件ずつ指せて、行き先が正しい
+          for (const link of HEADER_LINKS) {
+            const byName = header.getByRole('link', { name: link.name, exact: true });
+            await expect(byName, `名前「${link.name}」のリンク`).toHaveCount(1);
+            await expect(byName).toHaveAttribute('href', link.href);
+          }
+
+          // 管理メニュー: ロールで主張を分岐させず、ユーザーメニューより前に並ぶトリガー（管理メニューの
+          // ボタン）を構造で集め、件数をロールごとの期待値（管理者 1・一般ユーザー 0）で主張してから、
+          // 名前で指せる件数を同じ期待値で主張し、集めたボタンのそれぞれの文言の見え方と名前を主張する
+          const menuTriggers = nav.locator('button[aria-haspopup="menu"]');
+          await expect(menuTriggers).toHaveCount(role.isAdmin ? 2 : 1);
+          const adminMenuButtons = (await menuTriggers.all()).slice(0, -1);
+          expect(adminMenuButtons, `${role.label}の管理メニューのボタンの数`).toHaveLength(
+            role.isAdmin ? 1 : 0
+          );
+          await expect(
+            header.getByRole('button', { name: '管理メニュー', exact: true }),
+            '名前「管理メニュー」のボタン'
+          ).toHaveCount(role.isAdmin ? 1 : 0);
+          for (const adminMenuButton of adminMenuButtons) {
+            const text = adminMenuButton.locator('span');
+            await expect(text).toHaveText('管理メニュー');
+            expect(
+              await isVisuallyHidden(text),
+              `画面幅 ${width} で管理メニューの文言が隠れているか`
+            ).toBe(width <= ICON_ONLY_MAX_WIDTH);
+            await expect(adminMenuButton).toHaveAccessibleName('管理メニュー');
+          }
+
+          // ユーザーメニュー: 768px 以下で表示名が隠れても、ボタンの名前に表示名が残る
+          const userMenuButton = menuTriggers.last();
+          const userName = userMenuButton.locator('.app-header-user-name');
+          await expect(userName).toHaveText(testUser.displayName);
+          expect(
+            await isVisuallyHidden(userName),
+            `画面幅 ${width} でユーザー名が隠れているか`
+          ).toBe(width <= HEADER_MOBILE_MAX_WIDTH);
+          await expect(
+            header.getByRole('button', { name: testUser.displayName }),
+            `名前に表示名「${testUser.displayName}」を含むボタン`
+          ).toHaveCount(1);
+        });
       }
     }
   });
