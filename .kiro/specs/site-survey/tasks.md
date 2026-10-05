@@ -2613,7 +2613,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 
 ## Requirement 37: アップロード失敗時の撮影画像の保持と再送
 
-- [ ] 104. Foundation: 失敗分類と共有型の整備
+- [x] 104. Foundation: 失敗分類と共有型の整備
 
 - [x] 104.1 未送信画像と失敗情報の共有型を定義する
   - 再送可否を表す2値、失敗1件分（画像・失敗理由・再送可否）、アップロード結果、保持中の未送信画像（重複排除用の安定キーとプレビューURLを含む）の型を定義する
@@ -2631,7 +2631,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 37.16, 37.21_
   - _Boundary: upload-failure_
 
-- [ ] 105. Core: multipart 送信経路の共通クライアント統一
+- [x] 105. Core: multipart 送信経路の共通クライアント統一
 
 - [x] 105.1 共通クライアントが multipart ボディを送信できるようにする
   - 送信ボディが FormData の場合は JSON 化せず、Content-Type をブラウザの自動設定に委ねる
@@ -2659,7 +2659,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 37.13, 37.14, 37.15, 37.19, 37.20_
   - _Boundary: apiClient_
 
-- [ ] 106. Core: 未送信画像の保持機構と表示面
+- [x] 106. Core: 未送信画像の保持機構と表示面
 
 - [x] 106.1 (P) 未送信画像を保持し重複排除とプレビューの生存を管理する仕組みを実装する
   - 1回の送信試行の結果を受け取り、試行して失敗しなかった画像を保持から取り除き、失敗した画像を追加または既存項目の更新として反映する
@@ -2682,7 +2682,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 37.2, 37.3, 37.7, 37.10, 37.16, 37.17, 37.18_
   - _Boundary: PendingUploadPanel_
 
-- [ ] 107. Integration: アップロードAPIの送信経路統一と失敗画像の返却
+- [x] 107. Integration: アップロードAPIの送信経路統一と失敗画像の返却
 
 - [x] 107.1 現場調査の画像アップロードを共通クライアント経由に統一し部分失敗の扱いを是正する
   - 独自の multipart 送信実装を廃止し、共通クライアントの multipart 送信へ委譲する
@@ -2701,7 +2701,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 37.1_
   - _Boundary: construction-photo-images API_
 
-- [ ] 108. Integration: 撮影画像の保持と再送の結線
+- [x] 108. Integration: 撮影画像の保持と再送の結線
 
 - [x] 108.1 アップロードUIに未送信保持と再送・破棄を結線する
   - アップロードハンドラが失敗した画像を返せるよう戻り値の契約を拡張し、返さない既存の呼び出しは全件成功として扱う
@@ -2735,7 +2735,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 37.1_
   - _Boundary: PhotoUploader_
 
-- [ ] 109. Validation: 実ブラウザ検証と回帰確認
+- [x] 109. Validation: 実ブラウザ検証と回帰確認
 
 - [x] 109.1 失敗から保持・再送・破棄までをE2Eで検証する
   - アップロード応答をサーバーエラーへ差し替えて失敗させ、未送信件数とサムネイルが表示されることを確認する
@@ -2808,7 +2808,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
 
 ## Requirement 38: 写真枚数によらない画面表示の応答性
 
-- [ ] 110. Foundation: 表示領域観測の基盤
+- [x] 110. Foundation: 表示領域観測の基盤
 
 - [x] 110.1 テスト環境に表示領域観測のスタブを用意する
   - テスト実行環境には表示領域の交差を判定する仕組みが存在しないため、観測対象の登録・解除と交差状態の任意発火を制御できるスタブを共通セットアップへ追加する
@@ -2828,7 +2828,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 38.8_
   - _Boundary: useInViewport_
 
-- [ ] 111. Core: 画像取得タイミングと表示元URLの是正
+- [x] 111. Core: 画像取得タイミングと表示元URLの是正
 
 - [x] 111.1 画像一覧取得の問い合わせ回数を写真枚数から独立させる
   - アクセス可否の判定を画像ごとに繰り返さず、画像が属する現場調査の単位で1回だけ行う
@@ -2875,7 +2875,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 38.2, 38.5_
   - _Boundary: 現場調査詳細取得の応答組み立て（site-surveys.routes.ts の画像URL詰め替え）_
 
-- [ ] 112. Integration: 重複する遅延読み込み実装の除去
+- [x] 112. Integration: 重複する遅延読み込み実装の除去
 
 - [x] 112.1 未使用の遅延読み込みコンポーネントを削除する
   - 観測の仕組みを共有フックへ移設したうえで、利用実績のない遅延読み込みコンポーネントとその表示確認用ファイルを削除する
@@ -2885,7 +2885,7 @@ Requirements 24 以降の実装タスク。design.md の `## Requirements 24-30`
   - _Requirements: 38.8_
   - _Boundary: LazyImage, site-surveys コンポーネント群のまとめ出力_
 
-- [ ] 113. Validation: 要件の検証と付随作業
+- [x] 113. Validation: 要件の検証と付随作業
 
 - [x] 113.1 (P) 画像一覧取得の応答時間が写真枚数に比例しないことを確認する
   - 既存の性能テストと同一の方式で、画像一覧取得のレスポンスタイムを測定する処理を追加する
