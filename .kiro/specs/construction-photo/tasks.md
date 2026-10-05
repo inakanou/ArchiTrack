@@ -877,3 +877,18 @@ _申し送り元: quantity-table-generation スペックの Task 100.24_
   - 26.1・26.2 の変更を design.md の該当の記述へ反映する
   - _Boundary: construction-photo の design.md_
   - **【完了時の注記（2026-10-05）】** design.md の「残る性質」を解消済みへ改め、Out of Boundary と Allowed Dependencies に `ImageUploader`（23.5）と `PendingUploadPanel`（16.3 の tap-target の移設）の例外を書き足し、Allowed Dependencies にフロント（`useElementSize`・`SignboardPlacementEditor` の `TAP_TARGET_MIN_PX`/`useMediaQuery`・`api/site-surveys`）とバックエンド（`survey-deleted-guard`・`SurveyImageService`）の依存を書き足した。`SignboardPlacementEditor` の記述に背景の原本・基準点の固定・キャンバスを作り直さない扱いを、通知の枠の節に未保存の変更があるときの出力を書き足した。新しい E2E で肯定側から指す参照が 1585 から 1598 へ動いたため、site-survey が所有する宣言 `t13-anchor-references-after-115303` を貼り直した。`check:design-measurement-freshness` に残る `nonexistent-paths-by-git-index`（16 に対して 18）は本タスクの変更を退けても同じく赤の既存の問題である。アーキテクチャの図（:126・:133・:134 の矢印の実装とのずれ）は直していない（Info の指摘で、起票の範囲に含めなかった）
+
+## Task 27: 機能全体の検証（`/kiro-validate-impl`、2026-10-05 の 2 回目）で判明した、ZIP の連番と保存済みの表示順の食い違い
+
+**経緯**: 24.1 の後の機能全体の検証（2026-10-05）は、テストの全件（backend の統合 1081・単体 6218、frontend の単体 12147、工事写真の E2E 71）が緑のまま NO-GO とした。詳細画面の並べ替えと ZIP の出力が、タスクの境界をまたいで表示の順の扱いを食い違えていたためである。
+
+- [x] 27.1 ZIP のエントリ名の連番と部分失敗の順番を、保存済みの表示順にする
+  - 現象: 詳細画面の並べ替え（`handleOrderChange`）は `photos` の各要素の `displayOrder` を書き換えるだけで配列の並びを変えず、保存の後も並べ直さない。ZIP の出力（`handleExportStart`）は対象を `photos` の配列の並びのまま `ConstructionPhotoBulkExportService.export` へ渡し、エントリ名の連番 `NNN_` はその並びの番号から作られる。このため同じ画面で並べ替えて保存した直後に ZIP を出力すると、連番が画面の一覧と PDF（`displayOrder` の昇順で出力する）の順と食い違い、読み込んだ時点の順で付く。部分失敗のときに示す「エクスポート対象の中での順番」も同じく食い違う。26.2 は未保存の間の出力を止めたが、保存の後にはこの経路が残る
+  - 対象（全件・選択）を `displayOrder` の昇順（同値は元の並び）に並べてから出力し、連番と部分失敗の順番を同じ並びから作る。PDF の `exportConstructionPhotoLedger` の正規化と同じ扱いとする
+  - 単体と E2E（並べ替えて保存した直後の ZIP のエントリ名が保存済みの順の連番になること）で確かめる
+  - _Requirements: 15.1, 15.5, 15.6, 15.10_
+  - **【完了時の注記（2026-10-05）】** `ConstructionPhotoDetailPage.tsx` の `handleExportStart` は、対象（選択なら絞り込んだもの、全件なら `photos` の複製）を `displayOrder` の昇順（同値は元の並び）に並べてから `ConstructionPhotoBulkExportService.export` へ渡す。連番（ループの番号）と部分失敗の順番（`position`）は同じ並びから作られるため、画面の一覧（`PhotoItemPanel` の `sortedPhotos`）・PDF・初期の読み込み（backend の `displayOrder` の昇順）と順が揃う。並べ替えていない流れは読み込みが昇順のため挙動を変えない。design.md の ZIP 一括エクスポートの節に、対象の並びの約束を一文足した
+  - 単体 3 件（先頭を下へ移動して保存した直後の、全件・選択の対象の並びと、部分失敗で示す「2番目」）と E2E 1 件（`REQ-15.1`。直列の describe の最後に置き、並べ替えて保存した直後の全件エクスポートの ZIP の中央ディレクトリのエントリ名が保存済みの順の連番であることを主張）を足した。単体 3 件は旧実装で赤、E2E は旧実装のビルドで `000_` が読み込み時の先頭の写真に付いて赤だった。frontend の単体の全件（12150 件）と工事写真の E2E 3 本（72/72）が緑。新しい E2E で肯定側から指す参照が 1598 から 1600 へ動いたため、site-survey が所有する宣言 `t13-anchor-references-after-115303` を同じコミットで貼り直した。独立レビューは 1 巡目で、貼り直しの文に 26.1・26.2 の増分 13 件が 27.1 によると読める帰属の誤りを指摘し、是正後に承認した
+  - _Boundary: 詳細画面の ZIP の出力の対象の並び_
+
+**検証が記録したその他の事実（起票していない。扱いは利用者の判断を待つ）**: 印字画像の応答の Content-Type は、看板なしで原本（PNG・WebP のことがある）をそのまま返すときも常に `image/jpeg` である。ZIP の「アップロード原本そのまま」は原本のバイトを格納するが、拡張子は設定の形式から決まる。メタの一括更新の写真項目・アルバム・プロジェクトの検証はトランザクションの外にある（看板の検証は 24.1 で中へ移した）。看板の使用件数は削除済みのアルバムの写真項目も数える。ユーザーに見える挙動で E2E の無い受入基準がある（R3、1.3・1.5、4.5、6.2〜6.4 の UI からの通し、9.4）。13.1 は `@requirement` の印を持たない。design.md の図の矢印 6 本、撤去済みの `ImageViewer` の名指し、看板の API の行、24.1 のマイグレーションの Modified Files への記載が実装より古い

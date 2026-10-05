@@ -7008,4 +7008,47 @@ test.describe('工事写真 ZIP一括エクスポートの一部失敗時の継�
     expect(failure.hits).toHaveLength(4);
     await page.unroute(failure.matcher, failure.handler);
   });
+
+  /**
+   * タスク 27.1: 並べ替えて保存した直後の ZIP のエントリ名の連番は、保存済みの表示順で付く。
+   *
+   * 並べ替えは画面の写真項目の displayOrder を書き換えるだけで配列の並びを変えないため、旧実装は
+   * 読み込んだ時点の順で連番を付けていた。本テストは DB の順を入れ替えるため、この describe の
+   * 最後に置く（前のテストは読み込み時の順のエントリ名を前提とする）。
+   *
+   * @requirement construction-photo/REQ-15.1
+   */
+  test('並べ替えて保存した直後の全件エクスポートは、保存済みの表示順の連番でZIPに格納する', async ({
+    page,
+  }) => {
+    expect(photoIds).toHaveLength(3);
+    await loginAsUser(page, 'ADMIN_USER');
+    await openAlbum(page);
+
+    // 先頭を下へ移動して保存する（表示順は alnum, realistic, plain）
+    const items = page.getByTestId('construction-photo-item');
+    await items.nth(0).getByRole('button', { name: '下へ移動' }).click();
+    await expect(items.nth(1)).toContainText(fileNames[0]!);
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await expect(page.getByTestId('dirty-indicator')).toBeHidden({ timeout: getTimeout(15000) });
+
+    const prisma = getPrismaClient();
+    const saved = await prisma.constructionPhoto.findMany({
+      where: { albumId: albumId! },
+      orderBy: { displayOrder: 'asc' },
+      select: { fileName: true },
+    });
+    expect(saved.map((p) => p.fileName)).toEqual([fileNames[1], fileNames[0], fileNames[2]]);
+
+    // 同じ画面のまま全件エクスポートする
+    const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(60000) });
+    await startExportAll(page);
+    const download = await downloadPromise;
+
+    expect(readZipEntryNames(fs.readFileSync(await download.path()))).toEqual([
+      `000_${alnumBase}.jpg`,
+      `001_${realisticBase}.jpg`,
+      `002_${plainBase}.jpg`,
+    ]);
+  });
 });

@@ -708,6 +708,92 @@ describe('ConstructionPhotoDetailPage', () => {
       expect(targets[0]).toMatchObject({ id: 'photo-1' });
     });
 
+    describe('並べ替えて保存した直後の出力の並び（タスク 27.1）', () => {
+      /** 先頭（a.jpg）を下へ移動して保存し、保存の完了（未保存の解消）まで待つ */
+      const reorderAndSave = async () => {
+        vi.mocked(imagesApi.updateConstructionPhotoOrder).mockResolvedValue(undefined);
+        const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+        fireEvent.click(within(firstItem).getByRole('button', { name: '下へ移動' }));
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+        await waitFor(() => {
+          expect(imagesApi.updateConstructionPhotoOrder).toHaveBeenCalledTimes(1);
+        });
+        await waitFor(() => {
+          expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
+        });
+      };
+
+      it('全件エクスポートの対象は保存済みの表示順（displayOrder の昇順）に並ぶ (R15.1, R15.5)', async () => {
+        vi.mocked(constructionPhotoBulkExportService.export).mockResolvedValue({
+          blob: new Blob(['zip']),
+          failed: [],
+        });
+
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+        await reorderAndSave();
+
+        fireEvent.click(screen.getByRole('button', { name: '全件エクスポート' }));
+        const dialog = await screen.findByRole('dialog', { name: /全件一括エクスポート/ });
+        fireEvent.click(within(dialog).getByRole('button', { name: '開始' }));
+
+        await waitFor(() => {
+          expect(constructionPhotoBulkExportService.export).toHaveBeenCalledTimes(1);
+        });
+        const [targets] = vi.mocked(constructionPhotoBulkExportService.export).mock.calls[0]!;
+        expect(targets.map((p) => p.id)).toEqual(['photo-2', 'photo-1']);
+      });
+
+      it('選択エクスポートの対象も保存済みの表示順に並ぶ (R15.6)', async () => {
+        vi.mocked(constructionPhotoBulkExportService.export).mockResolvedValue({
+          blob: new Blob(['zip']),
+          failed: [],
+        });
+
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+        await reorderAndSave();
+
+        for (const item of await screen.findAllByTestId('construction-photo-item')) {
+          fireEvent.click(within(item).getByLabelText('エクスポート対象に含める'));
+        }
+        fireEvent.click(screen.getByRole('button', { name: /選択エクスポート/ }));
+        const dialog = await screen.findByRole('dialog', { name: /選択画像エクスポート/ });
+        fireEvent.click(within(dialog).getByRole('button', { name: '開始' }));
+
+        await waitFor(() => {
+          expect(constructionPhotoBulkExportService.export).toHaveBeenCalledTimes(1);
+        });
+        const [targets] = vi.mocked(constructionPhotoBulkExportService.export).mock.calls[0]!;
+        expect(targets.map((p) => p.id)).toEqual(['photo-2', 'photo-1']);
+      });
+
+      it('部分失敗で示す対象の中での順番は保存済みの表示順で数える (R15.10)', async () => {
+        vi.mocked(constructionPhotoBulkExportService.export).mockResolvedValue({
+          blob: new Blob(['zip']),
+          failed: ['photo-1'],
+        });
+
+        renderPage();
+        await screen.findByRole('img', { name: /a\.jpg/ });
+        await reorderAndSave();
+
+        fireEvent.click(screen.getByRole('button', { name: '全件エクスポート' }));
+        const settingsDialog = await screen.findByRole('dialog', { name: /全件一括エクスポート/ });
+        fireEvent.click(within(settingsDialog).getByRole('button', { name: '開始' }));
+
+        const dialog = await screen.findByRole('dialog', {
+          name: '一部の写真項目をエクスポートできませんでした',
+        });
+        const items = within(
+          within(dialog).getByRole('list', { name: 'エクスポートに失敗した写真項目' })
+        ).getAllByRole('listitem');
+        expect(items).toHaveLength(1);
+        expect(items[0]).toHaveTextContent('a.jpg');
+        expect(items[0]).toHaveTextContent('2番目');
+      });
+    });
+
     it('写真項目を1件も選択していない間は選択エクスポートの実行手段が無効化される (R15.7)', async () => {
       renderPage();
       await screen.findByRole('img', { name: /a\.jpg/ });

@@ -1022,8 +1022,12 @@ export default function ConstructionPhotoDetailPage() {
     (settings: ConstructionPhotoExportSettings) => {
       if (!album) return;
       const mode = bulkExportMode;
-      const targets =
-        mode === 'selected' ? photos.filter((p) => selectedPhotoIds.has(p.id)) : photos;
+      // 並べ替えは displayOrder を書き換えるだけで配列の並びを変えないため、対象は保存済みの
+      // 表示順（displayOrder の昇順、同値は元の並び）に並べてから渡す。ZIP の連番と部分失敗の
+      // 順番はこの並びから作られ、画面の一覧と PDF の順に揃う（タスク 27.1）
+      const targets = (
+        mode === 'selected' ? photos.filter((p) => selectedPhotoIds.has(p.id)) : [...photos]
+      ).sort((a, b) => a.displayOrder - b.displayOrder);
 
       setBulkExportMode(null);
 
