@@ -55,6 +55,8 @@ const MOBILE_HEADER_ROLES = [
  * 文書全体の幅は本文のはみ出しも拾うため、/dashboard で測るとヘッダーの検証にならない。
  * /profile の本文は表示名を入力欄の値としてしか出さず、長い表示名でも本文がはみ出さない。
  * ダッシュボードの見出しのはみ出しは共通ヘッダーの境界の外であり、本検証は判定しない。
+ * （上の値は Task 39.1 の時点の実測。見出しのはみ出しは Task 40.3 で是正し、
+ * e2e/specs/auth/dashboard-responsive.spec.ts が判定する）
  */
 const MOBILE_DISPLAY_NAME_CASES = [
   { label: '既定の表示名', displayName: null, path: '/dashboard' },

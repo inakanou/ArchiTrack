@@ -36,7 +36,12 @@ export function Dashboard(): ReactElement {
     <div data-testid="dashboard" className="space-y-8">
       {/* ウェルカムセクション */}
       <section>
-        <h1 className="text-3xl font-bold text-gray-900">
+        {/*
+          表示名は最大 100 文字で、区切りの無い英数字一語にもなりうる（Task 40.3）。
+          overflowWrap: anywhere は区切りの無い長い語にも折り返し位置を与え、見出しの最小幅も縮めるため、
+          モバイル幅（要件15.1）で見出しが画面幅を超えて文書を水平にはみ出させない。
+        */}
+        <h1 className="text-3xl font-bold text-gray-900" style={{ overflowWrap: 'anywhere' }}>
           ようこそ、{user?.displayName ?? 'ユーザー'}さん
         </h1>
         <p className="mt-2 text-gray-600">ArchiTrack - アーキテクチャ決定記録管理システム</p>
