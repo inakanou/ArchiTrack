@@ -16,6 +16,9 @@
  * 監視基盤の境界に例外を投げさせ、登録済みの画像が未送信一覧へ回らないことを検証する
  * （対応する要件は各テストの `@requirement` に記す）。
  *
+ * Task 115.346: 送信が例外で終わり、その通知の中の監視への送出も例外を投げても、試行した画像は
+ * 未送信一覧に保持される（対応する要件は各テストの `@requirement` に記す）。
+ *
  * Requirements:
  * - 16.8: エラー発生時に適切なエラーメッセージを表示し、Sentryにログを送信する
  */
@@ -757,5 +760,71 @@ describe('送信の後処理の例外を送信の失敗として扱わない (Ta
       .find((el) => el.textContent?.includes('全2件のアップロードに失敗しました。'));
     expect(uploadAlert?.textContent).toContain('ng-format.jpg: サポートされていないファイル形式');
     expect(uploadAlert?.textContent).toContain('ng-server.jpg: サーバーエラー');
+  });
+});
+
+// ============================================================================
+// 送信の失敗の通知の例外が未送信画像の保持を妨げない（Task 115.346, Requirement 37.1）
+//
+// `ImageUploader.submitFiles` の catch は、`onUpload` が例外で終わると試行対象を保持へ回し、
+// 詳細画面の `handleUploadError`（`onError`）へ通知する。通知の中の監視への送出
+// （`reportCaughtError` → `logger.exception` → `captureException`）は保護されていないため、
+// 監視 SDK が失敗するとこの通知が例外を投げる。共有部品が保持を通知より先に行い、通知の
+// 例外を捕捉することを、監視基盤の境界（`utils/sentry`）に例外を投げさせて画面の経路で確かめる。
+// 送信が例外で終わる状況は、上の Task 115.122 の経路2 と同じく `uploadSurveyImages` の
+// 差し替えで作る（送信の失敗は通常 API 層が集約するため、ここへ届くのは想定外の例外に限られる）。
+// ============================================================================
+
+describe('送信の失敗の通知の例外が未送信画像の保持を妨げない (Task 115.346, Requirement 37.1)', () => {
+  afterEach(() => {
+    // 例外を投げる実装を後続のテストへ持ち越さない（clearAllMocks は実装を戻さない）
+    vi.mocked(sentry.captureException).mockReset();
+  });
+
+  /**
+   * 修正前は `onError` が保持より前に呼ばれ、その中の監視への送出が例外を投げると保持へ
+   * 到達せず、試行した画像が失われて未処理の rejection になる。
+   * @requirement site-survey/REQ-37.1
+   */
+  it('送信が例外で終わり監視への送出も失敗しても、試行した画像は未送信一覧に保持される', async () => {
+    const sdkFailure = new Error('監視 SDK が利用できません');
+    vi.mocked(sentry.captureException).mockImplementation(() => {
+      throw sdkFailure;
+    });
+    const uploadFailure = new Error('ネットワークに接続できません');
+    vi.mocked(surveyImagesApi.uploadSurveyImages).mockRejectedValue(uploadFailure);
+    const first = new File(['a'], 'thrown-1.jpg', { type: 'image/jpeg' });
+    const second = new File(['b'], 'thrown-2.jpg', { type: 'image/jpeg' });
+
+    renderComponent();
+    await waitForLoaded();
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(fileInput).toBeTruthy();
+    Object.defineProperty(fileInput, 'files', { value: [first, second], configurable: true });
+    fireEvent.change(fileInput);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('pending-upload-count')).toHaveTextContent('未送信の画像 2 件');
+    });
+    // 試行した画像が全件、再送可能な区分のまま保持される（37.1）
+    expect(screen.getAllByTestId('pending-upload-filename').map((el) => el.textContent)).toEqual([
+      'thrown-1.jpg',
+      'thrown-2.jpg',
+    ]);
+    expect(
+      screen.getAllByTestId('pending-upload-item').map((el) => el.getAttribute('data-kind'))
+    ).toEqual(['retriable', 'retriable']);
+    expect(screen.getByTestId('pending-upload-retry-button')).toBeEnabled();
+    // 誤りの表示は変わらない
+    expect(screen.getByTestId('upload-error')).toHaveTextContent('ネットワークに接続できません');
+    // 通知は従来どおり送信例外の経路（failureScope: 'request'）で監視への送出を試みる
+    const [sentError, sentContext] = lastCapturedCall();
+    expect(sentError).toBe(uploadFailure);
+    expect(sentContext).toMatchObject({ failureScope: 'request' });
+    // 通知の失敗は無言で握り潰さずコンソールへ記録する
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      'アップロードの失敗の通知に失敗しました',
+      sdkFailure
+    );
   });
 });

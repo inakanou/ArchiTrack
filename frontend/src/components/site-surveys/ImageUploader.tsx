@@ -115,6 +115,30 @@ const DISCARD_CONFIRM_MESSAGE =
   '未送信の画像をすべて破棄します。破棄した画像は元に戻せません。よろしいですか？';
 
 // ============================================================================
+// 補助関数
+// ============================================================================
+
+/**
+ * 送信の失敗の通知（`onError`）を保護し、通知の例外を外へ伝播させない
+ * (Task 115.346, Requirement 37.1)
+ *
+ * 通知の例外が `submitFiles` の外へ伝播すると、呼び出し元のイベントハンドラで
+ * 未処理の rejection になる。工事写真の `PhotoUploader` の `notifySafely` と
+ * 現場調査詳細画面の `runUploadPostProcessingSafely` と同じく、通知の失敗は無言で
+ * 握り潰さず、原因を辿れるようコンソールへ記録する。誤りの表示と未送信画像の保持は
+ * 通知より前に済ませるため、通知の失敗はそれらに影響しない。
+ *
+ * @param notify - 保護する通知
+ */
+function notifyUploadErrorSafely(notify: () => void): void {
+  try {
+    notify();
+  } catch (err) {
+    console.error('アップロードの失敗の通知に失敗しました', err);
+  }
+}
+
+// ============================================================================
 // スタイル定義
 // ============================================================================
 
@@ -345,6 +369,9 @@ export function ImageUploader({
    * 例外で失敗した場合も試行対象の File を保持へ回す（37.1）。`onUpload` の契約は
    * 例外の送出を禁じておらず、例外がここへ届いた時点で File 参照を捨てると撮影済みの
    * 画像が復元不能に失われるため、メッセージの state 化だけでは足りない。
+   * 保持は呼び出し側への通知（`onError`）より先に行い、通知は
+   * `notifyUploadErrorSafely` で保護する。通知が例外を投げても試行対象は保持の区分の
+   * まま残り、その例外は外へ伝播しない（Task 115.346）。
    *
    * 現行の呼び出し側はいずれも catch を持たない（try/finally のみ）が、送信の失敗
    * （通信断・認証切れ・207 の個別失敗）は API 層が画像ごとに捕捉して戻り値の
@@ -385,19 +412,20 @@ export function ImageUploader({
         const errorMessage =
           error instanceof Error ? error.message : 'アップロードに失敗しました。';
         setUploadError(errorMessage);
-        if (error instanceof Error) {
-          onError?.(error);
-        } else {
-          onError?.(new Error(errorMessage));
-        }
 
         // 試行対象をすべて未送信画像として保持する（37.1）。`toFailedUpload` は
         // 400 / 413 のみを permanent とし、通信エラーや ApiError でない例外は
         // retriable に分類するため、例外時は既定で再送可能な状態で残る（37.3, 37.16）。
+        // 通知（`onError`）より先に保持し、通知の例外が保持を妨げないようにする。
         record(
           attempted,
           attempted.map((file) => toFailedUpload(file, error))
         );
+
+        if (onError) {
+          const notifiedError = error instanceof Error ? error : new Error(errorMessage);
+          notifyUploadErrorSafely(() => onError(notifiedError));
+        }
       }
     },
     [onUpload, onError, record]

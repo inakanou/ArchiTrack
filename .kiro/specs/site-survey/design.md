@@ -8098,7 +8098,7 @@ export interface ImageUploaderProps {
 - 破棄は `window.confirm` で確認し、承諾時のみ `discardAll()` を呼ぶ（37.8）。
 - `isUploading` または再送中は再送・破棄の操作を受け付けない（37.10）。
 - 新規選択時に保持中の画像を消さない（37.9）。`record` は今回の試行分のみを対象とするため、既存の保持は自然に温存される。
-- `onUpload` が例外を投げると、試行対象の全件を再送可能な未送信画像として保持する（37.1）。このため呼び出し側は、送信の失敗の一覧を受けた後の処理の例外を `onUpload` の外へ伝播させない。伝播させるとサーバー登録済みの画像まで保持され、再送で重複登録されうる（37.14）。現調の `SiteSurveyDetailPage` の `handleImageUpload` は一覧の更新・失敗の通知・監視への送出を `runUploadPostProcessingSafely` で一つずつ保護し、工事写真の `PhotoUploader` は通知を `notifySafely` で保護する。
+- `onUpload` が例外を投げると、試行対象の全件を未送信画像として保持する（37.1）。区分は `toFailedUpload` が例外から決め、通信エラーや `ApiError` でない例外は再送可能、400 / 413 は再送不可となる（37.16）。保持は呼び出し側への通知（`onError`）より先に行い、通知の例外は `notifyUploadErrorSafely` が捕捉してコンソールへ記録し、外へ伝播させない（通知が失敗しても保持は妨げられない）。例外時は試行対象の全件が保持されるため、呼び出し側は送信の失敗の一覧を受けた後の処理の例外を `onUpload` の外へ伝播させない。伝播させるとサーバー登録済みの画像まで保持され、再送で重複登録されうる（37.14）。現調の `SiteSurveyDetailPage` の `handleImageUpload` は一覧の更新・失敗の通知・監視への送出を `runUploadPostProcessingSafely` で一つずつ保護し、工事写真の `PhotoUploader` は通知を `notifySafely` で保護する。
 
 ### System Flows
 

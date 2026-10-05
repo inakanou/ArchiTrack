@@ -878,8 +878,10 @@ export default function SiteSurveyDetailPage() {
    * 例外を投げない。送信の後処理（一覧の更新・失敗の通知・監視への送出）の例外は
    * `runUploadPostProcessingSafely` が捕捉するため伝播しない (Task 115.344)。
    *
-   * この口の中の監視への送出は保護していない。`ImageUploader` の捕捉処理は `onError` を
-   * 未送信画像の保持より前に呼ぶため、ここで例外が出ると保持へ到達しない。
+   * この口の中の監視への送出はここでは保護しない。`ImageUploader` の捕捉処理は未送信画像の
+   * 保持を `onError` より先に行い、`onError` の例外を `notifyUploadErrorSafely` で捕捉して
+   * コンソールへ記録するため、ここで例外が出ても保持は妨げられず、外へも伝播しない
+   * (Task 115.346)。
    *
    * 付帯情報は許可列挙と識別子に限る。`ImageUploader` から渡るのは `Error` のみで
    * ファイルは渡らないため、ファイル名が混入する経路は構造上存在しない。
