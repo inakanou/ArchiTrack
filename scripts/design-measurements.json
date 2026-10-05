@@ -18,11 +18,11 @@
     {
       "id": "nonexistent-paths-by-git-index",
       "file": ".kiro/specs/site-survey/design.md",
-      "anchor": "を権威にすると非実在は",
+      "anchor": "**タスク 115.342 の提出時点の再実測は版管理の一覧を権威にして 18 件",
       "command": "grep -oE \"$(printf '\\140')[A-Za-z0-9_.@-]+(/[A-Za-z0-9_.@-]+)+/?$(printf '\\140')\" .kiro/specs/site-survey/design.md | tr -d \"$(printf '\\140')\" | sed 's:/$::' | sort -u | awk -F/ 'NR==FNR{f[$0]=1;n=split($0,a,\"/\");p=\"\";for(i=1;i<n;i++){p=(i==1?a[1]:p\"/\"a[i]);d[p]=1}top[a[1]]=1;next} ($1 in top)&&!($0 in f)&&!($0 in d)' <(git ls-files) - | wc -l",
-      "expected": "16",
-      "documentRendering": "権威にすると非実在は **16 件**",
-      "note": "版管理の一覧を実在の権威にした非実在パスの数。実ディスクを権威にする対の値は作業ツリーの状態に依存するため宣言しない（本体注釈の「宣言に入れなかった値」を見よ）"
+      "expected": "18",
+      "documentRendering": "版管理の一覧を権威にして 18 件",
+      "note": "版管理の一覧を実在の権威にした非実在パスの数。実ディスクを権威にする対の値は作業ツリーの状態に依存するため宣言しない（本体注釈の「宣言に入れなかった値」を見よ）。タスク 115.342 が錨と値を提出時点へ貼り直した（2026-08-31 の再実測の 16 件は文書に残る）。増えた 2 件は .claude/agents と .claude/commands で、cc-sdd v2 系の旧コマンド方式の残骸を撤去したコミット 5fc03e73（2026-10-02）が消した。5fc03e73 の親の版では両者とも版管理下に在った。同じコミットは .kiro/settings/rules も消したが、本書はそれをバッククォートのパスとして名指さないため件数に入らない。撤去は本書の「なぜ配布物へ書かないか」の行に記録した。本スペックのコミットは 0"
     },
     {
       "id": "requirement-exclusions-total",
