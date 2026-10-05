@@ -76,6 +76,116 @@ const MOBILE_DISPLAY_NAME_CASES = [
 const HORIZONTAL_TOLERANCE_PX = 1;
 
 /**
+ * タブレット幅の検証（Task 40.1）で測る画面幅
+ *
+ * 769 はモバイル幅の表示（768px 以下）の直上、789 は是正前に管理者の長い表示名で
+ * 文書がはみ出した幅（test 環境の実測で +15px）、900 と 1024 はその間の代表、
+ * 1199 はリンクの文言を隠す範囲の上端、1200 は文言を出す範囲の下端である。
+ */
+const TABLET_WIDTHS = [769, 789, 900, 1024, 1199, 1200] as const;
+
+/**
+ * タブレット幅の検証で使う表示名と、測る保護画面
+ *
+ * 長い表示名は backend が許す上限（100 文字）の、区切りの無い英数字一語と和文の二通り。
+ * 長い表示名を /profile で測る理由はモバイル幅の検証（MOBILE_DISPLAY_NAME_CASES）と同じである。
+ */
+const TABLET_DISPLAY_NAME_CASES = [
+  { label: '既定の表示名', displayName: null, path: '/dashboard' },
+  {
+    label: '区切りの無い英数字 100 文字の表示名',
+    displayName: 'Abcdefghij0123456789'.repeat(5),
+    path: '/profile',
+  },
+  {
+    label: '和文 100 文字の表示名',
+    displayName: '共通ヘッダの表示を確かめるためのとても長い表示名を持つ利用者'
+      .repeat(4)
+      .slice(0, 100),
+    path: '/profile',
+  },
+] as const;
+
+/** 一行のヘッダーの高さを測る基準のデスクトップ幅 */
+const DESKTOP_REFERENCE_WIDTH = 1280;
+
+/** 垂直方向の許容誤差（px）。小数のレイアウトの丸めを吸収する */
+const VERTICAL_TOLERANCE_PX = 1;
+
+/** 共通ヘッダーの行の寸法（ヘッダー自身と、ロゴ・nav・各リンク・各メニューのボタンの縦の位置と高さ） */
+interface HeaderRowMeasurement {
+  headerTop: number;
+  headerBottom: number;
+  headerHeight: number;
+  items: { what: string; top: number; bottom: number; height: number }[];
+}
+
+/**
+ * 共通ヘッダーの行の寸法を測る
+ */
+async function measureHeaderRow(header: Locator): Promise<HeaderRowMeasurement> {
+  return header.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const targets = [
+      ...Array.from(el.querySelectorAll('a')),
+      ...Array.from(el.querySelectorAll('nav')),
+      ...Array.from(el.querySelectorAll('button[aria-haspopup="menu"]')),
+    ];
+    return {
+      headerTop: box.top,
+      headerBottom: box.bottom,
+      headerHeight: box.height,
+      items: targets.map((t) => {
+        const r = t.getBoundingClientRect();
+        const href = t.getAttribute('href');
+        return {
+          what: `${t.tagName.toLowerCase()}${href ? `[href="${href}"]` : ''}`,
+          top: r.top,
+          bottom: r.bottom,
+          height: r.height,
+        };
+      }),
+    };
+  });
+}
+
+/**
+ * 共通ヘッダーが一行のまま崩れていないことを主張する
+ *
+ * 高さの固定値はフォントに依存しうるため、同じ画面のデスクトップ幅（文言が一行に収まる幅）で
+ * 測った寸法と比べる。
+ * - ヘッダーの高さが、デスクトップ幅のヘッダーの高さを超えない
+ * - ロゴ・nav・各リンク・各メニューのボタンの高さが、デスクトップ幅での同じ要素の高さを超えない
+ *   （文言が縦に折り返すと要素が高くなる。二行の折り返しはヘッダーの内側に収まることがあるため、
+ *   ヘッダーの上端と下端だけでは捉えられない）
+ * - それらがヘッダーの上端と下端の内側に収まる
+ */
+async function expectHeaderSingleRow(
+  header: Locator,
+  desktop: HeaderRowMeasurement,
+  situation: string
+): Promise<void> {
+  const m = await measureHeaderRow(header);
+  const report = `${situation}: ${JSON.stringify(m)}（デスクトップ幅: ${JSON.stringify(desktop)}）`;
+  // 前提: 測る対象（ロゴ・四つのリンク・nav・メニューのボタン）が集まり、デスクトップ幅と同じ並びである
+  expect(m.items.length, report).toBeGreaterThanOrEqual(7);
+  expect(
+    m.items.map((item) => item.what),
+    report
+  ).toEqual(desktop.items.map((item) => item.what));
+  expect(m.headerHeight, report).toBeLessThanOrEqual(desktop.headerHeight + VERTICAL_TOLERANCE_PX);
+  for (const [index, item] of m.items.entries()) {
+    const itemReport = `${report} / ${index}: ${item.what}`;
+    expect(item.height, itemReport).toBeGreaterThan(0);
+    expect(item.height, itemReport).toBeLessThanOrEqual(
+      (desktop.items[index]?.height ?? 0) + VERTICAL_TOLERANCE_PX
+    );
+    expect(item.top, itemReport).toBeGreaterThanOrEqual(m.headerTop - VERTICAL_TOLERANCE_PX);
+    expect(item.bottom, itemReport).toBeLessThanOrEqual(m.headerBottom + VERTICAL_TOLERANCE_PX);
+  }
+}
+
+/**
  * 文書全体（documentElement）の水平方向の寸法を測る
  */
 async function measureDocumentWidth(page: Page): Promise<{
@@ -114,7 +224,8 @@ async function expectNoDocumentHorizontalOverflow(
  * 位置は文書の座標（表示領域の座標 + 水平スクロール量）で測る。
  * Playwright の click は対象が表示領域の外にあると水平にスクロールして届かせるため、
  * 表示領域の座標のままでは「はみ出していたのでスクロールして届いた」状態を内側と読み違える。
- * 要素の箱だけでなく中身（文字とアイコン）の右端も DOM Range で測る。
+ * 要素の箱だけでなく中身（文字とアイコン）の右端も DOM Range と子孫の箱で測る
+ * （overflow で切り取られて描かれない部分は除く。タブレット幅の省略表示のユーザー名のため）。
  * flex の項目は中身に合わせて伸びるので、要素自身の scrollWidth では中身のはみ出しを捉えられない。
  * 中心の点で elementFromPoint が当の要素（またはその子孫）を返すことも主張する。
  * 他の要素の下に隠れている、または表示領域の外にある要素は、位置が内側でも届かないためである。
@@ -122,9 +233,36 @@ async function expectNoDocumentHorizontalOverflow(
 async function expectReachableWithinViewport(target: Locator, description: string): Promise<void> {
   const m = await target.evaluate((el) => {
     const rect = el.getBoundingClientRect();
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    const content = range.getBoundingClientRect();
+    // 中身の右端: 子孫の要素と文字の箱の右端の最大。ただし overflow で切り取る祖先（el を含む）の
+    // 右端で切る。省略表示（text-overflow: ellipsis）の文字は箱の外の部分が描かれないため、
+    // 切り取りを無視すると、見えていない文字の幅をはみ出しと読み違える
+    const clipRight = (node: Node, right: number): number => {
+      let clipped = right;
+      for (let a = node.parentElement; a !== null; a = a.parentElement) {
+        if (getComputedStyle(a).overflowX !== 'visible') {
+          clipped = Math.min(clipped, a.getBoundingClientRect().right);
+        }
+        if (a === el) break;
+      }
+      return clipped;
+    };
+    let contentRightInViewport = -Infinity;
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      let box: DOMRect;
+      if (node.nodeType === Node.TEXT_NODE) {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        box = range.getBoundingClientRect();
+      } else {
+        box = (node as Element).getBoundingClientRect();
+      }
+      if (box.width === 0 && box.height === 0) continue;
+      contentRightInViewport = Math.max(contentRightInViewport, clipRight(node, box.right));
+    }
+    const content = {
+      right: Number.isFinite(contentRightInViewport) ? contentRightInViewport : rect.right,
+    };
     const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
     return {
       viewportWidth: document.documentElement.clientWidth,
@@ -143,6 +281,116 @@ async function expectReachableWithinViewport(target: Locator, description: strin
   expect(m.right, report).toBeLessThanOrEqual(m.viewportWidth + HORIZONTAL_TOLERANCE_PX);
   expect(m.contentRight, report).toBeLessThanOrEqual(m.viewportWidth + HORIZONTAL_TOLERANCE_PX);
   expect(m.hitsItself, report).toBe(true);
+}
+
+/**
+ * 共通ヘッダーのリンクと二つのメニューの項目が、画面幅の内側にあって届き、
+ * メニューを開いた状態と閉じた状態のどちらでも文書全体が水平にはみ出さないことを主張する
+ *
+ * モバイル幅（Task 39.1）とタブレット幅（Task 40.1）の検証が共有する。
+ * 呼び出し側は、ヘッダーとナビゲーションが表示されていることを先に主張しておくこと。
+ *
+ * ヘッダーのリンクと管理メニューのボタンは、名前でなく href と構造で指す。
+ * 文言が display: none の幅では、リンクと管理メニューのボタンがアクセシブルネームを持たないためである。
+ * 開いたメニューの項目は文言が表示されるので名前で指す。
+ */
+async function expectHeaderItemsReachable(
+  page: Page,
+  header: Locator,
+  nav: Locator,
+  width: number,
+  role: { label: string; isAdmin: boolean }
+): Promise<void> {
+  // 前提: ヘッダーのリンク（ロゴ・ダッシュボード・プロジェクト・取引先・自社情報）が揃っている
+  const logoLink = header.locator('a.app-header-logo[href="/"]');
+  const headerLinks = [
+    { name: 'ロゴ', locator: logoLink },
+    { name: 'ダッシュボード', locator: nav.locator('a[href="/"]') },
+    { name: 'プロジェクト', locator: nav.locator('a[href="/projects"]') },
+    { name: '取引先', locator: nav.locator('a[href="/trading-partners"]') },
+    { name: '自社情報', locator: nav.locator('a[href="/company-info"]') },
+  ];
+  for (const link of headerLinks) {
+    await expect(link.locator, `${link.name}のリンク`).toBeVisible();
+  }
+
+  // 前提: ユーザーメニューを開ける
+  const menuTriggers = nav.locator('button[aria-haspopup="menu"]');
+  await expect(menuTriggers).toHaveCount(role.isAdmin ? 2 : 1);
+  const userMenuButton = menuTriggers.last();
+  await expect(userMenuButton).toBeVisible();
+  await userMenuButton.click();
+  const userMenu = header.getByRole('menu');
+  await expect(userMenu).toBeVisible();
+  const profileItem = userMenu.getByRole('menuitem', { name: 'プロフィール' });
+  const logoutItem = userMenu.getByRole('menuitem', { name: 'ログアウト' });
+  await expect(profileItem).toBeVisible();
+  await expect(logoutItem).toBeVisible();
+
+  // ユーザーメニューを開いた状態で、文書全体が水平にはみ出さず、各項目が画面幅の内側にある
+  await expectNoDocumentHorizontalOverflow(page, width, 'ユーザーメニューを開いた状態');
+  await expectReachableWithinViewport(userMenu, 'ユーザーメニューのパネル');
+  await expectReachableWithinViewport(profileItem, 'ユーザーメニューの「プロフィール」');
+  await expectReachableWithinViewport(logoutItem, 'ユーザーメニューの「ログアウト」');
+
+  // メニューを閉じた状態で、文書全体が水平にはみ出さず、リンクとメニューのボタンが画面幅の内側にある
+  await page.keyboard.press('Escape');
+  await expect(userMenu).toBeHidden();
+  await expectNoDocumentHorizontalOverflow(page, width, 'メニューを閉じた状態');
+  await expectReachableWithinViewport(header, '共通ヘッダー');
+  for (const link of headerLinks) {
+    await expectReachableWithinViewport(link.locator, `${link.name}のリンク`);
+  }
+  await expectReachableWithinViewport(userMenuButton, 'ユーザーメニューのボタン');
+
+  // 管理メニュー: ロールで主張を分岐させず、ユーザーメニューより前に並ぶトリガー（管理メニューの
+  // ボタン）を実際の画面から集め、その件数をロールごとの期待値（管理者 1・一般ユーザー 0）で
+  // 無条件に主張してから、集めたボタンのそれぞれに無条件に主張する。件数の主張があるため、
+  // 管理者でボタンが 1 件も集まらずに以下の主張が空振りすることは無い。
+  const adminMenuButtons = (await menuTriggers.all()).slice(0, -1);
+  expect(adminMenuButtons, `${role.label}の管理メニューのボタンの数`).toHaveLength(
+    role.isAdmin ? 1 : 0
+  );
+  for (const adminMenuButton of adminMenuButtons) {
+    // 管理者: 管理メニューのボタンが画面幅の内側にあり、開いた各項目も内側にある
+    await expect(adminMenuButton).toBeVisible();
+    await expectReachableWithinViewport(adminMenuButton, '管理メニューのボタン');
+    await adminMenuButton.click();
+    const adminMenu = header.getByRole('menu');
+    await expect(adminMenu).toBeVisible();
+    const adminItems = [
+      {
+        name: 'ユーザー管理',
+        locator: adminMenu.getByRole('menuitem', { name: 'ユーザー管理' }),
+      },
+      {
+        name: '招待管理',
+        locator: adminMenu.getByRole('menuitem', { name: '招待管理' }),
+      },
+      {
+        name: 'ロール管理',
+        locator: adminMenu.getByRole('menuitem', { name: 'ロール管理' }),
+      },
+      {
+        name: '権限管理',
+        locator: adminMenu.getByRole('menuitem', { name: '権限管理' }),
+      },
+      {
+        name: '監査ログ',
+        locator: adminMenu.getByRole('menuitem', { name: '監査ログ' }),
+      },
+    ];
+    for (const item of adminItems) {
+      await expect(item.locator, `管理メニューの「${item.name}」`).toBeVisible();
+    }
+    await expectNoDocumentHorizontalOverflow(page, width, '管理メニューを開いた状態');
+    await expectReachableWithinViewport(adminMenu, '管理メニューのパネル');
+    for (const item of adminItems) {
+      await expectReachableWithinViewport(item.locator, `管理メニューの「${item.name}」`);
+    }
+    await page.keyboard.press('Escape');
+    await expect(adminMenu).toBeHidden();
+  }
 }
 
 /**
@@ -548,96 +796,104 @@ test.describe('AppHeader ナビゲーション', () => {
             // 前提: 測る対象の表示名がヘッダーへ届いている（モバイル幅では非表示だが DOM に在る）
             await expect(header.locator('.app-header-user-name')).toHaveText(displayName);
 
-            // 前提: ヘッダーのリンク（ロゴ・ダッシュボード・プロジェクト・取引先・自社情報）が揃っている
-            const logoLink = header.locator('a.app-header-logo[href="/"]');
-            const headerLinks = [
-              { name: 'ロゴ', locator: logoLink },
-              { name: 'ダッシュボード', locator: nav.locator('a[href="/"]') },
-              { name: 'プロジェクト', locator: nav.locator('a[href="/projects"]') },
-              { name: '取引先', locator: nav.locator('a[href="/trading-partners"]') },
-              { name: '自社情報', locator: nav.locator('a[href="/company-info"]') },
-            ];
-            for (const link of headerLinks) {
-              await expect(link.locator, `${link.name}のリンク`).toBeVisible();
+            await expectHeaderItemsReachable(page, header, nav, width, role);
+          });
+        }
+      }
+    }
+  });
+
+  /**
+   * 共通ヘッダーのタブレット幅の表示（Task 40.1）
+   *
+   * 経緯: 是正前は、769〜1147px（test 環境の実測）で管理者のリンクの文言が縦に折り返し、
+   * ナビゲーションがヘッダー（64px）の下へ伸びていた（769 幅でリンクの高さ最大 177.5px、
+   * 管理メニューのボタン 144px）。あわせて管理者の長い表示名では 769〜約 800px で文書全体が
+   * 水平にはみ出していた（/profile の 789 幅で +14px）。一般ユーザーも 960px 以下で折り返していた。
+   *
+   * 是正は利用者の判断（2026-10-05）による。モバイル幅と同じアイコンのみのリンクを
+   * 1199px 以下まで広げ、ユーザー名は省略表示にする（1200px 以上は是正前のデスクトップの表示）。
+   */
+  test.describe('タブレット幅の表示', () => {
+    /**
+     * 表示名を書き換えたテストの後に、テストユーザーの表示名を既定へ戻す
+     * 後続のテスト（表示名を突き合わせる検証）への影響を防ぐため、無条件に戻す
+     */
+    test.afterEach(async () => {
+      const prisma = getPrismaClient();
+      for (const role of MOBILE_HEADER_ROLES) {
+        const user = TEST_USERS[role.userKey];
+        await prisma.user.update({
+          where: { email: user.email },
+          data: { displayName: user.displayName },
+        });
+      }
+    });
+
+    for (const role of MOBILE_HEADER_ROLES) {
+      for (const nameCase of TABLET_DISPLAY_NAME_CASES) {
+        for (const width of TABLET_WIDTHS) {
+          /**
+           * @requirement user-authentication/REQ-15.1: 全ての画面はレスポンシブデザイン（タブレット: 768px-1023px）を実装する
+           * @requirement user-authentication/REQ-28.21: 認証済みユーザーが保護された画面にアクセスしたとき共通ヘッダーナビゲーションを表示する
+           * @requirement user-authentication/REQ-28.22: 共通ヘッダーナビゲーションはダッシュボード・プロフィール・ログアウトを含む
+           *
+           * 判定根拠:
+           * - REQ-15.1: タブレット幅とその上の幅で、ヘッダーの高さが同じ画面のデスクトップ幅（1280）の
+           *   高さを超えず、リンク・ナビゲーション・メニューのボタンがヘッダーの上端と下端の内側に収まる
+           *   こと（文言が縦に折り返さない）と、文書全体の水平のはみ出しが許容誤差 1px 以内であることを、
+           *   メニューを開いた状態と閉じた状態の双方で主張している。是正前は赤になる（上の経緯の実測値）。
+           * - REQ-28.21: 保護画面（/dashboard・/profile）で header[role="banner"] の可視を主張している。
+           * - REQ-28.22: ダッシュボードへのリンクと、ユーザーメニュー展開後の「プロフィール」「ログアウト」が
+           *   可視で、画面幅の内側にあり、中心を指して届くことを主張している。
+           */
+          test(`タブレット幅 ${width}px・${role.label}・${nameCase.label}: 共通ヘッダーが一行に収まり、文書全体を水平にはみ出させず、リンクとメニューの項目が画面幅の内側にある`, async ({
+            page,
+          }) => {
+            const testUser = TEST_USERS[role.userKey];
+            const displayName = nameCase.displayName ?? testUser.displayName;
+            if (nameCase.displayName !== null) {
+              await getPrismaClient().user.update({
+                where: { email: testUser.email },
+                data: { displayName: nameCase.displayName },
+              });
             }
 
-            // 前提: ユーザーメニューを開ける
-            const menuTriggers = nav.locator('button[aria-haspopup="menu"]');
-            await expect(menuTriggers).toHaveCount(role.isAdmin ? 2 : 1);
-            const userMenuButton = menuTriggers.last();
-            await expect(userMenuButton).toBeVisible();
-            await userMenuButton.click();
-            const userMenu = header.getByRole('menu');
-            await expect(userMenu).toBeVisible();
-            const profileItem = userMenu.getByRole('menuitem', { name: 'プロフィール' });
-            const logoutItem = userMenu.getByRole('menuitem', { name: 'ログアウト' });
-            await expect(profileItem).toBeVisible();
-            await expect(logoutItem).toBeVisible();
+            await loginAsUser(page, role.userKey);
+            await page.goto(nameCase.path);
+            await expect(page).toHaveURL(new RegExp(`${nameCase.path}$`));
 
-            // ユーザーメニューを開いた状態で、文書全体が水平にはみ出さず、各項目が画面幅の内側にある
-            await expectNoDocumentHorizontalOverflow(page, width, 'ユーザーメニューを開いた状態');
-            await expectReachableWithinViewport(userMenu, 'ユーザーメニューのパネル');
-            await expectReachableWithinViewport(profileItem, 'ユーザーメニューの「プロフィール」');
-            await expectReachableWithinViewport(logoutItem, 'ユーザーメニューの「ログアウト」');
+            // 前提: 共通ヘッダーが表示されている
+            const header = page.locator('header[role="banner"]');
+            await expect(header).toBeVisible();
+            const nav = header.locator('nav[role="navigation"]');
+            await expect(nav).toBeVisible();
 
-            // メニューを閉じた状態で、文書全体が水平にはみ出さず、リンクとメニューのボタンが画面幅の内側にある
-            await page.keyboard.press('Escape');
-            await expect(userMenu).toBeHidden();
-            await expectNoDocumentHorizontalOverflow(page, width, 'メニューを閉じた状態');
-            await expectReachableWithinViewport(header, '共通ヘッダー');
-            for (const link of headerLinks) {
-              await expectReachableWithinViewport(link.locator, `${link.name}のリンク`);
-            }
-            await expectReachableWithinViewport(userMenuButton, 'ユーザーメニューのボタン');
-
-            // 管理メニュー: ロールで主張を分岐させず、ユーザーメニューより前に並ぶトリガー（管理メニューの
-            // ボタン）を実際の画面から集め、その件数をロールごとの期待値（管理者 1・一般ユーザー 0）で
-            // 無条件に主張してから、集めたボタンのそれぞれに無条件に主張する。件数の主張があるため、
-            // 管理者でボタンが 1 件も集まらずに以下の主張が空振りすることは無い。
-            const adminMenuButtons = (await menuTriggers.all()).slice(0, -1);
-            expect(adminMenuButtons, `${role.label}の管理メニューのボタンの数`).toHaveLength(
-              role.isAdmin ? 1 : 0
+            // 基準: 同じ画面のデスクトップ幅で、一行のヘッダーの寸法を測る
+            await page.setViewportSize({ width: DESKTOP_REFERENCE_WIDTH, height: 812 });
+            await expectNoDocumentHorizontalOverflow(
+              page,
+              DESKTOP_REFERENCE_WIDTH,
+              'デスクトップ幅'
             );
-            for (const adminMenuButton of adminMenuButtons) {
-              // 管理者: 管理メニューのボタンが画面幅の内側にあり、開いた各項目も内側にある
-              await expect(adminMenuButton).toBeVisible();
-              await expectReachableWithinViewport(adminMenuButton, '管理メニューのボタン');
-              await adminMenuButton.click();
-              const adminMenu = header.getByRole('menu');
-              await expect(adminMenu).toBeVisible();
-              const adminItems = [
-                {
-                  name: 'ユーザー管理',
-                  locator: adminMenu.getByRole('menuitem', { name: 'ユーザー管理' }),
-                },
-                {
-                  name: '招待管理',
-                  locator: adminMenu.getByRole('menuitem', { name: '招待管理' }),
-                },
-                {
-                  name: 'ロール管理',
-                  locator: adminMenu.getByRole('menuitem', { name: 'ロール管理' }),
-                },
-                {
-                  name: '権限管理',
-                  locator: adminMenu.getByRole('menuitem', { name: '権限管理' }),
-                },
-                {
-                  name: '監査ログ',
-                  locator: adminMenu.getByRole('menuitem', { name: '監査ログ' }),
-                },
-              ];
-              for (const item of adminItems) {
-                await expect(item.locator, `管理メニューの「${item.name}」`).toBeVisible();
-              }
-              await expectNoDocumentHorizontalOverflow(page, width, '管理メニューを開いた状態');
-              await expectReachableWithinViewport(adminMenu, '管理メニューのパネル');
-              for (const item of adminItems) {
-                await expectReachableWithinViewport(item.locator, `管理メニューの「${item.name}」`);
-              }
-              await page.keyboard.press('Escape');
-              await expect(adminMenu).toBeHidden();
-            }
+            const desktopRow = await measureHeaderRow(header);
+            expect(desktopRow.headerHeight, 'デスクトップ幅のヘッダーの高さ').toBeGreaterThan(0);
+
+            await page.setViewportSize({ width, height: 812 });
+
+            // 前提: 測る対象の表示名がヘッダーへ届き、表示されている（省略表示でも要素は可視）
+            const userName = header.locator('.app-header-user-name');
+            await expect(userName).toHaveText(displayName);
+            await expect(userName).toBeVisible();
+
+            // ヘッダーが一行に収まっている
+            await expectHeaderSingleRow(header, desktopRow, `画面幅 ${width}`);
+
+            // 文書全体が水平にはみ出さず、リンクと二つのメニューの項目が画面幅の内側にあって届く
+            await expectHeaderItemsReachable(page, header, nav, width, role);
+
+            // メニューを閉じた後もヘッダーが一行に収まっている
+            await expectHeaderSingleRow(header, desktopRow, `画面幅 ${width}・メニューを閉じた後`);
           });
         }
       }

@@ -345,6 +345,30 @@
   margin: 0 0.5rem;
 }
 
+/*
+ * アイコンのみの表示（タブレット幅とモバイル幅）
+ *
+ * リンクと管理メニューのボタンの文言を隠し、アイコンのみで並べる。
+ * 上限の 1199px は frontend/src/utils/responsive.ts の APP_HEADER_ICON_ONLY_MAX_WIDTH と一致させる
+ * （CSS は TS の定数を読めないため、__tests__/components/AppHeader.css.test.ts が突き合わせる）。
+ *
+ * 文言を出したままでは、769px〜1147px（test 環境の実測、管理者の長い表示名が最悪）で
+ * リンクの文言が縦に折り返してナビゲーションがヘッダーの高さを超え、
+ * 管理者の長い表示名では 769px〜約 800px で文書全体が水平にはみ出していた（Task 40.1）。
+ * フォントの差を見込んで 1200px 以上で文言を出す。
+ * ユーザー名は隠さず、全幅に効く .app-header-user-name の上限幅と省略表示（ellipsis）で出す
+ * （768px 以下では下のモバイル対応が隠す）。
+ */
+@media (max-width: 1199px) {
+  .app-header-nav-link span {
+    display: none;
+  }
+
+  .app-header-admin-trigger span {
+    display: none;
+  }
+}
+
 /* モバイル対応 */
 @media (max-width: 768px) {
   .app-header-content {
@@ -352,14 +376,6 @@
   }
 
   .app-header-logo-text {
-    display: none;
-  }
-
-  .app-header-nav-link span {
-    display: none;
-  }
-
-  .app-header-admin-trigger span {
     display: none;
   }
 

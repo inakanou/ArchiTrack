@@ -65,6 +65,22 @@ export const MIN_VIEWPORT_WIDTH = 320;
 export const MAX_VIEWPORT_WIDTH = 1920;
 
 /**
+ * 共通ヘッダー（AppHeader）が、リンクと管理メニューの文言を隠してアイコンのみで表示する幅の上限（px）
+ *
+ * この幅以下ではリンクと管理メニューのボタンをアイコンのみにし、1200px 以上で文言を出す。
+ * 是正前は、文言を出したまま 769px〜1147px（test 環境の実測、管理者の長い表示名が最悪）で
+ * リンクの文言が縦に折り返し、ナビゲーションがヘッダーの高さを超えていた。
+ * フォントの差を見込んで 1200px を境にした（user-authentication の Task 40.1）。
+ *
+ * CSS の @media は TS の定数を読めないため、`components/Navigation/AppHeader.css` の
+ * `@media (max-width: 1199px)` が同じ値を持つ。両者の一致は
+ * `__tests__/components/AppHeader.css.test.ts` が突き合わせる。
+ *
+ * @requirement user-authentication/REQ-15.1
+ */
+export const APP_HEADER_ICON_ONLY_MAX_WIDTH = 1199;
+
+/**
  * メディアクエリ定義
  *
  * useMediaQueryフックと共に使用します。
