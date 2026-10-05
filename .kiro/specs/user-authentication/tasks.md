@@ -1275,6 +1275,24 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Boundary: ダッシュボードの見出しのモバイル幅の表示_
   - **【完了時の注記（2026-10-05）】** `Dashboard.tsx` の h1 に `overflowWrap: 'anywhere'` を与えた（construction-photo の Task 20 と同じ型）。ダッシュボードで利用者の入力を出すのは h1 だけで、他は固定文言である。E2E `e2e/specs/auth/dashboard-responsive.spec.ts`（2 ロール × 3 通りの表示名〔既定・区切りの無い英数字 100 文字・和文 100 文字〕× 320・375・768 幅の 18 件）は、前提（見出しの可視と表示名の到達、幅の設定）を主張したうえで、文書全体の水平のはみ出しが無いこと（許容誤差 1px）と見出しの箱・文字の右端が画面内にあることを主張する。是正を外す変異で英数字 100 文字の 6 件が赤（scrollWidth 1628 / 1636）、是正で 18 件が緑。単体 1 件を足した。独立レビューは変異を自ら再現し、既定の表示名で 769・1024・1280 幅のダッシュボードの全要素の矩形が是正の前後で一致することを確かめて承認した。frontend の単体の全件（12151 件）、型検査・lint、`check:e2e-guards` / `check:e2e-selfjudge` が緑。`check:design-measurement-freshness` の赤は site-survey の `nonexistent-paths-by-git-index`（16 対 18）だけで本項の前から赤であり、宣言 `t13-anchor-references-after-115303` は動いていない（見出しを名前でなく level で指すため）
 
+## タスク41: 機能検証（2026-10-05、HEAD `e43b89c5`、NO-GO）の指摘の是正
+
+**経緯**: 40.1〜40.3 の完了後の機能検証は、テスト・ビルド・E2E（本スペックの 23 ファイルと他スペックの狭い幅の 6 ファイル、518 件）・スモークが全件緑のまま、設計文書が共通ヘッダの全画面に効く決定を記録していないことなどを指摘して NO-GO とした。利用者の判断（2026-10-06）: 境界値は 480 だけを `MEDIA_QUERIES` に揃え、768 は現状のまま観測として記録する。宣言 `t13-anchor-references-after-115303` が動いたときは同じコミットで貼り直す運用を正とする
+
+- [x] 41.1 共通ヘッダの最も狭い幅の境界を `MEDIA_QUERIES.isSmallMobile` に揃える
+  - `AppHeader.css` の `@media (max-width: 480px)` を 479px にし、`AppHeader.css.test.ts` で `responsive.ts` の値と突き合わせる。768 と `isMobile`（767）のずれは変えず、範囲外の観測として記録する
+  - _Requirements: 15.1_
+  - _Boundary: 共通ヘッダ（AppHeader）の境界値_
+  - **【完了時の注記（2026-10-06）】** `AppHeader.css` の最も狭い幅のブロックを `@media (max-width: 479px)` にした（39.1 が設けた 480 から）。表示が変わるのは 480 幅ちょうどだけで、左右の余白と間隔が詰まらなくなる（余白 12px → 24px、間隔 4px → 8px。両ロールとも文書のはみ出しと項目の重なりは無い）。単体 `AppHeader.css.test.ts` は最も狭い `max-width` のブロックを `MEDIA_QUERIES.isSmallMobile` の値と比べ、詰めの規則がそのブロックにあることを主張する（480 で 2 件赤。独立レビューはブロックを消す変異でも赤になり素通りしないことを確かめた）。単体 59 件、E2E `app-header.spec.ts` 74 件が緑
+  - **範囲外の観測（未起票）**: (i) 768 のブロックは `MEDIA_QUERIES.isMobile`（767）と 1px ずれたまま（利用者の判断で据え置き。既存の E2E が 768 幅をモバイルとして扱う）。(ii) 単体の比較は「最も狭いブロック」を対象にするため、将来 479 より狭いブロックを足すときは比較の対象を詰めの規則を持つブロックへ改める必要がある
+
+- [ ] 41.2 共通ヘッダの応答性の設計決定を design.md に記録し、関連する記載を現況へ揃える
+  - design.md「共通ヘッダーナビゲーション」に、1199px 以下のアイコンのみの表示（`APP_HEADER_ICON_ONLY_MAX_WIDTH`）、768px 以下のロゴの文字とユーザー名の非表示と高さ、479px 以下の詰め、見た目だけ隠す指定でアクセシブルネームをデスクトップの文言と同じに保つこと（WCAG 2.5.3）、769〜1199px のユーザー名の省略表示、CSS と定数の一致の検証を記す。古い TSX の下書きには実装を正とする旨を記す
+  - tasks.md のタスク40 の見出しと 40.1〜40.3 の題名の「（起票のみ）」を外し、40.2 の題名を範囲（1199px 以下）に合わせる。Implementation Notes の t13 の項を「同じコミットで貼り直す」に改める。spec.json の tasks_summary を現況へ
+  - `responsive.ts` と `app-header.spec.ts` の注記の「隠す」を見た目だけ隠すことが分かる文言にし、`audit-log.spec.ts` の行番号による参照を describe と題名で指す形にし、REQ-15.1 の名乗りの添え書きを検証する幅（768 を含む）に合わせる
+  - _Requirements: 15.1, 15.4_
+  - _Boundary: user-authentication の設計文書・タスク文書と、共通ヘッダの検証の注記_
+
 ## Implementation Notes
 
 - 宣言 `t13-anchor-references-after-115303` はリポジトリ全体の e2e の「肯定側から指す参照」（名前を文字列リテラルで与える `getByRole(..., { name })` / `getByLabel` など）を数える。本スペックで名前で指す E2E を足すと必ず動くため、E2E を足すタスクは `check:design-measurement-freshness` の前後の差を測り、動けば site-survey へ起票する。正規表現・testid への書き換えで避けるのは不当（36.7）

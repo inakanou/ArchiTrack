@@ -14,11 +14,16 @@
  * 「アイコンのみの表示のアクセシブルネーム」が実ブラウザで判定する（jsdom は @media を適用しない）。
  * 表示そのもの（折り返し・はみ出し・到達性）は E2E（e2e/specs/navigation/app-header.spec.ts の
  * 「タブレット幅の表示」）が実ブラウザで判定する。
+ *
+ * Task 41.1: 最も狭い幅の詰め（左右の余白と項目の間隔）の境界は、ブレークポイントの単一情報源
+ * （`utils/responsive.ts` の `MEDIA_QUERIES.isSmallMobile`）と同じ条件にする。
+ * 本検証は AppHeader.css の max-width の @media のうち最も狭いものの条件がその値と一致し、
+ * 詰めの規則がその中にあることを主張する。
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { APP_HEADER_ICON_ONLY_MAX_WIDTH } from '../../utils/responsive';
+import { APP_HEADER_ICON_ONLY_MAX_WIDTH, MEDIA_QUERIES } from '../../utils/responsive';
 
 /** @media の条件に続く波括弧の中身（入れ子の括弧を数えて取り出す） */
 function extractMediaBlock(css: string, condition: string): string {
@@ -128,5 +133,32 @@ describe('AppHeader.css のアイコンのみの表示の幅（タスク40.1）'
     expect(base).toMatch(/overflow:\s*hidden/);
     expect(base).toMatch(/white-space:\s*nowrap/);
     expect(base).toMatch(/max-width:\s*\d+px/);
+  });
+});
+
+describe('AppHeader.css の最も狭い幅の境界（タスク41.1）', () => {
+  // npm はスクリプトを frontend パッケージルートで実行するため cwd 基準で解決する
+  const css = readFileSync(
+    resolve(process.cwd(), 'src/components/Navigation/AppHeader.css'),
+    'utf8'
+  );
+
+  /** AppHeader.css にある `@media (max-width: Npx)` の N の一覧 */
+  const maxWidths = [...css.matchAll(/@media\s*\(max-width:\s*(\d+)px\)/g)].map((m) =>
+    Number(m[1])
+  );
+
+  it('最も狭い @media の条件は MEDIA_QUERIES.isSmallMobile と一致する', () => {
+    expect(maxWidths.length, 'max-width の @media が見つかる').toBeGreaterThan(0);
+    const narrowest = Math.min(...maxWidths);
+
+    expect(`(max-width: ${narrowest}px)`).toBe(MEDIA_QUERIES.isSmallMobile);
+  });
+
+  it('ヘッダーの左右の余白と項目の間隔を詰める規則が、isSmallMobile の @media の中にある', () => {
+    const block = extractMediaBlock(css, MEDIA_QUERIES.isSmallMobile);
+
+    expect(declarationsOf(block, '.app-header-container')).toMatch(/padding:\s*0 0\.75rem/);
+    expect(declarationsOf(block, '.app-header-nav')).toMatch(/gap:\s*0\.25rem/);
   });
 });
