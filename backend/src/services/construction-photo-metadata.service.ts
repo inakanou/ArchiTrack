@@ -261,27 +261,14 @@ export class ConstructionPhotoMetadataService {
       throw new ConstructionPhotoNotFoundError(inputs[0]!.id);
     }
 
-    // signboardId 指定（非 null）の整合検証: 同一プロジェクトに存在すること（R9.1, R8.9）
+    // 指定（非 null）された signboardId。ID 順に並べ、ロックを取る順を一定にする
     const signboardIds = [
       ...new Set(
         inputs
           .filter((i) => i.signboardId !== undefined && i.signboardId !== null)
           .map((i) => i.signboardId as string)
       ),
-    ];
-    if (signboardIds.length > 0) {
-      const signboards = await this.prisma.constructionSignboard.findMany({
-        where: { id: { in: signboardIds } },
-        select: { id: true, projectId: true, deletedAt: true },
-      });
-      const signboardById = new Map(signboards.map((s) => [s.id, s]));
-      for (const signboardId of signboardIds) {
-        const signboard = signboardById.get(signboardId);
-        if (!signboard || signboard.deletedAt !== null || signboard.projectId !== album.projectId) {
-          throw new SignboardNotAllowedError(signboardId);
-        }
-      }
-    }
+    ].sort();
 
     // displayOrder 正規化: 指定された項目を抽出し 1..n に再番号付け（R7.6）
     const inputsWithOrder = inputs.filter((i) => i.displayOrder !== undefined);
@@ -291,6 +278,33 @@ export class ConstructionPhotoMetadataService {
 
     // 1トランザクションで一括更新（看板合成は行わない）
     const updated = await this.prisma.$transaction(async (tx) => {
+      // signboardId の整合検証: 同一プロジェクトに存在し取り除かれていないこと（R9.1, R8.9, R9.7）。
+      // 看板の行を FOR SHARE でロックしてから読む。看板の取り除き（論理削除の UPDATE）はこのロックと
+      // 衝突するため、取り除きが先にロックを取っていればその確定を待って確定後の行で検証し、
+      // 本トランザクションが先なら取り除きは本トランザクションの確定を待ってから参照する写真項目を
+      // 解除する（ここで書いた指定も解除される）。外部キーの検査が取る FOR KEY SHARE は論理削除の
+      // UPDATE と衝突しないため、ロックを明示しないと取り除かれた看板を指す行が残りうる（Task 24.1）
+      if (signboardIds.length > 0) {
+        const signboards = await tx.$queryRaw<
+          Array<{ id: string; projectId: string; deletedAt: Date | null }>
+        >`
+          SELECT id, "projectId", "deletedAt" FROM construction_signboards
+          WHERE id IN (${Prisma.join(signboardIds)})
+          ORDER BY id
+          FOR SHARE`;
+        const signboardById = new Map(signboards.map((s) => [s.id, s]));
+        for (const signboardId of signboardIds) {
+          const signboard = signboardById.get(signboardId);
+          if (
+            !signboard ||
+            signboard.deletedAt !== null ||
+            signboard.projectId !== album.projectId
+          ) {
+            throw new SignboardNotAllowedError(signboardId);
+          }
+        }
+      }
+
       const results: ConstructionPhotoRecord[] = [];
 
       for (const input of inputs) {

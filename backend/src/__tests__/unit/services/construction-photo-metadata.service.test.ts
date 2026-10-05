@@ -93,9 +93,8 @@ function createMockPrisma() {
       findUnique: vi.fn(),
       update: vi.fn(),
     },
-    constructionSignboard: {
-      findMany: vi.fn().mockResolvedValue([]),
-    },
+    // 看板の検証はトランザクションの中で看板の行を FOR SHARE でロックして読む（Task 24.1）
+    $queryRaw: vi.fn().mockResolvedValue([]),
     // プロジェクトの担当者と利用者のロールを引く問い合わせの口（スパイ）。認可はルートの RBAC
     // 権限だけが担い、サービスは担当者（作成者・営業担当・工事担当）や admin ロールでの絞り込みを
     // 行わない（Task 23.1 の利用者の判断）。呼ばれないことを主張するために置き、戻り値は与えない
@@ -157,7 +156,7 @@ describe('ConstructionPhotoMetadataService.updateMetadataBatch', () => {
       photoRef(PHOTO_2),
       photoRef(PHOTO_3),
     ]);
-    (mockPrisma.constructionSignboard.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+    (mockPrisma.$queryRaw as ReturnType<typeof vi.fn>).mockResolvedValue([
       { id: SIGNBOARD_ID, projectId: PROJECT_ID, deletedAt: null },
     ]);
     const updateMock = mockPrisma.constructionPhoto.update as ReturnType<typeof vi.fn>;
@@ -214,7 +213,7 @@ describe('ConstructionPhotoMetadataService.updateMetadataBatch', () => {
     (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
       photoRef(PHOTO_1),
     ]);
-    (mockPrisma.constructionSignboard.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+    (mockPrisma.$queryRaw as ReturnType<typeof vi.fn>).mockResolvedValue([
       { id: SIGNBOARD_ID, projectId: PROJECT_ID, deletedAt: null },
     ]);
     (mockPrisma.constructionPhoto.update as ReturnType<typeof vi.fn>).mockImplementation(
@@ -251,14 +250,14 @@ describe('ConstructionPhotoMetadataService.updateMetadataBatch', () => {
     // Json クリアは Prisma の null 表現に変換される（undefined ではない）
     expect(data.signboardPlacement).not.toBeUndefined();
     // 存在しない signboardId 検証はスキップされる（null のため）
-    expect(mockPrisma.constructionSignboard.findMany).not.toHaveBeenCalled();
+    expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
   });
 
   it('(f) 存在しない signboardId は弾く（Requirements: 9.1）', async () => {
     (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
       photoRef(PHOTO_1),
     ]);
-    (mockPrisma.constructionSignboard.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (mockPrisma.$queryRaw as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
     await expect(
       service.updateMetadataBatch([{ id: PHOTO_1, signboardId: SIGNBOARD_ID }])
@@ -270,12 +269,72 @@ describe('ConstructionPhotoMetadataService.updateMetadataBatch', () => {
     (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
       photoRef(PHOTO_1),
     ]);
-    (mockPrisma.constructionSignboard.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+    (mockPrisma.$queryRaw as ReturnType<typeof vi.fn>).mockResolvedValue([
       { id: OTHER_SIGNBOARD_ID, projectId: OTHER_PROJECT_ID, deletedAt: null },
     ]);
 
     await expect(
       service.updateMetadataBatch([{ id: PHOTO_1, signboardId: OTHER_SIGNBOARD_ID }])
+    ).rejects.toThrow(SignboardNotAllowedError);
+    expect(mockPrisma.constructionPhoto.update).not.toHaveBeenCalled();
+  });
+
+  it('看板の検証は、書き込みと同じトランザクションの中で看板の行を ID 順に FOR SHARE でロックして読む（Task 24.1）', async () => {
+    (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      photoRef(PHOTO_1),
+      photoRef(PHOTO_2),
+    ]);
+    let inTransaction = false;
+    (mockPrisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+      async (cb: (tx: PrismaClient) => Promise<unknown>) => {
+        inTransaction = true;
+        try {
+          return await cb(mockPrisma);
+        } finally {
+          inTransaction = false;
+        }
+      }
+    );
+    const lockReads: Array<{ inTransaction: boolean; sql: string; ids: unknown[] }> = [];
+    (mockPrisma.$queryRaw as ReturnType<typeof vi.fn>).mockImplementation(
+      async (strings: TemplateStringsArray, ...values: unknown[]) => {
+        lockReads.push({
+          inTransaction,
+          sql: strings.join('?'),
+          ids: (values[0] as { values: unknown[] }).values,
+        });
+        return [
+          { id: SIGNBOARD_ID, projectId: PROJECT_ID, deletedAt: null },
+          { id: OTHER_SIGNBOARD_ID, projectId: PROJECT_ID, deletedAt: null },
+        ];
+      }
+    );
+    (mockPrisma.constructionPhoto.update as ReturnType<typeof vi.fn>).mockImplementation(
+      async ({ where, data }) => photoRow(where.id as string, data as Record<string, unknown>)
+    );
+
+    await service.updateMetadataBatch([
+      { id: PHOTO_1, signboardId: OTHER_SIGNBOARD_ID },
+      { id: PHOTO_2, signboardId: SIGNBOARD_ID },
+    ]);
+
+    expect(lockReads).toHaveLength(1);
+    expect(lockReads[0]!.inTransaction).toBe(true);
+    expect(lockReads[0]!.sql).toMatch(/FOR SHARE/);
+    // ロックを取る順を一定にするため ID 順に並べる
+    expect(lockReads[0]!.ids).toEqual([SIGNBOARD_ID, OTHER_SIGNBOARD_ID]);
+  });
+
+  it('取り除かれた（論理削除済みの）signboardId は弾き、書き込まない（Requirements: 9.7）', async () => {
+    (mockPrisma.constructionPhoto.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      photoRef(PHOTO_1),
+    ]);
+    (mockPrisma.$queryRaw as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: SIGNBOARD_ID, projectId: PROJECT_ID, deletedAt: new Date('2026-10-05T00:00:00Z') },
+    ]);
+
+    await expect(
+      service.updateMetadataBatch([{ id: PHOTO_1, signboardId: SIGNBOARD_ID }])
     ).rejects.toThrow(SignboardNotAllowedError);
     expect(mockPrisma.constructionPhoto.update).not.toHaveBeenCalled();
   });
@@ -405,7 +464,7 @@ describe('ConstructionPhotoMetadataService.updateMetadataBatch', () => {
       .calls[0]![0] as { select?: Record<string, unknown> };
     expect(updateArgs.select?.signboard).toEqual({ select: { deletedAt: true } });
     // 看板の指定を送っていない更新では、看板の表を一度も引かない
-    expect(mockPrisma.constructionSignboard.findMany).not.toHaveBeenCalled();
+    expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
   });
 });
 

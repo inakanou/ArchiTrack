@@ -16,9 +16,11 @@
  * - 実ストレージ（STORAGE_TYPE=local）＋実 sharp。テストは自己クリーンアップ。
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
 import request from 'supertest';
 import { validateEnv } from '../../config/env.js';
-import type { PrismaClient } from '../../generated/prisma/client.js';
+import { Prisma, type PrismaClient } from '../../generated/prisma/client.js';
 
 validateEnv();
 
@@ -28,6 +30,7 @@ import redis, { initRedis } from '../../redis.js';
 import { getStorageProvider } from '../../storage/index.js';
 import { seedRoles, seedPermissions, seedRolePermissions } from '../../utils/seed-helpers.js';
 import { initializeConstructionPhotoImageServices } from '../../routes/construction-photo-images.routes.js';
+import { ConstructionSignboardService } from '../../services/construction-signboard.service.js';
 
 describe('Construction Photo Metadata/Order/Delete API Integration Tests', () => {
   let prisma: PrismaClient;
@@ -320,6 +323,212 @@ describe('Construction Photo Metadata/Order/Delete API Integration Tests', () =>
       await prisma.constructionPhoto.deleteMany({ where: { id: p1 } });
       await prisma.constructionSignboard.deleteMany({ where: { id: otherSignboard.id } });
       await prisma.project.deleteMany({ where: { id: otherProject.id } });
+    });
+  });
+
+  describe('看板の取り除きとの競合（REQ 9.7, Task 24.1）', () => {
+    /** 行ロックの解放を待っているバックエンドが n 件になるまで待つ */
+    const waitForLockWaiters = async (n: number): Promise<void> => {
+      const deadline = Date.now() + 10000;
+      for (;;) {
+        const rows = await prisma.$queryRaw<Array<{ count: number }>>`
+          SELECT count(*)::int AS count FROM pg_stat_activity
+          WHERE wait_event_type = 'Lock' AND datname = current_database()`;
+        const count = rows[0]?.count ?? 0;
+        if (count >= n) {
+          return;
+        }
+        if (Date.now() > deadline) {
+          throw new Error(`lock waiters did not reach ${n} (now ${count})`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    };
+
+    it('看板の検証の後・書き込みの前に看板の取り除きが確定しても、取り除かれた看板を指す行を作らない', async () => {
+      const doomed = await prisma.constructionSignboard.create({
+        data: { projectId, workName: '検証後に取り除く工事', workLocation: '検証後に取り除く現場' },
+      });
+      const p1 = await uploadPhoto('window.jpg');
+
+      // 写真項目の行を別のトランザクションでロックし、保存の書き込みだけを止める
+      // （看板の検証はロックを要しないため先へ進む）
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let markLocked!: () => void;
+      const locked = new Promise<void>((resolve) => {
+        markLocked = resolve;
+      });
+      const holding = prisma.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`SELECT id FROM construction_photos WHERE id = ${p1} FOR UPDATE`;
+          markLocked();
+          await gate;
+        },
+        { timeout: 20000 }
+      );
+      await locked;
+
+      const saving = request(app)
+        .patch('/api/construction-photos/images/batch')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          items: [
+            {
+              id: p1,
+              signboardId: doomed.id,
+              signboardPlacement: { left: 1, top: 1, width: 10, height: 10 },
+            },
+          ],
+        })
+        .then((res) => res);
+      // 保存が写真項目の行の書き込みで待つまで進める
+      await waitForLockWaiters(1);
+
+      // 保存の検証の後に、看板を取り除く（実際の取り除きの処理）
+      let deleteSettled = false;
+      const deleting = new ConstructionSignboardService({ prisma })
+        .delete(doomed.id, projectId)
+        .then((result) => {
+          deleteSettled = true;
+          return result;
+        });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const deleteSettledWhileSaving = deleteSettled;
+
+      release();
+      await holding;
+      const res = await saving;
+      const deleted = await deleting;
+
+      // 取り除きは保存が看板の行に取ったロックの解放（保存の確定）を待ち、保存が書いた指定も解除する
+      expect(deleteSettledWhileSaving).toBe(false);
+      expect(res.status).toBe(200);
+      expect(deleted.inUseCount).toBe(1);
+
+      // 取り除かれた看板を指す行は残らない
+      const row = await prisma.constructionPhoto.findUnique({ where: { id: p1 } });
+      expect(row?.signboardId).toBeNull();
+      expect(row?.signboardPlacement).toBeNull();
+
+      await prisma.constructionPhoto.deleteMany({ where: { id: p1 } });
+      await prisma.constructionSignboard.deleteMany({ where: { id: doomed.id } });
+    });
+
+    it('看板の取り除きの途中に送られた保存は、取り除きの確定を待ってから看板を検証し拒否する', async () => {
+      const doomed = await prisma.constructionSignboard.create({
+        data: { projectId, workName: '取り除く工事', workLocation: '取り除く現場' },
+      });
+      const p1 = await uploadPhoto('race.jpg');
+
+      // ConstructionSignboardService.delete と同じ文の順（看板の論理削除 → 参照する写真項目の解除）の
+      // トランザクションを、看板の行を更新した直後で止めておく
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let markLocked!: () => void;
+      const locked = new Promise<void>((resolve) => {
+        markLocked = resolve;
+      });
+      const deleting = prisma.$transaction(
+        async (tx) => {
+          await tx.constructionSignboard.update({
+            where: { id: doomed.id },
+            data: { deletedAt: new Date() },
+          });
+          markLocked();
+          await gate;
+          await tx.constructionPhoto.updateMany({
+            where: { signboardId: doomed.id },
+            data: { signboardId: null, signboardPlacement: Prisma.JsonNull },
+          });
+        },
+        { timeout: 20000 }
+      );
+      await locked;
+
+      // 取り除きの確定前に、その看板を指定する保存を送る
+      let settled = false;
+      const saving = request(app)
+        .patch('/api/construction-photos/images/batch')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          items: [
+            {
+              id: p1,
+              signboardId: doomed.id,
+              signboardPlacement: { left: 1, top: 1, width: 10, height: 10 },
+            },
+          ],
+        })
+        .then((res) => {
+          settled = true;
+          return res;
+        });
+
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const settledBeforeDeleteCommitted = settled;
+      release();
+      await deleting;
+      const res = await saving;
+
+      // 保存は看板の行のロックで取り除きの確定を待ち、確定後の看板（論理削除済み）で検証して拒否する
+      expect(settledBeforeDeleteCommitted).toBe(false);
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe('SIGNBOARD_NOT_ALLOWED');
+
+      // 取り除かれた看板を指す行は残らない
+      const row = await prisma.constructionPhoto.findUnique({ where: { id: p1 } });
+      expect(row?.signboardId).toBeNull();
+      expect(row?.signboardPlacement).toBeNull();
+
+      await prisma.constructionPhoto.deleteMany({ where: { id: p1 } });
+      await prisma.constructionSignboard.deleteMany({ where: { id: doomed.id } });
+    });
+
+    it('一度きりの掃除のマイグレーションは、取り除かれた看板を指す行の指定と配置だけを解除する', async () => {
+      const migrationSql = readFileSync(
+        resolve(
+          __dirname,
+          '../../../prisma/migrations/20261005000000_release_photos_referencing_deleted_signboards/migration.sql'
+        ),
+        'utf-8'
+      );
+      const removed = await prisma.constructionSignboard.create({
+        data: {
+          projectId,
+          workName: '取り除いた工事',
+          workLocation: '取り除いた現場',
+          deletedAt: new Date(),
+        },
+      });
+      const placement = { left: 2, top: 3, width: 40, height: 30 };
+      const dangling = await uploadPhoto('dangling.jpg');
+      const live = await uploadPhoto('live.jpg');
+      // 競合で残った宙吊りの行（取り除かれた看板を指す）と、生きている看板を指す行を用意する
+      await prisma.constructionPhoto.update({
+        where: { id: dangling },
+        data: { signboardId: removed.id, signboardPlacement: placement },
+      });
+      await prisma.constructionPhoto.update({
+        where: { id: live },
+        data: { signboardId, signboardPlacement: placement },
+      });
+
+      await prisma.$executeRawUnsafe(migrationSql);
+
+      const danglingRow = await prisma.constructionPhoto.findUnique({ where: { id: dangling } });
+      expect(danglingRow?.signboardId).toBeNull();
+      expect(danglingRow?.signboardPlacement).toBeNull();
+      const liveRow = await prisma.constructionPhoto.findUnique({ where: { id: live } });
+      expect(liveRow?.signboardId).toBe(signboardId);
+      expect(liveRow?.signboardPlacement).toEqual(placement);
+
+      await prisma.constructionPhoto.deleteMany({ where: { id: { in: [dangling, live] } } });
+      await prisma.constructionSignboard.deleteMany({ where: { id: removed.id } });
     });
   });
 
