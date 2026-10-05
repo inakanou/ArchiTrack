@@ -12,6 +12,10 @@
  * `captureException` の出荷経路が実際に通ることを検証する。`logger` 自体は差し替えないため、
  * 機密情報のマスキングを含む本番の実装を通過する。
  *
+ * Task 115.344: 監視への送出（送信の後処理）が例外を投げても、送信の失敗として扱わない。
+ * 監視基盤の境界に例外を投げさせ、登録済みの画像が未送信一覧へ回らないことを検証する
+ * （対応する要件は各テストの `@requirement` に記す）。
+ *
  * Requirements:
  * - 16.8: エラー発生時に適切なエラーメッセージを表示し、Sentryにログを送信する
  */
@@ -555,5 +559,203 @@ describe('画像アップロード失敗の誤り送出 (Task 115.122, Requireme
     await selectFiles([new File(['a'], 'ok.jpg', { type: 'image/jpeg' })]);
 
     expect(sentry.captureException).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================================
+// 送信の後処理の例外を送信の失敗として扱わない（Task 115.344, Requirement 37.1, 37.5, 37.14）
+//
+// `ImageUploader.submitFiles` の catch は `onUpload` が例外を投げると「試行対象の全ファイル」を
+// 再送可能な未送信画像として保持へ回す。送信の失敗は `uploadSurveyImages` が画像ごとに捕捉して
+// 失敗の一覧へ集約するため伝播しないが、`handleImageUpload` が一覧を受けた後の処理（一覧の更新・
+// 失敗の通知・監視への送出）で例外が出ると、サーバー登録済みの画像まで未送信として保持され、
+// 再送で同一画像が重複登録される（37.14 が避けようとする事態）。
+//
+// 後処理のうち同期的に例外を投げうるのは監視への送出（`logger.exception` → `captureException`）
+// である。ここでは本ファイルが差し替えている監視基盤の境界（`utils/sentry`）に例外を投げさせ、
+// 監視 SDK の失敗を現実の経路どおりに再現する（工事写真の Task 14 と同じ観点）。
+// ============================================================================
+
+describe('送信の後処理の例外を送信の失敗として扱わない (Task 115.344, Requirement 37)', () => {
+  /** サーバー登録済みとして返す画像（ファイル名で未送信一覧との混同を検出する） */
+  const registeredImage: SurveyImageInfo = {
+    ...(mockImages[0] as SurveyImageInfo),
+    id: 'img-registered',
+    fileName: 'registered-ok.jpg',
+    displayOrder: 2,
+  };
+
+  /** ファイル選択を発火し、アップロード呼び出しの完了まで待つ */
+  async function selectFiles(files: File[]): Promise<void> {
+    renderComponent();
+    await waitForLoaded();
+
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(fileInput).toBeTruthy();
+    Object.defineProperty(fileInput, 'files', { value: files, configurable: true });
+    fireEvent.change(fileInput);
+
+    await waitFor(() => {
+      expect(surveyImagesApi.uploadSurveyImages).toHaveBeenCalled();
+    });
+  }
+
+  /** 未送信一覧に現れたファイル名を表示順に取り出す */
+  function pendingFileNames(): (string | null)[] {
+    return screen.getAllByTestId('pending-upload-filename').map((el) => el.textContent);
+  }
+
+  afterEach(() => {
+    // 例外を投げる実装を後続のテストへ持ち越さない（clearAllMocks は実装を戻さない）
+    vi.mocked(sentry.captureException).mockReset();
+  });
+
+  /**
+   * 監視 SDK が一度だけ失敗する場合。修正前は `handleImageUpload` の外へ例外が伝播し、
+   * `ImageUploader` の catch（`onError` → 監視への再送出は成功する）が試行対象の全件を
+   * 保持へ回すため、サーバー登録済みの画像まで未送信一覧に現れる。
+   * @requirement site-survey/REQ-37.1
+   * @requirement site-survey/REQ-37.5
+   * @requirement site-survey/REQ-37.14
+   */
+  it('部分成功で監視への送出が例外を投げても、失敗した画像だけが未送信一覧に残る', async () => {
+    vi.mocked(sentry.captureException).mockImplementationOnce(() => {
+      throw new Error('監視 SDK の送出に失敗');
+    });
+    const okFile = new File(['ok'], 'registered-ok.jpg', { type: 'image/jpeg' });
+    const ngFile = new File(['ng'], 'failed-ng.jpg', { type: 'image/jpeg' });
+    vi.mocked(surveyImagesApi.uploadSurveyImages).mockResolvedValue({
+      results: [registeredImage],
+      errors: [
+        {
+          index: 1,
+          fileName: 'failed-ng.jpg',
+          error: '画像の保存に失敗しました: ストレージへの書き込みエラー',
+          file: ngFile,
+          kind: 'retriable',
+        },
+      ],
+    });
+
+    await selectFiles([okFile, ngFile]);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('pending-upload-count')).toHaveTextContent('未送信の画像 1 件');
+    });
+    // 送信に失敗した画像だけが保持される（37.1, 37.5）
+    expect(pendingFileNames()).toEqual(['failed-ng.jpg']);
+    // サーバー登録済みの画像は未送信一覧に現れない（再送による重複登録の回避, 37.14）
+    expect(pendingFileNames()).not.toContain('registered-ok.jpg');
+    // 保持される失敗理由は送信の失敗であって、後処理の失敗ではない
+    expect(screen.getByTestId('pending-upload-reason')).toHaveTextContent(
+      '画像の保存に失敗しました: ストレージへの書き込みエラー'
+    );
+    expect(screen.getByTestId('pending-upload-item')).toHaveAttribute('data-kind', 'retriable');
+
+    // 失敗通知の文言・表示条件は変更しない（挙動保存, Requirement 19.13）
+    const uploadAlert = screen
+      .getAllByRole('alert')
+      .find((el) => el.textContent?.includes('件のアップロードに'));
+    expect(uploadAlert?.textContent).toContain(
+      '1件のアップロードに成功しました。1件のアップロードに失敗しました。'
+    );
+    expect(uploadAlert?.textContent).not.toContain('監視 SDK の送出に失敗');
+    // 後処理の例外は送信の失敗ではないため、送信例外の経路（failureScope: 'request'）へ回らない
+    const scopes = vi
+      .mocked(sentry.captureException)
+      .mock.calls.map(([, context]) => (context as Record<string, unknown>)?.failureScope);
+    expect(scopes).not.toContain('request');
+    // 後処理の失敗を無言で握り潰さない
+    expect(
+      consoleErrorSpy.mock.calls.some((args: unknown[]) =>
+        args.some((arg) => arg instanceof Error && arg.message === '監視 SDK の送出に失敗')
+      )
+    ).toBe(true);
+  });
+
+  /**
+   * 監視 SDK が失敗し続ける場合。修正前は `ImageUploader` の catch の中で `onError` の
+   * 監視への再送出も例外を投げ、保持（`record`）へ到達しないため失敗した画像まで失われる。
+   * @requirement site-survey/REQ-37.1
+   * @requirement site-survey/REQ-37.14
+   */
+  it('監視への送出が失敗し続けても、失敗した画像は未送信一覧に保持され登録済みの画像は現れない', async () => {
+    vi.mocked(sentry.captureException).mockImplementation(() => {
+      throw new Error('監視 SDK が利用できません');
+    });
+    const okFile = new File(['ok'], 'registered-ok.jpg', { type: 'image/jpeg' });
+    const ngFile = new File(['ng'], 'failed-ng.jpg', { type: 'image/jpeg' });
+    vi.mocked(surveyImagesApi.uploadSurveyImages).mockResolvedValue({
+      results: [registeredImage],
+      errors: [
+        {
+          index: 1,
+          fileName: 'failed-ng.jpg',
+          error: '画像の保存に失敗しました: ストレージへの書き込みエラー',
+          file: ngFile,
+          kind: 'retriable',
+        },
+      ],
+    });
+
+    await selectFiles([okFile, ngFile]);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('pending-upload-count')).toHaveTextContent('未送信の画像 1 件');
+    });
+    expect(pendingFileNames()).toEqual(['failed-ng.jpg']);
+    expect(screen.getByTestId('pending-upload-reason')).toHaveTextContent(
+      '画像の保存に失敗しました: ストレージへの書き込みエラー'
+    );
+  });
+
+  /**
+   * 全件失敗の場合も、保持は送信の失敗の一覧そのものから構成される。再送不可の区分
+   * （サーバー処理中の確定的な拒否）が後処理の例外で再送可へ上書きされてはならない。
+   * @requirement site-survey/REQ-37.1
+   * @requirement site-survey/REQ-37.14
+   */
+  it('全件失敗で監視への送出が例外を投げても、未送信一覧は送信の失敗の区分のまま構成される', async () => {
+    vi.mocked(sentry.captureException).mockImplementationOnce(() => {
+      throw new Error('監視 SDK の送出に失敗');
+    });
+    const permanentFile = new File(['a'], 'ng-format.jpg', { type: 'image/jpeg' });
+    const retriableFile = new File(['b'], 'ng-server.jpg', { type: 'image/jpeg' });
+    vi.mocked(surveyImagesApi.uploadSurveyImages).mockResolvedValue({
+      results: [],
+      errors: [
+        {
+          index: 0,
+          fileName: 'ng-format.jpg',
+          error: 'サポートされていない画像形式です。JPEG、PNG、WEBP形式のみ対応しています。',
+          file: permanentFile,
+          kind: 'permanent',
+        },
+        {
+          index: 1,
+          fileName: 'ng-server.jpg',
+          error: '画像の保存に失敗しました: ストレージへの書き込みエラー',
+          file: retriableFile,
+          kind: 'retriable',
+        },
+      ],
+    });
+
+    await selectFiles([permanentFile, retriableFile]);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('pending-upload-count')).toHaveTextContent('未送信の画像 2 件');
+    });
+    expect(pendingFileNames()).toEqual(['ng-format.jpg', 'ng-server.jpg']);
+    expect(
+      screen.getAllByTestId('pending-upload-item').map((el) => el.getAttribute('data-kind'))
+    ).toEqual(['permanent', 'retriable']);
+
+    // 全件失敗の文言・表示条件は変更しない（挙動保存, Requirement 19.14）
+    const uploadAlert = screen
+      .getAllByRole('alert')
+      .find((el) => el.textContent?.includes('全2件のアップロードに失敗しました。'));
+    expect(uploadAlert?.textContent).toContain('ng-format.jpg: サポートされていないファイル形式');
+    expect(uploadAlert?.textContent).toContain('ng-server.jpg: サーバーエラー');
   });
 });

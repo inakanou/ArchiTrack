@@ -8098,6 +8098,7 @@ export interface ImageUploaderProps {
 - 破棄は `window.confirm` で確認し、承諾時のみ `discardAll()` を呼ぶ（37.8）。
 - `isUploading` または再送中は再送・破棄の操作を受け付けない（37.10）。
 - 新規選択時に保持中の画像を消さない（37.9）。`record` は今回の試行分のみを対象とするため、既存の保持は自然に温存される。
+- `onUpload` が例外を投げると、試行対象の全件を再送可能な未送信画像として保持する（37.1）。このため呼び出し側は、送信の失敗の一覧を受けた後の処理の例外を `onUpload` の外へ伝播させない。伝播させるとサーバー登録済みの画像まで保持され、再送で重複登録されうる（37.14）。現調の `SiteSurveyDetailPage` の `handleImageUpload` は一覧の更新・失敗の通知・監視への送出を `runUploadPostProcessingSafely` で一つずつ保護し、工事写真の `PhotoUploader` は通知を `notifySafely` で保護する。
 
 ### System Flows
 

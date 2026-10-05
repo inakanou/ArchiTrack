@@ -345,6 +345,34 @@ function reportCaughtError(
 const UPLOAD_FAILURE_OPERATION = 'uploadSurveyImages';
 
 /**
+ * 送信の後処理を保護し、後処理の例外を送信の失敗へ昇格させない
+ * (Task 115.344, Requirement 37.1, 37.5, 37.14)
+ *
+ * `ImageUploader.submitFiles` の catch は、`onUpload` が例外を投げると「試行対象の全ファイル」を
+ * 再送可能な未送信画像として保持へ回す。そのため後処理の例外が `handleImageUpload` の外へ
+ * 伝播すると、サーバー登録済みの画像まで未送信画像として保持され、再送で同一画像が重複登録される。
+ *
+ * 送信そのものは `uploadSurveyImages` が画像ごとに捕捉して失敗の一覧へ集約するため例外を投げない。
+ * したがって塞ぐべき例外経路は、一覧を受けた後の処理（一覧の更新・失敗の通知・監視への送出）に
+ * 限られる。このうち同期的に例外を投げうるのは監視への送出（`logger.exception` →
+ * `captureException`）で、監視 SDK が失敗した場合に当たる。工事写真の `PhotoUploader` の
+ * `notifySafely` と同じく、後処理を一つずつ包み、一つの失敗が他の後処理を止めないようにする。
+ *
+ * 後処理の失敗は無言で握り潰さず、原因を辿れるようコンソールへ記録する。監視への再送出は
+ * 行わない（監視への送出そのものが失敗しうるため）。失敗通知の文言・表示条件は変更しない。
+ *
+ * @param label - コンソールへ記録する後処理の名前
+ * @param step - 保護する後処理
+ */
+function runUploadPostProcessingSafely(label: string, step: () => void): void {
+  try {
+    step();
+  } catch (err) {
+    console.error(`${label}に失敗しました`, err);
+  }
+}
+
+/**
  * アップロード失敗の発生層を表す許可列挙
  *
  * - `perFile`: API 層が集約した個別ファイルの失敗（詳細画面の失敗分岐）
@@ -722,7 +750,12 @@ export default function SiteSurveyDetailPage() {
    * 通知はこの画面が従来どおり生成し、保持は戻り値の `UploadOutcome` を通じて
    * `ImageUploader` が行う。
    *
-   * Requirements: 19.11, 19.13, 19.14, 19.15, 19.16, 37.1, 37.16, 37.21
+   * Task 115.344: 送信の後処理（一覧の更新・失敗の通知・監視への送出）は
+   * `runUploadPostProcessingSafely` で一つずつ保護する。後処理の例外が外へ伝播すると
+   * `ImageUploader` が試行対象の全件を保持へ回し、サーバー登録済みの画像まで再送で
+   * 重複登録されうるため、戻り値は後処理の成否によらず送信の失敗の一覧だけを返す。
+   *
+   * Requirements: 19.11, 19.13, 19.14, 19.15, 19.16, 37.1, 37.5, 37.14, 37.16, 37.21
    */
   const handleImageUpload = useCallback(
     async (files: File[]): Promise<UploadOutcome | void> => {
@@ -748,13 +781,15 @@ export default function SiteSurveyDetailPage() {
         // thumbnailUrl）が含まれるため、再取得なしで即座に一覧へ表示できる。
         // 1枚追加するたびに全画像を再取得・再描画する遅延を回避する目的。
         if (results.length > 0) {
-          setSurvey((prev) => {
-            if (!prev) return prev;
-            // 表示順序（サーバ採番済み）でソートして一覧の整合性を保つ
-            const mergedImages = [...prev.images, ...results].sort(
-              (a, b) => a.displayOrder - b.displayOrder
-            );
-            return { ...prev, images: mergedImages };
+          runUploadPostProcessingSafely('アップロードした画像の一覧への反映', () => {
+            setSurvey((prev) => {
+              if (!prev) return prev;
+              // 表示順序（サーバ採番済み）でソートして一覧の整合性を保つ
+              const mergedImages = [...prev.images, ...results].sort(
+                (a, b) => a.displayOrder - b.displayOrder
+              );
+              return { ...prev, images: mergedImages };
+            });
           });
         }
 
@@ -764,42 +799,50 @@ export default function SiteSurveyDetailPage() {
           const successCount = results.length;
           const errorCount = errors.length;
 
-          // エラーメッセージ生成
-          const errorDetails = errors
-            .map((err) => {
-              // エラーカテゴリ判定 (Requirement 19.14, 19.15)
-              // 判定の二重定義を避けるため、形式エラーの述語は
-              // `utils/upload-failure` の `isUnsupportedFormatMessage` に一元化する。
-              // 判定対象の文言集合は従来の3断片と同一であり、表示文言は変わらない。
-              const reason = isUnsupportedFormatMessage(err.error)
-                ? 'サポートされていないファイル形式'
-                : 'サーバーエラー';
-              return `${err.fileName}: ${reason}`;
-            })
-            .join('\n');
+          runUploadPostProcessingSafely('アップロード結果の通知', () => {
+            // エラーメッセージ生成
+            const errorDetails = errors
+              .map((err) => {
+                // エラーカテゴリ判定 (Requirement 19.14, 19.15)
+                // 判定の二重定義を避けるため、形式エラーの述語は
+                // `utils/upload-failure` の `isUnsupportedFormatMessage` に一元化する。
+                // 判定対象の文言集合は従来の3断片と同一であり、表示文言は変わらない。
+                const reason = isUnsupportedFormatMessage(err.error)
+                  ? 'サポートされていないファイル形式'
+                  : 'サーバーエラー';
+                return `${err.fileName}: ${reason}`;
+              })
+              .join('\n');
 
-          if (successCount > 0) {
-            // 部分成功 (Requirement 19.13)
-            setError(
-              `${successCount}件のアップロードに成功しました。${errorCount}件のアップロードに失敗しました。\n${errorDetails}`
-            );
-          } else {
-            // 全件失敗 (Requirement 19.14)
-            setError(`全${errorCount}件のアップロードに失敗しました。\n${errorDetails}`);
-          }
+            if (successCount > 0) {
+              // 部分成功 (Requirement 19.13)
+              setError(
+                `${successCount}件のアップロードに成功しました。${errorCount}件のアップロードに失敗しました。\n${errorDetails}`
+              );
+            } else {
+              // 全件失敗 (Requirement 19.14)
+              setError(`全${errorCount}件のアップロードに失敗しました。\n${errorDetails}`);
+            }
+          });
 
           // 捕捉した誤りを監視基盤へ送る (Task 115.122, Requirement 16.8)。
           // ここは捕捉処理ではなく、API 層が集約した失敗の一覧を受けた分岐であるため
           // Task 115.84 の結線対象から外れており、表示だけで監視へ届いていなかった。
           // 送出する付帯情報は画面・操作・発生層・失敗区分・件数・調査 ID に限り、
           // ファイル名やサーバーの失敗文言（利用者由来の文字列）は含めない。
-          const perFileScope: UploadFailureScope = 'perFile';
-          reportCaughtError(new Error('画像アップロードに失敗しました'), UPLOAD_FAILURE_OPERATION, {
-            surveyId: id,
-            failureScope: perFileScope,
-            failureKinds: summarizeFailureKinds(errors.map((err) => err.kind)),
-            failedCount: errorCount,
-            succeededCount: successCount,
+          runUploadPostProcessingSafely('監視基盤への送出', () => {
+            const perFileScope: UploadFailureScope = 'perFile';
+            reportCaughtError(
+              new Error('画像アップロードに失敗しました'),
+              UPLOAD_FAILURE_OPERATION,
+              {
+                surveyId: id,
+                failureScope: perFileScope,
+                failureKinds: summarizeFailureKinds(errors.map((err) => err.kind)),
+                failedCount: errorCount,
+                succeededCount: successCount,
+              }
+            );
           });
         }
 

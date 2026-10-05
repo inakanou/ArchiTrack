@@ -6332,6 +6332,25 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - **検証**: `check:design-code-refs`・`check:design-refs`・`check:design-measurement-freshness`・`check:criterion-literals` は編集の前後とも緑で出力の数値も同じ。ImageUploader と PhotoUploader の単体 87 件、frontend の type-check・lint・prettier --check が緑。独立レビューは差分がコメントの行だけであること、各経路で送信の失敗が伝播しないことを実コードで確かめて承認した
   - **範囲外の観測（未起票。扱いは利用者の判断を待つ）**: (a) `SiteSurveyDetailPage.handleUploadError` の JSDoc（834 行付近）も「この口が無ければ通信断・認証切れ・圧縮の例外は監視へ届かない」と書き、同じ型で陳腐化している（通信断・認証切れは `uploadSurveyImages` の集約の後で監視へ送られ、圧縮は例外を投げない）。(b) `SiteSurveyDetailPage.handleImageUpload` は送信の後の処理を `notifySafely` のように保護していないため、後処理で例外が出ると登録済みの画像まで保持へ回り、再送で重複登録されうる（工事写真の 20.14 と同じ型）。後処理は setState・文字列の組み立て・`logger.exception` だけで、現実に例外が出うるのは監視の SDK が失敗のある分岐で投げる場合に限られる。site-survey の要件に 20.14 に相当する重複防止の条文は無い
 
+## Task 115.344-115.345: 115.343 の範囲外の観測の是正（利用者の判断 2026-10-06）
+
+**経緯**: 115.343 の実装と独立レビューが、現場調査詳細画面の送信の後処理が保護されていないこと（観測 (b)）と、`handleUploadError` の注記の陳腐化（観測 (a)）を実在と確かめた。利用者の判断（2026-10-06）: (b) は工事写真（construction-photo の Task 14、要件 20.5・20.14）と同じく直す。(a) は対応する
+
+- [x] 115.344 現場調査詳細画面の送信の後処理の例外が、登録済みの画像を未送信として保持させないようにする
+  - `SiteSurveyDetailPage.handleImageUpload` は `uploadSurveyImages` が返った後の処理（一覧の更新・通知文の組み立て・`reportCaughtError` → `logger.exception` など）を保護していない。後処理で例外が起きると、`ImageUploader.submitFiles` の catch が試行対象の全件を再送可能として保持し、サーバー登録済みの画像まで再送されて重複登録されうる
+  - 工事写真の `PhotoUploader` の `notifySafely` と同じく、後処理を保護し、後処理の例外を送信の失敗として扱わない。送信の失敗の集約・部分失敗の継続・失敗通知の文言と表示条件は変えない
+  - 完了: 後処理が例外を投げても、失敗した画像だけが未送信一覧に残り、サーバー登録済みの画像は未送信一覧に現れない
+  - _Requirements: 37.1, 37.5, 37.14_
+  - _Boundary: SiteSurveyDetailPage の画像アップロードの後処理_
+  - **処遇（2026-10-06）**: `handleImageUpload` の後処理を読み、同期的に例外を投げうるものを確かめた。`setSurvey(updater)` の updater と `setError` は呼び出しの場で例外を投げず、文言の組み立ては純粋な処理であり、現実に例外が出うるのは監視への送出（`reportCaughtError` → `logger.exception` → `captureException`）で監視の SDK が失敗した場合に限られる。工事写真の `notifySafely` と同じ形の `runUploadPostProcessingSafely` を `SiteSurveyDetailPage.tsx` に置き（例外を捕捉して `console.error` へ記録し、監視への再送出はしない）、一覧の更新・失敗の通知・監視への送出を一つずつ包んだ。戻り値は後処理の成否によらず送信の失敗の一覧だけを返す。送信の失敗の集約・部分失敗の継続・失敗通知の文言と表示条件は変えていない。是正前の挙動を確かめる中で、監視の SDK が失敗し続ける場合は `ImageUploader` の catch の中の `onError` も例外を投げて `record` へ到達せず失敗した画像そのものが保持されないこと（37.1 違反）、全件失敗では permanent の区分が retriable に上書きされることも観測し、本是正で解消した。design.md の「Components: `ImageUploader`（改修）」に、呼び出し側が後処理の例外を伝播させない契約を 1 行足した。E2E は工事写真の Task 14 と同じく足していない（監視の SDK の失敗を実ブラウザの操作から起こす手段が無く、`/api` の差し替えでは送信の失敗が `uploadSurveyImages` に集約されて後処理に到達しないため）
+  - **検証**: 単体 3 件を `SiteSurveyDetailPage.error-reporting.test.tsx` に足した（監視の境界 `utils/sentry` の `captureException` に例外を投げさせる）。保護を無効にした状態で 3 件とも赤（部分成功で未送信 2 件に登録済みの画像が混入、送出が失敗し続けると未送信一覧が現れず Unhandled Rejection、全件失敗で区分が retriable に上書き）、有効にして緑。frontend 単体の全件（12160 件）、type-check・lint・prettier、ルートの type-check・lint が緑。test 環境のフロントを作り直したうえで E2E（upload-retry 6/6、images 14/14、upload-validation 20/20）が緑。`check:design-measurement-freshness` ほか設計文書・e2e の関門は緑、`check:req-coverage` は site-survey の E2E 適用対象 100%（赤は他機能のみ）。独立レビューは保護の try/catch を外す変異で 3 件だけが赤になることを再現し、フラグの撤去、工事写真との挙動の一致を確かめて承認した
+  - **範囲外の観測（未起票。扱いは利用者の判断を待つ）**: (i) 共有部品 `ImageUploader.submitFiles` の catch は `onError?.(error)` を `record(...)` より前に呼ぶ。`onUpload` 自体が例外で終わり、かつ `onError`（現調では `handleUploadError` → 監視への送出）も例外を投げると、`record` に届かず試行した画像が失われ（37.1）、未処理の rejection が出る。現状 `onUpload` が例外を投げる経路は限られるが、同じ catch に入る経路は残る。是正先は `ImageUploader`（`record` を先に呼ぶか `onError` の呼び出しを保護する）。(ii) `setSurvey` の包みは状態更新の予約だけを保護し、更新関数の例外は描画時に起きるため実効は乏しい（害は無い）。design.md と JSDoc の「一覧の更新を保護」はわずかに強い表現である。(iii) 37.5 の条文は再送の部分成功だが、テストは初回送信の部分成功を通している（`record` の経路は共有）
+
+- [ ] 115.345 `handleUploadError` の注記の陳腐化を解消する
+  - `SiteSurveyDetailPage.handleUploadError` の JSDoc は「この口が無ければ通信断・認証切れ・圧縮の例外は監視へ届かない」と書くが、通信断・認証切れは `uploadSurveyImages` の集約の後で監視へ送られ、圧縮は例外を投げない。115.344 の後の現況へ改める
+  - _Requirements: 37.1_
+  - _Boundary: SiteSurveyDetailPage の handleUploadError の注記_
+
 ## Implementation Notes（Task 115.30-115.52）
 
 - **「注記が言う未実装」を鵜呑みにしないこと**: 115.127 段4 で、八件の検証が「実装がセレクトボックスなので未実装」という注記つきの分岐で守られていたが、実装は入力欄であり**観測は一度も発火していなかった**。危険なのは発火しなかったことではなく、**実装が退行した瞬間に八件が緑のまま何も主張しなくなる**ことである。変異で実測すると、観測が発火する状況では八件が主張を一つも実行せずに通った。
