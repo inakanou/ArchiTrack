@@ -28,48 +28,63 @@ import type {
 // fabric モック
 // ============================================================================
 
-const { mockCanvasInstance, mockFromURL, rectInstances, addedObjects } = vi.hoisted(() => {
-  const registeredHandlers = new Map<string, (...args: unknown[]) => void>();
-  const addedObjects: unknown[] = [];
-  const rectInstances: unknown[] = [];
+const { mockCanvasInstance, mockFromURL, rectInstances, addedObjects, mockFabricImageInstance } =
+  vi.hoisted(() => {
+    const registeredHandlers = new Map<string, (...args: unknown[]) => void>();
+    const addedObjects: unknown[] = [];
+    const rectInstances: unknown[] = [];
 
-  const mockCanvasInstance = {
-    setDimensions: vi.fn(),
-    backgroundImage: null as unknown,
-    renderAll: vi.fn(),
-    requestRenderAll: vi.fn(),
-    dispose: vi.fn(),
-    add: vi.fn((obj: unknown) => {
-      addedObjects.push(obj);
-    }),
-    remove: vi.fn((obj: unknown) => {
-      const idx = addedObjects.indexOf(obj);
-      if (idx >= 0) addedObjects.splice(idx, 1);
-    }),
-    clear: vi.fn(),
-    getObjects: vi.fn(() => addedObjects),
-    setActiveObject: vi.fn(),
-    on: vi.fn((eventName: string, handler: (...args: unknown[]) => void) => {
-      registeredHandlers.set(eventName, handler);
-    }),
-    off: vi.fn((eventName: string) => {
-      registeredHandlers.delete(eventName);
-    }),
-    __getHandler: (eventName: string): ((...args: unknown[]) => void) | undefined =>
-      registeredHandlers.get(eventName),
-    __clearHandlers: () => registeredHandlers.clear(),
-  };
+    const mockCanvasInstance = {
+      setDimensions: vi.fn(),
+      backgroundImage: null as unknown,
+      renderAll: vi.fn(),
+      requestRenderAll: vi.fn(),
+      dispose: vi.fn(),
+      add: vi.fn((obj: unknown) => {
+        addedObjects.push(obj);
+      }),
+      remove: vi.fn((obj: unknown) => {
+        const idx = addedObjects.indexOf(obj);
+        if (idx >= 0) addedObjects.splice(idx, 1);
+      }),
+      clear: vi.fn(),
+      getObjects: vi.fn(() => addedObjects),
+      setActiveObject: vi.fn(),
+      on: vi.fn((eventName: string, handler: (...args: unknown[]) => void) => {
+        registeredHandlers.set(eventName, handler);
+      }),
+      off: vi.fn((eventName: string) => {
+        registeredHandlers.delete(eventName);
+      }),
+      __getHandler: (eventName: string): ((...args: unknown[]) => void) | undefined =>
+        registeredHandlers.get(eventName),
+      __clearHandlers: () => registeredHandlers.clear(),
+    };
 
-  const mockFabricImageInstance = {
-    set: vi.fn(),
-    scaleToWidth: vi.fn(),
-    width: 2000,
-    height: 1000,
-  };
-  const mockFromURL = vi.fn(() => Promise.resolve(mockFabricImageInstance));
+    const mockFabricImageInstance = {
+      set: vi.fn(),
+      scaleToWidth: vi.fn(),
+      width: 2000,
+      height: 1000,
+    };
+    const mockFromURL = vi.fn((_url: string) => Promise.resolve(mockFabricImageInstance));
 
-  return { mockCanvasInstance, mockFromURL, rectInstances, addedObjects };
-});
+    return {
+      mockCanvasInstance,
+      mockFromURL,
+      rectInstances,
+      addedObjects,
+      mockFabricImageInstance,
+    };
+  });
+
+// 背景の原本の取得（タスク 26.1）。既定は写真ごとに別の Blob を返して成功する
+const { mockGetOriginalImage } = vi.hoisted(() => ({
+  mockGetOriginalImage: vi.fn((_imageId: string) => Promise.resolve(new Blob(['original']))),
+}));
+vi.mock('../../api/construction-photo-images', () => ({
+  getConstructionPhotoOriginalImage: mockGetOriginalImage,
+}));
 
 vi.mock('fabric', () => {
   function MockCanvas() {
@@ -157,6 +172,11 @@ beforeEach(() => {
   vi.mocked(useMediaQuery).mockReturnValue(false);
   vi.mocked(useElementSize).mockReturnValue({ width: 0, height: 0 });
   mockCanvasInstance.backgroundImage = null;
+  mockGetOriginalImage.mockImplementation(() => Promise.resolve(new Blob(['original'])));
+  // jsdom は object URL を持たないため、作るたびに別の値を返す差し替えを置く（タスク 26.1）
+  let objectUrlSeq = 0;
+  URL.createObjectURL = vi.fn(() => `blob:original-${++objectUrlSeq}`);
+  URL.revokeObjectURL = vi.fn();
 });
 
 afterEach(() => {
@@ -712,6 +732,233 @@ describe('SignboardPlacementEditor', () => {
       expect(save.style.minWidth).toBe('');
       expect(save.style.minHeight).toBe('');
     });
+  });
+});
+
+// タスク 26.1: 利用者の判断（2026-10-05）で、背景を非合成の原本の object URL にした。従来は
+// サムネイル（200×200 の中央の切り抜き）を幅に合わせて敷いたため、見えている背景と写真の全体が
+// 一致せず、置いた位置と印字画像の上の位置が食い違った。実寸での見え方の主張は E2E が担う
+describe('背景の原本（タスク 26.1）', () => {
+  /** 背景の画像の set に渡した縮尺（scaleX と scaleY を持つ最初の呼び出し） */
+  const backgroundScaleOf = (
+    setMock: ReturnType<typeof vi.fn>
+  ): { scaleX: number; scaleY: number } | undefined =>
+    (setMock.mock.calls as unknown as [Record<string, unknown>][])
+      .map((call) => call[0])
+      .find(
+        (o): o is { scaleX: number; scaleY: number } =>
+          typeof o.scaleX === 'number' && typeof o.scaleY === 'number'
+      );
+
+  it('REQ-9.3: 背景は写真項目の原本を取得した object URL で、サムネイルと印字画像の URL は使わない', async () => {
+    render(<SignboardPlacementEditor photo={photo} signboard={signboard} onSave={vi.fn()} />);
+
+    await waitFor(() => expect(mockFromURL).toHaveBeenCalled());
+    expect(mockGetOriginalImage).toHaveBeenCalledWith('photo-1');
+    const urls = mockFromURL.mock.calls.map((call) => call[0]);
+    expect(urls).toEqual(['blob:original-1']);
+    expect(urls).not.toContain(photo.thumbnailUrl);
+    expect(urls).not.toContain(photo.printImageUrl);
+  });
+
+  it('REQ-9.3: 背景は画像の枠の全体へ写真の全体を合わせて敷く（幅だけで合わせない）', async () => {
+    // 画像 2000×1000、最大表示幅 600 → 画像の枠は 600×300
+    render(
+      <SignboardPlacementEditor
+        photo={photo}
+        signboard={signboard}
+        maxDisplayWidth={600}
+        onSave={vi.fn()}
+      />
+    );
+
+    await waitFor(() => expect(mockCanvasInstance.backgroundImage).toBe(mockFabricImageInstance));
+    const options = backgroundScaleOf(mockFabricImageInstance.set);
+    expect(options).toBeDefined();
+    expect(mockFabricImageInstance.width * options!.scaleX).toBeCloseTo(600);
+    expect(mockFabricImageInstance.height * options!.scaleY).toBeCloseTo(300);
+    expect(mockFabricImageInstance.scaleToWidth).not.toHaveBeenCalled();
+  });
+
+  it('REQ-9.3: 読み込んだ画像の縦横比が枠と違っても、枠の全体を写真の全体で埋める', async () => {
+    // 正方形の画像（例: サムネイルの寸法）を 2000×1000 の写真の枠へ敷く場合でも、枠の高さで切らない
+    const square = { ...mockFabricImageInstance, set: vi.fn(), width: 200, height: 200 };
+    mockFromURL.mockImplementationOnce(() => Promise.resolve(square));
+    render(
+      <SignboardPlacementEditor
+        photo={photo}
+        signboard={signboard}
+        maxDisplayWidth={600}
+        onSave={vi.fn()}
+      />
+    );
+
+    await waitFor(() => expect(mockCanvasInstance.backgroundImage).toBe(square));
+    const options = backgroundScaleOf(square.set);
+    expect(options).toBeDefined();
+    expect(200 * options!.scaleX).toBeCloseTo(600);
+    expect(200 * options!.scaleY).toBeCloseTo(300);
+  });
+
+  it('写真を切り替えると前の object URL を手放し、新しい写真の原本で敷き直す', async () => {
+    const other: ConstructionPhotoWithUrls = { ...photo, id: 'photo-2' };
+    const { rerender } = render(
+      <SignboardPlacementEditor photo={photo} signboard={signboard} onSave={vi.fn()} />
+    );
+    await waitFor(() => expect(mockFromURL).toHaveBeenCalledWith('blob:original-1'));
+
+    rerender(<SignboardPlacementEditor photo={other} signboard={signboard} onSave={vi.fn()} />);
+    await waitFor(() => expect(mockFromURL).toHaveBeenCalledWith('blob:original-2'));
+    expect(mockGetOriginalImage).toHaveBeenLastCalledWith('photo-2');
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:original-1');
+    expect(URL.revokeObjectURL).not.toHaveBeenCalledWith('blob:original-2');
+  });
+
+  it('破棄すると object URL を手放す', async () => {
+    const { unmount } = render(
+      <SignboardPlacementEditor photo={photo} signboard={signboard} onSave={vi.fn()} />
+    );
+    await waitFor(() => expect(mockFromURL).toHaveBeenCalledWith('blob:original-1'));
+
+    unmount();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:original-1');
+  });
+
+  it('破棄の後に取得が終わっても object URL を作らない', async () => {
+    let resolve: (blob: Blob) => void = () => {};
+    mockGetOriginalImage.mockImplementationOnce(() => new Promise<Blob>((r) => (resolve = r)));
+    const { unmount } = render(
+      <SignboardPlacementEditor photo={photo} signboard={signboard} onSave={vi.fn()} />
+    );
+    await waitFor(() => expect(mockGetOriginalImage).toHaveBeenCalled());
+    unmount();
+
+    resolve(new Blob(['late']));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    expect(mockFromURL).not.toHaveBeenCalled();
+  });
+
+  it('原本の取得に失敗しても配置の操作は続けられ、背景を読めない旨を示す', async () => {
+    mockGetOriginalImage.mockImplementationOnce(() => Promise.reject(new Error('503')));
+    const onSave = vi.fn();
+    render(
+      <SignboardPlacementEditor
+        photo={photo}
+        signboard={signboard}
+        maxDisplayWidth={600}
+        onSave={onSave}
+      />
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('写真を読み込めませんでした');
+    expect(mockFromURL).not.toHaveBeenCalled();
+    expect(rectInstances.length).toBeGreaterThanOrEqual(1);
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    expect(onSave).toHaveBeenCalledWith({ left: 600, top: 375, width: 800, height: 250 });
+  });
+
+  // Fabric v7 は基準点の既定を中央へ変えた。換算は left/top を左上として読むため、背景と緑ボードの
+  // 基準点を左上に固定しないと、表示と保存される配置が食い違う
+  it('REQ-9.3: 背景の画像は基準点を左上にして枠の左上（0, 0）に置く', async () => {
+    render(<SignboardPlacementEditor photo={photo} signboard={signboard} onSave={vi.fn()} />);
+
+    await waitFor(() => expect(mockCanvasInstance.backgroundImage).toBe(mockFabricImageInstance));
+    expect(mockFabricImageInstance.set).toHaveBeenCalledWith(
+      expect.objectContaining({ originX: 'left', originY: 'top', left: 0, top: 0 })
+    );
+  });
+
+  it('REQ-9.3: 緑ボードは基準点を左上にして、left/top に表示の矩形の左上を置く', async () => {
+    // 画像 2000×1000、最大表示幅 600 → 枠 600×300、既定の矩形は左上 (180, 112.5)
+    render(
+      <SignboardPlacementEditor
+        photo={photo}
+        signboard={signboard}
+        maxDisplayWidth={600}
+        onSave={vi.fn()}
+      />
+    );
+
+    await waitFor(() => expect(rectInstances.length).toBe(1));
+    const rect = rectInstances[0] as Record<string, unknown>;
+    expect(rect).toMatchObject({ originX: 'left', originY: 'top', left: 180, top: 112.5 });
+  });
+
+  // レビューの指摘（Minor 1）: 原本の到着でキャンバスを作り直すと、到着がドラッグの途中と重なった
+  // ときにそのドラッグが取り消される。背景は今のキャンバスへ敷くだけにする
+  it('原本の到着ではキャンバスと緑ボードを作り直さない', async () => {
+    let resolve: (blob: Blob) => void = () => {};
+    mockGetOriginalImage.mockImplementationOnce(() => new Promise<Blob>((r) => (resolve = r)));
+    render(<SignboardPlacementEditor photo={photo} signboard={signboard} onSave={vi.fn()} />);
+    await waitFor(() => expect(rectInstances.length).toBe(1));
+    const disposeCount = mockCanvasInstance.dispose.mock.calls.length;
+
+    resolve(new Blob(['original']));
+    await waitFor(() => expect(mockCanvasInstance.backgroundImage).toBe(mockFabricImageInstance));
+    expect(mockCanvasInstance.dispose.mock.calls.length).toBe(disposeCount);
+    expect(rectInstances.length).toBe(1);
+  });
+
+  it('幅の変化でキャンバスを作り直すと、読み込み済みの背景を新しい大きさで敷き直し、取り直さない', async () => {
+    const { rerender } = render(
+      <SignboardPlacementEditor photo={photo} signboard={signboard} onSave={vi.fn()} />
+    );
+    await waitFor(() => expect(mockCanvasInstance.backgroundImage).toBe(mockFabricImageInstance));
+    mockFabricImageInstance.set.mockClear();
+
+    // 置かれた場所の幅 295 → 画像の枠 293×146.5
+    vi.mocked(useElementSize).mockReturnValue({ width: 295, height: 0 });
+    rerender(<SignboardPlacementEditor photo={photo} signboard={signboard} onSave={vi.fn()} />);
+
+    await waitFor(() => expect(mockFabricImageInstance.set).toHaveBeenCalled());
+    expect(mockCanvasInstance.backgroundImage).toBe(mockFabricImageInstance);
+    const options = backgroundScaleOf(mockFabricImageInstance.set);
+    expect(mockFabricImageInstance.width * options!.scaleX).toBeCloseTo(293);
+    expect(mockFabricImageInstance.height * options!.scaleY).toBeCloseTo(146.5);
+    expect(mockGetOriginalImage).toHaveBeenCalledTimes(1);
+    expect(mockFromURL).toHaveBeenCalledTimes(1);
+  });
+
+  it('キャンバスの破棄の前に背景を外す（Fabric の破棄で背景の画像を破棄させない）', async () => {
+    const seen: unknown[] = [];
+    mockCanvasInstance.dispose.mockImplementation(() => {
+      seen.push(mockCanvasInstance.backgroundImage);
+    });
+    const { unmount } = render(
+      <SignboardPlacementEditor photo={photo} signboard={signboard} onSave={vi.fn()} />
+    );
+    await waitFor(() => expect(mockCanvasInstance.backgroundImage).toBe(mockFabricImageInstance));
+
+    unmount();
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen[seen.length - 1]).toBeUndefined();
+    mockCanvasInstance.dispose.mockReset();
+  });
+
+  // レビューの指摘（Minor 2）: 失敗の印を成功で下ろさないと、A（失敗）→B→A（成功）で背景が出ているのに
+  // 失敗の表示が残る
+  it('失敗した写真へ戻って取得に成功すると、背景を読めない旨を下ろす', async () => {
+    const other: ConstructionPhotoWithUrls = { ...photo, id: 'photo-2' };
+    mockGetOriginalImage.mockImplementationOnce(() => Promise.reject(new Error('503')));
+    const { rerender } = render(
+      <SignboardPlacementEditor photo={photo} signboard={signboard} onSave={vi.fn()} />
+    );
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+
+    rerender(<SignboardPlacementEditor photo={other} signboard={signboard} onSave={vi.fn()} />);
+    await waitFor(() => expect(mockGetOriginalImage).toHaveBeenLastCalledWith('photo-2'));
+    rerender(<SignboardPlacementEditor photo={photo} signboard={signboard} onSave={vi.fn()} />);
+
+    await waitFor(() => expect(mockGetOriginalImage).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+  });
+
+  it('取得に成功しているときは背景を読めない旨を示さない', async () => {
+    render(<SignboardPlacementEditor photo={photo} signboard={signboard} onSave={vi.fn()} />);
+    await waitFor(() => expect(mockFromURL).toHaveBeenCalled());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
 

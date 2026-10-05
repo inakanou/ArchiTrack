@@ -94,6 +94,12 @@
  *   要素を作り直し、role=alert の枠は常に新しく挿入する（既存の要素へ後から付けると支援技術によって
  *   は読み上げられない）
  *
+ * Task 26.2 変更: 利用者の判断（2026-10-05）で、未保存の変更（`isDirty`）があるときは PDF・ZIP の
+ *   出力を始めず、保存してから出力する旨を通知の枠に示す。並べ替え・印刷対象・コメントの未保存の値は
+ *   画面の `photos` にだけあり、そのまま出力すると保存済みの表示順序（受入基準 10.12）と食い違い、
+ *   サーバーの保存済みの値で描かれる看板の重畳と一つの出力の中で混ざるためである。ZIP はエクスポート
+ *   の設定のダイアログも開かない。未保存の変更が無いときの振る舞いは変えない
+ *
  * Requirements: 4.1, 4.2, 5.1, 5.3, 6.1, 7.1, 7.3, 7.4, 7.5, 7.6, 7.8, 11.3, 11.4, 11.5,
  *   10.1, 10.3, 10.12, 10.13, 15.1, 15.5, 15.6, 15.7, 15.8, 15.9, 15.11, 17.1, 17.2, 17.3,
  *   17.4, 17.5, 18.1, 18.2, 18.3, 18.4
@@ -464,6 +470,12 @@ function toRemovedSignboardMessage(
   }
   return `選択した工事看板は取り除かれています。${guidance}`;
 }
+
+/** 未保存の変更があるときに PDF 出力を止めた旨の通知（タスク 26.2, R10.12） */
+const UNSAVED_PDF_EXPORT_MESSAGE = '未保存の変更があります。保存してからPDF出力してください。';
+
+/** 未保存の変更があるときに ZIP の一括エクスポートを止めた旨の通知（タスク 26.2） */
+const UNSAVED_ZIP_EXPORT_MESSAGE = '未保存の変更があります。保存してからエクスポートしてください。';
 
 /**
  * 通知の枠に出す表示の種類（タスク 22.1）。`notice` は PDF・ZIP・アップロードの結果の通知、
@@ -889,9 +901,14 @@ export default function ConstructionPhotoDetailPage() {
    *
    * 印刷対象のみ・保存表示順で印字画像をオンデマンド取得して台帳PDFを出力する。
    * 看板重畳はサーバの印字画像エンドポイントに委譲する。印刷対象0件は非実行で通知する。
+   * 未保存の変更があるときは出力せず、保存を促す（タスク 26.2）。
    */
   const handleExportPdf = useCallback(async () => {
     if (!album) return;
+    if (isDirty) {
+      showPageMessage('notice', UNSAVED_PDF_EXPORT_MESSAGE);
+      return;
+    }
     clearPageMessage('notice');
     setIsExporting(true);
     try {
@@ -911,7 +928,7 @@ export default function ConstructionPhotoDetailPage() {
     } finally {
       setIsExporting(false);
     }
-  }, [album, project, photos, clearPageMessage, showPageMessage]);
+  }, [album, project, photos, isDirty, clearPageMessage, showPageMessage]);
 
   /**
    * 写真項目削除ハンドラ（R7.7）
@@ -966,15 +983,23 @@ export default function ConstructionPhotoDetailPage() {
     });
   }, []);
 
-  /** 「全件エクスポート」起動ボタン（R15.1, R15.5） */
+  /** 「全件エクスポート」起動ボタン（R15.1, R15.5）。未保存の変更があるときは開かない（タスク 26.2） */
   const handleExportAll = useCallback(() => {
+    if (isDirty) {
+      showPageMessage('notice', UNSAVED_ZIP_EXPORT_MESSAGE);
+      return;
+    }
     setBulkExportMode('all');
-  }, []);
+  }, [isDirty, showPageMessage]);
 
-  /** 「選択エクスポート」起動ボタン（R15.1, R15.6, R15.7） */
+  /** 「選択エクスポート」起動ボタン（R15.1, R15.6, R15.7）。未保存の変更があるときは開かない（タスク 26.2） */
   const handleExportSelected = useCallback(() => {
+    if (isDirty) {
+      showPageMessage('notice', UNSAVED_ZIP_EXPORT_MESSAGE);
+      return;
+    }
     setBulkExportMode('selected');
-  }, []);
+  }, [isDirty, showPageMessage]);
 
   /** BulkExportDialog のキャンセル close */
   const handleExportDialogClose = useCallback(() => {

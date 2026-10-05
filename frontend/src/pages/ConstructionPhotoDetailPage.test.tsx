@@ -82,6 +82,10 @@ vi.mock('../hooks/useConstructionPhotoPermission', () => ({
 // 記録し、結線（変更で真・保存で偽・編集権限が無ければ偽）のみ検証する
 // （beforeunload実登録の検証は useUnsavedChanges 自体の単体テストで担保済み）。
 const mockUseUnsavedChanges = vi.fn((_options: { isDirty: boolean; message?: string }) => {});
+
+/** 未保存の変更がある間に PDF 出力を押したときの通知（タスク 26.2）。検証の側で綴る */
+const UNSAVED_PDF_EXPORT = '未保存の変更があります。保存してからPDF出力してください。';
+
 /** 直近の描画で画面がフックへ渡した isDirty */
 const lastUnsavedDirty = (): boolean | undefined =>
   mockUseUnsavedChanges.mock.calls[mockUseUnsavedChanges.mock.calls.length - 1]?.[0].isDirty;
@@ -787,6 +791,121 @@ describe('ConstructionPhotoDetailPage', () => {
         'エクスポート対象の写真項目がありません。'
       );
       expect(constructionPhotoBulkExportService.export).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================================================
+  // タスク 26.2: 利用者の判断（2026-10-05）で、未保存の変更があるときは PDF・ZIP の出力を始めず、
+  // 保存してから出力する旨を示す。未保存の並び替えは画面の displayOrder だけを書き換えるため、
+  // そのまま出力すると保存済みの表示順序（受入基準 10.12）と食い違う
+  // ==========================================================================
+
+  describe('未保存の変更があるときの出力（タスク 26.2）', () => {
+    it('REQ-10.12: 並び替えて保存していない間は PDF を出力せず、保存してからPDF出力する旨を示す', async () => {
+      vi.mocked(ledgerExportApi.exportConstructionPhotoLedger).mockResolvedValue({
+        generated: true,
+        itemCount: 2,
+      });
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      fireEvent.click(within(firstItem).getByRole('button', { name: '下へ移動' }));
+
+      fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
+
+      expect(
+        await screen.findByText('未保存の変更があります。保存してからPDF出力してください。')
+      ).toBeInTheDocument();
+      expect(ledgerExportApi.exportConstructionPhotoLedger).not.toHaveBeenCalled();
+    });
+
+    it('印刷対象を切り替えて保存していない間も PDF を出力しない', async () => {
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      fireEvent.click(within(firstItem).getByLabelText('印刷対象に含める'));
+
+      fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
+
+      expect(
+        await screen.findByText('未保存の変更があります。保存してからPDF出力してください。')
+      ).toBeInTheDocument();
+      expect(ledgerExportApi.exportConstructionPhotoLedger).not.toHaveBeenCalled();
+    });
+
+    it('REQ-10.12: 保存の成功の後は、保存した表示順序の写真項目で PDF を出力する', async () => {
+      vi.mocked(imagesApi.updateConstructionPhotoOrder).mockResolvedValue(undefined);
+      vi.mocked(ledgerExportApi.exportConstructionPhotoLedger).mockResolvedValue({
+        generated: true,
+        itemCount: 2,
+      });
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      fireEvent.click(within(firstItem).getByRole('button', { name: '下へ移動' }));
+      fireEvent.click(screen.getByRole('button', { name: '保存' }));
+      await waitFor(() => {
+        expect(lastUnsavedDirty()).toBe(false);
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
+
+      await waitFor(() => {
+        expect(ledgerExportApi.exportConstructionPhotoLedger).toHaveBeenCalledTimes(1);
+      });
+      const { photos } = vi.mocked(ledgerExportApi.exportConstructionPhotoLedger).mock.calls[0]![0];
+      const ordered = [...photos].sort((a, b) => a.displayOrder - b.displayOrder).map((p) => p.id);
+      expect(ordered).toEqual(['photo-2', 'photo-1']);
+      expect(
+        screen.queryByText('未保存の変更があります。保存してからPDF出力してください。')
+      ).not.toBeInTheDocument();
+    });
+
+    it('未保存の変更がある間は「全件エクスポート」で設定のダイアログを開かず、保存してからエクスポートする旨を示す', async () => {
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      fireEvent.click(within(firstItem).getByRole('button', { name: '下へ移動' }));
+
+      fireEvent.click(screen.getByRole('button', { name: '全件エクスポート' }));
+
+      expect(
+        await screen.findByText('未保存の変更があります。保存してからエクスポートしてください。')
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole('dialog', { name: /全件一括エクスポート/ })
+      ).not.toBeInTheDocument();
+      expect(constructionPhotoBulkExportService.export).not.toHaveBeenCalled();
+    });
+
+    it('未保存の変更がある間は「選択エクスポート」でも設定のダイアログを開かない', async () => {
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      fireEvent.click(within(firstItem).getByLabelText('エクスポート対象に含める'));
+      const textarea = within(firstItem).getByLabelText('コメント');
+      fireEvent.change(textarea, { target: { value: '未保存のコメント' } });
+      fireEvent.blur(textarea);
+
+      fireEvent.click(screen.getByRole('button', { name: /選択エクスポート/ }));
+
+      expect(
+        await screen.findByText('未保存の変更があります。保存してからエクスポートしてください。')
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole('dialog', { name: /選択画像エクスポート/ })
+      ).not.toBeInTheDocument();
+      expect(constructionPhotoBulkExportService.export).not.toHaveBeenCalled();
+    });
+
+    it('エクスポート対象の選択だけでは未保存にならず、選択エクスポートの設定のダイアログを開く', async () => {
+      renderPage();
+      const firstItem = (await screen.findAllByTestId('construction-photo-item'))[0]!;
+      fireEvent.click(within(firstItem).getByLabelText('エクスポート対象に含める'));
+
+      fireEvent.click(screen.getByRole('button', { name: /選択エクスポート/ }));
+
+      expect(
+        await screen.findByRole('dialog', { name: /選択画像エクスポート/ })
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText('未保存の変更があります。保存してからエクスポートしてください。')
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -2447,6 +2566,17 @@ describe('ConstructionPhotoDetailPage', () => {
       await screen.findByText(/印刷対象の写真がありません/);
     }
 
+    /**
+     * 未保存の変更がある間の通知を出す（保存の失敗の後は未保存のままのため、PDF 出力は出力を止めて
+     * 保存を促す通知を出す。タスク 26.2）
+     */
+    async function showUnsavedExportNotice() {
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
+      });
+      await screen.findByText(UNSAVED_PDF_EXPORT);
+    }
+
     it('通知が出ている間に保存が失敗すると、保存の失敗が見え、通知は置き換えられる', async () => {
       renderPage();
       await screen.findByRole('img', { name: /a\.jpg/ });
@@ -2466,29 +2596,34 @@ describe('ConstructionPhotoDetailPage', () => {
       await failSave('保存の失敗の理由');
       expect(await screen.findAllByText('保存の失敗の理由')).toHaveLength(2);
 
-      await showNoPrintableNotice();
+      await showUnsavedExportNotice();
 
       expect(screen.queryAllByText('保存の失敗の理由')).toHaveLength(0);
       expect(announcedAlerts()).toHaveLength(1);
+      expect(announcedAlerts()[0]).toHaveTextContent(UNSAVED_PDF_EXPORT);
     });
 
     it('保存の失敗を置き換えた通知が消えても、古い保存の失敗は再び現れない', async () => {
+      vi.mocked(imagesApi.uploadConstructionPhotos).mockResolvedValue({
+        successful: [makePhoto({ id: 'photo-3', displayOrder: 3, fileName: 'c.jpg' })],
+        failed: [],
+      });
       renderPage();
       await screen.findByRole('img', { name: /a\.jpg/ });
 
       await failSave('保存の失敗の理由');
-      await showNoPrintableNotice();
+      await showUnsavedExportNotice();
 
-      // PDF 出力の開始は通知を消す。生成に成功すれば新しい通知は出ない
-      vi.mocked(ledgerExportApi.exportConstructionPhotoLedger).mockResolvedValueOnce({
-        generated: true,
-        itemCount: 1,
-      });
+      // 写真項目の追加は通知を消す（未保存の間は PDF 出力を始められないため、追加を消去の契機に
+      // 使う。タスク 26.2）
       await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
+        fireEvent.change(screen.getByTestId('file-input'), {
+          target: { files: [new File(['x'], 'c.jpg', { type: 'image/jpeg' })] },
+        });
       });
+      expect(await screen.findByRole('img', { name: /c\.jpg/ })).toBeInTheDocument();
       await waitFor(() => {
-        expect(screen.queryByText(/印刷対象の写真がありません/)).not.toBeInTheDocument();
+        expect(screen.queryByText(UNSAVED_PDF_EXPORT)).not.toBeInTheDocument();
       });
 
       expect(screen.queryAllByText('保存の失敗の理由')).toHaveLength(0);
@@ -2684,20 +2819,17 @@ describe('ConstructionPhotoDetailPage', () => {
       await failSave(SAVE_FAILED);
       expect(await screen.findAllByText(SAVE_FAILED)).toHaveLength(2);
 
-      vi.mocked(ledgerExportApi.exportConstructionPhotoLedger).mockResolvedValueOnce({
-        generated: false,
-        reason: 'no-printable',
-      });
+      // 保存の失敗の後は未保存のままのため、PDF 出力は保存を促す通知を出す（タスク 26.2）
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
       });
-      await screen.findByText(/印刷対象の写真がありません/);
+      await screen.findByText(UNSAVED_PDF_EXPORT);
 
       expect(screen.queryAllByText(SAVE_FAILED)).toHaveLength(0);
       expect(within(panel()).queryAllByRole('alert')).toHaveLength(0);
       const alerts = screen.getAllByRole('alert');
       expect(alerts).toHaveLength(1);
-      expect(alerts[0]).toHaveTextContent(/印刷対象の写真がありません/);
+      expect(alerts[0]).toHaveTextContent(UNSAVED_PDF_EXPORT);
     });
 
     /** 上部の枠（写真項目管理パネルの外にある、指定の文言の要素）を返す */
@@ -2716,17 +2848,14 @@ describe('ConstructionPhotoDetailPage', () => {
       const frameDuringSaveFailure = topFrameWith(SAVE_FAILED);
       expect(frameDuringSaveFailure).not.toHaveAttribute('role');
 
-      vi.mocked(ledgerExportApi.exportConstructionPhotoLedger).mockResolvedValueOnce({
-        generated: false,
-        reason: 'no-printable',
-      });
+      // 保存の失敗の後は未保存のままのため、PDF 出力は保存を促す通知を出す（タスク 26.2）
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }));
       });
-      await screen.findByText(/印刷対象の写真がありません/);
+      await screen.findByText(UNSAVED_PDF_EXPORT);
 
       const [noticeFrame] = screen.getAllByRole('alert');
-      expect(noticeFrame).toHaveTextContent(/印刷対象の写真がありません/);
+      expect(noticeFrame).toHaveTextContent(UNSAVED_PDF_EXPORT);
       // 保存の失敗の間の枠の要素は外れ、通知は別の要素として挿入されている
       expect(noticeFrame).not.toBe(frameDuringSaveFailure);
       expect(frameDuringSaveFailure.isConnected).toBe(false);

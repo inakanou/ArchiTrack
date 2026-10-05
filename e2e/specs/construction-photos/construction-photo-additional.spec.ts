@@ -280,6 +280,69 @@ function buildLargePhotoPng(width: number, height: number): Buffer {
   ]);
 }
 
+/** 四隅の印の色（タスク 26.1）。左上・右上・左下・右下の順 */
+const CORNER_MARK_COLORS = {
+  topLeft: [220, 40, 40],
+  topRight: [40, 200, 60],
+  bottomLeft: [40, 60, 220],
+  bottomRight: [230, 210, 40],
+} as const;
+/** 四隅の印以外の地の色（タスク 26.1） */
+const CORNER_MARK_BASE: readonly [number, number, number] = [128, 128, 128];
+/** 四隅の印の一辺の、写真の幅・高さに対する比（タスク 26.1） */
+const CORNER_MARK_RATIO = 0.08;
+
+/**
+ * 四隅に色の違う印を置いた PNG を生成する（タスク 26.1）。
+ *
+ * 印は写真の幅・高さの 8% の矩形で、地は灰色である。写真の全体を敷いた背景なら画像の枠の四隅に
+ * 印の色が見える。サムネイル（200×200 の中央の切り抜き）を幅に合わせて敷くと、4:3 の写真では
+ * 左右の 12.5% が切り落とされるため、四隅には地の灰色が見える。低エントロピーにして、アップロード
+ * の圧縮（要件 4.6）の閾値を下回る大きさで実寸のまま保存させる。
+ */
+function buildCornerMarkedPhotoPng(width: number, height: number): Buffer {
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; // ビット深度
+  ihdr[9] = 2; // カラータイプ: トゥルーカラー（RGB）
+  const markWidth = Math.round(width * CORNER_MARK_RATIO);
+  const markHeight = Math.round(height * CORNER_MARK_RATIO);
+  const stride = width * 3 + 1;
+  const raw = Buffer.alloc(stride * height);
+  for (let y = 0; y < height; y++) {
+    const rowStart = y * stride;
+    raw[rowStart] = 0; // フィルタータイプ: None
+    const top = y < markHeight;
+    const bottom = y >= height - markHeight;
+    for (let x = 0; x < width; x++) {
+      const left = x < markWidth;
+      const right = x >= width - markWidth;
+      const color =
+        top && left
+          ? CORNER_MARK_COLORS.topLeft
+          : top && right
+            ? CORNER_MARK_COLORS.topRight
+            : bottom && left
+              ? CORNER_MARK_COLORS.bottomLeft
+              : bottom && right
+                ? CORNER_MARK_COLORS.bottomRight
+                : CORNER_MARK_BASE;
+      const pixel = rowStart + 1 + x * 3;
+      raw[pixel] = color[0];
+      raw[pixel + 1] = color[1];
+      raw[pixel + 2] = color[2];
+    }
+  }
+  return Buffer.concat([
+    signature,
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', zlib.deflateSync(raw, { level: 9 })),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
 /**
  * 工事写真の画像アップロードのエンドポイントの URL 判定。
  *
@@ -2730,6 +2793,350 @@ test.describe('工事写真 追加機能フロー', () => {
     expect(reloaded!.signboardPlacement).toEqual(placement);
 
     await page.setViewportSize(desktopViewport!);
+  });
+
+  /**
+   * タスク 26.1: 看板の配置のエディタの背景は写真の全体である（利用者の判断（2026-10-05））。
+   * 変更前は背景にサムネイル（アップロードのときに作る 200×200 の中央の切り抜き）を幅に合わせて
+   * 敷いたため、4:3 の写真では見えている背景が写真の全体と一致せず、置いた位置と印字画像・PDF で
+   * 看板が重なる位置が食い違った（機能全体の検証 2026-10-05 で判明）。
+   *
+   * 四隅に色の違う印（写真の幅・高さの 8%）を置いた 1920×1440 の写真を追加し、看板の配置の
+   * ダイアログを 1280 幅と 375 幅で開く。主張は次のとおり。
+   *  - エディタを開くと原本の取得口（/original、パスで判定）が 200 で応答する。
+   *  - 画像の枠の canvas の四隅（各辺から 3% の内側）の画素が、写真の四隅の印の色である
+   *    （各色成分の差 48 以内）。サムネイルを幅に合わせて敷くと左右の 12.5% が切り落とされ、
+   *    四隅は地の灰色になる。
+   *  - canvas の縦横の比が写真の比のまま（画像の枠の全体を写真の全体が埋めている前提）。
+   *  - 看板を選んで動かさないとき、緑ボードは保存される既定の配置（枠の 30%〜70%×37.5%〜62.5%）に
+   *    描かれる。その内側で中心から外れた点（60%, 56%）が緑ボードの色（地の灰色に濃緑 55% を重ねた
+   *    色）で、緑ボードを中心の基準点で描いたときにだけ覆われる点（20%, 31%）が地の灰色である。
+   *    Fabric v7 は基準点の既定を中央に変えたため、変更前は緑ボードが保存される配置より大きさの
+   *    半分だけ左上へずれて描かれ、背景も画像の中心が枠の左上に来ていた。
+   * 画素は canvas の描画の画素（devicePixelRatio を含む）の比で読むため、フォントに依存しない。
+   *
+   * 前提（満たされなければ失敗させる。条件付きで飛ばさない）:
+   *  - 写真一覧の API が返す写真の寸法が 1920×1440 である（写真が縮められて保存されていない）。
+   *  - 画像の枠の中に canvas があり、高さが 0 でない。
+   *
+   * @requirement construction-photo/REQ-9.3
+   */
+  test('看板の配置のエディタの背景は写真の全体で、4:3 の写真でも画像の枠の四隅に写真の四隅が見える（1280・375 幅）', async ({
+    page,
+  }) => {
+    const PHOTO_WIDTH = 1920;
+    const PHOTO_HEIGHT = 1440;
+    const COLOR_TOLERANCE = 48;
+    const SAMPLE_INSET = 0.03;
+    const stamp = Date.now();
+    const fileName = `corner_marked_${stamp}.png`;
+    const signboardName = `背景の原本E2E看板_${stamp}`;
+    // 地の灰色に緑ボードの塗り（rgba(0, 77, 38, 0.55)）を重ねた色。検証の側で綴る
+    const BOARD_ALPHA = 0.55;
+    const BOARD_OVER_BASE = [0, 77, 38].map(
+      (c, i) => c * BOARD_ALPHA + CORNER_MARK_BASE[i]! * (1 - BOARD_ALPHA)
+    );
+
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'placement-background');
+    const albumId = await createAlbum(page, projectId, `背景の原本_${stamp}`);
+
+    // 配置用の工事看板を登録する（上の看板配置のテストと同じ手順）
+    await page.goto(`/projects/${projectId}/construction-signboards`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { name: '工事看板マスタ' })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+    await page.getByRole('button', { name: '新規登録' }).click();
+    await page.getByLabel('工事件名').fill(signboardName);
+    await page.getByLabel('工事場所').fill('背景の原本E2E現場');
+    const createSignboardResp = page.waitForResponse(
+      (r) => r.request().method() === 'POST' && /\/construction-signboards/.test(r.url()),
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByRole('button', { name: '登録' }).click();
+    await createSignboardResp;
+    await expect(page.getByRole('row').filter({ hasText: signboardName })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+
+    interface ListedPhoto {
+      id: string;
+      width: number;
+      height: number;
+    }
+    const photoListPath = `/api/construction-photos/${albumId}/images`;
+    const isPhotoListResponse = (r: import('@playwright/test').Response): boolean =>
+      r.request().method() === 'GET' && new URL(r.url()).pathname === photoListPath;
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    const upload = page.waitForResponse(
+      (r) => r.request().method() === 'POST' && UPLOAD_URL_MATCHER(new URL(r.url())),
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByTestId('file-input').setInputFiles({
+      name: fileName,
+      mimeType: 'image/png',
+      buffer: buildCornerMarkedPhotoPng(PHOTO_WIDTH, PHOTO_HEIGHT),
+    });
+    expect((await upload).status()).toBeLessThan(300);
+    const items = page.getByTestId('construction-photo-item');
+    await expect(items).toHaveCount(1, { timeout: getTimeout(20000) });
+
+    type Rgb = [number, number, number];
+    interface CornerSample {
+      canvasWidth: number;
+      canvasHeight: number;
+      topLeft: Rgb;
+      topRight: Rgb;
+      bottomLeft: Rgb;
+      bottomRight: Rgb;
+      boardInside: Rgb;
+      shiftedOnly: Rgb;
+    }
+    const sampleCorners = (dialog: import('@playwright/test').Locator) =>
+      dialog.evaluate((root, inset): CornerSample | null => {
+        const editorEl = root.querySelector('[data-testid="signboard-placement-editor"]');
+        // 配置エディタの最初の子が画像の枠で、その最初の canvas が fabric の描画の canvas である
+        const canvas = editorEl?.firstElementChild?.querySelector('canvas') ?? null;
+        if (!canvas || canvas.width === 0 || canvas.height === 0) return null;
+        const context = canvas.getContext('2d');
+        if (!context) return null;
+        const at = (fx: number, fy: number): [number, number, number] => {
+          const x = Math.min(canvas.width - 1, Math.floor(canvas.width * fx));
+          const y = Math.min(canvas.height - 1, Math.floor(canvas.height * fy));
+          const d = context.getImageData(x, y, 1, 1).data;
+          return [d[0]!, d[1]!, d[2]!];
+        };
+        return {
+          canvasWidth: canvas.width,
+          canvasHeight: canvas.height,
+          topLeft: at(inset, inset),
+          topRight: at(1 - inset, inset),
+          bottomLeft: at(inset, 1 - inset),
+          bottomRight: at(1 - inset, 1 - inset),
+          // 既定の配置（30%〜70%×37.5%〜62.5%）の内側で、中心の基準点で描くと外れる点
+          boardInside: at(0.6, 0.56),
+          // 中心の基準点で描いたとき（10%〜50%×25%〜50%）にだけ覆われる点
+          shiftedOnly: at(0.2, 0.31),
+        };
+      }, SAMPLE_INSET);
+    const colorDistance = (a: readonly number[], b: readonly number[]): number =>
+      Math.max(...a.map((v, i) => Math.abs(v - b[i]!)));
+
+    const results: string[] = [];
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      const listPromise = page.waitForResponse(isPhotoListResponse, {
+        timeout: getTimeout(30000),
+      });
+      await page.goto(`/construction-photos/${albumId}`);
+      const listed = (await (await listPromise).json()) as ListedPhoto[];
+      await page.waitForLoadState('networkidle');
+      // 前提: 写真が実寸のまま保存されている
+      expect(listed, `${width} 幅`).toHaveLength(1);
+      expect({ width: listed[0]!.width, height: listed[0]!.height }, `${width} 幅`).toEqual({
+        width: PHOTO_WIDTH,
+        height: PHOTO_HEIGHT,
+      });
+      const originalPath = `/api/construction-photos/images/${listed[0]!.id}/original`;
+
+      const originalResponse = page.waitForResponse(
+        (r) => r.request().method() === 'GET' && new URL(r.url()).pathname === originalPath,
+        { timeout: getTimeout(30000) }
+      );
+      await items
+        .first()
+        .getByRole('button', { name: `看板を配置: ${fileName}` })
+        .click();
+      const assignDialog = page.getByRole('dialog', { name: '看板を配置' });
+      await expect(assignDialog, `${width} 幅`).toBeVisible({ timeout: getTimeout(10000) });
+      expect((await originalResponse).status(), `${width} 幅`).toBe(200);
+      const select = assignDialog.locator('#signboard-assign-select');
+      await expect(select, `${width} 幅`).toBeEnabled({ timeout: getTimeout(15000) });
+      await select.selectOption({ label: signboardName });
+      await expect(
+        assignDialog.getByTestId('signboard-placement-editor').getByTestId('signboard-indicator'),
+        `${width} 幅`
+      ).toContainText(signboardName, { timeout: getTimeout(10000) });
+
+      // 前提: 画像の枠に高さのある canvas が描かれ、背景が敷かれている（左上が透明でない）
+      let sample: CornerSample | null = null;
+      await expect
+        .poll(
+          async () => {
+            sample = await sampleCorners(assignDialog);
+            return sample !== null && colorDistance(sample.topLeft, [0, 0, 0]) > 0;
+          },
+          { message: `${width} 幅: 背景が敷かれる`, timeout: getTimeout(15000) }
+        )
+        .toBe(true);
+      // 背景の読み込みの後の描画を待ってから最終の値を読む
+      await expect
+        .poll(
+          async () => {
+            sample = await sampleCorners(assignDialog);
+            return sample ? colorDistance(sample.topLeft, CORNER_MARK_COLORS.topLeft) : 255;
+          },
+          { message: `${width} 幅: 左上`, timeout: getTimeout(10000) }
+        )
+        .toBeLessThanOrEqual(COLOR_TOLERANCE);
+      const measured = sample as CornerSample | null;
+      expect(measured, `${width} 幅`).not.toBeNull();
+      const m = measured!;
+      // canvas の縦横の比は写真の比のまま
+      expect(m.canvasHeight / m.canvasWidth, `${width} 幅`).toBeCloseTo(
+        PHOTO_HEIGHT / PHOTO_WIDTH,
+        2
+      );
+      for (const corner of ['topLeft', 'topRight', 'bottomLeft', 'bottomRight'] as const) {
+        results.push(
+          `${width} 幅 ${corner}: ${m[corner].join(',')} → 差 ${colorDistance(m[corner], CORNER_MARK_COLORS[corner])}`
+        );
+      }
+      results.push(
+        `${width} 幅 boardInside: ${m.boardInside.join(',')} → 差 ${colorDistance(m.boardInside, BOARD_OVER_BASE)}`,
+        `${width} 幅 shiftedOnly: ${m.shiftedOnly.join(',')} → 差 ${colorDistance(m.shiftedOnly, CORNER_MARK_BASE)}`
+      );
+      await assignDialog.getByRole('button', { name: 'キャンセル' }).click();
+      await expect(assignDialog).toBeHidden({ timeout: getTimeout(10000) });
+    }
+
+    // 四隅のすべてが写真の四隅の印の色で、緑ボードが既定の配置に描かれている（二つの幅をすべて
+    // 測ってから主張する）
+    const failures = results.filter((line) => Number(line.split('差 ')[1]) > COLOR_TOLERANCE);
+    expect(failures, results.join('\n')).toEqual([]);
+  });
+
+  /**
+   * タスク 26.2: 未保存の変更があるときは PDF・ZIP の出力を始めず、保存してから出力する旨を示す
+   * （利用者の判断（2026-10-05））。変更前は、並べ替えて保存していない画面の表示順序のまま PDF を
+   * 出力し、保存済みの表示順序で出力する受入基準 10.12 に反した（機能全体の検証 2026-10-05 で判明）。
+   *
+   * 写真項目 2 件を印刷対象にして保存した後、先頭を「下へ移動」して未保存にする。主張は次のとおり。
+   *  - 「PDF出力」を押すと「未保存の変更があります。保存してからPDF出力してください。」が出て、
+   *    印字画像（/print-image、パスで判定）を一件も要求せず、ダウンロードも起きない。
+   *  - 「全件エクスポート」を押すと、エクスポートの設定のダイアログは開かず、
+   *    「未保存の変更があります。保存してからエクスポートしてください。」が出る。
+   *  - 保存すると、写真一覧の API が返す表示順序が並べ替えた順になり、「PDF出力」で PDF が
+   *    ダウンロードされ、保存を促す通知は出ない。
+   *
+   * @requirement construction-photo/REQ-10.12
+   */
+  test('並べ替えて保存していない間は PDF と ZIP の出力を始めずに保存を促し、保存の後は PDF を出力する', async ({
+    page,
+  }) => {
+    const stamp = Date.now();
+    const unsavedPdf = '未保存の変更があります。保存してからPDF出力してください。';
+    const unsavedZip = '未保存の変更があります。保存してからエクスポートしてください。';
+
+    await loginAsUser(page, 'ADMIN_USER');
+    const projectId = await createProject(page, 'unsaved-export');
+    const albumId = await createAlbum(page, projectId, `未保存の出力_${stamp}`);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`/construction-photos/${albumId}`);
+    await page.waitForLoadState('networkidle');
+    const items = page.getByTestId('construction-photo-item');
+    const names = [`unsaved-export-1-${stamp}.jpg`, `unsaved-export-2-${stamp}.jpg`];
+    for (const [index, name] of names.entries()) {
+      const upload = page.waitForResponse(
+        (r) => r.request().method() === 'POST' && UPLOAD_URL_MATCHER(new URL(r.url())),
+        { timeout: getTimeout(30000) }
+      );
+      await page.getByTestId('file-input').setInputFiles({
+        name,
+        mimeType: 'image/jpeg',
+        buffer: fs.readFileSync(FIXTURE_JPG),
+      });
+      expect((await upload).status()).toBe(201);
+      await expect(items).toHaveCount(index + 1, { timeout: getTimeout(20000) });
+    }
+
+    const saveButton = page.getByRole('button', { name: '保存', exact: true });
+    const dirtyIndicator = page.getByTestId('dirty-indicator');
+    const isBatchPath = (url: string): boolean =>
+      new URL(url).pathname === '/api/construction-photos/images/batch';
+    // 前提: 2 件を印刷対象にして保存し、未保存の変更が無い
+    for (let i = 0; i < 2; i++) {
+      await items.nth(i).getByLabel('印刷対象に含める').check();
+    }
+    const batchSaved = page.waitForResponse(
+      (r) => r.request().method() === 'PATCH' && isBatchPath(r.url()),
+      { timeout: getTimeout(30000) }
+    );
+    await saveButton.click();
+    expect((await batchSaved).status()).toBe(200);
+    await expect(dirtyIndicator).toBeHidden({ timeout: getTimeout(15000) });
+
+    const printImageRequests: string[] = [];
+    page.on('request', (req) => {
+      if (
+        /\/api\/construction-photos\/images\/[0-9a-f-]+\/print-image$/.test(
+          new URL(req.url()).pathname
+        )
+      ) {
+        printImageRequests.push(req.url());
+      }
+    });
+    let downloads = 0;
+    page.on('download', () => {
+      downloads += 1;
+    });
+
+    // 先頭を下へ移動して未保存にする
+    await items.nth(0).getByRole('button', { name: '下へ移動' }).click();
+    await expect(dirtyIndicator).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(items.nth(1)).toContainText(names[0]!);
+
+    const alerts = page.getByRole('main').getByRole('alert');
+    await page.getByRole('button', { name: 'PDF出力' }).click();
+    await expect(alerts.filter({ hasText: unsavedPdf })).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    expect(printImageRequests).toEqual([]);
+
+    await page.getByRole('button', { name: '全件エクスポート' }).click();
+    await expect(alerts.filter({ hasText: unsavedZip })).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await expect(page.getByRole('dialog', { name: /全件一括エクスポート/ })).toHaveCount(0);
+    expect(printImageRequests).toEqual([]);
+    expect(downloads).toBe(0);
+
+    // 保存すると並べ替えた順が保存され、PDF を出力できる
+    const orderSaved = page.waitForResponse(
+      (r) =>
+        r.request().method() === 'PUT' &&
+        new URL(r.url()).pathname === `/api/construction-photos/${albumId}/images/order`,
+      { timeout: getTimeout(30000) }
+    );
+    await saveButton.click();
+    expect((await orderSaved).status()).toBeLessThan(300);
+    await expect(dirtyIndicator).toBeHidden({ timeout: getTimeout(15000) });
+
+    const listResponse = await page.request.get(
+      `${API_BASE_URL}/api/construction-photos/${albumId}/images`,
+      {
+        headers: {
+          Authorization: `Bearer ${await page.evaluate(() => localStorage.getItem('accessToken'))}`,
+        },
+      }
+    );
+    expect(listResponse.status()).toBe(200);
+    const listed = (await listResponse.json()) as { fileName: string; displayOrder: number }[];
+    expect(
+      [...listed].sort((a, b) => a.displayOrder - b.displayOrder).map((p) => p.fileName)
+    ).toEqual([names[1], names[0]]);
+
+    const downloadPromise = page.waitForEvent('download', { timeout: getTimeout(45000) });
+    await page.getByRole('button', { name: 'PDF出力' }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(/\.pdf$/);
+    expect(printImageRequests).toHaveLength(2);
+    await expect(alerts.filter({ hasText: unsavedPdf })).toHaveCount(0);
   });
 
   /**
@@ -5693,8 +6100,9 @@ test.describe('工事写真 追加機能フロー', () => {
    * 保存の失敗が隠れ、通知が消えると古い保存の失敗が再び現れた。
    *
    * 通知は印刷対象 0 件の PDF 出力（R10.13）で、失敗はメタの一括更新の応答を 400 へ差し替えた保存で
-   * 作る（判定はオリジンではなくパスで行う）。要件の印は掲げない（受入基準は通知の枠の置き換えを
-   * 定めておらず、タスク 22.1 の利用者の判断による）。
+   * 作る（判定はオリジンではなくパスで行う）。保存の失敗の後は未保存のままのため、経路 2 の PDF 出力は
+   * 出力を止めて保存を促す通知を出す（タスク 26.2）。どちらも通知の枠の「通知」である。
+   * 要件の印は掲げない（受入基準は通知の枠の置き換えを定めておらず、タスク 22.1 の利用者の判断による）。
    */
   test('通知の後に保存が失敗すると保存の失敗へ、失敗の後に通知が出ると通知へ置き換わり、消えた後に古いものが現れない', async ({
     page,
@@ -5734,6 +6142,9 @@ test.describe('工事写真 追加機能フロー', () => {
 
     const alerts = page.getByRole('main').getByRole('alert');
     const noticeAlert = alerts.filter({ hasText: noPrintable });
+    const unsavedNoticeAlert = alerts.filter({
+      hasText: '未保存の変更があります。保存してからPDF出力してください。',
+    });
     const saveFailureAlert = alerts.filter({ hasText: saveFailure });
     const saveButton = page.getByRole('button', { name: '保存', exact: true });
     const pdfButton = page.getByRole('button', { name: 'PDF出力' });
@@ -5806,13 +6217,14 @@ test.describe('工事写真 追加機能フロー', () => {
     await page.unroute(batchRouteMatcher, failBatch);
 
     await pdfButton.click();
-    // 後から出た通知が見え、保存の失敗は置き換えられている
-    await expect(noticeAlert).toBeVisible({ timeout: getTimeout(15000) });
+    // 後から出た通知（未保存のため保存を促す通知, タスク 26.2）が見え、保存の失敗は置き換えられている
+    await expect(unsavedNoticeAlert).toBeVisible({ timeout: getTimeout(15000) });
     await expect(saveFailureAlert).toHaveCount(0);
     await expect(alerts).toHaveCount(1);
 
     // 写真項目の追加は通知を消す。置き換えられた保存の失敗は再び現れない
     await uploadNamed(`notice-error-2-${stamp}.jpg`, 2);
+    await expect(unsavedNoticeAlert).toHaveCount(0);
     await expect(noticeAlert).toHaveCount(0);
     await expect(saveFailureAlert).toHaveCount(0);
     await expect(alerts).toHaveCount(0);

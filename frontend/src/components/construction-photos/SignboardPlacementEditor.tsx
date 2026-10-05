@@ -29,6 +29,17 @@
  * のままである。幅の変化（端末の回転など）で縮尺が変わったとき、ドラッグ等で確定した配置は既定へ
  * 戻さず、新しい縮尺で描き直す（写真・看板の有無・初期配置が変わったときだけ戻す）。
  *
+ * タスク 26.1: 利用者の判断（2026-10-05）で、背景を非合成の原本（`getConstructionPhotoOriginalImage`
+ * の Blob の object URL）にする。従来はサムネイル（200×200 の中央の切り抜き）を幅に合わせて敷いて
+ * いたため、4:3 などの写真では見えている背景が写真の全体と一致せず、置いた位置と印字画像・PDF で
+ * 看板が重なる位置が食い違った。背景は画像の枠（写真の全体の寸法から求めた表示の大きさ）へ写真の
+ * 全体を合わせて敷く。object URL は写真の切り替えと破棄で手放す。取得に失敗しても配置の操作は
+ * 続けられ、背景を読めない旨を示す。
+ * あわせて、背景の画像と緑ボードの Rect の基準点を左上（originX: 'left', originY: 'top'）に固定する。
+ * Fabric v7 は基準点の既定を中央へ変えたため、従来は left/top に与えた左上の座標が中心として扱われ、
+ * 背景は画像の中心が枠の左上に来て右下の 4 分の 1 だけが見え、緑ボードは保存される配置より
+ * 大きさの半分だけ左上へずれて描かれていた（換算は left/top を左上として読むため）。
+ *
  * Requirements:
  * - 9.1: 看板の表示位置・大きさを画像ピクセル座標で確定する
  * - 9.2: 看板の指定は任意（未指定を許可）
@@ -42,13 +53,14 @@
  * @module components/construction-photos/SignboardPlacementEditor
  */
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas as FabricCanvas, FabricImage, Rect } from 'fabric';
 import type {
   ConstructionPhotoWithUrls,
   ConstructionSignboard,
   SignboardPlacement,
 } from '../../types/construction-photo.types';
+import { getConstructionPhotoOriginalImage } from '../../api/construction-photo-images';
 import useMediaQuery from '../../hooks/useMediaQuery';
 import useElementSize from '../../hooks/useElementSize';
 import { MEDIA_QUERIES } from '../../utils/responsive';
@@ -70,6 +82,10 @@ const DEFAULT_MAX_DISPLAY_WIDTH = 600;
 /** 画像の枠の枠線の太さ（px）。枠の幅は外枠の幅からこの左右の分を除いた幅に収める（タスク 25.1） */
 const CANVAS_FRAME_BORDER_PX = 1;
 
+/** 背景の原本を読めなかったときの文言（タスク 26.1） */
+const BACKGROUND_LOAD_FAILED_MESSAGE =
+  '写真を読み込めませんでした。看板の配置の操作は続けられます。';
+
 /** 緑ボードの塗り（電子小黒板の濃緑・半透明で背景写真を透過確認可能に） */
 const BOARD_FILL = 'rgba(0, 77, 38, 0.55)';
 const BOARD_STROKE = '#ffffff';
@@ -79,7 +95,7 @@ const BOARD_STROKE = '#ffffff';
 // ============================================================================
 
 export interface SignboardPlacementEditorProps {
-  /** 対象の写真項目（背景・画像実寸の供給元） */
+  /** 対象の写真項目（背景の原本の取得先・画像実寸の供給元） */
   photo: ConstructionPhotoWithUrls;
   /** 配置する工事看板。未指定（null）なら Rect を表示せず placement=null を許容 */
   signboard: ConstructionSignboard | null;
@@ -208,8 +224,36 @@ export default function SignboardPlacementEditor({
   // 確定値を既定へ戻さず、枠もその配置で描き直す。写真・看板の有無・初期配置が変わると下ろす
   const modifiedRef = useRef(false);
 
-  const backgroundUrl = photo.thumbnailUrl ?? photo.printImageUrl;
+  // 背景の原本の object URL（タスク 26.1）。取得した写真の ID と組で持ち、写真の切り替えの直後に
+  // 前の写真の背景を敷かない
+  const [background, setBackground] = useState<{ photoId: string; url: string } | null>(null);
+  const [backgroundFailedPhotoId, setBackgroundFailedPhotoId] = useState<string | null>(null);
+  const backgroundUrl = background?.photoId === photo.id ? background.url : null;
+  const backgroundFailed = backgroundFailedPhotoId === photo.id;
   const hasSignboard = signboard !== null;
+
+  // 非合成の原本を取得して object URL にする。写真の切り替えと破棄で手放す（タスク 26.1）
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    const photoId = photo.id;
+    Promise.resolve()
+      .then(() => getConstructionPhotoOriginalImage(photoId))
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setBackground({ photoId, url: objectUrl });
+        // 同じ写真の以前の失敗の印を下ろす（失敗の後の写真の切り替えで再び取得に成功したとき）
+        setBackgroundFailedPhotoId((prev) => (prev === photoId ? null : prev));
+      })
+      .catch(() => {
+        if (!cancelled) setBackgroundFailedPhotoId(photoId);
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [photo.id]);
 
   // 確定値を戻す契機（写真・看板の有無・初期配置）の前回の値
   const syncInputsRef = useRef({
@@ -266,6 +310,60 @@ export default function SignboardPlacementEditor({
     placementRef.current = hasSignboard ? (initialPlacement ?? defaultPlacement) : null;
   }, [photo.id, photo.width, photo.height, hasSignboard, initialPlacement, defaultPlacement]);
 
+  // 読み込んだ背景の画像と、その元の URL（タスク 26.1）。キャンバスの作り直しで敷き直すのに使う
+  const loadedBackgroundRef = useRef<{ url: string; image: FabricImage } | null>(null);
+  const backgroundUrlRef = useRef(backgroundUrl);
+  backgroundUrlRef.current = backgroundUrl;
+  const displaySizeRef = useRef(displaySize);
+  displaySizeRef.current = displaySize;
+
+  /**
+   * 背景の画像を、画像の枠の全体へ写真の全体を合わせて敷く（タスク 26.1）。配置の換算と同じく
+   * 写真の全体を基準にするため、置いた位置と印字画像の上の位置が一致する
+   */
+  const applyBackground = useCallback(
+    (canvas: FabricCanvas, img: FabricImage, width: number, height: number) => {
+      const naturalWidth = img.width || photo.width;
+      const naturalHeight = img.height || photo.height;
+      img.set({
+        selectable: false,
+        evented: false,
+        originX: 'left',
+        originY: 'top',
+        left: 0,
+        top: 0,
+        scaleX: width / naturalWidth,
+        scaleY: height / naturalHeight,
+      });
+      canvas.backgroundImage = img;
+      canvas.requestRenderAll();
+    },
+    [photo.width, photo.height]
+  );
+
+  // 背景の原本を読み込み、今のキャンバスへ敷く。キャンバスは作り直さない（作り直すと、原本の到着が
+  // ドラッグの途中と重なったときにそのドラッグが取り消されるため, タスク 26.1 のレビュー）
+  useEffect(() => {
+    if (!backgroundUrl) return;
+    let cancelled = false;
+    FabricImage.fromURL(backgroundUrl)
+      .then((img) => {
+        if (cancelled) return;
+        loadedBackgroundRef.current = { url: backgroundUrl, image: img };
+        const canvas = canvasRef.current;
+        if (canvas) {
+          const size = displaySizeRef.current;
+          applyBackground(canvas, img, size.width, size.height);
+        }
+      })
+      .catch(() => {
+        /* 背景読込失敗時も配置操作は継続可能（背景なしで描画） */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [backgroundUrl, applyBackground]);
+
   // fabric キャンバスの初期化と Rect 配置。写真・看板・初期配置・表示幅の変化で再構築。
   useEffect(() => {
     const el = canvasElRef.current;
@@ -275,20 +373,11 @@ export default function SignboardPlacementEditor({
     canvasRef.current = canvas;
     canvas.setDimensions({ width: displaySize.width, height: displaySize.height });
 
-    let disposed = false;
-
-    // 背景写真を読み込んで敷く
-    FabricImage.fromURL(backgroundUrl)
-      .then((img) => {
-        if (disposed) return;
-        img.set({ selectable: false, evented: false, left: 0, top: 0 });
-        img.scaleToWidth(displaySize.width);
-        canvas.backgroundImage = img;
-        canvas.requestRenderAll();
-      })
-      .catch(() => {
-        /* 背景読込失敗時も配置操作は継続可能（背景なしで描画） */
-      });
+    // 読み込み済みの背景があれば、作り直したキャンバスへ新しい表示の大きさで敷き直す（タスク 26.1）
+    const loaded = loadedBackgroundRef.current;
+    if (loaded && loaded.url === backgroundUrlRef.current) {
+      applyBackground(canvas, loaded.image, displaySize.width, displaySize.height);
+    }
 
     // 看板ありのときのみ 1 枚の緑ボード Rect を配置
     if (hasSignboard) {
@@ -300,7 +389,10 @@ export default function SignboardPlacementEditor({
             ? placementToDisplayRect(initialPlacement, scale)
             : defaultRect;
 
+      // 基準点を左上に固定する（Fabric v7 の既定は中央。換算は left/top を左上として読む, タスク 26.1）
       const rect = new Rect({
+        originX: 'left',
+        originY: 'top',
         left: displayRect.left,
         top: displayRect.top,
         width: displayRect.width,
@@ -331,10 +423,12 @@ export default function SignboardPlacementEditor({
     }
 
     return () => {
-      disposed = true;
       canvas.off('object:modified');
       rectRef.current = null;
       canvasRef.current = null;
+      // 背景の画像は作り直したキャンバスへ敷き直すため、破棄の前に外す（Fabric の破棄は背景の画像も
+      // 破棄する, タスク 26.1）
+      canvas.backgroundImage = undefined;
       canvas.dispose();
     };
     // defaultRect は表示の寸法から導出されるため依存に含めない
@@ -343,7 +437,7 @@ export default function SignboardPlacementEditor({
     photo.id,
     photo.width,
     photo.height,
-    backgroundUrl,
+    applyBackground,
     hasSignboard,
     initialPlacement,
     displaySize.width,
@@ -361,6 +455,11 @@ export default function SignboardPlacementEditor({
       <div style={styles.canvasWrapper}>
         <canvas ref={canvasElRef} />
       </div>
+      {backgroundFailed && (
+        <span role="alert" style={styles.hint}>
+          {BACKGROUND_LOAD_FAILED_MESSAGE}
+        </span>
+      )}
       <div style={styles.toolbar}>
         {hasSignboard ? (
           <span style={styles.badge} data-testid="signboard-indicator">
