@@ -868,8 +868,18 @@ export default function SiteSurveyDetailPage() {
    * アップロードの送信そのものが例外で終わった場合のハンドラ
    *
    * `ImageUploader` の捕捉処理は誤りを表示し `onError` へ渡すだけで送出しない。
-   * この画面がその口を受け取らなければ、通信断・認証切れ・圧縮の例外は監視へ
-   * 届かない (Task 115.122, Requirement 16.8)。
+   * この画面がその口を受け取らなければ、捕捉処理へ届いた例外は監視へ届かない
+   * (Task 115.122, Requirement 16.8)。
+   *
+   * 捕捉処理へ届くのは送信の失敗以外の想定外の例外に限られる (Task 115.345)。
+   * 送信の失敗（通信断・認証切れ・207 の個別失敗）は `uploadSurveyImages` が画像ごとに
+   * 捕捉して一覧へ集約し、`handleImageUpload` の失敗分岐が `failureScope: 'perFile'` で
+   * 監視へ送る。送信前の圧縮（`compressImagesForUpload`）は失敗時に元ファイルへ戻すため
+   * 例外を投げない。送信の後処理（一覧の更新・失敗の通知・監視への送出）の例外は
+   * `runUploadPostProcessingSafely` が捕捉するため伝播しない (Task 115.344)。
+   *
+   * この口の中の監視への送出は保護していない。`ImageUploader` の捕捉処理は `onError` を
+   * 未送信画像の保持より前に呼ぶため、ここで例外が出ると保持へ到達しない。
    *
    * 付帯情報は許可列挙と識別子に限る。`ImageUploader` から渡るのは `Error` のみで
    * ファイルは渡らないため、ファイル名が混入する経路は構造上存在しない。

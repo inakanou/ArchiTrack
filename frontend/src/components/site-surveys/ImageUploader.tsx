@@ -350,8 +350,9 @@ export function ImageUploader({
    * （通信断・認証切れ・207 の個別失敗）は API 層が画像ごとに捕捉して戻り値の
    * `failed` へ集約するため、ここへは伝播しない。呼び出し側ごとの現況は次のとおり。
    * - `SiteSurveyDetailPage.handleImageUpload`: 送信の失敗は `uploadSurveyImages` が
-   *   集約する。ここへ伝播しうるのは送信の失敗以外の想定外の例外（送信後の一覧の
-   *   state 更新・失敗の通知文の組み立て・監視への送出など）である。
+   *   集約する。送信後の後処理（一覧の state 更新・失敗の通知・監視への送出）の例外は
+   *   `runUploadPostProcessingSafely` が捕捉して伝播させない（Task 115.344）。ここへ
+   *   伝播しうるのは、それらの保護の外に残る想定外の例外に限られる。
    * - `PhotoUploader.handleUpload`: 送信の失敗は `uploadFilesInWaves` が集約し、
    *   親への通知（`onPhotosAdded` / `onNotify`）の例外は `notifySafely` が捕捉して
    *   伝播させない。ここへ伝播しうるのは、それらの保護の外に残る想定外の例外
