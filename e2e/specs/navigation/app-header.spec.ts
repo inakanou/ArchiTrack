@@ -80,7 +80,7 @@ const HORIZONTAL_TOLERANCE_PX = 1;
  *
  * 769 はモバイル幅の表示（768px 以下）の直上、789 は是正前に管理者の長い表示名で
  * 文書がはみ出した幅（test 環境の実測で +15px）、900 と 1024 はその間の代表、
- * 1199 はリンクの文言を隠す範囲の上端、1200 は文言を出す範囲の下端である。
+ * 1199 はリンクの文言を見た目だけ隠す範囲の上端、1200 は文言を出す範囲の下端である。
  */
 const TABLET_WIDTHS = [769, 789, 900, 1024, 1199, 1200] as const;
 
@@ -110,18 +110,18 @@ const TABLET_DISPLAY_NAME_CASES = [
  * アクセシブルネームの検証（Task 40.2）で測る画面幅
  *
  * アイコンのみの表示（1199px 以下）の全範囲から、モバイル幅の下限 320、機能レベル検証の 375、
- * モバイル対応（ロゴの文字とユーザー名も隠す）の上端 768、タブレット幅の代表 1024、
+ * モバイル対応（ロゴの文字とユーザー名も見た目だけ隠す）の上端 768、タブレット幅の代表 1024、
  * アイコンのみの表示の上端 1199 を取り、文言を出すデスクトップ幅 1280 を対照として加える。
  */
 const ACCESSIBLE_NAME_WIDTHS = [320, 375, 768, 1024, 1199, 1280] as const;
 
 /**
- * リンクと管理メニューの文言を隠す幅の上限（AppHeader.css の @media (max-width: 1199px)。
+ * リンクと管理メニューの文言を見た目だけ隠す幅の上限（AppHeader.css の @media (max-width: 1199px)。
  * frontend/src/utils/responsive.ts の APP_HEADER_ICON_ONLY_MAX_WIDTH と同値）
  */
 const ICON_ONLY_MAX_WIDTH = 1199;
 
-/** ロゴの文字とユーザー名も隠す幅の上限（AppHeader.css の @media (max-width: 768px)） */
+/** ロゴの文字とユーザー名も見た目だけ隠す幅の上限（AppHeader.css の @media (max-width: 768px)） */
 const HEADER_MOBILE_MAX_WIDTH = 768;
 
 /**
@@ -862,7 +862,7 @@ test.describe('AppHeader ナビゲーション', () => {
             const nav = header.locator('nav[role="navigation"]');
             await expect(nav).toBeVisible();
 
-            // 前提: 測る対象の表示名がヘッダーへ届いている（モバイル幅では非表示だが DOM に在る）
+            // 前提: 測る対象の表示名がヘッダーへ届いている（モバイル幅では見た目だけ隠すが、DOM とアクセシブルネームには在る）
             await expect(header.locator('.app-header-user-name')).toHaveText(displayName);
 
             await expectHeaderItemsReachable(page, header, nav, width, role);
@@ -903,7 +903,7 @@ test.describe('AppHeader ナビゲーション', () => {
       for (const nameCase of TABLET_DISPLAY_NAME_CASES) {
         for (const width of TABLET_WIDTHS) {
           /**
-           * @requirement user-authentication/REQ-15.1: 全ての画面はレスポンシブデザイン（タブレット: 768px-1023px）を実装する
+           * @requirement user-authentication/REQ-15.1: 全ての画面はレスポンシブデザイン（タブレット: 768px-1023px と、デスクトップの 1024px-1200px）を実装する
            * @requirement user-authentication/REQ-28.21: 認証済みユーザーが保護された画面にアクセスしたとき共通ヘッダーナビゲーションを表示する
            * @requirement user-authentication/REQ-28.22: 共通ヘッダーナビゲーションはダッシュボード・プロフィール・ログアウトを含む
            *

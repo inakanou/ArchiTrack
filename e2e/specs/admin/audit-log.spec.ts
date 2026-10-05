@@ -15,8 +15,9 @@ import { API_BASE_URL } from '../../config';
  * 原文28.40 は「監査ログリンクがクリックされるとき、監査ログ画面へ遷移する」であり
  * 主題は画面遷移だが、本ファイルは request フィクスチャだけを使う純粋な API テストで、
  * `page.` の参照が一件も無い（実測: `grep -c 'page\.' → 0`）。画面遷移を確かめる区間が
- * 存在しないため付け替え先も無い。28.40 は `auth/navigation.spec.ts:287` と
- * `navigation/app-header.spec.ts:267` のクリック遷移検証が引き続き名乗る。
+ * 存在しないため付け替え先も無い。28.40 は `auth/navigation.spec.ts` と
+ * `navigation/app-header.spec.ts` の各 test「管理メニューから監査ログ画面に遷移できる」の
+ * クリック遷移検証が引き続き名乗る。
  */
 test.describe('監査ログとコンプライアンス', () => {
   test.describe.configure({ mode: 'serial' });

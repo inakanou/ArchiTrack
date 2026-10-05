@@ -65,9 +65,11 @@ export const MIN_VIEWPORT_WIDTH = 320;
 export const MAX_VIEWPORT_WIDTH = 1920;
 
 /**
- * 共通ヘッダー（AppHeader）が、リンクと管理メニューの文言を隠してアイコンのみで表示する幅の上限（px）
+ * 共通ヘッダー（AppHeader）が、リンクと管理メニューの文言を見た目だけ隠してアイコンのみで表示する幅の上限（px）
  *
  * この幅以下ではリンクと管理メニューのボタンをアイコンのみにし、1200px 以上で文言を出す。
+ * 文言は display: none でなく見た目だけを隠す指定（visually hidden）で DOM と支援技術に残すため、
+ * アクセシブルネームは全幅でデスクトップの文言と同じになる（user-authentication の Task 40.2、要件15.4）。
  * 是正前は、文言を出したまま 769px〜1147px（test 環境の実測、管理者の長い表示名が最悪）で
  * リンクの文言が縦に折り返し、ナビゲーションがヘッダーの高さを超えていた。
  * フォントの差を見込んで 1200px を境にした（user-authentication の Task 40.1）。

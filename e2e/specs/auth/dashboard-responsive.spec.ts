@@ -23,6 +23,7 @@ import { createAllTestUsers } from '../../fixtures/auth.fixtures';
  * 測る画面幅
  *
  * 要件15.1 が定めるモバイル幅（320px-767px）の下限 320 と、実測でのはみ出しを確かめた 375・768 の三つ。
+ * 768 は要件15.1 の区分ではタブレット（768px-1023px）の下端に当たる（共通ヘッダーは 768px 以下をモバイルの表示にする）。
  */
 const DASHBOARD_WIDTHS = [320, 375, 768] as const;
 
@@ -136,7 +137,7 @@ test.describe('ダッシュボードの見出しのモバイル幅の表示', ()
     for (const nameCase of DISPLAY_NAME_CASES) {
       for (const width of DASHBOARD_WIDTHS) {
         /**
-         * @requirement user-authentication/REQ-15.1: 全ての画面はレスポンシブデザイン（モバイル: 320px-767px）を実装する
+         * @requirement user-authentication/REQ-15.1: 全ての画面はレスポンシブデザイン（モバイル: 320px-767px、タブレットの下端 768px）を実装する
          *
          * 判定根拠: ダッシュボード画面で、見出しに測る対象の表示名が届いていることを前提として主張したうえで、
          * 文書全体（documentElement）の scrollWidth と clientWidth の差が許容誤差 1px 以内であることと、
