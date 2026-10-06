@@ -1781,7 +1781,7 @@
   - 72.2・72.3 は利用者の判断（2026-10-06）で着手して完了した（`[x]`）が、見出しは起票時の「（**起票のみ。着手は利用者の判断による**）」のままである。規約 (a) に従い、起票時の文言は残して「2026-10-06 に利用者の判断で着手・完了」を併記する
   - _Boundary: 本スペックの tasks.md の Task 72 の見出し_
 
-- [ ] 73.4 site-survey の設計文書の「本番から到達しない受入基準 4 件」の記録に、Task 72.3 による決着を追記する
+- [x] 73.4 site-survey の設計文書の「本番から到達しない受入基準 4 件」の記録に、Task 72.3 による決着を追記する
   - `.kiro/specs/site-survey/design.md` の 11022 行付近と 11085 行付近は、本番の経路から到達しない部品だけを名乗る受入基準を 4 件（estimate-creation の REQ-13.5 / 5.6 / 5.7 と `project-management/REQ-20.4`）と記録している。Task 72.3 の後の `check:req-coverage` の実測は 3 件で、`project-management/REQ-20.4` は本番の `:focus-visible` の規則と E2E（`e2e/specs/projects/project-accessibility.spec.ts`）へ結線して決着した
   - 規約 (a) に従い 4 件の記録は残し、「**project-management のタスク 72.3 の提出時点の再実測は 3 件である**」の形で決着を併記する。site-survey の文書を書き換える変更であるため、宣言（`scripts/design-measurements.json`）が動く場合は前例（`3b4167b8`、`e43b89c5`）の形で同じ変更の中で貼り直す。設計文書のパスを名指す行に不在の語（撤去・削除・当時・旧 など）を書かないこと
   - 追記の後に `check:design-measurement-freshness`、`check:design-path-refs`、`check:design-code-refs` を名指しで 1 本ずつ回す
