@@ -1771,7 +1771,7 @@
   - _Requirements: 20.4_
   - _Boundary: 本番から到達しない keyboard-navigation の部品とテストのヘッダーの記述_
 
-- [ ] 73.2 本番から参照されない `CustomerNameInput.tsx` のインラインの outline の打ち消しを扱う
+- [x] 73.2 本番から参照されない `CustomerNameInput.tsx` のインラインの outline の打ち消しを扱う
   - `frontend/src/components/projects/CustomerNameInput.tsx` の 392 行目に `outline: 'none'` が残っている。本番からの利用者は無い（barrel と stories のみ）。design.md の要件 20.1-20.6 の行への追記（Task 72.3）の「部品の側はインラインで `outline: 'none'` を書かない」と字面が合わない
   - 打ち消しを外す（既存の単体テストと stories を確かめる）か、本番から参照されない部品である旨を design.md の同じ追記に記すかを決めて直す
   - _Requirements: 20.4_

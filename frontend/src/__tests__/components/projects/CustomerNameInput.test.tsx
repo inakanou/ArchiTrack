@@ -224,6 +224,29 @@ describe('CustomerNameInput', () => {
 
       expect(label).toHaveAttribute('for', input.id);
     });
+
+    // 全画面共通のフォーカス表示（index.css の @layer base の :focus-visible）は、
+    // インラインの outline 指定があるとそちらが勝って消える。部品の側は打ち消さないこと
+    it('入力欄がインラインで outline を打ち消していないこと（フォーカス前・フォーカス中・エラー時）', async () => {
+      const user = userEvent.setup();
+      render(<CustomerNameInput value="" onChange={mockOnChange} required />);
+
+      const input = screen.getByRole('textbox', { name: /顧客名/i });
+      const isSuppressed = () =>
+        input.style.outlineStyle === 'none' || input.style.outline === 'none';
+
+      expect(isSuppressed()).toBe(false);
+
+      await user.click(input);
+      expect(input).toHaveFocus();
+      expect(isSuppressed()).toBe(false);
+
+      await user.tab();
+      await waitFor(() => {
+        expect(input).toHaveAttribute('aria-invalid', 'true');
+      });
+      expect(isSuppressed()).toBe(false);
+    });
   });
 
   describe('無効化状態', () => {
