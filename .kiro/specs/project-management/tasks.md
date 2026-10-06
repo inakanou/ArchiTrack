@@ -1764,7 +1764,7 @@
 
 **経緯**: Task 72.2・72.3 の完了後の機能レベル検証は GO だったが、判断の観点の検証が Info を挙げた。利用者の判断（2026-10-07、「古くなった記述 4 か所は修正タスクとして起票」「他 2 つも起票」）により、修正タスクとして起票する。73.1〜73.4 は古くなった記述の是正で挙動に影響しない。73.5 はフォーカス表示の規約の記録、73.6 は入力欄の二重のフォーカス表示の整理である
 
-- [ ] 73.1 本番から到達しない部品とそのテストに残る「- 20.4」の名乗りを外す
+- [x] 73.1 本番から到達しない部品とそのテストに残る「- 20.4」の名乗りを外す
   - 対象: `frontend/src/hooks/useKeyboardNavigation.ts`（11 行目）、`frontend/src/__tests__/utils/keyboard-navigation.test.ts`（8 行目）、`frontend/src/__tests__/hooks/useKeyboardNavigation.test.tsx`（8 行目）の、機能名を欠く `Requirements:` ヘッダーの下の「- 20.4: フォーカス状態を視覚的に明確に表示」。Task 72.3 で `frontend/src/utils/keyboard-navigation.ts` から外したときと同じく、本番の表示は `frontend/src/index.css` の `:focus-visible` が描くという註に改める
   - 名乗りを外すと、`check:req-coverage` の眠る名乗りの件数が上限 `MAX_DORMANT_HEADER_NAMES`（5054、`scripts/check-requirement-coverage.ts`）を下回る。出力の案内（「減らしたら … を下げること」）に従って上限を下げるかを確かめ、下げるときは同じ変更の中で行う。`:update` 系の関門は使わない
   - 両ファイルは site-survey の自己検査 `checkKnownDeadAndLiveModules` の固定点（mustBeDead）であるため、本番へ取り込まない・ファイルを消さないこと

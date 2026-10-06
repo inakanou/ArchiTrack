@@ -1397,8 +1397,19 @@ export const MAX_FEATURELESS_COVERAGE_HEADERS = 1996;
  * タスク 115.333 が実測値へ下げた（5080 → 5054。減った 26 件はコミット `3d723c78` が 22 件、
  * コミット `40fc5f81` が 4 件である。実測の条件と帰属の測り方は
  * {@link MAX_FEATURELESS_COVERAGE_HEADERS} の註と同じである）。
+ *
+ * project-management のタスク 73.1 が 3 だけ下げた（5054 → 5051）。本番から到達しない
+ * `frontend/src/hooks/useKeyboardNavigation.ts` と、そのテストの
+ * `frontend/src/__tests__/utils/keyboard-navigation.test.ts`・
+ * `frontend/src/__tests__/hooks/useKeyboardNavigation.test.tsx` の `Requirements:` ブロックから、
+ * 「- 20.4: フォーカス状態を視覚的に明確に表示」の名乗りを 1 件ずつ外し、本番の表示は
+ * `frontend/src/index.css` の `:focus-visible` が描くという註に改めた。三つのブロックは
+ * `- 20.1` を名乗り続けるため、{@link MAX_FEATURELESS_COVERAGE_HEADERS} が押さえるヘッダーの数は
+ * 動いていない（2026-10-07 にコミット `b79d81c0` の作業ツリーでリポジトリルートから
+ * `npm run check:req-coverage` を実行し、{@link findFeaturelessCoverageHeaders} の結果の
+ * 印字を読んで実測。ヘッダー 1996 件 / 眠る名乗り 5054 → 5051 件 / 945 ファイル）。
  */
-export const MAX_DORMANT_HEADER_NAMES = 5054;
+export const MAX_DORMANT_HEADER_NAMES = 5051;
 
 /** 撤廃済みの受入基準を名乗っている被覆印 */
 export interface RetiredCriterionMark {

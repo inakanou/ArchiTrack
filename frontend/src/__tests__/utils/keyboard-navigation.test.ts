@@ -5,7 +5,10 @@
  *
  * Requirements:
  * - 20.1: すべての操作をキーボードのみで実行可能にする
- * - 20.4: フォーカス状態を視覚的に明確に表示
+ *
+ * フォーカス状態の視覚的な表示は本ファイルの検証の対象ではない。本ファイルが確かめる
+ * `FOCUS_VISIBLE_STYLES` などの定数は本番の画面から参照されず、本番のフォーカス表示は
+ * `src/index.css` の `@layer base` の `:focus-visible` が描く。
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
