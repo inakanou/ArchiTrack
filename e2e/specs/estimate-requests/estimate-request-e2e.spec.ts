@@ -2145,6 +2145,107 @@ test.describe('見積依頼機能', () => {
       // 未チェックなので、選択した項目（テスト項目）は本文に並ばない
       await expect(bodyPre).not.toContainText('テスト項目');
     });
+
+    /**
+     * Task 97.2: 「内訳書を本文に含める」が ON で項目が 0 件のときの扱い
+     * （利用者の判断 2026-10-06: backend は 422 NO_ITEMS_SELECTED を維持し、frontend はこれを判別して
+     * 「項目を選択してください」と案内する）。
+     * 要件 6 のどの受入基準も 0 件の場合の表示を文面で定めていないため、被覆印は掲げない
+     * （6.8 はチェックされた項目を並べること、6.9 は未チェックのときに限られる）。
+     * 実在の backend の状態（項目未選択の見積依頼）で前提を作り、応答の差し替えは行わない。
+     */
+    test('Task 97.2: 「内訳書を本文に含める」ON で項目 0 件のとき、見積依頼文の表示で「項目を選択してください」と案内される', async ({
+      page,
+    }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdTradingPartnerId).toBeTruthy();
+      expect(createdItemizedStatementId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 見積依頼を作成（内訳書を紐付ける）
+      await page.goto(`/projects/${createdProjectId}/estimate-requests/new`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      await page.locator('input#name').fill('Task97.2項目0件テスト見積依頼');
+
+      await selectTradingPartnerByName(page, tradingPartnerName);
+
+      const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
+      await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
+
+      const createPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/estimate-requests') &&
+          response.request().method() === 'POST' &&
+          response.status() === 201,
+        { timeout: getTimeout(30000) }
+      );
+
+      await page.getByRole('button', { name: /作成/i }).click();
+      const createResponse = await createPromise;
+      const createdId = ((await createResponse.json()) as { id: string }).id;
+      expect(createdId).toBeTruthy();
+
+      await page.waitForURL(/\/estimate-requests\/[0-9a-f-]+$/);
+      await page.waitForLoadState('networkidle');
+
+      // 前提: 項目は 1 件も選択されていない（作成直後は未選択であり、選択の操作も行わない）
+      const itemCheckboxes = page.locator(
+        'table[aria-label="内訳書項目一覧"] input[type="checkbox"]'
+      );
+      await expect(itemCheckboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+      const checkboxCount = await itemCheckboxes.count();
+      expect(checkboxCount).toBeGreaterThan(0);
+      for (let i = 0; i < checkboxCount; i++) {
+        await expect(itemCheckboxes.nth(i)).not.toBeChecked();
+      }
+
+      // 「内訳書を本文に含める」を ON にし、サーバーへの保存の完了を待つ
+      const includeBreakdownCheckbox = page.getByLabel(/内訳書を本文に含める/i);
+      await expect(includeBreakdownCheckbox).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(includeBreakdownCheckbox).not.toBeChecked();
+      const updatePromise = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname.endsWith(`/estimate-requests/${createdId}`) &&
+          ['PUT', 'PATCH'].includes(response.request().method()),
+        { timeout: getTimeout(30000) }
+      );
+      await includeBreakdownCheckbox.click();
+      const updateResponse = await updatePromise;
+      expect(updateResponse.status()).toBe(200);
+      expect(
+        ((await updateResponse.json()) as { includeBreakdownInBody: boolean })
+          .includeBreakdownInBody
+      ).toBe(true);
+      await expect(includeBreakdownCheckbox).toBeChecked();
+
+      // 見積依頼文を表示する。backend は 422 NO_ITEMS_SELECTED を返す（維持の判断）
+      const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
+      await expect(showTextButton).toBeVisible({ timeout: getTimeout(10000) });
+      const textResponsePromise = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname.endsWith(`/estimate-requests/${createdId}/text`) &&
+          response.request().method() === 'GET',
+        { timeout: getTimeout(30000) }
+      );
+      await showTextButton.click();
+      const textResponse = await textResponsePromise;
+      expect(textResponse.status()).toBe(422);
+      expect(((await textResponse.json()) as { code?: string }).code).toBe('NO_ITEMS_SELECTED');
+
+      // パネルは汎用の「見積依頼文を取得できませんでした」ではなく、項目の選択を案内する
+      const panel = page.locator('[role="region"][aria-label="見積依頼文"]');
+      await expect(panel).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(panel).toContainText('項目を選択してください', {
+        timeout: getTimeout(10000),
+      });
+      await expect(panel.getByText('見積依頼文を取得できませんでした')).toHaveCount(0);
+    });
   });
 
   // ============================================================================
