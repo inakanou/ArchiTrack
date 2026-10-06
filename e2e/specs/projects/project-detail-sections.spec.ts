@@ -18,6 +18,7 @@ import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { assertPrepared } from '../../helpers/preconditions';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
+import { seedEstimateRequest } from '../../helpers/estimate-request-preconditions';
 
 test.describe('プロジェクト詳細画面 - セクション表示とAPI効率化', () => {
   test.describe.configure({ mode: 'serial' });
@@ -124,7 +125,13 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
   async function seedProjectWithItemizedStatement(
     page: Page,
     label: string
-  ): Promise<{ projectId: string; statementName: string }> {
+  ): Promise<{
+    projectId: string;
+    statementName: string;
+    statementCreatedAt: string;
+    quantityTableId: string;
+    headers: { Authorization: string };
+  }> {
     const accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
     assertPrepared(accessToken, '認証トークン');
     const headers = { Authorization: `Bearer ${accessToken}` };
@@ -198,8 +205,15 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
       statementRes.ok(),
       `前提: 内訳書が作成される (status=${statementRes.status()})`
     ).toBeTruthy();
+    const statement = (await statementRes.json()) as { createdAt: string };
 
-    return { projectId: project.id, statementName };
+    return {
+      projectId: project.id,
+      statementName,
+      statementCreatedAt: statement.createdAt,
+      quantityTableId: quantityTable.id,
+      headers,
+    };
   }
 
   // ============================================================================
@@ -528,6 +542,79 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
       const viewAllLink = erSection.getByRole('link', { name: /すべて見る/i });
       await expect(viewAllLink).not.toBeVisible({ timeout: getTimeout(3000) });
     });
+
+    /**
+     * @requirement project-management/REQ-27.5: If 見積依頼が存在する場合, then the ArchiTrackシステム shall セクション内に見積依頼を一覧表示する
+     *
+     * 前件に入るため、見積依頼を2件持つプロジェクトをテスト自身が API で作る
+     * （`seedEstimateRequest` が1件目までを作り、2件目は同じ取引先・内訳書で追加する）。
+     */
+    test('見積依頼が存在する場合、セクション内に見積依頼が一覧表示される (project-management/REQ-27.5)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const stamp = Date.now();
+      const seed = await seedEstimateRequest(page, {
+        label: 'REQ-27.5一覧',
+        siteAddress: '東京都渋谷区見積依頼一覧1-2-3',
+        partnerEmail: `req-27-5-${stamp}@example.com`,
+        groupName: 'REQ-27.5グループ',
+        item: {
+          workType: '内装工事',
+          name: 'REQ-27.5項目',
+          specification: '標準',
+          unit: 'm2',
+          quantity: 5,
+        },
+      });
+      const headers = { Authorization: `Bearer ${seed.accessToken}` };
+
+      const firstRes = await page.request.get(
+        `${API_BASE_URL}/api/estimate-requests/${seed.estimateRequestId}`,
+        { headers }
+      );
+      expect(firstRes.ok(), `前提: 1件目の見積依頼を取得できる (status=${firstRes.status()})`).toBe(
+        true
+      );
+      const first = (await firstRes.json()) as { id: string; name: string };
+
+      const secondName = `REQ-27.5二件目_${stamp}`;
+      const secondRes = await page.request.post(
+        `${API_BASE_URL}/api/projects/${seed.projectId}/estimate-requests`,
+        {
+          headers,
+          data: {
+            name: secondName,
+            tradingPartnerId: seed.tradingPartnerId,
+            itemizedStatementId: seed.itemizedStatementId,
+          },
+        }
+      );
+      expect(
+        secondRes.ok(),
+        `前提: 2件目の見積依頼が作成される (status=${secondRes.status()})`
+      ).toBe(true);
+      const second = (await secondRes.json()) as { id: string };
+
+      await navigateToProjectDetail(page, seed.projectId);
+
+      const erSection = page.getByTestId('estimate-request-section');
+      await expect(erSection).toBeVisible({ timeout: getTimeout(10000) });
+
+      // 見積依頼が存在するので空状態ではない
+      await expect(erSection.getByText('見積依頼はまだありません')).toHaveCount(0);
+
+      // REQ-27.5: 2件の見積依頼がセクション内に並ぶ（各行は見積依頼詳細へのリンク）
+      const requestLinks = erSection.getByRole('link', { name: /の見積依頼詳細を見る$/ });
+      await expect(requestLinks).toHaveCount(2, { timeout: getTimeout(10000) });
+      await expect(
+        erSection.getByRole('link', { name: `${first.name}の見積依頼詳細を見る`, exact: true })
+      ).toHaveAttribute('href', `/estimate-requests/${first.id}`);
+      await expect(
+        erSection.getByRole('link', { name: `${secondName}の見積依頼詳細を見る`, exact: true })
+      ).toHaveAttribute('href', `/estimate-requests/${second.id}`);
+    });
   });
 
   // ============================================================================
@@ -711,6 +798,52 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
       const statementLinks = isSection.getByRole('link', { name: /の内訳書詳細を見る$/ });
       expect(await statementLinks.count()).toBeGreaterThanOrEqual(1);
     });
+
+    /**
+     * @requirement project-management/REQ-26.3: The ArchiTrackシステム shall 内訳書セクションに作成済み内訳書を作成日時の降順で一覧表示する
+     *
+     * 作成日時の異なる内訳書を2件用意し、後に作った内訳書が先に並ぶことを主張する。
+     * 並びの観測は、各内訳書の行（aria-label が「<内訳書名>の内訳書詳細を見る」のリンク）の DOM 上の順序で行う。
+     */
+    test('内訳書セクションに作成済み内訳書が作成日時の降順で一覧表示される (project-management/REQ-26.3)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const older = await seedProjectWithItemizedStatement(page, 'REQ-26.3降順');
+      const newerName = `REQ-26.3降順後発内訳書_${Date.now()}`;
+      const newerRes = await page.request.post(
+        `${API_BASE_URL}/api/projects/${older.projectId}/itemized-statements`,
+        {
+          headers: older.headers,
+          data: { name: newerName, quantityTableId: older.quantityTableId },
+        }
+      );
+      expect(newerRes.ok(), `前提: 2件目の内訳書が作成される (status=${newerRes.status()})`).toBe(
+        true
+      );
+      const newer = (await newerRes.json()) as { createdAt: string };
+      // 前提: 2件の作成日時が異なり、後発が新しい（同時刻だと降順の主張が意味を持たない）
+      expect(
+        new Date(newer.createdAt).getTime(),
+        '前提: 後に作った内訳書の作成日時が先の内訳書より新しい'
+      ).toBeGreaterThan(new Date(older.statementCreatedAt).getTime());
+
+      await navigateToProjectDetail(page, older.projectId);
+
+      const isSection = page.getByTestId('itemized-statement-section');
+      await expect(isSection).toBeVisible({ timeout: getTimeout(10000) });
+      const statementLinks = isSection.getByRole('link', { name: /の内訳書詳細を見る$/ });
+      await expect(statementLinks).toHaveCount(2, { timeout: getTimeout(10000) });
+
+      const labels = await statementLinks.evaluateAll((links) =>
+        links.map((link) => link.getAttribute('aria-label'))
+      );
+      expect(labels).toEqual([
+        `${newerName}の内訳書詳細を見る`,
+        `${older.statementName}の内訳書詳細を見る`,
+      ]);
+    });
   });
 
   // ============================================================================
@@ -886,6 +1019,86 @@ test.describe('プロジェクト詳細画面 - セクション表示とAPI効�
       expect(body.sections.estimates).toBeDefined();
       expect(body.sections.estimates.totalCount).toBeDefined();
       expect(typeof body.sections.estimates.totalCount).toBe('number');
+    });
+
+    /**
+     * @requirement project-management/REQ-29.6: The ArchiTrackシステム shall 一括取得APIのレスポンス形式を、既存の個別APIと互換性のあるデータ構造で提供する
+     *
+     * 一括取得APIが置き換えた個別API（プロジェクト基本情報・ステータス変更履歴・要件 29.1 の5セクション）を
+     * 同じプロジェクトについて呼び、detail-summary の該当部分と深い等価で比べる。
+     * 空配列どうしの一致は互換の証明にならないため、5セクションとも1件以上のデータをテスト自身が用意する。
+     */
+    test('detail-summary の各部分が既存の個別APIと同じデータ構造で返る (project-management/REQ-29.6)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const stamp = Date.now();
+      // 数量表・内訳書・見積依頼までを用意する
+      const seed = await seedEstimateRequest(page, {
+        label: 'REQ-29.6互換',
+        siteAddress: '東京都渋谷区互換1-2-3',
+        partnerEmail: `req-29-6-${stamp}@example.com`,
+        groupName: 'REQ-29.6グループ',
+        item: {
+          workType: '内装工事',
+          name: 'REQ-29.6項目',
+          specification: '標準',
+          unit: 'm2',
+          quantity: 5,
+        },
+      });
+      const headers = { Authorization: `Bearer ${seed.accessToken}` };
+      const projectId = seed.projectId;
+
+      // 現場調査と見積書を用意する
+      const surveyRes = await page.request.post(
+        `${API_BASE_URL}/api/projects/${projectId}/site-surveys`,
+        { headers, data: { name: `REQ-29.6現場調査_${stamp}`, surveyDate: '2026-01-01' } }
+      );
+      expect(surveyRes.ok(), `前提: 現場調査が作成される (status=${surveyRes.status()})`).toBe(
+        true
+      );
+      const estimateRes = await page.request.post(
+        `${API_BASE_URL}/api/projects/${projectId}/estimates`,
+        { headers, data: { name: `REQ-29.6見積書_${stamp}` } }
+      );
+      expect(estimateRes.ok(), `前提: 見積書が作成される (status=${estimateRes.status()})`).toBe(
+        true
+      );
+
+      const getJson = async (path: string) => {
+        const res = await page.request.get(`${API_BASE_URL}${path}`, { headers });
+        expect(res.ok(), `${path} を取得できる (status=${res.status()})`).toBe(true);
+        return res.json();
+      };
+
+      const summary = await getJson(`/api/projects/${projectId}/detail-summary`);
+
+      const individual = {
+        siteSurveys: await getJson(`/api/projects/${projectId}/site-surveys/latest`),
+        quantityTables: await getJson(`/api/projects/${projectId}/quantity-tables/summary`),
+        itemizedStatements: await getJson(`/api/projects/${projectId}/itemized-statements/latest`),
+        estimateRequests: await getJson(`/api/projects/${projectId}/estimate-requests/latest`),
+        estimates: await getJson(`/api/projects/${projectId}/estimates/latest`),
+      };
+
+      // 前提: 5セクションとも比べるデータが実在する
+      expect(individual.siteSurveys.latestSurveys).toHaveLength(1);
+      expect(individual.quantityTables.latestTables).toHaveLength(1);
+      expect(individual.itemizedStatements.latestStatements).toHaveLength(1);
+      expect(individual.estimateRequests.latestRequests).toHaveLength(1);
+      expect(individual.estimates.latestEstimates).toHaveLength(1);
+
+      expect(summary.project).toEqual(await getJson(`/api/projects/${projectId}`));
+      expect(summary.statusHistory).toEqual(
+        await getJson(`/api/projects/${projectId}/status-history`)
+      );
+      expect(summary.sections.siteSurveys).toEqual(individual.siteSurveys);
+      expect(summary.sections.quantityTables).toEqual(individual.quantityTables);
+      expect(summary.sections.itemizedStatements).toEqual(individual.itemizedStatements);
+      expect(summary.sections.estimateRequests).toEqual(individual.estimateRequests);
+      expect(summary.sections.estimates).toEqual(individual.estimates);
     });
 
     /**

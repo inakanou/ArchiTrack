@@ -17,7 +17,7 @@
  * - セクションタイトル「実行予算」
  * - 実行予算が未作成時: 作成ボタン
  * - 実行予算が存在時: 契約書名、契約金額、作成日時、利益見込額、発注進捗率
- * - 「詳細を見る」リンク（実行予算ページへ遷移）
+ * - 実行予算が存在時はカード全体が実行予算ページへのリンク（project-management 要件 40.5。契約書カードと同じ形）
  */
 
 import { Link } from 'react-router-dom';
@@ -82,12 +82,6 @@ const styles = {
     color: '#1f2937',
     margin: 0,
   } as React.CSSProperties,
-  viewLink: {
-    fontSize: '14px',
-    color: '#2563eb',
-    textDecoration: 'none',
-    fontWeight: 500,
-  } as React.CSSProperties,
   addButton: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -101,6 +95,16 @@ const styles = {
     fontWeight: 500,
     border: 'none',
     cursor: 'pointer',
+  } as React.CSSProperties,
+  budgetCard: {
+    display: 'block',
+    padding: '12px',
+    backgroundColor: '#f9fafb',
+    borderRadius: '6px',
+    border: '1px solid #e5e7eb',
+    textDecoration: 'none',
+    color: 'inherit',
+    transition: 'background-color 0.2s',
   } as React.CSSProperties,
   infoGrid: {
     display: 'grid',
@@ -219,11 +223,19 @@ function EmptyState({ projectId }: { projectId: string }) {
 }
 
 /**
- * 実行予算情報表示
+ * 実行予算情報表示（サマリーカード）
+ *
+ * カード全体を実行予算管理画面へのリンクとする（project-management 要件 40.5:
+ * サマリーカードのクリックで実行予算管理画面へ遷移する）。契約書セクションの
+ * ContractCard と同じく、カードそのものを Link とし、内側にリンクを入れ子にしない。
  */
 function BudgetInfo({ projectId, info }: { projectId: string; info: ExecutionBudgetSectionInfo }) {
   return (
-    <div>
+    <Link
+      to={`/projects/${projectId}/execution-budget`}
+      style={styles.budgetCard}
+      data-testid="execution-budget-card"
+    >
       <div style={styles.infoGrid}>
         <div style={styles.infoItem}>
           <span style={styles.infoLabel}>契約書</span>
@@ -250,12 +262,7 @@ function BudgetInfo({ projectId, info }: { projectId: string; info: ExecutionBud
           <span style={styles.infoValue}>{`${Number(info.orderProgressRate).toFixed(1)}%`}</span>
         </div>
       </div>
-      <div style={{ marginTop: '16px', textAlign: 'right' as const }}>
-        <Link to={`/projects/${projectId}/execution-budget`} style={styles.viewLink}>
-          詳細を見る
-        </Link>
-      </div>
-    </div>
+    </Link>
   );
 }
 

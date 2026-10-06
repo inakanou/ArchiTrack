@@ -42,6 +42,10 @@ import { requirePermission } from '../middleware/authorize.middleware.js';
 import logger from '../utils/logger.js';
 import { isStorageConfigured, getStorageProvider } from '../storage/index.js';
 import {
+  NULL_SITE_SURVEY_THUMBNAIL_URLS,
+  signSiteSurveyThumbnailUrls,
+} from '../utils/site-survey-thumbnail-urls.js';
+import {
   createProjectSchema,
   updateProjectSchema,
   projectListQuerySchema,
@@ -310,53 +314,21 @@ async function getProjectSections(projectId: string) {
   const siteSurveysResult =
     results[0].status === 'fulfilled' ? results[0].value : { totalCount: 0, latestSurveys: [] };
 
-  // thumbnailUrl と thumbnailOriginalUrl を署名付きURLに変換
-  // site-surveys.routes.ts の /latest エンドポイントと同一のロジックパターン
+  // thumbnailUrl・thumbnailOriginalUrl・annotatedThumbnailUrl を署名付きURLに変換する。
+  // 規則は個別API（site-surveys.routes.ts の /latest）と共有し（Requirements: 29.6）、
+  // ストレージ未設定時は3つとも null とする（Requirements: 30.3）。
   let enrichedSurveys = siteSurveysResult.latestSurveys.map((survey: SiteSurveyInfo) => ({
     ...survey,
-    thumbnailUrl: null as string | null,
-    thumbnailOriginalUrl: null as string | null,
+    ...NULL_SITE_SURVEY_THUMBNAIL_URLS,
   }));
   if (isStorageConfigured()) {
     const storageProvider = getStorageProvider();
     if (storageProvider) {
       enrichedSurveys = await Promise.all(
-        siteSurveysResult.latestSurveys.map(async (survey: SiteSurveyInfo) => {
-          let thumbnailUrl: string | null = null;
-          let thumbnailOriginalUrl: string | null = null;
-
-          // サムネイルURLを生成
-          if (survey.thumbnailUrl) {
-            try {
-              thumbnailUrl = await storageProvider.getSignedUrl(survey.thumbnailUrl as string);
-            } catch (error) {
-              logger.warn(
-                { surveyId: survey.id, thumbnailPath: survey.thumbnailUrl, error },
-                'Failed to generate signed URL for thumbnail'
-              );
-            }
-          }
-
-          // 元画像URLを生成（注釈レンダリング用）
-          if (survey.thumbnailOriginalPath) {
-            try {
-              thumbnailOriginalUrl = await storageProvider.getSignedUrl(
-                survey.thumbnailOriginalPath as string
-              );
-            } catch (error) {
-              logger.warn(
-                { surveyId: survey.id, originalPath: survey.thumbnailOriginalPath, error },
-                'Failed to generate signed URL for original image'
-              );
-            }
-          }
-
-          return {
-            ...survey,
-            thumbnailUrl,
-            thumbnailOriginalUrl,
-          };
-        })
+        siteSurveysResult.latestSurveys.map(async (survey: SiteSurveyInfo) => ({
+          ...survey,
+          ...(await signSiteSurveyThumbnailUrls(survey, storageProvider)),
+        }))
       );
     }
   }

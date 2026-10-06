@@ -3435,6 +3435,8 @@ async function getProjectSections(projectId: string) {
 
 **依存関係**: `isStorageConfigured`, `getStorageProvider` を `../storage/index.js` からインポートする必要がある（既に `site-surveys.routes.ts` で使用されているパターン）。
 
+**現況（Task 72.2、2026-10-06。利用者の判断「製品を修正」）**: 上のコード例は設計時点の記述として残す。現在は、署名付き URL を作る処理が `backend/src/utils/site-survey-thumbnail-urls.ts` の `signSiteSurveyThumbnailUrls` に移っている。個別 API（`site-surveys.routes.ts` の `/latest`）と detail-summary（`projects.routes.ts` の `getProjectSections`）の両方がこれを呼ぶ。detail-summary の `latestSurveys` の各要素は `thumbnailUrl` / `thumbnailOriginalUrl` に加えて `annotatedThumbnailUrl` も返し、個別 API と同じデータ構造になる（Requirement 29.6）。ストレージが未設定のときは、3 つの URL をいずれも省かず `null` にする（`NULL_SITE_SURVEY_THUMBNAIL_URLS`。Requirement 30.3）。
+
 ---
 
 ### Component 31: パンくずナビゲーション更新（Requirement 21 AC14-17, Requirement 31）

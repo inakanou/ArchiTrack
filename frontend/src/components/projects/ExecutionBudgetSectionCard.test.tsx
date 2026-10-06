@@ -131,7 +131,9 @@ describe('ExecutionBudgetSectionCard', () => {
       expect(screen.getByText(/50.0%/)).toBeInTheDocument();
     });
 
-    it('実行予算ページへの「詳細を見る」リンクを表示する', () => {
+    // タスク 72.2: 遷移は「詳細を見る」リンクではなくカード全体のリンクで行う
+    // （project-management 要件 40.5。契約書カードと同じ形）
+    it('実行予算情報のカード全体が実行予算ページへのリンクである', () => {
       renderWithRouter(
         <ExecutionBudgetSectionCard
           projectId={projectId}
@@ -140,9 +142,12 @@ describe('ExecutionBudgetSectionCard', () => {
         />
       );
 
-      const link = screen.getByText('詳細を見る');
-      expect(link).toBeInTheDocument();
-      expect(link.closest('a')).toHaveAttribute('href', `/projects/${projectId}/execution-budget`);
+      const card = screen.getByTestId('execution-budget-card');
+      expect(card.tagName).toBe('A');
+      expect(card).toHaveAttribute('href', `/projects/${projectId}/execution-budget`);
+      expect(card).toContainElement(screen.getByText('見積書A'));
+      expect(card.querySelector('a')).toBeNull();
+      expect(screen.queryByText('詳細を見る')).not.toBeInTheDocument();
     });
   });
 

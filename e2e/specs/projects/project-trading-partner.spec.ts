@@ -3,6 +3,7 @@
  *
  * Requirements:
  * - REQ-22: 取引先連携
+ * - REQ-1.5 / REQ-8.3 / REQ-22.3 / REQ-22.6: 顧客名の選択UI（describe「顧客名の選択UI（タスク 72.2）」）
  */
 
 import { test, expect } from '@playwright/test';
@@ -10,7 +11,7 @@ import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, nullWhenTimedOut } from '../../helpers/wait-helpers';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
 import { toObservableApiPath } from '../../helpers/api-request-observer';
-import { seedProject } from '../../helpers/project-list-preconditions';
+import { seedProject, seedTradingPartner } from '../../helpers/project-list-preconditions';
 import { assertPrepared } from '../../helpers/preconditions';
 
 /**
@@ -542,6 +543,197 @@ test.describe('プロジェクト取引先連携', () => {
       await expect(page.getByRole('button', { name: /顧客名でソート/i })).toBeVisible({
         timeout: getTimeout(5000),
       });
+    });
+  });
+
+  /**
+   * 顧客名の選択UI（タスク 72.2）
+   *
+   * 各テストは自分が使う取引先（顧客種別）を `seedTradingPartner` で用意し、
+   * 既存データの有無に依存しない。取引先名は作成時刻を含み一意である。
+   */
+  test.describe('顧客名の選択UI（タスク 72.2）', () => {
+    /**
+     * @requirement project-management/REQ-1.5: When ユーザーがドロップダウンまたはオートコンプリート候補から顧客を選択する, the ArchiTrackシステム shall 選択された取引先IDをフォームに設定する
+     *
+     * フォームに設定された値は、作成ボタンで送られるリクエストの本文に現れる。
+     * 選別はオリジンではなくパスで行う（ブラウザ側の VITE_API_URL と E2E 側の API_BASE_URL は同一とは限らない）。
+     */
+    test('作成画面で候補から顧客を選択すると、その取引先IDがフォームに設定されて送信される (project-management/REQ-1.5)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+      const partner = await seedTradingPartner(page, 'E2E顧客ID設定');
+
+      await page.goto('/projects/new');
+      await page.waitForLoadState('networkidle');
+      await expect(page.getByLabel(/プロジェクト名/i)).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      await page.getByLabel(/プロジェクト名/i).fill(`顧客ID設定プロジェクト_${Date.now()}`);
+
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
+      await tradingPartnerInput.fill(partner.name);
+      const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
+      const option = autocompleteList.getByRole('option').filter({ hasText: partner.name });
+      await expect(option).toHaveCount(1);
+      await option.click();
+      await expect(autocompleteList).not.toBeVisible({ timeout: getTimeout(5000) });
+
+      const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
+      await selectFirstRealOption(salesPersonSelect, '営業担当者');
+
+      const createRequestPromise = page.waitForRequest(
+        (request) =>
+          toObservableApiPath(request.url()) === '/api/projects' && request.method() === 'POST',
+        { timeout: getTimeout(30000) }
+      );
+      await page.getByRole('button', { name: /^作成$/i }).click();
+      const createRequest = await createRequestPromise;
+
+      // REQ-1.5: 選択された取引先のIDがフォームの値として送られる
+      const body = createRequest.postDataJSON() as { tradingPartnerId?: unknown };
+      expect(body.tradingPartnerId).toBe(partner.id);
+
+      await expect(page).toHaveURL(/\/projects\/[0-9a-f-]+$/, { timeout: getTimeout(15000) });
+    });
+
+    /**
+     * @requirement project-management/REQ-8.3: When ユーザーが顧客名フィールドで検索テキストを入力する, the ArchiTrackシステム shall 取引先管理機能で登録された取引先を検索フィルタリングして表示する
+     */
+    test('編集画面で顧客名に検索テキストを入力すると、登録済みの取引先が絞り込まれて表示される (project-management/REQ-8.3)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+      const project = await seedProject(page, 'E2E編集顧客検索');
+      // 絞り込みを主張するため、検索テキストに一致する取引先と一致しない取引先を用意する
+      const matching = await seedTradingPartner(page, 'E2E編集検索一致');
+      const other = await seedTradingPartner(page, 'E2E編集検索不一致');
+
+      await page.goto(`/projects/${project.id}/edit`);
+      await page.waitForLoadState('networkidle');
+      await expect(page.getByRole('heading', { name: /プロジェクトを編集/i })).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
+      await expect(tradingPartnerInput).toBeEnabled({ timeout: getTimeout(10000) });
+      await tradingPartnerInput.fill('E2E編集検索一致');
+
+      const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
+
+      // 一致する登録済み取引先が表示され、一致しない取引先は表示されない
+      await expect(
+        autocompleteList.getByRole('option').filter({ hasText: matching.name })
+      ).toHaveCount(1);
+      await expect(
+        autocompleteList.getByRole('option').filter({ hasText: other.name })
+      ).toHaveCount(0);
+
+      // 検索テキストを変えると、もう一方の登録済み取引先が表示される（検索の対象が登録済みの取引先であること）
+      await tradingPartnerInput.fill('E2E編集検索不一致');
+      await expect(
+        autocompleteList.getByRole('option').filter({ hasText: other.name })
+      ).toHaveCount(1);
+      await expect(
+        autocompleteList.getByRole('option').filter({ hasText: matching.name })
+      ).toHaveCount(0);
+    });
+
+    /**
+     * @requirement project-management/REQ-22.3: The ArchiTrackシステム shall 顧客名選択時にドロップダウンとオートコンプリート機能を併用したUIを提供する
+     *
+     * 一つの顧客名フィールドが、入力なしで候補の一覧を開くドロップダウンとしても、
+     * 入力に応じて候補を絞り込むオートコンプリートとしても働くことを主張する。
+     */
+    test('顧客名フィールドがドロップダウンとオートコンプリートを併用したUIである (project-management/REQ-22.3)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+      const first = await seedTradingPartner(page, 'E2E併用UI甲');
+      const second = await seedTradingPartner(page, 'E2E併用UI乙');
+
+      await page.goto('/projects/new');
+      await page.waitForLoadState('networkidle');
+
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
+      await expect(tradingPartnerInput).toBeEnabled({ timeout: getTimeout(10000) });
+      await expect(tradingPartnerInput).toHaveAttribute('aria-haspopup', 'listbox');
+      await expect(tradingPartnerInput).toHaveAttribute('aria-expanded', 'false');
+
+      const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
+      const firstOption = autocompleteList.getByRole('option').filter({ hasText: first.name });
+      const secondOption = autocompleteList.getByRole('option').filter({ hasText: second.name });
+
+      // ドロップダウン: 何も入力せずにフィールドを開くと、絞り込まれていない候補の一覧が開く
+      await tradingPartnerInput.click();
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(tradingPartnerInput).toHaveAttribute('aria-expanded', 'true');
+      await expect(tradingPartnerInput).toHaveValue('');
+      await expect(firstOption).toHaveCount(1);
+      await expect(secondOption).toHaveCount(1);
+
+      // ドロップダウン: キーボード（Escape で閉じ、下矢印で開く）でも一覧を開閉できる
+      await tradingPartnerInput.press('Escape');
+      await expect(autocompleteList).not.toBeVisible({ timeout: getTimeout(5000) });
+      await tradingPartnerInput.press('ArrowDown');
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
+      await expect(firstOption).toHaveCount(1);
+      await expect(secondOption).toHaveCount(1);
+
+      // オートコンプリート: 同じフィールドへの入力で候補が絞り込まれる
+      await tradingPartnerInput.fill('E2E併用UI甲');
+      await expect(firstOption).toHaveCount(1);
+      await expect(secondOption).toHaveCount(0);
+
+      // 絞り込んだ候補から選ぶと、フィールドに選んだ顧客が表示される
+      await firstOption.click();
+      await expect(autocompleteList).not.toBeVisible({ timeout: getTimeout(5000) });
+      await expect(tradingPartnerInput).toHaveValue(first.name);
+    });
+
+    /**
+     * @requirement project-management/REQ-22.6: The ArchiTrackシステム shall 顧客候補の表示形式を「名前 / 部課・支店・支社名 / 代表者名」の組み合わせとする
+     *
+     * 候補は名前と「部課・支店・支社名 / 代表者名」を2行に分けて描画する。行の区切りを「 / 」へ
+     * 置き換えたものが「名前 / 部課・支店・支社名 / 代表者名」と一致することを主張し、
+     * 選択後のフィールドの表示も同じ形式であることを主張する。
+     */
+    test('顧客候補が「名前 / 部課・支店・支社名 / 代表者名」の形式で表示される (project-management/REQ-22.6)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+      const partner = await seedTradingPartner(page, 'E2E顧客表示形式', {
+        branchName: '新宿支店',
+        representativeName: '形式 花子',
+      });
+      const expected = `${partner.name} / 新宿支店 / 形式 花子`;
+
+      await page.goto('/projects/new');
+      await page.waitForLoadState('networkidle');
+
+      const tradingPartnerInput = page.getByRole('combobox', { name: /顧客名/i });
+      await expect(tradingPartnerInput).toBeEnabled({ timeout: getTimeout(10000) });
+      await tradingPartnerInput.fill(partner.name);
+
+      const autocompleteList = page.getByRole('listbox', { name: /取引先候補/i });
+      await expect(autocompleteList).toBeVisible({ timeout: getTimeout(5000) });
+      const option = autocompleteList.getByRole('option').filter({ hasText: partner.name });
+      await expect(option).toHaveCount(1);
+
+      const lines = (await option.innerText())
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+      expect(lines.join(' / ')).toBe(expected);
+
+      await option.click();
+      await expect(autocompleteList).not.toBeVisible({ timeout: getTimeout(5000) });
+      await expect(tradingPartnerInput).toHaveValue(expected);
     });
   });
 
