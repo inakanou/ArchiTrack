@@ -326,7 +326,7 @@ export default function ProjectSearchFilter({ filter, onFilterChange }: ProjectS
           type="button"
           aria-label="フィルタをクリア"
           onClick={handleClearFilters}
-          className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
+          className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
         >
           <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path

@@ -12,3 +12,19 @@ body {
 #root {
   min-height: 100vh;
 }
+
+/*
+ * フォーカス表示（project-management 要件 20.4: フォーカス状態を視覚的に明確に表示する）
+ *
+ * キーボードでフォーカスした要素に、幅 2px の実線の輪を描く。#2563eb は白 (#ffffff) に対して
+ * 5.17:1、本文背景 (#f5f5f5 / bg-gray-50) に対しても 4.7:1 以上で、非テキストの 3:1 を満たす。
+ * base 層に置くのは、部品の側の指定（utilities 層の focus:outline-none と、層の外の作者 CSS）が
+ * この規則に勝つようにするためである。focus:ring 系の輪は box-shadow なので、この outline とは
+ * 干渉しない。インラインの outline: none もこの規則に勝つため、部品の側で書かないこと。
+ */
+@layer base {
+  :focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+}

@@ -1754,7 +1754,8 @@
   - _Requirements: 1.5, 8.3, 22.3, 22.6, 26.3, 27.5, 29.6, 40.3, 40.4, 40.5, 41.2_
   - _Boundary: 本スペックの E2E の被覆_
 
-- [ ] 72.3 要件 20.4 の被覆の印が本番から到達しない部品を名乗っている状態を解消する（**起票のみ。着手は利用者の判断による**）
+- [x] 72.3 要件 20.4 の被覆の印が本番から到達しない部品を名乗っている状態を解消する（**起票のみ。着手は利用者の判断による**）
   - `frontend/src/utils/keyboard-navigation.ts` は本番の経路から到達しない（site-survey の design.md 11021 / 11084 行付近に記載）。本番の経路へ結線するか、撤去して被覆の印を実際に使われている部品へ移すかを決める。site-survey の計画と足並みを揃えること
+  - **実施（2026-10-06、利用者の判断「結線」）**: `frontend/src/index.css` の base 層に `:focus-visible`（2px の実線、#2563eb）を置いた。ProjectForm・TradingPartnerSelect・UserSelect のインラインの outline 打ち消しを外し、検索フィルタのクリアボタンの輪を 3:1 を満たす色にした。`frontend/src/utils/keyboard-navigation.ts` の 20.4 の名乗りを外した（同ファイルは site-survey の自己検査 `checkKnownDeadAndLiveModules` の固定点のため、本番へ取り込まずに残す）。E2E は `project-accessibility.spec.ts` の 4 本。`check:req-coverage` の到達しない被覆源のみの受入基準は 4 件から 3 件に減った
   - _Requirements: 20.4_
   - _Boundary: 要件 20.4 の実装とその被覆_

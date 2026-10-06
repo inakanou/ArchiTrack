@@ -390,7 +390,6 @@ function UserSelect({
               ? STYLES.colors.text
               : STYLES.colors.placeholder,
           backgroundColor: disabled ? STYLES.colors.disabledBg : STYLES.colors.white,
-          outline: 'none',
           cursor: disabled ? 'not-allowed' : 'pointer',
           transition: STYLES.transition,
           boxShadow: getBoxShadow(),

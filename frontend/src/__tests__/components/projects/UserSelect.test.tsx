@@ -411,7 +411,9 @@ describe('UserSelect', () => {
       fireEvent.focus(select);
 
       // フォーカス状態が設定されていること（box-shadowがあること）
-      expect(select).toHaveStyle({ outline: 'none' });
+      expect(select.style.boxShadow).not.toBe('none');
+      // 共通のフォーカス表示（index.css の :focus-visible）をインラインで打ち消していないこと
+      expect(select.style.outlineStyle).not.toBe('none');
     });
 
     it('disabled状態でフォーカスしてもfocus状態にならない', async () => {

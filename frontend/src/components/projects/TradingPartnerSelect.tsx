@@ -500,7 +500,6 @@ export default function TradingPartnerSelect({
             lineHeight: '1.5',
             color: disabled || isLoading ? STYLES.colors.disabled : STYLES.colors.text,
             backgroundColor: disabled || isLoading ? STYLES.colors.disabledBg : STYLES.colors.white,
-            outline: 'none',
             cursor: disabled || isLoading ? 'not-allowed' : 'text',
             transition: STYLES.transition,
             boxShadow: getBoxShadow(),
