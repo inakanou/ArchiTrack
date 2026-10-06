@@ -1759,3 +1759,44 @@
   - **実施（2026-10-06、利用者の判断「結線」）**: `frontend/src/index.css` の base 層に `:focus-visible`（2px の実線、#2563eb）を置いた。ProjectForm・TradingPartnerSelect・UserSelect のインラインの outline 打ち消しを外し、検索フィルタのクリアボタンの輪を 3:1 を満たす色にした。`frontend/src/utils/keyboard-navigation.ts` の 20.4 の名乗りを外した（同ファイルは site-survey の自己検査 `checkKnownDeadAndLiveModules` の固定点のため、本番へ取り込まずに残す）。E2E は `project-accessibility.spec.ts` の 4 本。`check:req-coverage` の到達しない被覆源のみの受入基準は 4 件から 3 件に減った
   - _Requirements: 20.4_
   - _Boundary: 要件 20.4 の実装とその被覆_
+
+## Task 73: 機能レベル検証（2026-10-07、HEAD `90abbeda`、GO）が Info として挙げた事項の是正（利用者の判断で起票）
+
+**経緯**: Task 72.2・72.3 の完了後の機能レベル検証は GO だったが、判断の観点の検証が Info を挙げた。利用者の判断（2026-10-07、「古くなった記述 4 か所は修正タスクとして起票」「他 2 つも起票」）により、修正タスクとして起票する。73.1〜73.4 は古くなった記述の是正で挙動に影響しない。73.5 はフォーカス表示の規約の記録、73.6 は入力欄の二重のフォーカス表示の整理である
+
+- [ ] 73.1 本番から到達しない部品とそのテストに残る「- 20.4」の名乗りを外す
+  - 対象: `frontend/src/hooks/useKeyboardNavigation.ts`（11 行目）、`frontend/src/__tests__/utils/keyboard-navigation.test.ts`（8 行目）、`frontend/src/__tests__/hooks/useKeyboardNavigation.test.tsx`（8 行目）の、機能名を欠く `Requirements:` ヘッダーの下の「- 20.4: フォーカス状態を視覚的に明確に表示」。Task 72.3 で `frontend/src/utils/keyboard-navigation.ts` から外したときと同じく、本番の表示は `frontend/src/index.css` の `:focus-visible` が描くという註に改める
+  - 名乗りを外すと、`check:req-coverage` の眠る名乗りの件数が上限 `MAX_DORMANT_HEADER_NAMES`（5054、`scripts/check-requirement-coverage.ts`）を下回る。出力の案内（「減らしたら … を下げること」）に従って上限を下げるかを確かめ、下げるときは同じ変更の中で行う。`:update` 系の関門は使わない
+  - 両ファイルは site-survey の自己検査 `checkKnownDeadAndLiveModules` の固定点（mustBeDead）であるため、本番へ取り込まない・ファイルを消さないこと
+  - _Requirements: 20.4_
+  - _Boundary: 本番から到達しない keyboard-navigation の部品とテストのヘッダーの記述_
+
+- [ ] 73.2 本番から参照されない `CustomerNameInput.tsx` のインラインの outline の打ち消しを扱う
+  - `frontend/src/components/projects/CustomerNameInput.tsx` の 392 行目に `outline: 'none'` が残っている。本番からの利用者は無い（barrel と stories のみ）。design.md の要件 20.1-20.6 の行への追記（Task 72.3）の「部品の側はインラインで `outline: 'none'` を書かない」と字面が合わない
+  - 打ち消しを外す（既存の単体テストと stories を確かめる）か、本番から参照されない部品である旨を design.md の同じ追記に記すかを決めて直す
+  - _Requirements: 20.4_
+  - _Boundary: CustomerNameInput のフォーカス表示の指定と、その記録_
+
+- [ ] 73.3 Task 72.2・72.3 の見出しに残る「起票のみ。着手は利用者の判断による」を現況に揃える
+  - 72.2・72.3 は利用者の判断（2026-10-06）で着手して完了した（`[x]`）が、見出しは起票時の「（**起票のみ。着手は利用者の判断による**）」のままである。規約 (a) に従い、起票時の文言は残して「2026-10-06 に利用者の判断で着手・完了」を併記する
+  - _Boundary: 本スペックの tasks.md の Task 72 の見出し_
+
+- [ ] 73.4 site-survey の設計文書の「本番から到達しない受入基準 4 件」の記録に、Task 72.3 による決着を追記する
+  - `.kiro/specs/site-survey/design.md` の 11022 行付近と 11085 行付近は、本番の経路から到達しない部品だけを名乗る受入基準を 4 件（estimate-creation の REQ-13.5 / 5.6 / 5.7 と `project-management/REQ-20.4`）と記録している。Task 72.3 の後の `check:req-coverage` の実測は 3 件で、`project-management/REQ-20.4` は本番の `:focus-visible` の規則と E2E（`e2e/specs/projects/project-accessibility.spec.ts`）へ結線して決着した
+  - 規約 (a) に従い 4 件の記録は残し、「**project-management のタスク 72.3 の提出時点の再実測は 3 件である**」の形で決着を併記する。site-survey の文書を書き換える変更であるため、宣言（`scripts/design-measurements.json`）が動く場合は前例（`3b4167b8`、`e43b89c5`）の形で同じ変更の中で貼り直す。設計文書のパスを名指す行に不在の語（撤去・削除・当時・旧 など）を書かないこと
+  - 追記の後に `check:design-measurement-freshness`、`check:design-path-refs`、`check:design-code-refs` を名指しで 1 本ずつ回す
+  - _Requirements: 20.4_
+  - _Boundary: site-survey の設計文書の、本番から到達しない受入基準の記録_
+
+- [ ] 73.5 全画面共通のフォーカス表示の規約を steering に記録するかを決め、記録する（利用者の判断で起票。2026-10-07）
+  - Task 72.3 は `frontend/src/index.css` の `@layer base` に全画面共通の `:focus-visible`（2px の実線、#2563eb）を置いた。一方、本番の部品のインラインの `outline: 'none'` は 2026-10-07（HEAD `2ba0198f`）の実測で 50 か所あり、うち 49 か所はプロジェクト以外（quantity-table・site-surveys・trading-partners・estimate-requests・estimate の部品とページ）である。インライン指定は stylesheet の規則に勝つため、これらの部品では共通のフォーカス表示が出ない。要件 20.4 は本スペックの画面に限られるため本スペックの欠陥ではない
+  - 規約（部品の側でインラインの `outline: 'none'` を書かない。独自の輪を描く場合は 2px 以上・コントラスト比 3:1 以上にする）を steering（`.kiro/steering/` の該当文書）へ記録するかを利用者に確かめ、記録する場合は既存の書きぶりに合わせて追記する。他スペックの部品の是正は本タスクの範囲外とし、必要なら各スペックへ起票する
+  - _Requirements: 20.4_
+  - _Boundary: 全画面共通のフォーカス表示の規約の記録_
+
+- [ ] 73.6 プロジェクトのフォームの入力欄でフォーカス表示が二重になる状態を整理する（利用者の判断で起票。2026-10-07）
+  - ProjectForm・TradingPartnerSelect・UserSelect の入力欄は、フォーカス時の既存の青い枠線と 3px の淡い影の上に、Task 72.3 の 2px の outline（offset 2px）が重なる。テキスト入力はマウスでクリックしても `:focus-visible` に当たるため、マウス操作でも二重になる。要件 20.4 は満たしており、見た目の整理である
+  - 既存の影を外して共通の outline に一本化するか、入力欄だけ共通の outline を打ち消して既存の表示を 3:1・2px 以上へ強めるかを決めて直す。いずれも `e2e/specs/projects/project-accessibility.spec.ts` の「フォーカス状態の視覚的表示」と `frontend/src/__tests__/accessibility/focus-visible.test.tsx` が緑のままであること（インラインの `outline: 'none'` は書かない）
+  - 挙動（見た目）の変更であるため RED → GREEN で進める
+  - _Requirements: 20.4_
+  - _Boundary: ProjectForm・TradingPartnerSelect・UserSelect のフォーカス時の表示_
