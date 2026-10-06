@@ -8,7 +8,7 @@
  * `extractPdfHybrid` は本物を使い（呼び出しの観測のため包むだけ）、pdfjs-dist と
  * tesseract.js をモックする。Claude Vision の経路は失敗させてフォールバックへ進める。
  *
- * Requirements:
+ * Requirements (estimate-request):
  * - 17.8: PDFテキスト抽出のタイムアウトを既存OCRと同じ30秒とする
  */
 
