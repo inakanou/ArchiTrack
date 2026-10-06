@@ -577,13 +577,17 @@ export default function EstimateRequestDetailPage() {
     async (selections: ItemSelectionInput[]) => {
       if (!id) return;
 
+      // 保存の失敗は握りつぶさずに呼び出し元（ItemSelectionPanel）へ伝える。
+      // パネルはそれを受けてエラーメッセージを表示し、選択状態をサーバー側の状態へ戻す（4.9）
+      await updateItemSelection(id, selections);
+
+      // 保存は成功している。再取得の失敗を保存の失敗として扱わない
       try {
-        await updateItemSelection(id, selections);
         // アイテムを再取得して状態を同期
         const updatedItems = await getEstimateRequestItems(id);
         setItems(updatedItems);
       } catch {
-        // エラー処理（必要に応じて）
+        // 再取得に失敗しても保存済みの選択状態はパネルが保持している
       }
     },
     [id]

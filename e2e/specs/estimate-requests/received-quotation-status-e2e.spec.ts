@@ -1825,6 +1825,92 @@ test.describe('受領見積書・ステータス管理機能', () => {
       // キャンセルしてフォームを閉じる
       await page.getByRole('button', { name: /キャンセル/i }).click();
     });
+
+    /**
+     * 準備（3 件中ちょうど 2 件を選択した状態）で転記を実行し、完了メッセージを返す。
+     * 内訳書の項目数（3 件）と選択数（2 件）を違えることで、メッセージの行数が
+     * 項目の総数ではなく転記された行数であることを区別できるようにする。
+     */
+    async function transcribeExactlyTwoOfThree(page: import('@playwright/test').Page) {
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/estimate-requests/${createdEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
+      await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+      // 前提: 準備3 で作成した内訳書の項目は 3 件
+      await expect(checkboxes, '前提: 内訳書の項目が 3 件ある').toHaveCount(3);
+
+      // 先頭 2 件を選択、3 件目を非選択にそろえる（前の test の選択状態に依存しない）
+      let hasChanges = false;
+      for (let i = 0; i < 3; i++) {
+        const shouldBeChecked = i < 2;
+        if ((await checkboxes.nth(i).isChecked()) !== shouldBeChecked) {
+          await checkboxes.nth(i).click();
+          hasChanges = true;
+        }
+      }
+      if (hasChanges) {
+        await clickSaveSelectionButton(page);
+      }
+      await expect(
+        page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]:checked'),
+        '前提: 内訳書項目がちょうど 2 件選択されている'
+      ).toHaveCount(2);
+
+      await page.getByRole('button', { name: /受領見積書登録/i }).click();
+      await expect(page.locator('#quotation-name')).toBeVisible({ timeout: getTimeout(10000) });
+
+      const transcriptionButton = page.getByTestId('transcription-button');
+      await expect(transcriptionButton).toBeVisible({ timeout: getTimeout(5000) });
+      await transcriptionButton.click();
+
+      const message = page.getByTestId('transcription-message');
+      await expect(message).toBeVisible({ timeout: getTimeout(5000) });
+      return message;
+    }
+
+    /**
+     * 受入基準15.5「When 一括転記が完了したとき, the システム shall 転記された行数を含む完了メッセージを表示する」
+     * @requirement estimate-request/REQ-15.5
+     */
+    test('一括転記の完了メッセージに転記された行数が含まれる (estimate-request/REQ-15.5)', async ({
+      page,
+    }) => {
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      const message = await transcribeExactlyTwoOfThree(page);
+
+      // 転記された行数を画面の明細行から数える（2 件選択 → 2 行）
+      const transcribedRows = page.getByRole('textbox', { name: /^行\d+ 名称$/ });
+      await expect(transcribedRows).toHaveCount(2);
+      const rowCount = await transcribedRows.count();
+
+      // 完了メッセージであり、かつ転記された行数（2）を含む。項目の総数（3）ではない
+      await expect(message).toContainText('転記しました');
+      await expect(message).toHaveText(new RegExp(`(^|[^0-9])${rowCount}件`));
+      await expect(message).not.toHaveText(/(^|[^0-9])3件/);
+
+      await page.getByRole('button', { name: /キャンセル/i }).click();
+    });
+
+    /**
+     * 受入基準15.6「When 一括転記が完了したとき, the システム shall 転記結果の確認・修正を促すメッセージを表示する」
+     * @requirement estimate-request/REQ-15.6
+     */
+    test('一括転記の完了時に転記結果の確認・修正を促すメッセージが表示される (estimate-request/REQ-15.6)', async ({
+      page,
+    }) => {
+      expect(createdEstimateRequestId).toBeTruthy();
+
+      const message = await transcribeExactlyTwoOfThree(page);
+
+      // 転記結果の確認を促し、かつ修正を促す文言を含む
+      await expect(message).toContainText('確認');
+      await expect(message).toContainText('修正');
+
+      await page.getByRole('button', { name: /キャンセル/i }).click();
+    });
   });
 
   // ============================================================================

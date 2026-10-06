@@ -3513,6 +3513,127 @@ test.describe('見積依頼機能', () => {
         'REQ-4.20: 未保存の変更があるままページを離脱しようとしても beforeunload の確認ダイアログが表示されない'
       ).toContain('beforeunload');
     });
+
+    /**
+     * 受入基準4.8「When 選択状態の保存が成功したとき, the システム shall 保存完了のフィードバックを表示する」
+     * @requirement estimate-request/REQ-4.8
+     */
+    test('REQ-4.8: 選択状態の保存が成功すると保存完了のフィードバックが表示される', async ({
+      page,
+    }) => {
+      expect(blockEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/estimate-requests/${blockEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
+      await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+      const initialState = await checkboxes.first().isChecked();
+      await checkboxes.first().click();
+
+      // 変更前はフィードバックが出ていない
+      const feedback = page.getByTestId('save-feedback');
+      await expect(feedback).toHaveCount(0);
+
+      // 保存の要求が成功したことを確かめたうえで、フィードバックを主張する
+      const saveResponse = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname ===
+            `/api/estimate-requests/${blockEstimateRequestId}/items` &&
+          response.request().method() === 'PATCH',
+        { timeout: getTimeout(15000) }
+      );
+      await page.getByTestId('save-selection-button').click();
+      expect((await saveResponse).ok(), '前提: 選択状態の保存の要求が成功する').toBe(true);
+
+      await expect(feedback).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(feedback).toHaveAttribute('role', 'status');
+      await expect(feedback).toHaveText('保存しました');
+
+      // 保存が完了したので未保存の変更は無い（保存ボタンは非活性に戻る）
+      await expect(page.getByTestId('save-selection-button')).toBeDisabled();
+
+      // 永続化された選択状態は変更後の値である（成功の表示が実際の成功と一致する）
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+      expect(await checkboxes.first().isChecked()).toBe(!initialState);
+    });
+
+    /**
+     * 受入基準4.9「If 選択状態の保存が失敗した場合, then the システム shall エラーメッセージを表示し
+     * 選択状態をサーバー側の最新状態に復元する」
+     * 保存の要求（PATCH /api/estimate-requests/:id/items）だけを 500 で失敗させる。
+     * @requirement estimate-request/REQ-4.9
+     */
+    test('REQ-4.9: 選択状態の保存が失敗するとエラーメッセージを表示し選択状態をサーバーの状態に戻す', async ({
+      page,
+    }) => {
+      expect(blockEstimateRequestId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/estimate-requests/${blockEstimateRequestId}`);
+      await page.waitForLoadState('networkidle');
+
+      const checkboxes = page.locator('table[aria-label="内訳書項目一覧"] input[type="checkbox"]');
+      await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+      const serverState = await checkboxes.first().isChecked();
+
+      const itemsPath = `/api/estimate-requests/${blockEstimateRequestId}/items`;
+      let failedSaveRequests = 0;
+      await page.route(
+        (url) => url.pathname === itemsPath,
+        async (route) => {
+          if (route.request().method() !== 'PATCH') {
+            await route.fallback();
+            return;
+          }
+          failedSaveRequests++;
+          await route.fulfill({
+            status: 500,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              type: 'about:blank',
+              title: 'Internal Server Error',
+              status: 500,
+              detail: 'E2E: 選択状態の保存を失敗させる',
+            }),
+          });
+        }
+      );
+
+      // 選択状態を変更して保存する
+      await checkboxes.first().click();
+      await expect(checkboxes.first()).toBeChecked({ checked: !serverState });
+      await page.getByTestId('save-selection-button').click();
+
+      // 前提: 保存の要求が、失敗させた経路を通った
+      await expect
+        .poll(() => failedSaveRequests, {
+          message: '前提: 保存の要求（PATCH）が失敗させた経路を通った',
+          timeout: getTimeout(10000),
+        })
+        .toBeGreaterThan(0);
+
+      // エラーメッセージが表示される（クライアントの再試行を含めて待つ）
+      const feedback = page.getByTestId('save-feedback');
+      await expect(feedback).toBeVisible({ timeout: getTimeout(30000) });
+      await expect(feedback).toContainText('失敗', { timeout: getTimeout(30000) });
+      await expect(feedback).not.toHaveText('保存しました');
+
+      // 選択状態がサーバー側の最新状態に復元される
+      await expect(checkboxes.first()).toBeChecked({ checked: serverState });
+      // 未保存の変更は残らない（保存ボタンは非活性）
+      await expect(page.getByTestId('save-selection-button')).toBeDisabled();
+
+      // サーバー側の状態は変わっていない
+      await page.unrouteAll({ behavior: 'ignoreErrors' });
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      await expect(checkboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(checkboxes.first()).toBeChecked({ checked: serverState });
+    });
   });
 
   // ============================================================================

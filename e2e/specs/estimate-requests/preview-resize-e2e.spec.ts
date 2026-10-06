@@ -64,6 +64,86 @@ async function getPdfContainerHeight(page: Page): Promise<number | null> {
     });
 }
 
+/**
+ * リサイズハンドルのドラッグを開始する。
+ *
+ * useResizableHeight は React の onPointerDown で開始し、次のレンダーの useEffect で window に
+ * pointermove / pointerup を張る。received-quotation-dialog-improvements-e2e.spec.ts と同じく
+ * PointerEvent を直接送って挙動を確定させる。リスナの装着は、同じコミットで走る
+ * useResizeCursor が body のカーソルを ns-resize に変えることで待ち合わせる。
+ */
+async function beginHandleDrag(page: Page, x: number, y: number): Promise<void> {
+  await page.locator('[data-testid="preview-resize-handle"]').dispatchEvent('pointerdown', {
+    pointerId: 1,
+    pointerType: 'mouse',
+    button: 0,
+    buttons: 1,
+    clientX: x,
+    clientY: y,
+    isPrimary: true,
+  });
+  await expect
+    .poll(async () => page.evaluate(() => document.body.style.cursor), {
+      timeout: getTimeout(5000),
+    })
+    .toBe('ns-resize');
+}
+
+async function movePointerTo(page: Page, x: number, y: number): Promise<void> {
+  await page.evaluate(
+    ({ px, py }) => {
+      window.dispatchEvent(
+        new PointerEvent('pointermove', {
+          pointerId: 1,
+          pointerType: 'mouse',
+          button: 0,
+          buttons: 1,
+          clientX: px,
+          clientY: py,
+          isPrimary: true,
+          bubbles: true,
+        })
+      );
+    },
+    { px: x, py: y }
+  );
+}
+
+async function endHandleDrag(page: Page, x: number, y: number): Promise<void> {
+  await page.evaluate(
+    ({ px, py }) => {
+      window.dispatchEvent(
+        new PointerEvent('pointerup', {
+          pointerId: 1,
+          pointerType: 'mouse',
+          button: 0,
+          buttons: 0,
+          clientX: px,
+          clientY: py,
+          isPrimary: true,
+          bubbles: true,
+        })
+      );
+    },
+    { px: x, py: y }
+  );
+  await expect
+    .poll(async () => page.evaluate(() => document.body.style.cursor), {
+      timeout: getTimeout(5000),
+    })
+    .not.toBe('ns-resize');
+}
+
+/** 状態更新の反映（React の描画）を 2 フレーム待つ。「変わらないこと」を主張する前に使う */
+async function waitForRenderFrames(page: Page): Promise<void> {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      })
+  );
+}
+
 test.describe('受領見積書 インラインプレビュー縦幅リサイズ（REQ-36 残り）', () => {
   test.describe.configure({ mode: 'serial' });
 
@@ -245,6 +325,85 @@ test.describe('受領見積書 インラインプレビュー縦幅リサイズ�
       assertPresent(pdfContainerHeight, 'PDF プレビュー領域の実高さ');
       // RESIZE_MAX_ABSOLUTE_HEIGHT = 800px と viewport*0.7 のうち小さい方
       expect(pdfContainerHeight).toBeLessThanOrEqual(RESIZE_MAX_ABSOLUTE_HEIGHT);
+    });
+
+    /**
+     * @requirement estimate-request/REQ-36.8
+     *
+     * 受入基準36.8 の原文は「While 縦幅が最大値に達しているとき, the システム shall それ以上の拡大操作を抑止する」である。
+     * 保存値のクランプ（上の検証）ではなく、ドラッグという拡大操作そのものを主張する。
+     * 1. 下方向へ大きくドラッグし、縦幅がドラッグ量に追従せず頭打ちになる（＝最大値に達した）ことを確かめる
+     * 2. 最大値に達したまま、同じドラッグをさらに下へ進めても縦幅が増えない
+     * 3. ドラッグを離した後、最大値の状態から新たに下方向へドラッグしても縦幅が増えない
+     * 寸法はフォントに依存しない相対関係（頭打ち前後の差）で主張する。
+     */
+    test('縦幅が最大値に達しているときは下方向へドラッグしてもそれ以上拡大しない (REQ-36.8)', async ({
+      page,
+    }) => {
+      expect(createdEstimateRequestId).toBeTruthy();
+      await loginAsUser(page, 'REGULAR_USER');
+      await openCreateDialog(page, createdEstimateRequestId as string);
+      await page.evaluate((key) => localStorage.removeItem(key), PREVIEW_HEIGHT_STORAGE_KEY);
+
+      await page.locator('[data-testid="file-input"]').setInputFiles('e2e/fixtures/test-file.pdf');
+
+      const resizeHandle = page.locator('[data-testid="preview-resize-handle"]');
+      await expect(resizeHandle).toBeVisible({ timeout: getTimeout(20000) });
+
+      const initialHeight = await getPdfContainerHeight(page);
+      assertPresent(initialHeight, 'ドラッグ前の PDF プレビュー領域の実高さ');
+
+      // 1 回目のドラッグ: 最大値を十分に超える量（2000px）だけ下へ動かす
+      const firstBox = await resizeHandle.boundingBox();
+      assertPresent(firstBox, 'リサイズハンドルの境界ボックス（1 回目）');
+      const startX = firstBox.x + firstBox.width / 2;
+      const startY = firstBox.y + firstBox.height / 2;
+      const OVERSHOOT = 2000;
+
+      await beginHandleDrag(page, startX, startY);
+      await movePointerTo(page, startX, startY + OVERSHOOT);
+      // 拡大操作が効いていること（縦幅が増えた）を先に確かめる
+      await expect
+        .poll(async () => getPdfContainerHeight(page), { timeout: getTimeout(5000) })
+        .toBeGreaterThan(initialHeight + 1);
+      const maxHeight = await getPdfContainerHeight(page);
+      assertPresent(maxHeight, '最大値に達した PDF プレビュー領域の実高さ');
+      // ドラッグ量に追従しきらず頭打ちになった＝最大値に達している
+      expect(maxHeight).toBeLessThan(initialHeight + OVERSHOOT);
+
+      // 2 回目: 最大値に達したまま、同じドラッグをさらに 600px 下へ進める → 縦幅は増えない
+      await movePointerTo(page, startX, startY + OVERSHOOT + 600);
+      await waitForRenderFrames(page);
+      const afterFurtherMove = await getPdfContainerHeight(page);
+      assertPresent(afterFurtherMove, '最大値からさらにドラッグした後の実高さ');
+      expect(afterFurtherMove).toBeLessThanOrEqual(maxHeight + 1);
+      await endHandleDrag(page, startX, startY + OVERSHOOT + 600);
+
+      // 3 回目: ドラッグを離した後、最大値の状態から新たに下方向へ 300px ドラッグ → 縦幅は増えない
+      const secondBox = await resizeHandle.boundingBox();
+      assertPresent(secondBox, 'リサイズハンドルの境界ボックス（2 回目）');
+      const secondX = secondBox.x + secondBox.width / 2;
+      const secondY = secondBox.y + secondBox.height / 2;
+      await beginHandleDrag(page, secondX, secondY);
+      await movePointerTo(page, secondX, secondY + 300);
+      await waitForRenderFrames(page);
+      const afterNewDrag = await getPdfContainerHeight(page);
+      assertPresent(afterNewDrag, '最大値から新たにドラッグした後の実高さ');
+      expect(afterNewDrag).toBeLessThanOrEqual(maxHeight + 1);
+      await endHandleDrag(page, secondX, secondY + 300);
+
+      // 永続化される縦幅も最大値を超えない
+      await expect
+        .poll(
+          async () => page.evaluate((key) => localStorage.getItem(key), PREVIEW_HEIGHT_STORAGE_KEY),
+          { timeout: getTimeout(5000) }
+        )
+        .not.toBeNull();
+      const persisted = Number.parseInt(
+        (await page.evaluate((key) => localStorage.getItem(key), PREVIEW_HEIGHT_STORAGE_KEY)) ?? '',
+        10
+      );
+      expect(persisted).toBeLessThanOrEqual(Math.ceil(maxHeight) + 1);
     });
   });
 
