@@ -2259,7 +2259,7 @@
 
 **経緯**: Task 94.1 の独立レビュー（2026-10-01、HEAD `05ba46fb`）が、`OcrDataExtractor.tsx` の PDF 経路（`processPdfHybrid`）の 30 秒のタイムアウトは `Promise.race` を reject するだけで、`extractPdfWithOcrFallback` の中で作られる Tesseract のワーカーは `workerRef` に登録されないため `cleanup()` で止まらず、全ページの認識が終わるまで走り続けることを確かめた（アンマウントしたときも同じ）。画像経路（`processOcr`）はタイムアウトの後に terminate する。要件 17.8（超過したらエラーを表示する）には違反しないが、CPU とメモリの浪費である
 
-- [ ] 96.1 PDF の OCR を時間切れとアンマウントで中断する
+- [x] 96.1 PDF の OCR を時間切れとアンマウントで中断する
   - `AbortController` を作り、時間切れのときとアンマウントのときに abort し、その signal を `extractPdfHybrid` の第 3 引数（`options.signal`）へ渡す。下流の `quantity-table-import` の `pdf-ocr-extractor.ts` が同じ形を実装している
   - 挙動の修正であるため RED → GREEN で進めること。中断後にワーカーが terminate されることを単体で主張する
   - _Requirements: 17.8_

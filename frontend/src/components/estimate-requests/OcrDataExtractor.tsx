@@ -5,6 +5,7 @@
  * Task 40.1: pdfjs-distベースのPDFテキスト抽出処理を追加
  * Task 40.2: テキストPDF/スキャンPDF判定とハイブリッド処理フローを実装
  * Task 40.3: スキャンPDFフォールバック（Canvas→画像→Tesseract OCR）を実装
+ * Task 96.1: PDF の OCR を時間切れとアンマウントで中断する（extractPdfHybrid の options.signal）
  *
  * Requirements:
  * - 13.5: PDF/画像ファイルに対してOCR処理を自動的に開始する
@@ -692,6 +693,9 @@ export function OcrDataExtractor({
   } | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortedRef = useRef(false);
+  // PDF 経路の OCR を中断するためのコントローラ（Task 96.1）。PDF のワーカーは
+  // extractPdfWithOcrFallback の中で作られ workerRef に載らないため、中断のシグナルで止める
+  const pdfAbortControllerRef = useRef<AbortController | null>(null);
 
   // 手動トリガーモードで使用するファイルオブジェクトの保持
   const fetchedFileRef = useRef<File | null>(null);
@@ -845,22 +849,31 @@ export function OcrDataExtractor({
       }
 
       // ---- Tesseract.jsフォールバック（25.1-25.6）----
+      // 時間切れ・アンマウントで中断し、OCR のワーカーを終了させる（Task 96.1）
+      const controller = new AbortController();
+      pdfAbortControllerRef.current = controller;
       try {
         // タイムアウト設定（30秒）
         const timeoutPromise = new Promise<never>((_, reject) => {
           timeoutRef.current = setTimeout(() => {
             abortedRef.current = true;
             reject(new Error('PDFテキスト抽出がタイムアウトしました（30秒超過）'));
+            controller.abort();
           }, OCR_TIMEOUT_MS);
         });
 
-        // pdfjs-distハイブリッドアプローチ（タイムアウト付き）
+        // pdfjs-distハイブリッドアプローチ（タイムアウト付き）。中断された抽出は後から
+        // AbortError で失敗するが、Promise.race が購読しているため未処理の拒否は残らない
         const result = await Promise.race([
-          extractPdfHybrid(targetFile, (progressValue, _message) => {
-            if (!abortedRef.current) {
-              setProgress(progressValue);
-            }
-          }),
+          extractPdfHybrid(
+            targetFile,
+            (progressValue, _message) => {
+              if (!abortedRef.current) {
+                setProgress(progressValue);
+              }
+            },
+            { signal: controller.signal }
+          ),
           timeoutPromise,
         ]);
 
@@ -894,6 +907,11 @@ export function OcrDataExtractor({
         // 両方失敗（25.7）
         setErrorMessage('OCR処理に失敗しました。手動入力してください');
         setStatus('error');
+      } finally {
+        // 完了・失敗した処理のコントローラを手放す（後続の処理のものは残す）
+        if (pdfAbortControllerRef.current === controller) {
+          pdfAbortControllerRef.current = null;
+        }
       }
     },
     [cleanup, processClaudeVision]
@@ -1160,6 +1178,14 @@ export function OcrDataExtractor({
       cleanup();
     };
   }, [file, autoStart, fileUrl, processPdfHybrid, processOcr, processExcel, cleanup]);
+
+  // アンマウント時に PDF 経路の OCR を中断する（Task 96.1）。上の副作用は autoStart=false の
+  // ときに後始末を返さないため、手動トリガーで始めた処理も含めてここで止める
+  useEffect(() => {
+    return () => {
+      pdfAbortControllerRef.current?.abort();
+    };
+  }, []);
 
   // --------------------------------------------------------------------------
   // 一括取り込みハンドラ
