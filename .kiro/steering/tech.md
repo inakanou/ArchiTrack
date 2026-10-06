@@ -162,6 +162,20 @@ ArchiTrack/
 - **画像フィット倍率**: `utils/imageFitScale` の `computeFitScale`（純関数・React 非依存）に一元化する。`allowUpscale=false`（既定）は原寸頭打ちでデスクトップの現行挙動を維持し、`allowUpscale=true` は `maxUpscale`（既定 3）までフィット拡大して小画像の過小表示を防ぐ。表示領域の実寸は `hooks/useElementSize`（ResizeObserver、非対応環境では購読せず例外も出さない）で購読し、コンテナ寸法の変化に追従して再フィットする
 - **責務の分離**: 「画像→コンテナのフィット」（`computeFitScale` によるキャンバス寸法算出）と「コンテナ内のズーム/パン」（`gestures/canvasViewportController`）は別レイヤとして扱い、混在させない。`AnnotationEditor`（閲覧/編集の両モード）と `ConstructionPhotoImageViewer` はこの two-layer 構成を共有する
 
+### フォーカス表示方針
+
+キーボード操作時のフォーカス表示（WCAG 2.1 SC 2.4.7 Focus Visible）を全画面で保つための横断ルール。新規画面・コンポーネントも同じ方針に従う。
+
+- **共通のフォーカス表示の単一情報源**: `frontend/src/index.css` の `@layer base` に置いた `:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }` が全画面の既定である（project-management タスク 72.3）。部品ごとにフォーカス表示を書き足さなくても、この規則で表示される
+- **インラインの `outline: 'none'` を書かない**: React のインライン style は stylesheet の規則に勝つため、部品の側で `outline: 'none'` を書くとその部品では共通のフォーカス表示が出なくなる
+- **独自の輪を描く場合の下限**: 部品が自前のフォーカス表示（Tailwind の `focus:ring`、`box-shadow`、`focus:outline-none` と ring の組など）を描く場合は、太さ 2px 以上、隣接色に対するコントラスト比 3:1 以上（WCAG 2.1 SC 1.4.11 Non-text Contrast）にする
+- **既存の逸脱**: 2026-10-07（HEAD `041a0fc8`）の実測で、テストと Storybook を除く本番の部品・ページにインラインの `outline: 'none'` が 49 か所あり、すべて project-management 以外の機能に属する。是正は各機能のスペックの責務であり、本方針の記録の範囲外とする。件数は次で測り直す
+
+```bash
+grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx \
+  | grep -vE "__tests__|\.test\.|\.stories\." | wc -l
+```
+
 ### 帳票生成方針（フロントエンド）
 
 新規の帳票はサーバーの出力エンドポイントを増やさず、フロントエンド生成を既定とします（未保存内容のプレビューが可能・サーバー負荷を持ち込まないため）。

@@ -1788,7 +1788,7 @@
   - _Requirements: 20.4_
   - _Boundary: site-survey の設計文書の、本番から到達しない受入基準の記録_
 
-- [ ] 73.5 全画面共通のフォーカス表示の規約を steering に記録するかを決め、記録する（利用者の判断で起票。2026-10-07）
+- [x] 73.5 全画面共通のフォーカス表示の規約を steering に記録するかを決め、記録する（利用者の判断で起票。2026-10-07）
   - Task 72.3 は `frontend/src/index.css` の `@layer base` に全画面共通の `:focus-visible`（2px の実線、#2563eb）を置いた。一方、本番の部品のインラインの `outline: 'none'` は 2026-10-07（HEAD `2ba0198f`）の実測で 50 か所あり、うち 49 か所はプロジェクト以外（quantity-table・site-surveys・trading-partners・estimate-requests・estimate の部品とページ）である。インライン指定は stylesheet の規則に勝つため、これらの部品では共通のフォーカス表示が出ない。要件 20.4 は本スペックの画面に限られるため本スペックの欠陥ではない
   - 規約（部品の側でインラインの `outline: 'none'` を書かない。独自の輪を描く場合は 2px 以上・コントラスト比 3:1 以上にする）を steering（`.kiro/steering/` の該当文書）へ記録するかを利用者に確かめ、記録する場合は既存の書きぶりに合わせて追記する。他スペックの部品の是正は本タスクの範囲外とし、必要なら各スペックへ起票する
   - _Requirements: 20.4_
