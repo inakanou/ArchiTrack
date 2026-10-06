@@ -2288,7 +2288,7 @@
 
 **経緯**: タスク 96〜97 の完了後の機能レベル検証（2026-10-06、HEAD `00147512`、GO）が、Warning として指摘した。`EstimateRequestDetailPage.tsx` の `handleItemSelectionChange` は、保存（`updateItemSelection`）の成功後に項目（`getEstimateRequestItems`）だけを再取得し、見積依頼文を再取得しない。方法の変更（`handleMethodChange`）と「内訳書を本文に含める」の変更（`handleIncludeBreakdownChange`）は、`showTextPanel` のときに本文を再取得している。そのため、見積依頼文を開いたまま項目の選択を保存すると、パネルを開き直すまで本文の【内容】が保存前の選択のままになる（要件 6.8 の「チェックされた内訳書項目を表示する」に照らして鮮度が落ちる）。Task 97.2 の案内「項目を選択してください」に従って項目を選択・保存しても、案内が消えない。挙動はタスク 97 より前からあり、97.2 で目立つようになった。利用者の判断（2026-10-06）により修正タスクとして起票する
 
-- [ ] 98.1 項目選択の保存の成功後、見積依頼文のパネルが開いていれば本文を再取得する
+- [x] 98.1 項目選択の保存の成功後、見積依頼文のパネルが開いていれば本文を再取得する
   - `handleItemSelectionChange` で、保存が成功し `showTextPanel` が真のときに `getEstimateRequestText` で本文を再取得する。失敗は既存の `resolveTextFetchFailure` で扱い、成功時は `textErrorMessage` を消す（`handleMethodChange` と同じ形）
   - 保存の失敗は従来どおり `ItemSelectionPanel` へ伝える（4.9）。本文の再取得の失敗を保存の失敗として扱わない（4.8。Task 97.1 で項目の再取得について決めた扱いと同じ）
   - 挙動の修正であるため RED → GREEN で進めること。単体で、パネルが開いているときは保存の後に本文が再取得されること、閉じているときは再取得しないこと、本文の再取得が失敗しても保存の失敗として扱わないことを主張する

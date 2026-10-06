@@ -5490,6 +5490,7 @@ if (request.includeBreakdownInBody && selectedItems.length > 0) { // 旧: includ
   - 入口の `NoItemsSelectedError` は、並べる場合に選択項目が 0 件のときだけ投げる。内訳書未紐付けの見積依頼と、紐付いていても項目を 1 件も選ばず「含めない」の見積依頼は、例外にならず本文を生成する
   - 「含める」がチェックされ項目が 0 件のときは 422 `NO_ITEMS_SELECTED` を保つ。Req 6 AC 8 は【内容】へ「チェックされた内訳書項目」を出すと定めるだけで 0 件の内容を定めず、Req 6 AC 9 の文言は未チェックのときに限られるため（Task 93.1 の判断。利用者へ報告済み）
   - **2026-10-06（Task 97.2、利用者の判断「422 維持＋案内表示」）**: backend は上の 422 `NO_ITEMS_SELECTED` を変えない。frontend の `EstimateRequestDetailPage` は見積依頼文の取得失敗の応答の `code` を判別し、`NO_ITEMS_SELECTED` のときは `EstimateRequestTextPanel` の `errorMessage` に「本文に含める項目が選択されていません。項目を選択してください」を渡す。それ以外の失敗は従来どおり汎用の「見積依頼文を取得できませんでした」を表示する
+  - **2026-10-06（Task 98.1）**: `EstimateRequestDetailPage.handleItemSelectionChange` は、保存（`updateItemSelection`）と項目の再取得の後、`showTextPanel` が真なら `getEstimateRequestText` で本文を再取得する（`handleMethodChange` / `handleIncludeBreakdownChange` と同じ形。失敗は `resolveTextFetchFailure`、成功時は `textErrorMessage` を消す）。本文の再取得の失敗は保存の失敗として扱わない（4.8）。保存の失敗だけを `ItemSelectionPanel` へ伝える（4.9）
 - Type safety: `request.itemizedStatement` は Prisma の optional relation として `{ id: string; name: string } | null` 型で取得され、生成関数内で参照する箇所はないため追加修正なし
 
 #### EstimateRequestForm（改訂2）

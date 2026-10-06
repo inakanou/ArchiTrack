@@ -2246,6 +2246,124 @@ test.describe('見積依頼機能', () => {
       });
       await expect(panel.getByText('見積依頼文を取得できませんでした')).toHaveCount(0);
     });
+
+    /**
+     * @requirement estimate-request/REQ-6.8
+     * 「内訳書を本文に含める」がチェックされているとき、本文の【内容】セクションにチェックされた内訳書項目を成形して表示する
+     *
+     * Task 98.1: 見積依頼文を開いたまま項目の選択を保存すると、パネルを開き直さずに本文が再取得され、
+     * 保存後にチェックされている項目が本文に並ぶ（Task 97.2 の案内も消える）。
+     * 本文は「含める」のとき【見積対象項目】の見出しで項目を並べる（design.md の Task 93.1 の項）。
+     * 実在の backend の状態で前提を作り、応答の差し替えは行わない。
+     */
+    test('REQ-6.8 / Task 98.1: 見積依頼文を開いたまま項目を選択・保存すると、開き直さずに案内が消えてチェックした項目が本文に並ぶ', async ({
+      page,
+    }) => {
+      expect(createdProjectId).toBeTruthy();
+      expect(createdTradingPartnerId).toBeTruthy();
+      expect(createdItemizedStatementId).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 見積依頼を作成（内訳書を紐付ける）
+      await page.goto(`/projects/${createdProjectId}/estimate-requests/new`);
+      await page.waitForLoadState('networkidle');
+
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
+      });
+
+      await page.locator('input#name').fill('Task98.1保存後の本文再取得テスト見積依頼');
+
+      await selectTradingPartnerByName(page, tradingPartnerName);
+
+      const itemizedStatementSelect = page.locator('select[aria-label="内訳書"]');
+      await itemizedStatementSelect.selectOption(createdItemizedStatementId!);
+
+      const createPromise = page.waitForResponse(
+        (response) =>
+          response.url().includes('/estimate-requests') &&
+          response.request().method() === 'POST' &&
+          response.status() === 201,
+        { timeout: getTimeout(30000) }
+      );
+
+      await page.getByRole('button', { name: /作成/i }).click();
+      const createResponse = await createPromise;
+      const createdId = ((await createResponse.json()) as { id: string }).id;
+      expect(createdId).toBeTruthy();
+
+      await page.waitForURL(/\/estimate-requests\/[0-9a-f-]+$/);
+      await page.waitForLoadState('networkidle');
+
+      // 前提: 項目は 1 件も選択されていない（作成直後は未選択）
+      const itemTable = page.locator('table[aria-label="内訳書項目一覧"]');
+      const itemCheckboxes = itemTable.locator('input[type="checkbox"]');
+      await expect(itemCheckboxes.first()).toBeVisible({ timeout: getTimeout(10000) });
+      const checkboxCount = await itemCheckboxes.count();
+      expect(checkboxCount).toBeGreaterThan(1);
+      for (let i = 0; i < checkboxCount; i++) {
+        await expect(itemCheckboxes.nth(i)).not.toBeChecked();
+      }
+
+      // 「内訳書を本文に含める」を ON にし、サーバーへの保存の完了を待つ
+      const includeBreakdownCheckbox = page.getByLabel(/内訳書を本文に含める/i);
+      await expect(includeBreakdownCheckbox).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(includeBreakdownCheckbox).not.toBeChecked();
+      const updatePromise = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname.endsWith(`/estimate-requests/${createdId}`) &&
+          ['PUT', 'PATCH'].includes(response.request().method()),
+        { timeout: getTimeout(30000) }
+      );
+      await includeBreakdownCheckbox.click();
+      const updateResponse = await updatePromise;
+      expect(updateResponse.status()).toBe(200);
+      await expect(includeBreakdownCheckbox).toBeChecked();
+
+      // 見積依頼文を表示し、項目 0 件の案内が出ることを確かめる（Task 97.2 の挙動）
+      const isTextResponse = (response: import('@playwright/test').Response) =>
+        new URL(response.url()).pathname.endsWith(`/estimate-requests/${createdId}/text`) &&
+        response.request().method() === 'GET';
+      const showTextButton = page.getByRole('button', { name: /見積依頼文を表示/i });
+      await expect(showTextButton).toBeVisible({ timeout: getTimeout(10000) });
+      const firstTextResponsePromise = page.waitForResponse(isTextResponse, {
+        timeout: getTimeout(30000),
+      });
+      await showTextButton.click();
+      const firstTextResponse = await firstTextResponsePromise;
+      expect(firstTextResponse.status()).toBe(422);
+
+      const panel = page.locator('[role="region"][aria-label="見積依頼文"]');
+      await expect(panel).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(panel).toContainText('項目を選択してください', {
+        timeout: getTimeout(10000),
+      });
+      const closeTextButton = page.getByRole('button', { name: '見積依頼文を閉じる' });
+      await expect(closeTextButton).toBeVisible();
+
+      // パネルを開いたまま「テスト項目1」だけを選択して保存する
+      await itemTable.getByRole('checkbox', { name: 'テスト項目1を選択' }).click();
+      const secondTextResponsePromise = page.waitForResponse(isTextResponse, {
+        timeout: getTimeout(30000),
+      });
+      await clickSaveSelectionButton(page);
+
+      // パネルを開き直さずに本文が再取得される
+      const secondTextResponse = await secondTextResponsePromise;
+      expect(secondTextResponse.status()).toBe(200);
+      await expect(closeTextButton).toBeVisible();
+
+      // 案内は消え、本文にチェックした項目が成形されて並び、チェックしていない項目は並ばない
+      await expect(panel.getByText('項目を選択してください')).toHaveCount(0, {
+        timeout: getTimeout(10000),
+      });
+      const bodyPre = panel.locator('pre');
+      await expect(bodyPre).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(bodyPre).toContainText('・工種A / テスト項目1 / 規格A / ');
+      await expect(bodyPre).not.toContainText('テスト項目2');
+      await expect(bodyPre).not.toContainText('テスト項目3');
+    });
   });
 
   // ============================================================================

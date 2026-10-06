@@ -617,8 +617,25 @@ export default function EstimateRequestDetailPage() {
       } catch {
         // 再取得に失敗しても保存済みの選択状態はパネルが保持している
       }
+
+      // テキストパネルが開いている場合は本文を再取得し、【内容】を保存後の選択へ揃える（6.8 / Task 98.1）。
+      // 本文の再取得の失敗はパネル側に表示し、保存の失敗として扱わない（4.8）
+      if (showTextPanel) {
+        setIsTextLoading(true);
+        try {
+          const textData = await getEstimateRequestText(id);
+          setEstimateText(textData);
+          setTextErrorMessage(null);
+        } catch (error) {
+          const failure = resolveTextFetchFailure(error);
+          setEstimateText(failure.text);
+          setTextErrorMessage(failure.errorMessage);
+        } finally {
+          setIsTextLoading(false);
+        }
+      }
     },
-    [id]
+    [id, showTextPanel]
   );
 
   /**
