@@ -3,6 +3,7 @@
  *
  * Task 10.1: 取引先詳細表示コンポーネントの実装
  * Task 19.3: 取引先詳細画面からbranchNameKana/representativeNameKana表示を削除
+ * Task 31.2: 区切りの無い長い一語でも表題・各欄の値が折り返し、狭い画面で main を押し広げない
  *
  * 取引先の詳細情報を表示するコンポーネントです。
  * 全フィールドの表示、請求締日・支払日の日本語表記変換、
@@ -42,6 +43,9 @@ export interface TradingPartnerDetailViewProps {
 // スタイル定義
 // ============================================================================
 
+// overflowWrap:anywhere は、区切りの無い長い一語（英数字の名前・メールアドレス・電話番号など）にも
+// 折り返し位置を与え、文字列が箱の外へ伸びて画面のコンテナ（main）を押し広げないようにする
+// （タスク 31.2）。普通の日本語の文字列は従来どおりの位置で折り返し、配置は変わらない。
 const styles = {
   container: {
     backgroundColor: '#ffffff',
@@ -63,10 +67,12 @@ const styles = {
     fontWeight: 'bold',
     color: '#1f2937',
     marginBottom: '4px',
+    overflowWrap: 'anywhere' as const,
   } as React.CSSProperties,
   subtitle: {
     fontSize: '14px',
     color: '#6b7280',
+    overflowWrap: 'anywhere' as const,
   } as React.CSSProperties,
   actionsContainer: {
     display: 'flex',
@@ -105,9 +111,11 @@ const styles = {
     paddingBottom: '8px',
     borderBottom: '1px solid #e5e7eb',
   } as React.CSSProperties,
+  // 列の最小幅を節の内側の幅で頭打ちにする（min(250px, 100%)）。320 幅では節の内側が 250 より狭く、
+  // 固定の 250 では欄が節の外へ出て main を押し広げていた（タスク 31.2）。250 以上の幅では従来どおり。
   grid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(250px, 100%), 1fr))',
     gap: '16px',
   } as React.CSSProperties,
   field: {
@@ -123,9 +131,11 @@ const styles = {
   fieldValue: {
     fontSize: '14px',
     color: '#1f2937',
+    overflowWrap: 'anywhere' as const,
   } as React.CSSProperties,
   notes: {
     whiteSpace: 'pre-wrap' as const,
+    overflowWrap: 'anywhere' as const,
     fontSize: '14px',
     color: '#374151',
     lineHeight: '1.6',

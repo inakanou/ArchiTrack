@@ -564,4 +564,80 @@ describe('TradingPartnerDetailView', () => {
       expect(screen.getByText('協力業者')).toBeInTheDocument();
     });
   });
+
+  // ==========================================================================
+  // 区切りの無い長い一語の折り返し（タスク 31.2）
+  // ==========================================================================
+
+  /**
+   * 表題・フリガナ・各欄の値・備考が、区切りの無い長い一語（英数字の名前・メールアドレス・電話番号
+   * など）でも箱の中で折り返し、欄の格子が狭い画面で節の内側の幅を越えないこと（タスク 31.2）。
+   * 実際の配置（main を水平に押し広げないこと）は E2E の「詳細画面の文字列のモバイル幅での収まり」が
+   * 375・320・768・1280 幅で測る。ここでは配置を決める指定そのものを確かめる。
+   */
+  describe('区切りの無い長い一語の折り返し（タスク 31.2）', () => {
+    const unbrokenPartner: TradingPartnerDetail = {
+      ...mockTradingPartner,
+      name: 'TradingPartnerRedevelopmentSkyscraperConstructionUnbrokenName1759800000000',
+      nameKana: 'トリヒキサキサイカイハツチョウコウソウビルケンセツオリカエシカクニン',
+      branchName: 'BranchOfficeRedevelopmentSkyscraperConstructionUnbroken',
+      representativeName: 'RepresentativeDirectorRedevelopmentSkyscraperUnbroken',
+      address: 'TokyoChiyodaMarunouchi1Chome2Ban3GoRedevelopmentSkyscraperSite',
+      phoneNumber: '031234567803123456780312345678',
+      faxNumber: '031234567903123456790312345679',
+      email: 'overflowcheck@redevelopment-skyscraper-construction-example.co.jp',
+      notes: 'PaymentTermsMonthEndClosingNextMonthEndPaymentUnbrokenRemarks',
+    };
+
+    it('表題と「取引先名」の値が overflow-wrap: anywhere を持つ', () => {
+      render(
+        <TradingPartnerDetailView partner={unbrokenPartner} onEdit={() => {}} onDelete={() => {}} />
+      );
+
+      const nameElements = screen.getAllByText(unbrokenPartner.name);
+      expect(nameElements).toHaveLength(2);
+      for (const element of nameElements) {
+        expect(element.style.overflowWrap).toBe('anywhere');
+      }
+    });
+
+    it('フリガナ・各欄の値・備考が overflow-wrap: anywhere を持つ', () => {
+      render(
+        <TradingPartnerDetailView partner={unbrokenPartner} onEdit={() => {}} onDelete={() => {}} />
+      );
+
+      const values = [
+        unbrokenPartner.nameKana,
+        unbrokenPartner.branchName,
+        unbrokenPartner.representativeName,
+        unbrokenPartner.address,
+        unbrokenPartner.phoneNumber,
+        unbrokenPartner.faxNumber,
+        unbrokenPartner.email,
+        unbrokenPartner.notes,
+      ];
+      for (const value of values) {
+        const elements = screen.getAllByText(value as string);
+        expect(elements.length).toBeGreaterThan(0);
+        for (const element of elements) {
+          expect(element.style.overflowWrap).toBe('anywhere');
+        }
+      }
+    });
+
+    it('欄の格子の列の最小幅が節の内側の幅を越えない（min(250px, 100%)）', () => {
+      render(
+        <TradingPartnerDetailView partner={unbrokenPartner} onEdit={() => {}} onDelete={() => {}} />
+      );
+
+      const sectionTitles = ['基本情報', '連絡先情報', '請求・支払情報', 'システム情報'];
+      for (const title of sectionTitles) {
+        const grid = screen.getByRole('heading', { name: title }).nextElementSibling as HTMLElement;
+        expect(grid.style.display).toBe('grid');
+        expect(grid.style.gridTemplateColumns).toBe(
+          'repeat(auto-fit, minmax(min(250px, 100%), 1fr))'
+        );
+      }
+    });
+  });
 });

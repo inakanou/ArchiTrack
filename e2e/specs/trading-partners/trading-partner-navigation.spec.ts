@@ -11,6 +11,7 @@
  * - 画面間遷移
  * - 未認証アクセス時のリダイレクト
  * - 作成・編集フォームの支払日の入力のモバイル幅での収まり（タスク 31.1）
+ * - 詳細画面の文字列のモバイル幅での収まり（タスク 31.2）
  *
  * Requirements:
  * - 12.1: ヘッダーに「取引先」ナビゲーションリンクを表示
@@ -259,6 +260,8 @@ function expectSingleLineItems(layout: BreadcrumbLayout, labels: string[], conte
  *     値の文字列の右端 602、main は 375 幅で 987/343、320 幅で 987/288、768 幅で 987/720。
  *     表を消しても 987 のままである。名前の長さに依る。
  * このほか 320 幅の詳細画面では、基本情報の各欄（幅 250）の右端が 307 で、main の右端 304 を越える。
+ * 3 とこの欄の幅はタスク 31.2 で是正し（表を除いた main は 4 幅とも収まる）、「詳細画面の文字列の
+ * モバイル幅での収まり」の describe が、表を除いた main ごと主張する。
  * ゆえに本関数は、パンくずが main のはみ出しに寄与しないこと（どの項目の箱も文字列も main の
  * 右端と画面幅の内側に在ること）を主張する。main の実測値は失敗時の報告に載せる。
  */
@@ -379,6 +382,237 @@ function expectPaymentDateSideBySide(layout: PaymentDateLayout, context: string)
     layout.month.right
   );
   expectPaymentDateWithinMain(layout, context);
+}
+
+/** 詳細画面の文字列の収まりを測る画面幅（タスク 31.2）。768 幅でも長い一語の名前ではみ出していた。 */
+const DETAIL_TEXT_WIDTHS = [375, 320, 768, 1280] as const;
+
+/** 詳細画面に表示される、利用者が入力した文字列の項目（タスク 31.2）。 */
+interface DetailTextFields {
+  name: string;
+  nameKana: string;
+  branchName: string;
+  representativeName: string;
+  address: string;
+  phoneNumber: string;
+  faxNumber: string;
+  email: string;
+  notes: string;
+}
+
+/**
+ * 利用者が入力する文字列の項目をすべて埋めて取引先を新規作成画面から作成し、その ID を返す
+ * （タスク 31.2 の準備）。作成に失敗した場合は応答待ちが時間切れで失敗する。
+ */
+async function createTradingPartnerWithAllTextFields(
+  page: Page,
+  fields: DetailTextFields
+): Promise<string> {
+  await page.goto('/trading-partners/new');
+  await page.waitForLoadState('networkidle');
+
+  await page.getByLabel('取引先名').fill(fields.name);
+  await page.getByLabel('フリガナ', { exact: true }).fill(fields.nameKana);
+  await page.getByLabel('部課/支店/支社名').fill(fields.branchName);
+  await page.getByLabel('代表者名').fill(fields.representativeName);
+  await page.getByLabel('住所').fill(fields.address);
+  await page.getByLabel('電話番号').fill(fields.phoneNumber);
+  await page.getByLabel('FAX番号').fill(fields.faxNumber);
+  await page.getByLabel('メールアドレス').fill(fields.email);
+  await page.getByLabel('備考').fill(fields.notes);
+  await page.getByRole('checkbox', { name: /顧客/i }).check();
+
+  const createPromise = page.waitForResponse(
+    (response) =>
+      response.url().includes('/api/trading-partners') &&
+      response.request().method() === 'POST' &&
+      response.status() === 201,
+    { timeout: getTimeout(30000) }
+  );
+  await page.getByRole('button', { name: /^作成$/i }).click();
+  const createResponse = await createPromise;
+  const responseData = (await createResponse.json()) as { id?: string };
+  const partnerId = responseData.id;
+  expect(partnerId, '作成した取引先の ID が応答に無い').toBeTruthy();
+  return partnerId as string;
+}
+
+/**
+ * 詳細画面の詳細表示（`TradingPartnerDetailView`）の配置を実ブラウザで測る（タスク 31.2）。
+ *
+ * - 詳細表示の中で、自身の直下に文字列を持つ要素ごとに、箱の矩形・文字列そのものの外接矩形
+ *   （Range）・同じ要素の複製を `white-space: nowrap` で置いたときの一行ぶんの高さと自然幅を測る。
+ * - 詳細表示の中のすべての要素の箱の左右端を測る（文字列を持たない欄の箱のはみ出しも拾うため）。
+ * - 画面のコンテナ（main）の scrollWidth と clientWidth を、関連プロジェクトの節を一時的に
+ *   `display: none` にした状態で測り、測り終えたら元へ戻す。関連プロジェクトの表のはみ出し
+ *   （タスク 31.3）と、紐付かないプロジェクトが表に出る疑い（タスク 31.4）は本タスクの境界の外で
+ *   あり、表の有無が全体の実行順で変わるため、詳細表示の寄与だけを取り出して測る。
+ *   節を隠さない main の実測値も報告に載せる。
+ */
+async function measureDetailTextLayout(page: Page) {
+  await expect(page.getByRole('heading', { name: '基本情報' })).toBeVisible({
+    timeout: getTimeout(15000),
+  });
+  await expect(page.getByRole('heading', { name: '関連プロジェクト' })).toBeVisible({
+    timeout: getTimeout(15000),
+  });
+
+  return page.evaluate(async () => {
+    await document.fonts.ready;
+
+    const headings = Array.from(document.querySelectorAll('h2'));
+    const basicSection = headings.find((h) => h.textContent === '基本情報')?.closest('section');
+    const view = basicSection?.parentElement;
+    const main = view?.closest('main');
+    const projectsSection = headings
+      .find((h) => h.textContent === '関連プロジェクト')
+      ?.closest('section');
+    if (!view || !main || !projectsSection) {
+      throw new Error('詳細表示・画面のコンテナ（main）・関連プロジェクトの節のいずれかが無い');
+    }
+
+    const texts = Array.from(view.querySelectorAll<HTMLElement>('*'))
+      .map((element) => {
+        const ownText = Array.from(element.childNodes)
+          .filter((node) => node.nodeType === Node.TEXT_NODE)
+          .map((node) => node.textContent ?? '')
+          .join('')
+          .trim();
+        return { element, ownText };
+      })
+      .filter(({ ownText }) => ownText.length > 0)
+      .map(({ element, ownText }) => {
+        const probe = element.cloneNode(true) as HTMLElement;
+        probe.setAttribute('aria-hidden', 'true');
+        probe.style.position = 'absolute';
+        probe.style.visibility = 'hidden';
+        probe.style.whiteSpace = 'nowrap';
+        probe.style.width = 'auto';
+        element.parentElement?.appendChild(probe);
+        const probeRect = probe.getBoundingClientRect();
+        probe.remove();
+
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const textRect = range.getBoundingClientRect();
+        const boxRect = element.getBoundingClientRect();
+        return {
+          text: ownText,
+          boxLeft: boxRect.left,
+          boxRight: boxRect.right,
+          boxTop: boxRect.top,
+          boxHeight: boxRect.height,
+          textLeft: textRect.left,
+          textRight: textRect.right,
+          singleLineHeight: probeRect.height,
+          naturalWidth: probeRect.width,
+        };
+      });
+
+    const boxes = [view, ...Array.from(view.querySelectorAll<HTMLElement>('*'))].map((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        tag: element.tagName,
+        text: (element.textContent ?? '').slice(0, 24),
+        left: rect.left,
+        right: rect.right,
+      };
+    });
+
+    const mainScrollWidthWithProjects = main.scrollWidth;
+    const previousDisplay = projectsSection.style.display;
+    projectsSection.style.display = 'none';
+    const mainScrollWidth = main.scrollWidth;
+    const mainClientWidth = main.clientWidth;
+    projectsSection.style.display = previousDisplay;
+
+    const mainRect = main.getBoundingClientRect();
+    const mainStyle = getComputedStyle(main);
+    return {
+      viewportWidth: window.innerWidth,
+      main: {
+        scrollWidth: mainScrollWidth,
+        clientWidth: mainClientWidth,
+        scrollWidthWithProjects: mainScrollWidthWithProjects,
+        left: mainRect.left,
+        contentRight: mainRect.right - parseFloat(mainStyle.paddingRight),
+      },
+      view: { scrollWidth: view.scrollWidth, clientWidth: view.clientWidth },
+      texts,
+      boxes,
+    };
+  });
+}
+
+type DetailTextLayout = Awaited<ReturnType<typeof measureDetailTextLayout>>;
+
+/** 指定の画面幅で詳細画面を開き直し、詳細表示を測る。前提を満たせなければ失敗する。 */
+async function openAndMeasureDetailText(
+  page: Page,
+  partnerId: string,
+  width: number,
+  fields: DetailTextFields
+): Promise<DetailTextLayout> {
+  await page.setViewportSize({ width, height: 812 });
+  await page.goto(`/trading-partners/${partnerId}`);
+  await page.waitForLoadState('networkidle');
+  const layout = await measureDetailTextLayout(page);
+  const report = JSON.stringify(layout);
+  // 前提: 画面幅が指定どおりで、main が幅を持ち、入力した文字列の項目がすべて描かれている
+  expect(layout.viewportWidth, report).toBe(width);
+  expect(layout.main.clientWidth, report).toBeGreaterThan(0);
+  const shownTexts = layout.texts.map((item) => item.text);
+  for (const value of Object.values(fields)) {
+    expect(shownTexts, `「${value}」が詳細表示に無い。${report}`).toContain(value);
+  }
+  for (const item of layout.texts) {
+    expect(item.singleLineHeight, report).toBeGreaterThan(0);
+    expect(item.naturalWidth, report).toBeGreaterThan(0);
+  }
+  return layout;
+}
+
+/**
+ * 詳細表示が main を水平に押し広げないことを主張する（許容誤差 1px）。
+ *
+ * - 関連プロジェクトの節を除いた main の scrollWidth が clientWidth を超えない。
+ * - 詳細表示の scrollWidth が clientWidth を超えない。
+ * - 詳細表示の中のどの要素の箱も、どの文字列（Range の外接矩形）も、右端が main の内容の右端と
+ *   画面幅の内側に在り、左端が main の左端より左に無い。
+ */
+function expectDetailTextWithinMain(layout: DetailTextLayout, context: string): void {
+  const report = `${context}: ${JSON.stringify(layout)}`;
+  expect(
+    layout.main.scrollWidth - layout.main.clientWidth,
+    `main の scrollWidth ${layout.main.scrollWidth} が clientWidth ${layout.main.clientWidth} を超える。${report}`
+  ).toBeLessThanOrEqual(LAYOUT_TOLERANCE_PX);
+  expect(
+    layout.view.scrollWidth - layout.view.clientWidth,
+    `詳細表示の scrollWidth ${layout.view.scrollWidth} が clientWidth ${layout.view.clientWidth} を超える。${report}`
+  ).toBeLessThanOrEqual(LAYOUT_TOLERANCE_PX);
+  const rightLimit = Math.min(layout.viewportWidth, layout.main.contentRight) + LAYOUT_TOLERANCE_PX;
+  const leftLimit = layout.main.left - LAYOUT_TOLERANCE_PX;
+  for (const item of layout.texts) {
+    expect(item.textRight, `「${item.text}」の文字列の右端。${report}`).toBeLessThanOrEqual(
+      rightLimit
+    );
+    expect(item.textLeft, `「${item.text}」の文字列の左端。${report}`).toBeGreaterThanOrEqual(
+      leftLimit
+    );
+  }
+  for (const box of layout.boxes) {
+    expect(box.right, `${box.tag}「${box.text}」の箱の右端。${report}`).toBeLessThanOrEqual(
+      rightLimit
+    );
+    expect(box.left, `${box.tag}「${box.text}」の箱の左端。${report}`).toBeGreaterThanOrEqual(
+      leftLimit
+    );
+  }
+}
+
+/** 詳細表示の中で、指定の文字列を直下に持つ要素の実測をすべて返す（表題と「取引先名」の値など）。 */
+function detailTextItems(layout: DetailTextLayout, text: string) {
+  return layout.texts.filter((item) => item.text === text);
 }
 
 /**
@@ -1165,6 +1399,154 @@ test.describe('取引先ナビゲーション・画面遷移', () => {
         1280
       );
       expectPaymentDateSideBySide(desktop, '編集 1280 幅');
+    });
+  });
+
+  /**
+   * 詳細画面の文字列のモバイル幅での収まり（タスク 31.2）
+   *
+   * 詳細表示（TradingPartnerDetailView）の表題と各欄の値は折り返しの指定を持たず、区切りの無い
+   * 長い一語（英数字の名前・メールアドレス・電話番号など）が箱の外へ伸びて main を押し広げていた
+   * （74 文字の名前で、main は 375 幅で 987/343、320 幅で 987/288、768 幅でも 987/720）。
+   * あわせて 320 幅では、基本情報などの欄の格子の最小幅 250 が節の内側の幅を越え、名前に依らず
+   * main が 291/288 になっていた。
+   * 利用者が入力する文字列の項目（取引先名・フリガナ・部課/支店/支社名・代表者名・住所・電話番号・
+   * FAX番号・メールアドレス・備考）をすべて埋めた取引先を、普通の日本語・区切りの無い長い英数字・
+   * 区切りの無い長いカタカナの 3 通りで作り、375・320・768・1280 幅で次を主張する。
+   *
+   *  - 関連プロジェクトの節を除いた main の scrollWidth が clientWidth を超えない。
+   *  - 詳細表示の中のどの要素の箱もどの文字列も、main の内容の右端と画面幅の内側に在る。
+   *
+   * 長い英数字の名前は、モバイル幅と 768 幅で表題と「取引先名」の値が実際に複数行へ折り返されて
+   * いることも主張する。普通の名前は、768 幅と 1280 幅でどの文字列も一行ぶんの高さのままで、
+   * 1280 幅で欄が横に並ぶこと（「取引先名」と「フリガナ」の値の上端が揃うこと）を主張する。
+   * 寸法は固定値で主張せず、要素どうしの関係と、同じ要素を折り返させずに置いた複製との比で測る。
+   *
+   * 関連プロジェクトの表のはみ出し（タスク 31.3）は本タスクの境界の外であり、表の有無は紐付かない
+   * プロジェクトが表に出る疑い（タスク 31.4）によって全体の実行順で変わるため、main は関連
+   * プロジェクトの節を除いて測る。本スペックの受入基準に、詳細のモバイル幅の表示を定めた本文は
+   * 無いため、受入基準の番号は名乗らない（タスク 31.2 は要件 12 の画面の欠陥として起票された）。
+   */
+  test.describe('詳細画面の文字列のモバイル幅での収まり', () => {
+    test('普通の日本語の取引先の詳細がどの画面幅でも main を水平に押し広げず、768 幅以上で入力した文字列が折り返さない', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const stamp = Date.now();
+      const fields: DetailTextFields = {
+        name: `株式会社折返し確認建設_${stamp}`,
+        nameKana: 'オリカエシカクニンケンセツ',
+        branchName: '東京支店',
+        representativeName: '山田太郎',
+        address: '東京都千代田区丸の内1-2-3',
+        phoneNumber: '03-1234-5678',
+        faxNumber: '03-1234-5679',
+        email: `info${stamp}@example.co.jp`,
+        notes: '月末締め翌月末払い',
+      };
+      const partnerId = await createTradingPartnerWithAllTextFields(page, fields);
+
+      for (const width of DETAIL_TEXT_WIDTHS) {
+        const layout = await openAndMeasureDetailText(page, partnerId, width, fields);
+        expectDetailTextWithinMain(layout, `普通の名前 ${width} 幅`);
+      }
+
+      for (const width of [768, 1280] as const) {
+        const layout = await openAndMeasureDetailText(page, partnerId, width, fields);
+        const report = `普通の名前 ${width} 幅: ${JSON.stringify(layout)}`;
+        // 利用者が入力した文字列（表題・フリガナ・各欄の値・備考）が一行ぶんの高さのまま
+        const enteredItems = Object.values(fields).flatMap((value) =>
+          detailTextItems(layout, value)
+        );
+        expect(enteredItems.length, report).toBeGreaterThanOrEqual(Object.values(fields).length);
+        for (const item of enteredItems) {
+          expect(
+            Math.abs(item.boxHeight - item.singleLineHeight),
+            `「${item.text}」の高さ ${item.boxHeight} が一行ぶん ${item.singleLineHeight} と異なる。${report}`
+          ).toBeLessThanOrEqual(LAYOUT_TOLERANCE_PX);
+        }
+      }
+
+      const desktop = await openAndMeasureDetailText(page, partnerId, 1280, fields);
+      const desktopReport = `普通の名前 1280 幅: ${JSON.stringify(desktop)}`;
+      const nameValue = detailTextItems(desktop, fields.name)[1];
+      const kanaValue = detailTextItems(desktop, fields.nameKana)[1];
+      assertPresent(nameValue, `「取引先名」の値の実測（普通の名前 1280 幅）`);
+      assertPresent(kanaValue, `「フリガナ」の値の実測（普通の名前 1280 幅）`);
+      expect(
+        Math.abs(kanaValue.boxTop - nameValue.boxTop),
+        `「取引先名」と「フリガナ」の値が横に並ばない。${desktopReport}`
+      ).toBeLessThanOrEqual(LAYOUT_TOLERANCE_PX);
+      expect(kanaValue.boxLeft, desktopReport).toBeGreaterThan(nameValue.boxRight);
+    });
+
+    test('区切りの無い長い英数字の取引先の詳細がどの画面幅でも main を水平に押し広げず、表題と取引先名の値が折り返す', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const stamp = Date.now();
+      const fields: DetailTextFields = {
+        name: `TradingPartnerRedevelopmentSkyscraperConstructionUnbrokenName${stamp}`,
+        nameKana: 'トリヒキサキサイカイハツチョウコウソウビルケンセツオリカエシカクニン',
+        branchName: `BranchOfficeRedevelopmentSkyscraperConstructionUnbroken${stamp}`,
+        representativeName: `RepresentativeDirectorRedevelopmentSkyscraperUnbroken${stamp}`,
+        address: `TokyoChiyodaMarunouchi1Chome2Ban3GoRedevelopmentSkyscraperSite${stamp}`,
+        phoneNumber: '0312345678'.repeat(6),
+        faxNumber: '0312345679'.repeat(6),
+        email: `overflowcheck${stamp}tradingpartnerunbrokenmailbox@redevelopment-skyscraper-construction-example.co.jp`,
+        notes: `PaymentTermsMonthEndClosingNextMonthEndPaymentUnbrokenRemarks${stamp}`,
+      };
+      const partnerId = await createTradingPartnerWithAllTextFields(page, fields);
+
+      for (const width of DETAIL_TEXT_WIDTHS) {
+        const layout = await openAndMeasureDetailText(page, partnerId, width, fields);
+        expectDetailTextWithinMain(layout, `長い英数字の名前 ${width} 幅`);
+      }
+
+      // 名前の自然幅が自身の箱の幅を超える画面幅では、表題と「取引先名」の値が実際に複数行へ折り返す
+      for (const width of [375, 320, 768] as const) {
+        const layout = await openAndMeasureDetailText(page, partnerId, width, fields);
+        const report = `長い英数字の名前 ${width} 幅: ${JSON.stringify(layout)}`;
+        const nameItems = detailTextItems(layout, fields.name);
+        // 前提: 表題と「取引先名」の値の 2 箇所に名前が在り、その自然幅が自身の箱の幅を超える
+        expect(nameItems.length, report).toBe(2);
+        for (const item of nameItems) {
+          expect(item.naturalWidth, report).toBeGreaterThan(item.boxRight - item.boxLeft);
+          expect(
+            item.boxHeight,
+            `名前が折り返されていない（高さ ${item.boxHeight}、一行ぶん ${item.singleLineHeight}）。${report}`
+          ).toBeGreaterThanOrEqual(item.singleLineHeight * 2 - LAYOUT_TOLERANCE_PX);
+        }
+      }
+    });
+
+    test('区切りの無い長いカタカナの取引先の詳細がどの画面幅でも main を水平に押し広げない', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const stamp = Date.now();
+      const longKana =
+        'カブシキガイシャショウワサイカイハツチョウコウソウビルケンセツオリカエシカクニントリヒキサキ';
+      const fields: DetailTextFields = {
+        name: `${longKana}${stamp}`,
+        nameKana: longKana,
+        branchName: 'トウキョウマルノウチサイカイハツチョウコウソウビルケンセツジムショ',
+        representativeName: 'ダイヒョウトリシマリヤクシャチョウオリカエシカクニンタロウ',
+        address: `${longKana}マルノウチイッチョウメニバンサンゴウ`,
+        phoneNumber: '03-1234-5678',
+        faxNumber: '03-1234-5679',
+        email: `kana${stamp}@example.co.jp`,
+        notes: `${longKana}ゲツマツシメヨクゲツマツバライ`,
+      };
+      const partnerId = await createTradingPartnerWithAllTextFields(page, fields);
+
+      for (const width of DETAIL_TEXT_WIDTHS) {
+        const layout = await openAndMeasureDetailText(page, partnerId, width, fields);
+        expectDetailTextWithinMain(layout, `長いカタカナの名前 ${width} 幅`);
+      }
     });
   });
 

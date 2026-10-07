@@ -656,10 +656,11 @@
   - **解決（2026-10-07、利用者の判断「直す」で上の `_Blocked:_` は解けた）**: `frontend/src/components/trading-partners/PaymentDateSelect.tsx` の月と日の select を並べる flex の入れ物に `flexWrap: 'wrap'` を足した（Task 30.1 の Breadcrumb と同じく、画面幅の分岐ではなく中身の幅で折り返す）。main は 375 幅で 400/343→343/343、320 幅で 400/288→288/288 になり、1280 幅と 768 幅の配置は前後で同じである。E2E は `e2e/specs/trading-partners/trading-partner-navigation.spec.ts` の「作成・編集フォームの支払日の入力のモバイル幅での収まり」の 2 件（要件 12 にフォームのモバイル表示を定める受入基準が無いため印は掲げない）。site-survey の宣言 `t13-anchor-references-after-115303` を 1616 から 1618 へ貼り直した
   - _Boundary: 取引先のフォームの支払日の入力のモバイル表示_
 
-- [ ] 31.2 詳細画面の表題と「取引先名」の値が長い一語を折り返さない状態を扱う（起票のみ）
+- [x] 31.2 詳細画面の表題と「取引先名」の値が長い一語を折り返さない状態を扱う（起票のみ）
   - `frontend/src/components/trading-partners/TradingPartnerDetailView.tsx` の表題と「取引先名」の値に折り返しの指定が無い。74 文字の英数字一語の名前で、表題の文字列の右端が 1003、値の右端が 602 になり、main が 375 幅で 987/343、320 幅で 987/288、768 幅でも 987/720 になる。関連プロジェクトの表を消しても変わらない。あわせて、320 幅では基本情報の各欄（幅 250）の右端が 307 で、main の右端 304 を越える
   - _Requirements: 12_
   - _Blocked: 30.1 の境界の外であり、着手は利用者の判断を待つ_
+  - **解決（2026-10-07、利用者の判断「直す」で上の `_Blocked:_` は解けた）**: `frontend/src/components/trading-partners/TradingPartnerDetailView.tsx` の表題・フリガナ・各欄の値・備考に `overflowWrap: 'anywhere'` を置き、欄の格子を `repeat(auto-fit, minmax(min(250px, 100%), 1fr))` にした（320 幅で幅 250 の欄が節の右端を越える状態も、名前に依らず在ったため同じ変更で直した）。長い英数字の名前で main は 375 幅 987/343→343/343、普通の名前で 320 幅 291/288→288/288。普通の名前の 1280・768・375 幅の配置は前後で同じである。E2E は `e2e/specs/trading-partners/trading-partner-navigation.spec.ts` の「詳細画面の文字列のモバイル幅での収まり」の 3 件（普通の日本語・長い英数字・長いカタカナ × 4 幅。関連プロジェクトの節は 31.3・31.4 の領域のため main の測定の間だけ隠す。印は掲げない）。site-survey の宣言 `t13-anchor-references-after-115303` を 1618 から 1629 へ貼り直した。独立レビューが、詳細画面から開く削除確認ダイアログの名前に折り返しの指定が無く、長い英数字の名前がダイアログの中で横にはみ出すことを実測した（31.2 の境界の外）
   - _Boundary: 取引先の詳細表示のモバイル表示_
 
 - [ ] 31.3 詳細画面の関連プロジェクトの表がモバイル幅ではみ出す状態を扱う（起票のみ）
