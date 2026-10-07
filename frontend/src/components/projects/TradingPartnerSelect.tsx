@@ -174,24 +174,10 @@ function matchesSearchQuery(partner: TradingPartnerInfo, query: string): boolean
   // 部課名
   const branchMatches = partner.branchName?.toLowerCase().includes(lowerQuery) ?? false;
 
-  // 部課名フリガナ（カタカナで登録されているため、カタカナ変換後で検索）
-  const branchKanaMatches = partner.branchNameKana?.toLowerCase().includes(queryKatakana) ?? false;
-
   // 代表者名
   const repMatches = partner.representativeName?.toLowerCase().includes(lowerQuery) ?? false;
 
-  // 代表者名フリガナ（カタカナで登録されているため、カタカナ変換後で検索）
-  const repKanaMatches =
-    partner.representativeNameKana?.toLowerCase().includes(queryKatakana) ?? false;
-
-  return (
-    nameMatches ||
-    nameKanaMatches ||
-    branchMatches ||
-    branchKanaMatches ||
-    repMatches ||
-    repKanaMatches
-  );
+  return nameMatches || nameKanaMatches || branchMatches || repMatches;
 }
 
 // ============================================================================

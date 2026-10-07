@@ -599,10 +599,11 @@
 
 **経緯**: Task 27.1 の独立レビュー（2026-10-01、HEAD `e09cd61b`）が、`frontend/src/types/trading-partner.types.ts` の `TradingPartnerInfo`（必須の `string | null`）と `CreateTradingPartnerInput`（任意）が `branchNameKana` / `representativeNameKana` を持ち続けていることを確かめた（grep の出力 4）。本書の TradingPartnerService の「Service Interface」の節の `TradingPartnerInfo` はこの二つを持たず、backend の schema.prisma にも無い（マイグレーション `20251212105900_remove_kana_fields_from_trading_partner`）。API は値を返さないため、project-management が所有する `frontend/src/components/projects/TradingPartnerSelect.tsx` の絞り込みの照合（`?.… ?? false` の 2 箇所）は常に偽の死んだ分岐であり、表示・検索への実害は無い。約 15 のテスト・stories の fixture が二つの項目を使い続けて、ずれを覆い隠している
 
-- [ ] 28.1 型から二つの項目を外し、fixture と照合の死んだ分岐を揃える
+- [x] 28.1 型から二つの項目を外し、fixture と照合の死んだ分岐を揃える
   - 型から外すと `TradingPartnerSelect.tsx` が型エラーになるため、同じ変更で照合の死んだ分岐を外す（project-management の所有。同スペックへ申し送ること）。fixture と stories からも二つの項目を外す
   - 取引先の選択の振る舞い（かな検索を含む）が変わらないことを、既存の単体と E2E で確かめる
   - _Requirements: 11_
+  - **実施（2026-10-07、利用者が `/kiro-impl` で着手）**: `frontend/src/types/trading-partner.types.ts` の `TradingPartnerInfo` と `CreateTradingPartnerInput` から二つの項目を外し、`frontend/src/components/projects/TradingPartnerSelect.tsx` の `matchesSearchQuery` の常に偽の 2 分岐と、17 ファイルの fixture・stories の二つの項目の行を外した。同部品の単体テストのうち、外した分岐だけを主張していた 2 件（ひらがなで部課名・代表者名のフリガナを検索する）は、本番で届く部課名・代表者名そのものの照合を主張する 2 件へ置き換えた（件数は不変。分岐を外す変異で赤になることを確かめた）。要件 11 と project-management の要件 22 のいずれも部課名・代表者名のかな検索を求めていない。E2E（`trading-partner-select-kana`・`project-trading-partner`・`project-kana-search`）と frontend の全件は緑。project-management への申し送りは同スペックの tasks.md の Task 74 に起票した。backend の `backend/src/__tests__/unit/services/trading-partner.service.test.ts` の mock に二つの項目が残るが、本項の境界（frontend）の外であり触れていない
   - _Boundary: frontend の取引先の型と、それを使う fixture・照合_
 
 ## タスク29: 機能レベル検証（2026-10-01、HEAD `7258ce26`、NO-GO）で残った被覆の穴と被覆印の番号のずれ（起票のみ。着手は利用者の判断による）
