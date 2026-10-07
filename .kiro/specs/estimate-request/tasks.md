@@ -2295,3 +2295,13 @@
   - E2E で、「内訳書を本文に含める」ON・項目 0 件で見積依頼文を表示して案内が出ることを確かめ、項目を選択・保存すると、パネルを開き直さずに案内が消えて本文の【内容】に選択した項目が出ることを主張する
   - _Requirements: 4.8, 4.9, 6.8_
   - _Boundary: EstimateRequestDetailPage の項目選択の保存と見積依頼文の再取得_
+
+## タスク99: E2E の註が数量表の撤去済みの部品を名乗っている状態を正す（quantity-table-generation の Task 94.1 のレビューからの起票。利用者の判断で起票、2026-10-08）
+
+**経緯**: quantity-table-generation の Task 94.1（2026-10-07、コミット `fde9cda6`）が数量表の到達しない部品 `NumericFieldInput` と `TextFieldInput` を本番コードから外した。同タスクの独立レビューが、本スペックの `e2e/specs/estimate-requests/lineitem-textbox-size-unification-e2e.spec.ts` の 29 行目の JSDoc（「数量表画面の対応するテキストボックスサイズ仕様（QuantityInput / TextFieldInput / CalculationFields）」）が、現在の数量表の部品として `TextFieldInput` と `QuantityInput` を挙げていることを確かめた。`QuantityInput` は quantity-table-generation の Task 89.1 で外れており、`TextFieldInput` は同 Task 94.1 で外れた。`CalculationFields` は現存する。数量表画面の対応列を実際に描画するのは `AutocompleteInput`（テキスト列）と `EditableQuantityItemRow`（数量列）である（estimate-creation の Task 59.1 が設計文書の名指しを同じ部品へ付け替えた）。コメントだけの問題で、関門と挙動には影響しない
+
+- [ ] 99.1 E2E の JSDoc が名乗る数量表の部品を、現在の描画部品へ揃える
+  - `e2e/specs/estimate-requests/lineitem-textbox-size-unification-e2e.spec.ts` の 29 行目付近の JSDoc の部品名を、数量表画面の対応列を実際に描画する部品（`AutocompleteInput`・`EditableQuantityItemRow`・`CalculationFields`）へ揃える。名乗りを変える前に、各部品が統一仕様（height 22px・padding 2px 4px・fontSize 12px）を実際に持つことを本番のソースで確かめ、持たない部品は名乗らない
+  - コメントのみの変更とし、テストの主張と `@requirement estimate-request/REQ-33.*` の印は変えない。E2E の参照の件数（site-survey の宣言 `t13-anchor-references-after-115303` など）が動かないことを `check:design-measurement-freshness` で確かめる
+  - _Requirements: 33_
+  - _Boundary: 本スペックの E2E のコメントが名乗る数量表の部品名_
