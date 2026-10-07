@@ -10,6 +10,7 @@
  * - パンくずナビゲーション
  * - 画面間遷移
  * - 未認証アクセス時のリダイレクト
+ * - 作成・編集フォームの支払日の入力のモバイル幅での収まり（タスク 31.1）
  *
  * Requirements:
  * - 12.1: ヘッダーに「取引先」ナビゲーションリンクを表示
@@ -249,7 +250,8 @@ function expectSingleLineItems(layout: BreadcrumbLayout, labels: string[], conte
  * 2026-10-02 の実測。パンくずを包む領域を消しても main の scrollWidth は変わらず、nav は
  * 375 幅で 311/311、320 幅で 256/256）。
  *  1. 作成・編集画面: 入力欄「支払日 - 日」の select（右端 416）。main は 375 幅で 400/343、
- *     320 幅で 400/288。データに依らない。
+ *     320 幅で 400/288。データに依らない。タスク 31.1 で是正し（main は 343/343、288/288）、
+ *     「作成・編集フォームの支払日の入力のモバイル幅での収まり」の describe が main ごと主張する。
  *  2. 詳細画面: プロジェクト一覧の表。表が 10 行を載せた状態で、表の幅 608・右端 665、main は
  *     375 幅で 649/343、320 幅で 649/288。データに依る（表が描かれない状態では 343/343）。
  *  3. 詳細画面: 区切りの無い長い一語の取引先名を折り返さない表題と「取引先名」の値
@@ -279,6 +281,104 @@ function expectNoHorizontalOverflow(layout: BreadcrumbLayout, context: string): 
     );
     expect(item.textLeft, `「${item.text}」の文字列の左端。${report}`).toBeGreaterThanOrEqual(0);
   }
+}
+
+/**
+ * 作成・編集フォームの「支払日」の二つの select と、画面のコンテナ（main）の配置を実ブラウザで測る
+ * （タスク 31.1）。select は aria-label（「支払日 - 月」「支払日 - 日」）で特定する。
+ */
+async function measurePaymentDateLayout(page: Page) {
+  const monthSelect = page.getByRole('combobox', { name: '支払日 - 月' });
+  const daySelect = page.getByRole('combobox', { name: '支払日 - 日' });
+  await expect(monthSelect).toBeVisible({ timeout: getTimeout(15000) });
+  await expect(daySelect).toBeVisible({ timeout: getTimeout(15000) });
+
+  return page.evaluate(async () => {
+    await document.fonts.ready;
+
+    const month = document.querySelector<HTMLSelectElement>('select[aria-label="支払日 - 月"]');
+    const day = document.querySelector<HTMLSelectElement>('select[aria-label="支払日 - 日"]');
+    const main = day?.closest('main');
+    if (!month || !day || !main) {
+      throw new Error('支払日の select または画面のコンテナ（main）が見つからない');
+    }
+    const toBox = (rect: DOMRect) => ({
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      width: rect.width,
+    });
+    const mainRect = main.getBoundingClientRect();
+    const mainStyle = getComputedStyle(main);
+    return {
+      viewportWidth: window.innerWidth,
+      main: {
+        scrollWidth: main.scrollWidth,
+        clientWidth: main.clientWidth,
+        left: mainRect.left,
+        right: mainRect.right,
+        contentRight: mainRect.right - parseFloat(mainStyle.paddingRight),
+      },
+      month: toBox(month.getBoundingClientRect()),
+      day: toBox(day.getBoundingClientRect()),
+    };
+  });
+}
+
+type PaymentDateLayout = Awaited<ReturnType<typeof measurePaymentDateLayout>>;
+
+/** 指定の画面幅でフォームを開き直し、支払日の select と main を測る。 */
+async function openAndMeasurePaymentDate(
+  page: Page,
+  path: string,
+  width: number
+): Promise<PaymentDateLayout> {
+  await page.setViewportSize({ width, height: 812 });
+  await page.goto(path);
+  await page.waitForLoadState('networkidle');
+  const layout = await measurePaymentDateLayout(page);
+  const report = JSON.stringify(layout);
+  // 前提: 画面幅が指定どおりで、main と二つの select が幅を持って描かれている
+  expect(layout.viewportWidth, report).toBe(width);
+  expect(layout.main.clientWidth, report).toBeGreaterThan(0);
+  expect(layout.month.width, report).toBeGreaterThan(0);
+  expect(layout.day.width, report).toBeGreaterThan(0);
+  return layout;
+}
+
+/**
+ * main が水平にはみ出さないことと、二つの select の箱が main の内容の右端・画面幅の内側に在ることを
+ * 主張する（許容誤差 1px）。
+ */
+function expectPaymentDateWithinMain(layout: PaymentDateLayout, context: string): void {
+  const report = `${context}: ${JSON.stringify(layout)}`;
+  expect(
+    layout.main.scrollWidth - layout.main.clientWidth,
+    `main の scrollWidth ${layout.main.scrollWidth} が clientWidth ${layout.main.clientWidth} を超える。${report}`
+  ).toBeLessThanOrEqual(LAYOUT_TOLERANCE_PX);
+  const rightLimit = Math.min(layout.viewportWidth, layout.main.contentRight) + LAYOUT_TOLERANCE_PX;
+  for (const [name, box] of [
+    ['支払日 - 月', layout.month],
+    ['支払日 - 日', layout.day],
+  ] as const) {
+    expect(box.right, `「${name}」の右端。${report}`).toBeLessThanOrEqual(rightLimit);
+    expect(box.left, `「${name}」の左端。${report}`).toBeGreaterThanOrEqual(
+      layout.main.left - LAYOUT_TOLERANCE_PX
+    );
+  }
+}
+
+/** デスクトップ幅で、日の select が月の select の右に同じ行で並ぶことを主張する。 */
+function expectPaymentDateSideBySide(layout: PaymentDateLayout, context: string): void {
+  const report = `${context}: ${JSON.stringify(layout)}`;
+  expect(
+    Math.abs(layout.day.top - layout.month.top),
+    `月と日の select の上端が揃っていない。${report}`
+  ).toBeLessThanOrEqual(LAYOUT_TOLERANCE_PX);
+  expect(layout.day.left, `日の select が月の select の右に無い。${report}`).toBeGreaterThan(
+    layout.month.right
+  );
+  expectPaymentDateWithinMain(layout, context);
 }
 
 /**
@@ -1012,6 +1112,59 @@ test.describe('取引先ナビゲーション・画面遷移', () => {
           nameItem.singleLineHeight * 2 - LAYOUT_TOLERANCE_PX
         );
       }
+    });
+  });
+
+  /**
+   * 作成・編集フォームの「支払日」の入力のモバイル幅での収まり（タスク 31.1）
+   *
+   * 「支払日 - 月」と「支払日 - 日」の二つの select は、折り返さない flex 行に置かれ、各 select の
+   * 最小幅（最長の選択肢の幅）の和が行を押し広げていた。375 幅と 320 幅で、日の select の右端が
+   * main の外へ出て、main が水平にはみ出していた（データに依らない）。
+   * 作成と編集の画面について、375 幅と 320 幅で次を主張する。
+   *
+   *  - 画面のコンテナ（main）の scrollWidth が clientWidth を超えない。
+   *  - 月と日の select の箱の右端が、main の内容の右端と画面幅の内側に在り、左端が main の内側に在る。
+   *
+   * あわせて 1280 幅で、月と日の select が従来どおり同じ行に横並びであること（日の select が月の
+   * select の右に在り、上端が揃うこと）を主張する。寸法は固定値で主張せず、要素どうしの関係で測る。
+   *
+   * 本スペックの受入基準に、フォームのモバイル幅の表示を定めた本文は無いため、受入基準の番号は
+   * 名乗らない（タスク 31.1 は要件 12 の画面の欠陥として起票された）。
+   */
+  test.describe('作成・編集フォームの支払日の入力のモバイル幅での収まり', () => {
+    test('新規作成画面の支払日の入力がモバイル幅で main を水平に押し広げない', async ({ page }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      for (const width of MOBILE_WIDTHS) {
+        const layout = await openAndMeasurePaymentDate(page, '/trading-partners/new', width);
+        expectPaymentDateWithinMain(layout, `新規作成 ${width} 幅`);
+      }
+      const desktop = await openAndMeasurePaymentDate(page, '/trading-partners/new', 1280);
+      expectPaymentDateSideBySide(desktop, '新規作成 1280 幅');
+    });
+
+    test('編集画面の支払日の入力がモバイル幅で main を水平に押し広げない', async ({ page }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const partnerId = await createTradingPartnerForBreadcrumb(
+        page,
+        `支払日収まり確認_${Date.now()}`
+      );
+      for (const width of MOBILE_WIDTHS) {
+        const layout = await openAndMeasurePaymentDate(
+          page,
+          `/trading-partners/${partnerId}/edit`,
+          width
+        );
+        expectPaymentDateWithinMain(layout, `編集 ${width} 幅`);
+      }
+      const desktop = await openAndMeasurePaymentDate(
+        page,
+        `/trading-partners/${partnerId}/edit`,
+        1280
+      );
+      expectPaymentDateSideBySide(desktop, '編集 1280 幅');
     });
   });
 

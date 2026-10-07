@@ -233,9 +233,15 @@ function PaymentDateSelect({
       </div>
 
       {/* 月選択と日選択のコンテナ */}
+      {/*
+        二つの select の最小幅（最長の選択肢の幅）の和が行の幅を超える狭い画面（モバイル幅）では、
+        日の select を次の行へ送り、行を押し広げない（Task 31.1）。和が収まる幅（デスクトップ）では
+        従来どおり横並びのままである。
+      */}
       <div
         style={{
           display: 'flex',
+          flexWrap: 'wrap',
           gap: '0.75rem',
           alignItems: 'center',
         }}
