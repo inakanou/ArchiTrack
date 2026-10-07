@@ -8,7 +8,7 @@
  *
  * Requirements (trading-partner-management):
  * - REQ-9.5: 大量データ（1000件以上）でもページネーションにより一覧表示のパフォーマンスを維持
- * - REQ-11.14: 各取引先レコードに作成日時と更新日時を自動記録
+ * - REQ-11.12: 各取引先レコードに作成日時と更新日時を自動記録
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
@@ -109,7 +109,7 @@ describe('TradingPartner Integration Tests', () => {
       expect(partner.address).toBe('東京都渋谷区1-1-1');
       expect(partner.types).toHaveLength(1);
       expect(partner.types[0]?.type).toBe(TradingPartnerType.CUSTOMER);
-      // REQ-11.14: 作成日時と更新日時を自動記録
+      // REQ-11.12: 作成日時と更新日時を自動記録
       expect(partner.createdAt).toBeInstanceOf(Date);
       expect(partner.updatedAt).toBeInstanceOf(Date);
     });
@@ -171,7 +171,7 @@ describe('TradingPartner Integration Tests', () => {
 
       expect(updated.branchName).toBe('新宿支店');
       expect(updated.phoneNumber).toBe('03-9999-8888');
-      // REQ-11.14: 更新日時が更新される
+      // REQ-11.12: 更新日時が更新される
       expect(updated.updatedAt.getTime()).toBeGreaterThanOrEqual(created.updatedAt.getTime());
     });
 
@@ -566,7 +566,7 @@ describe('TradingPartner Integration Tests', () => {
 
   describe('Billing and Payment Fields', () => {
     it('should handle billingClosingDay as 末日 (99)', async () => {
-      // REQ-11.11: 請求締日として「末日」（99）を許可
+      // REQ-11.9: 請求締日として「末日」（99）を許可
       const partner = await prisma.tradingPartner.create({
         data: {
           name: 'test-integration-billing-last',
@@ -583,7 +583,7 @@ describe('TradingPartner Integration Tests', () => {
     });
 
     it('should handle paymentDay as 末日 (99) with month offset', async () => {
-      // REQ-11.12: 支払日を月オフセットと日の組み合わせで管理
+      // REQ-11.10: 支払日を月オフセットと日の組み合わせで管理
       const partner = await prisma.tradingPartner.create({
         data: {
           name: 'test-integration-payment-last',

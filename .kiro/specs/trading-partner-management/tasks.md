@@ -618,7 +618,7 @@
   - _Requirements: 11.9, 12.19, 12.26_
   - _Boundary: 本スペックの被覆_
 
-- [ ] 29.2 テストの見出しの要件番号を現在の要件定義書へ揃える
+- [x] 29.2 テストの見出しの要件番号を現在の要件定義書へ揃える
   - `backend/src/__tests__/unit/models/trading-partner.model.test.ts` の見出し（フリガナ 2 項目の削除前の 14 項目の番号のまま。実在しない 11.13 / 11.14 を名乗る）と、`trading-partner.integration.test.ts` の `REQ-11.14`（正しくは 11.12）を揃える
   - _Requirements: 11_
   - _Boundary: 本スペックのテストの被覆印の番号_
