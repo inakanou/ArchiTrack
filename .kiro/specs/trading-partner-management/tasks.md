@@ -695,3 +695,23 @@
   - 機能名を欠く見出しの名乗りの件数が動いた場合は、`check:req-coverage:selftest` の求めに従い上限を実測の差だけ下げる
   - _Requirements: 11_
   - _Boundary: 本スペックの本番の schema の注記と、schema のテストの見出しの要件番号_
+
+## タスク33: 機能レベル検証（2026-10-07、HEAD `28696d26`、GO）が挙げた事項の是正（利用者の判断で起票、2026-10-08）
+
+**経緯**: タスク 28〜31 の完了後の機能レベル検証は GO だったが、判断の観点の検証が次の 3 件を挙げた。利用者の判断（2026-10-08、「修正タスクとして起票」）により起票する
+
+- [ ] 33.1 取引先のフォームの部品のインラインの outline の打ち消しを外し、フォーカス表示を steering の方針へ揃える
+  - 2026-10-08 の実測で、`frontend/src/components/trading-partners/PaymentDateSelect.tsx:204`・`BillingClosingDaySelect.tsx:191`・`TradingPartnerForm.tsx:520` がインラインで `outline: 'none'` を指定し、全画面共通の `:focus-visible`（`frontend/src/index.css` の `@layer base`）を打ち消している。前二者は代わりのフォーカス表示を持たず、キーボード操作でフォーカスが見えない。`TradingPartnerForm` の代わりの表示（3px の `rgba(37,99,235,0.1)` の影）はコントラスト比 3:1 を満たさないとみられる。steering `tech.md` の「フォーカス表示方針」（project-management の Task 73.5）に沿っていない
+  - インラインの `outline: 'none'` を外し、共通の輪に一本化する（project-management の Task 73.6 と同じ方針。自前の影は外す）。挙動（表示）の変更であるため RED → GREEN で進め、単体（インラインで outline を打ち消さないこと）と E2E（作成・編集フォームの各入力で、フォーカス中に 2px 以上・3:1 以上の表示があること。`e2e/specs/projects/project-accessibility.spec.ts` の判定の作法に倣う）で主張する
+  - _Requirements: 12_
+  - _Boundary: 取引先のフォームの入力部品のフォーカス時の表示_
+
+- [ ] 33.2 E2E の註に残る「31.4 の疑い」の記述を現況へ揃える
+  - `e2e/specs/trading-partners/trading-partner-navigation.spec.ts` の 451・1775・1921 行付近の註が、タスク 31.4 を「紐付かないプロジェクトが表に出る疑い」として、関連プロジェクトの節を測る間だけ隠す回避や、表の有無が実行順で変わることの理由に挙げている。31.4 は 2026-10-07 にコミット `e9b976e2` で直り、31.3 も表のはみ出しを直した。註を現況（回避は詳細表示の寄与だけを測るために残す）へ改める。コメントのみの変更とし、主張は変えない
+  - _Requirements: 12_
+  - _Boundary: 本スペックの E2E の註_
+
+- [ ] 33.3 backend の取引先 service の単体テストの mock に残る二つのフリガナの項目を外す
+  - `backend/src/__tests__/unit/services/trading-partner.service.test.ts` の mock に `branchNameKana` / `representativeNameKana` が 36 件残る（2026-10-08 の実測）。二つの項目は schema.prisma に無く（マイグレーション `20251212105900_remove_kana_fields_from_trading_partner`）、Task 28.1 は frontend だけを扱った。mock の行を外し、テストの振る舞いが変わらないことを確かめる。`backend/src/__tests__/unit/schemas/trading-partner.schema.test.ts` の「スキーマに含まない」ことを主張する検証は正当であり外さない
+  - _Requirements: 11_
+  - _Boundary: backend の取引先 service の単体テストの mock_
