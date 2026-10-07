@@ -1812,3 +1812,13 @@
   - _Boundary: 本スペックの設計文書の、取引先の選択の照合の記述_
 
 **追加の申し送り（trading-partner-management の Task 31.4、2026-10-07）**: 本スペックが所有する `backend/src/routes/projects.routes.ts` の `GET /api/projects` が、検証を通った `tradingPartnerId` を `projectService.getProjects` の filter に渡していなかった（コミット `6d71e936` の時点から。取引先の詳細に紐付かないプロジェクトが表示されていた）。利用者の判断（2026-10-07、「ここで直す」）により trading-partner-management の Task 31.4 の中で route に 3 行を足して直し、`backend/src/__tests__/unit/routes/projects.routes.test.ts` と `backend/src/__tests__/integration/projects.integration.test.ts` に検証を足した。本スペックの設計文書の `ProjectFilter.tradingPartnerId` の記述は修正後の挙動と一致するため、文書の変更は要らない（記録のみ。タスクは起こさない）
+
+## Task 75: trading-partner-management の機能レベル検証からの申し送り（利用者の判断で起票、2026-10-08）
+
+**経緯**: trading-partner-management の機能レベル検証（2026-10-07、HEAD `28696d26`、GO）が、本スペックの `GET /api/projects` の OpenAPI の記載漏れを挙げた。2026-10-08 の実測で、生成物の `backend/docs/api-spec.json` の `/api/projects` の `get` の parameters は `page`・`limit`・`search`・`status`・`createdFrom`・`createdTo`・`sort`・`order` の 8 件で、`projectFilterSchema` が受け付ける `tradingPartnerId` と `excludeTerminalStatuses` が無い。`backend/src/routes/projects.routes.ts` の route の注釈にも記載が無い。利用者の判断（2026-10-08、「修正タスクとして起票」）により起票する
+
+- [ ] 75.1 `GET /api/projects` の OpenAPI の注釈に `tradingPartnerId` と `excludeTerminalStatuses` を加える
+  - route の注釈（OpenAPI の生成元）に二つのクエリ項目を、`projectFilterSchema` の型・検証（`tradingPartnerId` は UUID、`excludeTerminalStatuses` は真偽値）と一致させて加え、`backend/docs/api-spec.json` を既存の生成の手順で作り直す。振る舞いは変えない
+  - 生成物の差分が二つの項目の追加だけであることを確かめる
+  - _Requirements: 2.8, 5.2_
+  - _Boundary: 本スペックのプロジェクト一覧 API の OpenAPI の記述_
