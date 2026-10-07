@@ -13,6 +13,7 @@
  * - 作成・編集フォームの支払日の入力のモバイル幅での収まり（タスク 31.1）
  * - 詳細画面の文字列のモバイル幅での収まり（タスク 31.2）
  * - 詳細画面の関連プロジェクトの表のモバイル幅での収まり（タスク 31.3）
+ * - 削除確認ダイアログの取引先名のモバイル幅での収まり（タスク 31.5）
  *
  * Requirements:
  * - 12.1: ヘッダーに「取引先」ナビゲーションリンクを表示
@@ -762,6 +763,205 @@ function expectRelatedProjectsWithinMain(layout: RelatedProjectsLayout, context:
   expect(layout.container.left, `横スクロールの領域の左端。${report}`).toBeGreaterThanOrEqual(
     layout.main.left - LAYOUT_TOLERANCE_PX
   );
+}
+
+/** 削除確認ダイアログの収まりを測る画面幅（タスク 31.5）。 */
+const DELETE_DIALOG_WIDTHS = [375, 320, 768, 1280] as const;
+
+/** 削除確認ダイアログ（FocusManager の role="dialog"）の locator を返す。 */
+function deleteDialog(page: Page): Locator {
+  return page.getByTestId('focus-manager-overlay').getByRole('dialog', { name: '取引先の削除' });
+}
+
+/**
+ * 削除確認ダイアログの配置を実ブラウザで測る（タスク 31.5）。
+ *
+ * - ダイアログ（role="dialog"）の矩形・内容の左右端（padding と border の内側）・scrollWidth と
+ *   clientWidth を測る。
+ * - ダイアログの中で、自身の直下に文字列を持つ要素ごとに、箱の矩形・文字列そのものの外接矩形
+ *   （Range）・文字列が描かれた行の数（Range の行ごとの矩形の上端の異なる値の数）・同じ要素の複製を
+ *   `white-space: nowrap` で置いたときの自然幅を測る。取引先名は inline の span で、箱の高さは
+ *   行の高さ（line-height）と一致しないため、折り返しは行の数で測る。
+ * - ダイアログの中のすべての要素の箱の左右端を測る（文字列を持たない入れ物のはみ出しも拾うため）。
+ * - 文書全体の scrollWidth を測る。
+ */
+async function measureDeleteDialogLayout(page: Page) {
+  const dialog = deleteDialog(page);
+  await expect(dialog).toBeVisible({ timeout: getTimeout(10000) });
+
+  return dialog.evaluate(async (dialogElement) => {
+    await document.fonts.ready;
+
+    const texts = Array.from(dialogElement.querySelectorAll<HTMLElement>('*'))
+      .map((element) => {
+        const ownText = Array.from(element.childNodes)
+          .filter((node) => node.nodeType === Node.TEXT_NODE)
+          .map((node) => node.textContent ?? '')
+          .join('')
+          .trim();
+        return { element, ownText };
+      })
+      .filter(({ ownText }) => ownText.length > 0)
+      .map(({ element, ownText }) => {
+        const probe = element.cloneNode(true) as HTMLElement;
+        probe.removeAttribute('id');
+        probe.removeAttribute('role');
+        probe.setAttribute('aria-hidden', 'true');
+        probe.style.position = 'absolute';
+        probe.style.visibility = 'hidden';
+        probe.style.whiteSpace = 'nowrap';
+        probe.style.width = 'auto';
+        element.parentElement?.appendChild(probe);
+        const probeRect = probe.getBoundingClientRect();
+        probe.remove();
+
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const textRect = range.getBoundingClientRect();
+        const boxRect = element.getBoundingClientRect();
+        // 文字列が描かれた行の数（行ごとの矩形の上端の異なる値の数）
+        const lineTops = new Set(
+          Array.from(range.getClientRects())
+            .filter((rect) => rect.width > 0)
+            .map((rect) => Math.round(rect.top))
+        );
+        return {
+          tag: element.tagName,
+          text: ownText,
+          lineCount: lineTops.size,
+          boxLeft: boxRect.left,
+          boxRight: boxRect.right,
+          boxHeight: boxRect.height,
+          textLeft: textRect.left,
+          textRight: textRect.right,
+          singleLineHeight: probeRect.height,
+          naturalWidth: probeRect.width,
+        };
+      });
+
+    const boxes = Array.from(dialogElement.querySelectorAll<HTMLElement>('*')).map((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        tag: element.tagName,
+        text: (element.textContent ?? '').slice(0, 24),
+        left: rect.left,
+        right: rect.right,
+      };
+    });
+
+    const dialogRect = dialogElement.getBoundingClientRect();
+    const dialogStyle = getComputedStyle(dialogElement);
+    return {
+      viewportWidth: window.innerWidth,
+      documentScrollWidth: document.documentElement.scrollWidth,
+      dialog: {
+        left: dialogRect.left,
+        right: dialogRect.right,
+        width: dialogRect.width,
+        height: dialogRect.height,
+        contentLeft:
+          dialogRect.left +
+          parseFloat(dialogStyle.borderLeftWidth) +
+          parseFloat(dialogStyle.paddingLeft),
+        contentRight:
+          dialogRect.right -
+          parseFloat(dialogStyle.borderRightWidth) -
+          parseFloat(dialogStyle.paddingRight),
+        scrollWidth: dialogElement.scrollWidth,
+        clientWidth: dialogElement.clientWidth,
+      },
+      texts,
+      boxes,
+    };
+  });
+}
+
+type DeleteDialogLayout = Awaited<ReturnType<typeof measureDeleteDialogLayout>>;
+
+/**
+ * 指定の画面幅で詳細画面を開き直し、ヘッダーの「削除」から削除確認ダイアログを開いて測る。
+ * 前提（画面幅・ダイアログに取引先名が描かれていること）を満たせなければ失敗する。
+ */
+async function openAndMeasureDeleteDialog(
+  page: Page,
+  partnerId: string,
+  width: number,
+  partnerName: string
+): Promise<DeleteDialogLayout> {
+  await page.setViewportSize({ width, height: 812 });
+  await page.goto(`/trading-partners/${partnerId}`);
+  await page.waitForLoadState('networkidle');
+  await page
+    .getByRole('main')
+    .getByRole('button', { name: /^削除$/ })
+    .click();
+  const layout = await measureDeleteDialogLayout(page);
+  const report = JSON.stringify(layout);
+  expect(layout.viewportWidth, report).toBe(width);
+  expect(layout.dialog.clientWidth, report).toBeGreaterThan(0);
+  expect(
+    deleteDialogNameItems(layout, partnerName).length,
+    `取引先名がダイアログに無い。${report}`
+  ).toBe(1);
+  for (const item of layout.texts) {
+    expect(item.singleLineHeight, report).toBeGreaterThan(0);
+    expect(item.naturalWidth, report).toBeGreaterThan(0);
+  }
+  return layout;
+}
+
+/** 削除確認ダイアログを「キャンセル」で閉じる（取引先は削除しない）。 */
+async function cancelDeleteDialog(page: Page): Promise<void> {
+  await deleteDialog(page).getByRole('button', { name: 'キャンセル' }).click();
+  await expect(deleteDialog(page)).toBeHidden({ timeout: getTimeout(10000) });
+}
+
+/**
+ * 削除確認ダイアログが水平にはみ出さないことを主張する（許容誤差 1px）。
+ *
+ * - ダイアログの scrollWidth が clientWidth を超えない（ダイアログの中に横スクロールが生じない）。
+ * - ダイアログの箱が画面幅の内側に在り、文書全体の scrollWidth が画面幅を超えない。
+ * - ダイアログの中のどの要素の箱も、どの文字列（Range の外接矩形）も、ダイアログの内容の左右端
+ *   （padding の内側）の内側に在る。
+ */
+function expectDeleteDialogWithinBounds(layout: DeleteDialogLayout, context: string): void {
+  const report = `${context}: ${JSON.stringify(layout)}`;
+  expect(
+    layout.dialog.scrollWidth - layout.dialog.clientWidth,
+    `ダイアログの scrollWidth ${layout.dialog.scrollWidth} が clientWidth ${layout.dialog.clientWidth} を超える。${report}`
+  ).toBeLessThanOrEqual(LAYOUT_TOLERANCE_PX);
+  expect(layout.dialog.left, `ダイアログの左端。${report}`).toBeGreaterThanOrEqual(
+    -LAYOUT_TOLERANCE_PX
+  );
+  expect(layout.dialog.right, `ダイアログの右端。${report}`).toBeLessThanOrEqual(
+    layout.viewportWidth + LAYOUT_TOLERANCE_PX
+  );
+  expect(layout.documentScrollWidth, `文書全体の scrollWidth。${report}`).toBeLessThanOrEqual(
+    layout.viewportWidth + LAYOUT_TOLERANCE_PX
+  );
+  const rightLimit = layout.dialog.contentRight + LAYOUT_TOLERANCE_PX;
+  const leftLimit = layout.dialog.contentLeft - LAYOUT_TOLERANCE_PX;
+  for (const item of layout.texts) {
+    expect(item.textRight, `「${item.text}」の文字列の右端。${report}`).toBeLessThanOrEqual(
+      rightLimit
+    );
+    expect(item.textLeft, `「${item.text}」の文字列の左端。${report}`).toBeGreaterThanOrEqual(
+      leftLimit
+    );
+  }
+  for (const box of layout.boxes) {
+    expect(box.right, `${box.tag}「${box.text}」の箱の右端。${report}`).toBeLessThanOrEqual(
+      rightLimit
+    );
+    expect(box.left, `${box.tag}「${box.text}」の箱の左端。${report}`).toBeGreaterThanOrEqual(
+      leftLimit
+    );
+  }
+}
+
+/** 削除確認ダイアログの中で、取引先名を直下に持つ要素の実測を返す。 */
+function deleteDialogNameItems(layout: DeleteDialogLayout, partnerName: string) {
+  return layout.texts.filter((item) => item.text === partnerName);
 }
 
 /**
@@ -1788,6 +1988,119 @@ test.describe('取引先ナビゲーション・画面遷移', () => {
         Math.abs(desktop.table.right - desktop.section.contentRight),
         `表の右端が節の内容の右端と揃わない。${desktopReport}`
       ).toBeLessThanOrEqual(LAYOUT_TOLERANCE_PX);
+    });
+  });
+
+  /**
+   * 削除確認ダイアログの取引先名のモバイル幅での収まり（タスク 31.5）
+   *
+   * 削除確認ダイアログ（TradingPartnerDeleteDialog）の取引先名は折り返しの指定を持たず、区切りの
+   * 無い長い英数字の名前がダイアログの外へ伸びていた（名前の右端が 375 幅で 650・320 幅で 647、
+   * ダイアログの scrollWidth/clientWidth が 375 幅で 631/338、320 幅で 631/288）。
+   * ダイアログの中で利用者の入力した文字列を表示するのは取引先名だけである（表題・説明文・
+   * ボタンの文言とエラーメッセージは固定の文言で、名前を含まない）。普通の日本語・区切りの無い
+   * 長い英数字・区切りの無い長いカタカナの 3 通りの名前で、詳細画面のヘッダーの「削除」から
+   * ダイアログを開き、375・320・768・1280 幅で次を主張する。
+   *
+   *  - ダイアログの scrollWidth が clientWidth を超えず、ダイアログの箱が画面幅の内側に在る。
+   *  - ダイアログの中のどの要素の箱もどの文字列も、ダイアログの内容の左右端の内側に在る。
+   *
+   * 長い英数字の名前は、どの画面幅でも名前が実際に複数行へ折り返されていること、プロジェクトに
+   * 紐付いていて削除を拒否されたとき（エラーメッセージの表示中）もはみ出さないことを主張する。
+   * 普通の名前は、768 幅と 1280 幅で名前が一行に収まったままであることを主張する。
+   * 寸法は固定値で主張せず、要素どうしの関係と、同じ要素を折り返させずに置いた複製との比で測る。
+   * ダイアログは「キャンセル」で閉じ、取引先は削除しない（削除権限のため管理者で操作する）。
+   * 本スペックの受入基準に、ダイアログのモバイル幅の表示を定めた本文は無いため、受入基準の番号は
+   * 名乗らない（タスク 31.5 は要件 12 の画面の欠陥として起票された）。
+   */
+  test.describe('削除確認ダイアログの取引先名のモバイル幅での収まり', () => {
+    test('普通の日本語の取引先名の削除確認ダイアログがどの画面幅でもはみ出さず、768 幅以上で名前が一行に収まる', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'ADMIN_USER');
+
+      const partnerName = `株式会社折返し確認建設_${Date.now()}`;
+      const partnerId = await createTradingPartnerForBreadcrumb(page, partnerName);
+
+      for (const width of DELETE_DIALOG_WIDTHS) {
+        const layout = await openAndMeasureDeleteDialog(page, partnerId, width, partnerName);
+        const context = `普通の名前 ${width} 幅`;
+        expectDeleteDialogWithinBounds(layout, context);
+        await cancelDeleteDialog(page);
+      }
+
+      for (const width of [768, 1280] as const) {
+        const layout = await openAndMeasureDeleteDialog(page, partnerId, width, partnerName);
+        const report = `普通の名前 ${width} 幅: ${JSON.stringify(layout)}`;
+        const [nameItem] = deleteDialogNameItems(layout, partnerName);
+        assertPresent(nameItem, `取引先名の実測（普通の名前 ${width} 幅）`);
+        expect(nameItem.lineCount, `名前が一行に収まらない。${report}`).toBe(1);
+        await cancelDeleteDialog(page);
+      }
+    });
+
+    test('区切りの無い長い英数字の取引先名の削除確認ダイアログがどの画面幅でもはみ出さず、名前が折り返す', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'ADMIN_USER');
+
+      const stamp = Date.now();
+      const partnerName = `TradingPartnerRedevelopmentSkyscraperConstructionUnbrokenName${stamp}`;
+      const partnerId = await createTradingPartnerForBreadcrumb(page, partnerName);
+      // 削除を拒否させてエラーメッセージを表示させるため、プロジェクトを 1 件紐付ける
+      await createProjectsLinkedToPartner(page, partnerId, [`削除拒否確認プロジェクト_${stamp}`]);
+
+      for (const width of DELETE_DIALOG_WIDTHS) {
+        const layout = await openAndMeasureDeleteDialog(page, partnerId, width, partnerName);
+        const context = `長い英数字の名前 ${width} 幅`;
+        const report = `${context}: ${JSON.stringify(layout)}`;
+        expectDeleteDialogWithinBounds(layout, context);
+
+        // 前提: 名前の自然幅がダイアログの内容の幅を超える。そのうえで名前が実際に複数行へ折り返す
+        const [nameItem] = deleteDialogNameItems(layout, partnerName);
+        assertPresent(nameItem, `取引先名の実測（${context}）`);
+        expect(nameItem.naturalWidth, report).toBeGreaterThan(
+          layout.dialog.contentRight - layout.dialog.contentLeft
+        );
+        expect(
+          nameItem.lineCount,
+          `名前が複数行へ折り返されていない。${report}`
+        ).toBeGreaterThanOrEqual(2);
+
+        // 削除を拒否されてエラーメッセージを表示している間もはみ出さない（取引先は削除されない）
+        const rejectPromise = page.waitForResponse(
+          (response) =>
+            response.url().includes(`/api/trading-partners/${partnerId}`) &&
+            response.request().method() === 'DELETE' &&
+            response.status() === 409,
+          { timeout: getTimeout(30000) }
+        );
+        await deleteDialog(page)
+          .getByRole('button', { name: /^削除$/ })
+          .click();
+        await rejectPromise;
+        await expect(deleteDialog(page).getByRole('alert')).toBeVisible({
+          timeout: getTimeout(10000),
+        });
+        const withError = await measureDeleteDialogLayout(page);
+        expectDeleteDialogWithinBounds(withError, `${context}（削除を拒否されたとき）`);
+        await cancelDeleteDialog(page);
+      }
+    });
+
+    test('区切りの無い長いカタカナの取引先名の削除確認ダイアログがどの画面幅でもはみ出さない', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'ADMIN_USER');
+
+      const partnerName = `カブシキガイシャショウワサイカイハツチョウコウソウビルケンセツオリカエシカクニントリヒキサキ${Date.now()}`;
+      const partnerId = await createTradingPartnerForBreadcrumb(page, partnerName);
+
+      for (const width of DELETE_DIALOG_WIDTHS) {
+        const layout = await openAndMeasureDeleteDialog(page, partnerId, width, partnerName);
+        expectDeleteDialogWithinBounds(layout, `長いカタカナの名前 ${width} 幅`);
+        await cancelDeleteDialog(page);
+      }
     });
   });
 

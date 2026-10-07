@@ -62,9 +62,13 @@ const styles = {
     color: '#374151',
     lineHeight: '1.6',
   } as React.CSSProperties,
+  // overflowWrap:anywhere は、区切りの無い長い一語の取引先名にも折り返し位置を与え、名前が
+  // ダイアログの外へ伸びて横にはみ出さないようにする（タスク 31.5）。普通の日本語の名前は
+  // 従来どおりの位置で折り返し、配置は変わらない。
   partnerName: {
     fontWeight: 'bold',
     color: '#1f2937',
+    overflowWrap: 'anywhere',
   } as React.CSSProperties,
   errorBox: {
     marginBottom: '16px',

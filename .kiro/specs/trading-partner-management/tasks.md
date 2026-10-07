@@ -677,10 +677,11 @@
   - **解決（2026-10-07、利用者の判断「調査して不具合なら直す」「ここで直す」で上の `_Blocked:_` は解けた）**: 疑いは事実だった。根本原因は project-management が所有する `backend/src/routes/projects.routes.ts` の `GET /api/projects` が、検証を通った `tradingPartnerId` を `projectService.getProjects` の filter に渡していなかったことである（コミット `6d71e936` の customerName→tradingPartnerId の移行の時点から）。本スペックの画面・API クライアント・クエリの検証・service はいずれも正しかった。利用者の承認により本項の中で route に 3 行を足して渡すようにし、他の検索条件に同じ取りこぼしが無いことも確かめた。単体（filter に渡ること）・統合（取引先 A で絞ると A の分だけ、紐付く無い取引先では 0 件）・E2E（`e2e/specs/trading-partners/trading-partner-crud.spec.ts`、`@requirement trading-partner-management/REQ-3.4`）を足し、route の変更を外す変異で 3 層とも赤になることを確かめた。site-survey の宣言 `t13-anchor-references-after-115303` を 1631 から 1633 へ貼り直した。project-management への申し送りは同スペックの tasks.md の Task 74 に記した。31.2 の E2E の「関連プロジェクトの節を測る間だけ隠す」回避は残した（理由の註のうち 31.4 の疑いに触れる部分は古くなった）
   - _Boundary: 取引先の詳細の関連プロジェクトの取得_
 
-- [ ] 31.5 削除確認ダイアログの取引先名が長い一語を折り返さない状態を直す（利用者の判断で起票・着手。2026-10-07）
+- [x] 31.5 削除確認ダイアログの取引先名が長い一語を折り返さない状態を直す（利用者の判断で起票・着手。2026-10-07）
   - Task 31.2 の独立レビュー（2026-10-07）が実測した。詳細画面から開く削除確認ダイアログ `frontend/src/components/trading-partners/TradingPartnerDeleteDialog.tsx` の `styles.partnerName` に折り返しの指定が無く、区切りの無い長い英数字の名前で、名前の右端が 375 幅で 650・320 幅で 647 になり、ダイアログの scrollWidth/clientWidth が 375 幅で 631/338、320 幅で 631/288 になる（文書全体と main は広げない）
   - 31.2 と同じく、ダイアログの中で利用者の入力した文字列を表示する要素を 3 通りの名前（普通の日本語・長い英数字・長いカタカナ）× 4 幅で網羅して測り、まとめて直すこと。挙動（表示）の修正であるため RED → GREEN で進め、デスクトップ幅の表示が変わらないことを前後の実測で示すこと
   - _Requirements: 12_
+  - **実施（2026-10-07）**: `frontend/src/components/trading-partners/TradingPartnerDeleteDialog.tsx` の `styles.partnerName` に `overflowWrap: 'anywhere'` を置いた。ダイアログの中で利用者の入力した文字列を表示するのは取引先名だけで、表題・説明文・ボタン・エラーメッセージ（使用中の 409 を含む）は固定の文言である。長い英数字の名前でダイアログは 375 幅 611/338→338/338 になり、普通の名前の表示は 4 幅とも前後で同じである。E2E は `e2e/specs/trading-partners/trading-partner-navigation.spec.ts` の「削除確認ダイアログの取引先名のモバイル幅での収まり」の 3 件（3 通りの名前 × 4 幅、使用中のエラー表示を含む。ダイアログは「キャンセル」で閉じる。印は掲げない）。site-survey の宣言 `t13-anchor-references-after-115303` を 1633 から 1635 へ貼り直した
   - _Boundary: 取引先の削除確認ダイアログのモバイル表示_
 
 ## タスク32: 本番の schema の注記に残る削除前の要件番号（29.2 のレビューからの起票。着手は利用者の判断による）
