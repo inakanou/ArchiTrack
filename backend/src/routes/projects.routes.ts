@@ -199,6 +199,7 @@ router.get(
         status?: import('../types/project.types.js').ProjectStatus[];
         createdFrom?: string;
         createdTo?: string;
+        tradingPartnerId?: string;
         excludeTerminalStatuses?: boolean;
       };
 
@@ -211,6 +212,7 @@ router.get(
         status,
         createdFrom,
         createdTo,
+        tradingPartnerId,
         excludeTerminalStatuses,
       } = validatedQuery;
 
@@ -220,6 +222,7 @@ router.get(
           status,
           createdFrom,
           createdTo,
+          tradingPartnerId,
           excludeTerminalStatuses,
         },
         { page, limit },

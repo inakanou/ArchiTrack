@@ -373,6 +373,43 @@ describe('Projects Routes', () => {
       );
     });
 
+    it('should pass tradingPartnerId filter to the service', async () => {
+      const mockResult = {
+        data: [],
+        pagination: { page: 1, limit: 10, total: 0, totalPages: 0 },
+      };
+
+      (mockProjectService.getProjects as ReturnType<typeof vi.fn>).mockResolvedValue(mockResult);
+
+      const tradingPartnerId = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+      const response = await request(app).get(
+        `/api/projects?tradingPartnerId=${tradingPartnerId}&limit=10&sort=updatedAt&order=desc`
+      );
+
+      expect(response.status).toBe(200);
+      expect(mockProjectService.getProjects).toHaveBeenCalledWith(
+        expect.objectContaining({ tradingPartnerId }),
+        expect.any(Object),
+        expect.any(Object)
+      );
+    });
+
+    it('should not pass tradingPartnerId to the service when it is not specified', async () => {
+      const mockResult = {
+        data: [],
+        pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
+      };
+
+      (mockProjectService.getProjects as ReturnType<typeof vi.fn>).mockResolvedValue(mockResult);
+
+      const response = await request(app).get('/api/projects');
+
+      expect(response.status).toBe(200);
+      const filterArg = (mockProjectService.getProjects as ReturnType<typeof vi.fn>).mock
+        .calls[0]?.[0] as Record<string, unknown>;
+      expect(filterArg.tradingPartnerId).toBeUndefined();
+    });
+
     it('should support sorting parameters', async () => {
       const mockResult = {
         data: [],

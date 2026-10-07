@@ -670,10 +670,11 @@
   - **解決（2026-10-07、利用者の判断「表を横スクロールにする」で上の `_Blocked:_` は解けた）**: `frontend/src/pages/TradingPartnerDetailPage.tsx` の関連プロジェクトの表を、名前付きでキーボードからフォーカスできる横スクロールの領域（region「関連プロジェクト」、`overflowX: auto`）で包んだ（行が無いときは置かない）。長い英数字のプロジェクト名を含む 2 件で、main は 375 幅 723/343→343/343、320 幅 723/288→288/288、768 幅 723/720→720/720 になり、表は領域の中だけで横にスクロールする。1280 幅の表の矩形は前後で同じである。独立レビューが、縦方向のクリップで共通の `:focus-visible` の輪が切れないことを実ブラウザで確かめた。E2E は `e2e/specs/trading-partners/trading-partner-navigation.spec.ts` の「詳細画面の関連プロジェクトの表のモバイル幅での収まり」（印は掲げない）。site-survey の宣言 `t13-anchor-references-after-115303` を 1629 から 1631 へ貼り直した。design.md の TradingPartnerDetailPage の Implementation Notes に現況を併記した
   - _Boundary: 取引先の詳細の関連プロジェクトの表のモバイル表示_
 
-- [ ] 31.4 取引先での絞り込みが効かずに紐付いていないプロジェクトが詳細に出る疑いを調べる（起票のみ）
+- [x] 31.4 取引先での絞り込みが効かずに紐付いていないプロジェクトが詳細に出る疑いを調べる（起票のみ）
   - 作ったばかりで紐付くプロジェクトの無い取引先の詳細に、`tradingPartnerId` が null のプロジェクト 10 件が表示された（実装者と独立レビューの双方が観測）。`GET /api/projects?tradingPartnerId=<id>` の絞り込みが効いていない疑いがある。backend の service は `where.tradingPartnerId` を組むため、レビューは route から絞り込みへの受け渡しを疑っている。**原因は未調査である**。プロジェクトの API は project-management の所有でありうるため、調べたうえで所有スペックへ移すこと
   - _Requirements: 3.4_
   - _Blocked: 原因が未調査で所有スペックも未確定のため、利用者の判断を待つ_
+  - **解決（2026-10-07、利用者の判断「調査して不具合なら直す」「ここで直す」で上の `_Blocked:_` は解けた）**: 疑いは事実だった。根本原因は project-management が所有する `backend/src/routes/projects.routes.ts` の `GET /api/projects` が、検証を通った `tradingPartnerId` を `projectService.getProjects` の filter に渡していなかったことである（コミット `6d71e936` の customerName→tradingPartnerId の移行の時点から）。本スペックの画面・API クライアント・クエリの検証・service はいずれも正しかった。利用者の承認により本項の中で route に 3 行を足して渡すようにし、他の検索条件に同じ取りこぼしが無いことも確かめた。単体（filter に渡ること）・統合（取引先 A で絞ると A の分だけ、紐付く無い取引先では 0 件）・E2E（`e2e/specs/trading-partners/trading-partner-crud.spec.ts`、`@requirement trading-partner-management/REQ-3.4`）を足し、route の変更を外す変異で 3 層とも赤になることを確かめた。site-survey の宣言 `t13-anchor-references-after-115303` を 1631 から 1633 へ貼り直した。project-management への申し送りは同スペックの tasks.md の Task 74 に記した。31.2 の E2E の「関連プロジェクトの節を測る間だけ隠す」回避は残した（理由の註のうち 31.4 の疑いに触れる部分は古くなった）
   - _Boundary: 取引先の詳細の関連プロジェクトの取得_
 
 - [ ] 31.5 削除確認ダイアログの取引先名が長い一語を折り返さない状態を直す（利用者の判断で起票・着手。2026-10-07）

@@ -1810,3 +1810,5 @@
   - 設計文書のパスを名指す行に不在の語（撤去・削除・当時・旧 など）を書かないこと。追記の後に `check:design-measurement-freshness`、`check:design-path-refs`、`check:design-code-refs` を名指しで 1 本ずつ回す
   - _Requirements: 22.4, 22.5_
   - _Boundary: 本スペックの設計文書の、取引先の選択の照合の記述_
+
+**追加の申し送り（trading-partner-management の Task 31.4、2026-10-07）**: 本スペックが所有する `backend/src/routes/projects.routes.ts` の `GET /api/projects` が、検証を通った `tradingPartnerId` を `projectService.getProjects` の filter に渡していなかった（コミット `6d71e936` の時点から。取引先の詳細に紐付かないプロジェクトが表示されていた）。利用者の判断（2026-10-07、「ここで直す」）により trading-partner-management の Task 31.4 の中で route に 3 行を足して直し、`backend/src/__tests__/unit/routes/projects.routes.test.ts` と `backend/src/__tests__/integration/projects.integration.test.ts` に検証を足した。本スペックの設計文書の `ProjectFilter.tradingPartnerId` の記述は修正後の挙動と一致するため、文書の変更は要らない（記録のみ。タスクは起こさない）

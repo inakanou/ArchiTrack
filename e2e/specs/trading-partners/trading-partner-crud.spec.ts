@@ -17,9 +17,11 @@
  * - 5.4: 削除成功時に成功メッセージを表示し一覧ページに遷移
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
+import { assertPrepared } from '../../helpers/preconditions';
+import { API_BASE_URL } from '../../config';
 
 /**
  * 取引先CRUD機能のE2Eテスト
@@ -567,6 +569,60 @@ test.describe('取引先CRUD操作', () => {
       await expect(projectsEmpty.or(projectsTable)).toBeVisible({
         timeout: getTimeout(10000),
       });
+    });
+
+    /**
+     * @requirement trading-partner-management/REQ-3.4
+     * 当該取引先に紐付くプロジェクトだけが関連プロジェクトに出る（タスク 31.4）。
+     *
+     * 是正前は `GET /api/projects` の route が `tradingPartnerId` を service へ渡しておらず、
+     * 紐付くプロジェクトの無い取引先にも、他の取引先や取引先未設定のプロジェクトの最新 10 件が
+     * 出ていた。test 環境の DB には他のテストのプロジェクトが残りうるため、ここで作った
+     * 取引先とプロジェクトの名前だけで主張する。紐付かないプロジェクトをここで後から作るため、
+     * 絞り込みが効かなければ、それらが最新の行として必ず表に出る。
+     */
+    test('紐付くプロジェクトの無い取引先は空の表示になり、紐付く取引先にはそのプロジェクトだけが出る (trading-partner-management/REQ-3.4)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const stamp = Date.now();
+      const api = await relatedProjectsApi(page);
+      const linkedPartnerId = await api.createPartner(
+        `関連プロジェクト絞り込み_紐付きあり_${stamp}`
+      );
+      const emptyPartnerId = await api.createPartner(
+        `関連プロジェクト絞り込み_紐付きなし_${stamp}`
+      );
+      const otherPartnerId = await api.createPartner(`関連プロジェクト絞り込み_別取引先_${stamp}`);
+
+      const linkedNames = [`絞り込み確認_紐付き1_${stamp}`, `絞り込み確認_紐付き2_${stamp}`];
+      for (const name of linkedNames) {
+        await api.createProject(name, linkedPartnerId);
+      }
+      // 紐付かないプロジェクトを後から作る（絞り込みが効かなければ最新の行として出る）
+      const unrelatedNames = [`絞り込み確認_別取引先_${stamp}`, `絞り込み確認_取引先なし_${stamp}`];
+      await api.createProject(unrelatedNames[0]!, otherPartnerId);
+      await api.createProject(unrelatedNames[1]!, null);
+
+      // 紐付くプロジェクトの無い取引先: 空の表示で、表が無い
+      await openDetailAndWaitRelatedProjects(page, emptyPartnerId);
+      await expect(page.getByText('関連するプロジェクトはありません')).toBeVisible({
+        timeout: getTimeout(10000),
+      });
+      await expect(page.getByRole('table', { name: 'プロジェクト一覧' })).toHaveCount(0);
+      for (const name of [...linkedNames, ...unrelatedNames]) {
+        await expect(page.getByRole('link', { name })).toHaveCount(0);
+      }
+
+      // 紐付くプロジェクトがある取引先: そのプロジェクトだけが出る
+      await openDetailAndWaitRelatedProjects(page, linkedPartnerId);
+      const table = page.getByRole('table', { name: 'プロジェクト一覧' });
+      await expect(table).toBeVisible({ timeout: getTimeout(10000) });
+      await expect(table.locator('tbody tr')).toHaveCount(linkedNames.length);
+      const shownNames = (await table.locator('tbody tr a').allTextContents()).sort();
+      expect(shownNames).toEqual([...linkedNames].sort());
+      await expect(page.getByText('関連するプロジェクトはありません')).toHaveCount(0);
     });
 
     /**
@@ -1512,3 +1568,76 @@ test.describe('取引先CRUD操作', () => {
     });
   });
 });
+
+/**
+ * 関連プロジェクトの絞り込みの検証（タスク 31.4）の準備に使う API の操作。
+ *
+ * 取引先と営業担当者つきのプロジェクトを API から作る。作成に失敗した場合は前提の主張で失敗する。
+ */
+async function relatedProjectsApi(page: Page) {
+  const accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+  assertPrepared(accessToken, '認証トークン');
+  const headers = { Authorization: `Bearer ${accessToken}` };
+
+  const assignableRes = await page.request.get(`${API_BASE_URL}/api/users/assignable`, {
+    headers,
+  });
+  expect(
+    assignableRes.ok(),
+    `前提: 担当者候補を取得できる (status=${assignableRes.status()})`
+  ).toBeTruthy();
+  const assignableUsers = (await assignableRes.json()) as Array<{ id: string }>;
+  const salesPersonId = assignableUsers[0]?.id;
+  assertPrepared(salesPersonId, '担当者候補のID');
+
+  return {
+    async createPartner(name: string): Promise<string> {
+      const res = await page.request.post(`${API_BASE_URL}/api/trading-partners`, {
+        headers,
+        data: {
+          name,
+          nameKana: 'カンレンプロジェクトシボリコミ',
+          types: ['CUSTOMER'],
+          address: '東京都千代田区関連プロジェクト1-1',
+        },
+      });
+      expect(res.ok(), `前提: 取引先「${name}」が作成される (status=${res.status()})`).toBeTruthy();
+      const id = ((await res.json()) as { id?: string }).id;
+      assertPrepared(id, `取引先「${name}」のID`);
+      return id;
+    },
+    async createProject(name: string, tradingPartnerId: string | null): Promise<void> {
+      const res = await page.request.post(`${API_BASE_URL}/api/projects`, {
+        headers,
+        data: tradingPartnerId
+          ? { name, salesPersonId, tradingPartnerId }
+          : { name, salesPersonId },
+      });
+      expect(
+        res.ok(),
+        `前提: プロジェクト「${name}」が作成される (status=${res.status()})`
+      ).toBeTruthy();
+    },
+  };
+}
+
+/** 取引先の詳細画面を開き、関連プロジェクトの取得の応答を待つ（タスク 31.4）。 */
+async function openDetailAndWaitRelatedProjects(page: Page, partnerId: string): Promise<void> {
+  const projectsResponse = page.waitForResponse(
+    (response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname === '/api/projects' &&
+        url.searchParams.get('tradingPartnerId') === partnerId &&
+        response.request().method() === 'GET'
+      );
+    },
+    { timeout: getTimeout(30000) }
+  );
+  await page.goto(`/trading-partners/${partnerId}`);
+  const response = await projectsResponse;
+  expect(response.status(), '関連プロジェクトの取得の応答').toBe(200);
+  await expect(page.getByRole('heading', { name: '関連プロジェクト' })).toBeVisible({
+    timeout: getTimeout(10000),
+  });
+}
