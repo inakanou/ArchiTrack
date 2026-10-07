@@ -36,9 +36,7 @@ export interface UserSelectProps {
 const STYLES = {
   colors: {
     error: '#dc2626',
-    errorLight: 'rgba(220, 38, 38, 0.1)',
     focus: '#2563eb',
-    focusLight: 'rgba(37, 99, 235, 0.1)',
     border: '#d1d5db',
     label: '#374151',
     text: '#111827',
@@ -49,7 +47,7 @@ const STYLES = {
     loadingText: '#525b6a', // WCAG 2.1 AA準拠: 5.5:1 contrast ratio on #f3f4f6
   },
   borderRadius: '0.375rem',
-  transition: 'border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out',
+  transition: 'border-color 0.15s ease-in-out',
 } as const;
 
 /**
@@ -236,15 +234,6 @@ function UserSelect({
     return STYLES.colors.border;
   };
 
-  /**
-   * ボックスシャドウを計算
-   */
-  const getBoxShadow = (): string => {
-    if (!isFocused) return 'none';
-    if (hasError) return `0 0 0 3px ${STYLES.colors.errorLight}`;
-    return `0 0 0 3px ${STYLES.colors.focusLight}`;
-  };
-
   // ローディング中の表示
   if (isLoading) {
     return (
@@ -392,7 +381,6 @@ function UserSelect({
           backgroundColor: disabled ? STYLES.colors.disabledBg : STYLES.colors.white,
           cursor: disabled ? 'not-allowed' : 'pointer',
           transition: STYLES.transition,
-          boxShadow: getBoxShadow(),
           appearance: 'auto',
         }}
       >

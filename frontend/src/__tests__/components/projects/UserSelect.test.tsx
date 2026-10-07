@@ -410,8 +410,10 @@ describe('UserSelect', () => {
       const select = screen.getByRole('combobox');
       fireEvent.focus(select);
 
-      // フォーカス状態が設定されていること（box-shadowがあること）
-      expect(select.style.boxShadow).not.toBe('none');
+      // フォーカス状態が設定されていること（枠線が青に変わること）
+      expect(select.style.border).toMatch(/#2563eb|rgb\(37, 99, 235\)/i);
+      // 影の輪は描かないこと（共通の outline と重ねて二重にしない。タスク 73.6）
+      expect(select.style.boxShadow).toMatch(/^(none)?$/);
       // 共通のフォーカス表示（index.css の :focus-visible）をインラインで打ち消していないこと
       expect(select.style.outlineStyle).not.toBe('none');
     });

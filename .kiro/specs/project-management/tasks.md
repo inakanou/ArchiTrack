@@ -1794,7 +1794,7 @@
   - _Requirements: 20.4_
   - _Boundary: 全画面共通のフォーカス表示の規約の記録_
 
-- [ ] 73.6 プロジェクトのフォームの入力欄でフォーカス表示が二重になる状態を整理する（利用者の判断で起票。2026-10-07）
+- [x] 73.6 プロジェクトのフォームの入力欄でフォーカス表示が二重になる状態を整理する（利用者の判断で起票。2026-10-07）
   - ProjectForm・TradingPartnerSelect・UserSelect の入力欄は、フォーカス時の既存の青い枠線と 3px の淡い影の上に、Task 72.3 の 2px の outline（offset 2px）が重なる。テキスト入力はマウスでクリックしても `:focus-visible` に当たるため、マウス操作でも二重になる。要件 20.4 は満たしており、見た目の整理である
   - 既存の影を外して共通の outline に一本化するか、入力欄だけ共通の outline を打ち消して既存の表示を 3:1・2px 以上へ強めるかを決めて直す。いずれも `e2e/specs/projects/project-accessibility.spec.ts` の「フォーカス状態の視覚的表示」と `frontend/src/__tests__/accessibility/focus-visible.test.tsx` が緑のままであること（インラインの `outline: 'none'` は書かない）
   - 挙動（見た目）の変更であるため RED → GREEN で進める

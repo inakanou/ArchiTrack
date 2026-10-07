@@ -4,7 +4,8 @@
  * フォーカス表示は全画面共通の規則（`src/index.css` の `@layer base` の `:focus-visible`）で描く。
  * 部品の側は、その規則を打ち消す `outline: none` をインラインで持たないことで規則に乗る。
  * ここでは (1) 規則そのものが明確な表示（幅 2px 以上・背景とのコントラスト比 3:1 以上）であること、
- * (2) プロジェクトの作成・編集フォームの入力部品が規則を打ち消していないこと、を確かめる。
+ * (2) プロジェクトの作成・編集フォームの入力部品が規則を打ち消していないこと、
+ * (3) フォーカス中の入力欄が影の輪を重ねず、共通の outline だけで示すこと（タスク 73.6）、を確かめる。
  * 実際のブラウザでフォーカス中に表示が出ることは e2e/specs/projects/project-accessibility.spec.ts
  * の「フォーカス状態の視覚的表示」で主張する（jsdom は :focus-visible の照合も CSS の適用もしない）。
  *
@@ -15,7 +16,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import ProjectForm from '../../components/projects/ProjectForm';
 
 // AuthContext のモック
@@ -146,5 +147,78 @@ describe('プロジェクトフォームの入力部品が共通のフォーカ�
       )
       .map((control) => control.getAttribute('aria-label'));
     expect(suppressed).toEqual([]);
+  });
+});
+
+describe('フォーカス中のプロジェクトフォームの入力欄は共通の outline だけで示す', () => {
+  /**
+   * 入力欄が自前の影の輪（box-shadow）を描くと、共通の :focus-visible の outline と重なって
+   * フォーカス表示が二重になる。影は描かず、枠線の色の変化と共通の outline で示す。
+   *
+   * @requirement project-management/REQ-20.4: フォーカス状態を視覚的に明確に表示する
+   */
+  it('フォーカス中の6つの入力欄が影の輪を描かず、枠線を青に変え、outline を打ち消していない', async () => {
+    render(
+      <ProjectForm mode="create" onSubmit={vi.fn()} onCancel={vi.fn()} isSubmitting={false} />
+    );
+    await waitFor(() => {
+      expect(screen.queryByText('読み込み中...')).not.toBeInTheDocument();
+    });
+
+    const controls = [
+      screen.getByRole('textbox', { name: 'プロジェクト名' }),
+      screen.getByRole('combobox', { name: '顧客名' }),
+      screen.getByRole('combobox', { name: '営業担当者' }),
+      screen.getByRole('combobox', { name: '工事担当者' }),
+      screen.getByRole('textbox', { name: '現場住所' }),
+      screen.getByRole('textbox', { name: '概要' }),
+    ];
+    expect(controls).toHaveLength(6);
+
+    const observed = controls.map((control) => {
+      fireEvent.focus(control);
+      const result = {
+        name: control.getAttribute('aria-label'),
+        boxShadow: control.style.boxShadow,
+        focusBorder: /#2563eb|rgb\(37, 99, 235\)/i.test(control.style.border),
+        outlineSuppressed:
+          control.style.outlineStyle === 'none' || control.style.outline === 'none',
+      };
+      fireEvent.blur(control);
+      return result;
+    });
+
+    expect(observed).toEqual(
+      controls.map((control) => ({
+        name: control.getAttribute('aria-label'),
+        boxShadow: expect.stringMatching(/^(none)?$/),
+        focusBorder: true,
+        outlineSuppressed: false,
+      }))
+    );
+  });
+
+  /**
+   * @requirement project-management/REQ-20.4: フォーカス状態を視覚的に明確に表示する
+   */
+  it('エラー表示中のプロジェクト名にフォーカスしても影の輪を描かず、outline を打ち消していない', async () => {
+    render(
+      <ProjectForm mode="create" onSubmit={vi.fn()} onCancel={vi.fn()} isSubmitting={false} />
+    );
+    await waitFor(() => {
+      expect(screen.queryByText('読み込み中...')).not.toBeInTheDocument();
+    });
+
+    const nameInput = screen.getByRole('textbox', { name: 'プロジェクト名' });
+    fireEvent.focus(nameInput);
+    fireEvent.blur(nameInput);
+    await waitFor(() => {
+      expect(nameInput).toHaveAttribute('aria-invalid', 'true');
+    });
+
+    fireEvent.focus(nameInput);
+    expect(nameInput.style.boxShadow).toMatch(/^(none)?$/);
+    expect(nameInput.style.outlineStyle).not.toBe('none');
+    expect(nameInput.style.outline).not.toBe('none');
   });
 });

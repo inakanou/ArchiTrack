@@ -697,7 +697,9 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
   test.describe('フォーカス状態の視覚的表示', () => {
     /**
      * REQ-20.4: フォーカス状態を視覚的に明確に表示
-     * フォーカスリングの表示確認
+     * 入力欄のフォーカス表示は全画面共通の outline（index.css の :focus-visible）に一本化する
+     * （タスク 73.6）。入力欄が自前の影の輪を描くと outline と重なって二重になるため、
+     * フォーカス中に明確な outline があり、かつ box-shadow が none であることを主張する。
      */
     test('プロジェクト作成フォームでフォーカス状態が視覚的に明確に表示される', async ({ page }) => {
       await loginAsUser(page, 'REGULAR_USER');
@@ -708,19 +710,43 @@ test.describe('プロジェクト管理 アクセシビリティテスト', () =
       await expect(page.getByLabel(/プロジェクト名/i)).toBeVisible({
         timeout: getTimeout(10000),
       });
-
-      // プロジェクト名フィールドにフォーカス
-      const projectNameInput = page.getByLabel(/プロジェクト名/i);
-      await projectNameInput.focus();
-
-      // フォーカス時にbox-shadowが適用されていることを確認
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const boxShadow = await projectNameInput.evaluate((el: any): string => {
-        return el.ownerDocument.defaultView.getComputedStyle(el).boxShadow;
+      await expect(page.getByText(/読み込み中/i).first()).not.toBeVisible({
+        timeout: getTimeout(15000),
       });
 
-      // フォーカス時にbox-shadowが「none」でないことを確認
-      expect(boxShadow).not.toBe('none');
+      const controls = [
+        page.getByRole('textbox', { name: 'プロジェクト名' }),
+        page.getByRole('combobox', { name: '顧客名' }),
+        page.getByRole('combobox', { name: '営業担当者' }),
+        page.getByRole('combobox', { name: '工事担当者' }),
+        page.getByRole('textbox', { name: '現場住所' }),
+        page.getByRole('textbox', { name: '概要' }),
+      ];
+
+      const observed: { descriptor: string; indicator: string; boxShadow: string }[] = [];
+      for (const control of controls) {
+        await control.focus();
+        await expect(control).toBeFocused();
+        const handle = await control.elementHandle();
+        expect(handle, 'フォーカスした入力欄の要素を取得できる').not.toBeNull();
+        const snapshot = await snapshotFocusStyle(handle as ElementHandle<Element>);
+        observed.push({
+          descriptor: snapshot.descriptor,
+          indicator: findClearFocusIndicator(snapshot) ?? 'なし',
+          boxShadow: snapshot.boxShadow,
+        });
+      }
+
+      expect(observed).toHaveLength(6);
+      expect(observed).toEqual(
+        observed.map((entry) => ({
+          descriptor: entry.descriptor,
+          // 明確な表示は共通の outline が担う
+          indicator: expect.stringMatching(/^outline solid 2px/),
+          // 影の輪を重ねない（表示が二重にならない）
+          boxShadow: 'none',
+        }))
+      );
     });
 
     /**

@@ -398,6 +398,8 @@ sequenceDiagram
 
 **要件 20.1-20.6 の行への追記（要件 20.4、タスク 72.3、2026-10-06。利用者の判断「結線」）**: 全画面共通の規則として `frontend/src/index.css` の `@layer base` に `:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }` を置く（白に対して 5.17:1、`#f5f5f5` に対して 4.74:1）。base 層に置くのは、部品の側の指定（utilities 層の `focus:outline-none` と、層の外の作者 CSS）がこの規則に勝つようにするためである。`focus:ring-*` の輪は box-shadow なので、この outline とは干渉しない。部品の側はインラインで `outline: 'none'` を書かない（インライン指定は stylesheet の規則に勝ち、表示を消すため）。`frontend/src/utils/keyboard-navigation.ts` の `FOCUS_VISIBLE_STYLES` は本番の画面から参照されず、要件 20.4 の被覆源ではない。受入の検証は `e2e/specs/projects/project-accessibility.spec.ts` の「フォーカス状態の視覚的表示」が担う
 
+**タスク 73.6（2026-10-07、利用者の判断「共通の輪に一本化」）**: ProjectForm・TradingPartnerSelect・UserSelect の入力欄はフォーカス時の 3px の淡い影（box-shadow）を描かず、フォーカス中の表示を共通の outline と枠線の色の変化で示す。影と outline が重なってフォーカス表示が二重になる状態を解消した（エラー時の淡い赤の影も同じく描かない）。受入の検証は `e2e/specs/projects/project-accessibility.spec.ts` の「プロジェクト作成フォームでフォーカス状態が視覚的に明確に表示される」が、6 つの入力欄で outline が明確であることと box-shadow が none であることを主張する形で担う
+
 ## Components and Interfaces
 
 ### Component Summary
