@@ -1385,7 +1385,8 @@ test.describe('取引先ナビゲーション・画面遷移', () => {
      * タスク 115.188 の是正: 従前は REQ-12.23 と REQ-12.26 を名乗っていた。原文12.23 は
      * 「取引先更新に成功したとき取引先詳細ページに遷移する」で、本検証は更新を一度も行わない。
      * 原文12.26 は「取引先管理ページ群に ProtectedLayout（AppHeader付き）を適用する」で、
-     * 本検証は AppHeader を一度も見ない。12.26 は他に被覆源が無いため未被覆として露出する。
+     * 本検証は AppHeader を一度も見ない。12.26 は他に被覆源が無いため未被覆として露出する
+     * （タスク 29.1 で「ProtectedLayout（AppHeader）の適用」の区間が被覆源になった）。
      * 本検証の主題である「ログイン後に元のページへ復帰する」を述べるのは原文12.28 である。
      */
     test('ログイン後に元のページに復帰する (trading-partner-management/REQ-12.27, REQ-12.28)', async ({
@@ -1422,7 +1423,20 @@ test.describe('取引先ナビゲーション・画面遷移', () => {
    * 一覧から詳細への遷移テスト
    */
   test.describe('一覧から詳細への遷移', () => {
-    test('一覧画面の取引先行をクリックすると詳細画面に遷移する', async ({ page }) => {
+    /**
+     * @requirement trading-partner-management/REQ-12.19
+     *
+     * 受入基準12.19 の原文は「When ユーザーが取引先一覧から取引先を選択したとき, the 取引先管理サービス
+     * shall 取引先詳細ページに遷移する」である。本検証は一覧の行をクリックし、URL が
+     * `/trading-partners/:id` になり詳細画面に取引先名が表示されることを主張する。
+     *
+     * 空振りでないことの実測（2026-10-07、タスク 29.1）: frontend/src/pages/TradingPartnerListPage.tsx の
+     * 行クリックの遷移先を `/trading-partners` へ変える変異を入れて test 環境を作り直すと、本検証は
+     * URL の主張で落ちる。変異は復元済み。
+     */
+    test('一覧画面の取引先行をクリックすると詳細画面に遷移する (trading-partner-management/REQ-12.19)', async ({
+      page,
+    }) => {
       await loginAsUser(page, 'REGULAR_USER');
 
       // テスト用取引先を作成
@@ -1472,6 +1486,77 @@ test.describe('取引先ナビゲーション・画面遷移', () => {
         timeout: getTimeout(10000),
       });
       await expect(page.getByText(partnerName).first()).toBeVisible();
+    });
+  });
+
+  /**
+   * 取引先管理ページ群への ProtectedLayout（AppHeader 付き）の適用
+   */
+  test.describe('ProtectedLayout（AppHeader）の適用', () => {
+    /**
+     * @requirement trading-partner-management/REQ-12.26
+     *
+     * 受入基準12.26 の原文は「The 取引先管理サービス shall 取引先管理ページ群にProtectedLayout（AppHeader付き）を
+     * 適用する」である。本検証は一覧・新規作成・詳細・編集の 4 ページのそれぞれで、各ページ固有の見出しが
+     * 表示された状態で、共通ヘッダー（role="banner"）がロゴの「ArchiTrack」リンクと
+     * 「ダッシュボード」「取引先」のナビゲーションリンクを伴って表示されることを主張する。
+     *
+     * 空振りでないことの実測（2026-10-07、タスク 29.1）: frontend/src/components/ProtectedLayout.tsx が
+     * `/trading-partners` 配下でだけ AppHeader を描かない変異を入れて test 環境を作り直すと、本検証は
+     * 一覧ページの共通ヘッダーの主張で落ちる。変異は復元済み。
+     */
+    test('一覧・新規作成・詳細・編集の各ページに共通ヘッダーが表示される (trading-partner-management/REQ-12.26)', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const partnerName = `ヘッダー適用テスト取引先_${Date.now()}`;
+      const partnerId = await createTradingPartnerForBreadcrumb(page, partnerName);
+
+      const pages: ReadonlyArray<{ label: string; path: string; landmark: () => Locator }> = [
+        {
+          label: '一覧',
+          path: '/trading-partners',
+          landmark: () => page.getByRole('heading', { name: '取引先一覧', level: 1 }),
+        },
+        {
+          label: '新規作成',
+          path: '/trading-partners/new',
+          landmark: () => page.getByRole('heading', { name: '取引先の新規作成', level: 1 }),
+        },
+        {
+          label: '詳細',
+          path: `/trading-partners/${partnerId}`,
+          landmark: () => page.getByRole('heading', { name: '基本情報' }),
+        },
+        {
+          label: '編集',
+          path: `/trading-partners/${partnerId}/edit`,
+          landmark: () => page.getByRole('heading', { name: '取引先の編集', level: 1 }),
+        },
+      ];
+
+      for (const target of pages) {
+        await test.step(`${target.label}ページ（${target.path}）`, async () => {
+          await page.goto(target.path);
+          await page.waitForLoadState('networkidle');
+
+          // ページ固有の内容が描かれている（読み込み中・エラーの画面ではない）
+          await expect(target.landmark(), `${target.label}ページの見出し`).toBeVisible({
+            timeout: getTimeout(10000),
+          });
+
+          // 共通ヘッダー（AppHeader）が同じ画面に表示されている
+          const header = page.getByRole('banner');
+          await expect(header, `${target.label}ページの共通ヘッダー`).toBeVisible();
+          await expect(header.getByRole('link', { name: 'ArchiTrack' })).toBeVisible();
+          const nav = header.getByRole('navigation');
+          await expect(
+            nav.getByRole('link', { name: 'ダッシュボード', exact: true })
+          ).toBeVisible();
+          await expect(nav.getByRole('link', { name: '取引先', exact: true })).toBeVisible();
+        });
+      }
     });
   });
 });

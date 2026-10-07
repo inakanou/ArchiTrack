@@ -444,6 +444,22 @@ describe('createTradingPartnerSchema', () => {
     });
   });
 
+  /**
+   * @requirement trading-partner-management/REQ-11.9: The 取引先管理サービス shall 請求締日を1〜31の整数値または「末日」（計32オプション）として管理する
+   *
+   * 本群は請求締日が 1〜31 の整数と末日の印（`BILLING_CLOSING_DAY_END_OF_MONTH` = 99）の
+   * 計 32 値だけを受け、範囲の外側（0・32）と末日の印以外の値（50）を拒むことを主張する。
+   * 観測の対象は本番モジュール backend/src/schemas/trading-partner.schema.ts の
+   * `billingClosingDaySchema`（`1〜31 || BILLING_CLOSING_DAY_END_OF_MONTH` の refine）であり、
+   * 当該スキーマは backend/src/routes/trading-partners.routes.ts が取り込むため本番の経路に乗る。
+   *
+   * 空振りでないことの実測（2026-10-07、タスク 29.1）: refine の上限 31 を 32 へ緩めると
+   * 162 件中 1 件（本群の「32を拒否すること」）が落ち、末日の印の照合
+   * `=== BILLING_CLOSING_DAY_END_OF_MONTH` を `=== 98` へ変えると 162 件中 2 件（本群の
+   * 「末日（99）を受け入れること」と更新側の「請求締日を末日（99）で更新できること」）が落ちる。採取は
+   * `npm --prefix backend exec -- vitest run --root backend src/__tests__/unit/schemas/trading-partner.schema.test.ts`。
+   * 変異は復元済み。
+   */
   describe('請求締日のバリデーション', () => {
     it('1日〜31日の値を受け入れること', () => {
       for (let day = 1; day <= 31; day++) {
