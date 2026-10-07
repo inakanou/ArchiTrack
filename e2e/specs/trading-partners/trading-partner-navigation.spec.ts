@@ -12,6 +12,7 @@
  * - 未認証アクセス時のリダイレクト
  * - 作成・編集フォームの支払日の入力のモバイル幅での収まり（タスク 31.1）
  * - 詳細画面の文字列のモバイル幅での収まり（タスク 31.2）
+ * - 詳細画面の関連プロジェクトの表のモバイル幅での収まり（タスク 31.3）
  *
  * Requirements:
  * - 12.1: ヘッダーに「取引先」ナビゲーションリンクを表示
@@ -33,7 +34,8 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout, waitForLoadingComplete } from '../../helpers/wait-helpers';
-import { assertPresent } from '../../helpers/preconditions';
+import { assertPrepared, assertPresent } from '../../helpers/preconditions';
+import { API_BASE_URL } from '../../config';
 import { breadcrumbNav, readBreadcrumbTrail } from '../../helpers/breadcrumb';
 
 /** モバイル幅の折り返しを測る画面幅（タスク 30.1）。 */
@@ -613,6 +615,153 @@ function expectDetailTextWithinMain(layout: DetailTextLayout, context: string): 
 /** 詳細表示の中で、指定の文字列を直下に持つ要素の実測をすべて返す（表題と「取引先名」の値など）。 */
 function detailTextItems(layout: DetailTextLayout, text: string) {
   return layout.texts.filter((item) => item.text === text);
+}
+
+/**
+ * 取引先に紐付くプロジェクトを、指定の名前で API から作成する（タスク 31.3 の準備）。
+ *
+ * 営業担当者は担当者候補の先頭を使う。作成に失敗した場合は前提の主張で失敗する。
+ */
+async function createProjectsLinkedToPartner(
+  page: Page,
+  partnerId: string,
+  names: string[]
+): Promise<void> {
+  const accessToken = await page.evaluate(() => localStorage.getItem('accessToken') ?? '');
+  assertPrepared(accessToken, '認証トークン');
+  const headers = { Authorization: `Bearer ${accessToken}` };
+
+  const assignableRes = await page.request.get(`${API_BASE_URL}/api/users/assignable`, {
+    headers,
+  });
+  expect(
+    assignableRes.ok(),
+    `前提: 担当者候補を取得できる (status=${assignableRes.status()})`
+  ).toBeTruthy();
+  const assignableUsers = (await assignableRes.json()) as Array<{ id: string }>;
+  const salesPersonId = assignableUsers[0]?.id;
+  assertPrepared(salesPersonId, '担当者候補のID');
+
+  for (const name of names) {
+    const projectRes = await page.request.post(`${API_BASE_URL}/api/projects`, {
+      headers,
+      data: { name, salesPersonId, tradingPartnerId: partnerId },
+    });
+    expect(
+      projectRes.ok(),
+      `前提: 取引先に紐付くプロジェクト「${name}」が作成される (status=${projectRes.status()})`
+    ).toBeTruthy();
+  }
+}
+
+/**
+ * 詳細画面の関連プロジェクトの節の配置を実ブラウザで測る（タスク 31.3）。
+ *
+ * 関連プロジェクトの節を隠さずに、画面のコンテナ（main）の scrollWidth と clientWidth、
+ * 表とその直接の親（是正後は横スクロールの領域、是正前は節そのもの）の矩形と scrollWidth・
+ * clientWidth、節の内容の左右端を測る。表の親が節そのものかどうかも返す（是正前の報告のため）。
+ */
+async function measureRelatedProjectsLayout(page: Page, projectNames: string[]) {
+  const table = page.getByRole('table', { name: 'プロジェクト一覧' });
+  await expect(table).toBeVisible({ timeout: getTimeout(15000) });
+  for (const name of projectNames) {
+    await expect(table.getByRole('link', { name, exact: true })).toBeVisible({
+      timeout: getTimeout(15000),
+    });
+  }
+
+  return page.evaluate(async () => {
+    await document.fonts.ready;
+
+    const tableElement = document.querySelector<HTMLElement>(
+      'table[aria-label="プロジェクト一覧"]'
+    );
+    const container = tableElement?.parentElement;
+    const section = tableElement?.closest('section');
+    const main = tableElement?.closest('main');
+    if (!tableElement || !container || !section || !main) {
+      throw new Error('関連プロジェクトの表・その親・節・画面のコンテナ（main）のいずれかが無い');
+    }
+
+    const mainRect = main.getBoundingClientRect();
+    const mainStyle = getComputedStyle(main);
+    const sectionRect = section.getBoundingClientRect();
+    const sectionStyle = getComputedStyle(section);
+    const containerRect = container.getBoundingClientRect();
+    const tableRect = tableElement.getBoundingClientRect();
+    return {
+      viewportWidth: window.innerWidth,
+      main: {
+        scrollWidth: main.scrollWidth,
+        clientWidth: main.clientWidth,
+        left: mainRect.left,
+        contentRight: mainRect.right - parseFloat(mainStyle.paddingRight),
+      },
+      section: {
+        contentLeft:
+          sectionRect.left +
+          parseFloat(sectionStyle.borderLeftWidth) +
+          parseFloat(sectionStyle.paddingLeft),
+        contentRight:
+          sectionRect.right -
+          parseFloat(sectionStyle.borderRightWidth) -
+          parseFloat(sectionStyle.paddingRight),
+      },
+      container: {
+        isSection: container === section,
+        tag: container.tagName,
+        scrollWidth: container.scrollWidth,
+        clientWidth: container.clientWidth,
+        left: containerRect.left,
+        right: containerRect.right,
+      },
+      table: {
+        left: tableRect.left,
+        right: tableRect.right,
+        width: tableRect.width,
+        height: tableRect.height,
+      },
+    };
+  });
+}
+
+type RelatedProjectsLayout = Awaited<ReturnType<typeof measureRelatedProjectsLayout>>;
+
+/** 指定の画面幅で詳細画面を開き直し、関連プロジェクトの節を測る。前提を満たせなければ失敗する。 */
+async function openAndMeasureRelatedProjects(
+  page: Page,
+  partnerId: string,
+  width: number,
+  projectNames: string[]
+): Promise<RelatedProjectsLayout> {
+  await page.setViewportSize({ width, height: 812 });
+  await page.goto(`/trading-partners/${partnerId}`);
+  await page.waitForLoadState('networkidle');
+  const layout = await measureRelatedProjectsLayout(page, projectNames);
+  // 前提: 画面幅が指定どおりで、main が幅を持つ
+  expect(layout.viewportWidth, JSON.stringify(layout)).toBe(width);
+  expect(layout.main.clientWidth, JSON.stringify(layout)).toBeGreaterThan(0);
+  return layout;
+}
+
+/**
+ * 関連プロジェクトの節を隠さずに、main が水平に押し広げられず、表を入れた横スクロールの領域が
+ * main の内容の右端と画面幅の内側に在ることを主張する（許容誤差 1px）。
+ */
+function expectRelatedProjectsWithinMain(layout: RelatedProjectsLayout, context: string): void {
+  const report = `${context}: ${JSON.stringify(layout)}`;
+  expect(
+    layout.main.scrollWidth - layout.main.clientWidth,
+    `main の scrollWidth ${layout.main.scrollWidth} が clientWidth ${layout.main.clientWidth} を超える。${report}`
+  ).toBeLessThanOrEqual(LAYOUT_TOLERANCE_PX);
+  expect(layout.container.isSection, `表が横スクロールの領域に入っていない。${report}`).toBe(false);
+  const rightLimit = Math.min(layout.viewportWidth, layout.main.contentRight) + LAYOUT_TOLERANCE_PX;
+  expect(layout.container.right, `横スクロールの領域の右端。${report}`).toBeLessThanOrEqual(
+    rightLimit
+  );
+  expect(layout.container.left, `横スクロールの領域の左端。${report}`).toBeGreaterThanOrEqual(
+    layout.main.left - LAYOUT_TOLERANCE_PX
+  );
 }
 
 /**
@@ -1547,6 +1696,98 @@ test.describe('取引先ナビゲーション・画面遷移', () => {
         const layout = await openAndMeasureDetailText(page, partnerId, width, fields);
         expectDetailTextWithinMain(layout, `長いカタカナの名前 ${width} 幅`);
       }
+    });
+  });
+
+  /**
+   * 詳細画面の関連プロジェクトの表のモバイル幅での収まり（タスク 31.3）
+   *
+   * 関連プロジェクトの表は、行があると表の最小幅が画面幅を超え、main を押し広げていた
+   * （375 幅で表の幅 608・右端 665、main 649/343）。利用者の判断（2026-10-07）により、表だけを
+   * 横スクロールの領域（名前付きの region、キーボードでフォーカスできる）に入れる。
+   * 取引先に紐付くプロジェクトを、区切りの無い長い英数字の名前と普通の日本語の名前の 2 件作り、
+   * 次を主張する。
+   *
+   *  - 375・320 幅: 関連プロジェクトの節を隠さずに、main の scrollWidth が clientWidth を超えない。
+   *    領域は main の内容の右端と画面幅の内側に在り、領域の中で表が横にスクロールする
+   *    （領域の scrollWidth が clientWidth を超える）。領域にフォーカスして右矢印キーを押すと
+   *    横にスクロールする。
+   *  - 768 幅: main の scrollWidth が clientWidth を超えず、領域が main の内側に在る（長い英数字の
+   *    名前の表は是正前に 768 幅でも main を 723/720 に押し広げていた）。
+   *  - 1280 幅: 領域は横にスクロールせず、表は是正前と同じく節の内容の幅いっぱいに広がる
+   *    （表の左右端が節の内容の左右端と揃う）。
+   *
+   * 寸法は固定値で主張せず、要素どうしの関係で測る。紐付かないプロジェクトが表に出る疑い
+   * （タスク 31.4）は本タスクの境界の外であり、ここで作った行の存在だけを前提として確かめる。
+   * 本スペックの受入基準に、詳細のモバイル幅の表示を定めた本文は無いため、受入基準の番号は
+   * 名乗らない（タスク 31.3 は要件 12 の画面の欠陥として起票された）。
+   */
+  test.describe('詳細画面の関連プロジェクトの表のモバイル幅での収まり', () => {
+    test('関連プロジェクトの表がモバイル幅で main を水平に押し広げず、表だけが横にスクロールする', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const stamp = Date.now();
+      const partnerId = await createTradingPartnerForBreadcrumb(
+        page,
+        `関連プロジェクト表収まり確認_${stamp}`
+      );
+      const projectNames = [
+        `RelatedProjectRedevelopmentSkyscraperConstructionUnbrokenName${stamp}`,
+        `渋谷駅前再開発工事_${stamp}`,
+      ];
+      await createProjectsLinkedToPartner(page, partnerId, projectNames);
+
+      for (const width of MOBILE_WIDTHS) {
+        const layout = await openAndMeasureRelatedProjects(page, partnerId, width, projectNames);
+        const context = `関連プロジェクトの表 ${width} 幅`;
+        const report = `${context}: ${JSON.stringify(layout)}`;
+        expectRelatedProjectsWithinMain(layout, context);
+        // 領域の中で表が横にスクロールする（表の幅が領域の幅を超える）
+        expect(
+          layout.container.scrollWidth,
+          `横スクロールの領域の scrollWidth が clientWidth を超えない。${report}`
+        ).toBeGreaterThan(layout.container.clientWidth + LAYOUT_TOLERANCE_PX);
+        expect(layout.table.width, report).toBeGreaterThan(
+          layout.container.clientWidth + LAYOUT_TOLERANCE_PX
+        );
+
+        // キーボードでフォーカスして横にスクロールできる
+        const region = page.getByRole('region', { name: '関連プロジェクト' });
+        await expect(region).toHaveAttribute('tabindex', '0');
+        await region.focus();
+        await expect(region).toBeFocused();
+        expect(await region.evaluate((element) => element.scrollLeft), report).toBe(0);
+        await page.keyboard.press('ArrowRight');
+        await expect
+          .poll(() => region.evaluate((element) => element.scrollLeft), {
+            message: `右矢印キーで横スクロールの領域が右へスクロールしない。${report}`,
+            timeout: getTimeout(5000),
+          })
+          .toBeGreaterThan(0);
+      }
+
+      // 768 幅でも長い英数字の名前の表は main を押し広げていた（是正前 723/720）
+      const tablet = await openAndMeasureRelatedProjects(page, partnerId, 768, projectNames);
+      expectRelatedProjectsWithinMain(tablet, '関連プロジェクトの表 768 幅');
+
+      const desktop = await openAndMeasureRelatedProjects(page, partnerId, 1280, projectNames);
+      const desktopReport = `関連プロジェクトの表 1280 幅: ${JSON.stringify(desktop)}`;
+      expectRelatedProjectsWithinMain(desktop, '関連プロジェクトの表 1280 幅');
+      expect(
+        desktop.container.scrollWidth - desktop.container.clientWidth,
+        `1280 幅で横スクロールの領域がスクロールする。${desktopReport}`
+      ).toBeLessThanOrEqual(LAYOUT_TOLERANCE_PX);
+      // 表は節の内容の幅いっぱいに広がる（是正前と同じ配置）
+      expect(
+        Math.abs(desktop.table.left - desktop.section.contentLeft),
+        `表の左端が節の内容の左端と揃わない。${desktopReport}`
+      ).toBeLessThanOrEqual(LAYOUT_TOLERANCE_PX);
+      expect(
+        Math.abs(desktop.table.right - desktop.section.contentRight),
+        `表の右端が節の内容の右端と揃わない。${desktopReport}`
+      ).toBeLessThanOrEqual(LAYOUT_TOLERANCE_PX);
     });
   });
 

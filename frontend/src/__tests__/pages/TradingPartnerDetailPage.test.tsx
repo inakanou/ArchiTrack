@@ -518,6 +518,38 @@ describe('TradingPartnerDetailPage', () => {
       expect(projectLink).toHaveAttribute('href', '/projects/project-1');
     });
 
+    // タスク 31.3: モバイル幅で表が main を押し広げないよう、表だけを横スクロールの領域に入れる。
+    // 領域はキーボードでも横へスクロールできるよう、名前付きの region としてフォーカスを受け取る。
+    it('関連プロジェクトの表を、名前付きでフォーカスを受け取る横スクロールの領域に入れる', async () => {
+      renderDetailPage();
+
+      await waitForDataLoaded();
+
+      const table = await screen.findByRole('table', { name: 'プロジェクト一覧' });
+      const region = screen.getByRole('region', { name: '関連プロジェクト' });
+      expect(table.parentElement).toBe(region);
+      expect(region).toHaveAttribute('tabindex', '0');
+      expect(region.style.overflowX).toBe('auto');
+      // 横スクロールの領域の中でさらに縦スクロールが生じないよう、縦方向はクリップする
+      expect(region.style.overflowY).toBe('hidden');
+      // フォーカス表示は共通の :focus-visible に任せ、インラインで消さない
+      expect(region.style.outline).toBe('');
+      // 領域は関連プロジェクトの節の中に在る
+      const projectSection = screen.getByText('関連プロジェクト').closest('section');
+      expect(projectSection).toContainElement(region);
+    });
+
+    it('関連プロジェクトが無い場合は横スクロールの領域を置かない', async () => {
+      mockGetProjects.mockResolvedValue({ data: [], total: 0 });
+
+      renderDetailPage();
+
+      await waitForDataLoaded();
+
+      await screen.findByText('関連するプロジェクトはありません');
+      expect(screen.queryByRole('region', { name: '関連プロジェクト' })).not.toBeInTheDocument();
+    });
+
     it('関連プロジェクト読み込み中はローディングを表示する', async () => {
       // プロジェクトAPIの解決を遅延させる
       mockGetProjects.mockImplementation(
