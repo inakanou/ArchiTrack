@@ -1575,8 +1575,11 @@ describe('tradingPartnerSearchQuerySchema', () => {
 /**
  * branchNameKana / representativeNameKana フィールド除外テスト
  * Requirements:
- * - 11.3: 部課/支店/支社名（branchName）は100文字制限、フリガナは不要
- * - 11.4: branchNameKanaとrepresentativeNameKanaはスキーマに含まない
+ * - 11.3: 部課/支店/支社名の最大文字数を100文字に制限する（branchName のみを持ち、フリガナは持たない）
+ * - 11.4: 代表者名の最大文字数を100文字に制限する（representativeName のみを持ち、フリガナは持たない）
+ *
+ * フリガナ 2 項目（branchNameKana / representativeNameKana）は要件定義書から削除されており、
+ * スキーマに含まない
  *
  * これらのフィールドが誤って追加されないことを保証するテスト
  */

@@ -19,14 +19,14 @@
  * - 11.1: 取引先名の最大文字数を200文字に制限
  * - 11.2: フリガナの最大文字数を200文字に制限し、カタカナのみを許可
  * - 11.3: 部課/支店/支社名の最大文字数を100文字に制限
- * - 11.5: 代表者名の最大文字数を100文字に制限
- * - 11.7: 電話番号の形式バリデーション（数字、ハイフン、括弧のみ許可）
- * - 11.8: FAX番号の形式バリデーション（数字、ハイフン、括弧のみ許可）
- * - 11.9: メールアドレスの形式バリデーション
- * - 11.10: 住所の最大文字数を500文字に制限
- * - 11.11: 請求締日を1〜31の整数値または「末日」（99）として管理
- * - 11.12: 支払日を月オフセット（1-3）と日（1-31または99）の組み合わせとして管理
- * - 11.13: 備考の最大文字数を2000文字に制限
+ * - 11.4: 代表者名の最大文字数を100文字に制限
+ * - 11.5: 電話番号の形式バリデーション（数字、ハイフン、括弧のみ許可）
+ * - 11.6: FAX番号の形式バリデーション（数字、ハイフン、括弧のみ許可）
+ * - 11.7: メールアドレスの形式バリデーション
+ * - 11.8: 住所の最大文字数を500文字に制限
+ * - 11.9: 請求締日を1〜31の整数値または「末日」（99）として管理
+ * - 11.10: 支払日を月オフセット（1-3）と日（1-31または99）の組み合わせとして管理
+ * - 11.11: 備考の最大文字数を2000文字に制限
  */
 
 import { z } from 'zod';
@@ -40,7 +40,7 @@ export type TradingPartnerType = (typeof TRADING_PARTNER_TYPES)[number];
 
 /**
  * 末日を表す特殊値
- * Requirements: 11.11, 11.12
+ * Requirements: 11.9, 11.10
  */
 export const BILLING_CLOSING_DAY_END_OF_MONTH = 99;
 export const PAYMENT_DAY_END_OF_MONTH = 99;
@@ -111,7 +111,7 @@ export const PHONE_FAX_REGEX = /^[0-9\-()]+$/;
 /**
  * 請求締日バリデーションスキーマ
  * 1〜31または99（末日）のみを許可
- * Requirements: 11.11
+ * Requirements: 11.9
  */
 const billingClosingDaySchema = z
   .number()
@@ -125,7 +125,7 @@ const billingClosingDaySchema = z
 /**
  * 支払月オフセットバリデーションスキーマ
  * 1（翌月）、2（翌々月）、3（3ヶ月後）のみを許可
- * Requirements: 11.12
+ * Requirements: 11.10
  */
 const paymentMonthOffsetSchema = z
   .number()
@@ -138,7 +138,7 @@ const paymentMonthOffsetSchema = z
 /**
  * 支払日バリデーションスキーマ
  * 1〜31または99（末日）のみを許可
- * Requirements: 11.12
+ * Requirements: 11.10
  */
 const paymentDaySchema = z
   .number()
@@ -164,7 +164,7 @@ const phoneOrFaxSchema = (errorMessage: string) =>
 
 /**
  * 取引先作成用スキーマ
- * Requirements: 2.2, 2.3, 2.4, 2.5, 2.6, 2.9, 2.10, 11.1-11.13
+ * Requirements: 2.2, 2.3, 2.4, 2.5, 2.6, 2.9, 2.10, 11.1-11.11
  */
 export const createTradingPartnerSchema = z.object({
   // 必須フィールド
@@ -259,7 +259,7 @@ const dateStringSchema = z.string().refine(
 
 /**
  * 取引先更新用スキーマ
- * Requirements: 4.2, 4.3, 4.4, 11.1-11.13
+ * Requirements: 4.2, 4.3, 4.4, 11.1-11.11
  *
  * 部分更新に対応: すべてのフィールドがオプショナル（expectedUpdatedAt以外）
  * 楽観的排他制御: expectedUpdatedAtは必須
