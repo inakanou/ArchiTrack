@@ -2,6 +2,8 @@
 
 ArchiTrackのプロジェクト構造とコーディング規約を定義します。
 
+_最終更新: 2026-10-07（Steering Sync: quantity-table-generation のタスク 94.1。数量表コンポーネントのツリーとストーリーの列挙から、本番の経路から到達しない二部品（数値入力・テキスト入力）の行を外した。同部品と、消費者が 0 件の再輸出ファイルは同タスクで本番コードから外した——撤去を阻んでいた estimate-creation の設計文書の名指しは同スペックの Task 59.1 が付け替えた）_
+
 _最終更新: 2026-10-02（Steering Sync: cc-sdd を 3.1 の Skills モードへ揃え、v2 系の旧コマンド方式（`.claude/commands/kiro/`・`.claude/agents/kiro/`・`.kiro/settings/rules/`）を撤去したことに伴い、ルートのツリーと「主要ディレクトリの詳細」の `.claude/commands/kiro/` の記載を、現行の `.claude/skills/` の記載へ改めた）_
 
 _最終更新: 2026-09-28（Steering Sync: user-authentication のタスク36.8。backend の `utils/` のツリーに、DB 接続障害の扱いを担う二つのモジュール（再試行の予算と対話型トランザクションの `maxWait`、接続のタイムアウトの判定と投げ直し）を加え、「主要ファイルの説明」の `db.ts`（`RetryingPool`）とエラーハンドラー（P1008 を含む接続のタイムアウトの 503）へ注記を足した。層ごとの規約は `.kiro/steering/tech.md` の「接続障害への耐性」節に一本化した）_
@@ -560,8 +562,6 @@ frontend/
 │   │       ├── AutocompleteInput.tsx # オートコンプリート入力（フォーカス時ドロップダウン表示）
 │   │       ├── ItemCopyMoveDialog.tsx # コピー・移動ダイアログ
 │   │       ├── CopyQuantityTableDialog.tsx # 数量表コピーダイアログ
-│   │       ├── NumericFieldInput.tsx # 数値フィールド入力
-│   │       ├── TextFieldInput.tsx   # テキストフィールド入力
 │   │       ├── EditableQuantityItemRow.tsx # 編集可能項目行
 │   │       ├── PhotoCommentDisplay.tsx # 写真コメント表示
 │   │       ├── PhotoPreviewDialog.tsx # 写真プレビューダイアログ
@@ -774,10 +774,8 @@ frontend/
 - `CalculationMethodSelect.stories.tsx` - 計算方法選択
 - `EditableQuantityItemRow.stories.tsx` - 編集可能項目行
 - `ItemCopyMoveDialog.stories.tsx` - コピー・移動ダイアログ
-- `NumericFieldInput.stories.tsx` - 数値フィールド入力
 - `QuantityGroupCard.stories.tsx` - 数量グループカード
 - `QuantityItemRow.stories.tsx` - 数量項目行
-- `TextFieldInput.stories.tsx` - テキストフィールド入力
 - `PhotoCommentDisplay.stories.tsx` - 写真コメント表示
 - `PhotoPreviewDialog.stories.tsx` - 写真プレビューダイアログ
 - `SortOrderButtons.stories.tsx` - 並び順変更ボタン

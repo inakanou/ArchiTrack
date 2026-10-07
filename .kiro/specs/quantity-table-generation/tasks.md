@@ -3038,7 +3038,7 @@ _起票元: Task 89.3 の実装が不在を測定し、独立レビューが兄�
 
 **経緯**: 本実行の機能レベル検証（`/kiro-validate-impl`）が、per-task のレビューでは見えない二件を検出した。いずれも欠陥ではなく、受け皿の無い測定記録と、実態より狭い注釈である。
 
-- [ ] 94.1 到達しない本番モジュールの残りの処遇を決める
+- [x] 94.1 到達しない本番モジュールの残りの処遇を決める
   - **経緯**: 89.1 が「範囲外の同型（未処置）」として6件、89.3 が同節で `SurveyImageSelectorProps` 等を、**いずれも測定のみで受け皿を持たないまま**記録している。機能レベル検証が「89.1 と同じ整理の続きとして起票が望ましい」と申し送った
   - **測った事実**（機能レベル検証が `npm run check:req-coverage:json` で確認）: `unreachableProductionModules` に 49 件が在籍する。89.1 が名指したのは `CalculationNumericInput` / `NumericFieldInput` / `TextFieldInput` / `PhotoChangeDialog` / `frontend/src/hooks/useQuantityTableSave.ts` / `frontend/src/components/quantity-table/index.ts` である
   - **89.1 の作法をそのまま使うこと**: 一件ずつ到達可能性を測り、撤去が被覆検査を悪化させないことを前後の実測で示し、steering の追随が要るかを確かめる。**撤去が別スペックの文書や自己検査を巻き込むなら、同スペックへ起票して待つこと**（89.1 が 115.325 で踏んだ手順）
@@ -3061,6 +3061,7 @@ _起票元: Task 89.3 の実装が不在を測定し、独立レビューが兄�
   - **完了の判定**: 本項の「撤去が別スペックの文書を巻き込むなら同スペックへ起票して待つこと」は**起票と待機の両方を課している**（89.1 が 115.325 で踏み、Implementation Notes L3120 が「『起票して待つ』は、起票を実際に書き込んでから待機に入ること」と定めた形）。**`[x]` は estimate-creation 側の Task 59.1 が解決し、`NumericFieldInput` / `TextFieldInput` の処遇を確定して被覆の前後を測り直してから付けること。** 撤去1件（`CalculationNumericInput`）と残置6件の判断は独立レビューで承認済みである
   - **申し送り**: (i) `NumericFieldInput` / `TextFieldInput` の撤去は **estimate-creation の Task 59.1 の解決待ち**である（`design.md` L3200 / L3255 の3件。下流から上流の設計文書を書き換えないこと）。(ii) `useQuantityTableSave` は**境界内で解ける唯一の残置**であり、68.6 の維持判断を覆す是非を含めて別タスクで起票する価値がある。(iii) `PhotoChangeDialog` は統治台帳の更新を伴うため免除の面の扱いを決める節と併せて扱うこと。(iv) 再輸出ファイルは二部品の処遇と連動するので単独では起票しないこと。(v) **`SiteSurveyDetailPage.test.tsx` の `Req 15.6` の非決定性を site-survey スペックへ申し送ること**（上の「範囲外の同型」を見よ。全件走行の緑が回ごとに揺れるため、他タスクの検証結果の読みにも影響する）
   - _Blocked: estimate-creation スペックの Task 59.1（`NumericFieldInput` / `TextFieldInput` の撤去を阻む上流の設計文書 `design.md` L3200 / L3255 の2行の処遇）の解決待ち。`CalculationNumericInput` の撤去と、残り6件の残置の判断は承認済み_
+  - **解決（2026-10-07、HEAD `c82df39b` の作業ツリーで実測）**: estimate-creation の Task 59.1 が `[x]`（同スペックの design.md L3200 / L3255 の名指しを付け替え済み）となったため、上の `_Blocked:_` は解けた。`NumericFieldInput` と `TextFieldInput` の一式（本体・単体検証・ストーリーの計 6 ファイル）と、消費者が 0 件の再輸出ファイル `frontend/src/components/quantity-table/index.ts` を本番コードから外した。`check:req-coverage:json` の `unreachableProductionModules` は 44→41（数量表の該当は 3→0）、到達モジュール 547 と到達を加味した被覆 2744/2758 は不動である。一部品ずつ外す変異で `check:design-path-refs` は全段で 0、`check:steering-refs` は `.kiro/steering/structure.md` の 4 行を外して 0 に戻った（照合 705→701）。`frontend/src/__tests__/components/quantity-table/QuantityItemFieldMaxWidth.test.tsx` から `TextFieldInput` の検証 15 件を外した（114→99）。外した観点は同ファイルの `AutocompleteInput` と `EditableQuantityItemRow` の検証が 9 列で担っており、要件 13.1〜13.3 の被覆は欠けていない。機能名を欠くヘッダーと眠る名乗りがそれぞれ 6 件・18 件減ったため、`scripts/check-requirement-coverage.ts` の上限を 1996→1990 / 5051→5033 へ下げた。pre-push の関門の終了コードは前後で同一で、独立レビューが HEAD の一時 worktree と並べて再現した。`PhotoChangeDialog`（Task 97.14 で処置済み）、`useQuantityTableSave`、`FieldValidatedItemRow` は本解決の範囲外である
 
 - [x] 94.2 突き合わせの範囲を名乗る注釈を実態へ揃える
   - **経緯**: 機能レベル検証が検出した。`backend/src/__tests__/integration/quantity-table-save-survey-image-existence.api.integration.test.ts` の注釈が、突き合わせ対象を「`type` / `title` / `status` / `detail` / `code` の5項目（＝応答本文の全項目）」と述べるが、実際の本文と `expectedProblem` は `surveyImageId` を含む **6項目**である

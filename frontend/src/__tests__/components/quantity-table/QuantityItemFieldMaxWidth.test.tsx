@@ -17,9 +17,8 @@ import { useState } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import AutocompleteInput from '../../../components/quantity-table/AutocompleteInput';
 import EditableQuantityItemRow from '../../../components/quantity-table/EditableQuantityItemRow';
-import TextFieldInput from '../../../components/quantity-table/TextFieldInput';
 import type { AutocompleteFieldName } from '../../../hooks/useAutocompleteCandidateStore';
-import { calculateStringWidth, type TextFieldName } from '../../../utils/field-validation';
+import { calculateStringWidth } from '../../../utils/field-validation';
 import type { QuantityItemDetail } from '../../../types/quantity-table.types';
 
 Element.prototype.scrollIntoView = vi.fn();
@@ -296,132 +295,6 @@ describe('数量項目テキストフィールドの入力時点での上限超�
     });
   });
 
-  /**
-   * TextFieldInput は本番の描画経路からは参照されていないが、
-   * 要件13の入力制御部品としてタスク12.1が規定した部品であり公開APIとして再輸出されている。
-   * AutocompleteInput と同じ防止方式・同じ変換の扱いであることを検証で固定する。
-   */
-  describe('TextFieldInput 単体', () => {
-    function ControlledTextField({
-      fieldName,
-      label,
-      onChangeSpy,
-      initialValue = '',
-    }: {
-      fieldName: TextFieldName;
-      label: string;
-      onChangeSpy?: (value: string) => void;
-      initialValue?: string;
-    }) {
-      const [value, setValue] = useState(initialValue);
-      return (
-        <TextFieldInput
-          id={`text-${fieldName}`}
-          fieldName={fieldName}
-          label={label}
-          value={value}
-          onChange={(next) => {
-            onChangeSpy?.(next);
-            setValue(next);
-          }}
-        />
-      );
-    }
-
-    it.each([
-      { fieldName: 'name' as const, label: '名称', maxWidth: 50 },
-      { fieldName: 'workType' as const, label: '工種', maxWidth: 16 },
-      { fieldName: 'unit' as const, label: '単位', maxWidth: 6 },
-    ])('$label は上限ちょうどを受け付け、超過は受け付けない', ({ fieldName, label, maxWidth }) => {
-      const onChangeSpy = vi.fn();
-      render(<ControlledTextField fieldName={fieldName} label={label} onChangeSpy={onChangeSpy} />);
-      const input = screen.getByLabelText(label);
-
-      const atLimit = 'a'.repeat(maxWidth);
-      fireEvent.change(input, { target: { value: atLimit } });
-      expect(input).toHaveValue(atLimit);
-
-      onChangeSpy.mockClear();
-      fireEvent.change(input, { target: { value: 'a'.repeat(maxWidth + 1) } });
-      expect(onChangeSpy).not.toHaveBeenCalled();
-      expect(input).toHaveValue(atLimit);
-    });
-
-    it.each([
-      {
-        fieldName: 'unit' as const,
-        label: '単位',
-        maxWidth: 6,
-        reading: 'りゅうべい',
-        word: '立米',
-      },
-      { fieldName: 'unit' as const, label: '単位', maxWidth: 6, reading: 'へいべい', word: '平米' },
-      {
-        fieldName: 'workType' as const,
-        label: '工種',
-        maxWidth: 16,
-        reading: 'どうろどこうこうじ',
-        word: '道路土工工事',
-      },
-    ])('$label に「$word」を変換で入力できる', ({ fieldName, label, maxWidth, reading, word }) => {
-      expect(calculateStringWidth(reading)).toBeGreaterThan(maxWidth);
-      expect(calculateStringWidth(word)).toBeLessThanOrEqual(maxWidth);
-
-      render(<ControlledTextField fieldName={fieldName} label={label} />);
-      const input = screen.getByLabelText(label);
-
-      fireEvent.compositionStart(input);
-      fireEvent.change(input, { target: { value: reading } });
-      expect(input).toHaveValue(reading);
-
-      fireEvent.change(input, { target: { value: word } });
-      fireEvent.compositionEnd(input, { data: word });
-      expect(input).toHaveValue(word);
-    });
-
-    it.each([
-      { fieldName: 'name' as const, label: '名称', maxWidth: 50 },
-      { fieldName: 'workType' as const, label: '工種', maxWidth: 16 },
-      { fieldName: 'unit' as const, label: '単位', maxWidth: 6 },
-    ])(
-      '$label は変換の確定値が上限を超える場合に変換開始前へ戻す',
-      ({ fieldName, label, maxWidth }) => {
-        const before = 'a'.repeat(maxWidth - 1);
-        render(<ControlledTextField fieldName={fieldName} label={label} initialValue={before} />);
-        const input = screen.getByLabelText(label);
-
-        const reading = 'あ'.repeat(maxWidth);
-        fireEvent.compositionStart(input);
-        fireEvent.change(input, { target: { value: reading } });
-        fireEvent.compositionEnd(input, { data: reading });
-
-        expect(input).toHaveValue(before);
-      }
-    );
-
-    it.each([
-      { fieldName: 'name' as const, label: '名称', maxWidth: 50 },
-      { fieldName: 'workType' as const, label: '工種', maxWidth: 16 },
-      { fieldName: 'unit' as const, label: '単位', maxWidth: 6 },
-    ])(
-      '$label は上限超過中の幅が変わらない編集を受け付けない',
-      ({ fieldName, label, maxWidth }) => {
-        const overLimit = 'a'.repeat(maxWidth + 5);
-        render(
-          <ControlledTextField fieldName={fieldName} label={label} initialValue={overLimit} />
-        );
-        const input = screen.getByLabelText(label);
-
-        fireEvent.change(input, { target: { value: 'b'.repeat(maxWidth + 5) } });
-        expect(input).toHaveValue(overLimit);
-
-        // 短くする編集は受け付ける（編集不能にしない）
-        fireEvent.change(input, { target: { value: 'a'.repeat(maxWidth + 2) } });
-        expect(input).toHaveValue('a'.repeat(maxWidth + 2));
-      }
-    );
-  });
-
   describe('EditableQuantityItemRow（実画面の描画経路）', () => {
     const baseItem: QuantityItemDetail = {
       id: 'item-1',
@@ -631,67 +504,6 @@ describe('数量項目テキストフィールドの入力時点での上限超�
         expect(calculateStringWidth(wider)).toBeGreaterThan(calculateStringWidth(READING));
         fireEvent.change(input, { target: { value: wider } });
         expect(input).not.toHaveValue(wider);
-      });
-    });
-
-    describe('TextFieldInput', () => {
-      function ControlledUnitTextField({ initialValue = '' }: { initialValue?: string }) {
-        const [value, setValue] = useState(initialValue);
-        return (
-          <TextFieldInput
-            id="text-unit-lifetime"
-            fieldName="unit"
-            label="単位"
-            value={value}
-            onChange={setValue}
-          />
-        );
-      }
-
-      it('確定が届かないまま焦点を失った後も直接入力に幅の判定が働く', () => {
-        render(<ControlledUnitTextField initialValue="m" />);
-        const input = screen.getByLabelText('単位');
-
-        fireEvent.focus(input);
-        fireEvent.compositionStart(input);
-        fireEvent.change(input, { target: { value: READING } });
-        fireEvent.blur(input);
-
-        // 幅の判定を経ていない読みは残らない
-        expect(input).toHaveValue('m');
-
-        fireEvent.focus(input);
-        fireEvent.change(input, { target: { value: 'a'.repeat(UNIT_MAX_WIDTH + 1) } });
-        expect(calculateStringWidth((input as HTMLInputElement).value)).toBeLessThanOrEqual(
-          UNIT_MAX_WIDTH
-        );
-      });
-
-      it('焦点を得た時点で変換中の記録が初期化される', () => {
-        render(<ControlledUnitTextField />);
-        const input = screen.getByLabelText('単位');
-
-        fireEvent.compositionStart(input);
-        fireEvent.change(input, { target: { value: READING } });
-
-        fireEvent.focus(input);
-        const wider = 'あ'.repeat(6); // 幅12。残っている読み（幅10）より広い
-        fireEvent.change(input, { target: { value: wider } });
-        expect(input).not.toHaveValue(wider);
-      });
-
-      it('変換を経て確定した上限以内の値は焦点喪失でも保持される', () => {
-        render(<ControlledUnitTextField />);
-        const input = screen.getByLabelText('単位');
-
-        fireEvent.focus(input);
-        fireEvent.compositionStart(input);
-        fireEvent.change(input, { target: { value: READING } });
-        fireEvent.change(input, { target: { value: '立米' } });
-        fireEvent.compositionEnd(input, { data: '立米' });
-        fireEvent.blur(input);
-
-        expect(input).toHaveValue('立米');
       });
     });
   });

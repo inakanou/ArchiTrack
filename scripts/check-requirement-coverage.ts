@@ -1372,8 +1372,15 @@ export function findFeaturelessCoverageHeaders(
  * 求めて赤かった（2026-09-26 にコミット `60edb4da` の作業ツリーでリポジトリルートから
  * `npm run check:req-coverage` を実行し、{@link findFeaturelessCoverageHeaders} の結果の
  * 印字を読んで実測。ヘッダー 1996 件 / 眠る名乗り 5054 件 / 945 ファイル）。
+ *
+ * quantity-table-generation のタスク 94.1 が 6 だけ下げた（1996 → 1990）。本番から到達しない
+ * 数量表の二部品 `NumericFieldInput` / `TextFieldInput` の本体・単体検証・ストーリーの計 6 ファイルを
+ * 外したことによる。6 ファイルはいずれも機能名を欠く `Requirements:` ブロックを 1 件ずつ持っていた。
+ * 帰属は一部品ずつ外して測った（コミット `c82df39b` の作業ツリーでリポジトリルートから
+ * `npm run check:req-coverage:json` を実行し `featurelessCoverageHeaders` を読んで実測。2026-10-07。
+ * ヘッダー 1996 → 1993 → 1990 件、眠る名乗り 5051 → 5042 → 5033 件、945 → 942 → 939 ファイル）。
  */
-export const MAX_FEATURELESS_COVERAGE_HEADERS = 1996;
+export const MAX_FEATURELESS_COVERAGE_HEADERS = 1990;
 
 /**
  * 機能名を欠くヘッダーの下で眠っている名乗りの上限（ラチェット）
@@ -1408,8 +1415,12 @@ export const MAX_FEATURELESS_COVERAGE_HEADERS = 1996;
  * 動いていない（2026-10-07 にコミット `b79d81c0` の作業ツリーでリポジトリルートから
  * `npm run check:req-coverage` を実行し、{@link findFeaturelessCoverageHeaders} の結果の
  * 印字を読んで実測。ヘッダー 1996 件 / 眠る名乗り 5054 → 5051 件 / 945 ファイル）。
+ *
+ * quantity-table-generation のタスク 94.1 が 18 だけ下げた（5051 → 5033）。減った 18 件は
+ * `NumericFieldInput` 一式が 9 件、`TextFieldInput` 一式が 9 件である。実測の条件と帰属の測り方は
+ * {@link MAX_FEATURELESS_COVERAGE_HEADERS} の註と同じである。
  */
-export const MAX_DORMANT_HEADER_NAMES = 5051;
+export const MAX_DORMANT_HEADER_NAMES = 5033;
 
 /** 撤廃済みの受入基準を名乗っている被覆印 */
 export interface RetiredCriterionMark {
