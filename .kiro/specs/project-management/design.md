@@ -926,6 +926,10 @@ function matchesSearchQuery(partner: TradingPartnerInfo, query: string): boolean
 }
 ```
 
+**現況（Task 74.1、2026-10-08。trading-partner-management の Task 28.1 からの申し送り）**: 上の二つのコード例（「現在の」と「変更後」）は設計時点の記述として残す。trading-partner-management の Task 28.1（2026-10-07、コミット `f1ee2154`）が、`frontend/src/components/projects/TradingPartnerSelect.tsx` の `matchesSearchQuery` から、`branchNameKana` / `representativeNameKana` を照合する 2 分岐（`branchKanaMatches` / `repKanaMatches`）を外した。二つの項目は `backend/prisma/schema.prisma` が持たず（マイグレーション `20251212105900_remove_kana_fields_from_trading_partner`）、API が値を返さないため、2 分岐は常に偽であり、外しても表示・検索の振る舞いは変わらない。部課名・代表者名は、フリガナではなく `branchName` / `representativeName` の文字列そのもので照合する。現在の戻り値は `return nameMatches || nameKanaMatches || branchMatches || repMatches;` である。
+
+**現況の実測**: `grep -cE 'branchNameKana|representativeNameKana' frontend/src/components/projects/TradingPartnerSelect.tsx` の出力は `0` である（2026-10-08、HEAD `627ce0da`、リポジトリルートで実測）。
+
 **設計根拠**:
 - バックエンドの取引先検索API（`trading-partner.service.ts`）は既にひらがな・カタカナ両対応
 - ただし、`TradingPartnerSelect`コンポーネントはクライアントサイドでフィルタリングを実行

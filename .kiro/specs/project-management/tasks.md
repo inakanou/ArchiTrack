@@ -1805,7 +1805,7 @@
 
 **経緯**: trading-partner-management の Task 28.1（2026-10-07）が、frontend の取引先の型から `branchNameKana` / `representativeNameKana` を外し、同じ変更で本スペックの所有する `frontend/src/components/projects/TradingPartnerSelect.tsx` の `matchesSearchQuery` から、二つの項目を照合する常に偽の 2 分岐を外した（同タスクの本文がこの変更を求めている）。二つの項目は backend の schema.prisma に無く（マイグレーション `20251212105900_remove_kana_fields_from_trading_partner`）、API は値を返さないため、表示・検索の振る舞いは変わっていない。本スペックの部品を他スペックのタスクが書き換えたため、その事実と、本スペックの設計文書に残る記述を申し送る
 
-- [ ] 74.1 設計文書のかな検索のコード例に残る二つの項目の照合を現況へ揃える
+- [x] 74.1 設計文書のかな検索のコード例に残る二つの項目の照合を現況へ揃える
   - `.kiro/specs/project-management/design.md` の差分8（かな検索）の節の `matchesSearchQuery` のコード例（869 行付近と 891 行付近）が、`branchNameKana` / `representativeNameKana` の照合を含んでいる。規約 (a) に従い起票時の記述を残し、現況（trading-partner-management の Task 28.1 で二つの照合を外した。部課名・代表者名は漢字そのもので照合する）を併記する
   - 設計文書のパスを名指す行に不在の語（撤去・削除・当時・旧 など）を書かないこと。追記の後に `check:design-measurement-freshness`、`check:design-path-refs`、`check:design-code-refs` を名指しで 1 本ずつ回す
   - _Requirements: 22.4, 22.5_
