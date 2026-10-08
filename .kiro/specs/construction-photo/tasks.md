@@ -892,3 +892,14 @@ _申し送り元: quantity-table-generation スペックの Task 100.24_
   - _Boundary: 詳細画面の ZIP の出力の対象の並び_
 
 **検証が記録したその他の事実（起票していない。扱いは利用者の判断を待つ）**: 印字画像の応答の Content-Type は、看板なしで原本（PNG・WebP のことがある）をそのまま返すときも常に `image/jpeg` である。ZIP の「アップロード原本そのまま」は原本のバイトを格納するが、拡張子は設定の形式から決まる。メタの一括更新の写真項目・アルバム・プロジェクトの検証はトランザクションの外にある（看板の検証は 24.1 で中へ移した）。看板の使用件数は削除済みのアルバムの写真項目も数える。ユーザーに見える挙動で E2E の無い受入基準がある（R3、1.3・1.5、4.5、6.2〜6.4 の UI からの通し、9.4）。13.1 は `@requirement` の印を持たない。design.md の図の矢印 6 本、撤去済みの `ImageViewer` の名指し、看板の API の行、24.1 のマイグレーションの Modified Files への記載が実装より古い
+
+## Task 28: 検索フィルタの「フィルタをクリア」のフォーカスの輪が 3:1 に届かない（trading-partner-management の Task 33.4 のレビューからの起票。利用者の判断で起票、2026-10-08）
+
+**経緯**: trading-partner-management の Task 33.4（2026-10-08、コミット `03ab8cac`）は、取引先の一覧の検索フィルタの「フィルタをクリア」の `focus:ring-gray-400`（白に対して約 2.6:1）を `focus:ring-blue-500`（約 3.76:1）へ改めた。同タスクの独立レビューが、同じ形の指定が本スペックの `frontend/src/components/construction-photos/ConstructionPhotoSearchFilter.tsx` の 357 行（`aria-label="フィルタをクリア"` のボタン）に残っていることを確かめた。steering `tech.md` の「フォーカス表示方針」（自前の輪は 2px 以上・3:1 以上）を下回るとみられる
+
+- [ ] 28.1 工事写真の一覧の検索フィルタの「フィルタをクリア」のフォーカスの輪を 3:1 以上にする
+  - project-management の Task 72.3 と trading-partner-management の Task 33.4 の前例と揃え、`focus:ring-gray-400` を 3:1 を満たす色（前例は `focus:ring-blue-500`）へ改める
+  - 一覧画面の main の中でフォーカスを受ける要素（検索欄・フィルタ・クリア・並べ替え・行・ページネーションなど）を、`e2e/specs/trading-partners/trading-partner-focus-visible.spec.ts` と同じ判定（実線または影の輪が 2px 以上・背景とのコントラスト比 3:1 以上・フォーカスが離れたら消える）で網羅して測り、満たさないものがあれば同じ変更でまとめて直す
+  - 挙動（表示）の変更であるため RED → GREEN で進め、単体（クリアボタンの輪の指定）と E2E（一覧画面の Tab の一巡）で主張する
+  - _Requirements: 3_
+  - _Boundary: 工事写真の一覧画面の検索フィルタのフォーカス時の表示_
