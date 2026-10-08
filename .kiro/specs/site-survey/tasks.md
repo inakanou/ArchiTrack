@@ -6366,6 +6366,21 @@ Requirement 38 の検証過程で、注釈付きサムネイルの生成が設�
   - **処遇（2026-10-06）**: `ImageUploader.submitFiles` の catch で、試行対象の保持（`record`）を通知（`onError`）より先に行う順に変え、通知を工事写真の `notifySafely`・現場調査詳細画面の `runUploadPostProcessingSafely` と同じ形の `notifyUploadErrorSafely` で包んだ（例外を捕捉して `console.error` へ記録し、外へ伝播させない）。前例どおりモジュール内に置き、共通化はしていない。保持の区分（`toFailedUpload`）・誤りの表示・`onError` へ渡す値は変えていない。工事写真の `PhotoUploader` は `onError` を渡さないため、工事写真の挙動は変わらない。是正の後、`submitFiles` の JSDoc の 37.1 の論拠の段落が無条件に真になることを確かめ、通知を保護することを書き足した。design.md の「Components: `ImageUploader`（改修）」の「試行対象の全件を再送可能な未送信画像として保持する」は、`onUpload` が 400 / 413 の例外で終わると `toFailedUpload` が permanent に分類する（37.16）ため「再送可能な」の部分が是正の後も成り立たなかったので、「全件を未送信画像として保持し、区分は `toFailedUpload` が例外から決める」に改め、通知を保護することを書き足した（タスクの完了条件の「無条件に真になることを確かめる」の帰結）。`handleUploadError` の JSDoc の観測 (i) の記述を、保持が通知より先に行われ通知の例外は捕捉されるという現況へ改めた
   - **検証**: 単体 3 件を足した（`ImageUploader.test.tsx` に 2 件: Error で reject し通知も例外を投げると retriable のまま保持、`ApiError(413)` では permanent のまま保持。`SiteSurveyDetailPage.error-reporting.test.tsx` に 1 件: `uploadSurveyImages` の reject と監視の送出の例外を重ねる）。保護を無効にした状態で 3 件とも赤（未送信一覧が現れず Unhandled Rejection）、有効にして緑。frontend 単体の全件（12163 件）、type-check・lint・format:check、ルートの type-check・lint が緑。test 環境のフロントを作り直したうえで E2E（現調の upload-retry と images 20/20、upload-validation 20/20、工事写真の upload-retry 6/6）が緑。設計文書と e2e の関門は編集の前後で出力が同じで宣言は動いていない。独立レビューは三つの変異（保護の除去・旧コードへの復帰・順序だけの復帰）で RED を再現し、順序だけを戻した変異は保護があるため緑になる（順序は多層防御として働き、テストでは固定されていない）ことを記録して承認した
 
+## Task 116: 部品のインラインの outline の打ち消しを外し、フォーカス表示を steering の方針へ揃える（project-management の Task 75.2 からの申し送り。利用者の判断で起票、2026-10-08）
+
+**経緯**: project-management の Task 73.5 が steering `.kiro/steering/tech.md` に「フォーカス表示方針」を記録した（全画面の既定のフォーカス表示は `frontend/src/index.css` の `@layer base` の `:focus-visible`。部品の側でインラインの `outline: 'none'` を書かない。独自の輪を描く場合は 2px 以上・コントラスト比 3:1 以上。是正は各機能のスペックの責務）。同スペックの Task 75.2（2026-10-08、HEAD `c8036acd`）の実測で、本スペックの部品・ページに、方針から外れたインラインの `outline: 'none'` が 7 か所残っている
+
+- [ ] 116.1 本スペックの部品・ページのインラインの `outline: 'none'` を外し、フォーカス表示を 2px 以上・3:1 以上にする
+  - 対象（2026-10-08 の実測。着手時に `grep -rnE "outline: ?['\"]none['\"]"` で測り直すこと）:
+    - `frontend/src/components/site-surveys/SiteSurveyForm.tsx`（3 か所）
+    - `frontend/src/components/site-surveys/AnnotationToolbar.tsx`（1 か所）
+    - `frontend/src/components/site-surveys/ImageUploader.tsx`（1 か所）
+    - `frontend/src/components/site-surveys/ZoomControls.tsx`（1 か所）
+    - `frontend/src/pages/SiteSurveyListPage.tsx`（1 か所）
+  - インラインの `outline: 'none'` を外し、共通の輪に一本化する（project-management の Task 73.6、trading-partner-management の Task 33.1 の前例）。自前の影の輪など、代わりの表示が 3:1 に届かないものも同じ変更で外すか強める。対象の画面のフォーカスを受ける要素を、`e2e/specs/trading-partners/trading-partner-focus-visible.spec.ts` と同じ判定（実線または影の輪が 2px 以上・背景とのコントラスト比 3:1 以上・フォーカスが離れたら消える）で網羅して測り、満たさないものをまとめて直す
+  - 挙動（表示）の変更であるため RED → GREEN で進め、単体（インラインで outline を打ち消さないこと）と E2E（対象の画面の Tab の一巡）で主張する。要件にフォーカス表示を定める受入基準が無い場合、`@requirement` の印は掲げない
+  - _Boundary: 本スペックの部品・ページのフォーカス時の表示_
+
 ## Implementation Notes（Task 115.30-115.52）
 
 - **「注記が言う未実装」を鵜呑みにしないこと**: 115.127 段4 で、八件の検証が「実装がセレクトボックスなので未実装」という注記つきの分岐で守られていたが、実装は入力欄であり**観測は一度も発火していなかった**。危険なのは発火しなかったことではなく、**実装が退行した瞬間に八件が緑のまま何も主張しなくなる**ことである。変異で実測すると、観測が発火する状況では八件が主張を一つも実行せずに通った。
