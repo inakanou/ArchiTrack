@@ -46,6 +46,12 @@
   opacity: 0.9;
 }
 
+/* 共通の青い outline はヘッダーの紫のグラデーションに対して 3:1 に届かないため、白い輪で示す */
+.app-header-logo:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 2px;
+}
+
 .app-header-logo-icon {
   width: 36px;
   height: 36px;
@@ -121,10 +127,6 @@
   cursor: pointer;
   font: inherit;
   color: inherit;
-}
-
-.app-header-dropdown > button:focus-visible {
-  outline: none;
 }
 
 .app-header-dropdown-trigger {

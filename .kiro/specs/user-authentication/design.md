@@ -4088,6 +4088,7 @@ export function AppHeader({ user, permissions }: AppHeaderProps): ReactElement {
 - **見た目だけ隠す指定とアクセシブルネーム（要件15.4）**: 上の各幅で隠す文言（リンクと管理メニューのボタンの文言、ロゴの文字、ユーザー名）は `display: none` にせず、見た目だけを隠して支援技術には残す指定（position: absolute・1px の箱・margin -1px・overflow hidden・clip・clip-path・nowrap・border 0・padding 0）にする。アイコンの SVG は aria-hidden のため、`display: none` ではリンクとボタンがアクセシブルネームを失う。見えている文言をそのまま名前の出どころに残すため、名前は全幅でデスクトップの文言と同じになり（WCAG 2.5.3 Label in Name）、aria-label で同じ文字列を二重に持たない（タスク40.2）
   - **E2E への影響**: 名前は全幅で同じため、狭い幅でもリンクと管理メニューのボタンを名前で指せる。一方で Playwright は 1×1 の要素を可視と判定するため、隠した文言へ `not.toBeVisible()` を向ける検証は成り立たない。隠れていることは描かれる箱の大きさで判定する
 - **検証**: CSS の `@media` の値と `responsive.ts` の定数（`APP_HEADER_ICON_ONLY_MAX_WIDTH`・`MEDIA_QUERIES.isSmallMobile`）の一致と、各ブロックが持つ規則は、単体 `frontend/src/__tests__/components/AppHeader.css.test.ts` が突き合わせる。表示の挙動（モバイル幅・タブレット幅で文書全体を水平にはみ出させず、ヘッダーが一行に収まり、リンクとメニューの項目が画面幅の内側にあって届くこと、アイコンのみの表示でも名前がデスクトップと同じであること）は E2E `e2e/specs/navigation/app-header.spec.ts` が 2 ロール × 複数の表示名 × 複数の幅で主張する
+- **フォーカス表示（タスク 43.1、2026-10-08）**: ロゴのリンク・四つのリンク・管理メニューとユーザーメニューの釦は、フォーカス中に 2px の白い実線の outline（offset 2px）を描く。ヘッダーの背景は紫のグラデーション（#667eea〜#764ba2）で、白はその両端に対して 3.66:1・6.37:1 である。全画面共通の青い outline（#2563eb）はこの背景に対して 3:1 に届かないため、ロゴのリンクにも `.app-header-logo:focus-visible` で白い輪を与えた。両メニューの釦の白い輪は、詳細度の高い `.app-header-dropdown > button:focus-visible { outline: none }` に打ち消されてフォーカス中の表示が無かったため、その打ち消しの規則を外した（`frontend/src/components/Navigation/AppHeader.css`）。規則は単体 `frontend/src/__tests__/accessibility/user-authentication-focus-visible.test.tsx` が原本の CSS で、表示は E2E `e2e/specs/auth/auth-forms-focus-visible.spec.ts` が 2FA の設定の画面の Tab の一巡（一般ユーザーと管理者）で主張する。開いたメニューの項目は DOM のフォーカスを移さず `is-focused` の見た目で示す作りのため、この一巡の対象に含めていない
 
 ### ProtectedRouteコンポーネント
 
@@ -4489,6 +4490,8 @@ export function PasswordResetPage(): ReactElement {
   );
 }
 ```
+
+**現況（タスク 43.1、2026-10-08）**: 上の二つのコード例は入力欄に `focus:outline-none focus:ring-blue-500` を指定するが、輪の幅（`focus:ring-2` など）を持たないため、この指定どおりではフォーカス中の表示が出ない。コード例は設計の記述としてそのまま残す。実装のパスワードリセットの画面は `frontend/src/pages/PasswordResetPage.tsx` が `frontend/src/components/PasswordResetForm.tsx` を要求と再設定の両方のモードで描く構成で、入力欄はインラインのスタイルで描く。タスク 43.1 がその入力欄のインラインの `outline: 'none'`（3 か所）を外し、フォーカス中の表示を全画面共通の `:focus-visible`（`frontend/src/index.css` の `@layer base`、2px・#2563eb）に一本化した。同じタスクで、ユーザー登録・2FA の設定・2FA の確認のフォーム（`frontend/src/components/RegisterForm.tsx` の 3 か所・`frontend/src/components/TwoFactorSetupForm.tsx` と `frontend/src/components/TwoFactorVerificationForm.tsx` の各 1 か所）の同じ打ち消しも外した。単体 `frontend/src/__tests__/accessibility/user-authentication-focus-visible.test.tsx` が打ち消しの無いことを状態ごとに、E2E `e2e/specs/auth/auth-forms-focus-visible.spec.ts` がログイン・2FA の確認・ユーザー登録・パスワードリセットの要求と再設定・2FA の設定の画面を状態ごとに Tab で一巡し、2px 以上・3:1 以上の表示とフォーカスが離れたら消えることを主張する
 
 ### パスワードリセットフロー
 

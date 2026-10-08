@@ -329,7 +329,6 @@ function PasswordResetForm({
               border: errors.email ? '2px solid #dc2626' : '1px solid #d1d5db',
               borderRadius: '0.375rem',
               fontSize: '1rem',
-              outline: 'none',
             }}
           />
           {errors.email && (
@@ -461,7 +460,6 @@ function PasswordResetForm({
             border: errors.password ? '2px solid #dc2626' : '1px solid #d1d5db',
             borderRadius: '0.375rem',
             fontSize: '1rem',
-            outline: 'none',
           }}
         />
         {errors.password && (
@@ -509,7 +507,6 @@ function PasswordResetForm({
             border: errors.passwordConfirm ? '2px solid #dc2626' : '1px solid #d1d5db',
             borderRadius: '0.375rem',
             fontSize: '1rem',
-            outline: 'none',
           }}
         />
         {errors.passwordConfirm && (

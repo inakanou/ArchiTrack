@@ -416,7 +416,6 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
             border: errors.displayName ? '2px solid #dc2626' : '1px solid #d1d5db',
             borderRadius: '0.375rem',
             fontSize: '1rem',
-            outline: 'none',
           }}
         />
         {errors.displayName && (
@@ -454,7 +453,6 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
             border: errors.password ? '2px solid #dc2626' : '1px solid #d1d5db',
             borderRadius: '0.375rem',
             fontSize: '1rem',
-            outline: 'none',
           }}
         />
         {errors.password && (
@@ -501,7 +499,6 @@ function RegisterForm({ invitationToken, onRegister, onVerifyInvitation }: Regis
             border: errors.passwordConfirm ? '2px solid #dc2626' : '1px solid #d1d5db',
             borderRadius: '0.375rem',
             fontSize: '1rem',
-            outline: 'none',
           }}
         />
         {errors.passwordConfirm && (
