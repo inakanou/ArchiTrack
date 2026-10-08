@@ -2334,7 +2334,7 @@
 
 **経緯**: project-management の Task 75.1 の独立レビュー（2026-10-08）が、`npm --prefix backend run docs:generate` が本スペックの `backend/src/routes/estimate-requests.routes.ts` で `YAMLSemanticError: Nested mappings are not allowed in compact mappings` を出すことを確かめた（親が同日に再現）。原因は `GET /api/projects/{projectId}/estimate-requests/latest` の注釈の `limit` の `description: 取得件数（1〜10、デフォルト: 2）` の値に「: 」が含まれ、YAML の入れ子の対応として読まれることとみられる。このブロックは生成物 `backend/docs/api-spec.json` に取り込まれていない可能性がある
 
-- [ ] 102.1 直近の見積依頼の API の注釈を YAML として正しい形にし、生成物に載せる
+- [x] 102.1 直近の見積依頼の API の注釈を YAML として正しい形にし、生成物に載せる
   - 当該の `description` の値を引用符で囲むなど YAML として正しい形にし、`npm --prefix backend run docs:generate` で生成物を作り直す。生成時のエラーが本ファイルについて出なくなること、生成物に当該エンドポイントが載ることを確かめる。生成物の差分が当該エンドポイントの追加だけであることを確かめる
   - `backend/src/__tests__/unit/docs/api-spec.test.ts` に当該エンドポイントの存在と `limit` の記述を主張する検証を足す（RED → GREEN）。振る舞いは変えない
   - _Boundary: 本スペックの直近の見積依頼の API の OpenAPI の記述_

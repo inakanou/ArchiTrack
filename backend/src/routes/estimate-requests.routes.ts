@@ -308,7 +308,7 @@ router.get(
  *           default: 2
  *           minimum: 1
  *           maximum: 10
- *         description: 取得件数（1〜10、デフォルト: 2）
+ *         description: '取得件数（1〜10、デフォルト: 2）'
  *     responses:
  *       200:
  *         description: 見積依頼サマリー
@@ -323,6 +323,8 @@ router.get(
  *                 latestRequests:
  *                   type: array
  *                   description: 直近N件の見積依頼
+ *       400:
+ *         description: バリデーションエラー（projectId が UUID でない）
  *       401:
  *         description: 認証エラー
  *       403:

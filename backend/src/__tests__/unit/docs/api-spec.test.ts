@@ -386,3 +386,38 @@ describe('OpenAPI Specification - Project Management', () => {
     });
   });
 });
+
+describe('OpenAPI Specification - Estimate Request', () => {
+  describe('Paths - /api/projects/{projectId}/estimate-requests/latest', () => {
+    it('should define GET /api/projects/{projectId}/estimate-requests/latest endpoint', () => {
+      const endpoint = apiSpec.paths['/api/projects/{projectId}/estimate-requests/latest']?.get;
+      expect(endpoint).toBeDefined();
+      expect(endpoint.tags).toContain('Estimate Requests');
+      expect(endpoint.summary).toBeDefined();
+      expect(endpoint.security).toEqual([{ bearerAuth: [] }]);
+
+      const projectIdParam = endpoint.parameters.find(
+        (p: { name: string }) => p.name === 'projectId'
+      );
+      expect(projectIdParam.in).toBe('path');
+      expect(projectIdParam.required).toBe(true);
+      expect(projectIdParam.schema).toEqual({ type: 'string', format: 'uuid' });
+
+      // findLatestByProjectId の既定 2 件と 1〜10 への丸めと一致する
+      const limitParam = endpoint.parameters.find((p: { name: string }) => p.name === 'limit');
+      expect(limitParam.in).toBe('query');
+      expect(limitParam.schema).toEqual({ type: 'integer', default: 2, minimum: 1, maximum: 10 });
+      expect(limitParam.description).toBe('取得件数（1〜10、デフォルト: 2）');
+
+      // findLatestByProjectId の返却形 { totalCount, latestRequests }
+      const schema = endpoint.responses['200']?.content['application/json'].schema;
+      expect(schema.type).toBe('object');
+      expect(schema.properties.totalCount.type).toBe('integer');
+      expect(schema.properties.latestRequests.type).toBe('array');
+
+      expect(endpoint.responses['400']).toBeDefined();
+      expect(endpoint.responses['401']).toBeDefined();
+      expect(endpoint.responses['403']).toBeDefined();
+    });
+  });
+});
