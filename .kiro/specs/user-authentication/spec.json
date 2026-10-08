@@ -2,7 +2,7 @@
   "name": "user-authentication",
   "description": "ArchiTrackプロジェクトに招待制のユーザー認証システムを追加します。JWT（JSON Web Token）ベースの認証方式を採用し、管理者が承認したユーザーのみがシステムへアクセスできるセキュアな認証基盤を構築します。",
   "language": "Japanese",
-  "phase": "implementation-complete",
+  "phase": "tasks-generated",
   "created_at": "2025-11-20T12:00:00Z",
   "updated_at": "2026-10-06T00:00:00Z",
   "approvals": {

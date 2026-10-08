@@ -1294,6 +1294,16 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
   - _Boundary: user-authentication の設計文書・タスク文書と、共通ヘッダの検証の注記_
   - **【完了時の注記（2026-10-06）】** design.md「共通ヘッダーナビゲーション」に小節「レスポンシブ表示とアクセシブルネーム」を足し、1199px 以下のアイコンのみの表示、768px 以下の非表示と高さ（768 は利用者の判断による `isMobile` からの例外）、479px 以下の詰め、見た目だけ隠す指定による名前の保持、769〜1199px のユーザー名の省略表示、検証の所在を記した。下書きの節には実装を正とする旨を記した。`responsive.ts` と `app-header.spec.ts` の注記を見た目だけ隠す現況へ揃え、`audit-log.spec.ts` の行番号による参照をテストの題名で指す形にし、REQ-15.1 の名乗りの添え書きを検証する幅へ合わせた（モバイルの側は 320・375 幅だけで既に正しく、ずれていたのはタブレットの側だった）。tasks.md のタスク40 の題名・Implementation Notes の t13 の項・spec.json の tasks_summary を現況へ揃えた。独立レビューは 1 巡目で、spec.json に追記した計数の経緯（113 の由来）が git の履歴と食い違うことを指摘し、是正後の 2 巡目で承認した。設計文書の関門（design-path-refs / design-refs / design-code-refs / design-component-reqs / trace-coverage）は緑、`check:design-measurement-freshness` の赤は既知の site-survey の 1 件だけ
 
+## タスク42: セッション切れのモーダルの補助ボタンのフォーカスの輪が 3:1 に届かない（利用者の判断で起票、2026-10-08）
+
+**経緯**: trading-partner-management の Task 33.4（2026-10-08、コミット `03ab8cac`）が検索フィルタの `focus:ring-gray-400`（白に対して約 2.6:1）を改めた後、同じ形の指定が本スペックの `frontend/src/components/SessionExpiredModal.tsx` に残っていることを親が確かめた。365 行の「ログイン画面へ移動」（要件30 の受入基準16）は `focus:ring-gray-400`、379 行のボタンは `focus:ring-blue-400` で、いずれも白の背景に対して steering `tech.md` の「フォーカス表示方針」（自前の輪は 2px 以上・3:1 以上）を下回るとみられる。同ファイルの入力欄と再ログインのボタンは `focus:ring-blue-500` である
+
+- [ ] 42.1 セッション切れのモーダルの各ボタンと入力欄のフォーカスの輪を 3:1 以上にする
+  - モーダルの中でフォーカスを受ける要素（入力欄・再ログイン・ログイン画面へ移動・再試行など、状態により出るものを含む）を、`e2e/specs/trading-partners/trading-partner-focus-visible.spec.ts` と同じ判定（実線または影の輪が 2px 以上・背景とのコントラスト比 3:1 以上・フォーカスが離れたら消える）で網羅して測り、満たさないものを前例（project-management の Task 72.3、trading-partner-management の Task 33.4。`focus:ring-blue-500`）と揃えて直す
+  - 挙動（表示）の変更であるため RED → GREEN で進め、単体（各ボタンの輪の指定）と E2E（3 回連続の失敗とネットワークエラーの状態を作り、各ボタンのフォーカス表示を主張する）で確かめる
+  - _Requirements: 30_
+  - _Boundary: セッション切れのモーダルのフォーカス時の表示_
+
 ## Implementation Notes
 
 - 宣言 `t13-anchor-references-after-115303` はリポジトリ全体の e2e の「肯定側から指す参照」（名前を文字列リテラルで与える `getByRole(..., { name })` / `getByLabel` など）を数える。本スペックで名前で指す E2E を足すと必ず動くため、E2E を足すタスクは `check:design-measurement-freshness` の前後の差を測り、動けば同じコミットで宣言を貼り直し、増分の帰属を記す（利用者の判断 2026-10-06。39.1・40.2 と construction-photo の 27.1 の前例に従う）。正規表現・testid への書き換えで避けるのは不当（36.7）
