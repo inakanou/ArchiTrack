@@ -1822,3 +1822,10 @@
   - 生成物の差分が二つの項目の追加だけであることを確かめる
   - _Requirements: 2.8, 5.2_
   - _Boundary: 本スペックのプロジェクト一覧 API の OpenAPI の記述_
+
+- [ ] 75.2 steering の「フォーカス表示方針」の既存の逸脱の件数の記録を現況へ揃える（利用者の判断で起票、2026-10-08）
+  - Task 73.5 が `.kiro/steering/tech.md` の「フォーカス表示方針」に、2026-10-07（HEAD `041a0fc8`）の実測として「本番の部品・ページにインラインの `outline: 'none'` が 49 か所」と記録した。その後の是正（trading-partner-management の Task 33.1 など）で、2026-10-08 の同じ grep（`grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx | grep -vE "__tests__|\.test\.|\.stories\." | wc -l`）の出力は `44` である
+  - steering は件数を写すより数える手段を書く規約（`tech.md` の件数の規約 (b)）があるため、件数の扱いをその規約に合わせて決める（日付つきの記録として現況の件数を併記するか、件数を落としてコマンドだけを残すか）。あわせて内訳（どの機能の部品に残っているか）を測り、各機能のスペックへの申し送りが要るかを判断する
+  - 変更後に `check:steering-refs`・`check:steering-command-annotations`・`check:steering-dir-counts` を名指しで 1 本ずつ回す
+  - _Requirements: 20.4_
+  - _Boundary: steering の「フォーカス表示方針」の既存の逸脱の記録_
