@@ -188,7 +188,6 @@ function BillingClosingDaySelect({
           backgroundColor: disabled ? STYLES.colors.disabledBg : STYLES.colors.white,
           border: `1px solid ${hasError ? STYLES.colors.error : STYLES.colors.border}`,
           borderRadius: STYLES.borderRadius,
-          outline: 'none',
           cursor: disabled ? 'not-allowed' : 'pointer',
           transition: STYLES.transition,
         }}

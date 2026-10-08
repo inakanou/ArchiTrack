@@ -700,10 +700,11 @@
 
 **経緯**: タスク 28〜31 の完了後の機能レベル検証は GO だったが、判断の観点の検証が次の 3 件を挙げた。利用者の判断（2026-10-08、「修正タスクとして起票」）により起票する
 
-- [ ] 33.1 取引先のフォームの部品のインラインの outline の打ち消しを外し、フォーカス表示を steering の方針へ揃える
+- [x] 33.1 取引先のフォームの部品のインラインの outline の打ち消しを外し、フォーカス表示を steering の方針へ揃える
   - 2026-10-08 の実測で、`frontend/src/components/trading-partners/PaymentDateSelect.tsx:204`・`BillingClosingDaySelect.tsx:191`・`TradingPartnerForm.tsx:520` がインラインで `outline: 'none'` を指定し、全画面共通の `:focus-visible`（`frontend/src/index.css` の `@layer base`）を打ち消している。前二者は代わりのフォーカス表示を持たず、キーボード操作でフォーカスが見えない。`TradingPartnerForm` の代わりの表示（3px の `rgba(37,99,235,0.1)` の影）はコントラスト比 3:1 を満たさないとみられる。steering `tech.md` の「フォーカス表示方針」（project-management の Task 73.5）に沿っていない
   - インラインの `outline: 'none'` を外し、共通の輪に一本化する（project-management の Task 73.6 と同じ方針。自前の影は外す）。挙動（表示）の変更であるため RED → GREEN で進め、単体（インラインで outline を打ち消さないこと）と E2E（作成・編集フォームの各入力で、フォーカス中に 2px 以上・3:1 以上の表示があること。`e2e/specs/projects/project-accessibility.spec.ts` の判定の作法に倣う）で主張する
   - _Requirements: 12_
+  - **実施（2026-10-08）**: 3 部品のインラインの `outline: 'none'` を外し、`TradingPartnerForm` の自前の影の輪も外した（フォーカス時の枠線の青とエラー時の赤枠は残す）。作成・編集フォームの入力部品 14 個（チェックボックス 2・select 3 を含む）すべてで、共通の `:focus-visible` の outline（実線・2px・#2563eb）が出て、フォーカスが離れると消える。単体 `frontend/src/__tests__/accessibility/trading-partner-focus-visible.test.tsx` と E2E `e2e/specs/trading-partners/trading-partner-focus-visible.spec.ts`（要件 12 にフォーカス表示を定める受入基準が無いため印は掲げない）を足した。site-survey の宣言 `t13-anchor-references-after-115303` を 1635 から 1638 へ貼り直した
   - _Boundary: 取引先のフォームの入力部品のフォーカス時の表示_
 
 - [ ] 33.2 E2E の註に残る「31.4 の疑い」の記述を現況へ揃える
