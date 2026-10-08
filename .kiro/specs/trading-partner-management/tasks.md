@@ -707,7 +707,7 @@
   - **実施（2026-10-08）**: 3 部品のインラインの `outline: 'none'` を外し、`TradingPartnerForm` の自前の影の輪も外した（フォーカス時の枠線の青とエラー時の赤枠は残す）。作成・編集フォームの入力部品 14 個（チェックボックス 2・select 3 を含む）すべてで、共通の `:focus-visible` の outline（実線・2px・#2563eb）が出て、フォーカスが離れると消える。単体 `frontend/src/__tests__/accessibility/trading-partner-focus-visible.test.tsx` と E2E `e2e/specs/trading-partners/trading-partner-focus-visible.spec.ts`（要件 12 にフォーカス表示を定める受入基準が無いため印は掲げない）を足した。site-survey の宣言 `t13-anchor-references-after-115303` を 1635 から 1638 へ貼り直した
   - _Boundary: 取引先のフォームの入力部品のフォーカス時の表示_
 
-- [ ] 33.2 E2E の註に残る「31.4 の疑い」の記述を現況へ揃える
+- [x] 33.2 E2E の註に残る「31.4 の疑い」の記述を現況へ揃える
   - `e2e/specs/trading-partners/trading-partner-navigation.spec.ts` の 451・1775・1921 行付近の註が、タスク 31.4 を「紐付かないプロジェクトが表に出る疑い」として、関連プロジェクトの節を測る間だけ隠す回避や、表の有無が実行順で変わることの理由に挙げている。31.4 は 2026-10-07 にコミット `e9b976e2` で直り、31.3 も表のはみ出しを直した。註を現況（回避は詳細表示の寄与だけを測るために残す）へ改める。コメントのみの変更とし、主張は変えない
   - _Requirements: 12_
   - _Boundary: 本スペックの E2E の註_
