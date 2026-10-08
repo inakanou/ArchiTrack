@@ -716,3 +716,9 @@
   - `backend/src/__tests__/unit/services/trading-partner.service.test.ts` の mock に `branchNameKana` / `representativeNameKana` が 36 件残る（2026-10-08 の実測）。二つの項目は schema.prisma に無く（マイグレーション `20251212105900_remove_kana_fields_from_trading_partner`）、Task 28.1 は frontend だけを扱った。mock の行を外し、テストの振る舞いが変わらないことを確かめる。`backend/src/__tests__/unit/schemas/trading-partner.schema.test.ts` の「スキーマに含まない」ことを主張する検証は正当であり外さない
   - _Requirements: 11_
   - _Boundary: backend の取引先 service の単体テストの mock_
+
+- [ ] 33.4 一覧の検索フィルタの「フィルタをクリア」のフォーカスの輪を 3:1 以上にする（33.1 の実装からの起票。利用者の判断で起票、2026-10-08）
+  - Task 33.1 の実装担当が、範囲外として報告した。`frontend/src/components/trading-partners/TradingPartnerSearchFilter.tsx:295` のボタン（`aria-label="フィルタをクリア"`）が `focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2` を持ち、gray-400 の輪は白の背景に対してコントラスト比が約 2.5:1 で、steering `tech.md` の「フォーカス表示方針」（自前の輪は 2px 以上・3:1 以上）を下回るとみられる。project-management の Task 72.3 が同じ形の検索フィルタのクリアボタンを `focus:ring-blue-500` へ改めた前例がある（`frontend/src/components/projects/ProjectSearchFilter.tsx`）
+  - 輪の色を 3:1 を満たす色へ改めるか、共通の `:focus-visible` の輪に任せるかを、前例と揃えて決めて直す。挙動（表示）の変更であるため RED → GREEN で進め、取引先の一覧画面で Tab でクリアボタンへフォーカスしたときに 2px 以上・3:1 以上の表示があることを E2E で主張する。一覧画面の他のフォーカスを受ける要素（検索欄・フィルタの select・ソートの見出しなど）も同じ判定で網羅して測り、満たさないものがあれば同じ変更でまとめて直す
+  - _Requirements: 12_
+  - _Boundary: 取引先の一覧画面の検索フィルタのフォーカス時の表示_
