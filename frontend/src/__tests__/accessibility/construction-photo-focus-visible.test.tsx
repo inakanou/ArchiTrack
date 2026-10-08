@@ -12,6 +12,11 @@
  * e2e/specs/construction-photos/construction-photo-focus-visible.spec.ts が主張する
  * （jsdom は :focus-visible の照合も CSS の適用もしない）。
  *
+ * タスク 29.1 で、詳細画面の ZIP の一括エクスポートの進捗のダイアログについて、(4) 処理中・完了・
+ * 一部失敗・全件失敗のどの状態でも、フォーカスを受ける要素（結果の段でプログラムからフォーカスを移す
+ * 見出しを含む）がインラインの style で outline を打ち消さず、色の無い輪を持たないことを確かめる。
+ * 実際の表示は同じ E2E の詳細画面の describe が主張する。
+ *
  * Requirements (construction-photo):
  * 受け入れ条件にフォーカス表示を定める項は無いため、要件番号は名乗らない。
  * タスク 28.1 は、要件 3 の一覧画面の上で steering の方針の下限へ揃える。
@@ -24,6 +29,10 @@ import ConstructionPhotoListTable, {
   type ConstructionPhotoAlbumListItem,
 } from '../../components/construction-photos/ConstructionPhotoListTable';
 import ConstructionPhotoListCard from '../../components/construction-photos/ConstructionPhotoListCard';
+import {
+  BulkExportProgressDialog,
+  type BulkExportProgressDialogProps,
+} from '../../components/construction-photos/BulkExportProgressDialog';
 
 const albums: ConstructionPhotoAlbumListItem[] = [
   {
@@ -158,5 +167,88 @@ describe('工事写真の一覧画面の部品のフォーカスを受ける要�
     const openButton = screen.getByRole('button', { name: '基礎工事アルバムの詳細を表示' });
     expect(classesOf(openButton)).not.toContain('focus:outline-none');
     expect(openButton.style.outline).toBe('');
+  });
+});
+
+/** プログラムからのフォーカスも含めて、フォーカスを受けうる要素（tabindex=-1 の見出しを含む） */
+const PROGRAMMATIC_FOCUSABLE_SELECTOR = `${FOCUSABLE_SELECTOR}, [tabindex="-1"]`;
+
+/** インラインの style で outline を打ち消している要素の一覧（空なら満たす） */
+function collectInlineOutlineCancellations(container: HTMLElement): string[] {
+  return Array.from(container.querySelectorAll<HTMLElement>(PROGRAMMATIC_FOCUSABLE_SELECTOR))
+    .filter(
+      (element) =>
+        element.style.outline === 'none' ||
+        element.style.outlineStyle === 'none' ||
+        element.style.outlineWidth === '0' ||
+        element.style.outlineWidth === '0px'
+    )
+    .map(
+      (element) =>
+        `${element.tagName.toLowerCase()} "${element.getAttribute('aria-label') ?? element.textContent?.trim() ?? ''}"`
+    );
+}
+
+describe('工事写真の詳細画面の ZIP の一括エクスポートの進捗のダイアログのフォーカス表示（タスク 29.1）', () => {
+  const baseProps: BulkExportProgressDialogProps = {
+    open: true,
+    progress: { completed: 1, total: 2, failed: 0 },
+    isRunning: true,
+    onCancel: vi.fn(),
+    onClose: vi.fn(),
+    onContinue: vi.fn(),
+  };
+  const failedItems = [{ id: 'photo-1', fileName: 'IMG_0001.jpg', position: 1 }];
+
+  const cases: { label: string; props: Partial<BulkExportProgressDialogProps>; count: number }[] = [
+    { label: '処理中', props: {}, count: 1 },
+    { label: '完了（中断の後を含む）', props: { isRunning: false }, count: 1 },
+    {
+      label: '一部失敗の結果の段',
+      props: { isRunning: false, outcome: { kind: 'partial', failedItems, succeededCount: 1 } },
+      // 見出し（tabindex=-1）・失敗の一覧・二つの操作
+      count: 4,
+    },
+    {
+      label: '全件失敗の結果の段',
+      props: { isRunning: false, outcome: { kind: 'allFailed', failedItems } },
+      // 見出し（tabindex=-1）・失敗の一覧・閉じる
+      count: 3,
+    },
+  ];
+
+  it.each(cases)(
+    '$label のフォーカスを受ける要素が、インラインで outline を打ち消さず、色の無い輪を持たない',
+    ({ props, count }) => {
+      const { container } = render(<BulkExportProgressDialog {...baseProps} {...props} />);
+
+      expect(container.querySelectorAll(PROGRAMMATIC_FOCUSABLE_SELECTOR)).toHaveLength(count);
+      expect(collectInlineOutlineCancellations(container)).toEqual([]);
+      expect(collectRingDefects(container)).toEqual([]);
+    }
+  );
+
+  /**
+   * 結果の段が出ると、フォーカスは段の見出しへ移る。キーボードの利用者にフォーカスの位置が分かるよう、
+   * 見出しは共通の :focus-visible の outline に乗る（インラインの outline: 'none' で消さない）
+   */
+  it('結果の段でフォーカスを受ける見出しが、共通の outline を消さない', () => {
+    render(
+      <BulkExportProgressDialog
+        {...baseProps}
+        isRunning={false}
+        outcome={{ kind: 'partial', failedItems, succeededCount: 1 }}
+      />
+    );
+
+    const heading = screen.getByRole('heading', {
+      name: '一部の写真項目をエクスポートできませんでした',
+    });
+    expect(heading).toHaveFocus();
+    expect({
+      outline: heading.style.outline,
+      outlineStyle: heading.style.outlineStyle,
+      outlineWidth: heading.style.outlineWidth,
+    }).toEqual({ outline: '', outlineStyle: '', outlineWidth: '' });
   });
 });

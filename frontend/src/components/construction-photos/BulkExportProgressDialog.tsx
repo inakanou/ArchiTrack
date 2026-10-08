@@ -173,13 +173,13 @@ const styles = {
     fontSize: '13px',
     color: '#b91c1c', // WCAG 2.1 AA準拠
   },
-  // 結果の段（タスク 23.4）。見出しへフォーカスを移すため、フォーカスの枠は出さない
+  // 結果の段（タスク 23.4）。見出しへフォーカスを移す。キーボードの利用者にフォーカスの位置が
+  // 分かるよう、共通の :focus-visible の outline に乗る（インラインで消さない。タスク 29.1）
   resultTitle: {
     margin: 0,
     fontSize: '18px',
     fontWeight: 600,
     color: '#111827',
-    outline: 'none',
     overflowWrap: 'anywhere' as const,
   },
   resultText: {

@@ -13,6 +13,12 @@
  *   - 検索の適用中（キーワードで 1 件に絞り、適用中のフィルタの件数を出した状態）と、検索の結果が 0 件の状態
  *   - アルバムの削除の確認のダイアログ
  *   - モバイル幅のカード
+ * Task 29.1 で、詳細画面の ZIP の一括エクスポートの進捗のダイアログの結果の段の見出しのインラインの
+ * outline の打ち消しを外したことに合わせ、次も巡る（describe「工事写真の詳細画面と…」）。
+ *   - 詳細画面の本文（写真項目 2 件）
+ *   - 進捗のダイアログの処理中（画像の取得を待たせる）・中断の後・完了
+ *   - 結果の段の一部失敗と全件失敗（画像の取得を 404 へ差し替える）。段が出るとプログラムから
+ *     フォーカスを移す見出しも、フォーカス中の表示と離れた後の消失を測る
  * 一巡は文書の先頭（どの要素にもフォーカスが無い状態）から始め、本文へ入った最初の要素から
  * 本文を出るまでに止まった要素の並びを、順序と件数まで含めて主張する。本文の手前で止まる要素を
  * 読み飛ばさないこと、「一つも巡らずに違反 0 件」で緑になる形を塞ぐことを兼ねる。
@@ -25,9 +31,13 @@
  * Requirements coverage (construction-photo):
  * 受け入れ条件にフォーカス表示の見え方を定める項は無いため、要件番号は名乗らない。
  * タスク 28.1 は、要件 3 の一覧画面の上で steering の方針の下限へ揃える。
+ * タスク 29.1 は、要件 15 の詳細画面の ZIP の一括エクスポートの上で同じ下限へ揃える。
  */
 
-import { test, expect, type ElementHandle, type Page } from '@playwright/test';
+import * as fs from 'fs';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
+import { test, expect, type ElementHandle, type Page, type Route } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { assertPrepared } from '../../helpers/preconditions';
@@ -714,5 +724,346 @@ test.describe('工事写真の一覧画面のフォーカス表示', () => {
       ...headDescriptors(project, '降順（新しい順）'),
       ...names.flatMap(cardDescriptors),
     ]);
+  });
+});
+
+// ============================================================================
+// 詳細画面と ZIP の一括エクスポートの進捗のダイアログ（タスク 29.1）
+// ============================================================================
+
+/** 詳細画面で Tab を押す上限。文書の先頭から共通ヘッダーを抜けて本文（main）を一巡して余る回数 */
+const DETAIL_WALK_MAX_STEPS = 160;
+/** 詳細画面へ追加する写真のファイル名（追加の順に表示順が付く） */
+const DETAIL_PHOTO_FILE_NAMES = ['focus_first.jpg', 'focus_second.jpg'];
+/** 写真の画像の取得（看板を重ねた印字画像と原本）の経路 */
+const PHOTO_IMAGE_PATH =
+  /\/api\/construction-photos\/images\/([0-9a-f-]+)\/(print-image|original)$/;
+
+const FIXTURE_JPG = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../fixtures/test-image.jpg'
+);
+
+/** 写真の追加の枠（site-survey の共有の `ImageUploader` のドロップゾーン）の名乗り */
+const UPLOAD_AREA_DESCRIPTOR = 'div "画像をアップロードファイルを選択またはドラッグ＆ドロップ対応"';
+
+/** 詳細画面の写真項目 1 件が Tab で止まる要素の名前（並べ替えは先頭なら下へ、末尾なら上へだけ） */
+function photoItemDescriptors(fileName: string, moveLabel: string): unknown[] {
+  return [
+    'div "ドラッグして順序を変更"',
+    `button "${moveLabel}"`,
+    `button "画像を拡大表示: ${fileName}"`,
+    'input "エクスポート対象に含める"',
+    'input "印刷対象に含める"',
+    'textarea "コメント"',
+    `button "看板を配置: ${fileName}"`,
+    `button "写真項目を削除: ${fileName}"`,
+  ];
+}
+
+interface SeededAlbum {
+  project: SeededProject;
+  albumId: string;
+  albumName: string;
+}
+
+/** プロジェクトとアルバムを API で作り、詳細画面からアルバムへ写真を順に追加する */
+async function seedAlbumWithPhotos(page: Page): Promise<SeededAlbum> {
+  const albumName = '焦点詳細';
+  const project = await seedProjectWithAlbums(page, [albumName]);
+  const response = await page.request.get(
+    `${API_BASE_URL}/api/projects/${project.id}/construction-photos?page=1&limit=${PAGE_LIMIT}`,
+    { headers: await authHeaders(page) }
+  );
+  expect(response.status(), '前提: アルバムの一覧を取得できる').toBe(200);
+  const body = (await response.json()) as { data: { id: string; name: string }[] };
+  const albumId = body.data.find((album) => album.name === albumName)?.id;
+  assertPrepared(albumId, 'アルバムの ID');
+
+  await openDetailPage(page, albumId, 0);
+  for (const [index, fileName] of DETAIL_PHOTO_FILE_NAMES.entries()) {
+    const upload = page.waitForResponse(
+      (r) => r.request().method() === 'POST' && /\/construction-photos\/.+\/images$/.test(r.url()),
+      { timeout: getTimeout(30000) }
+    );
+    await page.getByTestId('file-input').setInputFiles({
+      name: fileName,
+      mimeType: 'image/jpeg',
+      buffer: fs.readFileSync(FIXTURE_JPG),
+    });
+    expect((await upload).status(), `前提: 写真「${fileName}」を追加できる`).toBeLessThan(300);
+    await expect(page.getByTestId('construction-photo-item')).toHaveCount(index + 1, {
+      timeout: getTimeout(20000),
+    });
+  }
+  return { project, albumId, albumName };
+}
+
+/** 詳細画面を開き、写真項目が指定の件数そろうのを待つ */
+async function openDetailPage(page: Page, albumId: string, photoCount: number): Promise<void> {
+  await page.goto(`/construction-photos/${albumId}`);
+  await expect(page.locator('main[aria-busy]')).toHaveAttribute('aria-busy', 'false', {
+    timeout: getTimeout(20000),
+  });
+  await expect(page.getByTestId('construction-photo-item')).toHaveCount(photoCount, {
+    timeout: getTimeout(20000),
+  });
+}
+
+/** 詳細画面の「全件エクスポート」をキーボードで押し、設定のダイアログの「開始」を既定の設定のまま押す */
+async function startExportAllByKeyboard(page: Page): Promise<void> {
+  await page.getByRole('button', { name: '全件エクスポート' }).focus();
+  await page.keyboard.press('Enter');
+  const settings = page.getByRole('dialog', { name: /全件一括エクスポート/ });
+  await expect(settings).toBeVisible({ timeout: getTimeout(10000) });
+  await settings.getByRole('button', { name: '開始' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(settings).toBeHidden({ timeout: getTimeout(10000) });
+}
+
+/** 今フォーカスを持つ要素から Tab だけで進み、範囲（scopeSelector）の中の要素へ入る */
+async function tabIntoScope(page: Page, scopeSelector: string, maxSteps: number): Promise<void> {
+  let focused = await snapshotFocusStyle(await activeElementHandle(page), scopeSelector);
+  for (let step = 0; step < maxSteps && !focused.inScope; step += 1) {
+    await page.keyboard.press('Tab');
+    focused = await snapshotFocusStyle(await activeElementHandle(page), scopeSelector);
+  }
+  expect(focused.inScope, `Tab を ${maxSteps} 回押しても ${scopeSelector} の中へ入らない`).toBe(
+    true
+  );
+}
+
+/**
+ * フォーカスを受ける要素が一つだけのダイアログを測る。Tab だけでダイアログの中へ入り、
+ * Tab を押してもフォーカスがその要素に留まる（ダイアログの中で循環する）ことを確かめてから、
+ * フォーカス中の表示を読み、文書の先頭の目印へフォーカスを移した後の表示を読む
+ */
+async function measureSingleStopDialog(page: Page, maxSteps: number): Promise<FocusVisit[]> {
+  await tabIntoScope(page, DIALOG_SCOPE, maxSteps);
+  const handle = await activeElementHandle(page);
+  const focused = await snapshotFocusStyle(handle, DIALOG_SCOPE);
+  await page.keyboard.press('Tab');
+  const afterTab = await snapshotFocusStyle(await activeElementHandle(page), DIALOG_SCOPE);
+  expect(afterTab.path, 'Tab を押してもダイアログの唯一の要素に留まる').toBe(focused.path);
+  await resetFocusToDocumentStart(page);
+  return [{ focused, blurred: await snapshotFocusStyle(handle, DIALOG_SCOPE) }];
+}
+
+/**
+ * 写真の画像の取得を、テストが解き放つまで待たせる判定と応答を作る（unroute 用に同じ参照を返す）。
+ * 判定はオリジンではなくパスで行う（CI とローカルで API のオリジンが異なるため）
+ */
+function makeImageHold(): {
+  matcher: (url: URL) => boolean;
+  handler: (route: Route) => Promise<void>;
+  release: () => void;
+  hits: string[];
+} {
+  const hits: string[] = [];
+  let release: () => void = () => undefined;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const matcher = (url: URL): boolean => PHOTO_IMAGE_PATH.test(url.pathname);
+  const handler = async (route: Route): Promise<void> => {
+    hits.push(new URL(route.request().url()).pathname);
+    await released;
+    await route.continue();
+  };
+  return { matcher, handler, release, hits };
+}
+
+/** 指定した写真項目の画像の取得を 404 へ差し替える判定と応答を作る（unroute 用に同じ参照を返す） */
+function makeImageFailure(failingIds: string[]): {
+  matcher: (url: URL) => boolean;
+  handler: (route: Route) => Promise<void>;
+  hits: string[];
+} {
+  const hits: string[] = [];
+  const matcher = (url: URL): boolean => {
+    const match = PHOTO_IMAGE_PATH.exec(url.pathname);
+    return match !== null && failingIds.includes(match[1]!);
+  };
+  const handler = async (route: Route): Promise<void> => {
+    hits.push(new URL(route.request().url()).pathname);
+    await route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        type: 'https://architrack.example.com/problems/not-found',
+        title: 'Not Found',
+        status: 404,
+        detail: '写真が見つかりません',
+        code: 'NOT_FOUND',
+      }),
+    });
+  };
+  return { matcher, handler, hits };
+}
+
+/** アルバムの写真項目の ID を表示順に API から読む */
+async function photoIdsOf(page: Page, albumId: string): Promise<string[]> {
+  const response = await page.request.get(
+    `${API_BASE_URL}/api/construction-photos/${albumId}/images`,
+    { headers: await authHeaders(page) }
+  );
+  expect(response.status(), '前提: 写真項目の一覧を取得できる').toBe(200);
+  const body = (await response.json()) as { id: string; displayOrder: number }[];
+  return [...body].sort((a, b) => a.displayOrder - b.displayOrder).map((photo) => photo.id);
+}
+
+test.describe('工事写真の詳細画面とZIPの一括エクスポートの進捗のダイアログのフォーカス表示', () => {
+  test.beforeEach(async ({ context, page }) => {
+    await context.clearCookies();
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto('/login');
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    await loginAsUser(page, 'ADMIN_USER');
+  });
+
+  /**
+   * 詳細画面の本文を一巡する。写真の追加の枠（ドロップゾーン）は site-survey が所有する共有の
+   * `ImageUploader` の要素で、インラインの outline の打ち消しを持ち、その是正は site-survey の
+   * タスク 116.1 の対象である（本スペックの境界の外）。この一件だけは、欠けをそのままの文言で
+   * 主張して残す。site-survey の是正が入ればこの主張が赤になり、空の一覧へ改める合図になる。
+   * それ以外の要素（ブレッドクラム・アルバムの操作・エクスポートの起動・写真項目の各操作）は
+   * 欠けを持たないことを主張する
+   */
+  test('詳細画面の本文のフォーカス要素がTab移動時に明確なフォーカス表示を持つ（共有の写真の追加の枠を除く）', async ({
+    page,
+  }) => {
+    const { project, albumId } = await seedAlbumWithPhotos(page);
+    await openDetailPage(page, albumId, DETAIL_PHOTO_FILE_NAMES.length);
+    await resetFocusToDocumentStart(page);
+
+    const visits = await walkFocusWithin(page, MAIN_SCOPE, DETAIL_WALK_MAX_STEPS);
+
+    expect(collectFocusIndicatorViolations(visits)).toEqual([
+      `フォーカス中に明確な表示が無い: ${UPLOAD_AREA_DESCRIPTOR} ` +
+        '(outline=none 3px rgb(0, 0, 0), box-shadow=none)',
+    ]);
+    const [firstFile, secondFile] = DETAIL_PHOTO_FILE_NAMES;
+    expect(
+      visits.map((visit) => visit.focused.descriptor),
+      '一巡が通る要素（順序と件数）'
+    ).toEqual([
+      'a "ダッシュボード"',
+      'a "プロジェクト一覧"',
+      `a "${project.name}"`,
+      'a "工事写真一覧"',
+      'button "編集"',
+      'button "削除"',
+      'button "全件エクスポート"',
+      // 「選択エクスポート」は選択が 0 件の間は押せないため止まらない
+      'button "PDF出力"',
+      UPLOAD_AREA_DESCRIPTOR,
+      'button "カメラで撮影"',
+      'input "画像ファイルを選択"',
+      'input "カメラで撮影"',
+      'button "現場調査写真から選択"',
+      ...photoItemDescriptors(firstFile!, '下へ移動'),
+      ...photoItemDescriptors(secondFile!, '上へ移動'),
+    ]);
+  });
+
+  test('進捗のダイアログの処理中・中断の後・完了の各状態の操作がTab移動時に明確なフォーカス表示を持つ', async ({
+    page,
+  }) => {
+    const { albumId } = await seedAlbumWithPhotos(page);
+    await openDetailPage(page, albumId, DETAIL_PHOTO_FILE_NAMES.length);
+
+    // 処理中: 画像の取得を待たせて、中断の操作だけを出す状態に留める
+    const hold = makeImageHold();
+    await page.route(hold.matcher, hold.handler);
+    await startExportAllByKeyboard(page);
+    const progress = page.getByRole('dialog', { name: '一括エクスポート処理中' });
+    await expect(progress).toBeVisible({ timeout: getTimeout(10000) });
+    await expect.poll(() => hold.hits.length, { timeout: getTimeout(10000) }).toBeGreaterThan(0);
+
+    const runningVisits = await measureSingleStopDialog(page, DETAIL_WALK_MAX_STEPS);
+    expectClearFocusWalk(runningVisits, ['button "中断"']);
+
+    // 中断の後: 中断をキーボードで押し、閉じる操作だけを出す状態へ移る
+    // 中断は待たせた画像の取得が終わった後に確定するため、押した後で取得を解き放つ
+    await progress.getByRole('button', { name: '中断' }).focus();
+    await page.keyboard.press('Enter');
+    hold.release();
+    const finished = page.getByRole('dialog', { name: '一括エクスポート完了' });
+    await expect(finished).toBeVisible({ timeout: getTimeout(10000) });
+    await expect(
+      page.getByRole('alert').filter({ hasText: 'エクスポートを中断しました' })
+    ).toBeVisible({ timeout: getTimeout(10000) });
+    // 解き放った応答の処理が終わるのを待ってから取り外す（処理中に取り外すと競合するため）
+    await page.unrouteAll({ behavior: 'wait' });
+
+    const cancelledVisits = await measureSingleStopDialog(page, DETAIL_WALK_MAX_STEPS);
+    expectClearFocusWalk(cancelledVisits, ['button "閉じる"']);
+
+    await finished.getByRole('button', { name: '閉じる' }).focus();
+    await page.keyboard.press('Enter');
+    await expect(finished).toBeHidden({ timeout: getTimeout(10000) });
+
+    // 完了: 全件が成功すると ZIP をダウンロードし、閉じる操作だけを出す
+    const download = page.waitForEvent('download', { timeout: getTimeout(60000) });
+    await startExportAllByKeyboard(page);
+    expect((await download).suggestedFilename()).toMatch(/\.zip$/);
+    await expect(finished).toBeVisible({ timeout: getTimeout(10000) });
+
+    const completedVisits = await measureSingleStopDialog(page, DETAIL_WALK_MAX_STEPS);
+    expectClearFocusWalk(completedVisits, ['button "閉じる"']);
+  });
+
+  test('進捗のダイアログの一部失敗と全件失敗の結果の段の見出しと操作がキーボードの操作で明確なフォーカス表示を持つ', async ({
+    page,
+  }) => {
+    const { albumId } = await seedAlbumWithPhotos(page);
+    const photoIds = await photoIdsOf(page, albumId);
+    expect(photoIds, '前提: 写真項目が 2 件ある').toHaveLength(DETAIL_PHOTO_FILE_NAMES.length);
+    await openDetailPage(page, albumId, DETAIL_PHOTO_FILE_NAMES.length);
+
+    const outcomes = [
+      {
+        failingIds: [photoIds[0]!],
+        title: '一部の写真項目をエクスポートできませんでした',
+        buttons: ['button "ダウンロードしない"', 'button "成功した項目だけでダウンロードする"'],
+      },
+      {
+        failingIds: photoIds,
+        title: '写真項目をエクスポートできませんでした',
+        buttons: ['button "閉じる"'],
+      },
+    ];
+    for (const outcome of outcomes) {
+      const failure = makeImageFailure(outcome.failingIds);
+      await page.route(failure.matcher, failure.handler);
+      await startExportAllByKeyboard(page);
+      const dialog = page.getByRole('dialog', { name: outcome.title });
+      await expect(dialog).toBeVisible({ timeout: getTimeout(30000) });
+      expect(failure.hits).toHaveLength(outcome.failingIds.length);
+
+      // 結果の段が出ると、フォーカスは段の見出しへ移る（プログラムからの移動。Tab では止まらない）
+      const heading = dialog.getByRole('heading', { name: outcome.title });
+      await expect(heading).toBeFocused();
+      const headingHandle = await activeElementHandle(page);
+      const headingFocused = await snapshotFocusStyle(headingHandle, DIALOG_SCOPE);
+
+      // 見出しから Tab で失敗の一覧へ進み、一覧と操作をダイアログの中で一巡する
+      await page.keyboard.press('Tab');
+      const headingBlurred = await snapshotFocusStyle(headingHandle, DIALOG_SCOPE);
+      const visits = await walkFocusWithin(page, DIALOG_SCOPE, DIALOG_WALK_MAX_STEPS);
+
+      expectClearFocusWalk(
+        [{ focused: headingFocused, blurred: headingBlurred }, ...visits],
+        [`h2 "${outcome.title}"`, 'ul "エクスポートに失敗した写真項目"', ...outcome.buttons]
+      );
+
+      // Escape で段を閉じる（ダウンロードしない）
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden({ timeout: getTimeout(10000) });
+      await page.unroute(failure.matcher, failure.handler);
+    }
   });
 });
