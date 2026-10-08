@@ -903,3 +903,14 @@ _申し送り元: quantity-table-generation スペックの Task 100.24_
   - 挙動（表示）の変更であるため RED → GREEN で進め、単体（クリアボタンの輪の指定）と E2E（一覧画面の Tab の一巡）で主張する
   - _Requirements: 3_
   - _Boundary: 工事写真の一覧画面の検索フィルタのフォーカス時の表示_
+
+## Task 29: 部品のインラインの outline の打ち消しを外し、フォーカス表示を steering の方針へ揃える（project-management の Task 75.2 からの申し送り。利用者の判断で起票、2026-10-08）
+
+**経緯**: project-management の Task 73.5 が steering `.kiro/steering/tech.md` に「フォーカス表示方針」を記録した（全画面の既定のフォーカス表示は `frontend/src/index.css` の `@layer base` の `:focus-visible`。部品の側でインラインの `outline: 'none'` を書かない。独自の輪を描く場合は 2px 以上・コントラスト比 3:1 以上。是正は各機能のスペックの責務）。同スペックの Task 75.2（2026-10-08、HEAD `c8036acd`）の実測で、本スペックの部品・ページに、方針から外れたインラインの `outline: 'none'` が 1 か所残っている。Task 28（検索フィルタのクリアボタンのフォーカスの輪）とは対象が別である。`BulkExportProgressDialog` の見出しは、プログラムからフォーカスを移す要素として `outline: 'none'` を持つ可能性がある。その場合は、キーボードの利用者にフォーカスの位置が分かるかを確かめたうえで扱いを決める
+
+- [ ] 29.1 本スペックの部品・ページのインラインの `outline: 'none'` を外し、フォーカス表示を 2px 以上・3:1 以上にする
+  - 対象（2026-10-08 の実測。着手時に `grep -rnE "outline: ?['\"]none['\"]"` で測り直すこと）:
+    - `frontend/src/components/construction-photos/BulkExportProgressDialog.tsx`（1 か所）
+  - インラインの `outline: 'none'` を外し、共通の輪に一本化する（project-management の Task 73.6、trading-partner-management の Task 33.1 の前例）。自前の影の輪など、代わりの表示が 3:1 に届かないものも同じ変更で外すか強める。対象の画面のフォーカスを受ける要素を、`e2e/specs/trading-partners/trading-partner-focus-visible.spec.ts` と同じ判定（実線または影の輪が 2px 以上・背景とのコントラスト比 3:1 以上・フォーカスが離れたら消える）で網羅して測り、満たさないものをまとめて直す
+  - 挙動（表示）の変更であるため RED → GREEN で進め、単体（インラインで outline を打ち消さないこと）と E2E（対象の画面の Tab の一巡）で主張する。要件にフォーカス表示を定める受入基準が無い場合、`@requirement` の印は掲げない
+  - _Boundary: 本スペックの部品・ページのフォーカス時の表示_
