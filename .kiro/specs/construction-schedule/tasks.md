@@ -393,7 +393,7 @@
 - 除外一覧 `e2e/requirement-exclusions.json` の `construction-schedule/REQ-12.1` は代替検証の道具を「k6 / Artillery」と名乗るが、リポジトリに無い（Task 17.1 が 12.3 / 12.4 で是正したのと同じ型）。200 項目を保存できることの検証も無い
 - 同じく `REQ-6.7` と `REQ-12.2` の代替検証は「Chrome DevTools / Lighthouse」の手動の計測で、リポジトリの中に検証が無い（検証の警告）
 
-- [ ] 20.1 バルク保存の項目数に 200 の上限を設け、超過を 400 で拒む
+- [x] 20.1 バルク保存の項目数に 200 の上限を設け、超過を 400 で拒む
   - `bulkSaveScheduleItemsSchema` の `items` を `.max(200, <メッセージ>)` にし、メッセージは `SCHEDULE_VALIDATION_MESSAGES` に足す。`PUT /api/schedules/:id/bulk-save` が 201 件で 400 とそのメッセージを返すこと
   - 挙動の変更であるため RED → GREEN で進める。単体（schema の 200 件は成功・201 件は失敗）と統合（201 件で 400、200 件を保存して GET で 200 件が表示順のまま返る）で主張し、現状で赤になることを先に示す
   - 統合の検証で REQ-12.1 を被覆できる場合は、除外一覧の `construction-schedule/REQ-12.1` を取り下げて `@requirement` の印を掲げる。取り下げない場合は道具名を実体の走者へ揃える（Task 17.1 の前例）。いずれも `check:req-coverage`・`check:req-exclusions`・`check:design-measurement-freshness` を名指しで回す

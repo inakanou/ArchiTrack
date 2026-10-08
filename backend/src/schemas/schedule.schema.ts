@@ -60,6 +60,9 @@ export const SCHEDULE_VALIDATION_MESSAGES = {
   // 項目ID
   ITEM_ID_INVALID_UUID: '項目IDの形式が不正です',
 
+  // 項目数（Req 12.1: 1つの工程表あたり最大200項目）
+  ITEMS_MAX_COUNT: '工程表の項目は200件以内で登録してください',
+
   // エクスポート形式
   FORMAT_INVALID: '出力形式はxlsxまたはpdfを指定してください',
 
@@ -185,11 +188,19 @@ const bulkSaveScheduleItemSchema = z.object({
 });
 
 /**
+ * 1つの工程表あたりの項目数の上限（Req 12.1）
+ */
+export const MAX_SCHEDULE_ITEMS = 200;
+
+/**
  * バルク保存入力スキーマ
  *
  * Requirements:
  * - 楽観的排他制御のversion必須
  * - items配列で全項目を一括保存
+ *
+ * items の件数は {@link MAX_SCHEDULE_ITEMS} 件までとし、超えた入力は
+ * バリデーションエラー（400）で拒む（Req 12.1）。
  */
 export const bulkSaveScheduleItemsSchema = z.object({
   version: z
@@ -197,7 +208,9 @@ export const bulkSaveScheduleItemsSchema = z.object({
     .int(SCHEDULE_VALIDATION_MESSAGES.VERSION_INTEGER)
     .min(0, SCHEDULE_VALIDATION_MESSAGES.VERSION_MIN),
 
-  items: z.array(bulkSaveScheduleItemSchema),
+  items: z
+    .array(bulkSaveScheduleItemSchema)
+    .max(MAX_SCHEDULE_ITEMS, SCHEDULE_VALIDATION_MESSAGES.ITEMS_MAX_COUNT),
 });
 
 /**

@@ -738,6 +738,47 @@ describe('bulkSaveScheduleItemsSchema', () => {
       expect(result.success).toBe(false);
     });
   });
+
+  /**
+   * 項目数の上限（Req 12.1: 1つの工程表あたり最大200項目までの登録をサポートする）。
+   * 200 件ちょうどは通り、201 件は上限のメッセージで拒まれることを境界の両側で主張する。
+   */
+  describe('items の件数の上限 (Req 12.1)', () => {
+    const buildItems = (count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        id: null,
+        itemName: `工事${index + 1}`,
+        labelText: '',
+        detailText: '',
+        startDate: null,
+        duration: null,
+        displayOrder: index,
+        isExportTarget: true,
+      }));
+
+    it('itemsが200件の場合バリデーションが成功すること', () => {
+      const result = bulkSaveScheduleItemsSchema.safeParse({
+        version: 0,
+        items: buildItems(200),
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('itemsが201件の場合、上限のメッセージでエラーになること', () => {
+      const result = bulkSaveScheduleItemsSchema.safeParse({
+        version: 0,
+        items: buildItems(201),
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(SCHEDULE_VALIDATION_MESSAGES.ITEMS_MAX_COUNT).toBe(
+          '工程表の項目は200件以内で登録してください'
+        );
+        expect(getErrorMessages(result)).toEqual([SCHEDULE_VALIDATION_MESSAGES.ITEMS_MAX_COUNT]);
+        expect(result.error.issues[0]!.path).toEqual(['items']);
+      }
+    });
+  });
 });
 
 // ================================================================

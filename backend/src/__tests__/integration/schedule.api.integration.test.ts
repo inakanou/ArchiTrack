@@ -928,6 +928,94 @@ describe('Schedule API Integration Tests', () => {
 
       expect(response.status).toBe(400);
     });
+
+    /**
+     * @requirement construction-schedule/REQ-12.1: The 工程表管理システム shall 1つの工程表あたり最大200項目までの登録をサポートする
+     *
+     * 上限の両側を本番の経路（`PUT /api/schedules/:id/bulk-save` → `validate(bulkSaveScheduleItemsSchema)`
+     * → `ScheduleService.bulkSaveItems` → DB → `GET /api/schedules/:id`）で主張する。
+     * 200 件は保存でき、GET が 200 件を表示順のまま返す。201 件は上限のメッセージで 400 となり、
+     * 既存の項目も version も変わらない。
+     */
+    describe('項目数の上限 (Req 12.1)', () => {
+      const buildItems = (count: number) =>
+        Array.from({ length: count }, (_, index) => ({
+          id: null,
+          itemName: `上限項目${String(index + 1).padStart(3, '0')}`,
+          labelText: '',
+          detailText: '',
+          startDate: '2026-04-01',
+          duration: 1 + (index % 5),
+          displayOrder: index,
+          isExportTarget: true,
+        }));
+
+      it('200項目をバルク保存でき、GETで200項目が表示順のまま返る (Req 12.1)', async () => {
+        const schedule = await prisma.constructionSchedule.create({
+          data: { projectId: testProjectId, name: '200項目保存テスト', version: 0 },
+        });
+
+        // 表示順を送信の配列順ではなく displayOrder で決めていることを確かめるため、逆順で送る
+        const items = buildItems(200).reverse();
+
+        const response = await request(app)
+          .put(`/api/schedules/${schedule.id}/bulk-save`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ version: 0, items });
+
+        expect(response.status).toBe(200);
+        expect(response.body.updatedItemCount).toBe(200);
+
+        const detail = await request(app)
+          .get(`/api/schedules/${schedule.id}`)
+          .set('Authorization', `Bearer ${accessToken}`);
+
+        expect(detail.status).toBe(200);
+        expect(detail.body.items).toHaveLength(200);
+        expect(detail.body.items.map((item: { itemName: string }) => item.itemName)).toEqual(
+          Array.from({ length: 200 }, (_, index) => `上限項目${String(index + 1).padStart(3, '0')}`)
+        );
+        expect(
+          detail.body.items.map((item: { displayOrder: number }) => item.displayOrder)
+        ).toEqual(Array.from({ length: 200 }, (_, index) => index));
+        expect(detail.body.version).toBe(1);
+      });
+
+      it('201項目のバルク保存は上限のメッセージで400を返し、既存の項目を変えない (Req 12.1)', async () => {
+        const schedule = await prisma.constructionSchedule.create({
+          data: { projectId: testProjectId, name: '201項目拒否テスト', version: 0 },
+        });
+        await prisma.scheduleItem.create({
+          data: {
+            scheduleId: schedule.id,
+            sourceType: 'MANUAL',
+            itemName: '既存の項目',
+            displayOrder: 0,
+          },
+        });
+
+        const response = await request(app)
+          .put(`/api/schedules/${schedule.id}/bulk-save`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ version: 0, items: buildItems(201) });
+
+        expect(response.status).toBe(400);
+        expect(response.body.code).toBe('VALIDATION_ERROR');
+        expect(response.body.detail).toBe('工程表の項目は200件以内で登録してください');
+        expect(response.body.details).toEqual([
+          {
+            path: 'items',
+            message: '工程表の項目は200件以内で登録してください',
+            code: 'too_big',
+          },
+        ]);
+
+        const items = await prisma.scheduleItem.findMany({ where: { scheduleId: schedule.id } });
+        expect(items.map((item) => item.itemName)).toEqual(['既存の項目']);
+        const after = await prisma.constructionSchedule.findUnique({ where: { id: schedule.id } });
+        expect(after?.version).toBe(0);
+      });
+    });
   });
 
   // =================================================================
