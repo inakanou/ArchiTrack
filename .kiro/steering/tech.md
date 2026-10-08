@@ -2,6 +2,8 @@
 
 ArchiTrackは、建設プロジェクトの管理・積算業務を効率化するためのWebアプリケーションです。プロジェクト管理、現場調査、数量拾い出し、内訳書作成、見積依頼・見積書作成までの一連の業務フローをサポートします。Claude Codeを活用したKiro-style Spec Driven Developmentで開発されています。
 
+_最終更新: 2026-10-08（Steering Sync: project-management のタスク75.2。「フォーカス表示方針」の「既存の逸脱」が持っていた件数（2026-10-07、HEAD `041a0fc8` の実測で 49 か所）は、trading-partner-management のタスク33.1 の是正と quantity-table-generation の到達しない部品の整理で、2026-10-08（HEAD `c8036acd`）の同じ grep では 44 か所になっていた。値を書き換える形は採らず、「主要ジョブ」「監視対象エコシステム」と同じ規約 (b)（数値を落として数える手段を書く）を当て、件数のコマンドにファイルごとの内訳を読み出すコマンドを添えた）_
+
 _最終更新: 2026-10-02（Steering Sync: cc-sdd を 3.1 の Skills モードへ揃え、v2 系の旧コマンド方式（`.claude/commands/kiro/`・`.claude/agents/kiro/`・`.kiro/settings/rules/`）を撤去したことに伴い、「Kiroスキル（スラッシュコマンド）」と「ワークフロー」の旧コマンド表記 `/kiro:*` を現行スキル（`kiro-*`）の表記へ改め、Skills モードで加わった入口・実装・統合検証のスキルを一覧へ加えた）_
 
 _最終更新: 2026-09-29（Steering Sync: user-authentication のタスク37.2。「接続障害への耐性」の「権限の確認も同じ経路へ」が権限キャッシュの読み込み側しか述べていなかったため、無効化の側の Redis の未接続時の振る舞い（送らずに警告して TTL に任せる）と、世代の照合による古い書き戻しの防止、コミット後の処理の順序を追記した）_
@@ -169,11 +171,16 @@ ArchiTrack/
 - **共通のフォーカス表示の単一情報源**: `frontend/src/index.css` の `@layer base` に置いた `:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }` が全画面の既定である（project-management タスク 72.3）。部品ごとにフォーカス表示を書き足さなくても、この規則で表示される
 - **インラインの `outline: 'none'` を書かない**: React のインライン style は stylesheet の規則に勝つため、部品の側で `outline: 'none'` を書くとその部品では共通のフォーカス表示が出なくなる
 - **独自の輪を描く場合の下限**: 部品が自前のフォーカス表示（Tailwind の `focus:ring`、`box-shadow`、`focus:outline-none` と ring の組など）を描く場合は、太さ 2px 以上、隣接色に対するコントラスト比 3:1 以上（WCAG 2.1 SC 1.4.11 Non-text Contrast）にする
-- **既存の逸脱**: 2026-10-07（HEAD `041a0fc8`）の実測で、テストと Storybook を除く本番の部品・ページにインラインの `outline: 'none'` が 49 か所あり、すべて project-management 以外の機能に属する。是正は各機能のスペックの責務であり、本方針の記録の範囲外とする。件数は次で測り直す
+- **既存の逸脱 — 件数と内訳は本書へ書かない（規約 (b)。「主要ジョブ」「監視対象エコシステム」と同型）**: テストと Storybook を除く本番の部品・ページに、インラインの `outline: 'none'` がまだ残っている。是正は各機能のスペックの責務であり、本方針の記録の範囲外とする。2026-10-08（HEAD `c8036acd`）の実測では、残る箇所に project-management の部品は無い。件数と、どの部品に残っているかは次で読み出す（いずれもリポジトリルートで実行する）
 
 ```bash
+# 件数
 grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx \
   | grep -vE "__tests__|\.test\.|\.stories\." | wc -l
+
+# ファイルごとの内訳（components/ の下のディレクトリ名とページ名が機能の手掛かりになる）
+grep -rnE "outline: ?['\"]none['\"]" frontend/src --include=*.ts --include=*.tsx \
+  | grep -vE "__tests__|\.test\.|\.stories\." | cut -d: -f1 | sort | uniq -c
 ```
 
 ### 帳票生成方針（フロントエンド）
