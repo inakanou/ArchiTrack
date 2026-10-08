@@ -717,8 +717,9 @@
   - _Requirements: 11_
   - _Boundary: backend の取引先 service の単体テストの mock_
 
-- [ ] 33.4 一覧の検索フィルタの「フィルタをクリア」のフォーカスの輪を 3:1 以上にする（33.1 の実装からの起票。利用者の判断で起票、2026-10-08）
+- [x] 33.4 一覧の検索フィルタの「フィルタをクリア」のフォーカスの輪を 3:1 以上にする（33.1 の実装からの起票。利用者の判断で起票、2026-10-08）
   - Task 33.1 の実装担当が、範囲外として報告した。`frontend/src/components/trading-partners/TradingPartnerSearchFilter.tsx:295` のボタン（`aria-label="フィルタをクリア"`）が `focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2` を持ち、gray-400 の輪は白の背景に対してコントラスト比が約 2.5:1 で、steering `tech.md` の「フォーカス表示方針」（自前の輪は 2px 以上・3:1 以上）を下回るとみられる。project-management の Task 72.3 が同じ形の検索フィルタのクリアボタンを `focus:ring-blue-500` へ改めた前例がある（`frontend/src/components/projects/ProjectSearchFilter.tsx`）
   - 輪の色を 3:1 を満たす色へ改めるか、共通の `:focus-visible` の輪に任せるかを、前例と揃えて決めて直す。挙動（表示）の変更であるため RED → GREEN で進め、取引先の一覧画面で Tab でクリアボタンへフォーカスしたときに 2px 以上・3:1 以上の表示があることを E2E で主張する。一覧画面の他のフォーカスを受ける要素（検索欄・フィルタの select・ソートの見出しなど）も同じ判定で網羅して測り、満たさないものがあれば同じ変更でまとめて直す
   - _Requirements: 12_
+  - **実施（2026-10-08）**: 前例（project-management の Task 72.3）と同じく `focus:ring-gray-400` を `focus:ring-blue-500` へ改めた（白に対して 2.60:1 → 3.76:1）。一覧画面の main の中でフォーカスを受ける 22 要素を同じ判定で網羅して測り、基準を満たさないのはこのボタンだけだった（修正後は全要素が 2px 以上・3:1 以上）。単体（`frontend/src/__tests__/accessibility/trading-partner-focus-visible.test.tsx`）と E2E（`e2e/specs/trading-partners/trading-partner-focus-visible.spec.ts` の「取引先の一覧画面のフォーカス表示」）を足した。site-survey の宣言 `t13-anchor-references-after-115303` を 1638 から 1641 へ貼り直した
   - _Boundary: 取引先の一覧画面の検索フィルタのフォーカス時の表示_

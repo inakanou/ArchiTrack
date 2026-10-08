@@ -67,6 +67,10 @@ interface FocusSnapshot {
   descriptor: string;
   /** フォームの中の入力部品（input / select / textarea）か */
   isFormControl: boolean;
+  /** 本文（main）の中の要素か */
+  inMain: boolean;
+  /** 要素を文書の中で一意に指す経路（一巡の終わりの判定に使う） */
+  path: string;
   outlineStyle: string;
   outlineWidth: string;
   outlineOffset: string;
@@ -280,10 +284,21 @@ async function snapshotFocusStyle(handle: ElementHandle<Element>): Promise<Focus
     const labelledText = labelledBy
       ? (el.ownerDocument.getElementById(labelledBy)?.textContent ?? '').replace('*', '').trim()
       : (el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 30);
-    const label = el.getAttribute('aria-label') ?? labelledText;
+    // 名前を持たない入力部品（label で包んだチェックボックスなど）は、結び付いた label の文言で名乗る
+    const associatedLabel =
+      el instanceof HTMLInputElement || el instanceof HTMLSelectElement
+        ? (el.labels?.[0]?.textContent ?? '').replace(/\s+/g, ' ').trim()
+        : '';
+    const label = el.getAttribute('aria-label') ?? (labelledText || associatedLabel);
+    const pathSegments: string[] = [];
+    for (let node: Element | null = el; node?.parentElement; node = node.parentElement) {
+      pathSegments.unshift(String(Array.prototype.indexOf.call(node.parentElement.children, node)));
+    }
     return {
       descriptor: `${el.tagName.toLowerCase()} "${label}"`,
       isFormControl: el.matches('form input, form select, form textarea'),
+      inMain: el.closest('main') !== null,
+      path: pathSegments.join('>'),
       outlineStyle: style.outlineStyle,
       outlineWidth: style.outlineWidth,
       outlineOffset: style.outlineOffset,
@@ -361,6 +376,80 @@ function expectedSummary(): {
   }));
 }
 
+/** 一覧画面の本文で Tab を押す上限（ヘッダー・本文・ページネーションを一巡して余る回数） */
+const LIST_WALK_MAX_STEPS = 80;
+/** 一覧画面の巡回で一覧に並べる取引先の件数（1 ページ 10 件で 2 ページ目を作り、ページの移動の釦を出す） */
+const LIST_SEED_COUNT = 11;
+
+interface ListFocusStep {
+  /** Tab を押した後にフォーカスを持つ要素 */
+  focused: FocusSnapshot;
+  /** Tab を押す前にフォーカスを持っていた要素の、押した後（フォーカスが離れた後）の状態 */
+  previousAfterBlur: FocusSnapshot;
+}
+
+/** 一巡が終わったか。本文に入った後、本文の外へ出たか、本文で最初に止まった要素へ戻ったら終わり */
+function isListWalkFinished(steps: ListFocusStep[]): boolean {
+  const start = steps.findIndex((step) => step.focused.inMain);
+  const first = steps[start];
+  const last = steps[steps.length - 1];
+  return (
+    first !== undefined &&
+    last !== undefined &&
+    steps.length - 1 > start &&
+    (!last.focused.inMain || last.focused.path === first.focused.path)
+  );
+}
+
+/**
+ * Tab キーだけで一覧画面の本文（main）の中のフォーカスを受ける要素を一巡し、
+ * 各要素のフォーカス中と、Tab で離れた直後の計算済みスタイルを組にして返す
+ */
+async function walkFocusInMain(page: Page): Promise<FocusVisit[]> {
+  const steps: ListFocusStep[] = [];
+  let previous = await activeElementHandle(page);
+  for (let step = 0; step < LIST_WALK_MAX_STEPS && !isListWalkFinished(steps); step += 1) {
+    await page.keyboard.press('Tab');
+    const current = await activeElementHandle(page);
+    steps.push({
+      previousAfterBlur: await snapshotFocusStyle(previous),
+      focused: await snapshotFocusStyle(current),
+    });
+    previous = current;
+  }
+  expect(
+    isListWalkFinished(steps),
+    `Tab を ${LIST_WALK_MAX_STEPS} 回押しても本文の一巡が終わらない`
+  ).toBe(true);
+  const start = steps.findIndex((step) => step.focused.inMain);
+  return steps.slice(start, steps.length - 1).map((step, index) => ({
+    focused: step.focused,
+    blurred: steps[start + index + 1]!.previousAfterBlur,
+  }));
+}
+
+/** 一巡の結果から、明確なフォーカス表示を欠く要素と、離れても表示が残る要素の一覧を作る（空なら満たす） */
+function collectFocusIndicatorViolations(visits: FocusVisit[]): string[] {
+  return visits.flatMap((visit) => {
+    const violations: string[] = [];
+    if (!findClearFocusIndicator(visit.focused)) {
+      violations.push(
+        `フォーカス中に明確な表示が無い: ${visit.focused.descriptor} ` +
+          `(outline=${visit.focused.outlineStyle} ${visit.focused.outlineWidth} ${visit.focused.outlineColor}, ` +
+          `box-shadow=${visit.focused.boxShadow})`
+      );
+    }
+    const blurredIndicator = findClearFocusIndicator(visit.blurred);
+    if (blurredIndicator) {
+      violations.push(
+        `フォーカスが離れても同じ表示が残る（フォーカスの有無を区別できない）: ` +
+          `${visit.focused.descriptor} (${blurredIndicator})`
+      );
+    }
+    return violations;
+  });
+}
+
 test.describe('取引先のフォームの入力部品のフォーカス表示', () => {
   test.describe.configure({ mode: 'serial' });
 
@@ -406,5 +495,65 @@ test.describe('取引先のフォームの入力部品のフォーカス表示',
     const visits = await walkFormControls(page);
 
     expect(summarizeVisits(visits)).toEqual(expectedSummary());
+  });
+});
+
+test.describe('取引先の一覧画面のフォーカス表示', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  test.beforeEach(async ({ context, page }) => {
+    await context.clearCookies();
+    // ビューポートをデスクトップの大きさに揃える（他のテストファイルでの変更を引き継がないため）
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto('/login');
+    await page.evaluate(() => {
+      localStorage.clear();
+    });
+  });
+
+  /**
+   * 一覧画面の本文を Tab だけで一巡し、止まった要素のどれもがフォーカス中に明確な表示
+   * （outline か影の輪で、2px 以上・背景とのコントラスト比 3:1 以上）を持ち、離れると消えることを主張する。
+   * 一巡が検索フィルタ・ソートの見出し・行・ページネーションの各部品を実際に通ったことも併せて主張し、
+   * 「一つも巡らずに違反 0 件」で緑になる形を塞ぐ。
+   */
+  test('一覧画面の本文の全フォーカス要素がTab移動時に明確なフォーカス表示を持つ', async ({
+    page,
+  }) => {
+    await loginAsUser(page, 'REGULAR_USER');
+    // 検索語で今回の取引先だけに絞り、1 ページ 10 件で 2 ページ目を作る
+    const keyword = `フォーカス一覧${Date.now()}`;
+    for (let index = 0; index < LIST_SEED_COUNT; index += 1) {
+      await seedTradingPartner(page, `${keyword}-${String(index).padStart(2, '0')}`);
+    }
+    await page.goto(`/trading-partners?search=${encodeURIComponent(keyword)}&limit=10`);
+    await expect(page.getByRole('heading', { name: '取引先一覧' })).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await expect(
+      page.getByRole('table', { name: '取引先一覧' }).getByText(keyword).first()
+    ).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    await expect(page.getByRole('button', { name: 'ページ 2' })).toBeVisible();
+
+    const visits = await walkFocusInMain(page);
+
+    expect(collectFocusIndicatorViolations(visits)).toEqual([]);
+    const descriptors = visits.map((visit) => visit.focused.descriptor);
+    expect(descriptors, '一巡が通る部品').toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/^button ".*新規作成/),
+        expect.stringMatching(/^input ".*検索/),
+        'input "顧客"',
+        'input "協力業者"',
+        'button "フィルタをクリア"',
+        expect.stringMatching(/^button ".+でソート"$/),
+        expect.stringMatching(new RegExp(`^tr ".*${keyword}`)),
+        'button "ページ 2"',
+        expect.stringMatching(/^button ".*次/),
+        expect.stringMatching(/^select /),
+      ])
+    );
   });
 });

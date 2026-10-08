@@ -18,6 +18,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import TradingPartnerForm from '../../components/trading-partners/TradingPartnerForm';
+import TradingPartnerSearchFilter from '../../components/trading-partners/TradingPartnerSearchFilter';
 
 /** 作成・編集フォームのキーボードで止まる入力部品（画面の並び順） */
 function getFormControls(): HTMLElement[] {
@@ -148,5 +149,28 @@ describe('フォーカス中の取引先のフォームの入力欄は共通の 
     fireEvent.focus(nameInput);
     expect(nameInput.style.boxShadow).toMatch(/^(none)?$/);
     expect(isOutlineSuppressed(nameInput)).toBe(false);
+  });
+});
+
+describe('取引先の一覧の検索フィルタの「フィルタをクリア」のフォーカスの輪', () => {
+  /**
+   * クリアボタンは共通の outline を `focus:outline-none` で消し、自前の輪（Tailwind の ring）で示す。
+   * steering の下限（2px 以上・隣接色に対して 3:1 以上）を満たすよう、輪は一覧画面の他の部品
+   * （検索ボタン・ソートの見出し・ページネーション）と同じ blue-500 で描く（タスク 33.4）。
+   * gray-400 の輪は白の背景に対して 3:1 に届かない。実際の太さとコントラスト比は
+   * e2e/specs/trading-partners/trading-partner-focus-visible.spec.ts が確かめる。
+   */
+  it('2px の blue-500 の輪で示し、3:1 に届かない gray-400 の輪を描かない', () => {
+    render(<TradingPartnerSearchFilter filter={{}} onFilterChange={vi.fn()} />);
+
+    const clearButton = screen.getByRole('button', { name: 'フィルタをクリア' });
+    const classes = clearButton.className.split(/\s+/);
+
+    expect({
+      outlineNone: classes.includes('focus:outline-none'),
+      ringWidth: classes.includes('focus:ring-2'),
+      ringBlue500: classes.includes('focus:ring-blue-500'),
+      ringGray400: classes.includes('focus:ring-gray-400'),
+    }).toEqual({ outlineNone: true, ringWidth: true, ringBlue500: true, ringGray400: false });
   });
 });
