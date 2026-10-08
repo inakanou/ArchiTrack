@@ -379,3 +379,43 @@
   - インラインの `outline: 'none'` を外し、共通の輪に一本化する（project-management の Task 73.6、trading-partner-management の Task 33.1 の前例）。自前の影の輪など、代わりの表示が 3:1 に届かないものも同じ変更で外すか強める。対象の画面のフォーカスを受ける要素を、`e2e/specs/trading-partners/trading-partner-focus-visible.spec.ts` と同じ判定（実線または影の輪が 2px 以上・背景とのコントラスト比 3:1 以上・フォーカスが離れたら消える）で網羅して測り、満たさないものをまとめて直す
   - 挙動（表示）の変更であるため RED → GREEN で進め、単体（インラインで outline を打ち消さないこと）と E2E（対象の画面の Tab の一巡）で主張する。要件にフォーカス表示を定める受入基準が無い場合、`@requirement` の印は掲げない
   - _Boundary: 本スペックの部品・ページのフォーカス時の表示_
+
+## タスク20: 工程表あたり最大 200 項目の上限が実装されていない状態を正す（機能レベル検証の NO-GO。利用者の判断で起票、2026-10-09）
+
+**経緯**: Task 19.1 の完了後の機能レベル検証（2026-10-09、HEAD `218951e6`、NO-GO）が、要件 12 の受入基準 1（1 つの工程表あたり最大 200 項目までの登録をサポートする）の上限が実装されていないことを実測で確かめた。テスト・関門・E2E はすべて緑で、19.1 による後退ではない（初期実装から残っている）。
+
+**測った事実**（2026-10-09、HEAD `218951e6`）:
+
+- tasks.md の Task 2（「items配列に最大200項目の制約」）・3.3（「超過時はバリデーションエラーを返す」）・5.1 / 5.2（「最大200項目制約のテスト」）と design.md の「バルク保存: … 最大200項目（Req 12.1）」が上限を約束し、いずれも `[x]` である
+- `backend/src/schemas/schedule.schema.ts` の 200 行付近の `items: z.array(bulkSaveScheduleItemSchema)` に `.max(200)` が無く、`schedule.service.ts` と `schedules.routes.ts` にも項目数の確かめが無い。`bulkSaveScheduleItemsSchema.safeParse` は 200 件・201 件・1000 件のいずれも `success: true` を返した
+- `schedule.schema.test.ts` と `schedule.service.test.ts` に項目数の上限の検証が無い（「201」の当たりは name / labelText の文字数の検証だけ）
+- `ScheduleService` の数量表からの作成は、数量表の項目をそのまま写す。数量表の項目が 200 を超える場合の扱いは設計に定めが無い
+- 除外一覧 `e2e/requirement-exclusions.json` の `construction-schedule/REQ-12.1` は代替検証の道具を「k6 / Artillery」と名乗るが、リポジトリに無い（Task 17.1 が 12.3 / 12.4 で是正したのと同じ型）。200 項目を保存できることの検証も無い
+- 同じく `REQ-6.7` と `REQ-12.2` の代替検証は「Chrome DevTools / Lighthouse」の手動の計測で、リポジトリの中に検証が無い（検証の警告）
+
+- [ ] 20.1 バルク保存の項目数に 200 の上限を設け、超過を 400 で拒む
+  - `bulkSaveScheduleItemsSchema` の `items` を `.max(200, <メッセージ>)` にし、メッセージは `SCHEDULE_VALIDATION_MESSAGES` に足す。`PUT /api/schedules/:id/bulk-save` が 201 件で 400 とそのメッセージを返すこと
+  - 挙動の変更であるため RED → GREEN で進める。単体（schema の 200 件は成功・201 件は失敗）と統合（201 件で 400、200 件を保存して GET で 200 件が表示順のまま返る）で主張し、現状で赤になることを先に示す
+  - 統合の検証で REQ-12.1 を被覆できる場合は、除外一覧の `construction-schedule/REQ-12.1` を取り下げて `@requirement` の印を掲げる。取り下げない場合は道具名を実体の走者へ揃える（Task 17.1 の前例）。いずれも `check:req-coverage`・`check:req-exclusions`・`check:design-measurement-freshness` を名指しで回す
+  - _Requirements: 12.1_
+  - _Boundary: 工程表のバルク保存の項目数の検証（schema・route）とその検証、除外一覧の REQ-12.1_
+
+- [ ] 20.2 画面の工程項目の追加を 200 で止め、上限に達したことを示す
+  - design.md の要件対応表は 12.1 の担い手に `useScheduleState` を挙げる。編集画面で 200 項目に達したら項目の追加の操作を止め（無効化）、上限に達した旨を示す。保存の 400 を受けた場合もメッセージを表示する
+  - 挙動の追加であるため RED → GREEN で進め、単体（200 項目で追加できない・199 項目で追加できる）と E2E（上限の表示）で主張する。表示の文言と位置は design.md へ規約 (a) の形で併記する
+  - _Requirements: 12.1_
+  - _Boundary: 工程表の編集画面の項目の追加の上限とその表示_
+  - _Depends: 20.1_
+
+- [ ] 20.3 数量表の項目が 200 を超える場合の工程表の作成の扱いを決めて実装する（着手時に利用者の判断を得る）
+  - 数量表からの作成は項目をそのまま写すため、200 を超える数量表から作ると上限を超えた工程表ができる。扱い（例: 作成を 400 で拒む / 先頭 200 件だけを写して残りを知らせる / 作成画面で選んだ数量表の項目数を示して作成を止める）を**着手時に利用者に確かめ**、design.md へ規約 (a) の形で記録してから実装する
+  - 挙動の変更であるため RED → GREEN で進め、201 項目の数量表からの作成を単体・統合で主張する
+  - _Requirements: 12.1_
+  - _Boundary: 数量表からの工程表の作成の項目数の扱い_
+  - _Depends: 20.1_
+
+- [ ] 20.4 REQ-6.7 / 12.2 の手動計測の除外の扱いを決める（着手時に利用者の判断を得る）
+  - `construction-schedule/REQ-6.7`（入力から 200ms 以内の表示更新）と `REQ-12.2`（200 項目でのスムーズな描画）の代替検証は「Chrome DevTools / Lighthouse」の手動の計測で、リポジトリの中に検証が無い。リポジトリの中で計測する検証（例: 200 項目の GanttChartPanel の再描画時間を単調時計で測る単体、または E2E の Performance API）を置くか、手動の計測のまま残すかを**利用者に確かめる**
+  - 検証を置く場合は Task 18.3 の前例（単調時計で測る・変異で赤くなることを示す・通常の `npm test` の所要時間を大きく延ばさない）に従い、除外を取り下げるか道具名を実体へ揃える。手動のまま残す場合は、その判断を除外の `description` と design.md へ記録する
+  - _Requirements: 6.7, 12.2_
+  - _Boundary: REQ-6.7 / 12.2 の検証と除外一覧の記述_
