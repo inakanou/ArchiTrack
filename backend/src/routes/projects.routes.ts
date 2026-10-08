@@ -122,7 +122,7 @@ const updateProjectRequestSchema = updateProjectSchema.extend({
  *         name: limit
  *         schema:
  *           type: integer
- *           default: 20
+ *           default: 100
  *           maximum: 100
  *         description: 1ページあたりの表示件数（1〜100）
  *       - in: query
@@ -162,7 +162,7 @@ const updateProjectRequestSchema = updateProjectSchema.extend({
  *         name: sort
  *         schema:
  *           type: string
- *           enum: [id, name, tradingPartnerId, status, createdAt, updatedAt]
+ *           enum: [name, customerName, salesPersonName, constructionPersonName, status, createdAt, updatedAt]
  *           default: updatedAt
  *         description: ソートフィールド
  *       - in: query

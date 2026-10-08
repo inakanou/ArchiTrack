@@ -1835,7 +1835,7 @@
 
 **経緯**: Task 75.1 の独立レビュー（2026-10-08）が、`backend/src/routes/projects.routes.ts` の OpenAPI の注釈に、実装と食い違う既存の記述と、生成時に読み込めない注釈ブロックがあることを確かめた。いずれも 75.1 の前からの状態で、振る舞いには影響しないが、生成物 `backend/docs/api-spec.json` が実装と食い違う
 
-- [ ] 76.1 `GET /api/projects` の `limit` の既定値と `sort` の選択肢を実装へ揃える
+- [x] 76.1 `GET /api/projects` の `limit` の既定値と `sort` の選択肢を実装へ揃える
   - 注釈の `limit` の `default` が `20` だが、`backend/src/schemas/project.schema.ts` の既定値は `100`（要件 3.1）。注釈の `sort` の `enum` は `[id, name, tradingPartnerId, status, createdAt, updatedAt]` だが、実装の `SORTABLE_FIELDS` は `name`・`customerName`・`salesPersonName`・`constructionPersonName`・`status`・`createdAt`・`updatedAt` である
   - 注釈を `projectFilterSchema` / `SORTABLE_FIELDS` と一致させ、`npm --prefix backend run docs:generate` で生成物を作り直す。生成物の差分が当該の値だけであることを確かめ、`backend/src/__tests__/unit/docs/api-spec.test.ts` に値を主張する検証を足す（RED → GREEN）。振る舞いは変えない
   - _Requirements: 3.1, 6.1_

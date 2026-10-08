@@ -11,6 +11,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { SORTABLE_FIELDS, paginationSchema, sortSchema } from '../../../schemas/project.schema.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -205,6 +206,26 @@ describe('OpenAPI Specification - Project Management', () => {
       );
       expect(excludeTerminalStatusesParam.in).toBe('query');
       expect(excludeTerminalStatusesParam.schema).toEqual({ type: 'boolean' });
+
+      // paginationSchema の既定値（要件 3.1: 既定 100 件、上限 100）と一致する
+      const limitParam = endpoint.parameters.find((p: { name: string }) => p.name === 'limit');
+      expect(limitParam.schema.default).toBe(100);
+      expect(limitParam.schema.default).toBe(paginationSchema.parse({}).limit);
+      expect(limitParam.schema.maximum).toBe(100);
+
+      // sortSchema の選択肢（SORTABLE_FIELDS）と既定値と一致する（要件 6.5）
+      const sortParam = endpoint.parameters.find((p: { name: string }) => p.name === 'sort');
+      expect(sortParam.schema.enum).toEqual([
+        'name',
+        'customerName',
+        'salesPersonName',
+        'constructionPersonName',
+        'status',
+        'createdAt',
+        'updatedAt',
+      ]);
+      expect(sortParam.schema.enum).toEqual([...SORTABLE_FIELDS]);
+      expect(sortParam.schema.default).toBe(sortSchema.parse({}).sort);
 
       // Responses
       expect(endpoint.responses['200']).toBeDefined();

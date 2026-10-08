@@ -5201,7 +5201,7 @@
             "name": "limit",
             "schema": {
               "type": "integer",
-              "default": 20,
+              "default": 100,
               "maximum": 100
             },
             "description": "1ページあたりの表示件数（1〜100）"
@@ -5263,9 +5263,10 @@
             "schema": {
               "type": "string",
               "enum": [
-                "id",
                 "name",
-                "tradingPartnerId",
+                "customerName",
+                "salesPersonName",
+                "constructionPersonName",
                 "status",
                 "createdAt",
                 "updatedAt"
