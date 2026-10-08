@@ -602,4 +602,120 @@ describe('SessionExpiredModal', () => {
       });
     });
   });
+
+  /**
+   * タスク42.1: モーダルの中でフォーカスを受ける要素のフォーカスの輪
+   *
+   * 各要素は共通の outline を `focus:outline-none` で消し、自前の輪（Tailwind の ring）で示す。
+   * steering（tech.md の「フォーカス表示方針」）の下限（2px 以上・隣接色に対して 3:1 以上）を
+   * 満たすよう、輪はすべて blue-500 で描く。gray-400・blue-400 の輪は白の背景に対して 3:1 に届かない。
+   * 状態によって出る要素（3 回連続の失敗後の「ログイン画面へ移動」、ネットワークエラー時の「リトライ」、
+   * 2FA の「認証コード」）も、その状態を作ってから測る。実際の太さとコントラスト比は
+   * e2e/specs/auth/session-expired-modal-focus-visible.spec.ts が確かめる。
+   */
+  describe('フォーカスの輪', () => {
+    /** コンポーネントのフォーカストラップと同じ、フォーカスを受ける要素のセレクタ */
+    const FOCUSABLE = [
+      'button:not([disabled]):not([tabindex="-1"])',
+      'input:not([disabled]):not([tabindex="-1"])',
+      '[tabindex]:not([tabindex="-1"])',
+    ].join(', ');
+
+    /** ダイアログの中のフォーカスを受ける要素ごとに、名前と輪の指定を読み出す */
+    function readFocusRings(): {
+      name: string;
+      outlineNone: boolean;
+      ringWidth: boolean;
+      ringColors: string[];
+    }[] {
+      const dialog = screen.getByRole('dialog');
+      return Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE)).map((element) => {
+        const classes = element.className.split(/\s+/);
+        return {
+          name:
+            element instanceof HTMLInputElement
+              ? (element.labels?.[0]?.textContent ?? '')
+              : (element.textContent ?? '').trim(),
+          outlineNone: classes.includes('focus:outline-none'),
+          ringWidth: classes.includes('focus:ring-2'),
+          // 輪の色の指定（太さ `focus:ring-2` と間隔 `focus:ring-offset-*` を除く）
+          ringColors: classes.filter((c) => /^focus:ring-(?!\d|offset-)/.test(c)),
+        };
+      });
+    }
+
+    function blue500Ring(name: string) {
+      return { name, outlineNone: true, ringWidth: true, ringColors: ['focus:ring-blue-500'] };
+    }
+
+    async function submitPassword(user: ReturnType<typeof userEvent.setup>, password: string) {
+      const passwordInput = screen.getByLabelText('パスワード');
+      await user.clear(passwordInput);
+      await user.type(passwordInput, password);
+      await user.click(screen.getByRole('button', { name: '再ログイン' }));
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: '再ログイン' })).not.toBeDisabled();
+      });
+    }
+
+    it('開いた直後のパスワード欄と再ログインは 2px の blue-500 の輪で示す', () => {
+      render(<SessionExpiredModal {...defaultProps} />);
+
+      expect(readFocusRings()).toEqual([blue500Ring('パスワード'), blue500Ring('再ログイン')]);
+    });
+
+    it('3 回連続の失敗後に出る「ログイン画面へ移動」も 2px の blue-500 の輪で示し、3:1 に届かない gray-400 の輪を描かない', async () => {
+      const user = userEvent.setup();
+      mockApiClientPost
+        .mockRejectedValueOnce(new Error('認証失敗'))
+        .mockRejectedValueOnce(new Error('認証失敗'))
+        .mockRejectedValueOnce(new Error('認証失敗'));
+      render(<SessionExpiredModal {...defaultProps} />);
+
+      await submitPassword(user, 'wrong1');
+      await submitPassword(user, 'wrong2');
+      await submitPassword(user, 'wrong3');
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'ログイン画面へ移動' })).toBeInTheDocument();
+      });
+
+      expect(readFocusRings()).toEqual([
+        blue500Ring('パスワード'),
+        blue500Ring('再ログイン'),
+        blue500Ring('ログイン画面へ移動'),
+      ]);
+    });
+
+    it('ネットワークエラー時に出る「リトライ」も 2px の blue-500 の輪で示し、3:1 に届かない blue-400 の輪を描かない', async () => {
+      const user = userEvent.setup();
+      mockApiClientPost.mockRejectedValueOnce(
+        Object.assign(new Error('Network error'), { statusCode: 0 })
+      );
+      render(<SessionExpiredModal {...defaultProps} />);
+
+      await submitPassword(user, 'password');
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'リトライ' })).toBeInTheDocument();
+      });
+
+      expect(readFocusRings()).toEqual([
+        blue500Ring('パスワード'),
+        blue500Ring('再ログイン'),
+        blue500Ring('リトライ'),
+      ]);
+    });
+
+    it('2FA の認証コード欄も 2px の blue-500 の輪で示す', async () => {
+      const user = userEvent.setup();
+      mockApiClientPost.mockResolvedValueOnce({ requires2FA: true });
+      render(<SessionExpiredModal {...defaultProps} />);
+
+      await submitPassword(user, 'correct-password');
+      await waitFor(() => {
+        expect(screen.getByLabelText('認証コード')).toBeInTheDocument();
+      });
+
+      expect(readFocusRings()).toEqual([blue500Ring('認証コード'), blue500Ring('再ログイン')]);
+    });
+  });
 });

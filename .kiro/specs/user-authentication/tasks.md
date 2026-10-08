@@ -1298,7 +1298,7 @@ _起票元: `/kiro-validate-impl user-authentication`（2026-09-28、HEAD `a4768
 
 **経緯**: trading-partner-management の Task 33.4（2026-10-08、コミット `03ab8cac`）が検索フィルタの `focus:ring-gray-400`（白に対して約 2.6:1）を改めた後、同じ形の指定が本スペックの `frontend/src/components/SessionExpiredModal.tsx` に残っていることを親が確かめた。365 行の「ログイン画面へ移動」（要件30 の受入基準16）は `focus:ring-gray-400`、379 行のボタンは `focus:ring-blue-400` で、いずれも白の背景に対して steering `tech.md` の「フォーカス表示方針」（自前の輪は 2px 以上・3:1 以上）を下回るとみられる。同ファイルの入力欄と再ログインのボタンは `focus:ring-blue-500` である
 
-- [ ] 42.1 セッション切れのモーダルの各ボタンと入力欄のフォーカスの輪を 3:1 以上にする
+- [x] 42.1 セッション切れのモーダルの各ボタンと入力欄のフォーカスの輪を 3:1 以上にする
   - モーダルの中でフォーカスを受ける要素（入力欄・再ログイン・ログイン画面へ移動・再試行など、状態により出るものを含む）を、`e2e/specs/trading-partners/trading-partner-focus-visible.spec.ts` と同じ判定（実線または影の輪が 2px 以上・背景とのコントラスト比 3:1 以上・フォーカスが離れたら消える）で網羅して測り、満たさないものを前例（project-management の Task 72.3、trading-partner-management の Task 33.4。`focus:ring-blue-500`）と揃えて直す
   - 挙動（表示）の変更であるため RED → GREEN で進め、単体（各ボタンの輪の指定）と E2E（3 回連続の失敗とネットワークエラーの状態を作り、各ボタンのフォーカス表示を主張する）で確かめる
   - _Requirements: 30_
