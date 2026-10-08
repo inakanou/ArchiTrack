@@ -846,6 +846,7 @@ interface BulkSaveResult {
 - ScheduleSchema: Zodバリデーションルール
 - useScheduleState: 項目追加/削除/更新、完了日算出、dirty state管理
 - useHolidayCalendar: 祝日判定、メモ化動作
+- フォーカス表示（タスク 19.1）: `frontend/src/__tests__/accessibility/construction-schedule-focus-visible.test.tsx` が、工程表の作成フォームの部品 4 つ（工程表名称の欄・数量表の選択・キャンセル・作成の釦）が初期の表示・名称の検証エラーの表示中・作成の失敗の表示中のいずれでもインラインの style で outline を打ち消さず影の輪も描かないこと、検証エラーの表示中も名称の欄の赤い枠と文言が残ることを主張する（steering `tech.md` の「フォーカス表示方針」）
 
 ### Integration Tests
 - GET/POST /api/projects/:projectId/schedules: 一覧取得、作成（数量表あり/なし）
@@ -859,6 +860,7 @@ interface BulkSaveResult {
 - 項目の入力（着工日、日数）とガントチャートリアルタイム更新
 - 並び順の変更と保存
 - Excel/PDF出力のダウンロード
+- フォーカス表示（タスク 19.1、要件 1〜11 の画面。受入基準にフォーカス表示を定める項は無いため要件番号は名乗らない）: `e2e/specs/schedules/construction-schedule-focus-visible.spec.ts` が、作成画面の初期の本文・名称の検証エラーの表示中・作成の失敗の表示中・モバイル幅（375px）の本文と、工程表が無い一覧画面・工程表が 1 件ある一覧画面と行の末尾の釦から開く確認のダイアログ・一覧の取得の失敗の本文（再試行の釦）・項目が 1 件ある詳細画面と出力のダイアログ・出力の失敗の後の出力のダイアログ（再試行の釦）・項目が 1 件ある詳細画面のモバイル幅（375px）の本文（横にはみ出してキーボードでスクロールできるガントチャートの領域を含む）を、文書の先頭から Tab だけで一巡し、止まった要素の並びを順序と件数まで主張したうえで、どの要素もフォーカス中に 2px 以上・背景とのコントラスト比 3:1 以上の表示を持ち、離れると消えることを主張する（steering `tech.md` の「フォーカス表示方針」）。作成・一覧の取得・出力の失敗は page.route でその要求だけをパスで判定して差し替え、テスト用の DB に工程表を作らない
 
 ## Optional Sections
 
