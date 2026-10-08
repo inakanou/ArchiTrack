@@ -2306,3 +2306,12 @@
   - _Requirements: 33_
   - **実施（2026-10-08）**: JSDoc の名乗りを `AutocompleteInput`（`styles.input`。任意分類・工種・名称・規格・単位・備考の列）と `EditableQuantityItemRow`（`styles.input`。数量列）へ揃えた。いずれも本番のソースで height 22px・padding 2px 4px・fontSize 12px を持つことを確かめた。起票の文は `CalculationFields` も揃える先に挙げていたが、同部品の `styles.input` は padding が `0 4px` で統一仕様と異なり、対応する列の部品でもないため、本項の「持たない部品は名乗らない」に従って名乗らない（理由は JSDoc に記した）。数量表に単価の列が無いこと、本 E2E が数量表画面を開かず受領見積書の明細行の computed style を定数と照合していることも JSDoc に記した。コメントのみの変更で、`@requirement estimate-request/REQ-33.*` の印 13 件は不変
   - _Boundary: 本スペックの E2E のコメントが名乗る数量表の部品名_
+
+## タスク100: spec.json に phase のキーが二つある状態を正す（利用者の判断で起票、2026-10-08）
+
+**経緯**: 2026-10-08 に全スペックの spec.json の phase と tasks.md の未完了を突き合わせた際、`.kiro/specs/estimate-request/spec.json` に `"phase"` のキーが 6 行目と 22 行目の二つあることを確かめた（値はどちらも同じ）。JSON の重複したキーであり、読み手によって後の値だけが使われるため、片方だけを更新すると食い違いを生む
+
+- [ ] 100.1 spec.json の重複した phase のキーを一つにする
+  - 他のスペックの spec.json と同じ位置（`language` の直後）の一つを残し、もう一方を外す。値は現況（tasks.md の未完了の有無）に合わせる。`python3 -c "import json; ..."` などで JSON として読めることと、キーが一つであることを確かめる
+  - 他のスペックの spec.json にも同じ重複が無いことを確かめる
+  - _Boundary: 本スペックの spec.json_
