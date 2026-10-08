@@ -2311,7 +2311,7 @@
 
 **経緯**: 2026-10-08 に全スペックの spec.json の phase と tasks.md の未完了を突き合わせた際、`.kiro/specs/estimate-request/spec.json` に `"phase"` のキーが 6 行目と 22 行目の二つあることを確かめた（値はどちらも同じ）。JSON の重複したキーであり、読み手によって後の値だけが使われるため、片方だけを更新すると食い違いを生む
 
-- [ ] 100.1 spec.json の重複した phase のキーを一つにする
+- [x] 100.1 spec.json の重複した phase のキーを一つにする
   - 他のスペックの spec.json と同じ位置（`language` の直後）の一つを残し、もう一方を外す。値は現況（tasks.md の未完了の有無）に合わせる。`python3 -c "import json; ..."` などで JSON として読めることと、キーが一つであることを確かめる
   - 他のスペックの spec.json にも同じ重複が無いことを確かめる
   - _Boundary: 本スペックの spec.json_
