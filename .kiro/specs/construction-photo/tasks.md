@@ -897,7 +897,7 @@ _申し送り元: quantity-table-generation スペックの Task 100.24_
 
 **経緯**: trading-partner-management の Task 33.4（2026-10-08、コミット `03ab8cac`）は、取引先の一覧の検索フィルタの「フィルタをクリア」の `focus:ring-gray-400`（白に対して約 2.6:1）を `focus:ring-blue-500`（約 3.76:1）へ改めた。同タスクの独立レビューが、同じ形の指定が本スペックの `frontend/src/components/construction-photos/ConstructionPhotoSearchFilter.tsx` の 357 行（`aria-label="フィルタをクリア"` のボタン）に残っていることを確かめた。steering `tech.md` の「フォーカス表示方針」（自前の輪は 2px 以上・3:1 以上）を下回るとみられる
 
-- [ ] 28.1 工事写真の一覧の検索フィルタの「フィルタをクリア」のフォーカスの輪を 3:1 以上にする
+- [x] 28.1 工事写真の一覧の検索フィルタの「フィルタをクリア」のフォーカスの輪を 3:1 以上にする
   - project-management の Task 72.3 と trading-partner-management の Task 33.4 の前例と揃え、`focus:ring-gray-400` を 3:1 を満たす色（前例は `focus:ring-blue-500`）へ改める
   - 一覧画面の main の中でフォーカスを受ける要素（検索欄・フィルタ・クリア・並べ替え・行・ページネーションなど）を、`e2e/specs/trading-partners/trading-partner-focus-visible.spec.ts` と同じ判定（実線または影の輪が 2px 以上・背景とのコントラスト比 3:1 以上・フォーカスが離れたら消える）で網羅して測り、満たさないものがあれば同じ変更でまとめて直す
   - 挙動（表示）の変更であるため RED → GREEN で進め、単体（クリアボタンの輪の指定）と E2E（一覧画面の Tab の一巡）で主張する

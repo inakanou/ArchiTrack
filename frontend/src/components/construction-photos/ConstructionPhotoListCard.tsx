@@ -127,13 +127,14 @@ function AlbumCard({
       data-testid={`album-card-${album.id}`}
       className="relative bg-white rounded-xl shadow-sm border border-gray-200 p-4 hover:shadow-md hover:border-blue-200 focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 transition-all"
     >
-      {/* 主導線: 詳細表示（カード全面を覆う stretched button） */}
+      {/* 主導線: 詳細表示（カード全面を覆う stretched button）。フォーカスを受けるのはこの釦のため、
+          共通の :focus-visible の outline を消さずに乗る（タスク 28.1） */}
       <button
         type="button"
         onClick={handleClick}
         aria-label={`${album.name}の詳細を表示`}
         data-testid={`album-card-open-${album.id}`}
-        className="absolute inset-0 z-0 rounded-xl cursor-pointer focus:outline-none"
+        className="absolute inset-0 z-0 rounded-xl cursor-pointer"
       />
 
       {/* 表示コンテンツ（非インタラクティブ・クリックは背面の stretched button へ透過） */}
