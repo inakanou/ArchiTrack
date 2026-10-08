@@ -2,7 +2,7 @@
   "name": "user-authentication",
   "description": "ArchiTrackプロジェクトに招待制のユーザー認証システムを追加します。JWT（JSON Web Token）ベースの認証方式を採用し、管理者が承認したユーザーのみがシステムへアクセスできるセキュアな認証基盤を構築します。",
   "language": "Japanese",
-  "phase": "tasks-generated",
+  "phase": "implementation-complete",
   "created_at": "2025-11-20T12:00:00Z",
   "updated_at": "2026-10-06T00:00:00Z",
   "approvals": {
@@ -36,13 +36,13 @@
       "phase_4_gap_remediation": 10,
       "phase_5_e2e_improvements": 1,
       "phase_6_navigation_enhancement": 6,
-      "total_major_tasks": 41,
-      "total_sub_tasks": 120,
+      "total_major_tasks": 43,
+      "total_sub_tasks": 122,
       "pending_sub_tasks": 0,
       "requirements_coverage": "100%",
       "requirements_count": 37,
-      "counted_at": "2026-10-06",
-      "counting_method": "tasks.md のチェック項目を数える。total_major_tasks は相異なる最上位番号（1〜41）、total_sub_tasks は N.M 形式の項目、pending_sub_tasks は未完了の N.M 形式の項目からタスク41.2 自身（本更新を行うタスク）を除いたもの（41.2 の完了で 0）。以前の値 113 は 248aa674（2026-09-29、タスク37 の起票）で更新した値で実数と一致していたが、counted_at が 2026-09-28 のまま残っていた。requirements_count は requirements.md の「### 要件N」見出し（16A・27A〜27E を含む）。requirements_coverage は tasks.md の各タスクの _Requirements:_ から見た要件の網羅であり、`npm run check:req-coverage` の被覆印の実測（2026-10-05 時点で受入基準 377/388、適用対象 374/374）とは別の指標。phase_1_3_completed〜phase_6_navigation_enhancement は 2025-12-03 の生成時点の内訳で、total_* とは合わない"
+      "counted_at": "2026-10-09",
+      "counting_method": "tasks.md のチェック項目を数える。total_major_tasks は相異なる最上位番号（1〜43）、total_sub_tasks は N.M 形式の項目、pending_sub_tasks は未完了の N.M 形式の項目からタスク41.2 自身（本更新を行うタスク）を除いたもの（41.2 の完了で 0）。以前の値 113 は 248aa674（2026-09-29、タスク37 の起票）で更新した値で実数と一致していたが、counted_at が 2026-09-28 のまま残っていた。requirements_count は requirements.md の「### 要件N」見出し（16A・27A〜27E を含む）。requirements_coverage は tasks.md の各タスクの _Requirements:_ から見た要件の網羅であり、`npm run check:req-coverage` の被覆印の実測（2026-10-05 時点で受入基準 377/388、適用対象 374/374）とは別の指標。phase_1_3_completed〜phase_6_navigation_enhancement は 2025-12-03 の生成時点の内訳で、total_* とは合わない"
     },
     "design_update": {
       "updated_at": "2025-12-03T16:00:00Z",
