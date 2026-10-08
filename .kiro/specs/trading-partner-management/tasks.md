@@ -712,7 +712,7 @@
   - _Requirements: 12_
   - _Boundary: 本スペックの E2E の註_
 
-- [ ] 33.3 backend の取引先 service の単体テストの mock に残る二つのフリガナの項目を外す
+- [x] 33.3 backend の取引先 service の単体テストの mock に残る二つのフリガナの項目を外す
   - `backend/src/__tests__/unit/services/trading-partner.service.test.ts` の mock に `branchNameKana` / `representativeNameKana` が 36 件残る（2026-10-08 の実測）。二つの項目は schema.prisma に無く（マイグレーション `20251212105900_remove_kana_fields_from_trading_partner`）、Task 28.1 は frontend だけを扱った。mock の行を外し、テストの振る舞いが変わらないことを確かめる。`backend/src/__tests__/unit/schemas/trading-partner.schema.test.ts` の「スキーマに含まない」ことを主張する検証は正当であり外さない
   - _Requirements: 11_
   - _Boundary: backend の取引先 service の単体テストの mock_
