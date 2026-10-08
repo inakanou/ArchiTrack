@@ -253,6 +253,10 @@ router.get(
 );
 
 /**
+ * Requirements: 23.1-23.6
+ * 注意: このルートは/api/projects/:idより前に定義する必要がある
+ * （Expressのルートマッチング順序により、:idパラメータとの競合を回避）
+ *
  * @swagger
  * /api/projects/status-counts:
  *   get:
@@ -272,7 +276,9 @@ router.get(
  *               properties:
  *                 counts:
  *                   type: object
- *                   description: 全12ステータスの件数
+ *                   description: 全12ステータスの件数（キーはステータス、該当0件のステータスも0で含む）
+ *                   additionalProperties:
+ *                     type: integer
  *                 total:
  *                   type: integer
  *                   description: 全ステータス合計件数
@@ -280,10 +286,6 @@ router.get(
  *         description: 認証エラー
  *       403:
  *         description: 権限不足
- *
- * Requirements: 23.1-23.6
- * 注意: このルートは/api/projects/:idより前に定義する必要がある
- * （Expressのルートマッチング順序により、:idパラメータとの競合を回避）
  */
 router.get(
   '/status-counts',

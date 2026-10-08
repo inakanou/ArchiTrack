@@ -254,6 +254,26 @@ describe('OpenAPI Specification - Project Management', () => {
     });
   });
 
+  describe('Paths - /api/projects/status-counts', () => {
+    it('should define GET /api/projects/status-counts endpoint', () => {
+      const endpoint = apiSpec.paths['/api/projects/status-counts']?.get;
+      expect(endpoint).toBeDefined();
+      expect(endpoint.tags).toContain('Projects');
+      expect(endpoint.summary).toBeDefined();
+      expect(endpoint.security).toEqual([{ bearerAuth: [] }]);
+
+      // getStatusCounts の返却形 { counts, total }（要件 23.1）
+      const schema = endpoint.responses['200']?.content['application/json'].schema;
+      expect(schema.type).toBe('object');
+      expect(schema.properties.counts.type).toBe('object');
+      expect(schema.properties.counts.additionalProperties).toEqual({ type: 'integer' });
+      expect(schema.properties.total.type).toBe('integer');
+
+      expect(endpoint.responses['401']).toBeDefined();
+      expect(endpoint.responses['403']).toBeDefined();
+    });
+  });
+
   describe('Paths - /api/projects/{id}', () => {
     it('should define GET /api/projects/{id} endpoint', () => {
       const endpoint = apiSpec.paths['/api/projects/{id}']?.get;

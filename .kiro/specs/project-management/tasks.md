@@ -1841,7 +1841,7 @@
   - _Requirements: 3.1, 6.1_
   - _Boundary: 本スペックのプロジェクト一覧 API の OpenAPI の記述_
 
-- [ ] 76.2 `GET /api/projects/status-counts` の注釈が OpenAPI の生成で読み込めない状態を正す
+- [x] 76.2 `GET /api/projects/status-counts` の注釈が OpenAPI の生成で読み込めない状態を正す
   - `npm --prefix backend run docs:generate` が `src/routes/projects.routes.ts` で `YAMLSemanticError: Implicit map keys need to be followed by map values` を出す（2026-10-08 の実測）。原因は `status-counts` の注釈ブロックの末尾の地の文（「注意: このルートは…」「（Expressのルートマッチング順序により、:idパラメータとの競合を回避）」）が `@swagger` の YAML の中に入っていることとみられる。このブロックは生成物に取り込まれていない可能性がある
   - 地の文を YAML の外（`@swagger` の前の JSDoc など）へ移すか YAML として正しい形にし、生成物に `status-counts` が載ること、生成時のエラーが本ファイルについて出なくなることを確かめる。api-spec の単体テストで当該エンドポイントの存在を主張する（RED → GREEN）
   - _Requirements: 23.1_
