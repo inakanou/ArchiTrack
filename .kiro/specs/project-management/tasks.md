@@ -1817,7 +1817,7 @@
 
 **経緯**: trading-partner-management の機能レベル検証（2026-10-07、HEAD `28696d26`、GO）が、本スペックの `GET /api/projects` の OpenAPI の記載漏れを挙げた。2026-10-08 の実測で、生成物の `backend/docs/api-spec.json` の `/api/projects` の `get` の parameters は `page`・`limit`・`search`・`status`・`createdFrom`・`createdTo`・`sort`・`order` の 8 件で、`projectFilterSchema` が受け付ける `tradingPartnerId` と `excludeTerminalStatuses` が無い。`backend/src/routes/projects.routes.ts` の route の注釈にも記載が無い。利用者の判断（2026-10-08、「修正タスクとして起票」）により起票する
 
-- [ ] 75.1 `GET /api/projects` の OpenAPI の注釈に `tradingPartnerId` と `excludeTerminalStatuses` を加える
+- [x] 75.1 `GET /api/projects` の OpenAPI の注釈に `tradingPartnerId` と `excludeTerminalStatuses` を加える
   - route の注釈（OpenAPI の生成元）に二つのクエリ項目を、`projectFilterSchema` の型・検証（`tradingPartnerId` は UUID、`excludeTerminalStatuses` は真偽値）と一致させて加え、`backend/docs/api-spec.json` を既存の生成の手順で作り直す。振る舞いは変えない
   - 生成物の差分が二つの項目の追加だけであることを確かめる
   - _Requirements: 2.8, 5.2_

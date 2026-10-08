@@ -191,6 +191,20 @@ describe('OpenAPI Specification - Project Management', () => {
       expect(paramNames).toContain('createdTo');
       expect(paramNames).toContain('sort');
       expect(paramNames).toContain('order');
+      expect(paramNames).toContain('tradingPartnerId');
+      expect(paramNames).toContain('excludeTerminalStatuses');
+
+      // projectFilterSchema と一致する型（UUID / 真偽値）
+      const tradingPartnerIdParam = endpoint.parameters.find(
+        (p: { name: string }) => p.name === 'tradingPartnerId'
+      );
+      expect(tradingPartnerIdParam.in).toBe('query');
+      expect(tradingPartnerIdParam.schema).toEqual({ type: 'string', format: 'uuid' });
+      const excludeTerminalStatusesParam = endpoint.parameters.find(
+        (p: { name: string }) => p.name === 'excludeTerminalStatuses'
+      );
+      expect(excludeTerminalStatusesParam.in).toBe('query');
+      expect(excludeTerminalStatusesParam.schema).toEqual({ type: 'boolean' });
 
       // Responses
       expect(endpoint.responses['200']).toBeDefined();

@@ -148,6 +148,17 @@ const updateProjectRequestSchema = updateProjectSchema.extend({
  *           format: date
  *         description: 作成日終了（ISO8601形式）
  *       - in: query
+ *         name: tradingPartnerId
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: 取引先IDフィルタ（UUID形式、指定した取引先のプロジェクトのみ）
+ *       - in: query
+ *         name: excludeTerminalStatuses
+ *         schema:
+ *           type: boolean
+ *         description: "true の場合、終端ステータス（完了・中止・失注）のプロジェクトを除外する。status を指定した場合は status を優先し本項目は適用しない。値は true または false のみ受け付ける"
+ *       - in: query
  *         name: sort
  *         schema:
  *           type: string
