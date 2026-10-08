@@ -1830,3 +1830,19 @@
   - _Requirements: 20.4_
   - **実施（2026-10-08、HEAD `c8036acd`）**: 規約 (b) を当て、`tech.md` から件数「49 か所」を落として、件数を数えるコマンドとファイルごとの内訳を出すコマンドを置いた（「主要ジョブ」「監視対象エコシステム」と同型）。同ファイルの冒頭に `Steering Sync` の同期記録を足した。実測は 44 か所・30 ファイルで、スペック別の内訳は user-authentication 8・quantity-table-generation 8・site-survey 7・estimate-request 5・estimate-creation 5・contract-management 3・construction-schedule 3・itemized-statement-generation 3・company-info 1・construction-photo 1（project-management と trading-partner-management は 0）。いずれのスペックもインラインの `outline: 'none'` を外すタスクを持たないため、各スペックへの申し送りが要ると判断した（起票の範囲と順序は利用者の判断を待つ）
   - _Boundary: steering の「フォーカス表示方針」の既存の逸脱の記録_
+
+## Task 76: プロジェクト API の OpenAPI の既存の食い違い（Task 75.1 のレビューからの起票。利用者の判断で起票、2026-10-08）
+
+**経緯**: Task 75.1 の独立レビュー（2026-10-08）が、`backend/src/routes/projects.routes.ts` の OpenAPI の注釈に、実装と食い違う既存の記述と、生成時に読み込めない注釈ブロックがあることを確かめた。いずれも 75.1 の前からの状態で、振る舞いには影響しないが、生成物 `backend/docs/api-spec.json` が実装と食い違う
+
+- [ ] 76.1 `GET /api/projects` の `limit` の既定値と `sort` の選択肢を実装へ揃える
+  - 注釈の `limit` の `default` が `20` だが、`backend/src/schemas/project.schema.ts` の既定値は `100`（要件 3.1）。注釈の `sort` の `enum` は `[id, name, tradingPartnerId, status, createdAt, updatedAt]` だが、実装の `SORTABLE_FIELDS` は `name`・`customerName`・`salesPersonName`・`constructionPersonName`・`status`・`createdAt`・`updatedAt` である
+  - 注釈を `projectFilterSchema` / `SORTABLE_FIELDS` と一致させ、`npm --prefix backend run docs:generate` で生成物を作り直す。生成物の差分が当該の値だけであることを確かめ、`backend/src/__tests__/unit/docs/api-spec.test.ts` に値を主張する検証を足す（RED → GREEN）。振る舞いは変えない
+  - _Requirements: 3.1, 6.1_
+  - _Boundary: 本スペックのプロジェクト一覧 API の OpenAPI の記述_
+
+- [ ] 76.2 `GET /api/projects/status-counts` の注釈が OpenAPI の生成で読み込めない状態を正す
+  - `npm --prefix backend run docs:generate` が `src/routes/projects.routes.ts` で `YAMLSemanticError: Implicit map keys need to be followed by map values` を出す（2026-10-08 の実測）。原因は `status-counts` の注釈ブロックの末尾の地の文（「注意: このルートは…」「（Expressのルートマッチング順序により、:idパラメータとの競合を回避）」）が `@swagger` の YAML の中に入っていることとみられる。このブロックは生成物に取り込まれていない可能性がある
+  - 地の文を YAML の外（`@swagger` の前の JSDoc など）へ移すか YAML として正しい形にし、生成物に `status-counts` が載ること、生成時のエラーが本ファイルについて出なくなることを確かめる。api-spec の単体テストで当該エンドポイントの存在を主張する（RED → GREEN）
+  - _Requirements: 23.1_
+  - _Boundary: 本スペックのプロジェクトの状態別件数 API の OpenAPI の記述_
