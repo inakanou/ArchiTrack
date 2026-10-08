@@ -78,7 +78,6 @@ const styles = {
     borderRadius: '6px',
     border: '1px solid #d1d5db',
     fontSize: '14px',
-    outline: 'none',
     transition: 'border-color 0.2s',
   } as React.CSSProperties,
   inputError: {

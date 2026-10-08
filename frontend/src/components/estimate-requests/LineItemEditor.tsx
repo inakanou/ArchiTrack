@@ -339,7 +339,6 @@ const styles = {
     fontSize: '12px',
     color: '#1f2937',
     backgroundColor: '#ffffff',
-    outline: 'none',
     transition: 'border-color 0.2s',
     boxSizing: 'border-box' as const,
   },
