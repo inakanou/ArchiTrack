@@ -938,3 +938,149 @@ describe('ContractForm - Task 12.1 バリデーション', () => {
     });
   });
 });
+
+// ============================================================================
+// Task 18.1 テスト: 変更契約の編集の初期化（基契約書の値で上書きしない）
+// ============================================================================
+
+/**
+ * 保存済みの変更契約。基契約書（mockParentContractDetail）とすべての入力項目の値が異なる
+ */
+const mockAmendmentContractDetail: contractsApi.ContractDetail = {
+  ...mockParentContractDetail,
+  id: 'contract-002',
+  contractType: 'AMENDMENT',
+  status: 'BEFORE_CONTRACT',
+  parentContractId: 'contract-001',
+  estimateId: 'est-002',
+  contractDate: '2024-09-01',
+  constructionStartDate: '2024-09-10',
+  constructionEndDate: '2025-02-28',
+  deliveryDate: '2025-03-15',
+  taxRate: 0.08,
+  paymentTerms: '一括払い',
+  separateConstruction: '空調工事',
+  otherNotes: '変更メモ',
+  supervisorTradingPartnerId: 'tp-003',
+  estimate: { id: 'est-002', name: '見積書B' },
+  parentContract: { id: 'contract-001', contractType: 'NEW', contractDate: '2024-06-01' },
+  supervisorTradingPartner: { id: 'tp-003', name: '監理事務所B' },
+  createdAt: '2024-09-01T00:00:00.000Z',
+  updatedAt: '2024-09-01T00:00:00.000Z',
+};
+
+describe('ContractForm - Task 18.1 変更契約の編集の初期化', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    setupMocks();
+  });
+
+  /** 基契約書の詳細の取得が終わり、比較表示が出るまで待つ */
+  async function waitForParentFetched() {
+    await waitFor(() => {
+      expect(contractsApi.getContractDetail).toHaveBeenCalledWith('contract-001');
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('comparison-panel')).toBeInTheDocument();
+    });
+  }
+
+  /**
+   * @requirement contract-management/REQ-9.1: 編集画面に保存済みの変更後の値を表示する
+   */
+  it('editモードの変更契約は基契約書の取得後も initialData の値を保つ', async () => {
+    renderContractForm({ mode: 'edit', initialData: mockAmendmentContractDetail });
+
+    await waitForParentFetched();
+    await waitFor(() => {
+      const select = screen.getByLabelText('見積書') as HTMLSelectElement;
+      expect(within(select).getByText('見積書B')).toBeInTheDocument();
+    });
+
+    expect((screen.getByLabelText('見積書') as HTMLSelectElement).value).toBe('est-002');
+    expect((screen.getByLabelText('契約日') as HTMLInputElement).value).toBe('2024-09-01');
+    expect((screen.getByLabelText('工期着手日') as HTMLInputElement).value).toBe('2024-09-10');
+    expect((screen.getByLabelText('工期完成日') as HTMLInputElement).value).toBe('2025-02-28');
+    expect((screen.getByLabelText('引渡日') as HTMLInputElement).value).toBe('2025-03-15');
+    expect((screen.getByLabelText('消費税率（%）') as HTMLInputElement).value).toBe('8');
+    expect((screen.getByLabelText('支払条件') as HTMLTextAreaElement).value).toBe('一括払い');
+    expect((screen.getByLabelText('別途工事') as HTMLTextAreaElement).value).toBe('空調工事');
+    expect((screen.getByLabelText('その他') as HTMLTextAreaElement).value).toBe('変更メモ');
+    expect((screen.getByTestId('trading-partner-input') as HTMLInputElement).value).toBe('tp-003');
+  });
+
+  /**
+   * @requirement contract-management/REQ-9.1: 編集画面でも基契約書の値を「変更前」として並べる
+   */
+  it('editモードの変更契約の比較表示は基契約書の値を変更前、保存済みの値を変更後に並べる', async () => {
+    renderContractForm({ mode: 'edit', initialData: mockAmendmentContractDetail });
+
+    await waitForParentFetched();
+
+    const paymentTermsRow = screen.getByTestId('comparison-field-changed-paymentTerms');
+    expect(within(paymentTermsRow).getByText('出来高払い')).toBeInTheDocument();
+    expect(within(paymentTermsRow).getByText('一括払い')).toBeInTheDocument();
+    const taxRateRow = screen.getByTestId('comparison-field-changed-taxRate');
+    expect(within(taxRateRow).getByText('10%')).toBeInTheDocument();
+    expect(within(taxRateRow).getByText('8%')).toBeInTheDocument();
+  });
+
+  /**
+   * @requirement contract-management/REQ-9.2: 変更せずに保存すると保存済みの値をそのまま送る
+   */
+  it('editモードの変更契約を変更せずに保存すると initialData の値で onSubmit が呼ばれる', async () => {
+    const user = userEvent.setup({ delay: null });
+    const onSubmit = vi.fn();
+    renderContractForm({ mode: 'edit', initialData: mockAmendmentContractDetail, onSubmit });
+
+    await waitForParentFetched();
+    await waitFor(() => {
+      const select = screen.getByLabelText('見積書') as HTMLSelectElement;
+      expect(within(select).getByText('見積書B')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+    });
+    expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({
+      contractType: 'AMENDMENT',
+      parentContractId: 'contract-001',
+      estimateId: 'est-002',
+      contractDate: '2024-09-01',
+      constructionStartDate: '2024-09-10',
+      constructionEndDate: '2025-02-28',
+      deliveryDate: '2025-03-15',
+      taxRate: 0.08,
+      paymentTerms: '一括払い',
+      separateConstruction: '空調工事',
+      otherNotes: '変更メモ',
+      supervisorTradingPartnerId: 'tp-003',
+    });
+  });
+
+  /**
+   * REQ-5.2: 作成のときは基契約書の値を既定値として入れる（編集の修正で崩さない）
+   */
+  it('createモードでは基契約書の選択で基契約書の値が既定値として入る', async () => {
+    const user = userEvent.setup({ delay: null });
+    renderContractForm();
+
+    await user.click(screen.getByLabelText('変更契約'));
+    await waitFor(() => {
+      const parentSelect = screen.getByLabelText('基となる契約書') as HTMLSelectElement;
+      expect(within(parentSelect).getByText(/新規契約/)).toBeInTheDocument();
+    });
+    await user.selectOptions(screen.getByLabelText('基となる契約書'), 'contract-001');
+
+    await waitFor(() => {
+      expect((screen.getByLabelText('支払条件') as HTMLTextAreaElement).value).toBe('出来高払い');
+    });
+    expect((screen.getByLabelText('契約日') as HTMLInputElement).value).toBe('2024-06-01');
+    expect((screen.getByLabelText('消費税率（%）') as HTMLInputElement).value).toBe('10');
+    expect((screen.getByLabelText('別途工事') as HTMLTextAreaElement).value).toBe('電気工事');
+    expect((screen.getByLabelText('その他') as HTMLTextAreaElement).value).toBe('メモ');
+    expect((screen.getByTestId('trading-partner-input') as HTMLInputElement).value).toBe('tp-002');
+  });
+});

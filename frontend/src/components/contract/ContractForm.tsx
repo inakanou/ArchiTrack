@@ -459,9 +459,17 @@ export default function ContractForm({
     return { constructionPrice: price, taxAmount: 0, contractAmount: price };
   }, [estimateDetail, formData.taxRate, initialData]);
 
+  // 編集の初期化で入れた基契約書のID（これと同じ基契約書の取得では入力値を書き換えない）
+  const initialParentContractId = initialData?.parentContractId ?? '';
+
   // 基契約書詳細を取得（変更契約の基契約書選択時）
+  // 既定値の設定は作成のとき、または初期値と異なる基契約書を選び直したときに限る。
+  // 編集の初期化で入った基契約書は比較表示（REQ-6.1）のために詳細を取得するだけで、
+  // 保存済みの入力値（REQ-9.1）を基契約書の値で上書きしない（タスク 18.1）
   useEffect(() => {
     let mounted = true;
+    const shouldApplyDefaults =
+      mode === 'create' || formData.parentContractId !== initialParentContractId;
     const fetchParentContract = async () => {
       if (!formData.parentContractId) {
         if (mounted) setParentContractDetail(null);
@@ -471,6 +479,7 @@ export default function ContractForm({
         const result = await getContractDetail(formData.parentContractId);
         if (mounted) {
           setParentContractDetail(result);
+          if (!shouldApplyDefaults) return;
           // デフォルト値を設定 (REQ-5.2)
           setFormData((prev) => ({
             ...prev,
@@ -494,7 +503,7 @@ export default function ContractForm({
     return () => {
       mounted = false;
     };
-  }, [formData.parentContractId]);
+  }, [formData.parentContractId, mode, initialParentContractId]);
 
   // ============================================================================
   // イベントハンドラ
