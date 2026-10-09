@@ -807,6 +807,78 @@ test.describe('工程表機能 E2Eテスト', () => {
   });
 
   // =================================================================
+  // 項目数の上限 (Req 12.1)
+  // =================================================================
+  test.describe('項目数の上限', () => {
+    /**
+     * @requirement construction-schedule/REQ-12.1
+     */
+    test('200項目の工程表では項目追加が無効になり上限に達した旨が表示され、1項目を削除すると再び追加できる (construction-schedule/REQ-12.1)', async ({
+      page,
+    }) => {
+      // 200 項目の工程表をテスト用の DB へ直接作る（画面から 200 回追加する形は遅いため）
+      const prisma = getPrismaClient();
+      const schedule = await prisma.constructionSchedule.create({
+        data: {
+          projectId: testProjectId,
+          name: '上限200項目E2Eテスト',
+          version: 0,
+        },
+      });
+      await prisma.scheduleItem.createMany({
+        data: Array.from({ length: 200 }, (_, index) => ({
+          scheduleId: schedule.id,
+          sourceType: 'MANUAL',
+          itemName: `上限項目${String(index + 1).padStart(3, '0')}`,
+          startDate: new Date('2026-04-01T00:00:00Z'),
+          duration: 1 + (index % 5),
+          displayOrder: index,
+        })),
+      });
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/schedules/${schedule.id}`, { waitUntil: 'networkidle' });
+
+      const limitMessage = '工程表の項目は上限の200件に達しているため、これ以上追加できません';
+
+      // 前提: 200 項目が画面に出ている
+      await expect(page.getByTestId(/^item-row-/)).toHaveCount(200, {
+        timeout: getTimeout(15000),
+      });
+
+      // 項目追加の釦が無効になり、上限に達した旨が見え、釦の説明として辿れる
+      const addButton = page.getByRole('button', { name: '+ 項目追加', exact: true });
+      await expect(addButton, 'REQ-12.1: 200 項目で項目追加の釦が無効になる').toBeDisabled({
+        timeout: getTimeout(10000),
+      });
+      await expect(
+        page.getByText(limitMessage, { exact: true }),
+        'REQ-12.1: 上限に達した旨が表示される'
+      ).toBeVisible();
+      await expect(
+        addButton,
+        'REQ-12.1: 無効の釦から上限の説明を辿れる'
+      ).toHaveAccessibleDescription(limitMessage);
+
+      // 1 項目を削除すると上限を下回り、上限の表示が消えて再び追加できる
+      await page.getByRole('button', { name: '上限項目200を削除', exact: true }).click();
+      await expect(page.getByTestId(/^item-row-/)).toHaveCount(199, {
+        timeout: getTimeout(10000),
+      });
+      await expect(addButton, 'REQ-12.1: 199 項目では項目追加の釦が有効').toBeEnabled();
+      await expect(page.getByText(limitMessage, { exact: true })).toHaveCount(0);
+
+      // 追加して 200 項目に戻ると、再び無効になる
+      await addButton.click();
+      await expect(page.getByTestId(/^item-row-/)).toHaveCount(200, {
+        timeout: getTimeout(10000),
+      });
+      await expect(addButton, 'REQ-12.1: 追加で 200 項目に達すると再び無効になる').toBeDisabled();
+      await expect(page.getByText(limitMessage, { exact: true })).toBeVisible();
+    });
+  });
+
+  // =================================================================
   // 工程表の削除 (Req 1.5)
   // =================================================================
   test.describe('工程表の削除', () => {

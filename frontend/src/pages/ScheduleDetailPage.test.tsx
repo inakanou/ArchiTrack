@@ -31,6 +31,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import ScheduleDetailPage from './ScheduleDetailPage';
 import * as schedulesApi from '../api/schedules';
+import { ApiError } from '../api/client';
 
 // モック
 vi.mock('../api/schedules');
@@ -186,6 +187,68 @@ describe('ScheduleDetailPage', () => {
       await waitFor(() => {
         expect(screen.queryByTestId('item-row-item-2')).not.toBeInTheDocument();
       });
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // 項目数の上限テスト (Req 12.1)
+  // --------------------------------------------------------------------------
+
+  describe('項目数の上限', () => {
+    const LIMIT_MESSAGE = '工程表の項目は上限の200件に達しているため、これ以上追加できません';
+
+    /** 指定件数の項目を持つ工程表データを作る */
+    const buildDetailWithItems = (count: number): schedulesApi.ScheduleDetail => ({
+      ...mockScheduleDetail,
+      items: Array.from({ length: count }, (_, index) => ({
+        ...mockScheduleDetail.items[1]!,
+        id: `item-${index + 1}`,
+        itemName: `項目${index + 1}`,
+        displayOrder: index,
+      })),
+    });
+
+    it('200項目の工程表では項目追加ボタンが無効になり、上限に達した旨が表示される', async () => {
+      vi.mocked(schedulesApi.getScheduleDetail).mockResolvedValue(buildDetailWithItems(200));
+      renderPage();
+
+      const addButton = await screen.findByRole('button', { name: '+ 項目追加' });
+      expect(addButton).toBeDisabled();
+
+      const message = screen.getByText(LIMIT_MESSAGE);
+      expect(message).toBeVisible();
+      // 無効の釦から上限の説明を辿れる
+      expect(addButton).toHaveAccessibleDescription(LIMIT_MESSAGE);
+      expect(screen.getAllByTestId(/^item-row-/)).toHaveLength(200);
+    });
+
+    it('199項目の工程表では項目追加ボタンが有効で、追加して200項目になると無効になり上限の表示が出る', async () => {
+      vi.mocked(schedulesApi.getScheduleDetail).mockResolvedValue(buildDetailWithItems(199));
+      const user = userEvent.setup();
+      renderPage();
+
+      const addButton = await screen.findByRole('button', { name: '+ 項目追加' });
+      expect(addButton).toBeEnabled();
+      expect(screen.queryByText(LIMIT_MESSAGE)).not.toBeInTheDocument();
+
+      await user.click(addButton);
+
+      expect(screen.getAllByTestId(/^item-row-/)).toHaveLength(200);
+      expect(addButton).toBeDisabled();
+      expect(screen.getByText(LIMIT_MESSAGE)).toBeVisible();
+    });
+
+    it('保存が項目数の上限で400になった場合、サーバーのメッセージが表示される', async () => {
+      const detail = '工程表の項目は200件以内で登録してください';
+      vi.mocked(schedulesApi.bulkSaveScheduleItems).mockRejectedValue(
+        new ApiError(400, detail, { code: 'VALIDATION_ERROR', detail })
+      );
+      const user = userEvent.setup();
+      renderPage();
+
+      await user.click(await screen.findByTestId('save-button'));
+
+      expect(await screen.findByTestId('save-error')).toHaveTextContent(detail);
     });
   });
 

@@ -24,6 +24,20 @@ import { bulkSaveScheduleItems } from '../api/schedules';
 import type { ScheduleDetail, ScheduleSourceType } from '../api/schedules';
 
 // ============================================================================
+// 定数
+// ============================================================================
+
+/**
+ * 1つの工程表あたりの項目数の上限（Req 12.1）。
+ *
+ * バックエンドの `backend/src/schemas/schedule.schema.ts` の `MAX_SCHEDULE_ITEMS` と同じ値を持つ。
+ * パッケージをまたいで import すると Docker のビルドで解決できないため、値をここへ写して持つ。
+ * バルク保存はバックエンドのルートのスキーマが上限を超える入力を 400 で拒み、
+ * 画面はこの値に達した時点で項目の追加を止める。
+ */
+export const MAX_SCHEDULE_ITEMS = 200;
+
+// ============================================================================
 // 型定義
 // ============================================================================
 
@@ -70,6 +84,8 @@ export interface UseScheduleStateReturn {
   save(): Promise<void>;
   isLoading: boolean;
   error: string | null;
+  /** 項目数が上限（{@link MAX_SCHEDULE_ITEMS}）に達しており、これ以上追加できないか */
+  isItemLimitReached: boolean;
 }
 
 // ============================================================================
@@ -160,11 +176,15 @@ export function useScheduleState(initialData: ScheduleDetail): UseScheduleStateR
     [initialData.id, initialData.name, initialData.quantityTableId, version, items, isDirty]
   );
 
+  const isItemLimitReached = items.length >= MAX_SCHEDULE_ITEMS;
+
   /**
-   * 新しい任意項目を追加する
+   * 新しい任意項目を追加する（項目数が上限に達している場合は何もしない）
    */
   const addItem = useCallback(() => {
+    if (isItemLimitReached) return;
     setItems((prev) => {
+      if (prev.length >= MAX_SCHEDULE_ITEMS) return prev;
       const newItem: ScheduleItem = {
         id: generateTempId(),
         sourceType: 'MANUAL',
@@ -181,7 +201,7 @@ export function useScheduleState(initialData: ScheduleDetail): UseScheduleStateR
       return [...prev, newItem];
     });
     setIsDirty(true);
-  }, []);
+  }, [isItemLimitReached]);
 
   /**
    * 指定した項目を削除する
@@ -278,5 +298,6 @@ export function useScheduleState(initialData: ScheduleDetail): UseScheduleStateR
     save,
     isLoading,
     error,
+    isItemLimitReached,
   };
 }

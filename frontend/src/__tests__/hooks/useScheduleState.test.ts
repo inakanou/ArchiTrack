@@ -23,7 +23,11 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useScheduleState, calculateEndDate } from '../../hooks/useScheduleState';
+import {
+  useScheduleState,
+  calculateEndDate,
+  MAX_SCHEDULE_ITEMS,
+} from '../../hooks/useScheduleState';
 import type { ScheduleDetail } from '../../api/schedules';
 
 // schedules APIをモック
@@ -156,6 +160,69 @@ describe('useScheduleState', () => {
       });
 
       expect(result.current.state.isDirty).toBe(true);
+    });
+  });
+
+  // ==========================================================================
+  // 項目数の上限 (Req 12.1)
+  // ==========================================================================
+  describe('項目数の上限', () => {
+    /** 指定件数の項目を持つ工程表データを作る */
+    const buildDetailWithItems = (count: number): ScheduleDetail => ({
+      ...mockScheduleDetail,
+      items: Array.from({ length: count }, (_, index) => ({
+        ...mockScheduleDetail.items[1]!,
+        id: `item-${index + 1}`,
+        itemName: `項目${index + 1}`,
+        displayOrder: index,
+      })),
+    });
+
+    it('上限はバックエンドの MAX_SCHEDULE_ITEMS と同じ 200 件である', () => {
+      expect(MAX_SCHEDULE_ITEMS).toBe(200);
+    });
+
+    it('199項目では上限に達しておらず、追加すると200項目になって上限に達する', () => {
+      const { result } = renderHook(() => useScheduleState(buildDetailWithItems(199)));
+
+      expect(result.current.isItemLimitReached).toBe(false);
+
+      act(() => {
+        result.current.addItem();
+      });
+
+      expect(result.current.state.items).toHaveLength(200);
+      expect(result.current.isItemLimitReached).toBe(true);
+    });
+
+    it('200項目では上限に達しており、addItemを呼んでも項目は増えずdirtyにもならない', () => {
+      const { result } = renderHook(() => useScheduleState(buildDetailWithItems(200)));
+
+      expect(result.current.isItemLimitReached).toBe(true);
+
+      act(() => {
+        result.current.addItem();
+      });
+
+      expect(result.current.state.items).toHaveLength(200);
+      expect(result.current.state.isDirty).toBe(false);
+    });
+
+    it('200項目から1項目を削除すると上限を下回り、再び追加できる', () => {
+      const { result } = renderHook(() => useScheduleState(buildDetailWithItems(200)));
+
+      act(() => {
+        result.current.removeItem('item-200');
+      });
+
+      expect(result.current.isItemLimitReached).toBe(false);
+
+      act(() => {
+        result.current.addItem();
+      });
+
+      expect(result.current.state.items).toHaveLength(200);
+      expect(result.current.isItemLimitReached).toBe(true);
     });
   });
 
