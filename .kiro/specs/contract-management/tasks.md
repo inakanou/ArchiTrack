@@ -292,4 +292,11 @@
   - _Requirements: 1.1_
   - _Boundary: 契約書の一覧画面のページ送り_
 
+- [ ] 18.5 監理者の選択欄が取引先の一覧を取得できない状態を、画面の側の送り方を正して直す（利用者の判断で起票、2026-10-10）
+  - **事実**: Task 18.1 の実装と独立レビュー（2026-10-10）が test 環境で確かめた。`frontend/src/components/contract/ContractForm.tsx` の 976 行付近が `filterTypes={['CUSTOMER','SUBCONTRACTOR']}` を渡し、project-management の部品 `frontend/src/components/projects/TradingPartnerSelect.tsx` が API クライアント（`frontend/src/api/trading-partners.ts` の 96 行付近の `type.join(',')`）を通して `type=CUSTOMER,SUBCONTRACTOR` を送る。backend の `tradingPartnerFilterSchema.type` は単一の値だけを受け付けるため 400「無効な種別です」が返り、新規契約・変更契約・編集のどの画面でも監理者を選べず、編集では選択済みの監理者の名前も表示されない。呼び出しは `db837e5e`（2026-03-14、契約書管理機能の追加）からで、導入時から動いていない。既存の E2E（REQ-3.8）は UI の存在しか見ず、単体は TradingPartnerSelect をモックしていたため検出できなかった
+  - **利用者の判断（2026-10-10）**: backend の一覧 API の契約（trading-partner-management の所管）は変えず、**画面の側の送り方を正して直す**（例: 種別ごとに取得してまとめる。他スペックの部品や API クライアントを変える場合は、その利用者への影響を確かめること）
+  - 挙動の修正であるため RED → GREEN で進める。単体（モックではなく API クライアントの送る値を確かめる）と E2E（新規契約・変更契約・編集で監理者の候補に顧客と協力業者が出て、選んで保存し、詳細・編集で名前が表示される）で主張し、現状で赤になることを先に示す
+  - _Requirements: 3.8, 5.1_
+  - _Boundary: 契約書のフォームの監理者の候補の取得_
+
 **検証が記録した警告（起票していない。扱いは利用者の判断を待つ）**: (a) 11.1 の再試行ボタンは読み込みの失敗のときだけで、作成・保存・ステータス変更の失敗はトーストだけ。削除のダイアログは 422 以外をすべて「削除に失敗しました」にする（`DeleteConfirmDialog.tsx` の 147 行付近）。(b) 11.4 に最新データを読み直す導線が無い（`ContractEditPage.tsx` の 198〜202 行付近）。(c) 楽観ロックの確認と更新が別の処理で、同時更新の競合を防げない（`contract.service.ts` の 345〜356 行付近）。(d) 同じ router を 2 か所に割り当て（`app.ts` の 403〜404 行付近）、`/api/projects/:pid/contracts/:id` で URL の projectId と契約書の所属を確かめていない。(e) 金額が整数に限られず、税率の表示が `String(rate*100)` で浮動小数の誤差が出うる。(f) 作成・編集画面は URL を直接開けば権限が無くても表示される。(g) E2E の主張が見出しだけ・無い受入基準がある（4.1〜4.5、11.1〜11.6 のトースト、13.5）
