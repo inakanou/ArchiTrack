@@ -52,7 +52,9 @@ test.describe('現場調査アクセス制御', () => {
         timeout: getTimeout(15000),
       });
 
-      const projectName = `アクセス制御テスト用プロジェクト_${Date.now()}`;
+      // 接尾辞は 36 進にして長い数字の列を作らない。数字の列は「403」等の文言の探索に偶然当たりうる
+      // （Task 117.1）。下の否定の確認は名前に依存しない表示領域で行う
+      const projectName = `アクセス制御テスト用プロジェクト_${Date.now().toString(36)}`;
       await page.getByRole('textbox', { name: /プロジェクト名/i }).fill(projectName);
 
       const salesPersonSelect = page.locator('select[aria-label="営業担当者"]');
@@ -81,7 +83,7 @@ test.describe('現場調査アクセス制御', () => {
 
       await expect(page.getByLabel(/調査名/i)).toBeVisible({ timeout: getTimeout(10000) });
 
-      const surveyName = `アクセス制御テスト用現場調査_${Date.now()}`;
+      const surveyName = `アクセス制御テスト用現場調査_${Date.now().toString(36)}`;
       await page.getByLabel(/調査名/i).fill(surveyName);
       await page.getByLabel(/調査日/i).fill(new Date().toISOString().split('T')[0]!);
 
@@ -166,8 +168,14 @@ test.describe('現場調査アクセス制御', () => {
         timeout: getTimeout(10000),
       });
 
-      // エラーメッセージが表示されないことを確認
-      await expect(page.getByText(/アクセス拒否|権限がありません|403/i)).not.toBeVisible({
+      // エラーの表示領域（role="alert"）が出ていないことを確認する。
+      // この画面は権限不足（403）を含む取得の失敗を role="alert" の領域へ出す
+      // （SiteSurveyDetailPage のエラー表示。本文はサーバーのエラーコード等）。
+      // 文言の正規表現でページ全体を探すと、テストデータの名前（パンくず等）に偶然当たり
+      // strict mode violation で落ちる（Task 117.1）ため、表示領域へ絞り、文言を問わず
+      // 「出ていないこと」を主張する。なお 403 の実際の表示の本文は「FORBIDDEN」であり、
+      // 旧来の文言の探索（アクセス拒否|権限がありません|403）には当たっていなかった。
+      await expect(page.getByRole('alert')).toHaveCount(0, {
         timeout: getTimeout(3000),
       });
     });
