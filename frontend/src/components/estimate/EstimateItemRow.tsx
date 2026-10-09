@@ -132,6 +132,8 @@ const styles = {
     backgroundColor: '#f3f4f6',
     color: '#4b5563',
   },
+  // 欄のフォーカス表示は全画面共通の `:focus-visible` の outline に任せ、インラインで打ち消さない
+  // （steering `tech.md` の「フォーカス表示方針」。タスク 60.1）
   input: {
     width: '100%',
     height: '22px',
@@ -141,13 +143,7 @@ const styles = {
     borderRadius: '0px',
     backgroundColor: '#ffffff',
     color: '#1f2937',
-    outline: 'none',
     boxSizing: 'border-box' as const,
-  } as React.CSSProperties,
-  inputFocus: {
-    borderColor: '#3b82f6',
-    outline: 'none',
-    boxShadow: '0 0 0 2px rgba(59, 130, 246, 0.2)',
   } as React.CSSProperties,
   amountField: {
     fontSize: '12px',

@@ -1323,6 +1323,7 @@ CREATE UNIQUE INDEX idx_estimate_item_lines_unique ON estimate_item_lines(estima
 - OverheadCostService: 諸経費計算式の正確性、係数値の検証
 - EstimateItemService: 階層構造管理、転記処理
 - バリデーションスキーマ: 数値範囲、文字数制限
+- フォーカス表示（タスク 60.1）: `frontend/src/__tests__/accessibility/estimate-creation-focus-visible.test.tsx` が、見積明細の 3 行 1 セットの行の欄（子を持たない項目・子を持つ項目・選択中の項目・注記行）、キー割当の一覧の入口の釦・閉じる釦・本体、見積書の作成画面の見積書名の欄と内訳書の選択がインラインの style で outline を打ち消さず影の輪も描かないこと、開いたときにフォーカスを受けるキー割当の一覧そのものが輪を内側（白い面の上）へ描くこと（outline-offset が -2px）を主張する（steering `tech.md` の「フォーカス表示方針」）
 
 ### Integration Tests
 
@@ -1337,6 +1338,7 @@ CREATE UNIQUE INDEX idx_estimate_item_lines_unique ON estimate_item_lines(estima
 - 3行1セット構造の表示・編集
 - NET金額計算・案分の操作フロー
 - 諸経費自動計算の操作フロー
+- フォーカス表示（タスク 60.1。受入基準にフォーカス表示を定める項は無いため要件番号は名乗らない）: `e2e/specs/estimate/estimate-creation-focus-visible.spec.ts` が、作成画面の初期の本文・見積書名を空にした本文・作成の失敗の本文・モバイル幅（375px）の本文と、見積書の画面のツリー表示の初期の本文・階層パネルで項目を選んだ本文・未保存の変更がある本文・保存の失敗の本文・階層の操作のエラーの本文・階層パネルを隠した本文・ドリルダウン表示のルートと子階層の本文・見積書の取得の失敗の本文（再試行の釦）・モバイル幅（375px）の本文、キー割当の一覧・見積書を取り除く確認・受領見積書の転記・業者金額の転記・実行金額の転記・諸経費の計算・出力・未保存の変更の確認のダイアログを Tab で一巡し、止まった要素ごとにフォーカス中の表示が 2px 以上・背景に対して 3:1 以上であることとフォーカスが離れたら消えることを、止まった要素の順序と件数まで主張する。キー操作でフォーカスが移る明細の行（セルから Esc・Shift+↓）と明細の領域（Alt+M）も同じ判定で測る。見積書一覧（EstimateListPage）の本文とモバイル幅（375px）の本文、プロジェクト詳細の見積書のセクション（EstimateSectionCard の region だけを巡り、他のスペックのセクションは範囲の外として読み飛ばす）も、網羅のための見張りとして同じ判定で巡る
 
 ### Performance Tests
 
@@ -3229,6 +3231,8 @@ const compactCellStyle: React.CSSProperties = {
   padding: '1px 2px',      // セル内余白を最小化
 };
 ```
+
+**現況（タスク 60.1、2026-10-09）**: 上のコード例は入力欄に `outline: 'none'` を指定する。コード例は設計の記述としてそのまま残す。実装の `frontend/src/components/estimate/EstimateItemRow.tsx` の入力欄のスタイル（`styles.input`）はインラインの `outline: 'none'` を持たず、フォーカス中の表示を全画面共通の `:focus-visible` の outline（2px・#2563eb）に任せる（steering `tech.md` の「フォーカス表示方針」）。同ファイルにあった、どの欄にも当てていない淡い影の輪（不透明度 0.2）のスタイル `inputFocus` も同じ変更で外した。高さ・パディング・枠線・角丸・フォントサイズの値は上のコード例のとおりである。
 
 2. **数値フィールドのスタイル統一**:
 
