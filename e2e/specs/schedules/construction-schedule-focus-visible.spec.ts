@@ -697,8 +697,9 @@ test.describe('工程表の画面のフォーカス表示', () => {
     await page.keyboard.type('フォーカス測定の作成');
     await pressCreateByKeyboard(page);
 
+    // 400 の失敗では作成画面はサーバーの detail をそのまま示す（Task 20.3）
     await expect(page.getByRole('main').getByRole('alert')).toHaveText(
-      '工程表の作成に失敗しました',
+      'E2E のフォーカス表示の測定のための失敗',
       { timeout: getTimeout(10000) }
     );
     expect(createHits, '前提: 作成の要求が 1 件送られる').toBe(1);

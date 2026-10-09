@@ -21,6 +21,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import ScheduleCreatePage from './ScheduleCreatePage';
 import * as schedulesApi from '../api/schedules';
 import * as quantityTablesApi from '../api/quantity-tables';
+import { ApiError } from '../api/client';
 
 // モック
 vi.mock('../api/schedules');
@@ -248,6 +249,67 @@ describe('ScheduleCreatePage', () => {
       expect(screen.getByRole('alert')).toBeInTheDocument();
     });
     expect(screen.getByLabelText('工程表名称')).toHaveValue('保持テスト');
+  });
+
+  /**
+   * @requirement construction-schedule/REQ-12.1: The 工程表管理システム shall 1つの工程表あたり最大200項目までの登録をサポートする
+   *
+   * 200 件を超える数量表からの作成はサーバーが 400 で拒む（利用者の判断 2026-10-09）。
+   * 作成画面はサーバーの detail をそのまま示し、入力を保ったまま再び操作できる。
+   */
+  it('作成が400で拒まれた場合はサーバーのdetailを表示し、入力を保持して再び操作できる', async () => {
+    const user = userEvent.setup();
+    const detail = '数量表の項目が200件を超えているため工程表を作成できません（201件）';
+    vi.mocked(schedulesApi.createSchedule).mockRejectedValue(
+      new ApiError(400, detail, {
+        status: 400,
+        code: 'SCHEDULE_ITEMS_LIMIT_EXCEEDED',
+        detail,
+        details: { itemCount: 201, maxItemCount: 200 },
+      })
+    );
+
+    renderWithRouter();
+
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: '本体工事数量表' })).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByLabelText('工程表名称'), '上限超過の工程表');
+    await user.selectOptions(screen.getByLabelText('数量表'), 'qt-001');
+    await user.click(screen.getByRole('button', { name: '作成' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(detail);
+    });
+    expect(screen.queryByText('工程表の作成に失敗しました')).not.toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('工程表名称')).toHaveValue('上限超過の工程表');
+    expect(screen.getByLabelText('数量表')).toHaveValue('qt-001');
+    expect(screen.getByRole('button', { name: '作成' })).toBeEnabled();
+  });
+
+  /**
+   * 400 以外の失敗（サーバーの障害など）は従来の汎用の文言を示す
+   */
+  it('作成が500で失敗した場合は汎用のエラーメッセージを表示する', async () => {
+    const user = userEvent.setup();
+    vi.mocked(schedulesApi.createSchedule).mockRejectedValue(
+      new ApiError(500, 'Internal Server Error')
+    );
+
+    renderWithRouter();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('工程表名称')).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByLabelText('工程表名称'), 'テスト工程表');
+    await user.click(screen.getByRole('button', { name: '作成' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('工程表の作成に失敗しました');
+    });
   });
 
   // ==========================================================================

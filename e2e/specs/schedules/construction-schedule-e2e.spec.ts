@@ -876,6 +876,70 @@ test.describe('工程表機能 E2Eテスト', () => {
       await expect(addButton, 'REQ-12.1: 追加で 200 項目に達すると再び無効になる').toBeDisabled();
       await expect(page.getByText(limitMessage, { exact: true })).toBeVisible();
     });
+
+    /**
+     * @requirement construction-schedule/REQ-12.1
+     */
+    test('201項目の数量表を選んで作成すると400で拒まれ、作成画面に上限超過のエラーが表示され工程表は作られない (construction-schedule/REQ-12.1)', async ({
+      page,
+    }) => {
+      // 201 項目の数量表をテスト用の DB へ直接作る（利用者の判断 2026-10-09: 作成を 400 で拒む）
+      const prisma = getPrismaClient();
+      const quantityTable = await prisma.quantityTable.create({
+        data: { projectId: testProjectId, name: '上限超過E2E数量表' },
+      });
+      const group = await prisma.quantityGroup.create({
+        data: { quantityTableId: quantityTable.id, name: '上限超過グループ', displayOrder: 0 },
+      });
+      await prisma.quantityItem.createMany({
+        data: Array.from({ length: 201 }, (_, index) => ({
+          quantityGroupId: group.id,
+          name: `上限超過数量項目${String(index + 1).padStart(3, '0')}`,
+          workType: '上限',
+          unit: '式',
+          quantity: 1,
+          displayOrder: index,
+        })),
+      });
+      const scheduleName = '上限超過の数量表からの工程表E2E';
+      const detail = '数量表の項目が200件を超えているため工程表を作成できません（201件）';
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/projects/${testProjectId}/schedules/new`, { waitUntil: 'networkidle' });
+
+      await page.getByLabel('工程表名称').fill(scheduleName);
+      await page.getByLabel('数量表').selectOption({ label: '上限超過E2E数量表' });
+
+      // 作成の要求（POST /api/projects/:projectId/schedules）の応答を、click より前に待ち始める
+      // （一致はパス基準。CI とローカルで API のオリジンが異なるため）
+      const createPath = `/api/projects/${testProjectId}/schedules`;
+      const createResponsePromise = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' && new URL(response.url()).pathname === createPath,
+        { timeout: getTimeout(15000) }
+      );
+      await page.getByRole('button', { name: '作成' }).click();
+      const createResponse = await createResponsePromise;
+
+      expect(createResponse.status(), 'REQ-12.1: 201 項目の数量表からの作成は 400').toBe(400);
+      expect((await createResponse.json()).detail).toBe(detail);
+
+      // 作成画面に留まり、サーバーの detail がエラーとして見え、入力は保たれて再び操作できる
+      await expect(
+        page.getByRole('main').getByRole('alert'),
+        'REQ-12.1: 作成画面に上限超過のエラーが表示される'
+      ).toHaveText(detail, { timeout: getTimeout(10000) });
+      await expect(page).toHaveURL(new RegExp(`/projects/${testProjectId}/schedules/new$`));
+      await expect(page.getByLabel('工程表名称')).toHaveValue(scheduleName);
+      await expect(page.getByLabel('数量表')).toHaveValue(quantityTable.id);
+      await expect(page.getByRole('button', { name: '作成' })).toBeEnabled();
+
+      // 工程表は作られていない
+      const created = await prisma.constructionSchedule.findMany({
+        where: { projectId: testProjectId, name: scheduleName },
+      });
+      expect(created, 'REQ-12.1: 拒まれた作成で工程表は作られない').toEqual([]);
+    });
   });
 
   // =================================================================

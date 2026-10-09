@@ -56,3 +56,19 @@ export class ScheduleConflictError extends ApiError {
     this.name = 'ScheduleConflictError';
   }
 }
+
+/**
+ * 項目数上限超過エラー（数量表からの作成）
+ * 400 Bad Request
+ *
+ * 数量表から工程表を作成するとき、数量表の項目数が 1 つの工程表あたりの上限
+ * （`MAX_SCHEDULE_ITEMS`）を超えている場合に投げる（Req 12.1）。
+ * 422 の {@link ScheduleValidationError} とは別のクラスとし、ルートは捕まえずに
+ * エラーハンドラーへ渡して Problem Details の 400 を返す。
+ */
+export class ScheduleItemLimitExceededError extends ApiError {
+  constructor(message: string, details: { itemCount: number; maxItemCount: number }) {
+    super(400, message, 'SCHEDULE_ITEMS_LIMIT_EXCEEDED', details, PROBLEM_TYPES.VALIDATION_ERROR);
+    this.name = 'ScheduleItemLimitExceededError';
+  }
+}

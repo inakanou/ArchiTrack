@@ -62,6 +62,8 @@ export const SCHEDULE_VALIDATION_MESSAGES = {
 
   // 項目数（Req 12.1: 1つの工程表あたり最大200項目）
   ITEMS_MAX_COUNT: '工程表の項目は200件以内で登録してください',
+  // 数量表からの作成（Req 12.1: 項目が200件を超える数量表からは作成しない。末尾に件数を添える）
+  QUANTITY_TABLE_ITEMS_MAX_COUNT: '数量表の項目が200件を超えているため工程表を作成できません',
 
   // エクスポート形式
   FORMAT_INVALID: '出力形式はxlsxまたはpdfを指定してください',

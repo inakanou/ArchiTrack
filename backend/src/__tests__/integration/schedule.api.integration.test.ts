@@ -446,6 +446,87 @@ describe('Schedule API Integration Tests', () => {
       await prisma.quantityTable.deleteMany({ where: { projectId: otherProject.id } });
       await prisma.project.delete({ where: { id: otherProject.id } });
     });
+
+    /**
+     * @requirement construction-schedule/REQ-12.1: The 工程表管理システム shall 1つの工程表あたり最大200項目までの登録をサポートする
+     *
+     * 数量表からの作成は数量表の項目をそのまま写すため、上限の両側を本番の経路
+     * （`POST /api/projects/:projectId/schedules` → `ScheduleService.create` → DB）で主張する。
+     * 200 項目の数量表からは 201 Created で 200 項目の工程表ができ、201 項目の数量表からは
+     * 400 の Problem Details で拒まれ、工程表の行も項目の行も作られない（利用者の判断 2026-10-09）。
+     */
+    describe('数量表の項目数の上限 (Req 12.1)', () => {
+      const createQuantityTableWithItems = async (name: string, count: number) => {
+        const quantityTable = await prisma.quantityTable.create({
+          data: { projectId: testProjectId, name },
+        });
+        // 2 グループに分け、グループの表示順と項目の表示順の順で写ることも確かめる
+        const firstGroup = await prisma.quantityGroup.create({
+          data: { quantityTableId: quantityTable.id, name: '上限グループ1', displayOrder: 0 },
+        });
+        const secondGroup = await prisma.quantityGroup.create({
+          data: { quantityTableId: quantityTable.id, name: '上限グループ2', displayOrder: 1 },
+        });
+        const half = Math.ceil(count / 2);
+        await prisma.quantityItem.createMany({
+          data: Array.from({ length: count }, (_, index) => ({
+            quantityGroupId: index < half ? firstGroup.id : secondGroup.id,
+            name: `上限数量項目${String(index + 1).padStart(3, '0')}`,
+            workType: '上限',
+            unit: '式',
+            quantity: 1,
+            displayOrder: index < half ? index : index - half,
+          })),
+        });
+        return quantityTable.id;
+      };
+
+      it('200項目の数量表から作成すると201で200項目の工程表ができる (Req 12.1)', async () => {
+        const sourceId = await createQuantityTableWithItems('200項目の数量表', 200);
+
+        const response = await request(app)
+          .post(`/api/projects/${testProjectId}/schedules`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ name: '200項目の数量表からの工程表', quantityTableId: sourceId });
+
+        expect(response.status).toBe(201);
+        expect(response.body.items).toHaveLength(200);
+        expect(response.body.items.map((item: { itemName: string }) => item.itemName)).toEqual(
+          Array.from(
+            { length: 200 },
+            (_, index) => `上限数量項目${String(index + 1).padStart(3, '0')}`
+          )
+        );
+        const storedCount = await prisma.scheduleItem.count({
+          where: { scheduleId: response.body.id },
+        });
+        expect(storedCount).toBe(200);
+      });
+
+      it('201項目の数量表からの作成は400で拒まれ、工程表も項目も作られない (Req 12.1)', async () => {
+        const sourceId = await createQuantityTableWithItems('201項目の数量表', 201);
+        const itemCountBefore = await prisma.scheduleItem.count();
+
+        const response = await request(app)
+          .post(`/api/projects/${testProjectId}/schedules`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ name: '201項目の数量表からの工程表', quantityTableId: sourceId });
+
+        expect(response.status).toBe(400);
+        expect(response.body.status).toBe(400);
+        expect(response.body.code).toBe('SCHEDULE_ITEMS_LIMIT_EXCEEDED');
+        expect(response.body.detail).toBe(
+          '数量表の項目が200件を超えているため工程表を作成できません（201件）'
+        );
+        expect(response.body.details).toEqual({ itemCount: 201, maxItemCount: 200 });
+
+        const schedules = await prisma.constructionSchedule.findMany({
+          where: { projectId: testProjectId },
+        });
+        expect(schedules).toEqual([]);
+        expect(await prisma.scheduleItem.count()).toBe(itemCountBefore);
+      });
+    });
   });
 
   // =================================================================

@@ -17,6 +17,7 @@
 import { useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { createSchedule } from '../api/schedules';
+import { ApiError } from '../api/client';
 import type { CreateScheduleInput } from '../api/schedules';
 import ScheduleForm from '../components/schedule/ScheduleForm';
 import { Breadcrumb } from '../components/common';
@@ -85,8 +86,14 @@ export default function ScheduleCreatePage() {
       try {
         const schedule = await createSchedule(projectId, data);
         navigate(`/schedules/${schedule.id}`);
-      } catch {
-        setCreateError('工程表の作成に失敗しました');
+      } catch (err) {
+        // 400 はサーバーが入力を拒んだ理由（例: 数量表の項目が200件を超えている。Req 12.1）を
+        // detail に持つため、そのまま示す。それ以外の失敗は汎用の文言を示す
+        if (err instanceof ApiError && err.statusCode === 400 && err.message) {
+          setCreateError(err.message);
+        } else {
+          setCreateError('工程表の作成に失敗しました');
+        }
       } finally {
         setIsSubmitting(false);
       }
