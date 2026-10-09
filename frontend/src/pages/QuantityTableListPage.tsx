@@ -130,7 +130,8 @@ const styles = {
     marginBottom: '4px',
     border: '1px solid #2563eb',
     borderRadius: '4px',
-    outline: 'none',
+    // 編集中の青い枠は常時の装飾で、フォーカス表示は全画面共通の `:focus-visible` の outline に
+    // 任せ、インラインで打ち消さない（steering `tech.md` の「フォーカス表示方針」。タスク 102.1）
   } as React.CSSProperties,
   tableNameError: {
     fontSize: '12px',

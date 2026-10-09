@@ -109,13 +109,17 @@ const styles = {
     fontSize: '12px',
     color: '#1f2937',
     backgroundColor: '#ffffff',
-    outline: 'none',
+    // フォーカス表示は全画面共通の `:focus-visible` の outline に任せ、インラインで打ち消さない
+    // （steering `tech.md` の「フォーカス表示方針」。タスク 102.1）。数量項目の表の水平スクロールの
+    // ラッパー（QuantityGroupCard の itemTableWrapper。overflow で中身を切り取る）の縁に接すると
+    // 外側へ描く輪が欠けるため、輪の太さ（2px）だけ内側へ寄せて欄の白い面の上へ描く
+    outlineOffset: '-2px',
     transition: 'border-color 0.2s, box-shadow 0.2s',
     boxSizing: 'border-box' as const,
   } as React.CSSProperties,
+  // フォーカス中は枠の色だけを変える。背景に対して 3:1 に届かない淡い影の輪は重ねない（タスク 102.1）
   inputFocused: {
     borderColor: '#2563eb',
-    boxShadow: '0 0 0 3px rgba(37, 99, 235, 0.1)',
   } as React.CSSProperties,
   inputError: {
     borderColor: '#dc2626',

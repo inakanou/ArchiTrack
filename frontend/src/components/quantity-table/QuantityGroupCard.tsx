@@ -362,7 +362,8 @@ const styles = {
     backgroundColor: '#ffffff',
     width: '100%',
     maxWidth: '300px',
-    outline: 'none',
+    // 編集中の青い枠は常時の装飾で、フォーカス表示は全画面共通の `:focus-visible` の outline に
+    // 任せ、インラインで打ち消さない（steering `tech.md` の「フォーカス表示方針」。タスク 102.1）
   } as React.CSSProperties,
   groupNameError: {
     fontSize: '11px',
