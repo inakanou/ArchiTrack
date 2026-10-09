@@ -1744,6 +1744,36 @@ _起票元: quantity-table-generation の Task 94.1。独立レビューが行�
   - 挙動（表示）の変更であるため RED → GREEN で進め、単体（インラインで outline を打ち消さないこと）と E2E（対象の画面の Tab の一巡）で主張する。要件にフォーカス表示を定める受入基準が無い場合、`@requirement` の印は掲げない
   - _Boundary: 本スペックの部品・ページのフォーカス時の表示_
 
+## タスク61: 機能レベル検証の NO-GO の 4 件を正す（利用者の判断で起票、2026-10-09）
+
+**経緯**: Task 60.1 の完了後の機能レベル検証（2026-10-09、HEAD `a8f3f3b7`、NO-GO）が、ブロッキング関門 `check:req-coverage` の赤のうち本スペック自身の受入基準 4 件に、処遇の決定が本スペックの tasks.md・design.md に記録されていないことを確かめた。テスト（backend 単体 6237・frontend 単体 12199・統合 1087・E2E 241）はすべて緑。4 件は前回の検証（Task 57.9、被覆率 100.0%）の後に、site-survey のコミット `7b0b156a`（REQ-11.7 の中身の無い名乗りの撤去）と本番到達性の検査（REQ-13.5 / 5.6 / 5.7）で露出した。site-survey の設計文書（11022 行付近・11085 行付近）は所管を本スペックへ送っている。利用者の判断（2026-10-09）により、要件の改訂を伴う選択は**各タスクの着手時に利用者に確かめる**
+
+- [ ] 61.1 REQ-11.7（他のユーザーが編集中の警告）の処遇を決めて実装または改訂する（着手時に利用者の判断を得る）
+  - **事実**: 実装も検証も無い。design.md の 309 行付近・323 行付近は 11.1〜11.7 を EstimateService などへ割り当てるが、11.7 に当たる仕組みは無い
+  - 選択肢: (a) 編集セッション（在席）の永続化・取得・表示を実装し、複数のセッションの E2E で主張する / (b) 11.6（保存時の競合の通知）へ寄せて要件を改訂する / (c) 除外一覧へ登録する。着手時に利用者に確かめ、決定を design.md へ規約 (a) の形で記録する
+  - _Requirements: 11.7_
+  - _Boundary: 見積書の同時編集の警告の処遇_
+
+- [ ] 61.2 REQ-13.5（オーバーフローの警告）を本番の経路で満たす（着手時に利用者の判断を得る）
+  - **事実**: 実装は `backend/src/services/estimate-validation.service.ts`（80 行付近・320 行付近）と `estimate-calculation.service.ts`（340 行付近）だけで、どちらも本番のコードから import されていない。保存時に 13 桁を超えると 400 で拒む処理（`backend/src/schemas/estimate.schema.ts` の 298 行付近・366〜369 行付近）はあるが、条文の言う警告ではない
+  - 選択肢: (a) 画面の金額計算と明細行の表示に上限超過の警告を実装し、E2E で主張する / (b) 条文を「保存時に上限超過を拒否して知らせる」へ改訂し、400 と画面の表示を E2E で主張する。あわせて本番から使われない `estimate-validation.service.ts`（と `estimate-calculation.service.ts` の到達しない部分）を結線するか取り除くかを決める
+  - _Requirements: 13.5_
+  - _Boundary: 見積の金額の上限超過の知らせ方_
+
+- [ ] 61.3 REQ-5.7（処理中表示）の条文を実装と揃える（着手時に利用者の判断を得る）
+  - **事実**: 名乗りは本番から使われない `frontend/src/components/estimate/NetCalculationPanel.tsx` にしか無い。`NetAllocationDialog.tsx` の 25〜26 行付近の注記は「処理中の期間が存在しない」とする。同じ理由の 18.9 / 19.7 は requirements.md（373 行付近・388 行付近）で撤廃済み
+  - 18.9 / 19.7 と同じ形で撤廃する案を着手時に利用者へ示し、承認を得て requirements.md を改訂する（または実装する）
+  - _Requirements: 5.7_
+  - _Boundary: REQ-5.7 の条文と検証_
+
+- [ ] 61.4 REQ-5.6（案分対象業者の識別管理）を本番の経路で検証し、未使用の NetCalculationPanel の扱いを決める
+  - **事実**: 名乗りは本番から使われない `NetCalculationPanel.tsx`（import は stories と test だけ）にしか無い。本番の到達経路（`NetAllocationDialog` か保存データ）で満たされているかは未確認
+  - 本番の経路で条文を満たす箇所を特定し、そこを検証して名乗り直す（移し先が条文を実際に観測していることを変異で確かめる）。無ければ実装か改訂（着手時に利用者に確かめる）。その後 `NetCalculationPanel.tsx` と stories・test の扱いを決め、design.md（80・115・338・810 行付近）を規約 (a) の形で追随させる
+  - _Requirements: 5.6_
+  - _Boundary: REQ-5.6 の検証と NetCalculationPanel の扱い_
+
+**検証が記録した警告（起票していない）**: (a) 明細行の入力に 13.1 / 13.2 / 13.4 の入力時のエラー・警告の表示が無く、不正な値は保存時の 400 で初めて出る。(b) 内訳書からの作成（`estimate.service.ts` の 331〜412 行付近）に 2000 件の上限が無い。(c) `app.ts` の `express.json` の 5mb の上限で 2000 件近い保存が汎用の 500 になる恐れ。(d) PUT / DELETE `/:id` の楽観ロックが並行の要求に耐えない。(e) 保存・読込の変換が再帰のまま。(f) 2001 件 → 422 の検証が schema の単体だけ。(g) 1819 行付近の注記が 53.16 で解消済みなのに「未配線」のまま
+
 ## Implementation Notes
 
 - 51.3: 値引き行追加エンドポイントのパスは design.md 準拠で `POST /api/estimates/:id/discount-items`（`/items/discount` ではない）。後続のフロントAPI関数（51.5）はこのパスに合わせること。`itemType` は createEstimateItemSchema / batchUpdateItemsSchema に optional 追加済み。サービスは `DISCOUNT_PRESET_LINE` 定数（名称=値引き/規格=''/単位=式/数量=1）をエクスポートし、createItem は itemType=DISCOUNT 時 ESTIMATE 行のみ生成する。

@@ -496,3 +496,33 @@
   - インラインの `outline: 'none'` を外し、共通の輪に一本化する（project-management の Task 73.6、trading-partner-management の Task 33.1 の前例）。自前の影の輪など、代わりの表示が 3:1 に届かないものも同じ変更で外すか強める。対象の画面のフォーカスを受ける要素を、`e2e/specs/trading-partners/trading-partner-focus-visible.spec.ts` と同じ判定（実線または影の輪が 2px 以上・背景とのコントラスト比 3:1 以上・フォーカスが離れたら消える）で網羅して測り、満たさないものをまとめて直す
   - 挙動（表示）の変更であるため RED → GREEN で進め、単体（インラインで outline を打ち消さないこと）と E2E（対象の画面の Tab の一巡）で主張する。要件にフォーカス表示を定める受入基準が無い場合、`@requirement` の印は掲げない
   - _Boundary: 本スペックの部品・ページのフォーカス時の表示_
+
+## Task 26: 機能レベル検証の NO-GO の 7 件の検証の欠けと、並べ替えの列見出しのキーボード操作を正す（利用者の判断で起票、2026-10-09）
+
+**経緯**: Task 25.1 の完了後の機能レベル検証（2026-10-09、HEAD `1be43aff`、NO-GO）が、`check:req-coverage` の赤のうち本スペックの受入基準 7 件（4.4・7.1・8.3・9.4・9.7・17.2・17.3）が E2E で検証されていないことを確かめた。7 件とも本番のコードには実装がある。site-survey の Task 115.188 が誤った被覆の印を正したことで露出した（`scripts/coverage-mark-adjudication.md` の 504 行付近）。受け入れの記録はどこにも無い。テスト（backend 単体 6237・frontend 単体 12208・統合 1087・E2E 112）はすべて緑。利用者の判断（2026-10-09）により、要件を変えずに検証を足す形で起票し、今回の実行に加える
+
+- [ ] 26.1 詳細画面の削除ボタンの表示とパンくずの遷移を E2E で検証する
+  - 7.1: 詳細画面で削除ボタンが見えることを独立した主張として足す。4.4 / 9.4 / 9.7: 一覧・作成・詳細の各画面で「ダッシュボード」をクリックして `/` へ、作成・詳細の画面で「内訳書一覧」をクリックして一覧へ遷移することを主張し、詳細画面の 4 つのリンクの href を確かめる
+  - `e2e/specs/itemized-statements/itemized-statement-crud.spec.ts` の印の本文の食い違い（422 行付近は REQ-7.2 の印に 7.1 の原文、1206 行付近は REQ-4.2 の印に実在しない原文）を、印の番号の原文へ正す
+  - 印を動かすと件数の宣言が動くため、`check:req-coverage` と `check:design-measurement-freshness` を名指しで回し、動いた宣言は同じ変更で貼り直す
+  - _Requirements: 4.4, 7.1, 9.4, 9.7_
+  - _Boundary: 内訳書の画面の削除ボタンの表示とパンくずの遷移の検証_
+
+- [ ] 26.2 元の数量表を削除しても内訳書が影響を受けないことを、本番の削除経路で検証する
+  - E2E で数量表を削除の API（または画面の操作）で消し、内訳書の詳細画面で名前・項目・集計元の数量表名が変わらないことを主張する。統合テスト（`itemized-statement.api.integration.test.ts` の 547〜563 行付近）が prisma で `deletedAt` を直接書いている点を、削除の API を通す形へ改める
+  - `itemized-statement-crud.spec.ts` の 1497 行付近の REQ-8.2 の印の本文（8.3 の原文）を正す
+  - _Requirements: 8.3_
+  - _Boundary: 内訳書のスナップショット独立性の検証_
+
+- [ ] 26.3 上下移動ボタンの移動の結果を E2E で検証し、単体の要件の表記の入れ違いを正す
+  - `e2e/specs/itemized-statements/itemized-statement-reorder.spec.ts` の 333 行付近（上移動）に、保存前と保存後のリロード後の両方で 2 行目が 1 行目へ移ったことの主張を足して 17.2 を名乗る。273 行付近（下移動）は 17.3 の検証になっているため 17.3 の印を足す
+  - 単体 `ItemizedStatementDetailPage.reorder.test.tsx` の 147〜191 行付近の 17.2〜17.5 の表記の入れ違いを正す
+  - _Requirements: 17.2, 17.3_
+  - _Boundary: 手動並び替えの移動の検証_
+
+- [ ] 26.4 詳細画面の並べ替えの列見出しをキーボードで操作できるようにする
+  - **事実**: `frontend/src/pages/ItemizedStatementDetailPage.tsx` の 652〜675 行付近の `SortableHeader` は `<th role="columnheader" onClick aria-sort>` で、`tabIndex` もキーの処理も中のボタンも無い。Tab で届かず Enter / Space でも並べ替えられない（WCAG 2.1.1）。要件 5.1 は「ソートボタンを表示する」と定める
+  - `<th aria-sort>` の中に `<button type="button">` を置き、クリックと Enter / Space で並べ替える。フォーカス表示は steering の「フォーカス表示方針」に従う
+  - 挙動の変更であるため RED → GREEN で進め、単体と E2E（キーボードで列を並べ替える）で主張する。Task 25.1 の E2E（`e2e/specs/itemized-statements/itemized-statement-focus-visible.spec.ts`）の一巡の期待値（順序と件数）も同じ変更で更新する
+  - _Requirements: 5.1, 5.2, 5.3_
+  - _Boundary: 内訳書の詳細画面の並べ替えの操作_
