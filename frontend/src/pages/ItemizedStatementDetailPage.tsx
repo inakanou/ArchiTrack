@@ -423,14 +423,15 @@ const styles = {
     fontWeight: '500',
     color: '#6b7280',
   } as React.CSSProperties,
+  // フィルタの欄のフォーカス表示は全画面共通の `:focus-visible` の outline に任せ、インラインで打ち消さない
+  // （steering `tech.md` の「フォーカス表示方針」。タスク 25.1）
   filterInput: {
     padding: '8px 12px',
     fontSize: '14px',
     border: '1px solid #d1d5db',
     borderRadius: '6px',
     backgroundColor: '#ffffff',
-    outline: 'none',
-    transition: 'border-color 0.2s, box-shadow 0.2s',
+    transition: 'border-color 0.2s',
   } as React.CSSProperties,
   clearButton: {
     padding: '6px 12px',
