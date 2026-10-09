@@ -79,9 +79,7 @@ const STYLES = {
     primary: '#1d4ed8',
     primaryHover: '#1e40af',
     error: '#dc2626',
-    errorLight: 'rgba(220, 38, 38, 0.1)',
     focus: '#2563eb',
-    focusLight: 'rgba(37, 99, 235, 0.1)',
     border: '#d1d5db',
     label: '#374151',
     text: '#111827',
@@ -90,7 +88,7 @@ const STYLES = {
     white: '#ffffff',
   },
   borderRadius: '0.375rem',
-  transition: 'border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out',
+  transition: 'border-color 0.15s ease-in-out',
 } as const;
 
 /** フィールドエラー型 */
@@ -310,15 +308,6 @@ function SiteSurveyForm({
     return STYLES.colors.border;
   };
 
-  /**
-   * 入力フィールドのボックスシャドウを計算
-   */
-  const getBoxShadow = (fieldName: string, hasError: boolean): string => {
-    if (focusedField !== fieldName) return 'none';
-    if (hasError) return `0 0 0 3px ${STYLES.colors.errorLight}`;
-    return `0 0 0 3px ${STYLES.colors.focusLight}`;
-  };
-
   const submitButtonText = mode === 'create' ? '作成' : '保存';
   const submitButtonLoadingText = mode === 'create' ? '作成中...' : '保存中...';
 
@@ -385,10 +374,11 @@ function SiteSurveyForm({
             lineHeight: '1.5',
             color: isSubmitting ? STYLES.colors.disabled : STYLES.colors.text,
             backgroundColor: isSubmitting ? STYLES.colors.disabledBg : STYLES.colors.white,
-            outline: 'none',
+            // フォーカス表示は全画面共通の `:focus-visible` の outline に任せ、インラインで打ち消さない。
+            // フォーカス中は枠の色だけを変え、背景に対して 3:1 に届かない淡い影の輪は重ねない
+            // （steering `tech.md` の「フォーカス表示方針」。タスク 116.1）
             cursor: isSubmitting ? 'not-allowed' : 'text',
             transition: STYLES.transition,
-            boxShadow: getBoxShadow('name', !!errors.name),
           }}
         />
         {errors.name && (
@@ -460,10 +450,11 @@ function SiteSurveyForm({
             lineHeight: '1.5',
             color: isSubmitting ? STYLES.colors.disabled : STYLES.colors.text,
             backgroundColor: isSubmitting ? STYLES.colors.disabledBg : STYLES.colors.white,
-            outline: 'none',
+            // フォーカス表示は全画面共通の `:focus-visible` の outline に任せ、インラインで打ち消さない。
+            // フォーカス中は枠の色だけを変え、背景に対して 3:1 に届かない淡い影の輪は重ねない
+            // （steering `tech.md` の「フォーカス表示方針」。タスク 116.1）
             cursor: isSubmitting ? 'not-allowed' : 'default',
             transition: STYLES.transition,
-            boxShadow: getBoxShadow('surveyDate', !!errors.surveyDate),
           }}
         />
         {errors.surveyDate && (
@@ -523,10 +514,11 @@ function SiteSurveyForm({
             lineHeight: '1.5',
             color: isSubmitting ? STYLES.colors.disabled : STYLES.colors.text,
             backgroundColor: isSubmitting ? STYLES.colors.disabledBg : STYLES.colors.white,
-            outline: 'none',
+            // フォーカス表示は全画面共通の `:focus-visible` の outline に任せ、インラインで打ち消さない。
+            // フォーカス中は枠の色だけを変え、背景に対して 3:1 に届かない淡い影の輪は重ねない
+            // （steering `tech.md` の「フォーカス表示方針」。タスク 116.1）
             cursor: isSubmitting ? 'not-allowed' : 'text',
             transition: STYLES.transition,
-            boxShadow: getBoxShadow('memo', !!errors.memo),
             resize: 'vertical',
             minHeight: '100px',
           }}

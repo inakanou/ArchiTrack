@@ -153,7 +153,8 @@ const STYLES = {
     fontSize: '14px',
     border: '1px solid #d1d5db',
     borderRadius: '6px 0 0 6px',
-    outline: 'none',
+    // フォーカス表示は全画面共通の `:focus-visible` の outline に任せ、インラインで打ち消さない
+    // （steering `tech.md` の「フォーカス表示方針」。タスク 116.1）
   } as React.CSSProperties,
   searchButton: {
     padding: '8px 16px',

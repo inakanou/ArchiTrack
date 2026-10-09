@@ -159,7 +159,9 @@ const styles = {
     backgroundColor: '#f9fafb',
     cursor: 'pointer',
     transition: 'all 0.2s ease',
-    outline: 'none',
+    // フォーカス表示は全画面共通の `:focus-visible` の outline に任せ、インラインで打ち消さない
+    // （steering `tech.md` の「フォーカス表示方針」。タスク 116.1）。本部品は工事写真の詳細画面の
+    // 写真の追加の枠（construction-photo の PhotoUploader）でも描かれ、同じ輪が出る
   } as React.CSSProperties,
   uploadAreaActive: {
     borderColor: '#2563eb',

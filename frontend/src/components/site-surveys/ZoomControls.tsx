@@ -101,7 +101,9 @@ const STYLES = {
     color: '#374151',
     cursor: 'pointer',
     transition: 'all 0.15s ease',
-    outline: 'none',
+    // フォーカス表示は全画面共通の `:focus-visible` の outline に任せ、インラインで打ち消さない
+    // （steering `tech.md` の「フォーカス表示方針」。タスク 116.1）。外側へ描く輪（4px）は、
+    // 白いコンテナの余白（padding 8px・gap 8px）の上に収まる
   } as React.CSSProperties,
   buttonDisabled: {
     backgroundColor: '#e5e7eb',

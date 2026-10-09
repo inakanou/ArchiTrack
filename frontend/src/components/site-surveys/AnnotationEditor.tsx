@@ -422,6 +422,11 @@ const STYLES = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+    // 注釈エディタの領域（role="application"）が受けるフォーカスの輪は、ホストの画面の枠
+    // （SiteSurveyImageViewerPage の editorContainer。角丸のため overflow:hidden）の縁に接し、
+    // 外側へ描くと欠ける。輪の太さ（2px）だけ内側へ寄せて領域の縁の上へ描く
+    // （steering `tech.md` の「フォーカス表示方針」。タスク 116.1）
+    outlineOffset: '-2px',
   },
   // Task 115.82 (Req 6.2): 寸法値入力欄を載せる重ね合わせ層。
   // キャンバス要素の DOM は Fabric が所有するため、その内側へ React で描画せず

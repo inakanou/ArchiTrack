@@ -225,6 +225,25 @@ const STYLES = {
     minWidth: `${TAP_TARGET_MIN_PX}px`,
     minHeight: `${TAP_TARGET_MIN_PX}px`,
   },
+  // フォーカスの輪の位置（モバイル幅）。
+  //
+  // フォーカス表示は全画面共通の `:focus-visible` の outline（太さ 2px・outline-offset 2px）に
+  // 任せ、インラインで打ち消さない（steering `tech.md` の「フォーカス表示方針」。タスク 116.1）。
+  // モバイル幅の単段のツールバーは横スクロールの箱（overflowX: auto）であり、箱の縁の近くに
+  // ある項目の外側の輪は箱の縁で欠ける。ブラウザはフォーカスを受けた項目が箱の中に見えている
+  // 間はスクロールしない（375x812 の実測で、縁から 3px の項目の輪が 1px 欠けた）ため、
+  // スクロールの寄せの余白では防げない。モバイル幅では輪の太さ（2px）だけ内側へ寄せ、項目の
+  // 縁の上へ描く。デスクトップ幅は折り返して横スクロールしないため、外側の輪のまま残す。
+  mobileInsetFocusRing: {
+    outlineOffset: '-2px',
+  },
+  // 青や灰の塗りの項目（選択中の道具・保存）は、内側の輪を共通の青のままにすると塗りと
+  // 区別できない（青の塗りとの比は 1:1）。輪の色だけを白に替える（#2563eb の塗りと 5.2:1、
+  // 押せない間の #6b7280 の塗りと 4.8:1）。
+  mobileInsetFocusRingOnFill: {
+    outlineOffset: '-2px',
+    outlineColor: '#ffffff',
+  },
   // 属性パネルの見出しの体裁。
   //
   // Task 115.202: **見出しは必ず `htmlFor` で対応する操作要素へ結び付けること**（項目を足す
@@ -339,7 +358,8 @@ const STYLES = {
       backgroundColor: 'transparent',
       cursor: 'pointer',
       transition: 'all 0.15s ease',
-      outline: 'none',
+      // フォーカス表示は全画面共通の `:focus-visible` の outline に任せ、インラインで打ち消さない
+      // （steering `tech.md` の「フォーカス表示方針」。タスク 116.1）
     },
     active: {
       backgroundColor: '#2563eb', // WCAG 2.1 AA準拠: 5.2:1 contrast ratio with #fff
@@ -414,13 +434,26 @@ interface ToolButtonProps {
   isActive: boolean;
   disabled: boolean;
   onClick: () => void;
+  /** モバイル幅か（フォーカスの輪を内側へ描く。`mobileInsetFocusRing` を参照） */
+  isMobile: boolean;
 }
 
-function ToolButton({ tool, isActive, disabled, onClick }: ToolButtonProps): React.JSX.Element {
+function ToolButton({
+  tool,
+  isActive,
+  disabled,
+  onClick,
+  isMobile,
+}: ToolButtonProps): React.JSX.Element {
   const buttonStyle: React.CSSProperties = {
     ...STYLES.button.base,
     ...(isActive ? STYLES.button.active : STYLES.button.inactive),
     ...(disabled ? STYLES.button.disabled : {}),
+    ...(isMobile
+      ? isActive
+        ? STYLES.mobileInsetFocusRingOnFill
+        : STYLES.mobileInsetFocusRing
+      : {}),
   };
 
   // ------------------------------------------------------------------
@@ -649,7 +682,8 @@ function StylePanel({
 
   // Req 28.3: モバイル幅では各項目のタップ領域を 44x44 以上にする（Task 115.170 で決着）。
   // Req 36.5: 44 化でツールバーの段が高くならないよう、見出しを操作要素の横へ置く。
-  const tapTarget = isMobile ? STYLES.mobileTapTarget : {};
+  // モバイル幅ではフォーカスの輪を項目の内側へ描く（`mobileInsetFocusRing` を参照。タスク 116.1）。
+  const tapTarget = isMobile ? { ...STYLES.mobileTapTarget, ...STYLES.mobileInsetFocusRing } : {};
   const itemStyle: React.CSSProperties = {
     ...STYLES.styleItem,
     ...(isMobile ? STYLES.styleItemMobile : {}),
@@ -937,7 +971,10 @@ function AnnotationToolbar({
 
   // Req 28.3: モバイル幅ではアクションボタンのタップ領域も 44x44 以上にする
   // （適用範囲は Task 115.170 で決着。道具のボタンだけでなく「各項目」が対象）。
-  const actionTapTarget = isMobile ? STYLES.mobileTapTarget : {};
+  // モバイル幅ではフォーカスの輪を項目の内側へ描く（`mobileInsetFocusRing` を参照。タスク 116.1）。
+  const actionTapTarget = isMobile
+    ? { ...STYLES.mobileTapTarget, ...STYLES.mobileInsetFocusRing }
+    : {};
 
   return (
     <div
@@ -957,6 +994,7 @@ function AnnotationToolbar({
             isActive={isActive}
             disabled={disabled}
             onClick={() => handleToolClick(toolId)}
+            isMobile={isMobile}
           />
         );
       })}
@@ -1086,6 +1124,7 @@ function AnnotationToolbar({
             ...actionTapTarget,
             ...STYLES.actionButtonPrimary,
             ...(disabled || saveDisabled ? STYLES.actionButtonDisabled : {}),
+            ...(isMobile ? STYLES.mobileInsetFocusRingOnFill : {}),
           }}
           onClick={onSave}
           disabled={disabled}

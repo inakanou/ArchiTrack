@@ -926,13 +926,12 @@ test.describe('工事写真の詳細画面とZIPの一括エクスポートの�
 
   /**
    * 詳細画面の本文を一巡する。写真の追加の枠（ドロップゾーン）は site-survey が所有する共有の
-   * `ImageUploader` の要素で、インラインの outline の打ち消しを持ち、その是正は site-survey の
-   * タスク 116.1 の対象である（本スペックの境界の外）。この一件だけは、欠けをそのままの文言で
-   * 主張して残す。site-survey の是正が入ればこの主張が赤になり、空の一覧へ改める合図になる。
-   * それ以外の要素（ブレッドクラム・アルバムの操作・エクスポートの起動・写真項目の各操作）は
-   * 欠けを持たないことを主張する
+   * `ImageUploader` の要素である。タスク 29.1 の時点ではインラインの outline の打ち消しによる欠けを
+   * 持ち、本スペックの境界の外であったため欠けの文言のまま主張して申し送った。site-survey の
+   * タスク 116.1 が打ち消しを外したため、写真の追加の枠も含めて、本文のすべての要素（ブレッドクラム・
+   * アルバムの操作・エクスポートの起動・写真の追加の枠・写真項目の各操作）が欠けを持たないことを主張する
    */
-  test('詳細画面の本文のフォーカス要素がTab移動時に明確なフォーカス表示を持つ（共有の写真の追加の枠を除く）', async ({
+  test('詳細画面の本文の全フォーカス要素がTab移動時に明確なフォーカス表示を持つ', async ({
     page,
   }) => {
     const { project, albumId } = await seedAlbumWithPhotos(page);
@@ -941,10 +940,7 @@ test.describe('工事写真の詳細画面とZIPの一括エクスポートの�
 
     const visits = await walkFocusWithin(page, MAIN_SCOPE, DETAIL_WALK_MAX_STEPS);
 
-    expect(collectFocusIndicatorViolations(visits)).toEqual([
-      `フォーカス中に明確な表示が無い: ${UPLOAD_AREA_DESCRIPTOR} ` +
-        '(outline=none 3px rgb(0, 0, 0), box-shadow=none)',
-    ]);
+    expect(collectFocusIndicatorViolations(visits)).toEqual([]);
     const [firstFile, secondFile] = DETAIL_PHOTO_FILE_NAMES;
     expect(
       visits.map((visit) => visit.focused.descriptor),

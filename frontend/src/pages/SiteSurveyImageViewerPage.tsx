@@ -45,13 +45,18 @@ const styles = {
     backgroundColor: '#f9fafb',
   } as React.CSSProperties,
   breadcrumbContainer: {
-    marginBottom: '16px',
     // Task 98.2 root-cause fix (Req 34.6): モバイル幅で長いパンくず（非折返しの flex 行）が
     // device-width を超えて水平 overflow すると、モバイルブラウザの shrink-to-fit により
     // レイアウトビューポートが拡張され、編集領域や position:fixed の ZoomControls が
     // 可視画面下端より下へ押し出されて片手で到達できなくなる。パンくずを水平スクロール内に
     // 収め（overflowX:auto）レイアウトビューポート拡張を防ぐ。
     overflowX: 'auto',
+    // パンくずの導線（共通の Breadcrumb）が受けるフォーカスの輪（outline-offset 2px と太さ 2px の 4px）は
+    // 導線の外側へ描かれ、overflowX:auto の箱（縦方向も中身を切り取る）の縁で欠ける。輪の分の余白を
+    // 箱の内側に取り、同じ量の負のマージンで外側の位置と下の間隔（16px）を保つ
+    // （steering `tech.md` の「フォーカス表示方針」。タスク 116.1）
+    padding: '4px',
+    margin: '-4px -4px 12px',
   } as React.CSSProperties,
   header: {
     display: 'flex',

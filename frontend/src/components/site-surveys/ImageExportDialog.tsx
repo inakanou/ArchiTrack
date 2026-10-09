@@ -112,6 +112,10 @@ const styles = {
     width: '90%',
     maxHeight: '90vh',
     overflow: 'auto',
+    // 高さの上限で縦にスクロールし、フォーカスを受けた操作は箱の縁へ寄せられる。縁に接した
+    // 操作の外側の輪（outline-offset 2px と太さ 2px）が箱の縁で欠けないよう、スクロールの寄せに
+    // 輪の分の余白を取る（steering `tech.md` の「フォーカス表示方針」。タスク 116.1）
+    scrollPadding: '4px',
   },
   header: {
     padding: '16px 24px',

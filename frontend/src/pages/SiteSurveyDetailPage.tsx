@@ -88,13 +88,18 @@ const STYLES = {
     padding: '16px 12px',
   } as React.CSSProperties,
   breadcrumbWrapper: {
-    marginBottom: '16px',
     // Task 100.2 root-cause fix (Requirement 35.2): モバイル幅で長いパンくず（非折返しの
     // flex 行 = 長い現場調査名を含む）が device-width を超えて水平 overflow すると、
     // documentElement.scrollWidth がビューポート幅を超え、詳細画面全体に水平スクロールが
     // 発生する。パンくずを水平スクロール内に収め（overflowX:auto）祖先の scrollWidth への
     // 寄与を断つ。overflowX:auto は常時付与でデスクトップ幅も回帰しない。
     overflowX: 'auto',
+    // パンくずの導線（共通の Breadcrumb）が受けるフォーカスの輪（outline-offset 2px と太さ 2px の 4px）は
+    // 導線の外側へ描かれ、overflowX:auto の箱（縦方向も中身を切り取る）の縁で欠ける。輪の分の余白を
+    // 箱の内側に取り、同じ量の負のマージンで外側の位置と下の間隔（16px）を保つ
+    // （steering `tech.md` の「フォーカス表示方針」。タスク 116.1）
+    padding: '4px',
+    margin: '-4px -4px 12px',
   } as React.CSSProperties,
   loadingContainer: {
     display: 'flex',
