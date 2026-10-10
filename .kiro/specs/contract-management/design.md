@@ -288,6 +288,8 @@ stateDiagram-v2
 | 13.4 | 403 Forbidden返却 | contracts.routes（requirePermission） | - | - |
 | 13.5 | UI要素の権限制御 | usePermission, ContractListPage, ContractDetailPage | - | - |
 
+**要件 4.5・8.1 の行への追記（タスク 18.2）**: 起票時の行は、4.5（請負者自動表示）の部品を ContractForm だけ、8.1（詳細画面全項目表示）の経路を `GET /contracts/:id` だけで挙げていた。いずれも現況でも誤りではないため書き換えずに残し、現況を併記する（規約 (a)。`site-survey` の design.md「実測値の書き方（タスク 115.212）」に従う併記である）。**現況では詳細画面（ContractDetailPage）も、8.1 の自動表示項目として請負者を自社情報（`GET /api/company-info`）から表示する**——本書の構成図が描く詳細画面から CompanyInfo への依存は、タスク 18.2 までは実装に無かった。未登録・取得の失敗のときは「未設定」を表示し、契約書の詳細の表示を妨げない（「ContractDetailPage」の節の Responsibilities を参照）。再現コマンドは `grep -c 'getCompanyInfo()' frontend/src/pages/ContractDetailPage.tsx` であり、出力は `1` である（コミット `5338ee29` の作業ツリーにタスク 18.2 の変更を載せた状態。2026-10-10 にリポジトリルートで実測）。下の Components and Interfaces の表の ContractDetailPage の Key Dependencies も起票時の記述のまま残し、CompanyInfo への依存は同節の Dependencies に併記した
+
 ## Components and Interfaces
 
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies (P0/P1) | Contracts |
@@ -568,9 +570,11 @@ interface ContractDetail {
 - 編集ボタンの権限制御（contract:update権限）
 - ステータス遷移ボタンの権限制御（contract:update権限）
 - ネットワークエラー/5xxエラーの種別に応じたエラーメッセージ表示
+- 自動表示項目の請負者（8.1、4.5）は、自社情報（`GET /api/company-info`）を契約書の詳細とは別に取得し、会社名を「プロジェクト情報」のカードに表示する。自社情報が未登録（空オブジェクトの応答）・取得の失敗（ネットワークエラー・4xx・5xx）のときは、ContractForm の請負者の表示と同じく「未設定」を表示し、画面全体のエラー表示・トーストにはしない（契約書の詳細の表示を妨げない）（タスク 18.2）
 
 **Dependencies**
 - Outbound: DeleteConfirmDialog — 削除確認UI (P0)
+- Outbound: CompanyInfo（`frontend/src/api/company-info.ts` の `getCompanyInfo`）— 請負者の表示 (P1)（タスク 18.2 で追加）
 - Outbound: usePermission — 権限チェック (P1)
 - Outbound: ToastNotification — 成功/エラーフィードバック (P0)
 
@@ -958,6 +962,7 @@ model TradingPartner {
 - 変更契約の編集の初期化（タスク 18.1）: `frontend/src/components/contract/ContractForm.test.tsx` が、編集の表示の変更契約で基契約書の詳細の取得の後も入力欄が保存済みの値を保つこと、比較表示が基契約書の値を変更前に並べること、変更せずに保存すると保存済みの値で送信すること、作成のときは基契約書の値が既定値として入ることを主張する
 - ComparisonPanel: 変更前後の値表示、変更ハイライト
 - **DeleteConfirmDialog**: 削除確認表示、削除実行、エラーメッセージ表示、二重送信防止
+- 詳細画面の請負者（タスク 18.2、要件 8.1・4.5）: `frontend/src/pages/ContractDetailPage.test.tsx` が、自社情報が登録済みなら請負者に会社名を表示すること、未登録（空オブジェクト）と取得の失敗（500）では「未設定」を表示し、取得の失敗でも契約書の他の項目を表示して画面全体のエラー表示・トーストにしないことを主張する
 - **usePermission**: 権限チェック（hasPermission/hasAllPermissions/hasAnyPermission）、権限未ロード時のデフォルト動作
 - フォーカス表示（タスク 17.1）: `frontend/src/__tests__/accessibility/contract-management-focus-visible.test.tsx` が、契約書のフォーム（ContractForm）のキーボードで止まる部品（契約種類の radio・基となる契約書と見積書の選択・消費税率と日付の欄・3 つの文章の欄・キャンセルと作成（保存）の釦）が、新規作成の初期の表示・変更契約の表示・検証エラーの表示中・編集の表示のいずれでもインラインの style で outline を打ち消さず影の輪も描かないこと、検証エラーの表示中も必須の欄の赤い枠と文言が残ることを主張する（steering `tech.md` の「フォーカス表示方針」）
 
@@ -974,6 +979,7 @@ model TradingPartner {
 - ステータス遷移（契約前 → 契約済 → 契約前）
 - 編集フロー（詳細画面 → 編集 → 保存 → 詳細画面 → **成功トースト表示**）
 - 変更契約の編集の初期化（タスク 18.1、要件 9.1・9.2）: `e2e/specs/contracts/contract-amendment-edit.spec.ts` が、変更契約の編集画面で基契約書の詳細の取得の後も保存済みの変更後の値（見積書・日付・税率・文章の欄）が表示され、比較表示に基契約書の値が変更前として並ぶこと、変更せずに保存しても DB の変更契約の値が基契約書の値に書き換わらないことを主張する
+- 詳細画面の請負者（タスク 18.2、要件 8.1）: `e2e/specs/contracts/contract-detail-contractor.spec.ts` が、契約書の詳細画面の「プロジェクト情報」に請負者として DB の自社情報の会社名が表示されること、`GET /api/company-info` を page.route で未登録（空オブジェクト）と取得の失敗（500）に差し替えると請負者が「未設定」になり、発注者・工事名は表示されたままであることを主張する。自社情報は 1 件だけの共有データであるため、測定前の値（会社名・版・更新日時）を退避して afterAll で戻し、未登録だった場合は作った 1 件を消す
 - パンくずナビゲーション（全画面）
 - **バリデーションフロー**: 必須項目未入力での送信 → エラーメッセージ表示 → 修正 → 送信成功
 - **削除フロー**: 削除ボタン → 確認ダイアログ → 削除成功 → トースト表示 → 一覧遷移
