@@ -15,6 +15,7 @@
  *   移管済み。当該の被覆印は移管先の番号で名乗る（下記の各テストの前書きを参照）
  * - REQ-4.2: カラム順序
  * - REQ-4.3: 数量小数点2桁表示
+ * - REQ-4.4: 詳細画面のパンくずの上位階層への戻りリンク（タスク 26.1）
  * - REQ-4.5: ヘッダー作成日時表示
  * - REQ-4.7: ページネーション
  * - REQ-5.1: ソートボタン表示
@@ -25,6 +26,7 @@
  * - REQ-6.4: 複数フィルタAND結合
  * - REQ-6.5: フィルタ0件時メッセージ
  * - REQ-6.6: フィルタクリアボタン
+ * - REQ-7.1: 詳細画面の削除ボタン表示（タスク 26.1）
  * - REQ-7.2: 削除確認ダイアログ
  * - REQ-7.3: 削除確定→論理削除
  * - REQ-7.4: 削除エラー時メッセージ
@@ -32,9 +34,8 @@
  * - REQ-8.4: 集計元数量表名表示
  * - REQ-9.2: パンくず形式
  * - REQ-9.3: 内訳書詳細画面のパンくず表示
- *   REQ-9.4（パンくずの「ダッシュボード」をクリックしたときの遷移）は本ファイルでは検証していない。
- *   タスク 115.188 が下の検証の名乗りを 9.4 から 9.5 へ是正した際、この一覧には 9.4 が残っていた。
- *   読点で並べた続きも読むようにしたため（タスク 115.195）、残していると偽の被覆になる。
+ * - REQ-9.4: パンくずの「ダッシュボード」から遷移（一覧・新規作成・詳細の各画面。タスク 26.1）
+ * - REQ-9.7: パンくずの「内訳書一覧」から遷移（新規作成・詳細の各画面。タスク 26.1）
  * - REQ-10.4: 楽観的排他制御エラー
  * - REQ-12.1, REQ-12.2, REQ-12.3: ローディング表示
  * - REQ-12.4: ローディング中ボタン無効化
@@ -419,11 +420,36 @@ test.describe('内訳書CRUD操作', () => {
     });
 
     /**
-     * @requirement itemized-statement-generation/REQ-7.2: The 内訳書詳細画面 shall 削除ボタンを表示する
+     * @requirement itemized-statement-generation/REQ-7.1: The 内訳書詳細画面 shall 削除ボタンを表示する
+     *
+     * タスク 26.1 で足した独立の検証。次の区間は削除ボタンをクリックしてダイアログを確かめるが、
+     * ボタンが見えることそのものは主張していなかった。
+     */
+    test('詳細画面に削除ボタンが表示される (itemized-statement-generation/REQ-7.1)', async ({
+      page,
+    }) => {
+      expect(createdItemizedStatementId, '内訳書が作成されていません').toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/itemized-statements/${createdItemizedStatementId}`);
+      await page.waitForLoadState('networkidle');
+
+      // 詳細画面の本体（見出しの内訳書名）が描画されたうえで、削除ボタンが見えて操作できる
+      await expect(page.getByRole('heading', { level: 1 })).toContainText(itemizedStatementName, {
+        timeout: getTimeout(15000),
+      });
+      const deleteButton = page.getByRole('button', { name: '削除', exact: true });
+      await expect(deleteButton).toBeVisible();
+      await expect(deleteButton).toBeEnabled();
+    });
+
+    /**
+     * @requirement itemized-statement-generation/REQ-7.2: When ユーザーが削除ボタンをクリックする, the システム shall 確認ダイアログを表示する
      *
      * タスク 115.188 の是正: 従前は REQ-7.1 を名乗っていたが、受入基準7.1 の原文は「The 内訳書詳細画面 shall
      * 削除ボタンを表示する」である。本区間の表題・本文が述べる内容に対応するのは受入基準7.2（「When ユーザーが削除ボタンをクリックする,
      * the システム shall 確認ダイアログを表示する」）である。
+     * タスク 26.1 の是正: 番号を 7.2 へ改めた際、直上の印の本文は 7.1 の原文のまま残っていた。印の番号の原文へ改めた。
      */
     test('削除確認ダイアログが表示される (itemized-statement-generation/REQ-7.2)', async ({
       page,
@@ -449,7 +475,7 @@ test.describe('内訳書CRUD操作', () => {
   });
 
   /**
-   * パンくずナビゲーション (Req 9.1, 9.5, 9.6)
+   * パンくずナビゲーション (Req 4.4, 9.1, 9.4, 9.5, 9.6, 9.7)
    */
   test.describe('パンくずナビゲーション', () => {
     /**
@@ -522,6 +548,141 @@ test.describe('内訳書CRUD操作', () => {
 
       // プロジェクト一覧画面が表示される
       await expect(page.getByRole('heading', { name: 'プロジェクト一覧' })).toBeVisible();
+    });
+
+    /**
+     * @requirement itemized-statement-generation/REQ-4.4: While 内訳書詳細画面を表示中, the システム shall パンくずナビゲーションで上位階層（ダッシュボード、プロジェクト一覧、プロジェクト詳細、内訳書一覧）への戻りリンクを提供する
+     * @requirement itemized-statement-generation/REQ-9.7: When ユーザーがパンくずの「内訳書一覧」をクリックする（新規作成画面・詳細画面のみ）, the システム shall 内訳書一覧画面に遷移する
+     *
+     * タスク 26.1 で足した検証。詳細画面のパンくずの上位 4 階層がそれぞれ戻り先を指すリンクであること、
+     * 現在の階層（内訳書名）はリンクでないことを確かめ、「内訳書一覧」をクリックして一覧画面へ戻る。
+     */
+    test('詳細画面のパンくずが上位4階層への戻りリンクを持ち、内訳書一覧へ遷移できる (itemized-statement-generation/REQ-4.4, REQ-9.7)', async ({
+      page,
+    }) => {
+      expect(
+        createdItemizedStatementId && testProjectId,
+        'テストデータが不足しています'
+      ).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/itemized-statements/${createdItemizedStatementId}`);
+      await page.waitForLoadState('networkidle');
+
+      const breadcrumb = page.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      await expect(breadcrumb).toBeVisible({ timeout: getTimeout(15000) });
+
+      // 上位 4 階層の戻りリンクと、その遷移先
+      await expect(breadcrumb.getByRole('link')).toHaveCount(4);
+      await expect(breadcrumb.getByRole('link', { name: 'ダッシュボード' })).toHaveAttribute(
+        'href',
+        '/'
+      );
+      await expect(breadcrumb.getByRole('link', { name: 'プロジェクト一覧' })).toHaveAttribute(
+        'href',
+        '/projects'
+      );
+      await expect(breadcrumb.getByRole('link', { name: projectName })).toHaveAttribute(
+        'href',
+        `/projects/${testProjectId}`
+      );
+      await expect(breadcrumb.getByRole('link', { name: '内訳書一覧' })).toHaveAttribute(
+        'href',
+        `/projects/${testProjectId}/itemized-statements`
+      );
+
+      // 現在の階層（内訳書名）はリンクではない
+      await expect(breadcrumb.locator('[aria-current="page"]')).toHaveText(itemizedStatementName);
+
+      // 「内訳書一覧」をクリックすると内訳書一覧画面へ遷移する
+      await breadcrumb.getByRole('link', { name: '内訳書一覧' }).click();
+      await expect(page).toHaveURL(new RegExp(`/projects/${testProjectId}/itemized-statements$`), {
+        timeout: getTimeout(15000),
+      });
+      await expect(page.getByTestId('itemized-statement-list-page')).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+    });
+
+    /**
+     * @requirement itemized-statement-generation/REQ-9.7: When ユーザーがパンくずの「内訳書一覧」をクリックする（新規作成画面・詳細画面のみ）, the システム shall 内訳書一覧画面に遷移する
+     *
+     * タスク 26.1 で足した検証。新規作成画面のパンくずの「内訳書一覧」から一覧画面へ戻る。
+     */
+    test('新規作成画面のパンくずから内訳書一覧へ遷移できる (itemized-statement-generation/REQ-9.7)', async ({
+      page,
+    }) => {
+      expect(testProjectId, 'テスト用プロジェクトが作成されていません').toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/projects/${testProjectId}/itemized-statements/new`);
+      await page.waitForLoadState('networkidle');
+
+      const breadcrumb = page.getByRole('navigation', { name: 'パンくずナビゲーション' });
+      await expect(breadcrumb).toBeVisible({ timeout: getTimeout(15000) });
+      await expect(breadcrumb.locator('[aria-current="page"]')).toHaveText('新規作成');
+
+      const listLink = breadcrumb.getByRole('link', { name: '内訳書一覧' });
+      await expect(listLink).toHaveAttribute(
+        'href',
+        `/projects/${testProjectId}/itemized-statements`
+      );
+      await listLink.click();
+
+      await expect(page).toHaveURL(new RegExp(`/projects/${testProjectId}/itemized-statements$`), {
+        timeout: getTimeout(15000),
+      });
+      await expect(page.getByTestId('itemized-statement-list-page')).toBeVisible({
+        timeout: getTimeout(15000),
+      });
+    });
+
+    /**
+     * @requirement itemized-statement-generation/REQ-9.4: When ユーザーがパンくずの「ダッシュボード」をクリックする, the システム shall ダッシュボード画面に遷移する
+     *
+     * タスク 26.1 で足した検証。内訳書の一覧・新規作成・詳細の 3 画面のそれぞれで、パンくずの
+     * 「ダッシュボード」（href は `/`。`/` は `/dashboard` へ置き換わる）をクリックしてダッシュボード画面へ遷移する。
+     * ヘッダーにも同名のリンクがあるため、パンくずの nav の内側に限って探す。
+     */
+    test('一覧・新規作成・詳細の各画面のパンくずからダッシュボードへ遷移できる (itemized-statement-generation/REQ-9.4)', async ({
+      page,
+    }) => {
+      expect(
+        createdItemizedStatementId && testProjectId,
+        'テストデータが不足しています'
+      ).toBeTruthy();
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      const screens = [
+        { label: '内訳書一覧', path: `/projects/${testProjectId}/itemized-statements` },
+        { label: '内訳書新規作成', path: `/projects/${testProjectId}/itemized-statements/new` },
+        { label: '内訳書詳細', path: `/itemized-statements/${createdItemizedStatementId}` },
+      ];
+
+      for (const screen of screens) {
+        await page.goto(screen.path);
+        await page.waitForLoadState('networkidle');
+
+        const breadcrumb = page.getByRole('navigation', { name: 'パンくずナビゲーション' });
+        await expect(breadcrumb, `${screen.label}画面のパンくず`).toBeVisible({
+          timeout: getTimeout(15000),
+        });
+
+        const dashboardLink = breadcrumb.getByRole('link', { name: 'ダッシュボード' });
+        await expect(
+          dashboardLink,
+          `${screen.label}画面の「ダッシュボード」の href`
+        ).toHaveAttribute('href', '/');
+        await dashboardLink.click();
+
+        await expect(page, `${screen.label}画面からの遷移先`).toHaveURL(/\/dashboard$/, {
+          timeout: getTimeout(15000),
+        });
+        await expect(page.getByTestId('dashboard'), `${screen.label}画面からの遷移先`).toBeVisible({
+          timeout: getTimeout(15000),
+        });
+      }
     });
   });
 
@@ -1203,13 +1364,15 @@ test.describe('内訳書CRUD操作', () => {
   test.describe('内訳書詳細画面表示', () => {
     /**
      * @requirement itemized-statement-generation/REQ-4.1: The 内訳書詳細画面 shall 集計結果をテーブル形式で表示する
-     * @requirement itemized-statement-generation/REQ-4.2: While 内訳書詳細画面を表示中, the システム shall パンくずナビゲーションでプロジェクト詳細画面への戻りリンクを提供する
+     * @requirement itemized-statement-generation/REQ-4.2: The テーブル shall 「任意分類」「工種」「名称」「規格」「数量」「単位」の順でカラムを表示する
      *
      * タスク 115.188 の是正: 従前は REQ-4.4 を名乗っていたが、受入基準4.4 の原文は「While 内訳書詳細画面を表示中,
      * the システム shall パンくずナビゲーションで上位階層（ダッシュボード、プロジェクト一覧、
      * プロジェクト詳細、内訳書一覧）への戻りリンクを提供する」である。本区間の表題・本文が述べる内容に対応するのは受入基準4.2（「The
      * テーブル shall 「任意分類」「工種」「名称」「規格」「数量」「単位」の順でカラムを表示する」
      * ）である。
+     * タスク 26.1 の是正: 番号を 4.2 へ改めた際、直上の印の本文はどの受入基準にも無い文言のまま残っていた。
+     * 印の番号の原文へ改めた。
      */
     test('テーブルカラムが正しい順序で表示される (itemized-statement-generation/REQ-4.1, REQ-4.2)', async ({
       page,
