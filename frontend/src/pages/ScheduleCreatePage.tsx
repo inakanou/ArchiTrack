@@ -17,7 +17,7 @@
 import { useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { createSchedule } from '../api/schedules';
-import { ApiError } from '../api/client';
+import { ApiError, getApiErrorCode } from '../api/client';
 import type { CreateScheduleInput } from '../api/schedules';
 import ScheduleForm from '../components/schedule/ScheduleForm';
 import { Breadcrumb } from '../components/common';
@@ -45,6 +45,21 @@ const styles = {
     margin: 0,
   } as React.CSSProperties,
 };
+
+/**
+ * 作成の 400 のうち、サーバーの detail を利用者へそのまま示すエラーコード
+ *
+ * - `SCHEDULE_ITEMS_LIMIT_EXCEEDED`: 数量表の項目が上限の200件を超えている（Req 12.1）
+ * - `VALIDATION_ERROR`: 入力の検証エラー（validate ミドルウェアの ValidationError）
+ */
+const USER_FACING_CREATE_ERROR_CODES: readonly string[] = [
+  'SCHEDULE_ITEMS_LIMIT_EXCEEDED',
+  'VALIDATION_ERROR',
+];
+
+function isUserFacingCreateErrorCode(code: string | null): boolean {
+  return code !== null && USER_FACING_CREATE_ERROR_CODES.includes(code);
+}
 
 // ============================================================================
 // メインコンポーネント
@@ -87,9 +102,15 @@ export default function ScheduleCreatePage() {
         const schedule = await createSchedule(projectId, data);
         navigate(`/schedules/${schedule.id}`);
       } catch (err) {
-        // 400 はサーバーが入力を拒んだ理由（例: 数量表の項目が200件を超えている。Req 12.1）を
-        // detail に持つため、そのまま示す。それ以外の失敗は汎用の文言を示す
-        if (err instanceof ApiError && err.statusCode === 400 && err.message) {
+        // 上限超過（Req 12.1）と入力の検証エラーの 400 は、サーバーが入力を拒んだ理由を detail に
+        // 持つため、そのまま示す。それ以外の失敗（Prisma 由来の 400 の「Database operation failed」
+        // など、code を持たない 400 を含む）は汎用の文言を示す（Task 21.2）
+        if (
+          err instanceof ApiError &&
+          err.statusCode === 400 &&
+          err.message &&
+          isUserFacingCreateErrorCode(getApiErrorCode(err))
+        ) {
           setCreateError(err.message);
         } else {
           setCreateError('工程表の作成に失敗しました');
