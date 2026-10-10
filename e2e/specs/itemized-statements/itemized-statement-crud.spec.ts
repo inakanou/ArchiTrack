@@ -31,6 +31,7 @@
  * - REQ-7.3: 削除確定→論理削除
  * - REQ-7.4: 削除エラー時メッセージ
  * - REQ-8.2: スナップショット独立性（数量表更新）
+ * - REQ-8.3: スナップショット独立性（数量表を一覧画面の削除の操作で消した後の詳細画面。タスク 26.2）
  * - REQ-8.4: 集計元数量表名表示
  * - REQ-9.2: パンくず形式
  * - REQ-9.3: 内訳書詳細画面のパンくず表示
@@ -61,6 +62,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
+import { TEST_USERS } from '../../helpers/test-users';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import ExcelJS from 'exceljs';
@@ -1657,8 +1659,9 @@ test.describe('内訳書CRUD操作', () => {
    */
   test.describe('スナップショット独立性', () => {
     /**
-     * @requirement itemized-statement-generation/REQ-8.2: When 元の数量表が削除される, the 作成済み内訳書 shall 影響を受けない
+     * @requirement itemized-statement-generation/REQ-8.2: When 元の数量表が更新される, the 作成済み内訳書 shall 影響を受けない
      *
+     * タスク 26.2 の是正: 印の番号は REQ-8.2 だったが、印の本文が受入基準8.3 の原文のままだったため、8.2 の原文へ正した。
      * タスク 115.188 の是正: 従前は REQ-8.3 を名乗っていたが、受入基準8.3 の原文は「When 元の数量表が削除される,
      * the 作成済み内訳書 shall 影響を受けない」である。本区間の表題・本文が述べる内容に対応するのは受入基準8.2（「When
      * 元の数量表が更新される, the 作成済み内訳書 shall 影響を受けない」）である。
@@ -1771,6 +1774,179 @@ test.describe('内訳書CRUD操作', () => {
         headers: { Authorization: `Bearer ${accessToken}` },
         data: { updatedAt: qtDetail.updatedAt },
       });
+    });
+
+    /**
+     * @requirement itemized-statement-generation/REQ-8.3: When 元の数量表が削除される, the 作成済み内訳書 shall 影響を受けない
+     *
+     * タスク 26.2: 数量表を本番の削除の経路（数量表一覧の「削除」→ 確認のダイアログの「削除」→
+     * DELETE /api/quantity-tables/:id）で消し、内訳書の詳細画面の名前・項目・集計元の数量表名が
+     * 削除の前と変わらないことを主張する。前提は本テストの中で API で作る（他のテストの状態に依存しない）。
+     */
+    test('元の数量表を削除しても作成済み内訳書は影響を受けない (itemized-statement-generation/REQ-8.3)', async ({
+      page,
+      request,
+    }, testInfo) => {
+      const baseUrl = API_BASE_URL;
+      const quantityTableName = 'スナップショット削除検証数量表';
+      const statementName = 'スナップショット削除検証内訳書';
+      // 内訳書の詳細画面の既定の並び（任意分類の昇順）での各行の 6 列
+      // （任意分類・工種・名称・規格・数量・単位）
+      const expectedRows = [
+        ['削除検証分類A', '躯体工事', 'コンクリート', 'Fc24', '12.50', 'm3'],
+        ['削除検証分類B', '内装工事', '石膏ボード', '12.5mm', '340.00', 'm2'],
+      ];
+
+      // --- 前提: プロジェクト・数量表・数量項目・内訳書を API で作る ---
+      const loginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
+        data: { email: 'user@example.com', password: 'Password123!' },
+      });
+      expect(loginResponse.status(), 'API のログインに失敗した').toBe(200);
+      const accessToken: string = (await loginResponse.json()).accessToken;
+      const authHeaders = { Authorization: `Bearer ${accessToken}` };
+
+      const meResponse = await request.get(`${baseUrl}/api/v1/auth/me`, { headers: authHeaders });
+      expect(meResponse.status(), '利用者の情報を取得できない').toBe(200);
+      const userId: string = (await meResponse.json()).id;
+
+      const projectResponse = await request.post(`${baseUrl}/api/projects`, {
+        headers: authHeaders,
+        // プロジェクト名は重複を許さないため、再試行ごとに固定の名前を分ける
+        data: {
+          name: `スナップショット削除検証プロジェクト（試行${testInfo.retry}）`,
+          salesPersonId: userId,
+        },
+      });
+      expect(projectResponse.status(), 'プロジェクトを作成できない').toBe(201);
+      const projectId: string = (await projectResponse.json()).id;
+
+      const qtResponse = await request.post(
+        `${baseUrl}/api/projects/${projectId}/quantity-tables`,
+        {
+          headers: authHeaders,
+          data: { name: quantityTableName },
+        }
+      );
+      expect(qtResponse.status(), '数量表を作成できない').toBe(201);
+      const quantityTableId: string = (await qtResponse.json()).id;
+
+      const groupResponse = await request.post(
+        `${baseUrl}/api/quantity-tables/${quantityTableId}/groups`,
+        { headers: authHeaders, data: { name: '削除検証グループ', displayOrder: 0 } }
+      );
+      expect(groupResponse.status(), '数量グループを作成できない').toBe(201);
+      const groupId: string = (await groupResponse.json()).id;
+
+      const sourceItems = [
+        {
+          customCategory: '削除検証分類B',
+          workType: '内装工事',
+          name: '石膏ボード',
+          specification: '12.5mm',
+          unit: 'm2',
+          quantity: 340,
+        },
+        {
+          customCategory: '削除検証分類A',
+          workType: '躯体工事',
+          name: 'コンクリート',
+          specification: 'Fc24',
+          unit: 'm3',
+          quantity: 12.5,
+        },
+      ];
+      for (const [index, item] of sourceItems.entries()) {
+        const itemResponse = await request.post(`${baseUrl}/api/quantity-groups/${groupId}/items`, {
+          headers: authHeaders,
+          data: {
+            ...item,
+            majorCategory: '大項目',
+            calculationMethod: 'STANDARD',
+            adjustmentFactor: 1.0,
+            roundingUnit: 0.01,
+            displayOrder: index,
+          },
+        });
+        expect(itemResponse.status(), `数量項目 ${item.name} を作成できない`).toBe(201);
+      }
+
+      const statementResponse = await request.post(
+        `${baseUrl}/api/projects/${projectId}/itemized-statements`,
+        { headers: authHeaders, data: { name: statementName, quantityTableId } }
+      );
+      expect(statementResponse.status(), '内訳書を作成できない').toBe(201);
+      const statementId: string = (await statementResponse.json()).id;
+
+      /** 内訳書の詳細画面を開き、名前・集計元の数量表名・項目の各行を主張する */
+      const expectStatementDetailUnchanged = async (): Promise<void> => {
+        await page.goto(`/itemized-statements/${statementId}`);
+        await expect(page.getByRole('heading', { level: 1 })).toHaveText(statementName, {
+          timeout: getTimeout(15000),
+        });
+        await expect(page.getByText(`集計元数量表: ${quantityTableName}`)).toBeVisible();
+        const rows = page.getByRole('table').locator('tbody tr');
+        await expect(rows).toHaveCount(expectedRows.length);
+        for (const [index, expectedCells] of expectedRows.entries()) {
+          // 並び替えの釦の列（釦を持つセル）を除いた 6 列を照合する
+          await expect(
+            rows
+              .nth(index)
+              .locator('td')
+              .filter({ hasNot: page.getByRole('button') })
+          ).toHaveText(expectedCells);
+        }
+      };
+
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // --- 削除の前: 詳細画面が作成時のスナップショットを表示している ---
+      await expectStatementDetailUnchanged();
+
+      // --- 本番の削除の経路: 数量表一覧の削除の操作で元の数量表を消す ---
+      await page.goto(`/projects/${projectId}/quantity-tables`);
+      const detailLink = page.getByRole('link', {
+        name: `${quantityTableName}の数量表詳細を見る`,
+      });
+      await expect(detailLink).toBeVisible({ timeout: getTimeout(15000) });
+      // 本テストのプロジェクトの数量表は 1 件だけであるため、削除の釦は 1 つに定まる
+      const deleteButton = page.getByRole('button', { name: '削除', exact: true });
+      await expect(deleteButton).toHaveCount(1);
+      await deleteButton.click();
+
+      const confirmDialog = page.getByRole('dialog');
+      await expect(confirmDialog.getByRole('heading', { name: '数量表を削除' })).toBeVisible();
+      const deleteResponsePromise = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === `/api/quantity-tables/${quantityTableId}` &&
+          response.request().method() === 'DELETE'
+      );
+      await confirmDialog.getByRole('button', { name: '削除', exact: true }).click();
+      const deleteResponse = await deleteResponsePromise;
+      expect(deleteResponse.status(), '数量表の削除の API が成功していない').toBe(204);
+      await expect(confirmDialog).toBeHidden({ timeout: getTimeout(10000) });
+      await expect(detailLink).toBeHidden();
+
+      // 元の数量表が実際に消えた（削除が空振りしていない）ことをサーバー側で確かめる
+      const deletedTableResponse = await request.get(
+        `${baseUrl}/api/quantity-tables/${quantityTableId}`,
+        { headers: authHeaders }
+      );
+      expect(deletedTableResponse.status(), '削除後も数量表を取得できてしまう').toBe(404);
+
+      // --- 削除の後: 内訳書の詳細画面の名前・項目・集計元の数量表名が変わらない ---
+      await expectStatementDetailUnchanged();
+
+      // 後片付け: 本テストで作ったプロジェクトを消す（内訳書もあわせて取り除かれる）。
+      // 一般利用者はプロジェクトの削除の権限を持たないため、管理者で消す
+      const adminLoginResponse = await request.post(`${baseUrl}/api/v1/auth/login`, {
+        data: { email: TEST_USERS.ADMIN_USER.email, password: TEST_USERS.ADMIN_USER.password },
+      });
+      expect(adminLoginResponse.status(), '管理者の API のログインに失敗した').toBe(200);
+      const adminToken: string = (await adminLoginResponse.json()).accessToken;
+      const cleanupResponse = await request.delete(`${baseUrl}/api/projects/${projectId}`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      expect(cleanupResponse.status(), 'テスト用プロジェクトを削除できない').toBe(204);
     });
   });
 

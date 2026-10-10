@@ -561,11 +561,27 @@ describe('Itemized Statement API Integration Tests', () => {
       const itemizedStatementId = createResponse.body.id;
       const sourceQuantityTableName = createResponse.body.sourceQuantityTableName;
 
-      // 元の数量表を論理削除
-      await prisma.quantityTable.update({
-        where: { id: tableId },
-        data: { deletedAt: new Date() },
-      });
+      // 削除前の内訳書を取得（削除後の比較の基準）
+      const beforeResponse = await request(app)
+        .get(`/api/itemized-statements/${itemizedStatementId}`)
+        .set('Authorization', `Bearer ${accessToken}`);
+      expect(beforeResponse.status).toBe(200);
+
+      // 元の数量表を本番の削除の API（DELETE /api/quantity-tables/:id）で論理削除する。
+      // prisma で deletedAt を直接書くと、API の経路（認可・サービスの取り除く処理・監査ログ）を
+      // 通らないため、本番で数量表を削除したときの内訳書への影響を検証できない。
+      const deleteResponse = await request(app)
+        .delete(`/api/quantity-tables/${tableId}`)
+        .set('Authorization', `Bearer ${accessToken}`);
+      expect(deleteResponse.status).toBe(204);
+
+      // 削除の API が数量表を実際に論理削除したこと（削除が空振りしていないこと）を確かめる
+      const deletedTable = await prisma.quantityTable.findUnique({ where: { id: tableId } });
+      expect(deletedTable?.deletedAt).toBeInstanceOf(Date);
+      const deletedTableResponse = await request(app)
+        .get(`/api/quantity-tables/${tableId}`)
+        .set('Authorization', `Bearer ${accessToken}`);
+      expect(deletedTableResponse.status).toBe(404);
 
       // 内訳書が影響を受けていないことを確認
       const afterResponse = await request(app)
@@ -575,6 +591,8 @@ describe('Itemized Statement API Integration Tests', () => {
       expect(afterResponse.status).toBe(200);
       expect(afterResponse.body.sourceQuantityTableName).toBe(sourceQuantityTableName);
       expect(afterResponse.body.items.length).toBeGreaterThan(0);
+      expect(afterResponse.body.name).toBe(beforeResponse.body.name);
+      expect(afterResponse.body.items).toEqual(beforeResponse.body.items);
     });
 
     it('内訳書にスナップショットとして数量表名が保存される (Req 8.1)', async () => {
