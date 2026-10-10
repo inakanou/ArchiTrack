@@ -11,10 +11,14 @@
  * - REQ-5.3: 並び順の永続化（保存時）
  * - REQ-5.4: 並び順の復元
  *
+ * Task 21.1（描画の性能）: 各行を React.memo の SortableRow として描き、ドラッグの処理関数は
+ * 行の位置を引数に取る安定した関数として渡す。1 行の入力やドラッグの表示の変化では、props の
+ * 変わった行だけを描き直す。
+ *
  * @module components/schedule/SortableScheduleList
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { memo, useState, useCallback, useRef } from 'react';
 import { ScheduleItemRow } from './ScheduleItemRow';
 import type { ScheduleItem } from '../../hooks/useScheduleState';
 
@@ -72,6 +76,65 @@ const styles = {
 // コンポーネント
 // ============================================================================
 
+interface SortableRowProps {
+  item: ScheduleItem;
+  index: number;
+  isDragging: boolean;
+  isDragOver: boolean;
+  onUpdate: SortableScheduleListProps['onUpdate'];
+  onRemove: SortableScheduleListProps['onRemove'];
+  onDragStart: (index: number, e: React.DragEvent<HTMLDivElement>) => void;
+  onDragOver: (index: number, e: React.DragEvent<HTMLDivElement>) => void;
+  onDragLeave: () => void;
+  onDrop: (index: number, e: React.DragEvent<HTMLDivElement>) => void;
+  onDragEnd: () => void;
+}
+
+/**
+ * 並び替えできる1行（props が変わらない行は描き直さない）
+ */
+const SortableRow = memo(function SortableRow({
+  item,
+  index,
+  isDragging,
+  isDragOver,
+  onUpdate,
+  onRemove,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
+}: SortableRowProps) {
+  return (
+    <div
+      data-testid={`sortable-row-${item.id}`}
+      data-dragging={isDragging ? 'true' : 'false'}
+      draggable
+      onDragStart={(e) => onDragStart(index, e)}
+      onDragOver={(e) => onDragOver(index, e)}
+      onDragLeave={onDragLeave}
+      onDrop={(e) => onDrop(index, e)}
+      onDragEnd={onDragEnd}
+      style={{
+        ...styles.draggableRow,
+        ...(isDragging ? styles.draggableRowDragging : {}),
+        ...(isDragOver ? styles.dragOver : {}),
+      }}
+    >
+      {/* ドラッグハンドル */}
+      <div data-testid={`drag-handle-${item.id}`} style={styles.dragHandle} aria-label="並び替え">
+        ⠿
+      </div>
+
+      {/* 項目入力行 */}
+      <div style={styles.rowContent}>
+        <ScheduleItemRow item={item} onUpdate={onUpdate} onRemove={onRemove} />
+      </div>
+    </div>
+  );
+});
+
 /**
  * ドラッグ&ドロップ対応の工程表項目リスト
  */
@@ -85,31 +148,25 @@ export function SortableScheduleList({
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const dragIndexRef = useRef<number | null>(null);
 
-  const handleDragStart = useCallback(
-    (index: number) => (e: React.DragEvent<HTMLDivElement>) => {
-      setDragIndex(index);
-      dragIndexRef.current = index;
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', String(index));
-    },
-    []
-  );
+  const handleDragStart = useCallback((index: number, e: React.DragEvent<HTMLDivElement>) => {
+    setDragIndex(index);
+    dragIndexRef.current = index;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(index));
+  }, []);
 
-  const handleDragOver = useCallback(
-    (index: number) => (e: React.DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      setDragOverIndex(index);
-    },
-    []
-  );
+  const handleDragOver = useCallback((index: number, e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverIndex(index);
+  }, []);
 
   const handleDragLeave = useCallback(() => {
     setDragOverIndex(null);
   }, []);
 
   const handleDrop = useCallback(
-    (toIndex: number) => (e: React.DragEvent<HTMLDivElement>) => {
+    (toIndex: number, e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault();
       const fromIndex = dragIndexRef.current;
       if (fromIndex !== null && fromIndex !== toIndex) {
@@ -130,43 +187,22 @@ export function SortableScheduleList({
 
   return (
     <div style={styles.list} data-testid="sortable-schedule-list">
-      {items.map((item, index) => {
-        const isDragging = dragIndex === index;
-        const isDragOver = dragOverIndex === index;
-
-        return (
-          <div
-            key={item.id}
-            data-testid={`sortable-row-${item.id}`}
-            data-dragging={isDragging ? 'true' : 'false'}
-            draggable
-            onDragStart={handleDragStart(index)}
-            onDragOver={handleDragOver(index)}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop(index)}
-            onDragEnd={handleDragEnd}
-            style={{
-              ...styles.draggableRow,
-              ...(isDragging ? styles.draggableRowDragging : {}),
-              ...(isDragOver ? styles.dragOver : {}),
-            }}
-          >
-            {/* ドラッグハンドル */}
-            <div
-              data-testid={`drag-handle-${item.id}`}
-              style={styles.dragHandle}
-              aria-label="並び替え"
-            >
-              ⠿
-            </div>
-
-            {/* 項目入力行 */}
-            <div style={styles.rowContent}>
-              <ScheduleItemRow item={item} onUpdate={onUpdate} onRemove={onRemove} />
-            </div>
-          </div>
-        );
-      })}
+      {items.map((item, index) => (
+        <SortableRow
+          key={item.id}
+          item={item}
+          index={index}
+          isDragging={dragIndex === index}
+          isDragOver={dragOverIndex === index}
+          onUpdate={onUpdate}
+          onRemove={onRemove}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onDragEnd={handleDragEnd}
+        />
+      ))}
     </div>
   );
 }

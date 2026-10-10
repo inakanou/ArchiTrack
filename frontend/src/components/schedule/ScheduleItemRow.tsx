@@ -16,6 +16,7 @@
  * @module components/schedule/ScheduleItemRow
  */
 
+import { memo } from 'react';
 import type { ScheduleItem } from '../../hooks/useScheduleState';
 
 // ============================================================================
@@ -135,8 +136,15 @@ function hasDurationValidationError(item: ScheduleItem): boolean {
 
 /**
  * 工程表の1項目の入力行
+ *
+ * Task 21.1（描画の性能）: React.memo で包み、項目と処理関数が変わらない行は描き直さない
+ * （1 行の入力で 200 行すべてを描き直さない）。処理関数は useScheduleState の useCallback で安定している。
  */
-export function ScheduleItemRow({ item, onUpdate, onRemove }: ScheduleItemRowProps) {
+export const ScheduleItemRow = memo(function ScheduleItemRow({
+  item,
+  onUpdate,
+  onRemove,
+}: ScheduleItemRowProps) {
   const startDateError = hasStartDateValidationError(item);
   const durationError = hasDurationValidationError(item);
 
@@ -261,4 +269,4 @@ export function ScheduleItemRow({ item, onUpdate, onRemove }: ScheduleItemRowPro
       )}
     </div>
   );
-}
+});

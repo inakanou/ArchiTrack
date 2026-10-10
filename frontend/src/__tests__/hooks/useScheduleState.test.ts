@@ -266,6 +266,22 @@ describe('useScheduleState', () => {
   // 項目更新 (REQ-4.2, REQ-6.1, REQ-6.6)
   // ==========================================================================
   describe('updateItem', () => {
+    it('更新しても変わらない項目と、行へ渡す関数は同じ参照のままであること（Task 21.1: 行の memo の前提）', () => {
+      const { result } = renderHook(() => useScheduleState(mockScheduleDetail));
+      const before = result.current;
+      const untouched = before.state.items[1];
+
+      act(() => {
+        result.current.updateItem('item-1', { duration: 3 });
+      });
+
+      expect(result.current.state.items[0]).not.toBe(before.state.items[0]);
+      expect(result.current.state.items[1]).toBe(untouched);
+      expect(result.current.updateItem).toBe(before.updateItem);
+      expect(result.current.removeItem).toBe(before.removeItem);
+      expect(result.current.reorderItems).toBe(before.reorderItems);
+    });
+
     it('項目のフィールドを更新する', () => {
       const { result } = renderHook(() => useScheduleState(mockScheduleDetail));
 
