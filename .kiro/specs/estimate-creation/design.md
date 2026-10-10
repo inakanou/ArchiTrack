@@ -313,6 +313,8 @@ sequenceDiagram
 | 15.1-15.12 | パンくずナビゲーション | Breadcrumb（共通コンポーネント利用）, EstimateListPage, EstimateCreatePage, EstimateDetailPage | - | ナビゲーション |
 | 16.1-16.13 | プロジェクト詳細画面の見積書セクション | EstimateSectionCard, ProjectDetailPage | GET /api/projects/:id/estimates/latest | セクション表示 |
 
+**現況（タスク 61.1、2026-10-10）**: 上の表の 11.1-11.7 の行は書かれた時点の割り当てであり、そのまま残す。同行が挙げる部品には 11.7（他のユーザーが編集中の警告）に当たる仕組みが無かった。タスク 61.1 の着手時に利用者が三つの選択肢——(a) 編集セッション（在席）の永続化・取得・表示を実装する、(b) 11.6 へ寄せて要件を改訂する、(c) 除外一覧へ登録する——から **(a) を選んだ**（2026-10-10）。11.7 の仕組みは末尾の章「追加設計（REQ-11.7 対応）: 他のユーザーが編集中の警告」に置く。見積書詳細画面（EstimateDetailPage）が開いている間に在席を通知し、編集セッションのサービス（EstimateEditSessionService）が利用者ごとの最終通知時刻を記録して、同じ見積書を開いている他の利用者を返す。11.6 の楽観的排他制御（`expectedUpdatedAt` と 409）とは独立しており、在席の通知は見積書の `updatedAt` を進めない。
+
 ## Components and Interfaces
 
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies (P0/P1) | Contracts |
@@ -471,6 +473,8 @@ interface EstimateItemLine {
 - 見積書の作成・取得・更新・削除
 - 内訳書からの見積金額行初期作成
 - 楽観的排他制御による同時更新防止
+
+**現況（タスク 61.1、2026-10-10）**: 上の Requirements 欄の 11.1-11.7 は書かれた時点の記述として残す。11.7（他のユーザーが編集中の警告）は本サービスではなく、編集セッションのサービス（EstimateEditSessionService）が担う。利用者の判断（2026-10-10、選択肢 (a)）により新設したもので、仕様は末尾の章「追加設計（REQ-11.7 対応）: 他のユーザーが編集中の警告」にある。
 
 **Dependencies**
 - Inbound: estimate.routes — APIルートから呼び出し (P0)
@@ -4483,3 +4487,94 @@ flowchart TD
 - **ロールバック**: マイグレーションは加算のみ（列追加・enum値追加）で既存データを変更しないため、アプリのみの切り戻しが可能
 - **検証チェックポイント**: 各段階の完了時に、その段階が担当するE2E項目とバックエンド・フロントエンド双方の全単体スイートを実行する
 - **要件単位の完了判定の例外**: REQ-44（範囲選択と範囲操作）は reducer アクションが段階1、選択UIが段階2に分かれる。段階1の完了判定に REQ-44 のE2Eを含めず、単体テスト（reducer のアクション検証）のみを対象とする
+
+## 追加設計（REQ-11.7 対応）: 他のユーザーが編集中の警告（タスク 61.1）
+
+### 決定の記録
+
+- **決定**: 利用者の判断（2026-10-10）により、tasks.md のタスク 61.1 の選択肢 (a)「編集セッション（在席）の永続化・取得・表示を実装し、複数のセッションの E2E で主張する」を採った。(b)「11.6 へ寄せて要件を改訂する」と (c)「除外一覧へ登録する」は採らない。requirements.md の 11.7 の条文は改訂しない
+- **「編集中」の定義**: 見積書詳細画面は常時編集の画面（27.1）で、閲覧と編集を切り替える編集モードを持たない。したがって**見積書詳細画面を開いている間**を「編集中」とする。保存の権限（`estimate:update`）を持たない利用者は編集できないため、在席を記録しない（通知は 403 で拒まれ、画面は通知をやめる）
+- **11.6 との関係**: 11.6（保存時の楽観的排他制御。`expectedUpdatedAt` の不一致で 409）は保存の時点で競合を検出する。11.7 は保存より前に、同じ見積書を他の利用者が開いていることを知らせる。両者は独立で、在席の通知は見積書の `updatedAt` を進めないため、通知が保存の競合を起こすことはない
+
+### Components
+
+| Component | Domain/Layer | Intent | Req Coverage | Key Dependencies (P0/P1) | Contracts |
+|-----------|--------------|--------|--------------|--------------------------|-----------|
+| EstimateEditSession (Model) | Data | 見積書ごと・利用者ごとの在席（最終通知時刻）の永続化 | 11.7 | Estimate (P0), User (P0) | State |
+| EstimateEditSessionService | Backend | 在席の記録・期限切れの判定・編集中の他の利用者の取得・退出 | 11.7 | Prisma (P0) | Service |
+| useEstimateEditPresence | Frontend | 画面を開いている間の在席の通知と、編集中の他の利用者の保持 | 11.7 | estimates API (P0) | State |
+| EstimateEditPresenceNotice | Frontend | 編集中の他の利用者の表示名を挙げた警告の表示 | 11.7 | - | Props |
+
+置き場所は次のとおり。
+
+- モデル: `backend/prisma/schema.prisma` の `EstimateEditSession`（表 `estimate_edit_sessions`）。移行は `backend/prisma/migrations/20261010000000_add_estimate_edit_sessions/migration.sql`（表の新設だけの純追加）
+- サービス: `backend/src/services/estimate-edit-session.service.ts`
+- ルート: `backend/src/routes/estimates.routes.ts` の `PUT /:id/edit-session` と `DELETE /:id/edit-session`
+- フロントエンドの API 関数: `frontend/src/api/estimates.ts` の `heartbeatEstimateEditSession` と `leaveEstimateEditSession`
+- フック: `frontend/src/hooks/useEstimateEditPresence.ts`
+- 警告の部品: `frontend/src/components/estimate/EstimateEditPresenceNotice.tsx`。見積書詳細画面（`frontend/src/pages/EstimateDetailPage.tsx`）がヘッダーの直下に置く
+
+### Data Model
+
+```prisma
+model EstimateEditSession {
+  id         String   @id @default(uuid())
+  estimateId String
+  userId     String
+  lastSeenAt DateTime // 最終の在席通知の時刻（アプリのサーバー時計で記録）
+  createdAt  DateTime @default(now())
+
+  estimate Estimate @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([estimateId, userId])
+  @@index([estimateId, lastSeenAt])
+  @@index([userId])
+  @@map("estimate_edit_sessions")
+}
+```
+
+- 見積書と利用者の組に 1 行。同じ利用者が複数のタブで開いても 1 行で、自分自身は警告の対象にしない（条文は「他のユーザー」）
+- 見積書または利用者の行が物理的に消えると在席の行も連鎖して消える。見積書の論理削除（`deletedAt`）の後は通知が 404 になり、在席は増えない
+- 永続化は Redis ではなく PostgreSQL に置く。在席は見積書・利用者と外部キーで結び付き、統合検証と E2E の初期化（`TRUNCATE ... CASCADE`）の対象に自然に入るためである。書き込みは利用者 1 人あたり 20 秒に 1 回の upsert で、負荷は小さい
+
+### API Contract
+
+| Method | Endpoint | 権限 | Request | Response | Errors |
+|--------|----------|------|---------|----------|--------|
+| PUT | /api/estimates/:id/edit-session | `estimate:update` | なし | 200 `{ otherEditors: { userId, displayName, lastSeenAt }[], ttlSeconds, heartbeatIntervalSeconds }` | 400（ID 不正）, 401, 403, 404（見積書なし・論理削除済み） |
+| DELETE | /api/estimates/:id/edit-session | `estimate:update` | なし | 204（在席が無くても 204。冪等） | 400, 401, 403 |
+
+- ミドルウェアは他の見積書ルートと同じ `authenticate` + `requirePermission` + `validate(estimateIdParamSchema, 'params')`
+- `PUT` は呼び出した利用者の在席を現在時刻で upsert し、TTL を過ぎた行を掃除したうえで、TTL 以内に通知した**自分以外の**利用者を在席の開始順で返す
+- `otherEditors[].lastSeenAt` は ISO 8601 の文字列
+
+### 在席の通知と TTL
+
+- **通知間隔**: 20 秒（`ESTIMATE_EDIT_SESSION_HEARTBEAT_INTERVAL_SECONDS` / `ESTIMATE_EDIT_PRESENCE_HEARTBEAT_INTERVAL_MS`）。画面はマウント時に即時に通知し、以後は 20 秒ごとに通知する。タブが前面に戻ったとき（`visibilitychange`）にも即時に通知する
+- **TTL**: 90 秒（`ESTIMATE_EDIT_SESSION_TTL_SECONDS`）。最終通知から 90 秒を過ぎた利用者は編集中と数えない。TTL を通知間隔の 3 倍以上に取るのは、バックグラウンドのタブでブラウザがタイマーを最大 1 分間隔まで間引いても、在席が途切れないようにするためである
+- **退出**: アプリ内の画面遷移ではフックのアンマウント時に `DELETE` を送る。タブを閉じる・再読み込み・アプリ外への移動ではアンマウントが走らないため、`pagehide` で `keepalive` 付きの `DELETE` を送る（`apiClient` の `keepalive` オプション）。それでも届かない場合（通信断・ブラウザの強制終了）は TTL で失効する
+- **表示の遅れ**: 後から開いた側は開いた直後に警告が出る。先に開いていた側に警告が出る・消えるのは次の通知の時点で、最大で通知間隔（20 秒）遅れる。退出が届かない場合の消える遅れは最大で TTL と通知間隔の和である
+- **同じ利用者の再読み込み**: 再読み込みの退出（`keepalive`）が新しいページの最初の通知より後に届くと、その利用者の在席が次の通知（最大 20 秒後）まで消える。他の利用者の画面で警告が一時的に消えるだけで、編集の内容には影響しない
+
+### 警告の表示
+
+- 警告は見積書詳細画面のヘッダーの直下に置き、編集中の他の利用者がいない間は何も描画しない
+- 文言は「{表示名}さんがこの見積書を編集中です。同時に編集した内容を保存すると、後から保存した側は競合として保存できない場合があります。」とし、複数いれば表示名を読点で列挙する
+- 読み上げは `role="status"`（丁寧な通知）とする。表示は相手の出入りで変わるため、入力中の操作を遮る `role="alert"` は使わない
+- 警告はフォーカスを受ける要素を持たない。インラインで `outline` を打ち消さない（steering `tech.md` の「フォーカス表示方針」）
+- 長い表示名でも 375px 幅で横にはみ出さないよう `overflowWrap: 'anywhere'` で折り返す
+
+### Error Handling
+
+- 通知が 403（`estimate:update` を持たない）・404（見積書なし・論理削除済み）を受けた場合、フックは通知をやめ、警告の対象を空にする。在席を記録できていないため退出も送らない
+- 通信エラー・5xx の場合は直前の表示を保ち、次の通知を続ける（相手の在否について新しい情報が無いため）
+- 退出の失敗は無視する（TTL で失効する）
+- 在席の通知・退出の失敗は、見積書の表示・編集・保存を妨げない
+
+### Testing Strategy
+
+- 単体（backend）: `backend/src/__tests__/unit/services/estimate-edit-session.service.test.ts` が、在席の upsert・TTL による絞り込み・自分の除外・期限切れの掃除・見積書なしの 404・退出を主張する
+- 統合（backend）: `backend/src/__tests__/integration/estimate-edit-session.api.integration.test.ts` が、2 人の利用者で相手が返ること、退出・TTL 超過で返らないこと、同じ利用者の通知が 1 行に収まること、在席の通知が `updatedAt` を進めず保存（11.6）の競合判定を変えないこと、400 / 401 / 403 / 404、見積書の物理的な消去での連鎖を実データベースで主張する
+- 単体（frontend）: `frontend/src/hooks/useEstimateEditPresence.test.ts`（即時・定期・前面復帰の通知、アンマウントと `pagehide` の退出、403 / 404 での停止、通信エラーでの表示の保持）、`frontend/src/components/estimate/EstimateEditPresenceNotice.test.tsx`（文言・列挙・折り返し）、`frontend/src/pages/EstimateDetailPage.editPresence.test.tsx`（実物のページでの警告の表示と退出）
+- E2E: `e2e/specs/estimate/estimate-edit-presence-e2e.spec.ts` が、別々のブラウザコンテキストでログインした 2 人の利用者（`REGULAR_USER` と `REGULAR_USER_2`）が同じ見積書を開き、互いの画面に相手の表示名を挙げた警告が出ること、アプリ内の画面遷移で離れると相手の画面から警告が消えること、開き直すと再び出ること、タブを閉じると TTL を待たずに消えること、375px 幅で警告が画面の横幅に収まることを主張する

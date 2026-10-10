@@ -24,6 +24,13 @@ interface RequestOptions {
   timeout?: number;
   /** リトライを無効化するかどうか（デフォルト: false） */
   disableRetry?: boolean;
+  /**
+   * ページを離れた後も送信を続けるかどうか（fetch の `keepalive`。デフォルト: false）
+   *
+   * タブを閉じる・別のページへ移るときの通知（例: 見積書の編集セッションの退出、
+   * estimate-creation REQ-11.7）に使う。本文は小さいものに限る（ブラウザの上限は 64KiB）。
+   */
+  keepalive?: boolean;
 }
 
 /**
@@ -325,6 +332,7 @@ class ApiClient {
       body,
       timeout = this.defaultTimeout,
       disableRetry = false,
+      keepalive = false,
     } = options;
 
     // multipart 送信かどうか。boundary の付与をブラウザへ委ねるため、
@@ -389,6 +397,7 @@ class ApiClient {
           body: requestBody,
           signal: controller.signal,
           credentials: 'include', // 要件26.5: HTTPOnly Cookieを送受信するため
+          ...(keepalive ? { keepalive: true } : {}),
         });
 
         clearTimeout(timeoutId);

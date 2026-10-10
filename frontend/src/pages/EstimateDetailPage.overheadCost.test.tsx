@@ -144,6 +144,19 @@ const rowKeys = (): string[] =>
 const addedKeys = (): string[] => rowKeys().filter((key) => key !== 'item-a' && key !== 'item-b');
 
 /**
+ * 見積書の内容を書き込まない在席通知の API（estimate-creation 11.7、タスク 61.1）
+ *
+ * 見積書詳細画面は開いている間、編集セッションへ在席を通知し（`PUT /:id/edit-session`）、
+ * 離れるときに退出を通知する（`DELETE /:id/edit-session`）。いずれも見積書・明細を
+ * 書き換えず `updatedAt` も進めないため、ここで数える「書き込み」から外す。名指しで外すので、
+ * これ以外の関数が足されて当該経路から呼ばれれば従来どおり落ちる。
+ */
+const EDIT_PRESENCE_APIS: ReadonlySet<string> = new Set([
+  'heartbeatEstimateEditSession',
+  'leaveEstimateEditSession',
+]);
+
+/**
  * 参照系（`get*`）以外の API 呼び出し名の一覧
  *
  * 「サーバーへ書き込まない」（49.3）は否定の要件のため、特定のエンドポイント名を
@@ -158,6 +171,7 @@ const nonGetApiCalls = (): string[] => {
   for (const [name, exported] of Object.entries(estimatesApi)) {
     if (typeof exported !== 'function' || !vi.isMockFunction(exported)) continue;
     if (name.startsWith('get')) continue;
+    if (EDIT_PRESENCE_APIS.has(name)) continue;
     for (let i = 0; i < exported.mock.calls.length; i += 1) calls.push(name);
   }
   return calls.sort();

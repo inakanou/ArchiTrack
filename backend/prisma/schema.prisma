@@ -48,6 +48,9 @@ model User {
   // Execution Budget Management リレーション
   monthlyCloseHistories MonthlyCloseHistory[]
 
+  // Estimate Creation リレーション（見積書の編集セッション、REQ-11.7）
+  estimateEditSessions EstimateEditSession[]
+
   @@index([email])
   @@index([isLocked])
   @@map("users")
@@ -1184,14 +1187,34 @@ model Estimate {
   updatedAt                   DateTime  @updatedAt
   deletedAt                   DateTime? // 論理削除
 
-  project   Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  items     EstimateItem[]
-  contracts Contract[] // 契約書リレーション
+  project      Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  items        EstimateItem[]
+  contracts    Contract[] // 契約書リレーション
+  editSessions EstimateEditSession[] // 編集セッション（在席情報、REQ-11.7）
 
   @@index([projectId])
   @@index([deletedAt])
   @@index([createdAt])
   @@map("estimates")
+}
+
+// 見積書の編集セッション（在席情報、estimate-creation REQ-11.7）
+// 見積書詳細画面（常時編集、REQ-27.1）を開いている利用者ごとに1行。
+// 画面が一定間隔で lastSeenAt を更新し、TTL を過ぎた行は「編集中」と数えない。
+model EstimateEditSession {
+  id         String   @id @default(uuid())
+  estimateId String
+  userId     String
+  lastSeenAt DateTime // 最終の在席通知の時刻（アプリのサーバー時計で記録）
+  createdAt  DateTime @default(now())
+
+  estimate Estimate @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([estimateId, userId])
+  @@index([estimateId, lastSeenAt])
+  @@index([userId])
+  @@map("estimate_edit_sessions")
 }
 
 /**

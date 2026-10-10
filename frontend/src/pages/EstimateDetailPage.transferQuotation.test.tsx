@@ -198,6 +198,19 @@ const READ_ONLY_ESTIMATE_APIS = new Set([
 ]);
 
 /**
+ * 見積書の内容を書き込まない在席通知の API（estimate-creation 11.7、タスク 61.1）
+ *
+ * 見積書詳細画面は開いている間、編集セッションへ在席を通知し（`PUT /:id/edit-session`）、
+ * 離れるときに退出を通知する（`DELETE /:id/edit-session`）。いずれも見積書・明細を
+ * 書き換えず `updatedAt` も進めないため、ここで数える「書き込み」から外す。名指しで外すので、
+ * これ以外の関数が足されて当該経路から呼ばれれば従来どおり落ちる。
+ */
+const EDIT_PRESENCE_APIS: ReadonlySet<string> = new Set([
+  'heartbeatEstimateEditSession',
+  'leaveEstimateEditSession',
+]);
+
+/**
  * 書き込み系の見積書APIが一つも呼ばれていないことを確かめる（49.3）
  *
  * かつては撤去対象の `transferFromQuotation` を名指しで検証していたが、
@@ -211,6 +224,7 @@ const expectNoEstimateWriteApiCall = (): void => {
       ([name, value]) =>
         vi.isMockFunction(value) &&
         !READ_ONLY_ESTIMATE_APIS.has(name) &&
+        !EDIT_PRESENCE_APIS.has(name) &&
         value.mock.calls.length > 0
     )
     .map(([name]) => name);

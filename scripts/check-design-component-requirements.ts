@@ -274,7 +274,10 @@ export const FEATURE_POLICIES: Readonly<Record<string, FeaturePolicy>> = {
     mode: 'ratchet',
     maxContradictions: 45,
     minPairs: 34,
-    minTableDeclarations: 36,
+    // 36 → 40（estimate-creation のタスク 61.1、2026-10-10）。同タスクが design.md の末尾の章
+    // 「追加設計（REQ-11.7 対応）」に部品表の 4 行（EstimateEditSession / EstimateEditSessionService /
+    // useEstimateEditPresence / EstimateEditPresenceNotice、いずれも 11.7）を足したため、締める向きへ動かした
+    minTableDeclarations: 40,
     minDetailDeclarations: 46,
     reason: '他機能の矛盾は開示にとどめ、現況を上限として固定する（本タスクの境界外）',
   },

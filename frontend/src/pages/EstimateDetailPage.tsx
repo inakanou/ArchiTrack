@@ -7,6 +7,7 @@
  * - REQ-11.2: 見積書を選択した場合、見積書の詳細を表示する
  * - REQ-11.3: 見積書を編集した場合、変更内容を保存する
  * - REQ-11.6: 同一見積書を複数ユーザーが編集した場合、楽観的排他制御により競合を検出する
+ * - REQ-11.7: 見積書が他のユーザーによって編集中の場合、編集中であることを警告表示する
  * - REQ-14.8: 見積書画面を提供する
  * - REQ-14.9: 見積書の詳細情報（見積項目一覧、合計金額等）を表示する
  * - REQ-14.10: 編集・削除・出力ボタンを提供する
@@ -54,6 +55,7 @@ import type {
 // `EstimateDetailPage.test.tsx` が barrel を丸ごとモックしており、
 // 結線漏れが検知されない死角に入るため（53.14 / 54.2 / 54.10 の再発防止）。
 import { EstimateReportFieldsPanel } from '../components/estimate/EstimateReportFieldsPanel';
+import { EstimateEditPresenceNotice } from '../components/estimate/EstimateEditPresenceNotice';
 import { Breadcrumb } from '../components/common';
 import UnsavedChangesDialog from '../components/common/UnsavedChangesDialog';
 import {
@@ -63,6 +65,7 @@ import {
 } from '../components/estimate';
 import type { EstimateRowRevealRequest } from '../components/estimate';
 import { useEstimateEditor } from '../hooks/useEstimateEditor';
+import { useEstimateEditPresence } from '../hooks/useEstimateEditPresence';
 import { useEstimateNavigation } from '../hooks/useEstimateNavigation';
 import { useEstimateKeyboard } from '../hooks/useEstimateKeyboard';
 import { useEstimateUndo } from '../hooks/useEstimateUndo';
@@ -852,6 +855,15 @@ export default function EstimateDetailPage() {
   });
 
   /**
+   * 他のユーザーが編集中であることの把握（11.7）
+   *
+   * 本画面は常時編集（27.1）のため、開いている間を「編集中」として在席を通知し、
+   * 同じ見積書を開いている他の利用者を受け取る。保存の競合検出（11.6 / 42.5）とは独立で、
+   * 見積書の `updatedAt` を進めない。
+   */
+  const editPresence = useEstimateEditPresence(id);
+
+  /**
    * 取り消し・やり直し（48.1〜48.7）
    *
    * 取り消しの単位は編集状態のスナップショット。復元は reducer の state を
@@ -1443,6 +1455,9 @@ export default function EstimateDetailPage() {
           </button>
         </div>
       </div>
+
+      {/* 他のユーザーが編集中であることの警告 (REQ-11.7) */}
+      <EstimateEditPresenceNotice otherEditors={editPresence.otherEditors} />
 
       {/* コンテンツ */}
       <div style={styles.content}>
