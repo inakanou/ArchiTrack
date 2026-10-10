@@ -3,6 +3,7 @@
  *
  * Task 4.1: 契約書一覧ページコンポーネントを作成する
  * Task 15.1: 各画面にusePermissionフックを統合してUI要素を制御する
+ * Task 18.4: 契約書の一覧にページ送りを付け、21 件目以降に到達できるようにする
  *
  * Requirements (contract-management):
  * - REQ-1.1: プロジェクトに紐付く契約書のリストを一覧画面に表示する
@@ -15,11 +16,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import ContractListPage from './ContractListPage';
 import * as contractsApi from '../api/contracts';
+import type { ContractListItem } from '../api/contracts';
 
 // モック
 vi.mock('../api/contracts');
@@ -389,6 +391,141 @@ describe('ContractListPage', () => {
       // 空状態でもヘッダーの新規作成ボタン、空状態内の新規作成リンクともに非表示
       const createLinks = screen.queryAllByRole('link', { name: /新規作成/i });
       expect(createLinks).toHaveLength(0);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // REQ-1.1: ページ送り（Task 18.4）
+  // --------------------------------------------------------------------------
+  describe('REQ-1.1: ページ送り（21 件目以降への到達）', () => {
+    /** n 件目（1 始まり）の契約書。行と金額で何件目かを読み分けられるようにする */
+    function contractAt(n: number): ContractListItem {
+      return {
+        id: `contract-${String(n).padStart(3, '0')}`,
+        contractType: 'NEW',
+        contractDate: '2026-04-01',
+        status: 'BEFORE_CONTRACT',
+        contractAmount: n * 1000,
+        estimateName: `見積書${n}`,
+        parentContractId: null,
+        createdAt: '2026-04-01T00:00:00.000Z',
+        updatedAt: '2026-04-01T00:00:00.000Z',
+      };
+    }
+
+    /** 全 total 件を、要求の page と limit で切り出して返す API のモック */
+    function mockPagedContracts(total: number): void {
+      const all = Array.from({ length: total }, (_, i) => contractAt(i + 1));
+      vi.mocked(contractsApi.getContracts).mockImplementation(async (_projectId, options) => {
+        const page = options?.page ?? 1;
+        const limit = options?.limit ?? 20;
+        return { contracts: all.slice((page - 1) * limit, page * limit), total };
+      });
+    }
+
+    /**
+     * @requirement contract-management/REQ-1.1: プロジェクトに紐付く契約書のリストを一覧画面に表示する
+     */
+    it('全 25 件・表示件数 20 件のとき、1 ページ目に 20 件とページ送りを表示し、21 件目は出さない', async () => {
+      mockPagedContracts(25);
+
+      renderWithRouter();
+
+      const nav = await screen.findByRole('navigation', { name: 'ページネーション' });
+      expect(contractsApi.getContracts).toHaveBeenLastCalledWith('proj-001', {
+        page: 1,
+        limit: 20,
+      });
+      expect(screen.getAllByTestId(/^contract-row-/)).toHaveLength(20);
+      expect(screen.queryByTestId('contract-row-contract-021')).not.toBeInTheDocument();
+      expect(within(nav).getByTestId('total-pages')).toHaveTextContent('2');
+      expect(within(nav).getByRole('button', { name: 'ページ 2' })).toBeEnabled();
+    });
+
+    /**
+     * @requirement contract-management/REQ-1.1: プロジェクトに紐付く契約書のリストを一覧画面に表示する
+     */
+    it('次のページへ進むと page=2 で取得し、21 件目から 25 件目を表示する', async () => {
+      const user = userEvent.setup();
+      mockPagedContracts(25);
+
+      renderWithRouter();
+
+      const nav = await screen.findByRole('navigation', { name: 'ページネーション' });
+      await user.click(within(nav).getByRole('button', { name: '次のページ' }));
+
+      expect(await screen.findByTestId('contract-row-contract-021')).toBeInTheDocument();
+      expect(contractsApi.getContracts).toHaveBeenLastCalledWith('proj-001', {
+        page: 2,
+        limit: 20,
+      });
+      expect(screen.getAllByTestId(/^contract-row-/)).toHaveLength(5);
+      expect(screen.getByTestId('contract-row-contract-025')).toBeInTheDocument();
+      expect(screen.queryByTestId('contract-row-contract-001')).not.toBeInTheDocument();
+      expect(screen.getByText('全25件')).toBeInTheDocument();
+      expect(
+        within(screen.getByRole('navigation', { name: 'ページネーション' })).getByTestId(
+          'current-page'
+        )
+      ).toHaveTextContent('2');
+    });
+
+    /**
+     * @requirement contract-management/REQ-1.1: プロジェクトに紐付く契約書のリストを一覧画面に表示する
+     */
+    it('ページ番号の釦をキーボードで押して 2 ページ目へ移れる', async () => {
+      const user = userEvent.setup();
+      mockPagedContracts(25);
+
+      renderWithRouter();
+
+      const nav = await screen.findByRole('navigation', { name: 'ページネーション' });
+      within(nav).getByRole('button', { name: 'ページ 2' }).focus();
+      await user.keyboard('{Enter}');
+
+      expect(await screen.findByTestId('contract-row-contract-021')).toBeInTheDocument();
+      expect(contractsApi.getContracts).toHaveBeenLastCalledWith('proj-001', {
+        page: 2,
+        limit: 20,
+      });
+    });
+
+    /**
+     * @requirement contract-management/REQ-1.1: プロジェクトに紐付く契約書のリストを一覧画面に表示する
+     */
+    it('2 ページ目で表示件数を 50 件へ変えると 1 ページ目から 50 件単位で取り直し、全 25 件を表示する', async () => {
+      const user = userEvent.setup();
+      mockPagedContracts(25);
+
+      renderWithRouter();
+
+      const nav = await screen.findByRole('navigation', { name: 'ページネーション' });
+      await user.click(within(nav).getByRole('button', { name: 'ページ 2' }));
+      await screen.findByTestId('contract-row-contract-021');
+
+      await user.selectOptions(screen.getByRole('combobox', { name: '表示件数' }), '50');
+
+      await waitFor(() => {
+        expect(screen.getAllByTestId(/^contract-row-/)).toHaveLength(25);
+      });
+      expect(contractsApi.getContracts).toHaveBeenLastCalledWith('proj-001', {
+        page: 1,
+        limit: 50,
+      });
+    });
+
+    /**
+     * @requirement contract-management/REQ-1.1: プロジェクトに紐付く契約書のリストを一覧画面に表示する
+     */
+    it('契約書が無いときはページ送りを表示しない', async () => {
+      mockPagedContracts(0);
+
+      renderWithRouter();
+
+      await screen.findByTestId('empty-state');
+      expect(
+        screen.queryByRole('navigation', { name: 'ページネーション' })
+      ).not.toBeInTheDocument();
     });
   });
 });

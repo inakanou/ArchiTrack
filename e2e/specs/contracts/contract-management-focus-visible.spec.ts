@@ -11,7 +11,8 @@
  *   (2) フォーカスが離れると、その表示が消える（常時付いている装飾をフォーカス表示と数えない）
  * 巡る画面と状態:
  *   - 一覧画面の契約書が無い本文、契約書が 2 件ある本文、一覧の取得に失敗した本文（再試行の釦）、
- *     契約書が 2 件ある本文のモバイル幅（375px）
+ *     契約書が 2 件ある本文のモバイル幅（375px）、契約書が 21 件ある本文の 1 ページ目と 2 ページ目
+ *     （ページ送りの釦。タスク 18.4 で一覧にページ送りを付けた）
  *   - 作成画面の初期の本文、変更契約を選び基となる契約書を選んだ本文（監理者の選択をクリアする釦を含む）、
  *     必須の欄を空のまま送信して検証エラーを出した本文、作成の要求が失敗した本文、
  *     プロジェクトの取得に失敗した本文（再試行の釦）、初期の本文のモバイル幅（375px）
@@ -478,6 +479,11 @@ async function resetFocusToDocumentStart(page: Page): Promise<void> {
 
 /** 本文（main）で Tab を押す上限。文書の先頭から共通ヘッダーを抜けて本文を一巡して余る回数 */
 const MAIN_WALK_MAX_STEPS = 80;
+/**
+ * 契約書が 21 件ある一覧画面の 1 ページ目で Tab を押す上限。行 20 件の導線 80 個とページ送りを含めて、
+ * 文書の先頭から共通ヘッダーを抜けて本文を一巡して余る回数
+ */
+const PAGED_LIST_WALK_MAX_STEPS = 140;
 /** 確認のダイアログやトーストの中で Tab を押す上限（一巡して余る回数） */
 const SMALL_WALK_MAX_STEPS = 20;
 /** 契約書の画面の本文 */
@@ -495,6 +501,10 @@ const POPULATED_PROJECT_NAME = 'E2E契約書フォーカス表示用プロジェ
 const CREATE_ESTIMATE_NAME = 'フォーカス測定見積書（作成）';
 /** 契約書の基となる見積書の名称（契約書があるプロジェクトの見積書） */
 const SEEDED_ESTIMATE_NAME = 'フォーカス測定見積書';
+/** 契約書が 21 件ある一覧画面（ページ送りが 2 ページになる）を測るプロジェクトの名称 */
+const PAGED_PROJECT_NAME = 'E2E契約書フォーカス表示用プロジェクト（21件）';
+/** ページ送りを測るプロジェクトに作る契約書の件数（1 ページの 20 件を 1 件超える） */
+const PAGED_CONTRACT_COUNT = 21;
 /** 新規契約の監理者の取引先の名称 */
 const SUPERVISOR_NAME = 'E2E契約書フォーカス表示用監理者';
 
@@ -558,7 +568,9 @@ const LIST_HEADER_DESCRIPTORS = [
 
 /**
  * 契約書が 2 件ある一覧画面の本文が Tab で止まる要素。行は契約種類・契約日・ステータス・
- * 請負代金額の 4 つの導線で、作成日時の新しい変更契約が先に並ぶ（日付は投入した固定の値）
+ * 請負代金額の 4 つの導線で、作成日時の新しい変更契約が先に並ぶ（日付は投入した固定の値）。
+ * 行の後はページ送り（PaginationUI）で、1 ページしか無いため前後・ページ番号の釦は押せず
+ * （disabled のため止まらない）、表示件数の選択だけに止まる
  */
 const POPULATED_LIST_DESCRIPTORS = [
   ...LIST_HEADER_DESCRIPTORS,
@@ -570,6 +582,45 @@ const POPULATED_LIST_DESCRIPTORS = [
   'a "2026年4月1日"',
   'a "契約済"',
   'a "￥1,100,000"',
+  'select "表示件数"',
+];
+
+/**
+ * ページ送りを測るプロジェクトの n 件目（1 始まり、作成日時の古い順）の契約書の行が Tab で止まる要素。
+ * 契約日と作成日時は 2026-01-n、請負代金額は n × 11,000 円で投入する
+ */
+function pagedRowDescriptors(n: number): string[] {
+  return [
+    'a "新規契約"',
+    `a "2026年1月${n}日"`,
+    'a "契約前"',
+    `a "￥${(n * 11000).toLocaleString('en-US')}"`,
+  ];
+}
+
+/**
+ * 契約書が 21 件ある一覧画面の 1 ページ目の本文が Tab で止まる要素。作成日時の新しい 20 件
+ * （21 件目から 2 件目）の行の後、ページ送りの「ページ 2」「次のページ」と表示件数の選択に止まる
+ * （「前のページ」と現在の「ページ 1」は押せないため止まらない）
+ */
+const PAGED_LIST_FIRST_PAGE_DESCRIPTORS = [
+  ...LIST_HEADER_DESCRIPTORS,
+  ...Array.from({ length: 20 }, (_, i) => pagedRowDescriptors(PAGED_CONTRACT_COUNT - i)).flat(),
+  'button "ページ 2"',
+  'button "次のページ"',
+  'select "表示件数"',
+];
+
+/**
+ * 同じ一覧画面の 2 ページ目の本文が Tab で止まる要素。最も古い 1 件の行の後、
+ * ページ送りの「前のページ」「ページ 1」と表示件数の選択に止まる
+ */
+const PAGED_LIST_SECOND_PAGE_DESCRIPTORS = [
+  ...LIST_HEADER_DESCRIPTORS,
+  ...pagedRowDescriptors(1),
+  'button "前のページ"',
+  'button "ページ 1"',
+  'select "表示件数"',
 ];
 
 /** 変更契約（契約前）の詳細画面の本文が Tab で止まる要素 */
@@ -584,6 +635,7 @@ const AMENDMENT_DETAIL_DESCRIPTORS = [
 
 let emptyProjectId: string;
 let populatedProjectId: string;
+let pagedProjectId: string;
 let createEstimateId: string;
 let seededEstimateId: string;
 let supervisorId: string;
@@ -591,8 +643,9 @@ let parentContractId: string;
 let amendmentContractId: string;
 
 /**
- * 測定用のプロジェクト 2 件を作り、片方に見積書 1 件、もう片方に見積書 1 件・監理者の取引先 1 件と
- * 契約書 2 件（契約済の新規契約と、それを基にした契約前の変更契約）を作る
+ * 測定用のプロジェクト 3 件を作り、1 件目に見積書 1 件、2 件目に見積書 1 件・監理者の取引先 1 件と
+ * 契約書 2 件（契約済の新規契約と、それを基にした契約前の変更契約）、3 件目に見積書 1 件と
+ * 契約前の新規契約 21 件（ページ送りの測定用。契約日と作成日時を 1 日ずつずらす）を作る
  */
 async function setupTestData(): Promise<void> {
   const prisma = getPrismaClient();
@@ -610,6 +663,9 @@ async function setupTestData(): Promise<void> {
   ).id;
   populatedProjectId = (
     await prisma.project.create({ data: { ...projectData, name: POPULATED_PROJECT_NAME } })
+  ).id;
+  pagedProjectId = (
+    await prisma.project.create({ data: { ...projectData, name: PAGED_PROJECT_NAME } })
   ).id;
   createEstimateId = (
     await prisma.estimate.create({
@@ -650,6 +706,30 @@ async function setupTestData(): Promise<void> {
       },
     })
   ).id;
+  const pagedEstimateId = (
+    await prisma.estimate.create({
+      data: { projectId: pagedProjectId, name: SEEDED_ESTIMATE_NAME },
+    })
+  ).id;
+  for (let n = 1; n <= PAGED_CONTRACT_COUNT; n += 1) {
+    const day = new Date(Date.UTC(2026, 0, n));
+    await prisma.contract.create({
+      data: {
+        projectId: pagedProjectId,
+        contractType: 'NEW',
+        status: 'BEFORE_CONTRACT',
+        estimateId: pagedEstimateId,
+        contractDate: day,
+        constructionStartDate: new Date('2026-04-10T00:00:00.000Z'),
+        constructionEndDate: new Date('2026-09-30T00:00:00.000Z'),
+        deliveryDate: new Date('2026-10-15T00:00:00.000Z'),
+        constructionPrice: n * 10000,
+        taxAmount: n * 1000,
+        contractAmount: n * 11000,
+        createdAt: day,
+      },
+    });
+  }
   amendmentContractId = (
     await prisma.contract.create({
       data: {
@@ -674,7 +754,9 @@ async function setupTestData(): Promise<void> {
 /** 測定用のプロジェクトと、その下の契約書・見積書、監理者の取引先を消す */
 async function cleanupTestData(): Promise<void> {
   // 作成に至らなかった分は undefined のため除く（空の in は何も消さない）
-  const projectIds = [emptyProjectId, populatedProjectId].filter((id): id is string => !!id);
+  const projectIds = [emptyProjectId, populatedProjectId, pagedProjectId].filter(
+    (id): id is string => !!id
+  );
   const prisma = getPrismaClient();
   await prisma.contract.deleteMany({
     where: { projectId: { in: projectIds }, parentContractId: { not: null } },
@@ -882,6 +964,36 @@ test.describe('契約書の画面のフォーカス表示', () => {
     const visits = await walkFocusWithin(page, MAIN_SCOPE, MAIN_WALK_MAX_STEPS);
 
     expectClearFocusWalk(visits, POPULATED_LIST_DESCRIPTORS);
+  });
+
+  test('契約書が21件ある一覧画面の1ページ目と2ページ目の本文の全フォーカス要素がTab移動時に明確なフォーカス表示を持つ', async ({
+    page,
+  }) => {
+    await page.goto(`/projects/${pagedProjectId}/contracts`);
+    await expect(page.getByRole('heading', { name: '契約書一覧', level: 1 })).toBeVisible({
+      timeout: getTimeout(10000),
+    });
+    const pagination = page.getByRole('navigation', { name: 'ページネーション' });
+    await expect(pagination.getByTestId('total-pages')).toHaveText('2', {
+      timeout: getTimeout(10000),
+    });
+    await resetFocusToDocumentStart(page);
+
+    const firstPageVisits = await walkFocusWithin(page, MAIN_SCOPE, PAGED_LIST_WALK_MAX_STEPS);
+
+    expectClearFocusWalk(firstPageVisits, PAGED_LIST_FIRST_PAGE_DESCRIPTORS);
+
+    // 2 ページ目へはキーボードで移る
+    await pressByKeyboard(page, 'ページ 2');
+    await expect(pagination.getByTestId('current-page')).toHaveText('2', {
+      timeout: getTimeout(10000),
+    });
+    await expect(page.getByTestId(/^contract-row-/)).toHaveCount(1);
+    await resetFocusToDocumentStart(page);
+
+    const secondPageVisits = await walkFocusWithin(page, MAIN_SCOPE, MAIN_WALK_MAX_STEPS);
+
+    expectClearFocusWalk(secondPageVisits, PAGED_LIST_SECOND_PAGE_DESCRIPTORS);
   });
 
   // ==========================================================================
