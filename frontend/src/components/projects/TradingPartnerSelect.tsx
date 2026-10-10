@@ -180,6 +180,51 @@ function matchesSearchQuery(partner: TradingPartnerInfo, query: string): boolean
   return nameMatches || nameKanaMatches || branchMatches || repMatches;
 }
 
+/** 取引先一覧の 1 回の取得の件数の上限 */
+const TRADING_PARTNER_FETCH_LIMIT = 100;
+
+/**
+ * フリガナの昇順で比べる（一覧の API の sort=nameKana, order=asc に揃える）
+ */
+function compareByNameKana(a: TradingPartnerInfo, b: TradingPartnerInfo): number {
+  return a.nameKana.localeCompare(b.nameKana, 'ja');
+}
+
+/**
+ * 指定された取引先種別を含む取引先を取得する（種別ごとに最大100件）
+ *
+ * 一覧の API（GET /api/trading-partners）の種別 type は単一の値だけを受け付けるため、
+ * 種別が 1 つ以下のときは 1 回の要求で取得し、複数のときは種別ごとに取得して
+ * ID で重複を除き、フリガナの昇順に並べ直してまとめる
+ * （契約書のフォームの監理者の候補は顧客と協力業者の両方の種別から取る）。
+ */
+async function fetchTradingPartnersByTypes(
+  filterTypes: TradingPartnerType[]
+): Promise<TradingPartnerInfo[]> {
+  const fetchByTypes = async (types: TradingPartnerType[]) =>
+    (
+      await getTradingPartners({
+        limit: TRADING_PARTNER_FETCH_LIMIT,
+        filter: { type: types },
+        sort: 'nameKana',
+        order: 'asc',
+      })
+    ).data;
+
+  if (filterTypes.length <= 1) {
+    return fetchByTypes(filterTypes);
+  }
+
+  const results = await Promise.all(filterTypes.map((type) => fetchByTypes([type])));
+  const partnersById = new Map<string, TradingPartnerInfo>();
+  for (const partner of results.flat()) {
+    if (!partnersById.has(partner.id)) {
+      partnersById.set(partner.id, partner);
+    }
+  }
+  return [...partnersById.values()].sort(compareByNameKana);
+}
+
 // ============================================================================
 // コンポーネント
 // ============================================================================
@@ -257,17 +302,11 @@ export default function TradingPartnerSelect({
         setIsLoading(true);
         setFetchError(null);
 
-        // 指定された取引先種別を含む取引先を取得（最大100件）
-        const result = await getTradingPartners({
-          limit: 100,
-          filter: { type: filterTypes },
-          sort: 'nameKana',
-          order: 'asc',
-        });
+        const partners = await fetchTradingPartnersByTypes(filterTypes);
 
         if (mounted) {
-          setTradingPartners(result.data);
-          onLoadComplete?.(result.data.length);
+          setTradingPartners(partners);
+          onLoadComplete?.(partners.length);
         }
       } catch {
         if (mounted) {

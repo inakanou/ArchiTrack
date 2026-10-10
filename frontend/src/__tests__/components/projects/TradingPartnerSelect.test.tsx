@@ -521,7 +521,27 @@ describe('TradingPartnerSelect', () => {
       );
     });
 
-    it('filterTypesで複数の種別を指定できる', async () => {
+    it('filterTypesで複数の種別を指定すると、種別ごとに取得して重複を除きフリガナ順にまとめる', async () => {
+      // 一覧の API の種別 type は単一の値だけを受け付けるため、種別ごとに取得する。
+      // 顧客と協力業者の両方の種別を持つ取引先は、両方の取得に現れても 1 度だけ並ぶ
+      const bothTypesPartner: TradingPartnerInfo = {
+        ...mockSubcontractors[0]!,
+        id: '20',
+        name: '両方株式会社',
+        nameKana: 'リョウホウカブシキガイシャ',
+        types: ['CUSTOMER', 'SUBCONTRACTOR'],
+      };
+      vi.mocked(tradingPartnersApi.getTradingPartners).mockImplementation(async (options) => {
+        const data =
+          options?.filter?.type?.[0] === 'SUBCONTRACTOR'
+            ? [...mockSubcontractors, bothTypesPartner]
+            : [...mockTradingPartners, bothTypesPartner];
+        return {
+          data,
+          pagination: { page: 1, limit: 100, total: data.length, totalPages: 1 },
+        };
+      });
+
       render(
         <TradingPartnerSelect
           value=""
@@ -534,12 +554,45 @@ describe('TradingPartnerSelect', () => {
         expect(screen.getByRole('combobox')).not.toBeDisabled();
       });
 
-      // APIが両方の種別でフィルタリングされて呼ばれたことを確認
+      // APIが種別ごとに 1 つずつの種別で呼ばれたことを確認
+      expect(tradingPartnersApi.getTradingPartners).toHaveBeenCalledTimes(2);
       expect(tradingPartnersApi.getTradingPartners).toHaveBeenCalledWith(
-        expect.objectContaining({
-          filter: { type: ['CUSTOMER', 'SUBCONTRACTOR'] },
-        })
+        expect.objectContaining({ filter: { type: ['CUSTOMER'] } })
       );
+      expect(tradingPartnersApi.getTradingPartners).toHaveBeenCalledWith(
+        expect.objectContaining({ filter: { type: ['SUBCONTRACTOR'] } })
+      );
+
+      fireEvent.focus(screen.getByRole('combobox'));
+      const listbox = await screen.findByRole('listbox');
+      const optionNames = within(listbox)
+        .getAllByRole('option')
+        .filter((option) => option.id !== '' && !option.id.endsWith('-option-empty'))
+        .map((option) => option.querySelector('div')?.textContent);
+      expect(optionNames).toEqual([
+        '佐藤商事株式会社', // サトウ
+        '鈴木工業株式会社', // スズキ
+        '高橋工務店', // タカハシ
+        '田中建設株式会社', // タナカ
+        '山田建設株式会社', // ヤマダ
+        '両方株式会社', // リョウホウ
+      ]);
+    });
+
+    it('filterTypesが 1 つの種別のときは、その種別で 1 回だけ取得する', async () => {
+      render(<TradingPartnerSelect value="" onChange={vi.fn()} filterTypes={['SUBCONTRACTOR']} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('combobox')).not.toBeDisabled();
+      });
+
+      expect(tradingPartnersApi.getTradingPartners).toHaveBeenCalledTimes(1);
+      expect(tradingPartnersApi.getTradingPartners).toHaveBeenCalledWith({
+        limit: 100,
+        filter: { type: ['SUBCONTRACTOR'] },
+        sort: 'nameKana',
+        order: 'asc',
+      });
     });
 
     it('協力業者をフィルタリングして表示できる', async () => {

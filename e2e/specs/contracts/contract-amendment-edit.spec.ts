@@ -272,8 +272,8 @@ test.describe('変更契約の編集画面の初期化', () => {
     await expect(page.getByLabel('その他', { exact: true })).toHaveValue(
       AMENDMENT_VALUES.otherNotes
     );
-    // 監理者は画面の表示では測らない（監理者の選択の部品は取引先一覧の取得が 400 で失敗し、
-    // 選択済みの名前を表示できないため）。基契約書の監理者に差し替わらないことは、
+    // 監理者はここでは画面の表示で測らない。編集画面に保存済みの監理者の名前が表示されることは
+    // contract-supervisor-select.spec.ts（タスク 18.5）が測り、基契約書の監理者に差し替わらないことは、
     // 次のテストが保存後の DB の supervisorTradingPartnerId で主張する
 
     // 比較表示は基契約書の値を変更前、保存済みの値を変更後に並べる
