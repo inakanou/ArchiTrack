@@ -19,6 +19,9 @@
  * - REQ-17.9: 保存成功時に「並び順を保存しました」トースト通知
  * - REQ-17.13: 手動並び替えはフィルタやカラムソートが適用されていない状態でのみ操作可能（ボタン非表示）
  * - REQ-17.14: 並び順の保存リクエストでupdatedAtによる楽観的排他制御を適用する
+ * - REQ-5.1: 各カラムヘッダーにソートボタンを表示する（列見出しの中のボタンへ Tab で届く。タスク 26.4）
+ * - REQ-5.2: カラムヘッダーの操作で当該カラムの昇順ソート（ソートボタンの Enter / Space。タスク 26.4）
+ * - REQ-5.3: 同じカラムヘッダーの再度の操作で降順ソートへ切り替え（ソートボタンの Enter / Space。タスク 26.4）
  *
  * @module e2e/specs/itemized-statements/itemized-statement-reorder.spec
  */
@@ -836,6 +839,107 @@ test.describe('内訳書項目の並び替え', () => {
       // フィルタクリアで再表示されることを確認
       await page.getByRole('button', { name: 'フィルタをクリア' }).click();
       expect(await page.getByRole('button', { name: '上へ移動' }).count()).toBeGreaterThan(0);
+    });
+  });
+
+  /**
+   * 列見出しのキーボードによる並べ替え (REQ-5.1, REQ-5.2, REQ-5.3)
+   *
+   * タスク 26.4: 列見出しの中のソートボタンへ Tab で届き、Enter と Space で並べ替えられること。
+   * 並べ替えはクライアントの表示だけを変え、内訳書の並び順（displayOrder）は書き換えない。
+   */
+  test.describe('列見出しのキーボードによる並べ替え (REQ-5.1, REQ-5.2, REQ-5.3)', () => {
+    /** データ列の列見出し（左から） */
+    const SORTABLE_LABELS = ['任意分類', '工種', '名称', '規格', '数量', '単位'];
+
+    /**
+     * @requirement itemized-statement-generation/REQ-5.1: The 内訳書詳細画面 shall 各カラムヘッダーにソートボタンを表示する
+     * @requirement itemized-statement-generation/REQ-5.2: When ユーザーがカラムヘッダーをクリックする, the テーブル shall 当該カラムで昇順ソートする
+     * @requirement itemized-statement-generation/REQ-5.3: When ユーザーが同じカラムヘッダーを再度クリックする, the テーブル shall 当該カラムで降順ソートに切り替える
+     *
+     * 5.1: 6 つの列見出しのそれぞれに、名前が列名のソートボタンが一つずつあり、フィルタの最後の欄から
+     * Tab だけで先頭の列見出しのボタンへ進み、続く Tab で列見出しのボタンを左から順に巡ること。
+     * 5.2 / 5.3: 「名称」のボタンで Enter を押すと名称の昇順、もう一度 Enter で降順になり、
+     * 「数量」のボタンで Space を押すと数量の昇順、もう一度 Space で降順になること。
+     * 各段で、表の行の並びと見出しのセルの aria-sort の両方を主張する。
+     */
+    test('列見出しのソートボタンへTabで進み、EnterとSpaceで昇順・降順に並べ替えられる (itemized-statement-generation/REQ-5.1, REQ-5.2, REQ-5.3)', async ({
+      page,
+    }) => {
+      if (!createdItemizedStatementId) {
+        throw new Error('内訳書IDが未設定です');
+      }
+
+      await loginAsUser(page, 'REGULAR_USER');
+      await page.goto(`/itemized-statements/${createdItemizedStatementId}`);
+      await expect(page.getByRole('table')).toBeVisible({ timeout: getTimeout(15000) });
+
+      const table = page.getByRole('table');
+      const headerOf = (label: string) => table.getByRole('columnheader', { name: label });
+      const sortButtonOf = (label: string) =>
+        headerOf(label).getByRole('button', { name: label, exact: true });
+
+      /** 列名の列の、表の上から順の値（見出しの並びから列の位置を毎回求める） */
+      async function columnValues(label: string): Promise<string[]> {
+        const headerTexts = (await table.locator('thead th').allTextContents()).map((text) =>
+          text.replace(/[▲▼]/g, '').trim()
+        );
+        const index = headerTexts.indexOf(label);
+        expect(index, `列見出し「${label}」が表に無い`).toBeGreaterThanOrEqual(0);
+        const cells = table.locator(`tbody tr td:nth-child(${index + 1})`);
+        return (await cells.allTextContents()).map((text) => text.trim());
+      }
+
+      // 5.1: 各列見出しにソートボタンが一つずつある（aria-sort は見出しのセルが持つ）
+      for (const label of SORTABLE_LABELS) {
+        await expect(headerOf(label).getByRole('button')).toHaveCount(1);
+        await expect(sortButtonOf(label)).toBeVisible();
+        await expect(headerOf(label)).toHaveAttribute('aria-sort', 'none');
+      }
+
+      // 5.1: フィルタの最後の欄から Tab だけで列見出しのボタンを左から順に巡る
+      await page.getByRole('textbox', { name: '単位' }).focus();
+      for (const label of SORTABLE_LABELS.slice(0, 3)) {
+        await page.keyboard.press('Tab');
+        await expect(sortButtonOf(label)).toBeFocused();
+      }
+
+      // 5.2: 「名称」のボタンで Enter → 名称の昇順
+      await page.keyboard.press('Enter');
+      await expect(headerOf('名称')).toHaveAttribute('aria-sort', 'ascending');
+      await expect
+        .poll(() => columnValues('名称'))
+        .toEqual(['ケーブル', 'コンセント', 'パイプ', 'ペイント', 'ボルト']);
+      // 並べ替えた後もフォーカスはボタンに留まり、続けてキーで操作できる
+      await expect(sortButtonOf('名称')).toBeFocused();
+
+      // 5.3: もう一度 Enter → 名称の降順
+      await page.keyboard.press('Enter');
+      await expect(headerOf('名称')).toHaveAttribute('aria-sort', 'descending');
+      await expect
+        .poll(() => columnValues('名称'))
+        .toEqual(['ボルト', 'ペイント', 'パイプ', 'コンセント', 'ケーブル']);
+
+      // 「規格」を経て「数量」のボタンへ Tab で進む
+      await page.keyboard.press('Tab');
+      await expect(sortButtonOf('規格')).toBeFocused();
+      await page.keyboard.press('Tab');
+      await expect(sortButtonOf('数量')).toBeFocused();
+
+      // 5.2: 「数量」のボタンで Space → 数量の昇順（「名称」の並べ替えは外れる）
+      await page.keyboard.press('Space');
+      await expect(headerOf('数量')).toHaveAttribute('aria-sort', 'ascending');
+      await expect(headerOf('名称')).toHaveAttribute('aria-sort', 'none');
+      await expect
+        .poll(() => columnValues('数量'))
+        .toEqual(['10.00', '20.00', '50.00', '100.00', '200.00']);
+
+      // 5.3: もう一度 Space → 数量の降順
+      await page.keyboard.press('Space');
+      await expect(headerOf('数量')).toHaveAttribute('aria-sort', 'descending');
+      await expect
+        .poll(() => columnValues('数量'))
+        .toEqual(['200.00', '100.00', '50.00', '20.00', '10.00']);
     });
   });
 

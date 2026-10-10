@@ -334,8 +334,8 @@ describe('ItemizedStatementDetailPage - Excel出力機能', () => {
 
       // 数量でソート（降順）
       const quantityHeader = screen.getByRole('columnheader', { name: /数量/ });
-      await user.click(quantityHeader); // 昇順
-      await user.click(quantityHeader); // 降順
+      await user.click(within(quantityHeader).getByRole('button')); // 昇順
+      await user.click(within(quantityHeader).getByRole('button')); // 降順
 
       // Excelダウンロード
       const excelButton = screen.getByRole('button', { name: /Excel/i });

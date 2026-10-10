@@ -207,6 +207,8 @@ const DETAIL_HEADER_NAMES = [
 ];
 const DETAIL_ACTION_NAMES = ['クリップボードにコピー', 'Excelダウンロード', '削除'];
 const FILTER_NAMES = ['フィルタをクリア', '任意分類', '工種', '名称', '規格', '単位'];
+/** 表の列見出しの中のソートボタン（タスク 26.4。表の見出しは並び替えの釦の行より前に在る） */
+const SORT_HEADER_NAMES = ['任意分類', '工種', '名称', '規格', '数量', '単位'];
 /** 3 項目の並び替えの釦（先頭の上へと末尾の下へは無効だが、部品としては在る） */
 const REORDER_NAMES = ['上へ移動', '下へ移動', '上へ移動', '下へ移動', '上へ移動', '下へ移動'];
 
@@ -236,6 +238,7 @@ describe('内訳書の詳細画面の部品が共通のフォーカス表示を�
         ...DETAIL_HEADER_NAMES,
         ...DETAIL_ACTION_NAMES,
         ...FILTER_NAMES,
+        ...SORT_HEADER_NAMES,
         ...REORDER_NAMES,
       ])
     );
@@ -261,6 +264,7 @@ describe('内訳書の詳細画面の部品が共通のフォーカス表示を�
         '並び順を保存',
         ...DETAIL_ACTION_NAMES,
         ...FILTER_NAMES,
+        ...SORT_HEADER_NAMES,
         ...REORDER_NAMES,
       ])
     );

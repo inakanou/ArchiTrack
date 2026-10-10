@@ -520,7 +520,7 @@
   - _Requirements: 17.2, 17.3_
   - _Boundary: 手動並び替えの移動の検証_
 
-- [ ] 26.4 詳細画面の並べ替えの列見出しをキーボードで操作できるようにする
+- [x] 26.4 詳細画面の並べ替えの列見出しをキーボードで操作できるようにする
   - **事実**: `frontend/src/pages/ItemizedStatementDetailPage.tsx` の 652〜675 行付近の `SortableHeader` は `<th role="columnheader" onClick aria-sort>` で、`tabIndex` もキーの処理も中のボタンも無い。Tab で届かず Enter / Space でも並べ替えられない（WCAG 2.1.1）。要件 5.1 は「ソートボタンを表示する」と定める
   - `<th aria-sort>` の中に `<button type="button">` を置き、クリックと Enter / Space で並べ替える。フォーカス表示は steering の「フォーカス表示方針」に従う
   - 挙動の変更であるため RED → GREEN で進め、単体と E2E（キーボードで列を並べ替える）で主張する。Task 25.1 の E2E（`e2e/specs/itemized-statements/itemized-statement-focus-visible.spec.ts`）の一巡の期待値（順序と件数）も同じ変更で更新する

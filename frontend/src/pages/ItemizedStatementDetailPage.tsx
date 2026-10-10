@@ -296,11 +296,29 @@ const styles = {
     backgroundColor: '#f9fafb',
     borderBottom: '2px solid #e5e7eb',
     whiteSpace: 'nowrap' as const,
-    cursor: 'pointer',
     userSelect: 'none' as const,
   } as React.CSSProperties,
   thQuantity: {
     textAlign: 'right' as const,
+  } as React.CSSProperties,
+  /**
+   * 列見出しの中のソートボタン（Req 5.1）。見出しの文字の見た目（色・太さ・大きさ・揃え）を
+   * そのまま受け継ぎ、見出しのセルの内容の幅いっぱいに広げてクリックの受け口を保つ。
+   * フォーカス表示は全画面共通の :focus-visible の輪に任せ、outline をインラインで打ち消さない
+   * （セルの余白 12px / 16px の内側に輪の 2px と隙間の 2px が収まる）
+   */
+  sortButton: {
+    display: 'block',
+    width: '100%',
+    padding: 0,
+    margin: 0,
+    border: 'none',
+    background: 'transparent',
+    color: 'inherit',
+    font: 'inherit',
+    textAlign: 'inherit' as const,
+    whiteSpace: 'inherit' as const,
+    cursor: 'pointer',
   } as React.CSSProperties,
   sortIcon: {
     marginLeft: '4px',
@@ -642,6 +660,9 @@ function FilterArea({ filters, onFilterChange, onClear }: FilterAreaProps) {
 
 /**
  * ソート可能なカラムヘッダー
+ *
+ * 見出しのセル（th）が aria-sort を持ち、並べ替えの操作は中の `<button type="button">` が受ける
+ * （Req 5.1〜5.3）。ネイティブのボタンのため、Tab で届き、クリックと Enter / Space で並べ替えられる
  */
 interface SortableHeaderProps {
   column: ColumnDefinition;
@@ -664,11 +685,16 @@ function SortableHeader({ column, sortState, onSort }: SortableHeaderProps) {
         ...(column.isQuantity ? styles.thQuantity : {}),
       }}
       role="columnheader"
-      onClick={handleClick}
       aria-sort={isActive ? (sortState.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
     >
-      {column.label}
-      {sortIcon && <span style={styles.sortIcon}>{sortIcon}</span>}
+      <button type="button" onClick={handleClick} style={styles.sortButton}>
+        {column.label}
+        {sortIcon && (
+          <span style={styles.sortIcon} aria-hidden="true">
+            {sortIcon}
+          </span>
+        )}
+      </button>
     </th>
   );
 }
@@ -1064,7 +1090,7 @@ export default function ItemizedStatementDetailPage() {
     return sortState.column === null && !isFilterActive;
   }, [sortState.column, isFilterActive]);
 
-  // 上移動ハンドラ (Req 17.4)
+  // 上移動ハンドラ (Req 17.2)
   const handleMoveUp = useCallback((globalIndex: number) => {
     if (globalIndex <= 0) return;
     setOrderedItems((prev) => {
@@ -1077,7 +1103,7 @@ export default function ItemizedStatementDetailPage() {
     setHasOrderChanges(true);
   }, []);
 
-  // 下移動ハンドラ (Req 17.5)
+  // 下移動ハンドラ (Req 17.3)
   const handleMoveDown = useCallback((globalIndex: number) => {
     setOrderedItems((prev) => {
       if (globalIndex >= prev.length - 1) return prev;

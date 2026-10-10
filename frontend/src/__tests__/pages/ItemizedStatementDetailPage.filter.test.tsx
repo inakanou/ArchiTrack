@@ -572,7 +572,7 @@ describe('ItemizedStatementDetailPage - フィルタリング機能', () => {
 
       // 数量でソート（昇順）
       const quantityHeader = screen.getByRole('columnheader', { name: /数量/i });
-      fireEvent.click(quantityHeader);
+      fireEvent.click(within(quantityHeader).getByRole('button'));
 
       const rows = getTableRows();
       // 50.50（コンセント取付）< 100.00（ケーブル配線）
@@ -587,7 +587,7 @@ describe('ItemizedStatementDetailPage - フィルタリング機能', () => {
 
       // 数量でソート（昇順）
       const quantityHeader = screen.getByRole('columnheader', { name: /数量/i });
-      fireEvent.click(quantityHeader);
+      fireEvent.click(within(quantityHeader).getByRole('button'));
 
       // 「電気」でフィルタ
       const filterInput = screen.getByRole('textbox', { name: /任意分類/i });

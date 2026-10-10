@@ -239,7 +239,7 @@ describe('ItemizedStatementDetailPage - 並び替え機能', () => {
 
       // カラムヘッダーをクリックしてソートを適用
       const header = screen.getByRole('columnheader', { name: /任意分類/i });
-      await user.click(header);
+      await user.click(within(header).getByRole('button'));
 
       // 上下ボタンが非表示になる
       expect(screen.queryAllByRole('button', { name: '上へ移動' })).toHaveLength(0);

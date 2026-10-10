@@ -26,6 +26,8 @@
  * 一巡は文書の先頭（どの要素にもフォーカスが無い状態）から始め、範囲へ入った最初の要素から
  * 範囲を出るまでに止まった要素の並びを、順序と件数まで含めて主張する。範囲の手前で止まる要素を
  * 読み飛ばさないこと、「一つも巡らずに違反 0 件」で緑になる形を塞ぐことを兼ねる。
+ * 詳細画面の表が在る状態では、表の 6 つの列見出しの中のソートボタンにも止まる（タスク 26.4。
+ * 見出しのセルの背景の上で、共通の :focus-visible の輪を同じ判定で測る）。
  * 詳細画面は、3 項目の固定の小さな内訳書で測る（並び替えの釦の有効・無効の並びは先頭・中間・末尾の
  * 3 項目で尽きるため）。ページ送りは、1 ページ（50 件）を 1 件だけ超える 51 項目の内訳書で測る。
  * 状態はキーボードの操作で作る（マウスで押すと、その後の要素の :focus-visible の照合が
@@ -544,6 +546,18 @@ const FILTER_DESCRIPTORS = [
   'input "規格"',
   'input "単位"',
 ];
+/**
+ * 表の 6 つの列見出しの中のソートボタン（タスク 26.4 で Tab の止まり先になった）。
+ * 表の見出しは本文の行より前に在るため、フィルタの欄の後、並び替えの釦の前で止まる
+ */
+const SORT_HEADER_DESCRIPTORS = [
+  'button "任意分類"',
+  'button "工種"',
+  'button "名称"',
+  'button "規格"',
+  'button "数量"',
+  'button "単位"',
+];
 /** 3 項目の並び替えの釦（先頭の上へと末尾の下へは無効で止まらない） */
 const REORDER_DESCRIPTORS = [
   'button "下へ移動"',
@@ -556,6 +570,7 @@ const DETAIL_INITIAL_DESCRIPTORS = [
   ...DETAIL_NAV_DESCRIPTORS,
   ...DETAIL_ACTION_DESCRIPTORS,
   ...FILTER_DESCRIPTORS,
+  ...SORT_HEADER_DESCRIPTORS,
   ...REORDER_DESCRIPTORS,
 ];
 /** 並び替えて未保存の変更がある本文が Tab で止まる要素（並び順の保存の釦が出る） */
@@ -564,6 +579,7 @@ const DETAIL_DIRTY_DESCRIPTORS = [
   'button "並び順を保存"',
   ...DETAIL_ACTION_DESCRIPTORS,
   ...FILTER_DESCRIPTORS,
+  ...SORT_HEADER_DESCRIPTORS,
   ...REORDER_DESCRIPTORS,
 ];
 
@@ -975,6 +991,7 @@ test.describe('内訳書の画面のフォーカス表示', () => {
       'a "← プロジェクトに戻る"',
       ...DETAIL_ACTION_DESCRIPTORS,
       ...FILTER_DESCRIPTORS,
+      ...SORT_HEADER_DESCRIPTORS,
     ];
     // 1 ページ目は「前へ」が無効で止まらない
     expectClearFocusWalk(firstPage, [...pagedNav, 'button "次へ"']);
