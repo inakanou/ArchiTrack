@@ -23,6 +23,8 @@ import {
   ContractValidationError,
   ContractDeletionConstraintError,
 } from '../../../errors/contractError.js';
+import { ProjectNotFoundError } from '../../../errors/projectError.js';
+import { EstimateNotFoundError } from '../../../errors/estimateError.js';
 
 // Prismaモック
 function createMockPrisma() {
@@ -34,6 +36,12 @@ function createMockPrisma() {
       create: vi.fn(),
       update: vi.fn(),
       count: vi.fn(),
+    },
+    project: {
+      findUnique: vi.fn(),
+    },
+    estimate: {
+      findUnique: vi.fn(),
     },
     $transaction: vi.fn((fn: (tx: unknown) => Promise<unknown>) =>
       fn({
@@ -118,6 +126,16 @@ describe('ContractService', () => {
       prisma: mockPrisma,
     };
     service = new ContractService(deps);
+    // 参照先の既定値: 有効なプロジェクトと、同じプロジェクトの論理削除されていない見積書
+    (mockPrisma.project.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: projectId,
+      deletedAt: null,
+    });
+    (mockPrisma.estimate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: estimateId,
+      projectId,
+      deletedAt: null,
+    });
   });
 
   describe('findById（文字列日付・関連オブジェクトあり）', () => {
@@ -521,6 +539,175 @@ describe('ContractService', () => {
       };
 
       await expect(service.update(contractId, updateInput)).rejects.toThrow(ContractNotFoundError);
+    });
+  });
+
+  /**
+   * 参照先（プロジェクト・見積書）の検証（タスク 18.3）
+   *
+   * design.md の ContractService の Preconditions（projectId が有効なプロジェクトであること、
+   * 見積書は同じプロジェクトのものであること）と Error Handling（プロジェクト・見積書が
+   * 見つからなければ 404、論理削除済みの見積書を参照しようとしたら 422）に基づく。
+   */
+  describe('参照先の検証', () => {
+    const otherProjectId = '550e8400-e29b-41d4-a716-446655440099';
+    const newEstimateId = '550e8400-e29b-41d4-a716-446655440002';
+    const updateInput = {
+      estimateId,
+      contractDate: '2026-04-01',
+      constructionStartDate: '2026-05-01',
+      constructionEndDate: '2026-12-31',
+      deliveryDate: '2027-01-15',
+      taxRate: 0.1,
+      paymentTerms: '支払条件',
+      separateConstruction: '',
+      otherNotes: '',
+      supervisorTradingPartnerId: null,
+      contractAmount: 11000000,
+      constructionPrice: 10000000,
+      taxAmount: 1000000,
+      version: 0,
+    };
+
+    describe('create', () => {
+      it('プロジェクトが存在しない場合はProjectNotFoundError（404）になり、作成しないこと', async () => {
+        (mockPrisma.project.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+        const error = await service.create(projectId, createInput).catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(ProjectNotFoundError);
+        expect((error as ProjectNotFoundError).statusCode).toBe(404);
+        expect(mockPrisma.contract.create).not.toHaveBeenCalled();
+      });
+
+      it('プロジェクトが論理削除済みの場合はProjectNotFoundError（404）になり、作成しないこと', async () => {
+        (mockPrisma.project.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+          id: projectId,
+          deletedAt: new Date(),
+        });
+
+        const error = await service.create(projectId, createInput).catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(ProjectNotFoundError);
+        expect(mockPrisma.contract.create).not.toHaveBeenCalled();
+      });
+
+      it('見積書が存在しない場合はEstimateNotFoundError（404）になり、作成しないこと', async () => {
+        (mockPrisma.estimate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+        const error = await service.create(projectId, createInput).catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(EstimateNotFoundError);
+        expect((error as EstimateNotFoundError).statusCode).toBe(404);
+        expect(mockPrisma.contract.create).not.toHaveBeenCalled();
+      });
+
+      it('他プロジェクトの見積書の場合はContractValidationError（422）になり、作成しないこと', async () => {
+        (mockPrisma.estimate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+          id: estimateId,
+          projectId: otherProjectId,
+          deletedAt: null,
+        });
+
+        const error = await service.create(projectId, createInput).catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(ContractValidationError);
+        expect((error as ContractValidationError).statusCode).toBe(422);
+        expect((error as ContractValidationError).message).toBe(
+          '契約の基となる見積書は同じプロジェクトの見積書である必要があります'
+        );
+        expect(mockPrisma.contract.create).not.toHaveBeenCalled();
+      });
+
+      it('論理削除済みの見積書の場合はContractValidationError（422）になり、作成しないこと', async () => {
+        (mockPrisma.estimate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+          id: estimateId,
+          projectId,
+          deletedAt: new Date(),
+        });
+
+        const error = await service.create(projectId, createInput).catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(ContractValidationError);
+        expect((error as ContractValidationError).statusCode).toBe(422);
+        expect((error as ContractValidationError).message).toBe(
+          '削除された見積書は契約の基として選択できません'
+        );
+        expect(mockPrisma.contract.create).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('update', () => {
+      beforeEach(() => {
+        (mockPrisma.contract.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+          mockContractRecord
+        );
+        (mockPrisma.contract.update as ReturnType<typeof vi.fn>).mockResolvedValue(
+          mockContractRecord
+        );
+      });
+
+      it('見積書を存在しないものに変えた場合はEstimateNotFoundError（404）になり、更新しないこと', async () => {
+        (mockPrisma.estimate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+        const error = await service
+          .update(contractId, { ...updateInput, estimateId: newEstimateId })
+          .catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(EstimateNotFoundError);
+        expect(mockPrisma.contract.update).not.toHaveBeenCalled();
+      });
+
+      it('見積書を他プロジェクトのものに変えた場合はContractValidationError（422）になり、更新しないこと', async () => {
+        (mockPrisma.estimate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+          id: newEstimateId,
+          projectId: otherProjectId,
+          deletedAt: null,
+        });
+
+        const error = await service
+          .update(contractId, { ...updateInput, estimateId: newEstimateId })
+          .catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(ContractValidationError);
+        expect(mockPrisma.contract.update).not.toHaveBeenCalled();
+      });
+
+      it('見積書を論理削除済みのものに変えた場合はContractValidationError（422）になり、更新しないこと', async () => {
+        (mockPrisma.estimate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+          id: newEstimateId,
+          projectId,
+          deletedAt: new Date(),
+        });
+
+        const error = await service
+          .update(contractId, { ...updateInput, estimateId: newEstimateId })
+          .catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(ContractValidationError);
+        expect(mockPrisma.contract.update).not.toHaveBeenCalled();
+      });
+
+      it('見積書を同じプロジェクトの有効なものに変えた場合は更新できること', async () => {
+        await service.update(contractId, { ...updateInput, estimateId: newEstimateId });
+
+        expect(mockPrisma.estimate.findUnique).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { id: newEstimateId } })
+        );
+        expect(mockPrisma.contract.update).toHaveBeenCalledTimes(1);
+      });
+
+      it('見積書を変えない場合は、その見積書が後から論理削除されていても他の項目を更新できること', async () => {
+        (mockPrisma.estimate.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+          id: estimateId,
+          projectId,
+          deletedAt: new Date(),
+        });
+
+        await service.update(contractId, updateInput);
+
+        expect(mockPrisma.contract.update).toHaveBeenCalledTimes(1);
+      });
     });
   });
 
