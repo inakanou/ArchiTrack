@@ -514,7 +514,7 @@
   - _Requirements: 8.3_
   - _Boundary: 内訳書のスナップショット独立性の検証_
 
-- [ ] 26.3 上下移動ボタンの移動の結果を E2E で検証し、単体の要件の表記の入れ違いを正す
+- [x] 26.3 上下移動ボタンの移動の結果を E2E で検証し、単体の要件の表記の入れ違いを正す
   - `e2e/specs/itemized-statements/itemized-statement-reorder.spec.ts` の 333 行付近（上移動）に、保存前と保存後のリロード後の両方で 2 行目が 1 行目へ移ったことの主張を足して 17.2 を名乗る。273 行付近（下移動）は 17.3 の検証になっているため 17.3 の印を足す
   - 単体 `ItemizedStatementDetailPage.reorder.test.tsx` の 147〜191 行付近の 17.2〜17.5 の表記の入れ違いを正す
   - _Requirements: 17.2, 17.3_

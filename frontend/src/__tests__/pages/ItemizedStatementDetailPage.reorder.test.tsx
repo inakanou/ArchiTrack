@@ -5,10 +5,10 @@
  *
  * Requirements:
  * - 17.1: 各内訳項目行に上移動ボタン（上向き三角）と下移動ボタン（下向き三角）を表示する
- * - 17.2: リスト先頭の項目の上移動ボタンは無効化（disabled）する
- * - 17.3: リスト末尾の項目の下移動ボタンは無効化（disabled）する
- * - 17.4: 上移動ボタンクリック時は該当項目を1つ上の位置に移動する
- * - 17.5: 下移動ボタンクリック時は該当項目を1つ下の位置に移動する
+ * - 17.2: 上移動ボタンクリック時は該当項目を1つ上の位置に移動する
+ * - 17.3: 下移動ボタンクリック時は該当項目を1つ下の位置に移動する
+ * - 17.4: リスト先頭の項目の上移動ボタンは無効化（disabled）する
+ * - 17.5: リスト末尾の項目の下移動ボタンは無効化（disabled）する
  * - 17.6: 並び替え操作はローカルState更新のみ行い、APIリクエストは発生しない
  * - 17.7: 並び替え操作が行われた場合に変更フラグをtrueに設定し、保存ボタンを表示する
  * - 17.8: 保存ボタンクリック時にupdateItemOrder APIを呼び出す
@@ -144,7 +144,7 @@ describe('ItemizedStatementDetailPage - 並び替え機能', () => {
     });
   });
 
-  describe('Requirement 17.2: 先頭項目の上移動ボタンが無効化', () => {
+  describe('Requirement 17.4: 先頭項目の上移動ボタンが無効化', () => {
     it('先頭の項目の上移動ボタンがdisabledである', async () => {
       renderComponent();
       await screen.findByRole('table');
@@ -154,7 +154,7 @@ describe('ItemizedStatementDetailPage - 並び替え機能', () => {
     });
   });
 
-  describe('Requirement 17.3: 末尾項目の下移動ボタンが無効化', () => {
+  describe('Requirement 17.5: 末尾項目の下移動ボタンが無効化', () => {
     it('末尾の項目の下移動ボタンがdisabledである', async () => {
       renderComponent();
       await screen.findByRole('table');
@@ -164,7 +164,7 @@ describe('ItemizedStatementDetailPage - 並び替え機能', () => {
     });
   });
 
-  describe('Requirement 17.4: 上移動ボタンクリックで項目が1つ上に移動', () => {
+  describe('Requirement 17.2: 上移動ボタンクリックで項目が1つ上に移動', () => {
     it('2番目の項目の上移動ボタンをクリックすると1番目に移動する', async () => {
       const user = userEvent.setup();
       renderComponent();
@@ -188,7 +188,7 @@ describe('ItemizedStatementDetailPage - 並び替え機能', () => {
     });
   });
 
-  describe('Requirement 17.5: 下移動ボタンクリックで項目が1つ下に移動', () => {
+  describe('Requirement 17.3: 下移動ボタンクリックで項目が1つ下に移動', () => {
     it('1番目の項目の下移動ボタンをクリックすると2番目に移動する', async () => {
       const user = userEvent.setup();
       renderComponent();

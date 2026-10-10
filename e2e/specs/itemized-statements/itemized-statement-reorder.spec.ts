@@ -9,6 +9,8 @@
  * - REQ-16.3: ソート対象値が null または空文字の場合、空文字として扱い先頭に配置する
  * - REQ-16.4: 初期ソート順序は内訳書作成時に一度だけ適用され、手動並び替えで上書き可能
  * - REQ-17.1: 各内訳項目行に上移動ボタン(上向き矢印)と下移動ボタン(下向き矢印)を表示する
+ * - REQ-17.2: 上移動ボタンのクリックで該当項目が1つ上の位置に移動する（保存前の表示と、保存してリロードした後の表示の両方）
+ * - REQ-17.3: 下移動ボタンのクリックで該当項目が1つ下の位置に移動する（保存してリロードした後の表示）
  * - REQ-17.4: 先頭項目の上移動ボタンクリック時に何もしない（ボタンが無効化されている）
  * - REQ-17.5: 末尾項目の下移動ボタンクリック時に何もしない（ボタンが無効化されている）
  * - REQ-17.6: 並び替え操作はクライアントサイドのみで状態管理し、操作ごとにサーバーリクエストを発生させない
@@ -184,7 +186,7 @@ test.describe('内訳書項目の並び替え', () => {
   /**
    * 並び替えUI表示テスト
    */
-  test.describe('並び替えUI (REQ-17.1, REQ-17.2, REQ-17.3, REQ-17.4, REQ-17.5)', () => {
+  test.describe('並び替えUI (REQ-17.1, REQ-17.4, REQ-17.5)', () => {
     /**
      * @requirement itemized-statement-generation/REQ-17.1: 各内訳項目行に上移動ボタンと下移動ボタンを表示する
      */
@@ -221,6 +223,8 @@ test.describe('内訳書項目の並び替え', () => {
      * あり、本検証が主張するのは先頭行でボタンが**無効化される**ことである。移動は起きない。
      * 無効化を述べるのは原文17.4 であり、そちらは引き続き名乗る。
      * 17.2 は本区間が唯一の被覆源だったため、未被覆として露出する。
+     * （itemized-statement-generation のタスク 26.3 が、下の「項目を上方向に移動して保存すると
+     * 並び順が保存される」に移動の結果の主張を足して 17.2 を名乗り直した。）
      */
     test('先頭項目の上移動ボタンが無効化されている', async ({ page }) => {
       if (!createdItemizedStatementId) {
@@ -244,6 +248,8 @@ test.describe('内訳書項目の並び替え', () => {
      * あり、本検証が主張するのは末尾行でボタンが**無効化される**ことである。移動は起きない。
      * 無効化を述べるのは原文17.5 であり、そちらは引き続き名乗る。
      * 17.3 は本区間が唯一の被覆源だったため、未被覆として露出する。
+     * （itemized-statement-generation のタスク 26.3 が、下の「項目を下方向に移動して保存すると
+     * 並び順が保存される」の移動の結果の主張に 17.3 を名乗らせた。）
      */
     test('末尾項目の下移動ボタンが無効化されている', async ({ page }) => {
       if (!createdItemizedStatementId) {
@@ -264,11 +270,15 @@ test.describe('内訳書項目の並び替え', () => {
   /**
    * 並び替え操作と保存テスト
    */
-  test.describe('並び替え操作と保存 (REQ-17.6, REQ-17.7, REQ-17.8, REQ-17.9)', () => {
+  test.describe('並び替え操作と保存 (REQ-17.2, REQ-17.3, REQ-17.6, REQ-17.7, REQ-17.8, REQ-17.9)', () => {
     /**
+     * @requirement itemized-statement-generation/REQ-17.3: When ユーザーが下移動ボタンをクリックする, the 該当項目 shall 1つ下の位置に移動する
      * @requirement itemized-statement-generation/REQ-17.7: 並び替え操作が行われた場合に保存ボタンを表示する
      * @requirement itemized-statement-generation/REQ-17.8: 保存ボタンクリック時に全項目の並び順をサーバーに一括送信して確定する
      * @requirement itemized-statement-generation/REQ-17.9: 並び順の保存成功時に「並び順を保存しました」トースト通知を表示する
+     *
+     * 17.3: 1 行目の下移動ボタンをクリックし、保存してリロードした後に、元の 1 行目の名称が
+     * 2 行目に表示されていること（1 つ下の位置へ移ったこと）を主張する。
      */
     test('項目を下方向に移動して保存すると並び順が保存される', async ({ page }) => {
       if (!createdItemizedStatementId) {
@@ -327,8 +337,13 @@ test.describe('内訳書項目の並び替え', () => {
     });
 
     /**
+     * @requirement itemized-statement-generation/REQ-17.2: When ユーザーが上移動ボタンをクリックする, the 該当項目 shall 1つ上の位置に移動する
      * @requirement itemized-statement-generation/REQ-17.7: 並び替え操作が行われた場合に保存ボタンを表示する
      * @requirement itemized-statement-generation/REQ-17.8: 保存ボタンクリック時に全項目の並び順をサーバーに一括送信して確定する
+     *
+     * 17.2: 2 行目の上移動ボタンをクリックした直後（保存前）と、保存してリロードした後の両方で、
+     * 元の 2 行目の名称が 1 行目に、元の 1 行目の名称が 2 行目に表示されていること
+     * （該当項目が 1 つ上の位置へ移り、押し出された項目が 1 つ下へ入れ替わったこと）を主張する。
      */
     test('項目を上方向に移動して保存すると並び順が保存される', async ({ page }) => {
       if (!createdItemizedStatementId) {
@@ -339,11 +354,26 @@ test.describe('内訳書項目の並び替え', () => {
       await page.goto(`/itemized-statements/${createdItemizedStatementId}`);
       await expect(page.getByRole('table')).toBeVisible({ timeout: getTimeout(15000) });
 
-      // 2番目の行の上移動ボタンをクリック
       const table = page.getByRole('table');
       const tbodyRows = table.locator('tbody tr');
+      expect(await tbodyRows.count()).toBeGreaterThan(1);
+
+      // 移動前の 1 行目・2 行目の名称（名称列）を控える
+      const nameCellOf = (rows: typeof tbodyRows, index: number) =>
+        rows.nth(index).getByRole('cell').nth(3);
+      const originalFirstName = (await nameCellOf(tbodyRows, 0).textContent())?.trim() ?? '';
+      const originalSecondName = (await nameCellOf(tbodyRows, 1).textContent())?.trim() ?? '';
+      expect(originalFirstName).not.toBe('');
+      expect(originalSecondName).not.toBe('');
+      expect(originalSecondName).not.toBe(originalFirstName);
+
+      // 2番目の行の上移動ボタンをクリック
       const secondUpButton = tbodyRows.nth(1).getByRole('button', { name: '上へ移動' });
       await secondUpButton.click();
+
+      // 保存前: 元の 2 行目が 1 行目へ、元の 1 行目が 2 行目へ移っている (REQ-17.2)
+      await expect(nameCellOf(tbodyRows, 0)).toHaveText(originalSecondName);
+      await expect(nameCellOf(tbodyRows, 1)).toHaveText(originalFirstName);
 
       // 保存ボタンが表示される
       const saveButton = page.getByRole('button', { name: /並び順を保存/ });
@@ -365,6 +395,13 @@ test.describe('内訳書項目の並び替え', () => {
       await expect(page.getByText(/並び順を保存しました/)).toBeVisible({
         timeout: getTimeout(5000),
       });
+
+      // 保存後のリロード後: 移動の結果がサーバーに確定している (REQ-17.2)
+      await page.reload();
+      await expect(page.getByRole('table')).toBeVisible({ timeout: getTimeout(15000) });
+      const reloadedRows = page.getByRole('table').locator('tbody tr');
+      await expect(nameCellOf(reloadedRows, 0)).toHaveText(originalSecondName);
+      await expect(nameCellOf(reloadedRows, 1)).toHaveText(originalFirstName);
     });
 
     /**
