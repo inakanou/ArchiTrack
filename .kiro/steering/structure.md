@@ -832,6 +832,7 @@ frontend/src/
 │       ├── estimateEditReducer.ts # 編集状態の遷移関数（行操作・階層移動・範囲操作）
 │       ├── estimateTree.ts # ツリー導出・祖先金額の再計算
 │       ├── estimateCalculations.ts # 案分・利益率・集計のクライアント計算
+│       ├── estimateAmountLimit.ts # 金額の上限（保存スキーマの写し）と上限超過の判定
 │       └── estimateKeymap.ts # キー割当の単一定義（画面のヘルプ表示と共用）
 ├── hooks/             # カスタムフック（useMediaQuery、useAuth、useEstimateEditor、useEstimateKeyboard、useEstimateUndo、useEstimateNavigation、useEstimateViewModePreference、useAutocompleteCandidateStore、useUnsavedChanges、useScheduleState、useHolidayCalendar、useCanvasViewport（注釈Canvasの中点ズーム/パン/フィット状態）、useElementSize（ResizeObserverで要素実寸を購読し再フィットに使用）等）
 ├── services/          # サービス層（TokenRefreshManager.ts、AutoSaveManager.ts、UndoManager.ts）
@@ -1031,7 +1032,6 @@ backend/
 │   │   ├── estimate-item.service.ts # 見積項目管理（3行1セット、階層構造）
 │   │   ├── estimate-draft.service.ts # 見積明細の一括保存（ツリー全体の差分適用、単一トランザクション、楽観ロック）
 │   │   ├── estimate-calculation.service.ts # 見積金額計算（NET金額案分）
-│   │   ├── estimate-validation.service.ts # 見積書バリデーション
 │   │   ├── overhead-cost.service.ts # 諸経費計算（行の追加はクライアント側）
 │   │   ├── claude-vision.service.ts # Claude Vision OCR（Anthropic API統合、見積書構造化データ抽出）
 │   │   ├── contract.service.ts # 契約書管理（CRUD、ステータス遷移、見積書連動金額計算、楽観的排他制御）

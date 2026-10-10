@@ -1755,11 +1755,12 @@ _起票元: quantity-table-generation の Task 94.1。独立レビューが行�
   - _Boundary: 見積書の同時編集の警告の処遇_
   - **決定と結果（2026-10-10）**: 利用者が (a) を選んだ。見積書詳細画面を開いている間を「編集中」とし、在席を `EstimateEditSession` に記録する（通知 20 秒ごと・期限 90 秒、`PUT` / `DELETE /api/estimates/:id/edit-session`）。他の利用者の名前を挙げた警告を `role="status"` で表示する。design.md の末尾の章「追加設計（REQ-11.7 対応）」と各所の現況の注記に記録した。レビューの任意の提案 2 件（`estimate-hierarchy-move-e2e.spec.ts` の書き込みの数え方が `/edit-session` を拾いうる件、`estimate-features-e2e.spec.ts` の保存待ちの条件が広い件）は起票していない
 
-- [ ] 61.2 REQ-13.5（オーバーフローの警告）を本番の経路で満たす（着手時に利用者の判断を得る）
+- [x] 61.2 REQ-13.5（オーバーフローの警告）を本番の経路で満たす（着手時に利用者の判断を得る）
   - **事実**: 実装は `backend/src/services/estimate-validation.service.ts`（80 行付近・320 行付近）と `estimate-calculation.service.ts`（340 行付近）だけで、どちらも本番のコードから import されていない。保存時に 13 桁を超えると 400 で拒む処理（`backend/src/schemas/estimate.schema.ts` の 298 行付近・366〜369 行付近）はあるが、条文の言う警告ではない
   - 選択肢: (a) 画面の金額計算と明細行の表示に上限超過の警告を実装し、E2E で主張する / (b) 条文を「保存時に上限超過を拒否して知らせる」へ改訂し、400 と画面の表示を E2E で主張する。あわせて本番から使われない `estimate-validation.service.ts`（と `estimate-calculation.service.ts` の到達しない部分）を結線するか取り除くかを決める
   - _Requirements: 13.5_
   - _Boundary: 見積の金額の上限超過の知らせ方_
+  - **決定と結果（2026-10-11）**: 利用者が (a) を選んだ。見積書詳細画面で、明細の金額・親の合計・サマリーの合計と差額が保存の上限（9999999999999.99）を超えると、金額欄に印を付け、画面上部に `role="alert"` の警告を出す。保存時の 400 は残した。本番から使われない検証サービスとそのテストを取り除き、計算サービスは上限の判定だけを取り除いた（利用者の判断で、残りは画面側の計算の照合先として残す）。レビューの任意の提案（サマリーの合計を警告の判定と描画の 2 か所で別々に計算している件）は起票していない
 
 - [ ] 61.3 REQ-5.7（処理中表示）の条文を実装と揃える（着手時に利用者の判断を得る）
   - **事実**: 名乗りは本番から使われない `frontend/src/components/estimate/NetCalculationPanel.tsx` にしか無い。`NetAllocationDialog.tsx` の 25〜26 行付近の注記は「処理中の期間が存在しない」とする。同じ理由の 18.9 / 19.7 は requirements.md（373 行付近・388 行付近）で撤廃済み

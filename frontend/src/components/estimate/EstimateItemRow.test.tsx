@@ -968,3 +968,64 @@ describe('EstimateItemRow - 注記行（55.1）', () => {
     expect(within(estimateRow).getByLabelText('備考')).toBeInTheDocument();
   });
 });
+
+// ====================================================================
+// 金額の上限超過（オーバーフロー）の警告（13.5）
+// ====================================================================
+
+describe('EstimateItemRow 金額の上限超過の警告 (13.5)', () => {
+  const linesWithEstimateAmount = (amount: string | null): EstimateItemLineEdit[] =>
+    createMockLines().map((line) => (line.lineType === 'ESTIMATE' ? { ...line, amount } : line));
+
+  /**
+   * @requirement estimate-creation/REQ-13.5 金額計算結果が数値の最大値を超えた場合にオーバーフロー警告を表示する
+   */
+  it('金額が上限を超えた金額欄に警告の印と説明を付ける', () => {
+    render(<EstimateItemRow itemId="item-1" lines={linesWithEstimateAmount('10000000000000')} />);
+
+    const amountField = within(screen.getByTestId('line-type-ESTIMATE')).getByTestId(
+      'amount-field'
+    );
+    expect(amountField).toHaveAttribute('data-amount-overflow', 'true');
+    expect(amountField).toHaveAttribute('aria-invalid', 'true');
+    expect(amountField).toHaveTextContent('⚠');
+    expect(amountField).toHaveTextContent('10,000,000,000,000');
+    expect(amountField).toHaveAccessibleDescription(
+      '金額が上限（9,999,999,999,999円）を超えています'
+    );
+
+    // 上限内の他の行には付けない
+    for (const lineType of ['EXECUTION', 'VENDOR']) {
+      const other = within(screen.getByTestId(`line-type-${lineType}`)).getByTestId('amount-field');
+      expect(other).not.toHaveAttribute('data-amount-overflow');
+      expect(other).not.toHaveAttribute('aria-invalid');
+    }
+  });
+
+  it('子の合計（親の金額）が上限を超えた場合も警告する', () => {
+    render(
+      <EstimateItemRow
+        itemId="item-1"
+        hasChildren={true}
+        lines={linesWithEstimateAmount('-12000000000000')}
+      />
+    );
+
+    const amountField = within(screen.getByTestId('line-type-ESTIMATE')).getByTestId(
+      'amount-field'
+    );
+    expect(amountField).toHaveAttribute('data-amount-overflow', 'true');
+  });
+
+  it('上限ちょうどの金額には警告を付けない', () => {
+    render(<EstimateItemRow itemId="item-1" lines={linesWithEstimateAmount('9999999999999')} />);
+
+    const amountField = within(screen.getByTestId('line-type-ESTIMATE')).getByTestId(
+      'amount-field'
+    );
+    expect(amountField).not.toHaveAttribute('data-amount-overflow');
+    expect(amountField).not.toHaveAttribute('aria-invalid');
+    expect(amountField).toHaveTextContent('9,999,999,999,999');
+    expect(amountField).not.toHaveTextContent('⚠');
+  });
+});

@@ -87,14 +87,6 @@ export interface ProfitRatePreview {
 }
 
 /**
- * オーバーフローチェック結果
- */
-export interface OverflowCheckResult {
-  isOverflow: boolean;
-  warning?: string;
-}
-
-/**
  * 階層金額計算用の項目
  */
 export interface HierarchyItem {
@@ -113,11 +105,6 @@ export interface HierarchyItem {
  * Decimal.jsを使用して高精度な10進数計算を実現します。
  */
 export class EstimateCalculationService {
-  /**
-   * Decimal(15, 2)の最大値（金額オーバーフロー検出用）
-   */
-  private readonly MAX_AMOUNT = new Decimal('9999999999999.99');
-
   /**
    * 金額を計算する（数量 x 単価）
    *
@@ -326,26 +313,5 @@ export class EstimateCalculationService {
       // 数値変換エラー
       return false;
     }
-  }
-
-  /**
-   * 金額のオーバーフローをチェックする
-   *
-   * Requirements: REQ-13.5
-   *
-   * @param amount - チェックする金額
-   * @returns オーバーフローチェック結果
-   */
-  checkOverflow(amount: Decimal): OverflowCheckResult {
-    if (amount.abs().gt(this.MAX_AMOUNT)) {
-      return {
-        isOverflow: true,
-        warning: `金額が最大値（${this.MAX_AMOUNT.toString()}）を超えています`,
-      };
-    }
-
-    return {
-      isOverflow: false,
-    };
   }
 }

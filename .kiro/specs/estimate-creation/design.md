@@ -315,6 +315,12 @@ sequenceDiagram
 
 **現況（タスク 61.1、2026-10-10）**: 上の表の 11.1-11.7 の行は書かれた時点の割り当てであり、そのまま残す。同行が挙げる部品には 11.7（他のユーザーが編集中の警告）に当たる仕組みが無かった。タスク 61.1 の着手時に利用者が三つの選択肢——(a) 編集セッション（在席）の永続化・取得・表示を実装する、(b) 11.6 へ寄せて要件を改訂する、(c) 除外一覧へ登録する——から **(a) を選んだ**（2026-10-10）。11.7 の仕組みは末尾の章「追加設計（REQ-11.7 対応）: 他のユーザーが編集中の警告」に置く。見積書詳細画面（EstimateDetailPage）が開いている間に在席を通知し、編集セッションのサービス（EstimateEditSessionService）が利用者ごとの最終通知時刻を記録して、同じ見積書を開いている他の利用者を返す。11.6 の楽観的排他制御（`expectedUpdatedAt` と 409）とは独立しており、在席の通知は見積書の `updatedAt` を進めない。
 
+**現況（タスク 61.2、2026-10-11）**: 上の表の 13.1-13.6 の行は書かれた時点の割り当てであり、そのまま残す。13.5（金額計算結果のオーバーフロー警告）を名乗っていたのは、本番のコードから import されない見積の検証サービス（EstimateValidationService）と EstimateCalculationService の `checkOverflow` だけで、画面に警告を出す経路は無かった。タスク 61.2 の着手時に利用者が二つの選択肢——(a) 画面の金額計算と明細行の表示に上限超過の警告を実装する、(b) 条文を「保存時に上限超過を拒否して知らせる」へ改訂する——から **(a) を選んだ**（2026-10-11）。
+
+**仕組み（タスク 61.2）**: 金額の上限は `frontend/src/domain/estimate/estimateAmountLimit.ts` の `ESTIMATE_AMOUNT_MAX`（9999999999999.99）である。正は一括保存の検証である `backend/src/schemas/estimate.schema.ts` の `AMOUNT_DECIMAL_PATTERN`（整数部13桁・小数部2桁。永続化先 `EstimateItemLine.amount` の `Decimal(15, 2)`）であり、フロントエンドはバックエンドのモジュールを取り込めないため同じ値を写して持つ。境界値（9999999999999.99 は上限内、10000000000000 は超過）は両側の単体テストが同じ値で固定する。見積書詳細画面（EstimateDetailPage）は、明細の金額（葉の 数量×単価と、`estimateTree.recalculateAncestorAmounts` が求める親の子の合計）とサマリーの合計・差額を判定する。上限を超えた金額欄（EstimateItemRow）とサマリーの値には「⚠」の印・`aria-invalid`・説明を付け、画面上部に `role="alert"` の警告（上限・「上限を超えた金額は保存できません」・明細とサマリーの件数）を出す。上限内へ戻すと警告は消える。親の金額も保存時に永続化されるため明細の件数に含める。サマリーの値は永続化されないが金額計算の結果であるため同じ上限で警告する。保存時の 400 による拒否はそのまま残す。
+
+**本番から使われないコードの扱い（タスク 61.2）**: 利用者の判断（2026-10-11）により、見積の検証サービス（EstimateValidationService）とその単体テスト、EstimateCalculationService の `checkOverflow` と同メソッドの単体テストを、本番のコードベースから取り除いた。EstimateCalculationService の他の部分は、同サービスの冒頭の注記（クライアント計算の照合先として意図して残す）に従いそのまま残す。
+
 ## Components and Interfaces
 
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies (P0/P1) | Contracts |
@@ -561,6 +567,8 @@ interface TransferQuotationParams {
 |-------|--------|
 | Intent | NET金額案分・利益率計算を提供 |
 | Requirements | 5.1-5.7, 6.1-6.6, 13.6 |
+
+**現況（タスク 61.2、2026-10-11）**: 本節の Requirements 欄は 13.5 を挙げていないが、本サービスは 13.5 を名乗る `checkOverflow` を持っていた。同メソッドは本番のコードから呼ばれないため、タスク 61.2 で同メソッドの単体テストとともに取り除いた。13.5 は見積書詳細画面のオーバーフロー警告が担う（Requirements Traceability の表の後のタスク 61.2 の注記を参照）。
 
 **Responsibilities & Constraints**
 - NET金額に基づく案分計算（Decimal.jsによる高精度計算）
@@ -1318,6 +1326,8 @@ CREATE UNIQUE INDEX idx_estimate_item_lines_unique ON estimate_item_lines(estima
 - 見積書CRUD操作の監査ログ記録
 - 計算処理時間のパフォーマンスログ
 - 金額オーバーフロー警告のアラート
+
+**現況（タスク 61.2、2026-10-11）**: 上の「金額計算結果のオーバーフロー警告」（422）と「金額オーバーフロー警告のアラート」は、サーバー側の仕組みとしては実装されていない。金額計算はクライアントのドメイン層で行うため、オーバーフロー警告は見積書詳細画面が表示し（13.5）、上限を超えた金額を含む保存は一括保存の検証が 400 で拒む。
 
 ## Testing Strategy
 

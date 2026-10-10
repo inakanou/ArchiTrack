@@ -13,17 +13,23 @@
  * - REQ-1.4: 金額フィールドを入力不可として表示する
  * - REQ-1.6: 各見積項目行に名称・規格・単位・数量・単価・備考の入力フィールドを提供する
  * - 55.1: 名称のみを持ち規格・単位・数量・単価・金額を持たない注記行を明細に追加可能とする
+ * - REQ-13.5: 金額計算結果が数値の最大値を超えた場合にオーバーフロー警告を表示する
+ *   （金額欄に警告の印と説明を付け、`aria-invalid` で上限超過を伝える）
  *
  * @module components/estimate/EstimateItemRow
  */
 
-import { useCallback } from 'react';
+import { useCallback, useId } from 'react';
 import type {
   EstimateItemLineEdit,
   EstimateItemLineType,
   EstimateItemType,
 } from '../../hooks/useEstimateEditor';
 import { EstimateCalculator } from '../../utils/estimate-calculation';
+import {
+  ESTIMATE_AMOUNT_MAX_DISPLAY,
+  isAmountOverflow,
+} from '../../domain/estimate/estimateAmountLimit';
 
 // ============================================================================
 // 型定義
@@ -156,7 +162,36 @@ const styles = {
     borderRadius: '0px',
     boxSizing: 'border-box' as const,
   } as React.CSSProperties,
+  /**
+   * 金額が上限を超えた金額欄（13.5）
+   *
+   * 色だけに頼らず「⚠」の印と説明文を併せて示す。桁の多い金額でも欄の外へはみ出さないよう
+   * 高さを固定せず任意の位置で折り返す。
+   */
+  amountFieldOverflow: {
+    height: 'auto',
+    minHeight: '22px',
+    color: '#b91c1c',
+    backgroundColor: '#fef2f2',
+    border: '1px solid #b91c1c',
+    overflowWrap: 'anywhere' as const,
+  } as React.CSSProperties,
+  /** 視覚的には隠し、読み上げにだけ渡す説明 */
+  visuallyHidden: {
+    position: 'absolute' as const,
+    width: '1px',
+    height: '1px',
+    padding: 0,
+    margin: '-1px',
+    overflow: 'hidden',
+    clip: 'rect(0, 0, 0, 0)',
+    whiteSpace: 'nowrap' as const,
+    border: 0,
+  } as React.CSSProperties,
 };
+
+/** 金額が上限を超えたときの説明（13.5） */
+const AMOUNT_OVERFLOW_DESCRIPTION = `金額が上限（${ESTIMATE_AMOUNT_MAX_DISPLAY}円）を超えています`;
 
 // ============================================================================
 // ユーティリティ関数
@@ -221,6 +256,9 @@ interface LineRowProps {
  * 見積項目行（単一行）
  */
 function LineRow({ itemId, line, onLineChange, hasChildren = false }: LineRowProps) {
+  const amountOverflowDescriptionId = useId();
+  // 金額（葉は 数量×単価、親は子の合計）が上限を超えたかどうか（13.5）
+  const isOverflow = isAmountOverflow(line.amount);
   const handleFieldChange = useCallback(
     (field: keyof EstimateItemLineEdit) => (e: React.ChangeEvent<HTMLInputElement>) => {
       const value = e.target.value || null;
@@ -333,9 +371,25 @@ function LineRow({ itemId, line, onLineChange, hasChildren = false }: LineRowPro
         )}
       </div>
 
-      {/* 金額（自動計算、入力不可） */}
-      <div style={styles.amountField} data-testid="amount-field" aria-label="金額">
+      {/* 金額（自動計算、入力不可）。上限を超えたらオーバーフロー警告を示す（13.5） */}
+      <div
+        style={
+          isOverflow ? { ...styles.amountField, ...styles.amountFieldOverflow } : styles.amountField
+        }
+        data-testid="amount-field"
+        aria-label="金額"
+        aria-invalid={isOverflow ? true : undefined}
+        aria-describedby={isOverflow ? amountOverflowDescriptionId : undefined}
+        data-amount-overflow={isOverflow ? 'true' : undefined}
+        title={isOverflow ? AMOUNT_OVERFLOW_DESCRIPTION : undefined}
+      >
+        {isOverflow && <span aria-hidden="true">⚠ </span>}
         {formatAmount(line.amount)}
+        {isOverflow && (
+          <span id={amountOverflowDescriptionId} style={styles.visuallyHidden}>
+            {AMOUNT_OVERFLOW_DESCRIPTION}
+          </span>
+        )}
       </div>
 
       {/* 備考 */}

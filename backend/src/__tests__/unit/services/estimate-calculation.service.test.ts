@@ -430,18 +430,4 @@ describe('EstimateCalculationService', () => {
       expect(service.validateProfitRate('')).toBe(false);
     });
   });
-
-  describe('calculateOverflowCheck (オーバーフローチェック)', () => {
-    it('安全な計算結果に対してtrueを返す', () => {
-      const result = service.checkOverflow(new Decimal('999999999999.99'));
-      expect(result.isOverflow).toBe(false);
-    });
-
-    it('オーバーフロー可能性がある場合にwarningを返す', () => {
-      // Decimal(15, 2)の最大値を超える数値
-      const result = service.checkOverflow(new Decimal('10000000000000.00'));
-      expect(result.isOverflow).toBe(true);
-      expect(result.warning).toBeDefined();
-    });
-  });
 });
