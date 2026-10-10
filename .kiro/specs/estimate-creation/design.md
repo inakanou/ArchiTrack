@@ -300,7 +300,7 @@ sequenceDiagram
 | 2.1-2.6 | 見積項目ネスト構造 | EstimateItem (parentId), EstimateItemTable | GET /api/estimates/:id/items?hierarchy=true | 階層表示 |
 | 3.1-3.5 | 見積書新規作成と内訳書連携 | EstimateCreatePage, EstimateService | POST /api/projects/:id/estimates | 作成フロー |
 | 4.1-4.5 | 受領見積書転記 | TransferQuotationDialog, EstimateItemService | POST /api/estimates/:id/transfer-quotation | 転記フロー |
-| 5.1-5.7 | NET金額計算と案分 | NetCalculationPanel, EstimateCalculationService | POST /api/estimates/:id/calculate-net | NET計算フロー |
+| 5.1-5.6 | NET金額計算と案分 | NetCalculationPanel, EstimateCalculationService | POST /api/estimates/:id/calculate-net | NET計算フロー |
 | 6.1-6.6 | 利益率による見積金額反映 | ProfitRatePanel, EstimateCalculationService | POST /api/estimates/:id/apply-profit-rate | 利益率適用 |
 | 7.1-7.6 | 共通仮設費プリセット | OverheadCostPanel, OverheadCostService | POST /api/estimates/:id/calculate-overhead | 諸経費計算フロー |
 | 8.1-8.6 | 現場管理費プリセット | OverheadCostPanel, OverheadCostService | POST /api/estimates/:id/calculate-overhead | 諸経費計算フロー |
@@ -320,6 +320,8 @@ sequenceDiagram
 **仕組み（タスク 61.2）**: 金額の上限は `frontend/src/domain/estimate/estimateAmountLimit.ts` の `ESTIMATE_AMOUNT_MAX`（9999999999999.99）である。正は一括保存の検証である `backend/src/schemas/estimate.schema.ts` の `AMOUNT_DECIMAL_PATTERN`（整数部13桁・小数部2桁。永続化先 `EstimateItemLine.amount` の `Decimal(15, 2)`）であり、フロントエンドはバックエンドのモジュールを取り込めないため同じ値を写して持つ。境界値（9999999999999.99 は上限内、10000000000000 は超過）は両側の単体テストが同じ値で固定する。見積書詳細画面（EstimateDetailPage）は、明細の金額（葉の 数量×単価と、`estimateTree.recalculateAncestorAmounts` が求める親の子の合計）とサマリーの合計・差額を判定する。上限を超えた金額欄（EstimateItemRow）とサマリーの値には「⚠」の印・`aria-invalid`・説明を付け、画面上部に `role="alert"` の警告（上限・「上限を超えた金額は保存できません」・明細とサマリーの件数）を出す。上限内へ戻すと警告は消える。親の金額も保存時に永続化されるため明細の件数に含める。サマリーの値は永続化されないが金額計算の結果であるため同じ上限で警告する。保存時の 400 による拒否はそのまま残す。
 
 **本番から使われないコードの扱い（タスク 61.2）**: 利用者の判断（2026-10-11）により、見積の検証サービス（EstimateValidationService）とその単体テスト、EstimateCalculationService の `checkOverflow` と同メソッドの単体テストを、本番のコードベースから取り除いた。EstimateCalculationService の他の部分は、同サービスの冒頭の注記（クライアント計算の照合先として意図して残す）に従いそのまま残す。
+
+**現況（タスク 61.3、2026-10-11）**: 上の表の NET金額計算と案分の行は、書かれた時点では 5.1-5.7 を挙げていた。5.7（案分計算が処理中の場合に計算処理中であることを表示する）は、タスク 61.3 の着手時の利用者の判断（2026-10-11）により、18.9・19.7 と同じ形で requirements.md の番号付きの受入基準から撤廃し、取り消し線の追跡用の記述に置き換えた。49.3 により案分はサーバーへ往復せずクライアント内で同期的に完結するため、処理中として観測できる期間が無く、条文は検証できない。後続の 5.8・5.9 の番号は変えない。追跡表に現役でない番号を残さないという追跡表の検査（`npm run check:trace-coverage`）の求めに従い、同行の番号だけを 5.1-5.6 へ改めた（部品・インターフェース・フローの欄は変えていない）。5.7 を名乗っていたのは本番のコードから使われない NetCalculationPanel の部品とその単体テストだけであり、タスク 61.3 で両者から 5.7 の名乗りを外した（同部品の扱いそのものはタスク 61.4 が決める）。
 
 ## Components and Interfaces
 
@@ -349,6 +351,8 @@ sequenceDiagram
 | EstimateExportDialog | Frontend | 出力形式選択UI | 10.1-10.8, 32.1-32.4 | EstimateExportService (P0) | - |
 | LineTypeFilter | Frontend | 行タイプ表示/非表示フィルター | 28.1-28.4 | EstimateItemTable (P0) | State |
 | EstimateItemToolbar | Frontend | 見積項目操作ツールバー | 23.1-23.10 | useEstimateEditor (P0) | Props |
+
+**現況（タスク 61.3、2026-10-11）**: 上の表の EstimateCalculationService と NetCalculationPanel の行が挙げる 5.1-5.7 は書かれた時点の割り当てであり、そのまま残す。5.7 は利用者の判断（2026-10-11）により撤廃した（Requirements Traceability の表の後のタスク 61.3 の注記を参照）ため、両行の 5.1-5.7 のうち現役の受入基準は 5.1-5.6 である。
 
 ### Data Layer
 
@@ -569,6 +573,8 @@ interface TransferQuotationParams {
 | Requirements | 5.1-5.7, 6.1-6.6, 13.6 |
 
 **現況（タスク 61.2、2026-10-11）**: 本節の Requirements 欄は 13.5 を挙げていないが、本サービスは 13.5 を名乗る `checkOverflow` を持っていた。同メソッドは本番のコードから呼ばれないため、タスク 61.2 で同メソッドの単体テストとともに取り除いた。13.5 は見積書詳細画面のオーバーフロー警告が担う（Requirements Traceability の表の後のタスク 61.2 の注記を参照）。
+
+**現況（タスク 61.3、2026-10-11）**: 本節の Requirements 欄の 5.1-5.7 は書かれた時点の割り当てであり、そのまま残す。5.7 は利用者の判断（2026-10-11）により撤廃したため、現役の受入基準は 5.1-5.6 である（Requirements Traceability の表の後のタスク 61.3 の注記を参照）。
 
 **Responsibilities & Constraints**
 - NET金額に基づく案分計算（Decimal.jsによる高精度計算）
@@ -825,6 +831,8 @@ interface EstimateItemTableProps {
 |-------|--------|
 | Intent | NET金額計算と案分のUI |
 | Requirements | 5.1-5.7 |
+
+**現況（タスク 61.3、2026-10-11）**: 本節の Requirements 欄の 5.1-5.7 と、下の責務の「計算処理中のインジケーター表示」は書かれた時点の記述であり、そのまま残す。5.7 は利用者の判断（2026-10-11）により撤廃した。案分は本番ではクライアント内で同期的に完結し（49.3）、処理中として観測できる期間が無いためである（Requirements Traceability の表の後のタスク 61.3 の注記を参照）。本部品は処理中のインジケーターを持ち続けるが、5.7 を名乗らない。本部品の扱いはタスク 61.4 が決める。
 
 **Responsibilities & Constraints**
 - 対象業者の選択

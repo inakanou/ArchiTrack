@@ -12,7 +12,6 @@
  * - REQ-5.4: NET金額が入力された場合、各実行金額行の単価をNET金額に基づいて案分計算する
  * - REQ-5.5: 案分計算が実行された場合、案分後の金額を自動計算して実行金額行に表示する
  * - REQ-5.6: 案分対象となった業者を識別可能な状態で管理する
- * - REQ-5.7: 計算処理中であることを表示する
  *
  * @module components/estimate/NetCalculationPanel.test
  */
@@ -478,7 +477,7 @@ describe('NetCalculationPanel', () => {
       });
     });
 
-    describe('REQ-5.7: 計算処理中インジケーター', () => {
+    describe('計算処理中インジケーター', () => {
       it('計算実行中はローディングインジケーターが表示される', async () => {
         const vendorLines = createMockVendorLinesExtended();
         const onCalculationComplete = vi.fn(
