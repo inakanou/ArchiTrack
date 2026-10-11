@@ -20,6 +20,10 @@
  * - 22.3: 空白名前でのエラーメッセージ表示
  * - 22.4: グループ名の最大文字数（全角25文字/半角50文字）
  * - 22.5: 最大文字数超過入力防止
+ *
+ * Task 103.1: モバイル幅（`MEDIA_QUERIES.isMobile`）では、見出しを折り返して操作の釦と
+ * グループ名をカードの幅に収め、紐付け写真を幅に合わせて縮める（steering `tech.md` の
+ * 「レスポンシブ・ビューポート方針」。基底のスタイルは変えず `...Mobile` を spread 合成する）
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -33,6 +37,8 @@ import SortOrderButtons from './SortOrderButtons';
 import { AnnotatedImageThumbnail } from '../site-surveys/AnnotatedImageThumbnail';
 import PhotoCommentDisplay from './PhotoCommentDisplay';
 import PhotoPreviewDialog from './PhotoPreviewDialog';
+import useMediaQuery from '../../hooks/useMediaQuery';
+import { MEDIA_QUERIES } from '../../utils/responsive';
 
 // デフォルトのオートコンプリート関数（isEditable=false時のフォールバック）
 const defaultGetSuggestions = () => [] as string[];
@@ -370,6 +376,45 @@ const styles = {
     color: '#dc2626',
     margin: '2px 0 0 0',
   } as React.CSSProperties,
+  // 写真と、その下の写真の変更・紐付け解除の釦を縦に並べる列
+  photoColumn: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+  } as React.CSSProperties,
+  // ==========================================================================
+  // モバイル表示のスタイル（Task 103.1）
+  // 基底のスタイルはデスクトップの配置のまま変えず、isMobile のときだけ spread 合成で上書きする
+  // ==========================================================================
+  /** 見出しを折り返し、操作の釦をグループ名の下の行へ送る */
+  headerMobile: {
+    flexWrap: 'wrap' as const,
+    gap: '8px 12px',
+  } as React.CSSProperties,
+  /** グループ名の領域が、折りたたみの釦（32px）と列の間隔（12px）を除いた 1 行を占める */
+  headerInfoMobile: {
+    flex: '1 1 calc(100% - 44px)',
+  } as React.CSSProperties,
+  /** 区切りの無い長い名前（英数字の一語など）も、カードの幅で折り返す */
+  groupNameMobile: {
+    overflowWrap: 'anywhere' as const,
+  } as React.CSSProperties,
+  /** 操作の釦の並びも縮められるようにし、入り切らなければ釦を次の行へ折り返す */
+  headerActionsMobile: {
+    flexWrap: 'wrap' as const,
+    flexShrink: 1,
+    minWidth: 0,
+  } as React.CSSProperties,
+  /** 写真の列が写真領域の幅の 2/3 を、写真コメントが残りを占める（コメントは写真の右側のまま。REQ-21.2） */
+  photoColumnMobile: {
+    flex: '2 1 0%',
+    minWidth: 0,
+  } as React.CSSProperties,
+  /** 写真の枠の 640×480 の固定を解き、列の幅に合わせて 4:3 のまま縮める */
+  thumbnailWrapperMobile: {
+    width: '100%',
+    height: 'auto',
+    aspectRatio: '4 / 3',
+  } as React.CSSProperties,
 };
 
 // ============================================================================
@@ -548,6 +593,8 @@ export default function QuantityGroupCard({
   isCopying = false,
 }: QuantityGroupCardProps) {
   const [isExpanded, setIsExpanded] = useState(initialExpanded);
+  // Task 103.1: モバイル幅の判定（ブレークポイントは utils/responsive に一元化されたものを使う）
+  const isMobile = useMediaQuery(MEDIA_QUERIES.isMobile);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const hasAnnotations = group.surveyImage?.hasAnnotations ?? false;
   // 注釈の目印は「描画された注釈の有無」で判定する（site-survey Task 115.13、要件20.2）。
@@ -865,7 +912,7 @@ export default function QuantityGroupCard({
           inline <style> として一度だけ宣言する。複数カード描画でも同じ名前なら重複は無害） */}
       <style>{`@keyframes quantity-group-card-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
       {/* ヘッダー */}
-      <div style={styles.header}>
+      <div style={{ ...styles.header, ...(isMobile ? styles.headerMobile : {}) }}>
         {/* 展開/折りたたみボタン */}
         <button
           type="button"
@@ -881,7 +928,7 @@ export default function QuantityGroupCard({
         </button>
 
         {/* グループ情報 */}
-        <div style={styles.headerInfo}>
+        <div style={{ ...styles.headerInfo, ...(isMobile ? styles.headerInfoMobile : {}) }}>
           {isEditingName ? (
             <div>
               <input
@@ -900,7 +947,10 @@ export default function QuantityGroupCard({
             </div>
           ) : (
             <h3
-              style={isEditable && onRenameGroup ? styles.groupNameEditable : styles.groupName}
+              style={{
+                ...(isEditable && onRenameGroup ? styles.groupNameEditable : styles.groupName),
+                ...(isMobile ? styles.groupNameMobile : {}),
+              }}
               onClick={handleNameClick}
               role={isEditable && onRenameGroup ? 'button' : undefined}
               tabIndex={isEditable && onRenameGroup ? 0 : undefined}
@@ -936,7 +986,7 @@ export default function QuantityGroupCard({
           )}
 
         {/* アクションボタン */}
-        <div style={styles.headerActions}>
+        <div style={{ ...styles.headerActions, ...(isMobile ? styles.headerActionsMobile : {}) }}>
           {/* グループコピーボタン（Task 53.2: REQ-38.1, 38.9, 38.12）
               並替ボタンと削除ボタンの間に配置し、中立色で視覚的に削除と区別する */}
           {isEditable && onCopyGroup && (
@@ -983,10 +1033,11 @@ export default function QuantityGroupCard({
         {/* 関連画像 / プレースホルダー + コメント表示（REQ-3.3, 21.2, 21.5） */}
         {group.surveyImage ? (
           <div style={styles.photoArea}>
-            <div style={{ display: 'flex', flexDirection: 'column' as const }}>
+            <div style={{ ...styles.photoColumn, ...(isMobile ? styles.photoColumnMobile : {}) }}>
               <div
                 style={{
                   ...styles.thumbnailWrapper,
+                  ...(isMobile ? styles.thumbnailWrapperMobile : {}),
                   position: 'relative' as const,
                 }}
                 onClick={handleImageClick}

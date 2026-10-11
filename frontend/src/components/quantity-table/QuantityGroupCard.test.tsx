@@ -598,4 +598,111 @@ describe('QuantityGroupCard', () => {
       });
     });
   });
+
+  // ====================================================================
+  // Task 103.1: モバイル幅の見出しと紐付け写真の配置
+  // （実寸の収まりは E2E の quantity-group-card-mobile-layout-e2e.spec.ts が測る。
+  //   ここではブレークポイントの判定と、基底へのモバイル用の上書きの合成だけを確かめる）
+  // ====================================================================
+
+  describe('Task 103.1: モバイル幅の配置', () => {
+    const originalMatchMedia = window.matchMedia;
+
+    /** 与えた幅の判定（max-width の問い合わせだけを評価する）で matchMedia を差し替える */
+    function mockViewportWidth(width: number) {
+      Object.defineProperty(window, 'matchMedia', {
+        writable: true,
+        configurable: true,
+        value: vi.fn().mockImplementation((query: string) => {
+          const maxWidth = /max-width:\s*(\d+)px/.exec(query);
+          return {
+            matches: maxWidth ? width <= Number(maxWidth[1]) : false,
+            media: query,
+            onchange: null,
+            addListener: vi.fn(),
+            removeListener: vi.fn(),
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+            dispatchEvent: vi.fn(),
+          };
+        }),
+      });
+    }
+
+    afterEach(() => {
+      Object.defineProperty(window, 'matchMedia', {
+        writable: true,
+        configurable: true,
+        value: originalMatchMedia,
+      });
+    });
+
+    function renderEditableCard() {
+      return renderWithRouter(
+        <QuantityGroupCard
+          group={mockGroupWithImage}
+          groupDisplayName="IMG_20261010_143052_EXTERIOR_NORTH_WALL_PANEL_0001"
+          isEditable
+          onDeleteGroup={vi.fn()}
+          onRenameGroup={vi.fn()}
+          onCopyGroup={vi.fn()}
+          groupIndex={0}
+          groupTotalCount={2}
+          onMoveGroupUp={vi.fn()}
+          onMoveGroupDown={vi.fn()}
+        />
+      );
+    }
+
+    /** グループ名の見出しを含む行（見出しの行）とグループ名の領域を返す */
+    function headerParts() {
+      const groupName = screen.getByText('IMG_20261010_143052_EXTERIOR_NORTH_WALL_PANEL_0001');
+      const headerInfo = groupName.parentElement as HTMLElement;
+      const header = headerInfo.parentElement as HTMLElement;
+      const actions = screen.getByRole('button', { name: 'グループを削除' })
+        .parentElement as HTMLElement;
+      return { groupName, headerInfo, header, actions };
+    }
+
+    it('375 幅では見出しが折り返し、グループ名が 1 行を占め、長い一語の名前も折り返せる', () => {
+      mockViewportWidth(375);
+      renderEditableCard();
+      const { groupName, headerInfo, header, actions } = headerParts();
+
+      expect(header.style.flexWrap).toBe('wrap');
+      expect(headerInfo.style.flex).toBe('1 1 calc(100% - 44px)');
+      expect(groupName.style.overflowWrap).toBe('anywhere');
+      expect(actions.style.flexWrap).toBe('wrap');
+      expect(actions.style.minWidth).toBe('0px');
+    });
+
+    it('375 幅では紐付け写真の枠が 640×480 の固定を解き、列の幅に合わせて 4:3 で縮む', () => {
+      mockViewportWidth(375);
+      renderEditableCard();
+      const photo = screen.getByRole('button', { name: '紐付け画像を表示' });
+
+      expect(photo.style.width).toBe('100%');
+      expect(photo.style.height).toBe('auto');
+      expect(photo.style.aspectRatio).toBe('4 / 3');
+      expect((photo.parentElement as HTMLElement).style.minWidth).toBe('0px');
+    });
+
+    it('デスクトップ幅（1280）では見出しも写真の枠も従来の配置のまま', () => {
+      mockViewportWidth(1280);
+      renderEditableCard();
+      const { groupName, headerInfo, header, actions } = headerParts();
+      const photo = screen.getByRole('button', { name: '紐付け画像を表示' });
+
+      expect(header.style.flexWrap).toBe('');
+      expect(header.style.gap).toBe('16px');
+      expect(headerInfo.style.minWidth).toBe('0px');
+      expect(headerInfo.style.flex).not.toBe('1 1 calc(100% - 44px)');
+      expect(groupName.style.overflowWrap).toBe('');
+      expect(actions.style.flexShrink).toBe('0');
+      expect(actions.style.flexWrap).toBe('');
+      expect(photo.style.width).toBe('640px');
+      expect(photo.style.height).toBe('480px');
+      expect(photo.style.aspectRatio).toBe('');
+    });
+  });
 });

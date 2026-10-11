@@ -2625,16 +2625,7 @@ _起票元: Task 81.1 の独立レビューがプローブで実測し、境界�
 **測った事実**（いずれもコミット `9c4dc21e`、2026-09-11 にリポジトリルートで実測）:
 
 - **(1) 実在しない識別子を名指す状態記録が2件**: `grep -n 'handleLinkImage\|onPhotoChanged' .kiro/specs/quantity-table-generation/design.md` が `1849:` と `1850:` を返す。一方 `grep -rn 'handleLinkImage\|onPhotoChanged' frontend/src backend/src e2e | wc -l` の出力は `0` である
-- **(2) `ProjectSurveyImage` の定義が 75.1 の実装に対して陳腐化**: `grep -c 'isDisplayUrlAnnotated\|hasDrawnAnnotations' .kiro/specs/quantity-table-generation/design.md` の出力が `0` である一方、`grep -rn 'isDisplayUrlAnnotated' frontend/src --include=*.tsx --include=*.ts | wc -l` の出力は `8` である。`## Task 103: 375 幅で数量グループのカードの見出しと紐付け写真がはみ出す（利用者の判断で起票のみ、2026-10-10）
-
-**経緯**: Task 102.1 の独立レビューと機能レベル検証（2026-10-09、GO）が、375 幅で次を確かめた。`frontend/src/components/quantity-table/QuantityGroupCard.tsx` の見出し `styles.header`（127〜134 行付近）は `display:flex` で折り返しの指定が無く、操作の釦の並び `styles.headerActions`（200〜204 行付近）が `flexShrink: 0` のため「グループを削除」がカードの内側の右端から約 75px はみ出す。グループ名の領域 `styles.headerInfo`（185〜188 行付近）はほぼ 0 幅まで潰れ、グループ名が 1 文字ずつ縦に折り返す。紐付け写真の `styles.thumbnailWrapper`（151〜153 行付近）は幅 640px 固定で `flexShrink: 0` のため、はみ出す。`0ee7c796`（2026-01-16）から変わっていない既存の欠陥で、steering `tech.md` の「レスポンシブ・ビューポート方針」に反する。利用者の判断（2026-10-10）により起票のみとし、着手は利用者の判断による
-
-- [ ] 103.1 375 幅で数量グループのカードの見出しと紐付け写真がカードからはみ出さないようにする
-  - 見出しを折り返せるようにし、操作の釦とグループ名がカードの幅に収まるようにする。写真は幅に合わせて縮める。長い一語の名前（区切りの無い長い文字列）を含む 3 通りの名前で、全画面の 375 幅を網羅して確かめる
-  - 挙動（表示）の変更であるため RED → GREEN で進め、E2E（375 幅でカードの要素の右端がカードの内側に収まり、ページに水平スクロールが出ない）で主張する。Task 102.1 の E2E（`e2e/specs/quantity-tables/quantity-table-focus-visible.spec.ts`）の 375 幅の期待値への影響を確かめる
-  - _Boundary: 数量グループのカードの 375 幅の配置_
-
-## Implementation Notes（Task 75 以降）` が「**76 系の着手前に要是正**」と書いたが、76.1 / 76.2 はいずれも完了しており是正は入っていない
+- **(2) `ProjectSurveyImage` の定義が 75.1 の実装に対して陳腐化**: `grep -c 'isDisplayUrlAnnotated\|hasDrawnAnnotations' .kiro/specs/quantity-table-generation/design.md` の出力が `0` である一方、`grep -rn 'isDisplayUrlAnnotated' frontend/src --include=*.tsx --include=*.ts | wc -l` の出力は `8` である。`## Implementation Notes（Task 75 以降）` が「**76 系の着手前に要是正**」と書いたが、76.1 / 76.2 はいずれも完了しており是正は入っていない
 - **(3) `### Out of Boundary` が自スペックで解決済みの項目を未解決と宣言している**: 同節は「`field-validation.ts` の `NUMERIC_FIELD_RANGES` / `validateNumericRange` 重複定義の統合」を境界外の未解決項目として挙げるが、**Task 80.1 が両者を撤去済み**である。同じ文書の数値フィールド仕様の節は「タスク 80.1 で一本化した」と書いており、**文書が内部で矛盾している**
 
 - [x] 87.1 三件の陳腐化した記述に現況の再実測を併記する
@@ -4452,6 +4443,15 @@ E2E の置き場所はいずれも `e2e/specs/quantity-tables/` の直下であ�
   - インラインの `outline: 'none'` を外し、共通の輪に一本化する（project-management の Task 73.6、trading-partner-management の Task 33.1 の前例）。自前の影の輪など、代わりの表示が 3:1 に届かないものも同じ変更で外すか強める。対象の画面のフォーカスを受ける要素を、`e2e/specs/trading-partners/trading-partner-focus-visible.spec.ts` と同じ判定（実線または影の輪が 2px 以上・背景とのコントラスト比 3:1 以上・フォーカスが離れたら消える）で網羅して測り、満たさないものをまとめて直す
   - 挙動（表示）の変更であるため RED → GREEN で進め、単体（インラインで outline を打ち消さないこと）と E2E（対象の画面の Tab の一巡）で主張する。要件にフォーカス表示を定める受入基準が無い場合、`@requirement` の印は掲げない
   - _Boundary: 本スペックの部品・ページのフォーカス時の表示_
+
+## Task 103: 375 幅で数量グループのカードの見出しと紐付け写真がはみ出す（利用者の判断で起票のみ、2026-10-10）
+
+**経緯**: Task 102.1 の独立レビューと機能レベル検証（2026-10-09、GO）が、375 幅で次を確かめた。`frontend/src/components/quantity-table/QuantityGroupCard.tsx` の見出し `styles.header`（127〜134 行付近）は `display:flex` で折り返しの指定が無く、操作の釦の並び `styles.headerActions`（200〜204 行付近）が `flexShrink: 0` のため「グループを削除」がカードの内側の右端から約 75px はみ出す。グループ名の領域 `styles.headerInfo`（185〜188 行付近）はほぼ 0 幅まで潰れ、グループ名が 1 文字ずつ縦に折り返す。紐付け写真の `styles.thumbnailWrapper`（151〜153 行付近）は幅 640px 固定で `flexShrink: 0` のため、はみ出す。`0ee7c796`（2026-01-16）から変わっていない既存の欠陥で、steering `tech.md` の「レスポンシブ・ビューポート方針」に反する。利用者の判断（2026-10-10）により起票のみとし、着手は利用者の判断による
+
+- [x] 103.1 375 幅で数量グループのカードの見出しと紐付け写真がカードからはみ出さないようにする
+  - 見出しを折り返せるようにし、操作の釦とグループ名がカードの幅に収まるようにする。写真は幅に合わせて縮める。長い一語の名前（区切りの無い長い文字列）を含む 3 通りの名前で、全画面の 375 幅を網羅して確かめる
+  - 挙動（表示）の変更であるため RED → GREEN で進め、E2E（375 幅でカードの要素の右端がカードの内側に収まり、ページに水平スクロールが出ない）で主張する。Task 102.1 の E2E（`e2e/specs/quantity-tables/quantity-table-focus-visible.spec.ts`）の 375 幅の期待値への影響を確かめる
+  - _Boundary: 数量グループのカードの 375 幅の配置_
 
 ## Implementation Notes（Task 75 以降）
 
