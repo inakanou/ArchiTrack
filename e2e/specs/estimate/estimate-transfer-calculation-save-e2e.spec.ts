@@ -66,9 +66,18 @@
  * 準備5と `resetItemTree` で必ず作り、業者が選べなければ `#vendor-select` の
  * `selectOption` が落ちるため、前提の欠落が黙って素通りしない。
  *
+ * ## 5.6（案分対象業者の識別管理）の検証をここへ置いた経緯（Task 61.4）
+ *
+ * 5.6 の名乗りは、かつて本番から使われない `NetCalculationPanel` の単体テストにしか無かった。
+ * 本番の経路では、案分の対象は業者金額行の `sourceVendorName`（見積業者）で引き当てられ、
+ * 案分は実行金額行だけを書き換えて業者金額行の見積業者をそのまま残す。その見積業者が
+ * 明細の「見積業者」欄に出て、保存・再読み込みを経ても保たれることをもって 5.6 を満たす
+ * （利用者の判断 (A)、2026-10-11）。本 spec の「案分対象業者の識別」がこれを実ブラウザで確かめる。
+ *
  * Requirements coverage (estimate-creation):
  * - REQ-5.4: NET金額が入力された場合、各実行金額行の単価をNET金額に基づいて案分計算する
  * - REQ-5.5: 案分計算が実行された場合、案分後の金額を自動計算して実行金額行に表示する
+ * - REQ-5.6: 案分対象となった業者を識別可能な状態で管理する
  * - REQ-5.8: 案分計算を編集中の業者金額行の値に基づいて行い、プレビューの案分後金額と反映される金額を一致させる
  * - REQ-5.9: 未保存の新規行が案分対象に含まれる場合、その行も案分対象として扱う
  * - REQ-6.8: 利益率適用を編集中の実行金額行の値に基づいて行い、プレビューの新しい単価と反映される単価を一致させる
@@ -118,6 +127,22 @@ const NAME = {
   /** 受領見積書の明細行（＝転記後の業者金額行の名称） */
   transferA: '転記明細A',
   transferB: '転記明細B',
+} as const;
+
+/**
+ * 案分の対象にしない別の業者（5.6 の弁別用）
+ *
+ * 業者金額行の見積業者（`sourceVendorName`）は自由な文字列として保存できるため、
+ * 協力業者のマスタを作らずに2社目の業者を明細へ置ける。
+ */
+const OTHER_VENDOR = {
+  vendorName: 'E2E案分対象外の別業者',
+  itemName: '別業者の既存行',
+  vendorLineName: '別業者の業者行',
+  /** 業者金額行（数量1） */
+  vendorUnitPrice: 25000,
+  /** 案分前から実行金額行に入っている単価（案分に巻き込まれなければ不変 / 数量1） */
+  executionUnitPrice: 12345,
 } as const;
 
 /** 受領見積書の明細行（転記の入力） */
@@ -1135,6 +1160,168 @@ test.describe('転記・案分・利益率適用・諸経費追加・値引き�
         );
         expect(Number(lineOf(savedItem, 'ESTIMATE').amount)).toBe(profitPreview.get(key)!.amount);
       }
+    });
+  });
+
+  // ==========================================================================
+  // 案分対象業者の識別（5.6）
+  // ==========================================================================
+
+  test.describe('案分対象業者の識別', () => {
+    /**
+     * 業者の異なる2項目を置き、一方の業者を選んで案分する。案分した項目は業者金額行の
+     * 見積業者が選んだ業者のまま「見積業者」欄に出て、もう一方は自身の業者を示したまま
+     * 実行金額行が変わらないことを、適用直後・保存して開き直した後の両方で見る。
+     *
+     * 期待値は実装と独立に導く。対象が選んだ業者の1項目（業者金額 2 × 40,000 = 80,000）
+     * だけなら NET 金額 400,000 の全額がその項目へ案分され、案分後単価は
+     * 400,000 ÷ 2 = 200,000 になる。別業者の項目（業者金額 25,000）が対象に混ざると
+     * 400,000 × 80,000 ÷ 105,000 = 304,762 となり、この期待値に一致しない。
+     *
+     * 業者の識別が壊れた場合（案分が業者金額行の見積業者を消す・保存が見積業者を
+     * 送らない）には、「見積業者」欄の主張と再読み込み後の業者の選択肢で落ちる。
+     *
+     * @requirement estimate-creation/REQ-5.6
+     */
+    test('選んだ業者で案分した項目が見積業者で識別でき、別業者の項目と区別されたまま保存後も保たれる (estimate-creation/REQ-5.6)', async ({
+      page,
+    }) => {
+      expect(createdEstimateId).toBeTruthy();
+      expect(tradingPartnerName).toBeTruthy();
+
+      await loginAndCaptureToken(page);
+
+      const vendorItem: SaveNodePayload = {
+        id: null,
+        tempId: 'e2e-identify-vendor-item',
+        itemType: 'STANDARD',
+        lines: [
+          buildSaveLine('ESTIMATE', { name: NAME.vendorItem, unit: '式', quantity: '2' }),
+          buildSaveLine('EXECUTION', { name: NAME.vendorItem, unit: '式', quantity: '2' }),
+          buildSaveLine('VENDOR', {
+            name: NAME.vendorLine,
+            unit: '式',
+            quantity: '2',
+            unitPrice: String(SAVED_VENDOR_UNIT_PRICE),
+            amount: String(2 * SAVED_VENDOR_UNIT_PRICE),
+            sourceVendorName: tradingPartnerName,
+          }),
+        ],
+        children: [],
+      };
+      const otherVendorItem: SaveNodePayload = {
+        id: null,
+        tempId: 'e2e-identify-other-vendor-item',
+        itemType: 'STANDARD',
+        lines: [
+          buildSaveLine('ESTIMATE', { name: OTHER_VENDOR.itemName, unit: '式', quantity: '1' }),
+          buildSaveLine('EXECUTION', {
+            name: OTHER_VENDOR.itemName,
+            unit: '式',
+            quantity: '1',
+            unitPrice: String(OTHER_VENDOR.executionUnitPrice),
+            amount: String(OTHER_VENDOR.executionUnitPrice),
+          }),
+          buildSaveLine('VENDOR', {
+            name: OTHER_VENDOR.vendorLineName,
+            unit: '式',
+            quantity: '1',
+            unitPrice: String(OTHER_VENDOR.vendorUnitPrice),
+            amount: String(OTHER_VENDOR.vendorUnitPrice),
+            sourceVendorName: OTHER_VENDOR.vendorName,
+          }),
+        ],
+        children: [],
+      };
+      await saveEstimateDraft(page.request, accessToken, createdEstimateId!, [
+        vendorItem,
+        otherVendorItem,
+      ]);
+
+      const initialTree = await fetchTree(page);
+      const vendorItemId = requireItem(initialTree, NAME.vendorItem).id;
+      const otherItemId = requireItem(initialTree, OTHER_VENDOR.itemName).id;
+
+      const allocatedAmount = NET_AMOUNT;
+      const allocatedUnitPrice = NET_AMOUNT / 2;
+
+      /** 業者金額行の「見積業者」欄 */
+      const vendorCell = (key: string): Locator =>
+        lineArea(rowByKey(page, key), 'VENDOR').getByTestId('source-vendor-name');
+
+      /** 2項目の業者の識別と、案分が選んだ業者の項目だけに及んでいることを画面で主張する */
+      const expectIdentifiedAllocation = async (key: string, otherKey: string): Promise<void> => {
+        await expect(
+          vendorCell(key),
+          '案分した項目の見積業者が選んだ業者を示していない（5.6）'
+        ).toHaveText(tradingPartnerName);
+        await expect(cellInput(rowByKey(page, key), 'EXECUTION', '単価')).toHaveValue(
+          String(allocatedUnitPrice)
+        );
+        await expect(amountCell(rowByKey(page, key), 'EXECUTION')).toHaveText(
+          allocatedAmount.toLocaleString('ja-JP')
+        );
+
+        await expect(
+          vendorCell(otherKey),
+          '別業者の項目が自身の見積業者を示していない（5.6）'
+        ).toHaveText(OTHER_VENDOR.vendorName);
+        await expect(cellInput(rowByKey(page, otherKey), 'EXECUTION', '単価')).toHaveValue(
+          String(OTHER_VENDOR.executionUnitPrice)
+        );
+      };
+
+      /** 案分ダイアログで業者を選び、対象一覧がその業者の項目だけであることを主張する */
+      const expectTargetsOfVendor = async (key: string): Promise<void> => {
+        await expect(
+          page.locator('#vendor-select option'),
+          '業者の選択肢に2社が並んでいない（5.6）'
+        ).toHaveText(['選択してください', tradingPartnerName, OTHER_VENDOR.vendorName]);
+        const targetKeys = await page
+          .locator('[data-testid="allocation-target"]')
+          .evaluateAll((elements) =>
+            elements.map((element) => element.getAttribute('data-allocation-key'))
+          );
+        expect(targetKeys, '選んだ業者の項目だけが案分対象になっていない（5.6）').toEqual([key]);
+      };
+
+      await openEstimatePage(page);
+
+      // --- 案分前: 2項目がそれぞれの業者を示している ---
+      await expect(vendorCell(vendorItemId)).toHaveText(tradingPartnerName);
+      await expect(vendorCell(otherItemId)).toHaveText(OTHER_VENDOR.vendorName);
+
+      // --- 業者を選んで案分する ---
+      const netDialog = await openNetAllocationDialog(page);
+      await expectTargetsOfVendor(vendorItemId);
+      await netDialog.getByRole('button', { name: '案分実行' }).click();
+      await expect(netDialog).toBeHidden({ timeout: getTimeout(10000) });
+
+      // --- 適用直後: 案分した項目が選んだ業者で識別でき、別業者の項目は不変 ---
+      await expectIdentifiedAllocation(vendorItemId, otherItemId);
+
+      // --- 保存して開き直しても同じである ---
+      await saveAndWaitForSettled(page);
+      await openEstimatePage(page);
+
+      const savedTree = await fetchTree(page);
+      const savedVendorItem = requireItem(savedTree, NAME.vendorItem);
+      const savedOtherItem = requireItem(savedTree, OTHER_VENDOR.itemName);
+      expect(lineOf(savedVendorItem, 'VENDOR').sourceVendorName).toBe(tradingPartnerName);
+      expect(Number(lineOf(savedVendorItem, 'EXECUTION').unitPrice)).toBe(allocatedUnitPrice);
+      expect(Number(lineOf(savedVendorItem, 'EXECUTION').amount)).toBe(allocatedAmount);
+      expect(lineOf(savedOtherItem, 'VENDOR').sourceVendorName).toBe(OTHER_VENDOR.vendorName);
+      expect(Number(lineOf(savedOtherItem, 'EXECUTION').unitPrice)).toBe(
+        OTHER_VENDOR.executionUnitPrice
+      );
+
+      await expectIdentifiedAllocation(savedVendorItem.id, savedOtherItem.id);
+
+      // 再読み込み後も、同じ業者を選べば同じ項目が案分対象として引き当たる
+      const reopenedDialog = await openNetAllocationDialog(page);
+      await expectTargetsOfVendor(savedVendorItem.id);
+      await reopenedDialog.getByRole('button', { name: 'キャンセル' }).click();
+      await expect(reopenedDialog).toBeHidden({ timeout: getTimeout(10000) });
     });
   });
 

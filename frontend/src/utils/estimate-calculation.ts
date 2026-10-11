@@ -10,6 +10,10 @@
  * `calculateHierarchyAmounts`（見積金額行のみを再帰集計し注記行を除外しない旧実装）は
  * 二重実装だったため撤去した（Task 53.12）。
  *
+ * NET金額案分のプレビュー計算は `domain/estimate/estimateCalculations` の `allocateNet` が
+ * 単一の実装として担当する。本モジュールにあった `previewNetAllocation` は本番から
+ * 使われない NetCalculationPanel だけが用いていたため、パネルとともに取り除いた（Task 61.4）。
+ *
  * Requirements (estimate-creation):
  * - REQ-1.3: 金額フィールドを単価と数量の積として自動計算する
  * - REQ-13.6: 高精度な10進数計算により丸め誤差を最小化する
@@ -47,29 +51,11 @@ export interface EstimateItemWithLines {
 }
 
 /**
- * 業者金額行情報（案分計算用）
- */
-export interface VendorLineInfo {
-  id: string;
-  amount: string | null;
-}
-
-/**
  * 実行金額行情報（利益率適用用）
  */
 export interface ExecutionLineInfo {
   lineId: string;
   unitPrice: string | null;
-}
-
-/**
- * 案分プレビュー結果
- */
-export interface AllocationPreview {
-  lineId: string;
-  originalAmount: string | null;
-  allocatedAmount: string;
-  ratio: string;
 }
 
 /**
@@ -179,75 +165,6 @@ export class EstimateCalculator {
       }
       return sum;
     }, new Decimal(0));
-  }
-
-  /**
-   * NET金額案分のプレビュー計算
-   *
-   * 業者金額行の金額比率に基づいてNET金額を案分します。
-   * 除外IDに指定された行は案分対象から除外されます。
-   *
-   * Requirements: REQ-5.1, REQ-5.2, REQ-5.4
-   *
-   * @param vendorLines - 業者金額行情報の配列
-   * @param excludeIds - 除外する行のID配列
-   * @param netAmount - NET金額（文字列）
-   * @returns 案分プレビュー結果の配列
-   */
-  static previewNetAllocation(
-    vendorLines: VendorLineInfo[],
-    excludeIds: string[],
-    netAmount: string
-  ): AllocationPreview[] {
-    const net = new Decimal(netAmount);
-
-    // 除外行を除いた対象行を抽出
-    const targetLines = vendorLines.filter((line) => !excludeIds.includes(line.id));
-
-    // 対象行の金額合計を計算
-    const totalAmount = targetLines.reduce((sum, line) => {
-      if (line.amount) {
-        try {
-          return sum.add(new Decimal(line.amount));
-        } catch {
-          return sum;
-        }
-      }
-      return sum;
-    }, new Decimal(0));
-
-    // 合計が0の場合は全て0で返す
-    if (totalAmount.isZero()) {
-      return targetLines.map((line) => ({
-        lineId: line.id,
-        originalAmount: line.amount,
-        allocatedAmount: '0',
-        ratio: '0%',
-      }));
-    }
-
-    // 各行の案分を計算
-    return targetLines.map((line) => {
-      let amount: Decimal;
-      try {
-        amount = line.amount ? new Decimal(line.amount) : new Decimal(0);
-      } catch {
-        amount = new Decimal(0);
-      }
-
-      const ratio = amount.div(totalAmount);
-      const allocatedAmount = net.mul(ratio).toDecimalPlaces(0, Decimal.ROUND_HALF_UP);
-
-      // 比率を%表示用に変換（小数点2桁）
-      const ratioPercent = ratio.mul(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
-
-      return {
-        lineId: line.id,
-        originalAmount: line.amount,
-        allocatedAmount: allocatedAmount.toString(),
-        ratio: `${ratioPercent.toString()}%`,
-      };
-    });
   }
 
   /**

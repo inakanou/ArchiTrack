@@ -1388,8 +1388,17 @@ export function findFeaturelessCoverageHeaders(
  * 戻した作業ツリーと戻さない作業ツリーで測り分けた（2026-10-11 にリポジトリルートから
  * `npx tsx scripts/check-requirement-coverage.ts --json` を実行し `featurelessCoverageHeaders` を読んで実測。
  * ヘッダー 1990 → 1989 → 1984 件、眠る名乗り 5033 件のまま、939 → 939 → 938 ファイル）。
+ *
+ * estimate-creation のタスク 61.4 が 1 だけ下げた（1984 → 1983）。利用者の判断（2026-10-11）で、
+ * 本番から使われない NetCalculationPanel とともに、同部品だけが用いていたフロントエンドの
+ * `EstimateCalculator.previewNetAllocation` を取り除いたことによる。同メソッドの JSDoc が
+ * 機能名を欠く `Requirements: REQ-5.1, REQ-5.2, REQ-5.4` を 1 件持っていた（識別子を行内に
+ * 並べる形のため眠る名乗りは 0 件）。帰属は `frontend/src/utils/estimate-calculation.ts` だけを
+ * HEAD（`79ef74d9`）から戻した作業ツリーと戻さない作業ツリーで測り分けた（2026-10-11 に
+ * リポジトリルートから `npm run check:req-coverage:json` を実行し `featurelessCoverageHeaders` を
+ * 読んで実測。ヘッダー 1984 → 1983 件、眠る名乗り 5033 件のまま、938 ファイルのまま）。
  */
-export const MAX_FEATURELESS_COVERAGE_HEADERS = 1984;
+export const MAX_FEATURELESS_COVERAGE_HEADERS = 1983;
 
 /**
  * 機能名を欠くヘッダーの下で眠っている名乗りの上限（ラチェット）

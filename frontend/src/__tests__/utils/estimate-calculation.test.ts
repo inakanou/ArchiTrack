@@ -4,7 +4,7 @@
  * Task 14.1: EstimateCalculator単体テスト
  * - 金額計算のDecimal精度検証 (REQ-1.3, REQ-13.6)
  * - 合計計算のテスト (REQ-1.5, REQ-2.3)
- * - プレビュー計算のテスト (REQ-5.1, REQ-5.4, REQ-6.1)
+ * - プレビュー計算のテスト (REQ-6.1)
  */
 
 import { describe, it, expect } from 'vitest';
@@ -12,7 +12,6 @@ import Decimal from 'decimal.js';
 import {
   EstimateCalculator,
   EstimateItemWithLines,
-  VendorLineInfo,
   ExecutionLineInfo,
 } from '../../utils/estimate-calculation';
 
@@ -325,134 +324,6 @@ describe('EstimateCalculator', () => {
 
         // 10000 + (-3000) = 7000
         expect(result.toString()).toBe('7000');
-      });
-    });
-  });
-
-  // ============================================================================
-  // previewNetAllocation - NET金額案分プレビュー計算
-  // REQ-5.1, REQ-5.2, REQ-5.4: NET金額計算と案分機能
-  // ============================================================================
-  describe('previewNetAllocation', () => {
-    describe('正常系', () => {
-      it('金額比率に基づいてNET金額を案分できること', () => {
-        const vendorLines: VendorLineInfo[] = [
-          { id: '1', amount: '6000' }, // 60%
-          { id: '2', amount: '4000' }, // 40%
-        ];
-        const excludeIds: string[] = [];
-        const netAmount = '10000';
-
-        const result = EstimateCalculator.previewNetAllocation(vendorLines, excludeIds, netAmount);
-
-        expect(result).toHaveLength(2);
-        expect(result[0]!.lineId).toBe('1');
-        expect(result[0]!.allocatedAmount).toBe('6000'); // 10000 * 0.6
-        expect(result[0]!.ratio).toBe('60%');
-        expect(result[1]!.lineId).toBe('2');
-        expect(result[1]!.allocatedAmount).toBe('4000'); // 10000 * 0.4
-        expect(result[1]!.ratio).toBe('40%');
-      });
-
-      it('除外IDの行を案分対象から除外すること', () => {
-        const vendorLines: VendorLineInfo[] = [
-          { id: '1', amount: '5000' },
-          { id: '2', amount: '3000' }, // 除外
-          { id: '3', amount: '2000' },
-        ];
-        const excludeIds: string[] = ['2'];
-        const netAmount = '7000';
-
-        const result = EstimateCalculator.previewNetAllocation(vendorLines, excludeIds, netAmount);
-
-        // 除外後: 5000 + 2000 = 7000
-        // 5000/7000 ≈ 71.43%, 2000/7000 ≈ 28.57%
-        expect(result).toHaveLength(2);
-        expect(result.find((r) => r.lineId === '2')).toBeUndefined();
-        expect(result[0]!.lineId).toBe('1');
-        expect(result[1]!.lineId).toBe('3');
-      });
-
-      it('REQ-22: 小数点を含む案分計算で結果が整数に丸められること', () => {
-        const vendorLines: VendorLineInfo[] = [
-          { id: '1', amount: '1000' },
-          { id: '2', amount: '1000' },
-          { id: '3', amount: '1000' },
-        ];
-        const excludeIds: string[] = [];
-        const netAmount = '10000';
-
-        const result = EstimateCalculator.previewNetAllocation(vendorLines, excludeIds, netAmount);
-
-        // 各行: 10000 / 3 = 3333.33... -> 3333（整数に丸め）
-        expect(result).toHaveLength(3);
-        result.forEach((r) => {
-          expect(r.allocatedAmount).toBe('3333');
-          expect(r.ratio).toBe('33.33%');
-        });
-      });
-
-      it('元の金額(originalAmount)を保持すること', () => {
-        const vendorLines: VendorLineInfo[] = [{ id: '1', amount: '8000' }];
-
-        const result = EstimateCalculator.previewNetAllocation(vendorLines, [], '10000');
-
-        expect(result[0]!.originalAmount).toBe('8000');
-      });
-    });
-
-    describe('境界値', () => {
-      it('合計金額が0の場合、全て0を返すこと', () => {
-        const vendorLines: VendorLineInfo[] = [
-          { id: '1', amount: '0' },
-          { id: '2', amount: '0' },
-        ];
-
-        const result = EstimateCalculator.previewNetAllocation(vendorLines, [], '10000');
-
-        expect(result).toHaveLength(2);
-        result.forEach((r) => {
-          expect(r.allocatedAmount).toBe('0');
-          expect(r.ratio).toBe('0%');
-        });
-      });
-
-      it('amountがnullの行は金額0として扱うこと', () => {
-        const vendorLines: VendorLineInfo[] = [
-          { id: '1', amount: null },
-          { id: '2', amount: '10000' },
-        ];
-
-        const result = EstimateCalculator.previewNetAllocation(vendorLines, [], '10000');
-
-        expect(result[0]!.allocatedAmount).toBe('0');
-        expect(result[0]!.ratio).toBe('0%');
-        expect(result[1]!.allocatedAmount).toBe('10000');
-        expect(result[1]!.ratio).toBe('100%');
-      });
-
-      it('全ての行が除外された場合、空配列を返すこと', () => {
-        const vendorLines: VendorLineInfo[] = [
-          { id: '1', amount: '5000' },
-          { id: '2', amount: '3000' },
-        ];
-        const excludeIds: string[] = ['1', '2'];
-
-        const result = EstimateCalculator.previewNetAllocation(vendorLines, excludeIds, '10000');
-
-        expect(result).toHaveLength(0);
-      });
-
-      it('無効な金額文字列がある場合は0として扱うこと', () => {
-        const vendorLines: VendorLineInfo[] = [
-          { id: '1', amount: 'invalid' },
-          { id: '2', amount: '10000' },
-        ];
-
-        const result = EstimateCalculator.previewNetAllocation(vendorLines, [], '10000');
-
-        expect(result[0]!.allocatedAmount).toBe('0');
-        expect(result[1]!.allocatedAmount).toBe('10000');
       });
     });
   });

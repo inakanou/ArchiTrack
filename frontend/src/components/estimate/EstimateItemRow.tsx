@@ -298,8 +298,11 @@ function LineRow({ itemId, line, onLineChange, hasChildren = false }: LineRowPro
       {/* 行タイプラベル */}
       <div style={getLabelStyle(line.lineType)}>{LINE_TYPE_LABELS[line.lineType]}</div>
 
-      {/* 見積業者 (REQ-17.3, REQ-17.4) */}
-      <div style={{ fontSize: '12px', color: '#6b7280', textAlign: 'center' }}>
+      {/* 見積業者 (REQ-17.3, REQ-17.4)。案分対象となった業者の識別にも用いる（5.6） */}
+      <div
+        style={{ fontSize: '12px', color: '#6b7280', textAlign: 'center' }}
+        data-testid="source-vendor-name"
+      >
         {line.lineType === 'VENDOR' && line.sourceVendorName ? line.sourceVendorName : ''}
       </div>
 

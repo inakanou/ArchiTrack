@@ -604,7 +604,6 @@ frontend/
 │   │       ├── EstimateReportFieldsPanel.tsx # 帳票用入力項目（別途工事・有効期限・提出日）
 │   │       ├── useEstimateRowDrag.ts # 行のドラッグ&ドロップ
 │   │       ├── TransferQuotationDialog.tsx # 受領見積書転記ダイアログ
-│   │       ├── NetCalculationPanel.tsx # NET金額案分パネル
 │   │       ├── NetAllocationDialog.tsx # NET案分ダイアログ（プロジェクト単位受領見積書選択）
 │   │       ├── OverheadCostPanel.tsx # 諸経費パネル
 │   │       ├── ProfitRatePanel.tsx   # 利益率パネル

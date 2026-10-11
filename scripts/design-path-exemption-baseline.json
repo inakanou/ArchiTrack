@@ -29,8 +29,8 @@
   "reachTotal": 189,
   "candidateTotal": 747,
   "entityTotal": 149,
-  "exemptedTotal": 144,
-  "exemptedDistinctTotal": 41,
+  "exemptedTotal": 147,
+  "exemptedDistinctTotal": 42,
   "ambiguousTotal": 5,
   "candidateHistory": [
     {
@@ -340,7 +340,7 @@
   "exempted": {
     ".kiro/specs/estimate-creation/design.md": 1,
     ".kiro/specs/quantity-table-generation/design.md": 14,
-    ".kiro/specs/site-survey/design.md": 129
+    ".kiro/specs/site-survey/design.md": 132
   },
   "exemptedReferences": {
     ".kiro/specs/estimate-creation/design.md": [
@@ -373,6 +373,7 @@
       "backend/src/services/errors.ts",
       "backend/src/services/estimate-validation.service.ts",
       "frontend/src/__tests__/components/site-surveys/LazyImage.test.tsx",
+      "frontend/src/components/estimate/NetCalculationPanel.tsx",
       "frontend/src/components/site-survey/index.ts",
       "frontend/src/components/site-surveys/ImageViewer.tsx",
       "frontend/src/components/site-surveys/LazyImage.stories.tsx",

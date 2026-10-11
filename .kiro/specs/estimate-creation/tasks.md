@@ -1769,11 +1769,12 @@ _起票元: quantity-table-generation の Task 94.1。独立レビューが行�
   - _Boundary: REQ-5.7 の条文と検証_
   - **決定と結果（2026-10-11）**: 利用者が撤廃を承認した。requirements.md の 5.7 を 18.9 / 19.7 と同じ取り消し線の追跡用の記述に置き換え（5.8・5.9 の番号は不変）、未使用の NetCalculationPanel から 5.7 の名乗りを外した。design.md の追跡表の行は、死語の上限（`maxOrphans: 24`）を超えないよう 5.1-5.6 へ改め、もとが 5.1-5.7 だったことを現況の注記に残した
 
-- [ ] 61.4 REQ-5.6（案分対象業者の識別管理）を本番の経路で検証し、未使用の NetCalculationPanel の扱いを決める
+- [x] 61.4 REQ-5.6（案分対象業者の識別管理）を本番の経路で検証し、未使用の NetCalculationPanel の扱いを決める
   - **事実**: 名乗りは本番から使われない `NetCalculationPanel.tsx`（import は stories と test だけ）にしか無い。本番の到達経路（`NetAllocationDialog` か保存データ）で満たされているかは未確認
   - 本番の経路で条文を満たす箇所を特定し、そこを検証して名乗り直す（移し先が条文を実際に観測していることを変異で確かめる）。無ければ実装か改訂（着手時に利用者に確かめる）。その後 `NetCalculationPanel.tsx` と stories・test の扱いを決め、design.md（80・115・338・810 行付近）を規約 (a) の形で追随させる
   - _Requirements: 5.6_
   - _Boundary: REQ-5.6 の検証と NetCalculationPanel の扱い_
+  - **決定と結果（2026-10-11）**: 利用者が (A)（今の仕組みで満たすとして本番の経路で検証する）と NetCalculationPanel の取り除きを選んだ。業者金額行の見積業者（`sourceVendorName`）で案分対象が引き当たり、案分後も保存・再読込後も別業者の項目と区別されて保たれることを、`estimate-transfer-calculation-save-e2e.spec.ts` と単体テストで 5.6 として主張した。NetCalculationPanel の 3 ファイルと、それだけが使うフロントの `previewNetAllocation` 系を取り除き、design.md・structure.md・計測の宣言を追随させた（バックエンドの計算サービスは 61.2 の判断どおり残す）
 
 **検証が記録した警告（起票していない）**: (a) 明細行の入力に 13.1 / 13.2 / 13.4 の入力時のエラー・警告の表示が無く、不正な値は保存時の 400 で初めて出る。(b) 内訳書からの作成（`estimate.service.ts` の 331〜412 行付近）に 2000 件の上限が無い。(c) `app.ts` の `express.json` の 5mb の上限で 2000 件近い保存が汎用の 500 になる恐れ。(d) PUT / DELETE `/:id` の楽観ロックが並行の要求に耐えない。(e) 保存・読込の変換が再帰のまま。(f) 2001 件 → 422 の検証が schema の単体だけ。(g) 1819 行付近の注記が 53.16 で解消済みなのに「未配線」のまま
 

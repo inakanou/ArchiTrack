@@ -138,6 +138,8 @@ graph TB
     Estimate --> ItemizedStatement
 ```
 
+**現況（タスク 61.4、2026-10-11）**: 上の図の NetCalculationPanel の節点と `EstimateDetailPage --> NetCalculationPanel` の辺は書かれた時点の構成であり、そのまま残す。本番の見積書詳細画面（EstimateDetailPage）は同部品を描画しておらず、NET金額の案分は NetAllocationDialog が担う。同部品は本番から使われないまま残っていたため、タスク 61.4 の着手時の利用者の判断（2026-10-11）により、stories・単体テストとともにコードベースから取り除いた（Requirements Traceability の表の後のタスク 61.4 の注記を参照）。
+
 **Architecture Integration**:
 - Selected pattern: レイヤードアーキテクチャ（既存パターン踏襲）
 - Domain boundaries: 見積書はプロジェクトドメインの拡張として配置
@@ -323,6 +325,8 @@ sequenceDiagram
 
 **現況（タスク 61.3、2026-10-11）**: 上の表の NET金額計算と案分の行は、書かれた時点では 5.1-5.7 を挙げていた。5.7（案分計算が処理中の場合に計算処理中であることを表示する）は、タスク 61.3 の着手時の利用者の判断（2026-10-11）により、18.9・19.7 と同じ形で requirements.md の番号付きの受入基準から撤廃し、取り消し線の追跡用の記述に置き換えた。49.3 により案分はサーバーへ往復せずクライアント内で同期的に完結するため、処理中として観測できる期間が無く、条文は検証できない。後続の 5.8・5.9 の番号は変えない。追跡表に現役でない番号を残さないという追跡表の検査（`npm run check:trace-coverage`）の求めに従い、同行の番号だけを 5.1-5.6 へ改めた（部品・インターフェース・フローの欄は変えていない）。5.7 を名乗っていたのは本番のコードから使われない NetCalculationPanel の部品とその単体テストだけであり、タスク 61.3 で両者から 5.7 の名乗りを外した（同部品の扱いそのものはタスク 61.4 が決める）。
 
+**現況（タスク 61.4、2026-10-11）**: 上の表の 5.1-5.6 の行が部品に挙げる NetCalculationPanel は本番の見積書詳細画面から使われない部品であり、5.6（案分対象となった業者を識別可能な状態で管理する）を名乗っていたのは同部品とその単体テストだけだった。タスク 61.4 の着手時に利用者は、本番の仕組みが 5.6 を満たすとして本番の経路で検証する判断 (A) を選んだ（2026-10-11）。本番の仕組みは次のとおりである。NET金額案分のダイアログ（NetAllocationDialog）は、業者の選択肢と案分の対象を業者金額行の見積業者（`sourceVendorName`）で引き当て、選んだ業者の項目だけを対象にする。案分（`estimateEditReducer` の `applyNetAllocation`）は実行金額行だけを書き換え、業者金額行の見積業者を残す。見積業者は明細の「見積業者」欄（EstimateItemRow）に出て、一括保存で送られて永続化され、再読み込みで戻る。5.6 の検証は、E2E `e2e/specs/estimate/estimate-transfer-calculation-save-e2e.spec.ts` の「案分対象業者の識別」（業者の異なる2項目を置き、選んだ業者で案分した項目の見積業者と実行金額行の単価、および別業者の項目が自身の見積業者を示したまま変わらないことを、適用直後と保存して開き直した後に主張する）と、単体の `estimateEditReducer.test.ts` と `NetAllocationDialog.test.tsx` が担う。E2E が条文を観測していることは、案分が業者金額行の見積業者を消す変異と、保存が見積業者を送らない変異のそれぞれで同 E2E が赤になることで確かめた（2026-10-11）。同行の部品・インターフェース・フローの欄は変えない。NetCalculationPanel は同じ判断でコードベースから取り除いた（Components and Interfaces の表の後のタスク 61.4 の注記を参照）。
+
 ## Components and Interfaces
 
 | Component | Domain/Layer | Intent | Req Coverage | Key Dependencies (P0/P1) | Contracts |
@@ -353,6 +357,8 @@ sequenceDiagram
 | EstimateItemToolbar | Frontend | 見積項目操作ツールバー | 23.1-23.10 | useEstimateEditor (P0) | Props |
 
 **現況（タスク 61.3、2026-10-11）**: 上の表の EstimateCalculationService と NetCalculationPanel の行が挙げる 5.1-5.7 は書かれた時点の割り当てであり、そのまま残す。5.7 は利用者の判断（2026-10-11）により撤廃した（Requirements Traceability の表の後のタスク 61.3 の注記を参照）ため、両行の 5.1-5.7 のうち現役の受入基準は 5.1-5.6 である。
+
+**現況（タスク 61.4、2026-10-11）**: 上の表の NetCalculationPanel の行は書かれた時点の割り当てであり、そのまま残す。同部品は本番から使われないまま残っていたため、利用者の判断（2026-10-11）により、stories・単体テストとともにコードベースから取り除いた。あわせて、同部品だけが用いていたフロントエンドの EstimateCalculator の `previewNetAllocation` と、その入出力の型 `VendorLineInfo`・`AllocationPreview`、およびそれらの単体テストを取り除いた。NET金額案分のプレビューと反映は `estimateCalculations` の `allocateNet` が単一の実装として担う。バックエンドの EstimateCalculationService の `previewNetAllocation` は、同サービスの冒頭の注記（クライアント計算の照合先として残す）に従いそのまま残す。5.6 の検証の所在は Requirements Traceability の表の後のタスク 61.4 の注記に記す。
 
 ### Data Layer
 
@@ -834,6 +840,8 @@ interface EstimateItemTableProps {
 
 **現況（タスク 61.3、2026-10-11）**: 本節の Requirements 欄の 5.1-5.7 と、下の責務の「計算処理中のインジケーター表示」は書かれた時点の記述であり、そのまま残す。5.7 は利用者の判断（2026-10-11）により撤廃した。案分は本番ではクライアント内で同期的に完結し（49.3）、処理中として観測できる期間が無いためである（Requirements Traceability の表の後のタスク 61.3 の注記を参照）。本部品は処理中のインジケーターを持ち続けるが、5.7 を名乗らない。本部品の扱いはタスク 61.4 が決める。
 
+**現況（タスク 61.4、2026-10-11）**: 本節は書かれた時点の設計であり、そのまま残す。本番の見積書詳細画面は本部品を描画せず、NET金額の案分は NetAllocationDialog が担う（49.3 によりサーバーへの書き込みも行わない）。本部品は本番から使われないまま残っていたため、利用者の判断（2026-10-11）により、stories・単体テストとともにコードベースから取り除いた。下の State Management が挙げる `AllocationPreview` と、Client-Side Preview Strategy が挙げる `EstimateCalculator.previewNetAllocation()` も同じ変更で取り除いた。5.6 の本番の経路での検証は Requirements Traceability の表の後のタスク 61.4 の注記に記す。
+
 **Responsibilities & Constraints**
 - 対象業者の選択
 - 案分対象行の選択
@@ -1108,6 +1116,8 @@ interface EstimateInfo {
 - Outbound: EstimateItemTable — 見積項目テーブル (P0)
 - Outbound: NetCalculationPanel, ProfitRatePanel, OverheadCostPanel — 計算パネル群 (P0)
 - External: estimate.routes — API通信 (P0)
+
+**現況（タスク 61.4、2026-10-11）**: 上の Outbound の NetCalculationPanel は書かれた時点の記述であり、そのまま残す。本番の見積書詳細画面が描画する案分の部品は NetAllocationDialog であり、NetCalculationPanel は利用者の判断（2026-10-11）によりコードベースから取り除いた。
 
 **Contracts**: State [x]
 
