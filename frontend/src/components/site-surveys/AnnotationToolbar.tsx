@@ -881,6 +881,19 @@ function StylePanel({
 }
 
 /**
+ * 要素が `:focus-visible` に当たるかを返す（タスク 118.1）。
+ * 擬似クラスを解さないブラウザ（Safari 15.4 未満）では `matches` が SyntaxError を投げるため、
+ * 当たらない側（false）へ倒す。
+ */
+function matchesFocusVisible(element: Element): boolean {
+  try {
+    return element.matches(':focus-visible');
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 注釈ツールバーコンポーネント
  *
  * 注釈編集で使用する各種ツールの切り替えUIを提供します。
@@ -969,6 +982,51 @@ function AnnotationToolbar({
     [onStyleChange]
   );
 
+  /**
+   * Req 28.2 / 36.5: モバイル幅で、フォーカス表示を受けた項目の全体を横スクロールの箱の内側へ寄せる
+   * （タスク 118.1）。
+   *
+   * モバイル幅の単段のツールバーを Tab で送ると、Chromium のフォーカス時の寄せは、横方向に
+   * 一定以上見えている項目を「見えている」と扱ってスクロールしない。375x667 の実測で、末尾の
+   * 「エクスポート」の釦は 105px が見えた状態で止まり、箱の右端で 13px 欠けた（端までの残りは
+   * 21px）。箱の padding・scroll-padding・scroll-margin を足しても寄せは起きない（実測）。
+   * そこで、フォーカスを受けた項目の矩形と箱の内側（枠線の内側・`clientWidth` の幅）を比べ、
+   * 欠けた分だけツールバー自身の `scrollLeft` を動かす。ページや他の祖先はスクロールさせない。
+   *
+   * 寄せるのは `:focus-visible` に当たるフォーカスに限る。キーボードでの移動は常に当たる。
+   * 指のタップで受けたフォーカスの当否はブラウザが要素の種類で決める。375x667・タッチの
+   * Chromium の実測で、数値の入力欄（フォントサイズ）と select（吹き出し形式）はタップでも当たり、
+   * 欠けた分（20px）だけ寄る。釦・チェックボックス・色の入力はタップでは当たらず寄らない
+   * （指で送った位置を利用者の意図に反して変えない）。入力欄の寄せは、入力する欄の全体を
+   * 見せる点で有益であり、許容する（タスク 118.1 の独立レビューの 1 巡目で決定）。
+   * `:focus-visible` を解さないブラウザ（Safari 15.4 未満）では `matches` が例外を投げるため、
+   * 寄せない側へ倒す。デスクトップ幅は折り返して横スクロールしないため寄せない。
+   * フォーカスの輪の位置（`mobileInsetFocusRing`）は変えない。項目の全体が箱の内側に入れば、
+   * 項目の縁の上へ描く内側の輪も欠けない。
+   */
+  const handleMobileFocusReveal = useCallback(
+    (event: React.FocusEvent<HTMLDivElement>) => {
+      if (!isMobile) {
+        return;
+      }
+      const box = event.currentTarget;
+      const item = event.target;
+      if (item === box || !matchesFocusVisible(item)) {
+        return;
+      }
+      const boxRect = box.getBoundingClientRect();
+      const itemRect = item.getBoundingClientRect();
+      const innerLeft = boxRect.left + box.clientLeft;
+      const innerRight = innerLeft + box.clientWidth;
+      if (itemRect.right > innerRight) {
+        box.scrollLeft += itemRect.right - innerRight;
+      } else if (itemRect.left < innerLeft) {
+        box.scrollLeft -= innerLeft - itemRect.left;
+      }
+    },
+    [isMobile]
+  );
+
   // Req 28.3: モバイル幅ではアクションボタンのタップ領域も 44x44 以上にする
   // （適用範囲は Task 115.170 で決着。道具のボタンだけでなく「各項目」が対象）。
   // モバイル幅ではフォーカスの輪を項目の内側へ描く（`mobileInsetFocusRing` を参照。タスク 116.1）。
@@ -982,6 +1040,7 @@ function AnnotationToolbar({
       role="toolbar"
       aria-label="注釈ツール"
       style={{ ...STYLES.toolbar, ...(isMobile ? STYLES.toolbarMobile : {}) }}
+      onFocus={handleMobileFocusReveal}
     >
       {TOOL_ORDER.map((toolId) => {
         const tool = TOOL_DEFINITIONS[toolId];

@@ -1524,6 +1524,392 @@ test.describe('モバイル Viewport 注釈機能', () => {
         '折返しもスクロールも与えられていないか、利用者が動かせない領域へ切り取られています'
     ).toEqual([]);
   });
+
+  /**
+   * ツールバーの横スクロールの箱の末端の実測（Task 118.1）
+   *
+   * 末尾の項目の矩形と、箱の内側の右端（`left + clientLeft + clientWidth`。枠線の内側で、
+   * 縦のスクロールバーを除く）を同じ瞬間に取る。失敗時の手掛かりとして、箱の右の padding と
+   * 末尾の項目を包むコンテナの矩形も控える（主張には用いない）。
+   */
+  async function readToolbarTrailingEdge(): Promise<{
+    scrollLeft: number;
+    maxScrollLeft: number;
+    scrollWidth: number;
+    clientWidth: number;
+    innerRight: number;
+    paddingRight: string;
+    containerRight: number;
+    pageScrollWidth: number;
+    pageInnerWidth: number;
+    last: { name: string; left: number; right: number; width: number; visible: boolean };
+  }> {
+    return await sharedPage.getByTestId('annotation-toolbar').evaluate((toolbar) => {
+      const items = Array.from(toolbar.querySelectorAll('button, input, select'));
+      const lastElement = items[items.length - 1];
+      if (lastElement === undefined) {
+        throw new Error('ツールバーの項目（button / input / select）が一つも存在しません');
+      }
+      const box = toolbar.getBoundingClientRect();
+      const rect = lastElement.getBoundingClientRect();
+      const style = window.getComputedStyle(lastElement);
+      const container = lastElement.parentElement;
+      return {
+        scrollLeft: toolbar.scrollLeft,
+        maxScrollLeft: toolbar.scrollWidth - toolbar.clientWidth,
+        scrollWidth: toolbar.scrollWidth,
+        clientWidth: toolbar.clientWidth,
+        innerRight: box.left + toolbar.clientLeft + toolbar.clientWidth,
+        paddingRight: window.getComputedStyle(toolbar).paddingRight,
+        containerRight: container === null ? Number.NaN : container.getBoundingClientRect().right,
+        pageScrollWidth: document.documentElement.scrollWidth,
+        pageInnerWidth: window.innerWidth,
+        last: {
+          name:
+            lastElement.getAttribute('data-testid') ??
+            lastElement.getAttribute('aria-label') ??
+            lastElement.tagName.toLowerCase(),
+          left: rect.left,
+          right: rect.right,
+          width: rect.width,
+          visible: style.visibility === 'visible' && style.display !== 'none',
+        },
+      };
+    });
+  }
+
+  test('(j) ツールバーを指で端まで送ると末尾の釦の全体が箱の内側に見える (REQ-28.2/36.5)', async () => {
+    // Task 118.1: 中心の当たり判定で測る (i) は端の欠けを検出しないため、指で端まで送った
+    // ときの末尾の釦の右端と箱の内側の右端を直接比べる。寸法はフォントで変わるため固定値では
+    // 主張せず、矩形の包含で主張する。
+    //
+    // 記録（Task 118.1 の着手時の実測、375x667）: 指で端まで送る経路では、Task 116.1 の検証が
+    // 見た約 13px の欠けは**起きていなかった**（scrollLeft が最大に達し、末尾の釦の右端は
+    // 箱の右の padding 8px の内側に収まる）。欠けは Tab でフォーカスを送る経路でだけ起き、
+    // その主張は (k) が担う。本検証は指の経路で欠けが生じないことの見張りとして置く。
+    //
+    // 項目数が異なる二つの状態（属性パネルが無い既定の状態と、最後の道具を選んで属性パネルを
+    // 開いた状態）の両方で測る。
+    await enterEditMode();
+
+    const lastToolId = TOOL_ORDER[TOOL_ORDER.length - 1];
+    assertPrepared(lastToolId, '本番の TOOL_ORDER が持つ最後の道具');
+    const states: Array<{ label: string; prepare: () => Promise<void> }> = [
+      { label: '既定の状態', prepare: async () => {} },
+      {
+        label: `道具「${TOOL_DEFINITIONS[lastToolId].label}」の属性パネルを開いた状態`,
+        prepare: async () => {
+          await selectTool(TOOL_DEFINITIONS[lastToolId].label);
+          await expect(
+            sharedPage.getByTestId('style-options'),
+            '道具の選択に伴う属性パネルが開かず、項目数が最大の状態を作れません'
+          ).toBeVisible({ timeout: getTimeout(10000) });
+        },
+      },
+    ];
+
+    for (const state of states) {
+      await state.prepare();
+
+      // 指の横スクロールだけで右端まで送る（位置が動かなくなるまで払う）。
+      let items = await readToolbarReach();
+      let signature = positionSignature(items);
+      let previousSignature = Number.NaN;
+      let swipes = 0;
+      while (swipes < MAX_TOOLBAR_SWIPES && signature !== previousSignature) {
+        previousSignature = signature;
+        await swipeToolbarHorizontally(TOOLBAR_SWIPE_PX);
+        swipes += 1;
+        items = await readToolbarReach();
+        signature = positionSignature(items);
+      }
+
+      const edge = await readToolbarTrailingEdge();
+      const detail =
+        `${state.label}: スワイプ ${swipes} 回 / scrollLeft ${edge.scrollLeft} / ` +
+        `最大 ${edge.maxScrollLeft} / 内部幅 ${edge.scrollWidth} / 表示幅 ${edge.clientWidth} / ` +
+        `箱の右 padding ${edge.paddingRight} / 箱の内側の右端 ${edge.innerRight.toFixed(1)} / ` +
+        `末尾「${edge.last.name}」 ${edge.last.left.toFixed(1)}..${edge.last.right.toFixed(1)} / ` +
+        `包むコンテナの右端 ${edge.containerRight.toFixed(1)}`;
+
+      // 前提: 箱が実際にあふれていて（スクロールの箱である）、端まで送り切っていること。
+      expect(
+        edge.scrollWidth,
+        `箱があふれておらず端の欠けを測れません（${detail}）`
+      ).toBeGreaterThan(edge.clientWidth);
+      expect(
+        edge.scrollLeft,
+        `指のスクロールで端まで送り切れていません（${detail}）`
+      ).toBeGreaterThanOrEqual(edge.maxScrollLeft - 1);
+      // 前提: 末尾の項目が「エクスポート」であり、描かれて幅を持つこと。
+      expect(edge.last.name, `末尾の項目が想定と異なります（${detail}）`).toBe('エクスポート');
+      expect(edge.last.visible, `末尾の項目が描かれていません（${detail}）`).toBe(true);
+      expect(edge.last.width, `末尾の項目が幅を持ちません（${detail}）`).toBeGreaterThan(0);
+
+      // 主張: 末尾の釦の右端が箱の内側の右端を超えない（＝釦の全体が見えている）。
+      // 小数の丸めの差だけを許す。
+      expect(
+        edge.last.right,
+        `端まで送っても末尾の釦が箱の右端で ${(edge.last.right - edge.innerRight).toFixed(1)}px 欠けています（${detail}）`
+      ).toBeLessThanOrEqual(edge.innerRight + 0.5);
+      // 釦の左端も箱の内側にある（右へ寄せた結果、左が欠けていない）。
+      const innerLeft = edge.innerRight - edge.clientWidth;
+      expect(
+        edge.last.left,
+        `末尾の釦の左端が箱の内側の左端より外にあります（${detail}）`
+      ).toBeGreaterThanOrEqual(innerLeft - 0.5);
+
+      // 要件36.6: ページ全体に水平スクロールが出ない状態が保たれる。
+      expect(
+        edge.pageScrollWidth,
+        `ページ全体に水平スクロールが出ています（${detail}）`
+      ).toBeLessThanOrEqual(edge.pageInnerWidth);
+    }
+  });
+
+  test('(k) Tab でツールバーの末尾までフォーカスを送ると各項目の全体が箱の内側に見える (REQ-28.2/36.5)', async () => {
+    // Task 118.1: 375 幅の単段のツールバーを Tab で末尾まで送ると、末尾の「エクスポート」の釦が
+    // 箱の右端で約 13px 欠けたまま止まっていた（着手時の実測: 釦 230..348 / 箱の内側 40..335 /
+    // scrollLeft 1330 / 最大 1351）。原因は Chromium のフォーカス時の寄せが、横方向に一定以上
+    // （実測で 34px・105px）見えている項目を「見えている」と扱ってスクロールしないことにある。
+    // 箱の padding や scroll-padding・scroll-margin を足しても寄せは起きない（着手時に実測）。
+    //
+    // 道具の数が最大になる「テキスト」の属性パネルを開いた状態で、先頭の道具から Tab で一つずつ
+    // 送り、止まった項目ごとに矩形が箱の内側（`left + clientLeft` .. `+ clientWidth`）に
+    // 収まることを主張する。寸法はフォントで変わるため、固定値ではなく矩形の包含で主張する。
+    await enterEditMode();
+    await selectTool(TOOL_DEFINITIONS.text.label);
+    await expect(
+      sharedPage.getByTestId('style-options'),
+      '道具の選択に伴う属性パネルが開かず、項目数が最大の状態を作れません'
+    ).toBeVisible({ timeout: getTimeout(10000) });
+
+    const toolbar = sharedPage.getByTestId('annotation-toolbar');
+    // 母集団: ツールバーの中で Tab が止まりうる項目（押せない元に戻す・やり直しは止まらない）
+    const expected = await toolbar.evaluate((element) => {
+      element.scrollLeft = 0;
+      return Array.from(element.querySelectorAll('button, input, select'))
+        .filter((item) => !(item as HTMLButtonElement).disabled)
+        .map(
+          (item) =>
+            item.getAttribute('data-testid') ??
+            item.getAttribute('aria-label') ??
+            item.tagName.toLowerCase()
+        );
+    });
+    expect(expected.length, 'Tab が止まる項目が一つもありません').toBeGreaterThan(0);
+    expect(expected[expected.length - 1], '末尾の項目が想定と異なります').toBe('エクスポート');
+
+    const extent = await readToolbarExtent();
+    expect(
+      extent.scrollWidth,
+      `箱があふれておらず端の欠けを測れません（内部幅 ${extent.scrollWidth} / 表示幅 ${extent.clientWidth}）`
+    ).toBeGreaterThan(extent.clientWidth);
+
+    // 先頭の項目へフォーカスを置いてから Tab で送る（先頭は scrollLeft 0 で全体が見えている）。
+    await toolbar.locator('button, input, select').first().focus();
+    const visited: string[] = [];
+    const clipped: string[] = [];
+    for (let step = 0; step < expected.length; step++) {
+      if (step > 0) {
+        await sharedPage.keyboard.press('Tab');
+      }
+      await nextFrame();
+      const snapshot = await toolbar.evaluate((element) => {
+        const active = document.activeElement;
+        if (active === null || !element.contains(active)) {
+          return null;
+        }
+        const box = element.getBoundingClientRect();
+        const rect = active.getBoundingClientRect();
+        const innerLeft = box.left + element.clientLeft;
+        return {
+          name:
+            active.getAttribute('data-testid') ??
+            active.getAttribute('aria-label') ??
+            active.tagName.toLowerCase(),
+          left: rect.left,
+          right: rect.right,
+          width: rect.width,
+          innerLeft,
+          innerRight: innerLeft + element.clientWidth,
+          scrollLeft: element.scrollLeft,
+          maxScrollLeft: element.scrollWidth - element.clientWidth,
+        };
+      });
+      expect(snapshot, `Tab ${step} 回目でフォーカスがツールバーの外へ出ました`).not.toBeNull();
+      const item = snapshot!;
+      visited.push(item.name);
+      expect(item.width, `「${item.name}」が幅を持ちません`).toBeGreaterThan(0);
+      if (item.left < item.innerLeft - 0.5 || item.right > item.innerRight + 0.5) {
+        clipped.push(
+          `${item.name}[${item.left.toFixed(1)}..${item.right.toFixed(1)} / 箱の内側 ` +
+            `${item.innerLeft.toFixed(1)}..${item.innerRight.toFixed(1)} / ` +
+            `scrollLeft ${item.scrollLeft}/${item.maxScrollLeft}]`
+        );
+      }
+    }
+
+    // 母集団を順序と件数まで突き合わせる（一つも巡らずに欠け 0 件で緑になる形を塞ぐ）。
+    expect(visited, 'Tab で巡った項目が母集団と一致しません').toEqual(expected);
+    expect(clipped, 'Tab でフォーカスを送っても、箱の縁で欠けたまま止まる項目があります').toEqual(
+      []
+    );
+
+    // 要件36.6: ページ全体に水平スクロールが出ない状態が保たれる。
+    const page = await sharedPage.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      innerWidth: window.innerWidth,
+    }));
+    expect(
+      page.scrollWidth,
+      `ページ全体に水平スクロールが出ています（${page.scrollWidth} > ${page.innerWidth}）`
+    ).toBeLessThanOrEqual(page.innerWidth);
+  });
+
+  /** ツールバーの項目を名前（aria-label）で一つ取り、矩形・箱の内側・フォーカスの状態を返す */
+  async function readToolbarItemState(name: string): Promise<{
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+    innerLeft: number;
+    innerRight: number;
+    scrollLeft: number;
+    maxScrollLeft: number;
+    focused: boolean;
+    focusVisible: boolean;
+    pageScrollX: number;
+    pageScrollY: number;
+  }> {
+    return await sharedPage.getByTestId('annotation-toolbar').evaluate((toolbar, label) => {
+      const item = toolbar.querySelector(`[aria-label="${label}"]`);
+      if (item === null) {
+        throw new Error(`ツールバーに項目「${label}」がありません`);
+      }
+      const box = toolbar.getBoundingClientRect();
+      const rect = item.getBoundingClientRect();
+      const innerLeft = box.left + toolbar.clientLeft;
+      return {
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+        innerLeft,
+        innerRight: innerLeft + toolbar.clientWidth,
+        scrollLeft: toolbar.scrollLeft,
+        maxScrollLeft: toolbar.scrollWidth - toolbar.clientWidth,
+        focused: document.activeElement === item,
+        focusVisible: item.matches(':focus-visible'),
+        pageScrollX: window.scrollX,
+        pageScrollY: window.scrollY,
+      };
+    }, name);
+  }
+
+  /**
+   * 項目の右端が箱の内側の右端から `overflowPx` だけ外へ出る位置へ箱を送る。
+   * 送った後の実測を返す（欠けが実際に生じたことの主張は呼び出し側で行う）。
+   */
+  async function clipToolbarItemOnRight(
+    name: string,
+    overflowPx: number
+  ): Promise<Awaited<ReturnType<typeof readToolbarItemState>>> {
+    const before = await readToolbarItemState(name);
+    const target = before.scrollLeft + (before.right - before.innerRight) - overflowPx;
+    await sharedPage.getByTestId('annotation-toolbar').evaluate((toolbar, left) => {
+      toolbar.scrollLeft = left;
+    }, target);
+    await nextFrame();
+    return await readToolbarItemState(name);
+  }
+
+  /** 欠けた項目の見えている部分の中央を指でタップする */
+  async function tapVisiblePart(state: Awaited<ReturnType<typeof readToolbarItemState>>) {
+    const visibleRight = Math.min(state.right, state.innerRight);
+    await tapAt(
+      Math.round((Math.max(state.left, state.innerLeft) + visibleRight) / 2),
+      Math.round((state.top + state.bottom) / 2)
+    );
+    await nextFrame();
+  }
+
+  test('(l) 箱の縁で欠けた入力欄を指でタップすると全体が箱の内側に入り、ページはスクロールしない (REQ-28.2/36.5)', async () => {
+    // Task 118.1 の独立レビュー（1 巡目）: Chromium では文字・数値の入力欄は指のタップで受けた
+    // フォーカスでも :focus-visible に当たる。欠けた入力欄をタップすると、欠けた分だけ
+    // ツールバーの箱を寄せる（ページや他の祖先はスクロールさせない）。
+    await enterEditMode();
+    await selectTool(TOOL_DEFINITIONS.text.label);
+    await expect(
+      sharedPage.getByTestId('style-options'),
+      '道具の選択に伴う属性パネルが開かず、入力欄を描けません'
+    ).toBeVisible({ timeout: getTimeout(10000) });
+
+    const label = 'フォントサイズ';
+    const clipped = await clipToolbarItemOnRight(label, 20);
+    expect(
+      clipped.right - clipped.innerRight,
+      `前提: 「${label}」が箱の右端で欠けていません（${clipped.right.toFixed(1)} / 箱の内側の右端 ${clipped.innerRight.toFixed(1)}）`
+    ).toBeGreaterThan(1);
+    expect(clipped.focused, `前提: 「${label}」がタップの前からフォーカスを持っています`).toBe(
+      false
+    );
+
+    await tapVisiblePart(clipped);
+    const after = await readToolbarItemState(label);
+
+    expect(after.focused, `「${label}」をタップしてもフォーカスが移りません`).toBe(true);
+    expect(
+      after.focusVisible,
+      `前提: 指のタップで受けた「${label}」のフォーカスが :focus-visible に当たりません`
+    ).toBe(true);
+    expect(
+      after.right,
+      `タップした「${label}」が箱の右端で欠けたままです（${after.left.toFixed(1)}..${after.right.toFixed(1)} / ` +
+        `箱の内側 ${after.innerLeft.toFixed(1)}..${after.innerRight.toFixed(1)} / scrollLeft ${clipped.scrollLeft}→${after.scrollLeft}）`
+    ).toBeLessThanOrEqual(after.innerRight + 0.5);
+    expect(after.left, `タップした「${label}」の左端が箱の外へ出ました`).toBeGreaterThanOrEqual(
+      after.innerLeft - 0.5
+    );
+    expect(
+      { x: after.pageScrollX, y: after.pageScrollY },
+      'タップでページ全体がスクロールしました（寄せるのはツールバーの箱だけであること）'
+    ).toEqual({ x: clipped.pageScrollX, y: clipped.pageScrollY });
+  });
+
+  test('(m) 箱の縁で欠けた釦を指でタップしても箱は動かない (REQ-28.2/36.5)', async () => {
+    // Task 118.1 の独立レビュー（1 巡目）: 釦は指のタップで受けたフォーカスでは :focus-visible に
+    // 当たらないため、寄せない（指で送った位置を利用者の意図に反して変えない）。
+    // 属性パネルの中身を変えないよう、線のみの道具（折れ線）を選んだ状態で、同じ属性パネルを持つ
+    // 線のみの道具（フリーハンド）の釦をタップする。
+    await enterEditMode();
+    await selectTool(TOOL_DEFINITIONS.polyline.label);
+
+    const label = TOOL_DEFINITIONS.freehand.label;
+    const clipped = await clipToolbarItemOnRight(label, 20);
+    expect(
+      clipped.right - clipped.innerRight,
+      `前提: 「${label}」が箱の右端で欠けていません（${clipped.right.toFixed(1)} / 箱の内側の右端 ${clipped.innerRight.toFixed(1)}）`
+    ).toBeGreaterThan(1);
+
+    await tapVisiblePart(clipped);
+    const tool = sharedPage.getByRole('button', { name: label, exact: true });
+    await expect(tool, `「${label}」をタップしても選択状態になりません`).toHaveAttribute(
+      'aria-pressed',
+      'true',
+      { timeout: getTimeout(10000) }
+    );
+    const after = await readToolbarItemState(label);
+
+    expect(
+      after.focusVisible,
+      `前提: 指のタップで受けた「${label}」のフォーカスが :focus-visible に当たっています`
+    ).toBe(false);
+    expect(
+      after.scrollLeft,
+      `欠けた釦をタップしただけで箱が動きました（scrollLeft ${clipped.scrollLeft}→${after.scrollLeft}）`
+    ).toBe(clipped.scrollLeft);
+  });
 });
 
 // ============================================================================
