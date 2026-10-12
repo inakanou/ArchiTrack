@@ -488,6 +488,9 @@ describe('権限キャッシュの無効化の確かさ（統合・実 Redis・�
      * @requirement user-authentication/REQ-21.8: ロールの割り当ての解除の後処理が失敗しても、キャッシュを無効化する
      */
     it('システム管理者ロールの解除のアラートが投げても、解除は成功として返り、キャッシュは無効化される', async () => {
+      // 前提: 読み手のほかにもシステム管理者を一人置く。シードの管理者が DB に居ることを
+      // 当てにすると、居ない環境（CI）では最後の管理者の保護で解除が拒まれる
+      await createUser('other-admin', systemAdminRoleId);
       // 前提: 読み手にシステム管理者ロールを割り当て、「許可」をキャッシュへ置く
       await prisma.userRole.create({ data: { userId: readerUserId, roleId: systemAdminRoleId } });
       expect((await getUsersAsReader()).status).toBe(200);
