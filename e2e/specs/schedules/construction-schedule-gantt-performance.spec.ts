@@ -46,7 +46,11 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsUser } from '../../helpers/auth-actions';
 import { getTimeout } from '../../helpers/wait-helpers';
-import { getPrismaClient, disconnectDatabase } from '../../fixtures/database';
+import {
+  getPrismaClient,
+  disconnectDatabase,
+  cleanDatabaseAndRestoreTestData,
+} from '../../fixtures/database';
 
 // Playwright のトレースと録画は計測するページのメインスレッドで動くため、このファイルでは止める
 test.use({ trace: 'off', video: 'off' });
@@ -373,6 +377,10 @@ function expectObserversAlive(result: Measurement): void {
 
 test.describe('工程表のガントチャートの描画性能（200 項目）', () => {
   test.beforeAll(async () => {
+    // 本 spec は全件実行の終盤に、DB を空にしたまま後始末を次のスイートへ委ねる
+    // 性能系の spec（trading-partner-performance など）の後で走る。前のスイートが残した
+    // ロールとテストユーザーを当てにせず、ここで作り直してから準備する
+    await cleanDatabaseAndRestoreTestData();
     const prisma = getPrismaClient();
 
     // userロールに schedule の権限を割り当てる（construction-schedule-e2e.spec.ts と同じ形）
