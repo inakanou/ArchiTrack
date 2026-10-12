@@ -143,8 +143,8 @@ ArchiTrack/
 ├── docker-compose.test.yml # テスト環境オーバーライド（ポートオフセット、nginx本番イメージ）
 ├── docker-compose.debug.yml # デバッグオーバーライド（Node.js inspector）
 ├── docker-compose.ci.yml   # CI環境オーバーライド（nginx本番イメージ）
-├── .env.dev                # 開発環境変数
-├── .env.test               # テスト環境変数
+├── .env.dev.example        # 開発環境変数の雛形（.env.dev へ複製する。.env.dev は追跡外）
+├── .env.test.example       # テスト環境変数の雛形（.env.test へ複製する。.env.test は追跡外）
 ├── package.json            # E2Eテスト依存関係
 ├── tsconfig.json           # TypeScript設定（E2Eテスト用）
 ├── playwright.config.ts    # Playwright設定（TypeScript）
