@@ -37,6 +37,31 @@ describe('ExportDialog', () => {
     globalThis.fetch = originalFetch;
   });
 
+  /**
+   * 応答を保留した出力 API を差し込む。
+   *
+   * 出力中の表示を検める試験は、応答を返さないまま終えると、試験の後に出力が完了して
+   * 共有の onClose を呼び、後続の試験の「閉じない」主張を負荷次第で壊す。
+   * そこで試験の末尾で応答を返し、出力が閉じるところまで見届けてから終える。
+   */
+  const stubPendingExport = () => {
+    let respond: (response: { ok: boolean; blob: () => Promise<Blob> }) => void = () => {};
+    globalThis.fetch = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          respond = resolve;
+        })
+    );
+    return {
+      settle: async () => {
+        respond({ ok: true, blob: () => Promise.resolve(new Blob(['test'])) });
+        await waitFor(() => {
+          expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
+        });
+      },
+    };
+  };
+
   // ============================================================================
   // ダイアログ表示/非表示
   // ============================================================================
@@ -211,19 +236,7 @@ describe('ExportDialog', () => {
 
   it('出力処理中はローディングインジケーターを表示する', async () => {
     const user = userEvent.setup();
-    globalThis.fetch = vi.fn().mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          setTimeout(
-            () =>
-              resolve({
-                ok: true,
-                blob: () => Promise.resolve(new Blob(['test'])),
-              }),
-            1000
-          );
-        })
-    );
+    const pending = stubPendingExport();
 
     render(<ExportDialog {...defaultProps} />);
 
@@ -235,23 +248,13 @@ describe('ExportDialog', () => {
     });
 
     expect(screen.getByRole('button', { name: /出力中/i })).toBeDisabled();
+
+    await pending.settle();
   });
 
   it('出力処理中はキャンセルボタンが無効化される', async () => {
     const user = userEvent.setup();
-    globalThis.fetch = vi.fn().mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          setTimeout(
-            () =>
-              resolve({
-                ok: true,
-                blob: () => Promise.resolve(new Blob(['test'])),
-              }),
-            1000
-          );
-        })
-    );
+    const pending = stubPendingExport();
 
     render(<ExportDialog {...defaultProps} />);
 
@@ -262,23 +265,13 @@ describe('ExportDialog', () => {
       const cancelButton = screen.getByRole('button', { name: 'キャンセル' });
       expect(cancelButton).toBeDisabled();
     });
+
+    await pending.settle();
   });
 
   it('出力処理中はラジオボタンが無効化される', async () => {
     const user = userEvent.setup();
-    globalThis.fetch = vi.fn().mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          setTimeout(
-            () =>
-              resolve({
-                ok: true,
-                blob: () => Promise.resolve(new Blob(['test'])),
-              }),
-            1000
-          );
-        })
-    );
+    const pending = stubPendingExport();
 
     render(<ExportDialog {...defaultProps} />);
 
@@ -291,6 +284,8 @@ describe('ExportDialog', () => {
         expect(radio).toBeDisabled();
       });
     });
+
+    await pending.settle();
   });
 
   // ============================================================================
