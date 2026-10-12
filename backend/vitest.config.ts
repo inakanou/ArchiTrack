@@ -94,6 +94,9 @@ export default defineConfig({
         'src/utils/seed-helpers.ts',
         // Prisma生成ファイルはORM自体のテストで担保されるため除外
         'src/generated/**/*.ts',
+        // テストランナーの設定ファイルは本番コードではない。
+        // 設定の分離を検証する単体テストが import するため計測に紛れ込む
+        'vitest.*.ts',
       ],
       thresholds: {
         // ===== グローバル閾値（全体平均で満たすべきカバレッジ）=====

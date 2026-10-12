@@ -114,6 +114,26 @@ describe('EstimateEditSessionService', () => {
       });
       expect(prisma.estimateEditSession.upsert).not.toHaveBeenCalled();
     });
+
+    it('現在時刻を差し替えないときは、呼び出しの時点のシステム時刻で在席を記録する', async () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(NOW);
+        const defaultClockService = new EstimateEditSessionService({
+          prisma: prisma as unknown as PrismaClient,
+        });
+
+        await defaultClockService.heartbeat('est-1', 'user-a');
+
+        expect(prisma.estimateEditSession.upsert).toHaveBeenCalledWith({
+          where: { estimateId_userId: { estimateId: 'est-1', userId: 'user-a' } },
+          create: { estimateId: 'est-1', userId: 'user-a', lastSeenAt: NOW },
+          update: { lastSeenAt: NOW },
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe('leave', () => {

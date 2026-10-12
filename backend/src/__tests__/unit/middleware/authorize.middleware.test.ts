@@ -12,6 +12,7 @@ import { requirePermission } from '../../../middleware/authorize.middleware.js';
 import { RBACService, getSharedRBACService } from '../../../services/rbac.service.js';
 import getPrismaClient from '../../../db.js';
 import logger from '../../../utils/logger.js';
+import redisConnection from '../../../redis.js';
 
 vi.mock('../../../services/rbac.service.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../services/rbac.service.js')>()),
@@ -501,6 +502,40 @@ describe('requirePermission middleware', () => {
 
       expect(getSharedRBACService).not.toHaveBeenCalled();
       expect(mockNext).toHaveBeenCalledWith();
+    });
+
+    it('PrismaClient だけを注入したときは、そのクライアントと共有の Redis 接続で判定する', async () => {
+      vi.mocked(getSharedRBACService).mockClear();
+      const getClientSpy = vi.spyOn(redisConnection, 'getClient').mockReturnValue(null);
+      const findUnique = vi.fn().mockResolvedValue({
+        id: 'user-123',
+        userRoles: [
+          {
+            role: {
+              rolePermissions: [
+                {
+                  permission: { id: 'perm-1', resource: 'adr', action: 'read', description: null },
+                },
+              ],
+            },
+          },
+        ],
+      });
+      const prismaOnly = { ...mockPrisma, user: { findUnique } } as unknown as PrismaClient;
+
+      try {
+        const middleware = requirePermission('adr:read', undefined, prismaOnly);
+        await middleware(mockRequest as Request, mockResponse as Response, mockNext);
+
+        expect(getSharedRBACService).not.toHaveBeenCalled();
+        expect(getClientSpy).toHaveBeenCalled();
+        expect(findUnique).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { id: 'user-123' } })
+        );
+        expect(mockNext).toHaveBeenCalledWith();
+      } finally {
+        getClientSpy.mockRestore();
+      }
     });
   });
 });

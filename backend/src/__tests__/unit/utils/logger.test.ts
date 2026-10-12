@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import pino from 'pino';
 
 describe('Logger Sensitive Data Masking', () => {
@@ -192,5 +192,43 @@ describe('Logger Sensitive Data Masking', () => {
     expect(logEntry.email).toBe('test@example.com');
     expect(logEntry.roles).toEqual(['user', 'admin']);
     expect(logEntry.timestamp).toBeDefined();
+  });
+});
+
+describe('Logger 環境ごとの設定', () => {
+  // テストの共通設定（vitest.setup.ts）はロガーをモックに置き換えるため、
+  // 環境変数を差し替えたうえで本物のモジュールを読み直す
+  const loadRealLogger = async (): Promise<pino.Logger> => {
+    vi.resetModules();
+    const { default: realLogger } = await vi.importActual<
+      typeof import('../../../utils/logger.js')
+    >('../../../utils/logger.js');
+    return realLogger;
+  };
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('本番環境では LOG_LEVEL が無ければ info で出力し、環境名を base に載せる', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('LOG_LEVEL', '');
+    vi.stubEnv('RAILWAY_SERVICE_NAME', 'api');
+
+    const realLogger = await loadRealLogger();
+
+    expect(realLogger.level).toBe('info');
+    expect(realLogger.bindings()).toMatchObject({ env: 'production', service: 'api' });
+  });
+
+  it('NODE_ENV が無いときは debug で出力し、環境名を development とする', async () => {
+    vi.stubEnv('NODE_ENV', '');
+    vi.stubEnv('LOG_LEVEL', '');
+
+    const realLogger = await loadRealLogger();
+
+    expect(realLogger.level).toBe('debug');
+    expect(realLogger.bindings()).toMatchObject({ env: 'development', service: 'backend' });
   });
 });
