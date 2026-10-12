@@ -365,7 +365,13 @@ const ImageExportDialog: React.FC<ImageExportDialogProps> = ({
         aria-modal="true"
         aria-labelledby={titleId}
       >
-        <div style={styles.dialog} onClick={(e) => e.stopPropagation()}>
+        {/* 処理中は中の操作がすべて無効になり、スクロールできる箱へキーボードで届く手段が
+            無くなるため、その間だけ箱自身を Tab で到達できるようにする */}
+        <div
+          style={styles.dialog}
+          onClick={(e) => e.stopPropagation()}
+          tabIndex={isProcessing ? 0 : undefined}
+        >
           {/* ヘッダー */}
           <div style={styles.header}>
             <h2 id={titleId} style={styles.title}>

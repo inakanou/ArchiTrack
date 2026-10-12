@@ -275,7 +275,8 @@ const styles = {
   },
   failureMessage: {
     display: 'block',
-    color: '#6b7280',
+    // 失敗一覧の薄赤の地（#fef2f2）の上で 4.5:1 以上を保つ（#6b7280 は 4.42:1 で届かない）
+    color: '#4b5563',
     fontSize: '12px',
     overflowWrap: 'anywhere' as const,
   },
