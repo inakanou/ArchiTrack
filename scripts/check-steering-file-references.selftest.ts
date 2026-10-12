@@ -820,7 +820,10 @@ function checkSampleClassesCoverRealData(): string[] {
   // 当てると、自己検査 45 件のうち 9 件が落ちる（本確認を含む。2026-08-31 に実測。115.210）
   // **遊びを持たせない**（タスク 115.298）。是正前は 10 と宣言しながら現況が 15 種で
   // 遊びが 5 種あり、拡張子の網を五つ狭めても緑であった（2026-09-05 に実測）。
-  const MINIMUM_EXTENSIONS = 15;
+  // 15 → 14 種（2026-10-13）: structure.md のツリーの追跡外の `.env.test` を、追跡下の
+  // `.env.test.example` へ指し直した。`.test` は `.env.test` だけが実現していた類であり、
+  // 網を狭めたのではなく実データから消えた（`.example` は既存の類）。
+  const MINIMUM_EXTENSIONS = 14;
   if (claimExtensions.size < MINIMUM_EXTENSIONS) {
     failures.push(
       `主張として照合された拡張子が ${claimExtensions.size} 種しかない` +
