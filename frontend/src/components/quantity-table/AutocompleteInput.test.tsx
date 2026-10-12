@@ -469,4 +469,19 @@ describe('AutocompleteInput', () => {
       expect(onBlurAddCandidate).not.toHaveBeenCalled();
     });
   });
+
+  describe('焦点を失った後の遅延タイマー', () => {
+    it('ドロップダウンを閉じる前にアンマウントされたら、閉じるタイマーを解除する', () => {
+      const { unmount } = render(<AutocompleteInput {...defaultProps} value="基礎工事" />);
+      const input = screen.getByRole('combobox');
+      fireEvent.focus(input);
+      const timersBeforeBlur = vi.getTimerCount();
+
+      fireEvent.blur(input);
+      expect(vi.getTimerCount()).toBe(timersBeforeBlur + 1);
+
+      unmount();
+      expect(vi.getTimerCount()).toBe(timersBeforeBlur);
+    });
+  });
 });

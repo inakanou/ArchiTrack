@@ -228,6 +228,21 @@ export default function AutocompleteInput(props: AutocompleteInputProps) {
    * 焦点を得た時点と変換を開始した時点で更新する。
    */
   const preCompositionValueRef = useRef('');
+  /**
+   * 焦点を失った後にドロップダウンを閉じる遅延タイマー
+   *
+   * 遅延中にアンマウントされたとき、破棄済みのコンポーネントの状態を更新しないよう
+   * アンマウント時に解除する。
+   */
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current !== null) {
+        clearTimeout(closeTimerRef.current);
+      }
+    };
+  }, []);
 
   /**
    * このフィールドの最大文字幅（半角換算）。
@@ -428,7 +443,11 @@ export default function AutocompleteInput(props: AutocompleteInputProps) {
       }
       setIsFocused(false);
       // 遅延してドロップダウンを閉じる（クリック処理を先に実行するため）
-      setTimeout(() => {
+      if (closeTimerRef.current !== null) {
+        clearTimeout(closeTimerRef.current);
+      }
+      closeTimerRef.current = setTimeout(() => {
+        closeTimerRef.current = null;
         setIsOpen(false);
         setSelectedIndex(-1);
       }, 150);
