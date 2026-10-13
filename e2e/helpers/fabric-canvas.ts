@@ -81,6 +81,25 @@ export async function waitForFabricCanvas(page: Page, timeoutMs = 10000): Promis
 }
 
 /**
+ * 描画面が公開され、保存済みの注釈の復元まで終わるまで待つ
+ *
+ * 描画面の公開（`window.__fabricCanvas`）は注釈の取得より**先**に起きる。公開の直後に
+ * 件数を読むと、保存済みの注釈が後から載り、図形を一つ描いただけで件数が 0 → 4 のように
+ * 飛ぶ（2026-10-13 の pre-push で site-survey-annotation-tools の Undo の検証が間欠的に
+ * 落ちた）。エディタは注釈の復元を終えるまで「読み込み中」の status を出しているため、
+ * 描画面の公開を待った後に、その status がエディタの中から消えるのを待つ。
+ */
+export async function waitForAnnotationEditorLoaded(page: Page, timeoutMs = 10000): Promise<void> {
+  await waitForFabricCanvas(page, timeoutMs);
+  await expect(
+    page
+      .getByTestId('annotation-editor-container')
+      .getByRole('status', { name: '読み込み中', exact: true }),
+    '注釈エディタが保存済みの注釈の復元を終えること'
+  ).toHaveCount(0, { timeout: getTimeout(timeoutMs) });
+}
+
+/**
  * 描画面に載っている図形の数を観測する
  *
  * 描画面が取得できない場合は番兵値を返さず、その場で投げる。

@@ -21,7 +21,7 @@ import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
-import { getFabricObjectCount, waitForFabricCanvas } from '../../helpers/fabric-canvas';
+import { getFabricObjectCount, waitForAnnotationEditorLoaded } from '../../helpers/fabric-canvas';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -177,7 +177,9 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
     // 本番が描画面を window へ載せた事実そのものを待つ。
     // Task 115.184: 件数の観測（getFabricObjectCount）は描画面が不在なら投げる。
     // 待ち合わせは観測の内側へ隠さず、観測できる状態をここで確立しておく。
-    await waitForFabricCanvas(page);
+    // 描画面の公開は保存済みの注釈の復元より先に起きる。公開だけを待つと、後から載る
+    // 注釈が件数の増分の主張を間欠的に壊す（2026-10-13 の pre-push）。復元の完了まで待つ。
+    await waitForAnnotationEditorLoaded(page);
 
     return true;
   }

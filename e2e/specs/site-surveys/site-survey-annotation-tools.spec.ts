@@ -114,7 +114,7 @@ import { assertPrepared } from '../../helpers/preconditions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
-import { getFabricObjectCount, waitForFabricCanvas } from '../../helpers/fabric-canvas';
+import { getFabricObjectCount, waitForAnnotationEditorLoaded } from '../../helpers/fabric-canvas';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -269,7 +269,9 @@ test.describe('現場調査注釈ツール', () => {
     // Task 115.184: 件数の観測（getFabricObjectCount）は描画面が不在なら投げるため、
     // 「100ms あれば初期化されたはず」と見込むのではなく、本番が描画面を window へ
     // 載せた事実そのものを待って観測できる状態を確立する。
-    await waitForFabricCanvas(page);
+    // 描画面の公開は保存済みの注釈の復元より先に起きる。公開だけを待つと、後から載る
+    // 注釈が件数の増分の主張を間欠的に壊す（2026-10-13 の pre-push）。復元の完了まで待つ。
+    await waitForAnnotationEditorLoaded(page);
 
     return true;
   }
@@ -1614,6 +1616,39 @@ test.describe('現場調査注釈ツール', () => {
 
       // 注釈エディタが正常に復元されたことを確認
       await expect(page.locator('body')).toBeVisible();
+    });
+
+    test('保存済みの注釈を復元している間はエディタに読み込み中を示し、復元を終えると注釈が描画面に載る', async ({
+      page,
+    }) => {
+      await loginAsUser(page, 'REGULAR_USER');
+
+      // 保存済みの注釈の取得を、読み込み中の表示を観測するまで止めておく
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await page.route('**/api/site-surveys/images/*/annotations', async (route) => {
+        if (route.request().method() === 'GET') {
+          await released;
+        }
+        await route.fallback();
+      });
+
+      // 遷移の補助は復元の完了（読み込み中の表示が消えること）まで待つため、待たずに走らせる
+      const navigation = navigateToAnnotationEditor(page);
+
+      const loading = page
+        .getByTestId('annotation-editor-container')
+        .getByRole('status', { name: '読み込み中', exact: true });
+      await expect(loading).toBeVisible({ timeout: getTimeout(10000) });
+
+      release();
+      expect(await navigation).toBe(true);
+
+      // 遷移の補助が返った時点で、先行の検証が保存した注釈は描画面に載っている
+      await expect(loading).toHaveCount(0);
+      expect(await getFabricObjectCount(page)).toBeGreaterThan(0);
     });
 
     test('未保存の変更がある状態で画面を離れようとすると確認ダイアログが表示される (site-survey/REQ-9.3)', async ({
