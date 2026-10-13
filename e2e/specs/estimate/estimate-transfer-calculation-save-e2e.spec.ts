@@ -535,7 +535,12 @@ test.describe('転記・案分・利益率適用・諸経費追加・値引き�
     await dialog.getByRole('button', { name: '計算' }).click();
     expect((await calcPromise).status()).toBe(200);
 
-    const calculatedAmount = toMoney(await dialog.locator('#calculated-amount-input').inputValue());
+    // 計算金額の欄は空で始まり、応答の処理と再描画を経てから埋まる。応答の到着の直後に
+    // 読むと空（0 円）を読むことがある（2026-10-13 の pre-push で間欠的に落ちた）ため、
+    // 欄に金額が入るのを待ってから読む
+    const calculatedAmountInput = dialog.locator('#calculated-amount-input');
+    await expect(calculatedAmountInput).toHaveValue(/[1-9]/, { timeout: getTimeout(10000) });
+    const calculatedAmount = toMoney(await calculatedAmountInput.inputValue());
     expect(calculatedAmount).toBeGreaterThan(0);
 
     await dialog.getByRole('button', { name: '項目追加' }).click();
