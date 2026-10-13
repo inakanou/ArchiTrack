@@ -244,6 +244,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # steering の実行方法の検査は backend・frontend の vitest 構成を import して選択範囲を
+      # 導く。構成が import する vitest / @vitejs/plugin-react はそれぞれのパッケージにしか
+      # 無いため、ルートだけを入れると構成が読めず「選択範囲の照合 0 件」で落ちる
+      - name: Install backend dependencies
+        run: npx -y npm@11.6.2 --prefix backend ci --ignore-scripts
+      - name: Install frontend dependencies
+        # Pin npm to frontend/package.json "packageManager" so npm's optional-dependency
+        # resolution matches the committed lockfile (default npm 10.x rejects it with EUSAGE)
+        run: npx -y npm@11.6.2 --prefix frontend ci --ignore-scripts
+
       # 検出器そのものの退行を先に検知する（検出器が壊れたまま本検査が通ることを防ぐ）
       - name: Check detector self-test
         run: |
