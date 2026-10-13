@@ -741,6 +741,17 @@ function AnnotationEditor({
     isStylePanelVisible: true,
   });
 
+  // 閲覧⇄編集の切り替えは描画面を作り直し、画像と注釈を読み直す（Canvas 初期化の effect）。
+  // 読み込み中への移行をその effect の中だけで行うと、切り替えた最初の描画は直前の
+  // 「読み込み済み」を引き継ぎ、空の描画面の上で道具が押せる描画が一度だけ出る。
+  // 切り替えたその描画から読み込み中とするため、描画の中で直前の readOnly と比べて
+  // 状態を合わせる（props の変化に応じた state の調整）。
+  const [loadStateReadOnly, setLoadStateReadOnly] = useState(readOnly);
+  if (loadStateReadOnly !== readOnly) {
+    setLoadStateReadOnly(readOnly);
+    setState((prev) => ({ ...prev, isLoading: true, error: null }));
+  }
+
   // エクスポートダイアログの状態管理（REQ-12.2, 12.3, 12.4）
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);

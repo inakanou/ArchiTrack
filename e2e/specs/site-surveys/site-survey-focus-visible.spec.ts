@@ -978,6 +978,9 @@ async function enterEditMode(page: Page): Promise<void> {
 async function selectToolByKeyboard(page: Page, toolName: string): Promise<void> {
   const tool = page.getByRole('button', { name: toolName, exact: true });
   await tool.focus();
+  // 押せない道具（読み込み中は無効）へはフォーカスが移らず、Enter は直前のフォーカス先
+  // （編集の切り替えの釦）を押して編集を抜けてしまう（2026-10-13 の CI）。押す前に確かめる
+  await expect(tool).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(tool).toHaveAttribute('aria-pressed', 'true');
 }

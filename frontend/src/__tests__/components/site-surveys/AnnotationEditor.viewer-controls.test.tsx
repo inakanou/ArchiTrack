@@ -418,5 +418,43 @@ describe('AnnotationEditor - 閲覧モードの表示操作 (Task 115.83)', () =
         expect(restored).toBe(true);
       });
     });
+
+    it('閲覧から編集へ切り替えた最初の描画から読み込み中となり、道具は一度も押せる状態で出ない', async () => {
+      // 編集への切り替えは描画面を作り直して画像と注釈を読み直す。読み込み中の状態へ移るのが
+      // 描画面の作り直しの effect の中だと、切り替えた最初の描画は閲覧時の「読み込み済み」を
+      // 引き継ぎ、空の描画面の上で道具が押せる描画が一度だけ出る。実ブラウザでは
+      // その描画が実際にフレームとして出て、E2E が読み込みの完了と取り違えた（2026-10-13 の CI）
+      const { rerender } = render(<AnnotationEditor {...defaultProps} readOnly />);
+      await waitFor(() => {
+        expect(screen.getByTestId('zoom-controls')).toBeInTheDocument();
+      });
+
+      // 編集モードでの画像の読み込みを止め、切り替え直後の状態に留める
+      mockFromURL.mockImplementationOnce(() => new Promise(() => {}));
+
+      // 切り替えの中で起きた描画をすべて捉えるため、無効化の属性の変化を記録する。
+      // 道具が押せる状態で挿入されてから無効になると、旧値が無い（null）記録が残る
+      const observer = new MutationObserver(() => {});
+      observer.observe(document.body, {
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['disabled'],
+        attributeOldValue: true,
+      });
+      rerender(<AnnotationEditor {...defaultProps} />);
+      const records = observer.takeRecords();
+      observer.disconnect();
+
+      const disabledAfterEnabled = records.filter(
+        (record) =>
+          record.oldValue === null &&
+          record.target instanceof Element &&
+          record.target.closest('[data-testid="annotation-toolbar"]') !== null
+      );
+      expect(disabledAfterEnabled).toHaveLength(0);
+      expect(screen.getByRole('status', { name: '読み込み中' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'テキスト' })).toBeDisabled();
+      expect(screen.queryByTestId('zoom-controls')).not.toBeInTheDocument();
+    });
   });
 });

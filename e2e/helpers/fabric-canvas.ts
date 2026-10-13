@@ -41,7 +41,7 @@
  * @module e2e/helpers/fabric-canvas
  */
 
-import type { Page } from '@playwright/test';
+import type { Page, Response } from '@playwright/test';
 import { expect } from '@playwright/test';
 import { getTimeout } from './wait-helpers';
 
@@ -81,16 +81,54 @@ export async function waitForFabricCanvas(page: Page, timeoutMs = 10000): Promis
 }
 
 /**
+ * 保存済みの注釈の取得（`GET /api/site-surveys/images/:id/annotations`）の応答を待つ
+ *
+ * 描画面を作り直す操作（編集モードへの切り替えなど）の**前に**呼び、返る Promise を
+ * `waitForAnnotationEditorLoaded` へ渡す。照合はオリジンを含めずパスで行う
+ * （CI とローカルで API のオリジンの書き方が異なるため）。
+ */
+export function waitForAnnotationFetch(page: Page, timeoutMs = 10000): Promise<Response> {
+  return page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET' &&
+      /^\/api\/site-surveys\/images\/[^/]+\/annotations$/.test(new URL(response.url()).pathname),
+    { timeout: getTimeout(timeoutMs) }
+  );
+}
+
+/**
  * 描画面が公開され、保存済みの注釈の復元まで終わるまで待つ
  *
  * 描画面の公開（`window.__fabricCanvas`）は注釈の取得より**先**に起きる。公開の直後に
  * 件数を読むと、保存済みの注釈が後から載り、図形を一つ描いただけで件数が 0 → 4 のように
  * 飛ぶ（2026-10-13 の pre-push で site-survey-annotation-tools の Undo の検証が間欠的に
- * 落ちた）。エディタは注釈の復元を終えるまで「読み込み中」の status を出しているため、
- * 描画面の公開を待った後に、その status がエディタの中から消えるのを待つ。
+ * 落ちた）。エディタは注釈の復元を終えるまで「読み込み中」の status を出している。
+ *
+ * ただし status の不在を待つだけでは足りなかった。その待ちを入れた後の CI でも、同じ
+ * 検証が「描く前 0 件・描いた後 4 件」で再び落ちた（2026-10-13）。手元では CPU の減速・
+ * 描画の遅延のいずれでも再現できず、待ちを抜けた経路は特定できていない。そこで経路に
+ * 依らない条件として、エディタ自身が受け取った注釈の取得の応答（`annotationFetch`）から
+ * 保存済みの図形の数を読み、描画面の図形の数がその数に達するまで待つ。復元は保存済みの
+ * 図形を一つ残らず描画面へ足すため、この数に達したことは復元の完了を意味する。
  */
-export async function waitForAnnotationEditorLoaded(page: Page, timeoutMs = 10000): Promise<void> {
+export async function waitForAnnotationEditorLoaded(
+  page: Page,
+  annotationFetch: Promise<Response>,
+  timeoutMs = 10000
+): Promise<void> {
+  const response = await annotationFetch;
+  expect(response.ok(), '保存済みの注釈の取得が成功すること').toBe(true);
+  // 注釈が無い画像では `{ data: null }` が返る
+  const body = (await response.json()) as { data: { objects?: unknown[] } | null };
+  const savedObjectCount = body.data?.objects?.length ?? 0;
+
   await waitForFabricCanvas(page, timeoutMs);
+  await expect
+    .poll(() => getFabricObjectCount(page), {
+      message: `保存済みの注釈（${savedObjectCount} 個）が描画面に復元されること`,
+      timeout: getTimeout(timeoutMs),
+    })
+    .toBe(savedObjectCount);
   await expect(
     page
       .getByTestId('annotation-editor-container')

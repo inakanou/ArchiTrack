@@ -21,7 +21,11 @@ import { assertPrepared, assertPresent } from '../../helpers/preconditions';
 import { getTimeout } from '../../helpers/wait-helpers';
 import { API_BASE_URL } from '../../config';
 import { selectFirstRealOption } from '../../helpers/form-preconditions';
-import { getFabricObjectCount, waitForAnnotationEditorLoaded } from '../../helpers/fabric-canvas';
+import {
+  getFabricObjectCount,
+  waitForAnnotationEditorLoaded,
+  waitForAnnotationFetch,
+} from '../../helpers/fabric-canvas';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -165,6 +169,9 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
     // Task 115.165: ここにあった固定待機は、直後の toBeVisible が同じ条件を待つため撤去した
     const editModeButton = page.getByRole('button', { name: /編集モード/i });
     await expect(editModeButton).toBeVisible({ timeout: getTimeout(5000) });
+    // 編集モードへの切り替えは描画面を作り直し、保存済みの注釈を取り直す。その応答を
+    // 取りこぼさないよう、切り替えの前に待ち受ける
+    const annotationFetch = waitForAnnotationFetch(page);
     await editModeButton.click();
 
     // 注釈ツールバーが表示されるのを待つ
@@ -179,7 +186,9 @@ test.describe('現場調査 描画ツール使用中の選択防止（要件17�
     // 待ち合わせは観測の内側へ隠さず、観測できる状態をここで確立しておく。
     // 描画面の公開は保存済みの注釈の復元より先に起きる。公開だけを待つと、後から載る
     // 注釈が件数の増分の主張を間欠的に壊す（2026-10-13 の pre-push）。復元の完了まで待つ。
-    await waitForAnnotationEditorLoaded(page);
+    // 「読み込み中」の消失を待つだけでは CI で復元の前の件数を読んだ（2026-10-13）。
+    // 取得の応答が示す保存済みの図形の数が描画面に載るまで待つ。
+    await waitForAnnotationEditorLoaded(page, annotationFetch);
 
     return true;
   }
