@@ -482,9 +482,16 @@ export const createTouchGestureManager = (): TouchGestureManager => {
       }
 
       if (touchState === 'one-finger-down') {
-        // シングルタップ: 次のダブルタップ判定に備えて lastTap を更新
+        // 長押しタイマが残っている（閾値の前に離し、閾値を超える移動も無かった）ときだけが
+        // シングルタップである。長押しになった接地や選択ツールでのドラッグ（どちらもタイマは
+        // 既に無い）をタップに数えると、離した直後の同位置の接地がダブルタップと判定され、
+        // 長押しの取り直しでメニューが開かない（Req 27.2 / 27.6）。
+        const isTap = longPressTimeout !== null;
         clearLongPressTimer();
-        if (pointer !== undefined) {
+        // シングルタップ: 次のダブルタップ判定に備えて lastTap を更新
+        if (!isTap) {
+          lastTap = null;
+        } else if (pointer !== undefined) {
           lastTap = {
             time: Date.now(),
             x: pointer.startX,

@@ -215,6 +215,46 @@ describe('touchGestureManager', () => {
 
       detach();
     });
+
+    it('長押しになった接地はタップに数えず、離した直後の同位置の長押しはダブルタップにならない', () => {
+      // 長押し（500ms 以上の保持）はタップではない。これをダブルタップの 1 回目に数えると、
+      // 長押しを離してすぐ同じ対象を長押しし直したときにダブルタップと判定され、2 回目の
+      // 長押しのメニューが開かない（2026-10-13 の CI の E2E で、離してから 275ms 後の
+      // 長押しがこれで潰れた）
+      const manager = createTouchGestureManager();
+      const detach = manager.attach(canvas as unknown as never, getCurrentTool);
+
+      // 1 回目: 長押しして離す
+      dispatchPointer(canvasElement, 'pointerdown', {
+        pointerId: 1,
+        clientX: 100,
+        clientY: 100,
+      });
+      vi.advanceTimersByTime(800);
+      dispatchPointer(canvasElement, 'pointerup', {
+        pointerId: 1,
+        clientX: 100,
+        clientY: 100,
+      });
+
+      // 300ms 以内に同じ位置へ接地して保持する
+      vi.advanceTimersByTime(250);
+      dispatchPointer(canvasElement, 'pointerdown', {
+        pointerId: 2,
+        clientX: 100,
+        clientY: 100,
+      });
+      vi.advanceTimersByTime(500);
+
+      const dbltapCalls = canvas.fire.mock.calls.filter((call) => call[0] === 'custom:dbltap');
+      expect(dbltapCalls).toHaveLength(0);
+      const longpressCalls = canvas.fire.mock.calls.filter(
+        (call) => call[0] === 'custom:longpress'
+      );
+      expect(longpressCalls).toHaveLength(2);
+
+      detach();
+    });
   });
 
   describe('長押し判定 (Req 27.2, 27.6)', () => {
